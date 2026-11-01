@@ -60,7 +60,7 @@ Show the effective behavior first. Keep rule precedence available as detail.
 
 ### The task command has no connection to the task store
 
-The TUI advertises `/tasks`, but constructs its command registry without
+(Historical: the kernel `tasks` command was removed and `/tasks` is now the CLI's background view.) The TUI advertised `/tasks`, but constructs its command registry without
 `taskStore`. The handler consequently refuses every invocation, even though
 the query runtime creates task stores and the activity area displays tasks.
 Calling the built handler with the same supplied options reproduces the
@@ -77,7 +77,7 @@ shown, and distinguish an empty task list from unavailable storage.
 
 App merges the kernel and CLI catalogues for execution and `/help`. Composer
 calls `matchSlashCommands` without that merged catalogue, so matching defaults
-to CLI-local commands. `/goal`, `/tasks` and `/agents` can execute and appear in
+to CLI-local commands. `/goal` and `/agents` can execute and appear in
 help, but are absent from slash autocomplete.
 
 Evidence: [merged catalogue](https://github.com/cogitave/namzu/blob/8a8de4ae/packages/cli/src/tui/App.tsx#L2807),
@@ -182,7 +182,7 @@ validated.
 | --- | --- |
 | Model changes | `/model` starts at the current provider’s models and offers a separate provider action. Selection preserves unrelated preferences and fallback models. Replacement construction precedes atomic preference persistence and activation; failures retain the old session. Temporary credentials keep selection local to the session. |
 | Permissions | The first menu offers Ask before changes, Auto-approve edits and Plan (read-only). More options holds Auto-approve tools, Preapproved tools only and View rules. Menus and settings show effective approval state, including an earlier all-tools approval. Selecting a preset resets that approval. The prompt explicitly labels its all-tools/session scope; typed modes and `/permissions details` remain available. |
-| Tasks | `/tasks` reads the actual store supplied to the current/latest turn, including resumed turns. Starting another turn or switching conversations clears the selected readout. Empty, not-yet-available and unsupported lists are distinct; stored tasks are not deleted. |
+| Tasks | (Removed.) `/tasks` once read the task store; it is now the background view. |
 | Discovery | Composer completion, `/help` and dispatch use the same merged command catalogue. Shared availability metadata can explain an unavailable action, and execution rechecks it. |
 | Command help | Bare `/help` retains the command picker. `/help <command>` reads usage, description and availability without invoking the target; user-command help also identifies the full source path, scope and any refusal problem. |
 | Reports | `/status`, `/cost` and `/context` show summaries with explicit `details` variants. `/mcp tools` expands the server summary. Spend is rendered from monetary data; own-turn cost, delegated tokens, estimated context and unknown prices remain distinct. |
@@ -225,9 +225,6 @@ does not change sandbox access or add another product's automatic review.
 * Usage reports cover the current or latest turn. Conversation-wide cost would
   require aggregation across durable turns, and descendant costs are not
   included in the displayed own-call cost.
-* `/tasks` does not browse tasks from arbitrary historical turns. Changing the
-  conversation or provider session can leave no current task selection until
-  another turn is admitted.
 * Search is available in the shared command, skill, branch and commit menus;
   it is not yet a universal interaction across provider/model, conversation
   history and every specialized picker.

@@ -47,7 +47,7 @@ clause, so no line ends mid-sentence.
 | `/auth` | Choose the account this conversation uses (from its next reply), or add one: `/auth`, `/auth add`, `/auth <account>`. Separate from `/login`, which signs in the provider's usual account. See [Accounts](accounts.md). |
 | `/logout` | Remove a Namzu-owned subscription credential: `/logout [claude|codex|all]`. |
 | `/cost` | Show tokens and cost for the latest reply, one fact per line, plus what the agents it started used; `/cost details` adds pricing and scope information. |
-| `/jobs` | Open the session's shell job view to inspect output and stop a running job; `/jobs list` prints a text summary. |
+| `/tasks` (alias `/bashes`) | View and manage everything running in the background: the `Background` dialog lists this session's background commands (Shells), monitors (Monitors), running subagents (Local agents) and finished ones (Completed). Up/Down select, Enter opens the details or the agent's transcript, `x` stops a running one, Esc closes; `/tasks list` prints a text summary of the commands. It replaces `/jobs`, which no longer exists. See [Background jobs in the CLI](background-jobs.md). |
 | `/peers [list\|on\|off\|send <ref> <message>]` | Find and message independent live terminals in this project; control this terminal's participation. Peer text carries no operator authority. See [Messages between live terminals](peer-messaging.md). |
 | `/release-notes` | Show what changed in the version that is running: /release-notes [version]. |
 | `/hooks` | List the shell hooks this conversation runs, by event. |
@@ -74,7 +74,6 @@ clause, so no line ends mid-sentence.
 | `/schedule` | List [scheduled jobs](scheduled-tasks.md) and what needs you: a run waiting for approval, a job waiting for confirmation or on hold. `/schedule confirm|pause|resume|run|remove <job>` acts on one; `/schedule add <name> "<when>" <read-only|edit-in-folder> <prompt…>` creates one after showing it. |
 | `/browser` | The [browser](browser.md) this session drives: engine, window or none, running or not, profile and site rules. `/browser profile <name>` switches profile for the rest of the session (closing the browser if it was open), and a rebuilt session keeps it. |
 | `/loop` | Re-send a prompt to this conversation on an interval, between turns: `/loop 10m <prompt>`, `/loop list`, `/loop stop <id>|all`. See [Session loops](session-loops.md). |
-| `/tasks` | Read this conversation's tasks: every open task, and those closed in the current turn. Changing conversations clears the previous selection. |
 | `/agents` | Inspect delegated activity in this conversation; `/agents running` opens the same view. `/agents available` lists configured agents. `/agents batches` lists past and running batches of delegated agents. |
 | `/workflows` | List this conversation's workflows, running and finished, and open one: its phases, then a phase's agents, then an agent's transcript. See [Workflows in the CLI](workflows.md). |
 
@@ -320,13 +319,6 @@ clearing prevents further automatic replies; it does not undo a running tool
 call or interrupt the current turn. Goal reports distinguish the saved status
 from whether automatic continuation is enabled or paused.
 
-`/tasks` reads the session's durable task store, including updates made without
-a visible task event. Before any turn has supplied a list, it reports that no
-task list is available yet. A session with an empty store reports an empty list.
-Switching conversations forgets the selected list without deleting stored
-tasks. The command does not search other sessions. An embedded
-session that does not expose task storage reports that listing is unavailable.
-
 Usage and cost are also scoped to the current or latest turn, not the whole
 conversation. Own model-call cost is separate from token totals that include
 delegated agents. Unknown prices remain unknown, partly priced usage is a
@@ -381,7 +373,7 @@ terminals place descriptions below labels.
 - **Up** on an empty composer chooses the newest queued message, **Up/Down** move, **Enter** loads it into the composer for editing and **Esc** leaves the choice. **Alt+Up** recalls the latest operator-composed queued message for editing, with its attachments and armed triggers. A queued slash command returns as the command the operator typed; its expanded model prompt remains queued until recalled. It leaves a nonempty draft alone; automatic goal and skill prompts cannot be recalled this way.
 - **Esc** while a turn runs interrupts it. An undelivered steer starts a fresh turn before Tab-queued messages after the old turn settles. Without a pending steer, queued messages remain held; a new Enter message runs before them, while Tab adds to the held queue. **Ctrl+X Ctrl+S** does the same as Esc with a pending steer and also releases queued messages Esc had held. **Ctrl+C** is reserved for exit. If a shell command is running, Esc moves it to a background job instead of stopping it ([Background jobs](background-jobs.md#moving-a-running-command-to-the-background)).
 - **Ctrl+B** while a shell command has run for two seconds or more moves it to the background. With no such command it moves the cursor left.
-- **Left** on an empty composer (nothing typed, pasted or attached) opens the agents cockpit, as `/agent` does; the footer's `← N agents` names it. **Down** on an empty composer focuses the footer: the shell pill first (Enter opens the `/jobs` screen), then the agents rail; the footer's `↓ to manage` names it. With anything in the composer both keys move the cursor.
+- **Left** on an empty composer (nothing typed, pasted or attached) opens the agents cockpit, as `/agent` does; the footer's `← N agents` names it. **Down** on an empty composer focuses the footer: the shell pill first (Enter opens the `/tasks` dialog), then the agents rail; the footer's `↓ to manage` names it. With anything in the composer both keys move the cursor.
 - **Shift+Tab** cycles the permission mode: `prompt`, `accept-edits`, `plan`, then `bypass` when the launch opened it (`--yolo`, `--allow-dangerously-skip-permissions`, `permissions.defaultMode: bypass`; see [Launch flags](launch-flags.md)), then `auto` unless `permissions.disableAutoMode` is set, then `prompt`. `strict` is not on the cycle and goes back to `prompt`; see [Permission modes](permission-modes.md). It works mid-turn, and the footer is its only reply: nothing is added to the transcript. Plan mode has its own way out: the model presents its plan and you approve it, which switches the mode to the one you choose ([Plan mode](plan-mode.md)).
 - **Ctrl+O** opens the detailed transcript: every row whole, the model's thinking, the last 30 rows (Ctrl+E for all). Ctrl+O, Esc, `q` or Ctrl+C returns to the composer. See [Terminal design](terminal-design.md).
 - **Ctrl+T** opens or closes delegated activity, also reachable with `/agents`.

@@ -72,6 +72,7 @@ import {
 } from './BackgroundJobsPanel.js'
 import { ProviderSetup } from './ProviderSetup.js'
 import { TranscriptScreen } from './TranscriptScreen.js'
+import { backgroundRows, isRowRunning } from './background-view.js'
 
 import {
 	pinTrustedProjectPath,
@@ -278,7 +279,6 @@ import {
 } from './AgentExplorer.js'
 import { BackgroundAgentRows } from './BackgroundAgentRows.js'
 import { BrandHeader } from './BrandHeader.js'
-import { checklistProgress } from './Checklist.js'
 import { ChoicePicker, type ChoicePickerOption } from './ChoicePicker.js'
 import {
 	Composer,
@@ -530,7 +530,6 @@ import {
 	applyTaskOperation,
 	removeTask,
 	taskOperationFor,
-	taskReportChecklist,
 	upsertTask,
 } from './task-activity.js'
 import { eraseLastChoiceGrapheme } from './terminal-choice-text.js'
@@ -1487,8 +1486,9 @@ const LIVE_FURNITURE_ROWS = 10
 
 type JobSurface = {
 	readonly ownerSession: AgentSession
-	readonly selectedJobId: string | null
-	readonly detailJobId: string | null
+	/** A row key from `backgroundRows`: `job:<id>` or `agent:<viewId>`. */
+	readonly selectedKey: string | null
+	readonly detailKey: string | null
 	readonly tailOffset: number
 	readonly busyJobId?: string
 	readonly notice?: string
@@ -2611,16 +2611,17 @@ function AppBody({
 		}
 		void openAgentCockpit()
 	}, [openAgentCockpit, setRailFocus])
-	/** The shells screen `/jobs` opens; the footer's pill reaches the same one. */
-	const openShellJobs = useCallback(() => {
+	/** The Background dialog `/tasks` opens; the footer's pill reaches the same one. */
+	const openBackgroundTasks = useCallback(() => {
 		if (!session) return
-		setJobSnapshot({ ownerSession: session, jobs: session.jobs?.() ?? [] })
-		setJobClock(Date.now())
 		const current = session.jobs?.() ?? []
+		setJobSnapshot({ ownerSession: session, jobs: current })
+		setJobClock(Date.now())
+		const entries = backgroundRows(current, subagentsRef.current)
 		setJobSurface({
 			ownerSession: session,
-			selectedJobId: current.find((job) => job.status === 'running')?.id ?? current[0]?.id ?? null,
-			detailJobId: null,
+			selectedKey: (entries.find(isRowRunning) ?? entries[0])?.key ?? null,
+			detailKey: null,
 			tailOffset: 0,
 		})
 	}, [session, setJobSurface])
@@ -10596,7 +10597,7 @@ function AppBody({
 						}
 						if (pending.ownerSession.jobs?.().some((job) => job.status === 'running')) {
 							throw new Error(
-								'Background jobs are still running. Wait for them to finish before switching models.',
+								'Background tasks are still running. Wait for them to finish before switching models.',
 							)
 						}
 					}
@@ -11836,12 +11837,12 @@ function AppBody({
 						void runDoctorInSession()
 						return
 					}
-					case 'jobs': {
+					case 'tasks': {
 						if (!session) {
-							pushMessage('system', 'Shell jobs are available once the conversation starts.')
+							pushMessage('system', 'Background tasks are available once the conversation starts.')
 							return
 						}
-						openShellJobs()
+						openBackgroundTasks()
 						return
 					}
 					case 'abandon': {
@@ -12777,21 +12778,10 @@ function AppBody({
 								if (goalCommand) await materializeConversation()
 								const durableSessions = sessionsRef.current
 								const sessionScope = scopeRef.current
-								const taskStore = slash.name === 'tasks' ? session?.currentTaskStore?.() : undefined
-								if (slash.name === 'tasks' && !taskStore) {
-									pushMessage(
-										'system',
-										session?.currentTaskStore
-											? 'No task list is available yet for this conversation.'
-											: 'Task listing is unavailable in this conversation.',
-									)
-									return
-								}
 								const registry = new HostCommandRegistry()
 								registry.register(
 									kernelHostCommands({
 										allowedAgentIds: session?.agentIds ?? [],
-										...(taskStore ? { taskStore } : {}),
 										...(durableSessions && sessionScope && conversationMaterializedRef.current
 											? {
 													goal: {
@@ -12817,26 +12807,6 @@ function AppBody({
 								// A late readout from the conversation just left must not be
 								// painted as state of the one now on screen.
 								if (conversationGenRef.current !== generation) return
-								const checklist =
-									slash.name === 'tasks' && outcome?.kind === 'report'
-										? taskReportChecklist(outcome.rows)
-										: undefined
-								if (checklist) {
-									// Drawn by the same checklist as the transcript's task
-									// blocks: the same marks, and no id or owner column.
-									const id = nextId()
-									setMessages((prev) => [
-										...prev,
-										{
-											id,
-											role: 'system',
-											content:
-												checklist.length === 0 ? 'No tasks yet.' : checklistProgress(checklist),
-											...(checklist.length > 0 ? { checklist } : {}),
-										},
-									])
-									return
-								}
 								pushMessage(
 									'system',
 									outcome
@@ -14644,35 +14614,47 @@ function AppBody({
 				if (answer.kind === 'approve-rule') rulesChanged(answer.allows)
 				return
 			}
-			// The shell view observes only this AgentSession's jobs. Consent always
-			// takes precedence above; the composer stays mounted but hidden below.
+			// The Background dialog lists this AgentSession's commands and monitors and
+			// this conversation's subagents. Consent always takes precedence above; the
+			// composer stays mounted but hidden below.
 			const shellView = jobSurfaceRef.current
 			if (shellView) {
 				if (shellView.ownerSession !== session) {
 					setJobSurface(null)
 					return
 				}
-				// The Return that submitted /jobs must not also inspect or stop a
+				// The Return that submitted /tasks must not also inspect or stop a
 				// row before the new screen has painted.
 				if (jobSurfaceCommittedRef.current !== shellView) return
-				if (isAction('app:interrupt', input, key) || input.toLowerCase() === 'q') {
+				if (isAction('app:interrupt', input, key)) {
 					setJobSurface(null)
 					return
 				}
-				if (key.escape) {
-					setJobSurface(
-						shellView.detailJobId ? { ...shellView, detailJobId: null, tailOffset: 0 } : null,
-					)
+				const entries = backgroundRows(backgroundJobs, subagentsRef.current)
+				const selectedId = shellView.detailKey ?? shellView.selectedKey ?? entries[0]?.key
+				const selectedEntry = entries.find((entry) => entry.key === selectedId)
+				if (shellView.detailKey) {
+					// Detail: ← goes back to the list; esc, enter and space close the dialog.
+					if (key.leftArrow) {
+						setJobSurface({ ...shellView, detailKey: null, tailOffset: 0, notice: undefined })
+						return
+					}
+					if (key.escape || key.return || input === ' ') {
+						setJobSurface(null)
+						return
+					}
+				} else if (key.escape) {
+					setJobSurface(null)
 					return
 				}
-				const selectedId = shellView.detailJobId ?? shellView.selectedJobId ?? backgroundJobs[0]?.id
-				const selectedJob = backgroundJobs.find((job) => job.id === selectedId)
-				if (
-					input.toLowerCase() === 'x' &&
-					selectedJob?.status === 'running' &&
-					session?.stopJob &&
-					!shellView.busyJobId
-				) {
+				if (input.toLowerCase() === 'x' && selectedEntry && isRowRunning(selectedEntry)) {
+					if (selectedEntry.kind === 'agent') {
+						// The row moves to Completed by itself once the child reports its end.
+						session?.stopSubagent?.(selectedEntry.agent.viewId)
+						return
+					}
+					const selectedJob = selectedEntry.job
+					if (!session?.stopJob || shellView.busyJobId) return
 					const owner = session
 					const stopJob = owner.stopJob
 					if (!stopJob) return
@@ -14714,10 +14696,10 @@ function AppBody({
 					)
 					return
 				}
-				if (shellView.detailJobId) {
+				if (shellView.detailKey && selectedEntry?.kind === 'job') {
 					let output: BackgroundJobOutput | undefined
 					try {
-						output = session?.readJob?.(shellView.detailJobId)
+						output = session?.readJob?.(selectedEntry.job.id)
 					} catch {
 						output = undefined
 					}
@@ -14750,11 +14732,23 @@ function AppBody({
 						})
 					return
 				}
-				if (key.return && selectedJob) {
+				if (key.return && selectedEntry) {
+					if (selectedEntry.kind === 'agent') {
+						// A subagent opens in the transcript view the agents rail uses.
+						setJobSurface(null)
+						setAgentSurface({
+							kind: 'transcript',
+							selectedPhaseId: selectedEntry.agent.phaseId,
+							selectedId: selectedEntry.agent.viewId,
+							returnFocus: 'agents',
+							tailOffset: 0,
+						})
+						return
+					}
 					setJobSurface({
 						...shellView,
-						selectedJobId: selectedJob.id,
-						detailJobId: selectedJob.id,
+						selectedKey: selectedEntry.key,
+						detailKey: selectedEntry.key,
 						tailOffset: 0,
 						notice: undefined,
 					})
@@ -14763,25 +14757,25 @@ function AppBody({
 				if (key.home || key.end || key.pageUp || key.pageDown || key.upArrow || key.downArrow) {
 					const current = Math.max(
 						0,
-						backgroundJobs.findIndex((job) => job.id === shellView.selectedJobId),
+						entries.findIndex((entry) => entry.key === shellView.selectedKey),
 					)
 					const page = backgroundJobsPageSize(terminal.rows)
 					const next = key.home
 						? 0
 						: key.end
-							? backgroundJobs.length - 1
+							? entries.length - 1
 							: key.pageUp
 								? Math.max(0, current - page)
 								: key.pageDown
-									? Math.min(backgroundJobs.length - 1, current + page)
+									? Math.min(entries.length - 1, current + page)
 									: key.upArrow
 										? Math.max(0, current - 1)
-										: Math.min(backgroundJobs.length - 1, current + 1)
-					const job = backgroundJobs[next]
-					if (job)
+										: Math.min(entries.length - 1, current + 1)
+					const entry = entries[next]
+					if (entry)
 						setJobSurface({
 							...shellView,
-							selectedJobId: job.id,
+							selectedKey: entry.key,
 							notice: undefined,
 						})
 				}
@@ -14837,7 +14831,7 @@ function AppBody({
 						// `main` is the way back from a viewed agent to the conversation.
 						if (viewingAgentRef.current !== null) setAgentSurface(null)
 					} else if (railTarget === SHELLS_FOCUS) {
-						openShellJobs()
+						openBackgroundTasks()
 					} else if (selectedWorkflow) {
 						openWorkflowFromRail(selectedWorkflow.id, selectedWorkflow.focusId)
 					} else if (selected) {
@@ -16341,9 +16335,9 @@ function AppBody({
 				) : null}
 				{jobSurface && permission === null && scheduleReviewPrompt === null ? (
 					<BackgroundJobsPanel
-						jobs={backgroundJobs}
-						selectedJobId={jobSurface.selectedJobId}
-						detailJobId={jobSurface.detailJobId}
+						entries={backgroundRows(backgroundJobs, subagents)}
+						selectedKey={jobSurface.selectedKey}
+						detailKey={jobSurface.detailKey}
 						tailOffset={jobSurface.tailOffset}
 						readJob={(id) => session?.readJob?.(id)}
 						rows={terminal.rows}
@@ -16462,7 +16456,7 @@ function labelOfOption(question: UserQuestion, optionId: string): string {
 	return question.options.find((option) => option.id === optionId)?.label ?? optionId
 }
 
-/** `/agents batches`' one-line-per-batch text, mirroring `/jobs`' own column shape. */
+/** `/agents batches`' one-line-per-batch text, mirroring the background tasks list's column shape. */
 function batchOption(batch: Batch): ChoicePickerOption {
 	const agents = `${batch.agentsDone}/${batch.agentsTotal} agent${batch.agentsTotal === 1 ? '' : 's'}`
 	const tokens = `${batch.tokensTotal.toLocaleString('en-US')} tokens`

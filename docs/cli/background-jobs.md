@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Background jobs in the CLI
-description: How a command started with run_in_background outlives its turn, how the model waits on or learns that it ended, what /jobs shows, and how a job runs inside the sandbox.
+description: How a command started with run_in_background outlives its turn, how the model waits on or learns that it ended, what /tasks shows, and how a job runs inside the sandbox.
 resource: packages/cli/src/tui/agent.ts
 tags: [cli, jobs, shell]
 status: stable
@@ -12,7 +12,7 @@ generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 
 # Starting one
 
-The model passes `run_in_background: true` to `bash` for work that legitimately outlasts a tool call: a dev server, a watcher, a long build. The call returns the job's id at once and the turn goes on. The `job` tool reads a job's output (`action: read`, with the previous call's `next_offset` to see only what is new), lists them, or stops one. A foreground command that runs past its `timeout` becomes such a job too instead of being killed (see [Timeouts and output](../sdk/bash-tool.md#timeouts-and-output)); `/jobs` and the shells count show it like any other. To find out whether a job has finished, use `wait_for_job` (below) rather than calling `job` with `action: read` in a loop — `job`'s own description says so.
+The model passes `run_in_background: true` to `bash` for work that legitimately outlasts a tool call: a dev server, a watcher, a long build. The call returns the job's id at once and the turn goes on. The `job` tool reads a job's output (`action: read`, with the previous call's `next_offset` to see only what is new), lists them, or stops one. A foreground command that runs past its `timeout` becomes such a job too instead of being killed (see [Timeouts and output](../sdk/bash-tool.md#timeouts-and-output)); `/tasks` and the `N bg` count show it like any other. To find out whether a job has finished, use `wait_for_job` (below) rather than calling `job` with `action: read` in a loop — `job`'s own description says so.
 
 # Moving a running command to the background
 
@@ -38,17 +38,17 @@ A job's id is `b` followed by eight characters of `0-9a-z`, drawn from `crypto.r
 
 # Watching and managing shells in the TUI
 
-While a shell job runs, a line below the composer footer shows the number of running shells and points to `/jobs`. The line stays visible after the model's reply and updates when a job starts or ends, including during a turn. It does not take the Down key from the delegated-agent panel.
+While a shell job runs, a line below the composer footer shows `N bg` (running commands and monitors together) and points to `/tasks`. The line stays visible after the model's reply and updates when a job starts or ends, including during a turn. It does not take the Down key from the delegated-agent panel.
 
-`/jobs` opens the `Background` panel (subtitle `N active shells`), a session-scoped list of running and finished shell jobs. Each row is a status icon, the command and one word: `running`, `finished`, `failed` or `stopped`; the job's id is never shown. Move with Up/Down and press Enter for `Command details`: `Status:` (`running`, `finished (exit code 0)`, `failed (exit code N)`, `stopped`), `Runtime:`, `Command:` and the retained `Output:`. The detail view follows new output while the job runs; Up/Down or Page Up/Page Down scroll, `g` goes to the oldest retained output, and `G` returns to the live tail. Press `x` on a running job in either view to stop it, Esc to go back to the list or close it, and `q` to close the view. While a stop is pending, the stop hint disappears until that action settles. A stop is the operator's direct action on that session's process group; it does not ask the model to call a tool.
+`/tasks` (alias `/bashes`) opens the `Background` dialog, a session-scoped list of everything running behind the conversation, with the subtitle `N active shells · N active agents` and sections `Shells`, `Monitors`, `Local agents` and `Completed` (subagents that ended; commands and monitors keep their own section with an ended word until the session closes). Each row is a status icon, the command (or agent label) and one word: `running`, `done`, `error`, `stopped`, `failed` or `killed`; the job's id is never shown. An empty dialog reads `No tasks currently running`. Move with Up/Down and press Enter on a command for `Shell details` (`Monitor details` for a monitor): `Status:` (`running`, `done (exit code: 0)`, `error (exit code: N)`, `stopped`), `Runtime:`, `Command:` and the retained `Output:`. The detail view follows new output while the job runs; Up/Down or Page Up/Page Down scroll, `g` goes to the oldest retained output, and `G` returns to the live tail. Press `x` on a running job in either view to stop it, Esc to go back to the list or close it, and `q` to close the view. While a stop is pending, the stop hint disappears until that action settles. A stop is the operator's direct action on that session's process group; it does not ask the model to call a tool.
 
-The output view is bounded and shows when earlier bytes were dropped (`Earlier output was dropped (64 KB).`) or omitted from the screen. Terminal control characters are displayed as text, so job output cannot move the cursor or alter the view. `/jobs list` prints a plain text summary (state and command, no ids) into the transcript when that is more useful than opening the view.
+The output view is bounded and shows when earlier bytes were dropped (`Earlier output was dropped (64 KB).`) or omitted from the screen. Terminal control characters are displayed as text, so job output cannot move the cursor or alter the view. `/tasks list` prints a plain text summary (state and command, no ids) into the transcript when that is more useful than opening the view.
 
 An exit that arrives while no model turn is open appears in the transcript and is included in the next request as an observation. Its command and status are request context, not system instructions. Once the kernel acknowledges an exit, the CLI does not announce it again.
 
 # Watching a command
 
-`bash` with `run_in_background` and `wait_for_job` answers "tell me when it finishes". To be told about each line a command prints while it runs, the model uses the `monitor` tool; see [Monitors in the CLI](monitor.md). A monitor is a job of the session, so `/jobs` lists it and the job tool can read or stop it, but the footer counts it apart from shells.
+`bash` with `run_in_background` and `wait_for_job` answers "tell me when it finishes". To be told about each line a command prints while it runs, the model uses the `monitor` tool; see [Monitors in the CLI](monitor.md). A monitor is a job of the session, so `/tasks` lists it and the job tool can read or stop it, but the footer counts it apart from shells.
 
 # Waiting for one
 
@@ -76,7 +76,7 @@ bounds apply, but this observation never stops the process or expresses intent
 to wait until exit. The parent turn can finish while the server stays running.
 Unavailable history, unsearched channel history and omitted result bytes are
 reported explicitly. A missing marker cannot prove it never appeared in lost
-output. The live tool row says “Wait for job output”; `/jobs` continues to own
+output. The live tool row says “Wait for job output”; `/tasks` continues to own
 inspection and stopping. Hosts without output observation refuse this mode
 instead of silently waiting for exit.
 
@@ -137,9 +137,9 @@ The intent lasts for the rest of the turn, so an exit wait on a process meant to
 
 A job is its **process group**, not its shell. A command that backgrounds its real work (`python3 -m http.server 8765 &`) returns from the shell at once; the job stays `running` while any process it started is alive, ends with the shell's exit code when the last one is gone, and a stop takes the survivors with it.
 
-Jobs belong to the **session**, not the turn: a server started in one turn is still there in the next. They are stopped when the session closes (`/exit`, `Ctrl+D`, the process ending). The `/jobs` view and `/jobs list` show every job started this session with its state — running for how long, exited with which code, stopped.
+Jobs belong to the **session**, not the turn: a server started in one turn is still there in the next. They are stopped when the session closes (`/exit`, `Ctrl+D`, the process ending). The `/tasks` dialog and `/tasks list` show every command started this session with its state — running for how long, exited with which code, stopped.
 
-Here, session means the live CLI agent session. `/new` and `/resume` change the conversation inside it; they do not stop or reassign its shell jobs. The same `/jobs` list remains available until the CLI agent session closes. A separate Namzu process has its own job registry and cannot address these jobs.
+Here, session means the live CLI agent session. `/new` and `/resume` change the conversation inside it; they do not stop or reassign its shell jobs. The same `/tasks` list remains available until the CLI agent session closes. A separate Namzu process has its own job registry and cannot address these jobs.
 
 # Under a sandbox
 

@@ -1,0 +1,5 @@
+---
+"@namzu/cli": major
+---
+
+`/tasks` now opens the `Background` dialog: everything running behind the conversation in one list, under `Shells` (background commands), `Monitors`, `Local agents` (subagents still running) and `Completed` (subagents that ended), with the subtitle `N active shells · N active agents`. Up/Down select, Enter opens the details (`Shell details`, `Monitor details`) or an agent's transcript, `x` stops the selected one, Esc closes, and an empty dialog reads `No tasks currently running`. `/bashes` opens the same dialog. `/jobs` is removed with no replacement alias; type `/tasks` instead (`/tasks list` is the old `/jobs list`). `/tasks` no longer prints the model's task checklist; that readout is gone from the slash commands. The footer pill that read `2 shells` or `1 monitor` is now one count, `3 bg`, for commands and monitors together, and its hint reads `enter to view tasks`. The words "shell job" and "background job" in what you see become "background command" and "background task"; the `job` and `wait_for_job` tools the model calls keep their names.

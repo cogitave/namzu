@@ -1,9 +1,20 @@
 import type { BackgroundJob, BackgroundJobOutput } from '@namzu/sdk'
 import { Box, Text } from 'ink'
+import type React from 'react'
 import { formatSize } from './person-terms.js'
 
+import {
+	BACKGROUND_SECTION_TITLES,
+	type BackgroundRow,
+	type RowMeta,
+	backgroundCounts,
+	backgroundSubtitle,
+	isRowRunning,
+	rowLabel,
+	rowMeta,
+} from './background-view.js'
 import { permissionReviewRows } from './permission-review.js'
-import { END_WORDS, type EndOutcome, SYSTEM_ROW_GLYPH, endOutcome } from './system-rows.js'
+import { SYSTEM_ROW_GLYPH, endOutcome } from './system-rows.js'
 import { choiceDisplayWidth, truncateChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -12,11 +23,12 @@ import { theme } from './theme.js'
 const MAX_VISIBLE_OUTPUT_BYTES = 32 * 1024
 
 export interface BackgroundJobsPanelProps {
-	readonly jobs: readonly BackgroundJob[]
-	/** The highlighted row in the list. An ended job remains selectable. */
-	readonly selectedJobId: string | null
-	/** Null shows the list; an id shows that job's details and retained output. */
-	readonly detailJobId: string | null
+	/** Everything the dialog lists: commands, monitors, subagents, in section order. */
+	readonly entries: readonly BackgroundRow[]
+	/** The highlighted row's key in the list. An ended row remains selectable. */
+	readonly selectedKey: string | null
+	/** Null shows the list; a command's key shows that command's details and retained output. */
+	readonly detailKey: string | null
 	/** Physical output rows to stay above the live tail. Zero follows new output. */
 	readonly tailOffset: number
 	/** Bound to the current session by the host. Reading must never start a job. */
@@ -46,19 +58,13 @@ function elapsed(job: BackgroundJob, now: number): string {
 	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
-/** The row words: running, then the shared finished, failed or stopped. */
-function jobMeta(job: BackgroundJob): 'running' | EndOutcome {
-	if (job.status === 'running') return 'running'
-	if (endOutcome(job.status) === 'stopped') return 'stopped'
-	return job.exitCode === 0 ? 'finished' : 'failed'
-}
-
-function metaColor(meta: ReturnType<typeof jobMeta>): string {
+function metaColor(meta: RowMeta): string {
 	switch (meta) {
 		case 'running':
 			return theme.accent.system
-		case 'finished':
+		case 'done':
 			return theme.status.ok
+		case 'error':
 		case 'failed':
 			return theme.status.error
 		default:
@@ -67,14 +73,14 @@ function metaColor(meta: ReturnType<typeof jobMeta>): string {
 }
 
 function statusText(job: BackgroundJob): string {
-	if (job.status === 'running') return job.kind === 'monitor' ? 'watching' : 'running'
+	if (job.status === 'running') return 'running'
 	if (job.kind === 'monitor') {
 		if (job.stopReason === 'expired') return 'ran out of time'
 		if (job.stopReason === 'too_much_output') return 'stopped: it printed too much'
 	}
-	if (job.status === 'killed') return 'stopped'
-	if (job.exitCode === undefined) return END_WORDS.finished
-	return `${job.exitCode === 0 ? END_WORDS.finished : END_WORDS.failed} (exit code ${job.exitCode})`
+	if (endOutcome(job.status) === 'stopped') return 'stopped'
+	if (job.exitCode === undefined) return 'done'
+	return `${job.exitCode === 0 ? 'done' : 'error'} (exit code: ${job.exitCode})`
 }
 
 /** The exact physical lines the output pager uses; App uses the same count for keys. */
@@ -82,7 +88,7 @@ export function backgroundJobOutputRows(
 	output: BackgroundJobOutput | undefined,
 	columns: number,
 ): readonly string[] {
-	if (!output) return ['Output unavailable.']
+	if (!output) return ['No output available']
 	const bytes = Buffer.from(output.chunk, 'utf8')
 	const omittedHere = Math.max(0, bytes.length - MAX_VISIBLE_OUTPUT_BYTES)
 	const latest = bytes.subarray(omittedHere).toString('utf8').replace(/\n$/u, '')
@@ -91,7 +97,7 @@ export function backgroundJobOutputRows(
 			? [`Earlier output was dropped (${formatSize(output.droppedBytes)}).`]
 			: []),
 		...(omittedHere > 0 ? [`Showing the latest ${formatSize(MAX_VISIBLE_OUTPUT_BYTES)}.`] : []),
-		latest.length > 0 ? latest : 'No output yet.',
+		latest.length > 0 ? latest : 'No output available',
 	]
 	// This wrapper preserves shell spacing and splits long lines before Ink can
 	// wrap them below the panel's row budget. It also makes terminal controls
@@ -110,11 +116,6 @@ export function maxBackgroundJobTailOffset(
 		0,
 		backgroundJobOutputRows(output, columns).length - backgroundJobOutputPageSize(rows),
 	)
-}
-
-/** What a row calls a job: a shell by its command, a monitor by what it watches. */
-function jobLabel(job: BackgroundJob): string {
-	return job.kind === 'monitor' ? `Monitoring: ${job.description ?? job.command}` : job.command
 }
 
 function oneLine(command: string): string {
@@ -143,9 +144,9 @@ function fitClosingHint(candidates: readonly string[], columns: number): string 
 }
 
 export function BackgroundJobsPanel({
-	jobs,
-	selectedJobId,
-	detailJobId,
+	entries,
+	selectedKey,
+	detailKey,
 	tailOffset,
 	readJob,
 	rows,
@@ -154,35 +155,69 @@ export function BackgroundJobsPanel({
 	busyJobId = null,
 	notice = null,
 }: BackgroundJobsPanelProps) {
-	const running = jobs.filter((job) => job.status === 'running' && job.kind !== 'monitor').length
-	const watching = jobs.filter((job) => job.status === 'running' && job.kind === 'monitor').length
-	const selected = jobs.find((job) => job.id === selectedJobId) ?? jobs[0]
-	const detailed = detailJobId ? jobs.find((job) => job.id === detailJobId) : undefined
+	const counts = backgroundCounts(entries)
+	const subtitle = backgroundSubtitle(counts)
+	const selected = entries.find((entry) => entry.key === selectedKey) ?? entries[0]
+	const detailedEntry = detailKey ? entries.find((entry) => entry.key === detailKey) : undefined
+	const detailed = detailedEntry?.kind === 'job' ? detailedEntry.job : undefined
 	const innerColumns = Math.max(1, columns - 6)
-	const narrow = columns < 56
 
-	if (!detailJobId || !detailed) {
+	if (!detailKey || !detailed) {
 		const pageSize = backgroundJobsPageSize(rows)
-		const selectedIndex = selected ? jobs.findIndex((job) => job.id === selected.id) : 0
+		const selectedIndex = selected ? entries.findIndex((entry) => entry.key === selected.key) : 0
 		const start = Math.max(
 			0,
-			Math.min(selectedIndex - Math.floor(pageSize / 2), jobs.length - pageSize),
+			Math.min(selectedIndex - Math.floor(pageSize / 2), entries.length - pageSize),
 		)
-		const shown = jobs.slice(start, start + pageSize)
-		const stop = selected?.status === 'running' && !busyJobId ? ' · x stop' : ''
+		const shown = entries.slice(start, start + pageSize)
+		const stop =
+			selected && isRowRunning(selected) && !busyJobId && selected.kind === 'job' ? ' · x stop' : ''
+		const agentStop = selected?.kind === 'agent' && isRowRunning(selected) ? ' · x stop' : ''
+		const stopHint = stop || agentStop
 		const listHint =
-			jobs.length === 0
+			entries.length === 0
 				? 'esc close'
 				: fitClosingHint(
 						[
-							`↑/↓ select · enter view${stop} · esc close`,
-							`↑/↓ select · enter${stop} · esc`,
-							`enter${stop} · esc`,
-							`${stop ? 'x stop · ' : ''}esc`,
+							`↑/↓ select · enter view${stopHint} · esc close`,
+							`↑/↓ select · enter${stopHint} · esc`,
+							`enter${stopHint} · esc`,
+							`${stopHint ? 'x stop · ' : ''}esc`,
 							'esc',
 						],
 						innerColumns,
 					)
+		// A lone section carries no heading: the dialog's title already says it.
+		const sectionCount = new Set(entries.map((entry) => entry.section)).size
+		const lines: React.ReactElement[] = []
+		let lastSection: BackgroundRow['section'] | undefined
+		for (const entry of shown) {
+			if (sectionCount > 1 && entry.section !== lastSection) {
+				if (lastSection !== undefined) lines.push(<Text key={`gap-${entry.section}`}> </Text>)
+				const total = entries.filter((other) => other.section === entry.section).length
+				lines.push(
+					<Text key={`head-${entry.section}`} wrap="truncate-end">
+						<Text bold>{BACKGROUND_SECTION_TITLES[entry.section]}</Text>
+						<Text color={theme.text.muted}> ({total})</Text>
+					</Text>,
+				)
+			}
+			lastSection = entry.section
+			const focused = entry.key === selected?.key
+			const meta = rowMeta(entry)
+			const tail = `  ${meta}`
+			const room = Math.max(1, innerColumns - 4 - tail.length)
+			lines.push(
+				<Text key={entry.key} wrap="truncate-end">
+					<Text color={theme.accent.user}>{focused ? '❯ ' : '  '}</Text>
+					<Text color={metaColor(meta)}>{SYSTEM_ROW_GLYPH} </Text>
+					<Text color={focused ? theme.accent.user : theme.text.secondary}>
+						{truncateChoiceText(oneLine(rowLabel(entry)), room)}
+					</Text>
+					<Text color={theme.text.muted}>{tail}</Text>
+				</Text>,
+			)
+		}
 		return (
 			<Box
 				flexDirection="column"
@@ -193,35 +228,19 @@ export function BackgroundJobsPanel({
 				<Text bold color={theme.accent.system} wrap="truncate-end">
 					Background
 				</Text>
-				<Text color={theme.text.muted} wrap="truncate-end">
-					{[
-						`${running} active ${running === 1 ? 'shell' : 'shells'}`,
-						...(watching > 0 ? [`${watching} ${watching === 1 ? 'monitor' : 'monitors'}`] : []),
-					].join(' · ')}
-				</Text>
-				{jobs.length === 0 ? (
+				{subtitle ? (
+					<Text color={theme.text.muted} wrap="truncate-end">
+						{subtitle}
+					</Text>
+				) : null}
+				{entries.length === 0 ? (
 					<Text color={theme.text.secondary}>No tasks currently running</Text>
 				) : (
-					shown.map((job) => {
-						const focused = job.id === selected?.id
-						const meta = jobMeta(job)
-						const tail = `  ${meta}`
-						const room = Math.max(1, innerColumns - 4 - tail.length)
-						return (
-							<Text key={job.id} wrap="truncate-end">
-								<Text color={theme.accent.user}>{focused ? '❯ ' : '  '}</Text>
-								<Text color={metaColor(meta)}>{SYSTEM_ROW_GLYPH} </Text>
-								<Text color={focused ? theme.accent.user : theme.text.secondary}>
-									{truncateChoiceText(oneLine(jobLabel(job)), room)}
-								</Text>
-								<Text color={theme.text.muted}>{tail}</Text>
-							</Text>
-						)
-					})
+					lines
 				)}
-				{jobs.length > pageSize ? (
+				{entries.length > pageSize ? (
 					<Text color={theme.text.muted} wrap="truncate-end">
-						{`${start + 1}–${Math.min(start + pageSize, jobs.length)}/${jobs.length}`}
+						{`${start + 1}–${Math.min(start + pageSize, entries.length)}/${entries.length}`}
 					</Text>
 				) : null}
 				{notice ? (
@@ -258,12 +277,12 @@ export function BackgroundJobsPanel({
 	const stopHint = canStop ? ' · x stop' : ''
 	const footer = fitClosingHint(
 		[
-			`${pageLabel} · ↑↓ scroll · PgUp/PgDn · g/G${stopHint} · esc back · q close`,
-			`${pageLabel} · ↑↓ scroll${stopHint} · esc back`,
-			`↑↓ scroll${stopHint} · esc back`,
-			`↑↓${stopHint} · esc back`,
-			`${canStop ? 'x stop · ' : ''}esc back`,
-			'esc back',
+			`${pageLabel} · ↑↓ scroll · PgUp/PgDn · g/G${stopHint} · ← go back · esc/enter/space close`,
+			`${pageLabel} · ↑↓ scroll${stopHint} · ← back · esc close`,
+			`↑↓ scroll${stopHint} · ← back · esc`,
+			`↑↓${stopHint} · ← back`,
+			`${canStop ? 'x stop · ' : ''}← back`,
+			'← back',
 			'esc',
 		],
 		innerColumns,
@@ -272,11 +291,13 @@ export function BackgroundJobsPanel({
 	return (
 		<Box flexDirection="column" borderStyle="single" borderColor={theme.border.focus} paddingX={1}>
 			<Text bold color={theme.accent.system} wrap="truncate-end">
-				{detailed.kind === 'monitor' ? 'Monitor details' : 'Command details'}
+				{detailed.kind === 'monitor' ? 'Monitor details' : 'Shell details'}
 			</Text>
 			<Text wrap="truncate-end">
 				<Text bold>Status: </Text>
-				<Text color={metaColor(jobMeta(detailed))}>
+				<Text
+					color={metaColor(rowMeta({ kind: 'job', key: '', section: 'shells', job: detailed }))}
+				>
 					{truncateChoiceText(
 						busyJobId === detailed.id ? 'Stopping…' : statusText(detailed),
 						innerColumns - 8,

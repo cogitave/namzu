@@ -205,9 +205,9 @@ describe('command-specific help', () => {
 	it('does not invent positional syntax or flags from kernel prose and JSON schemas', () => {
 		const commands = mergeHostCommands([
 			{
-				name: 'tasks',
+				name: 'reports',
 				description: 'Inspect tracked work.',
-				hint: 'id, status and owner for each task',
+				hint: 'id, status and owner for each report',
 			},
 			{
 				name: 'upload',
@@ -216,8 +216,8 @@ describe('command-specific help', () => {
 				args: { type: 'object', properties: { files: { type: 'array' } } },
 			},
 		])
-		const tasks = helpText('/help tasks', ctx, commands)
-		expect(tasks).toContain('Usage:\n  /tasks\n\nid, status and owner for each task')
+		const reports = helpText('/help reports', ctx, commands)
+		expect(reports).toContain('Usage:\n  /reports\n\nid, status and owner for each report')
 		const upload = helpText('/help upload', ctx, commands)
 		expect(upload).toContain('Usage:\n  /upload [arguments]\n\nChoose files to send.')
 		expect(upload).not.toContain('--files')
@@ -1414,21 +1414,28 @@ describe('/context', () => {
 	})
 })
 
-describe('/jobs', () => {
-	it('opens the interactive shell view', () => {
-		expect(runSlash('/jobs', context())).toEqual({ kind: 'jobs' })
+describe('/tasks', () => {
+	it('opens the Background dialog, under both of its names', () => {
+		expect(runSlash('/tasks', context())).toEqual({ kind: 'tasks' })
+		expect(runSlash('/bashes', context())).toEqual({ kind: 'tasks' })
+	})
+
+	it('lists /tasks and not /bashes or /jobs', () => {
+		expect(matchSlashCommands('/').map((c) => c.name)).toContain('tasks')
+		expect(matchSlashCommands('/').map((c) => c.name)).not.toContain('bashes')
+		expect(runSlash('/jobs', context())?.kind).not.toBe('tasks')
 	})
 
 	it('keeps a plain list for noninteractive inspection', () => {
-		const r = runSlash('/jobs list', context())
+		const r = runSlash('/tasks list', context())
 		expect(r?.kind).toBe('message')
 		if (r?.kind !== 'message') return
-		expect(r.content).toContain('No background jobs in this conversation')
+		expect(r.content).toContain('No background tasks in this conversation')
 	})
 
 	it('lists each job with its state', () => {
 		const r = runSlash(
-			'/jobs list',
+			'/tasks list',
 			context({
 				jobs: () => [
 					{
@@ -1449,7 +1456,7 @@ describe('/jobs', () => {
 		)
 		expect(r?.kind).toBe('message')
 		if (r?.kind !== 'message') return
-		expect(r.content).toContain('2 background shells in this conversation')
+		expect(r.content).toContain('2 background commands in this conversation')
 		expect(r.content).toMatch(/running for \d+s\s+npm run dev/)
 		expect(r.content).toMatch(/exited 0\s+npm test/)
 		// The person never sees the model-facing id.

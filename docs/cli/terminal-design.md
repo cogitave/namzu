@@ -51,7 +51,7 @@ One line sits directly below the composer's lower rule, with no blank row betwee
 them. Its items are joined by a dim ` · `, left to right:
 
 ```text
-⏵⏵ bypass permissions on · PR #607 · 3 shells · esc to interrupt · ← 1 agent · ↓ to manage   model
+⏵⏵ bypass permissions on · PR #607 · 3 bg · esc to interrupt · ← 1 agent · ↓ to manage   model
 ```
 
 - **The mode**, as `<mark> <words> on` in the mode's color, then a dim
@@ -70,7 +70,7 @@ them. Its items are joined by a dim ` · `, left to right:
   outside a git repository. A missing `gh` shows a dim `install gh for PR
   status`; a signed-out `gh` shows `gh auth login for PR status`; any other
   failure, and a branch with no pull request, show nothing.
-- **Background shells**, a cyan pill `1 shell` / `N shells`. It replaces the
+- **Background shells**, a cyan pill `N bg` (commands and monitors together). It replaces the
   separate `N shells running` line that used to sit under the footer, and it
   hides with the composer surface (a permission or child view owning the
   screen).
@@ -139,8 +139,8 @@ The keys the hints name:
 
 - **`↓`** from an empty composer focuses the footer. The shell pill comes
   first (drawn inverted, with `↓ to manage` turning into `enter to view
-  shells`); Enter opens the same
-  `Background` screen `/jobs` opens. `↓` again moves into the agents rail (`main`,
+  tasks`); Enter opens the same
+  `Background` dialog `/tasks` opens. `↓` again moves into the agents rail (`main`,
   then the agents, then the workflows) and `↑` from its first row moves back
   to the pill. With no shells the first `↓` lands on the rail, and with no
   rows either it opens the agents cockpit, as before. Esc or any other key
@@ -222,7 +222,7 @@ message to run them`; after Esc, a new Enter message runs before the queue.
 Esc does with a pending steer, interrupting the reply so the steer starts the
 next one, and also releases a queue that Esc had held.
 
-A running background shell shows as the footer's shell pill (above). The `/jobs` child view is the `Background` panel (no job ids on screen; rows read `● <command>  running|finished|failed|stopped`, details are `Command details`); a finished job also leaves a `● Background command "…" finished (exit code N)` row in the transcript. It keeps the input draft mounted, lets the
+A running background shell shows as the footer's shell pill (above). The `/tasks` child view is the `Background` dialog (no job ids on screen; rows read `● <command>  running|done|error|stopped`, details are `Shell details`); a finished job also leaves a `● Background command "…" finished (exit code N)` row in the transcript. It keeps the input draft mounted, lets the
 operator inspect bounded, escaped shell output, and stops a selected running
 job on `x`. A new question from a tool closes the shell view so the question
 is visible and answerable.
@@ -733,7 +733,7 @@ qualifies its scope as `Current-turn task view · …`. The model-facing result
 also reports how many earlier terminal records remain stored outside that
 view; see [Task context](task-context.md).
 
-One renderer draws every checklist, the transcript block and `/tasks` alike:
+One renderer draws every checklist, the transcript block and the live checklist alike:
 `□` pending, `■` in progress (bold), `✓` completed (dimmed and struck
 through), `✗` failed, each followed by exactly one space, with a wrapped subject
 hanging under its first letter. The block shows
@@ -982,10 +982,8 @@ a session using a temporary credential. The old session remains usable if
 replacement construction or preference persistence fails.
 
 `/goal` presents objective management and automatic continuation controls,
-including the automatic-turn allowance before work starts. `/tasks` reads the
-session's own task store, showing every open task and those closed in the
-current turn; changing conversations clears the selection without deleting
-tasks. `/agents` opens the retained delegated-work
+including the automatic-turn allowance before work starts. `/tasks` is the
+background view, not the checklist. `/agents` opens the retained delegated-work
 view, while `/agents available` separately reports the configured roster.
 
 The delegated-work view first separates workflows. Independently launched work

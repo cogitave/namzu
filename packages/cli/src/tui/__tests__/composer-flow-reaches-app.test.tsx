@@ -407,12 +407,7 @@ describe('the two composer destinations', () => {
 		}
 	})
 
-	it('dispatches the exact kernel task command from a filtered /help row', async () => {
-		const task = await taskStore.create({
-			sessionId: generateSessionId(),
-			turnId: generateTurnId(),
-			subject: 'Inspect filtered selection',
-		})
+	it('opens the Background dialog from a filtered /help row for /tasks', async () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
 		try {
 			await waitUntil(
@@ -433,12 +428,9 @@ describe('the two composer destinations', () => {
 			screen.press('\r')
 			await waitUntil(
 				screen,
-				() => screen.scrollback().join('\n').includes(task.subject),
-				'Filtered command did not read the task store',
+				() => screen.viewport().join('\n').includes('No tasks currently running'),
+				'The Background dialog did not open',
 			)
-			// Drawn as the transcript's checklist: the subject, never the id.
-			expect(screen.scrollback().join('\n')).toContain(`□ ${task.subject}`)
-			expect(screen.scrollback().join('\n')).not.toContain(task.id)
 			expect(sent).toHaveLength(0)
 		} finally {
 			await screen.unmount()

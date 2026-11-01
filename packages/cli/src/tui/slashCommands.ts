@@ -99,8 +99,8 @@ export type SlashAction =
 	| { kind: 'peers'; args: readonly string[] }
 	/** Open the list of this conversation's workflow runs. */
 	| { kind: 'workflows' }
-	/** Open the session's interactive background shell list. */
-	| { kind: 'jobs' }
+	/** Open the Background dialog: this session's commands, monitors and subagents. */
+	| { kind: 'tasks' }
 	/** `/doctor`: run the health checks and show the result in plain words. */
 	| { kind: 'doctor' }
 	| { kind: 'settings-picker' }
@@ -329,7 +329,7 @@ export interface SlashContext {
 	readonly recentDenials?: () => readonly DenialRow[]
 	/** Refresh subsequent authorization decisions after a saved local rule edit. */
 	readonly reloadPermissionRules?: () => void
-	/** This session's background jobs, running and ended. */
+	/** This session's background commands, running and ended. */
 	readonly jobs: () => readonly {
 		readonly id: string
 		readonly command: string
@@ -1401,15 +1401,28 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				: { kind: 'message', role: 'system', content: 'Usage: /doctor' },
 	},
 	{
-		name: 'jobs',
-		description: 'See background shells, read output, stop one.',
-		help: { usage: ['/jobs', '/jobs list'] },
+		name: 'tasks',
+		description: 'View and manage everything running in the background',
+		help: { usage: ['/tasks', '/tasks list'] },
 		action: (ctx, args) =>
 			args.length === 0
-				? { kind: 'jobs' }
+				? { kind: 'tasks' }
 				: args.length === 1 && args[0] === 'list'
-					? { kind: 'message', role: 'system', content: renderJobs(ctx.jobs()) }
-					: { kind: 'message', role: 'system', content: 'Usage: /jobs [list]' },
+					? { kind: 'message', role: 'system', content: renderBackgroundTasks(ctx.jobs()) }
+					: { kind: 'message', role: 'system', content: 'Usage: /tasks [list]' },
+	},
+	{
+		// The same dialog under its second name; only /tasks is listed.
+		name: 'bashes',
+		description: 'View and manage everything running in the background',
+		discoverable: false,
+		help: { usage: ['/bashes', '/bashes list'] },
+		action: (ctx, args) =>
+			args.length === 0
+				? { kind: 'tasks' }
+				: args.length === 1 && args[0] === 'list'
+					? { kind: 'message', role: 'system', content: renderBackgroundTasks(ctx.jobs()) }
+					: { kind: 'message', role: 'system', content: 'Usage: /bashes [list]' },
 	},
 	{
 		name: 'release-notes',
@@ -1826,10 +1839,10 @@ export function renderHooks(hooks: HooksConfig | undefined): string {
 	return lines.join('\n')
 }
 
-/** The session's background jobs, as an operator would ask about them. */
-export function renderJobs(jobs: ReturnType<SlashContext['jobs']>): string {
+/** The session's background commands, as an operator would ask about them. */
+export function renderBackgroundTasks(jobs: ReturnType<SlashContext['jobs']>): string {
 	if (jobs.length === 0) {
-		return 'No background jobs in this conversation. The agent starts one with `run_in_background` on bash.'
+		return 'No background tasks in this conversation. The agent starts one with `run_in_background` on bash.'
 	}
 	const lines = jobs.map((job) => {
 		const state =
@@ -1841,10 +1854,10 @@ export function renderJobs(jobs: ReturnType<SlashContext['jobs']>): string {
 		return `${state.padEnd(16)}  ${job.command}`
 	})
 	return [
-		`${jobs.length} background shell${jobs.length === 1 ? '' : 's'} in this conversation:`,
+		`${jobs.length} background ${jobs.length === 1 ? 'command' : 'commands'} in this conversation:`,
 		...lines,
 		'',
-		'Use /jobs to inspect output or stop a running shell; /exit stops them all.',
+		'Use /tasks to inspect output or stop a running command; /exit stops them all.',
 	].join('\n')
 }
 

@@ -4,7 +4,7 @@
  * Left to right, items joined by a dim ` · `: the permission mode (`⏵⏵ bypass
  * permissions on`, colored by mode, with its cycle key while it fits), the
  * pull request for the branch (`PR #592`, underlined, colored by review
- * state), the background-shell pill (`2 shells`), the reasoning effort when
+ * state), the background-shell pill (`2 bg`), the reasoning effort when
  * the operator has set one, then the hints: `esc to interrupt` while a turn
  * runs, `← 2 agents` when the empty composer's left arrow opens them, and
  * `↓ to manage` when the empty composer's down arrow reaches the shells or
@@ -101,7 +101,7 @@ export interface StatusBarProps {
 	readonly workflowCount?: number
 	/** Whether `↓` from the empty composer reaches the shells or the agents rail; adds `↓ to manage`. */
 	readonly canManage?: boolean
-	/** The shell pill holds the keyboard: it is drawn inverted and `enter to view shells` replaces `↓ to manage`. */
+	/** The shell pill holds the keyboard: it is drawn inverted and `enter to view tasks` replaces `↓ to manage`. */
 	readonly shellsSelected?: boolean
 	/**
 	 * The key line of the focused agents-rail row. While set it takes the
@@ -152,7 +152,7 @@ const INTERRUPT_HINT = 'esc to interrupt'
 const MANAGE_HINT = '↓ to manage'
 /** What the pointer shrinks to when the full hint does not fit. */
 const SHORT_MANAGE_HINT = '↓ agents'
-const VIEW_SHELLS_HINT = 'enter to view shells'
+const VIEW_TASKS_HINT = 'enter to view tasks'
 
 /** Read when drawn: the theme can change while Namzu runs. */
 function prColor(review: PrReview): string | null {
@@ -170,13 +170,10 @@ function prColor(review: PrReview): string | null {
 	}
 }
 
-/** `2 shells`, `1 monitor`, or both: the two kinds counted apart in one pill. */
+/** `3 bg`: background commands and monitors counted together; the dialog tells them apart. */
 export function backgroundPill(shells: number, monitors: number): string | null {
-	const parts = [
-		shells > 0 ? `${shells} ${shells === 1 ? 'shell' : 'shells'}` : null,
-		monitors > 0 ? `${monitors} ${monitors === 1 ? 'monitor' : 'monitors'}` : null,
-	].filter((part): part is string => part !== null)
-	return parts.length > 0 ? parts.join(' · ') : null
+	const total = shells + monitors
+	return total > 0 ? `${total} bg` : null
 }
 
 export function StatusBar({
@@ -257,7 +254,7 @@ export function StatusBar({
 		agents: runningText(agentCount, workflowCount),
 		manage:
 			shellsSelected && shellCount + monitorCount > 0
-				? VIEW_SHELLS_HINT
+				? VIEW_TASKS_HINT
 				: canManage
 					? MANAGE_HINT
 					: null,
