@@ -91,6 +91,7 @@ function page(initial: Control[], onAction?: (tool: string) => void) {
 		spawnProcess: spawner.spawnProcess,
 		requestTimeoutMs: 1_000,
 		startTimeoutMs: 1_000,
+		settle: async () => undefined,
 	})
 	return { adapter, controls, calls, reads: () => reads }
 }

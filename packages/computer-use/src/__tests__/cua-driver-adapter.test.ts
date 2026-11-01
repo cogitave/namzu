@@ -82,6 +82,7 @@ function cuaDriver(
 		spawnProcess: spawner.spawnProcess,
 		requestTimeoutMs: 1_000,
 		startTimeoutMs: 1_000,
+		settle: async () => undefined,
 	})
 	const calls = () => spawner.processes.flatMap((p) => p.toolCalls)
 	return { adapter, processes: spawner.processes, calls }

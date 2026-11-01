@@ -84,6 +84,7 @@ function driver(
 		spawnProcess: spawner.spawnProcess,
 		requestTimeoutMs: 1_000,
 		startTimeoutMs: 1_000,
+		settle: async () => undefined,
 		foreground: made.ladder,
 	})
 	const calls = () => spawner.processes.flatMap((p) => p.toolCalls)

@@ -35,6 +35,13 @@ import {
 } from './client.js'
 import { translateKeyForCuaDriver } from './keys.js'
 import {
+	type Observation,
+	type ObservedVerdict,
+	judgeObserved,
+	observationOf,
+	sameObservation,
+} from './observe.js'
+import {
 	type ParsedUiTree,
 	type UiEvidence,
 	type UiNode,
@@ -89,6 +96,8 @@ export interface CuaDriverAdapterOptions {
 	readonly presence?: Presence
 	/** For tests: the clock the freshness of a read is judged by. */
 	readonly now?: () => number
+	/** For tests: how the adapter waits for a window to show an input's effect. */
+	readonly settle?: (ms: number) => Promise<void>
 	/** For tests. */
 	readonly spawnProcess?: McpStdioClientOptions['spawnProcess']
 	readonly requestTimeoutMs?: number
@@ -116,6 +125,8 @@ const OUTLINE_PER_PARENT = 12
 const OUTLINE_PAGE = 60
 /** A browser tree this small is the window frame alone: the page has not been built yet. */
 const SPARSE_TREE = 12
+/** Waits (ms) before each read that looks for an input's effect: at once, then a little later. */
+const OBSERVE_WAITS_MS = [0, 80, 200, 450] as const
 const BROWSER_APP = /chrome|msedge|edge|brave|vivaldi|opera|firefox|chromium/i
 /**
  * A ref read longer ago than this is checked against a new read before it
@@ -334,6 +345,7 @@ export class CuaDriverAdapter implements Adapter {
 	private nextRead = 0
 	private nextRef = 0
 	private readonly now: () => number
+	private readonly settle: (ms: number) => Promise<void>
 	/** A successful revival invalidates refusals from the previous lifecycle episode. */
 	private sessionGeneration = 0
 	/** Share one revival among calls refused by the same expired implicit session. */
@@ -344,6 +356,7 @@ export class CuaDriverAdapter implements Adapter {
 		this.foreground = options.foreground
 		this.presence = options.presence
 		this.now = options.now ?? Date.now
+		this.settle = options.settle ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
 		this.client = new McpStdioClient({
 			command: options.executable,
 			args: ['mcp'],
@@ -628,7 +641,83 @@ export class CuaDriverAdapter implements Adapter {
 		return this.serializeWindowOperation(() => this.executeWindowInternal(captureId, action))
 	}
 
+	/**
+	 * One window input, then a check of what the window shows. The driver
+	 * cannot confirm a background input, so one it left unconfirmed is judged
+	 * by reading the window before and after (see `observe.ts`).
+	 */
 	private async executeWindowInternal(
+		captureId: string,
+		action: WindowInputAction,
+	): Promise<WindowInputResult | undefined> {
+		const frame = this.windowFrame
+		const watched =
+			action.type === 'type_text' || action.type === 'key' || action.type === 'mouse_click'
+		const hwnd = frame && frame.id === captureId ? parseWindowId(frame.window.id) : undefined
+		const target = hwnd !== undefined && frame ? { hwnd, pid: frame.window.pid } : undefined
+		const typed =
+			action.type === 'type_text'
+				? action.text
+				: action.type === 'key' && translateKeyForCuaDriver(action.keys).tool === 'type_text'
+					? (translateKeyForCuaDriver(action.keys) as { text: string }).text
+					: undefined
+		let before: Observation | undefined
+		let earlier: Observation | undefined
+		if (watched && target) {
+			// A press or a key has no text to look for, so it is attributed only if the window was still before it.
+			if (typed === undefined) earlier = await this.observe(target)
+			before = await this.observe(target)
+		}
+		const sent = await this.deliverWindowInput(captureId, action)
+		if (!sent || sent.delivery !== 'delivered_unverified' || !target || !before) return sent
+		const seen = await this.verifyByReading(target, { typed, before, earlier })
+		if (!seen) return sent
+		return {
+			delivery: seen.delivery,
+			retrySafety: seen.retrySafety,
+			detail: seen.detail,
+			...(seen.observed !== undefined ? { readBack: { observed: seen.observed } } : {}),
+		}
+	}
+
+	/**
+	 * Read the window again until it shows an effect of the input, a few
+	 * times with a short wait between (the effect of an input arrives after it
+	 * returns), then once more to see that it held still.
+	 */
+	private async verifyByReading(
+		target: { hwnd: number; pid: number },
+		reads: { typed: string | undefined; before: Observation; earlier: Observation | undefined },
+	): Promise<ObservedVerdict | undefined> {
+		for (const wait of OBSERVE_WAITS_MS) {
+			if (wait > 0) await this.settle(wait)
+			const after = await this.observe(target)
+			if (!after) return undefined
+			if (sameObservation(reads.before, after)) continue
+			const later = reads.typed === undefined ? await this.observe(target) : undefined
+			const verdict = judgeObserved(reads.typed !== undefined ? { typed: reads.typed } : {}, {
+				before: reads.before,
+				after,
+				...(later ? { later } : {}),
+				...(reads.earlier ? { earlier: reads.earlier } : {}),
+			})
+			if (verdict) return verdict
+		}
+		return undefined
+	}
+
+	/** A fresh read of a window, as the texts it shows; undefined when the read failed. Refs the model holds are kept pointing at their controls. */
+	private async observe(target: { hwnd: number; pid: number }): Promise<Observation | undefined> {
+		try {
+			const read = await this.readWindowTree(target, {})
+			this.bindRead(target, read, { shown: new Set(), regions: new Set() })
+			return observationOf(read.tree)
+		} catch {
+			return undefined
+		}
+	}
+
+	private async deliverWindowInput(
 		captureId: string,
 		action: WindowInputAction,
 	): Promise<WindowInputResult | undefined> {
@@ -1134,7 +1223,7 @@ export class CuaDriverAdapter implements Adapter {
 					// cua-driver's click on an element token performs the control's
 					// own pattern in the background (Invoke, or a posted click at its
 					// centre), with no pointer move and no change of foreground.
-					return await this.clickRef(facts, uiRef)
+					return await this.clickAndWatch(facts, uiRef)
 				case 'toggle':
 				case 'select': {
 					const sent = await this.clickRef(facts, uiRef)
@@ -1195,6 +1284,33 @@ export class CuaDriverAdapter implements Adapter {
 			}
 			if (error instanceof McpToolError) return failureResult(error)
 			throw error
+		}
+	}
+
+	/**
+	 * A click on a control that the control's own state does not answer for
+	 * (a button): when the driver cannot confirm it, the window is read before
+	 * and after, and the click is verified by what it changed.
+	 */
+	private async clickAndWatch(
+		facts: UiRefEntry,
+		uiRef: { readonly ref: string; readonly facts: UiRefEntry },
+	): Promise<UiActResult> {
+		const target = { hwnd: facts.hwnd, pid: facts.pid }
+		const earlier = await this.observe(target)
+		const before = await this.observe(target)
+		// Each read of the window replaces the driver's handles: click through the refreshed one.
+		const current = this.uiRefs.get(uiRef.ref) ?? facts
+		const sent = await this.clickRef(current, { ref: uiRef.ref, facts: current })
+		if (!sent.ok || sent.delivery !== 'delivered_unverified' || !before) return sent
+		const seen = await this.verifyByReading(target, { typed: undefined, before, earlier })
+		if (!seen) return sent
+		return {
+			ok: true,
+			delivery: seen.delivery,
+			retrySafety: seen.retrySafety,
+			detail: seen.detail,
+			...(seen.observed !== undefined ? { readBack: { observed: seen.observed } } : {}),
 		}
 	}
 

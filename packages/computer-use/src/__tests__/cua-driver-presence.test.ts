@@ -80,6 +80,7 @@ function driver(presence: Presence) {
 		spawnProcess: spawner.spawnProcess,
 		requestTimeoutMs: 1_000,
 		startTimeoutMs: 1_000,
+		settle: async () => undefined,
 		presence,
 	})
 }

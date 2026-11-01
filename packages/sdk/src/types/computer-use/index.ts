@@ -367,6 +367,11 @@ export interface WindowInputResult {
 	readonly delivery: ActionDelivery
 	readonly retrySafety: ActionRetrySafety
 	readonly detail?: string
+	/** What the window read afterwards, when the host verified the input by reading it. */
+	readonly readBack?: {
+		readonly expected?: string
+		readonly observed?: string
+	}
 }
 
 export interface Point {

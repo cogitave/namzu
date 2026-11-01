@@ -299,6 +299,7 @@ function driver(
 		spawnProcess: spawner.spawnProcess,
 		requestTimeoutMs: 1_000,
 		startTimeoutMs: 1_000,
+		settle: async () => undefined,
 	})
 	const calls = () =>
 		spawner.processes
@@ -354,7 +355,7 @@ describe('the cua-driver adapter’s UI tree', () => {
 		await expect(adapter.uiAct(system, 'expand')).resolves.toMatchObject({
 			ok: true,
 		})
-		expect(calls().slice(-2)).toEqual([
+		expect(calls().filter((call) => call.name === 'click')).toEqual([
 			{
 				name: 'click',
 				arguments: { pid: 11432, element_token: 's00000002:30' },
@@ -377,8 +378,12 @@ describe('the cua-driver adapter’s UI tree', () => {
 		await expect(adapter.uiAct(ref, 'invoke')).resolves.toMatchObject({
 			ok: true,
 		})
-		// The ref was read a moment ago, so nothing is read again before the click.
-		expect(calls().filter((call) => call.name === 'get_window_state')).toHaveLength(reads)
+		// The ref was read a moment ago, so only the two reads that watch the window precede the click.
+		const sent = calls()
+		const clickAt = sent.findIndex((call) => call.name === 'click')
+		expect(sent.slice(0, clickAt).filter((call) => call.name === 'get_window_state')).toHaveLength(
+			reads + 2,
+		)
 		await adapter.dispose()
 	})
 
@@ -506,11 +511,17 @@ describe('the cua-driver adapter’s UI tree', () => {
 		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toMatchObject({
 			ok: true,
 		})
+		// Each attempt reads the window twice before it clicks (that is how its effect is judged),
+		// and the control is found again by one more read after the revival.
 		expect(calls().map((call) => call.name)).toEqual([
 			'list_windows',
 			'get_window_state',
+			'get_window_state',
+			'get_window_state',
 			'click',
 			'start_session',
+			'get_window_state',
+			'get_window_state',
 			'get_window_state',
 			'click',
 		])
@@ -554,6 +565,8 @@ describe('the cua-driver adapter’s UI tree', () => {
 		expect(processes).toHaveLength(2)
 		expect(processes[1]?.toolCalls.map((call) => call.name)).toEqual([
 			'set_agent_cursor_enabled',
+			'get_window_state',
+			'get_window_state',
 			'get_window_state',
 		])
 

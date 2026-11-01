@@ -26,7 +26,10 @@ interface Node {
 }
 
 /** A window the test edits between reads. Tokens die with the next read, as the driver's do. */
-function window(root: Node, options: { app?: string; sparseFirst?: boolean } = {}) {
+function window(
+	root: Node,
+	options: { app?: string; sparseFirst?: boolean; effect?: string; onClick?: () => void } = {},
+) {
 	const state = {
 		root,
 		reads: 0,
@@ -37,7 +40,7 @@ function window(root: Node, options: { app?: string; sparseFirst?: boolean } = {
 		queries: [] as unknown[],
 	}
 	const calls: ToolCall[] = []
-	const clicks: { token: string }[] = []
+	const clicks: { token: string; read: number }[] = []
 	let latestRead = 0
 	const render = (root?: Node): Record<string, unknown> => {
 		state.reads += 1
@@ -140,8 +143,9 @@ function window(root: Node, options: { app?: string; sparseFirst?: boolean } = {
 								},
 							},
 						}
-					clicks.push({ token })
-					return toolResult({ effect: 'unverifiable', route: 'accessibility' })
+					clicks.push({ token, read: latestRead })
+					options.onClick?.()
+					return toolResult({ effect: options.effect ?? 'unverifiable', route: 'accessibility' })
 				}
 				default:
 					return toolResult({ effect: 'unverifiable', route: 'accessibility' })
@@ -155,6 +159,7 @@ function window(root: Node, options: { app?: string; sparseFirst?: boolean } = {
 		spawnProcess: spawner.spawnProcess,
 		requestTimeoutMs: 1_000,
 		startTimeoutMs: 1_000,
+		settle: async () => undefined,
 		now: () => state.clock,
 	})
 	return { adapter, state, calls, clicks, externalRead: () => render() }
@@ -285,7 +290,7 @@ describe('a ref that outlives its read', () => {
 		expect(result).toMatchObject({ ok: true })
 		// The window was read again, then the click used the handle of that read.
 		expect(w.clicks).toHaveLength(1)
-		expect(w.clicks[0]?.token).toBe(`s${w.state.reads}:2`)
+		expect(w.clicks[0]?.token).toBe(`s${w.clicks[0]?.read}:2`)
 		await w.adapter.dispose()
 	})
 
@@ -350,16 +355,18 @@ describe('a ref that outlives its read', () => {
 	})
 
 	it('is not read again while the read is fresh, and is read again once it is not', async () => {
-		const w = window(page(button('Save')))
+		// A confirmed click needs no read afterwards, so the reads counted are those before the click:
+		// the two that watch the window, and the one that finds the control again once its read is old.
+		const w = window(page(button('Save')), { effect: 'confirmed' })
 		const snapshot = await w.adapter.uiSnapshot('0x64')
 		const save = find(snapshot, 'Button', 'Save').ref
 		const reads = w.state.reads
 		w.state.clock = 2_000
 		await w.adapter.uiAct(save, 'invoke')
-		expect(w.state.reads).toBe(reads)
+		expect(w.clicks[0]?.read).toBe(reads + 2)
 		w.state.clock = 9_000
 		await w.adapter.uiAct(save, 'invoke')
-		expect(w.state.reads).toBe(reads + 1)
+		expect(w.clicks[1]?.read).toBe(reads + 2 + 1 + 2)
 		expect(w.clicks).toHaveLength(2)
 		await w.adapter.dispose()
 	})
@@ -373,7 +380,7 @@ describe('a ref that outlives its read', () => {
 		const result = await w.adapter.uiAct(save, 'invoke')
 		expect(result).toMatchObject({ ok: true })
 		expect(w.clicks).toHaveLength(1)
-		expect(w.clicks[0]?.token).toBe(`s${w.state.reads}:0`)
+		expect(w.clicks[0]?.token).toBe(`s${w.clicks[0]?.read}:0`)
 		await w.adapter.dispose()
 	})
 
@@ -450,8 +457,8 @@ describe('large windows', () => {
 			ok: true,
 		})
 		expect(w.clicks.map((c) => c.token)).toEqual([
-			`s${w.state.reads}:0`,
-			`s${w.state.reads}:${500 + 1}`,
+			`s${w.clicks[0]?.read}:0`,
+			`s${w.clicks[1]?.read}:${500 + 1}`,
 		])
 		await w.adapter.dispose()
 	})
@@ -641,7 +648,7 @@ describe('identical controls without an id', () => {
 		await expect(w.adapter.uiAct(deleteB, 'invoke')).resolves.toMatchObject({
 			ok: true,
 		})
-		expect(w.clicks[0]?.token).toBe(`s${w.state.reads}:1`)
+		expect(w.clicks[0]?.token).toBe(`s${w.clicks[0]?.read}:1`)
 		await w.adapter.dispose()
 	})
 
@@ -655,7 +662,7 @@ describe('identical controls without an id', () => {
 		await expect(w.adapter.uiAct(deleteB, 'invoke')).resolves.toMatchObject({
 			ok: true,
 		})
-		expect(w.clicks[0]?.token).toBe(`s${w.state.reads}:1`)
+		expect(w.clicks[0]?.token).toBe(`s${w.clicks[0]?.read}:1`)
 		await w.adapter.dispose()
 	})
 })
@@ -715,6 +722,51 @@ describe('paging an outline', () => {
 		const first = await w.adapter.uiSnapshot(undefined, { root: list })
 		expect(first.next).toBe(60)
 		expect(() => find(first, 'Button', 'Hidden')).toThrow()
+		await w.adapter.dispose()
+	})
+})
+
+describe('an input the driver cannot confirm, judged by what the window shows', () => {
+	const text = (label: string): Node => ({ role: 'Text', label })
+
+	it('is verified when the window changed after the click and then held still', async () => {
+		const result = text('none')
+		const w = window(page(button('Submit'), result), {
+			onClick: () => {
+				result.label = 'submitted 1'
+			},
+		})
+		const snapshot = await w.adapter.uiSnapshot('0x64')
+		const outcome = await w.adapter.uiAct(find(snapshot, 'Button', 'Submit').ref, 'invoke')
+		expect(outcome).toMatchObject({
+			ok: true,
+			delivery: 'delivered_verified',
+			retrySafety: 'unsafe',
+			readBack: { observed: 'submitted 1' },
+		})
+		expect(outcome.detail).toContain('none')
+		await w.adapter.dispose()
+	})
+
+	it('stays unconfirmed when nothing on the window changed', async () => {
+		const w = window(page(button('Submit'), text('none')))
+		const snapshot = await w.adapter.uiSnapshot('0x64')
+		const outcome = await w.adapter.uiAct(find(snapshot, 'Button', 'Submit').ref, 'invoke')
+		expect(outcome).toMatchObject({ ok: true, delivery: 'delivered_unverified' })
+		expect(outcome.readBack).toBeUndefined()
+		await w.adapter.dispose()
+	})
+
+	it('stays unconfirmed when the window was changing by itself', async () => {
+		let tick = 0
+		const clock = text('t0')
+		const w = window(page(button('Submit'), clock))
+		const snapshot = await w.adapter.uiSnapshot('0x64')
+		const submit = find(snapshot, 'Button', 'Submit').ref
+		// The text differs on every read, as a clock's does.
+		Object.defineProperty(clock, 'label', { get: () => `t${tick++}`, configurable: true })
+		const outcome = await w.adapter.uiAct(submit, 'invoke')
+		expect(outcome).toMatchObject({ ok: true, delivery: 'delivered_unverified' })
 		await w.adapter.dispose()
 	})
 })
