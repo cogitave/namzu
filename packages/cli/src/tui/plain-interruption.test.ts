@@ -8,6 +8,7 @@ import {
 	describeProviderWait,
 	describeProviderWaitClock,
 	isSelfMending,
+	isSpentAllowance,
 } from './plain-interruption.js'
 import type { Interruption } from './turn-interruption.js'
 
@@ -580,5 +581,42 @@ describe('a conversation another window is still answering', () => {
 
 	it('counts one minute in the singular', () => {
 		expect(describePlainInterruption(elsewhere(1))).toContain('about 1 minute.')
+	})
+})
+
+describe('a spent allowance', () => {
+	const spent = (extra: Record<string, unknown> = {}) =>
+		failed({
+			explanation: { id: 'provider.usage_limit', message: 'x', hint: 'y' },
+			providerError: { kind: 'throttle', providerId: 'codex', providerCode: 'usage_limit_reached' },
+			...extra,
+		})
+
+	it('is told apart from a busy provider and points at /auth, with no codes on screen', () => {
+		expect(classifyInterruption(spent())).toBe('usage_limit')
+		const text = describePlainInterruption(spent())
+		expect(text).toContain('has used up this account')
+		expect(text).toContain('/auth')
+		expect(text).not.toMatch(/usage_limit|provider\./)
+		expect(
+			classifyInterruption(failed({ providerError: { kind: 'throttle', providerId: 'x' } })),
+		).toBe('rate_limit')
+	})
+
+	it('is recognised from the provider code alone', () => {
+		for (const providerCode of ['insufficient_quota', 'billing_error', 'usage_limit_exceeded']) {
+			expect(
+				isSpentAllowance(
+					failed({ providerError: { kind: 'throttle', providerId: 'p', providerCode } }),
+				),
+			).toBe(true)
+		}
+		expect(
+			isSpentAllowance(
+				failed({
+					providerError: { kind: 'throttle', providerId: 'p', providerCode: 'rate_limit_exceeded' },
+				}),
+			),
+		).toBe(false)
 	})
 })

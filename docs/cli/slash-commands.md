@@ -44,6 +44,7 @@ clause, so no line ends mid-sentence.
 | `/abandon` | Close this conversation's paused or interrupted turn without resuming it, so the next prompt starts a new turn. The turn is recorded as failed with reason `abandoned`; nothing it already did is undone. |
 | `/model` | Choose a model for the current provider, then its reasoning effort when supported. Other detected providers are named above the list; press `p` to switch providers. The picker states whether the model selection is saved for future launches. |
 | `/login` | Sign in with a `Claude` or `Codex` subscription. |
+| `/auth` | Choose the account this conversation uses (from its next reply), or add one: `/auth`, `/auth add`, `/auth <account>`. Separate from `/login`, which signs in the provider's usual account. See [Accounts](accounts.md). |
 | `/logout` | Remove a Namzu-owned subscription credential: `/logout [claude|codex|all]`. |
 | `/cost` | Show tokens and cost for the latest reply, one fact per line, plus what the agents it started used; `/cost details` adds pricing and scope information. |
 | `/jobs` | Open the session's shell job view to inspect output and stop a running job; `/jobs list` prints a text summary. |

@@ -24,11 +24,12 @@ namzu --permission-mode accept-edits resume <conversation-id>
 
 `namzu resume` takes the conversation id printed when Namzu last exited; with no id it opens the list of this folder's conversations, the same list `--resume` with no value opens.
 
-Four options choose how one interactive session starts. They are written **before** the command name (`namzu resume` is the one command that takes them) and they are **session-only**: nothing is written to `preferences.json`, so the next plain `namzu` starts on whatever you last picked in the app. Inside the session `/model`, `/effort` and `/permissions` work as they always do and replace the launch choice.
+Five options choose how one interactive session starts. They are written **before** the command name (`namzu resume` is the one command that takes them) and they are **session-only**: nothing is written to `preferences.json`, so the next plain `namzu` starts on whatever you last picked in the app. Inside the session `/model`, `/effort` and `/permissions` work as they always do and replace the launch choice.
 
 | Flag | Chooses | Values |
 | --- | --- | --- |
 | `--provider <id>` | the provider for this launch | an id from the provider list |
+| `--account <name>` | the account for this launch | a name from `/auth`, or `provider:name` ([Accounts](accounts.md)) |
 | `--model <id>` | the model for this launch | a model id the provider offers |
 | `--effort <level>` | the reasoning effort | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` |
 | `--permission-mode <mode>` | the permission mode | `prompt`, `accept-edits`, `plan`, `bypass`, `auto`, `strict` ([Permission modes](permission-modes.md)) |

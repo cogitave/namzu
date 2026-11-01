@@ -289,6 +289,13 @@ export type SlashAction =
 	 */
 	| { kind: 'login'; pasted?: string }
 	| { kind: 'logout'; target?: 'anthropic' | 'codex' | 'google' | 'all' }
+	/**
+	 * `/auth`: choose the account this conversation runs on, or add one. Bare
+	 * opens the list; `add` opens the add flow; any other word is an account
+	 * name to switch to at once. Separate from `/login`, which signs in the
+	 * provider's usual account.
+	 */
+	| { kind: 'auth'; add?: true; name?: string }
 	| { kind: 'none' }
 
 /** What `/context` reads: the strategy the session runs and what its passes have done so far. */
@@ -1339,6 +1346,23 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			isCompletionArgument(args)
 				? { kind: 'login', pasted: args.join(' ').trim() }
 				: { kind: 'login' },
+	},
+	{
+		name: 'auth',
+		description: 'Choose the account this conversation uses, or add one.',
+		help: {
+			usage: ['/auth', '/auth add', '/auth <account>'],
+			details: [
+				'Opens the accounts you can use, last used first. The one you pick is used from the next reply, in this conversation only.',
+				'Type a name after /auth to switch straight to that account. /auth add adds a Codex sign-in or an API key.',
+			],
+		},
+		action: (_ctx, args) => {
+			const word = args.join(' ').trim()
+			if (word.length === 0) return { kind: 'auth' }
+			if (word.toLowerCase() === 'add') return { kind: 'auth', add: true }
+			return { kind: 'auth', name: word }
+		},
 	},
 	{
 		name: 'logout',

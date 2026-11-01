@@ -24,6 +24,10 @@ export interface TextPromptProps {
 	readonly placeholder: string
 	readonly initialValue?: string
 	readonly emptyNotice?: string
+	/** Draw the value as dots. For a secret that must not be read off the screen. */
+	readonly mask?: boolean
+	/** An empty answer is accepted. For an optional step. */
+	readonly allowEmpty?: boolean
 	/** Stay mounted while a higher-priority permission prompt owns the screen. */
 	readonly hidden?: boolean
 	/** Width available after the parent's padding. */
@@ -121,6 +125,8 @@ export function TextPrompt({
 	placeholder,
 	initialValue = '',
 	emptyNotice = 'A value is required. Press Esc to cancel.',
+	mask = false,
+	allowEmpty = false,
 	hidden = false,
 	columns,
 	onSubmit,
@@ -156,7 +162,7 @@ export function TextPrompt({
 			}
 			if (key.return) {
 				const submitted = valueRef.current.trim()
-				if (submitted.length === 0) {
+				if (submitted.length === 0 && !allowEmpty) {
 					setNotice(emptyNotice)
 					return
 				}
@@ -219,7 +225,11 @@ export function TextPrompt({
 	// higher-priority permission request briefly takes over the screen.
 	if (hidden) return null
 
-	const visible = visibleInput(value, cursor, inputWidth)
+	const visible = visibleInput(
+		mask ? '•'.repeat([...value].length) : value,
+		mask ? [...value.slice(0, cursor)].length : cursor,
+		inputWidth,
+	)
 
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
@@ -253,7 +263,14 @@ export function TextPrompt({
 					{truncateChoiceText(
 						fitHints(
 							[
-								{ text: 'enter save', rank: 5 },
+								{
+									text: allowEmpty
+										? 'enter skip or continue'
+										: mask
+											? 'enter continue'
+											: 'enter save',
+									rank: 5,
+								},
 								{ text: 'esc cancel', rank: 5 },
 								{ text: 'Ctrl+W delete word', rank: 1 },
 							],

@@ -217,6 +217,10 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			'Start the interactive session on this provider for this launch only; the saved choice is untouched.',
 		)
 		.option(
+			'--account <label>',
+			'Start the interactive session on this account for this launch only: a label from /auth, or provider:label. The saved choice is untouched.',
+		)
+		.option(
 			'--model <id>',
 			'Start the interactive session on this model for this launch only. With --provider it models that provider; alone it re-models the saved primary.',
 		)
@@ -324,6 +328,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					'fallbackModel',
 					'maxBudgetUsd',
 					'maxOutputTokens',
+					'account',
 				] as const
 			).filter((key) => command.opts()[key] !== undefined)
 			if (launchOnly.length > 0 && !['namzu', 'resume'].includes(action.name())) {
@@ -596,6 +601,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				outputSchema?: string
 				addDir?: string[]
 				provider?: string
+				account?: string
 				model?: string
 				maxOutputTokens?: number
 				effort?: (typeof REASONING_EFFORT_LEVELS)[number]
@@ -726,10 +732,39 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				return
 			}
 			const provider = (launchOpts.provider ?? modelEnvironment.provider)?.trim()
+			let launchAccount: string | undefined
+			if (launchOpts.account !== undefined) {
+				const { openCliAccounts } = await import('./integrations/accounts/open.js')
+				const { findAccountByName } = await import('./integrations/accounts/binding.js')
+				let found: ReturnType<typeof findAccountByName>
+				try {
+					found = findAccountByName(openCliAccounts().registry, launchOpts.account)
+				} catch (error) {
+					getBootstrapContext().formatter.error({
+						message: `Could not read your accounts: ${(error as Error).message}`,
+					})
+					setExitCode(EXIT_BAD_CONFIG)
+					return
+				}
+				if ('error' in found) {
+					getBootstrapContext().formatter.error({ message: found.error })
+					setExitCode(EX_USAGE)
+					return
+				}
+				if (provider && provider !== found.account.provider) {
+					getBootstrapContext().formatter.error({
+						message: `--account ${launchOpts.account} belongs to ${found.account.provider}, not ${provider}. Drop --provider or name another account.`,
+					})
+					setExitCode(EX_USAGE)
+					return
+				}
+				launchAccount = found.account.id
+			}
 			const model = (launchOpts.model ?? modelEnvironment.model)?.trim()
 			const effort = launchOpts.effort ?? modelEnvironment.effort
 			const launchSettings = {
 				...(provider ? { provider } : {}),
+				...(launchAccount ? { account: launchAccount } : {}),
 				...(model ? { model } : {}),
 				...(effort ? { effort } : {}),
 				...(launchPlan.source === 'launch-flag' || launchPlan.source === 'config-default'
