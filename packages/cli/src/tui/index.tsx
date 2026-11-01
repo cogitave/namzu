@@ -26,6 +26,7 @@ import { terminalFocus } from './terminal-focus.js'
 import { applyLaunchTheme } from './theme-launch.js'
 import { fileTipHistory } from './tip-history.js'
 import type { TuiContext } from './types.js'
+import { leaveSpacesBounded } from './zoom/leave.js'
 import { type TerminalProxy, createTerminalProxy } from './zoom/proxy.js'
 
 /** How long leaving may wait for the spaces screen to hand the terminal back. */
@@ -151,17 +152,14 @@ export async function launchTui(
 		!hosted && proxy !== null
 			? async () => {
 					if (spaces.current === null) return
-					const hand = async (): Promise<void> => {
-						if (await (await (spaces.current as NonNullable<typeof spaces.current>)).release())
-							await instance.waitUntilRenderFlush()
-					}
-					let timer: ReturnType<typeof setTimeout> | undefined
-					await Promise.race([
-						hand(),
-						new Promise<void>((resolve) => {
-							timer = setTimeout(resolve, LEAVE_SPACES_MS)
-						}),
-					]).finally(() => clearTimeout(timer))
+					await leaveSpacesBounded({
+						release: (stillWanted) =>
+							(spaces.current as NonNullable<typeof spaces.current>).then((entry) =>
+								entry.release(stillWanted),
+							),
+						flush: () => instance.waitUntilRenderFlush(),
+						limitMs: LEAVE_SPACES_MS,
+					})
 				}
 			: undefined
 	let terminatedBy: TerminationSignal | null = null

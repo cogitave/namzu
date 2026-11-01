@@ -31,7 +31,7 @@ export interface SpacesEntry {
 	/** The conversation wants to end: false when it was asked to stay because other sessions are mid-turn. */
 	confirmExit(): Promise<boolean>
 	/** The conversation is about to unmount: leaves the spaces screen and has the history printed on the main screen. True when it did. */
-	release(): Promise<boolean>
+	release(stillWanted?: () => boolean): Promise<boolean>
 	/** The conversation ended: hangs up the other sessions and gives the terminal back. */
 	shutdown(): Promise<void>
 }
@@ -148,10 +148,11 @@ export function createSpacesEntry(deps: SpacesEntryDeps): SpacesEntry {
 			if (parts === null) return true
 			return parts.host.askLocalExit()
 		},
-		async release() {
+		async release(stillWanted = () => true) {
 			if (built === null) return false
 			const parts = await built
-			if (parts === null) return false
+			// A caller that gave up waiting must not get the terminal touched after it moved on.
+			if (parts === null || !stillWanted()) return false
 			return parts.host.releaseTerminal()
 		},
 		async shutdown() {
