@@ -118,16 +118,43 @@ describe('WindowsPresence', () => {
 		await flush()
 		expect(failing.available).toBe(false)
 
+		// A helper that never came up stays off.
 		const { presence, helper } = overlay()
 		presence.mark({ hwnd: 1, kind: 'click', at: { x: 1, y: 1 } })
-		helper.says('{"ok":true,"excluded":true}')
-		await flush()
 		helper.exits()
+		await flush()
 		expect(presence.available).toBe(false)
 		presence.mark({ hwnd: 1, kind: 'click', at: { x: 2, y: 2 } })
 		presence.hide()
 		await flush()
-		expect(helper.written).toHaveLength(2)
+		expect(helper.written).toHaveLength(1)
+	})
+
+	it('starts a helper that ended mid-session again on the next action, a few times, then stops trying', async () => {
+		const helpers: FakeHelper[] = []
+		const presence = new WindowsPresence({
+			powershell: 'powershell.exe',
+			spawnHelper: () => {
+				const h = new FakeHelper()
+				helpers.push(h)
+				return h
+			},
+		})
+		for (let i = 0; i < 3; i++) {
+			presence.mark({ hwnd: 1, kind: 'click', at: { x: 1, y: 1 } })
+			await flush()
+			helpers[i]?.says('{"ok":true,"excluded":true}')
+			await flush()
+			helpers[i]?.exits()
+			expect(presence.available).toBe(true)
+		}
+		presence.mark({ hwnd: 1, kind: 'click', at: { x: 1, y: 1 } })
+		await flush()
+		expect(helpers).toHaveLength(4)
+		helpers[3]?.says('{"ok":true,"excluded":true}')
+		await flush()
+		helpers[3]?.exits()
+		expect(presence.available).toBe(false)
 	})
 
 	it('hides at once on request, but never starts a helper just to hide', async () => {
@@ -185,6 +212,23 @@ describe('the helper script', () => {
 			/SetForegroundWindow|BringWindowToTop|SwitchToThisWindow/,
 		)
 		expect(PRESENCE_HELPER_SCRIPT).not.toMatch(/SW_SHOW\b|ShowWindow\([a-z]+, 5\)/)
+	})
+
+	it('orders the overlay directly above the operated window explicitly, also for a window created after it', () => {
+		// Ownership alone does not reorder a window already stacked above the overlay: the
+		// placement must not carry SWP_NOZORDER (0x4), and an uncooperative neighbour is passed over.
+		expect(PRESENCE_HELPER_SCRIPT).not.toMatch(/SetWindowPos\(frm, [^)]*0x4\)/)
+		expect(PRESENCE_HELPER_SCRIPT).toContain('SetWindowPos(frm, ins, r.l, r.t, 0, 0, fl | 0x1)')
+		expect(PRESENCE_HELPER_SCRIPT).toContain('ins = GetWindow(ins, 3)')
+		// A hidden application window without a frame rectangle covers nothing and is not ordered against.
+		expect(PRESENCE_HELPER_SCRIPT).toContain('if (!Rect(h, out o)) return false;')
+	})
+
+	it('works in physical pixels, whatever the display scaling', () => {
+		expect(PRESENCE_HELPER_SCRIPT).toContain('SetThreadDpiAwarenessContext((IntPtr)(-4))')
+		expect(
+			PRESENCE_HELPER_SCRIPT.indexOf('SetThreadDpiAwarenessContext((IntPtr)(-4))'),
+		).toBeLessThan(PRESENCE_HELPER_SCRIPT.indexOf('RegisterClassEx(ref c)'))
 	})
 
 	it('shows nothing if the capture exclusion did not take', () => {

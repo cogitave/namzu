@@ -86,6 +86,9 @@ function spawnPowerShell(options: WindowsPresenceOptions): PresenceProcess {
 	}
 }
 
+/** How many times a helper that ended mid-session is started again. */
+const MAX_RESTARTS = 3
+
 const hex = (hwnd: number): string => `0x${hwnd.toString(16).toUpperCase()}`
 
 /**
@@ -98,6 +101,7 @@ export class WindowsPresence implements Presence {
 	private proc: PresenceProcess | undefined
 	private starting: Promise<boolean> | undefined
 	private dead = false
+	private restarts = 0
 	private disposed = false
 
 	constructor(private readonly options: WindowsPresenceOptions) {}
@@ -160,7 +164,13 @@ export class WindowsPresence implements Presence {
 			timer.unref()
 			proc.onExit(() => {
 				clearTimeout(timer)
-				this.dead = true
+				// A helper that was running and ended (it crashed, or its host closed it) is
+				// started again by the next action, a few times; one that never came up stays off.
+				if (greeted && this.proc === proc && !this.disposed && this.restarts < MAX_RESTARTS) {
+					this.restarts++
+					this.proc = undefined
+					this.starting = undefined
+				} else this.dead = true
 				resolve(false)
 			})
 			proc.onLine((line) => {

@@ -198,6 +198,11 @@ overlay that could reach a screenshot is worse than none. They are owned by the
 operated window, which keeps them directly above it in the z-order, in front of
 or behind other windows, without raising it. A window the overlay cannot be
 tied to (for instance one running with higher rights) gets no overlay.
+The order is set explicitly (right above the operated window, passing over
+hidden application windows that cannot be ordered against), so a window opened
+after the overlay started gets it too. The helper works in physical pixels
+whatever the display scaling, and a helper that ends mid-session is started
+again by the next action, up to three times.
 
 On by default on Windows and WSL. Turn it off with the host option
 `presence: false` (`SubprocessComputerUseHostOptions`) or the environment

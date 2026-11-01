@@ -72,6 +72,7 @@ public static class NzP {
  [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr o);
  [DllImport("gdi32.dll")] static extern bool DeleteDC(IntPtr dc);
  [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr h, int a, out RC r, int n);
+ [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr c);
  [DllImport("kernel32.dll")] static extern void SetLastError(uint e);
  [DllImport("kernel32.dll")] static extern IntPtr GetModuleHandle(string n);
 
@@ -125,6 +126,9 @@ public static class NzP {
  public static bool Start() {
   var t = new Thread(() => {
    try {
+    // Physical pixels: the frame bounds come from the window manager in physical units, and a
+    // DPI-unaware thread would have them scaled again on a display set above 100%.
+    try { SetThreadDpiAwarenessContext((IntPtr)(-4)); } catch (Exception) { }
     proc = Wnd; WC c = new WC(); c.size = (uint)Marshal.SizeOf(typeof(WC)); c.proc = Marshal.GetFunctionPointerForDelegate(proc); c.inst = GetModuleHandle(null); c.cls = "NzPresence";
     RegisterClassEx(ref c);
     uint a1 = 0, a2 = 0;
@@ -160,7 +164,8 @@ public static class NzP {
   return r != 0 || Marshal.GetLastWin32Error() == 0;
  }
  static IntPtr ownedBy;
- static bool Overlaps(IntPtr h, RC r) { RC o; if (!Rect(h, out o)) return true; return o.l < r.r && o.r > r.l && o.t < r.b && o.b > r.t; }
+ // A window without a frame rectangle (a hidden application window) covers nothing.
+ static bool Overlaps(IntPtr h, RC r) { RC o; if (!Rect(h, out o)) return false; return o.l < r.r && o.r > r.l && o.t < r.b && o.b > r.t; }
  static bool Rect(IntPtr h, out RC r) { return DwmGetWindowAttribute(h, 9, out r, 16) == 0 && r.r > r.l && r.b > r.t; }
  static void Tick() {
   long t0 = sw.ElapsedTicks; IntPtr tg; bool hid, hp, ch; double px, py; int k; long at;
@@ -188,7 +193,8 @@ public static class NzP {
   IntPtr prev = GetWindow(tg, 3);
   // Windows that are not shown (input-method helpers and the like) sit in bands of their own: ordering against them has no effect.
   // A window that does not overlap the operated one cannot hide it, so ordering against it is not needed.
-  while (prev != IntPtr.Zero && (prev == frm || prev == cur || !IsWindowVisible(prev) || !Overlaps(prev, r))) prev = GetWindow(prev, 3);
+  // A window in the other (topmost or not) band is above or below it by band, and an overlay cannot be placed after it without changing band, which Windows refuses for a window owned by one in the other band.
+  while (prev != IntPtr.Zero && (prev == frm || prev == cur || !IsWindowVisible(prev) || !Overlaps(prev, r) || (GetWindowLong(prev, -20) & 8) != (GetWindowLong(tg, -20) & 8))) prev = GetWindow(prev, 3);
   // The operated window can move up past the overlay (it is raised, or the window above it closes): the overlay must be right above it again.
   bool moved = r.l != lastX || r.t != lastY || w != lastW || h != lastH || prev != lastPrev || Steps(frm, tg) < 0;
   bool fresh = lastW == 0;
@@ -208,15 +214,14 @@ public static class NzP {
   if (ownedBy != tg) { ownedBy = Own(frm, tg) && Own(cur, tg) ? tg : IntPtr.Zero; moved = true; }
   if (moved || fresh) {
    int cx = (int)Math.Round(sx) - PAD, cy = (int)Math.Round(sy) - PAD;
-   if (ownedBy == tg) {
-    // Windows keeps an owned window above its owner; only the position and visibility are set here.
-    SetWindowPos(frm, IntPtr.Zero, r.l, r.t, 0, 0, fl | 0x1 | 0x4);
-    SetWindowPos(cur, IntPtr.Zero, cx, cy, 0, 0, fl | 0x1 | 0x4);
-   } else {
-    IntPtr ins = prev != IntPtr.Zero ? prev : ((GetWindowLong(tg, -20) & 8) != 0 ? (IntPtr)(-1) : IntPtr.Zero); // top of its band when it is in front
-    SetWindowPos(frm, ins, r.l, r.t, 0, 0, fl | 0x1);
-    SetWindowPos(cur, frm, cx, cy, 0, 0, fl | 0x1);
-   }
+   // Ownership keeps an owned window above its owner only when it is raised; it does not reorder
+   // windows already stacked above the owner (a target created after the overlay), so the order is
+   // set explicitly: right above the operated window, never above others.
+   IntPtr ins = prev != IntPtr.Zero ? prev : ((GetWindowLong(tg, -20) & 8) != 0 ? (IntPtr)(-1) : IntPtr.Zero); // top of its band when it is in front
+   // Windows refuses to order after some windows (an access error); then the next one up is tried, ending at the top of the band.
+   SetLastError(0);
+   for (int up = 0; !SetWindowPos(frm, ins, r.l, r.t, 0, 0, fl | 0x1) && ins != IntPtr.Zero && ins != (IntPtr)(-1) && up < 40; up++) ins = GetWindow(ins, 3);
+   SetWindowPos(cur, frm, cx, cy, 0, 0, fl | 0x1);
    // A layered window shown for the first time takes its picture again.
    if (fresh) { PT p2 = new PT(); p2.x = r.l; p2.y = r.t; SZ s2 = new SZ(); s2.cx = w; s2.cy = h; PT q2 = new PT(); BF b2 = new BF(); b2.fmt = 1; b2.a = (byte)a; UpdateLayeredWindow(frm, IntPtr.Zero, ref p2, ref s2, mem1, ref q2, 0, ref b2, 2); }
    lastX = r.l; lastY = r.t; lastW = w; lastH = h; lastPrev = prev;

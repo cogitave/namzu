@@ -2,6 +2,8 @@
 
 ## 2026-11-01
 
+- **Update** [The computer-use host contract](sdk/computer-use-host.md#showing-that-an-agent-is-at-work-the-presence-overlay): the presence overlay is shown for a window opened after the helper started, is placed in physical pixels at any display scaling, and a helper that ended mid-session is restarted (up to three times). `.changeset/computer-use-presence-fixes.md` (`@namzu/computer-use` patch).
+
 - **Update** [The computer-use host contract](sdk/computer-use-host.md#showing-that-an-agent-is-at-work-the-presence-overlay): while a Windows window is operated the person sees an agent cursor (a pixel-art arrow in Namzu green that glides in 120 ms and pulses on a click and on typing, never moving the real pointer) and a dithered presence border that follows the window, fades after the last action and ends with the turn. Both are click-through, never activated, kept out of the taskbar and excluded from screen capture, and are drawn by one long-lived helper. On by default; `SubprocessComputerUseHostOptions.presence: false` or `NAMZU_COMPUTER_USE_PRESENCE=off` turns them off. `.changeset/computer-use-presence.md` (`@namzu/computer-use` minor).
 
 - **Update** [The computer-use host contract](sdk/computer-use-host.md): identical controls without an id are found again by place only while the tree kept its shape (else `AMBIGUOUS_TARGET`), a reused window handle never adopts another program's refs, a `query` snapshot records no places for existing refs, a read creates at most 1,000 refs, and an outline page does not repeat nameless containers. `.changeset/computer-use-ref-identity-fixes.md` (`@namzu/computer-use` patch).
