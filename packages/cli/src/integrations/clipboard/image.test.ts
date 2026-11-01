@@ -1,0 +1,189 @@
+import { describe, expect, it } from 'vitest'
+import {
+	type CommandResult,
+	type CommandRunner,
+	parsePowershellOutput,
+	powershellCandidates,
+	readClipboardImage,
+	runCommand,
+} from './image.js'
+
+const PNG = Buffer.concat([
+	Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+	Buffer.alloc(16, 7),
+])
+const MISSING: CommandResult = {
+	code: null,
+	stdout: Buffer.alloc(0),
+	timedOut: false,
+	spawnFailed: true,
+}
+const ok = (stdout: Buffer | string): CommandResult => ({
+	code: 0,
+	stdout: Buffer.from(stdout),
+	timedOut: false,
+	spawnFailed: false,
+})
+const exit = (code: number): CommandResult => ({
+	code,
+	stdout: Buffer.alloc(0),
+	timedOut: false,
+	spawnFailed: false,
+})
+const TIMED_OUT: CommandResult = {
+	code: null,
+	stdout: Buffer.alloc(0),
+	timedOut: true,
+	spawnFailed: false,
+}
+
+/** A runner answering by program name; records what was run. */
+function runner(answers: Record<string, CommandResult>): { run: CommandRunner; calls: string[] } {
+	const calls: string[] = []
+	return {
+		calls,
+		run: async (file) => {
+			calls.push(file)
+			return answers[file] ?? MISSING
+		},
+	}
+}
+
+const wslEnv = { WSL_DISTRO_NAME: 'Ubuntu' }
+const noText = () => undefined
+
+describe('reading an image on Linux', () => {
+	it('takes the first Linux tool that yields a PNG', async () => {
+		const { run, calls } = runner({ xclip: ok(PNG) })
+		const read = await readClipboardImage({ platform: 'linux', env: {}, run, readText: noText })
+		expect(read.kind).toBe('image')
+		expect(calls).toEqual(['xclip'])
+	})
+
+	it('falls through to wl-paste when xclip is missing', async () => {
+		const { run } = runner({ 'wl-paste': ok(PNG) })
+		const read = await readClipboardImage({ platform: 'linux', env: {}, run, readText: noText })
+		expect(read.kind).toBe('image')
+	})
+
+	it('says empty when a tool ran and found no image, and unavailable when none exists', async () => {
+		const empty = await readClipboardImage({
+			platform: 'linux',
+			env: {},
+			run: runner({ xclip: exit(1) }).run,
+			readText: noText,
+		})
+		expect(empty).toEqual({ kind: 'empty' })
+		const none = await readClipboardImage({
+			platform: 'linux',
+			env: {},
+			run: runner({}).run,
+			readText: noText,
+		})
+		expect(none.kind).toBe('unavailable')
+		expect(none.kind === 'unavailable' && none.wsl).toBeFalsy()
+	})
+})
+
+describe('reading an image on WSL', () => {
+	const b64 = PNG.toString('base64')
+
+	it('asks PowerShell when no Linux tool exists, ignoring CRLF and a byte-order mark', async () => {
+		const { run, calls } = runner({ 'powershell.exe': ok(`\uFEFF${b64}\r\n`) })
+		const read = await readClipboardImage({ platform: 'linux', env: wslEnv, run, readText: noText })
+		expect(read.kind).toBe('image')
+		expect(read.kind === 'image' && read.image.data).toBe(b64)
+		expect(calls).toEqual(['xclip', 'wl-paste', 'powershell.exe'])
+	})
+
+	it('finds powershell.exe at its fixed location when the PATH lacks it', async () => {
+		const fixed = '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
+		const { run, calls } = runner({ [fixed]: ok(b64) })
+		const read = await readClipboardImage({ platform: 'linux', env: wslEnv, run, readText: noText })
+		expect(read.kind).toBe('image')
+		expect(calls.at(-1)).toBe(fixed)
+	})
+
+	it('uses the drive mount root from wsl.conf', async () => {
+		const moved = '/win/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
+		const { run } = runner({ [moved]: ok(b64) })
+		const read = await readClipboardImage({
+			platform: 'linux',
+			env: wslEnv,
+			run,
+			readText: (path) => (path === '/etc/wsl.conf' ? '[automount]\nroot=/win\n' : undefined),
+		})
+		expect(read.kind).toBe('image')
+		expect(powershellCandidates('/win/')).toContain(moved)
+	})
+
+	it('reports empty for exit 1, failed for a timeout, and unavailable when nothing starts', async () => {
+		const empty = await readClipboardImage({
+			platform: 'linux',
+			env: wslEnv,
+			run: runner({ 'powershell.exe': exit(1) }).run,
+			readText: noText,
+		})
+		expect(empty).toEqual({ kind: 'empty' })
+		const slow = await readClipboardImage({
+			platform: 'linux',
+			env: wslEnv,
+			run: runner({ 'powershell.exe': TIMED_OUT }).run,
+			readText: noText,
+		})
+		expect(slow).toEqual({ kind: 'failed', detail: 'timed out' })
+		const none = await readClipboardImage({
+			platform: 'linux',
+			env: wslEnv,
+			run: runner({}).run,
+			readText: noText,
+		})
+		expect(none).toMatchObject({ kind: 'unavailable', wsl: true })
+	})
+
+	it('hands back image files copied in Explorer', async () => {
+		const { run } = runner({
+			'powershell.exe': ok('PATH:C:\\Users\\a\\1.png\r\nPATH:C:\\Users\\a\\2.jpg\r\n'),
+		})
+		const read = await readClipboardImage({ platform: 'linux', env: wslEnv, run, readText: noText })
+		expect(read).toEqual({ kind: 'files', paths: ['C:\\Users\\a\\1.png', 'C:\\Users\\a\\2.jpg'] })
+	})
+
+	it('refuses output that is base64 but not a PNG', () => {
+		expect(parsePowershellOutput(Buffer.from('QUJDREVGR0hJSktM\r\n')).kind).toBe('failed')
+		expect(parsePowershellOutput(Buffer.from('#< CLIXML\r\nnoise\r\n')).kind).toBe('failed')
+	})
+})
+
+describe('the PowerShell script', () => {
+	it('is passed encoded, so no quoting reaches the shell', async () => {
+		let seen: readonly string[] = []
+		await readClipboardImage({
+			platform: 'win32',
+			env: {},
+			run: async (_file, args) => {
+				seen = args
+				return exit(1)
+			},
+		})
+		expect(seen.slice(0, 4)).toEqual(['-NoProfile', '-NonInteractive', '-Sta', '-EncodedCommand'])
+		const script = Buffer.from(seen[4] ?? '', 'base64').toString('utf16le')
+		expect(script).toContain('GetImage()')
+		expect(script).toContain('2000')
+	})
+})
+
+describe('the real command runner', () => {
+	it('reports a program that cannot start, without throwing', async () => {
+		const result = await runCommand('namzu-no-such-program', [], { timeoutMs: 5_000 })
+		expect(result.spawnFailed).toBe(true)
+	})
+
+	it('captures standard output and the exit code', async () => {
+		const result = await runCommand(process.execPath, ['-e', 'process.stdout.write("hi")'], {
+			timeoutMs: 30_000,
+		})
+		expect(result.code).toBe(0)
+		expect(result.stdout.toString()).toBe('hi')
+	}, 30_000)
+})

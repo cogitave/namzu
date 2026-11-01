@@ -12,10 +12,12 @@
  */
 
 import type { MessageAttachment } from '@namzu/sdk'
-import { Box, Text, useInput, usePaste, useWindowSize } from 'ink'
+import { Box, type Key, Text, useInput, usePaste, useWindowSize } from 'ink'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-import { readClipboardImage } from '../integrations/clipboard/image.js'
+import { loadImageFiles, parsePastedImagePaths } from '../integrations/clipboard/image-paths.js'
+import { type ClipboardImage, readClipboardImage } from '../integrations/clipboard/image.js'
+import { currentPathEnvironment } from '../integrations/clipboard/wsl.js'
 import type { UserCommand } from '../user-commands/store.js'
 import {
 	QUEUED_HINT,
@@ -25,7 +27,14 @@ import {
 } from './composer-hints.js'
 import { createUndoStack } from './composer-undo.js'
 import { fitHints } from './key-hints.js'
-import { isAction, isChordAction, isChordLead, pressedKeyLabel, primaryKeyLabel } from './keymap.js'
+import {
+	imagePasteKeyName,
+	isAction,
+	isChordAction,
+	isChordLead,
+	pressedKeyLabel,
+	primaryKeyLabel,
+} from './keymap.js'
 import { type MentionExtra, activeFileMention, matchMentionSuggestions } from './mentions.js'
 import { parseModelSelectionIntent } from './model-selection-intent.js'
 import type { Notice } from './notifications.js'
@@ -1021,35 +1030,131 @@ export function Composer({
 		return pasteChip(id, text)
 	}
 
+	/** Put pasted text in the draft at the cursor, holding a large paste as a chip. */
+	const insertPastedText = (normalized: string): void => {
+		const position = cursorRef.current
+		setSelectedIndex(0)
+		const inserted = isChipPaste(normalized, terminal.rows ?? 24)
+			? holdPaste(normalized)
+			: normalized
+		editBuffer(
+			valueRef.current.slice(0, position) + inserted + valueRef.current.slice(position),
+			position + inserted.length,
+			'pasted',
+		)
+	}
+
+	/** Attach images at the cursor, one chip each. */
+	const attachImages = (images: readonly ClipboardImage[]): void => {
+		let value = valueRef.current
+		let position = cursorRef.current
+		for (const image of images) {
+			const chip = chipFor(image, idFor(image))
+			value = value.slice(0, position) + chip + value.slice(position)
+			position += chip.length
+		}
+		replaceAttachments((p) => [...p, ...images])
+		editBuffer(value, position, 'pasted')
+	}
+
+	// One clipboard read at a time. A second press while one is running is
+	// ignored, and Enter pressed meanwhile waits so the chip it would leave
+	// behind as text is not sent before the image exists.
+	const imageReadRef = useRef(false)
+	const deferredEnterRef = useRef<{ input: string; key: Key } | null>(null)
+	const keyHandlerRef = useRef<((input: string, key: Key) => void) | null>(null)
+	const lastEmptyPasteRef = useRef(0)
+
+	const pasteImageFromClipboard = (): void => {
+		if (imageReadRef.current) return
+		imageReadRef.current = true
+		const environment = currentPathEnvironment()
+		const slow = setTimeout(() => onNotice?.('Reading the clipboard...'), 300)
+		void (async () => {
+			try {
+				const read = await readClipboardImage()
+				if (read.kind === 'image') {
+					attachImages([read.image])
+				} else if (read.kind === 'files') {
+					const paths = parsePastedImagePaths(read.paths.join('\n'), environment)
+					const images = paths ? await loadImageFiles(paths) : null
+					if (images && images.length > 0) attachImages(images)
+					else onNotice?.("Could not read the copied image files. Paste the file's path instead.")
+				} else if (read.kind === 'empty') {
+					onNotice?.(
+						process.env.SSH_CONNECTION || process.env.SSH_TTY
+							? 'No image over SSH. Copy the file over, then paste its path.'
+							: `No image found in the clipboard. Copy one, then press ${imagePasteKeyName(process.platform, environment.wsl)}.`,
+					)
+				} else if (read.kind === 'unavailable') {
+					onNotice?.(
+						read.wsl
+							? "Can't reach the Windows clipboard from here. Check that Windows interop is on (powershell.exe must run), or paste the file's path."
+							: `Cannot read images from the clipboard here — ${read.detail}.`,
+					)
+				} else {
+					onNotice?.(
+						read.detail === 'timed out'
+							? "Reading the clipboard took too long. Try again, or paste the file's path."
+							: "Could not read an image from the clipboard. Try again, or paste the file's path.",
+					)
+				}
+			} finally {
+				clearTimeout(slow)
+				imageReadRef.current = false
+				const deferred = deferredEnterRef.current
+				deferredEnterRef.current = null
+				if (deferred) keyHandlerRef.current?.(deferred.input, deferred.key)
+			}
+		})()
+	}
+
 	// Bracketed paste is one event even when the terminal splits its bytes.
 	// Its newlines are content, never Enter/shortcut events.
 	usePaste(
 		(text) => {
 			if (disabled || hidden) return
 			const normalized = text.replace(/\r\n?/g, '\n')
-			if (normalized.length === 0) return
 			// A paste is input like any other key: it ends both Esc windows.
 			if (editPreviousTimerRef.current) setEditPreviousArmed(false)
 			disarmClear()
-			const position = cursorRef.current
-			setSelectedIndex(0)
-			const inserted = isChipPaste(normalized, terminal.rows ?? 24)
-				? holdPaste(normalized)
-				: normalized
-			editBuffer(
-				valueRef.current.slice(0, position) + inserted + valueRef.current.slice(position),
-				position + inserted.length,
-				'pasted',
-			)
+			if (normalized.length === 0) {
+				// Terminals send an empty paste for a clipboard holding only an image.
+				if (plainText || !(process.platform === 'darwin' || currentPathEnvironment().wsl)) return
+				const now = Date.now()
+				if (now - lastEmptyPasteRef.current < 50) return
+				lastEmptyPasteRef.current = now
+				pasteImageFromClipboard()
+				return
+			}
+			// A paste made only of image paths (a dropped file) is attached.
+			const paths = plainText ? null : parsePastedImagePaths(normalized, currentPathEnvironment())
+			if (paths) {
+				void loadImageFiles(paths).then((images) => {
+					if (images) attachImages(images)
+					else insertPastedText(normalized)
+				})
+				return
+			}
+			insertPastedText(normalized)
 		},
 		{ isActive: !disabled && !hidden },
 	)
 
+	const withKeyHandler = (handler: (input: string, key: Key) => void) => {
+		keyHandlerRef.current = handler
+		return handler
+	}
+
 	useInput(
-		(input, key) => {
+		withKeyHandler((input, key) => {
 			// Hidden means the screen belongs to something else, so a keypress
 			// aimed at that must not also land here.
 			if (disabled || hidden) return
+			if (key.return && imageReadRef.current) {
+				deferredEnterRef.current = { input, key }
+				return
+			}
 			const openExternalEditor = (pressed: string): void => {
 				if (!onExternalEdit) {
 					onNotice?.('External editor support is unavailable in this terminal.')
@@ -1647,21 +1752,7 @@ export function Composer({
 					)
 					return
 				}
-				const read = readClipboardImage()
-				if (read.kind === 'image') {
-					const position = cursorRef.current
-					const chip = chipFor(read.image, idFor(read.image))
-					replaceAttachments((p) => [...p, read.image])
-					editBuffer(
-						valueRef.current.slice(0, position) + chip + valueRef.current.slice(position),
-						position + chip.length,
-						'pasted',
-					)
-				} else if (read.kind === 'empty') {
-					onNotice?.('No image on the clipboard. Copy one, then press Ctrl+V.')
-				} else {
-					onNotice?.(`Cannot read images from the clipboard here — ${read.detail}.`)
-				}
+				pasteImageFromClipboard()
 				return
 			}
 			if (isAction('edit:deleteWordBack', input, key)) {
@@ -1746,7 +1837,7 @@ export function Composer({
 				position + input.length,
 				graphemes > 1 ? 'burst' : 'typed',
 			)
-		},
+		}),
 		// A text prompt hides the composer without disabling it. Keep this
 		// listener attached across that transition: Ink installs it in an
 		// effect after painting, so reattaching on unhide can lose the first key.

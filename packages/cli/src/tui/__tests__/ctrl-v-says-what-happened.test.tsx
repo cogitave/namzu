@@ -156,9 +156,9 @@ describe('Ctrl+V with nothing to paste', () => {
 		const { stdin, lastFrame } = await ready()
 
 		stdin.write('\x16') // Ctrl+V
-		await frameShows(lastFrame, 'No image on the clipboard')
+		await frameShows(lastFrame, 'No image found in the clipboard')
 
-		expect(lastFrame(), 'the key was silent').toContain('No image on the clipboard')
+		expect(lastFrame(), 'the key was silent').toContain('No image found in the clipboard')
 	})
 
 	it('names what is missing when the machine cannot read the clipboard at all', async () => {
@@ -174,7 +174,7 @@ describe('Ctrl+V with nothing to paste', () => {
 		expect(frame).toContain('Cannot read images')
 		expect(frame, 'did not say what to install').toContain('xclip')
 		expect(frame, 'blamed an empty clipboard for a missing tool').not.toContain(
-			'No image on the clipboard',
+			'No image found in the clipboard',
 		)
 	})
 })
