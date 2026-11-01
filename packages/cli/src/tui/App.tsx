@@ -242,6 +242,7 @@ import {
 	isRecallableHumanPrompt,
 	mergeUndeliveredLiveInput,
 } from '../rounds/types.js'
+import { EMPTY_WAKE_SNAPSHOT, WakeLedger, type WakeSnapshot } from '../rounds/wake-ledger.js'
 import { schedulePaths } from '../schedule/paths.js'
 import {
 	SKILL_CREATOR_SKILL,
@@ -799,11 +800,6 @@ type AgentSurface =
 			/** The workflow row the cockpit this came from was opened from. */
 			readonly railReturn?: string
 	  }
-type DirectChildNotice = {
-	readonly context: string
-	readonly label: string
-	readonly kind: RuntimeContextMessageKind
-}
 type PendingExternalEditor = {
 	readonly token: object
 	readonly seed: string
@@ -1695,17 +1691,7 @@ function AppBody({
 	// Keep exits until the kernel acknowledges delivery or a later completed
 	// turn carries them. An exit after the last tool result still needs that
 	// next turn, while every exit gets one immediate transcript row.
-	const idleJobNoticesRef = useRef<{
-		readonly ownerSession: AgentSession | null
-		readonly pending: Map<string, string>
-		readonly delivered: Set<string>
-		readonly shown: Set<string>
-	}>({
-		ownerSession: null,
-		pending: new Map(),
-		delivered: new Set(),
-		shown: new Set(),
-	})
+	const wakeLedgerRef = useRef(new WakeLedger<AgentSession>())
 	const [jobSnapshot, setJobSnapshot] = useState<{
 		readonly ownerSession: AgentSession | null
 		readonly jobs: readonly BackgroundJob[]
@@ -1730,19 +1716,6 @@ function AppBody({
 		read()
 		return foreground.onChange(read)
 	}, [session])
-	const snapshotIdleJobNotices = (): {
-		readonly ids: readonly string[]
-		readonly text?: string
-	} => {
-		if (idleJobNoticesRef.current.ownerSession !== session) return { ids: [] }
-		const pending = idleJobNoticesRef.current.pending
-		if (pending.size === 0) return { ids: [] }
-		const lines = [...pending.values()]
-		return {
-			ids: [...pending.keys()],
-			text: `Background jobs that ended since your last turn:\n${lines.map((l) => `- ${l}`).join('\n')}`,
-		}
-	}
 	/** What monitors said since the last turn: the same envelopes the kernel gives in-turn. */
 	const snapshotMonitorNotices = (): {
 		readonly ids: readonly string[]
@@ -1758,13 +1731,7 @@ function AppBody({
 		return `What the operator did outside you since your last turn — commands they ran in their own shell, files they put back — with the output:\n\n${blocks.join('\n\n')}`
 	}
 	useEffect(() => {
-		const notices = {
-			ownerSession: session,
-			pending: new Map<string, string>(),
-			delivered: new Set<string>(),
-			shown: new Set<string>(),
-		}
-		idleJobNoticesRef.current = notices
+		const notices = wakeLedgerRef.current.startJobs(session)
 		setJobSnapshot({ ownerSession: session, jobs: session?.jobs?.() ?? [] })
 		if (!session?.onJobExit) return
 		// Something a monitor said, or its end, arrived: an idle session looks
@@ -1776,14 +1743,13 @@ function AppBody({
 		const offExits = session.onJobExit((job) => {
 			// The visible running-shell count belongs to the session even when
 			// the kernel owns this exit's model/transcript notice.
-			if (previousSessionRef.current !== session || idleJobNoticesRef.current !== notices) return
+			if (previousSessionRef.current !== session || wakeLedgerRef.current.jobs() !== notices) return
 			setJobSnapshot({ ownerSession: session, jobs: session.jobs?.() ?? [] })
 			if (job.kind === 'monitor') {
 				// A monitor's end is told in the monitor's own words, and its notice
 				// for the model sits in the session's monitor ledger, not in the
 				// plain job notices.
-				if (!notices.shown.has(job.id)) {
-					notices.shown.add(job.id)
+				if (wakeLedgerRef.current.markJobShown(job.id)) {
 					const row = monitorEndRow(job, session.monitors?.stats(job.id) ?? { stdoutChars: 0 })
 					pushMessage('system', row.text, false, '●', undefined, row.color, row.meta)
 				}
@@ -1799,13 +1765,10 @@ function AppBody({
 			// SDK delivery can run before this listener on a host with different
 			// subscription order. The tombstone keeps that acknowledged exit out of
 			// the next turn even when its UI event arrives later.
-			if (!notices.delivered.has(job.id)) {
-				notices.pending.set(job.id, text)
-				if (job.status !== 'killed') wakeJobIdsRef.current.add(job.id)
+			if (wakeLedgerRef.current.noteJobExit(notices, job.id, text, job.status !== 'killed')) {
 				setNoticeVersion((version) => version + 1)
 			}
-			if (!notices.shown.has(job.id)) {
-				notices.shown.add(job.id)
+			if (wakeLedgerRef.current.markJobShown(job.id)) {
 				const row = jobExitRow({
 					command: job.command,
 					status: job.status === 'killed' ? 'killed' : 'exited',
@@ -1824,16 +1787,10 @@ function AppBody({
 	// What ended in a workflow, for the model: one message per run, delivered
 	// inside a running turn when there is one and with the next turn otherwise,
 	// the way a background job's exit is.
-	const workflowNoticesRef = useRef(new Map<string, string>())
-	/** What running agents sent to the conversation, for the model: told once, like a workflow's end. */
-	const childMessagesRef = useRef(new Map<number, string>())
-	const childMessageIdRef = useRef(0)
 	/** Moves when something ended that the model has not been told, so an idle session can wake. */
 	const [noticeVersion, setNoticeVersion] = useState(0)
-	/** Background commands that ended on their own (a stop the operator asked for does not wake the model). */
-	const wakeJobIdsRef = useRef(new Set<string>())
 	useEffect(() => {
-		workflowNoticesRef.current = new Map()
+		wakeLedgerRef.current.resetWorkflows()
 		const source = session?.workflows
 		if (!source) return
 		return source.onEnd(({ view }) => {
@@ -1852,7 +1809,7 @@ function AppBody({
 						? tokenColor('status.warn')
 						: tokenColor('status.ok'),
 			)
-			workflowNoticesRef.current.set(view.runId, completionNotice(view))
+			wakeLedgerRef.current.noteWorkflowEnd(view.runId, completionNotice(view))
 			activeTurnInboxRef.current?.notify()
 			setNoticeVersion((version) => version + 1)
 		})
@@ -2216,8 +2173,6 @@ function AppBody({
 	const agentSurfaceRef = useRef<AgentSurface | null>(null)
 	const agentSurfaceCommittedRef = useRef<AgentSurface | null>(null)
 	const childMessageLifetimeRef = useRef(new AbortController())
-	const directChildNoticesRef = useRef(new Map<number, DirectChildNotice>())
-	const directChildNoticeIdRef = useRef(0)
 	const setAgentSurface = useCallback((next: AgentSurface | null) => {
 		const wasVisible = agentSurfaceCommittedRef.current !== null
 		agentSurfaceRef.current = next
@@ -2562,7 +2517,7 @@ function AppBody({
 		const source = session?.subagents
 		childMessageLifetimeRef.current.abort(new Error('The conversation changed.'))
 		childMessageLifetimeRef.current = new AbortController()
-		directChildNoticesRef.current.clear()
+		wakeLedgerRef.current.clearDirectChild()
 		setAgentSurface(null)
 		savedSubagentsRef.current = []
 		void hydrateSavedChildren()
@@ -2607,7 +2562,7 @@ function AppBody({
 	const resetSubagentActivity = useCallback(() => {
 		childMessageLifetimeRef.current.abort(new Error('The owning conversation changed.'))
 		childMessageLifetimeRef.current = new AbortController()
-		directChildNoticesRef.current.clear()
+		wakeLedgerRef.current.clearDirectChild()
 		session?.subagents?.reset()
 		session?.workflows?.reset()
 		setAgentSurface(null)
@@ -3459,7 +3414,7 @@ function AppBody({
 	const tellModelAgentsStopped = useCallback((stopped: readonly SubagentActivity[]) => {
 		const note = stoppedByUserNote(stopped.map((agent) => agent.description || agent.agentId))
 		if (note === undefined) return
-		directChildNoticesRef.current.set(++directChildNoticeIdRef.current, {
+		wakeLedgerRef.current.noteDirectChild({
 			context: note,
 			label: note,
 			kind: 'advisory',
@@ -3536,7 +3491,7 @@ function AppBody({
 				)
 					return
 				const label = 'Child follow-up ended. Its report is available to the parent.'
-				directChildNoticesRef.current.set(++directChildNoticeIdRef.current, {
+				wakeLedgerRef.current.noteDirectChild({
 					context: report.text,
 					label,
 					kind: 'task-completion',
@@ -3550,7 +3505,7 @@ function AppBody({
 	// `send_message`. The person sees a collapsed `› Message from @name` row; the
 	// model gets the text with its next turn, or an idle session wakes for it.
 	useEffect(() => {
-		childMessagesRef.current = new Map()
+		wakeLedgerRef.current.resetChildMessages()
 		return session?.onSubagentMessage?.((message) => {
 			if (
 				previousSessionRef.current !== session ||
@@ -3568,7 +3523,7 @@ function AppBody({
 				row.hint,
 				'agent-result',
 			)
-			childMessagesRef.current.set(++childMessageIdRef.current, childMessageNotice(message))
+			wakeLedgerRef.current.noteChildMessage(childMessageNotice(message))
 			// No `notify()`: a message queued for the next turn does not release a wait the
 			// running turn is in (it is queued at `next` priority); the turn
 			// takes it at its next request boundary, an idle session wakes for it below.
@@ -3577,7 +3532,7 @@ function AppBody({
 	}, [session, pushMessage])
 	// A background agent that ends after the turn that launched it was over: the
 	// model hears it with the next turn, or an idle session wakes for it. Every
-	// agent that ended meanwhile joins the one wake (they share `childMessagesRef`,
+	// agent that ended meanwhile joins the one wake (they share the wake ledger's agent messages,
 	// which the wake empties into a single message). The operator's own stop is
 	// not news; the stop key tells the model once, itself.
 	useEffect(
@@ -3589,7 +3544,7 @@ function AppBody({
 					completion.stoppedBy === 'user'
 				)
 					return
-				childMessagesRef.current.set(++childMessageIdRef.current, completion.text)
+				wakeLedgerRef.current.noteChildMessage(completion.text)
 				setNoticeVersion((version) => version + 1)
 			}),
 		[session],
@@ -8748,7 +8703,7 @@ function AppBody({
 			})
 			if (!owns()) return receipt
 			const label = `You ${receipt.kind === 'queued' ? 'queued a message' : 'started a follow-up'} for ${child.agentId}.${receipt.auditWarning ? ` ${receipt.auditWarning}` : ''}`
-			directChildNoticesRef.current.set(++directChildNoticeIdRef.current, {
+			wakeLedgerRef.current.noteDirectChild({
 				context: receipt.parentNotice,
 				label,
 				kind: 'advisory',
@@ -9261,8 +9216,7 @@ function AppBody({
 				case 'job':
 					// The session listener normally painted this at exit time. A host
 					// without that listener still gets the kernel event; never paint twice.
-					if (!idleJobNoticesRef.current.shown.has(event.jobId)) {
-						idleJobNoticesRef.current.shown.add(event.jobId)
+					if (wakeLedgerRef.current.markJobShown(event.jobId)) {
 						const row = jobExitRow(event)
 						pushMessage('system', row.text, false, '●', undefined, row.color, row.meta)
 					}
@@ -9611,19 +9565,7 @@ function AppBody({
 			// running has had its chance to take it first and nothing is said twice.
 			let noticeKind: RuntimeContextMessageKind = 'task-completion'
 			if (prompt.kind === 'notice') {
-				const ended = [...workflowNoticesRef.current.values(), ...childMessagesRef.current.values()]
-				workflowNoticesRef.current.clear()
-				childMessagesRef.current.clear()
-				const jobs = idleJobNoticesRef.current
-				const jobLines =
-					jobs.ownerSession === session
-						? [...jobs.pending].filter(([id]) => wakeJobIdsRef.current.has(id))
-						: []
-				for (const [id] of jobLines) {
-					jobs.delivered.add(id)
-					jobs.pending.delete(id)
-					wakeJobIdsRef.current.delete(id)
-				}
+				const { ended, jobLines } = wakeLedgerRef.current.takeForWake(session)
 				// What monitors said is taken now, like the rest: an event the kernel
 				// already put in front of the model during a turn was acknowledged
 				// and is not here.
@@ -9953,7 +9895,7 @@ function AppBody({
 					if (
 						!inboxOpen ||
 						inboxEntries.length > 0 ||
-						[...directChildNoticesRef.current.keys()].some((id) => !childNoticeSnapshot.has(id)) ||
+						wakeLedgerRef.current.hasUnsnapshottedDirectChild(wakeSnapshot) ||
 						(peersRef.current?.enabled && peersRef.current.pending > 0)
 					)
 						return Promise.resolve()
@@ -10070,21 +10012,13 @@ function AppBody({
 					`Goal round ${goalRound.round} was not started because this conversation is not durable. Automatic continuation is disarmed; /goal resume retries explicitly.`,
 				)
 			}
-			let idleNoticeSnapshot: {
-				readonly ids: readonly string[]
-				readonly text?: string
-			} = {
-				ids: [],
-			}
+			let wakeSnapshot: WakeSnapshot = EMPTY_WAKE_SNAPSHOT
 			let monitorSnapshot: {
 				readonly ids: readonly string[]
 				readonly text?: string
 			} = {
 				ids: [],
 			}
-			let childNoticeSnapshot = new Map<number, DirectChildNotice>()
-			let workflowNoticeSnapshot = new Map<string, string>()
-			let childMessageSnapshot = new Map<number, string>()
 			try {
 				// Setup above awaited. A conversation switch can happen meanwhile and
 				// move the mutable SessionScope captured by `createAgentSession`. Re-admit
@@ -10102,11 +10036,8 @@ function AppBody({
 				) {
 					// Keep these notices pending until a completed send commits them.
 					// An early throw or abort never proves the model received context.
-					idleNoticeSnapshot = snapshotIdleJobNotices()
+					wakeSnapshot = wakeLedgerRef.current.snapshot(session)
 					monitorSnapshot = snapshotMonitorNotices()
-					childNoticeSnapshot = new Map(directChildNoticesRef.current)
-					workflowNoticeSnapshot = new Map(workflowNoticesRef.current)
-					childMessageSnapshot = new Map(childMessagesRef.current)
 					const operatorShellSnapshot = drainOperatorShell()
 					// "Press Enter to try again, or type a new message": a reply that
 					// stopped on a provider failure waits for no person, so the new
@@ -10152,14 +10083,14 @@ function AppBody({
 							hostContext: () =>
 								[
 									...(st.contextTexts ?? []),
-									idleNoticeSnapshot.text,
+									wakeSnapshot.idleJobs.text,
 									monitorSnapshot.text,
-									workflowNoticeSnapshot.size > 0
-										? `Workflows that ended since your last turn:\n\n${[...workflowNoticeSnapshot.values()].join('\n\n')}`
+									wakeSnapshot.workflows.size > 0
+										? `Workflows that ended since your last turn:\n\n${[...wakeSnapshot.workflows.values()].join('\n\n')}`
 										: undefined,
 									operatorShellSnapshot,
-									...[...childNoticeSnapshot.values()].map((notice) => notice.context),
-									...childMessageSnapshot.values(),
+									...[...wakeSnapshot.directChild.values()].map((notice) => notice.context),
+									...wakeSnapshot.childMessages.values(),
 								].filter((part): part is string => Boolean(part)),
 							...(goalRound ? { goalRound } : {}),
 							// The mode above decides whether this callback is consulted.
@@ -10198,19 +10129,8 @@ function AppBody({
 								const operatorMessages = inbox.drain()
 								if (ac.signal.aborted || !stillHere()) return operatorMessages
 								const mail = peersRef.current?.take(turnGeneration) ?? []
-								const childNotices = [...directChildNoticesRef.current].filter(
-									([id]) => !childNoticeSnapshot.has(id),
-								)
-								// A workflow that ended while this turn runs: told to the model once.
-								const workflowEnds = [...workflowNoticesRef.current].filter(
-									([id]) => !workflowNoticeSnapshot.has(id),
-								)
-								for (const [id] of workflowEnds) workflowNoticesRef.current.delete(id)
-								// What a running agent said to the conversation: told to the model once.
-								const childMessages = [...childMessagesRef.current].filter(
-									([id]) => !childMessageSnapshot.has(id),
-								)
-								for (const [id] of childMessages) childMessagesRef.current.delete(id)
+								const { childNotices, workflowEnds, childMessages } =
+									wakeLedgerRef.current.takeInTurn(wakeSnapshot)
 								if (childNotices.length) {
 									flushStream(st)
 									if (st.assistantId) {
@@ -10219,7 +10139,7 @@ function AppBody({
 									}
 									// What the person typed to an agent is in that agent's transcript, so
 									// main prints nothing for it; the model still gets the note.
-									for (const [id] of childNotices) directChildNoticesRef.current.delete(id)
+									wakeLedgerRef.current.dropDirectChild(childNotices.map(([id]) => id))
 								}
 								if (mail.length) {
 									// An idle wake may already be queued behind operator admission.
@@ -10253,12 +10173,7 @@ function AppBody({
 							},
 							waitForInbound: (signal) => inbox.waitForInbound(signal),
 							onJobNoticeDelivered: (ids) => {
-								const notices = idleJobNoticesRef.current
-								if (notices.ownerSession !== session) return
-								for (const id of ids) {
-									notices.delivered.add(id)
-									notices.pending.delete(id)
-								}
+								wakeLedgerRef.current.jobNoticesDelivered(session, ids)
 							},
 							extraSystem: composeSkillsPrompt(activeSkills) || undefined,
 							onConversationMessages: (messages) => {
@@ -10321,18 +10236,12 @@ function AppBody({
 			} finally {
 				// The turn is over: a run of reads and searches in progress settles.
 				readSearchGroup.close()
-				if (st.completed && stillHere()) {
-					for (const id of childNoticeSnapshot.keys()) directChildNoticesRef.current.delete(id)
-					for (const id of workflowNoticeSnapshot.keys()) workflowNoticesRef.current.delete(id)
-					for (const id of childMessageSnapshot.keys()) childMessagesRef.current.delete(id)
-				}
 				if (st.completed && monitorSnapshot.ids.length > 0) {
 					// Carried by this turn: never offered again.
 					session?.monitors?.acknowledge(monitorSnapshot.ids)
 				}
-				if (st.completed && idleJobNoticesRef.current.ownerSession === session) {
-					for (const id of idleNoticeSnapshot.ids) idleJobNoticesRef.current.pending.delete(id)
-				}
+				// What this turn carried is told now, and only now.
+				if (st.completed) wakeLedgerRef.current.commit(wakeSnapshot, session, stillHere())
 				const undeliveredLiveInput = inbox.close()
 				const ownsInbox = activeTurnInboxRef.current === inbox
 				if (ownsInbox) {
@@ -13968,14 +13877,7 @@ function AppBody({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `noticeVersion` is what moves; the effect reads the refs it mirrors.
 	useEffect(() => {
 		if (admissionBlocked('notice', roundGateFacts()) !== null) return
-		const jobs = idleJobNoticesRef.current
-		const waiting =
-			workflowNoticesRef.current.size > 0 ||
-			childMessagesRef.current.size > 0 ||
-			(jobs.ownerSession === session &&
-				[...jobs.pending.keys()].some((id) => wakeJobIdsRef.current.has(id))) ||
-			session?.monitors?.wakes() === true
-		if (!waiting) return
+		if (!wakeLedgerRef.current.wakes(session, session?.monitors?.wakes() === true)) return
 		enqueueQueued({
 			kind: 'notice',
 			text: 'Something finished while you were idle.',
