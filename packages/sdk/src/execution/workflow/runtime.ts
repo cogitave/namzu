@@ -9,6 +9,7 @@ import { preview, sha256 } from './journal.js'
 import { splitWorkflowScript } from './meta.js'
 import { type PhaseAgentView, PhaseRegistry, summarizeWorkflowPhases } from './phases.js'
 import { buildPrelude, preludeLineCount } from './prelude.js'
+import { workflowCallKey } from './resume.js'
 import { parseJsonText, validateAgainstSchema } from './schema.js'
 import type {
 	WorkflowAgentEvent,
@@ -83,7 +84,9 @@ export function resolveWorkflowLimits(limits: WorkflowLimits = {}): WorkflowReso
 			16 * 1024 * 1024,
 		),
 		...(limits.tokenBudget !== undefined
-			? { tokenBudget: integer('tokenBudget', limits.tokenBudget, 1, Number.MAX_SAFE_INTEGER) }
+			? {
+					tokenBudget: integer('tokenBudget', limits.tokenBudget, 1, Number.MAX_SAFE_INTEGER),
+				}
 			: {}),
 		maxDurationMs: integer(
 			'maxDurationMs',
@@ -198,6 +201,14 @@ interface AgentRecord {
 	error?: string
 	skipped: boolean
 	userSkipped: boolean
+	key?: string
+	/** Set when the result came from an earlier pass instead of a run. */
+	cached?: {
+		readonly pass: number
+		readonly index: number
+		readonly childSessionId?: string
+	}
+	childSessionId?: string
 }
 
 interface Waiter {
@@ -283,6 +294,10 @@ export class WorkflowRuntime {
 		const runId =
 			options.runId ?? `w${[...randomBytes(8)].map((b) => (b % 36).toString(36)).join('')}`
 		const startedAt = now()
+		const pass = options.resume?.pass ?? 1
+		const resume = options.resume
+		let latch = false
+		const seenContent = new Map<string, number>()
 		const phases = new PhaseRegistry()
 		const agents = new Map<number, AgentRecord>()
 		const inFlight = new Set<Promise<unknown>>()
@@ -335,7 +350,13 @@ export class WorkflowRuntime {
 					declared,
 					at,
 				})
-				journal({ type: 'phase', at, index: phase.index, title: phase.title, declared })
+				journal({
+					type: 'phase',
+					at,
+					index: phase.index,
+					title: phase.title,
+					declared,
+				})
 			}
 			return phase
 		}
@@ -361,6 +382,7 @@ export class WorkflowRuntime {
 			...(agent.resultPreview !== undefined ? { resultPreview: agent.resultPreview } : {}),
 			...(agent.error !== undefined ? { error: agent.error } : {}),
 			...(agent.skipped ? { skipped: true } : {}),
+			...(agent.cached !== undefined ? { cached: true } : {}),
 		})
 
 		// FIFO admission: an agent starts when fewer than maxConcurrency run.
@@ -411,7 +433,13 @@ export class WorkflowRuntime {
 
 		const settle = (
 			agent: AgentRecord,
-			outcome: { state: 'done' | 'error'; skipped?: boolean; value?: unknown; error?: string },
+			outcome: {
+				state: 'done' | 'error'
+				skipped?: boolean
+				value?: unknown
+				error?: string
+				interrupted?: boolean
+			},
 		): HostCallResult => {
 			const at = now()
 			agent.state = outcome.state
@@ -434,11 +462,25 @@ export class WorkflowRuntime {
 				value = null
 			}
 			emit(agentEvent(agent))
+			const finalState = agent.state === 'error' ? 'error' : agent.skipped ? 'skipped' : 'done'
+			let saved: { result: unknown } | { unsaved: true } | undefined
+			if (finalState === 'done' && value !== null && agent.cached === undefined) {
+				try {
+					saved = { result: JSON.parse(JSON.stringify(value)) as unknown }
+				} catch {
+					saved = { unsaved: true }
+					journal({
+						type: 'log',
+						at,
+						message: "An agent's result could not be saved, so a resume will run it again.",
+					})
+				}
+			}
 			journal({
 				type: 'agent_outcome',
 				at,
 				index: agent.index,
-				state: agent.state === 'error' ? 'error' : agent.skipped ? 'skipped' : 'done',
+				state: finalState,
 				tokens: agent.tokens,
 				toolCalls: agent.toolCalls,
 				queuedAt: agent.queuedAt,
@@ -446,6 +488,22 @@ export class WorkflowRuntime {
 				finishedAt: at,
 				...(agent.resultPreview !== undefined ? { resultPreview: agent.resultPreview } : {}),
 				...(agent.error !== undefined ? { error: agent.error } : {}),
+				...(agent.key !== undefined ? { key: agent.key } : {}),
+				pass,
+				...(agent.cached !== undefined
+					? {
+							cached: true as const,
+							resultFrom: {
+								pass: agent.cached.pass,
+								index: agent.cached.index,
+							},
+						}
+					: {}),
+				...(saved ?? {}),
+				...(outcome.interrupted === true && finalState === 'error'
+					? { interrupted: true as const }
+					: {}),
+				...(agent.childSessionId !== undefined ? { childSessionId: agent.childSessionId } : {}),
 			})
 			return { ok: true, value: { v: value, t: totalTokens() } }
 		}
@@ -457,6 +515,7 @@ export class WorkflowRuntime {
 		): HostCallResult => {
 			agent.tokens = count(outcome.tokens)
 			agent.toolCalls = count(outcome.toolCalls)
+			if (outcome.sessionId !== undefined) agent.childSessionId = outcome.sessionId
 			if (agent.userSkipped || outcome.state === 'skipped') {
 				return settle(agent, { state: 'done', skipped: true })
 			}
@@ -464,10 +523,14 @@ export class WorkflowRuntime {
 				return settle(agent, {
 					state: 'error',
 					error: 'The workflow was stopped before this agent finished.',
+					interrupted: true,
 				})
 			}
 			if (outcome.state === 'error') {
-				return settle(agent, { state: 'error', error: outcome.error ?? 'The agent failed.' })
+				return settle(agent, {
+					state: 'error',
+					error: outcome.error ?? 'The agent failed.',
+				})
 			}
 			if (call.schema === undefined) {
 				return settle(agent, { state: 'done', value: outcome.text ?? '' })
@@ -503,6 +566,24 @@ export class WorkflowRuntime {
 				return { ok: false, error: reason }
 			}
 			const index = ++requested
+			const contentId = JSON.stringify([
+				call.prompt,
+				call.schema,
+				call.model,
+				call.effort,
+				call.agentType,
+			])
+			const ordinal = seenContent.get(contentId) ?? 0
+			seenContent.set(contentId, ordinal + 1)
+			const key = workflowCallKey(call.prompt, call, ordinal)
+			const hit = latch ? undefined : resume?.results.get(key)
+			if (
+				resume !== undefined &&
+				hit === undefined &&
+				!(resume.seen.has(key) && !resume.failed.has(key) && !resume.demoted.has(key))
+			) {
+				latch = true
+			}
 			const phaseTitle = call.phase ?? call.cursor
 			const phase = phaseTitle?.trim() ? announce(phaseTitle, false) : undefined
 			const queuedAt = now()
@@ -521,13 +602,26 @@ export class WorkflowRuntime {
 				toolCalls: 0,
 				skipped: false,
 				userSkipped: false,
+				key,
 			}
 			agents.set(index, agent)
+			if (hit !== undefined) {
+				agent.cached = {
+					pass: hit.pass,
+					index: hit.index,
+					...(hit.childSessionId !== undefined ? { childSessionId: hit.childSessionId } : {}),
+				}
+				if (hit.childSessionId !== undefined) agent.childSessionId = hit.childSessionId
+				agent.startedAt = queuedAt
+			}
 			emit(agentEvent(agent))
 			journal({
 				type: 'agent_request',
 				at: queuedAt,
 				index,
+				key,
+				pass,
+				...(hit !== undefined ? { cached: true as const } : {}),
 				label: agent.label,
 				...(phase ? { phaseIndex: phase.index, phaseTitle: phase.title } : {}),
 				promptPreview: preview(call.prompt),
@@ -540,6 +634,12 @@ export class WorkflowRuntime {
 				},
 			})
 
+			if (hit !== undefined) {
+				return settle(agent, {
+					state: 'done',
+					value: structuredClone(hit.value),
+				})
+			}
 			const admitted = await acquire(agent)
 			if (!admitted) {
 				return agent.userSkipped
@@ -547,6 +647,7 @@ export class WorkflowRuntime {
 					: settle(agent, {
 							state: 'error',
 							error: 'The workflow was stopped before this agent started.',
+							interrupted: true,
 						})
 			}
 			try {
@@ -554,6 +655,7 @@ export class WorkflowRuntime {
 					return settle(agent, {
 						state: 'error',
 						error: `Not started: the token budget for this workflow (${limits.tokenBudget} tokens) is spent.`,
+						interrupted: true,
 					})
 				}
 				if (controller.signal.aborted || agent.userSkipped) {
@@ -562,6 +664,7 @@ export class WorkflowRuntime {
 						: settle(agent, {
 								state: 'error',
 								error: 'The workflow was stopped before this agent started.',
+								interrupted: true,
 							})
 				}
 				agent.startedAt = now()
@@ -630,7 +733,7 @@ export class WorkflowRuntime {
 		// --- start ---
 		if (options.journal?.writeScript) {
 			try {
-				await options.journal.writeScript(options.script, sha256(options.script))
+				await options.journal.writeScript(options.script, sha256(options.script), pass)
 			} catch (error) {
 				journalError = error instanceof Error ? error.message : String(error)
 			}
@@ -644,6 +747,17 @@ export class WorkflowRuntime {
 			meta,
 			args,
 			limits,
+			...(resume !== undefined
+				? {
+						resume: {
+							pass,
+							previousFinish: resume.previousFinish,
+							scriptSha256Changed:
+								resume.scriptSha256 !== undefined && resume.scriptSha256 !== sha256(options.script),
+						},
+					}
+				: {}),
+			...(options.scriptPath !== undefined ? { scriptPath: options.scriptPath } : {}),
 		})
 		emit({
 			type: 'workflow_started',
@@ -665,7 +779,11 @@ export class WorkflowRuntime {
 				maxPendingHostCalls: limits.maxAgents + 100,
 			})
 
-		const preludeConfig = { args, tokenLimit: limits.tokenBudget ?? null }
+		const preludeConfig = {
+			args,
+			tokenLimit: limits.tokenBudget ?? null,
+			deterministic: options.deterministic === true,
+		}
 		const runResult = await codeRuntime.run({
 			source: `${buildPrelude(preludeConfig)}\n${body}`,
 			allowedCalls: [WORKFLOW_HOST_CALL],
@@ -676,7 +794,10 @@ export class WorkflowRuntime {
 			onOutput,
 			onHostCall: (request) => {
 				if (request.name !== WORKFLOW_HOST_CALL) {
-					return Promise.resolve({ ok: false, error: `Unknown host call "${request.name}".` })
+					return Promise.resolve({
+						ok: false,
+						error: `Unknown host call "${request.name}".`,
+					})
 				}
 				let call: AgentCall
 				try {
@@ -738,7 +859,7 @@ export class WorkflowRuntime {
 			const progress =
 				begun.length === 0
 					? 'No agent had started.'
-					: `Before it failed: ${begun.length} agent${begun.length === 1 ? '' : 's'} started, ${finished} finished, ${failedAgents} failed. A rerun starts the whole script again, so finished agents run again.`
+					: `Before it failed: ${begun.length} agent${begun.length === 1 ? '' : 's'} started, ${finished} finished, ${failedAgents} failed. ${options.canResume === true ? 'Resume the run to continue: agents whose prompt and options are unchanged return their saved results.' : 'A rerun starts the whole script again, so finished agents run again.'}`
 			error = `${describeScriptFailure(outcome, body, preludeLineCount(preludeConfig))}\n${progress}${scriptPhase !== undefined ? ` Last phase: "${scriptPhase}".` : ''}`
 		}
 
@@ -751,6 +872,9 @@ export class WorkflowRuntime {
 			tokens: all.reduce((sum, a) => sum + a.tokens, 0),
 			toolCalls: all.reduce((sum, a) => sum + a.toolCalls, 0),
 			elapsedMs: Math.max(0, now() - startedAt),
+			...(all.some((a) => a.cached !== undefined)
+				? { cachedAgents: all.filter((a) => a.cached !== undefined).length }
+				: {}),
 		}
 		const at = now()
 		emit({
