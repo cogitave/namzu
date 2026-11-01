@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-02
+
+- **Update** [Slash commands](cli/slash-commands.md#hypermode), [Terminal design](cli/terminal-design.md) and [Workflows in the CLI](cli/workflows.md): the footer no longer says `Hypermode on` beside the effort; the composer's upper rule already names the mode, and `↓ to manage` is unchanged. `.changeset/hypermode-footer-once.md` (`@namzu/cli` patch).
+
 ## 2026-11-01
 
 - **Update** [namzu spaces (preview)](cli/spaces.md): quitting from the spaces screen now ends the terminal as a plain `namzu` does (the alternate screen is left and the history printed once before the final frame); the page no longer lists the missing end of the conversation as a limitation. `.changeset/spaces-tabs-panes.md` (`@namzu/cli` minor).
