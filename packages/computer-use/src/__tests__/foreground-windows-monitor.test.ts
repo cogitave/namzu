@@ -207,6 +207,12 @@ describe('the Windows input monitor', () => {
 			y: 20,
 		})
 		// The script sends text as a message and reads it back; it raises nothing for it.
+		// No focus window on a thread that is not active: the single edit control of the chosen
+		// window, only when no other window of the thread is active; a focus elsewhere never falls back.
+		expect(WINDOWS_HELPER_SCRIPT).toMatch(
+			/g\.act == IntPtr\.Zero \|\| g\.act == t\) && found\.Count == 1/,
+		)
+		expect(WINDOWS_HELPER_SCRIPT).toMatch(/Occ\(a, w\) > Occ\(b, w\)/)
 		expect(WINDOWS_HELPER_SCRIPT).toMatch(/0xC, IntPtr\.Zero, send/)
 		expect(WINDOWS_HELPER_SCRIPT).toMatch(/0xC2, \(IntPtr\)1, send/)
 		expect(WINDOWS_HELPER_SCRIPT).toMatch(/Marshal\.GetLastWin32Error\(\) == 5/)

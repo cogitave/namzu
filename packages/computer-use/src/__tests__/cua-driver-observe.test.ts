@@ -143,6 +143,30 @@ describe('verifying text sent to a classic edit control', () => {
 		expect(judgeEditBetween('cd', before, { text: 'ab', len: 4 })).toBeUndefined()
 	})
 
+	it('verifies keys typed one by one against the text so far', () => {
+		let text = ''
+		for (const key of ['a', 'b', 'c', 'a']) {
+			const next = `${text}${key}`
+			expect(
+				judgeEditBetween(key, { text, len: text.length }, { text: next, len: next.length }),
+			).toMatchObject({ delivery: 'delivered_verified' })
+			// The same key typed again into text that already has it counts only when the text gained one.
+			expect(
+				judgeEditBetween(key, { text: next, len: next.length }, { text: next, len: next.length }),
+			).toBeUndefined()
+			text = next
+		}
+		expect(text).toBe('abca')
+	})
+
+	it('verifies by length when both reads were cut and the text grew by what was typed', () => {
+		const cut = (len: number) => ({ text: 'x'.repeat(100), len })
+		expect(judgeEditBetween('abc', cut(70000), cut(70003))).toMatchObject({
+			delivery: 'delivered_verified',
+		})
+		expect(judgeEditBetween('abc', cut(70000), cut(70010))).toBeUndefined()
+	})
+
 	it('does not verify a control that already held the text and changed elsewhere', () => {
 		const before = { text: 'hello world', len: 11 }
 		expect(judgeEditBetween('hello', before, { text: 'hello world!!', len: 13 })).toBeUndefined()

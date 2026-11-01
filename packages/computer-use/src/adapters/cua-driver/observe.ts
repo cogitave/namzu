@@ -246,8 +246,18 @@ export function judgeEditBetween(
 	if (after.len === before.len && a === norm(before.text)) return undefined
 	// The text must occur more often than before: a change elsewhere in a control
 	// that already held it proves nothing, and a longer text alone is not evidence.
+	if (want === '') return undefined
+	// A read keeps only the start of a very long text: when both reads were cut, the
+	// length is all that is left to compare, and it must have grown by exactly the typed text.
+	const cut = after.len > after.text.length && before.len > before.text.length
+	if (cut && after.len - before.len === want.length)
+		return {
+			delivery: 'delivered_verified',
+			retrySafety: 'unsafe',
+			detail: 'The text control grew by the length of the text typed.',
+		}
 	const at = a.indexOf(want)
-	if (want === '' || at < 0) return undefined
+	if (at < 0) return undefined
 	if (countOf(a, want) <= countOf(norm(before.text), want)) return undefined
 	const from = Math.max(0, at - 40)
 	const seen = a.slice(from, from + want.length + 80)

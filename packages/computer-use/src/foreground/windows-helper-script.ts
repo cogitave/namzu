@@ -155,6 +155,13 @@ public static class NzG {
  public class EditRes { public bool Found; public string Reason = ""; public long Hwnd; public string Cls = ""; public bool Done; public long Len; public string Text = ""; public string Seen = ""; }
  static bool EditClass(string c) { return c == "Edit" || c.StartsWith("RichEdit", StringComparison.OrdinalIgnoreCase) || c.StartsWith("RICHEDIT", StringComparison.OrdinalIgnoreCase); }
  static string ClassOf(IntPtr h) { var sb = new StringBuilder(256); GetClassName(h, sb, 256); return sb.ToString(); }
+ // How many times a text occurs in another, without overlap: typing one letter after another is judged on the text so far.
+ static int Occ(string text, string want) {
+  if (want.Length == 0) return 0;
+  int n = 0, at = text.IndexOf(want, StringComparison.Ordinal);
+  while (at >= 0) { n++; at = text.IndexOf(want, at + want.Length, StringComparison.Ordinal); }
+  return n;
+ }
  static string Norm(string s) { return s.Replace("\r\n", "\n").Replace("\r", "\n"); }
  // The text of an edit control through WM_GETTEXT; null when it cannot be read.
  static string TextOf(IntPtr h, out string why) {
@@ -176,7 +183,15 @@ public static class NzG {
   if (pick == "focus") {
    var g = new GTI(); g.cb = Marshal.SizeOf(typeof(GTI));
    // Only a focus inside the chosen window counts: a dialog of the same thread is not it.
-   if (GetGUIThreadInfo(tid, ref g) && g.foc != IntPtr.Zero && (g.foc == t || IsChild(t, g.foc)) && EditClass(ClassOf(g.foc))) pickH = g.foc;
+   bool have = GetGUIThreadInfo(tid, ref g);
+   if (have && g.foc != IntPtr.Zero) {
+    if ((g.foc == t || IsChild(t, g.foc)) && EditClass(ClassOf(g.foc))) pickH = g.foc;
+   } else if (have && (g.act == IntPtr.Zero || g.act == t) && found.Count == 1) {
+    // A thread that is not the active one has no focus window at all. With no other active window of
+    // the thread (a dialog) and a single edit control in the chosen window, that control is the target.
+    // A focus on any other control, or on another window, never reaches here.
+    pickH = found[0];
+   }
   } else if (hasC) {
    foreach (var h in found) { RC rc; if (GetWindowRect(h, out rc) && cx >= rc.l && cx < rc.r && cy >= rc.t && cy < rc.b) { pickH = h; break; } }
   }
@@ -203,7 +218,7 @@ public static class NzG {
   if (after == null) { res.Reason = "unreadable"; return res; }
   res.Len = after.Length;
   string a = Norm(after), b = Norm(before), w = Norm(text);
-  res.Done = op == "set" ? a == w : (a != b && a.Contains(w));
+  res.Done = op == "set" ? a == w : (a != b && Occ(a, w) > Occ(b, w));
   int at = op == "type" ? a.IndexOf(w) : 0; if (at < 0) at = 0;
   int from = Math.Max(0, at - 40); res.Seen = a.Substring(from, Math.Min(a.Length - from, w.Length + 80));
   return res;
