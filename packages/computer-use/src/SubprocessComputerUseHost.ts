@@ -18,7 +18,13 @@ import type {
 import { type Adapter, AdapterUnavailableError } from './adapters/types.js'
 import type { Win32AdapterOptions } from './adapters/win32.js'
 import { detectDisplayServer } from './detect/index.js'
-import { ComputerUseOutcomeUnknownError } from './errors.js'
+import { ComputerUseOutcomeUnknownError, ComputerUseStoppedError } from './errors.js'
+import {
+	type ForegroundApprover,
+	type ForegroundLadder,
+	type LadderTiming,
+	createWindowsForegroundLadder,
+} from './foreground/index.js'
 import { SpawnError } from './util/spawn.js'
 
 const UNINITIALISED_CAPABILITIES: ComputerUseCapabilities = {
@@ -52,6 +58,26 @@ export interface SubprocessComputerUseHostOptions {
 	 * first use, with the PowerShell path as its fallback. See the README.
 	 */
 	readonly windows?: SubprocessComputerUseHostWindowsOptions
+	/**
+	 * The foreground ladder: how an action that can only be delivered in the
+	 * foreground uses the user's screen. On Windows it is on by default.
+	 */
+	readonly foreground?: SubprocessComputerUseHostForegroundOptions
+}
+
+export interface SubprocessComputerUseHostForegroundOptions {
+	/**
+	 * Asks the person, once, whether an application may use the screen for a
+	 * moment while they are busy. Absent (or answering `unavailable`), a run
+	 * with nobody to ask waits and retries within a bound instead.
+	 */
+	readonly approve?: ForegroundApprover
+	/** Names this session in the screen lease. */
+	readonly session?: string
+	/** Overrides for the thresholds and bounds; see `DEFAULT_TIMING`. */
+	readonly timing?: Partial<LadderTiming>
+	/** A ready ladder, instead of the one built for this machine. For tests. */
+	readonly ladder?: ForegroundLadder
 }
 
 export type SubprocessComputerUseHostWindowsOptions = Pick<
@@ -76,6 +102,7 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 	readonly id = 'subprocess-computer-use-host'
 	private _capabilities: ComputerUseCapabilities
 	private adapter: Adapter | null = null
+	private ladder: ForegroundLadder | undefined
 
 	constructor(private readonly options: SubprocessComputerUseHostOptions = {}) {
 		const displayServer = detectDisplayServer(options.env, options.platform)
@@ -83,6 +110,7 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 			...UNINITIALISED_CAPABILITIES,
 			displayServer,
 		})
+		this.ladder = options.foreground?.ladder
 		if (options.adapter) {
 			this.adapter = options.adapter
 			this._capabilities = options.adapter.capabilities
@@ -110,7 +138,16 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 	async initialize(): Promise<void> {
 		if (this.adapter) return
 		const displayServer = this._capabilities.displayServer
-		const adapter = await loadAdapter(displayServer, this.options)
+		if (!this.ladder && displayServer === 'win32') {
+			this.ladder = createWindowsForegroundLadder({
+				...(this.options.env !== undefined ? { env: this.options.env } : {}),
+				...(this.options.platform !== undefined ? { platform: this.options.platform } : {}),
+				...(this.options.foreground?.approve ? { approve: this.options.foreground.approve } : {}),
+				...(this.options.foreground?.session ? { session: this.options.foreground.session } : {}),
+				...(this.options.foreground?.timing ? { timing: this.options.foreground.timing } : {}),
+			})
+		}
+		const adapter = await loadAdapter(displayServer, this.options, this.ladder)
 		// Loading an adapter proves its tools exist on PATH, not that a desktop
 		// answers. A WSL process finds PowerShell and still may have no
 		// interactive Windows session to capture; an ssh session finds xdotool
@@ -241,9 +278,23 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 		const adapter = this.adapter
 		this.adapter = null
 		await adapter?.dispose?.()
+		await this.ladder?.dispose()
+	}
+
+	/**
+	 * The model's turn is making a tool call. A new turn lifts an Escape stop.
+	 */
+	beginTurn(turnId: string): void {
+		this.ladder?.beginTurn(turnId)
+	}
+
+	/** The turn ended or was interrupted: the input monitor and any lease are released. */
+	async endTurn(): Promise<void> {
+		await this.ladder?.endTurn()
 	}
 
 	private requireAdapter(): Adapter {
+		if (this.ladder?.stopped) throw new ComputerUseStoppedError()
 		if (!this.adapter) {
 			throw new Error(
 				'SubprocessComputerUseHost: adapter not initialised — call `await host.initialize()` first',
@@ -262,6 +313,7 @@ function unsupported(method: string, displayServer: string): Error {
 async function loadAdapter(
 	displayServer: ComputerUseCapabilities['displayServer'],
 	options: SubprocessComputerUseHostOptions,
+	ladder: ForegroundLadder | undefined,
 ): Promise<Adapter> {
 	switch (displayServer) {
 		case 'darwin': {
@@ -282,6 +334,7 @@ async function loadAdapter(
 				...options.windows,
 				...(options.env !== undefined ? { env: options.env } : {}),
 				...(options.platform !== undefined ? { platform: options.platform } : {}),
+				...(ladder ? { foreground: ladder } : {}),
 			})
 		}
 		case 'unknown':

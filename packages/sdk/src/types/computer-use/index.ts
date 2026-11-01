@@ -207,6 +207,15 @@ export interface FocusWindowResult {
 	readonly ok: boolean
 	/** The window in front after the attempt, or null when none could be read. */
 	readonly focusedId: string | null
+	/**
+	 * Set with `detail` when the host did not try at all (the screen was in
+	 * use, a prompt had it, the user said no). `not_delivered` / `safe` means
+	 * nothing was done and asking again later is fine.
+	 */
+	readonly delivery?: ActionDelivery
+	readonly retrySafety?: ActionRetrySafety
+	/** Why, in words the model can act on. */
+	readonly detail?: string
 }
 
 /**
@@ -425,6 +434,18 @@ export interface ComputerUseHost {
 	 * with {@link ComputerUseCapabilities.windows}.
 	 */
 	focusWindow?(id: string): Promise<FocusWindowResult>
+	/**
+	 * The model's turn `turnId` is making a tool call. A host that keeps state
+	 * per turn (an Escape stop, refused permissions) starts a new one when the
+	 * id changes.
+	 */
+	beginTurn?(turnId: string): void
+	/**
+	 * The model's turn ended or was interrupted. A host releases anything it
+	 * holds for the turn: a lease on the screen, an input monitor, a window it
+	 * moved forward.
+	 */
+	endTurn?(): void | Promise<void>
 	/** Capture a named window. Never silently replace a failed capture with the desktop. */
 	captureWindow?(id: string): Promise<WindowScreenshotResult>
 	/**

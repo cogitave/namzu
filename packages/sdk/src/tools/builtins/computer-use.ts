@@ -554,7 +554,7 @@ function buildDescription(
 		)
 	if (windowCaptureAvailable(host, caps))
 		lines.push(
-			`When the user names an application or window, ${available.includes('list_windows') ? 'use list_windows then screenshot {window_id}' : 'use screenshot {window_id} with a host-provided window id'} to capture pixels for that window. Its x/y are pixels of that window image; clicks, drags, typing and keys target that window. Window pointer input uses background delivery only; if a click or drag is refused, inspect a fresh image before any other action. ${caps.windowScroll === false ? `Window pixel scrolling is unavailable on this host; for a browser page use key PAGE_DOWN or ARROW_DOWN with delivery_mode:"foreground"${hostActionAvailable(caps, 'screenshot') ? ', or deliberately take a display screenshot for display scrolling' : ''}. ` : ''}To type into a browser field, first mouse_click its point in the window image, then type_text with delivery_mode:"foreground" if background text is unavailable. This may briefly bring the verified window to the front. For browser shortcuts such as CTRL+L, use key with delivery_mode:"foreground". A stale or moved window is refused; take a fresh window screenshot. ${hostActionAvailable(caps, 'screenshot') ? 'Plain screenshot still shows the display. ' : 'screenshot requires window_id on this host. '}Browser permission bubbles outside the window may be absent. If the window image is blank or shows another window, do not click it; focus the target and capture it again.`,
+			`When the user names an application or window, ${available.includes('list_windows') ? 'use list_windows then screenshot {window_id}' : 'use screenshot {window_id} with a host-provided window id'} to capture pixels for that window. Its x/y are pixels of that window image; clicks, drags, typing and keys target that window. Window pointer input uses background delivery only; if a click or drag is refused, inspect a fresh image before any other action. ${caps.windowScroll === false ? `Window pixel scrolling is unavailable on this host; for a browser page use key PAGE_DOWN or ARROW_DOWN with delivery_mode:"foreground"${hostActionAvailable(caps, 'screenshot') ? ', or deliberately take a display screenshot for display scrolling' : ''}. ` : ''}To type into a browser field, first mouse_click its point in the window image, then type_text with delivery_mode:"foreground" if background text is unavailable. This may briefly bring the verified window to the front: the host waits until the user has been still for a moment, puts their window back afterwards, and reports it as not delivered (safe to try again later) when the screen stays busy. A result that says the user pressed Escape means stop: end your turn and say what is left undone. For browser shortcuts such as CTRL+L, use key with delivery_mode:"foreground". A stale or moved window is refused; take a fresh window screenshot. ${hostActionAvailable(caps, 'screenshot') ? 'Plain screenshot still shows the display. ' : 'screenshot requires window_id on this host. '}Browser permission bubbles outside the window may be absent. If the window image is blank or shows another window, do not click it; focus the target and capture it again.`,
 		)
 	if (available.includes('ui_snapshot'))
 		lines.push(
@@ -1495,10 +1495,17 @@ export function createComputerUseTool(
 					} catch (error) {
 						throw new StepFailure(errorText(error))
 					}
+					if (!outcome.ok && outcome.delivery === 'not_delivered')
+						throw deliveryFailure({
+							delivery: outcome.delivery,
+							retrySafety: outcome.retrySafety ?? 'safe',
+							detail: outcome.detail,
+						})
 					if (!outcome.ok)
 						throw new StepFailure(
-							`window ${item.window_id} could not be brought to the front; ${outcome.focusedId ? `window ${outcome.focusedId} is in front` : 'the window in front could not be read'}`,
+							`window ${item.window_id} could not be brought to the front; ${outcome.focusedId ? `window ${outcome.focusedId} is in front` : 'the window in front could not be read'}${outcome.detail ? `. ${outcome.detail}` : ''}`,
 						)
+					if (outcome.detail) return { note: `done. ${outcome.detail}` }
 					return 'done'
 				})
 			case 'ui_act': {
@@ -2255,6 +2262,17 @@ export function createComputerUseTool(
 		async execute(input, context): Promise<ToolResult> {
 			const denied = refusal(input.type)
 			if (denied) return { success: false, output: '', error: denied }
+			// The host keeps per-turn state (an Escape stop, refused permissions); it
+			// is told which turn this is and released when the turn is cut short.
+			host.beginTurn?.(context.turnId)
+			if (host.endTurn) {
+				const release = () => void Promise.resolve(host.endTurn?.()).catch(() => undefined)
+				if (context.abortSignal.aborted) release()
+				else
+					context.abortSignal.addEventListener('abort', release, {
+						once: true,
+					})
+			}
 			try {
 				switch (input.type) {
 					case 'screenshot':

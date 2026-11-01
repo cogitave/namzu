@@ -135,6 +135,22 @@ release. How the tool shows them to the model is in
 The contract applies to any backend: a custom helper and a desktop driver
 both fit, and a host without optional methods is still a complete host.
 
+## Using the screen: turns and the foreground ladder
+
+A host that can only deliver some input in the foreground must not take the
+screen from a person who is using it. Two optional methods carry the turn to
+it: `beginTurn(turnId)` (called by the tool at the start of every call) and
+`endTurn()` (called when the turn finishes or is cut short). A host keeps per
+turn state with them: a stop the user asked for with Escape, permissions the
+user refused, and anything it holds (a lease on the screen, an input monitor).
+`FocusWindowResult` gains optional `delivery`, `retrySafety` and `detail`: a
+host that did not try at all (the screen was in use, a prompt had it, the user
+said no) answers `{ ok: false, delivery: 'not_delivered', retrySafety: 'safe',
+detail }`.
+
+`@namzu/computer-use` implements this on Windows; see
+[the foreground ladder](foreground-ladder.md).
+
 ## Windows driver session recovery
 
 The cua-driver backend uses an implicit session on its long-lived MCP

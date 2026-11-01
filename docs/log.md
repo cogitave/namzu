@@ -2,6 +2,8 @@
 
 ## 2026-11-01
 
+- **Creation** [The foreground ladder](sdk/foreground-ladder.md), with an update to [The computer-use host contract](sdk/computer-use-host.md#using-the-screen-turns-and-the-foreground-ladder): on Windows an action the background cannot deliver is retried in the foreground only through an idle gate (2 s of real input silence, measured), a cross-session screen lease, a watched burst, a conditional restore of the window and pointer, one question to the user, a bounded park where nobody can be asked, a sticky Escape stop and typed security refusals; the model is told when the screen was used. `FocusWindowResult` gains `delivery`, `retrySafety` and `detail`; `ComputerUseHost` gains optional `beginTurn` and `endTurn`. `.changeset/computer-use-foreground-ladder.md` (`@namzu/sdk` minor, `@namzu/computer-use` major, `@namzu/cli` minor).
+
 - **Update** [The computer_use tool](sdk/computer-actions.md#what-an-action-reports-about-itself) and [The computer-use host contract](sdk/computer-use-host.md): every action result is typed (`delivery`: `delivered_verified`, `delivered_unverified`, `not_delivered`; `retrySafety`: `safe`, `unsafe`); `set_value`, `toggle` and `select` are read back; a new `wait_for` action replaces fixed sleeps; the model-facing contract is tree-first; the adapter no longer reports a refused or unknown delivery as success. `.changeset/computer-use-typed-delivery.md` (`@namzu/sdk` minor, `@namzu/computer-use` minor).
 
 ## 2026-10-31

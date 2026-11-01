@@ -497,3 +497,60 @@ describe('wait_for', () => {
 		expect(result.error).toContain('cancelled')
 	})
 })
+
+describe('the screen and the turn', () => {
+	it('tells the host which turn each call belongs to, and releases it when the turn is cut short', async () => {
+		const begun: string[] = []
+		const ended: number[] = []
+		const base = makeHost().host
+		const host: ComputerUseHost = {
+			...base,
+			beginTurn: (id) => void begun.push(id),
+			endTurn: () => void ended.push(1),
+		}
+		const tool = createComputerUseTool(host, FAST)
+		const controller = new AbortController()
+		await run(tool, { type: 'list_windows' }, controller.signal)
+		expect(begun).toEqual(['4adf3fdd-2823-4640-be0a-5d21fe28b6d2'])
+		expect(ended).toEqual([])
+		controller.abort()
+		await Promise.resolve()
+		expect(ended).toEqual([1])
+	})
+
+	it('says nothing reached the window, and that trying again is safe, when the screen could not be had', async () => {
+		const base = makeHost().host
+		const host: ComputerUseHost = {
+			...base,
+			focusWindow: async () => ({
+				ok: false,
+				focusedId: null,
+				delivery: 'not_delivered',
+				retrySafety: 'safe',
+				detail:
+					'The user kept using the keyboard or mouse for 45 s, so the screen was not taken and nothing was sent.',
+			}),
+		}
+		const tool = createComputerUseTool(host, FAST)
+		const result = await run(tool, { type: 'focus_window', window_id: '0x10' })
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('nothing was sent')
+		expect(result.error).toContain('Not delivered')
+	})
+
+	it('adds what a focus did to the screen to the step when the host says so', async () => {
+		const base = makeHost().host
+		const host: ComputerUseHost = {
+			...base,
+			focusWindow: async (id) => ({
+				ok: true,
+				focusedId: id,
+				detail: 'The user used the keyboard while the screen was in use.',
+			}),
+		}
+		const tool = createComputerUseTool(host, FAST)
+		const result = await run(tool, { type: 'focus_window', window_id: '0x10' })
+		expect(result.success).toBe(true)
+		expect(text(result)).toContain('while the screen was in use')
+	})
+})

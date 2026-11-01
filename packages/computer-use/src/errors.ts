@@ -1,4 +1,5 @@
 import type { ComputerUseAction, ComputerUseOutcomeUnknown } from '@namzu/sdk'
+import { STOPPED_TEXT } from './foreground/ladder.js'
 import type { SpawnError } from './util/spawn.js'
 
 /**
@@ -23,5 +24,19 @@ export class ComputerUseOutcomeUnknownError extends Error implements ComputerUse
 		this.name = 'ComputerUseOutcomeUnknownError'
 		this.timedOut = failure.result.timedOut
 		this.exitCode = failure.result.exitCode
+	}
+}
+
+/**
+ * The user pressed Escape while the screen was in use. Every computer-use call
+ * for the rest of that turn fails with this fixed message, below the model, so
+ * it cannot be talked around.
+ */
+export class ComputerUseStoppedError extends Error {
+	readonly code = 'computer_use_stopped' as const
+
+	constructor() {
+		super(STOPPED_TEXT)
+		this.name = 'ComputerUseStoppedError'
 	}
 }

@@ -18,6 +18,9 @@ import type {
 	WindowInputResult,
 	WindowScreenshotResult,
 } from '@namzu/sdk'
+import { foregroundNote, interferenceNote } from '../../foreground/guard.js'
+import type { ForegroundLadder } from '../../foreground/ladder.js'
+import { BurstInterrupted } from '../../foreground/types.js'
 import type { Adapter } from '../types.js'
 import {
 	type McpProcessCallOptions,
@@ -63,6 +66,12 @@ export interface CuaDriverAdapterOptions {
 	readonly cwd?: string
 	/** For the backend label; the pinned version when it is the pinned build. */
 	readonly version?: string
+	/**
+	 * Where a window action that cannot be delivered in the background is
+	 * retried in the foreground: through the idle gate, the screen lease and a
+	 * restore. Absent, such an action is reported as not delivered.
+	 */
+	readonly foreground?: ForegroundLadder
 	/** For tests. */
 	readonly spawnProcess?: McpStdioClientOptions['spawnProcess']
 	readonly requestTimeoutMs?: number
@@ -123,6 +132,9 @@ export class CuaDriverAdapter implements Adapter {
 	private readonly client: McpStdioClient
 	/** Window id → owning pid, from the latest list; `bring_to_front` needs both. */
 	private readonly windowPids = new Map<string, number>()
+	/** Window id → application name, for naming the program a foreground burst is for. */
+	private readonly windowApps = new Map<string, string>()
+	private readonly foreground: ForegroundLadder | undefined
 	/** cua-driver's screenshot resize registry is per PID, so only this capture may drive input. */
 	private windowFrame: WindowCaptureFrame | undefined
 	/** Capture and scoped input must not race over cua-driver's per-PID resize ratio. */
@@ -138,6 +150,7 @@ export class CuaDriverAdapter implements Adapter {
 
 	constructor(options: CuaDriverAdapterOptions) {
 		this.backend = `cua-driver${options.version ? ` ${options.version}` : ''}`
+		this.foreground = options.foreground
 		this.client = new McpStdioClient({
 			command: options.executable,
 			args: ['mcp'],
@@ -269,7 +282,11 @@ export class CuaDriverAdapter implements Adapter {
 		)
 		const windows = toWindowInfos(listed.windows)
 		this.windowPids.clear()
-		for (const window of windows) this.windowPids.set(window.id, window.pid)
+		this.windowApps.clear()
+		for (const window of windows) {
+			this.windowPids.set(window.id, window.pid)
+			this.windowApps.set(window.id, window.app)
+		}
 		return windows
 	}
 
@@ -451,50 +468,110 @@ export class CuaDriverAdapter implements Adapter {
 				)
 			return this.callTool(name, { ...target, ...args }, undefined, undefined, undefined, frame)
 		}
+		// One window input: in the background first. A refusal that foreground
+		// delivery can cure (the window cannot take background input, or it is
+		// covered) is retried through the ladder; an explicit foreground request
+		// goes through it too. The result says which happened.
+		const send = async (
+			name: string,
+			args: Record<string, unknown>,
+		): Promise<WindowInputResult> => {
+			const subject = {
+				app: this.windowApps.get(frame.window.id) ?? frame.window.app,
+				pid: frame.window.pid,
+				hwnd: frame.window.id,
+			}
+			const inForeground = async (why: string): Promise<WindowInputResult> => {
+				const ladder = this.foreground as ForegroundLadder
+				const outcome = await ladder
+					.run({ subject }, async (burst) => {
+						await burst.checkpoint()
+						try {
+							return inputDelivery(await call(name, { ...args, delivery_mode: 'foreground' }))
+						} catch (error) {
+							if (isDeliveredPointerAction(error)) return foregroundLostDelivery()
+							if (error instanceof McpToolError) return failureDelivery(error)
+							throw error
+						}
+					})
+					.catch((error: unknown) => {
+						if (error instanceof BurstInterrupted) return undefined
+						throw error
+					})
+				if (!outcome)
+					return verdict(
+						'not_delivered',
+						'safe',
+						'a person used the keyboard or mouse just before the input was sent, so nothing was sent. Try again in a moment.',
+					)
+				if (outcome.kind === 'blocked')
+					return verdict('not_delivered', 'safe', outcome.block.detail)
+				const note = interferenceNote(outcome)
+				const base = outcome.value
+				if (note)
+					return verdict(
+						base.delivery === 'not_delivered' ? 'not_delivered' : 'delivered_unverified',
+						base.delivery === 'not_delivered' ? base.retrySafety : 'unsafe',
+						[base.detail, note].filter(Boolean).join(' '),
+					)
+				return {
+					...base,
+					detail: [base.detail, why === '' ? undefined : foregroundNote(outcome)]
+						.filter(Boolean)
+						.join(' '),
+				}
+			}
+			if (args.delivery_mode === 'foreground' && this.foreground) return inForeground('')
+			try {
+				return inputDelivery(await call(name, args))
+			} catch (error) {
+				if (error instanceof McpToolError && this.foreground && foregroundCures(error))
+					return inForeground('refused')
+				throw error
+			}
+		}
 		try {
 			switch (action.type) {
 				case 'mouse_click':
 					try {
-						return inputDelivery(
-							await call('click', { x: action.at.x, y: action.at.y, button: action.button }),
-						)
+						return await send('click', {
+							x: action.at.x,
+							y: action.at.y,
+							button: action.button,
+						})
 					} catch (error) {
 						if (isDeliveredPointerAction(error)) return foregroundLostDelivery()
 						throw error
 					}
 				case 'mouse_drag':
-					return inputDelivery(
-						await call('drag', {
-							from_x: action.from.x,
-							from_y: action.from.y,
-							to_x: action.to.x,
-							to_y: action.to.y,
-							button: action.button,
-							duration_ms: DRAG.durationMs,
-							steps: DRAG.steps,
-						}),
-					)
+					return await send('drag', {
+						from_x: action.from.x,
+						from_y: action.from.y,
+						to_x: action.to.x,
+						to_y: action.to.y,
+						button: action.button,
+						duration_ms: DRAG.durationMs,
+						steps: DRAG.steps,
+					})
 				case 'scroll':
 					throw new Error(
 						'computer-use: window pixel scrolling is unavailable on this Windows driver; use foreground PAGE_DOWN or ARROW_DOWN in this window, or take a deliberate display screenshot before display scrolling.',
 					)
 				case 'type_text': {
 					if (action.text.length === 0) return undefined
-					return inputDelivery(
-						await call('type_text', {
-							text: action.text,
-							...(action.delivery_mode ? { delivery_mode: action.delivery_mode } : {}),
-						}),
-					)
+					return await send('type_text', {
+						text: action.text,
+						...(action.delivery_mode ? { delivery_mode: action.delivery_mode } : {}),
+					})
 				}
 				case 'key': {
 					const plan = translateKeyForCuaDriver(action.keys)
 					const delivery = action.delivery_mode ? { delivery_mode: action.delivery_mode } : {}
 					if (plan.tool === 'type_text')
-						return inputDelivery(await call('type_text', { text: plan.text, ...delivery }))
+						return await send('type_text', { text: plan.text, ...delivery })
 					if (plan.tool === 'press_key')
-						return inputDelivery(await call('press_key', { key: plan.key, ...delivery }))
-					return inputDelivery(await call('hotkey', { keys: [...plan.keys], ...delivery }))
+						return await send('press_key', { key: plan.key, ...delivery })
+					return await send('hotkey', { keys: [...plan.keys], ...delivery })
 				}
 			}
 		} catch (error) {
@@ -653,14 +730,10 @@ export class CuaDriverAdapter implements Adapter {
 					// cua-driver's click on an element token performs the control's
 					// own pattern in the background (Invoke, or a posted click at its
 					// centre), with no pointer move and no change of foreground.
-					return actResult(
-						await this.callTool('click', { pid, element_token: token }, undefined, uiRef),
-					)
+					return await this.clickRef(facts, uiRef)
 				case 'toggle':
 				case 'select': {
-					const sent = actResult(
-						await this.callTool('click', { pid, element_token: token }, undefined, uiRef),
-					)
+					const sent = await this.clickRef(facts, uiRef)
 					if (!sent.ok) return sent
 					const back = await this.readBack(facts)
 					return action === 'toggle' ? judgeToggle(facts, back) : judgeSelect(facts, back)
@@ -708,6 +781,78 @@ export class CuaDriverAdapter implements Adapter {
 		} catch (error) {
 			if (error instanceof McpToolError) return failureResult(error)
 			throw error
+		}
+	}
+
+	/**
+	 * A click on a control by its driver token, in the background. Where the
+	 * driver says the window cannot take background input (or is covered) the
+	 * same click is retried in the foreground through the ladder.
+	 */
+	private async clickRef(
+		facts: UiRefEntry,
+		uiRef: { readonly ref: string; readonly facts: UiRefEntry },
+	): Promise<UiActResult> {
+		const { pid, token } = facts
+		try {
+			return actResult(
+				await this.callTool('click', { pid, element_token: token }, undefined, uiRef),
+			)
+		} catch (error) {
+			const ladder = this.foreground
+			if (!(error instanceof McpToolError) || !ladder || !foregroundCures(error)) throw error
+			const subject = {
+				app: this.windowApps.get(windowIdOf(facts.hwnd)) ?? `process ${pid}`,
+				pid,
+				hwnd: windowIdOf(facts.hwnd),
+			}
+			const outcome = await ladder
+				.run({ subject }, async (burst) => {
+					await burst.checkpoint()
+					try {
+						return actResult(
+							await this.callTool(
+								'click',
+								{ pid, element_token: token, delivery_mode: 'foreground' },
+								undefined,
+								uiRef,
+							),
+						)
+					} catch (inner) {
+						if (inner instanceof McpToolError) return failureResult(inner)
+						throw inner
+					}
+				})
+				.catch((inner: unknown) => {
+					if (inner instanceof BurstInterrupted) return undefined
+					throw inner
+				})
+			if (!outcome)
+				return {
+					ok: false,
+					delivery: 'not_delivered',
+					retrySafety: 'safe',
+					detail:
+						'a person used the keyboard or mouse just before the click was sent, so nothing was sent. Try again in a moment.',
+				}
+			if (outcome.kind === 'blocked')
+				return {
+					ok: false,
+					delivery: 'not_delivered',
+					retrySafety: 'safe',
+					detail: outcome.block.detail,
+				}
+			const note = interferenceNote(outcome)
+			const base = outcome.value
+			const detail = [base.detail, note ?? foregroundNote(outcome)].filter(Boolean).join(' ')
+			if (note && base.delivery !== 'not_delivered')
+				return {
+					...base,
+					delivery: 'delivered_unverified',
+					retrySafety: 'unsafe',
+					detail,
+				}
+			return { ...base, detail }
 		}
 	}
 
@@ -1027,6 +1172,12 @@ export function failureDelivery(error: McpToolError): WindowInputResult {
 			'that control is from an older UI snapshot; take a new one',
 		)
 	return verdict('not_delivered', 'safe', trimText(error.message, 300))
+}
+
+/** Refusals that a foreground delivery can cure. `uipi_blocked` is not one: it blocks foreground input too. */
+function foregroundCures(error: McpToolError): boolean {
+	const code = error.structuredContent?.code
+	return code === 'background_unavailable' || code === 'background_occluded'
 }
 
 function failureResult(error: McpToolError): UiActResult {

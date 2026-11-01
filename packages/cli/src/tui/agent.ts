@@ -213,6 +213,7 @@ import {
 } from '@namzu/sdk'
 
 import { SubprocessComputerUseHost } from '@namzu/computer-use'
+import { screenApprover } from './computer-use-screen-approval.js'
 
 import { realpath, stat } from 'node:fs/promises'
 import { join, parse, resolve } from 'node:path'
@@ -3248,6 +3249,9 @@ export async function createAgentSession(
 	// only a successfully initialised adapter earns a schema in the registry.
 	const capabilities = await probeCapabilities()
 	const computerUsePackage = capabilities.find((probe) => probe.specifier === '@namzu/computer-use')
+	// Who answers a question this turn; filled per turn. Read when computer use
+	// needs to ask whether it may use the screen, and when an MCP server asks.
+	const elicitationHost: { ask: QuestionFn | undefined } = { ask: undefined }
 	let computerUseHost: SubprocessComputerUseHost | undefined
 	let computerUseTool: ReturnType<typeof createComputerUseTool> | undefined
 	let computerUseError: Error | undefined
@@ -3287,7 +3291,9 @@ export async function createAgentSession(
 			),
 		)
 	} else if (options.enableComputerUse === true && computerUsePackage?.state === 'present') {
-		const candidate = new SubprocessComputerUseHost()
+		const candidate = new SubprocessComputerUseHost({
+			foreground: { approve: screenApprover(() => elicitationHost.ask) },
+		})
 		try {
 			await candidate.initialize()
 			computerUseTool = createComputerUseTool(candidate)
@@ -3414,7 +3420,6 @@ export async function createAgentSession(
 	// A server may ask the person for a form's worth of input. The turn's
 	// answerer is read when it asks (it can arrive before any turn has set one),
 	// and a session where nobody can answer never tells servers they may ask.
-	const elicitationHost: { ask: QuestionFn | undefined } = { ask: undefined }
 	const mcpStart = {
 		cwd,
 		...(options.askUser ? { elicit: elicitThroughQuestions(() => elicitationHost.ask) } : {}),
@@ -6505,6 +6510,8 @@ export async function createAgentSession(
 							}
 						}
 					} finally {
+						// The turn is over: the screen lease and the input monitor go with it.
+						void computerUseHost?.endTurn?.()
 						if (runManager !== manager) runManager.dispose()
 						liveModeControls.delete(modeControl)
 						recordedModes.set(String(turnScope.sessionId), modeControl.current())

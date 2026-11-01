@@ -161,8 +161,14 @@ describe('SubprocessComputerUseHost', () => {
 		await expect(host.initialize()).rejects.toThrow(
 			/handle is invalid \(cua-driver was not used: Could not download cua-driver: fetch failed\)/,
 		)
+		// The foreground ladder is added when this machine has a PowerShell to run
+		// its helper in; the rest is what the caller asked for.
 		expect(seenOptions).toEqual([
-			{ download: false, env: { WSL_DISTRO_NAME: 'archlinux' }, platform: 'linux' },
+			expect.objectContaining({
+				download: false,
+				env: { WSL_DISTRO_NAME: 'archlinux' },
+				platform: 'linux',
+			}),
 		])
 		vi.doUnmock('../adapters/win32.js')
 	})

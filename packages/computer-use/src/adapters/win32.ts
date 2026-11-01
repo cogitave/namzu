@@ -1,3 +1,5 @@
+import { guardForeground } from '../foreground/guard.js'
+import type { ForegroundLadder } from '../foreground/ladder.js'
 import { CuaDriverAdapter } from './cua-driver/adapter.js'
 import {
 	CUA_DRIVER_RELEASE,
@@ -29,6 +31,12 @@ export interface Win32AdapterOptions {
 	readonly download?: boolean
 	readonly env?: NodeJS.ProcessEnv
 	readonly platform?: NodeJS.Platform
+	/**
+	 * Where input that can only be delivered in the foreground goes: through
+	 * the idle gate, the screen lease and a restore. Absent, display input and
+	 * `focusWindow` act at once, as before.
+	 */
+	readonly foreground?: ForegroundLadder
 	/** For tests. */
 	readonly wslProbes?: WslProbes
 	/** For tests. */
@@ -87,8 +95,18 @@ export class Win32Adapter {
 		const probes = options.wslProbes ?? realWslProbes
 		const configured = fromEnvironment(env)
 		const backend: Win32Backend = options.backend ?? (configured.off ? 'powershell' : 'auto')
-		const powershell = (fallbackReason?: string) =>
-			Win32PowerShellAdapter.create({ env, platform, wslProbes: probes, fallbackReason })
+		const ladder = options.foreground
+		const guard = (adapter: Adapter): Adapter =>
+			ladder ? guardForeground(adapter, ladder) : adapter
+		const powershell = async (fallbackReason?: string) =>
+			guard(
+				await Win32PowerShellAdapter.create({
+					env,
+					platform,
+					wslProbes: probes,
+					fallbackReason,
+				}),
+			)
 		if (backend === 'powershell') return powershell()
 
 		const cuaDriverPath = options.cuaDriverPath ?? configured.path
@@ -106,13 +124,14 @@ export class Win32Adapter {
 				executable: resolved.path,
 				env: cuaDriverEnvironment(env, wsl, probes),
 				...(resolved.source === 'configured' ? {} : { version: CUA_DRIVER_RELEASE.version }),
+				...(ladder ? { foreground: ladder } : {}),
 			}
 			adapter = options.createCuaDriverAdapter
 				? options.createCuaDriverAdapter(adapterOptions)
 				: new CuaDriverAdapter(adapterOptions)
 			// Starts the driver and proves it reaches the desktop.
 			await adapter.getDisplayGeometry()
-			return adapter
+			return guard(adapter)
 		} catch (error) {
 			await adapter?.dispose?.().catch(() => undefined)
 			const reason = error instanceof Error ? error.message : String(error)
