@@ -11,3 +11,4 @@ Workflow scripts launched through the `workflow` tool are now deterministic, so 
 - A resume goes through the same review as a start and shows which run it continues, what it can reuse and whether the script was edited.
 - A run's journal is chained and signed with a key in `~/.namzu/workflow-journal.key`; a run written before this release cannot be resumed (run it again from the start).
 - When a conversation is opened again, runs a previous process left unfinished are marked stopped and the model is told once how to resume each (it is not woken for it); `/workflows` shows the pass and the saved results of a resumed run, and `r` on a run that is not going asks the model to resume it.
+- A saved script approved in the review is refused if its file changed before the run started, and a run whose journal was signed with another key than this machine's is named with that reason instead of being skipped.

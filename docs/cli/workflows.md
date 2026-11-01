@@ -326,15 +326,28 @@ in one line, and told to the model once with its next turn (it never wakes an id
 model): how many agents had saved results, how many had not finished, and the
 `workflow({scriptPath, resumeFromRunId})` call that picks it up. The notice is
 kept on disk until a turn has delivered it, so quitting before then does not lose
-it, and it is never repeated. More than 20 such runs are announced as one message.
-Runs you stopped, runs that ended and runs of other conversations are not
-announced.
+it. It is told once per pass: if you resume the run and that pass is cut off too,
+the new pass is announced again, and a notice for a pass you have since resumed is
+dropped. More than 20 such runs are announced as one message that names 20 of
+them; the others are told with the next turn. A run whose journal was signed with
+a different key than this machine has now (the key file was replaced or cannot be
+read) is named with that reason, since none of its results can be trusted. Runs you
+stopped, runs that ended and runs of other conversations are not announced.
 
 **Integrity.** The chain and the signature find a journal that was damaged,
 edited, reordered or cut short; a record that fails the check is not used, and the
 agents behind it run again. They do not protect against someone who can both
 rewrite the whole journal and read the key file, and they assume one Namzu process
-works in a conversation at a time.
+works in a conversation at a time. The key lives outside the folders the file-editing
+tools write in, but Namzu runs on your machine by default, so a shell command the
+model runs can read it like any other file of yours: the signature catches damage
+and edits made with the file tools, not a hostile shell.
+
+**What is reviewed is what runs.** When a resume or a start names a saved script by
+`scriptPath`, the review shows the file's text at that moment and remembers its hash.
+If the file reads differently when the run starts (something wrote it after you
+approved), the run is refused and the model is told to call again so the current
+text is reviewed. An approval you gave once is never carried to a different text.
 
 ## Configuration
 

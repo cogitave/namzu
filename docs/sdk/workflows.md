@@ -238,7 +238,11 @@ folder a tool writes in) each line also carries a `mac`. One writer per file
 serves the whole process, writes `run_started`, `run_finished` and saved
 results with `fsync`, and drops a late record after a pass's `run_finished`
 until the next pass starts. It assumes one process writes a given file at a
-time.
+time. `read()` takes the run id from `options.runId`, else from the file's first
+`run_started`, else from the folder's parent name, so a journal in a folder of
+your own choosing reads back whole. Each saved result is at most
+`limits.maxValueBytes` (1 MiB by default); `read()` loads the whole file, so
+read journals of very long runs off the interactive path.
 
 ## Resuming a run
 
@@ -267,12 +271,16 @@ failed, was skipped, or was asked for again without finishing; from that call
 on, in every branch of the script, agents run again. Calls that were queued or
 running when the run was stopped, and agents cut off by a stop, a closed
 session or the token budget, are recorded as `interrupted`: they run again but
-do not end reuse. Editing a call changes its key, so an edit ends reuse at that
+do not end reuse. So does a call that was asked for and has no recorded outcome
+at all (it was queued, or running when the process was killed): it runs, and
+later calls with a saved result still return it. Only a call that failed, was
+skipped or is new ends reuse. Editing a call changes its key, so an edit ends reuse at that
 point. Parallel and pipeline slots start in slot order, so reuse is decided in
 that order.
 
 The chain finds a line that was edited, removed, swapped or inserted (the next
-line no longer chains), and a last line cut off mid-write (ignored). It cannot
+line no longer chains), and a last line cut off mid-write (ignored; one that is
+whole JSON and only lacks its newline is read like any other line). It cannot
 see an edit to the final line, or a rewrite of the whole file, without `key`;
 with `key`, anyone without the secret cannot make a line verify. A pass picks
 the chain up again at the last trusted line, so a damaged region is reported
