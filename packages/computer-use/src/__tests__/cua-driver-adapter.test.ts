@@ -813,7 +813,7 @@ describe('cua-driver window records', () => {
 				window_id: 1,
 				pid: 1,
 				app_name: 'cua-driver.exe',
-				title: 'Cua.AgentCursorOverlay.default',
+				title: 'Overlay.default',
 				bounds: { x: 0, y: 0, width: 3440, height: 1440 },
 				z_index: 9,
 			},

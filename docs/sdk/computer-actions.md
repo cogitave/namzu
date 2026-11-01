@@ -255,7 +255,10 @@ which of three things is known, and `data.steps[]` carries the same as
 The driver cannot confirm a background input, so the host also reads the
 window before and after it and judges by what the window shows. Typed text is
 verified when that text (folded for case, spaces and operator glyphs, so `7*6=`
-matches `7 × 6=`) is now shown where it was not; a press or a key is verified
+matches `7 × 6=`) is shown more often than before; a text of under three
+characters counts only when the window shows it as a text of its own, and a
+classic edit control must hold the text more often than before (a change
+elsewhere in it, or growth alone, is not evidence); a press or a key is verified
 when the window changed after it and then held still, and was not changing by
 itself before it. The evidence is the read-back (`reads "…"`). A change that does
 not show the typed text, an unchanged window, or a window that changes by itself

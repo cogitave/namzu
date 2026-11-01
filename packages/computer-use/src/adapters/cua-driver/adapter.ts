@@ -159,15 +159,14 @@ const DRAG = { durationMs: 250, steps: 12 } as const
 /**
  * Switches the driver's own animated cursor off for the session (Namzu draws
  * its own, and two cursors are never shown). The driver keeps an empty,
- * fully transparent, click-through window of class `Cua.AgentCursorOverlay`
- * either way; with the cursor off it draws nothing into it. Returns whether
+ * fully transparent, click-through overlay window either way; with the cursor off it draws nothing into it. Returns whether
  * the driver confirmed it: a build without the tool still works, only slower,
  * and then Namzu shows no cursor of its own (see `tryPresence`).
  */
 async function disableAgentCursor(call: McpToolCaller): Promise<boolean> {
 	try {
 		const result = await call('set_agent_cursor_enabled', { enabled: false })
-		return result.structuredContent?.enabled !== true
+		return result.structuredContent?.enabled === false
 	} catch {
 		return false
 	}

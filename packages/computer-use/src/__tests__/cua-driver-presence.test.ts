@@ -68,6 +68,8 @@ function driver(presence: Presence) {
 					)
 				case 'click':
 					return toolResult({ effect: 'unverifiable', delivery: { mode: 'background' } })
+				case 'set_agent_cursor_enabled':
+					return toolResult({ enabled: false })
 				default:
 					return toolResult({})
 			}

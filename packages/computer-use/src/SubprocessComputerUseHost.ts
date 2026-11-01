@@ -433,7 +433,7 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 				return await run()
 			} catch (error) {
 				if (!(error instanceof CallAbortedError)) throw error
-				if (!onAbort) throw new Error('cancelled')
+				if (!onAbort) throw error
 				return onAbort(scope.sent || error.sent)
 			}
 		})
@@ -442,7 +442,11 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 	/** True when the computer is known to be locked; false when it is not or cannot be told. */
 	private async locked(): Promise<boolean> {
 		if (!this.ladder) return false
-		return (await this.ladder.lockState().catch(() => null)) === 'locked'
+		const state = await this.ladder.lockState().catch((error: unknown) => {
+			if (error instanceof CallAbortedError) throw error
+			return null
+		})
+		return state === 'locked'
 	}
 
 	private async refuseWhenLocked(): Promise<void> {

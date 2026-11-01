@@ -221,7 +221,7 @@ whatever the display scaling, and a helper that ends mid-session is started
 again by the next action, up to three times.
 
 Only one cursor is ever shown. The desktop driver draws a cursor of its own
-(an animated arrow in a full-screen window of class `Cua.AgentCursorOverlay`).
+(an animated arrow in a full-screen overlay window).
 The adapter switches it off for its session when the driver starts and again
 after a session is revived (`set_agent_cursor_enabled` with `enabled: false`; the
 driver confirms it and `get_agent_cursor_state` reports `enabled: false`). The

@@ -52,3 +52,22 @@ export function markSent(): void {
 	const own = scope.getStore()
 	if (own) own.sent = true
 }
+
+/**
+ * Waits for `work`, but no longer than the call being served lives: when its
+ * signal aborts first, rejects with `CallAbortedError` (nothing was sent). The
+ * work itself is left to finish on its own.
+ */
+export function abortable<T>(name: string, work: Promise<T>): Promise<T> {
+	const signal = currentCallSignal()
+	if (!signal) return work
+	if (signal.aborted) {
+		work.catch(() => undefined)
+		return Promise.reject(new CallAbortedError(name, false))
+	}
+	return new Promise<T>((resolve, reject) => {
+		const onAbort = (): void => reject(new CallAbortedError(name, false))
+		signal.addEventListener('abort', onAbort, { once: true })
+		work.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort))
+	})
+}

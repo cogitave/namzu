@@ -84,7 +84,10 @@ The same helper also reads and writes classic Win32 edit and rich-edit controls
 by window message, which needs neither focus nor the screen and so does not use
 the ladder, the lease or the idle gate. `set_value` on such a control (the driver
 reports no value pattern for it) sends `WM_SETTEXT`, and `type_text` into a
-window whose focused control is one sends `EM_REPLACESEL` at the caret; both are
+window whose focused control is one sends `EM_REPLACESEL` at the caret; the
+focused control counts only when it lies inside the window that was chosen (a
+dialog of the same program does not), and a focus that is not an edit control is
+not replaced by a lone edit control elsewhere in the window. Both are
 read back with `WM_GETTEXT`. A program running with higher rights refuses the
 message (UIPI): that is `not_delivered` with the reason, and the model is told to
 ask the user. A read-only control is `not_delivered`; a program that does not
@@ -131,18 +134,22 @@ high 0x3000, system 0x4000):
 2. **After the burst.** A burst declared as sending input (`sendsInput`) records
    the system's last-input tick (`GetLastInputInfo`) right after the raise, and
    compares it at `end`. A tick that did not move while nobody else typed means
-   Windows dropped the input: the outcome carries `inputLanded: false` and a
-   plain reason, and the action is `not_delivered` with `retrySafety: safe`
-   ("An administrator window is in front; Namzu cannot type into it." when the
-   front window is above us, "Windows dropped the input before it reached any
-   window." otherwise). The unlock tap the helper sends before a raise is taken
+   Windows dropped the input only when a window above us was positively read to
+   be in front at the end (`frontElevated`; an unreadable window is not a yes):
+   the outcome then carries `inputLanded: false` and the action is
+   `not_delivered` with `retrySafety: safe` ("An administrator window is in
+   front; Namzu cannot type into it."). Otherwise a tick that did not move proves
+   nothing, because input delivered as posted messages does not move it, and no
+   claim is made. The unlock tap the helper sends before a raise is taken
    before the tick is read, so it does not count.
 
 The low-level hooks that watch for a person see nothing typed into a window
 above the helper's level, so the in-burst guard cannot tell a person there from
 silence. Each `checkpoint` therefore also stops the burst
 (`BurstInterrupted('administrator_window')`) when such a window has come to the
-front; the next step is not sent.
+front; the next step is not sent. Only a window whose integrity level was read
+and is above ours counts: no front window, or one that cannot be read, never
+stops a burst.
 
 ## The question
 
