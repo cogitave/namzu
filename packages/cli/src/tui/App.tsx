@@ -23,7 +23,6 @@ import {
 	type CostInfo,
 	DEFAULT_MAX_GOAL_ROUNDS,
 	DiskMessageFeedbackStore,
-	GoalRoundLimitError,
 	HostCommandRegistry,
 	MONITOR_TOOL_NAME,
 	type MemoryType,
@@ -36,7 +35,6 @@ import {
 	type SessionGoal,
 	SessionGoalActivation,
 	type SessionId,
-	StaleGoalError,
 	TurnCancelled,
 	type TurnId,
 	asSessionId,
@@ -228,6 +226,7 @@ import {
 import { sandboxRunsShellUnasked } from '../permissions/sandbox-shell.js'
 import { type SessionAllow, allowsFor, sameAllow } from '../permissions/session-allow.js'
 import { type RoundGateFacts, admissionBlocked } from '../rounds/gates.js'
+import { admitGoalRound } from '../rounds/goal-admission.js'
 import { RoundQueue } from '../rounds/queue.js'
 import {
 	type QueuePause,
@@ -237,7 +236,6 @@ import {
 	type HumanQueuedPrompt as RoundHumanQueuedPrompt,
 	type LiveInput as RoundLiveInput,
 	type QueuedPrompt as RoundQueuedPrompt,
-	goalRoundPrompt,
 	humanPromptMeta,
 	isRecallableHumanPrompt,
 	mergeUndeliveredLiveInput,
@@ -13631,77 +13629,39 @@ function AppBody({
 		goalDriveInFlightRef.current = true
 		void (async () => {
 			try {
-				await persistenceTailRef.current
-				if (
-					conversationGenRef.current !== generation ||
-					scopeRef.current?.sessionId !== sessionId ||
-					state !== 'idle' ||
-					abortRef.current ||
-					hasUnsettledTurn(generation) ||
-					pendingModelSwitchRef.current ||
-					conversationMutationRef.current ||
-					exportingRef.current ||
-					compactingRef.current ||
-					textPromptRef.current ||
-					choicePickerRef.current ||
-					copyPickerRef.current ||
-					goalCommandInFlightRef.current ||
-					roundQueueRef.current.items().length > 0 ||
-					!goalActivation.isArmed(sessionId, armed)
-				) {
-					return
-				}
-
-				const current = await durableSessions.goals.getGoal(sessionId, durableSessions.tenantId)
-				if (
-					!current ||
-					current.phase !== 'active' ||
-					current.id !== armed.id ||
-					current.revision !== armed.revision
-				) {
-					goalActivation.disarm(sessionId, armed)
-					return
-				}
-
-				const authority = await durableSessions.goals.admitRound(
+				const admission = await admitGoalRound<TriggerId>({
+					goals: durableSessions.goals,
+					tenantId: durableSessions.tenantId,
 					sessionId,
-					durableSessions.tenantId,
-					armed,
-				)
-				// Human input may have entered or even started while admission was on
-				// disk; keep it. The goal round appends after that FIFO. A conversation
-				// or goal command is different: it revoked this scheduling boundary.
-				if (
-					conversationGenRef.current !== generation ||
-					scopeRef.current?.sessionId !== sessionId ||
-					pendingModelSwitchRef.current ||
-					conversationMutationRef.current ||
-					goalCommandInFlightRef.current ||
-					!goalActivation.isArmed(sessionId, armed)
-				) {
-					goalActivation.disarm(sessionId, armed)
-					return
-				}
-				goalActivation.arm(authority)
-				enqueueQueued({
-					kind: 'goal',
-					text: goalRoundPrompt(authority),
-					goalRound: authority,
 					generation,
+					activation: goalActivation,
+					armed,
+					persistenceTail: () => persistenceTailRef.current,
+					boundaryChanged: () =>
+						conversationGenRef.current !== generation ||
+						scopeRef.current?.sessionId !== sessionId ||
+						state !== 'idle' ||
+						Boolean(abortRef.current) ||
+						hasUnsettledTurn(generation) ||
+						Boolean(pendingModelSwitchRef.current) ||
+						Boolean(conversationMutationRef.current) ||
+						Boolean(exportingRef.current) ||
+						compactingRef.current ||
+						Boolean(textPromptRef.current) ||
+						Boolean(choicePickerRef.current) ||
+						Boolean(copyPickerRef.current) ||
+						Boolean(goalCommandInFlightRef.current) ||
+						roundQueueRef.current.items().length > 0,
+					revokedMeanwhile: () =>
+						conversationGenRef.current !== generation ||
+						scopeRef.current?.sessionId !== sessionId ||
+						Boolean(pendingModelSwitchRef.current) ||
+						Boolean(conversationMutationRef.current) ||
+						Boolean(goalCommandInFlightRef.current),
+					explainFailure: (error) => explainFailure(error, 'Automatic goal continuation stopped.'),
 				})
-			} catch (error) {
-				goalActivation.disarm(sessionId, armed)
-				if (error instanceof GoalRoundLimitError) {
-					pushMessage(
-						'system',
-						`Goal blocked after ${error.goal.roundsAdmitted} admitted round${error.goal.roundsAdmitted === 1 ? '' : 's'}: ${error.goal.blockedReason?.message ?? 'the round limit was reached'}`,
-					)
-				} else if (!(error instanceof StaleGoalError)) {
-					pushMessage(
-						'system',
-						`${explainFailure(error, 'Automatic goal continuation stopped.')} Run /goal resume to try again.`,
-					)
-				}
+				if (admission.kind === 'admitted') enqueueQueued(admission.round)
+				else if (admission.kind !== 'none') pushMessage('system', admission.message)
 			} finally {
 				goalDriveInFlightRef.current = false
 				wakeGoalDriver()
