@@ -267,9 +267,9 @@ describe('parallel and pipeline', () => {
 		expect(result.error).toContain('agent(prompt, options?): the prompt must be a non-empty string')
 	})
 
-	it('parallel re-throws a host-rejected request (unknown option, bad schema)', async () => {
+	it('parallel re-throws a host-rejected request (bad schema)', async () => {
 		const host = makeHost()
-		for (const bad of ["{ lable: 'x' }", "{ schema: 'string' }"]) {
+		for (const bad of ["{ schema: 'string' }"]) {
 			const { result } = await runScript(
 				`${META}return await parallel([() => agent('a', ${bad})])`,
 				{ host },
@@ -282,11 +282,24 @@ describe('parallel and pipeline', () => {
 	it('pipeline re-throws a misused hook in a stage', async () => {
 		const host = makeHost()
 		const { result } = await runScript(
-			`${META}return await pipeline([1, 2], (x) => agent('s' + x, { lable: 'x' }))`,
+			`${META}return await pipeline([1, 2], (x) => agent(x))`,
 			{ host },
 		)
 		expect(result.status).toBe('failed')
-		expect(result.error).toContain('unknown option "lable"')
+		expect(result.error).toContain('the prompt must be a non-empty string')
+	})
+
+	it('keeps running a script that misspells an option, and says the option was ignored', async () => {
+		const host = makeHost()
+		const { result, events } = await runScript(
+			`${META}return await parallel([() => agent('a', { lable: 'x' })])`,
+			{ host },
+		)
+		expect(result.status).toBe('completed')
+		const logs = events
+			.filter((e) => e.type === 'workflow_log')
+			.map((e) => (e as { message: string }).message)
+		expect(logs.join('\n')).toContain('ignoring unknown option "lable"')
 	})
 
 	it('still maps a failed child and a thrown script error to null', async () => {

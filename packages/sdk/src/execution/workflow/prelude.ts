@@ -70,7 +70,9 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 		}
 		var unknown = Object.keys(o).filter(function (k) { return optionNames.indexOf(k) < 0; });
 		if (unknown.length > 0) {
-			throw misuse('agent(prompt, options?): unknown option "' + unknown[0] + '"; the options are ' + optionNames.join(', ') + '.');
+			// Ignored, as it always was, but no longer silently: a saved script that
+			// misspells an option keeps running and the line says why it had no effect.
+			log('agent(prompt, options?): ignoring unknown option "' + unknown[0] + '"; the options are ' + optionNames.join(', ') + '.');
 		}
 		if (overBudget()) throw budgetError();
 		var request = { prompt: prompt, cursor: cursor };
