@@ -1796,7 +1796,7 @@ function ModelStepView({
 				{otherProviders.length > 0 ? (
 					<Box minWidth={0} flexShrink={1}>
 						<Text color={theme.text.muted} wrap="truncate-end">
-							{' · '}
+							{' · others: '}
 							{otherProviders.slice(0, 2).map(terminalDisplayText).join(' / ')}
 							{otherProviders.length > 2 ? ` / +${otherProviders.length - 2} more` : ''}
 						</Text>

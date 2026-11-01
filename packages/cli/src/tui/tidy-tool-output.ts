@@ -206,8 +206,12 @@ export function unknownToolNotice(result: string): string | undefined {
 /** The short row for a call whose arguments did not fit the tool's schema; the full text is in the detailed transcript. */
 export const INVALID_PARAMETERS = 'Invalid tool parameters'
 
+/** What the transcript says under a call the person stopped with Ctrl+C instead of answering it. */
+export const STOPPED_BY_YOU_LINE = 'You stopped this, so it did not run.'
+
 /** What the transcript says under a call the person answered No to. */
-export function declinedLine(note: string | undefined): string {
+export function declinedLine(note: string | undefined, stopped = false): string {
+	if (stopped) return STOPPED_BY_YOU_LINE
 	const said = note?.replace(/\s+/g, ' ').trim()
 	return said
 		? `You declined this, so it did not run. You said: “${said}”`

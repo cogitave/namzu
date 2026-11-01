@@ -73,6 +73,8 @@ export interface ToolEndContext {
 	readonly hasPlan: boolean
 	/** The working folder, to find where a refused edit would have landed. */
 	readonly cwd?: string
+	/** The person stopped the turn at this call's question; it was not answered No. */
+	readonly stoppedByPerson?: boolean
 }
 
 /** Tools headed under another name: an edit is an `Update`. */
@@ -300,7 +302,7 @@ export function toolEndRows(
 			},
 			{
 				role: 'tool',
-				content: declinedLine(event.declined.note),
+				content: declinedLine(event.declined.note, ctx.stoppedByPerson === true),
 				glyph: '⎿',
 				...(refused ? { detail: refused.rows, diff: refused.diff } : {}),
 			},

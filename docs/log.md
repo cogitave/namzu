@@ -2,6 +2,7 @@
 
 ## 2026-10-31
 
+- **Update** [Terminal design](cli/terminal-design.md): the model picker names the other providers after `p change provider`; the context meter uses the window compaction measures against; a permission question settles the reads above it and Ctrl+C there is recorded as a stop, not a No; the auto-mode note is a footer notice; the resume picker tells same-titled conversations apart. `.changeset/terminal-state-labels.md` (`@namzu/cli` patch).
 - **Update** [Headless stream](cli/exec-json.md): events of an `exec --json` run without `--session` that carry a `sessionId` now also carry `resumable: false` (the run is not kept, so the id cannot be resumed); that `sessionId` is deprecated and will be removed in a future major. `--session <id>` with the id of a conversation in this folder opens that conversation, and an id from another folder is refused naming `--resume`. `.changeset/exec-json-truthful-session-id.md` (`@namzu/cli` minor).
 - **Update** [Tool result screening](sdk/tool-result-screening.md): a `halt` verdict now ends the turn instead of reaching the model as a failed tool result. `.changeset/halt-verdict-is-terminal.md` (`@namzu/sdk` patch).
 
