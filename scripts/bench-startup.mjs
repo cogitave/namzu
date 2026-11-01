@@ -568,6 +568,8 @@ async function resumeRun(model, home, project, sessionId) {
 }
 
 function med(xs) {
+	// A sample that could not be taken (no CPU clock off Linux) makes the metric not measurable.
+	if (xs.some((x) => x === null || x === undefined)) return null
 	return summarize(xs)?.median ?? null
 }
 

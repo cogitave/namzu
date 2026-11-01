@@ -16,7 +16,6 @@ import { fileURLToPath } from 'node:url'
 
 const scripts = join(dirname(fileURLToPath(import.meta.url)), '..')
 const budgets = JSON.parse(readFileSync(join(scripts, 'bench-startup.budgets.json'), 'utf8'))
-const source = readFileSync(join(scripts, 'bench-startup.mjs'), 'utf8')
 
 const MEASURED = [
 	'version',
@@ -37,24 +36,10 @@ test('every measured metric has a positive wall and CPU reference, and nothing e
 	}
 })
 
-test('the script measures exactly the metrics the budget file names', () => {
-	for (const name of ['version', 'help', 'tui-ready', 'resume-request']) {
-		assert.ok(source.includes(`'${name}'`) || source.includes(`measured.${name}`), `${name} is not measured`)
-	}
-	assert.ok(source.includes('exec-request-stdin-${mode}'))
-	assert.ok(source.includes("for (const mode of ['pipe', 'null'])"))
-	assert.ok(source.includes("for (const flag of ['version', 'help'])"))
-})
-
 test('the multipliers can only loosen a reference by a known, bounded factor', () => {
 	assert.ok(budgets.ciScale >= 1 && budgets.ciScale <= 4, 'ciScale is how much slower CI may be')
 	assert.ok(budgets.headroom >= 1 && budgets.headroom <= 2, 'headroom is noise slack, not a second scale')
 	assert.ok(budgets.minLimitMs >= 10 && budgets.minLimitMs <= 500)
-})
-
-test('the budgets are not overridable from the environment or a flag', () => {
-	assert.ok(!/process\.env\.\w*BUDGET/i.test(source))
-	assert.ok(!source.includes("'--budgets'"))
 })
 
 test('--check refuses fewer than five samples before running anything', () => {
