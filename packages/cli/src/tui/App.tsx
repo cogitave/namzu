@@ -227,6 +227,7 @@ import {
 } from '../permissions/mode.js'
 import { sandboxRunsShellUnasked } from '../permissions/sandbox-shell.js'
 import { type SessionAllow, allowsFor, sameAllow } from '../permissions/session-allow.js'
+import { type RoundGateFacts, admissionBlocked } from '../rounds/gates.js'
 import { RoundQueue } from '../rounds/queue.js'
 import {
 	type QueuePause,
@@ -13611,6 +13612,31 @@ function AppBody({
 		}
 	}, [state])
 
+	/**
+	 * What the four automatic starters (queue pump, goal driver, peer mail, wake
+	 * notice) check before they may start a turn, read at this instant. The rules
+	 * that combine them live in `rounds/gates.ts`.
+	 */
+	const roundGateFacts = (): RoundGateFacts => ({
+		idle: state === 'idle',
+		ready: phase === 'ready',
+		hasProvider: session?.hasProvider === true,
+		turnRunning: Boolean(abortRef.current),
+		unsettledTurn: hasUnsettledTurn(),
+		pendingModelSwitch: Boolean(pendingModelSwitchRef.current),
+		conversationMutation: Boolean(conversationMutationRef.current),
+		exporting: Boolean(exportingRef.current),
+		compacting: Boolean(compactingRef.current),
+		textPrompt: Boolean(textPromptRef.current),
+		choicePicker: Boolean(choicePickerRef.current),
+		copyPicker: Boolean(copyPickerRef.current),
+		goalCommandInFlight: Boolean(goalCommandInFlightRef.current),
+		goalAdmissionInFlight: Boolean(goalDriveInFlightRef.current),
+		queueLength: roundQueueRef.current.items().length,
+		queuePaused: roundQueueRef.current.pause() !== null,
+		noticeQueued: roundQueueRef.current.items().some((prompt) => prompt.kind === 'notice'),
+	})
+
 	// Keep the footer on the same durable goal record the driver mutates. A ref
 	// alone cannot repaint React, so every goal mutation bumps goalDriveVersion;
 	// generation/session checks stop a late disk read labelling a resumed chat.
@@ -13684,25 +13710,7 @@ function AppBody({
 		// A failed fork/edit can close its mutation boundary while the screen stays
 		// idle, so no other dependency would necessarily re-run this driver.
 		void conversationMutation
-		if (
-			goalDriveInFlightRef.current ||
-			state !== 'idle' ||
-			phase !== 'ready' ||
-			!session?.hasProvider ||
-			roundQueueRef.current.items().length > 0 ||
-			abortRef.current ||
-			hasUnsettledTurn() ||
-			pendingModelSwitchRef.current ||
-			conversationMutationRef.current ||
-			exportingRef.current ||
-			compactingRef.current ||
-			textPromptRef.current ||
-			choicePickerRef.current ||
-			copyPickerRef.current ||
-			goalCommandInFlightRef.current
-		) {
-			return
-		}
+		if (admissionBlocked('goal', roundGateFacts()) !== null) return
 		const durableSessions = sessionsRef.current
 		const scope = scopeRef.current
 		if (!durableSessions || !scope || !conversationMaterializedRef.current) return
@@ -13811,23 +13819,7 @@ function AppBody({
 	// send the next queued message automatically.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {
-		if (
-			state !== 'idle' ||
-			phase !== 'ready' ||
-			roundQueueRef.current.items().length === 0 ||
-			roundQueueRef.current.pause() !== null ||
-			abortRef.current ||
-			hasUnsettledTurn() ||
-			pendingModelSwitchRef.current ||
-			conversationMutationRef.current ||
-			exportingRef.current ||
-			compactingRef.current ||
-			textPromptRef.current ||
-			choicePickerRef.current ||
-			copyPickerRef.current ||
-			goalCommandInFlightRef.current
-		)
-			return
+		if (admissionBlocked('queue', roundGateFacts()) !== null) return
 		// Read and remove from the synchronous source of truth. `queued` is the
 		// render snapshot that scheduled this effect; a later input may already
 		// have appended to the ref, and replacing from that old snapshot would
@@ -13938,23 +13930,7 @@ function AppBody({
 	useEffect(() => {
 		const peers = peersRef.current
 		peers?.publish()
-		if (
-			!peers?.enabled ||
-			phase !== 'ready' ||
-			state !== 'idle' ||
-			abortRef.current ||
-			hasUnsettledTurn() ||
-			roundQueueRef.current.pause() ||
-			pendingModelSwitchRef.current ||
-			conversationMutationRef.current ||
-			textPromptRef.current ||
-			choicePickerRef.current ||
-			copyPickerRef.current ||
-			exportingRef.current ||
-			compactingRef.current ||
-			goalCommandInFlightRef.current
-		)
-			return
+		if (!peers?.enabled || admissionBlocked('peer', roundGateFacts()) !== null) return
 		const generation = conversationGenRef.current
 		const mail = peers.peek(generation)[0]
 		if (
@@ -13991,23 +13967,7 @@ function AppBody({
 	// takes it at its next request boundary instead (`inboundMessages`).
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `noticeVersion` is what moves; the effect reads the refs it mirrors.
 	useEffect(() => {
-		if (
-			phase !== 'ready' ||
-			state !== 'idle' ||
-			abortRef.current ||
-			hasUnsettledTurn() ||
-			roundQueueRef.current.pause() ||
-			pendingModelSwitchRef.current ||
-			conversationMutationRef.current ||
-			textPromptRef.current ||
-			choicePickerRef.current ||
-			copyPickerRef.current ||
-			exportingRef.current ||
-			compactingRef.current ||
-			goalCommandInFlightRef.current ||
-			roundQueueRef.current.items().some((prompt) => prompt.kind === 'notice')
-		)
-			return
+		if (admissionBlocked('notice', roundGateFacts()) !== null) return
 		const jobs = idleJobNoticesRef.current
 		const waiting =
 			workflowNoticesRef.current.size > 0 ||
