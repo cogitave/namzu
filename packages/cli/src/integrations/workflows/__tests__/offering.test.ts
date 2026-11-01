@@ -49,7 +49,7 @@ describe('what the tool description says about failures', () => {
 		expect(WORKFLOW_TOOL_DESCRIPTION).toContain(
 			'A thunk that throws, or whose agent failed, becomes null',
 		)
-		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('a stage that throws drops its item to null')
+		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('A stage that throws drops its item to null')
 		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('fails the whole run with an error')
 		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('filter the nulls')
 	})
