@@ -2,6 +2,7 @@
 
 ## 2026-11-01
 
+- **Creation** [Postmortems](postmortems/index.md): a `Postmortem` page type with two incidents the history records ([compaction re-base](postmortems/compaction-rebase-reinline.md), [tests racing real time](postmortems/tests-racing-real-time.md)) and a [failure classes](postmortems/failure-classes.md) guide naming the rule, the judged condition, the exception and the guardrail for each shape.
 - **Update** [Plugins in the CLI](cli/plugins.md#declare-where-a-plugin-runs): a plugin manifest may declare `platforms` and `engines.namzu`; a plugin that does not fit this machine or this Namzu version is refused with a plain reason. `.changeset/plugin-platform-version-admission.md` (`@namzu/sdk` minor).
 - **Update** [Workflows](sdk/workflows.md): a misused hook in a workflow script (wrong `agent()` arguments, an unknown option, a non-object schema, a non-function item) now fails the run, re-thrown out of `parallel()` and `pipeline()`; only a thrown thunk or a failed child still becomes `null`. The Workflow tool text says so. `.changeset/fail-workflow-hook-misuse.md` (`@namzu/sdk` minor, `@namzu/cli` patch).
 - **Update** [bash tool](sdk/bash-tool.md#in-a-sandbox): a sandboxed command whose error text looks like a sandbox denial says so, and a launcher setup failure is reported as a runner failure, not as the command failing (`SandboxExecResult.attribution`). `.changeset/name-sandbox-denials.md` (`@namzu/sdk` minor).
