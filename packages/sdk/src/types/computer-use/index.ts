@@ -275,6 +275,41 @@ export interface UiActResult {
 	readonly ok: boolean
 	/** Why it did not, in words the model can act on (a stale ref, a disabled element). */
 	readonly detail?: string
+	/** What is known about the effect. Absent from a host that does not classify. */
+	readonly delivery?: ActionDelivery
+	/** Whether repeating the action blindly is safe. Set together with `delivery`. */
+	readonly retrySafety?: ActionRetrySafety
+	/** The state read back after a stateful action, when the host could read it. */
+	readonly readBack?: { readonly expected?: string; readonly observed?: string }
+}
+
+/**
+ * How far an action is known to have taken effect.
+ *
+ * - `delivered_verified`: the host read the state back and it matches.
+ * - `delivered_unverified`: the input was sent (or may have been) and no
+ *   read-back confirmed it. A failed or impossible read-back lands here, never
+ *   in `not_delivered`.
+ * - `not_delivered`: the action was refused before any input, or a read-back
+ *   proved the state did not change.
+ */
+export type ActionDelivery = 'delivered_verified' | 'delivered_unverified' | 'not_delivered'
+
+/**
+ * `safe`: nothing reached the target, so the same action may be repeated.
+ * `unsafe`: the action may have taken effect; inspect before repeating it.
+ */
+export type ActionRetrySafety = 'safe' | 'unsafe'
+
+/**
+ * What a window-scoped input action learned about its own delivery.
+ *
+ * @experimental See {@link ComputerUseHost.executeWindow}.
+ */
+export interface WindowInputResult {
+	readonly delivery: ActionDelivery
+	readonly retrySafety: ActionRetrySafety
+	readonly detail?: string
 }
 
 export interface Point {
@@ -335,7 +370,13 @@ export function assertComputerUseActionType(type: ComputerUseAction['type']): vo
 export type ComputerUseResult =
 	| { readonly type: 'screenshot'; readonly result: ScreenshotResult }
 	| { readonly type: 'cursor_position'; readonly point: Point }
-	| { readonly type: 'ok' }
+	| {
+			readonly type: 'ok'
+			/** Set by a host that can tell more than "the call returned". */
+			readonly delivery?: ActionDelivery
+			readonly retrySafety?: ActionRetrySafety
+			readonly detail?: string
+	  }
 
 /**
  * A state-changing desktop action started, but its subprocess did not report
@@ -391,7 +432,9 @@ export interface ComputerUseHost {
 	 * capture is current and still belongs to the same process/window before
 	 * dispatching input. No implicit fallback to display input is permitted.
 	 */
-	executeWindow?(captureId: string, action: WindowInputAction): Promise<void>
+	// `void` stays in the union: a host that returns nothing (`Promise<void>`) must keep compiling.
+	// biome-ignore lint/suspicious/noConfusingVoidType: widening an existing `Promise<void>` return
+	executeWindow?(captureId: string, action: WindowInputAction): Promise<void | WindowInputResult>
 	/**
 	 * Capture one region of the current display at full physical resolution.
 	 * `rect` is display-relative physical pixels; the result's `width` and

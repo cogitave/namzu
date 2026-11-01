@@ -189,7 +189,7 @@ describe('computer_use UI tree', () => {
 		// ui_act may ride in a batch; ui_snapshot, which returns the tree, may not.
 		expect(schema.properties.actions?.items?.properties.type?.enum).toContain('ui_act')
 		expect(schema.properties.actions?.items?.properties.type?.enum).not.toContain('ui_snapshot')
-		expect(offered.description).toContain('Prefer ui_act to clicking pixels')
+		expect(offered.description).toContain("Work from the window's controls first")
 
 		const undeclared = createComputerUseTool(makeUiHost({ capabilities: { uiTree: false } }).host)
 		const plain = undeclared.modelInputSchema as { properties: Record<string, { enum?: string[] }> }
@@ -537,7 +537,7 @@ describe('computer_use UI tree', () => {
 		expect(tool.description).not.toContain('WIN+R')
 		expect(tool.description).toContain('refused while a terminal window is in front')
 		const first = text(await run(tool, { type: 'screenshot' }))
-		expect(first).toContain('This host can also read a window’s controls')
+		expect(first).toContain('This host can read a window’s controls')
 		const second = text(await run(tool, { type: 'screenshot' }))
 		expect(second).not.toContain('read a window’s controls')
 		const plain = createComputerUseTool(makeUiHost({ capabilities: { uiTree: false } }).host, {
