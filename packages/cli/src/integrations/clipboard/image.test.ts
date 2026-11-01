@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+	CLIPBOARD_SCRIPT,
 	type CommandResult,
 	type CommandRunner,
 	parsePowershellOutput,
@@ -117,14 +118,23 @@ describe('reading an image on WSL', () => {
 		expect(powershellCandidates('/win/')).toContain(moved)
 	})
 
-	it('reports empty for exit 1, failed for a timeout, and unavailable when nothing starts', async () => {
+	it('reports empty for exit 3, failed for a timeout, and unavailable when nothing starts', async () => {
 		const empty = await readClipboardImage({
+			platform: 'linux',
+			env: wslEnv,
+			run: runner({ 'powershell.exe': exit(3) }).run,
+			readText: noText,
+		})
+		expect(empty).toEqual({ kind: 'empty' })
+		// Exit 1 is a script or interop error, never "no image".
+		const broken = await readClipboardImage({
 			platform: 'linux',
 			env: wslEnv,
 			run: runner({ 'powershell.exe': exit(1) }).run,
 			readText: noText,
 		})
-		expect(empty).toEqual({ kind: 'empty' })
+		expect(broken).toEqual({ kind: 'failed', detail: 'exit 1' })
+		expect(CLIPBOARD_SCRIPT).toContain('UTF8Encoding')
 		const slow = await readClipboardImage({
 			platform: 'linux',
 			env: wslEnv,

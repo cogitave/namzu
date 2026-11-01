@@ -4,7 +4,17 @@ import { loadImageFiles, parsePastedImagePaths } from './image-paths.js'
 const linux = { wsl: false, mountRoot: '/mnt/' }
 const wsl = { wsl: true, distro: 'Ubuntu', mountRoot: '/mnt/' }
 
+const windows = { wsl: false, windows: true, mountRoot: '/mnt/' }
+
 describe('parsing a paste that names image files', () => {
+	it('reads drive and share paths as they are on native Windows', () => {
+		expect(parsePastedImagePaths('"C:\\Users\\a\\Resim.png"', windows)).toEqual([
+			'C:\\Users\\a\\Resim.png',
+		])
+		expect(parsePastedImagePaths('\\\\srv\\s\\x.jpg', windows)).toEqual(['\\\\srv\\s\\x.jpg'])
+		expect(parsePastedImagePaths('C:\\a\\notes.txt', windows)).toBeNull()
+	})
+
 	it('takes plain, quoted and escaped paths', () => {
 		expect(parsePastedImagePaths('/home/a/x.png', linux)).toEqual(['/home/a/x.png'])
 		expect(parsePastedImagePaths("'/home/a/my shot.PNG'", linux)).toEqual(['/home/a/my shot.PNG'])

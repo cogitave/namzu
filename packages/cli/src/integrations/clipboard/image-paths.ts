@@ -9,7 +9,7 @@
  */
 
 import { readFile, stat } from 'node:fs/promises'
-import { basename } from 'node:path'
+import { win32 } from 'node:path'
 import type { ClipboardImage } from './image.js'
 import { type PathEnvironment, windowsPathToWsl, wslSharePathToLinux } from './wsl.js'
 
@@ -45,6 +45,11 @@ export function parsePastedImagePaths(text: string, env: PathEnvironment): strin
 		if (part.length > MAX_PIECE_LENGTH) return null
 		let path = unquote(part)
 		const windowsForm = /^(?:[A-Za-z]:[\\/]|\\\\)/.test(path)
+		if (windowsForm && env.windows) {
+			if (!win32.isAbsolute(path) || !IMAGE_EXTENSION.test(path)) return null
+			out.push(path)
+			continue
+		}
 		if (windowsForm) {
 			if (!env.wsl) return null
 			const converted = path.startsWith('\\\\')
@@ -101,7 +106,7 @@ export async function loadImageFiles(
 			const bytes = await read(path)
 			const mediaType = mediaTypeOf(bytes)
 			if (mediaType === null) return null
-			images.push({ data: bytes.toString('base64'), mediaType, filename: basename(path) })
+			images.push({ data: bytes.toString('base64'), mediaType, filename: win32.basename(path) })
 		} catch {
 			return null
 		}

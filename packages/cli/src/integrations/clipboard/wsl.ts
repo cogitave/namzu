@@ -84,6 +84,8 @@ export function wslSharePathToLinux(
 
 export interface PathEnvironment {
 	readonly wsl: boolean
+	/** True on native Windows, where drive and share paths are read as they are. */
+	readonly windows?: boolean
 	/** The WSL distribution's name, for `\\wsl$\<name>` paths. */
 	readonly distro?: string
 	readonly mountRoot: string
@@ -101,6 +103,7 @@ export function currentPathEnvironment(): PathEnvironment {
 	})
 	memo = {
 		wsl,
+		...(process.platform === 'win32' ? { windows: true } : {}),
 		...(process.env.WSL_DISTRO_NAME ? { distro: process.env.WSL_DISTRO_NAME } : {}),
 		mountRoot: wsl
 			? parseWslMountRoot(readTextOrUndefined('/etc/wsl.conf'))

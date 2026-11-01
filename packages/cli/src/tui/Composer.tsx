@@ -16,7 +16,11 @@ import { Box, type Key, Text, useInput, usePaste, useWindowSize } from 'ink'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { loadImageFiles, parsePastedImagePaths } from '../integrations/clipboard/image-paths.js'
-import { type ClipboardImage, readClipboardImage } from '../integrations/clipboard/image.js'
+import {
+	type ClipboardImage,
+	imageFitsProvider,
+	readClipboardImage,
+} from '../integrations/clipboard/image.js'
 import { currentPathEnvironment } from '../integrations/clipboard/wsl.js'
 import type { UserCommand } from '../user-commands/store.js'
 import {
@@ -1045,7 +1049,12 @@ export function Composer({
 	}
 
 	/** Attach images at the cursor, one chip each. */
-	const attachImages = (images: readonly ClipboardImage[]): void => {
+	const attachImages = (all: readonly ClipboardImage[]): void => {
+		const images = all.filter(imageFitsProvider)
+		if (images.length < all.length) {
+			onNotice?.('This image is too large to attach. Save a smaller copy and paste its path.')
+		}
+		if (images.length === 0) return
 		let value = valueRef.current
 		let position = cursorRef.current
 		for (const image of images) {
@@ -1064,6 +1073,13 @@ export function Composer({
 	const deferredEnterRef = useRef<{ input: string; key: Key } | null>(null)
 	const keyHandlerRef = useRef<((input: string, key: Key) => void) | null>(null)
 	const lastEmptyPasteRef = useRef(0)
+
+	const finishImageRead = (): void => {
+		imageReadRef.current = false
+		const deferred = deferredEnterRef.current
+		deferredEnterRef.current = null
+		if (deferred) keyHandlerRef.current?.(deferred.input, deferred.key)
+	}
 
 	const pasteImageFromClipboard = (): void => {
 		if (imageReadRef.current) return
@@ -1101,10 +1117,7 @@ export function Composer({
 				}
 			} finally {
 				clearTimeout(slow)
-				imageReadRef.current = false
-				const deferred = deferredEnterRef.current
-				deferredEnterRef.current = null
-				if (deferred) keyHandlerRef.current?.(deferred.input, deferred.key)
+				finishImageRead()
 			}
 		})()
 	}
@@ -1130,10 +1143,14 @@ export function Composer({
 			// A paste made only of image paths (a dropped file) is attached.
 			const paths = plainText ? null : parsePastedImagePaths(normalized, currentPathEnvironment())
 			if (paths) {
-				void loadImageFiles(paths).then((images) => {
-					if (images) attachImages(images)
-					else insertPastedText(normalized)
-				})
+				// Enter pressed while the files load waits, like a clipboard read.
+				imageReadRef.current = true
+				void loadImageFiles(paths)
+					.then((images) => {
+						if (images) attachImages(images)
+						else insertPastedText(normalized)
+					})
+					.finally(finishImageRead)
 				return
 			}
 			insertPastedText(normalized)

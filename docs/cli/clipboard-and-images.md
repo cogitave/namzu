@@ -37,7 +37,7 @@ The script is fixed text. No part of the clipboard or of anything you type is pl
 
 ## Pasting file paths
 
-A paste made only of paths to `.png`, `.jpg`, `.jpeg`, `.gif` or `.webp` files, such as a file dragged onto the terminal, attaches the files instead of inserting text. Quoted and backslash-escaped paths work, and several paths make several chips. On WSL, `C:\...` paths and paths on this distribution's own share (`\\wsl$\<distro>\...`, `\\wsl.localhost\<distro>\...`) are converted. Each file must start with image bytes and be under 64 MiB.
+A paste made only of paths to `.png`, `.jpg`, `.jpeg`, `.gif` or `.webp` files, such as a file dragged onto the terminal, attaches the files instead of inserting text. Quoted and backslash-escaped paths work, and several paths make several chips. On Windows and WSL, `C:\...` paths and paths on this distribution's own share (`\\wsl$\<distro>\...`, `\\wsl.localhost\<distro>\...`) are converted. Each file must start with image bytes and be under 64 MiB.
 
 If any piece of the paste is not a readable image, the whole paste is inserted as ordinary text.
 
@@ -53,4 +53,6 @@ If any piece of the paste is not a readable image, the whole paste is inserted a
 
 ## Limits
 
-Images are sent as they are; there is no resizing beyond the 2000-pixel shrink on the Windows clipboard route, and BMP clipboards are not converted.
+An image whose base64 form is over 5 MiB is refused at paste time with a message to save a smaller copy and paste its path. Images are otherwise sent as they are; there is no resizing beyond the 2000-pixel shrink on the Windows clipboard route, and BMP clipboards are not converted.
+
+Pasted file paths are read without a permission check; only files that start with image bytes are attached. If the clipboard reader fails for a reason other than "no image" (for example PowerShell blocked by policy), the message says it could not read the clipboard rather than that it was empty.

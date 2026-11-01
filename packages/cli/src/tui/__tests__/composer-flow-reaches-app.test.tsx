@@ -36,7 +36,8 @@ let releaseFirstTurn: () => void = () => {}
 let firstTurnGate = Promise.resolve()
 let drainFirstTurn = true
 
-vi.mock('../../integrations/clipboard/image.js', () => ({
+vi.mock('../../integrations/clipboard/image.js', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../integrations/clipboard/image.js')>()),
 	readClipboardImage: () => ({ kind: 'image' as const, image }),
 }))
 vi.mock('../../integrations/trust/store.js', () => ({

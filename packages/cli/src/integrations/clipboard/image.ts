@@ -62,6 +62,14 @@ export type CommandRunner = (
 	options: { readonly timeoutMs: number },
 ) => Promise<CommandResult>
 
+/** The most base64 text a provider accepts for one image (5 MiB). */
+export const MAX_IMAGE_BASE64_BYTES = 5 * 1024 * 1024
+
+/** Whether an image is small enough to send. A larger one would fail every later turn. */
+export function imageFitsProvider(image: ClipboardImage): boolean {
+	return image.data.length <= MAX_IMAGE_BASE64_BYTES
+}
+
 /** The largest output a clipboard tool may produce before the read is abandoned. */
 export const MAX_CLIPBOARD_BYTES = 64 * 1024 * 1024
 const TOOL_TIMEOUT_MS = 3_000
@@ -121,16 +129,20 @@ function isPng(buf: Buffer): boolean {
 /**
  * The PowerShell that reads the clipboard. A constant: it names no user data.
  * It prints either one base64 line (a PNG, shrunk to 2000 px a side) or one
- * `PATH:` line per image file the clipboard holds, and exits 1 for nothing.
+ * `PATH:` line per image file the clipboard holds, and exits 3 for "no image". Any other non-zero exit is an error in the script or the environment.
  */
+/** The exit code the script uses for "the clipboard holds no image", and nothing else. */
+export const CLIPBOARD_EMPTY_EXIT = 3
+
 export const CLIPBOARD_SCRIPT = [
 	"$ProgressPreference='SilentlyContinue'",
+	'[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)',
 	'Add-Type -AssemblyName System.Windows.Forms,System.Drawing',
 	'$i=[Windows.Forms.Clipboard]::GetImage()',
 	"if($null -eq $i){$d=[Windows.Forms.Clipboard]::GetData('PNG');if($d -is [IO.Stream]){$i=[Drawing.Image]::FromStream($d)}}",
 	'if($null -eq $i){',
 	'if([Windows.Forms.Clipboard]::ContainsFileDropList()){$f=@([Windows.Forms.Clipboard]::GetFileDropList()|Where-Object{$_ -match "\\.(png|jpe?g|gif|webp)$"});if($f.Count -gt 0){$f|ForEach-Object{[Console]::Out.WriteLine("PATH:"+$_)};exit 0}}',
-	'exit 1}',
+	'exit 3}',
 	'$m=2000',
 	'if($i.Width -gt $m -or $i.Height -gt $m){$s=[Math]::Min($m/$i.Width,$m/$i.Height);$w=[int][Math]::Max(1,[Math]::Floor($i.Width*$s));$h=[int][Math]::Max(1,[Math]::Floor($i.Height*$s));$b=New-Object Drawing.Bitmap $w,$h;$g=[Drawing.Graphics]::FromImage($b);$g.InterpolationMode=[Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic;$g.DrawImage($i,0,0,$w,$h);$g.Dispose();$i=$b}',
 	'$ms=New-Object IO.MemoryStream',
@@ -186,7 +198,7 @@ async function runPowershell(
 		})
 		if (result.spawnFailed) continue
 		if (result.timedOut) return { kind: 'failed', detail: 'timed out' }
-		if (result.code === 1 && result.stdout.length === 0) return { kind: 'empty' }
+		if (result.code === CLIPBOARD_EMPTY_EXIT && result.stdout.length === 0) return { kind: 'empty' }
 		if (result.code !== 0) return { kind: 'failed', detail: `exit ${String(result.code)}` }
 		return parsePowershellOutput(result.stdout)
 	}

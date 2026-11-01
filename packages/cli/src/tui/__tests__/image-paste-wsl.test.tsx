@@ -21,7 +21,8 @@ const state = vi.hoisted(() => ({
 	gate: null as null | Promise<void>,
 }))
 
-vi.mock('../../integrations/clipboard/image.js', () => ({
+vi.mock('../../integrations/clipboard/image.js', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../integrations/clipboard/image.js')>()),
 	readClipboardImage: async () => {
 		state.reads += 1
 		if (state.gate) await state.gate
@@ -95,6 +96,25 @@ describe('image paste on WSL', () => {
 		} finally {
 			await screen.unmount()
 			state.wsl = true
+		}
+	})
+
+	it('refuses an image too large to send, in plain words', async () => {
+		state.wsl = true
+		state.gate = null
+		state.next = {
+			kind: 'image',
+			image: { data: 'A'.repeat(5 * 1024 * 1024 + 1), mediaType: 'image/png' },
+		}
+		const { screen, onNotice } = await open()
+		try {
+			screen.press('\x1bv')
+			await vi.waitFor(() =>
+				expect(onNotice).toHaveBeenCalledWith(expect.stringContaining('too large to attach')),
+			)
+			expect(frame(screen)).not.toContain('[Image #')
+		} finally {
+			await screen.unmount()
 		}
 	})
 

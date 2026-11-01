@@ -41,7 +41,8 @@ function holdNextTurn(): void {
 	turnGates.push({ wait, release })
 }
 
-vi.mock('../../integrations/clipboard/image.js', () => ({
+vi.mock('../../integrations/clipboard/image.js', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../integrations/clipboard/image.js')>()),
 	readClipboardImage: () => clipboard,
 }))
 
