@@ -38,6 +38,8 @@ interface ChainState {
 	finished: boolean
 	/** Bytes the file had after the last write this process made; a different size means someone else wrote. */
 	size: number
+	/** Appends queued or running; the state is dropped once a pass's end is written and none are left. */
+	pending: number
 }
 
 const chains = new Map<string, ChainState>()
@@ -86,9 +88,25 @@ export class FileWorkflowJournal implements WorkflowJournal, WorkflowJournalRead
 		return this.ready
 	}
 
-	private runId(record?: WorkflowJournalRecord): string {
+	/** The run id of the file's first line, learned from the file or from the first `run_started` written. */
+	private learned: string | undefined
+
+	private runId(record?: WorkflowJournalRecord, text?: string): string {
 		if (this.options.runId !== undefined) return this.options.runId
-		if (record?.type === 'run_started') return record.runId
+		if (record?.type === 'run_started') this.learned = record.runId
+		if (this.learned !== undefined) return this.learned
+		const first = text?.slice(0, text.indexOf('\n') < 0 ? undefined : text.indexOf('\n'))
+		if (first) {
+			try {
+				const parsed = JSON.parse(first) as { type?: unknown; runId?: unknown }
+				if (parsed.type === 'run_started' && typeof parsed.runId === 'string') {
+					this.learned = parsed.runId
+					return parsed.runId
+				}
+			} catch {
+				// Not a record: fall back to the folder name below.
+			}
+		}
 		return basename(dirname(resolve(this.dir)))
 	}
 
@@ -106,7 +124,7 @@ export class FileWorkflowJournal implements WorkflowJournal, WorkflowJournalRead
 			if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
 			text = ''
 		}
-		return readWorkflowJournalChecked(text, this.runId(), {
+		return readWorkflowJournalChecked(text, this.runId(undefined, text), {
 			...(this.options.key !== undefined ? { key: this.options.key } : {}),
 		})
 	}
@@ -122,10 +140,12 @@ export class FileWorkflowJournal implements WorkflowJournal, WorkflowJournalRead
 				needsNewline: false,
 				finished: false,
 				size: 0,
+				pending: 0,
 			}
 			chains.set(this.file, state)
 		}
 		const chain = state
+		chain.pending++
 		const run = chain.queue.then(async () => {
 			await this.ensure()
 			const onDisk = await stat(this.file).then(
@@ -161,7 +181,16 @@ export class FileWorkflowJournal implements WorkflowJournal, WorkflowJournalRead
 			chain.prev = workflowJournalLineHash(line)
 			if (record.type === 'run_finished') chain.finished = true
 		})
-		chain.queue = run.catch(() => undefined)
+		chain.queue = run
+			.catch(() => undefined)
+			.then(() => {
+				chain.pending--
+				// A finished run keeps no state: the next append reads the file again, and
+				// what it finds (a last `run_finished`) is the same thing the state held.
+				if (chain.pending === 0 && chain.finished && chains.get(this.file) === chain) {
+					chains.delete(this.file)
+				}
+			})
 		return run
 	}
 }

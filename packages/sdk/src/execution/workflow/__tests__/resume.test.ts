@@ -254,6 +254,18 @@ describe('journal chain', () => {
 		expect(after.brokenAt).toBeUndefined()
 	})
 
+	it('reads and extends a journal in a folder that is not named after the run', async () => {
+		await write([started(), request(1, 'k1'), outcome(1, 'k1', { result: 'v' })])
+		// Neither the first reader nor the second is told the run id.
+		const read = await new FileWorkflowJournal(dir).read()
+		expect(read.records).toHaveLength(3)
+		const other = new FileWorkflowJournal(dir)
+		await other.append(finished('completed'))
+		const after = await new FileWorkflowJournal(dir).read()
+		expect(after.records.map((r) => r.seq)).toEqual([1, 2, 3, 4])
+		expect(after.brokenAt).toBeUndefined()
+	})
+
 	it('keeps trust after a real break once a later pass re-anchors, and reports it', async () => {
 		await write([started(), request(1, 'k1'), outcome(1, 'k1', { result: 'v' })])
 		const ls = await lines()
