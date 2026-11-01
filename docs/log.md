@@ -3,6 +3,7 @@
 ## 2026-10-31
 
 - **Update** [Terminal design](cli/terminal-design.md): the model picker names the other providers after `p change provider`; the context meter uses the window compaction measures against; a permission question settles the reads above it and Ctrl+C there is recorded as a stop, not a No; the auto-mode note is a footer notice; the resume picker tells same-titled conversations apart. `.changeset/terminal-state-labels.md` (`@namzu/cli` patch).
+- **Update** [Tool result screening](sdk/tool-result-screening.md): a `halt` verdict now ends the turn instead of reaching the model as a failed tool result. `.changeset/halt-verdict-is-terminal.md` (`@namzu/sdk` patch).
 
 ## 2026-10-30
 
