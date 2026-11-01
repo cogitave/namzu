@@ -3,6 +3,7 @@
 ## 2026-11-02
 
 - **Update** [Permission modes](cli/permission-modes.md#what-the-model-is-told): the approval stance for `strict`, `auto` and unattended runs now arrives with the mode notice instead of the session prompt, so a session that starts in one of them and switches no longer keeps a stale stance in its prefix. `.changeset/state-the-approval-stance.md` (`@namzu/cli` patch).
+- **Update** [Permission modes](cli/permission-modes.md#what-the-model-is-told): a resumed delegated turn is told the mode the same way a new turn is, by the mode notice, and the kernel's own mode-change notice is off for it so the mode is not said twice. `.changeset/state-the-approval-stance.md` (`@namzu/cli` patch).
 
 ## 2026-11-01
 
