@@ -98,7 +98,9 @@ async function open() {
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
 	await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('Type a message'))
-	await new Promise((resolve) => setTimeout(resolve, 60))
+	// One macrotask turn so Ink's input effect is attached once the first frame is out; this is a
+	// flush tick, not a wait for an outcome.
+	await new Promise((resolve) => setImmediate(resolve))
 	return harness
 }
 
@@ -112,7 +114,7 @@ describe('Ctrl+T and the checklist', () => {
 		vi.stubEnv('LINES', '12')
 		const harness = await open()
 		harness.stdin.write('plan it')
-		await new Promise((resolve) => setTimeout(resolve, 20))
+		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('plan it'))
 		harness.stdin.write('\r')
 		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('Planned.'))
 
@@ -135,7 +137,7 @@ describe('Ctrl+T and the checklist', () => {
 	it('has no slash command that shows the checklist', async () => {
 		const harness = await open()
 		harness.stdin.write('/tasks')
-		await new Promise((resolve) => setTimeout(resolve, 20))
+		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('/tasks'))
 		harness.stdin.write('\r')
 		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('Background'))
 		expect(harness.lastFrame() ?? '').not.toContain('Tasks ·')

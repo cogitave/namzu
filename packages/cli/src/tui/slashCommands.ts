@@ -24,7 +24,7 @@ import { type TurnLimitsAction, turnLimitsAction } from './turn-limits-settings.
  * added here and not handled there falls out of the switch into the send path
  * and dispatches the operator's `/command` to the model as prose.
  *
- * `/cost`, argumentless `/permissions` and `/agents` are RENDERERS. Every number and rule
+ * `/cost` and argumentless `/permissions` are RENDERERS. Every number and rule
  * they print was already computed — the kernel emits usage on its own event,
  * the permission rules were compiled before the session opened, and the
  * delegate roster is decided when the subagent runtime is built. None of them

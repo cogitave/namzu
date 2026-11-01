@@ -2,6 +2,8 @@
 
 ## 2026-11-01
 
+- **Update** [CLI README](../packages/cli/README.md): Ctrl+T is described as the task checklist toggle, scoped agents are watched with `↓`, `←` or `/tasks`, and `/branch` and `/tasks` are in the command table.
+
 - **Update** [Slash commands](cli/slash-commands.md): `/branch [name]` is the in-place copy of the conversation; `/fork` keeps that behaviour for now and is documented as the name that will mean a background-session copy later. `.changeset/cli-branch-command.md` (`@namzu/cli` minor).
 - **Update** [Slash commands](cli/slash-commands.md), [Terminal design](cli/terminal-design.md), [Delegated work](cli/delegated-work.md), [Spaces](cli/spaces.md) and [Command experience audit](cli/command-experience-audit.md): Ctrl+T shows or hides the task checklist (footer `ctrl+t to hide tasks` / `ctrl+t to show tasks`, saved as `tui.showExpandedTodos`) instead of opening the agents cockpit, `/agents` is removed (the cockpit is reached with `←`, `↓` or from `/tasks`), and the "Finding a batch to reopen" section is gone with `/agents batches`. `.changeset/cli-ctrl-t-checklist.md` (`@namzu/cli` major).
 - **Update** [Background jobs in the CLI](cli/background-jobs.md), [Slash commands](cli/slash-commands.md), [Monitors in the CLI](cli/monitor.md) and [Terminal design](cli/terminal-design.md): `/tasks` (alias `/bashes`) is the `Background` dialog (Shells, Monitors, Local agents, Completed; `Shell details`, `Monitor details`; `No tasks currently running`), `/jobs` is gone, `/tasks` no longer prints the model's checklist, and the footer pill is `N bg` with `enter to view tasks`. `.changeset/cli-tasks-background-view.md` (`@namzu/cli` major), `.changeset/sdk-no-tasks-host-command.md` (`@namzu/sdk` major).

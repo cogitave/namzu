@@ -1779,7 +1779,7 @@ describe('the agents cockpit', () => {
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Alpha audit'),
-			'ctrl+t did not open the agent cockpit',
+			'the left arrow did not open the agent cockpit',
 		)
 		expect(painted(screen)).not.toContain('parent finished')
 	})

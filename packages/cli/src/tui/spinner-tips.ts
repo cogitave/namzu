@@ -51,7 +51,7 @@ export const SPINNER_TIPS: readonly Tip[] = [
 	},
 	{
 		id: 'resume-fork',
-		text: '/resume reopens an earlier conversation, and /fork branches this one.',
+		text: '/resume reopens an earlier conversation, and /branch copies this one.',
 		cooldownLaunches: 10,
 		relevant: (ctx) => ctx.used('resume') === 0 && ctx.used('fork') === 0 && ctx.launch >= 2,
 	},

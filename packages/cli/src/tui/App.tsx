@@ -2561,7 +2561,7 @@ function AppBody({
 	/** The most recent cockpit request, so an older one cannot report on its behalf. */
 	const cockpitOpenTokenRef = useRef(0)
 	/**
-	 * `←` on an empty composer, `↓` and `/agents`: open the cockpit, and when nothing is on screen
+	 * `←` on an empty composer, `↓` and `/tasks` Enter: open the cockpit, and when nothing is on screen
 	 * yet, WAIT for the saved evidence before answering.
 	 *
 	 * The waiting is the point. A conversation's children may exist only on
