@@ -21,6 +21,7 @@
  * | memory guidance           | if the memory tool is mounted | same | no, resident context carries it | taught in its own prompt, when it holds the tool |
  * | deferred-tool guidance    | if any tool is deferred | same | same | no |
  * | plan doctrine             | no: the plan-mode reminder carries it (no plan file: under `plan`) | under `plan` | no | no |
+ * | approval stance           | one sentence under strict, auto and unattended | same | no | no |
  * | environment               | yes          | yes          | no, it rides in the dynamic block | child reads its own |
  * | extra system / note       | yes          | yes, the same skills prompt and note a turn gets | no | no |
  * | skills overflow note      | no, the skill-list reminder carries it | yes | yes | no |
@@ -44,6 +45,29 @@ import { AGENT_LAUNCH_TOOL, NAMZU_IDENTITY } from './identity.js'
 
 export const DEFERRED_TOOL_GUIDANCE =
 	'The deferred_tools catalogue is a discovery snapshot, not live availability status. The current runtime tool schemas are authoritative: call a tool directly when its schema is visible, even if the catalogue lists it as deferred. Only when a needed deferred tool schema is absent, call search_tools with its exact name to load it. Loading a tool does not change its permissions.'
+
+/**
+ * What the session's permission mode means for the model, in one sentence,
+ * for the modes where a refused call is not followed by a question. Under
+ * these a model that does not know the stance spends steps asking for
+ * approval nobody will give or retrying a call that will be refused again.
+ * The default, accept-edits and bypass modes need no sentence (a question
+ * either comes or never needs to), and plan mode has its own doctrine. The
+ * mid-session switch is already announced by the kernel; this is the stance
+ * the session starts in.
+ */
+export function approvalStanceSentence(mode: string | undefined): string | undefined {
+	switch (mode) {
+		case 'strict':
+			return 'Calls to tools that are not preapproved are refused without asking anyone, so pick a preapproved tool for each step, and say what you could not do instead of retrying a refused call.'
+		case 'classify':
+			return 'A second model reviews each call that would need permission and blocks the risky ones, so do not ask the user to approve a call, and take a safer route or explain when one is blocked.'
+		case 'auto':
+			return 'No one is available to answer permission questions, so calls outside the allowed bounds are refused, and the right response is another route or a report of what was blocked, not a request for approval.'
+		default:
+			return undefined
+	}
+}
 
 export interface SessionPromptInput {
 	/** A resident step carries its own context; it gets the identity and little else. */
@@ -161,6 +185,7 @@ export function composeSessionSystemPrompt(input: SessionPromptInput): string | 
 				? NAMZU_PLAN_FILE_DOCTRINE
 				: NAMZU_PLAN_MODE_DOCTRINE
 			: undefined,
+		resident ? undefined : approvalStanceSentence(input.permissionMode),
 		resident ? undefined : input.environment,
 		resident ? undefined : input.extraSystem,
 		resident ? undefined : input.systemNote,

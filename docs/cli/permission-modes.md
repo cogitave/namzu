@@ -25,6 +25,10 @@ Choosing "Yes, and auto-approve edits" when a plan is approved leaves for this m
 
 `strict` is for a run where nobody can be asked and every call must be pre-decided.
 
+## What the model is told
+
+Under `strict`, `auto` and the unattended mode a refused call is not followed by a question, so the session prompt says so in one sentence: pick another route or report what was blocked instead of asking for approval. The other modes add nothing (plan mode has its own instructions). A switch made during the session is announced once, as before.
+
 ## Reaching a mode
 
 | How | Mode |
