@@ -12,6 +12,7 @@ import type {
 import type { MonitorWebSocketTarget } from '../../types/tool/index.js'
 import { subscribeToAbort } from '../../utils/abort.js'
 import { oneMetadataLine } from '../system-events.js'
+import { stopAtHostExit } from './host-exit-finalizer.js'
 import { createBackgroundJobId } from './job-id.js'
 import {
 	MONITOR_TIMEOUT_CAP_MS,
@@ -708,6 +709,7 @@ export class BackgroundJobRegistry {
 				const finalize = (code: number | null, signal: NodeJS.Signals | null): void => {
 					if (finalized) return
 					finalized = true
+					untrackAtHostExit()
 					entry.record = {
 						...entry.record,
 						// A job killed by this registry says `killed`, not
@@ -788,6 +790,15 @@ export class BackgroundJobRegistry {
 			}),
 		}
 		entry.finalize = finalizeEntry
+		// A job that is not stopped before the host exits is an orphan: nothing
+		// owns its id any more. A remote job confirms its own termination and is
+		// not signalled from an exit listener.
+		const untrackAtHostExit = entry.terminateProcess
+			? () => {}
+			: stopAtHostExit({
+					child,
+					...(entry.killProcess ? { kill: entry.killProcess } : {}),
+				})
 
 		const append = (text: string, stream: 'stdout' | 'stderr'): void => {
 			const chunk: OutputChunk = { stream, offset: entry.produced, bytes: Buffer.from(text) }

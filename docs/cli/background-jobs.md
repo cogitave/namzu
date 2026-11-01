@@ -159,3 +159,7 @@ retains the job as `running`, and exposes optional `recoveryRequired: true` and
 errors. The job retains ownership and capacity, cannot be forgotten, and can be
 stopped again after recovery. Closing the host wrapper alone does not prove a
 guest process tree ended.
+
+# When the host exits
+
+A job is stopped when the host process ends by `process.exit` or an uncaught exception: a synchronous `exit` listener sends SIGKILL to each running job's process group, starts no promise or timer, and does not wait for the processes to stop. Before it existed, a host that exited with a job running left the command and anything it forked running with no id to stop them. A host killed by a signal it does not handle runs no listener, so nothing here covers `SIGKILL` of the host itself. A remote job, which confirms its own termination, is not signalled from the listener.
