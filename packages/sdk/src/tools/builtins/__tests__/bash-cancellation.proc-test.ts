@@ -123,13 +123,9 @@ describe.skipIf(process.platform === 'win32')('host bash owns its shell descenda
 					expect(result.data).toMatchObject({ timedOut: false })
 					expect(result.output).toContain('descendant ready')
 				}
-				if (escaped) {
-					// Group signalling does not own a deliberately separate session;
-					// its inherited pipes must still stop holding the cancelled call.
-					expect(survivors(token)).toHaveLength(1)
-				} else {
-					expect(survivors(token), 'a descendant survived after bash settled').toEqual([])
-				}
+				// A deliberately separate session leaves the process group, but the
+				// environment tag every spawned tree carries lets the sweep find it.
+				expect(survivors(token), 'a descendant survived after bash settled').toEqual([])
 			} finally {
 				vi.unstubAllEnvs()
 				caller.abort()
