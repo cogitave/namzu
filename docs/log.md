@@ -2,6 +2,7 @@
 
 ## 2026-11-01
 
+- **Update** [Session log](sdk/session-log.md#records-from-a-newer-writer): a record of a type this reader does not know is kept in the hash chain, verified and skipped by the fold when its writer flagged it `ignorable: true`; unflagged unknown records are still refused. `IgnorableRecordSchema` is exported. `.changeset/ignorable-session-records.md` (`@namzu/sdk` minor).
 - **Update** [Startup](cli/startup.md#the-budget-gate): `scripts/bench-startup.mjs --check` is a CI gate (pull-request and direct-push paths) holding `--version`, `--help`, the first `exec` request, TUI ready and the resume of a generated 400-turn session to committed wall-time and CPU-time budgets (median of five fresh processes); the page records the calibration.
 - **Update** [namzu spaces (preview)](cli/spaces.md): quitting from the spaces screen now ends the terminal as a plain `namzu` does (the alternate screen is left and the history printed once before the final frame); the page no longer lists the missing end of the conversation as a limitation. `.changeset/spaces-tabs-panes.md` (`@namzu/cli` minor).
 - **Update** [namzu spaces (preview)](cli/spaces.md): `ctrl+b` is the prefix on the focused sidebar too; `/exit` or `ctrl+c` twice in the conversation you started from asks the quit question first when another session is mid-turn; a session shown full screen that ends returns to the spaces screen. `.changeset/spaces-tabs-panes.md` (`@namzu/cli` minor).

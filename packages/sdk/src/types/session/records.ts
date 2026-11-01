@@ -1,11 +1,14 @@
-import { z } from 'zod'
-import { type EntityIdKind, isEntityId } from '../../utils/id.js'
+import { z } from "zod";
+import { type EntityIdKind, isEntityId } from "../../utils/id.js";
 import {
 	STRUCTURED_RESULT_MAX_BYTES,
 	parseStructuredResultJson,
-} from '../../utils/structured-result-json.js'
-import { HarnessBindingSchema, HarnessJournalTransitionSchema } from '../harness/schema.js'
-import type { HITLDecisionRequest, HITLResumeDecision } from '../hitl/index.js'
+} from "../../utils/structured-result-json.js";
+import {
+	HarnessBindingSchema,
+	HarnessJournalTransitionSchema,
+} from "../harness/schema.js";
+import type { HITLDecisionRequest, HITLResumeDecision } from "../hitl/index.js";
 import type {
 	CheckpointId,
 	MessageId,
@@ -15,16 +18,23 @@ import type {
 	TenantId,
 	TopicId,
 	TurnId,
-} from '../ids/index.js'
-import { type Message, isRuntimeContextMessageSource } from '../message/index.js'
-import type { ActorRef } from './actor.js'
-import { CostInfoSchema, TokenUsageSchema, TurnBudgetBindingSchema } from './checkpoint.js'
+} from "../ids/index.js";
+import {
+	type Message,
+	isRuntimeContextMessageSource,
+} from "../message/index.js";
+import type { ActorRef } from "./actor.js";
+import {
+	CostInfoSchema,
+	TokenUsageSchema,
+	TurnBudgetBindingSchema,
+} from "./checkpoint.js";
 import {
 	EPHEMERAL_EVENT_TYPES,
 	type PersistedSessionEventType,
 	type SessionEvent,
 	type SessionEventType,
-} from './events.js'
+} from "./events.js";
 
 /**
  * The session log: one append-only, hash-chained JSONL file per session, the
@@ -33,42 +43,44 @@ import {
  */
 
 /** Schema version stamped on every record as `v`. A reader refuses any other value. */
-export const SESSION_RECORD_SCHEMA_VERSION = 1 as const
-export type SessionRecordSchemaVersion = typeof SESSION_RECORD_SCHEMA_VERSION
+export const SESSION_RECORD_SCHEMA_VERSION = 1 as const;
+export type SessionRecordSchemaVersion = typeof SESSION_RECORD_SCHEMA_VERSION;
 
 /** Largest record a log accepts, newline included. Larger content spills to `tool-results/`. */
-export const SESSION_RECORD_MAX_BYTES = 4 * 1024 * 1024
+export const SESSION_RECORD_MAX_BYTES = 4 * 1024 * 1024;
 
 // ─── primitives ───────────────────────────────────────────────────────────
 
-const count = z.number().int().nonnegative().safe()
-const positive = count.positive()
-const sha256 = z.string().regex(/^[a-f0-9]{64}$/)
+const count = z.number().int().nonnegative().safe();
+const positive = count.positive();
+const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 /** ISO-8601 in UTC with a `Z` suffix. */
-const isoUtc = z.string().datetime({ offset: false })
-const text = z.string()
+const isoUtc = z.string().datetime({ offset: false });
+const text = z.string();
 
 /** Annotated with the id's own alias, so declarations name `SessionId` rather than expanding its brand. */
-function idSchema<T extends string>(kind: EntityIdKind): z.ZodType<T, z.ZodTypeDef, unknown> {
+function idSchema<T extends string>(
+	kind: EntityIdKind,
+): z.ZodType<T, z.ZodTypeDef, unknown> {
 	return z.custom<T>((value) => isEntityId(value, kind), {
 		message: `expected a ${kind} id (UUID)`,
-	})
+	});
 }
 
-const sessionId = idSchema<SessionId>('session')
-const turnId = idSchema<TurnId>('turn')
-const messageId = idSchema<MessageId>('message')
-const checkpointId = idSchema<CheckpointId>('checkpoint')
-const recordId = idSchema<RecordId>('record')
-const projectId = idSchema<ProjectId>('project')
-const tenantId = idSchema<TenantId>('tenant')
-const topicId = idSchema<TopicId>('topic')
+const sessionId = idSchema<SessionId>("session");
+const turnId = idSchema<TurnId>("turn");
+const messageId = idSchema<MessageId>("message");
+const checkpointId = idSchema<CheckpointId>("checkpoint");
+const recordId = idSchema<RecordId>("record");
+const projectId = idSchema<ProjectId>("project");
+const tenantId = idSchema<TenantId>("tenant");
+const topicId = idSchema<TopicId>("topic");
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value)
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-const MESSAGE_ROLES = new Set(['system', 'user', 'assistant', 'tool'])
+const MESSAGE_ROLES = new Set(["system", "user", "assistant", "tool"]);
 
 /**
  * A message body. The record keeps the SDK `Message` shape verbatim; the
@@ -76,16 +88,17 @@ const MESSAGE_ROLES = new Set(['system', 'user', 'assistant', 'tool'])
  */
 const messageBody = z.custom<Message>(
 	(value) => {
-		if (!isPlainObject(value) || !MESSAGE_ROLES.has(value.role as string)) return false
-		const source = value.source
+		if (!isPlainObject(value) || !MESSAGE_ROLES.has(value.role as string))
+			return false;
+		const source = value.source;
 		return (
 			!isPlainObject(source) ||
-			source.type !== 'runtime-context' ||
+			source.type !== "runtime-context" ||
 			isRuntimeContextMessageSource(source)
-		)
+		);
 	},
-	{ message: 'expected a message with a system, user, assistant or tool role' },
-)
+	{ message: "expected a message with a system, user, assistant or tool role" },
+);
 
 // ─── envelope ─────────────────────────────────────────────────────────────
 
@@ -100,8 +113,8 @@ export const RecordPointerSchema = z
 		length: positive.max(SESSION_RECORD_MAX_BYTES),
 		sha256,
 	})
-	.strict()
-export type RecordPointer = z.infer<typeof RecordPointerSchema>
+	.strict();
+export type RecordPointer = z.infer<typeof RecordPointerSchema>;
 
 const envelopeShape = {
 	v: z.literal(SESSION_RECORD_SCHEMA_VERSION),
@@ -122,50 +135,61 @@ const envelopeShape = {
 	prevText: RecordPointerSchema.nullable().optional(),
 	/** The fencing token of the lease the writer held. */
 	gen: count,
-}
+};
 
 /** The fields every record carries. */
 export interface RecordEnvelope {
-	readonly v: SessionRecordSchemaVersion
-	readonly id: RecordId
-	readonly sessionId: SessionId
-	readonly turnId?: TurnId
-	readonly seq: number
-	readonly ts: string
-	readonly prev: RecordPointer | null
-	readonly prevText?: RecordPointer | null
-	readonly gen: number
+	readonly v: SessionRecordSchemaVersion;
+	readonly id: RecordId;
+	readonly sessionId: SessionId;
+	readonly turnId?: TurnId;
+	readonly seq: number;
+	readonly ts: string;
+	readonly prev: RecordPointer | null;
+	readonly prevText?: RecordPointer | null;
+	readonly gen: number;
 }
 
 // ─── shared payload shapes ────────────────────────────────────────────────
 
 export const OriginSchema = z
 	.object({
-		protocol: z.enum(['cli', 'sdk', 'ag-ui', 'a2a', 'acp', 'http', 'desktop', 'resident']),
+		protocol: z.enum([
+			"cli",
+			"sdk",
+			"ag-ui",
+			"a2a",
+			"acp",
+			"http",
+			"desktop",
+			"resident",
+		]),
 		externalSessionId: text.optional(),
 		externalTurnId: text.optional(),
-		kind: z.enum(['prompt', 'goal-round', 'resident-step', 'verification']).optional(),
+		kind: z
+			.enum(["prompt", "goal-round", "resident-step", "verification"])
+			.optional(),
 		goalId: text.optional(),
 		round: count.optional(),
 	})
-	.strict()
+	.strict();
 
 export const ExternalRefSchema = z
 	.object({
 		protocol: text.min(1),
-		kind: z.enum(['session', 'thread', 'context']),
+		kind: z.enum(["session", "thread", "context"]),
 		externalId: text.min(1),
 	})
-	.strict()
+	.strict();
 
 const turnExecutionStatus = z.enum([
-	'idle',
-	'pending',
-	'running',
-	'completed',
-	'failed',
-	'cancelled',
-])
+	"idle",
+	"pending",
+	"running",
+	"completed",
+	"failed",
+	"cancelled",
+]);
 
 const turnConfigSnapshot = z
 	.object({
@@ -179,7 +203,7 @@ const turnConfigSnapshot = z
 		maxResponseTokens: count.optional(),
 		costLimitUsd: z.number().nonnegative().optional(),
 	})
-	.strict()
+	.strict();
 
 const tokenBudgetSummary = z
 	.object({
@@ -193,7 +217,7 @@ const tokenBudgetSummary = z
 		poisoned: z.boolean(),
 		unresolvedRequests: count.optional(),
 	})
-	.strict()
+	.strict();
 
 const platformError = z
 	.object({
@@ -202,57 +226,64 @@ const platformError = z
 		details: z.record(z.unknown()).optional(),
 		retryable: z.boolean(),
 	})
-	.strict()
+	.strict();
 
 /** The provider's own classification; its fields are owned by `types/provider/error.ts`. */
 const providerError = z
 	.object({
-		kind: z.enum(['throttle', 'network', 'auth', 'context_overflow', 'bad_request', 'server']),
+		kind: z.enum([
+			"throttle",
+			"network",
+			"auth",
+			"context_overflow",
+			"bad_request",
+			"server",
+		]),
 		providerId: text,
 	})
-	.passthrough()
+	.passthrough();
 
-const explanation = z.object({ id: text, message: text, hint: text }).strict()
+const explanation = z.object({ id: text, message: text, hint: text }).strict();
 
 /** A tool's request for a person, as `turn_paused` carries it. */
 const toolHandoff = z
 	.object({
-		kind: z.literal('human-required'),
+		kind: z.literal("human-required"),
 		reason: text,
 		detail: z.record(text).optional(),
 	})
-	.strict()
+	.strict();
 
 const stopReason = z.enum([
-	'end_turn',
-	'token_budget',
-	'cost_limit',
-	'cost_unmeasurable',
-	'timeout',
-	'max_iterations',
-	'cancelled',
-	'plan_rejected',
-	'stop_condition',
-	'step_refused',
-	'structured_output_failed',
-	'output_limit',
-	'answer_rejected',
-	'input_guardrail',
-	'output_guardrail',
-	'paused',
-	'error',
-])
+	"end_turn",
+	"token_budget",
+	"cost_limit",
+	"cost_unmeasurable",
+	"timeout",
+	"max_iterations",
+	"cancelled",
+	"plan_rejected",
+	"stop_condition",
+	"step_refused",
+	"structured_output_failed",
+	"output_limit",
+	"answer_rejected",
+	"input_guardrail",
+	"output_guardrail",
+	"paused",
+	"error",
+]);
 
-const cancelCause = z.enum(['user', 'parent', 'budget', 'hook'])
+const cancelCause = z.enum(["user", "parent", "budget", "hook"]);
 
 const resultSource = z.enum([
-	'model',
-	'guardrail_blocked',
-	'guardrail_rewritten',
-	'review',
-	'outstanding_work',
-	'structured_output',
-])
+	"model",
+	"guardrail_blocked",
+	"guardrail_rewritten",
+	"review",
+	"outstanding_work",
+	"structured_output",
+]);
 
 export const TurnSettlementSchema = z
 	.object({
@@ -268,7 +299,7 @@ export const TurnSettlementSchema = z
 		abandonedTaskIds: z.array(text),
 		abandonedJobIds: z.array(text),
 	})
-	.strict()
+	.strict();
 
 /**
  * The record's type is the terminal verdict (spec §2.10): `turn_completed`
@@ -276,9 +307,11 @@ export const TurnSettlementSchema = z
  * other execution statuses (`idle`, `pending`, `running`) never settle a turn.
  */
 const completedSettlement = TurnSettlementSchema.extend({
-	status: z.enum(['completed', 'cancelled']),
-})
-const failedSettlement = TurnSettlementSchema.extend({ status: z.literal('failed') })
+	status: z.enum(["completed", "cancelled"]),
+});
+const failedSettlement = TurnSettlementSchema.extend({
+	status: z.literal("failed"),
+});
 
 /** A body too large for one record, written (and fsynced) to `tool-results/` before the record. */
 const spill = z
@@ -288,7 +321,7 @@ const spill = z
 		bytes: count,
 		sha256,
 	})
-	.strict()
+	.strict();
 
 const structuredResultSpill = spill
 	.extend({
@@ -297,52 +330,61 @@ const structuredResultSpill = spill
 		bytes: positive.max(STRUCTURED_RESULT_MAX_BYTES),
 	})
 	.refine((ref) => ref.manifest === `${ref.path}.manifest.json`, {
-		message: 'a structured spill manifest must name its body',
-	})
+		message: "a structured spill manifest must name its body",
+	});
 
-const subSessionKind = z.enum(['agent_spawn', 'user_handoff', 'intervention'])
+const subSessionKind = z.enum(["agent_spawn", "user_handoff", "intervention"]);
 
 const actorRef = z.custom<ActorRef>(
 	(value) =>
 		isPlainObject(value) &&
-		(value.kind === 'user' || value.kind === 'agent' || value.kind === 'system'),
-	{ message: 'expected an actor reference' },
-)
+		(value.kind === "user" ||
+			value.kind === "agent" ||
+			value.kind === "system"),
+	{ message: "expected an actor reference" },
+);
 
 /** The request the turn parked on, exactly as the resume handler receives it. */
-export type SessionDecisionRequest = HITLDecisionRequest
+export type SessionDecisionRequest = HITLDecisionRequest;
 
 const HITL_REQUEST_TYPES = new Set([
-	'plan_approval',
-	'tool_review',
-	'iteration_checkpoint',
-	'user_question',
-])
+	"plan_approval",
+	"tool_review",
+	"iteration_checkpoint",
+	"user_question",
+]);
 const decisionRequest = z.custom<SessionDecisionRequest>(
 	(value) =>
 		isPlainObject(value) &&
 		HITL_REQUEST_TYPES.has(value.type as string) &&
-		isEntityId(value.checkpointId, 'checkpoint'),
-	{ message: 'expected a decision request' },
-)
+		isEntityId(value.checkpointId, "checkpoint"),
+	{ message: "expected a decision request" },
+);
 const decision = z.custom<HITLResumeDecision>(
-	(value) => isPlainObject(value) && typeof value.action === 'string',
-	{ message: 'expected a decision' },
-)
+	(value) => isPlainObject(value) && typeof value.action === "string",
+	{ message: "expected a decision" },
+);
 
 // ─── record schemas ───────────────────────────────────────────────────────
 
-function recordSchema<T extends string, S extends z.ZodRawShape>(type: T, shape: S) {
-	return z.object({ ...envelopeShape, type: z.literal(type), ...shape }).strict()
+function recordSchema<T extends string, S extends z.ZodRawShape>(
+	type: T,
+	shape: S,
+) {
+	return z
+		.object({ ...envelopeShape, type: z.literal(type), ...shape })
+		.strict();
 }
 
 function inTurn<T extends string, S extends z.ZodRawShape>(type: T, shape: S) {
-	return z.object({ ...envelopeShape, turnId, type: z.literal(type), ...shape }).strict()
+	return z
+		.object({ ...envelopeShape, turnId, type: z.literal(type), ...shape })
+		.strict();
 }
 
 // Session
 
-export const SessionStartedRecordSchema = recordSchema('session_started', {
+export const SessionStartedRecordSchema = recordSchema("session_started", {
 	harness: HarnessBindingSchema.optional(),
 	projectId,
 	tenantId: tenantId.optional(),
@@ -362,12 +404,12 @@ export const SessionStartedRecordSchema = recordSchema('session_started', {
 		.optional(),
 	forkedFrom: z.object({ sessionId, turnId, checkpointId }).strict().optional(),
 	origin: OriginSchema.optional(),
-})
+});
 
-export const SessionUpdatedRecordSchema = recordSchema('session_updated', {
+export const SessionUpdatedRecordSchema = recordSchema("session_updated", {
 	harness: HarnessJournalTransitionSchema.optional(),
 	title: text.optional(),
-	titleSource: z.enum(['derived', 'named']).optional(),
+	titleSource: z.enum(["derived", "named"]).optional(),
 	archived: z.boolean().optional(),
 	approvalPolicy: text.optional(),
 	externalRefs: z
@@ -377,19 +419,19 @@ export const SessionUpdatedRecordSchema = recordSchema('session_updated', {
 		})
 		.strict()
 		.optional(),
-})
+});
 
 // Turn lifecycle (also live events)
 
-export const TurnStartedRecordSchema = inTurn('turn_started', {
+export const TurnStartedRecordSchema = inTurn("turn_started", {
 	userMessageId: messageId,
 	systemPrompt: text.optional(),
 	config: turnConfigSnapshot,
 	origin: OriginSchema.optional(),
 	budget: TurnBudgetBindingSchema.optional(),
-})
+});
 
-export const TurnPausedRecordSchema = inTurn('turn_paused', {
+export const TurnPausedRecordSchema = inTurn("turn_paused", {
 	reason: text,
 	checkpointId,
 	failure: platformError.optional(),
@@ -397,14 +439,14 @@ export const TurnPausedRecordSchema = inTurn('turn_paused', {
 	explanation: explanation.optional(),
 	budget: tokenBudgetSummary.optional(),
 	handoff: toolHandoff.optional(),
-})
+});
 
-export const TurnResumingRecordSchema = inTurn('turn_resuming', {
+export const TurnResumingRecordSchema = inTurn("turn_resuming", {
 	fromCheckpointId: checkpointId,
 	resolvedDecisionId: text.optional(),
-})
+});
 
-export const TurnCompletedRecordSchema = inTurn('turn_completed', {
+export const TurnCompletedRecordSchema = inTurn("turn_completed", {
 	/** The settled answer, or a preview of it when `resultSpill` holds the whole text. */
 	result: text,
 	resultSpill: spill.optional(),
@@ -414,47 +456,49 @@ export const TurnCompletedRecordSchema = inTurn('turn_completed', {
 	cancelCause: cancelCause.optional(),
 	budget: tokenBudgetSummary.optional(),
 	settlement: completedSettlement,
-})
+});
 
-export const TurnFailedRecordSchema = inTurn('turn_failed', {
+export const TurnFailedRecordSchema = inTurn("turn_failed", {
 	error: text,
 	failure: platformError.optional(),
 	providerError: providerError.optional(),
 	explanation: explanation.optional(),
 	budget: tokenBudgetSummary.optional(),
 	settlement: failedSettlement,
-})
+});
 
 // Messages (record-only)
 
 /** `SessionRecordSchema` also holds `role` equal to `content.role`. */
-export const MessageRecordSchema = inTurn('message', {
+export const MessageRecordSchema = inTurn("message", {
 	messageId,
-	role: z.enum(['user', 'assistant', 'tool', 'system']),
-	kind: z.enum(['prompt', 'steering', 'auto-continuation', 'context']).optional(),
+	role: z.enum(["user", "assistant", "tool", "system"]),
+	kind: z
+		.enum(["prompt", "steering", "auto-continuation", "context"])
+		.optional(),
 	content: messageBody,
 	spill: spill.optional(),
-})
+});
 
-export const MessageReplacedRecordSchema = recordSchema('message_replaced', {
+export const MessageReplacedRecordSchema = recordSchema("message_replaced", {
 	targetMessageId: messageId,
 	content: messageBody,
 	spill: spill.optional(),
 	reason: z.enum([
-		'pin-slot',
-		'guardrail_blocked',
-		'guardrail_rewritten',
-		'review',
-		'outstanding_work',
-		'structured_output',
-		'history-repair',
+		"pin-slot",
+		"guardrail_blocked",
+		"guardrail_rewritten",
+		"review",
+		"outstanding_work",
+		"structured_output",
+		"history-repair",
 	]),
-})
+});
 
 // Checkpoints and human decisions (record-only)
 
 /** `SessionRecordSchema` also holds `throughSeq` below the record's own `seq`. */
-export const CheckpointWrittenRecordSchema = inTurn('checkpoint_written', {
+export const CheckpointWrittenRecordSchema = inTurn("checkpoint_written", {
 	checkpointId,
 	iteration: count,
 	throughSeq: positive,
@@ -462,28 +506,28 @@ export const CheckpointWrittenRecordSchema = inTurn('checkpoint_written', {
 	/** Relative to the session directory: `checkpoints/<id>.json`. */
 	path: text.min(1),
 	docSha256: sha256,
-})
+});
 
-export const CheckpointPrunedRecordSchema = recordSchema('checkpoint_pruned', {
+export const CheckpointPrunedRecordSchema = recordSchema("checkpoint_pruned", {
 	checkpointIds: z.array(checkpointId).min(1),
-})
+});
 
-export const DecisionRequestedRecordSchema = inTurn('decision_requested', {
+export const DecisionRequestedRecordSchema = inTurn("decision_requested", {
 	decisionId: text.min(1),
 	checkpointId,
 	request: decisionRequest,
 	deadlineAt: isoUtc.optional(),
-})
+});
 
-export const DecisionResolvedRecordSchema = inTurn('decision_resolved', {
+export const DecisionResolvedRecordSchema = inTurn("decision_resolved", {
 	decisionId: text.min(1),
 	decision,
 	resolvedBy: actorRef,
-})
+});
 
-export const DecisionExpiredRecordSchema = inTurn('decision_expired', {
+export const DecisionExpiredRecordSchema = inTurn("decision_expired", {
 	decisionId: text.min(1),
-})
+});
 
 // Compaction (record-only; the fold reads this, not the live compaction events)
 
@@ -491,17 +535,17 @@ export const DecisionExpiredRecordSchema = inTurn('decision_expired', {
  * `SessionRecordSchema` also holds `replacesSeqRange` ascending and before the
  * record: `fromSeq <= toSeq < seq`.
  */
-export const CompactionRecordSchema = recordSchema('compaction', {
+export const CompactionRecordSchema = recordSchema("compaction", {
 	compactionId: text.min(1),
 	strategy: text.min(1),
-	trigger: z.enum(['auto', 'manual', 'idle']),
+	trigger: z.enum(["auto", "manual", "idle"]),
 	replacesSeqRange: z.tuple([positive, positive]),
 	summary: z.union([z.array(messageBody), spill]),
 	keptMessageIds: z.array(messageId),
 	pinned: z.array(messageId).optional(),
 	tokensBefore: count,
 	tokensAfter: count,
-})
+});
 
 // Children (the live child_session_* events, plus one record-only type)
 //
@@ -512,7 +556,7 @@ export const CompactionRecordSchema = recordSchema('compaction', {
 // active: the child belongs to the turn its `child_session_spawned` names, and
 // a reader attributes the record through `childSessionId`.
 
-export const ChildSessionSpawnedRecordSchema = inTurn('child_session_spawned', {
+export const ChildSessionSpawnedRecordSchema = inTurn("child_session_spawned", {
 	childSessionId: sessionId,
 	toolCallId: text.min(1),
 	kind: subSessionKind,
@@ -523,25 +567,34 @@ export const ChildSessionSpawnedRecordSchema = inTurn('child_session_spawned', {
 		.strict()
 		.optional(),
 	budgetAccountId: text.optional(),
-})
+});
 
-export const ChildSessionMessagedRecordSchema = recordSchema('child_session_messaged', {
-	childSessionId: sessionId,
-	messageId,
-})
+export const ChildSessionMessagedRecordSchema = recordSchema(
+	"child_session_messaged",
+	{
+		childSessionId: sessionId,
+		messageId,
+	},
+);
 
-export const ChildSessionIdledRecordSchema = recordSchema('child_session_idled', {
-	childSessionId: sessionId,
-})
+export const ChildSessionIdledRecordSchema = recordSchema(
+	"child_session_idled",
+	{
+		childSessionId: sessionId,
+	},
+);
 
-export const ChildSessionEndedRecordSchema = recordSchema('child_session_ended', {
-	childSessionId: sessionId,
-	status: turnExecutionStatus,
-	stopReason: stopReason.optional(),
-	resultMessageId: messageId.optional(),
-	usage: TokenUsageSchema,
-	cost: CostInfoSchema,
-})
+export const ChildSessionEndedRecordSchema = recordSchema(
+	"child_session_ended",
+	{
+		childSessionId: sessionId,
+		status: turnExecutionStatus,
+		stopReason: stopReason.optional(),
+		resultMessageId: messageId.optional(),
+		usage: TokenUsageSchema,
+		cost: CostInfoSchema,
+	},
+);
 
 // Other record-only types
 
@@ -551,7 +604,7 @@ export const ChildSessionEndedRecordSchema = recordSchema('child_session_ended',
  * `action`, `tool` and `resource`, and the envelope's `seq`, `ts` and `turnId`
  * replace the trail's own sequence, timestamp and turn id.
  */
-export const AuditRecordSchema = recordSchema('audit', {
+export const AuditRecordSchema = recordSchema("audit", {
 	auditId: text.min(1),
 	actor: actorRef,
 	/** The label a host assigned the agent, when one was configured. */
@@ -561,20 +614,20 @@ export const AuditRecordSchema = recordSchema('audit', {
 	tool: text.min(1).optional(),
 	/** What the action targeted when that is narrower than the tool, for example a guardrail's name. */
 	resource: text.min(1).optional(),
-	outcome: z.enum(['success', 'failure', 'refused', 'approved']),
+	outcome: z.enum(["success", "failure", "refused", "approved"]),
 	cost: CostInfoSchema.optional(),
 	/** Present on `refused`, `failure` and `approved`. */
 	reason: text.optional(),
 	/** The active span when the entry was recorded; both or neither. */
 	traceId: text.min(1).optional(),
 	spanId: text.min(1).optional(),
-})
+});
 
-export const BudgetBoundRecordSchema = inTurn('budget_bound', {
+export const BudgetBoundRecordSchema = inTurn("budget_bound", {
 	rootSessionId: sessionId,
 	rootTurnId: turnId,
 	accountId: text.min(1),
-})
+});
 
 /**
  * The account a session's provider calls run under. Written when a session is
@@ -583,16 +636,16 @@ export const BudgetBoundRecordSchema = inTurn('budget_bound', {
  * the last one. A build that predates this record refuses a log holding it, so
  * a session that never leaves the default account never writes one.
  */
-export const AccountBoundRecordSchema = recordSchema('account_bound', {
+export const AccountBoundRecordSchema = recordSchema("account_bound", {
 	accountId: text.min(1),
 	provider: text.min(1),
-	reason: z.enum(['start', 'user_switch', 'limit_switch']),
-})
+	reason: z.enum(["start", "user_switch", "limit_switch"]),
+});
 
-export const LogRepairedRecordSchema = recordSchema('log_repaired', {
+export const LogRepairedRecordSchema = recordSchema("log_repaired", {
 	truncatedBytes: positive,
 	lastGoodSeq: positive,
-})
+});
 
 /**
  * Event types whose payload the schema checks field by field. The other
@@ -609,7 +662,7 @@ const SPECIFIED_EVENT_SCHEMAS = {
 	child_session_spawned: ChildSessionSpawnedRecordSchema,
 	child_session_messaged: ChildSessionMessagedRecordSchema,
 	child_session_idled: ChildSessionIdledRecordSchema,
-} as const
+} as const;
 
 const RECORD_ONLY_SCHEMAS = {
 	session_started: SessionStartedRecordSchema,
@@ -627,9 +680,9 @@ const RECORD_ONLY_SCHEMAS = {
 	budget_bound: BudgetBoundRecordSchema,
 	account_bound: AccountBoundRecordSchema,
 	log_repaired: LogRepairedRecordSchema,
-} as const
+} as const;
 
-export type SessionRecordOnlyType = keyof typeof RECORD_ONLY_SCHEMAS
+export type SessionRecordOnlyType = keyof typeof RECORD_ONLY_SCHEMAS;
 
 /**
  * Every live event type, each exactly once. Typed as a record over
@@ -701,37 +754,45 @@ const SESSION_EVENT_TYPE_TABLE: Record<SessionEventType, true> = {
 	child_session_spawned: true,
 	child_session_messaged: true,
 	child_session_idled: true,
-}
+};
 
 /** All 64 live event type literals. */
 export const SESSION_EVENT_TYPES: readonly SessionEventType[] = Object.freeze(
 	Object.keys(SESSION_EVENT_TYPE_TABLE) as SessionEventType[],
-)
+);
 
 /** The 58 event types a session log records: all 64 but the six ephemeral ones. */
-export const PERSISTED_SESSION_EVENT_TYPES: readonly PersistedSessionEventType[] = Object.freeze(
-	SESSION_EVENT_TYPES.filter(
-		(type) => !EPHEMERAL_EVENT_TYPES.has(type),
-	) as PersistedSessionEventType[],
-)
+export const PERSISTED_SESSION_EVENT_TYPES: readonly PersistedSessionEventType[] =
+	Object.freeze(
+		SESSION_EVENT_TYPES.filter(
+			(type) => !EPHEMERAL_EVENT_TYPES.has(type),
+		) as PersistedSessionEventType[],
+	);
 
 /** Every `type` a session log may hold: the persisted event types and the record-only types. */
-export const SESSION_RECORD_TYPES: readonly SessionRecordType[] = Object.freeze([
-	...PERSISTED_SESSION_EVENT_TYPES,
-	...(Object.keys(RECORD_ONLY_SCHEMAS) as SessionRecordOnlyType[]),
-])
+export const SESSION_RECORD_TYPES: readonly SessionRecordType[] = Object.freeze(
+	[
+		...PERSISTED_SESSION_EVENT_TYPES,
+		...(Object.keys(RECORD_ONLY_SCHEMAS) as SessionRecordOnlyType[]),
+	],
+);
 
 const OTHER_PERSISTED_TYPES = PERSISTED_SESSION_EVENT_TYPES.filter(
 	(type) => !(type in SPECIFIED_EVENT_SCHEMAS),
-) as [PersistedSessionEventType, ...PersistedSessionEventType[]]
+) as [PersistedSessionEventType, ...PersistedSessionEventType[]];
 
 /** Envelope-and-discriminant check for the persisted event types the table above does not specify. */
 const OtherEventRecordSchema = z
 	.object({ ...envelopeShape, type: z.enum(OTHER_PERSISTED_TYPES) })
-	.passthrough()
+	.passthrough();
 
 /** Live-only fields a record never carries: the envelope or `session_started.parent` holds them. */
-const LIVE_ONLY_KEYS = ['lineage', 'schemaVersion', 'generation', 'runId'] as const
+const LIVE_ONLY_KEYS = [
+	"lineage",
+	"schemaVersion",
+	"generation",
+	"runId",
+] as const;
 
 /**
  * The persisted event types without a field-by-field schema that happen only
@@ -739,143 +800,184 @@ const LIVE_ONLY_KEYS = ['lineage', 'schemaVersion', 'generation', 'runId'] as co
  * whose live type requires `turnId`; a type test holds the two lists together.
  */
 const TURN_BOUND_OTHER_TYPE_LIST = [
-	'tool_calls_admitted',
-	'iteration_started',
-	'request_envelope',
-	'iteration_completed',
-	'tool_executing',
-	'hosted_tool',
-	'provider_retry',
-	'provider_fallback',
-	'tool_completed',
-	'user_question_asked',
-	'user_question_answered',
-	'tool_review_requested',
-	'tool_review_completed',
-	'checkpoint_created',
-	'guardrail_triggered',
-	'message_history_repaired',
-	'token_usage_updated',
-	'activity_created',
-	'activity_updated',
-	'plan_ready',
-	'plan_approved',
-	'plan_rejected',
-	'plan_step_updated',
-	'plan_completed',
-	'plan_failed',
-	'agent_pending',
-	'agent_completed',
-	'agent_failed',
-	'agent_canceled',
-	'message_started',
-	'reasoning_started',
-	'reasoning_completed',
-	'message_completed',
-	'tool_input_started',
-	'tool_input_completed',
-] as const satisfies readonly PersistedSessionEventType[]
+	"tool_calls_admitted",
+	"iteration_started",
+	"request_envelope",
+	"iteration_completed",
+	"tool_executing",
+	"hosted_tool",
+	"provider_retry",
+	"provider_fallback",
+	"tool_completed",
+	"user_question_asked",
+	"user_question_answered",
+	"tool_review_requested",
+	"tool_review_completed",
+	"checkpoint_created",
+	"guardrail_triggered",
+	"message_history_repaired",
+	"token_usage_updated",
+	"activity_created",
+	"activity_updated",
+	"plan_ready",
+	"plan_approved",
+	"plan_rejected",
+	"plan_step_updated",
+	"plan_completed",
+	"plan_failed",
+	"agent_pending",
+	"agent_completed",
+	"agent_failed",
+	"agent_canceled",
+	"message_started",
+	"reasoning_started",
+	"reasoning_completed",
+	"message_completed",
+	"tool_input_started",
+	"tool_input_completed",
+] as const satisfies readonly PersistedSessionEventType[];
 
-const TURN_BOUND_OTHER_TYPES: ReadonlySet<string> = new Set(TURN_BOUND_OTHER_TYPE_LIST)
+const TURN_BOUND_OTHER_TYPES: ReadonlySet<string> = new Set(
+	TURN_BOUND_OTHER_TYPE_LIST,
+);
 
 /** The persisted event types whose record always carries `turnId`. */
 export type TurnBoundSessionEventType =
 	| (typeof TURN_BOUND_OTHER_TYPE_LIST)[number]
-	| 'turn_started'
-	| 'turn_paused'
-	| 'turn_resuming'
-	| 'turn_completed'
-	| 'turn_failed'
-	| 'child_session_spawned'
+	| "turn_started"
+	| "turn_paused"
+	| "turn_resuming"
+	| "turn_completed"
+	| "turn_failed"
+	| "child_session_spawned";
 
 const RECORD_OPTIONS = [
 	...Object.values(SPECIFIED_EVENT_SCHEMAS),
 	...Object.values(RECORD_ONLY_SCHEMAS),
 	OtherEventRecordSchema,
 ] as unknown as [
-	z.ZodDiscriminatedUnionOption<'type'>,
-	z.ZodDiscriminatedUnionOption<'type'>,
-	...z.ZodDiscriminatedUnionOption<'type'>[],
-]
+	z.ZodDiscriminatedUnionOption<"type">,
+	z.ZodDiscriminatedUnionOption<"type">,
+	...z.ZodDiscriminatedUnionOption<"type">[],
+];
+
+/**
+ * A record of a type this reader does not know, written by a newer writer
+ * that flagged it `ignorable: true`: a promise that no reader needs it to
+ * rebuild the conversation. It is kept in the hash chain and verified like any
+ * other record, but never moves the fold. A known type never qualifies (its
+ * own schema decides), and an unknown type without the flag is still refused,
+ * so a record that does move the fold fails loudly on an older reader.
+ */
+export const IgnorableRecordSchema = z
+	.object({
+		...envelopeShape,
+		type: z
+			.string()
+			.min(1)
+			.refine(
+				(type) => !(SESSION_RECORD_TYPES as readonly string[]).includes(type),
+				{
+					message: "a type this reader knows is validated by its own schema",
+				},
+			),
+		ignorable: z.literal(true),
+	})
+	.passthrough()
+	.superRefine((record, context) => {
+		if (record.seq === 1 || record.prev === null) {
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["type"],
+				message:
+					"session_started is the first record of a session log, and only the first",
+			});
+		}
+	});
 
 /** Validates one session record: envelope, discriminant, and every specified payload. */
 export const SessionRecordSchema = z
-	.discriminatedUnion('type', RECORD_OPTIONS)
+	.discriminatedUnion("type", RECORD_OPTIONS)
 	.superRefine((record, context) => {
-		const r = record as Record<string, unknown> & { type: string; seq: number }
+		const r = record as Record<string, unknown> & { type: string; seq: number };
 		if ((r.seq === 1) !== (r.prev === null)) {
 			context.addIssue({
 				code: z.ZodIssueCode.custom,
-				path: ['prev'],
-				message: 'prev is null at seq 1 and only there',
-			})
+				path: ["prev"],
+				message: "prev is null at seq 1 and only there",
+			});
 		}
-		if (r.type === 'session_started' && r.turnId !== undefined) {
+		if (r.type === "session_started" && r.turnId !== undefined) {
 			context.addIssue({
 				code: z.ZodIssueCode.custom,
-				path: ['turnId'],
-				message: 'session_started is outside any turn',
-			})
+				path: ["turnId"],
+				message: "session_started is outside any turn",
+			});
 		}
-		if ((r.seq === 1) !== (r.type === 'session_started')) {
+		if ((r.seq === 1) !== (r.type === "session_started")) {
 			context.addIssue({
 				code: z.ZodIssueCode.custom,
-				path: ['type'],
-				message: 'session_started is the first record of a session log, and only the first',
-			})
+				path: ["type"],
+				message:
+					"session_started is the first record of a session log, and only the first",
+			});
 		}
 		if (TURN_BOUND_OTHER_TYPES.has(r.type) && r.turnId === undefined) {
 			context.addIssue({
 				code: z.ZodIssueCode.custom,
-				path: ['turnId'],
+				path: ["turnId"],
 				message: `${r.type} happens only inside a turn and must carry turnId`,
-			})
+			});
 		}
 		if (
-			r.type === 'tool_completed' &&
+			r.type === "tool_completed" &&
 			r.inputFailure !== undefined &&
-			(!['invalid_json', 'schema_validation', 'input_truncated'].includes(
+			(!["invalid_json", "schema_validation", "input_truncated"].includes(
 				r.inputFailure as string,
 			) ||
 				r.isError !== true)
 		) {
 			context.addIssue({
 				code: z.ZodIssueCode.custom,
-				path: ['inputFailure'],
-				message: 'inputFailure must classify a failed tool admission',
-			})
+				path: ["inputFailure"],
+				message: "inputFailure must classify a failed tool admission",
+			});
 		}
 		if (
-			r.type === 'tool_completed' &&
+			r.type === "tool_completed" &&
 			r.skipped !== undefined &&
-			(r.skipped !== true || r.isError !== false || r.inputFailure !== undefined)
+			(r.skipped !== true ||
+				r.isError !== false ||
+				r.inputFailure !== undefined)
 		) {
 			context.addIssue({
 				code: z.ZodIssueCode.custom,
-				path: ['skipped'],
-				message: 'skipped must classify a non-error pre-tool hook skip without an input failure',
-			})
+				path: ["skipped"],
+				message:
+					"skipped must classify a non-error pre-tool hook skip without an input failure",
+			});
 		}
 		if (
-			r.type === 'tool_completed' &&
-			(r.structuredResultJson !== undefined || r.structuredResultSpill !== undefined)
+			r.type === "tool_completed" &&
+			(r.structuredResultJson !== undefined ||
+				r.structuredResultSpill !== undefined)
 		) {
-			let validJson = false
+			let validJson = false;
 			try {
 				if (r.structuredResultSpill !== undefined) {
 					validJson =
 						r.structuredResultJson === undefined &&
-						structuredResultSpill.safeParse(r.structuredResultSpill).success
+						structuredResultSpill.safeParse(r.structuredResultSpill).success;
 				} else {
-					parseStructuredResultJson(r.structuredResultJson)
-					validJson = true
+					parseStructuredResultJson(r.structuredResultJson);
+					validJson = true;
 				}
 			} catch {
 				// Retained evidence is never repaired or downgraded to a preview.
 			}
 			if (
 				!validJson ||
-				r.toolName !== 'structured_output' ||
+				r.toolName !== "structured_output" ||
 				r.isError !== false ||
 				r.skipped !== undefined ||
 				r.inputFailure !== undefined ||
@@ -885,63 +987,68 @@ export const SessionRecordSchema = z
 					code: z.ZodIssueCode.custom,
 					path: [
 						r.structuredResultSpill !== undefined
-							? 'structuredResultSpill'
-							: 'structuredResultJson',
+							? "structuredResultSpill"
+							: "structuredResultJson",
 					],
 					message:
-						'structured result evidence must hold JSON or a spill from a successful direct structured_output execution, never both',
-				})
+						"structured result evidence must hold JSON or a spill from a successful direct structured_output execution, never both",
+				});
 			}
 		}
-		if (r.type === 'turn_completed' && r.structuredOutputSpill !== undefined) {
-			const settlement = r.settlement as Record<string, unknown>
+		if (r.type === "turn_completed" && r.structuredOutputSpill !== undefined) {
+			const settlement = r.settlement as Record<string, unknown>;
 			if (
-				settlement.status !== 'completed' ||
-				settlement.resultSource !== 'structured_output' ||
+				settlement.status !== "completed" ||
+				settlement.resultSource !== "structured_output" ||
 				settlement.structuredOutput !== undefined
 			) {
 				context.addIssue({
 					code: z.ZodIssueCode.custom,
-					path: ['structuredOutputSpill'],
+					path: ["structuredOutputSpill"],
 					message:
-						'a structured output spill requires a completed structured_output settlement without inline structuredOutput',
-				})
+						"a structured output spill requires a completed structured_output settlement without inline structuredOutput",
+				});
 			}
 		}
-		if (r.type === 'message') {
-			const content = r.content as { role: unknown }
+		if (r.type === "message") {
+			const content = r.content as { role: unknown };
 			if (r.role !== content.role) {
 				context.addIssue({
 					code: z.ZodIssueCode.custom,
-					path: ['role'],
+					path: ["role"],
 					message: `a message record's role (${String(r.role)}) is its content's role (${String(content.role)})`,
-				})
+				});
 			}
 		}
-		if (r.type === 'checkpoint_written' && (r.throughSeq as number) >= r.seq) {
+		if (r.type === "checkpoint_written" && (r.throughSeq as number) >= r.seq) {
 			context.addIssue({
 				code: z.ZodIssueCode.custom,
-				path: ['throughSeq'],
-				message: 'a checkpoint covers records before its own checkpoint_written: throughSeq < seq',
-			})
+				path: ["throughSeq"],
+				message:
+					"a checkpoint covers records before its own checkpoint_written: throughSeq < seq",
+			});
 		}
-		if (r.type === 'compaction') {
-			const [fromSeq, toSeq] = r.replacesSeqRange as [number, number]
+		if (r.type === "compaction") {
+			const [fromSeq, toSeq] = r.replacesSeqRange as [number, number];
 			if (fromSeq > toSeq || toSeq >= r.seq) {
 				context.addIssue({
 					code: z.ZodIssueCode.custom,
-					path: ['replacesSeqRange'],
+					path: ["replacesSeqRange"],
 					message:
-						'a compaction replaces an ascending range of earlier records: fromSeq <= toSeq < seq',
-				})
+						"a compaction replaces an ascending range of earlier records: fromSeq <= toSeq < seq",
+				});
 			}
 		}
-		if (r.type === 'audit' && (r.traceId === undefined) !== (r.spanId === undefined)) {
+		if (
+			r.type === "audit" &&
+			(r.traceId === undefined) !== (r.spanId === undefined)
+		) {
 			context.addIssue({
 				code: z.ZodIssueCode.custom,
-				path: [r.traceId === undefined ? 'traceId' : 'spanId'],
-				message: 'an audit record carries traceId and spanId together, or neither',
-			})
+				path: [r.traceId === undefined ? "traceId" : "spanId"],
+				message:
+					"an audit record carries traceId and spanId together, or neither",
+			});
 		}
 		for (const key of LIVE_ONLY_KEYS) {
 			if (Object.hasOwn(r, key)) {
@@ -949,55 +1056,77 @@ export const SessionRecordSchema = z
 					code: z.ZodIssueCode.custom,
 					path: [key],
 					message: `A record does not carry ${key}; the envelope or session_started.parent holds it.`,
-				})
+				});
 			}
 		}
-	})
+	});
 
 /** Parse one record, or throw the zod error naming every field that failed. */
 export function parseSessionRecord(value: unknown): SessionRecord {
-	return SessionRecordSchema.parse(value) as SessionRecord
+	return SessionRecordSchema.parse(value) as SessionRecord;
 }
 
 // ─── TypeScript view ──────────────────────────────────────────────────────
 
-type EventOf<T extends SessionEventType> = Extract<SessionEvent, { type: T }>
+type EventOf<T extends SessionEventType> = Extract<SessionEvent, { type: T }>;
 
 /**
  * A persisted live event as a record: the event minus its live-only fields,
  * plus the envelope. A turn-bound type carries a non-optional `turnId`, as
  * `SessionRecordSchema` guarantees.
  */
-export type SessionEventRecord<T extends PersistedSessionEventType = PersistedSessionEventType> =
-	T extends PersistedSessionEventType
-		? Omit<EventOf<T>, 'sessionId' | 'turnId' | 'lineage' | 'v' | 'seq' | 'generation'> &
-				RecordEnvelope &
-				(T extends 'tool_completed'
-					? { readonly structuredResultSpill?: z.infer<typeof structuredResultSpill> }
-					: T extends 'turn_completed'
-						? {
-								readonly resultSpill?: z.infer<typeof spill>
-								readonly structuredOutputSpill?: z.infer<typeof structuredResultSpill>
-							}
-						: unknown) &
-				(T extends TurnBoundSessionEventType ? { readonly turnId: TurnId } : unknown)
-		: never
+export type SessionEventRecord<
+	T extends PersistedSessionEventType = PersistedSessionEventType,
+> = T extends PersistedSessionEventType
+	? Omit<
+			EventOf<T>,
+			"sessionId" | "turnId" | "lineage" | "v" | "seq" | "generation"
+		> &
+			RecordEnvelope &
+			(T extends "tool_completed"
+				? {
+						readonly structuredResultSpill?: z.infer<
+							typeof structuredResultSpill
+						>;
+					}
+				: T extends "turn_completed"
+					? {
+							readonly resultSpill?: z.infer<typeof spill>;
+							readonly structuredOutputSpill?: z.infer<
+								typeof structuredResultSpill
+							>;
+						}
+					: unknown) &
+			(T extends TurnBoundSessionEventType
+				? { readonly turnId: TurnId }
+				: unknown)
+	: never;
 
-export type SessionStartedRecord = z.infer<typeof SessionStartedRecordSchema>
-export type SessionUpdatedRecord = z.infer<typeof SessionUpdatedRecordSchema>
-export type MessageRecord = z.infer<typeof MessageRecordSchema>
-export type MessageReplacedRecord = z.infer<typeof MessageReplacedRecordSchema>
-export type CheckpointWrittenRecord = z.infer<typeof CheckpointWrittenRecordSchema>
-export type CheckpointPrunedRecord = z.infer<typeof CheckpointPrunedRecordSchema>
-export type DecisionRequestedRecord = z.infer<typeof DecisionRequestedRecordSchema>
-export type DecisionResolvedRecord = z.infer<typeof DecisionResolvedRecordSchema>
-export type DecisionExpiredRecord = z.infer<typeof DecisionExpiredRecordSchema>
-export type CompactionRecord = z.infer<typeof CompactionRecordSchema>
-export type ChildSessionEndedRecord = z.infer<typeof ChildSessionEndedRecordSchema>
-export type AuditRecord = z.infer<typeof AuditRecordSchema>
-export type BudgetBoundRecord = z.infer<typeof BudgetBoundRecordSchema>
-export type AccountBoundRecord = z.infer<typeof AccountBoundRecordSchema>
-export type LogRepairedRecord = z.infer<typeof LogRepairedRecordSchema>
+export type SessionStartedRecord = z.infer<typeof SessionStartedRecordSchema>;
+export type SessionUpdatedRecord = z.infer<typeof SessionUpdatedRecordSchema>;
+export type MessageRecord = z.infer<typeof MessageRecordSchema>;
+export type MessageReplacedRecord = z.infer<typeof MessageReplacedRecordSchema>;
+export type CheckpointWrittenRecord = z.infer<
+	typeof CheckpointWrittenRecordSchema
+>;
+export type CheckpointPrunedRecord = z.infer<
+	typeof CheckpointPrunedRecordSchema
+>;
+export type DecisionRequestedRecord = z.infer<
+	typeof DecisionRequestedRecordSchema
+>;
+export type DecisionResolvedRecord = z.infer<
+	typeof DecisionResolvedRecordSchema
+>;
+export type DecisionExpiredRecord = z.infer<typeof DecisionExpiredRecordSchema>;
+export type CompactionRecord = z.infer<typeof CompactionRecordSchema>;
+export type ChildSessionEndedRecord = z.infer<
+	typeof ChildSessionEndedRecordSchema
+>;
+export type AuditRecord = z.infer<typeof AuditRecordSchema>;
+export type BudgetBoundRecord = z.infer<typeof BudgetBoundRecordSchema>;
+export type AccountBoundRecord = z.infer<typeof AccountBoundRecordSchema>;
+export type LogRepairedRecord = z.infer<typeof LogRepairedRecordSchema>;
 
 export type SessionRecordOnly =
 	| SessionStartedRecord
@@ -1014,12 +1143,12 @@ export type SessionRecordOnly =
 	| AuditRecord
 	| BudgetBoundRecord
 	| AccountBoundRecord
-	| LogRepairedRecord
+	| LogRepairedRecord;
 
 /** One line of a session log. */
-export type SessionRecord = SessionEventRecord | SessionRecordOnly
+export type SessionRecord = SessionEventRecord | SessionRecordOnly;
 
-export type SessionRecordType = SessionRecord['type']
+export type SessionRecordType = SessionRecord["type"];
 
 // ─── documents beside the log ─────────────────────────────────────────────
 
@@ -1027,14 +1156,14 @@ export type SessionRecordType = SessionRecord['type']
 export const ProjectDocumentSchema = z
 	.object({
 		v: z.literal(1),
-		kind: z.literal('project'),
+		kind: z.literal("project"),
 		projectId,
 		cwd: text.min(1),
 		slug: z.string().regex(/^[A-Za-z0-9-]+$/),
 		createdAt: isoUtc,
 	})
-	.strict()
-export type ProjectDocument = z.infer<typeof ProjectDocumentSchema>
+	.strict();
+export type ProjectDocument = z.infer<typeof ProjectDocumentSchema>;
 
 /**
  * `<parent>/subagents/<child-id>.meta.json`: a convenience copy of a child
@@ -1043,7 +1172,7 @@ export type ProjectDocument = z.infer<typeof ProjectDocumentSchema>
 export const ChildSessionMetaSchema = z
 	.object({
 		v: z.literal(1),
-		kind: z.literal('child-session'),
+		kind: z.literal("child-session"),
 		sessionId,
 		parentSessionId: sessionId,
 		parentTurnId: turnId,
@@ -1064,25 +1193,28 @@ export const ChildSessionMetaSchema = z
 		 */
 		continuation: z
 			.object({
-				workspace: z.enum(['shared', 'isolated']),
+				workspace: z.enum(["shared", "isolated"]),
 				profile: z
 					.record(z.string().min(1).max(64), z.string().max(256))
-					.refine((value) => Object.keys(value).length <= 16, 'At most 16 profile entries'),
+					.refine(
+						(value) => Object.keys(value).length <= 16,
+						"At most 16 profile entries",
+					),
 			})
 			.strict()
 			.optional(),
 	})
-	.strict()
-export type ChildSessionMeta = z.infer<typeof ChildSessionMetaSchema>
+	.strict();
+export type ChildSessionMeta = z.infer<typeof ChildSessionMetaSchema>;
 
 /** `<session-id>/lease.json`: who may append, under which fence, until when. */
 export const SessionLeaseDocumentSchema = z
 	.object({
 		v: z.literal(1),
-		kind: z.literal('lease'),
+		kind: z.literal("lease"),
 		holder: text.min(1),
 		fence: count,
 		expiresAt: isoUtc,
 	})
-	.strict()
-export type SessionLeaseDocument = z.infer<typeof SessionLeaseDocumentSchema>
+	.strict();
+export type SessionLeaseDocument = z.infer<typeof SessionLeaseDocumentSchema>;
