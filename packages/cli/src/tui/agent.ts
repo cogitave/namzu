@@ -5074,6 +5074,7 @@ export async function createAgentSession(
 						// review channel.
 						workflowOffered: false,
 						permissionMode: permissionMode ?? options.permissionMode ?? 'auto',
+						approvalMode: permissionMode ?? options.permissionMode ?? 'auto',
 						extraSystem,
 						systemNote,
 					},
@@ -6329,6 +6330,7 @@ export async function createAgentSession(
 									workflowOffered: workflowOffer,
 									planInReminders: planPath !== undefined && !residentContext,
 									permissionMode: opts?.permissionMode,
+									approvalMode: options.permissionMode,
 									extraSystem: opts?.extraSystem,
 									systemNote: opts?.systemNote,
 								},

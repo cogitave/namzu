@@ -139,8 +139,7 @@ describe('the session system prompt', () => {
 	it('adds the plan doctrine to the prefix as one section when plan mode starts, and moves nothing else', () => {
 		// The doctrine sits in the cached prefix, so a mode switch re-keys it
 		// once; this pins that it is the only thing that switch changes.
-		// Compared against `prompt`, a mode that adds no approval-stance sentence.
-		const auto = fromFacts({}, { permissionMode: 'prompt' })
+		const auto = fromFacts()
 		const plan = fromFacts({}, { permissionMode: 'plan' })
 		expect(plan.replace(`${NAMZU_PLAN_MODE_DOCTRINE}\n\n`, '')).toBe(auto)
 	})
@@ -158,7 +157,7 @@ describe('the session system prompt', () => {
 
 	it('leaves the prefix byte-identical when plan mode toggles and the plan-mode reminder carries the file doctrine', () => {
 		const planFacts = { planPath: '/tmp/plan.md' }
-		const auto = fromFacts(planFacts, { permissionMode: 'prompt', planInReminders: true })
+		const auto = fromFacts(planFacts, { permissionMode: 'auto', planInReminders: true })
 		const plan = fromFacts(planFacts, { permissionMode: 'plan', planInReminders: true })
 		expect(plan).toBe(auto)
 		expect(plan).not.toContain(NAMZU_PLAN_FILE_DOCTRINE)

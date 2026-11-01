@@ -90,6 +90,13 @@ export interface SessionPromptInput {
 	/** See {@link SessionPromptTurn.planInReminders}. */
 	readonly planInReminders?: boolean
 	readonly permissionMode?: string | undefined
+	/**
+	 * The mode the session was created in, which the approval-stance sentence
+	 * follows. It is not the turn's mode: the system prompt is the cached
+	 * prefix and does not move when the mode is switched mid-session (the mode
+	 * reminder tells the model about a switch).
+	 */
+	readonly approvalMode?: string | undefined
 	/** The plan file path when the session has a plan mode. */
 	readonly planPath?: string | undefined
 	readonly extraSystem?: string | undefined
@@ -125,6 +132,8 @@ export interface SessionPromptTurn {
 	 */
 	readonly planInReminders?: boolean
 	readonly permissionMode?: string | undefined
+	/** See {@link SessionPromptInput.approvalMode}. */
+	readonly approvalMode?: string | undefined
 	readonly extraSystem?: string | undefined
 	readonly systemNote?: string | undefined
 }
@@ -150,6 +159,7 @@ export function sessionPromptInput(
 		toolsDeferred: facts.toolLoading === 'deferred' || facts.anyToolDeferred,
 		planInReminders: turn.planInReminders,
 		permissionMode: turn.permissionMode,
+		approvalMode: turn.approvalMode,
 		planPath: facts.planPath,
 		extraSystem: turn.extraSystem,
 		systemNote: turn.systemNote,
@@ -185,7 +195,7 @@ export function composeSessionSystemPrompt(input: SessionPromptInput): string | 
 				? NAMZU_PLAN_FILE_DOCTRINE
 				: NAMZU_PLAN_MODE_DOCTRINE
 			: undefined,
-		resident ? undefined : approvalStanceSentence(input.permissionMode),
+		resident ? undefined : approvalStanceSentence(input.approvalMode),
 		resident ? undefined : input.environment,
 		resident ? undefined : input.extraSystem,
 		resident ? undefined : input.systemNote,

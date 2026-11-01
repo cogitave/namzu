@@ -2,6 +2,7 @@
 
 ## 2026-11-01
 
+- **Update** [Permission modes](cli/permission-modes.md#what-the-model-is-told): the approval-stance sentence follows the mode the session was created in, not each turn's mode, so switching modes mid-session no longer changes the cached system prompt. `.changeset/state-the-approval-stance.md` (`@namzu/cli` patch).
 - **Update** [Permission modes](cli/permission-modes.md#what-the-model-is-told): the session prompt states the approval stance in one sentence under `strict`, `auto` and unattended runs, so the model stops asking for approval nobody will give. `.changeset/state-the-approval-stance.md` (`@namzu/cli` patch).
 - **Creation** [Postmortems](postmortems/index.md): a `Postmortem` page type with two incidents the history records ([compaction re-base](postmortems/compaction-rebase-reinline.md), [tests racing real time](postmortems/tests-racing-real-time.md)) and a [failure classes](postmortems/failure-classes.md) guide naming the rule, the judged condition, the exception and the guardrail for each shape.
 - **Update** [Plugins in the CLI](cli/plugins.md#declare-where-a-plugin-runs): a plugin manifest may declare `platforms` and `engines.namzu`; a plugin that does not fit this machine or this Namzu version is refused with a plain reason. `.changeset/plugin-platform-version-admission.md` (`@namzu/sdk` minor).
