@@ -3,7 +3,7 @@ import { STOPPED_TEXT } from '../foreground/ladder.js'
 import { BurstInterrupted } from '../foreground/types.js'
 import { FakeClock, FakeMonitor, baseState, makeLadder } from './foreground-fakes.js'
 
-const SUBJECT = { app: 'Notepad', exe: 'notepad.exe', pid: 77 }
+const SUBJECT = { app: 'Editor', exe: 'editor.exe', pid: 77 }
 
 describe('the foreground ladder', () => {
 	it('runs a burst at once when the user has been still, then puts things back', async () => {
@@ -26,7 +26,7 @@ describe('the foreground ladder', () => {
 		const { ladder, monitor } = makeLadder()
 		await ladder.run({ subject: { ...SUBJECT, hwnd: '0x3dc09a0' } }, async () => 1)
 		await ladder.run({ subject: SUBJECT }, async () => 1)
-		expect(monitor.begins).toEqual([{ raise: '0x3dc09a0' }, {}])
+		expect(monitor.begins).toEqual([{ raise: '0x3dc09a0', idleMs: 2_000 }, { idleMs: 2_000 }])
 	})
 
 	it('leaves the cursor where a mouse_move put it', async () => {
@@ -65,7 +65,7 @@ describe('the foreground ladder', () => {
 		expect(first.kind).toBe('ran')
 		expect(approve).toHaveBeenCalledTimes(1)
 		expect(approve).toHaveBeenCalledWith(
-			expect.objectContaining({ app: 'Notepad', exe: 'notepad.exe' }),
+			expect.objectContaining({ app: 'Editor', exe: 'editor.exe' }),
 			undefined,
 		)
 		expect(clock.time - start).toBeGreaterThanOrEqual(15_000)
@@ -211,7 +211,7 @@ describe('the foreground ladder', () => {
 		const outcome = await ladder.run({ subject: SUBJECT }, burst)
 		expect(outcome.kind).toBe('ran')
 		expect(burst).toHaveBeenCalledTimes(1)
-		expect(monitor.ends[0]).toEqual({ restore: false })
+		expect(monitor.ends[0]).toEqual({ restore: true })
 	})
 
 	it('gives up with a name for the blocker when input keeps arriving at the start', async () => {
@@ -389,5 +389,94 @@ describe('the foreground ladder', () => {
 		release()
 		await Promise.all([a, b])
 		expect(order).toEqual(['a:start', 'a:end', 'b:start'])
+	})
+
+	it('asks the monitor to check idleness before it raises anything, and starts again when it refuses', async () => {
+		const { ladder, monitor } = makeLadder()
+		monitor.refuseBegins = 1
+		const burst = vi.fn(async () => 'x')
+		const outcome = await ladder.run({ subject: { ...SUBJECT, hwnd: '0x20' } }, burst)
+		expect(outcome.kind).toBe('ran')
+		expect(burst).toHaveBeenCalledTimes(1)
+		expect(monitor.begins).toHaveLength(2)
+		expect(monitor.begins[0]).toMatchObject({ raise: '0x20', idleMs: 2_000 })
+	})
+
+	it('gives up when the monitor keeps refusing, without running the burst', async () => {
+		const { ladder, monitor } = makeLadder()
+		monitor.refuseBegins = 10
+		const burst = vi.fn(async () => 'x')
+		const outcome = await ladder.run({ subject: SUBJECT }, burst)
+		expect(outcome).toMatchObject({ kind: 'blocked', block: { code: 'user_active' } })
+		expect(burst).not.toHaveBeenCalled()
+	})
+
+	it('still stops the turn on Escape when the burst was interrupted, and rethrows', async () => {
+		const { ladder, monitor } = makeLadder()
+		ladder.beginTurn('t1')
+		monitor.during = { inputs: 1, escapes: 1 }
+		await expect(
+			ladder.run({ subject: SUBJECT }, async () => {
+				throw new BurstInterrupted()
+			}),
+		).rejects.toBeInstanceOf(BurstInterrupted)
+		expect(ladder.stopped).toBe(true)
+		expect(monitor.ends).toEqual([{ restore: true }])
+	})
+
+	it('returns the burst value, unconfirmed, when the monitor fails after input was sent', async () => {
+		const { ladder, monitor } = makeLadder()
+		monitor.endError = new Error('helper gone')
+		const outcome = await ladder.run({ subject: SUBJECT }, async () => 'sent')
+		expect(outcome).toMatchObject({
+			kind: 'ran',
+			value: 'sent',
+			interfered: true,
+			restoredForeground: false,
+		})
+	})
+
+	it('fails the checkpoint when the lease was lost', async () => {
+		const { ladder, fs } = makeLadder()
+		let caught: unknown
+		await ladder.run({ subject: SUBJECT }, async (burst) => {
+			fs.files.clear()
+			try {
+				await burst.checkpoint()
+			} catch (error) {
+				caught = error
+			}
+		})
+		expect(caught).toBeInstanceOf(BurstInterrupted)
+	})
+
+	it('does not ask the user when the call was already aborted', async () => {
+		const monitor = new FakeMonitor()
+		monitor.state_ = () => ({ ...baseState, userIdleMs: 0 })
+		const approve = vi.fn(async () => 'allow' as const)
+		const { ladder } = makeLadder({ monitor, approve })
+		const controller = new AbortController()
+		controller.abort()
+		const outcome = await ladder.run({ subject: SUBJECT, signal: controller.signal }, async () => 1)
+		expect(outcome).toMatchObject({ kind: 'blocked', block: { code: 'user_active' } })
+		expect(approve).not.toHaveBeenCalled()
+	})
+
+	it('caps the time one turn may spend parked over all its calls', async () => {
+		const monitor = new FakeMonitor()
+		monitor.state_ = () => ({ ...baseState, userIdleMs: 0 })
+		const clock = new FakeClock()
+		const { ladder } = makeLadder({
+			monitor,
+			clock,
+			timing: { parkMs: 60_000, parkTurnMs: 90_000 },
+		})
+		ladder.beginTurn('t1')
+		const start = clock.time
+		for (let i = 0; i < 6; i++) await ladder.run({ subject: SUBJECT }, async () => 1)
+		expect(clock.time - start).toBeLessThan(90_000 + 6 * 30_000)
+		const before = clock.time
+		await ladder.run({ subject: SUBJECT }, async () => 1)
+		expect(clock.time - before).toBeLessThan(40_000)
 	})
 })

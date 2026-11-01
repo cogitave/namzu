@@ -56,6 +56,10 @@ export interface LadderTiming {
 	/** How long to wait for another session to release the lease. */
 	readonly leaseWaitMs: number
 	readonly leasePollMs: number
+	/** How often a held lease is refreshed while a burst runs (well inside its time-to-live). */
+	readonly leaseBeatMs: number
+	/** Most time one turn may spend parked, over all its calls. */
+	readonly parkTurnMs: number
 }
 
 export const DEFAULT_TIMING: LadderTiming = {
@@ -68,6 +72,8 @@ export const DEFAULT_TIMING: LadderTiming = {
 	parkPollMs: 250,
 	leaseWaitMs: 30_000,
 	leasePollMs: 200,
+	leaseBeatMs: 8_000,
+	parkTurnMs: 600_000,
 }
 
 export interface ForegroundLadderOptions {
@@ -158,6 +164,8 @@ export class ForegroundLadder {
 	private monitor: ForegroundMonitor | undefined
 	private queue: Promise<unknown> = Promise.resolve()
 	private stop: Stop | undefined
+	private readonly leaseBeatMs: number
+	private parkedMs = 0
 	private turn: string | undefined
 	private readonly allowed = new Set<string>()
 	private readonly denied = new Set<string>()
@@ -165,6 +173,7 @@ export class ForegroundLadder {
 	constructor(private readonly options: ForegroundLadderOptions) {
 		this.timing = { ...DEFAULT_TIMING, ...options.timing }
 		this.clock = options.clock ?? realClock
+		this.leaseBeatMs = this.timing.leaseBeatMs
 		this.lease =
 			options.lease ??
 			new ScreenLease({
@@ -186,7 +195,10 @@ export class ForegroundLadder {
 	 */
 	beginTurn(turnId: string | undefined): void {
 		if (this.stop && (turnId === undefined || turnId !== this.stop.turnId)) this.stop = undefined
-		if (turnId === undefined || turnId !== this.turn) this.denied.clear()
+		if (turnId === undefined || turnId !== this.turn) {
+			this.denied.clear()
+			this.parkedMs = 0
+		}
 		this.turn = turnId
 	}
 
@@ -247,49 +259,69 @@ export class ForegroundLadder {
 			const begun = await monitor.monitor.begin({
 				leasePath: this.lease.path,
 				token,
+				// Checked by the monitor before it raises anything, so a person who
+				// started typing after the last look is not displaced.
+				idleMs: state.needed,
 				...(subject.hwnd !== undefined ? { raise: subject.hwnd } : {}),
 			})
-			let ended: Awaited<ReturnType<ForegroundMonitor['end']>> | undefined
-			try {
-				// A person touched input between the last look and now: not yet.
-				if (begun.userInputs !== state.state.userInputs) {
-					if (attempt >= MAX_INTERFERED_STARTS)
-						return {
-							kind: 'blocked',
-							block: BLOCKS.user_active(this.clock.now() - startedAt, false),
-						}
-					return await this.retryAfterInterference(
-						monitor.monitor,
-						request,
-						burst,
-						token,
-						attempt + 1,
-					)
+			// A person touched input between the last look and now: not yet.
+			if (begun.refused === true || begun.userInputs !== state.state.userInputs) {
+				if (attempt >= MAX_INTERFERED_STARTS) {
+					await monitor.monitor.end({ restore: true }).catch(() => undefined)
+					return {
+						kind: 'blocked',
+						block: BLOCKS.user_active(this.clock.now() - startedAt, false),
+					}
 				}
-				const value = await burst({
+				return await this.retryAfterInterference(
+					monitor.monitor,
+					request,
+					burst,
+					token,
+					attempt + 1,
+				)
+			}
+			const beat = setInterval(
+				() => void this.lease.heartbeat(token),
+				Math.max(1, Math.floor(this.leaseBeatMs)),
+			)
+			beat.unref?.()
+			let value: T | undefined
+			let failure: { readonly error: unknown } | undefined
+			try {
+				value = await burst({
 					checkpoint: async () => {
-						this.lease.heartbeat(token)
+						if (!this.lease.heartbeat(token)) throw new BurstInterrupted()
 						const now = await monitor.monitor.state()
 						if (now.userInputs !== begun.userInputs) throw new BurstInterrupted()
 					},
 				})
-				ended = await monitor.monitor.end({
+			} catch (error) {
+				failure = { error }
+			} finally {
+				clearInterval(beat)
+			}
+			// The burst ends, and what it moved is put back, whether it returned or
+			// threw; an Escape pressed on the way stops the turn either way.
+			const ended = await monitor.monitor
+				.end({
 					restore: true,
 					...(request.keepCursor ? { keepCursor: true } : {}),
 				})
-				const stopped = ended.escapesDuring > 0
-				if (stopped) this.stop = { turnId: this.turn }
-				return {
-					kind: 'ran',
-					value,
-					interfered: ended.inputsDuring > 0,
-					stopped,
-					restoredForeground: ended.restoredForeground,
-					restoredCursor: ended.restoredCursor,
-					heldMs: this.clock.now() - startedAt,
-				}
-			} finally {
-				if (!ended) await monitor.monitor.end({ restore: true }).catch(() => undefined)
+				.catch(() => undefined)
+			const stopped = (ended?.escapesDuring ?? 0) > 0
+			if (stopped) this.stop = { turnId: this.turn }
+			if (failure) throw failure.error
+			return {
+				kind: 'ran',
+				value: value as T,
+				// Input went out; if the monitor cannot say what happened around it,
+				// the result is not proof either way.
+				interfered: ended === undefined || ended.inputsDuring > 0,
+				stopped,
+				restoredForeground: ended?.restoredForeground ?? false,
+				restoredCursor: ended?.restoredCursor ?? false,
+				heldMs: this.clock.now() - startedAt,
 			}
 		} finally {
 			this.lease.release(token)
@@ -308,7 +340,8 @@ export class ForegroundLadder {
 		token: string,
 		attempt: number,
 	): Promise<ForegroundOutcome<T>> {
-		await monitor.end({ restore: false }).catch(() => undefined)
+		// A raise that happened just before a person's input is undone too.
+		await monitor.end({ restore: true }).catch(() => undefined)
 		// The lease is ours until runOne's finally; release it so the nested run takes it afresh.
 		this.lease.release(token)
 		return this.runOne(request, burst, attempt)
@@ -353,7 +386,9 @@ export class ForegroundLadder {
 		monitor: ForegroundMonitor,
 		subject: ForegroundSubject,
 		signal?: AbortSignal,
-	): Promise<{ readonly state: MonitorState } | { readonly block: ForegroundBlock }> {
+	): Promise<
+		{ readonly state: MonitorState; readonly needed: number } | { readonly block: ForegroundBlock }
+	> {
 		const started = this.clock.now()
 		let phase: 'gate' | 'approved' | 'parked' = 'gate'
 		let phaseStart = started
@@ -371,7 +406,7 @@ export class ForegroundLadder {
 			}
 			first = false
 			const needed = phase === 'approved' ? this.timing.approvedIdleMs : this.timing.idleMs
-			if (state.userIdleMs >= needed) return { state }
+			if (state.userIdleMs >= needed) return { state, needed }
 			const now = this.clock.now()
 			const limit =
 				phase === 'gate'
@@ -379,8 +414,12 @@ export class ForegroundLadder {
 					: phase === 'approved'
 						? this.timing.approvedWaitMs
 						: this.timing.parkMs
-			if (now - phaseStart >= limit || signal?.aborted) {
-				if (phase === 'gate') {
+			if (
+				now - phaseStart >= limit ||
+				signal?.aborted ||
+				(phase === 'parked' && this.parkedMs >= this.timing.parkTurnMs)
+			) {
+				if (phase === 'gate' && !signal?.aborted) {
 					if (this.denied.has(key)) return { block: BLOCKS.declined(who.app) }
 					const answer = (await this.options.approve?.(who, signal)) ?? 'unavailable'
 					if (answer === 'deny') {
@@ -399,10 +438,9 @@ export class ForegroundLadder {
 				}
 				return { block: BLOCKS.user_active(now - started, asked) }
 			}
-			await this.clock.sleep(
-				phase === 'parked' ? this.timing.parkPollMs : this.timing.pollMs,
-				signal,
-			)
+			const wait = phase === 'parked' ? this.timing.parkPollMs : this.timing.pollMs
+			if (phase === 'parked') this.parkedMs += wait
+			await this.clock.sleep(wait, signal)
 		}
 	}
 

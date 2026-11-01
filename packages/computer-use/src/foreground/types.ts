@@ -16,7 +16,7 @@
 export interface ForegroundSubject {
 	/** Display name, as `list_windows` shows it. */
 	readonly app: string
-	/** Executable file name, when known (`notepad.exe`). */
+	/** Executable file name, when known (`editor.exe`). */
 	readonly exe?: string
 	/** Process id of the target window, when the burst has one. */
 	readonly pid?: number
@@ -85,11 +85,18 @@ export interface ForegroundMonitor {
 		 * target already in front. `raised` on the answer says whether it worked.
 		 */
 		readonly raise?: string
-	}): Promise<MonitorState & { readonly raised?: boolean }>
+		/**
+		 * The user must have been still this long (ms). Checked before anything
+		 * is raised; when they were not, nothing is moved and `refused` is true.
+		 */
+		readonly idleMs?: number
+	}): Promise<MonitorState & { readonly raised?: boolean; readonly refused?: boolean }>
 	/**
-	 * The burst is over. With `restore`, the previous window and cursor are put
-	 * back, but only when no person touched input meanwhile and the window in
-	 * front is not the one it was: someone who moved on is left alone.
+	 * The burst is over. With `restore`, the window that was in front is put
+	 * back only if this burst raised a window and that window (or one of its
+	 * program) is still in front; a burst that raised nothing restores no
+	 * window, so a click that opened another window is not undone. The cursor
+	 * is put back only when no person touched input meanwhile.
 	 */
 	end(args: {
 		readonly restore: boolean

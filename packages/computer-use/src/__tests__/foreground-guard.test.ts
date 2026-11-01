@@ -31,7 +31,7 @@ function inner(over: Partial<Adapter> = {}) {
 			{
 				id: '0x5',
 				title: 't',
-				app: 'Notepad',
+				app: 'Editor',
 				pid: 5,
 				bounds: { x: 0, y: 0, width: 1, height: 1 },
 				focused: false,
@@ -121,7 +121,7 @@ describe('guardForeground', () => {
 			retrySafety: 'safe',
 		})
 		expect(approve).toHaveBeenCalledWith(
-			expect.objectContaining({ app: 'Notepad', pid: 5 }),
+			expect.objectContaining({ app: 'Editor', pid: 5 }),
 			undefined,
 		)
 		expect(adapter.focusWindow).not.toHaveBeenCalled()

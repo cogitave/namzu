@@ -26,6 +26,8 @@ export interface WindowsMonitorOptions {
 }
 
 interface Reply {
+	/** Echo of the request's id; the first greeting has none. */
+	readonly id?: number
 	readonly ok: boolean
 	readonly r?: unknown
 	readonly error?: string
@@ -81,7 +83,9 @@ function spawnPowerShell(options: WindowsMonitorOptions): HelperProcess {
  */
 export class WindowsInputMonitor implements ForegroundMonitor {
 	private proc: HelperProcess | undefined
+	private nextId = 1
 	private waiting: Array<{
+		id: number
 		resolve: (reply: Reply) => void
 		timer: ReturnType<typeof setTimeout>
 	}> = []
@@ -123,12 +127,14 @@ export class WindowsInputMonitor implements ForegroundMonitor {
 		readonly leasePath: string
 		readonly token: string
 		readonly raise?: string
-	}): Promise<MonitorState & { readonly raised?: boolean }> {
-		return this.call<MonitorState & { readonly raised?: boolean }>({
+		readonly idleMs?: number
+	}): Promise<MonitorState & { readonly raised?: boolean; readonly refused?: boolean }> {
+		return this.call<MonitorState & { readonly raised?: boolean; readonly refused?: boolean }>({
 			cmd: 'begin',
 			lease: this.winPath(args.leasePath),
 			token: args.token,
 			...(args.raise !== undefined ? { raise: args.raise } : {}),
+			...(args.idleMs !== undefined ? { idleMs: args.idleMs } : {}),
 		})
 	}
 
@@ -170,20 +176,30 @@ export class WindowsInputMonitor implements ForegroundMonitor {
 	}
 
 	private onLine(line: string): void {
-		const waiter = this.waiting.shift()
-		if (!waiter) return
-		clearTimeout(waiter.timer)
+		let reply: Reply
 		try {
-			waiter.resolve(JSON.parse(line) as Reply)
+			reply = JSON.parse(line) as Reply
 		} catch {
+			// Cannot tell whose it was: the oldest request is the likeliest.
+			const waiter = this.waiting.shift()
+			if (!waiter) return
+			clearTimeout(waiter.timer)
 			waiter.resolve({
 				ok: false,
 				error: `unreadable helper reply: ${line.slice(0, 120)}`,
 			})
+			return
 		}
+		// A reply to a request that already timed out must not answer the next one.
+		const index = reply.id == null ? 0 : this.waiting.findIndex((w) => w.id === reply.id)
+		if (index < 0) return
+		const [waiter] = this.waiting.splice(index, 1)
+		if (!waiter) return
+		clearTimeout(waiter.timer)
+		waiter.resolve(reply)
 	}
 
-	private expect(timeoutMs: number): Promise<Reply> {
+	private expect(timeoutMs: number, id = 0): Promise<Reply> {
 		return new Promise<Reply>((resolve) => {
 			const timer = setTimeout(() => {
 				const index = this.waiting.findIndex((waiter) => waiter.resolve === resolve)
@@ -193,15 +209,16 @@ export class WindowsInputMonitor implements ForegroundMonitor {
 					error: 'the Windows helper did not answer in time',
 				})
 			}, timeoutMs)
-			this.waiting.push({ resolve, timer })
+			this.waiting.push({ id, resolve, timer })
 		})
 	}
 
 	private async call<T>(command: Record<string, unknown>): Promise<T> {
 		const proc = this.proc
 		if (!proc || this.exited) throw new Error('the Windows helper is not running')
-		const reply = this.expect(this.options.requestTimeoutMs ?? 10_000)
-		proc.write(JSON.stringify(command))
+		const id = this.nextId++
+		const reply = this.expect(this.options.requestTimeoutMs ?? 10_000, id)
+		proc.write(JSON.stringify({ ...command, id }))
 		const answer = await reply
 		if (!answer.ok) throw new Error(answer.error ?? 'the Windows helper failed')
 		return answer.r as T

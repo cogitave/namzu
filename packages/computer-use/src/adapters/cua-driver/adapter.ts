@@ -1133,10 +1133,10 @@ export function inputDelivery(result: McpToolResult): WindowInputResult {
 }
 
 /**
- * A driver tool error → what it means for delivery. The driver answering
- * with a refusal or an error means it did not send the input (safe to
- * repeat once the cause is fixed); only a timeout or a lost reply leaves the
- * outcome unknown, and those are not McpToolErrors.
+ * A driver tool error → what it means for delivery. A refusal the driver
+ * names means it did not send the input (safe to repeat once the cause is
+ * fixed). Any other error leaves the outcome unknown: it is reported as
+ * unverified and unsafe to repeat.
  */
 export function failureDelivery(error: McpToolError): WindowInputResult {
 	const facts = error.structuredContent ?? {}
@@ -1171,7 +1171,13 @@ export function failureDelivery(error: McpToolError): WindowInputResult {
 			'safe',
 			'that control is from an older UI snapshot; take a new one',
 		)
-	return verdict('not_delivered', 'safe', trimText(error.message, 300))
+	// An error the driver does not classify can arrive after input was sent (a
+	// foreground burst calls this too), so it never invites a blind resend.
+	return verdict(
+		'delivered_unverified',
+		'unsafe',
+		`${trimText(error.message, 300)} The input may have been sent; look at the window before repeating it.`,
+	)
 }
 
 /** Refusals that a foreground delivery can cure. `uipi_blocked` is not one: it blocks foreground input too. */

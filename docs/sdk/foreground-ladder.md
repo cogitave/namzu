@@ -44,7 +44,9 @@ Reads (`screenshot`, `cursor_position`, `list_windows`, `ui_snapshot`) never do.
 | After a yes | Needs a shorter pause; waits at most | 0.5 s, 30 s |
 | Nobody to ask (exec, scheduled) | Parks and polls, then returns `user_active` | 120 s, every 250 ms |
 | Burst | Watched from start to end for real input | 50 ms |
-| Restore | Window and pointer put back only if nobody touched input and the window in front is not the one that was there | after the burst |
+| Restore | The window is put back only if this burst raised a window and that window (or another of its program) is still in front, even when the user typed meanwhile; a burst that raised nothing restores no window, so a click that opened another window is not undone. The pointer is put back only if nobody touched input | after the burst |
+| Idle check before the raise | The helper checks the user has been still before it raises anything; if not, nothing moves and the ladder starts the burst again | at `begin` |
+| Parked time per turn | All parked calls of one turn together | 600 s |
 
 The 2 s threshold was measured on the development machine: in 180 s with nobody
 at it, the idle clock was at 2 s or more for 92% of the time (5 s: 81%, 10 s:

@@ -45,7 +45,7 @@ export const baseState: MonitorState = {
 	userIdleMs: 60_000,
 	userInputs: 0,
 	escapes: 0,
-	foreground: { hwnd: '0x10', pid: 10, exe: 'explorer.exe', elevated: false },
+	foreground: { hwnd: '0x10', pid: 10, exe: 'shell.exe', elevated: false },
 	cursor: { x: 5, y: 5 },
 	desktop: 'Default',
 	selfElevated: false,
@@ -75,11 +75,26 @@ export class FakeMonitor implements ForegroundMonitor {
 		this.calls.push('state')
 		return this.state_(this.stateCalls++, query)
 	}
-	begins: { raise?: string }[] = []
-	async begin(args?: { raise?: string }): Promise<MonitorState> {
+	begins: { raise?: string; idleMs?: number }[] = []
+	/** How many of the next `begin` calls the monitor refuses because the user is not idle. */
+	refuseBegins = 0
+	/** `end` fails (the helper died after the burst). */
+	endError: Error | undefined
+	async begin(args?: {
+		raise?: string
+		idleMs?: number
+	}): Promise<MonitorState & { refused?: boolean }> {
 		this.calls.push('begin')
-		this.begins.push({ ...(args?.raise !== undefined ? { raise: args.raise } : {}) })
-		return this.beginState ? this.beginState() : this.state_(this.stateCalls, undefined)
+		this.begins.push({
+			...(args?.raise !== undefined ? { raise: args.raise } : {}),
+			...(args?.idleMs !== undefined ? { idleMs: args.idleMs } : {}),
+		})
+		const state = this.beginState ? this.beginState() : this.state_(this.stateCalls, undefined)
+		if (this.refuseBegins > 0) {
+			this.refuseBegins--
+			return { ...state, refused: true }
+		}
+		return state
 	}
 	async end(args: {
 		restore: boolean
@@ -87,6 +102,7 @@ export class FakeMonitor implements ForegroundMonitor {
 	}): Promise<MonitorBurstEnd> {
 		this.calls.push('end')
 		this.ends.push(args)
+		if (this.endError) throw this.endError
 		const quiet = this.during.inputs === 0
 		return {
 			inputsDuring: this.during.inputs,

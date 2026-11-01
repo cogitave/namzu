@@ -143,8 +143,16 @@ function EndBurst($restore, $keepCursor) {
   $b = $script:burst; $script:burst = $null
   $script:ownEnd = [NzG]::Tick()
   $res.inputsDuring = [NzG]::Inputs - $b.inputs; $res.escapesDuring = [NzG]::Escapes - $b.escapes
+  if ($restore) {
+    # The window is put back only when this burst raised one and it (or another
+    # window of its program) is still in front: otherwise the user, or a
+    # click of the burst, has already moved on and is left alone.
+    if ($b.raised -ne 0 -and $b.fg -ne 0 -and [NzG]::Fg() -ne $b.fg) {
+      $cur = [NzG]::Fg()
+      if ($cur -eq $b.raised -or ([NzG]::PidOf($cur) -eq $b.raisedPid)) { $res.restoredForeground = [NzG]::Raise($b.fg) }
+    }
+  }
   if ($restore -and $res.inputsDuring -eq 0) {
-    if ([NzG]::Fg() -ne $b.fg -and $b.fg -ne 0) { $res.restoredForeground = [NzG]::Raise($b.fg) }
     if (-not $keepCursor -and ([NzG]::CursorX() -ne $b.x -or [NzG]::CursorY() -ne $b.y)) { $res.restoredCursor = [NzG]::Cursor($b.x, $b.y) }
   }
   $res
@@ -156,17 +164,30 @@ function Release($path, $token) {
 function Reply($o) { [Console]::Out.WriteLine((ConvertTo-Json -InputObject $o -Compress -Depth 6)) }
 Reply @{ ok = $true; hooks = $hooks; hookError = [NzG]::HookError; selfElevated = $selfElevated }
 while (($line = [Console]::In.ReadLine()) -ne $null) {
+  $cid = $null
   try {
     $c = $line | ConvertFrom-Json
+    $cid = $c.id
     switch ($c.cmd) {
       'state' { $r = State $c.pid }
       'begin' {
-        $script:burst = @{ inputs = [NzG]::Inputs; escapes = [NzG]::Escapes; fg = [NzG]::Fg(); x = [NzG]::CursorX(); y = [NzG]::CursorY(); lease = $c.lease; token = $c.token }
-        $script:ownStart = [NzG]::Tick(); $script:ownEnd = 0
-        $raised = $null
-        if ($c.raise) { $raised = [NzG]::Raise([Convert]::ToInt64(([string]$c.raise).Substring(2), 16)) }
-        $r = State $null
-        if ($null -ne $raised) { $r.raised = $raised }
+        $script:burst = @{ inputs = [NzG]::Inputs; escapes = [NzG]::Escapes; fg = [NzG]::Fg(); raised = 0; raisedPid = 0; x = [NzG]::CursorX(); y = [NzG]::CursorY(); lease = $c.lease; token = $c.token }
+        $pre = State $null
+        if ($c.idleMs -and $pre.userIdleMs -lt [int64]$c.idleMs) {
+          # A person is still using the machine: move nothing.
+          $script:burst = $null
+          $r = $pre; $r.refused = $true
+        } else {
+          $script:ownStart = [NzG]::Tick(); $script:ownEnd = 0
+          $raised = $null
+          if ($c.raise) {
+            $target = [Convert]::ToInt64(([string]$c.raise).Substring(2), 16)
+            $raised = [NzG]::Raise($target)
+            if ($raised -and [NzG]::Fg() -ne $script:burst.fg) { $script:burst.raised = $target; $script:burst.raisedPid = [NzG]::PidOf($target) }
+          }
+          $r = State $null
+          if ($null -ne $raised) { $r.raised = $raised }
+        }
       }
       'end' { $r = EndBurst ([bool]$c.restore) ([bool]$c.keepCursor) }
       'release' { Release $c.lease $c.token; $r = @{ ok = $true } }
@@ -174,9 +195,9 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
       default { $r = @{ error = 'unknown command' } }
     }
     if ($c.cmd -eq 'quit') { break }
-    Reply @{ ok = $true; r = $r }
+    Reply @{ ok = $true; id = $cid; r = $r }
   } catch {
-    Reply @{ ok = $false; error = "$_" }
+    Reply @{ ok = $false; id = $cid; error = "$_" }
   }
 }
 if ($null -ne $burst) { $keep = $burst; EndBurst $true $false | Out-Null; Release $keep.lease $keep.token }

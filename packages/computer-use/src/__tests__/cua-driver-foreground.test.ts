@@ -36,7 +36,7 @@ function driver(
 								window_id: 0x111,
 								pid: 42,
 								title: 'Notes',
-								app_name: 'notepad.exe',
+								app_name: 'editor.exe',
 								bounds: { x: 100, y: 80, width: 1200, height: 700 },
 								z_index: 1,
 							},
@@ -134,7 +134,7 @@ describe('foreground fallback for window input', () => {
 			delivery: 'not_delivered',
 			retrySafety: 'safe',
 		})
-		expect(result?.detail).toMatch(/did not allow notepad to use the screen/i)
+		expect(result?.detail).toMatch(/did not allow editor to use the screen/i)
 		expect(calls().filter((call) => call.name === 'click')).toHaveLength(1)
 		await adapter.dispose()
 	})

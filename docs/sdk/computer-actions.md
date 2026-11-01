@@ -473,7 +473,7 @@ adapter keeps only the latest snapshot's. `invoke`, `toggle`, `select`,
 `expand` and `collapse` go through cua-driver's `click` on the token — UI
 Automation's Invoke in the background, with no pointer move and no change of
 foreground; `set_value` through `set_value`. A field that reports no settable
-value (classic Notepad's editor) is `not_delivered`: the adapter no longer
+value (a plain-text editor control) is `not_delivered`: the adapter no longer
 types into it as a fallback, since the driver's report of that typing is not
 trustworthy. `focus` and `scroll_into_view` are not offered.
 
@@ -483,7 +483,7 @@ back instead. After `set_value`, `toggle` or `select` it reads the window
 again, finds the control by its evidence (automation id when unique, else
 role, name and position among equals) and compares: a field that now holds
 the value is verified; a field that still holds its old value after the driver
-said ok is `not_delivered` (a Chromium drop-down list is the known case); a
+said ok is `not_delivered` (a web page's drop-down list is the known case); a
 toggle whose state flipped is verified, and one that did not is
 `delivered_unverified`; a `select` on a list or tree row that is also
 invokable carries a warning, because the click invokes it and may open the

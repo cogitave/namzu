@@ -388,6 +388,30 @@ describe('wait_for', () => {
 		expect((await text2).success).toBe(true)
 	})
 
+	it('does not take a cut-off or empty tree as proof that something is gone', async () => {
+		vi.useFakeTimers()
+		let reads = 0
+		const { host } = makeHost({
+			snapshots: () => {
+				reads++
+				if (reads === 1) return { ...tree('Other'), truncated: true }
+				if (reads === 2) return tree()
+				return tree('Other')
+			},
+		})
+		const tool = createComputerUseTool(host, FAST)
+		const pending = run(tool, {
+			type: 'wait_for',
+			until: 'element_gone',
+			match: 'busy',
+			window_id: '0x10',
+		})
+		await vi.advanceTimersByTimeAsync(5_000)
+		const result = await pending
+		expect(result.success).toBe(true)
+		expect(reads).toBe(3)
+	})
+
 	it('times out as a failure that shows where the window stands, and changes nothing', async () => {
 		vi.useFakeTimers()
 		const { host } = makeHost()

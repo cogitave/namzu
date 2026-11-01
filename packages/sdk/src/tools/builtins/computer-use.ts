@@ -554,7 +554,7 @@ function buildDescription(
 		)
 	if (windowCaptureAvailable(host, caps))
 		lines.push(
-			`When the user names an application or window, ${available.includes('list_windows') ? 'use list_windows then screenshot {window_id}' : 'use screenshot {window_id} with a host-provided window id'} to capture pixels for that window. Its x/y are pixels of that window image; clicks, drags, typing and keys target that window. Window pointer input uses background delivery only; if a click or drag is refused, inspect a fresh image before any other action. ${caps.windowScroll === false ? `Window pixel scrolling is unavailable on this host; for a browser page use key PAGE_DOWN or ARROW_DOWN with delivery_mode:"foreground"${hostActionAvailable(caps, 'screenshot') ? ', or deliberately take a display screenshot for display scrolling' : ''}. ` : ''}To type into a browser field, first mouse_click its point in the window image, then type_text with delivery_mode:"foreground" if background text is unavailable. This may briefly bring the verified window to the front: the host waits until the user has been still for a moment, puts their window back afterwards, and reports it as not delivered (safe to try again later) when the screen stays busy. A result that says the user pressed Escape means stop: end your turn and say what is left undone. For browser shortcuts such as CTRL+L, use key with delivery_mode:"foreground". A stale or moved window is refused; take a fresh window screenshot. ${hostActionAvailable(caps, 'screenshot') ? 'Plain screenshot still shows the display. ' : 'screenshot requires window_id on this host. '}Browser permission bubbles outside the window may be absent. If the window image is blank or shows another window, do not click it; focus the target and capture it again.`,
+			`When the user names an application or window, ${available.includes('list_windows') ? 'use list_windows then screenshot {window_id}' : 'use screenshot {window_id} with a host-provided window id'} to capture pixels for that window. Its x/y are pixels of that window image; clicks, drags, typing and keys target that window. Window pointer input is sent in the background first. If a click or drag is refused, inspect a fresh image before any other action; where the host can use the screen it may repeat a refused click once on the screen, and the result says so. ${caps.windowScroll === false ? `Window pixel scrolling is unavailable on this host; for a browser page use key PAGE_DOWN or ARROW_DOWN with delivery_mode:"foreground"${hostActionAvailable(caps, 'screenshot') ? ', or deliberately take a display screenshot for display scrolling' : ''}. ` : ''}To type into a browser field, first mouse_click its point in the window image, then type_text with delivery_mode:"foreground" if background text is unavailable. This may briefly bring the verified window to the front: the host waits until the user has been still for a moment, puts their window back afterwards, and reports it as not delivered (safe to try again later) when the screen stays busy. ${host.beginTurn ? 'A result that says the user pressed Escape means stop: end your turn and say what is left undone. ' : ''}For browser shortcuts such as CTRL+L, use key with delivery_mode:"foreground". A stale or moved window is refused; take a fresh window screenshot. ${hostActionAvailable(caps, 'screenshot') ? 'Plain screenshot still shows the display. ' : 'screenshot requires window_id on this host. '}Browser permission bubbles outside the window may be absent. If the window image is blank or shows another window, do not click it; focus the target and capture it again.`,
 		)
 	if (available.includes('ui_snapshot'))
 		lines.push(
@@ -1689,8 +1689,18 @@ export function createComputerUseTool(
 			}
 			for (const child of element.children ?? []) visit(child)
 		}
+		let nodes = 0
+		const count = (element: UiElement): void => {
+			nodes++
+			for (const child of element.children ?? []) count(child)
+		}
+		count(snapshot.root)
 		visit(snapshot.root)
-		return input.until.endsWith('appears') ? found : !found
+		if (input.until.endsWith('appears')) return found
+		// "Gone" is only proof on a complete read of a tree that has content: a
+		// cut-off tree or a bare root (a web view whose tree has not woken yet)
+		// may simply not show the element.
+		return !found && snapshot.truncated !== true && nodes > 1
 	}
 
 	/**

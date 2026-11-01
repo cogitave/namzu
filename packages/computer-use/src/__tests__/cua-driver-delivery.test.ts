@@ -297,6 +297,13 @@ describe('driver answers', () => {
 		).toMatchObject({ delivery: 'not_delivered', detail: 'no such menu path' })
 	})
 
+	it('an error the driver does not classify may have sent the input, so it is unsafe to repeat', () => {
+		expect(failureDelivery(new McpToolError('type_text', 'something broke', {}))).toMatchObject({
+			delivery: 'delivered_unverified',
+			retrySafety: 'unsafe',
+		})
+	})
+
 	it('judges are pure over the facts they are given', () => {
 		const field = { role: 'Edit', name: 'n', value: 'a', selected: false, actions: [] as never[] }
 		expect(judgeSetValue(field, 'b', { ...field, value: 'b' }).delivery).toBe('delivered_verified')

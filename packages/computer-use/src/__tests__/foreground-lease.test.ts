@@ -1,5 +1,8 @@
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { ScreenLease } from '../foreground/lease.js'
+import { ScreenLease, realLeaseFs } from '../foreground/lease.js'
 import { FakeClock, memoryLeaseFs } from './foreground-fakes.js'
 
 const PATH = '/home/.namzu/computer-use/screen.lease'
@@ -105,5 +108,20 @@ describe('the screen lease', () => {
 		const clock = new FakeClock()
 		fs.files.set(PATH, '{"pid":')
 		expect(lease(fs, clock, { pid: 2, session: 'b' }).tryAcquire().held).toBe(true)
+	})
+})
+
+describe('the real lease file', () => {
+	it('is replaced whole by a refresh: no temp file is left and the text is the new one', () => {
+		const dir = mkdtempSync(join(tmpdir(), 'lease-'))
+		try {
+			const path = join(dir, 'screen.lease')
+			expect(realLeaseFs.createExclusive(path, 'one')).toBe(true)
+			realLeaseFs.overwrite(path, 'two')
+			expect(readFileSync(path, 'utf8')).toBe('two')
+			expect(readdirSync(dir)).toEqual(['screen.lease'])
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
+		}
 	})
 })

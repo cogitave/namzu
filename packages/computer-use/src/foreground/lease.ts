@@ -77,12 +77,16 @@ export const realLeaseFs: LeaseFs = {
 		renameSync(from, to)
 	},
 	overwrite(path, text) {
-		const fd = openSync(path, 'w')
+		// Write beside it and rename over it: a contender reading meanwhile sees
+		// the old whole record or the new one, never an empty file.
+		const temp = `${path}.tmp-${process.pid}`
+		const fd = openSync(temp, 'w')
 		try {
 			writeSync(fd, text)
 		} finally {
 			closeSync(fd)
 		}
+		renameSync(temp, path)
 	},
 }
 
