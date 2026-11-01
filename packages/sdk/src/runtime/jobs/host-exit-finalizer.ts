@@ -1,16 +1,16 @@
-import { killTrees } from "../../process/kill-tree.js";
+import { killTrees } from '../../process/kill-tree.js'
 
 /**
  * What the host's exit has to stop: a job's process, and how to signal it.
  */
 export interface HostExitTarget {
-	readonly child: { readonly pid?: number | undefined };
+	readonly child: { readonly pid?: number | undefined }
 	/** The spawner's own kill, when it gave one; otherwise the process group is signalled. */
-	readonly kill?: (signal: NodeJS.Signals) => void;
+	readonly kill?: (signal: NodeJS.Signals) => void
 }
 
-const live = new Set<HostExitTarget>();
-let installed = false;
+const live = new Set<HostExitTarget>()
+let installed = false
 
 /**
  * Runs when the host process is about to end, by whatever road: `process.exit`,
@@ -24,21 +24,21 @@ let installed = false;
  * It does not cover a SIGKILL of the host itself, which no listener can see.
  */
 function finalizeAtHostExit(): void {
-	const children: HostExitTarget["child"][] = [];
+	const children: HostExitTarget['child'][] = []
 	for (const target of live) {
-		children.push(target.child);
+		children.push(target.child)
 		try {
-			target.kill?.("SIGKILL");
+			target.kill?.('SIGKILL')
 		} catch {
 			// The process is already gone; the host is exiting either way.
 		}
 	}
-	live.clear();
+	live.clear()
 	try {
 		// One pass over the machine's processes for all the jobs, not one each.
 		// Every job goes through it, whether or not it has a kill of its own, so
 		// a descendant that left the process group is found in both cases.
-		killTrees(children, "SIGKILL");
+		killTrees(children, 'SIGKILL')
 	} catch {
 		// As above.
 	}
@@ -51,17 +51,17 @@ function finalizeAtHostExit(): void {
  * keep it from running.
  */
 export function stopAtHostExit(target: HostExitTarget): () => void {
-	live.add(target);
+	live.add(target)
 	if (!installed) {
-		installed = true;
-		process.prependListener("exit", finalizeAtHostExit);
+		installed = true
+		process.prependListener('exit', finalizeAtHostExit)
 	}
 	return () => {
-		live.delete(target);
-	};
+		live.delete(target)
+	}
 }
 
 /** Jobs the host's exit would stop. For tests. */
 export function trackedForHostExit(): number {
-	return live.size;
+	return live.size
 }
