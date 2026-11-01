@@ -37,6 +37,22 @@ describe('verifying an input by what the window shows', () => {
 		expect(judgeObserved({ typed: 'hello' }, { before, after })).toBeUndefined()
 	})
 
+	it('does not verify a short typed text from an unrelated label that happens to contain it', () => {
+		const before = seen(['Text', 'Ready'])
+		const after = seen(['Text', 'Saved at 10:01'])
+		expect(judgeObserved({ typed: 'a' }, { before, after })).toBeUndefined()
+		// the letter shown as a text of its own is evidence
+		expect(
+			judgeObserved({ typed: 'a' }, { before: seen(['Text', 'Ready']), after: seen(['Text', 'Ready'], ['Text', 'a']) }),
+		).toMatchObject({ delivery: 'delivered_verified' })
+	})
+
+	it('does not verify typed text that was already shown as often', () => {
+		const before = seen(['Text', 'hello world'])
+		const after = seen(['Text', 'hello world!!'])
+		expect(judgeObserved({ typed: 'hello' }, { before, after })).toBeUndefined()
+	})
+
 	it('verifies a press by a change that held still and was not there before', () => {
 		const before = seen(['Text', 'none'])
 		const after = seen(['Text', 'submitted 1'])
@@ -120,8 +136,14 @@ describe('verifying text sent to a classic edit control', () => {
 		})
 		expect(judgeEditBetween('cd', before, { text: 'ab', len: 2 })).toBeUndefined()
 		expect(judgeEditBetween('cd', before, { text: 'xy', len: 2 })).toBeUndefined()
-		// A document longer than the read: it grew, so the text went in somewhere past the start.
-		expect(judgeEditBetween('cd', before, { text: 'ab', len: 4 })).toMatchObject({
+		// A document longer than the read: growth alone is not evidence the text went in.
+		expect(judgeEditBetween('cd', before, { text: 'ab', len: 4 })).toBeUndefined()
+	})
+
+	it('does not verify a control that already held the text and changed elsewhere', () => {
+		const before = { text: 'hello world', len: 11 }
+		expect(judgeEditBetween('hello', before, { text: 'hello world!!', len: 13 })).toBeUndefined()
+		expect(judgeEditBetween('hello', before, { text: 'hello world hello', len: 17 })).toMatchObject({
 			delivery: 'delivered_verified',
 		})
 	})

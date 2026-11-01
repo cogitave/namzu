@@ -74,6 +74,27 @@ export function foldText(value: string): string {
 const quote = (value: string, max = 80): string =>
 	JSON.stringify(value.length > max ? `${value.slice(0, max - 1)}…` : value)
 
+/** How many times a folded text occurs in everything a window shows. */
+function occurrences(obs: Observation, want: string): number {
+	let total = 0
+	for (const [key, count] of obs) {
+		const text = foldText(textOf(key))
+		let at = text.indexOf(want)
+		while (at >= 0) {
+			total += count
+			at = text.indexOf(want, at + want.length)
+		}
+	}
+	return total
+}
+
+const countOf = (text: string, want: string): number => {
+	if (want === '') return 0
+	let n = 0
+	for (let at = text.indexOf(want); at >= 0; at = text.indexOf(want, at + want.length)) n++
+	return n
+}
+
 export interface ObservedVerdict {
 	readonly delivery: ActionDelivery
 	readonly retrySafety: ActionRetrySafety
@@ -101,7 +122,16 @@ export function judgeObserved(
 	if (input.typed !== undefined) {
 		const want = foldText(input.typed)
 		if (want !== '') {
-			const shown = change.added.find((text) => foldText(text).includes(want))
+			// Typed text counts only when the window shows it more often than before; a
+			// short text (a letter, a digit) is no evidence inside other text, so it
+			// must appear as a text of its own.
+			const short = want.length < 3
+			const shown =
+				occurrences(reads.after, want) > occurrences(reads.before, want)
+					? change.added.find((text) =>
+							short ? foldText(text) === want : foldText(text).includes(want),
+						)
+					: undefined
 			if (shown !== undefined)
 				return {
 					delivery: 'delivered_verified',
@@ -214,12 +244,12 @@ export function judgeEditBetween(
 	const a = norm(after.text)
 	const want = norm(typed)
 	if (after.len === before.len && a === norm(before.text)) return undefined
-	// A text longer than the read keeps only its start: the length alone shows it grew.
-	const truncated = after.len > after.text.length
+	// The text must occur more often than before: a change elsewhere in a control
+	// that already held it proves nothing, and a longer text alone is not evidence.
 	const at = a.indexOf(want)
-	if (at < 0 && !truncated) return undefined
-	if (at < 0 && after.len <= before.len) return undefined
-	const from = Math.max(0, at < 0 ? 0 : at - 40)
+	if (want === '' || at < 0) return undefined
+	if (countOf(a, want) <= countOf(norm(before.text), want)) return undefined
+	const from = Math.max(0, at - 40)
 	const seen = a.slice(from, from + want.length + 80)
 	return {
 		delivery: 'delivered_verified',
