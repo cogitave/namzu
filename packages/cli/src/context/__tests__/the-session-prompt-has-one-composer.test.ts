@@ -136,6 +136,13 @@ describe('the session system prompt', () => {
 		expect(one.slice(0, one.indexOf('ENVIRONMENT'))).toBe(two.slice(0, two.indexOf('ENVIRONMENT')))
 	})
 
+	it('states no approval stance whatever mode the session runs in: the mode notice carries it', () => {
+		const prompts = ['strict', 'classify', 'auto', 'prompt', 'bypass'].map((permissionMode) =>
+			fromFacts({}, { permissionMode }),
+		)
+		for (const prompt of prompts) expect(prompt).toBe(prompts[0])
+	})
+
 	it('adds the plan doctrine to the prefix as one section when plan mode starts, and moves nothing else', () => {
 		// The doctrine sits in the cached prefix, so a mode switch re-keys it
 		// once; this pins that it is the only thing that switch changes.

@@ -27,7 +27,7 @@ Choosing "Yes, and auto-approve edits" when a plan is approved leaves for this m
 
 ## What the model is told
 
-Under `strict`, `auto` and the unattended mode a refused call is not followed by a question, so the session prompt says so in one sentence: pick another route or report what was blocked instead of asking for approval. The sentence follows the mode the session starts in and does not change when the mode is switched later, so the cached prompt prefix stays put. The other modes add nothing (plan mode has its own instructions). A switch made during the session is announced once, as before.
+Under `strict`, `auto` and the unattended mode a refused call is not followed by a question. That stance arrives with the mode notice, not with the session prompt: the notice that announces the mode, sent on the first request of a session that starts in it and whenever it is switched on later, says to pick another route or report what was blocked instead of asking for approval (`strict` also says to choose a preapproved tool). The session prompt states the permission rules without a mode, so a switch never leaves a stale sentence in it and never changes the cached prefix; when the mode ends, a second notice says so and, for the default mode, that the user may be asked again. The other modes add no stance (plan mode has its own instructions).
 
 ## Reaching a mode
 
