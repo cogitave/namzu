@@ -227,14 +227,15 @@ import {
 } from '../permissions/mode.js'
 import { sandboxRunsShellUnasked } from '../permissions/sandbox-shell.js'
 import { type SessionAllow, allowsFor, sameAllow } from '../permissions/session-allow.js'
+import { RoundQueue } from '../rounds/queue.js'
 import {
-	type ActiveTurnInbox,
-	type HandoffPark,
-	type HumanQueuedPrompt,
-	type LiveInput,
 	type QueuePause,
 	type QueuePauseOutcome,
-	type QueuedPrompt,
+	type ActiveTurnInbox as RoundActiveTurnInbox,
+	type HandoffPark as RoundHandoffPark,
+	type HumanQueuedPrompt as RoundHumanQueuedPrompt,
+	type LiveInput as RoundLiveInput,
+	type QueuedPrompt as RoundQueuedPrompt,
 	goalRoundPrompt,
 	humanPromptMeta,
 	isRecallableHumanPrompt,
@@ -1323,6 +1324,13 @@ type RunningTool = ActiveTool & {
 	readonly tail?: readonly string[]
 }
 
+/** The round vocabulary, fixed to the composer trigger ids this screen knows. */
+type QueuedPrompt = RoundQueuedPrompt<TriggerId>
+type HumanQueuedPrompt = RoundHumanQueuedPrompt<TriggerId>
+type LiveInput = RoundLiveInput<TriggerId>
+type ActiveTurnInbox = RoundActiveTurnInbox<TriggerId>
+type HandoffPark = RoundHandoffPark<TriggerId>
+
 interface AccountActions {
 	readonly open: (limit?: {
 		readonly resubmit: QueuedPrompt | null
@@ -1912,56 +1920,38 @@ function AppBody({
 	 * hold the window shut for the length of the next conversation.
 	 */
 	const settledRef = useRef<number>(0)
-	// Complete prompts waiting for the one queue pump that may start a turn.
+	// Complete prompts waiting for the one queue pump that may start a turn. The
+	// queue is synchronous, so a turn's `finally` can decide whether it is truly
+	// the last turn; React state captured when the turn started would still say
+	// "empty" after the operator queued a follow-up. A failed operator or peer
+	// turn holds automatic work in it until the operator explicitly continues.
+	const roundQueueRef = useRef(new RoundQueue<TriggerId>())
+	const roundQueue = roundQueueRef.current
+	// Rendered copies of the queue and its hold. Each change sets React state
+	// at the moment it happens, exactly as a state setter at the call site did,
+	// so the order of renders and effects is the order of the calls.
 	const [queued, setQueued] = useState<readonly QueuedPrompt[]>([])
+	const [queuePause, setQueuePauseState] = useState<QueuePause | null>(null)
+	useLayoutEffect(
+		() =>
+			roundQueue.subscribe(() => {
+				setQueued(roundQueue.items())
+				setQueuePauseState(roundQueue.pause())
+			}),
+		[roundQueue],
+	)
 	// Esc can make the screen idle before an aborted iterator settles. Recheck
 	// the queue when that iterator releases its turn token, even if `idle` did
 	// not change and no new prompt was appended in its finally block.
 	const [queueSettleVersion, setQueueSettleVersion] = useState(0)
 	/** Return-submitted prompts accepted by the active turn but not yet drained by the SDK. */
 	const [pendingSteers, setPendingSteers] = useState<readonly LiveInput[]>([])
-	// Kept synchronous with the rendered queue so a turn's `finally` can decide
-	// whether it is truly the last turn. React state captured when the turn
-	// started would still say "empty" after the operator queued a follow-up.
-	const queuedRef = useRef<readonly QueuedPrompt[]>([])
-	/**
-	 * A failed operator or peer turn holds automatic work until the operator
-	 * explicitly continues. A ref is the admission gate; state is its rendered
-	 * explanation.
-	 */
-	const [queuePause, setQueuePauseState] = useState<QueuePause | null>(null)
-	const queuePauseRef = useRef<QueuePause | null>(null)
-	const setQueuePause = useCallback((next: QueuePause | null) => {
-		queuePauseRef.current = next
-		setQueuePauseState(next)
-	}, [])
-	/**
-	 * Advanced by an explicit, model-bound human continuation. The counter also
-	 * covers the interval after an error row is painted but before the failed
-	 * iterator's `finally` runs, where a boolean pause has not been installed yet.
-	 */
-	const queueContinuationEpochRef = useRef(0)
-	const advanceQueueContinuation = useCallback(() => {
-		queueContinuationEpochRef.current += 1
-		setQueuePause(null)
-	}, [setQueuePause])
-	const replaceQueued = useCallback((next: readonly QueuedPrompt[]) => {
-		queuedRef.current = next
-		setQueued(next)
-	}, [])
-	const discardQueued = useCallback(() => {
-		replaceQueued([])
-		setQueuePause(null)
-	}, [replaceQueued, setQueuePause])
-	const enqueueQueued = useCallback(
-		(prompt: QueuedPrompt) => replaceQueued([...queuedRef.current, prompt]),
-		[replaceQueued],
-	)
-	const dequeueQueued = useCallback((): QueuedPrompt | undefined => {
-		const [next, ...rest] = queuedRef.current
-		if (next !== undefined) replaceQueued(rest)
-		return next
-	}, [replaceQueued])
+	const setQueuePause = roundQueue.setPause
+	const advanceQueueContinuation = roundQueue.advanceContinuation
+	const replaceQueued = roundQueue.replace
+	const discardQueued = roundQueue.discard
+	const enqueueQueued = roundQueue.enqueue
+	const dequeueQueued = roundQueue.dequeue
 	/** Manual compaction owns the conversation snapshot until its durable write lands. */
 	const compactingRef = useRef(false)
 	const [compacting, setCompacting] = useState(false)
@@ -3247,7 +3237,7 @@ function AppBody({
 				state !== 'idle' ||
 				abortRef.current !== null ||
 				hasUnsettledTurn() ||
-				queuedRef.current.length > 0 ||
+				roundQueueRef.current.items().length > 0 ||
 				compactingRef.current ||
 				conversationMutationRef.current !== null
 			) {
@@ -3648,7 +3638,7 @@ function AppBody({
 	}, [])
 	const takeQueuedPrompt = useCallback(
 		(index: number) => {
-			const pending = queuedRef.current
+			const pending = roundQueueRef.current.items()
 			const prompt = pending[index]
 			if (!isRecallableHumanPrompt(prompt)) return null
 			const remaining = [...pending.slice(0, index), ...pending.slice(index + 1)]
@@ -3664,7 +3654,7 @@ function AppBody({
 		[replaceQueued, setQueuePause, setQueueSelection],
 	)
 	const recallQueuedPrompt = useCallback(() => {
-		const pending = queuedRef.current
+		const pending = roundQueueRef.current.items()
 		let index = pending.length - 1
 		while (index >= 0 && !isRecallableHumanPrompt(pending[index])) index -= 1
 		if (index < 0) {
@@ -3680,9 +3670,9 @@ function AppBody({
 	 */
 	const moveQueueSelection = useCallback(
 		(direction: 'up' | 'down'): boolean => {
-			const editable = queuedRef.current.flatMap((prompt, index) =>
-				isRecallableHumanPrompt(prompt) ? [index] : [],
-			)
+			const editable = roundQueueRef.current
+				.items()
+				.flatMap((prompt, index) => (isRecallableHumanPrompt(prompt) ? [index] : []))
 			const current = queueSelectionRef.current
 			if (direction === 'up') {
 				if (editable.length === 0) return false
@@ -4330,7 +4320,7 @@ function AppBody({
 				state !== 'idle' ||
 				abortRef.current !== null ||
 				hasUnsettledTurn() ||
-				(queuedRef.current.length > 0 && selectedSession !== session) ||
+				(roundQueueRef.current.items().length > 0 && selectedSession !== session) ||
 				permissionResolveRef.current !== null ||
 				compactingRef.current
 			) {
@@ -4384,7 +4374,7 @@ function AppBody({
 				state !== 'idle' ||
 				abortRef.current !== null ||
 				hasUnsettledTurn() ||
-				(queuedRef.current.length > 0 && selectedSession !== session) ||
+				(roundQueueRef.current.items().length > 0 && selectedSession !== session) ||
 				permissionResolveRef.current !== null ||
 				compactingRef.current
 			) {
@@ -4623,7 +4613,7 @@ function AppBody({
 			state !== 'idle' ||
 			abortRef.current !== null ||
 			hasUnsettledTurn() ||
-			queuedRef.current.length > 0 ||
+			roundQueueRef.current.items().length > 0 ||
 			compactingRef.current ||
 			exportingRef.current
 		) {
@@ -4645,7 +4635,7 @@ function AppBody({
 					conversationGenRef.current !== generation ||
 					scopeRef.current?.sessionId !== sessionId ||
 					hasUnsettledTurn(generation) ||
-					queuedRef.current.length > 0
+					roundQueueRef.current.items().length > 0
 				) {
 					throw new Error('the active conversation changed before archive publication')
 				}
@@ -4696,7 +4686,7 @@ function AppBody({
 			state !== 'idle' ||
 			hasUnsettledTurn() ||
 			compactingRef.current ||
-			queuedRef.current.length > 0 ||
+			roundQueueRef.current.items().length > 0 ||
 			exportingRef.current
 		) {
 			pushMessage(
@@ -5878,7 +5868,7 @@ function AppBody({
 			// provider change can recover a failed turn's dependent queue, but a
 			// paused turn still owns the conversation's durable active slot. Keep
 			// that queue held until its checkpoint is resumed and settles.
-			if (signal !== undefined && queuePauseRef.current?.outcome !== 'paused')
+			if (signal !== undefined && roundQueueRef.current.pause()?.outcome !== 'paused')
 				advanceQueueContinuation()
 			if (s.hasProvider) {
 				setTranscriptOwned(true)
@@ -6895,7 +6885,7 @@ function AppBody({
 				// keeps dependent work held for an explicit operator decision.
 				if (
 					st.completed &&
-					queuePauseRef.current?.outcome === 'paused' &&
+					roundQueueRef.current.pause()?.outcome === 'paused' &&
 					scopeRef.current?.sessionId === resumedSessionId &&
 					(await activeConversationTurn(sessions, resumedSessionId)
 						.then((next) => next === undefined)
@@ -7126,7 +7116,7 @@ function AppBody({
 			state !== 'idle' ||
 			abortRef.current !== null ||
 			hasUnsettledTurn() ||
-			queuedRef.current.length > 0 ||
+			roundQueueRef.current.items().length > 0 ||
 			compactingRef.current ||
 			exportingRef.current
 		) {
@@ -7240,14 +7230,14 @@ function AppBody({
 					const activeSessionId = scopeRef.current?.sessionId
 					if (activeSessionId) goalActivation.disarm(activeSessionId)
 					wakeGoalDriver()
-					if (recoverInput && queuedRef.current.length > 0)
+					if (recoverInput && roundQueueRef.current.items().length > 0)
 						setQueuePause({ outcome: 'stopped', source: 'operator-interrupt' })
 					else discardQueued()
 					setState('idle')
 					return true
 				}
 				if (cancelledSwitch) {
-					if (recoverInput && queuedRef.current.length > 0)
+					if (recoverInput && roundQueueRef.current.items().length > 0)
 						setQueuePause({ outcome: 'stopped', source: 'operator-interrupt' })
 					else discardQueued()
 				}
@@ -7268,9 +7258,12 @@ function AppBody({
 			// Dropped now so a second interrupt does not re-abort.
 			abortRef.current = null
 			if (recoverInput && undeliveredSteers.length > 0) {
-				replaceQueued([...undeliveredSteers.map((input) => input.prompt), ...queuedRef.current])
+				replaceQueued([
+					...undeliveredSteers.map((input) => input.prompt),
+					...roundQueueRef.current.items(),
+				])
 				setQueuePause(null)
-			} else if (recoverInput && queuedRef.current.length > 0) {
+			} else if (recoverInput && roundQueueRef.current.items().length > 0) {
 				// Esc without a pending steer stops the current turn; queued future
 				// instructions stay visible but do not start on a cancelled answer.
 				setQueuePause({ outcome: 'stopped', source: 'operator-interrupt' })
@@ -7333,7 +7326,7 @@ function AppBody({
 	const sendPendingNow = useCallback(() => {
 		if (!abortRef.current) return
 		interruptWithRow(true, { steered: true, always: true })
-		if (queuePauseRef.current?.source === 'operator-interrupt') setQueuePause(null)
+		if (roundQueueRef.current.pause()?.source === 'operator-interrupt') setQueuePause(null)
 	}, [interruptWithRow, setQueuePause])
 
 	/** Ctrl+B: move the running shell command to the background. False when none can be moved. */
@@ -7406,7 +7399,7 @@ function AppBody({
 			}
 			if (
 				palDefinitionRef.current &&
-				(abortRef.current || hasUnsettledTurn() || queuedRef.current.length > 0)
+				(abortRef.current || hasUnsettledTurn() || roundQueueRef.current.items().length > 0)
 			) {
 				setPhase('ready')
 				pushMessage(
@@ -7440,7 +7433,7 @@ function AppBody({
 			// cleared `abortRef`, while the passive queue pump is paused behind this
 			// picker. `interruptTurn` correctly reports no RUNNING turn then, but an
 			// early return from it must not make those old prompts cross the switch.
-			const discardedQueued = queuedRef.current.length
+			const discardedQueued = roundQueueRef.current.items().length
 			const interrupted = interruptTurn()
 			discardQueued()
 			goalActivation.clear()
@@ -7541,7 +7534,7 @@ function AppBody({
 				state !== 'idle' ||
 				abortRef.current !== null ||
 				hasUnsettledTurn() ||
-				queuedRef.current.length > 0 ||
+				roundQueueRef.current.items().length > 0 ||
 				compactingRef.current ||
 				exportingRef.current
 			) {
@@ -7595,7 +7588,7 @@ function AppBody({
 			if (conversationMutationRef.current) return
 			if (
 				palDefinitionRef.current &&
-				(abortRef.current || hasUnsettledTurn() || queuedRef.current.length > 0)
+				(abortRef.current || hasUnsettledTurn() || roundQueueRef.current.items().length > 0)
 			) {
 				pushMessage(
 					'system',
@@ -7624,7 +7617,7 @@ function AppBody({
 					} else targetSessionId = await startConversation(sessions)
 				}
 
-				const discardedQueued = queuedRef.current.length
+				const discardedQueued = roundQueueRef.current.items().length
 				const interrupted = interruptTurn()
 				discardQueued()
 				goalActivation.clear()
@@ -7799,7 +7792,7 @@ function AppBody({
 					}
 					// Saved at the end of a turn (or now, if none is running), never
 					// while one starts: the turn's claim on the log does not wait.
-					if (activeTurnTokenRef.current === null && queuedRef.current.length === 0) {
+					if (activeTurnTokenRef.current === null && roundQueueRef.current.items().length === 0) {
 						await flushGeneratedTitle()
 					}
 				} catch {
@@ -8040,7 +8033,7 @@ function AppBody({
 			)
 			return
 		}
-		if (queuedRef.current.length > 0) {
+		if (roundQueueRef.current.items().length > 0) {
 			pushMessage(
 				'system',
 				'Queued prompts have not run yet. Wait for them to finish before forking.',
@@ -8114,7 +8107,7 @@ function AppBody({
 			)
 			return
 		}
-		if (queuedRef.current.length > 0) {
+		if (roundQueueRef.current.items().length > 0) {
 			pushMessage('system', 'Queued prompts must finish before the conversation can be rewound.')
 			return
 		}
@@ -8202,7 +8195,7 @@ function AppBody({
 	const forkBeforePrompt = useCallback(
 		async (target: EditablePrompt) => {
 			if (editCommittedRef.current || conversationMutationRef.current) return
-			if (hasUnsettledTurn() || queuedRef.current.length > 0) {
+			if (hasUnsettledTurn() || roundQueueRef.current.items().length > 0) {
 				throw new Error(
 					'The conversation changed while the rewind dialog was open. Nothing was changed; open it again.',
 				)
@@ -8403,7 +8396,7 @@ function AppBody({
 					state: { ...latest.state, busy: undefined, ...(error ? { error } : {}) },
 				})
 			}
-			if (hasUnsettledTurn() || queuedRef.current.length > 0) {
+			if (hasUnsettledTurn() || roundQueueRef.current.items().length > 0) {
 				settle('The conversation changed while this dialog was open. Nothing was changed.')
 				return
 			}
@@ -9526,7 +9519,7 @@ function AppBody({
 			// the render and the resource-owning session agree.
 			const pendingAtAdmission = pendingModelSwitchRef.current
 			if (pendingAtAdmission || previousSessionRef.current !== session) {
-				replaceQueued([prompt, ...queuedRef.current])
+				replaceQueued([prompt, ...roundQueueRef.current.items()])
 				return
 			}
 			if (!session || !session.hasProvider) {
@@ -9833,7 +9826,7 @@ function AppBody({
 					return
 				abnormalTerminal = {
 					token: turnToken,
-					continuationEpoch: queueContinuationEpochRef.current,
+					continuationEpoch: roundQueueRef.current.epoch(),
 					outcome: st.queuePauseOutcome ?? st.outcome,
 				}
 			}
@@ -10232,9 +10225,9 @@ function AppBody({
 									// Once this turn drains it, its queue row is no longer pending.
 									const deliveredIds = new Set(mail.map((item) => item.id))
 									replaceQueued(
-										queuedRef.current.filter(
-											(item) => item.kind !== 'peer' || !deliveredIds.has(item.mail.id),
-										),
+										roundQueueRef.current
+											.items()
+											.filter((item) => item.kind !== 'peer' || !deliveredIds.has(item.mail.id)),
 									)
 									flushStream(st)
 									if (st.assistantId) {
@@ -10368,12 +10361,14 @@ function AppBody({
 				if (stillHere()) {
 					const ownsTurn = activeTurnTokenRef.current === turnToken
 					if (ownsInbox && undeliveredLiveInput.length > 0) {
-						replaceQueued(mergeUndeliveredLiveInput(queuedRef.current, undeliveredLiveInput))
+						replaceQueued(
+							mergeUndeliveredLiveInput(roundQueueRef.current.items(), undeliveredLiveInput),
+						)
 					}
 					const shouldPauseQueued =
 						ownsTurn &&
 						abnormalTerminal?.token === turnToken &&
-						abnormalTerminal.continuationEpoch === queueContinuationEpochRef.current
+						abnormalTerminal.continuationEpoch === roundQueueRef.current.epoch()
 					if (shouldPauseQueued && abnormalTerminal) {
 						setQueuePause({ outcome: abnormalTerminal.outcome })
 					}
@@ -10410,7 +10405,7 @@ function AppBody({
 						!ac.signal.aborted &&
 						!goalRound &&
 						st.notification &&
-						(queuedRef.current.length === 0 || shouldPauseQueued)
+						(roundQueueRef.current.items().length === 0 || shouldPauseQueued)
 					) {
 						sendTerminalNotification(st.notification)
 					}
@@ -10420,11 +10415,12 @@ function AppBody({
 				unsettledTurnGenerationsRef.current.delete(turnToken)
 				// Not while a queued message is about to start the next turn: both
 				// would claim the log, and the turn does not wait for the lease.
-				if (queuedRef.current.length === 0) {
+				if (roundQueueRef.current.items().length === 0) {
 					void flushGeneratedTitle()
 					void flushPullRequestLinks()
 				}
-				if (queuedRef.current.length > 0) setQueueSettleVersion((version) => version + 1)
+				if (roundQueueRef.current.items().length > 0)
+					setQueueSettleVersion((version) => version + 1)
 				const pending = pendingModelSwitchRef.current
 				if (pending?.turnToken === turnToken && pending.selection) {
 					const selection = pending.selection
@@ -10557,7 +10553,7 @@ function AppBody({
 				abortRef.current ||
 				hasUnsettledTurn() ||
 				pendingModelSwitchRef.current ||
-				queuedRef.current.length > 0 ||
+				roundQueueRef.current.items().length > 0 ||
 				permissionResolveRef.current ||
 				compactingRef.current ||
 				conversationMutationRef.current ||
@@ -12014,7 +12010,7 @@ function AppBody({
 							state !== 'idle' ||
 							abortRef.current !== null ||
 							hasUnsettledTurn() ||
-							queuedRef.current.length > 0 ||
+							roundQueueRef.current.items().length > 0 ||
 							compactingRef.current ||
 							exportingRef.current
 						) {
@@ -12053,7 +12049,8 @@ function AppBody({
 							pendingModelSwitchRef.current ||
 							abortRef.current !== null ||
 							hasUnsettledTurn() ||
-							(queuedRef.current.length > 0 && queuePauseRef.current === null) ||
+							(roundQueueRef.current.items().length > 0 &&
+								roundQueueRef.current.pause() === null) ||
 							permissionResolveRef.current !== null ||
 							compactingRef.current ||
 							conversationMutationRef.current !== null ||
@@ -12128,7 +12125,7 @@ function AppBody({
 							state !== 'idle' ||
 							abortRef.current !== null ||
 							hasUnsettledTurn() ||
-							queuedRef.current.length > 0 ||
+							roundQueueRef.current.items().length > 0 ||
 							permissionResolveRef.current !== null ||
 							compactingRef.current
 						) {
@@ -12167,7 +12164,7 @@ function AppBody({
 							state !== 'idle' ||
 							abortRef.current !== null ||
 							hasUnsettledTurn() ||
-							queuedRef.current.length > 0 ||
+							roundQueueRef.current.items().length > 0 ||
 							permissionResolveRef.current !== null ||
 							compactingRef.current
 						) {
@@ -12456,7 +12453,7 @@ function AppBody({
 						}
 						if (
 							verb === 'fork' &&
-							(abortRef.current || hasUnsettledTurn() || queuedRef.current.length > 0)
+							(abortRef.current || hasUnsettledTurn() || roundQueueRef.current.items().length > 0)
 						) {
 							pushMessage(
 								'system',
@@ -13144,7 +13141,7 @@ function AppBody({
 			//
 			// Keep the attachment array beside its text. Reconstructing a prompt from
 			// the transcript later cannot recover bytes whose composer chip is gone.
-			const wasHeldByInterrupt = queuePauseRef.current?.source === 'operator-interrupt'
+			const wasHeldByInterrupt = roundQueueRef.current.pause()?.source === 'operator-interrupt'
 			if (mode === 'submit') advanceQueueContinuation()
 			const prompt: HumanQueuedPrompt = {
 				kind: 'human',
@@ -13178,7 +13175,7 @@ function AppBody({
 							prompt,
 							message: createUserMessage(expanded.sendText, prompt.attachments),
 							attachedFiles: expanded.attached.length,
-							queuedBefore: [...queuedRef.current],
+							queuedBefore: [...roundQueueRef.current.items()],
 						})
 					) {
 						bindSteeredTriggers(armedTriggers)
@@ -13189,7 +13186,8 @@ function AppBody({
 					}
 				}
 			}
-			if (mode === 'submit' && wasHeldByInterrupt) replaceQueued([prompt, ...queuedRef.current])
+			if (mode === 'submit' && wasHeldByInterrupt)
+				replaceQueued([prompt, ...roundQueueRef.current.items()])
 			else enqueueQueued(prompt)
 		},
 		[
@@ -13266,7 +13264,8 @@ function AppBody({
 			isTurnRunning: () => abortRef.current !== null,
 			isDialogOpen: () => idleStateRef.current.dialogOpen,
 			hasPendingWake: () =>
-				queuedRef.current.length > 0 || (scheduleRef.current?.loops.list().length ?? 0) > 0,
+				roundQueueRef.current.items().length > 0 ||
+				(scheduleRef.current?.loops.list().length ?? 0) > 0,
 			hasBackgroundWork: () => {
 				const live = idleStateRef.current.session
 				return (
@@ -13369,7 +13368,8 @@ function AppBody({
 		isTurnRunning: () => abortRef.current !== null || compactingRef.current,
 		isDialogOpen: () => idleStateRef.current.dialogOpen,
 		hasPendingWake: () =>
-			queuedRef.current.length > 0 || (scheduleRef.current?.loops.list().length ?? 0) > 0,
+			roundQueueRef.current.items().length > 0 ||
+			(scheduleRef.current?.loops.list().length ?? 0) > 0,
 		hasBackgroundWork: () => {
 			const live = idleStateRef.current.session
 			return (
@@ -13508,7 +13508,7 @@ function AppBody({
 		if (ledger.unanswered > 0) writeSuggestionLedger(home, { ...ledger, unanswered: 0 })
 		replaceQueued([
 			{ kind: 'human', text: learnSkillPrompt(), skillFlow: true },
-			...queuedRef.current,
+			...roundQueueRef.current.items(),
 		])
 		pushSystem('notice', 'Saving a skill from this reply.')
 		return true
@@ -13689,7 +13689,7 @@ function AppBody({
 			state !== 'idle' ||
 			phase !== 'ready' ||
 			!session?.hasProvider ||
-			queuedRef.current.length > 0 ||
+			roundQueueRef.current.items().length > 0 ||
 			abortRef.current ||
 			hasUnsettledTurn() ||
 			pendingModelSwitchRef.current ||
@@ -13729,7 +13729,7 @@ function AppBody({
 					choicePickerRef.current ||
 					copyPickerRef.current ||
 					goalCommandInFlightRef.current ||
-					queuedRef.current.length > 0 ||
+					roundQueueRef.current.items().length > 0 ||
 					!goalActivation.isArmed(sessionId, armed)
 				) {
 					return
@@ -13814,8 +13814,8 @@ function AppBody({
 		if (
 			state !== 'idle' ||
 			phase !== 'ready' ||
-			queuedRef.current.length === 0 ||
-			queuePauseRef.current !== null ||
+			roundQueueRef.current.items().length === 0 ||
+			roundQueueRef.current.pause() !== null ||
 			abortRef.current ||
 			hasUnsettledTurn() ||
 			pendingModelSwitchRef.current ||
@@ -13944,7 +13944,7 @@ function AppBody({
 			state !== 'idle' ||
 			abortRef.current ||
 			hasUnsettledTurn() ||
-			queuePauseRef.current ||
+			roundQueueRef.current.pause() ||
 			pendingModelSwitchRef.current ||
 			conversationMutationRef.current ||
 			textPromptRef.current ||
@@ -13959,7 +13959,9 @@ function AppBody({
 		const mail = peers.peek(generation)[0]
 		if (
 			mail &&
-			!queuedRef.current.some((prompt) => prompt.kind === 'peer' && prompt.mail.id === mail.id)
+			!roundQueueRef.current
+				.items()
+				.some((prompt) => prompt.kind === 'peer' && prompt.mail.id === mail.id)
 		)
 			enqueueQueued({
 				kind: 'peer',
@@ -13994,7 +13996,7 @@ function AppBody({
 			state !== 'idle' ||
 			abortRef.current ||
 			hasUnsettledTurn() ||
-			queuePauseRef.current ||
+			roundQueueRef.current.pause() ||
 			pendingModelSwitchRef.current ||
 			conversationMutationRef.current ||
 			textPromptRef.current ||
@@ -14003,7 +14005,7 @@ function AppBody({
 			exportingRef.current ||
 			compactingRef.current ||
 			goalCommandInFlightRef.current ||
-			queuedRef.current.some((prompt) => prompt.kind === 'notice')
+			roundQueueRef.current.items().some((prompt) => prompt.kind === 'notice')
 		)
 			return
 		const jobs = idleJobNoticesRef.current

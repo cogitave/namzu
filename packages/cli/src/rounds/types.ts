@@ -12,8 +12,6 @@ import type { GoalRoundAuthority, Message, MessageAttachment } from '@namzu/sdk'
 
 import type { PeerMail } from '../integrations/peers/runtime.js'
 
-import type { TriggerId } from '../tui/triggers/registry.js'
-
 /**
  * One complete composer submission waiting for the active turn to settle.
  *
@@ -22,7 +20,7 @@ import type { TriggerId } from '../tui/triggers/registry.js'
  * later turn look successful while asking the model a different question from
  * the one the operator composed.
  */
-export type QueuedPrompt =
+export type QueuedPrompt<Trigger extends string = string> =
 	| {
 			readonly kind: 'human'
 			readonly text: string
@@ -39,7 +37,7 @@ export type QueuedPrompt =
 			 * Composer triggers armed when the operator sent it (`./triggers/`).
 			 * Only the composer's own submit sets this; see `SubmitMeta`.
 			 */
-			readonly triggers?: readonly TriggerId[]
+			readonly triggers?: readonly Trigger[]
 	  }
 	| {
 			readonly kind: 'peer'
@@ -65,35 +63,38 @@ export type QueuedPrompt =
 			readonly generation: number
 	  }
 
-export type HumanQueuedPrompt = Extract<QueuedPrompt, { readonly kind: 'human' }>
+export type HumanQueuedPrompt<Trigger extends string = string> = Extract<
+	QueuedPrompt<Trigger>,
+	{ readonly kind: 'human' }
+>
 
-export function isRecallableHumanPrompt(
-	prompt: QueuedPrompt | undefined,
-): prompt is HumanQueuedPrompt {
+export function isRecallableHumanPrompt<Trigger extends string>(
+	prompt: QueuedPrompt<Trigger> | undefined,
+): prompt is HumanQueuedPrompt<Trigger> {
 	return prompt?.kind === 'human' && prompt.recallable === true
 }
 
-export interface LiveInput {
-	readonly prompt: HumanQueuedPrompt
+export interface LiveInput<Trigger extends string = string> {
+	readonly prompt: HumanQueuedPrompt<Trigger>
 	readonly message: Message
 	readonly attachedFiles: number
 	/** Queue identities present at acceptance; recalls may remove any of them. */
-	readonly queuedBefore: readonly QueuedPrompt[]
+	readonly queuedBefore: readonly QueuedPrompt<Trigger>[]
 }
 
-export interface ActiveTurnInbox {
+export interface ActiveTurnInbox<Trigger extends string = string> {
 	notify(): void
-	accept(input: LiveInput): boolean
+	accept(input: LiveInput<Trigger>): boolean
 	drain(): Message[]
 	waitForInbound(signal: AbortSignal): Promise<void>
-	close(): readonly LiveInput[]
+	close(): readonly LiveInput<Trigger>[]
 }
 
 /** Put an undelivered steer back where it occurred among Tab-queued prompts. */
-export function mergeUndeliveredLiveInput(
-	queued: readonly QueuedPrompt[],
-	undelivered: readonly LiveInput[],
-): readonly QueuedPrompt[] {
+export function mergeUndeliveredLiveInput<Trigger extends string>(
+	queued: readonly QueuedPrompt<Trigger>[],
+	undelivered: readonly LiveInput<Trigger>[],
+): readonly QueuedPrompt<Trigger>[] {
 	const merged = [...queued]
 	let lastInsertedIndex = -1
 	for (const input of undelivered) {
@@ -123,7 +124,7 @@ export function humanPromptMeta(
 export type QueuePauseOutcome = 'failed' | 'stopped' | 'paused'
 
 /** A reply parked for the person; `autoResume` is set when it tries again by itself. */
-export interface HandoffPark {
+export interface HandoffPark<Trigger extends string = string> {
 	readonly turnId: string
 	readonly reason?: string
 	/**
@@ -131,7 +132,7 @@ export interface HandoffPark {
 	 * the account list and runs the same reply again on the one chosen.
 	 */
 	readonly spentAllowance?: {
-		readonly resubmit: QueuedPrompt | null
+		readonly resubmit: QueuedPrompt<Trigger> | null
 		readonly label: string
 	}
 	readonly autoResume?: { readonly attempt: number; readonly at: number }
