@@ -81,3 +81,4 @@ The operator application.
 * [Desktop voice input](desktop-listening.md) - Talking to Namzu Desktop in Turkish: the on-device recognition engine, microphone capture and consent, endpointing and stop words, read-aloud and barge-in, and what stays on the computer.
 * [CLI ACP live input](acp.md) - Owned live operator messages, bounded receipt reconciliation and safe delegation wait release.
 * [namzu spaces (preview)](spaces.md) - Spaces (project folders) with tabs and tiled panes of live sessions in one terminal, opened with `←` from a conversation or by the command: status dots, panes and tabs, keys, mouse, colours, starting a session on an account, the remembered layout, the navigate-key setting, a session that stops, and the plain fallback.
+* [Pasting images into the composer](clipboard-and-images.md) - Which key pastes an image on each platform, how WSL reaches the Windows clipboard, what a paste of file paths does, and what each message means.

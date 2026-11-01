@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-02
+
+- **Creation** [Pasting images into the composer](cli/clipboard-and-images.md): keys per platform (`alt+v` on Windows, `ctrl+v` and `alt+v` on WSL), the PowerShell route from WSL to the Windows clipboard, the empty-paste trigger, attaching pasted or dropped image paths, and the messages. `.changeset/paste-images-on-wsl.md` (`@namzu/cli` minor).
+
 ## 2026-11-01
 
 - **Update** [namzu spaces (preview)](cli/spaces.md): quitting from the spaces screen now ends the terminal as a plain `namzu` does (the alternate screen is left and the history printed once before the final frame); the page no longer lists the missing end of the conversation as a limitation. `.changeset/spaces-tabs-panes.md` (`@namzu/cli` minor).
