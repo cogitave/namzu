@@ -46,7 +46,8 @@ assigned job, which the person approved with the script, so a note elsewhere
 that a message carries no user authority is not a reason to skip it.
 
 The keyword and the `workflow` trigger opt in one message only;
-the next message needs to ask again unless hypermode is on. Hypermode on (named on the composer's upper rule) is a
+the next message needs to ask again unless hypermode is on. Hypermode, named on
+the composer's upper rule while on, is a
 standing opt-in: the model is told so in a hidden reminder kept in the conversation (full the
 first time, sparsely after ten of your messages, once when it ends; a resumed
 conversation reads what was already said from its history and does not hear the
