@@ -146,7 +146,11 @@ export const WaitForJobTool = defineTool({
 		}
 
 		if (input.output_stream !== undefined && input.output_contains === undefined) {
-			return { success: false, output: '', error: 'output_stream requires output_contains.' }
+			return {
+				success: false,
+				output: '',
+				error: 'output_stream requires output_contains.',
+			}
 		}
 		if (input.output_contains !== undefined) {
 			if (!jobs.waitForOutput) {
@@ -260,6 +264,10 @@ export const WaitForJobTool = defineTool({
 				data: { jobId: input.id, abandoned: true },
 			}
 		}
+
+		// The exit and its output are in this result, so the notice that would
+		// announce the same exit is withdrawn rather than repeated.
+		if (outcome.kind !== 'timeout') jobs.markCollected?.(input.id)
 
 		const notices = [
 			...(outcome.droppedBytes > 0

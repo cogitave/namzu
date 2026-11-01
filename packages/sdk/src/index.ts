@@ -41,6 +41,7 @@ export type {
 	MonitorStreamOptions,
 	MonitorStreamStats,
 } from './runtime/jobs/monitor-stream.js'
+export { WakeBudget, wakeBudgetFromEnv } from './runtime/jobs/wake-budget.js'
 export {
 	createBackgroundJobId,
 	isBackgroundJobId,

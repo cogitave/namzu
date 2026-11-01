@@ -1254,6 +1254,12 @@ export function bindOwner(
 		 */
 		readonly onAwaited?: (id: string) => void
 		/**
+		 * Be told that a tool result has handed the model this job's exit, so the
+		 * notice announcing the same exit can be withdrawn. Like `onAwaited` it
+		 * belongs to the turn; absent, `markCollected` is absent from the ref.
+		 */
+		readonly onCollected?: (id: string) => void
+		/**
 		 * The longest a monitor started through this binding may live. A host
 		 * may lower it (a single-shot run has no tomorrow to watch for); the
 		 * default is {@link MONITOR_TIMEOUT_CAP_MS}.
@@ -1384,6 +1390,14 @@ export function bindOwner(
 					markAwaited: (id: string) => {
 						mine(id)
 						defaults.onAwaited?.(id)
+					},
+				}
+			: {}),
+		...(defaults.onCollected
+			? {
+					markCollected: (id: string) => {
+						mine(id)
+						defaults.onCollected?.(id)
 					},
 				}
 			: {}),

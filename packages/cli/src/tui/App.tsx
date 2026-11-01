@@ -40,6 +40,7 @@ import {
 	StaleGoalError,
 	TurnCancelled,
 	type TurnId,
+	WakeBudget,
 	asSessionId,
 	createAssistantMessage,
 	createRuntimeContextMessage,
@@ -52,6 +53,7 @@ import {
 	resolveBoundAccount,
 	resolveTriggerThreshold,
 	resolveWorkflowLimits,
+	wakeBudgetFromEnv,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -1956,6 +1958,8 @@ function AppBody({
 	const [noticeVersion, setNoticeVersion] = useState(0)
 	/** Background commands that ended on their own (a stop the operator asked for does not wake the model). */
 	const wakeJobIdsRef = useRef(new Set<string>())
+	/** Opt-in cap on automatic job wakes in a row (`NAMZU_MAX_CONSECUTIVE_WAKES`); only a person's message resets it. */
+	const wakeBudgetRef = useRef<WakeBudget>(wakeBudgetFromEnv())
 	useEffect(() => {
 		workflowNoticesRef.current = new Map()
 		const source = session?.workflows
@@ -9673,7 +9677,10 @@ function AppBody({
 			if (prompt.kind === 'notice' && prompt.generation !== conversationGenRef.current) return
 			setContextHidden(false)
 			const { text: promptText } = prompt
-			if (prompt.kind === 'human') lastHumanTurnRef.current = prompt
+			if (prompt.kind === 'human') {
+				lastHumanTurnRef.current = prompt
+				wakeBudgetRef.current.reset()
+			}
 			let text = promptText
 			const attachments = prompt.kind === 'human' ? prompt.attachments : undefined
 			const goalRound = prompt.kind === 'goal' ? prompt.goalRound : undefined
@@ -9758,6 +9765,7 @@ function AppBody({
 					jobs.ownerSession === session
 						? [...jobs.pending].filter(([id]) => wakeJobIdsRef.current.has(id))
 						: []
+				if (jobLines.length > 0) wakeBudgetRef.current.recordWake()
 				for (const [id] of jobLines) {
 					jobs.delivered.add(id)
 					jobs.pending.delete(id)
@@ -14143,7 +14151,8 @@ function AppBody({
 		const waiting =
 			workflowNoticesRef.current.size > 0 ||
 			childMessagesRef.current.size > 0 ||
-			(jobs.ownerSession === session &&
+			(wakeBudgetRef.current.canWake &&
+				jobs.ownerSession === session &&
 				[...jobs.pending.keys()].some((id) => wakeJobIdsRef.current.has(id))) ||
 			session?.monitors?.wakes() === true
 		if (!waiting) return

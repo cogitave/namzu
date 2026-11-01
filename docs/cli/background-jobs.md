@@ -106,7 +106,11 @@ The session keeps each exit until the kernel acknowledges that its notice became
 
 If the process cannot start, its job still finishes and announces one exit when the child closes. It has no process exit code: the spawn error is not a command's exit status. An error from a process that already started does not by itself end the job; the registry waits for that process to close.
 
-None of them knows a `wait_for_job` call is already blocked on the same job: unlike the delegated-task inbox, which lets a blocking `wait_for_task` claim a completion so it is not also announced, nothing here suppresses the notice for a job `wait_for_job` is about to report on its own. A job that exits during a `wait_for_job` call can therefore surface twice — once as that call's own result, once as the `[Background job update]` message after the same or a later tool result. Redundant, not contradictory: both describe the same exit.
+A job whose exit a tool result has already handed the model is not announced again. `wait_for_job` returning a job's exit, and `job` read of a stopped job, withdraw the notice that would repeat the same exit and tell the session it was delivered, so an idle session does not wake the model for it either. A job that is still running, or a wait that gave up at its bound, withdraws nothing.
+
+A notice carries the job's output when the whole of it is at most 2048 bytes and the retention cap dropped none of it; it rides in an untrusted frame, since the command wrote it. A larger output is read with the `job` tool, as before.
+
+An unattended session can cap how many times in a row a finished job wakes the model on its own. Set `NAMZU_MAX_CONSECUTIVE_WAKES` to a positive integer: after that many automatic wakes no further exit wakes the model, the exits stay pending and ride with the next message, and only a message a person types resets the count. Unset, or anything that is not a positive integer, never limits (the default). The SDK exports the same counter as `WakeBudget` for a host that wakes its own sessions.
 
 # Waiting at the end of a turn
 
