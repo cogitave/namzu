@@ -91,6 +91,7 @@ import {
 import type { PlanApprovalAnswer, PlanApprovalFn, PlanApprovalRequest } from '../plan/approval.js'
 
 import { resolveComposerTriggers } from '../config/composer-triggers.js'
+import { setUserConfigValue } from '../config/user-config.js'
 import {
 	bindAccount,
 	findAccountByName,
@@ -194,9 +195,7 @@ import {
 	type SubagentActivity,
 	type SubagentNarrationLine,
 } from '../integrations/subagents/activity.js'
-import type { Batch } from '../integrations/subagents/batches.js'
 import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
-import { agentsSlashCommand } from '../integrations/subagents/slash.js'
 import { readFolderGrants } from '../integrations/trust/folder-grants.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { completionNotice } from '../integrations/workflows/notice.js'
@@ -626,7 +625,6 @@ import {
 	kernelCommandDescriptors,
 	mergeHostCommands,
 	parseSlash,
-	renderAgents,
 	renderOutcome,
 	reviewPrompt,
 	runSlash,
@@ -881,19 +879,6 @@ type ChoicePickerState = {
 			readonly values: readonly CommandPickerEntry[]
 			readonly options: readonly ChoicePickerOption[]
 			readonly windowSize: number
-	  }
-	| {
-			/**
-			 * `/agents batches`. `values` holds `'loading'` alone while the index
-			 * read is still in flight — its lone option carries a `disabledReason`,
-			 * so Enter cannot select it — and is replaced with the resolved rows
-			 * once it settles; never a mix of the two.
-			 */
-			readonly kind: 'agent-batches'
-			readonly title: string
-			readonly notice?: string
-			readonly values: readonly (Batch | 'loading')[]
-			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
 			/** `/workflows`: the runs of this conversation; `values` are their run ids. */
@@ -2034,6 +2019,17 @@ function AppBody({
 	 * whole list to draw the block it leaves in the transcript.
 	 */
 	const tasksRef = useRef<readonly TaskListItem[]>([])
+	/**
+	 * Whether the checklist is open above the message box (every task, up to five
+	 * rows) or folded to the one current step. Ctrl+T flips it and saves the choice.
+	 * A task the model creates or changes opens it for this run without saving, but
+	 * the panel then waits until the transcript's own copy of the list has scrolled
+	 * out of view, so one list is never drawn twice at once; `checklistPinned` is
+	 * the operator's own "open", which is drawn at once.
+	 */
+	const [checklistExpanded, setChecklistExpanded] = useState(ctx.tui?.showExpandedTodos === true)
+	const [checklistPinned, setChecklistPinned] = useState(ctx.tui?.showExpandedTodos === true)
+	const checklistOpenRef = useRef(false)
 	// Bumped to reset the <Static> transcript log (on /clear, /clear-screen and /resume).
 	const [resetKey, setResetKey] = useState<number>(0)
 	/**
@@ -2565,7 +2561,7 @@ function AppBody({
 	/** The most recent cockpit request, so an older one cannot report on its behalf. */
 	const cockpitOpenTokenRef = useRef(0)
 	/**
-	 * Ctrl+T and `/agents`: open the cockpit, and when nothing is on screen
+	 * `←` on an empty composer, `↓` and `/agents`: open the cockpit, and when nothing is on screen
 	 * yet, WAIT for the saved evidence before answering.
 	 *
 	 * The waiting is the point. A conversation's children may exist only on
@@ -4003,107 +3999,6 @@ function AppBody({
 	)
 
 	/**
-	 * `/agents [running|available|batches]`, answered by the delegation UI's
-	 * `agentsSlashCommand` over this session's live monitor and the batches the
-	 * session index holds. A `batches` answer opens a picker immediately with a
-	 * disabled loading row, then replaces it once the listing resolves; the
-	 * composer stays reachable the whole time. A stale read is dropped by
-	 * comparing `choicePickerRef.current` against the exact loading-picker
-	 * object this call put there.
-	 */
-	const runAgentsCommand = useCallback(
-		(args: readonly string[], openCockpit: () => void, listAvailable: () => void): void => {
-			const wantsBatches = args.length === 1 && args[0] === 'batches'
-			const pending: ChoicePickerState | undefined = wantsBatches
-				? {
-						kind: 'agent-batches',
-						title: 'Batches',
-						values: ['loading'],
-						options: [
-							{
-								label: 'Loading…',
-								description: 'Reading saved batches…',
-								// A disabled row shows its reason in place of its description.
-								disabledReason: 'Reading saved batches…',
-							},
-						],
-					}
-				: undefined
-			if (pending) {
-				setSelectedChoice(0)
-				setChoicePicker(pending)
-			}
-			void (async () => {
-				const result = await agentsSlashCommand(args, {
-					liveAgents: () => subagentsRef.current,
-					...(session?.listSavedBatches ? { savedBatches: session.listSavedBatches } : {}),
-				})
-				if (appLifetime.signal.aborted) return
-				if (pending && choicePickerRef.current !== pending) return
-				switch (result.kind) {
-					case 'agent-cockpit':
-						openCockpit()
-						return
-					case 'available-agents':
-						listAvailable()
-						return
-					case 'message':
-						if (pending) setChoicePicker(null)
-						pushMessage('system', result.content)
-						return
-					case 'batches':
-						setChoicePicker({
-							kind: 'agent-batches',
-							title: 'Batches',
-							notice:
-								result.listing.omitted > 0
-									? `${result.listing.omitted} older batch${result.listing.omitted === 1 ? '' : 'es'} not shown.`
-									: undefined,
-							values: result.listing.batches,
-							options: result.listing.batches.map(batchOption),
-						})
-						return
-				}
-			})()
-		},
-		[appLifetime, pushMessage, session, setChoicePicker, setSelectedChoice],
-	)
-	/**
-	 * Opens an `/agents batches` selection straight into its first agent's
-	 * transcript — where the replayed banner actually lives, for a finished
-	 * batch — rather than the phase/agent list Ctrl+T lands on.
-	 *
-	 * A finished batch's children are hydrated from their logs first, since a
-	 * batch this operator has not opened the cockpit for yet may not be in
-	 * `subagents` at all. A live batch skips that: it is already there.
-	 */
-	const openBatch = useCallback(
-		async (batch: Batch): Promise<void> => {
-			if (!batch.live) await hydrateSavedChildren()
-			const workflow = agentWorkflows(subagentsRef.current, workflowRunsRef.current).find(
-				(candidate) => candidate.agents.some((agent) => agent.workflowId === batch.id),
-			)
-			const firstPhase = workflow?.phases[0]
-			const firstAgent = firstPhase?.agents[0]
-			if (!firstPhase || !firstAgent) {
-				pushMessage(
-					'system',
-					`Could not open "${batch.name}" — its saved children are no longer available.`,
-				)
-				return
-			}
-			setAgentSurface({
-				kind: 'transcript',
-				selectedPhaseId: firstPhase.id,
-				selectedId: firstAgent.viewId,
-				returnFocus: 'agents',
-				tailOffset: 0,
-			})
-		},
-		[hydrateSavedChildren, pushMessage, setAgentSurface],
-	)
-
-	/**
 	 * Delegated work writes three kinds of row into settled history (see
 	 * `agent-transcript-rows.ts`): a launch receipt per batch, then one
 	 * completion row per agent. Each is exactly-once, gated by its own set,
@@ -5222,11 +5117,6 @@ function AppBody({
 				if (child) setChoicePicker({ ...child, back: picker })
 				return
 			}
-			if (picker.kind === 'agent-batches') {
-				if (value === 'loading') return
-				void openBatch(value as Batch)
-				return
-			}
 			if (picker.kind === 'workflow-runs') {
 				const run = workflowRunsRef.current.find((item) => item.runId === value)
 				if (run && !openWorkflowFromRail(run.groupId)) {
@@ -5346,7 +5236,6 @@ function AppBody({
 			archiveCurrentConversation,
 			ctx.cwd,
 			enqueueQueued,
-			openBatch,
 			pushMessage,
 			recordFeedback,
 			removeStoredCredential,
@@ -6714,8 +6603,11 @@ function AppBody({
 		furnitureRows: LIVE_FURNITURE_ROWS + fullToolFurniture + pendingInputFurniture,
 		raw: rawOutput,
 	})
-	const liveTasks = checklistShown ? [] : tasks
-	const fullTaskFurniture = taskListRows(liveTasks)
+	const checklistOpen =
+		checklistExpanded && tasks.length > 0 && (checklistPinned || !checklistShown)
+	checklistOpenRef.current = checklistOpen
+	const liveTasks = checklistOpen || !checklistShown ? tasks : []
+	const fullTaskFurniture = taskListRows(liveTasks, checklistOpen)
 	// The plan's next task, drawn under the working row; never from a sub-agent's plan.
 	const nextPlanned = nextTask(tasks)
 	// The working row names the step in progress, in the model's own words.
@@ -7620,7 +7512,7 @@ function AppBody({
 				}
 			}
 			// The scope now names the resumed conversation, so its finished
-			// children are readable. Without this the first Ctrl+T after a resume
+			// children are readable. Without this the first cockpit open after a resume
 			// would have nothing to find.
 			void hydrateSavedChildren()
 			conversationMaterializedRef.current = true
@@ -9395,6 +9287,7 @@ function AppBody({
 					}
 					const checklist = tasksRef.current
 					setTasks(checklist)
+					if (operation && !event.removed) setChecklistExpanded(true)
 					if (operation) writeTaskBlock(st, operation, checklist)
 					break
 				}
@@ -11778,27 +11671,6 @@ function AppBody({
 						} else pushMessage('system', 'Usage: /peers [list|on|off|send <ref> <message>]')
 						return
 					}
-					case 'agents': {
-						const agentIds = session?.agentIds ?? []
-						runAgentsCommand(
-							slash.args,
-							() => {
-								// Reported after the read, not before it: the answer to "are
-								// there any" may be in the session's logs, and a conversation
-								// whose children are recorded there must never be told it
-								// delegated nothing.
-								void openAgentCockpit().then((opened) => {
-									if (opened) return
-									pushMessage(
-										'system',
-										`No delegated agents in this conversation.${agentIds.length ? `\nAvailable: ${agentIds.join(', ')}` : '\nNo agents are configured.'}`,
-									)
-								})
-							},
-							() => pushMessage('system', renderAgents(agentIds)),
-						)
-						return
-					}
 					case 'workflows': {
 						const source = session?.workflows
 						if (!source) {
@@ -13318,7 +13190,6 @@ function AppBody({
 			materializeConversation,
 			nextId,
 			openAgentCockpit,
-			runAgentsCommand,
 			abandonActiveTurn,
 			pushMessage,
 			rawOutput,
@@ -14880,19 +14751,16 @@ function AppBody({
 					setRailFocus(null)
 				}
 			}
-			if (isAction('app:openAgents', input, key)) {
-				if (agentSurfaceRef.current) {
-					setAgentSurface(null)
-					return
-				}
-				if (openCockpitFromCurrentRows()) {
-					void hydrateSavedChildren()
-					return
-				}
-				// Nothing on screen yet. The conversation's children may exist only
-				// as saved evidence, so the request outlives that read rather than
-				// being answered by an empty snapshot.
-				void openAgentCockpit()
+			if (isAction('app:toggleTodos', input, key)) {
+				const next = !checklistOpenRef.current
+				setChecklistExpanded(next)
+				setChecklistPinned(next)
+				// Saved like the other display choices; a file that cannot be written
+				// still leaves the checklist as pressed for this run.
+				try {
+					setUserConfigValue(['tui', 'showExpandedTodos'], next)
+				} catch {}
+				return
 			}
 			// Child observation owns navigation, but never outranks consent: the
 			// permission branch above preempts it if a child or parent call asks.
@@ -15870,7 +15738,7 @@ function AppBody({
 						jobSurface === null &&
 						permission === null &&
 						scheduleReviewPrompt === null ? (
-							<TaskList tasks={liveTasks} />
+							<TaskList tasks={liveTasks} expanded={checklistOpen} />
 						) : null}
 						{/* Siblings, not a ternary. The overlay used to REPLACE the
 						    composer, which unmounted it and destroyed whatever the
@@ -16236,6 +16104,9 @@ function AppBody({
 							footerKeysLive && railFocus === null && (runningShellCount > 0 || railHasRows)
 						}
 						shellsSelected={railFocus === SHELLS_FOCUS}
+						{...(tasks.length > 0 && showComposerSurface && !childSurfaceOpen
+							? { tasksOpen: checklistOpen }
+							: {})}
 						{...(railHintText !== undefined ? { railHint: railHintText } : {})}
 					/>
 				)}
@@ -16454,21 +16325,6 @@ function endsTurnOnNo(pending: PendingPermission): boolean {
 /** The label the operator saw for the option id they chose. */
 function labelOfOption(question: UserQuestion, optionId: string): string {
 	return question.options.find((option) => option.id === optionId)?.label ?? optionId
-}
-
-/** `/agents batches`' one-line-per-batch text, mirroring the background tasks list's column shape. */
-function batchOption(batch: Batch): ChoicePickerOption {
-	const agents = `${batch.agentsDone}/${batch.agentsTotal} agent${batch.agentsTotal === 1 ? '' : 's'}`
-	const tokens = `${batch.tokensTotal.toLocaleString('en-US')} tokens`
-	const columns = [
-		relativeStart(batch.startedAt),
-		batch.phases.join(', '),
-		agents,
-		tokens,
-		formatElapsed(batch.elapsedMs),
-	]
-	if (batch.live) columns.push('live')
-	return { label: batch.name, description: columns.join(' · ') }
 }
 
 /** `1 running, 2 finished`: the runs of the list, by whether they are still going. */

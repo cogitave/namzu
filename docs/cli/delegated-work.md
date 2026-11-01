@@ -352,7 +352,7 @@ a finished one, refused for a stopped one.
 
 Once queue acceptance is confirmed — never for a refused or unowned attempt — the
 message becomes visible on both sides of the exchange. The child's transcript
-(rail Enter, or Ctrl+T then Enter) gets a `← queued from parent: …` row alongside its tool
+(rail Enter, or the cockpit then Enter) gets a `← queued from parent: …` row alongside its tool
 calls and answers (what the operator typed to it reads as their own `❯ …` row).
 The main conversation gets a matching row, `<description> ·
 correction sent`, with the message text beneath it, so the operator can see
@@ -439,13 +439,13 @@ the layout. When every running call is a correlated wait, the rows fold into
 one `✻ Waiting for N agents to finish` line; a wait beside other work keeps its
 own `Waiting · <task name>` row. Its successful protocol response does not add
 a second report to the transcript. Unknown waits and tool errors remain
-visible. Press Ctrl+T to inspect agent transcripts and results. Failed, cancelled
+visible. Press `←` or `↓` on an empty composer, or open `/tasks`, to inspect agent transcripts and results. Failed, cancelled
 and incomplete work keeps its reported status rather than appearing completed.
 
 The agents rail stays on screen while an approval dialog is open, reduced to
 its `main` row and a count, so agents already approved can be seen working
 while the next launch is decided. That row names no key, since the dialog holds
-↓ and Ctrl+T until it closes. Read-only launches start without a review; see
+↓ until it closes. Read-only launches start without a review; see
 [Which launches are asked about](#which-launches-are-asked-about).
 
 `ctrl+x ctrl+k` stops the running background agents from the composer or the
@@ -581,8 +581,8 @@ empty checklist says nothing about running agents. `wait_for_task` retrieves
 results by task ID. A budget or other non-normal stop is `incomplete`, even
 when the scheduler lifecycle is `completed`; it is not a successful review.
 
-Ctrl+T opens a dedicated agent browser using the terminal's available height.
-The main composer is hidden there, with its draft preserved. Ctrl+T returns to
+`←` or `↓` on an empty composer (or Enter on an agent row in `/tasks`) opens a dedicated agent browser using the terminal's available height.
+The main composer is hidden there. Esc returns to
 chat; Enter inspects a child transcript, Esc goes back and `q` returns from the
 child to the parent. Workflows and phases remain navigation groups, not execution
 dependencies. A phase's `phase_detail`, when supplied, is revealed beneath the
@@ -770,25 +770,6 @@ Resume does not restart these children or reconnect their processes, and
 neither does opening one. A replayed child has no task the scheduler still
 knows: `send_message` cannot reach it, `cancel_agent` has nothing to cancel, and
 the screen offers neither.
-
-### Finding a batch to reopen
-
-`/agents batches` lists this conversation's batches — the groups of children
-spawned together, derived from the `batch` annotations in the parent log —
-newest first, with how many of each batch's agents are done and the tokens they
-spent. A batch still going is read from the live monitor, and a finished one
-from the session index, without reading any child log: reading one per row would
-make the listing itself pay for what only opening a row needs. The read runs in
-the background behind a loading row rather than holding the composer, and an
-empty history says so rather than opening an empty picker. `/agents runs`, the
-name before CLI 27, is an unknown subcommand and shows usage, like any other.
-
-Each row's name is the batch's workflow label when one was set, and otherwise
-the opening words of the parent turn that spawned it. Enter opens the selected
-batch in the same cockpit `Ctrl+T` opens, landing directly on the first agent's
-transcript, so a finished batch's `Replayed from saved evidence.` banner is the
-first thing on screen. The listing is bounded: at most 20 rows, with an omitted
-count when a conversation has more batches than that.
 
 ### Retention
 

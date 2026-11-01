@@ -109,7 +109,7 @@ distinction between unknown pricing and a measured zero.
 
 | Surface | Problem at the audited commit | Proposed operator experience |
 | --- | --- | --- |
-| `/agents` | Lists configured IDs; the running-agent panel is reachable through Ctrl+T instead. | One panel with Running and Available views, recognizable names and state. |
+| `/agents` | Lists configured IDs; (Historical: `/agents` has since been removed; the cockpit is reached with `←`, `↓` or `/tasks`.) The running-agent panel is reachable through another key instead. | One panel with Running and Available views, recognizable names and state. |
 | `/goal` | Inspection, arbitrary objective text and automatic continuation share one parser. With no existing goal, `/goal status` creates an objective named `status`. Reports use `armed`, `Rounds admitted` and blocker codes. | Show the objective, progress and clear Start/Edit/Pause/Resume/Remove actions. Explain automatic continuation and its allowance before starting it. |
 | `/status`, `/cost`, `/context` | Facts compete with paragraphs explaining kernel implementation. A modest fixture produces 32 status lines and 20 permission lines. | Compact facts first; expanded explanations and diagnostics on request. |
 | `/status config` | A values-free provenance report is the only configuration inspector. It cannot show the current value or edit it. | A settings surface for safe effective values, scope and supported changes; provenance remains a separate diagnostic view. Credentials remain excluded. |
@@ -190,7 +190,7 @@ validated.
 | Memory | Bare `/memory` and standalone `show`/`list` inspect curated memory without writing. `add <text>` explicitly saves a note; empty `add` displays usage. Ordinary free-text notes remain supported. |
 | Goals | Bare `/goal` opens a menu; `status` is read-only and `set` explicitly creates an objective, either directly or through the editor. The menu exposes continuation controls and the automatic-turn allowance. Reports use enabled/paused continuation language. |
 | Choice menus | Shared rows support current/default markers, terminal display width, narrow layouts, selected detail and unavailable reasons. Command, skill, branch and commit menus filter by typing, including digits. Esc returns or cancels rather than stepping through earlier prompts. |
-| Agent activity | `/agents` and `/agents running` open the delegated-work view already available through Ctrl+T. `/agents available` reports the configured roster separately. |
+| Agent activity | (Removed: `/agents` no longer exists; the cockpit is reached with `←`, `↓` or Enter on an agent row in `/tasks`.) |
 
 ## Follow-up comparison of command contents
 

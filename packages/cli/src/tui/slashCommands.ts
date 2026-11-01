@@ -89,11 +89,6 @@ export type SlashAction =
 	  }
 	/** Choose and dispatch one exact command from the session's live vocabulary. */
 	| { kind: 'command-picker'; commands: readonly CommandPickerEntry[] }
-	/**
-	 * `/agents [running|available|batches]`, answered by the delegation UI's
-	 * `agentsSlashCommand` — App supplies the live monitor and saved batches.
-	 */
-	| { kind: 'agents'; args: readonly string[] }
 	/** User-selected MCP prompts/resources, resolved asynchronously by the session host. */
 	| { kind: 'mcp-person'; args: readonly string[] }
 	| { kind: 'peers'; args: readonly string[] }
@@ -896,15 +891,6 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		description: 'Find and message other live terminals in this project.',
 		help: { usage: ['/peers [list|on|off]', '/peers send <ref> <message>'] },
 		action: (_ctx, args) => ({ kind: 'peers', args }),
-	},
-	{
-		name: 'agents',
-		description:
-			'Inspect delegated agents; /agents available lists configured agents, /agents batches lists past and running batches of delegated work.',
-		help: { usage: ['/agents [running|available|batches]'] },
-		// The subcommands are the delegation UI's (`agentsSlashCommand`): App hands
-		// it the arguments and renders what it answers, usage line included.
-		action: (_ctx, args) => ({ kind: 'agents', args }),
 	},
 	{
 		name: 'workflows',
@@ -2434,29 +2420,6 @@ function describeRule(rule: AuthorizationRule): string {
 }
 
 /** The delegate roster, and an honest answer when there is none. */
-/**
- * The roster, drawn.
- *
- * Kept as a formatter and moved off `SlashContext.agentIds`: the roster is
- * the KERNEL's fact — the delegation tools already hold it — and having the
- * CLI carry a second copy meant two answers to one question that could
- * disagree. The command is answered by the registry now; this draws what it
- * reports.
- */
-export function renderAgents(ids: readonly string[]): string {
-	if (ids.length === 0) {
-		return 'No delegates. This conversation has no delegation tool, so it does the work itself.'
-	}
-	return [
-		`Delegates (${ids.length}):`,
-		...ids.map((id) => `  ${id}`),
-		'',
-		'The agent dispatches to these itself when a task suits one. It may also',
-		'define a specialist for a single task, which is not listed here because',
-		'it does not exist until the agent asks for it.',
-	].join('\n')
-}
-
 function userCommandOrigin(command: UserCommand): string {
 	if (command.source === 'skill') return 'Skill'
 	if (command.source === 'plugin') return 'Plugin command'

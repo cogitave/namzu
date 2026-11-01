@@ -27,7 +27,7 @@ describe('a command the kernel registers reaches the operator', () => {
 		// The whole claim of the change. Deleting the merge makes this fail.
 		const names = mergeHostCommands(kernelCommandDescriptors()).map((c) => c.name)
 
-		expect(names).toContain('agents')
+		expect(names).not.toContain('agents')
 		expect(names).toContain('goal')
 	})
 
@@ -41,7 +41,6 @@ describe('a command the kernel registers reaches the operator', () => {
 	it('is known to the headless path, so it is not sent to the model as prose', () => {
 		// The failure mode a name list can have and a dropdown cannot: an
 		// unrecognised `/command` becomes a prompt.
-		expect(hostCommandNames()).toContain('agents')
 		expect(hostCommandNames()).toContain('goal')
 	})
 
@@ -125,8 +124,11 @@ describe('a name this host implements itself', () => {
 	})
 
 	it('still takes every kernel command this host does NOT own', () => {
-		const merged = mergeHostCommands(kernelCommandDescriptors())
+		const merged = mergeHostCommands([
+			...kernelCommandDescriptors(),
+			{ name: 'upload', description: 'a kernel command no host owns' },
+		])
 
-		expect(merged.map((c) => c.name)).toContain('agents')
+		expect(merged.map((c) => c.name)).toContain('upload')
 	})
 })

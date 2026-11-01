@@ -75,7 +75,7 @@ export const SPINNER_TIPS: readonly Tip[] = [
 	},
 	{
 		id: 'agents',
-		text: '/agents lists delegated work that is running or finished.',
+		text: '/tasks lists background commands, monitors and agents, running or finished.',
 		cooldownLaunches: 10,
 		relevant: NEVER('agents', 2),
 	},

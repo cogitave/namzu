@@ -395,7 +395,6 @@ import type {
 	SubagentActivity,
 	SubagentActivitySource,
 } from '../integrations/subagents/activity.js'
-import { type Batch, listSavedBatches } from '../integrations/subagents/batches.js'
 import { discoverAgentDefinitions } from '../integrations/subagents/definitions.js'
 import { prepareDelegatedEffort } from '../integrations/subagents/model-effort.js'
 import {
@@ -1595,14 +1594,6 @@ export interface AgentSession {
 	 * disk simply has none to offer.
 	 */
 	readonly savedChildren?: () => Promise<readonly SubagentActivity[]>
-	/**
-	 * Batches of delegated work this conversation's turns launched, read from
-	 * the session index — the counterpart of {@link savedChildren} for
-	 * `/agents batches`, grouped by parent turn rather than flattened to one row
-	 * per child. The live half comes from the monitor; `agentsSlashCommand`
-	 * merges the two. Optional because a session with no durable log has none.
-	 */
-	readonly listSavedBatches?: () => Promise<readonly Batch[]>
 	/**
 	 * Things about this session's configuration the operator must be told, every
 	 * launch — today, an accepted capability disagreement in the provider chain,
@@ -5841,13 +5832,6 @@ export async function createAgentSession(
 			? {
 					savedChildren: () =>
 						replaySavedChildrenFor({
-							index: conversationIndex,
-							paths,
-							session: { sessionId: scope.sessionId },
-							log: cliLogger(),
-						}),
-					listSavedBatches: () =>
-						listSavedBatches({
 							index: conversationIndex,
 							paths,
 							session: { sessionId: scope.sessionId },

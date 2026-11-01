@@ -152,7 +152,7 @@ The keys the hints name:
   press right after the draft was emptied by editing only shows `Press ← again
   to open spaces`; presses less than 150 ms apart (key repeat) or within a
   second of one that opened or armed are ignored. With the spaces screen
-  available the cockpit is reached with `↓` or `/agents`, and the footer does
+  available the cockpit is reached with `↓` or Enter on an agent row in `/tasks`, and the footer does
   not offer `← N agents`.
 
 The footer is always exactly one row. On narrow screens it drops, in order: the
@@ -299,7 +299,7 @@ The agent cockpit's per-workflow header names its workflow by the label every
 one of its agents shares; when they carry none, or carry more than one, it
 shows a neutral count (`2 agents · 1 running`) rather than a generic name that
 described none of them in particular. So does each row of the cockpit's own
-workflow picker (`Ctrl+T` with two or more groups live or retained at once): a
+workflow picker (the cockpit with two or more groups live or retained at once): a
 group whose agents never set an explicit label is named after its own lead
 agent instead of the generic default — that agent's title, plus a `+N` count
 when the group holds more than one — so two unlabelled groups still read as
@@ -342,7 +342,7 @@ characters is accepted; anything else is dropped and the old label stays. The
 label goes when the agent ends, and agents inside a `workflow` run keep their
 own labels. The cost of that request is not charged to the run's token
 ledger (see the open questions). Rows follow launch order. Workflow and phase labels, model and
-tool counts are not on the rail; the cockpit (`Ctrl+T`, `/agents`) and the
+tool counts are not on the rail; the cockpit (`←` or `↓` from an empty composer, or Enter on an agent row in `/tasks`) and the
 agent's own transcript carry them.
 
 At most five agents are drawn. A longer list scrolls with the selection:
@@ -371,7 +371,7 @@ moves between `main`, the agents and the workflows (a `❯` marks the row), Ente
 on an agent views it (see below) and on `main` goes back to the conversation,
 `x` stops a running agent (the parent turn and the other agents keep going) or,
 on a finished one, clears its row, and `ctrl+x` then `ctrl+k` stops every
-running background agent. The composer stays on screen, dim, while the rail has the keys. `Ctrl+T` still opens the cockpit from anywhere. While an
+running background agent. The composer stays on screen, dim, while the rail has the keys. `←` or `↓` from an empty composer opens the cockpit. While an
 approval dialog is open the rail shrinks to the `main` row with a count
 (`2 agents`) and names no key, since the dialog owns the keyboard.
 
@@ -733,6 +733,8 @@ qualifies its scope as `Current-turn task view · …`. The model-facing result
 also reports how many earlier terminal records remain stored outside that
 view; see [Task context](task-context.md).
 
+The live checklist above the message box is folded to the one current step by default; Ctrl+T opens it (every task, at most five rows, the rest counted as `… +N more`) and the footer names the key (`ctrl+t to hide tasks` / `ctrl+t to show tasks`). The choice is saved as `tui.showExpandedTodos` in your own config files; a project file cannot set it.
+
 One renderer draws every checklist, the transcript block and the live checklist alike:
 `□` pending, `■` in progress (bold), `✓` completed (dimmed and struck
 through), `✗` failed, each followed by exactly one space, with a wrapped subject
@@ -983,8 +985,8 @@ replacement construction or preference persistence fails.
 
 `/goal` presents objective management and automatic continuation controls,
 including the automatic-turn allowance before work starts. `/tasks` is the
-background view, not the checklist. `/agents` opens the retained delegated-work
-view, while `/agents available` separately reports the configured roster.
+background view, not the checklist; Ctrl+T shows or hides the checklist. The
+retained delegated-work view is the cockpit, reached from `↓` or `/tasks`.
 
 The delegated-work view first separates workflows. Independently launched work
 in another parent turn appears as a separate workflow, including when names are
@@ -994,13 +996,13 @@ explicit phase do not create new phases. These annotations describe grouping,
 not execution dependencies or barriers.
 
 With multiple workflows, the workflow picker opens first. Selecting a workflow
-shows its phases, then one phase's agents; Esc returns to workflows and `q` or Ctrl+T
+shows its phases, then one phase's agents; Esc returns to workflows and `q`
 returns to the conversation. Older completed or cancelled work stays available.
 Pending admissions show `Queued` until the child session starts. Completed Agent
 and `wait_for_task` outputs name the actual `task_id` and terminal status before
 the child result, so identifiers inside that result remain clearly separate.
 
-The agent cockpit (Ctrl+T, `/agents`) is the workflow detail view described
+The agent cockpit (`←` or `↓` from an empty composer, or Enter on an agent row in `/tasks`) is the workflow detail view described
 under the rail: a header with the workflow's name and
 `<done>/<total> agents · <elapsed>`, then `Phases` or one phase's agents, one
 list at a time. It opens on the phase whose agents are still working, and on
@@ -1019,9 +1021,9 @@ and supports line and page scrolling. File-output tabs are expanded before
 pagination, and wrapping uses terminal cell widths for Unicode graphemes. Each
 body row stays within its frame, with room for navigation and the cursor. Esc
 returns to the agent list (or, when the view was opened from the rail, to that
-agent's row on the rail); `q` or Ctrl+T returns to the main conversation and
+agent's row on the rail); `q` returns to the main conversation and
 restores the draft. A child that finishes remains readable in the open view and
-can be reopened from `/agents` while retained by the current session.
+can be reopened from `/tasks` while retained by the current session.
 
 Messages submitted with Enter while an `Agent` call waits for a child release
 that wait so the parent can respond while children continue. Results arrive in
