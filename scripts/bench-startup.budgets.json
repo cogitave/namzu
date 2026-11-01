@@ -1,0 +1,20 @@
+{
+  "about": "Budgets for `node scripts/bench-startup.mjs --check`. A metric's limit is reference x ciScale x headroom, for wall time and for CPU time. Lower a reference when a change makes something faster; raise one only with the reason in the commit that raises it. CPU time has a 10 ms clock tick, so a limit below minLimitMs is raised to it.",
+  "ciScale": 2,
+  "headroom": 1.25,
+  "minLimitMs": 100,
+  "calibration": {
+    "date": "2026-11-01",
+    "machine": "WSL2 x86_64, taskset to 2 cores, node v24.19.0, built output of main at 5f29783af",
+    "method": "node scripts/bench-startup.mjs --check, three full runs; each reference is the largest of the three medians (median of 5 samples per run), rounded up",
+    "resumedSession": "400 turns of one question and three 1.5 KB answers, 2,400 log records, 3.3 MB"
+  },
+  "metrics": {
+    "version": { "wallMs": 40, "cpuMs": 30 },
+    "help": { "wallMs": 40, "cpuMs": 30 },
+    "exec-request-stdin-pipe": { "wallMs": 610, "cpuMs": 410 },
+    "exec-request-stdin-null": { "wallMs": 490, "cpuMs": 400 },
+    "tui-ready": { "wallMs": 670, "cpuMs": 760 },
+    "resume-request": { "wallMs": 3430, "cpuMs": 3830 }
+  }
+}

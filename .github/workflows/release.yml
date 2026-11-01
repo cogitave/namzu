@@ -206,6 +206,10 @@ jobs:
         if: steps.revalidation.outputs.skip != 'true'
         run: node --import tsx --test scripts/__tests__/generate-zen-models.test.ts
 
+      - name: Startup and resume budget gate
+        if: steps.revalidation.outputs.skip != 'true'
+        run: node --import tsx --test scripts/__tests__/bench-startup-budgets.test.ts && node scripts/bench-startup.mjs --check
+
       - name: Installer parses as POSIX sh
         if: steps.revalidation.outputs.skip != 'true'
         run: sh -n install.sh && dash -n install.sh
