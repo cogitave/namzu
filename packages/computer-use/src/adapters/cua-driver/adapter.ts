@@ -9,10 +9,12 @@ import type {
 	DisplayInfo,
 	FocusWindowResult,
 	ScreenshotResult,
+	UiActFailureCode,
 	UiActResult,
 	UiElement,
 	UiElementAction,
 	UiSnapshot,
+	UiSnapshotOptions,
 	WindowInfo,
 	WindowInputAction,
 	WindowInputResult,
@@ -31,7 +33,14 @@ import {
 	type McpToolResult,
 } from './client.js'
 import { translateKeyForCuaDriver } from './keys.js'
-import { type ParsedUiTree, type UiRefFacts, toUiTree } from './ui-tree.js'
+import {
+	type ParsedUiTree,
+	type UiEvidence,
+	type UiNode,
+	type UiRefFacts,
+	locate,
+	toUiTree,
+} from './ui-tree.js'
 
 /**
  * The Windows desktop through cua-driver (github.com/trycua/cua, MIT): one
@@ -72,6 +81,8 @@ export interface CuaDriverAdapterOptions {
 	 * restore. Absent, such an action is reported as not delivered.
 	 */
 	readonly foreground?: ForegroundLadder
+	/** For tests: the clock the freshness of a read is judged by. */
+	readonly now?: () => number
 	/** For tests. */
 	readonly spawnProcess?: McpStdioClientOptions['spawnProcess']
 	readonly requestTimeoutMs?: number
@@ -82,8 +93,32 @@ const CAPTURE_TIMEOUT_MS = 30_000
 const LIST_TIMEOUT_MS = 20_000
 /** A browser window's tree takes 2–3 s; a huge one is cut by `UI_MAX_ELEMENTS` first. */
 const UI_TREE_TIMEOUT_MS = 30_000
-/** The most controls one snapshot walks. The SDK shows the model at most ~14 000 characters of it. */
-const UI_MAX_ELEMENTS = 1_500
+/** The most nodes one read walks. The model is shown an outline of a large one, never all of it. */
+const UI_MAX_ELEMENTS = 5_000
+/**
+ * The driver cuts a walk at its cap without saying so (the answer carries no
+ * flag), so a walk this close to the cap is treated as cut.
+ */
+const UI_WALK_CUT_AT = Math.floor(UI_MAX_ELEMENTS * 0.95)
+/** A window with more shown controls than this is returned as an outline. */
+const OUTLINE_THRESHOLD = 220
+/** The most controls an outline shows; the rest are counted, not listed. */
+const OUTLINE_BUDGET = 150
+/** The most children of one element an outline lists; a long list is opened as a region. */
+const OUTLINE_PER_PARENT = 12
+/** The children of a region opened by itself that one page lists. */
+const OUTLINE_PAGE = 60
+/** A browser tree this small is the window frame alone: the page has not been built yet. */
+const SPARSE_TREE = 12
+const BROWSER_APP = /chrome|msedge|edge|brave|vivaldi|opera|firefox|chromium/i
+/**
+ * A ref read longer ago than this is checked against a new read before it
+ * is acted on. Within it, the driver's own handle check (it refuses a handle
+ * a newer read of the window replaced) guards the write.
+ */
+const IDENTITY_FRESH_MS = 3_000
+/** Refs the adapter keeps; the model is shown far fewer. */
+const MAX_REFS = 4_000
 /** cua-driver refuses more than 50 ticks in one scroll call. */
 const MAX_SCROLL_TICKS = 50
 /** A drag glides through intermediate moves; many targets ignore one that teleports. */
@@ -98,10 +133,13 @@ interface UiRefEntry extends UiRefFacts {
 	readonly token: string
 	readonly pid: number
 	readonly hwnd: number
-	/** Position among the window's refs that share role and name, in tree order. */
-	readonly ordinal: number
 	readonly generation: number
 	readonly processStarts: number
+	/** The adapter's number for the read of the window this handle came from. */
+	readonly readSeq: number
+	readonly readAt: number
+	/** A container the model can open with a root snapshot; it has no driver handle. */
+	readonly region: boolean
 }
 
 interface WindowCaptureFrame {
@@ -113,17 +151,139 @@ interface WindowCaptureFrame {
 	readonly generation: number
 }
 
-/** Replace process-local driver tokens before any UI tree leaves this adapter. */
-function withOpaqueRefs(element: UiElement, refFor: (token: string) => string): UiElement {
-	return Object.freeze({
-		...element,
-		ref: element.ref ? refFor(element.ref) : '',
-		...(element.children
-			? {
-					children: Object.freeze(element.children.map((child) => withOpaqueRefs(child, refFor))),
-				}
-			: {}),
+const pathKey = (path: readonly number[]): string => path.join('.')
+
+/** Evidence as words, for a message: `Button "Save"`. App text, so cut and without quotes or line breaks. */
+function describeEvidence(evidence: UiEvidence): string {
+	const name = evidence.name.replace(/["\r\n]+/g, ' ').trim()
+	const role = /^[A-Za-z][\w-]{0,39}$/.test(evidence.role) ? evidence.role : 'Element'
+	return name ? `${role} "${name.length > 60 ? `${name.slice(0, 59)}…` : name}"` : role
+}
+
+function refFailure(code: UiActFailureCode, detail: string): UiActResult {
+	return {
+		ok: false,
+		delivery: 'not_delivered',
+		retrySafety: 'safe',
+		code,
+		detail,
+	}
+}
+
+function factsOfNode(node: UiNode): UiRefFacts {
+	return {
+		role: node.role,
+		name: node.name,
+		...(node.automationId !== undefined ? { automationId: node.automationId } : {}),
+		selected: false,
+		actions: [],
+		path: node.path,
+	}
+}
+
+/** Whether the model would be shown this element: a nameless control nobody can act on is passed through. */
+function isSilent(element: UiElement): boolean {
+	return element.ref === '' && element.name.trim().length === 0 && element.value === undefined
+}
+
+function visibleCount(element: UiElement): number {
+	let count = isSilent(element) ? 0 : 1
+	for (const child of element.children ?? []) count += visibleCount(child)
+	return count
+}
+
+/**
+ * The top of a big tree: breadth first, shallow levels before deep ones, so
+ * the whole window's layout is shown before any one region's detail. What is
+ * left out is counted on the element that holds it, and that element is a
+ * region the model can open.
+ */
+function outlineOf(
+	root: UiElement,
+	basePath: readonly number[],
+	budget: number,
+	page?: { readonly offset: number },
+): { root: UiElement; regions: Set<string>; next: number | undefined } {
+	const keep = new Set<UiElement>([root])
+	const queue: UiElement[] = [root]
+	let used = isSilent(root) ? 0 : 1
+	let next: number | undefined
+	while (queue.length > 0) {
+		const element = queue.shift() as UiElement
+		const isRoot = element === root
+		// A region opened by itself lists a page of its own children; the page
+		// after it is asked for with the offset it reports.
+		const children = element.children ?? []
+		const first = isRoot && page ? Math.min(page.offset, children.length) : 0
+		const cap = isRoot && page ? OUTLINE_PAGE : OUTLINE_PER_PARENT
+		let listed = 0
+		for (let index = first; index < children.length; index++) {
+			const child = children[index] as UiElement
+			const cost = isSilent(child) ? 0 : 1
+			// One long list must not use the budget its siblings' regions need.
+			if (used + cost > budget || listed + cost > cap || keep.size > budget * 4) {
+				if (isRoot && page && next === undefined) next = index
+				continue
+			}
+			used += cost
+			listed += cost
+			keep.add(child)
+			queue.push(child)
+		}
+	}
+	const regions = new Set<string>()
+	const build = (element: UiElement, path: readonly number[]): UiElement => {
+		const children = element.children ?? []
+		const kept: UiElement[] = []
+		children.forEach((child, index) => {
+			if (!keep.has(child)) return
+			const built = build(child, [...path, index])
+			ORIGINAL_INDEX.set(built, index)
+			kept.push(built)
+		})
+		const hidden = children.length - kept.length
+		if (hidden > 0) regions.add(pathKey(path))
+		const { children: _children, ...rest } = element
+		return Object.freeze({
+			...rest,
+			...(kept.length > 0 ? { children: Object.freeze(kept) } : {}),
+			...(hidden > 0 ? { hiddenChildren: hidden } : {}),
+		}) as UiElement
+	}
+	return { root: build(root, basePath), regions, next }
+}
+
+/** The paths of the elements a view contains. */
+function collectShown(element: UiElement, path: readonly number[], into: Set<string>): void {
+	into.add(pathKey(path))
+	const children = element.children ?? []
+	// A pruned view lists the kept children in order, but their indexes in the
+	// full tree are not 0..n; the view carries them by identity (see withRefs).
+	children.forEach((child, index) => {
+		collectShown(child, [...path, pathIndex(element, child, index)], into)
 	})
+}
+
+const ORIGINAL_INDEX = new WeakMap<UiElement, number>()
+function pathIndex(_parent: UiElement, child: UiElement, fallback: number): number {
+	return ORIGINAL_INDEX.get(child) ?? fallback
+}
+
+/** The elements of a view with the adapter's refs in place of driver handles. */
+function withRefs(
+	element: UiElement,
+	path: readonly number[],
+	refAt: (path: readonly number[]) => string,
+): UiElement {
+	const children = (element.children ?? []).map((child, index) =>
+		withRefs(child, [...path, pathIndex(element, child, index)], refAt),
+	)
+	const { children: _children, ...rest } = element
+	return Object.freeze({
+		...rest,
+		ref: refAt(path),
+		...(children.length > 0 ? { children: Object.freeze(children) } : {}),
+	}) as UiElement
 }
 
 export class CuaDriverAdapter implements Adapter {
@@ -139,10 +299,14 @@ export class CuaDriverAdapter implements Adapter {
 	private windowFrame: WindowCaptureFrame | undefined
 	/** Capture and scoped input must not race over cua-driver's per-PID resize ratio. */
 	private windowOperation: Promise<void> = Promise.resolve()
-	/** Only refs from the latest snapshot may address driver tokens. */
+	/** Refs the model holds, by the adapter's ref. A handle is usable only in its window's latest read; otherwise the ref is found again. */
 	private uiRefs = new Map<string, UiRefEntry>()
+	/** Per window: the latest read of its tree, which is the only one its driver handles belong to. */
+	private readonly windowReads = new Map<number, { seq: number; at: number }>()
 	private readonly uiRefNamespace = randomUUID()
-	private nextSnapshot = 0
+	private nextRead = 0
+	private nextRef = 0
+	private readonly now: () => number
 	/** A successful revival invalidates refusals from the previous lifecycle episode. */
 	private sessionGeneration = 0
 	/** Share one revival among calls refused by the same expired implicit session. */
@@ -151,6 +315,7 @@ export class CuaDriverAdapter implements Adapter {
 	constructor(options: CuaDriverAdapterOptions) {
 		this.backend = `cua-driver${options.version ? ` ${options.version}` : ''}`
 		this.foreground = options.foreground
+		this.now = options.now ?? Date.now
 		this.client = new McpStdioClient({
 			command: options.executable,
 			args: ['mcp'],
@@ -263,14 +428,26 @@ export class CuaDriverAdapter implements Adapter {
 			}
 			case 'type_text':
 				if (action.text.length === 0) return { type: 'ok' }
-				return this.keyboard('type_text', { scope: 'desktop', text: action.text })
+				return this.keyboard('type_text', {
+					scope: 'desktop',
+					text: action.text,
+				})
 			case 'key': {
 				const plan = translateKeyForCuaDriver(action.keys)
 				if (plan.tool === 'type_text')
-					return this.keyboard('type_text', { scope: 'desktop', text: plan.text })
+					return this.keyboard('type_text', {
+						scope: 'desktop',
+						text: plan.text,
+					})
 				if (plan.tool === 'press_key')
-					return this.keyboard('press_key', { scope: 'desktop', key: plan.key })
-				return this.keyboard('hotkey', { scope: 'desktop', keys: [...plan.keys] })
+					return this.keyboard('press_key', {
+						scope: 'desktop',
+						key: plan.key,
+					})
+				return this.keyboard('hotkey', {
+					scope: 'desktop',
+					keys: [...plan.keys],
+				})
 			}
 		}
 	}
@@ -585,29 +762,97 @@ export class CuaDriverAdapter implements Adapter {
 	/**
 	 * One window's controls. Without an id, the window in front — which,
 	 * for an agent run from a terminal, is usually that terminal.
+	 *
+	 * A window with many controls comes back as an outline: the top levels,
+	 * with each unexpanded region marked by how many children it hides and
+	 * given a ref. `options.root` opens one such region; refs outside it stay
+	 * valid. `options.query` keeps only the controls whose text matches.
 	 */
-	async uiSnapshot(windowId?: string): Promise<UiSnapshot> {
+	async uiSnapshot(requested?: string, options: UiSnapshotOptions = {}): Promise<UiSnapshot> {
+		let windowId = requested
+		let rootEntry: UiRefEntry | undefined
+		if (options.root !== undefined) {
+			rootEntry = this.uiRefs.get(options.root)
+			if (!rootEntry)
+				throw new Error(
+					`STALE_REF: ${options.root} is not a region or control this session was shown. Take a ui_snapshot of the window and use a ref from it.`,
+				)
+			const own = windowIdOf(rootEntry.hwnd)
+			if (windowId !== undefined && parseWindowId(windowId) !== rootEntry.hwnd)
+				throw new Error(
+					`${options.root} belongs to window ${own}, not ${windowId}. Pass the window it came from, or leave window_id out.`,
+				)
+			windowId = own
+		}
 		const target = await this.resolveWindow(windowId)
-		const read = await this.readWindowTree(target)
+		if (rootEntry && rootEntry.pid !== target.pid)
+			throw new Error(
+				`STALE_REF: window ${windowIdOf(target.hwnd)} now belongs to a different program than ${options.root} was read from. Take a new ui_snapshot.`,
+			)
+		const query = options.query?.trim() ? options.query.trim() : undefined
+		let read = await this.readWindowTree(target, { query })
+		const state0 = read.state
+		const app0 = typeof state0.app_name === 'string' ? state0.app_name : ''
+		// A browser builds its page tree when it is first asked: the first walk can
+		// show only the window frame. One more walk shows the page.
+		if (!query && !rootEntry && BROWSER_APP.test(app0) && read.tree.count < SPARSE_TREE)
+			read = await this.readWindowTree(target, { query })
 		const { state, tree } = read
-		this.uiRefs = this.entriesFor(tree, target, read)
+
+		let located: UiNode | undefined
+		if (rootEntry) {
+			const found = locate(rootEntry, tree, { actionable: !rootEntry.region })
+			if (found.kind === 'ambiguous')
+				throw new Error(
+					`AMBIGUOUS_TARGET: ${found.count} controls fit ${options.root} (${describeEvidence(rootEntry)}). Take a ui_snapshot of the whole window and pick the region from it.`,
+				)
+			if (found.kind === 'gone')
+				throw new Error(
+					`STALE_REF: ${options.root} (${describeEvidence(rootEntry)}) is no longer in the window. Take a ui_snapshot of the whole window.`,
+				)
+			located = found.node
+		}
+		const viewRoot = located?.element ?? tree.root
+		const basePath = located?.path ?? []
+		const view =
+			!query && visibleCount(viewRoot) > OUTLINE_THRESHOLD
+				? outlineOf(
+						viewRoot,
+						basePath,
+						OUTLINE_BUDGET,
+						located ? { offset: options.offset ?? 0 } : undefined,
+					)
+				: { root: viewRoot, regions: new Set<string>(), next: undefined }
+		const shownKeys = new Set<string>()
+		collectShown(view.root, basePath, shownKeys)
+		const refs = this.bindRead(target, read, {
+			shown: shownKeys,
+			regions: view.regions,
+		})
+		const refAt = (path: readonly number[]): string => refs.get(pathKey(path)) ?? ''
+		const root = withRefs(view.root, basePath, refAt)
+
 		const title = typeof state.window_title === 'string' ? state.window_title : undefined
 		const app =
 			typeof state.app_name === 'string' ? state.app_name.replace(/\.exe$/i, '') : undefined
-		const byToken = new Map<string, string>()
-		for (const [ref, entry] of this.uiRefs) byToken.set(entry.token, ref)
-		const root = withOpaqueRefs(tree.root, (token) => byToken.get(token) ?? '')
 		return {
 			windowId: windowIdOf(target.hwnd),
 			...(title !== undefined ? { title } : {}),
 			...(app !== undefined ? { app } : {}),
 			root,
-			...(state.truncated === true ? { truncated: true } : {}),
+			...(state.truncated === true || tree.count >= UI_WALK_CUT_AT ? { truncated: true } : {}),
+			...(view.regions.size > 0 ? { outline: true } : {}),
+			total: tree.count,
+			...(rootEntry ? { region: true } : {}),
+			...(view.next !== undefined ? { next: view.next } : {}),
 		}
 	}
 
 	/** One `get_window_state` walk, with the process and session it was read from. */
-	private async readWindowTree(target: { hwnd: number; pid: number }): Promise<{
+	private async readWindowTree(
+		target: { hwnd: number; pid: number },
+		options: { query?: string | undefined } = {},
+	): Promise<{
 		state: Record<string, unknown>
 		tree: ParsedUiTree
 		processStarts: number
@@ -623,6 +868,7 @@ export class CuaDriverAdapter implements Adapter {
 					window_id: target.hwnd,
 					include_screenshot: false,
 					max_elements: UI_MAX_ELEMENTS,
+					...(options.query ? { query: options.query } : {}),
 				},
 				UI_TREE_TIMEOUT_MS,
 				undefined,
@@ -635,91 +881,170 @@ export class CuaDriverAdapter implements Adapter {
 		)
 		if (generation !== this.sessionGeneration || processStarts === 0)
 			throw new McpToolError('get_window_state', 'stale UI snapshot; take a new one')
+		if (typeof state.pid === 'number' && state.pid !== target.pid)
+			throw new McpToolError('get_window_state', 'window changed owner; take a new UI snapshot')
 		return { state, tree: toUiTree(state), processStarts, generation }
 	}
 
-	/** Opaque refs for a tree's controls, each carrying the evidence that finds it again. */
-	private entriesFor(
-		tree: ParsedUiTree,
+	/**
+	 * Record a read of a window: every ref the model already holds for it is
+	 * pointed at the control it named in this read (found by its evidence),
+	 * and the controls the model is being shown, and the regions it can open,
+	 * get refs. A ref whose control is not found keeps its old, now dead,
+	 * read, so using it re-resolves and reports why. Returns ref by path.
+	 */
+	private bindRead(
 		target: { hwnd: number; pid: number },
-		read: { processStarts: number; generation: number },
-	): Map<string, UiRefEntry> {
-		const snapshot = ++this.nextSnapshot
-		const refs = new Map<string, UiRefEntry>()
-		const seen = new Map<string, number>()
-		let counter = 0
-		for (const [token, facts] of tree.refs) {
-			const key = `${facts.role}\u0000${facts.name}`
-			const ordinal = seen.get(key) ?? 0
-			seen.set(key, ordinal + 1)
-			const ref = `cua-ui:${this.uiRefNamespace}:${snapshot}:${++counter}`
-			refs.set(ref, {
-				...facts,
-				token,
+		read: { tree: ParsedUiTree; processStarts: number; generation: number },
+		scope: { shown: ReadonlySet<string>; regions: ReadonlySet<string> },
+	): Map<string, string> {
+		const seq = ++this.nextRead
+		const at = this.now()
+		this.windowReads.set(target.hwnd, { seq, at })
+		const byPath = new Map<string, string>()
+		const claimed = new Set<string>()
+		const bound = (node: UiNode, entry: UiRefEntry, ref: string): void => {
+			const key = pathKey(node.path)
+			claimed.add(key)
+			byPath.set(key, ref)
+			this.uiRefs.set(ref, {
+				...(node.facts ?? factsOfNode(node)),
+				token: node.token,
 				pid: target.pid,
 				hwnd: target.hwnd,
-				ordinal,
+				region: entry.region,
 				generation: read.generation,
 				processStarts: read.processStarts,
+				readSeq: seq,
+				readAt: at,
 			})
 		}
-		return refs
-	}
-
-	/**
-	 * The control a ref named, found again in a newer read of its window: by
-	 * automation id when it has one and that id is unique, else by role, name
-	 * and position among controls that share both.
-	 */
-	private findAgain(old: UiRefEntry, tree: ParsedUiTree): [string, UiRefFacts] | undefined {
-		if (old.automationId !== undefined) {
-			const same = [...tree.refs].filter(([, f]) => f.automationId === old.automationId)
-			if (same.length === 1 && same[0]) return same[0]
+		for (const [ref, entry] of [...this.uiRefs]) {
+			if (entry.hwnd !== target.hwnd) continue
+			const found = locate(entry, read.tree, { actionable: !entry.region })
+			if (found.kind !== 'found' || claimed.has(pathKey(found.node.path))) continue
+			bound(found.node, entry, ref)
 		}
-		const alike = [...tree.refs].filter(([, f]) => f.role === old.role && f.name === old.name)
-		return alike[old.ordinal]
+		for (const node of read.tree.nodes) {
+			const key = pathKey(node.path)
+			if (claimed.has(key)) continue
+			const region = scope.regions.has(key)
+			const actionable = node.token !== '' && scope.shown.has(key)
+			if (!region && !actionable) continue
+			const ref = `cua-ui:${this.uiRefNamespace}:${++this.nextRef}`
+			const entry = { region: !actionable } as UiRefEntry
+			bound(node, entry, ref)
+		}
+		this.trimRefs()
+		return byPath
+	}
+
+	/** The model holds only so many refs; the oldest reads go first. */
+	private trimRefs(): void {
+		if (this.uiRefs.size <= MAX_REFS) return
+		const oldest = [...this.uiRefs].sort((a, b) => a[1].readSeq - b[1].readSeq)
+		for (const [ref] of oldest.slice(0, this.uiRefs.size - MAX_REFS)) this.uiRefs.delete(ref)
 	}
 
 	/**
-	 * After a read-back the window's old driver tokens are dead. Give every
-	 * ref the model holds for that window the token of the control it named,
-	 * and drop the refs whose control is gone.
+	 * The ref's control as it is now: the entry itself when it was read
+	 * recently in the window's latest read, else found again in a fresh read
+	 * by its evidence (id, then place, then role and name). Never a guess:
+	 * several fits is AMBIGUOUS_TARGET, none is STALE_REF, and nothing has been
+	 * sent in either case.
 	 */
-	private rebindRefs(
-		target: { hwnd: number; pid: number },
-		tree: ParsedUiTree,
-		read: { processStarts: number; generation: number },
-	): void {
-		const next = new Map<string, UiRefEntry>()
-		for (const [ref, entry] of this.uiRefs) {
-			if (entry.hwnd !== target.hwnd) {
-				next.set(ref, entry)
-				continue
+	private async resolveRef(
+		ref: string,
+		entry: UiRefEntry,
+	): Promise<{ entry: UiRefEntry } | { fail: UiActResult }> {
+		const latest = this.windowReads.get(entry.hwnd)
+		if (
+			latest &&
+			entry.readSeq === latest.seq &&
+			entry.generation === this.sessionGeneration &&
+			this.now() - entry.readAt <= IDENTITY_FRESH_MS
+		)
+			return { entry }
+		const target = { hwnd: entry.hwnd, pid: entry.pid }
+		let read: Awaited<ReturnType<CuaDriverAdapter['readWindowTree']>>
+		try {
+			read = await this.readWindowTree(target, {})
+		} catch (error) {
+			const gone = await this.windowIsGone(entry)
+			if (gone)
+				return {
+					fail: refFailure(
+						'STALE_REF',
+						`the window of ${describeEvidence(entry)} is closed. Nothing was sent. List the windows again.`,
+					),
+				}
+			return {
+				fail: {
+					ok: false,
+					delivery: 'not_delivered',
+					retrySafety: 'safe',
+					detail: `the window could not be read to confirm ${describeEvidence(entry)} is still there, so nothing was sent${error instanceof Error ? ` (${trimText(error.message, 160)})` : ''}. Try again.`,
+				},
 			}
-			const found = this.findAgain(entry, tree)
-			if (!found) continue
-			next.set(ref, {
-				...found[1],
-				token: found[0],
-				pid: target.pid,
-				hwnd: target.hwnd,
-				ordinal: entry.ordinal,
-				generation: read.generation,
-				processStarts: read.processStarts,
-			})
 		}
-		this.uiRefs = next
+		const found = locate(entry, read.tree, { actionable: true })
+		this.bindRead(target, read, { shown: new Set(), regions: new Set() })
+		const next = this.uiRefs.get(ref)
+		if (found.kind === 'found' && next && next.readSeq === this.windowReads.get(entry.hwnd)?.seq)
+			return { entry: next }
+		if (found.kind === 'ambiguous' || found.kind === 'found')
+			return {
+				fail: refFailure(
+					'AMBIGUOUS_TARGET',
+					`${found.kind === 'ambiguous' ? found.count : 'several'} controls fit ${describeEvidence(entry)}, so nothing was sent. Take a ui_snapshot and use the ref of the one you mean.`,
+				),
+			}
+		return {
+			fail: refFailure(
+				'STALE_REF',
+				`${describeEvidence(entry)} is no longer in the window, or can no longer be acted on. Nothing was sent. Take a ui_snapshot and choose from what it shows.`,
+			),
+		}
+	}
+
+	/** Whether the ref's window has closed (or changed owner). Costs a window list, so only asked after a failure. */
+	private async windowIsGone(entry: UiRefEntry): Promise<boolean> {
+		try {
+			const windows = await this.listWindows()
+			const id = windowIdOf(entry.hwnd)
+			const found = windows.find((window) => window.id === id)
+			return !found || found.pid !== entry.pid
+		} catch {
+			return false
+		}
 	}
 
 	async uiAct(ref: string, action: UiElementAction, value?: string): Promise<UiActResult> {
-		const facts = this.uiRefs.get(ref)
-		if (!facts)
+		return this.actOn(ref, action, value, true)
+	}
+
+	private async actOn(
+		ref: string,
+		action: UiElementAction,
+		value: string | undefined,
+		retry: boolean,
+	): Promise<UiActResult> {
+		const held = this.uiRefs.get(ref)
+		if (!held)
+			return refFailure(
+				'STALE_REF',
+				`${ref} is not a control this session was shown, so nothing was sent. Take a ui_snapshot and use a ref from it.`,
+			)
+		if (held.region)
 			return {
 				ok: false,
-				detail: `${ref} is not a control of the latest UI snapshot; take a new one.`,
 				delivery: 'not_delivered',
 				retrySafety: 'safe',
+				detail: `${ref} is a region of the window (${describeEvidence(held)}), not a control, so nothing was sent. Read it with ui_snapshot {root: ${ref}} and act on a control inside it.`,
 			}
+		const resolved = await this.resolveRef(ref, held)
+		if ('fail' in resolved) return resolved.fail
+		const facts = resolved.entry
 		const { pid, token } = facts
 		const uiRef = { ref, facts }
 		try {
@@ -779,6 +1104,16 @@ export class CuaDriverAdapter implements Adapter {
 					}
 			}
 		} catch (error) {
+			if (error instanceof McpToolError && isStaleHandle(error)) {
+				// The driver refused before acting: a newer read of the window replaced
+				// the handle. Read again and find the control by what it is, once.
+				this.windowReads.delete(facts.hwnd)
+				if (retry) return this.actOn(ref, action, value, false)
+				return refFailure(
+					'STALE_REF',
+					`${describeEvidence(facts)} changed while it was being acted on. Nothing was sent. Take a ui_snapshot and try again.`,
+				)
+			}
 			if (error instanceof McpToolError) return failureResult(error)
 			throw error
 		}
@@ -864,10 +1199,10 @@ export class CuaDriverAdapter implements Adapter {
 	private async readBack(facts: UiRefEntry): Promise<UiRefFacts | undefined> {
 		try {
 			const target = { hwnd: facts.hwnd, pid: facts.pid }
-			const read = await this.readWindowTree(target)
-			const found = this.findAgain(facts, read.tree)
-			this.rebindRefs(target, read.tree, read)
-			return found?.[1]
+			const read = await this.readWindowTree(target, {})
+			const found = locate(facts, read.tree, { actionable: true })
+			this.bindRead(target, read, { shown: new Set(), regions: new Set() })
+			return found.kind === 'found' ? found.node.facts : undefined
 		} catch {
 			return undefined
 		}
@@ -915,14 +1250,17 @@ export class CuaDriverAdapter implements Adapter {
 		if (
 			uiRef &&
 			(this.uiRefs.get(uiRef.ref) !== uiRef.facts ||
-				uiRef.facts.generation !== this.sessionGeneration)
+				uiRef.facts.generation !== this.sessionGeneration ||
+				this.windowReads.get(uiRef.facts.hwnd)?.seq !== uiRef.facts.readSeq)
 		)
 			throw new McpToolError(name, 'stale UI snapshot; take a new one')
 		const generation = this.sessionGeneration
 		try {
 			return await this.client.callTool(name, args, timeoutMs, {
 				...(uiRef || windowFrame
-					? { expectedStarts: uiRef?.facts.processStarts ?? windowFrame?.processStarts }
+					? {
+							expectedStarts: uiRef?.facts.processStarts ?? windowFrame?.processStarts,
+						}
 					: {}),
 				...(onProcess ? { onProcess } : {}),
 			})
@@ -930,7 +1268,7 @@ export class CuaDriverAdapter implements Adapter {
 			if (!isEndedSessionRefusal(error)) throw error
 			// The refusal proves the old session's element tokens are invalid,
 			// even if start_session fails and there is no successful revival.
-			if (this.sessionGeneration === generation) this.uiRefs.clear()
+			if (this.sessionGeneration === generation) this.windowReads.clear()
 			this.windowFrame = undefined
 			await this.reviveSession(generation)
 			// Element tokens belong to the old snapshot. A new lifecycle session
@@ -950,7 +1288,7 @@ export class CuaDriverAdapter implements Adapter {
 			this.sessionRevival = (async () => {
 				await this.client.callTool('start_session')
 				await disableAgentCursor((name, args) => this.client.callTool(name, args))
-				this.uiRefs.clear()
+				this.windowReads.clear()
 				this.windowFrame = undefined
 				this.sessionGeneration++
 			})().finally(() => {
@@ -1180,6 +1518,14 @@ export function failureDelivery(error: McpToolError): WindowInputResult {
 	)
 }
 
+/** The driver refused a handle a newer read of its window replaced (nothing was sent). */
+function isStaleHandle(error: McpToolError): boolean {
+	if (/stale (window|screenshot)/i.test(error.message)) return false
+	return /stale_element_token|stale (UI|element)/i.test(
+		`${error.message} ${JSON.stringify(error.structuredContent ?? {})}`,
+	)
+}
+
 /** Refusals that a foreground delivery can cure. `uipi_blocked` is not one: it blocks foreground input too. */
 function foregroundCures(error: McpToolError): boolean {
 	const code = error.structuredContent?.code
@@ -1188,7 +1534,12 @@ function foregroundCures(error: McpToolError): boolean {
 
 function failureResult(error: McpToolError): UiActResult {
 	const { delivery, retrySafety, detail } = failureDelivery(error)
-	return { ok: false, delivery, retrySafety, ...(detail !== undefined ? { detail } : {}) }
+	return {
+		ok: false,
+		delivery,
+		retrySafety,
+		...(detail !== undefined ? { detail } : {}),
+	}
 }
 
 /**
@@ -1236,14 +1587,20 @@ export function judgeSetValue(
 			ok: true,
 			delivery: 'delivered_verified',
 			retrySafety: 'safe',
-			readBack: { expected: trimText(expected), observed: trimText(after.value) },
+			readBack: {
+				expected: trimText(expected),
+				observed: trimText(after.value),
+			},
 		}
 	if (before.value !== undefined && same(before.value, after.value))
 		return {
 			ok: false,
 			delivery: 'not_delivered',
 			retrySafety: 'safe',
-			readBack: { expected: trimText(expected), observed: trimText(after.value) },
+			readBack: {
+				expected: trimText(expected),
+				observed: trimText(after.value),
+			},
 			detail: `the driver reported success, but the control still holds ${JSON.stringify(trimText(after.value))}, not the value sent. Nothing changed. This control may need real focus: choose the option with the keyboard or the pointer in the foreground, or use the browser tool for a web page.`,
 		}
 	return {
@@ -1270,7 +1627,10 @@ export function judgeToggle(before: UiRefFacts, after: UiRefFacts | undefined): 
 			ok: true,
 			delivery: 'delivered_verified',
 			retrySafety: 'unsafe',
-			readBack: { expected: String(!before.selected), observed: String(after.selected) },
+			readBack: {
+				expected: String(!before.selected),
+				observed: String(after.selected),
+			},
 		}
 	return {
 		ok: true,

@@ -10,6 +10,7 @@ import type {
 	UiActResult,
 	UiElementAction,
 	UiSnapshot,
+	UiSnapshotOptions,
 	WindowInfo,
 	WindowInputAction,
 	WindowInputResult,
@@ -243,10 +244,10 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 	 *
 	 * @experimental Follows the SDK's UI-tree surface.
 	 */
-	async uiSnapshot(windowId?: string): Promise<UiSnapshot> {
+	async uiSnapshot(windowId?: string, options?: UiSnapshotOptions): Promise<UiSnapshot> {
 		const adapter = this.requireAdapter()
 		if (!adapter.uiSnapshot) throw unsupported('uiSnapshot', this._capabilities.displayServer)
-		return adapter.uiSnapshot(windowId)
+		return adapter.uiSnapshot(windowId, options)
 	}
 
 	/**

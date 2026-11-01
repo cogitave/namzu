@@ -599,6 +599,16 @@ describe('buildPermissionSummary — desktop actions', () => {
 		expect(summarize({ type: 'ui_snapshot' }).text).toContain(
 			'Read the controls of the window in front',
 		)
+		expect(
+			summarize({ type: 'ui_snapshot', window_id: '0x1', root: 'e4', offset: 60 }),
+		).toMatchObject({
+			complete: true,
+		})
+		expect(summarize({ type: 'ui_snapshot', root: 'e4' }).text).toContain(
+			'Read one region of a window',
+		)
+		expect(summarize({ type: 'ui_snapshot', query: 'Save' }).complete).toBe(true)
+		expect(summarize({ type: 'ui_snapshot', offset: 'x' }).complete).toBe(false)
 		expect(summarize({ type: 'ui_act', ref: 'e1', action: 'teleport' }).complete).toBe(false)
 	})
 

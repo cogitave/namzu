@@ -240,9 +240,13 @@ export type UiElementAction =
  */
 export interface UiElement {
 	/**
-	 * Opaque reference for {@link ComputerUseHost.uiAct}, valid until the
-	 * host's next snapshot. Empty for an element the host cannot act on (a
-	 * label, a group), which is in the tree for what it says.
+	 * Opaque reference for {@link ComputerUseHost.uiAct}. It names the control,
+	 * not one reading of it: a host that can find the control again keeps the
+	 * ref usable across snapshots, and fails with a {@link UiActFailureCode}
+	 * when it cannot. Empty for an element the host cannot act on (a label, a
+	 * group), which is in the tree for what it says. A host may also give a
+	 * ref to a region it left unexpanded (see {@link UiElement.hiddenChildren});
+	 * that ref is the `root` of a drill-down snapshot, not a target for `uiAct`.
 	 */
 	readonly ref: string
 	/** Platform role, e.g. `Button`, `Edit`, `ListItem` (UIA ControlType) or `AXButton`. */
@@ -257,6 +261,12 @@ export interface UiElement {
 	readonly states?: readonly string[]
 	readonly actions?: readonly UiElementAction[]
 	readonly children?: readonly UiElement[]
+	/**
+	 * How many children of this element the host left out of the snapshot to
+	 * keep it short. Read them with a snapshot whose {@link UiSnapshotOptions.root}
+	 * is this element's ref.
+	 */
+	readonly hiddenChildren?: number
 }
 
 /**
@@ -273,7 +283,40 @@ export interface UiSnapshot {
 	readonly root: UiElement
 	/** True when the host stopped walking the tree before it ended (a size or time bound). */
 	readonly truncated?: boolean
+	/**
+	 * True when the tree is an outline of a larger one: regions carry
+	 * {@link UiElement.hiddenChildren} and can be opened with
+	 * {@link UiSnapshotOptions.root}.
+	 */
+	readonly outline?: boolean
+	/** How many controls the whole window holds, when the host knows. */
+	readonly total?: number
+	/** True when this snapshot is one region of the window (it was asked for with `root`). */
+	readonly region?: boolean
+	/** For a region listed in pages: the `offset` that reads the page after this one. */
+	readonly next?: number
 }
+
+/**
+ * What a snapshot is asked to read.
+ *
+ * @experimental See {@link ComputerUseCapabilities.uiTree}.
+ */
+export interface UiSnapshotOptions {
+	/** A ref from an earlier snapshot: read only that element's subtree. Refs outside it stay valid. */
+	readonly root?: string
+	/** With `root`: skip this many of the region's children (the page a snapshot reported as `next`). */
+	readonly offset?: number
+	/** Only controls whose text contains this (case-insensitive), with the elements above them. */
+	readonly query?: string
+}
+
+/** Why a ref could not be acted on, as a typed failure. */
+export type UiActFailureCode =
+	/** The control the ref named is gone, or no longer something that can be acted on. */
+	| 'STALE_REF'
+	/** Several controls fit what the ref named; the host did not guess. */
+	| 'AMBIGUOUS_TARGET'
 
 /**
  * What {@link ComputerUseHost.uiAct} did.
@@ -284,12 +327,17 @@ export interface UiActResult {
 	readonly ok: boolean
 	/** Why it did not, in words the model can act on (a stale ref, a disabled element). */
 	readonly detail?: string
+	/** Set when the ref could not be resolved to one control; nothing was sent. */
+	readonly code?: UiActFailureCode
 	/** What is known about the effect. Absent from a host that does not classify. */
 	readonly delivery?: ActionDelivery
 	/** Whether repeating the action blindly is safe. Set together with `delivery`. */
 	readonly retrySafety?: ActionRetrySafety
 	/** The state read back after a stateful action, when the host could read it. */
-	readonly readBack?: { readonly expected?: string; readonly observed?: string }
+	readonly readBack?: {
+		readonly expected?: string
+		readonly observed?: string
+	}
 }
 
 /**
@@ -338,7 +386,11 @@ export type ComputerUseAction =
 	| { readonly type: 'screenshot' }
 	| { readonly type: 'cursor_position' }
 	| { readonly type: 'mouse_move'; readonly to: Point }
-	| { readonly type: 'mouse_click'; readonly at: Point; readonly button: MouseButton }
+	| {
+			readonly type: 'mouse_click'
+			readonly at: Point
+			readonly button: MouseButton
+	  }
 	| {
 			readonly type: 'mouse_drag'
 			readonly from: Point
@@ -465,13 +517,14 @@ export interface ComputerUseHost {
 	captureRegion?(rect: Rect): Promise<ScreenshotResult>
 	/**
 	 * The accessibility tree of one window, or of the focused window when
-	 * `windowId` is omitted. Offered only with {@link ComputerUseCapabilities.uiTree}.
+	 * `windowId` is omitted. With `options.root` only that element's subtree is
+	 * read. Offered only with {@link ComputerUseCapabilities.uiTree}.
 	 *
 	 * @experimental
 	 */
-	uiSnapshot?(windowId?: string): Promise<UiSnapshot>
+	uiSnapshot?(windowId?: string, options?: UiSnapshotOptions): Promise<UiSnapshot>
 	/**
-	 * Act on an element from the latest {@link uiSnapshot}. `value` is the text
+	 * Act on an element from an earlier {@link uiSnapshot}. `value` is the text
 	 * for `set_value`. Offered only with {@link ComputerUseCapabilities.uiTree}.
 	 *
 	 * @experimental

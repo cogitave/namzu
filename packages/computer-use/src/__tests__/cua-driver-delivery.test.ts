@@ -23,7 +23,10 @@ import {
 } from './fake-mcp-process.js'
 
 /** A driver answer as the client hands it to the adapter. */
-const answer = (facts: Record<string, unknown>) => ({ content: [], structuredContent: facts })
+const answer = (facts: Record<string, unknown>) => ({
+	content: [],
+	structuredContent: facts,
+})
 
 interface Control {
 	index: number
@@ -36,7 +39,7 @@ interface Control {
 }
 
 /** A page whose controls the test can change between reads. */
-function page(initial: Control[]) {
+function page(initial: Control[], onAction?: (tool: string) => void) {
 	const controls = initial.map((control) => ({ ...control }))
 	const calls: ToolCall[] = []
 	let reads = 0
@@ -76,6 +79,7 @@ function page(initial: Control[]) {
 					})
 				}
 				default:
+					onAction?.(call.name)
 					return toolResult({ effect: 'unverifiable', route: 'accessibility' })
 			}
 		},
@@ -94,8 +98,19 @@ function page(initial: Control[]) {
 const FORM: Control[] = [
 	{ index: 0, role: 'Edit', label: 'Name', value: '', actions: ['set_value'] },
 	{ index: 1, role: 'CheckBox', label: 'Agree', actions: ['toggle'] },
-	{ index: 2, role: 'ComboBox', label: 'Colour', value: 'red', actions: ['set_value'] },
-	{ index: 3, role: 'ListItem', label: 'beta.txt', actions: ['select', 'invoke'] },
+	{
+		index: 2,
+		role: 'ComboBox',
+		label: 'Colour',
+		value: 'red',
+		actions: ['set_value'],
+	},
+	{
+		index: 3,
+		role: 'ListItem',
+		label: 'beta.txt',
+		actions: ['select', 'invoke'],
+	},
 ]
 
 function refOf(
@@ -170,11 +185,14 @@ describe('set_value read-back', () => {
 	})
 
 	it('is unverified, never not delivered, when the read-back itself fails', async () => {
-		const { adapter } = page(FORM)
+		const form = page(FORM, (tool) => {
+			if (tool !== 'set_value') return
+			// The next read of the window finds nothing: the control is gone.
+			form.controls.length = 0
+		})
+		const { adapter } = form
 		const snapshot = await adapter.uiSnapshot('0x64')
 		const ref = refOf(snapshot, 'Edit', 'Name')
-		// The next read of the window finds nothing: the control is gone.
-		;(adapter as unknown as { findAgain: () => undefined }).findAgain = () => undefined
 		await expect(adapter.uiAct(ref, 'set_value', 'Ada')).resolves.toMatchObject({
 			ok: true,
 			delivery: 'delivered_unverified',
@@ -234,7 +252,10 @@ describe('toggle and select read-back', () => {
 		const ref = refOf(snapshot, 'ListItem', 'beta.txt')
 		controls[3]!.selected = true
 		const result = await adapter.uiAct(ref, 'select')
-		expect(result).toMatchObject({ delivery: 'delivered_verified', retrySafety: 'unsafe' })
+		expect(result).toMatchObject({
+			delivery: 'delivered_verified',
+			retrySafety: 'unsafe',
+		})
 		expect(result.detail).toMatch(/opened the item/)
 		await adapter.dispose()
 	})
@@ -262,7 +283,10 @@ describe('driver answers', () => {
 				escalation: { reason: 'delivery_failed', target: 'foreground' },
 			}),
 		)
-		expect(result).toMatchObject({ delivery: 'delivered_unverified', retrySafety: 'unsafe' })
+		expect(result).toMatchObject({
+			delivery: 'delivered_unverified',
+			retrySafety: 'unsafe',
+		})
 		expect(result.detail).toMatch(/could not confirm/)
 		expect(result.detail).toMatch(/delivery_mode:"foreground"/)
 	})
@@ -281,7 +305,10 @@ describe('driver answers', () => {
 				code: 'background_unavailable',
 			}),
 		)
-		expect(unavailable).toMatchObject({ delivery: 'not_delivered', retrySafety: 'safe' })
+		expect(unavailable).toMatchObject({
+			delivery: 'not_delivered',
+			retrySafety: 'safe',
+		})
 		expect(unavailable.detail).toMatch(/delivery_mode:"foreground"/)
 		const blocked = failureDelivery(
 			new McpToolError('click', 'blocked', { code: 'background_uipi_blocked' }),
@@ -291,7 +318,10 @@ describe('driver answers', () => {
 			failureDelivery(
 				new McpToolError('invoke_menu', 'refused', {
 					status: 'refused',
-					refusal: { code: 'menu_path_unavailable', message: 'no such menu path' },
+					refusal: {
+						code: 'menu_path_unavailable',
+						message: 'no such menu path',
+					},
 				}),
 			),
 		).toMatchObject({ delivery: 'not_delivered', detail: 'no such menu path' })
@@ -305,7 +335,14 @@ describe('driver answers', () => {
 	})
 
 	it('judges are pure over the facts they are given', () => {
-		const field = { role: 'Edit', name: 'n', value: 'a', selected: false, actions: [] as never[] }
+		const field = {
+			role: 'Edit',
+			name: 'n',
+			value: 'a',
+			selected: false,
+			actions: [] as never[],
+			path: [] as number[],
+		}
 		expect(judgeSetValue(field, 'b', { ...field, value: 'b' }).delivery).toBe('delivered_verified')
 		expect(judgeToggle(field, { ...field, selected: true }).delivery).toBe('delivered_verified')
 		expect(judgeSelect(field, { ...field, selected: true }).delivery).toBe('delivered_verified')

@@ -146,6 +146,32 @@ function refFor(snapshot: UiSnapshot, name: string, action?: UiElementAction): s
 	throw new Error(`no actionable control named ${name}`)
 }
 
+describe('cua-driver UI trees nesting', () => {
+	it('does not put rows under a control that holds nothing when the driver skipped a level', () => {
+		const tree = toUiTree({
+			elements: [
+				{ element_index: 0, element_token: 't0', role: 'Button', label: 'Go', actions: ['invoke'] },
+				{
+					element_index: 1,
+					element_token: 't1',
+					role: 'Button',
+					label: 'Buy',
+					actions: ['invoke'],
+				},
+			],
+			tree_markdown: [
+				'- Window "W"',
+				'  - [0] Button "Go" [actions=[invoke]]',
+				'      - ListItem "Row"',
+				'        - [1] Button "Buy" [actions=[invoke]]',
+			].join('\n'),
+		})
+		const go = tree.root.children?.find((c) => c.name === 'Go')
+		expect(go?.children).toBeUndefined()
+		expect(tree.root.children?.some((c) => c.name === 'Row')).toBe(true)
+	})
+})
+
 describe('cua-driver UI trees', () => {
 	it('keeps every node of the walk, with refs only on controls this host can drive', () => {
 		const tree = toUiTree(CALCULATOR_STATE)
@@ -297,7 +323,7 @@ describe('the cua-driver adapter’s UI tree', () => {
 			pid: 11432,
 			window_id: 2494982,
 			include_screenshot: false,
-			max_elements: 1500,
+			max_elements: 5000,
 		})
 		await adapter.dispose()
 	})
@@ -325,7 +351,9 @@ describe('the cua-driver adapter’s UI tree', () => {
 			delivery: 'delivered_unverified',
 			retrySafety: 'unsafe',
 		})
-		await expect(adapter.uiAct(system, 'expand')).resolves.toMatchObject({ ok: true })
+		await expect(adapter.uiAct(system, 'expand')).resolves.toMatchObject({
+			ok: true,
+		})
 		expect(calls().slice(-2)).toEqual([
 			{
 				name: 'click',
@@ -339,18 +367,30 @@ describe('the cua-driver adapter’s UI tree', () => {
 		await adapter.dispose()
 	})
 
-	it('refuses a ref from anything but the latest snapshot without calling the driver', async () => {
+	it('keeps a ref across a newer snapshot and clicks with the newest handle', async () => {
 		const { adapter, calls } = driver({})
 		const first = await adapter.uiSnapshot('0x261206')
-		const oldRef = refFor(first, 'Beş', 'invoke')
+		const ref = refFor(first, 'Beş', 'invoke')
 		const second = await adapter.uiSnapshot('0x261206')
-		expect(refFor(second, 'Beş', 'invoke')).not.toBe(oldRef)
+		expect(refFor(second, 'Beş', 'invoke')).toBe(ref)
+		const reads = calls().filter((call) => call.name === 'get_window_state').length
+		await expect(adapter.uiAct(ref, 'invoke')).resolves.toMatchObject({
+			ok: true,
+		})
+		// The ref was read a moment ago, so nothing is read again before the click.
+		expect(calls().filter((call) => call.name === 'get_window_state')).toHaveLength(reads)
+		await adapter.dispose()
+	})
+
+	it('answers STALE_REF for a ref it was never given, without calling the driver', async () => {
+		const { adapter, calls } = driver({})
+		await adapter.uiSnapshot('0x261206')
 		const before = calls().length
-		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toMatchObject({
+		await expect(adapter.uiAct('cua-ui:other:1', 'invoke')).resolves.toMatchObject({
 			ok: false,
+			code: 'STALE_REF',
 			delivery: 'not_delivered',
 			retrySafety: 'safe',
-			detail: expect.stringContaining('not a control of the latest UI snapshot'),
 		})
 		expect(calls()).toHaveLength(before)
 		await adapter.dispose()
@@ -376,7 +416,11 @@ describe('the cua-driver adapter’s UI tree', () => {
 			'set_value',
 			'Merhaba',
 		)
-		expect(result).toMatchObject({ ok: false, delivery: 'not_delivered', retrySafety: 'safe' })
+		expect(result).toMatchObject({
+			ok: false,
+			delivery: 'not_delivered',
+			retrySafety: 'safe',
+		})
 		expect(result.detail).toMatch(/nothing was typed/)
 		expect(calls().some((c) => c.name === 'type_text')).toBe(false)
 		await adapter.dispose()
@@ -457,30 +501,21 @@ describe('the cua-driver adapter’s UI tree', () => {
 		const beforeExpiry = await adapter.uiSnapshot('0x261206')
 		const oldRef = refFor(beforeExpiry, 'Beş', 'invoke')
 		expired = true
+		// The refused click never ran. The control is found again in a new read of
+		// the window under the revived session, and only then is it clicked.
 		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toMatchObject({
-			ok: false,
-			delivery: 'not_delivered',
-			detail: 'that control is from an older UI snapshot; take a new one',
+			ok: true,
 		})
 		expect(calls().map((call) => call.name)).toEqual([
 			'list_windows',
 			'get_window_state',
 			'click',
 			'start_session',
+			'get_window_state',
+			'click',
 		])
-		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toMatchObject({
-			ok: false,
-		})
-		expect(calls().filter((call) => call.name === 'click')).toHaveLength(1)
 		const afterRevival = await adapter.uiSnapshot('0x261206')
-		const newRef = refFor(afterRevival, 'Beş', 'invoke')
-		expect(newRef).not.toBe(oldRef)
-		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toMatchObject({
-			ok: false,
-		})
-		expect(calls().filter((call) => call.name === 'click')).toHaveLength(1)
-		await expect(adapter.uiAct(newRef, 'invoke')).resolves.toMatchObject({ ok: true })
-		expect(calls().filter((call) => call.name === 'click')).toHaveLength(2)
+		expect(refFor(afterRevival, 'Beş', 'invoke')).toBe(oldRef)
 		await adapter.dispose()
 	})
 
@@ -507,13 +542,20 @@ describe('the cua-driver adapter’s UI tree', () => {
 		firstProcess.crash(1)
 		await closed
 
-		// uiAct starts the replacement process, then rejects the old token
-		// before any click can reach it.
+		// uiAct starts the replacement process, rejects the old token before any
+		// click can reach it, reads the window again, and finds that the control
+		// the id named now says something else: STALE_REF, nothing clicked.
 		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toMatchObject({
 			ok: false,
+			code: 'STALE_REF',
+			delivery: 'not_delivered',
+			retrySafety: 'safe',
 		})
 		expect(processes).toHaveLength(2)
-		expect(processes[1]?.toolCalls.map((call) => call.name)).toEqual(['set_agent_cursor_enabled'])
+		expect(processes[1]?.toolCalls.map((call) => call.name)).toEqual([
+			'set_agent_cursor_enabled',
+			'get_window_state',
+		])
 
 		const afterCrash = await adapter.uiSnapshot('0x261206')
 		const newRef = refFor(afterCrash, 'Delete all', 'invoke')
@@ -521,7 +563,9 @@ describe('the cua-driver adapter’s UI tree', () => {
 		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toMatchObject({
 			ok: false,
 		})
-		await expect(adapter.uiAct(newRef, 'invoke')).resolves.toMatchObject({ ok: true })
+		await expect(adapter.uiAct(newRef, 'invoke')).resolves.toMatchObject({
+			ok: true,
+		})
 		expect(calls().filter((call) => call.name === 'click')).toEqual([
 			{
 				name: 'click',
@@ -549,7 +593,10 @@ describe('the cua-driver adapter’s UI tree', () => {
 		const result = await host.uiAct(refFor(snapshot, 'Beş', 'invoke'), 'invoke')
 		expect(result.ok).toBe(false)
 		expect(result.detail).toMatch(/may or may not have happened/)
-		expect(result).toMatchObject({ delivery: 'delivered_unverified', retrySafety: 'unsafe' })
+		expect(result).toMatchObject({
+			delivery: 'delivered_unverified',
+			retrySafety: 'unsafe',
+		})
 		await host.dispose()
 	})
 })

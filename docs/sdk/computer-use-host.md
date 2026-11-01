@@ -100,18 +100,31 @@ never falls back to a whole-display screenshot. `mouse_move` and
 `cursor_position` have no window-scoped form: the Windows driver's window move
 animates only an overlay, not the OS cursor.
 
-`UiSnapshot`, `UiElement`, `UiElementAction` and `UiActResult` describe an
+`UiSnapshot`, `UiElement`, `UiElementAction`, `UiSnapshotOptions` and `UiActResult` describe an
 accessibility tree (Windows UI Automation, macOS AX, AT-SPI, or a driver that
-wraps one). `uiSnapshot(windowId?)` reads one window — the one in front when
-the id is omitted — and returns its `root`, optionally its `title`, `app` and
-`truncated`. Each element has an opaque `ref` valid until the host's next
-snapshot (empty for an element nothing can be done with: a label, a group,
-which is in the tree for what it says), a platform `role`, `name`, optional
+wraps one). `uiSnapshot(windowId?, options?)` reads one window — the one in
+front when the id is omitted — and returns its `root`, optionally its `title`,
+`app`, `truncated`, `total`, `outline`, `region` and `next`. Each element has
+an opaque `ref` that names the control, not one reading of it (empty for an
+element nothing can be done with: a label, a group, which is in the tree for
+what it says), a platform `role`, `name`, optional
 `value`, `automationId`, virtual-desktop `bounds`, `states` (`disabled`,
 `selected`, …) and the `actions` it accepts: `invoke`, `set_value`, `toggle`,
 `select`, `expand`, `collapse`, `focus`, `scroll_into_view`.
-`uiAct(ref, action, value?)` reports `{ ok, detail?, delivery?, retrySafety?,
-readBack? }`; a host says why in `detail` when it could not act (a stale ref,
+
+A host may return a large window as an outline. An element then carries
+`hiddenChildren`, the number of its children left out, and the snapshot sets
+`outline` and `total` (every control the window holds). An element with
+`hiddenChildren` has a `ref` even when nothing can be done to it: it is a
+region, and `uiSnapshot(windowId, { root: ref })` reads just that region (with
+`region: true`; `offset` and the reported `next` page through a long one).
+`{ query }` keeps only the controls whose text matches, with the elements above
+them. Refs outside the opened region stay valid.
+
+`uiAct(ref, action, value?)` reports `{ ok, detail?, code?, delivery?,
+retrySafety?, readBack? }`; `code` is `STALE_REF` (the control the ref named is
+gone, or can no longer be acted on) or `AMBIGUOUS_TARGET` (several controls fit
+and the host did not guess); both mean nothing was sent. A host says why in `detail` when it could not act (a stale ref,
 a disabled control) rather than throwing, and reports an action whose outcome
 it cannot know (its driver died mid-request) as `ok: false` with a detail that
 says so, never as a retry.
@@ -160,13 +173,33 @@ before desktop dispatch. The adapter calls `start_session` to revive the
 implicit session, restores its disabled agent cursor, and retries the refused
 call once. Concurrent refusals share one revival.
 
-Each snapshot gives callers fresh opaque refs and keeps cua-driver's element
-tokens inside the adapter. If a UI action encounters session expiry, the adapter
-revives the session but reports its ref as stale. A restarted driver also makes
-existing refs stale, even when it later reuses the same raw token. Take a new
-`uiSnapshot` before acting on a control again. A driver crash, timeout, or any
-response without the exact structured refusal does not trigger an action retry,
-because the action may already have reached the desktop.
+The adapter keeps cua-driver's element tokens to itself and gives callers
+opaque refs that name controls. Each ref carries the evidence that finds its
+control again: the native or automation id, its role and name, its place in the
+tree (the child indexes from the root) and its window (HWND and owning process
+id; cua-driver does not report a process start time). A token dies when the
+window is read again, so a ref read more than 3 s ago, or in an older read of
+its window, or in an older driver session, is first checked against a new read:
+the id (with the same role and name) when it has one, else the node at the
+stored place when it is still the same role and name, else a search of the
+tree for that role and name. One fit is the control; several are
+`AMBIGUOUS_TARGET`; none, or a control that lost its patterns, is `STALE_REF`;
+a window that closed is `STALE_REF`. The same id under another name is not the
+control. A driver refusal of a token a newer read replaced is not an error
+either: the adapter reads again and retries once, since the driver refused
+before acting. After a session expiry or a driver restart the refs are
+resolved the same way. A driver crash, timeout, or any response without the
+exact structured refusal does not trigger an action retry, because the action
+may already have reached the desktop.
+
+A window with more than 220 shown controls is returned as an outline of about
+150: breadth first, at most 12 children per element, a region's page at most 60
+of its children. Regions carry `hiddenChildren` and a ref. The adapter walks a
+window with the driver's own 5 000 node cap (it cuts a walk silently, so a walk
+within 5% of the cap is reported `truncated`), and reads a browser window once
+more when its first walk shows only the frame, because the page tree is built on
+the first request. The driver puts rows under the wrong parent when it leaves a
+container out; a button or link is never made the parent of such rows.
 
 For window pixels, even the exact pre-dispatch `session_ended` refusal makes
 the previous screenshot stale: the driver's per-process resize mapping may

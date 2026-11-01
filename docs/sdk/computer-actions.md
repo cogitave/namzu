@@ -109,7 +109,7 @@ the action still reports success and the text says to take one.
 | `wait` | `ms` (at most `maxWaitMs` per call, 10 000 by default; a batch's waits share it) | yes |
 | `list_windows` | — | no |
 | `focus_window` | `window_id` | yes |
-| `ui_snapshot` | `window_id` (optional; the window in front without it) | no — the window's controls as text |
+| `ui_snapshot` | `window_id` (optional; the window in front without it), `root` (a region's ref), `offset`, `query` | no — the window's controls as text |
 | `wait_for` | `until`, `match`, `role`, `window_id`, `timeout_ms` | no — the window's controls as text, as `ui_snapshot` |
 | `ui_act` | `ref`, `action`, `value` (for `set_value`) | yes |
 | `batch` | `actions` | one, at the end |
@@ -192,7 +192,7 @@ window has controls with refs, or that it has not been read yet.
 it as indented text, one control per line:
 
 ```text
-UI snapshot u2 of window 0x3c40f70: 51 controls shown, 36 with a ref you can pass to ui_act. Refs are valid until the next ui_snapshot.
+UI snapshot u2 of window 0x3c40f70: 51 controls shown, 36 with a ref you can pass to ui_act. A ref names its control and stays usable after later snapshots; if the control has gone or several fit, ui_act says so (STALE_REF, AMBIGUOUS_TARGET) and nothing is sent.
 @(x, y) is a control's centre on screenshot s2, for a click when ui_act cannot reach it.
 <namzu-untrusted-7f3a9c21 kind="desktop-ui" window="0x3c40f70">
 …
@@ -205,10 +205,13 @@ Window "Hesap Makinesi"
 </namzu-untrusted-7f3a9c21>
 ```
 
-- Only a control the host can act on gets a ref. Refs count up across
-  snapshots (`e1`…`e36`, then `e37`… in the next), so a ref from an earlier
-  snapshot is refused ("not a control of the latest ui_snapshot (u2)")
-  instead of silently naming whatever holds that number now.
+- Only a control the host can act on gets a ref, and a region an outline left
+  unexpanded. A ref names its control: the same host ref keeps its number in
+  every later snapshot, a number is never given to another control, and a ref
+  no snapshot showed is refused. Whether the control is still there is the
+  host's answer when `ui_act` runs: it finds the control again by its evidence
+  or fails with `STALE_REF` (gone) or `AMBIGUOUS_TARGET` (several fit), in both
+  cases sending nothing, and the step's text starts with that code.
 - A nameless control nothing can be done with is left out and its children
   move up a level. Names and values are cut to one line of 64 characters.
 - `@(x, y)` is the control's centre on the latest display screenshot, for
@@ -217,9 +220,17 @@ Window "Hesap Makinesi"
 - Everything the application wrote sits inside an untrusted-content frame;
   the header, refs and positions are the tool's. A name cannot close the
   frame early.
-- The text is cut at 14 000 characters (about 4 000 tokens), with a line
-  saying how many controls were shown out of how many; a host that stopped
-  its own walk sets `truncated` and the text says so.
+- A large window comes back as an outline: the top levels, with each region
+  that was left out marked `(+N more inside)` and given a ref.
+  `ui_snapshot { root: "e12" }` reads just that region (a long one in pages:
+  the text ends with `ui_snapshot {root, offset}` for the next), and every ref
+  outside it stays valid. `ui_snapshot { query: "text" }` lists only the
+  controls whose text matches, with the elements above them. `ui_act` on a
+  region is refused with how to open it. The header says how many controls were
+  shown out of how many the window holds.
+- The text is cut at 14 000 characters (about 4 000 tokens); the line that says
+  so tells the model to drill into the region it needs. A host that stopped its
+  own walk sets `truncated` and the text says so.
 
 `ui_act { ref, action, value }` acts on one control: `invoke` (press a
 button, open a menu item), `set_value` (replace a field's text with `value`),
@@ -488,8 +499,8 @@ toggle whose state flipped is verified, and one that did not is
 `delivered_unverified`; a `select` on a list or tree row that is also
 invokable carries a warning, because the click invokes it and may open the
 item. The read-back gives every other ref of that window the new token of its
-control, so refs stay valid until the next `ui_snapshot`; a ref whose control is
-gone fails as `not_delivered`. `invoke`, `expand` and `collapse` are
+control, so refs stay valid; a ref whose control is gone fails as
+`not_delivered` with `STALE_REF`. `invoke`, `expand` and `collapse` are
 `delivered_unverified`: the model looks.
 
 Every cua-driver input goes to its desktop scope — real input at screen
