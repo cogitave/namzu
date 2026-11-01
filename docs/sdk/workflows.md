@@ -86,8 +86,8 @@ substitution, so an operator can review it before anything runs.
 | Name | Meaning |
 | --- | --- |
 | `agent(prompt, opts?)` | Start a subagent. Options: `label` (default: the first 60 characters of the prompt, whitespace squeezed), `phase`, `schema` (JSON Schema), `agentType`, `model`, `effort`. Resolves to the text, the schema-validated value, or `null` when the agent failed, was skipped, was refused by a budget, or answered outside the schema. |
-| `parallel(thunks)` | Start every thunk now; resolves when all are done (a barrier). It never rejects: a thunk that throws resolves to `null` in its place, and the reason goes through `log()` (`Step 2 stopped: …`, shown in the workflow's detail). Filter with `.filter(Boolean)`. |
-| `pipeline(items, ...stages)` | One chain per item, no barrier between stages. A stage gets `(prevResult, originalItem, index)`; the first stage gets the item as `prevResult`; an item whose stage resolves `null` or `undefined` stops there and yields `null`. A stage that throws drops its item to `null` the same way (the reason goes through `log()`) and the other items go on. |
+| `parallel(thunks)` | Start every thunk now; resolves when all are done (a barrier). It does not reject for a thunk's own failure: a thunk that throws, or whose agent failed, resolves to `null` in its place, and the reason goes through `log()`. A misused hook is different and fails the run: an `agent()` call with a bad prompt, an unknown option, a non-object `schema` or an oversized request, a non-function item, or a bad `phase()` title is re-thrown out of `parallel()` and `pipeline()` (the run ends `failed` with the error naming the call), because it is a mistake in the script, not a failed child (`Step 2 stopped: …`, shown in the workflow's detail). Filter with `.filter(Boolean)`. |
+| `pipeline(items, ...stages)` | One chain per item, no barrier between stages. A stage gets `(prevResult, originalItem, index)`; the first stage gets the item as `prevResult`; an item whose stage resolves `null` or `undefined` stops there and yields `null`. A stage that throws drops its item to `null` the same way (the reason goes through `log()`) and the other items go on; a misused hook in a stage is re-thrown and fails the run, as in `parallel()`. |
 | `phase(title)` | Move the global phase cursor. |
 | `log(message)` | A progress line (at most 2000 characters). |
 | `args` | The JSON you passed to `run()`. |
@@ -124,7 +124,10 @@ Before it failed: 3 agents started, 2 finished, 1 failed. A rerun starts the who
 The helpers reject obviously wrong argument shapes with a plain error naming the
 signature, for example `pipeline(items, ...stages): the first argument must be
 an array, got a function`. That is a convenience inside the interpreter, not
-enforcement; the host still validates every `agent()` request.
+enforcement; the host still validates every `agent()` request. An unknown `agent()`
+option (a misspelt `lable`) is refused the same way instead of being ignored.
+These misuse errors are marked, so `parallel()` and `pipeline()` re-throw them
+rather than mapping them to `null`.
 
 Schema validation covers `type`, `enum`, `const`, `properties`, `required`,
 `additionalProperties`, `items`, `minItems`/`maxItems`, `minLength`/`maxLength`,

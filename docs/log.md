@@ -2,6 +2,7 @@
 
 ## 2026-11-01
 
+- **Update** [Workflows](sdk/workflows.md): a misused hook in a workflow script (wrong `agent()` arguments, an unknown option, a non-object schema, a non-function item) now fails the run, re-thrown out of `parallel()` and `pipeline()`; only a thrown thunk or a failed child still becomes `null`. The Workflow tool text says so. `.changeset/fail-workflow-hook-misuse.md` (`@namzu/sdk` minor, `@namzu/cli` patch).
 - **Update** [bash tool](sdk/bash-tool.md#in-a-sandbox): a sandboxed command whose error text looks like a sandbox denial says so, and a launcher setup failure is reported as a runner failure, not as the command failing (`SandboxExecResult.attribution`). `.changeset/name-sandbox-denials.md` (`@namzu/sdk` minor).
 - **Update** [Background jobs](cli/background-jobs.md#a-process-that-left-the-jobs-group): on Linux, stopping a job also signals descendants that started a session of their own, found by a `NAMZU_SHELL_TAG` value every command inherits. `.changeset/stop-escaped-descendants.md` (`@namzu/sdk` patch).
 - **Update** [Background jobs](cli/background-jobs.md#when-the-host-exits): a running job is stopped when the host exits by `process.exit` or an uncaught exception; orphaned commands used to survive. `.changeset/stop-jobs-at-host-exit.md` (`@namzu/sdk` patch).
