@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { readFileSync, readdirSync } from 'node:fs'
 
 /**
  * Git Bash children that the Windows process tree cannot reach.
@@ -11,11 +12,55 @@ import { execFileSync } from 'node:child_process'
  * in its environment, which every descendant inherits however it was started;
  * the tag is how the tree is found again.
  */
-const MSYS_SHELLS = new WeakMap<object, { readonly bash: string; readonly tag: string }>()
+const MSYS_SHELLS = new WeakMap<object, { readonly bash?: string; readonly tag: string }>()
 
 /** Remember how to find every process a Git Bash child started. Called by the spawn. */
 export function registerMsysShell(child: object, shell: { bash: string; tag: string }): void {
 	MSYS_SHELLS.set(child, shell)
+}
+
+/**
+ * Remember the tag a POSIX child's environment carries, so a kill can also find
+ * a descendant that left the child's process group (`setsid`, a double fork
+ * that starts its own session). Such a process has no group to signal, but it
+ * inherited the environment, and the tag is how it is found again.
+ *
+ * The limit is the same as the group's own: a process that clears its
+ * environment before it forks escapes this too.
+ */
+export function registerProcessTag(child: object, tag: string): void {
+	MSYS_SHELLS.set(child, { tag })
+}
+
+/**
+ * Signal every process of this user whose environment carries the tag, by
+ * reading `/proc/<pid>/environ`. Linux only: other POSIX systems have no
+ * `/proc`, and there the process group is all a kill can reach. A process whose
+ * environment cannot be read (another user's, or one that has just ended) is
+ * skipped.
+ */
+export function signalTagged(tag: string, signal: NodeJS.Signals): number {
+	let entries: string[]
+	try {
+		entries = readdirSync('/proc')
+	} catch {
+		return 0
+	}
+	const needle = `${MSYS_TAG_VARIABLE}=${tag}\0`
+	let signalled = 0
+	for (const entry of entries) {
+		if (!/^\d+$/.test(entry)) continue
+		const pid = Number(entry)
+		if (pid === process.pid) continue
+		try {
+			if (!readFileSync(`/proc/${entry}/environ`, 'latin1').includes(needle)) continue
+			process.kill(pid, signal)
+			signalled++
+		} catch {
+			// Not ours to read, or gone since the listing.
+		}
+	}
+	return signalled
 }
 
 /** The environment variable that carries the tag. */
@@ -90,13 +135,20 @@ export function killTree(
 	try {
 		if (process.platform === 'win32') {
 			const msys = MSYS_SHELLS.get(child)
-			if (msys !== undefined) killMsysTagged(msys)
+			if (msys?.bash !== undefined) killMsysTagged({ bash: msys.bash, tag: msys.tag })
 			execFileSync(taskkillPath(), ['/pid', String(child.pid), '/t', '/f'], {
 				stdio: 'ignore',
 				windowsHide: true,
 			})
 		} else {
-			process.kill(-child.pid, signal)
+			try {
+				process.kill(-child.pid, signal)
+			} finally {
+				// After the group, which is cheap and exact: what is left is only
+				// what started its own session. Also when the group is already gone.
+				const tagged = MSYS_SHELLS.get(child)
+				if (tagged !== undefined && process.platform === 'linux') signalTagged(tagged.tag, signal)
+			}
 		}
 	} catch {
 		// Group (or tree) already gone

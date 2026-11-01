@@ -2,6 +2,7 @@
 
 ## 2026-11-01
 
+- **Update** [Background jobs](cli/background-jobs.md#a-process-that-left-the-jobs-group): on Linux, stopping a job also signals descendants that started a session of their own, found by a `NAMZU_SHELL_TAG` value every command inherits. `.changeset/stop-escaped-descendants.md` (`@namzu/sdk` patch).
 - **Update** [Background jobs](cli/background-jobs.md#when-the-host-exits): a running job is stopped when the host exits by `process.exit` or an uncaught exception; orphaned commands used to survive. `.changeset/stop-jobs-at-host-exit.md` (`@namzu/sdk` patch).
 - **Update** [Background jobs](cli/background-jobs.md): a job whose exit a `wait_for_job` or `job` read result already delivered is no longer announced a second time; a job-exit notice carries output of up to 2048 bytes inline; `NAMZU_MAX_CONSECUTIVE_WAKES` opts an unattended session into a cap on automatic job wakes in a row. `.changeset/job-notice-dedupe-wake-budget.md` (`@namzu/sdk` minor, `@namzu/cli` minor).
 - **Update** [namzu spaces (preview)](cli/spaces.md): quitting from the spaces screen now ends the terminal as a plain `namzu` does (the alternate screen is left and the history printed once before the final frame); the page no longer lists the missing end of the conversation as a limitation. `.changeset/spaces-tabs-panes.md` (`@namzu/cli` minor).

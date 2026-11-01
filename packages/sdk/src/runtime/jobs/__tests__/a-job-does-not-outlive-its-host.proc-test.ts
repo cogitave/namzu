@@ -32,8 +32,8 @@ function withMarker(marker: string): number[] {
 	for (const entry of readdirSync('/proc')) {
 		if (!/^\d+$/.test(entry)) continue
 		try {
-			if (readFileSync(`/proc/${entry}/cmdline`, 'utf-8').includes(marker))
-				found.push(Number(entry))
+			const cmdline = readFileSync(`/proc/${entry}/cmdline`, 'utf-8').replaceAll('\0', ' ')
+			if (cmdline.includes(marker)) found.push(Number(entry))
 		} catch {
 			// gone between the listing and the read
 		}

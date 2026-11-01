@@ -163,3 +163,7 @@ guest process tree ended.
 # When the host exits
 
 A job is stopped when the host process ends by `process.exit` or an uncaught exception: a synchronous `exit` listener sends SIGKILL to each running job's process group, starts no promise or timer, and does not wait for the processes to stop. Before it existed, a host that exited with a job running left the command and anything it forked running with no id to stop them. A host killed by a signal it does not handle runs no listener, so nothing here covers `SIGKILL` of the host itself. A remote job, which confirms its own termination, is not signalled from the listener.
+
+# A process that left the job's group
+
+A job is its process group, and a descendant that starts a session of its own (`setsid`, a double fork that detaches) is outside it. On Linux every command the host starts carries a `NAMZU_SHELL_TAG` value in its environment that its descendants inherit, and stopping a job (and the host-exit stop above) signals the group and then every process of the same user whose environment carries the tag. A descendant that clears its environment before forking escapes this too, and other systems, which have no `/proc` to search, signal the group only. A command can see the variable in its own environment.
