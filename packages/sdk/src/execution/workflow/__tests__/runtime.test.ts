@@ -281,10 +281,9 @@ describe('parallel and pipeline', () => {
 
 	it('pipeline re-throws a misused hook in a stage', async () => {
 		const host = makeHost()
-		const { result } = await runScript(
-			`${META}return await pipeline([1, 2], (x) => agent(x))`,
-			{ host },
-		)
+		const { result } = await runScript(`${META}return await pipeline([1, 2], (x) => agent(x))`, {
+			host,
+		})
 		expect(result.status).toBe('failed')
 		expect(result.error).toContain('the prompt must be a non-empty string')
 	})
