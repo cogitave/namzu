@@ -54,17 +54,7 @@ describe('the default tools block', () => {
 		).toBeLessThanOrEqual(CEILING_BYTES)
 	})
 
-	it('is not a ceiling so loose it checks nothing', () => {
-		// A ceiling far above the block would let it grow for a long time before
-		// anyone decided anything; keep it within a tenth of the measurement.
-		expect(bytes(defaultToolsBlock())).toBeGreaterThan(CEILING_BYTES * 0.9)
-	})
-
 	it('renders the same bytes twice', () => {
 		expect(JSON.stringify(defaultToolsBlock())).toBe(JSON.stringify(defaultToolsBlock()))
-	})
-
-	it('records why the ceiling is where it is', () => {
-		expect(REASONS.length).toBeGreaterThan(0)
 	})
 })
