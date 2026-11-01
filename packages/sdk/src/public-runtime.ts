@@ -11,10 +11,7 @@
 // ─── version + config ────────────────────────────────────────────────────
 
 export { VERSION } from './version.js'
-export {
-	createHarnessSession,
-	HarnessSessionError,
-} from './runtime/harness-session/index.js'
+export { createHarnessSession, HarnessSessionError } from './runtime/harness-session/index.js'
 export { BackgroundJobOutputWaitLimitError } from './runtime/jobs/registry.js'
 
 // The opt-in model-authored-code backend. `RunCodeToolOptions.runtime` has
@@ -407,16 +404,10 @@ export type {
 // Closing a paused or interrupted turn without resuming it, and compacting a
 // session between turns.
 export { abandonTurn } from './runtime/query/abandon-turn.js'
-export type {
-	AbandonTurnOptions,
-	SessionLocatorOptions,
-} from './runtime/query/abandon-turn.js'
+export type { AbandonTurnOptions, SessionLocatorOptions } from './runtime/query/abandon-turn.js'
 export { CacheClock } from './runtime/cache-clock.js'
 export type { CacheClockState } from './runtime/cache-clock.js'
-export {
-	compactSession,
-	compactSessionRange,
-} from './runtime/query/compact-session.js'
+export { compactSession, compactSessionRange } from './runtime/query/compact-session.js'
 export type {
 	CompactSessionParams,
 	CompactSessionRangeParams,
@@ -1305,10 +1296,7 @@ export { compactNow, compactRegion } from './compaction/manual.js'
 // A host persisting manual compaction has to recognise the system message on
 // resume. Export the identity predicate rather than making every host copy the
 // marker string and eventually disagree with the writer.
-export {
-	COMPACTION_RECOVERY_NOTE,
-	isCompactionMessage,
-} from './compaction/summary.js'
+export { COMPACTION_RECOVERY_NOTE, isCompactionMessage } from './compaction/summary.js'
 export {
 	DEFAULT_SALIENCE_CONFIG,
 	DEFAULT_SALIENCE_WEIGHTS,
@@ -1663,13 +1651,7 @@ export type {
 	LoggerOptions,
 	MutableLogSinkCounters,
 } from './utils/log/types.js'
-export type {
-	JobChild,
-	JobHost,
-	JobPipe,
-	JobProcess,
-	JobSource,
-} from './runtime/jobs/registry.js'
+export type { JobChild, JobHost, JobPipe, JobProcess, JobSource } from './runtime/jobs/registry.js'
 export { WORKING_STATE_MIME } from './connector/mcp/adapter.js'
 
 export {
@@ -1907,10 +1889,7 @@ export {
 } from './account/index.js'
 export { DiskPalStore, PalConflictError } from './pals/store.js'
 export { PalRuntime, PalUnavailableError } from './pals/runtime.js'
-export {
-	buildPalSystemPrompt,
-	palConversationGreeting,
-} from './pals/prompt.js'
+export { buildPalSystemPrompt, palConversationGreeting } from './pals/prompt.js'
 export {
 	preparePalReferenceImages,
 	importPalReferenceImages,
@@ -1950,10 +1929,7 @@ export {
 	PAL_OPERATOR_NAMESPACE,
 	ingressMessageRef,
 } from './pals/communication/ingress-types.js'
-export {
-	DiskPalChannelRoutes,
-	PalChannelRouteConflictError,
-} from './pals/channels/routes.js'
+export { DiskPalChannelRoutes, PalChannelRouteConflictError } from './pals/channels/routes.js'
 export { PalChannelIngress } from './pals/channels/ingress.js'
 export { PalChannelRouter } from './pals/channels/routing.js'
 export {
