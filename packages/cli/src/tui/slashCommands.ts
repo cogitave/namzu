@@ -196,7 +196,7 @@ export type SlashAction =
 	 * Async like its neighbours: the copy reads the persisted transcript and
 	 * writes it into a new session before anything on screen changes.
 	 */
-	| { kind: 'fork' }
+	| { kind: 'fork'; title?: string }
 	/** List file checkpoints, or put the tree back to before turn `turn`. */
 	| { kind: 'restore'; turn?: number }
 	/** Open the rewind picker: restore the files and/or the conversation to an earlier prompt. */
@@ -1077,6 +1077,22 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: renameConversationAction,
 	},
 	{
+		name: 'branch',
+		description: 'Create a branch of the current conversation at this point',
+		help: {
+			usage: ['/branch [name]'],
+			details: [
+				'This screen continues in the copy; the original is unchanged and stays in /resume.',
+			],
+		},
+		action: (_ctx, args) => {
+			const title = args.join(' ').trim()
+			return title ? { kind: 'fork', title } : { kind: 'fork' }
+		},
+	},
+	{
+		// Today the same copy as /branch. The name is kept for copying the
+		// conversation into a new background session, which will replace this.
 		name: 'fork',
 		description: 'Continue in a copy, leaving the original unchanged.',
 		action: () => ({ kind: 'fork' }),

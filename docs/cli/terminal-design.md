@@ -840,7 +840,7 @@ calls (`tool-end-rows.ts` for a finished call, the agent rows in
 `agent-transcript-rows.ts`), so a later change to how a row reads reaches both.
 `restored-rows.ts` replays the conversation's journal through the live
 translation (`toAgentEvent`), which keeps the kernel's typed facts and timings.
-A conversation without a journal (a `/fork`, an older log) is drawn from the
+A conversation without a journal (a `/branch`, an older log) is drawn from the
 saved messages: the file a read, edit or write named still shows, a write's
 counts are read from its receipt, and the elapsed time and the closing line are
 left out because the messages do not keep them. A delegation that succeeded

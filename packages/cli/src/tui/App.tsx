@@ -8043,88 +8043,95 @@ function AppBody({
 	 * the screen would go on showing it, and the copy would be missing the last
 	 * thing the operator watched arrive.
 	 */
-	const doFork = useCallback(async () => {
-		if (palDefinitionRef.current) {
-			pushMessage(
-				'system',
-				'Forking Pal conversations is not available yet. Use /new for a separately claimed conversation.',
-			)
-			return
-		}
-		if (conversationMutationRef.current) return
-		if (abortRef.current) {
-			pushMessage(
-				'system',
-				'A reply is still running. Forking now would copy a conversation whose last reply is not in it yet — press esc to stop it, then fork.',
-			)
-			return
-		}
-		if (hasUnsettledTurn()) {
-			pushMessage(
-				'system',
-				'A reply was stopped and is still being saved. Wait for it to finish before forking.',
-			)
-			return
-		}
-		if (queuedRef.current.length > 0) {
-			pushMessage(
-				'system',
-				'Queued prompts have not run yet. Wait for them to finish before forking.',
-			)
-			return
-		}
-
-		conversationMutationRef.current = 'fork'
-		setConversationMutation('fork')
-		try {
-			const scope = await materializeConversation()
-			const sessions = sessionsRef.current
-			if (!sessions || !scope) {
-				pushMessage('system', 'Conversation history is unavailable in this folder.')
+	const doFork = useCallback(
+		async (title?: string) => {
+			if (palDefinitionRef.current) {
+				pushMessage(
+					'system',
+					'Forking Pal conversations is not available yet. Use /new for a separately claimed conversation.',
+				)
 				return
 			}
-			// The settlement guard above establishes that no current-generation
-			// turn can attach another write after this read. The remaining tail may
-			// still be writing, so the fork waits for that exact durable snapshot.
-			await persistenceTailRef.current
-			const original = scope.sessionId
-			const forked = await forkConversation(sessions, original)
-			// The fork owns the displayed history, except for host-only results
-			// delivered to the original conversation's sidecar inbox.
-			scope.sessionId = forked.id
-			// The copy's own history: the original's messages name ids the copy's
-			// log never gave out, and the next send would be refused.
-			modelHistoryRef.current = forked.messages
-			resetTranscript()
-			setMessages((previous) => previous.filter((message) => !message.sourceDelivery))
-			sourceDeliveryPollRef.current()
-			resetSubagentActivity()
-			void hydrateSavedChildren()
-			session?.resetTaskStore?.()
-			goalActivation.clear()
-			wakeGoalDriver()
-			pushMessage(
-				'system',
-				`Forked into "${displayConversationTitle(forked.title)}" — ${plural(forked.copied, 'message')} copied. This screen continues in the copy; ${original} is unchanged and still in /resume.`,
-			)
-		} catch (err) {
-			pushSystem('error', explainFailure(err, 'Could not fork.'))
-		} finally {
-			conversationMutationRef.current = null
-			setConversationMutation(null)
-		}
-	}, [
-		goalActivation,
-		hasUnsettledTurn,
-		materializeConversation,
-		pushMessage,
-		hydrateSavedChildren,
-		resetTranscript,
-		resetSubagentActivity,
-		session,
-		wakeGoalDriver,
-		pushSystem,
-	])
+			if (conversationMutationRef.current) return
+			if (abortRef.current) {
+				pushMessage(
+					'system',
+					'A reply is still running. Forking now would copy a conversation whose last reply is not in it yet — press esc to stop it, then fork.',
+				)
+				return
+			}
+			if (hasUnsettledTurn()) {
+				pushMessage(
+					'system',
+					'A reply was stopped and is still being saved. Wait for it to finish before forking.',
+				)
+				return
+			}
+			if (queuedRef.current.length > 0) {
+				pushMessage(
+					'system',
+					'Queued prompts have not run yet. Wait for them to finish before forking.',
+				)
+				return
+			}
+
+			conversationMutationRef.current = 'fork'
+			setConversationMutation('fork')
+			try {
+				const scope = await materializeConversation()
+				const sessions = sessionsRef.current
+				if (!sessions || !scope) {
+					pushMessage('system', 'Conversation history is unavailable in this folder.')
+					return
+				}
+				// The settlement guard above establishes that no current-generation
+				// turn can attach another write after this read. The remaining tail may
+				// still be writing, so the fork waits for that exact durable snapshot.
+				await persistenceTailRef.current
+				const original = scope.sessionId
+				const forked = await forkConversation(sessions, original)
+				if (title) {
+					await setTitle(sessions, forked.id, title)
+					forked.title = title
+				}
+				// The fork owns the displayed history, except for host-only results
+				// delivered to the original conversation's sidecar inbox.
+				scope.sessionId = forked.id
+				// The copy's own history: the original's messages name ids the copy's
+				// log never gave out, and the next send would be refused.
+				modelHistoryRef.current = forked.messages
+				resetTranscript()
+				setMessages((previous) => previous.filter((message) => !message.sourceDelivery))
+				sourceDeliveryPollRef.current()
+				resetSubagentActivity()
+				void hydrateSavedChildren()
+				session?.resetTaskStore?.()
+				goalActivation.clear()
+				wakeGoalDriver()
+				pushMessage(
+					'system',
+					`Forked into "${displayConversationTitle(forked.title)}" — ${plural(forked.copied, 'message')} copied. This screen continues in the copy; ${original} is unchanged and still in /resume.`,
+				)
+			} catch (err) {
+				pushSystem('error', explainFailure(err, 'Could not fork.'))
+			} finally {
+				conversationMutationRef.current = null
+				setConversationMutation(null)
+			}
+		},
+		[
+			goalActivation,
+			hasUnsettledTurn,
+			materializeConversation,
+			pushMessage,
+			hydrateSavedChildren,
+			resetTranscript,
+			resetSubagentActivity,
+			session,
+			wakeGoalDriver,
+			pushSystem,
+		],
+	)
 
 	/** Open the rewind picker after the composer's second empty Esc, or `/rewind`. */
 	const openPromptEditor = useCallback(() => {
@@ -12441,7 +12448,7 @@ function AppBody({
 						void doTitle(slash.title, slash.clear)
 						return
 					case 'fork':
-						void doFork()
+						void doFork(slash.title)
 						return
 					case 'worktree': {
 						const [verb = 'list', label, extra] = slash.args
