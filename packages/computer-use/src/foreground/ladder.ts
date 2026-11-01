@@ -9,6 +9,7 @@ import {
 	type ForegroundMonitor,
 	type ForegroundOutcome,
 	type ForegroundSubject,
+	type MonitorBurstEnd,
 	type MonitorState,
 	PROTECTED_PROCESSES,
 } from './types.js'
@@ -116,7 +117,7 @@ const BLOCKS = {
 	elevated_target: (inFront = false): ForegroundBlock => ({
 		code: 'elevated_target',
 		detail: inFront
-			? 'The window in front belongs to a program with higher rights (or one this program cannot inspect), so it cannot be replaced from here and nothing was sent. Ask the user to click away from it, or to do this step themselves. Do not try to work around it.'
+			? 'An administrator window is in front; Namzu cannot type into it, so nothing was sent. Ask the user to click away from it, or to do this step themselves. Do not try to work around it.'
 			: 'This program runs with administrator rights, so input from here is blocked and nothing was sent. Ask the user to act in it, or to restart it without administrator rights. Do not try to work around it.',
 	}),
 	monitor_unavailable: (reason: string): ForegroundBlock => ({
@@ -145,6 +146,23 @@ interface Stop {
 	readonly turnId: string | undefined
 }
 
+/** What one burst asks of the ladder. */
+export interface LadderRequest {
+	readonly subject: ForegroundSubject
+	/** The burst leaves the cursor where it put it (a `mouse_move`). */
+	readonly keepCursor?: boolean
+	/** Stops waiting for the screen (the idle gate, the lease) when aborted. */
+	readonly signal?: AbortSignal
+	/** The burst sends keyboard or mouse input: the outcome says whether the system registered it. */
+	readonly sendsInput?: boolean
+	/**
+	 * Awaited after the burst function returns or throws and before the window
+	 * and cursor are put back: calls a cancelled burst left in flight must
+	 * finish first, or they would act after the restore.
+	 */
+	readonly settle?: () => Promise<void>
+}
+
 /**
  * The foreground ladder. `run` takes a burst (a function that sends input
  * which can only be delivered in the foreground) through:
@@ -165,6 +183,8 @@ export class ForegroundLadder {
 	private readonly lease: ScreenLease
 	private monitor: ForegroundMonitor | undefined
 	private queue: Promise<unknown> = Promise.resolve()
+	/** The restore of a cancelled burst, which runs after its caller has been answered. */
+	private background: Promise<void> = Promise.resolve()
 	private stop: Stop | undefined
 	private readonly leaseBeatMs: number
 	private parkedMs = 0
@@ -219,9 +239,37 @@ export class ForegroundLadder {
 		}
 	}
 
+	/**
+	 * Whether the computer is locked, read from the long-lived helper (cheap once
+	 * it runs): the input desktop is not the normal one, or the lock screen's own
+	 * program is in front. `null` when unsure (no helper, or a state that is not
+	 * clearly either), so a caller treats it as unlocked.
+	 */
+	async lockState(): Promise<'locked' | 'unlocked' | null> {
+		const monitor = await this.ensureMonitor()
+		if (!monitor.ok) return null
+		try {
+			const state = await monitor.monitor.state()
+			const desktop = state.desktop.toLowerCase()
+			if (desktop === 'default') {
+				const front = state.foreground?.exe.toLowerCase()
+				return front !== undefined && PROTECTED_PROCESSES.get(front) === 'locked_desktop'
+					? 'locked'
+					: 'unlocked'
+			}
+			// A desktop that cannot be read says nothing; a named one that is not the normal one is a lock or sign-in screen.
+			return desktop === '(unreadable)' ? null : 'locked'
+		} catch {
+			return null
+		}
+	}
+
 	/** The model's turn ended or was interrupted: nothing stays watched or held. */
 	async endTurn(): Promise<void> {
 		this.denied.clear()
+		// A burst in flight puts its window and cursor back through the monitor
+		// when it ends; dropping the monitor first would restore under it.
+		await this.queue
 		await this.dropMonitor()
 	}
 
@@ -231,25 +279,17 @@ export class ForegroundLadder {
 	}
 
 	run<T>(
-		request: {
-			readonly subject: ForegroundSubject
-			/** The burst leaves the cursor where it put it (a `mouse_move`). */
-			readonly keepCursor?: boolean
-			readonly signal?: AbortSignal
-		},
+		request: LadderRequest,
 		burst: (context: BurstContext) => Promise<T>,
 	): Promise<ForegroundOutcome<T>> {
 		const run = this.queue.then(() => this.runOne(request, burst))
-		this.queue = run.catch(() => undefined)
+		// The next burst, and the end of the turn, wait for the restore a cancelled burst left running.
+		this.queue = run.catch(() => undefined).then(() => this.background)
 		return run
 	}
 
 	private async runOne<T>(
-		request: {
-			readonly subject: ForegroundSubject
-			readonly keepCursor?: boolean
-			readonly signal?: AbortSignal
-		},
+		request: LadderRequest,
 		burst: (context: BurstContext) => Promise<T>,
 		attempt = 0,
 	): Promise<ForegroundOutcome<T>> {
@@ -269,6 +309,7 @@ export class ForegroundLadder {
 				kind: 'blocked',
 				block: BLOCKS.lease_busy(this.clock.now() - leaseStart),
 			}
+		let deferred = false
 		try {
 			const state = await this.gate(monitor.monitor, subject, signal)
 			if ('block' in state) return { kind: 'blocked', block: state.block }
@@ -311,6 +352,10 @@ export class ForegroundLadder {
 						if (!this.lease.heartbeat(token)) throw new BurstInterrupted()
 						const now = await monitor.monitor.state()
 						if (now.userInputs !== begun.userInputs) throw new BurstInterrupted()
+						// The hooks see nothing typed into a window above this program's rights,
+						// so a person there cannot be told from silence: stop rather than guess.
+						if (!now.selfElevated && now.foreground?.elevated)
+							throw new BurstInterrupted('administrator_window')
 					},
 				})
 			} catch (error) {
@@ -318,17 +363,42 @@ export class ForegroundLadder {
 			} finally {
 				clearInterval(beat)
 			}
-			// The burst ends, and what it moved is put back, whether it returned or
-			// threw; an Escape pressed on the way stops the turn either way.
-			const ended = await monitor.monitor
-				.end({
-					restore: true,
-					...(request.keepCursor ? { keepCursor: true } : {}),
-				})
-				.catch(() => undefined)
+			// Calls the burst abandoned (an abort) may still be sending: they finish
+			// before the window and cursor are put back. The burst ends, and what it
+			// moved is put back, whether it returned or threw; an Escape pressed on
+			// the way stops the turn either way.
+			const finish = async (): Promise<MonitorBurstEnd | undefined> => {
+				await request.settle?.().catch(() => undefined)
+				const result = await monitor.monitor
+					.end({
+						restore: true,
+						...(request.keepCursor ? { keepCursor: true } : {}),
+					})
+					.catch(() => undefined)
+				if ((result?.escapesDuring ?? 0) > 0) this.stop = { turnId: this.turn }
+				return result
+			}
+			if (failure && request.signal?.aborted) {
+				// A cancelled turn does not wait for the driver to let go: the caller gets
+				// its answer now, and the screen is given back, and the lease released,
+				// once the abandoned calls have finished. The next burst and the end of
+				// the turn wait for that (see `background`).
+				deferred = true
+				this.background = finish()
+					.then(() => undefined)
+					.finally(() => {
+						this.lease.release(token)
+						return this.monitor
+							?.release({ leasePath: this.lease.path, token })
+							.catch(() => undefined)
+					})
+				throw failure.error
+			}
+			const ended = await finish()
 			const stopped = (ended?.escapesDuring ?? 0) > 0
-			if (stopped) this.stop = { turnId: this.turn }
 			if (failure) throw failure.error
+			const dropped =
+				request.sendsInput === true && ended?.inputMoved === false && ended.inputsDuring === 0
 			return {
 				kind: 'ran',
 				value: value as T,
@@ -339,21 +409,29 @@ export class ForegroundLadder {
 				restoredForeground: ended?.restoredForeground ?? false,
 				restoredCursor: ended?.restoredCursor ?? false,
 				...(ended?.restoreNote ? { restoreNote: ended.restoreNote } : {}),
+				...(request.sendsInput === true && ended?.inputMoved !== undefined
+					? { inputLanded: !dropped }
+					: {}),
+				...(dropped
+					? {
+							inputDroppedWhy: ended?.frontElevated
+								? 'An administrator window is in front; Namzu cannot type into it.'
+								: 'Windows dropped the input before it reached any window.',
+						}
+					: {}),
 				heldMs: this.clock.now() - startedAt,
 			}
 		} finally {
-			this.lease.release(token)
-			await this.monitor?.release({ leasePath: this.lease.path, token }).catch(() => undefined)
+			if (!deferred) {
+				this.lease.release(token)
+				await this.monitor?.release({ leasePath: this.lease.path, token }).catch(() => undefined)
+			}
 		}
 	}
 
 	private async retryAfterInterference<T>(
 		monitor: ForegroundMonitor,
-		request: {
-			readonly subject: ForegroundSubject
-			readonly keepCursor?: boolean
-			readonly signal?: AbortSignal
-		},
+		request: LadderRequest,
 		burst: (context: BurstContext) => Promise<T>,
 		token: string,
 		attempt: number,

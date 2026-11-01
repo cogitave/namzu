@@ -41,16 +41,26 @@ export interface MonitorState {
 		readonly hwnd: string
 		readonly pid: number
 		readonly exe: string
-		/** Runs with administrator rights. */
+		/** Windows keeps this program's input from it: it runs above this program's rights, or cannot be inspected. */
 		readonly elevated: boolean
+		/** Its mandatory integrity level as a RID (0x1000 low, 0x2000 medium, 0x3000 high, 0x4000 system); -1 when unreadable. */
+		readonly integrity?: number
 	} | null
 	readonly cursor: { readonly x: number; readonly y: number }
 	/** The input desktop's name. `Default` is the normal one; anything else is a lock screen or a prompt. */
 	readonly desktop: string
 	/** This process runs with administrator rights. */
 	readonly selfElevated: boolean
+	/** This process's integrity level (RID). */
+	readonly selfIntegrity?: number
+	/** The system's last-input tick (`GetLastInputInfo`); it moves when any input, injected or real, is registered. */
+	readonly inputTick?: number
 	/** The target process, when the state was asked for one. */
-	readonly target?: { readonly exe: string; readonly elevated: boolean }
+	readonly target?: {
+		readonly exe: string
+		readonly elevated: boolean
+		readonly integrity?: number
+	}
 }
 
 export interface MonitorBurstEnd {
@@ -62,6 +72,15 @@ export interface MonitorBurstEnd {
 	readonly restoredCursor: boolean
 	/** Why the window in front before the burst was not put back, when it was not. */
 	readonly restoreNote?: string
+	/**
+	 * Whether the system registered any input between the end of `begin` and
+	 * `end`. False after a burst that sent input means Windows dropped it (a
+	 * window above this program's rights was in front). Absent where the
+	 * monitor cannot tell.
+	 */
+	readonly inputMoved?: boolean
+	/** The window in front at `end` was above this program's rights (or unreadable). */
+	readonly frontElevated?: boolean
 }
 
 /** One operation on a classic edit control, by window message (never by focus or keys). */
@@ -186,6 +205,14 @@ export type ForegroundOutcome<T> =
 			readonly restoredForeground: boolean
 			readonly restoredCursor: boolean
 			readonly restoreNote?: string
+			/**
+			 * For a burst declared as sending input: whether the system registered
+			 * it. False means it was dropped before it reached any window; `why`
+			 * then says in plain words. Absent when the burst did not send input
+			 * or the monitor cannot tell.
+			 */
+			readonly inputLanded?: boolean
+			readonly inputDroppedWhy?: string
 			/** How long the screen was in use, from lease to release. */
 			readonly heldMs: number
 	  }
@@ -212,8 +239,12 @@ export interface BurstContext {
 
 /** Thrown by {@link BurstContext.checkpoint}: the next step was not sent. */
 export class BurstInterrupted extends Error {
-	constructor() {
-		super('a person used the keyboard or mouse during the burst')
+	constructor(readonly reason: 'person' | 'administrator_window' = 'person') {
+		super(
+			reason === 'person'
+				? 'a person used the keyboard or mouse during the burst'
+				: 'an administrator window came to the front during the burst',
+		)
 		this.name = 'BurstInterrupted'
 	}
 }

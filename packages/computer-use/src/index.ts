@@ -7,6 +7,7 @@ export type { Win32Backend } from './adapters/win32.js'
 export { detectDisplayServer } from './detect/index.js'
 export {
 	ComputerUseOutcomeUnknownError,
+	ComputerUseLockedError,
 	ComputerUseStoppedError,
 } from './errors.js'
 export type { SubprocessComputerUseHostForegroundOptions } from './SubprocessComputerUseHost.js'

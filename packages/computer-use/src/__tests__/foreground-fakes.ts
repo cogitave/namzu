@@ -80,6 +80,8 @@ export class FakeMonitor implements ForegroundMonitor {
 	refuseBegins = 0
 	/** `end` fails (the helper died after the burst). */
 	endError: Error | undefined
+	/** Extra fields on the `end` answer (`inputMoved`, `frontElevated`). */
+	endExtra: Partial<MonitorBurstEnd> = {}
 	async begin(args?: {
 		raise?: string
 		idleMs?: number
@@ -109,6 +111,7 @@ export class FakeMonitor implements ForegroundMonitor {
 			escapesDuring: this.during.escapes,
 			restoredForeground: args.restore && quiet,
 			restoredCursor: args.restore && quiet && args.keepCursor !== true,
+			...this.endExtra,
 		}
 	}
 	async release(args: { token: string }): Promise<void> {

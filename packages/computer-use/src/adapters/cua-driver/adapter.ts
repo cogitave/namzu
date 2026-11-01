@@ -20,10 +20,11 @@ import type {
 	WindowInputResult,
 	WindowScreenshotResult,
 } from '@namzu/sdk'
-import { foregroundNote, interferenceNote } from '../../foreground/guard.js'
-import type { ForegroundLadder } from '../../foreground/ladder.js'
-import { BurstInterrupted } from '../../foreground/types.js'
+import { droppedInputNote, foregroundNote, interferenceNote } from '../../foreground/guard.js'
+import type { ForegroundLadder, LadderRequest } from '../../foreground/ladder.js'
+import { BurstInterrupted, type ForegroundSubject } from '../../foreground/types.js'
 import type { Presence } from '../../presence/presence.js'
+import { CallAbortedError, currentCallSignal, markSent } from '../../util/call-scope.js'
 import type { Adapter } from '../types.js'
 import {
 	type McpProcessCallOptions,
@@ -137,6 +138,14 @@ const BROWSER_APP = /chrome|msedge|edge|brave|vivaldi|opera|firefox|chromium/i
  * is acted on. Within it, the driver's own handle check (it refuses a handle
  * a newer read of the window replaced) guards the write.
  */
+/** Driver tools that only read; every other tool may change the desktop. */
+const READ_ONLY_TOOL = /^(get_|list_|start_session|set_agent_cursor|check_|describe)/
+
+/** Whether a driver tool call can change the desktop (so a lost one is an unknown outcome). */
+export function changesDesktop(tool: string): boolean {
+	return !READ_ONLY_TOOL.test(tool)
+}
+
 const IDENTITY_FRESH_MS = 3_000
 /** Refs the adapter keeps; the model is shown far fewer. */
 const MAX_REFS = 4_000
@@ -147,9 +156,21 @@ const MAX_SCROLL_TICKS = 50
 /** A drag glides through intermediate moves; many targets ignore one that teleports. */
 const DRAG = { durationMs: 250, steps: 12 } as const
 
-async function disableAgentCursor(call: McpToolCaller): Promise<void> {
-	// Best effort: a build without the tool still works, only slower.
-	await call('set_agent_cursor_enabled', { enabled: false }).catch(() => undefined)
+/**
+ * Switches the driver's own animated cursor off for the session (Namzu draws
+ * its own, and two cursors are never shown). The driver keeps an empty,
+ * fully transparent, click-through window of class `Cua.AgentCursorOverlay`
+ * either way; with the cursor off it draws nothing into it. Returns whether
+ * the driver confirmed it: a build without the tool still works, only slower,
+ * and then Namzu shows no cursor of its own (see `tryPresence`).
+ */
+async function disableAgentCursor(call: McpToolCaller): Promise<boolean> {
+	try {
+		const result = await call('set_agent_cursor_enabled', { enabled: false })
+		return result.structuredContent?.enabled !== true
+	} catch {
+		return false
+	}
 }
 
 interface UiRefEntry extends UiRefFacts {
@@ -337,6 +358,8 @@ export class CuaDriverAdapter implements Adapter {
 	private readonly windowApps = new Map<string, string>()
 	private readonly foreground: ForegroundLadder | undefined
 	private readonly presence: Presence | undefined
+	/** False once the driver would not switch its own cursor off: Namzu's is then not shown, so there is never a second one. */
+	private driverCursorOff: boolean | undefined
 	/** cua-driver's screenshot resize registry is per PID, so only this capture may drive input. */
 	private windowFrame: WindowCaptureFrame | undefined
 	/** Capture and scoped input must not race over cua-driver's per-PID resize ratio. */
@@ -370,7 +393,9 @@ export class CuaDriverAdapter implements Adapter {
 			requestTimeoutMs: options.requestTimeoutMs ?? 15_000,
 			startTimeoutMs: options.startTimeoutMs ?? 30_000,
 			spawnProcess: options.spawnProcess,
-			afterStart: disableAgentCursor,
+			afterStart: async (call) => {
+				this.driverCursorOff = await disableAgentCursor(call)
+			},
 		})
 		this.capabilities = Object.freeze({
 			displayServer: 'win32',
@@ -679,7 +704,11 @@ export class CuaDriverAdapter implements Adapter {
 		// A keyboard delivery that asked for the screen is judged by the edit control's own text, where there is one.
 		const editBefore =
 			typed !== undefined && frame && target && this.foreground
-				? await this.foreground.editText({ hwnd: frame.window.id, op: 'get', pick: 'focus' })
+				? await this.foreground.editText({
+						hwnd: frame.window.id,
+						op: 'get',
+						pick: 'focus',
+					})
 				: undefined
 		let before: Observation | undefined
 		let earlier: Observation | undefined
@@ -712,7 +741,12 @@ export class CuaDriverAdapter implements Adapter {
 				}
 		}
 		if (!sent || sent.delivery !== 'delivered_unverified' || !target || !before) return sent
-		const seen = await this.verifyByReading(target, { typed, before, earlier, windows })
+		const seen = await this.verifyByReading(target, {
+			typed,
+			before,
+			earlier,
+			windows,
+		})
 		if (!seen) return sent
 		return {
 			delivery: seen.delivery,
@@ -856,7 +890,7 @@ export class CuaDriverAdapter implements Adapter {
 			const inForeground = async (why: string): Promise<WindowInputResult> => {
 				const ladder = this.foreground as ForegroundLadder
 				const outcome = await ladder
-					.run({ subject }, async (burst) => {
+					.run(this.burstRequest(subject, true), async (burst) => {
 						await burst.checkpoint()
 						try {
 							return inputDelivery(await call(name, { ...args, delivery_mode: 'foreground' }))
@@ -867,17 +901,21 @@ export class CuaDriverAdapter implements Adapter {
 						}
 					})
 					.catch((error: unknown) => {
-						if (error instanceof BurstInterrupted) return undefined
+						if (error instanceof BurstInterrupted) return error
 						throw error
 					})
-				if (!outcome)
+				if (outcome instanceof BurstInterrupted)
 					return verdict(
 						'not_delivered',
 						'safe',
-						'a person used the keyboard or mouse just before the input was sent, so nothing was sent. Try again in a moment.',
+						outcome.reason === 'person'
+							? 'a person used the keyboard or mouse just before the input was sent, so nothing was sent. Try again in a moment.'
+							: 'an administrator window came to the front just before the input was sent, so nothing was sent. Namzu cannot type into it; try again once it is gone.',
 					)
 				if (outcome.kind === 'blocked')
 					return verdict('not_delivered', 'safe', outcome.block.detail)
+				const dropped = droppedInputNote(outcome)
+				if (dropped) return verdict('not_delivered', 'safe', dropped)
 				const note = interferenceNote(outcome)
 				const base = outcome.value
 				if (note)
@@ -1392,10 +1430,19 @@ export class CuaDriverAdapter implements Adapter {
 		const uiRef = { ref, facts }
 		const { pid } = facts
 		const hwnd = windowIdOf(facts.hwnd)
-		const subject = { app: this.windowApps.get(hwnd) ?? `process ${pid}`, pid, hwnd }
-		const scope = { scope: 'window', pid, window_id: facts.hwnd, delivery_mode: 'foreground' }
+		const subject = {
+			app: this.windowApps.get(hwnd) ?? `process ${pid}`,
+			pid,
+			hwnd,
+		}
+		const scope = {
+			scope: 'window',
+			pid,
+			window_id: facts.hwnd,
+			delivery_mode: 'foreground',
+		}
 		const outcome = await ladder
-			.run({ subject }, async (burst) => {
+			.run(this.burstRequest(subject, true), async (burst) => {
 				await burst.checkpoint()
 				try {
 					await this.callTool(
@@ -1415,16 +1462,18 @@ export class CuaDriverAdapter implements Adapter {
 				}
 			})
 			.catch((error: unknown) => {
-				if (error instanceof BurstInterrupted) return null
+				if (error instanceof BurstInterrupted) return error
 				throw error
 			})
-		if (outcome === null)
+		if (outcome instanceof BurstInterrupted)
 			return {
 				ok: false,
 				delivery: 'not_delivered',
 				retrySafety: 'safe',
 				detail:
-					'a person used the keyboard or mouse just before the choice was made, so it may not have been. Try again in a moment.',
+					outcome.reason === 'person'
+						? 'a person used the keyboard or mouse just before the choice was made, so it may not have been. Try again in a moment.'
+						: 'an administrator window came to the front just before the choice was made; Namzu cannot type into it. Try again once it is gone.',
 			}
 		if (outcome.kind === 'blocked')
 			return {
@@ -1433,11 +1482,24 @@ export class CuaDriverAdapter implements Adapter {
 				retrySafety: 'safe',
 				detail: `${outcome.block.detail} ${instead}`,
 			}
+		const dropped = droppedInputNote(outcome)
+		if (dropped)
+			return {
+				ok: false,
+				delivery: 'not_delivered',
+				retrySafety: 'safe',
+				detail: `${dropped} ${instead}`,
+			}
 		const note = interferenceNote(outcome)
 		if (outcome.value && !outcome.value.ok) return outcome.value
 		const judged = judgeSetValue(facts, option, await this.readBack(facts))
 		if (note)
-			return { ...judged, delivery: 'delivered_unverified', retrySafety: 'unsafe', detail: note }
+			return {
+				...judged,
+				delivery: 'delivered_unverified',
+				retrySafety: 'unsafe',
+				detail: note,
+			}
 		if (judged.delivery === 'delivered_verified')
 			return { ...judged, detail: foregroundNote(outcome) }
 		return { ...judged, detail: `${judged.detail ?? ''} ${instead}`.trim() }
@@ -1477,7 +1539,12 @@ export class CuaDriverAdapter implements Adapter {
 	): Promise<WindowInputResult | undefined> {
 		const ladder = this.foreground
 		if (!ladder) return undefined
-		const result = await ladder.editText({ hwnd: frame.window.id, op: 'type', text, pick: 'focus' })
+		const result = await ladder.editText({
+			hwnd: frame.window.id,
+			op: 'type',
+			text,
+			pick: 'focus',
+		})
 		if (!result) return undefined
 		if (!result.found) {
 			if (result.reason !== 'uipi') return undefined
@@ -1503,9 +1570,17 @@ export class CuaDriverAdapter implements Adapter {
 		const windows = await this.windowIdsOf(target.pid)
 		// Each read of the window replaces the driver's handles: click through the refreshed one.
 		const current = this.uiRefs.get(uiRef.ref) ?? facts
-		const sent = await this.clickRef(current, { ref: uiRef.ref, facts: current })
+		const sent = await this.clickRef(current, {
+			ref: uiRef.ref,
+			facts: current,
+		})
 		if (!sent.ok || sent.delivery !== 'delivered_unverified' || !before) return sent
-		const seen = await this.verifyByReading(target, { typed: undefined, before, earlier, windows })
+		const seen = await this.verifyByReading(target, {
+			typed: undefined,
+			before,
+			earlier,
+			windows,
+		})
 		if (!seen) return sent
 		return {
 			ok: true,
@@ -1539,7 +1614,7 @@ export class CuaDriverAdapter implements Adapter {
 				hwnd: windowIdOf(facts.hwnd),
 			}
 			const outcome = await ladder
-				.run({ subject }, async (burst) => {
+				.run(this.burstRequest(subject, true), async (burst) => {
 					await burst.checkpoint()
 					try {
 						return actResult(
@@ -1556,16 +1631,18 @@ export class CuaDriverAdapter implements Adapter {
 					}
 				})
 				.catch((inner: unknown) => {
-					if (inner instanceof BurstInterrupted) return undefined
+					if (inner instanceof BurstInterrupted) return inner
 					throw inner
 				})
-			if (!outcome)
+			if (outcome instanceof BurstInterrupted)
 				return {
 					ok: false,
 					delivery: 'not_delivered',
 					retrySafety: 'safe',
 					detail:
-						'a person used the keyboard or mouse just before the click was sent, so nothing was sent. Try again in a moment.',
+						outcome.reason === 'person'
+							? 'a person used the keyboard or mouse just before the click was sent, so nothing was sent. Try again in a moment.'
+							: 'an administrator window came to the front just before the click was sent, so nothing was sent. Namzu cannot type into it; try again once it is gone.',
 				}
 			if (outcome.kind === 'blocked')
 				return {
@@ -1573,6 +1650,14 @@ export class CuaDriverAdapter implements Adapter {
 					delivery: 'not_delivered',
 					retrySafety: 'safe',
 					detail: outcome.block.detail,
+				}
+			const dropped = droppedInputNote(outcome)
+			if (dropped)
+				return {
+					ok: false,
+					delivery: 'not_delivered',
+					retrySafety: 'safe',
+					detail: dropped,
 				}
 			const note = interferenceNote(outcome)
 			const base = outcome.value
@@ -1638,7 +1723,7 @@ export class CuaDriverAdapter implements Adapter {
 
 	/** The overlay is decoration: whatever it does, the action goes on. */
 	private tryPresence(use: (presence: Presence) => void): void {
-		if (!this.presence) return
+		if (!this.presence || this.driverCursorOff === false) return
 		try {
 			use(this.presence)
 		} catch {
@@ -1689,8 +1774,11 @@ export class CuaDriverAdapter implements Adapter {
 		)
 			throw new McpToolError(name, 'stale UI snapshot; take a new one')
 		const generation = this.sessionGeneration
+		const signal = currentCallSignal()
+		const changes = changesDesktop(name)
 		try {
-			return await this.client.callTool(name, args, timeoutMs, {
+			const result = await this.client.callTool(name, args, timeoutMs, {
+				...(signal ? { signal } : {}),
 				...(uiRef || windowFrame
 					? {
 							expectedStarts: uiRef?.facts.processStarts ?? windowFrame?.processStarts,
@@ -1698,7 +1786,10 @@ export class CuaDriverAdapter implements Adapter {
 					: {}),
 				...(onProcess ? { onProcess } : {}),
 			})
+			if (changes) markSent()
+			return result
 		} catch (error) {
+			if (error instanceof CallAbortedError && error.sent && changes) markSent()
 			if (!isEndedSessionRefusal(error)) throw error
 			// The refusal proves the old session's element tokens are invalid,
 			// even if start_session fails and there is no successful revival.
@@ -1712,7 +1803,27 @@ export class CuaDriverAdapter implements Adapter {
 				throw new McpToolError(name, 'stale window screenshot; capture the window again')
 			// One retry only. A second refusal or an unacknowledged action is
 			// returned to the host without any further automatic replay.
-			return this.client.callTool(name, args, timeoutMs, { onProcess })
+			const retried = await this.client.callTool(name, args, timeoutMs, {
+				...(signal ? { signal } : {}),
+				...(onProcess ? { onProcess } : {}),
+			})
+			if (changes) markSent()
+			return retried
+		}
+	}
+
+	/**
+	 * What a foreground burst asks of the ladder: the call's cancellation, and
+	 * the wait for calls a cancelled burst left in flight before the window and
+	 * cursor are put back.
+	 */
+	private burstRequest(subject: ForegroundSubject, sendsInput: boolean): LadderRequest {
+		const signal = currentCallSignal()
+		return {
+			subject,
+			sendsInput,
+			...(signal ? { signal } : {}),
+			settle: () => this.client.settled(),
 		}
 	}
 
@@ -1721,7 +1832,9 @@ export class CuaDriverAdapter implements Adapter {
 		if (!this.sessionRevival) {
 			this.sessionRevival = (async () => {
 				await this.client.callTool('start_session')
-				await disableAgentCursor((name, args) => this.client.callTool(name, args))
+				this.driverCursorOff = await disableAgentCursor((name, args) =>
+					this.client.callTool(name, args),
+				)
 				this.windowReads.clear()
 				this.windowFrame = undefined
 				this.sessionGeneration++

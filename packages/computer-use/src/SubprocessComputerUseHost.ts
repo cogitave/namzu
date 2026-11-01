@@ -19,7 +19,12 @@ import type {
 import { type Adapter, AdapterUnavailableError } from './adapters/types.js'
 import type { Win32AdapterOptions } from './adapters/win32.js'
 import { detectDisplayServer } from './detect/index.js'
-import { ComputerUseOutcomeUnknownError, ComputerUseStoppedError } from './errors.js'
+import {
+	ComputerUseLockedError,
+	ComputerUseOutcomeUnknownError,
+	ComputerUseStoppedError,
+	LOCKED_TEXT,
+} from './errors.js'
 import {
 	type ForegroundApprover,
 	type ForegroundLadder,
@@ -27,6 +32,7 @@ import {
 	createWindowsForegroundLadder,
 } from './foreground/index.js'
 import { type Presence, createWindowsPresence } from './presence/index.js'
+import { CallAbortedError, inCallScope } from './util/call-scope.js'
 import { SpawnError } from './util/spawn.js'
 
 const UNINITIALISED_CAPABILITIES: ComputerUseCapabilities = {
@@ -197,65 +203,135 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 		return adapter.getDisplayGeometry()
 	}
 
-	async execute(action: ComputerUseAction): Promise<ComputerUseResult> {
+	async execute(action: ComputerUseAction, signal?: AbortSignal): Promise<ComputerUseResult> {
 		const adapter = this.requireAdapter()
-		try {
-			return await adapter.execute(action)
-		} catch (error) {
-			// SpawnError is produced only after the subprocess started and then
-			// timed out or closed non-zero. An unsafe action may have taken effect
-			// before that terminal status (a multi-command drag is the clearest
-			// example), so replaying it could duplicate or compound the change.
-			// A raw spawn error means the process never established that boundary;
-			// safe reads and idempotent mouse_move keep their ordinary diagnosis.
-			if (error instanceof SpawnError && UNSAFE_TO_REPLAY_AFTER_START.has(action.type)) {
-				throw new ComputerUseOutcomeUnknownError(action.type, error)
-			}
-			throw error
-		}
+		const read = action.type === 'screenshot' || action.type === 'cursor_position'
+		return this.scoped(
+			signal,
+			async () => {
+				if (await this.locked()) {
+					if (read) throw new ComputerUseLockedError()
+					return {
+						type: 'ok',
+						delivery: 'not_delivered',
+						retrySafety: 'safe',
+						detail: LOCKED_TEXT,
+					}
+				}
+				try {
+					const result = await adapter.execute(action)
+					if (action.type === 'screenshot') await this.notCapturedLocked()
+					return result
+				} catch (error) {
+					// SpawnError is produced only after the subprocess started and then
+					// timed out or closed non-zero. An unsafe action may have taken effect
+					// before that terminal status (a multi-command drag is the clearest
+					// example), so replaying it could duplicate or compound the change.
+					// A raw spawn error means the process never established that boundary;
+					// safe reads and idempotent mouse_move keep their ordinary diagnosis.
+					if (error instanceof SpawnError && UNSAFE_TO_REPLAY_AFTER_START.has(action.type)) {
+						throw new ComputerUseOutcomeUnknownError(action.type, error)
+					}
+					throw error
+				}
+			},
+			read
+				? undefined
+				: (sent): ComputerUseResult => ({
+						type: 'ok',
+						...abortedDelivery(sent),
+					}),
+		)
 	}
 
 	/** Offered to the model only when `capabilities.windows` is true. */
-	async listWindows(): Promise<readonly WindowInfo[]> {
+	async listWindows(signal?: AbortSignal): Promise<readonly WindowInfo[]> {
 		const adapter = this.requireAdapter()
 		if (!adapter.listWindows) throw unsupported('listWindows', this._capabilities.displayServer)
-		return adapter.listWindows()
+		return this.scoped(signal, async () => {
+			await this.refuseWhenLocked()
+			return (adapter.listWindows as NonNullable<Adapter['listWindows']>)()
+		})
 	}
 
 	/** Offered to the model only when `capabilities.windows` is true. */
-	async focusWindow(id: string): Promise<FocusWindowResult> {
+	async focusWindow(id: string, signal?: AbortSignal): Promise<FocusWindowResult> {
 		const adapter = this.requireAdapter()
 		if (!adapter.focusWindow) throw unsupported('focusWindow', this._capabilities.displayServer)
-		return adapter.focusWindow(id)
+		return this.scoped(
+			signal,
+			async () => {
+				if (await this.locked())
+					return {
+						ok: false,
+						focusedId: null,
+						delivery: 'not_delivered',
+						retrySafety: 'safe',
+						detail: LOCKED_TEXT,
+					}
+				return (adapter.focusWindow as NonNullable<Adapter['focusWindow']>)(id)
+			},
+			(sent): FocusWindowResult => ({
+				ok: false,
+				focusedId: null,
+				...abortedDelivery(sent),
+			}),
+		)
 	}
 
 	/** Window-local PNG and input, only when the selected adapter supports both. */
-	async captureWindow(id: string): Promise<WindowScreenshotResult> {
+	async captureWindow(id: string, signal?: AbortSignal): Promise<WindowScreenshotResult> {
 		const adapter = this.requireAdapter()
 		if (!adapter.captureWindow) throw unsupported('captureWindow', this._capabilities.displayServer)
-		return adapter.captureWindow(id)
+		return this.scoped(signal, async () => {
+			await this.refuseWhenLocked()
+			const shot = await (adapter.captureWindow as NonNullable<Adapter['captureWindow']>)(id)
+			await this.notCapturedLocked()
+			return shot
+		})
 	}
 
 	async executeWindow(
 		captureId: string,
 		action: WindowInputAction,
+		signal?: AbortSignal,
 	): Promise<WindowInputResult | undefined> {
 		const adapter = this.requireAdapter()
 		if (!adapter.executeWindow) throw unsupported('executeWindow', this._capabilities.displayServer)
-		try {
-			return await adapter.executeWindow(captureId, action)
-		} catch (error) {
-			if (error instanceof SpawnError && UNSAFE_TO_REPLAY_AFTER_START.has(action.type))
-				throw new ComputerUseOutcomeUnknownError(action.type, error)
-			throw error
-		}
+		return this.scoped(
+			signal,
+			async () => {
+				if (await this.locked())
+					return {
+						delivery: 'not_delivered',
+						retrySafety: 'safe',
+						detail: LOCKED_TEXT,
+					}
+				try {
+					return await (adapter.executeWindow as NonNullable<Adapter['executeWindow']>)(
+						captureId,
+						action,
+					)
+				} catch (error) {
+					if (error instanceof SpawnError && UNSAFE_TO_REPLAY_AFTER_START.has(action.type))
+						throw new ComputerUseOutcomeUnknownError(action.type, error)
+					throw error
+				}
+			},
+			(sent): WindowInputResult => abortedDelivery(sent),
+		)
 	}
 
 	/** Offered to the model only when `capabilities.regionCapture` is true. */
-	async captureRegion(rect: Rect): Promise<ScreenshotResult> {
+	async captureRegion(rect: Rect, signal?: AbortSignal): Promise<ScreenshotResult> {
 		const adapter = this.requireAdapter()
 		if (!adapter.captureRegion) throw unsupported('captureRegion', this._capabilities.displayServer)
-		return adapter.captureRegion(rect)
+		return this.scoped(signal, async () => {
+			await this.refuseWhenLocked()
+			const shot = await (adapter.captureRegion as NonNullable<Adapter['captureRegion']>)(rect)
+			await this.notCapturedLocked()
+			return shot
+		})
 	}
 
 	/**
@@ -264,10 +340,17 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 	 *
 	 * @experimental Follows the SDK's UI-tree surface.
 	 */
-	async uiSnapshot(windowId?: string, options?: UiSnapshotOptions): Promise<UiSnapshot> {
+	async uiSnapshot(
+		windowId?: string,
+		options?: UiSnapshotOptions,
+		signal?: AbortSignal,
+	): Promise<UiSnapshot> {
 		const adapter = this.requireAdapter()
 		if (!adapter.uiSnapshot) throw unsupported('uiSnapshot', this._capabilities.displayServer)
-		return adapter.uiSnapshot(windowId, options)
+		return this.scoped(signal, async () => {
+			await this.refuseWhenLocked()
+			return (adapter.uiSnapshot as NonNullable<Adapter['uiSnapshot']>)(windowId, options)
+		})
 	}
 
 	/**
@@ -277,21 +360,39 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 	 *
 	 * @experimental Follows the SDK's UI-tree surface.
 	 */
-	async uiAct(ref: string, action: UiElementAction, value?: string): Promise<UiActResult> {
+	async uiAct(
+		ref: string,
+		action: UiElementAction,
+		value?: string,
+		signal?: AbortSignal,
+	): Promise<UiActResult> {
 		const adapter = this.requireAdapter()
 		if (!adapter.uiAct) throw unsupported('uiAct', this._capabilities.displayServer)
-		try {
-			return await adapter.uiAct(ref, action, value)
-		} catch (error) {
-			if (error instanceof SpawnError)
-				return {
-					ok: false,
-					delivery: 'delivered_unverified',
-					retrySafety: 'unsafe',
-					detail: `the desktop driver stopped before it answered, so ${action} may or may not have happened; look at the screen (ui_snapshot or screenshot) before trying again. ${error.message}`,
+		return this.scoped(
+			signal,
+			async () => {
+				if (await this.locked())
+					return {
+						ok: false,
+						delivery: 'not_delivered',
+						retrySafety: 'safe',
+						detail: LOCKED_TEXT,
+					}
+				try {
+					return await (adapter.uiAct as NonNullable<Adapter['uiAct']>)(ref, action, value)
+				} catch (error) {
+					if (error instanceof SpawnError)
+						return {
+							ok: false,
+							delivery: 'delivered_unverified',
+							retrySafety: 'unsafe',
+							detail: `the desktop driver stopped before it answered, so ${action} may or may not have happened; look at the screen (ui_snapshot or screenshot) before trying again. ${error.message}`,
+						}
+					throw error
 				}
-			throw error
-		}
+			},
+			(sent): UiActResult => ({ ok: false, ...abortedDelivery(sent) }),
+		)
 	}
 
 	/** Stops whatever the adapter keeps running (the Windows cua-driver process). */
@@ -316,6 +417,43 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 		this.presence?.hide()
 	}
 
+	/**
+	 * One tool call: its cancellation reaches every driver call and foreground
+	 * burst made for it. When cancelled, a call that changes the desktop answers
+	 * at once with what is known (`onAbort`, told whether anything may have been
+	 * sent); a read has no answer to give and throws.
+	 */
+	private async scoped<T>(
+		signal: AbortSignal | undefined,
+		run: () => Promise<T>,
+		onAbort?: (sent: boolean) => T,
+	): Promise<T> {
+		return inCallScope(signal, async (scope) => {
+			try {
+				return await run()
+			} catch (error) {
+				if (!(error instanceof CallAbortedError)) throw error
+				if (!onAbort) throw new Error('cancelled')
+				return onAbort(scope.sent || error.sent)
+			}
+		})
+	}
+
+	/** True when the computer is known to be locked; false when it is not or cannot be told. */
+	private async locked(): Promise<boolean> {
+		if (!this.ladder) return false
+		return (await this.ladder.lockState().catch(() => null)) === 'locked'
+	}
+
+	private async refuseWhenLocked(): Promise<void> {
+		if (await this.locked()) throw new ComputerUseLockedError()
+	}
+
+	/** A capture taken while the screen was locked shows no current state: it is dropped. */
+	private async notCapturedLocked(): Promise<void> {
+		if (await this.locked()) throw new ComputerUseLockedError()
+	}
+
 	private requireAdapter(): Adapter {
 		if (this.ladder?.stopped) throw new ComputerUseStoppedError()
 		if (!this.adapter) {
@@ -325,6 +463,22 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 		}
 		return this.adapter
 	}
+}
+
+/** What a cancelled call that changes the desktop tells the model. */
+function abortedDelivery(sent: boolean): WindowInputResult {
+	return sent
+		? {
+				delivery: 'delivered_unverified',
+				retrySafety: 'unsafe',
+				detail:
+					'The turn was cancelled while this was being sent, so it may have gone through. Look at the window before repeating it.',
+			}
+		: {
+				delivery: 'not_delivered',
+				retrySafety: 'safe',
+				detail: 'The turn was cancelled before this was sent, so nothing happened.',
+			}
 }
 
 function unsupported(method: string, displayServer: string): Error {

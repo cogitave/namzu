@@ -5,6 +5,7 @@ import type {
 	WindowInfo,
 } from '@namzu/sdk'
 import type { Adapter } from '../adapters/types.js'
+import { currentCallSignal } from '../util/call-scope.js'
 import type { ForegroundLadder } from './ladder.js'
 import { STOPPED_TEXT } from './ladder.js'
 import type { ForegroundOutcome, ForegroundSubject } from './types.js'
@@ -33,6 +34,18 @@ export function interferenceNote(outcome: {
 	if (outcome.interfered)
 		return 'The user used the keyboard or mouse while the screen was in use, so the input may have landed somewhere else or only in part. Look at the window before repeating it.'
 	return undefined
+}
+
+/**
+ * Set when a burst that sent input was not registered by the system at all:
+ * Windows dropped it, so it reached no window and sending it again is safe
+ * once the cause (an administrator window in front) is gone.
+ */
+export function droppedInputNote(
+	outcome: Extract<ForegroundOutcome<unknown>, { kind: 'ran' }>,
+): string | undefined {
+	if (outcome.inputLanded !== false) return undefined
+	return `${outcome.inputDroppedWhy ?? 'Windows dropped the input before it reached any window.'} Nothing was sent to the window; try again once that window is closed or the user has acted in it.`
 }
 
 /** The sentence that tells the model a background action ran in the foreground. */
@@ -75,6 +88,8 @@ export function guardForeground(adapter: Adapter, ladder: ForegroundLadder): Ada
 				{
 					subject: { app: 'the desktop' },
 					keepCursor: action.type === 'mouse_move',
+					sendsInput: action.type !== 'mouse_move',
+					...(currentCallSignal() ? { signal: currentCallSignal() as AbortSignal } : {}),
 				},
 				async () => adapter.execute(action),
 			)
@@ -84,6 +99,14 @@ export function guardForeground(adapter: Adapter, ladder: ForegroundLadder): Ada
 					delivery: 'not_delivered',
 					retrySafety: 'safe',
 					detail: outcome.block.detail,
+				}
+			const dropped = droppedInputNote(outcome)
+			if (dropped)
+				return {
+					type: 'ok',
+					delivery: 'not_delivered',
+					retrySafety: 'safe',
+					detail: dropped,
 				}
 			const note = interferenceNote(outcome)
 			if (!note || outcome.value.type !== 'ok') return outcome.value
@@ -114,7 +137,13 @@ export function guardForeground(adapter: Adapter, ladder: ForegroundLadder): Ada
 			const subject: ForegroundSubject = window
 				? { app: window.app, pid: window.pid, hwnd: window.id }
 				: { app: 'the window you named', hwnd: id }
-			const outcome = await ladder.run({ subject }, () => focus(id))
+			const outcome = await ladder.run(
+				{
+					subject,
+					...(currentCallSignal() ? { signal: currentCallSignal() as AbortSignal } : {}),
+				},
+				() => focus(id),
+			)
 			if (outcome.kind === 'blocked')
 				return {
 					ok: false,

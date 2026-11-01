@@ -65,6 +65,9 @@ public static class NzG {
  [DllImport("kernel32.dll", CharSet=CharSet.Unicode)] static extern bool QueryFullProcessImageName(IntPtr p, uint f, StringBuilder s, ref int n);
  [DllImport("advapi32.dll")] static extern bool OpenProcessToken(IntPtr p, uint a, out IntPtr t);
  [DllImport("advapi32.dll")] static extern bool GetTokenInformation(IntPtr t, int c, out int v, int n, out int r);
+ [DllImport("advapi32.dll")] static extern bool GetTokenInformation(IntPtr t, int c, IntPtr v, int n, out int r);
+ [DllImport("advapi32.dll")] static extern IntPtr GetSidSubAuthorityCount(IntPtr sid);
+ [DllImport("advapi32.dll")] static extern IntPtr GetSidSubAuthority(IntPtr sid, uint i);
  static LL kp, mp; static IntPtr kh, mh;
  public static long Inputs, Escapes, LastReal; public static bool Hooks; public static string HookError = "";
  static ManualResetEvent ready = new ManualResetEvent(false);
@@ -111,10 +114,33 @@ public static class NzG {
   IntPtr h = OpenProcess(0x1000, false, pid); if (h == IntPtr.Zero) return "";
   try { var sb = new StringBuilder(520); int n = 520; if (!QueryFullProcessImageName(h, 0, sb, ref n)) return ""; var s = sb.ToString(); int i = s.LastIndexOf('\\'); return i >= 0 ? s.Substring(i + 1) : s; } finally { CloseHandle(h); }
  }
- public static bool Elevated(uint pid) {
+ // The mandatory integrity level of a process as its RID: 0x1000 low, 0x2000 medium,
+ // 0x3000 high, 0x4000 system. -1 when it cannot be read (a program with higher rights refuses).
+ public static int Integrity(uint pid) {
   IntPtr h = OpenProcess(0x1000, false, pid);
-  if (h == IntPtr.Zero) return true;
-  try { IntPtr t; if (!OpenProcessToken(h, 8, out t)) return false; try { int v, r; return GetTokenInformation(t, 20, out v, 4, out r) && v != 0; } finally { CloseHandle(t); } } finally { CloseHandle(h); }
+  if (h == IntPtr.Zero) return -1;
+  try {
+   IntPtr t; if (!OpenProcessToken(h, 8, out t)) return -1;
+   try {
+    int need; GetTokenInformation(t, 25, IntPtr.Zero, 0, out need);
+    if (need <= 0) return -1;
+    IntPtr buf = Marshal.AllocHGlobal(need);
+    try {
+     if (!GetTokenInformation(t, 25, buf, need, out need)) return -1;
+     IntPtr sid = Marshal.ReadIntPtr(buf);
+     int n = Marshal.ReadByte(GetSidSubAuthorityCount(sid));
+     if (n < 1) return -1;
+     return Marshal.ReadInt32(GetSidSubAuthority(sid, (uint)(n - 1)));
+    } finally { Marshal.FreeHGlobal(buf); }
+   } finally { CloseHandle(t); }
+  } finally { CloseHandle(h); }
+ }
+ static int selfRid = -2;
+ public static int SelfIntegrity() { if (selfRid == -2) selfRid = Integrity(GetCurrentProcessId()); return selfRid; }
+ // Whether Windows keeps this program's input from that process: it runs above us, or cannot be read.
+ public static bool Elevated(uint pid) {
+  int r = Integrity(pid); if (r < 0) return true;
+  return r > SelfIntegrity();
  }
  public static string Desktop() {
   IntPtr d = OpenInputDesktop(0, false, 1); if (d == IntPtr.Zero) return "(unreadable)";
@@ -137,7 +163,7 @@ public static class NzG {
   var res = new EditRes(); IntPtr t = (IntPtr)top;
   if (!IsWindow(t)) { res.Reason = "gone"; return res; }
   uint pid; uint tid = GetWindowThreadProcessId(t, out pid);
-  if (Elevated(pid) && !Elevated(GetCurrentProcessId())) { res.Reason = "uipi"; return res; }
+  if (Elevated(pid)) { res.Reason = "uipi"; return res; }
   var found = new System.Collections.Generic.List<IntPtr>();
   EnumChildWindows(t, (h, l) => { if (IsWindowVisible(h) && EditClass(ClassOf(h))) found.Add(h); return true; }, IntPtr.Zero);
   IntPtr pickH = IntPtr.Zero;
@@ -200,7 +226,8 @@ public static class NzG {
 }
 "@
 $hooks = [NzG]::StartHooks()
-$selfElevated = [NzG]::Elevated([uint32]$PID)
+$selfIntegrity = [NzG]::SelfIntegrity()
+$selfElevated = ($selfIntegrity -ge 12288)
 $ownStart = 0; $ownEnd = 0
 $burst = $null
 function Hx($h) { '0x{0:X}' -f [int64]$h }
@@ -214,11 +241,11 @@ function State($pidArg) {
   $idle = [Math]::Min($realIdle, $gliIdle)
   if ($idle -eq [int64]::MaxValue) { $idle = 86400000 }
   $r = @{
-    userIdleMs = $idle; userInputs = [NzG]::Inputs; escapes = [NzG]::Escapes; desktop = [NzG]::Desktop(); selfElevated = $selfElevated
+    userIdleMs = $idle; userInputs = [NzG]::Inputs; escapes = [NzG]::Escapes; desktop = [NzG]::Desktop(); selfElevated = $selfElevated; selfIntegrity = $selfIntegrity; inputTick = $gli
     cursor = @{ x = [NzG]::CursorX(); y = [NzG]::CursorY() }
-    foreground = @{ hwnd = (Hx $fgH); pid = $fgPid; exe = [NzG]::Exe($fgPid); elevated = [NzG]::Elevated($fgPid) }
+    foreground = @{ hwnd = (Hx $fgH); pid = $fgPid; exe = [NzG]::Exe($fgPid); elevated = [NzG]::Elevated($fgPid); integrity = [NzG]::Integrity($fgPid) }
   }
-  if ($pidArg) { $r.target = @{ exe = [NzG]::Exe([uint32]$pidArg); elevated = [NzG]::Elevated([uint32]$pidArg) } }
+  if ($pidArg) { $r.target = @{ exe = [NzG]::Exe([uint32]$pidArg); elevated = [NzG]::Elevated([uint32]$pidArg); integrity = [NzG]::Integrity([uint32]$pidArg) } }
   $r
 }
 function EndBurst($restore, $keepCursor) {
@@ -227,6 +254,9 @@ function EndBurst($restore, $keepCursor) {
   $b = $script:burst; $script:burst = $null
   $script:ownEnd = [NzG]::Tick()
   $res.inputsDuring = [NzG]::Inputs - $b.inputs; $res.escapesDuring = [NzG]::Escapes - $b.escapes
+  # Input that Windows dropped (a window above this program's rights) leaves the tick where it was.
+  $res.inputMoved = ([NzG]::GliTick() -ne $b.tick)
+  $fgNow = [NzG]::Fg(); $res.frontElevated = [NzG]::Elevated([NzG]::PidOf($fgNow))
   if ($restore) {
     # The window is put back only when this burst moved the front: the window it
     # raised, or, where the raise was refused and the driver took the front itself,
@@ -263,7 +293,7 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
     switch ($c.cmd) {
       'state' { $r = State $c.pid }
       'begin' {
-        $script:burst = @{ inputs = [NzG]::Inputs; escapes = [NzG]::Escapes; fg = [NzG]::Fg(); raised = 0; raisedPid = 0; target = 0; targetPid = 0; x = [NzG]::CursorX(); y = [NzG]::CursorY(); lease = $c.lease; token = $c.token }
+        $script:burst = @{ inputs = [NzG]::Inputs; escapes = [NzG]::Escapes; fg = [NzG]::Fg(); raised = 0; raisedPid = 0; target = 0; targetPid = 0; tick = 0; x = [NzG]::CursorX(); y = [NzG]::CursorY(); lease = $c.lease; token = $c.token }
         $pre = State $null
         if ($c.idleMs -and $pre.userIdleMs -lt [int64]$c.idleMs) {
           # A person is still using the machine: move nothing.
@@ -278,6 +308,8 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
             $raised = [NzG]::Raise($target)
             if ($raised -and [NzG]::Fg() -ne $script:burst.fg) { $script:burst.raised = $target; $script:burst.raisedPid = [NzG]::PidOf($target) }
           }
+          # Taken after the raise: the unlock tap above is this program's own input.
+          $script:burst.tick = [NzG]::GliTick()
           $r = State $null
           if ($null -ne $raised) { $r.raised = $raised; $r.raiseHow = [NzG]::How }
         }

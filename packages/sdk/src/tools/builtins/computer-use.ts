@@ -1325,6 +1325,11 @@ export function createComputerUseTool(
 		return null
 	}
 
+	// The cancellation of the call being served. A tool runs one call at a time
+	// (`concurrencySafe: false`), so one variable is enough; every host call below
+	// passes it so an interrupted turn stops waiting for the desktop.
+	let callSignal: AbortSignal | undefined
+
 	/** Capture the display or one explicitly named window, fit it, and number it. */
 	const capture = async (windowId?: string): Promise<Capture> => {
 		if (windowId !== undefined) {
@@ -1334,6 +1339,7 @@ export function createComputerUseTool(
 				)
 			const shot = await (host.captureWindow as NonNullable<ComputerUseHost['captureWindow']>)(
 				windowId,
+				callSignal,
 			)
 			const image = await fitPng(shot.data, settings.limits)
 			if (image.sourceWidth !== shot.width || image.sourceHeight !== shot.height)
@@ -1346,7 +1352,7 @@ export function createComputerUseTool(
 			throw new StepFailure(
 				'this host requires window_id for screenshots; no display screenshot was taken',
 			)
-		const result = await host.execute({ type: 'screenshot' })
+		const result = await host.execute({ type: 'screenshot' }, callSignal)
 		if (result.type !== 'screenshot')
 			throw new Error(`computer_use: the host answered a screenshot with "${result.type}"`)
 		const shot = result.result
@@ -1415,10 +1421,11 @@ export function createComputerUseTool(
 				const verdict = await (host.executeWindow as NonNullable<ComputerUseHost['executeWindow']>)(
 					frame.window.captureId,
 					action as WindowInputAction,
+					callSignal,
 				)
 				return hostOutcome(verdict ?? undefined)
 			}
-			const result = await host.execute(action)
+			const result = await host.execute(action, callSignal)
 			if (result.type === 'cursor_position') {
 				const selected = frame ?? frames.latest()
 				if (!selected) return `at display pixel ${pointLabel(result.point)}`
@@ -1582,6 +1589,7 @@ export function createComputerUseTool(
 					try {
 						outcome = await (host.focusWindow as NonNullable<ComputerUseHost['focusWindow']>)(
 							item.window_id,
+							callSignal,
 						)
 					} catch (error) {
 						throw new StepFailure(errorText(error))
@@ -1625,6 +1633,7 @@ export function createComputerUseTool(
 							entry.hostRef,
 							item.action,
 							item.value,
+							callSignal,
 						)
 					} catch (error) {
 						throw new StepFailure(errorText(error))
@@ -1667,6 +1676,7 @@ export function createComputerUseTool(
 			snapshot = await (host.uiSnapshot as NonNullable<ComputerUseHost['uiSnapshot']>)(
 				windowId,
 				options,
+				callSignal,
 			)
 		} catch (error) {
 			throw new StepFailure(errorText(error))
@@ -1882,7 +1892,9 @@ export function createComputerUseTool(
 			if (signal?.aborted) throw new StepFailure('cancelled')
 			try {
 				if (windowCondition) {
-					const windows = await (host.listWindows as NonNullable<ComputerUseHost['listWindows']>)()
+					const windows = await (host.listWindows as NonNullable<ComputerUseHost['listWindows']>)(
+						callSignal,
+					)
 					const open = windows.some((window) => window.title.toLowerCase().includes(needle))
 					if (open === input.until.endsWith('appears')) {
 						const seconds = ((Date.now() - started) / 1000).toFixed(1)
@@ -1900,6 +1912,8 @@ export function createComputerUseTool(
 				} else {
 					const snapshot = await (host.uiSnapshot as NonNullable<ComputerUseHost['uiSnapshot']>)(
 						input.window_id ?? uiSnapshotWindowId,
+						undefined,
+						callSignal,
 					)
 					lastSnapshot = snapshot
 					if (treeHolds(input, snapshot)) {
@@ -1950,7 +1964,7 @@ export function createComputerUseTool(
 		if (!available.has('list_windows')) return
 		let windows: readonly WindowInfo[]
 		try {
-			windows = await (host.listWindows as NonNullable<ComputerUseHost['listWindows']>)()
+			windows = await (host.listWindows as NonNullable<ComputerUseHost['listWindows']>)(callSignal)
 		} catch (error) {
 			throw new StepFailure(
 				`the window in front could not be read, so nothing was typed: ${errorText(error)}`,
@@ -1966,7 +1980,7 @@ export function createComputerUseTool(
 	const listWindows = async (): Promise<string> => {
 		let windows: readonly WindowInfo[]
 		try {
-			windows = await (host.listWindows as NonNullable<ComputerUseHost['listWindows']>)()
+			windows = await (host.listWindows as NonNullable<ComputerUseHost['listWindows']>)(callSignal)
 		} catch (error) {
 			throw new StepFailure(errorText(error))
 		}
@@ -2106,10 +2120,10 @@ export function createComputerUseTool(
 				throw new StepFailure(`window screenshot ${frame.id} is stale; capture the window again`)
 			fitted = await cropAndFitPng(frame.window.data, rect, settings.limits)
 		} else if (caps.regionCapture === true && typeof host.captureRegion === 'function') {
-			const piece = await host.captureRegion(rect)
+			const piece = await host.captureRegion(rect, callSignal)
 			fitted = await fitPng(piece.data, settings.limits)
 		} else {
-			const result = await host.execute({ type: 'screenshot' })
+			const result = await host.execute({ type: 'screenshot' }, callSignal)
 			if (result.type !== 'screenshot')
 				throw new Error(`computer_use: the host answered a screenshot with "${result.type}"`)
 			const full: ScreenshotResult = result.result
@@ -2435,6 +2449,7 @@ export function createComputerUseTool(
 			// The host keeps per-turn state (an Escape stop, refused permissions); it
 			// is told which turn this is and released when the turn is cut short.
 			host.beginTurn?.(context.turnId)
+			callSignal = context.abortSignal
 			if (host.endTurn) {
 				const release = () => void Promise.resolve(host.endTurn?.()).catch(() => undefined)
 				if (context.abortSignal.aborted) release()
@@ -2468,6 +2483,8 @@ export function createComputerUseTool(
 						error: `computer_use failed: ${error.message}`,
 					}
 				throw error
+			} finally {
+				callSignal = undefined
 			}
 		},
 	})

@@ -110,9 +110,39 @@ next one. Nothing in a blocked result was sent:
 | `locked_desktop` | LockApp, LogonUI or winlogon in front | Ask the user to unlock; never work around it |
 | `uac_prompt` | consent.exe in front | Ask the user to answer it |
 | `secure_desktop` | The input desktop is not `Default` | Ask the user to answer it |
-| `elevated_target` | The target has higher rights than this process | Ask the user; never work around it |
+| `elevated_target` | The target, or the window in front, has a higher integrity level than this process | "An administrator window is in front; Namzu cannot type into it": ask the user; never work around it |
 
 All of them are `not_delivered` with `retrySafety: safe`.
+
+## Input that Windows drops
+
+Windows silently discards input from a process to a window that runs at a higher
+integrity level (UIPI), and the `SendInput` call still succeeds. Two defences
+sit in the helper, which reads the mandatory integrity level of a process
+(`OpenProcess` with `PROCESS_QUERY_LIMITED_INFORMATION`, then
+`GetTokenInformation` with `TokenIntegrityLevel`; low 0x1000, medium 0x2000,
+high 0x3000, system 0x4000):
+
+1. **Before the burst.** The gate compares the window in front, and the target,
+   with the helper's own level. A process above it, or one whose level cannot be
+   read, is `elevated_target` and nothing is sent. `MonitorState` carries
+   `selfIntegrity`, `foreground.integrity` and `target.integrity` so a refusal
+   can be explained; `elevated` means "above us".
+2. **After the burst.** A burst declared as sending input (`sendsInput`) records
+   the system's last-input tick (`GetLastInputInfo`) right after the raise, and
+   compares it at `end`. A tick that did not move while nobody else typed means
+   Windows dropped the input: the outcome carries `inputLanded: false` and a
+   plain reason, and the action is `not_delivered` with `retrySafety: safe`
+   ("An administrator window is in front; Namzu cannot type into it." when the
+   front window is above us, "Windows dropped the input before it reached any
+   window." otherwise). The unlock tap the helper sends before a raise is taken
+   before the tick is read, so it does not count.
+
+The low-level hooks that watch for a person see nothing typed into a window
+above the helper's level, so the in-burst guard cannot tell a person there from
+silence. Each `checkpoint` therefore also stops the burst
+(`BurstInterrupted('administrator_window')`) when such a window has come to the
+front; the next step is not sent.
 
 ## The question
 
@@ -130,6 +160,39 @@ host, below the model: every later `computer_use` call of that turn throws the
 same message until the host is told about a new turn (`beginTurn`). `endTurn`,
 called when a turn finishes or is interrupted, stops the input monitor; the lease
 is released as each burst ends.
+
+## A cancelled turn
+
+The `computer_use` tool hands its call's `AbortSignal` (the turn was
+interrupted, Esc included) to every host method as a trailing `signal`
+argument. The host makes it the signal of every driver call and foreground
+burst made for that call:
+
+- The call stops waiting at once. An action that may already have been sent
+  (the driver had the request, or an earlier step of the same action went out)
+  answers `delivered_unverified` with `retrySafety: unsafe`; one that provably
+  was not sent yet answers `not_delivered`, `safe`. A read (a screenshot, a
+  window list, a tree) throws `cancelled`.
+- The driver is not stopped. A request the caller abandoned stays in flight
+  until it answers or its own timeout stops the driver.
+- A foreground burst is not restored under it. The window and the cursor are put
+  back, and the lease released, only after those abandoned requests have
+  finished (`LadderRequest.settle`); the caller is answered without waiting for
+  that, the next burst and `endTurn`/`dispose` wait for it.
+
+## A locked computer
+
+Before a host method reads or acts, the host asks the helper whether the
+computer is locked: the input desktop is not `Default`, or LockApp, LogonUI or
+winlogon is in front. If it is, a read throws `ComputerUseLockedError` (code
+`computer_locked`) and an action answers `not_delivered`, `safe` with the text
+"The computer is locked (or a system prompt only the user can answer has the
+screen), so nothing was done or read. Ask the user to unlock it, then continue.
+Do not try to work around it." A desktop name the helper cannot read, or a
+helper that cannot start, is "unsure" and counts as unlocked. A capture is
+checked again afterwards: one taken while the screen locked is dropped, because
+it shows nothing current. The check costs one round trip to the running helper;
+the first one in a turn starts it.
 
 ## The lease
 

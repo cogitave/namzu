@@ -148,6 +148,22 @@ release. How the tool shows them to the model is in
 The contract applies to any backend: a custom helper and a desktop driver
 both fit, and a host without optional methods is still a complete host.
 
+## Cancellation and a locked computer
+
+Every method that reaches the desktop (`execute`, `listWindows`, `focusWindow`,
+`captureWindow`, `executeWindow`, `captureRegion`, `uiSnapshot`, `uiAct`) takes a
+trailing optional `signal: AbortSignal`, the tool call's cancellation. On abort
+a host stops waiting for the desktop and answers at once: an action that may
+already have been sent answers `delivered_unverified` with `retrySafety:
+'unsafe'`, one that provably was not answers `not_delivered`, `'safe'`, and a
+read throws. A host that ignores the argument stays correct, only slower to stop.
+
+A host that can tell that the computer is locked refuses before it observes or
+acts, with a typed refusal (an action: `not_delivered`, `safe`; a read: an error
+whose `code` is `computer_locked`), and does not return a capture taken while it
+was locked. `SubprocessComputerUseHost` does this on Windows from the foreground
+helper; see [the foreground ladder](foreground-ladder.md#a-locked-computer).
+
 ## Using the screen: turns and the foreground ladder
 
 A host that can only deliver some input in the foreground must not take the
@@ -203,6 +219,17 @@ hidden application windows that cannot be ordered against), so a window opened
 after the overlay started gets it too. The helper works in physical pixels
 whatever the display scaling, and a helper that ends mid-session is started
 again by the next action, up to three times.
+
+Only one cursor is ever shown. The desktop driver draws a cursor of its own
+(an animated arrow in a full-screen window of class `Cua.AgentCursorOverlay`).
+The adapter switches it off for its session when the driver starts and again
+after a session is revived (`set_agent_cursor_enabled` with `enabled: false`; the
+driver confirms it and `get_agent_cursor_state` reports `enabled: false`). The
+window stays: it is empty, fully transparent and click-through, and with the
+cursor off the driver draws nothing into it. There is no environment variable or
+configuration key for it; the call is per session. If the driver does not
+confirm it (an older build without the tool), Namzu's cursor and border are not
+shown at all, so the driver's remains the only one.
 
 On by default on Windows and WSL. Turn it off with the host option
 `presence: false` (`SubprocessComputerUseHostOptions`) or the environment

@@ -40,3 +40,20 @@ export class ComputerUseStoppedError extends Error {
 		this.name = 'ComputerUseStoppedError'
 	}
 }
+
+/** What the model reads when the computer is locked. Fixed on purpose. */
+export const LOCKED_TEXT =
+	'The computer is locked (or a system prompt only the user can answer has the screen), so nothing was done or read. Ask the user to unlock it, then continue. Do not try to work around it.'
+
+/**
+ * The computer is locked: a read or a capture would show nothing current, and
+ * an action would go nowhere. Nothing was sent.
+ */
+export class ComputerUseLockedError extends Error {
+	readonly code = 'computer_locked' as const
+
+	constructor() {
+		super(LOCKED_TEXT)
+		this.name = 'ComputerUseLockedError'
+	}
+}

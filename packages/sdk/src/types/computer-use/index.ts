@@ -477,20 +477,27 @@ export interface ComputerUseHost {
 	 * Points in `action` are physical pixels relative to the display of the
 	 * most recent capture; a `screenshot` result carries that display in
 	 * {@link ScreenshotResult.display}.
+	 *
+	 * Every method that reaches the desktop takes a trailing `signal`: the
+	 * tool call's cancellation (the user interrupted the turn). On abort a host
+	 * stops waiting for the desktop and answers at once. An action that may
+	 * already have been sent answers `delivered_unverified` with `retrySafety:
+	 * 'unsafe'`; one that provably was not answers `not_delivered` with
+	 * `'safe'`. A read throws.
 	 */
-	execute(action: ComputerUseAction): Promise<ComputerUseResult>
+	execute(action: ComputerUseAction, signal?: AbortSignal): Promise<ComputerUseResult>
 
 	/**
 	 * The visible, titled top-level windows, front to back where the platform
 	 * knows the order. Offered to the model only with
 	 * {@link ComputerUseCapabilities.windows}.
 	 */
-	listWindows?(): Promise<readonly WindowInfo[]>
+	listWindows?(signal?: AbortSignal): Promise<readonly WindowInfo[]>
 	/**
 	 * Bring a window to the front, restoring it when minimized. Offered only
 	 * with {@link ComputerUseCapabilities.windows}.
 	 */
-	focusWindow?(id: string): Promise<FocusWindowResult>
+	focusWindow?(id: string, signal?: AbortSignal): Promise<FocusWindowResult>
 	/**
 	 * The model's turn `turnId` is making a tool call. A host that keeps state
 	 * per turn (an Escape stop, refused permissions) starts a new one when the
@@ -504,22 +511,26 @@ export interface ComputerUseHost {
 	 */
 	endTurn?(): void | Promise<void>
 	/** Capture a named window. Never silently replace a failed capture with the desktop. */
-	captureWindow?(id: string): Promise<WindowScreenshotResult>
+	captureWindow?(id: string, signal?: AbortSignal): Promise<WindowScreenshotResult>
 	/**
 	 * Act in the PNG pixel space of `captureId`. The host must verify the
 	 * capture is current and still belongs to the same process/window before
 	 * dispatching input. No implicit fallback to display input is permitted.
 	 */
 	// `void` stays in the union: a host that returns nothing (`Promise<void>`) must keep compiling.
-	// biome-ignore lint/suspicious/noConfusingVoidType: widening an existing `Promise<void>` return
-	executeWindow?(captureId: string, action: WindowInputAction): Promise<void | WindowInputResult>
+	executeWindow?(
+		captureId: string,
+		action: WindowInputAction,
+		signal?: AbortSignal,
+		// biome-ignore lint/suspicious/noConfusingVoidType: widening an existing `Promise<void>` return
+	): Promise<void | WindowInputResult>
 	/**
 	 * Capture one region of the current display at full physical resolution.
 	 * `rect` is display-relative physical pixels; the result's `width` and
 	 * `height` are the region's. Used by `zoom` when
 	 * {@link ComputerUseCapabilities.regionCapture} is set.
 	 */
-	captureRegion?(rect: Rect): Promise<ScreenshotResult>
+	captureRegion?(rect: Rect, signal?: AbortSignal): Promise<ScreenshotResult>
 	/**
 	 * The accessibility tree of one window, or of the focused window when
 	 * `windowId` is omitted. With `options.root` only that element's subtree is
@@ -527,14 +538,23 @@ export interface ComputerUseHost {
 	 *
 	 * @experimental
 	 */
-	uiSnapshot?(windowId?: string, options?: UiSnapshotOptions): Promise<UiSnapshot>
+	uiSnapshot?(
+		windowId?: string,
+		options?: UiSnapshotOptions,
+		signal?: AbortSignal,
+	): Promise<UiSnapshot>
 	/**
 	 * Act on an element from an earlier {@link uiSnapshot}. `value` is the text
 	 * for `set_value`. Offered only with {@link ComputerUseCapabilities.uiTree}.
 	 *
 	 * @experimental
 	 */
-	uiAct?(ref: string, action: UiElementAction, value?: string): Promise<UiActResult>
+	uiAct?(
+		ref: string,
+		action: UiElementAction,
+		value?: string,
+		signal?: AbortSignal,
+	): Promise<UiActResult>
 
 	initialize?(): Promise<void>
 	dispose?(): Promise<void>
