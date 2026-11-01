@@ -6,7 +6,7 @@
   "calibration": {
     "date": "2026-11-01",
     "machine": "WSL2 x86_64, taskset to 2 cores, node v24.19.0, built output of main at 5f29783af",
-    "method": "node scripts/bench-startup.mjs --check, three full runs; each reference is the largest of the three medians (median of 5 samples per run), rounded up. ciScale 3 is a first, deliberately loose figure: no CI runner has been measured yet, so re-derive it from the first runs on the matrix leg",
+    "method": "node scripts/bench-startup.mjs --check, three full runs; each reference is the largest of the three medians (median of 5 samples per run), rounded up to the next 10 ms. ciScale 3 is a first, deliberately loose figure: no CI runner has been measured yet, so re-derive it from the first runs on the matrix leg",
     "resumedSession": "400 turns of one question and three 1.5 KB answers, 2,400 log records, 3.3 MB"
   },
   "metrics": {
@@ -15,6 +15,6 @@
     "exec-request-stdin-pipe": { "wallMs": 610, "cpuMs": 410 },
     "exec-request-stdin-null": { "wallMs": 490, "cpuMs": 400 },
     "tui-ready": { "wallMs": 670, "cpuMs": 760 },
-    "resume-request": { "wallMs": 3430, "cpuMs": 3830 }
+    "resume-request": { "wallMs": 3440, "cpuMs": 3830 }
   }
 }

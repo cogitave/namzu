@@ -230,16 +230,16 @@ because a budget a run can loosen is a measurement. A limit is the reference
 median x `ciScale` (3, how much slower a shared runner may be; a first, loose figure because no CI runner had been measured when it was set, to be re-derived from the first runs) x `headroom`
 (1.25, run-to-run noise), with a floor of `minLimitMs` for the tiny figures. The
 references were measured on 2026-11-01 pinned to two cores
-(`taskset -c 4,5`), the largest of three runs' medians:
+(`taskset -c 4,5`), the largest of three runs' medians, rounded up to the next 10 ms (the figures below are the committed references):
 
 | Metric | Wall ms | CPU ms |
 |---|---|---|
-| `version` | 36 | 30 |
-| `help` | 37 | 30 |
-| `exec` request, stdin pipe | 603 | 410 |
-| `exec` request, stdin `/dev/null` | 487 | 400 |
-| `tui-ready` | 665 | 760 |
-| `resume-request` | 3,434 | 3,830 |
+| `version` | 40 | 30 |
+| `help` | 40 | 30 |
+| `exec` request, stdin pipe | 610 | 410 |
+| `exec` request, stdin `/dev/null` | 490 | 400 |
+| `tui-ready` | 670 | 760 |
+| `resume-request` | 3,440 | 3,830 |
 
 Resuming that session costs about 3.4 seconds before the first request, against
 about 0.5 for a new one; the reference records where it stands today, not where it
