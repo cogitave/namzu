@@ -30,12 +30,53 @@ export class HeadlessScreen {
 	private readonly cursorVisible: () => boolean
 	private parsed = 0
 	private fed = 0
+	private clipboardListener: ((data: string) => void) | undefined
 
 	constructor(cols: number, rows: number, scrollback: number) {
 		this.serializer = new SerializeAddon()
 		this.term = new Terminal({ cols, rows, scrollback, allowProposedApi: true })
 		this.term.loadAddon(this.serializer)
 		this.cursorVisible = trackCursorVisibility(this.term)
+		// OSC 52: the program asks for its text to reach the user's clipboard. The emulator keeps no
+		// clipboard of its own, so the request is handed to whoever listens, and consumed either way.
+		this.term.parser.registerOscHandler(52, (data) => {
+			try {
+				this.clipboardListener?.(data)
+			} catch {
+				/* A listener's failure is not the program's. */
+			}
+			return true
+		})
+	}
+
+	/** Calls `listener` with the payload (`selection;base64`) of each clipboard request the program prints. */
+	onClipboard(listener: (data: string) => void): void {
+		this.clipboardListener = listener
+	}
+
+	get cols(): number {
+		return this.term.cols
+	}
+
+	/** Lines the buffer holds, history included. */
+	bufferLength(): number {
+		return this.term.buffer.active.length
+	}
+
+	/** The buffer line shown at the top row when scrolled `back` rows into the history. */
+	viewTop(back = 0): number {
+		const buffer = this.term.buffer.active
+		return buffer.viewportY - Math.max(0, Math.min(back, buffer.baseY))
+	}
+
+	/** Columns `from` up to `to` of a buffer line as text; blanks at the right are cut when `trim`. */
+	lineText(line: number, from: number, to: number, trim = true): string {
+		return this.term.buffer.active.getLine(line)?.translateToString(trim, from, to) ?? ''
+	}
+
+	/** Whether the line continues the one above it (the program's text wrapped, no new line was printed). */
+	lineWrapped(line: number): boolean {
+		return this.term.buffer.active.getLine(line)?.isWrapped ?? false
 	}
 
 	write(data: string): void {

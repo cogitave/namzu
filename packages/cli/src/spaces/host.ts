@@ -2,10 +2,16 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, statSync, writeSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, resolve } from 'node:path'
+import {
+	type ClipboardEnv,
+	MAX_CLIPBOARD_TEXT_BYTES,
+	writeClipboardText,
+} from '../integrations/clipboard/text.js'
 import { ATTR_BOLD, ATTR_INVERSE, ATTR_UNDERLINE } from '../terminal/host/cell.js'
 import { Frame, type Rect } from '../terminal/host/frame.js'
 import { DiffWriter } from '../terminal/host/writer.js'
 import type { HostPtyModule } from '../terminal/pty.js'
+import type { HeadlessScreen } from '../terminal/screen.js'
 import { GitCache, type GitLookup, gitLookup } from './git.js'
 import { type GotoRow, currentRow, filterGoto, gotoRows } from './goto.js'
 import {
@@ -46,6 +52,16 @@ import { type Palette, advertisesTruecolor, paletteFor } from './palette.js'
 import { type PeerSource, recordForPid, recordForSlot } from './peers.js'
 import type { Prefix } from './prefix.js'
 import { type Entry, Roster, type Space, type Tab } from './roster.js'
+import {
+	ClickCounter,
+	type Point,
+	type Range,
+	colsOnLine,
+	extractText,
+	lineAt,
+	orderRange,
+	wordAt,
+} from './selection.js'
 import {
 	ChildSession,
 	type LocalPaneSession,
@@ -214,6 +230,8 @@ export interface SpacesHostOptions {
 	readonly mouse?: MouseMode
 	/** Whether a selection is copied when the button is released; true when absent. */
 	readonly copyOnSelect?: boolean
+	/** The environment that decides how a copy is wrapped for the terminal and which key the hint names. */
+	readonly env?: ClipboardEnv & { readonly TERM_PROGRAM?: string | undefined }
 	/** The process's signals, for handing the terminal back when one ends it. */
 	readonly signals?: SignalHooks
 	readonly newSlot?: () => string
@@ -237,11 +255,36 @@ const GIT_MS = 5000
 const GIT_STALE_MS = 1500
 /** Two presses on the sidebar's edge within this long reset its width. */
 const DOUBLE_CLICK_MS = 400
+/** A forwarded clipboard request from one pane at most this often. */
+const FORWARD_MS = 250
+/** How long the note about a copy stays, and the selection with it. */
+const COPY_NOTE_MS = 2000
+/** How long a note that something went wrong stays. */
+const COPY_ERROR_MS = 4000
 /** Rows one wheel notch moves. */
 const WHEEL_ROWS = 3
 
 /** Drawing errors in a row before the host closes instead of retrying. */
 const MAX_PAINT_FAILURES = 3
+
+/** A selection in progress or finished: where it was made and between which cells of the emulator's lines. */
+interface PaneSelection {
+	readonly entry: Entry
+	readonly screen: HeadlessScreen
+	readonly cols: number
+	readonly rows: number
+	inner: Rect
+	anchor: Point
+	focus: Point
+	/** 1 for a drag, 2 and 3 for a word and a line chosen by a double and a triple click. */
+	readonly unit: 1 | 2 | 3
+	/** The button is still down, so the pointer extends it. */
+	pressing: boolean
+	/** Something is highlighted: a drag, a double click or a triple click happened. */
+	active: boolean
+	/** Copied once already; a second ctrl+c clears instead. */
+	copied: boolean
+}
 
 type Prompt = {
 	kind: 'folder' | 'new-space' | 'rename-session' | 'rename-space' | 'rename-tab'
@@ -337,6 +380,13 @@ export class SpacesHost {
 	private cancelSave: (() => void) | undefined
 	private forgetAll = false
 	private notice: string | undefined
+	/** The text being selected in a pane, if any. */
+	private select: PaneSelection | undefined
+	private readonly clicks: ClickCounter
+	private tipShown = false
+	private cancelNote: (() => void) | undefined
+	private readonly watched = new WeakSet<HeadlessScreen>()
+	private readonly lastForward = new WeakMap<HeadlessScreen, number>()
 	private pasteOn = false
 	private pending: (() => void) | undefined
 	private rendering: Promise<void> = Promise.resolve()
@@ -434,6 +484,7 @@ export class SpacesHost {
 	constructor(private readonly options: SpacesHostOptions) {
 		this.router = new InputRouter(options.prefix)
 		this.schedule = options.schedule ?? realSchedule
+		this.clicks = new ClickCounter(options.now ?? Date.now, DOUBLE_CLICK_MS)
 		this.palette = paletteFor(options.truecolor ?? advertisesTruecolor(process.env))
 		this.git = new GitCache(
 			options.git ?? gitLookup,
@@ -490,6 +541,7 @@ export class SpacesHost {
 			entry = this.newTabIn(space)
 		}
 		entry.child = local.session
+		this.watchClipboard(local.session.screen)
 		entry.resume = undefined
 		entry.first = false
 		entry.verifyFolder = false
@@ -526,6 +578,7 @@ export class SpacesHost {
 		this.fit()
 		const size = this.paneSize(entry)
 		this.options.local?.session.attach(size.cols, size.rows)
+		if (this.options.local) this.watchClipboard(this.options.local.session.screen)
 		this.startShown()
 		this.router.enterNavigate()
 		this.persist()
@@ -811,6 +864,7 @@ export class SpacesHost {
 			(signal) => this.childSignal(entry, signal),
 		)
 		entry.child = child
+		this.watchClipboard(child.screen)
 		child.start(this.options.binding)
 		this.roster.update(entry)
 	}
@@ -979,6 +1033,7 @@ export class SpacesHost {
 	/** Called with what the keyboard sent. */
 	handleInput(chunk: string): void {
 		if (this.closed || this.hidden) return
+		if (this.selectionKey(chunk)) return
 		for (const action of this.router.feed(chunk)) {
 			if (action.type === 'write') this.writeToSelected(action.data)
 			else if (action.type === 'mode') {
@@ -1000,6 +1055,7 @@ export class SpacesHost {
 		if (!entry) return
 		this.ensureStarted(entry)
 		entry.scrollBack = 0
+		if (this.select?.entry === entry) this.clearSelect()
 		entry.child?.write(data)
 	}
 
@@ -1738,7 +1794,15 @@ export class SpacesHost {
 		// With only the wheel asked for, a terminal that reports more is not acted on.
 		if (this.mouseMode === 'scroll' && event.kind !== 'wheel-up' && event.kind !== 'wheel-down')
 			return
-		if (event.kind === 'release') this.endDrags()
+		if (event.kind === 'press') this.clearSelect()
+		if (event.kind === 'drag' && this.select?.pressing) {
+			this.dragSelect(event)
+			return
+		}
+		if (event.kind === 'release') {
+			this.finishSelect()
+			this.endDrags()
+		}
 		if (this.captured()) {
 			this.overlayMouse(event)
 			return
@@ -1746,6 +1810,8 @@ export class SpacesHost {
 		const layout = this.layout()
 		if (this.view === 'full') {
 			const entry = this.roster.selected
+			const whole = this.placement()?.panes[0]
+			if (event.kind === 'press' && whole) this.beginSelect(whole, event)
 			if (entry && (event.kind === 'wheel-up' || event.kind === 'wheel-down')) {
 				const size = entry.child?.screen.scrollbackSize() ?? 0
 				const direction = event.kind === 'wheel-up' ? -1 : 1
@@ -2036,7 +2102,189 @@ export class SpacesHost {
 			return
 		}
 		const pane = paneAt(placement.panes, event.x, event.y)
-		if (pane) this.open(pane.entry)
+		if (pane) {
+			// Focusing a pane keeps the place it was scrolled to: the text to select may be in its history.
+			const scrolled = pane.entry.scrollBack
+			this.open(pane.entry)
+			pane.entry.scrollBack = scrolled
+			this.beginSelect(pane, event)
+		}
+	}
+
+	// --- selecting text --------------------------------------------------------
+
+	/** The cell of the emulator's lines under the pointer, kept inside the pane. */
+	private pointAt(entry: Entry, screen: HeadlessScreen, inner: Rect, event: MouseEvent): Point {
+		const col = Math.max(0, Math.min(event.x - inner.x, inner.width - 1, screen.cols - 1))
+		const row = Math.max(0, Math.min(event.y - inner.y, inner.height - 1))
+		return { line: screen.viewTop(entry.scrollBack) + row, col }
+	}
+
+	/** A press inside a pane: the anchor of a drag, or at once the word or line a double or triple click names. */
+	private beginSelect(pane: { entry: Entry; inner: Rect }, event: MouseEvent): void {
+		const { entry, inner } = pane
+		const child = entry.child
+		if (!child || child.status === 'exited') return
+		const inside =
+			event.x >= inner.x &&
+			event.x < inner.x + inner.width &&
+			event.y >= inner.y &&
+			event.y < inner.y + inner.height
+		if (!inside) return
+		const unit = this.clicks.press(event.x, event.y)
+		const screen = child.screen
+		const point = this.pointAt(entry, screen, inner, event)
+		const range: Range =
+			unit === 2
+				? wordAt(screen, point.line, point.col)
+				: unit === 3
+					? lineAt(screen, point.line)
+					: { start: point, end: point }
+		this.select = {
+			entry,
+			screen,
+			cols: screen.cols,
+			rows: inner.height,
+			inner,
+			anchor: range.start,
+			focus: range.end,
+			unit,
+			pressing: true,
+			active: unit !== 1,
+			copied: false,
+		}
+		this.requestRender()
+	}
+
+	private dragSelect(event: MouseEvent): void {
+		const sel = this.select
+		if (!sel || sel.unit !== 1) return
+		sel.focus = this.pointAt(sel.entry, sel.screen, sel.inner, event)
+		if (sel.focus.line !== sel.anchor.line || sel.focus.col !== sel.anchor.col) sel.active = true
+		this.requestRender()
+	}
+
+	/** The button came up: copy what is highlighted, or forget a plain click. */
+	private finishSelect(): void {
+		const sel = this.select
+		if (!sel?.pressing) return
+		sel.pressing = false
+		if (!sel.active) {
+			this.select = undefined
+			return
+		}
+		if (this.options.copyOnSelect === false) {
+			this.note('Selected. Press ctrl+c to copy it, or esc to let go.', undefined)
+			return
+		}
+		this.copySelection(sel)
+	}
+
+	private clearSelect(): void {
+		if (!this.select) return
+		this.select = undefined
+		this.requestRender()
+	}
+
+	/** The key the terminal wants held to select text by itself. */
+	private bypassKey(): string {
+		const program = (this.options.env ?? process.env).TERM_PROGRAM
+		return program === 'iTerm.app' ? 'Option' : program === 'Apple_Terminal' ? 'Fn' : 'Shift'
+	}
+
+	private copySelection(sel: PaneSelection): void {
+		const text = extractText(sel.screen, orderRange(sel.anchor, sel.focus))
+		const auto = this.options.copyOnSelect !== false
+		if (text.trim() === '') {
+			if (auto) this.clearSelect()
+			return
+		}
+		const result = writeClipboardText(
+			text,
+			{ isTTY: true, write: (data) => void this.options.output.write(data) },
+			this.options.env ?? process.env,
+		)
+		sel.copied = true
+		const key = this.bypassKey()
+		if (result.kind === 'request-sent') {
+			const count = [...text].length
+			let message = `Sent ${count.toLocaleString('en-US')} ${count === 1 ? 'character' : 'characters'} to your clipboard. No paste? Hold ${key} and select.`
+			if (!this.tipShown && auto) {
+				this.tipShown = true
+				message += ' Turn off: tui.copyOnSelect.'
+			}
+			this.note(message, auto ? sel : undefined, COPY_NOTE_MS)
+		} else if (result.kind === 'too-large') {
+			const kb = (n: number): string => `${Math.ceil(n / 1000).toLocaleString('en-US')} KB`
+			this.note(
+				`That selection is too large to copy (${kb(result.bytes)}; the limit is ${kb(MAX_CLIPBOARD_TEXT_BYTES)}).`,
+				auto ? sel : undefined,
+				COPY_ERROR_MS,
+			)
+		} else {
+			this.note(
+				`Couldn't copy. Hold ${key} while selecting, then use your terminal's Copy.`,
+				auto ? sel : undefined,
+				COPY_ERROR_MS,
+			)
+		}
+	}
+
+	/** Says something in the status line; the selection `fading` goes with it. */
+	private note(text: string, fading: PaneSelection | undefined, ms?: number): void {
+		this.notice = text
+		this.cancelNote?.()
+		this.cancelNote = undefined
+		if (ms !== undefined)
+			this.cancelNote = this.schedule(() => {
+				this.cancelNote = undefined
+				if (this.notice === text) this.notice = undefined
+				if (fading && this.select === fading) this.select = undefined
+				this.requestRender()
+			}, ms)
+		this.requestRender()
+	}
+
+	/** Ctrl+C copies a selection that was not copied on release; esc, or a second ctrl+c, lets go of it. */
+	private selectionKey(chunk: string): boolean {
+		const sel = this.select
+		if (!sel?.active || sel.pressing || this.options.copyOnSelect !== false) return false
+		if (chunk === '\x03' && !sel.copied) this.copySelection(sel)
+		else if (chunk === '\x03' || chunk === '\x1b') this.clearSelect()
+		else return false
+		return true
+	}
+
+	/** Gives the terminal a pane's clipboard requests, once per screen. Queries are never answered. */
+	private watchClipboard(screen: HeadlessScreen): void {
+		if (this.watched.has(screen)) return
+		this.watched.add(screen)
+		screen.onClipboard((data) => this.forwardClipboard(screen, data))
+	}
+
+	private forwardClipboard(screen: HeadlessScreen, data: string): void {
+		if (this.closed || this.hidden) return
+		const split = data.indexOf(';')
+		if (split < 0) return
+		const targets = data.slice(0, split)
+		const payload = data.slice(split + 1)
+		// Only a write to the clipboard: a query would hand the user's clipboard to the program.
+		if (!/^[cp]*$/u.test(targets) || !/^[A-Za-z0-9+/]+={0,2}$/u.test(payload)) return
+		if (
+			payload.length % 4 !== 0 ||
+			payload.length > Math.ceil((MAX_CLIPBOARD_TEXT_BYTES * 4) / 3) + 4
+		)
+			return
+		const at = (this.options.now ?? Date.now)()
+		const last = this.lastForward.get(screen)
+		if (last !== undefined && at - last < FORWARD_MS) return
+		this.lastForward.set(screen, at)
+		const text = Buffer.from(payload, 'base64').toString('utf8')
+		writeClipboardText(
+			text,
+			{ isTTY: true, write: (chunk) => void this.options.output.write(chunk) },
+			this.options.env ?? process.env,
+		)
 	}
 
 	/** Moves the border being dragged to follow the pointer. */
@@ -2306,6 +2554,18 @@ export class SpacesHost {
 		// Every pane on screen settles before it is copied, so none shows a half-written screen.
 		await Promise.all(panes.map((p) => p.entry.child?.screen.settled()))
 		if (this.closed || this.hidden) return
+		const sel = this.select
+		if (sel) {
+			const here = panes.find((p) => p.entry === sel.entry)
+			if (
+				!here ||
+				here.entry.child?.screen !== sel.screen ||
+				sel.screen.cols !== sel.cols ||
+				here.inner.height !== sel.rows
+			)
+				this.select = undefined
+			else sel.inner = here.inner
+		}
 		const { output } = this.options
 		const frame = new Frame(output.columns, output.rows)
 		const layout = this.layout()
@@ -2418,6 +2678,21 @@ export class SpacesHost {
 		}
 	}
 
+	/** Shows the selected cells in reverse video. */
+	private paintSelection(frame: Frame, sel: PaneSelection, inner: Rect): void {
+		const range = orderRange(sel.anchor, sel.focus)
+		const top = sel.screen.viewTop(sel.entry.scrollBack)
+		for (let row = 0; row < inner.height; row++) {
+			const cols = colsOnLine(range, top + row, sel.screen.cols)
+			if (!cols) continue
+			for (let col = cols[0]; col < Math.min(cols[1], inner.width); col++) {
+				const cell = frame.cellAt(inner.x + col, inner.y + row)
+				if (cell)
+					frame.set(inner.x + col, inner.y + row, { ...cell, attrs: cell.attrs ^ ATTR_INVERSE })
+			}
+		}
+	}
+
 	/** One pane: its border (the focused one in the accent colour), then its session or what stands in for it. */
 	private drawPane(
 		frame: Frame,
@@ -2430,6 +2705,9 @@ export class SpacesHost {
 		const child = entry.child
 		if (child) {
 			frame.blit(child.screen.cells(entry.scrollBack), inner)
+			const sel = this.select
+			if (sel?.active && sel.entry === entry && sel.screen === child.screen)
+				this.paintSelection(frame, sel, inner)
 			const last = { ...inner, y: inner.y + inner.height - 1, height: 1 }
 			if (child.status === 'exited') {
 				frame.fillRect(last, { attrs: ATTR_INVERSE })
@@ -2563,6 +2841,7 @@ export class SpacesHost {
 		this.closed = true
 		this.settleExit(true)
 		this.cancelKill?.()
+		this.cancelNote?.()
 		this.cancelPoll?.()
 		this.cancelReconcile?.()
 		this.cancelGit?.()
