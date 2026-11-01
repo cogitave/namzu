@@ -10,18 +10,18 @@
 
 // ─── version + config ────────────────────────────────────────────────────
 
-export { VERSION } from "./version.js";
+export { VERSION } from './version.js'
 export {
 	createHarnessSession,
 	HarnessSessionError,
-} from "./runtime/harness-session/index.js";
-export { BackgroundJobOutputWaitLimitError } from "./runtime/jobs/registry.js";
+} from './runtime/harness-session/index.js'
+export { BackgroundJobOutputWaitLimitError } from './runtime/jobs/registry.js'
 
 // The opt-in model-authored-code backend. `RunCodeToolOptions.runtime` has
 // always accepted this contract; exporting the implementation and its refusal
 // class makes that signature nameable from the package root.
-export { HostCallDeniedError } from "./execution/code-runtime/types.js";
-export { WorkerCodeRuntime } from "./execution/code-runtime/worker.js";
+export { HostCallDeniedError } from './execution/code-runtime/types.js'
+export { WorkerCodeRuntime } from './execution/code-runtime/worker.js'
 
 // The workflow runtime: runs a model-authored orchestration script on the
 // interpreter above, with `agent()` as its only host call.
@@ -32,7 +32,7 @@ export {
 	summarizeWorkflowPhases,
 	WorkflowRuntime,
 	WorkflowScriptError,
-} from "./execution/workflow/index.js";
+} from './execution/workflow/index.js'
 
 export {
 	CompactionConfigSchema,
@@ -41,30 +41,30 @@ export {
 	RuntimeConfigSchema,
 	SandboxConfigSchema,
 	TaskRouterConfigSchema,
-} from "./config/runtime.js";
+} from './config/runtime.js'
 
 // ─── constants ───────────────────────────────────────────────────────────
 
-export * from "./constants/index.js";
+export * from './constants/index.js'
 
 export {
 	ConfigNamespaceCollisionError,
 	ConfigRegistry,
-} from "./config/registry.js";
-export type { ConfigRegistryOptions, ConfigScope } from "./config/registry.js";
+} from './config/registry.js'
+export type { ConfigRegistryOptions, ConfigScope } from './config/registry.js'
 export {
 	DiskConfigOverrideStore,
 	InMemoryConfigOverrideStore,
-} from "./store/config/index.js";
-export type { ConfigOverrideStore } from "./store/config/index.js";
+} from './store/config/index.js'
+export type { ConfigOverrideStore } from './store/config/index.js'
 export {
 	MCPReconnectOptionsSchema,
 	MCPReconnectSupervisor,
-} from "./connector/mcp/reconnect.js";
+} from './connector/mcp/reconnect.js'
 export type {
 	MCPReconnectOptions,
 	MCPReconnectPolicySource,
-} from "./connector/mcp/reconnect.js";
+} from './connector/mcp/reconnect.js'
 
 export type {
 	AnalysisCallOptions,
@@ -89,7 +89,7 @@ export type {
 	ImportsRequest,
 	IndexRequest,
 	IndexSummary,
-} from "./types/code-analysis/index.js";
+} from './types/code-analysis/index.js'
 
 export type {
 	CodeNavigationProvider,
@@ -98,7 +98,7 @@ export type {
 	SourceLocation,
 	SymbolLocation,
 	SymbolSearchResult,
-} from "./types/code-navigation/index.js";
+} from './types/code-navigation/index.js'
 
 // ─── wire schemas + a2a (contracts/) ─────────────────────────────────────
 
@@ -111,13 +111,13 @@ export {
 	PaginationSchema,
 	ProjectIdSchema,
 	zodErrorToApiError,
-} from "./contracts/schemas.js";
+} from './contracts/schemas.js'
 
-export * from "./contracts/a2a.js";
+export * from './contracts/a2a.js'
 
 // ─── ID generators + parsers ─────────────────────────────────────────────
 
-export * from "./utils/id.js";
+export * from './utils/id.js'
 
 // ─── utility helpers ─────────────────────────────────────────────────────
 
@@ -128,7 +128,7 @@ export {
 	describeCost,
 	formatCost,
 	ZERO_COST,
-} from "./utils/cost.js";
+} from './utils/cost.js'
 
 // The price catalogue. Exported because a driver package has to be able to ask
 // whether the models it offers an operator are ones the kernel can price —
@@ -138,9 +138,9 @@ export {
 	normaliseModelId,
 	resolveModelPricing,
 	VENDOR_RATES,
-} from "./pricing/index.js";
-export { toErrorMessage } from "./utils/error.js";
-export { getLogCounters, Logger } from "./utils/logger.js";
+} from './pricing/index.js'
+export { toErrorMessage } from './utils/error.js'
+export { getLogCounters, Logger } from './utils/logger.js'
 /**
  * The process sink's own counter set, for a host that installs a sink and
  * then builds its own logger from it.
@@ -153,7 +153,7 @@ export { getLogCounters, Logger } from "./utils/logger.js";
  * a check that cannot fail, introduced by the removal that was supposed to
  * end them.
  */
-export { getProcessSinkCounters } from "./utils/log/process-sink.js";
+export { getProcessSinkCounters } from './utils/log/process-sink.js'
 
 // The LogSink seam — additive. `Logger`/`getRootLogger`/`configureLogger`
 // above are unchanged; this is the new seam that replaces them going
@@ -174,12 +174,12 @@ export {
 	Resource,
 	SCOPE_ATTRIBUTE,
 	Severity,
-} from "./utils/log/index.js";
+} from './utils/log/index.js'
 
 // A cancellation carries its origin; these are what a host reads it with.
 // `cancelCauseOf` is exported alongside the class because a host
 // implementing its own gateway holds an abort REASON, not a TurnCancelled.
-export { cancelCauseOf, TurnCancelled } from "./types/session/cancel-cause.js";
+export { cancelCauseOf, TurnCancelled } from './types/session/cancel-cause.js'
 
 // A tool authors how it is shown; a host resolves through this rather than
 // switching on a lowercased tool name, which is what left every MCP and
@@ -194,13 +194,13 @@ export { cancelCauseOf, TurnCancelled } from "./types/session/cancel-cause.js";
 // The object a host holds between turns. There was none: no way to ask
 // whether the agent is running, and nowhere to put "when you next run,
 // start with this".
-export { AgentNotRunningError, createAgentHandle } from "./agents/handle.js";
+export { AgentNotRunningError, createAgentHandle } from './agents/handle.js'
 
 export {
 	DiskTopicStateStore,
 	InMemoryTopicStateStore,
-} from "./store/topic/state.js";
-export { StaleTopicStateError } from "./types/topic/state.js";
+} from './store/topic/state.js'
+export { StaleTopicStateError } from './types/topic/state.js'
 
 // Work that outlives one turn. Named explicitly here rather than reached
 // through the sub-barrels, because this file re-exports SELECTED names from
@@ -214,13 +214,13 @@ export {
 	InMemoryTopicObjectiveStore,
 	ObjectiveExhaustedError,
 	ObjectiveExistsError,
-} from "./store/topic/objective.js";
+} from './store/topic/objective.js'
 export {
 	ObjectiveNotProgressingError,
 	advanceObjective,
 	driveObjective,
-} from "./manager/topic/objective.js";
-export { StaleObjectiveError } from "./types/topic/objective.js";
+} from './manager/topic/objective.js'
+export { StaleObjectiveError } from './types/topic/objective.js'
 
 // A completion goal belongs to one durable Session. The direct host command
 // consumes this store; automatic continuation is a separate driver rather
@@ -236,22 +236,22 @@ export {
 	InMemorySessionGoalStore,
 	MAX_GOAL_OBJECTIVE_CHARS,
 	StaleGoalError,
-} from "./store/goal/index.js";
+} from './store/goal/index.js'
 
 export {
 	EnvCredentialProvider,
 	ReadOnlyCredentialProviderError,
-} from "./vault/CredentialProvider.js";
+} from './vault/CredentialProvider.js'
 // The key-name vocabulary itself, so a host with its own provider registry
 // can assert its variables are ones the host-bash scrub will withhold —
 // the check that stops the two tables drifting apart.
-export { isCredentialEnvKey } from "./constants/credential-env-keys.js";
+export { isCredentialEnvKey } from './constants/credential-env-keys.js'
 
 export {
 	createToolPresenter,
 	genericLabel,
-} from "./registry/tool/presentation.js";
-export type { ToolPresenter } from "./registry/tool/presentation.js";
+} from './registry/tool/presentation.js'
+export type { ToolPresenter } from './registry/tool/presentation.js'
 
 // A stalled stream trips no request timeout — the request succeeded and
 // the bytes stopped. Composes with withProviderRetry/withProviderFallback:
@@ -262,40 +262,40 @@ export type { ToolPresenter } from "./registry/tool/presentation.js";
 export {
 	NAMZU_APP_IDENTITY,
 	attributionHeaders,
-} from "./provider/attribution.js";
-export type { AppIdentity } from "./provider/attribution.js";
+} from './provider/attribution.js'
+export type { AppIdentity } from './provider/attribution.js'
 
 export {
 	DEFAULT_STREAM_IDLE_TIMEOUT_MS,
 	withStreamIdleTimeout,
-} from "./provider/idle-timeout.js";
-export type { WithStreamIdleTimeoutOptions } from "./provider/idle-timeout.js";
-export { DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES } from "./runtime/query/request-rich-content.js";
-export { DEFAULT_SANDBOX_TEARDOWN_TIMEOUT_MS } from "./runtime/query/sandbox-lifecycle.js";
+} from './provider/idle-timeout.js'
+export type { WithStreamIdleTimeoutOptions } from './provider/idle-timeout.js'
+export { DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES } from './runtime/query/request-rich-content.js'
+export { DEFAULT_SANDBOX_TEARDOWN_TIMEOUT_MS } from './runtime/query/sandbox-lifecycle.js'
 
-export { isTrustedReadOnly } from "./tools/trusted-read-only.js";
+export { isTrustedReadOnly } from './tools/trusted-read-only.js'
 export {
 	GoalRoundAuthorityError,
 	MIN_GOAL_BLOCK_ROUND,
 	SESSION_GOAL_TOOL_NAMES,
 	buildSessionGoalTools,
-} from "./tools/goal/index.js";
-export { SessionGoalActivation } from "./manager/goal/activation.js";
-export { buildToolResultHashes, hashToolResult } from "./utils/hash.js";
+} from './tools/goal/index.js'
+export { SessionGoalActivation } from './manager/goal/activation.js'
+export { buildToolResultHashes, hashToolResult } from './utils/hash.js'
 export {
 	compressShellOutput,
 	compressShellOutputFull,
-} from "./utils/shell-compress.js";
-export { createChildAbortController } from "./utils/abort.js";
-export { memoizeAsync } from "./utils/memoize.js";
-export { extractFinalResponse } from "./utils/conversation.js";
+} from './utils/shell-compress.js'
+export { createChildAbortController } from './utils/abort.js'
+export { memoizeAsync } from './utils/memoize.js'
+export { extractFinalResponse } from './utils/conversation.js'
 
 // ─── router, runtime, turn ───────────────────────────────────────────────
 
-export { resolveTaskModel } from "./model-router/task-router.js";
+export { resolveTaskModel } from './model-router/task-router.js'
 // Every driver accepts `thinking`; one that does not implement it must
 // refuse rather than drop it. Shared so a new driver inherits the rule.
-export { assertThinkingUnsupported } from "./provider/thinking-support.js";
+export { assertThinkingUnsupported } from './provider/thinking-support.js'
 // One matcher for versioned model ids. Shared because three drivers had each
 // written their own and all three read an 8-digit date suffix as the MINOR
 // version, which inverted every capability decision keyed on it. The shape
@@ -303,18 +303,18 @@ export { assertThinkingUnsupported } from "./provider/thinking-support.js";
 export {
 	modelVersionAtLeast,
 	parseVersionedModelId,
-} from "./provider/model-version.js";
+} from './provider/model-version.js'
 // Strict tool input is a SUBSET of JSON Schema, and a keyword outside it makes
 // the vendor reject the whole request rather than degrade one field.
 export {
 	acceptsStrictSchema,
 	assertStrictSchema,
 	findStrictSchemaViolations,
-} from "./provider/strict-schema.js";
+} from './provider/strict-schema.js'
 // A tool has one schema; what changes per provider is the DIALECT the wire
 // parses, which is the wire's property. Rendered once, converted at the driver.
-export { findDraft07Only, toSchemaDialect } from "./registry/tool/dialect.js";
-export type { JsonSchemaDialect } from "./registry/tool/dialect.js";
+export { findDraft07Only, toSchemaDialect } from './registry/tool/dialect.js'
+export type { JsonSchemaDialect } from './registry/tool/dialect.js'
 // Better than converting per wire: emit the INTERSECTION of the dialects, so
 // there is nothing left for a driver to convert and an unmeasured wire is safe
 // by construction. Exported so a driver or a CI gate can assert it.
@@ -322,23 +322,23 @@ export {
 	findPortableSchemaViolations,
 	findUndescribedProperties,
 	toPortableToolSchema,
-} from "./registry/tool/portable.js";
+} from './registry/tool/portable.js'
 export type {
 	PortableSchemaViolation,
 	UndescribedPropertyViolation,
-} from "./registry/tool/portable.js";
+} from './registry/tool/portable.js'
 // The renderer itself, so a driver or a contract test can ask what a tool will
 // actually put on the wire without reaching into the registry.
-export { renderToolSchema, toolWireSchema } from "./registry/tool/schema.js";
-export type { StrictSchemaViolation } from "./provider/strict-schema.js";
-export type { ModelIdGrammar, ModelVersion } from "./provider/model-version.js";
-export { drainQuery, query } from "./runtime/query/index.js";
+export { renderToolSchema, toolWireSchema } from './registry/tool/schema.js'
+export type { StrictSchemaViolation } from './provider/strict-schema.js'
+export type { ModelIdGrammar, ModelVersion } from './provider/model-version.js'
+export { drainQuery, query } from './runtime/query/index.js'
 export {
 	collapseProjectInstructionSnapshots,
 	isProjectInstructionMessage,
 	projectInstructionBody,
 	replaceProjectInstructionSnapshot,
-} from "./runtime/query/project-instructions.js";
+} from './runtime/query/project-instructions.js'
 // Mid-run guidance. A host holds the channel and the loop drains it at the
 // tool-result boundary; see the module for why that is the only legal slot.
 export {
@@ -348,32 +348,32 @@ export {
 	formatMonitorEnd,
 	formatMonitorEvent,
 	formatSteeringNote,
-} from "./runtime/query/steering.js";
-export type { SteeringChannel } from "./runtime/query/steering.js";
+} from './runtime/query/steering.js'
+export type { SteeringChannel } from './runtime/query/steering.js'
 // Hidden mid-conversation reminders a host feeds per model request (opt-in).
-export { isReminderMessage } from "./runtime/query/reminders.js";
+export { isReminderMessage } from './runtime/query/reminders.js'
 export type {
 	ReminderContext,
 	ReminderSource,
-} from "./runtime/query/reminders.js";
+} from './runtime/query/reminders.js'
 export {
 	BidiSessionCloseTimeoutError,
 	createMockBidiProvider,
 	startBidiTurn,
-} from "./runtime/bidi/index.js";
-export { PromptCache } from "./runtime/query/prompt-cache.js";
+} from './runtime/bidi/index.js'
+export { PromptCache } from './runtime/query/prompt-cache.js'
 export {
 	CheckpointManager,
 	findPendingCheckpoint,
 	isExpiredPark,
 	listExpiredParks,
-} from "./runtime/query/checkpoint.js";
+} from './runtime/query/checkpoint.js'
 // Projecting what a turn records onto the domain `TurnStatus`.
-export { deriveTurnStatus } from "./types/session/derive-status.js";
+export { deriveTurnStatus } from './types/session/derive-status.js'
 // Scoped approval memory: the mechanism that lets an approver choose how
 // wide their yes is, instead of choosing between 'this one call' and
 // 'everything for the session'.
-export { ToolGrantSet, toolGrantKeys } from "./runtime/query/tool-grants.js";
+export { ToolGrantSet, toolGrantKeys } from './runtime/query/tool-grants.js'
 // A skill's `allowed-tools` as a turn-scoped pre-approval: the parser, the
 // compiler a host can run against its own registry, the per-turn set, and
 // the one permission-glob dialect the CLI's `[permissions]` table shares.
@@ -382,63 +382,63 @@ export {
 	SkillGrantSet,
 	compileSkillGrant,
 	permissionPatternToRegExpSource,
-} from "./authorization/skill-grant.js";
-export type { ToolGrantKeys } from "./runtime/query/tool-grants.js";
+} from './authorization/skill-grant.js'
+export type { ToolGrantKeys } from './runtime/query/tool-grants.js'
 // `toWireTurnStatus` comes through `./contracts/session/index.js`.
 // Durable turn state: the snapshot a different process picks a turn up from.
 export {
 	captureTurnState,
 	loadSelectedTurnState,
 	loadTurnState,
-} from "./runtime/query/turn-state.js";
-export type { TurnStateScope } from "./runtime/query/turn-state.js";
+} from './runtime/query/turn-state.js'
+export type { TurnStateScope } from './runtime/query/turn-state.js'
 export {
 	TURN_STATE_VERSION,
 	TurnStateVersionError,
 	parseTurnState,
-} from "./types/session/turn-state.js";
+} from './types/session/turn-state.js'
 // …and the driver that joins the snapshot back to a running loop: the same
 // session and the same turn.
-export { resumeSession } from "./runtime/query/resume-session.js";
+export { resumeSession } from './runtime/query/resume-session.js'
 export type {
 	ResumeOutcome,
 	ResumeSessionParams,
-} from "./runtime/query/resume-session.js";
+} from './runtime/query/resume-session.js'
 // Closing a paused or interrupted turn without resuming it, and compacting a
 // session between turns.
-export { abandonTurn } from "./runtime/query/abandon-turn.js";
+export { abandonTurn } from './runtime/query/abandon-turn.js'
 export type {
 	AbandonTurnOptions,
 	SessionLocatorOptions,
-} from "./runtime/query/abandon-turn.js";
-export { CacheClock } from "./runtime/cache-clock.js";
-export type { CacheClockState } from "./runtime/cache-clock.js";
+} from './runtime/query/abandon-turn.js'
+export { CacheClock } from './runtime/cache-clock.js'
+export type { CacheClockState } from './runtime/cache-clock.js'
 export {
 	compactSession,
 	compactSessionRange,
-} from "./runtime/query/compact-session.js";
+} from './runtime/query/compact-session.js'
 export type {
 	CompactSessionParams,
 	CompactSessionRangeParams,
-} from "./runtime/query/compact-session.js";
-export { prepareForkState } from "./runtime/query/fork/prepare.js";
-export { listCheckpoints } from "./runtime/query/fork/list.js";
-export { DecisionParser, FallbackResolver } from "./runtime/decision/index.js";
+} from './runtime/query/compact-session.js'
+export { prepareForkState } from './runtime/query/fork/prepare.js'
+export { listCheckpoints } from './runtime/query/fork/list.js'
+export { DecisionParser, FallbackResolver } from './runtime/decision/index.js'
 export {
 	buildLimitConfig,
 	checkLimitsDetailed,
 	createTurnReporter,
-} from "./turn/index.js";
+} from './turn/index.js'
 // One bounded pass over the parked turns: list the pending decisions nobody
 // holds, claim the session, resume the turn, release in a `finally`. Not a
 // daemon: it makes one pass and returns.
-export { DEFAULT_DRAIN_PAGE_SIZE, drainParkedTurns } from "./turn/index.js";
+export { DEFAULT_DRAIN_PAGE_SIZE, drainParkedTurns } from './turn/index.js'
 export type {
 	DrainFailure,
 	DrainTurn,
 	DrainTurnsParams,
 	DrainTurnsResult,
-} from "./turn/index.js";
+} from './turn/index.js'
 // A `ReviewAnswer` that runs shell commands, so "don't finish until the
 // build passes" needs no TypeScript. `reviewAnswer` was the seam for this
 // and nothing shipped supplied one. Skips re-running a command whose
@@ -455,32 +455,32 @@ export {
 	createCommandGate,
 	createJsonClaimVerifier,
 	fingerprintWorkspace,
-} from "./turn/index.js";
+} from './turn/index.js'
 export type {
 	CommandGateOptions,
 	FingerprintExec,
 	GateExec,
 	WorkspaceFingerprintOptions,
-} from "./turn/index.js";
+} from './turn/index.js'
 // The default `promoteMemory`: write what a turn learned into a MemoryStore,
 // or write NOTHING. A turn that learned nothing leaves no record at all —
 // the model reads this store, so noise here is context spent on a turn that
 // did nothing.
-export { SESSION_MEMORY_TAG, createMemoryPromoter } from "./turn/index.js";
-export type { MemoryPromoterOptions } from "./turn/index.js";
-export { createMemoryRecallStep } from "./turn/memory-recall.js";
-export type { MemoryRecallOptions } from "./turn/memory-recall.js";
+export { SESSION_MEMORY_TAG, createMemoryPromoter } from './turn/index.js'
+export type { MemoryPromoterOptions } from './turn/index.js'
+export { createMemoryRecallStep } from './turn/memory-recall.js'
+export type { MemoryRecallOptions } from './turn/memory-recall.js'
 export {
 	createEvidenceRecallStep,
 	refineEvidenceRecallTerms,
-} from "./turn/evidence-recall.js";
+} from './turn/evidence-recall.js'
 export type {
 	EvidenceRecallOptions,
 	EvidenceRecallRequest,
 	EvidenceRecallBatch,
 	EvidenceRecallCandidate,
 	EvidenceRecallContinuation,
-} from "./turn/evidence-recall.js";
+} from './turn/evidence-recall.js'
 
 // ─── personas, skills, advisory ──────────────────────────────────────────
 
@@ -488,7 +488,7 @@ export {
 	assembleSystemPrompt,
 	mergePersonas,
 	withSessionContext,
-} from "./persona/index.js";
+} from './persona/index.js'
 export {
 	discoverSkills,
 	loadSkill,
@@ -497,12 +497,12 @@ export {
 	SKILL_FRONTMATTER_TOLERATED_KEYS,
 	SkillCollisionError,
 	SkillRegistry,
-} from "./skills/index.js";
+} from './skills/index.js'
 // The one frontmatter reader. `loadSkill` is built on it, and a host reading
 // its own markdown — a command file, a prompt template — uses the same one
 // rather than hand-rolling a second that disagrees about CRLF or about whether
 // a malformed file throws or quietly returns nothing.
-export { parseFrontmatter } from "./utils/frontmatter.js";
+export { parseFrontmatter } from './utils/frontmatter.js'
 
 // ─── the agent directory ─────────────────────────────────────────────────
 //
@@ -520,14 +520,14 @@ export {
 	deriveSupervisorOptions,
 	deriveTurnOptions,
 	loadDirectory,
-} from "./directory/index.js";
+} from './directory/index.js'
 export {
 	AdvisorCollisionError,
 	AdvisorRegistry,
 	AdvisoryContext,
 	AdvisoryExecutor,
 	TriggerEvaluator,
-} from "./advisory/index.js";
+} from './advisory/index.js'
 
 // ─── agents ──────────────────────────────────────────────────────────────
 
@@ -558,7 +558,7 @@ export {
 	PLAN_AGENT_PROMPT,
 	parseAgentFile,
 	parseAgentMarkdown,
-} from "./agents/index.js";
+} from './agents/index.js'
 
 // ─── registries, stores, managers, plugin, gateway ───────────────────────
 
@@ -583,11 +583,11 @@ export {
 	memoryLinkNames,
 	renderMemoryIndex,
 	slugifyMemoryName,
-} from "./store/index.js";
+} from './store/index.js'
 // The task-context rule (open tasks from any turn, plus the ones this turn
 // closed), and the refusal of a task store bound to another session.
-export { selectTaskContext } from "./store/task/context.js";
-export { TaskSessionMismatchError } from "./store/task/disk.js";
+export { selectTaskContext } from './store/task/context.js'
+export { TaskSessionMismatchError } from './store/task/disk.js'
 // Cross-process possession of a session: its `lease.json`. Listing what is
 // waiting (pending decisions, turns, children) is `SessionIndex`'s job, which
 // comes through `./store/session-index/index.js` at the end of this file.
@@ -596,7 +596,7 @@ export {
 	fencedOut,
 	releaseSession,
 	toClaimSummary,
-} from "./store/session-claim.js";
+} from './store/session-claim.js'
 // Walking the actor chain — exported so the next cross-tree concern (an
 // audit over a subtree, a host asking whether one turn is contained by
 // another) composes with the chain that is already persisted, rather than
@@ -605,15 +605,15 @@ export {
 	actorChain,
 	isDescendantOfActor,
 	MAX_ACTOR_CHAIN_DEPTH,
-} from "./session/actor-scope.js";
+} from './session/actor-scope.js'
 export {
 	DiskMessageFeedbackStore,
 	InMemoryMessageFeedbackStore,
 	StaleFeedbackError,
 	UnknownMessageError,
-} from "./store/feedback/index.js";
+} from './store/feedback/index.js'
 // Deciding what a reconnecting consumer's cursor is owed.
-export { resolveSessionLogReplay } from "./types/session/log-cursor.js";
+export { resolveSessionLogReplay } from './types/session/log-cursor.js'
 
 // Commands a HOST offers its operator. Deliberately NOT tools: no
 // descriptor reaches a provider and no dispatch path reaches the model — a
@@ -623,7 +623,7 @@ export {
 	HostCommandNameCollisionError,
 	HostCommandRegistry,
 	kernelHostCommands,
-} from "./registry/command/index-exports.js";
+} from './registry/command/index-exports.js'
 
 export {
 	AgentRegistry,
@@ -632,11 +632,11 @@ export {
 	PluginRegistry,
 	RegistryCollisionError,
 	ToolNameCollisionError,
-} from "./registry/index.js";
+} from './registry/index.js'
 export type {
 	ManagedRegistryConfig,
 	RegistryCollisionPolicy,
-} from "./registry/index.js";
+} from './registry/index.js'
 
 // Toolsets (plan.md v3 §1-2): the unit every tool comes from, and the
 // runtime-owned resolver of them. `toolset()` builds a plain static one;
@@ -646,16 +646,16 @@ export type {
 // `ToolManager` is an advanced API: `query()` builds one per turn from
 // `toolsets`, and a host embedding the execution pipeline directly (rather
 // than through `query()`/the agent classes) builds its own.
-export { combineToolsets, ToolsetConflictError } from "./toolsets/combine.js";
-export { defineCapability, dynamicCapability } from "./capabilities/index.js";
-export { ToolManager } from "./toolsets/manager.js";
+export { combineToolsets, ToolsetConflictError } from './toolsets/combine.js'
+export { defineCapability, dynamicCapability } from './capabilities/index.js'
+export { ToolManager } from './toolsets/manager.js'
 export type {
 	ToolManagerConfig,
 	ToolsetChangeReport,
-} from "./toolsets/manager.js";
-export { matchesSourceIdGlob } from "./toolsets/source-glob.js";
-export { toolset } from "./toolsets/toolset.js";
-export { toToolSourceRef } from "./toolsets/types.js";
+} from './toolsets/manager.js'
+export { matchesSourceIdGlob } from './toolsets/source-glob.js'
+export { toolset } from './toolsets/toolset.js'
+export { toToolSourceRef } from './toolsets/types.js'
 export {
 	deferred,
 	filtered,
@@ -665,7 +665,7 @@ export {
 	readyWhen,
 	requireApproval,
 	withMetadata,
-} from "./toolsets/wrappers.js";
+} from './toolsets/wrappers.js'
 
 export {
 	attachShellHooks,
@@ -684,8 +684,8 @@ export {
 	shellHookIfMatches,
 	shellHookMatches,
 	shellHookVerdict,
-} from "./plugin/index.js";
-export type { DefinedPlugin, DefinePluginOptions } from "./plugin/define.js";
+} from './plugin/index.js'
+export type { DefinedPlugin, DefinePluginOptions } from './plugin/define.js'
 
 export {
 	AgentManager,
@@ -704,17 +704,17 @@ export {
 	 * that release never reached npm, so this major is the first one a consumer
 	 * can actually see the warning in.
 	 */
-} from "./manager/index.js";
+} from './manager/index.js'
 
 // Records one turn into its session log.
-export { TurnRecorder } from "./manager/session/turn-recorder.js";
+export { TurnRecorder } from './manager/session/turn-recorder.js'
 
 export {
 	InMemoryTopicStore,
 	/** @deprecated Use {@link InMemoryTopicStore}. Removal is NZ-TOPIC-05. */
-} from "./store/topic/memory.js";
+} from './store/topic/memory.js'
 
-export { LocalTaskScheduler } from "./scheduler/local.js";
+export { LocalTaskScheduler } from './scheduler/local.js'
 
 // A delegate need not be an in-process Namzu agent. `DelegatingTaskScheduler`
 // presents any set of `Delegate`s as the `TaskScheduler` the delegation
@@ -726,22 +726,22 @@ export {
 	DelegateIdCollisionError,
 	DelegatingTaskScheduler,
 	NoDelegateError,
-} from "./scheduler/delegating.js";
-export type { DelegatingTaskSchedulerConfig } from "./scheduler/delegating.js";
+} from './scheduler/delegating.js'
+export type { DelegatingTaskSchedulerConfig } from './scheduler/delegating.js'
 export type {
 	Delegate,
 	DelegateCapabilities,
 	DelegateRequest,
 	DelegateResult,
-} from "./types/agent/delegate.js";
+} from './types/agent/delegate.js'
 // Exported because `buildCoordinatorTools` is: a host that builds the
 // coordinator surface itself needs the same inbox the loop drains, or its
 // abandoned completions go unheard exactly as they did before.
 export {
 	CompletionInbox,
 	formatCompletionNotification,
-} from "./scheduler/completion-inbox.js";
-export type { CompletionInboxOptions } from "./scheduler/completion-inbox.js";
+} from './scheduler/completion-inbox.js'
+export type { CompletionInboxOptions } from './scheduler/completion-inbox.js'
 
 // Scheduled jobs: WHEN something is due, and nothing about how a host stores
 // or runs a job. The time engine and the evaluator are pure (`Intl` for time
@@ -761,7 +761,7 @@ export {
 	ScheduleValidationError,
 	upcomingFireTimes,
 	validateTimeZone,
-} from "./schedules/index.js";
+} from './schedules/index.js'
 
 // ─── providers, sandbox, vault ───────────────────────────────────────────
 
@@ -788,22 +788,22 @@ export {
 	UnknownProviderError,
 	withProviderFallback,
 	withProviderRetry,
-} from "./provider/index.js";
+} from './provider/index.js'
 export type {
 	ProviderChainMember,
 	ProviderRetryConfig,
 	WithProviderFallbackOptions,
 	WithProviderRetryOptions,
-} from "./provider/index.js";
+} from './provider/index.js'
 // Which part of the network path a failed request tripped on (a proxy that
 // wants a sign-in, an untrusted certificate), read off the failure's causes.
-export { readTransportCause } from "./types/provider/errors.js";
-export type { TransportCause } from "./types/provider/errors.js";
+export { readTransportCause } from './types/provider/errors.js'
+export type { TransportCause } from './types/provider/errors.js'
 // The curve `ProviderRetryConfig` extends and `query({ toolRetryBackoff })`
 // takes a partial of. Both public surfaces name it, so a consumer has to be
 // able to name it too — a type reachable only through an inline `import(...)`
 // in a `.d.ts` is not a type anyone writes down.
-export type { BackoffPolicy } from "./utils/backoff.js";
+export type { BackoffPolicy } from './utils/backoff.js'
 
 export {
 	assertIsolation,
@@ -813,11 +813,11 @@ export {
 	missingIsolation,
 	SandboxProviderFactory,
 	walkFilesViaExec,
-} from "./sandbox/index.js";
+} from './sandbox/index.js'
 export type {
 	LocalSandboxProviderOptions,
 	SandboxFileWalkExec,
-} from "./sandbox/index.js";
+} from './sandbox/index.js'
 
 // The classified provider-failure surface: a driver states what went wrong
 // first-hand, and the turn boundary reads it to choose between a pause and a
@@ -834,9 +834,9 @@ export {
 	isProviderRequestError,
 	providerHttpError,
 	providerVendorError,
-} from "./provider/errors.js";
+} from './provider/errors.js'
 
-export { InMemoryCredentialVault } from "./vault/index.js";
+export { InMemoryCredentialVault } from './vault/index.js'
 
 // ─── RAG runtime (generic; createRAGTool is in public-tools.ts) ──────────
 
@@ -853,7 +853,7 @@ export {
 	InMemoryVectorStore,
 	HttpEmbeddingProvider,
 	TextChunker,
-} from "./rag/index.js";
+} from './rag/index.js'
 
 // ─── connectors ──────────────────────────────────────────────────────────
 
@@ -920,7 +920,7 @@ export {
 	validateMcpHeaderAnnotations,
 	WebhookConnector,
 	zodToMCPJsonSchema,
-} from "./connector/index.js";
+} from './connector/index.js'
 export type {
 	McpEnvelope,
 	McpEnvelopeInput,
@@ -937,7 +937,7 @@ export type {
 	MCPToolPolicyDecision,
 	MCPToolsetOptions,
 	MCPToolsets,
-} from "./connector/index.js";
+} from './connector/index.js'
 
 // ─── bridges (a2a + sse) ─────────────────────────────────────────────────
 
@@ -953,8 +953,8 @@ export {
 	messageToA2A,
 	resolveA2AContext,
 	turnStatusToA2AState,
-} from "./bridge/a2a/index.js";
-export { resolveExternalSession } from "./bridge/external-session.js";
+} from './bridge/a2a/index.js'
+export { resolveExternalSession } from './bridge/external-session.js'
 
 // The client half. Until this landed the bridge was a one-way door: this
 // kernel served a card and could read nobody else's, so the delegate seam
@@ -965,17 +965,17 @@ export {
 	A2ARequestError,
 	InvalidAgentCardError,
 	fetchAgentCard,
-} from "./bridge/a2a/client.js";
+} from './bridge/a2a/client.js'
 export type {
 	A2ADelegateConfig,
 	FetchAgentCardOptions,
 	FetchLike,
-} from "./bridge/a2a/client.js";
+} from './bridge/a2a/client.js'
 
 export {
 	mapSessionEventToStreamEvent,
 	mapSessionToStreamEvent,
-} from "./bridge/sse/index.js";
+} from './bridge/sse/index.js'
 
 export {
 	ACP_DEFAULT_REJECTION,
@@ -984,7 +984,7 @@ export {
 	toAcpSessionUpdate,
 	toAcpStopReason,
 	toResumeDecision,
-} from "./bridge/acp/index.js";
+} from './bridge/acp/index.js'
 export type {
 	AcpAgentGateway,
 	AcpClientFilesystem,
@@ -992,7 +992,7 @@ export type {
 	AcpPermissionOutcome,
 	AcpPermissionRequest,
 	AcpServerOptions,
-} from "./bridge/acp/index.js";
+} from './bridge/acp/index.js'
 export type {
 	AcpFileChangePreview,
 	AcpFsReadParams,
@@ -1012,7 +1012,7 @@ export type {
 	AcpSessionUpdate,
 	AcpSessionUpdateNotification,
 	AcpStopReason,
-} from "./types/acp/index.js";
+} from './types/acp/index.js'
 
 // ─── bus, verification ───────────────────────────────────────────────────
 
@@ -1021,7 +1021,7 @@ export {
 	CircuitBreaker,
 	EditOwnershipTracker,
 	FileLockManager,
-} from "./bus/index.js";
+} from './bus/index.js'
 
 // `describeRule` travels with `evaluateRule` deliberately. `evaluateRule`
 // answers WHETHER a rule matched; on its own it leaves a caller holding a
@@ -1046,7 +1046,7 @@ export {
 	describeRule,
 	evaluateRule,
 	AuthorizationGate,
-} from "./authorization/index.js";
+} from './authorization/index.js'
 
 // The one reader of a bash command line the gate itself uses. A host that
 // writes a `predicate` rule about what a line runs decides on this reading,
@@ -1057,7 +1057,7 @@ export {
 	NESTED_SHELLS,
 	lexShellCommandLine,
 	nestedShellCommand,
-} from "./authorization/shell-lexer.js";
+} from './authorization/shell-lexer.js'
 
 // Where a command line actually execs a program — unwrapping `sudo`, `env`,
 // `nice`, `timeout` and the rest of a re-exec chain with their own real
@@ -1074,11 +1074,11 @@ export {
 	programPositions,
 	resolveScriptPrograms,
 	unknownProgramInLine,
-} from "./authorization/program.js";
+} from './authorization/program.js'
 export type {
 	CommandProgramPositions,
 	ProgramPosition,
-} from "./authorization/program.js";
+} from './authorization/program.js'
 
 // NZ-BOOT-03: the module-attributed invariant registry. `compaction.ts` and
 // `claim-disk.ts` register themselves against the shared `invariants`
@@ -1092,8 +1092,8 @@ export {
 	invariants,
 	InvariantRegistry,
 	ModuleInvariantError,
-} from "./invariants/index.js";
-export type { InvariantCheck, InvariantOutcome } from "./invariants/index.js";
+} from './invariants/index.js'
+export type { InvariantCheck, InvariantOutcome } from './invariants/index.js'
 
 // ─── probe (typed observation AND enforcement over AgentBus + SessionEvent)
 //
@@ -1111,13 +1111,13 @@ export {
 	ProbeNameCollisionError,
 	ProbeRegistry,
 	ProbeVetoError,
-} from "./probe/index.js";
-export type { ProbeEnforcement, ProbeObservation } from "./probe/index.js";
+} from './probe/index.js'
+export type { ProbeEnforcement, ProbeObservation } from './probe/index.js'
 
-export { wrapProviderWithProbes } from "./provider/instrumentation.js";
-export type { ProviderInstrumentationOptions } from "./provider/instrumentation.js";
-export type { ResolvedProviderCapabilities } from "./provider/capabilities.js";
-export { collectChatCompletion } from "./provider/collect-chat-completion.js";
+export { wrapProviderWithProbes } from './provider/instrumentation.js'
+export type { ProviderInstrumentationOptions } from './provider/instrumentation.js'
+export type { ResolvedProviderCapabilities } from './provider/capabilities.js'
+export { collectChatCompletion } from './provider/collect-chat-completion.js'
 
 // Old spellings of renamed exports, still live for one deprecation window.
 // The file explains why each is a `const`+`type` pair rather than a
@@ -1127,8 +1127,8 @@ export { collectChatCompletion } from "./provider/collect-chat-completion.js";
 export {
 	wrapCredentialProviderWithProbes,
 	wrapVaultWithProbes,
-} from "./vault/instrumentation.js";
-export type { VaultInstrumentationOptions } from "./vault/instrumentation.js";
+} from './vault/instrumentation.js'
+export type { VaultInstrumentationOptions } from './vault/instrumentation.js'
 
 // Doctor runtime moved to @namzu/cli in 0.5.0. SDK keeps only the
 // protocol types under `types/doctor/` (re-exported via public-types.ts)
@@ -1143,7 +1143,7 @@ export {
 	parseWorktreeList,
 	SharedSessionWorkspace,
 	WorkspaceBackendRegistry,
-} from "./session/workspace/index.js";
+} from './session/workspace/index.js'
 
 export {
 	DefaultCapacityValidator,
@@ -1153,24 +1153,24 @@ export {
 	HandoffLockRejected,
 	HandoffVersionConflict,
 	NOOP_HANDOFF_SINK,
-} from "./session/handoff/index.js";
+} from './session/handoff/index.js'
 
 export {
 	AGENT_SUMMARY_MAX_CHARS,
 	AgentSummaryTooLongError,
 	SessionAlreadySummarizedError,
 	SessionSummaryMaterializer,
-} from "./session/summary/index.js";
+} from './session/summary/index.js'
 
 export {
 	ArtifactRefCycleError,
 	InterventionDepthExceeded,
 	validatePrevArtifactChain,
-} from "./session/intervention/index.js";
+} from './session/intervention/index.js'
 
 // A session's conversation as SessionMessages, read from its log: what an
 // `ArchivalManager` archives for a child session.
-export { readSessionMessages } from "./session/messages.js";
+export { readSessionMessages } from './session/messages.js'
 
 export {
 	ArchivalManager,
@@ -1180,7 +1180,7 @@ export {
 	RETENTION_POLICY_DISABLED,
 	SubSessionNotArchivableError,
 	SubSessionNotArchivedError,
-} from "./session/retention/index.js";
+} from './session/retention/index.js'
 
 // NOTE: `deriveStatus` intentionally NOT re-exported here — it was not part
 // of the pre-ses_011 public surface. Consumers needing it import from the
@@ -1199,7 +1199,7 @@ export {
 	TopicArchivedError,
 	TopicNotEmptyError,
 	WorkspaceBackendError,
-} from "./session/errors.js";
+} from './session/errors.js'
 
 // ─── store/session runtime — explicit named (types live in public-types.ts)
 
@@ -1209,36 +1209,36 @@ export {
 	getChildren,
 	InMemorySessionStore,
 	orderChildren,
-} from "./store/session/index.js";
+} from './store/session/index.js'
 
 // ─── runtime helpers colocated with shapes under `types/` (§1.5) ─────────
 
-export { A2AProtocolError } from "./types/a2a/index.js";
+export { A2AProtocolError } from './types/a2a/index.js'
 export {
 	isTerminalActivityStatus,
 	resolveActivityTracking,
-} from "./types/activity/index.js";
-export { isTerminalAgentTaskState } from "./types/agent/task.js";
+} from './types/activity/index.js'
+export { isTerminalAgentTaskState } from './types/agent/task.js'
 export {
 	accumulateTokenUsage,
 	isTerminalStatus,
-} from "./types/common/index.js";
+} from './types/common/index.js'
 export {
 	assertComputerUseActionType,
 	assertDisplayServer,
-} from "./types/computer-use/index.js";
-export { isConnectorActive } from "./types/connector/core.js";
-export { CONNECTOR_SCOPE_ORDER } from "./types/connector/scope.js";
-export { RoutingResponseSchema } from "./types/decision/index.js";
-export { autoApproveHandler } from "./types/hitl/index.js";
-export { deriveChildState } from "./types/invocation/index.js";
+} from './types/computer-use/index.js'
+export { isConnectorActive } from './types/connector/core.js'
+export { CONNECTOR_SCOPE_ORDER } from './types/connector/scope.js'
+export { RoutingResponseSchema } from './types/decision/index.js'
+export { autoApproveHandler } from './types/hitl/index.js'
+export { deriveChildState } from './types/invocation/index.js'
 export {
 	MEMORY_TYPES,
 	assertMemoryStatus,
 	assertMemoryType,
 	hasConditionalMemoryWrites,
 	isMemoryType,
-} from "./types/memory/index.js";
+} from './types/memory/index.js'
 export {
 	createAssistantMessage,
 	selectAssistantText,
@@ -1262,8 +1262,8 @@ export {
 	isModelContentOmission,
 	MAX_PROJECT_INSTRUCTION_SOURCE_FILES,
 	RUNTIME_CONTEXT_MESSAGE_KINDS,
-} from "./types/message/index.js";
-export { isTerminalPlanStatus } from "./types/plan/index.js";
+} from './types/message/index.js'
+export { isTerminalPlanStatus } from './types/plan/index.js'
 export {
 	assertPluginContributionType,
 	assertPluginHookEvent,
@@ -1273,10 +1273,10 @@ export {
 	PluginManifestSchema,
 	PluginMCPServerConfigSchema,
 	RENAMED_PLUGIN_HOOK_EVENTS,
-} from "./types/plugin/index.js";
-export { toMemoryCandidate } from "./types/session/memory-promotion.js";
-export { MutationNotApplicableError } from "./types/session/fork.js";
-export { replayAudit } from "./types/session/audit.js";
+} from './types/plugin/index.js'
+export { toMemoryCandidate } from './types/session/memory-promotion.js'
+export { MutationNotApplicableError } from './types/session/fork.js'
+export { replayAudit } from './types/session/audit.js'
 export {
 	assertSandboxEnvironment,
 	assertSandboxStatus,
@@ -1286,12 +1286,12 @@ export {
 	// the first line of the built binary.
 	SANDBOX_ENVIRONMENTS,
 	SANDBOX_ISOLATION_CONTROLS,
-} from "./types/sandbox/index.js";
+} from './types/sandbox/index.js'
 // `SandboxConfigSchema` is already re-exported above from `./config/runtime.js`
 // (the project-wide config barrel surfaces it first). types/sandbox also exports
 // one under the same name; `@namzu/sdk` root barrel exposes one symbol — the
 // config/runtime version is the canonical path. Keep it out of this block.
-export { assertTaskStatus, isTerminalTaskStatus } from "./types/task/index.js";
+export { assertTaskStatus, isTerminalTaskStatus } from './types/task/index.js'
 // NOTE: `AuthorizationRuleSchema` and `AuthorizationGateConfigSchema` are NOT
 // re-exported — they were not part of the pre-ses_011 public surface.
 
@@ -1301,14 +1301,14 @@ export { assertTaskStatus, isTerminalTaskStatus } from "./types/task/index.js";
 // point in the kernel and was exported from nowhere, so a host could not
 // offer "compact this conversation", could not shrink an idle session
 // between turns, and could not collapse a span it had chosen.
-export { compactNow, compactRegion } from "./compaction/manual.js";
+export { compactNow, compactRegion } from './compaction/manual.js'
 // A host persisting manual compaction has to recognise the system message on
 // resume. Export the identity predicate rather than making every host copy the
 // marker string and eventually disagree with the writer.
 export {
 	COMPACTION_RECOVERY_NOTE,
 	isCompactionMessage,
-} from "./compaction/summary.js";
+} from './compaction/summary.js'
 export {
 	DEFAULT_SALIENCE_CONFIG,
 	DEFAULT_SALIENCE_WEIGHTS,
@@ -1317,29 +1317,29 @@ export {
 	messageText,
 	planWorkingSet,
 	scoreMessages,
-} from "./compaction/salience/index.js";
+} from './compaction/salience/index.js'
 export {
 	DEFAULT_SOFT_TARGET,
 	planSalienceWorkingSet,
-} from "./compaction/plan.js";
+} from './compaction/plan.js'
 export {
 	CONSOLIDATION_TAG,
 	consolidationEntry,
 	isConsolidated,
-} from "./compaction/consolidation.js";
+} from './compaction/consolidation.js'
 // The sibling state-bearing system message. A host that carries a turn's
 // conversation into a fresh query must distinguish this ledger from the fresh
 // identity/environment prompt floor without copying its private header string.
-export { isWorkingMemoryMessage } from "./runtime/query/iteration/phases/working-memory.js";
+export { isWorkingMemoryMessage } from './runtime/query/iteration/phases/working-memory.js'
 // Their input and result types, because a function on the public surface whose
 // return type is not on it forces every caller to inline the shape or reach for
 // `any` — and the first host to try (`@namzu/cli`'s `/compact`) did exactly
 // that before this line existed.
-export type { CompactNowInput, CompactionResult } from "./compaction/manual.js";
+export type { CompactNowInput, CompactionResult } from './compaction/manual.js'
 export type {
 	CompactionSummaryRoute,
 	CompactionSummaryRouter,
-} from "./compaction/model-summary.js";
+} from './compaction/model-summary.js'
 
 export {
 	buildVerifiedSummary,
@@ -1362,16 +1362,16 @@ export {
 	SlidingWindowManager,
 	StructuredCompactionManager,
 	WorkingStateManager,
-} from "./compaction/index.js";
+} from './compaction/index.js'
 export type {
 	ToolHistoryRepairOptions,
 	ToolHistoryRepairReport,
 	ToolHistoryRepairResult,
-} from "./compaction/index.js";
+} from './compaction/index.js'
 
 // ─── loop control ────────────────────────────────────────────────────────
 
-export { anyOf, hasToolCall, stepCountIs } from "./types/session/step.js";
+export { anyOf, hasToolCall, stepCountIs } from './types/session/step.js'
 
 // ─── evaluation harness ──────────────────────────────────────────────────
 
@@ -1388,7 +1388,7 @@ export {
 	runExperiment,
 	stepBudgetScorer,
 	trajectoryScorer,
-} from "./eval/index.js";
+} from './eval/index.js'
 
 // ─── metrics ─────────────────────────────────────────────────────────────
 //
@@ -1402,8 +1402,8 @@ export {
 	recordTurnDuration,
 	recordToolCall,
 	resetRuntimeMetrics,
-} from "./telemetry/metrics.js";
-export type { TokenUsageSample } from "./telemetry/metrics.js";
+} from './telemetry/metrics.js'
+export type { TokenUsageSample } from './telemetry/metrics.js'
 
 // ─── guardrails ──────────────────────────────────────────────────────────
 
@@ -1412,7 +1412,7 @@ export {
 	secretRedactionGuardrail,
 	toolResultCorrespondenceGuardrail,
 	toolResultInjectionGuardrail,
-} from "./runtime/query/guardrail-presets.js";
+} from './runtime/query/guardrail-presets.js'
 // Which names a `passthroughTools` list has to contain for a given tool. A
 // caller that REPORTS on such a list — the CLI checks an operator's names
 // against the tools its registry actually holds, so a name that matches
@@ -1420,11 +1420,11 @@ export {
 // the way the screen does rather than keep a second copy of the rule: a name
 // the reporter accepts and the screen does not is an exemption the operator
 // believes is in force.
-export { passthroughToolNames } from "./runtime/query/guardrail-presets.js";
+export { passthroughToolNames } from './runtime/query/guardrail-presets.js'
 // What a turn installs when its host configured no screens. Exported because a
 // caller who wants to keep the default AND add to it has to be able to name
 // it: `[...DEFAULT_TOOL_RESULT_GUARDRAILS, myScreen()]`.
-export { DEFAULT_TOOL_RESULT_GUARDRAILS } from "./runtime/query/guardrail-presets.js";
+export { DEFAULT_TOOL_RESULT_GUARDRAILS } from './runtime/query/guardrail-presets.js'
 // Thrown by a tool-result screen that returned `halt`. Exported because a
 // host has to be able to tell it from an ordinary failure — that is the
 // entire difference between the two refusal outcomes.
@@ -1432,9 +1432,9 @@ export { DEFAULT_TOOL_RESULT_GUARDRAILS } from "./runtime/query/guardrail-preset
 // route, and a kernel with no UI and no hosted service has no in-process
 // caller to offer. Exported rather than deleted because the reader it was
 // written for is out of process by construction.
-export { coalesce } from "./streaming/coalesce.js";
+export { coalesce } from './streaming/coalesce.js'
 
-export { ToolResultHalted } from "./registry/tool/screen.js";
+export { ToolResultHalted } from './registry/tool/screen.js'
 
 // Error taxonomy. `toPlatformError` is the load-bearing one: it normalizes
 // ANYTHING thrown into the declared `PlatformError` shape, so a host writes
@@ -1443,7 +1443,7 @@ export {
 	NamzuError,
 	isNamzuError,
 	toPlatformError,
-} from "./types/errors/index.js";
+} from './types/errors/index.js'
 // The remediation layer above it: classification says what KIND of failure
 // it is, the catalog says what a person should do about it. Separate on
 // purpose — the first is structural and belongs at the boundary, the second
@@ -1454,18 +1454,18 @@ export {
 	factsOf,
 	readHint,
 	withHint,
-} from "./types/errors/catalog.js";
+} from './types/errors/catalog.js'
 export type {
 	ErrorCatalogRule,
 	ErrorExplanation,
 	ErrorFacts,
-} from "./types/errors/catalog.js";
+} from './types/errors/catalog.js'
 
 // The box itself is built by `query` — a host receives it through
 // `onApprovalPolicy` rather than constructing one, because changing the
 // policy appends a durable record and only the turn holds the log. The name
 // constant is exported so a host can recognise the unattended default.
-export { AUTO_APPROVE_POLICY_NAME } from "./runtime/query/approval-policy.js";
+export { AUTO_APPROVE_POLICY_NAME } from './runtime/query/approval-policy.js'
 // The modes a host resolves the undecided under — prompt, auto,
 // accept-edits, plan, strict — as an `ApprovalPolicy`. See
 // `runtime/query/review-policy.ts`.
@@ -1490,7 +1490,7 @@ export {
 	isReviewExempt,
 	isReviewMode,
 	modeReviewsAllowedCalls,
-} from "./runtime/query/review-policy.js";
+} from './runtime/query/review-policy.js'
 // The model that decides, in the `classify` review mode, what a person would
 // otherwise be asked. See `runtime/query/auto-review/`.
 export {
@@ -1502,11 +1502,11 @@ export {
 	autoReviewBlockedFeedback,
 	createAutoReviewClassifier,
 	resolveAutoReviewRules,
-} from "./runtime/query/auto-review/index.js";
+} from './runtime/query/auto-review/index.js'
 // What the model is told when a person declines a call without words of their own.
-export { DECLINED_TOOL_CALL_FEEDBACK } from "./runtime/query/declined.js";
+export { DECLINED_TOOL_CALL_FEEDBACK } from './runtime/query/declined.js'
 // Whether a tool result answers a call the review did not let run, so a host counting failures can leave it out.
-export { isReviewRefusalResult } from "./runtime/query/iteration/phases/per-call-review.js";
+export { isReviewRefusalResult } from './runtime/query/iteration/phases/per-call-review.js'
 
 // The system prompt is open: a contribution registry the assembler
 // consumes, with skills as its first contributor. See `prompt/contributions.ts`.
@@ -1524,7 +1524,7 @@ export {
 	createResidentStepContributions,
 	createResidentStepContext,
 	skillsContribution,
-} from "./prompt/index.js";
+} from './prompt/index.js'
 
 // Who may reach for a skill. Runtime, not types: `public-types.ts` does
 // `export type *` from the same module, which carries the union and leaves
@@ -1535,7 +1535,7 @@ export {
 	isInvocableBy,
 	skillInvocation,
 	skillModelDescription,
-} from "./types/skills/index.js";
+} from './types/skills/index.js'
 
 // Reaching the web. Fetching ships guarded because its rules are about the
 // network and the same everywhere; searching ships with no vendor, because
@@ -1544,7 +1544,7 @@ export {
 	GuardedFetchProvider,
 	WebFetchRefusedError,
 	isPrivateAddress,
-} from "./connector/web/index.js";
+} from './connector/web/index.js'
 
 // Where an attachment's bytes live when the message does not carry them.
 // Inline base64 lands in the transcript, in every checkpoint, and on the
@@ -1558,7 +1558,7 @@ export {
 	isStoredAttachment,
 	resolveAttachment,
 	resolveAttachments,
-} from "./store/attachment/index.js";
+} from './store/attachment/index.js'
 
 // Derived values, maintained from the session's own log rather than
 // recomputed by whoever asks. See `read-model/registry.ts`.
@@ -1570,13 +1570,13 @@ export {
 	SESSION_STATUS_READ_MODEL_ID,
 	UnknownReadModelError,
 	createSessionStatusReadModel,
-} from "./read-model/index.js";
+} from './read-model/index.js'
 
 // Asking a session what happened, including what compaction removed.
 export {
 	SessionQuery,
 	SessionTranscriptUnavailableError,
-} from "./session-query/index.js";
+} from './session-query/index.js'
 
 // A host-scoped pseudo-terminal primitive, or a refusal that names the
 // binding to install. It neither creates a sandbox nor owns a descendant
@@ -1588,7 +1588,7 @@ export {
 	TerminalUnavailableError,
 	loadPty,
 	openTerminalWith,
-} from "./sandbox/terminal.js";
+} from './sandbox/terminal.js'
 
 // ─── types named by exported signatures ──────────────────────────────────
 //
@@ -1602,15 +1602,15 @@ export {
 // defect was hit three times in two days by whoever happened to write the first
 // consumer (`SpanProcessorLike`, then `CompactNowInput` and `CompactionResult`).
 // The gate is the reason this is a list rather than a fourth accident.
-export type { ResolvedContextWindow } from "./compaction/context-window.js";
-export { resolveTriggerThreshold } from "./compaction/context-window.js";
+export type { ResolvedContextWindow } from './compaction/context-window.js'
+export { resolveTriggerThreshold } from './compaction/context-window.js'
 // What the context window is made of, for a host that draws the answer to
 // "where did my context go".
 export {
 	analyzeContextUsage,
 	describeToolCatalogTokens,
 	CONTEXT_CATEGORY_ORDER,
-} from "./compaction/context-breakdown.js";
+} from './compaction/context-breakdown.js'
 export type {
 	ContextBreakdown,
 	ContextCategory,
@@ -1618,124 +1618,124 @@ export type {
 	ContextCategoryKind,
 	ContextMessageBreakdown,
 	ContextUsageInput,
-} from "./compaction/context-breakdown.js";
-export { estimateTextTokens } from "./compaction/token-estimate.js";
-export type { CompactRegionInput } from "./compaction/manual.js";
+} from './compaction/context-breakdown.js'
+export { estimateTextTokens } from './compaction/token-estimate.js'
+export type { CompactRegionInput } from './compaction/manual.js'
 export type {
 	CompactionVerificationOptions,
 	UsageSink,
-} from "./compaction/verifier.js";
+} from './compaction/verifier.js'
 export type {
 	PluginDiscoveryOptions,
 	PluginEnablementCapabilities,
-} from "./plugin/loader.js";
-export type { ProbeContextInput } from "./probe/context.js";
+} from './plugin/loader.js'
+export type { ProbeContextInput } from './probe/context.js'
 export type {
 	GoalCommandScope,
 	KernelCommandOptions,
-} from "./registry/command/kernel-commands.js";
-export type { MockBidiScript, MockBidiSession } from "./runtime/bidi/mock.js";
-export type { BidiTurn, BidiTurnParams } from "./runtime/bidi/session.js";
-export type { SecretRedactionOptions } from "./runtime/query/guardrail-presets.js";
-export type { ToolResultCorrespondenceOptions } from "./runtime/query/guardrail-presets.js";
-export type { ListCheckpointsInput } from "./runtime/query/fork/list.js";
+} from './registry/command/kernel-commands.js'
+export type { MockBidiScript, MockBidiSession } from './runtime/bidi/mock.js'
+export type { BidiTurn, BidiTurnParams } from './runtime/bidi/session.js'
+export type { SecretRedactionOptions } from './runtime/query/guardrail-presets.js'
+export type { ToolResultCorrespondenceOptions } from './runtime/query/guardrail-presets.js'
+export type { ListCheckpointsInput } from './runtime/query/fork/list.js'
 export type {
 	PrepareForkInput,
 	PreparedForkState,
-} from "./runtime/query/fork/prepare.js";
+} from './runtime/query/fork/prepare.js'
 export type {
 	HandoffAssignment,
 	HandoffOutcome,
-} from "./session/handoff/assignment.js";
-export type { BroadcastHandoffDeps } from "./session/handoff/broadcast.js";
-export type { SingleHandoffDeps } from "./session/handoff/single.js";
-export type { InterventionChainLoader } from "./session/intervention/prev-artifact.js";
+} from './session/handoff/assignment.js'
+export type { BroadcastHandoffDeps } from './session/handoff/broadcast.js'
+export type { SingleHandoffDeps } from './session/handoff/single.js'
+export type { InterventionChainLoader } from './session/intervention/prev-artifact.js'
 export type {
 	ActionInput,
 	ComputerUseTool,
 	ComputerUseToolOptions,
 	ImageSize,
 	ScreenshotLimits,
-} from "./tools/builtins/computer-use.js";
-export type { Project } from "./types/project/entity.js";
-export type { CreatedLogger } from "./utils/log/create-logger.js";
+} from './tools/builtins/computer-use.js'
+export type { Project } from './types/project/entity.js'
+export type { CreatedLogger } from './utils/log/create-logger.js'
 export type {
 	LoggerOptions,
 	MutableLogSinkCounters,
-} from "./utils/log/types.js";
+} from './utils/log/types.js'
 export type {
 	JobChild,
 	JobHost,
 	JobPipe,
 	JobProcess,
 	JobSource,
-} from "./runtime/jobs/registry.js";
-export { WORKING_STATE_MIME } from "./connector/mcp/adapter.js";
+} from './runtime/jobs/registry.js'
+export { WORKING_STATE_MIME } from './connector/mcp/adapter.js'
 
 export {
 	snapshotRequestContext,
 	diffRequestContext,
-} from "./runtime/query/request-context.js";
+} from './runtime/query/request-context.js'
 
 export {
 	DiskResidentStore,
 	ResidentConflictError,
-} from "./manager/resident/store.js";
-export { runResident, stepResident } from "./manager/resident/loop.js";
-export { DiskResidentAgenda } from "./manager/resident/agenda.js";
-export { inspectResidentConsumption } from "./manager/resident/consumption.js";
-export { ResidentHost } from "./manager/resident/host.js";
+} from './manager/resident/store.js'
+export { runResident, stepResident } from './manager/resident/loop.js'
+export { DiskResidentAgenda } from './manager/resident/agenda.js'
+export { inspectResidentConsumption } from './manager/resident/consumption.js'
+export { ResidentHost } from './manager/resident/host.js'
 
-export { createResidentSelector } from "./manager/resident/initiative.js";
-export { validateResidentProposal } from "./manager/resident/proposal.js";
+export { createResidentSelector } from './manager/resident/initiative.js'
+export { validateResidentProposal } from './manager/resident/proposal.js'
 
-export { deliverResidentMessage } from "./manager/resident/outbox.js";
-export { createResidentDeliveryWindow } from "./manager/resident/delivery-window.js";
+export { deliverResidentMessage } from './manager/resident/outbox.js'
+export { createResidentDeliveryWindow } from './manager/resident/delivery-window.js'
 
-export { hashLearningSkill, projectLearning } from "./learning/skill.js";
-export { runLearningCycle } from "./learning/cycle.js";
+export { hashLearningSkill, projectLearning } from './learning/skill.js'
+export { runLearningCycle } from './learning/cycle.js'
 export {
 	LEARNING_FLOOR_COMPONENTS,
 	LEARNING_SURFACE_KINDS,
 	learningExperienceFromCycle,
 	proposeLearningCandidate,
 	resolveLearningSurface,
-} from "./learning/generator.js";
+} from './learning/generator.js'
 export {
 	LEARNING_CONFIDENCE_LEVELS,
 	LEARNING_EDIT_VERDICTS,
 	normalizeLearningExperience,
 	selectLearningExperience,
-} from "./learning/experience.js";
+} from './learning/experience.js'
 export {
 	LEARNING_EXPERIENCE_STORE_VERSION,
 	SqliteLearningExperienceStore,
-} from "./learning/experience-store.js";
+} from './learning/experience-store.js'
 export {
 	LearningLeakError,
 	assertNoLearningLeak,
 	createLearningCanary,
 	scanForLearningLeak,
-} from "./learning/leak-tripwire.js";
+} from './learning/leak-tripwire.js'
 
 export {
 	createSessionEvidenceSource,
 	createSessionTextEvidenceSource,
-} from "./store/evidence/disk.js";
-export { SessionEvidenceOffsetError } from "./store/evidence/source-text.js";
+} from './store/evidence/disk.js'
+export { SessionEvidenceOffsetError } from './store/evidence/source-text.js'
 export {
 	classifyEvidenceSource,
 	EVIDENCE_RECORD_GUIDANCE,
-} from "./store/evidence/source-kind.js";
-export { createResidentToolEvidenceSource } from "./manager/resident/tool-evidence.js";
+} from './store/evidence/source-kind.js'
+export { createResidentToolEvidenceSource } from './manager/resident/tool-evidence.js'
 
-export { createResidentEvidenceRecallStep } from "./manager/resident/evidence-recall.js";
+export { createResidentEvidenceRecallStep } from './manager/resident/evidence-recall.js'
 
 export {
 	SqliteLearningStore,
 	runStoredLearningCycle,
 	runStoredLearningFromObservations,
-} from "./learning/store.js";
+} from './learning/store.js'
 export {
 	SqliteResidentLearningStore,
 	hashResidentSkill,
@@ -1743,7 +1743,7 @@ export {
 	runResidentLearningCycle,
 	runStoredResidentLearningCycle,
 	runStoredResidentLearningFromObservations,
-} from "./learning/deprecated.js";
+} from './learning/deprecated.js'
 
 // ─── sessions, turns and the session log ─────────────────────────────────
 //
@@ -1753,11 +1753,11 @@ export {
 export {
 	TurnInProgressError,
 	isTurnInProgressError,
-} from "./types/session/turn.js";
+} from './types/session/turn.js'
 export {
 	EPHEMERAL_EVENT_TYPES as EPHEMERAL_SESSION_EVENT_TYPES,
 	isEphemeralEvent,
-} from "./types/session/events.js";
+} from './types/session/events.js'
 export {
 	ChildSessionMetaSchema,
 	CompactionRecordSchema,
@@ -1781,14 +1781,14 @@ export {
 	TurnSettlementSchema,
 	TurnStartedRecordSchema,
 	parseSessionRecord,
-} from "./types/session/records.js";
+} from './types/session/records.js'
 export {
 	CHECKPOINT_DOCUMENT_VERSION,
 	CheckpointDocumentError,
 	CheckpointSchema,
 	parseCheckpoint,
-} from "./types/session/checkpoint.js";
-export { NamzuHomeError, resolveNamzuHome } from "./session/home.js";
+} from './types/session/checkpoint.js'
+export { NamzuHomeError, resolveNamzuHome } from './session/home.js'
 export {
 	ProjectDocumentError,
 	SessionPathError,
@@ -1797,24 +1797,24 @@ export {
 	hashedSlugForCwd,
 	slugForCwd,
 	tempRoot,
-} from "./session/paths.js";
+} from './session/paths.js'
 export {
 	SessionLogLineError,
 	formatSessionLogLine,
 	parseSessionLogLine,
 	recordSha256,
-} from "./session/log-hash.js";
+} from './session/log-hash.js'
 export {
 	asRecordId,
 	asTurnId,
 	generateRecordId,
 	generateTurnId,
-} from "./utils/id.js";
-export * from "./store/session-log/index.js";
-export * from "./store/session-index/index.js";
-export * from "./store/checkpoint/index.js";
-export * from "./store/budget/index.js";
-export * from "./contracts/session/index.js";
+} from './utils/id.js'
+export * from './store/session-log/index.js'
+export * from './store/session-index/index.js'
+export * from './store/checkpoint/index.js'
+export * from './store/budget/index.js'
+export * from './contracts/session/index.js'
 
 // ─── system events (@experimental) ──────────────────────────────────────
 //
@@ -1826,7 +1826,7 @@ export {
 	SYSTEM_EVENT_KINDS,
 	SYSTEM_EVENT_STATUSES,
 	formatSystemEvent,
-} from "./runtime/system-events.js";
+} from './runtime/system-events.js'
 
 // ─── peer messaging (@experimental) ─────────────────────────────────────
 //
@@ -1887,7 +1887,7 @@ export {
 	resolvePeerRuntimeDir,
 	udsPeerAddress,
 	writePeerRecord,
-} from "./peers/index.js";
+} from './peers/index.js'
 export {
 	ACCOUNTS_FILE_NAME,
 	ACCOUNTS_FILE_VERSION,
@@ -1904,79 +1904,79 @@ export {
 	withAccountLock,
 	withAccountLockSync,
 	withAccountRefreshLock,
-} from "./account/index.js";
-export { DiskPalStore, PalConflictError } from "./pals/store.js";
-export { PalRuntime, PalUnavailableError } from "./pals/runtime.js";
+} from './account/index.js'
+export { DiskPalStore, PalConflictError } from './pals/store.js'
+export { PalRuntime, PalUnavailableError } from './pals/runtime.js'
 export {
 	buildPalSystemPrompt,
 	palConversationGreeting,
-} from "./pals/prompt.js";
+} from './pals/prompt.js'
 export {
 	preparePalReferenceImages,
 	importPalReferenceImages,
-} from "./pals/reference-images.js";
+} from './pals/reference-images.js'
 
-export { isInboundDeliveryRef } from "./types/message/inbound-delivery.js";
+export { isInboundDeliveryRef } from './types/message/inbound-delivery.js'
 
 export {
 	DiskPalCommunicationStore,
 	PalCommunicationConflictError,
-} from "./pals/communication/store.js";
-export { PalMessageBroker } from "./pals/communication/broker.js";
-export { PalOperatorMessageBroker } from "./pals/communication/operator.js";
-export { createPalInboxSource } from "./pals/communication/inbound.js";
-export { dispatchPalMessagesOnce } from "./pals/communication/dispatch.js";
+} from './pals/communication/store.js'
+export { PalMessageBroker } from './pals/communication/broker.js'
+export { PalOperatorMessageBroker } from './pals/communication/operator.js'
+export { createPalInboxSource } from './pals/communication/inbound.js'
+export { dispatchPalMessagesOnce } from './pals/communication/dispatch.js'
 export {
 	DiskPalMessagePolicy,
 	PalMessagePermissionConflictError,
-} from "./pals/communication/policy.js";
+} from './pals/communication/policy.js'
 export {
 	createPalActivitySource,
 	PalActivityAccessDeniedError,
 	PalActivityIntegrityError,
 	PalActivityReadLimitError,
-} from "./pals/activity/source.js";
+} from './pals/activity/source.js'
 
-export { PalIngressBlockedError } from "./pals/communication/store.js";
+export { PalIngressBlockedError } from './pals/communication/store.js'
 export {
 	createPalIngressInboxSource,
 	reconcilePalIngressDelivery,
-} from "./pals/communication/ingress-inbound.js";
-export { dispatchPalIngressOnce } from "./pals/communication/ingress-dispatch.js";
-export { verifyIngressRecorded } from "./pals/communication/verify.js";
+} from './pals/communication/ingress-inbound.js'
+export { dispatchPalIngressOnce } from './pals/communication/ingress-dispatch.js'
+export { verifyIngressRecorded } from './pals/communication/verify.js'
 export {
 	PAL_OBSERVATION_NAMESPACE,
 	PAL_CHANNEL_NAMESPACE,
 	PAL_OPERATOR_NAMESPACE,
 	ingressMessageRef,
-} from "./pals/communication/ingress-types.js";
+} from './pals/communication/ingress-types.js'
 export {
 	DiskPalChannelRoutes,
 	PalChannelRouteConflictError,
-} from "./pals/channels/routes.js";
-export { PalChannelIngress } from "./pals/channels/ingress.js";
-export { PalChannelRouter } from "./pals/channels/routing.js";
+} from './pals/channels/routes.js'
+export { PalChannelIngress } from './pals/channels/ingress.js'
+export { PalChannelRouter } from './pals/channels/routing.js'
 export {
 	DiskPalActivitySubscriptionStore,
 	PalActivitySubscriptionConflictError,
-} from "./pals/activity/subscription-store.js";
+} from './pals/activity/subscription-store.js'
 export {
 	DiskPalActivitySubscriptionPolicy,
 	PalActivitySubscriptionPermissionConflictError,
-} from "./pals/activity/subscription-policy.js";
+} from './pals/activity/subscription-policy.js'
 export {
 	publishPalActivityOnce,
 	PalActivitySubscriptionDeniedError,
-} from "./pals/activity/subscriptions.js";
+} from './pals/activity/subscriptions.js'
 export {
 	createPalActivityCausalityResolver,
 	PalActivityCausalityUnavailableError,
-} from "./pals/activity/causality.js";
+} from './pals/activity/causality.js'
 
 export {
 	ingressIntentId,
 	ingressIntentDigest,
 	ingressRouteId,
-} from "./pals/communication/ingress-schema.js";
+} from './pals/communication/ingress-schema.js'
 
-export { ingressAuthorizationRequest } from "./pals/communication/ingress-types.js";
+export { ingressAuthorizationRequest } from './pals/communication/ingress-types.js'
