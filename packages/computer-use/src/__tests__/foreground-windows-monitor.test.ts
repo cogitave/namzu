@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { WINDOWS_HELPER_SCRIPT } from '../foreground/windows-helper-script.js'
 import {
+	HELPER_BOOTSTRAP,
 	type HelperProcess,
 	WindowsInputMonitor,
 	encodeHelperCommand,
+	helperScriptLine,
 } from '../foreground/windows-monitor.js'
 import { windowsPathFor } from '../foreground/windows.js'
 
@@ -170,16 +172,23 @@ describe('the Windows input monitor', () => {
 		expect(refuse).toBeLessThan(raise)
 	})
 
-	it('puts a window back only when the burst raised one that is still in front', () => {
-		expect(WINDOWS_HELPER_SCRIPT).toMatch(/\$b\.raised -ne 0/)
-		expect(WINDOWS_HELPER_SCRIPT).toMatch(/\$cur -eq \$b\.raised/)
+	it('puts a window back only when the burst moved the front, and says why when it did not', () => {
+		// The window the helper raised, or, where that was refused and the driver took the front
+		// itself, the target the burst was for: never a window some other program put in front.
+		expect(WINDOWS_HELPER_SCRIPT).toMatch(
+			/\$mine = if \(\$b\.raised -ne 0\) \{ \$b\.raised \} else \{ \$b\.target \}/,
+		)
+		expect(WINDOWS_HELPER_SCRIPT).toMatch(/\$cur -ne \$mine/)
+		expect(WINDOWS_HELPER_SCRIPT).toMatch(/restoreNote/)
 	})
 
-	it('hands the helper to PowerShell as an encoded command, not as a file', () => {
+	it('hands the helper to PowerShell through its input, not as a file or a command line', () => {
+		// The command line carries only the bootstrap: the script itself would not fit in the
+		// 32 767 characters a command line allows.
 		const decoded = Buffer.from(encodeHelperCommand(), 'base64').toString('utf16le')
-		expect(decoded).toBe(WINDOWS_HELPER_SCRIPT)
-		// The command line limit is 32 767 characters.
-		expect(encodeHelperCommand().length).toBeLessThan(30_000)
+		expect(decoded).toBe(HELPER_BOOTSTRAP)
+		expect(encodeHelperCommand().length).toBeLessThan(1_000)
+		expect(Buffer.from(helperScriptLine(), 'base64').toString('utf8')).toBe(WINDOWS_HELPER_SCRIPT)
 	})
 
 	it('ends a burst in progress and deletes the lease when its input closes (the crash path)', () => {

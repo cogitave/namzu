@@ -321,6 +321,7 @@ export class ForegroundLadder {
 				stopped,
 				restoredForeground: ended?.restoredForeground ?? false,
 				restoredCursor: ended?.restoredCursor ?? false,
+				...(ended?.restoreNote ? { restoreNote: ended.restoreNote } : {}),
 				heldMs: this.clock.now() - startedAt,
 			}
 		} finally {

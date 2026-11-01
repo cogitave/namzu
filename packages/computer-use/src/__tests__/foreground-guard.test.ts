@@ -1,7 +1,7 @@
 import type { ComputerUseAction, ComputerUseResult } from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
 import type { Adapter } from '../adapters/types.js'
-import { guardForeground } from '../foreground/guard.js'
+import { foregroundNote, guardForeground } from '../foreground/guard.js'
 import { FakeMonitor, baseState, makeLadder } from './foreground-fakes.js'
 
 function inner(over: Partial<Adapter> = {}) {
@@ -134,5 +134,35 @@ describe('guardForeground', () => {
 			ok: true,
 			focusedId: '0x5',
 		})
+	})
+})
+
+describe('foregroundNote', () => {
+	const ran = {
+		kind: 'ran' as const,
+		value: undefined,
+		interfered: false,
+		stopped: false,
+		restoredCursor: false,
+		heldMs: 1_900,
+	}
+
+	it('says the window was put back when it was', () => {
+		expect(foregroundNote({ ...ran, restoredForeground: true })).toMatch(/were put back/)
+	})
+
+	it('says why the window was not put back, and stays quiet when nothing needed it', () => {
+		const refused = foregroundNote({
+			...ran,
+			restoredForeground: false,
+			restoreNote: 'Windows would not give the front back to the previous window',
+		})
+		expect(refused).toMatch(/was not put back: Windows would not give the front back/)
+		const nothing = foregroundNote({
+			...ran,
+			restoredForeground: false,
+			restoreNote: 'the window that was in front is in front again',
+		})
+		expect(nothing).not.toMatch(/not put back/)
 	})
 })

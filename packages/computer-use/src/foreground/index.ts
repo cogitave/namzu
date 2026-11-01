@@ -12,7 +12,12 @@ export type {
 export { ScreenLease } from './lease.js'
 export type { LeaseRecord } from './lease.js'
 export { foregroundNote, guardForeground, interferenceNote } from './guard.js'
-export { WindowsInputMonitor, encodeHelperCommand } from './windows-monitor.js'
+export {
+	HELPER_BOOTSTRAP,
+	WindowsInputMonitor,
+	encodeHelperCommand,
+	helperScriptLine,
+} from './windows-monitor.js'
 export type {
 	BurstContext,
 	ForegroundAnswer,

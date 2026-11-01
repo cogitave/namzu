@@ -42,7 +42,11 @@ export function foregroundNote(
 	const put =
 		outcome.restoredForeground || outcome.restoredCursor
 			? ' The window and pointer that were there before were put back.'
-			: ''
+			: outcome.restoreNote &&
+					outcome.restoreNote !== 'the burst had no window to put back' &&
+					!outcome.restoreNote.startsWith('the window that was in front is in front')
+				? ` The window that was in front was not put back: ${outcome.restoreNote}.`
+				: ''
 	return `Background input was not possible here, so this used the screen for ${heldText(outcome.heldMs)}.${put}`
 }
 

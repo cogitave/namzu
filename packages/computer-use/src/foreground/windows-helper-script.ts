@@ -36,6 +36,8 @@ public static class NzG {
  [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int c);
  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
  [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
+ [DllImport("user32.dll")] static extern void SwitchToThisWindow(IntPtr h, bool alt);
+ [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
  [DllImport("user32.dll")] static extern IntPtr SetWindowsHookEx(int id, LL f, IntPtr m, uint t);
  [DllImport("user32.dll")] static extern IntPtr CallNextHookEx(IntPtr h, int c, IntPtr w, IntPtr l);
  [DllImport("user32.dll")] static extern int GetMessage(out MSG m, IntPtr h, uint a, uint b);
@@ -103,15 +105,29 @@ public static class NzG {
   IntPtr d = OpenInputDesktop(0, false, 1); if (d == IntPtr.Zero) return "(unreadable)";
   try { var sb = new StringBuilder(256); int need; if (!GetUserObjectInformation(d, 2, sb, 512, out need)) return "(unreadable)"; return sb.ToString(); } finally { CloseDesktop(d); }
  }
+ public static string How = "";
+ public static bool Alive(long h) { return IsWindow((IntPtr)h); }
  public static bool Raise(long hv) {
-  IntPtr h = (IntPtr)hv; if (!IsWindow(h)) return false;
-  IntPtr cur = GetForegroundWindow(); if (cur == h) return true;
-  uint p; uint ct = GetWindowThreadProcessId(cur, out p); uint mt = GetCurrentThreadId();
-  bool at = ct != 0 && ct != mt && AttachThreadInput(mt, ct, true);
+  IntPtr h = (IntPtr)hv; if (!IsWindow(h)) { How = "gone"; return false; }
+  IntPtr cur = GetForegroundWindow(); if (cur == h) { How = "already"; return true; }
   if (IsIconic(h)) ShowWindow(h, 9);
   SetForegroundWindow(h);
+  if (GetForegroundWindow() == h) { How = "plain"; return true; }
+  // Windows lets a program take the front only if it has just been given input. An
+  // unassigned key tapped by this program (flagged as injected, so it is not counted
+  // as a person's) gives it that right and does nothing in any window.
+  keybd_event(0x87, 0, 0, UIntPtr.Zero); keybd_event(0x87, 0, 2, UIntPtr.Zero);
+  SetForegroundWindow(h);
+  if (GetForegroundWindow() == h) { How = "unlock"; return true; }
+  uint p; uint ct = GetWindowThreadProcessId(cur, out p); uint mt = GetCurrentThreadId();
+  bool at = ct != 0 && ct != mt && AttachThreadInput(mt, ct, true);
+  SetForegroundWindow(h);
   if (at) AttachThreadInput(mt, ct, false);
-  return GetForegroundWindow() == h;
+  if (GetForegroundWindow() == h) { How = "attach"; return true; }
+  SwitchToThisWindow(h, true);
+  Thread.Sleep(30);
+  if (GetForegroundWindow() == h) { How = "switch"; return true; }
+  How = "refused"; return false;
  }
 }
 "@
@@ -144,12 +160,20 @@ function EndBurst($restore, $keepCursor) {
   $script:ownEnd = [NzG]::Tick()
   $res.inputsDuring = [NzG]::Inputs - $b.inputs; $res.escapesDuring = [NzG]::Escapes - $b.escapes
   if ($restore) {
-    # The window is put back only when this burst raised one and it (or another
-    # window of its program) is still in front: otherwise the user, or a
-    # click of the burst, has already moved on and is left alone.
-    if ($b.raised -ne 0 -and $b.fg -ne 0 -and [NzG]::Fg() -ne $b.fg) {
-      $cur = [NzG]::Fg()
-      if ($cur -eq $b.raised -or ([NzG]::PidOf($cur) -eq $b.raisedPid)) { $res.restoredForeground = [NzG]::Raise($b.fg) }
+    # The window is put back only when this burst moved the front: the window it
+    # raised, or, where the raise was refused and the driver took the front itself,
+    # the target (or another window of its program) now in front. Anything else in
+    # front means the user, or a click of the burst, has already moved on: leave it.
+    $cur = [NzG]::Fg()
+    $mine = if ($b.raised -ne 0) { $b.raised } else { $b.target }
+    $minePid = if ($b.raised -ne 0) { $b.raisedPid } else { $b.targetPid }
+    if ($b.fg -eq 0 -or $mine -eq 0) { $res.restoreNote = 'the burst had no window to put back' }
+    elseif ($cur -eq $b.fg) { $res.restoreNote = 'the window that was in front is in front again' }
+    elseif ($cur -ne $mine -and ([NzG]::PidOf($cur) -ne $minePid -or $minePid -eq 0)) { $res.restoreNote = 'another window was in front by then, so it was left alone' }
+    elseif (-not [NzG]::Alive($b.fg)) { $res.restoreNote = 'the window that was in front is gone' }
+    else {
+      $res.restoredForeground = [NzG]::Raise($b.fg); $res.restoreHow = [NzG]::How
+      if (-not $res.restoredForeground) { $res.restoreNote = 'Windows would not give the front back to the previous window' }
     }
   }
   if ($restore -and $res.inputsDuring -eq 0) {
@@ -171,7 +195,7 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
     switch ($c.cmd) {
       'state' { $r = State $c.pid }
       'begin' {
-        $script:burst = @{ inputs = [NzG]::Inputs; escapes = [NzG]::Escapes; fg = [NzG]::Fg(); raised = 0; raisedPid = 0; x = [NzG]::CursorX(); y = [NzG]::CursorY(); lease = $c.lease; token = $c.token }
+        $script:burst = @{ inputs = [NzG]::Inputs; escapes = [NzG]::Escapes; fg = [NzG]::Fg(); raised = 0; raisedPid = 0; target = 0; targetPid = 0; x = [NzG]::CursorX(); y = [NzG]::CursorY(); lease = $c.lease; token = $c.token }
         $pre = State $null
         if ($c.idleMs -and $pre.userIdleMs -lt [int64]$c.idleMs) {
           # A person is still using the machine: move nothing.
@@ -182,11 +206,12 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
           $raised = $null
           if ($c.raise) {
             $target = [Convert]::ToInt64(([string]$c.raise).Substring(2), 16)
+            $script:burst.target = $target; $script:burst.targetPid = [NzG]::PidOf($target)
             $raised = [NzG]::Raise($target)
             if ($raised -and [NzG]::Fg() -ne $script:burst.fg) { $script:burst.raised = $target; $script:burst.raisedPid = [NzG]::PidOf($target) }
           }
           $r = State $null
-          if ($null -ne $raised) { $r.raised = $raised }
+          if ($null -ne $raised) { $r.raised = $raised; $r.raiseHow = [NzG]::How }
         }
       }
       'end' { $r = EndBurst ([bool]$c.restore) ([bool]$c.keepCursor) }

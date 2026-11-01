@@ -35,9 +35,23 @@ interface Reply {
 	readonly hookError?: string
 }
 
-/** The helper script as PowerShell's `-EncodedCommand` takes it. */
-export function encodeHelperCommand(script: string = WINDOWS_HELPER_SCRIPT): string {
+/**
+ * What PowerShell is started with: a bootstrap that reads the helper script
+ * from the first line of its input (UTF-8, base64) and runs it, so the script
+ * can grow past the 32 767 characters a command line allows. The line protocol
+ * follows on the same stream.
+ */
+export const HELPER_BOOTSTRAP =
+	'$s=[Console]::In.ReadLine();Invoke-Expression ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($s)))'
+
+/** The bootstrap as PowerShell's `-EncodedCommand` takes it. */
+export function encodeHelperCommand(script: string = HELPER_BOOTSTRAP): string {
 	return Buffer.from(script, 'utf16le').toString('base64')
+}
+
+/** The first line written to a helper started with {@link HELPER_BOOTSTRAP}. */
+export function helperScriptLine(script: string = WINDOWS_HELPER_SCRIPT): string {
+	return Buffer.from(script, 'utf8').toString('base64')
 }
 
 function spawnPowerShell(options: WindowsMonitorOptions): HelperProcess {
@@ -55,6 +69,7 @@ function spawnPowerShell(options: WindowsMonitorOptions): HelperProcess {
 	)
 	// Without a listener a helper that exits first turns a write into an uncaught error.
 	child.stdin.on('error', () => undefined)
+	child.stdin.write(`${helperScriptLine()}\n`)
 	return {
 		write: (line) => {
 			child.stdin.write(`${line}\n`)

@@ -60,6 +60,8 @@ export interface MonitorBurstEnd {
 	readonly escapesDuring: number
 	readonly restoredForeground: boolean
 	readonly restoredCursor: boolean
+	/** Why the window in front before the burst was not put back, when it was not. */
+	readonly restoreNote?: string
 }
 
 /**
@@ -141,6 +143,7 @@ export type ForegroundOutcome<T> =
 			readonly stopped: boolean
 			readonly restoredForeground: boolean
 			readonly restoredCursor: boolean
+			readonly restoreNote?: string
 			/** How long the screen was in use, from lease to release. */
 			readonly heldMs: number
 	  }
