@@ -227,7 +227,7 @@ Each metric is reported as wall time and CPU time (user plus system, on a ten
 millisecond clock tick) and both are held to a budget. The budgets are in
 `scripts/bench-startup.budgets.json`, not in a flag or an environment variable,
 because a budget a run can loosen is a measurement. A limit is the reference
-median x `ciScale` (2, how much slower a shared runner may be) x `headroom`
+median x `ciScale` (3, how much slower a shared runner may be; a first, loose figure because no CI runner had been measured when it was set, to be re-derived from the first runs) x `headroom`
 (1.25, run-to-run noise), with a floor of `minLimitMs` for the tiny figures. The
 references were measured on 2026-11-01 pinned to two cores
 (`taskset -c 4,5`), the largest of three runs' medians:
