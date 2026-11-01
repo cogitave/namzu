@@ -135,7 +135,7 @@ impossible read-back lands here) or `not_delivered` (refused before any input,
 or a read-back proved no change). `retrySafety` is `safe` when nothing reached
 the target and `unsafe` when it may have; a timeout is never `not_delivered`.
 `executeWindow` may return a `WindowInputResult` `{ delivery, retrySafety,
-detail? }` and a display `execute` may return `{ type: 'ok', delivery?,
+detail?, readBack? }` and a display `execute` may return `{ type: 'ok', delivery?,
 retrySafety?, detail? }`; a host that returns nothing keeps the plain `done`.
 The tool turns these into the model's wording (see
 [the computer_use tool](computer-actions.md#what-an-action-reports-about-itself)).

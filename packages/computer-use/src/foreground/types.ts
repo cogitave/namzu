@@ -64,6 +64,43 @@ export interface MonitorBurstEnd {
 	readonly restoreNote?: string
 }
 
+/** One operation on a classic edit control, by window message (never by focus or keys). */
+export interface EditTextRequest {
+	/** The window that holds the control, in hex. */
+	readonly hwnd: string
+	/** `get` reads it, `set` replaces its text, `type` inserts at the caret. */
+	readonly op: 'get' | 'set' | 'type'
+	readonly text?: string
+	/** Which control: the one with focus in that window, or the one at a screen point. A lone edit control is taken either way. */
+	readonly pick: 'focus' | 'bounds'
+	readonly at?: { readonly x: number; readonly y: number }
+}
+
+/**
+ * What the control reads afterwards. `found` without `done` means the message
+ * went out (or was refused: see `reason`) and the control does not read as
+ * intended.
+ */
+export interface EditTextResult {
+	readonly found: boolean
+	/**
+	 * Why nothing was done or read: `gone`, `uipi` (the program has higher
+	 * rights), `no_edit`, `ambiguous`, `read_only`, `hung`, `refused`,
+	 * `unreadable`. Empty on success.
+	 */
+	readonly reason: string
+	readonly hwnd?: string
+	readonly cls?: string
+	/** The control reads as asked (`get` always). */
+	readonly done: boolean
+	/** Characters in the control now. */
+	readonly len: number
+	/** For `get`: the text (the first 65 536 characters). */
+	readonly text: string
+	/** For `set` and `type`: the control's text around the change. */
+	readonly seen: string
+}
+
 /**
  * Watches the desktop for a burst. Implementations must be cheap to poll (the
  * Windows helper answers in under a millisecond) and must keep working when
@@ -109,6 +146,11 @@ export interface ForegroundMonitor {
 		readonly leasePath: string
 		readonly token: string
 	}): Promise<void>
+	/**
+	 * Reads or changes a classic edit control by window message. Optional: a
+	 * monitor that cannot reach controls leaves it out.
+	 */
+	editText?(request: EditTextRequest): Promise<EditTextResult>
 	dispose(): Promise<void>
 }
 

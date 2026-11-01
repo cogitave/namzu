@@ -37,6 +37,8 @@ import { translateKeyForCuaDriver } from './keys.js'
 import {
 	type Observation,
 	type ObservedVerdict,
+	judgeEdit,
+	judgeEditBetween,
 	judgeObserved,
 	observationOf,
 	sameObservation,
@@ -125,6 +127,8 @@ const OUTLINE_PER_PARENT = 12
 const OUTLINE_PAGE = 60
 /** A browser tree this small is the window frame alone: the page has not been built yet. */
 const SPARSE_TREE = 12
+/** Controls that offer a choice among options, which the keyboard can make when the driver cannot. */
+const CHOICE_ROLES = /^(ComboBox|List|ListBox)$/i
 /** Waits (ms) before each read that looks for an input's effect: at once, then a little later. */
 const OBSERVE_WAITS_MS = [0, 80, 200, 450] as const
 const BROWSER_APP = /chrome|msedge|edge|brave|vivaldi|opera|firefox|chromium/i
@@ -661,16 +665,54 @@ export class CuaDriverAdapter implements Adapter {
 				: action.type === 'key' && translateKeyForCuaDriver(action.keys).tool === 'type_text'
 					? (translateKeyForCuaDriver(action.keys) as { text: string }).text
 					: undefined
+		// Text for a classic edit control goes by window message: it needs neither focus nor the screen.
+		if (
+			action.type === 'type_text' &&
+			action.text.length > 0 &&
+			frame &&
+			target &&
+			action.delivery_mode !== 'foreground'
+		) {
+			const byMessage = await this.typeByMessages(frame, action.text)
+			if (byMessage) return byMessage
+		}
+		// A keyboard delivery that asked for the screen is judged by the edit control's own text, where there is one.
+		const editBefore =
+			typed !== undefined && frame && target && this.foreground
+				? await this.foreground.editText({ hwnd: frame.window.id, op: 'get', pick: 'focus' })
+				: undefined
 		let before: Observation | undefined
 		let earlier: Observation | undefined
+		let windows: ReadonlySet<string> | undefined
 		if (watched && target) {
 			// A press or a key has no text to look for, so it is attributed only if the window was still before it.
 			if (typed === undefined) earlier = await this.observe(target)
 			before = await this.observe(target)
+			if (typed === undefined) windows = await this.windowIdsOf(target.pid)
 		}
 		const sent = await this.deliverWindowInput(captureId, action)
+		if (
+			sent?.delivery === 'delivered_unverified' &&
+			editBefore?.found &&
+			typed !== undefined &&
+			frame
+		) {
+			const editAfter = await this.foreground?.editText({
+				hwnd: frame.window.id,
+				op: 'get',
+				pick: 'focus',
+			})
+			const edit = editAfter?.found ? judgeEditBetween(typed, editBefore, editAfter) : undefined
+			if (edit)
+				return {
+					delivery: edit.delivery,
+					retrySafety: edit.retrySafety,
+					detail: edit.detail,
+					...(edit.observed !== undefined ? { readBack: { observed: edit.observed } } : {}),
+				}
+		}
 		if (!sent || sent.delivery !== 'delivered_unverified' || !target || !before) return sent
-		const seen = await this.verifyByReading(target, { typed, before, earlier })
+		const seen = await this.verifyByReading(target, { typed, before, earlier, windows })
 		if (!seen) return sent
 		return {
 			delivery: seen.delivery,
@@ -687,10 +729,24 @@ export class CuaDriverAdapter implements Adapter {
 	 */
 	private async verifyByReading(
 		target: { hwnd: number; pid: number },
-		reads: { typed: string | undefined; before: Observation; earlier: Observation | undefined },
+		reads: {
+			typed: string | undefined
+			before: Observation
+			earlier: Observation | undefined
+			/** The program's windows before the input: a new one afterwards (a dialog) is its effect. */
+			windows: ReadonlySet<string> | undefined
+		},
 	): Promise<ObservedVerdict | undefined> {
 		for (const wait of OBSERVE_WAITS_MS) {
 			if (wait > 0) await this.settle(wait)
+			const opened = reads.windows ? await this.newWindowOf(target.pid, reads.windows) : undefined
+			if (opened)
+				return {
+					delivery: 'delivered_verified',
+					retrySafety: 'unsafe',
+					...(opened.title.trim() !== '' ? { observed: opened.title.trim() } : {}),
+					detail: 'A new window of the same program opened after the input.',
+				}
 			const after = await this.observe(target)
 			if (!after) return undefined
 			if (sameObservation(reads.before, after)) continue
@@ -704,6 +760,25 @@ export class CuaDriverAdapter implements Adapter {
 			if (verdict) return verdict
 		}
 		return undefined
+	}
+
+	private async windowIdsOf(pid: number): Promise<ReadonlySet<string> | undefined> {
+		try {
+			return new Set((await this.listWindows()).filter((w) => w.pid === pid).map((w) => w.id))
+		} catch {
+			return undefined
+		}
+	}
+
+	private async newWindowOf(
+		pid: number,
+		known: ReadonlySet<string>,
+	): Promise<WindowInfo | undefined> {
+		try {
+			return (await this.listWindows()).find((w) => w.pid === pid && !known.has(w.id))
+		} catch {
+			return undefined
+		}
 	}
 
 	/** A fresh read of a window, as the texts it shows; undefined when the read failed. Refs the model holds are kept pointing at their controls. */
@@ -1247,7 +1322,10 @@ export class CuaDriverAdapter implements Adapter {
 						if (
 							error instanceof McpToolError &&
 							/does not implement ValuePattern/i.test(error.message)
-						)
+						) {
+							// A classic edit control takes its text by window message, never by focus or keys.
+							const edited = await this.setByMessages(facts, text)
+							if (edited) return edited
 							// Typing instead would equal setting only while the field is
 							// empty, and the driver's own report of it is not trustworthy.
 							return {
@@ -1257,10 +1335,15 @@ export class CuaDriverAdapter implements Adapter {
 								detail:
 									'this field has no settable value, and nothing was typed. A classic edit control takes text through the keyboard: click it in a window screenshot, then type_text (add delivery_mode:"foreground" when background typing is not delivered).',
 							}
+						}
 						throw error
 					}
 					if (!sent.ok) return sent
-					return judgeSetValue(facts, text, await this.readBack(facts))
+					const judged = judgeSetValue(facts, text, await this.readBack(facts))
+					// A choice in a list that ignored the driver is made with the keyboard, in the foreground.
+					if (judged.delivery === 'not_delivered' && CHOICE_ROLES.test(facts.role))
+						return await this.chooseByKeyboard(ref, facts, text, judged)
+					return judged
 				}
 				case 'focus':
 				case 'scroll_into_view':
@@ -1288,6 +1371,124 @@ export class CuaDriverAdapter implements Adapter {
 	}
 
 	/**
+	 * Choose an option by the keyboard, for a list the driver's value call did
+	 * not change (a web page's select element ignores it in the background).
+	 * One foreground burst focuses the control, types the option and confirms
+	 * it; the control is then read back. Where that does not work either, the
+	 * model is told which route to use instead.
+	 */
+	private async chooseByKeyboard(
+		ref: string,
+		stale: UiRefEntry,
+		option: string,
+		unchanged: UiActResult,
+	): Promise<UiActResult> {
+		const ladder = this.foreground
+		const instead =
+			'The driver and the keyboard could not change this list. If this is a web page, use the browser tool for it; otherwise choose the option in a window screenshot with the pointer.'
+		if (!ladder) return unchanged
+		// The read-back that judged the value replaced the driver's handle: click through the new one.
+		const facts = this.uiRefs.get(ref) ?? stale
+		const uiRef = { ref, facts }
+		const { pid } = facts
+		const hwnd = windowIdOf(facts.hwnd)
+		const subject = { app: this.windowApps.get(hwnd) ?? `process ${pid}`, pid, hwnd }
+		const scope = { scope: 'window', pid, window_id: facts.hwnd, delivery_mode: 'foreground' }
+		const outcome = await ladder
+			.run({ subject }, async (burst) => {
+				await burst.checkpoint()
+				try {
+					await this.callTool(
+						'click',
+						{ pid, element_token: facts.token, delivery_mode: 'foreground' },
+						undefined,
+						uiRef,
+					)
+					await burst.checkpoint()
+					await this.callTool('type_text', { ...scope, text: option })
+					await burst.checkpoint()
+					await this.callTool('press_key', { ...scope, key: 'return' })
+					return undefined
+				} catch (error) {
+					if (error instanceof McpToolError) return failureResult(error)
+					throw error
+				}
+			})
+			.catch((error: unknown) => {
+				if (error instanceof BurstInterrupted) return null
+				throw error
+			})
+		if (outcome === null)
+			return {
+				ok: false,
+				delivery: 'not_delivered',
+				retrySafety: 'safe',
+				detail:
+					'a person used the keyboard or mouse just before the choice was made, so it may not have been. Try again in a moment.',
+			}
+		if (outcome.kind === 'blocked')
+			return {
+				ok: false,
+				delivery: 'not_delivered',
+				retrySafety: 'safe',
+				detail: `${outcome.block.detail} ${instead}`,
+			}
+		const note = interferenceNote(outcome)
+		if (outcome.value && !outcome.value.ok) return outcome.value
+		const judged = judgeSetValue(facts, option, await this.readBack(facts))
+		if (note)
+			return { ...judged, delivery: 'delivered_unverified', retrySafety: 'unsafe', detail: note }
+		if (judged.delivery === 'delivered_verified')
+			return { ...judged, detail: foregroundNote(outcome) }
+		return { ...judged, detail: `${judged.detail ?? ''} ${instead}`.trim() }
+	}
+
+	/** Replace a classic edit control's text by window message; undefined where the control is not one this reaches. */
+	private async setByMessages(facts: UiRefEntry, text: string): Promise<UiActResult | undefined> {
+		const ladder = this.foreground
+		if (!ladder) return undefined
+		const result = await ladder.editText({
+			hwnd: windowIdOf(facts.hwnd),
+			op: 'set',
+			text,
+			pick: 'bounds',
+			...(facts.bounds
+				? {
+						at: {
+							x: facts.bounds.x + facts.bounds.width / 2,
+							y: facts.bounds.y + facts.bounds.height / 2,
+						},
+					}
+				: {}),
+		})
+		if (!result) return undefined
+		if (!result.found) {
+			if (result.reason === 'uipi' || result.reason === 'gone')
+				return { ...judgeEdit('set', text, result), ok: false }
+			return undefined
+		}
+		return judgeEdit('set', text, result)
+	}
+
+	/** Type into the window's focused classic edit control by window message; undefined where there is none. */
+	private async typeByMessages(
+		frame: WindowCaptureFrame,
+		text: string,
+	): Promise<WindowInputResult | undefined> {
+		const ladder = this.foreground
+		if (!ladder) return undefined
+		const result = await ladder.editText({ hwnd: frame.window.id, op: 'type', text, pick: 'focus' })
+		if (!result) return undefined
+		if (!result.found) {
+			if (result.reason !== 'uipi') return undefined
+			return judgeEdit('type', text, result)
+		}
+		this.showPresence(frame, frame.window.bounds, 'type_text', {})
+		const { ok: _ok, ...verdict } = judgeEdit('type', text, result)
+		return verdict
+	}
+
+	/**
 	 * A click on a control that the control's own state does not answer for
 	 * (a button): when the driver cannot confirm it, the window is read before
 	 * and after, and the click is verified by what it changed.
@@ -1299,11 +1500,12 @@ export class CuaDriverAdapter implements Adapter {
 		const target = { hwnd: facts.hwnd, pid: facts.pid }
 		const earlier = await this.observe(target)
 		const before = await this.observe(target)
+		const windows = await this.windowIdsOf(target.pid)
 		// Each read of the window replaces the driver's handles: click through the refreshed one.
 		const current = this.uiRefs.get(uiRef.ref) ?? facts
 		const sent = await this.clickRef(current, { ref: uiRef.ref, facts: current })
 		if (!sent.ok || sent.delivery !== 'delivered_unverified' || !before) return sent
-		const seen = await this.verifyByReading(target, { typed: undefined, before, earlier })
+		const seen = await this.verifyByReading(target, { typed: undefined, before, earlier, windows })
 		if (!seen) return sent
 		return {
 			ok: true,

@@ -7,7 +7,7 @@
  */
 import type { UiElement, UiSnapshot } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
-import { CuaDriverAdapter } from '../adapters/cua-driver/adapter.js'
+import { CuaDriverAdapter, type CuaDriverAdapterOptions } from '../adapters/cua-driver/adapter.js'
 import { type UiEvidence, locate, toUiTree } from '../adapters/cua-driver/ui-tree.js'
 import {
 	type FakeServerScript,
@@ -28,13 +28,21 @@ interface Node {
 /** A window the test edits between reads. Tokens die with the next read, as the driver's do. */
 function window(
 	root: Node,
-	options: { app?: string; sparseFirst?: boolean; effect?: string; onClick?: () => void } = {},
+	options: {
+		app?: string
+		sparseFirst?: boolean
+		effect?: string
+		onClick?: () => void
+		onTool?: (call: ToolCall) => void
+		foreground?: CuaDriverAdapterOptions['foreground']
+	} = {},
 ) {
 	const state = {
 		root,
 		reads: 0,
 		clock: 0,
 		closed: false,
+		extraWindow: false,
 		pid: 7,
 		queryRoot: undefined as Node | undefined,
 		queries: [] as unknown[],
@@ -107,6 +115,18 @@ function window(
 										bounds: { x: 0, y: 0, width: 800, height: 600 },
 										z_index: 1,
 									},
+									...(state.extraWindow
+										? [
+												{
+													window_id: 200,
+													pid: state.pid,
+													app_name: options.app ?? 'page.exe',
+													title: 'Open',
+													bounds: { x: 10, y: 10, width: 300, height: 200 },
+													z_index: 2,
+												},
+											]
+										: []),
 								],
 					})
 				case 'get_window_state': {
@@ -148,6 +168,7 @@ function window(
 					return toolResult({ effect: options.effect ?? 'unverifiable', route: 'accessibility' })
 				}
 				default:
+					options.onTool?.(call)
 					return toolResult({ effect: 'unverifiable', route: 'accessibility' })
 			}
 		},
@@ -161,6 +182,7 @@ function window(
 		startTimeoutMs: 1_000,
 		settle: async () => undefined,
 		now: () => state.clock,
+		...(options.foreground ? { foreground: options.foreground } : {}),
 	})
 	return { adapter, state, calls, clicks, externalRead: () => render() }
 }
@@ -748,6 +770,22 @@ describe('an input the driver cannot confirm, judged by what the window shows', 
 		await w.adapter.dispose()
 	})
 
+	it('is verified by a new window of the same program, named by its title', async () => {
+		const w = window(page(button('Open')), {
+			onClick: () => {
+				w.state.extraWindow = true
+			},
+		})
+		const snapshot = await w.adapter.uiSnapshot('0x64')
+		const outcome = await w.adapter.uiAct(find(snapshot, 'Button', 'Open').ref, 'invoke')
+		expect(outcome).toMatchObject({
+			ok: true,
+			delivery: 'delivered_verified',
+			readBack: { observed: 'Open' },
+		})
+		await w.adapter.dispose()
+	})
+
 	it('stays unconfirmed when nothing on the window changed', async () => {
 		const w = window(page(button('Submit'), text('none')))
 		const snapshot = await w.adapter.uiSnapshot('0x64')
@@ -767,6 +805,90 @@ describe('an input the driver cannot confirm, judged by what the window shows', 
 		Object.defineProperty(clock, 'label', { get: () => `t${tick++}`, configurable: true })
 		const outcome = await w.adapter.uiAct(submit, 'invoke')
 		expect(outcome).toMatchObject({ ok: true, delivery: 'delivered_unverified' })
+		await w.adapter.dispose()
+	})
+})
+
+describe('choosing an option in a list the driver does not change', () => {
+	const ran = {
+		kind: 'ran',
+		interfered: false,
+		stopped: false,
+		restoredForeground: true,
+		restoredCursor: true,
+		heldMs: 1_500,
+	}
+	const ladder = (outcome: (value: unknown) => unknown): CuaDriverAdapterOptions['foreground'] =>
+		({
+			run: async (_request: unknown, burst: (context: unknown) => Promise<unknown>) =>
+				outcome(await burst({ checkpoint: async () => undefined })),
+		}) as unknown as CuaDriverAdapterOptions['foreground']
+	const combo = (): Node => ({
+		role: 'ComboBox',
+		label: 'Color',
+		actions: ['set_value'],
+		value: 'red',
+	})
+
+	it('focuses it, types the option and confirms it in one burst, then reads it back', async () => {
+		const color = combo()
+		const sent: string[] = []
+		const w = window(page(color), {
+			foreground: ladder((value) => ({ ...ran, value })),
+			onTool: (call) => {
+				sent.push(call.name)
+				if (call.name === 'press_key') color.value = 'blue'
+			},
+		})
+		const snapshot = await w.adapter.uiSnapshot('0x64')
+		const outcome = await w.adapter.uiAct(
+			find(snapshot, 'ComboBox', 'Color').ref,
+			'set_value',
+			'blue',
+		)
+		expect(outcome).toMatchObject({
+			ok: true,
+			delivery: 'delivered_verified',
+			readBack: { observed: 'blue' },
+		})
+		expect(sent.filter((name) => name !== 'set_agent_cursor_enabled')).toEqual([
+			'set_value',
+			'type_text',
+			'press_key',
+		])
+		expect(w.clicks).toHaveLength(1)
+		expect(outcome.detail).toMatch(/put back/)
+		await w.adapter.dispose()
+	})
+
+	it('names the browser tool when the keyboard does not change it either', async () => {
+		const w = window(page(combo()), { foreground: ladder((value) => ({ ...ran, value })) })
+		const snapshot = await w.adapter.uiSnapshot('0x64')
+		const outcome = await w.adapter.uiAct(
+			find(snapshot, 'ComboBox', 'Color').ref,
+			'set_value',
+			'blue',
+		)
+		expect(outcome).toMatchObject({ ok: false, delivery: 'not_delivered' })
+		expect(outcome.detail).toMatch(/browser tool/)
+		await w.adapter.dispose()
+	})
+
+	it('says nothing was sent when the screen was not available', async () => {
+		const w = window(page(combo()), {
+			foreground: ladder(() => ({
+				kind: 'blocked',
+				block: { code: 'user_active', detail: 'A person is using the screen.' },
+			})),
+		})
+		const snapshot = await w.adapter.uiSnapshot('0x64')
+		const outcome = await w.adapter.uiAct(
+			find(snapshot, 'ComboBox', 'Color').ref,
+			'set_value',
+			'blue',
+		)
+		expect(outcome).toMatchObject({ ok: false, delivery: 'not_delivered', retrySafety: 'safe' })
+		expect(outcome.detail).toContain('A person is using the screen.')
 		await w.adapter.dispose()
 	})
 })

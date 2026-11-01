@@ -252,6 +252,16 @@ which of three things is known, and `data.steps[]` carries the same as
 | `sent, not confirmed` | `delivered_unverified` | `unsafe` | The input went out (or may have) and nothing checked it. The model looks before repeating, because repeating can act twice. A failed read-back lands here, never in `not_delivered`. |
 | failure, `Not delivered: …` | `not_delivered` | `safe` | The action was refused before any input, or a read-back proved nothing changed. Trying again, or another way, is safe. |
 
+The driver cannot confirm a background input, so the host also reads the
+window before and after it and judges by what the window shows. Typed text is
+verified when that text (folded for case, spaces and operator glyphs, so `7*6=`
+matches `7 × 6=`) is now shown where it was not; a press or a key is verified
+when the window changed after it and then held still, and was not changing by
+itself before it. The evidence is the read-back (`reads "…"`). A change that does
+not show the typed text, an unchanged window, or a window that changes by itself
+leaves the step `sent, not confirmed`: an unrelated change is never reported as
+the effect. For a classic edit control the host reads the control's own text.
+
 A timeout or a lost reply after input went out is `delivered_unverified` /
 `unsafe`, never `not_delivered`. A host that does not classify keeps the
 plain `done`. `UiActResult` carries `delivery`, `retrySafety` and `readBack`;
@@ -484,8 +494,11 @@ adapter keeps only the latest snapshot's. `invoke`, `toggle`, `select`,
 `expand` and `collapse` go through cua-driver's `click` on the token — UI
 Automation's Invoke in the background, with no pointer move and no change of
 foreground; `set_value` through `set_value`. A field that reports no settable
-value (a plain-text editor control) is `not_delivered`: the adapter no longer
-types into it as a fallback, since the driver's report of that typing is not
+value (a plain-text editor control) takes its text by window message instead
+(see [the foreground ladder](foreground-ladder.md#text-sent-to-a-classic-edit-control)):
+read back with the control's own text, and `not_delivered` with a reason when
+the program has higher rights. The adapter never types into it through the
+driver as a fallback, since the driver's report of that typing is not
 trustworthy. `focus` and `scroll_into_view` are not offered.
 
 The driver reports its effect as unverifiable for nearly every background
@@ -494,7 +507,10 @@ back instead. After `set_value`, `toggle` or `select` it reads the window
 again, finds the control by its evidence (automation id when unique, else
 role, name and position among equals) and compares: a field that now holds
 the value is verified; a field that still holds its old value after the driver
-said ok is `not_delivered` (a web page's drop-down list is the known case); a
+said ok is first tried with the keyboard in the foreground (the control is
+focused, the option typed and confirmed, through the ladder, then read back),
+and is `not_delivered` only when that does not change it either, with the
+advice to use the browser tool (a web page's drop-down list is the known case); a
 toggle whose state flipped is verified, and one that did not is
 `delivered_unverified`; a `select` on a list or tree row that is also
 invokable carries a warning, because the click invokes it and may open the
@@ -542,8 +558,9 @@ windows opened for the purpose:
    snapshot again: the result reads `1,000`; a ref from the first snapshot is
    refused as stale. Invoke its Close button by ref: the process exits.
 8. In a fresh Notepad, `set_value` the editor to `Merhaba dünya ığüşöç İĞ`:
-   `set_value` reports no ValuePattern, the adapter types instead, and the
-   next snapshot's value is identical.
+   `set_value` reports no ValuePattern, the adapter sends the text to the edit
+   control by window message and reads it back, and the next snapshot's value
+   is identical.
 
 These declarations do not add browser element references, remote desktop
 allocation or human-control handover. Those remain separate capabilities in

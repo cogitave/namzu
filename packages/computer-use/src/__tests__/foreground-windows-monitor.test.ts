@@ -182,6 +182,36 @@ describe('the Windows input monitor', () => {
 		expect(WINDOWS_HELPER_SCRIPT).toMatch(/restoreNote/)
 	})
 
+	it('reads and writes an edit control by window message, never by focus or keys', async () => {
+		const helper = fakeHelper({ ok: true, hooks: true }, () => ({
+			ok: true,
+			r: { found: true, reason: '', done: true, len: 5, text: '', seen: 'hello' },
+		}))
+		const monitor = new WindowsInputMonitor({ powershell: 'ps', spawnHelper: () => helper.proc })
+		await monitor.start()
+		const result = await monitor.editText({
+			hwnd: '0x10',
+			op: 'set',
+			text: 'hello',
+			pick: 'bounds',
+			at: { x: 10.4, y: 20 },
+		})
+		expect(result).toMatchObject({ found: true, done: true, seen: 'hello' })
+		expect(helper.written[0]).toMatchObject({
+			cmd: 'edit',
+			hwnd: '0x10',
+			op: 'set',
+			text: 'hello',
+			pick: 'bounds',
+			x: 10,
+			y: 20,
+		})
+		// The script sends text as a message and reads it back; it raises nothing for it.
+		expect(WINDOWS_HELPER_SCRIPT).toMatch(/0xC, IntPtr\.Zero, send/)
+		expect(WINDOWS_HELPER_SCRIPT).toMatch(/0xC2, \(IntPtr\)1, send/)
+		expect(WINDOWS_HELPER_SCRIPT).toMatch(/Marshal\.GetLastWin32Error\(\) == 5/)
+	})
+
 	it('hands the helper to PowerShell through its input, not as a file or a command line', () => {
 		// The command line carries only the bootstrap: the script itself would not fit in the
 		// 32 767 characters a command line allows.

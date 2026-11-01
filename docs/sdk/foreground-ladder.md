@@ -44,7 +44,7 @@ Reads (`screenshot`, `cursor_position`, `list_windows`, `ui_snapshot`) never do.
 | After a yes | Needs a shorter pause; waits at most | 0.5 s, 30 s |
 | Nobody to ask (exec, scheduled) | Parks and polls, then returns `user_active` | 120 s, every 250 ms |
 | Burst | Watched from start to end for real input | 50 ms |
-| Restore | The window is put back only if this burst raised a window and that window (or another of its program) is still in front, even when the user typed meanwhile; a burst that raised nothing restores no window, so a click that opened another window is not undone. The pointer is put back only if nobody touched input | after the burst |
+| Restore | The window is put back only if this burst moved the front: a window the helper raised, or, where Windows refused that raise and the driver took the front itself, the burst's target. It is put back when that window (or another of its program) is still in front, even when the user typed meanwhile; any other window in front means the user or the burst's own click moved on, and it is left alone. When it was not put back the result says why (Windows refused, the window is gone). The pointer is put back only if nobody touched input | after the burst |
 | Idle check before the raise | The helper checks the user has been still before it raises anything; if not, nothing moves and the ladder starts the burst again | at `begin` |
 | Parked time per turn | All parked calls of one turn together | 600 s |
 
@@ -57,8 +57,10 @@ above is `DEFAULT_TIMING` and can be overridden through
 
 ## Watching the user
 
-A long-lived helper (one PowerShell process, started from an encoded command so
-no file is read over the WSL network share) installs low-level keyboard and
+A long-lived helper (one PowerShell process, started from a short bootstrap that
+reads the helper script from its first input line, so no file is read over the
+WSL network share and the script is not limited by the 32 767 characters a
+command line allows) installs low-level keyboard and
 mouse hooks. Input the machine injected carries a flag and is not counted, so
 the burst's own input and a keep-awake nudge are never mistaken for the user;
 the system idle clock (which cannot tell them apart) is used only to make the
@@ -67,9 +69,27 @@ answers in about 0.5 ms; starting the helper takes about 0.8 s warm. If the
 hooks cannot be installed the burst is refused (`monitor_unavailable`): the
 ladder never runs unwatched.
 
+Windows lets a program take the front only if it has just been given input, so
+the helper unlocks the raise with a tap of an unassigned key (flagged as
+injected, so it is never counted as the user's) and, failing that, attaches to
+the front window's input queue. The same steps put the previous window back.
+
 The helper is also the watchdog. If the program that started it dies, its input
 closes; the helper then puts back what a burst in progress moved and deletes the
 lease file, whatever the lease says.
+
+## Text sent to a classic edit control
+
+The same helper also reads and writes classic Win32 edit and rich-edit controls
+by window message, which needs neither focus nor the screen and so does not use
+the ladder, the lease or the idle gate. `set_value` on such a control (the driver
+reports no value pattern for it) sends `WM_SETTEXT`, and `type_text` into a
+window whose focused control is one sends `EM_REPLACESEL` at the caret; both are
+read back with `WM_GETTEXT`. A program running with higher rights refuses the
+message (UIPI): that is `not_delivered` with the reason, and the model is told to
+ask the user. A read-only control is `not_delivered`; a program that does not
+answer in time is `delivered_unverified`. Where the control is not a classic edit
+control the action takes the driver's path as before.
 
 ## Interference and the result
 

@@ -2,6 +2,8 @@ import { type LeaseAttempt, ScreenLease } from './lease.js'
 import {
 	type BurstContext,
 	BurstInterrupted,
+	type EditTextRequest,
+	type EditTextResult,
 	type ForegroundApprover,
 	type ForegroundBlock,
 	type ForegroundMonitor,
@@ -200,6 +202,21 @@ export class ForegroundLadder {
 			this.parkedMs = 0
 		}
 		this.turn = turnId
+	}
+
+	/**
+	 * Reads or changes a classic edit control by window message through the
+	 * monitor. It uses neither the screen nor the lease: nothing is raised and
+	 * no input is sent. Undefined where no monitor can reach controls.
+	 */
+	async editText(request: EditTextRequest): Promise<EditTextResult | undefined> {
+		const monitor = await this.ensureMonitor()
+		if (!monitor.ok || !monitor.monitor.editText) return undefined
+		try {
+			return await monitor.monitor.editText(request)
+		} catch {
+			return undefined
+		}
 	}
 
 	/** The model's turn ended or was interrupted: nothing stays watched or held. */

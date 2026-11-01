@@ -1,6 +1,12 @@
 import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import type { ForegroundMonitor, MonitorBurstEnd, MonitorState } from './types.js'
+import type {
+	EditTextRequest,
+	EditTextResult,
+	ForegroundMonitor,
+	MonitorBurstEnd,
+	MonitorState,
+} from './types.js'
 import { WINDOWS_HELPER_SCRIPT } from './windows-helper-script.js'
 
 /** The ends of a started helper; the real one is a child process. */
@@ -161,6 +167,17 @@ export class WindowsInputMonitor implements ForegroundMonitor {
 			cmd: 'end',
 			restore: args.restore,
 			keepCursor: args.keepCursor === true,
+		})
+	}
+
+	editText(request: EditTextRequest): Promise<EditTextResult> {
+		return this.call<EditTextResult>({
+			cmd: 'edit',
+			hwnd: request.hwnd,
+			op: request.op,
+			pick: request.pick,
+			...(request.text !== undefined ? { text: request.text } : {}),
+			...(request.at ? { x: Math.round(request.at.x), y: Math.round(request.at.y) } : {}),
 		})
 	}
 

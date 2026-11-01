@@ -20,6 +20,8 @@ export {
 } from './windows-monitor.js'
 export type {
 	BurstContext,
+	EditTextRequest,
+	EditTextResult,
 	ForegroundAnswer,
 	ForegroundApprover,
 	ForegroundBlock,

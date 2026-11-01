@@ -7,7 +7,7 @@
 import type { UiElementAction, UiSnapshot } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 import { SubprocessComputerUseHost } from '../SubprocessComputerUseHost.js'
-import { CuaDriverAdapter } from '../adapters/cua-driver/adapter.js'
+import { CuaDriverAdapter, type CuaDriverAdapterOptions } from '../adapters/cua-driver/adapter.js'
 import { toUiTree } from '../adapters/cua-driver/ui-tree.js'
 import {
 	type FakeMcpProcess,
@@ -256,6 +256,7 @@ describe('cua-driver UI trees', () => {
 /** A cua-driver stand-in with one Calculator and one Notepad window. */
 function driver(
 	overrides: Partial<Record<string, (call: ToolCall, p: FakeMcpProcess) => unknown>>,
+	extra: { foreground?: CuaDriverAdapterOptions['foreground'] } = {},
 ) {
 	const script: FakeServerScript = {
 		tool: (call, process) => {
@@ -300,6 +301,7 @@ function driver(
 		requestTimeoutMs: 1_000,
 		startTimeoutMs: 1_000,
 		settle: async () => undefined,
+		...(extra.foreground ? { foreground: extra.foreground } : {}),
 	})
 	const calls = () =>
 		spawner.processes
@@ -431,6 +433,50 @@ describe('the cua-driver adapter’s UI tree', () => {
 		await adapter.dispose()
 	})
 
+	it('sets a classic edit control by window message and reports what it reads back', async () => {
+		const sent: unknown[] = []
+		const reading = { found: true, reason: '', done: true, len: 7, text: '', seen: 'Merhaba' }
+		const foreground = {
+			editText: async (request: unknown) => {
+				sent.push(request)
+				return reading
+			},
+		} as unknown as CuaDriverAdapterOptions['foreground']
+		const { adapter, calls } = driver(
+			{
+				set_value: () => ({
+					result: {
+						isError: true,
+						content: [
+							{ type: 'text', text: 'set_value: element [0] does not implement ValuePattern.' },
+						],
+					},
+				}),
+			},
+			{ foreground },
+		)
+		const snapshot = await adapter.uiSnapshot('0xec097c')
+		const ref = refFor(snapshot, 'Text Editor', 'set_value')
+		const result = await adapter.uiAct(ref, 'set_value', 'Merhaba')
+		expect(result).toMatchObject({
+			ok: true,
+			delivery: 'delivered_verified',
+			retrySafety: 'safe',
+			readBack: { expected: 'Merhaba', observed: 'Merhaba' },
+		})
+		expect(sent).toMatchObject([{ hwnd: '0xec097c', op: 'set', text: 'Merhaba', pick: 'bounds' }])
+		// Nothing was typed through the driver.
+		expect(calls().some((c) => c.name === 'type_text')).toBe(false)
+		// A program with higher rights refuses the message: that is not delivered, with the reason.
+		Object.assign(reading, { found: false, reason: 'uipi', done: false, seen: '' })
+		await expect(adapter.uiAct(ref, 'set_value', 'x')).resolves.toMatchObject({
+			ok: false,
+			delivery: 'not_delivered',
+			retrySafety: 'safe',
+		})
+		await adapter.dispose()
+	})
+
 	it('reports a stale token, a refusal and a suspected no-op as not done', async () => {
 		let answer = 0
 		const { adapter } = driver({
@@ -511,18 +557,20 @@ describe('the cua-driver adapter’s UI tree', () => {
 		await expect(adapter.uiAct(oldRef, 'invoke')).resolves.toMatchObject({
 			ok: true,
 		})
-		// Each attempt reads the window twice before it clicks (that is how its effect is judged),
+		// Each attempt reads the window twice and lists its program's windows before it clicks (that is how its effect is judged),
 		// and the control is found again by one more read after the revival.
 		expect(calls().map((call) => call.name)).toEqual([
 			'list_windows',
 			'get_window_state',
 			'get_window_state',
 			'get_window_state',
+			'list_windows',
 			'click',
 			'start_session',
 			'get_window_state',
 			'get_window_state',
 			'get_window_state',
+			'list_windows',
 			'click',
 		])
 		const afterRevival = await adapter.uiSnapshot('0x261206')
@@ -567,6 +615,7 @@ describe('the cua-driver adapter’s UI tree', () => {
 			'set_agent_cursor_enabled',
 			'get_window_state',
 			'get_window_state',
+			'list_windows',
 			'get_window_state',
 		])
 

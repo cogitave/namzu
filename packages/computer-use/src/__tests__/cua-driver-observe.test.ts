@@ -3,6 +3,8 @@ import {
 	type Observation,
 	changeBetween,
 	foldText,
+	judgeEdit,
+	judgeEditBetween,
 	judgeObserved,
 	sameObservation,
 } from '../adapters/cua-driver/observe.js'
@@ -65,5 +67,62 @@ describe('verifying an input by what the window shows', () => {
 	it('folds case, spaces and operator glyphs', () => {
 		expect(foldText('7 * 6 =')).toBe(foldText('7×6='))
 		expect(foldText('A / B')).toBe(foldText('a÷b'))
+	})
+})
+
+describe('verifying text sent to a classic edit control', () => {
+	const read = { found: true, reason: '', done: true, seen: 'hello world' }
+
+	it('verifies what the control reads back, and a set is safe to repeat', () => {
+		expect(judgeEdit('set', 'hello world', read)).toMatchObject({
+			ok: true,
+			delivery: 'delivered_verified',
+			retrySafety: 'safe',
+			readBack: { expected: 'hello world', observed: 'hello world' },
+		})
+		expect(judgeEdit('type', 'abc', read)).toMatchObject({
+			delivery: 'delivered_verified',
+			retrySafety: 'unsafe',
+		})
+	})
+
+	it('refuses a program with higher rights, and a read-only control, as not delivered', () => {
+		for (const reason of ['uipi', 'read_only'])
+			expect(judgeEdit('type', 'abc', { ...read, reason, done: false })).toMatchObject({
+				ok: false,
+				delivery: 'not_delivered',
+				retrySafety: 'safe',
+			})
+	})
+
+	it('never calls an unreadable or unanswered control not delivered', () => {
+		for (const reason of ['hung', 'unreadable', 'refused'])
+			expect(judgeEdit('set', 'abc', { ...read, reason, done: false })).toMatchObject({
+				ok: true,
+				delivery: 'delivered_unverified',
+				retrySafety: 'unsafe',
+			})
+	})
+
+	it('leaves a control that reads otherwise unconfirmed, with what it reads', () => {
+		const verdict = judgeEdit('set', 'abc', { ...read, done: false, seen: 'ABC' })
+		expect(verdict).toMatchObject({
+			delivery: 'delivered_unverified',
+			readBack: { observed: 'ABC' },
+		})
+	})
+
+	it('judges a keyboard delivery by the control text before and after', () => {
+		const before = { text: 'ab', len: 2 }
+		expect(judgeEditBetween('cd', before, { text: 'abcd', len: 4 })).toMatchObject({
+			delivery: 'delivered_verified',
+			observed: 'abcd',
+		})
+		expect(judgeEditBetween('cd', before, { text: 'ab', len: 2 })).toBeUndefined()
+		expect(judgeEditBetween('cd', before, { text: 'xy', len: 2 })).toBeUndefined()
+		// A document longer than the read: it grew, so the text went in somewhere past the start.
+		expect(judgeEditBetween('cd', before, { text: 'ab', len: 4 })).toMatchObject({
+			delivery: 'delivered_verified',
+		})
 	})
 })

@@ -38,6 +38,20 @@ public static class NzG {
  [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
  [DllImport("user32.dll")] static extern void SwitchToThisWindow(IntPtr h, bool alt);
  [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+ [StructLayout(LayoutKind.Sequential)] public struct RC { public int l; public int t; public int r; public int b; }
+ [StructLayout(LayoutKind.Sequential)] public struct GTI { public int cb; public int fl; public IntPtr act; public IntPtr foc; public IntPtr cap; public IntPtr mo; public IntPtr ms; public IntPtr car; public RC rc; }
+ delegate bool EP(IntPtr h, IntPtr l);
+ [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr p, EP f, IntPtr l);
+ [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+ [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+ [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RC r);
+ [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);
+ [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint t, ref GTI i);
+ [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+ [DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Unicode)] static extern IntPtr SendMessageTimeout(IntPtr h, uint m, IntPtr w, string l, uint f, uint t, out IntPtr r);
+ [DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Unicode)] static extern IntPtr SendMessageTimeout(IntPtr h, uint m, IntPtr w, StringBuilder l, uint f, uint t, out IntPtr r);
+ [DllImport("user32.dll", SetLastError=true)] static extern IntPtr SendMessageTimeout(IntPtr h, uint m, IntPtr w, IntPtr l, uint f, uint t, out IntPtr r);
+ [DllImport("kernel32.dll")] static extern uint GetCurrentProcessId();
  [DllImport("user32.dll")] static extern IntPtr SetWindowsHookEx(int id, LL f, IntPtr m, uint t);
  [DllImport("user32.dll")] static extern IntPtr CallNextHookEx(IntPtr h, int c, IntPtr w, IntPtr l);
  [DllImport("user32.dll")] static extern int GetMessage(out MSG m, IntPtr h, uint a, uint b);
@@ -72,6 +86,7 @@ public static class NzG {
   return CallNextHookEx(IntPtr.Zero, c, w, l);
  }
  public static bool StartHooks() {
+  try { SetProcessDPIAware(); } catch { }
   var t = new Thread(() => {
    kp = K; mp = M; var mod = GetModuleHandle(null);
    kh = SetWindowsHookEx(13, kp, mod, 0); mh = SetWindowsHookEx(14, mp, mod, 0);
@@ -104,6 +119,59 @@ public static class NzG {
  public static string Desktop() {
   IntPtr d = OpenInputDesktop(0, false, 1); if (d == IntPtr.Zero) return "(unreadable)";
   try { var sb = new StringBuilder(256); int need; if (!GetUserObjectInformation(d, 2, sb, 512, out need)) return "(unreadable)"; return sb.ToString(); } finally { CloseDesktop(d); }
+ }
+ public class EditRes { public bool Found; public string Reason = ""; public long Hwnd; public string Cls = ""; public bool Done; public long Len; public string Text = ""; public string Seen = ""; }
+ static bool EditClass(string c) { return c == "Edit" || c.StartsWith("RichEdit", StringComparison.OrdinalIgnoreCase) || c.StartsWith("RICHEDIT", StringComparison.OrdinalIgnoreCase); }
+ static string ClassOf(IntPtr h) { var sb = new StringBuilder(256); GetClassName(h, sb, 256); return sb.ToString(); }
+ static string Norm(string s) { return s.Replace("\r\n", "\n").Replace("\r", "\n"); }
+ // The text of an edit control through WM_GETTEXT; null when it cannot be read.
+ static string TextOf(IntPtr h, out string why) {
+  why = ""; IntPtr r;
+  if (SendMessageTimeout(h, 0xE, IntPtr.Zero, IntPtr.Zero, 2, 2000, out r) == IntPtr.Zero) { why = Marshal.GetLastWin32Error() == 5 ? "uipi" : "hung"; return null; }
+  long n = (long)r; if (n > 2000000) { why = "unreadable"; return null; }
+  var sb = new StringBuilder((int)n + 2);
+  if (SendMessageTimeout(h, 0xD, (IntPtr)(n + 1), sb, 2, 2000, out r) == IntPtr.Zero && n > 0) { why = Marshal.GetLastWin32Error() == 5 ? "uipi" : "hung"; return null; }
+  return sb.ToString();
+ }
+ public static EditRes EditOp(long top, string op, string text, int cx, int cy, bool hasC, string pick) {
+  var res = new EditRes(); IntPtr t = (IntPtr)top;
+  if (!IsWindow(t)) { res.Reason = "gone"; return res; }
+  uint pid; uint tid = GetWindowThreadProcessId(t, out pid);
+  if (Elevated(pid) && !Elevated(GetCurrentProcessId())) { res.Reason = "uipi"; return res; }
+  var found = new System.Collections.Generic.List<IntPtr>();
+  EnumChildWindows(t, (h, l) => { if (IsWindowVisible(h) && EditClass(ClassOf(h))) found.Add(h); return true; }, IntPtr.Zero);
+  IntPtr pickH = IntPtr.Zero;
+  if (pick == "focus") {
+   var g = new GTI(); g.cb = Marshal.SizeOf(typeof(GTI));
+   if (GetGUIThreadInfo(tid, ref g) && g.foc != IntPtr.Zero && EditClass(ClassOf(g.foc))) pickH = g.foc;
+  } else if (hasC) {
+   foreach (var h in found) { RC rc; if (GetWindowRect(h, out rc) && cx >= rc.l && cx < rc.r && cy >= rc.t && cy < rc.b) { pickH = h; break; } }
+  }
+  if (pickH == IntPtr.Zero) {
+   if (found.Count == 1) pickH = found[0];
+   else { res.Reason = found.Count == 0 ? "no_edit" : "ambiguous"; return res; }
+  }
+  res.Found = true; res.Hwnd = (long)pickH; res.Cls = ClassOf(pickH);
+  int style = GetWindowLong(pickH, -16);
+  if (op != "get" && (style & 0x800) != 0) { res.Reason = "read_only"; return res; }
+  string why; string before = TextOf(pickH, out why);
+  if (before == null) { res.Reason = why; return res; }
+  if (op == "get") { res.Len = before.Length; res.Text = before.Length > 65536 ? before.Substring(0, 65536) : before; res.Done = true; return res; }
+  string send = (style & 0x4) != 0 ? Norm(text).Replace("\n", "\r\n") : text;
+  IntPtr rr;
+  bool sent = op == "set"
+   ? SendMessageTimeout(pickH, 0xC, IntPtr.Zero, send, 2, 3000, out rr) != IntPtr.Zero
+   : SendMessageTimeout(pickH, 0xC2, (IntPtr)1, send, 2, 3000, out rr) != IntPtr.Zero;
+  int err = sent ? 0 : Marshal.GetLastWin32Error();
+  if (!sent) { res.Reason = err == 5 ? "uipi" : (err == 1460 ? "hung" : "refused"); return res; }
+  string after = TextOf(pickH, out why);
+  if (after == null) { res.Reason = "unreadable"; return res; }
+  res.Len = after.Length;
+  string a = Norm(after), b = Norm(before), w = Norm(text);
+  res.Done = op == "set" ? a == w : (a != b && a.Contains(w));
+  int at = op == "type" ? a.IndexOf(w) : 0; if (at < 0) at = 0;
+  int from = Math.Max(0, at - 40); res.Seen = a.Substring(from, Math.Min(a.Length - from, w.Length + 80));
+  return res;
  }
  public static string How = "";
  public static bool Alive(long h) { return IsWindow((IntPtr)h); }
@@ -213,6 +281,11 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
           $r = State $null
           if ($null -ne $raised) { $r.raised = $raised; $r.raiseHow = [NzG]::How }
         }
+      }
+      'edit' {
+        $t = [Convert]::ToInt64(([string]$c.hwnd).Substring(2), 16)
+        $e = [NzG]::EditOp($t, [string]$c.op, [string]$c.text, [int]$c.x, [int]$c.y, ($null -ne $c.x), [string]$c.pick)
+        $r = @{ found = $e.Found; reason = $e.Reason; hwnd = (Hx $e.Hwnd); cls = $e.Cls; done = $e.Done; len = $e.Len; text = $e.Text; seen = $e.Seen }
       }
       'end' { $r = EndBurst ([bool]$c.restore) ([bool]$c.keepCursor) }
       'release' { Release $c.lease $c.token; $r = @{ ok = $true } }

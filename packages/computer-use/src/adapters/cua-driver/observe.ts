@@ -131,3 +131,100 @@ export function judgeObserved(
 		detail: `The window changed after the input and then held still. ${said}`,
 	}
 }
+
+/** What a message to a classic edit control did, as the control reads afterwards. */
+export interface EditReading {
+	readonly found: boolean
+	readonly reason: string
+	readonly done: boolean
+	readonly seen: string
+}
+
+export interface EditVerdict {
+	readonly ok: boolean
+	readonly delivery: ActionDelivery
+	readonly retrySafety: ActionRetrySafety
+	readonly detail?: string
+	readonly readBack?: { readonly expected?: string; readonly observed?: string }
+}
+
+const UIPI_TEXT =
+	'this window belongs to a program running with higher rights, so text cannot be sent to it. Ask the user; do not try to get around it.'
+
+/**
+ * `set` or `type` on a classic edit control, judged by the text the control
+ * reads back: the control is the evidence, not the message that returned.
+ */
+export function judgeEdit(op: 'set' | 'type', text: string, reading: EditReading): EditVerdict {
+	const expected = trimOf(text)
+	if (reading.reason === 'uipi')
+		return { ok: false, delivery: 'not_delivered', retrySafety: 'safe', detail: UIPI_TEXT }
+	if (reading.reason === 'read_only')
+		return {
+			ok: false,
+			delivery: 'not_delivered',
+			retrySafety: 'safe',
+			detail: 'this text control is read-only, so nothing was sent.',
+		}
+	if (reading.reason === 'hung')
+		return {
+			ok: true,
+			delivery: 'delivered_unverified',
+			retrySafety: 'unsafe',
+			detail:
+				'the program did not answer the text in time. It may have arrived; look at the window before sending it again.',
+		}
+	if (reading.reason !== '')
+		return {
+			ok: true,
+			delivery: 'delivered_unverified',
+			retrySafety: 'unsafe',
+			detail:
+				'the text was sent, but the control could not be read back. Look at the window before sending it again.',
+		}
+	if (reading.done)
+		return {
+			ok: true,
+			delivery: 'delivered_verified',
+			retrySafety: op === 'set' ? 'safe' : 'unsafe',
+			readBack: { expected, observed: trimOf(reading.seen) },
+		}
+	return {
+		ok: true,
+		delivery: 'delivered_unverified',
+		retrySafety: 'unsafe',
+		readBack: { expected, observed: trimOf(reading.seen) },
+		detail:
+			op === 'set'
+				? `the control changed, but it reads ${quote(reading.seen)} instead of the text sent; it may have reformatted it. Check before setting it again.`
+				: `the control does not read as having received the text (around the caret it reads ${quote(reading.seen)}). Look at the window before typing it again.`,
+	}
+}
+
+const trimOf = (value: string, max = 80): string =>
+	value.length > max ? `${value.slice(0, max - 1)}…` : value
+
+/** A before and after read of an edit control, for a keyboard delivery the driver could not confirm. */
+export function judgeEditBetween(
+	typed: string,
+	before: { readonly text: string; readonly len: number },
+	after: { readonly text: string; readonly len: number },
+): ObservedVerdict | undefined {
+	const norm = (value: string): string => value.replace(/\r\n?/g, '\n')
+	const a = norm(after.text)
+	const want = norm(typed)
+	if (after.len === before.len && a === norm(before.text)) return undefined
+	// A text longer than the read keeps only its start: the length alone shows it grew.
+	const truncated = after.len > after.text.length
+	const at = a.indexOf(want)
+	if (at < 0 && !truncated) return undefined
+	if (at < 0 && after.len <= before.len) return undefined
+	const from = Math.max(0, at < 0 ? 0 : at - 40)
+	const seen = a.slice(from, from + want.length + 80)
+	return {
+		delivery: 'delivered_verified',
+		retrySafety: 'unsafe',
+		observed: seen,
+		detail: 'The text control now holds the text typed.',
+	}
+}
