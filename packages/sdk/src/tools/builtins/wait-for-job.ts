@@ -266,8 +266,11 @@ export const WaitForJobTool = defineTool({
 		}
 
 		// The exit and its output are in this result, so the notice that would
-		// announce the same exit is withdrawn rather than repeated.
-		if (outcome.kind !== 'timeout') jobs.markCollected?.(input.id)
+		// announce the same exit is withdrawn rather than repeated. Only when
+		// the model was given all of it: output the retention cap dropped, or
+		// that this bounded result omitted, leaves the notice in place.
+		if (outcome.kind === 'exited' && outcome.droppedBytes === 0 && outcome.omittedOutputBytes === 0)
+			jobs.markCollected?.(input.id)
 
 		const notices = [
 			...(outcome.droppedBytes > 0
