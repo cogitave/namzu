@@ -103,6 +103,7 @@ import { startAutoUpdate } from '../integrations/auto-update/start.js'
 import {
 	type ClipboardCopier,
 	type CopyHost,
+	bypassKey,
 	createClipboardCopier,
 	describeCopy,
 } from '../integrations/clipboard/copy.js'
@@ -4902,10 +4903,11 @@ function AppBody({
 					}
 
 					const outcome = await clipboard.copy(projected.markdown)
-					if (outcome) {
+					if (!outcome) pushMessage('system', 'That copy was replaced by a newer one.')
+					else {
 						const { text, ok } = describeCopy(
 							outcome,
-							'Shift',
+							bypassKey(process.env),
 							plural(projected.turns, 'reply', 'replies'),
 						)
 						pushMessage('system', ok ? text : `${text} Choose Save to file instead.`)
@@ -5365,7 +5367,7 @@ function AppBody({
 			const selection = target.kind === 'whole' ? origin : `${target.label} from ${origin}`
 			void clipboard.copy(target.text).then((outcome) => {
 				if (!outcome) return
-				const { text, ok } = describeCopy(outcome, 'Shift', selection)
+				const { text, ok } = describeCopy(outcome, bypassKey(process.env), selection)
 				if (ok) pushMessage('system', text)
 				else pushSystem('error', text)
 			})

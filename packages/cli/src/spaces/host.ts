@@ -2306,7 +2306,7 @@ export class SpacesHost {
 		}
 		this.lastForward.set(screen, now())
 		const text = Buffer.from(payload, 'base64').toString('utf8')
-		void this.copier().copy(text, () => !this.closed)
+		void this.copier().copy(text, () => !this.closed, { durable: true })
 	}
 
 	/** Moves the border being dragged to follow the pointer. */

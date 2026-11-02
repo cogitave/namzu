@@ -39,7 +39,7 @@ function rig(
 	const which = (name: string): string | null => (present.includes(name) ? `/bin/${name}` : null)
 	const copier = createClipboardCopier(
 		{ isTTY: opts.isTTY ?? true, write: (d) => void written.push(d) },
-		{ which, exists: () => false, ...rest, run },
+		{ which, exists: () => false, kernelVersion: () => '', ...rest, run },
 	)
 	return { copier, calls, written }
 }
@@ -198,6 +198,7 @@ describe('the terminal request after the tool', () => {
 			{
 				platform: 'linux',
 				env,
+				kernelVersion: () => '',
 				which: (name) => (name === 'tmux' ? '/bin/tmux' : null),
 				run: async (_c, args) => {
 					calls.push([...args])
@@ -330,6 +331,107 @@ describe('never in the way', () => {
 	})
 })
 
+describe('queueing, timeouts, lookups', () => {
+	it('never replaces a durable copy, only the plain ones waiting', async () => {
+		const releases: Array<() => void> = []
+		const started: string[] = []
+		const copier = createClipboardCopier(
+			{ isTTY: true, write: () => {} },
+			{
+				platform: 'darwin',
+				env: {},
+				which: () => '/bin/pbcopy',
+				run: (_c, _a, input) =>
+					new Promise((resolve) => {
+						started.push(input)
+						releases.push(() => resolve(true))
+					}),
+			},
+		)
+		const first = copier.copy('one')
+		const pane = copier.copy('pane', undefined, { durable: true })
+		const dragA = copier.copy('dragA')
+		const dragB = copier.copy('dragB')
+		expect(await dragA).toBeNull()
+		releases.shift()?.()
+		await first
+		await vi.waitFor(() => expect(started).toEqual(['one', 'pane']))
+		releases.shift()?.()
+		await pane
+		await vi.waitFor(() => expect(started).toEqual(['one', 'pane', 'dragB']))
+		releases.shift()?.()
+		expect(await dragB).toMatchObject({ native: 'pbcopy' })
+	})
+
+	it('stops trying tools after one times out', async () => {
+		const calls: string[] = []
+		const copier = createClipboardCopier(
+			{ isTTY: true, write: () => {} },
+			{
+				platform: 'linux',
+				env: { DISPLAY: ':0' },
+				kernelVersion: () => '',
+				which: (n) => `/bin/${n}`,
+				run: async (c) => {
+					calls.push(c)
+					return 'timeout'
+				},
+			},
+		)
+		const out = await copier.copy('x')
+		expect(calls).toEqual(['/bin/xclip'])
+		expect(out).toMatchObject({ native: null, osc52: 'sent' })
+	})
+
+	it('looks each tool up once per copier', async () => {
+		const looked: string[] = []
+		const copier = createClipboardCopier(
+			{ isTTY: true, write: () => {} },
+			{
+				platform: 'darwin',
+				env: {},
+				which: (n) => {
+					looked.push(n)
+					return '/bin/pbcopy'
+				},
+				run: async () => true,
+			},
+		)
+		await copier.copy('a')
+		await copier.copy('b')
+		expect(looked).toEqual(['pbcopy'])
+	})
+
+	it('gives pbcopy a UTF-8 locale', async () => {
+		const seen: unknown[] = []
+		const copier = createClipboardCopier(
+			{ isTTY: false, write: () => {} },
+			{
+				platform: 'darwin',
+				env: {},
+				which: () => '/bin/pbcopy',
+				run: async (_c, _a, _i, _t, env) => {
+					seen.push(env)
+					return true
+				},
+			},
+		)
+		await copier.copy('é')
+		expect(seen).toEqual([{ LC_CTYPE: 'UTF-8' }])
+	})
+
+	it('recognises WSL from the kernel when its variables are gone', async () => {
+		const { copier, calls } = rig({
+			platform: 'linux',
+			env: {},
+			present: ['powershell.exe'],
+			kernelVersion: () => 'Linux version 6.1 (microsoft-standard-WSL2)',
+		})
+		await copier.copy('a')
+		expect(calls[0]?.command).toBe('/bin/powershell.exe')
+	})
+})
+
 describe('what the operator is told', () => {
 	const base = { chars: 12, bytes: 12, native: null, osc52: 'sent', tmuxBuffer: false } as const
 	it('names the tool path, the tmux buffer, the request and each failure', () => {
@@ -390,6 +492,6 @@ describe('the real runner', () => {
 		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
 		const pending = realRunner(process.execPath, ['-e', 'setInterval(()=>{},1000)'], 'x', 2000)
 		await vi.advanceTimersByTimeAsync(2000)
-		expect(await pending).toBe(false)
+		expect(await pending).toBe('timeout')
 	})
 })

@@ -19,7 +19,10 @@
  * The tool runs asynchronously. Only one copy runs at a time; a copy asked for
  * while another runs waits, and a newer one replaces it. A copy whose caller no
  * longer wants it (`wanted()` returns false by the time its turn comes) never
- * starts a process.
+ * starts a process. A copy whose caller cannot see the outcome (a pane's own
+ * request) is `durable`: a newer copy queues behind it instead of replacing it.
+ * A tool that times out ends the attempt; the remaining tools are not tried.
+ * Where each tool lives is looked up once per copier, not on every copy.
  *
  * Every program is a fixed argv with the text on stdin: no shell, no
  * interpolation. The runner and the environment are injected so a test names
@@ -27,7 +30,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { constants, accessSync, existsSync } from 'node:fs'
+import { constants, accessSync, existsSync, readFileSync } from 'node:fs'
 import { delimiter, isAbsolute, join } from 'node:path'
 
 import { readWslMountRoot, wslSystem32 } from '../../context/environment.js'
@@ -41,13 +44,17 @@ import {
 /** How long a platform clipboard tool may take before it counts as failed. */
 export const NATIVE_TIMEOUT_MS = 2_000
 
-/** Runs one program with `input` on its stdin; resolves whether it exited 0 in time. */
+/**
+ * Runs one program with `input` on its stdin; resolves whether it exited 0 in
+ * time, or 'timeout' when it did not finish in time.
+ */
 export type ClipboardRunner = (
 	command: string,
 	args: readonly string[],
 	input: string,
 	timeoutMs: number,
-) => Promise<boolean>
+	env?: Readonly<Record<string, string>>,
+) => Promise<boolean | 'timeout'>
 
 export interface CopyHost {
 	readonly platform?: NodeJS.Platform
@@ -58,6 +65,8 @@ export interface CopyHost {
 	/** Where the Windows drives are mounted under WSL. */
 	readonly mountRoot?: string
 	readonly run?: ClipboardRunner
+	/** The kernel's version string, read when WSL variables are absent. */
+	readonly kernelVersion?: () => string
 }
 
 export type CopyOutcome = {
@@ -81,10 +90,10 @@ export const POWERSHELL_COPY_SCRIPT = [
 
 const POWERSHELL_ARGS = ['-NoProfile', '-NonInteractive', '-Command', POWERSHELL_COPY_SCRIPT]
 
-export const realRunner: ClipboardRunner = (command, args, input, timeoutMs) =>
+export const realRunner: ClipboardRunner = (command, args, input, timeoutMs, extraEnv) =>
 	new Promise((resolve) => {
 		let settled = false
-		const done = (ok: boolean): void => {
+		const done = (ok: boolean | 'timeout'): void => {
 			if (settled) return
 			settled = true
 			clearTimeout(timer)
@@ -93,10 +102,14 @@ export const realRunner: ClipboardRunner = (command, args, input, timeoutMs) =>
 		let child: ReturnType<typeof spawn> | undefined
 		const timer = setTimeout(() => {
 			child?.kill('SIGKILL')
-			done(false)
+			done('timeout')
 		}, timeoutMs)
 		try {
-			child = spawn(command, [...args], { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true })
+			child = spawn(command, [...args], {
+				stdio: ['pipe', 'ignore', 'ignore'],
+				windowsHide: true,
+				env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
+			})
 		} catch {
 			done(false)
 			return
@@ -125,7 +138,17 @@ function realWhich(name: string, env: NodeJS.ProcessEnv): string | null {
 const isSsh = (env: NodeJS.ProcessEnv): boolean =>
 	Boolean(env.SSH_CONNECTION || env.SSH_CLIENT || env.SSH_TTY)
 
-const isWsl = (env: NodeJS.ProcessEnv): boolean => Boolean(env.WSL_DISTRO_NAME || env.WSL_INTEROP)
+function realKernelVersion(): string {
+	try {
+		return readFileSync('/proc/version', 'utf8')
+	} catch {
+		return ''
+	}
+}
+
+/** WSL from its variables; else (a `sudo` shell drops them) from the kernel's version. */
+const isWsl = (env: NodeJS.ProcessEnv, kernelVersion: () => string): boolean =>
+	Boolean(env.WSL_DISTRO_NAME || env.WSL_INTEROP) || /microsoft/i.test(kernelVersion())
 
 /** Terminals whose older releases print an unknown OSC sequence instead of ignoring it. */
 const printsUnknownSequences = (env: NodeJS.ProcessEnv): boolean => Boolean(env.VTE_VERSION)
@@ -145,6 +168,8 @@ interface NativeTry {
 	readonly args: readonly string[]
 	/** Extra writes to the other selection; their failure changes nothing. */
 	readonly also?: readonly (readonly string[])[]
+	/** Added to the tool's environment. */
+	readonly env?: Readonly<Record<string, string>>
 }
 
 function nativeCandidates(host: CopyHost): readonly NativeTry[] {
@@ -155,13 +180,14 @@ function nativeCandidates(host: CopyHost): readonly NativeTry[] {
 	const found = (name: string): string | null => which(name, env)
 	if (platform === 'darwin') {
 		const pbcopy = found('pbcopy')
-		return pbcopy ? [{ name: 'pbcopy', command: pbcopy, args: [] }] : []
+		// Without a UTF-8 locale pbcopy would store non-ASCII text mangled.
+		return pbcopy ? [{ name: 'pbcopy', command: pbcopy, args: [], env: { LC_CTYPE: 'UTF-8' } }] : []
 	}
 	if (platform === 'win32') {
 		return [{ name: 'powershell', command: 'powershell', args: POWERSHELL_ARGS }]
 	}
 	if (platform !== 'linux') return []
-	if (isWsl(env)) {
+	if (isWsl(env, host.kernelVersion ?? realKernelVersion)) {
 		const powershell = wslPowershell({ ...host, env, which, exists })
 		return powershell
 			? [{ name: 'powershell.exe', command: powershell, args: POWERSHELL_ARGS }]
@@ -192,15 +218,21 @@ function nativeCandidates(host: CopyHost): readonly NativeTry[] {
 interface Pending {
 	readonly text: string
 	readonly wanted: () => boolean
+	/** Never replaced by a newer copy. */
+	readonly durable: boolean
 	readonly resolve: (outcome: CopyOutcome | null) => void
 }
 
 export interface ClipboardCopier {
 	/**
 	 * Copies `text`. Resolves null when the copy was dropped: superseded by a newer
-	 * one while waiting, or no longer wanted when its turn came.
+	 * one while waiting (unless durable), or no longer wanted when its turn came.
 	 */
-	copy(text: string, wanted?: () => boolean): Promise<CopyOutcome | null>
+	copy(
+		text: string,
+		wanted?: () => boolean,
+		options?: { readonly durable?: boolean },
+	): Promise<CopyOutcome | null>
 }
 
 export function createClipboardCopier(
@@ -212,18 +244,34 @@ export function createClipboardCopier(
 	const run = host.run ?? realRunner
 	const which = host.which ?? realWhich
 	let running = false
-	let pending: Pending | undefined
+	let queue: Pending[] = []
+	let candidates: readonly NativeTry[] | undefined
+	let tmuxPath: string | null | undefined
 
 	const perform = async (text: string): Promise<CopyOutcome> => {
 		const bytes = Buffer.byteLength(text, 'utf8')
 		const chars = [...text].length
 		let native: string | null = null
 		if (!isSsh(env)) {
-			for (const candidate of nativeCandidates(host)) {
-				if (await run(candidate.command, candidate.args, text, NATIVE_TIMEOUT_MS)) {
+			candidates ??= nativeCandidates(host)
+			for (const candidate of candidates) {
+				const result = await run(
+					candidate.command,
+					candidate.args,
+					text,
+					NATIVE_TIMEOUT_MS,
+					candidate.env,
+				)
+				if (result === 'timeout') break
+				if (result) {
 					native = candidate.name
-					for (const extra of candidate.also ?? [])
-						await run(candidate.command, extra, text, NATIVE_TIMEOUT_MS)
+					for (const extra of candidate.also ?? []) {
+						if (
+							(await run(candidate.command, extra, text, NATIVE_TIMEOUT_MS, candidate.env)) ===
+							'timeout'
+						)
+							break
+					}
 					break
 				}
 			}
@@ -241,11 +289,14 @@ export function createClipboardCopier(
 			} catch {
 				osc52 = 'failed'
 			}
-			const tmux = env.TMUX ? which('tmux', env) : null
+			if (env.TMUX && tmuxPath === undefined) tmuxPath = which('tmux', env)
+			const tmux = env.TMUX ? tmuxPath : null
 			if (tmux) {
+				const first = await run(tmux, ['load-buffer', '-w', '-'], text, NATIVE_TIMEOUT_MS)
 				tmuxBuffer =
-					(await run(tmux, ['load-buffer', '-w', '-'], text, NATIVE_TIMEOUT_MS)) ||
-					(await run(tmux, ['load-buffer', '-'], text, NATIVE_TIMEOUT_MS))
+					first === true ||
+					(first !== 'timeout' &&
+						(await run(tmux, ['load-buffer', '-'], text, NATIVE_TIMEOUT_MS)) === true)
 			}
 		}
 		return { chars, bytes, native, osc52, tmuxBuffer }
@@ -257,7 +308,6 @@ export function createClipboardCopier(
 		try {
 			while (next) {
 				const job: Pending = next
-				pending = undefined
 				if (!job.wanted()) job.resolve(null)
 				else {
 					try {
@@ -266,7 +316,7 @@ export function createClipboardCopier(
 						job.resolve(null)
 					}
 				}
-				next = pending
+				next = queue.shift()
 			}
 		} finally {
 			running = false
@@ -274,12 +324,22 @@ export function createClipboardCopier(
 	}
 
 	return {
-		copy(text, wanted = () => true) {
+		copy(text, wanted, options) {
 			return new Promise((resolve) => {
-				const job: Pending = { text, wanted, resolve }
+				const job: Pending = {
+					text,
+					wanted: wanted ?? (() => true),
+					durable: options?.durable === true,
+					resolve,
+				}
 				if (running) {
-					pending?.resolve(null)
-					pending = job
+					// A newer copy replaces the waiting ones nobody is watching for.
+					queue = queue.filter((waiting) => {
+						if (waiting.durable) return true
+						waiting.resolve(null)
+						return false
+					})
+					queue.push(job)
 					return
 				}
 				void drain(job)
