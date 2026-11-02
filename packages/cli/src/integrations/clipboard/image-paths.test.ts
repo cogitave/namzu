@@ -76,22 +76,61 @@ describe('reading the named files', () => {
 			return { size: bytes.length, isFile: () => true }
 		},
 		readFile: async (path: string) => files.get(path) ?? Buffer.alloc(0),
+		fit: async (bytes: Buffer) => ({
+			ok: true as const,
+			data: bytes,
+			mediaType: 'image/png' as const,
+		}),
 	}
 
 	it('returns each image with its media type and file name', async () => {
-		const images = await loadImageFiles(['/a/ok.png'], deps)
-		expect(images).toEqual([
-			{ data: PNG.toString('base64'), mediaType: 'image/png', filename: 'ok.png' },
-		])
+		const result = await loadImageFiles(['/a/ok.png'], deps)
+		expect(result).toEqual({
+			kind: 'images',
+			images: [{ data: PNG.toString('base64'), mediaType: 'image/png', filename: 'ok.png' }],
+		})
 	})
 
-	it('gives nothing when any file is missing, empty or not an image by its bytes', async () => {
-		expect(await loadImageFiles(['/a/ok.png', '/a/missing.png'], deps)).toBeNull()
-		expect(await loadImageFiles(['/a/fake.png'], deps)).toBeNull()
-		expect(await loadImageFiles(['/a/empty.png'], deps)).toBeNull()
+	it('leaves the paste as text when any file is missing, empty or not an image by its bytes', async () => {
+		expect(await loadImageFiles(['/a/ok.png', '/a/missing.png'], deps)).toEqual({ kind: 'text' })
+		expect(await loadImageFiles(['/a/fake.png'], deps)).toEqual({ kind: 'text' })
+		expect(await loadImageFiles(['/a/empty.png'], deps)).toEqual({ kind: 'text' })
 	})
 
-	it('honours a refusal to read', async () => {
-		expect(await loadImageFiles(['/a/ok.png'], { ...deps, mayRead: () => false })).toBeNull()
+	it('reports the reason when the permission rules refuse a path, without reading it', async () => {
+		let read = false
+		const result = await loadImageFiles(['/a/ok.png'], {
+			...deps,
+			readFile: async () => {
+				read = true
+				return PNG
+			},
+			mayRead: async () => 'Outside the folders this session can read.',
+		})
+		expect(result).toEqual({
+			kind: 'refused',
+			message: 'Outside the folders this session can read.',
+		})
+		expect(read).toBe(false)
+	})
+
+	it('reports an image that cannot be brought inside the limits', async () => {
+		const result = await loadImageFiles(['/a/ok.png'], {
+			...deps,
+			fit: async () => ({ ok: false, message: 'Too large.' }),
+		})
+		expect(result).toEqual({ kind: 'refused', message: 'Too large.' })
+	})
+
+	it('attaches the fitted bytes and media type, not the original', async () => {
+		const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])
+		const result = await loadImageFiles(['/a/ok.png'], {
+			...deps,
+			fit: async () => ({ ok: true, data: jpeg, mediaType: 'image/jpeg' }),
+		})
+		expect(result).toEqual({
+			kind: 'images',
+			images: [{ data: jpeg.toString('base64'), mediaType: 'image/jpeg', filename: 'ok.png' }],
+		})
 	})
 })

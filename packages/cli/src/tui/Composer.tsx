@@ -21,6 +21,7 @@ import {
 	imageFitsProvider,
 	readClipboardImage,
 } from '../integrations/clipboard/image.js'
+import { readClipboardText } from '../integrations/clipboard/text-read.js'
 import { currentPathEnvironment } from '../integrations/clipboard/wsl.js'
 import type { UserCommand } from '../user-commands/store.js'
 import {
@@ -141,6 +142,13 @@ export interface ComposerProps {
 	 * silence this exists to end.
 	 */
 	readonly onNotice?: (text: string) => void
+	/**
+	 * Whether a pasted image path may be read: `null` when it may, otherwise a
+	 * plain sentence saying why not. Built from the session's read policy
+	 * (permission rules, working directory, added directories). Absent means
+	 * every path may be read, which only tests rely on.
+	 */
+	readonly mayReadImage?: (path: string) => Promise<string | null>
 	/** Put a passing notice in the footer's slot / take it back out (`notifications.ts`). */
 	readonly onFooterNotice?: (notice: Notice) => void
 	readonly onFooterNoticeRemove?: (key: string) => void
@@ -631,6 +639,7 @@ function deleteNextWordAt(
 export function Composer({
 	disabled = false,
 	plainText = false,
+	mayReadImage,
 	placeholder = 'Type a message… (/help for commands)',
 	onDraftChange,
 	reasoningEffortLevels,
@@ -1058,7 +1067,8 @@ export function Composer({
 		let value = valueRef.current
 		let position = cursorRef.current
 		for (const image of images) {
-			const chip = chipFor(image, idFor(image))
+			// A chip set down against the word before it would read as part of it.
+			const chip = `${position > 0 ? ' ' : ''}${chipFor(image, idFor(image))}`
 			value = value.slice(0, position) + chip + value.slice(position)
 			position += chip.length
 		}
@@ -1081,7 +1091,24 @@ export function Composer({
 		if (deferred) keyHandlerRef.current?.(deferred.input, deferred.key)
 	}
 
-	const pasteImageFromClipboard = (): void => {
+	/** Attach what loading image files returned, or say why not. `false` when it was not images. */
+	const attachLoaded = (loaded: Awaited<ReturnType<typeof loadImageFiles>>): boolean => {
+		if (loaded.kind === 'images') {
+			attachImages(loaded.images)
+			return true
+		}
+		if (loaded.kind === 'refused') onNotice?.(loaded.message)
+		return false
+	}
+
+	const imageFileDeps = { ...(mayReadImage ? { mayRead: mayReadImage } : {}) }
+
+	/**
+	 * Read the clipboard for an image. `fromKey` is true for the paste key and
+	 * false for an empty bracketed paste: only the key falls back to the
+	 * clipboard's text, because only there did the terminal swallow a text paste.
+	 */
+	const pasteImageFromClipboard = (fromKey: boolean): void => {
 		if (imageReadRef.current) return
 		imageReadRef.current = true
 		const environment = currentPathEnvironment()
@@ -1091,12 +1118,30 @@ export function Composer({
 				const read = await readClipboardImage()
 				if (read.kind === 'image') {
 					attachImages([read.image])
-				} else if (read.kind === 'files') {
+					return
+				}
+				if (read.kind === 'files') {
 					const paths = parsePastedImagePaths(read.paths.join('\n'), environment)
-					const images = paths ? await loadImageFiles(paths) : null
-					if (images && images.length > 0) attachImages(images)
-					else onNotice?.("Could not read the copied image files. Paste the file's path instead.")
-				} else if (read.kind === 'empty') {
+					const loaded = paths
+						? await loadImageFiles(paths, imageFileDeps)
+						: ({ kind: 'text' } as const)
+					if (!attachLoaded(loaded) && loaded.kind === 'text') {
+						onNotice?.("Could not read the copied image files. Paste the file's path instead.")
+					}
+					return
+				}
+				if (read.kind === 'refused') {
+					onNotice?.(read.message)
+					return
+				}
+				if (fromKey) {
+					const text = await readClipboardText()
+					if (text !== null) {
+						insertPastedText(text.replace(/\r\n?/g, '\n'))
+						return
+					}
+				}
+				if (read.kind === 'empty') {
 					onNotice?.(
 						process.env.SSH_CONNECTION || process.env.SSH_TTY
 							? 'No image over SSH. Copy the file over, then paste its path.'
@@ -1137,7 +1182,7 @@ export function Composer({
 				const now = Date.now()
 				if (now - lastEmptyPasteRef.current < 50) return
 				lastEmptyPasteRef.current = now
-				pasteImageFromClipboard()
+				pasteImageFromClipboard(false)
 				return
 			}
 			// A paste made only of image paths (a dropped file) is attached.
@@ -1145,10 +1190,9 @@ export function Composer({
 			if (paths) {
 				// Enter pressed while the files load waits, like a clipboard read.
 				imageReadRef.current = true
-				void loadImageFiles(paths)
-					.then((images) => {
-						if (images) attachImages(images)
-						else insertPastedText(normalized)
+				void loadImageFiles(paths, imageFileDeps)
+					.then((loaded) => {
+						if (!attachLoaded(loaded)) insertPastedText(normalized)
 					})
 					.finally(finishImageRead)
 				return
@@ -1769,7 +1813,7 @@ export function Composer({
 					)
 					return
 				}
-				pasteImageFromClipboard()
+				pasteImageFromClipboard(true)
 				return
 			}
 			if (isAction('edit:deleteWordBack', input, key)) {

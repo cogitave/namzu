@@ -194,8 +194,9 @@ describe('Ctrl+V with an image', () => {
 		harness.stdin.write('\x16')
 		await frameShows(harness.lastFrame, 'Image #2')
 
-		// Put the cursor right after the first chip and delete it whole.
-		for (let i = 0; i < '[Image #2]'.length; i += 1) harness.stdin.write('\x1b[D')
+		// Put the cursor right after the first chip and delete it whole. The
+		// second chip sits after a space, which is part of what is stepped over.
+		for (let i = 0; i < ' [Image #2]'.length; i += 1) harness.stdin.write('\x1b[D')
 		await tick(30)
 		harness.stdin.write('\x7f')
 		await vi.waitFor(() => expect(harness.lastFrame() ?? '').not.toContain('Image #1'))

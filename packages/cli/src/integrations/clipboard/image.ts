@@ -17,6 +17,7 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { type FitResult, fitImage, sniffImageFormat } from './image-fit.js'
 import { DEFAULT_WSL_MOUNT_ROOT, isWslEnv, parseWslMountRoot, readTextOrUndefined } from './wsl.js'
 
 export interface ClipboardImage {
@@ -46,6 +47,8 @@ export type ClipboardRead =
 	| { readonly kind: 'unavailable'; readonly detail: string; readonly wsl?: boolean }
 	/** A tool ran but did not finish or gave an answer that is not an image. */
 	| { readonly kind: 'failed'; readonly detail: string }
+	/** An image was found and cannot be attached; `message` says why, in plain words. */
+	| { readonly kind: 'refused'; readonly message: string }
 
 export interface CommandResult {
 	/** Exit code, or `null` when killed. */
@@ -75,8 +78,20 @@ export const MAX_CLIPBOARD_BYTES = 64 * 1024 * 1024
 const TOOL_TIMEOUT_MS = 3_000
 const POWERSHELL_TIMEOUT_MS = 10_000
 
+/**
+ * Programs that read the operator's clipboard. Setting `NAMZU_NO_CLIPBOARD=1`
+ * stops the real runner from starting any of them, so a test or a locked-down
+ * environment cannot reach the clipboard by accident; the read then reports
+ * that no tool is available.
+ */
+const CLIPBOARD_PROGRAMS = /(?:^|[\\/])(?:xclip|wl-paste|pbpaste|osascript|powershell(?:\.exe)?)$/i
+
 export const runCommand: CommandRunner = (file, args, options) =>
 	new Promise((resolve) => {
+		if (process.env.NAMZU_NO_CLIPBOARD === '1' && CLIPBOARD_PROGRAMS.test(file)) {
+			resolve({ code: null, stdout: Buffer.alloc(0), timedOut: false, spawnFailed: true })
+			return
+		}
 		const chunks: Buffer[] = []
 		let size = 0
 		let timedOut = false
@@ -118,6 +133,24 @@ export interface ClipboardDeps {
 	readonly env?: Readonly<Record<string, string | undefined>>
 	readonly run?: CommandRunner
 	readonly readText?: (path: string) => string | undefined
+	/** Brings an image inside the provider's limits; the default shrinks it with `sharp` when present. */
+	readonly fit?: (bytes: Buffer) => Promise<FitResult>
+}
+
+async function finishImage(
+	bytes: Buffer,
+	fit: (bytes: Buffer) => Promise<FitResult>,
+): Promise<ClipboardRead> {
+	const fitted = await fit(bytes)
+	if (!fitted.ok) return { kind: 'refused', message: fitted.message }
+	return {
+		kind: 'image',
+		image: {
+			data: fitted.data.toString('base64'),
+			mediaType: fitted.mediaType,
+			filename: 'Pasted image',
+		},
+	}
 }
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47])
@@ -191,6 +224,7 @@ export function parsePowershellOutput(stdout: Buffer): ClipboardRead {
 async function runPowershell(
 	run: CommandRunner,
 	candidates: readonly string[],
+	fit: (bytes: Buffer) => Promise<FitResult>,
 ): Promise<ClipboardRead | 'unresolved'> {
 	for (const file of candidates) {
 		const result = await run(file, powershellArgs(CLIPBOARD_SCRIPT), {
@@ -200,7 +234,10 @@ async function runPowershell(
 		if (result.timedOut) return { kind: 'failed', detail: 'timed out' }
 		if (result.code === CLIPBOARD_EMPTY_EXIT && result.stdout.length === 0) return { kind: 'empty' }
 		if (result.code !== 0) return { kind: 'failed', detail: `exit ${String(result.code)}` }
-		return parsePowershellOutput(result.stdout)
+		const parsed = parsePowershellOutput(result.stdout)
+		return parsed.kind === 'image'
+			? finishImage(Buffer.from(parsed.image.data, 'base64'), fit)
+			: parsed
 	}
 	return 'unresolved'
 }
@@ -217,19 +254,20 @@ export async function readClipboardImage(deps: ClipboardDeps = {}): Promise<Clip
 	const env = deps.env ?? process.env
 	const run = deps.run ?? runCommand
 	const readText = deps.readText ?? readTextOrUndefined
+	const fit = deps.fit ?? ((bytes: Buffer) => fitImage(bytes))
 	try {
 		switch (platform) {
 			case 'darwin':
-				return await readMac(run)
+				return await readMac(run, fit)
 			case 'win32': {
-				const result = await runPowershell(run, ['powershell'])
+				const result = await runPowershell(run, ['powershell'], fit)
 				return result === 'unresolved'
 					? { kind: 'unavailable', detail: 'PowerShell could not be started' }
 					: result
 			}
 			case 'linux': {
 				const wsl = isWslEnv({ platform, env, readText })
-				return await readLinux(run, wsl, readText)
+				return await readLinux(run, wsl, readText, fit)
 			}
 			default:
 				return { kind: 'unavailable', detail: `no clipboard reader is known for ${platform}` }
@@ -239,36 +277,48 @@ export async function readClipboardImage(deps: ClipboardDeps = {}): Promise<Clip
 	}
 }
 
+const IMAGE_TARGET = /image\/(?:png|jpeg|jpg|gif|webp|bmp)/
+
 async function readLinux(
 	run: CommandRunner,
 	wsl: boolean,
 	readText: (path: string) => string | undefined,
+	fit: (bytes: Buffer) => Promise<FitResult>,
 ): Promise<ClipboardRead> {
-	const tools: [string, string[]][] = [
-		['xclip', ['-selection', 'clipboard', '-t', 'image/png', '-o']],
-		['wl-paste', ['--type', 'image/png']],
+	// Ask each tool what the clipboard holds before asking for it, so "no image"
+	// is told apart from "no tool".
+	const listings: [string, string[]][] = [
+		['xclip', ['-selection', 'clipboard', '-t', 'TARGETS', '-o']],
+		['wl-paste', ['-l']],
 	]
 	let toolRan = false
-	for (const [file, args] of tools) {
+	let holdsImage = false
+	for (const [file, args] of listings) {
 		const result = await run(file, args, { timeoutMs: TOOL_TIMEOUT_MS })
 		if (result.spawnFailed) continue
 		toolRan = true
-		if (result.code === 0 && isPng(result.stdout)) {
-			return {
-				kind: 'image',
-				image: {
-					data: result.stdout.toString('base64'),
-					mediaType: 'image/png',
-					filename: 'Pasted image',
-				},
-			}
+		if (result.code === 0 && IMAGE_TARGET.test(result.stdout.toString('utf8'))) holdsImage = true
+	}
+	if (holdsImage) {
+		// PNG first, then BMP, which is converted to PNG on the way in.
+		const reads: [string, string[]][] = [
+			['xclip', ['-selection', 'clipboard', '-t', 'image/png', '-o']],
+			['wl-paste', ['--type', 'image/png']],
+			['xclip', ['-selection', 'clipboard', '-t', 'image/bmp', '-o']],
+			['wl-paste', ['--type', 'image/bmp']],
+		]
+		for (const [file, args] of reads) {
+			const result = await run(file, args, { timeoutMs: TOOL_TIMEOUT_MS })
+			if (result.spawnFailed || result.code !== 0) continue
+			const format = sniffImageFormat(result.stdout)
+			if (format === 'image/png' || format === 'image/bmp') return finishImage(result.stdout, fit)
 		}
 	}
 	if (wsl) {
 		// WSLg's X server rarely mirrors the Windows clipboard, so the Windows
 		// side is asked even when a Linux tool ran and found nothing.
 		const root = parseWslMountRoot(readText('/etc/wsl.conf'))
-		const result = await runPowershell(run, powershellCandidates(root))
+		const result = await runPowershell(run, powershellCandidates(root), fit)
 		if (result !== 'unresolved') return result
 		if (toolRan) return { kind: 'empty' }
 		return { kind: 'unavailable', detail: 'powershell.exe could not be started', wsl: true }
@@ -277,7 +327,10 @@ async function readLinux(
 	return { kind: 'unavailable', detail: 'install xclip (X11) or wl-clipboard (Wayland)' }
 }
 
-async function readMac(run: CommandRunner): Promise<ClipboardRead> {
+async function readMac(
+	run: CommandRunner,
+	fit: (bytes: Buffer) => Promise<FitResult>,
+): Promise<ClipboardRead> {
 	const dir = await mkdtemp(join(tmpdir(), 'namzu-clip-'))
 	const file = join(dir, 'clip.png')
 	try {
@@ -300,10 +353,7 @@ async function readMac(run: CommandRunner): Promise<ClipboardRead> {
 		if (result.code !== 0) return { kind: 'empty' }
 		const buf = await readFile(file)
 		if (!isPng(buf)) return { kind: 'empty' }
-		return {
-			kind: 'image',
-			image: { data: buf.toString('base64'), mediaType: 'image/png', filename: 'Pasted image' },
-		}
+		return await finishImage(buf, fit)
 	} catch {
 		return { kind: 'empty' }
 	} finally {

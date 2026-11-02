@@ -10,6 +10,7 @@
 
 import { readFile, stat } from 'node:fs/promises'
 import { win32 } from 'node:path'
+import { type FitResult, fitImage, sniffImageFormat } from './image-fit.js'
 import type { ClipboardImage } from './image.js'
 import { type PathEnvironment, windowsPathToWsl, wslSharePathToLinux } from './wsl.js'
 
@@ -66,50 +67,62 @@ export function parsePastedImagePaths(text: string, env: PathEnvironment): strin
 	return out
 }
 
-function mediaTypeOf(bytes: Buffer): ClipboardImage['mediaType'] | null {
-	if (bytes.length < 12) return null
-	if (bytes.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))) return 'image/png'
-	if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
-	if (bytes.subarray(0, 4).toString('latin1') === 'GIF8') return 'image/gif'
-	if (
-		bytes.subarray(0, 4).toString('latin1') === 'RIFF' &&
-		bytes.subarray(8, 12).toString('latin1') === 'WEBP'
-	) {
-		return 'image/webp'
-	}
-	return null
-}
-
 export interface ImageFileDeps {
 	readonly stat?: (path: string) => Promise<{ size: number; isFile(): boolean }>
 	readonly readFile?: (path: string) => Promise<Buffer>
-	/** Whether the permission rules let the CLI read this path; absent means yes. */
-	readonly mayRead?: (path: string) => boolean
+	/**
+	 * Whether the permission rules let the CLI read this path: `null` when it
+	 * may, otherwise a plain sentence saying why not. Absent means it may.
+	 */
+	readonly mayRead?: (path: string) => Promise<string | null>
+	/** Brings an image inside the provider's limits; the default uses `sharp` when present. */
+	readonly fit?: (bytes: Buffer) => Promise<FitResult>
 }
 
+export type ImageFilesResult =
+	/** Every path was an image, fitted and ready. */
+	| { readonly kind: 'images'; readonly images: ClipboardImage[] }
+	/** A path is an image the operator should hear about: not allowed, or too large to shrink. */
+	| { readonly kind: 'refused'; readonly message: string }
+	/** Not (all) readable images: the paste stays ordinary text. */
+	| { readonly kind: 'text' }
+
 /**
- * Read every path as an image. `null` when any one is missing, empty, too
- * large, not an image by its leading bytes, or not allowed to be read.
+ * Read every path as an image. All or nothing: one path that is missing,
+ * empty, too large to read, or not an image by its leading bytes leaves the
+ * paste as text, and one the permission rules refuse (or whose image cannot
+ * be brought inside the provider's limits) is reported with the reason.
  */
 export async function loadImageFiles(
 	paths: readonly string[],
 	deps: ImageFileDeps = {},
-): Promise<ClipboardImage[] | null> {
+): Promise<ImageFilesResult> {
 	const statFile = deps.stat ?? ((path: string) => stat(path))
 	const read = deps.readFile ?? ((path: string) => readFile(path))
+	const fit = deps.fit ?? ((bytes: Buffer) => fitImage(bytes))
 	const images: ClipboardImage[] = []
 	for (const path of paths) {
-		if (deps.mayRead && !deps.mayRead(path)) return null
+		if (deps.mayRead) {
+			const refusal = await deps.mayRead(path)
+			if (refusal !== null) return { kind: 'refused', message: refusal }
+		}
 		try {
 			const info = await statFile(path)
-			if (!info.isFile() || info.size === 0 || info.size > MAX_IMAGE_FILE_BYTES) return null
+			if (!info.isFile() || info.size === 0 || info.size > MAX_IMAGE_FILE_BYTES) {
+				return { kind: 'text' }
+			}
 			const bytes = await read(path)
-			const mediaType = mediaTypeOf(bytes)
-			if (mediaType === null) return null
-			images.push({ data: bytes.toString('base64'), mediaType, filename: win32.basename(path) })
+			if (sniffImageFormat(bytes) === null) return { kind: 'text' }
+			const fitted = await fit(bytes)
+			if (!fitted.ok) return { kind: 'refused', message: fitted.message }
+			images.push({
+				data: fitted.data.toString('base64'),
+				mediaType: fitted.mediaType,
+				filename: win32.basename(path),
+			})
 		} catch {
-			return null
+			return { kind: 'text' }
 		}
 	}
-	return images
+	return { kind: 'images', images }
 }
