@@ -540,8 +540,10 @@ it('turning hypermode on leaves the effort alone and says so', async () => {
 	expect(frameTop).toContain('hypermode')
 	expect(frameBottom).toBeGreaterThanOrEqual(0)
 	expect(viewport[frameBottom + 1]).not.toContain('hypermode')
-	// The footer's effort item names the mode beside the effort.
-	expect(viewport.join('\n')).toContain('effort low · Hypermode on')
+	// The composer's rule names the mode; the footer shows only the effort.
+	expect(viewport.join('\n')).toContain('effort low')
+	expect(viewport.join('\n')).not.toContain('Hypermode on')
+	expect(viewport.join('\n')).not.toContain('effort low ·')
 	await submit(screen, 'go')
 	await until(screen, () => sent.length === 1, 'Turn was not sent')
 	expect(sent[0]?.options?.effort).toBe('low')
@@ -612,7 +614,9 @@ it('keeps hypermode on when an effort level is chosen, and says nothing about tu
 	await until(screen, () => screen.viewport().join('\n').includes('Reasoning: high'), 'high')
 	const text = screen.viewport().join('\n').replace(/\s+/g, ' ')
 	expect(text).not.toMatch(/hypermode (is )?off/i)
-	expect(text).toContain('effort high · Hypermode on')
+	expect(text).toContain('effort high')
+	expect(text).not.toContain('Hypermode on')
+	expect(text).toMatch(/─ hypermode ─/u)
 	await submit(screen, 'go')
 	await until(screen, () => sent.length === 1, 'Turn was not sent')
 	expect(sent[0]?.options?.effort).toBe('high')

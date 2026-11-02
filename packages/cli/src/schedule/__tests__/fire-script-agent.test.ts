@@ -9,6 +9,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { answerModelsListing } from '../../__fixtures__/models-endpoint.js'
 import { __resetCliLoggerForTests } from '../../logging.js'
 import { createAgentSession } from '../../tui/agent.js'
 import { runFire } from '../fire/fire.js'
@@ -36,12 +37,14 @@ beforeEach(() => {
 	requestBodies = []
 	vi.stubGlobal(
 		'fetch',
-		vi.fn<typeof fetch>(async (_input, init) => {
-			calls++
-			if (typeof init?.body === 'string') requestBodies.push(init.body)
-			const next = responses.shift()
-			return next ? next() : completion()
-		}),
+		answerModelsListing(
+			vi.fn<typeof fetch>(async (_input, init) => {
+				calls++
+				if (typeof init?.body === 'string') requestBodies.push(init.body)
+				const next = responses.shift()
+				return next ? next() : completion()
+			}),
+		),
 	)
 })
 

@@ -1,10 +1,11 @@
 import type { ChatCompletionParams, ProviderRoute, StreamChunk } from '@namzu/sdk'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
 	DeepSeekProvider,
 	assertEffortUnsupported,
 	assertSamplingUsable,
+	resolveDeepSeekEffort,
 	thinkingEnabled,
 	toDeepSeekMessages,
 } from '../client.js'
@@ -98,21 +99,125 @@ describe('a sampling parameter thinking mode would discard', () => {
 })
 
 describe('reasoning effort', () => {
-	it('publishes an exact empty menu for this wire', () => {
+	it('publishes none plus the vendor levels, and high as the default', () => {
 		const provider = new DeepSeekProvider({ apiKey: 'test-key' })
 
-		expect(provider.reasoningEffortLevelsFor('deepseek-v4-flash')).toEqual([])
+		expect(provider.reasoningEffortLevelsFor('deepseek-flash')).toEqual([
+			'none',
+			'low',
+			'high',
+			'max',
+		])
+		expect(provider.reasoningEffortDefaultFor('deepseek-flash')).toBe('high')
 	})
 
-	it('is refused, because this wire accepts it and validates nothing', () => {
-		// Measured: `thinking.effort: 'bogus'` returns 200, and
-		// `effort: 'none'` still produces reasoning tokens. Only
-		// `thinking.type` is validated. Passing an effort through would change
-		// nothing and report success.
+	it('follows the models endpoint once it has been read', async () => {
+		const provider = new DeepSeekProvider({ apiKey: 'test-key' })
+		;(provider as unknown as { client: { models: { list: unknown } } }).client.models.list =
+			async () => ({
+				data: [{ id: 'm1', effort: { supported_levels: ['low', 'high'], default_level: 'low' } }],
+			})
+		await provider.resolveContextWindow('m1')
+		expect(provider.reasoningEffortLevelsFor('m1')).toEqual(['none', 'low', 'high'])
+		expect(provider.reasoningEffortDefaultFor('m1')).toBe('low')
+	})
+
+	it.each([
+		['minimal', 'low', true],
+		['low', 'low', false],
+		['medium', 'high', true],
+		['high', 'high', false],
+		['xhigh', 'high', true],
+		['max', 'max', false],
+		['ultra', 'max', true],
+	] as const)('maps %s to the vendor level %s', (asked, sent, mapped) => {
+		expect(resolveDeepSeekEffort(asked)).toEqual({ level: sent, mapped })
+	})
+
+	it('uses the nearest offered level, the lower on a tie, when the menu lacks the target', () => {
+		expect(resolveDeepSeekEffort('max', ['low', 'high'])).toEqual({ level: 'high', mapped: true })
+		expect(resolveDeepSeekEffort('ultra', ['low', 'high'])).toEqual({ level: 'high', mapped: true })
+		expect(resolveDeepSeekEffort('medium', ['low', 'max'])).toEqual({ level: 'low', mapped: true })
+		expect(resolveDeepSeekEffort('none', ['low'])).toEqual({ level: 'none', mapped: false })
+	})
+
+	it('treats none as thinking off', () => {
+		expect(thinkingEnabled(undefined, 'none')).toBe(false)
+		expect(thinkingEnabled(undefined, 'max')).toBe(true)
+	})
+})
+
+describe('reasoning effort on the wire', () => {
+	async function sent(over: Partial<ChatCompletionParams>): Promise<Record<string, any>> {
+		let body: Record<string, any> | undefined
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (_input: unknown, init?: RequestInit) => {
+				body = JSON.parse(String(init?.body))
+				return new Response(JSON.stringify({ error: { message: 'fixture refusal' } }), {
+					status: 400,
+					headers: { 'content-type': 'application/json' },
+				})
+			}),
+		)
+		const provider = new DeepSeekProvider({ apiKey: 'fixture', maxRetries: 0 })
+		await expect(async () => {
+			for await (const _ of provider.chatStream(
+				params({ messages: [{ role: 'user', content: 'x' }], ...over }),
+			)) {
+			}
+		}).rejects.toBeDefined()
+		return body as Record<string, any>
+	}
+	afterEach(() => vi.unstubAllGlobals())
+
+	it('sends max as reasoning_effort beside the model', async () => {
+		const body = await sent({ effort: 'max' })
+		expect(body.reasoning_effort).toBe('max')
+		expect(body.thinking).toBeUndefined()
+	})
+
+	it('sends the vendor level a wider one maps to', async () => {
+		expect((await sent({ effort: 'xhigh' })).reasoning_effort).toBe('high')
+		expect((await sent({ effort: 'minimal' })).reasoning_effort).toBe('low')
+	})
+
+	it('turns thinking off for none, with no level', async () => {
+		const body = await sent({ effort: 'none' })
+		expect(body.thinking).toEqual({ type: 'disabled' })
+		expect(body.reasoning_effort).toBeUndefined()
+	})
+
+	it('lets an explicit disabled thinking win over a level', async () => {
+		const body = await sent({ effort: 'high', thinking: { type: 'disabled' } })
+		expect(body.thinking).toEqual({ type: 'disabled' })
+		expect(body.reasoning_effort).toBeUndefined()
+	})
+
+	it('sends neither field when the caller said nothing', async () => {
+		const body = await sent({})
+		expect(body.thinking).toBeUndefined()
+		expect(body.reasoning_effort).toBeUndefined()
+	})
+
+	it('honours sampling parameters once none turned thinking off', async () => {
+		const body = await sent({ effort: 'none', temperature: 0 })
+		expect(body.temperature).toBe(0)
+	})
+
+	it('still refuses sampling parameters while an effort keeps thinking on', async () => {
+		await expect(async () => {
+			for await (const _ of new DeepSeekProvider({ apiKey: 'fixture' }).chatStream(
+				params({ effort: 'high', temperature: 0 }),
+			)) {
+			}
+		}).rejects.toThrow(/thinking mode/)
+	})
+})
+
+describe('the retired effort guard', () => {
+	it('stays exported and unchanged for callers that imported it', () => {
 		expect(() => assertEffortUnsupported(params({ effort: 'high' }))).toThrow(/not carried/)
-	})
-
-	it('is silent when the caller asked for none', () => {
 		expect(() => assertEffortUnsupported(params())).not.toThrow()
 	})
 })

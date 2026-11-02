@@ -1,4 +1,4 @@
-import { isAbsolute, posix } from 'node:path'
+import { isAbsolute, join, posix } from 'node:path'
 import braceExpansion from 'brace-expansion'
 import { GLOBSTAR, Minimatch } from 'minimatch'
 import type {
@@ -6,9 +6,14 @@ import type {
 	SandboxExecResult,
 	SandboxFileEntry,
 	SandboxWalkFilesOptions,
+	SandboxWalkSummary,
 } from '../types/sandbox/index.js'
 import { subscribeToAbort } from '../utils/abort.js'
 import { FILE_WALK_PROGRAM } from './file-walk-program.js'
+import { VCS_NAMES, createIgnoreStack } from './ignore-matcher.js'
+
+/** Entries a walk examines before it stops with what it has: a safety valve, not a budget. */
+export const DEFAULT_MAX_VISITED_ENTRIES = 500_000
 
 interface WalkPlan {
 	root: string
@@ -18,6 +23,8 @@ interface WalkPlan {
 	maxEntries: number
 	maxVisitedEntries: number
 	includeHidden: boolean
+	respectIgnore: boolean
+	failOnLimit: boolean
 	patterns: (string | { source: string; flags: string } | null)[][]
 }
 
@@ -103,8 +110,13 @@ function planWalk(root: string, options: SandboxWalkFilesOptions): WalkPlan {
 		expressions,
 		maxDepth: Number.isFinite(maxDepth) ? maxDepth : null,
 		maxEntries: positiveInteger(options.maxEntries, 'maxEntries'),
-		maxVisitedEntries: positiveInteger(options.maxVisitedEntries ?? 20_000, 'maxVisitedEntries'),
+		maxVisitedEntries: positiveInteger(
+			options.maxVisitedEntries ?? DEFAULT_MAX_VISITED_ENTRIES,
+			'maxVisitedEntries',
+		),
 		includeHidden: options.includeHidden ?? false,
+		respectIgnore: options.respectIgnore ?? true,
+		failOnLimit: options.failOnLimit ?? false,
 		patterns: sets.map((set) =>
 			set.map((segment) =>
 				segment === GLOBSTAR
@@ -151,13 +163,25 @@ function directoryMatcher(plan: WalkPlan): (relative: string) => boolean {
 async function* executeWalk(
 	plan: WalkPlan,
 	signal?: AbortSignal,
+	onSummary?: (summary: SandboxWalkSummary) => void,
 ): AsyncGenerator<SandboxFileEntry> {
 	const fs = await import('node:fs/promises')
 	const path = await import('node:path')
 	const { EventEmitter } = await import('node:events')
-	const open: { dir: import('node:fs').Dir; relative: string; depth: number }[] = []
+	const open: {
+		dir: import('node:fs').Dir
+		relative: string
+		depth: number
+		/** Whether leaving this directory also drops its ignore layer. */
+		layered: boolean
+	}[] = []
 	let visited = 0
 	let emitted = 0
+	let ignoredDirectories = 0
+	let stopped: SandboxWalkSummary['stopped']
+	const ignore = plan.respectIgnore
+		? createIgnoreStack({ fs, path, extraFiles: globalIgnoreFiles() })
+		: undefined
 	const matchers = plan.expressions.map(({ source, flags }) => new RegExp(source, `${flags}s`))
 	const canDescend = directoryMatcher(plan)
 	const maxDepth = plan.maxDepth ?? Number.POSITIVE_INFINITY
@@ -204,9 +228,11 @@ async function* executeWalk(
 			dispose?.()
 		}
 	}
+	/** False once the safety valve trips; the walk then ends with what it has. */
 	const noteVisit = () => {
 		visited += 1
-		if (visited > plan.maxVisitedEntries) {
+		if (visited <= plan.maxVisitedEntries) return true
+		if (plan.failOnLimit) {
 			throw Object.assign(
 				new Error(
 					`File search stopped after examining ${plan.maxVisitedEntries} entries; narrow its root or pattern.`,
@@ -214,6 +240,8 @@ async function* executeWalk(
 				{ code: 'ERR_FILE_WALK_LIMIT' },
 			)
 		}
+		stopped = 'entry-limit'
+		return false
 	}
 	try {
 		check()
@@ -231,11 +259,14 @@ async function* executeWalk(
 		const rootInfo = await wait(fs.lstat(plan.root))
 		check()
 		if (rootInfo.isFile()) {
-			noteVisit()
+			if (!noteVisit()) return
 			if (matchers.some((matcher) => matcher.test(path.basename(plan.root))))
 				yield { path: plan.root, size: rootInfo.size }
 			return
 		}
+		// An explicit root is never itself ignored: only what is below it is tested.
+		await ignore?.init(plan.root)
+		await ignore?.enter(plan.root)
 		let start = plan.root
 		// Never follow a static-prefix symlink to speed up a pattern: traversal
 		// and its optimized starting point must have the same link policy.
@@ -249,22 +280,29 @@ async function* executeWalk(
 				if (missing(error)) return
 				throw error
 			}
-			noteVisit()
+			if (!noteVisit()) return
 			if (!info.isDirectory()) return
+			await ignore?.enter(start)
 		}
 		if (plan.prefix.length >= maxDepth) return
-		const openDirectory = async (absolute: string, relative: string, depth: number) => {
+		const openDirectory = async (
+			absolute: string,
+			relative: string,
+			depth: number,
+			layered: boolean,
+		) => {
 			check()
 			try {
 				const dir = await wait(fs.opendir(absolute), (late) => {
 					void close(late).catch(() => {})
 				})
-				open.push({ dir, relative, depth })
+				if (layered) await ignore?.enter(absolute)
+				open.push({ dir, relative, depth, layered })
 			} catch (error) {
 				if (!missing(error)) throw error
 			}
 		}
-		await openDirectory(start, plan.prefix.join('/'), plan.prefix.length)
+		await openDirectory(start, plan.prefix.join('/'), plan.prefix.length, false)
 		while (open.length > 0) {
 			check()
 			const frame = open[open.length - 1] as (typeof open)[number]
@@ -272,18 +310,26 @@ async function* executeWalk(
 			check()
 			if (!entry) {
 				open.pop()
+				if (frame.layered) ignore?.leave()
 				await close(frame.dir)
 				continue
 			}
-			noteVisit()
+			if (!noteVisit()) return
+			if (VCS_NAMES.has(entry.name)) continue
 			const relative = frame.relative ? `${frame.relative}/${entry.name}` : entry.name
 			const absolute = path.join(plan.root, relative)
 			const depth = frame.depth + 1
 			if (entry.isDirectory()) {
-				if (depth < maxDepth && canDescend(relative)) await openDirectory(absolute, relative, depth)
+				if (depth >= maxDepth || !canDescend(relative)) continue
+				if (ignore?.isIgnored(absolute, true)) {
+					ignoredDirectories += 1
+					continue
+				}
+				await openDirectory(absolute, relative, depth, true)
 				continue
 			}
 			if (!entry.isFile() || !matchers.some((matcher) => matcher.test(relative))) continue
+			if (ignore?.isIgnored(absolute, false)) continue
 			let info: import('node:fs').Stats
 			try {
 				info = await wait(fs.lstat(absolute))
@@ -303,7 +349,15 @@ async function* executeWalk(
 				void close(dir).catch(() => {})
 			} else await close(dir)
 		}
+		onSummary?.({ visited, ignoredDirectories, ...(stopped ? { stopped } : {}) })
 	}
+}
+
+/** Global exclude files, lowest precedence. Only the host has them. */
+function globalIgnoreFiles(): string[] {
+	const home = process.env.HOME ?? process.env.USERPROFILE
+	const base = process.env.XDG_CONFIG_HOME || (home ? join(home, '.config') : undefined)
+	return base ? [join(base, 'git', 'ignore')] : []
 }
 
 /** Internal host path; the caller first resolves its authorized filesystem root. */
@@ -312,7 +366,7 @@ export async function* walkFilesLocally(
 	options: SandboxWalkFilesOptions,
 ): AsyncGenerator<SandboxFileEntry> {
 	options.signal?.throwIfAborted()
-	yield* executeWalk(planWalk(rootPath, options), options.signal)
+	yield* executeWalk(planWalk(rootPath, options), options.signal, options.onSummary)
 }
 
 /** The existing sandbox execution seam; no separate worker protocol is needed. */
@@ -346,6 +400,7 @@ export async function* walkFilesViaExec(
 	let terminal = false
 	let received = 0
 	let failure: unknown
+	const outcome: { summary?: SandboxWalkSummary } = {}
 	const reject = (error: unknown) => {
 		failure ??= error instanceof Error ? error : new Error(String(error))
 		controller.abort(error)
@@ -358,6 +413,13 @@ export async function* walkFilesViaExec(
 		const record = value as Record<string, unknown>
 		if (record.type === 'done') {
 			terminal = true
+			const count = (value: unknown) =>
+				typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0
+			outcome.summary = {
+				visited: count(record.visited),
+				ignoredDirectories: count(record.ignoredDirs),
+				...(record.stopped === 'entry-limit' ? { stopped: 'entry-limit' as const } : {}),
+			}
 			return
 		}
 		if (record.type === 'error' && typeof record.message === 'string') {
@@ -462,6 +524,7 @@ export async function* walkFilesViaExec(
 		}
 	} finally {
 		dispose?.()
+		if (outcome.summary) options.onSummary?.(outcome.summary)
 		if (!settled) controller.abort(new Error('File walk consumer stopped'))
 		await pending
 		// A rejected cancellation can mean remote work is still alive. Preserve

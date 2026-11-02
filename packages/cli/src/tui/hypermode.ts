@@ -9,7 +9,7 @@
  * that phased multi-agent work.
  */
 
-/** The mode's name wherever the operator reads it: footer and picker. */
+/** The mode's name wherever the operator reads it: the composer's rule and the picker. */
 export const HYPERMODE = 'hypermode'
 
 /** The one-line description the effort picker shows for the hypermode row. */
@@ -21,9 +21,6 @@ export const HYPERMODE_ROW_LABEL = `${HYPERMODE} (workflows)`
 /** The deprecation line `/orchestrate` prints before it does what `/hypermode` does. */
 export const ORCHESTRATE_ALIAS_NOTICE =
 	'/orchestrate is deprecated: the mode is now called hypermode. Use /hypermode; /orchestrate will be removed in a later major version.'
-
-/** What the effort item in the footer says while the mode is on: `effort high · Hypermode on`. */
-export const HYPERMODE_FOOTER_NOTE = 'Hypermode on'
 
 /**
  * What `/hypermode on` and the picker say. `effort` is the level in force, said

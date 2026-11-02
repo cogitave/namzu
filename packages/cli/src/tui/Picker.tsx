@@ -21,6 +21,7 @@ import {
 	type ProviderRegistryEntry,
 	type SubscriptionProviderId,
 	type VendorId,
+	apiKeyLogoutWord,
 	signedInSubscriptionProviders,
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
@@ -1236,9 +1237,11 @@ export function Picker({
 						<Text color={theme.text.muted}>Checking it with {entry.label}…</Text>
 					) : (
 						<Text color={theme.text.secondary}>
-							{entry.id === 'google'
-								? 'Saved privately for future launches after Google starts. /logout gemini removes it.'
-								: 'Used until you quit — it is not written anywhere.'}
+							{kind === 'subscription-token'
+								? 'Used until you quit — it is not written anywhere.'
+								: entry.id === 'anthropic' && keyEntry.value.length === 0
+									? 'An API key is saved privately for future launches; a subscription token is used until you quit.'
+									: `Saved privately for future launches after ${entry.label} starts. /logout ${apiKeyLogoutWord(entry.id)} removes it.`}
 						</Text>
 					)}
 					{keyEntry.value.length > 0 && kind === 'subscription-token' ? (

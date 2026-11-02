@@ -288,7 +288,7 @@ describe.skipIf(IS_WINDOWS)('walkFiles on a kubernetes task sandbox', () => {
 		await sandbox.destroy()
 	})
 
-	it('raises ERR_FILE_WALK_LIMIT when the examined-entry budget runs out', async () => {
+	it('raises ERR_FILE_WALK_LIMIT when the budget runs out and the caller asked to fail', async () => {
 		const sandbox = await build()
 		mkdirSync(join(workDir, 'many'), { recursive: true })
 		for (let index = 0; index < 40; index += 1) {
@@ -297,7 +297,7 @@ describe.skipIf(IS_WINDOWS)('walkFiles on a kubernetes task sandbox', () => {
 		// An incomplete search is an error carrying a code, never a short list
 		// the caller would read as "that is all there is".
 		await expect(
-			collect(sandbox, workDir, { maxEntries: 100, maxVisitedEntries: 5 }),
+			collect(sandbox, workDir, { maxEntries: 100, maxVisitedEntries: 5, failOnLimit: true }),
 		).rejects.toMatchObject({ code: 'ERR_FILE_WALK_LIMIT' })
 		await sandbox.destroy()
 	})
@@ -551,7 +551,7 @@ describe.skipIf(IS_WINDOWS)('the glob and grep builtins over a kubernetes sandbo
 		// The refusal this issue is about, in the builtin's own words.
 		expect(result.error ?? '').not.toContain('bounded file discovery')
 		expect(result.success).toBe(true)
-		expect((result.data as { files: string[] }).files).toEqual(['./seen.md'])
+		expect((result.data as { files: string[] }).files).toEqual(['seen.md'])
 		await sandbox.destroy()
 	})
 })

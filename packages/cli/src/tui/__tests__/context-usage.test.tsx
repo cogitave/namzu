@@ -43,7 +43,28 @@ describe('the window compaction measures against', () => {
 	it('cannot be raised past the model window by the setting', () => {
 		expect(
 			effectiveContextWindow({ windowTokens: 128_000, windowSource: 'default' }, 786_432),
-		).toEqual({ windowTokens: 128_000, windowSource: 'default', windowAssumed: true })
+		).toEqual({
+			windowTokens: 128_000,
+			windowSource: 'default',
+			windowAssumed: true,
+			windowRequested: 786_432,
+		})
+	})
+
+	it('names the cap in /context when the setting asked for more than the model has', async () => {
+		const view = await collectContextView(
+			sources({
+				context: {
+					tokens: 10_000,
+					windowTokens: 64_000,
+					measured: true,
+					windowAssumed: false,
+					windowSource: 'provider',
+					windowRequested: 786_432,
+				},
+			}),
+		)
+		expect(view.text).toContain("you set 786.4k; the model's own window is the cap")
 	})
 
 	it('is the reported window when nothing is configured', () => {

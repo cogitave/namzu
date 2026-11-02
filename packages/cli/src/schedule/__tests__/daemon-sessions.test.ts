@@ -10,6 +10,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { NOOP_LOGGER, asSessionId } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { answerModelsListing } from '../../__fixtures__/models-endpoint.js'
 import {
 	closeSessions,
 	openSessions,
@@ -42,7 +43,7 @@ beforeEach(() => {
 	responses = []
 	vi.stubGlobal(
 		'fetch',
-		vi.fn<typeof fetch>(async () => (responses.shift() ?? completion)()),
+		answerModelsListing(vi.fn<typeof fetch>(async () => (responses.shift() ?? completion)())),
 	)
 })
 

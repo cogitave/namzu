@@ -122,15 +122,24 @@ export function describeProviderLogout(
 		: `There was no Namzu-owned ${label} subscription credential to remove. Credentials from the environment or another tool on this machine were not changed.`
 }
 
-/** Result for both Namzu-owned credential files; borrowed credentials remain untouched. */
+/** What the person reads after removing one provider's saved API key. */
+export function describeApiKeyLogout(label: string, path: string, removed: boolean): string {
+	return removed
+		? `Removed Namzu’s saved ${label} API key from ${path} for future launches. A session already open can still use it until Namzu exits. Environment variables and /auth accounts were not changed.`
+		: `There was no Namzu-saved ${label} API key to remove at ${path}. Environment variables and /auth accounts were not changed.`
+}
+
+/** Result for every Namzu-owned credential file; borrowed credentials remain untouched. */
 export function describeAllCredentialsLogout(
 	credentialsPath: string,
 	googleKeyPath: string,
 	removed: boolean,
+	apiKeysFile?: string,
 ): string {
+	const keys = apiKeysFile ? `, ${apiKeysFile}` : ''
 	return removed
-		? `Removed Namzu’s stored credentials from ${credentialsPath} and ${googleKeyPath} for future launches. A reply that is running is not interrupted; a Google sign-in already open in Namzu can still use its key until Namzu exits. Credentials from the environment or other tools were not changed.`
-		: `There were no Namzu-owned credentials to remove from ${credentialsPath} or ${googleKeyPath}. Credentials from the environment or other tools were not changed.`
+		? `Removed Namzu’s stored credentials from ${credentialsPath}${keys} and ${googleKeyPath} for future launches. A reply that is running is not interrupted; a Google sign-in already open in Namzu can still use its key until Namzu exits. Credentials from the environment or other tools were not changed.`
+		: `There were no Namzu-owned credentials to remove from ${credentialsPath}${keys} or ${googleKeyPath}. Credentials from the environment or other tools were not changed.`
 }
 
 /**
