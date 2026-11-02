@@ -41,6 +41,24 @@ describe('process-local model profile', () => {
 			'NAMZU_EFFORT_LEVEL',
 		)
 	})
+	it.each([
+		['auto', undefined],
+		['UNSET', undefined],
+		['med', 'medium'],
+		['MAX', 'max'],
+	] as const)('reads NAMZU_EFFORT_LEVEL=%s as %s', (value, effort) => {
+		expect(readModelLaunchEnvironment({ NAMZU_EFFORT_LEVEL: value })).toEqual(
+			effort ? { effort } : {},
+		)
+	})
+	it('lets an unset-style effort leave a flag-free launch without an effort', () => {
+		expect(
+			withModelLaunchEnvironment(
+				{ provider: null, model: null, effort: null },
+				{ NAMZU_EFFORT_LEVEL: 'auto' },
+			).effort,
+		).toBeNull()
+	})
 	it.each(['0', '-1', '1.5', 'Infinity', '', '9007199254740992'])(
 		'refuses an invalid token size %j',
 		(value) => {
