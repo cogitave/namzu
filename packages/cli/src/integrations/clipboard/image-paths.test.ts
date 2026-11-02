@@ -114,6 +114,19 @@ describe('reading the named files', () => {
 		expect(read).toBe(false)
 	})
 
+	it('leaves a missing path as text without asking the read policy', async () => {
+		let asked = false
+		const result = await loadImageFiles(['/a/missing.png'], {
+			...deps,
+			mayRead: async () => {
+				asked = true
+				return 'refused'
+			},
+		})
+		expect(result).toEqual({ kind: 'text' })
+		expect(asked).toBe(false)
+	})
+
 	it('reports an image that cannot be brought inside the limits', async () => {
 		const result = await loadImageFiles(['/a/ok.png'], {
 			...deps,

@@ -25,7 +25,7 @@ const none = async () => null
  * operations asked of it; `sizeOf` says how many bytes that chain produces.
  */
 function fakeSharp(
-	meta: { width: number; height: number },
+	meta: { width: number; height: number; orientation?: number; pages?: number },
 	sizeOf: (ops: string[]) => number,
 ): { sharp: SharpFactory; chains: string[][] } {
 	const chains: string[][] = []
@@ -33,6 +33,7 @@ function fakeSharp(
 		const next = (op: string) => pipeline([...ops, op])
 		return {
 			metadata: async () => meta,
+			rotate: () => next('rotate'),
 			resize: (w, h, o) =>
 				next(`resize:${String(w)}x${String(h)}:${o?.fit}:${o?.withoutEnlargement}`),
 			flatten: () => next('flatten'),
@@ -107,7 +108,7 @@ describe('an image over the limits, with the library', () => {
 		const { sharp, chains } = fakeSharp({ width: 4000, height: 1000 }, () => 500_000)
 		const result = await pass({ loadSharp: async () => sharp }, bytes)
 		expect(result.ok && result.mediaType).toBe('image/png')
-		expect(chains[0]).toEqual(['resize:2000x2000:inside:true', 'png'])
+		expect(chains[0]).toEqual(['rotate', 'resize:2000x2000:inside:true', 'png'])
 	})
 
 	it('walks the ladder: palette PNG, then JPEG 80, 60, 40, 20', async () => {
@@ -123,10 +124,10 @@ describe('an image over the limits, with the library', () => {
 		const result = await pass({ loadSharp: async () => sharp }, big)
 		expect(result.ok && result.mediaType).toBe('image/jpeg')
 		expect(chains.map((chain) => chain.join('>'))).toEqual([
-			'png:palette',
-			'flatten>jpeg:80',
-			'flatten>jpeg:60',
-			'flatten>jpeg:40',
+			'rotate>png:palette',
+			'rotate>flatten>jpeg:80',
+			'rotate>flatten>jpeg:60',
+			'rotate>flatten>jpeg:40',
 		])
 		void bytes
 	})
@@ -138,7 +139,12 @@ describe('an image over the limits, with the library', () => {
 		)
 		const result = await pass({ loadSharp: async () => sharp }, big)
 		expect(result.ok && result.mediaType).toBe('image/jpeg')
-		expect(chains.at(-1)).toEqual(['resize:1000xundefined:inside:true', 'flatten', 'jpeg:20'])
+		expect(chains.at(-1)).toEqual([
+			'rotate',
+			'resize:1000xundefined:inside:true',
+			'flatten',
+			'jpeg:20',
+		])
 	})
 
 	it('refuses an image that still does not fit after the last resort', async () => {
@@ -147,6 +153,32 @@ describe('an image over the limits, with the library', () => {
 		const result = await pass({ loadSharp: async () => sharp }, big)
 		expect(result.ok).toBe(false)
 		expect(!result.ok && result.message).toMatch(/too large/)
+	})
+
+	it('reads the shown size of a turned image, and turns the pixels before shrinking', async () => {
+		// Stored 1500x2500 with orientation 6: shown 2500x1500, so it is too wide.
+		const jpegHead = Buffer.alloc(64, 1)
+		jpegHead.set([0xff, 0xd8, 0xff])
+		const { sharp, chains } = fakeSharp({ width: 1500, height: 2500, orientation: 6 }, () => 1000)
+		const big = Buffer.concat([jpegHead, Buffer.alloc(4 * MIB, 3)])
+		const result = await pass({ loadSharp: async () => sharp }, big)
+		expect(result.ok).toBe(true)
+		expect(chains[0]).toEqual(['rotate', 'resize:2000x2000:inside:true', 'jpeg:90'])
+	})
+
+	it('refuses an animated GIF that would need shrinking rather than dropping its frames', async () => {
+		const gif = Buffer.concat([
+			Buffer.from('GIF89a'),
+			Buffer.alloc(10, 0),
+			Buffer.alloc(4 * MIB, 1),
+		])
+		gif.writeUInt16LE(100, 6)
+		gif.writeUInt16LE(100, 8)
+		const { sharp, chains } = fakeSharp({ width: 100, height: 100, pages: 8 }, () => 1000)
+		const result = await pass({ loadSharp: async () => sharp }, gif)
+		expect(result.ok).toBe(false)
+		expect(!result.ok && result.message).toMatch(/animated/)
+		expect(chains).toEqual([])
 	})
 
 	it('converts a BMP to PNG first', async () => {
@@ -216,6 +248,37 @@ describe('the real library', async () => {
 			metadata(): Promise<{ width: number; height: number }>
 		}
 		expect(await make(result.data).metadata()).toMatchObject({ width: 2000, height: 1000 })
+	})
+})
+
+interface TaggedPipeline {
+	jpeg(): TaggedPipeline
+	withMetadata(options: { orientation: number }): TaggedPipeline
+	toBuffer(): Promise<Buffer>
+	metadata(): Promise<{ width: number; height: number }>
+}
+
+describe('the real library and orientation', async () => {
+	const name = 'sharp'
+	const real = (await import(name).then(
+		(m: { default: unknown }) => m.default,
+		() => null,
+	)) as null | ((input: unknown) => TaggedPipeline)
+	it.skipIf(real === null)('turns a tagged JPEG upright when it shrinks it', async () => {
+		const make = real as (input: unknown) => TaggedPipeline
+		const tagged = await make({
+			create: { width: 1500, height: 2500, channels: 3, background: '#336699' },
+		})
+			.jpeg()
+			.withMetadata({ orientation: 6 })
+			.toBuffer()
+		// Stored 1500x2500, shown 2500x1500: too wide, so it is shrunk and turned.
+		const result = await fitImage(tagged)
+		expect(result.ok).toBe(true)
+		if (!result.ok) return
+		const meta = await make(result.data).metadata()
+		expect(meta.width).toBeGreaterThan(meta.height)
+		expect(Math.max(meta.width, meta.height)).toBeLessThanOrEqual(2000)
 	})
 })
 

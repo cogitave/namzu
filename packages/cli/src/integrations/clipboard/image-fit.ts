@@ -37,7 +37,9 @@ export type FitResult =
 
 /** The part of the image library this module uses; tests supply a fake. */
 export interface SharpPipeline {
-	metadata(): Promise<{ width?: number; height?: number }>
+	metadata(): Promise<{ width?: number; height?: number; orientation?: number; pages?: number }>
+	/** Apply the EXIF orientation to the pixels and drop the tag. */
+	rotate(): SharpPipeline
 	resize(
 		width: number,
 		height?: number,
@@ -83,6 +85,8 @@ const MESSAGE_CANNOT_SHRINK =
 	'This image is too large to attach, even after shrinking it. Save a smaller copy and paste its path.'
 const MESSAGE_FORMAT_NEEDS_LIBRARY =
 	'This image format needs image processing, which is unavailable here. Save it as PNG or JPEG and paste its path.'
+const MESSAGE_ANIMATED =
+	'This animated image is too large to attach, and shrinking it would keep only its first frame. Save a smaller copy and paste its path.'
 const MESSAGE_NOT_AN_IMAGE = 'That is not an image this tool can attach (PNG, JPEG, GIF or WebP).'
 const MESSAGE_EMPTY = 'That image file is empty.'
 
@@ -201,18 +205,28 @@ export async function fitImage(input: Buffer, deps: FitDeps = {}): Promise<FitRe
 			current = format
 		}
 		const meta = await sharp(bytes).metadata()
+		// An orientation of 5 to 8 turns the picture a quarter, so its shown
+		// width is the stored height.
+		const turned = (meta.orientation ?? 1) >= 5
 		const size =
 			meta.width && meta.height
-				? { width: meta.width, height: meta.height }
+				? turned
+					? { width: meta.height, height: meta.width }
+					: { width: meta.width, height: meta.height }
 				: headerDimensions(bytes, current)
 		if (bytes.length <= limits.targetRawSize && (!size || withinDimensions(size, limits))) {
 			return { ok: true, data: bytes, mediaType: current }
 		}
 
+		// Only the first frame would survive any step below.
+		if (current === 'image/gif' && (meta.pages ?? 1) > 1) {
+			return { ok: false, message: MESSAGE_ANIMATED }
+		}
+
 		const fits = (data: Buffer): boolean => data.length <= limits.targetRawSize
 		let resized = bytes
 		if (size && !withinDimensions(size, limits)) {
-			const scaled = sharp(bytes).resize(limits.maxWidth, limits.maxHeight, {
+			const scaled = sharp(bytes).rotate().resize(limits.maxWidth, limits.maxHeight, {
 				fit: 'inside',
 				withoutEnlargement: true,
 			})
@@ -220,7 +234,7 @@ export async function fitImage(input: Buffer, deps: FitDeps = {}): Promise<FitRe
 			if (fits(resized)) return { ok: true, data: resized, mediaType: current }
 		}
 
-		const base = (): SharpPipeline => sharp(resized)
+		const base = (): SharpPipeline => sharp(resized).rotate()
 		const palette = await base().png({ compressionLevel: 9, palette: true }).toBuffer()
 		if (fits(palette)) return { ok: true, data: palette, mediaType: 'image/png' }
 		for (const quality of [80, 60, 40, 20]) {
@@ -228,6 +242,7 @@ export async function fitImage(input: Buffer, deps: FitDeps = {}): Promise<FitRe
 			if (fits(jpeg)) return { ok: true, data: jpeg, mediaType: 'image/jpeg' }
 		}
 		const narrow = await sharp(resized)
+			.rotate()
 			.resize(1000, undefined, { fit: 'inside', withoutEnlargement: true })
 			.flatten({ background: '#ffffff' })
 			.jpeg({ quality: 20 })

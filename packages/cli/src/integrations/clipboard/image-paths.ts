@@ -102,14 +102,16 @@ export async function loadImageFiles(
 	const fit = deps.fit ?? ((bytes: Buffer) => fitImage(bytes))
 	const images: ClipboardImage[] = []
 	for (const path of paths) {
-		if (deps.mayRead) {
-			const refusal = await deps.mayRead(path)
-			if (refusal !== null) return { kind: 'refused', message: refusal }
-		}
 		try {
+			// A path that is missing or unreadable is plain text, not a refusal:
+			// the policy is asked only about a file that is there.
 			const info = await statFile(path)
 			if (!info.isFile() || info.size === 0 || info.size > MAX_IMAGE_FILE_BYTES) {
 				return { kind: 'text' }
+			}
+			if (deps.mayRead) {
+				const refusal = await deps.mayRead(path)
+				if (refusal !== null) return { kind: 'refused', message: refusal }
 			}
 			const bytes = await read(path)
 			if (sniffImageFormat(bytes) === null) return { kind: 'text' }
