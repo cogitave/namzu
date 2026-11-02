@@ -354,6 +354,8 @@ const KNOWN_TOOL_ADVICE: Record<
 export interface BuildViewInput {
 	readonly breakdown: ContextBreakdown
 	readonly windowSource: 'auto' | 'config' | 'default'
+	/** The auto-compact window that was asked for and then capped to the model's own window. */
+	readonly windowRequested?: number
 	readonly autoCompact: boolean
 	/** The context size is an estimate, or the window was assumed. */
 	readonly approximate: boolean
@@ -381,15 +383,20 @@ export function buildContextView(input: BuildViewInput): ContextView {
 				: `Context is ${over} tokens past the ${raw}-token compaction window — run /compact to reduce usage.`
 	}
 	const windowNote =
-		input.autoCompact && input.windowSource !== 'auto'
+		input.autoCompact && input.windowRequested !== undefined
 			? {
 					label: 'Auto-compact window: ',
-					value:
-						input.windowSource === 'default'
-							? `${formatTokens(window)} tokens (default for an unrecognized model)`
-							: `${formatTokens(window)} tokens`,
+					value: `${formatTokens(window)} tokens (you set ${formatTokens(input.windowRequested)}; the model's own window is the cap)`,
 				}
-			: undefined
+			: input.autoCompact && input.windowSource !== 'auto'
+				? {
+						label: 'Auto-compact window: ',
+						value:
+							input.windowSource === 'default'
+								? `${formatTokens(window)} tokens (default for an unrecognized model)`
+								: `${formatTokens(window)} tokens`,
+					}
+				: undefined
 	const cells = buildGridCells(breakdown.categories, window, input.terminalColumns)
 	const legend = buildLegend(breakdown)
 	const suggestions = buildSuggestions({

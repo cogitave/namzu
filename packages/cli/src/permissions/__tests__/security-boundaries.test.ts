@@ -95,12 +95,21 @@ describe('PER-18: discovery cannot expose denied descendants', () => {
 		ls: 'allow',
 	}
 
-	for (const tool of ['grep', 'glob', 'ls']) {
-		it(`refuses ${tool} on an ancestor, including the implicit root`, () => {
+	it('refuses ls on an ancestor, including the implicit root', () => {
+		const policy = gate(table)
+		for (const path of [undefined, '', '.', cwd, 'secrets']) {
+			expect(decide(policy, 'ls', { pattern: '**/*', recursive: true, path })).toBe('deny')
+		}
+	})
+
+	for (const tool of ['grep', 'glob']) {
+		it(`lets ${tool} search an ancestor, which skips denied files itself`, () => {
 			const policy = gate(table)
-			for (const path of [undefined, '', '.', cwd, 'secrets']) {
-				expect(decide(policy, tool, { pattern: '**/*', recursive: true, path })).toBe('deny')
+			for (const path of [undefined, '', '.', cwd]) {
+				expect(decide(policy, tool, { pattern: '**/*', recursive: true, path })).toBe('allow')
 			}
+			// A root the rule names directly is still refused.
+			expect(decide(policy, tool, { pattern: '**/*', path: 'secrets' })).toBe('deny')
 		})
 	}
 
@@ -118,10 +127,8 @@ describe('PER-18: discovery cannot expose denied descendants', () => {
 		expect(decide(policy, 'read', { path: 'secrets/key' })).toBe('deny')
 	})
 
-	it('does not trust include filters, hidden-file flags or list depth as a boundary', () => {
+	it('does not trust list depth as a boundary', () => {
 		const policy = gate(table)
-		expect(decide(policy, 'grep', { pattern: 'x', include: 'safe.txt' })).toBe('deny')
-		expect(decide(policy, 'glob', { pattern: 'safe.txt', include_hidden: false })).toBe('deny')
 		expect(decide(policy, 'ls', { recursive: false, max_depth: 1, all: false })).toBe('deny')
 	})
 
@@ -146,9 +153,13 @@ describe('PER-18: discovery cannot expose denied descendants', () => {
 			for (const path of ['src/public', 'src/public/', 'src/public/nested']) {
 				expect(decide(policy, tool, { path, pattern: 'x' })).toBe('allow')
 			}
-			for (const path of ['.', 'src', 'src/private']) {
+			for (const path of ['src', 'src/private']) {
 				expect(decide(policy, tool, { path, pattern: 'x' })).toBe('deny')
 			}
+			// The ancestor: ls is refused; grep and glob skip the denied files.
+			expect(decide(policy, tool, { path: '.', pattern: 'x' })).toBe(
+				tool === 'ls' ? 'deny' : 'review',
+			)
 		}
 	})
 
@@ -168,7 +179,8 @@ describe('PER-18: discovery cannot expose denied descendants', () => {
 				},
 				NOOP_LOGGER,
 			)
-			expect(decide(policy, 'grep', { pattern: 'x' })).toBe('deny')
+			expect(decide(policy, 'ls', { pattern: 'x' })).toBe('deny')
+			expect(decide(policy, 'grep', { pattern: 'x' })).toBe('allow')
 		}
 	})
 
@@ -178,8 +190,8 @@ describe('PER-18: discovery cannot expose denied descendants', () => {
 		mkdirSync(join(root, 'private'))
 		writeFileSync(join(root, 'private', '.env'), 'secret')
 		symlinkSync(join(root, 'private'), join(root, 'alias'))
-		const policy = gate({ read: { 'private/.env': 'deny' }, grep: 'allow' }, root)
-		expect(decide(policy, 'grep', { path: 'alias', pattern: 'secret' })).toBe('deny')
+		const policy = gate({ read: { 'private/.env': 'deny' }, ls: 'allow' }, root)
+		expect(decide(policy, 'ls', { path: 'alias', pattern: 'secret' })).toBe('deny')
 	})
 })
 
@@ -193,7 +205,7 @@ describe('file policy roots belong to the settings source', () => {
 		expect(decide(policy, 'read', { path: '/settings/.env' })).toBe('deny')
 		expect(decide(policy, 'read', { path: '/settings/keys/key' })).toBe('deny')
 		expect(decide(policy, 'read', { path: '.env' })).toBe('allow')
-		expect(decide(policy, 'grep', { path: '/settings', pattern: 'x' })).toBe('deny')
+		expect(decide(policy, 'ls', { path: '/settings', pattern: 'x' })).toBe('deny')
 	})
 
 	it('retains each source root through layered compilation', () => {

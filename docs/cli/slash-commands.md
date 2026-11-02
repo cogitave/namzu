@@ -45,7 +45,7 @@ clause, so no line ends mid-sentence.
 | `/model` | Choose a model for the current provider, then its reasoning effort when supported. Other detected providers are named above the list; press `p` to switch providers. The picker states whether the model selection is saved for future launches. |
 | `/login` | Sign in with a `Claude` or `Codex` subscription. |
 | `/auth` | Choose the account this conversation uses (from its next reply), or add one: `/auth`, `/auth add`, `/auth <account>`. Separate from `/login`, which signs in the provider's usual account. See [Accounts](accounts.md). |
-| `/logout` | Remove a Namzu-owned subscription credential: `/logout [claude|codex|all]`. |
+| `/logout` | Remove a Namzu-owned subscription credential: `/logout [claude|codex|gemini|<provider>|all]`. |
 | `/cost` | Show tokens and cost for the latest reply, one fact per line, plus what the agents it started used; `/cost details` adds pricing and scope information. |
 | `/jobs` | Open the session's shell job view to inspect output and stop a running job; `/jobs list` prints a text summary. |
 | `/peers [list\|on\|off\|send <ref> <message>]` | Find and message independent live terminals in this project; control this terminal's participation. Peer text carries no operator authority. See [Messages between live terminals](peer-messaging.md). |
@@ -232,10 +232,9 @@ row, gets the vertical list, with the same label and description as its own
 row below a rule (Tab works there too). There is no separate key for "this
 session only": the setting already lasts only for the session.
 
-While the mode is on, the footer's effort item says so: `effort high ·
-Hypermode on` (just `Hypermode on` when no effort was chosen), and the
-composer's upper rule names `hypermode` as before. Like effort, the mode is
-in-memory and per-session; it is not saved to preferences. A model switch
+While the mode is on, the composer's upper rule names `hypermode`; the footer
+does not repeat it, and its effort item reads just `effort high`. Like effort,
+the mode is in-memory and per-session; it is not saved to preferences. A model switch
 resets an explicit effort override to the new model's default as it always has;
 hypermode stays on across it, and the interactive effort chooser that follows a
 standalone `/model` pick opens whether or not the mode is on.

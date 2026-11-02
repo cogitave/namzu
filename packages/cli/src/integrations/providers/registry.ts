@@ -213,10 +213,11 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			vendor: 'deepseek',
 			envVars: ['DEEPSEEK_API_KEY'],
 			defaultBaseUrl: 'https://api.deepseek.com',
-			// The smaller of the two models the vendor serves. `deepseek-chat`
+			// The current Flash model, the smaller of the two the vendor serves and
+			// the one that takes images. `deepseek-chat`
 			// and `deepseek-reasoner` are NOT alternatives to name here: both
 			// were discontinued on 2026-07-24 and resolve to nothing.
-			defaultModel: 'deepseek-v4-flash',
+			defaultModel: 'deepseek-flash',
 			requiresApiKey: true,
 			acceptsTypedCredential: true,
 			constructible: true,

@@ -36,22 +36,33 @@ import { createInterface } from 'node:readline'
 
 import { EXIT_FAIL, EXIT_OK, EXIT_USAGE } from '../exit-codes.js'
 import {
+	type ApiKeyLogoutTarget,
 	type LoginOutcome,
+	PROVIDER_REGISTRY,
+	type ProviderId,
 	type SubscriptionProviderId,
+	apiKeyLogoutTarget,
+	apiKeysPath,
 	beginCodexDeviceLogin,
 	beginSubscriptionLogin,
+	clearAllStoredApiKeys,
 	clearAllStoredCredentials,
+	clearStoredApiKey,
 	clearStoredCodexCredential,
 	clearStoredGeminiApiKey as clearStoredGoogleApiKey,
 	clearStoredSubscriptionCredential,
 	credentialsPath,
 	googleApiKeyPath,
+	isApiKeyLogoutTarget,
+	listStoredApiKeyProviders,
+	readStoredApiKey,
 	readStoredCodexCredential,
 	readStoredGeminiApiKey as readStoredGoogleApiKey,
 	readStoredSubscriptionCredential,
 } from '../integrations/providers/index.js'
 import {
 	describeAllCredentialsLogout,
+	describeApiKeyLogout,
 	describeCodexDeviceLoginStart,
 	describeLoginOutcome,
 	describeLoginStart,
@@ -81,14 +92,14 @@ const LOGIN_HELP = [
 const DEFAULT_TIMEOUT_SECONDS = 300
 
 const LOGOUT_HELP = [
-	'Usage: namzu logout [claude|codex|gemini|all]',
+	'Usage: namzu logout [claude|codex|gemini|<provider>|all]',
 	'',
 	'Remove a credential created by Namzu on this machine.',
 	'With no target, all Namzu-owned credentials are removed.',
 	'Credentials borrowed from another tool or supplied through the environment are untouched.',
 ].join('\n')
 
-export type LogoutTarget = SubscriptionProviderId | 'google' | 'all'
+export type LogoutTarget = SubscriptionProviderId | 'google' | 'all' | ApiKeyLogoutTarget
 
 export function parseLogoutTarget(argv: readonly string[]): LogoutTarget | null {
 	if (argv.length === 0) return 'all'
@@ -98,7 +109,7 @@ export function parseLogoutTarget(argv: readonly string[]): LogoutTarget | null 
 	if (value === 'codex' || value === 'chatgpt') return 'codex'
 	if (value === 'gemini' || value === 'google') return 'google'
 	if (value === 'all') return 'all'
-	return null
+	return value ? apiKeyLogoutTarget(value) : null
 }
 
 interface LoginFlags {
@@ -315,12 +326,34 @@ export const logoutCommand: CommandDef = {
 			ctx.formatter.print({ text: LOGOUT_HELP })
 			return EXIT_USAGE
 		}
+		if (isApiKeyLogoutTarget(target)) {
+			const id = target.slice('key:'.length) as ProviderId
+			const had = readStoredApiKey(id) !== null
+			try {
+				clearStoredApiKey(id)
+			} catch (err) {
+				ctx.formatter.print({
+					text: `Could not remove ${apiKeysPath()}: ${err instanceof Error ? err.message : String(err)}`,
+				})
+				return EXIT_FAIL
+			}
+			ctx.formatter.print({
+				text: describeApiKeyLogout(PROVIDER_REGISTRY[id].label, apiKeysPath(), had),
+			})
+			return EXIT_OK
+		}
 		const path = target === 'google' ? googleApiKeyPath() : credentialsPath()
 		const hadClaude = readStoredSubscriptionCredential() !== null
 		const hadCodex = readStoredCodexCredential() !== null
 		const hadGoogleKey = readStoredGoogleApiKey() !== null
 		if (target === 'all') {
 			const failures: string[] = []
+			const hadKeys = listStoredApiKeyProviders().length > 0
+			try {
+				clearAllStoredApiKeys()
+			} catch (error) {
+				failures.push(`${apiKeysPath()}: ${error instanceof Error ? error.message : String(error)}`)
+			}
 			try {
 				clearAllStoredCredentials()
 			} catch (error) {
@@ -342,7 +375,8 @@ export const logoutCommand: CommandDef = {
 						: describeAllCredentialsLogout(
 								path,
 								googleApiKeyPath(),
-								hadClaude || hadCodex || hadGoogleKey,
+								hadClaude || hadCodex || hadGoogleKey || hadKeys,
+								apiKeysPath(),
 							),
 			})
 			return failures.length > 0 ? EXIT_FAIL : EXIT_OK

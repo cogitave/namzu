@@ -74,7 +74,7 @@ describe('the commands are reachable and describe themselves', () => {
 
 	it('logout accepts an exact provider target and owns its help', () => {
 		expect(logoutCommand.passThrough).toBe(true)
-		expect(logoutCommand.help).toContain('namzu logout [claude|codex|gemini|all]')
+		expect(logoutCommand.help).toContain('namzu logout [claude|codex|gemini|<provider>|all]')
 	})
 
 	it('names itself for what an operator is trying to do', () => {

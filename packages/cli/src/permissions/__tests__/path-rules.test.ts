@@ -94,9 +94,13 @@ describe('file rules read as paths', () => {
 			},
 			NOOP_LOGGER,
 		)
+		expect(gate.evaluate({ toolName: 'ls', toolInput: {}, toolDef: undefined }).decision).toBe(
+			'deny',
+		)
+		// grep and glob search it and skip the denied file (ToolContext.readDenied).
 		expect(
 			gate.evaluate({ toolName: 'grep', toolInput: { pattern: 'x' }, toolDef: undefined }).decision,
-		).toBe('deny')
+		).not.toBe('deny')
 	})
 
 	it('keep a bare * meaning every call', () => {
