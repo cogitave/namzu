@@ -1,4 +1,5 @@
-import { isAbsolute, relative, sep } from 'node:path'
+import { isAbsolute, join as joinPath, posix, relative, sep } from 'node:path'
+
 import { subscribeToAbort } from '../../utils/abort.js'
 
 /**
@@ -80,4 +81,24 @@ export function ignoredHint(ignoredDirectories: number): string {
 /** A walker written before the entry bound became a normal stop still throws this. */
 export function isEntryLimit(error: unknown): boolean {
 	return (error as { code?: unknown } | null)?.code === 'ERR_FILE_WALK_LIMIT'
+}
+
+/**
+ * Whether the session's read rules deny this file, so a search neither lists
+ * nor opens it. `path` is absolute: a host path, or, when `sandboxRoot` is
+ * given, a path inside the sandbox, which is mapped to the same place under
+ * the working directory because that is the folder the sandbox binds. A host
+ * that supplies no rules (`ToolContext.readDenied` absent) denies nothing.
+ */
+export function isReadDenied(
+	context: { workingDirectory: string; readDenied?: (path: string) => boolean },
+	path: string,
+	sandboxRoot?: string,
+): boolean {
+	if (!context.readDenied) return false
+	const host =
+		sandboxRoot === undefined
+			? path
+			: joinPath(context.workingDirectory, posix.relative(sandboxRoot, path))
+	return context.readDenied(host)
 }

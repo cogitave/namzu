@@ -2205,6 +2205,13 @@ export class ToolExecutor {
 			...(this.config.additionalDirectories?.length
 				? { additionalDirectories: this.config.additionalDirectories }
 				: {}),
+			...(this.config.authorizationGate
+				? {
+						readDenied: (absolutePath: string) =>
+							this.evaluatePreparedAuthorization('read', { path: absolutePath })?.decision ===
+							'deny',
+					}
+				: {}),
 			...(this.outputDirectory()
 				? { retainedOutputDirectory: this.outputDirectory() as string }
 				: {}),

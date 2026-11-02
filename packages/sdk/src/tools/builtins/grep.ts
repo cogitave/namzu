@@ -21,6 +21,7 @@ import {
 	hostDisplayPath,
 	ignoredHint,
 	isEntryLimit,
+	isReadDenied,
 	openSearchBudget,
 	plural,
 	stoppedNotice,
@@ -176,6 +177,12 @@ const inputSchema = z.object({
 		.describe(
 			'Only search files of this kind, e.g. "js", "ts", "py", "rust", "go", "java", "md". Narrows what include selects.',
 		),
+	include_hidden: z
+		.boolean()
+		.optional()
+		.describe(
+			'Search hidden files and directories (names starting with a dot). Default: true. Version-control directories are always skipped.',
+		),
 	include_ignored: z
 		.boolean()
 		.optional()
@@ -204,7 +211,7 @@ function isBinaryContent(buffer: Buffer): boolean {
 export const GrepTool = defineTool({
 	name: 'grep',
 	description:
-		'Searches file contents using a regular expression. By default returns the paths of matching files, newest first; output_mode "content" returns matching lines with file paths, line numbers and optional context lines, and "count" returns the number of matching lines per file. Set multiline for a pattern that spans lines and type (js, py, rust, ...) to search one kind of file. In content mode, before_context and after_context override symmetric context_lines; only_matching returns matched substrings without context. Results are paged: head_limit (default 250, 0 for none) and offset. A line over 500 characters is replaced by a notice. Skips files that .gitignore and .ignore rules exclude unless include_ignored is set. Says when a result is limited or a search stopped early. Skips binary files, files over 5 MB, and symlinks. Choose the narrowest relevant directory.',
+		'Searches file contents using a regular expression. By default returns the paths of matching files, newest first; output_mode "content" returns matching lines with file paths, line numbers and optional context lines, and "count" returns the number of matching lines per file. Set multiline for a pattern that spans lines and type (js, py, rust, ...) to search one kind of file. In content mode, before_context and after_context override symmetric context_lines; only_matching returns matched substrings without context. Results are paged: head_limit (default 250, 0 for none) and offset. A line over 500 characters is replaced by a notice. Searches hidden files unless include_hidden is false. Skips files that .gitignore and .ignore rules exclude unless include_ignored is set, and files the read rules of the session deny. Says when a result is limited or a search stopped early. Skips binary files, files over 5 MB, and symlinks. Choose the narrowest relevant directory.',
 	inputSchema,
 	category: 'analysis',
 	// Declared so a path outside the turn's roots can be reviewed before the
@@ -278,9 +285,7 @@ export const GrepTool = defineTool({
 			pattern: filePattern,
 			signal,
 			maxEntries: MAX_FILES_SEARCHED + 1,
-			// Preserve existing source behavior: sandbox grep included dotfiles;
-			// node's host glob excluded wildcard dotfiles.
-			includeHidden: sandbox !== undefined,
+			includeHidden: input.include_hidden ?? true,
 			respectIgnore: input.include_ignored !== true,
 			onSummary: (value) => {
 				walkEnd = value
@@ -329,6 +334,7 @@ export const GrepTool = defineTool({
 				filesSearched++
 				if (fileType && !matchesType(entry.path, fileType)) continue
 				if (entry.size > MAX_FILE_SIZE) continue
+				if (isReadDenied(context, filePath, sandbox?.rootDir)) continue
 
 				let content: string
 				let contained: string | undefined

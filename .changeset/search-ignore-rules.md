@@ -1,6 +1,7 @@
 ---
 '@namzu/sdk': major
 '@namzu/sandbox': minor
+'@namzu/cli': minor
 ---
 
 `grep` and `glob` now skip files that `.gitignore`, `.ignore` and `.git/info/exclude` exclude (and never enter `.git`), and a limit no longer fails a search. Before, a repository with build output or a nested worktree could not be searched at all: the walk stopped at 20,000 examined entries and returned "File search stopped after examining 20000 entries" as an error.
@@ -15,6 +16,10 @@ What changes for a caller:
 
 The ignore matcher is the SDK's own, with no new dependency: the sandbox guest program travels as one `node -e` argument and cannot import a package, so the host and the guest run the same source text. It is tested against `git check-ignore` over a generated corpus. A global `core.excludesFile` setting is not queried; the default global ignore file is read on the host.
 
-A rule with an unclosed `[`, or more than three separate `*`, is dropped (the latter could make one name take seconds to test). `glob` honouring ignore files is deliberate: `include_ignored: true` gives the old listing. Host `grep` still skips hidden files, as before, because the host has no read filter for secrets.
+A rule with an unclosed `[`, or more than three separate `*`, is dropped (the latter could make one name take seconds to test). `glob` honouring ignore files is deliberate: `include_ignored: true` gives the old listing.
+
+`grep` and `glob` now search hidden files and directories by default (`.git` and the other version-control directories are always skipped). Before, host `grep` skipped them and `glob` needed `include_hidden: true`. Ignore files still apply, so a gitignored `.env` stays out, and a path the session's read rules deny is neither listed nor opened: `ToolContext` gains `readDenied(absolutePath)`, which the executor fills from the turn's authorization gate and the two tools call per file. To keep the old behavior pass `include_hidden: false` (new on `grep`, default flipped on `glob`). A host that builds its own `ToolContext` without `readDenied` gets no read-rule filtering, so supply it if you enable searching hidden files with your own rules.
+
+`@namzu/cli`: a `read` deny rule no longer makes `grep` and `glob` refuse a search over a folder that holds the denied path; they search it and skip the path (`ls` still refuses).
 
 `@namzu/sandbox` (minor): the public `testing` conformance suite gained mandatory cases (ignore rules, the bound's summary, and that `listFiles` names ignored files), so an existing third-party backend that does not honour `respectIgnore` or `onSummary` in `walkFiles`, or whose `listFiles` hides ignored files, can now fail it; its limit case passes `failOnLimit: true`. The Pal computer's `listFiles` (and so `ls`) still lists ignored entries and still throws past its bound.

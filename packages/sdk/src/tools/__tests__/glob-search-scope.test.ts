@@ -59,17 +59,17 @@ describe('glob keeps the requested search scope', () => {
 		])
 	})
 
-	it('keeps hidden discovery explicit without hiding a named dotfile', async () => {
+	it('finds hidden files by default and leaves them out on request', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'namzu-glob-hidden-'))
 		temporary.push(root)
 		await writeFile(join(root, '.env'), 'fixture only')
 		await writeFile(join(root, 'README.md'), '')
-		const ordinary = await GlobTool.execute({ pattern: '*' }, context(undefined, root))
-		const named = await GlobTool.execute({ pattern: '.env' }, context(undefined, root))
-		const all = await GlobTool.execute(
-			{ pattern: '*', include_hidden: true },
+		const ordinary = await GlobTool.execute(
+			{ pattern: '*', include_hidden: false },
 			context(undefined, root),
 		)
+		const named = await GlobTool.execute({ pattern: '.env' }, context(undefined, root))
+		const all = await GlobTool.execute({ pattern: '*' }, context(undefined, root))
 		expect(ordinary.data).toMatchObject({ files: ['README.md'] })
 		expect(named.data).toMatchObject({ files: ['.env'] })
 		expect((all.data as { files: string[] }).files.sort()).toEqual(['.env', 'README.md'])

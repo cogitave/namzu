@@ -10,6 +10,7 @@ import {
 	hostDisplayPath,
 	ignoredHint,
 	isEntryLimit,
+	isReadDenied,
 	openSearchBudget,
 	plural,
 	quoteControlPath,
@@ -36,7 +37,7 @@ const inputSchema = z.object({
 		.boolean()
 		.optional()
 		.describe(
-			'Include hidden files and directories in wildcard matches. Default: false. Explicit dotfile patterns still match.',
+			'Include hidden files and directories in wildcard matches. Default: true. Version-control directories are always skipped.',
 		),
 	include_ignored: z
 		.boolean()
@@ -67,7 +68,7 @@ function relativePattern(pattern: string, root: string, sandboxed: boolean): str
 export const GlobTool = defineTool({
 	name: 'glob',
 	description:
-		'Finds regular files by glob pattern in a bounded search. "*" searches one directory; use "**" explicitly for recursive discovery. Skips files that .gitignore and .ignore rules exclude unless include_ignored is set. Returns at most 500 paths and says when a result is limited or a search stopped early. Does not follow symlinks.',
+		'Finds regular files by glob pattern in a bounded search. "*" searches one directory; use "**" explicitly for recursive discovery. Skips files that .gitignore and .ignore rules exclude unless include_ignored is set, and files the read rules of the session deny. Returns at most 500 paths and says when a result is limited or a search stopped early. Does not follow symlinks.',
 	inputSchema,
 	category: 'filesystem',
 	// Declared so a path outside the turn's roots can be reviewed before the
@@ -117,7 +118,7 @@ export const GlobTool = defineTool({
 			pattern,
 			signal: budget.signal,
 			maxEntries: MAX_GLOB_RESULTS + 1,
-			includeHidden: input.include_hidden ?? false,
+			includeHidden: input.include_hidden ?? true,
 			respectIgnore: input.include_ignored !== true,
 			onSummary: (value) => {
 				summary = value
@@ -135,6 +136,7 @@ export const GlobTool = defineTool({
 				const absolute = sandbox
 					? resolveWithinPosix(root, entry.path)
 					: resolveWithin(root, entry.path)
+				if (isReadDenied(context, absolute, sandbox?.rootDir)) continue
 				if (files.length === MAX_GLOB_RESULTS) {
 					capped = true
 					break

@@ -17,9 +17,11 @@ prefix is added. Enumeration skips symlink entries; an authorized local root
 alias is resolved before traversal, and returned paths remain readable through
 that alias, including paths from explicitly added directories.
 
-Hidden files and directories are excluded from wildcard matches by default.
-Set `include_hidden: true` to include them, or name a dotfile explicitly, such
-as `.env` or `.config/*.json`. Patterns containing a `..` segment are refused.
+Hidden files and directories are included in wildcard matches by default, in
+`glob` and `grep` alike. Pass `include_hidden: false` to leave them out; a
+dotfile named explicitly, such as `.env` or `.config/*.json`, still matches.
+Version-control directories are always skipped, and ignore files and the
+session's read rules (below) still decide what is listed. Patterns containing a `..` segment are refused.
 An absolute pattern must remain inside the selected search directory. Patterns
 are limited to 4,096 characters and 256 brace expansions; exceeding either bound
 fails before enumeration. Expansion cannot introduce a path outside the root.
@@ -113,11 +115,27 @@ against `git check-ignore` over a generated corpus of rules and paths.
 `glob` honours ignore files by default on purpose: a pattern that lists build
 output or dependencies is almost never asking for it, and `include_ignored: true`
 restores the old listing. `ls` and `listFiles` are not searches and keep naming
-ignored entries (`respectIgnore: false`). Hidden files stay excluded from grep on
-the host as before: the host has no read filter for secrets such as `.env`, so
-including them by default is held back; name the directory as the search root, or
-pass `include` for a dotfile pattern, to search one. This is a deliberate
-difference from sandbox `grep`, which has always included dotfiles.
+ignored entries (`respectIgnore: false`).
+
+## Hidden files and read rules
+
+Searching hidden files is safe because two things keep secrets out. A `.env`
+is normally in `.gitignore`, so the ignore rules above leave it out; and a
+file the session's read rules deny is neither listed nor opened. The executor
+gives each tool call `ToolContext.readDenied(absolutePath)`, which asks the
+turn's authorization gate what the `read` tool would be told for that path.
+`grep` asks before it opens a file and `glob` before it lists one, so a denied
+file is absent from the result and its contents are never read, on the host and
+in a sandbox (a sandbox path is mapped to the same place under the working
+directory). A host that supplies no gate gets no filtering. The CLI therefore
+lets `grep` and `glob` search a folder that holds a denied file, where it used
+to refuse the whole search; `ls`, which has no per-file filter, still refuses
+an ancestor of a path that `read` denies.
+
+When the search root is a home directory, hidden caches (`~/.cache`, `~/.npm`,
+`~/.local`) are walked like any folder. A walk that outlasts the 12-second
+budget returns the matches found so far as a normal result with the "stopped
+early" note; it is an error only when it found nothing.
 
 ## Sandbox enumeration
 
@@ -138,7 +156,7 @@ sandbox without this capability and identify the required adapter update.
 | `failOnLimit` | Throw `ERR_FILE_WALK_LIMIT` at `maxVisitedEntries` instead of ending; default false. |
 | `respectIgnore` | Skip what `.gitignore`, `.ignore` and `.git/info/exclude` exclude; default true. The guest reads the ignore files itself, so the host sends no rules. |
 | `onSummary` | Called once when the walk ends with `{ visited, ignoredDirectories, stopped? }`. |
-| `includeHidden` | Include hidden entries in wildcard matches; default false. Explicit dotfile patterns remain available. |
+| `includeHidden` | Include hidden entries in wildcard matches; default false for a direct walk (`grep` and `glob` pass true unless `include_hidden: false`). Explicit dotfile patterns remain available. |
 | `signal` | Caller cancellation. Iteration must stop and release owned resources. |
 
 The local provider closes directory handles when iteration ends. A pending
@@ -177,9 +195,9 @@ paths once, rather than appending an absolute path to the search directory again
 
 ## Upgrade
 
-Replace a previously recursive bare `*.ts` query with `**/*.ts`. Use
-`include_hidden: true` when an older sandbox query relied on hidden files being
-included. Host glob results now contain regular files only, matching the
+Replace a previously recursive bare `*.ts` query with `**/*.ts`. `grep` and
+`glob` now include hidden files by default; pass `include_hidden: false` for the
+old host behavior. Host glob results now contain regular files only, matching the
 sandbox behavior. The deadline falls from the generic 120 seconds to 15 seconds;
 narrow the directory or pattern for large inventories.
 

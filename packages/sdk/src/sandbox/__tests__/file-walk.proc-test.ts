@@ -270,4 +270,45 @@ describe.skipIf(process.platform === 'win32')('ignore rules in the actual guest 
 			'work/c.ts',
 		])
 	})
+	it('agrees with the host on hidden files, version-control directories and an ignored .env', async () => {
+		const root = await realpath(await mkdtemp(join(tmpdir(), 'namzu-walk-hidden-')))
+		dirs.push(root)
+		const files: Record<string, string> = {
+			'.git/HEAD': 'ref: refs/heads/main',
+			'.gitignore': '.env\n',
+			'.env': 'secret',
+			'.env.example': 'x',
+			'.cache/pkg/blob.bin': 'x',
+			'.hg/store': 'x',
+			'.svn/entries': 'x',
+			'src/.hidden.ts': 'x',
+			'src/a.ts': 'x',
+		}
+		for (const [name, text] of Object.entries(files)) {
+			await mkdir(dirname(join(root, name)), { recursive: true })
+			await writeFile(join(root, name), text)
+		}
+		for (const options of [{ includeHidden: true }, { includeHidden: false }]) {
+			const walkOptions: SandboxWalkFilesOptions = { pattern: '**/*', maxEntries: 100, ...options }
+			const local = await collect(walkFilesLocally(root, walkOptions))
+			const remote = await collect(walkFilesViaExec(exec, root, walkOptions))
+			expect(remote).toEqual(local)
+		}
+		const names = (
+			await collect(walkFilesViaExec(exec, root, { maxEntries: 100, includeHidden: true }))
+		)
+			.map((entry) => entry.path.slice(root.length + 1))
+			.sort()
+		expect(names).toEqual([
+			'.cache/pkg/blob.bin',
+			'.env.example',
+			'.gitignore',
+			'src/.hidden.ts',
+			'src/a.ts',
+		])
+		const visible = (
+			await collect(walkFilesViaExec(exec, root, { maxEntries: 100, includeHidden: false }))
+		).map((entry) => entry.path.slice(root.length + 1))
+		expect(visible).toEqual(['src/a.ts'])
+	})
 })
