@@ -46,6 +46,7 @@ export async function migrateAccountKeys(
 	const marker = keyMigrationMarkerPath(home)
 	if (existsSync(marker)) return null
 	const moved: string[] = []
+	let incomplete = false
 	try {
 		const seen = new Set<string>()
 		const accounts = registry
@@ -68,11 +69,14 @@ export async function migrateAccountKeys(
 				moved.push(options.labelOf?.(id) ?? entry.label)
 			} catch {
 				// One unreadable or unwritable account must not stop the rest, nor start.
+				// It is not marked done, so the next start tries it again.
+				incomplete = true
 			}
 		}
 	} catch {
 		return null
 	}
+	if (incomplete) return moved.length === 0 ? null : noticeFor(moved)
 	try {
 		mkdirSync(dirname(marker), { recursive: true, mode: 0o700 })
 		writeFileSync(marker, '', { mode: 0o600 })
@@ -80,5 +84,9 @@ export async function migrateAccountKeys(
 		// Without a marker the move is retried next start; every step is idempotent.
 	}
 	if (moved.length === 0) return null
+	return noticeFor(moved)
+}
+
+function noticeFor(moved: readonly string[]): string {
 	return `Moved your saved ${moved.join(', ')} API key from /auth accounts to the key store the provider list reads, so you are not asked again.`
 }

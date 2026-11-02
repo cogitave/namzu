@@ -205,7 +205,7 @@ shell to remove it; `/logout <provider>` (for example `/logout deepseek`, or
 `/logout anthropic-key` for an Anthropic API key, since `/logout anthropic`
 removes the subscription) and `namzu logout <provider>` remove another
 provider's key from `api-keys.json`. `/logout all` and `namzu logout all` remove
-every saved key along with Namzu-owned subscriptions. `/auth` accounts are not
+every saved key along with Namzu-owned subscriptions, including keys the Desktop's Settings > Models saved in the same file (remove single providers instead to keep them). Removing an `/auth` account leaves a key already kept for startup; use `/logout <provider>` for that. `/auth` accounts are not
 touched by any of them. These commands remove the saved key for future
 launches; an already-running Namzu session may continue using its in-memory
 copy until it exits. Neither command changes environment variables or the

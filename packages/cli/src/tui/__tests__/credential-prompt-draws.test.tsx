@@ -232,7 +232,7 @@ describe('the credential prompt', () => {
 		const { lastFrame, stdin, unmount } = open()
 		stdin.write('k')
 		await flush()
-		expect(lastFrame()).toContain('Saved privately for future launches')
+		expect(lastFrame()).toContain('An API key is saved privately for future launches')
 		expect(lastFrame()).not.toContain('not written anywhere')
 		unmount()
 	})

@@ -2,7 +2,7 @@
 
 ## 2026-11-02
 
-- **Update** [Credentials](cli/credentials.md): a pasted API key is saved for every provider that takes one (not only Gemini) and the provider choice with it, so the next start does not ask again; a pasted subscription token stays session-only. `/logout <provider>` and `namzu logout <provider>` remove a saved key, `all` removes them all, and keys an earlier build left only in `accounts.json` move once to the file startup reads. Also in [Slash commands](cli/slash-commands.md). `.changeset/typed-key-persists.md` (`@namzu/cli` minor).
+- **Update** [Credentials](cli/credentials.md): a pasted API key is saved for every provider that takes one (not only Gemini) and the provider choice with it, so the next start does not ask again; a pasted subscription token stays session-only. `/logout <provider>` and `namzu logout <provider>` remove a saved key, `all` removes them all, and keys an earlier build left only in `accounts.json` move once to the file startup reads. Also in [Slash commands](cli/slash-commands.md). `all` also deletes keys the Desktop saved in the same file, so the changeset is `@namzu/cli` major. `.changeset/typed-key-persists.md`.
 
 ## 2026-11-01
 

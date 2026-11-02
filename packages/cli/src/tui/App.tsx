@@ -11269,7 +11269,10 @@ function AppBody({
 						const accounts = openAccounts()
 						accounts.registry.remove(picker.accountId)
 						accounts.activity.forget(picker.accountId)
-						pushMessage('system', 'Account removed.')
+						pushMessage(
+							'system',
+							'Account removed. A key kept for startup stays until you run /logout <provider>.',
+						)
 					} catch (error) {
 						pushMessage('system', accountProblem(error, 'Could not remove the account.'))
 					}

@@ -160,6 +160,31 @@ describe('keys from earlier builds', () => {
 		expect(existsSync(keyMigrationMarkerPath(home))).toBe(true)
 	})
 
+	it('does not mark the move done when an account could not be read, so the next start retries', async () => {
+		mkdirSync(join(home, '.namzu'), { recursive: true })
+		const registry = accounts()
+		registry.add({ provider: 'deepseek', label: 'work', kind: 'api-key', apiKey: KEY })
+		const resolve = registry.resolve.bind(registry)
+		let failing = true
+		const flaky = new Proxy(registry, {
+			get(target, prop) {
+				if (prop === 'resolve') {
+					return (...args: Parameters<typeof resolve>) =>
+						failing ? Promise.reject(new Error('locked')) : resolve(...args)
+				}
+				return Reflect.get(target, prop, target)
+			},
+		})
+		expect(await migrateAccountKeys(flaky, { home })).toBeNull()
+		expect(existsSync(keyMigrationMarkerPath(home))).toBe(false)
+		expect(readStoredApiKey('deepseek', home)).toBeNull()
+
+		failing = false
+		expect(await migrateAccountKeys(flaky, { home })).toMatch(/^Moved your saved/)
+		expect(readStoredApiKey('deepseek', home)).toBe(KEY)
+		expect(existsSync(keyMigrationMarkerPath(home))).toBe(true)
+	})
+
 	it('never overwrites a key that is already saved', async () => {
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeStoredApiKey('deepseek', OTHER, home)
