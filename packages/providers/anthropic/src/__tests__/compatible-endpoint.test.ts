@@ -46,12 +46,22 @@ describe('isVendorEndpoint', () => {
 
 describe('a token sent to a compatible third-party endpoint', () => {
 	it('carries no subscription headers and no identity system block', () => {
-		const provider = new AnthropicProvider({ authToken: 'tok', baseURL: BASE })
+		const provider = new AnthropicProvider({
+			authToken: 'tok',
+			baseURL: BASE,
+			compatibleEndpoint: true,
+		})
 		const h = headers(provider)
 		expect(h['anthropic-beta']).toBeUndefined()
 		expect(h['x-app']).toBeUndefined()
 		expect(String(h['User-Agent'] ?? h['user-agent'])).not.toMatch(/claude-code/)
 		expect(body(provider).system).toEqual([{ type: 'text', text: 'Be brief.' }])
+	})
+
+	it('keeps the subscription identity for a token sent through a proxy unless the caller opts in', () => {
+		const provider = new AnthropicProvider({ authToken: 'tok', baseURL: BASE })
+		expect(headers(provider)['anthropic-beta']).toBe('claude-code-20250219,oauth-2025-04-20')
+		expect(body(provider).system[0].text).toMatch(/^You are Claude Code/)
 	})
 
 	it('keeps the subscription identity on the vendor endpoint, with or without a base URL', () => {
@@ -63,14 +73,22 @@ describe('a token sent to a compatible third-party endpoint', () => {
 	})
 
 	it('offers low, high and max for a non-Claude id and sends effort and thinking', () => {
-		const provider = new AnthropicProvider({ authToken: 'tok', baseURL: BASE })
+		const provider = new AnthropicProvider({
+			authToken: 'tok',
+			baseURL: BASE,
+			compatibleEndpoint: true,
+		})
 		expect(provider.reasoningEffortLevelsFor('deepseek-flash')).toEqual(['low', 'high', 'max'])
 		const sent = body(provider, { effort: 'max' })
 		expect(sent.output_config).toEqual({ effort: 'max' })
 	})
 
 	it('lists no vendor models when the catalogue is unreachable', async () => {
-		const provider = new AnthropicProvider({ authToken: 'tok', baseURL: BASE })
+		const provider = new AnthropicProvider({
+			authToken: 'tok',
+			baseURL: BASE,
+			compatibleEndpoint: true,
+		})
 		;(provider as unknown as { client: unknown }).client = {
 			models: {
 				list: async () => {

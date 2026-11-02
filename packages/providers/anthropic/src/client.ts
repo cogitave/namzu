@@ -62,8 +62,9 @@ const CLAUDE_CODE_VERSION_FALLBACK = '2.1.74'
 /**
  * Is this the vendor's own endpoint? An absent `baseURL` is. The subscription
  * identity (beta flags, tool user-agent, identity system block) only means
- * anything there; a compatible third-party endpoint gets a plain bearer token
- * and the system prompt as written.
+ * anything there. A caller that points the driver at a compatible third-party
+ * service says so with `compatibleEndpoint`; this is the hostname test it can
+ * use to decide.
  */
 export function isVendorEndpoint(baseURL: string | undefined): boolean {
 	if (!baseURL) return true
@@ -989,7 +990,7 @@ export class AnthropicProvider implements LLMProvider {
 			timeout: config.timeout ?? DEFAULT_TIMEOUT_MS,
 			maxRetries: config.maxRetries ?? 0,
 		}
-		if (config.authToken && !isVendorEndpoint(config.baseURL)) {
+		if (config.authToken && config.compatibleEndpoint === true) {
 			// A compatible third-party endpoint: the token is a plain bearer
 			// credential. None of the subscription identity below is sent there.
 			clientOpts.authToken = config.authToken
@@ -1088,7 +1089,7 @@ export class AnthropicProvider implements LLMProvider {
 			stream,
 		}
 
-		if (this.config.authToken && isVendorEndpoint(this.config.baseURL)) {
+		if (this.config.authToken && this.config.compatibleEndpoint !== true) {
 			// OAuth: the first system block must be the Claude Code identity
 			// line or Anthropic rejects the request. Emit the block-array form
 			// with the identity prefix first; cache breakpoints (if any) stay
@@ -1674,7 +1675,7 @@ export class AnthropicProvider implements LLMProvider {
 	private knownModels(): ModelInfo[] {
 		// The offline menu names the vendor's own models, which a third-party
 		// endpoint does not serve.
-		if (!isVendorEndpoint(this.config.baseURL)) return []
+		if (this.config.compatibleEndpoint === true) return []
 		// Copied, not handed out: the constant is shared and a caller that
 		// sorted or spliced the returned array would edit the driver's menu.
 		return [...OFFLINE_MODEL_CATALOGUE]
@@ -1701,7 +1702,7 @@ export class AnthropicProvider implements LLMProvider {
 	 * the capability tests catch it.
 	 */
 	private capabilityFor(model: string) {
-		return !isVendorEndpoint(this.config.baseURL) && !/claude/i.test(model)
+		return this.config.compatibleEndpoint === true && !/claude/i.test(model)
 			? COMPATIBLE_ENDPOINT
 			: resolveThinkingCapability(model)
 	}

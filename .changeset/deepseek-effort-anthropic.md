@@ -2,4 +2,4 @@
 '@namzu/anthropic': minor
 ---
 
-An `authToken` with a `baseURL` that is not `api.anthropic.com` is now a plain bearer token: the subscription beta headers, the Claude Code user-agent and the identity system block are no longer sent to that host (set no `baseURL`, or the vendor host, to keep them). A non-Claude model id on such an endpoint offers `low`, `high` and `max` effort, and `listModels` no longer falls back to the vendor's offline menu there. New export `isVendorEndpoint`.
+New config `compatibleEndpoint: true` for a `baseURL` that is an Anthropic-compatible third-party service. With it, an `authToken` is a plain bearer token: the subscription beta headers, the subscription user-agent and the identity system block are not sent, a non-Claude model id offers `low`, `high` and `max` effort, and `listModels` has no offline vendor menu to fall back to. It is off by default, so a token sent through a proxy keeps exactly what it sent before. New export `isVendorEndpoint(baseURL)` for callers deciding whether to set it.
