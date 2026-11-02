@@ -23,3 +23,5 @@ A rule with an unclosed `[`, or more than three separate `*`, is dropped (the la
 `@namzu/cli`: a `read` deny rule no longer makes `grep` and `glob` refuse a search over a folder that holds the denied path; they search it and skip the path (`ls` still refuses).
 
 `@namzu/sandbox` (minor): the public `testing` conformance suite gained mandatory cases (ignore rules, the bound's summary, and that `listFiles` names ignored files), so an existing third-party backend that does not honour `respectIgnore` or `onSummary` in `walkFiles`, or whose `listFiles` hides ignored files, can now fail it; its limit case passes `failOnLimit: true`. The Pal computer's `listFiles` (and so `ls`) still lists ignored entries and still throws past its bound.
+
+In a sandbox, a path outside the folder the sandbox binds is treated as read-denied when the session has read rules, because it has no host path the rules could be checked against.

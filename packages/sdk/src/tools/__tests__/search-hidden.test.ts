@@ -11,6 +11,7 @@ import type {
 import type { ToolContext } from '../../types/tool/index.js'
 import { GlobTool } from '../builtins/glob.js'
 import { GrepTool } from '../builtins/grep.js'
+import { isReadDenied } from '../builtins/search-support.js'
 
 const dirs: string[] = []
 const saved = { home: process.env.HOME, xdg: process.env.XDG_CONFIG_HOME }
@@ -218,5 +219,22 @@ describe('a home directory full of hidden caches', () => {
 		expect(result.output).toContain('doc.txt')
 		expect(result.output).toContain('Search stopped early after 12 seconds')
 		expect(result.facts).toMatchObject({ incomplete: true })
+	})
+})
+
+describe('a sandbox path outside the bound folder', () => {
+	it('is denied without asking the rule, because it has no host counterpart', () => {
+		const asked: string[] = []
+		const context = {
+			workingDirectory: '/host/project',
+			readDenied: (path: string) => {
+				asked.push(path)
+				return false
+			},
+		}
+		expect(isReadDenied(context, '/sandbox/elsewhere/.env', '/sandbox/project')).toBe(true)
+		expect(isReadDenied(context, '/sandbox/project-two/a.txt', '/sandbox/project')).toBe(true)
+		expect(isReadDenied(context, '/sandbox/project/a.txt', '/sandbox/project')).toBe(false)
+		expect(asked).toEqual(['/host/project/a.txt'])
 	})
 })

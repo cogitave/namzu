@@ -87,7 +87,8 @@ export function isEntryLimit(error: unknown): boolean {
  * Whether the session's read rules deny this file, so a search neither lists
  * nor opens it. `path` is absolute: a host path, or, when `sandboxRoot` is
  * given, a path inside the sandbox, which is mapped to the same place under
- * the working directory because that is the folder the sandbox binds. A host
+ * the working directory because that is the folder the sandbox binds; a path
+ * outside that folder is denied. A host
  * that supplies no rules (`ToolContext.readDenied` absent) denies nothing.
  */
 export function isReadDenied(
@@ -96,9 +97,11 @@ export function isReadDenied(
 	sandboxRoot?: string,
 ): boolean {
 	if (!context.readDenied) return false
-	const host =
-		sandboxRoot === undefined
-			? path
-			: joinPath(context.workingDirectory, posix.relative(sandboxRoot, path))
-	return context.readDenied(host)
+	if (sandboxRoot === undefined) return context.readDenied(path)
+	const relative = posix.relative(sandboxRoot, path)
+	// A guest path outside the bound folder has no host counterpart the rules
+	// could be checked against, so a session that has read rules does not list
+	// or open it.
+	if (relative === '..' || relative.startsWith('../') || posix.isAbsolute(relative)) return true
+	return context.readDenied(joinPath(context.workingDirectory, relative))
 }

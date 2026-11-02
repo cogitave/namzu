@@ -127,10 +127,14 @@ turn's authorization gate what the `read` tool would be told for that path.
 `grep` asks before it opens a file and `glob` before it lists one, so a denied
 file is absent from the result and its contents are never read, on the host and
 in a sandbox (a sandbox path is mapped to the same place under the working
-directory). A host that supplies no gate gets no filtering. The CLI therefore
+directory, and a path outside the folder the sandbox binds is denied). A host
+that supplies no gate gets no filtering. The CLI therefore
 lets `grep` and `glob` search a folder that holds a denied file, where it used
 to refuse the whole search; `ls`, which has no per-file filter, still refuses
-an ancestor of a path that `read` denies.
+an ancestor of a path that `read` denies. The walk still opens the ignore files
+(`.gitignore`, `.ignore`) of a directory it enters and lists its entries, even
+inside a denied directory; their contents are never returned, and only files are
+filtered.
 
 When the search root is a home directory, hidden caches (`~/.cache`, `~/.npm`,
 `~/.local`) are walked like any folder. A walk that outlasts the 12-second
