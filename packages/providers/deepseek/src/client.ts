@@ -55,12 +55,16 @@ export const DEEPSEEK_CAPABILITIES: ProviderCapabilities = {
 }
 
 const DEFAULT_BASE_URL = 'https://api.deepseek.com'
+/** The current Flash id; it accepts images (https://api-docs.deepseek.com/quick_start/pricing). */
+const CURRENT_FLASH_MODEL = 'deepseek-flash'
+/** A retired name the vendor still serves; it routes to the Flash model, images included. */
 const VISION_MODEL = 'deepseek-v4-flash-vision-exp'
+const IMAGE_MODELS: ReadonlySet<string> = new Set([CURRENT_FLASH_MODEL, VISION_MODEL])
 const TEXT_MODALITIES = Object.freeze(['text'] as const)
 const VISION_MODALITIES = Object.freeze(['text', 'image'] as const)
 const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 const KNOWN_MODELS = Object.freeze([
-	{ id: 'deepseek-flash', name: 'DeepSeek-V4.1-Flash', inputModalities: TEXT_MODALITIES },
+	{ id: CURRENT_FLASH_MODEL, name: 'DeepSeek-V4.1-Flash', inputModalities: VISION_MODALITIES },
 	{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', inputModalities: TEXT_MODALITIES },
 	{ id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', inputModalities: TEXT_MODALITIES },
 	{
@@ -465,11 +469,37 @@ function assertDeepSeekRichContent(
 			if (block.type === 'image') acceptImage(block.mediaType)
 		}
 	}
-	if (hasImage && model !== VISION_MODEL) {
+	if (hasImage && !IMAGE_MODELS.has(model)) {
 		throw new Error(
-			`DeepSeekProvider: model '${model}' does not accept image input. Select '${VISION_MODEL}' or remove the images.`,
+			`DeepSeekProvider: model '${model}' does not accept image input. Select '${CURRENT_FLASH_MODEL}' or remove the images.`,
 		)
 	}
+}
+
+interface VendorLimits {
+	readonly contextWindow?: number
+	readonly maxOutputTokens?: number
+}
+
+const positiveInteger = (value: unknown): number | undefined =>
+	typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined
+
+/** `context_window` and `max_output_tokens` on a models-endpoint entry, when present and sane. */
+function readVendorLimits(entries: readonly unknown[]): Map<string, VendorLimits> {
+	const out = new Map<string, VendorLimits>()
+	for (const entry of entries) {
+		if (typeof entry !== 'object' || entry === null) continue
+		const record = entry as Record<string, unknown>
+		if (typeof record.id !== 'string') continue
+		const contextWindow = positiveInteger(record.context_window)
+		const maxOutputTokens = positiveInteger(record.max_output_tokens)
+		if (contextWindow === undefined && maxOutputTokens === undefined) continue
+		out.set(record.id, {
+			...(contextWindow !== undefined ? { contextWindow } : {}),
+			...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+		})
+	}
+	return out
 }
 
 function isKnownModel(model: string): boolean {
@@ -505,6 +535,7 @@ export class DeepSeekProvider implements LLMProvider {
 	private client: OpenAI
 	private defaultModel?: string
 	private samplingMode: 'refuse' | 'ignore'
+	private vendorLimits: Promise<Map<string, VendorLimits>> | undefined
 
 	constructor(config: DeepSeekConfig) {
 		if (!config.apiKey) {
@@ -726,13 +757,40 @@ export class DeepSeekProvider implements LLMProvider {
 	}
 
 	/**
-	 * The window the runtime measures compaction against. An id this driver
-	 * does not list returns `undefined` rather than a guess, which leaves the
-	 * SDK's table to answer for it.
+	 * What the vendor's models endpoint says about each model it lists. The
+	 * endpoint may leave `context_window` and `max_output_tokens` out (both are
+	 * optional there), so an absent field is simply not an answer. A failed
+	 * request is not cached: the next turn asks again.
+	 */
+	private fetchVendorLimits(signal?: AbortSignal): Promise<Map<string, VendorLimits>> {
+		if (this.vendorLimits) return this.vendorLimits
+		const request = this.client.models
+			.list(signal ? { signal } : undefined)
+			.then((page) => readVendorLimits(page.data))
+		this.vendorLimits = request
+		request.catch(() => {
+			if (this.vendorLimits === request) this.vendorLimits = undefined
+		})
+		return request
+	}
+
+	/**
+	 * The window the runtime measures compaction against: what the vendor's
+	 * models endpoint reports for the id when it reports one, else the
+	 * documented limit of a model this driver lists, else `undefined` rather
+	 * than a guess, which leaves the SDK's table to answer for it. The vendor
+	 * answers first and the built-in table is only the fallback.
 	 */
 	async resolveContextWindow(model: string, signal?: AbortSignal): Promise<number | undefined> {
 		signal?.throwIfAborted()
-		return isKnownModel(model) ? CONTEXT_WINDOW_TOKENS : undefined
+		let reported: number | undefined
+		try {
+			reported = (await this.fetchVendorLimits(signal)).get(model)?.contextWindow
+		} catch {
+			// The listing is a refinement; a turn must not fail because it is down.
+			signal?.throwIfAborted()
+		}
+		return reported ?? (isKnownModel(model) ? CONTEXT_WINDOW_TOKENS : undefined)
 	}
 
 	async probeCredential(signal?: AbortSignal): Promise<void> {
@@ -747,6 +805,7 @@ export class DeepSeekProvider implements LLMProvider {
 		signal?.throwIfAborted()
 		const models = new Map<string, { id: string; name: string }>()
 		for (const model of page.data) models.set(model.id, { id: model.id, name: model.id })
+		const vendor = readVendorLimits(page.data)
 		// The preview model is part of the source adapter's verified default
 		// catalogue but may lag the account listing endpoint. A successful list
 		// therefore augments rather than erases the known selectable catalogue.
@@ -756,11 +815,13 @@ export class DeepSeekProvider implements LLMProvider {
 		return [...models.values()].map((model) => {
 			const inputModalities = inputModalitiesFor(model.id)
 			const known = isKnownModel(model.id)
+			const reported = vendor.get(model.id)
+			const contextWindow = reported?.contextWindow ?? (known ? CONTEXT_WINDOW_TOKENS : undefined)
+			const maxOutputTokens = reported?.maxOutputTokens ?? (known ? MAX_OUTPUT_TOKENS : undefined)
 			return {
 				...model,
-				...(known
-					? { contextWindow: CONTEXT_WINDOW_TOKENS, maxOutputTokens: MAX_OUTPUT_TOKENS }
-					: {}),
+				...(contextWindow !== undefined ? { contextWindow } : {}),
+				...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
 				...(inputModalities !== undefined ? { inputModalities } : {}),
 				supportsToolUse: true,
 				supportsStreaming: true,
