@@ -5253,6 +5253,16 @@ export async function createAgentSession(
 					agentId: 'namzu',
 					agentName: 'namzu',
 					...(systemPrompt ? { systemPrompt } : {}),
+					// The system prompt states no mode, so the resumed turn is told the mode the
+					// way a new turn is: by the mode notice. The conversation it resumes already
+					// holds the notice when the turn began in the mode, and the reminder reads
+					// that, so it speaks only when the mode differs. The kernel's own
+					// change notice would say the same thing a second time.
+					reminders: createCliReminderSource({
+						mode: () => modeControl.current(),
+						interactive: onPermission !== undefined,
+					}),
+					announceApprovalPolicyChange: false,
 					workingDirectory: cwd,
 					...(directories.length > 0 ? { additionalDirectories: [...directories] } : {}),
 					...escalation,

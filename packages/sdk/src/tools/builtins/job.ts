@@ -116,6 +116,11 @@ export const JobTool = defineTool({
 			const read = jobs.read(input.id, {
 				...(input.from_offset === undefined ? {} : { fromOffset: input.from_offset }),
 			})
+			// A stopped job read to its end is collected: its exit notice would only
+			// repeat what this result says. A read always reaches the end of the
+			// output; what it can miss is bytes the retention cap dropped, and then
+			// the notice stays.
+			if (read.status !== 'running' && read.droppedBytes === 0) jobs.markCollected?.(input.id)
 			// The dropped count is stated, never absorbed. A job whose middle
 			// vanished quietly reads as a complete result that happens to be
 			// short, and the model concludes the build passed.

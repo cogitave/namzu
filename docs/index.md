@@ -10,6 +10,7 @@ This directory is an [OKF v0.2](https://github.com/GoogleCloudPlatform/knowledge
 
 * [cli](cli/) - The operator application.
 * [sdk](sdk/) - The kernel.
+* [postmortems](postmortems/) - Incidents the repository has paid for, and the failure classes they share.
 
 # Pages
 

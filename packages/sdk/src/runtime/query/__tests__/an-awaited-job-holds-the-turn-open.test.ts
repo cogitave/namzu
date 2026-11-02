@@ -384,9 +384,10 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 		const notices = (lastRequest?.messages ?? [])
 			.map((message) => (typeof message.content === 'string' ? message.content : ''))
 			.filter((content) => content.includes('[Background job update]'))
-		// One per job, each on its own channel: `b00000001` on the tool result it
-		// exited during, `b00000002` on the message the hold delivered.
-		expect(notices.filter((content) => content.includes('b00000001')).length).toBe(1)
+		// `b00000001` exited during the wait_for_job whose result reported it, so
+		// no notice repeats it; `b00000002` is told once, by the message the hold
+		// delivered.
+		expect(notices.filter((content) => content.includes('b00000001')).length).toBe(0)
 		expect(notices.filter((content) => content.includes('b00000002')).length).toBe(1)
 	}, 60_000)
 
