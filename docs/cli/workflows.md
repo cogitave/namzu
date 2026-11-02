@@ -262,19 +262,95 @@ review the script, so a headless run may start a workflow only in `bypass` mode
 `/workflows` lists this conversation's runs, newest first, with status, agents
 settled over asked, tokens, how long ago it began and how long it took. Enter
 opens the same detail; the footer reads `enter to view · x to stop · esc to
-close` (`x` only on a run that is still going, and it stops that run), under a
+close` (`x` only on a run that is still going, and it stops that run; `r` on a run that is not going asks the model to resume it, see [Resuming a run](#resuming-a-run)), under a
 subtitle such as `1 running, 2 finished`, in a rounded frame; each row reads the transcript's words (`finished`, `failed`, `stopped`) and puts the duration right after, so a narrow screen drops the tail and never half a number. Runs started in this process come from the live registry;
 earlier ones are read from their journals. A run whose process ended before it
-finished is listed as stopped.
+finished is listed as stopped. A run that was resumed shows the pass it is on and how many of its agents returned saved results.
 
 ## Where a run is kept
 
 Each run writes an audit trail under the conversation:
 `<session>/runs/<runId>/workflow/script.js` (the exact script, mode 0600) and
 `journal.jsonl` (the declared `meta`, `args`, every `agent()` request with a
-prompt preview and hash, every outcome, phases, `log()` lines and the result).
-Run ids are `w` and eight base-36 characters. Each agent also keeps its normal
-child transcript under `<session>/subagents/`.
+prompt preview and hash, every outcome with the agent's full result, phases,
+`log()` lines and the result). A resumed pass adds `script.<n>.js`. Every line is
+numbered and chained to the one before it, and signed with a secret kept in
+`~/.namzu/workflow-journal.key` (made on first use, mode 0600). Run ids are `w`
+and eight base-36 characters. Each agent also keeps its normal child transcript
+under `<session>/subagents/`, named in the journal as `childSessionId`.
+
+The model edits a copy of the script, not the original:
+`<session>/workflows/scripts/<name>-<runId>.js` (mode 0600, written when the run
+starts and named in the receipt). `scriptPath` reads only files in that folder,
+and only regular files with a single name (no link), at most 256 KiB, fresh on
+every call.
+
+## Resuming a run
+
+The `workflow` tool takes two more inputs. `scriptPath` is a saved script to run
+instead of sending `script` again (`script` wins when both are given).
+`resumeFromRunId` continues an earlier run of this conversation under its own
+id: the same journal grows by one pass and `/workflows` still shows one run.
+Agents whose prompt and options are unchanged return the result the journal
+saved, without starting anything; the first call that is new, was edited, failed
+or was skipped starts running again, and so does everything after it. A call
+that was cut off by a stop or a closed session runs again without ending reuse.
+Resuming a finished run is allowed (every unchanged call replays), and resumes
+compound. Nothing resumes by itself.
+
+A resume goes through the same review as a start. It also shows which run it
+continues and what it can reuse:
+
+```
+Resumes run w1ab2cd3 (pass 3; the previous pass did not finish)
+  About 6 agents return saved results and are not run again; the rest run live.
+  Script: unchanged since the run started
+```
+
+The saved-results figure is "about" when the script is unchanged; for an edited
+script the review says "up to" and that edited and later calls run. The review
+never states how many agents will run live, because the script may make calls the
+earlier pass never reached. A journal that was
+changed or cut short is named by line and its later results run again.
+
+A run that is still going, or is stopping and whose agents have not exited,
+cannot be resumed (the tool says so). A run saved before resuming existed
+(its journal has no chain) cannot be resumed and the tool says to run it again.
+
+**Scripts must be deterministic.** In a workflow script `Date.now()`, `new Date()`
+with no argument and `Math.random()` throw, with a message that says to pass a
+timestamp through `args` or to put an index in the label or prompt; `new Date(x)`,
+`Date.parse` and `Date.UTC` still work, and `eval` is not available. A script that
+made different calls on a rerun could not safely reuse results.
+
+**Runs a closed session left unfinished.** When a conversation is opened again,
+any run in it whose journal never recorded an end is marked stopped, named to you
+in one line, and told to the model once with its next turn (it never wakes an idle
+model): how many agents had saved results, how many had not finished, and the
+`workflow({scriptPath, resumeFromRunId})` call that picks it up. The notice is
+kept on disk until a turn has delivered it, so quitting before then does not lose
+it. It is told once per pass: if you resume the run and that pass is cut off too,
+the new pass is announced again, and a notice for a pass you have since resumed is
+dropped. More than 20 such runs are announced as one message that names 20 of
+them; the others are told with the next turn. A run whose journal was signed with
+a different key than this machine has now (the key file was replaced or cannot be
+read) is named with that reason, since none of its results can be trusted. Runs you
+stopped, runs that ended and runs of other conversations are not announced.
+
+**Integrity.** The chain and the signature find a journal that was damaged,
+edited, reordered or cut short; a record that fails the check is not used, and the
+agents behind it run again. They do not protect against someone who can both
+rewrite the whole journal and read the key file, and they assume one Namzu process
+works in a conversation at a time. The key lives outside the folders the file-editing
+tools write in, but Namzu runs on your machine by default, so a shell command the
+model runs can read it like any other file of yours: the signature catches damage
+and edits made with the file tools, not a hostile shell.
+
+**What is reviewed is what runs.** When a resume or a start names a saved script by
+`scriptPath`, the review shows the file's text at that moment and remembers its hash.
+If the file reads differently when the run starts (something wrote it after you
+approved), the run is refused and the model is told to call again so the current
+text is reviewed. An approval you gave once is never carried to a different text.
 
 ## Configuration
 
@@ -331,5 +407,4 @@ Stopping a run or skipping an agent cancels a model request that may not have re
 
 ## Not in this version
 
-Named or saved workflows, resuming a run from its journal, `scriptPath`, nested `workflow()`,
-worktree isolation per agent, and a pause key.
+Named workflows, nested `workflow()`, worktree isolation per agent, and a pause key.

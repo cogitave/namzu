@@ -60,9 +60,14 @@ export interface InTurnNews {
 
 /** What an idle wake turn takes at admission. */
 export interface WakeTake {
+	/** Ids of the workflow news taken, so the host can mark unfinished-run notices delivered. */
+	readonly workflowIds: readonly string[]
 	readonly ended: readonly string[]
 	readonly jobLines: ReadonlyArray<readonly [string, string]>
 }
+
+/** The prefix of a notice about runs a previous process left unfinished: told with the next turn, never waking an idle model. */
+export const ORPHAN_NOTICE_PREFIX = 'orphan:'
 
 export class WakeLedger<Owner = unknown> {
 	#jobs: JobNotices<Owner> = {
@@ -132,6 +137,16 @@ export class WakeLedger<Owner = unknown> {
 		this.#workflows.set(runId, text)
 	}
 
+	/** Ids of the workflow news waiting. */
+	workflowIds(): string[] {
+		return [...this.#workflows.keys()]
+	}
+
+	/** That news no longer needs telling (for instance a run resumed before the model heard of it). */
+	dropWorkflow(id: string): void {
+		this.#workflows.delete(id)
+	}
+
 	/** A new session: agent messages start empty. */
 	resetChildMessages(): void {
 		this.#childMessages = new Map()
@@ -163,7 +178,7 @@ export class WakeLedger<Owner = unknown> {
 	wakes(owner: Owner | null, monitorsWake: boolean, jobsCanWake = true): boolean {
 		const jobs = this.#jobs
 		return (
-			this.#workflows.size > 0 ||
+			[...this.#workflows.keys()].some((id) => !id.startsWith(ORPHAN_NOTICE_PREFIX)) ||
 			this.#childMessages.size > 0 ||
 			(jobsCanWake &&
 				jobs.ownerSession === owner &&
@@ -178,6 +193,7 @@ export class WakeLedger<Owner = unknown> {
 	 * twice. Exits are marked delivered so a late event for them is dropped.
 	 */
 	takeForWake(owner: Owner | null): WakeTake {
+		const workflowIds = [...this.#workflows.keys()]
 		const ended = [...this.#workflows.values(), ...this.#childMessages.values()]
 		this.#workflows.clear()
 		this.#childMessages.clear()
@@ -191,7 +207,7 @@ export class WakeLedger<Owner = unknown> {
 			jobs.pending.delete(id)
 			this.#wakeJobIds.delete(id)
 		}
-		return { ended, jobLines }
+		return { workflowIds, ended, jobLines }
 	}
 
 	/**

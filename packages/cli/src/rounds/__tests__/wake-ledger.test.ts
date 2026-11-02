@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { WakeLedger } from '../wake-ledger.js'
+import { ORPHAN_NOTICE_PREFIX, WakeLedger } from '../wake-ledger.js'
 
 const owner = { name: 'session' }
 
@@ -124,9 +124,22 @@ describe('WakeLedger exactly-once delivery', () => {
 		const taken = wake.takeForWake(owner)
 		expect(taken.ended).toEqual(['run 1 ended', 'hi'])
 		expect(taken.jobLines).toEqual([['a', 'a exited']])
-		expect(wake.takeForWake(owner)).toEqual({ ended: [], jobLines: [] })
+		expect(wake.takeForWake(owner)).toEqual({ workflowIds: [], ended: [], jobLines: [] })
 		// A late event for the delivered exit is dropped; the stopped one still rides the next turn.
 		expect(wake.noteJobExit(jobs, 'a', 'a exited', true)).toBe(false)
 		expect(wake.snapshot(owner).idleJobs.ids).toEqual(['b'])
+	})
+})
+
+describe('WakeLedger unfinished-run notices', () => {
+	it('is told with the next turn but never wakes an idle session', () => {
+		const wake = new WakeLedger<object>()
+		wake.noteWorkflowEnd(`${ORPHAN_NOTICE_PREFIX}run_1`, 'run_1 was left unfinished')
+		expect(wake.wakes(null, false)).toBe(false)
+		wake.noteWorkflowEnd('resume:run_1', 'resume it')
+		expect(wake.wakes(null, false)).toBe(true)
+		const taken = wake.takeForWake(null)
+		expect(taken.workflowIds).toEqual([`${ORPHAN_NOTICE_PREFIX}run_1`, 'resume:run_1'])
+		expect(taken.ended).toEqual(['run_1 was left unfinished', 'resume it'])
 	})
 })

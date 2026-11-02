@@ -3,6 +3,7 @@ import { readFileSync, statSync } from 'node:fs'
 
 import { WorkflowScriptError, parseWorkflowMeta, resolveWorkflowLimits } from '@namzu/sdk'
 
+import { type ResumeReview, resumeReviewLines } from '../integrations/workflows/resume.js'
 import { formatSpan } from './person-terms.js'
 import { terminalDisplayText } from './terminal-display.js'
 
@@ -518,6 +519,13 @@ export interface PermissionSummaryContext {
 		readonly maxConcurrency: number
 		readonly maxAgents: number
 	}
+	/** The text of a saved workflow script, for a call that names it by path. */
+	readonly readWorkflowScript?: (path: string) => string | undefined
+	/** What resuming a run would reuse, from its journal. */
+	readonly describeWorkflowResume?: (
+		runId: string,
+		script: string | undefined,
+	) => ResumeReview | undefined
 	/**
 	 * The calls approved once only because of their size, by position: each
 	 * is marked beside its number, where it appears in the list.
@@ -883,12 +891,27 @@ function summarizeWorkflow(
 	input: Record<string, unknown>,
 	context: PermissionSummaryContext,
 ): ReadableCallSummary | null {
-	const allowed = new Set(['script', 'args', 'description'])
+	const allowed = new Set(['script', 'args', 'description', 'scriptPath', 'resumeFromRunId'])
 	if (!Object.keys(input).every((key) => allowed.has(key))) return null
-	if (typeof input.script !== 'string') return null
+	if (input.scriptPath !== undefined && typeof input.scriptPath !== 'string') return null
+	if (input.resumeFromRunId !== undefined && typeof input.resumeFromRunId !== 'string') return null
+	const script =
+		typeof input.script === 'string'
+			? input.script
+			: typeof input.scriptPath === 'string'
+				? context.readWorkflowScript?.(input.scriptPath)
+				: undefined
+	if (script === undefined) return null
 	if (input.description !== undefined && typeof input.description !== 'string') return null
-	const script = input.script
 	const head: string[] = []
+	if (typeof input.resumeFromRunId === 'string') {
+		const review = context.describeWorkflowResume?.(input.resumeFromRunId, script)
+		head.push(
+			...(review
+				? resumeReviewLines(review)
+				: [`Resumes run ${oneLine(input.resumeFromRunId)} (its journal could not be read here)`]),
+		)
+	}
 	try {
 		const meta = parseWorkflowMeta(script)
 		head.push(...readableField('Workflow', meta.name))

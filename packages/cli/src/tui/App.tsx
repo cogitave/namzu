@@ -209,6 +209,7 @@ import { agentsSlashCommand } from '../integrations/subagents/slash.js'
 import { readFolderGrants } from '../integrations/trust/folder-grants.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { completionNotice } from '../integrations/workflows/notice.js'
+import { resumeCallText } from '../integrations/workflows/resume.js'
 import {
 	type WorkflowRunView,
 	countAgents,
@@ -255,7 +256,12 @@ import {
 	isRecallableHumanPrompt,
 	mergeUndeliveredLiveInput,
 } from '../rounds/types.js'
-import { EMPTY_WAKE_SNAPSHOT, WakeLedger, type WakeSnapshot } from '../rounds/wake-ledger.js'
+import {
+	EMPTY_WAKE_SNAPSHOT,
+	ORPHAN_NOTICE_PREFIX,
+	WakeLedger,
+	type WakeSnapshot,
+} from '../rounds/wake-ledger.js'
 import { schedulePaths } from '../schedule/paths.js'
 import {
 	SKILL_CREATOR_SKILL,
@@ -1388,7 +1394,11 @@ type JobSurface = {
 }
 
 const defaultExternalEditor: ExternalEditorAdapter = ({ seed, cwd, signal, pressed }) =>
-	editDraftInExternalEditor(seed, { cwd, signal, ...(pressed !== undefined ? { pressed } : {}) })
+	editDraftInExternalEditor(seed, {
+		cwd,
+		signal,
+		...(pressed !== undefined ? { pressed } : {}),
+	})
 
 /**
  * The App, drawn inside the theme epoch: a theme change redraws this component,
@@ -1824,6 +1834,16 @@ function AppBody({
 	// What ended in a workflow, for the model: one message per run, delivered
 	// inside a running turn when there is one and with the next turn otherwise,
 	// the way a background job's exit is.
+	/** Tell the store that notices for unfinished runs reached the model, so they are not repeated. */
+	const markOrphanNoticesDelivered = useCallback(
+		(ids: readonly string[]) => {
+			const runIds = ids
+				.filter((id) => id.startsWith(ORPHAN_NOTICE_PREFIX))
+				.flatMap((id) => id.slice(ORPHAN_NOTICE_PREFIX.length).split(','))
+			if (runIds.length > 0) void session?.workflows?.noticesDelivered(runIds)
+		},
+		[session],
+	)
 	/** Moves when something ended that the model has not been told, so an idle session can wake. */
 	const [noticeVersion, setNoticeVersion] = useState(0)
 	/** Opt-in cap on automatic job wakes in a row (`NAMZU_MAX_CONSECUTIVE_WAKES`); only a person's message resets it. */
@@ -1851,6 +1871,37 @@ function AppBody({
 			wakeLedgerRef.current.noteWorkflowEnd(view.runId, completionNotice(view))
 			activeTurnInboxRef.current?.notify()
 			setNoticeVersion((version) => version + 1)
+		})
+	}, [session])
+	// Runs a previous process left unfinished: told to the model once with its next
+	// turn (never waking an idle model), and named to the operator in one line.
+	useEffect(() => {
+		const source = session?.workflows
+		if (!source) return
+		void source
+			.recoverUnfinished()
+			.then((notices) => {
+				if (previousSessionRef.current !== session || appLifetime.signal.aborted) return
+				for (const notice of notices) {
+					wakeLedgerRef.current.noteWorkflowEnd(
+						`${ORPHAN_NOTICE_PREFIX}${notice.runIds.join(',')}`,
+						notice.text,
+					)
+					pushMessage('system', notice.line)
+				}
+			})
+			.catch(() => undefined)
+		// A run resumed before the model was told about it no longer needs the notice.
+		return source.subscribe(() => {
+			const live = new Set(source.runs().map((view) => view.runId))
+			for (const id of wakeLedgerRef.current.workflowIds()) {
+				if (!id.startsWith(ORPHAN_NOTICE_PREFIX)) continue
+				const runIds = id.slice(ORPHAN_NOTICE_PREFIX.length).split(',')
+				if (runIds.length === 1 && live.has(runIds[0] as string)) {
+					wakeLedgerRef.current.dropWorkflow(id)
+					void source.noticesDelivered(runIds)
+				}
+			}
 		})
 	}, [session])
 	const [usage, setUsage] = useState<{
@@ -2724,7 +2775,10 @@ function AppBody({
 	)
 	useEffect(
 		() => () => {
-			permissionAsks.closeAll({ kind: 'reject', feedback: 'The approval screen closed.' })
+			permissionAsks.closeAll({
+				kind: 'reject',
+				feedback: 'The approval screen closed.',
+			})
 		},
 		[permissionAsks],
 	)
@@ -3022,7 +3076,9 @@ function AppBody({
 	const contextHiddenRef = useRef(false)
 	contextHiddenRef.current = contextHidden
 	/** The idle compactor, once it exists, for what a rewrite of the history must tell it. */
-	const idleCompactionRef = useRef<{ contextTokens: { current: number | undefined } } | null>(null)
+	const idleCompactionRef = useRef<{
+		contextTokens: { current: number | undefined }
+	} | null>(null)
 	const contextTokens = usage?.context?.tokens
 	const contextWindow = usage?.context?.windowTokens
 	const addNotice = notices.add
@@ -3348,7 +3404,14 @@ function AppBody({
 				thinkingText = thinkingForNextRowRef.current
 				thinkingForNextRowRef.current = ''
 			}
-			const candidate = { role, content, pending, glyph: rowGlyph, detail, activity }
+			const candidate = {
+				role,
+				content,
+				pending,
+				glyph: rowGlyph,
+				detail,
+				activity,
+			}
 			setMessages((prev) =>
 				// The notice layer, not each caller, keeps a notice from printing
 				// twice in a row: the same sentence twice reads as two events.
@@ -4400,7 +4463,12 @@ function AppBody({
 	/** Alt+T: thinking off is the model's `none` level; on puts back the level it had. */
 	const toggleThinking = useCallback((): void => {
 		const note = (text: string): void =>
-			addNotice({ key: 'thinking-toggle', text, priority: 'immediate', timeoutMs: 4_000 })
+			addNotice({
+				key: 'thinking-toggle',
+				text,
+				priority: 'immediate',
+				timeoutMs: 4_000,
+			})
 		const levels = session?.reasoningEffortLevels
 		if (!session?.hasProvider || !levels?.length) {
 			note('This model has no thinking setting')
@@ -5566,8 +5634,10 @@ function AppBody({
 			// keeps it; choosing another provider by hand leaves it behind. Committed
 			// below, once the session exists, so a refused build changes nothing.
 			let sessionPrefs = prefs
-			let nextAccount: { id: string; reason: 'start' | 'user_switch' | 'limit_switch' } | null =
-				null
+			let nextAccount: {
+				id: string
+				reason: 'start' | 'user_switch' | 'limit_switch'
+			} | null = null
 			{
 				const head = prefs.providers[0]
 				const recorded = resumeAccountRef.current
@@ -5578,7 +5648,9 @@ function AppBody({
 					}
 				} else if (head && recorded && !definition) {
 					try {
-						const found = openCliAccounts({ defaultProviders: [] }).registry.get(recorded)
+						const found = openCliAccounts({
+							defaultProviders: [],
+						}).registry.get(recorded)
 						if (found) {
 							sessionPrefs = bindAccount(prefs, found)
 							nextAccount = { id: found.id, reason: 'start' }
@@ -5907,7 +5979,10 @@ function AppBody({
 					if (appLifetime.signal.aborted || previousSessionRef.current !== s) return
 					const row = toolServerRow(
 						name,
-						s.mcpStatus?.() ?? { connected: s.mcpConnected, failed: s.mcpFailed },
+						s.mcpStatus?.() ?? {
+							connected: s.mcpConnected,
+							failed: s.mcpFailed,
+						},
 					)
 					if (!row) return
 					reportedToolServers.add(name)
@@ -6376,7 +6451,9 @@ function AppBody({
 				activateTrustedProject()
 				void runProbe()
 				try {
-					const { pending } = pendingProjectMcpServers({ cwd: trustedCwdRef.current })
+					const { pending } = pendingProjectMcpServers({
+						cwd: trustedCwdRef.current,
+					})
 					if (pending.length > 0) {
 						pushMessage('system', pendingServersMessage(pending))
 					}
@@ -6946,7 +7023,10 @@ function AppBody({
 					autoResumeAttemptRef.current = attempt
 					setHandoffPark({
 						...parked,
-						autoResume: { attempt, at: Date.now() + autoResumeDelayMs(attempt) },
+						autoResume: {
+							attempt,
+							at: Date.now() + autoResumeDelayMs(attempt),
+						},
 					})
 				})()
 			},
@@ -7193,7 +7273,10 @@ function AppBody({
 	const interruptTurn = useCallback(
 		(recoverInput = false): boolean => {
 			const cancelledSwitch = cancelPendingModelSwitch()
-			permissionAsksRef.current?.closeAll({ kind: 'reject', feedback: 'User interrupted.' })
+			permissionAsksRef.current?.closeAll({
+				kind: 'reject',
+				feedback: 'User interrupted.',
+			})
 			const ac = abortRef.current
 			if (!ac) {
 				// A prompt still at the turn boundary: nothing has begun, so taking
@@ -7279,7 +7362,10 @@ function AppBody({
 				(job) => job.status === 'running' && !jobsBefore.has(job.id),
 			)
 			if (movedToBackground)
-				setJobSnapshot({ ownerSession: session, jobs: session?.jobs?.() ?? [] })
+				setJobSnapshot({
+					ownerSession: session,
+					jobs: session?.jobs?.() ?? [],
+				})
 			if (interrupted || options?.always === true) {
 				const row = interruptionRow({
 					callRunning,
@@ -7810,7 +7896,11 @@ function AppBody({
 	const motionReduced = useReducedMotion()
 	const titleFrame = useTitleFrame(
 		!motionReduced &&
-			titleAnimates({ working: titleWorking, focused: terminalFocused, env: process.env }),
+			titleAnimates({
+				working: titleWorking,
+				focused: terminalFocused,
+				env: process.env,
+			}),
 	)
 	const terminalTitle = terminalTitleText({
 		...conversationNames,
@@ -8096,7 +8186,11 @@ function AppBody({
 			rewindGenRef.current = generation
 			setEditList(candidates)
 			editCommittedRef.current = false
-			setRewindView({ rows, state: openRewind(rows.length), openedAt: Date.now() })
+			setRewindView({
+				rows,
+				state: openRewind(rows.length),
+				openedAt: Date.now(),
+			})
 			setPhase('edit')
 			if (!store) return
 			// Newest first and under one budget; the dialog is usable meanwhile.
@@ -8230,7 +8324,9 @@ function AppBody({
 
 				resetTranscript()
 				setMessages(
-					projectConversation(forked.messages, nextId, readablePrefix, { cwd: ctxRef.current.cwd }),
+					projectConversation(forked.messages, nextId, readablePrefix, {
+						cwd: ctxRef.current.cwd,
+					}),
 				)
 				composerDraftTokenRef.current += 1
 				setComposerDraft({
@@ -8323,7 +8419,9 @@ function AppBody({
 						: editList.slice(Math.max(0, at)).map((prompt) => prompt.displayText)
 				resetTranscript()
 				setMessages(
-					projectConversation(result.messages, nextId, readable, { cwd: ctxRef.current.cwd }),
+					projectConversation(result.messages, nextId, readable, {
+						cwd: ctxRef.current.cwd,
+					}),
 				)
 				if (option === 'summarize') {
 					composerDraftTokenRef.current += 1
@@ -8367,14 +8465,21 @@ function AppBody({
 				const latest = rewindRef.current ?? view
 				setRewindView({
 					...latest,
-					state: { ...latest.state, busy: undefined, ...(error ? { error } : {}) },
+					state: {
+						...latest.state,
+						busy: undefined,
+						...(error ? { error } : {}),
+					},
 				})
 			}
 			if (hasUnsettledTurn() || roundQueueRef.current.items().length > 0) {
 				settle('The conversation changed while this dialog was open. Nothing was changed.')
 				return
 			}
-			setRewindView({ ...view, state: { ...view.state, busy: option, error: undefined } })
+			setRewindView({
+				...view,
+				state: { ...view.state, busy: option, error: undefined },
+			})
 			const plain = (err: unknown) => explainFailure(err, 'Something went wrong.')
 			try {
 				if (option === 'summarize' || option === 'summarize_up_to') {
@@ -8442,6 +8547,9 @@ function AppBody({
 				fileExists: (path) => existsSync(resolve(ctxRef.current.cwd, path)),
 				readText: (path) => readReviewedFile(resolve(ctxRef.current.cwd, path)),
 				workflowLimits: resolveWorkflowLimits(ctxRef.current.workflow),
+				readWorkflowScript: (path) => reviewSessionRef.current?.workflows?.readScript(path),
+				describeWorkflowResume: (runId, script) =>
+					reviewSessionRef.current?.workflows?.describeResume(runId, script),
 				withheld: review.withheld,
 			})
 			const siteNotes = browserSiteNotes(req.toolCalls, browserControlRef.current?.status())
@@ -9449,7 +9557,10 @@ function AppBody({
 							autoResumeAttemptRef.current = attempt
 							setHandoffPark({
 								turnId: event.turnId,
-								autoResume: { attempt, at: Date.now() + autoResumeDelayMs(attempt) },
+								autoResume: {
+									attempt,
+									at: Date.now() + autoResumeDelayMs(attempt),
+								},
 							})
 						} else {
 							selfMendingPauseRowRef.current.forget()
@@ -9586,7 +9697,8 @@ function AppBody({
 			// running has had its chance to take it first and nothing is said twice.
 			let noticeKind: RuntimeContextMessageKind = 'task-completion'
 			if (prompt.kind === 'notice') {
-				const { ended, jobLines } = wakeLedgerRef.current.takeForWake(session)
+				const { ended, jobLines, workflowIds } = wakeLedgerRef.current.takeForWake(session)
+				markOrphanNoticesDelivered(workflowIds)
 				if (jobLines.length > 0) wakeBudgetRef.current.recordWake()
 				// What monitors said is taken now, like the rest: an event the kernel
 				// already put in front of the model during a turn was acknowledged
@@ -10153,6 +10265,7 @@ function AppBody({
 								const mail = peersRef.current?.take(turnGeneration) ?? []
 								const { childNotices, workflowEnds, childMessages } =
 									wakeLedgerRef.current.takeInTurn(wakeSnapshot)
+								markOrphanNoticesDelivered(workflowEnds.map(([id]) => id))
 								if (childNotices.length) {
 									flushStream(st)
 									if (st.assistantId) {
@@ -10258,6 +10371,8 @@ function AppBody({
 			} finally {
 				// The turn is over: a run of reads and searches in progress settles.
 				readSearchGroup.close()
+				if (st.completed && stillHere())
+					markOrphanNoticesDelivered([...wakeSnapshot.workflows.keys()])
 				if (st.completed && monitorSnapshot.ids.length > 0) {
 					// Carried by this turn: never offered again.
 					session?.monitors?.acknowledge(monitorSnapshot.ids)
@@ -10774,7 +10889,10 @@ function AppBody({
 		[currentProvider],
 	)
 	const openAccountPicker = useCallback(
-		(limit?: { readonly resubmit: QueuedPrompt | null; readonly label: string }) => {
+		(limit?: {
+			readonly resubmit: QueuedPrompt | null
+			readonly label: string
+		}) => {
 			const accounts = openAccounts()
 			let list: Account[]
 			try {
@@ -11014,7 +11132,11 @@ function AppBody({
 				else {
 					const providers = apiKeyProviderPicker()
 					setSelectedChoice(0)
-					setChoicePicker({ kind: 'account-provider', ...providers, back: picker })
+					setChoicePicker({
+						kind: 'account-provider',
+						...providers,
+						back: picker,
+					})
 				}
 				return
 			}
@@ -11105,7 +11227,10 @@ function AppBody({
 				values: ['cancel', 'remove'],
 				options: [
 					{ label: 'Keep it', description: '' },
-					{ label: 'Remove', description: 'Conversations using it will need another account.' },
+					{
+						label: 'Remove',
+						description: 'Conversations using it will need another account.',
+					},
 				],
 				...(picker ? { back: picker } : {}),
 			})
@@ -12539,7 +12664,11 @@ function AppBody({
 									// Bypass handleSubmit: remote content is data, not another
 									// slash command, @file read, trigger or typed instruction.
 									advanceQueueContinuation()
-									enqueueQueued({ kind: 'human', text: value, mcpContext: outcome.text })
+									enqueueQueued({
+										kind: 'human',
+										text: value,
+										mcpContext: outcome.text,
+									})
 								}
 							} finally {
 								mcpCommandInFlightRef.current = false
@@ -12753,7 +12882,12 @@ function AppBody({
 							}
 							setMessages((previous) => [
 								...previous,
-								{ id: nextId(), role: 'system', content: view.text, contextView: view },
+								{
+									id: nextId(),
+									role: 'system',
+									content: view.text,
+									contextView: view,
+								},
 							])
 						})()
 						return
@@ -13014,7 +13148,10 @@ function AppBody({
 						setSpinnerTipsOverride(slash.on)
 						pushMessage(
 							'system',
-							setSpinnerTips(slash.on, { cwd: ctx.cwd, ...(profile ? { profile } : {}) }),
+							setSpinnerTips(slash.on, {
+								cwd: ctx.cwd,
+								...(profile ? { profile } : {}),
+							}),
 						)
 						return
 					}
@@ -13235,9 +13372,10 @@ function AppBody({
 	messagesLiveRef.current = messages
 	const composerHasDraftRef = useRef(composerHasDraft)
 	composerHasDraftRef.current = composerHasDraft
-	const recapTurnRef = useRef<{ readonly sessionId: SessionId; readonly turnId: TurnId } | null>(
-		null,
-	)
+	const recapTurnRef = useRef<{
+		readonly sessionId: SessionId
+		readonly turnId: TurnId
+	} | null>(null)
 	const manualRecapRef = useRef<AbortController | null>(null)
 	const sideQuestionRefs = useRef<Set<AbortController>>(new Set())
 	const pushRecap = useCallback(
@@ -15018,6 +15156,27 @@ function AppBody({
 					)
 					return
 				}
+				if (picker.kind === 'workflow-runs' && input === 'r' && !key.ctrl && !key.meta) {
+					// Does not start anything itself: it asks the model to make the `workflow`
+					// call, so the operator approves the resume in the usual review.
+					const chosen = options[selectedChoiceRef.current]
+					const runId = chosen ? picker.values[picker.options.indexOf(chosen)] : undefined
+					const run = workflowRunsRef.current.find((item) => item.runId === runId)
+					if (run && canResumeRun(run)) {
+						setChoicePicker(null)
+						wakeLedgerRef.current.noteWorkflowEnd(
+							`resume:${run.runId}`,
+							`The person asked to resume workflow ${JSON.stringify(run.name)} (run ${run.runId}) from /workflows. Call ${resumeCallText(run.scriptPath, run.runId)} now. Agents whose prompt and options are unchanged return their saved results. They will review and approve the resume before it starts.`,
+						)
+						pushMessage('system', `Asking to resume ${run.name}.`)
+						enqueueQueued({
+							kind: 'notice',
+							text: `Resume workflow ${run.name}.`,
+							generation: conversationGenRef.current,
+						})
+					}
+					return
+				}
 				if (picker.kind === 'workflow-runs' && input === 'x' && !key.ctrl && !key.meta) {
 					// Stops the highlighted run when it is still going; a finished one has nothing to stop.
 					const chosen = options[selectedChoiceRef.current]
@@ -15408,6 +15567,13 @@ function AppBody({
 		const runId = chosen ? choicePicker.values[choicePicker.options.indexOf(chosen)] : undefined
 		return workflowRunsRef.current.find((run) => run.runId === runId)?.status === 'running'
 	})()
+	const workflowPickerCanResume = (() => {
+		if (choicePicker?.kind !== 'workflow-runs') return false
+		const chosen = filterChoiceOptions(choicePicker.options, choiceQuery)[selectedChoice]
+		const runId = chosen ? choicePicker.values[choicePicker.options.indexOf(chosen)] : undefined
+		const run = workflowRunsRef.current.find((item) => item.runId === runId)
+		return run !== undefined && canResumeRun(run)
+	})()
 	// A run is one workflow, not an agent: the footer says so.
 	const runningWorkflowCount = liveWorkflows.filter((flow) => flow.status === 'running').length
 	// While the rail has the keyboard its key line replaces the footer's mode line.
@@ -15745,7 +15911,7 @@ function AppBody({
 								{...(choicePicker.kind === 'workflow-runs'
 									? {
 											subtitle: choicePicker.subtitle,
-											hints: workflowRunsHints(workflowPickerCanStop),
+											hints: workflowRunsHints(workflowPickerCanStop, workflowPickerCanResume),
 										}
 									: {})}
 								{...(choicePicker.kind === 'account' ? { hints: ACCOUNT_PICKER_HINTS } : {})}
@@ -15758,7 +15924,9 @@ function AppBody({
 										: undefined
 								}
 								{...(choicePicker.kind === 'theme' && terminal.rows >= 26
-									? { extra: <ThemeSample width={Math.max(10, (terminal.columns ?? 80) - 6)} /> }
+									? {
+											extra: <ThemeSample width={Math.max(10, (terminal.columns ?? 80) - 6)} />,
+										}
 									: {})}
 							/>
 						) : permission === null &&
@@ -16219,6 +16387,11 @@ function batchOption(batch: Batch): ChoicePickerOption {
 	return { label: batch.name, description: columns.join(' · ') }
 }
 
+/** A run that is not going and was not saved before resuming was possible can be picked up again. */
+function canResumeRun(run: WorkflowRunView): boolean {
+	return run.status !== 'running' && run.resumable !== 'legacy'
+}
+
 /** `1 running, 2 finished`: the runs of the list, by whether they are still going. */
 function workflowRunsSubtitle(runs: readonly Pick<WorkflowRunView, 'status'>[]): string {
 	const running = runs.filter((run) => run.status === 'running').length
@@ -16226,10 +16399,11 @@ function workflowRunsSubtitle(runs: readonly Pick<WorkflowRunView, 'status'>[]):
 }
 
 /** The `/workflows` list's own key hints: Enter opens a run, `x` stops one that is going. */
-function workflowRunsHints(canStop: boolean): { text: string; rank: number }[] {
+function workflowRunsHints(canStop: boolean, canResume: boolean): { text: string; rank: number }[] {
 	return [
 		{ text: 'enter to view', rank: 5 },
 		...(canStop ? [{ text: 'x to stop', rank: 3 }] : []),
+		...(canResume ? [{ text: 'r to resume', rank: 3 }] : []),
 		{ text: 'esc to close', rank: 4 },
 	]
 }
@@ -16244,6 +16418,9 @@ function workflowRunOption(run: WorkflowRunView): ChoicePickerOption {
 		run.status === 'running' ? 'running' : endWord(run.status),
 		formatElapsed((run.endedAt ?? Date.now()) - run.startedAt),
 		workflowAgentProgress(counts),
+		...(run.pass !== undefined && run.pass > 1
+			? [`pass ${run.pass}, ${run.agents.filter((agent) => agent.cached).length} saved`]
+			: []),
 		...(tokens > 0 ? [`${formatCompactCount(tokens)} tokens`] : []),
 		relativeStart(run.startedAt),
 	]

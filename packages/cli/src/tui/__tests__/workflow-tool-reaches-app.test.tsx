@@ -35,6 +35,14 @@ const flows = vi.hoisted(() => {
 	let history: readonly unknown[] = []
 	const subscribers = new Set<() => void>()
 	const endListeners = new Set<(end: { view: unknown }) => void>()
+	const recovered: {
+		runId: string
+		runIds: string[]
+		name: string
+		text: string
+		line: string
+	}[] = []
+	const delivered: string[][] = []
 	const calls = {
 		stop: [] as string[],
 		skip: [] as [string, number][],
@@ -42,6 +50,8 @@ const flows = vi.hoisted(() => {
 	}
 	return {
 		calls,
+		recovered,
+		delivered,
 		source: {
 			runs: () => runs,
 			subscribe: (listener: () => void) => {
@@ -58,6 +68,22 @@ const flows = vi.hoisted(() => {
 			},
 			agentOf: () => undefined,
 			history: async () => history,
+			readScript: () => undefined,
+			describeResume: () => ({
+				runId: '',
+				pass: 1,
+				previousFinish: 'unfinished' as const,
+				resumable: false,
+				legacy: false,
+				saved: 0,
+				unfinished: 0,
+				failed: 0,
+				problems: [],
+			}),
+			recoverUnfinished: async () => [...recovered],
+			noticesDelivered: async (ids: readonly string[]) => {
+				delivered.push([...ids])
+			},
 			onEnd: (listener: (end: { view: unknown }) => void) => {
 				endListeners.add(listener)
 				return () => endListeners.delete(listener)
@@ -82,6 +108,8 @@ const flows = vi.hoisted(() => {
 			calls.stop.length = 0
 			calls.skip.length = 0
 			calls.reset = 0
+			recovered.length = 0
+			delivered.length = 0
 		},
 	}
 })
@@ -438,6 +466,40 @@ describe('the conversation', () => {
 	})
 })
 
+describe('runs a previous session left unfinished', () => {
+	it('names the run to the person, does not wake the model, and tells it once with the next turn', async () => {
+		flows.recovered.push({
+			runId: 'wold00001',
+			runIds: ['wold00001'],
+			name: 'nightly',
+			text: 'Background workflow "nightly" (run wold00001) didn\'t finish before the previous session ended.',
+			line: "nightly didn't finish before the last session ended. /workflows to see it or resume it.",
+		})
+		const turns: { text: string; hostContext: readonly string[] }[] = []
+		sendOverride.current = async function* (messages, opts) {
+			turns.push({
+				text: String(messages.at(-1)?.content),
+				hostContext: opts?.hostContext?.() ?? [],
+			})
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		const screen = await start()
+		await waitUntil(screen, () => everything(screen).includes("nightly didn't finish"))
+		// Nobody typed: no turn, and nothing was marked delivered yet.
+		await screen.waitForRender()
+		expect(turns).toHaveLength(0)
+		expect(flows.delivered).toEqual([])
+		screen.press('hello')
+		await screen.waitForRender()
+		screen.press('\r')
+		await waitUntil(screen, () => turns.length === 1)
+		const told = `${turns[0]?.text}\n${turns[0]?.hostContext.join('\n')}`
+		expect(told).toContain('run wold00001')
+		await waitUntil(screen, () => flows.delivered.length > 0)
+		expect(flows.delivered.flat()).toEqual(['wold00001'])
+	})
+})
+
 describe('what the model is told when a run ends', () => {
 	it('wakes an idle session: the model gets a turn that carries it, with no typing', async () => {
 		const turns: { text: string; source: unknown; hostContext: readonly string[] }[] = []
@@ -553,6 +615,52 @@ describe('/workflows', () => {
 		expect(text(screen)).toContain('1/1 agent')
 		expect(text(screen)).toContain('· finished')
 		expect(text(screen)).not.toContain('x to stop')
+	})
+})
+
+describe('resuming from /workflows', () => {
+	const old = (extra: Partial<WorkflowRunView> = {}) =>
+		run({
+			runId: 'wold00001',
+			name: 'nightly',
+			status: 'stopped',
+			startedAt: NOW - 3_600_000,
+			endedAt: NOW - 3_500_000,
+			scriptPath: '/s/nightly-wold00001.js',
+			agents: [agentView(1, 'done', { phaseIndex: 1, phaseTitle: 'Scan' })],
+			...extra,
+		})
+
+	it('offers r on a run that is not going, and r asks the model to make the resume call', async () => {
+		flows.setHistory([old()])
+		const turns: string[] = []
+		sendOverride.current = async function* (messages) {
+			turns.push(String(messages.at(-1)?.content))
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		const screen = await start()
+		screen.press('/workflows')
+		await screen.waitForRender()
+		screen.press('\r')
+		await waitUntil(screen, () => text(screen).includes('r to resume'))
+		screen.press('r')
+		await waitUntil(screen, () => turns.length === 1)
+		expect(turns[0]).toContain('The person asked to resume workflow "nightly" (run wold00001)')
+		expect(turns[0]).toContain(
+			'workflow({scriptPath: "/s/nightly-wold00001.js", resumeFromRunId: "wold00001"})',
+		)
+		// It starts nothing itself: the registry never saw a run.
+		expect(flows.calls.stop).toEqual([])
+	})
+
+	it('does not offer r on a run that is going or was saved before resuming existed', async () => {
+		flows.setHistory([old({ resumable: 'legacy' })])
+		const screen = await start()
+		screen.press('/workflows')
+		await screen.waitForRender()
+		screen.press('\r')
+		await waitUntil(screen, () => text(screen).includes('enter to view'))
+		expect(text(screen)).not.toContain('r to resume')
 	})
 })
 

@@ -164,6 +164,24 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 	install('log', log);
 	install('budget', budget);
 	install('args', config.args);
+	if (config.deterministic) {
+		var RealDate = Date;
+		var clockMessage = 'Date.now() / new Date() are unavailable in workflow scripts (breaks resume). Stamp results after the workflow returns, or pass timestamps through args.';
+		var randomMessage = 'Math.random() is unavailable in workflow scripts (breaks resume). For N independent samples, include the index in the agent label or prompt.';
+		var ShimDate = function Date(a, b, c, d, e, f, g) {
+			if (!new.target || arguments.length === 0) throw new Error(clockMessage);
+			return Reflect.construct(RealDate, Array.prototype.slice.call(arguments), new.target === ShimDate ? RealDate : new.target);
+		};
+		Object.defineProperty(ShimDate, 'prototype', { value: RealDate.prototype, writable: false, configurable: false });
+		Object.defineProperty(ShimDate, 'now', { value: function now() { throw new Error(clockMessage); }, writable: false, configurable: false });
+		Object.defineProperty(ShimDate, 'parse', { value: RealDate.parse, writable: false, configurable: false });
+		Object.defineProperty(ShimDate, 'UTC', { value: RealDate.UTC, writable: false, configurable: false });
+		Object.defineProperty(RealDate.prototype, 'constructor', { value: ShimDate, writable: false, configurable: false });
+		Object.defineProperty(globalThis, 'Date', { value: ShimDate, writable: false, configurable: false, enumerable: false });
+		Object.defineProperty(Math, 'random', { value: function random() { throw new Error(randomMessage); }, writable: false, configurable: false });
+		try { delete globalThis.eval; } catch (ignored) {}
+		Object.freeze(RealDate);
+	}
 })`
 
 /**
@@ -174,6 +192,7 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 export function preludeLineCount(config: {
 	args: unknown
 	tokenLimit: number | null
+	deterministic?: boolean
 }): number {
 	return buildPrelude(config).split('\n').length
 }
@@ -182,6 +201,7 @@ export function preludeLineCount(config: {
 export function buildPrelude(config: {
 	args: unknown
 	tokenLimit: number | null
+	deterministic?: boolean
 }): string {
 	const literal = JSON.stringify(config)
 		.split(String.fromCharCode(0x2028))

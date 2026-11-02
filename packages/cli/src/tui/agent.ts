@@ -430,7 +430,20 @@ import {
 import { listWorkflowRuns } from '../integrations/workflows/history.js'
 import { type WorkflowHost, createWorkflowHost } from '../integrations/workflows/host.js'
 import { workflowRefusal } from '../integrations/workflows/offering.js'
+import {
+	type OrphanNotice,
+	markOrphanNoticesDelivered,
+	recoverUnfinishedWorkflows,
+} from '../integrations/workflows/orphans.js'
 import type { WorkflowRunEnd } from '../integrations/workflows/registry.js'
+import {
+	type ResumeReview,
+	ReviewedScripts,
+	describeResume,
+	readSavedScript,
+	scriptsDirectory,
+	workflowJournalKey,
+} from '../integrations/workflows/resume.js'
 import {
 	parseTokenTarget,
 	sessionWorkflowSizeAdvice,
@@ -1244,6 +1257,14 @@ export interface SessionWorkflows {
 	) => { readonly runId: string; readonly index: number } | undefined
 	/** Every run of this conversation, newest first: the live ones, then the journaled rest. */
 	readonly history: () => Promise<readonly WorkflowRunView[]>
+	/** The text of a script saved by an earlier workflow call, for the review; undefined when it cannot be read. */
+	readonly readScript: (path: string) => string | undefined
+	/** What resuming a run would reuse, from its journal, for the review. */
+	readonly describeResume: (runId: string, script: string | undefined) => ResumeReview
+	/** Runs an earlier process left unfinished: marked stopped and returned once, to tell the model. */
+	readonly recoverUnfinished: () => Promise<readonly OrphanNotice[]>
+	/** Record that a turn gave the model the notices for these runs. */
+	readonly noticesDelivered: (runIds: readonly string[]) => Promise<void>
 	/** Be told once when a run ends, whether or not a turn is running. */
 	readonly onEnd: (listener: (end: WorkflowRunEnd) => void) => () => void
 	/** Resolves once no run is going, or when the signal aborts. */
@@ -3548,6 +3569,8 @@ export async function createAgentSession(
 		}
 	>()
 	let workflowHost: WorkflowHost | undefined
+	/** What the review showed of each saved script, so the run can refuse a file that changed after approval. */
+	const reviewedScripts = new ReviewedScripts()
 	const workflowEndListeners = new Set<(end: WorkflowRunEnd) => void>()
 	const goalToolNames = new Set<string>(SESSION_GOAL_TOOL_NAMES)
 	if (options.sessionGoals) {
@@ -4168,6 +4191,8 @@ export async function createAgentSession(
 		// mounts it only when the operator asked for orchestration (see `send`).
 		workflowHost = createWorkflowHost({
 			subagents: sub,
+			reviewedScripts,
+			journalKey: () => (options.ephemeral ? undefined : workflowJournalKey(paths.home)),
 			runsDirectory: (turnId) => {
 				// An ephemeral session keeps nothing on disk, a journal included.
 				if (options.ephemeral) return undefined
@@ -5702,6 +5727,37 @@ export async function createAgentSession(
 								...saved.filter((view) => !known.has(view.runId)),
 							]
 						},
+						readScript: (path) => {
+							const saved = readSavedScript(
+								path,
+								scriptsDirectory(join(paths.sessionDir({ sessionId: scope.sessionId }), 'runs')),
+							)
+							if (!saved.ok) return undefined
+							reviewedScripts.record(saved.path, saved.text)
+							return saved.text
+						},
+						describeResume: (runId, script) =>
+							describeResume(
+								join(paths.sessionDir({ sessionId: scope.sessionId }), 'runs'),
+								runId,
+								script,
+								options.ephemeral ? undefined : workflowJournalKey(paths.home),
+							),
+						recoverUnfinished: async () => {
+							if (options.ephemeral) return []
+							return recoverUnfinishedWorkflows({
+								runsDirectory: join(paths.sessionDir({ sessionId: scope.sessionId }), 'runs'),
+								liveRunIds: new Set(host.registry.list().map((view) => view.runId)),
+								...(workflowJournalKey(paths.home) !== undefined
+									? { key: workflowJournalKey(paths.home) as string }
+									: {}),
+							})
+						},
+						noticesDelivered: (runIds) =>
+							markOrphanNoticesDelivered(
+								join(paths.sessionDir({ sessionId: scope.sessionId }), 'runs'),
+								runIds,
+							),
 						onEnd: (listener) => {
 							workflowEndListeners.add(listener)
 							return () => workflowEndListeners.delete(listener)
