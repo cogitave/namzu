@@ -421,6 +421,8 @@ export interface SlashContext {
 			readonly windowAssumed: boolean
 			/** Where the window figure came from, when the kernel said. */
 			readonly windowSource?: 'config' | 'provider' | 'model-table' | 'default'
+			/** The auto-compact size that the model's window capped. */
+			readonly windowRequested?: number
 		}
 	} | null
 	/** What decides a tool call right now — flags, config, and session state. */
@@ -1896,6 +1898,11 @@ function contextMeasurement(usage: SlashContext['usage'], details = false): stri
 	return [
 		`Context: ${context.tokens.toLocaleString('en-US')} / ${context.windowTokens.toLocaleString('en-US')} tokens (${approx}${percent}%)`,
 		`${context.measured ? 'Counted by the provider' : 'Estimated by Namzu'}; window ${context.windowAssumed ? 'assumed from a table or default' : 'declared by the provider or config'}.`,
+		...(context.windowRequested !== undefined
+			? [
+					`Auto-compact window ${context.windowRequested.toLocaleString('en-US')} is capped to the model's own window; the setting can only lower it.`,
+				]
+			: []),
 	]
 }
 

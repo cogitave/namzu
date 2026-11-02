@@ -23,7 +23,8 @@ different endpoint.
 | `NAMZU_SMALL_MODEL` | Side-job model, replacing `smallModel` for this process. Accepts a bare id or `provider/model`. |
 | `NAMZU_SUBAGENT_MODEL` | Default model for ordinary delegated agents, as a bare id on the parent's provider or `provider/model`. Explicit child choices and pinned agent files win; a fork retains its parent model. |
 | `NAMZU_MAX_OUTPUT_TOKENS` | Positive safe-integer output allowance per call, including reasoning. `--max-output-tokens` wins. |
-| `NAMZU_AUTO_COMPACT_WINDOW` | Positive safe-integer window used for automatic summaries. Capped to the actual model context; does not declare a larger provider context. |
+| `NAMZU_AUTO_COMPACT_WINDOW` | Window used for automatic summaries: a plain number or one with a `k`/`m` suffix (`786k`, `200000`, `1m`), clamped to 100k..1M with a one-line warning, a non-size ignored with a warning. Capped to the actual model context (the smaller of the two wins); it cannot declare a larger context. |
+| `NAMZU_DISABLE_1M_CONTEXT` | `1`, `true`, `yes` or `on`: a model id ending in `[1m]` stops declaring a million-token window, and no window above 200,000 is assumed from a driver or the table. |
 
 Main provider/model/effort exports apply to interactive launches and both
 `exec` output modes. They are launch defaults, not saved preferences or a
@@ -46,8 +47,25 @@ export NAMZU_AUTO_COMPACT_WINDOW=786432
 namzu
 ```
 
-Use the endpoint's actual model identifiers. Suffixes another application's
-model resolver interprets are not automatically part of those identifiers.
+Use the endpoint's actual model identifiers. One suffix is Namzu's own: an id
+ending in `[1m]` (any case) declares a one-million-token window for any model,
+recognised or not, and is removed before the id reaches a driver or a wire.
+`--model`, `/model`, `NAMZU_MODEL`, `NAMZU_SUBAGENT_MODEL`, `NAMZU_SMALL_MODEL`
+and the config file all honour it, and the UI shows the id as written:
+
+```bash
+export NAMZU_PROVIDER=deepseek
+export NAMZU_MODEL='deepseek-flash[1m]'
+export NAMZU_SUBAGENT_MODEL=deepseek-flash
+export NAMZU_EFFORT_LEVEL=max
+export NAMZU_AUTO_COMPACT_WINDOW=786k
+```
+
+An explicit `compaction.contextWindowTokens` outranks the suffix. Other
+suffixes another application's model resolver interprets are not part of any
+identifier here. Tier aliases such as an opus or sonnet name have nothing to
+remap in Namzu: models are named directly, a model per role is the pair
+`NAMZU_SUBAGENT_MODEL` and `NAMZU_SMALL_MODEL`.
 
 The output and compact-window exports overlay only their matching member of
 `limits` and `compaction`; file-defined turn guards and compaction strategy are

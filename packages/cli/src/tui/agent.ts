@@ -206,11 +206,13 @@ import {
 	resolveContextWindow,
 	resumeSession,
 	seedObservationLedger,
+	stripModelWindowSuffix,
 	toPlatformError,
 	toolset,
 	untrustedEnvelopeBody,
 	webGuidanceContribution,
 	windowsShellNotice,
+	withModelWindowSuffixStripped,
 	wrapUntrusted,
 } from '@namzu/sdk'
 import {
@@ -236,6 +238,7 @@ import {
 	withCheckpoints,
 	withShellNote,
 } from '../checkpoints/wrap.js'
+import { takeConfigWarnings } from '../config/load.js'
 import { readModelLaunchEnvironment } from '../config/model-environment.js'
 import type {
 	CodeAnalysisConfig,
@@ -5929,6 +5932,7 @@ export async function createAgentSession(
 				(line) => `Provider chain: capabilities could not be established for ${line}.`,
 			),
 			...fallbackPlan.notices,
+			...takeConfigWarnings(),
 			...memoryMigrationNotices,
 		],
 		rememberNote: (text, type) => saveTypedNote(memoryStore, text, type),
@@ -6846,7 +6850,23 @@ function planFallbacks(
 	}
 }
 
+/**
+ * Build the driver for `model`. A `[1m]` suffix on the id is Namzu's marker for
+ * a one-million-token window, never part of a vendor's name, so the driver is
+ * built with the bare id and every request it later sees is stripped too.
+ */
 export function constructProvider(
+	id: ProviderId,
+	det: DetectedProvider | null,
+	model: string,
+	context: { readonly sessionId?: string } = {},
+): LLMProvider {
+	return withModelWindowSuffixStripped(
+		constructBareProvider(id, det, stripModelWindowSuffix(model), context),
+	)
+}
+
+function constructBareProvider(
 	id: ProviderId,
 	det: DetectedProvider | null,
 	model: string,
