@@ -9,11 +9,13 @@ import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { testToolset } from '../../../test-support/toolset.js'
 import { GrepTool } from '../../../tools/builtins/grep.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { TenantId } from '../../../types/ids/index.js'
 import { type Message, createUserMessage } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { generateSessionId } from '../../../utils/id.js'
 import { type QueryParams, drainQuery } from '../index.js'
+import { createReviewHandler } from '../review-policy.js'
 
 /**
  * `grep` through the real executor and a real authorization gate: a path a
@@ -50,6 +52,7 @@ describe('a search under a read deny rule', () => {
 		await writeFile(join(cwd, '.env'), 'needle=SECRET_VALUE\n')
 		await writeFile(join(cwd, 'a.txt'), 'needle\n')
 		const tools = testToolset(GrepTool)
+		const registry = new ToolManager({ toolsets: [tools], messages: () => [] })
 		const sessionId = generateSessionId()
 		const result = await drainQuery({
 			provider: new MockLLMProvider({
@@ -88,6 +91,7 @@ describe('a search under a read deny rule', () => {
 					},
 				],
 			},
+			resumeHandler: createReviewHandler({ mode: 'auto', registry }),
 			sessionId,
 			sessionLog: new InMemorySessionLog({ sessionId }),
 			...ids,
