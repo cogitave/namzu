@@ -218,3 +218,17 @@ describe('the real library', async () => {
 		expect(await make(result.data).metadata()).toMatchObject({ width: 2000, height: 1000 })
 	})
 })
+
+describe('the common case', () => {
+	it('does not load the image library for an image its header shows is inside the limits', async () => {
+		let loads = 0
+		const result = await fitImage(png(800, 600, 5_000), {
+			loadSharp: async () => {
+				loads += 1
+				return null
+			},
+		})
+		expect(result.ok).toBe(true)
+		expect(loads).toBe(0)
+	})
+})

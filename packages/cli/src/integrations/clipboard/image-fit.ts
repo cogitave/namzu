@@ -179,6 +179,15 @@ export async function fitImage(input: Buffer, deps: FitDeps = {}): Promise<FitRe
 	const format = sniffImageFormat(input)
 	if (format === null) return { ok: false, message: MESSAGE_NOT_AN_IMAGE }
 
+	// The common case needs no library: the file's own header says it is inside
+	// the limits, so it is attached as it is and the library is never loaded.
+	if (format !== 'image/bmp' && input.length <= limits.targetRawSize) {
+		const quick = headerDimensions(input, format)
+		if (quick !== null && withinDimensions(quick, limits)) {
+			return { ok: true, data: input, mediaType: format }
+		}
+	}
+
 	const sharp = await (deps.loadSharp ?? loadSharp)()
 	if (sharp === null) return fitWithoutLibrary(input, format, limits)
 

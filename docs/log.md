@@ -2,7 +2,8 @@
 
 ## 2026-11-02
 
-- **Update** [Pasting images into the composer](cli/clipboard-and-images.md): images over 5 MiB (base64) are refused at paste time, a failing clipboard reader is reported as a failure rather than an empty clipboard, non-Latin file names survive an Explorer copy, `C:\...` paths attach on native Windows, and pasted paths carry no permission check. `.changeset/paste-images-on-wsl.md` (`@namzu/cli` minor).
+- **Update** [Pasting images into the composer](cli/clipboard-and-images.md): images are shrunk to the provider's limits (2000 px, 3.75 MiB raw, 5 MiB base64) with the optional `sharp` dependency, BMP is read on Linux and converted, a key press with no image pastes the clipboard text, pasted paths follow the read policy and `/add-dir`, a chip after text gets a leading space, and `NAMZU_NO_CLIPBOARD=1` stops clipboard programs. `.changeset/paste-images-on-wsl.md` (`@namzu/cli` minor).
+- **Update** [Pasting images into the composer](cli/clipboard-and-images.md): images over 5 MiB (base64) are refused at paste time, a failing clipboard reader is reported as a failure rather than an empty clipboard, non-Latin file names survive an Explorer copy, `C:\...` paths attach on native Windows. `.changeset/paste-images-on-wsl.md` (`@namzu/cli` minor).
 - **Creation** [Pasting images into the composer](cli/clipboard-and-images.md): keys per platform (`alt+v` on Windows, `ctrl+v` and `alt+v` on WSL), the PowerShell route from WSL to the Windows clipboard, the empty-paste trigger, attaching pasted or dropped image paths, and the messages. `.changeset/paste-images-on-wsl.md` (`@namzu/cli` minor).
 
 ## 2026-11-01
