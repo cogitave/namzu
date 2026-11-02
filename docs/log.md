@@ -2,6 +2,7 @@
 
 ## 2026-11-02
 
+- **Update** [Pasting images into the composer](cli/clipboard-and-images.md): a pasted image path is read wherever it is (a Windows screenshot under `/mnt/c` attaches) and only a deny rule refuses it; an ask rule and the folder reach no longer refuse. `.changeset/paste-images-on-wsl.md` (`@namzu/cli` minor).
 - **Update** [Pasting images into the composer](cli/clipboard-and-images.md): images are shrunk to the provider's limits (2000 px, 3.75 MiB raw, 5 MiB base64) with the optional `sharp` dependency, BMP is read on Linux and converted, a key press with no image pastes the clipboard text, pasted paths follow the read policy and `/add-dir`, a chip after text gets a leading space, and `NAMZU_NO_CLIPBOARD=1` stops clipboard programs. `.changeset/paste-images-on-wsl.md` (`@namzu/cli` minor).
 - **Update** [Pasting images into the composer](cli/clipboard-and-images.md): a resized image keeps its EXIF orientation (turned upright), an animated GIF that would need shrinking is refused instead of losing its frames, and a missing pasted path stays text instead of being reported as outside the folders. `.changeset/paste-images-on-wsl.md` (`@namzu/cli` minor).
 - **Update** [Pasting images into the composer](cli/clipboard-and-images.md): images over 5 MiB (base64) are refused at paste time, a failing clipboard reader is reported as a failure rather than an empty clipboard, non-Latin file names survive an Explorer copy, `C:\...` paths attach on native Windows. `.changeset/paste-images-on-wsl.md` (`@namzu/cli` minor).

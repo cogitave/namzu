@@ -1530,12 +1530,10 @@ function AppBody({
 	const trustedCwdRef = useRef(pinTrustedProjectPath(initialCtx, initialCtx.cwd))
 	const [ctx, setCtx] = useState(initialCtx)
 	const ctxRef = useRef(initialCtx)
-	// A pasted image path answers to the same read policy the `read` tool does.
+	// A pasted image path is read unless a deny rule names it.
 	const imageReadPolicy = useMemo(
 		() =>
 			createImageReadPolicy({
-				cwd: () => ctxRef.current.cwd,
-				additionalDirectories: () => ctxRef.current.additionalDirectories ?? [],
 				rules: () => ctxRef.current.rules,
 			}),
 		[],

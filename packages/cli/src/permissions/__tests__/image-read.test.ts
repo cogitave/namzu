@@ -17,54 +17,63 @@ afterEach(() => {
 })
 
 describe('reading a pasted image path', () => {
-	it('allows a file inside the working directory', async () => {
+	it('reads a file inside the working directory', async () => {
 		const cwd = scratch()
-		const policy = createImageReadPolicy({ cwd: () => cwd })
+		const policy = createImageReadPolicy({})
 		expect(await policy(join(cwd, 'shot.png'))).toBeNull()
 	})
 
-	it('refuses a file outside every folder, and says how to widen the reach', async () => {
+	it('reads a file outside the project, because the operator pasted it themself', async () => {
 		const cwd = scratch()
 		const elsewhere = scratch()
-		const policy = createImageReadPolicy({ cwd: () => cwd })
-		const message = await policy(join(elsewhere, 'shot.png'))
-		expect(message).toContain('outside the folders this session can read')
-		expect(message).toContain('/add-dir')
-	})
-
-	it('allows a file in an added directory', async () => {
-		const cwd = scratch()
-		const added = scratch()
-		const policy = createImageReadPolicy({ cwd: () => cwd, additionalDirectories: () => [added] })
-		expect(await policy(join(added, 'a.png'))).toBeNull()
-	})
-
-	it('follows a link out of the folder instead of trusting its spelling', async () => {
-		const cwd = scratch()
-		const outside = scratch()
-		writeFileSync(join(outside, 'secret.png'), 'x')
-		symlinkSync(outside, join(cwd, 'link'))
-		const policy = createImageReadPolicy({ cwd: () => cwd })
-		expect(await policy(join(cwd, 'link', 'secret.png'))).toContain('outside the folders')
+		const policy = createImageReadPolicy({
+			rules: () => [pathRule('read', 'private/**', 'deny', { cwd })],
+		})
+		expect(await policy(join(elsewhere, 'shot.png'))).toBeNull()
 	})
 
 	it('refuses a path a deny rule names, even inside the working directory', async () => {
 		const cwd = scratch()
 		mkdirSync(join(cwd, 'private'))
 		const policy = createImageReadPolicy({
-			cwd: () => cwd,
 			rules: () => [pathRule('read', 'private/**', 'deny', { cwd })],
 		})
 		expect(await policy(join(cwd, 'private', 'a.png'))).toContain('permission rule keeps')
 		expect(await policy(join(cwd, 'public.png'))).toBeNull()
 	})
 
-	it('refuses a path an ask rule names, because nobody is there to answer', async () => {
+	it('refuses a path outside the project that a deny rule names', async () => {
+		const elsewhere = scratch()
+		const policy = createImageReadPolicy({
+			rules: () => [pathRule('read', `/${elsewhere}/**`, 'deny', { cwd: elsewhere })],
+		})
+		expect(await policy(join(elsewhere, 'a.png'))).toContain('permission rule keeps')
+	})
+
+	it('refuses a link whose target a deny rule names', async () => {
+		const cwd = scratch()
+		const vault = scratch()
+		writeFileSync(join(vault, 'secret.png'), 'x')
+		symlinkSync(join(vault, 'secret.png'), join(cwd, 'innocent.png'))
+		const policy = createImageReadPolicy({
+			rules: () => [pathRule('read', `/${vault}/**`, 'deny', { cwd: vault })],
+		})
+		expect(await policy(join(cwd, 'innocent.png'))).toContain('permission rule keeps')
+	})
+
+	it('does not refuse a path an ask rule names', async () => {
 		const cwd = scratch()
 		const policy = createImageReadPolicy({
-			cwd: () => cwd,
 			rules: () => [pathRule('read', '**/*.png', 'ask', { cwd })],
 		})
-		expect(await policy(join(cwd, 'a.png'))).toContain('asks before reading')
+		expect(await policy(join(cwd, 'a.png'))).toBeNull()
+	})
+
+	it('leaves a missing file to the reader, which keeps the paste as text', async () => {
+		const cwd = scratch()
+		const policy = createImageReadPolicy({
+			rules: () => [pathRule('read', 'private/**', 'deny', { cwd })],
+		})
+		expect(await policy(join(cwd, 'gone.png'))).toBeNull()
 	})
 })

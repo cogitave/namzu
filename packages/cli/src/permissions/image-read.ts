@@ -1,26 +1,18 @@
 /**
  * May a pasted or dropped image file be read?
  *
- * A path in a paste is a file read the operator asked for, but it is still the
- * CLI reading a file, so it answers to the same policy the `read` tool does:
- * the permission rules decide first (a `deny` or an `ask` on the path refuses
- * it), then the folders the session reaches (the working directory and the
- * ones `/add-dir` added). A path outside them is refused with a sentence that
- * says how to widen the reach, never read and never sent anywhere.
+ * The operator put the path in the composer themself, so the file is read
+ * wherever it lives: a screenshot on the Windows desktop, reached through
+ * `/mnt/c`, is as welcome as one in the project. The one thing that stops the
+ * read is a `deny` rule for the path, checked on the path as written and on
+ * the file a link leads to. A rule that only asks does not refuse it (the
+ * operator already chose this file), and the folders the session reaches do
+ * not matter. A refused path is never read and never sent anywhere.
  */
 
-import {
-	AuthorizationGate,
-	type AuthorizationRule,
-	NOOP_LOGGER,
-	resolveWithinReal,
-} from '@namzu/sdk'
+import { AuthorizationGate, type AuthorizationRule, NOOP_LOGGER } from '@namzu/sdk'
 
 export interface ImageReadPolicyOptions {
-	/** The working directory, read at each check. */
-	readonly cwd: () => string
-	/** The session's added directories, read at each check. */
-	readonly additionalDirectories?: () => readonly string[]
 	/** The operator's permission rules, read at each check. */
 	readonly rules?: () => readonly AuthorizationRule[] | undefined
 }
@@ -31,34 +23,22 @@ export type ImageReadPolicy = (path: string) => Promise<string | null>
 export function createImageReadPolicy(options: ImageReadPolicyOptions): ImageReadPolicy {
 	return async (path) => {
 		const rules = options.rules?.() ?? []
-		if (rules.length > 0) {
-			const gate = new AuthorizationGate(
-				{
-					enabled: true,
-					rules: [...rules],
-					allowReadOnlyTools: false,
-					denyDangerousPatterns: false,
-					logDecisions: false,
-				},
-				NOOP_LOGGER,
-			)
-			const verdict = gate.evaluate({ toolName: 'read', toolInput: { path }, toolDef: undefined })
-			if (verdict.matchedRule !== null && verdict.decision === 'deny') {
-				return `A permission rule keeps this session from reading ${path}.`
-			}
-			if (verdict.matchedRule !== null && verdict.decision === 'review') {
-				return `A permission rule asks before reading ${path}, so it was not attached. Ask the agent to read it instead, or change the rule.`
-			}
+		if (rules.length === 0) return null
+		const gate = new AuthorizationGate(
+			{
+				enabled: true,
+				rules: [...rules],
+				allowReadOnlyTools: false,
+				denyDangerousPatterns: false,
+				logDecisions: false,
+			},
+			NOOP_LOGGER,
+		)
+		// The rule looks through links itself, so a link into a denied folder is refused too.
+		const verdict = gate.evaluate({ toolName: 'read', toolInput: { path }, toolDef: undefined })
+		if (verdict.matchedRule !== null && verdict.decision === 'deny') {
+			return `A permission rule keeps this session from reading ${path}.`
 		}
-		const roots = [options.cwd(), ...(options.additionalDirectories?.() ?? [])]
-		for (const root of roots) {
-			try {
-				await resolveWithinReal(root, path)
-				return null
-			} catch {
-				// Not inside this one; try the next.
-			}
-		}
-		return `${path} is outside the folders this session can read. Add its folder with /add-dir, or copy the image into the project.`
+		return null
 	}
 }

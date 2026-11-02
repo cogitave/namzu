@@ -41,7 +41,7 @@ The script is fixed text. No part of the clipboard or of anything you type is pl
 
 A paste made only of paths to `.png`, `.jpg`, `.jpeg`, `.gif` or `.webp` files, such as a file dragged onto the terminal, attaches the files instead of inserting text. Quoted and backslash-escaped paths work, and several paths make several chips. On Windows and WSL, `C:\...` paths and paths on this distribution's own share (`\\wsl$\<distro>\...`, `\\wsl.localhost\<distro>\...`) are converted. Each file must start with image bytes and be under 64 MiB.
 
-A path answers to the same read policy as the `read` tool. A permission rule that denies or asks about the path refuses it, and so does a path outside the working directory and the folders added with `/add-dir`; the message says which, and the path is left in the draft as text. To attach an image from elsewhere, add its folder with `/add-dir` or copy the image into the project. A path that does not exist or cannot be read is not an image to refuse; it stays in the draft as text. "Don't ask again" answers given in earlier prompts are not consulted for this check, so an image kept outside the folders is attached only after its folder is added.
+A path is read wherever it lives, because you pasted it yourself: a screenshot on the Windows desktop (`C:\Users\...\Desktop\shot.png`, reached as `/mnt/c/...`) attaches like one in the project, and the folders added with `/add-dir` do not matter. One thing refuses it: a `read` permission rule that denies the path, or the file a link at that path leads to. A rule that only asks does not refuse it. A refused path is not read, and is left in the draft as text with a message. A path that does not exist or cannot be read is not an image to refuse; it stays in the draft as text.
 
 If any piece of the paste is not a readable image, the whole paste is inserted as ordinary text.
 
@@ -57,7 +57,7 @@ If any piece of the paste is not a readable image, the whole paste is inserted a
 | This image is too large to attach and image resizing is unavailable. ... | The image is over the limits and the optional image library is not installed. |
 | This image is too large to attach, even after shrinking it. ... | Even the smallest form still does not fit; save a smaller copy. |
 | This image format needs image processing, which is unavailable here. ... | A BMP (or other non-web format) arrived and the optional image library is not installed. |
-| A permission rule keeps this session from reading ... / ... is outside the folders this session can read. | A pasted path was refused by the read policy. |
+| A permission rule keeps this session from reading ... | A deny rule names the pasted path. |
 
 ## Limits
 
