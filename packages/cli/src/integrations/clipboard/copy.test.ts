@@ -1,7 +1,8 @@
+import type { spawn } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
 	type ClipboardRunner,
@@ -10,6 +11,7 @@ import {
 	POWERSHELL_COPY_SCRIPT,
 	bypassKey,
 	createClipboardCopier,
+	createRunner,
 	describeCopy,
 	realRunner,
 } from './copy.js'
@@ -468,7 +470,12 @@ describe('what the operator is told', () => {
 
 describe('the real runner', () => {
 	const dirs: string[] = []
+	// These run a harmless node child, never a clipboard tool.
+	beforeEach(() => {
+		vi.stubEnv('NAMZU_NO_CLIPBOARD', '')
+	})
 	afterEach(() => {
+		vi.unstubAllEnvs()
 		vi.useRealTimers()
 		for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true })
 	})
@@ -493,5 +500,51 @@ describe('the real runner', () => {
 		const pending = realRunner(process.execPath, ['-e', 'setInterval(()=>{},1000)'], 'x', 2000)
 		await vi.advanceTimersByTimeAsync(2000)
 		expect(await pending).toBe('timeout')
+	})
+})
+
+describe('the clipboard kill switch', () => {
+	afterEach(() => vi.unstubAllEnvs())
+
+	const throwingSpawn = (calls: string[]): typeof spawn =>
+		((command: string) => {
+			calls.push(command)
+			throw new Error('a clipboard tool was started')
+		}) as unknown as typeof spawn
+
+	it('starts nothing and reports the tool unavailable under NAMZU_NO_CLIPBOARD=1', async () => {
+		vi.stubEnv('NAMZU_NO_CLIPBOARD', '1')
+		const calls: string[] = []
+		const run = createRunner(throwingSpawn(calls))
+		expect(await run('powershell.exe', ['-Command', 'x'], 'secret', 2000)).toBe(false)
+		expect(await run('pbcopy', [], 'secret', 2000)).toBe(false)
+		expect(calls).toEqual([])
+	})
+
+	it('lets the terminal request follow when every tool is off', async () => {
+		vi.stubEnv('NAMZU_NO_CLIPBOARD', '1')
+		const calls: string[] = []
+		const written: string[] = []
+		const copier = createClipboardCopier(
+			{ isTTY: true, write: (d) => void written.push(d) },
+			{
+				platform: 'linux',
+				env: { WSL_DISTRO_NAME: 'x' },
+				which: () => '/usr/bin/tool',
+				exists: () => true,
+				run: createRunner(throwingSpawn(calls)),
+			},
+		)
+		const outcome = await copier.copy('hello')
+		expect(calls).toEqual([])
+		expect(outcome).toMatchObject({ native: null, osc52: 'sent', tmuxBuffer: false })
+		expect(written).toEqual([OSC('hello')])
+	})
+
+	it('only the value 1 turns it on', async () => {
+		vi.stubEnv('NAMZU_NO_CLIPBOARD', '0')
+		const calls: string[] = []
+		await createRunner(throwingSpawn(calls))('tool', [], 'x', 2000)
+		expect(calls).toEqual(['tool'])
 	})
 })

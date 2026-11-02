@@ -90,35 +90,63 @@ export const POWERSHELL_COPY_SCRIPT = [
 
 const POWERSHELL_ARGS = ['-NoProfile', '-NonInteractive', '-Command', POWERSHELL_COPY_SCRIPT]
 
-export const realRunner: ClipboardRunner = (command, args, input, timeoutMs, extraEnv) =>
-	new Promise((resolve) => {
-		let settled = false
-		const done = (ok: boolean | 'timeout'): void => {
-			if (settled) return
-			settled = true
-			clearTimeout(timer)
-			resolve(ok)
-		}
-		let child: ReturnType<typeof spawn> | undefined
-		const timer = setTimeout(() => {
-			child?.kill('SIGKILL')
-			done('timeout')
-		}, timeoutMs)
-		try {
-			child = spawn(command, [...args], {
-				stdio: ['pipe', 'ignore', 'ignore'],
-				windowsHide: true,
-				env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
-			})
-		} catch {
-			done(false)
-			return
-		}
-		child.on('error', () => done(false))
-		child.on('close', (code) => done(code === 0))
-		child.stdin?.on('error', () => done(false))
-		child.stdin?.end(Buffer.from(input, 'utf8'))
-	})
+/** The process-wide switch: `NAMZU_NO_CLIPBOARD=1` turns off every clipboard tool. */
+export const CLIPBOARD_KILL_SWITCH = 'NAMZU_NO_CLIPBOARD'
+
+/**
+ * The runner over a given `spawn`. With `NAMZU_NO_CLIPBOARD=1` in the process
+ * environment it starts nothing and says the tool is unavailable, so the
+ * terminal request or the toast follows as on a machine with no tool.
+ */
+export function createRunner(spawnProcess: typeof spawn): ClipboardRunner {
+	return (command, args, input, timeoutMs, extraEnv) =>
+		new Promise((resolve) => {
+			if (process.env[CLIPBOARD_KILL_SWITCH] === '1') {
+				resolve(false)
+				return
+			}
+			spawnAndFeed(spawnProcess, command, args, input, timeoutMs, extraEnv, resolve)
+		})
+}
+
+function spawnAndFeed(
+	spawnProcess: typeof spawn,
+	command: string,
+	args: readonly string[],
+	input: string,
+	timeoutMs: number,
+	extraEnv: Readonly<Record<string, string>> | undefined,
+	resolve: (ok: boolean | 'timeout') => void,
+): void {
+	let settled = false
+	const done = (ok: boolean | 'timeout'): void => {
+		if (settled) return
+		settled = true
+		clearTimeout(timer)
+		resolve(ok)
+	}
+	let child: ReturnType<typeof spawn> | undefined
+	const timer = setTimeout(() => {
+		child?.kill('SIGKILL')
+		done('timeout')
+	}, timeoutMs)
+	try {
+		child = spawnProcess(command, [...args], {
+			stdio: ['pipe', 'ignore', 'ignore'],
+			windowsHide: true,
+			env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
+		})
+	} catch {
+		done(false)
+		return
+	}
+	child.on('error', () => done(false))
+	child.on('close', (code) => done(code === 0))
+	child.stdin?.on('error', () => done(false))
+	child.stdin?.end(Buffer.from(input, 'utf8'))
+}
+
+export const realRunner: ClipboardRunner = createRunner(spawn)
 
 function realWhich(name: string, env: NodeJS.ProcessEnv): string | null {
 	for (const directory of (env.PATH ?? '').split(delimiter)) {
