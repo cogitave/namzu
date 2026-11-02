@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { Rect, UiElement, UiElementAction } from '@namzu/sdk'
 
 /**
@@ -30,17 +31,68 @@ export interface CuaUiElement {
 	readonly parent_index?: unknown
 }
 
-/** What `uiAct` needs to know about a ref: the element's current value, for set_value's fallback. */
+/**
+ * What `uiAct` knows about a ref: the element's identity evidence (role, name,
+ * automation id), which finds it again in a later tree, and the state it had
+ * when it was read, which a read-back compares against.
+ */
 export interface UiRefFacts {
+	readonly role: string
+	readonly name: string
+	readonly automationId?: string
 	readonly value?: string
+	readonly selected: boolean
+	readonly actions: readonly UiElementAction[]
+	/** Child indexes from the root to the element when it was read: its place in the tree. */
+	readonly path: readonly number[]
+	/**
+	 * Another control with this role and name (and no id of its own to tell them
+	 * apart) was in the window when this one was read. Such a control is found
+	 * again by its place only while the tree has not changed shape.
+	 */
+	readonly twin?: boolean
+	/** How many children the node had; tells a nameless container from another one of its role. */
+	readonly childCount?: number
+	/** The shape of the whole tree this was read from; absent for a partial (query) read. */
+	readonly treeSig?: string
+}
+
+/** One node of a read tree, whether or not it can be acted on. */
+export interface UiNode {
+	readonly path: readonly number[]
+	readonly role: string
+	readonly name: string
+	readonly automationId?: string
+	/** The driver's handle for the node; empty for one the host cannot act on. */
+	readonly token: string
+	/** The node with its subtree, driver tokens still in `ref`. */
+	readonly element: UiElement
+	/** Present when `token` is. */
+	readonly facts?: UiRefFacts
 }
 
 export interface ParsedUiTree {
 	readonly root: UiElement
 	/** Every ref in the tree, with what `uiAct` needs about it. */
 	readonly refs: ReadonlyMap<string, UiRefFacts>
+	/** Every node, in tree order, with its path. */
+	readonly nodes: readonly UiNode[]
 	readonly count: number
+	/** A digest of every node's place, role, name and id: equal for a tree that kept its shape. */
+	readonly signature: string
 }
+
+/** Controls that hold no other controls. */
+const LEAF_ROLES: ReadonlySet<string> = new Set([
+	'Button',
+	'Hyperlink',
+	'CheckBox',
+	'RadioButton',
+	'Edit',
+	'Slider',
+	'ScrollBar',
+	'Image',
+])
 
 /** cua-driver's pattern names → the actions this host performs for them. */
 const PATTERN_ACTIONS: Readonly<Record<string, readonly UiElementAction[]>> = {
@@ -146,20 +198,155 @@ function automationIdOf(attributes: string): string | undefined {
 	return /\[(?:[^\]]*\s)?id=([A-Za-z0-9_.:-]+)/.exec(attributes)?.[1]
 }
 
-function freeze(element: MutableElement): UiElement {
-	const { children, ...rest } = element
-	return Object.freeze({
-		...rest,
-		...(children.length > 0 ? { children: Object.freeze(children.map(freeze)) } : {}),
-	}) as UiElement
+function collectRefs(
+	element: MutableElement,
+	path: readonly number[],
+	into: Map<string, UiRefFacts>,
+	nodes: Map<MutableElement, { path: readonly number[]; facts?: UiRefFacts }>,
+): number {
+	let count = 1
+	let facts: UiRefFacts | undefined
+	if (element.ref) {
+		facts = {
+			role: element.role,
+			name: element.name,
+			...(element.automationId !== undefined ? { automationId: element.automationId } : {}),
+			...(element.value !== undefined ? { value: element.value } : {}),
+			selected: element.states?.includes('selected') === true,
+			actions: element.actions ?? [],
+			path,
+		}
+		into.set(element.ref, facts)
+	}
+	nodes.set(element, { path, ...(facts ? { facts } : {}) })
+	element.children.forEach((child, index) => {
+		count += collectRefs(child, [...path, index], into, nodes)
+	})
+	return count
 }
 
-function collectRefs(element: MutableElement, into: Map<string, UiRefFacts>): number {
-	let count = 1
-	if (element.ref)
-		into.set(element.ref, element.value !== undefined ? { value: element.value } : {})
-	for (const child of element.children) count += collectRefs(child, into)
-	return count
+/** The frozen form of a mutable tree, also listing every node in order. */
+function freezeWithNodes(
+	root: MutableElement,
+	places: Map<MutableElement, { path: readonly number[]; facts?: UiRefFacts }>,
+): { root: UiElement; nodes: UiNode[] } {
+	const nodes: UiNode[] = []
+	const build = (element: MutableElement): UiElement => {
+		const { children, ...rest } = element
+		// Reserve this node's place so the list stays in tree order.
+		const index = nodes.length
+		nodes.push(undefined as unknown as UiNode)
+		const frozenChildren = children.map(build)
+		const frozen = Object.freeze({
+			...rest,
+			...(frozenChildren.length > 0 ? { children: Object.freeze(frozenChildren) } : {}),
+		}) as UiElement
+		const place = places.get(element)
+		nodes[index] = {
+			path: place?.path ?? [],
+			role: element.role,
+			name: element.name,
+			...(element.automationId !== undefined ? { automationId: element.automationId } : {}),
+			token: element.ref,
+			element: frozen,
+			...(place?.facts ? { facts: place.facts } : {}),
+		}
+		return frozen
+	}
+	return { root: build(root), nodes }
+}
+
+/** What finds a control again: the evidence a ref carries. */
+export interface UiEvidence {
+	readonly role: string
+	readonly name: string
+	readonly automationId?: string
+	readonly path: readonly number[]
+	readonly twin?: boolean
+	readonly childCount?: number
+	readonly treeSig?: string
+}
+
+export type Located =
+	| { readonly kind: 'found'; readonly node: UiNode }
+	| { readonly kind: 'ambiguous'; readonly count: number }
+	| { readonly kind: 'gone' }
+
+const sameText = (a: string, b: string): boolean => a.trim() === b.trim()
+
+/**
+ * The control `evidence` described, found in a newer read of its window.
+ *
+ * A native id with the same role and name is the control when it is unique;
+ * the same id under another name is not (it may be another action), so a
+ * control whose name carries a changing value is found again only by taking a
+ * new snapshot. Without an id, the stored path is walked and the
+ * node there is accepted if it is the same role and name; failing that the
+ * whole tree is searched for that role and name. One match is the control;
+ * several are AMBIGUOUS (never a guess); none is gone. `actionable` asks for a
+ * node that has a driver handle, since a control that lost its patterns cannot
+ * be acted on.
+ */
+export function locate(
+	evidence: UiEvidence,
+	tree: ParsedUiTree,
+	options: { readonly actionable: boolean },
+): Located {
+	const usable = (node: UiNode): boolean => !options.actionable || node.token !== ''
+	const samePath = (node: UiNode): boolean =>
+		node.path.length === evidence.path.length && node.path.every((i, n) => i === evidence.path[n])
+	// A tree that kept its exact shape puts every control where it was. A
+	// changed one may have shifted identical controls into each other's places,
+	// so the place decides only for a nameless container that holds as many
+	// children as before. Evidence from before this was recorded has no twin
+	// flag and keeps the place as it was.
+	const sameTree = evidence.treeSig !== undefined && evidence.treeSig === tree.signature
+	const placeCounts = (node: UiNode): boolean =>
+		evidence.twin === undefined ||
+		sameTree ||
+		(evidence.name.trim() === '' &&
+			evidence.childCount !== undefined &&
+			(node.element.children?.length ?? 0) === evidence.childCount)
+	const settle = (candidates: readonly UiNode[]): Located | undefined => {
+		const usableOnes = candidates.filter(usable)
+		if (usableOnes.length === 1 && usableOnes[0]) {
+			// The one left of several identical controls may be another one.
+			if (evidence.twin === true && !sameTree && evidence.name.trim() !== '')
+				return { kind: 'ambiguous', count: 1 }
+			return { kind: 'found', node: usableOnes[0] }
+		}
+		if (usableOnes.length > 1) {
+			const atPath = usableOnes.filter(samePath).filter(placeCounts)
+			if (atPath.length === 1 && atPath[0]) return { kind: 'found', node: atPath[0] }
+			return { kind: 'ambiguous', count: usableOnes.length }
+		}
+		return undefined
+	}
+	if (evidence.automationId !== undefined) {
+		// The id and the name must both still say the same thing: an id that now
+		// carries another label may be another action.
+		const byId = tree.nodes.filter(
+			(node) =>
+				node.automationId === evidence.automationId &&
+				node.role === evidence.role &&
+				sameText(node.name, evidence.name),
+		)
+		return settle(byId) ?? { kind: 'gone' }
+	}
+	const same = tree.nodes.filter(
+		(node) => node.role === evidence.role && sameText(node.name, evidence.name),
+	)
+	const atPath = same.filter(samePath).filter(usable).filter(placeCounts)
+	if (atPath.length === 1 && atPath[0]) return { kind: 'found', node: atPath[0] }
+	return settle(same) ?? { kind: 'gone' }
+}
+
+/** A digest of the tree's shape: place, role, name and id of every node, never values. */
+function signatureOf(nodes: readonly UiNode[]): string {
+	const hash = createHash('sha1')
+	for (const node of nodes)
+		hash.update(`${node.path.join('.')}|${node.role}|${node.name}|${node.automationId ?? ''}\n`)
+	return hash.digest('hex')
 }
 
 /** The whole tree of one `get_window_state` answer. */
@@ -200,6 +387,15 @@ export function toUiTree(state: Record<string, unknown>): ParsedUiTree {
 			}
 			if (!node) continue
 			while (stack.length > 0 && (stack[stack.length - 1]?.depth ?? 0) >= depth) stack.pop()
+			// The driver leaves out the containers it does not report (a list, a
+			// group), which shows as a gap of more than one level. A control that
+			// holds nothing cannot be the parent across such a gap: the rows belong
+			// to its own parent.
+			for (;;) {
+				const top = stack[stack.length - 1]
+				if (!top || depth - top.depth < 2 || !LEAF_ROLES.has(top.node.role)) break
+				stack.pop()
+			}
 			const parent = stack[stack.length - 1]
 			if (parent) parent.node.children.push(node)
 			else top.push(node)
@@ -229,6 +425,14 @@ export function toUiTree(state: Record<string, unknown>): ParsedUiTree {
 	const root: MutableElement =
 		top.length === 1 && top[0] ? top[0] : { ref: '', role: 'Window', name: title, children: top }
 	const refs = new Map<string, UiRefFacts>()
-	const count = collectRefs(root, refs)
-	return { root: freeze(root), refs, count }
+	const places = new Map<MutableElement, { path: readonly number[]; facts?: UiRefFacts }>()
+	const count = collectRefs(root, [], refs, places)
+	const frozen = freezeWithNodes(root, places)
+	return {
+		root: frozen.root,
+		refs,
+		nodes: frozen.nodes,
+		count,
+		signature: signatureOf(frozen.nodes),
+	}
 }

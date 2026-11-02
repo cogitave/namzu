@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { openCliAccounts, storedAccountSignedIn } from '../integrations/accounts/open.js'
 import { SpacesHost } from '../spaces/host.js'
 import type { ConversationQuery, HostAccount, SessionRequest } from '../spaces/host.js'
+import { type MouseMode, resolveMouseMode } from '../spaces/mouse.js'
 import { advertisesTruecolor } from '../spaces/palette.js'
 import { createPeerSource } from '../spaces/peers.js'
 import type { PeerSource } from '../spaces/peers.js'
@@ -185,6 +186,7 @@ export async function runSpaces(
 	rawArgs: readonly string[],
 	prefixSetting: string | undefined,
 	deps: SpacesDeps,
+	pointer: { readonly mouse?: MouseMode; readonly copyOnSelect?: boolean } = {},
 ): Promise<number> {
 	if (!deps.stdin.isTTY || !deps.stdout.isTTY) {
 		deps.stderr.write('namzu spaces needs an interactive terminal.\n')
@@ -222,6 +224,8 @@ export async function runSpaces(
 		folder: { cwd: deps.cwd, name: deps.cwd.split(/[\\/]/u).filter(Boolean).pop() ?? 'session' },
 		prefix,
 		truecolor: advertisesTruecolor(deps.env),
+		mouse: resolveMouseMode(deps.env, pointer.mouse),
+		...(pointer.copyOnSelect !== undefined ? { copyOnSelect: pointer.copyOnSelect } : {}),
 		...(peers ? { peers } : {}),
 	})
 	const stop = (): void => host.quit()
@@ -241,5 +245,11 @@ export const spacesCommand: CommandDef = {
 	description: 'Run Namzu sessions side by side in one terminal (preview)',
 	passThrough: true,
 	help: SPACES_HELP,
-	handler: async ({ ctx, rawArgs }) => runSpaces(rawArgs, ctx.config.tui?.spacesPrefix, realDeps()),
+	handler: async ({ ctx, rawArgs }) =>
+		runSpaces(rawArgs, ctx.config.tui?.spacesPrefix, realDeps(), {
+			...(ctx.config.tui?.mouse !== undefined ? { mouse: ctx.config.tui.mouse } : {}),
+			...(ctx.config.tui?.copyOnSelect !== undefined
+				? { copyOnSelect: ctx.config.tui.copyOnSelect }
+				: {}),
+		}),
 }

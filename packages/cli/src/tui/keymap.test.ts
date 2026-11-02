@@ -115,3 +115,15 @@ describe('key labels and the help list', () => {
 		expect(text.split('\n')[0]).toBe('Keyboard shortcuts')
 	})
 })
+
+describe('the image paste keys by platform', () => {
+	it('leaves Ctrl+V to the terminal on native Windows and binds it elsewhere', async () => {
+		const { defaultImagePasteKeys, imagePasteKeyName } = await import('./keymap.js')
+		expect(defaultImagePasteKeys('win32')).toEqual(['meta+v'])
+		expect(defaultImagePasteKeys('linux')).toEqual(['ctrl+v', 'meta+v'])
+		expect(defaultImagePasteKeys('darwin')).toEqual(['ctrl+v', 'meta+v'])
+		expect(imagePasteKeyName('win32')).toBe('Alt+V')
+		expect(imagePasteKeyName('linux', true)).toBe('Alt+V')
+		expect(imagePasteKeyName('linux', false)).toBe('Ctrl+V')
+	})
+})

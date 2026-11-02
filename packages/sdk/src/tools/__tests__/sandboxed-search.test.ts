@@ -91,7 +91,7 @@ describe('glob inside a sandbox', () => {
 		// else, so the handoff between the two tools has to agree on a
 		// coordinate system.
 		expect(result.output).not.toContain(HOST_ROOT)
-		expect(result.output.trim()).toBe('./src/a.ts')
+		expect(result.output.trim()).toBe('src/a.ts')
 	})
 
 	it('says it searched the sandbox', async () => {
@@ -139,7 +139,7 @@ describe('grep inside a sandbox', () => {
 		const sandbox = fakeSandbox({ 'src/a.ts': 'a needle here\n' })
 		const result = await GrepTool.execute(args(), context(sandbox))
 
-		expect(result.output).toContain('./src/a.ts')
+		expect(result.output).toContain('src/a.ts')
 		expect(result.output).not.toContain(HOST_ROOT)
 	})
 
@@ -198,7 +198,7 @@ describe('ls inside a sandbox', () => {
 		const sandbox = fakeSandbox({ 'src/a.ts': 'a' })
 		const result = await LsTool.execute(lsArgs({ recursive: true }), context(sandbox))
 
-		expect(result.output).toContain('./src/a.ts')
+		expect(result.output).toContain('src/a.ts')
 		expect(result.output).not.toContain(HOST_ROOT)
 	})
 
@@ -206,7 +206,7 @@ describe('ls inside a sandbox', () => {
 		const sandbox = fakeSandbox({ 'a/b/c/deep.ts': 'd', 'a/shallow.ts': 's' })
 		const result = await LsTool.execute(lsArgs({ recursive: true, max_depth: 2 }), context(sandbox))
 
-		expect(result.output).toContain('./a/shallow.ts')
+		expect(result.output).toContain('a/shallow.ts')
 		expect(result.output).not.toContain('deep.ts')
 	})
 

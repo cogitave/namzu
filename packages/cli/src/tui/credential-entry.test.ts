@@ -131,16 +131,21 @@ describe('describeDisposition', () => {
 		expect(text).toContain('/logout gemini')
 		expect(text).not.toContain('session only')
 	})
-	it('says the key is not stored, on every accepting branch', () => {
+	it('says an API key is saved for later, on every accepting branch', () => {
 		for (const v of [{ kind: 'verified' }, { kind: 'unverifiable' }] as const) {
 			const text = describeDisposition(entry, v)
-			expect(text, v.kind).toContain('until you quit')
-			expect(text, v.kind).toContain('not written anywhere')
+			expect(text, v.kind).toContain('save this API key privately for future launches')
+			expect(text, v.kind).not.toContain('not written anywhere')
 		}
 	})
 
-	it('names the environment variable that makes it durable', () => {
-		expect(describeDisposition(entry, { kind: 'verified' })).toContain('PROVIDER_API_KEY')
+	it('says a pasted subscription token is not kept, and names the variable that keeps it', () => {
+		for (const v of [{ kind: 'verified' }, { kind: 'unverifiable' }] as const) {
+			const text = describeDisposition(entry, v, 'subscription-token')
+			expect(text, v.kind).toContain('until you quit')
+			expect(text, v.kind).toContain('not written anywhere')
+			expect(text, v.kind).toContain('PROVIDER_API_KEY')
+		}
 	})
 
 	it('does not claim a check it did not perform', () => {

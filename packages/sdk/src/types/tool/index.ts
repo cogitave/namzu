@@ -522,6 +522,15 @@ export interface ToolContext {
 	 */
 	additionalDirectories?: readonly string[]
 	/**
+	 * Whether the session's read rules deny an absolute path. The search tools
+	 * (`grep`, `glob`) call it for every file they would list or open and skip
+	 * a denied one, so a search over a folder holding a denied file succeeds
+	 * without showing or reading it. The executor supplies it from the turn's
+	 * authorization gate (what the `read` tool would be told for that path);
+	 * absent, no rules apply.
+	 */
+	readDenied?: (absolutePath: string) => boolean
+	/**
 	 * Absolute path of the directory holding THIS session's retained tool
 	 * output (the files an oversized result was saved to). The `read` tool may
 	 * open a regular file in it, and only that, without the path being a

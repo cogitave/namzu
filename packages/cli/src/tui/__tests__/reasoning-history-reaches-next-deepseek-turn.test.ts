@@ -164,7 +164,7 @@ it('keeps fresh system floor private and sends exact prior reasoning_content', a
 		source: {
 			type: 'model',
 			providerId: 'deepseek',
-			model: 'deepseek-v4-flash',
+			model: 'deepseek-flash',
 			chainIndex: 0,
 			replayState: {
 				kind: 'namzu-deepseek-reasoning',
@@ -245,7 +245,7 @@ it('replays a persisted reasoning tool turn after rebuilding the same route', as
 		source: {
 			type: 'model',
 			providerId: 'deepseek',
-			model: 'deepseek-v4-flash',
+			model: 'deepseek-flash',
 			chainIndex: 0,
 			replayState: {
 				kind: 'namzu-deepseek-reasoning',

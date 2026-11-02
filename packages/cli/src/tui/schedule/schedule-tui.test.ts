@@ -21,6 +21,7 @@ import {
 	mcpJsonSchemaToZod,
 } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { answerModelsListing } from '../../__fixtures__/models-endpoint.js'
 import { openSessions, startConversation } from '../../integrations/sessions/store.js'
 import { __resetCliLoggerForTests } from '../../logging.js'
 import {
@@ -66,7 +67,7 @@ beforeEach(() => {
 	responses = []
 	vi.stubGlobal(
 		'fetch',
-		vi.fn<typeof fetch>(async () => (responses.shift() ?? completion)()),
+		answerModelsListing(vi.fn<typeof fetch>(async () => (responses.shift() ?? completion)())),
 	)
 })
 afterEach(() => {
@@ -223,23 +224,25 @@ describe('answering a parked scheduled run', () => {
 		const requestedModels: unknown[] = []
 		vi.stubGlobal(
 			'fetch',
-			vi.fn<typeof fetch>(async (_input, init) => {
-				const body = String(init?.body ?? '')
-				requestedModels.push((JSON.parse(body) as { model?: unknown }).model)
-				if (!body.includes('call_2'))
-					return completion({
-						name: 'bash',
-						input: { command: `touch ${second}` },
-						id: 'call_2',
-					})
-				if (!body.includes('call_3'))
-					return completion({
-						name: 'bash',
-						input: { command: `touch ${third}` },
-						id: 'call_3',
-					})
-				return completion()
-			}),
+			answerModelsListing(
+				vi.fn<typeof fetch>(async (_input, init) => {
+					const body = String(init?.body ?? '')
+					requestedModels.push((JSON.parse(body) as { model?: unknown }).model)
+					if (!body.includes('call_2'))
+						return completion({
+							name: 'bash',
+							input: { command: `touch ${second}` },
+							id: 'call_2',
+						})
+					if (!body.includes('call_3'))
+						return completion({
+							name: 'bash',
+							input: { command: `touch ${third}` },
+							id: 'call_3',
+						})
+					return completion()
+				}),
+			),
 		)
 		// The TUI's session for this folder: its own rules would allow bash
 		// outright, and it is on another model than the job's.
@@ -336,10 +339,12 @@ describe('answering a parked scheduled run', () => {
 		const bodies: string[] = []
 		vi.stubGlobal(
 			'fetch',
-			vi.fn<typeof fetch>(async (_input, init) => {
-				bodies.push(String(init?.body ?? ''))
-				return completion()
-			}),
+			answerModelsListing(
+				vi.fn<typeof fetch>(async (_input, init) => {
+					bodies.push(String(init?.body ?? ''))
+					return completion()
+				}),
+			),
 		)
 		const sessions = await openSessions(sb.project, { stateRoot: sb.home })
 		const session = await createAgentSession(
@@ -477,10 +482,7 @@ describe('answering a parked scheduled run', () => {
 			ask: async () => ({ kind: 'approve' }),
 			say: () => {},
 		})
-		vi.stubGlobal(
-			'fetch',
-			vi.fn<typeof fetch>(async () => completion()),
-		)
+		vi.stubGlobal('fetch', answerModelsListing(vi.fn<typeof fetch>(async () => completion())))
 		const sessions = await openSessions(sb.project, { stateRoot: sb.home })
 		const session = await createAgentSession(
 			{

@@ -8,6 +8,7 @@
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { answerModelsListing } from '../../__fixtures__/models-endpoint.js'
 import { __resetCliLoggerForTests } from '../../logging.js'
 import { createAgentSession } from '../../tui/agent.js'
 import { CHILD_ENV_ALLOWLIST } from '../env.js'
@@ -33,10 +34,12 @@ beforeEach(() => {
 	calls = 0
 	vi.stubGlobal(
 		'fetch',
-		vi.fn<typeof fetch>(async () => {
-			calls++
-			return completion()
-		}),
+		answerModelsListing(
+			vi.fn<typeof fetch>(async () => {
+				calls++
+				return completion()
+			}),
+		),
 	)
 })
 
@@ -155,10 +158,12 @@ describe('the tools a browser job’s run is sent', () => {
 		const bodies: string[] = []
 		vi.stubGlobal(
 			'fetch',
-			vi.fn<typeof fetch>(async (_input, init) => {
-				bodies.push(String(init?.body ?? ''))
-				return completion()
-			}),
+			answerModelsListing(
+				vi.fn<typeof fetch>(async (_input, init) => {
+					bodies.push(String(init?.body ?? ''))
+					return completion()
+				}),
+			),
 		)
 		const job = confirmedJob(sb, {
 			permissions: {
@@ -214,10 +219,12 @@ describe('the time a scheduled run is told', () => {
 		const bodies: string[] = []
 		vi.stubGlobal(
 			'fetch',
-			vi.fn<typeof fetch>(async (_input, init) => {
-				bodies.push(String(init?.body ?? ''))
-				return completion()
-			}),
+			answerModelsListing(
+				vi.fn<typeof fetch>(async (_input, init) => {
+					bodies.push(String(init?.body ?? ''))
+					return completion()
+				}),
+			),
 		)
 		const job = confirmedJob(sb, { when: '0 9 * * *', tz: 'Asia/Tokyo' })
 		const { result } = await fire(job, { now: () => new Date('2026-09-23T18:04:00Z') })
