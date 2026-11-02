@@ -30,6 +30,111 @@
  * only ever as fresh as the day someone checked it.
  */
 
+/** The window an id declares with the `[1m]` suffix, and the ceiling `NAMZU_AUTO_COMPACT_WINDOW` accepts. */
+export const ONE_MILLION_WINDOW_TOKENS = 1_000_000
+/** The window a model is held to when `NAMZU_DISABLE_1M_CONTEXT` is on. */
+export const DISABLED_ONE_MILLION_WINDOW_CAP_TOKENS = 200_000
+
+const WINDOW_SUFFIX = /\[1m\]$/i
+
+/**
+ * A model id may end in `[1m]` (any case) to declare a one-million-token
+ * window, whether or not the id is recognised. The suffix is a marker for
+ * Namzu, never part of the vendor's name: strip it with this before an id
+ * reaches a driver or a wire.
+ */
+export function splitModelWindowSuffix(model: string): {
+	readonly model: string
+	readonly declaresOneMillion: boolean
+} {
+	const match = WINDOW_SUFFIX.exec(model)
+	if (!match) return { model, declaresOneMillion: false }
+	return { model: model.slice(0, match.index), declaresOneMillion: true }
+}
+
+/** The id with any `[1m]` suffix removed. */
+export function stripModelWindowSuffix(model: string): string {
+	return splitModelWindowSuffix(model).model
+}
+
+/**
+ * `NAMZU_DISABLE_1M_CONTEXT` (1, true, yes or on): the suffix is still
+ * stripped but declares nothing, and no window above 200,000 tokens is
+ * assumed for a model whose window comes from a driver or the table.
+ */
+export function oneMillionWindowDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
+	const value = env.NAMZU_DISABLE_1M_CONTEXT?.trim().toLowerCase()
+	return value === '1' || value === 'true' || value === 'yes' || value === 'on'
+}
+
+/** Smallest and largest window `NAMZU_AUTO_COMPACT_WINDOW` can name. */
+export const AUTO_COMPACT_WINDOW_MIN_TOKENS = 100_000
+export const AUTO_COMPACT_WINDOW_MAX_TOKENS = ONE_MILLION_WINDOW_TOKENS
+
+export type AutoCompactWindowParse =
+	| { readonly kind: 'in_range'; readonly tokens: number }
+	| { readonly kind: 'below_minimum'; readonly tokens: number }
+	| { readonly kind: 'above_maximum' }
+	| { readonly kind: 'unusable' }
+
+/**
+ * Read an automatic-summary window the way people write one: a plain number
+ * (`200000`) or one with a `k` or `m` suffix (`786k`, `1m`, `1.5m`). Anything
+ * under 100,000 is `below_minimum`, over 1,000,000 `above_maximum`, and
+ * something that is not a size at all `unusable`.
+ */
+export function parseAutoCompactWindow(raw: string): AutoCompactWindowParse {
+	const text = raw.trim()
+	const last = text.slice(-1).toLowerCase()
+	const scale = last === 'm' ? 1_000_000 : last === 'k' ? 1_000 : undefined
+	const digits = scale === undefined ? text : text.slice(0, -1)
+	const valid = scale === undefined ? /^\+?\d+$/ : /^\+?\d+(\.\d+)?$/
+	const value = valid.test(digits) ? Number(digits) * (scale ?? 1) : Number.NaN
+	if (Number.isNaN(value) || value < 1) return { kind: 'unusable' }
+	if (value < AUTO_COMPACT_WINDOW_MIN_TOKENS)
+		return {
+			kind: 'below_minimum',
+			tokens: Math.min(AUTO_COMPACT_WINDOW_MIN_TOKENS - 1, Math.round(value)),
+		}
+	if (value > AUTO_COMPACT_WINDOW_MAX_TOKENS) return { kind: 'above_maximum' }
+	return { kind: 'in_range', tokens: Math.round(value) }
+}
+
+/**
+ * The window to use for a written size, and a one-line warning when what was
+ * written had to be changed: below 100,000 reads as 100,000, above 1,000,000
+ * as 1,000,000, and a non-size is ignored (`tokens` undefined). `source`
+ * names where it was written, e.g. `NAMZU_AUTO_COMPACT_WINDOW`.
+ */
+export function resolveAutoCompactWindowSetting(
+	raw: string | number,
+	source: string,
+): { readonly tokens: number | undefined; readonly warning?: string } {
+	const text = String(raw)
+	const parsed = parseAutoCompactWindow(text)
+	const shown = `${source}="${text.slice(0, 32).replace(/[^\w.,+ $%{}=;-]+/g, '?')}${text.length > 32 ? '\u2026' : ''}"`
+	const advice = 'Set it to a size from 100k to 1M, such as 200k or 200000, or unset it.'
+	switch (parsed.kind) {
+		case 'in_range':
+			return { tokens: parsed.tokens }
+		case 'below_minimum':
+			return {
+				tokens: AUTO_COMPACT_WINDOW_MIN_TOKENS,
+				warning: `${shown} reads as ${parsed.tokens.toLocaleString('en-US')} tokens, so Namzu treats it as the 100k minimum. ${advice}`,
+			}
+		case 'above_maximum':
+			return {
+				tokens: AUTO_COMPACT_WINDOW_MAX_TOKENS,
+				warning: `${shown} is too large, so Namzu treats it as the 1M maximum. ${advice}`,
+			}
+		case 'unusable':
+			return {
+				tokens: undefined,
+				warning: `${shown} isn't a usable size, so Namzu ignores it. ${advice}`,
+			}
+	}
+}
+
 /**
  * Conservative default for a model we do not recognise.
  *
@@ -86,11 +191,14 @@ const WINDOWS: ReadonlyArray<readonly [prefix: string, tokens: number]> = [
 	['mistral-large', 128_000],
 	['mixtral', 32_768],
 	// The current DeepSeek models document a 1M window
-	// (https://api-docs.deepseek.com/quick_start/pricing); `deepseek-v4-*` and
-	// `deepseek-flash` are one family under that page. The bare `deepseek` key
-	// stays for the older ids (chat, reasoner, R1 distills), whose window was
-	// 64k; longest key wins, so it no longer reaches the v4 ids.
-	['deepseek-v4', 1_000_000],
+	// (https://api-docs.deepseek.com/quick_start/pricing), listed per id: a
+	// gateway can serve a derivative under a name that merely starts like one
+	// (a fine-tune, a distill), and nothing says it keeps the parent's window.
+	// Over-estimating ends a turn on a provider rejection; under-estimating
+	// costs a summary. So an id not named here falls to the bare `deepseek`
+	// row below, the 64k the older ids (chat, reasoner, R1 distills) had.
+	['deepseek-v4-flash', 1_000_000],
+	['deepseek-v4-pro', 1_000_000],
 	['deepseek-flash', 1_000_000],
 	['deepseek', 64_000],
 ]
@@ -105,7 +213,18 @@ const SORTED = [...WINDOWS].sort((a, b) => b[0].length - a[0].length)
  */
 export function lookupContextWindow(model: string | undefined): number | undefined {
 	if (!model) return undefined
-	const id = model.toLowerCase()
+	const { declaresOneMillion } = splitModelWindowSuffix(model)
+	const known = lookupBareContextWindow(model)
+	if (declaresOneMillion && !oneMillionWindowDisabled()) {
+		return Math.max(known ?? 0, ONE_MILLION_WINDOW_TOKENS)
+	}
+	return known
+}
+
+/** The table's answer for an id with any `[1m]` suffix ignored. */
+function lookupBareContextWindow(model: string | undefined): number | undefined {
+	if (!model) return undefined
+	const id = stripModelWindowSuffix(model).toLowerCase()
 	for (const [prefix, tokens] of SORTED) {
 		if (id.includes(prefix)) return tokens
 	}
@@ -198,13 +317,34 @@ export function resolveContextWindow(
 	if (configured !== undefined && configured > 0) {
 		return { tokens: configured, source: 'config' }
 	}
+	const { declaresOneMillion } = splitModelWindowSuffix(model ?? '')
+	const disabled = oneMillionWindowDisabled()
+	const base = resolveUndeclaredWindow(model, providerReported)
+	// `[1m]` raises the window to at least a million (reported as 'model-table':
+	// the id itself is the fact), never lowers one a
+	// driver or the table already puts higher.
+	if (declaresOneMillion && !disabled && base.tokens < ONE_MILLION_WINDOW_TOKENS) {
+		return { tokens: ONE_MILLION_WINDOW_TOKENS, source: 'model-table' }
+	}
+	// With the million-token window switched off, nothing assumed or reported
+	// for a model counts for more than 200,000.
+	if (disabled && base.tokens > DISABLED_ONE_MILLION_WINDOW_CAP_TOKENS) {
+		return { tokens: DISABLED_ONE_MILLION_WINDOW_CAP_TOKENS, source: base.source }
+	}
+	return base
+}
+
+function resolveUndeclaredWindow(
+	model: string | undefined,
+	providerReported: number | undefined,
+): ResolvedContextWindow {
 	if (providerReported !== undefined && providerReported > 0) {
 		return { tokens: providerReported, source: 'provider' }
 	}
 	// A driver that resolved `undefined` falls through to HERE, not to the
 	// default. "I asked and it does not know" leaves the table exactly as
 	// authoritative as it was before anyone asked.
-	const known = lookupContextWindow(model)
+	const known = lookupBareContextWindow(model)
 	if (known !== undefined) {
 		return { tokens: known, source: 'model-table' }
 	}

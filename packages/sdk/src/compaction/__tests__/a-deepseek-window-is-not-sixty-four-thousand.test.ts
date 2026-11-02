@@ -29,9 +29,15 @@ describe('the hand table for DeepSeek ids', () => {
 		expect(triggerTokens(id, 384_000)).toBe(967_000)
 	})
 
-	it('reaches gateway-qualified ids by longest key', () => {
+	it('reaches gateway-qualified spellings of a named id', () => {
 		expect(lookupContextWindow('deepseek/deepseek-v4-pro')).toBe(1_000_000)
-		expect(lookupContextWindow('deepseek-v4.1-flash-uncensored')).toBe(1_000_000)
+		expect(lookupContextWindow('deepseek/deepseek-v4-flash:free')).toBe(1_000_000)
+	})
+
+	it('never over-estimates a DeepSeek id it does not name', () => {
+		// A gateway derivative of the family: the parent's window is not a given.
+		expect(lookupContextWindow('deepseek-v4.1-flash-uncensored')).toBe(64_000)
+		expect(lookupContextWindow('deepseek-v5-preview')).toBe(64_000)
 	})
 
 	it('keeps the old window for ids that predate the 1M generation', () => {
