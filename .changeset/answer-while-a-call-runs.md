@@ -1,0 +1,5 @@
+---
+"@namzu/sdk": minor
+---
+
+A host can now let the model answer the operator while a long tool call is still running. Set `QueryParams.answerWhileCallsRun: true` together with `waitForInbound` (or the durable source's `wait`). When the operator writes during a tool batch that has run for two seconds, each unfinished call is answered with a "still running" placeholder, the model reads the message and replies at once, and the real result follows in a message that names the call id; the turn is held open for it. Nothing changes for a host that leaves it unset (the default), and a batch under per-call review is never detached. A host that turns it on must make its wake callback free of side effects, because it is now also called during tool batches. The coding-agent delegation doctrine, which every parent session receives, gains a short section on answering "how is it going": read the running-work note, give each item its state and age, say an unfinished item is still running, and offer to resume one that died. That changes the cached prompt prefix once.

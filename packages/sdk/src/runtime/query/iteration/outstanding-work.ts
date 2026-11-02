@@ -5,6 +5,7 @@ import type { TaskHandle } from '../../../types/agent/scheduler.js'
 import { createRuntimeContextMessage } from '../../../types/message/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import { readPositiveIntEnv } from '../../../utils/env.js'
+import { formatLateResults } from '../detached-calls.js'
 import { formatJobNote, formatMonitorNote } from '../steering.js'
 import type { IterationContext } from './phases/index.js'
 
@@ -165,7 +166,8 @@ export async function* holdForOutstandingWork(
 ): AsyncGenerator<SessionEvent, boolean> {
 	const inbox = ctx.completionInbox?.holdsTurn ? ctx.completionInbox : undefined
 	const jobs = ctx.awaitedJobs?.hasPendingWork ? ctx.awaitedJobs : undefined
-	if (!inbox && !jobs) return false
+	const detached = ctx.detachedCalls?.hasWork ? ctx.detachedCalls : undefined
+	if (!inbox && !jobs && !detached) return false
 
 	// Read HERE rather than from `forceFinalize`, which was sampled at the
 	// top of the iteration: one that has since crossed the finalize point
@@ -179,7 +181,7 @@ export async function* holdForOutstandingWork(
 	// to be running. A job therefore never shortens a wait, and it never
 	// lengthens one either: where a task is outstanding too, that is how
 	// long this turn was waiting anyway.
-	let graceMs = inbox ? settleGraceMs(remainingMs) : awaitedJobGraceMs(remainingMs)
+	let graceMs = inbox || detached ? settleGraceMs(remainingMs) : awaitedJobGraceMs(remainingMs)
 	// A monitor the turn owns is held for until the monitor itself ends, which
 	// its own deadline bounds; the two-minute job ceiling would walk away from
 	// a watch with most of its time left. As with a task, this only ever
@@ -207,6 +209,7 @@ export async function* holdForOutstandingWork(
 		await Promise.race([
 			...(inbox ? [inbox.waitForArrival(graceMs, waiting.signal)] : []),
 			...(jobs ? [jobs.waitForArrival(graceMs, waiting.signal)] : []),
+			...(detached ? [detached.waitForArrival(graceMs, waiting.signal)] : []),
 			...(ctx.waitForInbound ? [ctx.waitForInbound(waiting.signal)] : []),
 			...(ctx.durableInbound?.wait ? [ctx.durableInbound.wait(waiting.signal)] : []),
 		])
@@ -228,8 +231,14 @@ export async function* holdForOutstandingWork(
 	}
 	const exited = deliverAwaitedJobExits(ctx)
 	const monitored = deliverMonitorNotices(ctx)
+	const late = ctx.detachedCalls?.take() ?? []
+	if (late.length > 0) {
+		ctx.recorder.pushMessage(createRuntimeContextMessage(formatLateResults(late), 'job-exit'))
+	}
 	const inbound = await deliverInbound()
-	if (arrived.length === 0 && !exited && !monitored && inbound === 0) return false
+	if (arrived.length === 0 && !exited && !monitored && late.length === 0 && inbound === 0) {
+		return false
+	}
 	await ctx.emitEvent({
 		type: 'iteration_completed',
 		turnId: ctx.recorder.turnId,

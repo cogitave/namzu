@@ -7,10 +7,12 @@ import type {
 	ToolCallDeclined,
 	ToolCallSummary,
 } from '../../../../types/hitl/index.js'
+import { createRuntimeContextMessage } from '../../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { SessionEvent } from '../../../../types/session/index.js'
 import type { ShellDialect } from '../../../../types/tool/index.js'
 import { DECLINED_TOOL_CALL_FEEDBACK } from '../../declined.js'
+import { type BatchDetach, DETACH_AFTER_MS, formatLateResults } from '../../detached-calls.js'
 import type {
 	PreparedToolBatch,
 	ReviewedExecution,
@@ -63,6 +65,61 @@ function hookAskedReason(reason: string | undefined): string {
 	return reason
 		? `a hook asked that a person approve this call: ${reason}`
 		: 'a hook asked that a person approve this call'
+}
+
+/**
+ * Watch for the operator writing while this batch runs.
+ *
+ * The batch is handed back once a message has arrived and the batch has run for
+ * {@link DETACH_AFTER_MS}; a short call finishes first and nothing changes. The
+ * arrival signal is the host's own wake (`waitForInbound`, or the durable
+ * source's), so a host that supplies neither never detaches a call.
+ */
+function watchForOperator(
+	ctx: IterationContext,
+	startedAt: number,
+): { readonly detach: BatchDetach; stop(): void } | undefined {
+	const calls = ctx.detachedCalls
+	const wakes = [ctx.waitForInbound, ctx.durableInbound?.wait?.bind(ctx.durableInbound)].filter(
+		(wake): wake is (signal: AbortSignal) => Promise<void> => wake !== undefined,
+	)
+	if (!calls || wakes.length === 0) return undefined
+	const watching = new AbortController()
+	let timer: ReturnType<typeof setTimeout> | undefined
+	const requested = new Promise<void>((resolve) => {
+		const settled = Promise.race(
+			wakes.map((wake) => {
+				try {
+					return wake(watching.signal)
+				} catch {
+					return new Promise<void>(() => {})
+				}
+			}),
+		)
+		settled.then(
+			() => {
+				if (watching.signal.aborted) return
+				const wait = Math.max(0, startedAt + DETACH_AFTER_MS - Date.now())
+				timer = setTimeout(resolve, wait)
+			},
+			// An aborted wait is the batch ending, which is not a message.
+			() => {},
+		)
+	})
+	return {
+		detach: { requested, calls },
+		stop() {
+			watching.abort()
+			if (timer !== undefined) clearTimeout(timer)
+		},
+	}
+}
+
+/** The outcomes of calls that were handed back as still running and have since finished. */
+function takeLateResults(ctx: IterationContext) {
+	const outcomes = ctx.detachedCalls?.take()
+	if (!outcomes || outcomes.length === 0) return undefined
+	return createRuntimeContextMessage(formatLateResults(outcomes), 'job-exit')
 }
 
 export type ToolReviewDecision = 'executed' | 'rejected' | 'stop'
@@ -290,14 +347,21 @@ export async function* runToolReview(
 	): Promise<void> => {
 		await announceRefusals(denials)
 		const startedAt = Date.now()
-		const batch = await ctx.toolExecutor.executeBatch(
-			response,
-			withRepeatRefusals(denials),
-			undefined,
-			preparedBatch,
-			declines,
-			review,
-		)
+		const watch = watchForOperator(ctx, startedAt)
+		let batch: Awaited<ReturnType<typeof ctx.toolExecutor.executeBatch>>
+		try {
+			batch = await ctx.toolExecutor.executeBatch(
+				response,
+				withRepeatRefusals(denials),
+				undefined,
+				preparedBatch,
+				declines,
+				review,
+				watch?.detach,
+			)
+		} finally {
+			watch?.stop()
+		}
 		toolMs += Date.now() - startedAt
 		executed = batch.results
 		await announceBatch(batch.results)
@@ -369,6 +433,8 @@ export async function* runToolReview(
 			},
 		)
 		if (monitorNotice) ctx.recorder.pushMessage(monitorNotice)
+		const lateResults = takeLateResults(ctx)
+		if (lateResults) ctx.recorder.pushMessage(lateResults)
 		const credentialNotice = takeWithheldEnvNotice(ctx.recorder.messages, batch.observations)
 		if (credentialNotice) ctx.recorder.pushMessage(credentialNotice)
 		if (jobNoticeDelivered) ctx.onJobNoticeDelivered?.()
