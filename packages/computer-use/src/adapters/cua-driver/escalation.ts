@@ -73,7 +73,7 @@ export function canBeJudgedByStillness(action: {
 	readonly type: string
 	readonly keys?: string
 }): boolean {
-	if (action.type === 'type_text' || action.type === 'mouse_click') return true
+	if (action.type === 'type_text') return true
 	if (action.type !== 'key' || action.keys === undefined) return false
 	const main = action.keys.trim().split('+').pop()?.trim() ?? ''
 	return !UNOBSERVABLE_KEYS.test(main)

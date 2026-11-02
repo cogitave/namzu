@@ -833,7 +833,7 @@ export class CuaDriverAdapter implements Adapter {
 			earlier,
 			windows,
 			edit,
-			stillness: true,
+			stillness: canBeJudgedByStillness(action),
 		})
 		if (!seen) return sent
 		// A person at the keyboard or mouse during a burst can change the window: it proves nothing.

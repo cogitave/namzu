@@ -144,17 +144,22 @@ describe('an input that had no effect in the background', () => {
 		await adapter.dispose()
 	})
 
-	it('also retries a key combination and a click', async () => {
-		for (const action of [
-			{ type: 'key', keys: 'ctrl+o' },
-			{ type: 'mouse_click', at: { x: 10, y: 10 }, button: 'left' },
-		] as const) {
-			const { adapter, sent } = rig(() => unverified())
-			const shot = await adapter.captureWindow('0x111')
-			await adapter.executeWindow(shot.captureId, action)
-			expect(sent()).toHaveLength(2)
-			await adapter.dispose()
-		}
+	it('also retries a key combination, but never a click: its usual effects (focus, caret) are not in the controls', async () => {
+		const { adapter, sent } = rig(() => unverified())
+		const shot = await adapter.captureWindow('0x111')
+		await adapter.executeWindow(shot.captureId, { type: 'key', keys: 'ctrl+o' })
+		expect(sent()).toHaveLength(2)
+		await adapter.dispose()
+		const click = rig(() => unverified())
+		const shot2 = await click.adapter.captureWindow('0x111')
+		const result = await click.adapter.executeWindow(shot2.captureId, {
+			type: 'mouse_click',
+			at: { x: 10, y: 10 },
+			button: 'left',
+		})
+		expect(click.sent()).toHaveLength(1)
+		expect(result).toMatchObject({ delivery: 'delivered_unverified', retrySafety: 'unsafe' })
+		await click.adapter.dispose()
 	})
 
 	it('waits for the person to be idle, in words, when the screen is in use: nothing more is sent', async () => {
@@ -443,6 +448,7 @@ describe('the retry decision', () => {
 		for (const keys of ['TAB', 'ctrl+END', 'down', 'pagedown'])
 			expect(canBeJudgedByStillness({ type: 'key', keys })).toBe(false)
 		expect(canBeJudgedByStillness({ type: 'scroll' })).toBe(false)
+		expect(canBeJudgedByStillness({ type: 'mouse_click' })).toBe(false)
 	})
 
 	it('writes each ending in words', () => {

@@ -110,8 +110,7 @@ needs neither the screen nor the lease.
 
 ## An input that had no effect
 
-A background input the driver cannot confirm (text, a key combination, a click on
-the window) is judged by reading the window several times over the time its effect
+A background input the driver cannot confirm (text, a key combination) is judged by reading the window several times over the time its effect
 would take. There are three outcomes besides "the effect was seen":
 
 | The reads show | Result | Next |
@@ -126,7 +125,9 @@ once and only when the first attempt was a background one and no `delivery_mode`
 was asked for; `delivery_mode: "background"` forbids the screen and
 `delivery_mode: "foreground"` is already on it. Keys whose effect the controls of
 a window do not show (arrows, Tab, Home, End, Page Up and Down, a modifier alone)
-and scrolling are never judged this way. A retry that was already on the screen
+and scrolling are never judged this way, and neither is a click: what a click usually
+does (focus, a caret, a text selection) is not in the controls, so a window that
+held still proves nothing about it and it stays `sent, not confirmed`. A retry that was already on the screen
 (the driver said the window cannot take background input) is not repeated; its
 answer is final.
 
