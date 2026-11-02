@@ -243,6 +243,8 @@ subagents' answers. Each is delivered once. A background command that ends on
 its own wakes the model the same way (see [Background jobs](background-jobs.md));
 one you stopped yourself does not.
 
+While a run is going the model also gets a short note each time it moves to a later phase (see [Notes the host sends without being asked](delegated-work.md#notes-the-host-sends-without-being-asked)). The note rides with the next request and never starts a turn by itself. When the person asks how the run is going, the model reads its state (`agent_task_list` with `run_id`, or the running-work note), reports its phase and counts, and says it is still running until the completion message arrives.
+
 ## `namzu exec`
 
 A headless run does not end with the model's first turn while a workflow it

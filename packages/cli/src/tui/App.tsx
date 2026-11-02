@@ -120,6 +120,13 @@ import {
 	terminalNotificationEnabled,
 	writeTerminalNotification,
 } from '../integrations/notifications/terminal.js'
+import {
+	PROGRESS_LOOK_MIN_GAP_MS,
+	PROGRESS_LOOK_MS,
+	describePendingWorkflowNotices,
+	dropPhaseNotes,
+	noticesWakeASession,
+} from '../integrations/outstanding/progress-notices.js'
 import { hasApiCredential } from '../integrations/providers/access.js'
 import { readCodexCredentialFile } from '../integrations/providers/harness-credentials.js'
 import {
@@ -1976,10 +1983,39 @@ function AppBody({
 						? tokenColor('status.warn')
 						: tokenColor('status.ok'),
 			)
+			dropPhaseNotes(workflowNoticesRef.current, view.runId)
 			workflowNoticesRef.current.set(view.runId, completionNotice(view))
 			activeTurnInboxRef.current?.notify()
 			setNoticeVersion((version) => version + 1)
 		})
+	}, [session])
+	// Phase changes of a run and quiet commands, told to the model without it asking.
+	useEffect(() => {
+		const read = session?.progressNotices
+		if (!read) return
+		let lookedAt = 0
+		const look = () => {
+			// A run reports every agent event; one look a second is plenty.
+			const now = Date.now()
+			if (now - lookedAt < PROGRESS_LOOK_MIN_GAP_MS) return
+			lookedAt = now
+			let woke = false
+			for (const notice of read()) {
+				if (previousSessionRef.current !== session) return
+				workflowNoticesRef.current.set(notice.key, notice.text)
+				woke ||= notice.wakes
+			}
+			if (!woke) return
+			activeTurnInboxRef.current?.notify()
+			setNoticeVersion((version) => version + 1)
+		}
+		look()
+		const off = session?.workflows?.subscribe(look)
+		const timer = setInterval(look, PROGRESS_LOOK_MS)
+		return () => {
+			off?.()
+			clearInterval(timer)
+		}
 	}, [session])
 	const [usage, setUsage] = useState<{
 		budget?: Extract<AgentEvent, { kind: 'usage' }>['budget']
@@ -10293,9 +10329,7 @@ function AppBody({
 									...(st.contextTexts ?? []),
 									idleNoticeSnapshot.text,
 									monitorSnapshot.text,
-									workflowNoticeSnapshot.size > 0
-										? `Workflows that ended since your last turn:\n\n${[...workflowNoticeSnapshot.values()].join('\n\n')}`
-										: undefined,
+									describePendingWorkflowNotices(workflowNoticeSnapshot),
 									operatorShellSnapshot,
 									...[...childNoticeSnapshot.values()].map((notice) => notice.context),
 									...childMessageSnapshot.values(),
@@ -14141,7 +14175,7 @@ function AppBody({
 			return
 		const jobs = idleJobNoticesRef.current
 		const waiting =
-			workflowNoticesRef.current.size > 0 ||
+			noticesWakeASession(workflowNoticesRef.current) ||
 			childMessagesRef.current.size > 0 ||
 			(jobs.ownerSession === session &&
 				[...jobs.pending.keys()].some((id) => wakeJobIdsRef.current.has(id))) ||

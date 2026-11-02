@@ -67,6 +67,13 @@ describe('the opt-in rule the model reads', () => {
 		expect(WORKFLOW_DOCTRINE).toContain('hypermode is on')
 	})
 
+	it('sends a status question to the run’s state, not to the launch receipt', () => {
+		expect(WORKFLOW_DOCTRINE).toContain('how a workflow is going')
+		expect(WORKFLOW_DOCTRINE).toContain('`agent_task_list`')
+		expect(WORKFLOW_DOCTRINE).toContain('which is only a receipt')
+		expect(WORKFLOW_DOCTRINE).toContain('still running until its message has arrived')
+	})
+
 	it('points to the quality patterns', () => {
 		for (const pattern of [
 			'adversarial verify',

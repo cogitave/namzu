@@ -327,6 +327,10 @@ import { type MonitorInbox, createMonitorInbox } from '../integrations/monitors/
 import { MONITOR_WEB_ACCESS_HINT } from '../integrations/monitors/web-access-hint.js'
 import { createOutstandingFacts } from '../integrations/outstanding/facts.js'
 import { createOutstandingWorkStep } from '../integrations/outstanding/note.js'
+import {
+	type ProgressNotice,
+	createProgressNotices,
+} from '../integrations/outstanding/progress-notices.js'
 import { readWorkStatus } from '../integrations/outstanding/status.js'
 import { readPluginFileSources } from '../integrations/plugins/files.js'
 import { hookSessionMode } from '../integrations/plugins/hook-host.js'
@@ -1276,6 +1280,12 @@ export interface AgentSession {
 	 * session mounted them (`AgentSessionOptions.browser`). Absent otherwise.
 	 */
 	readonly browser?: BrowserControl
+	/**
+	 * What changed in the work still going since the previous call: a workflow
+	 * run's next phase, a quiet background command to look at. The first call
+	 * only records. The terminal calls it on a timer and when a run changes.
+	 */
+	readonly progressNotices?: () => readonly ProgressNotice[]
 	/** Loaded extensions; idle-session changes can explicitly be remembered across reconstruction. */
 	readonly plugins?: Pick<CliPluginRuntime, 'list' | 'setEnabled' | 'rememberState'>
 	/** Command folders of the enabled plugins; the composer turns their files into slash commands. */
@@ -3539,6 +3549,7 @@ export async function createAgentSession(
 			),
 	})
 	const outstandingWorkStep = createOutstandingWorkStep(outstandingFacts)
+	const progressNotices = createProgressNotices()
 	const goalToolNames = new Set<string>(SESSION_GOAL_TOOL_NAMES)
 	if (options.sessionGoals) {
 		toolsets.push(
@@ -5696,6 +5707,8 @@ export async function createAgentSession(
 					}))(workflowHost),
 				}
 			: {}),
+		progressNotices: () =>
+			progressNotices.look({ ...outstandingFacts(scope.sessionId), now: Date.now() }),
 		...(sideModel ? { sideModel } : {}),
 		...(learning ? { learning } : {}),
 		...(subagentRuntime
@@ -7746,7 +7759,9 @@ async function* runTurn({
 			...(reminders ? { reminders } : {}),
 			...(announceApprovalPolicyChange === false ? { announceApprovalPolicyChange } : {}),
 			...(opts?.inboundMessages ? { inboundMessages: opts.inboundMessages } : {}),
-			...(opts?.waitForInbound ? { waitForInbound: opts.waitForInbound } : {}),
+			...(opts?.waitForInbound
+				? { waitForInbound: opts.waitForInbound, answerWhileCallsRun: true }
+				: {}),
 			...(opts?.durableInbound ? { durableInbound: opts.durableInbound } : {}),
 			...(completionInbox ? { completionInbox } : {}),
 			workingDirectory,

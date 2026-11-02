@@ -75,6 +75,10 @@ describe('the live-input session hop', () => {
 			expect(queryCalls).toHaveLength(1)
 			expect(queryCalls[0]?.inboundMessages).toBe(inboundMessages)
 			expect(queryCalls[0]?.waitForInbound).toBe(waitForInbound)
+			// A message typed while a long call runs is answered at once.
+			expect(queryCalls[0]?.answerWhileCallsRun).toBe(true)
+			// Nothing is going, so the first look at running work records and says nothing.
+			expect(session.progressNotices?.()).toEqual([])
 			expect(queryCalls[0]?.completionInbox).toBeDefined()
 			expect((queryCalls[0]?.inboundMessages as () => Message[])()).toEqual([steered])
 			expect(inboundMessages).toHaveBeenCalledTimes(1)

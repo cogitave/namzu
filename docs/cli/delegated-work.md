@@ -612,6 +612,15 @@ A queued agent, or an agent sitting in one tool past 30 seconds, is `waiting` an
 
 `wait_for_task` stops waiting when the task shows no activity for two minutes (the kernel's idle bound) and says so (`wait_released: "idle"`); the task keeps running and its result still arrives as a task notification.
 
+### Notes the host sends without being asked
+
+Two kinds of message reach the model about running work, so it need not look. Code: `packages/cli/src/integrations/outstanding/progress-notices.ts`; the terminal looks every 15 seconds and whenever a workflow run changes (at most once a second).
+
+- **A phase note** when a workflow run moves on to a later phase: the run, `phase i/n`, and the running, queued, done and failed counts, marked as progress and not a result. It rides with the next request of a running turn, or with the next turn, and does not wake an idle session. A run that ends drops its pending phase notes; its completion message says the rest. A turn that starts with such notes pending reads them under their own heading, apart from the runs that ended.
+- **A check-in** when a background command, other than a monitor, has printed nothing for two minutes. It is marked as a check-in and not a completion, gives the same line as the outstanding-work note, and asks the model to read the output with the `job` tool and look at whether the process is alive, to stop it only if it is stuck, and to leave it and end the turn if it is making progress or is meant to keep running. It wakes an idle session. The next check-in on the same command comes after twice the silence (two, four, eight minutes, never more than thirty between two), and new output starts the count again. A command listed as running whose process is gone gets one message saying so and asking the model to offer to run it again rather than start it unasked.
+
+While a turn is answering and the person writes, a tool call that has run for two seconds no longer holds the message: the model is told the call is still running and is not interrupted, and replies at once; see [Answering while a call runs](../sdk/query.md#answering-while-a-call-runs). The CLI turns this on for every turn.
+
 Select one task by its public ID or agent name to inspect it without waiting:
 
 ```json
