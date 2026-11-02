@@ -45,9 +45,12 @@ describe('the description the model reads', () => {
 })
 
 describe('what the tool description says about failures', () => {
-	it('tells the model parallel and pipeline never reject and to filter nulls', () => {
-		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('never rejects: a thunk that throws becomes null')
-		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('a stage that throws drops its item to null')
+	it('tells the model a failed thunk becomes null but a script mistake fails the run', () => {
+		expect(WORKFLOW_TOOL_DESCRIPTION).toContain(
+			'A thunk that throws, or whose agent failed, becomes null',
+		)
+		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('A stage that throws drops its item to null')
+		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('fails the whole run with an error')
 		expect(WORKFLOW_TOOL_DESCRIPTION).toContain('filter the nulls')
 	})
 })

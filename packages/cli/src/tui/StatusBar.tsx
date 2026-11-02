@@ -4,7 +4,7 @@
  * Left to right, items joined by a dim ` · `: the permission mode (`⏵⏵ bypass
  * permissions on`, colored by mode, with its cycle key while it fits), the
  * pull request for the branch (`PR #592`, underlined, colored by review
- * state), the background-shell pill (`2 shells`), the reasoning effort when
+ * state), the background-shell pill (`2 bg`), the reasoning effort when
  * the operator has set one, then the hints: `esc to interrupt` while a turn
  * runs, `← 2 agents` when the empty composer's left arrow opens them, and
  * `↓ to manage` when the empty composer's down arrow reaches the shells or
@@ -101,8 +101,10 @@ export interface StatusBarProps {
 	readonly workflowCount?: number
 	/** Whether `↓` from the empty composer reaches the shells or the agents rail; adds `↓ to manage`. */
 	readonly canManage?: boolean
-	/** The shell pill holds the keyboard: it is drawn inverted and `enter to view shells` replaces `↓ to manage`. */
+	/** The shell pill holds the keyboard: it is drawn inverted and `enter to view tasks` replaces `↓ to manage`. */
 	readonly shellsSelected?: boolean
+	/** The model's checklist has tasks: `ctrl+t to hide tasks` while it is open, `ctrl+t to show tasks` while it is folded. */
+	readonly tasksOpen?: boolean | undefined
 	/**
 	 * The key line of the focused agents-rail row. While set it takes the
 	 * place of the whole line — mode, pills and model — so the keys the row
@@ -152,7 +154,9 @@ const INTERRUPT_HINT = 'esc to interrupt'
 const MANAGE_HINT = '↓ to manage'
 /** What the pointer shrinks to when the full hint does not fit. */
 const SHORT_MANAGE_HINT = '↓ agents'
-const VIEW_SHELLS_HINT = 'enter to view shells'
+const VIEW_TASKS_HINT = 'enter to view tasks'
+const HIDE_TASKS_HINT = 'ctrl+t to hide tasks'
+const SHOW_TASKS_HINT = 'ctrl+t to show tasks'
 
 /** Read when drawn: the theme can change while Namzu runs. */
 function prColor(review: PrReview): string | null {
@@ -170,13 +174,10 @@ function prColor(review: PrReview): string | null {
 	}
 }
 
-/** `2 shells`, `1 monitor`, or both: the two kinds counted apart in one pill. */
+/** `3 bg`: background commands and monitors counted together; the dialog tells them apart. */
 export function backgroundPill(shells: number, monitors: number): string | null {
-	const parts = [
-		shells > 0 ? `${shells} ${shells === 1 ? 'shell' : 'shells'}` : null,
-		monitors > 0 ? `${monitors} ${monitors === 1 ? 'monitor' : 'monitors'}` : null,
-	].filter((part): part is string => part !== null)
-	return parts.length > 0 ? parts.join(' · ') : null
+	const total = shells + monitors
+	return total > 0 ? `${total} bg` : null
 }
 
 export function StatusBar({
@@ -202,6 +203,7 @@ export function StatusBar({
 	workflowCount = 0,
 	canManage = false,
 	shellsSelected = false,
+	tasksOpen,
 	railHint,
 	notice,
 	ambient,
@@ -255,9 +257,10 @@ export function StatusBar({
 		interrupt: working && !hint && !dialogOpen ? INTERRUPT_HINT : null,
 		shells: backgroundPill(shellCount, monitorCount),
 		agents: runningText(agentCount, workflowCount),
+		tasks: tasksOpen === undefined ? null : tasksOpen ? HIDE_TASKS_HINT : SHOW_TASKS_HINT,
 		manage:
 			shellsSelected && shellCount + monitorCount > 0
-				? VIEW_SHELLS_HINT
+				? VIEW_TASKS_HINT
 				: canManage
 					? MANAGE_HINT
 					: null,
@@ -324,6 +327,13 @@ export function StatusBar({
 		parts.push(
 			<Text key="manage" color={theme.text.muted}>
 				{layout.manage}
+			</Text>,
+		)
+	}
+	if (layout.tasks) {
+		parts.push(
+			<Text key="tasks" color={theme.text.muted}>
+				{layout.tasks}
 			</Text>,
 		)
 	}
@@ -438,6 +448,7 @@ export interface StatusLineLayout {
 	readonly effort: string | null
 	readonly agents: string | null
 	readonly manage: string | null
+	readonly tasks: string | null
 	readonly gap: string
 	readonly right:
 		| {
@@ -482,6 +493,8 @@ export function fitStatusLine(input: {
 	readonly shells?: string | null
 	readonly agents?: string | null
 	readonly manage?: string | null
+	/** `ctrl+t to hide tasks` / `ctrl+t to show tasks`; the first hint to go. */
+	readonly tasks?: string | null
 	readonly pr?: { readonly prefix: string | null; readonly label: string } | null
 }): StatusLineLayout {
 	const columns = Math.max(0, input.columns)
@@ -513,6 +526,7 @@ export function fitStatusLine(input: {
 	let shells: string | null = input.shells ?? null
 	let agents: string | null = input.agents ?? null
 	let manage: string | null = input.manage ?? null
+	let tasks: string | null = input.tasks ?? null
 	let pr = input.pr ?? null
 	let effort: string | null =
 		[input.effort ? `effort ${input.effort}` : null, input.hypermode ? HYPERMODE_FOOTER_NOTE : null]
@@ -528,6 +542,7 @@ export function fitStatusLine(input: {
 			interrupt,
 			agents,
 			manage,
+			tasks,
 		].filter((value): value is string => Boolean(value))
 	const left = (): string => parts().join(' · ')
 	const over = (): boolean => left().length > leftBudget
@@ -540,6 +555,7 @@ export function fitStatusLine(input: {
 	}
 	// The pointer to the agents is the one way to reach them: it shrinks before
 	// the other items go and outlasts them.
+	if (over()) tasks = null
 	if (over() && manage === MANAGE_HINT) manage = SHORT_MANAGE_HINT
 	if (over()) agents = null
 	if (over()) interrupt = null
@@ -575,6 +591,7 @@ export function fitStatusLine(input: {
 		effort,
 		agents,
 		manage,
+		tasks,
 		gap,
 		right:
 			rightText !== null

@@ -11,6 +11,8 @@ import { type PluginManifest, PluginManifestSchema } from '../types/plugin/index
 import { toErrorMessage } from '../utils/error.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
+import { VERSION } from '../version.js'
+import { type PluginHostFacts, assertCompatible } from './compat.js'
 
 /**
  * Scans a directory for subdirectories containing a plugin manifest.
@@ -161,7 +163,7 @@ const REGISTRY_BACKED_CONTRIBUTIONS = ['skills'] as const
  * through host configuration; what does not exist is the manifest path
  * into them. Naming the types is what makes that actionable.
  */
-export interface PluginEnablementCapabilities {
+export interface PluginEnablementCapabilities extends PluginHostFacts {
 	/**
 	 * Whether the host wired a `SkillRegistry`.
 	 *
@@ -178,6 +180,10 @@ export function assertEnableable(
 	manifest: PluginManifest,
 	capabilities: PluginEnablementCapabilities = {},
 ): void {
+	assertCompatible(manifest, {
+		platform: capabilities.platform ?? platform(),
+		namzuVersion: capabilities.namzuVersion ?? VERSION,
+	})
 	const record = manifest as unknown as Record<string, unknown[] | undefined>
 	// One ordered pass over all three rather than two group filters
 	// concatenated, so the message keeps naming them in the order the

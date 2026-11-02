@@ -1988,6 +1988,7 @@ const CONFIG_READERS: ConfigReaders = {
 			notificationMethod?: unknown
 			theme?: unknown
 			reducedMotion?: unknown
+			showExpandedTodos?: unknown
 			recap?: unknown
 			spinnerTips?: unknown
 			spacesPrefix?: unknown
@@ -2040,6 +2041,9 @@ const CONFIG_READERS: ConfigReaders = {
 		if (raw.reducedMotion !== undefined && typeof raw.reducedMotion !== 'boolean') {
 			return invalidConfigValue(context, ['reducedMotion'], 'must be true or false')
 		}
+		if (raw.showExpandedTodos !== undefined && typeof raw.showExpandedTodos !== 'boolean') {
+			return invalidConfigValue(context, ['showExpandedTodos'], 'must be true or false')
+		}
 		if (raw.recap !== undefined && typeof raw.recap !== 'boolean') {
 			return invalidConfigValue(context, ['recap'], 'must be true or false')
 		}
@@ -2059,6 +2063,7 @@ const CONFIG_READERS: ConfigReaders = {
 			...(method !== undefined ? { notificationMethod: method } : {}),
 			...(themeSetting !== undefined ? { theme: themeSetting } : {}),
 			...(raw.reducedMotion !== undefined ? { reducedMotion: raw.reducedMotion } : {}),
+			...(raw.showExpandedTodos !== undefined ? { showExpandedTodos: raw.showExpandedTodos } : {}),
 			...(raw.recap !== undefined ? { recap: raw.recap } : {}),
 			...(raw.spinnerTips !== undefined ? { spinnerTips: raw.spinnerTips } : {}),
 		}
@@ -2676,7 +2681,7 @@ export function mergeCodeAnalysisConfig(
 }
 
 /**
- * `tui` from one more layer: later keys win. `theme` and `reducedMotion` are the
+ * `tui` from one more layer: later keys win. `theme`, `reducedMotion` and `showExpandedTodos` are the
  * operator's own taste, so a project layer's values for them are dropped.
  */
 export function mergeTuiConfig(
@@ -2684,7 +2689,7 @@ export function mergeTuiConfig(
 	layer: TuiConfig,
 	fromProject: boolean,
 ): TuiConfig {
-	const { theme: _theme, reducedMotion: _motion, ...rest } = layer
+	const { theme: _theme, reducedMotion: _motion, showExpandedTodos: _todos, ...rest } = layer
 	return { ...below, ...(fromProject ? rest : layer) }
 }
 

@@ -34,7 +34,7 @@ In a plain `namzu`, press `←` on an empty message box to open this screen. The
 
 `←` only counts on an empty message box with nothing attached and no `shift`, `ctrl` or `alt` held. If you have just emptied the box by editing (within 2 seconds), the first `←` only shows "Press ← again to open spaces" and a second one within 3 seconds opens it. Presses closer than 150 ms are key repeat and are ignored, and so are presses within a second after one that opened or armed. Sending a message does not count as editing it away.
 
-Where this screen cannot be opened (Windows, or a terminal that is not interactive, or no pseudo-terminal component), `←` on an empty message box opens the agents cockpit as it always did. Where it can, the cockpit is reached with `↓` (the agents rail, and the cockpit when there is no row) or `/agents`, and the footer no longer offers `← N agents`.
+Where this screen cannot be opened (Windows, or a terminal that is not interactive, or no pseudo-terminal component), `←` on an empty message box opens the agents cockpit as it always did. Where it can, the cockpit is reached with `↓` (the agents rail, and the cockpit when there is no row) or Enter on an agent row in `/tasks`, and the footer no longer offers `← N agents`.
 
 `namzu spaces` opens the same screen directly, with every session a separate process.
 

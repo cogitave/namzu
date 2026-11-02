@@ -89,6 +89,24 @@ describe('spawnHostShell', () => {
 			platform: 'linux',
 			spawnImpl: spawnImpl as never,
 		})
+		// Tagged on Linux, so a kill can find what left the process group.
+		expect(spawnImpl).toHaveBeenCalledWith('/usr/bin/bash', ['-c', 'ls'], {
+			cwd: '/w',
+			env: { KEEP: '1', NAMZU_SHELL_TAG: expect.stringMatching(/^[0-9a-f-]{36}$/) },
+			detached: true,
+			windowsHide: true,
+		})
+	})
+
+	it('does not tag a shell where there is no /proc to search', () => {
+		const spawnImpl = fakeSpawn()
+		spawnHostShell('ls', {
+			cwd: '/w',
+			env: { KEEP: '1' },
+			shell: BASH,
+			platform: 'darwin',
+			spawnImpl: spawnImpl as never,
+		})
 		expect(spawnImpl).toHaveBeenCalledWith('/usr/bin/bash', ['-c', 'ls'], {
 			cwd: '/w',
 			env: { KEEP: '1' },

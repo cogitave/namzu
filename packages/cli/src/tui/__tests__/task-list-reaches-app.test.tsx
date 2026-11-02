@@ -11,6 +11,9 @@
  * thing that can establish what an operator sees.
  */
 
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { render } from 'ink-testing-library'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -240,15 +243,19 @@ describe('the task checklist', () => {
 		expect(count(frame, '■ Çalışma alanını incele'), 'the current step is drawn once').toBe(1)
 	})
 
-	it('names the current step above the composer once the checklist is out of view', async () => {
+	it('names the current step above the composer once the checklist is folded and out of view', async () => {
 		vi.stubEnv('COLUMNS', '100')
 		vi.stubEnv('LINES', '18')
+		// Ctrl+T saves its choice; keep that out of the real user file.
+		vi.stubEnv('NAMZU_HOME', mkdtempSync(join(tmpdir(), 'namzu-todos-')))
 		const harness = await open()
 		await submit(harness, 'go')
 
-		// On a short screen the reply pushes the block's head off; the row
-		// names the step it is on, and is not a second checklist.
+		// On a short screen the reply pushes the block's head off, and the model's
+		// own tasks have opened the list; Ctrl+T folds it to the step it is on,
+		// which is not a second checklist.
 		await frameShows(harness.lastFrame, 'Looked around.')
+		harness.stdin.write('\x14')
 		await frameShows(harness.lastFrame, '■ Çalışma alanını incele · 0/2 done')
 		expect(harness.lastFrame() ?? '', 'not a second checklist').not.toContain('Tasks · 0/2 done')
 	})

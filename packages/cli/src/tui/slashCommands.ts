@@ -24,7 +24,7 @@ import { type TurnLimitsAction, turnLimitsAction } from './turn-limits-settings.
  * added here and not handled there falls out of the switch into the send path
  * and dispatches the operator's `/command` to the model as prose.
  *
- * `/cost`, argumentless `/permissions` and `/agents` are RENDERERS. Every number and rule
+ * `/cost` and argumentless `/permissions` are RENDERERS. Every number and rule
  * they print was already computed — the kernel emits usage on its own event,
  * the permission rules were compiled before the session opened, and the
  * delegate roster is decided when the subagent runtime is built. None of them
@@ -89,18 +89,13 @@ export type SlashAction =
 	  }
 	/** Choose and dispatch one exact command from the session's live vocabulary. */
 	| { kind: 'command-picker'; commands: readonly CommandPickerEntry[] }
-	/**
-	 * `/agents [running|available|batches]`, answered by the delegation UI's
-	 * `agentsSlashCommand` — App supplies the live monitor and saved batches.
-	 */
-	| { kind: 'agents'; args: readonly string[] }
 	/** User-selected MCP prompts/resources, resolved asynchronously by the session host. */
 	| { kind: 'mcp-person'; args: readonly string[] }
 	| { kind: 'peers'; args: readonly string[] }
 	/** Open the list of this conversation's workflow runs. */
 	| { kind: 'workflows' }
-	/** Open the session's interactive background shell list. */
-	| { kind: 'jobs' }
+	/** Open the Background dialog: this session's commands, monitors and subagents. */
+	| { kind: 'tasks' }
 	/** `/doctor`: run the health checks and show the result in plain words. */
 	| { kind: 'doctor' }
 	| { kind: 'settings-picker' }
@@ -201,7 +196,7 @@ export type SlashAction =
 	 * Async like its neighbours: the copy reads the persisted transcript and
 	 * writes it into a new session before anything on screen changes.
 	 */
-	| { kind: 'fork' }
+	| { kind: 'fork'; title?: string }
 	/** List file checkpoints, or put the tree back to before turn `turn`. */
 	| { kind: 'restore'; turn?: number }
 	/** Open the rewind picker: restore the files and/or the conversation to an earlier prompt. */
@@ -329,7 +324,7 @@ export interface SlashContext {
 	readonly recentDenials?: () => readonly DenialRow[]
 	/** Refresh subsequent authorization decisions after a saved local rule edit. */
 	readonly reloadPermissionRules?: () => void
-	/** This session's background jobs, running and ended. */
+	/** This session's background commands, running and ended. */
 	readonly jobs: () => readonly {
 		readonly id: string
 		readonly command: string
@@ -898,15 +893,6 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: (_ctx, args) => ({ kind: 'peers', args }),
 	},
 	{
-		name: 'agents',
-		description:
-			'Inspect delegated agents; /agents available lists configured agents, /agents batches lists past and running batches of delegated work.',
-		help: { usage: ['/agents [running|available|batches]'] },
-		// The subcommands are the delegation UI's (`agentsSlashCommand`): App hands
-		// it the arguments and renders what it answers, usage line included.
-		action: (_ctx, args) => ({ kind: 'agents', args }),
-	},
-	{
 		name: 'workflows',
 		description: 'List this conversation’s workflows and open one.',
 		help: { usage: ['/workflows'] },
@@ -1091,6 +1077,22 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: renameConversationAction,
 	},
 	{
+		name: 'branch',
+		description: 'Create a branch of the current conversation at this point',
+		help: {
+			usage: ['/branch [name]'],
+			details: [
+				'This screen continues in the copy; the original is unchanged and stays in /resume.',
+			],
+		},
+		action: (_ctx, args) => {
+			const title = args.join(' ').trim()
+			return title ? { kind: 'fork', title } : { kind: 'fork' }
+		},
+	},
+	{
+		// Today the same copy as /branch. The name is kept for copying the
+		// conversation into a new background session, which will replace this.
 		name: 'fork',
 		description: 'Continue in a copy, leaving the original unchanged.',
 		action: () => ({ kind: 'fork' }),
@@ -1401,15 +1403,28 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				: { kind: 'message', role: 'system', content: 'Usage: /doctor' },
 	},
 	{
-		name: 'jobs',
-		description: 'See background shells, read output, stop one.',
-		help: { usage: ['/jobs', '/jobs list'] },
+		name: 'tasks',
+		description: 'View and manage everything running in the background',
+		help: { usage: ['/tasks', '/tasks list'] },
 		action: (ctx, args) =>
 			args.length === 0
-				? { kind: 'jobs' }
+				? { kind: 'tasks' }
 				: args.length === 1 && args[0] === 'list'
-					? { kind: 'message', role: 'system', content: renderJobs(ctx.jobs()) }
-					: { kind: 'message', role: 'system', content: 'Usage: /jobs [list]' },
+					? { kind: 'message', role: 'system', content: renderBackgroundTasks(ctx.jobs()) }
+					: { kind: 'message', role: 'system', content: 'Usage: /tasks [list]' },
+	},
+	{
+		// The same dialog under its second name; only /tasks is listed.
+		name: 'bashes',
+		description: 'View and manage everything running in the background',
+		discoverable: false,
+		help: { usage: ['/bashes', '/bashes list'] },
+		action: (ctx, args) =>
+			args.length === 0
+				? { kind: 'tasks' }
+				: args.length === 1 && args[0] === 'list'
+					? { kind: 'message', role: 'system', content: renderBackgroundTasks(ctx.jobs()) }
+					: { kind: 'message', role: 'system', content: 'Usage: /bashes [list]' },
 	},
 	{
 		name: 'release-notes',
@@ -1826,10 +1841,10 @@ export function renderHooks(hooks: HooksConfig | undefined): string {
 	return lines.join('\n')
 }
 
-/** The session's background jobs, as an operator would ask about them. */
-export function renderJobs(jobs: ReturnType<SlashContext['jobs']>): string {
+/** The session's background commands, as an operator would ask about them. */
+export function renderBackgroundTasks(jobs: ReturnType<SlashContext['jobs']>): string {
 	if (jobs.length === 0) {
-		return 'No background jobs in this conversation. The agent starts one with `run_in_background` on bash.'
+		return 'No background tasks in this conversation. The agent starts one with `run_in_background` on bash.'
 	}
 	const lines = jobs.map((job) => {
 		const state =
@@ -1841,10 +1856,10 @@ export function renderJobs(jobs: ReturnType<SlashContext['jobs']>): string {
 		return `${state.padEnd(16)}  ${job.command}`
 	})
 	return [
-		`${jobs.length} background shell${jobs.length === 1 ? '' : 's'} in this conversation:`,
+		`${jobs.length} background ${jobs.length === 1 ? 'command' : 'commands'} in this conversation:`,
 		...lines,
 		'',
-		'Use /jobs to inspect output or stop a running shell; /exit stops them all.',
+		'Use /tasks to inspect output or stop a running command; /exit stops them all.',
 	].join('\n')
 }
 
@@ -2421,29 +2436,6 @@ function describeRule(rule: AuthorizationRule): string {
 }
 
 /** The delegate roster, and an honest answer when there is none. */
-/**
- * The roster, drawn.
- *
- * Kept as a formatter and moved off `SlashContext.agentIds`: the roster is
- * the KERNEL's fact — the delegation tools already hold it — and having the
- * CLI carry a second copy meant two answers to one question that could
- * disagree. The command is answered by the registry now; this draws what it
- * reports.
- */
-export function renderAgents(ids: readonly string[]): string {
-	if (ids.length === 0) {
-		return 'No delegates. This conversation has no delegation tool, so it does the work itself.'
-	}
-	return [
-		`Delegates (${ids.length}):`,
-		...ids.map((id) => `  ${id}`),
-		'',
-		'The agent dispatches to these itself when a task suits one. It may also',
-		'define a specialist for a single task, which is not listed here because',
-		'it does not exist until the agent asks for it.',
-	].join('\n')
-}
-
 function userCommandOrigin(command: UserCommand): string {
 	if (command.source === 'skill') return 'Skill'
 	if (command.source === 'plugin') return 'Plugin command'

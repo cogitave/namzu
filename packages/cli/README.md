@@ -34,7 +34,7 @@ You need Node.js 22.13 or newer. Other ways to install are under [Install](#inst
 - **Work on real files.** Namzu reads, searches and edits the files in your folder and runs commands there. Tool results, approvals and progress appear next to your messages. [How tools run](https://github.com/cogitave/namzu/blob/main/docs/cli/tool-boundary.md)
 - **Permission before action.** Each shell command goes through your permission rules and mode. A file outside your folder is an approval request, not a silent edit. [Where tools run](https://github.com/cogitave/namzu/blob/main/docs/cli/tool-boundary.md)
 - **Undo a turn.** Namzu records each file before a tool changes it, so `/restore` puts the tree back as it was. [File checkpoints](https://github.com/cogitave/namzu/blob/main/docs/cli/file-checkpoints.md)
-- **Split off independent work.** Start scoped agents for separate tasks, then watch their progress with `Ctrl+T`. [Delegated work](https://github.com/cogitave/namzu/blob/main/docs/cli/delegated-work.md)
+- **Split off independent work.** Start scoped agents for separate tasks, then watch their progress with `↓` or `←`, or `/tasks`. [Delegated work](https://github.com/cogitave/namzu/blob/main/docs/cli/delegated-work.md)
 
 ![Two read-only agents working in parallel in the terminal](https://raw.githubusercontent.com/cogitave/namzu/main/packages/cli/assets/cli-agents.png)
 
@@ -125,7 +125,7 @@ Type a request and press Enter. While a turn is running, you can keep typing:
 - **Tab** queues a message to run after the current turn.
 - **Esc** interrupts the running turn. **Ctrl+C** exits.
 - **Shift+Tab** cycles the permission mode between asking before changes, accepting edits, and plan (read-only), then to bypass (run everything without asking) when the session was launched with `--yolo`, `--dangerously-skip-permissions` or `--allow-dangerously-skip-permissions`, and to auto (a second model checks each call you would be asked about). See [Permission modes](../../docs/cli/permission-modes.md).
-- **Ctrl+T** opens or closes the view of delegated agents. **Ctrl+O** expands a tool's output, and opens a viewer for long output.
+- **Ctrl+T** shows or hides the task checklist. **Ctrl+O** expands a tool's output, and opens a viewer for long output.
 - **Ctrl+V** and **Alt+V** attach a clipboard image to the prompt.
 - **Alt+W** drops, restores or arms the composer trigger nearest the cursor.
 
@@ -140,6 +140,8 @@ These commands cover most sessions:
 | `/permissions` | Choose between asking before changes, auto-approving edits, plan mode, bypass and auto. |
 | `/resume` | Choose a saved conversation in this project. |
 | `/fork` | Continue in a copy of this conversation. |
+| `/branch` | Copy this conversation in place and keep going in the copy. |
+| `/tasks` | Show background commands, monitors and subagents. |
 | `/worktree` | Create a managed Git worktree for a separate checkout. |
 | `/skills` | Activate a skill for this conversation. |
 | `/review` | Review uncommitted work, a branch or a commit. |

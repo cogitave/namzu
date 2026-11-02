@@ -273,6 +273,13 @@ export interface BackgroundJobRegistryRef {
 	 * intent, and then there is simply no hold.
 	 */
 	markAwaited?(id: string): void
+	/**
+	 * Say that this job's exit and output have just been handed to the model by
+	 * a tool result (`wait_for_job` returning the exit, `job` read of a stopped
+	 * job), so the exit notice that would announce the same exit is withdrawn
+	 * instead of repeating it. Optional for the reason `markAwaited` is.
+	 */
+	markCollected?(id: string): void
 }
 
 /**

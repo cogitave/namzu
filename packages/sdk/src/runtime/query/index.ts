@@ -151,6 +151,7 @@ import { acquireSandbox } from './sandbox-lifecycle.js'
 import {
 	SteeringBinding,
 	type SteeringChannel,
+	formatJobExitNotice,
 	formatMonitorEnd,
 	formatMonitorEvent,
 	isOperatorUserMessage,
@@ -1507,6 +1508,21 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				)
 			: undefined
 		awaitedJobs?.attach()
+		// A tool result has handed the model this job's exit: the notice that
+		// would announce the same exit is taken back, and the host is told it was
+		// delivered so the session does not wake the model for it either.
+		const collectJob = (id: string): void => {
+			const withdrawn = jobNotices?.withdraw(id) ?? false
+			awaitedJobs?.collected(id)
+			if (!pendingJobNoticeIds.delete(id) && !withdrawn) return
+			try {
+				params.onJobNoticeDelivered?.([id])
+			} catch (error) {
+				ctx.log.warn('A background job notice observer failed', {
+					'exception.message': error instanceof Error ? error.message : String(error),
+				})
+			}
+		}
 
 		// Turn-scoped, like `toolGrants` below: what a skill loaded in this turn
 		// pre-approves ends with the turn. Shared by the executor, where the
@@ -1536,6 +1552,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				...(params.backgroundJobs ? { backgroundJobs: params.backgroundJobs } : {}),
 				...(params.backgroundJobOwner ? { backgroundJobOwner: params.backgroundJobOwner } : {}),
 				...(awaitedJobs ? { onJobAwaited: (id: string) => awaitedJobs.expect(id) } : {}),
+				...(awaitedJobs ? { onJobCollected: collectJob } : {}),
 				...(awaitedJobs ? { onMonitorStarted: (id: string) => awaitedJobs.expectMonitor(id) } : {}),
 				...(params.monitorTimeoutCapMs !== undefined
 					? { monitorTimeoutCapMs: params.monitorTimeoutCapMs }
@@ -1634,15 +1651,13 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					.catch(() => {})
 				return
 			}
-			const outcome =
-				job.status === 'killed'
-					? 'was stopped'
-					: `exited with code ${job.exitCode ?? 'unknown'}${job.signal ? ` (${job.signal})` : ''}`
-			const endedAt =
-				job.exitedAt === undefined ? '' : ` at ${new Date(job.exitedAt).toISOString()}`
-			jobNotices?.steer(
-				`Background job ${job.id} (${job.command}) ${outcome}${endedAt}. Read its output with the job tool if you need it.`,
-			)
+			let inlineOutput: ReturnType<NonNullable<typeof params.backgroundJobs>['read']> | undefined
+			try {
+				inlineOutput = params.backgroundJobs?.read(job.id)
+			} catch {
+				// The record is gone; the notice still stands without its output.
+			}
+			jobNotices?.steer(formatJobExitNotice(job, inlineOutput), job.id)
 			pendingJobNoticeIds.add(job.id)
 			void eventTranslator
 				.emitEvent({

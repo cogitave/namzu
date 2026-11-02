@@ -68,6 +68,13 @@ export interface TuiConfig {
 	 */
 	readonly reducedMotion?: boolean
 	/**
+	 * Whether the model's task checklist is open above the message box (every
+	 * task, up to five rows) rather than folded to the one current step.
+	 * Ctrl+T flips it and saves it here. Absent or `false` means folded. Your own
+	 * config files only.
+	 */
+	readonly showExpandedTodos?: boolean
+	/**
 	 * The one-line recap shown when a person returns to the terminal after a few
 	 * minutes away. Absent or `true` means on; only `false` turns it off. The
 	 * `NAMZU_RECAP` variable overrides this either way.

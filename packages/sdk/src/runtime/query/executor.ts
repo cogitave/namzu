@@ -413,6 +413,8 @@ export interface ToolExecutorConfig {
 	 * recorder gets no hold rather than a marking call that goes nowhere.
 	 */
 	onJobAwaited?: (id: string) => void
+	/** Where a tool result that handed the model a job's exit says so; see `ToolContext.backgroundJobs.markCollected`. */
+	onJobCollected?: (id: string) => void
 	/** The longest a monitor may live in this turn; see `QueryParams.monitorTimeoutCapMs`. */
 	monitorTimeoutCapMs?: number
 	/**
@@ -2372,6 +2374,7 @@ export class ToolExecutor {
 										}
 									: {}),
 								...(this.config.onJobAwaited ? { onAwaited: this.config.onJobAwaited } : {}),
+								...(this.config.onJobCollected ? { onCollected: this.config.onJobCollected } : {}),
 								...(this.config.monitorTimeoutCapMs !== undefined
 									? { monitorTimeoutCapMs: this.config.monitorTimeoutCapMs }
 									: {}),

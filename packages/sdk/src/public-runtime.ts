@@ -24,11 +24,17 @@ export { WorkerCodeRuntime } from './execution/code-runtime/worker.js'
 // interpreter above, with `agent()` as its only host call.
 export {
 	FileWorkflowJournal,
+	formatWorkflowJournalLine,
+	loadWorkflowResume,
 	parseWorkflowMeta,
+	readWorkflowJournalChecked,
 	resolveWorkflowLimits,
 	summarizeWorkflowPhases,
 	WorkflowRuntime,
 	WorkflowScriptError,
+	workflowCallKey,
+	workflowJournalLineHash,
+	workflowJournalSeed,
 } from './execution/workflow/index.js'
 
 export {
@@ -608,7 +614,7 @@ export { resolveSessionLogReplay } from './types/session/log-cursor.js'
 
 // Commands a HOST offers its operator. Deliberately NOT tools: no
 // descriptor reaches a provider and no dispatch path reaches the model — a
-// `/tasks` readout is a question the operator asked, and making it callable
+// `/skills` readout is a question the operator asked, and making it callable
 // would let the model spend a turn on it and record the output as a finding.
 export {
 	HostCommandNameCollisionError,

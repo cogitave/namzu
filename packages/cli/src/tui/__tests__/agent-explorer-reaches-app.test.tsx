@@ -24,7 +24,6 @@ import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { Preferences } from '../../integrations/providers/index.js'
 import { subagentParentFixture } from '../../integrations/subagents/__fixtures__/parent.js'
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
-import type { Batch } from '../../integrations/subagents/batches.js'
 import { createSubagentRuntime } from '../../integrations/subagents/runtime.js'
 import { testToolset } from '../../test-support/toolset.js'
 import {
@@ -154,17 +153,6 @@ const savedChildren: {
 	reads: number
 	gate?: Promise<void>
 } = vi.hoisted(() => ({ current: [], reads: 0 }))
-/**
- * What `/agents batches` finds saved for this conversation, as the cheap
- * listing reads it. `gate` holds one open so a test can put the read in
- * flight underneath a key press, the same shape as `savedChildren.gate`.
- */
-const orchestrationBatches: { current: readonly Batch[]; gate?: Promise<void> } = vi.hoisted(
-	() => ({
-		current: [],
-	}),
-)
-
 vi.mock('../../integrations/trust/store.js', () => ({
 	isTrusted: () => true,
 	trustDir: () => {},
@@ -233,10 +221,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 				savedChildren.reads += 1
 				await savedChildren.gate
 				return savedChildren.current
-			},
-			listSavedBatches: async () => {
-				await orchestrationBatches.gate
-				return orchestrationBatches.current
 			},
 			configNotices: [],
 			promptExemptTools: () => [],
@@ -391,8 +375,6 @@ beforeEach(() => {
 	savedChildren.current = []
 	savedChildren.reads = 0
 	delete savedChildren.gate
-	orchestrationBatches.current = []
-	delete orchestrationBatches.gate
 	activity.delegate(undefined)
 	activity.set([])
 	activity.narrate([])
@@ -409,7 +391,7 @@ afterEach(async () => {
 	vi.useRealTimers()
 })
 
-describe('Ctrl+T', () => {
+describe('the agents cockpit', () => {
 	it('targets the selected child, keeps the parent draft, and supplies a host notice on the next parent turn', async () => {
 		let created!: () => void
 		const ready = new Promise<void>((resolve) => {
@@ -446,7 +428,7 @@ describe('Ctrl+T', () => {
 		mounted = screen
 		await ready
 		await screen.waitForRender()
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await screen.waitForRender()
 		screen.press('\r')
 		await screen.waitForRender()
@@ -542,7 +524,7 @@ describe('Ctrl+T', () => {
 		await screen.waitForRender()
 		await submit(screen, 'start parent')
 		await running
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await screen.waitForRender()
 		screen.press('\r')
 		await screen.waitForRender()
@@ -601,7 +583,7 @@ describe('Ctrl+T', () => {
 		mounted = screen
 		await ready
 		await screen.waitForRender()
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await screen.waitForRender()
 		screen.press('\r')
 		await screen.waitForRender()
@@ -660,7 +642,7 @@ describe('Ctrl+T', () => {
 		mounted = screen
 		await ready
 		await screen.waitForRender()
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await screen.waitForRender()
 		screen.press('\r')
 		await screen.waitForRender()
@@ -699,7 +681,7 @@ describe('Ctrl+T', () => {
 		mounted = screen
 		await ready
 		await screen.waitForRender()
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await screen.waitForRender()
 		screen.press('\r')
 		await screen.waitForRender()
@@ -733,7 +715,7 @@ describe('Ctrl+T', () => {
 		mounted = screen
 		await ready
 		await screen.waitForRender()
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await screen.waitForRender()
 		screen.press('\r')
 		await screen.waitForRender()
@@ -1109,21 +1091,22 @@ describe('Ctrl+T', () => {
 			'automatic agent panel missing',
 		)
 
-		screen.press('draft survives')
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Agents · 2 agents'),
 			'cockpit missing',
 		)
-		expect(screen.viewport().join('\n')).not.toContain('draft survives')
-		screen.press('\x14')
+		screen.press('\x1b')
 		await waitUntil(
 			screen,
 			() => !screen.viewport().join('\n').includes('Agents · 2 agents'),
 			'cockpit did not close',
 		)
-		expect(screen.viewport().join('\n')).toContain('draft survives')
+		// A draft keeps the arrow for the cursor, so the cockpit is opened from an empty box;
+		// a draft typed afterwards is the parent's.
+		screen.press('draft survives')
+		await screen.waitForRender()
 
 		activity.set([
 			{
@@ -1732,7 +1715,7 @@ describe('Ctrl+T', () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Phases'),
@@ -1757,8 +1740,7 @@ describe('Ctrl+T', () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 60, rows: 14 })
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-		screen.press('draft remains visible')
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Agents · 1 agent'),
@@ -1766,12 +1748,11 @@ describe('Ctrl+T', () => {
 		)
 		const frame = screen.viewport().join('\n')
 		expect(frame).toContain('Agents · 1 agent')
-		expect(frame).not.toContain('draft remains visible')
-		screen.press('\x14')
+		screen.press('\x1b')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('draft remains visible'),
-			'draft was not restored',
+			() => screen.viewport().join('\n').includes('Type a message'),
+			'composer was not restored',
 		)
 		// Back at idle with no interaction hint active, the footer's right side
 		// falls through to the model again — it was displaced by the cockpit's
@@ -1780,7 +1761,7 @@ describe('Ctrl+T', () => {
 		expect(screen.viewport()).toHaveLength(14)
 	})
 
-	it('opens live delegated work with ctrl+t while the parent remains active', async () => {
+	it('opens live delegated work with left while the parent remains active', async () => {
 		activity.set([
 			agent({ viewId: 'agent-alpha', description: 'Alpha audit' }),
 			agent({ viewId: 'agent-beta', description: 'Beta build' }),
@@ -1794,11 +1775,11 @@ describe('Ctrl+T', () => {
 
 		await submit(screen, 'start parent')
 		await waitUntil(screen, () => railRows(screen).length === 2, 'live child rows missing')
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Alpha audit'),
-			'ctrl+t did not open the agent cockpit',
+			'the left arrow did not open the agent cockpit',
 		)
 		expect(painted(screen)).not.toContain('parent finished')
 	})
@@ -1824,7 +1805,7 @@ describe('Ctrl+T', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Contract critic'),
@@ -1892,7 +1873,7 @@ describe('Ctrl+T', () => {
 		// ones this process never saw — and it goes through this same path.
 		expect(savedChildren.reads).toBeGreaterThan(readsOnInstall)
 
-		await submit(screen, '/agents')
+		screen.press('\x1b[B')
 		release()
 		// Either answer ends the wait, so a wrong one fails as an assertion
 		// naming what appeared rather than as a timeout naming nothing.
@@ -1901,7 +1882,7 @@ describe('Ctrl+T', () => {
 			() =>
 				screen.viewport().join('\n').includes('Contract critic') ||
 				painted(screen).includes('No delegated agents'),
-			'the first /agents neither opened the saved child nor answered at all',
+			'the first open neither opened the saved child nor answered at all',
 		)
 		// While that read was still running it must not have claimed there was
 		// nothing to open. The line below is true of a conversation that
@@ -1931,7 +1912,7 @@ describe('Ctrl+T', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Child session'),
@@ -1965,7 +1946,7 @@ describe('Ctrl+T', () => {
 		})
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await screen.waitForRender()
 		await waitUntil(screen, () => screen.viewport().join('\n').includes('Alpha'), 'picker missing')
 
@@ -1996,7 +1977,7 @@ describe('Ctrl+T', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await screen.waitForRender()
 		await waitUntil(
 			screen,
@@ -2056,7 +2037,7 @@ describe('Ctrl+T', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await screen.waitForRender()
 		await waitUntil(
 			screen,
@@ -2121,9 +2102,7 @@ describe('Ctrl+T', () => {
 			const screen = await renderToScreen(<App ctx={ctx} />, { cols, rows })
 			mounted = screen
 			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-			screen.press('preserved draft')
-			await screen.waitForRender()
-			screen.press('\x14')
+			screen.press('\x1b[D')
 			await waitUntil(
 				screen,
 				() => screen.viewport().join('\n').includes('Workflows · 2/2'),
@@ -2192,10 +2171,10 @@ describe('Ctrl+T', () => {
 			screen.press('q')
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('preserved draft'),
-				'draft not restored',
+				() => screen.viewport().join('\n').includes('Type a message'),
+				'composer not restored',
 			)
-			screen.press('\x14')
+			screen.press('\x1b[D')
 			await waitUntil(
 				screen,
 				() => screen.viewport().join('\n').includes('Workflows · 2/2'),
@@ -2219,7 +2198,7 @@ describe('Ctrl+T', () => {
 		})
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await screen.waitForRender()
 		await waitUntil(screen, () => screen.viewport().join('\n').includes('Alpha'), 'cockpit missing')
 
@@ -2250,7 +2229,7 @@ describe('Ctrl+T', () => {
 		})
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await screen.waitForRender()
 		await waitUntil(
 			screen,
@@ -2314,8 +2293,7 @@ describe('Ctrl+T', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		await submit(screen, 'start parent')
-		screen.press('PARENT_DRAFT_RESTORED')
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await screen.waitForRender()
 		screen.press('\r')
 		await waitUntil(
@@ -2327,7 +2305,6 @@ describe('Ctrl+T', () => {
 		expect(frame).toContain('Subagent')
 		expect(frame).toContain('Inspect project sources')
 		expect(frame).toContain('q main')
-		expect(frame).not.toContain('PARENT_DRAFT_RESTORED')
 		expect(frame).not.toContain('MESSAGE')
 		expect(frame).not.toContain('child-screen-id')
 		expect(frame).not.toContain('CHILD_TASK_START')
@@ -2412,7 +2389,6 @@ describe('Ctrl+T', () => {
 		screen.press('q')
 		await screen.waitForRender()
 		frame = screen.viewport().join('\n')
-		expect(frame).toContain('PARENT_DRAFT_RESTORED')
 		expect(lowerRuleRow(screen.viewport())).toBeGreaterThanOrEqual(0)
 		expect(frame).not.toContain('CHILD_LIVE_UPDATE')
 		expect(painted(screen)).not.toContain('parent finished')
@@ -2434,7 +2410,7 @@ describe('Ctrl+T', () => {
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
 		await submit(screen, 'start parent')
-		screen.press('\x14')
+		screen.press('\x1b[D')
 		await screen.waitForRender()
 		screen.press('\r')
 		await waitUntil(
@@ -2476,121 +2452,13 @@ describe('Ctrl+T', () => {
 		expect(screen.viewport().join('\n')).toContain('Agent "Child session" finished')
 		expect(painted(screen).match(/parent finished/g)).toHaveLength(1)
 
-		await submit(screen, '/agents')
+		screen.press('\x1b[B')
+		await screen.waitForRender()
 		expect(screen.viewport().join('\n')).toContain('Child session')
 		screen.press('\r')
 		await screen.waitForRender()
 		expect(screen.viewport().join('\n')).toContain('child final answer')
 		expect(screen.viewport().join('\n')).toContain('Completed')
-	})
-})
-
-describe('/agents batches', () => {
-	it('selecting a past turn opens the cockpit with the replayed banner', async () => {
-		// Nothing live: this turn is entirely on disk, the way a past turn's
-		// work looks once the process that ran it has exited.
-		activity.set([])
-		savedChildren.current = [
-			agent({
-				viewId: 'run-saved-1',
-				workflowId: 'saved-run-1',
-				description: 'Contract critic',
-				status: 'completed',
-				startedAt: 1,
-				completedAt: 2,
-				replayed: true,
-				transcript: [
-					{ id: 'saved-row', kind: 'tool', text: 'Read(src/a.ts)', status: 'completed' },
-				],
-			}),
-		]
-		orchestrationBatches.current = [
-			{
-				id: 'saved-run-1',
-				name: 'Contract critic batch',
-				startedAt: 1,
-				phases: ['Work'],
-				agentsDone: 1,
-				agentsTotal: 1,
-				tokensTotal: 0,
-				elapsedMs: 1_000,
-				live: false,
-			},
-		]
-		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
-		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-
-		await submit(screen, '/agents batches')
-		await waitUntil(
-			screen,
-			() => screen.viewport().join('\n').includes('Contract critic batch'),
-			'the batch listing did not show the saved batch',
-		)
-
-		screen.press('\r')
-		await waitUntil(
-			screen,
-			() => screen.viewport().join('\n').includes('Replayed from the saved record.'),
-			'selecting the batch did not open the replayed banner',
-		)
-		const frame = screen.viewport().join('\n')
-		expect(frame).toContain('cannot be continued')
-		expect(frame).toContain('Read(src/a.ts)')
-	})
-
-	it('reports an empty history rather than an empty picker', async () => {
-		activity.set([])
-		savedChildren.current = []
-		orchestrationBatches.current = []
-		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
-		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-
-		await submit(screen, '/agents batches')
-		await waitUntil(
-			screen,
-			() => painted(screen).includes('No batches yet'),
-			'an empty history did not say so',
-		)
-	})
-
-	it('drops a stale read once the operator has left the loading picker', async () => {
-		activity.set([])
-		orchestrationBatches.current = []
-		let release: () => void = () => {}
-		orchestrationBatches.gate = new Promise<void>((resolve) => {
-			release = resolve
-		})
-		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
-		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
-
-		await submit(screen, '/agents batches')
-		await waitUntil(
-			screen,
-			() => screen.viewport().join('\n').includes('Reading saved batches'),
-			'the loading picker did not open',
-		)
-
-		// The operator gives up on the read before the disk walk resolves.
-		screen.press('\x1b')
-		await waitUntil(
-			screen,
-			() => !screen.viewport().join('\n').includes('Reading saved batches'),
-			'escape did not close the loading picker',
-		)
-
-		release()
-		// Give the now-resolved read every chance to (wrongly) act.
-		for (let i = 0; i < 5; i += 1) {
-			await screen.waitForRender()
-		}
-
-		// A stale read must not reopen the picker the operator already left,
-		// nor push the empty-history message over whatever is on screen now.
-		expect(screen.viewport().join('\n')).not.toContain('Reading saved batches')
-		expect(painted(screen)).not.toContain('No batches yet')
 	})
 })
 

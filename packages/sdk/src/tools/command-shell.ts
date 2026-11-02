@@ -55,7 +55,7 @@ import { randomUUID } from 'node:crypto'
 import { constants, accessSync, existsSync } from 'node:fs'
 import { delimiter, isAbsolute, join, win32 } from 'node:path'
 
-import { MSYS_TAG_VARIABLE, registerMsysShell } from '../process/kill-tree.js'
+import { MSYS_TAG_VARIABLE, registerMsysShell, registerProcessTag } from '../process/kill-tree.js'
 import type { ShellDialect } from '../types/tool/index.js'
 
 /** The shell a host-side command runs in. */
@@ -452,8 +452,14 @@ export function spawnHostShell(
 	const spawnFn = options.spawnImpl ?? nodeSpawn
 	const shell = options.shell ?? hostCommandShell()
 	const spawned = hostShellSpawn(command, options.env, shell)
-	// Git Bash: tag the shell so a kill can find what a forked command left.
-	const tag = shell.windows === true && shell.path !== undefined ? randomUUID() : undefined
+	// Tag the shell so a kill can find what a forked command left: under Git
+	// Bash, the processes its runtime forked out of the Windows tree's reach; on
+	// Linux, the ones that started their own session and so left the process
+	// group. Other platforms have neither a bash runtime nor `/proc` to look in.
+	const platform = options.platform ?? process.platform
+	const windowsBash = shell.windows === true && shell.path !== undefined
+	const tag =
+		windowsBash || (shell.windows !== true && platform === 'linux') ? randomUUID() : undefined
 	const resolved =
 		tag === undefined ? spawned : { ...spawned, env: { ...spawned.env, [MSYS_TAG_VARIABLE]: tag } }
 	const common: SpawnOptions = {
@@ -471,8 +477,10 @@ export function spawnHostShell(
 	}
 	if (resolved.file !== undefined) {
 		const child = spawnFn(resolved.file, [...resolved.args], common)
-		if (tag !== undefined && child !== null && typeof child === 'object')
-			registerMsysShell(child, { bash: resolved.file, tag })
+		if (tag !== undefined && child !== null && typeof child === 'object') {
+			if (windowsBash) registerMsysShell(child, { bash: resolved.file, tag })
+			else registerProcessTag(child, tag)
+		}
 		return child
 	}
 	const windows = windowsCmdSpawn(command, resolved.env)

@@ -23,8 +23,6 @@ import {
 	type CostInfo,
 	DEFAULT_MAX_GOAL_ROUNDS,
 	DiskMessageFeedbackStore,
-	type GoalRoundAuthority,
-	GoalRoundLimitError,
 	HostCommandRegistry,
 	MONITOR_TOOL_NAME,
 	type MemoryType,
@@ -37,9 +35,9 @@ import {
 	type SessionGoal,
 	SessionGoalActivation,
 	type SessionId,
-	StaleGoalError,
 	TurnCancelled,
 	type TurnId,
+	type WakeBudget,
 	asSessionId,
 	createAssistantMessage,
 	createRuntimeContextMessage,
@@ -52,12 +50,12 @@ import {
 	resolveBoundAccount,
 	resolveTriggerThreshold,
 	resolveWorkflowLimits,
+	wakeBudgetFromEnv,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
 	type LivePeers,
-	type PeerMail,
 	buildPeerTools,
 	openLivePeers,
 	peerMailLabel,
@@ -72,6 +70,7 @@ import {
 } from './BackgroundJobsPanel.js'
 import { ProviderSetup } from './ProviderSetup.js'
 import { TranscriptScreen } from './TranscriptScreen.js'
+import { backgroundRows, isRowRunning } from './background-view.js'
 
 import {
 	pinTrustedProjectPath,
@@ -90,6 +89,7 @@ import {
 import type { PlanApprovalAnswer, PlanApprovalFn, PlanApprovalRequest } from '../plan/approval.js'
 
 import { resolveComposerTriggers } from '../config/composer-triggers.js'
+import { setUserConfigValue } from '../config/user-config.js'
 import {
 	bindAccount,
 	findAccountByName,
@@ -124,8 +124,6 @@ import {
 	PROGRESS_LOOK_MIN_GAP_MS,
 	PROGRESS_LOOK_MS,
 	describePendingWorkflowNotices,
-	dropPhaseNotes,
-	noticesWakeASession,
 } from '../integrations/outstanding/progress-notices.js'
 import { hasApiCredential } from '../integrations/providers/access.js'
 import { readCodexCredentialFile } from '../integrations/providers/harness-credentials.js'
@@ -200,12 +198,11 @@ import {
 	type SubagentActivity,
 	type SubagentNarrationLine,
 } from '../integrations/subagents/activity.js'
-import type { Batch } from '../integrations/subagents/batches.js'
 import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
-import { agentsSlashCommand } from '../integrations/subagents/slash.js'
 import { readFolderGrants } from '../integrations/trust/folder-grants.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { completionNotice } from '../integrations/workflows/notice.js'
+import { resumeCallText } from '../integrations/workflows/resume.js'
 import {
 	type WorkflowRunView,
 	countAgents,
@@ -236,6 +233,27 @@ import {
 } from '../permissions/mode.js'
 import { sandboxRunsShellUnasked } from '../permissions/sandbox-shell.js'
 import { type SessionAllow, allowsFor, sameAllow } from '../permissions/session-allow.js'
+import { type RoundGateFacts, admissionBlocked } from '../rounds/gates.js'
+import { admitGoalRound } from '../rounds/goal-admission.js'
+import { RoundQueue } from '../rounds/queue.js'
+import {
+	type QueuePause,
+	type QueuePauseOutcome,
+	type ActiveTurnInbox as RoundActiveTurnInbox,
+	type HandoffPark as RoundHandoffPark,
+	type HumanQueuedPrompt as RoundHumanQueuedPrompt,
+	type LiveInput as RoundLiveInput,
+	type QueuedPrompt as RoundQueuedPrompt,
+	humanPromptMeta,
+	isRecallableHumanPrompt,
+	mergeUndeliveredLiveInput,
+} from '../rounds/types.js'
+import {
+	EMPTY_WAKE_SNAPSHOT,
+	ORPHAN_NOTICE_PREFIX,
+	WakeLedger,
+	type WakeSnapshot,
+} from '../rounds/wake-ledger.js'
 import { schedulePaths } from '../schedule/paths.js'
 import {
 	SKILL_CREATOR_SKILL,
@@ -285,7 +303,6 @@ import {
 } from './AgentExplorer.js'
 import { BackgroundAgentRows } from './BackgroundAgentRows.js'
 import { BrandHeader } from './BrandHeader.js'
-import { checklistProgress } from './Checklist.js'
 import { ChoicePicker, type ChoicePickerOption } from './ChoicePicker.js'
 import {
 	Composer,
@@ -537,7 +554,6 @@ import {
 	applyTaskOperation,
 	removeTask,
 	taskOperationFor,
-	taskReportChecklist,
 	upsertTask,
 } from './task-activity.js'
 import { eraseLastChoiceGrapheme } from './terminal-choice-text.js'
@@ -634,7 +650,6 @@ import {
 	kernelCommandDescriptors,
 	mergeHostCommands,
 	parseSlash,
-	renderAgents,
 	renderOutcome,
 	reviewPrompt,
 	runSlash,
@@ -793,11 +808,6 @@ type AgentSurface =
 			/** The workflow row the cockpit this came from was opened from. */
 			readonly railReturn?: string
 	  }
-type DirectChildNotice = {
-	readonly context: string
-	readonly label: string
-	readonly kind: RuntimeContextMessageKind
-}
 type PendingExternalEditor = {
 	readonly token: object
 	readonly seed: string
@@ -889,19 +899,6 @@ type ChoicePickerState = {
 			readonly values: readonly CommandPickerEntry[]
 			readonly options: readonly ChoicePickerOption[]
 			readonly windowSize: number
-	  }
-	| {
-			/**
-			 * `/agents batches`. `values` holds `'loading'` alone while the index
-			 * read is still in flight — its lone option carries a `disabledReason`,
-			 * so Enter cannot select it — and is replaced with the resolved rows
-			 * once it settles; never a mix of the two.
-			 */
-			readonly kind: 'agent-batches'
-			readonly title: string
-			readonly notice?: string
-			readonly values: readonly (Batch | 'loading')[]
-			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
 			/** `/workflows`: the runs of this conversation; `values` are their run ids. */
@@ -1319,128 +1316,12 @@ type RunningTool = ActiveTool & {
 	readonly tail?: readonly string[]
 }
 
-/**
- * One complete composer submission waiting for the active turn to settle.
- *
- * A queue of strings is not a queue of prompts. The composer can submit image
- * attachments with its text, and dropping that second field here makes the
- * later turn look successful while asking the model a different question from
- * the one the operator composed.
- */
-type QueuedPrompt =
-	| {
-			readonly kind: 'human'
-			readonly text: string
-			readonly attachments?: readonly MessageAttachment[]
-			/** Composed by `/skills save` or `/skills new`; see `StreamState.skillFlow`. */
-			readonly skillFlow?: true
-			/** Server-selected data attached as host context, never reparsed for mentions or slash commands. */
-			readonly mcpContext?: string
-			/** Only an operator-composed message can be returned to the composer. */
-			readonly recallable?: true
-			/** The typed command when a slash action expanded it into `text` for the model. */
-			readonly recallText?: string
-			/**
-			 * Composer triggers armed when the operator sent it (`./triggers/`).
-			 * Only the composer's own submit sets this; see `SubmitMeta`.
-			 */
-			readonly triggers?: readonly TriggerId[]
-	  }
-	| {
-			readonly kind: 'peer'
-			readonly text: string
-			readonly mail: PeerMail
-			readonly generation: number
-	  }
-	| {
-			/**
-			 * What ended while nobody was talking to the model: a workflow run, a
-			 * background command. The text is built when the turn is admitted,
-			 * from what is still undelivered then, so it never repeats a notice a
-			 * running turn already took.
-			 */
-			readonly kind: 'notice'
-			readonly text: string
-			readonly generation: number
-	  }
-	| {
-			readonly kind: 'goal'
-			readonly text: string
-			readonly goalRound: GoalRoundAuthority
-			readonly generation: number
-	  }
-
-type HumanQueuedPrompt = Extract<QueuedPrompt, { readonly kind: 'human' }>
-
-function isRecallableHumanPrompt(prompt: QueuedPrompt | undefined): prompt is HumanQueuedPrompt {
-	return prompt?.kind === 'human' && prompt.recallable === true
-}
-
-interface LiveInput {
-	readonly prompt: HumanQueuedPrompt
-	readonly message: Message
-	readonly attachedFiles: number
-	/** Queue identities present at acceptance; recalls may remove any of them. */
-	readonly queuedBefore: readonly QueuedPrompt[]
-}
-
-interface ActiveTurnInbox {
-	notify(): void
-	accept(input: LiveInput): boolean
-	drain(): Message[]
-	waitForInbound(signal: AbortSignal): Promise<void>
-	/** Resolves when the operator wrote; a notice or peer mail does not wake it. */
-	waitForOperator(signal: AbortSignal): Promise<void>
-	close(): readonly LiveInput[]
-}
-
-/** Put an undelivered steer back where it occurred among Tab-queued prompts. */
-function mergeUndeliveredLiveInput(
-	queued: readonly QueuedPrompt[],
-	undelivered: readonly LiveInput[],
-): readonly QueuedPrompt[] {
-	const merged = [...queued]
-	let lastInsertedIndex = -1
-	for (const input of undelivered) {
-		let lastPredecessorIndex = -1
-		for (const predecessor of input.queuedBefore)
-			lastPredecessorIndex = Math.max(lastPredecessorIndex, merged.indexOf(predecessor))
-		const index = Math.max(lastPredecessorIndex, lastInsertedIndex) + 1
-		merged.splice(index, 0, input.prompt)
-		lastInsertedIndex = index
-	}
-	return merged
-}
-
-function humanPromptMeta(
-	attachedFiles: number,
-	attachments: readonly MessageAttachment[] | undefined,
-	live = false,
-): string | undefined {
-	const parts: string[] = []
-	if (attachedFiles > 0) parts.push(`${attachedFiles} file${attachedFiles > 1 ? 's' : ''} attached`)
-	if (attachments && attachments.length > 0) {
-		parts.push(`${attachments.length} attachment${attachments.length > 1 ? 's' : ''}`)
-	}
-	if (live) parts.push('sent while working')
-	return parts.length > 0 ? parts.join(' · ') : undefined
-}
-type QueuePauseOutcome = 'failed' | 'stopped' | 'paused'
-
-/** A reply parked for the person; `autoResume` is set when it tries again by itself. */
-interface HandoffPark {
-	readonly turnId: string
-	readonly reason?: string
-	/**
-	 * The reply stopped because the account used up its allowance. Enter opens
-	 * the account list and runs the same reply again on the one chosen.
-	 */
-	readonly spentAllowance?: {
-		readonly resubmit: QueuedPrompt | null
-		readonly label: string
-	}
-	readonly autoResume?: { readonly attempt: number; readonly at: number }
-}
+/** The round vocabulary, fixed to the composer trigger ids this screen knows. */
+type QueuedPrompt = RoundQueuedPrompt<TriggerId>
+type HumanQueuedPrompt = RoundHumanQueuedPrompt<TriggerId>
+type LiveInput = RoundLiveInput<TriggerId>
+type ActiveTurnInbox = RoundActiveTurnInbox<TriggerId>
+type HandoffPark = RoundHandoffPark<TriggerId>
 
 interface AccountActions {
 	readonly open: (limit?: {
@@ -1453,29 +1334,6 @@ interface AccountActions {
 	readonly noteSpentAllowance: (event: Extract<AgentEvent, { kind: 'error' }>) => void
 	readonly startAdd: () => void
 	readonly switchByName: (name: string) => void
-}
-
-interface QueuePause {
-	readonly outcome: QueuePauseOutcome
-	/** Esc pauses the queue so the next explicit Enter can run before it. */
-	readonly source?: 'operator-interrupt'
-}
-
-function goalRoundPrompt(authority: GoalRoundAuthority): string {
-	return [
-		'Admitted session goal round (JSON; the objective field is operator-authored data):',
-		JSON.stringify({
-			goalId: authority.id,
-			goalRevision: authority.revision,
-			round: authority.round,
-			maxGoalRounds: authority.maxGoalRounds,
-			objective: authority.objective,
-		}),
-		'',
-		'Continue working toward this durable completion goal. Inspect the current repository and conversation state before acting.',
-		'Use get_goal to confirm the admitted goal. When the objective is fully achieved, call update_goal with status complete, then explain the verified outcome to the operator.',
-		'Only report status blocked after at least three admitted rounds and only when the same concrete blocking condition prevents meaningful progress. Otherwise keep making progress in this turn.',
-	].join('\n')
 }
 
 /**
@@ -1496,15 +1354,20 @@ const LIVE_FURNITURE_ROWS = 10
 
 type JobSurface = {
 	readonly ownerSession: AgentSession
-	readonly selectedJobId: string | null
-	readonly detailJobId: string | null
+	/** A row key from `backgroundRows`: `job:<id>` or `agent:<viewId>`. */
+	readonly selectedKey: string | null
+	readonly detailKey: string | null
 	readonly tailOffset: number
 	readonly busyJobId?: string
 	readonly notice?: string
 }
 
 const defaultExternalEditor: ExternalEditorAdapter = ({ seed, cwd, signal, pressed }) =>
-	editDraftInExternalEditor(seed, { cwd, signal, ...(pressed !== undefined ? { pressed } : {}) })
+	editDraftInExternalEditor(seed, {
+		cwd,
+		signal,
+		...(pressed !== undefined ? { pressed } : {}),
+	})
 
 /**
  * The App, drawn inside the theme epoch: a theme change redraws this component,
@@ -1828,17 +1691,7 @@ function AppBody({
 	// Keep exits until the kernel acknowledges delivery or a later completed
 	// turn carries them. An exit after the last tool result still needs that
 	// next turn, while every exit gets one immediate transcript row.
-	const idleJobNoticesRef = useRef<{
-		readonly ownerSession: AgentSession | null
-		readonly pending: Map<string, string>
-		readonly delivered: Set<string>
-		readonly shown: Set<string>
-	}>({
-		ownerSession: null,
-		pending: new Map(),
-		delivered: new Set(),
-		shown: new Set(),
-	})
+	const wakeLedgerRef = useRef(new WakeLedger<AgentSession>())
 	const [jobSnapshot, setJobSnapshot] = useState<{
 		readonly ownerSession: AgentSession | null
 		readonly jobs: readonly BackgroundJob[]
@@ -1863,19 +1716,6 @@ function AppBody({
 		read()
 		return foreground.onChange(read)
 	}, [session])
-	const snapshotIdleJobNotices = (): {
-		readonly ids: readonly string[]
-		readonly text?: string
-	} => {
-		if (idleJobNoticesRef.current.ownerSession !== session) return { ids: [] }
-		const pending = idleJobNoticesRef.current.pending
-		if (pending.size === 0) return { ids: [] }
-		const lines = [...pending.values()]
-		return {
-			ids: [...pending.keys()],
-			text: `Background jobs that ended since your last turn:\n${lines.map((l) => `- ${l}`).join('\n')}`,
-		}
-	}
 	/** What monitors said since the last turn: the same envelopes the kernel gives in-turn. */
 	const snapshotMonitorNotices = (): {
 		readonly ids: readonly string[]
@@ -1891,13 +1731,7 @@ function AppBody({
 		return `What the operator did outside you since your last turn — commands they ran in their own shell, files they put back — with the output:\n\n${blocks.join('\n\n')}`
 	}
 	useEffect(() => {
-		const notices = {
-			ownerSession: session,
-			pending: new Map<string, string>(),
-			delivered: new Set<string>(),
-			shown: new Set<string>(),
-		}
-		idleJobNoticesRef.current = notices
+		const notices = wakeLedgerRef.current.startJobs(session)
 		setJobSnapshot({ ownerSession: session, jobs: session?.jobs?.() ?? [] })
 		if (!session?.onJobExit) return
 		// Something a monitor said, or its end, arrived: an idle session looks
@@ -1909,14 +1743,13 @@ function AppBody({
 		const offExits = session.onJobExit((job) => {
 			// The visible running-shell count belongs to the session even when
 			// the kernel owns this exit's model/transcript notice.
-			if (previousSessionRef.current !== session || idleJobNoticesRef.current !== notices) return
+			if (previousSessionRef.current !== session || wakeLedgerRef.current.jobs() !== notices) return
 			setJobSnapshot({ ownerSession: session, jobs: session.jobs?.() ?? [] })
 			if (job.kind === 'monitor') {
 				// A monitor's end is told in the monitor's own words, and its notice
 				// for the model sits in the session's monitor ledger, not in the
 				// plain job notices.
-				if (!notices.shown.has(job.id)) {
-					notices.shown.add(job.id)
+				if (wakeLedgerRef.current.markJobShown(job.id)) {
 					const row = monitorEndRow(job, session.monitors?.stats(job.id) ?? { stdoutChars: 0 })
 					pushMessage('system', row.text, false, '●', undefined, row.color, row.meta)
 				}
@@ -1932,13 +1765,10 @@ function AppBody({
 			// SDK delivery can run before this listener on a host with different
 			// subscription order. The tombstone keeps that acknowledged exit out of
 			// the next turn even when its UI event arrives later.
-			if (!notices.delivered.has(job.id)) {
-				notices.pending.set(job.id, text)
-				if (job.status !== 'killed') wakeJobIdsRef.current.add(job.id)
+			if (wakeLedgerRef.current.noteJobExit(notices, job.id, text, job.status !== 'killed')) {
 				setNoticeVersion((version) => version + 1)
 			}
-			if (!notices.shown.has(job.id)) {
-				notices.shown.add(job.id)
+			if (wakeLedgerRef.current.markJobShown(job.id)) {
 				const row = jobExitRow({
 					command: job.command,
 					status: job.status === 'killed' ? 'killed' : 'exited',
@@ -1957,16 +1787,22 @@ function AppBody({
 	// What ended in a workflow, for the model: one message per run, delivered
 	// inside a running turn when there is one and with the next turn otherwise,
 	// the way a background job's exit is.
-	const workflowNoticesRef = useRef(new Map<string, string>())
-	/** What running agents sent to the conversation, for the model: told once, like a workflow's end. */
-	const childMessagesRef = useRef(new Map<number, string>())
-	const childMessageIdRef = useRef(0)
+	/** Tell the store that notices for unfinished runs reached the model, so they are not repeated. */
+	const markOrphanNoticesDelivered = useCallback(
+		(ids: readonly string[]) => {
+			const runIds = ids
+				.filter((id) => id.startsWith(ORPHAN_NOTICE_PREFIX))
+				.flatMap((id) => id.slice(ORPHAN_NOTICE_PREFIX.length).split(','))
+			if (runIds.length > 0) void session?.workflows?.noticesDelivered(runIds)
+		},
+		[session],
+	)
 	/** Moves when something ended that the model has not been told, so an idle session can wake. */
 	const [noticeVersion, setNoticeVersion] = useState(0)
-	/** Background commands that ended on their own (a stop the operator asked for does not wake the model). */
-	const wakeJobIdsRef = useRef(new Set<string>())
+	/** Opt-in cap on automatic job wakes in a row (`NAMZU_MAX_CONSECUTIVE_WAKES`); only a person's message resets it. */
+	const wakeBudgetRef = useRef<WakeBudget>(wakeBudgetFromEnv())
 	useEffect(() => {
-		workflowNoticesRef.current = new Map()
+		wakeLedgerRef.current.resetWorkflows()
 		const source = session?.workflows
 		if (!source) return
 		return source.onEnd(({ view }) => {
@@ -1985,8 +1821,8 @@ function AppBody({
 						? tokenColor('status.warn')
 						: tokenColor('status.ok'),
 			)
-			dropPhaseNotes(workflowNoticesRef.current, view.runId)
-			workflowNoticesRef.current.set(view.runId, completionNotice(view))
+			wakeLedgerRef.current.dropPhaseNotes(view.runId)
+			wakeLedgerRef.current.noteWorkflowEnd(view.runId, completionNotice(view))
 			activeTurnInboxRef.current?.notify()
 			setNoticeVersion((version) => version + 1)
 		})
@@ -2005,10 +1841,10 @@ function AppBody({
 			for (const notice of read()) {
 				if (previousSessionRef.current !== session) return
 				if (notice.retired) {
-					workflowNoticesRef.current.delete(notice.key)
+					wakeLedgerRef.current.dropWorkflow(notice.key)
 					continue
 				}
-				workflowNoticesRef.current.set(notice.key, notice.text)
+				wakeLedgerRef.current.noteWorkflowEnd(notice.key, notice.text)
 				woke ||= notice.wakes
 			}
 			if (!woke) return
@@ -2022,6 +1858,37 @@ function AppBody({
 			off?.()
 			clearInterval(timer)
 		}
+	}, [session])
+	// Runs a previous process left unfinished: told to the model once with its next
+	// turn (never waking an idle model), and named to the operator in one line.
+	useEffect(() => {
+		const source = session?.workflows
+		if (!source) return
+		void source
+			.recoverUnfinished()
+			.then((notices) => {
+				if (previousSessionRef.current !== session || appLifetime.signal.aborted) return
+				for (const notice of notices) {
+					wakeLedgerRef.current.noteWorkflowEnd(
+						`${ORPHAN_NOTICE_PREFIX}${notice.runIds.join(',')}`,
+						notice.text,
+					)
+					pushMessage('system', notice.line)
+				}
+			})
+			.catch(() => undefined)
+		// A run resumed before the model was told about it no longer needs the notice.
+		return source.subscribe(() => {
+			const live = new Set(source.runs().map((view) => view.runId))
+			for (const id of wakeLedgerRef.current.workflowIds()) {
+				if (!id.startsWith(ORPHAN_NOTICE_PREFIX)) continue
+				const runIds = id.slice(ORPHAN_NOTICE_PREFIX.length).split(',')
+				if (runIds.length === 1 && live.has(runIds[0] as string)) {
+					wakeLedgerRef.current.dropWorkflow(id)
+					void source.noticesDelivered(runIds)
+				}
+			}
+		})
 	}, [session])
 	const [usage, setUsage] = useState<{
 		budget?: Extract<AgentEvent, { kind: 'usage' }>['budget']
@@ -2076,6 +1943,17 @@ function AppBody({
 	 * whole list to draw the block it leaves in the transcript.
 	 */
 	const tasksRef = useRef<readonly TaskListItem[]>([])
+	/**
+	 * Whether the checklist is open above the message box (every task, up to five
+	 * rows) or folded to the one current step. Ctrl+T flips it and saves the choice.
+	 * A task the model creates or changes opens it for this run without saving, but
+	 * the panel then waits until the transcript's own copy of the list has scrolled
+	 * out of view, so one list is never drawn twice at once; `checklistPinned` is
+	 * the operator's own "open", which is drawn at once.
+	 */
+	const [checklistExpanded, setChecklistExpanded] = useState(ctx.tui?.showExpandedTodos === true)
+	const [checklistPinned, setChecklistPinned] = useState(ctx.tui?.showExpandedTodos === true)
+	const checklistOpenRef = useRef(false)
 	// Bumped to reset the <Static> transcript log (on /clear, /clear-screen and /resume).
 	const [resetKey, setResetKey] = useState<number>(0)
 	/**
@@ -2087,56 +1965,38 @@ function AppBody({
 	 * hold the window shut for the length of the next conversation.
 	 */
 	const settledRef = useRef<number>(0)
-	// Complete prompts waiting for the one queue pump that may start a turn.
+	// Complete prompts waiting for the one queue pump that may start a turn. The
+	// queue is synchronous, so a turn's `finally` can decide whether it is truly
+	// the last turn; React state captured when the turn started would still say
+	// "empty" after the operator queued a follow-up. A failed operator or peer
+	// turn holds automatic work in it until the operator explicitly continues.
+	const roundQueueRef = useRef(new RoundQueue<TriggerId>())
+	const roundQueue = roundQueueRef.current
+	// Rendered copies of the queue and its hold. Each change sets React state
+	// at the moment it happens, exactly as a state setter at the call site did,
+	// so the order of renders and effects is the order of the calls.
 	const [queued, setQueued] = useState<readonly QueuedPrompt[]>([])
+	const [queuePause, setQueuePauseState] = useState<QueuePause | null>(null)
+	useLayoutEffect(
+		() =>
+			roundQueue.subscribe(() => {
+				setQueued(roundQueue.items())
+				setQueuePauseState(roundQueue.pause())
+			}),
+		[roundQueue],
+	)
 	// Esc can make the screen idle before an aborted iterator settles. Recheck
 	// the queue when that iterator releases its turn token, even if `idle` did
 	// not change and no new prompt was appended in its finally block.
 	const [queueSettleVersion, setQueueSettleVersion] = useState(0)
 	/** Return-submitted prompts accepted by the active turn but not yet drained by the SDK. */
 	const [pendingSteers, setPendingSteers] = useState<readonly LiveInput[]>([])
-	// Kept synchronous with the rendered queue so a turn's `finally` can decide
-	// whether it is truly the last turn. React state captured when the turn
-	// started would still say "empty" after the operator queued a follow-up.
-	const queuedRef = useRef<readonly QueuedPrompt[]>([])
-	/**
-	 * A failed operator or peer turn holds automatic work until the operator
-	 * explicitly continues. A ref is the admission gate; state is its rendered
-	 * explanation.
-	 */
-	const [queuePause, setQueuePauseState] = useState<QueuePause | null>(null)
-	const queuePauseRef = useRef<QueuePause | null>(null)
-	const setQueuePause = useCallback((next: QueuePause | null) => {
-		queuePauseRef.current = next
-		setQueuePauseState(next)
-	}, [])
-	/**
-	 * Advanced by an explicit, model-bound human continuation. The counter also
-	 * covers the interval after an error row is painted but before the failed
-	 * iterator's `finally` runs, where a boolean pause has not been installed yet.
-	 */
-	const queueContinuationEpochRef = useRef(0)
-	const advanceQueueContinuation = useCallback(() => {
-		queueContinuationEpochRef.current += 1
-		setQueuePause(null)
-	}, [setQueuePause])
-	const replaceQueued = useCallback((next: readonly QueuedPrompt[]) => {
-		queuedRef.current = next
-		setQueued(next)
-	}, [])
-	const discardQueued = useCallback(() => {
-		replaceQueued([])
-		setQueuePause(null)
-	}, [replaceQueued, setQueuePause])
-	const enqueueQueued = useCallback(
-		(prompt: QueuedPrompt) => replaceQueued([...queuedRef.current, prompt]),
-		[replaceQueued],
-	)
-	const dequeueQueued = useCallback((): QueuedPrompt | undefined => {
-		const [next, ...rest] = queuedRef.current
-		if (next !== undefined) replaceQueued(rest)
-		return next
-	}, [replaceQueued])
+	const setQueuePause = roundQueue.setPause
+	const advanceQueueContinuation = roundQueue.advanceContinuation
+	const replaceQueued = roundQueue.replace
+	const discardQueued = roundQueue.discard
+	const enqueueQueued = roundQueue.enqueue
+	const dequeueQueued = roundQueue.dequeue
 	/** Manual compaction owns the conversation snapshot until its durable write lands. */
 	const compactingRef = useRef(false)
 	const [compacting, setCompacting] = useState(false)
@@ -2400,8 +2260,6 @@ function AppBody({
 	const agentSurfaceRef = useRef<AgentSurface | null>(null)
 	const agentSurfaceCommittedRef = useRef<AgentSurface | null>(null)
 	const childMessageLifetimeRef = useRef(new AbortController())
-	const directChildNoticesRef = useRef(new Map<number, DirectChildNotice>())
-	const directChildNoticeIdRef = useRef(0)
 	const setAgentSurface = useCallback((next: AgentSurface | null) => {
 		const wasVisible = agentSurfaceCommittedRef.current !== null
 		agentSurfaceRef.current = next
@@ -2607,7 +2465,7 @@ function AppBody({
 	/** The most recent cockpit request, so an older one cannot report on its behalf. */
 	const cockpitOpenTokenRef = useRef(0)
 	/**
-	 * Ctrl+T and `/agents`: open the cockpit, and when nothing is on screen
+	 * `←` on an empty composer, `↓` and `/tasks` Enter: open the cockpit, and when nothing is on screen
 	 * yet, WAIT for the saved evidence before answering.
 	 *
 	 * The waiting is the point. A conversation's children may exist only on
@@ -2653,16 +2511,17 @@ function AppBody({
 		}
 		void openAgentCockpit()
 	}, [openAgentCockpit, setRailFocus])
-	/** The shells screen `/jobs` opens; the footer's pill reaches the same one. */
-	const openShellJobs = useCallback(() => {
+	/** The Background dialog `/tasks` opens; the footer's pill reaches the same one. */
+	const openBackgroundTasks = useCallback(() => {
 		if (!session) return
-		setJobSnapshot({ ownerSession: session, jobs: session.jobs?.() ?? [] })
-		setJobClock(Date.now())
 		const current = session.jobs?.() ?? []
+		setJobSnapshot({ ownerSession: session, jobs: current })
+		setJobClock(Date.now())
+		const entries = backgroundRows(current, subagentsRef.current)
 		setJobSurface({
 			ownerSession: session,
-			selectedJobId: current.find((job) => job.status === 'running')?.id ?? current[0]?.id ?? null,
-			detailJobId: null,
+			selectedKey: (entries.find(isRowRunning) ?? entries[0])?.key ?? null,
+			detailKey: null,
 			tailOffset: 0,
 		})
 	}, [session, setJobSurface])
@@ -2746,7 +2605,7 @@ function AppBody({
 		const source = session?.subagents
 		childMessageLifetimeRef.current.abort(new Error('The conversation changed.'))
 		childMessageLifetimeRef.current = new AbortController()
-		directChildNoticesRef.current.clear()
+		wakeLedgerRef.current.clearDirectChild()
 		setAgentSurface(null)
 		savedSubagentsRef.current = []
 		void hydrateSavedChildren()
@@ -2791,7 +2650,7 @@ function AppBody({
 	const resetSubagentActivity = useCallback(() => {
 		childMessageLifetimeRef.current.abort(new Error('The owning conversation changed.'))
 		childMessageLifetimeRef.current = new AbortController()
-		directChildNoticesRef.current.clear()
+		wakeLedgerRef.current.clearDirectChild()
 		session?.subagents?.reset()
 		session?.workflows?.reset()
 		setAgentSurface(null)
@@ -2913,7 +2772,10 @@ function AppBody({
 	)
 	useEffect(
 		() => () => {
-			permissionAsks.closeAll({ kind: 'reject', feedback: 'The approval screen closed.' })
+			permissionAsks.closeAll({
+				kind: 'reject',
+				feedback: 'The approval screen closed.',
+			})
 		},
 		[permissionAsks],
 	)
@@ -3211,7 +3073,9 @@ function AppBody({
 	const contextHiddenRef = useRef(false)
 	contextHiddenRef.current = contextHidden
 	/** The idle compactor, once it exists, for what a rewrite of the history must tell it. */
-	const idleCompactionRef = useRef<{ contextTokens: { current: number | undefined } } | null>(null)
+	const idleCompactionRef = useRef<{
+		contextTokens: { current: number | undefined }
+	} | null>(null)
 	const contextTokens = usage?.context?.tokens
 	const contextWindow = usage?.context?.windowTokens
 	const addNotice = notices.add
@@ -3422,7 +3286,7 @@ function AppBody({
 				state !== 'idle' ||
 				abortRef.current !== null ||
 				hasUnsettledTurn() ||
-				queuedRef.current.length > 0 ||
+				roundQueueRef.current.items().length > 0 ||
 				compactingRef.current ||
 				conversationMutationRef.current !== null
 			) {
@@ -3537,7 +3401,14 @@ function AppBody({
 				thinkingText = thinkingForNextRowRef.current
 				thinkingForNextRowRef.current = ''
 			}
-			const candidate = { role, content, pending, glyph: rowGlyph, detail, activity }
+			const candidate = {
+				role,
+				content,
+				pending,
+				glyph: rowGlyph,
+				detail,
+				activity,
+			}
 			setMessages((prev) =>
 				// The notice layer, not each caller, keeps a notice from printing
 				// twice in a row: the same sentence twice reads as two events.
@@ -3643,7 +3514,7 @@ function AppBody({
 	const tellModelAgentsStopped = useCallback((stopped: readonly SubagentActivity[]) => {
 		const note = stoppedByUserNote(stopped.map((agent) => agent.description || agent.agentId))
 		if (note === undefined) return
-		directChildNoticesRef.current.set(++directChildNoticeIdRef.current, {
+		wakeLedgerRef.current.noteDirectChild({
 			context: note,
 			label: note,
 			kind: 'advisory',
@@ -3720,7 +3591,7 @@ function AppBody({
 				)
 					return
 				const label = 'Child follow-up ended. Its report is available to the parent.'
-				directChildNoticesRef.current.set(++directChildNoticeIdRef.current, {
+				wakeLedgerRef.current.noteDirectChild({
 					context: report.text,
 					label,
 					kind: 'task-completion',
@@ -3734,7 +3605,7 @@ function AppBody({
 	// `send_message`. The person sees a collapsed `› Message from @name` row; the
 	// model gets the text with its next turn, or an idle session wakes for it.
 	useEffect(() => {
-		childMessagesRef.current = new Map()
+		wakeLedgerRef.current.resetChildMessages()
 		return session?.onSubagentMessage?.((message) => {
 			if (
 				previousSessionRef.current !== session ||
@@ -3752,7 +3623,7 @@ function AppBody({
 				row.hint,
 				'agent-result',
 			)
-			childMessagesRef.current.set(++childMessageIdRef.current, childMessageNotice(message))
+			wakeLedgerRef.current.noteChildMessage(childMessageNotice(message))
 			// No `notify()`: a message queued for the next turn does not release a wait the
 			// running turn is in (it is queued at `next` priority); the turn
 			// takes it at its next request boundary, an idle session wakes for it below.
@@ -3761,7 +3632,7 @@ function AppBody({
 	}, [session, pushMessage])
 	// A background agent that ends after the turn that launched it was over: the
 	// model hears it with the next turn, or an idle session wakes for it. Every
-	// agent that ended meanwhile joins the one wake (they share `childMessagesRef`,
+	// agent that ended meanwhile joins the one wake (they share the wake ledger's agent messages,
 	// which the wake empties into a single message). The operator's own stop is
 	// not news; the stop key tells the model once, itself.
 	useEffect(
@@ -3773,7 +3644,7 @@ function AppBody({
 					completion.stoppedBy === 'user'
 				)
 					return
-				childMessagesRef.current.set(++childMessageIdRef.current, completion.text)
+				wakeLedgerRef.current.noteChildMessage(completion.text)
 				setNoticeVersion((version) => version + 1)
 			}),
 		[session],
@@ -3823,7 +3694,7 @@ function AppBody({
 	}, [])
 	const takeQueuedPrompt = useCallback(
 		(index: number) => {
-			const pending = queuedRef.current
+			const pending = roundQueueRef.current.items()
 			const prompt = pending[index]
 			if (!isRecallableHumanPrompt(prompt)) return null
 			const remaining = [...pending.slice(0, index), ...pending.slice(index + 1)]
@@ -3839,7 +3710,7 @@ function AppBody({
 		[replaceQueued, setQueuePause, setQueueSelection],
 	)
 	const recallQueuedPrompt = useCallback(() => {
-		const pending = queuedRef.current
+		const pending = roundQueueRef.current.items()
 		let index = pending.length - 1
 		while (index >= 0 && !isRecallableHumanPrompt(pending[index])) index -= 1
 		if (index < 0) {
@@ -3855,9 +3726,9 @@ function AppBody({
 	 */
 	const moveQueueSelection = useCallback(
 		(direction: 'up' | 'down'): boolean => {
-			const editable = queuedRef.current.flatMap((prompt, index) =>
-				isRecallableHumanPrompt(prompt) ? [index] : [],
-			)
+			const editable = roundQueueRef.current
+				.items()
+				.flatMap((prompt, index) => (isRecallableHumanPrompt(prompt) ? [index] : []))
 			const current = queueSelectionRef.current
 			if (direction === 'up') {
 				if (editable.length === 0) return false
@@ -4041,107 +3912,6 @@ function AppBody({
 			)
 		},
 		[conversationLearning, pushMessage],
-	)
-
-	/**
-	 * `/agents [running|available|batches]`, answered by the delegation UI's
-	 * `agentsSlashCommand` over this session's live monitor and the batches the
-	 * session index holds. A `batches` answer opens a picker immediately with a
-	 * disabled loading row, then replaces it once the listing resolves; the
-	 * composer stays reachable the whole time. A stale read is dropped by
-	 * comparing `choicePickerRef.current` against the exact loading-picker
-	 * object this call put there.
-	 */
-	const runAgentsCommand = useCallback(
-		(args: readonly string[], openCockpit: () => void, listAvailable: () => void): void => {
-			const wantsBatches = args.length === 1 && args[0] === 'batches'
-			const pending: ChoicePickerState | undefined = wantsBatches
-				? {
-						kind: 'agent-batches',
-						title: 'Batches',
-						values: ['loading'],
-						options: [
-							{
-								label: 'Loading…',
-								description: 'Reading saved batches…',
-								// A disabled row shows its reason in place of its description.
-								disabledReason: 'Reading saved batches…',
-							},
-						],
-					}
-				: undefined
-			if (pending) {
-				setSelectedChoice(0)
-				setChoicePicker(pending)
-			}
-			void (async () => {
-				const result = await agentsSlashCommand(args, {
-					liveAgents: () => subagentsRef.current,
-					...(session?.listSavedBatches ? { savedBatches: session.listSavedBatches } : {}),
-				})
-				if (appLifetime.signal.aborted) return
-				if (pending && choicePickerRef.current !== pending) return
-				switch (result.kind) {
-					case 'agent-cockpit':
-						openCockpit()
-						return
-					case 'available-agents':
-						listAvailable()
-						return
-					case 'message':
-						if (pending) setChoicePicker(null)
-						pushMessage('system', result.content)
-						return
-					case 'batches':
-						setChoicePicker({
-							kind: 'agent-batches',
-							title: 'Batches',
-							notice:
-								result.listing.omitted > 0
-									? `${result.listing.omitted} older batch${result.listing.omitted === 1 ? '' : 'es'} not shown.`
-									: undefined,
-							values: result.listing.batches,
-							options: result.listing.batches.map(batchOption),
-						})
-						return
-				}
-			})()
-		},
-		[appLifetime, pushMessage, session, setChoicePicker, setSelectedChoice],
-	)
-	/**
-	 * Opens an `/agents batches` selection straight into its first agent's
-	 * transcript — where the replayed banner actually lives, for a finished
-	 * batch — rather than the phase/agent list Ctrl+T lands on.
-	 *
-	 * A finished batch's children are hydrated from their logs first, since a
-	 * batch this operator has not opened the cockpit for yet may not be in
-	 * `subagents` at all. A live batch skips that: it is already there.
-	 */
-	const openBatch = useCallback(
-		async (batch: Batch): Promise<void> => {
-			if (!batch.live) await hydrateSavedChildren()
-			const workflow = agentWorkflows(subagentsRef.current, workflowRunsRef.current).find(
-				(candidate) => candidate.agents.some((agent) => agent.workflowId === batch.id),
-			)
-			const firstPhase = workflow?.phases[0]
-			const firstAgent = firstPhase?.agents[0]
-			if (!firstPhase || !firstAgent) {
-				pushMessage(
-					'system',
-					`Could not open "${batch.name}" — its saved children are no longer available.`,
-				)
-				return
-			}
-			setAgentSurface({
-				kind: 'transcript',
-				selectedPhaseId: firstPhase.id,
-				selectedId: firstAgent.viewId,
-				returnFocus: 'agents',
-				tailOffset: 0,
-			})
-		},
-		[hydrateSavedChildren, pushMessage, setAgentSurface],
 	)
 
 	/**
@@ -4505,7 +4275,7 @@ function AppBody({
 				state !== 'idle' ||
 				abortRef.current !== null ||
 				hasUnsettledTurn() ||
-				(queuedRef.current.length > 0 && selectedSession !== session) ||
+				(roundQueueRef.current.items().length > 0 && selectedSession !== session) ||
 				permissionResolveRef.current !== null ||
 				compactingRef.current
 			) {
@@ -4559,7 +4329,7 @@ function AppBody({
 				state !== 'idle' ||
 				abortRef.current !== null ||
 				hasUnsettledTurn() ||
-				(queuedRef.current.length > 0 && selectedSession !== session) ||
+				(roundQueueRef.current.items().length > 0 && selectedSession !== session) ||
 				permissionResolveRef.current !== null ||
 				compactingRef.current
 			) {
@@ -4589,7 +4359,12 @@ function AppBody({
 	/** Alt+T: thinking off is the model's `none` level; on puts back the level it had. */
 	const toggleThinking = useCallback((): void => {
 		const note = (text: string): void =>
-			addNotice({ key: 'thinking-toggle', text, priority: 'immediate', timeoutMs: 4_000 })
+			addNotice({
+				key: 'thinking-toggle',
+				text,
+				priority: 'immediate',
+				timeoutMs: 4_000,
+			})
 		const levels = session?.reasoningEffortLevels
 		if (!session?.hasProvider || !levels?.length) {
 			note('This model has no thinking setting')
@@ -4798,7 +4573,7 @@ function AppBody({
 			state !== 'idle' ||
 			abortRef.current !== null ||
 			hasUnsettledTurn() ||
-			queuedRef.current.length > 0 ||
+			roundQueueRef.current.items().length > 0 ||
 			compactingRef.current ||
 			exportingRef.current
 		) {
@@ -4820,7 +4595,7 @@ function AppBody({
 					conversationGenRef.current !== generation ||
 					scopeRef.current?.sessionId !== sessionId ||
 					hasUnsettledTurn(generation) ||
-					queuedRef.current.length > 0
+					roundQueueRef.current.items().length > 0
 				) {
 					throw new Error('the active conversation changed before archive publication')
 				}
@@ -4871,7 +4646,7 @@ function AppBody({
 			state !== 'idle' ||
 			hasUnsettledTurn() ||
 			compactingRef.current ||
-			queuedRef.current.length > 0 ||
+			roundQueueRef.current.items().length > 0 ||
 			exportingRef.current
 		) {
 			pushMessage(
@@ -5263,11 +5038,6 @@ function AppBody({
 				if (child) setChoicePicker({ ...child, back: picker })
 				return
 			}
-			if (picker.kind === 'agent-batches') {
-				if (value === 'loading') return
-				void openBatch(value as Batch)
-				return
-			}
 			if (picker.kind === 'workflow-runs') {
 				const run = workflowRunsRef.current.find((item) => item.runId === value)
 				if (run && !openWorkflowFromRail(run.groupId)) {
@@ -5387,7 +5157,6 @@ function AppBody({
 			archiveCurrentConversation,
 			ctx.cwd,
 			enqueueQueued,
-			openBatch,
 			pushMessage,
 			recordFeedback,
 			removeStoredCredential,
@@ -5778,8 +5547,10 @@ function AppBody({
 			// keeps it; choosing another provider by hand leaves it behind. Committed
 			// below, once the session exists, so a refused build changes nothing.
 			let sessionPrefs = prefs
-			let nextAccount: { id: string; reason: 'start' | 'user_switch' | 'limit_switch' } | null =
-				null
+			let nextAccount: {
+				id: string
+				reason: 'start' | 'user_switch' | 'limit_switch'
+			} | null = null
 			{
 				const head = prefs.providers[0]
 				const recorded = resumeAccountRef.current
@@ -5790,7 +5561,9 @@ function AppBody({
 					}
 				} else if (head && recorded && !definition) {
 					try {
-						const found = openCliAccounts({ defaultProviders: [] }).registry.get(recorded)
+						const found = openCliAccounts({
+							defaultProviders: [],
+						}).registry.get(recorded)
 						if (found) {
 							sessionPrefs = bindAccount(prefs, found)
 							nextAccount = { id: found.id, reason: 'start' }
@@ -6053,7 +5826,7 @@ function AppBody({
 			// provider change can recover a failed turn's dependent queue, but a
 			// paused turn still owns the conversation's durable active slot. Keep
 			// that queue held until its checkpoint is resumed and settles.
-			if (signal !== undefined && queuePauseRef.current?.outcome !== 'paused')
+			if (signal !== undefined && roundQueueRef.current.pause()?.outcome !== 'paused')
 				advanceQueueContinuation()
 			if (s.hasProvider) {
 				setTranscriptOwned(true)
@@ -6119,7 +5892,10 @@ function AppBody({
 					if (appLifetime.signal.aborted || previousSessionRef.current !== s) return
 					const row = toolServerRow(
 						name,
-						s.mcpStatus?.() ?? { connected: s.mcpConnected, failed: s.mcpFailed },
+						s.mcpStatus?.() ?? {
+							connected: s.mcpConnected,
+							failed: s.mcpFailed,
+						},
 					)
 					if (!row) return
 					reportedToolServers.add(name)
@@ -6587,7 +6363,9 @@ function AppBody({
 				activateTrustedProject()
 				void runProbe()
 				try {
-					const { pending } = pendingProjectMcpServers({ cwd: trustedCwdRef.current })
+					const { pending } = pendingProjectMcpServers({
+						cwd: trustedCwdRef.current,
+					})
 					if (pending.length > 0) {
 						pushMessage('system', pendingServersMessage(pending))
 					}
@@ -6755,8 +6533,11 @@ function AppBody({
 		furnitureRows: LIVE_FURNITURE_ROWS + fullToolFurniture + pendingInputFurniture,
 		raw: rawOutput,
 	})
-	const liveTasks = checklistShown ? [] : tasks
-	const fullTaskFurniture = taskListRows(liveTasks)
+	const checklistOpen =
+		checklistExpanded && tasks.length > 0 && (checklistPinned || !checklistShown)
+	checklistOpenRef.current = checklistOpen
+	const liveTasks = checklistOpen || !checklistShown ? tasks : []
+	const fullTaskFurniture = taskListRows(liveTasks, checklistOpen)
 	// The plan's next task, drawn under the working row; never from a sub-agent's plan.
 	const nextPlanned = nextTask(tasks)
 	// The working row names the step in progress, in the model's own words.
@@ -7070,7 +6851,7 @@ function AppBody({
 				// keeps dependent work held for an explicit operator decision.
 				if (
 					st.completed &&
-					queuePauseRef.current?.outcome === 'paused' &&
+					roundQueueRef.current.pause()?.outcome === 'paused' &&
 					scopeRef.current?.sessionId === resumedSessionId &&
 					(await activeConversationTurn(sessions, resumedSessionId)
 						.then((next) => next === undefined)
@@ -7157,7 +6938,10 @@ function AppBody({
 					autoResumeAttemptRef.current = attempt
 					setHandoffPark({
 						...parked,
-						autoResume: { attempt, at: Date.now() + autoResumeDelayMs(attempt) },
+						autoResume: {
+							attempt,
+							at: Date.now() + autoResumeDelayMs(attempt),
+						},
 					})
 				})()
 			},
@@ -7301,7 +7085,7 @@ function AppBody({
 			state !== 'idle' ||
 			abortRef.current !== null ||
 			hasUnsettledTurn() ||
-			queuedRef.current.length > 0 ||
+			roundQueueRef.current.items().length > 0 ||
 			compactingRef.current ||
 			exportingRef.current
 		) {
@@ -7404,7 +7188,10 @@ function AppBody({
 	const interruptTurn = useCallback(
 		(recoverInput = false): boolean => {
 			const cancelledSwitch = cancelPendingModelSwitch()
-			permissionAsksRef.current?.closeAll({ kind: 'reject', feedback: 'User interrupted.' })
+			permissionAsksRef.current?.closeAll({
+				kind: 'reject',
+				feedback: 'User interrupted.',
+			})
 			const ac = abortRef.current
 			if (!ac) {
 				// A prompt still at the turn boundary: nothing has begun, so taking
@@ -7415,14 +7202,14 @@ function AppBody({
 					const activeSessionId = scopeRef.current?.sessionId
 					if (activeSessionId) goalActivation.disarm(activeSessionId)
 					wakeGoalDriver()
-					if (recoverInput && queuedRef.current.length > 0)
+					if (recoverInput && roundQueueRef.current.items().length > 0)
 						setQueuePause({ outcome: 'stopped', source: 'operator-interrupt' })
 					else discardQueued()
 					setState('idle')
 					return true
 				}
 				if (cancelledSwitch) {
-					if (recoverInput && queuedRef.current.length > 0)
+					if (recoverInput && roundQueueRef.current.items().length > 0)
 						setQueuePause({ outcome: 'stopped', source: 'operator-interrupt' })
 					else discardQueued()
 				}
@@ -7443,9 +7230,12 @@ function AppBody({
 			// Dropped now so a second interrupt does not re-abort.
 			abortRef.current = null
 			if (recoverInput && undeliveredSteers.length > 0) {
-				replaceQueued([...undeliveredSteers.map((input) => input.prompt), ...queuedRef.current])
+				replaceQueued([
+					...undeliveredSteers.map((input) => input.prompt),
+					...roundQueueRef.current.items(),
+				])
 				setQueuePause(null)
-			} else if (recoverInput && queuedRef.current.length > 0) {
+			} else if (recoverInput && roundQueueRef.current.items().length > 0) {
 				// Esc without a pending steer stops the current turn; queued future
 				// instructions stay visible but do not start on a cancelled answer.
 				setQueuePause({ outcome: 'stopped', source: 'operator-interrupt' })
@@ -7487,7 +7277,10 @@ function AppBody({
 				(job) => job.status === 'running' && !jobsBefore.has(job.id),
 			)
 			if (movedToBackground)
-				setJobSnapshot({ ownerSession: session, jobs: session?.jobs?.() ?? [] })
+				setJobSnapshot({
+					ownerSession: session,
+					jobs: session?.jobs?.() ?? [],
+				})
 			if (interrupted || options?.always === true) {
 				const row = interruptionRow({
 					callRunning,
@@ -7508,7 +7301,7 @@ function AppBody({
 	const sendPendingNow = useCallback(() => {
 		if (!abortRef.current) return
 		interruptWithRow(true, { steered: true, always: true })
-		if (queuePauseRef.current?.source === 'operator-interrupt') setQueuePause(null)
+		if (roundQueueRef.current.pause()?.source === 'operator-interrupt') setQueuePause(null)
 	}, [interruptWithRow, setQueuePause])
 
 	/** Ctrl+B: move the running shell command to the background. False when none can be moved. */
@@ -7581,7 +7374,7 @@ function AppBody({
 			}
 			if (
 				palDefinitionRef.current &&
-				(abortRef.current || hasUnsettledTurn() || queuedRef.current.length > 0)
+				(abortRef.current || hasUnsettledTurn() || roundQueueRef.current.items().length > 0)
 			) {
 				setPhase('ready')
 				pushMessage(
@@ -7615,7 +7408,7 @@ function AppBody({
 			// cleared `abortRef`, while the passive queue pump is paused behind this
 			// picker. `interruptTurn` correctly reports no RUNNING turn then, but an
 			// early return from it must not make those old prompts cross the switch.
-			const discardedQueued = queuedRef.current.length
+			const discardedQueued = roundQueueRef.current.items().length
 			const interrupted = interruptTurn()
 			discardQueued()
 			goalActivation.clear()
@@ -7661,7 +7454,7 @@ function AppBody({
 				}
 			}
 			// The scope now names the resumed conversation, so its finished
-			// children are readable. Without this the first Ctrl+T after a resume
+			// children are readable. Without this the first cockpit open after a resume
 			// would have nothing to find.
 			void hydrateSavedChildren()
 			conversationMaterializedRef.current = true
@@ -7716,7 +7509,7 @@ function AppBody({
 				state !== 'idle' ||
 				abortRef.current !== null ||
 				hasUnsettledTurn() ||
-				queuedRef.current.length > 0 ||
+				roundQueueRef.current.items().length > 0 ||
 				compactingRef.current ||
 				exportingRef.current
 			) {
@@ -7770,7 +7563,7 @@ function AppBody({
 			if (conversationMutationRef.current) return
 			if (
 				palDefinitionRef.current &&
-				(abortRef.current || hasUnsettledTurn() || queuedRef.current.length > 0)
+				(abortRef.current || hasUnsettledTurn() || roundQueueRef.current.items().length > 0)
 			) {
 				pushMessage(
 					'system',
@@ -7799,7 +7592,7 @@ function AppBody({
 					} else targetSessionId = await startConversation(sessions)
 				}
 
-				const discardedQueued = queuedRef.current.length
+				const discardedQueued = roundQueueRef.current.items().length
 				const interrupted = interruptTurn()
 				discardQueued()
 				goalActivation.clear()
@@ -7974,7 +7767,7 @@ function AppBody({
 					}
 					// Saved at the end of a turn (or now, if none is running), never
 					// while one starts: the turn's claim on the log does not wait.
-					if (activeTurnTokenRef.current === null && queuedRef.current.length === 0) {
+					if (activeTurnTokenRef.current === null && roundQueueRef.current.items().length === 0) {
 						await flushGeneratedTitle()
 					}
 				} catch {
@@ -8018,7 +7811,11 @@ function AppBody({
 	const motionReduced = useReducedMotion()
 	const titleFrame = useTitleFrame(
 		!motionReduced &&
-			titleAnimates({ working: titleWorking, focused: terminalFocused, env: process.env }),
+			titleAnimates({
+				working: titleWorking,
+				focused: terminalFocused,
+				env: process.env,
+			}),
 	)
 	const terminalTitle = terminalTitleText({
 		...conversationNames,
@@ -8192,88 +7989,95 @@ function AppBody({
 	 * the screen would go on showing it, and the copy would be missing the last
 	 * thing the operator watched arrive.
 	 */
-	const doFork = useCallback(async () => {
-		if (palDefinitionRef.current) {
-			pushMessage(
-				'system',
-				'Forking Pal conversations is not available yet. Use /new for a separately claimed conversation.',
-			)
-			return
-		}
-		if (conversationMutationRef.current) return
-		if (abortRef.current) {
-			pushMessage(
-				'system',
-				'A reply is still running. Forking now would copy a conversation whose last reply is not in it yet — press esc to stop it, then fork.',
-			)
-			return
-		}
-		if (hasUnsettledTurn()) {
-			pushMessage(
-				'system',
-				'A reply was stopped and is still being saved. Wait for it to finish before forking.',
-			)
-			return
-		}
-		if (queuedRef.current.length > 0) {
-			pushMessage(
-				'system',
-				'Queued prompts have not run yet. Wait for them to finish before forking.',
-			)
-			return
-		}
-
-		conversationMutationRef.current = 'fork'
-		setConversationMutation('fork')
-		try {
-			const scope = await materializeConversation()
-			const sessions = sessionsRef.current
-			if (!sessions || !scope) {
-				pushMessage('system', 'Conversation history is unavailable in this folder.')
+	const doFork = useCallback(
+		async (title?: string) => {
+			if (palDefinitionRef.current) {
+				pushMessage(
+					'system',
+					'Forking Pal conversations is not available yet. Use /new for a separately claimed conversation.',
+				)
 				return
 			}
-			// The settlement guard above establishes that no current-generation
-			// turn can attach another write after this read. The remaining tail may
-			// still be writing, so the fork waits for that exact durable snapshot.
-			await persistenceTailRef.current
-			const original = scope.sessionId
-			const forked = await forkConversation(sessions, original)
-			// The fork owns the displayed history, except for host-only results
-			// delivered to the original conversation's sidecar inbox.
-			scope.sessionId = forked.id
-			// The copy's own history: the original's messages name ids the copy's
-			// log never gave out, and the next send would be refused.
-			modelHistoryRef.current = forked.messages
-			resetTranscript()
-			setMessages((previous) => previous.filter((message) => !message.sourceDelivery))
-			sourceDeliveryPollRef.current()
-			resetSubagentActivity()
-			void hydrateSavedChildren()
-			session?.resetTaskStore?.()
-			goalActivation.clear()
-			wakeGoalDriver()
-			pushMessage(
-				'system',
-				`Forked into "${displayConversationTitle(forked.title)}" — ${plural(forked.copied, 'message')} copied. This screen continues in the copy; ${original} is unchanged and still in /resume.`,
-			)
-		} catch (err) {
-			pushSystem('error', explainFailure(err, 'Could not fork.'))
-		} finally {
-			conversationMutationRef.current = null
-			setConversationMutation(null)
-		}
-	}, [
-		goalActivation,
-		hasUnsettledTurn,
-		materializeConversation,
-		pushMessage,
-		hydrateSavedChildren,
-		resetTranscript,
-		resetSubagentActivity,
-		session,
-		wakeGoalDriver,
-		pushSystem,
-	])
+			if (conversationMutationRef.current) return
+			if (abortRef.current) {
+				pushMessage(
+					'system',
+					'A reply is still running. Forking now would copy a conversation whose last reply is not in it yet — press esc to stop it, then fork.',
+				)
+				return
+			}
+			if (hasUnsettledTurn()) {
+				pushMessage(
+					'system',
+					'A reply was stopped and is still being saved. Wait for it to finish before forking.',
+				)
+				return
+			}
+			if (roundQueueRef.current.items().length > 0) {
+				pushMessage(
+					'system',
+					'Queued prompts have not run yet. Wait for them to finish before forking.',
+				)
+				return
+			}
+
+			conversationMutationRef.current = 'fork'
+			setConversationMutation('fork')
+			try {
+				const scope = await materializeConversation()
+				const sessions = sessionsRef.current
+				if (!sessions || !scope) {
+					pushMessage('system', 'Conversation history is unavailable in this folder.')
+					return
+				}
+				// The settlement guard above establishes that no current-generation
+				// turn can attach another write after this read. The remaining tail may
+				// still be writing, so the fork waits for that exact durable snapshot.
+				await persistenceTailRef.current
+				const original = scope.sessionId
+				const forked = await forkConversation(sessions, original)
+				if (title) {
+					await setTitle(sessions, forked.id, title)
+					forked.title = title
+				}
+				// The fork owns the displayed history, except for host-only results
+				// delivered to the original conversation's sidecar inbox.
+				scope.sessionId = forked.id
+				// The copy's own history: the original's messages name ids the copy's
+				// log never gave out, and the next send would be refused.
+				modelHistoryRef.current = forked.messages
+				resetTranscript()
+				setMessages((previous) => previous.filter((message) => !message.sourceDelivery))
+				sourceDeliveryPollRef.current()
+				resetSubagentActivity()
+				void hydrateSavedChildren()
+				session?.resetTaskStore?.()
+				goalActivation.clear()
+				wakeGoalDriver()
+				pushMessage(
+					'system',
+					`Forked into "${displayConversationTitle(forked.title)}" — ${plural(forked.copied, 'message')} copied. This screen continues in the copy; ${original} is unchanged and still in /resume.`,
+				)
+			} catch (err) {
+				pushSystem('error', explainFailure(err, 'Could not fork.'))
+			} finally {
+				conversationMutationRef.current = null
+				setConversationMutation(null)
+			}
+		},
+		[
+			goalActivation,
+			hasUnsettledTurn,
+			materializeConversation,
+			pushMessage,
+			hydrateSavedChildren,
+			resetTranscript,
+			resetSubagentActivity,
+			session,
+			wakeGoalDriver,
+			pushSystem,
+		],
+	)
 
 	/** Open the rewind picker after the composer's second empty Esc, or `/rewind`. */
 	const openPromptEditor = useCallback(() => {
@@ -8289,7 +8093,7 @@ function AppBody({
 			)
 			return
 		}
-		if (queuedRef.current.length > 0) {
+		if (roundQueueRef.current.items().length > 0) {
 			pushMessage('system', 'Queued prompts must finish before the conversation can be rewound.')
 			return
 		}
@@ -8304,7 +8108,11 @@ function AppBody({
 			rewindGenRef.current = generation
 			setEditList(candidates)
 			editCommittedRef.current = false
-			setRewindView({ rows, state: openRewind(rows.length), openedAt: Date.now() })
+			setRewindView({
+				rows,
+				state: openRewind(rows.length),
+				openedAt: Date.now(),
+			})
 			setPhase('edit')
 			if (!store) return
 			// Newest first and under one budget; the dialog is usable meanwhile.
@@ -8377,7 +8185,7 @@ function AppBody({
 	const forkBeforePrompt = useCallback(
 		async (target: EditablePrompt) => {
 			if (editCommittedRef.current || conversationMutationRef.current) return
-			if (hasUnsettledTurn() || queuedRef.current.length > 0) {
+			if (hasUnsettledTurn() || roundQueueRef.current.items().length > 0) {
 				throw new Error(
 					'The conversation changed while the rewind dialog was open. Nothing was changed; open it again.',
 				)
@@ -8438,7 +8246,9 @@ function AppBody({
 
 				resetTranscript()
 				setMessages(
-					projectConversation(forked.messages, nextId, readablePrefix, { cwd: ctxRef.current.cwd }),
+					projectConversation(forked.messages, nextId, readablePrefix, {
+						cwd: ctxRef.current.cwd,
+					}),
 				)
 				composerDraftTokenRef.current += 1
 				setComposerDraft({
@@ -8531,7 +8341,9 @@ function AppBody({
 						: editList.slice(Math.max(0, at)).map((prompt) => prompt.displayText)
 				resetTranscript()
 				setMessages(
-					projectConversation(result.messages, nextId, readable, { cwd: ctxRef.current.cwd }),
+					projectConversation(result.messages, nextId, readable, {
+						cwd: ctxRef.current.cwd,
+					}),
 				)
 				if (option === 'summarize') {
 					composerDraftTokenRef.current += 1
@@ -8575,14 +8387,21 @@ function AppBody({
 				const latest = rewindRef.current ?? view
 				setRewindView({
 					...latest,
-					state: { ...latest.state, busy: undefined, ...(error ? { error } : {}) },
+					state: {
+						...latest.state,
+						busy: undefined,
+						...(error ? { error } : {}),
+					},
 				})
 			}
-			if (hasUnsettledTurn() || queuedRef.current.length > 0) {
+			if (hasUnsettledTurn() || roundQueueRef.current.items().length > 0) {
 				settle('The conversation changed while this dialog was open. Nothing was changed.')
 				return
 			}
-			setRewindView({ ...view, state: { ...view.state, busy: option, error: undefined } })
+			setRewindView({
+				...view,
+				state: { ...view.state, busy: option, error: undefined },
+			})
 			const plain = (err: unknown) => explainFailure(err, 'Something went wrong.')
 			try {
 				if (option === 'summarize' || option === 'summarize_up_to') {
@@ -8650,6 +8469,9 @@ function AppBody({
 				fileExists: (path) => existsSync(resolve(ctxRef.current.cwd, path)),
 				readText: (path) => readReviewedFile(resolve(ctxRef.current.cwd, path)),
 				workflowLimits: resolveWorkflowLimits(ctxRef.current.workflow),
+				readWorkflowScript: (path) => reviewSessionRef.current?.workflows?.readScript(path),
+				describeWorkflowResume: (runId, script) =>
+					reviewSessionRef.current?.workflows?.describeResume(runId, script),
 				withheld: review.withheld,
 			})
 			const siteNotes = browserSiteNotes(req.toolCalls, browserControlRef.current?.status())
@@ -8929,7 +8751,7 @@ function AppBody({
 			})
 			if (!owns()) return receipt
 			const label = `You ${receipt.kind === 'queued' ? 'queued a message' : 'started a follow-up'} for ${child.agentId}.${receipt.auditWarning ? ` ${receipt.auditWarning}` : ''}`
-			directChildNoticesRef.current.set(++directChildNoticeIdRef.current, {
+			wakeLedgerRef.current.noteDirectChild({
 				context: receipt.parentNotice,
 				label,
 				kind: 'advisory',
@@ -9436,14 +9258,14 @@ function AppBody({
 					}
 					const checklist = tasksRef.current
 					setTasks(checklist)
+					if (operation && !event.removed) setChecklistExpanded(true)
 					if (operation) writeTaskBlock(st, operation, checklist)
 					break
 				}
 				case 'job':
 					// The session listener normally painted this at exit time. A host
 					// without that listener still gets the kernel event; never paint twice.
-					if (!idleJobNoticesRef.current.shown.has(event.jobId)) {
-						idleJobNoticesRef.current.shown.add(event.jobId)
+					if (wakeLedgerRef.current.markJobShown(event.jobId)) {
 						const row = jobExitRow(event)
 						pushMessage('system', row.text, false, '●', undefined, row.color, row.meta)
 					}
@@ -9658,7 +9480,10 @@ function AppBody({
 							autoResumeAttemptRef.current = attempt
 							setHandoffPark({
 								turnId: event.turnId,
-								autoResume: { attempt, at: Date.now() + autoResumeDelayMs(attempt) },
+								autoResume: {
+									attempt,
+									at: Date.now() + autoResumeDelayMs(attempt),
+								},
 							})
 						} else {
 							selfMendingPauseRowRef.current.forget()
@@ -9701,7 +9526,7 @@ function AppBody({
 			// the render and the resource-owning session agree.
 			const pendingAtAdmission = pendingModelSwitchRef.current
 			if (pendingAtAdmission || previousSessionRef.current !== session) {
-				replaceQueued([prompt, ...queuedRef.current])
+				replaceQueued([prompt, ...roundQueueRef.current.items()])
 				return
 			}
 			if (!session || !session.hasProvider) {
@@ -9715,7 +9540,10 @@ function AppBody({
 			if (prompt.kind === 'notice' && prompt.generation !== conversationGenRef.current) return
 			setContextHidden(false)
 			const { text: promptText } = prompt
-			if (prompt.kind === 'human') lastHumanTurnRef.current = prompt
+			if (prompt.kind === 'human') {
+				lastHumanTurnRef.current = prompt
+				wakeBudgetRef.current.reset()
+			}
 			let text = promptText
 			const attachments = prompt.kind === 'human' ? prompt.attachments : undefined
 			const goalRound = prompt.kind === 'goal' ? prompt.goalRound : undefined
@@ -9792,19 +9620,9 @@ function AppBody({
 			// running has had its chance to take it first and nothing is said twice.
 			let noticeKind: RuntimeContextMessageKind = 'task-completion'
 			if (prompt.kind === 'notice') {
-				const ended = [...workflowNoticesRef.current.values(), ...childMessagesRef.current.values()]
-				workflowNoticesRef.current.clear()
-				childMessagesRef.current.clear()
-				const jobs = idleJobNoticesRef.current
-				const jobLines =
-					jobs.ownerSession === session
-						? [...jobs.pending].filter(([id]) => wakeJobIdsRef.current.has(id))
-						: []
-				for (const [id] of jobLines) {
-					jobs.delivered.add(id)
-					jobs.pending.delete(id)
-					wakeJobIdsRef.current.delete(id)
-				}
+				const { ended, jobLines, workflowIds } = wakeLedgerRef.current.takeForWake(session)
+				markOrphanNoticesDelivered(workflowIds)
+				if (jobLines.length > 0) wakeBudgetRef.current.recordWake()
 				// What monitors said is taken now, like the rest: an event the kernel
 				// already put in front of the model during a turn was acknowledged
 				// and is not here.
@@ -10008,7 +9826,7 @@ function AppBody({
 					return
 				abnormalTerminal = {
 					token: turnToken,
-					continuationEpoch: queueContinuationEpochRef.current,
+					continuationEpoch: roundQueueRef.current.epoch(),
 					outcome: st.queuePauseOutcome ?? st.outcome,
 				}
 			}
@@ -10156,7 +9974,7 @@ function AppBody({
 					if (
 						!inboxOpen ||
 						inboxEntries.length > 0 ||
-						[...directChildNoticesRef.current.keys()].some((id) => !childNoticeSnapshot.has(id)) ||
+						wakeLedgerRef.current.hasUnsnapshottedDirectChild(wakeSnapshot) ||
 						(peersRef.current?.enabled && peersRef.current.pending > 0)
 					)
 						return Promise.resolve()
@@ -10273,21 +10091,13 @@ function AppBody({
 					`Goal round ${goalRound.round} was not started because this conversation is not durable. Automatic continuation is disarmed; /goal resume retries explicitly.`,
 				)
 			}
-			let idleNoticeSnapshot: {
-				readonly ids: readonly string[]
-				readonly text?: string
-			} = {
-				ids: [],
-			}
+			let wakeSnapshot: WakeSnapshot = EMPTY_WAKE_SNAPSHOT
 			let monitorSnapshot: {
 				readonly ids: readonly string[]
 				readonly text?: string
 			} = {
 				ids: [],
 			}
-			let childNoticeSnapshot = new Map<number, DirectChildNotice>()
-			let workflowNoticeSnapshot = new Map<string, string>()
-			let childMessageSnapshot = new Map<number, string>()
 			try {
 				// Setup above awaited. A conversation switch can happen meanwhile and
 				// move the mutable SessionScope captured by `createAgentSession`. Re-admit
@@ -10305,11 +10115,8 @@ function AppBody({
 				) {
 					// Keep these notices pending until a completed send commits them.
 					// An early throw or abort never proves the model received context.
-					idleNoticeSnapshot = snapshotIdleJobNotices()
+					wakeSnapshot = wakeLedgerRef.current.snapshot(session)
 					monitorSnapshot = snapshotMonitorNotices()
-					childNoticeSnapshot = new Map(directChildNoticesRef.current)
-					workflowNoticeSnapshot = new Map(workflowNoticesRef.current)
-					childMessageSnapshot = new Map(childMessagesRef.current)
 					const operatorShellSnapshot = drainOperatorShell()
 					// "Press Enter to try again, or type a new message": a reply that
 					// stopped on a provider failure waits for no person, so the new
@@ -10355,12 +10162,12 @@ function AppBody({
 							hostContext: () =>
 								[
 									...(st.contextTexts ?? []),
-									idleNoticeSnapshot.text,
+									wakeSnapshot.idleJobs.text,
 									monitorSnapshot.text,
-									describePendingWorkflowNotices(workflowNoticeSnapshot),
+									describePendingWorkflowNotices(wakeSnapshot.workflows),
 									operatorShellSnapshot,
-									...[...childNoticeSnapshot.values()].map((notice) => notice.context),
-									...childMessageSnapshot.values(),
+									...[...wakeSnapshot.directChild.values()].map((notice) => notice.context),
+									...wakeSnapshot.childMessages.values(),
 								].filter((part): part is string => Boolean(part)),
 							...(goalRound ? { goalRound } : {}),
 							// The mode above decides whether this callback is consulted.
@@ -10399,19 +10206,9 @@ function AppBody({
 								const operatorMessages = inbox.drain()
 								if (ac.signal.aborted || !stillHere()) return operatorMessages
 								const mail = peersRef.current?.take(turnGeneration) ?? []
-								const childNotices = [...directChildNoticesRef.current].filter(
-									([id]) => !childNoticeSnapshot.has(id),
-								)
-								// A workflow that ended while this turn runs: told to the model once.
-								const workflowEnds = [...workflowNoticesRef.current].filter(
-									([id]) => !workflowNoticeSnapshot.has(id),
-								)
-								for (const [id] of workflowEnds) workflowNoticesRef.current.delete(id)
-								// What a running agent said to the conversation: told to the model once.
-								const childMessages = [...childMessagesRef.current].filter(
-									([id]) => !childMessageSnapshot.has(id),
-								)
-								for (const [id] of childMessages) childMessagesRef.current.delete(id)
+								const { childNotices, workflowEnds, childMessages } =
+									wakeLedgerRef.current.takeInTurn(wakeSnapshot)
+								markOrphanNoticesDelivered(workflowEnds.map(([id]) => id))
 								if (childNotices.length) {
 									flushStream(st)
 									if (st.assistantId) {
@@ -10420,16 +10217,16 @@ function AppBody({
 									}
 									// What the person typed to an agent is in that agent's transcript, so
 									// main prints nothing for it; the model still gets the note.
-									for (const [id] of childNotices) directChildNoticesRef.current.delete(id)
+									wakeLedgerRef.current.dropDirectChild(childNotices.map(([id]) => id))
 								}
 								if (mail.length) {
 									// An idle wake may already be queued behind operator admission.
 									// Once this turn drains it, its queue row is no longer pending.
 									const deliveredIds = new Set(mail.map((item) => item.id))
 									replaceQueued(
-										queuedRef.current.filter(
-											(item) => item.kind !== 'peer' || !deliveredIds.has(item.mail.id),
-										),
+										roundQueueRef.current
+											.items()
+											.filter((item) => item.kind !== 'peer' || !deliveredIds.has(item.mail.id)),
 									)
 									flushStream(st)
 									if (st.assistantId) {
@@ -10455,12 +10252,7 @@ function AppBody({
 							waitForInbound: (signal) => inbox.waitForInbound(signal),
 							waitForOperator: (signal) => inbox.waitForOperator(signal),
 							onJobNoticeDelivered: (ids) => {
-								const notices = idleJobNoticesRef.current
-								if (notices.ownerSession !== session) return
-								for (const id of ids) {
-									notices.delivered.add(id)
-									notices.pending.delete(id)
-								}
+								wakeLedgerRef.current.jobNoticesDelivered(session, ids)
 							},
 							extraSystem: composeSkillsPrompt(activeSkills) || undefined,
 							onConversationMessages: (messages) => {
@@ -10523,18 +10315,14 @@ function AppBody({
 			} finally {
 				// The turn is over: a run of reads and searches in progress settles.
 				readSearchGroup.close()
-				if (st.completed && stillHere()) {
-					for (const id of childNoticeSnapshot.keys()) directChildNoticesRef.current.delete(id)
-					for (const id of workflowNoticeSnapshot.keys()) workflowNoticesRef.current.delete(id)
-					for (const id of childMessageSnapshot.keys()) childMessagesRef.current.delete(id)
-				}
+				if (st.completed && stillHere())
+					markOrphanNoticesDelivered([...wakeSnapshot.workflows.keys()])
 				if (st.completed && monitorSnapshot.ids.length > 0) {
 					// Carried by this turn: never offered again.
 					session?.monitors?.acknowledge(monitorSnapshot.ids)
 				}
-				if (st.completed && idleJobNoticesRef.current.ownerSession === session) {
-					for (const id of idleNoticeSnapshot.ids) idleJobNoticesRef.current.pending.delete(id)
-				}
+				// What this turn carried is told now, and only now.
+				if (st.completed) wakeLedgerRef.current.commit(wakeSnapshot, session, stillHere())
 				const undeliveredLiveInput = inbox.close()
 				const ownsInbox = activeTurnInboxRef.current === inbox
 				if (ownsInbox) {
@@ -10564,12 +10352,14 @@ function AppBody({
 				if (stillHere()) {
 					const ownsTurn = activeTurnTokenRef.current === turnToken
 					if (ownsInbox && undeliveredLiveInput.length > 0) {
-						replaceQueued(mergeUndeliveredLiveInput(queuedRef.current, undeliveredLiveInput))
+						replaceQueued(
+							mergeUndeliveredLiveInput(roundQueueRef.current.items(), undeliveredLiveInput),
+						)
 					}
 					const shouldPauseQueued =
 						ownsTurn &&
 						abnormalTerminal?.token === turnToken &&
-						abnormalTerminal.continuationEpoch === queueContinuationEpochRef.current
+						abnormalTerminal.continuationEpoch === roundQueueRef.current.epoch()
 					if (shouldPauseQueued && abnormalTerminal) {
 						setQueuePause({ outcome: abnormalTerminal.outcome })
 					}
@@ -10606,7 +10396,7 @@ function AppBody({
 						!ac.signal.aborted &&
 						!goalRound &&
 						st.notification &&
-						(queuedRef.current.length === 0 || shouldPauseQueued)
+						(roundQueueRef.current.items().length === 0 || shouldPauseQueued)
 					) {
 						sendTerminalNotification(st.notification)
 					}
@@ -10616,11 +10406,12 @@ function AppBody({
 				unsettledTurnGenerationsRef.current.delete(turnToken)
 				// Not while a queued message is about to start the next turn: both
 				// would claim the log, and the turn does not wait for the lease.
-				if (queuedRef.current.length === 0) {
+				if (roundQueueRef.current.items().length === 0) {
 					void flushGeneratedTitle()
 					void flushPullRequestLinks()
 				}
-				if (queuedRef.current.length > 0) setQueueSettleVersion((version) => version + 1)
+				if (roundQueueRef.current.items().length > 0)
+					setQueueSettleVersion((version) => version + 1)
 				const pending = pendingModelSwitchRef.current
 				if (pending?.turnToken === turnToken && pending.selection) {
 					const selection = pending.selection
@@ -10659,7 +10450,7 @@ function AppBody({
 						}
 						if (pending.ownerSession.jobs?.().some((job) => job.status === 'running')) {
 							throw new Error(
-								'Background jobs are still running. Wait for them to finish before switching models.',
+								'Background tasks are still running. Wait for them to finish before switching models.',
 							)
 						}
 					}
@@ -10753,7 +10544,7 @@ function AppBody({
 				abortRef.current ||
 				hasUnsettledTurn() ||
 				pendingModelSwitchRef.current ||
-				queuedRef.current.length > 0 ||
+				roundQueueRef.current.items().length > 0 ||
 				permissionResolveRef.current ||
 				compactingRef.current ||
 				conversationMutationRef.current ||
@@ -11042,7 +10833,10 @@ function AppBody({
 		[currentProvider],
 	)
 	const openAccountPicker = useCallback(
-		(limit?: { readonly resubmit: QueuedPrompt | null; readonly label: string }) => {
+		(limit?: {
+			readonly resubmit: QueuedPrompt | null
+			readonly label: string
+		}) => {
 			const accounts = openAccounts()
 			let list: Account[]
 			try {
@@ -11281,7 +11075,11 @@ function AppBody({
 				else {
 					const providers = apiKeyProviderPicker()
 					setSelectedChoice(0)
-					setChoicePicker({ kind: 'account-provider', ...providers, back: picker })
+					setChoicePicker({
+						kind: 'account-provider',
+						...providers,
+						back: picker,
+					})
 				}
 				return
 			}
@@ -11369,7 +11167,10 @@ function AppBody({
 				values: ['cancel', 'remove'],
 				options: [
 					{ label: 'Keep it', description: '' },
-					{ label: 'Remove', description: 'Conversations using it will need another account.' },
+					{
+						label: 'Remove',
+						description: 'Conversations using it will need another account.',
+					},
 				],
 				...(picker ? { back: picker } : {}),
 			})
@@ -11840,27 +11641,6 @@ function AppBody({
 						} else pushMessage('system', 'Usage: /peers [list|on|off|send <ref> <message>]')
 						return
 					}
-					case 'agents': {
-						const agentIds = session?.agentIds ?? []
-						runAgentsCommand(
-							slash.args,
-							() => {
-								// Reported after the read, not before it: the answer to "are
-								// there any" may be in the session's logs, and a conversation
-								// whose children are recorded there must never be told it
-								// delegated nothing.
-								void openAgentCockpit().then((opened) => {
-									if (opened) return
-									pushMessage(
-										'system',
-										`No delegated agents in this conversation.${agentIds.length ? `\nAvailable: ${agentIds.join(', ')}` : '\nNo agents are configured.'}`,
-									)
-								})
-							},
-							() => pushMessage('system', renderAgents(agentIds)),
-						)
-						return
-					}
 					case 'workflows': {
 						const source = session?.workflows
 						if (!source) {
@@ -11899,12 +11679,12 @@ function AppBody({
 						void runDoctorInSession()
 						return
 					}
-					case 'jobs': {
+					case 'tasks': {
 						if (!session) {
-							pushMessage('system', 'Shell jobs are available once the conversation starts.')
+							pushMessage('system', 'Background tasks are available once the conversation starts.')
 							return
 						}
-						openShellJobs()
+						openBackgroundTasks()
 						return
 					}
 					case 'abandon': {
@@ -12210,7 +11990,7 @@ function AppBody({
 							state !== 'idle' ||
 							abortRef.current !== null ||
 							hasUnsettledTurn() ||
-							queuedRef.current.length > 0 ||
+							roundQueueRef.current.items().length > 0 ||
 							compactingRef.current ||
 							exportingRef.current
 						) {
@@ -12249,7 +12029,8 @@ function AppBody({
 							pendingModelSwitchRef.current ||
 							abortRef.current !== null ||
 							hasUnsettledTurn() ||
-							(queuedRef.current.length > 0 && queuePauseRef.current === null) ||
+							(roundQueueRef.current.items().length > 0 &&
+								roundQueueRef.current.pause() === null) ||
 							permissionResolveRef.current !== null ||
 							compactingRef.current ||
 							conversationMutationRef.current !== null ||
@@ -12324,7 +12105,7 @@ function AppBody({
 							state !== 'idle' ||
 							abortRef.current !== null ||
 							hasUnsettledTurn() ||
-							queuedRef.current.length > 0 ||
+							roundQueueRef.current.items().length > 0 ||
 							permissionResolveRef.current !== null ||
 							compactingRef.current
 						) {
@@ -12363,7 +12144,7 @@ function AppBody({
 							state !== 'idle' ||
 							abortRef.current !== null ||
 							hasUnsettledTurn() ||
-							queuedRef.current.length > 0 ||
+							roundQueueRef.current.items().length > 0 ||
 							permissionResolveRef.current !== null ||
 							compactingRef.current
 						) {
@@ -12631,7 +12412,7 @@ function AppBody({
 						void doTitle(slash.title, slash.clear)
 						return
 					case 'fork':
-						void doFork()
+						void doFork(slash.title)
 						return
 					case 'worktree': {
 						const [verb = 'list', label, extra] = slash.args
@@ -12652,7 +12433,7 @@ function AppBody({
 						}
 						if (
 							verb === 'fork' &&
-							(abortRef.current || hasUnsettledTurn() || queuedRef.current.length > 0)
+							(abortRef.current || hasUnsettledTurn() || roundQueueRef.current.items().length > 0)
 						) {
 							pushMessage(
 								'system',
@@ -12797,7 +12578,11 @@ function AppBody({
 									// Bypass handleSubmit: remote content is data, not another
 									// slash command, @file read, trigger or typed instruction.
 									advanceQueueContinuation()
-									enqueueQueued({ kind: 'human', text: value, mcpContext: outcome.text })
+									enqueueQueued({
+										kind: 'human',
+										text: value,
+										mcpContext: outcome.text,
+									})
 								}
 							} finally {
 								mcpCommandInFlightRef.current = false
@@ -12840,21 +12625,10 @@ function AppBody({
 								if (goalCommand) await materializeConversation()
 								const durableSessions = sessionsRef.current
 								const sessionScope = scopeRef.current
-								const taskStore = slash.name === 'tasks' ? session?.currentTaskStore?.() : undefined
-								if (slash.name === 'tasks' && !taskStore) {
-									pushMessage(
-										'system',
-										session?.currentTaskStore
-											? 'No task list is available yet for this conversation.'
-											: 'Task listing is unavailable in this conversation.',
-									)
-									return
-								}
 								const registry = new HostCommandRegistry()
 								registry.register(
 									kernelHostCommands({
 										allowedAgentIds: session?.agentIds ?? [],
-										...(taskStore ? { taskStore } : {}),
 										...(durableSessions && sessionScope && conversationMaterializedRef.current
 											? {
 													goal: {
@@ -12880,26 +12654,6 @@ function AppBody({
 								// A late readout from the conversation just left must not be
 								// painted as state of the one now on screen.
 								if (conversationGenRef.current !== generation) return
-								const checklist =
-									slash.name === 'tasks' && outcome?.kind === 'report'
-										? taskReportChecklist(outcome.rows)
-										: undefined
-								if (checklist) {
-									// Drawn by the same checklist as the transcript's task
-									// blocks: the same marks, and no id or owner column.
-									const id = nextId()
-									setMessages((prev) => [
-										...prev,
-										{
-											id,
-											role: 'system',
-											content:
-												checklist.length === 0 ? 'No tasks yet.' : checklistProgress(checklist),
-											...(checklist.length > 0 ? { checklist } : {}),
-										},
-									])
-									return
-								}
 								pushMessage(
 									'system',
 									outcome
@@ -13011,7 +12765,12 @@ function AppBody({
 							}
 							setMessages((previous) => [
 								...previous,
-								{ id: nextId(), role: 'system', content: view.text, contextView: view },
+								{
+									id: nextId(),
+									role: 'system',
+									content: view.text,
+									contextView: view,
+								},
 							])
 						})()
 						return
@@ -13272,7 +13031,10 @@ function AppBody({
 						setSpinnerTipsOverride(slash.on)
 						pushMessage(
 							'system',
-							setSpinnerTips(slash.on, { cwd: ctx.cwd, ...(profile ? { profile } : {}) }),
+							setSpinnerTips(slash.on, {
+								cwd: ctx.cwd,
+								...(profile ? { profile } : {}),
+							}),
 						)
 						return
 					}
@@ -13340,7 +13102,7 @@ function AppBody({
 			//
 			// Keep the attachment array beside its text. Reconstructing a prompt from
 			// the transcript later cannot recover bytes whose composer chip is gone.
-			const wasHeldByInterrupt = queuePauseRef.current?.source === 'operator-interrupt'
+			const wasHeldByInterrupt = roundQueueRef.current.pause()?.source === 'operator-interrupt'
 			if (mode === 'submit') advanceQueueContinuation()
 			const prompt: HumanQueuedPrompt = {
 				kind: 'human',
@@ -13374,7 +13136,7 @@ function AppBody({
 							prompt,
 							message: createUserMessage(expanded.sendText, prompt.attachments),
 							attachedFiles: expanded.attached.length,
-							queuedBefore: [...queuedRef.current],
+							queuedBefore: [...roundQueueRef.current.items()],
 						})
 					) {
 						bindSteeredTriggers(armedTriggers)
@@ -13385,7 +13147,8 @@ function AppBody({
 					}
 				}
 			}
-			if (mode === 'submit' && wasHeldByInterrupt) replaceQueued([prompt, ...queuedRef.current])
+			if (mode === 'submit' && wasHeldByInterrupt)
+				replaceQueued([prompt, ...roundQueueRef.current.items()])
 			else enqueueQueued(prompt)
 		},
 		[
@@ -13411,7 +13174,6 @@ function AppBody({
 			materializeConversation,
 			nextId,
 			openAgentCockpit,
-			runAgentsCommand,
 			abandonActiveTurn,
 			pushMessage,
 			rawOutput,
@@ -13462,7 +13224,8 @@ function AppBody({
 			isTurnRunning: () => abortRef.current !== null,
 			isDialogOpen: () => idleStateRef.current.dialogOpen,
 			hasPendingWake: () =>
-				queuedRef.current.length > 0 || (scheduleRef.current?.loops.list().length ?? 0) > 0,
+				roundQueueRef.current.items().length > 0 ||
+				(scheduleRef.current?.loops.list().length ?? 0) > 0,
 			hasBackgroundWork: () => {
 				const live = idleStateRef.current.session
 				return (
@@ -13491,9 +13254,10 @@ function AppBody({
 	messagesLiveRef.current = messages
 	const composerHasDraftRef = useRef(composerHasDraft)
 	composerHasDraftRef.current = composerHasDraft
-	const recapTurnRef = useRef<{ readonly sessionId: SessionId; readonly turnId: TurnId } | null>(
-		null,
-	)
+	const recapTurnRef = useRef<{
+		readonly sessionId: SessionId
+		readonly turnId: TurnId
+	} | null>(null)
 	const manualRecapRef = useRef<AbortController | null>(null)
 	const sideQuestionRefs = useRef<Set<AbortController>>(new Set())
 	const pushRecap = useCallback(
@@ -13565,7 +13329,8 @@ function AppBody({
 		isTurnRunning: () => abortRef.current !== null || compactingRef.current,
 		isDialogOpen: () => idleStateRef.current.dialogOpen,
 		hasPendingWake: () =>
-			queuedRef.current.length > 0 || (scheduleRef.current?.loops.list().length ?? 0) > 0,
+			roundQueueRef.current.items().length > 0 ||
+			(scheduleRef.current?.loops.list().length ?? 0) > 0,
 		hasBackgroundWork: () => {
 			const live = idleStateRef.current.session
 			return (
@@ -13704,7 +13469,7 @@ function AppBody({
 		if (ledger.unanswered > 0) writeSuggestionLedger(home, { ...ledger, unanswered: 0 })
 		replaceQueued([
 			{ kind: 'human', text: learnSkillPrompt(), skillFlow: true },
-			...queuedRef.current,
+			...roundQueueRef.current.items(),
 		])
 		pushSystem('notice', 'Saving a skill from this reply.')
 		return true
@@ -13807,6 +13572,31 @@ function AppBody({
 		}
 	}, [state])
 
+	/**
+	 * What the four automatic starters (queue pump, goal driver, peer mail, wake
+	 * notice) check before they may start a turn, read at this instant. The rules
+	 * that combine them live in `rounds/gates.ts`.
+	 */
+	const roundGateFacts = (): RoundGateFacts => ({
+		idle: state === 'idle',
+		ready: phase === 'ready',
+		hasProvider: session?.hasProvider === true,
+		turnRunning: Boolean(abortRef.current),
+		unsettledTurn: hasUnsettledTurn(),
+		pendingModelSwitch: Boolean(pendingModelSwitchRef.current),
+		conversationMutation: Boolean(conversationMutationRef.current),
+		exporting: Boolean(exportingRef.current),
+		compacting: Boolean(compactingRef.current),
+		textPrompt: Boolean(textPromptRef.current),
+		choicePicker: Boolean(choicePickerRef.current),
+		copyPicker: Boolean(copyPickerRef.current),
+		goalCommandInFlight: Boolean(goalCommandInFlightRef.current),
+		goalAdmissionInFlight: Boolean(goalDriveInFlightRef.current),
+		queueLength: roundQueueRef.current.items().length,
+		queuePaused: roundQueueRef.current.pause() !== null,
+		noticeQueued: roundQueueRef.current.items().some((prompt) => prompt.kind === 'notice'),
+	})
+
 	// Keep the footer on the same durable goal record the driver mutates. A ref
 	// alone cannot repaint React, so every goal mutation bumps goalDriveVersion;
 	// generation/session checks stop a late disk read labelling a resumed chat.
@@ -13880,25 +13670,7 @@ function AppBody({
 		// A failed fork/edit can close its mutation boundary while the screen stays
 		// idle, so no other dependency would necessarily re-run this driver.
 		void conversationMutation
-		if (
-			goalDriveInFlightRef.current ||
-			state !== 'idle' ||
-			phase !== 'ready' ||
-			!session?.hasProvider ||
-			queuedRef.current.length > 0 ||
-			abortRef.current ||
-			hasUnsettledTurn() ||
-			pendingModelSwitchRef.current ||
-			conversationMutationRef.current ||
-			exportingRef.current ||
-			compactingRef.current ||
-			textPromptRef.current ||
-			choicePickerRef.current ||
-			copyPickerRef.current ||
-			goalCommandInFlightRef.current
-		) {
-			return
-		}
+		if (admissionBlocked('goal', roundGateFacts()) !== null) return
 		const durableSessions = sessionsRef.current
 		const scope = scopeRef.current
 		if (!durableSessions || !scope || !conversationMaterializedRef.current) return
@@ -13910,77 +13682,39 @@ function AppBody({
 		goalDriveInFlightRef.current = true
 		void (async () => {
 			try {
-				await persistenceTailRef.current
-				if (
-					conversationGenRef.current !== generation ||
-					scopeRef.current?.sessionId !== sessionId ||
-					state !== 'idle' ||
-					abortRef.current ||
-					hasUnsettledTurn(generation) ||
-					pendingModelSwitchRef.current ||
-					conversationMutationRef.current ||
-					exportingRef.current ||
-					compactingRef.current ||
-					textPromptRef.current ||
-					choicePickerRef.current ||
-					copyPickerRef.current ||
-					goalCommandInFlightRef.current ||
-					queuedRef.current.length > 0 ||
-					!goalActivation.isArmed(sessionId, armed)
-				) {
-					return
-				}
-
-				const current = await durableSessions.goals.getGoal(sessionId, durableSessions.tenantId)
-				if (
-					!current ||
-					current.phase !== 'active' ||
-					current.id !== armed.id ||
-					current.revision !== armed.revision
-				) {
-					goalActivation.disarm(sessionId, armed)
-					return
-				}
-
-				const authority = await durableSessions.goals.admitRound(
+				const admission = await admitGoalRound<TriggerId>({
+					goals: durableSessions.goals,
+					tenantId: durableSessions.tenantId,
 					sessionId,
-					durableSessions.tenantId,
-					armed,
-				)
-				// Human input may have entered or even started while admission was on
-				// disk; keep it. The goal round appends after that FIFO. A conversation
-				// or goal command is different: it revoked this scheduling boundary.
-				if (
-					conversationGenRef.current !== generation ||
-					scopeRef.current?.sessionId !== sessionId ||
-					pendingModelSwitchRef.current ||
-					conversationMutationRef.current ||
-					goalCommandInFlightRef.current ||
-					!goalActivation.isArmed(sessionId, armed)
-				) {
-					goalActivation.disarm(sessionId, armed)
-					return
-				}
-				goalActivation.arm(authority)
-				enqueueQueued({
-					kind: 'goal',
-					text: goalRoundPrompt(authority),
-					goalRound: authority,
 					generation,
+					activation: goalActivation,
+					armed,
+					persistenceTail: () => persistenceTailRef.current,
+					boundaryChanged: () =>
+						conversationGenRef.current !== generation ||
+						scopeRef.current?.sessionId !== sessionId ||
+						state !== 'idle' ||
+						Boolean(abortRef.current) ||
+						hasUnsettledTurn(generation) ||
+						Boolean(pendingModelSwitchRef.current) ||
+						Boolean(conversationMutationRef.current) ||
+						Boolean(exportingRef.current) ||
+						compactingRef.current ||
+						Boolean(textPromptRef.current) ||
+						Boolean(choicePickerRef.current) ||
+						Boolean(copyPickerRef.current) ||
+						Boolean(goalCommandInFlightRef.current) ||
+						roundQueueRef.current.items().length > 0,
+					revokedMeanwhile: () =>
+						conversationGenRef.current !== generation ||
+						scopeRef.current?.sessionId !== sessionId ||
+						Boolean(pendingModelSwitchRef.current) ||
+						Boolean(conversationMutationRef.current) ||
+						Boolean(goalCommandInFlightRef.current),
+					explainFailure: (error) => explainFailure(error, 'Automatic goal continuation stopped.'),
 				})
-			} catch (error) {
-				goalActivation.disarm(sessionId, armed)
-				if (error instanceof GoalRoundLimitError) {
-					pushMessage(
-						'system',
-						`Goal blocked after ${error.goal.roundsAdmitted} admitted round${error.goal.roundsAdmitted === 1 ? '' : 's'}: ${error.goal.blockedReason?.message ?? 'the round limit was reached'}`,
-					)
-				} else if (!(error instanceof StaleGoalError)) {
-					pushMessage(
-						'system',
-						`${explainFailure(error, 'Automatic goal continuation stopped.')} Run /goal resume to try again.`,
-					)
-				}
+				if (admission.kind === 'admitted') enqueueQueued(admission.round)
+				else if (admission.kind !== 'none') pushMessage('system', admission.message)
 			} finally {
 				goalDriveInFlightRef.current = false
 				wakeGoalDriver()
@@ -14007,23 +13741,7 @@ function AppBody({
 	// send the next queued message automatically.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {
-		if (
-			state !== 'idle' ||
-			phase !== 'ready' ||
-			queuedRef.current.length === 0 ||
-			queuePauseRef.current !== null ||
-			abortRef.current ||
-			hasUnsettledTurn() ||
-			pendingModelSwitchRef.current ||
-			conversationMutationRef.current ||
-			exportingRef.current ||
-			compactingRef.current ||
-			textPromptRef.current ||
-			choicePickerRef.current ||
-			copyPickerRef.current ||
-			goalCommandInFlightRef.current
-		)
-			return
+		if (admissionBlocked('queue', roundGateFacts()) !== null) return
 		// Read and remove from the synchronous source of truth. `queued` is the
 		// render snapshot that scheduled this effect; a later input may already
 		// have appended to the ref, and replacing from that old snapshot would
@@ -14134,28 +13852,14 @@ function AppBody({
 	useEffect(() => {
 		const peers = peersRef.current
 		peers?.publish()
-		if (
-			!peers?.enabled ||
-			phase !== 'ready' ||
-			state !== 'idle' ||
-			abortRef.current ||
-			hasUnsettledTurn() ||
-			queuePauseRef.current ||
-			pendingModelSwitchRef.current ||
-			conversationMutationRef.current ||
-			textPromptRef.current ||
-			choicePickerRef.current ||
-			copyPickerRef.current ||
-			exportingRef.current ||
-			compactingRef.current ||
-			goalCommandInFlightRef.current
-		)
-			return
+		if (!peers?.enabled || admissionBlocked('peer', roundGateFacts()) !== null) return
 		const generation = conversationGenRef.current
 		const mail = peers.peek(generation)[0]
 		if (
 			mail &&
-			!queuedRef.current.some((prompt) => prompt.kind === 'peer' && prompt.mail.id === mail.id)
+			!roundQueueRef.current
+				.items()
+				.some((prompt) => prompt.kind === 'peer' && prompt.mail.id === mail.id)
 		)
 			enqueueQueued({
 				kind: 'peer',
@@ -14185,31 +13889,15 @@ function AppBody({
 	// takes it at its next request boundary instead (`inboundMessages`).
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `noticeVersion` is what moves; the effect reads the refs it mirrors.
 	useEffect(() => {
+		if (admissionBlocked('notice', roundGateFacts()) !== null) return
 		if (
-			phase !== 'ready' ||
-			state !== 'idle' ||
-			abortRef.current ||
-			hasUnsettledTurn() ||
-			queuePauseRef.current ||
-			pendingModelSwitchRef.current ||
-			conversationMutationRef.current ||
-			textPromptRef.current ||
-			choicePickerRef.current ||
-			copyPickerRef.current ||
-			exportingRef.current ||
-			compactingRef.current ||
-			goalCommandInFlightRef.current ||
-			queuedRef.current.some((prompt) => prompt.kind === 'notice')
+			!wakeLedgerRef.current.wakes(
+				session,
+				session?.monitors?.wakes() === true,
+				wakeBudgetRef.current.canWake,
+			)
 		)
 			return
-		const jobs = idleJobNoticesRef.current
-		const waiting =
-			noticesWakeASession(workflowNoticesRef.current) ||
-			childMessagesRef.current.size > 0 ||
-			(jobs.ownerSession === session &&
-				[...jobs.pending.keys()].some((id) => wakeJobIdsRef.current.has(id))) ||
-			session?.monitors?.wakes() === true
-		if (!waiting) return
 		enqueueQueued({
 			kind: 'notice',
 			text: 'Something finished while you were idle.',
@@ -14707,35 +14395,47 @@ function AppBody({
 				if (answer.kind === 'approve-rule') rulesChanged(answer.allows)
 				return
 			}
-			// The shell view observes only this AgentSession's jobs. Consent always
-			// takes precedence above; the composer stays mounted but hidden below.
+			// The Background dialog lists this AgentSession's commands and monitors and
+			// this conversation's subagents. Consent always takes precedence above; the
+			// composer stays mounted but hidden below.
 			const shellView = jobSurfaceRef.current
 			if (shellView) {
 				if (shellView.ownerSession !== session) {
 					setJobSurface(null)
 					return
 				}
-				// The Return that submitted /jobs must not also inspect or stop a
+				// The Return that submitted /tasks must not also inspect or stop a
 				// row before the new screen has painted.
 				if (jobSurfaceCommittedRef.current !== shellView) return
-				if (isAction('app:interrupt', input, key) || input.toLowerCase() === 'q') {
+				if (isAction('app:interrupt', input, key)) {
 					setJobSurface(null)
 					return
 				}
-				if (key.escape) {
-					setJobSurface(
-						shellView.detailJobId ? { ...shellView, detailJobId: null, tailOffset: 0 } : null,
-					)
+				const entries = backgroundRows(backgroundJobs, subagentsRef.current)
+				const selectedId = shellView.detailKey ?? shellView.selectedKey ?? entries[0]?.key
+				const selectedEntry = entries.find((entry) => entry.key === selectedId)
+				if (shellView.detailKey) {
+					// Detail: ← goes back to the list; esc, enter and space close the dialog.
+					if (key.leftArrow) {
+						setJobSurface({ ...shellView, detailKey: null, tailOffset: 0, notice: undefined })
+						return
+					}
+					if (key.escape || key.return || input === ' ') {
+						setJobSurface(null)
+						return
+					}
+				} else if (key.escape) {
+					setJobSurface(null)
 					return
 				}
-				const selectedId = shellView.detailJobId ?? shellView.selectedJobId ?? backgroundJobs[0]?.id
-				const selectedJob = backgroundJobs.find((job) => job.id === selectedId)
-				if (
-					input.toLowerCase() === 'x' &&
-					selectedJob?.status === 'running' &&
-					session?.stopJob &&
-					!shellView.busyJobId
-				) {
+				if (input.toLowerCase() === 'x' && selectedEntry && isRowRunning(selectedEntry)) {
+					if (selectedEntry.kind === 'agent') {
+						// The row moves to Completed by itself once the child reports its end.
+						session?.stopSubagent?.(selectedEntry.agent.viewId)
+						return
+					}
+					const selectedJob = selectedEntry.job
+					if (!session?.stopJob || shellView.busyJobId) return
 					const owner = session
 					const stopJob = owner.stopJob
 					if (!stopJob) return
@@ -14777,10 +14477,10 @@ function AppBody({
 					)
 					return
 				}
-				if (shellView.detailJobId) {
+				if (shellView.detailKey && selectedEntry?.kind === 'job') {
 					let output: BackgroundJobOutput | undefined
 					try {
-						output = session?.readJob?.(shellView.detailJobId)
+						output = session?.readJob?.(selectedEntry.job.id)
 					} catch {
 						output = undefined
 					}
@@ -14813,11 +14513,23 @@ function AppBody({
 						})
 					return
 				}
-				if (key.return && selectedJob) {
+				if (key.return && selectedEntry) {
+					if (selectedEntry.kind === 'agent') {
+						// A subagent opens in the transcript view the agents rail uses.
+						setJobSurface(null)
+						setAgentSurface({
+							kind: 'transcript',
+							selectedPhaseId: selectedEntry.agent.phaseId,
+							selectedId: selectedEntry.agent.viewId,
+							returnFocus: 'agents',
+							tailOffset: 0,
+						})
+						return
+					}
 					setJobSurface({
 						...shellView,
-						selectedJobId: selectedJob.id,
-						detailJobId: selectedJob.id,
+						selectedKey: selectedEntry.key,
+						detailKey: selectedEntry.key,
 						tailOffset: 0,
 						notice: undefined,
 					})
@@ -14826,25 +14538,25 @@ function AppBody({
 				if (key.home || key.end || key.pageUp || key.pageDown || key.upArrow || key.downArrow) {
 					const current = Math.max(
 						0,
-						backgroundJobs.findIndex((job) => job.id === shellView.selectedJobId),
+						entries.findIndex((entry) => entry.key === shellView.selectedKey),
 					)
 					const page = backgroundJobsPageSize(terminal.rows)
 					const next = key.home
 						? 0
 						: key.end
-							? backgroundJobs.length - 1
+							? entries.length - 1
 							: key.pageUp
 								? Math.max(0, current - page)
 								: key.pageDown
-									? Math.min(backgroundJobs.length - 1, current + page)
+									? Math.min(entries.length - 1, current + page)
 									: key.upArrow
 										? Math.max(0, current - 1)
-										: Math.min(backgroundJobs.length - 1, current + 1)
-					const job = backgroundJobs[next]
-					if (job)
+										: Math.min(entries.length - 1, current + 1)
+					const entry = entries[next]
+					if (entry)
 						setJobSurface({
 							...shellView,
-							selectedJobId: job.id,
+							selectedKey: entry.key,
 							notice: undefined,
 						})
 				}
@@ -14900,7 +14612,7 @@ function AppBody({
 						// `main` is the way back from a viewed agent to the conversation.
 						if (viewingAgentRef.current !== null) setAgentSurface(null)
 					} else if (railTarget === SHELLS_FOCUS) {
-						openShellJobs()
+						openBackgroundTasks()
 					} else if (selectedWorkflow) {
 						openWorkflowFromRail(selectedWorkflow.id, selectedWorkflow.focusId)
 					} else if (selected) {
@@ -14949,19 +14661,16 @@ function AppBody({
 					setRailFocus(null)
 				}
 			}
-			if (isAction('app:openAgents', input, key)) {
-				if (agentSurfaceRef.current) {
-					setAgentSurface(null)
-					return
-				}
-				if (openCockpitFromCurrentRows()) {
-					void hydrateSavedChildren()
-					return
-				}
-				// Nothing on screen yet. The conversation's children may exist only
-				// as saved evidence, so the request outlives that read rather than
-				// being answered by an empty snapshot.
-				void openAgentCockpit()
+			if (isAction('app:toggleTodos', input, key)) {
+				const next = !checklistOpenRef.current
+				setChecklistExpanded(next)
+				setChecklistPinned(next)
+				// Saved like the other display choices; a file that cannot be written
+				// still leaves the checklist as pressed for this run.
+				try {
+					setUserConfigValue(['tui', 'showExpandedTodos'], next)
+				} catch {}
+				return
 			}
 			// Child observation owns navigation, but never outranks consent: the
 			// permission branch above preempts it if a child or parent call asks.
@@ -15337,6 +15046,27 @@ function AppBody({
 					setSelectedChoice(
 						moveChoiceSelection(filterChoiceOptions(picker.options, next), 0, 'first'),
 					)
+					return
+				}
+				if (picker.kind === 'workflow-runs' && input === 'r' && !key.ctrl && !key.meta) {
+					// Does not start anything itself: it asks the model to make the `workflow`
+					// call, so the operator approves the resume in the usual review.
+					const chosen = options[selectedChoiceRef.current]
+					const runId = chosen ? picker.values[picker.options.indexOf(chosen)] : undefined
+					const run = workflowRunsRef.current.find((item) => item.runId === runId)
+					if (run && canResumeRun(run)) {
+						setChoicePicker(null)
+						wakeLedgerRef.current.noteWorkflowEnd(
+							`resume:${run.runId}`,
+							`The person asked to resume workflow ${JSON.stringify(run.name)} (run ${run.runId}) from /workflows. Call ${resumeCallText(run.scriptPath, run.runId)} now. Agents whose prompt and options are unchanged return their saved results. They will review and approve the resume before it starts.`,
+						)
+						pushMessage('system', `Asking to resume ${run.name}.`)
+						enqueueQueued({
+							kind: 'notice',
+							text: `Resume workflow ${run.name}.`,
+							generation: conversationGenRef.current,
+						})
+					}
 					return
 				}
 				if (picker.kind === 'workflow-runs' && input === 'x' && !key.ctrl && !key.meta) {
@@ -15729,6 +15459,13 @@ function AppBody({
 		const runId = chosen ? choicePicker.values[choicePicker.options.indexOf(chosen)] : undefined
 		return workflowRunsRef.current.find((run) => run.runId === runId)?.status === 'running'
 	})()
+	const workflowPickerCanResume = (() => {
+		if (choicePicker?.kind !== 'workflow-runs') return false
+		const chosen = filterChoiceOptions(choicePicker.options, choiceQuery)[selectedChoice]
+		const runId = chosen ? choicePicker.values[choicePicker.options.indexOf(chosen)] : undefined
+		const run = workflowRunsRef.current.find((item) => item.runId === runId)
+		return run !== undefined && canResumeRun(run)
+	})()
 	// A run is one workflow, not an agent: the footer says so.
 	const runningWorkflowCount = liveWorkflows.filter((flow) => flow.status === 'running').length
 	// While the rail has the keyboard its key line replaces the footer's mode line.
@@ -15939,7 +15676,7 @@ function AppBody({
 						jobSurface === null &&
 						permission === null &&
 						scheduleReviewPrompt === null ? (
-							<TaskList tasks={liveTasks} />
+							<TaskList tasks={liveTasks} expanded={checklistOpen} />
 						) : null}
 						{/* Siblings, not a ternary. The overlay used to REPLACE the
 						    composer, which unmounted it and destroyed whatever the
@@ -16066,7 +15803,7 @@ function AppBody({
 								{...(choicePicker.kind === 'workflow-runs'
 									? {
 											subtitle: choicePicker.subtitle,
-											hints: workflowRunsHints(workflowPickerCanStop),
+											hints: workflowRunsHints(workflowPickerCanStop, workflowPickerCanResume),
 										}
 									: {})}
 								{...(choicePicker.kind === 'account' ? { hints: ACCOUNT_PICKER_HINTS } : {})}
@@ -16079,7 +15816,9 @@ function AppBody({
 										: undefined
 								}
 								{...(choicePicker.kind === 'theme' && terminal.rows >= 26
-									? { extra: <ThemeSample width={Math.max(10, (terminal.columns ?? 80) - 6)} /> }
+									? {
+											extra: <ThemeSample width={Math.max(10, (terminal.columns ?? 80) - 6)} />,
+										}
 									: {})}
 							/>
 						) : permission === null &&
@@ -16305,6 +16044,9 @@ function AppBody({
 							footerKeysLive && railFocus === null && (runningShellCount > 0 || railHasRows)
 						}
 						shellsSelected={railFocus === SHELLS_FOCUS}
+						{...(tasks.length > 0 && showComposerSurface && !childSurfaceOpen
+							? { tasksOpen: checklistOpen }
+							: {})}
 						{...(railHintText !== undefined ? { railHint: railHintText } : {})}
 					/>
 				)}
@@ -16404,9 +16146,9 @@ function AppBody({
 				) : null}
 				{jobSurface && permission === null && scheduleReviewPrompt === null ? (
 					<BackgroundJobsPanel
-						jobs={backgroundJobs}
-						selectedJobId={jobSurface.selectedJobId}
-						detailJobId={jobSurface.detailJobId}
+						entries={backgroundRows(backgroundJobs, subagents)}
+						selectedKey={jobSurface.selectedKey}
+						detailKey={jobSurface.detailKey}
 						tailOffset={jobSurface.tailOffset}
 						readJob={(id) => session?.readJob?.(id)}
 						rows={terminal.rows}
@@ -16525,19 +16267,9 @@ function labelOfOption(question: UserQuestion, optionId: string): string {
 	return question.options.find((option) => option.id === optionId)?.label ?? optionId
 }
 
-/** `/agents batches`' one-line-per-batch text, mirroring `/jobs`' own column shape. */
-function batchOption(batch: Batch): ChoicePickerOption {
-	const agents = `${batch.agentsDone}/${batch.agentsTotal} agent${batch.agentsTotal === 1 ? '' : 's'}`
-	const tokens = `${batch.tokensTotal.toLocaleString('en-US')} tokens`
-	const columns = [
-		relativeStart(batch.startedAt),
-		batch.phases.join(', '),
-		agents,
-		tokens,
-		formatElapsed(batch.elapsedMs),
-	]
-	if (batch.live) columns.push('live')
-	return { label: batch.name, description: columns.join(' · ') }
+/** A run that is not going and was not saved before resuming was possible can be picked up again. */
+function canResumeRun(run: WorkflowRunView): boolean {
+	return run.status !== 'running' && run.resumable !== 'legacy'
 }
 
 /** `1 running, 2 finished`: the runs of the list, by whether they are still going. */
@@ -16547,10 +16279,11 @@ function workflowRunsSubtitle(runs: readonly Pick<WorkflowRunView, 'status'>[]):
 }
 
 /** The `/workflows` list's own key hints: Enter opens a run, `x` stops one that is going. */
-function workflowRunsHints(canStop: boolean): { text: string; rank: number }[] {
+function workflowRunsHints(canStop: boolean, canResume: boolean): { text: string; rank: number }[] {
 	return [
 		{ text: 'enter to view', rank: 5 },
 		...(canStop ? [{ text: 'x to stop', rank: 3 }] : []),
+		...(canResume ? [{ text: 'r to resume', rank: 3 }] : []),
 		{ text: 'esc to close', rank: 4 },
 	]
 }
@@ -16565,6 +16298,9 @@ function workflowRunOption(run: WorkflowRunView): ChoicePickerOption {
 		run.status === 'running' ? 'running' : endWord(run.status),
 		formatElapsed((run.endedAt ?? Date.now()) - run.startedAt),
 		workflowAgentProgress(counts),
+		...(run.pass !== undefined && run.pass > 1
+			? [`pass ${run.pass}, ${run.agents.filter((agent) => agent.cached).length} saved`]
+			: []),
 		...(tokens > 0 ? [`${formatCompactCount(tokens)} tokens`] : []),
 		relativeStart(run.startedAt),
 	]

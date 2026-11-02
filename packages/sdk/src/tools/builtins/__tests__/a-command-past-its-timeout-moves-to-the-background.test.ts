@@ -15,7 +15,10 @@ vi.mock('node:child_process', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('node:child_process')>()
 	return { ...actual, spawn: startSpawn }
 })
-vi.mock('../../../process/kill-tree.js', () => ({ killTree: stopTree }))
+vi.mock('../../../process/kill-tree.js', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../../process/kill-tree.js')>()),
+	killTree: stopTree,
+}))
 
 afterEach(() => {
 	startSpawn.mockReset()

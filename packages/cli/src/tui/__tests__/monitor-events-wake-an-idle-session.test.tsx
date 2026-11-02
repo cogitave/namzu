@@ -280,8 +280,8 @@ it('counts monitors apart from shells in the footer and says how a monitor ended
 	})
 	mounted = screen
 	await waitUntil(screen, () => screen.scrollback().join('\n').includes('a-model'))
-	await waitUntil(screen, () => screen.viewport().join('\n').includes('1 monitor'))
-	expect(screen.viewport().join('\n')).toContain('1 shell · 1 monitor')
+	await waitUntil(screen, () => screen.viewport().join('\n').includes('2 bg'))
+	expect(screen.viewport().join('\n')).toContain('2 bg')
 
 	announce?.({
 		...jobs[0],
@@ -303,9 +303,9 @@ it('shows a monitor in the footer the moment its start returns, before anything 
 	})
 	mounted = screen
 	await waitUntil(screen, () => screen.scrollback().join('\n').includes('a-model'))
-	expect(screen.viewport().join('\n')).not.toContain('1 monitor')
+	expect(screen.viewport().join('\n')).not.toContain('1 bg')
 	await say(screen, 'watch the deploy log', 1)
-	await waitUntil(screen, () => screen.viewport().join('\n').includes('1 monitor'))
+	await waitUntil(screen, () => screen.viewport().join('\n').includes('1 bg'))
 })
 
 it('does not wake an idle session for a stop the operator asked for, and tells it with the next turn', async () => {

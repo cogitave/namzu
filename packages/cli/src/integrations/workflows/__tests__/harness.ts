@@ -17,6 +17,7 @@ import { subagentParentFixture } from '../../subagents/__fixtures__/parent.js'
 import { WORKFLOW_STEP_ASSIGNMENT, createSubagentRuntime } from '../../subagents/runtime.js'
 import { createWorkflowHost } from '../host.js'
 import type { WorkflowRunEnd } from '../registry.js'
+import type { ReviewedScripts } from '../resume.js'
 
 export const TWO_PHASE_SCRIPT = `export const meta = { name: 'audit', description: 'Scan, then fix', phases: [{ title: 'Scan' }, { title: 'Fix', detail: 'safe fixes only' }] }
 phase('Scan')
@@ -52,6 +53,10 @@ export async function workflowHarness(
 		readonly refusal?: string
 		readonly tokenBudget?: number
 		readonly limits?: { maxConcurrency?: number; maxAgents?: number }
+		/** Sign the journal lines with this secret. */
+		readonly journalKey?: string
+		/** What the review showed of each saved script. */
+		readonly reviewedScripts?: ReviewedScripts
 	} = {},
 ) {
 	const cwd = mkdtempSync(join(tmpdir(), 'namzu-workflow-'))
@@ -135,6 +140,7 @@ export async function workflowHarness(
 			} satisfies LLMProvider
 		},
 	})
+	let currentKey = options.journalKey
 	const ended: WorkflowRunEnd[] = []
 	const endWaiters: Array<() => void> = []
 	const released: TurnId[] = []
@@ -142,6 +148,8 @@ export async function workflowHarness(
 	const host = createWorkflowHost({
 		subagents: runtime,
 		runsDirectory: () => runs,
+		...(options.reviewedScripts !== undefined ? { reviewedScripts: options.reviewedScripts } : {}),
+		journalKey: () => currentKey,
 		refusal: () => options.refusal,
 		// The default concurrency follows this machine's CPU count; a test that
 		// holds several agents at once would hang on a small CI runner.
@@ -187,7 +195,12 @@ export async function workflowHarness(
 		async foreignContext(): Promise<ToolContext> {
 			return { ...context, turnId: await parent.addForeignTurn() }
 		},
-		start: (input: { script: string; args?: unknown }) => host.tool.execute(input, context),
+		start: (input: {
+			script?: string
+			args?: unknown
+			scriptPath?: string
+			resumeFromRunId?: string
+		}) => host.tool.execute(input, context),
 		/** Resolves when `ready()` holds, re-checked on every run update and every change at the model gate. */
 		async until(ready: () => boolean): Promise<void> {
 			if (ready()) return
@@ -205,6 +218,10 @@ export async function workflowHarness(
 		/** Resolves once `count` runs have ended. */
 		async untilEnded(count = 1): Promise<void> {
 			while (ended.length < count) await new Promise<void>((resolve) => endWaiters.push(resolve))
+		},
+		/** Change the signing secret, as a replaced key file would. */
+		setJournalKey(key: string | undefined): void {
+			currentKey = key
 		},
 		readJournal(runId: string): string {
 			return readFileSync(join(runs, runId, 'workflow', 'journal.jsonl'), 'utf8')

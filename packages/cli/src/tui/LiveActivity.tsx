@@ -241,9 +241,7 @@ export function LiveActivity({
 		elapsedMs > FIGURES_AFTER_MS
 	const figures = hasFigures
 		? `${elapsed}${spent}${
-				agentCount > 0
-					? ` · ${agentCount} agent${agentCount === 1 ? '' : 's'} · ctrl+t to view`
-					: ''
+				agentCount > 0 ? ` · ${agentCount} agent${agentCount === 1 ? '' : 's'} · ↓ to view` : ''
 			}`
 		: ''
 	// While reasoning: the patient label and the summary; afterwards, how long it took.

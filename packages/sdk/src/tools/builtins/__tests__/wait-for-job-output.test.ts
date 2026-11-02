@@ -21,11 +21,15 @@ function fixture() {
 		spawn: () => ({ child: child as unknown as ReturnType<typeof spawn> }),
 	})
 	const markAwaited = vi.fn()
+	const markCollected = vi.fn()
 	const context = {
-		backgroundJobs: bindOwner(registry, 'session', { onAwaited: markAwaited }),
+		backgroundJobs: bindOwner(registry, 'session', {
+			onAwaited: markAwaited,
+			onCollected: markCollected,
+		}),
 		abortSignal: new AbortController().signal,
 	} as unknown as ToolContext
-	return { registry, child, context, markAwaited, id: job.id }
+	return { registry, child, context, markAwaited, markCollected, id: job.id }
 }
 
 afterEach(() => vi.useRealTimers())
@@ -40,7 +44,19 @@ describe('wait_for_job output mode', () => {
 		expect(result.output).toContain('not a health check or completion claim')
 		expect(result.data).toMatchObject({ outcome: 'matched', status: 'running', nextOffset: 6 })
 		expect(f.markAwaited).not.toHaveBeenCalled()
+		// The job is still running: its later exit has not been delivered, so
+		// nothing is withdrawn and the hold stays.
+		expect(f.markCollected).not.toHaveBeenCalled()
 		f.child.emit('close', 0, null)
+	})
+
+	it('withdraws the exit notice only when an exit wait delivered the whole exit', async () => {
+		const f = fixture()
+		const waiting = WaitForJobTool.execute({ id: f.id }, f.context)
+		f.child.stdout.write('done\n')
+		f.child.emit('close', 0, null)
+		await waiting
+		expect(f.markCollected).toHaveBeenCalledExactlyOnceWith(f.id)
 	})
 
 	it('refuses an older host without falling back to an exit wait or marking intent', async () => {

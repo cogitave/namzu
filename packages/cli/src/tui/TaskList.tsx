@@ -23,6 +23,8 @@ export type TaskListItem = ChecklistItem
 
 export interface TaskListProps {
 	readonly tasks: readonly TaskListItem[]
+	/** Ctrl+T has opened the checklist: every task, up to five rows, instead of the one current step. */
+	readonly expanded?: boolean
 }
 
 /** The step the operator is waiting on: the one in progress, else the next pending. */
@@ -33,13 +35,63 @@ export function currentTask(tasks: readonly TaskListItem[]): TaskListItem | unde
 	)
 }
 
+/** The most rows the open checklist takes, overflow line included. */
+export const EXPANDED_TASK_ROWS = 5
+
+/**
+ * What the open checklist shows. Up to five rows: the whole list when it fits;
+ * otherwise four tasks, in list order, chosen as the one in progress first, then
+ * the pending ones, then the latest finished, and a last row counting the rest.
+ */
+export function expandedTaskRows(tasks: readonly TaskListItem[]): {
+	readonly shown: readonly TaskListItem[]
+	readonly hidden: number
+} {
+	if (tasks.length <= EXPANDED_TASK_ROWS) return { shown: tasks, hidden: 0 }
+	const room = EXPANDED_TASK_ROWS - 1
+	const rank = (task: TaskListItem): number =>
+		task.status === 'in_progress' ? 0 : task.status === 'pending' ? 1 : 2
+	const chosen = new Set(
+		tasks
+			.map((task, index) => ({ task, index }))
+			.sort(
+				(a, b) =>
+					rank(a.task) - rank(b.task) ||
+					(rank(a.task) === 2 ? b.index - a.index : a.index - b.index),
+			)
+			.slice(0, room)
+			.map(({ index }) => index),
+	)
+	return {
+		shown: tasks.filter((_, index) => chosen.has(index)),
+		hidden: tasks.length - room,
+	}
+}
+
 /** Rows this component occupies, for the live-region budget. */
-export function taskListRows(tasks: readonly TaskListItem[]): number {
+export function taskListRows(tasks: readonly TaskListItem[], expanded = false): number {
+	if (expanded) {
+		if (tasks.length === 0) return 0
+		const { shown, hidden } = expandedTaskRows(tasks)
+		return shown.length + (hidden > 0 ? 1 : 0)
+	}
 	return currentTask(tasks) ? 1 : 0
 }
 
-export function TaskList({ tasks }: TaskListProps) {
+export function TaskList({ tasks, expanded = false }: TaskListProps) {
 	const { columns } = useWindowSize()
+	if (expanded) {
+		if (tasks.length === 0) return null
+		const { shown, hidden } = expandedTaskRows(tasks)
+		return (
+			<Box flexDirection="column" paddingLeft={2}>
+				{shown.map((task) => (
+					<ChecklistRow key={task.id} item={task} wrap="truncate-end" />
+				))}
+				{hidden > 0 ? <Text color={theme.text.muted}>… +{hidden} more</Text> : null}
+			</Box>
+		)
+	}
 	const current = currentTask(tasks)
 	if (!current) return null
 	const done = tasks.filter((task) => task.status === 'completed').length
