@@ -196,12 +196,25 @@ const WINDOWS: ReadonlyArray<readonly [prefix: string, tokens: number]> = [
 	// (a fine-tune, a distill), and nothing says it keeps the parent's window.
 	// Over-estimating ends a turn on a provider rejection; under-estimating
 	// costs a summary. So an id not named here falls to the bare `deepseek`
-	// row below, the 64k the older ids (chat, reasoner, R1 distills) had.
-	['deepseek-v4-flash', 1_000_000],
-	['deepseek-v4-pro', 1_000_000],
-	['deepseek-flash', 1_000_000],
+	// row below, the 64k the older ids (chat, reasoner, R1 distills) had. The
+	// three ids are matched whole (see `DEEPSEEK_ONE_MILLION_IDS`), never by
+	// substring.
 	['deepseek', 64_000],
 ]
+
+/** DeepSeek ids documented at a 1M window; matched exactly, not by substring. */
+const DEEPSEEK_ONE_MILLION_IDS: ReadonlySet<string> = new Set([
+	'deepseek-v4-flash',
+	'deepseek-v4-pro',
+	'deepseek-flash',
+])
+
+/** The id with a gateway prefix (`deepseek/`) and a `:tag` (`:free`) removed. */
+function bareModelName(id: string): string {
+	const afterSlash = id.slice(id.lastIndexOf('/') + 1)
+	const colon = afterSlash.indexOf(':')
+	return colon === -1 ? afterSlash : afterSlash.slice(0, colon)
+}
 
 const SORTED = [...WINDOWS].sort((a, b) => b[0].length - a[0].length)
 
@@ -225,6 +238,7 @@ export function lookupContextWindow(model: string | undefined): number | undefin
 function lookupBareContextWindow(model: string | undefined): number | undefined {
 	if (!model) return undefined
 	const id = stripModelWindowSuffix(model).toLowerCase()
+	if (DEEPSEEK_ONE_MILLION_IDS.has(bareModelName(id))) return ONE_MILLION_WINDOW_TOKENS
 	for (const [prefix, tokens] of SORTED) {
 		if (id.includes(prefix)) return tokens
 	}

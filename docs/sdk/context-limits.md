@@ -69,9 +69,11 @@ assumed for a model whose window comes from a driver or the table.
 
 An id the table does not know and that carries no suffix is assumed to have
 128,000 tokens, on purpose: an over-estimate ends a turn on a provider
-rejection, an under-estimate costs a summary. The DeepSeek rows are per id
-(`deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-flash`, 1,000,000 each); any
-other id containing `deepseek` keeps 64,000.
+rejection, an under-estimate costs a summary. Exactly three DeepSeek ids get
+1,000,000 (`deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-flash`), with or
+without a gateway prefix such as `deepseek/` and a `:tag` such as `:free`; any
+other id containing `deepseek`, a derivative like `deepseek-flash-lite` or a
+distill included, keeps 64,000.
 
 ## When compaction keeps failing
 

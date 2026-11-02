@@ -18,20 +18,28 @@ const triggerTokens = (model: string, maxOutput?: number) => {
 }
 
 describe('the hand table for DeepSeek ids', () => {
-	it.each([
-		'deepseek-v4-flash',
-		'deepseek-v4-pro',
-		'deepseek-v4-flash-vision-exp',
-		'deepseek-flash',
-	])('puts %s on the documented 1M window, not 64k', (id) => {
-		expect(lookupContextWindow(id)).toBe(1_000_000)
-		// Was 32,000 before the fix.
-		expect(triggerTokens(id, 384_000)).toBe(967_000)
-	})
+	it.each(['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-flash'])(
+		'puts %s on the documented 1M window, not 64k',
+		(id) => {
+			expect(lookupContextWindow(id)).toBe(1_000_000)
+			// Was 32,000 before the fix.
+			expect(triggerTokens(id, 384_000)).toBe(967_000)
+		},
+	)
 
 	it('reaches gateway-qualified spellings of a named id', () => {
 		expect(lookupContextWindow('deepseek/deepseek-v4-pro')).toBe(1_000_000)
 		expect(lookupContextWindow('deepseek/deepseek-v4-flash:free')).toBe(1_000_000)
+	})
+
+	it.each([
+		'deepseek-flash-lite',
+		'deepseek-v4-flash-vision-exp',
+		'deepseek-v4-pro-distill-qwen-32b',
+		'deepseek/deepseek-v4-pro-distill',
+		'deepseek-flash-lite:free',
+	])('keeps %s, a derivative, at 64k', (id) => {
+		expect(lookupContextWindow(id)).toBe(64_000)
 	})
 
 	it('never over-estimates a DeepSeek id it does not name', () => {
