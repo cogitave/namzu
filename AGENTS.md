@@ -88,6 +88,7 @@ Each of those jobs installs and builds on its own, and `Record the validated tre
 | Local entry-point check | `node --import tsx --test scripts/__tests__/check-local-entry.test.ts` |
 | Model price catalogue matches its source | `node scripts/generate-model-prices.mjs --check` |
 | Zen snapshot generator tests | `node --import tsx --test scripts/__tests__/generate-zen-models.test.ts` |
+| Startup and resume budget gate | `node --import tsx --test scripts/__tests__/bench-startup-budgets.test.ts && node scripts/bench-startup.mjs --check` |
 | Installer parses as POSIX sh | `sh -n install.sh && dash -n install.sh` |
 | Evals | `node packages/cli/dist/bin.js eval --dir packages/evals --out eval-report.json` |
 | SDK coverage (produce summary) | `pnpm --filter @namzu/sdk test:coverage` |

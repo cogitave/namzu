@@ -278,7 +278,9 @@ export const TurnSettlementSchema = z
 const completedSettlement = TurnSettlementSchema.extend({
 	status: z.enum(['completed', 'cancelled']),
 })
-const failedSettlement = TurnSettlementSchema.extend({ status: z.literal('failed') })
+const failedSettlement = TurnSettlementSchema.extend({
+	status: z.literal('failed'),
+})
 
 /** A body too large for one record, written (and fsynced) to `tool-results/` before the record. */
 const spill = z
@@ -798,6 +800,36 @@ const RECORD_OPTIONS = [
 	...z.ZodDiscriminatedUnionOption<'type'>[],
 ]
 
+/**
+ * A record of a type this reader does not know, written by a newer writer
+ * that flagged it `ignorable: true`: a promise that no reader needs it to
+ * rebuild the conversation. It is kept in the hash chain and verified like any
+ * other record, but never moves the fold. A known type never qualifies (its
+ * own schema decides), and an unknown type without the flag is still refused,
+ * so a record that does move the fold fails loudly on an older reader.
+ */
+export const IgnorableRecordSchema = z
+	.object({
+		...envelopeShape,
+		type: z
+			.string()
+			.min(1)
+			.refine((type) => !(SESSION_RECORD_TYPES as readonly string[]).includes(type), {
+				message: 'a type this reader knows is validated by its own schema',
+			}),
+		ignorable: z.literal(true),
+	})
+	.passthrough()
+	.superRefine((record, context) => {
+		if (record.seq === 1 || record.prev === null) {
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ['type'],
+				message: 'session_started is the first record of a session log, and only the first',
+			})
+		}
+	})
+
 /** Validates one session record: envelope, discriminant, and every specified payload. */
 export const SessionRecordSchema = z
 	.discriminatedUnion('type', RECORD_OPTIONS)
@@ -973,7 +1005,9 @@ export type SessionEventRecord<T extends PersistedSessionEventType = PersistedSe
 		? Omit<EventOf<T>, 'sessionId' | 'turnId' | 'lineage' | 'v' | 'seq' | 'generation'> &
 				RecordEnvelope &
 				(T extends 'tool_completed'
-					? { readonly structuredResultSpill?: z.infer<typeof structuredResultSpill> }
+					? {
+							readonly structuredResultSpill?: z.infer<typeof structuredResultSpill>
+						}
 					: T extends 'turn_completed'
 						? {
 								readonly resultSpill?: z.infer<typeof spill>

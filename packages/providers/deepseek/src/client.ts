@@ -31,6 +31,16 @@ import type {
 } from 'openai/resources/chat/completions'
 import type { DeepSeekConfig } from './types.js'
 
+/**
+ * What the vendor documents for every current model: a 1M-token context and a
+ * 384K-token output cap (https://api-docs.deepseek.com/quick_start/pricing,
+ * one row for `deepseek-flash` and `deepseek-v4-pro`; the retired
+ * `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` names are served by
+ * the Flash model at the same limits).
+ */
+const CONTEXT_WINDOW_TOKENS = 1_000_000
+const MAX_OUTPUT_TOKENS = 384_000
+
 /** Driver-level mapping capabilities; model input support is listed separately. */
 export const DEEPSEEK_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
@@ -44,11 +54,31 @@ export const DEEPSEEK_CAPABILITIES: ProviderCapabilities = {
 }
 
 const DEFAULT_BASE_URL = 'https://api.deepseek.com'
+
+/**
+ * The documented 1M / 384K only describe the vendor's own service. A gateway
+ * behind a custom `baseURL` may serve the same id at a smaller window, so
+ * there the documented numbers are not offered and only what the listing
+ * reports counts.
+ */
+function isVendorBaseUrl(baseURL: string | undefined): boolean {
+	if (!baseURL) return true
+	try {
+		return new URL(baseURL).hostname === new URL(DEFAULT_BASE_URL).hostname
+	} catch {
+		return false
+	}
+}
+/** The current Flash id; it accepts images (https://api-docs.deepseek.com/quick_start/pricing). */
+const CURRENT_FLASH_MODEL = 'deepseek-flash'
+/** A retired name the vendor still serves; it routes to the Flash model, images included. */
 const VISION_MODEL = 'deepseek-v4-flash-vision-exp'
+const IMAGE_MODELS: ReadonlySet<string> = new Set([CURRENT_FLASH_MODEL, VISION_MODEL])
 const TEXT_MODALITIES = Object.freeze(['text'] as const)
 const VISION_MODALITIES = Object.freeze(['text', 'image'] as const)
 const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 const KNOWN_MODELS = Object.freeze([
+	{ id: CURRENT_FLASH_MODEL, name: 'DeepSeek-V4.1-Flash', inputModalities: VISION_MODALITIES },
 	{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', inputModalities: TEXT_MODALITIES },
 	{ id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', inputModalities: TEXT_MODALITIES },
 	{
@@ -158,8 +188,12 @@ const SAMPLING_FIELDS = ['temperature', 'topP', 'frequencyPenalty', 'presencePen
  * below that turns on "thinking is enabled" has to read it this way, or it
  * applies to explicit callers only and misses the common case entirely.
  */
-export function thinkingEnabled(thinking: ThinkingConfig | undefined): boolean {
-	return thinking?.type !== 'disabled'
+export function thinkingEnabled(
+	thinking: ThinkingConfig | undefined,
+	effort?: ReasoningEffort,
+): boolean {
+	// `none` is thinking off, and the driver sends it as `thinking: disabled`.
+	return thinking?.type !== 'disabled' && effort !== 'none'
 }
 
 /**
@@ -180,7 +214,7 @@ export function assertSamplingUsable(
 	mode: 'refuse' | 'ignore',
 ): void {
 	if (mode === 'ignore') return
-	if (!thinkingEnabled(params.thinking)) return
+	if (!thinkingEnabled(params.thinking, params.effort)) return
 	const set = SAMPLING_FIELDS.filter((f) => params[f] !== undefined)
 	if (set.length === 0) return
 	throw new Error(
@@ -201,12 +235,80 @@ export function assertSamplingUsable(
  * The vendor's Anthropic-format endpoint does take `reasoning.effort`. A
  * driver built on that wire could honour this; this one is built on Chat
  * Completions and says so.
+ *
+ * @deprecated The driver now carries effort on `reasoning_effort`, the field
+ * the vendor's Chat Completions reference documents (the field measured here
+ * earlier was `thinking.effort`, which the vendor never defined). Nothing in
+ * this package calls it any more; use {@link resolveDeepSeekEffort}.
  */
 export function assertEffortUnsupported(params: ChatCompletionParams): void {
 	if (params.effort === undefined) return
 	throw new Error(
 		`DeepSeekProvider: \`effort\` is not carried by this endpoint. The vendor's Chat Completions wire validates \`thinking.type\` and ignores any effort sent beside it, so passing one through would change nothing and report success. Use \`thinking: { type: 'adaptive' | 'enabled' | 'disabled' }\` to steer this driver.`,
 	)
+}
+
+/** The effort levels the vendor's pages list, in the order they rank. */
+const VENDOR_EFFORT_ORDER = ['low', 'high', 'max'] as const
+type VendorEffort = (typeof VENDOR_EFFORT_ORDER)[number]
+
+/** The menu used until the models endpoint says otherwise (levels low, high, max; default high). */
+const DEFAULT_EFFORT_LEVELS: readonly VendorEffort[] = VENDOR_EFFORT_ORDER
+const DEFAULT_EFFORT: VendorEffort = 'high'
+
+/**
+ * The vendor's own mapping of Namzu's wider vocabulary onto what it accepts
+ * (https://api-docs.deepseek.com/guides/thinking_mode, "effort mapping").
+ */
+const VENDOR_EFFORT_ALIASES: Readonly<Record<Exclude<ReasoningEffort, 'none'>, VendorEffort>> = {
+	minimal: 'low',
+	low: 'low',
+	medium: 'high',
+	high: 'high',
+	xhigh: 'high',
+	max: 'max',
+	ultra: 'max',
+}
+
+export interface DeepSeekEffortResolution {
+	/** `none` turns thinking off; otherwise the level sent as `reasoning_effort`. */
+	readonly level: VendorEffort | 'none'
+	/** True when the level asked for is not the level sent. */
+	readonly mapped: boolean
+}
+
+/**
+ * Turn a requested effort into the one this model offers.
+ *
+ * `none` is thinking off. A level the model offers is sent as is. Any other
+ * level goes through the vendor's documented mapping (`medium` and `xhigh`
+ * to `high`, `minimal` to `low`, `ultra` to `max`); if the model's menu lacks
+ * that target, the nearest offered level is used, the lower one on a tie, and
+ * `mapped` says so. It never throws: a level this model does not offer must
+ * degrade to its neighbour rather than fail a run that asked for more thought.
+ */
+export function resolveDeepSeekEffort(
+	requested: ReasoningEffort,
+	offered: readonly string[] = DEFAULT_EFFORT_LEVELS,
+): DeepSeekEffortResolution {
+	if (requested === 'none') return { level: 'none', mapped: false }
+	const menu = VENDOR_EFFORT_ORDER.filter((level) => offered.includes(level))
+	if (menu.length === 0) return { level: VENDOR_EFFORT_ALIASES[requested], mapped: true }
+	if ((menu as readonly string[]).includes(requested)) {
+		return { level: requested as VendorEffort, mapped: false }
+	}
+	const target = VENDOR_EFFORT_ALIASES[requested]
+	const wanted = VENDOR_EFFORT_ORDER.indexOf(target)
+	let best: VendorEffort = menu[0] as VendorEffort
+	let bestDistance = Number.POSITIVE_INFINITY
+	for (const level of menu) {
+		const distance = Math.abs(VENDOR_EFFORT_ORDER.indexOf(level) - wanted)
+		if (distance < bestDistance) {
+			best = level
+			bestDistance = distance
+		}
+	}
+	return { level: best, mapped: true }
 }
 
 /**
@@ -453,11 +555,62 @@ function assertDeepSeekRichContent(
 			if (block.type === 'image') acceptImage(block.mediaType)
 		}
 	}
-	if (hasImage && model !== VISION_MODEL) {
+	if (hasImage && !IMAGE_MODELS.has(model)) {
 		throw new Error(
-			`DeepSeekProvider: model '${model}' does not accept image input. Select '${VISION_MODEL}' or remove the images.`,
+			`DeepSeekProvider: model '${model}' does not accept image input. Select '${CURRENT_FLASH_MODEL}' or remove the images.`,
 		)
 	}
+}
+
+interface VendorLimits {
+	readonly contextWindow?: number
+	readonly maxOutputTokens?: number
+	/** `effort.supported_levels` and `effort.default_level` from the models endpoint. */
+	readonly effortLevels?: readonly string[]
+	readonly effortDefault?: string
+}
+
+const positiveInteger = (value: unknown): number | undefined =>
+	typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined
+
+/** `context_window` and `max_output_tokens` on a models-endpoint entry, when present and sane. */
+function readVendorLimits(entries: readonly unknown[]): Map<string, VendorLimits> {
+	const out = new Map<string, VendorLimits>()
+	for (const entry of entries) {
+		if (typeof entry !== 'object' || entry === null) continue
+		const record = entry as Record<string, unknown>
+		if (typeof record.id !== 'string') continue
+		const contextWindow = positiveInteger(record.context_window)
+		const maxOutputTokens = positiveInteger(record.max_output_tokens)
+		const effort =
+			typeof record.effort === 'object' && record.effort !== null
+				? (record.effort as Record<string, unknown>)
+				: undefined
+		const effortLevels = Array.isArray(effort?.supported_levels)
+			? (effort.supported_levels as unknown[]).filter(
+					(level): level is string => typeof level === 'string',
+				)
+			: undefined
+		const effortDefault =
+			typeof effort?.default_level === 'string' ? effort.default_level : undefined
+		if (
+			contextWindow === undefined &&
+			maxOutputTokens === undefined &&
+			(effortLevels === undefined || effortLevels.length === 0)
+		)
+			continue
+		out.set(record.id, {
+			...(contextWindow !== undefined ? { contextWindow } : {}),
+			...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+			...(effortLevels !== undefined && effortLevels.length > 0 ? { effortLevels } : {}),
+			...(effortDefault !== undefined ? { effortDefault } : {}),
+		})
+	}
+	return out
+}
+
+function isKnownModel(model: string): boolean {
+	return KNOWN_MODELS.some((candidate) => candidate.id === model)
 }
 
 function inputModalitiesFor(model: string): readonly ModelInputModality[] | undefined {
@@ -489,6 +642,8 @@ export class DeepSeekProvider implements LLMProvider {
 	private client: OpenAI
 	private defaultModel?: string
 	private samplingMode: 'refuse' | 'ignore'
+	private vendorLimits: Promise<Map<string, VendorLimits>> | undefined
+	private readonly documentedLimits: boolean
 
 	constructor(config: DeepSeekConfig) {
 		if (!config.apiKey) {
@@ -507,6 +662,7 @@ export class DeepSeekProvider implements LLMProvider {
 
 		this.client = new OpenAI(clientOptions)
 		this.defaultModel = config.model
+		this.documentedLimits = isVendorBaseUrl(config.baseURL)
 		this.samplingMode = config.samplingInThinkingMode ?? 'refuse'
 	}
 
@@ -520,18 +676,36 @@ export class DeepSeekProvider implements LLMProvider {
 		return model
 	}
 
-	/** This Chat Completions endpoint explicitly carries no effort control. */
-	reasoningEffortLevelsFor(_model: string): readonly ReasoningEffort[] {
-		return []
+	/** Last models-endpoint answer, once a turn has fetched it; the sync menus read this. */
+	private vendorSnapshot: Map<string, VendorLimits> | undefined
+
+	/**
+	 * `none` (thinking off) plus the levels the models endpoint lists for the
+	 * model, or the vendor's documented low, high and max until it has been read.
+	 */
+	reasoningEffortLevelsFor(model: string): readonly ReasoningEffort[] {
+		const listed = this.vendorSnapshot?.get(model)?.effortLevels
+		const levels = VENDOR_EFFORT_ORDER.filter((level) =>
+			(listed ?? DEFAULT_EFFORT_LEVELS).includes(level),
+		)
+		return ['none', ...(levels.length > 0 ? levels : DEFAULT_EFFORT_LEVELS)]
+	}
+
+	/** The level a request without one runs at: the endpoint's `default_level`, else `high`. */
+	reasoningEffortDefaultFor(model: string): ReasoningEffort {
+		const stated = this.vendorSnapshot?.get(model)?.effortDefault
+		return stated !== undefined && (VENDOR_EFFORT_ORDER as readonly string[]).includes(stated)
+			? (stated as ReasoningEffort)
+			: DEFAULT_EFFORT
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const model = this.resolveModel(params)
 		const providerRoute = resolveDeepSeekRoute(model, params.providerRoute)
-		assertEffortUnsupported(params)
 		assertSamplingUsable(params, this.samplingMode)
+		const thinkingOn = thinkingEnabled(params.thinking, params.effort)
 
-		const sampling = thinkingEnabled(params.thinking)
+		const sampling = thinkingOn
 			? {}
 			: {
 					temperature: params.temperature,
@@ -566,9 +740,30 @@ export class DeepSeekProvider implements LLMProvider {
 		// Cast back to `typeof body` rather than to the SDK's parameter type: the
 		// extra key rides along at runtime, and the literal `stream: true`
 		// survives, which is what keeps the streaming overload selected.
-		const withThinking = (
-			params.thinking ? { ...body, thinking: { type: params.thinking.type } } : body
-		) as typeof body
+		//
+		// Effort rides on `reasoning_effort`, a sibling of `thinking`. An explicit
+		// `thinking.type` wins at the vendor, so `disabled` sends no level, and
+		// `none` is sent as `thinking: disabled` so the switch does not depend on
+		// that precedence. A level the model does not offer is mapped before it
+		// is sent (see `resolveDeepSeekEffort`).
+		const offered = this.vendorSnapshot?.get(model)?.effortLevels
+		const resolved =
+			params.effort !== undefined ? resolveDeepSeekEffort(params.effort, offered) : undefined
+		const thinkingField =
+			params.thinking?.type === 'disabled' || resolved?.level === 'none'
+				? { type: 'disabled' as const }
+				: params.thinking
+					? { type: params.thinking.type }
+					: undefined
+		const effortField =
+			resolved !== undefined && resolved.level !== 'none' && thinkingField?.type !== 'disabled'
+				? { reasoning_effort: resolved.level }
+				: {}
+		const withThinking = {
+			...body,
+			...(thinkingField ? { thinking: thinkingField } : {}),
+			...effortField,
+		} as typeof body
 
 		let stream: Awaited<ReturnType<typeof this.client.chat.completions.create>>
 		try {
@@ -709,6 +904,47 @@ export class DeepSeekProvider implements LLMProvider {
 		}
 	}
 
+	/**
+	 * What the vendor's models endpoint says about each model it lists. The
+	 * endpoint may leave `context_window` and `max_output_tokens` out (both are
+	 * optional there), so an absent field is simply not an answer. A failed
+	 * request is not cached: the next turn asks again.
+	 */
+	private fetchVendorLimits(signal?: AbortSignal): Promise<Map<string, VendorLimits>> {
+		if (this.vendorLimits) return this.vendorLimits
+		const request = this.client.models.list(signal ? { signal } : undefined).then((page) => {
+			const limits = readVendorLimits(page.data)
+			this.vendorSnapshot = limits
+			return limits
+		})
+		this.vendorLimits = request
+		request.catch(() => {
+			if (this.vendorLimits === request) this.vendorLimits = undefined
+		})
+		return request
+	}
+
+	/**
+	 * The window the runtime measures compaction against: what the vendor's
+	 * models endpoint reports for the id when it reports one, else the
+	 * documented limit of a model this driver lists, else `undefined` rather
+	 * than a guess, which leaves the SDK's table to answer for it. The vendor
+	 * answers first and the built-in table is only the fallback.
+	 */
+	async resolveContextWindow(model: string, signal?: AbortSignal): Promise<number | undefined> {
+		signal?.throwIfAborted()
+		let reported: number | undefined
+		try {
+			reported = (await this.fetchVendorLimits(signal)).get(model)?.contextWindow
+		} catch {
+			// The listing is a refinement; a turn must not fail because it is down.
+			signal?.throwIfAborted()
+		}
+		return (
+			reported ?? (this.documentedLimits && isKnownModel(model) ? CONTEXT_WINDOW_TOKENS : undefined)
+		)
+	}
+
 	async probeCredential(signal?: AbortSignal): Promise<void> {
 		signal?.throwIfAborted()
 		await this.client.models.list(signal ? { signal } : undefined)
@@ -721,6 +957,7 @@ export class DeepSeekProvider implements LLMProvider {
 		signal?.throwIfAborted()
 		const models = new Map<string, { id: string; name: string }>()
 		for (const model of page.data) models.set(model.id, { id: model.id, name: model.id })
+		const vendor = readVendorLimits(page.data)
 		// The preview model is part of the source adapter's verified default
 		// catalogue but may lag the account listing endpoint. A successful list
 		// therefore augments rather than erases the known selectable catalogue.
@@ -729,8 +966,14 @@ export class DeepSeekProvider implements LLMProvider {
 		}
 		return [...models.values()].map((model) => {
 			const inputModalities = inputModalitiesFor(model.id)
+			const known = this.documentedLimits && isKnownModel(model.id)
+			const reported = vendor.get(model.id)
+			const contextWindow = reported?.contextWindow ?? (known ? CONTEXT_WINDOW_TOKENS : undefined)
+			const maxOutputTokens = reported?.maxOutputTokens ?? (known ? MAX_OUTPUT_TOKENS : undefined)
 			return {
 				...model,
+				...(contextWindow !== undefined ? { contextWindow } : {}),
+				...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
 				...(inputModalities !== undefined ? { inputModalities } : {}),
 				supportsToolUse: true,
 				supportsStreaming: true,

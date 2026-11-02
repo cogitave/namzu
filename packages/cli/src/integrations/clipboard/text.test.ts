@@ -7,7 +7,7 @@ describe('writeClipboardText', () => {
 		const write = vi.fn()
 		const text = '# Result\n\n**tam** ✓\n\x1b]52;c;INJECTED\x07'
 
-		expect(writeClipboardText(text, { isTTY: true, write })).toEqual({
+		expect(writeClipboardText(text, { isTTY: true, write }, {})).toEqual({
 			kind: 'request-sent',
 			bytes: Buffer.byteLength(text, 'utf8'),
 		})

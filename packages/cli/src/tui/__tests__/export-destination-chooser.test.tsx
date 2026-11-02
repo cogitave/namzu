@@ -170,22 +170,36 @@ it('chooses a file, prefills its session filename, and writes the verified proje
 	])
 })
 
-it('sends the same verified projection as one truthful OSC 52 clipboard request', async () => {
-	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 120, rows: 24 })
+it('sends the same verified projection to the clipboard once', async () => {
+	const copied: string[] = []
+	const screen = await renderToScreen(
+		<App
+			ctx={ctx}
+			clipboard={{
+				copy: async (text) => {
+					copied.push(text)
+					return {
+						chars: [...text].length,
+						bytes: Buffer.byteLength(text, 'utf8'),
+						native: 'xclip',
+						osc52: 'skipped',
+						tmuxBuffer: false,
+					}
+				},
+			}}
+		/>,
+		{ cols: 120, rows: 24 },
+	)
 	mounted = screen
 	await waitUntil(screen, () => painted(screen).includes('gpt-test'))
 	await startConversation(screen)
 	await openExportChooser(screen)
 
 	screen.press('\r')
-	await waitUntil(screen, () => painted(screen).includes('via OSC 52'))
+	await waitUntil(screen, () => painted(screen).includes('to the clipboard'))
 
-	const osc = `\x1b]52;c;${Buffer.from(MARKDOWN, 'utf8').toString('base64')}\x07`
-	const writes = screen.writes().join('')
-	expect(writes.split(osc)).toHaveLength(2)
-	expect(painted(screen).replace(/\s+/g, ' ')).toContain(
-		'via OSC 52 · if paste fails, allow clipboard access in your terminal',
-	)
+	expect(copied).toEqual([MARKDOWN])
+	expect(painted(screen).replace(/\s+/g, ' ')).toContain('(2 replies) to the clipboard.')
 	expect(painted(screen)).not.toContain('Copied conversation')
 	expect(exportState.projectionCalls).toEqual(['b9ed92cf-8742-4028-ab32-103e762049fe'])
 	expect(exportState.fileWrites).toEqual([])

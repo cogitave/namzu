@@ -28,8 +28,10 @@ export {
 	DeepSeekProvider,
 	assertEffortUnsupported,
 	assertSamplingUsable,
+	resolveDeepSeekEffort,
 	thinkingEnabled,
 	toDeepSeekMessages,
 	toDeepSeekTools,
 } from './client.js'
+export type { DeepSeekEffortResolution } from './client.js'
 export type { DeepSeekConfig, DeepSeekProviderConfig } from './types.js'

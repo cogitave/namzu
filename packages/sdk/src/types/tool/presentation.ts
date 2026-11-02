@@ -175,6 +175,10 @@ export type ToolFacts =
 			readonly filesMatched?: number
 			readonly filesSearched?: number
 			readonly truncated?: boolean
+			/** A page or result cap cut the list; more results exist. */
+			readonly limited?: boolean
+			/** The search stopped before every file was examined. */
+			readonly incomplete?: boolean
 	  }
 	| {
 			readonly kind: 'list'
@@ -182,6 +186,10 @@ export type ToolFacts =
 			readonly path?: string
 			readonly count?: number
 			readonly truncated?: boolean
+			/** A result cap cut the list; more files match. */
+			readonly limited?: boolean
+			/** The search stopped before every file was examined. */
+			readonly incomplete?: boolean
 	  }
 	| {
 			readonly kind: 'edit'

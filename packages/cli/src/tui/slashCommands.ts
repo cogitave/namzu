@@ -1,6 +1,10 @@
 import { readPermissionLayers } from '../config/load.js'
 import { installationRows } from '../installation.js'
 import {
+	type ApiKeyLogoutTarget,
+	apiKeyLogoutTarget,
+} from '../integrations/providers/connections.js'
+import {
 	type DenialRow,
 	addLocalRule,
 	removeLocalRule,
@@ -283,7 +287,7 @@ export type SlashAction =
 	 * `isCompletionArgument`) so App never has to parse an argument.
 	 */
 	| { kind: 'login'; pasted?: string }
-	| { kind: 'logout'; target?: 'anthropic' | 'codex' | 'google' | 'all' }
+	| { kind: 'logout'; target?: 'anthropic' | 'codex' | 'google' | 'all' | ApiKeyLogoutTarget }
 	/**
 	 * `/auth`: choose the account this conversation runs on, or add one. Bare
 	 * opens the list; `add` opens the add flow; any other word is an account
@@ -416,6 +420,8 @@ export interface SlashContext {
 			readonly windowAssumed: boolean
 			/** Where the window figure came from, when the kernel said. */
 			readonly windowSource?: 'config' | 'provider' | 'model-table' | 'default'
+			/** The auto-compact size that the model's window capped. */
+			readonly windowRequested?: number
 		}
 	} | null
 	/** What decides a tool call right now — flags, config, and session state. */
@@ -1369,7 +1375,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'logout',
 		help: { usage: ['/logout [claude|codex|gemini|all]'] },
-		description: 'Remove a Namzu-owned credential: /logout [claude|codex|gemini|all].',
+		description: 'Remove a Namzu-owned credential: /logout [claude|codex|gemini|<provider>|all].',
 		action: (_ctx, args) => {
 			const target = args.join(' ').trim().toLowerCase()
 			if (target.length === 0) return { kind: 'logout' }
@@ -1379,10 +1385,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			if (target === 'codex' || target === 'chatgpt') return { kind: 'logout', target: 'codex' }
 			if (target === 'gemini' || target === 'google') return { kind: 'logout', target: 'google' }
 			if (target === 'all') return { kind: 'logout', target: 'all' }
+			const keyTarget = apiKeyLogoutTarget(target)
+			if (keyTarget) return { kind: 'logout', target: keyTarget }
 			return {
 				kind: 'message',
 				role: 'system',
-				content: 'Usage: /logout [claude|codex|gemini|all]',
+				content: 'Usage: /logout [claude|codex|gemini|<provider>|all]',
 			}
 		},
 	},
@@ -1911,6 +1919,11 @@ function contextMeasurement(usage: SlashContext['usage'], details = false): stri
 	return [
 		`Context: ${context.tokens.toLocaleString('en-US')} / ${context.windowTokens.toLocaleString('en-US')} tokens (${approx}${percent}%)`,
 		`${context.measured ? 'Counted by the provider' : 'Estimated by Namzu'}; window ${context.windowAssumed ? 'assumed from a table or default' : 'declared by the provider or config'}.`,
+		...(context.windowRequested !== undefined
+			? [
+					`Auto-compact window ${context.windowRequested.toLocaleString('en-US')} is capped to the model's own window; the setting can only lower it.`,
+				]
+			: []),
 	]
 }
 

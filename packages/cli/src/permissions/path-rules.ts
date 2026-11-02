@@ -199,9 +199,12 @@ export function descendantPathBoundary(
 	effect: Exclude<PermissionEffect, 'allow'>,
 	context: PathRuleContext = {},
 ): AuthorizationRule | undefined {
-	const names = (PATH_RULE_TOOLS[tool] ?? []).filter((name) =>
-		['grep', 'glob', 'ls'].includes(name),
-	)
+	// A denial written under `read` is enforced inside grep and glob, which
+	// skip a denied file (`ToolContext.readDenied`), so those two may search
+	// the ancestor. `ls` has no per-file filter and keeps the refusal, as does
+	// a denial written under grep or glob by name, which `read` does not see.
+	const searchTools = tool === 'read' && effect === 'deny' ? ['ls'] : ['grep', 'glob', 'ls']
+	const names = (PATH_RULE_TOOLS[tool] ?? []).filter((name) => searchTools.includes(name))
 	if (names.length === 0) return undefined
 	const base = {
 		cwd: resolve(context.cwd ?? process.cwd()),

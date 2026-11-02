@@ -55,6 +55,19 @@ export interface TuiConfig {
 	 */
 	readonly spacesPrefix?: string
 	/**
+	 * How much of the mouse `namzu spaces` captures: `full` (clicks, drags and the
+	 * wheel; lets you drag to select text inside a pane), `scroll` (the wheel only) or
+	 * `off` (nothing, so your terminal keeps its own selection and the screen is driven
+	 * by keys). Absent means `full`. `NAMZU_DISABLE_MOUSE` and
+	 * `NAMZU_DISABLE_MOUSE_CLICKS` in the environment override it.
+	 */
+	readonly mouse?: 'full' | 'scroll' | 'off'
+	/**
+	 * Whether text selected with the mouse in `namzu spaces` is copied the moment the
+	 * button is released. Absent means `true`. When `false`, ctrl+c copies the selection.
+	 */
+	readonly copyOnSelect?: boolean
+	/**
 	 * The colours the terminal UI is drawn in: `auto` (follow the terminal's
 	 * light or dark background), `dark`, `light`, `dark-daltonized`,
 	 * `light-daltonized`, `dark-ansi` or `light-ansi`. Absent means `dark`.
