@@ -19,7 +19,7 @@ different endpoint.
 | --- | --- |
 | `NAMZU_PROVIDER` | Primary provider, unless `--provider` is given. |
 | `NAMZU_MODEL` | Exact primary model id, unless `--model` is given. |
-| `NAMZU_EFFORT_LEVEL` | Default reasoning effort, unless `--effort` is given. Ordinary children also receive this default; their explicit or file-defined effort wins. |
+| `NAMZU_EFFORT_LEVEL` | Default reasoning effort, unless `--effort` is given. Case-insensitive; `med` is `medium`; `auto` and `unset` mean no override (the model's own default). On DeepSeek, `max` is carried as the vendor's `reasoning_effort`; a level the model does not offer is mapped to the nearest one it does. Ordinary children also receive this default; their explicit or file-defined effort wins. |
 | `NAMZU_SMALL_MODEL` | Side-job model, replacing `smallModel` for this process. Accepts a bare id or `provider/model`. |
 | `NAMZU_SUBAGENT_MODEL` | Default model for ordinary delegated agents, as a bare id on the parent's provider or `provider/model`. Explicit child choices and pinned agent files win; a fork retains its parent model. |
 | `NAMZU_MAX_OUTPUT_TOKENS` | Positive safe-integer output allowance per call, including reasoning. `--max-output-tokens` wins. |
@@ -74,3 +74,39 @@ cascade. The source viewer records the last contributor to a composite field;
 it does not attribute every nested member separately. An automatic-summary
 window retains the normal output reserve, buffer and salience soft target; see
 [context limits](../sdk/context-limits.md#the-summary-trigger).
+
+## An Anthropic-compatible endpoint
+
+`ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` are the vendor SDK's own
+variables and the Anthropic provider honours both. When the base URL is not the
+vendor's own host, the token is sent as a plain bearer credential, the vendor's
+subscription headers and identity system block are not sent, and the model's
+window comes from its id (with `[1m]`), not from any vendor catalogue. A saved
+sign-in or detected key is never sent to another host: without
+`ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` the provider refuses to start and
+names the host. `/status` shows the provider as `Anthropic (Claude) via <host>`.
+A base URL on the vendor's host, or none, behaves as before. For a non-Claude
+id the menu is `low`, `high` and `max`.
+
+```bash
+export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
+export ANTHROPIC_AUTH_TOKEN=...
+export NAMZU_PROVIDER=anthropic
+export NAMZU_MODEL='deepseek-flash[1m]'
+```
+
+The native `deepseek` provider reaches the same models without these variables
+and is the simpler route.
+
+## Variables some other tools use
+
+| Variable some other tools use | Namzu equivalent |
+| --- | --- |
+| a main-model variable | `NAMZU_MODEL` (or `--model`, `/model`) |
+| per-tier default-model variables for large and medium models | none: models are named directly, so set `NAMZU_MODEL` (and `NAMZU_SUBAGENT_MODEL` for delegates) |
+| a default-model variable for the small tier | `NAMZU_SMALL_MODEL` |
+| a sub-agent model variable | `NAMZU_SUBAGENT_MODEL` |
+| an effort-level variable | `NAMZU_EFFORT_LEVEL` |
+| an auto-compact window variable | `NAMZU_AUTO_COMPACT_WINDOW` |
+| a switch that disables the 1M suffix | `NAMZU_DISABLE_1M_CONTEXT` |
+| a base-URL and an auth-token variable | `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` (the vendor SDK's own) |

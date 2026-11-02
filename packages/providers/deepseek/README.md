@@ -106,9 +106,24 @@ portable assistant/tool history and omits the foreign native reasoning field.
 
 Turn it off per call with `thinking: { type: 'disabled' }`.
 
-Two parameters are **refused** rather than sent, because the vendor accepts
-them and applies neither: `effort`, and the sampling parameters while thinking
-is on. Both refusals can be opted out of in the driver configuration.
+### Effort
+
+Effort rides on `reasoning_effort`, the field the vendor documents, beside
+`thinking`. The vendor offers `low`, `high` and `max` (default `high`); the
+models endpoint's `effort.supported_levels` and `default_level` are read once
+per session and published through `reasoningEffortLevelsFor` and
+`reasoningEffortDefaultFor` (plus `none`, which turns thinking off). Namzu's
+wider vocabulary goes through the vendor's own mapping: `minimal` to `low`,
+`medium` and `xhigh` to `high`, `ultra` to `max`. If the model's menu lacks the
+mapped level, the nearest offered one is sent, the lower one on a tie
+(`resolveDeepSeekEffort` says which). `none` is sent as
+`thinking: { type: 'disabled' }`, and an explicit `thinking: disabled` wins over
+a level, as it does at the vendor. Without `maxTokens` the vendor's default
+output is 64K in thinking mode and 128K at `max`.
+
+The sampling parameters (`temperature`, `topP` and the two penalties) are
+**refused** while thinking is on, because the vendor accepts them and applies
+none; `samplingInThinkingMode: 'ignore'` sends them anyway.
 
 ## Documentation
 
