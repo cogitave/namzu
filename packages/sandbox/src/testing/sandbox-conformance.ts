@@ -713,7 +713,7 @@ export function defineSandboxConformance(options: SandboxConformanceOptions): vo
 					await sandbox.writeFile('conformance-list-ignored/hidden.txt', 'x')
 					const dir = `${sandbox.rootDir}/conformance-list-ignored`
 					const files = await sandbox.listFiles(dir)
-					expect(files.map((f) => f.path)).toContain(`${dir}/hidden.txt`)
+					expect(files.some((f) => f.path === `${dir}/hidden.txt`)).toBe(true)
 				}),
 			)
 
