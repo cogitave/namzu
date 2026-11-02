@@ -16249,6 +16249,11 @@ function canResumeRun(run: WorkflowRunView): boolean {
 	return run.status !== 'running' && run.resumable !== 'legacy'
 }
 
+/** A run that is not going and was not saved before resuming was possible can be picked up again. */
+function canResumeRun(run: WorkflowRunView): boolean {
+	return run.status !== 'running' && run.resumable !== 'legacy'
+}
+
 /** `1 running, 2 finished`: the runs of the list, by whether they are still going. */
 function workflowRunsSubtitle(runs: readonly Pick<WorkflowRunView, 'status'>[]): string {
 	const running = runs.filter((run) => run.status === 'running').length
