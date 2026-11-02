@@ -1756,6 +1756,7 @@ export {
 	ChildSessionMetaSchema,
 	CompactionRecordSchema,
 	ExternalRefSchema,
+	IgnorableRecordSchema,
 	MessageRecordSchema,
 	MessageReplacedRecordSchema,
 	OriginSchema,
