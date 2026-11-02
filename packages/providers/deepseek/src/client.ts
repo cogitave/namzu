@@ -31,6 +31,16 @@ import type {
 } from 'openai/resources/chat/completions'
 import type { DeepSeekConfig } from './types.js'
 
+/**
+ * What the vendor documents for every current model: a 1M-token context and a
+ * 384K-token output cap (https://api-docs.deepseek.com/quick_start/pricing,
+ * one row for `deepseek-flash` and `deepseek-v4-pro`; the retired
+ * `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` names are served by
+ * the Flash model at the same limits).
+ */
+const CONTEXT_WINDOW_TOKENS = 1_000_000
+const MAX_OUTPUT_TOKENS = 384_000
+
 /** Driver-level mapping capabilities; model input support is listed separately. */
 export const DEEPSEEK_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
@@ -41,6 +51,7 @@ export const DEEPSEEK_CAPABILITIES: ProviderCapabilities = {
 	supportsDocuments: false,
 	supportsToolResultImages: true,
 	supportsToolResultDocuments: false,
+	maxOutputTokens: MAX_OUTPUT_TOKENS,
 }
 
 const DEFAULT_BASE_URL = 'https://api.deepseek.com'
@@ -49,6 +60,7 @@ const TEXT_MODALITIES = Object.freeze(['text'] as const)
 const VISION_MODALITIES = Object.freeze(['text', 'image'] as const)
 const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 const KNOWN_MODELS = Object.freeze([
+	{ id: 'deepseek-flash', name: 'DeepSeek-V4.1-Flash', inputModalities: TEXT_MODALITIES },
 	{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', inputModalities: TEXT_MODALITIES },
 	{ id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', inputModalities: TEXT_MODALITIES },
 	{
@@ -460,6 +472,10 @@ function assertDeepSeekRichContent(
 	}
 }
 
+function isKnownModel(model: string): boolean {
+	return KNOWN_MODELS.some((candidate) => candidate.id === model)
+}
+
 function inputModalitiesFor(model: string): readonly ModelInputModality[] | undefined {
 	return KNOWN_MODELS.find((candidate) => candidate.id === model)?.inputModalities
 }
@@ -709,6 +725,16 @@ export class DeepSeekProvider implements LLMProvider {
 		}
 	}
 
+	/**
+	 * The window the runtime measures compaction against. An id this driver
+	 * does not list returns `undefined` rather than a guess, which leaves the
+	 * SDK's table to answer for it.
+	 */
+	async resolveContextWindow(model: string, signal?: AbortSignal): Promise<number | undefined> {
+		signal?.throwIfAborted()
+		return isKnownModel(model) ? CONTEXT_WINDOW_TOKENS : undefined
+	}
+
 	async probeCredential(signal?: AbortSignal): Promise<void> {
 		signal?.throwIfAborted()
 		await this.client.models.list(signal ? { signal } : undefined)
@@ -729,8 +755,12 @@ export class DeepSeekProvider implements LLMProvider {
 		}
 		return [...models.values()].map((model) => {
 			const inputModalities = inputModalitiesFor(model.id)
+			const known = isKnownModel(model.id)
 			return {
 				...model,
+				...(known
+					? { contextWindow: CONTEXT_WINDOW_TOKENS, maxOutputTokens: MAX_OUTPUT_TOKENS }
+					: {}),
 				...(inputModalities !== undefined ? { inputModalities } : {}),
 				supportsToolUse: true,
 				supportsStreaming: true,

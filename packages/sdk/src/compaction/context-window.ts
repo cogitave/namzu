@@ -85,6 +85,13 @@ const WINDOWS: ReadonlyArray<readonly [prefix: string, tokens: number]> = [
 	['qwen', 32_768],
 	['mistral-large', 128_000],
 	['mixtral', 32_768],
+	// The current DeepSeek models document a 1M window
+	// (https://api-docs.deepseek.com/quick_start/pricing); `deepseek-v4-*` and
+	// `deepseek-flash` are one family under that page. The bare `deepseek` key
+	// stays for the older ids (chat, reasoner, R1 distills), whose window was
+	// 64k; longest key wins, so it no longer reaches the v4 ids.
+	['deepseek-v4', 1_000_000],
+	['deepseek-flash', 1_000_000],
 	['deepseek', 64_000],
 ]
 
