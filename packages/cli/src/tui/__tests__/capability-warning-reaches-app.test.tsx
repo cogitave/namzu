@@ -16,7 +16,8 @@ const fixture = vi.hoisted(() => ({
 	},
 }))
 
-vi.mock('../../integrations/clipboard/image.js', () => ({
+vi.mock('../../integrations/clipboard/image.js', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../integrations/clipboard/image.js')>()),
 	readClipboardImage: () => fixture.clipboard,
 }))
 vi.mock('../../integrations/trust/store.js', () => ({
