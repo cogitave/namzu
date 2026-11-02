@@ -8,6 +8,7 @@ import { resolve } from 'node:path'
 import { render } from 'ink'
 import React from 'react'
 
+import { hostedByHost, spacesSignal } from '../spaces/signal.js'
 import { type TerminationSignal, handleTerminationSignals } from '../termination.js'
 import { App } from './App.js'
 import { openConsoleInput } from './console-input.js'
@@ -25,6 +26,11 @@ import { terminalFocus } from './terminal-focus.js'
 import { applyLaunchTheme } from './theme-launch.js'
 import { fileTipHistory } from './tip-history.js'
 import type { TuiContext } from './types.js'
+import { leaveSpacesBounded } from './zoom/leave.js'
+import { type TerminalProxy, createTerminalProxy } from './zoom/proxy.js'
+
+/** How long leaving may wait for the spaces screen to hand the terminal back. */
+const LEAVE_SPACES_MS = 2000
 
 export async function launchTui(
 	ctx: TuiContext,
@@ -79,7 +85,83 @@ export async function launchTui(
 	const stopFocusReporting = installFocusReporting(inputStream, process.stdout, (focused) =>
 		terminalFocus.set(focused),
 	)
+	// A session the spaces host started has no spaces screen of its own: its `←` asks the host
+	// to leave it (see `spaces/signal.ts`). Any other session at a terminal on a POSIX system has
+	// Ink mounted on a pair of pass-through streams, so the spaces screen can be put up on demand
+	// (see `zoom/`); until then they are the real terminal. The code behind it loads on the first `←`.
+	const hosted = hostedByHost(process.env, process.ppid)
+	const proxy: TerminalProxy | null =
+		!hosted &&
+		consoleInput === undefined &&
+		process.platform !== 'win32' &&
+		process.stdout.isTTY === true &&
+		inputStream.isTTY === true
+			? createTerminalProxy(process.stdout, inputStream as NodeJS.ReadStream)
+			: null
 	const terminationExit: { current: (() => void) | null } = { current: null }
+	const repaint: { current: (() => void) | null } = { current: null }
+	const spaces: {
+		current: Promise<import('./zoom/entry.js').SpacesEntry> | null
+	} = {
+		current: null,
+	}
+	const spacesEntry = (): Promise<import('./zoom/entry.js').SpacesEntry> => {
+		spaces.current ??= import('./zoom/entry.js').then((m) =>
+			m.createSpacesEntry({
+				proxy: proxy as TerminalProxy,
+				realOut: process.stdout,
+				env: process.env,
+				cwd: process.cwd(),
+				entry: process.argv[1] as string,
+				prefixSetting: ctx.tui?.spacesPrefix,
+				requestExit: () =>
+					terminationExit.current ? terminationExit.current() : instance.unmount(),
+				repaint: () => repaint.current?.(),
+			}),
+		)
+		return spaces.current
+	}
+	const onOpenSpaces: (() => Promise<boolean>) | undefined = hosted
+		? () => {
+				process.stdout.write(spacesSignal('zoom-out'))
+				return Promise.resolve(true)
+			}
+		: proxy !== null
+			? async () => {
+					try {
+						return await (await spacesEntry()).open()
+					} catch {
+						return false
+					}
+				}
+			: undefined
+	const onConfirmExit: (() => Promise<boolean>) | undefined =
+		!hosted && proxy !== null
+			? async () => {
+					try {
+						return spaces.current === null ? true : await (await spaces.current).confirmExit()
+					} catch {
+						return true
+					}
+				}
+			: undefined
+	// Leaving while the spaces screen is up: the main screen comes back and the conversation
+	// prints its whole history there before Ink unmounts, so the last frame follows it exactly as
+	// it does in a plain session. Bounded: a stuck step never holds the exit.
+	const beforeExit: (() => Promise<void>) | undefined =
+		!hosted && proxy !== null
+			? async () => {
+					if (spaces.current === null) return
+					await leaveSpacesBounded({
+						release: (stillWanted) =>
+							(spaces.current as NonNullable<typeof spaces.current>).then((entry) =>
+								entry.release(stillWanted),
+							),
+						flush: () => instance.waitUntilRenderFlush(),
+						limitMs: LEAVE_SPACES_MS,
+					})
+				}
+			: undefined
 	let terminatedBy: TerminationSignal | null = null
 	const instance = render(
 		React.createElement(App, {
@@ -88,14 +170,18 @@ export async function launchTui(
 				exitSummary = summary
 			},
 			terminationExit,
+			repaint,
+			...(onOpenSpaces ? { onOpenSpaces } : {}),
+			...(onConfirmExit ? { onConfirmExit } : {}),
+			...(beforeExit ? { beforeExit } : {}),
 			examplePrompts: true,
 			queuedHintCount: fileQueuedHintCount(),
 			tipHistory,
 		}),
 		{
-			stdout: process.stdout,
+			stdout: proxy?.stdout ?? process.stdout,
 			stderr: process.stderr,
-			stdin: inputStream,
+			stdin: proxy?.stdin ?? inputStream,
 			exitOnCtrlC: false,
 			// A CI marker in the environment must not blank a real terminal (see render-mode.ts).
 			...liveRenderOption(process.stdout, process.stdin, consoleInput !== undefined),
@@ -116,10 +202,15 @@ export async function launchTui(
 		if (terminationExit.current) terminationExit.current()
 		else instance.unmount()
 		await instance.waitUntilExit()
+		// The process ends when this step does, so hanging up the other sessions and handing the
+		// terminal back from the spaces screen has to finish inside it.
+		if (spaces.current !== null) await (await spaces.current).shutdown()
 	})
 	try {
 		await instance.waitUntilExit()
 	} finally {
+		// Leaving with the spaces screen up hangs up the other sessions and hands the terminal back first.
+		if (spaces.current !== null) await (await spaces.current).shutdown()
 		termination.dispose()
 		stopSizeWatch?.()
 		stopFocusReporting()

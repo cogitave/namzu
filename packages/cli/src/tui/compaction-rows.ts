@@ -48,10 +48,11 @@ export function compactResultLine(input: {
 }): string {
 	const parts: string[] = [COMPACT_RESULT_TEXT]
 	if (input.shed > 0) parts.push(`${input.shed} message${input.shed === 1 ? '' : 's'} summarized`)
-	if (input.tokensBefore > input.tokensAfter) {
-		parts.push(
-			`context about ${approximate(input.tokensBefore)} to ${approximate(input.tokensAfter)} tokens`,
-		)
+	const before = approximate(input.tokensBefore)
+	const after = approximate(input.tokensAfter)
+	// Two figures that read the same ("2k to 2k") say nothing got smaller.
+	if (input.tokensBefore > input.tokensAfter && before !== after) {
+		parts.push(`context about ${before} to ${after} tokens`)
 	}
 	return parts.join(' · ')
 }
@@ -65,7 +66,10 @@ export const COMPACT_NOT_SAVED_TEXT =
 	'This conversation could not be saved, so the summary lasts only until you quit.'
 
 function approximate(tokens: number): string {
-	return tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : String(tokens)
+	if (tokens >= 10_000) return `${Math.round(tokens / 1000)}k`
+	// Under 10k a whole number of thousands is too coarse to tell two sizes apart.
+	if (tokens >= 1000) return `${Math.round(tokens / 100) / 10}k`
+	return String(tokens)
 }
 
 /**

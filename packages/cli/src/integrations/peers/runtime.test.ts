@@ -12,7 +12,7 @@ import {
 import { afterEach, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../subagents/__fixtures__/parent.js'
-import { type LivePeers, openLivePeers, peerMailMessage } from './runtime.js'
+import { type LivePeers, openLivePeers, peerMailMessage, resolvePeerRuntime } from './runtime.js'
 
 const roots: string[] = []
 const opened: LivePeers[] = []
@@ -421,4 +421,39 @@ it('refuses a forged matching mode on the wire rather than laundering the sender
 	expect(result).toMatchObject({ kind: 'responded', status: 'refused' })
 	expect(f.wakes()).toBe(0)
 	expect(f.receiver.pending).toBe(0)
+})
+
+it('publishes the host slot, conversation, account and limit only when it has them', async () => {
+	const root = mkdtempSync(join(tmpdir(), 'np-'))
+	roots.push(root)
+	const cwd = join(root, 'p')
+	mkdirSync(cwd)
+	let conversation: string | undefined = undefined
+	let limited = false
+	const peers = await openLivePeers({
+		home: join(root, 'h'),
+		cwd,
+		version: 'fixture',
+		env: {},
+		mode: () => 'auto',
+		owner: () => 0,
+		state: () => 'idle',
+		ready: () => true,
+		available: () => {},
+		report: () => {},
+		hostSlot: 'slot-9',
+		conversation: () => conversation,
+		account: () => 'work',
+		limited: () => limited,
+	})
+	opened.push(peers)
+	const runtime = resolvePeerRuntime(join(root, 'h'), {})
+	const read = () => readPeerRecords(runtime.sessionsDir).find((r) => r.sessionId === peers.id)
+	expect(read()).toMatchObject({ hostSlot: 'slot-9', account: 'work' })
+	expect(read()?.conversationId).toBeUndefined()
+	expect(read()?.limited).toBeUndefined()
+	conversation = 'conv-1'
+	limited = true
+	peers.publish()
+	expect(read()).toMatchObject({ conversationId: 'conv-1', limited: true })
 })

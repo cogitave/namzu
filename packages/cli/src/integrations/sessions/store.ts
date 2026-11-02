@@ -25,6 +25,7 @@ import { basename, resolve } from 'node:path'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import {
+	type AccountBoundReason,
 	DiskSessionGoalStore,
 	DiskSessionLog,
 	type Message,
@@ -43,6 +44,7 @@ import {
 	type TenantId,
 	type TopicId,
 	type UserMessage,
+	accountBoundPayload,
 	asSessionId,
 	asTopicId,
 	ensureProject,
@@ -55,6 +57,7 @@ import {
 	slugForCwd,
 } from '@namzu/sdk'
 import { palAtWorkspace } from '../../pals/store.js'
+import { isDefaultAccountId } from '../accounts/binding.js'
 import {
 	type PullRequestLink,
 	pullRequestOfRecords,
@@ -296,6 +299,37 @@ function topicIdFor(projectId: ProjectId): TopicId {
 }
 
 // ─── the log ──────────────────────────────────────────────────────────────
+
+/**
+ * Record which account a conversation now runs under. Written between turns,
+ * under the writer lease, and only for an account other than the provider's
+ * usual sign-in: a conversation that never leaves it writes nothing. Writes
+ * nothing when the log already ends in this binding, so a rebuilt session or a
+ * resume does not repeat it. Returns whether a record was written.
+ */
+export async function recordAccountBound(
+	s: Pick<CliSessions, 'paths' | 'slug' | 'index'>,
+	sessionId: SessionId,
+	binding: {
+		readonly accountId: string
+		readonly provider: string
+		readonly reason: AccountBoundReason
+	},
+): Promise<boolean> {
+	const facts = await readConversationFacts(s, sessionId, 'tolerant')
+	let last: string | undefined
+	for (const record of facts?.records ?? []) {
+		if (record.type === 'account_bound' && record.provider === binding.provider) {
+			last = record.accountId
+		}
+	}
+	if (last === binding.accountId) return false
+	// Nothing to undo: a conversation that never left the usual sign-in writes nothing.
+	if (last === undefined && isDefaultAccountId(binding.accountId)) return false
+	const payload = accountBoundPayload(binding.accountId, binding.provider, binding.reason)
+	await appendOutsideTurn(s, sessionId, [payload], 'record account')
+	return true
+}
 
 /** The file a root conversation's log lives in. */
 export function conversationLogPath(s: Pick<CliSessions, 'paths'>, sessionId: SessionId): string {
@@ -578,6 +612,14 @@ function desktopExternalId(projectId: ProjectId, key: string): string {
  * rebuild finds it again.
  */
 export async function resolveConversation(s: CliSessions, key: string): Promise<SessionId> {
+	// A key that is a conversation's own id names that conversation. Treating
+	// it as a fresh host key would start an empty one under the same-looking
+	// name and answer without the history the caller pointed at.
+	const own = await existingConversationNamedBy(s, key)
+	if (own) {
+		await requireWritableConversation(s, own, 'continue conversation')
+		return own
+	}
 	const existing = await findMappedConversation(s, key)
 	if (existing) {
 		await requireWritableConversation(s, existing, 'continue keyed conversation')
@@ -596,6 +638,36 @@ export async function resolveConversation(s: CliSessions, key: string): Promise<
 		return winner
 	}
 	return id
+}
+
+async function existingConversationNamedBy(s: CliSessions, key: string): Promise<SessionId | null> {
+	let id: SessionId
+	try {
+		id = asSessionId(key)
+	} catch {
+		return null
+	}
+	const facts = await readConversationFacts(s, id)
+	if (facts) {
+		if (
+			facts.started.projectId !== s.projectId ||
+			(facts.started.tenantId !== undefined && facts.started.tenantId !== s.tenantId)
+		) {
+			throw new Error(`Conversation ${id} does not belong to this workspace`)
+		}
+		return id
+	}
+	// Not in this folder. If another folder holds it, say so rather than
+	// quietly keying a new, empty conversation under the same text.
+	const elsewhere = (await s.index.listSessions({ includeArchived: true })).some(
+		(row) => row.id === id && row.slug !== s.slug,
+	)
+	if (elsewhere) {
+		throw new Error(
+			`${key} is a conversation in another folder, not a key for this one. Pass --cwd for that folder and use --resume ${key}, or pick a different key.`,
+		)
+	}
+	return null
 }
 
 /** Read an external-session binding without creating or widening its scope. */

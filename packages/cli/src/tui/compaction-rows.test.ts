@@ -94,6 +94,18 @@ describe('the /compact result line', () => {
 		)
 	})
 
+	it('keeps a tenth of a thousand under 10k so two sizes do not read the same', () => {
+		expect(compactResultLine({ shed: 3, tokensBefore: 2_400, tokensAfter: 1_600 })).toBe(
+			'Compacted · 3 messages summarized · context about 2.4k to 1.6k tokens',
+		)
+	})
+
+	it('leaves the sizes out when both read the same', () => {
+		expect(compactResultLine({ shed: 3, tokensBefore: 2_040, tokensAfter: 1_960 })).toBe(
+			'Compacted · 3 messages summarized',
+		)
+	})
+
 	it('estimates a conversation from its text, four characters to a token', () => {
 		expect(
 			estimateHistoryTokens([

@@ -1,5 +1,16 @@
 # @namzu/sandbox
 
+## 34.0.0
+
+### Patch Changes
+
+- ea5da1d: No runtime behavior changes. Stabilize the Kubernetes transport regression test by reserving its unused TCP port throughout the test, preventing unrelated parallel listeners from taking that port and producing a false failure in release validation.
+- Updated dependencies [153dd6f]
+- Updated dependencies [ea5da1d]
+- Updated dependencies [7a472bb]
+- Updated dependencies [153dd6f]
+  - @namzu/sdk@59.0.0
+
 ## 33.0.0
 
 ### Patch Changes

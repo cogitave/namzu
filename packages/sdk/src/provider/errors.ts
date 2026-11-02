@@ -33,6 +33,7 @@ import { LOG_SECRET_PATTERNS } from '../constants/secret-patterns.js'
 import type { ProviderErrorKind, ProviderRequestErrorInit } from '../types/provider/error.js'
 import {
 	type TransportCause,
+	isUsageLimitSignal,
 	readCertificateFailure,
 	readTransportCause,
 } from '../types/provider/errors.js'
@@ -128,6 +129,31 @@ function providerCode(value: unknown): string | undefined {
 			? (record.error as Record<string, unknown>).code
 			: undefined
 	return safeProviderCode(record.code ?? nested)
+}
+
+/**
+ * A vendor can name a spent allowance in `type` instead of `code`
+ * (`{"error":{"type":"usage_limit_reached"}}`, `{"error":{"type":"billing_error"}}`).
+ * Only those identifiers are lifted to a provider code; any other `type` is a
+ * category and stays where it was.
+ */
+function usageLimitTypeOf(error: unknown): string | undefined {
+	if (typeof error !== 'object' || error === null) return undefined
+	const outer = error as { type?: unknown; error?: unknown }
+	const inner =
+		typeof outer.error === 'object' && outer.error !== null
+			? (outer.error as { type?: unknown; error?: unknown })
+			: undefined
+	const innermost =
+		typeof inner?.error === 'object' && inner.error !== null
+			? (inner.error as { type?: unknown })
+			: undefined
+	for (const candidate of [outer.type, inner?.type, innermost?.type]) {
+		if (typeof candidate === 'string' && isUsageLimitSignal(candidate, undefined)) {
+			return safeProviderCode(candidate)
+		}
+	}
+	return undefined
 }
 
 /**
@@ -524,7 +550,7 @@ export function providerVendorError(input: {
 }): ProviderRequestError {
 	const { error } = input
 	const status = vendorErrorStatus(error)
-	const exactProviderCode = providerCode(error)
+	const exactProviderCode = providerCode(error) ?? usageLimitTypeOf(error)
 	const name = error instanceof Error ? error.name : ''
 	const message = error instanceof Error ? error.message : ''
 

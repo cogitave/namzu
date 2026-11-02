@@ -48,6 +48,13 @@ export interface TuiConfig {
 	/** Terminal protocol to write. Defaults to `osc9` when notifications are on. */
 	readonly notificationMethod?: TerminalNotificationMethod
 	/**
+	 * The key that puts `namzu spaces` in navigate mode: `ctrl+<letter>` or
+	 * `ctrl+space`. Absent means `ctrl+b`. Keys a terminal program needs for itself
+	 * (`ctrl+c`, `ctrl+d`, `ctrl+z`) and the ones that are Tab, Enter, Backspace or
+	 * Escape cannot be used. Pressing it twice sends it to the session.
+	 */
+	readonly spacesPrefix?: string
+	/**
 	 * The colours the terminal UI is drawn in: `auto` (follow the terminal's
 	 * light or dark background), `dark`, `light`, `dark-daltonized`,
 	 * `light-daltonized`, `dark-ansi` or `light-ansi`. Absent means `dark`.

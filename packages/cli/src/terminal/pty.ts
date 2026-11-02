@@ -45,9 +45,14 @@ export async function loadHostPty(loader?: HostPtyLoader): Promise<HostPtyModule
 	const load: HostPtyLoader =
 		loader ??
 		(async () => {
-			const loaded = (await import('node-pty')) as unknown as {
-				default?: HostPtyModule
-			} & HostPtyModule
+			// The prebuilt fork first: it needs no compiler on Linux. The original stays the
+			// fallback, and is what an install that skipped optional packages still has.
+			let loaded: { default?: HostPtyModule } & HostPtyModule
+			try {
+				loaded = (await import('@lydell/node-pty')) as unknown as typeof loaded
+			} catch {
+				loaded = (await import('node-pty')) as unknown as typeof loaded
+			}
 			return typeof loaded.spawn === 'function' ? loaded : (loaded.default as HostPtyModule)
 		})
 	return (await loadPty(load as unknown as () => Promise<PtyModule>)) as unknown as HostPtyModule

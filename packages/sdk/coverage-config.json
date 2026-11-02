@@ -4,6 +4,7 @@
 	"modules": {
 		"required": [
 			"__fixtures__",
+			"account",
 			"advisory",
 			"agents",
 			"authorization",

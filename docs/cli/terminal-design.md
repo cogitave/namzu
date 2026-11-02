@@ -123,6 +123,7 @@ them. Its items are joined by a dim ` · `, left to right:
   exits. Nothing is written to the transcript, so nothing stays in scrollback.
   Ctrl+D with anything typed remains delete-forward.
 - **`← N agent(s)`**, dim, when `←` from an empty composer would open the agents
+  (never where `←` opens the spaces screen instead)
   and N of them are running (agents plus workflow runs; capped at `99+`). It
   shows while a turn runs and while idle, and only with nothing typed, pasted
   or attached, no panel open and the rail not focused, so the row never names
@@ -144,9 +145,15 @@ The keys the hints name:
   to the pill. With no shells the first `↓` lands on the rail, and with no
   rows either it opens the agents cockpit, as before. Esc or any other key
   hands the keyboard back to the composer.
-- **`←`** from an empty composer opens the agents cockpit (`/agent`). With
-  anything typed, pasted or attached, or with Shift/Ctrl/Alt held, it is cursor
-  movement as always.
+- **`←`** from an empty composer opens the [spaces screen](spaces.md#opening-it-from-a-conversation)
+  where there is one (a POSIX terminal with a pseudo-terminal component), and
+  the agents cockpit (`/agent`) everywhere else. With anything typed, pasted or
+  attached, or with Shift/Ctrl/Alt held, it is cursor movement as always. A
+  press right after the draft was emptied by editing only shows `Press ← again
+  to open spaces`; presses less than 150 ms apart (key repeat) or within a
+  second of one that opened or armed are ignored. With the spaces screen
+  available the cockpit is reached with `↓` or `/agents`, and the footer does
+  not offer `← N agents`.
 
 The footer is always exactly one row. On narrow screens it drops, in order: the
 model on the right, `↓ to manage`, `← N agents`, `esc to interrupt`, the cycle
@@ -969,7 +976,7 @@ the current or latest turn, not an accumulated conversation total.
 their controls and configuration-source diagnostics. It excludes credentials
 and does not edit arbitrary configuration keys. Model selection starts with
 the current provider. A visible `p change provider` action above the model list
-names other detected providers that Namzu can construct from available
+names, after "others:", the other detected providers that Namzu can construct from available
 credentials. The list states whether selection affects future launches or only
 a session using a temporary credential. The old session remains usable if
 replacement construction or preference persistence fails.

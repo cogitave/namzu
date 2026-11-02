@@ -1,5 +1,27 @@
 # Changelog
 
+## 59.0.0
+
+### Major Changes
+
+- 153dd6f: Breaking: a spent allowance is no longer retried, and two unions gain a member. `ProviderErrorCode` gains `usage_limit`, and the classifier now maps the codes `insufficient_quota`, `usage_limit_reached`, `usage_limit_exceeded` and `billing_error` to it, and a `ProviderRequestError` that names a spent allowance (by provider code, or by an exhausted credit balance or quota in its own words) is `usage_limit` and not retried, where these were a retryable `rate_limit`. A caller that retried or waited on `rate_limit` for a spent allowance now gets `usage_limit` and no retry: handle it by switching account or telling the user the allowance is spent. An exhaustive `switch` over `ProviderErrorCode`, or over `SessionRecord` types (which gains `account_bound`), needs a new case to keep compiling.
+
+  Also adds an account registry: several credentials for one provider, each session bound to one. `createAccountRegistry` keeps labelled API-key accounts (each with an optional endpoint and starting model) and private Codex-home accounts (the codex provider only) in a new `accounts.json` under `NAMZU_HOME`; today's sign-in is always the provider's `default` account and `credentials.json` and `api-keys.json` are read as before. A session log that contains `account_bound` is refused by earlier builds; a session that stays on the default account never writes one.
+
+### Minor Changes
+
+- 7a472bb: A live-session registry record can now carry five optional fields: `hostSlot`, `conversationId`, `account`, `limited` and `limitedUntil` (when a spent allowance is expected back). A spaces host uses them to match a terminal to its sidebar row and to show which conversation, account and allowance state it is on. Records without them are unchanged and still valid. A session started inside a spaces host writes them; a plain `namzu` session does not, so it stays visible to older builds. Builds before this release skip a record that carries any of them (they list the terminal as absent from `list_sessions` and peer messaging), so upgrade every build that shares a registry before starting a spaces host.
+
+### Patch Changes
+
+- ea5da1d: A tool-result guardrail's `halt` verdict now ends the turn instead of reaching the model as an ordinary failed tool result.
+
+  `ToolExecutor` caught every exception from a tool call and turned it into a failed result, including the `ToolResultHalted` that a `halt` verdict throws. The model then read it as a rejected call and tried another way, which is what `refuse` means and `halt` must not. The executor now lets `ToolResultHalted` through, so the turn stops with `stopReason: 'error'` and the model is not asked again.
+
+  This only affects hosts that configure a guardrail returning `{ action: 'halt' }`. Nothing to change unless you relied on a `halt` being retried; return `{ action: 'refuse' }` to keep that behaviour.
+
+- 153dd6f: A live-session registry record that carries a field this build does not know is now read instead of dropped, so a session started by a newer build stays visible to `list_sessions` in an older one. Writing a record is still strict.
+
 ## 58.1.1
 
 ### Patch Changes

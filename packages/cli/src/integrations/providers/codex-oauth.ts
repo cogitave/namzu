@@ -6,7 +6,7 @@ import {
 	readStoredCodexCredential,
 	replaceStoredCodexCredential,
 } from './credential-store.js'
-import { codexCredentialFromTokens } from './harness-credentials.js'
+import { type CodexOAuthCredential, codexCredentialFromTokens } from './harness-credentials.js'
 import { CredentialPublicationError, CredentialWithdrawnError } from './oauth.js'
 
 const REFRESH_WINDOW_MS = 5 * 60_000
@@ -37,23 +37,25 @@ async function withSignal<T>(operation: PromiseLike<T>, signal: AbortSignal): Pr
 	}
 }
 
-export async function ensureFreshStoredCodexCredential(
-	signal?: AbortSignal,
-	options: StoredCodexRefreshOptions = {},
-): Promise<StoredCodexCredential> {
-	signal?.throwIfAborted()
-	const current = readStoredCodexCredential(options.home)
-	if (!current) {
-		throw new CredentialWithdrawnError(
-			'The Codex subscription Namzu stored was removed. Sign in again or choose another provider.',
-		)
-	}
-	if (
-		current.expiresAt === undefined ||
-		current.expiresAt - (options.now ?? Date.now()) > REFRESH_WINDOW_MS
-	) {
-		return current
-	}
+/** True when `credential` should be refreshed before use. */
+export function codexCredentialIsDue(
+	credential: { readonly expiresAt?: number },
+	now: number = Date.now(),
+): boolean {
+	return credential.expiresAt !== undefined && credential.expiresAt - now <= REFRESH_WINDOW_MS
+}
+
+/**
+ * Spend `current`'s refresh grant at the authorization server and return the
+ * successor, which must belong to the same ChatGPT account. Writes nothing:
+ * the caller decides where the successor is published. Shared by the stored
+ * credential and by a private per-account Codex home.
+ */
+export async function requestCodexRefresh(
+	current: CodexOAuthCredential,
+	signal: AbortSignal | undefined,
+	options: Pick<StoredCodexRefreshOptions, 'fetch' | 'authOrigin'> = {},
+): Promise<CodexOAuthCredential> {
 	if (!current.refreshToken) {
 		throw new CredentialWithdrawnError(
 			'The Codex subscription expired without a refresh grant. Sign in again.',
@@ -112,6 +114,32 @@ export async function ensureFreshStoredCodexCredential(
 			'The refreshed Codex credential did not belong to the signed-in account. Sign in again.',
 		)
 	}
+	return refreshed
+}
+
+export async function ensureFreshStoredCodexCredential(
+	signal?: AbortSignal,
+	options: StoredCodexRefreshOptions = {},
+): Promise<StoredCodexCredential> {
+	signal?.throwIfAborted()
+	const current = readStoredCodexCredential(options.home)
+	if (!current) {
+		throw new CredentialWithdrawnError(
+			'The Codex subscription Namzu stored was removed. Sign in again or choose another provider.',
+		)
+	}
+	if (
+		current.expiresAt === undefined ||
+		current.expiresAt - (options.now ?? Date.now()) > REFRESH_WINDOW_MS
+	) {
+		return current
+	}
+	if (!current.refreshToken) {
+		throw new CredentialWithdrawnError(
+			'The Codex subscription expired without a refresh grant. Sign in again.',
+		)
+	}
+	const refreshed = await requestCodexRefresh(current, signal, options)
 	signal?.throwIfAborted()
 	let result: ReturnType<typeof replaceStoredCodexCredential>
 	try {

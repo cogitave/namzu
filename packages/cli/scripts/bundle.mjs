@@ -27,6 +27,7 @@ const external = [
 	'@namzu/telemetry',
 	'@namzu/computer-use',
 	'node-pty',
+	'@lydell/node-pty',
 	'oxc-parser',
 	'playwright-core',
 	'react-devtools-core',
