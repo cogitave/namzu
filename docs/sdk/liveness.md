@@ -52,3 +52,5 @@ Free text (label, last line) is flattened to one line and clipped, and is data, 
 ## Time on notices
 
 A frame the model reads later than it happened should say when. A monitor event and a monitor's end are `<system-event … at="2026-11-02T09:30:15.000Z">` (`SystemEvent.at`, rendered as an ISO attribute only when given), and a job's exit notice reads `Background job b3k9x2m1 (make) exited with code 0 at 2026-11-02T09:30:15.000Z.`
+
+A task completion notification gains a `finished_at: <ISO time>` line after `duration_ms`.

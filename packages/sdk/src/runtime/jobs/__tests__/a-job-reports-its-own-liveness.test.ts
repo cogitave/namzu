@@ -71,7 +71,7 @@ describe('a background job records when and what it last wrote', () => {
 		expect(registry.get(job.id).status).toBe('running')
 		expect(registry.isAlive(job.id)).toBe(false)
 		kill.mockImplementation(() => true)
-		expect(registry.isAlive(job.id)).toBe(process.platform === 'win32' ? true : true)
+		expect(registry.isAlive(job.id)).toBe(true)
 		expect(kill).toHaveBeenCalledWith(-4242, 0)
 		kill.mockRestore()
 	})
