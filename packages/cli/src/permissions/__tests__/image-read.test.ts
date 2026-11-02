@@ -61,6 +61,18 @@ describe('reading a pasted image path', () => {
 		expect(await policy(join(cwd, 'innocent.png'))).toContain('permission rule keeps')
 	})
 
+	it('refuses a path a deny names even when a more specific allow comes first', async () => {
+		const cwd = scratch()
+		mkdirSync(join(cwd, 'secrets', 'public'), { recursive: true })
+		const policy = createImageReadPolicy({
+			rules: () => [
+				pathRule('read', 'secrets/public/**', 'allow', { cwd }),
+				pathRule('read', 'secrets/**', 'deny', { cwd }),
+			],
+		})
+		expect(await policy(join(cwd, 'secrets', 'public', 'a.png'))).toContain('permission rule keeps')
+	})
+
 	it('does not refuse a path an ask rule names', async () => {
 		const cwd = scratch()
 		const policy = createImageReadPolicy({
