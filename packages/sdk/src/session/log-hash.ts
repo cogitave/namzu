@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import {
+	IgnorableRecordSchema,
 	SESSION_RECORD_MAX_BYTES,
 	type SessionRecord,
 	SessionRecordSchema,
@@ -99,6 +100,18 @@ export function parseSessionLogLine(line: string | Uint8Array): ParsedSessionLog
 		)
 	}
 	const parsed = SessionRecordSchema.safeParse(value)
+	if (!parsed.success && isFlaggedIgnorable(value)) {
+		const ignorable = IgnorableRecordSchema.safeParse(value)
+		if (ignorable.success) {
+			// Typed as a record so the chain can carry it; its `type` is one no
+			// consumer matches, so it never moves a fold.
+			return {
+				record: ignorable.data as unknown as SessionRecord,
+				length: bytes.byteLength,
+				sha256: recordSha256(bytes),
+			}
+		}
+	}
 	if (!parsed.success) {
 		throw new SessionLogLineError(
 			'not-a-record',
@@ -112,4 +125,12 @@ export function parseSessionLogLine(line: string | Uint8Array): ParsedSessionLog
 		length: bytes.byteLength,
 		sha256: recordSha256(bytes),
 	}
+}
+
+function isFlaggedIgnorable(value: unknown): boolean {
+	return (
+		typeof value === 'object' &&
+		value !== null &&
+		(value as { ignorable?: unknown }).ignorable === true
+	)
 }

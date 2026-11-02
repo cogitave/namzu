@@ -316,6 +316,21 @@ the envelope's `seq`, `ts` and `turnId` stand for the event's own sequence,
 timestamp and turn. A session-level entry omits `turnId`. `replayAudit` reads
 them back as an `AuditSummary`.
 
+### Records from a newer writer
+
+A log written by a newer release may hold a record `type` this reader has never
+heard of. The reader refuses it (`not-a-record`) unless the writer flagged it
+`ignorable: true` in the record, the promise that no reader needs it to rebuild
+the conversation. A flagged record of an unknown type (`IgnorableRecordSchema`:
+the envelope, a `type` outside `SESSION_RECORD_TYPES`, and `ignorable: true`,
+any other fields kept) is read like any other: it holds its seq, its bytes are
+hashed into the next record's `prev`, and altering it breaks the chain. It never
+moves the fold, which only `message`, `message_replaced` and `compaction`
+records do. The flag excuses nothing else: a known type is validated by its own
+schema whatever the flag says, an unknown type without the flag is refused so a
+record that does move the fold fails loudly, and a flagged record cannot be the
+first of a log. This release writes no ignorable records itself.
+
 ### Children that outlive their turn
 
 A delegated child can still be running when the parent turn that spawned it

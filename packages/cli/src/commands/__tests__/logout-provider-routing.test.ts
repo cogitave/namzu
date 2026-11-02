@@ -129,6 +129,6 @@ describe('namzu logout provider routing', () => {
 
 		expect(code).toBe(EXIT_USAGE)
 		expect(credentials).toMatchObject({ primary: true, codex: true, googleKey: true, clears: [] })
-		expect(lines.join('\n')).toContain('namzu logout [claude|codex|gemini|all]')
+		expect(lines.join('\n')).toContain('namzu logout [claude|codex|gemini|<provider>|all]')
 	})
 })

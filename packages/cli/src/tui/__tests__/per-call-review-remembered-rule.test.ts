@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { createUserMessage } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { answerModelsListing } from '../../__fixtures__/models-endpoint.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
 	type DetectedProvider,
@@ -60,21 +61,23 @@ beforeEach(async () => {
 	requests = 0
 	vi.stubGlobal(
 		'fetch',
-		vi.fn<typeof fetch>(async () => {
-			requests += 1
-			if (requests > 1) return chunk({ content: 'Done.' }, 'stop')
-			return chunk(
-				{
-					tool_calls: ['a', 'b', 'c'].map((id, index) => ({
-						index,
-						id: `call_${id}`,
-						type: 'function',
-						function: { name: 'bash', arguments: JSON.stringify({ command: 'touch same.txt' }) },
-					})),
-				},
-				'tool_calls',
-			)
-		}),
+		answerModelsListing(
+			vi.fn<typeof fetch>(async () => {
+				requests += 1
+				if (requests > 1) return chunk({ content: 'Done.' }, 'stop')
+				return chunk(
+					{
+						tool_calls: ['a', 'b', 'c'].map((id, index) => ({
+							index,
+							id: `call_${id}`,
+							type: 'function',
+							function: { name: 'bash', arguments: JSON.stringify({ command: 'touch same.txt' }) },
+						})),
+					},
+					'tool_calls',
+				)
+			}),
+		),
 	)
 })
 

@@ -321,6 +321,10 @@ export function localComputerClients(options: LocalComputerClientOptions): {
 			const entries = []
 			for await (const entry of walkFilesViaExec((...args) => sandbox.exec(...args), rootPath, {
 				maxEntries: 100_000,
+				// A listing names what is there, ignored files included, and an
+				// oversized tree is an error, not a silent cut.
+				respectIgnore: false,
+				failOnLimit: true,
 			}))
 				entries.push(entry)
 			return entries

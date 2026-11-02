@@ -14,6 +14,11 @@
 //   modules             ES modules loaded at `--version` and at the TUI's first frame
 //   rss                 peak resident set size (Linux only, from /proc VmHWM)
 //
+// --check turns the same machinery into a gate (see "the budget check" at the bottom): a lean
+// set of metrics, a fresh process per sample, the median of at least five, CPU time recorded
+// beside wall time, each compared with a budget committed in scripts/bench-startup.budgets.json.
+// It adds one metric the manual run lacks: resuming a large generated session.
+//
 // Every run gets a fresh HOME and NAMZU_HOME under --work (default: a temp directory),
 // WSL_DISTRO_NAME / WSL_INTEROP / CI unset and, with --strip-mnt (default on), every /mnt/*
 // entry removed from PATH. Nothing here touches an installed Namzu.
@@ -24,6 +29,8 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	readdirSync,
+	statSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -31,9 +38,16 @@ import {
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { basename, dirname, join, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
+const MIN_CHECK_SAMPLES = 5
+// Committed beside this script, deliberately not a flag or an environment variable: a budget
+// that a run can loosen is a measurement, not a gate.
+const BUDGETS_FILE = join(dirname(fileURLToPath(import.meta.url)), 'bench-startup.budgets.json')
+// The generated session the resume metric opens: 400 turns, each a question and three long
+// answers, so about 2,400 log records and 2 MB.
+const RESUME_TURNS = 400
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 function parseArgs(argv) {
@@ -46,6 +60,7 @@ function parseArgs(argv) {
 		stripMnt: true,
 		sharedCache: true,
 		modelsDelay: 0,
+		check: false,
 	}
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i]
@@ -55,12 +70,14 @@ function parseArgs(argv) {
 		else if (a === '--work') opts.work = resolve(argv[++i])
 		else if (a === '--only') opts.only = new Set(argv[++i].split(','))
 		else if (a === '--models-delay') opts.modelsDelay = Number(argv[++i])
+		else if (a === '--check') opts.check = true
 		else if (a === '--no-strip-mnt') opts.stripMnt = false
 		else if (a === '--cold-cache') opts.sharedCache = false
 		else if (a === '--help' || a === '-h') {
 			process.stdout.write(
 				'Usage: node scripts/bench-startup.mjs [--runs N] [--build <bin.js>] [--out <file.json>]\n' +
-					'       [--work <dir>] [--only version,help,tui,exec] [--no-strip-mnt] [--cold-cache] [--models-delay <ms>]\n',
+					'       [--work <dir>] [--only version,help,tui,exec] [--no-strip-mnt] [--cold-cache] [--models-delay <ms>]\n' +
+					'       node scripts/bench-startup.mjs --check [--runs N>=5] [--work <dir>] [--out <file.json>]\n',
 			)
 			process.exit(0)
 		} else throw new Error(`unknown option ${a}`)
@@ -68,6 +85,10 @@ function parseArgs(argv) {
 	if (!Number.isFinite(opts.modelsDelay) || opts.modelsDelay < 0)
 		throw new Error('--models-delay must be a number of milliseconds')
 	if (!Number.isInteger(opts.runs) || opts.runs < 1) throw new Error('--runs must be a positive integer')
+	if (opts.check) {
+		if (!argv.includes('--runs')) opts.runs = MIN_CHECK_SAMPLES
+		if (opts.runs < MIN_CHECK_SAMPLES) throw new Error(`--check needs --runs of at least ${MIN_CHECK_SAMPLES}: a median of fewer is noise`)
+	}
 	if (!existsSync(opts.build)) throw new Error(`${opts.build} does not exist; run pnpm -r build first`)
 	return opts
 }
@@ -106,7 +127,7 @@ function startFakeModel() {
 			try {
 				parsed = JSON.parse(Buffer.concat(chunks).toString())
 			} catch {}
-			log.push({ at: arrived, path })
+			log.push({ at: arrived, path, body: Buffer.concat(chunks).toString() })
 			const id = 'chatcmpl-bench'
 			const usage = { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
 			const frame = (delta, finish) =>
@@ -238,6 +259,45 @@ function peakRssKb(pid) {
 	}
 }
 
+/** CPU time (user + system) a live process has used so far, in ms; null off Linux. */
+function cpuMsOfPid(pid) {
+	if (process.platform !== 'linux') return null
+	try {
+		// Fields after the ")" that closes the command name start at "state" (field 3).
+		const f = readFileSync(`/proc/${pid}/stat`, 'utf8').replace(/^.*\) /s, '').split(' ')
+		return ((Number(f[11]) + Number(f[12])) * 1000) / 100 // utime + stime in clock ticks, 100 Hz
+	} catch {
+		return null
+	}
+}
+
+// Runs the build to exit inside a tiny wrapper process and reports its wall time and the CPU
+// time of the waited-for child (cutime + cstime of the wrapper), so a process that has already
+// exited can still be charged. The wrapper's own start-up is outside both numbers.
+const measureSource = `
+import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+const [bin, ...args] = process.argv.slice(1)
+const t0 = performance.now()
+const r = spawnSync(process.execPath, [bin, ...args], { stdio: 'ignore' })
+const wallMs = performance.now() - t0
+let cpuMs = null
+try {
+  const f = readFileSync('/proc/self/stat', 'utf8').replace(/^.*\\) /s, '').split(' ')
+  cpuMs = ((Number(f[13]) + Number(f[14])) * 1000) / 100
+} catch {}
+process.stdout.write(JSON.stringify({ wallMs, cpuMs, code: r.status }))
+`
+
+function runMeasured(args, env, cwd) {
+	const r = spawnSync(process.execPath, ['--input-type=module', '-e', measureSource, opts.build, ...args], {
+		cwd,
+		env,
+		encoding: 'utf8',
+	})
+	return JSON.parse(r.stdout)
+}
+
 /** Sample the process' peak RSS until it exits; resolves to the last reading. */
 function trackRss(pid) {
 	const state = { kb: null }
@@ -301,7 +361,10 @@ async function tuiRun({ loadLog }) {
 			seen.firstFrame = now
 			if (loadLog) modulesAt.firstFrame = countLines(loadLog)
 		}
-		if (seen.ready === undefined && buf.includes('❯')) seen.ready = now
+		if (seen.ready === undefined && buf.includes('❯')) {
+			seen.ready = now
+			seen.readyCpu = cpuMsOfPid(term.pid)
+		}
 	})
 	try {
 		await until(() => seen.ready !== undefined, 'composer ready')
@@ -343,11 +406,12 @@ async function execRun(stdinMode) {
 	const rss = trackRss(child.pid)
 	await until(() => model.log.length > 0, 'the request')
 	const requestMs = model.log[0].at - t0
+	const cpuMs = cpuMsOfPid(child.pid)
 	await exited
 	rss.stop()
 	kill()
 	model.close()
-	return { requestMs, rssKb: rss.state.kb }
+	return { requestMs, cpuMs, rssKb: rss.state.kb }
 }
 
 function summarize(xs) {
@@ -360,6 +424,11 @@ function summarize(xs) {
 }
 
 // ---- the run ---------------------------------------------------------------------------
+
+if (opts.check) {
+	await runCheck()
+	process.exit(process.exitCode ?? 0)
+}
 
 const results = {}
 const record = (name, samples) => {
@@ -432,3 +501,162 @@ results.meta = { node: process.version, platform: `${process.platform}-${process
 if (opts.out) writeFileSync(opts.out, `${JSON.stringify(results, null, 2)}\n`)
 process.stdout.write(`${JSON.stringify(results, null, 2)}\n`)
 if (!opts.work) rmSync(work, { recursive: true, force: true })
+
+// ---- the budget check ------------------------------------------------------------------
+//
+// Method (the same for every metric): a fresh process per sample, a throw-away first run so the
+// OS file cache and the shared V8 compile cache are warm as they are for a person's second
+// launch, then the MEDIAN of --runs samples (at least five), wall time and CPU time side by
+// side. The budget for a metric is reference x ciScale x headroom, all three committed in
+// scripts/bench-startup.budgets.json: the reference is a median measured on a pinned two-core
+// machine, ciScale is how much slower a shared CI runner is allowed to be, and headroom is the
+// slack for run-to-run noise. Lower a reference when a change makes something faster; raise one
+// only with the reason in the commit that raises it.
+
+/** Build a session of RESUME_TURNS turns in the CLI's own log format, through the SDK's writer. */
+async function growSession(file, sessionDir, sessionId) {
+	const sdk = await import(pathToFileURL(requireFromCli.resolve('@namzu/sdk')).href)
+	const log = new sdk.DiskSessionLog({ sessionId, file, sessionDir })
+	const lease = await log.claim({ holder: 'bench-startup', ttlMs: 600000 })
+	if (!lease) throw new Error('the bootstrap session is still leased; cannot grow it')
+	const usage = { promptTokens: 10, completionTokens: 5, totalTokens: 15, cachedTokens: 0, cacheWriteTokens: 0 }
+	const cost = { totalCost: 0, cacheDiscount: 0, unpricedTokens: 0 }
+	try {
+		for (let t = 0; t < RESUME_TURNS; t++) {
+			const turnId = sdk.generateTurnId()
+			const asked = sdk.generateMessageId()
+			await log.beginTurn(lease, { turnId, userMessageId: asked, config: { model: 'claude-sonnet-5-5', tokenBudget: 0, timeoutMs: 0 } })
+			await log.append(lease, { type: 'message', turnId, messageId: asked, role: 'user', content: { role: 'user', content: `bench question ${t}: ${'x'.repeat(400)}`, id: asked } })
+			let last = asked
+			for (let k = 0; k < 3; k++) {
+				last = sdk.generateMessageId()
+				await log.append(lease, { type: 'message', turnId, messageId: last, role: 'assistant', content: { role: 'assistant', content: `bench answer ${t}.${k}: ${'y'.repeat(1500)}`, id: last } })
+			}
+			await log.append(lease, {
+				type: 'turn_completed',
+				turnId,
+				result: 'ok',
+				stopReason: 'end_turn',
+				settlement: { status: 'completed', iterations: 1, usage, cost, durationMs: 1, resultMessageId: last, resultSource: 'model', abandonedTaskIds: [], abandonedJobIds: [] },
+			})
+		}
+	} finally {
+		await log.release(lease)
+	}
+}
+
+/** One `namzu exec --resume <id> hello`, spawn to the first model request arriving at the fake server. */
+async function resumeRun(model, home, project, sessionId) {
+	const env = benchEnv(home, { modelUrl: model.url })
+	const before = model.log.length
+	const t0 = Date.now()
+	const proc = spawn(process.execPath, [opts.build, 'exec', '--resume', sessionId, 'hello again'], {
+		cwd: project,
+		env,
+		stdio: ['ignore', 'ignore', 'ignore'],
+	})
+	const exited = new Promise((ok) => proc.on('exit', ok))
+	await until(() => model.log.length > before, 'the resumed request')
+	const entry = model.log[before]
+	const cpuMs = cpuMsOfPid(proc.pid)
+	await exited
+	// The first request of a resumed conversation is the history-search resolver, which sees only a
+	// bounded part of the history, so "carried" means: some request of this run quoted the grown
+	// session. A resume that silently opened a fresh conversation would quote none of it.
+	const carriedHistory = model.log.slice(before).some((e) => e.body.includes('bench question'))
+	return { wallMs: entry.at - t0, cpuMs, carriedHistory }
+}
+
+function med(xs) {
+	// A sample that could not be taken (no CPU clock off Linux) makes the metric not measurable.
+	if (xs.some((x) => x === null || x === undefined)) return null
+	return summarize(xs)?.median ?? null
+}
+
+async function runCheck() {
+	const budgets = JSON.parse(readFileSync(BUDGETS_FILE, 'utf8'))
+	const limitOf = (name, key) => {
+		const ref = budgets.metrics[name]?.[key]
+		if (typeof ref !== 'number') throw new Error(`${BUDGETS_FILE} has no ${key} for "${name}"`)
+		return Math.max(ref * budgets.ciScale * budgets.headroom, budgets.minLimitMs ?? 0)
+	}
+	process.stderr.write(`build ${opts.build}\nnode ${process.version} on ${process.platform}-${process.arch}, median of ${opts.runs}\n`)
+	const measured = {}
+
+	for (const flag of ['version', 'help']) {
+		const { home, project } = freshHome(flag)
+		const env = benchEnv(home)
+		runMeasured([`--${flag}`], env, project)
+		const runs = Array.from({ length: opts.runs }, () => runMeasured([`--${flag}`], env, project))
+		measured[flag] = { wallMs: med(runs.map((r) => r.wallMs)), cpuMs: med(runs.map((r) => r.cpuMs)) }
+	}
+
+	for (const mode of ['pipe', 'null']) {
+		await execRun(mode)
+		const runs = []
+		for (let i = 0; i < opts.runs; i++) runs.push(await execRun(mode))
+		measured[`exec-request-stdin-${mode}`] = { wallMs: med(runs.map((r) => r.requestMs)), cpuMs: med(runs.map((r) => r.cpuMs)) }
+	}
+
+	await tuiRun({})
+	const tui = []
+	for (let i = 0; i < opts.runs; i++) tui.push(await tuiRun({}))
+	measured['tui-ready'] = { wallMs: med(tui.map((r) => r.ready)), cpuMs: med(tui.map((r) => r.readyCpu)) }
+
+	// Resume: bootstrap one conversation through the real CLI so the project, tenant and index
+	// exist exactly as a person's would, then grow its log and open it repeatedly.
+	const model = await startFakeModel()
+	let resumeInfo
+	try {
+		const { home, project } = freshHome('resume')
+		// Asynchronous on purpose: the fake model server lives in this process, and a blocking
+		// spawn would leave it unable to answer the very request being waited for.
+		const boot = await new Promise((ok) => {
+			const proc = spawn(process.execPath, [opts.build, 'exec', 'hello'], { cwd: project, env: benchEnv(home, { modelUrl: model.url }), stdio: 'ignore' })
+			proc.on('exit', (status) => ok({ status }))
+		})
+		const projectsDir = join(home, '.namzu', 'projects')
+		const logs = readdirSync(projectsDir, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.jsonl'))
+		if (logs.length !== 1) throw new Error(`expected the bootstrap run to leave one session log, found ${logs.length} (exit ${boot.status})`)
+		const file = join(projectsDir, logs[0])
+		const sessionId = basename(file, '.jsonl')
+		await growSession(file, join(dirname(file), sessionId), sessionId)
+		const bytes = statSync(file).size
+		await resumeRun(model, home, project, sessionId)
+		const runs = []
+		for (let i = 0; i < opts.runs; i++) runs.push(await resumeRun(model, home, project, sessionId))
+		measured['resume-request'] = { wallMs: med(runs.map((r) => r.wallMs)), cpuMs: med(runs.map((r) => r.cpuMs)) }
+		resumeInfo = { turns: RESUME_TURNS, logBytes: bytes, carriedHistory: runs.every((r) => r.carriedHistory) }
+	} finally {
+		model.close()
+	}
+
+	const rows = []
+	let failed = false
+	for (const [name, m] of Object.entries(measured)) {
+		for (const key of ['wallMs', 'cpuMs']) {
+			const value = m[key]
+			if (value === null) {
+				rows.push(`${name.padEnd(28)} ${key.padEnd(7)} not measurable on ${process.platform}; skipped`)
+				continue
+			}
+			const limit = limitOf(name, key)
+			const over = value > limit
+			if (over) failed = true
+			rows.push(`${name.padEnd(28)} ${key.padEnd(7)} ${value.toFixed(1).padStart(8)} ms  budget ${limit.toFixed(1).padStart(8)} ms  ${over ? 'OVER' : 'ok'}`)
+		}
+	}
+	if (!resumeInfo.carriedHistory) {
+		failed = true
+		rows.push('resume-request               the resumed request did not carry the session\'s history; the metric measured something else')
+	}
+	process.stderr.write(`${rows.join('\n')}\nresumed session: ${resumeInfo.turns} turns, ${(resumeInfo.logBytes / 1e6).toFixed(2)} MB of log\n`)
+	const report = { measured, resume: resumeInfo, runs: opts.runs, node: process.version, platform: `${process.platform}-${process.arch}`, ciScale: budgets.ciScale, headroom: budgets.headroom }
+	if (opts.out) writeFileSync(opts.out, `${JSON.stringify(report, null, 2)}\n`)
+	process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
+	if (!opts.work) rmSync(work, { recursive: true, force: true })
+	if (failed) {
+		process.stderr.write('startup budget exceeded (or the resume metric is invalid); see the rows marked OVER above\n')
+		process.exitCode = 1
+	}
+}

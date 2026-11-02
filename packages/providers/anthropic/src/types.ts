@@ -46,6 +46,15 @@ export interface AnthropicConfig {
 	 */
 	authToken?: string
 	/**
+	 * The `baseURL` is an Anthropic-compatible third-party service, not the
+	 * vendor. With it set, an `authToken` is a plain bearer credential: the
+	 * subscription beta headers, tool user-agent and identity system block are
+	 * not sent, a non-Claude id offers `low`, `high` and `max` effort, and
+	 * `listModels` has no offline menu to fall back to. Off by default, so a
+	 * token sent through a proxy keeps the identity it always had.
+	 */
+	compatibleEndpoint?: boolean
+	/**
 	 * How long the prompt cache lives: `'5m'` (the default, and the service's
 	 * own) or `'1h'`. A call can override it with `cacheControl.ttl`. The longer
 	 * lifetime costs more per cache write, so it is a cost decision. Every
