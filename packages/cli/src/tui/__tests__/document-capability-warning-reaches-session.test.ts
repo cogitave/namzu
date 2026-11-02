@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { createUserMessage } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 
+import { answerModelsListing } from '../../__fixtures__/models-endpoint.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
 	type DetectedProvider,
@@ -27,7 +28,7 @@ it('surfaces the document mismatch before DeepSeek refuses the attachment locall
 	const network = vi.fn(() => {
 		throw new Error('network must not be reached for a locally unsupported attachment')
 	})
-	vi.stubGlobal('fetch', network)
+	vi.stubGlobal('fetch', answerModelsListing(network as unknown as typeof fetch))
 	const preferences: Preferences = {
 		version: 3,
 		providers: [{ id: 'deepseek' }],

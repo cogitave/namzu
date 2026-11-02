@@ -26,7 +26,11 @@
 
 import { readFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
-import { RENAMED_PLUGIN_HOOK_EVENTS, SHELL_HOOK_EVENTS } from '@namzu/sdk'
+import {
+	RENAMED_PLUGIN_HOOK_EVENTS,
+	SHELL_HOOK_EVENTS,
+	resolveAutoCompactWindowSetting,
+} from '@namzu/sdk'
 import { parsePrefix } from '../spaces/prefix.js'
 
 import { parse as yamlParse } from 'yaml'
@@ -1076,15 +1080,22 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		if (
 			raw.autoCompactWindowTokens !== undefined &&
-			(typeof raw.autoCompactWindowTokens !== 'number' ||
-				!Number.isSafeInteger(raw.autoCompactWindowTokens) ||
-				raw.autoCompactWindowTokens <= 0)
+			typeof raw.autoCompactWindowTokens !== 'number' &&
+			typeof raw.autoCompactWindowTokens !== 'string'
 		)
 			return invalidConfigValue(
 				context,
 				['autoCompactWindowTokens'],
-				'must be a positive safe integer',
+				'must be a token count such as 200000, 786k or 1m',
 			)
+		const autoCompactWindow =
+			raw.autoCompactWindowTokens === undefined
+				? undefined
+				: resolveAutoCompactWindowSetting(
+						raw.autoCompactWindowTokens,
+						'compaction.autoCompactWindowTokens',
+					)
+		if (autoCompactWindow?.warning) configWarnings.add(autoCompactWindow.warning)
 		if (
 			raw.contextWindowTokens !== undefined &&
 			(typeof raw.contextWindowTokens !== 'number' ||
@@ -1095,8 +1106,8 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		return {
 			...(raw.strategy !== undefined ? { strategy: raw.strategy } : {}),
-			...(raw.autoCompactWindowTokens !== undefined
-				? { autoCompactWindowTokens: raw.autoCompactWindowTokens }
+			...(autoCompactWindow?.tokens !== undefined
+				? { autoCompactWindowTokens: autoCompactWindow.tokens }
 				: {}),
 			...(raw.contextWindowTokens !== undefined
 				? { contextWindowTokens: raw.contextWindowTokens }
@@ -2168,6 +2179,18 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	modelCatalogueRefresh: 'NAMZU_MODEL_CATALOGUE_REFRESH',
 }
 
+const configWarnings = new Set<string>()
+
+/**
+ * One-line notes about settings that were read but changed (a compaction
+ * window clamped to its bounds, or ignored). The launch shows them once.
+ */
+export function takeConfigWarnings(): string[] {
+	const out = [...configWarnings]
+	configWarnings.clear()
+	return out
+}
+
 /** Which `NAMZU_*` variable actually set each field `readEnv` found. */
 type EnvVariablesUsed = { -readonly [K in keyof NamzuCliConfig]?: string }
 
@@ -2180,6 +2203,17 @@ function readEnv(env: NodeJS.ProcessEnv): {
 	for (const key of ['limits', 'compaction'] as const) {
 		const variable = ENV_VARIABLE_NAMES[key]
 		if (!variable || env[variable] === undefined) continue
+		if (key === 'compaction') {
+			// A written size is read the way people write one (`786k`, `1m`),
+			// clamped to 100k..1M with a warning, and ignored when it is not a
+			// size at all: a mistyped compaction window is not worth refusing to start.
+			const written = resolveAutoCompactWindowSetting(env[variable] as string, variable)
+			if (written.warning) configWarnings.add(written.warning)
+			if (written.tokens === undefined) continue
+			config.compaction = { autoCompactWindowTokens: written.tokens }
+			variables[key] = variable
+			continue
+		}
 		let value: number
 		try {
 			value = positiveTokenCount(env[variable] as string, variable)
@@ -2190,8 +2224,7 @@ function readEnv(env: NodeJS.ProcessEnv): {
 				'must be a positive safe whole number of tokens',
 			)
 		}
-		if (key === 'limits') config.limits = { maxResponseTokens: value }
-		else config.compaction = { autoCompactWindowTokens: value }
+		config.limits = { maxResponseTokens: value }
 		variables[key] = variable
 	}
 	const smallVariable = ENV_VARIABLE_NAMES.smallModel

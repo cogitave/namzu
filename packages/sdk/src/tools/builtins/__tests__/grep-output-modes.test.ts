@@ -44,7 +44,7 @@ describe('grep default mode lists files, newest first', () => {
 		)
 		const result = await run(context)
 		expect(result.success).toBe(true)
-		expect(result.output).toBe(['Found 3 files', './new.txt', './mid.txt', './old.txt'].join('\n'))
+		expect(result.output).toBe(['Found 3 files', 'new.txt', 'mid.txt', 'old.txt'].join('\n'))
 	})
 
 	it('breaks a tie by path', async () => {
@@ -52,7 +52,7 @@ describe('grep default mode lists files, newest first', () => {
 			{ 'b.txt': 'needle\n', 'a.txt': 'needle\n' },
 			{ 'a.txt': 5_000, 'b.txt': 5_000 },
 		)
-		expect((await run(context)).output).toBe('Found 2 files\n./a.txt\n./b.txt')
+		expect((await run(context)).output).toBe('Found 2 files\na.txt\nb.txt')
 	})
 
 	it('says so when nothing matches', async () => {
@@ -65,7 +65,7 @@ describe('grep content mode', () => {
 	it('returns matching lines with path and line number', async () => {
 		const { context } = workspace({ 'a.txt': 'x\nneedle one\ny\n' })
 		const result = await run(context, { output_mode: 'content' })
-		expect(result.output).toContain('./a.txt:2:needle one')
+		expect(result.output).toContain('a.txt:2:needle one')
 		expect(result.output).toContain('Found 1 match(es) in 1 file(s)')
 	})
 
@@ -73,8 +73,8 @@ describe('grep content mode', () => {
 		const long = `needle ${'z'.repeat(MAX_LINE_COLUMNS)}`
 		const { context } = workspace({ 'min.js': `${long}\nneedle short\n` })
 		const result = await run(context, { output_mode: 'content' })
-		expect(result.output).toContain('./min.js:1:[Omitted long matching line]')
-		expect(result.output).toContain('./min.js:2:needle short')
+		expect(result.output).toContain('min.js:1:[Omitted long matching line]')
+		expect(result.output).toContain('min.js:2:needle short')
 		expect(result.output).not.toContain('zzzz')
 	})
 
@@ -84,8 +84,8 @@ describe('grep content mode', () => {
 			output_mode: 'content',
 			context_lines: 1,
 		})
-		expect(result.output).toContain('./a.js-1-[Omitted long context line]')
-		expect(result.output).toContain('./a.js:2:needle')
+		expect(result.output).toContain('a.js-1-[Omitted long context line]')
+		expect(result.output).toContain('a.js:2:needle')
 	})
 })
 
@@ -96,8 +96,8 @@ describe('grep count mode', () => {
 			'b.txt': 'needle\n',
 		})
 		const result = await run(context, { output_mode: 'count' })
-		expect(result.output).toContain('./a.txt:2')
-		expect(result.output).toContain('./b.txt:1')
+		expect(result.output).toContain('a.txt:2')
+		expect(result.output).toContain('b.txt:1')
 		expect(result.output).toContain('Found 3 total matches across 2 files')
 	})
 })
@@ -116,11 +116,16 @@ describe('grep paging', () => {
 		}
 		const { context } = workspace(files, times)
 		const first = await run(context, { head_limit: 2 })
-		expect(first.output).toBe('Found 2 files (limit: 2)\n./f0.txt\n./f1.txt')
+		expect(first.success).toBe(true)
+		expect(first.output).toBe(
+			'Found 2 files (limit: 2)\nf0.txt\nf1.txt\n\n[More results are available: pass offset: 2 to continue, or narrow the path or pattern.]',
+		)
 		const second = await run(context, { head_limit: 2, offset: 2 })
-		expect(second.output).toBe('Found 2 files (limit: 2, offset: 2)\n./f2.txt\n./f3.txt')
+		expect(second.output).toBe(
+			'Found 2 files (limit: 2, offset: 2)\nf2.txt\nf3.txt\n\n[More results are available: pass offset: 4 to continue, or narrow the path or pattern.]',
+		)
 		const last = await run(context, { head_limit: 2, offset: 4 })
-		expect(last.output).toBe('Found 1 file (offset: 4)\n./f4.txt')
+		expect(last.output).toBe('Found 1 file (offset: 4)\nf4.txt')
 		const past = await run(context, { head_limit: 2, offset: 9 })
 		expect(past.output).toContain('No entries at this offset')
 	})
@@ -138,16 +143,17 @@ describe('grep paging', () => {
 		const body = Array.from({ length: 10 }, (_, i) => `needle ${i}`).join('\n')
 		const { context } = workspace({ 'a.txt': body })
 		const first = await run(context, { output_mode: 'content', head_limit: 3 })
-		expect(first.output).toContain('./a.txt:1:needle 0')
-		expect(first.output).toContain('./a.txt:3:needle 2')
+		expect(first.output).toContain('a.txt:1:needle 0')
+		expect(first.output).toContain('a.txt:3:needle 2')
 		expect(first.output).not.toContain('needle 3')
-		expect(first.output).toContain('more may follow')
+		expect(first.success).toBe(true)
+		expect(first.output).toContain('pass offset: 3 to continue')
 		const next = await run(context, {
 			output_mode: 'content',
 			head_limit: 3,
 			offset: 3,
 		})
-		expect(next.output).toContain('./a.txt:4:needle 3')
+		expect(next.output).toContain('a.txt:4:needle 3')
 		expect(next.output).not.toContain('needle 2')
 	})
 
@@ -177,8 +183,8 @@ describe('grep asymmetric context and matched substrings', () => {
 			before_context: 0,
 			after_context: 1,
 		})
-		expect(result.output).toContain('./a.txt:3:needle')
-		expect(result.output).toContain('./a.txt-4-after1')
+		expect(result.output).toContain('a.txt:3:needle')
+		expect(result.output).toContain('a.txt-4-after1')
 		expect(result.output).not.toContain('before1')
 		expect(result.output).not.toContain('after2')
 	})
@@ -192,9 +198,9 @@ describe('grep asymmetric context and matched substrings', () => {
 			only_matching: true,
 			context_lines: 9,
 		})
-		expect(result.output.split('\n').filter((line) => line.startsWith('./'))).toEqual([
-			'./a.txt:2:needle',
-			'./a.txt:2:needle',
+		expect(result.output.split('\n').filter((line) => /^[a-z]\.txt[:-]/.test(line))).toEqual([
+			'a.txt:2:needle',
+			'a.txt:2:needle',
 		])
 		expect(result.output).not.toContain('prefix')
 		expect(result.output).not.toContain('surrounding')
@@ -208,8 +214,8 @@ describe('grep asymmetric context and matched substrings', () => {
 			head_limit: 1,
 			offset: 1,
 		})
-		expect(result.output.split('\n').filter((line) => line.startsWith('./'))).toEqual([
-			'./a.txt:1:needle',
+		expect(result.output.split('\n').filter((line) => /^[a-z]\.txt[:-]/.test(line))).toEqual([
+			'a.txt:1:needle',
 		])
 		expect(result.data).toMatchObject({ truncated: true })
 		const empty = await run(context, { output_mode: 'content', only_matching: true }, '(?:)')
@@ -223,7 +229,26 @@ describe('grep asymmetric context and matched substrings', () => {
 			after_context: 1000,
 			head_limit: 2,
 		})
-		expect(result.output.split('\n').filter((line) => line.startsWith('./'))).toHaveLength(2)
+		expect(result.output.split('\n').filter((line) => /^[a-z]\.txt[:-]/.test(line))).toHaveLength(2)
 		expect(result.data).toMatchObject({ truncated: true })
 	})
+})
+
+describe('grep file list paging reaches every matching file', () => {
+	it('serves each offset the result offered, past the first thousand files', async () => {
+		const files: Record<string, string> = {}
+		for (let i = 0; i < 1_500; i++) files[`f${String(i).padStart(4, '0')}.txt`] = 'needle\n'
+		const { context } = workspace(files)
+		const seen = new Set<string>()
+		let offset = 0
+		for (let guard = 0; guard < 20; guard++) {
+			const result = await run(context, { head_limit: 500, offset })
+			expect(result.output).not.toContain('No entries at this offset')
+			const names = result.output.split('\n').filter((line) => line.endsWith('.txt'))
+			for (const name of names) seen.add(name)
+			if (!result.output.includes('More results are available')) break
+			offset += 500
+		}
+		expect(seen.size).toBe(1_500)
+	}, 120_000) // reads 1,500 real files on each of three pages
 })

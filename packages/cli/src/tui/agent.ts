@@ -1,6 +1,5 @@
 import { debugRequested } from '../debug-requested.js'
 import { isDefaultAccountId } from '../integrations/accounts/binding.js'
-import { openCliAccounts } from '../integrations/accounts/open.js'
 import { resolveIdleCompactionMinTokens } from '../integrations/compaction/idle-compaction.js'
 import { createCurrentCredentialReader } from '../integrations/providers/current-credential.js'
 import { TextOnlyModels } from '../integrations/providers/image-input.js'
@@ -206,11 +205,13 @@ import {
 	resolveContextWindow,
 	resumeSession,
 	seedObservationLedger,
+	stripModelWindowSuffix,
 	toPlatformError,
 	toolset,
 	untrustedEnvelopeBody,
 	webGuidanceContribution,
 	windowsShellNotice,
+	withModelWindowSuffixStripped,
 	wrapUntrusted,
 } from '@namzu/sdk'
 import {
@@ -236,6 +237,7 @@ import {
 	withCheckpoints,
 	withShellNote,
 } from '../checkpoints/wrap.js'
+import { takeConfigWarnings } from '../config/load.js'
 import { readModelLaunchEnvironment } from '../config/model-environment.js'
 import type {
 	CodeAnalysisConfig,
@@ -280,6 +282,8 @@ import {
 	sessionPromptInput,
 } from '../context/system-prompt.js'
 import { createRepositorySnapshotStep, readTurnSnapshot } from '../context/turn-snapshot.js'
+import { openCliAccounts } from '../integrations/accounts/open.js'
+import { accountProductName } from '../integrations/accounts/rows.js'
 import { createLazyCodeAnalysis } from '../integrations/analysis/provider.js'
 import {
 	maybeCreateDecisionModel,
@@ -331,6 +335,10 @@ import { type CliPluginRuntime, createCliPluginRuntime } from '../integrations/p
 import { hasApiCredential, requiresCredentialForModel } from '../integrations/providers/access.js'
 import { canSelectModel } from '../integrations/providers/access.js'
 import {
+	resolveAnthropicEndpoint,
+	thirdPartyHost,
+} from '../integrations/providers/anthropic-endpoint.js'
+import {
 	type ComposerModelSettings,
 	resolveProviderReasoning,
 } from '../integrations/providers/composer-settings.js'
@@ -365,6 +373,7 @@ import {
 	unresolvedMembers,
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
+import { migrateAccountKeys } from '../integrations/providers/key-migration.js'
 import {
 	PickerProviderTimeoutError,
 	runPickerProviderOperation,
@@ -1742,6 +1751,8 @@ export interface AgentSession {
 }
 
 export interface AgentSessionContext {
+	/** One line when startup moved keys saved by an earlier build; absent otherwise. */
+	readonly keyMigrationNotice?: string
 	readonly preferences: Preferences | null
 	readonly needsRepickReason: string | null
 	readonly detected: readonly DetectedProvider[]
@@ -2010,6 +2021,11 @@ export async function probeAgentSession(
 	// and nothing after is this step.
 	const discoveryStartedAt = Date.now()
 	cliLogger().debug('discovering provider credentials')
+	// Keys an earlier build kept only in `accounts.json` move, once, to the
+	// store discovery reads, so they are found below rather than asked for again.
+	const keyMigrationNotice = await migrateAccountKeys(openCliAccounts().registry, {
+		labelOf: (id) => accountProductName(id),
+	}).catch(() => null)
 	const detected = await discoverProviders(options.env ? { env: options.env } : {})
 	cliLogger().debug('provider credentials discovered', {
 		'namzu.boot.discovery_ms': Date.now() - discoveryStartedAt,
@@ -2022,6 +2038,7 @@ export async function probeAgentSession(
 				needsRepickReason: null,
 				detected,
 				credentialGap: credentialGap(read.prefs, detected),
+				...(keyMigrationNotice ? { keyMigrationNotice } : {}),
 			}
 		case 'missing':
 			return {
@@ -2029,6 +2046,7 @@ export async function probeAgentSession(
 				needsRepickReason: null,
 				detected,
 				credentialGap: null,
+				...(keyMigrationNotice ? { keyMigrationNotice } : {}),
 			}
 		case 'needs-repick':
 			return {
@@ -2036,6 +2054,7 @@ export async function probeAgentSession(
 				needsRepickReason: read.reason,
 				detected,
 				credentialGap: null,
+				...(keyMigrationNotice ? { keyMigrationNotice } : {}),
 			}
 	}
 }
@@ -5417,7 +5436,7 @@ export async function createAgentSession(
 			required: sandbox.required,
 			workspace: sandbox.workspace,
 		},
-		providerSummary: entry.label,
+		providerSummary: entry.id === 'anthropic' ? withEndpointHost(entry.label) : entry.label,
 		modelSummary: model,
 		get autoRoute() {
 			return lastAutoRoute
@@ -5929,6 +5948,8 @@ export async function createAgentSession(
 				(line) => `Provider chain: capabilities could not be established for ${line}.`,
 			),
 			...fallbackPlan.notices,
+			...takeConfigWarnings(),
+			...compatibleEndpointNotices(),
 			...memoryMigrationNotices,
 		],
 		rememberNote: (text, type) => saveTypedNote(memoryStore, text, type),
@@ -6846,7 +6867,34 @@ function planFallbacks(
 	}
 }
 
+/**
+ * Build the driver for `model`. A `[1m]` suffix on the id is Namzu's marker for
+ * a one-million-token window, never part of a vendor's name, so the driver is
+ * built with the bare id and every request it later sees is stripped too.
+ */
+function compatibleEndpointNotices(): string[] {
+	const { notice } = resolveAnthropicEndpoint()
+	return notice ? [notice] : []
+}
+
+/** `<provider label> via host` when requests go to a compatible third party. */
+function withEndpointHost(label: string): string {
+	const host = thirdPartyHost()
+	return host ? `${label} via ${host}` : label
+}
+
 export function constructProvider(
+	id: ProviderId,
+	det: DetectedProvider | null,
+	model: string,
+	context: { readonly sessionId?: string } = {},
+): LLMProvider {
+	return withModelWindowSuffixStripped(
+		constructBareProvider(id, det, stripModelWindowSuffix(model), context),
+	)
+}
+
+function constructBareProvider(
 	id: ProviderId,
 	det: DetectedProvider | null,
 	model: string,
@@ -6854,12 +6902,29 @@ export function constructProvider(
 ): LLMProvider {
 	switch (id) {
 		case 'anthropic': {
+			const { endpoint } = resolveAnthropicEndpoint()
+			if (endpoint && !endpoint.vendor) {
+				// A saved sign-in or a detected key belongs to the vendor and is never
+				// sent to another host: only the two variables this endpoint is
+				// configured with are used.
+				const { provider } = ProviderRegistry.create({
+					type: 'anthropic',
+					...(endpoint.authToken
+						? { authToken: endpoint.authToken }
+						: { apiKey: endpoint.apiKey as string }),
+					baseURL: endpoint.baseURL,
+					compatibleEndpoint: true,
+					model,
+					...(promptCacheTtl() ? { promptCacheTtl: promptCacheTtl() } : {}),
+				})
+				return provider
+			}
 			const token = det?.apiKey ?? ''
 			const isOAuth = token.length > 0 && isAnthropicOAuthToken(token)
 			const { provider } = ProviderRegistry.create({
 				type: 'anthropic',
 				...(isOAuth ? { authToken: token } : { apiKey: token }),
-				baseURL: det?.baseUrl,
+				baseURL: endpoint?.baseURL ?? det?.baseUrl,
 				model,
 				...(promptCacheTtl() ? { promptCacheTtl: promptCacheTtl() } : {}),
 			})
