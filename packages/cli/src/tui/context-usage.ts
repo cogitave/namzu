@@ -49,7 +49,13 @@ export function effectiveContextWindow(
 	readonly windowTokens: number
 	readonly windowSource?: ContextSources['context']['windowSource']
 	readonly windowAssumed: boolean
+	/** The auto-compact size asked for, when it is above the model's window and was capped to it. */
+	readonly windowRequested?: number
 } {
+	const capped =
+		autoCompactWindowTokens !== undefined &&
+		autoCompactWindowTokens > 0 &&
+		autoCompactWindowTokens > reported.windowTokens
 	const lowered =
 		autoCompactWindowTokens !== undefined &&
 		autoCompactWindowTokens > 0 &&
@@ -59,6 +65,7 @@ export function effectiveContextWindow(
 		windowTokens: lowered ? (autoCompactWindowTokens as number) : reported.windowTokens,
 		...(source ? { windowSource: source } : {}),
 		windowAssumed: source !== 'provider' && source !== 'config',
+		...(capped ? { windowRequested: autoCompactWindowTokens as number } : {}),
 	}
 }
 
@@ -70,6 +77,8 @@ export interface ContextSources {
 		readonly measured: boolean
 		readonly windowAssumed: boolean
 		readonly windowSource?: 'config' | 'provider' | 'model-table' | 'default'
+		/** See `effectiveContextWindow`: the auto-compact size that the model's window capped. */
+		readonly windowRequested?: number
 	}
 	/**
 	 * The conversation was rewritten (compacted, summarised in part) since that
@@ -255,6 +264,9 @@ export async function collectContextView(sources: ContextSources): Promise<Conte
 	return buildContextView({
 		breakdown,
 		windowSource: source,
+		...(sources.context.windowRequested !== undefined
+			? { windowRequested: sources.context.windowRequested }
+			: {}),
 		autoCompact: sources.autoCompact,
 		...(sources.cacheLifetime ? { cacheLifetime: sources.cacheLifetime } : {}),
 		approximate: sources.sizeOutOfDate === true || !sources.context.measured,

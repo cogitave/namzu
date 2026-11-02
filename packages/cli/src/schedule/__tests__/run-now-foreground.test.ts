@@ -9,6 +9,7 @@
 import { join } from 'node:path'
 import { NOOP_LOGGER } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { answerModelsListing } from '../../__fixtures__/models-endpoint.js'
 import { __resetCliLoggerForTests } from '../../logging.js'
 import { createAgentSession } from '../../tui/agent.js'
 import { findScheduledPark } from '../../tui/schedule/resume.js'
@@ -33,7 +34,7 @@ beforeEach(() => {
 	responses = []
 	vi.stubGlobal(
 		'fetch',
-		vi.fn<typeof fetch>(async () => (responses.shift() ?? completion)()),
+		answerModelsListing(vi.fn<typeof fetch>(async () => (responses.shift() ?? completion)())),
 	)
 })
 afterEach(() => {
@@ -84,11 +85,13 @@ describe('a foreground run-now', () => {
 		})
 		vi.stubGlobal(
 			'fetch',
-			vi.fn<typeof fetch>(async () => {
-				fetched()
-				await fetchGate
-				return completion()
-			}),
+			answerModelsListing(
+				vi.fn<typeof fetch>(async () => {
+					fetched()
+					await fetchGate
+					return completion()
+				}),
+			),
 		)
 		const foreground = runNowCommand(recordingContext(), [job.name, '--home', sb.home], { agent })
 		await fetchStarted

@@ -36,15 +36,25 @@ offers its ways in, the detected subscription first, then the API key, then — 
 nothing works yet — a sign-in. Picking one leads where that way in has always
 led: a detected session opens the vendor's models, a credential opens the paste
 field, and a sign-in starts the same device-code or browser flow `l` starts.
-The paste field feeds the session-credential path. A pasted Google API key is
-saved privately after Google starts successfully, and both the key and selected
-provider are available on the next launch. Other pasted credentials are held
-in memory for that session in the terminal picker. The Desktop's **Settings ▸ Models** saves a
+The paste field feeds the session-credential path. A pasted API key, for any
+provider that takes one, is saved privately after that provider starts
+successfully, and both the key and the selected provider are available on the
+next launch without asking again: the Google key goes to `gemini-api-key.json`, every
+other provider's to `api-keys.json` (below). The one exception is a pasted
+subscription token, which lapses in hours with nothing to renew it; it stays in
+memory for that session and the screen says so. The Desktop's **Settings ▸ Models** saves a
 pasted key for any provider that takes one in `api-keys.json` beside the other credential files
 (`{ "version": 1, "keys": { "<provider id>": "<key>" } }`, created `0600` in a `0700` directory and
 read back and verified like them, refused rather than stored unprotected); discovery reads it after
 the environment, names it `saved API key · this device`, and every Namzu surface then uses it.
-Removing the last key deletes the file.
+Removing the last key deletes the file. The terminal picker writes the same file, so a key
+entered in one surface is found by the others.
+
+A key added with `/auth` lives in `accounts.json` with its label. When the provider has no saved key
+yet and the account has no custom endpoint, the key is also saved as the provider's startup key.
+Keys that an earlier build left only in `accounts.json` are copied once, at the first start of a
+build with this behaviour, with a one-line notice and no prompt; the accounts themselves are not
+changed, and a marker (`.api-keys-migrated`) keeps a key you later remove from coming back.
 
 **The choice follows the ways, not the ids.** What makes a row worth asking
 about is that it has more than one way in — a machine that found a session *and*
@@ -191,8 +201,12 @@ store. An explicit `GEMINI_API_KEY` or `GOOGLE_API_KEY` environment variable
 takes priority over it; the saved key takes priority over the installed Google
 session. Internal discovery callers can skip Namzu-owned stores with
 `skipStored`. Run `/logout gemini` in the TUI or `namzu logout gemini` in a
-shell to remove it. `/logout all` and `namzu logout all` remove it along with
-Namzu-owned subscriptions. These commands remove the saved key for future
+shell to remove it; `/logout <provider>` (for example `/logout deepseek`, or
+`/logout anthropic-key` for an Anthropic API key, since `/logout anthropic`
+removes the subscription) and `namzu logout <provider>` remove another
+provider's key from `api-keys.json`. `/logout all` and `namzu logout all` remove
+every saved key along with Namzu-owned subscriptions, including keys the Desktop's Settings > Models saved in the same file (remove single providers instead to keep them). Removing an `/auth` account leaves a key already kept for startup; use `/logout <provider>` for that. `/auth` accounts are not
+touched by any of them. These commands remove the saved key for future
 launches; an already-running Namzu session may continue using its in-memory
 copy until it exits. Neither command changes environment variables or the
 installed CLI's account session.

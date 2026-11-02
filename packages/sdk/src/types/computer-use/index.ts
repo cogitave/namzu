@@ -207,6 +207,15 @@ export interface FocusWindowResult {
 	readonly ok: boolean
 	/** The window in front after the attempt, or null when none could be read. */
 	readonly focusedId: string | null
+	/**
+	 * Set with `detail` when the host did not try at all (the screen was in
+	 * use, a prompt had it, the user said no). `not_delivered` / `safe` means
+	 * nothing was done and asking again later is fine.
+	 */
+	readonly delivery?: ActionDelivery
+	readonly retrySafety?: ActionRetrySafety
+	/** Why, in words the model can act on. */
+	readonly detail?: string
 }
 
 /**
@@ -231,9 +240,13 @@ export type UiElementAction =
  */
 export interface UiElement {
 	/**
-	 * Opaque reference for {@link ComputerUseHost.uiAct}, valid until the
-	 * host's next snapshot. Empty for an element the host cannot act on (a
-	 * label, a group), which is in the tree for what it says.
+	 * Opaque reference for {@link ComputerUseHost.uiAct}. It names the control,
+	 * not one reading of it: a host that can find the control again keeps the
+	 * ref usable across snapshots, and fails with a {@link UiActFailureCode}
+	 * when it cannot. Empty for an element the host cannot act on (a label, a
+	 * group), which is in the tree for what it says. A host may also give a
+	 * ref to a region it left unexpanded (see {@link UiElement.hiddenChildren});
+	 * that ref is the `root` of a drill-down snapshot, not a target for `uiAct`.
 	 */
 	readonly ref: string
 	/** Platform role, e.g. `Button`, `Edit`, `ListItem` (UIA ControlType) or `AXButton`. */
@@ -248,6 +261,12 @@ export interface UiElement {
 	readonly states?: readonly string[]
 	readonly actions?: readonly UiElementAction[]
 	readonly children?: readonly UiElement[]
+	/**
+	 * How many children of this element the host left out of the snapshot to
+	 * keep it short. Read them with a snapshot whose {@link UiSnapshotOptions.root}
+	 * is this element's ref.
+	 */
+	readonly hiddenChildren?: number
 }
 
 /**
@@ -264,7 +283,40 @@ export interface UiSnapshot {
 	readonly root: UiElement
 	/** True when the host stopped walking the tree before it ended (a size or time bound). */
 	readonly truncated?: boolean
+	/**
+	 * True when the tree is an outline of a larger one: regions carry
+	 * {@link UiElement.hiddenChildren} and can be opened with
+	 * {@link UiSnapshotOptions.root}.
+	 */
+	readonly outline?: boolean
+	/** How many controls the whole window holds, when the host knows. */
+	readonly total?: number
+	/** True when this snapshot is one region of the window (it was asked for with `root`). */
+	readonly region?: boolean
+	/** For a region listed in pages: the `offset` that reads the page after this one. */
+	readonly next?: number
 }
+
+/**
+ * What a snapshot is asked to read.
+ *
+ * @experimental See {@link ComputerUseCapabilities.uiTree}.
+ */
+export interface UiSnapshotOptions {
+	/** A ref from an earlier snapshot: read only that element's subtree. Refs outside it stay valid. */
+	readonly root?: string
+	/** With `root`: skip this many of the region's children (the page a snapshot reported as `next`). */
+	readonly offset?: number
+	/** Only controls whose text contains this (case-insensitive), with the elements above them. */
+	readonly query?: string
+}
+
+/** Why a ref could not be acted on, as a typed failure. */
+export type UiActFailureCode =
+	/** The control the ref named is gone, or no longer something that can be acted on. */
+	| 'STALE_REF'
+	/** Several controls fit what the ref named; the host did not guess. */
+	| 'AMBIGUOUS_TARGET'
 
 /**
  * What {@link ComputerUseHost.uiAct} did.
@@ -275,6 +327,51 @@ export interface UiActResult {
 	readonly ok: boolean
 	/** Why it did not, in words the model can act on (a stale ref, a disabled element). */
 	readonly detail?: string
+	/** Set when the ref could not be resolved to one control; nothing was sent. */
+	readonly code?: UiActFailureCode
+	/** What is known about the effect. Absent from a host that does not classify. */
+	readonly delivery?: ActionDelivery
+	/** Whether repeating the action blindly is safe. Set together with `delivery`. */
+	readonly retrySafety?: ActionRetrySafety
+	/** The state read back after a stateful action, when the host could read it. */
+	readonly readBack?: {
+		readonly expected?: string
+		readonly observed?: string
+	}
+}
+
+/**
+ * How far an action is known to have taken effect.
+ *
+ * - `delivered_verified`: the host read the state back and it matches.
+ * - `delivered_unverified`: the input was sent (or may have been) and no
+ *   read-back confirmed it. A failed or impossible read-back lands here, never
+ *   in `not_delivered`.
+ * - `not_delivered`: the action was refused before any input, or a read-back
+ *   proved the state did not change.
+ */
+export type ActionDelivery = 'delivered_verified' | 'delivered_unverified' | 'not_delivered'
+
+/**
+ * `safe`: nothing reached the target, so the same action may be repeated.
+ * `unsafe`: the action may have taken effect; inspect before repeating it.
+ */
+export type ActionRetrySafety = 'safe' | 'unsafe'
+
+/**
+ * What a window-scoped input action learned about its own delivery.
+ *
+ * @experimental See {@link ComputerUseHost.executeWindow}.
+ */
+export interface WindowInputResult {
+	readonly delivery: ActionDelivery
+	readonly retrySafety: ActionRetrySafety
+	readonly detail?: string
+	/** What the window read afterwards, when the host verified the input by reading it. */
+	readonly readBack?: {
+		readonly expected?: string
+		readonly observed?: string
+	}
 }
 
 export interface Point {
@@ -294,7 +391,11 @@ export type ComputerUseAction =
 	| { readonly type: 'screenshot' }
 	| { readonly type: 'cursor_position' }
 	| { readonly type: 'mouse_move'; readonly to: Point }
-	| { readonly type: 'mouse_click'; readonly at: Point; readonly button: MouseButton }
+	| {
+			readonly type: 'mouse_click'
+			readonly at: Point
+			readonly button: MouseButton
+	  }
 	| {
 			readonly type: 'mouse_drag'
 			readonly from: Point
@@ -335,7 +436,13 @@ export function assertComputerUseActionType(type: ComputerUseAction['type']): vo
 export type ComputerUseResult =
 	| { readonly type: 'screenshot'; readonly result: ScreenshotResult }
 	| { readonly type: 'cursor_position'; readonly point: Point }
-	| { readonly type: 'ok' }
+	| {
+			readonly type: 'ok'
+			/** Set by a host that can tell more than "the call returned". */
+			readonly delivery?: ActionDelivery
+			readonly retrySafety?: ActionRetrySafety
+			readonly detail?: string
+	  }
 
 /**
  * A state-changing desktop action started, but its subprocess did not report
@@ -370,49 +477,84 @@ export interface ComputerUseHost {
 	 * Points in `action` are physical pixels relative to the display of the
 	 * most recent capture; a `screenshot` result carries that display in
 	 * {@link ScreenshotResult.display}.
+	 *
+	 * Every method that reaches the desktop takes a trailing `signal`: the
+	 * tool call's cancellation (the user interrupted the turn). On abort a host
+	 * stops waiting for the desktop and answers at once. An action that may
+	 * already have been sent answers `delivered_unverified` with `retrySafety:
+	 * 'unsafe'`; one that provably was not answers `not_delivered` with
+	 * `'safe'`. A read throws.
 	 */
-	execute(action: ComputerUseAction): Promise<ComputerUseResult>
+	execute(action: ComputerUseAction, signal?: AbortSignal): Promise<ComputerUseResult>
 
 	/**
 	 * The visible, titled top-level windows, front to back where the platform
 	 * knows the order. Offered to the model only with
 	 * {@link ComputerUseCapabilities.windows}.
 	 */
-	listWindows?(): Promise<readonly WindowInfo[]>
+	listWindows?(signal?: AbortSignal): Promise<readonly WindowInfo[]>
 	/**
 	 * Bring a window to the front, restoring it when minimized. Offered only
 	 * with {@link ComputerUseCapabilities.windows}.
 	 */
-	focusWindow?(id: string): Promise<FocusWindowResult>
+	focusWindow?(id: string, signal?: AbortSignal): Promise<FocusWindowResult>
+	/**
+	 * The model's turn `turnId` is making a tool call. A host that keeps state
+	 * per turn (an Escape stop, refused permissions) starts a new one when the
+	 * id changes.
+	 */
+	beginTurn?(turnId: string): void
+	/**
+	 * The model's turn ended or was interrupted. A host releases anything it
+	 * holds for the turn: a lease on the screen, an input monitor, a window it
+	 * moved forward.
+	 */
+	endTurn?(): void | Promise<void>
 	/** Capture a named window. Never silently replace a failed capture with the desktop. */
-	captureWindow?(id: string): Promise<WindowScreenshotResult>
+	captureWindow?(id: string, signal?: AbortSignal): Promise<WindowScreenshotResult>
 	/**
 	 * Act in the PNG pixel space of `captureId`. The host must verify the
 	 * capture is current and still belongs to the same process/window before
 	 * dispatching input. No implicit fallback to display input is permitted.
 	 */
-	executeWindow?(captureId: string, action: WindowInputAction): Promise<void>
+	// `void` stays in the union: a host that returns nothing (`Promise<void>`) must keep compiling.
+	executeWindow?(
+		captureId: string,
+		action: WindowInputAction,
+		signal?: AbortSignal,
+		// biome-ignore lint/suspicious/noConfusingVoidType: widening an existing `Promise<void>` return
+	): Promise<void | WindowInputResult>
 	/**
 	 * Capture one region of the current display at full physical resolution.
 	 * `rect` is display-relative physical pixels; the result's `width` and
 	 * `height` are the region's. Used by `zoom` when
 	 * {@link ComputerUseCapabilities.regionCapture} is set.
 	 */
-	captureRegion?(rect: Rect): Promise<ScreenshotResult>
+	captureRegion?(rect: Rect, signal?: AbortSignal): Promise<ScreenshotResult>
 	/**
 	 * The accessibility tree of one window, or of the focused window when
-	 * `windowId` is omitted. Offered only with {@link ComputerUseCapabilities.uiTree}.
+	 * `windowId` is omitted. With `options.root` only that element's subtree is
+	 * read. Offered only with {@link ComputerUseCapabilities.uiTree}.
 	 *
 	 * @experimental
 	 */
-	uiSnapshot?(windowId?: string): Promise<UiSnapshot>
+	uiSnapshot?(
+		windowId?: string,
+		options?: UiSnapshotOptions,
+		signal?: AbortSignal,
+	): Promise<UiSnapshot>
 	/**
-	 * Act on an element from the latest {@link uiSnapshot}. `value` is the text
+	 * Act on an element from an earlier {@link uiSnapshot}. `value` is the text
 	 * for `set_value`. Offered only with {@link ComputerUseCapabilities.uiTree}.
 	 *
 	 * @experimental
 	 */
-	uiAct?(ref: string, action: UiElementAction, value?: string): Promise<UiActResult>
+	uiAct?(
+		ref: string,
+		action: UiElementAction,
+		value?: string,
+		signal?: AbortSignal,
+	): Promise<UiActResult>
 
 	initialize?(): Promise<void>
 	dispose?(): Promise<void>

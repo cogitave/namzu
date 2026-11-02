@@ -1110,10 +1110,18 @@ describe('/login and /logout', () => {
 			kind: 'logout',
 			target: 'all',
 		})
+		expect(runSlash('/logout deepseek', ctx)).toEqual({
+			kind: 'logout',
+			target: 'key:deepseek',
+		})
+		expect(runSlash('/logout anthropic-key', ctx)).toEqual({
+			kind: 'logout',
+			target: 'key:anthropic',
+		})
 		expect(runSlash('/logout everything', ctx)).toEqual({
 			kind: 'message',
 			role: 'system',
-			content: 'Usage: /logout [claude|codex|gemini|all]',
+			content: 'Usage: /logout [claude|codex|gemini|<provider>|all]',
 		})
 	})
 

@@ -318,6 +318,19 @@ jobs:
           sh -n install.sh
           dash -n install.sh
 
+      # Startup and resume budgets, on the built CLI. Each sample is a fresh
+      # process, the figure is the median of five, and wall time is checked
+      # beside CPU time against budgets committed in
+      # scripts/bench-startup.budgets.json (reference x CI scale x headroom).
+      # The resume metric opens a generated 400-turn session, so a change that
+      # makes opening a large conversation slower fails here instead of in a
+      # person's terminal. Timing is the thing under test, so it sits on the
+      # one matrix leg that carries the gates and runs with nothing else
+      # sharing the step.
+      - name: Startup and resume budget gate
+        if: matrix.gates
+        run: node --import tsx --test scripts/__tests__/bench-startup-budgets.test.ts && node scripts/bench-startup.mjs --check
+
       # Behaviour regression gate. The harness exists so that a change to a
       # tool description, the deferred-tool top-k, or the compaction
       # threshold ships with a signal behind it — and that signal could not

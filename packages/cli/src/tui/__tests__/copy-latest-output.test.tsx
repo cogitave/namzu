@@ -17,7 +17,7 @@ import {
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ClipboardWriteResult } from '../../integrations/clipboard/text.js'
+import type { ClipboardCopier, CopyOutcome } from '../../integrations/clipboard/copy.js'
 import type { Preferences } from '../../integrations/providers/index.js'
 import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
@@ -32,7 +32,20 @@ type TurnScript = {
 }
 
 const requested: string[] = []
-let clipboardResult: ClipboardWriteResult = { kind: 'request-sent', bytes: 0 }
+const sentOutcome = (text: string): CopyOutcome => ({
+	chars: [...text].length,
+	bytes: Buffer.byteLength(text, 'utf8'),
+	native: null,
+	osc52: 'sent',
+	tmuxBuffer: false,
+})
+let clipboardResult: ((text: string) => CopyOutcome) | undefined
+const copier: ClipboardCopier = {
+	copy: async (text) => {
+		requested.push(text)
+		return (clipboardResult ?? sentOutcome)(text)
+	},
+}
 let turns: TurnScript[] = []
 let sendCalls = 0
 let releaseHeldTurn: () => void = () => {}
@@ -46,14 +59,6 @@ function resetHeldTurn(): void {
 	})
 }
 
-vi.mock('../../integrations/clipboard/text.js', () => ({
-	writeClipboardText: (text: string) => {
-		requested.push(text)
-		return clipboardResult.kind === 'request-sent'
-			? { ...clipboardResult, bytes: Buffer.byteLength(text, 'utf8') }
-			: clipboardResult
-	},
-}))
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
@@ -120,7 +125,7 @@ const mounted: { unmount: () => void }[] = []
 
 beforeEach(() => {
 	requested.length = 0
-	clipboardResult = { kind: 'request-sent', bytes: 0 }
+	clipboardResult = undefined
 	turns = []
 	sendCalls = 0
 	recentConversations = []
@@ -174,7 +179,7 @@ async function chooseWholeResponse(harness: {
 }
 
 async function mountReady() {
-	const harness = render(<App ctx={ctx} />)
+	const harness = render(<App ctx={ctx} clipboard={copier} />)
 	mounted.push(harness)
 	// Wait for the live composer, because the probing screen drops every key
 	// before the feature is reachable and would report that as a command failure.
@@ -202,7 +207,7 @@ it('sends the exact raw Markdown and keeps it after /clear-screen', async () => 
 	await waitUntil(() => sendCalls === 1)
 	await tick(80)
 	await chooseWholeResponse(harness)
-	await frameShows(harness, 'via OSC 52 · if paste fails, allow clipboard access in your terminal')
+	await frameShows(harness, 'If paste fails, hold Shift while selecting.')
 	harness.stdin.write('\x0c')
 	await chooseWholeResponse(harness)
 
@@ -410,20 +415,15 @@ it('clears a stale target when the resumed conversation has no assistant output'
 	expect(requested).toEqual([])
 })
 
-describe('clipboard adapter results reach the operator', () => {
+describe('clipboard results reach the operator', () => {
 	it.each([
-		[
-			{ kind: 'unavailable', detail: 'stdout is not an interactive terminal' } as const,
-			'Couldn’t copy here: stdout is not an interactive terminal',
-		],
-		[{ kind: 'too-large', bytes: 100_001, limit: 100_000 } as const, 'Nothing was truncated'],
-		[
-			{ kind: 'write-failed', detail: 'stream closed' } as const,
-			'Could not send the terminal copy request: stream closed',
-		],
-	])('reports %s', async (result, expected) => {
+		[{ osc52: 'unavailable' } as const, "Couldn't copy 11 characters (the latest"],
+		[{ osc52: 'too-large', bytes: 100_001 } as const, 'That selection is too large to copy'],
+		[{ osc52: 'failed' } as const, "Couldn't copy 11 characters (the latest"],
+		[{ osc52: 'skipped', native: 'xclip' } as const, 'Copied 11 characters (the latest'],
+	])('reports %j', async (patch, expected) => {
 		turns = [{ text: 'COPY_TARGET', stopReason: 'end_turn' }]
-		clipboardResult = result
+		clipboardResult = (text) => ({ ...sentOutcome(text), ...patch })
 		const harness = await mountReady()
 
 		await submit(harness, 'go')

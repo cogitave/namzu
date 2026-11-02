@@ -19,6 +19,9 @@ export interface SpacesEntryDeps {
 	/** The program that starts a session (the CLI's own entry file). */
 	readonly entry: string
 	readonly prefixSetting: string | undefined
+	/** The `tui.mouse` and `tui.copyOnSelect` settings. */
+	readonly mouseSetting?: 'full' | 'scroll' | 'off'
+	readonly copyOnSelect?: boolean
 	/** Ends the conversation the way `/exit` does. */
 	readonly requestExit: () => void
 	/** Has the App clear the screen and print its whole transcript again. */
@@ -43,16 +46,16 @@ export function createSpacesEntry(deps: SpacesEntryDeps): SpacesEntry {
 		host: SpacesHost
 		local: LocalSession
 	} | null> => {
-		const [{ SpacesHost: Host }, spaces, store, peersModule, prefixModule, pty] = await Promise.all(
-			[
+		const [{ SpacesHost: Host }, spaces, store, peersModule, prefixModule, pty, mouse] =
+			await Promise.all([
 				import('../../spaces/host.js'),
 				import('../../commands/spaces.js'),
 				import('../../spaces/store.js'),
 				import('../../spaces/peers.js'),
 				import('../../spaces/prefix.js'),
 				import('../../terminal/pty.js'),
-			],
-		)
+				import('../../spaces/mouse.js'),
+			])
 		const binding = await pty.loadHostPty().catch(() => null)
 		if (binding === null) return null
 		const palette = await import('../../spaces/palette.js')
@@ -116,6 +119,8 @@ export function createSpacesEntry(deps: SpacesEntryDeps): SpacesEntry {
 			},
 			prefix,
 			truecolor: palette.advertisesTruecolor(deps.env),
+			mouse: mouse.resolveMouseMode(deps.env, deps.mouseSetting),
+			...(deps.copyOnSelect !== undefined ? { copyOnSelect: deps.copyOnSelect } : {}),
 			...(peers ? { peers } : {}),
 			local: {
 				session: local,

@@ -168,3 +168,26 @@ export function removeProviderKey(id: unknown, home?: string): ProviderId {
 	else clearStoredApiKey(provider, home)
 	return provider
 }
+
+/** What `/logout` and `namzu logout` call a saved key; `anthropic-key` because `anthropic` is the subscription. */
+export type ApiKeyLogoutTarget = `key:${ProviderId}`
+
+/** The provider whose saved API key a logout word names, or `null`. Gemini keeps its own word. */
+export function apiKeyLogoutTarget(word: string): ApiKeyLogoutTarget | null {
+	const value = word.trim().toLowerCase()
+	const id = value === 'anthropic-key' ? 'anthropic' : value
+	if (id === 'google' || (id === 'anthropic' && value !== 'anthropic-key')) return null
+	if (!(ALL_PROVIDER_IDS as readonly string[]).includes(id)) return null
+	const entry = PROVIDER_REGISTRY[id as ProviderId]
+	return entry.constructible && entry.acceptsTypedCredential ? `key:${entry.id}` : null
+}
+
+/** Narrows a logout target to a saved-API-key one. */
+export function isApiKeyLogoutTarget(target: string): target is ApiKeyLogoutTarget {
+	return target.startsWith('key:')
+}
+
+/** The word a person types to remove this provider's saved key. */
+export function apiKeyLogoutWord(id: ProviderId): string {
+	return id === 'anthropic' ? 'anthropic-key' : id === 'google' ? 'gemini' : id
+}

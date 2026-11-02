@@ -229,8 +229,8 @@ is visible and answerable.
 
 [Hypermode](slash-commands.md#hypermode), while on for the session, is named
 once at the right end of the composer's upper rule in violet. The rule rests in
-plain graphite. While it is on the footer's effort item also reads `Hypermode on`. Turning the mode on sends one short lavender glow from the visible
-rule's center toward both ends, then the rule becomes still again. Repeating
+plain graphite. The footer does not repeat it. Turning the mode on sends one
+short lavender glow from the visible rule's center toward both ends, then the rule becomes still again. Repeating
 the selection does not replay it. Motion is skipped in non-interactive terminals,
 for screen readers, and when colour is refused (`NO_COLOR`, `FORCE_COLOR=0`,
 `TERM=dumb`); the label remains readable without colour. A frame too narrow for the
@@ -1032,7 +1032,9 @@ interrupts the current turn and its children.
 
 ## System rows
 
-Every row Namzu writes about itself shares one marker, a coloured `●` (yellow for something to read, dim for a note, red for a failure), with a `⎿` line for what continues it; `system-rows.ts` holds the one level to glyph and colour mapping, and a system row written with no glyph of its own gets the dim notice dot, so no producer can bypass it. `✻` stays on exactly two rows: the line that closes a reply and `Conversation compacted`. An interruption is one dim line, `Interrupted · What should Namzu do instead?`, hung under the call that was running when there was one and standing alone otherwise; after a send-now steer it is a plain `Interrupted`. Agents, workflows and background jobs end with the same three words, `finished`, `failed` or `stopped`. A copy request reads `Sent 1,234 chars via OSC 52 · if paste fails, allow clipboard access in your terminal`. Peer messages read `Message from alice: …`, goal rounds `Goal, attempt 2 of 5` over the objective, a delivered scheduled run `Scheduled job "nightly-build" failed at 09:12`, and a provider switch names both products and a reason ("OpenAI was too busy, so Namzu used Anthropic for the rest of that reply."; the chain position, HTTP status and code follow only with `--debug`).
+Every row Namzu writes about itself shares one marker, a coloured `●` (yellow for something to read, dim for a note, red for a failure), with a `⎿` line for what continues it; `system-rows.ts` holds the one level to glyph and colour mapping, and a system row written with no glyph of its own gets the dim notice dot, so no producer can bypass it. `✻` stays on exactly two rows: the line that closes a reply and `Conversation compacted`. An interruption is one dim line, `Interrupted · What should Namzu do instead?`, hung under the call that was running when there was one and standing alone otherwise; after a send-now steer it is a plain `Interrupted`. Agents, workflows and background jobs end with the same three words, `finished`, `failed` or `stopped`. A copy reads `Copied 1,234 characters (the latest answer) to the clipboard.` when the machine's clipboard tool took it, and `Sent 1,234 characters (the latest answer) to your clipboard. If paste fails, hold Shift while selecting.` when only the terminal's request went out. Peer messages read `Message from alice: …`, goal rounds `Goal, attempt 2 of 5` over the objective, a delivered scheduled run `Scheduled job "nightly-build" failed at 09:12`, and a provider switch names both products and a reason ("OpenAI was too busy, so Namzu used Anthropic for the rest of that reply."; the chain position, HTTP status and code follow only with `--debug`).
+
+`NAMZU_NO_CLIPBOARD=1` turns off every clipboard tool, reading and writing, for the process: nothing is started, each tool counts as unavailable, and a copy falls back to the terminal's request or the notice, as on a machine with no tool.
 
 ## Plain words for errors and status
 
@@ -1228,7 +1230,7 @@ across terminal input chunks is assembled before editing the draft; pasted
 newlines do not submit it. Windows CRLF and CR line endings become LF. A paste
 longer than 800 characters, or with more than `min(rows - 10, 2)` line breaks,
 becomes a chip inside the input text: `[Pasted text #N +M lines]` (`[Pasted text
-#N]` when it has no line break). A pasted image is `[Image #N]`; N is fixed when the image is attached, so deleting an earlier chip never renumbers the rest, and an image whose chip leaves the text by any route is no longer attached. Backspace after
+#N]` when it has no line break). A pasted image is `[Image #N]` ([how images are read](clipboard-and-images.md)); N is fixed when the image is attached, so deleting an earlier chip never renumbers the rest, and an image whose chip leaves the text by any route is no longer attached. Backspace after
 a chip removes it whole, and the chip is replaced by the text it stands for when
 the message is sent, so history recall and draft restore see the full text. The sent message is echoed in the conversation with that text in full, pasted lines included; only a message over 10,000 characters is cut, to its first and last 2,500 characters with a dim divider between them that reads `(N lines, ~M KB hidden)`. The model always receives the whole message. Other
 pastes insert at the cursor as typed text. There is no separate chip row. Terminals without bracketed-paste support retain chunk-based fallback

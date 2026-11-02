@@ -274,10 +274,10 @@ describe('the TUI reasoning-effort hop', () => {
 		const none = await createAgentSession(
 			{
 				version: 3,
-				providers: [{ id: 'deepseek', model: 'deepseek-v4-flash' }],
+				providers: [{ id: 'anthropic', model: 'claude-haiku-4-5' }],
 				subagents: { active: [] },
 			} as Preferences,
-			detected('deepseek'),
+			detected('anthropic'),
 			{ cwd },
 		)
 		try {

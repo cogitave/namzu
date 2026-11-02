@@ -4,7 +4,6 @@ import {
 	END_WORDS,
 	INTERRUPTED_BY_STEER_TEXT,
 	INTERRUPTED_TEXT,
-	clipboardSentNotice,
 	endLevel,
 	endOutcome,
 	endWord,
@@ -96,13 +95,6 @@ describe('the finished, failed, stopped table', () => {
 describe('small shared wording', () => {
 	it('words a goal round without slashes', () => {
 		expect(goalRoundHeadline(2, 5)).toBe('Goal, attempt 2 of 5')
-	})
-
-	it('keeps the copy notice short', () => {
-		expect(clipboardSentNotice(1234)).toBe(
-			'Sent 1,234 chars via OSC 52 · if paste fails, allow clipboard access in your terminal',
-		)
-		expect(clipboardSentNotice(1, 'the latest answer')).toContain('Sent 1 char (the latest answer)')
 	})
 })
 

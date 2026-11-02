@@ -22,7 +22,7 @@ export function registerAnthropic(options?: RegisterOptions): void {
 	ProviderRegistry.register('anthropic', AnthropicProvider, ANTHROPIC_CAPABILITIES, options)
 }
 
-export { ANTHROPIC_CAPABILITIES, AnthropicProvider } from './client.js'
+export { ANTHROPIC_CAPABILITIES, AnthropicProvider, isVendorEndpoint } from './client.js'
 export type { AnthropicConfig, AnthropicProviderConfig } from './types.js'
 
 // The driver's reading of which effort levels each model accepts, exported so

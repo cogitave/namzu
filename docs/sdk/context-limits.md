@@ -44,6 +44,48 @@ soft target. Omitting the setting preserves the existing trigger.
 
 `resolveTriggerThreshold` accepts the optional window as its fourth argument.
 
+`parseAutoCompactWindow(text)` reads a written size the way people write one: a
+plain number (`200000`) or one with a `k` or `m` suffix (`786k`, `1m`, `1.5m`).
+A size under 100,000 is `below_minimum`, one over 1,000,000 `above_maximum`, and
+a non-size `unusable`. `resolveAutoCompactWindowSetting(text, source)` turns
+that into the window to use and a one-line warning: a value under 100k reads as
+100k, over 1M as 1M, and a non-size is ignored. The setting only ever lowers the
+window; on a 64,000-token model a 786,432 setting changes nothing.
+
+## The `[1m]` model-id suffix
+
+A model id ending in `[1m]` (any case) declares a one-million-token window,
+recognised or not: `resolveContextWindow` returns at least 1,000,000 for it and
+never lowers a window a driver or the table puts higher. An explicit
+`contextWindowTokens` still wins. The suffix is Namzu's marker, not part of any
+vendor's name, so `withModelWindowSuffixStripped(provider)` wraps a provider to
+hand its driver the bare id (the CLI wraps every provider it builds), and
+`stripModelWindowSuffix(id)` / `splitModelWindowSuffix(id)` do the same for an
+id you hold. Pricing lookups ignore the suffix.
+
+`NAMZU_DISABLE_1M_CONTEXT` (`1`, `true`, `yes` or `on`) switches this off: the
+suffix is still stripped but declares nothing, and no window above 200,000 is
+assumed for a model whose window comes from a driver or the table.
+
+An id the table does not know and that carries no suffix is assumed to have
+128,000 tokens, on purpose: an over-estimate ends a turn on a provider
+rejection, an under-estimate costs a summary. Exactly three DeepSeek ids get
+1,000,000 (`deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-flash`), with or
+without a gateway prefix such as `deepseek/` and a `:tag` such as `:free`; any
+other id containing `deepseek`, a derivative like `deepseek-flash-lite` or a
+distill included, keeps 64,000.
+
+## When compaction keeps failing
+
+With `circuitBreaker` on (the CLI sets it), two guards bound automatic
+compaction. Three passes in a row that shed nothing switch proactive
+compaction off for the rest of the turn; the turn carries on, and the provider's
+context-length rejection still runs the recovery ladder. Three compactions in a
+row, each followed by the history regaining all the space shed within three
+iterations, stop the turn with a message that names the configured window as
+the first thing to check. The second matches the reference behaviour: a window
+that cannot hold the prompt and its summary is not a state to compact out of.
+
 `compactionConfig.triggerThreshold` is optional. Set, it is the fraction of the
 context window at which older history is summarised, exactly as written.
 Absent, `resolveTriggerThreshold(undefined, windowTokens, maxOutputTokens?)`

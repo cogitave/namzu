@@ -16,6 +16,22 @@ export function positiveTokenCount(value: string, source: string): number {
 	return n
 }
 
+/**
+ * `NAMZU_EFFORT_LEVEL` is case-insensitive. `auto` and `unset` mean no override
+ * (the model's own default stands), and `med` is `medium`.
+ */
+function readEffortLevel(raw: string | undefined): ReasoningEffort | undefined {
+	if (raw === undefined) return undefined
+	const value = raw.toLowerCase()
+	if (value === 'auto' || value === 'unset') return undefined
+	const level = value === 'med' ? 'medium' : value
+	if (!REASONING_EFFORT_LEVELS.includes(level as ReasoningEffort))
+		throw new Error(
+			`NAMZU_EFFORT_LEVEL takes one of ${REASONING_EFFORT_LEVELS.join(', ')}, or auto/unset for no override.`,
+		)
+	return level as ReasoningEffort
+}
+
 /** Read only when opening model work; exports do not alter history/upgrade commands. */
 export function readModelLaunchEnvironment(
 	env: NodeJS.ProcessEnv = process.env,
@@ -29,14 +45,12 @@ export function readModelLaunchEnvironment(
 	const provider = text('NAMZU_PROVIDER')
 	const model = text('NAMZU_MODEL')
 	const subagentModel = text('NAMZU_SUBAGENT_MODEL')
-	const rawEffort = text('NAMZU_EFFORT_LEVEL')
-	if (rawEffort !== undefined && !REASONING_EFFORT_LEVELS.includes(rawEffort as ReasoningEffort))
-		throw new Error(`NAMZU_EFFORT_LEVEL takes one of ${REASONING_EFFORT_LEVELS.join(', ')}.`)
+	const rawEffort = readEffortLevel(text('NAMZU_EFFORT_LEVEL'))
 	return {
 		...(provider !== undefined ? { provider } : {}),
 		...(model !== undefined ? { model } : {}),
 		...(subagentModel !== undefined ? { subagentModel } : {}),
-		...(rawEffort !== undefined ? { effort: rawEffort as ReasoningEffort } : {}),
+		...(rawEffort !== undefined ? { effort: rawEffort } : {}),
 	}
 }
 
