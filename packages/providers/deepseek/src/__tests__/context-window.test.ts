@@ -12,11 +12,14 @@ import { DEEPSEEK_CAPABILITIES, DeepSeekProvider } from '../client.js'
  */
 type ListedModel = { id: string; context_window?: unknown; max_output_tokens?: unknown }
 
-function providerListing(data: ListedModel[] | Error): {
+function providerListing(
+	data: ListedModel[] | Error,
+	baseURL?: string,
+): {
 	provider: DeepSeekProvider
 	list: ReturnType<typeof vi.fn>
 } {
-	const provider = new DeepSeekProvider({ apiKey: 'test-key' })
+	const provider = new DeepSeekProvider({ apiKey: 'test-key', ...(baseURL ? { baseURL } : {}) })
 	const list = vi.fn(async () => {
 		if (data instanceof Error) throw data
 		return { data }
@@ -78,8 +81,21 @@ describe('the deepseek driver reports its context window', () => {
 		expect(list).toHaveBeenCalledTimes(2)
 	})
 
-	it('declares the output cap, so the trigger reserves what the model can write', () => {
-		expect(DEEPSEEK_CAPABILITIES.maxOutputTokens).toBe(384_000)
+	it('declares no driver-wide output cap: the cap belongs to a listed model', () => {
+		expect(DEEPSEEK_CAPABILITIES.maxOutputTokens).toBeUndefined()
+	})
+
+	it('offers the documented limits only on the vendor host', async () => {
+		const gateway = 'https://gateway.example.test/v1'
+		const { provider } = providerListing([], gateway)
+		await expect(provider.resolveContextWindow('deepseek-flash')).resolves.toBeUndefined()
+		const flash = (await provider.listModels()).find((m) => m.id === 'deepseek-flash')
+		expect(flash?.contextWindow).toBeUndefined()
+		expect(flash?.maxOutputTokens).toBeUndefined()
+		const reported = providerListing([{ id: 'deepseek-flash', context_window: 128_000 }], gateway)
+		await expect(reported.provider.resolveContextWindow('deepseek-flash')).resolves.toBe(128_000)
+		const vendor = providerListing([], 'https://api.deepseek.com/v1')
+		await expect(vendor.provider.resolveContextWindow('deepseek-flash')).resolves.toBe(1_000_000)
 	})
 
 	it('puts the summary trigger at 967,000 tokens, not 32,000', async () => {

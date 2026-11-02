@@ -75,7 +75,8 @@ current model (one row for `deepseek-flash` and `deepseek-v4-pro` on
 https://api-docs.deepseek.com/quick_start/pricing). The driver asks the models
 endpoint first and uses its `context_window` and `max_output_tokens` when the
 vendor returns them; those two fields are optional there, so the documented
-limits are only the fallback for the ids the driver lists. The runtime measures
+limits are only the fallback for the ids the driver lists, and only on the vendor's own host: behind a custom `baseURL` the driver
+offers just what the listing reports. The runtime measures
 compaction against that window, so the first summary is due at 967,000 tokens,
 not at the 32,000 that a 64,000-token guess produced. An id the driver neither
 lists nor was told about is left to the SDK's table, which keeps a conservative

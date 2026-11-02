@@ -51,10 +51,24 @@ export const DEEPSEEK_CAPABILITIES: ProviderCapabilities = {
 	supportsDocuments: false,
 	supportsToolResultImages: true,
 	supportsToolResultDocuments: false,
-	maxOutputTokens: MAX_OUTPUT_TOKENS,
 }
 
 const DEFAULT_BASE_URL = 'https://api.deepseek.com'
+
+/**
+ * The documented 1M / 384K only describe the vendor's own service. A gateway
+ * behind a custom `baseURL` may serve the same id at a smaller window, so
+ * there the documented numbers are not offered and only what the listing
+ * reports counts.
+ */
+function isVendorBaseUrl(baseURL: string | undefined): boolean {
+	if (!baseURL) return true
+	try {
+		return new URL(baseURL).hostname === new URL(DEFAULT_BASE_URL).hostname
+	} catch {
+		return false
+	}
+}
 /** The current Flash id; it accepts images (https://api-docs.deepseek.com/quick_start/pricing). */
 const CURRENT_FLASH_MODEL = 'deepseek-flash'
 /** A retired name the vendor still serves; it routes to the Flash model, images included. */
@@ -629,6 +643,7 @@ export class DeepSeekProvider implements LLMProvider {
 	private defaultModel?: string
 	private samplingMode: 'refuse' | 'ignore'
 	private vendorLimits: Promise<Map<string, VendorLimits>> | undefined
+	private readonly documentedLimits: boolean
 
 	constructor(config: DeepSeekConfig) {
 		if (!config.apiKey) {
@@ -647,6 +662,7 @@ export class DeepSeekProvider implements LLMProvider {
 
 		this.client = new OpenAI(clientOptions)
 		this.defaultModel = config.model
+		this.documentedLimits = isVendorBaseUrl(config.baseURL)
 		this.samplingMode = config.samplingInThinkingMode ?? 'refuse'
 	}
 
@@ -924,7 +940,9 @@ export class DeepSeekProvider implements LLMProvider {
 			// The listing is a refinement; a turn must not fail because it is down.
 			signal?.throwIfAborted()
 		}
-		return reported ?? (isKnownModel(model) ? CONTEXT_WINDOW_TOKENS : undefined)
+		return (
+			reported ?? (this.documentedLimits && isKnownModel(model) ? CONTEXT_WINDOW_TOKENS : undefined)
+		)
 	}
 
 	async probeCredential(signal?: AbortSignal): Promise<void> {
@@ -948,7 +966,7 @@ export class DeepSeekProvider implements LLMProvider {
 		}
 		return [...models.values()].map((model) => {
 			const inputModalities = inputModalitiesFor(model.id)
-			const known = isKnownModel(model.id)
+			const known = this.documentedLimits && isKnownModel(model.id)
 			const reported = vendor.get(model.id)
 			const contextWindow = reported?.contextWindow ?? (known ? CONTEXT_WINDOW_TOKENS : undefined)
 			const maxOutputTokens = reported?.maxOutputTokens ?? (known ? MAX_OUTPUT_TOKENS : undefined)
