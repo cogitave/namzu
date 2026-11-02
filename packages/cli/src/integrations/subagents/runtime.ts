@@ -23,10 +23,15 @@ import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { appendFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { readWorkStatus } from '../outstanding/status.js'
 import { plainChildFailure } from './failure-words.js'
 import { FORK_SUBAGENT, forkDirective, forkSeed, isForkConversation } from './fork.js'
+import { createIdleWatch, describeQuietTask } from './idle-watch.js'
 import { formatChildOperatorAdmission } from './operator-journal.js'
 import { WORKFLOW_STEP_ASSIGNMENT } from './workflow-assignment.js'
+
+/** What the work status read returns. */
+export type WorkStatusRead = ReturnType<typeof readWorkStatus>
 
 import {
 	type ActorRef,
@@ -122,6 +127,7 @@ import { AgentNames, agentNameProblem } from './agent-names.js'
 import { chargeLabelRequest } from './label-ledger.js'
 import { CLI_INTERACTIVE_TURN_TIMEOUT_MS } from './policy.js'
 import { SAVED_AGENTS_GUIDANCE, type SavedAgentHistory } from './saved-agents.js'
+import { taskActivityOutput } from './task-observation.js'
 import { DelegatedWorktreeDriver } from './worktree-driver.js'
 
 /**
@@ -320,6 +326,13 @@ export interface SubagentRuntimeOptions {
 	 * `agent_task_list` history view reports that saved history is unavailable.
 	 */
 	readonly savedAgents?: (sessionId: SessionId) => SavedAgentHistory
+	/**
+	 * The status of everything still going in one parent conversation (jobs,
+	 * monitors, agents, workflow runs) as the same lines the request note
+	 * carries, plus each workflow run in detail; `runId` selects one run.
+	 * Absent: `agent_task_list` lists agents only.
+	 */
+	readonly workStatus?: (sessionId: SessionId, runId?: string) => WorkStatusRead
 	readonly model: string
 	/** Operator's default for ordinary children; explicit choices and pinned agent files win. */
 	readonly defaultModel?: DelegatedModel
@@ -597,6 +610,17 @@ export interface SubagentRuntime {
 	/** Live, bounded observation of children created by this CLI session. */
 	readonly activity: SubagentActivitySource
 	/**
+	 * The one id the model uses for an agent, given any task id the agent has run
+	 * under: a continued or resumed agent keeps the id it was first handed.
+	 */
+	publicTaskIdOf(taskId: string): string
+	/**
+	 * The session ids of the children whose run is live in this program right
+	 * now. A recorded child in this set is not a saved agent: the live task
+	 * already answers for it.
+	 */
+	liveChildSessionIds(): ReadonlySet<string>
+	/**
 	 * Start one agent a workflow script asked for, through the same path, review
 	 * channel, tool roster, sandbox, budget ledger and cancellation as the `Agent`
 	 * tool, and wait for it. The child keeps its normal transcript.
@@ -751,6 +775,7 @@ export async function createSubagentRuntime(
 		/** The turn's token ledger: what its children, and their labels, spend from. */
 		readonly budget: SessionTokenBudget
 		readonly parentSessionId: string
+		readonly parentKey: string
 		/** Set when the turn ended with background agents still running; they outlive it. */
 		retired: boolean
 		close(): void
@@ -798,6 +823,18 @@ export async function createSubagentRuntime(
 		const owned = viewId === undefined ? undefined : conversations.get(viewId)
 		return owned?.publicTaskId ?? String(taskId)
 	}
+	/** Child sessions whose task has not ended: the live task owns them, whatever the parent's log says yet. */
+	const liveChildSessions = (extra: readonly TaskHandle[] = []): Set<string> => {
+		const live = new Set<string>()
+		const note = (task: TaskHandle | undefined): void => {
+			if (task?.childSessionId !== undefined && !isTerminalAgentTaskState(task.state))
+				live.add(String(task.childSessionId))
+		}
+		for (const owned of conversations.values())
+			note(owned.gateway.getTask(owned.task.taskId) ?? owned.task)
+		for (const task of extra) note(task)
+		return live
+	}
 	const dropConversation = (viewId: string): void => {
 		const dropped = conversations.get(viewId)
 		if (dropped) agentNames.forget(dropped.publicTaskId)
@@ -805,6 +842,10 @@ export async function createSubagentRuntime(
 		for (const [taskId, owner] of taskViews) if (owner === viewId) taskViews.delete(taskId)
 	}
 	const parents = new Map<TurnId, Promise<ParentRuntime>>()
+	// Status reads must not await another turn's admission. Before a gateway
+	// has been returned it cannot own any launched task. Weak keys follow the
+	// existing parent promises without retaining released turns.
+	const readyParents = new WeakMap<Promise<ParentRuntime>, ParentRuntime>()
 	const sessions = new Map<string, SharedSession>()
 	const worktreeDriver = new DelegatedWorktreeDriver(opts.cwd, opts.worktreeStateRoot)
 	// A ledger this runtime keeps for itself, when neither a shared store nor a
@@ -1031,6 +1072,7 @@ export async function createSubagentRuntime(
 					completionInbox,
 					budget,
 					parentSessionId: String(parent.sessionId),
+					parentKey: sessionKey(parent),
 					retired: false,
 					close() {
 						if (released) return
@@ -1057,6 +1099,7 @@ export async function createSubagentRuntime(
 			const runtime = await pending
 			if (closed || parents.get(turnId) !== pending)
 				throw new Error(`Parent turn ${turnId} was released`)
+			readyParents.set(pending, runtime)
 			return runtime.gateway
 		} catch (error) {
 			if (parents.get(turnId) === pending) parents.delete(turnId)
@@ -1217,31 +1260,34 @@ export async function createSubagentRuntime(
 		for (const listener of [...backgroundCompletionListeners]) listener(completion)
 	}
 	/** The gateways of other turns of the caller's conversation that outlive their turn. */
-	const retiredGateways = async (turnId: TurnId): Promise<TaskScheduler[]> => {
-		const sessionId = String((await resolveParent(turnId)).sessionId)
+	// Workflow-owned turns remain active until their entire run ends. They
+	// belong to this conversation just as retired background turns do.
+	const conversationGateways = async (turnId: TurnId): Promise<TaskScheduler[]> => {
+		const parentKey = sessionKey(await resolveParent(turnId))
 		const found: TaskScheduler[] = []
 		for (const [otherId, pending] of parents) {
 			if (otherId === turnId) continue
-			const runtime = await pending.catch(() => undefined)
-			if (runtime?.retired && runtime.parentSessionId === sessionId) found.push(runtime.gateway)
+			const runtime = readyParents.get(pending)
+			if (runtime?.parentKey === parentKey && parents.get(otherId) === pending)
+				found.push(runtime.gateway)
 		}
 		return found
 	}
 	/**
-	 * The gateway that owns a task: this turn's, or that of an earlier turn of the
-	 * same conversation whose background agent is still running. A later turn
-	 * answers a notification about work an earlier one launched, so a task id
-	 * must resolve across them, and never across conversations.
+	 * The gateway that owns a task: this turn's, or another ready turn of the
+	 * same conversation, including an active workflow-owned turn. A task ID
+	 * resolves across those turns, and never across conversations.
 	 */
 	const gatewayHolding = async (taskId: TaskId, turnId: TurnId): Promise<TaskScheduler> => {
 		const own = await gatewayForTurn(turnId)
 		if (own.getTask(taskId)) return own
-		for (const gateway of await retiredGateways(turnId)) if (gateway.getTask(taskId)) return gateway
+		for (const gateway of await conversationGateways(turnId))
+			if (gateway.getTask(taskId)) return gateway
 		return own
 	}
 	/**
 	 * A task of this conversation, from any turn: one still held by a gateway
-	 * (this turn's, or a retired turn's with agents running), or one that ended
+	 * (this turn's, or another turn of the same conversation), or one that ended
 	 * after its turn was released, found through the agent the conversation
 	 * retains. A task of another conversation resolves to nothing, exactly as
 	 * an id nobody launched does.
@@ -1753,7 +1799,7 @@ export async function createSubagentRuntime(
 		name: 'Agent',
 		description: [
 			opts.backgroundByDefault === true
-				? 'Delegate a self-contained task to a sub-agent. Agents run in the background by default: you get the task ID at once and are notified automatically when one ends, so continue with other work or answer the user instead of sleeping, polling or checking on its progress. Pass run_in_background: false only when your very next action depends on the result and nothing else could usefully happen while it runs. Operator input can also release a blocking wait while the child keeps working; answer the operator first and keep the child work unless they ask to cancel or change it. Use agent_task_list for current agent status (task_list is only the planning list), send_message to correct a running task, cancel_agent to stop only one owned task, and wait_for_task to retrieve its result; launch each piece of work once.'
+				? 'Delegate a self-contained task to a sub-agent. Agents run in the background by default: you get the task ID at once and are notified automatically when one ends, so continue with other work or answer the user instead of sleeping or polling in a loop; one agent_task_list read is fine when the person asks how it is going. Pass run_in_background: false only when your very next action depends on the result and nothing else could usefully happen while it runs. Operator input can also release a blocking wait while the child keeps working; answer the operator first and keep the child work unless they ask to cancel or change it. Use agent_task_list for current agent status (task_list is only the planning list), send_message to correct a running task, cancel_agent to stop only one owned task, and wait_for_task to retrieve its result; launch each piece of work once.'
 				: 'Delegate a self-contained task to a sub-agent. Set run_in_background: true to receive its task ID immediately and continue independent work; completion arrives as a task notification. Otherwise wait for its result. Operator input can also release a blocking wait while the child keeps working; answer the operator first and keep the child work unless they ask to cancel or change it. Use agent_task_list for current agent status (task_list is only the planning list), send_message to correct a running task, cancel_agent to stop only one owned task, and wait_for_task to retrieve its result; launch each piece of work once.',
 			opts.backgroundByDefault === true
 				? 'For a request to run multiple independent tasks in parallel, issue all Agent calls together in one response. A blocking Agent call (run_in_background: false) followed by another call runs them sequentially.'
@@ -2018,10 +2064,24 @@ export async function createSubagentRuntime(
 	const agentTaskListTool = defineTool({
 		name: 'agent_task_list',
 		description:
-			'List the agent invocations of this conversation, from this turn and earlier ones, and their current status, without waiting or starting work. Use this for agent progress questions. task_list contains planning items, not agent invocations. Use wait_for_task with a live ID for its result. Set history: true to inspect agents saved from earlier turns of this conversation, optionally session_id for one saved result; saved agents are not live.',
+			"Read the current status of this conversation's work without waiting or starting anything: agent invocations with state and activity, workflow runs with phase, agent counts, recent log lines and previews of what finished agents answered, and one line per running agent, workflow run, background job and monitor saying whether it is progressing, waiting, stalled or dead and how long since it last moved. Use it once when the person asks how things are going; a repeated check adds nothing, because each item sends its own completion message. task_list contains planning items, not invocations; operating-system process lists cannot establish agent completion. Select task_id (ID or name), optionally include_output: true for bounded partial activity (partial output is not a completed result), or run_id for one workflow run. Use wait_for_task for a settled agent result. Set history: true to inspect saved agents, optionally session_id for one saved result; saved agents are not live. Returns JSON: tasks, total, omitted, outstanding (status lines), workflows.",
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
+				task_id: {
+					type: 'string',
+					description: 'One live or settled task ID, or its agent name, in this conversation.',
+				},
+				include_output: {
+					type: 'boolean',
+					description:
+						'With task_id only: read a bounded excerpt of observed activity without waiting.',
+				},
+				run_id: {
+					type: 'string',
+					description:
+						'A workflow run id (w followed by eight characters): read only that run, ended or not.',
+				},
 				history: {
 					type: 'boolean',
 					description:
@@ -2040,7 +2100,24 @@ export async function createSubagentRuntime(
 		destructive: false,
 		concurrencySafe: true,
 		async execute(input, context) {
-			const request = input as { history?: boolean; session_id?: string }
+			const request = input as {
+				history?: boolean
+				session_id?: string
+				task_id?: string
+				include_output?: boolean
+				run_id?: string
+			}
+			if (
+				(request.include_output && !request.task_id) ||
+				((request.history || request.session_id) &&
+					(request.task_id !== undefined || request.include_output))
+			)
+				return {
+					success: false,
+					output: '',
+					error:
+						'include_output requires one task_id. Inspect saved agents separately with history and session_id.',
+				}
 			if (request.history || request.session_id) {
 				if (!opts.savedAgents)
 					return {
@@ -2049,9 +2126,26 @@ export async function createSubagentRuntime(
 					}
 				const parent = await resolveParent(context.turnId)
 				const history = opts.savedAgents(parent.sessionId)
-				const saved = request.session_id
+				const liveTasks = [(await gatewayForTurn(context.turnId)).listTasks()]
+				for (const other of await conversationGateways(context.turnId))
+					liveTasks.push(other.listTasks())
+				const live = liveChildSessions(liveTasks.flat())
+				if (request.session_id !== undefined && live.has(request.session_id))
+					return {
+						success: false,
+						output: '',
+						error:
+							'That agent is still running, so it has no saved result yet. Read it with agent_task_list (without history) or wait_for_task.',
+					}
+				// A child still running is a live task, listed once as such; its
+				// parent's log has no ending for it yet only because it has not ended.
+				const read = request.session_id
 					? { agents: [await history.read(request.session_id)], omitted: 0 }
 					: await history.list()
+				const saved = {
+					...read,
+					agents: read.agents.filter((agent) => !live.has(String(agent.sessionId))),
+				}
 				return {
 					success: true,
 					output: JSON.stringify({
@@ -2079,10 +2173,10 @@ export async function createSubagentRuntime(
 			}
 			const gateway = await gatewayForTurn(context.turnId)
 			const tasks = [...gateway.listTasks()]
-			// Background agents an earlier turn left running are still this
-			// conversation's work, and the model may be asked about them now.
-			for (const retired of await retiredGateways(context.turnId))
-				tasks.push(...retired.listTasks())
+			// Active workflow turns and retired background turns both own this
+			// conversation's work, and the operator may ask about them now.
+			for (const other of await conversationGateways(context.turnId))
+				tasks.push(...other.listTasks())
 			// Agents of earlier turns that have ended are still this conversation's
 			// work. They come first, so the newest launches survive the cap.
 			const parentKey = sessionKey(await resolveParent(context.turnId))
@@ -2103,31 +2197,74 @@ export async function createSubagentRuntime(
 			const current = tasks.filter(latestRun)
 			tasks.splice(0, tasks.length, ...current)
 			const snapshot = activity.getSnapshot()
-			const labels = new Map(snapshot.map((entry) => [entry.taskId, entry.description]))
-			const shown = tasks.slice(-40).map((task) => ({
-				description: labels.get(task.taskId) ?? task.agentId,
-				task_id: publicTaskId(task.taskId),
-				...(agentNames.nameOf(publicTaskId(task.taskId)) !== undefined
-					? { name: agentNames.nameOf(publicTaskId(task.taskId)) }
-					: {}),
-				agent: task.agentId,
-				state: task.state,
-				status: agentTaskOutcome(task),
-				...workspaceData(task),
-				...(task.result?.stopReason ? { stop_reason: task.result.stopReason } : {}),
-			}))
+			const observations = new Map(snapshot.map((entry) => [entry.taskId, entry]))
+			let selected = tasks.slice(-40)
+			if (request.task_id !== undefined) {
+				const id = await parseTaskId(request.task_id, context.turnId)
+				const found = id ? await resolveTask(id, context.turnId) : undefined
+				if (!found)
+					return {
+						success: false,
+						output: '',
+						error: await unknownTaskMessage(request.task_id, context.turnId),
+					}
+				selected = [found.task]
+			}
+			const shown = selected.map((task) => {
+				const observed = observations.get(String(task.taskId))
+				const progress = observed ? activity.progressOf(observed.viewId) : undefined
+				// Only the tool identifier belongs in cheap metadata. Its argument
+				// summary is untrusted text, available inside the selected excerpt.
+				const lastTool = progress?.lastTool?.split(/[\s(]/, 1)[0]
+				return {
+					description: observed?.description ?? task.agentId,
+					task_id: publicTaskId(task.taskId),
+					...(agentNames.nameOf(publicTaskId(task.taskId)) !== undefined
+						? { name: agentNames.nameOf(publicTaskId(task.taskId)) }
+						: {}),
+					agent: task.agentId,
+					state: task.state,
+					status: agentTaskOutcome(task),
+					...workspaceData(task),
+					...(task.result?.stopReason ? { stop_reason: task.result.stopReason } : {}),
+					...(observed
+						? {
+								elapsed_ms: Math.max(0, (observed.completedAt ?? Date.now()) - observed.startedAt),
+								...(!isTerminalAgentTaskState(task.state) && observed.lastProgressAt !== undefined
+									? { last_progress_ms_ago: Math.max(0, Date.now() - observed.lastProgressAt) }
+									: {}),
+							}
+						: {}),
+					...(progress?.tokens !== undefined ? { tokens: progress.tokens } : {}),
+					...(progress?.toolCalls !== undefined ? { toolCalls: progress.toolCalls } : {}),
+					...(lastTool && /^[a-zA-Z][\w.-]{0,63}$/.test(lastTool) ? { lastTool } : {}),
+					...(observed
+						? {
+								workflow: observed.workflow,
+								workflow_id: observed.workflowId,
+								phase: observed.phase,
+							}
+						: {}),
+					...(request.include_output
+						? taskActivityOutput(observed, isTerminalAgentTaskState(task.state))
+						: {}),
+				}
+			})
+			const total = request.task_id !== undefined ? selected.length : tasks.length
+			const status =
+				opts.workStatus && request.task_id === undefined
+					? opts.workStatus((await resolveParent(context.turnId)).sessionId, request.run_id)
+					: undefined
+			const body = {
+				tasks: request.run_id !== undefined && status ? [] : shown,
+				total: request.run_id !== undefined && status ? 0 : total,
+				omitted: request.run_id !== undefined && status ? 0 : total - shown.length,
+				...(status ?? {}),
+			}
 			return {
 				success: true,
-				output: JSON.stringify({
-					tasks: shown,
-					total: tasks.length,
-					omitted: tasks.length - shown.length,
-				}),
-				data: {
-					tasks: shown,
-					total: tasks.length,
-					omitted: tasks.length - shown.length,
-				},
+				output: JSON.stringify(body),
+				data: body,
 			}
 		},
 	})
@@ -2135,7 +2272,7 @@ export async function createSubagentRuntime(
 	const waitForTaskTool = defineTool({
 		name: 'wait_for_task',
 		description:
-			'Wait for a task of this conversation, launched in this turn or an earlier one, running or finished, or retrieve its complete result after a task notification. This does not start new work. Operator input releases the wait while the task continues.',
+			'Wait for a task of this conversation, launched in this turn or an earlier one, running or finished, or retrieve its complete result after a task notification. This does not start new work. Operator input releases the wait while the task continues, and so does two minutes without any activity from it; the wait then says the task went quiet and the task keeps running.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
@@ -2162,7 +2299,7 @@ export async function createSubagentRuntime(
 				// can act on, rather than a format error it takes for a broken tool.
 				return {
 					success: true,
-					output: `${asked.trim()} is a workflow run, not a task, so there is nothing to wait for here. You get one message when it ends, with what it returned. End your turn or do other work; do not call wait_for_task for it.`,
+					output: `${asked.trim()} is a workflow run, not a task, so there is nothing to wait for here. You get one message when it ends, with what it returned. End your turn or do other work; to see how it is going, call agent_task_list with run_id ${asked.trim()}.`,
 					data: { run_id: asked.trim(), waited: false },
 				}
 			}
@@ -2191,12 +2328,23 @@ export async function createSubagentRuntime(
 				}
 			gateway = found.gateway
 			const task = found.task
+			const operatorInput = opts.resolveWaitForInbound?.(context.turnId)
+			const quiet = createIdleWatch({
+				lastProgressAt: () => {
+					const seen = activity.getSnapshot().find((entry) => entry.taskId === String(task.taskId))
+					return seen ? (seen.lastProgressAt ?? seen.startedAt) : undefined
+				},
+			})
 			const outcome = await runBlockingAgentTask({
 				gateway,
 				task,
 				signal: context.abortSignal,
 				completionInbox: await completionInboxForTurn(context.turnId),
-				waitForInbound: opts.resolveWaitForInbound?.(context.turnId),
+				waitForInbound: (signal) =>
+					Promise.race([
+						operatorInput?.(signal) ?? new Promise<void>(() => {}),
+						quiet.wait(signal),
+					]),
 				onCreated: () => {},
 				onSettled: () => {},
 				onFailed: () => {},
@@ -2204,6 +2352,23 @@ export async function createSubagentRuntime(
 			})
 			if (outcome.kind === 'completed')
 				return completedAgentResult(outcome.handle, publicTaskId(outcome.handle.taskId))
+			const quietFor = quiet.quietForMs()
+			if (quietFor !== undefined)
+				return {
+					success: true,
+					output: describeQuietTask(
+						publicTaskId(task.taskId),
+						quietFor,
+						outcome.handle.state === 'pending',
+					),
+					data: {
+						task_id: publicTaskId(task.taskId),
+						state: outcome.handle.state,
+						...workspaceData(outcome.handle),
+						wait_released: 'idle',
+						quiet_for_ms: quietFor,
+					},
+				}
 			const progress =
 				outcome.handle.state === 'pending' ? 'queued for an available slot' : 'still running'
 			return {
@@ -3000,6 +3165,8 @@ export async function createSubagentRuntime(
 			return READ_ONLY_PROMPTS.has(type)
 		},
 		activity,
+		publicTaskIdOf: publicTaskId,
+		liveChildSessionIds: () => liveChildSessions(),
 		launchWorkflowAgent,
 		close,
 	}

@@ -126,6 +126,11 @@ import {
 	terminalNotificationEnabled,
 	writeTerminalNotification,
 } from '../integrations/notifications/terminal.js'
+import {
+	PROGRESS_LOOK_MIN_GAP_MS,
+	PROGRESS_LOOK_MS,
+	describePendingWorkflowNotices,
+} from '../integrations/outstanding/progress-notices.js'
 import { hasApiCredential } from '../integrations/providers/access.js'
 import { readCodexCredentialFile } from '../integrations/providers/harness-credentials.js'
 import {
@@ -1853,10 +1858,43 @@ function AppBody({
 						? tokenColor('status.warn')
 						: tokenColor('status.ok'),
 			)
+			wakeLedgerRef.current.dropPhaseNotes(view.runId)
 			wakeLedgerRef.current.noteWorkflowEnd(view.runId, completionNotice(view))
 			activeTurnInboxRef.current?.notify()
 			setNoticeVersion((version) => version + 1)
 		})
+	}, [session])
+	// Phase changes of a run and quiet commands, told to the model without it asking.
+	useEffect(() => {
+		const read = session?.progressNotices
+		if (!read) return
+		let lookedAt = 0
+		const look = () => {
+			// A run reports every agent event; one look a second is plenty.
+			const now = Date.now()
+			if (now - lookedAt < PROGRESS_LOOK_MIN_GAP_MS) return
+			lookedAt = now
+			let woke = false
+			for (const notice of read()) {
+				if (previousSessionRef.current !== session) return
+				if (notice.retired) {
+					wakeLedgerRef.current.dropWorkflow(notice.key)
+					continue
+				}
+				wakeLedgerRef.current.noteWorkflowEnd(notice.key, notice.text)
+				woke ||= notice.wakes
+			}
+			if (!woke) return
+			activeTurnInboxRef.current?.notify()
+			setNoticeVersion((version) => version + 1)
+		}
+		look()
+		const off = session?.workflows?.subscribe(look)
+		const timer = setInterval(look, PROGRESS_LOOK_MS)
+		return () => {
+			off?.()
+			clearInterval(timer)
+		}
 	}, [session])
 	// Runs a previous process left unfinished: told to the model once with its next
 	// turn (never waking an idle model), and named to the operator in one line.
@@ -9907,6 +9945,7 @@ function AppBody({
 			let inboxOpen = true
 			const inboxEntries: LiveInput[] = []
 			const inputWaiters = new Set<() => void>()
+			const operatorWaiters = new Set<() => void>()
 			const inbox: ActiveTurnInbox = {
 				notify() {
 					for (const wake of [...inputWaiters]) wake()
@@ -9923,7 +9962,28 @@ function AppBody({
 					inboxEntries.push(input)
 					setPendingSteers([...inboxEntries])
 					for (const wake of [...inputWaiters]) wake()
+					for (const wake of [...operatorWaiters]) wake()
 					return true
+				},
+				waitForOperator(signal): Promise<void> {
+					if (signal.aborted) return Promise.reject(signal.reason)
+					if (inboxOpen && inboxEntries.length > 0) return Promise.resolve()
+					return new Promise((resolve, reject) => {
+						const cleanup = () => {
+							operatorWaiters.delete(wake)
+							signal.removeEventListener('abort', abort)
+						}
+						const wake = () => {
+							cleanup()
+							resolve()
+						}
+						const abort = () => {
+							cleanup()
+							reject(signal.reason)
+						}
+						operatorWaiters.add(wake)
+						signal.addEventListener('abort', abort, { once: true })
+					})
 				},
 				waitForInbound(signal): Promise<void> {
 					if (signal.aborted) return Promise.reject(signal.reason)
@@ -10120,9 +10180,7 @@ function AppBody({
 									...(st.contextTexts ?? []),
 									wakeSnapshot.idleJobs.text,
 									monitorSnapshot.text,
-									wakeSnapshot.workflows.size > 0
-										? `Workflows that ended since your last turn:\n\n${[...wakeSnapshot.workflows.values()].join('\n\n')}`
-										: undefined,
+									describePendingWorkflowNotices(wakeSnapshot.workflows),
 									operatorShellSnapshot,
 									...[...wakeSnapshot.directChild.values()].map((notice) => notice.context),
 									...wakeSnapshot.childMessages.values(),
@@ -10208,6 +10266,7 @@ function AppBody({
 								]
 							},
 							waitForInbound: (signal) => inbox.waitForInbound(signal),
+							waitForOperator: (signal) => inbox.waitForOperator(signal),
 							onJobNoticeDelivered: (ids) => {
 								wakeLedgerRef.current.jobNoticesDelivered(session, ids)
 							},

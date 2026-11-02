@@ -54,6 +54,10 @@ export interface BackgroundJob {
 	readonly command: string
 	readonly status: BackgroundJobStatus
 	readonly startedAt: number
+	/** When the job last wrote output (epoch ms). Absent until it has written anything. */
+	readonly lastOutputAt?: number
+	/** The last non-empty output line, flattened and clipped to {@link LAST_OUTPUT_LINE_MAX}. */
+	readonly lastOutputLine?: string
 	readonly exitedAt?: number
 	readonly exitCode?: number
 	readonly signal?: string
@@ -357,7 +361,65 @@ function groupAlive(pid: number | undefined): boolean {
 	}
 }
 
+/**
+ * The same probe for a status read: a group that exists but is not ours to
+ * signal (EPERM) is there. The close handler keeps {@link groupAlive}, which
+ * must not wait on a group it can never see end.
+ *
+ * Not proof the group is still the job's: between the group ending and the
+ * record closing, a recycled pid that leads a new group would read as alive.
+ * The close handler polls every {@link GROUP_POLL_MS}, so the window is
+ * that small.
+ */
+function groupPresent(pid: number): boolean {
+	try {
+		process.kill(-pid, 0)
+		return true
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === 'EPERM'
+	}
+}
+
 const GROUP_POLL_MS = 250
+
+/** Longest `lastOutputLine` kept on a job record. */
+export const LAST_OUTPUT_LINE_MAX = 160
+
+/**
+ * Drop terminal control sequences and control characters, keeping one space
+ * where a control character stood. Done by code point so no pattern has to
+ * spell a control character.
+ */
+function plainLine(raw: string): string {
+	let out = ''
+	let i = 0
+	while (i < raw.length) {
+		const code = raw.charCodeAt(i)
+		if (code === 0x1b && raw[i + 1] === '[') {
+			// CSI: parameters and intermediates, then one final byte in @..~.
+			i += 2
+			while (i < raw.length && raw.charCodeAt(i) >= 0x20 && raw.charCodeAt(i) <= 0x3f) i += 1
+			i += 1
+			continue
+		}
+		out += code < 0x20 || code === 0x7f ? ' ' : (raw[i] ?? '')
+		i += 1
+	}
+	return out.replace(/ {2,}/g, ' ').trim()
+}
+
+/** The last non-empty line of `text`, flattened and clipped; `undefined` when it has none. */
+function lastLineOf(text: string): string | undefined {
+	const lines = text.split('\n')
+	for (let index = lines.length - 1; index >= 0; index -= 1) {
+		const flat = plainLine(lines[index] ?? '')
+		if (flat.length > 0)
+			return flat.length <= LAST_OUTPUT_LINE_MAX
+				? flat
+				: `${flat.slice(0, LAST_OUTPUT_LINE_MAX - 1)}…`
+	}
+	return undefined
+}
 
 /**
  * Why a command that was running in the foreground moved to the background:
@@ -804,6 +866,12 @@ export class BackgroundJobRegistry {
 			const chunk: OutputChunk = { stream, offset: entry.produced, bytes: Buffer.from(text) }
 			if (chunk.bytes.length === 0) return
 			entry.produced += chunk.bytes.length
+			const line = lastLineOf(text)
+			entry.record = {
+				...entry.record,
+				lastOutputAt: Date.now(),
+				...(line !== undefined ? { lastOutputLine: line } : {}),
+			}
 			entry.buffer += text
 			entry.buffer = outputTail(entry.buffer, this.maxBytes).text
 			entry.outputChunks.push(chunk)
@@ -907,6 +975,20 @@ export class BackgroundJobRegistry {
 		const entry = this.jobs.get(id)
 		if (!entry) throw new UnknownBackgroundJobError({ id })
 		return entry.record
+	}
+
+	/**
+	 * Whether the job's process group is still there, asked of the system rather
+	 * than inferred from the record. A job with no process of its own to probe
+	 * (a sandboxed or WebSocket source, or a platform without process groups)
+	 * is alive exactly when the registry says it is running.
+	 */
+	isAlive(id: string): boolean {
+		const entry = this.jobs.get(id)
+		if (!entry || entry.record.status !== 'running') return false
+		const pid = entry.child.pid
+		if (pid === undefined || process.platform === 'win32') return true
+		return groupPresent(pid)
 	}
 
 	/**
@@ -1417,6 +1499,10 @@ export function bindOwner(
 			return await registry.kill(id)
 		},
 		list: () => registry.list(owner),
+		isAlive: (id: string) => {
+			mine(id)
+			return registry.isAlive(id)
+		},
 	}
 }
 

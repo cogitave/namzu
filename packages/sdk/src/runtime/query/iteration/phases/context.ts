@@ -40,6 +40,7 @@ import type { TaskStore } from '../../../../types/task/index.js'
 import type { Logger } from '../../../../utils/logger.js'
 import type { AwaitedJobs } from '../../../jobs/awaited-jobs.js'
 import type { CheckpointManager } from '../../checkpoint.js'
+import type { DetachedCalls } from '../../detached-calls.js'
 import type { EmitEvent } from '../../events.js'
 import type { ToolExecutor } from '../../executor.js'
 import type { GuardCoordinator } from '../../guard.js'
@@ -171,6 +172,12 @@ export interface IterationContext {
 	 * and a turn whose model stopped calling tools settles without waiting.
 	 */
 	readonly awaitedJobs?: AwaitedJobs
+	/**
+	 * Calls answered with a placeholder because the operator wrote while they
+	 * ran. Absent means no call is ever handed back and the operator's message
+	 * waits for the batch, as it always has.
+	 */
+	readonly detachedCalls?: DetachedCalls
 	readonly checkpointMgr: CheckpointManager
 	readonly planManager: PlanManager
 

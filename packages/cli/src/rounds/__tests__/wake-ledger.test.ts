@@ -143,3 +143,22 @@ describe('WakeLedger unfinished-run notices', () => {
 		expect(taken.ended).toEqual(['run_1 was left unfinished', 'resume it'])
 	})
 })
+
+describe('WakeLedger progress notes', () => {
+	it('carries a phase note with the next turn but never wakes an idle session for it', () => {
+		const wake = new WakeLedger<object>()
+		wake.noteWorkflowEnd('progress:phase:w1:2', 'Workflow moved on to phase 2')
+		expect(wake.wakes(null, false)).toBe(false)
+		expect([...wake.snapshot(null).workflows.keys()]).toEqual(['progress:phase:w1:2'])
+		wake.noteWorkflowEnd('progress:check-in:b1:120', 'Check-in on b1')
+		expect(wake.wakes(null, false)).toBe(true)
+	})
+
+	it('forgets the phase notes of a run that ended, and only that run', () => {
+		const wake = new WakeLedger<object>()
+		wake.noteWorkflowEnd('progress:phase:w1:2', 'w1 phase 2')
+		wake.noteWorkflowEnd('progress:phase:w2:2', 'w2 phase 2')
+		wake.dropPhaseNotes('w1')
+		expect(wake.workflowIds()).toEqual(['progress:phase:w2:2'])
+	})
+})

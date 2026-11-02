@@ -87,6 +87,8 @@ export interface ActiveTurnInbox<Trigger extends string = string> {
 	accept(input: LiveInput<Trigger>): boolean
 	drain(): Message[]
 	waitForInbound(signal: AbortSignal): Promise<void>
+	/** Resolves when the operator wrote; a notice or peer mail does not wake it. */
+	waitForOperator(signal: AbortSignal): Promise<void>
 	close(): readonly LiveInput<Trigger>[]
 }
 

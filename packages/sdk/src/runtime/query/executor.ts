@@ -71,6 +71,7 @@ import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
 import { parseStructuredResultJson } from '../../utils/structured-result-json.js'
 import { type BackgroundJobRegistry, type JobProcess, bindOwner } from '../jobs/registry.js'
+import { type BatchDetach, stillRunningResult } from './detached-calls.js'
 import {
 	type ToolAdmissionHost,
 	formatFailedToolOutput,
@@ -1431,6 +1432,7 @@ export class ToolExecutor {
 		preparedBatch?: PreparedToolBatch,
 		declines?: ToolCallDeclines,
 		review?: ReviewedExecution,
+		detach?: BatchDetach,
 	): Promise<ToolExecutionBatch> {
 		const toolCalls = response.message.toolCalls
 		if (!toolCalls) {
@@ -1457,9 +1459,9 @@ export class ToolExecutor {
 			if (refusal) {
 				const refused = new Map(denials)
 				for (const call of toolCalls) if (!refused.has(call.id)) refused.set(call.id, refusal)
-				return await this.runBatch(toolCalls, refused, prior, owned, declines, review)
+				return await this.runBatch(toolCalls, refused, prior, owned, declines, review, detach)
 			}
-			return await this.runBatch(toolCalls, denials, prior, owned, declines, review)
+			return await this.runBatch(toolCalls, denials, prior, owned, declines, review, detach)
 		} finally {
 			// Cleared so a later single execution outside a batch resolves
 			// live rather than inheriting the last batch's sample.
@@ -1474,6 +1476,7 @@ export class ToolExecutor {
 		preparedBatch?: OwnedPreparedToolBatch,
 		declines?: ToolCallDeclines,
 		review?: ReviewedExecution,
+		detach?: BatchDetach,
 	): Promise<ToolExecutionBatch> {
 		this.log.debug('Executing tool batch', {
 			[NAMZU.TURN_ID]: this.config.turnId,
@@ -1509,6 +1512,17 @@ export class ToolExecutor {
 		// (which let the last writer clobber the rest). Results are written by
 		// index to preserve the original tool-call order.
 		const results: ToolCallOutcome[] = new Array(toolCalls.length)
+		// Calls handed back to the model as still running (see `detach`), and the
+		// ones among them whose real outcome has been reported.
+		const handedBack = new Set<string>()
+		const reported = new Set<string>()
+		// Calls that have begun; one queued behind a serial or barrier call has not.
+		const started = new Set<string>()
+		const reportLate = (outcome: ToolCallOutcome): void => {
+			if (reported.has(outcome.toolCallId)) return
+			reported.add(outcome.toolCallId)
+			detach?.calls.settle(outcome)
+		}
 		const parallel: Promise<void>[] = []
 		let serial: Promise<void> = Promise.resolve()
 		let barrier: Promise<void> | undefined
@@ -1625,13 +1639,32 @@ export class ToolExecutor {
 			}
 			const run = async () => {
 				try {
-					results[i] = await this.executeSingle(
-						toolCall,
-						ctx,
-						recordObservation,
-						() => progress.close(),
-						preparedCall,
-					)
+					let outcome: ToolCallOutcome
+					started.add(toolCall.id)
+					try {
+						outcome = await this.executeSingle(
+							toolCall,
+							ctx,
+							recordObservation,
+							() => progress.close(),
+							preparedCall,
+						)
+					} catch (error) {
+						// A call already answered with the placeholder has no batch
+						// left to fail; its failure is its outcome.
+						if (!handedBack.has(toolCall.id)) throw error
+						reportLate({
+							toolCallId: toolCall.id,
+							toolName: toolCall.function.name,
+							output: `Error: Tool "${toolCall.function.name}" did not complete — ${
+								error instanceof Error ? error.message : String(error)
+							}`,
+							isError: true,
+						})
+						return
+					}
+					if (handedBack.has(toolCall.id)) reportLate(outcome)
+					else results[i] = outcome
 				} finally {
 					await progress.close()
 				}
@@ -1666,7 +1699,46 @@ export class ToolExecutor {
 			schedule(safe ? gated : run, safe, isBarrier)
 		})
 		if (review) await this.walkReviewed(reviewUnits, results, review)
-		await Promise.all([...parallel, serial])
+		const completion = Promise.all([...parallel, serial])
+		if (detach && !review) {
+			const first = await Promise.race([
+				completion.then(() => 'finished' as const),
+				detach.requested.then(() => 'requested' as const),
+			])
+			if (first === 'requested' && toolCalls.some((_, i) => results[i] === undefined)) {
+				// The operator wrote while calls were still running. Answer each
+				// unfinished call with the placeholder so the model can read the
+				// message now; the calls keep running and report themselves.
+				toolCalls.forEach((toolCall, i) => {
+					if (results[i]) return
+					handedBack.add(toolCall.id)
+					detach.calls.begin(toolCall.id, toolCall.function.name)
+					results[i] = {
+						toolCallId: toolCall.id,
+						toolName: toolCall.function.name,
+						output: stillRunningResult(toolCall.function.name, started.has(toolCall.id)),
+						isError: false,
+					}
+				})
+				const settleRest = (): void => {
+					for (const id of handedBack) {
+						if (reported.has(id)) continue
+						const name = toolCalls.find((call) => call.id === id)?.function.name ?? 'tool'
+						reportLate({
+							toolCallId: id,
+							toolName: name,
+							output: `Error: Tool "${name}" did not complete — the batch failed before it produced a result.`,
+							isError: true,
+						})
+					}
+				}
+				completion.then(settleRest, settleRest)
+			} else {
+				await completion
+			}
+		} else {
+			await completion
+		}
 
 		// Whatever failed above left a hole in `results`; fill every one, so
 		// the invariant holds by construction rather than by everything having

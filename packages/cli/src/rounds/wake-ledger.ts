@@ -16,6 +16,8 @@
 
 import type { RuntimeContextMessageKind } from '@namzu/sdk'
 
+import { PHASE_NOTE_KEY_PREFIX } from '../integrations/outstanding/progress-notices.js'
+
 /** A note for the model about something the person did to a running agent. */
 export interface DirectChildNotice {
 	/** What the model is told. */
@@ -137,6 +139,13 @@ export class WakeLedger<Owner = unknown> {
 		this.#workflows.set(runId, text)
 	}
 
+	/** A run ended: its phase notes (progress, not news) are dropped; the completion message says the rest. */
+	dropPhaseNotes(runId: string): void {
+		for (const id of [...this.#workflows.keys()]) {
+			if (id.startsWith(`${PHASE_NOTE_KEY_PREFIX}${runId}:`)) this.#workflows.delete(id)
+		}
+	}
+
 	/** Ids of the workflow news waiting. */
 	workflowIds(): string[] {
 		return [...this.#workflows.keys()]
@@ -178,7 +187,10 @@ export class WakeLedger<Owner = unknown> {
 	wakes(owner: Owner | null, monitorsWake: boolean, jobsCanWake = true): boolean {
 		const jobs = this.#jobs
 		return (
-			[...this.#workflows.keys()].some((id) => !id.startsWith(ORPHAN_NOTICE_PREFIX)) ||
+			// A phase note is progress, not news: it rides with the next request but starts no turn.
+			[...this.#workflows.keys()].some(
+				(id) => !id.startsWith(ORPHAN_NOTICE_PREFIX) && !id.startsWith(PHASE_NOTE_KEY_PREFIX),
+			) ||
 			this.#childMessages.size > 0 ||
 			(jobsCanWake &&
 				jobs.ownerSession === owner &&

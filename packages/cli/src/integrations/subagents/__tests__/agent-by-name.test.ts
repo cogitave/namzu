@@ -57,6 +57,19 @@ describe('a name given to Agent', () => {
 			const listed = JSON.parse((await w.runtime.agentTaskListTool.execute({}, w.context)).output)
 			const entry = listed.tasks[0]
 			expect(entry.name).toBe('Reviewer')
+			const selected = JSON.parse(
+				(
+					await w.runtime.agentTaskListTool.execute(
+						{ task_id: 'reviewer', include_output: true },
+						w.context,
+					)
+				).output,
+			)
+			expect(selected.tasks[0]).toMatchObject({
+				task_id: entry.task_id,
+				outputState: 'settled',
+			})
+			expect(selected.tasks[0].output).toContain('RESULT_1')
 
 			const waited = await w.runtime.waitForTaskTool.execute({ task_id: 'reviewer' }, w.context)
 			expect(waited.success).toBe(true)

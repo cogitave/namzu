@@ -789,6 +789,7 @@ export function formatCompletionNotification(handles: readonly TaskHandle[]): st
 				: []),
 			...(handle.result?.stopReason ? [`stop_reason: ${handle.result.stopReason}`] : []),
 			...(durationMs !== undefined ? [`duration_ms: ${durationMs}`] : []),
+			...(handle.completedAt ? [`finished_at: ${new Date(handle.completedAt).toISOString()}`] : []),
 			'',
 			body,
 			// Outside the envelope, deliberately: this sentence is an

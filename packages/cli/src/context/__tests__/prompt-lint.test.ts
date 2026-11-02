@@ -63,7 +63,9 @@ const NOT_A_SDK_TOOL = new Set<string>([
 	'save_memory',
 	'search_memory',
 	'computer_use',
+	'agent_task_list',
 	// parameters and methods
+	'run_id',
 	'tasks/send',
 	'dangerously_disable_sandbox',
 	'run_in_background',

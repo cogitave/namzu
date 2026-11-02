@@ -244,6 +244,8 @@ subagents' answers. Each is delivered once. A background command that ends on
 its own wakes the model the same way (see [Background jobs](background-jobs.md));
 one you stopped yourself does not.
 
+While a run is going the model also gets a short note each time it moves to a later phase (see [Notes the host sends without being asked](delegated-work.md#notes-the-host-sends-without-being-asked)). The note rides with the next request and never starts a turn by itself. When the person asks how the run is going, the model reads its state (`agent_task_list` with `run_id`, or the running-work note), reports its phase and counts, and says it is still running until the completion message arrives.
+
 ## `namzu exec`
 
 A headless run does not end with the model's first turn while a workflow it
@@ -351,6 +353,26 @@ and edits made with the file tools, not a hostile shell.
 If the file reads differently when the run starts (something wrote it after you
 approved), the run is refused and the model is told to call again so the current
 text is reviewed. An approval you gave once is never carried to a different text.
+
+The model can inspect a running workflow's children with
+`agent_task_list`; a selected `task_id` with `include_output: true` returns
+bounded partial activity without waiting. Workflow children retain the same
+conversation ownership for lookup, messaging, waiting and cancellation as
+ordinary children. The [outstanding-work note](delegated-work.md#the-outstanding-work-note)
+reports each active run on every model request, with its phase, its running,
+queued and done counts and whether it is progressing, waiting or stalled; it is
+refreshed for each request and is not a completion notification.
+`agent_task_list` with `run_id` reads one run, ended or not: phase, counts, the
+last `log()` lines, previews of what finished agents answered (marked as data)
+and elapsed time, never an estimate of the end. The launch receipt allows one
+such read when the person asks how it is going and still forbids polling in a
+loop.
+
+This journal is an audit trail, not an execution checkpoint: prompt and result
+previews are truncated, and full schemas/results and a stable logical call
+identity are not retained. Stopping a workflow ends its interpreter. Running
+the script again starts new work and can repeat already completed steps;
+continuing one child would not restart the workflow's orchestration.
 
 ## Configuration
 

@@ -27,6 +27,27 @@ and tenant identity. [Run the kernel](quick-start.md) describes the simpler
 All channels are optional except initial `messages`. Adding a durable source
 does not change hosts that use the existing queue or hold callbacks.
 
+## Answering while a call runs
+
+A tool call that runs for a long time used to hold the operator's message until
+it finished. `QueryParams.answerWhileCallsRun` (default off, and ignored without
+`waitForOperator`) changes that. `waitForOperator(signal)` resolves when the
+operator wrote and for no other reason, so a child's notice or a peer's mail,
+which also wake `waitForInbound`, never hands a call back. When it
+fires during a tool batch and the batch has run for two seconds, each call not
+yet finished is answered with a placeholder result saying it is still running
+(or, for a call queued behind an earlier one that has not begun, that it has not
+started yet),
+was not interrupted, must not be repeated or polled for, and cannot be stopped
+from the model's side. The model reads the operator's message and replies at
+once. The calls keep running in the same batch; each real result reaches the
+model later as a message that names the call id, whether it succeeded or failed.
+A turn whose model has nothing more to say is held open for such a call, bounded
+by the turn's remaining time, the way it is for a delegated task. `waitForOperator` is
+consulted during batches, so it must have no side effects. A batch under per-call review is not
+detached, because it may be waiting on a person. Code:
+`packages/sdk/src/runtime/query/detached-calls.ts`.
+
 ## Durable source contract
 
 `QueryParams.durableInbound`, `RunAgentOptions.durableInbound` and

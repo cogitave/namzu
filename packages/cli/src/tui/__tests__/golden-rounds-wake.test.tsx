@@ -215,7 +215,7 @@ it('G4 wakes an idle session once for a monitor event and delivers it once', asy
 	expect(roundLog.lines()).toMatchInlineSnapshot(`
 		[
 		  "#0 typed rows=1 "first"",
-		  "#1 runtime-context:job-exit rows=14 "<system-event-<nonce> kind=\\"job\\" id=\\"b00000009\\" status=\\"interim\\">"",
+		  "#1 runtime-context:job-exit rows=14 "<system-event-<nonce> kind=\\"job\\" id=\\"b00000009\\" status=\\"interim\\" at=\\"1970-01-01T00:00:00.001Z\\">"",
 		  "#2 typed rows=1 "later"",
 		]
 	`)
@@ -237,7 +237,7 @@ it('G4 turns two events that land in one tick into one wake turn', async () => {
 	expect(roundLog.lines()).toMatchInlineSnapshot(`
 		[
 		  "#0 typed rows=1 "first"",
-		  "#1 runtime-context:job-exit rows=14 "<system-event-<nonce> kind=\\"job\\" id=\\"b00000009\\" status=\\"interim\\">"",
+		  "#1 runtime-context:job-exit rows=14 "<system-event-<nonce> kind=\\"job\\" id=\\"b00000009\\" status=\\"interim\\" at=\\"1970-01-01T00:00:00.002Z\\">"",
 		  "#2 typed rows=1 "later"",
 		]
 	`)

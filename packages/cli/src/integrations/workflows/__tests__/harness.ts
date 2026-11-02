@@ -12,6 +12,7 @@ import {
 	generateTurnId,
 } from '@namzu/sdk'
 
+import { readWorkStatus } from '../../outstanding/status.js'
 import { subagentParentFixture } from '../../subagents/__fixtures__/parent.js'
 import { WORKFLOW_STEP_ASSIGNMENT, createSubagentRuntime } from '../../subagents/runtime.js'
 import { createWorkflowHost } from '../host.js'
@@ -47,6 +48,8 @@ export interface Gate {
 export async function workflowHarness(
 	options: {
 		readonly held?: boolean
+		/** Public text emitted before the held provider is released. */
+		readonly partialText?: string
 		readonly refusal?: string
 		readonly tokenBudget?: number
 		readonly limits?: { maxConcurrency?: number; maxAgents?: number }
@@ -78,7 +81,18 @@ export async function workflowHarness(
 	}
 	const prompts: string[] = []
 	const assigned: boolean[] = []
+	const late: { host?: ReturnType<typeof createWorkflowHost> } = {}
 	const runtime = await createSubagentRuntime({
+		workStatus: (_sessionId, runId) =>
+			readWorkStatus(
+				{
+					jobs: [],
+					agents: runtime.activity.getSnapshot(),
+					workflows: late.host?.registry.list() ?? [],
+				},
+				Date.now(),
+				runId,
+			),
 		resolveParent: (turnId) =>
 			parent.resolveParent(known.has(turnId) ? parent.scope.turnId : turnId),
 		cwd,
@@ -103,6 +117,7 @@ export async function workflowHarness(
 				id: 'workflow-child',
 				name: 'Workflow child',
 				async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
+					if (options.partialText) yield { id: 'partial', delta: { content: options.partialText } }
 					if (!open) {
 						await new Promise<void>((resolve, reject) => {
 							const wake = (): void => resolve()
@@ -129,6 +144,7 @@ export async function workflowHarness(
 	const ended: WorkflowRunEnd[] = []
 	const endWaiters: Array<() => void> = []
 	const released: TurnId[] = []
+	const runTurns: TurnId[] = []
 	const host = createWorkflowHost({
 		subagents: runtime,
 		runsDirectory: () => runs,
@@ -140,6 +156,7 @@ export async function workflowHarness(
 		limitsFor: () => ({ maxConcurrency: 8, ...options.limits }),
 		openRunTurn: (_origin, _runId) => {
 			const turnId = generateTurnId()
+			runTurns.push(turnId)
 			known.add(turnId)
 			return {
 				turnId,
@@ -155,6 +172,7 @@ export async function workflowHarness(
 			for (const wake of endWaiters.splice(0)) wake()
 		},
 	})
+	late.host = host
 	const context = {
 		turnId: parent.scope.turnId,
 		abortSignal: new AbortController().signal,
@@ -170,7 +188,13 @@ export async function workflowHarness(
 		assigned,
 		ended,
 		released,
+		runTurns,
 		context,
+		scope: parent.scope,
+		/** Another conversation is never entitled to this run's children. */
+		async foreignContext(): Promise<ToolContext> {
+			return { ...context, turnId: await parent.addForeignTurn() }
+		},
 		start: (input: {
 			script?: string
 			args?: unknown

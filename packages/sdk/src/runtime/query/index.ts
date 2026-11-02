@@ -113,6 +113,7 @@ import {
 	SandboxAcquisitionStopped,
 	createDeferredSandbox,
 } from './deferred-sandbox.js'
+import { DetachedCalls } from './detached-calls.js'
 import type { EventTranslator } from './events.js'
 import { finalizeTurn } from './finalize-turn.js'
 import { GuardCoordinator } from './guard.js'
@@ -808,6 +809,28 @@ export interface QueryParams {
 	 * still consumed only through `inboundMessages` at a provider-valid boundary.
 	 */
 	waitForInbound?: (signal: AbortSignal) => Promise<void>
+
+	/**
+	 * Answer the operator while a long tool call is still running.
+	 *
+	 * Default off. When on, and `waitForOperator` reports the operator wrote while
+	 * a batch had been running for two seconds, each call not yet finished is answered with a "still running"
+	 * placeholder so the model can read the message and reply at once. The
+	 * calls are not interrupted and not repeated: their real results reach the
+	 * model later in a message that names each call, and the turn is held open
+	 * for them like any outstanding work. The host's wake is then also consulted
+	 * during tool batches, not only when the turn would otherwise end. Ignored
+	 * under per-call review, where the batch is waiting on a person.
+	 */
+	answerWhileCallsRun?: boolean
+
+	/**
+	 * Resolve when the operator wrote, and for no other reason. It is what
+	 * `answerWhileCallsRun` listens to: a notice from a child agent or mail from
+	 * a peer also wakes `waitForInbound`, but must not hand a running call back.
+	 * Abort removes the waiter, as for `waitForInbound`.
+	 */
+	waitForOperator?: (signal: AbortSignal) => Promise<void>
 
 	/** Durable host input: normal append, flush and exact acknowledgement before inference. Requires sessionLog. */
 	durableInbound?: DurableInboundSource
@@ -1838,6 +1861,9 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			...(monitorNotices ? { monitorNotices } : {}),
 			...(monitorNotices ? { onMonitorNoticeDelivered: acknowledgeMonitorNotices } : {}),
 			...(awaitedJobs ? { awaitedJobs } : {}),
+			...(params.answerWhileCallsRun && params.waitForOperator
+				? { detachedCalls: new DetachedCalls(params.waitForOperator) }
+				: {}),
 			checkpointMgr,
 			planManager: ctx.planManager,
 			taskGateway: taskScheduler,

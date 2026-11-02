@@ -148,13 +148,20 @@ function recordedRows(entries: readonly string[]): Map<string, string> {
  * tools answer for them. The listing is read once per step instance, the
  * first time it is needed; a host builds one step per turn.
  */
-export function createSavedAgentsStep(history: SavedAgentHistory): PrepareStep {
+export function createSavedAgentsStep(
+	history: SavedAgentHistory,
+	/** The child sessions whose run is live now: the live tools answer for them, so they are not listed as saved. */
+	live: () => ReadonlySet<string> = () => new Set(),
+): PrepareStep {
 	let snapshot: ReturnType<SavedAgentHistory['list']> | undefined
 	return async ({ turnId, contextBudget, messages }) => {
 		if (contextBudget && contextBudget.remainingTokens < MIN_REMAINING_TOKENS) return undefined
 		snapshot ??= history.list()
 		const { agents, omitted } = await snapshot
-		const earlier = agents.filter((agent) => agent.parentTurnId !== turnId)
+		const running = live()
+		const earlier = agents.filter(
+			(agent) => agent.parentTurnId !== turnId && !running.has(String(agent.sessionId)),
+		)
 		if (earlier.length === 0) return undefined
 		const held = turnContextEntries(messages, SAVED_AGENTS_KEY)
 		const known = recordedRows(held)

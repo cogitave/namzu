@@ -46,6 +46,22 @@ export {
 	createBackgroundJobId,
 	isBackgroundJobId,
 } from './runtime/jobs/job-id.js'
+// Three facts about a running item (where it is, when it last progressed,
+// whether it is alive) and the one verdict derived from them.
+export {
+	LIVENESS_QUIET_MS,
+	LIVENESS_STALLED_MS,
+	formatLivenessAge,
+	formatLivenessLine,
+	judgeLiveness,
+} from './runtime/jobs/liveness.js'
+export type {
+	Liveness,
+	LivenessInput,
+	LivenessKind,
+	LivenessThresholds,
+	LivenessVerdict,
+} from './runtime/jobs/liveness.js'
 export type {
 	BackgroundJob,
 	ForegroundCommand,

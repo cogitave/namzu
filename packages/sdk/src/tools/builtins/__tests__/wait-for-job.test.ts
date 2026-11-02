@@ -191,6 +191,7 @@ describe('a job that has gone quiet is reported as quiet', () => {
 			kind: 'timeout',
 			cause: 'idle',
 			elapsedMs: 30_000,
+			quietForMs: 27_400,
 			output: '',
 			nextOffset: 12,
 			droppedBytes: 0,
@@ -198,6 +199,7 @@ describe('a job that has gone quiet is reported as quiet', () => {
 		})
 
 		expect(text).toContain('went quiet')
+		expect(text).toContain('no new output for 27s')
 		expect(text).toContain('not been stopped')
 	})
 })

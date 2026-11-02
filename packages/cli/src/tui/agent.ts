@@ -330,6 +330,13 @@ import {
 import { deferLargeMcpToolsets } from '../integrations/mcp/tool-search.js'
 import { type MonitorInbox, createMonitorInbox } from '../integrations/monitors/inbox.js'
 import { MONITOR_WEB_ACCESS_HINT } from '../integrations/monitors/web-access-hint.js'
+import { createOutstandingFacts } from '../integrations/outstanding/facts.js'
+import { createOutstandingWorkStep } from '../integrations/outstanding/note.js'
+import {
+	type ProgressNotice,
+	createProgressNotices,
+} from '../integrations/outstanding/progress-notices.js'
+import { readWorkStatus } from '../integrations/outstanding/status.js'
 import { readPluginFileSources } from '../integrations/plugins/files.js'
 import { hookSessionMode } from '../integrations/plugins/hook-host.js'
 import { type CliPluginRuntime, createCliPluginRuntime } from '../integrations/plugins/runtime.js'
@@ -985,6 +992,8 @@ export interface SendOptions {
 	readonly inboundMessages?: () => Message[]
 	/** Resolve when undelivered input exists; abort removes this waiter. */
 	readonly waitForInbound?: (signal: AbortSignal) => Promise<void>
+	/** Resolve when the operator wrote and for no other reason; a long tool call is answered for it only. */
+	readonly waitForOperator?: (signal: AbortSignal) => Promise<void>
 	/** Job exits the SDK actually inserted into model context during this turn. */
 	readonly onJobNoticeDelivered?: (jobIds: readonly string[]) => void
 	/** Monitor events the SDK actually inserted into model context during this turn. */
@@ -1303,6 +1312,12 @@ export interface AgentSession {
 	 * session mounted them (`AgentSessionOptions.browser`). Absent otherwise.
 	 */
 	readonly browser?: BrowserControl
+	/**
+	 * What changed in the work still going since the previous call: a workflow
+	 * run's next phase, a quiet background command to look at. The first call
+	 * only records. The terminal calls it on a timer and when a run changes.
+	 */
+	readonly progressNotices?: () => readonly ProgressNotice[]
 	/** Loaded extensions; idle-session changes can explicitly be remembered across reconstruction. */
 	readonly plugins?: Pick<CliPluginRuntime, 'list' | 'setEnabled' | 'rememberState'>
 	/** Command folders of the enabled plugins; the composer turns their files into slash commands. */
@@ -3560,9 +3575,27 @@ export async function createAgentSession(
 		}
 	>()
 	let workflowHost: WorkflowHost | undefined
+	const workflowOwners = new Map<string, SessionId>()
 	/** What the review showed of each saved script, so the run can refuse a file that changed after approval. */
 	const reviewedScripts = new ReviewedScripts()
 	const workflowEndListeners = new Set<(end: WorkflowRunEnd) => void>()
+	// What is still going in this session, told to the model on every request.
+	const outstandingFacts = createOutstandingFacts({
+		jobs: () => jobRegistry,
+		jobOwner,
+		activity: () => subagentRuntime?.activity,
+		workflows: (sessionId) =>
+			(workflowHost?.registry.list() ?? []).filter(
+				(run) => workflowOwners.get(run.runId) === sessionId,
+			),
+		// The id the agent tools accept, which a continued agent keeps from its first run.
+		agentId: (agent) =>
+			agent.taskId !== undefined
+				? (subagentRuntime?.publicTaskIdOf(agent.taskId) ?? agent.taskId)
+				: agent.viewId,
+	})
+	const outstandingWorkStep = createOutstandingWorkStep(outstandingFacts)
+	const progressNotices = createProgressNotices()
 	const goalToolNames = new Set<string>(SESSION_GOAL_TOOL_NAMES)
 	if (options.sessionGoals) {
 		toolsets.push(
@@ -3829,6 +3862,7 @@ export async function createAgentSession(
 							session: { sessionId },
 							log: cliLogger(),
 						}),
+						() => subagentRuntime?.liveChildSessionIds() ?? new Set(),
 					),
 				]
 			: []
@@ -3924,6 +3958,8 @@ export async function createAgentSession(
 			// Children log under the parent's `<session-id>/subagents/`; an
 			// ephemeral session keeps them in memory with its own log.
 			...(options.ephemeral ? {} : { paths }),
+			workStatus: (sessionId, runId) =>
+				readWorkStatus(outstandingFacts(sessionId), Date.now(), runId),
 			...(conversationIndex
 				? {
 						savedAgents: (sessionId: SessionId) =>
@@ -4202,6 +4238,7 @@ export async function createAgentSession(
 				const runTurnId = generateTurnId()
 				const origin = delegatedWorkflowAuth.get(originTurnId)
 				const ownerScope = delegationScopes.get(originTurnId) ?? { ...scope }
+				workflowOwners.set(runId, ownerScope.sessionId)
 				const control = createLiveModeControl({
 					initial: origin?.mode() ?? 'prompt',
 					...(origin ? { read: origin.mode } : {}),
@@ -4228,12 +4265,12 @@ export async function createAgentSession(
 				delegatedModeControls.set(runTurnId, control)
 				const model = delegationModels.get(originTurnId)
 				if (model) delegationModels.set(runTurnId, model)
-				void runId
 				let released: Promise<void> | undefined
 				return {
 					turnId: runTurnId,
 					release: () => {
 						released ??= (async () => {
+							workflowOwners.delete(runId)
 							liveModeControls.delete(control)
 							delegationScopes.delete(runTurnId)
 							delegationLimits.delete(runTurnId)
@@ -5226,6 +5263,7 @@ export async function createAgentSession(
 						: undefined,
 					prepareStep: [
 						createTaskContextStep(turnTaskStore, entry.tenantId),
+						outstandingWorkStep,
 						...savedAgentsSteps(entry.sessionId),
 						...(options.memory?.recall === false
 							? []
@@ -5758,6 +5796,8 @@ export async function createAgentSession(
 					}))(workflowHost),
 				}
 			: {}),
+		progressNotices: () =>
+			progressNotices.look({ ...outstandingFacts(scope.sessionId), now: Date.now() }),
 		...(sideModel ? { sideModel } : {}),
 		...(learning ? { learning } : {}),
 		...(subagentRuntime
@@ -6667,6 +6707,7 @@ export async function createAgentSession(
 								promoteMemory: options.compaction?.consolidate ? undefined : promoteMemory,
 								prepareStep: [
 									createTaskContextStep(turnTaskStore, turnScope.tenantId),
+									outstandingWorkStep,
 									createRepositorySnapshotStep(turnSnapshot),
 									...savedAgentsSteps(turnScope.sessionId),
 									// A host-supplied resident step may select the request model.
@@ -7849,6 +7890,9 @@ async function* runTurn({
 			...(announceApprovalPolicyChange === false ? { announceApprovalPolicyChange } : {}),
 			...(opts?.inboundMessages ? { inboundMessages: opts.inboundMessages } : {}),
 			...(opts?.waitForInbound ? { waitForInbound: opts.waitForInbound } : {}),
+			...(opts?.waitForOperator
+				? { waitForOperator: opts.waitForOperator, answerWhileCallsRun: true }
+				: {}),
 			...(opts?.durableInbound ? { durableInbound: opts.durableInbound } : {}),
 			...(completionInbox ? { completionInbox } : {}),
 			workingDirectory,

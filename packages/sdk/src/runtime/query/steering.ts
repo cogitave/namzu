@@ -112,7 +112,8 @@ export const JOB_NOTICE_INLINE_OUTPUT_MAX_BYTES = 2048
  * the system-event envelope rather than in the notice's own words.
  */
 export function formatJobExitNotice(
-	job: Pick<BackgroundJob, 'id' | 'command' | 'status' | 'exitCode' | 'signal'>,
+	job: Pick<BackgroundJob, 'id' | 'command' | 'status' | 'exitCode' | 'signal'> &
+		Partial<Pick<BackgroundJob, 'exitedAt'>>,
 	output?: {
 		readonly chunk: string
 		readonly nextOffset: number
@@ -123,7 +124,8 @@ export function formatJobExitNotice(
 		job.status === 'killed'
 			? 'was stopped'
 			: `exited with code ${job.exitCode ?? 'unknown'}${job.signal ? ` (${job.signal})` : ''}`
-	const head = `Background job ${job.id} (${job.command}) ${outcome}.`
+	const endedAt = job.exitedAt === undefined ? '' : ` at ${new Date(job.exitedAt).toISOString()}`
+	const head = `Background job ${job.id} (${job.command}) ${outcome}${endedAt}.`
 	if (
 		output === undefined ||
 		output.chunk.length === 0 ||
@@ -182,7 +184,7 @@ const SYSTEM_EVENT_FRAME = /^<system-event-([A-Za-z0-9]+) [^\n]*\n[\s\S]*?\n<\/s
  */
 export function formatMonitorEvent(
 	event: Pick<MonitorEvent, 'jobId' | 'description' | 'kind' | 'text'> &
-		Partial<Pick<MonitorEvent, 'transport'>>,
+		Partial<Pick<MonitorEvent, 'transport' | 'at'>>,
 	command: string,
 ): string {
 	return formatSystemEvent({
@@ -192,6 +194,7 @@ export function formatMonitorEvent(
 		summary: `Monitor event: "${oneMetadataLine(event.description)}"`,
 		source: `monitor ${event.jobId}: ${oneMetadataLine(command)}`,
 		more: `job {"action":"kill","id":"${event.jobId}"} stops it`,
+		...(event.at !== undefined ? { at: event.at } : {}),
 		body: {
 			envelope: {
 				kind: event.kind === 'output' ? 'monitor-output' : 'monitor-notice',
@@ -236,7 +239,8 @@ export function formatMonitorEnd(
 		| 'transport'
 		| 'closeCode'
 		| 'closeReason'
-	>,
+	> &
+		Partial<Pick<BackgroundJob, 'exitedAt'>>,
 	stats: { readonly stdoutChars: number },
 ): string {
 	const end = describeMonitorEnd(job, stats)
@@ -247,6 +251,7 @@ export function formatMonitorEnd(
 		summary: end.summary,
 		source: `monitor ${job.id}: ${oneMetadataLine(job.command)}`,
 		more: `job {"action":"read","id":"${job.id}"} reads its output`,
+		...(job.exitedAt !== undefined ? { at: job.exitedAt } : {}),
 	})
 }
 

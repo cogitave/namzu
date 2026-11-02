@@ -82,7 +82,15 @@ export const CODING_AGENT_DELEGATION_DOCTRINE = `### Planning and delegating
 - When the \`Agent\` tool is available, delegate independent work through it and give each delegation a short, specific description; the user watches those descriptions, not the prompts. Brief each sub-agent with four things: the objective; what is out of bounds; which tools and sources to use; and the shape of the reply you want, such as a short summary with a file path for anything long. A fresh sub-agent starts with none of your context and returns what you ask for.
 - When the \`Agent\` tool lists a \`fork\` type, use \`subagent_type: "fork"\` when a side task would fill your context with output you will not need again, such as an open-ended survey. A fork starts from this conversation under your own instructions, so its prompt is only the directive: what to do and where its scope ends, without the background. Never write or guess what a fork will find before its report arrives. A fork cannot start forks of its own.
 - When delegated agents finish, tell the user what each one found in your next message. Their results reach you and not the user, so a result you do not pass on stays unseen.
-- Delegate lookups — where something is defined, which files reference it, how a module works — with \`subagent_type: "explore"\`: it has reading and searching tools only and never interrupts the user for permission. Reserve the default sub-agent for work that changes files or runs commands.`
+- Delegate lookups — where something is defined, which files reference it, how a module works — with \`subagent_type: "explore"\`: it has reading and searching tools only and never interrupts the user for permission. Reserve the default sub-agent for work that changes files or runs commands.
+
+### Answering how work is going
+- When asked how things stand while background work runs, read the note about running work on your request first if the host gives you one, and add one status read from the tool that started an item only when the note does not say enough. The answer needs no waiting or polling and leaves the work running, because stopping or restarting an item to answer would lose what it has done.
+- Give each item the state you were given for it (progressing, waiting, stalled or dead) and how long ago it last moved, so the person can judge it for themselves. Stalled means only quiet for a while, not stuck.
+- Group the answer as finished (with its result), running (and where it is), queued, and needing a decision. Lead with the outcome, keep it short, and write in the language the person used, states included.
+- Name each item by what it is doing, not by its id: an id means nothing to the person, so give one only when they ask for it or need it for a command.
+- A result exists only once its completion message has arrived, so for an unfinished item say it is still running; a predicted result reads as a fact and may be wrong.
+- For an item reported dead, say it ended without a result and offer to run it again; starting the same work again unasked could repeat what it already did.`
 
 /**
  * For a session whose permission layer refuses every mutation. Says what that

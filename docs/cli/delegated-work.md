@@ -575,11 +575,69 @@ duplicating worker output or adding another persistent task store.
 
 
 `agent_task_list` reads the current parent session's actual scheduler invocations,
-including pending, running and terminal tasks. It returns the most recent 40
+including pending, running and terminal tasks, and agents owned by a running
+workflow's separate turn. It returns the most recent 40
 with an explicit omitted count. `task_list` remains the planning checklist; an
 empty checklist says nothing about running agents. `wait_for_task` retrieves
 results by task ID. A budget or other non-normal stop is `incomplete`, even
 when the scheduler lifecycle is `completed`; it is not a successful review.
+
+The listing includes reported cumulative `tokens`, `toolCalls` and the last
+tool's identifier (`lastTool`), together with workflow/phase identity when
+available. These are observed activity, not evidence that work has completed.
+An operating-system process list cannot establish completion: child agents can
+share the Namzu process.
+
+### The outstanding-work note
+
+Every model request of every turn carries one note about the work that is still going in the conversation, whichever turn started it: background jobs and monitors, background agents (those the turn that launched them has left behind included) and workflow runs. It is rebuilt from the live registries for each request and handed to the per-request context hook, so it is never recorded in the history and is present after a compaction. Code: `packages/cli/src/integrations/outstanding/` (`collect.ts` builds one record per item, `note.ts` the note and its per-request step, `facts.ts` reads the registries, `status.ts` the workflow status read).
+
+Each item is one line, with the verdict the kernel's [`judgeLiveness`](../sdk/liveness.md) gives it and the time since it last moved:
+
+```text
+workflow w3k9x2m1 "audit" - waiting - last progress 40s ago - at: phase 2/3 "Fix", 1 running, 5 queued, 4 done
+agent 7f3a "survey the repo" - progressing - last progress 1s ago - at: ran Read
+job b3k9x2m1 "npm test" - stalled - last progress 3m 20s ago - at: compiling
+```
+
+| Item | Where it is | Last progress | Alive |
+| --- | --- | --- | --- |
+| Job, monitor | last output line | last write | the registry's process-group probe |
+| Agent | its short summary, else `ran <tool>` / `running <tool>` / `queued for a free slot` (no extra model call) | the monitor's last session event | its state is not terminal |
+| Workflow run | phase `i/n`, running, queued and done counts | the latest start or end of its agents, or an agent's last event | the run has not ended |
+
+A monitor is `waiting on new events` however long it is quiet. A queued agent, or an agent sitting in one tool past 30 seconds, is `waiting` and the line names what for. Silence from an alive item with no known reason is `waiting` after 30 seconds and `stalled` after two minutes. `stalled` means only silent for two minutes while alive; the note says so, because a build, a server, a watcher or a long model call is often quiet and well. A job whose process group is gone but whose record still says running is `dead`. Ended items are not listed; a workflow's own agents are told as part of the run. At most twelve lines and 3,000 characters are sent, with the rest counted; text after `at:` is data the work produced, with angle brackets neutralised.
+
+`agent_task_list` returns the same lines under `outstanding`, and `workflows`: for each run (those still going first, then the latest ended ones) its status, elapsed milliseconds, phase, agent counts, the running agents with their last tool and elapsed time, and an `observed` block (the last `log()` lines and a 300-character preview of what each finished agent answered, inside a marked untrusted frame). There is no estimate of the end time, because the script decides how many agents it still asks for. `run_id` selects one run. Each task row also carries `elapsed_ms` and, while it runs, `last_progress_ms_ago`. The `job` tool's `list` prints the same line for jobs.
+
+`wait_for_task` stops waiting when the task shows no activity for two minutes (the kernel's idle bound) and says so (`wait_released: "idle"`); the task keeps running and its result still arrives as a task notification.
+
+### Notes the host sends without being asked
+
+Two kinds of message reach the model about running work, so it need not look. Code: `packages/cli/src/integrations/outstanding/progress-notices.ts`; the terminal looks every 15 seconds and whenever a workflow run changes (at most once a second).
+
+- **A phase note** when a workflow run moves on to a later phase: the run, `phase i/n`, and the running, queued, done and failed counts, marked as progress and not a result. It rides with the next request of a running turn, or with the next turn, and does not wake an idle session. A run that ends drops its pending phase notes; its completion message says the rest. A turn that starts with such notes pending reads them under their own heading, apart from the runs that ended.
+- **A check-in** when a background command, other than a monitor, has printed nothing for two minutes. It is marked as a check-in and not a completion, gives the same line as the outstanding-work note, and asks the model to read the output with the `job` tool and look at whether the process is alive, to stop it only if it is stuck, and to leave it and end the turn if it is making progress or is meant to keep running. It wakes an idle session. The next check-in comes after twice the silence (two, four, eight, sixteen minutes) and a stretch of silence gets four in all, because a server or a watcher is meant to be quiet; new output starts the count again. An unread check-in is withdrawn when its command prints or ends, so a turn never opens on a stale one. A gap between two looks of over a minute (a suspended machine or a clock jump) starts the silence over instead of reading as hours. A command listed as running whose process is gone on two looks in a row gets one message saying so; it says the exit has not been reported yet and tells the model not to run it again or call it failed until the completion message arrives, because a process outside the command's group can keep its output open after the command itself has exited.
+
+While a turn is answering and the person writes, a tool call that has run for two seconds no longer holds the message: the model is told the call is still running and is not interrupted, and replies at once; see [Answering while a call runs](../sdk/query.md#answering-while-a-call-runs). The CLI turns this on for every turn.
+
+Select one task by its public ID or agent name to inspect it without waiting:
+
+```json
+{ "task_id": "reviewer", "include_output": true }
+```
+
+`include_output` requires `task_id` and cannot be combined with the saved
+`history`/`session_id` view. A selection returns one entry under `tasks`; an
+unknown or foreign-conversation task is refused. `outputState` is `partial` or
+`settled`, and `outputAvailable` says whether activity was observed. A partial
+excerpt is not a final answer; `wait_for_task` remains the settled-result path.
+
+The excerpt contains at most the last 12 activity rows within an 8,000-character
+framed-output bound. `outputRows`, `omittedOutputRows` and `outputTruncated`
+describe that selection. It uses the existing bounded activity monitor, not
+raw child journals or full tool-result bodies. Child text is marked as
+untrusted delegated output. No observed text does not mean no work is running.
 
 `←` or `↓` on an empty composer (or Enter on an agent row in `/tasks`) opens a dedicated agent browser using the terminal's available height.
 The main composer is hidden there. Esc returns to
@@ -685,7 +743,10 @@ New turns and checkpoint resumes take one bounded snapshot of this
 conversation's earlier children, read through the session index
 (`SessionIndex.listChildren`), which is derived from the parent log. A child
 whose parent log has no `child_session_ended` yet and whose own log has no
-settled turn either is reported as `unresolved`; one whose own log did settle is
+settled turn either is reported as `unresolved`, unless its run is live in this
+program: a running agent is listed once, by the live task, and is left out of
+the saved view (a `session_id` read of it says it is still running), so it
+never appears as an unresolved twin; one whose own log did settle is
 reported with that outcome; one that ended carries its actual outcome and a preview of its
 answer of at most 16,000 characters, explicitly marked when truncated. A
 completed scheduler lifecycle does not turn a token-limited result into

@@ -64,10 +64,12 @@ describe('the live-input session hop', () => {
 		}
 		const inboundMessages = vi.fn(() => [steered])
 		const waitForInbound = vi.fn(async (_signal: AbortSignal) => {})
+		const waitForOperator = vi.fn(async (_signal: AbortSignal) => {})
 		try {
 			for await (const _event of session.send([{ role: 'user', content: 'start', timestamp: 1 }], {
 				inboundMessages,
 				waitForInbound,
+				waitForOperator,
 			})) {
 				// drain the real AgentSession boundary
 			}
@@ -75,6 +77,11 @@ describe('the live-input session hop', () => {
 			expect(queryCalls).toHaveLength(1)
 			expect(queryCalls[0]?.inboundMessages).toBe(inboundMessages)
 			expect(queryCalls[0]?.waitForInbound).toBe(waitForInbound)
+			// A message the operator typed while a long call runs is answered at once.
+			expect(queryCalls[0]?.waitForOperator).toBe(waitForOperator)
+			expect(queryCalls[0]?.answerWhileCallsRun).toBe(true)
+			// Nothing is going, so the first look at running work records and says nothing.
+			expect(session.progressNotices?.()).toEqual([])
 			expect(queryCalls[0]?.completionInbox).toBeDefined()
 			expect((queryCalls[0]?.inboundMessages as () => Message[])()).toEqual([steered])
 			expect(inboundMessages).toHaveBeenCalledTimes(1)
