@@ -60,6 +60,7 @@ describe('the [1m] model-id suffix', () => {
 		const inner = {
 			id: 'x',
 			name: 'x',
+			// biome-ignore lint/correctness/useYield: only the request it was handed is observed
 			chatStream: async function* (params: { model: string }) {
 				seen.push(params.model)
 			},
@@ -77,6 +78,18 @@ describe('the [1m] model-id suffix', () => {
 		expect(seen).toEqual(['deepseek-flash', 'deepseek-flash'])
 		expect(wrapped.supportsImageInputFor?.('deepseek-flash[1m]')).toBe(true)
 		expect(wrapped.id).toBe('x')
+	})
+
+	it('keeps the provider object itself, so state keyed on it survives, and wraps once', () => {
+		const inner = {
+			id: 'x',
+			name: 'x',
+			chatStream: async function* () {},
+		} as unknown as LLMProvider
+		const wrapped = withModelWindowSuffixStripped(inner)
+		expect(wrapped).toBe(inner)
+		const method = wrapped.chatStream
+		expect(withModelWindowSuffixStripped(wrapped).chatStream).toBe(method)
 	})
 })
 

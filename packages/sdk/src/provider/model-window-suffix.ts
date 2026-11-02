@@ -32,25 +32,53 @@ function stripParams(params: unknown): unknown {
 	return bare === model ? params : { ...params, model: bare }
 }
 
+const WRAPPED = Symbol.for('namzu.modelWindowSuffixStripped')
+
+type AnyMethod = (...args: unknown[]) => unknown
+
+function wrapMethod(name: string, method: AnyMethod): AnyMethod | undefined {
+	if (name === 'chatStream' || name === 'chat') {
+		return function (this: unknown, params: unknown, ...rest: unknown[]) {
+			return method.call(this, stripParams(params), ...rest)
+		}
+	}
+	if (MODEL_FIRST_METHODS.has(name)) {
+		return function (this: unknown, model: unknown, ...rest: unknown[]) {
+			return method.call(
+				this,
+				typeof model === 'string' ? stripModelWindowSuffix(model) : model,
+				...rest,
+			)
+		}
+	}
+	return undefined
+}
+
+/**
+ * The same provider, now stripping the marker from every model it is handed.
+ * The instance is patched in place (not proxied) so a host that keys state on
+ * the provider object keeps finding it; wrapping twice changes nothing.
+ */
 export function withModelWindowSuffixStripped<T extends LLMProvider>(provider: T): T {
-	return new Proxy(provider, {
-		get(target, property) {
-			const value: unknown = Reflect.get(target, property, target)
-			if (typeof value !== 'function') return value
-			const method = value as (...args: unknown[]) => unknown
-			if (property === 'chatStream' || property === 'chat') {
-				return (params: unknown, ...rest: unknown[]) =>
-					method.call(target, stripParams(params), ...rest)
-			}
-			if (typeof property === 'string' && MODEL_FIRST_METHODS.has(property)) {
-				return (model: unknown, ...rest: unknown[]) =>
-					method.call(
-						target,
-						typeof model === 'string' ? stripModelWindowSuffix(model) : model,
-						...rest,
-					)
-			}
-			return method.bind(target)
-		},
-	})
+	const target = provider as unknown as Record<PropertyKey, unknown>
+	if (target[WRAPPED] === true) return provider
+	if (!Object.isExtensible(provider)) {
+		return new Proxy(provider, {
+			get(object, property) {
+				const value: unknown = Reflect.get(object, property, object)
+				if (typeof value !== 'function') return value
+				const wrapped =
+					typeof property === 'string' ? wrapMethod(property, value as AnyMethod) : undefined
+				return (wrapped ?? (value as AnyMethod)).bind(object)
+			},
+		})
+	}
+	for (const name of ['chatStream', 'chat', ...MODEL_FIRST_METHODS]) {
+		const method = target[name]
+		if (typeof method !== 'function') continue
+		const wrapped = wrapMethod(name, method as AnyMethod)
+		if (wrapped) target[name] = wrapped
+	}
+	Object.defineProperty(provider, WRAPPED, { value: true, enumerable: false })
+	return provider
 }
