@@ -7975,7 +7975,7 @@ function AppBody({
 				)
 				return
 			}
-			if (queuedRef.current.length > 0) {
+			if (roundQueueRef.current.items().length > 0) {
 				pushMessage(
 					'system',
 					'Queued prompts have not run yet. Wait for them to finish before forking.',
