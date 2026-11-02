@@ -87,8 +87,8 @@ sign-in or detected key is never sent to another host. Without
 that is not a URL) is ignored with a notice at launch, and requests go to the
 vendor's own host as before; `ANTHROPIC_AUTH_TOKEN` is read only together with a
 third-party base URL and is not a detected sign-in. `/status` shows the provider as `Anthropic (Claude) via <host>`.
-A base URL on the vendor's host, or none, behaves as before. For a non-Claude
-id the menu is `low`, `high` and `max`.
+A base URL on the vendor's host, or none, behaves as before. For a model id that is
+not the vendor's own, the menu is `low`, `high` and `max`.
 
 ```bash
 export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic

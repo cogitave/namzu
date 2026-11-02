@@ -5937,7 +5937,7 @@ export async function createAgentSession(
 			),
 			...fallbackPlan.notices,
 			...takeConfigWarnings(),
-			...anthropicEndpointNotices(),
+			...compatibleEndpointNotices(),
 			...memoryMigrationNotices,
 		],
 		rememberNote: (text, type) => saveTypedNote(memoryStore, text, type),
@@ -6860,12 +6860,12 @@ function planFallbacks(
  * a one-million-token window, never part of a vendor's name, so the driver is
  * built with the bare id and every request it later sees is stripped too.
  */
-function anthropicEndpointNotices(): string[] {
+function compatibleEndpointNotices(): string[] {
 	const { notice } = resolveAnthropicEndpoint()
 	return notice ? [notice] : []
 }
 
-/** `Anthropic (Claude) via host` when requests go to an Anthropic-compatible third party. */
+/** `<provider label> via host` when requests go to a compatible third party. */
 function withEndpointHost(label: string): string {
 	const host = thirdPartyHost()
 	return host ? `${label} via ${host}` : label
