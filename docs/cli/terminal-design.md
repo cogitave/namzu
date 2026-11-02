@@ -1230,7 +1230,7 @@ across terminal input chunks is assembled before editing the draft; pasted
 newlines do not submit it. Windows CRLF and CR line endings become LF. A paste
 longer than 800 characters, or with more than `min(rows - 10, 2)` line breaks,
 becomes a chip inside the input text: `[Pasted text #N +M lines]` (`[Pasted text
-#N]` when it has no line break). A pasted image is `[Image #N]`; N is fixed when the image is attached, so deleting an earlier chip never renumbers the rest, and an image whose chip leaves the text by any route is no longer attached. Backspace after
+#N]` when it has no line break). A pasted image is `[Image #N]` ([how images are read](clipboard-and-images.md)); N is fixed when the image is attached, so deleting an earlier chip never renumbers the rest, and an image whose chip leaves the text by any route is no longer attached. Backspace after
 a chip removes it whole, and the chip is replaced by the text it stands for when
 the message is sent, so history recall and draft restore see the full text. The sent message is echoed in the conversation with that text in full, pasted lines included; only a message over 10,000 characters is cut, to its first and last 2,500 characters with a dim divider between them that reads `(N lines, ~M KB hidden)`. The model always receives the whole message. Other
 pastes insert at the cursor as typed text. There is no separate chip row. Terminals without bracketed-paste support retain chunk-based fallback

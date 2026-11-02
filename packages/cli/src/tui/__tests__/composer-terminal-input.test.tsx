@@ -13,7 +13,8 @@ const clipboardImage = {
 	mediaType: 'image/png' as const,
 }
 
-vi.mock('../../integrations/clipboard/image.js', () => ({
+vi.mock('../../integrations/clipboard/image.js', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../integrations/clipboard/image.js')>()),
 	readClipboardImage: () => ({ kind: 'image' as const, image: clipboardImage }),
 }))
 

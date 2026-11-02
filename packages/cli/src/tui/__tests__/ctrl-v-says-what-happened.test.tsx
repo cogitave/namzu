@@ -41,7 +41,8 @@ function holdNextTurn(): void {
 	turnGates.push({ wait, release })
 }
 
-vi.mock('../../integrations/clipboard/image.js', () => ({
+vi.mock('../../integrations/clipboard/image.js', async (importOriginal) => ({
+	...(await importOriginal<typeof import('../../integrations/clipboard/image.js')>()),
 	readClipboardImage: () => clipboard,
 }))
 
@@ -156,9 +157,9 @@ describe('Ctrl+V with nothing to paste', () => {
 		const { stdin, lastFrame } = await ready()
 
 		stdin.write('\x16') // Ctrl+V
-		await frameShows(lastFrame, 'No image on the clipboard')
+		await frameShows(lastFrame, 'No image found in the clipboard')
 
-		expect(lastFrame(), 'the key was silent').toContain('No image on the clipboard')
+		expect(lastFrame(), 'the key was silent').toContain('No image found in the clipboard')
 	})
 
 	it('names what is missing when the machine cannot read the clipboard at all', async () => {
@@ -174,7 +175,7 @@ describe('Ctrl+V with nothing to paste', () => {
 		expect(frame).toContain('Cannot read images')
 		expect(frame, 'did not say what to install').toContain('xclip')
 		expect(frame, 'blamed an empty clipboard for a missing tool').not.toContain(
-			'No image on the clipboard',
+			'No image found in the clipboard',
 		)
 	})
 })
@@ -193,8 +194,9 @@ describe('Ctrl+V with an image', () => {
 		harness.stdin.write('\x16')
 		await frameShows(harness.lastFrame, 'Image #2')
 
-		// Put the cursor right after the first chip and delete it whole.
-		for (let i = 0; i < '[Image #2]'.length; i += 1) harness.stdin.write('\x1b[D')
+		// Put the cursor right after the first chip and delete it whole. The
+		// second chip sits after a space, which is part of what is stepped over.
+		for (let i = 0; i < ' [Image #2]'.length; i += 1) harness.stdin.write('\x1b[D')
 		await tick(30)
 		harness.stdin.write('\x7f')
 		await vi.waitFor(() => expect(harness.lastFrame() ?? '').not.toContain('Image #1'))

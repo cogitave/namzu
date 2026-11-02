@@ -225,6 +225,7 @@ import {
 	acknowledgeBypass,
 	hasAcknowledgedBypass,
 } from '../permissions/consent.js'
+import { createImageReadPolicy } from '../permissions/image-read.js'
 import {
 	type ModeAvailability,
 	type PermissionMode,
@@ -1537,6 +1538,14 @@ function AppBody({
 	const trustedCwdRef = useRef(pinTrustedProjectPath(initialCtx, initialCtx.cwd))
 	const [ctx, setCtx] = useState(initialCtx)
 	const ctxRef = useRef(initialCtx)
+	// A pasted image path is read unless a deny rule names it.
+	const imageReadPolicy = useMemo(
+		() =>
+			createImageReadPolicy({
+				rules: () => ctxRef.current.rules,
+			}),
+		[],
+	)
 	const activateTrustedProject = useCallback((): TuiContext => {
 		const resolved = resolveTrustedProjectContext(initialCtx, trustedCwdRef.current)
 		ctxRef.current = resolved
@@ -16063,6 +16072,7 @@ function AppBody({
 												placeholder: examplePlaceholder(exampleFile, exampleSeedRef.current),
 											}
 										: {})}
+								mayReadImage={imageReadPolicy}
 								reasoningEffortLevels={session?.reasoningEffortLevels}
 								onCycleMode={cyclePermissionMode}
 								disabled={
