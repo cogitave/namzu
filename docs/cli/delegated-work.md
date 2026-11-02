@@ -743,7 +743,10 @@ New turns and checkpoint resumes take one bounded snapshot of this
 conversation's earlier children, read through the session index
 (`SessionIndex.listChildren`), which is derived from the parent log. A child
 whose parent log has no `child_session_ended` yet and whose own log has no
-settled turn either is reported as `unresolved`; one whose own log did settle is
+settled turn either is reported as `unresolved`, unless its run is live in this
+program: a running agent is listed once, by the live task, and is left out of
+the saved view (a `session_id` read of it says it is still running), so it
+never appears as an unresolved twin; one whose own log did settle is
 reported with that outcome; one that ended carries its actual outcome and a preview of its
 answer of at most 16,000 characters, explicitly marked when truncated. A
 completed scheduler lifecycle does not turn a token-limited result into

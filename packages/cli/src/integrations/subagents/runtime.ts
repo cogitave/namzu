@@ -613,6 +613,12 @@ export interface SubagentRuntime {
 	 */
 	publicTaskIdOf(taskId: string): string
 	/**
+	 * The session ids of the children whose run is live in this program right
+	 * now. A recorded child in this set is not a saved agent: the live task
+	 * already answers for it.
+	 */
+	liveChildSessionIds(): ReadonlySet<string>
+	/**
 	 * Start one agent a workflow script asked for, through the same path, review
 	 * channel, tool roster, sandbox, budget ledger and cancellation as the `Agent`
 	 * tool, and wait for it. The child keeps its normal transcript.
@@ -814,6 +820,18 @@ export async function createSubagentRuntime(
 		const viewId = taskViews.get(String(taskId))
 		const owned = viewId === undefined ? undefined : conversations.get(viewId)
 		return owned?.publicTaskId ?? String(taskId)
+	}
+	/** Child sessions whose task has not ended: the live task owns them, whatever the parent's log says yet. */
+	const liveChildSessions = (extra: readonly TaskHandle[] = []): Set<string> => {
+		const live = new Set<string>()
+		const note = (task: TaskHandle | undefined): void => {
+			if (task?.childSessionId !== undefined && !isTerminalAgentTaskState(task.state))
+				live.add(String(task.childSessionId))
+		}
+		for (const owned of conversations.values())
+			note(owned.gateway.getTask(owned.task.taskId) ?? owned.task)
+		for (const task of extra) note(task)
+		return live
 	}
 	const dropConversation = (viewId: string): void => {
 		const dropped = conversations.get(viewId)
@@ -2100,9 +2118,26 @@ export async function createSubagentRuntime(
 					}
 				const parent = await resolveParent(context.turnId)
 				const history = opts.savedAgents(parent.sessionId)
-				const saved = request.session_id
+				const liveTasks = [(await gatewayForTurn(context.turnId)).listTasks()]
+				for (const other of await conversationGateways(context.turnId))
+					liveTasks.push(other.listTasks())
+				const live = liveChildSessions(liveTasks.flat())
+				if (request.session_id !== undefined && live.has(request.session_id))
+					return {
+						success: false,
+						output: '',
+						error:
+							'That agent is still running, so it has no saved result yet. Read it with agent_task_list (without history) or wait_for_task.',
+					}
+				// A child still running is a live task, listed once as such; its
+				// parent's log has no ending for it yet only because it has not ended.
+				const read = request.session_id
 					? { agents: [await history.read(request.session_id)], omitted: 0 }
 					: await history.list()
+				const saved = {
+					...read,
+					agents: read.agents.filter((agent) => !live.has(String(agent.sessionId))),
+				}
 				return {
 					success: true,
 					output: JSON.stringify({
@@ -3123,6 +3158,7 @@ export async function createSubagentRuntime(
 		},
 		activity,
 		publicTaskIdOf: publicTaskId,
+		liveChildSessionIds: () => liveChildSessions(),
 		launchWorkflowAgent,
 		close,
 	}

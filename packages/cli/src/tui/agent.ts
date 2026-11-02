@@ -3824,6 +3824,7 @@ export async function createAgentSession(
 							session: { sessionId },
 							log: cliLogger(),
 						}),
+						() => subagentRuntime?.liveChildSessionIds() ?? new Set(),
 					),
 				]
 			: []
