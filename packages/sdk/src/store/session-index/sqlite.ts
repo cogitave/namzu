@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { basename, dirname, join } from 'node:path'
@@ -309,25 +310,72 @@ function userVersion(db: DatabaseSync): number {
 	return Number(db.prepare('PRAGMA user_version').get()?.user_version)
 }
 
+/** SQLite primary result codes for "the image is malformed" and "the file is not a database". */
+const SQLITE_CORRUPT = 11
+const SQLITE_NOTADB = 26
+
+/** Whether `error` says the file's content is not a usable SQLite database. */
+function isNotADatabase(error: unknown): boolean {
+	const code = (error as { errcode?: unknown } | null)?.errcode
+	return typeof code === 'number' && [SQLITE_CORRUPT, SQLITE_NOTADB].includes(code & 0xff)
+}
+
 /**
- * The version of the index file at `path`: -1 when there is none, 0 when it
- * cannot be read as a SQLite database, otherwise its `user_version`.
+ * The version of the index file at `path`: -1 when there is none, 0 when its
+ * content is not a SQLite database, otherwise its `user_version`.
+ *
+ * The file is opened for writing, never read-only. A writer that died inside
+ * a transaction leaves a hot journal beside the file, and only a connection
+ * that may write can roll it back; a read-only one fails on it, which used to
+ * read as "not a database" and sent the caller to replace a healthy index,
+ * leaving the dead writer's journal beside the new file for the next
+ * connection to play back into it. Only a SQLite "corrupt" or "not a
+ * database" answer means 0; being busy, read-only or unable to read is thrown,
+ * never a reason to rebuild.
  */
 function indexVersion(path: string): number {
+	if (!existsSync(path)) return -1
 	const { DatabaseSync } = requireSqlite()
-	let db: DatabaseSync
-	try {
-		db = new DatabaseSync(path, { readOnly: true })
-	} catch {
-		return -1
-	}
+	const db = new DatabaseSync(path)
 	try {
 		db.exec('PRAGMA busy_timeout = 10000')
 		return userVersion(db)
-	} catch {
-		return 0
+	} catch (error) {
+		if (isNotADatabase(error)) return 0
+		throw error
 	} finally {
 		db.close()
+	}
+}
+
+/**
+ * Put the finished `temporary` file in place of the index at `path`.
+ *
+ * Takes the old index's exclusive lock first. That waits out a peer that is
+ * mid-write and rolls back a hot journal left by one that died, so no journal
+ * for the old file survives to be played into the new one. A leftover journal
+ * of a file that is not a database is removed too: it can describe nothing
+ * but that file.
+ */
+async function replaceIndexFile(temporary: string, path: string): Promise<void> {
+	let old: DatabaseSync | undefined
+	if (existsSync(path)) {
+		const { DatabaseSync } = requireSqlite()
+		old = new DatabaseSync(path)
+		try {
+			old.exec('PRAGMA busy_timeout = 10000')
+			old.exec('BEGIN EXCLUSIVE')
+		} catch (error) {
+			old.close()
+			old = undefined
+			if (!isNotADatabase(error)) throw error
+		}
+	}
+	try {
+		await rm(`${path}-journal`, { force: true })
+		await rename(temporary, path)
+	} finally {
+		old?.close()
 	}
 }
 
@@ -583,7 +631,7 @@ export class SqliteSessionIndex extends SessionIndexBase {
 			if (!options.force && (await pathExists(options.path))) {
 				if (indexVersion(options.path) === SESSION_INDEX_VERSION) return false
 			}
-			await rename(temporary, options.path)
+			await replaceIndexFile(temporary, options.path)
 			return true
 		} finally {
 			await rm(temporary, { force: true })

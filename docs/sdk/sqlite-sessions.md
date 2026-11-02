@@ -71,6 +71,12 @@ session log itself (`activeTurn()`) is what tells `running`, `paused` and
   `PRAGMA user_version` other than `SESSION_INDEX_VERSION` (1), is rebuilt
   from the logs into a temporary file and renamed over the old one. Two
   processes rebuilding at once both finish; one index remains, complete.
+  The version is read through a connection that may write, so a hot journal
+  left by a process that died mid-write is rolled back instead of being read
+  as "not a database"; only SQLite's own "corrupt" or "not a database" answer
+  starts a rebuild, never a busy or unreadable file. Before the rename the
+  old file's exclusive lock is taken, which waits out a peer mid-write and
+  leaves no journal of the old file to be played into the new one.
 - **Incremental writes** take `BEGIN IMMEDIATE`, so two writers never
   interleave a session's rows.
 
