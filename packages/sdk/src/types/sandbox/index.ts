@@ -189,10 +189,35 @@ export interface SandboxWalkFilesOptions {
 	readonly maxDepth?: number
 	/** Positive safe integer bounding emitted matching files. */
 	readonly maxEntries: number
-	/** Positive safe integer bounding examined directory entries; defaults to 20,000. */
+	/**
+	 * Positive safe integer bounding examined directory entries; defaults to
+	 * 500,000. Reaching it ends the walk with the entries found so far (see
+	 * {@link SandboxWalkSummary.stopped}) unless `failOnLimit` is set.
+	 */
 	readonly maxVisitedEntries?: number
 	/** Match hidden names through wildcards; explicit dotfile patterns always work. Defaults to false. */
 	readonly includeHidden?: boolean
+	/**
+	 * Skip files and directories matched by `.gitignore`, `.ignore` and
+	 * `.git/info/exclude` (the first only inside a git repository), and never
+	 * descend into version-control directories. The root itself is never
+	 * skipped. Defaults to true; pass false to walk ignored trees too.
+	 */
+	readonly respectIgnore?: boolean
+	/** Throw an error with code `ERR_FILE_WALK_LIMIT` at `maxVisitedEntries` instead of ending. Defaults to false. */
+	readonly failOnLimit?: boolean
+	/** Called once when the walk ends, with how it ended. A walker that cannot report omits the call. */
+	readonly onSummary?: (summary: SandboxWalkSummary) => void
+}
+
+/** How a bounded walk ended. */
+export interface SandboxWalkSummary {
+	/** Directory entries examined. */
+	readonly visited: number
+	/** Directories skipped because an ignore rule matched them. */
+	readonly ignoredDirectories: number
+	/** Present when the walk ended at its entry bound, so the entries are not the whole tree. */
+	readonly stopped?: 'entry-limit'
 }
 
 // ---------------------------------------------------------------------------
