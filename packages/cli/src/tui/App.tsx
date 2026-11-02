@@ -100,7 +100,13 @@ import { hostAccountFacts } from '../integrations/accounts/host-facts.js'
 import { openCliAccounts, storedAccountSignedIn } from '../integrations/accounts/open.js'
 import { accountProductName, accountState } from '../integrations/accounts/rows.js'
 import { startAutoUpdate } from '../integrations/auto-update/start.js'
-import { writeClipboardText } from '../integrations/clipboard/text.js'
+import {
+	type ClipboardCopier,
+	type CopyHost,
+	bypassKey,
+	createClipboardCopier,
+	describeCopy,
+} from '../integrations/clipboard/copy.js'
 import {
 	type PullRequestFilter,
 	type PullRequestLink,
@@ -527,7 +533,6 @@ import {
 	CONTINUATION_GLYPH,
 	SYSTEM_ROW_GLYPH,
 	type SystemLevel,
-	clipboardSentNotice,
 	endWord,
 	goalRoundHeadline,
 	interruptionRow,
@@ -694,6 +699,8 @@ const SESSION_CLOSE_ON_EXIT_MS = 5_000
 export interface AppProps {
 	readonly ctx: TuiContext
 	readonly onExitSummary?: (summary: TuiExitSummary) => void
+	/** Test seam for the clipboard: a copier, or the tools and platform one is built over. */
+	readonly clipboard?: ClipboardCopier | CopyHost
 	/** Test/embedding seam; the normal TUI uses VISUAL/EDITOR on the host. */
 	readonly externalEditor?: ExternalEditorAdapter
 	/**
@@ -1527,6 +1534,7 @@ export function App(props: AppProps) {
 function AppBody({
 	ctx: initialCtx,
 	onExitSummary,
+	clipboard: clipboardSeam,
 	externalEditor = defaultExternalEditor,
 	terminationExit,
 	repaint,
@@ -1559,6 +1567,13 @@ function AppBody({
 	}, [initialCtx])
 	const { exit } = useApp()
 	const { stdout, write: writeStdout } = useStdout()
+	const clipboard = useMemo(
+		() =>
+			clipboardSeam && 'copy' in clipboardSeam
+				? clipboardSeam
+				: createClipboardCopier({ isTTY: stdout.isTTY, write: writeStdout }, clipboardSeam),
+		[clipboardSeam, stdout.isTTY, writeStdout],
+	)
 	const terminal = useWindowSize()
 	const hyperlinks = terminalSupportsHyperlinks(process.env, stdout.isTTY === true)
 	/**
@@ -4932,38 +4947,15 @@ function AppBody({
 						return
 					}
 
-					const result = writeClipboardText(projected.markdown, {
-						isTTY: stdout.isTTY,
-						write: writeStdout,
-					})
-					switch (result.kind) {
-						case 'request-sent':
-							pushMessage(
-								'system',
-								clipboardSentNotice(
-									projected.markdown.length,
-									plural(projected.turns, 'reply', 'replies'),
-								),
-							)
-							break
-						case 'unavailable':
-							pushMessage(
-								'system',
-								`Cannot send the verified export to the clipboard here — ${result.detail}. Choose Save to file instead.`,
-							)
-							break
-						case 'too-large':
-							pushMessage(
-								'system',
-								`Cannot send the verified export to the terminal clipboard — it is ${formatSize(result.bytes)} and the limit for the terminal clipboard is ${formatSize(result.limit)}. Nothing was truncated; choose Save to file instead.`,
-							)
-							break
-						case 'write-failed':
-							pushMessage(
-								'system',
-								`Could not send the verified export copy request: ${result.detail}`,
-							)
-							break
+					const outcome = await clipboard.copy(projected.markdown)
+					if (!outcome) pushMessage('system', 'That copy was replaced by a newer one.')
+					else {
+						const { text, ok } = describeCopy(
+							outcome,
+							bypassKey(process.env),
+							plural(projected.turns, 'reply', 'replies'),
+						)
+						pushMessage('system', ok ? text : `${text} Choose Save to file instead.`)
 					}
 				} catch (err) {
 					pushMessage(
@@ -4978,7 +4970,7 @@ function AppBody({
 				}
 			})()
 		},
-		[ctx.cwd, pushMessage, stableExportSource, stdout.isTTY, writeStdout],
+		[ctx.cwd, clipboard, pushMessage, stableExportSource],
 	)
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
@@ -5413,41 +5405,19 @@ function AppBody({
 			// The queue pump still observes React state and can proceed only after
 			// this event has finished publishing the result.
 			setCopyPicker(null)
-			const result = writeClipboardText(target.text, {
-				isTTY: stdout.isTTY,
-				write: writeStdout,
-			})
 			const origin =
 				picker.provenance === 'persisted'
 					? 'the latest saved reply'
 					: 'the latest normally completed answer'
 			const selection = target.kind === 'whole' ? origin : `${target.label} from ${origin}`
-			switch (result.kind) {
-				case 'request-sent':
-					pushMessage('system', clipboardSentNotice(target.text.length, selection))
-					break
-				case 'unavailable':
-					pushMessage(
-						'system',
-						`Couldn’t copy here: ${result.detail}. /copy needs a terminal that allows clipboard access.`,
-					)
-					break
-				case 'too-large':
-					pushMessage(
-						'system',
-						`Cannot send this selection to the terminal clipboard — it is ${formatSize(result.bytes)} and the limit for the terminal clipboard is ${formatSize(result.limit)}. Nothing was truncated.`,
-					)
-					break
-				case 'write-failed':
-					pushSystem('error', `Could not send the terminal copy request: ${result.detail}`)
-					break
-				default: {
-					const exhaustive: never = result
-					void exhaustive
-				}
-			}
+			void clipboard.copy(target.text).then((outcome) => {
+				if (!outcome) return
+				const { text, ok } = describeCopy(outcome, bypassKey(process.env), selection)
+				if (ok) pushMessage('system', text)
+				else pushSystem('error', text)
+			})
 		},
-		[pushMessage, setCopyPicker, stdout.isTTY, writeStdout, pushSystem],
+		[clipboard, pushMessage, setCopyPicker, pushSystem],
 	)
 
 	const sendTerminalNotification = useCallback(

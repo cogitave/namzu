@@ -314,7 +314,7 @@ delete process.env.NAMZU_DEBUG
 process.env.NAMZU_PR_STATUS = 'off'
 
 // The clipboard is the operator's. No suite may reach it by accident: the real
-// command runner refuses to start a clipboard program (xclip, wl-paste,
-// pbpaste, osascript, PowerShell). The suites about clipboard reads inject a
-// runner of their own.
+// command runner refuses to start a clipboard program (pbcopy, pbpaste, xclip,
+// xsel, wl-copy, wl-paste, osascript, tmux, PowerShell) and the image reader
+// reports itself unavailable. A suite about the clipboard injects its own runner.
 process.env.NAMZU_NO_CLIPBOARD = '1'

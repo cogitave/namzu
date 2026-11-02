@@ -17,6 +17,7 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { CLIPBOARD_KILL_SWITCH } from './copy.js'
 import { type FitResult, fitImage, sniffImageFormat } from './image-fit.js'
 import { DEFAULT_WSL_MOUNT_ROOT, isWslEnv, parseWslMountRoot, readTextOrUndefined } from './wsl.js'
 
@@ -79,7 +80,7 @@ const TOOL_TIMEOUT_MS = 3_000
 const POWERSHELL_TIMEOUT_MS = 10_000
 
 /**
- * Programs that read the operator's clipboard. Setting `NAMZU_NO_CLIPBOARD=1`
+ * Programs that read the operator's clipboard. Setting `NAMZU_NO_CLIPBOARD=1` (`CLIPBOARD_KILL_SWITCH`)
  * stops the real runner from starting any of them, so a test or a locked-down
  * environment cannot reach the clipboard by accident; the read then reports
  * that no tool is available.
@@ -88,7 +89,7 @@ const CLIPBOARD_PROGRAMS = /(?:^|[\\/])(?:xclip|wl-paste|pbpaste|osascript|power
 
 export const runCommand: CommandRunner = (file, args, options) =>
 	new Promise((resolve) => {
-		if (process.env.NAMZU_NO_CLIPBOARD === '1' && CLIPBOARD_PROGRAMS.test(file)) {
+		if (process.env[CLIPBOARD_KILL_SWITCH] === '1' && CLIPBOARD_PROGRAMS.test(file)) {
 			resolve({ code: null, stdout: Buffer.alloc(0), timedOut: false, spawnFailed: true })
 			return
 		}

@@ -59,7 +59,7 @@ clause, so no line ends mid-sentence.
 | `/btw <question>` | Ask a quick side question while the main work goes on. The [small model](small-model.md) answers from the recent conversation (the latest prompts and replies, cut short, without tool output) and cannot read files or run commands; the question and the answer are shown once and are not added to the conversation. It also works during a turn. |
 | `/plan [description]` | Switch this conversation to plan mode (the same as choosing it in `/permissions`). With a description, it is sent as your next message once the mode is on. In plan mode already, `/plan` says so. |
 | `/recap` | Write a short recap of this conversation now (the [away recap](terminal-design.md#focus-and-the-away-recap) shown on its own after a few minutes away is switched with `/config recap on\|off`). |
-| `/copy` | Choose the whole latest answer, a code block, or a quote to copy. |
+| `/copy` | Choose the whole latest answer, a code block, or a quote to copy. It goes through the machine's clipboard tool first and the terminal's clipboard request after, the same way a selection in the [spaces screen](spaces.md#selecting-and-copying-text) does. |
 | `/raw` | Toggle copy-friendly plain transcript rendering: /raw [on\|off]. |
 | `/export` | Export this verified conversation to the clipboard or a Markdown file. |
 | `/status` | Show model, permissions, workspace and latest cost, with the folder written from `~` or its last folders. The card leaves out the conversation id and the tool count; `/status details` adds the full conversation id, expands rules and isolation; `/status config` shows setting sources; `/status tools` lists callable tools. |

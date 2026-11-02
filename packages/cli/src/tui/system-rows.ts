@@ -148,13 +148,3 @@ export function endLevel(outcome: EndOutcome): SystemLevel {
 export function goalRoundHeadline(round: number, max: number): string {
 	return `Goal, attempt ${round} of ${max}`
 }
-
-/**
- * The notice after a copy request goes out. The terminal never confirms a
- * clipboard write, so this says what was sent, in a short form,
- * and what to do if the paste comes up empty.
- */
-export function clipboardSentNotice(chars: number, what?: string): string {
-	const count = `${chars.toLocaleString('en-US')} char${chars === 1 ? '' : 's'}`
-	return `Sent ${count}${what ? ` (${what})` : ''} via OSC 52 · if paste fails, allow clipboard access in your terminal`
-}

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FitResult } from './image-fit.js'
 import {
 	CLIPBOARD_SCRIPT,
@@ -265,4 +265,18 @@ describe('the real command runner', () => {
 		expect(result.code).toBe(0)
 		expect(result.stdout.toString()).toBe('hi')
 	}, 30_000)
+})
+
+afterEach(() => {
+	vi.unstubAllEnvs()
+})
+
+describe('readClipboardImage under NAMZU_NO_CLIPBOARD', () => {
+	it('starts no process and reports the reader unavailable', async () => {
+		vi.stubEnv('NAMZU_NO_CLIPBOARD', '1')
+		for (const platform of ['linux', 'darwin', 'win32'] as const) {
+			const read = await readClipboardImage({ platform, env: {}, readText: () => undefined })
+			expect(read.kind).toBe('unavailable')
+		}
+	})
 })

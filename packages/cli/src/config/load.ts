@@ -2002,6 +2002,8 @@ const CONFIG_READERS: ConfigReaders = {
 			recap?: unknown
 			spinnerTips?: unknown
 			spacesPrefix?: unknown
+			mouse?: unknown
+			copyOnSelect?: unknown
 		}
 		if (raw.spinnerTips !== undefined && typeof raw.spinnerTips !== 'boolean')
 			return invalidConfigValue(context, ['spinnerTips'], 'must be a boolean')
@@ -2064,8 +2066,20 @@ const CONFIG_READERS: ConfigReaders = {
 				)
 		}
 
+		if (
+			raw.mouse !== undefined &&
+			raw.mouse !== 'full' &&
+			raw.mouse !== 'scroll' &&
+			raw.mouse !== 'off'
+		)
+			return invalidConfigValue(context, ['mouse'], 'must be "full", "scroll" or "off"')
+		if (raw.copyOnSelect !== undefined && typeof raw.copyOnSelect !== 'boolean')
+			return invalidConfigValue(context, ['copyOnSelect'], 'must be true or false')
+
 		return {
 			...(notifications !== undefined ? { notifications } : {}),
+			...(raw.mouse !== undefined ? { mouse: raw.mouse as 'full' | 'scroll' | 'off' } : {}),
+			...(raw.copyOnSelect !== undefined ? { copyOnSelect: raw.copyOnSelect } : {}),
 			...(raw.spacesPrefix !== undefined ? { spacesPrefix: raw.spacesPrefix as string } : {}),
 			...(method !== undefined ? { notificationMethod: method } : {}),
 			...(themeSetting !== undefined ? { theme: themeSetting } : {}),

@@ -8,6 +8,7 @@ import { resolve } from 'node:path'
 import { render } from 'ink'
 import React from 'react'
 
+import { writeLaunchMouseReset } from '../spaces/mouse.js'
 import { hostedByHost, spacesSignal } from '../spaces/signal.js'
 import { type TerminationSignal, handleTerminationSignals } from '../termination.js'
 import { App } from './App.js'
@@ -58,6 +59,8 @@ export async function launchTui(
 	// cursor so namzu opens on a clean canvas
 	// rather than below leftover shell output. Stays in the normal buffer so
 	// native scrollback still works as the transcript grows.
+	// A killed earlier run may have left the pointer captured; clear that before the first frame.
+	writeLaunchMouseReset(process.stdout, hostedByHost(process.env, process.ppid))
 	if (process.stdout.isTTY) {
 		process.stdout.write('\x1b[2J\x1b[3J\x1b[H')
 	}
@@ -114,6 +117,8 @@ export async function launchTui(
 				cwd: process.cwd(),
 				entry: process.argv[1] as string,
 				prefixSetting: ctx.tui?.spacesPrefix,
+				...(ctx.tui?.mouse !== undefined ? { mouseSetting: ctx.tui.mouse } : {}),
+				...(ctx.tui?.copyOnSelect !== undefined ? { copyOnSelect: ctx.tui.copyOnSelect } : {}),
 				requestExit: () =>
 					terminationExit.current ? terminationExit.current() : instance.unmount(),
 				repaint: () => repaint.current?.(),
