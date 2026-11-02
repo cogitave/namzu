@@ -72,17 +72,16 @@ function hookAskedReason(reason: string | undefined): string {
  *
  * The batch is handed back once a message has arrived and the batch has run for
  * {@link DETACH_AFTER_MS}; a short call finishes first and nothing changes. The
- * arrival signal is the host's own wake (`waitForInbound`, or the durable
- * source's), so a host that supplies neither never detaches a call.
+ * arrival signal is the host's `waitForOperator`, which fires for operator text
+ * only, so a host that supplies none never detaches a call and a notice from a
+ * child or a peer never does.
  */
 function watchForOperator(
 	ctx: IterationContext,
 	startedAt: number,
 ): { readonly detach: BatchDetach; stop(): void } | undefined {
 	const calls = ctx.detachedCalls
-	const wakes = [ctx.waitForInbound, ctx.durableInbound?.wait?.bind(ctx.durableInbound)].filter(
-		(wake): wake is (signal: AbortSignal) => Promise<void> => wake !== undefined,
-	)
+	const wakes = calls?.waitForOperator ? [calls.waitForOperator] : []
 	if (!calls || wakes.length === 0) return undefined
 	const watching = new AbortController()
 	let timer: ReturnType<typeof setTimeout> | undefined

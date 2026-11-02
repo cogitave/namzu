@@ -812,9 +812,8 @@ export interface QueryParams {
 	/**
 	 * Answer the operator while a long tool call is still running.
 	 *
-	 * Default off. When on, and `waitForInbound` (or the durable source's `wait`)
-	 * reports the operator wrote while a batch had been running for two
-	 * seconds, each call not yet finished is answered with a "still running"
+	 * Default off. When on, and `waitForOperator` reports the operator wrote while
+	 * a batch had been running for two seconds, each call not yet finished is answered with a "still running"
 	 * placeholder so the model can read the message and reply at once. The
 	 * calls are not interrupted and not repeated: their real results reach the
 	 * model later in a message that names each call, and the turn is held open
@@ -823,6 +822,14 @@ export interface QueryParams {
 	 * under per-call review, where the batch is waiting on a person.
 	 */
 	answerWhileCallsRun?: boolean
+
+	/**
+	 * Resolve when the operator wrote, and for no other reason. It is what
+	 * `answerWhileCallsRun` listens to: a notice from a child agent or mail from
+	 * a peer also wakes `waitForInbound`, but must not hand a running call back.
+	 * Abort removes the waiter, as for `waitForInbound`.
+	 */
+	waitForOperator?: (signal: AbortSignal) => Promise<void>
 
 	/** Durable host input: normal append, flush and exact acknowledgement before inference. Requires sessionLog. */
 	durableInbound?: DurableInboundSource
@@ -1839,8 +1846,8 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			...(monitorNotices ? { monitorNotices } : {}),
 			...(monitorNotices ? { onMonitorNoticeDelivered: acknowledgeMonitorNotices } : {}),
 			...(awaitedJobs ? { awaitedJobs } : {}),
-			...(params.answerWhileCallsRun && (params.waitForInbound || params.durableInbound?.wait)
-				? { detachedCalls: new DetachedCalls() }
+			...(params.answerWhileCallsRun && params.waitForOperator
+				? { detachedCalls: new DetachedCalls(params.waitForOperator) }
 				: {}),
 			checkpointMgr,
 			planManager: ctx.planManager,

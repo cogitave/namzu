@@ -125,14 +125,14 @@ describe('the coding-agent doctrine', () => {
 		const section = CODING_AGENT_DELEGATION_DOCTRINE.slice(
 			CODING_AGENT_DELEGATION_DOCTRINE.indexOf('### Answering how work is going'),
 		)
-		expect(section).toContain('read the running-work note')
+		expect(section).toContain('note about running work')
 		for (const verdict of ['progressing', 'waiting', 'stalled', 'dead'])
 			expect(section).toContain(verdict)
 		expect(section).toContain('how long ago it last moved')
 		expect(section).toContain('finished (with its result), running (and where it is), queued')
 		expect(section).toContain('write in the language the person used')
 		expect(section).toContain('say it is still running')
-		expect(section).toContain('offer to resume it')
+		expect(section).toContain('offer to run it again')
 		// Stated as what to do, with its reason, in plain words.
 		expect(section).not.toMatch(/\b(MUST|NEVER|CRITICAL)\b/)
 		expect(section).not.toMatch(/\/jobs|\/agents|\/tasks/)

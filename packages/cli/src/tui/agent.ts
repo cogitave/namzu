@@ -970,6 +970,8 @@ export interface SendOptions {
 	readonly inboundMessages?: () => Message[]
 	/** Resolve when undelivered input exists; abort removes this waiter. */
 	readonly waitForInbound?: (signal: AbortSignal) => Promise<void>
+	/** Resolve when the operator wrote and for no other reason; a long tool call is answered for it only. */
+	readonly waitForOperator?: (signal: AbortSignal) => Promise<void>
 	/** Job exits the SDK actually inserted into model context during this turn. */
 	readonly onJobNoticeDelivered?: (jobIds: readonly string[]) => void
 	/** Monitor events the SDK actually inserted into model context during this turn. */
@@ -3547,6 +3549,11 @@ export async function createAgentSession(
 			(workflowHost?.registry.list() ?? []).filter(
 				(run) => workflowOwners.get(run.runId) === sessionId,
 			),
+		// The id the agent tools accept, which a continued agent keeps from its first run.
+		agentId: (agent) =>
+			agent.taskId !== undefined
+				? (subagentRuntime?.publicTaskIdOf(agent.taskId) ?? agent.taskId)
+				: agent.viewId,
 	})
 	const outstandingWorkStep = createOutstandingWorkStep(outstandingFacts)
 	const progressNotices = createProgressNotices()
@@ -7759,8 +7766,9 @@ async function* runTurn({
 			...(reminders ? { reminders } : {}),
 			...(announceApprovalPolicyChange === false ? { announceApprovalPolicyChange } : {}),
 			...(opts?.inboundMessages ? { inboundMessages: opts.inboundMessages } : {}),
-			...(opts?.waitForInbound
-				? { waitForInbound: opts.waitForInbound, answerWhileCallsRun: true }
+			...(opts?.waitForInbound ? { waitForInbound: opts.waitForInbound } : {}),
+			...(opts?.waitForOperator
+				? { waitForOperator: opts.waitForOperator, answerWhileCallsRun: true }
 				: {}),
 			...(opts?.durableInbound ? { durableInbound: opts.durableInbound } : {}),
 			...(completionInbox ? { completionInbox } : {}),

@@ -18,7 +18,7 @@ A host answering "how is it going" needs three facts about each running item, no
 | --- | --- |
 | Where it is | `BackgroundJob.lastOutputLine`: the last non-empty output line, with control sequences removed, flattened and clipped to 160 characters. |
 | When it last progressed | `BackgroundJob.lastOutputAt`: stamped on every write to stdout or stderr. Absent until the job has written; the start time stands in. |
-| Whether it is alive | `BackgroundJobRegistry.isAlive(id)` (also on the ref `bindOwner` returns): asks the system whether the job's process group exists, not the record. A job with no process of its own to probe (a WebSocket source, a sandboxed job, a platform without process groups) is alive exactly while the registry says it is running. |
+| Whether it is alive | `BackgroundJobRegistry.isAlive(id)` (also on the ref `bindOwner` returns): asks the system whether the job's process group exists, not the record. A group that exists but is not ours to signal (EPERM) counts as there. A workflow run's last progress is derived from its agents' own times and events. One caveat: between the group ending and the record closing (the close handler polls every 250 ms) a recycled pid that leads a new group would read as alive. A job with no process of its own to probe (a WebSocket source, a sandboxed job, a platform without process groups) is alive exactly while the registry says it is running. |
 
 ## The verdict
 
@@ -29,7 +29,7 @@ A host answering "how is it going" needs three facts about each running item, no
 | `finished` | A result or an end has arrived. Beats every other row. |
 | `dead` | Not alive and no result: gone without one. |
 | `waiting` | Alive, and either a reason is known (`waitingOn`, with `waitingSince`) or the item has been silent for `LIVENESS_QUIET_MS` (30 s) without reaching the stall bound. |
-| `stalled` | Alive, no known reason to wait, silent for `LIVENESS_STALLED_MS` (2 minutes: the same number `wait_for_job` uses as its idle default, so there is one threshold to explain). |
+| `stalled` | Only a reason to look, not proof of trouble. Alive, no known reason to wait, silent for `LIVENESS_STALLED_MS` (2 minutes: the same number `wait_for_job` uses as its idle default, so there is one threshold to explain). |
 | `progressing` | Alive and progress is newer than the quiet threshold. |
 
 The result carries whole seconds of idle time and age, and `formatLivenessLine` prints one line, the same everywhere:

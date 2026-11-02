@@ -360,6 +360,25 @@ function groupAlive(pid: number | undefined): boolean {
 	}
 }
 
+/**
+ * The same probe for a status read: a group that exists but is not ours to
+ * signal (EPERM) is there. The close handler keeps {@link groupAlive}, which
+ * must not wait on a group it can never see end.
+ *
+ * Not proof the group is still the job's: between the group ending and the
+ * record closing, a recycled pid that leads a new group would read as alive.
+ * The close handler polls every {@link GROUP_POLL_MS}, so the window is
+ * that small.
+ */
+function groupPresent(pid: number): boolean {
+	try {
+		process.kill(-pid, 0)
+		return true
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === 'EPERM'
+	}
+}
+
 const GROUP_POLL_MS = 250
 
 /** Longest `lastOutputLine` kept on a job record. */
@@ -958,7 +977,7 @@ export class BackgroundJobRegistry {
 		if (!entry || entry.record.status !== 'running') return false
 		const pid = entry.child.pid
 		if (pid === undefined || process.platform === 'win32') return true
-		return groupAlive(pid)
+		return groupPresent(pid)
 	}
 
 	/**

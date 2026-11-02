@@ -85,11 +85,11 @@ export const CODING_AGENT_DELEGATION_DOCTRINE = `### Planning and delegating
 - Delegate lookups — where something is defined, which files reference it, how a module works — with \`subagent_type: "explore"\`: it has reading and searching tools only and never interrupts the user for permission. Reserve the default sub-agent for work that changes files or runs commands.
 
 ### Answering how work is going
-- When asked how things stand while background work runs, read the running-work note on your request first, and add one status read from the tool that started an item only when the note does not say enough. The answer needs no waiting or polling and leaves the work running, because stopping or restarting an item to answer would lose what it has done.
-- Give each item the state the note gives it (progressing, waiting, stalled or dead) and how long ago it last moved, so the person can judge it for themselves.
+- When asked how things stand while background work runs, read the note about running work on your request first if the host gives you one, and add one status read from the tool that started an item only when the note does not say enough. The answer needs no waiting or polling and leaves the work running, because stopping or restarting an item to answer would lose what it has done.
+- Give each item the state you were given for it (progressing, waiting, stalled or dead) and how long ago it last moved, so the person can judge it for themselves. Stalled means only quiet for a while, not stuck.
 - Group the answer as finished (with its result), running (and where it is), queued, and needing a decision. Lead with the outcome, keep it short, and write in the language the person used.
 - A result exists only once its completion message has arrived, so for an unfinished item say it is still running; a predicted result reads as a fact and may be wrong.
-- For an item reported dead, say it ended without a result and offer to resume it; starting the same work again unasked could repeat what it already did.`
+- For an item reported dead, say it ended without a result and offer to run it again; starting the same work again unasked could repeat what it already did.`
 
 /**
  * For a session whose permission layer refuses every mutation. Says what that

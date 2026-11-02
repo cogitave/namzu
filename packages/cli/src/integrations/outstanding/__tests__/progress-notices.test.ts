@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { initialRunView, reduceRunView } from '../../workflows/view.js'
 import type { JobFact } from '../collect.js'
 import {
+	CHECK_INS_PER_SILENCE,
 	CHECK_IN_FIRST_MS,
-	CHECK_IN_MAX_GAP_MS,
+	CLOCK_JUMP_MS,
+	GONE_CONFIRM_MS,
 	PHASE_NOTE_KEY_PREFIX,
 	createProgressNotices,
 	describePendingWorkflowNotices,
@@ -60,6 +62,25 @@ const facts = (now: number, over: Partial<Parameters<ReturnType<typeof look>>[0]
 })
 const look = () => createProgressNotices().look
 
+const lastLook = new WeakMap<object, number>()
+/**
+ * Look the way the terminal does, every ten seconds, up to `f.now`: a single
+ * leap of minutes would read as a suspended host. Returns everything said on the way.
+ */
+function steady(notices: ReturnType<typeof createProgressNotices>, f: ReturnType<typeof facts>) {
+	const out: Array<ReturnType<typeof notices.look>[number]> = []
+	let at = lastLook.get(notices)
+	if (at === undefined) at = f.now
+	else
+		while (at + 10_000 < f.now) {
+			at += 10_000
+			out.push(...notices.look({ ...f, now: at }))
+		}
+	lastLook.set(notices, f.now)
+	out.push(...notices.look(f))
+	return out
+}
+
 describe('a workflow phase note', () => {
 	it('is written when a run moves to a later phase, and never for the phase it was first seen in', () => {
 		const notices = createProgressNotices()
@@ -89,26 +110,25 @@ describe('a quiet-job check-in', () => {
 		const j = job({ lastOutputAt: T0, lastOutputLine: 'compiling' })
 		expect(notices.look(facts(T0 + 1_000, { jobs: [j] }))).toEqual([])
 		let now = T0
-		for (let tick = 0; tick < 400 && gaps.length < 5; tick++) {
+		for (let tick = 0; tick < 400 && gaps.length < CHECK_INS_PER_SILENCE; tick++) {
 			now += 10_000
 			const out = notices.look(facts(now, { jobs: [j] }))
 			if (out.length > 0) gaps.push(now - T0)
 		}
-		// Silence of two, four, eight and sixteen minutes, then the thirty-minute cap.
+		// Silence of two, four, eight and sixteen minutes.
 		expect(gaps).toEqual([
 			CHECK_IN_FIRST_MS,
 			CHECK_IN_FIRST_MS * 2,
 			CHECK_IN_FIRST_MS * 4,
 			CHECK_IN_FIRST_MS * 8,
-			CHECK_IN_MAX_GAP_MS,
 		])
 	})
 
 	it('names the job, asks for a read and a process check, and says it is not a completion', () => {
 		const notices = createProgressNotices()
 		const j = job({ lastOutputAt: T0, lastOutputLine: 'compiling <b>' })
-		notices.look(facts(T0 + 1_000, { jobs: [j] }))
-		const [note] = notices.look(facts(T0 + CHECK_IN_FIRST_MS, { jobs: [j] }))
+		steady(notices, facts(T0 + 1_000, { jobs: [j] }))
+		const [note] = steady(notices, facts(T0 + CHECK_IN_FIRST_MS, { jobs: [j] }))
 		expect(note?.wakes).toBe(true)
 		expect(note?.text).toContain('Check-in, not a completion')
 		expect(note?.text).toContain('printed nothing for 2m 00s')
@@ -122,44 +142,97 @@ describe('a quiet-job check-in', () => {
 
 	it('starts counting again when the job prints something', () => {
 		const notices = createProgressNotices()
-		notices.look(facts(T0, { jobs: [job({ lastOutputAt: T0 })] }))
+		steady(notices, facts(T0, { jobs: [job({ lastOutputAt: T0 })] }))
 		expect(
-			notices.look(facts(T0 + CHECK_IN_FIRST_MS, { jobs: [job({ lastOutputAt: T0 })] })),
+			steady(notices, facts(T0 + CHECK_IN_FIRST_MS, { jobs: [job({ lastOutputAt: T0 })] })),
 		).toHaveLength(1)
 		// New output at +130 s: the next check-in is a full first interval after it.
 		const printed = job({ lastOutputAt: T0 + 130_000 })
 		expect(
-			notices.look(facts(T0 + 130_000 + CHECK_IN_FIRST_MS - 1_000, { jobs: [printed] })),
+			steady(notices, facts(T0 + 130_000 + CHECK_IN_FIRST_MS - 1_000, { jobs: [printed] })).filter(
+				(n) => !n.retired,
+			),
 		).toEqual([])
-		expect(notices.look(facts(T0 + 130_000 + CHECK_IN_FIRST_MS, { jobs: [printed] }))).toHaveLength(
+		expect(
+			steady(notices, facts(T0 + 130_000 + CHECK_IN_FIRST_MS, { jobs: [printed] })),
+		).toHaveLength(1)
+	})
+
+	it('stops asking after a few check-ins in one stretch of silence, and asks again after output', () => {
+		const notices = createProgressNotices()
+		const j = job({ lastOutputAt: T0 })
+		steady(notices, facts(T0, { jobs: [j] }))
+		let sent = 0
+		for (let now = T0; now < T0 + 6 * 3_600_000; now += 30_000) {
+			sent += steady(notices, facts(now, { jobs: [j] })).filter((n) => !n.retired).length
+		}
+		expect(sent).toBe(CHECK_INS_PER_SILENCE)
+		const printed = job({ lastOutputAt: T0 + 6 * 3_600_000 })
+		const at = T0 + 6 * 3_600_000 + CHECK_IN_FIRST_MS
+		expect(
+			steady(notices, facts(at - 1_000, { jobs: [printed] })).filter((n) => !n.retired),
+		).toEqual([])
+		expect(steady(notices, facts(at, { jobs: [printed] })).filter((n) => !n.retired)).toHaveLength(
 			1,
 		)
 	})
 
-	it('never waits longer than the cap between check-ins', () => {
+	it('withdraws an unread check-in when the job prints or ends', () => {
 		const notices = createProgressNotices()
-		const j = job({ lastOutputAt: T0 })
-		notices.look(facts(T0, { jobs: [j] }))
-		let last = 0
-		let largest = 0
-		for (let now = T0; now < T0 + 6 * 3_600_000; now += 30_000) {
-			if (notices.look(facts(now, { jobs: [j] })).length > 0) {
-				largest = Math.max(largest, now - T0 - last)
-				last = now - T0
-			}
-		}
-		expect(largest).toBeLessThanOrEqual(CHECK_IN_MAX_GAP_MS)
-		expect(last).toBeGreaterThan(CHECK_IN_MAX_GAP_MS)
+		steady(notices, facts(T0, { jobs: [job({ lastOutputAt: T0 })] }))
+		const [sent] = steady(
+			notices,
+			facts(T0 + CHECK_IN_FIRST_MS, { jobs: [job({ lastOutputAt: T0 })] }),
+		)
+		const afterOutput = steady(
+			notices,
+			facts(T0 + CHECK_IN_FIRST_MS + 1_000, {
+				jobs: [job({ lastOutputAt: T0 + CHECK_IN_FIRST_MS })],
+			}),
+		)
+		expect(afterOutput).toEqual([{ key: sent?.key, text: '', wakes: false, retired: true }])
+		const [second] = steady(
+			notices,
+			facts(T0 + 2 * CHECK_IN_FIRST_MS + 2_000, {
+				jobs: [job({ lastOutputAt: T0 + CHECK_IN_FIRST_MS })],
+			}),
+		)
+		const afterEnd = steady(notices, facts(T0 + 3 * CHECK_IN_FIRST_MS, { jobs: [] }))
+		expect(afterEnd).toEqual([{ key: second?.key, text: '', wakes: false, retired: true }])
 	})
 
-	it('says once that a job listed as running is gone, and offers to run it again', () => {
+	it('starts the silence over when the host was suspended, instead of reading hours of quiet', () => {
+		const notices = createProgressNotices()
+		const j = job({ lastOutputAt: T0 })
+		notices.look(facts(T0 + 10_000, { jobs: [j] }))
+		const woke = T0 + 10_000 + CLOCK_JUMP_MS + 5 * 3_600_000
+		expect(notices.look(facts(woke, { jobs: [j] }))).toEqual([])
+		lastLook.set(notices, woke)
+		expect(steady(notices, facts(woke + CHECK_IN_FIRST_MS - 1_000, { jobs: [j] }))).toEqual([])
+		expect(steady(notices, facts(woke + CHECK_IN_FIRST_MS, { jobs: [j] }))).toHaveLength(1)
+	})
+
+	it('calls a job gone only after the probe failed on two looks, and does not tell the model to rerun it', () => {
 		const notices = createProgressNotices()
 		const gone = job({ alive: false })
 		notices.look(facts(T0, { jobs: [job()] }))
-		const [note] = notices.look(facts(T0 + 5_000, { jobs: [gone] }))
+		expect(notices.look(facts(T0 + 5_000, { jobs: [gone] }))).toEqual([])
+		const [note] = notices.look(facts(T0 + 5_000 + GONE_CONFIRM_MS, { jobs: [gone] }))
 		expect(note?.text).toContain('its process is gone')
-		expect(note?.text).toContain('offer to run it again')
-		expect(notices.look(facts(T0 + 6_000, { jobs: [gone] }))).toEqual([])
+		expect(note?.text).toContain('has not been told how it ended')
+		expect(note?.text).toContain('do not run it again and do not say it failed')
+		expect(note?.text).not.toContain('offer to run it again')
+		expect(notices.look(facts(T0 + 9_000, { jobs: [gone] }))).toEqual([])
+	})
+
+	it('withdraws the gone message when the probe answers again', () => {
+		const notices = createProgressNotices()
+		const gone = job({ alive: false })
+		notices.look(facts(T0, { jobs: [gone] }))
+		const [note] = notices.look(facts(T0 + 1_000, { jobs: [gone] }))
+		expect(notices.look(facts(T0 + 2_000, { jobs: [job()] }))).toEqual([
+			{ key: note?.key, text: '', wakes: false, retired: true },
+		])
 	})
 
 	it('leaves monitors, ended jobs and a job that prints often alone', () => {

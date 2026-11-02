@@ -1514,6 +1514,8 @@ export class ToolExecutor {
 		// ones among them whose real outcome has been reported.
 		const handedBack = new Set<string>()
 		const reported = new Set<string>()
+		// Calls that have begun; one queued behind a serial or barrier call has not.
+		const started = new Set<string>()
 		const reportLate = (outcome: ToolCallOutcome): void => {
 			if (reported.has(outcome.toolCallId)) return
 			reported.add(outcome.toolCallId)
@@ -1636,6 +1638,7 @@ export class ToolExecutor {
 			const run = async () => {
 				try {
 					let outcome: ToolCallOutcome
+					started.add(toolCall.id)
 					try {
 						outcome = await this.executeSingle(
 							toolCall,
@@ -1711,7 +1714,7 @@ export class ToolExecutor {
 					results[i] = {
 						toolCallId: toolCall.id,
 						toolName: toolCall.function.name,
-						output: stillRunningResult(toolCall.function.name),
+						output: stillRunningResult(toolCall.function.name, started.has(toolCall.id)),
 						isError: false,
 					}
 				})

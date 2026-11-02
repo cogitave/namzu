@@ -608,6 +608,11 @@ export interface SubagentRuntime {
 	/** Live, bounded observation of children created by this CLI session. */
 	readonly activity: SubagentActivitySource
 	/**
+	 * The one id the model uses for an agent, given any task id the agent has run
+	 * under: a continued or resumed agent keeps the id it was first handed.
+	 */
+	publicTaskIdOf(taskId: string): string
+	/**
 	 * Start one agent a workflow script asked for, through the same path, review
 	 * channel, tool roster, sandbox, budget ledger and cancellation as the `Agent`
 	 * tool, and wait for it. The child keeps its normal transcript.
@@ -3117,6 +3122,7 @@ export async function createSubagentRuntime(
 			return READ_ONLY_PROMPTS.has(type)
 		},
 		activity,
+		publicTaskIdOf: publicTaskId,
 		launchWorkflowAgent,
 		close,
 	}

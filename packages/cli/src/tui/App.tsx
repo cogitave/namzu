@@ -1389,6 +1389,8 @@ interface ActiveTurnInbox {
 	accept(input: LiveInput): boolean
 	drain(): Message[]
 	waitForInbound(signal: AbortSignal): Promise<void>
+	/** Resolves when the operator wrote; a notice or peer mail does not wake it. */
+	waitForOperator(signal: AbortSignal): Promise<void>
 	close(): readonly LiveInput[]
 }
 
@@ -2002,6 +2004,10 @@ function AppBody({
 			let woke = false
 			for (const notice of read()) {
 				if (previousSessionRef.current !== session) return
+				if (notice.retired) {
+					workflowNoticesRef.current.delete(notice.key)
+					continue
+				}
 				workflowNoticesRef.current.set(notice.key, notice.text)
 				woke ||= notice.wakes
 			}
@@ -10105,6 +10111,7 @@ function AppBody({
 			let inboxOpen = true
 			const inboxEntries: LiveInput[] = []
 			const inputWaiters = new Set<() => void>()
+			const operatorWaiters = new Set<() => void>()
 			const inbox: ActiveTurnInbox = {
 				notify() {
 					for (const wake of [...inputWaiters]) wake()
@@ -10121,7 +10128,28 @@ function AppBody({
 					inboxEntries.push(input)
 					setPendingSteers([...inboxEntries])
 					for (const wake of [...inputWaiters]) wake()
+					for (const wake of [...operatorWaiters]) wake()
 					return true
+				},
+				waitForOperator(signal): Promise<void> {
+					if (signal.aborted) return Promise.reject(signal.reason)
+					if (inboxOpen && inboxEntries.length > 0) return Promise.resolve()
+					return new Promise((resolve, reject) => {
+						const cleanup = () => {
+							operatorWaiters.delete(wake)
+							signal.removeEventListener('abort', abort)
+						}
+						const wake = () => {
+							cleanup()
+							resolve()
+						}
+						const abort = () => {
+							cleanup()
+							reject(signal.reason)
+						}
+						operatorWaiters.add(wake)
+						signal.addEventListener('abort', abort, { once: true })
+					})
 				},
 				waitForInbound(signal): Promise<void> {
 					if (signal.aborted) return Promise.reject(signal.reason)
@@ -10425,6 +10453,7 @@ function AppBody({
 								]
 							},
 							waitForInbound: (signal) => inbox.waitForInbound(signal),
+							waitForOperator: (signal) => inbox.waitForOperator(signal),
 							onJobNoticeDelivered: (ids) => {
 								const notices = idleJobNoticesRef.current
 								if (notices.ownerSession !== session) return

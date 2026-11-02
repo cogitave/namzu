@@ -66,11 +66,35 @@ function deferred() {
 function inbox() {
 	const queue: Message[] = []
 	const waiters = new Set<() => void>()
+	const operatorWaiters = new Set<() => void>()
+	const waitOn = (set: Set<() => void>, signal: AbortSignal) =>
+		new Promise<void>((resolve, reject) => {
+			if (queue.length > 0) return resolve()
+			const wake = () => {
+				set.delete(wake)
+				resolve()
+			}
+			set.add(wake)
+			signal.addEventListener(
+				'abort',
+				() => {
+					set.delete(wake)
+					reject(signal.reason)
+				},
+				{ once: true },
+			)
+		})
 	return {
 		push(text: string) {
 			queue.push(createUserMessage(text))
 			for (const wake of [...waiters]) wake()
+			for (const wake of [...operatorWaiters]) wake()
 		},
+		/** Another source of input (a child's notice, a peer's mail) wakes the loop, not the operator. */
+		wakeWithoutOperator() {
+			for (const wake of [...waiters]) wake()
+		},
+		waitForOperator: (signal: AbortSignal) => waitOn(operatorWaiters, signal),
 		inboundMessages: () => queue.splice(0, queue.length),
 		waitForInbound: (signal: AbortSignal) =>
 			new Promise<void>((resolve, reject) => {
@@ -148,6 +172,7 @@ async function start(options: {
 		tenantId: '2d00498b-cbc5-4c9a-a2bd-ff8eee5dbd80' as TenantId,
 		inboundMessages: host.inboundMessages,
 		waitForInbound: host.waitForInbound,
+		waitForOperator: host.waitForOperator,
 		...(options.optOut ? {} : { answerWhileCallsRun: true }),
 	})
 	return {
@@ -195,6 +220,22 @@ describe('an operator message while a call is running', () => {
 		expect(third).toContain('call-1')
 		expect(third).toContain('build finished: 12 passed')
 		expect(result.stopReason).not.toBe('cancelled')
+	})
+
+	it('is not handed back when something other than the operator wakes the loop', async () => {
+		const release = deferred()
+		const t = await start({ release, turns: [CALL, { text: 'All done.' }] })
+		await t.started
+
+		t.host.wakeWithoutOperator()
+		await vi.advanceTimersByTimeAsync(DETACH_AFTER_MS * 5)
+		expect(t.provider.sent).toHaveLength(1)
+
+		release.resolve()
+		await t.run
+		const second = textOf(t.provider.sent[1] ?? [])
+		expect(second).toContain('build finished: 12 passed')
+		expect(second).not.toContain('[Still running]')
 	})
 
 	it('waits for a call that has run less than the grace period', async () => {

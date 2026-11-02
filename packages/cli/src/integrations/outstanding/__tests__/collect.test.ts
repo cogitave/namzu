@@ -103,7 +103,7 @@ it('judges every kind of item with the same verdict words', () => {
 		'agent t2 "slow one" - waiting on a free agent slot for 1m 00s - at: queued for a free slot',
 		'job b1 "npm test" - progressing - last progress 4s ago - at: compiling',
 		'job b2 "serve" - dead: gone without a result after 1m 00s, last progress 1m 00s ago',
-		'monitor b3 "deploy log" - waiting - last progress 1m 00s ago',
+		'monitor b3 "deploy log" - waiting on new events for 1m 00s',
 	])
 })
 
@@ -115,6 +115,28 @@ it('calls a silent alive job stalled and a workflow with only queued agents wait
 		workflows: [],
 	})
 	expect(got).toEqual(['job b1 "npm test" - stalled - last progress 6m 30s ago - at: still here'])
+})
+
+it('never calls a monitor stalled for being quiet: it waits for what it watches', () => {
+	const got = lines({
+		now: T0 + 3 * 3_600_000,
+		jobs: [job({ id: 'm1', kind: 'monitor', command: 'tail -f x', description: 'deploy log' })],
+		agents: [],
+		workflows: [],
+	})
+	expect(got).toEqual(['monitor m1 "deploy log" - waiting on new events for 3h 00m'])
+})
+
+it('names a continued agent by the id the agent tools accept, not the id of its latest run', () => {
+	const got = lines({
+		now: T0 + 10_000,
+		jobs: [],
+		agents: [agent({ taskId: 'run-2-internal', lastProgressAt: T0 + 9_000 })],
+		workflows: [],
+		agentId: (a) => (a.taskId === 'run-2-internal' ? 'first-handed-id' : (a.taskId ?? a.viewId)),
+	})
+	expect(got[0]).toContain('agent first-handed-id "survey the repo"')
+	expect(got[0]).not.toContain('run-2-internal')
 })
 
 it('names the tool an agent has sat in past the quiet threshold, and only then', () => {

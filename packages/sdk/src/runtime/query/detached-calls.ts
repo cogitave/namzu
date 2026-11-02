@@ -25,7 +25,14 @@ export const DETACH_AFTER_MS = 2_000
  * It says the call goes on, what not to do about it, and what to tell the
  * person; the model never sees these words as anything the tool printed.
  */
-export function stillRunningResult(toolName: string): string {
+export function stillRunningResult(toolName: string, started = true): string {
+	if (!started) {
+		return [
+			`[Waiting to start] The ${toolName} call has not started: it is queued behind an earlier call in this batch. The operator wrote a message while the batch ran, and that message follows so you can answer it now.`,
+			'The call will start by itself when the earlier one ends, and its result will arrive in a later message that names this call id.',
+			'Repeating the call would run the work twice, and waiting or polling for it would delay your answer, so do neither. If they ask, say it has not started yet.',
+		].join('\n')
+	}
 	return [
 		`[Still running] The ${toolName} call has not finished. The operator wrote a message while it ran, and that message follows so you can answer it now.`,
 		'The call was not interrupted. Its result will arrive on its own, in a later message that names this call id.',
@@ -47,6 +54,13 @@ export class DetachedCalls {
 	private readonly open = new Map<string, string>()
 	private arrived: ToolCallOutcome[] = []
 	private readonly waiters = new Set<() => void>()
+
+	/**
+	 * `waitForOperator` resolves when the operator wrote and at no other wake: a
+	 * child's notice or a peer's mail must not hand a call back, because the
+	 * model would then get a turn with no question to answer.
+	 */
+	constructor(readonly waitForOperator?: (signal: AbortSignal) => Promise<void>) {}
 
 	/** A call was answered with the placeholder and is still running. */
 	begin(toolCallId: string, toolName: string): void {

@@ -158,6 +158,10 @@ function jobInput(job: JobFact): LivenessInput {
 		...(job.lastOutputAt !== undefined ? { lastProgressAt: job.lastOutputAt } : {}),
 		alive: job.alive,
 		finished: job.status !== 'running',
+		// A monitor is quiet until the thing it watches happens: that is its job.
+		...(monitor
+			? { waitingOn: 'new events', waitingSince: job.lastOutputAt ?? job.startedAt }
+			: {}),
 	}
 }
 
