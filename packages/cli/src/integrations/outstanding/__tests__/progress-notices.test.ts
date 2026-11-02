@@ -68,7 +68,7 @@ const lastLook = new WeakMap<object, number>()
  * leap of minutes would read as a suspended host. Returns everything said on the way.
  */
 function steady(notices: ReturnType<typeof createProgressNotices>, f: ReturnType<typeof facts>) {
-	const out: Array<ReturnType<typeof notices.look>[number]> = []
+	const out: ReturnType<typeof notices.look>[number][] = []
 	let at = lastLook.get(notices)
 	if (at === undefined) at = f.now
 	else
