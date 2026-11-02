@@ -1,4 +1,5 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
+import { CallAbortedError } from '../../util/call-scope.js'
 import { SpawnError } from '../../util/spawn.js'
 
 /**
@@ -67,6 +68,13 @@ export interface McpProcessCallOptions {
 	readonly expectedStarts?: number
 	/** Record the process that actually received this call. */
 	readonly onProcess?: (starts: number) => void
+	/**
+	 * Stops waiting for the answer when aborted: the call rejects with
+	 * `CallAbortedError` at once. The server is not stopped, and the
+	 * request counts as in flight (see {@link McpStdioClient.settled}) until it
+	 * answers or its timeout kills the server.
+	 */
+	readonly signal?: AbortSignal
 }
 
 export interface McpStdioClientOptions {
@@ -97,6 +105,10 @@ interface Pending {
 	readonly resolve: (value: unknown) => void
 	readonly reject: (error: Error) => void
 	readonly timer: NodeJS.Timeout
+	/** The waiter gave up (abort); the answer, if one comes, is dropped. */
+	abandoned?: boolean
+	/** Called when the server answers, errors or is lost: the request is no longer in flight. */
+	readonly done?: () => void
 }
 
 interface Running {
@@ -118,8 +130,25 @@ export class McpStdioClient {
 	private nextId = 1
 	private disposed = false
 	private startCount = 0
+	private inFlight = 0
+	private idleWaiters: Array<() => void> = []
 
 	constructor(private readonly options: McpStdioClientOptions) {}
+
+	/**
+	 * Resolves once no request is in flight: every request written has been
+	 * answered, or lost to a timeout, an exit or {@link dispose}. Requests the
+	 * callers abandoned count. Bounded by the per-request timeout.
+	 */
+	settled(): Promise<void> {
+		if (this.inFlight === 0) return Promise.resolve()
+		return new Promise((resolve) => this.idleWaiters.push(resolve))
+	}
+
+	private requestDone(): void {
+		this.inFlight = Math.max(0, this.inFlight - 1)
+		if (this.inFlight === 0) for (const wake of this.idleWaiters.splice(0)) wake()
+	}
 
 	/** How many processes this client has started; a restart counts again. */
 	get starts(): number {
@@ -143,11 +172,13 @@ export class McpStdioClient {
 		timeoutMs?: number,
 		process?: McpProcessCallOptions,
 	): Promise<McpToolResult> {
+		if (process?.signal?.aborted) throw new CallAbortedError(name, false)
 		const running = await this.ensureStarted()
 		if (process?.expectedStarts !== undefined && process.expectedStarts !== running.startOrdinal)
 			throw new McpToolError(name, 'stale UI snapshot; take a new one')
+		if (process?.signal?.aborted) throw new CallAbortedError(name, false)
 		process?.onProcess?.(running.startOrdinal)
-		return this.callOn(running, name, args, timeoutMs)
+		return this.callOn(running, name, args, timeoutMs, process?.signal)
 	}
 
 	async dispose(): Promise<void> {
@@ -228,6 +259,7 @@ export class McpStdioClient {
 			for (const [id, pending] of running.pending) {
 				clearTimeout(pending.timer)
 				running.pending.delete(id)
+				pending.done?.()
 				pending.reject(
 					this.lostRequest(running, pending.method, exitCode, signal, timedOut, spawnError),
 				)
@@ -281,12 +313,14 @@ export class McpStdioClient {
 		name: string,
 		args: Record<string, unknown>,
 		timeoutMs?: number,
+		signal?: AbortSignal,
 	): Promise<McpToolResult> {
 		const raw = (await this.request(
 			running,
 			'tools/call',
 			{ name, arguments: args },
 			timeoutMs ?? this.options.requestTimeoutMs ?? 15_000,
+			signal,
 		)) as {
 			content?: unknown
 			structuredContent?: unknown
@@ -313,6 +347,7 @@ export class McpStdioClient {
 		method: string,
 		params: unknown,
 		timeoutMs: number,
+		signal?: AbortSignal,
 	): Promise<unknown> {
 		if (running.exited) {
 			return Promise.reject(new Error(`${this.options.command} is not running.`))
@@ -320,6 +355,7 @@ export class McpStdioClient {
 		if (this.disposed && running.killedFor === 'dispose') {
 			return Promise.reject(new Error(`${this.options.command}: the client was disposed.`))
 		}
+		if (signal?.aborted) return Promise.reject(new CallAbortedError(method, false))
 		const id = this.nextId++
 		return new Promise((resolve, reject) => {
 			const timer = setTimeout(() => {
@@ -329,7 +365,26 @@ export class McpStdioClient {
 				running.killedFor = 'timeout'
 				running.child.kill('SIGKILL')
 			}, timeoutMs)
-			running.pending.set(id, { method, resolve, reject, timer })
+			const entry: Pending = {
+				method,
+				resolve,
+				reject,
+				timer,
+				done: () => {
+					signal?.removeEventListener('abort', onAbort)
+					this.requestDone()
+				},
+			}
+			const onAbort = (): void => {
+				if (!running.pending.has(id) || entry.abandoned) return
+				// Stop waiting; the request stays pending so its answer (or the exit that
+				// ends it) still closes it out of the in-flight count.
+				entry.abandoned = true
+				reject(new CallAbortedError(method, true))
+			}
+			signal?.addEventListener('abort', onAbort, { once: true })
+			running.pending.set(id, entry)
+			this.inFlight++
 			running.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
 		})
 	}
@@ -379,6 +434,8 @@ export class McpStdioClient {
 		if (!pending) return
 		running.pending.delete(message.id)
 		clearTimeout(pending.timer)
+		pending.done?.()
+		if (pending.abandoned) return
 		if (message.error) {
 			pending.reject(
 				new McpProtocolError(
