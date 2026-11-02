@@ -383,8 +383,8 @@ export function permissionSentence(boundary: ExecutionBoundary, stable = false):
 		case 'bypass':
 			return "Permission prompts are off in this mode, so calls run without asking. What always needs the user still does: removing a home or top-level directory, leaving a sandbox, and anything the user's rules say to ask about. Protected files and the safety rules apply as usual."
 		case 'classify':
-			// Also the stance: a second model decides, so a question to the user changes nothing.
-			return `Calls that would otherwise ask the user are checked automatically instead, and some may still be refused: a second model reviews each call that would need permission and blocks the risky ones. A refused call is a decision, not an error to route around, so do not ask the user to approve it; take a safer route or explain what was blocked.${noOneAsks}`
+			// Also the stance: the automatic check decides, so a question to the user changes nothing.
+			return `Calls that would otherwise ask the user are checked automatically instead, and some may still be refused. A refused call is a decision, not an error to route around, so do not ask the user to approve it; take a safer route or explain what was blocked.${noOneAsks}`
 		case 'strict':
 			// Also the stance: nobody is asked, so a refused call is not retried.
 			return 'Only preapproved tools run; any other call is refused without asking anyone, so pick a preapproved tool for each step, and say what you could not do instead of retrying a refused call.'
