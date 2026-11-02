@@ -279,10 +279,15 @@ The model can inspect a running workflow's children with
 `agent_task_list`; a selected `task_id` with `include_output: true` returns
 bounded partial activity without waiting. Workflow children retain the same
 conversation ownership for lookup, messaging, waiting and cancellation as
-ordinary children. A request-only workflow snapshot also reports active runs
-and their running/queued counts, including requests not yet assigned a child
-task. It is refreshed for the next model request and is not a completion
-notification. See [delegated-work inspection](delegated-work.md).
+ordinary children. The [outstanding-work note](delegated-work.md#the-outstanding-work-note)
+reports each active run on every model request, with its phase, its running,
+queued and done counts and whether it is progressing, waiting or stalled; it is
+refreshed for each request and is not a completion notification.
+`agent_task_list` with `run_id` reads one run, ended or not: phase, counts, the
+last `log()` lines, previews of what finished agents answered (marked as data)
+and elapsed time, never an estimate of the end. The launch receipt allows one
+such read when the person asks how it is going and still forbids polling in a
+loop.
 
 This journal is an audit trail, not an execution checkpoint: prompt and result
 previews are truncated, and full schemas/results and a stable logical call

@@ -12,6 +12,7 @@ import {
 	generateTurnId,
 } from '@namzu/sdk'
 
+import { readWorkStatus } from '../../outstanding/status.js'
 import { subagentParentFixture } from '../../subagents/__fixtures__/parent.js'
 import { WORKFLOW_STEP_ASSIGNMENT, createSubagentRuntime } from '../../subagents/runtime.js'
 import { createWorkflowHost } from '../host.js'
@@ -75,7 +76,18 @@ export async function workflowHarness(
 	}
 	const prompts: string[] = []
 	const assigned: boolean[] = []
+	const late: { host?: ReturnType<typeof createWorkflowHost> } = {}
 	const runtime = await createSubagentRuntime({
+		workStatus: (_sessionId, runId) =>
+			readWorkStatus(
+				{
+					jobs: [],
+					agents: runtime.activity.getSnapshot(),
+					workflows: late.host?.registry.list() ?? [],
+				},
+				Date.now(),
+				runId,
+			),
 		resolveParent: (turnId) =>
 			parent.resolveParent(known.has(turnId) ? parent.scope.turnId : turnId),
 		cwd,
@@ -152,6 +164,7 @@ export async function workflowHarness(
 			for (const wake of endWaiters.splice(0)) wake()
 		},
 	})
+	late.host = host
 	const context = {
 		turnId: parent.scope.turnId,
 		abortSignal: new AbortController().signal,

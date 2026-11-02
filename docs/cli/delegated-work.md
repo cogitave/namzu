@@ -588,6 +588,30 @@ available. These are observed activity, not evidence that work has completed.
 An operating-system process list cannot establish completion: child agents can
 share the Namzu process.
 
+### The outstanding-work note
+
+Every model request of every turn carries one note about the work that is still going in the conversation, whichever turn started it: background jobs and monitors, background agents (those the turn that launched them has left behind included) and workflow runs. It is rebuilt from the live registries for each request and handed to the per-request context hook, so it is never recorded in the history and is present after a compaction. Code: `packages/cli/src/integrations/outstanding/` (`collect.ts` builds one record per item, `note.ts` the note and its per-request step, `facts.ts` reads the registries, `status.ts` the workflow status read).
+
+Each item is one line, with the verdict the kernel's [`judgeLiveness`](../sdk/liveness.md) gives it and the time since it last moved:
+
+```text
+workflow w3k9x2m1 "audit" - waiting - last progress 40s ago - at: phase 2/3 "Fix", 1 running, 5 queued, 4 done
+agent 7f3a "survey the repo" - progressing - last progress 1s ago - at: ran Read
+job b3k9x2m1 "npm test" - stalled - last progress 3m 20s ago - at: compiling
+```
+
+| Item | Where it is | Last progress | Alive |
+| --- | --- | --- | --- |
+| Job, monitor | last output line | last write | the registry's process-group probe |
+| Agent | its short summary, else `ran <tool>` / `running <tool>` / `queued for a free slot` (no extra model call) | the monitor's last session event | its state is not terminal |
+| Workflow run | phase `i/n`, running, queued and done counts | the latest start or end of its agents, or an agent's last event | the run has not ended |
+
+A queued agent, or an agent sitting in one tool past 30 seconds, is `waiting` and the line names what for. Silence from an alive item with no known reason is `waiting` after 30 seconds and `stalled` after two minutes. A job whose process group is gone but whose record still says running is `dead`. Ended items are not listed; a workflow's own agents are told as part of the run. At most twelve lines and 3,000 characters are sent, with the rest counted; text after `at:` is data the work produced, with angle brackets neutralised.
+
+`agent_task_list` returns the same lines under `outstanding`, and `workflows`: for each run (those still going first, then the latest ended ones) its status, elapsed milliseconds, phase, agent counts, the running agents with their last tool and elapsed time, and an `observed` block (the last `log()` lines and a 300-character preview of what each finished agent answered, inside a marked untrusted frame). There is no estimate of the end time, because the script decides how many agents it still asks for. `run_id` selects one run. Each task row also carries `elapsed_ms` and, while it runs, `last_progress_ms_ago`. The `job` tool's `list` prints the same line for jobs.
+
+`wait_for_task` stops waiting when the task shows no activity for two minutes (the kernel's idle bound) and says so (`wait_released: "idle"`); the task keeps running and its result still arrives as a task notification.
+
 Select one task by its public ID or agent name to inspect it without waiting:
 
 ```json

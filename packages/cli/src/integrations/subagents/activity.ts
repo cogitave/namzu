@@ -156,6 +156,12 @@ export interface SubagentActivity {
 	readonly phaseSequence: number
 	readonly status: SubagentActivityStatus
 	readonly startedAt: number
+	/**
+	 * When the child last did anything this monitor saw (any session event: a
+	 * token, a tool, a status change). Absent until the first one. This is the
+	 * progress signal a status read judges silence by.
+	 */
+	readonly lastProgressAt?: number
 	readonly completedAt?: number
 	readonly latestActivity?: string
 	readonly transcript: readonly SubagentTranscriptRow[]
@@ -356,6 +362,7 @@ interface MutableActivity {
 	labels: SubagentDisplayLabels
 	status: SubagentActivityStatus
 	startedAt: number
+	lastProgressAt?: number
 	completedAt?: number
 	latestActivity?: string
 	rows: SubagentTranscriptRow[]
@@ -499,6 +506,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 				const owned = current()
 				if (!owned) return
 				if (event.type === 'agent_pending') this.relabel(owned, event)
+				owned.lastProgressAt = Date.now()
 				projectEvent(owned, event)
 				this.scheduleNotify()
 			},
@@ -766,6 +774,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			status: record.status,
 			...(this.options.replay ? { replayed: true } : {}),
 			startedAt: record.startedAt,
+			...(record.lastProgressAt !== undefined ? { lastProgressAt: record.lastProgressAt } : {}),
 			...(record.completedAt !== undefined ? { completedAt: record.completedAt } : {}),
 			...(record.latestActivity ? { latestActivity: record.latestActivity } : {}),
 			...(failureOf(record) !== undefined ? { error: failureOf(record) as string } : {}),

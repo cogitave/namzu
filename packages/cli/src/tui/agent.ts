@@ -325,6 +325,9 @@ import {
 import { deferLargeMcpToolsets } from '../integrations/mcp/tool-search.js'
 import { type MonitorInbox, createMonitorInbox } from '../integrations/monitors/inbox.js'
 import { MONITOR_WEB_ACCESS_HINT } from '../integrations/monitors/web-access-hint.js'
+import { createOutstandingFacts } from '../integrations/outstanding/facts.js'
+import { createOutstandingWorkStep } from '../integrations/outstanding/note.js'
+import { readWorkStatus } from '../integrations/outstanding/status.js'
 import { readPluginFileSources } from '../integrations/plugins/files.js'
 import { hookSessionMode } from '../integrations/plugins/hook-host.js'
 import { type CliPluginRuntime, createCliPluginRuntime } from '../integrations/plugins/runtime.js'
@@ -417,7 +420,6 @@ import {
 	createSavedAgentHistory,
 	createSavedAgentsStep,
 } from '../integrations/subagents/saved-agents.js'
-import { createWorkflowContextStep } from '../integrations/workflows/context.js'
 import { listWorkflowRuns } from '../integrations/workflows/history.js'
 import { type WorkflowHost, createWorkflowHost } from '../integrations/workflows/host.js'
 import { workflowRefusal } from '../integrations/workflows/offering.js'
@@ -3526,6 +3528,17 @@ export async function createAgentSession(
 	let workflowHost: WorkflowHost | undefined
 	const workflowOwners = new Map<string, SessionId>()
 	const workflowEndListeners = new Set<(end: WorkflowRunEnd) => void>()
+	// What is still going in this session, told to the model on every request.
+	const outstandingFacts = createOutstandingFacts({
+		jobs: () => jobRegistry,
+		jobOwner,
+		activity: () => subagentRuntime?.activity,
+		workflows: (sessionId) =>
+			(workflowHost?.registry.list() ?? []).filter(
+				(run) => workflowOwners.get(run.runId) === sessionId,
+			),
+	})
+	const outstandingWorkStep = createOutstandingWorkStep(outstandingFacts)
 	const goalToolNames = new Set<string>(SESSION_GOAL_TOOL_NAMES)
 	if (options.sessionGoals) {
 		toolsets.push(
@@ -3888,6 +3901,8 @@ export async function createAgentSession(
 			// Children log under the parent's `<session-id>/subagents/`; an
 			// ephemeral session keeps them in memory with its own log.
 			...(options.ephemeral ? {} : { paths }),
+			workStatus: (sessionId, runId) =>
+				readWorkStatus(outstandingFacts(sessionId), Date.now(), runId),
 			...(conversationIndex
 				? {
 						savedAgents: (sessionId: SessionId) =>
@@ -5189,11 +5204,7 @@ export async function createAgentSession(
 						: undefined,
 					prepareStep: [
 						createTaskContextStep(turnTaskStore, entry.tenantId),
-						createWorkflowContextStep((sessionId) =>
-							(workflowHost?.registry.running() ?? []).filter(
-								(run) => workflowOwners.get(run.runId) === sessionId,
-							),
-						),
+						outstandingWorkStep,
 						...savedAgentsSteps(entry.sessionId),
 						...(options.memory?.recall === false
 							? []
@@ -6599,11 +6610,7 @@ export async function createAgentSession(
 								promoteMemory: options.compaction?.consolidate ? undefined : promoteMemory,
 								prepareStep: [
 									createTaskContextStep(turnTaskStore, turnScope.tenantId),
-									createWorkflowContextStep((sessionId) =>
-										(workflowHost?.registry.running() ?? []).filter(
-											(run) => workflowOwners.get(run.runId) === sessionId,
-										),
-									),
+									outstandingWorkStep,
 									createRepositorySnapshotStep(turnSnapshot),
 									...savedAgentsSteps(turnScope.sessionId),
 									// A host-supplied resident step may select the request model.

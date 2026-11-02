@@ -43,7 +43,7 @@ export function launchedText(view: Pick<WorkflowRunView, 'runId' | 'name'>): str
 	return [
 		`Workflow "${view.name}" started in the background as ${view.runId}.`,
 		'Its agents are running now. You will get one message when it ends, with what the script returned, any failures and the usage. The person can watch it with /workflows or the rail under the message box.',
-		'Do not poll and do not start the same work again. Tell the person in one short sentence that it is running, then carry on with other work or end your turn.',
+		'Do not start the same work again, and do not poll in a loop: one status read with agent_task_list (run_id set to the id above) is fine when the person asks how it is going. Tell the person in one short sentence that it is running, then carry on with other work or end your turn.',
 	].join('\n')
 }
 
@@ -64,6 +64,7 @@ export function completionNotice(view: WorkflowRunView): string {
 				? `Workflow "${view.name}" (${view.runId}) failed: ${view.error ?? 'no reason was given'}`
 				: `Workflow "${view.name}" (${view.runId}) was stopped${view.error ? `: ${view.error}` : '.'}`
 	const lines = [head]
+	if (view.endedAt !== undefined) lines.push(`ended_at: ${new Date(view.endedAt).toISOString()}`)
 	lines.push(
 		`<usage>agents: ${usage?.agents ?? counts.total}, done: ${usage?.agentsDone ?? counts.done}, failed: ${usage?.agentsFailed ?? counts.failed}, skipped: ${usage?.agentsSkipped ?? 0}, tokens: ${usage?.tokens ?? runTokens(view)}, tool_calls: ${usage?.toolCalls ?? 0}, duration: ${formatDuration(usage?.elapsedMs ?? elapsed)}</usage>`,
 	)
