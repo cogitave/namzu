@@ -3,10 +3,13 @@ import { existsSync, statSync, writeSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import {
-	type ClipboardEnv,
-	MAX_CLIPBOARD_TEXT_BYTES,
-	writeClipboardText,
-} from '../integrations/clipboard/text.js'
+	type ClipboardCopier,
+	type CopyHost,
+	bypassKey,
+	createClipboardCopier,
+	describeCopy,
+} from '../integrations/clipboard/copy.js'
+import { MAX_CLIPBOARD_TEXT_BYTES } from '../integrations/clipboard/text.js'
 import { ATTR_BOLD, ATTR_INVERSE, ATTR_UNDERLINE } from '../terminal/host/cell.js'
 import { Frame, type Rect } from '../terminal/host/frame.js'
 import { DiffWriter } from '../terminal/host/writer.js'
@@ -232,7 +235,9 @@ export interface SpacesHostOptions {
 	/** Whether a selection is copied when the button is released; true when absent. */
 	readonly copyOnSelect?: boolean
 	/** The environment that decides how a copy is wrapped for the terminal and which key the hint names. */
-	readonly env?: ClipboardEnv & { readonly TERM_PROGRAM?: string | undefined }
+	readonly env?: NodeJS.ProcessEnv
+	/** Test seam for the clipboard tools: the runner, PATH lookup and platform. */
+	readonly clipboard?: Omit<CopyHost, 'env'>
 	/** The process's signals, for handing the terminal back when one ends it. */
 	readonly signals?: SignalHooks
 	readonly newSlot?: () => string
@@ -2190,12 +2195,6 @@ export class SpacesHost {
 		this.requestRender()
 	}
 
-	/** The key the terminal wants held to select text by itself. */
-	private bypassKey(): string {
-		const program = (this.options.env ?? process.env).TERM_PROGRAM
-		return program === 'iTerm.app' ? 'Option' : program === 'Apple_Terminal' ? 'Fn' : 'Shift'
-	}
-
 	private copySelection(sel: PaneSelection): void {
 		const text = extractText(sel.screen, orderRange(sel.anchor, sel.focus))
 		const auto = this.options.copyOnSelect !== false
@@ -2203,35 +2202,35 @@ export class SpacesHost {
 			if (auto) this.clearSelect()
 			return
 		}
-		const result = writeClipboardText(
-			text,
-			{ isTTY: true, write: (data) => void this.options.output.write(data) },
-			this.options.env ?? process.env,
-		)
 		sel.copied = true
-		const key = this.bypassKey()
-		if (result.kind === 'request-sent') {
-			const count = [...text].length
-			let message = `Sent ${count.toLocaleString('en-US')} ${count === 1 ? 'character' : 'characters'} to your clipboard. No paste? Hold ${key} and select.`
-			if (!this.tipShown && auto) {
-				this.tipShown = true
-				message += ' Turn off: tui.copyOnSelect.'
-			}
-			this.note(message, auto ? sel : undefined, COPY_NOTE_MS)
-		} else if (result.kind === 'too-large') {
-			const kb = (n: number): string => `${Math.ceil(n / 1000).toLocaleString('en-US')} KB`
-			this.note(
-				`That selection is too large to copy (${kb(result.bytes)}; the limit is ${kb(MAX_CLIPBOARD_TEXT_BYTES)}).`,
-				auto ? sel : undefined,
-				COPY_ERROR_MS,
-			)
-		} else {
-			this.note(
-				`Couldn't copy. Hold ${key} while selecting, then use your terminal's Copy.`,
-				auto ? sel : undefined,
-				COPY_ERROR_MS,
-			)
-		}
+		// A selection let go of before the tool gets its turn never starts one.
+		void this.copier()
+			.copy(text, () => !this.closed && this.select === sel)
+			.then((outcome) => {
+				if (!outcome || this.closed) return
+				const { text: message, ok } = describeCopy(
+					outcome,
+					bypassKey(this.options.env ?? process.env),
+				)
+				const tip = ok && !this.tipShown && auto
+				if (tip) this.tipShown = true
+				this.note(
+					tip ? `${message} Turn off: tui.copyOnSelect.` : message,
+					auto && this.select === sel ? sel : undefined,
+					ok ? COPY_NOTE_MS : COPY_ERROR_MS,
+				)
+			})
+	}
+
+	private clipboardCopier: ClipboardCopier | undefined
+
+	/** The one copier for this host, so copies queue behind each other. */
+	private copier(): ClipboardCopier {
+		this.clipboardCopier ??= createClipboardCopier(
+			{ isTTY: true, write: (data) => void this.options.output.write(data) },
+			{ ...this.options.clipboard, env: this.options.env ?? process.env },
+		)
+		return this.clipboardCopier
 	}
 
 	/** Says something in the status line; the selection `fading` goes with it. */
@@ -2307,11 +2306,7 @@ export class SpacesHost {
 		}
 		this.lastForward.set(screen, now())
 		const text = Buffer.from(payload, 'base64').toString('utf8')
-		writeClipboardText(
-			text,
-			{ isTTY: true, write: (chunk) => void this.options.output.write(chunk) },
-			this.options.env ?? process.env,
-		)
+		void this.copier().copy(text, () => !this.closed)
 	}
 
 	/** Moves the border being dragged to follow the pointer. */

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { ClipboardRunner } from '../../integrations/clipboard/copy.js'
 import type { FakePty } from '../../terminal/__tests__/support/fake-pty.js'
 import { ATTR_INVERSE } from '../../terminal/host/cell.js'
 import { setup } from './support/harness.js'
@@ -55,7 +56,7 @@ describe('selecting text in a pane', () => {
 		expect((await t.cellAt(X, Y))?.attrs ?? 0).toSatisfy((a: number) => (a & ATTR_INVERSE) !== 0)
 		const shown = (await t.screen()).join('\n')
 		expect(shown).toContain('Sent 5 characters to your clipboard')
-		expect(shown).toContain('Hold Shift')
+		expect(shown).toContain('hold Shift')
 		// The note and the highlight go when its time is up.
 		t.tick(2000)
 		await t.frame()
@@ -213,12 +214,12 @@ describe('what the note says', () => {
 		await print(CONTENT)
 		await drive(press(X, Y), drag(X + 4, Y), release(X + 4, Y))
 		let shown = (await t.screen()).join('\n')
-		expect(shown).toContain('Hold Option')
+		expect(shown).toContain('hold Option')
 		expect(shown).toContain('tui.copyOnSelect')
 		t.tick(2000)
 		await drive(press(X, Y), drag(X + 4, Y), release(X + 4, Y))
 		shown = (await t.screen()).join('\n')
-		expect(shown).toContain('Hold Option')
+		expect(shown).toContain('hold Option')
 	})
 
 	it('wraps the request for tmux', async () => {
@@ -242,5 +243,73 @@ describe('what the note says', () => {
 		await drive(drag(X + 73, Y + 28), release(X + 73, Y + 28))
 		expect(since(mark)).not.toContain(`${ESC}]52`)
 		expect((await t.screen()).join('\n')).toContain('too large to copy')
+	})
+})
+
+describe('the machine clipboard', () => {
+	/** Lets every promise already in flight finish; nothing here waits on a clock. */
+	const flush = () => new Promise<void>((resolve) => setImmediate(resolve))
+
+	/** A runner that records what it was given; `gate` holds each run until released. */
+	function tools(hold = false) {
+		const runs: Array<{ command: string; input: string }> = []
+		const gates: Array<() => void> = []
+		const run: ClipboardRunner = (command, _args, input) => {
+			runs.push({ command, input })
+			if (!hold) return Promise.resolve(true)
+			return new Promise((resolve) => gates.push(() => resolve(true)))
+		}
+		return { runs, gates, run }
+	}
+	const mac = (run: ClipboardRunner) => ({
+		clipboard: { platform: 'darwin' as const, which: () => '/bin/pbcopy', run },
+	})
+
+	it('hands the selection to the tool first and says it was copied', async () => {
+		const { runs, run } = tools()
+		const { t, print, since, drive } = rig({ env: {}, ...mac(run) })
+		await print('Türkçe ğüşiöç')
+		const mark = t.written.length
+		await drive(press(X, Y), drag(X + 12, Y), release(X + 12, Y))
+		await flush()
+		expect(runs).toEqual([{ command: '/bin/pbcopy', input: 'Türkçe ğüşiöç' }])
+		await flush()
+		await t.frame()
+		expect((await t.screen()).join('\n')).toContain('Copied 13 characters to the clipboard.')
+		// The terminal request goes out as well.
+		expect(since(mark)).toContain(osc('Türkçe ğüşiöç'))
+	})
+
+	it('keeps the pane working while the tool runs, and starts none for a selection let go of', async () => {
+		const { runs, gates, run } = tools(true)
+		const { t, pty, print, drive } = rig({ env: {}, ...mac(run) })
+		await print(CONTENT)
+		await drive(press(X, Y), drag(X + 4, Y), release(X + 4, Y))
+		await flush()
+		expect(runs).toHaveLength(1)
+		// The first copy has not finished; typing still reaches the pane.
+		await drive('x')
+		expect(pty.writes).toContain('x')
+		// A second selection waits behind it, and is let go of before its turn.
+		await drive(press(X, Y + 1), drag(X + 5, Y + 1), release(X + 5, Y + 1))
+		expect(runs).toHaveLength(1)
+		await drive(press(X, Y + 2), release(X, Y + 2))
+		gates[0]?.()
+		await flush()
+		await t.frame()
+		expect((await t.screen()).join('\n')).toContain('Copied 5 characters')
+		expect(runs).toHaveLength(1)
+		expect(gates).toHaveLength(1)
+	})
+
+	it('also copies what a pane asks for through the machine tool', async () => {
+		const { runs, run } = tools()
+		const { t, pty } = rig({ env: {}, ...mac(run) })
+		pty.print(`${ESC}]52;c;${b64('from the pane')}${BEL}`)
+		await (
+			t.host.roster.selected?.child as { screen: { settled(): Promise<void> } }
+		).screen.settled()
+		await flush()
+		expect(runs).toEqual([{ command: '/bin/pbcopy', input: 'from the pane' }])
 	})
 })
