@@ -173,6 +173,8 @@ export interface BackgroundJobRegistryRef {
 		status: string
 		exitCode?: number
 		error?: string
+		/** When it last wrote output (epoch ms); absent until it has. */
+		lastOutputAt?: number
 	}
 	/**
 	 * Take over a process the caller already started and is waiting on, so a
@@ -224,7 +226,19 @@ export interface BackgroundJobRegistryRef {
 		kind?: 'monitor'
 		/** What a monitor watches. */
 		description?: string
+		/** When the job started (epoch ms). Optional for hosts that do not keep it. */
+		startedAt?: number
+		/** When it last wrote output (epoch ms); absent until it has. */
+		lastOutputAt?: number
+		/** Its last non-empty output line, flattened and clipped. */
+		lastOutputLine?: string
 	}[]
+	/**
+	 * Whether the job's process is still there, asked of the system rather than
+	 * taken from the record. Optional: a host that cannot probe omits it, and a
+	 * running job is then reported as alive on the registry's word.
+	 */
+	isAlive?(id: string): boolean
 	/**
 	 * Await this job's exit instead of reading it in a loop; resolves at
 	 * once for a job that has already stopped. Optional, and added after

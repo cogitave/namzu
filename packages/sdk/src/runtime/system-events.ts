@@ -102,6 +102,11 @@ export interface SystemEvent {
 	readonly more?: string
 	/** Omit for an event with nothing to show; renders as `(no output)`. */
 	readonly body?: SystemEventBody
+	/**
+	 * When it happened (epoch ms). Rendered as an `at` attribute in ISO form so
+	 * the model can tell a fresh event from one that waited in a queue.
+	 */
+	readonly at?: number
 }
 
 export interface FormatSystemEventOptions {
@@ -209,6 +214,12 @@ function renderBody(body: SystemEventBody | undefined, options: FormatSystemEven
 	)
 }
 
+function atAttribute(at: number | undefined): string {
+	if (at === undefined || !Number.isFinite(at)) return ''
+	const date = new Date(at)
+	return Number.isNaN(date.getTime()) ? '' : ` at="${date.toISOString()}"`
+}
+
 /**
  * Render one asynchronous event as provider-required user-role context.
  *
@@ -248,7 +259,7 @@ export function formatSystemEvent(
 	])
 	const closingTag = `</system-event-${nonce}>`
 	const lines = [
-		`<system-event-${nonce} kind="${escapeAttribute(event.kind)}" id="${escapeAttribute(event.id)}" status="${escapeAttribute(event.status)}">`,
+		`<system-event-${nonce} kind="${escapeAttribute(event.kind)}" id="${escapeAttribute(event.id)}" status="${escapeAttribute(event.status)}"${atAttribute(event.at)}>`,
 		SYSTEM_EVENT_HEADER,
 		nonceClosureStatement(closingTag),
 		`summary: ${summary}`,

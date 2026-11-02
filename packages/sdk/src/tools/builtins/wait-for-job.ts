@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { invalidBackgroundJobIdInput } from '../../runtime/jobs/job-id.js'
+import { LIVENESS_STALLED_MS } from '../../runtime/jobs/liveness.js'
 import { readPositiveIntEnv } from '../../utils/env.js'
 import { defineTool } from '../defineTool.js'
 import { describeJobWaitTimeout, waitForJobWithBounds } from './wait-for-job-bounds.js'
@@ -20,7 +21,7 @@ import { describeJobWaitTimeout, waitForJobWithBounds } from './wait-for-job-bou
  */
 
 const DEFAULT_TIMEOUT_MS = readPositiveIntEnv('NAMZU_JOB_WAIT_TIMEOUT_MS', 5 * 60 * 1000)
-const DEFAULT_IDLE_TIMEOUT_MS = readPositiveIntEnv('NAMZU_JOB_WAIT_IDLE_MS', 2 * 60 * 1000)
+const DEFAULT_IDLE_TIMEOUT_MS = readPositiveIntEnv('NAMZU_JOB_WAIT_IDLE_MS', LIVENESS_STALLED_MS)
 
 /**
  * The longest either bound will accept from the model.

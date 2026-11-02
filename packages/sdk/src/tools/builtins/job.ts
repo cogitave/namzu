@@ -1,6 +1,11 @@
 import { z } from 'zod'
 
 import { invalidBackgroundJobIdInput } from '../../runtime/jobs/job-id.js'
+import {
+	formatLivenessAge,
+	formatLivenessLine,
+	judgeLiveness,
+} from '../../runtime/jobs/liveness.js'
 import { defineTool } from '../defineTool.js'
 
 /**
@@ -21,7 +26,7 @@ const inputSchema = z.object({
 	action: z
 		.enum(['read', 'list', 'kill'])
 		.describe(
-			'read: output since `from_offset`. list: every background job this turn started, with status. kill: stop a job and everything it forked.',
+			'read: output since `from_offset`. list: every background job this turn started, each running one with whether it is progressing, waiting or stalled, how long since its last output, and its last output line. kill: stop a job and everything it forked.',
 		),
 	id: z
 		.string()
@@ -76,18 +81,33 @@ export const JobTool = defineTool({
 		if (input.action === 'list') {
 			const all = jobs.list()
 			if (all.length === 0) return { success: true, output: 'No background jobs.' }
+			const now = Date.now()
+			const lines = all.map((job) => {
+				const label = job.kind === 'monitor' ? (job.description ?? job.command) : job.command
+				if (job.startedAt === undefined) {
+					return `${job.id}  ${job.status.padEnd(8)}  ${job.kind === 'monitor' ? `monitor · ${label}` : label}`
+				}
+				const liveness = judgeLiveness(
+					{
+						kind: job.kind === 'monitor' ? 'monitor' : 'job',
+						id: job.id,
+						label,
+						...(job.lastOutputLine !== undefined ? { where: job.lastOutputLine } : {}),
+						startedAt: job.startedAt,
+						...(job.lastOutputAt !== undefined ? { lastProgressAt: job.lastOutputAt } : {}),
+						alive: job.status === 'running' && (jobs.isAlive ? jobs.isAlive(job.id) : true),
+						finished: job.status !== 'running',
+					},
+					now,
+				)
+				// An ended job keeps its status word, which carries the exit.
+				return job.status === 'running'
+					? formatLivenessLine(liveness)
+					: `${job.id}  ${job.status.padEnd(8)}  ${label}`
+			})
 			return {
 				success: true,
-				// A monitor is named by what it watches: its command is the means,
-				// and the description is what the model wrote to tell its watches apart.
-				output: all
-					.map(
-						(job) =>
-							`${job.id}  ${job.status.padEnd(8)}  ${
-								job.kind === 'monitor' ? `monitor · ${job.description ?? job.command}` : job.command
-							}`,
-					)
-					.join('\n'),
+				output: lines.join('\n'),
 				data: { jobs: all },
 			}
 		}
@@ -123,9 +143,14 @@ export const JobTool = defineTool({
 				read.droppedBytes > 0
 					? `[${read.droppedBytes} bytes were dropped before this point — the job produced output faster than the retention cap holds]\n`
 					: ''
+			const lastOutputAt = read.status === 'running' ? jobs.get(input.id)?.lastOutputAt : undefined
 			const status =
 				read.status === 'running'
-					? 'still running'
+					? `still running${
+							lastOutputAt === undefined
+								? '; no output yet'
+								: `; last output ${formatLivenessAge((Date.now() - lastOutputAt) / 1000)} ago`
+						}`
 					: read.error !== undefined
 						? `failed to start: ${read.error}`
 						: `${read.status}${read.exitCode === undefined ? '' : ` with code ${read.exitCode}`}`

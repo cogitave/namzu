@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-02
+
+- **Creation** [Liveness of running work](sdk/liveness.md): a background job keeps when and what it last wrote and can be probed for whether its process exists; one verdict (progressing, waiting, stalled, dead, finished) with the idle seconds printed; `job` list and read and `wait_for_job` print them; monitor events, monitor ends and job exit notices carry their time. `.changeset/job-liveness.md` (`@namzu/sdk` minor).
+
 ## 2026-11-01
 
 - **Update** [namzu spaces (preview)](cli/spaces.md): quitting from the spaces screen now ends the terminal as a plain `namzu` does (the alternate screen is left and the history printed once before the final frame); the page no longer lists the missing end of the conversation as a limitation. `.changeset/spaces-tabs-panes.md` (`@namzu/cli` minor).

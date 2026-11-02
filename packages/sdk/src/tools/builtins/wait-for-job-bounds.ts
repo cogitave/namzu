@@ -60,6 +60,8 @@ export type JobWaitOutcome =
 			/** Which clock ran out. */
 			readonly cause: 'idle' | 'wall'
 			readonly elapsedMs: number
+			/** How long the job had been silent when the wait gave up. */
+			readonly quietForMs: number
 	  } & JobWaitProgress)
 
 /**
@@ -167,6 +169,7 @@ export async function waitForJobWithBounds(
 						kind: 'timeout',
 						cause: 'wall',
 						elapsedMs: elapsed,
+						quietForMs: now() - lastProgressAt,
 						output,
 						nextOffset: cursor,
 						droppedBytes,
@@ -182,6 +185,7 @@ export async function waitForJobWithBounds(
 							kind: 'timeout',
 							cause: 'idle',
 							elapsedMs: elapsed,
+							quietForMs: quietFor,
 							output,
 							nextOffset: cursor,
 							droppedBytes,
@@ -214,7 +218,7 @@ export function describeJobWaitTimeout(
 	const seconds = Math.round(outcome.elapsedMs / 1000)
 	const resume = `call wait_for_job or job read with from_offset ${outcome.nextOffset} to see only what comes next`
 	if (outcome.cause === 'idle') {
-		return `Job ${id} went quiet: no new output for a while, after ${seconds}s. It has not been stopped and may still be working — ${resume}.`
+		return `Job ${id} went quiet: no new output for ${Math.round(outcome.quietForMs / 1000)}s (waited ${seconds}s). It has not been stopped and may still be working — ${resume}.`
 	}
 	return `Job ${id} has been running for ${seconds}s without finishing. It has not been stopped — ${resume}.`
 }

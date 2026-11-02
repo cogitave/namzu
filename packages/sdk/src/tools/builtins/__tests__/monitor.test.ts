@@ -274,7 +274,11 @@ describe('the job tool and a monitor', () => {
 			const jobId = (started.data as { jobId: string }).jobId
 
 			const listed = await JobTool.execute({ action: 'list' }, context({ backgroundJobs: bound }))
-			expect(listed.output).toBe(`${jobId}  running   monitor · nightly build`)
+			expect(listed.output).toMatch(
+				new RegExp(
+					`^monitor ${jobId} "nightly build" - progressing - last progress (just now|\\d+s ago)$`,
+				),
+			)
 
 			const killed = await JobTool.execute(
 				{ action: 'kill', id: jobId },

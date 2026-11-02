@@ -1615,8 +1615,10 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				job.status === 'killed'
 					? 'was stopped'
 					: `exited with code ${job.exitCode ?? 'unknown'}${job.signal ? ` (${job.signal})` : ''}`
+			const endedAt =
+				job.exitedAt === undefined ? '' : ` at ${new Date(job.exitedAt).toISOString()}`
 			jobNotices?.steer(
-				`Background job ${job.id} (${job.command}) ${outcome}. Read its output with the job tool if you need it.`,
+				`Background job ${job.id} (${job.command}) ${outcome}${endedAt}. Read its output with the job tool if you need it.`,
 			)
 			pendingJobNoticeIds.add(job.id)
 			void eventTranslator
