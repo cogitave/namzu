@@ -60,6 +60,13 @@ export function setup(
 				timer.live = false
 			}
 		},
+		// No test reaches a real clipboard tool, whatever machine runs it.
+		clipboard: {
+			platform: 'linux',
+			which: () => null,
+			exists: () => false,
+			kernelVersion: () => '',
+		},
 		...extra,
 	})
 	opened.push({
