@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, parse, resolve } from 'node:path'
 import { NAMZU } from '../../constants/telemetry/index.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
+import { attributeSandboxFailure } from '../denial.js'
 
 import {
 	SANDBOX_DEFAULT_TIMEOUT_MS,
@@ -1084,8 +1085,16 @@ class LocalSandbox implements Sandbox {
 					terminate('SIGKILL')
 				}
 				const timedOut = cancellation === 'deadline'
+				const exitCode = code ?? (timedOut ? 124 : 1)
+				const attribution = attributeSandboxFailure({
+					environment: this.environment,
+					exitCode,
+					stderr: stderr.text,
+					timedOut,
+					allowedRoots: [...this.roots, tmpdir(), '/tmp', '/var/tmp', '/dev'],
+				})
 				resolvePromise({
-					exitCode: code ?? (timedOut ? 124 : 1),
+					exitCode,
 					stdout: stdout.text,
 					stderr: stderr.text,
 					signal: signal ?? undefined,
@@ -1096,6 +1105,7 @@ class LocalSandbox implements Sandbox {
 					// gone. The tool layer already renders the flag.
 					stdoutTruncated: stdout.truncated,
 					stderrTruncated: stderr.truncated,
+					...(attribution !== undefined ? { attribution } : {}),
 				})
 			})
 

@@ -273,9 +273,14 @@ export function checkpointLogView(log: SessionLog): CheckpointLogView {
 	return {
 		async verifyThrough(scope, throughSeq, throughSha256) {
 			own(scope)
-			const read = await log.readAll({ mode: 'tolerant', throughSeq })
-			const entry = read.entries.at(-1)
-			return entry?.pointer.seq === throughSeq && entry.pointer.sha256 === throughSha256
+			// Stream the walk and keep only the last pointer: the chain is
+			// verified as it is read, and a long session must not be held in
+			// memory just to look at its final entry.
+			let last: { seq: number; sha256: string } | undefined
+			for await (const entry of log.read({ mode: 'tolerant', throughSeq })) {
+				last = entry.pointer
+			}
+			return last?.seq === throughSeq && last.sha256 === throughSha256
 		},
 		async writtenDocSha256(scope, checkpointId) {
 			own(scope)
