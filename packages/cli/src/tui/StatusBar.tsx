@@ -19,7 +19,6 @@
 import { Box, Text, useWindowSize } from 'ink'
 
 import type { PermissionMode } from '../permissions/mode.js'
-import { HYPERMODE_FOOTER_NOTE } from './hypermode.js'
 import { fitHintText } from './key-hints.js'
 import type { NoticeTone } from './notifications.js'
 import type { PrFooterState, PrReview } from './pr-status.js'
@@ -31,8 +30,6 @@ export interface StatusBarProps {
 	readonly model: string | null
 	/** An explicit reasoning-effort override; omitted/undefined means the model's own default, which this footer does not name. */
 	readonly effort?: string | null
-	/** Hypermode is on: the effort item says so (`effort high · Hypermode on`), whatever the effort. */
-	readonly hypermode?: boolean
 	/** Ambient durable goal status; interaction hints take precedence. */
 	readonly goal?: string | null
 	readonly state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission'
@@ -183,7 +180,6 @@ export function StatusBar({
 	provider,
 	model,
 	effort,
-	hypermode = false,
 	goal,
 	state,
 	hint,
@@ -230,7 +226,6 @@ export function StatusBar({
 		model,
 		provider,
 		effort: effort ?? null,
-		hypermode,
 		hint,
 		notice: notice?.text ?? null,
 		ambient: ambient?.text ?? null,
@@ -469,7 +464,6 @@ export function fitStatusLine(input: {
 	readonly provider: string | null
 	readonly model: string | null
 	readonly effort?: string | null
-	readonly hypermode?: boolean
 	readonly hint?: string | undefined
 	/** The notice that is up; ahead of the goal, behind a hint. */
 	readonly notice?: string | null | undefined
@@ -514,10 +508,7 @@ export function fitStatusLine(input: {
 	let agents: string | null = input.agents ?? null
 	let manage: string | null = input.manage ?? null
 	let pr = input.pr ?? null
-	let effort: string | null =
-		[input.effort ? `effort ${input.effort}` : null, input.hypermode ? HYPERMODE_FOOTER_NOTE : null]
-			.filter((part): part is string => part !== null)
-			.join(' · ') || null
+	let effort: string | null = input.effort ? `effort ${input.effort}` : null
 
 	const parts = (): string[] =>
 		[

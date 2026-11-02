@@ -173,7 +173,7 @@ export const ACTIONS = [
 		id: 'chat:imagePaste',
 		context: 'Chat',
 		group: 'Editing',
-		keys: ['ctrl+v', 'meta+v'],
+		keys: defaultImagePasteKeys(),
 		help: 'Paste an image from the clipboard',
 	}),
 	action({
@@ -517,4 +517,22 @@ export function keysHelpText(): string {
 		})
 	}
 	return lines.join('\n')
+}
+
+/**
+ * The keys that paste an image, by platform. Ctrl+V is the terminal's own text
+ * paste on native Windows, so there only Alt+V is bound; macOS, Linux and WSL
+ * also take Ctrl+V. Alt+V stays bound everywhere, because some terminals
+ * (Windows Terminal among them) keep Ctrl+V for themselves.
+ */
+export function defaultImagePasteKeys(platform: NodeJS.Platform = process.platform): string[] {
+	return platform === 'win32' ? ['meta+v'] : ['ctrl+v', 'meta+v']
+}
+
+/** The key to name in a message about pasting an image. */
+export function imagePasteKeyName(
+	platform: NodeJS.Platform = process.platform,
+	wsl = false,
+): string {
+	return platform === 'win32' || wsl ? 'Alt+V' : 'Ctrl+V'
 }

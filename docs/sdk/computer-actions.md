@@ -109,7 +109,8 @@ the action still reports success and the text says to take one.
 | `wait` | `ms` (at most `maxWaitMs` per call, 10 000 by default; a batch's waits share it) | yes |
 | `list_windows` | — | no |
 | `focus_window` | `window_id` | yes |
-| `ui_snapshot` | `window_id` (optional; the window in front without it) | no — the window's controls as text |
+| `ui_snapshot` | `window_id` (optional; the window in front without it), `root` (a region's ref), `offset`, `query` | no — the window's controls as text |
+| `wait_for` | `until`, `match`, `role`, `window_id`, `timeout_ms` | no — the window's controls as text, as `ui_snapshot` |
 | `ui_act` | `ref`, `action`, `value` (for `set_value`) | yes |
 | `batch` | `actions` | one, at the end |
 
@@ -177,16 +178,21 @@ by automatic capture returns pixels for that window on a host with window captur
 ## A window's controls
 
 When the host declares `uiTree` and implements `uiSnapshot` and `uiAct`,
-the tool offers `ui_snapshot` and `ui_act`, and tells the model to prefer
-them to pixel clicks when a control is in the tree: they do not depend on
-coordinates or on which window is in front, and several `ui_act` steps fit
-in one batch.
+the tool offers `ui_snapshot`, `ui_act` and `wait_for`, and tells the model to
+work tree-first: `list_windows`, then `ui_snapshot`, then `ui_act` by ref,
+confirming by the action's own read-back, by `wait_for`, or by a window
+screenshot. This reaches a window behind others, does not move the user's
+pointer or take their screen, and does not depend on coordinates; several
+`ui_act` steps fit in one batch. Coordinates are for a window whose tree has
+no usable controls. The first `mouse_click` in a captured window gets a
+reminder appended to its result (once per window, never a refusal): that the
+window has controls with refs, or that it has not been read yet.
 
 `ui_snapshot { window_id }` reads one window's accessibility tree and shows
 it as indented text, one control per line:
 
 ```text
-UI snapshot u2 of window 0x3c40f70: 51 controls shown, 36 with a ref you can pass to ui_act. Refs are valid until the next ui_snapshot.
+UI snapshot u2 of window 0x3c40f70: 51 controls shown, 36 with a ref you can pass to ui_act. A ref names its control and stays usable after later snapshots; if the control has gone or several fit, ui_act says so (STALE_REF, AMBIGUOUS_TARGET) and nothing is sent.
 @(x, y) is a control's centre on screenshot s2, for a click when ui_act cannot reach it.
 <namzu-untrusted-7f3a9c21 kind="desktop-ui" window="0x3c40f70">
 …
@@ -199,10 +205,13 @@ Window "Hesap Makinesi"
 </namzu-untrusted-7f3a9c21>
 ```
 
-- Only a control the host can act on gets a ref. Refs count up across
-  snapshots (`e1`…`e36`, then `e37`… in the next), so a ref from an earlier
-  snapshot is refused ("not a control of the latest ui_snapshot (u2)")
-  instead of silently naming whatever holds that number now.
+- Only a control the host can act on gets a ref, and a region an outline left
+  unexpanded. A ref names its control: the same host ref keeps its number in
+  every later snapshot, a number is never given to another control, and a ref
+  no snapshot showed is refused. Whether the control is still there is the
+  host's answer when `ui_act` runs: it finds the control again by its evidence
+  or fails with `STALE_REF` (gone) or `AMBIGUOUS_TARGET` (several fit), in both
+  cases sending nothing, and the step's text starts with that code.
 - A nameless control nothing can be done with is left out and its children
   move up a level. Names and values are cut to one line of 64 characters.
 - `@(x, y)` is the control's centre on the latest display screenshot, for
@@ -211,9 +220,17 @@ Window "Hesap Makinesi"
 - Everything the application wrote sits inside an untrusted-content frame;
   the header, refs and positions are the tool's. A name cannot close the
   frame early.
-- The text is cut at 14 000 characters (about 4 000 tokens), with a line
-  saying how many controls were shown out of how many; a host that stopped
-  its own walk sets `truncated` and the text says so.
+- A large window comes back as an outline: the top levels, with each region
+  that was left out marked `(+N more inside)` and given a ref.
+  `ui_snapshot { root: "e12" }` reads just that region (a long one in pages:
+  the text ends with `ui_snapshot {root, offset}` for the next), and every ref
+  outside it stays valid. `ui_snapshot { query: "text" }` lists only the
+  controls whose text matches, with the elements above them. `ui_act` on a
+  region is refused with how to open it. The header says how many controls were
+  shown out of how many the window holds.
+- The text is cut at 14 000 characters (about 4 000 tokens); the line that says
+  so tells the model to drill into the region it needs. A host that stopped its
+  own walk sets `truncated` and the text says so.
 
 `ui_act { ref, action, value }` acts on one control: `invoke` (press a
 button, open a menu item), `set_value` (replace a field's text with `value`),
@@ -222,6 +239,56 @@ action the control does not list, or `set_value` without `value`, is refused
 before anything runs; in a batch that refuses the whole batch. The host's
 refusal comes back in its own words (`that control is from an older UI
 snapshot; take a new one`). It normally returns a screenshot afterwards.
+
+### What an action reports about itself
+
+A call that returned is not proof that its effect happened, so a step says
+which of three things is known, and `data.steps[]` carries the same as
+`delivery` and `retrySafety` (plus `readBack` when the host read one):
+
+| Result text | `delivery` | `retrySafety` | Meaning |
+| --- | --- | --- | --- |
+| `done, verified (reads "Ada")` | `delivered_verified` | `safe` for an idempotent `set_value`, else `unsafe` | The host read the state back and it matches. |
+| `sent, no effect seen. …` | `delivered_unverified` | `safe` | The window provably did not react: it never changed, no window opened, the text control held the same text. Sending it again is safe. The host has already sent it once more on the screen when the first try was a background one (see [the foreground ladder](foreground-ladder.md#an-input-that-had-no-effect)), so this is the answer after both tries. |
+| `sent, not confirmed` | `delivered_unverified` | `unsafe` | The input went out (or may have) and nothing checked it. The model looks before repeating, because repeating can act twice. A failed read-back lands here, never in `not_delivered`. |
+| failure, `Not delivered: …` | `not_delivered` | `safe` | The action was refused before any input, or a read-back proved nothing changed. Trying again, or another way, is safe. |
+
+The driver cannot confirm a background input, so the host also reads the
+window before and after it and judges by what the window shows. Typed text is
+verified when that text (folded for case, spaces and operator glyphs, so `7*6=`
+matches `7 × 6=`) is shown more often than before; a text of under three
+characters counts only when the window shows it as a text of its own, and a
+classic edit control must hold the text more often than before (a change
+elsewhere in it, or growth alone, is not evidence); a press or a key is verified
+when the window changed after it and then held still, and was not changing by
+itself before it, or when a control only changed state (selected, disabled). The
+evidence is the read-back (`reads "…"`). A change that does not show the typed
+text, or a window that changes by itself, leaves the step `sent, not confirmed`
+(a change that cannot be tied to the input says that sending it again could do it
+twice): an unrelated change is never reported as the effect. A window that never
+changed at all is `sent, no effect seen`, and is the only unconfirmed result that
+is safe to send again. For a classic edit control the host reads the control's own text.
+
+A timeout or a lost reply after input went out is `delivered_unverified` /
+`unsafe`, never `not_delivered`. A host that does not classify keeps the
+plain `done`. `UiActResult` carries `delivery`, `retrySafety` and `readBack`;
+`executeWindow` may return a `WindowInputResult`; a display action may
+return `{ type: 'ok', delivery, retrySafety, detail }`. All are optional.
+
+### wait_for
+
+`wait_for { until, match, role?, window_id?, timeout_ms? }` replaces a fixed
+`wait` when the model knows what it is waiting for. `until` is
+`element_appears` / `element_gone` (a control whose name contains `match`,
+optionally of `role`), `text_appears` / `text_gone` (a name or value contains
+`match`) or `window_appears` / `window_closed` (a window title contains
+`match`; needs `list_windows`). Matching is case-insensitive. The tool reads
+the window every 500 ms until the condition holds and then returns the
+window's controls as a fresh `ui_snapshot`, so the refs are usable at once.
+`timeout_ms` defaults to 10 000 and never exceeds `maxWaitMs`. Running out of
+time is a failure that says nothing was changed and shows the last read; a read
+that itself fails is tried again, not taken as an answer. It is its own call
+(not allowed in a batch) and is read-only.
 On a window-only host, refs work even before the first image: the tool
 captures the window named by `ui_snapshot` after acting when it has a window
 id. If the host reports no window id, it returns the action result without
@@ -433,12 +500,37 @@ A control's ref is cua-driver's element token, which names its snapshot; the
 adapter keeps only the latest snapshot's. `invoke`, `toggle`, `select`,
 `expand` and `collapse` go through cua-driver's `click` on the token — UI
 Automation's Invoke in the background, with no pointer move and no change of
-foreground; `set_value` through `set_value`, and, for a field that reports no
-settable value (classic Notepad's editor), by typing into it when it is empty.
-Such a field that already holds text is refused, since typing would add to
-it. `focus` and `scroll_into_view` are not offered. A background Invoke
-reports its effect as unverifiable by design; the screenshot the tool takes
-afterwards is where the model sees it.
+foreground; `set_value` through `set_value`. A field that reports no settable
+value (a plain-text editor control) takes its text by window message instead
+(see [the foreground ladder](foreground-ladder.md#text-sent-to-a-classic-edit-control)):
+read back with the control's own text, and `not_delivered` with a reason when
+the program has higher rights. The adapter never types into it through the
+driver as a fallback, since the driver's report of that typing is not
+trustworthy. `focus` and `scroll_into_view` are not offered.
+
+The driver reports its effect as unverifiable for nearly every background
+action, including ones that did nothing, so the adapter reads the control
+back instead. After `set_value`, `toggle` or `select` it reads the window
+again, finds the control by its evidence (automation id when unique, else
+role, name and position among equals) and compares: a field that now holds
+the value is verified; a field that still holds its old value after the driver
+said ok is first tried with the keyboard in the foreground (the control is
+focused, the option typed and confirmed, through the ladder, then read back),
+and is `not_delivered` only when that does not change it either, with the
+advice to use the browser tool (a web page's drop-down list is the known case); a
+toggle whose state flipped is verified, and one that did not is
+`delivered_unverified`. A `select` on a list or tree row that is also
+invokable (a file row) is made through the row's selection pattern, never by a
+click, because the driver's click on such a row invokes it and opens the item:
+the row is found again in the window by role, name, automation id and place, selected,
+and verified by reading it back as selected (`The row is selected; it was not
+opened.`). Where the pattern cannot be reached (the helper is not running, the
+row is gone, two rows match, the row has no selection pattern) nothing is sent
+and the result is `not_delivered`, `retrySafety: safe`, saying that a click would
+open the row. The read-back gives every other ref of that window the new token of its
+control, so refs stay valid; a ref whose control is gone fails as
+`not_delivered` with `STALE_REF`. `invoke`, `expand` and `collapse` are
+`delivered_unverified`: the model looks.
 
 Every cua-driver input goes to its desktop scope — real input at screen
 coordinates. A click there first brings the window under the point to the
@@ -446,7 +538,11 @@ front; when Windows refuses, nothing is clicked and the call fails. After a
 click cua-driver also checks that the clicked window's process is still in
 front, and a click that closed its own window (a dialog's "Don't Save")
 fails that check although it happened; the adapter reports such a click as
-done rather than invite a second one.
+`delivered_unverified` / `unsafe` (sent, another window in front), neither done
+nor failed, so the model looks before it clicks again. Window-scoped type and
+key calls whose answer carries a `delivery_failed` escalation are reported the
+same way, and a `background_unavailable`, occluded or blocked-by-higher-rights
+refusal is `not_delivered` with what to do next.
 
 ### Verifying a new cua-driver build
 
@@ -475,8 +571,9 @@ windows opened for the purpose:
    snapshot again: the result reads `1,000`; a ref from the first snapshot is
    refused as stale. Invoke its Close button by ref: the process exits.
 8. In a fresh Notepad, `set_value` the editor to `Merhaba dünya ığüşöç İĞ`:
-   `set_value` reports no ValuePattern, the adapter types instead, and the
-   next snapshot's value is identical.
+   `set_value` reports no ValuePattern, the adapter sends the text to the edit
+   control by window message and reads it back, and the next snapshot's value
+   is identical.
 
 These declarations do not add browser element references, remote desktop
 allocation or human-control handover. Those remain separate capabilities in

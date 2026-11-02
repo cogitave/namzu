@@ -115,8 +115,9 @@ newline with it, so removing a whole line leaves no blank one behind.
 
 `head_limit` (default 250, `0` for none) bounds the entries, which are paths, output lines or count rows
 depending on the mode. `offset` skips entries first, to page. A page that cut results off reports
-`limit: N` and `offset: N`. In `content` mode the search stops when the page is full and says more may
-follow, rather than reading another file to prove it. A matching or context line over 500 characters is
+`limit: N` and `offset: N` and ends with `[More results are available: pass offset: N to continue ...]`;
+it is a successful result, not an error. In `content` mode the search stops when the page is full,
+rather than reading another file to prove there is more. A matching or context line over 500 characters is
 printed as `[Omitted long matching line]` or `[Omitted long context line]`. `max_results` is deprecated and
 means `head_limit` when that is absent.
 
@@ -128,11 +129,14 @@ starts). `count` mode then counts the distinct lines covered. `type` limits the 
 (`js`, `ts`, `py`, `rust`, `go`, `java`, `md`, `json`, `yaml` and others, with long aliases such as
 `typescript`); it narrows `include` and an unknown kind is refused with the list of known ones.
 
-This is the kernel's own walker, not ripgrep: files over 5 MB, binaries and symlinks are skipped, and at most
-20,000 entries are examined (the search reports itself incomplete past that). A sandbox reports no
+This is the kernel's own walker, not an external search program, because the same search must run inside sandbox guests where a
+host binary does not exist: files over 5 MB, binaries and symlinks are skipped, files that `.gitignore`,
+`.ignore` and `.git/info/exclude` exclude are skipped (`include_ignored: true` searches them), and at most
+500,000 entries are examined or 12 seconds spent, after which the search returns what it found with a note
+(see [Bounded file discovery](file-discovery.md#ignore-files-and-the-entry-bound)). A sandbox reports no
 modification times, so its file list is in path order. Host file-list results are sorted newest first before offset/limit are applied; ties use path order. File reads use the same bounded IO as `read` with a 5 MiB ceiling even if a file grows after discovery. A read that cannot complete within that ceiling marks the search incomplete rather than claiming an exhaustive no-match result.
 
-`glob` retains its independent 500-path cap and reports truncation. It preserves bounded traversal order, not modification-time order; it does not promise that a capped preview is the globally newest 500 files.
+`glob` retains its independent 500-path cap and reports it as a note on a successful result. It preserves bounded traversal order, not modification-time order; it does not promise that a capped preview is the globally newest 500 files.
 
 ## The combined result budget
 

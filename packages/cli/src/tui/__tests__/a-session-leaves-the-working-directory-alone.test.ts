@@ -95,8 +95,11 @@ it('files two sessions in one directory under one Project', async () => {
 	await oneTurn(cwd)
 
 	// One project directory for the working directory, minted once, holding
-	// both sessions' logs.
-	const added = (await readdir(projects)).filter((name) => !before.has(name))
+	// both sessions' logs. Other suites share this home and may file their
+	// own projects meanwhile, so count only the directories named for this
+	// working directory; a second one minted for it still carries its name.
+	const mine = basename(cwd).replace(/[^A-Za-z0-9]/g, '-')
+	const added = (await readdir(projects)).filter((name) => !before.has(name) && name.includes(mine))
 	expect(added).toEqual([basename(project)])
 	expect(await readFile(join(project, 'project.json'), 'utf8')).toBe(first)
 	expect((await readdir(project)).filter((name) => name.endsWith('.jsonl'))).toHaveLength(2)

@@ -250,11 +250,16 @@ describe('bounded local file enumeration', () => {
 		expect(one).toHaveLength(1)
 		expect(io.open.mock.calls.map(([path]) => path)).toEqual([join(root, 'src')])
 	})
-	it('throws an explicit traversal limit even when no file matches', async () => {
+	it('throws an explicit traversal limit when asked to, even when no file matches', async () => {
 		const root = await fixture()
 		await expect(
 			collect(
-				walkFilesLocally(root, { pattern: '**/*.missing', maxEntries: 10, maxVisitedEntries: 2 }),
+				walkFilesLocally(root, {
+					pattern: '**/*.missing',
+					maxEntries: 10,
+					maxVisitedEntries: 2,
+					failOnLimit: true,
+				}),
 			),
 		).rejects.toMatchObject({ code: 'ERR_FILE_WALK_LIMIT' })
 	})
