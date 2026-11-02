@@ -1,5 +1,10 @@
 # Documentation update log
 
+## 2026-11-02
+
+- **Update** [The session index](sdk/sqlite-sessions.md): a hot journal left by a process killed mid-write is rolled back rather than treated as a corrupt index, and replacing an index takes the old file's lock first, so a stale journal can no longer be played into the rebuilt file ("database disk image is malformed"). `.changeset/index-hot-journal.md` (`@namzu/sdk` patch).
+- **Update** [The session index](sdk/sqlite-sessions.md): a session whose index file another process replaced reopens it instead of failing its writes until restart, a non-forced rebuild re-checks the version under the old file's lock, a locked index surfaces as a plain `SessionIndexError`, and on Windows the old connection is closed before the rename.
+
 ## 2026-11-01
 
 - **Update** [namzu spaces (preview)](cli/spaces.md): quitting from the spaces screen now ends the terminal as a plain `namzu` does (the alternate screen is left and the history printed once before the final frame); the page no longer lists the missing end of the conversation as a limitation. `.changeset/spaces-tabs-panes.md` (`@namzu/cli` minor).
