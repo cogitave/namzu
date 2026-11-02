@@ -833,7 +833,8 @@ export class CuaDriverAdapter implements Adapter {
 			earlier,
 			windows,
 			edit,
-			stillness: canBeJudgedByStillness(action),
+			// A command the app was handed by message is delivered; a window that did not change shows no missing effect, so it is never sent again.
+			stillness: byMenu === undefined && canBeJudgedByStillness(action),
 		})
 		if (!seen) return sent
 		// A person at the keyboard or mouse during a burst can change the window: it proves nothing.
@@ -924,7 +925,9 @@ export class CuaDriverAdapter implements Adapter {
 		try {
 			const read = await this.readWindowTree(target, {})
 			this.bindRead(target, read, { shown: new Set(), regions: new Set() })
-			return observationOf(read.tree)
+			return observationOf(read.tree, {
+				walkCut: read.state.truncated === true || read.tree.count >= UI_WALK_CUT_AT,
+			})
 		} catch {
 			return undefined
 		}

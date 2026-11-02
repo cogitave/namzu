@@ -1,5 +1,5 @@
 import type { ActionDelivery, ActionRetrySafety } from '@namzu/sdk'
-import { type Observation, type ObservedVerdict, sameObservation } from './observe.js'
+import { type Observation, type ObservedVerdict, isCut, sameObservation } from './observe.js'
 
 /**
  * When an input that could not be confirmed is tried again, and when it must not be.
@@ -47,6 +47,8 @@ export function judgeStillness(reads: StillnessReads): ObservedVerdict | undefin
 	if (reads.before.size === 0) return undefined
 	if (reads.earlier !== undefined && !sameObservation(reads.earlier, reads.before)) return undefined
 	if (reads.edit === 'unknown') return undefined
+	// A read that left something out (a cut text, a cut walk) cannot show that nothing changed.
+	if (isCut(reads.before) || reads.afters.some(isCut)) return undefined
 	const moved =
 		reads.edit === 'changed' || reads.afters.some((read) => !sameObservation(reads.before, read))
 	if (moved)
@@ -76,7 +78,13 @@ export function canBeJudgedByStillness(action: {
 	if (action.type === 'type_text') return true
 	if (action.type !== 'key' || action.keys === undefined) return false
 	const main = action.keys.trim().split('+').pop()?.trim() ?? ''
-	return !UNOBSERVABLE_KEYS.test(main)
+	if (UNOBSERVABLE_KEYS.test(main)) return false
+	// Enter, Backspace and Delete, and the undo, redo, cut and paste chords, change text a tree read may not show.
+	const chord =
+		action.keys.toLowerCase().includes('ctrl') || action.keys.toLowerCase().includes('cmd')
+	if (/^(enter|return|backspace|delete|del|space)$/i.test(main)) return false
+	if (chord && /^(z|y|x|v)$/i.test(main)) return false
+	return true
 }
 
 /** One attempt as the retry decision sees it. */

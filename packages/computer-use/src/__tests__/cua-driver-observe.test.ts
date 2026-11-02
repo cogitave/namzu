@@ -3,9 +3,11 @@ import {
 	type Observation,
 	changeBetween,
 	foldText,
+	isCut,
 	judgeEdit,
 	judgeEditBetween,
 	judgeObserved,
+	observationOf,
 	sameObservation,
 } from '../adapters/cua-driver/observe.js'
 
@@ -175,5 +177,25 @@ describe('verifying text sent to a classic edit control', () => {
 				delivery: 'delivered_verified',
 			},
 		)
+	})
+})
+
+describe('a read that cannot show everything', () => {
+	const tree = (value: string, count = 1) =>
+		({
+			nodes: [{ role: 'Edit', name: 'Body', element: { value } }],
+			count,
+		}) as unknown as Parameters<typeof observationOf>[0]
+
+	it('is marked cut when a text is longer than what is kept, or the walk was cut', () => {
+		expect(isCut(observationOf(tree('short')))).toBe(false)
+		expect(isCut(observationOf(tree('x'.repeat(300))))).toBe(true)
+		expect(isCut(observationOf(tree('short'), { walkCut: true }))).toBe(true)
+	})
+
+	it('does not count the mark as text that changed', () => {
+		const a = observationOf(tree('short'), { walkCut: true })
+		const b = observationOf(tree('short'))
+		expect(sameObservation(a, b)).toBe(true)
 	})
 })

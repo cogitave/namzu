@@ -89,7 +89,9 @@ focused control counts only when it lies inside the window that was chosen (a
 dialog of the same program does not), and a focus that is not an edit control is
 not replaced by a lone edit control elsewhere in the window. A window that was
 never activated has no focus window on its thread; if no other window of the
-thread is active either, its single edit control is the target. Both are
+thread is active either, its single edit control is the target, but only if it is
+enabled, is not the inner field of a combo box and fills at least half of the
+window; otherwise it is not used and the text goes the ordinary way. Both are
 read back with `WM_GETTEXT`. A program running with higher rights refuses the
 message (UIPI): that is `not_delivered` with the reason, and the model is told to
 ask the user. A read-only control is `not_delivered`; a program that does not
@@ -119,12 +121,19 @@ would take. There are three outcomes besides "the effect was seen":
 | The window changed, but not in a way that shows this input did it (or the text control changed without the text) | `delivered_unverified`, `retrySafety: unsafe`: "sending it again could do it twice" | never retried |
 | Too few reads, nothing to read, a window that changes by itself, a text control that could not be read, a person at the keyboard during the burst | as before: `delivered_unverified`, `unsafe` | never retried |
 
+A read that left something out (a name or value longer than the 240 characters kept,
+or a walk cut at its cap) never proves that nothing changed, and a shortcut carried
+out as a menu command is never sent again on the screen: the app was handed it.
+Before a menu item's state is read the window is asked to prepare the popup, as
+opening the menu would, so an item an app greys lazily is refused.
+
 A control's `selected` and `disabled` state counts as the window changing, so a
 click that only flipped a state is an effect, not "no effect". The retry is made
 once and only when the first attempt was a background one and no `delivery_mode`
 was asked for; `delivery_mode: "background"` forbids the screen and
 `delivery_mode: "foreground"` is already on it. Keys whose effect the controls of
-a window do not show (arrows, Tab, Home, End, Page Up and Down, a modifier alone)
+a window do not show (arrows, Tab, Home, End, Page Up and Down, a modifier alone),
+keys that edit or undo in place (Enter, Backspace, Delete, Space, and Ctrl with Z, Y, X or V)
 and scrolling are never judged this way, and neither is a click: what a click usually
 does (focus, a caret, a text selection) is not in the controls, so a window that
 held still proves nothing about it and it stays `sent, not confirmed`. A retry that was already on the screen
@@ -181,7 +190,7 @@ checked by reading the window before the next one is taken:
 What each kind of window supports on this computer (Windows 11, measured with real
 windows the test harness started): a classic Win32 window with a menu (System
 Information) takes steps 1 and 3 in the background with no foreground change and no
-pointer movement; the modern Notepad exposes its menu bar to the accessibility tree
+pointer movement; a window built on the newer toolkit exposes its menu bar to the accessibility tree
 but its opened menu is not readable from outside the window, so a shortcut there
 (`ctrl+o`) needs the screen; a page in the browser exposes no focused element while
 its window is in the background, so text for it needs the person to have clicked a

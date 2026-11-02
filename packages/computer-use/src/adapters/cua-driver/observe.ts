@@ -26,17 +26,27 @@ const MAX_TEXT = 240
 const SEP = '\u0000'
 /** Keys that carry a control's state (selected, disabled), not text: they never count as text shown. */
 const STATE = '\u0001'
+/** Present in a read that could not show everything: a text cut short, or a walk cut at its cap. */
+export const CUT = '\u0002cut'
+
+/** Whether a read left something out, so that an unchanged read proves nothing. */
+export const isCut = (obs: Observation): boolean => obs.has(CUT)
 
 /** The texts of one read of a window: each control's name and each value. */
-export function observationOf(tree: ParsedUiTree): Observation {
+export function observationOf(
+	tree: ParsedUiTree,
+	options: { readonly walkCut?: boolean } = {},
+): Observation {
 	const out = new Map<string, number>()
+	if (options.walkCut === true) out.set(CUT, 1)
 	const add = (key: string): void => {
 		out.set(key, (out.get(key) ?? 0) + 1)
 	}
 	for (const node of tree.nodes) {
 		const name = node.name.trim()
-		if (name !== '') add(`${node.role}${SEP}${name.slice(0, MAX_TEXT)}`)
 		const value = node.element.value?.trim()
+		if (name.length > MAX_TEXT || (value?.length ?? 0) > MAX_TEXT) out.set(CUT, 1)
+		if (name !== '') add(`${node.role}${SEP}${name.slice(0, MAX_TEXT)}`)
 		if (value !== undefined && value !== '') add(`${node.role}${SEP}=${value.slice(0, MAX_TEXT)}`)
 		for (const state of node.element.states ?? [])
 			add(`${STATE}${node.role}${SEP}${name.slice(0, MAX_TEXT)}${SEP}${state}`)
@@ -51,6 +61,8 @@ export interface ObservedChange {
 	readonly removed: readonly string[]
 }
 
+const isMeta = (key: string): boolean => key.startsWith(STATE) || key === CUT
+
 const textOf = (key: string): string => {
 	const at = key.indexOf(SEP)
 	const text = at < 0 ? key : key.slice(at + 1)
@@ -61,9 +73,9 @@ export function changeBetween(before: Observation, after: Observation): Observed
 	const added: string[] = []
 	const removed: string[] = []
 	for (const [key, count] of after)
-		if (!key.startsWith(STATE) && count > (before.get(key) ?? 0)) added.push(textOf(key))
+		if (!isMeta(key) && count > (before.get(key) ?? 0)) added.push(textOf(key))
 	for (const [key, count] of before)
-		if (!key.startsWith(STATE) && count > (after.get(key) ?? 0)) removed.push(textOf(key))
+		if (!isMeta(key) && count > (after.get(key) ?? 0)) removed.push(textOf(key))
 	return { added, removed }
 }
 
@@ -91,7 +103,7 @@ const quote = (value: string, max = 80): string =>
 function occurrences(obs: Observation, want: string): number {
 	let total = 0
 	for (const [key, count] of obs) {
-		if (key.startsWith(STATE)) continue
+		if (isMeta(key)) continue
 		const text = foldText(textOf(key))
 		let at = text.indexOf(want)
 		while (at >= 0) {

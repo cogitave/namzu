@@ -327,16 +327,18 @@ describe('a shortcut that is a command of the window menu', () => {
 		await adapter.dispose()
 	})
 
-	it('that took no effect is judged like any other input, and is then tried on the screen', async () => {
+	it('that left the window as it was is not sent again: the app was handed the command', async () => {
 		const monitor = new FakeMonitor()
-		monitor.menu = () => ({ found: true, reason: '', label: 'Open' })
+		monitor.menu = () => ({ found: true, reason: '', label: 'Save' })
 		const { adapter, sent } = rig(() => unverified(), { monitor })
 		const shot = await adapter.captureWindow('0x111')
-		const result = await adapter.executeWindow(shot.captureId, { type: 'key', keys: 'ctrl+o' })
-		expect(monitor.menuCommands).toEqual(['Ctrl+O'])
-		// The menu command left the window as it was: the key is sent on the screen once.
-		expect(sent().map(modeOf)).toEqual(['foreground'])
-		expect(result?.detail).toMatch(/had no effect/)
+		const result = await adapter.executeWindow(shot.captureId, { type: 'key', keys: 'ctrl+s' })
+		expect(monitor.menuCommands).toEqual(['Ctrl+S'])
+		// A command that succeeds without changing a control (save, copy) reads as unchanged: it must not run twice.
+		expect(sent()).toHaveLength(0)
+		expect(monitor.calls).not.toContain('begin')
+		expect(result).toMatchObject({ delivery: 'delivered_unverified', retrySafety: 'unsafe' })
+		expect(result?.detail).not.toMatch(/had no effect/)
 		await adapter.dispose()
 	})
 })
@@ -411,6 +413,13 @@ describe('the retry decision', () => {
 		expect(judgeStillness({ ...base, edit: 'unknown' })).toBeUndefined()
 	})
 
+	it('never calls a read that left something out proof of no effect', () => {
+		const cut = new Map<string, number>([...still, ['\u0002cut', 1]])
+		const base = { before: still, afters: [still, still], opened: false }
+		expect(judgeStillness({ ...base, before: cut })).toBeUndefined()
+		expect(judgeStillness({ ...base, afters: [still, cut] })).toBeUndefined()
+	})
+
 	it('calls a change unexplained, never no effect', () => {
 		const moved = obs('Button\u0000Save', 'Text\u0000new')
 		expect(judgeStillness({ before: still, afters: [still, moved], opened: false })).toMatchObject({
@@ -444,7 +453,9 @@ describe('the retry decision', () => {
 	it('judges only the inputs a read of the window can show the absence of', () => {
 		expect(canBeJudgedByStillness({ type: 'type_text' })).toBe(true)
 		expect(canBeJudgedByStillness({ type: 'key', keys: 'ctrl+o' })).toBe(true)
-		expect(canBeJudgedByStillness({ type: 'key', keys: 'ENTER' })).toBe(true)
+		// Keys that edit or undo in place may act where a tree read shows nothing.
+		for (const keys of ['ENTER', 'backspace', 'delete', 'ctrl+z', 'ctrl+y', 'ctrl+x', 'ctrl+v'])
+			expect(canBeJudgedByStillness({ type: 'key', keys })).toBe(false)
 		for (const keys of ['TAB', 'ctrl+END', 'down', 'pagedown'])
 			expect(canBeJudgedByStillness({ type: 'key', keys })).toBe(false)
 		expect(canBeJudgedByStillness({ type: 'scroll' })).toBe(false)

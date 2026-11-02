@@ -46,6 +46,8 @@ public static class NzG {
  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
  [DllImport("user32.dll")] static extern bool IsChild(IntPtr p, IntPtr c);
  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RC r);
+ [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr h, out RC r);
+ [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr h);
  [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);
  [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint t, ref GTI i);
  [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
@@ -150,22 +152,24 @@ public static class NzG {
  static string AccelKey(string a) {
   var parts = a.Replace(" ", "").ToUpperInvariant().Split('+'); Array.Sort(parts, StringComparer.Ordinal); return string.Join("+", parts);
  }
- static string MenuWalk(IntPtr m, string want, int depth, out uint id, out bool off) {
+ static string MenuWalk(IntPtr top, IntPtr m, int parentAt, string want, int depth, out uint id, out bool off) {
   id = 0; off = false; int n = GetMenuItemCount(m);
   for (int i = 0; i < n && i < 200; i++) {
    var sb = new StringBuilder(256); GetMenuString(m, (uint)i, sb, 256, 0x400);
    string text = sb.ToString(); int tab = text.IndexOf('\t');
    if (tab >= 0 && AccelKey(text.Substring(tab + 1)) == AccelKey(want)) {
+    // An app enables or greys items when the popup is about to open: ask it to, as opening the menu would, then read the state.
+    if (depth > 0) { IntPtr ir; SendMessageTimeout(top, 0x117, m, (IntPtr)parentAt, 2, 1000, out ir); }
     uint st = GetMenuState(m, (uint)i, 0x400); id = GetMenuItemID(m, i);
     off = (st & 3) != 0; return text.Substring(0, tab);
    }
-   if (depth < 4) { IntPtr sub = GetSubMenu(m, i); if (sub != IntPtr.Zero) { string r = MenuWalk(sub, want, depth + 1, out id, out off); if (r != null) return r; } }
+   if (depth < 4) { IntPtr sub = GetSubMenu(m, i); if (sub != IntPtr.Zero) { string r = MenuWalk(top, sub, i, want, depth + 1, out id, out off); if (r != null) return r; } }
   }
   return null;
  }
  public static string MenuCommand(long hwnd, string accel) {
   IntPtr m = GetMenu((IntPtr)hwnd); if (m == IntPtr.Zero) return "none";
-  uint id; bool off; string text = MenuWalk(m, accel, 0, out id, out off);
+  uint id; bool off; string text = MenuWalk((IntPtr)hwnd, m, 0, accel, 0, out id, out off);
   if (text == null || id == 0 || id == 0xFFFFFFFF) return "none";
   if (off) return "disabled";
   if (!PostMessage((IntPtr)hwnd, 0x111, (IntPtr)id, IntPtr.Zero)) return "none";
@@ -231,7 +235,13 @@ public static class NzG {
     // A thread that is not the active one has no focus window at all. With no other active window of
     // the thread (a dialog) and a single edit control in the chosen window, that control is the target.
     // A focus on any other control, or on another window, never reaches here.
-    pickH = found[0];
+    // It must be enabled, not the inner field of a combo box, and fill most of the window: a small or
+    // inner field is a guess about where the text was meant to go, so the caller is told it was not found.
+    IntPtr only = found[0]; RC er, cr;
+    bool usable = (GetWindowLong(only, -16) & 0x08000000) == 0 && ClassOf(GetParent(only)).IndexOf("ComboBox", StringComparison.OrdinalIgnoreCase) < 0
+     && GetWindowRect(only, out er) && GetClientRect(t, out cr)
+     && (long)(er.r - er.l) * (er.b - er.t) * 2 >= (long)(cr.r - cr.l) * (cr.b - cr.t);
+    if (usable) pickH = only;
    }
   } else if (hasC) {
    foreach (var h in found) { RC rc; if (GetWindowRect(h, out rc) && cx >= rc.l && cx < rc.r && cy >= rc.t && cy < rc.b) { pickH = h; break; } }
