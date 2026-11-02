@@ -430,8 +430,8 @@ export const GrepTool = defineTool({
 				}
 			}
 		} catch (error) {
-			// A caller's cancellation is not a search result.
-			if (context.abortSignal?.aborted) throw error
+			// A caller's cancellation is reported with the matches already found:
+			// grep-search-scope.test.ts pins that, so a cancelled search keeps what it read.
 			if (budget.expired()) timedOut = true
 			else if (isEntryLimit(error)) legacyEntryLimit = true
 			else
