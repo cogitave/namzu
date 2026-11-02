@@ -14,6 +14,7 @@ import { readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { platform } from 'node:os'
 import { join } from 'node:path'
+import { CLIPBOARD_KILL_SWITCH } from './copy.js'
 
 export interface ClipboardImage {
 	/** Base64-encoded PNG bytes (no `data:` prefix). */
@@ -41,6 +42,12 @@ export type ClipboardRead =
 const TIMEOUT_MS = 5_000
 
 export function readClipboardImage(): ClipboardRead {
+	if (process.env[CLIPBOARD_KILL_SWITCH] === '1') {
+		return {
+			kind: 'unavailable',
+			detail: `clipboard tools are turned off by ${CLIPBOARD_KILL_SWITCH}`,
+		}
+	}
 	const unavailable = clipboardUnavailable()
 	if (unavailable !== null) return { kind: 'unavailable', detail: unavailable }
 	const file = join(tmpdir(), `namzu-clip-${Date.now()}.png`)
