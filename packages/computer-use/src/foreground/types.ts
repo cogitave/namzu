@@ -151,6 +151,29 @@ export interface SelectItemResult {
 }
 
 /**
+ * A keyboard shortcut whose effect is a command of the window's classic menu
+ * (the item names the combination after a tab, such as "Open...  Ctrl+O").
+ */
+export interface MenuCommandRequest {
+	/** The window, in hex. */
+	readonly hwnd: string
+	/** The combination as a menu names it: `Ctrl+O`, `Ctrl+Shift+S`. */
+	readonly accelerator: string
+}
+
+/**
+ * `found` is false with a `reason` (`gone`, `none`: no classic menu or no item
+ * with that accelerator, `disabled`) when nothing was sent.
+ */
+export interface MenuCommandResult {
+	readonly found: boolean
+	readonly reason: string
+	/** The command's id and the item's text, when it was sent. */
+	readonly id?: number
+	readonly label?: string
+}
+
+/**
  * Watches the desktop for a burst. Implementations must be cheap to poll (the
  * Windows helper answers in under a millisecond) and must keep working when
  * the program that started them dies: `begin` hands over what to put back.
@@ -202,6 +225,8 @@ export interface ForegroundMonitor {
 	editText?(request: EditTextRequest): Promise<EditTextResult>
 	/** Selects a list or tree item by its selection pattern. Optional like `editText`. */
 	selectItem?(request: SelectItemRequest): Promise<SelectItemResult>
+	/** Sends the menu command a shortcut stands for, as a window message. Optional like `editText`. */
+	menuCommand?(request: MenuCommandRequest): Promise<MenuCommandResult>
 	dispose(): Promise<void>
 }
 

@@ -68,6 +68,17 @@ export class FakeMonitor implements ForegroundMonitor {
 	ends: { restore: boolean; keepCursor?: boolean }[] = []
 	released: string[] = []
 
+	/** What `menuCommand` answers; the commands it was asked to send are kept. */
+	menu: ((accelerator: string) => { found: boolean; reason: string; label?: string }) | undefined
+	menuCommands: string[] = []
+	async menuCommand(request: {
+		hwnd: string
+		accelerator: string
+	}): Promise<{ found: boolean; reason: string; label?: string }> {
+		this.menuCommands.push(request.accelerator)
+		return this.menu ? this.menu(request.accelerator) : { found: false, reason: 'none' }
+	}
+
 	async start(): Promise<void> {
 		this.started++
 		if (this.startError) throw this.startError

@@ -249,6 +249,7 @@ which of three things is known, and `data.steps[]` carries the same as
 | Result text | `delivery` | `retrySafety` | Meaning |
 | --- | --- | --- | --- |
 | `done, verified (reads "Ada")` | `delivered_verified` | `safe` for an idempotent `set_value`, else `unsafe` | The host read the state back and it matches. |
+| `sent, no effect seen. …` | `delivered_unverified` | `safe` | The window provably did not react: it never changed, no window opened, the text control held the same text. Sending it again is safe. The host has already sent it once more on the screen when the first try was a background one (see [the foreground ladder](foreground-ladder.md#an-input-that-had-no-effect)), so this is the answer after both tries. |
 | `sent, not confirmed` | `delivered_unverified` | `unsafe` | The input went out (or may have) and nothing checked it. The model looks before repeating, because repeating can act twice. A failed read-back lands here, never in `not_delivered`. |
 | failure, `Not delivered: …` | `not_delivered` | `safe` | The action was refused before any input, or a read-back proved nothing changed. Trying again, or another way, is safe. |
 
@@ -260,10 +261,13 @@ characters counts only when the window shows it as a text of its own, and a
 classic edit control must hold the text more often than before (a change
 elsewhere in it, or growth alone, is not evidence); a press or a key is verified
 when the window changed after it and then held still, and was not changing by
-itself before it. The evidence is the read-back (`reads "…"`). A change that does
-not show the typed text, an unchanged window, or a window that changes by itself
-leaves the step `sent, not confirmed`: an unrelated change is never reported as
-the effect. For a classic edit control the host reads the control's own text.
+itself before it, or when a control only changed state (selected, disabled). The
+evidence is the read-back (`reads "…"`). A change that does not show the typed
+text, or a window that changes by itself, leaves the step `sent, not confirmed`
+(a change that cannot be tied to the input says that sending it again could do it
+twice): an unrelated change is never reported as the effect. A window that never
+changed at all is `sent, no effect seen`, and is the only unconfirmed result that
+is safe to send again. For a classic edit control the host reads the control's own text.
 
 A timeout or a lost reply after input went out is `delivered_unverified` /
 `unsafe`, never `not_delivered`. A host that does not classify keeps the

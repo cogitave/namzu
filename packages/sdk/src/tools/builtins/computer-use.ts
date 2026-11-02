@@ -577,7 +577,7 @@ function buildDescription(
 	if (available.includes('ui_snapshot'))
 		lines.push(
 			`ui_snapshot {window_id} reads a window's controls (its accessibility tree) as text, each control you can act on with a ref such as e12; without window_id it reads the window in front. A large window comes back as an outline: a region ends with "(+N more inside)" and has a ref; ui_snapshot {root: <that ref>} reads that region alone (a long one in pages: offset) and keeps every other ref usable, and ui_snapshot {query: <text>} lists only the controls whose text matches. ui_act {ref, action, value} acts on one control: invoke (press a button, open a menu item), set_value (replace a field's text with value), toggle, select, expand, collapse. A batch of ui_act steps (for example pressing several buttons) runs in one call. A ref names its control and stays usable after later snapshots and after you act: the control is found again by its id, its place and its name before anything is sent. If it cannot be found the step fails with STALE_REF, and if several controls fit it fails with AMBIGUOUS_TARGET; in both nothing was sent, so take a ui_snapshot and choose again.`,
-			'Each ui_act says what is known. "done, verified" means the control was read back and matches. "sent, not confirmed" means the input went out and nothing could check it: look (ui_snapshot, or a window screenshot) before repeating it, because repeating can act twice. A failure that says "not delivered" means nothing reached the control, so trying again, or another way, is safe. set_value on a control that does not take the value fails with that reason instead of being typed in; select on a list row may also open the row.',
+			'Each ui_act says what is known. "done, verified" means the control was read back and matches. "sent, not confirmed" means the input went out and nothing could check it: look (ui_snapshot, or a window screenshot) before repeating it, because repeating can act twice. A failure that says "not delivered" means nothing reached the control, so trying again, or another way, is safe. set_value on a control that does not take the value fails with that reason instead of being typed in; select on a list row selects it without opening it (invoke opens it).',
 			...(available.includes('wait_for')
 				? [
 						`wait_for {until, match, window_id, timeout_ms} looks for an element (element_appears, element_gone; role narrows it), a text (text_appears, text_gone) or a window (window_appears, window_closed) and returns the window's controls as soon as it holds (at most ${settings.maxWaitMs} ms). Use it after an action that opens a dialog or loads a page, instead of a fixed wait. It is its own call, not part of a batch.`,
@@ -1116,6 +1116,12 @@ function deliveryOutcome(
 			}
 		}
 		case 'delivered_unverified':
+			// An input the window provably did not react to can be sent again; one nobody could check cannot.
+			if (verdict.retrySafety === 'safe' && detail)
+				return {
+					...base,
+					note: `sent, no effect seen. ${detail} It is safe to send it again if it is still needed.`,
+				}
 			return {
 				...base,
 				note: detail

@@ -109,10 +109,12 @@ describe('foreground fallback for window input', () => {
 		)
 		const shot = await adapter.captureWindow('0x111')
 		const result = await adapter.executeWindow(shot.captureId, CLICK)
+		// The window did not change on the screen either: nothing in it took the click.
 		expect(result).toMatchObject({
 			delivery: 'delivered_unverified',
-			retrySafety: 'unsafe',
+			retrySafety: 'safe',
 		})
+		expect(result?.detail).toMatch(/did not change/)
 		expect(result?.detail).toMatch(
 			/Background input was not possible here, so this used the screen/,
 		)

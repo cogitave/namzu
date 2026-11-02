@@ -177,6 +177,24 @@ describe('ui_act delivery', () => {
 		})
 	})
 
+	it('says no effect was seen, and that sending it again is safe, when the window provably did not react', async () => {
+		const { host } = makeHost({
+			act: () => ({
+				ok: true,
+				delivery: 'delivered_unverified',
+				retrySafety: 'safe',
+				detail: 'The window did not change after the input.',
+			}),
+		})
+		const tool = createComputerUseTool(host, FAST)
+		await withRefs(tool)
+		const result = await run(tool, { type: 'ui_act', ref: 'e1', action: 'invoke' })
+		const shown = text(result)
+		expect(shown).toContain('sent, no effect seen. The window did not change after the input.')
+		expect(shown).toContain('safe to send it again')
+		expect(shown).not.toContain('Do not repeat it before checking.')
+	})
+
 	it('says sent, not confirmed when nothing could check, and tells the model not to repeat it', async () => {
 		const { host } = makeHost({
 			act: () => ({

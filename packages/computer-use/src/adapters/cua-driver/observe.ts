@@ -24,6 +24,8 @@ export type Observation = ReadonlyMap<string, number>
 
 const MAX_TEXT = 240
 const SEP = '\u0000'
+/** Keys that carry a control's state (selected, disabled), not text: they never count as text shown. */
+const STATE = '\u0001'
 
 /** The texts of one read of a window: each control's name and each value. */
 export function observationOf(tree: ParsedUiTree): Observation {
@@ -36,6 +38,8 @@ export function observationOf(tree: ParsedUiTree): Observation {
 		if (name !== '') add(`${node.role}${SEP}${name.slice(0, MAX_TEXT)}`)
 		const value = node.element.value?.trim()
 		if (value !== undefined && value !== '') add(`${node.role}${SEP}=${value.slice(0, MAX_TEXT)}`)
+		for (const state of node.element.states ?? [])
+			add(`${STATE}${node.role}${SEP}${name.slice(0, MAX_TEXT)}${SEP}${state}`)
 	}
 	return out
 }
@@ -56,14 +60,23 @@ const textOf = (key: string): string => {
 export function changeBetween(before: Observation, after: Observation): ObservedChange {
 	const added: string[] = []
 	const removed: string[] = []
-	for (const [key, count] of after) if (count > (before.get(key) ?? 0)) added.push(textOf(key))
-	for (const [key, count] of before) if (count > (after.get(key) ?? 0)) removed.push(textOf(key))
+	for (const [key, count] of after)
+		if (!key.startsWith(STATE) && count > (before.get(key) ?? 0)) added.push(textOf(key))
+	for (const [key, count] of before)
+		if (!key.startsWith(STATE) && count > (after.get(key) ?? 0)) removed.push(textOf(key))
 	return { added, removed }
+}
+
+/** Whether every control's state (selected, disabled) is the same in two reads. */
+export const sameState = (a: Observation, b: Observation): boolean => {
+	for (const [key, count] of a) if (key.startsWith(STATE) && b.get(key) !== count) return false
+	for (const [key, count] of b) if (key.startsWith(STATE) && a.get(key) !== count) return false
+	return true
 }
 
 export const sameObservation = (a: Observation, b: Observation): boolean => {
 	const { added, removed } = changeBetween(a, b)
-	return added.length === 0 && removed.length === 0
+	return added.length === 0 && removed.length === 0 && sameState(a, b)
 }
 
 /** Text as a person types it against how a window may show it: case, spaces and operator glyphs differ. */
@@ -78,6 +91,7 @@ const quote = (value: string, max = 80): string =>
 function occurrences(obs: Observation, want: string): number {
 	let total = 0
 	for (const [key, count] of obs) {
+		if (key.startsWith(STATE)) continue
 		const text = foldText(textOf(key))
 		let at = text.indexOf(want)
 		while (at >= 0) {
@@ -101,6 +115,12 @@ export interface ObservedVerdict {
 	/** What the window reads now: the evidence, shown to the model as `reads "…"`. */
 	readonly observed?: string
 	readonly detail: string
+	/**
+	 * Set when no effect was seen: `no_effect` means the window provably did not
+	 * change (a retry is safe); `unexplained` means it changed in a way that cannot
+	 * be tied to the input (a retry is not safe).
+	 */
+	readonly outcome?: 'no_effect' | 'unexplained'
 }
 
 /**
@@ -142,10 +162,18 @@ export function judgeObserved(
 		}
 		return undefined
 	}
-	if (change.added.length === 0 && change.removed.length === 0) return undefined
+	const stateOnly = change.added.length === 0 && change.removed.length === 0
+	if (stateOnly && sameState(reads.before, reads.after)) return undefined
 	// A window still changing a moment later, or one that changed before the input, says nothing.
 	if (reads.later !== undefined && !sameObservation(reads.after, reads.later)) return undefined
 	if (reads.earlier !== undefined && !sameObservation(reads.earlier, reads.before)) return undefined
+	if (stateOnly)
+		return {
+			delivery: 'delivered_verified',
+			retrySafety: 'unsafe',
+			detail:
+				'A control of the window changed state (selected or enabled) after the input and then held still.',
+		}
 	const now = change.added[0]
 	const was = change.removed[0]
 	const said =

@@ -34,7 +34,15 @@ import {
 	McpToolError,
 	type McpToolResult,
 } from './client.js'
-import { translateKeyForCuaDriver } from './keys.js'
+import {
+	type AttemptSummary,
+	type EditStill,
+	canBeJudgedByStillness,
+	escalationDetail,
+	judgeStillness,
+	shouldRetryOnScreen,
+} from './escalation.js'
+import { menuAcceleratorOf, translateKeyForCuaDriver } from './keys.js'
 import {
 	type Observation,
 	type ObservedVerdict,
@@ -132,6 +140,22 @@ const SPARSE_TREE = 12
 const CHOICE_ROLES = /^(ComboBox|List|ListBox)$/i
 /** Waits (ms) before each read that looks for an input's effect: at once, then a little later. */
 const OBSERVE_WAITS_MS = [0, 80, 200, 450] as const
+
+/** How one attempt at a window input was routed, filled in as it runs. */
+interface InputRoute {
+	/** Send it on the screen (through the foreground ladder) whatever the action asked. */
+	foreground: boolean
+	/** The attempt used the screen. */
+	onScreen: boolean
+	/** The ladder did not run the attempt: why (nothing was sent). */
+	blocked?: string
+	/** A person used the keyboard or mouse during the burst: what the window shows proves nothing. */
+	interfered?: boolean
+	/** What reading the window showed when the driver could not confirm the input. */
+	outcome?: 'no_effect' | 'unexplained'
+}
+/** How many times a burst that a person's input stopped before anything was sent waits for the next pause and goes again. */
+const PAUSE_RETRIES = 3
 const BROWSER_APP = /chrome|msedge|edge|brave|vivaldi|opera|firefox|chromium/i
 /**
  * A ref read longer ago than this is checked against a new read before it
@@ -673,10 +697,55 @@ export class CuaDriverAdapter implements Adapter {
 	 * One window input, then a check of what the window shows. The driver
 	 * cannot confirm a background input, so one it left unconfirmed is judged
 	 * by reading the window before and after (see `observe.ts`).
+	 *
+	 * An input that provably had no effect (the window did not change at all)
+	 * is sent once more, on the screen through the foreground ladder, and
+	 * judged again; one that changed the window in a way that cannot be tied to
+	 * it is never sent twice (see `escalation.ts`).
 	 */
 	private async executeWindowInternal(
 		captureId: string,
 		action: WindowInputAction,
+	): Promise<WindowInputResult | undefined> {
+		const first: InputRoute = { foreground: false, onScreen: false }
+		const result = await this.attemptWindowInput(captureId, action, first)
+		if (!result || !canBeJudgedByStillness(action)) return result
+		const summary: AttemptSummary = {
+			delivery: result.delivery,
+			retrySafety: result.retrySafety,
+			...(result.detail !== undefined ? { detail: result.detail } : {}),
+			...(first.outcome ? { outcome: first.outcome } : {}),
+			onScreen: first.onScreen,
+		}
+		const explicit = 'delivery_mode' in action ? action.delivery_mode : undefined
+		if (
+			!shouldRetryOnScreen(summary, {
+				hasScreen: this.foreground !== undefined,
+				explicitMode: explicit,
+			})
+		)
+			return result
+		// The retry is made once; its answer is final.
+		const second: InputRoute = { foreground: true, onScreen: false }
+		const again = await this.attemptWindowInput(captureId, action, second)
+		if (!again) return result
+		const finalDetail = escalationDetail({
+			delivery: again.delivery,
+			retrySafety: again.retrySafety,
+			...(again.detail !== undefined ? { detail: again.detail } : {}),
+			...(second.outcome ? { outcome: second.outcome } : {}),
+			onScreen: second.onScreen,
+			...(second.blocked !== undefined ? { blocked: second.blocked } : {}),
+		})
+		if (again.delivery === 'delivered_verified')
+			return { ...again, detail: [finalDetail, again.detail].filter(Boolean).join(' ') }
+		return { ...again, detail: finalDetail }
+	}
+
+	private async attemptWindowInput(
+		captureId: string,
+		action: WindowInputAction,
+		route: InputRoute,
 	): Promise<WindowInputResult | undefined> {
 		const frame = this.windowFrame
 		const watched =
@@ -695,7 +764,8 @@ export class CuaDriverAdapter implements Adapter {
 			action.text.length > 0 &&
 			frame &&
 			target &&
-			action.delivery_mode !== 'foreground'
+			action.delivery_mode !== 'foreground' &&
+			!route.foreground
 		) {
 			const byMessage = await this.typeByMessages(frame, action.text)
 			if (byMessage) return byMessage
@@ -716,9 +786,21 @@ export class CuaDriverAdapter implements Adapter {
 			// A press or a key has no text to look for, so it is attributed only if the window was still before it.
 			if (typed === undefined) earlier = await this.observe(target)
 			before = await this.observe(target)
-			if (typed === undefined) windows = await this.windowIdsOf(target.pid)
+			// A new window of the program is an effect of a press and the sign of one for a text.
+			windows = await this.windowIdsOf(target.pid)
 		}
-		const sent = await this.deliverWindowInput(captureId, action)
+		// A shortcut that stands for a command of the window's classic menu is that command, sent as the message
+		// the menu item sends: no key is pressed and the screen is not used.
+		const byMenu =
+			action.type === 'key' &&
+			frame &&
+			target &&
+			action.delivery_mode !== 'foreground' &&
+			!route.foreground
+				? await this.shortcutByMenu(frame, action.keys)
+				: undefined
+		const sent = byMenu ?? (await this.deliverWindowInput(captureId, action, route))
+		let edit: EditStill | undefined
 		if (
 			sent?.delivery === 'delivered_unverified' &&
 			editBefore?.found &&
@@ -730,14 +812,19 @@ export class CuaDriverAdapter implements Adapter {
 				op: 'get',
 				pick: 'focus',
 			})
-			const edit = editAfter?.found ? judgeEditBetween(typed, editBefore, editAfter) : undefined
-			if (edit)
+			const verdict = editAfter?.found ? judgeEditBetween(typed, editBefore, editAfter) : undefined
+			if (verdict)
 				return {
-					delivery: edit.delivery,
-					retrySafety: edit.retrySafety,
-					detail: edit.detail,
-					...(edit.observed !== undefined ? { readBack: { observed: edit.observed } } : {}),
+					delivery: verdict.delivery,
+					retrySafety: verdict.retrySafety,
+					detail: verdict.detail,
+					...(verdict.observed !== undefined ? { readBack: { observed: verdict.observed } } : {}),
 				}
+			edit = !editAfter?.found
+				? 'unknown'
+				: editAfter.len === editBefore.len && editAfter.text === editBefore.text
+					? 'unchanged'
+					: 'changed'
 		}
 		if (!sent || sent.delivery !== 'delivered_unverified' || !target || !before) return sent
 		const seen = await this.verifyByReading(target, {
@@ -745,12 +832,17 @@ export class CuaDriverAdapter implements Adapter {
 			before,
 			earlier,
 			windows,
+			edit,
+			stillness: true,
 		})
 		if (!seen) return sent
+		// A person at the keyboard or mouse during a burst can change the window: it proves nothing.
+		if (seen.outcome && route.interfered) return sent
+		if (seen.outcome) route.outcome = seen.outcome
 		return {
 			delivery: seen.delivery,
 			retrySafety: seen.retrySafety,
-			detail: seen.detail,
+			detail: seen.outcome ? [seen.detail, sent.detail].filter(Boolean).join(' ') : seen.detail,
 			...(seen.observed !== undefined ? { readBack: { observed: seen.observed } } : {}),
 		}
 	}
@@ -768,8 +860,13 @@ export class CuaDriverAdapter implements Adapter {
 			earlier: Observation | undefined
 			/** The program's windows before the input: a new one afterwards (a dialog) is its effect. */
 			windows: ReadonlySet<string> | undefined
+			/** What the text control the text went to reads now against before, where one was read. */
+			edit?: EditStill | undefined
+			/** Say, when no effect shows, whether the window held still (a window input) or leave it unsaid (a control's own action). */
+			stillness?: boolean
 		},
 	): Promise<ObservedVerdict | undefined> {
+		const afters: Observation[] = []
 		for (const wait of OBSERVE_WAITS_MS) {
 			if (wait > 0) await this.settle(wait)
 			const opened = reads.windows ? await this.newWindowOf(target.pid, reads.windows) : undefined
@@ -782,6 +879,7 @@ export class CuaDriverAdapter implements Adapter {
 				}
 			const after = await this.observe(target)
 			if (!after) return undefined
+			afters.push(after)
 			if (sameObservation(reads.before, after)) continue
 			const later = reads.typed === undefined ? await this.observe(target) : undefined
 			const verdict = judgeObserved(reads.typed !== undefined ? { typed: reads.typed } : {}, {
@@ -792,7 +890,14 @@ export class CuaDriverAdapter implements Adapter {
 			})
 			if (verdict) return verdict
 		}
-		return undefined
+		if (!reads.stillness) return undefined
+		return judgeStillness({
+			before: reads.before,
+			...(reads.earlier ? { earlier: reads.earlier } : {}),
+			afters,
+			opened: false,
+			...(reads.edit ? { edit: reads.edit } : {}),
+		})
 	}
 
 	private async windowIdsOf(pid: number): Promise<ReadonlySet<string> | undefined> {
@@ -828,6 +933,7 @@ export class CuaDriverAdapter implements Adapter {
 	private async deliverWindowInput(
 		captureId: string,
 		action: WindowInputAction,
+		route: InputRoute = { foreground: false, onScreen: false },
 	): Promise<WindowInputResult | undefined> {
 		const frame = this.windowFrame
 		if (!frame || frame.id !== captureId)
@@ -873,6 +979,33 @@ export class CuaDriverAdapter implements Adapter {
 			this.showPresence(frame, current.bounds, name, args)
 			return this.callTool(name, { ...target, ...args }, undefined, undefined, undefined, frame)
 		}
+		// The driver's hotkey finds a shortcut only through an accelerator the window names, and refuses (sending
+		// nothing) when there is none; the same combination as a key with modifiers is real input.
+		const dispatch = async (
+			name: string,
+			args: Record<string, unknown>,
+		): Promise<McpToolResult> => {
+			try {
+				return await call(name, args)
+			} catch (error) {
+				const keys = args.keys
+				if (
+					name === 'hotkey' &&
+					Array.isArray(keys) &&
+					keys.length > 1 &&
+					error instanceof McpToolError &&
+					/AcceleratorKey/i.test(error.message)
+				) {
+					const { keys: _keys, ...rest } = args
+					return await call('press_key', {
+						...rest,
+						key: keys[keys.length - 1],
+						modifiers: keys.slice(0, -1),
+					})
+				}
+				throw error
+			}
+		}
 		// One window input: in the background first. A refusal that foreground
 		// delivery can cure (the window cannot take background input, or it is
 		// covered) is retried through the ladder; an explicit foreground request
@@ -886,13 +1019,13 @@ export class CuaDriverAdapter implements Adapter {
 				pid: frame.window.pid,
 				hwnd: frame.window.id,
 			}
-			const inForeground = async (why: string): Promise<WindowInputResult> => {
+			const inForeground = async (why: string, tries = 0): Promise<WindowInputResult> => {
 				const ladder = this.foreground as ForegroundLadder
 				const outcome = await ladder
 					.run(this.burstRequest(subject, true), async (burst) => {
 						await burst.checkpoint()
 						try {
-							return inputDelivery(await call(name, { ...args, delivery_mode: 'foreground' }))
+							return inputDelivery(await dispatch(name, { ...args, delivery_mode: 'foreground' }))
 						} catch (error) {
 							if (isDeliveredPointerAction(error)) return foregroundLostDelivery()
 							if (error instanceof McpToolError) return failureDelivery(error)
@@ -903,7 +1036,16 @@ export class CuaDriverAdapter implements Adapter {
 						if (error instanceof BurstInterrupted) return error
 						throw error
 					})
-				if (outcome instanceof BurstInterrupted)
+				// A person's input just before the send stopped the burst with nothing sent: the next pause is waited
+				// for by the ladder's own gate, and the input goes then. Bounded; after it the result says so.
+				if (
+					outcome instanceof BurstInterrupted &&
+					outcome.reason === 'person' &&
+					tries < PAUSE_RETRIES
+				)
+					return inForeground(why, tries + 1)
+				if (outcome instanceof BurstInterrupted) {
+					route.blocked = outcome.reason === 'person' ? 'user_active' : 'elevated_target'
 					return verdict(
 						'not_delivered',
 						'safe',
@@ -911,12 +1053,17 @@ export class CuaDriverAdapter implements Adapter {
 							? 'a person used the keyboard or mouse just before the input was sent, so nothing was sent. Try again in a moment.'
 							: 'an administrator window came to the front just before the input was sent, so nothing was sent. Namzu cannot type into it; try again once it is gone.',
 					)
-				if (outcome.kind === 'blocked')
+				}
+				if (outcome.kind === 'blocked') {
+					route.blocked = outcome.block.code
 					return verdict('not_delivered', 'safe', outcome.block.detail)
+				}
+				route.onScreen = true
 				const dropped = droppedInputNote(outcome)
 				if (dropped) return verdict('not_delivered', 'safe', dropped)
 				const note = interferenceNote(outcome)
 				const base = outcome.value
+				if (note) route.interfered = true
 				if (note)
 					return verdict(
 						base.delivery === 'not_delivered' ? 'not_delivered' : 'delivered_unverified',
@@ -930,9 +1077,10 @@ export class CuaDriverAdapter implements Adapter {
 						.join(' '),
 				}
 			}
-			if (args.delivery_mode === 'foreground' && this.foreground) return inForeground('')
+			if ((args.delivery_mode === 'foreground' || route.foreground) && this.foreground)
+				return inForeground('')
 			try {
-				return inputDelivery(await call(name, args))
+				return inputDelivery(await dispatch(name, args))
 			} catch (error) {
 				if (error instanceof McpToolError && this.foreground && foregroundCures(error))
 					return inForeground('refused')
@@ -1578,6 +1726,28 @@ export class CuaDriverAdapter implements Adapter {
 			return undefined
 		}
 		return judgeEdit('set', text, result)
+	}
+
+	/**
+	 * A shortcut with a modifier, carried out as the window's own menu command. Undefined where the window has no
+	 * classic menu item for it (the usual case for a modern window), so the key goes the ordinary way.
+	 */
+	private async shortcutByMenu(
+		frame: WindowCaptureFrame,
+		keys: string,
+	): Promise<WindowInputResult | undefined> {
+		const ladder = this.foreground
+		if (!ladder) return undefined
+		const accelerator = menuAcceleratorOf(keys)
+		if (accelerator === undefined) return undefined
+		const result = await ladder.menuCommand({ hwnd: frame.window.id, accelerator })
+		if (!result?.found) return undefined
+		this.showPresence(frame, frame.window.bounds, 'hotkey', {})
+		return {
+			delivery: 'delivered_unverified',
+			retrySafety: 'unsafe',
+			detail: `Carried out as the window's menu command "${result.label ?? accelerator}" (no key pressed, the screen not used).`,
+		}
 	}
 
 	/** Type into the window's focused classic edit control by window message; undefined where there is none. */

@@ -4,6 +4,8 @@ import type {
 	EditTextRequest,
 	EditTextResult,
 	ForegroundMonitor,
+	MenuCommandRequest,
+	MenuCommandResult,
 	MonitorBurstEnd,
 	MonitorState,
 	SelectItemRequest,
@@ -180,6 +182,14 @@ export class WindowsInputMonitor implements ForegroundMonitor {
 			pick: request.pick,
 			...(request.text !== undefined ? { text: request.text } : {}),
 			...(request.at ? { x: Math.round(request.at.x), y: Math.round(request.at.y) } : {}),
+		})
+	}
+
+	menuCommand(request: MenuCommandRequest): Promise<MenuCommandResult> {
+		return this.call<MenuCommandResult>({
+			cmd: 'menu',
+			hwnd: request.hwnd,
+			accel: request.accelerator,
 		})
 	}
 

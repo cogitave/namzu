@@ -108,6 +108,84 @@ pattern gives that window's item view the focus, which brings the window to the
 front, so it is only the fallback for other programs. Like the edit control it
 needs neither the screen nor the lease.
 
+## An input that had no effect
+
+A background input the driver cannot confirm (text, a key combination, a click on
+the window) is judged by reading the window several times over the time its effect
+would take. There are three outcomes besides "the effect was seen":
+
+| The reads show | Result | Next |
+|---|---|---|
+| The window never changed, no window of the program opened, the text control the text went to holds the same text, and the window was not changing by itself | `delivered_unverified`, `retrySafety: safe`: nothing in the window took the input | the input is sent **once more on the screen**, through the whole ladder (idle gate, lease, shortest burst, restore) and judged again |
+| The window changed, but not in a way that shows this input did it (or the text control changed without the text) | `delivered_unverified`, `retrySafety: unsafe`: "sending it again could do it twice" | never retried |
+| Too few reads, nothing to read, a window that changes by itself, a text control that could not be read, a person at the keyboard during the burst | as before: `delivered_unverified`, `unsafe` | never retried |
+
+A control's `selected` and `disabled` state counts as the window changing, so a
+click that only flipped a state is an effect, not "no effect". The retry is made
+once and only when the first attempt was a background one and no `delivery_mode`
+was asked for; `delivery_mode: "background"` forbids the screen and
+`delivery_mode: "foreground"` is already on it. Keys whose effect the controls of
+a window do not show (arrows, Tab, Home, End, Page Up and Down, a modifier alone)
+and scrolling are never judged this way. A retry that was already on the screen
+(the driver said the window cannot take background input) is not repeated; its
+answer is final.
+
+The answer after the retry is final whatever it is. If the retry shows the effect,
+the result is `delivered_verified` and its detail begins "The first attempt, in
+the background, had no effect". If the window still did not change, it is
+`delivered_unverified`, `safe`, and says that nothing in the window takes this
+input (for text, that no field has the focus, so click the field first). If the
+retry could not run because the person is using the keyboard or mouse, or another
+session holds the screen, it is `not_delivered`, `safe`, and begins "Waiting for
+you to be idle": nothing more was sent, and it is safe to send it again once the
+keyboard and mouse are still. A refusal of the screen, a locked computer or a
+window above this program's rights is named in the same way.
+
+## A task is done on the person's computer while they use it
+
+The owner's rule is that a task is done while the person is touching the screen,
+or the result says exactly why it was not. The order is fixed, and each step is
+checked by reading the window before the next one is taken:
+
+1. **Background routes first, no screen at all.** A shortcut with a modifier
+   (`ctrl+o`) whose effect is a command of the window's classic menu is carried
+   out as that command: the helper reads the window's menu (`GetMenu`), finds the
+   item that names the combination after its tab ("Open...  Ctrl+O"), and sends
+   the window message that clicking the item sends (`WM_COMMAND` with the item's
+   id). No key is pressed, nothing is raised, no lease is taken. A disabled item,
+   a window with no classic menu and a modern window (whose menu is not a menu of
+   the system) have no such item and the key goes the ordinary way. Text for a
+   classic edit control goes by message too (see above), and a control with a
+   pattern is driven by `ui_act`. The result is judged like any other input: the
+   effect is read from the window.
+2. **Only when no background route had an effect: the screen**, once, through
+   the whole ladder with the product's short timing (`idleMs` 2 000 ms,
+   `approvedIdleMs` 500 ms), never the long idle a test uses. The person counts as
+   using the computer while any key or mouse button is held down, however long ago
+   it went down. While they keep using it the gate waits for the next short pause
+   (it re-reads every 50 ms); after `userActiveWaitMs` it asks once through the
+   permission review, and where nobody can be asked it parks for a bounded time
+   (`parkMs`, `parkTurnMs`). It never gives up silently: the result is
+   `not_delivered` with the reason in words. If a person's input arrives between
+   the last look and the send, the burst is stopped with nothing sent, the window
+   and pointer are put back, and the input waits for the next pause and goes then
+   (up to three times, then the result says nothing was sent and it is safe to try
+   again). Input that is already out when the person interferes is never repeated
+   (`unsafe`).
+3. **Retry safety comes from observation.** A first attempt that provably had no
+   effect (see the next section) is sent again once, on the screen; one that
+   changed the window in a way that cannot be tied to the input is never sent
+   twice and the result says so.
+
+What each kind of window supports on this computer (Windows 11, measured with real
+windows the test harness started): a classic Win32 window with a menu (System
+Information) takes steps 1 and 3 in the background with no foreground change and no
+pointer movement; the modern Notepad exposes its menu bar to the accessibility tree
+but its opened menu is not readable from outside the window, so a shortcut there
+(`ctrl+o`) needs the screen; a page in the browser exposes no focused element while
+its window is in the background, so text for it needs the person to have clicked a
+field first (the click is itself a window input).
+
 ## Interference and the result
 
 If the user touches input between the last look and the start, the burst does

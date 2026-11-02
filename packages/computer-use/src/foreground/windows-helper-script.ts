@@ -136,6 +136,47 @@ public static class NzG {
    } finally { CloseHandle(t); }
   } finally { CloseHandle(h); }
  }
+ [DllImport("user32.dll")] static extern IntPtr GetMenu(IntPtr h);
+ [DllImport("user32.dll")] static extern IntPtr GetSubMenu(IntPtr m, int i);
+ [DllImport("user32.dll")] static extern int GetMenuItemCount(IntPtr m);
+ [DllImport("user32.dll")] static extern uint GetMenuItemID(IntPtr m, int i);
+ [DllImport("user32.dll")] static extern uint GetMenuState(IntPtr m, uint i, uint f);
+ [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetMenuString(IntPtr m, uint i, StringBuilder s, int n, uint f);
+ [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+ // The classic menu of a window: the command whose item names the accelerator (the text after the tab, "Ctrl+O").
+ // Sent as the window message a click on the item would send, so it needs no focus and no screen. Reports what it found:
+ // "none" (no classic menu or no item with that accelerator), "disabled", or "sent|<id>|<item text>".
+ // The keys of a combination in a fixed order, so "Shift+Ctrl+S" and "Ctrl+Shift+S" are the same.
+ static string AccelKey(string a) {
+  var parts = a.Replace(" ", "").ToUpperInvariant().Split('+'); Array.Sort(parts, StringComparer.Ordinal); return string.Join("+", parts);
+ }
+ static string MenuWalk(IntPtr m, string want, int depth, out uint id, out bool off) {
+  id = 0; off = false; int n = GetMenuItemCount(m);
+  for (int i = 0; i < n && i < 200; i++) {
+   var sb = new StringBuilder(256); GetMenuString(m, (uint)i, sb, 256, 0x400);
+   string text = sb.ToString(); int tab = text.IndexOf('\t');
+   if (tab >= 0 && AccelKey(text.Substring(tab + 1)) == AccelKey(want)) {
+    uint st = GetMenuState(m, (uint)i, 0x400); id = GetMenuItemID(m, i);
+    off = (st & 3) != 0; return text.Substring(0, tab);
+   }
+   if (depth < 4) { IntPtr sub = GetSubMenu(m, i); if (sub != IntPtr.Zero) { string r = MenuWalk(sub, want, depth + 1, out id, out off); if (r != null) return r; } }
+  }
+  return null;
+ }
+ public static string MenuCommand(long hwnd, string accel) {
+  IntPtr m = GetMenu((IntPtr)hwnd); if (m == IntPtr.Zero) return "none";
+  uint id; bool off; string text = MenuWalk(m, accel, 0, out id, out off);
+  if (text == null || id == 0 || id == 0xFFFFFFFF) return "none";
+  if (off) return "disabled";
+  if (!PostMessage((IntPtr)hwnd, 0x111, (IntPtr)id, IntPtr.Zero)) return "none";
+  return "sent|" + id + "|" + text;
+ }
+ [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vk);
+ // A key or mouse button is physically down right now (a drag, a held modifier): the person is using the computer.
+ public static bool Held() {
+  for (int vk = 1; vk < 255; vk++) { if (vk == 3 || vk == 7 || vk == 0xE7) continue; if ((GetAsyncKeyState(vk) & 0x8000) != 0) return true; }
+  return false;
+ }
  static int selfRid = -2;
  public static int SelfIntegrity() { if (selfRid == -2) selfRid = Integrity(GetCurrentProcessId()); return selfRid; }
  // Whether Windows keeps this program's input from that process: it runs above us, or cannot be read.
@@ -264,6 +305,8 @@ function State($pidArg) {
   $own = ($ownStart -ne 0 -and [NzG]::Since($gli) -le [NzG]::Since($ownStart) -and ($ownEnd -eq 0 -or [NzG]::Since($gli) -ge ([NzG]::Since($ownEnd) - 300)))
   $gliIdle = if ($own) { [int64]::MaxValue } else { [NzG]::Since($gli) }
   $idle = [Math]::Min($realIdle, $gliIdle)
+  # A key or button held down is use, however long ago it was pressed.
+  if ([NzG]::Held()) { $idle = 0 }
   if ($idle -eq [int64]::MaxValue) { $idle = 86400000 }
   $r = @{
     userIdleMs = $idle; userInputs = [NzG]::Inputs; escapes = [NzG]::Escapes; desktop = [NzG]::Desktop(); selfElevated = $selfElevated; selfIntegrity = $selfIntegrity; inputTick = $gli
@@ -390,6 +433,17 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
               } catch { $r = @{ found = $false; reason = 'refused'; selected = $false } }
             }
           }
+        }
+      }
+      'menu' {
+        # A keyboard shortcut whose effect is a menu command of a classic window: the command is sent as the message
+        # its menu item sends, so nothing is raised and no key is pressed.
+        $t = [Convert]::ToInt64(([string]$c.hwnd).Substring(2), 16)
+        if (-not [NzG]::Alive($t)) { $r = @{ found = $false; reason = 'gone' } }
+        else {
+          $m = [NzG]::MenuCommand($t, [string]$c.accel)
+          if ($m.StartsWith('sent|')) { $p = $m.Split('|', 3); $r = @{ found = $true; reason = ''; id = [int]$p[1]; label = $p[2] } }
+          else { $r = @{ found = $false; reason = $m } }
         }
       }
       'end' { $r = EndBurst ([bool]$c.restore) ([bool]$c.keepCursor) }

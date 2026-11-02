@@ -10,6 +10,8 @@ import {
 	type ForegroundMonitor,
 	type ForegroundOutcome,
 	type ForegroundSubject,
+	type MenuCommandRequest,
+	type MenuCommandResult,
 	type MonitorBurstEnd,
 	type MonitorState,
 	PROTECTED_PROCESSES,
@@ -253,6 +255,21 @@ export class ForegroundLadder {
 		if (!monitor.ok || !monitor.monitor.selectItem) return undefined
 		try {
 			return await abortable('select_item', monitor.monitor.selectItem(request))
+		} catch (error) {
+			if (error instanceof CallAbortedError) throw error
+			return undefined
+		}
+	}
+
+	/**
+	 * Sends the menu command a shortcut stands for, as a window message: no
+	 * screen, no lease, no key. Undefined where no monitor can reach windows.
+	 */
+	async menuCommand(request: MenuCommandRequest): Promise<MenuCommandResult | undefined> {
+		const monitor = await this.ensureMonitor()
+		if (!monitor.ok || !monitor.monitor.menuCommand) return undefined
+		try {
+			return await abortable('menu_command', monitor.monitor.menuCommand(request))
 		} catch (error) {
 			if (error instanceof CallAbortedError) throw error
 			return undefined

@@ -218,6 +218,22 @@ describe('the Windows input monitor', () => {
 		expect(WINDOWS_HELPER_SCRIPT).toMatch(/Marshal\.GetLastWin32Error\(\) == 5/)
 	})
 
+	it('sends a menu command as the window message its item sends, and counts a held key or button as use', async () => {
+		const helper = fakeHelper({ ok: true, hooks: true }, () => ({
+			ok: true,
+			r: { found: true, reason: '', id: 32768, label: '&Open...' },
+		}))
+		const monitor = new WindowsInputMonitor({ powershell: 'ps', spawnHelper: () => helper.proc })
+		await monitor.start()
+		const result = await monitor.menuCommand({ hwnd: '0x10', accelerator: 'Ctrl+O' })
+		expect(result).toMatchObject({ found: true, id: 32768 })
+		expect(helper.written[0]).toMatchObject({ cmd: 'menu', hwnd: '0x10', accel: 'Ctrl+O' })
+		// The classic menu's item id is posted as WM_COMMAND (0x111): no key is pressed and nothing is raised.
+		expect(WINDOWS_HELPER_SCRIPT).toMatch(/PostMessage\(\(IntPtr\)hwnd, 0x111, \(IntPtr\)id/)
+		// A key or button that is down makes the person not idle, whenever it went down.
+		expect(WINDOWS_HELPER_SCRIPT).toMatch(/if \(\[NzG\]::Held\(\)\) \{ \$idle = 0 \}/)
+	})
+
 	it('selects a list row by its selection pattern, never by a click, and keeps the id as a tie-break only', async () => {
 		const helper = fakeHelper({ ok: true, hooks: true }, () => ({
 			ok: true,

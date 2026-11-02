@@ -31,6 +31,8 @@ export type {
 	ForegroundSubject,
 	MonitorBurstEnd,
 	MonitorState,
+	MenuCommandRequest,
+	MenuCommandResult,
 	SelectItemRequest,
 	SelectItemResult,
 } from './types.js'
