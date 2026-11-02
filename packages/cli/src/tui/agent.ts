@@ -334,7 +334,7 @@ import { type CliPluginRuntime, createCliPluginRuntime } from '../integrations/p
 import { hasApiCredential, requiresCredentialForModel } from '../integrations/providers/access.js'
 import { canSelectModel } from '../integrations/providers/access.js'
 import {
-	readAnthropicEndpoint,
+	resolveAnthropicEndpoint,
 	thirdPartyHost,
 } from '../integrations/providers/anthropic-endpoint.js'
 import {
@@ -5937,6 +5937,7 @@ export async function createAgentSession(
 			),
 			...fallbackPlan.notices,
 			...takeConfigWarnings(),
+			...anthropicEndpointNotices(),
 			...memoryMigrationNotices,
 		],
 		rememberNote: (text, type) => saveTypedNote(memoryStore, text, type),
@@ -6859,6 +6860,11 @@ function planFallbacks(
  * a one-million-token window, never part of a vendor's name, so the driver is
  * built with the bare id and every request it later sees is stripped too.
  */
+function anthropicEndpointNotices(): string[] {
+	const { notice } = resolveAnthropicEndpoint()
+	return notice ? [notice] : []
+}
+
 /** `Anthropic (Claude) via host` when requests go to an Anthropic-compatible third party. */
 function withEndpointHost(label: string): string {
 	const host = thirdPartyHost()
@@ -6884,21 +6890,18 @@ function constructBareProvider(
 ): LLMProvider {
 	switch (id) {
 		case 'anthropic': {
-			const endpoint = readAnthropicEndpoint()
+			const { endpoint } = resolveAnthropicEndpoint()
 			if (endpoint && !endpoint.vendor) {
 				// A saved sign-in or a detected key belongs to the vendor and is never
 				// sent to another host: only the two variables this endpoint is
-				// configured with are used, and without either there is nothing to send.
-				if (!endpoint.authToken && !endpoint.apiKey)
-					throw new Error(
-						`ANTHROPIC_BASE_URL points at ${endpoint.host}, which needs ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY. Saved sign-ins are only sent to the vendor's own host.`,
-					)
+				// configured with are used.
 				const { provider } = ProviderRegistry.create({
 					type: 'anthropic',
 					...(endpoint.authToken
 						? { authToken: endpoint.authToken }
 						: { apiKey: endpoint.apiKey as string }),
 					baseURL: endpoint.baseURL,
+					compatibleEndpoint: true,
 					model,
 					...(promptCacheTtl() ? { promptCacheTtl: promptCacheTtl() } : {}),
 				})

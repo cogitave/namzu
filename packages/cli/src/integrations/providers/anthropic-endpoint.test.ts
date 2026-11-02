@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { readAnthropicEndpoint, thirdPartyHost } from './anthropic-endpoint.js'
+import {
+	readAnthropicEndpoint,
+	resolveAnthropicEndpoint,
+	thirdPartyHost,
+} from './anthropic-endpoint.js'
 
 describe('ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN', () => {
 	it('are absent by default', () => {
@@ -32,5 +36,27 @@ describe('ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN', () => {
 			'ANTHROPIC_BASE_URL',
 		)
 		expect(thirdPartyHost({ ANTHROPIC_BASE_URL: 'nonsense' })).toBeUndefined()
+	})
+})
+
+describe('resolveAnthropicEndpoint', () => {
+	it('ignores a third-party base URL with no credential variable, and says so', () => {
+		const out = resolveAnthropicEndpoint({ ANTHROPIC_BASE_URL: 'https://api.example.test/x' })
+		expect(out.endpoint).toBeUndefined()
+		expect(out.notice).toContain('api.example.test')
+		expect(thirdPartyHost({ ANTHROPIC_BASE_URL: 'https://api.example.test/x' })).toBeUndefined()
+	})
+	it('ignores a base URL that is not a URL, with a notice instead of a throw', () => {
+		const out = resolveAnthropicEndpoint({ ANTHROPIC_BASE_URL: 'api.example.test' })
+		expect(out.endpoint).toBeUndefined()
+		expect(out.notice).toContain('ANTHROPIC_BASE_URL')
+	})
+	it('uses a third-party base URL once a token or key is set', () => {
+		const out = resolveAnthropicEndpoint({
+			ANTHROPIC_BASE_URL: 'https://api.example.test/x',
+			ANTHROPIC_API_KEY: 'k',
+		})
+		expect(out.endpoint?.apiKey).toBe('k')
+		expect(out.notice).toBeUndefined()
 	})
 })

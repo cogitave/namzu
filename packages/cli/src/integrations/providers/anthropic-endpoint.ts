@@ -45,12 +45,36 @@ export function readAnthropicEndpoint(
 	}
 }
 
+/**
+ * The endpoint requests will actually go to, and a one-line notice when
+ * `ANTHROPIC_BASE_URL` is set but not used. A base URL is used when it names
+ * the vendor's host, or a third party together with a token or key variable.
+ * Otherwise (a typo, or a gateway URL exported for another tool with no
+ * credential for it) the saved sign-in keeps going to the vendor's own host
+ * and the notice says why the variable was ignored; nothing throws.
+ */
+export function resolveAnthropicEndpoint(env: NodeJS.ProcessEnv = process.env): {
+	readonly endpoint?: AnthropicEndpoint
+	readonly notice?: string
+} {
+	let endpoint: AnthropicEndpoint | undefined
+	try {
+		endpoint = readAnthropicEndpoint(env)
+	} catch (error) {
+		return {
+			notice: `${(error as Error).message} It was ignored, and requests go to the vendor's own host.`,
+		}
+	}
+	if (!endpoint) return {}
+	if (!endpoint.vendor && !endpoint.authToken && !endpoint.apiKey)
+		return {
+			notice: `ANTHROPIC_BASE_URL points at ${endpoint.host}, but neither ANTHROPIC_AUTH_TOKEN nor ANTHROPIC_API_KEY is set, so it was ignored. Saved sign-ins are only sent to the vendor's own host.`,
+		}
+	return { endpoint }
+}
+
 /** The host to show an operator, only when requests go somewhere other than the vendor. */
 export function thirdPartyHost(env: NodeJS.ProcessEnv = process.env): string | undefined {
-	try {
-		const endpoint = readAnthropicEndpoint(env)
-		return endpoint && !endpoint.vendor ? endpoint.host : undefined
-	} catch {
-		return undefined
-	}
+	const { endpoint } = resolveAnthropicEndpoint(env)
+	return endpoint && !endpoint.vendor ? endpoint.host : undefined
 }

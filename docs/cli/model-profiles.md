@@ -82,9 +82,11 @@ variables and the Anthropic provider honours both. When the base URL is not the
 vendor's own host, the token is sent as a plain bearer credential, the vendor's
 subscription headers and identity system block are not sent, and the model's
 window comes from its id (with `[1m]`), not from any vendor catalogue. A saved
-sign-in or detected key is never sent to another host: without
-`ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` the provider refuses to start and
-names the host. `/status` shows the provider as `Anthropic (Claude) via <host>`.
+sign-in or detected key is never sent to another host. Without
+`ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY` a third-party base URL (and one
+that is not a URL) is ignored with a notice at launch, and requests go to the
+vendor's own host as before; `ANTHROPIC_AUTH_TOKEN` is read only together with a
+third-party base URL and is not a detected sign-in. `/status` shows the provider as `Anthropic (Claude) via <host>`.
 A base URL on the vendor's host, or none, behaves as before. For a non-Claude
 id the menu is `low`, `high` and `max`.
 
