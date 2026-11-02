@@ -205,11 +205,13 @@ import {
 	resolveContextWindow,
 	resumeSession,
 	seedObservationLedger,
+	stripModelWindowSuffix,
 	toPlatformError,
 	toolset,
 	untrustedEnvelopeBody,
 	webGuidanceContribution,
 	windowsShellNotice,
+	withModelWindowSuffixStripped,
 	wrapUntrusted,
 } from '@namzu/sdk'
 import {
@@ -235,6 +237,7 @@ import {
 	withCheckpoints,
 	withShellNote,
 } from '../checkpoints/wrap.js'
+import { takeConfigWarnings } from '../config/load.js'
 import { readModelLaunchEnvironment } from '../config/model-environment.js'
 import type {
 	CodeAnalysisConfig,
@@ -331,6 +334,10 @@ import { hookSessionMode } from '../integrations/plugins/hook-host.js'
 import { type CliPluginRuntime, createCliPluginRuntime } from '../integrations/plugins/runtime.js'
 import { hasApiCredential, requiresCredentialForModel } from '../integrations/providers/access.js'
 import { canSelectModel } from '../integrations/providers/access.js'
+import {
+	resolveAnthropicEndpoint,
+	thirdPartyHost,
+} from '../integrations/providers/anthropic-endpoint.js'
 import {
 	type ComposerModelSettings,
 	resolveProviderReasoning,
@@ -5429,7 +5436,7 @@ export async function createAgentSession(
 			required: sandbox.required,
 			workspace: sandbox.workspace,
 		},
-		providerSummary: entry.label,
+		providerSummary: entry.id === 'anthropic' ? withEndpointHost(entry.label) : entry.label,
 		modelSummary: model,
 		get autoRoute() {
 			return lastAutoRoute
@@ -5941,6 +5948,8 @@ export async function createAgentSession(
 				(line) => `Provider chain: capabilities could not be established for ${line}.`,
 			),
 			...fallbackPlan.notices,
+			...takeConfigWarnings(),
+			...compatibleEndpointNotices(),
 			...memoryMigrationNotices,
 		],
 		rememberNote: (text, type) => saveTypedNote(memoryStore, text, type),
@@ -6858,7 +6867,34 @@ function planFallbacks(
 	}
 }
 
+/**
+ * Build the driver for `model`. A `[1m]` suffix on the id is Namzu's marker for
+ * a one-million-token window, never part of a vendor's name, so the driver is
+ * built with the bare id and every request it later sees is stripped too.
+ */
+function compatibleEndpointNotices(): string[] {
+	const { notice } = resolveAnthropicEndpoint()
+	return notice ? [notice] : []
+}
+
+/** `<provider label> via host` when requests go to a compatible third party. */
+function withEndpointHost(label: string): string {
+	const host = thirdPartyHost()
+	return host ? `${label} via ${host}` : label
+}
+
 export function constructProvider(
+	id: ProviderId,
+	det: DetectedProvider | null,
+	model: string,
+	context: { readonly sessionId?: string } = {},
+): LLMProvider {
+	return withModelWindowSuffixStripped(
+		constructBareProvider(id, det, stripModelWindowSuffix(model), context),
+	)
+}
+
+function constructBareProvider(
 	id: ProviderId,
 	det: DetectedProvider | null,
 	model: string,
@@ -6866,12 +6902,29 @@ export function constructProvider(
 ): LLMProvider {
 	switch (id) {
 		case 'anthropic': {
+			const { endpoint } = resolveAnthropicEndpoint()
+			if (endpoint && !endpoint.vendor) {
+				// A saved sign-in or a detected key belongs to the vendor and is never
+				// sent to another host: only the two variables this endpoint is
+				// configured with are used.
+				const { provider } = ProviderRegistry.create({
+					type: 'anthropic',
+					...(endpoint.authToken
+						? { authToken: endpoint.authToken }
+						: { apiKey: endpoint.apiKey as string }),
+					baseURL: endpoint.baseURL,
+					compatibleEndpoint: true,
+					model,
+					...(promptCacheTtl() ? { promptCacheTtl: promptCacheTtl() } : {}),
+				})
+				return provider
+			}
 			const token = det?.apiKey ?? ''
 			const isOAuth = token.length > 0 && isAnthropicOAuthToken(token)
 			const { provider } = ProviderRegistry.create({
 				type: 'anthropic',
 				...(isOAuth ? { authToken: token } : { apiKey: token }),
-				baseURL: det?.baseUrl,
+				baseURL: endpoint?.baseURL ?? det?.baseUrl,
 				model,
 				...(promptCacheTtl() ? { promptCacheTtl: promptCacheTtl() } : {}),
 			})

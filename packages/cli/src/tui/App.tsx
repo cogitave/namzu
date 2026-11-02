@@ -2009,6 +2009,7 @@ function AppBody({
 			windowTokens: number
 			measured: boolean
 			windowAssumed: boolean
+			windowRequested?: number
 		}
 	} | null>(null)
 	/**
