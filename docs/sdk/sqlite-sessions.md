@@ -76,7 +76,17 @@ session log itself (`activeTurn()`) is what tells `running`, `paused` and
   as "not a database"; only SQLite's own "corrupt" or "not a database" answer
   starts a rebuild, never a busy or unreadable file. Before the rename the
   old file's exclusive lock is taken, which waits out a peer mid-write and
-  leaves no journal of the old file to be played into the new one.
+  leaves no journal of the old file to be played into the new one. Once it
+  holds that lock a rebuild that is not forced re-reads the version and
+  leaves a current index alone, so concurrent rebuilders never replace each
+  other's finished file. If a peer keeps the index locked for about ten
+  seconds, `open` throws a `SessionIndexError` ("in use by another process")
+  rather than replacing a file that is being written.
+- **Replaced under an open session.** A session that outlives a rebuild by
+  another process holds the old, unlinked file. It notices that the file at
+  its path is a different one (before each read and write, and on
+  `SQLITE_READONLY_DBMOVED`), reopens it once, checks the version and
+  carries on; its statement cache is dropped with the old connection.
 - **Incremental writes** take `BEGIN IMMEDIATE`, so two writers never
   interleave a session's rows.
 
