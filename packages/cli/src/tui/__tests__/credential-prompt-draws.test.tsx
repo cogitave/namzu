@@ -226,14 +226,14 @@ describe('the credential prompt', () => {
 		unmount()
 	})
 
-	it('says the key is session-only BEFORE anything is typed', async () => {
+	it('says the key is saved for later BEFORE anything is typed', async () => {
 		// Before, not after. Someone deciding whether to paste a secret needs the
 		// disposition at the moment they decide, not once it is already typed.
 		const { lastFrame, stdin, unmount } = open()
 		stdin.write('k')
 		await flush()
-		expect(lastFrame()).toContain('until you quit')
-		expect(lastFrame()).toContain('not written anywhere')
+		expect(lastFrame()).toContain('Saved privately for future launches')
+		expect(lastFrame()).not.toContain('not written anywhere')
 		unmount()
 	})
 
@@ -315,7 +315,7 @@ describe('the credential prompt', () => {
 		expect(cred.apiKey).toBe(KEY)
 		expect(cred.source).toEqual({ kind: 'session' })
 		// The sentence the operator reads afterwards says it again.
-		expect(disposition).toContain('until you quit')
+		expect(disposition).toContain('save this API key privately for future launches')
 		expect(disposition).not.toContain(KEY)
 		expect(signal.aborted).toBe(false)
 		unmount()

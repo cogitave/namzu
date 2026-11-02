@@ -1,13 +1,15 @@
 /**
- * A pasted credential works in the current session. Google API keys are also
- * saved privately after a usable provider session starts, and the logout command
- * removes them. Other pasted credentials remain session-only. Keep every
- * operator-facing claim about that distinction here, where it is testable.
+ * A pasted credential works in the current session. API keys are also saved
+ * privately after a usable provider session starts, and the logout command
+ * removes them. A pasted subscription token is the exception: it lapses in
+ * hours and stays session-only. Keep every operator-facing claim about that
+ * distinction here, where it is testable.
  */
 
 import {
 	type DetectedProvider,
 	type ProviderRegistryEntry,
+	apiKeyLogoutWord,
 	isAnthropicOAuthToken,
 } from '../integrations/providers/index.js'
 import { rawDetail } from './model-choices.js'
@@ -95,8 +97,8 @@ export type Verification =
  * What namzu tells the operator it did with what they typed.
  *
  * Every branch says four things: that it worked or did not, WHICH KIND of
- * credential it took, that it is held for this session only, and the
- * environment variable that persists it. The third is the part a person is most
+ * credential it took, whether it is kept for later launches, and how to remove
+ * it (or, for a subscription token, the environment variable that persists it). The third is the part a person is most
  * likely to assume otherwise — typing a credential into an application usually
  * means it was saved.
  *
@@ -144,8 +146,9 @@ export function describeDisposition(
 			? '\nA pasted subscription token has no refresh data with it, so it expires in a few hours and namzu cannot renew it — expect to enter it again.'
 			: ''
 
-	if (entry.id === 'google') {
-		return `${checked}\nIf the provider starts, Namzu will save this Gemini API key privately for future launches. Run /logout gemini to remove it.`
+	if (kind === 'api-key') {
+		const word = apiKeyLogoutWord(entry.id)
+		return `${checked}\nIf the provider starts, Namzu will save this ${entry.id === 'google' ? 'Gemini ' : ''}API key privately for future launches. Run /logout ${word} to remove it.`
 	}
 	return `${checked}\nHeld in memory until you quit — it is not written anywhere. ${durable}${expiry}`
 }

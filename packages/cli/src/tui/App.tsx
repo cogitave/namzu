@@ -123,6 +123,7 @@ import {
 import { hasApiCredential } from '../integrations/providers/access.js'
 import { readCodexCredentialFile } from '../integrations/providers/harness-credentials.js'
 import {
+	type ApiKeyLogoutTarget,
 	type CodexDeviceLogin,
 	type DetectedProvider,
 	PROVIDER_REGISTRY,
@@ -131,25 +132,30 @@ import {
 	type ProviderId,
 	type SubscriptionLogin,
 	type SubscriptionProviderId,
+	apiKeysPath,
 	automaticChoice,
 	automaticKind,
 	beginCodexDeviceLogin,
 	beginSubscriptionLogin,
+	clearAllStoredApiKeys,
 	clearAllStoredCredentials,
+	clearStoredApiKey,
 	clearStoredCodexCredential,
 	clearStoredGeminiApiKey as clearStoredGoogleApiKey,
 	clearStoredSubscriptionCredential,
 	credentialsPath,
 	describeAutomaticChoice,
 	googleApiKeyPath,
+	isApiKeyLogoutTarget,
+	listStoredApiKeyProviders,
 	parsePastedInput,
 	primaryProvider,
+	readStoredApiKey,
 	readStoredCodexCredential,
 	readStoredGeminiApiKey as readStoredGoogleApiKey,
 	readStoredSubscriptionCredential,
 	signedInSubscriptionProviders,
 	writePreferences,
-	writeStoredGeminiApiKey as writeStoredGoogleApiKey,
 } from '../integrations/providers/index.js'
 import { generateTitle } from '../integrations/sessions/ai-title.js'
 import { displayConversationTitle, typedTextOf } from '../integrations/sessions/display-title.js'
@@ -404,6 +410,7 @@ import { choosesModel, launchPreferences } from './launch-settings.js'
 import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
 import {
 	describeAllCredentialsLogout,
+	describeApiKeyLogout,
 	describeCodexDeviceLoginStart,
 	describeLoginOutcome,
 	describeLoginStart,
@@ -555,6 +562,12 @@ import {
 } from './triggers/registry.js'
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
 import { typedInputOf } from './typed-input.js'
+import {
+	type TypedKeySave,
+	keepAccountKeyForStartup,
+	logoutWordFor,
+	saveTypedKey,
+} from './typed-key-save.js'
 import { formatCompactCount } from './units.js'
 import { useSpinnerTip } from './use-spinner-tip.js'
 import { type WebActivity, webCallTitle, webLiveStatus } from './web-activity.js'
@@ -988,7 +1001,7 @@ type ChoicePickerState = {
 			readonly kind: 'credential-logout'
 			readonly title: string
 			readonly notice?: string
-			readonly values: readonly (SubscriptionProviderId | 'google')[]
+			readonly values: readonly (SubscriptionProviderId | 'google' | ApiKeyLogoutTarget)[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
@@ -4683,13 +4696,34 @@ function AppBody({
 	)
 
 	const removeStoredCredential = useCallback(
-		(target: SubscriptionProviderId | 'google' | 'all'): void => {
+		(target: SubscriptionProviderId | 'google' | 'all' | ApiKeyLogoutTarget): void => {
+			if (isApiKeyLogoutTarget(target)) {
+				const id = target.slice('key:'.length) as ProviderId
+				const had = readStoredApiKey(id) !== null
+				try {
+					clearStoredApiKey(id)
+				} catch (error) {
+					pushSystem('error', explainFailure(error, `Could not remove ${homePath(apiKeysPath())}.`))
+					return
+				}
+				pushMessage(
+					'system',
+					describeApiKeyLogout(PROVIDER_REGISTRY[id].label, homePath(apiKeysPath()), had),
+				)
+				return
+			}
 			const path = target === 'google' ? googleApiKeyPath() : credentialsPath()
 			const hadClaude = readStoredSubscriptionCredential() !== null
 			const hadCodex = readStoredCodexCredential() !== null
 			const hadGoogleKey = readStoredGoogleApiKey() !== null
 			if (target === 'all') {
+				const hadKeys = listStoredApiKeyProviders().length > 0
 				const failures: string[] = []
+				try {
+					clearAllStoredApiKeys()
+				} catch (error) {
+					failures.push(explainFailure(error, `${apiKeysPath()}.`))
+				}
 				try {
 					clearAllStoredCredentials()
 				} catch (error) {
@@ -4712,7 +4746,8 @@ function AppBody({
 					describeAllCredentialsLogout(
 						path,
 						googleApiKeyPath(),
-						hadClaude || hadCodex || hadGoogleKey,
+						hadClaude || hadCodex || hadGoogleKey || hadKeys,
+						apiKeysPath(),
 					),
 				)
 				return
@@ -5317,7 +5352,7 @@ function AppBody({
 				return
 			}
 			if (picker.kind === 'credential-logout') {
-				removeStoredCredential(value as SubscriptionProviderId | 'google')
+				removeStoredCredential(value as SubscriptionProviderId | 'google' | ApiKeyLogoutTarget)
 				return
 			}
 			if (
@@ -6317,6 +6352,7 @@ function AppBody({
 				const probe = await probeAgentSession()
 				if (signal?.aborted) return
 				setDetected(probe.detected)
+				if (probe.keyMigrationNotice) pushMessage('system', probe.keyMigrationNotice)
 				palDefaultPreferencesRef.current = probe.preferences
 				const pinnedPal = palDefinitionRef.current
 				if (pinnedPal?.model) {
@@ -11155,6 +11191,7 @@ function AppBody({
 							...(step.defaultModel !== undefined ? { defaultModel: step.defaultModel } : {}),
 						})
 						pushMessage('system', `Added ${accountProductName(step.provider)} · ${step.label}.`)
+						keepAccountKeyForStartup(step.provider, step.key, step.baseUrl)
 					} catch (error) {
 						pushMessage('system', accountProblem(error, 'Could not add the account.'))
 					}
@@ -12350,13 +12387,14 @@ function AppBody({
 							...(readStoredSubscriptionCredential() ? (['anthropic'] as const) : []),
 							...(readStoredCodexCredential() ? (['codex'] as const) : []),
 							...(readStoredGoogleApiKey() ? (['google'] as const) : []),
+							...listStoredApiKeyProviders().map((id) => `key:${id}` as ApiKeyLogoutTarget),
 						]
 						if (choices.length === 0) {
 							removeStoredCredential('all')
 							return
 						}
 						if (choices.length === 1) {
-							removeStoredCredential(choices[0] as SubscriptionProviderId | 'google')
+							removeStoredCredential(choices[0] as NonNullable<(typeof choices)[number]>)
 							return
 						}
 						setSelectedChoice(0)
@@ -12372,13 +12410,17 @@ function AppBody({
 										? 'Claude'
 										: choice === 'codex'
 											? 'Codex'
-											: 'Gemini API key',
+											: choice === 'google'
+												? 'Gemini API key'
+												: `${PROVIDER_REGISTRY[choice.slice(4) as ProviderId].label} API key`,
 								description:
 									choice === 'anthropic'
 										? 'Remove only Namzu’s Claude subscription.'
 										: choice === 'codex'
 											? 'Remove only Namzu’s Codex subscription.'
-											: 'Remove only Namzu’s saved Gemini API key.',
+											: choice === 'google'
+												? 'Remove only Namzu’s saved Gemini API key.'
+												: 'Remove only the API key Namzu saved for this provider.',
 							})),
 						})
 						return
@@ -14225,7 +14267,7 @@ function AppBody({
 		[hydrateSession],
 	)
 
-	/** A typed Google API key is saved only after its provider session opens. */
+	/** A typed API key is saved only after its provider session opens. */
 	const handleTypedCredential = useCallback(
 		(credential: DetectedProvider, disposition: string, signal: AbortSignal) => {
 			const next = [credential, ...detected.filter((d) => d.entry.id !== credential.entry.id)]
@@ -14247,39 +14289,50 @@ function AppBody({
 						})
 			void (async () => {
 				const started = await hydrateFromPicker(prefs, next, signal)
-				if (!started || credential.entry.id !== 'google') return
-				let path: string
+				if (!started) return
+				const id = credential.entry.id as ProviderId
+				const label = credential.entry.label
+				let saved: TypedKeySave
 				try {
-					path = writeStoredGoogleApiKey(credential.apiKey ?? '')
+					saved = saveTypedKey(id, credential.apiKey ?? '')
 				} catch (error) {
 					pushMessage(
 						'system',
-						`${explainFailure(error, 'Gemini is connected, but its API key could not be saved privately.')} It is usable only until you quit Namzu.`,
+						`${explainFailure(error, `${label} is connected, but its API key could not be saved privately.`)} It is usable only until you quit Namzu.`,
 					)
 					return
 				}
+				if (saved.kind === 'session-only') return
+				const { path } = saved
 				setDetected((current) =>
 					current.map((provider) =>
-						provider.entry.id === 'google' &&
+						provider.entry.id === id &&
 						provider.source.kind === 'session' &&
 						provider.apiKey === credential.apiKey
-							? { ...provider, source: { kind: 'stored-gemini-key', path } }
+							? {
+									...provider,
+									source:
+										id === 'google'
+											? { kind: 'stored-gemini-key', path }
+											: { kind: 'stored-api-key', path },
+								}
 							: provider,
 					),
 				)
+				const word = logoutWordFor(id)
 				try {
 					writePreferences(prefs)
 				} catch (error) {
-					const couldNot = `Your Gemini API key was saved at ${homePath(path)}, but your provider choice could not be saved.`
+					const couldNot = `Your ${label} API key was saved at ${homePath(path)}, but your provider choice could not be saved.`
 					pushMessage(
 						'system',
-						`${explainFailure(error, couldNot)} Run /logout gemini to remove the key.`,
+						`${explainFailure(error, couldNot)} Run /logout ${word} to remove the key.`,
 					)
 					return
 				}
 				pushMessage(
 					'system',
-					`Gemini API key saved privately at ${homePath(path)} for future launches. Run /logout gemini to remove it.`,
+					`${label} API key saved privately at ${homePath(path)} for future launches. Run /logout ${word} to remove it.`,
 				)
 			})()
 		},

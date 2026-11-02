@@ -1,6 +1,5 @@
 import { debugRequested } from '../debug-requested.js'
 import { isDefaultAccountId } from '../integrations/accounts/binding.js'
-import { openCliAccounts } from '../integrations/accounts/open.js'
 import { resolveIdleCompactionMinTokens } from '../integrations/compaction/idle-compaction.js'
 import { createCurrentCredentialReader } from '../integrations/providers/current-credential.js'
 import { TextOnlyModels } from '../integrations/providers/image-input.js'
@@ -280,6 +279,8 @@ import {
 	sessionPromptInput,
 } from '../context/system-prompt.js'
 import { createRepositorySnapshotStep, readTurnSnapshot } from '../context/turn-snapshot.js'
+import { openCliAccounts } from '../integrations/accounts/open.js'
+import { accountProductName } from '../integrations/accounts/rows.js'
 import { createLazyCodeAnalysis } from '../integrations/analysis/provider.js'
 import {
 	maybeCreateDecisionModel,
@@ -365,6 +366,7 @@ import {
 	unresolvedMembers,
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
+import { migrateAccountKeys } from '../integrations/providers/key-migration.js'
 import {
 	PickerProviderTimeoutError,
 	runPickerProviderOperation,
@@ -1742,6 +1744,8 @@ export interface AgentSession {
 }
 
 export interface AgentSessionContext {
+	/** One line when startup moved keys saved by an earlier build; absent otherwise. */
+	readonly keyMigrationNotice?: string
 	readonly preferences: Preferences | null
 	readonly needsRepickReason: string | null
 	readonly detected: readonly DetectedProvider[]
@@ -2010,6 +2014,11 @@ export async function probeAgentSession(
 	// and nothing after is this step.
 	const discoveryStartedAt = Date.now()
 	cliLogger().debug('discovering provider credentials')
+	// Keys an earlier build kept only in `accounts.json` move, once, to the
+	// store discovery reads, so they are found below rather than asked for again.
+	const keyMigrationNotice = await migrateAccountKeys(openCliAccounts().registry, {
+		labelOf: (id) => accountProductName(id),
+	}).catch(() => null)
 	const detected = await discoverProviders(options.env ? { env: options.env } : {})
 	cliLogger().debug('provider credentials discovered', {
 		'namzu.boot.discovery_ms': Date.now() - discoveryStartedAt,
@@ -2022,6 +2031,7 @@ export async function probeAgentSession(
 				needsRepickReason: null,
 				detected,
 				credentialGap: credentialGap(read.prefs, detected),
+				...(keyMigrationNotice ? { keyMigrationNotice } : {}),
 			}
 		case 'missing':
 			return {
@@ -2029,6 +2039,7 @@ export async function probeAgentSession(
 				needsRepickReason: null,
 				detected,
 				credentialGap: null,
+				...(keyMigrationNotice ? { keyMigrationNotice } : {}),
 			}
 		case 'needs-repick':
 			return {
@@ -2036,6 +2047,7 @@ export async function probeAgentSession(
 				needsRepickReason: read.reason,
 				detected,
 				credentialGap: null,
+				...(keyMigrationNotice ? { keyMigrationNotice } : {}),
 			}
 	}
 }

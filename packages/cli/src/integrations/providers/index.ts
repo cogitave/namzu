@@ -35,6 +35,7 @@ export {
 } from './codex-device-login.js'
 export {
 	apiKeysPath,
+	clearAllStoredApiKeys,
 	clearStoredApiKey,
 	listStoredApiKeyProviders,
 	readStoredApiKey,
@@ -118,3 +119,10 @@ export {
 	isRegistered,
 	resolveChainCapabilities,
 } from './register.js'
+export { migrateAccountKeys } from './key-migration.js'
+export {
+	type ApiKeyLogoutTarget,
+	apiKeyLogoutTarget,
+	apiKeyLogoutWord,
+	isApiKeyLogoutTarget,
+} from './connections.js'
