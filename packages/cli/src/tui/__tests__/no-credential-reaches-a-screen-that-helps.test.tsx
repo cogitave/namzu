@@ -317,7 +317,7 @@ describe('launching with a saved provider and no credential', () => {
 			screen.press('fixture-gemini-api-key')
 			await until(screen, '••••')
 			screen.press('\r')
-			await until(screen, 'Gemini API key saved privately')
+			await until(screen, 'API key saved privately')
 			expect(world.savedKeys).toEqual(['fixture-gemini-api-key'])
 			expect(world.savedPrefs[0]?.providers[0]).toEqual({ id: 'google', model: 'gemini-2.5-flash' })
 			expect(text(screen)).not.toContain('fixture-gemini-api-key')
@@ -524,7 +524,7 @@ describe('after the credential has been supplied', () => {
 			const drawn = box.join('\n')
 
 			expect(drawn, 'the picker never reopened').toContain('Choose a model')
-			expect(drawn).toContain('this conversation only (temporary credential)')
+			expect(drawn).toContain('this conversation and future launches')
 			expect(drawn, 'a stale launch refusal is drawn on the picker').not.toContain(
 				'No API key found',
 			)

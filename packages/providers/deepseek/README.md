@@ -50,11 +50,11 @@ registerDeepSeek() // once, at startup
 const { provider } = ProviderRegistry.create({
   type: 'deepseek',
   apiKey: process.env.DEEPSEEK_API_KEY ?? '',
-  model: 'deepseek-v4-flash',
+  model: 'deepseek-flash',
 })
 
 for await (const chunk of provider.chatStream({
-  model: 'deepseek-v4-flash',
+  model: 'deepseek-flash',
   messages: [{ role: 'user', content: 'Is 91 prime?' }],
 })) {
   if (chunk.delta.reasoning?.text) process.stderr.write(chunk.delta.reasoning.text)
@@ -62,13 +62,29 @@ for await (const chunk of provider.chatStream({
 }
 ```
 
-The built-in catalogue offers `deepseek-v4-flash`, `deepseek-v4-pro`, and
-`deepseek-v4-flash-vision-exp`. `deepseek-chat` and `deepseek-reasoner` were
+The built-in catalogue offers `deepseek-flash` (the current Flash model, which
+takes images), `deepseek-v4-pro` (text only), and the legacy names
+`deepseek-v4-flash` and `deepseek-v4-flash-vision-exp`, which the vendor still
+serves from the Flash model. `deepseek-chat` and `deepseek-reasoner` were
 discontinued on 2026-07-24 and are not aliases.
+
+## Context window
+
+The vendor documents a 1M-token context and a 384K-token output cap for every
+current model (one row for `deepseek-flash` and `deepseek-v4-pro` on
+https://api-docs.deepseek.com/quick_start/pricing). The driver asks the models
+endpoint first and uses its `context_window` and `max_output_tokens` when the
+vendor returns them; those two fields are optional there, so the documented
+limits are only the fallback for the ids the driver lists, and only on the vendor's own host: behind a custom `baseURL` the driver
+offers just what the listing reports. The runtime measures
+compaction against that window, so the first summary is due at 967,000 tokens,
+not at the 32,000 that a 64,000-token guess produced. An id the driver neither
+lists nor was told about is left to the SDK's table, which keeps a conservative
+64,000 for it.
 
 ## Image input
 
-Only `deepseek-v4-flash-vision-exp` accepts images. User attachments are sent
+`deepseek-flash` and the legacy `deepseek-v4-flash-vision-exp` accept images. User attachments are sent
 as ordered `image_url` data-URL parts. Images returned by tools keep their
 `role: "tool"` result and follow it in a separate user image message, so the
 tool-call/result sequence remains valid. PNG, JPEG, WebP and GIF are accepted.
@@ -91,9 +107,24 @@ portable assistant/tool history and omits the foreign native reasoning field.
 
 Turn it off per call with `thinking: { type: 'disabled' }`.
 
-Two parameters are **refused** rather than sent, because the vendor accepts
-them and applies neither: `effort`, and the sampling parameters while thinking
-is on. Both refusals can be opted out of in the driver configuration.
+### Effort
+
+Effort rides on `reasoning_effort`, the field the vendor documents, beside
+`thinking`. The vendor offers `low`, `high` and `max` (default `high`); the
+models endpoint's `effort.supported_levels` and `default_level` are read once
+per session and published through `reasoningEffortLevelsFor` and
+`reasoningEffortDefaultFor` (plus `none`, which turns thinking off). Namzu's
+wider vocabulary goes through the vendor's own mapping: `minimal` to `low`,
+`medium` and `xhigh` to `high`, `ultra` to `max`. If the model's menu lacks the
+mapped level, the nearest offered one is sent, the lower one on a tie
+(`resolveDeepSeekEffort` says which). `none` is sent as
+`thinking: { type: 'disabled' }`, and an explicit `thinking: disabled` wins over
+a level, as it does at the vendor. Without `maxTokens` the vendor's default
+output is 64K in thinking mode and 128K at `max`.
+
+The sampling parameters (`temperature`, `topP` and the two penalties) are
+**refused** while thinking is on, because the vendor accepts them and applies
+none; `samplingInThinkingMode: 'ignore'` sends them anyway.
 
 ## Documentation
 

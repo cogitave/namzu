@@ -98,7 +98,13 @@ import { hostAccountFacts } from '../integrations/accounts/host-facts.js'
 import { openCliAccounts, storedAccountSignedIn } from '../integrations/accounts/open.js'
 import { accountProductName, accountState } from '../integrations/accounts/rows.js'
 import { startAutoUpdate } from '../integrations/auto-update/start.js'
-import { writeClipboardText } from '../integrations/clipboard/text.js'
+import {
+	type ClipboardCopier,
+	type CopyHost,
+	bypassKey,
+	createClipboardCopier,
+	describeCopy,
+} from '../integrations/clipboard/copy.js'
 import {
 	type PullRequestFilter,
 	type PullRequestLink,
@@ -121,6 +127,7 @@ import {
 import { hasApiCredential } from '../integrations/providers/access.js'
 import { readCodexCredentialFile } from '../integrations/providers/harness-credentials.js'
 import {
+	type ApiKeyLogoutTarget,
 	type CodexDeviceLogin,
 	type DetectedProvider,
 	PROVIDER_REGISTRY,
@@ -129,25 +136,30 @@ import {
 	type ProviderId,
 	type SubscriptionLogin,
 	type SubscriptionProviderId,
+	apiKeysPath,
 	automaticChoice,
 	automaticKind,
 	beginCodexDeviceLogin,
 	beginSubscriptionLogin,
+	clearAllStoredApiKeys,
 	clearAllStoredCredentials,
+	clearStoredApiKey,
 	clearStoredCodexCredential,
 	clearStoredGeminiApiKey as clearStoredGoogleApiKey,
 	clearStoredSubscriptionCredential,
 	credentialsPath,
 	describeAutomaticChoice,
 	googleApiKeyPath,
+	isApiKeyLogoutTarget,
+	listStoredApiKeyProviders,
 	parsePastedInput,
 	primaryProvider,
+	readStoredApiKey,
 	readStoredCodexCredential,
 	readStoredGeminiApiKey as readStoredGoogleApiKey,
 	readStoredSubscriptionCredential,
 	signedInSubscriptionProviders,
 	writePreferences,
-	writeStoredGeminiApiKey as writeStoredGoogleApiKey,
 } from '../integrations/providers/index.js'
 import { generateTitle } from '../integrations/sessions/ai-title.js'
 import { displayConversationTitle, typedTextOf } from '../integrations/sessions/display-title.js'
@@ -218,6 +230,7 @@ import {
 	acknowledgeBypass,
 	hasAcknowledgedBypass,
 } from '../permissions/consent.js'
+import { createImageReadPolicy } from '../permissions/image-read.js'
 import {
 	type ModeAvailability,
 	type PermissionMode,
@@ -424,6 +437,7 @@ import { choosesModel, launchPreferences } from './launch-settings.js'
 import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
 import {
 	describeAllCredentialsLogout,
+	describeApiKeyLogout,
 	describeCodexDeviceLoginStart,
 	describeLoginOutcome,
 	describeLoginStart,
@@ -539,7 +553,6 @@ import {
 	CONTINUATION_GLYPH,
 	SYSTEM_ROW_GLYPH,
 	type SystemLevel,
-	clipboardSentNotice,
 	endWord,
 	goalRoundHeadline,
 	interruptionRow,
@@ -575,6 +588,12 @@ import {
 } from './triggers/registry.js'
 import { describeComposerTriggers, setComposerTriggers } from './triggers/setting.js'
 import { typedInputOf } from './typed-input.js'
+import {
+	type TypedKeySave,
+	keepAccountKeyForStartup,
+	logoutWordFor,
+	saveTypedKey,
+} from './typed-key-save.js'
 import { formatCompactCount } from './units.js'
 import { useSpinnerTip } from './use-spinner-tip.js'
 import { type WebActivity, webCallTitle, webLiveStatus } from './web-activity.js'
@@ -700,6 +719,8 @@ const SESSION_CLOSE_ON_EXIT_MS = 5_000
 export interface AppProps {
 	readonly ctx: TuiContext
 	readonly onExitSummary?: (summary: TuiExitSummary) => void
+	/** Test seam for the clipboard: a copier, or the tools and platform one is built over. */
+	readonly clipboard?: ClipboardCopier | CopyHost
 	/** Test/embedding seam; the normal TUI uses VISUAL/EDITOR on the host. */
 	readonly externalEditor?: ExternalEditorAdapter
 	/**
@@ -1003,7 +1024,7 @@ type ChoicePickerState = {
 			readonly kind: 'credential-logout'
 			readonly title: string
 			readonly notice?: string
-			readonly values: readonly (SubscriptionProviderId | 'google')[]
+			readonly values: readonly (SubscriptionProviderId | 'google' | ApiKeyLogoutTarget)[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
@@ -1395,6 +1416,7 @@ export function App(props: AppProps) {
 function AppBody({
 	ctx: initialCtx,
 	onExitSummary,
+	clipboard: clipboardSeam,
 	externalEditor = defaultExternalEditor,
 	terminationExit,
 	repaint,
@@ -1411,6 +1433,14 @@ function AppBody({
 	const trustedCwdRef = useRef(pinTrustedProjectPath(initialCtx, initialCtx.cwd))
 	const [ctx, setCtx] = useState(initialCtx)
 	const ctxRef = useRef(initialCtx)
+	// A pasted image path is read unless a deny rule names it.
+	const imageReadPolicy = useMemo(
+		() =>
+			createImageReadPolicy({
+				rules: () => ctxRef.current.rules,
+			}),
+		[],
+	)
 	const activateTrustedProject = useCallback((): TuiContext => {
 		const resolved = resolveTrustedProjectContext(initialCtx, trustedCwdRef.current)
 		ctxRef.current = resolved
@@ -1419,6 +1449,13 @@ function AppBody({
 	}, [initialCtx])
 	const { exit } = useApp()
 	const { stdout, write: writeStdout } = useStdout()
+	const clipboard = useMemo(
+		() =>
+			clipboardSeam && 'copy' in clipboardSeam
+				? clipboardSeam
+				: createClipboardCopier({ isTTY: stdout.isTTY, write: writeStdout }, clipboardSeam),
+		[clipboardSeam, stdout.isTTY, writeStdout],
+	)
 	const terminal = useWindowSize()
 	const hyperlinks = terminalSupportsHyperlinks(process.env, stdout.isTTY === true)
 	/**
@@ -1882,6 +1919,7 @@ function AppBody({
 			windowTokens: number
 			measured: boolean
 			windowAssumed: boolean
+			windowRequested?: number
 		}
 	} | null>(null)
 	/**
@@ -4566,13 +4604,34 @@ function AppBody({
 	)
 
 	const removeStoredCredential = useCallback(
-		(target: SubscriptionProviderId | 'google' | 'all'): void => {
+		(target: SubscriptionProviderId | 'google' | 'all' | ApiKeyLogoutTarget): void => {
+			if (isApiKeyLogoutTarget(target)) {
+				const id = target.slice('key:'.length) as ProviderId
+				const had = readStoredApiKey(id) !== null
+				try {
+					clearStoredApiKey(id)
+				} catch (error) {
+					pushSystem('error', explainFailure(error, `Could not remove ${homePath(apiKeysPath())}.`))
+					return
+				}
+				pushMessage(
+					'system',
+					describeApiKeyLogout(PROVIDER_REGISTRY[id].label, homePath(apiKeysPath()), had),
+				)
+				return
+			}
 			const path = target === 'google' ? googleApiKeyPath() : credentialsPath()
 			const hadClaude = readStoredSubscriptionCredential() !== null
 			const hadCodex = readStoredCodexCredential() !== null
 			const hadGoogleKey = readStoredGoogleApiKey() !== null
 			if (target === 'all') {
+				const hadKeys = listStoredApiKeyProviders().length > 0
 				const failures: string[] = []
+				try {
+					clearAllStoredApiKeys()
+				} catch (error) {
+					failures.push(explainFailure(error, `${apiKeysPath()}.`))
+				}
 				try {
 					clearAllStoredCredentials()
 				} catch (error) {
@@ -4595,7 +4654,8 @@ function AppBody({
 					describeAllCredentialsLogout(
 						path,
 						googleApiKeyPath(),
-						hadClaude || hadCodex || hadGoogleKey,
+						hadClaude || hadCodex || hadGoogleKey || hadKeys,
+						apiKeysPath(),
 					),
 				)
 				return
@@ -4770,38 +4830,15 @@ function AppBody({
 						return
 					}
 
-					const result = writeClipboardText(projected.markdown, {
-						isTTY: stdout.isTTY,
-						write: writeStdout,
-					})
-					switch (result.kind) {
-						case 'request-sent':
-							pushMessage(
-								'system',
-								clipboardSentNotice(
-									projected.markdown.length,
-									plural(projected.turns, 'reply', 'replies'),
-								),
-							)
-							break
-						case 'unavailable':
-							pushMessage(
-								'system',
-								`Cannot send the verified export to the clipboard here — ${result.detail}. Choose Save to file instead.`,
-							)
-							break
-						case 'too-large':
-							pushMessage(
-								'system',
-								`Cannot send the verified export to the terminal clipboard — it is ${formatSize(result.bytes)} and the limit for the terminal clipboard is ${formatSize(result.limit)}. Nothing was truncated; choose Save to file instead.`,
-							)
-							break
-						case 'write-failed':
-							pushMessage(
-								'system',
-								`Could not send the verified export copy request: ${result.detail}`,
-							)
-							break
+					const outcome = await clipboard.copy(projected.markdown)
+					if (!outcome) pushMessage('system', 'That copy was replaced by a newer one.')
+					else {
+						const { text, ok } = describeCopy(
+							outcome,
+							bypassKey(process.env),
+							plural(projected.turns, 'reply', 'replies'),
+						)
+						pushMessage('system', ok ? text : `${text} Choose Save to file instead.`)
 					}
 				} catch (err) {
 					pushMessage(
@@ -4816,7 +4853,7 @@ function AppBody({
 				}
 			})()
 		},
-		[ctx.cwd, pushMessage, stableExportSource, stdout.isTTY, writeStdout],
+		[ctx.cwd, clipboard, pushMessage, stableExportSource],
 	)
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
@@ -5200,7 +5237,7 @@ function AppBody({
 				return
 			}
 			if (picker.kind === 'credential-logout') {
-				removeStoredCredential(value as SubscriptionProviderId | 'google')
+				removeStoredCredential(value as SubscriptionProviderId | 'google' | ApiKeyLogoutTarget)
 				return
 			}
 			if (
@@ -5251,41 +5288,19 @@ function AppBody({
 			// The queue pump still observes React state and can proceed only after
 			// this event has finished publishing the result.
 			setCopyPicker(null)
-			const result = writeClipboardText(target.text, {
-				isTTY: stdout.isTTY,
-				write: writeStdout,
-			})
 			const origin =
 				picker.provenance === 'persisted'
 					? 'the latest saved reply'
 					: 'the latest normally completed answer'
 			const selection = target.kind === 'whole' ? origin : `${target.label} from ${origin}`
-			switch (result.kind) {
-				case 'request-sent':
-					pushMessage('system', clipboardSentNotice(target.text.length, selection))
-					break
-				case 'unavailable':
-					pushMessage(
-						'system',
-						`Couldn’t copy here: ${result.detail}. /copy needs a terminal that allows clipboard access.`,
-					)
-					break
-				case 'too-large':
-					pushMessage(
-						'system',
-						`Cannot send this selection to the terminal clipboard — it is ${formatSize(result.bytes)} and the limit for the terminal clipboard is ${formatSize(result.limit)}. Nothing was truncated.`,
-					)
-					break
-				case 'write-failed':
-					pushSystem('error', `Could not send the terminal copy request: ${result.detail}`)
-					break
-				default: {
-					const exhaustive: never = result
-					void exhaustive
-				}
-			}
+			void clipboard.copy(target.text).then((outcome) => {
+				if (!outcome) return
+				const { text, ok } = describeCopy(outcome, bypassKey(process.env), selection)
+				if (ok) pushMessage('system', text)
+				else pushSystem('error', text)
+			})
 		},
-		[pushMessage, setCopyPicker, stdout.isTTY, writeStdout, pushSystem],
+		[clipboard, pushMessage, setCopyPicker, pushSystem],
 	)
 
 	const sendTerminalNotification = useCallback(
@@ -6207,6 +6222,7 @@ function AppBody({
 				const probe = await probeAgentSession()
 				if (signal?.aborted) return
 				setDetected(probe.detected)
+				if (probe.keyMigrationNotice) pushMessage('system', probe.keyMigrationNotice)
 				palDefaultPreferencesRef.current = probe.preferences
 				const pinnedPal = palDefinitionRef.current
 				if (pinnedPal?.model) {
@@ -11052,6 +11068,7 @@ function AppBody({
 							...(step.defaultModel !== undefined ? { defaultModel: step.defaultModel } : {}),
 						})
 						pushMessage('system', `Added ${accountProductName(step.provider)} · ${step.label}.`)
+						keepAccountKeyForStartup(step.provider, step.key, step.baseUrl)
 					} catch (error) {
 						pushMessage('system', accountProblem(error, 'Could not add the account.'))
 					}
@@ -11133,7 +11150,10 @@ function AppBody({
 						const accounts = openAccounts()
 						accounts.registry.remove(picker.accountId)
 						accounts.activity.forget(picker.accountId)
-						pushMessage('system', 'Account removed.')
+						pushMessage(
+							'system',
+							'Account removed. A key kept for startup stays until you run /logout <provider>.',
+						)
 					} catch (error) {
 						pushMessage('system', accountProblem(error, 'Could not remove the account.'))
 					}
@@ -12255,13 +12275,14 @@ function AppBody({
 							...(readStoredSubscriptionCredential() ? (['anthropic'] as const) : []),
 							...(readStoredCodexCredential() ? (['codex'] as const) : []),
 							...(readStoredGoogleApiKey() ? (['google'] as const) : []),
+							...listStoredApiKeyProviders().map((id) => `key:${id}` as ApiKeyLogoutTarget),
 						]
 						if (choices.length === 0) {
 							removeStoredCredential('all')
 							return
 						}
 						if (choices.length === 1) {
-							removeStoredCredential(choices[0] as SubscriptionProviderId | 'google')
+							removeStoredCredential(choices[0] as NonNullable<(typeof choices)[number]>)
 							return
 						}
 						setSelectedChoice(0)
@@ -12277,13 +12298,17 @@ function AppBody({
 										? 'Claude'
 										: choice === 'codex'
 											? 'Codex'
-											: 'Gemini API key',
+											: choice === 'google'
+												? 'Gemini API key'
+												: `${PROVIDER_REGISTRY[choice.slice(4) as ProviderId].label} API key`,
 								description:
 									choice === 'anthropic'
 										? 'Remove only Namzu’s Claude subscription.'
 										: choice === 'codex'
 											? 'Remove only Namzu’s Codex subscription.'
-											: 'Remove only Namzu’s saved Gemini API key.',
+											: choice === 'google'
+												? 'Remove only Namzu’s saved Gemini API key.'
+												: 'Remove only the API key Namzu saved for this provider.',
 							})),
 						})
 						return
@@ -14069,7 +14094,7 @@ function AppBody({
 		[hydrateSession],
 	)
 
-	/** A typed Google API key is saved only after its provider session opens. */
+	/** A typed API key is saved only after its provider session opens. */
 	const handleTypedCredential = useCallback(
 		(credential: DetectedProvider, disposition: string, signal: AbortSignal) => {
 			const next = [credential, ...detected.filter((d) => d.entry.id !== credential.entry.id)]
@@ -14091,39 +14116,50 @@ function AppBody({
 						})
 			void (async () => {
 				const started = await hydrateFromPicker(prefs, next, signal)
-				if (!started || credential.entry.id !== 'google') return
-				let path: string
+				if (!started) return
+				const id = credential.entry.id as ProviderId
+				const label = credential.entry.label
+				let saved: TypedKeySave
 				try {
-					path = writeStoredGoogleApiKey(credential.apiKey ?? '')
+					saved = saveTypedKey(id, credential.apiKey ?? '')
 				} catch (error) {
 					pushMessage(
 						'system',
-						`${explainFailure(error, 'Gemini is connected, but its API key could not be saved privately.')} It is usable only until you quit Namzu.`,
+						`${explainFailure(error, `${label} is connected, but its API key could not be saved privately.`)} It is usable only until you quit Namzu.`,
 					)
 					return
 				}
+				if (saved.kind === 'session-only') return
+				const { path } = saved
 				setDetected((current) =>
 					current.map((provider) =>
-						provider.entry.id === 'google' &&
+						provider.entry.id === id &&
 						provider.source.kind === 'session' &&
 						provider.apiKey === credential.apiKey
-							? { ...provider, source: { kind: 'stored-gemini-key', path } }
+							? {
+									...provider,
+									source:
+										id === 'google'
+											? { kind: 'stored-gemini-key', path }
+											: { kind: 'stored-api-key', path },
+								}
 							: provider,
 					),
 				)
+				const word = logoutWordFor(id)
 				try {
 					writePreferences(prefs)
 				} catch (error) {
-					const couldNot = `Your Gemini API key was saved at ${homePath(path)}, but your provider choice could not be saved.`
+					const couldNot = `Your ${label} API key was saved at ${homePath(path)}, but your provider choice could not be saved.`
 					pushMessage(
 						'system',
-						`${explainFailure(error, couldNot)} Run /logout gemini to remove the key.`,
+						`${explainFailure(error, couldNot)} Run /logout ${word} to remove the key.`,
 					)
 					return
 				}
 				pushMessage(
 					'system',
-					`Gemini API key saved privately at ${homePath(path)} for future launches. Run /logout gemini to remove it.`,
+					`${label} API key saved privately at ${homePath(path)} for future launches. Run /logout ${word} to remove it.`,
 				)
 			})()
 		},
@@ -15967,6 +16003,7 @@ function AppBody({
 												placeholder: examplePlaceholder(exampleFile, exampleSeedRef.current),
 											}
 										: {})}
+								mayReadImage={imageReadPolicy}
 								reasoningEffortLevels={session?.reasoningEffortLevels}
 								onCycleMode={cyclePermissionMode}
 								disabled={
@@ -16085,7 +16122,6 @@ function AppBody({
 							session?.account?.label,
 						)}
 						effort={reasoningEffort}
-						hypermode={hypermode}
 						goal={statusGoal}
 						state={state}
 						hint={statusHint}

@@ -1,4 +1,9 @@
-import type { LLMProvider, ModelInfo, ReasoningEffort } from '@namzu/sdk'
+import {
+	type LLMProvider,
+	type ModelInfo,
+	type ReasoningEffort,
+	stripModelWindowSuffix,
+} from '@namzu/sdk'
 
 const levels = new Set<ReasoningEffort>([
 	'none',
@@ -17,7 +22,8 @@ export function modelReasoningView(
 	model: string,
 	catalogue: readonly ModelInfo[],
 ): LLMProvider {
-	const rows = catalogue.filter((item) => item.id === model)
+	const bare = stripModelWindowSuffix(model)
+	const rows = catalogue.filter((item) => item.id === bare)
 	const entry = rows.length === 1 ? rows[0] : undefined
 	const published = entry?.reasoningEffortLevels
 	const valid =

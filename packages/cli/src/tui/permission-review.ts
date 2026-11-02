@@ -1157,12 +1157,18 @@ function computerUseAction(
 				: null
 		}
 		case 'ui_snapshot':
-			return fields('window_id') && (item.window_id === undefined || text(item.window_id))
+			return fields('window_id', 'root', 'offset', 'query') &&
+				(item.window_id === undefined || text(item.window_id)) &&
+				(item.root === undefined || text(item.root)) &&
+				(item.offset === undefined || Number.isInteger(item.offset)) &&
+				(item.query === undefined || text(item.query))
 				? {
 						line:
-							item.window_id === undefined
-								? 'Read the controls of the window in front'
-								: `Read the controls of window ${JSON.stringify(item.window_id)}`,
+							item.root !== undefined
+								? `Read one region of ${item.window_id === undefined ? 'a window' : `window ${JSON.stringify(item.window_id)}`}`
+								: item.window_id === undefined
+									? 'Read the controls of the window in front'
+									: `Read the controls of window ${JSON.stringify(item.window_id)}`,
 						coordinates: false,
 					}
 				: null

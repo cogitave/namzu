@@ -131,7 +131,14 @@ function makeUiHost(
 							mimeType: 'image/png',
 							width: 1280,
 							height: 800,
-							display: { id: 'p', x: 0, y: 0, width: 1280, height: 800, scaleFactor: 1 },
+							display: {
+								id: 'p',
+								x: 0,
+								y: 0,
+								width: 1280,
+								height: 800,
+								scaleFactor: 1,
+							},
 						},
 					}
 				: { type: 'ok' }
@@ -182,17 +189,22 @@ describe('computer_use UI tree', () => {
 		const schema = offered.modelInputSchema as {
 			properties: Record<
 				string,
-				{ enum?: string[]; items?: { properties: Record<string, { enum?: string[] }> } }
+				{
+					enum?: string[]
+					items?: { properties: Record<string, { enum?: string[] }> }
+				}
 			>
 		}
 		expect(schema.properties.type?.enum).toEqual(expect.arrayContaining(['ui_snapshot', 'ui_act']))
 		// ui_act may ride in a batch; ui_snapshot, which returns the tree, may not.
 		expect(schema.properties.actions?.items?.properties.type?.enum).toContain('ui_act')
 		expect(schema.properties.actions?.items?.properties.type?.enum).not.toContain('ui_snapshot')
-		expect(offered.description).toContain('Prefer ui_act to clicking pixels')
+		expect(offered.description).toContain("Work from the window's controls first")
 
 		const undeclared = createComputerUseTool(makeUiHost({ capabilities: { uiTree: false } }).host)
-		const plain = undeclared.modelInputSchema as { properties: Record<string, { enum?: string[] }> }
+		const plain = undeclared.modelInputSchema as {
+			properties: Record<string, { enum?: string[] }>
+		}
 		expect(plain.properties.type?.enum).not.toContain('ui_snapshot')
 		expect(plain.properties).not.toHaveProperty('ref')
 		expect(undeclared.description).not.toContain('ui_snapshot')
@@ -202,7 +214,10 @@ describe('computer_use UI tree', () => {
 		const { host, snapshots } = makeUiHost()
 		const tool = createComputerUseTool(host, { settleMs: 0 })
 		await run(tool, { type: 'screenshot' })
-		const result = await run(tool, { type: 'ui_snapshot', window_id: '0x261206' })
+		const result = await run(tool, {
+			type: 'ui_snapshot',
+			window_id: '0x261206',
+		})
 		expect(result.success).toBe(true)
 		expect(snapshots).toEqual(['0x261206'])
 		const shown = text(result)
@@ -227,7 +242,13 @@ describe('computer_use UI tree', () => {
 		const withoutQuotedMention = shown.split(`\`${realClosingTag}\``).join('')
 		expect([...withoutQuotedMention.matchAll(/<\/namzu-untrusted-[0-9a-f]+>/g)]).toHaveLength(1)
 		expect(result.data).toMatchObject({
-			uiSnapshot: { id: 'u1', windowId: '0x261206', controls: 7, refs: 4, truncated: false },
+			uiSnapshot: {
+				id: 'u1',
+				windowId: '0x261206',
+				controls: 7,
+				refs: 4,
+				truncated: false,
+			},
 		})
 		expect(tool.describeUiRef('e2')).toBe('Button "Beş" (e2)')
 	})
@@ -295,7 +316,11 @@ describe('computer_use UI tree', () => {
 		})
 		const tool = createComputerUseTool(host, { settleMs: 0 })
 		expect((await run(tool, { type: 'ui_snapshot', window_id: '0x261206' })).success).toBe(true)
-		const acted = await run(tool, { type: 'ui_act', ref: 'e2', action: 'invoke' })
+		const acted = await run(tool, {
+			type: 'ui_act',
+			ref: 'e2',
+			action: 'invoke',
+		})
 		expect(acted.success).toBe(true)
 		expect(acts).toEqual([{ ref: 'h1:Beş', action: 'invoke' }])
 		expect(captures).toEqual(['0x261206'])
@@ -306,7 +331,10 @@ describe('computer_use UI tree', () => {
 
 		const noId = makeUiHost({
 			capabilities,
-			snapshot: (generation) => ({ ...calculator(generation), windowId: undefined }),
+			snapshot: (generation) => ({
+				...calculator(generation),
+				windowId: undefined,
+			}),
 		})
 		let unexpectedCaptures = 0
 		Object.assign(noId.host, {
@@ -318,7 +346,11 @@ describe('computer_use UI tree', () => {
 		})
 		const noIdTool = createComputerUseTool(noId.host, { settleMs: 0 })
 		expect((await run(noIdTool, { type: 'ui_snapshot' })).success).toBe(true)
-		const noIdAct = await run(noIdTool, { type: 'ui_act', ref: 'e2', action: 'invoke' })
+		const noIdAct = await run(noIdTool, {
+			type: 'ui_act',
+			ref: 'e2',
+			action: 'invoke',
+		})
 		expect(noIdAct.success).toBe(true)
 		expect(noId.acts).toEqual([{ ref: 'h1:Beş', action: 'invoke' }])
 		expect(noIdAct.data).not.toHaveProperty('screenshot')
@@ -330,7 +362,10 @@ describe('computer_use UI tree', () => {
 		const target = '0x261206'
 		const { host, actions } = makeUiHost({
 			capabilities: { windowCapture: true },
-			snapshot: (generation) => ({ ...calculator(generation), windowId: target }),
+			snapshot: (generation) => ({
+				...calculator(generation),
+				windowId: target,
+			}),
 		})
 		const captures: string[] = []
 		Object.assign(host, {
@@ -358,7 +393,11 @@ describe('computer_use UI tree', () => {
 		const tool = createComputerUseTool(host, { settleMs: 0 })
 		await run(tool, { type: 'screenshot', window_id: '0x111' })
 		await run(tool, { type: 'ui_snapshot', window_id: target })
-		const acted = await run(tool, { type: 'ui_act', ref: 'e2', action: 'invoke' })
+		const acted = await run(tool, {
+			type: 'ui_act',
+			ref: 'e2',
+			action: 'invoke',
+		})
 		expect(acted.success).toBe(true)
 		expect(acted.data).toHaveProperty('screenshot.window.id', target)
 		expect(captures).toEqual(['0x111', target])
@@ -380,7 +419,9 @@ describe('computer_use UI tree', () => {
 
 	it('wait follows a named UI snapshot until a newer window screenshot is taken', async () => {
 		const target = '0x261206'
-		const { host, actions } = makeUiHost({ capabilities: { windowCapture: true } })
+		const { host, actions } = makeUiHost({
+			capabilities: { windowCapture: true },
+		})
 		const captures: string[] = []
 		Object.assign(host, {
 			captureWindow: async (id: string) => {
@@ -412,7 +453,11 @@ describe('computer_use UI tree', () => {
 		const afterImage = await run(tool, { type: 'wait', ms: 0 })
 		expect(afterImage.data).toHaveProperty('screenshot.window.id', '0x111')
 		await run(tool, { type: 'ui_snapshot', window_id: target })
-		const explicitImage = await run(tool, { type: 'wait', ms: 0, screenshot_id: 's3' })
+		const explicitImage = await run(tool, {
+			type: 'wait',
+			ms: 0,
+			screenshot_id: 's3',
+		})
 		expect(explicitImage.data).toHaveProperty('screenshot.window.id', '0x111')
 		expect(captures).toEqual([target, '0x111', '0x111', '0x111'])
 		expect(actions).toEqual([])
@@ -427,7 +472,12 @@ describe('computer_use UI tree', () => {
 			type: 'batch',
 			actions: [
 				{ type: 'ui_act', ref: 'e2', action: 'invoke' },
-				{ type: 'ui_act', ref: 'e4', action: 'set_value', value: 'Merhaba dünya ığüşöç' },
+				{
+					type: 'ui_act',
+					ref: 'e4',
+					action: 'set_value',
+					value: 'Merhaba dünya ığüşöç',
+				},
 			],
 		}
 		expect(tool.presentCall?.(tool.inputSchema.parse(batch))).toMatchObject({
@@ -444,20 +494,184 @@ describe('computer_use UI tree', () => {
 		expect(text(result)).toContain('Batch: all 2 actions done.')
 	})
 
-	it('refuses a ref from an earlier snapshot instead of acting on whatever has that number now', async () => {
+	it('keeps a ref across snapshots and refuses one no snapshot ever showed', async () => {
 		const { host, acts } = makeUiHost()
 		const tool = createComputerUseTool(host, { settleMs: 0 })
 		await run(tool, { type: 'screenshot' })
-		const none = await run(tool, { type: 'ui_act', ref: 'e2', action: 'invoke' })
+		const none = await run(tool, {
+			type: 'ui_act',
+			ref: 'e2',
+			action: 'invoke',
+		})
 		expect(none.error).toContain('no ui_snapshot has been taken yet')
 		await run(tool, { type: 'ui_snapshot' })
 		await run(tool, { type: 'ui_snapshot' })
-		const stale = await run(tool, { type: 'ui_act', ref: 'e2', action: 'invoke' })
-		expect(stale.success).toBe(false)
-		expect(stale.error).toContain('e2 is not a control of the latest ui_snapshot (u2)')
-		const fresh = await run(tool, { type: 'ui_act', ref: 'e6', action: 'invoke' })
-		expect(fresh.success).toBe(true)
-		expect(acts).toEqual([{ ref: 'h2:Beş', action: 'invoke' }])
+		// The ref of the first snapshot still names its control; the host decides
+		// whether the control is still there.
+		const kept = await run(tool, {
+			type: 'ui_act',
+			ref: 'e2',
+			action: 'invoke',
+		})
+		expect(kept.success).toBe(true)
+		const unknown = await run(tool, {
+			type: 'ui_act',
+			ref: 'e99',
+			action: 'invoke',
+		})
+		expect(unknown.success).toBe(false)
+		expect(unknown.error).toContain('e99 is not a ref any ui_snapshot showed')
+		expect(acts).toEqual([{ ref: 'h1:Beş', action: 'invoke' }])
+	})
+
+	it('gives a control the same number in every snapshot', async () => {
+		const stable = (): UiSnapshot => ({
+			windowId: '0x1',
+			root: {
+				ref: '',
+				role: 'Window',
+				name: 'W',
+				children: [
+					{ ref: 'same', role: 'Button', name: 'OK', actions: ['invoke'] },
+					{ ref: 'other', role: 'Button', name: 'Cancel', actions: ['invoke'] },
+				],
+			},
+		})
+		const { host, acts } = makeUiHost({ snapshot: stable })
+		const tool = createComputerUseTool(host, { settleMs: 0 })
+		const first = text(await run(tool, { type: 'ui_snapshot' }))
+		const second = text(await run(tool, { type: 'ui_snapshot' }))
+		expect(first).toContain('[e1] Button "OK"')
+		expect(second).toContain('[e1] Button "OK"')
+		expect(second).toContain('[e2] Button "Cancel"')
+		await run(tool, { type: 'ui_act', ref: 'e2', action: 'invoke' })
+		expect(acts).toEqual([{ ref: 'other', action: 'invoke' }])
+	})
+
+	it('shows an outline with the regions it hides, opens one by its ref, and keeps the rest valid', async () => {
+		const reads: { windowId: string | undefined; options: unknown }[] = []
+		const outline: UiSnapshot = {
+			windowId: '0x1',
+			outline: true,
+			total: 2400,
+			root: {
+				ref: '',
+				role: 'Document',
+				name: 'Page',
+				children: [
+					{ ref: 'btn', role: 'Button', name: 'Search', actions: ['invoke'] },
+					{
+						ref: 'region-1',
+						role: 'List',
+						name: 'Results',
+						hiddenChildren: 2000,
+					},
+				],
+			},
+		}
+		const region: UiSnapshot = {
+			windowId: '0x1',
+			region: true,
+			total: 2400,
+			root: {
+				ref: 'region-1',
+				role: 'List',
+				name: 'Results',
+				children: [
+					{
+						ref: 'row-1',
+						role: 'ListItem',
+						name: 'First',
+						actions: ['select'],
+					},
+				],
+			},
+		}
+		const { host, acts } = makeUiHost()
+		host.uiSnapshot = async (windowId, options) => {
+			reads.push({ windowId, options })
+			return options?.root ? region : outline
+		}
+		const tool = createComputerUseTool(host, { settleMs: 0 })
+		const first = text(await run(tool, { type: 'ui_snapshot', window_id: '0x1' }))
+		expect(first).toContain('[e2] List "Results" (+2000 more inside)')
+		expect(first).toContain('of 2400')
+		expect(first).toContain('This is an outline')
+		expect(first).toContain('ui_snapshot {root: <its ref>}')
+		const refused = await run(tool, {
+			type: 'ui_act',
+			ref: 'e2',
+			action: 'invoke',
+		})
+		expect(refused.success).toBe(false)
+		expect(refused.error).toContain('is a region with 2000 controls not shown')
+		const opened = text(await run(tool, { type: 'ui_snapshot', root: 'e2' }))
+		expect(opened).toContain('region e2')
+		expect(opened).toContain('ListItem "First"')
+		expect(reads.at(-1)).toEqual({
+			windowId: '0x1',
+			options: { root: 'region-1' },
+		})
+		// The ref from the outline, outside the region, still works.
+		await run(tool, { type: 'ui_act', ref: 'e1', action: 'invoke' })
+		expect(acts).toEqual([{ ref: 'btn', action: 'invoke' }])
+		const bad = await run(tool, { type: 'ui_snapshot', root: 'e77' })
+		expect(bad.success).toBe(false)
+	})
+
+	it('passes an offset with a root and tells the model where the next page begins', async () => {
+		const reads: unknown[] = []
+		const page: UiSnapshot = {
+			windowId: '0x1',
+			region: true,
+			next: 60,
+			root: {
+				ref: 'region-1',
+				role: 'List',
+				name: 'Results',
+				hiddenChildren: 40,
+				children: [{ ref: 'row-1', role: 'ListItem', name: 'First', actions: ['select'] }],
+			},
+		}
+		const { host } = makeUiHost()
+		host.uiSnapshot = async (_windowId, options) => {
+			reads.push(options)
+			return page
+		}
+		const tool = createComputerUseTool(host, { settleMs: 0 })
+		await run(tool, { type: 'ui_snapshot', window_id: '0x1' })
+		const shown = text(await run(tool, { type: 'ui_snapshot', window_id: '0x1', root: 'e1' }))
+		expect(shown).toContain('Next page: ui_snapshot {root: "e1", offset: 60}')
+		await run(tool, { type: 'ui_snapshot', root: 'e1', offset: 60 })
+		expect(reads.at(-1)).toEqual({ root: 'region-1', offset: 60 })
+	})
+
+	it('passes a query to the host and says a typed failure by its code', async () => {
+		const reads: unknown[] = []
+		const { host } = makeUiHost({
+			act: () => ({
+				ok: false,
+				code: 'AMBIGUOUS_TARGET',
+				delivery: 'not_delivered',
+				retrySafety: 'safe',
+				detail: '3 controls fit Button "OK", so nothing was sent.',
+			}),
+		})
+		const base = host.uiSnapshot as NonNullable<ComputerUseHost['uiSnapshot']>
+		host.uiSnapshot = async (windowId, options) => {
+			reads.push(options)
+			return base(windowId, options)
+		}
+		const tool = createComputerUseTool(host, { settleMs: 0 })
+		await run(tool, { type: 'ui_snapshot', query: 'Beş' })
+		expect(reads).toEqual([{ query: 'Beş' }])
+		const failed = await run(tool, {
+			type: 'ui_act',
+			ref: 'e2',
+			action: 'invoke',
+		})
+		expect(failed.success).toBe(false)
+		expect(failed.error).toContain('AMBIGUOUS_TARGET: 3 controls fit Button "OK"')
 	})
 
 	it('refuses an action the control does not offer, and set_value without a value, before acting', async () => {
@@ -473,7 +687,11 @@ describe('computer_use UI tree', () => {
 			],
 		})
 		expect(toggle.error).toContain('Button "Beş" (e2) offers invoke, not toggle. Nothing was run.')
-		const empty = await run(tool, { type: 'ui_act', ref: 'e4', action: 'set_value' })
+		const empty = await run(tool, {
+			type: 'ui_act',
+			ref: 'e4',
+			action: 'set_value',
+		})
 		expect(empty.error).toContain('set_value needs value')
 		expect(acts).toEqual([])
 	})
@@ -488,7 +706,11 @@ describe('computer_use UI tree', () => {
 		const tool = createComputerUseTool(host, { settleMs: 0 })
 		await run(tool, { type: 'screenshot' })
 		await run(tool, { type: 'ui_snapshot' })
-		const result = await run(tool, { type: 'ui_act', ref: 'e2', action: 'invoke' })
+		const result = await run(tool, {
+			type: 'ui_act',
+			ref: 'e2',
+			action: 'invoke',
+		})
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('that control is from an older UI snapshot; take a new one')
 	})
@@ -510,7 +732,8 @@ describe('computer_use UI tree', () => {
 		const result = await run(tool, { type: 'ui_snapshot' })
 		const shown = text(result)
 		expect(shown.length).toBeLessThan(16_000)
-		expect(shown).toMatch(/The tree was cut at 14000 characters after \d+ of 2001 controls/)
+		expect(shown).toMatch(/The listing was cut at 14000 characters after \d+ of 2001 controls/)
+		expect(shown).toContain('Drill into the region you need')
 		expect(result.data).toMatchObject({ uiSnapshot: { truncated: true } })
 	})
 
@@ -524,10 +747,14 @@ describe('computer_use UI tree', () => {
 		// An action returns a screenshot after it; the cursor position does not.
 		expect(captures({ type: 'ui_act', ref: 'e1', action: 'invoke' })).toBe(true)
 		expect(captures({ type: 'cursor_position' })).toBe(false)
-		const blind = createComputerUseTool(makeUiHost().host, { screenshotAfterActions: false })
+		const blind = createComputerUseTool(makeUiHost().host, {
+			screenshotAfterActions: false,
+		})
 		expect(blind.capturesScreen?.({ type: 'key', keys: 'ENTER' })).toBe(false)
 		expect(blind.capturesScreen?.({ type: 'screenshot' })).toBe(true)
-		const unavailable = createComputerUseTool(makeUiHost().host, { unavailableReason: 'no images' })
+		const unavailable = createComputerUseTool(makeUiHost().host, {
+			unavailableReason: 'no images',
+		})
 		expect(unavailable.capturesScreen?.({ type: 'screenshot' })).toBe(false)
 	})
 
@@ -537,7 +764,7 @@ describe('computer_use UI tree', () => {
 		expect(tool.description).not.toContain('WIN+R')
 		expect(tool.description).toContain('refused while a terminal window is in front')
 		const first = text(await run(tool, { type: 'screenshot' }))
-		expect(first).toContain('This host can also read a window’s controls')
+		expect(first).toContain('This host can read a window’s controls')
 		const second = text(await run(tool, { type: 'screenshot' }))
 		expect(second).not.toContain('read a window’s controls')
 		const plain = createComputerUseTool(makeUiHost({ capabilities: { uiTree: false } }).host, {

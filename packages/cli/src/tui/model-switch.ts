@@ -1,3 +1,4 @@
+import { stripModelWindowSuffix } from '@namzu/sdk'
 import { canSelectModel } from '../integrations/providers/access.js'
 import type {
 	DetectedProvider,
@@ -85,7 +86,10 @@ export async function resolveModelSwitch(
 		}
 		signal?.throwIfAborted()
 		listed.set(detected.entry.id, listing)
-		return listing.kind === 'ok' && listing.models.some((candidate) => candidate.id === model)
+		return (
+			listing.kind === 'ok' &&
+			listing.models.some((candidate) => candidate.id === stripModelWindowSuffix(model))
+		)
 	}
 	const resolve = (detected: DetectedProvider): ModelSwitchResolution => ({
 		kind: 'resolved',

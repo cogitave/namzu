@@ -14,6 +14,7 @@ import {
 	mcpJsonSchemaToZod,
 } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { answerModelsListing } from '../../__fixtures__/models-endpoint.js'
 import { __resetCliLoggerForTests } from '../../logging.js'
 import {
 	DEEPSEEK,
@@ -43,7 +44,7 @@ beforeEach(() => {
 	responses = []
 	vi.stubGlobal(
 		'fetch',
-		vi.fn<typeof fetch>(async () => (responses.shift() ?? completion)()),
+		answerModelsListing(vi.fn<typeof fetch>(async () => (responses.shift() ?? completion)())),
 	)
 })
 afterEach(() => {

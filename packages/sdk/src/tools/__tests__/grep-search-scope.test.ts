@@ -78,8 +78,8 @@ describe('grep bounds file discovery before reading', () => {
 		const ctx = context(sandbox)
 		const result = await GrepTool.execute(args({ include: '*.ts', max_results: 1 }), ctx)
 		expect(result.success).toBe(true)
-		expect(result.output).toContain('./first.ts:1:needle')
-		expect(result.output).toMatch(/incomplete|not exhaustive/i)
+		expect(result.output).toContain('first.ts:1:needle')
+		expect(result.output).toMatch(/more results are available/i)
 		expect(result.data).toMatchObject({ totalMatches: 1, truncated: true })
 		expect(closed).toBe(true)
 		expect(sandbox.listFiles).not.toHaveBeenCalled()
@@ -87,8 +87,7 @@ describe('grep bounds file discovery before reading', () => {
 			ROOT,
 			expect.objectContaining({
 				pattern: '**/*.ts',
-				signal: ctx.abortSignal,
-				maxVisitedEntries: 20_000,
+				respectIgnore: true,
 			}),
 		)
 	})
@@ -101,11 +100,11 @@ describe('grep bounds file discovery before reading', () => {
 			})
 		})
 		const result = await GrepTool.execute(args(), context(sandbox))
-		expect(result.success).toBe(false)
-		expect(result.output).toContain('./first.ts:1:needle')
-		expect(result.output).toContain('Search incomplete')
-		expect(result.error).toContain('20000')
-		expect(result.data).toMatchObject({ totalMatches: 1, truncated: true })
+		expect(result.success).toBe(true)
+		expect(result.error).toBeUndefined()
+		expect(result.output).toContain('first.ts:1:needle')
+		expect(result.output).toContain('Search stopped early')
+		expect(result.data).toMatchObject({ totalMatches: 1, truncated: true, incomplete: true })
 	})
 
 	it('does not claim an exhausted search found no matches throughout its scope', async () => {
@@ -164,7 +163,7 @@ describe('grep bounds file discovery before reading', () => {
 		try {
 			const result = await pending
 			expect(result.success).toBe(false)
-			expect(result.output).toContain('./first.ts:1:needle')
+			expect(result.output).toContain('first.ts:1:needle')
 			expect(result.output).toContain('Search incomplete: Operator stopped the search')
 			expect(result.data).toMatchObject({ totalMatches: 1, truncated: true })
 			expect(closed).toBe(true)
@@ -220,7 +219,7 @@ describe('grep bounds file discovery before reading', () => {
 		})
 	})
 
-	it('preserves readable matches while reporting unreadable files as incomplete', async () => {
+	it('preserves readable matches and counts unreadable files without failing', async () => {
 		const sandbox = sandboxWith(async function* () {
 			yield { path: `${ROOT}/first.ts`, size: 7 }
 			yield { path: `${ROOT}/denied.ts`, size: 7 }
@@ -229,10 +228,11 @@ describe('grep bounds file discovery before reading', () => {
 			.mockResolvedValueOnce(Buffer.from('needle'))
 			.mockRejectedValueOnce(new Error('denied'))
 		const result = await GrepTool.execute(args(), context(sandbox))
-		expect(result.success).toBe(false)
-		expect(result.output).toContain('./first.ts:1:needle')
-		expect(result.output).toContain('1 file(s) could not be read')
-		expect(result.data).toMatchObject({ totalMatches: 1, truncated: true })
+		expect(result.success).toBe(true)
+		expect(result.error).toBeUndefined()
+		expect(result.output).toContain('first.ts:1:needle')
+		expect(result.output).toContain('1 file could not be read and was skipped')
+		expect(result.data).toMatchObject({ totalMatches: 1 })
 	})
 
 	it('keeps recursive brace includes, case handling, and context on the real local walker', async () => {
@@ -250,9 +250,9 @@ describe('grep bounds file discovery before reading', () => {
 			ctx,
 		)
 		expect(result.success).toBe(true)
-		expect(result.output).toContain('./src/nested/match.ts-1-before')
-		expect(result.output).toContain('./src/nested/match.ts:2:NEEDLE')
-		expect(result.output).toContain('./src/nested/match.ts-3-after')
+		expect(result.output).toContain('src/nested/match.ts-1-before')
+		expect(result.output).toContain('src/nested/match.ts:2:NEEDLE')
+		expect(result.output).toContain('src/nested/match.ts-3-after')
 		expect(result.output).not.toContain('excluded')
 		expect(result.data).toMatchObject({
 			totalMatches: 1,
@@ -273,7 +273,7 @@ describe('grep bounds file discovery before reading', () => {
 		} as unknown as Sandbox
 		const result = await GrepTool.execute(args(), context(sandbox))
 		expect(result.success).toBe(true)
-		expect(result.output).toContain('./.history:1:needle')
+		expect(result.output).toContain('.history:1:needle')
 	})
 
 	it.skipIf(process.platform === 'win32')(

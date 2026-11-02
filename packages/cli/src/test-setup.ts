@@ -312,3 +312,9 @@ delete process.env.NAMZU_DEBUG
 // The footer's pull request item shells out to `git` and `gh`. No suite may do
 // that by accident; the ones about it inject their own runner.
 process.env.NAMZU_PR_STATUS = 'off'
+
+// The clipboard is the operator's. No suite may reach it by accident: the real
+// command runner refuses to start a clipboard program (pbcopy, pbpaste, xclip,
+// xsel, wl-copy, wl-paste, osascript, tmux, PowerShell) and the image reader
+// reports itself unavailable. A suite about the clipboard injects its own runner.
+process.env.NAMZU_NO_CLIPBOARD = '1'
