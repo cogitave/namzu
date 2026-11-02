@@ -36,6 +36,7 @@ import {
 } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { answerModelsListing } from '../../__fixtures__/models-endpoint.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
 	type DetectedProvider,
@@ -133,10 +134,12 @@ beforeEach(async () => {
 	await mkdir(join(cwd, '.namzu'))
 	vi.stubGlobal(
 		'fetch',
-		vi.fn<typeof fetch>(async (_input, init) => {
-			requests.push(String(init?.body))
-			return done()
-		}),
+		answerModelsListing(
+			vi.fn<typeof fetch>(async (_input, init) => {
+				requests.push(String(init?.body))
+				return done()
+			}),
+		),
 	)
 })
 

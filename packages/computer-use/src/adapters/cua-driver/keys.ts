@@ -109,3 +109,23 @@ export function translateKeyForCuaDriver(combo: string): CuaKeyPlan {
 	const finalKey = key ?? ([...main].length === 1 ? main.toLowerCase() : lower)
 	return { tool: 'hotkey', keys: [...new Set(modifiers), finalKey] }
 }
+
+/**
+ * A combination as a classic menu names it (`Ctrl+O`), or undefined for a key
+ * that is not a combination (no modifier) or whose menu name cannot be known.
+ */
+export function menuAcceleratorOf(combo: string): string | undefined {
+	let plan: CuaKeyPlan
+	try {
+		plan = translateKeyForCuaDriver(combo)
+	} catch {
+		return undefined
+	}
+	if (plan.tool !== 'hotkey' || plan.keys.length < 2) return undefined
+	const main = plan.keys[plan.keys.length - 1] as string
+	if (!/^([a-z0-9]|f([1-9]|1[0-2]))$/i.test(main)) return undefined
+	const names: Record<string, string> = { ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift' }
+	const modifiers = plan.keys.slice(0, -1).map((key) => names[key])
+	if (modifiers.some((name) => name === undefined)) return undefined
+	return [...modifiers, main.toUpperCase()].join('+')
+}

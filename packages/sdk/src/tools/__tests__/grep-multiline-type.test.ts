@@ -41,17 +41,17 @@ describe('grep multiline', () => {
 	it('lets a pattern span lines and prints every covered line', async () => {
 		const root = await project({ 'a.ts': source })
 		const result = await run(root, { pattern: 'a\\(\\) \\{.*?return 1', multiline: true })
-		expect(result.output).toContain('./a.ts:1:function a() {')
-		expect(result.output).toContain('./a.ts:2:  return 1')
-		expect(result.output).not.toContain('./a.ts:3:')
+		expect(result.output).toContain('a.ts:1:function a() {')
+		expect(result.output).toContain('a.ts:2:  return 1')
+		expect(result.output).not.toContain('a.ts:3:')
 		expect(result.data).toMatchObject({ totalMatches: 1 })
 	})
 
 	it('keeps ^ and $ on line boundaries', async () => {
 		const root = await project({ 'a.ts': source })
 		const result = await run(root, { pattern: '^}$', multiline: true })
-		expect(result.output).toContain('./a.ts:3:}')
-		expect(result.output).toContain('./a.ts:6:}')
+		expect(result.output).toContain('a.ts:3:}')
+		expect(result.output).toContain('a.ts:6:}')
 	})
 
 	it('counts matching lines once in count mode', async () => {
@@ -61,7 +61,7 @@ describe('grep multiline', () => {
 			multiline: true,
 			output_mode: 'count',
 		})
-		expect(result.output).toContain('./a.ts:2')
+		expect(result.output).toContain('a.ts:2')
 	})
 
 	it('ends on an empty match without looping', async () => {
@@ -79,7 +79,7 @@ describe('grep type', () => {
 			output_mode: 'files_with_matches',
 			type: 'py',
 		})
-		expect(result.output).toContain('./b.py')
+		expect(result.output).toContain('b.py')
 		expect(result.output).not.toContain('a.ts')
 		expect(result.output).not.toContain('c.md')
 	})
@@ -91,7 +91,7 @@ describe('grep type', () => {
 			output_mode: 'files_with_matches',
 			type: '.typescript',
 		})
-		expect(result.output).toContain('./a.tsx')
+		expect(result.output).toContain('a.tsx')
 		expect(result.output).not.toContain('b.js')
 	})
 

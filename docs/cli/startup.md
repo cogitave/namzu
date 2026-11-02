@@ -204,7 +204,47 @@ directory is a link to one shared folder, as a person's cache outlives a launch;
 <file.json>`, `--models-delay <ms>` (hold the fake server's `GET /models` back that
 long, to show that nothing waits for it). The interactive screen needs `node-pty` from `@namzu/cli`. Each
 metric is reported as median and range over the runs, after one warm-up run.
-Nothing in CI runs it yet.
+The budget gate below is what CI runs; the full table above stays a manual tool.
+
+### The budget gate
+
+```
+node scripts/bench-startup.mjs --check
+```
+
+`--check` is the same machinery as a gate, and CI runs it (the
+`Startup and resume budget gate` step, on both the pull-request and the
+direct-push path). It measures six things on the built CLI, each as a fresh
+process per sample and the **median of at least five** (`--runs` below five is
+refused): `version`, `help`, `exec` to the first model request with stdin an
+open pipe and with `/dev/null`, `tui-ready`, and `resume-request`, which is
+`namzu exec --resume <id>` on a generated session of 400 turns (about 2,400 log
+records and 3.3 MB, written through the SDK's own log writer so the format is the
+shipped one) to the first model request. A resume that did not carry the session's
+history is itself a failure, so the metric cannot quietly measure a fresh start.
+
+Each metric is reported as wall time and CPU time (user plus system, on a ten
+millisecond clock tick) and both are held to a budget. The budgets are in
+`scripts/bench-startup.budgets.json`, not in a flag or an environment variable,
+because a budget a run can loosen is a measurement. A limit is the reference
+median x `ciScale` (3, how much slower a shared runner may be; a first, loose figure because no CI runner had been measured when it was set, to be re-derived from the first runs) x `headroom`
+(1.25, run-to-run noise), with a floor of `minLimitMs` for the tiny figures. The
+references were measured on 2026-11-01 pinned to two cores
+(`taskset -c 4,5`), the largest of three runs' medians, rounded up to the next 10 ms (the figures below are the committed references):
+
+| Metric | Wall ms | CPU ms |
+|---|---|---|
+| `version` | 40 | 30 |
+| `help` | 40 | 30 |
+| `exec` request, stdin pipe | 610 | 410 |
+| `exec` request, stdin `/dev/null` | 490 | 400 |
+| `tui-ready` | 670 | 760 |
+| `resume-request` | 3,440 | 3,830 |
+
+Resuming that session costs about 3.4 seconds before the first request, against
+about 0.5 for a new one; the reference records where it stands today, not where it
+should be. Lower a reference when a change makes something faster, and raise one
+only with the reason in the commit that raises it.
 
 ### The model list does not hold the composer
 

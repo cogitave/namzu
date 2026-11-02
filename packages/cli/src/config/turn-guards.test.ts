@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
-import { loadConfig } from './load.js'
+import { loadConfig, takeConfigWarnings } from './load.js'
 import { resolveTurnGuards } from './turn-guards.js'
 
 const roots: string[] = []
@@ -34,12 +34,66 @@ it('overlays the output and compact-window exports without erasing sibling file 
 })
 
 it.each(['0', '-1', '1.5', 'no', '9007199254740992'])(
-	'refuses invalid exported output/compact sizes: %j',
+	'refuses an invalid exported output size: %j',
 	(value) => {
-		for (const name of ['NAMZU_MAX_OUTPUT_TOKENS', 'NAMZU_AUTO_COMPACT_WINDOW'])
-			expect(() => loadConfig({ ...fixture({}), env: { [name]: value } })).toThrow(name)
+		expect(() => loadConfig({ ...fixture({}), env: { NAMZU_MAX_OUTPUT_TOKENS: value } })).toThrow(
+			'NAMZU_MAX_OUTPUT_TOKENS',
+		)
 	},
 )
+
+it.each([
+	['786k', 786_000],
+	['200000', 200_000],
+	['1m', 1_000_000],
+	['300K', 300_000],
+])('reads the exported compact window %j as %i', (value, tokens) => {
+	takeConfigWarnings()
+	const config = loadConfig({ ...fixture({}), env: { NAMZU_AUTO_COMPACT_WINDOW: value } })
+	expect(config.compaction?.autoCompactWindowTokens).toBe(tokens)
+	expect(takeConfigWarnings()).toEqual([])
+})
+
+it.each([
+	['50000', 100_000, '100k minimum'],
+	['5m', 1_000_000, '1M maximum'],
+	['9007199254740992', 1_000_000, '1M maximum'],
+])('clamps the exported compact window %j to %i with one warning', (value, tokens, wording) => {
+	takeConfigWarnings()
+	const config = loadConfig({ ...fixture({}), env: { NAMZU_AUTO_COMPACT_WINDOW: value } })
+	expect(config.compaction?.autoCompactWindowTokens).toBe(tokens)
+	const warnings = takeConfigWarnings()
+	expect(warnings).toHaveLength(1)
+	expect(warnings[0]).toContain('NAMZU_AUTO_COMPACT_WINDOW')
+	expect(warnings[0]).toContain(wording)
+})
+
+it.each(['no', '0', '-1', ''])(
+	'ignores an exported compact window that is no size: %j',
+	(value) => {
+		takeConfigWarnings()
+		const config = loadConfig({ ...fixture({}), env: { NAMZU_AUTO_COMPACT_WINDOW: value } })
+		expect(config.compaction?.autoCompactWindowTokens).toBeUndefined()
+		expect(takeConfigWarnings().join('\n')).toContain('ignores it')
+	},
+)
+
+it('reads and clamps the configured compact window the same way', () => {
+	takeConfigWarnings()
+	const options = fixture({})
+	writeFileSync(
+		join(options.cwd, 'namzu.config.json'),
+		JSON.stringify({ compaction: { autoCompactWindowTokens: '786k' } }),
+	)
+	expect(loadConfig(options).compaction?.autoCompactWindowTokens).toBe(786_000)
+	writeFileSync(
+		join(options.cwd, 'namzu.config.json'),
+		JSON.stringify({ compaction: { autoCompactWindowTokens: 2_000_000 } }),
+	)
+	expect(loadConfig(options).compaction?.autoCompactWindowTokens).toBe(1_000_000)
+	expect(takeConfigWarnings().join('\n')).toContain('compaction.autoCompactWindowTokens')
+})
+
 afterEach(() => {
 	for (const root of roots.splice(0)) removeTempDir(root)
 })

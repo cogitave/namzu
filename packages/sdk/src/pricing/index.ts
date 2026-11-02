@@ -14,6 +14,7 @@
  * than refreshed, and `rates.source.json` for the rates themselves.
  */
 
+import { stripModelWindowSuffix } from '../compaction/context-window.js'
 import type { ModelPricing } from '../utils/cost.js'
 import { VENDOR_RATES } from './catalogue.generated.js'
 
@@ -35,7 +36,7 @@ const SNAPSHOT_SUFFIX = /[-@]\d{8}$/
 
 /** Lowercase, snapshot suffix removed. Exported because tests assert it. */
 export function normaliseModelId(model: string): string {
-	return model.toLowerCase().replace(SNAPSHOT_SUFFIX, '')
+	return stripModelWindowSuffix(model).toLowerCase().replace(SNAPSHOT_SUFFIX, '')
 }
 
 /**

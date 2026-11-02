@@ -1109,6 +1109,7 @@ export { wrapProviderWithProbes } from './provider/instrumentation.js'
 export type { ProviderInstrumentationOptions } from './provider/instrumentation.js'
 export type { ResolvedProviderCapabilities } from './provider/capabilities.js'
 export { collectChatCompletion } from './provider/collect-chat-completion.js'
+export { withModelWindowSuffixStripped } from './provider/model-window-suffix.js'
 
 // Old spellings of renamed exports, still live for one deprecation window.
 // The file explains why each is a `const`+`type` pair rather than a
@@ -1591,7 +1592,18 @@ export {
 // consumer (`SpanProcessorLike`, then `CompactNowInput` and `CompactionResult`).
 // The gate is the reason this is a list rather than a fourth accident.
 export type { ResolvedContextWindow } from './compaction/context-window.js'
-export { resolveTriggerThreshold } from './compaction/context-window.js'
+export {
+	AUTO_COMPACT_WINDOW_MAX_TOKENS,
+	AUTO_COMPACT_WINDOW_MIN_TOKENS,
+	ONE_MILLION_WINDOW_TOKENS,
+	oneMillionWindowDisabled,
+	parseAutoCompactWindow,
+	resolveAutoCompactWindowSetting,
+	resolveTriggerThreshold,
+	splitModelWindowSuffix,
+	stripModelWindowSuffix,
+} from './compaction/context-window.js'
+export type { AutoCompactWindowParse } from './compaction/context-window.js'
 // What the context window is made of, for a host that draws the answer to
 // "where did my context go".
 export {
@@ -1744,6 +1756,7 @@ export {
 	ChildSessionMetaSchema,
 	CompactionRecordSchema,
 	ExternalRefSchema,
+	IgnorableRecordSchema,
 	MessageRecordSchema,
 	MessageReplacedRecordSchema,
 	OriginSchema,
