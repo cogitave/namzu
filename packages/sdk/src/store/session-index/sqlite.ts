@@ -1,3 +1,4 @@
+import { existsSync, statSync } from 'node:fs'
 import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { basename, dirname, join } from 'node:path'
@@ -305,29 +306,132 @@ async function sweepAbandonedRebuilds(path: string): Promise<void> {
 	}
 }
 
+/** `device:inode` of the file at `path`, or undefined when there is none. */
+function fileIdentity(path: string): string | undefined {
+	try {
+		const { dev, ino } = statSync(path)
+		return `${dev}:${ino}`
+	} catch {
+		return undefined
+	}
+}
+
 function userVersion(db: DatabaseSync): number {
 	return Number(db.prepare('PRAGMA user_version').get()?.user_version)
 }
 
+/** SQLite primary result codes for "the image is malformed" and "the file is not a database". */
+const SQLITE_CORRUPT = 11
+const SQLITE_NOTADB = 26
+
+/** Whether `error` says the file's content is not a usable SQLite database. */
+function isNotADatabase(error: unknown): boolean {
+	const code = (error as { errcode?: unknown } | null)?.errcode
+	return typeof code === 'number' && [SQLITE_CORRUPT, SQLITE_NOTADB].includes(code & 0xff)
+}
+
+const SQLITE_BUSY = 5
+const SQLITE_READONLY = 8
+/** `SQLITE_READONLY_DBMOVED`: the file this connection opened was renamed or unlinked. */
+const SQLITE_READONLY_DBMOVED = 1032
+
+function errcode(error: unknown): number | undefined {
+	const code = (error as { errcode?: unknown } | null)?.errcode
+	return typeof code === 'number' ? code : undefined
+}
+
+/** Whether `error` says another process holds the index locked past the busy timeout. */
+function isBusy(error: unknown): boolean {
+	const code = errcode(error)
+	return code !== undefined && (code & 0xff) === SQLITE_BUSY
+}
+
+/** Whether `error` says the file under this connection was replaced by another process. */
+function isMoved(error: unknown): boolean {
+	const code = errcode(error)
+	return code === SQLITE_READONLY_DBMOVED && (code & 0xff) === SQLITE_READONLY
+}
+
+/** A plain-language error for an index another process keeps locked. */
+function busyError(path: string, cause: unknown): SessionIndexError {
+	return new SessionIndexError(
+		`The session index at ${path} is in use by another process. Try again in a moment.`,
+		{ cause },
+	)
+}
+
 /**
- * The version of the index file at `path`: -1 when there is none, 0 when it
- * cannot be read as a SQLite database, otherwise its `user_version`.
+ * The version of the index file at `path`: -1 when there is none, 0 when its
+ * content is not a SQLite database, otherwise its `user_version`.
+ *
+ * The file is opened for writing, never read-only. A writer that died inside
+ * a transaction leaves a hot journal beside the file, and only a connection
+ * that may write can roll it back; a read-only one fails on it, which used to
+ * read as "not a database" and sent the caller to replace a healthy index,
+ * leaving the dead writer's journal beside the new file for the next
+ * connection to play back into it. Only a SQLite "corrupt" or "not a
+ * database" answer means 0; being busy, read-only or unable to read is thrown,
+ * never a reason to rebuild.
  */
 function indexVersion(path: string): number {
+	if (!existsSync(path)) return -1
 	const { DatabaseSync } = requireSqlite()
-	let db: DatabaseSync
-	try {
-		db = new DatabaseSync(path, { readOnly: true })
-	} catch {
-		return -1
-	}
+	const db = new DatabaseSync(path)
 	try {
 		db.exec('PRAGMA busy_timeout = 10000')
 		return userVersion(db)
-	} catch {
-		return 0
+	} catch (error) {
+		if (isNotADatabase(error)) return 0
+		throw isBusy(error) ? busyError(path, error) : error
 	} finally {
 		db.close()
+	}
+}
+
+/**
+ * Put the finished `temporary` file in place of the index at `path`.
+ *
+ * Takes the old index's exclusive lock first. That waits out a peer that is
+ * mid-write and rolls back a hot journal left by one that died, so no journal
+ * for the old file survives to be played into the new one. A leftover journal
+ * of a file that is not a database is removed too: it can describe nothing
+ * but that file.
+ */
+async function replaceIndexFile(temporary: string, path: string, force: boolean): Promise<boolean> {
+	let old: DatabaseSync | undefined
+	if (existsSync(path)) {
+		const { DatabaseSync } = requireSqlite()
+		old = new DatabaseSync(path)
+		try {
+			old.exec('PRAGMA busy_timeout = 10000')
+			old.exec('BEGIN EXCLUSIVE')
+			// A peer may have finished its own rebuild while this one ran. With the
+			// lock held, nobody can change the file between this check and the
+			// rename, so a current index is left alone rather than replaced under
+			// the connections that already adopted it.
+			if (!force && userVersion(old) === SESSION_INDEX_VERSION) {
+				old.close()
+				old = undefined
+				return false
+			}
+		} catch (error) {
+			old?.close()
+			old = undefined
+			if (!isNotADatabase(error)) throw isBusy(error) ? busyError(path, error) : error
+		}
+	}
+	try {
+		// Windows will not rename over a file that is open, so the lock is let go
+		// first there; elsewhere it is held until the new file is in place.
+		if (process.platform === 'win32') {
+			old?.close()
+			old = undefined
+		}
+		await rm(`${path}-journal`, { force: true })
+		await rename(temporary, path)
+		return true
+	} finally {
+		old?.close()
 	}
 }
 
@@ -371,15 +475,21 @@ export function rebuildSqliteSessionIndex(
  */
 export class SqliteSessionIndex extends SessionIndexBase {
 	readonly backend = 'sqlite' as const
-	readonly #db: DatabaseSync
+	#db: DatabaseSync
+	/** Where `#db` was opened, or undefined for a temporary build file that is never watched. */
+	readonly #path: string | undefined
+	/** Identity of the file `#db` has open, to notice another process replacing it. */
+	#identity: string | undefined
 	readonly #sink: IndexSink
 	readonly #statements = new Map<string, StatementSync>()
 	#open = true
 
 	/** Wraps an open database whose schema is current. Use {@link SqliteSessionIndex.open}. */
-	private constructor(db: DatabaseSync) {
+	private constructor(db: DatabaseSync, path?: string) {
 		super()
 		this.#db = db
+		this.#path = path
+		this.#identity = path === undefined ? undefined : fileIdentity(path)
 		const run = (sql: string, ...values: SQLInputValue[]) => {
 			this.#statement(sql).run(...values)
 		}
@@ -583,8 +693,7 @@ export class SqliteSessionIndex extends SessionIndexBase {
 			if (!options.force && (await pathExists(options.path))) {
 				if (indexVersion(options.path) === SESSION_INDEX_VERSION) return false
 			}
-			await rename(temporary, options.path)
-			return true
+			return await replaceIndexFile(temporary, options.path, options.force === true)
 		} finally {
 			await rm(temporary, { force: true })
 			await rm(`${temporary}-journal`, { force: true })
@@ -615,13 +724,55 @@ export class SqliteSessionIndex extends SessionIndexBase {
 			db.close()
 			throw error
 		}
-		const index = new SqliteSessionIndex(db)
+		const index = new SqliteSessionIndex(db, options.path)
 		await index.sync(options.home)
 		return index
 	}
 
+	/**
+	 * Another process rebuilt the index and renamed a new file over it: this
+	 * connection still has the old, unlinked file, whose reads go stale and
+	 * whose writes fail with SQLITE_READONLY_DBMOVED. Reopen the file now at
+	 * the path. A no-op for a temporary build file, and when the path holds
+	 * nothing to adopt.
+	 */
+	#reopenIfReplaced(force = false): void {
+		const path = this.#path
+		if (path === undefined || !this.#open) return
+		const identity = fileIdentity(path)
+		if (identity === undefined || (!force && identity === this.#identity)) return
+		const { DatabaseSync } = requireSqlite()
+		const db = new DatabaseSync(path)
+		try {
+			configure(db)
+			if (userVersion(db) !== SESSION_INDEX_VERSION) {
+				throw new SessionIndexError(`The index at ${path} changed version while in use.`)
+			}
+		} catch (error) {
+			db.close()
+			throw error
+		}
+		const previous = this.#db
+		this.#statements.clear()
+		this.#db = db
+		this.#identity = fileIdentity(path)
+		try {
+			previous.close()
+		} catch {
+			// The old file is already unlinked; nothing is lost if it will not close.
+		}
+	}
+
 	protected transaction<T>(work: (sink: IndexSink) => T): T {
-		this.#db.exec('BEGIN IMMEDIATE')
+		this.#reopenIfReplaced()
+		try {
+			this.#db.exec('BEGIN IMMEDIATE')
+		} catch (error) {
+			// Nothing has run yet, so the work can start again on the new file.
+			if (!isMoved(error)) throw error
+			this.#reopenIfReplaced(true)
+			this.#db.exec('BEGIN IMMEDIATE')
+		}
 		try {
 			const result = work(this.#sink)
 			this.#db.exec('COMMIT')
@@ -643,10 +794,12 @@ export class SqliteSessionIndex extends SessionIndexBase {
 	}
 
 	#all(sql: string, ...values: SQLInputValue[]): Row[] {
+		this.#reopenIfReplaced()
 		return this.#statement(sql).all(...values) as Row[]
 	}
 
 	protected readSession(sessionId: SessionId): SessionRow | undefined {
+		this.#reopenIfReplaced()
 		const row = this.#statement('SELECT * FROM sessions WHERE id = ?').get(sessionId) as
 			| Row
 			| undefined
@@ -707,6 +860,7 @@ export class SqliteSessionIndex extends SessionIndexBase {
 		kind: ExternalRefKind,
 		externalId: string,
 	): Promise<ExternalRefTarget | undefined> {
+		this.#reopenIfReplaced()
 		const row = this.#db
 			.prepare(
 				`SELECT * FROM external_refs WHERE protocol = ? AND kind = ? AND external_id = ?
@@ -749,6 +903,7 @@ export class SqliteSessionIndex extends SessionIndexBase {
 			values.push(options.sessionId)
 		}
 		const clause = where.length === 0 ? '' : `WHERE ${where.join(' AND ')}`
+		this.#reopenIfReplaced()
 		const statement = this.#db.prepare(
 			`SELECT text, session_id, turn_id, seq, part, source, tool_name, is_error FROM evidence_fts
 			${clause} ORDER BY session_id, seq, part`,
