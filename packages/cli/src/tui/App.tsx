@@ -70,6 +70,7 @@ import {
 } from './BackgroundJobsPanel.js'
 import { ProviderSetup } from './ProviderSetup.js'
 import { TranscriptScreen } from './TranscriptScreen.js'
+import { backgroundRows, isRowRunning } from './background-view.js'
 
 import {
 	pinTrustedProjectPath,
@@ -88,6 +89,7 @@ import {
 import type { PlanApprovalAnswer, PlanApprovalFn, PlanApprovalRequest } from '../plan/approval.js'
 
 import { resolveComposerTriggers } from '../config/composer-triggers.js'
+import { setUserConfigValue } from '../config/user-config.js'
 import {
 	bindAccount,
 	findAccountByName,
@@ -203,9 +205,7 @@ import {
 	type SubagentActivity,
 	type SubagentNarrationLine,
 } from '../integrations/subagents/activity.js'
-import type { Batch } from '../integrations/subagents/batches.js'
 import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
-import { agentsSlashCommand } from '../integrations/subagents/slash.js'
 import { readFolderGrants } from '../integrations/trust/folder-grants.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { completionNotice } from '../integrations/workflows/notice.js'
@@ -311,7 +311,6 @@ import {
 } from './AgentExplorer.js'
 import { BackgroundAgentRows } from './BackgroundAgentRows.js'
 import { BrandHeader } from './BrandHeader.js'
-import { checklistProgress } from './Checklist.js'
 import { ChoicePicker, type ChoicePickerOption } from './ChoicePicker.js'
 import {
 	Composer,
@@ -563,7 +562,6 @@ import {
 	applyTaskOperation,
 	removeTask,
 	taskOperationFor,
-	taskReportChecklist,
 	upsertTask,
 } from './task-activity.js'
 import { eraseLastChoiceGrapheme } from './terminal-choice-text.js'
@@ -666,7 +664,6 @@ import {
 	kernelCommandDescriptors,
 	mergeHostCommands,
 	parseSlash,
-	renderAgents,
 	renderOutcome,
 	reviewPrompt,
 	runSlash,
@@ -918,19 +915,6 @@ type ChoicePickerState = {
 			readonly values: readonly CommandPickerEntry[]
 			readonly options: readonly ChoicePickerOption[]
 			readonly windowSize: number
-	  }
-	| {
-			/**
-			 * `/agents batches`. `values` holds `'loading'` alone while the index
-			 * read is still in flight — its lone option carries a `disabledReason`,
-			 * so Enter cannot select it — and is replaced with the resolved rows
-			 * once it settles; never a mix of the two.
-			 */
-			readonly kind: 'agent-batches'
-			readonly title: string
-			readonly notice?: string
-			readonly values: readonly (Batch | 'loading')[]
-			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
 			/** `/workflows`: the runs of this conversation; `values` are their run ids. */
@@ -1386,8 +1370,9 @@ const LIVE_FURNITURE_ROWS = 10
 
 type JobSurface = {
 	readonly ownerSession: AgentSession
-	readonly selectedJobId: string | null
-	readonly detailJobId: string | null
+	/** A row key from `backgroundRows`: `job:<id>` or `agent:<viewId>`. */
+	readonly selectedKey: string | null
+	readonly detailKey: string | null
 	readonly tailOffset: number
 	readonly busyJobId?: string
 	readonly notice?: string
@@ -1958,6 +1943,17 @@ function AppBody({
 	 * whole list to draw the block it leaves in the transcript.
 	 */
 	const tasksRef = useRef<readonly TaskListItem[]>([])
+	/**
+	 * Whether the checklist is open above the message box (every task, up to five
+	 * rows) or folded to the one current step. Ctrl+T flips it and saves the choice.
+	 * A task the model creates or changes opens it for this run without saving, but
+	 * the panel then waits until the transcript's own copy of the list has scrolled
+	 * out of view, so one list is never drawn twice at once; `checklistPinned` is
+	 * the operator's own "open", which is drawn at once.
+	 */
+	const [checklistExpanded, setChecklistExpanded] = useState(ctx.tui?.showExpandedTodos === true)
+	const [checklistPinned, setChecklistPinned] = useState(ctx.tui?.showExpandedTodos === true)
+	const checklistOpenRef = useRef(false)
 	// Bumped to reset the <Static> transcript log (on /clear, /clear-screen and /resume).
 	const [resetKey, setResetKey] = useState<number>(0)
 	/**
@@ -2469,7 +2465,7 @@ function AppBody({
 	/** The most recent cockpit request, so an older one cannot report on its behalf. */
 	const cockpitOpenTokenRef = useRef(0)
 	/**
-	 * Ctrl+T and `/agents`: open the cockpit, and when nothing is on screen
+	 * `←` on an empty composer, `↓` and `/tasks` Enter: open the cockpit, and when nothing is on screen
 	 * yet, WAIT for the saved evidence before answering.
 	 *
 	 * The waiting is the point. A conversation's children may exist only on
@@ -2515,16 +2511,17 @@ function AppBody({
 		}
 		void openAgentCockpit()
 	}, [openAgentCockpit, setRailFocus])
-	/** The shells screen `/jobs` opens; the footer's pill reaches the same one. */
-	const openShellJobs = useCallback(() => {
+	/** The Background dialog `/tasks` opens; the footer's pill reaches the same one. */
+	const openBackgroundTasks = useCallback(() => {
 		if (!session) return
-		setJobSnapshot({ ownerSession: session, jobs: session.jobs?.() ?? [] })
-		setJobClock(Date.now())
 		const current = session.jobs?.() ?? []
+		setJobSnapshot({ ownerSession: session, jobs: current })
+		setJobClock(Date.now())
+		const entries = backgroundRows(current, subagentsRef.current)
 		setJobSurface({
 			ownerSession: session,
-			selectedJobId: current.find((job) => job.status === 'running')?.id ?? current[0]?.id ?? null,
-			detailJobId: null,
+			selectedKey: (entries.find(isRowRunning) ?? entries[0])?.key ?? null,
+			detailKey: null,
 			tailOffset: 0,
 		})
 	}, [session, setJobSurface])
@@ -3918,107 +3915,6 @@ function AppBody({
 	)
 
 	/**
-	 * `/agents [running|available|batches]`, answered by the delegation UI's
-	 * `agentsSlashCommand` over this session's live monitor and the batches the
-	 * session index holds. A `batches` answer opens a picker immediately with a
-	 * disabled loading row, then replaces it once the listing resolves; the
-	 * composer stays reachable the whole time. A stale read is dropped by
-	 * comparing `choicePickerRef.current` against the exact loading-picker
-	 * object this call put there.
-	 */
-	const runAgentsCommand = useCallback(
-		(args: readonly string[], openCockpit: () => void, listAvailable: () => void): void => {
-			const wantsBatches = args.length === 1 && args[0] === 'batches'
-			const pending: ChoicePickerState | undefined = wantsBatches
-				? {
-						kind: 'agent-batches',
-						title: 'Batches',
-						values: ['loading'],
-						options: [
-							{
-								label: 'Loading…',
-								description: 'Reading saved batches…',
-								// A disabled row shows its reason in place of its description.
-								disabledReason: 'Reading saved batches…',
-							},
-						],
-					}
-				: undefined
-			if (pending) {
-				setSelectedChoice(0)
-				setChoicePicker(pending)
-			}
-			void (async () => {
-				const result = await agentsSlashCommand(args, {
-					liveAgents: () => subagentsRef.current,
-					...(session?.listSavedBatches ? { savedBatches: session.listSavedBatches } : {}),
-				})
-				if (appLifetime.signal.aborted) return
-				if (pending && choicePickerRef.current !== pending) return
-				switch (result.kind) {
-					case 'agent-cockpit':
-						openCockpit()
-						return
-					case 'available-agents':
-						listAvailable()
-						return
-					case 'message':
-						if (pending) setChoicePicker(null)
-						pushMessage('system', result.content)
-						return
-					case 'batches':
-						setChoicePicker({
-							kind: 'agent-batches',
-							title: 'Batches',
-							notice:
-								result.listing.omitted > 0
-									? `${result.listing.omitted} older batch${result.listing.omitted === 1 ? '' : 'es'} not shown.`
-									: undefined,
-							values: result.listing.batches,
-							options: result.listing.batches.map(batchOption),
-						})
-						return
-				}
-			})()
-		},
-		[appLifetime, pushMessage, session, setChoicePicker, setSelectedChoice],
-	)
-	/**
-	 * Opens an `/agents batches` selection straight into its first agent's
-	 * transcript — where the replayed banner actually lives, for a finished
-	 * batch — rather than the phase/agent list Ctrl+T lands on.
-	 *
-	 * A finished batch's children are hydrated from their logs first, since a
-	 * batch this operator has not opened the cockpit for yet may not be in
-	 * `subagents` at all. A live batch skips that: it is already there.
-	 */
-	const openBatch = useCallback(
-		async (batch: Batch): Promise<void> => {
-			if (!batch.live) await hydrateSavedChildren()
-			const workflow = agentWorkflows(subagentsRef.current, workflowRunsRef.current).find(
-				(candidate) => candidate.agents.some((agent) => agent.workflowId === batch.id),
-			)
-			const firstPhase = workflow?.phases[0]
-			const firstAgent = firstPhase?.agents[0]
-			if (!firstPhase || !firstAgent) {
-				pushMessage(
-					'system',
-					`Could not open "${batch.name}" — its saved children are no longer available.`,
-				)
-				return
-			}
-			setAgentSurface({
-				kind: 'transcript',
-				selectedPhaseId: firstPhase.id,
-				selectedId: firstAgent.viewId,
-				returnFocus: 'agents',
-				tailOffset: 0,
-			})
-		},
-		[hydrateSavedChildren, pushMessage, setAgentSurface],
-	)
-
-	/**
 	 * Delegated work writes three kinds of row into settled history (see
 	 * `agent-transcript-rows.ts`): a launch receipt per batch, then one
 	 * completion row per agent. Each is exactly-once, gated by its own set,
@@ -5141,11 +5037,6 @@ function AppBody({
 				if (child) setChoicePicker({ ...child, back: picker })
 				return
 			}
-			if (picker.kind === 'agent-batches') {
-				if (value === 'loading') return
-				void openBatch(value as Batch)
-				return
-			}
 			if (picker.kind === 'workflow-runs') {
 				const run = workflowRunsRef.current.find((item) => item.runId === value)
 				if (run && !openWorkflowFromRail(run.groupId)) {
@@ -5265,7 +5156,6 @@ function AppBody({
 			archiveCurrentConversation,
 			ctx.cwd,
 			enqueueQueued,
-			openBatch,
 			pushMessage,
 			recordFeedback,
 			removeStoredCredential,
@@ -6621,8 +6511,11 @@ function AppBody({
 		furnitureRows: LIVE_FURNITURE_ROWS + fullToolFurniture + pendingInputFurniture,
 		raw: rawOutput,
 	})
-	const liveTasks = checklistShown ? [] : tasks
-	const fullTaskFurniture = taskListRows(liveTasks)
+	const checklistOpen =
+		checklistExpanded && tasks.length > 0 && (checklistPinned || !checklistShown)
+	checklistOpenRef.current = checklistOpen
+	const liveTasks = checklistOpen || !checklistShown ? tasks : []
+	const fullTaskFurniture = taskListRows(liveTasks, checklistOpen)
 	// The plan's next task, drawn under the working row; never from a sub-agent's plan.
 	const nextPlanned = nextTask(tasks)
 	// The working row names the step in progress, in the model's own words.
@@ -7539,7 +7432,7 @@ function AppBody({
 				}
 			}
 			// The scope now names the resumed conversation, so its finished
-			// children are readable. Without this the first Ctrl+T after a resume
+			// children are readable. Without this the first cockpit open after a resume
 			// would have nothing to find.
 			void hydrateSavedChildren()
 			conversationMaterializedRef.current = true
@@ -8074,88 +7967,95 @@ function AppBody({
 	 * the screen would go on showing it, and the copy would be missing the last
 	 * thing the operator watched arrive.
 	 */
-	const doFork = useCallback(async () => {
-		if (palDefinitionRef.current) {
-			pushMessage(
-				'system',
-				'Forking Pal conversations is not available yet. Use /new for a separately claimed conversation.',
-			)
-			return
-		}
-		if (conversationMutationRef.current) return
-		if (abortRef.current) {
-			pushMessage(
-				'system',
-				'A reply is still running. Forking now would copy a conversation whose last reply is not in it yet — press esc to stop it, then fork.',
-			)
-			return
-		}
-		if (hasUnsettledTurn()) {
-			pushMessage(
-				'system',
-				'A reply was stopped and is still being saved. Wait for it to finish before forking.',
-			)
-			return
-		}
-		if (roundQueueRef.current.items().length > 0) {
-			pushMessage(
-				'system',
-				'Queued prompts have not run yet. Wait for them to finish before forking.',
-			)
-			return
-		}
-
-		conversationMutationRef.current = 'fork'
-		setConversationMutation('fork')
-		try {
-			const scope = await materializeConversation()
-			const sessions = sessionsRef.current
-			if (!sessions || !scope) {
-				pushMessage('system', 'Conversation history is unavailable in this folder.')
+	const doFork = useCallback(
+		async (title?: string) => {
+			if (palDefinitionRef.current) {
+				pushMessage(
+					'system',
+					'Forking Pal conversations is not available yet. Use /new for a separately claimed conversation.',
+				)
 				return
 			}
-			// The settlement guard above establishes that no current-generation
-			// turn can attach another write after this read. The remaining tail may
-			// still be writing, so the fork waits for that exact durable snapshot.
-			await persistenceTailRef.current
-			const original = scope.sessionId
-			const forked = await forkConversation(sessions, original)
-			// The fork owns the displayed history, except for host-only results
-			// delivered to the original conversation's sidecar inbox.
-			scope.sessionId = forked.id
-			// The copy's own history: the original's messages name ids the copy's
-			// log never gave out, and the next send would be refused.
-			modelHistoryRef.current = forked.messages
-			resetTranscript()
-			setMessages((previous) => previous.filter((message) => !message.sourceDelivery))
-			sourceDeliveryPollRef.current()
-			resetSubagentActivity()
-			void hydrateSavedChildren()
-			session?.resetTaskStore?.()
-			goalActivation.clear()
-			wakeGoalDriver()
-			pushMessage(
-				'system',
-				`Forked into "${displayConversationTitle(forked.title)}" — ${plural(forked.copied, 'message')} copied. This screen continues in the copy; ${original} is unchanged and still in /resume.`,
-			)
-		} catch (err) {
-			pushSystem('error', explainFailure(err, 'Could not fork.'))
-		} finally {
-			conversationMutationRef.current = null
-			setConversationMutation(null)
-		}
-	}, [
-		goalActivation,
-		hasUnsettledTurn,
-		materializeConversation,
-		pushMessage,
-		hydrateSavedChildren,
-		resetTranscript,
-		resetSubagentActivity,
-		session,
-		wakeGoalDriver,
-		pushSystem,
-	])
+			if (conversationMutationRef.current) return
+			if (abortRef.current) {
+				pushMessage(
+					'system',
+					'A reply is still running. Forking now would copy a conversation whose last reply is not in it yet — press esc to stop it, then fork.',
+				)
+				return
+			}
+			if (hasUnsettledTurn()) {
+				pushMessage(
+					'system',
+					'A reply was stopped and is still being saved. Wait for it to finish before forking.',
+				)
+				return
+			}
+			if (roundQueueRef.current.items().length > 0) {
+				pushMessage(
+					'system',
+					'Queued prompts have not run yet. Wait for them to finish before forking.',
+				)
+				return
+			}
+
+			conversationMutationRef.current = 'fork'
+			setConversationMutation('fork')
+			try {
+				const scope = await materializeConversation()
+				const sessions = sessionsRef.current
+				if (!sessions || !scope) {
+					pushMessage('system', 'Conversation history is unavailable in this folder.')
+					return
+				}
+				// The settlement guard above establishes that no current-generation
+				// turn can attach another write after this read. The remaining tail may
+				// still be writing, so the fork waits for that exact durable snapshot.
+				await persistenceTailRef.current
+				const original = scope.sessionId
+				const forked = await forkConversation(sessions, original)
+				if (title) {
+					await setTitle(sessions, forked.id, title)
+					forked.title = title
+				}
+				// The fork owns the displayed history, except for host-only results
+				// delivered to the original conversation's sidecar inbox.
+				scope.sessionId = forked.id
+				// The copy's own history: the original's messages name ids the copy's
+				// log never gave out, and the next send would be refused.
+				modelHistoryRef.current = forked.messages
+				resetTranscript()
+				setMessages((previous) => previous.filter((message) => !message.sourceDelivery))
+				sourceDeliveryPollRef.current()
+				resetSubagentActivity()
+				void hydrateSavedChildren()
+				session?.resetTaskStore?.()
+				goalActivation.clear()
+				wakeGoalDriver()
+				pushMessage(
+					'system',
+					`Forked into "${displayConversationTitle(forked.title)}" — ${plural(forked.copied, 'message')} copied. This screen continues in the copy; ${original} is unchanged and still in /resume.`,
+				)
+			} catch (err) {
+				pushSystem('error', explainFailure(err, 'Could not fork.'))
+			} finally {
+				conversationMutationRef.current = null
+				setConversationMutation(null)
+			}
+		},
+		[
+			goalActivation,
+			hasUnsettledTurn,
+			materializeConversation,
+			pushMessage,
+			hydrateSavedChildren,
+			resetTranscript,
+			resetSubagentActivity,
+			session,
+			wakeGoalDriver,
+			pushSystem,
+		],
+	)
 
 	/** Open the rewind picker after the composer's second empty Esc, or `/rewind`. */
 	const openPromptEditor = useCallback(() => {
@@ -9336,6 +9236,7 @@ function AppBody({
 					}
 					const checklist = tasksRef.current
 					setTasks(checklist)
+					if (operation && !event.removed) setChecklistExpanded(true)
 					if (operation) writeTaskBlock(st, operation, checklist)
 					break
 				}
@@ -10506,7 +10407,7 @@ function AppBody({
 						}
 						if (pending.ownerSession.jobs?.().some((job) => job.status === 'running')) {
 							throw new Error(
-								'Background jobs are still running. Wait for them to finish before switching models.',
+								'Background tasks are still running. Wait for them to finish before switching models.',
 							)
 						}
 					}
@@ -11701,27 +11602,6 @@ function AppBody({
 						} else pushMessage('system', 'Usage: /peers [list|on|off|send <ref> <message>]')
 						return
 					}
-					case 'agents': {
-						const agentIds = session?.agentIds ?? []
-						runAgentsCommand(
-							slash.args,
-							() => {
-								// Reported after the read, not before it: the answer to "are
-								// there any" may be in the session's logs, and a conversation
-								// whose children are recorded there must never be told it
-								// delegated nothing.
-								void openAgentCockpit().then((opened) => {
-									if (opened) return
-									pushMessage(
-										'system',
-										`No delegated agents in this conversation.${agentIds.length ? `\nAvailable: ${agentIds.join(', ')}` : '\nNo agents are configured.'}`,
-									)
-								})
-							},
-							() => pushMessage('system', renderAgents(agentIds)),
-						)
-						return
-					}
 					case 'workflows': {
 						const source = session?.workflows
 						if (!source) {
@@ -11760,12 +11640,12 @@ function AppBody({
 						void runDoctorInSession()
 						return
 					}
-					case 'jobs': {
+					case 'tasks': {
 						if (!session) {
-							pushMessage('system', 'Shell jobs are available once the conversation starts.')
+							pushMessage('system', 'Background tasks are available once the conversation starts.')
 							return
 						}
-						openShellJobs()
+						openBackgroundTasks()
 						return
 					}
 					case 'abandon': {
@@ -12498,7 +12378,7 @@ function AppBody({
 						void doTitle(slash.title, slash.clear)
 						return
 					case 'fork':
-						void doFork()
+						void doFork(slash.title)
 						return
 					case 'worktree': {
 						const [verb = 'list', label, extra] = slash.args
@@ -12711,21 +12591,10 @@ function AppBody({
 								if (goalCommand) await materializeConversation()
 								const durableSessions = sessionsRef.current
 								const sessionScope = scopeRef.current
-								const taskStore = slash.name === 'tasks' ? session?.currentTaskStore?.() : undefined
-								if (slash.name === 'tasks' && !taskStore) {
-									pushMessage(
-										'system',
-										session?.currentTaskStore
-											? 'No task list is available yet for this conversation.'
-											: 'Task listing is unavailable in this conversation.',
-									)
-									return
-								}
 								const registry = new HostCommandRegistry()
 								registry.register(
 									kernelHostCommands({
 										allowedAgentIds: session?.agentIds ?? [],
-										...(taskStore ? { taskStore } : {}),
 										...(durableSessions && sessionScope && conversationMaterializedRef.current
 											? {
 													goal: {
@@ -12751,26 +12620,6 @@ function AppBody({
 								// A late readout from the conversation just left must not be
 								// painted as state of the one now on screen.
 								if (conversationGenRef.current !== generation) return
-								const checklist =
-									slash.name === 'tasks' && outcome?.kind === 'report'
-										? taskReportChecklist(outcome.rows)
-										: undefined
-								if (checklist) {
-									// Drawn by the same checklist as the transcript's task
-									// blocks: the same marks, and no id or owner column.
-									const id = nextId()
-									setMessages((prev) => [
-										...prev,
-										{
-											id,
-											role: 'system',
-											content:
-												checklist.length === 0 ? 'No tasks yet.' : checklistProgress(checklist),
-											...(checklist.length > 0 ? { checklist } : {}),
-										},
-									])
-									return
-								}
 								pushMessage(
 									'system',
 									outcome
@@ -13291,7 +13140,6 @@ function AppBody({
 			materializeConversation,
 			nextId,
 			openAgentCockpit,
-			runAgentsCommand,
 			abandonActiveTurn,
 			pushMessage,
 			rawOutput,
@@ -14524,35 +14372,47 @@ function AppBody({
 				if (answer.kind === 'approve-rule') rulesChanged(answer.allows)
 				return
 			}
-			// The shell view observes only this AgentSession's jobs. Consent always
-			// takes precedence above; the composer stays mounted but hidden below.
+			// The Background dialog lists this AgentSession's commands and monitors and
+			// this conversation's subagents. Consent always takes precedence above; the
+			// composer stays mounted but hidden below.
 			const shellView = jobSurfaceRef.current
 			if (shellView) {
 				if (shellView.ownerSession !== session) {
 					setJobSurface(null)
 					return
 				}
-				// The Return that submitted /jobs must not also inspect or stop a
+				// The Return that submitted /tasks must not also inspect or stop a
 				// row before the new screen has painted.
 				if (jobSurfaceCommittedRef.current !== shellView) return
-				if (isAction('app:interrupt', input, key) || input.toLowerCase() === 'q') {
+				if (isAction('app:interrupt', input, key)) {
 					setJobSurface(null)
 					return
 				}
-				if (key.escape) {
-					setJobSurface(
-						shellView.detailJobId ? { ...shellView, detailJobId: null, tailOffset: 0 } : null,
-					)
+				const entries = backgroundRows(backgroundJobs, subagentsRef.current)
+				const selectedId = shellView.detailKey ?? shellView.selectedKey ?? entries[0]?.key
+				const selectedEntry = entries.find((entry) => entry.key === selectedId)
+				if (shellView.detailKey) {
+					// Detail: ← goes back to the list; esc, enter and space close the dialog.
+					if (key.leftArrow) {
+						setJobSurface({ ...shellView, detailKey: null, tailOffset: 0, notice: undefined })
+						return
+					}
+					if (key.escape || key.return || input === ' ') {
+						setJobSurface(null)
+						return
+					}
+				} else if (key.escape) {
+					setJobSurface(null)
 					return
 				}
-				const selectedId = shellView.detailJobId ?? shellView.selectedJobId ?? backgroundJobs[0]?.id
-				const selectedJob = backgroundJobs.find((job) => job.id === selectedId)
-				if (
-					input.toLowerCase() === 'x' &&
-					selectedJob?.status === 'running' &&
-					session?.stopJob &&
-					!shellView.busyJobId
-				) {
+				if (input.toLowerCase() === 'x' && selectedEntry && isRowRunning(selectedEntry)) {
+					if (selectedEntry.kind === 'agent') {
+						// The row moves to Completed by itself once the child reports its end.
+						session?.stopSubagent?.(selectedEntry.agent.viewId)
+						return
+					}
+					const selectedJob = selectedEntry.job
+					if (!session?.stopJob || shellView.busyJobId) return
 					const owner = session
 					const stopJob = owner.stopJob
 					if (!stopJob) return
@@ -14594,10 +14454,10 @@ function AppBody({
 					)
 					return
 				}
-				if (shellView.detailJobId) {
+				if (shellView.detailKey && selectedEntry?.kind === 'job') {
 					let output: BackgroundJobOutput | undefined
 					try {
-						output = session?.readJob?.(shellView.detailJobId)
+						output = session?.readJob?.(selectedEntry.job.id)
 					} catch {
 						output = undefined
 					}
@@ -14630,11 +14490,23 @@ function AppBody({
 						})
 					return
 				}
-				if (key.return && selectedJob) {
+				if (key.return && selectedEntry) {
+					if (selectedEntry.kind === 'agent') {
+						// A subagent opens in the transcript view the agents rail uses.
+						setJobSurface(null)
+						setAgentSurface({
+							kind: 'transcript',
+							selectedPhaseId: selectedEntry.agent.phaseId,
+							selectedId: selectedEntry.agent.viewId,
+							returnFocus: 'agents',
+							tailOffset: 0,
+						})
+						return
+					}
 					setJobSurface({
 						...shellView,
-						selectedJobId: selectedJob.id,
-						detailJobId: selectedJob.id,
+						selectedKey: selectedEntry.key,
+						detailKey: selectedEntry.key,
 						tailOffset: 0,
 						notice: undefined,
 					})
@@ -14643,25 +14515,25 @@ function AppBody({
 				if (key.home || key.end || key.pageUp || key.pageDown || key.upArrow || key.downArrow) {
 					const current = Math.max(
 						0,
-						backgroundJobs.findIndex((job) => job.id === shellView.selectedJobId),
+						entries.findIndex((entry) => entry.key === shellView.selectedKey),
 					)
 					const page = backgroundJobsPageSize(terminal.rows)
 					const next = key.home
 						? 0
 						: key.end
-							? backgroundJobs.length - 1
+							? entries.length - 1
 							: key.pageUp
 								? Math.max(0, current - page)
 								: key.pageDown
-									? Math.min(backgroundJobs.length - 1, current + page)
+									? Math.min(entries.length - 1, current + page)
 									: key.upArrow
 										? Math.max(0, current - 1)
-										: Math.min(backgroundJobs.length - 1, current + 1)
-					const job = backgroundJobs[next]
-					if (job)
+										: Math.min(entries.length - 1, current + 1)
+					const entry = entries[next]
+					if (entry)
 						setJobSurface({
 							...shellView,
-							selectedJobId: job.id,
+							selectedKey: entry.key,
 							notice: undefined,
 						})
 				}
@@ -14717,7 +14589,7 @@ function AppBody({
 						// `main` is the way back from a viewed agent to the conversation.
 						if (viewingAgentRef.current !== null) setAgentSurface(null)
 					} else if (railTarget === SHELLS_FOCUS) {
-						openShellJobs()
+						openBackgroundTasks()
 					} else if (selectedWorkflow) {
 						openWorkflowFromRail(selectedWorkflow.id, selectedWorkflow.focusId)
 					} else if (selected) {
@@ -14766,19 +14638,16 @@ function AppBody({
 					setRailFocus(null)
 				}
 			}
-			if (isAction('app:openAgents', input, key)) {
-				if (agentSurfaceRef.current) {
-					setAgentSurface(null)
-					return
-				}
-				if (openCockpitFromCurrentRows()) {
-					void hydrateSavedChildren()
-					return
-				}
-				// Nothing on screen yet. The conversation's children may exist only
-				// as saved evidence, so the request outlives that read rather than
-				// being answered by an empty snapshot.
-				void openAgentCockpit()
+			if (isAction('app:toggleTodos', input, key)) {
+				const next = !checklistOpenRef.current
+				setChecklistExpanded(next)
+				setChecklistPinned(next)
+				// Saved like the other display choices; a file that cannot be written
+				// still leaves the checklist as pressed for this run.
+				try {
+					setUserConfigValue(['tui', 'showExpandedTodos'], next)
+				} catch {}
+				return
 			}
 			// Child observation owns navigation, but never outranks consent: the
 			// permission branch above preempts it if a child or parent call asks.
@@ -15784,7 +15653,7 @@ function AppBody({
 						jobSurface === null &&
 						permission === null &&
 						scheduleReviewPrompt === null ? (
-							<TaskList tasks={liveTasks} />
+							<TaskList tasks={liveTasks} expanded={checklistOpen} />
 						) : null}
 						{/* Siblings, not a ternary. The overlay used to REPLACE the
 						    composer, which unmounted it and destroyed whatever the
@@ -16152,6 +16021,9 @@ function AppBody({
 							footerKeysLive && railFocus === null && (runningShellCount > 0 || railHasRows)
 						}
 						shellsSelected={railFocus === SHELLS_FOCUS}
+						{...(tasks.length > 0 && showComposerSurface && !childSurfaceOpen
+							? { tasksOpen: checklistOpen }
+							: {})}
 						{...(railHintText !== undefined ? { railHint: railHintText } : {})}
 					/>
 				)}
@@ -16251,9 +16123,9 @@ function AppBody({
 				) : null}
 				{jobSurface && permission === null && scheduleReviewPrompt === null ? (
 					<BackgroundJobsPanel
-						jobs={backgroundJobs}
-						selectedJobId={jobSurface.selectedJobId}
-						detailJobId={jobSurface.detailJobId}
+						entries={backgroundRows(backgroundJobs, subagents)}
+						selectedKey={jobSurface.selectedKey}
+						detailKey={jobSurface.detailKey}
 						tailOffset={jobSurface.tailOffset}
 						readJob={(id) => session?.readJob?.(id)}
 						rows={terminal.rows}
@@ -16370,21 +16242,6 @@ function endsTurnOnNo(pending: PendingPermission): boolean {
 /** The label the operator saw for the option id they chose. */
 function labelOfOption(question: UserQuestion, optionId: string): string {
 	return question.options.find((option) => option.id === optionId)?.label ?? optionId
-}
-
-/** `/agents batches`' one-line-per-batch text, mirroring `/jobs`' own column shape. */
-function batchOption(batch: Batch): ChoicePickerOption {
-	const agents = `${batch.agentsDone}/${batch.agentsTotal} agent${batch.agentsTotal === 1 ? '' : 's'}`
-	const tokens = `${batch.tokensTotal.toLocaleString('en-US')} tokens`
-	const columns = [
-		relativeStart(batch.startedAt),
-		batch.phases.join(', '),
-		agents,
-		tokens,
-		formatElapsed(batch.elapsedMs),
-	]
-	if (batch.live) columns.push('live')
-	return { label: batch.name, description: columns.join(' · ') }
 }
 
 /** A run that is not going and was not saved before resuming was possible can be picked up again. */

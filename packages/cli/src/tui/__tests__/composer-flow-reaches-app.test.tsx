@@ -1,6 +1,6 @@
 /** Return steers the active turn; Tab remains a durable next-turn FIFO. */
 
-import { InMemoryTaskStore, type Message, generateSessionId, generateTurnId } from '@namzu/sdk'
+import { InMemoryTaskStore, type Message } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
@@ -351,15 +351,12 @@ describe('the two composer destinations', () => {
 			expect(twelfth).toBeDefined()
 			expect(screen.viewport().some((line) => line.includes(`/${twelfth?.name}`))).toBe(true)
 
-			screen.press('agents')
+			screen.press('tasks')
 			await screen.waitForRender()
 			screen.press('\r')
 			await waitUntil(
 				screen,
-				() =>
-					screen
-						.scrollback()
-						.some((line) => line.includes('No delegated agents in this conversation.')),
+				() => screen.viewport().some((line) => line.includes('No tasks currently running')),
 				'the command selected from /help never re-entered App dispatch',
 			)
 			expect(sent).toHaveLength(0)
@@ -402,44 +399,6 @@ describe('the two composer destinations', () => {
 			expect(screen.viewport().join('\n')).toContain('Choose a command')
 			expect(screen.viewport().join('\n')).toContain('0/1')
 			expect(screen.scrollback().join('\n')).not.toContain('No tools registered yet')
-			expect(sent).toHaveLength(0)
-		} finally {
-			await screen.unmount()
-		}
-	})
-
-	it('dispatches the exact kernel task command from a filtered /help row', async () => {
-		const task = await taskStore.create({
-			sessionId: generateSessionId(),
-			turnId: generateTurnId(),
-			subject: 'Inspect filtered selection',
-		})
-		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
-		try {
-			await waitUntil(
-				screen,
-				() => screen.scrollback().some((line) => line.includes('Type a message')),
-				'App never became ready',
-			)
-			await typeAndPress(screen, '/help', '\r')
-			await waitUntil(
-				screen,
-				() => screen.viewport().some((line) => line.includes('Choose a command')),
-				'Help picker did not open',
-			)
-			screen.press('tasks')
-			await screen.waitForRender()
-			expect(screen.viewport().join('\n')).toContain('/tasks')
-			expect(screen.viewport().join('\n')).toContain('1/1')
-			screen.press('\r')
-			await waitUntil(
-				screen,
-				() => screen.scrollback().join('\n').includes(task.subject),
-				'Filtered command did not read the task store',
-			)
-			// Drawn as the transcript's checklist: the subject, never the id.
-			expect(screen.scrollback().join('\n')).toContain(`□ ${task.subject}`)
-			expect(screen.scrollback().join('\n')).not.toContain(task.id)
 			expect(sent).toHaveLength(0)
 		} finally {
 			await screen.unmount()

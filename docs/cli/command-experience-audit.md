@@ -60,7 +60,7 @@ Show the effective behavior first. Keep rule precedence available as detail.
 
 ### The task command has no connection to the task store
 
-The TUI advertises `/tasks`, but constructs its command registry without
+(Historical: the kernel `tasks` command was removed and `/tasks` is now the CLI's background view.) The TUI advertised `/tasks`, but constructs its command registry without
 `taskStore`. The handler consequently refuses every invocation, even though
 the query runtime creates task stores and the activity area displays tasks.
 Calling the built handler with the same supplied options reproduces the
@@ -77,7 +77,7 @@ shown, and distinguish an empty task list from unavailable storage.
 
 App merges the kernel and CLI catalogues for execution and `/help`. Composer
 calls `matchSlashCommands` without that merged catalogue, so matching defaults
-to CLI-local commands. `/goal`, `/tasks` and `/agents` can execute and appear in
+to CLI-local commands. `/goal` and `/agents` can execute and appear in
 help, but are absent from slash autocomplete.
 
 Evidence: [merged catalogue](https://github.com/cogitave/namzu/blob/8a8de4ae/packages/cli/src/tui/App.tsx#L2807),
@@ -109,7 +109,7 @@ distinction between unknown pricing and a measured zero.
 
 | Surface | Problem at the audited commit | Proposed operator experience |
 | --- | --- | --- |
-| `/agents` | Lists configured IDs; the running-agent panel is reachable through Ctrl+T instead. | One panel with Running and Available views, recognizable names and state. |
+| `/agents` | Lists configured IDs; (Historical: `/agents` has since been removed; the cockpit is reached with `←`, `↓` or `/tasks`.) The running-agent panel is reachable through another key instead. | One panel with Running and Available views, recognizable names and state. |
 | `/goal` | Inspection, arbitrary objective text and automatic continuation share one parser. With no existing goal, `/goal status` creates an objective named `status`. Reports use `armed`, `Rounds admitted` and blocker codes. | Show the objective, progress and clear Start/Edit/Pause/Resume/Remove actions. Explain automatic continuation and its allowance before starting it. |
 | `/status`, `/cost`, `/context` | Facts compete with paragraphs explaining kernel implementation. A modest fixture produces 32 status lines and 20 permission lines. | Compact facts first; expanded explanations and diagnostics on request. |
 | `/status config` | A values-free provenance report is the only configuration inspector. It cannot show the current value or edit it. | A settings surface for safe effective values, scope and supported changes; provenance remains a separate diagnostic view. Credentials remain excluded. |
@@ -182,7 +182,7 @@ validated.
 | --- | --- |
 | Model changes | `/model` starts at the current provider’s models and offers a separate provider action. Selection preserves unrelated preferences and fallback models. Replacement construction precedes atomic preference persistence and activation; failures retain the old session. Temporary credentials keep selection local to the session. |
 | Permissions | The first menu offers Ask before changes, Auto-approve edits and Plan (read-only). More options holds Auto-approve tools, Preapproved tools only and View rules. Menus and settings show effective approval state, including an earlier all-tools approval. Selecting a preset resets that approval. The prompt explicitly labels its all-tools/session scope; typed modes and `/permissions details` remain available. |
-| Tasks | `/tasks` reads the actual store supplied to the current/latest turn, including resumed turns. Starting another turn or switching conversations clears the selected readout. Empty, not-yet-available and unsupported lists are distinct; stored tasks are not deleted. |
+| Tasks | (Removed.) `/tasks` once read the task store; it is now the background view. |
 | Discovery | Composer completion, `/help` and dispatch use the same merged command catalogue. Shared availability metadata can explain an unavailable action, and execution rechecks it. |
 | Command help | Bare `/help` retains the command picker. `/help <command>` reads usage, description and availability without invoking the target; user-command help also identifies the full source path, scope and any refusal problem. |
 | Reports | `/status`, `/cost` and `/context` show summaries with explicit `details` variants. `/mcp tools` expands the server summary. Spend is rendered from monetary data; own-turn cost, delegated tokens, estimated context and unknown prices remain distinct. |
@@ -190,7 +190,7 @@ validated.
 | Memory | Bare `/memory` and standalone `show`/`list` inspect curated memory without writing. `add <text>` explicitly saves a note; empty `add` displays usage. Ordinary free-text notes remain supported. |
 | Goals | Bare `/goal` opens a menu; `status` is read-only and `set` explicitly creates an objective, either directly or through the editor. The menu exposes continuation controls and the automatic-turn allowance. Reports use enabled/paused continuation language. |
 | Choice menus | Shared rows support current/default markers, terminal display width, narrow layouts, selected detail and unavailable reasons. Command, skill, branch and commit menus filter by typing, including digits. Esc returns or cancels rather than stepping through earlier prompts. |
-| Agent activity | `/agents` and `/agents running` open the delegated-work view already available through Ctrl+T. `/agents available` reports the configured roster separately. |
+| Agent activity | (Removed: `/agents` no longer exists; the cockpit is reached with `←`, `↓` or Enter on an agent row in `/tasks`.) |
 
 ## Follow-up comparison of command contents
 
@@ -225,9 +225,6 @@ does not change sandbox access or add another product's automatic review.
 * Usage reports cover the current or latest turn. Conversation-wide cost would
   require aggregation across durable turns, and descendant costs are not
   included in the displayed own-call cost.
-* `/tasks` does not browse tasks from arbitrary historical turns. Changing the
-  conversation or provider session can leave no current task selection until
-  another turn is admitted.
 * Search is available in the shared command, skill, branch and commit menus;
   it is not yet a universal interaction across provider/model, conversation
   history and every specialized picker.

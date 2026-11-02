@@ -100,3 +100,16 @@ describe('/fork', () => {
 		expect(fork?.description).toMatch(/leaving the original/i)
 	})
 })
+
+describe('/branch', () => {
+	it('is the in-place copy, with an optional name for the copy', () => {
+		expect(run('/branch')).toEqual({ kind: 'fork' })
+		expect(run('/branch review pass')).toEqual({ kind: 'fork', title: 'review pass' })
+	})
+
+	it('says what it is, in the words of the branch it makes', () => {
+		const branch = CLI_LOCAL_COMMANDS.find((c) => c.name === 'branch')
+
+		expect(branch?.description).toBe('Create a branch of the current conversation at this point')
+	})
+})

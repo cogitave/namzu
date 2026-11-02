@@ -51,7 +51,7 @@ One line sits directly below the composer's lower rule, with no blank row betwee
 them. Its items are joined by a dim ` · `, left to right:
 
 ```text
-⏵⏵ bypass permissions on · PR #607 · 3 shells · esc to interrupt · ← 1 agent · ↓ to manage   model
+⏵⏵ bypass permissions on · PR #607 · 3 bg · esc to interrupt · ← 1 agent · ↓ to manage   model
 ```
 
 - **The mode**, as `<mark> <words> on` in the mode's color, then a dim
@@ -70,7 +70,7 @@ them. Its items are joined by a dim ` · `, left to right:
   outside a git repository. A missing `gh` shows a dim `install gh for PR
   status`; a signed-out `gh` shows `gh auth login for PR status`; any other
   failure, and a branch with no pull request, show nothing.
-- **Background shells**, a cyan pill `1 shell` / `N shells`. It replaces the
+- **Background shells**, a cyan pill `N bg` (commands and monitors together). It replaces the
   separate `N shells running` line that used to sit under the footer, and it
   hides with the composer surface (a permission or child view owning the
   screen).
@@ -139,8 +139,8 @@ The keys the hints name:
 
 - **`↓`** from an empty composer focuses the footer. The shell pill comes
   first (drawn inverted, with `↓ to manage` turning into `enter to view
-  shells`); Enter opens the same
-  `Background` screen `/jobs` opens. `↓` again moves into the agents rail (`main`,
+  tasks`); Enter opens the same
+  `Background` dialog `/tasks` opens. `↓` again moves into the agents rail (`main`,
   then the agents, then the workflows) and `↑` from its first row moves back
   to the pill. With no shells the first `↓` lands on the rail, and with no
   rows either it opens the agents cockpit, as before. Esc or any other key
@@ -152,7 +152,7 @@ The keys the hints name:
   press right after the draft was emptied by editing only shows `Press ← again
   to open spaces`; presses less than 150 ms apart (key repeat) or within a
   second of one that opened or armed are ignored. With the spaces screen
-  available the cockpit is reached with `↓` or `/agents`, and the footer does
+  available the cockpit is reached with `↓` or Enter on an agent row in `/tasks`, and the footer does
   not offer `← N agents`.
 
 The footer is always exactly one row. On narrow screens it drops, in order: the
@@ -222,7 +222,7 @@ message to run them`; after Esc, a new Enter message runs before the queue.
 Esc does with a pending steer, interrupting the reply so the steer starts the
 next one, and also releases a queue that Esc had held.
 
-A running background shell shows as the footer's shell pill (above). The `/jobs` child view is the `Background` panel (no job ids on screen; rows read `● <command>  running|finished|failed|stopped`, details are `Command details`); a finished job also leaves a `● Background command "…" finished (exit code N)` row in the transcript. It keeps the input draft mounted, lets the
+A running background shell shows as the footer's shell pill (above). The `/tasks` child view is the `Background` dialog (no job ids on screen; rows read `● <command>  running|done|error|stopped`, details are `Shell details`); a finished job also leaves a `● Background command "…" finished (exit code N)` row in the transcript. It keeps the input draft mounted, lets the
 operator inspect bounded, escaped shell output, and stops a selected running
 job on `x`. A new question from a tool closes the shell view so the question
 is visible and answerable.
@@ -299,7 +299,7 @@ The agent cockpit's per-workflow header names its workflow by the label every
 one of its agents shares; when they carry none, or carry more than one, it
 shows a neutral count (`2 agents · 1 running`) rather than a generic name that
 described none of them in particular. So does each row of the cockpit's own
-workflow picker (`Ctrl+T` with two or more groups live or retained at once): a
+workflow picker (the cockpit with two or more groups live or retained at once): a
 group whose agents never set an explicit label is named after its own lead
 agent instead of the generic default — that agent's title, plus a `+N` count
 when the group holds more than one — so two unlabelled groups still read as
@@ -342,7 +342,7 @@ characters is accepted; anything else is dropped and the old label stays. The
 label goes when the agent ends, and agents inside a `workflow` run keep their
 own labels. The cost of that request is not charged to the run's token
 ledger (see the open questions). Rows follow launch order. Workflow and phase labels, model and
-tool counts are not on the rail; the cockpit (`Ctrl+T`, `/agents`) and the
+tool counts are not on the rail; the cockpit (`←` or `↓` from an empty composer, or Enter on an agent row in `/tasks`) and the
 agent's own transcript carry them.
 
 At most five agents are drawn. A longer list scrolls with the selection:
@@ -371,7 +371,7 @@ moves between `main`, the agents and the workflows (a `❯` marks the row), Ente
 on an agent views it (see below) and on `main` goes back to the conversation,
 `x` stops a running agent (the parent turn and the other agents keep going) or,
 on a finished one, clears its row, and `ctrl+x` then `ctrl+k` stops every
-running background agent. The composer stays on screen, dim, while the rail has the keys. `Ctrl+T` still opens the cockpit from anywhere. While an
+running background agent. The composer stays on screen, dim, while the rail has the keys. `←` or `↓` from an empty composer opens the cockpit. While an
 approval dialog is open the rail shrinks to the `main` row with a count
 (`2 agents`) and names no key, since the dialog owns the keyboard.
 
@@ -733,7 +733,9 @@ qualifies its scope as `Current-turn task view · …`. The model-facing result
 also reports how many earlier terminal records remain stored outside that
 view; see [Task context](task-context.md).
 
-One renderer draws every checklist, the transcript block and `/tasks` alike:
+The live checklist above the message box is folded to the one current step by default; Ctrl+T opens it (every task, at most five rows, the rest counted as `… +N more`) and the footer names the key (`ctrl+t to hide tasks` / `ctrl+t to show tasks`). The choice is saved as `tui.showExpandedTodos` in your own config files; a project file cannot set it.
+
+One renderer draws every checklist, the transcript block and the live checklist alike:
 `□` pending, `■` in progress (bold), `✓` completed (dimmed and struck
 through), `✗` failed, each followed by exactly one space, with a wrapped subject
 hanging under its first letter. The block shows
@@ -838,7 +840,7 @@ calls (`tool-end-rows.ts` for a finished call, the agent rows in
 `agent-transcript-rows.ts`), so a later change to how a row reads reaches both.
 `restored-rows.ts` replays the conversation's journal through the live
 translation (`toAgentEvent`), which keeps the kernel's typed facts and timings.
-A conversation without a journal (a `/fork`, an older log) is drawn from the
+A conversation without a journal (a `/branch`, an older log) is drawn from the
 saved messages: the file a read, edit or write named still shows, a write's
 counts are read from its receipt, and the elapsed time and the closing line are
 left out because the messages do not keep them. A delegation that succeeded
@@ -982,11 +984,9 @@ a session using a temporary credential. The old session remains usable if
 replacement construction or preference persistence fails.
 
 `/goal` presents objective management and automatic continuation controls,
-including the automatic-turn allowance before work starts. `/tasks` reads the
-session's own task store, showing every open task and those closed in the
-current turn; changing conversations clears the selection without deleting
-tasks. `/agents` opens the retained delegated-work
-view, while `/agents available` separately reports the configured roster.
+including the automatic-turn allowance before work starts. `/tasks` is the
+background view, not the checklist; Ctrl+T shows or hides the checklist. The
+retained delegated-work view is the cockpit, reached from `↓` or `/tasks`.
 
 The delegated-work view first separates workflows. Independently launched work
 in another parent turn appears as a separate workflow, including when names are
@@ -996,13 +996,13 @@ explicit phase do not create new phases. These annotations describe grouping,
 not execution dependencies or barriers.
 
 With multiple workflows, the workflow picker opens first. Selecting a workflow
-shows its phases, then one phase's agents; Esc returns to workflows and `q` or Ctrl+T
+shows its phases, then one phase's agents; Esc returns to workflows and `q`
 returns to the conversation. Older completed or cancelled work stays available.
 Pending admissions show `Queued` until the child session starts. Completed Agent
 and `wait_for_task` outputs name the actual `task_id` and terminal status before
 the child result, so identifiers inside that result remain clearly separate.
 
-The agent cockpit (Ctrl+T, `/agents`) is the workflow detail view described
+The agent cockpit (`←` or `↓` from an empty composer, or Enter on an agent row in `/tasks`) is the workflow detail view described
 under the rail: a header with the workflow's name and
 `<done>/<total> agents · <elapsed>`, then `Phases` or one phase's agents, one
 list at a time. It opens on the phase whose agents are still working, and on
@@ -1021,9 +1021,9 @@ and supports line and page scrolling. File-output tabs are expanded before
 pagination, and wrapping uses terminal cell widths for Unicode graphemes. Each
 body row stays within its frame, with room for navigation and the cursor. Esc
 returns to the agent list (or, when the view was opened from the rail, to that
-agent's row on the rail); `q` or Ctrl+T returns to the main conversation and
+agent's row on the rail); `q` returns to the main conversation and
 restores the draft. A child that finishes remains readable in the open view and
-can be reopened from `/agents` while retained by the current session.
+can be reopened from `/tasks` while retained by the current session.
 
 Messages submitted with Enter while an `Agent` call waits for a child release
 that wait so the parent can respond while children continue. Results arrive in

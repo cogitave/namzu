@@ -12,14 +12,13 @@ import type { GoalRef, SessionGoal } from '../../types/goal/index.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import type { Skill } from '../../types/skills/index.js'
 import { isInvocableBy, skillInvocation } from '../../types/skills/index.js'
-import type { TaskStore } from '../../types/task/index.js'
 
 /**
  * The commands whose facts the kernel already owns.
  *
  * A registry with nothing in it is a declaration, and this repo has a rule
  * about those. These are facts a host would otherwise have to reach into
- * kernel internals to answer: the current Session goal, tracked work,
+ * kernel internals to answer: the current Session goal,
  * operator-invocable skills, and the agents this turn may delegate to. Each is
  * computed or owned here and should not acquire a second host-specific source.
  *
@@ -31,8 +30,6 @@ import type { TaskStore } from '../../types/task/index.js'
  */
 
 export interface KernelCommandOptions {
-	/** Absent is a real state — not every turn tracks tasks. */
-	readonly taskStore?: TaskStore
 	readonly allowedAgentIds?: readonly string[]
 	/**
 	 * The turn's skills, for the operator-facing half of the listing.
@@ -262,34 +259,6 @@ export function kernelHostCommands(options: KernelCommandOptions): HostCommandDe
 			description: 'Persist or inspect a completion goal for this conversation.',
 			hint: GOAL_ARGUMENTS,
 			handler: async ({ args }) => await runGoalCommand(options.goal, args),
-		},
-		{
-			name: 'tasks',
-			description: 'List the work this turn is tracking.',
-			hint: 'id, status, owner and subject for every task in the store',
-			async handler() {
-				// REFUSED rather than an empty report. "There are no tasks" and
-				// "this turn has no task store" are different answers, and a host
-				// that shows the first for the second gives an operator a
-				// confident zero nobody computed.
-				if (!options.taskStore) {
-					return {
-						kind: 'refused',
-						reason: 'This turn has no task store, so there is nothing to list.',
-					}
-				}
-				const tasks = await options.taskStore.list()
-				return {
-					kind: 'report',
-					title: 'Tasks',
-					rows: tasks.map((task) => ({
-						id: task.id,
-						status: task.status,
-						owner: task.owner ?? null,
-						subject: task.subject,
-					})),
-				}
-			},
 		},
 		{
 			name: 'skills',

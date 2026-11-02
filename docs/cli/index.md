@@ -59,7 +59,7 @@ The operator application.
 * [The composer prefixes](composer-prefixes.md) - What a line starting with `!` or `#` does in the composer: a command run on the host without the model, or a note remembered, and what the model learns of either.
 * [Composer triggers](composer-triggers.md) - Words in a message that name one namzu action for it — the hypermode keyword, save-as-skill phrases in English and Turkish — how they are matched and shown, Alt+W, what they change about the turn, and the composerTriggers key that turns them off.
 * [Custom status line](status-line.md) - The statusLine key: a command whose output is drawn above the footer, the JSON it reads on stdin, when it runs, where it may be set, and what an empty or failed run shows.
-* [Background jobs in the CLI](background-jobs.md) - How a command started with run_in_background outlives its turn, what /jobs shows, and how supported sandboxes own detached processes.
+* [Background jobs in the CLI](background-jobs.md) - How a command started with run_in_background outlives its turn, what /tasks shows, and how supported sandboxes own detached processes.
 * [Monitors in the CLI](monitor.md) - How the monitor tool is mounted, how its events wake an idle session or a single-shot run, and how monitors are counted and listed.
 * [Resident work in the CLI](resident-work.md) - Durable pursuits, bounded foreground execution, pause observation and inspected recovery.
 * [Learning in the CLI](learning.md) - namzu learn and namzu learning, the failures conversations keep as observations, the built-in generator that learns from them by itself, where and how long, and the learningObservations and learningGenerator keys.

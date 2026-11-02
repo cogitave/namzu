@@ -27,22 +27,20 @@ describe('a command the kernel registers reaches the operator', () => {
 		// The whole claim of the change. Deleting the merge makes this fail.
 		const names = mergeHostCommands(kernelCommandDescriptors()).map((c) => c.name)
 
-		expect(names).toContain('tasks')
-		expect(names).toContain('agents')
+		expect(names).not.toContain('agents')
 		expect(names).toContain('goal')
 	})
 
 	it('is offered by autocomplete', () => {
 		const merged = mergeHostCommands(kernelCommandDescriptors())
 
-		expect(matchSlashCommands('/ta', [], merged).map((c) => c.name)).toContain('tasks')
+		expect(matchSlashCommands('/sk', [], merged).map((c) => c.name)).toContain('skills')
 		expect(matchSlashCommands('/go', [], merged).map((c) => c.name)).toContain('goal')
 	})
 
 	it('is known to the headless path, so it is not sent to the model as prose', () => {
 		// The failure mode a name list can have and a dropdown cannot: an
 		// unrecognised `/command` becomes a prompt.
-		expect(hostCommandNames()).toContain('tasks')
 		expect(hostCommandNames()).toContain('goal')
 	})
 
@@ -80,20 +78,6 @@ describe('an outcome is drawn by the host, not the kernel', () => {
 		const rendered = renderOutcome(outcome)
 		expect(rendered).toContain('Agents (2)')
 		expect(rendered).toContain('reviewer')
-	})
-
-	it('renders a refusal as its reason, not as an empty table', async () => {
-		// "There are none" and "I cannot look" are different answers, and the
-		// kernel already keeps them apart — this is the half that shows them
-		// apart.
-		const registry = new HostCommandRegistry()
-		registry.register(kernelHostCommands({}))
-
-		const outcome = await registry.dispatch('/tasks')
-
-		expect(outcome?.kind).toBe('refused')
-		if (!outcome) return
-		expect(renderOutcome(outcome)).toMatch(/no task store/i)
 	})
 
 	it('says "none" for an empty report rather than printing a header alone', async () => {
@@ -140,9 +124,11 @@ describe('a name this host implements itself', () => {
 	})
 
 	it('still takes every kernel command this host does NOT own', () => {
-		const merged = mergeHostCommands(kernelCommandDescriptors())
+		const merged = mergeHostCommands([
+			...kernelCommandDescriptors(),
+			{ name: 'upload', description: 'a kernel command no host owns' },
+		])
 
-		expect(merged.map((c) => c.name)).toContain('agents')
-		expect(merged.map((c) => c.name)).toContain('tasks')
+		expect(merged.map((c) => c.name)).toContain('upload')
 	})
 })

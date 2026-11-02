@@ -135,8 +135,9 @@ receipt alone cannot verify the whole plan.
 
 ## Host views and restoration
 
-The TUI's existing `/tasks` command and grouped task activity read planning
-state. Background shell jobs use the separate job registry.
+The TUI's grouped task activity reads planning state. The kernel offers no
+`/tasks` host command; the CLI's `/tasks` is the background view of commands,
+monitors and subagents, which use the separate job registry.
 
 Desktop planning updates use the negotiated Namzu extension described in
 [the agent client protocol](agent-client-protocol.md). `namzu/tasks/update`

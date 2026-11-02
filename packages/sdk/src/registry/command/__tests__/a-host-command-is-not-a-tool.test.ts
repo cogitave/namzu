@@ -3,9 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { SessionGoalActivation } from '../../../manager/goal/activation.js'
 import { InMemorySessionGoalStore } from '../../../store/goal/index.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryTaskStore } from '../../../store/task/memory.js'
 import { testToolset } from '../../../test-support/toolset.js'
-import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import { generateTenantId, generateTopicId } from '../../../utils/id.js'
 import { HostCommandRegistry } from '../index.js'
 import { kernelHostCommands } from '../kernel-commands.js'
@@ -18,22 +16,11 @@ import { kernelHostCommands } from '../kernel-commands.js'
  * escaped it: two non-TUI commands import that array from React-adjacent
  * code to build a name list, for facts the kernel owns.
  *
- * The separation from TOOLS is the load-bearing part. A `/tasks` readout is
+ * The separation from TOOLS is the load-bearing part. A `/skills` readout is
  * a question the operator asked; making it a tool would let the model call
  * it, spend a turn on it, and put its output in the transcript as if it had
  * discovered something.
  */
-
-const SESSION = '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId
-const TURN = 'bc6b7912-fe1e-479d-9d8a-af494bd39153' as TurnId
-
-async function storeWith(subjects: string[]): Promise<InMemoryTaskStore> {
-	const store = new InMemoryTaskStore()
-	for (const subject of subjects) {
-		await store.create({ sessionId: SESSION, turnId: TURN, subject })
-	}
-	return store
-}
 
 function registryWith(commands: ReturnType<typeof kernelHostCommands>): HostCommandRegistry {
 	const registry = new HostCommandRegistry()
@@ -63,29 +50,10 @@ async function registryWithGoal() {
 }
 
 describe('a host command answers from what the kernel owns', () => {
-	it('reports the task store contents as rows', async () => {
-		const taskStore = await storeWith(['write the thing', 'test the thing'])
-		const registry = registryWith(kernelHostCommands({ taskStore }))
+	it('no longer offers a /tasks command; the host owns that name', async () => {
+		const outcome = await registryWith(kernelHostCommands({})).dispatch('/tasks')
 
-		const outcome = await registry.dispatch('/tasks')
-
-		expect(outcome?.kind).toBe('report')
-		if (outcome?.kind !== 'report') return
-		expect(outcome.rows.map((r) => r.subject)).toEqual(['write the thing', 'test the thing'])
-	})
-
-	it('REFUSES rather than reporting zero when there is no store', async () => {
-		// The two answers are different and a host cannot tell them apart
-		// from an empty array. "There are none" is a measurement; "I have
-		// nothing to measure with" is not, and showing the first for the
-		// second gives an operator a confident zero nobody computed.
-		const registry = registryWith(kernelHostCommands({}))
-
-		const outcome = await registry.dispatch('/tasks')
-
-		expect(outcome?.kind).toBe('refused')
-		if (outcome?.kind !== 'refused') return
-		expect(outcome.reason).toMatch(/no task store/i)
+		expect(outcome).toBeUndefined()
 	})
 
 	it('reports an empty roster as an empty report, not a refusal', async () => {
@@ -280,7 +248,7 @@ describe('a descriptor survives the wire', () => {
 		// registry nobody filled is the failure this task exists to avoid.
 		const described = registryWith(kernelHostCommands({})).describe()
 
-		expect(described.map((c) => c.name)).toEqual(['agents', 'goal', 'skills', 'tasks'])
+		expect(described.map((c) => c.name)).toEqual(['agents', 'goal', 'skills'])
 	})
 })
 
@@ -297,7 +265,6 @@ describe('a host command never becomes a model-visible tool', () => {
 		for (const command of commands.describe()) {
 			expect(toolNames).not.toContain(command.name)
 		}
-		expect(toolNames).not.toContain('tasks')
 		expect(toolNames).not.toContain('agents')
 	})
 })
@@ -309,6 +276,6 @@ describe('two commands cannot share a name', () => {
 		const registry = new HostCommandRegistry()
 		registry.register(kernelHostCommands({}))
 
-		expect(() => registry.register(kernelHostCommands({}))).toThrow(/goal|tasks|agents/)
+		expect(() => registry.register(kernelHostCommands({}))).toThrow(/goal|skills|agents/)
 	})
 })

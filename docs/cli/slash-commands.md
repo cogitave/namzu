@@ -35,7 +35,8 @@ clause, so no line ends mid-sentence.
 | `/exit` | Exit namzu. |
 | `/rewind`, `/undo`, `/checkpoint` | Open the rewind dialog (the same as Esc Esc on an empty message): pick an earlier prompt, then restore the files, the conversation, or both to the point before it, or summarize around it. See [File checkpoints](file-checkpoints.md#rewind). `/restore` is separate: it lists and restores file turns by number. |
 | `/rename` | Rename this conversation; opens an editor when no name is supplied. /rename clear removes the saved name. |
-| `/fork` | Continue in a copy, leaving the original unchanged. |
+| `/branch [name]` | Create a branch of the current conversation at this point: this screen continues in the copy (named `name` when given), and the original is unchanged and stays in `/resume`. |
+| `/fork` | Continue in a copy, leaving the original unchanged. The same as `/branch` for now; the name is reserved for copying the conversation into a new background session and will change to that when background sessions exist. |
 | `/worktree` | List or create [managed Git worktrees](worktrees.md), copy this settled conversation into a new checkout, or print how to open one. |
 | `/memory` | Show stored memory (the index and, in its own section, what turns recorded) and curated memory; `/memory show` and `/memory list` also inspect it. `/memory add <text>` saves a typed project memory (`--type user\|feedback\|project\|reference` after `add` picks the type); put `--user` before `add` to append a user fact to the curated file. `/memory import-notes` copies the top-level bullets of the project's curated `MEMORY.md` into typed memory files, skipping any already stored, and never changes that file. |
 | `/skills` | Choose a skill to activate for this conversation; `/skills <name>` activates one directly, `/skills list` shows every skill with its tier, what it shadows and why one cannot be used, `/skills new [what it should do]` starts the `skill-creator` interview, which ends on a screen where you choose to save the drafted `SKILL.md` to your user or project skills, or cancel, and `/skills save [name]` does the same for what this conversation just did, generalised and without secrets or tool output. After a multi-step task the TUI proposes `/skills save` in one dim line; `/skills save off` stops that in your user config and `/skills save on` restores it ([Learning from a task](skills.md#learning-from-a-task)). The model is offered skills on its own and loads one with the `skill` tool; see [Skills](skills.md). |
@@ -47,7 +48,7 @@ clause, so no line ends mid-sentence.
 | `/auth` | Choose the account this conversation uses (from its next reply), or add one: `/auth`, `/auth add`, `/auth <account>`. Separate from `/login`, which signs in the provider's usual account. See [Accounts](accounts.md). |
 | `/logout` | Remove a Namzu-owned subscription credential: `/logout [claude|codex|gemini|<provider>|all]`. |
 | `/cost` | Show tokens and cost for the latest reply, one fact per line, plus what the agents it started used; `/cost details` adds pricing and scope information. |
-| `/jobs` | Open the session's shell job view to inspect output and stop a running job; `/jobs list` prints a text summary. |
+| `/tasks` (alias `/bashes`) | View and manage everything running in the background: the `Background` dialog lists this session's background commands (Shells), monitors (Monitors), running subagents (Local agents) and finished ones (Completed). Up/Down select, Enter opens the details or the agent's transcript, `x` stops a running one, Esc closes; `/tasks list` prints a text summary of the commands. It replaces `/jobs`, which no longer exists. See [Background jobs in the CLI](background-jobs.md). |
 | `/peers [list\|on\|off\|send <ref> <message>]` | Find and message independent live terminals in this project; control this terminal's participation. Peer text carries no operator authority. See [Messages between live terminals](peer-messaging.md). |
 | `/release-notes` | Show what changed in the version that is running: /release-notes [version]. |
 | `/hooks` | List the shell hooks this conversation runs, by event. |
@@ -74,8 +75,6 @@ clause, so no line ends mid-sentence.
 | `/schedule` | List [scheduled jobs](scheduled-tasks.md) and what needs you: a run waiting for approval, a job waiting for confirmation or on hold. `/schedule confirm|pause|resume|run|remove <job>` acts on one; `/schedule add <name> "<when>" <read-only|edit-in-folder> <prompt…>` creates one after showing it. |
 | `/browser` | The [browser](browser.md) this session drives: engine, window or none, running or not, profile and site rules. `/browser profile <name>` switches profile for the rest of the session (closing the browser if it was open), and a rebuilt session keeps it. |
 | `/loop` | Re-send a prompt to this conversation on an interval, between turns: `/loop 10m <prompt>`, `/loop list`, `/loop stop <id>|all`. See [Session loops](session-loops.md). |
-| `/tasks` | Read this conversation's tasks: every open task, and those closed in the current turn. Changing conversations clears the previous selection. |
-| `/agents` | Inspect delegated activity in this conversation; `/agents running` opens the same view. `/agents available` lists configured agents. `/agents batches` lists past and running batches of delegated agents. |
 | `/workflows` | List this conversation's workflows, running and finished, and open one: its phases, then a phase's agents, then an agent's transcript; `r` on a run that is not going asks the model to resume it. See [Workflows in the CLI](workflows.md). |
 
 ## Command-specific help
@@ -319,13 +318,6 @@ clearing prevents further automatic replies; it does not undo a running tool
 call or interrupt the current turn. Goal reports distinguish the saved status
 from whether automatic continuation is enabled or paused.
 
-`/tasks` reads the session's durable task store, including updates made without
-a visible task event. Before any turn has supplied a list, it reports that no
-task list is available yet. A session with an empty store reports an empty list.
-Switching conversations forgets the selected list without deleting stored
-tasks. The command does not search other sessions. An embedded
-session that does not expose task storage reports that listing is unavailable.
-
 Usage and cost are also scoped to the current or latest turn, not the whole
 conversation. Own model-call cost is separate from token totals that include
 delegated agents. Unknown prices remain unknown, partly priced usage is a
@@ -360,8 +352,8 @@ to a row and neither sorts nor hides any. Under 70 columns the notes are rebuilt
 from a fixed vocabulary, and `(free)` joins `(default)` and `(image)` there
 rather than being dropped.
 
-In `/agents`, Enter opens the selected child's live transcript as a separate
-framed screen. Esc returns to the agent list; `q` or Ctrl+T returns to the main
+In the agents cockpit (`←` on an empty composer, or `↓` from it, or Enter on an agent row in `/tasks`), Enter opens the selected child's live transcript as a separate
+framed screen. Esc returns to the agent list; `q` returns to the main
 conversation. Completed children remain available while retained in this
 session, even after their automatic activity rail disappears.
 
@@ -380,16 +372,16 @@ terminals place descriptions below labels.
 - **Up** on an empty composer chooses the newest queued message, **Up/Down** move, **Enter** loads it into the composer for editing and **Esc** leaves the choice. **Alt+Up** recalls the latest operator-composed queued message for editing, with its attachments and armed triggers. A queued slash command returns as the command the operator typed; its expanded model prompt remains queued until recalled. It leaves a nonempty draft alone; automatic goal and skill prompts cannot be recalled this way.
 - **Esc** while a turn runs interrupts it. An undelivered steer starts a fresh turn before Tab-queued messages after the old turn settles. Without a pending steer, queued messages remain held; a new Enter message runs before them, while Tab adds to the held queue. **Ctrl+X Ctrl+S** does the same as Esc with a pending steer and also releases queued messages Esc had held. **Ctrl+C** is reserved for exit. If a shell command is running, Esc moves it to a background job instead of stopping it ([Background jobs](background-jobs.md#moving-a-running-command-to-the-background)).
 - **Ctrl+B** while a shell command has run for two seconds or more moves it to the background. With no such command it moves the cursor left.
-- **Left** on an empty composer (nothing typed, pasted or attached) opens the agents cockpit, as `/agent` does; the footer's `← N agents` names it. **Down** on an empty composer focuses the footer: the shell pill first (Enter opens the `/jobs` screen), then the agents rail; the footer's `↓ to manage` names it. With anything in the composer both keys move the cursor.
+- **Left** on an empty composer (nothing typed, pasted or attached) opens the agents cockpit; the footer's `← N agents` names it. **Down** on an empty composer focuses the footer: the shell pill first (Enter opens the `/tasks` dialog), then the agents rail; the footer's `↓ to manage` names it. With anything in the composer both keys move the cursor.
 - **Shift+Tab** cycles the permission mode: `prompt`, `accept-edits`, `plan`, then `bypass` when the launch opened it (`--yolo`, `--allow-dangerously-skip-permissions`, `permissions.defaultMode: bypass`; see [Launch flags](launch-flags.md)), then `auto` unless `permissions.disableAutoMode` is set, then `prompt`. `strict` is not on the cycle and goes back to `prompt`; see [Permission modes](permission-modes.md). It works mid-turn, and the footer is its only reply: nothing is added to the transcript. Plan mode has its own way out: the model presents its plan and you approve it, which switches the mode to the one you choose ([Plan mode](plan-mode.md)).
 - **Ctrl+O** opens the detailed transcript: every row whole, the model's thinking, the last 30 rows (Ctrl+E for all). Ctrl+O, Esc, `q` or Ctrl+C returns to the composer. See [Terminal design](terminal-design.md).
-- **Ctrl+T** opens or closes delegated activity, also reachable with `/agents`.
+- **Ctrl+T** shows or hides the model's task checklist above the message box: every task, up to five rows (the rest counted as `… +N more`), instead of the one current step. While the model has tasks the footer reads `ctrl+t to hide tasks` or `ctrl+t to show tasks`. A task the model creates or changes opens the list for this run; while the transcript's own copy of the list is still the newest thing on screen the panel waits. Your own press is saved as `tui.showExpandedTodos` (user config only). No slash command prints the checklist. The agents cockpit is reached with `←` or `↓` on an empty composer, or Enter on an agent row in `/tasks`; Ctrl+T no longer opens it.
 - **`!command`** runs on the host without the model; **`#note`** remembers. See [The composer prefixes](composer-prefixes.md).
 - **Ctrl+S** sets the draft aside (the composer empties and the footer says so); on an empty composer it brings the draft back. A draft set aside also comes back, with "Draft restored", after the next message you send; a slash command does not bring it back. Ctrl+S on a typed draft while one is already set aside swaps the two (press again to swap back), so neither is lost. While a history search is open Ctrl+S still steps to a newer match.
 - **Ctrl+\_** (Ctrl+- also works) undoes the last edit to the draft: letters typed in a row undo as one edit up to the next space, and any other change (a deletion, a paste, a completion, the external editor's result) is an edit of its own. The last 50 edits are kept; sending the message forgets them.
 - **Alt+P** opens the model chooser, as `/model` does, but adds nothing to the history, and the draft you had typed is back in the composer when the chooser closes (Esc or a choice). **Alt+T** switches thinking off and on for a model that offers a `none` effort level: the footer says "Thinking off" or "Thinking on", turning it on puts back the level you had, and nothing is written to the transcript. On a model without that level the footer says so; `/effort` stays the chooser, and Alt+, and Alt+. (or Shift+Down and Shift+Up) still step the level.
 - **Ctrl+X Ctrl+E** opens the draft in your editor, like **Ctrl+G**; when `VISUAL` and `EDITOR` are both unset the message names the key you pressed.
-- **Ctrl+L** clears the screen (the conversation is kept), not the draft you are typing; clear a draft with Ctrl+U or set it aside with Ctrl+S. **Ctrl+T** opens delegated work. Each key has one action in the registry, so neither collides with another.
+- **Ctrl+L** clears the screen (the conversation is kept), not the draft you are typing; clear a draft with Ctrl+U or set it aside with Ctrl+S. **Ctrl+T** shows or hides the task checklist. Each key has one action in the registry, so neither collides with another.
 - `/help keys` lists every keyboard shortcut of the chat screen, grouped. The terminal answers each through one registry of actions (`packages/cli/src/tui/keymap.ts`); a keybindings file and vim mode are not built.
 - **Alt+W** drops the [composer trigger](composer-triggers.md) nearest the cursor (`hypermode`, "bunu skill olarak kaydet"), restores a dropped one, or arms one the row only suggests. **Backspace** right after an armed `hypermode` drops it before it deletes anything.
 

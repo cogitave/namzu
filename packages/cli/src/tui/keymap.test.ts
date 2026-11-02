@@ -29,7 +29,7 @@ describe('the action registry', () => {
 			['app:interrupt', 'c', { ctrl: true }],
 			['app:exit', 'd', { ctrl: true }],
 			['app:toggleTranscript', 'o', { ctrl: true }],
-			['app:openAgents', 't', { ctrl: true }],
+			['app:toggleTodos', 't', { ctrl: true }],
 			['chat:clearScreen', 'l', { ctrl: true }],
 			['task:background', 'b', { ctrl: true }],
 			['history:search', 'r', { ctrl: true }],
@@ -68,9 +68,9 @@ describe('the action registry', () => {
 	})
 
 	it('answers Ctrl+L and Ctrl+T through the registry, each once', () => {
-		// Ctrl+L clears the screen and Ctrl+T opens delegated work; no second action wants either.
+		// Ctrl+L clears the screen and Ctrl+T shows or hides the task checklist; no second action wants either.
 		expect(isAction('chat:clearScreen', 'l', { ctrl: true })).toBe(true)
-		expect(isAction('app:openAgents', 't', { ctrl: true })).toBe(true)
+		expect(isAction('app:toggleTodos', 't', { ctrl: true })).toBe(true)
 		const owners = (chord: string) => ACTIONS.filter((spec) => spec.keys.includes(chord)).length
 		expect(owners('ctrl+l')).toBe(1)
 		expect(owners('ctrl+t')).toBe(1)

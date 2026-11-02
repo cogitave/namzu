@@ -335,7 +335,7 @@ it.each(['child', 'job'] as const)(
 					.includes(
 						kind === 'child'
 							? 'Delegated agents are still active'
-							: 'Background jobs are still running',
+							: 'Background tasks are still running',
 					),
 			'Active work was not protected',
 		)

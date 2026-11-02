@@ -79,11 +79,11 @@ export const ACTIONS = [
 		help: 'Open the detailed transcript',
 	}),
 	action({
-		id: 'app:openAgents',
+		id: 'app:toggleTodos',
 		context: 'Global',
-		group: 'Agents and jobs',
+		group: 'Conversation',
 		keys: ['ctrl+t'],
-		help: 'Open or close delegated work',
+		help: 'Show or hide the task checklist',
 	}),
 	action({
 		id: 'history:search',

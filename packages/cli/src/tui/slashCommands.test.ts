@@ -11,7 +11,6 @@ import {
 	matchSlashCommands,
 	mergeHostCommands,
 	parseSlash,
-	renderAgents,
 	renderContext,
 	renderCost,
 	renderPermissions,
@@ -205,9 +204,9 @@ describe('command-specific help', () => {
 	it('does not invent positional syntax or flags from kernel prose and JSON schemas', () => {
 		const commands = mergeHostCommands([
 			{
-				name: 'tasks',
+				name: 'reports',
 				description: 'Inspect tracked work.',
-				hint: 'id, status and owner for each task',
+				hint: 'id, status and owner for each report',
 			},
 			{
 				name: 'upload',
@@ -216,8 +215,8 @@ describe('command-specific help', () => {
 				args: { type: 'object', properties: { files: { type: 'array' } } },
 			},
 		])
-		const tasks = helpText('/help tasks', ctx, commands)
-		expect(tasks).toContain('Usage:\n  /tasks\n\nid, status and owner for each task')
+		const reports = helpText('/help reports', ctx, commands)
+		expect(reports).toContain('Usage:\n  /reports\n\nid, status and owner for each report')
 		const upload = helpText('/help upload', ctx, commands)
 		expect(upload).toContain('Usage:\n  /upload [arguments]\n\nChoose files to send.')
 		expect(upload).not.toContain('--files')
@@ -316,7 +315,7 @@ describe('matchSlashCommands', () => {
 		expect(matchSlashCommands('/')).toEqual(
 			CLI_LOCAL_COMMANDS.filter((command) => command.discoverable !== false),
 		)
-		expect(matchSlashCommands('/agent').map((command) => command.name)).toEqual(['agents'])
+		expect(matchSlashCommands('/agent').map((command) => command.name)).toEqual([])
 	})
 
 	it('filters by name prefix (case-insensitive)', () => {
@@ -991,26 +990,6 @@ describe('/orchestrate, the deprecated alias of /hypermode', () => {
 	})
 })
 
-describe('the roster formatter', () => {
-	// `/agents` is answered by the KERNEL's registry now — the roster is its
-	// fact, and the CLI carrying a second copy meant two answers to one
-	// question that could disagree. What is left here is the drawing.
-	it('answers honestly when nothing is mounted', () => {
-		const rendered = renderAgents([])
-
-		expect(rendered).toContain('No delegates')
-		expect(rendered).toContain('does the work itself')
-	})
-
-	it('lists the roster it was given', () => {
-		const rendered = renderAgents(['general-purpose', 'reviewer'])
-
-		expect(rendered).toContain('general-purpose')
-		expect(rendered).toContain('reviewer')
-		expect(rendered).toContain('2')
-	})
-})
-
 describe('/init', () => {
 	it('refuses without a provider, because it works by asking the agent', () => {
 		const r = runSlash('/init', context({ providerSummary: null }))
@@ -1051,8 +1030,8 @@ describe('/init', () => {
 
 describe('the new commands are reachable', () => {
 	it('/help offers them, so they are selectable without docs', () => {
-		// Through the MERGED set, which is the whole claim: `/agents` is the
-		// kernel's command now, and it reaches `/help` with no edit to this
+		// Through the MERGED set, which is the whole claim: `/goal` is the
+		// kernel's command, and it reaches `/help` with no edit to this
 		// file. Deleting the merge makes this fail.
 		const merged = mergeHostCommands(kernelCommandDescriptors())
 		const r = runSlash('/help', { ...ctx, builtins: merged }, merged)
@@ -1062,7 +1041,7 @@ describe('the new commands are reachable', () => {
 			expect(names).toContain('cost')
 			expect(names).toContain('permissions')
 			expect(names).toContain('effort')
-			expect(names).toContain('agents')
+			expect(names).toContain('tasks')
 			// `/expand` replaced a key. A key is discoverable by pressing it and a
 			// command is not, so the entry that names it is load-bearing in a way
 			// the others are not.
@@ -1075,7 +1054,6 @@ describe('the new commands are reachable', () => {
 
 		expect(names('/co')).toContain('cost')
 		// The kernel's, reaching the dropdown with no edit to this file.
-		expect(names('/ag')).toContain('agents')
 		expect(names('/ta')).toContain('tasks')
 		expect(names('/per')).toContain('permissions')
 		expect(names('/eff')).toContain('effort')
@@ -1422,21 +1400,28 @@ describe('/context', () => {
 	})
 })
 
-describe('/jobs', () => {
-	it('opens the interactive shell view', () => {
-		expect(runSlash('/jobs', context())).toEqual({ kind: 'jobs' })
+describe('/tasks', () => {
+	it('opens the Background dialog, under both of its names', () => {
+		expect(runSlash('/tasks', context())).toEqual({ kind: 'tasks' })
+		expect(runSlash('/bashes', context())).toEqual({ kind: 'tasks' })
+	})
+
+	it('lists /tasks and not /bashes or /jobs', () => {
+		expect(matchSlashCommands('/').map((c) => c.name)).toContain('tasks')
+		expect(matchSlashCommands('/').map((c) => c.name)).not.toContain('bashes')
+		expect(runSlash('/jobs', context())?.kind).not.toBe('tasks')
 	})
 
 	it('keeps a plain list for noninteractive inspection', () => {
-		const r = runSlash('/jobs list', context())
+		const r = runSlash('/tasks list', context())
 		expect(r?.kind).toBe('message')
 		if (r?.kind !== 'message') return
-		expect(r.content).toContain('No background jobs in this conversation')
+		expect(r.content).toContain('No background tasks in this conversation')
 	})
 
 	it('lists each job with its state', () => {
 		const r = runSlash(
-			'/jobs list',
+			'/tasks list',
 			context({
 				jobs: () => [
 					{
@@ -1457,7 +1442,7 @@ describe('/jobs', () => {
 		)
 		expect(r?.kind).toBe('message')
 		if (r?.kind !== 'message') return
-		expect(r.content).toContain('2 background shells in this conversation')
+		expect(r.content).toContain('2 background commands in this conversation')
 		expect(r.content).toMatch(/running for \d+s\s+npm run dev/)
 		expect(r.content).toMatch(/exited 0\s+npm test/)
 		// The person never sees the model-facing id.
@@ -1466,21 +1451,11 @@ describe('/jobs', () => {
 })
 
 describe('/agents', () => {
-	it('hands every subcommand to the delegation UI, which owns the vocabulary', () => {
-		// `batches`, `running`, `available` and anything else — `runs` included —
-		// are answered by `agentsSlashCommand`; this parser only carries them.
-		for (const args of [[], ['running'], ['available'], ['batches'], ['runs']]) {
-			expect(runSlash(['/agents', ...args].join(' '), context())).toEqual({ kind: 'agents', args })
-		}
-	})
-
-	it('lists batches, not runs, in its usage line', () => {
-		const command = matchSlashCommands('/agents').find((entry) => entry.name === 'agents')
-		expect(command?.description).toContain('/agents batches')
-		expect(command?.description).not.toContain('runs')
+	it('is not a command: the cockpit is reached from /tasks, the left arrow and the down arrow', () => {
+		expect(matchSlashCommands('/ag').map((entry) => entry.name)).not.toContain('agents')
+		expect(runSlash('/agents', context())?.kind).not.toBe('agents')
 	})
 })
-
 describe('/abandon', () => {
 	it('closes the parked turn with the reason the operator gave, or a default one', () => {
 		expect(runSlash('/abandon wrong approach', context())).toEqual({

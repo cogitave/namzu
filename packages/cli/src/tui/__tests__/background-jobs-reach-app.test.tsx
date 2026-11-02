@@ -276,31 +276,31 @@ async function submit(screen: Screen, text: string): Promise<void> {
 	await screen.waitForRender()
 }
 
-it('shows a lasting shell count, opens /jobs details, and stops only once across resize', async () => {
+it('shows a lasting shell count, opens /tasks details, and stops only once across resize', async () => {
 	const screen = await mount(100, 28)
 	expect(screen.viewport().join('\n')).not.toContain('shell /jobs')
 
 	await submit(screen, 'launch server')
 	await turnSettled
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).toContain('1 shell · ↓ to manage')
+	expect(screen.viewport().join('\n')).toContain('1 bg · ↓ to manage')
 	expect(screen.viewport().join('\n')).toContain('Type a message')
 
-	await submit(screen, '/jobs')
+	await submit(screen, '/tasks')
 	expect(screen.viewport().join('\n')).toContain('Background')
 	expect(screen.viewport().join('\n')).toContain('1 active shell')
 	expect(screen.viewport().join('\n')).not.toContain('b00000001')
 	expect(screen.viewport().join('\n')).toContain('npm run dev')
-	expect(screen.viewport().join('\n')).not.toContain('Command details')
+	expect(screen.viewport().join('\n')).not.toContain('Shell details')
 
 	screen.press('\r')
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).toContain('Command details')
+	expect(screen.viewport().join('\n')).toContain('Shell details')
 	expect(screen.viewport().join('\n')).toContain('server ready on port 3000')
 
 	await screen.resize(40, 14)
 	const narrow = screen.viewport()
-	expect(narrow.join('\n')).toContain('Command details')
+	expect(narrow.join('\n')).toContain('Shell details')
 	expect(narrow.join('\n')).toContain('server ready on port 3000')
 	for (const row of narrow) expect(stringWidth(row)).toBeLessThanOrEqual(40)
 
@@ -314,7 +314,7 @@ it('shows a lasting shell count, opens /jobs details, and stops only once across
 	expect(screen.viewport().join('\n')).toContain('stopped')
 	screen.press('q')
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).not.toContain('1 shell · ↓ to manage')
+	expect(screen.viewport().join('\n')).not.toContain('1 bg · ↓ to manage')
 })
 
 it('reaches the shells from the footer with down and opens them with enter', async () => {
@@ -322,11 +322,11 @@ it('reaches the shells from the footer with down and opens them with enter', asy
 	jobs = [runningJob()]
 	outputs.set('b00000001', outputFor('build output\n'))
 	const screen = await mount(100, 28)
-	expect(screen.viewport().join('\n')).toContain('1 shell · ↓ to manage')
+	expect(screen.viewport().join('\n')).toContain('1 bg · ↓ to manage')
 
 	screen.press('\x1b[B')
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).toContain('1 shell · enter to view shells')
+	expect(screen.viewport().join('\n')).toContain('1 bg · enter to view tasks')
 	expect(screen.viewport().join('\n')).not.toContain('↓ to manage')
 
 	screen.press('\x1b')
@@ -336,7 +336,7 @@ it('reaches the shells from the footer with down and opens them with enter', asy
 		await screen.waitForRender()
 		await new Promise<void>((resolve) => setImmediate(resolve))
 	}
-	expect(screen.viewport().join('\n')).toContain('1 shell · ↓ to manage')
+	expect(screen.viewport().join('\n')).toContain('1 bg · ↓ to manage')
 
 	screen.press('\x1b[B')
 	await screen.waitForRender()
@@ -351,12 +351,12 @@ it('clears the shell count and shows one exit row when the kernel delivered the 
 	jobs = [runningJob()]
 	outputs.set('b00000001', outputFor('build output\n'))
 	const screen = await mount(100, 28)
-	expect(screen.viewport().join('\n')).toContain('1 shell · ↓ to manage')
+	expect(screen.viewport().join('\n')).toContain('1 bg · ↓ to manage')
 
 	await submit(screen, 'finish the job')
 	await turnSettled
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).not.toContain('1 shell · ↓ to manage')
+	expect(screen.viewport().join('\n')).not.toContain('1 bg · ↓ to manage')
 	expect(
 		screen
 			.scrollback()
@@ -376,8 +376,8 @@ it('keeps a live CLI session shell visible after /new changes the conversation',
 	await submit(screen, '/new')
 	await screen.waitForRender()
 	expect(sessionCreations).toBe(1)
-	expect(screen.viewport().join('\n')).toContain('1 shell · ↓ to manage')
-	await submit(screen, '/jobs')
+	expect(screen.viewport().join('\n')).toContain('1 bg · ↓ to manage')
+	await submit(screen, '/tasks')
 	expect(screen.viewport().join('\n')).toContain('npm run dev')
 	screen.press('\r')
 	await screen.waitForRender()
@@ -391,10 +391,10 @@ it('drops the old job panel when a new session reuses the same job id', async ()
 	nextOutputs.set('b00000001', outputFor('NEW SESSION OUTPUT\n'))
 	const screen = await mount(100, 28)
 
-	// Resolve the model choice only after /jobs is open on the old session.
+	// Resolve the model choice only after /tasks is open on the old session.
 	await submit(screen, '/model new-model')
-	await submit(screen, '/jobs')
-	expect(screen.viewport().join('\n')).toContain('0 active shells')
+	await submit(screen, '/tasks')
+	expect(screen.viewport().join('\n')).toContain('npm run dev')
 	screen.press('\r')
 	await screen.waitForRender()
 	expect(screen.viewport().join('\n')).toContain('OLD SESSION OUTPUT')
@@ -403,7 +403,7 @@ it('drops the old job panel when a new session reuses the same job id', async ()
 	await nextSessionReady
 	await screen.waitForRender()
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).not.toContain('Command details')
+	expect(screen.viewport().join('\n')).not.toContain('Shell details')
 	expect(screen.viewport().join('\n')).not.toContain('OLD SESSION OUTPUT')
 
 	// An old panel's x key must never be able to target the new b00000001.
@@ -412,7 +412,7 @@ it('drops the old job panel when a new session reuses the same job id', async ()
 	expect(nextStopCalls).toEqual([])
 	screen.press('\x7f')
 	await screen.waitForRender()
-	await submit(screen, '/jobs')
+	await submit(screen, '/tasks')
 	expect(screen.viewport().join('\n')).toContain('npm run preview')
 	screen.press('\r')
 	await screen.waitForRender()
@@ -429,7 +429,7 @@ it('lets a model question replace an open shell panel and accept its answer', as
 
 	await submit(screen, 'ask me about the server')
 	await turnStarted
-	await submit(screen, '/jobs')
+	await submit(screen, '/tasks')
 	expect(screen.viewport().join('\n')).toContain('1 active shell')
 
 	releaseQuestion()
@@ -449,7 +449,7 @@ it('reports that a job exited while its stop request was in flight', async () =>
 	jobs = [runningJob()]
 	outputs.set('b00000001', outputFor('server ready\n'))
 	const screen = await mount(100, 28)
-	await submit(screen, '/jobs')
+	await submit(screen, '/tasks')
 	screen.press('\r')
 	await screen.waitForRender()
 	screen.press('x')
@@ -461,5 +461,5 @@ it('reports that a job exited while its stop request was in flight', async () =>
 	await screen.waitForRender()
 	expect(screen.viewport().join('\n')).toContain('Already finished (exit code 0)')
 	expect(screen.viewport().join('\n')).not.toContain('Stopped.')
-	expect(screen.viewport().join('\n')).not.toContain('1 shell · ↓ to manage')
+	expect(screen.viewport().join('\n')).not.toContain('1 bg · ↓ to manage')
 })
