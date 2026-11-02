@@ -16268,7 +16268,6 @@ function AppBody({
 							session?.account?.label,
 						)}
 						effort={reasoningEffort}
-						hypermode={hypermode}
 						goal={statusGoal}
 						state={state}
 						hint={statusHint}

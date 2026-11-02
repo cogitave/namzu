@@ -232,10 +232,9 @@ row, gets the vertical list, with the same label and description as its own
 row below a rule (Tab works there too). There is no separate key for "this
 session only": the setting already lasts only for the session.
 
-While the mode is on, the footer's effort item says so: `effort high ·
-Hypermode on` (just `Hypermode on` when no effort was chosen), and the
-composer's upper rule names `hypermode` as before. Like effort, the mode is
-in-memory and per-session; it is not saved to preferences. A model switch
+While the mode is on, the composer's upper rule names `hypermode`; the footer
+does not repeat it, and its effort item reads just `effort high`. Like effort,
+the mode is in-memory and per-session; it is not saved to preferences. A model switch
 resets an explicit effort override to the new model's default as it always has;
 hypermode stays on across it, and the interactive effort chooser that follows a
 standalone `/model` pick opens whether or not the mode is on.

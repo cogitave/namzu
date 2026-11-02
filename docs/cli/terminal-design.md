@@ -229,8 +229,8 @@ is visible and answerable.
 
 [Hypermode](slash-commands.md#hypermode), while on for the session, is named
 once at the right end of the composer's upper rule in violet. The rule rests in
-plain graphite. While it is on the footer's effort item also reads `Hypermode on`. Turning the mode on sends one short lavender glow from the visible
-rule's center toward both ends, then the rule becomes still again. Repeating
+plain graphite. The footer does not repeat it. Turning the mode on sends one
+short lavender glow from the visible rule's center toward both ends, then the rule becomes still again. Repeating
 the selection does not replay it. Motion is skipped in non-interactive terminals,
 for screen readers, and when colour is refused (`NO_COLOR`, `FORCE_COLOR=0`,
 `TERM=dumb`); the label remains readable without colour. A frame too narrow for the
