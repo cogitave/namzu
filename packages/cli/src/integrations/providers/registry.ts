@@ -158,7 +158,12 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			// Order: explicit anthropic key, then anthropic-token
 			// variant, then claude-code's OAuth env (often present when the user
 			// has claude-code installed).
-			envVars: ['ANTHROPIC_API_KEY', 'ANTHROPIC_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'],
+			envVars: [
+				'ANTHROPIC_API_KEY',
+				'ANTHROPIC_AUTH_TOKEN',
+				'ANTHROPIC_TOKEN',
+				'CLAUDE_CODE_OAUTH_TOKEN',
+			],
 			defaultModel: 'claude-opus-5',
 			requiresApiKey: true,
 			acceptsTypedCredential: true,

@@ -334,6 +334,10 @@ import { type CliPluginRuntime, createCliPluginRuntime } from '../integrations/p
 import { hasApiCredential, requiresCredentialForModel } from '../integrations/providers/access.js'
 import { canSelectModel } from '../integrations/providers/access.js'
 import {
+	readAnthropicEndpoint,
+	thirdPartyHost,
+} from '../integrations/providers/anthropic-endpoint.js'
+import {
 	type ComposerModelSettings,
 	resolveProviderReasoning,
 } from '../integrations/providers/composer-settings.js'
@@ -5420,7 +5424,7 @@ export async function createAgentSession(
 			required: sandbox.required,
 			workspace: sandbox.workspace,
 		},
-		providerSummary: entry.label,
+		providerSummary: entry.id === 'anthropic' ? withEndpointHost(entry.label) : entry.label,
 		modelSummary: model,
 		get autoRoute() {
 			return lastAutoRoute
@@ -6855,6 +6859,12 @@ function planFallbacks(
  * a one-million-token window, never part of a vendor's name, so the driver is
  * built with the bare id and every request it later sees is stripped too.
  */
+/** `Anthropic (Claude) via host` when requests go to an Anthropic-compatible third party. */
+function withEndpointHost(label: string): string {
+	const host = thirdPartyHost()
+	return host ? `${label} via ${host}` : label
+}
+
 export function constructProvider(
 	id: ProviderId,
 	det: DetectedProvider | null,
@@ -6874,12 +6884,32 @@ function constructBareProvider(
 ): LLMProvider {
 	switch (id) {
 		case 'anthropic': {
+			const endpoint = readAnthropicEndpoint()
+			if (endpoint && !endpoint.vendor) {
+				// A saved sign-in or a detected key belongs to the vendor and is never
+				// sent to another host: only the two variables this endpoint is
+				// configured with are used, and without either there is nothing to send.
+				if (!endpoint.authToken && !endpoint.apiKey)
+					throw new Error(
+						`ANTHROPIC_BASE_URL points at ${endpoint.host}, which needs ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY. Saved sign-ins are only sent to the vendor's own host.`,
+					)
+				const { provider } = ProviderRegistry.create({
+					type: 'anthropic',
+					...(endpoint.authToken
+						? { authToken: endpoint.authToken }
+						: { apiKey: endpoint.apiKey as string }),
+					baseURL: endpoint.baseURL,
+					model,
+					...(promptCacheTtl() ? { promptCacheTtl: promptCacheTtl() } : {}),
+				})
+				return provider
+			}
 			const token = det?.apiKey ?? ''
 			const isOAuth = token.length > 0 && isAnthropicOAuthToken(token)
 			const { provider } = ProviderRegistry.create({
 				type: 'anthropic',
 				...(isOAuth ? { authToken: token } : { apiKey: token }),
-				baseURL: det?.baseUrl,
+				baseURL: endpoint?.baseURL ?? det?.baseUrl,
 				model,
 				...(promptCacheTtl() ? { promptCacheTtl: promptCacheTtl() } : {}),
 			})
