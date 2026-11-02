@@ -31,6 +31,8 @@ export type {
 	ForegroundSubject,
 	MonitorBurstEnd,
 	MonitorState,
+	SelectItemRequest,
+	SelectItemResult,
 } from './types.js'
 export { BurstInterrupted, PROTECTED_PROCESSES } from './types.js'
 export {

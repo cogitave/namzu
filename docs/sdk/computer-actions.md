@@ -515,9 +515,15 @@ focused, the option typed and confirmed, through the ladder, then read back),
 and is `not_delivered` only when that does not change it either, with the
 advice to use the browser tool (a web page's drop-down list is the known case); a
 toggle whose state flipped is verified, and one that did not is
-`delivered_unverified`; a `select` on a list or tree row that is also
-invokable carries a warning, because the click invokes it and may open the
-item. The read-back gives every other ref of that window the new token of its
+`delivered_unverified`. A `select` on a list or tree row that is also
+invokable (a file row) is made through the row's selection pattern, never by a
+click, because the driver's click on such a row invokes it and opens the item:
+the row is found again in the window by role, name, automation id and place, selected,
+and verified by reading it back as selected (`The row is selected; it was not
+opened.`). Where the pattern cannot be reached (the helper is not running, the
+row is gone, two rows match, the row has no selection pattern) nothing is sent
+and the result is `not_delivered`, `retrySafety: safe`, saying that a click would
+open the row. The read-back gives every other ref of that window the new token of its
 control, so refs stay valid; a ref whose control is gone fails as
 `not_delivered` with `STALE_REF`. `invoke`, `expand` and `collapse` are
 `delivered_unverified`: the model looks.

@@ -39,7 +39,11 @@ interface Control {
 }
 
 /** A page whose controls the test can change between reads. */
-function page(initial: Control[], onAction?: (tool: string) => void) {
+function page(
+	initial: Control[],
+	onAction?: (tool: string) => void,
+	foreground?: ConstructorParameters<typeof CuaDriverAdapter>[0]['foreground'],
+) {
 	const controls = initial.map((control) => ({ ...control }))
 	const calls: ToolCall[] = []
 	let reads = 0
@@ -92,6 +96,7 @@ function page(initial: Control[], onAction?: (tool: string) => void) {
 		requestTimeoutMs: 1_000,
 		startTimeoutMs: 1_000,
 		settle: async () => undefined,
+		...(foreground ? { foreground } : {}),
 	})
 	return { adapter, controls, calls, reads: () => reads }
 }
@@ -247,17 +252,58 @@ describe('toggle and select read-back', () => {
 		await adapter.dispose()
 	})
 
-	it('warns that selecting a list row also invokes it', async () => {
-		const { adapter, controls } = page(FORM)
+	it('selects a list row by its selection pattern and never clicks it', async () => {
+		const asked: unknown[] = []
+		const ladder = {
+			selectItem: async (request: unknown) => {
+				asked.push(request)
+				controls[3]!.selected = true
+				return { found: true, reason: '', selected: true }
+			},
+		} as unknown as ConstructorParameters<typeof CuaDriverAdapter>[0]['foreground']
+		const { adapter, controls, calls } = page(FORM, undefined, ladder)
 		const snapshot = await adapter.uiSnapshot('0x64')
-		const ref = refOf(snapshot, 'ListItem', 'beta.txt')
-		controls[3]!.selected = true
-		const result = await adapter.uiAct(ref, 'select')
+		const result = await adapter.uiAct(refOf(snapshot, 'ListItem', 'beta.txt'), 'select')
 		expect(result).toMatchObject({
+			ok: true,
 			delivery: 'delivered_verified',
-			retrySafety: 'unsafe',
+			readBack: { observed: 'selected' },
 		})
-		expect(result.detail).toMatch(/opened the item/)
+		expect(result.detail).toMatch(/not opened/)
+		expect(asked).toMatchObject([{ hwnd: '0x64', role: 'ListItem', name: 'beta.txt' }])
+		expect(calls.map((call) => call.name)).not.toContain('click')
+		await adapter.dispose()
+	})
+
+	it('does not click a row that can be invoked when it cannot be selected another way', async () => {
+		for (const ladder of [
+			undefined,
+			{
+				selectItem: async () => ({ found: false, reason: 'no_pattern', selected: false }),
+			} as unknown as ConstructorParameters<typeof CuaDriverAdapter>[0]['foreground'],
+		]) {
+			const { adapter, calls } = page(FORM, undefined, ladder)
+			const snapshot = await adapter.uiSnapshot('0x64')
+			const result = await adapter.uiAct(refOf(snapshot, 'ListItem', 'beta.txt'), 'select')
+			expect(result).toMatchObject({
+				ok: false,
+				delivery: 'not_delivered',
+				retrySafety: 'safe',
+			})
+			expect(result.detail).toMatch(/would open it/)
+			expect(calls.map((call) => call.name)).not.toContain('click')
+			await adapter.dispose()
+		}
+	})
+
+	it('reports a selected row that does not read as selected as unconfirmed', async () => {
+		const ladder = {
+			selectItem: async () => ({ found: true, reason: '', selected: true }),
+		} as unknown as ConstructorParameters<typeof CuaDriverAdapter>[0]['foreground']
+		const { adapter } = page(FORM, undefined, ladder)
+		const snapshot = await adapter.uiSnapshot('0x64')
+		const result = await adapter.uiAct(refOf(snapshot, 'ListItem', 'beta.txt'), 'select')
+		expect(result).toMatchObject({ ok: true, delivery: 'delivered_unverified' })
 		await adapter.dispose()
 	})
 })

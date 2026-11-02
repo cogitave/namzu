@@ -223,6 +223,7 @@ public static class NzG {
   int from = Math.Max(0, at - 40); res.Seen = a.Substring(from, Math.Min(a.Length - from, w.Length + 80));
   return res;
  }
+
  public static string How = "";
  public static bool Alive(long h) { return IsWindow((IntPtr)h); }
  public static bool Raise(long hv) {
@@ -343,6 +344,53 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
         $t = [Convert]::ToInt64(([string]$c.hwnd).Substring(2), 16)
         $e = [NzG]::EditOp($t, [string]$c.op, [string]$c.text, [int]$c.x, [int]$c.y, ($null -ne $c.x), [string]$c.pick)
         $r = @{ found = $e.Found; reason = $e.Reason; hwnd = (Hx $e.Hwnd); cls = $e.Cls; done = $e.Done; len = $e.Len; text = $e.Text; seen = $e.Seen }
+      }
+      'select' {
+        # A list or tree item is selected without opening it. The accessibility selection pattern gives a folder window's
+        # item view the focus, which brings the window forward; the shell's own view selects without either.
+        if (-not $script:uia) { Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes; $script:uia = $true }
+        $A = [System.Windows.Automation.AutomationElement]
+        $t = [Convert]::ToInt64(([string]$c.hwnd).Substring(2), 16)
+        if (-not [NzG]::Alive($t)) { $r = @{ found = $false; reason = 'gone'; selected = $false } }
+        else {
+          $root = $A::FromHandle([IntPtr]$t)
+          $byName = New-Object System.Windows.Automation.PropertyCondition($A::NameProperty, [string]$c.name)
+          $hits = @($root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $byName) | Where-Object { $_.Current.ControlType.ProgrammaticName -eq ('ControlType.' + [string]$c.role) })
+          # The id the driver reports is not always the one the control has: it tells equals apart only when it narrows the match.
+          if ($hits.Count -gt 1 -and $c.autoId) {
+            $same = @($hits | Where-Object { $_.Current.AutomationId -eq [string]$c.autoId })
+            if ($same.Count -ge 1) { $hits = $same }
+          }
+          if ($hits.Count -gt 1 -and $null -ne $c.x) {
+            $cx = [double]$c.x + [double]$c.w / 2; $cy = [double]$c.y + [double]$c.h / 2
+            $near = @($hits | Where-Object { $b = $_.Current.BoundingRectangle; [Math]::Abs(($b.X + $b.Width / 2) - $cx) -le 8 -and [Math]::Abs(($b.Y + $b.Height / 2) - $cy) -le 8 })
+            if ($near.Count -ge 1) { $hits = $near }
+          }
+          if ($hits.Count -eq 0) { $r = @{ found = $false; reason = 'not_found'; selected = $false } }
+          elseif ($hits.Count -gt 1) { $r = @{ found = $false; reason = 'ambiguous'; selected = $false } }
+          else {
+            $o = $null; $how = ''
+            if ($root.Current.ClassName -eq 'CabinetWClass') {
+              # Select and clear the others (1 and 4), without focus or scrolling.
+              try {
+                $win = $null
+                foreach ($w in (New-Object -ComObject Shell.Application).Windows()) { if ([int64]$w.HWND -eq $t) { $win = $w } }
+                if ($null -ne $win) {
+                  $items = @($win.Document.Folder.Items() | Where-Object { $_.Name -eq [string]$c.name })
+                  if ($items.Count -eq 1) { $win.Document.SelectItem($items[0], 5); $how = 'shell' }
+                }
+              } catch { $how = '' }
+            }
+            if ($how -eq '' -and -not $hits[0].TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$o)) { $r = @{ found = $false; reason = 'no_pattern'; selected = $false } }
+            else {
+              try {
+                if ($how -eq '') { $o.Select(); $how = 'pattern' }
+                $p = $null; $now = $hits[0].TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$p) -and $p.Current.IsSelected
+                $r = @{ found = $true; reason = ''; selected = [bool]$now; how = $how }
+              } catch { $r = @{ found = $false; reason = 'refused'; selected = $false } }
+            }
+          }
+        }
       }
       'end' { $r = EndBurst ([bool]$c.restore) ([bool]$c.keepCursor) }
       'release' { Release $c.lease $c.token; $r = @{ ok = $true } }

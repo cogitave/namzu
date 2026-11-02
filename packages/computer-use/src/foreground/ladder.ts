@@ -13,6 +13,8 @@ import {
 	type MonitorBurstEnd,
 	type MonitorState,
 	PROTECTED_PROCESSES,
+	type SelectItemRequest,
+	type SelectItemResult,
 } from './types.js'
 
 /** Time, replaceable so the waits below run on a fake clock in tests. */
@@ -235,6 +237,22 @@ export class ForegroundLadder {
 		if (!monitor.ok || !monitor.monitor.editText) return undefined
 		try {
 			return await abortable('edit_text', monitor.monitor.editText(request))
+		} catch (error) {
+			if (error instanceof CallAbortedError) throw error
+			return undefined
+		}
+	}
+
+	/**
+	 * Selects one list or tree item through its selection pattern. Like
+	 * `editText` it uses neither the screen nor the lease. Undefined where no
+	 * monitor can reach controls.
+	 */
+	async selectItem(request: SelectItemRequest): Promise<SelectItemResult | undefined> {
+		const monitor = await this.ensureMonitor()
+		if (!monitor.ok || !monitor.monitor.selectItem) return undefined
+		try {
+			return await abortable('select_item', monitor.monitor.selectItem(request))
 		} catch (error) {
 			if (error instanceof CallAbortedError) throw error
 			return undefined

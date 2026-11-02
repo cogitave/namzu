@@ -6,6 +6,8 @@ import type {
 	ForegroundMonitor,
 	MonitorBurstEnd,
 	MonitorState,
+	SelectItemRequest,
+	SelectItemResult,
 } from './types.js'
 import { WINDOWS_HELPER_SCRIPT } from './windows-helper-script.js'
 
@@ -178,6 +180,24 @@ export class WindowsInputMonitor implements ForegroundMonitor {
 			pick: request.pick,
 			...(request.text !== undefined ? { text: request.text } : {}),
 			...(request.at ? { x: Math.round(request.at.x), y: Math.round(request.at.y) } : {}),
+		})
+	}
+
+	selectItem(request: SelectItemRequest): Promise<SelectItemResult> {
+		return this.call<SelectItemResult>({
+			cmd: 'select',
+			hwnd: request.hwnd,
+			role: request.role,
+			name: request.name,
+			...(request.automationId ? { autoId: request.automationId } : {}),
+			...(request.bounds
+				? {
+						x: Math.round(request.bounds.x),
+						y: Math.round(request.bounds.y),
+						w: Math.round(request.bounds.width),
+						h: Math.round(request.bounds.height),
+					}
+				: {}),
 		})
 	}
 

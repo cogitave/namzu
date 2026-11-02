@@ -218,6 +218,44 @@ describe('the Windows input monitor', () => {
 		expect(WINDOWS_HELPER_SCRIPT).toMatch(/Marshal\.GetLastWin32Error\(\) == 5/)
 	})
 
+	it('selects a list row by its selection pattern, never by a click, and keeps the id as a tie-break only', async () => {
+		const helper = fakeHelper({ ok: true, hooks: true }, () => ({
+			ok: true,
+			r: { found: true, reason: '', selected: true },
+		}))
+		const monitor = new WindowsInputMonitor({ powershell: 'ps', spawnHelper: () => helper.proc })
+		await monitor.start()
+		const result = await monitor.selectItem({
+			hwnd: '0x10',
+			role: 'ListItem',
+			name: 'beta.txt',
+			automationId: '1',
+			bounds: { x: 10.4, y: 20, width: 300, height: 22 },
+		})
+		expect(result).toEqual({ found: true, reason: '', selected: true })
+		expect(helper.written[0]).toMatchObject({
+			cmd: 'select',
+			hwnd: '0x10',
+			role: 'ListItem',
+			name: 'beta.txt',
+			autoId: '1',
+			x: 10,
+			y: 20,
+			w: 300,
+			h: 22,
+		})
+		const from = WINDOWS_HELPER_SCRIPT.indexOf("'select' {")
+		const select = WINDOWS_HELPER_SCRIPT.slice(from, WINDOWS_HELPER_SCRIPT.indexOf("'end' {", from))
+		// A folder window's own view first (no focus, so the window is not brought forward), the pattern otherwise.
+		expect(select).toMatch(/CabinetWClass/)
+		expect(select).toMatch(/SelectItem\(\$items\[0\], 5\)/)
+		expect(select).toMatch(/SelectionItemPattern\]::Pattern/)
+		expect(select).toMatch(/\$o\.Select\(\)/)
+		// The driver's id is not always the control's: it only narrows several matches.
+		expect(select).toMatch(/\$hits\.Count -gt 1 -and \$c\.autoId/)
+		expect(select).not.toMatch(/Invoke|SendInput|SetForegroundWindow/)
+	})
+
 	it('hands the helper to PowerShell through its input, not as a file or a command line', () => {
 		// The command line carries only the bootstrap: the script itself would not fit in the
 		// 32 767 characters a command line allows.

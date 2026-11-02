@@ -1336,12 +1336,19 @@ export class CuaDriverAdapter implements Adapter {
 					// own pattern in the background (Invoke, or a posted click at its
 					// centre), with no pointer move and no change of foreground.
 					return await this.clickAndWatch(facts, uiRef)
-				case 'toggle':
 				case 'select': {
+					// A row that can also be invoked is selected by its selection pattern: the driver's click on it invokes, and a file row would open.
+					if (ITEM_ROLES.test(facts.role) && facts.actions.includes('invoke'))
+						return await this.selectWithoutOpening(facts)
+					const sent = await this.clickRef(facts, uiRef)
+					if (!sent.ok) return sent
+					return judgeSelect(facts, await this.readBack(facts))
+				}
+				case 'toggle': {
 					const sent = await this.clickRef(facts, uiRef)
 					if (!sent.ok) return sent
 					const back = await this.readBack(facts)
-					return action === 'toggle' ? judgeToggle(facts, back) : judgeSelect(facts, back)
+					return judgeToggle(facts, back)
 				}
 				case 'set_value': {
 					const text = value ?? ''
@@ -1502,6 +1509,48 @@ export class CuaDriverAdapter implements Adapter {
 		if (judged.delivery === 'delivered_verified')
 			return { ...judged, detail: foregroundNote(outcome) }
 		return { ...judged, detail: `${judged.detail ?? ''} ${instead}`.trim() }
+	}
+
+	/**
+	 * Select a list or tree row that can also be invoked, through its selection
+	 * pattern, so that a file row is chosen and not opened. Where that cannot be
+	 * reached nothing is sent: the click that is left would open the item.
+	 */
+	private async selectWithoutOpening(facts: UiRefEntry): Promise<UiActResult> {
+		const result = await this.foreground?.selectItem({
+			hwnd: windowIdOf(facts.hwnd),
+			role: facts.role,
+			name: facts.name,
+			...(facts.automationId ? { automationId: facts.automationId } : {}),
+			...(facts.bounds ? { bounds: facts.bounds } : {}),
+		})
+		if (!result?.found) {
+			const why = result
+				? (SELECT_REFUSALS[result.reason] ?? 'the row could not be selected')
+				: 'this host cannot select a row without opening it'
+			return {
+				ok: false,
+				delivery: 'not_delivered',
+				retrySafety: 'safe',
+				detail: `${why}, and nothing was sent. Clicking the row would open it; use invoke to open it, or take a new ui_snapshot and try again.`,
+			}
+		}
+		const back = await this.readBack(facts)
+		if (back?.selected === true || (back === undefined && result.selected))
+			return {
+				ok: true,
+				delivery: 'delivered_verified',
+				retrySafety: 'unsafe',
+				readBack: { expected: 'selected', observed: 'selected' },
+				detail: 'The row is selected; it was not opened.',
+			}
+		return {
+			ok: true,
+			delivery: 'delivered_unverified',
+			retrySafety: 'unsafe',
+			readBack: { expected: 'selected', observed: 'not selected' },
+			detail: 'the row was selected by its selection pattern, but it does not read as selected.',
+		}
 	}
 
 	/** Replace a classic edit control's text by window message; undefined where the control is not one this reaches. */
@@ -2190,28 +2239,29 @@ export function judgeToggle(before: UiRefFacts, after: UiRefFacts | undefined): 
 
 const ITEM_ROLES = /^(ListItem|TreeItem|DataItem)$/
 
-/** select, judged by whether the control now reads as selected. */
-export function judgeSelect(before: UiRefFacts, after: UiRefFacts | undefined): UiActResult {
-	// A list or tree row is also invokable, and the driver's click on it
-	// invokes: a file row opens its file. Say so, whatever the read-back shows.
-	const warning =
-		ITEM_ROLES.test(before.role) && before.actions.includes('invoke')
-			? ' This row is also invokable and select clicked it, so it may have opened the item.'
-			: ''
+const SELECT_REFUSALS: Readonly<Record<string, string>> = {
+	gone: 'the window is gone',
+	not_found: 'the row is not in the window any more',
+	ambiguous: 'more than one row matches',
+	no_pattern: 'the row has no selection pattern',
+	refused: 'the program refused the selection',
+}
+
+/** select by a click, judged by whether the control now reads as selected (a row that can also be invoked takes the selection pattern instead). */
+export function judgeSelect(_before: UiRefFacts, after: UiRefFacts | undefined): UiActResult {
 	if (after?.selected === true)
 		return {
 			ok: true,
 			delivery: 'delivered_verified',
 			retrySafety: 'unsafe',
 			readBack: { expected: 'selected', observed: 'selected' },
-			...(warning ? { detail: warning.trim() } : {}),
 		}
 	return {
 		ok: true,
 		delivery: 'delivered_unverified',
 		retrySafety: 'unsafe',
 		...(after ? { readBack: { expected: 'selected', observed: 'not selected' } } : {}),
-		detail: `the click was sent, but the control does not read as selected${after ? '' : ' (it could not be read back)'}.${warning}`,
+		detail: `the click was sent, but the control does not read as selected${after ? '' : ' (it could not be read back)'}.`,
 	}
 }
 

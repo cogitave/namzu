@@ -120,6 +120,36 @@ export interface EditTextResult {
 	readonly seen: string
 }
 
+/** Select one item of a list or tree through its selection pattern, which selects without opening it. */
+export interface SelectItemRequest {
+	/** The window that holds the item, in hex. */
+	readonly hwnd: string
+	/** The item's role (`ListItem`, `TreeItem`, `DataItem`), name and, when it has one, automation id. */
+	readonly role: string
+	readonly name: string
+	readonly automationId?: string
+	/** Where the item was read, in screen pixels: tells apart same-named items. */
+	readonly bounds?: {
+		readonly x: number
+		readonly y: number
+		readonly width: number
+		readonly height: number
+	}
+}
+
+/**
+ * `found` is false with a `reason` (`gone`, `not_found`, `ambiguous`,
+ * `no_pattern`, `unreadable`, `refused`) when nothing was selected; `selected`
+ * is what the item reads as afterwards.
+ */
+export interface SelectItemResult {
+	readonly found: boolean
+	readonly reason: string
+	readonly selected: boolean
+	/** `shell`: a folder window's own view (no focus, the window stays where it is); `pattern`: the accessibility selection pattern. */
+	readonly how?: 'shell' | 'pattern'
+}
+
 /**
  * Watches the desktop for a burst. Implementations must be cheap to poll (the
  * Windows helper answers in under a millisecond) and must keep working when
@@ -170,6 +200,8 @@ export interface ForegroundMonitor {
 	 * monitor that cannot reach controls leaves it out.
 	 */
 	editText?(request: EditTextRequest): Promise<EditTextResult>
+	/** Selects a list or tree item by its selection pattern. Optional like `editText`. */
+	selectItem?(request: SelectItemRequest): Promise<SelectItemResult>
 	dispose(): Promise<void>
 }
 

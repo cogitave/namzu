@@ -87,12 +87,26 @@ reports no value pattern for it) sends `WM_SETTEXT`, and `type_text` into a
 window whose focused control is one sends `EM_REPLACESEL` at the caret; the
 focused control counts only when it lies inside the window that was chosen (a
 dialog of the same program does not), and a focus that is not an edit control is
-not replaced by a lone edit control elsewhere in the window. Both are
+not replaced by a lone edit control elsewhere in the window. A window that was
+never activated has no focus window on its thread; if no other window of the
+thread is active either, its single edit control is the target. Both are
 read back with `WM_GETTEXT`. A program running with higher rights refuses the
 message (UIPI): that is `not_delivered` with the reason, and the model is told to
 ask the user. A read-only control is `not_delivered`; a program that does not
 answer in time is `delivered_unverified`. Where the control is not a classic edit
 control the action takes the driver's path as before.
+
+## Selecting a list or tree row
+
+A row that can be invoked (a file row) is selected by the same helper through
+its selection pattern, which selects without opening; the driver's click on such
+a row invokes it. The helper finds the row in the chosen window by role, name and
+automation id (and, among equals, by place), selects it and reports whether it
+reads as selected. In a folder window it selects through the shell's own view
+(select, clear the others, no focus, no scrolling): the accessibility selection
+pattern gives that window's item view the focus, which brings the window to the
+front, so it is only the fallback for other programs. Like the edit control it
+needs neither the screen nor the lease.
 
 ## Interference and the result
 
