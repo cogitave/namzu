@@ -98,7 +98,7 @@ describe('a typed key is kept for the next start', () => {
 		expect(text).toContain('/logout deepseek')
 		expect(text).not.toContain('not written anywhere')
 		const token = describeDisposition(
-			PROVIDER_REGISTRY.anthropic,
+			PROVIDER_REGISTRY['anthropic'],
 			{ kind: 'verified' },
 			'subscription-token',
 		)

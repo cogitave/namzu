@@ -39,7 +39,7 @@ field, and a sign-in starts the same device-code or browser flow `l` starts.
 The paste field feeds the session-credential path. A pasted API key, for any
 provider that takes one, is saved privately after that provider starts
 successfully, and both the key and the selected provider are available on the
-next launch without asking again: Gemini's goes to `gemini-api-key.json`, every
+next launch without asking again: the Google key goes to `gemini-api-key.json`, every
 other provider's to `api-keys.json` (below). The one exception is a pasted
 subscription token, which lapses in hours with nothing to renew it; it stays in
 memory for that session and the screen says so. The Desktop's **Settings ▸ Models** saves a

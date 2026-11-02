@@ -2,7 +2,7 @@
  * Where a pasted API key goes once its provider session has opened.
  *
  * Every provider that takes a typed key is kept the same way: written to the
- * private store discovery reads on the next start (Gemini keeps its older
+ * private store discovery reads on the next start (the Google key keeps its older
  * file), so the key is asked for once. A pasted subscription token is the one
  * exception, because it lapses in hours with nothing to renew it; saving it
  * would turn a working launch into a 401 later.
