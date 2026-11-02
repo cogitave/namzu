@@ -391,3 +391,35 @@ describe('the query loop reaches tool-result images', () => {
 		])
 	})
 })
+
+describe('which DeepSeek ids accept images', () => {
+	const withImage = [
+		{
+			role: 'user' as const,
+			content: 'Describe this pixel.',
+			attachments: [{ type: 'image' as const, mediaType: 'image/png', data: PNG }],
+		},
+	]
+	const send = async (model: string) => {
+		const { provider } = providerWith([
+			[
+				{ id: 'done', choices: [{ delta: { content: 'ok' } }] },
+				{ id: 'done', choices: [{ delta: {}, finish_reason: 'stop' }] },
+			],
+		])
+		for await (const _chunk of provider.chatStream({ model, messages: withImage })) {
+			// Only the acceptance check is observed.
+		}
+	}
+
+	it.each(['deepseek-flash', VISION_MODEL])('accepts an image on %s', async (model) => {
+		await expect(send(model)).resolves.toBeUndefined()
+	})
+
+	it.each(['deepseek-v4-pro', 'deepseek-v4-flash'])(
+		'refuses an image on %s and names deepseek-flash',
+		async (model) => {
+			await expect(send(model)).rejects.toThrow(/Select 'deepseek-flash'/)
+		},
+	)
+})

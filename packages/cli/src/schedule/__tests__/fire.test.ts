@@ -19,6 +19,7 @@ import {
 import { join } from 'node:path'
 import { defineTool, mcpJsonSchemaToZod } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { answerModelsListing } from '../../__fixtures__/models-endpoint.js'
 import { __resetCliLoggerForTests } from '../../logging.js'
 import { createAgentSession } from '../../tui/agent.js'
 import { runFire } from '../fire/fire.js'
@@ -57,18 +58,20 @@ beforeEach(() => {
 	calls = 0
 	vi.stubGlobal(
 		'fetch',
-		vi.fn<typeof fetch>(async (_input, init) => {
-			calls++
-			const next = responses.shift()
-			if (!next) return completion()
-			const signal = init?.signal
-			return await Promise.race([
-				Promise.resolve(next()),
-				new Promise<Response>((_, reject) => {
-					signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
-				}),
-			])
-		}),
+		answerModelsListing(
+			vi.fn<typeof fetch>(async (_input, init) => {
+				calls++
+				const next = responses.shift()
+				if (!next) return completion()
+				const signal = init?.signal
+				return await Promise.race([
+					Promise.resolve(next()),
+					new Promise<Response>((_, reject) => {
+						signal?.addEventListener('abort', () => reject(signal.reason), { once: true })
+					}),
+				])
+			}),
+		),
 	)
 })
 

@@ -34,7 +34,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 		probeAgentSession: async () => ({
 			preferences: {
 				version: 3 as const,
-				providers: [{ id: 'deepseek' as const }],
+				providers: [{ id: 'deepseek' as const, model: 'deepseek-v4-pro' }],
 				subagents: { active: [] },
 			},
 			needsRepickReason: null,
@@ -46,7 +46,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 						label: 'DeepSeek',
 						envVars: ['DEEPSEEK_API_KEY'],
 						defaultBaseUrl: 'https://api.deepseek.com',
-						defaultModel: 'deepseek-v4-flash',
+						defaultModel: 'deepseek-v4-pro',
 						requiresApiKey: true,
 						constructible: true,
 					},
@@ -85,7 +85,7 @@ it('renders the real DeepSeek text-model refusal without a false driver warning'
 	const harness = render(<App ctx={{ cwd, version: '0.0.0-test' } as TuiContext} />)
 	mounted.push(harness)
 	await until(
-		() => (harness.lastFrame() ?? '').includes('deepseek-v4-flash'),
+		() => (harness.lastFrame() ?? '').includes('deepseek-v4-pro'),
 		'App did not publish the real provider session',
 	)
 	await tick(600)
@@ -105,8 +105,8 @@ it('renders the real DeepSeek text-model refusal without a false driver warning'
 	// coupling the observer to whichever word happened to cross this width.
 	const rendered = harness.frames.join('\n').replace(/\s+/g, ' ')
 	expect(rendered).not.toContain('Capability warning')
-	expect(rendered).toContain("Model 'deepseek-v4-flash' does not accept image input")
-	expect(rendered).toContain("Select 'deepseek-v4-flash-vision-exp'")
+	expect(rendered).toContain("Model 'deepseek-v4-pro' does not accept image input")
+	expect(rendered).toContain("Select 'deepseek-flash'")
 	// The image never leaves the machine. The conversation's title is asked of a
 	// small model beside the turn, and its model listing is a request of its own,
 	// but neither carries the attachment the provider refused locally.

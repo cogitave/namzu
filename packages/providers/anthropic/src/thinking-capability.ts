@@ -80,6 +80,20 @@ export interface ThinkingCapability {
 	readonly effortWhenDisabled: EffortLevels
 }
 
+/**
+ * A model that is not Claude, served by an Anthropic-compatible third-party
+ * endpoint. Such endpoints publish `thinking` enabled/disabled (adaptive reads
+ * as enabled) and `output_config.effort` of low, high or max, and nothing about
+ * the vendor's version-by-version table applies to their ids.
+ */
+export const COMPATIBLE_ENDPOINT: ThinkingCapability = {
+	adaptive: true,
+	manual: true,
+	canDisable: true,
+	effort: ['low', 'high', 'max'],
+	effortWhenDisabled: ['low', 'high', 'max'],
+}
+
 const MANUAL_ONLY: ThinkingCapability = {
 	adaptive: false,
 	manual: true,

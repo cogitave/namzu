@@ -206,6 +206,13 @@ export function clearStoredApiKey(providerId: string, home?: string): void {
 	})
 }
 
+/** Remove every saved provider key at once (`/logout all`). */
+export function clearAllStoredApiKeys(home?: string): void {
+	const path = apiKeysPath(home)
+	mkdirSync(dirname(path), { recursive: true, mode: DIR_MODE })
+	withCredentialStoreLock(path, () => rmSync(path, { force: true }))
+}
+
 /**
  * The stored subscription credential, or `null` when there is none.
  *
