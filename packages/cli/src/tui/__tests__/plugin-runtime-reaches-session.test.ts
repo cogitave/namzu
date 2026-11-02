@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { createUserMessage } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { answerModelsListing } from '../../__fixtures__/models-endpoint.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { createCliPluginRuntime } from '../../integrations/plugins/runtime.js'
 import {
@@ -404,12 +405,14 @@ export const tools = [{
 		const requests: unknown[] = []
 		vi.stubGlobal(
 			'fetch',
-			vi.fn<typeof fetch>(async (_input, init) => {
-				requests.push(JSON.parse(String(init?.body)))
-				if (requests.length === 1) return toolCallResponse()
-				if (requests.length === 2) return pluginToolResponse()
-				return answerResponse()
-			}),
+			answerModelsListing(
+				vi.fn<typeof fetch>(async (_input, init) => {
+					requests.push(JSON.parse(String(init?.body)))
+					if (requests.length === 1) return toolCallResponse()
+					if (requests.length === 2) return pluginToolResponse()
+					return answerResponse()
+				}),
+			),
 		)
 
 		const session = await createAgentSession(preferences, detected, {
@@ -456,7 +459,7 @@ export const tools = [{
 			'utf8',
 		)
 		const network = vi.fn<typeof fetch>()
-		vi.stubGlobal('fetch', network)
+		vi.stubGlobal('fetch', answerModelsListing(network as unknown as typeof fetch))
 		const session = await createAgentSession(preferences, detected, {
 			cwd,
 			plugins: { enabled: true, allowedScopes: ['project'], hookTimeoutMs: 5 },
