@@ -475,6 +475,8 @@ export interface WorkflowAgentResult {
 	readonly tokens: number
 	readonly toolCalls: number
 	readonly error?: string
+	/** The child session that holds the agent's transcript. */
+	readonly sessionId?: string
 }
 
 /** The id prefix of the display group a workflow run's agents are filed under. */
@@ -1994,7 +1996,13 @@ export async function createSubagentRuntime(
 					error: `The agent ended as ${status}${turn?.lastError ? `: ${turn.lastError}` : '.'}`,
 				}
 			}
-			return { state: 'done', text, tokens, toolCalls }
+			return {
+				state: 'done',
+				text,
+				tokens,
+				toolCalls,
+				...(handle.childSessionId ? { sessionId: String(handle.childSessionId) } : {}),
+			}
 		} catch (error) {
 			if (launch.signal.aborted) throw error
 			const stats = viewId ? activity.progressOf(viewId) : undefined

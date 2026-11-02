@@ -86,16 +86,16 @@ substitution, so an operator can review it before anything runs.
 | Name | Meaning |
 | --- | --- |
 | `agent(prompt, opts?)` | Start a subagent. Options: `label` (default: the first 60 characters of the prompt, whitespace squeezed), `phase`, `schema` (JSON Schema), `agentType`, `model`, `effort`. Resolves to the text, the schema-validated value, or `null` when the agent failed, was skipped, was refused by a budget, or answered outside the schema. |
-| `parallel(thunks)` | Start every thunk now; resolves when all are done (a barrier). It never rejects: a thunk that throws resolves to `null` in its place, and the reason goes through `log()` (`Step 2 stopped: …`, shown in the workflow's detail). Filter with `.filter(Boolean)`. |
-| `pipeline(items, ...stages)` | One chain per item, no barrier between stages. A stage gets `(prevResult, originalItem, index)`; the first stage gets the item as `prevResult`; an item whose stage resolves `null` or `undefined` stops there and yields `null`. A stage that throws drops its item to `null` the same way (the reason goes through `log()`) and the other items go on. |
+| `parallel(thunks)` | Start every thunk now; resolves when all are done (a barrier). It does not reject for a thunk's own failure: a thunk that throws, or whose agent failed, resolves to `null` in its place, and the reason goes through `log()`. A misused hook is different and fails the run: an `agent()` call with a bad prompt, a non-object `schema` or an oversized request, a non-function item, or a bad `phase()` title is re-thrown out of `parallel()` and `pipeline()` (the run ends `failed` with the error naming the call), because it is a mistake in the script, not a failed child (`Step 2 stopped: …`, shown in the workflow's detail). Filter with `.filter(Boolean)`. |
+| `pipeline(items, ...stages)` | One chain per item, no barrier between stages. A stage gets `(prevResult, originalItem, index)`; the first stage gets the item as `prevResult`; an item whose stage resolves `null` or `undefined` stops there and yields `null`. A stage that throws drops its item to `null` the same way (the reason goes through `log()`) and the other items go on; a misused hook in a stage is re-thrown and fails the run, as in `parallel()`. |
 | `phase(title)` | Move the global phase cursor. |
 | `log(message)` | A progress line (at most 2000 characters). |
 | `args` | The JSON you passed to `run()`. |
 | `budget` | `{ total, spent(), remaining() }`. `total` is `limits.tokenBudget` or `null`; `spent()` is the tokens this run's agents have used, refreshed on each `agent()` result; `remaining()` is `max(0, total - spent())`, or `Infinity` with no target. It is a hard ceiling: once `spent()` reaches `total`, `agent()` throws a `WorkflowBudgetExceededError` (agents already running finish), `pipeline()` throws at its start, and inside `parallel()` / `pipeline()` the throw drops the slot to `null` with one summary line. `tokensUsed` and `tokenLimit` remain as deprecated aliases. Guard loops on `budget.total` and give them a hard iteration cap. |
 
 `return` supplies the result. There is no `require`, `process`, `fetch`, timer
-or `import()`. This version leaves out nested `workflow()`, worktree isolation, resume from a journal and
-saved workflows.
+or `import()`. This version leaves out nested `workflow()`, worktree isolation and
+named workflows. A run can be [resumed](#resuming-a-run) from its journal.
 
 ### When a script fails
 
@@ -107,6 +107,8 @@ authored the script, so it can repair it instead of guessing:
 TypeError: not a function — line 7, column 13: const out = await fn(items)
 Before it failed: 3 agents started, 2 finished, 1 failed. A rerun starts the whole script again, so finished agents run again. Last phase: "Fix".
 ```
+
+A host that passes `canResume: true` (it keeps a journal and can resume) gets "Resume the run to continue: agents whose prompt and options are unchanged return their saved results." in place of the rerun sentence.
 
 - The first line is the error's name and message, then the script line (and
   column) the interpreter reports and that line's text, trimmed to 200
@@ -124,7 +126,10 @@ Before it failed: 3 agents started, 2 finished, 1 failed. A rerun starts the who
 The helpers reject obviously wrong argument shapes with a plain error naming the
 signature, for example `pipeline(items, ...stages): the first argument must be
 an array, got a function`. That is a convenience inside the interpreter, not
-enforcement; the host still validates every `agent()` request.
+enforcement; the host still validates every `agent()` request. An unknown `agent()`
+option (a misspelt `lable`) is still ignored, as before, but a `log()` line now says so.
+These misuse errors are marked, so `parallel()` and `pipeline()` re-throw them
+rather than mapping them to `null`.
 
 Schema validation covers `type`, `enum`, `const`, `properties`, `required`,
 `additionalProperties`, `items`, `minItems`/`maxItems`, `minLength`/`maxLength`,
@@ -168,7 +173,7 @@ Time a script spends awaiting agents does not count against the CPU limits;
 a synchronous busy loop or a loop of awaited microtasks does, and the
 interpreter is interrupted. `args` must be plain JSON up to 64 KiB. A
 prompt may be up to 200 KiB; `agent()` refuses anything else the host cannot
-validate (unknown option, non-string label, schema over 32 KiB). The host
+validate (unknown request key, non-string label, schema over 32 KiB). The host
 re-validates every call, so a compromised prelude cannot widen the bridge.
 `log()` and `phase()` lines share a 256 KiB output budget; later lines are
 dropped and `logsTruncated` is set.
@@ -208,13 +213,90 @@ Pass `journal` to keep an audit trail. `WorkflowJournal.append(record)` is
 called in order with `run_started` (script sha256 and size, `meta`, `args`,
 limits), `phase`, `agent_request` (index, label, phase, prompt preview and
 sha256, options), `agent_outcome` (state, tokens, tool calls, timings, result
-preview, error), `log` and `run_finished`. `writeScript(source, sha256)` is
-called first with the exact script. A journal that fails never stops the run;
-the first failure is reported as `journalError`.
+preview, error), `log` and `run_finished`. `writeScript(source, sha256, pass)`
+is called first with the exact script. A journal that fails never stops the
+run; the first failure is reported as `journalError`.
 
-`FileWorkflowJournal(dir)` writes `script.js` and an append-only
+Records carry what resuming needs, all optional so an older reader keeps
+working: `agent_request` and `agent_outcome` have a `key` (see below) and the
+`pass` they belong to (1 for the first run); `agent_outcome` has `result`, the
+agent's full value after schema validation (finished agents with a non-null
+value only), `unsaved` when a value could not be saved, `interrupted` when the
+run or the agent was stopped before it finished, `childSessionId` when the host
+reports where the agent ran (`WorkflowAgentOutcome.sessionId`), and, for an
+agent that returned a saved result instead of running, `cached: true` with
+`resultFrom` pointing at the pass and index that first produced it (no
+`result`, so values are never duplicated). `run_started` has `resume` (`pass`,
+`previousFinish`, `scriptSha256Changed`) on every pass after the first and
+`scriptPath` when the host read the script from a file. `run_finished` has
+`recovered: true` when a later process marked a run that never recorded its end.
+
+`FileWorkflowJournal(dir, { runId, key? })` writes `script.js` (and
+`script.<n>.js` for pass `n` of a resumed run) and an append-only
 `journal.jsonl` (files mode 0600) under `dir`, normally
-`<session>/runs/<runId>/workflow/`.
+`<session>/runs/<runId>/workflow/`. Every line also carries `seq` and `prev`,
+the SHA-256 of the previous line's exact bytes, the first line chaining from a
+seed made from the run id. With `key` (a secret the host keeps out of any
+folder a tool writes in) each line also carries a `mac`. One writer per file
+serves the whole process, writes `run_started`, `run_finished` and saved
+results with `fsync`, and drops a late record after a pass's `run_finished`
+until the next pass starts. It assumes one process writes a given file at a
+time. `read()` takes the run id from `options.runId`, else from the file's first
+`run_started`, else from the folder's parent name, so a journal in a folder of
+your own choosing reads back whole. Each saved result is at most
+`limits.maxValueBytes` (1 MiB by default); `read()` loads the whole file, so
+read journals of very long runs off the interactive path.
+
+## Resuming a run
+
+A run keeps its id and appends to the same journal. `read()` returns the
+records that passed the integrity check, `loadWorkflowResume()` folds them
+into what the next pass needs, and `resume` hands it to the runtime:
+
+```ts sketch
+const journal = new FileWorkflowJournal(dir, { runId, key })
+const resume = loadWorkflowResume(await journal.read())
+if (resume.resumable) {
+  await new WorkflowRuntime().run({
+    script, runId, journal, resume, deterministic: true, canResume: true, spawnAgent,
+  })
+}
+```
+
+Each `agent()` call has a key, `workflowCallKey(prompt, call, ordinal)`: a
+hash of the prompt, the options that change what the agent does (`schema`
+content, `model`, `effort`, `agentType`) and how many identical calls came
+before it in the pass. `label`, `phase` and progress callbacks are not part of
+it. A call whose key has a saved result returns it without running: no agent,
+no tokens, an `agent` event with `cached: true`; it still counts toward
+`maxAgents`. The cache stays valid until the first call that was never seen,
+failed, was skipped, or was asked for again without finishing; from that call
+on, in every branch of the script, agents run again. Calls that were queued or
+running when the run was stopped, and agents cut off by a stop, a closed
+session or the token budget, are recorded as `interrupted`: they run again but
+do not end reuse. So does a call that was asked for and has no recorded outcome
+at all (it was queued, or running when the process was killed): it runs, and
+later calls with a saved result still return it. Only a call that failed, was
+skipped or is new ends reuse. Editing a call changes its key, so an edit ends reuse at that
+point. Parallel and pipeline slots start in slot order, so reuse is decided in
+that order.
+
+The chain finds a line that was edited, removed, swapped or inserted (the next
+line no longer chains), and a last line cut off mid-write (ignored; one that is
+whole JSON and only lacks its newline is read like any other line). It cannot
+see an edit to the final line, or a rewrite of the whole file, without `key`;
+with `key`, anyone without the secret cannot make a line verify. A pass picks
+the chain up again at the last trusted line, so a damaged region is reported
+(`brokenAt`, in `problems`) but later passes compound. A journal written before
+chaining reads as `legacy` and is not resumable.
+
+`deterministic: true` makes the script repeatable, which a resume needs:
+`Date.now()`, `new Date()` with no argument, bare `Date()` and `Math.random()`
+throw with a message that says what to do instead (`new Date(x)`, `Date.parse`
+and `Date.UTC` work), and `eval` is removed. The default is `false`, so existing
+embedders are unchanged. A result in a resumed pass is the value the earlier
+pass returned for the same prompt and options; it does not notice that a
+session default model changed.
 
 ## Process boundary
 

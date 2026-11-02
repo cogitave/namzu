@@ -35,6 +35,7 @@ export type * from './types/job/index.js'
 export type * from './execution/workflow/types.js'
 export type { PhaseAgentView, PhaseRecord } from './execution/workflow/phases.js'
 export type { WorkflowRuntimeOptions } from './execution/workflow/runtime.js'
+export type { WorkflowCallIdentity } from './execution/workflow/resume.js'
 export type { WorkerCodeRuntimeOptions } from './execution/code-runtime/worker.js'
 export type {
 	CodeRunOutcome,

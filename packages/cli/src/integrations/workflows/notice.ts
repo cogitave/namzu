@@ -7,6 +7,7 @@
 import { wrapUntrusted } from '@namzu/sdk'
 
 import { formatElapsed } from '../../tui/units.js'
+import { resumeCallText } from './resume.js'
 import { type WorkflowRunView, countAgents, runTokens } from './view.js'
 
 /** Longest return value, in characters, that goes into the completion message. */
@@ -39,12 +40,33 @@ export function isBackgroundLaunch(output: string): boolean {
 }
 
 /** What the model reads right after it started a run. Never shown to the person. */
-export function launchedText(view: Pick<WorkflowRunView, 'runId' | 'name'>): string {
-	return [
+export function launchedText(
+	view: Pick<WorkflowRunView, 'runId' | 'name'> &
+		Partial<Pick<WorkflowRunView, 'scriptPath' | 'journalPath' | 'pass'>>,
+): string {
+	const lines = [
 		`Workflow "${view.name}" started in the background as ${view.runId}.`,
 		'Its agents are running now. You will get one message when it ends, with what the script returned, any failures and the usage. The person can watch it with /workflows or the rail under the message box.',
 		'Do not poll and do not start the same work again. Tell the person in one short sentence that it is running, then carry on with other work or end your turn.',
-	].join('\n')
+	]
+	if (view.pass !== undefined && view.pass > 1) {
+		lines.push(
+			`This continues the earlier run ${view.runId} (pass ${view.pass}); agents whose prompt and options are unchanged returned their saved results.`,
+		)
+	}
+	if (view.scriptPath !== undefined) {
+		lines.push(
+			`Script file: ${view.scriptPath}`,
+			`(Edit this file and call workflow again with ${resumeCallText(view.scriptPath, view.runId)} to change the script without sending it again.)`,
+		)
+	}
+	lines.push(`Run ID: ${view.runId}`)
+	if (view.journalPath !== undefined) {
+		lines.push(
+			`To continue after an edit or an interruption: ${resumeCallText(view.scriptPath, view.runId)}. Agents whose prompt and options are unchanged return their saved results without running again; saved results can be empty, so read ${view.journalPath} before assuming there is something to recover.`,
+		)
+	}
+	return lines.join('\n')
 }
 
 /**
@@ -65,7 +87,7 @@ export function completionNotice(view: WorkflowRunView): string {
 				: `Workflow "${view.name}" (${view.runId}) was stopped${view.error ? `: ${view.error}` : '.'}`
 	const lines = [head]
 	lines.push(
-		`<usage>agents: ${usage?.agents ?? counts.total}, done: ${usage?.agentsDone ?? counts.done}, failed: ${usage?.agentsFailed ?? counts.failed}, skipped: ${usage?.agentsSkipped ?? 0}, tokens: ${usage?.tokens ?? runTokens(view)}, tool_calls: ${usage?.toolCalls ?? 0}, duration: ${formatDuration(usage?.elapsedMs ?? elapsed)}</usage>`,
+		`<usage>agents: ${usage?.agents ?? counts.total}, agents_cached: ${usage?.cachedAgents ?? 0}, done: ${usage?.agentsDone ?? counts.done}, failed: ${usage?.agentsFailed ?? counts.failed}, skipped: ${usage?.agentsSkipped ?? 0}, tokens: ${usage?.tokens ?? runTokens(view)}, tool_calls: ${usage?.toolCalls ?? 0}, duration: ${formatDuration(usage?.elapsedMs ?? elapsed)}</usage>`,
 	)
 	const failed = view.agents.filter((agent) => agent.status === 'failed')
 	if (failed.length > 0) {
@@ -94,6 +116,20 @@ export function completionNotice(view: WorkflowRunView): string {
 						clip(text, WORKFLOW_RESULT_CHAR_CAP),
 					),
 		)
+	}
+	if (view.journalPath !== undefined) {
+		if (view.status === 'completed') {
+			lines.push(
+				`Per-agent results: ${view.journalPath} has one agent_outcome line per finished agent with its full result. If the result above is empty or unexpected, read that file before diagnosing. To re-run with edited post-processing, call ${resumeCallText(view.scriptPath, view.runId)}; unchanged agent calls replay from saved results.`,
+			)
+		} else {
+			lines.push(
+				'<recovery>',
+				`To continue after fixing the script, call: ${resumeCallText(view.scriptPath, view.runId)} - finished agents return saved results.`,
+				`Agent results: ${view.journalPath} (one agent_outcome line per finished agent).`,
+				'</recovery>',
+			)
+		}
 	}
 	lines.push(
 		'Report the outcome to the person in your own words. Name what failed, if anything, and what you would do about it.',

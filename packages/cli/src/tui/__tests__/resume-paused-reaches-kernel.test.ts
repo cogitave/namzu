@@ -12,7 +12,14 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type SessionEvent, asTurnId, generateMessageId } from '@namzu/sdk'
+import {
+	type Message,
+	type SessionEvent,
+	asTurnId,
+	createRuntimeContextMessage,
+	createUserMessage,
+	generateMessageId,
+} from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -83,7 +90,7 @@ afterEach(() => {
 	for (const root of roots.splice(0)) removeTempDir(root)
 })
 
-async function openSession(extra: { permissionMode?: 'plan' | 'auto' } = {}) {
+async function openSession(extra: { permissionMode?: 'plan' | 'auto' | 'strict' } = {}) {
 	const cwd = mkdtempSync(join(tmpdir(), 'namzu-resume-paused-cwd-'))
 	const stateRoot = mkdtempSync(join(tmpdir(), 'namzu-resume-paused-state-'))
 	roots.push(cwd, stateRoot)
@@ -144,6 +151,54 @@ describe('resuming this session’s own paused turn', () => {
 		} finally {
 			await session.close()
 		}
+	})
+
+	it('tells a resumed turn under strict the mode once, and a second resume adds nothing', async () => {
+		const { session, scope, conversations } = await openSession({ permissionMode: 'strict' })
+		await recordTurnStart(conversations, scope.sessionId, {
+			tokenBudget: 12000,
+			maxIterations: 7,
+			timeoutMs: 120000,
+		})
+		try {
+			for (let round = 0; round < 2; round++) {
+				for await (const event of session.resumePaused({
+					turnId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
+					checkpointId: 'f0d1dd26-fd58-4593-b904-7817c789af26',
+				})) {
+					if (event.kind === 'error') throw new Error(event.message)
+				}
+			}
+		} finally {
+			await session.close()
+		}
+		expect(resumeCalls).toHaveLength(2)
+		type Source = (c: {
+			sessionId: string
+			turnId: string
+			iteration: number
+			messages: Message[]
+		}) => Promise<readonly string[] | undefined>
+		const ask = async (call: Record<string, unknown>, messages: Message[]) =>
+			(await (call.reminders as Source)({
+				sessionId: scope.sessionId,
+				turnId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
+				iteration: 1,
+				messages,
+			})) ?? []
+
+		// The first resume of a conversation that was never told: one strict notice.
+		const history: Message[] = [createUserMessage('go')]
+		const first = await ask(resumeCalls[0] as Record<string, unknown>, history)
+		expect(first).toHaveLength(1)
+		expect(first[0]).toContain('The strict permission mode is on.')
+		expect(first[0]).toContain('refused without asking anyone')
+		for (const text of first) history.push(createRuntimeContextMessage(text, 'reminder'))
+
+		// The kernel keeps what it was told in the history, so the next resume reads it.
+		expect(await ask(resumeCalls[1] as Record<string, unknown>, history)).toEqual([])
+		// The kernel's own change notice is off: the mode notice is the one voice.
+		expect(resumeCalls[0]?.announceApprovalPolicyChange).toBe(false)
 	})
 
 	it('refuses a turn whose recorded limits are incomplete instead of running it unlimited', async () => {

@@ -65,7 +65,7 @@ export function projectRunAgents(
 			...(agent.toolCalls > 0 || child?.toolCalls !== undefined
 				? { toolCalls: Math.max(agent.toolCalls, child?.toolCalls ?? 0) }
 				: {}),
-			description: agent.label,
+			description: agent.cached ? `${agent.label} (saved result)` : agent.label,
 			prompt: child?.prompt ?? agent.promptPreview ?? '',
 			batchId: run.runId,
 			workflowId: run.workflowId,

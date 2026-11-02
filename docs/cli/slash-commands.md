@@ -75,7 +75,7 @@ clause, so no line ends mid-sentence.
 | `/schedule` | List [scheduled jobs](scheduled-tasks.md) and what needs you: a run waiting for approval, a job waiting for confirmation or on hold. `/schedule confirm|pause|resume|run|remove <job>` acts on one; `/schedule add <name> "<when>" <read-only|edit-in-folder> <prompt…>` creates one after showing it. |
 | `/browser` | The [browser](browser.md) this session drives: engine, window or none, running or not, profile and site rules. `/browser profile <name>` switches profile for the rest of the session (closing the browser if it was open), and a rebuilt session keeps it. |
 | `/loop` | Re-send a prompt to this conversation on an interval, between turns: `/loop 10m <prompt>`, `/loop list`, `/loop stop <id>|all`. See [Session loops](session-loops.md). |
-| `/workflows` | List this conversation's workflows, running and finished, and open one: its phases, then a phase's agents, then an agent's transcript. See [Workflows in the CLI](workflows.md). |
+| `/workflows` | List this conversation's workflows, running and finished, and open one: its phases, then a phase's agents, then an agent's transcript; `r` on a run that is not going asks the model to resume it. See [Workflows in the CLI](workflows.md). |
 
 ## Command-specific help
 

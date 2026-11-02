@@ -28,7 +28,7 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 	}
 	function phase(title) {
 		var t = clean(title, 120);
-		if (!t) throw new TypeError('phase() needs a non-empty title.');
+		if (!t) throw misuse('phase() needs a non-empty title.');
 		cursor = t;
 		emit({ k: 'phase', title: t });
 	}
@@ -53,13 +53,26 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 		return e;
 	}
 	function isBudgetError(e) { return !!e && e.name === 'WorkflowBudgetExceededError'; }
+	function misuse(message) {
+		var e = new TypeError(message);
+		e.workflowMisuse = true;
+		return e;
+	}
+	function isMisuse(e) { return !!e && e.workflowMisuse === true; }
+	var optionNames = ['label', 'phase', 'schema', 'agentType', 'model', 'effort'];
 	async function agent(prompt, opts) {
 		if (typeof prompt !== 'string' || prompt.length === 0) {
-			throw new TypeError('agent(prompt, options?): the prompt must be a non-empty string, got ' + kind(prompt));
+			throw misuse('agent(prompt, options?): the prompt must be a non-empty string, got ' + kind(prompt));
 		}
 		var o = opts == null ? {} : opts;
 		if (typeof o !== 'object' || Array.isArray(o)) {
-			throw new TypeError('agent(prompt, options?): options must be an object, got ' + kind(o));
+			throw misuse('agent(prompt, options?): options must be an object, got ' + kind(o));
+		}
+		var unknown = Object.keys(o).filter(function (k) { return optionNames.indexOf(k) < 0; });
+		if (unknown.length > 0) {
+			// Ignored, as it always was, but no longer silently: a saved script that
+			// misspells an option keeps running and the line says why it had no effect.
+			log('agent(prompt, options?): ignoring unknown option "' + unknown[0] + '"; the options are ' + optionNames.join(', ') + '.');
 		}
 		if (overBudget()) throw budgetError();
 		var request = { prompt: prompt, cursor: cursor };
@@ -69,23 +82,32 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 		if (o.agentType != null) request.agentType = clean(o.agentType, 120);
 		if (o.model != null) request.model = clean(o.model, 120);
 		if (o.effort != null) request.effort = clean(o.effort, 32);
-		var reply = await rawCall('agent', request);
+		var reply;
+		try {
+			reply = await rawCall('agent', request);
+		} catch (e) {
+			// The host rejects a malformed request with an "agent(): ..." message;
+			// that is the script's mistake, not a failed child.
+			if (e && typeof e.message === 'string' && e.message.indexOf('agent(): ') === 0) throw misuse(e.message);
+			throw e;
+		}
 		spent.tokensUsed = reply.t;
 		return reply.v;
 	}
 	async function parallel(thunks) {
 		if (!Array.isArray(thunks)) {
-			throw new TypeError('parallel(thunks): the argument must be an array of functions, got ' + kind(thunks));
+			throw misuse('parallel(thunks): the argument must be an array of functions, got ' + kind(thunks));
 		}
 		for (var p = 0; p < thunks.length; p++) {
 			if (typeof thunks[p] !== 'function') {
-				throw new TypeError('parallel(thunks): item ' + (p + 1) + ' must be a function (wrap the work as () => agent(...)), got ' + kind(thunks[p]));
+				throw misuse('parallel(thunks): item ' + (p + 1) + ' must be a function (wrap the work as () => agent(...)), got ' + kind(thunks[p]));
 			}
 		}
 		var dropped = 0;
 		var results = await Promise.all(thunks.map(function (t, n) {
 			return Promise.resolve().then(t).catch(function (e) {
 				if (isBudgetError(e)) { dropped++; return null; }
+				if (isMisuse(e)) throw e;
 				log('Step ' + (n + 1) + ' stopped: ' + clean(e && e.message ? e.message : e, 300));
 				return null;
 			});
@@ -95,12 +117,12 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 	}
 	async function pipeline(items) {
 		if (!Array.isArray(items)) {
-			throw new TypeError('pipeline(items, ...stages): the first argument must be an array, got ' + kind(items));
+			throw misuse('pipeline(items, ...stages): the first argument must be an array, got ' + kind(items));
 		}
 		var stages = Array.prototype.slice.call(arguments, 1);
 		for (var s = 0; s < stages.length; s++) {
 			if (typeof stages[s] !== 'function') {
-				throw new TypeError('pipeline(items, ...stages): stage ' + (s + 1) + ' must be a function, got ' + kind(stages[s]));
+				throw misuse('pipeline(items, ...stages): stage ' + (s + 1) + ' must be a function, got ' + kind(stages[s]));
 			}
 		}
 		if (items.length > 0 && overBudget()) throw budgetError();
@@ -112,6 +134,7 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 					value = await stages[i](value, item, index);
 				} catch (e) {
 					if (isBudgetError(e)) { dropped++; return null; }
+					if (isMisuse(e)) throw e;
 					log('Item ' + (index + 1) + ' stopped at step ' + (i + 1) + ': ' + clean(e && e.message ? e.message : e, 300));
 					return null;
 				}
@@ -141,6 +164,24 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 	install('log', log);
 	install('budget', budget);
 	install('args', config.args);
+	if (config.deterministic) {
+		var RealDate = Date;
+		var clockMessage = 'Date.now() / new Date() are unavailable in workflow scripts (breaks resume). Stamp results after the workflow returns, or pass timestamps through args.';
+		var randomMessage = 'Math.random() is unavailable in workflow scripts (breaks resume). For N independent samples, include the index in the agent label or prompt.';
+		var ShimDate = function Date(a, b, c, d, e, f, g) {
+			if (!new.target || arguments.length === 0) throw new Error(clockMessage);
+			return Reflect.construct(RealDate, Array.prototype.slice.call(arguments), new.target === ShimDate ? RealDate : new.target);
+		};
+		Object.defineProperty(ShimDate, 'prototype', { value: RealDate.prototype, writable: false, configurable: false });
+		Object.defineProperty(ShimDate, 'now', { value: function now() { throw new Error(clockMessage); }, writable: false, configurable: false });
+		Object.defineProperty(ShimDate, 'parse', { value: RealDate.parse, writable: false, configurable: false });
+		Object.defineProperty(ShimDate, 'UTC', { value: RealDate.UTC, writable: false, configurable: false });
+		Object.defineProperty(RealDate.prototype, 'constructor', { value: ShimDate, writable: false, configurable: false });
+		Object.defineProperty(globalThis, 'Date', { value: ShimDate, writable: false, configurable: false, enumerable: false });
+		Object.defineProperty(Math, 'random', { value: function random() { throw new Error(randomMessage); }, writable: false, configurable: false });
+		try { delete globalThis.eval; } catch (ignored) {}
+		Object.freeze(RealDate);
+	}
 })`
 
 /**
@@ -151,6 +192,7 @@ const PRELUDE_SOURCE = String.raw`(function (config) {
 export function preludeLineCount(config: {
 	args: unknown
 	tokenLimit: number | null
+	deterministic?: boolean
 }): number {
 	return buildPrelude(config).split('\n').length
 }
@@ -159,6 +201,7 @@ export function preludeLineCount(config: {
 export function buildPrelude(config: {
 	args: unknown
 	tokenLimit: number | null
+	deterministic?: boolean
 }): string {
 	const literal = JSON.stringify(config)
 		.split(String.fromCharCode(0x2028))
