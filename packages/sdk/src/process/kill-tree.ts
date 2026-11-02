@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { readFileSync, readdirSync } from 'node:fs'
 
 /**
  * Git Bash children that the Windows process tree cannot reach.
@@ -11,11 +12,67 @@ import { execFileSync } from 'node:child_process'
  * in its environment, which every descendant inherits however it was started;
  * the tag is how the tree is found again.
  */
-const MSYS_SHELLS = new WeakMap<object, { readonly bash: string; readonly tag: string }>()
+const MSYS_SHELLS = new WeakMap<object, { readonly bash?: string; readonly tag: string }>()
 
 /** Remember how to find every process a Git Bash child started. Called by the spawn. */
 export function registerMsysShell(child: object, shell: { bash: string; tag: string }): void {
 	MSYS_SHELLS.set(child, shell)
+}
+
+/**
+ * Remember the tag a POSIX child's environment carries, so a kill can also find
+ * a descendant that left the child's process group (`setsid`, a double fork
+ * that starts its own session). Such a process has no group to signal, but it
+ * inherited the environment, and the tag is how it is found again.
+ *
+ * The limit is the same as the group's own: a process that clears its
+ * environment before it forks escapes this too.
+ */
+export function registerProcessTag(child: object, tag: string): void {
+	MSYS_SHELLS.set(child, { tag })
+}
+
+/**
+ * Signal every process of this user whose environment carries one of the tags,
+ * by reading `/proc/<pid>/environ`. Linux only: other POSIX systems have no
+ * `/proc`, and there the process group is all a kill can reach. A process whose
+ * environment cannot be read (another user's, or one that has just ended) is
+ * skipped without further work.
+ *
+ * Several tags are looked for in one pass, so stopping many jobs at once reads
+ * each environment once, not once per job. The scan is synchronous and its cost
+ * grows with the number of processes on the machine. There is also a window
+ * between reading an environment and signalling its pid in which the pid could
+ * be reused by an unrelated process of the same user; the window is the length
+ * of one read, and the signal goes only to a pid whose environment carried the
+ * tag a moment before.
+ */
+export function signalTagged(tags: string | readonly string[], signal: NodeJS.Signals): number {
+	const needles = (typeof tags === 'string' ? [tags] : tags).map(
+		(tag) => `${MSYS_TAG_VARIABLE}=${tag}\0`,
+	)
+	if (needles.length === 0) return 0
+	let entries: string[]
+	try {
+		entries = readdirSync('/proc')
+	} catch {
+		return 0
+	}
+	let signalled = 0
+	for (const entry of entries) {
+		if (!/^\d+$/.test(entry)) continue
+		const pid = Number(entry)
+		if (pid === process.pid) continue
+		try {
+			const environ = readFileSync(`/proc/${entry}/environ`, 'latin1')
+			if (!needles.some((needle) => environ.includes(needle))) continue
+			process.kill(pid, signal)
+			signalled++
+		} catch {
+			// Not ours to read, or gone since the listing.
+		}
+	}
+	return signalled
 }
 
 /** The environment variable that carries the tag. */
@@ -86,17 +143,49 @@ export function killTree(
 	child: { readonly pid?: number | undefined },
 	signal: NodeJS.Signals,
 ): void {
+	killTrees([child], signal)
+}
+
+/**
+ * `killTree` for several children at once: each child's group is signalled, then
+ * the environment scan runs once for all their tags. Used where the number of
+ * kills is unbounded and cannot wait, such as the host's exit.
+ */
+export function killTrees(
+	children: readonly { readonly pid?: number | undefined }[],
+	signal: NodeJS.Signals,
+): void {
+	const tags: string[] = []
+	for (const child of children) {
+		if (!child.pid) continue
+		killOne(child, signal, tags)
+	}
+	if (tags.length > 0 && process.platform === 'linux') signalTagged(tags, signal)
+}
+
+function killOne(
+	child: { readonly pid?: number | undefined },
+	signal: NodeJS.Signals,
+	tags: string[],
+): void {
 	if (!child.pid) return
 	try {
 		if (process.platform === 'win32') {
 			const msys = MSYS_SHELLS.get(child)
-			if (msys !== undefined) killMsysTagged(msys)
+			if (msys?.bash !== undefined) killMsysTagged({ bash: msys.bash, tag: msys.tag })
 			execFileSync(taskkillPath(), ['/pid', String(child.pid), '/t', '/f'], {
 				stdio: 'ignore',
 				windowsHide: true,
 			})
 		} else {
-			process.kill(-child.pid, signal)
+			try {
+				process.kill(-child.pid, signal)
+			} finally {
+				// After the group, which is cheap and exact: what is left is only
+				// what started its own session. Also when the group is already gone.
+				const tagged = MSYS_SHELLS.get(child)
+				if (tagged !== undefined) tags.push(tagged.tag)
+			}
 		}
 	} catch {
 		// Group (or tree) already gone

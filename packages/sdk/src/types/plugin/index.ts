@@ -549,6 +549,10 @@ export interface PluginManifest {
 	 * owns delegation, not by the runtime.
 	 */
 	readonly agents?: readonly string[]
+	/** Operating systems the plugin supports, as `process.platform` names them. Absent means all. */
+	readonly platforms?: readonly string[]
+	/** Runtime versions the plugin supports. Absent means any. */
+	readonly engines?: { readonly namzu?: string }
 }
 
 export const PluginMCPServerConfigSchema = z
@@ -589,6 +593,10 @@ export const PluginManifestSchema = z.object({
 	personas: z.array(z.string()).max(MAX_PERSONAS_PER_PLUGIN).optional(),
 	commands: z.array(PluginRelativeDirSchema).max(MAX_COMMAND_DIRS_PER_PLUGIN).optional(),
 	agents: z.array(PluginRelativeDirSchema).max(MAX_AGENT_DIRS_PER_PLUGIN).optional(),
+	/** Operating systems the plugin supports, as `process.platform` names them. Absent means all. */
+	platforms: z.array(z.string().min(1)).max(16).optional(),
+	/** Runtime versions the plugin supports. Absent means any. */
+	engines: z.object({ namzu: z.string().min(1).max(200).optional() }).optional(),
 })
 
 // ---------------------------------------------------------------------------

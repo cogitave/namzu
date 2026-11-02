@@ -328,6 +328,17 @@ export class AwaitedJobs {
 	}
 
 	/**
+	 * Say that a tool result has handed the model this job's exit and output.
+	 * Its entry goes, so a hold is not opened for a result the model has read;
+	 * the notice for the same exit is withdrawn by the caller.
+	 */
+	collected(id: string): void {
+		this.outstanding.delete(id)
+		this.exits = this.exits.filter((job) => job.id !== id)
+		for (const wake of [...this.arrivals]) wake()
+	}
+
+	/**
 	 * Take the recorded exits together with the text that delivers them, or
 	 * take neither.
 	 *

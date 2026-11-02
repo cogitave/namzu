@@ -37,6 +37,7 @@ import {
 	type SessionId,
 	TurnCancelled,
 	type TurnId,
+	type WakeBudget,
 	asSessionId,
 	createAssistantMessage,
 	createRuntimeContextMessage,
@@ -49,6 +50,7 @@ import {
 	resolveBoundAccount,
 	resolveTriggerThreshold,
 	resolveWorkflowLimits,
+	wakeBudgetFromEnv,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -1787,6 +1789,8 @@ function AppBody({
 	// the way a background job's exit is.
 	/** Moves when something ended that the model has not been told, so an idle session can wake. */
 	const [noticeVersion, setNoticeVersion] = useState(0)
+	/** Opt-in cap on automatic job wakes in a row (`NAMZU_MAX_CONSECUTIVE_WAKES`); only a person's message resets it. */
+	const wakeBudgetRef = useRef<WakeBudget>(wakeBudgetFromEnv())
 	useEffect(() => {
 		wakeLedgerRef.current.resetWorkflows()
 		const source = session?.workflows
@@ -9486,7 +9490,10 @@ function AppBody({
 			if (prompt.kind === 'notice' && prompt.generation !== conversationGenRef.current) return
 			setContextHidden(false)
 			const { text: promptText } = prompt
-			if (prompt.kind === 'human') lastHumanTurnRef.current = prompt
+			if (prompt.kind === 'human') {
+				lastHumanTurnRef.current = prompt
+				wakeBudgetRef.current.reset()
+			}
 			let text = promptText
 			const attachments = prompt.kind === 'human' ? prompt.attachments : undefined
 			const goalRound = prompt.kind === 'goal' ? prompt.goalRound : undefined
@@ -9564,6 +9571,7 @@ function AppBody({
 			let noticeKind: RuntimeContextMessageKind = 'task-completion'
 			if (prompt.kind === 'notice') {
 				const { ended, jobLines } = wakeLedgerRef.current.takeForWake(session)
+				if (jobLines.length > 0) wakeBudgetRef.current.recordWake()
 				// What monitors said is taken now, like the rest: an event the kernel
 				// already put in front of the model during a turn was acknowledged
 				// and is not here.
@@ -13837,7 +13845,14 @@ function AppBody({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: `noticeVersion` is what moves; the effect reads the refs it mirrors.
 	useEffect(() => {
 		if (admissionBlocked('notice', roundGateFacts()) !== null) return
-		if (!wakeLedgerRef.current.wakes(session, session?.monitors?.wakes() === true)) return
+		if (
+			!wakeLedgerRef.current.wakes(
+				session,
+				session?.monitors?.wakes() === true,
+				wakeBudgetRef.current.canWake,
+			)
+		)
+			return
 		enqueueQueued({
 			kind: 'notice',
 			text: 'Something finished while you were idle.',

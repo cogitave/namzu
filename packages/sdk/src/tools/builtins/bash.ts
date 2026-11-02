@@ -751,12 +751,14 @@ const BashToolBase = defineTool({
 				clipped.length > 0
 					? `[${clipped.join(' and ')} was truncated by the sandbox output cap. The omitted output is unavailable in this result. Use a saved artifact or a read-only observation; do not repeat a state-changing action to recover its output.]`
 					: '',
+				result.attribution ? `[${result.attribution.message}]` : '',
 			]
 				.filter(Boolean)
 				.join('\n\n')
 
 			const judged = result.timedOut ? undefined : judgeExit(input.command, result.exitCode)
-			const answered = judged !== undefined && !judged.isError
+			const answered =
+				judged !== undefined && !judged.isError && result.attribution?.kind !== 'runner-failure'
 			return {
 				success: answered,
 				output: output || '(no output)',
@@ -767,12 +769,17 @@ const BashToolBase = defineTool({
 					timedOut: result.timedOut,
 					stdoutTruncated: result.stdoutTruncated ?? false,
 					stderrTruncated: result.stderrTruncated ?? false,
+					...(result.attribution ? { sandboxAttribution: result.attribution.kind } : {}),
 				},
 				error: result.timedOut
 					? `Command timed out after ${input.timeout}ms. Any captured output before the deadline is above.`
-					: !answered
-						? `Command exited with code ${result.exitCode}`
-						: undefined,
+					: result.attribution?.kind === 'runner-failure'
+						? 'The sandbox launcher failed before the command ran (runner failure, not a command failure).'
+						: !answered
+							? result.attribution?.kind === 'denial'
+								? `Command exited with code ${result.exitCode}; looks like a sandbox denial`
+								: `Command exited with code ${result.exitCode}`
+							: undefined,
 				facts: commandFacts({
 					command: input.command,
 					exitCode: result.exitCode,

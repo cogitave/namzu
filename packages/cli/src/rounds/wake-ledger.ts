@@ -157,15 +157,16 @@ export class WakeLedger<Owner = unknown> {
 	}
 
 	/**
-	 * Whether an idle session has news worth waking for. A monitor's own ledger is
+	 * Whether an idle session has news worth waking for (`jobsCanWake` is false once the opt-in cap on automatic job wakes is spent). A monitor's own ledger is
 	 * on the session, so its answer comes in.
 	 */
-	wakes(owner: Owner | null, monitorsWake: boolean): boolean {
+	wakes(owner: Owner | null, monitorsWake: boolean, jobsCanWake = true): boolean {
 		const jobs = this.#jobs
 		return (
 			this.#workflows.size > 0 ||
 			this.#childMessages.size > 0 ||
-			(jobs.ownerSession === owner &&
+			(jobsCanWake &&
+				jobs.ownerSession === owner &&
 				[...jobs.pending.keys()].some((id) => this.#wakeJobIds.has(id))) ||
 			monitorsWake
 		)

@@ -100,6 +100,30 @@ were at startup: disabling a plugin from `/plugins` removes its tools, skills
 and hooks at once, and its commands and agents after the next start. These
 files run no code of their own, but an agent runs with the tools its file names.
 
+### Declare where a plugin runs
+
+A manifest may say which operating systems and which Namzu versions it supports:
+
+```json
+{
+  "name": "ledger",
+  "version": "1.0.0",
+  "description": "Ledger review",
+  "platforms": ["linux", "darwin"],
+  "engines": { "namzu": ">=60.0.0 <62" }
+}
+```
+
+`platforms` uses the names Node reports (`linux`, `darwin`, `win32`). `engines.namzu`
+takes space-separated comparators that must all hold (`>=`, `>`, `<=`, `<`, `=`,
+`^`, `~`), with `||` between alternatives; a bare `60` names the whole major.
+A plugin that declares neither loads everywhere, as before. One that does not fit
+is refused when it is read, with a reason such as "Plugin "ledger" needs Namzu
+>=61.0.0, and this is Namzu 60.2.1, so it was not loaded." A range that cannot be
+read is refused too, not guessed at. The version compared is the Namzu SDK
+runtime the session runs on; a build that cannot read its own version skips the
+range check rather than refusing every plugin.
+
 ### Try a plugin for one launch
 
 `namzu --plugin-dir <folder>` loads the plugin in that folder for this launch
