@@ -48,14 +48,19 @@ export interface TuiConfig {
 	/** Terminal protocol to write. Defaults to `osc9` when notifications are on. */
 	readonly notificationMethod?: TerminalNotificationMethod
 	/**
-	 * The key that puts `namzu spaces` in navigate mode: `ctrl+<letter>` or
+	 * The key that puts `namzu workspaces` in navigate mode: `ctrl+<letter>` or
 	 * `ctrl+space`. Absent means `ctrl+b`. Keys a terminal program needs for itself
 	 * (`ctrl+c`, `ctrl+d`, `ctrl+z`) and the ones that are Tab, Enter, Backspace or
 	 * Escape cannot be used. Pressing it twice sends it to the session.
 	 */
+	readonly workspacesPrefix?: string
+	/**
+	 * @deprecated The name from before `namzu spaces` became `namzu workspaces`. It is still read
+	 * when `workspacesPrefix` is absent; move the value to `workspacesPrefix`. Removed in the next major.
+	 */
 	readonly spacesPrefix?: string
 	/**
-	 * How much of the mouse `namzu spaces` captures: `full` (clicks, drags and the
+	 * How much of the mouse `namzu workspaces` captures: `full` (clicks, drags and the
 	 * wheel; lets you drag to select text inside a pane), `scroll` (the wheel only) or
 	 * `off` (nothing, so your terminal keeps its own selection and the screen is driven
 	 * by keys). Absent means `full`. `NAMZU_DISABLE_MOUSE` and
@@ -63,7 +68,7 @@ export interface TuiConfig {
 	 */
 	readonly mouse?: 'full' | 'scroll' | 'off'
 	/**
-	 * Whether text selected with the mouse in `namzu spaces` is copied the moment the
+	 * Whether text selected with the mouse in `namzu workspaces` is copied the moment the
 	 * button is released. Absent means `true`. When `false`, ctrl+c copies the selection.
 	 */
 	readonly copyOnSelect?: boolean

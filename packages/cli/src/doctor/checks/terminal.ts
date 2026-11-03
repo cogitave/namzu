@@ -39,7 +39,7 @@ export async function tryOneSession(binding: HostPtyModule, timeoutMs = PROBE_MS
 }
 
 /**
- * Whether a pseudo-terminal can be opened here. `namzu spaces` runs each session
+ * Whether a pseudo-terminal can be opened here. `namzu workspaces` runs each session
  * in one; without it the command starts a single session instead, so this is a
  * warning with the way to get one, never a failure.
  */
@@ -51,13 +51,14 @@ export async function describePseudoTerminal(
 		await probe(await load())
 		return {
 			status: 'pass',
-			message: 'A pseudo-terminal can be opened, so "namzu spaces" can run sessions side by side.',
+			message:
+				'A pseudo-terminal can be opened, so "namzu workspaces" can run sessions side by side.',
 		}
 	} catch (error) {
 		const reason = (error instanceof Error ? error.message : String(error)).split('\n')[0]
 		return {
 			status: 'warn',
-			message: `No pseudo-terminal can be opened here (${reason}), so "namzu spaces" starts a single session instead.`,
+			message: `No pseudo-terminal can be opened here (${reason}), so "namzu workspaces" starts a single session instead.`,
 			remediation:
 				'Reinstall Namzu with optional packages enabled (npm install -g @namzu/cli, without --omit=optional). If your platform has no prebuilt component, install python3, make and a C++ compiler first, then reinstall.',
 		}

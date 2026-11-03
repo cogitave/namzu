@@ -58,7 +58,7 @@ export interface LivePeersOptions {
 	readonly ready: () => boolean
 	readonly available: () => void
 	readonly report: (text: string) => void
-	/** The slot a spaces host launched this terminal under. */
+	/** The slot a workspaces host launched this terminal under. */
 	readonly hostSlot?: string
 	/** The conversation this terminal is on, once it has one. */
 	readonly conversation?: () => string | undefined

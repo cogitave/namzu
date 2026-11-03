@@ -1,9 +1,9 @@
 /**
- * Hands the main screen back from the spaces screen before the conversation unmounts, waiting at
+ * Hands the main screen back from the workspaces screen before the conversation unmounts, waiting at
  * most `limitMs`. When the wait runs out the caller moves on, and the release is told it is no
  * longer wanted, so a slow step cannot write to the terminal after Ink has unmounted.
  */
-export async function leaveSpacesBounded(options: {
+export async function leaveWorkspacesBounded(options: {
 	release: (stillWanted: () => boolean) => Promise<boolean>
 	flush: () => Promise<void>
 	limitMs: number

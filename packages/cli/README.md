@@ -146,7 +146,7 @@ These commands cover most sessions:
 | `/skills` | Activate a skill for this conversation. |
 | `/review` | Review uncommitted work, a branch or a commit. |
 | `/memory` | Show what Namzu remembers for this project. |
-| `/status` | Show the model, permissions, workspace and latest cost. |
+| `/status` | Show the model, permissions, files and latest cost. |
 | `/cost` | Show usage and cost for the current or last turn. |
 | `/export` | Save the conversation as Markdown, to the clipboard or a file. |
 | `/archive` | Make this conversation read-only and exit. |
