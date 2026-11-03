@@ -1,7 +1,13 @@
 import { constants, access } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 
-import type { DoctorCheck, DoctorCheckContext, DoctorCheckResult } from '@namzu/sdk'
+import {
+	type DoctorCheck,
+	type DoctorCheckContext,
+	type DoctorCheckResult,
+	privateTempRoot,
+	resolveTempBase,
+} from '@namzu/sdk'
 
 export const cwdWritableCheck: DoctorCheck = {
 	id: 'runtime.cwd-writable',
@@ -25,16 +31,21 @@ export const tmpdirWritableCheck: DoctorCheck = {
 	id: 'runtime.tmpdir-writable',
 	category: 'runtime',
 	run: async (): Promise<DoctorCheckResult> => {
-		const dir = tmpdir()
+		let dir = tmpdir()
 		try {
+			// `NAMZU_TMPDIR` when set, else the operating system's folder; then the
+			// private folder Namzu keeps under it, which is what actually gets written.
+			dir = resolveTempBase()
 			await access(dir, constants.W_OK)
+			privateTempRoot()
 			return { status: 'pass', message: `tmpdir writable: ${dir}` }
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error)
 			return {
 				status: 'fail',
 				message: `tmpdir not writable: ${dir} (${message})`,
-				remediation: 'Set TMPDIR / TMP / TEMP to a writable location.',
+				remediation:
+					'Set NAMZU_TMPDIR to a writable folder on a disk with free space (or TMPDIR / TMP / TEMP for every program).',
 			}
 		}
 	},

@@ -99,9 +99,9 @@ export function parsingChildScript(): string | undefined {
 export async function codeAnalysisSelfTest(): Promise<
 	{ ok: true; detail: string } | { ok: false; detail: string }
 > {
-	const { mkdtemp, rm, writeFile } = await import('node:fs/promises')
-	const { tmpdir } = await import('node:os')
-	const dir = await mkdtemp(join(tmpdir(), 'namzu-analysis-selftest-'))
+	const { rm, writeFile } = await import('node:fs/promises')
+	const { createTempDir } = await import('@namzu/sdk')
+	const dir = await createTempDir('analysis-selftest-')
 	let provider: CodeAnalysisProvider | undefined
 	try {
 		await writeFile(join(dir, 'probe.js'), 'function probe() { return "namzu-self-test" }\n')
