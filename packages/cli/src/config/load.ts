@@ -31,7 +31,7 @@ import {
 	SHELL_HOOK_EVENTS,
 	resolveAutoCompactWindowSetting,
 } from '@namzu/sdk'
-import { parsePrefix } from '../spaces/prefix.js'
+import { parsePrefix } from '../workspaces/prefix.js'
 
 import { parse as yamlParse } from 'yaml'
 
@@ -2002,6 +2002,7 @@ const CONFIG_READERS: ConfigReaders = {
 			showExpandedTodos?: unknown
 			recap?: unknown
 			spinnerTips?: unknown
+			workspacesPrefix?: unknown
 			spacesPrefix?: unknown
 			mouse?: unknown
 			copyOnSelect?: unknown
@@ -2061,14 +2062,17 @@ const CONFIG_READERS: ConfigReaders = {
 			return invalidConfigValue(context, ['recap'], 'must be true or false')
 		}
 
-		if (raw.spacesPrefix !== undefined) {
-			if (typeof raw.spacesPrefix !== 'string' || parsePrefix(raw.spacesPrefix) === undefined)
+		// `spacesPrefix` is the key from before the rename; it is read when `workspacesPrefix` is absent.
+		for (const key of ['workspacesPrefix', 'spacesPrefix'] as const) {
+			const value = raw[key]
+			if (value !== undefined && (typeof value !== 'string' || parsePrefix(value) === undefined))
 				return invalidConfigValue(
 					context,
-					['spacesPrefix'],
+					[key],
 					'must be ctrl+ and a letter, or ctrl+space (not ctrl+c, ctrl+d, ctrl+z, or the keys of Tab, Enter, Backspace and Escape)',
 				)
 		}
+		const workspacesPrefix = raw.workspacesPrefix ?? raw.spacesPrefix
 
 		if (
 			raw.mouse !== undefined &&
@@ -2084,7 +2088,7 @@ const CONFIG_READERS: ConfigReaders = {
 			...(notifications !== undefined ? { notifications } : {}),
 			...(raw.mouse !== undefined ? { mouse: raw.mouse as 'full' | 'scroll' | 'off' } : {}),
 			...(raw.copyOnSelect !== undefined ? { copyOnSelect: raw.copyOnSelect } : {}),
-			...(raw.spacesPrefix !== undefined ? { spacesPrefix: raw.spacesPrefix as string } : {}),
+			...(workspacesPrefix !== undefined ? { workspacesPrefix: workspacesPrefix as string } : {}),
 			...(method !== undefined ? { notificationMethod: method } : {}),
 			...(themeSetting !== undefined ? { theme: themeSetting } : {}),
 			...(raw.reducedMotion !== undefined ? { reducedMotion: raw.reducedMotion } : {}),

@@ -95,6 +95,6 @@ that holds one, and a conversation that never leaves the usual sign-in never
 writes one. If a conversation's account was removed, resuming it continues on the
 usual sign-in and says so.
 
-## In `namzu spaces`
+## In `namzu workspaces`
 
-Run several sessions side by side, each on its own account: [namzu spaces](spaces.md#accounts) shows every session's account and spent allowance in its sidebar and lets a new session start on any account you added. `/auth` and "continue with another account" work inside each session as here.
+Run several sessions side by side, each on its own account: [namzu workspaces](workspaces.md#accounts) shows every session's account and spent allowance in its sidebar and lets a new session start on any account you added. `/auth` and "continue with another account" work inside each session as here.

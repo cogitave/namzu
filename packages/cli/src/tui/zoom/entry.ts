@@ -1,16 +1,16 @@
 /**
- * Opening the spaces screen from the running conversation.
+ * Opening the workspaces screen from the running conversation.
  *
  * Imported on the first `←` only (through a dynamic import in `index.tsx`), so a
  * plain `namzu` pays nothing for it at startup: the host, the terminal emulator
  * and the pseudo-terminal binding all load here.
  */
 
-import type { HostInput, HostOutput, SpacesHost } from '../../spaces/host.js'
+import type { HostInput, HostOutput, WorkspacesHost } from '../../workspaces/host.js'
 import { LocalSession } from './local.js'
 import type { TerminalProxy } from './proxy.js'
 
-export interface SpacesEntryDeps {
+export interface WorkspacesEntryDeps {
 	readonly proxy: TerminalProxy
 	/** The real terminal. */
 	readonly realOut: NodeJS.WriteStream
@@ -28,41 +28,48 @@ export interface SpacesEntryDeps {
 	readonly repaint: () => void
 }
 
-export interface SpacesEntry {
-	/** Shows the spaces screen, or moves the keyboard to its sidebar when it is already up. False when it cannot be shown here. */
+export interface WorkspacesEntry {
+	/** Shows the workspaces screen, or moves the keyboard to its sidebar when it is already up. False when it cannot be shown here. */
 	open(): Promise<boolean>
 	/** The conversation wants to end: false when it was asked to stay because other sessions are mid-turn. */
 	confirmExit(): Promise<boolean>
-	/** The conversation is about to unmount: leaves the spaces screen and has the history printed on the main screen. True when it did. */
+	/** The conversation is about to unmount: leaves the workspaces screen and has the history printed on the main screen. True when it did. */
 	release(stillWanted?: () => boolean): Promise<boolean>
 	/** The conversation ended: hangs up the other sessions and gives the terminal back. */
 	shutdown(): Promise<void>
 }
 
-export function createSpacesEntry(deps: SpacesEntryDeps): SpacesEntry {
-	let built: Promise<{ host: SpacesHost; local: LocalSession } | null> | null = null
+export function createWorkspacesEntry(deps: WorkspacesEntryDeps): WorkspacesEntry {
+	let built: Promise<{
+		host: WorkspacesHost
+		local: LocalSession
+	} | null> | null = null
 
 	const build = async (): Promise<{
-		host: SpacesHost
+		host: WorkspacesHost
 		local: LocalSession
 	} | null> => {
-		const [{ SpacesHost: Host }, spaces, store, peersModule, prefixModule, pty, mouse] =
+		const [{ WorkspacesHost: Host }, workspaces, store, peersModule, prefixModule, pty, mouse] =
 			await Promise.all([
-				import('../../spaces/host.js'),
-				import('../../commands/spaces.js'),
-				import('../../spaces/store.js'),
-				import('../../spaces/peers.js'),
-				import('../../spaces/prefix.js'),
+				import('../../workspaces/host.js'),
+				import('../../commands/workspaces.js'),
+				import('../../workspaces/store.js'),
+				import('../../workspaces/peers.js'),
+				import('../../workspaces/prefix.js'),
 				import('../../terminal/pty.js'),
-				import('../../spaces/mouse.js'),
+				import('../../workspaces/mouse.js'),
 			])
 		const binding = await pty.loadHostPty().catch(() => null)
 		if (binding === null) return null
-		const palette = await import('../../spaces/palette.js')
+		const palette = await import('../../workspaces/palette.js')
 		const peers = peersModule.createPeerSource(deps.env)
-		const spacesStore = store.fileStore(store.spacesFilePath(deps.env), () => undefined)
-		const restored = spacesStore.load()
-		const accounts = spaces.storedAccounts
+		const workspacesStore = store.fileStore(
+			store.workspacesFilePath(deps.env),
+			() => undefined,
+			store.legacySpacesFilePath(deps.env),
+		)
+		const restored = workspacesStore.load()
+		const accounts = workspaces.storedAccounts
 		const prefix =
 			(deps.prefixSetting !== undefined
 				? prefixModule.parsePrefix(deps.prefixSetting)
@@ -108,11 +115,13 @@ export function createSpacesEntry(deps: SpacesEntryDeps): SpacesEntry {
 			output,
 			binding,
 			spec: (request) =>
-				spaces.sessionSpec(request, { env: deps.env, entry: deps.entry }, accounts(), [deps.entry]),
+				workspaces.sessionSpec(request, { env: deps.env, entry: deps.entry }, accounts(), [
+					deps.entry,
+				]),
 			accounts,
-			store: spacesStore,
+			store: workspacesStore,
 			...(restored ? { restored } : {}),
-			inUseElsewhere: (query) => spaces.conversationInUse(query, peers, deps.env),
+			inUseElsewhere: (query) => workspaces.conversationInUse(query, peers, deps.env),
 			folder: {
 				cwd: deps.cwd,
 				name: deps.cwd.split(/[\\/]/u).filter(Boolean).pop() ?? 'session',
@@ -143,11 +152,11 @@ export function createSpacesEntry(deps: SpacesEntryDeps): SpacesEntry {
 			const parts = await built
 			if (parts === null) return false
 			if (parts.host.visible) parts.host.focusSidebar()
-			else parts.host.openSpaces()
+			else parts.host.openWorkspaces()
 			return true
 		},
 		async confirmExit() {
-			// The spaces screen was never opened, so there are no other sessions.
+			// The workspaces screen was never opened, so there are no other sessions.
 			if (built === null) return true
 			const parts = await built
 			if (parts === null) return true

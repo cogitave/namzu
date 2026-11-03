@@ -1,5 +1,5 @@
 /**
- * The left-arrow gesture that opens the spaces screen from a conversation.
+ * The left-arrow gesture that opens the workspaces screen from a conversation.
  *
  * A single `←` on an empty composer fires. Two rules keep it from firing by
  * accident: a composer that was just emptied by editing only arms (the first `←`
@@ -20,7 +20,7 @@ export const COOLDOWN_MS = 1000
 
 /** What the composer does with a `←` press. */
 export type GestureVerdict =
-	/** Open the spaces screen. */
+	/** Open the workspaces screen. */
 	| 'fire'
 	/** Show the hint; the next `←` within the arm window fires. */
 	| 'arm'

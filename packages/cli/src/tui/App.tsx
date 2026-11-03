@@ -608,6 +608,7 @@ import { renderCheckpoints, renderRestore, renderRestoreNote } from '../checkpoi
 import { IDLE_COMPACTION_NOTICE } from '../integrations/compaction/idle-compaction.js'
 import { ApprovalNotifier } from '../integrations/notifications/approval.js'
 import { IdleNotifier } from '../integrations/notifications/idle.js'
+import { hostSlot } from '../workspaces/signal.js'
 import { agentViewCommandClass } from './agent-view-commands.js'
 import { AwayRecap } from './away-recap.js'
 import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
@@ -733,26 +734,26 @@ export interface AppProps {
 	readonly terminationExit?: { current: (() => void) | null }
 	/**
 	 * Where the launcher finds how to have the screen cleared and the whole
-	 * transcript printed again. The spaces screen needs it on every switch of
+	 * transcript printed again. The workspaces screen needs it on every switch of
 	 * the terminal between a mirror and the real screen, including when the
 	 * width does not change and the App's own resize reset would not run.
 	 */
 	readonly repaint?: { current: (() => void) | null }
 	/**
-	 * Opens the spaces screen: `←` on an empty composer. Absent where there is
-	 * no spaces screen to open (Windows, no terminal), which keeps `←` opening the
+	 * Opens the workspaces screen: `←` on an empty composer. Absent where there is
+	 * no workspaces screen to open (Windows, no terminal), which keeps `←` opening the
 	 * agents cockpit. Resolves false when it could not be opened, and the cockpit opens instead.
 	 */
-	readonly onOpenSpaces?: () => Promise<boolean>
+	readonly onOpenWorkspaces?: () => Promise<boolean>
 	/**
 	 * Asked before a typed exit (`/exit`, ctrl+c or ctrl+d twice) ends the conversation; false keeps
-	 * it, because the spaces screen asked whether to hang up sessions that are mid-turn.
+	 * it, because the workspaces screen asked whether to hang up sessions that are mid-turn.
 	 * A termination signal does not ask.
 	 */
 	readonly onConfirmExit?: () => Promise<boolean>
 	/**
 	 * Runs once the session is closed and just before Ink unmounts: gives the terminal back from
-	 * the spaces screen, so the last frame is drawn on the screen the shell will show.
+	 * the workspaces screen, so the last frame is drawn on the screen the shell will show.
 	 */
 	readonly beforeExit?: () => Promise<void>
 	/**
@@ -1410,7 +1411,7 @@ function AppBody({
 	externalEditor = defaultExternalEditor,
 	terminationExit,
 	repaint,
-	onOpenSpaces,
+	onOpenWorkspaces,
 	onConfirmExit,
 	beforeExit,
 	examplePrompts = false,
@@ -3268,7 +3269,7 @@ function AppBody({
 		},
 		[stdout.isTTY, writeStdout],
 	)
-	// The spaces screen switches the terminal between a mirror and the real screen; whichever
+	// The workspaces screen switches the terminal between a mirror and the real screen; whichever
 	// way, the screen is rebuilt from the messages, whether or not the width changed.
 	useEffect(() => {
 		if (!repaint) return
@@ -13799,7 +13800,8 @@ function AppBody({
 		peersStartingRef.current = true
 		let disposed = false
 		let opened: LivePeers | null = null
-		// What the account chip and the limit marker of a spaces host show. Read at
+		const workspaceHostSlot = hostSlot(process.env)
+		// What the account chip and the limit marker of a workspaces host show. Read at
 		// each publish, so a switch or a spent allowance reaches the sidebar at once.
 		const hostFacts = () => {
 			let activity: ReturnType<ReturnType<typeof openCliAccounts>['activity']['read']> | undefined
@@ -13843,10 +13845,10 @@ function AppBody({
 				wakePeers((version) => version + 1)
 			},
 			report: (text) => pushMessage('system', text),
-			...(process.env.NAMZU_SPACE_SLOT ? { hostSlot: process.env.NAMZU_SPACE_SLOT } : {}),
-			// Only a session inside a spaces host writes the new record fields, so a plain
+			...(workspaceHostSlot ? { hostSlot: workspaceHostSlot } : {}),
+			// Only a session inside a workspaces host writes the new record fields, so a plain
 			// session stays readable by builds that predate them.
-			...(process.env.NAMZU_SPACE_SLOT
+			...(workspaceHostSlot
 				? {
 						conversation: () =>
 							conversationMaterializedRef.current ? scopeRef.current?.sessionId : undefined,
@@ -15982,10 +15984,10 @@ function AppBody({
 								onDraftPresenceChange={setComposerHasDraft}
 								onOpenAgentPanel={focusAgentRail}
 								onOpenAgents={() => void openAgentCockpit()}
-								onOpenSpaces={
-									onOpenSpaces
+								onOpenWorkspaces={
+									onOpenWorkspaces
 										? () =>
-												void onOpenSpaces().then((opened) => {
+												void onOpenWorkspaces().then((opened) => {
 													if (!opened) void openAgentCockpit()
 												})
 										: undefined
@@ -16073,9 +16075,9 @@ function AppBody({
 						monitorCount={showComposerSurface && !childSurfaceOpen ? runningMonitorCount : 0}
 						pr={prStatus}
 						hyperlinks={hyperlinks}
-						// With a spaces screen to open, `←` no longer opens the agents; `↓` still does.
-						agentCount={footerKeysLive && !onOpenSpaces ? runningAgentCount : 0}
-						workflowCount={footerKeysLive && !onOpenSpaces ? runningWorkflowCount : 0}
+						// With a workspaces screen to open, `←` no longer opens the agents; `↓` still does.
+						agentCount={footerKeysLive && !onOpenWorkspaces ? runningAgentCount : 0}
+						workflowCount={footerKeysLive && !onOpenWorkspaces ? runningWorkflowCount : 0}
 						canManage={
 							footerKeysLive && railFocus === null && (runningShellCount > 0 || railHasRows)
 						}

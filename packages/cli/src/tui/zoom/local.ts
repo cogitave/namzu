@@ -1,7 +1,7 @@
 /**
- * The conversation this process is running, as a pane of the spaces host.
+ * The conversation this process is running, as a pane of the workspaces host.
  *
- * Ink is mounted on the pass-through streams of `proxy.ts`. While the spaces
+ * Ink is mounted on the pass-through streams of `proxy.ts`. While the workspaces
  * screen is up this session's output goes to a headless mirror the size of its
  * pane, which the host draws like any other pane's screen, and the host's keys
  * reach Ink through the same proxy. Taking the session full screen is native:
@@ -9,8 +9,8 @@
  * and the App reprints its whole transcript from its own message list.
  */
 
-import type { LocalPaneSession, SessionEnding, SessionStatus } from '../../spaces/session.js'
 import { HeadlessScreen } from '../../terminal/screen.js'
+import type { LocalPaneSession, SessionEnding, SessionStatus } from '../../workspaces/session.js'
 import type { TerminalProxy } from './proxy.js'
 
 const SCROLLBACK = 2000

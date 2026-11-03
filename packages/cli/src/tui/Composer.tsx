@@ -80,7 +80,7 @@ import { ARM_MS, LeftGesture } from './zoom/gesture.js'
 /** The footer notice that offers the second Esc. */
 const ESC_CLEAR_KEY = 'escape-again-to-clear'
 const STASH_KEY = 'draft-stash'
-const SPACES_HINT_KEY = 'spaces-arm'
+const WORKSPACES_HINT_KEY = 'workspaces-arm'
 const STASH_NOTICE_MS = 3000
 const STASH_RESTORED_NOTICE_MS = 5000
 /** The second Esc clears inside this window. */
@@ -186,11 +186,11 @@ export interface ComposerProps {
 	 */
 	readonly onOpenAgents?: () => void
 	/**
-	 * `←` on an empty composer opens the spaces screen instead of the agents
+	 * `←` on an empty composer opens the workspaces screen instead of the agents
 	 * (see `zoom/gesture.ts` for when a press fires, only arms, or is ignored).
 	 * Absent where there is none, and `onOpenAgents` keeps the key.
 	 */
-	readonly onOpenSpaces?: () => void
+	readonly onOpenWorkspaces?: () => void
 	/** Page up at the composer: open the scrollable transcript. */
 	readonly onScrollTranscript?: () => void
 	/** Recall the latest operator-authored next-turn message into an empty draft. */
@@ -664,7 +664,7 @@ export function Composer({
 	onDraftPresenceChange,
 	onOpenAgentPanel,
 	onOpenAgents,
-	onOpenSpaces,
+	onOpenWorkspaces,
 	onScrollTranscript,
 	onRecallQueued,
 	queuedEdit,
@@ -1656,7 +1656,7 @@ export function Composer({
 				setCursorState(next)
 				return
 			}
-			if (key.leftArrow && onOpenSpaces) {
+			if (key.leftArrow && onOpenWorkspaces) {
 				const verdict = leftGestureRef.current.press({
 					empty: valueRef.current.length === 0,
 					attachments: attachmentsRef.current.length > 0,
@@ -1665,14 +1665,14 @@ export function Composer({
 					meta: key.meta,
 				})
 				if (verdict === 'fire') {
-					onFooterNoticeRemove?.(SPACES_HINT_KEY)
-					onOpenSpaces()
+					onFooterNoticeRemove?.(WORKSPACES_HINT_KEY)
+					onOpenWorkspaces()
 					return
 				}
 				if (verdict === 'arm') {
 					onFooterNotice?.({
-						key: SPACES_HINT_KEY,
-						text: 'Press ← again to open spaces',
+						key: WORKSPACES_HINT_KEY,
+						text: 'Press ← again to open workspaces',
 						priority: 'immediate',
 						timeoutMs: ARM_MS,
 					})

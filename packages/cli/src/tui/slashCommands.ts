@@ -1554,7 +1554,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'status',
 		help: { usage: ['/status [details|config|tools]'] },
-		description: 'Show the model, permissions, workspace and latest cost.',
+		description: 'Show the model, permissions, files and latest cost.',
 		action: (ctx, args) => {
 			const which = args.join(' ').trim().toLowerCase()
 			if (which === 'config') {
@@ -2195,7 +2195,7 @@ export function statusRows(ctx: SlashContext): [string, string][] {
 	]
 	if (ctx.sandbox?.workspace)
 		rows.push([
-			'Workspace',
+			'Files',
 			ctx.sandbox.workspace === 'ephemeral'
 				? 'Temporary files, removed when the reply ends'
 				: 'Your real project files; edits are kept',
@@ -2249,9 +2249,9 @@ export function renderStatus(ctx: SlashContext, details = false): string {
 		)
 	}
 	if (sandbox?.workspace === 'ephemeral') {
-		lines.push('Workspace: temporary files; removed when the reply ends.')
+		lines.push('Files: temporary files; removed when the reply ends.')
 	} else if (sandbox?.workspace === 'working-directory' || sandbox?.workspace === 'host') {
-		lines.push('Workspace: real project files; edits persist.')
+		lines.push('Files: real project files; edits persist.')
 	}
 	if (details) {
 		for (const dir of ctx.directories?.() ?? []) lines.push(`Additional directory: ${dir}`)
@@ -2265,7 +2265,7 @@ export function renderStatus(ctx: SlashContext, details = false): string {
 		lines.push('/status config for setting sources; /status tools for available tools.')
 	}
 	if (ctx.usage) lines.push(`Spend (latest reply): ${costAmount(ctx.usage.cost)}`)
-	if (!details) lines.push('/status details for rules and workspace details.')
+	if (!details) lines.push('/status details for rules and file details.')
 	return lines.join('\n')
 }
 

@@ -1,5 +1,5 @@
 /**
- * What a terminal running inside a spaces host tells it about its account: the
+ * What a terminal running inside a workspaces host tells it about its account: the
  * label of a non-usual account the conversation is on, and whether that
  * account is out of allowance. Pure, so the same answer is checked without a
  * terminal.

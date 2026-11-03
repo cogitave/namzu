@@ -96,7 +96,7 @@ export const builtInDoctorChecks: readonly DoctorCheck[] = [
 	// After the packages it rests on: the index parses in a child process of its own.
 	codeAnalysisCheck,
 	telemetryInstalledCheck,
-	// Optional like the packages above: a machine without one still runs everything but spaces.
+	// Optional like the packages above: a machine without one still runs everything but workspaces.
 	pseudoTerminalCheck,
 	schedulerCheck,
 	updatesCheck,
