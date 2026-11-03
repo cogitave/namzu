@@ -138,7 +138,10 @@ What a change applies to:
   so it takes effect when the reply ends (`Switching to <model> when this reply
   finishes.`). Queued messages run on the new model. `/model` with no argument
   lists the current provider's models in the chooser; for another provider, type
-  `/model provider/model`.
+  `/model provider/model`. Compaction follows the model of each request: the
+  context window is looked up for the model a request uses, so a smaller window
+  triggers compaction sooner, unless `contextWindowTokens` is set in your
+  config, which then applies to every model.
 - **Reasoning effort and hypermode.** Read when a turn starts, so a change made
   while a reply runs applies from your next message (`Reasoning effort set to
   <level>. It applies from your next message.`). A message steered into the
