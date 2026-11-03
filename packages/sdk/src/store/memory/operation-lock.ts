@@ -296,8 +296,15 @@ export async function acquireMemoryOperationLock(
 	const deadline = performance.now() + timeoutMs
 	let attempted = false
 	let lastPid: number | undefined
+	// The wait bound limits waiting for a live owner, not the attempt that
+	// follows a successful break: the lock is free then, and breaking it can
+	// itself outlast a short bound on a slow disk.
+	let justBroke = false
 	for (;;) {
-		if (attempted && performance.now() >= deadline) throw busyError(path, lastPid, timeoutMs)
+		if (attempted && !justBroke && performance.now() >= deadline) {
+			throw busyError(path, lastPid, timeoutMs)
+		}
+		justBroke = false
 		attempted = true
 		const created = await createOwned(path, env)
 		if (created) {
@@ -314,6 +321,7 @@ export async function acquireMemoryOperationLock(
 		}
 		lastPid = seen.pid
 		if (seen.staleReason !== undefined && (await breakStaleLock(path, seen, timeoutMs, env))) {
+			justBroke = true
 			continue
 		}
 		if (performance.now() >= deadline) throw busyError(path, lastPid, timeoutMs)

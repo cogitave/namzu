@@ -91,7 +91,7 @@ describe('memory operation lock recovers when its owner is provably gone', () =>
 		const path = await lockFile(record())
 		const infos: unknown[][] = []
 		const logger = { info: (...a: unknown[]) => infos.push(a) } as never
-		const release = await acquireMemoryOperationLock(path, 50, opts({ logger }))
+		const release = await acquireMemoryOperationLock(path, 5_000, opts({ logger }))
 		expect(JSON.parse(await readFile(path, 'utf8')).pid).toBe(process.pid)
 		expect(infos.length).toBe(1)
 		await release()
@@ -121,7 +121,7 @@ describe('memory operation lock recovers when its owner is provably gone', () =>
 		expect(await readFile(young, 'utf8')).toBe('')
 		for (const content of ['', '{"pid":', 'not json', '{"pid":"x"}']) {
 			const path = await lockFile(content, old)
-			const release = await acquireMemoryOperationLock(path, 50, opts())
+			const release = await acquireMemoryOperationLock(path, 5_000, opts())
 			await release()
 		}
 	})
@@ -160,15 +160,17 @@ describe('memory operation lock recovers when its owner is provably gone', () =>
 		const path = await lockFile(record())
 		const replacement = record({ pid: 777, token: 'new' })
 		let calls = 0
-		// First call: the initial verdict. Second call: the re-inspection under the
-		// break file; swap in a new inode there, after which the unlink must not happen.
-		const isPidAlive = () => {
+		// Call 1 is the initial verdict on the stale owner. Call 2 is the
+		// re-inspection under the break file: a new lock lands there, so the unlink
+		// must not happen. The new owner (pid 777) is alive, so the wait ends in a
+		// refusal however fast or slow the disk is.
+		const isPidAlive = (pid: number) => {
 			calls++
 			if (calls === 2) {
 				writeFileSync(`${path}.swap`, replacement)
 				renameSync(`${path}.swap`, path)
 			}
-			return calls <= 2
+			return pid === 777
 		}
 		await expect(acquireMemoryOperationLock(path, 25, opts({ isPidAlive }))).rejects.toMatchObject({
 			code: 'storage_error',
@@ -176,10 +178,26 @@ describe('memory operation lock recovers when its owner is provably gone', () =>
 		expect(await readFile(path, 'utf8')).toBe(replacement)
 	})
 
+	it('still takes the lock it just broke when breaking outlasted the wait bound', async () => {
+		const path = await lockFile(record())
+		// Breaking takes longer than the one-millisecond bound: the lock is free
+		// by then, so the bound must not turn that into a refusal.
+		const slowDead = () => {
+			const end = performance.now() + 20
+			while (performance.now() < end) {
+				// busy wait: the slow disk
+			}
+			return false
+		}
+		const release = await acquireMemoryOperationLock(path, 1, opts({ isPidAlive: slowDead }))
+		expect(JSON.parse(await readFile(path, 'utf8')).pid).toBe(process.pid)
+		await release()
+	})
+
 	it("breaks a dead breaker's leftover break file once", async () => {
 		const path = await lockFile(record())
 		await writeFile(`${path}.break`, record({ pid: 5555 }))
-		const release = await acquireMemoryOperationLock(path, 50, opts())
+		const release = await acquireMemoryOperationLock(path, 5_000, opts())
 		await release()
 		await expect(stat(`${path}.break`)).rejects.toMatchObject({ code: 'ENOENT' })
 	})
