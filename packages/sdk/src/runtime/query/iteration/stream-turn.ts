@@ -284,6 +284,8 @@ export async function* streamProviderTurn(
 	let reportedFinishReason: ChatCompletionResponse['finishReason'] | undefined
 	// Which limit a 'length' finish reached, when it was the context window.
 	let finishDetail: ChatCompletionResponse['finishDetail']
+	// What the provider said about a refusal, kept with the finish that carried it.
+	let refusal: ChatCompletionResponse['refusal']
 	let usage: ChatCompletionResponse['usage'] = {
 		promptTokens: 0,
 		completionTokens: 0,
@@ -416,6 +418,7 @@ export async function* streamProviderTurn(
 		finishReason = 'stop'
 		reportedFinishReason = undefined
 		finishDetail = undefined
+		refusal = undefined
 		streamedLength = 0
 		lastOutputCall = undefined
 		usage = {
@@ -739,7 +742,10 @@ export async function* streamProviderTurn(
 					// may hold another call's spliced-in fragments, or be missing
 					// whatever an id-less fragment carried elsewhere instead.
 					const parsed = bucket.interleaved
-						? { ok: false as const, parseError: INTERLEAVED_TOOL_INPUT_PARSE_ERROR }
+						? {
+								ok: false as const,
+								parseError: INTERLEAVED_TOOL_INPUT_PARSE_ERROR,
+							}
 						: parseToolArguments(bucket.argsBuf)
 					if (parsed.ok) {
 						bucket.parsed = parsed.value
@@ -766,6 +772,7 @@ export async function* streamProviderTurn(
 				reportedFinishReason = chunk.finishReason
 				finishDetail = chunk.finishReason === 'length' ? chunk.finishDetail : undefined
 			}
+			if (chunk.refusal) refusal = chunk.refusal
 			// Merge (per-field max), not last-write-wins: a late usage frame that
 			// omits input/cache tokens must not zero the counts seen earlier in the
 			// stream, which would under-report this turn's accumulated usage.
@@ -1061,6 +1068,7 @@ export async function* streamProviderTurn(
 		},
 		finishReason: effectiveFinishReason,
 		...(effectiveFinishReason === 'length' && finishDetail ? { finishDetail } : {}),
+		...(effectiveFinishReason === 'content_filter' && refusal ? { refusal } : {}),
 		usage,
 	}
 
@@ -1086,5 +1094,9 @@ export async function* streamProviderTurn(
 	chatSpan.setStatus({ code: SpanStatusCode.OK })
 	chatSpan.end()
 
-	return { response, messageId, ...(requestMessages ? { requestMessages } : {}) }
+	return {
+		response,
+		messageId,
+		...(requestMessages ? { requestMessages } : {}),
+	}
 }

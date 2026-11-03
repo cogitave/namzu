@@ -247,6 +247,15 @@ export function withStreamIdleTimeout(
 					) => provider.effortLevelsFor?.(model, thinking) ?? [],
 				}
 			: {}),
+		...(provider.refusalFallbackFor
+			? {
+					refusalFallbackFor: (
+						model: string,
+						refusal: Parameters<NonNullable<LLMProvider['refusalFallbackFor']>>[1],
+						signal?: AbortSignal,
+					) => provider.refusalFallbackFor?.(model, refusal, signal) ?? Promise.resolve(undefined),
+				}
+			: {}),
 		...(provider.resolveContextWindow
 			? {
 					resolveContextWindow: (model: string, signal?: AbortSignal) =>

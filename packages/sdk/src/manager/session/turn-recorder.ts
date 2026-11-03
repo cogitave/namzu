@@ -130,6 +130,7 @@ const TURN_BOUND_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set<SessionEve
 	'hosted_tool',
 	'provider_retry',
 	'provider_fallback',
+	'model_refusal',
 	'tool_completed',
 	'user_question_asked',
 	'user_question_answered',
@@ -619,7 +620,9 @@ export class TurnRecorder {
 			}
 			// Claiming a log may repair a torn tail. Refuse a foreign owner
 			// before that mutation, then recheck under the lease below.
-			await assertSessionLogAttribution(this.log, this.#config, { execution: 'kernel' })
+			await assertSessionLogAttribution(this.log, this.#config, {
+				execution: 'kernel',
+			})
 			if (!options.lease) {
 				const lease = await this.log.claim({
 					holder: this.#leaseHolder,
@@ -667,7 +670,9 @@ export class TurnRecorder {
 					...(options.session.forkedFrom ? { forkedFrom: options.session.forkedFrom } : {}),
 				})
 			} else {
-				await assertSessionLogAttribution(this.log, this.#config, { execution: 'kernel' })
+				await assertSessionLogAttribution(this.log, this.#config, {
+					execution: 'kernel',
+				})
 			}
 			if (options.session.forkedFrom) {
 				this.#turn.forkedFrom = options.session.forkedFrom

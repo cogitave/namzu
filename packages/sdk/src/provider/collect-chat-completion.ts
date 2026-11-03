@@ -72,6 +72,7 @@ export async function collectChatCompletion(
 	let replayState: unknown
 	let finishReason: ChatCompletionResponse['finishReason'] = 'stop'
 	let finishDetail: ChatCompletionResponse['finishDetail']
+	let refusal: ChatCompletionResponse['refusal']
 	let usage: ChatCompletionResponse['usage'] = {
 		promptTokens: 0,
 		completionTokens: 0,
@@ -91,7 +92,9 @@ export async function collectChatCompletion(
 	// there carry the same blocks in the same order.
 	const reasoningBuckets = new Map<
 		number,
-		{ -readonly [K in keyof ReasoningBlock]: ReasoningBlock[K] } & { text: string }
+		{ -readonly [K in keyof ReasoningBlock]: ReasoningBlock[K] } & {
+			text: string
+		}
 	>()
 
 	for await (const chunk of stream) {
@@ -124,7 +127,11 @@ export async function collectChatCompletion(
 					canAcceptMoreText(toolBuckets.get(i)?.argsBuf ?? ''),
 				)
 				if (typeof placement === 'number') {
-					const bucket = toolBuckets.get(placement) ?? { id: '', name: '', argsBuf: '' }
+					const bucket = toolBuckets.get(placement) ?? {
+						id: '',
+						name: '',
+						argsBuf: '',
+					}
 					if (tc.function?.name) bucket.name = tc.function.name
 					if (tc.function?.arguments) bucket.argsBuf += tc.function.arguments
 					toolBuckets.set(placement, bucket)
@@ -158,6 +165,7 @@ export async function collectChatCompletion(
 			finishReason = chunk.finishReason
 			finishDetail = chunk.finishReason === 'length' ? chunk.finishDetail : undefined
 		}
+		if (chunk.refusal) refusal = chunk.refusal
 		// Merge (per-field max), not last-write-wins: a late frame that omits
 		// input/cache tokens must not zero the counts captured earlier in the stream.
 		if (chunk.usage) usage = mergeTokenUsage(usage, chunk.usage)
@@ -207,6 +215,7 @@ export async function collectChatCompletion(
 		},
 		finishReason,
 		...(finishDetail ? { finishDetail } : {}),
+		...(refusal && finishReason === 'content_filter' ? { refusal } : {}),
 		usage,
 	}
 }

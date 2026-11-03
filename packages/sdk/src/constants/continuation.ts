@@ -29,3 +29,16 @@ export const AUTO_CONTINUATION_USER_MESSAGE =
  */
 export const REASONING_CUT_USER_MESSAGE =
 	'The output limit was reached while you were still reasoning, before any text or tool call. Continue from the conversation above: think much more briefly and give your answer or next tool call well within the limit.'
+
+/**
+ * What the model is told when its previous reply was stopped by a safety
+ * classifier part-way and the same request is sent again on the same model.
+ * The stopped reply stays in the conversation so the model can see what to
+ * avoid; any call in it that had not finished did not run.
+ */
+export const REFUSED_REPLY_RETRY_MESSAGE =
+	'Your previous response was stopped by a safety classifier. This is not a tool or API error. The rest of it was withheld, and any tool calls in it that had not finished did not run. Do not produce that content again, even reworded. Continue with the task without it.'
+
+/** The result recorded for a call that was in a reply the classifier stopped. */
+export const REFUSED_REPLY_CALL_RESULT =
+	'This call did not run: the response that contained it was stopped by a safety classifier.'

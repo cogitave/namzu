@@ -236,4 +236,24 @@ export interface LLMProvider {
 	 * run that would otherwise work.
 	 */
 	resolveContextWindow?(model: string, signal?: AbortSignal): Promise<number | undefined>
+
+	/**
+	 * The model to re-run a refused request on, when this provider has one.
+	 *
+	 * Called after `model` declined to answer (`finishReason: 'content_filter'`),
+	 * with whatever the provider said about it. Answer with a different model
+	 * this provider and this credential can actually use, or `undefined` when
+	 * there is none: the turn then does not change model. A driver whose
+	 * service names a recommended model in `refusal.recommendedModel` should
+	 * use it only after checking it is one this account can serve, and falls
+	 * back to its own declared order otherwise.
+	 *
+	 * Optional. A provider without it never has its model swapped on a
+	 * refusal. A request that failed for any other reason does not call this.
+	 */
+	refusalFallbackFor?(
+		model: string,
+		refusal: import('./chat.js').ProviderRefusal,
+		signal?: AbortSignal,
+	): Promise<string | undefined>
 }

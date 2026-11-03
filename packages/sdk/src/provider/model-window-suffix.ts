@@ -20,6 +20,7 @@ const MODEL_FIRST_METHODS: ReadonlySet<string> = new Set([
 	'reasoningEffortDefaultFor',
 	'effortLevelsFor',
 	'resolveContextWindow',
+	'refusalFallbackFor',
 	'healthCheck',
 	'doctorCheck',
 ])

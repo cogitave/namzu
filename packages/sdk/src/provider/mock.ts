@@ -49,11 +49,19 @@ export class MockLLMProvider implements LLMProvider {
 	/** Every request this provider has received, in order. */
 	readonly requests: ChatCompletionParams[] = []
 
+	/** Present only when the script names a model to retry a refusal on. */
+	readonly refusalFallbackFor?: (model: string) => Promise<string | undefined>
+
 	constructor(config: MockScript = {}) {
 		this.capabilities = config.capabilities
 		this.model = config.model ?? FALLBACK_MOCK_MODEL
 		this.responseDelayMs = config.responseDelayMs ?? 0
 		this.onRequest = config.onRequest
+		const refusalFallbackModel = config.refusalFallbackModel
+		if (refusalFallbackModel !== undefined) {
+			this.refusalFallbackFor = async (model) =>
+				model === refusalFallbackModel ? undefined : refusalFallbackModel
+		}
 		this.nextTurn = config.nextTurn
 		this.turns = config.turns ?? [{ text: config.responseText ?? 'Mock provider response' }] // Back-compat: the old single-string config becomes a one-turn script.
 	}
@@ -123,7 +131,12 @@ export class MockLLMProvider implements LLMProvider {
 				id,
 				delta: {
 					toolCalls: [
-						{ index, id: callId, type: 'function', function: { name: call.name, arguments: '' } },
+						{
+							index,
+							id: callId,
+							type: 'function',
+							function: { name: call.name, arguments: '' },
+						},
 					],
 				},
 			}
@@ -142,7 +155,9 @@ export class MockLLMProvider implements LLMProvider {
 			for (let i = 0; i < args.length; i += step) {
 				yield {
 					id,
-					delta: { toolCalls: [{ index, function: { arguments: args.slice(i, i + step) } }] },
+					delta: {
+						toolCalls: [{ index, function: { arguments: args.slice(i, i + step) } }],
+					},
 				}
 			}
 
@@ -158,18 +173,20 @@ export class MockLLMProvider implements LLMProvider {
 			yield { id, delta: { toolCallEnd: { index, id: callId } } }
 		}
 
+		const finishReason: NonNullable<StreamChunk['finishReason']> =
+			turn.finishReason ??
+			// A call cut off mid-JSON is what the output limit does, and the
+			// finish reason is how a consumer tells that from malformed JSON.
+			(toolCalls.some((call) => call.truncateArguments === true)
+				? 'length'
+				: toolCalls.length > 0
+					? 'tool_calls'
+					: 'stop')
 		yield {
 			id,
 			delta: {},
-			finishReason:
-				turn.finishReason ??
-				// A call cut off mid-JSON is what the output limit does, and the
-				// finish reason is how a consumer tells that from malformed JSON.
-				(toolCalls.some((call) => call.truncateArguments === true)
-					? 'length'
-					: toolCalls.length > 0
-						? 'tool_calls'
-						: 'stop'),
+			finishReason,
+			...(finishReason === 'content_filter' ? { refusal: turn.refusal ?? {} } : {}),
 			usage: { ...EMPTY_USAGE, ...turn.usage },
 		}
 	}

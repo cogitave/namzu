@@ -98,6 +98,8 @@ export interface QueryAgentConfig extends BaseAgentConfig {
 	maxToolConcurrency?: number
 	/** See {@link QueryParams.maxOutputContinuations}. */
 	maxOutputContinuations?: QueryParams['maxOutputContinuations']
+	/** See {@link QueryParams.refusalFallback}. */
+	refusalFallback?: QueryParams['refusalFallback']
 	maxToolOutputChars?: number
 	maxToolOutputCharsPerMessage?: number
 	retainedToolPreviewChars?: QueryParams['retainedToolPreviewChars']

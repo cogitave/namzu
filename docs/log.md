@@ -1,5 +1,8 @@
 # Documentation update log
 
+## 2026-11-03
+
+- **Creation** [When a model declines to answer](sdk/model-refusal.md): a reply a provider finishes as a refusal is no longer an empty completion. The refused reply is kept out of the history sent next; the request is re-run once on another model of the same provider (`LLMProvider.refusalFallbackFor`, `QueryParams.refusalFallback`), or once more on the same model when the reply had partial output, and a turn nothing recovered settles with the new stop reason `refused` instead of `end_turn`. New `refusal` field on the finish chunk and response, new `model_refusal` event. `.changeset/model-refusal-recovery.md` (`@namzu/sdk` minor).
 ## 2026-11-02
 
 - **Update** [Delegated work](cli/delegated-work.md#the-receipt-the-model-reads): an agent that is running now is listed once, as the live task; it no longer also appears in `agent_task_list({history: true})` or in the saved-agents note as an `unresolved` twin under its session UUID. `unresolved` still means no ending recorded and nothing live. `.changeset/running-agent-listed-once.md` (`@namzu/cli` patch).

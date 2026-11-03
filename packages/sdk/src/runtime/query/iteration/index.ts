@@ -7,6 +7,8 @@ import { estimateMessageTokens } from '../../../compaction/token-estimate.js'
 import {
 	AUTO_CONTINUATION_USER_MESSAGE,
 	REASONING_CUT_USER_MESSAGE,
+	REFUSED_REPLY_CALL_RESULT,
+	REFUSED_REPLY_RETRY_MESSAGE,
 } from '../../../constants/continuation.js'
 import { CHARS_PER_TOKEN } from '../../../constants/limits.js'
 import {
@@ -37,6 +39,7 @@ import {
 	createAssistantMessage,
 	createRuntimeContextMessage,
 	createSystemMessage,
+	createToolMessage,
 } from '../../../types/message/index.js'
 import { classifyProviderError, readOutputOverflow } from '../../../types/provider/errors.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
@@ -225,7 +228,10 @@ export class IterationOrchestrator {
 	 * serving from the member it last moved to, so that member, not the head,
 	 * is the one whose reading of images counts.
 	 */
-	private servingModel(model: string): { readonly providerId: string; readonly model: string } {
+	private servingModel(model: string): {
+		readonly providerId: string
+		readonly model: string
+	} {
 		const serving = this.ctx.servingMember?.()
 		return {
 			providerId: serving?.providerId ?? this.ctx.provider.id,
@@ -292,6 +298,16 @@ export class IterationOrchestrator {
 	/** Nudges sent since the model last finished a call without hitting its output cap. */
 	private outputContinuations = 0
 	/**
+	 * The model a refused request moved to. Once set it replaces the model the
+	 * step asked for, for the rest of the turn: the request that was refused
+	 * would only be refused again.
+	 */
+	private refusalPinnedModel: string | undefined
+	/** The request has already been re-run on another model once this turn. */
+	private refusalFallbackUsed = false
+	/** The request has already been re-run on the same model once this turn. */
+	private refusalRetryUsed = false
+	/**
 	 * `turn_end` (and, for a child, `subagent_stop`) fired when the model
 	 * finished and no hook asked for more. `finalizeTurn` then does not fire
 	 * them a second time.
@@ -319,7 +335,11 @@ export class IterationOrchestrator {
 		const feedback: string[] = []
 		const ask = async (
 			event: 'turn_end' | 'subagent_stop',
-			extra: { parentSessionId?: SessionId; parentTurnId?: TurnId; agentType?: string },
+			extra: {
+				parentSessionId?: SessionId
+				parentTurnId?: TurnId
+				agentType?: string
+			},
 		): Promise<void> => {
 			const results = await manager.executeHooks(
 				event,
@@ -770,7 +790,9 @@ export class IterationOrchestrator {
 					// estimated cost reduces every stage's headroom, and the same text
 					// reaches the provider even if a stage changes external state.
 					const contextSections =
-						this.ctx.promptContributions?.render('context', { iteration: iterationNum }) ?? []
+						this.ctx.promptContributions?.render('context', {
+							iteration: iterationNum,
+						}) ?? []
 					const deferredMcpHints =
 						this.ctx.showDeferredToolContext !== false
 							? this.ctx.tools.snapshotUntrustedDeferredContext()
@@ -795,7 +817,7 @@ export class IterationOrchestrator {
 					// Preparation inference belongs to the turn, not the main-model step.
 					usageBefore = { ...recorder.tokenUsage }
 					costBefore = { ...recorder.costInfo }
-					stepModel = step.model ?? model
+					stepModel = this.refusalPinnedModel ?? step.model ?? model
 					await selectContextModel(shaping, stepModel)
 					// Preserve post-compaction preparation/recall semantics. A changed
 					// model needs a second check against its own window; never replay
@@ -824,7 +846,7 @@ export class IterationOrchestrator {
 					// still call any of them by name.
 					this.ctx.toolExecutor.setStepAllowedTools(stepAllowedTools)
 					const enforceToolInputSchema = enforcedModelInputToolNames(this.ctx.tools, llmTools)
-					stepModel = step.model ?? model
+					stepModel = this.refusalPinnedModel ?? step.model ?? model
 
 					// The closing directive is appended LAST, after every piece of
 					// request-only context below, so it is the final thing the model
@@ -1247,6 +1269,33 @@ export class IterationOrchestrator {
 						...contextFigures,
 					})
 
+					// A reply the provider declined to give is its own case. It is not
+					// an empty completion: asking again with the same history on the
+					// same model is refused again, at the full price of the prompt.
+					// Recovered here, before the reply can enter the history.
+					if (response.finishReason === 'content_filter') {
+						iterSpan.setStatus({ code: SpanStatusCode.OK })
+						if (iterationActivity) {
+							this.ctx.activityStore.complete(iterationActivity.id, {
+								content: response.message.content,
+								hasToolCalls: false,
+							})
+						}
+						const outcome = yield* this.recoverFromRefusal({
+							response,
+							messageId,
+							stepModel,
+							servedBy,
+							forceFinalize,
+							iterationNum,
+							stepStartedAt,
+							usageBefore,
+							costBefore,
+						})
+						if (outcome === 'retry') continue
+						break
+					}
+
 					// Durable reasoning and its adapter-private replay envelope ride
 					// with the turn they belong to. Trimming therefore removes both;
 					// retaining them gives the target adapter enough evidence to
@@ -1273,7 +1322,11 @@ export class IterationOrchestrator {
 					)
 					recorder.pushMessage(assistantMsg)
 					if (this.ctx.advisoryCtx && requestMessages) {
-						this.advisoryTurn = { iteration: iterationNum, requestMessages, response: assistantMsg }
+						this.advisoryTurn = {
+							iteration: iterationNum,
+							requestMessages,
+							response: assistantMsg,
+						}
 					}
 
 					if (this.ctx.workingStateManager && this.ctx.compactionConfig && assistantMsg.content) {
@@ -1681,7 +1734,10 @@ export class IterationOrchestrator {
 								[NAMZU.ITERATION]: iterationNum,
 								'namzu.runtime.finish_reason': response.finishReason,
 							})
-							closingStopReason = await this.requestFinalResponse(model, 'end_turn')
+							closingStopReason = await this.requestFinalResponse(
+								this.refusalPinnedModel ?? model,
+								'end_turn',
+							)
 							yield* this.ctx.drainPending()
 						}
 
@@ -2185,7 +2241,9 @@ export class IterationOrchestrator {
 						let shed = false
 						while (!shed && overflowReliefs < OVERFLOW_RELIEF_LIMIT) {
 							overflowReliefs++
-							shed = await relieveOverflow(this.ctx, { deeper: overflowReliefs > 1 })
+							shed = await relieveOverflow(this.ctx, {
+								deeper: overflowReliefs > 1,
+							})
 						}
 						if (shed) {
 							// Clearing results is a compaction too: only summaries and reducers
@@ -2873,6 +2931,175 @@ export class IterationOrchestrator {
 		})
 	}
 
+	/**
+	 * A reply the provider declined to give.
+	 *
+	 * The refused reply never enters the history sent next, except on the
+	 * same-model retry, where the stopped partial reply stays so the model can
+	 * see what to avoid. At most one automatic retry of each kind per turn:
+	 *
+	 * 1. Another model of the same provider, when the provider names one and
+	 *    the host has not turned `refusalFallback` off. The model is kept for
+	 *    the rest of the turn and announced in a `model_refusal` event.
+	 * 2. The same model once more, only when the refused reply had partial
+	 *    text or tool calls: unfinished calls get an error result and the
+	 *    model is told the reply was stopped.
+	 * 3. Otherwise the turn settles `refused`.
+	 */
+	private async *recoverFromRefusal(input: {
+		response: ChatCompletionResponse
+		messageId: MessageId
+		stepModel: string
+		servedBy: StepProvenance
+		forceFinalize: boolean
+		iterationNum: number
+		stepStartedAt: number
+		usageBefore: TokenUsage
+		costBefore: CostInfo
+	}): AsyncGenerator<SessionEvent, 'retry' | 'settled'> {
+		const { recorder } = this.ctx
+		const { response, servedBy, iterationNum } = input
+		const refusal = response.refusal ?? {}
+		const toolCalls = response.message.toolCalls ?? []
+		const hasPartial =
+			(response.message.content !== null && response.message.content.length > 0) ||
+			toolCalls.length > 0
+
+		this.ctx.log.warn('The model declined to answer', {
+			[NAMZU.TURN_ID]: recorder.turnId,
+			[NAMZU.ITERATION]: iterationNum,
+			'namzu.runtime.model': servedBy.model,
+			'namzu.runtime.refusal_category': refusal.category,
+			'namzu.runtime.has_partial_output': hasPartial,
+		})
+
+		const announce = async (outcome: 'fallback' | 'retry' | 'declined', fallbackModel?: string) => {
+			await this.ctx.emitEvent({
+				type: 'model_refusal',
+				turnId: recorder.turnId,
+				iteration: iterationNum,
+				model: servedBy.model,
+				providerId: servedBy.providerId,
+				outcome,
+				...(fallbackModel !== undefined ? { fallbackModel } : {}),
+				...(refusal.category ? { category: refusal.category } : {}),
+				...(refusal.explanation ? { explanation: refusal.explanation } : {}),
+			})
+		}
+		const closeIteration = async () => {
+			this.recordStep({
+				stepNumber: iterationNum,
+				model: input.stepModel,
+				servedBy,
+				messageId: input.messageId,
+				response,
+				toolResults: [],
+				toolExecutionMs: 0,
+				startedAt: input.stepStartedAt,
+				usageBefore: input.usageBefore,
+				costBefore: input.costBefore,
+			})
+			await this.ctx.emitEvent({
+				type: 'iteration_completed',
+				turnId: recorder.turnId,
+				iteration: iterationNum,
+				hasToolCalls: false,
+			})
+		}
+
+		if (this.ctx.abortController.signal.aborted) {
+			recorder.setStopReason('cancelled')
+			recorder.markCancelled()
+			await closeIteration()
+			yield* this.ctx.drainPending()
+			return 'settled'
+		}
+
+		if (!input.forceFinalize && !this.refusalFallbackUsed && this.ctx.refusalFallback !== 'off') {
+			const next = await this.refusalFallbackModel(input.stepModel, refusal)
+			if (next !== undefined) {
+				this.refusalFallbackUsed = true
+				this.refusalPinnedModel = next
+				await announce('fallback', next)
+				await closeIteration()
+				yield* this.ctx.drainPending()
+				return 'retry'
+			}
+		}
+
+		if (!input.forceFinalize && !this.refusalRetryUsed && hasPartial) {
+			this.refusalRetryUsed = true
+			recorder.pushMessage(
+				withStreamedMessageIdentity(
+					createAssistantMessage(
+						response.message.content,
+						toolCalls.length > 0 ? toolCalls : undefined,
+						response.message.reasoning,
+						response.message.citations,
+						{
+							type: 'model',
+							...servedBy,
+							...(response.message.replayState !== undefined
+								? { replayState: response.message.replayState }
+								: {}),
+						},
+						response.message.textParts,
+					),
+					input.messageId,
+				),
+			)
+			for (const call of toolCalls) {
+				recorder.pushMessage(createToolMessage(REFUSED_REPLY_CALL_RESULT, call.id, true))
+			}
+			recorder.pushMessage(
+				createRuntimeContextMessage(REFUSED_REPLY_RETRY_MESSAGE, 'refusal-retry'),
+			)
+			await announce('retry')
+			await closeIteration()
+			yield* this.ctx.drainPending()
+			return 'retry'
+		}
+
+		recorder.setLastError(
+			`${servedBy.model} declined to answer this message${refusal.explanation ? `: ${refusal.explanation}` : '.'}`,
+		)
+		recorder.setStopReason('refused')
+		await announce('declined')
+		await closeIteration()
+		yield* this.ctx.drainPending()
+		return 'settled'
+	}
+
+	/**
+	 * Another model to try after `model` declined, or `undefined` when there is
+	 * none. Only the provider can say: it names its own recommendation or its
+	 * own declared order, checked against what this credential can serve. A
+	 * chain member declared with a model of its own cannot be swapped, because
+	 * the chain would put its own model back on the request.
+	 */
+	private async refusalFallbackModel(
+		model: string,
+		refusal: NonNullable<ChatCompletionResponse['refusal']>,
+	): Promise<string | undefined> {
+		if (this.ctx.servingMember?.()?.model !== undefined) return undefined
+		const pick = this.ctx.provider.refusalFallbackFor
+		if (!pick) return undefined
+		try {
+			const next = await pick.call(
+				this.ctx.provider,
+				model,
+				refusal,
+				this.ctx.abortController.signal,
+			)
+			return next !== undefined && next.length > 0 && next !== model ? next : undefined
+		} catch (err) {
+			this.ctx.log.warn('The provider could not name a model to retry a refusal on', {
+				'exception.message': toErrorMessage(err),
+			})
+			return undefined
+		}
+	}
+
 	private async requestFinalResponse(
 		model: string,
 		reason: StopReason,
@@ -2979,6 +3206,16 @@ export class IterationOrchestrator {
 				providerId: servedBy.providerId,
 				model: servedBy.model,
 			})
+
+			// A closing request the provider declined has nothing to add, and its
+			// empty reply must not be stored or sent again.
+			if (response.finishReason === 'content_filter') {
+				this.ctx.log.warn('The closing response was declined by the model', {
+					[NAMZU.TURN_ID]: this.ctx.recorder.turnId,
+					'namzu.runtime.model': servedBy.model,
+				})
+				return undefined
+			}
 
 			const finalMessageId = generateMessageId()
 			const assistantMsg = withStreamedMessageIdentity(

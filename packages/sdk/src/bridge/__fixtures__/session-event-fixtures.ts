@@ -22,7 +22,7 @@ import type { TurnSettlement } from '../../types/session/turn.js'
  * exists — so a new event can neither reach a wire unexamined nor be left
  * off one silently.
  *
- * Shared rather than copied per wire. Two lists of sixty-four fixtures
+ * Shared rather than copied per wire. Two lists of sixty-five fixtures
  * drift, and the drift is invisible: each file still compiles, each still
  * passes, and the two wires are quietly tested against different events.
  *
@@ -249,6 +249,15 @@ export const SESSION_EVENT_FIXTURES: Record<SessionEvent['type'], () => SessionE
 		toProviderId: 'x',
 		code: 'x',
 		reason: 'x',
+	}),
+	model_refusal: () => ({
+		type: 'model_refusal',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		model: 'x',
+		providerId: 'x',
+		outcome: 'declined',
 	}),
 	tool_completed: () => ({
 		type: 'tool_completed',
