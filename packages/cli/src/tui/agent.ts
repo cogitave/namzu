@@ -22,6 +22,7 @@ import { conversationInUseSentence, minutesUntilFree } from './conversation-in-u
 import { type ProposedChange, diffBodyFromFacts, proposedFromInput } from './diff-rows.js'
 import type { DiffInfo } from './diff-view.js'
 import { PLAN_FILE_LABEL, displayPath, isSessionPlanPath } from './display-path.js'
+import { createLiveModelStep } from './live-model-step.js'
 import { homePath } from './person-terms.js'
 import { explainFailure, workingDirectoryProblem } from './plain-failure.js'
 import {
@@ -765,7 +766,11 @@ export type AgentEvent =
 	 * operator did not choose has succeeded while not doing what they asked,
 	 * which is the defect class this package keeps removing.
 	 */
-	| { readonly kind: 'provider-fallback'; readonly text: string; readonly restart?: boolean }
+	| {
+			readonly kind: 'provider-fallback'
+			readonly text: string
+			readonly restart?: boolean
+	  }
 	/**
 	 * A configured hook is running and declared a `statusMessage` for it. Shown
 	 * on the live status line until the next event arrives; never a transcript row.
@@ -889,7 +894,10 @@ export interface PermissionToolCall {
 	/** What the call reaches past the turn's boundary; see `ToolCallSummary.escalation`. */
 	readonly escalation?: ToolCallEscalation
 	/** Present when a rule asked for this call; no remembered answer may skip it. */
-	readonly authorization?: { readonly explicitReview?: true; readonly askRule?: true }
+	readonly authorization?: {
+		readonly explicitReview?: true
+		readonly askRule?: true
+	}
 	/** A hook asked for this call; no mode or remembered answer may skip it. */
 	readonly hookPermission?: { readonly decision?: string }
 	/** The tool needs a person's yes on every call. */
@@ -1000,6 +1008,14 @@ export interface SendOptions {
 	readonly onMonitorEventsDelivered?: (eventIds: readonly string[]) => void
 	/** Model-specific reasoning effort for this turn's main query. */
 	readonly effort?: ReasoningEffort
+	/**
+	 * The model the operator picked while this turn runs, read before every
+	 * request. A model this session's provider serves takes effect on the next
+	 * request of the same tool loop; the request already in flight keeps its
+	 * model. Absent, or returning `undefined`, the turn keeps the model it
+	 * started with.
+	 */
+	readonly liveModel?: () => string | undefined
 	/**
 	 * The session's hypermode (`/hypermode`, or the `hypermode` config key) is
 	 * on for this turn. Default `false`. It tells the model, in a hidden
@@ -1321,7 +1337,10 @@ export interface AgentSession {
 	/** Loaded extensions; idle-session changes can explicitly be remembered across reconstruction. */
 	readonly plugins?: Pick<CliPluginRuntime, 'list' | 'setEnabled' | 'rememberState'>
 	/** Command folders of the enabled plugins; the composer turns their files into slash commands. */
-	readonly pluginCommandDirs?: readonly { readonly plugin: string; readonly dir: string }[]
+	readonly pluginCommandDirs?: readonly {
+		readonly plugin: string
+		readonly dir: string
+	}[]
 	readonly webSearchSummary?: string
 	readonly hasProvider: boolean
 	/**
@@ -6730,6 +6749,8 @@ export async function createAgentSession(
 									...(stableEnvironment
 										? []
 										: memoryContextSteps(curatedMemoryPrompt, storedMemory.prompt)),
+									// Last, so the operator's pick wins over a stage that chose a model.
+									...(opts?.liveModel ? [createLiveModelStep(opts.liveModel)] : []),
 								],
 								taskStore: turnTaskStore,
 								...(reminderSource ? { reminders: reminderSource } : {}),
