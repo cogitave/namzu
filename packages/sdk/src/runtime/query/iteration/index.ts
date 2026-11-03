@@ -1085,9 +1085,9 @@ export class IterationOrchestrator {
 						)
 						if (requestEffort !== turnConfig.effort) {
 							this.ctx.log.debug('Effort lowered to a level this model offers', {
-								model: stepModel,
-								requested: turnConfig.effort,
-								used: requestEffort,
+								'namzu.runtime.model': stepModel,
+								'namzu.runtime.effort_requested': turnConfig.effort,
+								'namzu.runtime.effort_used': requestEffort,
 							})
 						}
 					}
