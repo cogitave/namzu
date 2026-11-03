@@ -731,6 +731,144 @@ describe('publishing a picker selection', () => {
 		expect(built[1]?.providers[0]).toMatchObject({ id: 'openai', model: 'a-faster-model' })
 	})
 
+	it('stops using a model picked mid-reply when rebuilding the session fails', async () => {
+		const release = deferred<void>()
+		let sends = 0
+		let builds = 0
+		const liveModels: (string | undefined)[] = []
+		listedModels = [
+			{ id: 'a-model', name: 'a-model' },
+			{ id: 'a-faster-model', name: 'a-faster-model' },
+		]
+		createSession = async () => {
+			builds += 1
+			if (builds > 1) throw new Error('rebuild refused')
+			return {
+				...sessionFixture('active-session'),
+				send: async function* (_messages: readonly Message[], opts?: SendOptions) {
+					sends += 1
+					liveModels.push(opts?.liveModel?.())
+					if (sends === 1) await release.promise
+					yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+				},
+			}
+		}
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, 'keep this provider alive')
+		await vi.waitFor(() => expect(sends).toBe(1))
+		await submit(harness, '/model openai/a-faster-model')
+		await frameShows(harness.lastFrame, 'Using a-faster-model from the next request')
+
+		release.resolve()
+		await frameShows(harness.lastFrame, 'The current model is unchanged.')
+		await frameShows(harness.lastFrame, 'Type a message')
+
+		// The message said the model is unchanged, so the next reply must not use the pick.
+		await submit(harness, 'and now?')
+		await vi.waitFor(() => expect(sends).toBe(2))
+		expect(liveModels[1]).toBeUndefined()
+	})
+
+	it('runs queued commands in order ahead of a message queued with Tab', async () => {
+		const release = deferred<void>()
+		const sent: string[] = []
+		let unarchivedBeforeSecondSend = -1
+		createSession = async () => ({
+			...sessionFixture('active-session'),
+			send: async function* (messages: readonly Message[]) {
+				const last = messages[messages.length - 1]
+				sent.push(typeof last?.content === 'string' ? last.content : '')
+				if (sent.length === 1) await release.promise
+				else unarchivedBeforeSecondSend = archivedListCalls
+				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, 'keep this provider alive')
+		await vi.waitFor(() => expect(sent).toHaveLength(1))
+		await submit(harness, '/context')
+		await submit(harness, '/unarchive')
+		harness.stdin.write('tail message')
+		await tick()
+		harness.stdin.write('\t')
+		await tick(40)
+		expect(archivedListCalls).toBe(0)
+
+		release.resolve()
+		await vi.waitFor(() => expect(sent).toHaveLength(2))
+		// Both commands ran as commands, before the message queued behind them.
+		expect(unarchivedBeforeSecondSend).toBe(1)
+		expect(sent[1]).toContain('tail message')
+		expect(sent.some((text) => text.startsWith('/'))).toBe(false)
+	})
+
+	it('holds queued work while a chooser opened beside the reply is up', async () => {
+		const release = deferred<void>()
+		let sends = 0
+		listedModels = [{ id: 'a-model', name: 'a-model' }]
+		createSession = async () => ({
+			...sessionFixture('active-session'),
+			send: async function* () {
+				sends += 1
+				await release.promise
+				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, 'keep this provider alive')
+		await vi.waitFor(() => expect(sends).toBe(1))
+		await submit(harness, '/unarchive')
+		await submit(harness, '/model')
+		await frameShows(harness.lastFrame, 'Select a model for A Provider')
+		expect(archivedListCalls).toBe(0)
+
+		release.resolve()
+		await frameShows(harness.lastFrame, 'No archived conversations in this project.')
+		// The chooser retired first; the command did not run on top of it.
+		expect(harness.lastFrame()).not.toContain('Select a model for A Provider')
+		expect(archivedListCalls).toBe(1)
+	})
+
+	it('does not restart a running reply at a new effort when a message is steered into it', async () => {
+		const release = deferred<void>()
+		const efforts: unknown[] = []
+		createSession = async () => ({
+			...sessionFixture('active-session'),
+			reasoningEffortLevels: ['low', 'high'] as const,
+			send: async function* (_messages: readonly Message[], opts?: SendOptions) {
+				efforts.push(opts?.effort)
+				if (efforts.length === 1) await release.promise
+				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, 'keep this provider alive')
+		await vi.waitFor(() => expect(efforts).toHaveLength(1))
+		await submit(harness, '/effort high')
+		await frameShows(harness.lastFrame, 'It applies from your next message.')
+		await submit(harness, 'steer this in')
+		await tick(80)
+		// Still the one request it began with, at the level it began with.
+		expect(efforts).toEqual([undefined])
+		release.resolve()
+	})
+
 	it('says a different provider waits for the reply to end', async () => {
 		const release = deferred<void>()
 		let sends = 0

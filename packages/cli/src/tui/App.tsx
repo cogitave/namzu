@@ -10796,6 +10796,10 @@ function AppBody({
 						)
 				}
 			} catch (error) {
+				// A same-provider pick was already in use for the requests of the reply;
+				// the rebuild failing means the session keeps its own model, so the pick
+				// must stop applying or the message below would be false.
+				if (liveModelPickRef.current?.session === session) liveModelPickRef.current = null
 				if (owns())
 					pushMessage(
 						'system',
@@ -14031,9 +14035,20 @@ function AppBody({
 		// The queue is empty of it and the screen is idle, so it takes the same
 		// submit path it would have taken had it been typed now.
 		if (next.kind === 'human' && next.command) {
-			handleSubmit(next.text, undefined, 'submit', {
-				source: 'queued-command',
-			})
+			// What was queued behind the command waits aside while it starts: the
+			// commands that refuse to run over a queued message (restoring or
+			// exporting a conversation, forking to a worktree) would otherwise
+			// refuse themselves because of the very messages meant to follow them.
+			// Whatever the command queues for itself goes ahead of those.
+			const behind = roundQueueRef.current.items()
+			roundQueueRef.current.replace([])
+			try {
+				handleSubmit(next.text, undefined, 'submit', {
+					source: 'queued-command',
+				})
+			} finally {
+				roundQueueRef.current.replace([...roundQueueRef.current.items(), ...behind])
+			}
 			return
 		}
 		void runTurn(next)
