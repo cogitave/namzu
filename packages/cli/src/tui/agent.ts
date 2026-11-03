@@ -6554,7 +6554,13 @@ export async function createAgentSession(
 										mode: () => modeControl.current(),
 										...(stableEnvironment
 											? {
-													environment: () => environmentFacts,
+													environment: () => ({
+														...environmentFacts,
+														// The sandbox does not have the folder (see the environment block).
+														...(options.ephemeral || (sandbox.provider && sandbox.environment)
+															? {}
+															: scratchpadFact(paths, turnScope.sessionId)),
+													}),
 													model: () => ({
 														provider: turnProvider.id,
 														model: autoRoute?.model ?? model,

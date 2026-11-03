@@ -43,7 +43,10 @@ export interface CliReminderOptions {
 	 * The date and working directory as this turn read them; absent means the
 	 * system prompt carries them and no environment reminder is sent.
 	 */
-	readonly environment?: () => Pick<EnvironmentFacts, 'today' | 'branch' | 'isRepository'>
+	readonly environment?: () => Pick<
+		EnvironmentFacts,
+		'today' | 'branch' | 'isRepository' | 'scratchpadDirectory'
+	>
 	/**
 	 * The skills the model may use and the instructions its tool servers supplied,
 	 * as of this request; absent means the system prompt carries them. Each is
