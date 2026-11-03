@@ -53,7 +53,7 @@ $NAMZU_HOME/
         ├── file-history/
         ├── lease.<fence>.json            one per claim; the highest fence is the holding
         └── lease.json                    {"v":1,"kind":"lease","holder":…,"fence":…,"expiresAt":…} (a readable copy)
-$TMPDIR/namzu-<user>/<slug>/<session-id>/scratchpad/
+$NAMZU_TMPDIR (else $TMPDIR)/namzu-<user>/<slug>/<session-id>/scratchpad/
 ```
 
 - **Slug.** `slugForCwd` replaces every character of the canonical working
@@ -68,10 +68,15 @@ $TMPDIR/namzu-<user>/<slug>/<session-id>/scratchpad/
   racing processes exactly one mints the id and the other adopts it. If the
   existing `project.json` names a different directory, the project moves to
   `<slug>-<first 8 hex of sha256(cwd)>`.
-- **Temporary root.** `tempRoot` uses the numeric uid where the platform has
-  one, otherwise 12 hex digits of the SHA-256 of the user name. On POSIX the
-  directory is mode 0700 and refused if it is a symlink, owned by another
-  uid or open to others. On win32 a symlink or junction is refused.
+- **Temporary root.** `tempRoot` (built on `privateTempRoot`, with `resolveTempBase`,
+  `createTempDir`, `createTempDirSync` and `tempFilePath` for the rest of Namzu's scratch
+  files) is `<base>/namzu-<user>`, where the base is `NAMZU_TMPDIR` or `os.tmpdir()`. It uses
+  the numeric uid where the platform has one, otherwise 12 hex digits of the SHA-256 of the
+  user name. On POSIX the directory is mode 0700 and refused if it is a symlink, owned by
+  another uid or open to others (`SessionPathError` from `tempRoot`, `TempDirectoryError`
+  from the others). On win32 a symlink or junction is refused. A full disk, an exhausted
+  quota, an unwritable or missing parent raise a `TempDirectoryError` whose message is one
+  plain sentence naming the folder and `NAMZU_TMPDIR`; nothing falls back to another place.
 - **Nothing generated goes under the working directory.** Project config
   that people write (`<cwd>/.namzu/agents`, `skills`, `commands`, `plugins`,
   `MEMORY.md`) is read from there, and never written.

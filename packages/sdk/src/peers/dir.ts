@@ -123,6 +123,9 @@ function peerRuntimeDirCandidates(options: ResolvePeerRuntimeDirOptions): readon
 	const candidates: string[] = []
 	if (options.env.XDG_RUNTIME_DIR) candidates.push(join(options.env.XDG_RUNTIME_DIR, 'namzu'))
 	candidates.push(join(options.namzuHome, 'run'))
+	// The operating system's own temporary directory, not `NAMZU_TMPDIR`: this
+	// is the last resort for a socket path, and a relocated base is usually a
+	// long path that would not fit the platform's socket-path limit.
 	candidates.push(join(options.tmpDir ?? tmpdir(), `namzu-${options.uid ?? 'user'}`))
 	return candidates
 }

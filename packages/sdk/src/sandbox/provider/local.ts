@@ -53,6 +53,7 @@ import {
 	applyEnvironmentOverrides,
 	pickEnvironmentEntries,
 } from '../../utils/process-environment.js'
+import { createTempDir, resolveTempBase } from '../../utils/temp.js'
 import { walkFilesLocally } from '../file-walk.js'
 import { assertIsolation, describeIsolation } from '../isolation.js'
 import type { PtyLoader } from '../terminal.js'
@@ -317,7 +318,7 @@ function detectEnvironment(): DetectedEnvironment {
 		// hosts that mediate namespace helpers and can claim a tier production
 		// cannot actually drive.
 		const bwrap = resolveTrustedWrapper('bwrap')
-		if (bwrap !== undefined && probeBwrapSpawn(bwrap, buildBwrapArgs(tmpdir()))) {
+		if (bwrap !== undefined && probeBwrapSpawn(bwrap, buildBwrapArgs(resolveTempBase()))) {
 			return { environment: 'linux-bwrap', wrapperCommand: bwrap }
 		}
 
@@ -329,7 +330,10 @@ function detectEnvironment(): DetectedEnvironment {
 
 	if (platform === 'darwin') {
 		const seatbelt = resolveTrustedWrapper('sandbox-exec')
-		if (seatbelt !== undefined && probeSandboxSpawn(seatbelt, buildSeatbeltArgs(tmpdir()))) {
+		if (
+			seatbelt !== undefined &&
+			probeSandboxSpawn(seatbelt, buildSeatbeltArgs(resolveTempBase()))
+		) {
 			return { environment: 'macos-seatbelt', wrapperCommand: seatbelt }
 		}
 	}
@@ -1091,7 +1095,7 @@ class LocalSandbox implements Sandbox {
 					exitCode,
 					stderr: stderr.text,
 					timedOut,
-					allowedRoots: [...this.roots, tmpdir(), '/tmp', '/var/tmp', '/dev'],
+					allowedRoots: [...this.roots, tmpdir(), resolveTempBase(), '/tmp', '/var/tmp', '/dev'],
 				})
 				resolvePromise({
 					exitCode,
@@ -1229,8 +1233,7 @@ export class LocalSandboxProvider implements SandboxProvider {
 			}
 		} else {
 			// No workspace was named: this allocation owns a fresh temporary root.
-			const { mkdtemp } = await import('node:fs/promises')
-			const rawDir = await mkdtemp(join(tmpdir(), SANDBOX_TEMP_DIR_PREFIX))
+			const rawDir = await createTempDir(SANDBOX_TEMP_DIR_PREFIX)
 			rootDir = canonicalizePath(rawDir)
 			removeRootOnDestroy = true
 		}

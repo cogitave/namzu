@@ -18,9 +18,8 @@
 import { randomUUID } from 'node:crypto'
 import { statSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 
+import { tempFilePath } from '../../utils/temp.js'
 import { type CommandShell, hostCommandShell } from '../command-shell.js'
 import { pathOutsideRoots, toolRoots } from '../paths.js'
 import { readBoundedFile } from './bounded-file-read.js'
@@ -55,7 +54,7 @@ export function withCwdCapture(command: string, file: string): string {
 }
 
 export function newCwdFile(): string {
-	return join(tmpdir(), `namzu-cwd-${randomUUID()}`)
+	return tempFilePath(`cwd-${randomUUID()}`)
 }
 
 /** Where this session's next foreground call starts. Synchronous: the spawn must not wait on it. */

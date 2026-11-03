@@ -291,6 +291,17 @@ export {
 } from './utils/shell-compress.js'
 export { createChildAbortController } from './utils/abort.js'
 export { memoizeAsync } from './utils/memoize.js'
+export {
+	NAMZU_TMPDIR_ENV,
+	type PrivateTempRootOptions,
+	TempDirectoryError,
+	type TempDirectoryFailure,
+	createTempDir,
+	createTempDirSync,
+	privateTempRoot,
+	resolveTempBase,
+	tempFilePath,
+} from './utils/temp.js'
 export { extractFinalResponse } from './utils/conversation.js'
 
 // ─── router, runtime, turn ───────────────────────────────────────────────
