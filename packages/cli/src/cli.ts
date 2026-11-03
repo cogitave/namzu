@@ -76,6 +76,102 @@ function collectFlagValue(value: string, previous: string[] | undefined): string
 	return [...(previous ?? []), value]
 }
 
+/**
+ * The launch options of the interactive session, declared once and added to
+ * both the root command and `resume`, so the two cannot drift apart. Commander
+ * only recognises a root option before the subcommand name (positional options
+ * are on), so `namzu resume --yolo <id>` needs `resume` to declare them too.
+ * The options that choose a conversation (`--continue`, `--resume`,
+ * `--from-pr`) and `--message` stay on the root alone.
+ */
+function addLaunchOptions(command: Command): Command {
+	return command
+		.option(
+			'--output-schema <path>',
+			'Constrain TUI answers to a JSON Schema file using native structured output (for exec, pass it after the command)',
+		)
+		.option(
+			'--dangerously-skip-permissions',
+			'Start in bypass mode: run tools without asking, except for what always needs a person. Only use in a sandbox or a folder you fully trust.',
+		)
+		.option('--yolo', 'Alias of --dangerously-skip-permissions.')
+		.option(
+			'--allow-dangerously-skip-permissions',
+			'Let Shift+Tab reach bypass mode, without starting in it.',
+		)
+		.option(
+			'--provider <id>',
+			'Start the interactive session on this provider for this launch only; the saved choice is untouched.',
+		)
+		.option(
+			'--account <label>',
+			'Start the interactive session on this account for this launch only: a label from /auth, or provider:label. The saved choice is untouched.',
+		)
+		.option(
+			'--model <id>',
+			'Start the interactive session on this model for this launch only. With --provider it models that provider; alone it re-models the saved primary.',
+		)
+		.addOption(
+			new Option(
+				'--max-output-tokens <n>',
+				'Output allowance per model call for this launch, including reasoning; overrides NAMZU_MAX_OUTPUT_TOKENS and limits.maxResponseTokens.',
+			).argParser((value) => {
+				try {
+					return positiveTokenCount(value, '--max-output-tokens')
+				} catch (error) {
+					throw new CommanderError(EX_USAGE, 'commander.invalidArgument', (error as Error).message)
+				}
+			}),
+		)
+		.addOption(
+			new Option(
+				'--effort <level>',
+				'Reasoning effort for this launch only. A level the model does not offer is reported and the default stays.',
+			).choices(REASONING_EFFORT_LEVELS),
+		)
+		.addOption(
+			new Option(
+				'--permission-mode <mode>',
+				'Permission mode for this launch only; wins over --yolo. auto lets a second model check each call; bypass runs without asking. /permissions changes it from inside.',
+			).choices(PERMISSION_MODE_NAMES),
+		)
+		.option(
+			'--append-system-prompt <text|@file>',
+			'Add standing instructions for this launch only; @file reads them from a file. They go after the cached part of the prompt, so the cache is untouched.',
+		)
+		.option(
+			'--allowed-tools <list>',
+			'Allow these tools without asking for this launch, e.g. "edit bash(git status*)"; repeatable. A deny rule still wins.',
+			collectFlagValue,
+		)
+		.option(
+			'--disallowed-tools <list>',
+			'Refuse these tools for this launch, e.g. "bash(rm *)"; repeatable.',
+			collectFlagValue,
+		)
+		.option(
+			'--fallback-model <provider/model[,…]>',
+			'Models to fall over to, in order, when the first cannot answer; replaces the saved fallbacks for this launch.',
+			collectFlagValue,
+		)
+		.option(
+			'--add-dir <path>',
+			'Let the file tools reach another directory this session; repeatable. /add-dir does the same from inside.',
+			(value: string, previous: string[]) => [...previous, value],
+			[] as string[],
+		)
+		.option(
+			'--plugin-dir <path>',
+			'Load the plugin in this folder for this launch, without turning plugins on in the configuration; repeatable. It runs the plugin’s code, so name only folders you trust.',
+			(value: string, previous: string[]) => [...previous, value],
+			[] as string[],
+		)
+		.option(
+			'--profile <name>',
+			'Apply a named profile from the config files. A name no file declares is refused, not ignored.',
+		)
+}
+
 /** sysexits EX_USAGE — command-line argument error. */
 const EX_USAGE = 64
 
@@ -189,10 +285,6 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				'yaml',
 			]),
 		)
-		.option(
-			'--output-schema <path>',
-			'Constrain TUI answers to a JSON Schema file using native structured output (for exec, pass it after the command)',
-		)
 		.option('-q, --quiet', 'Suppress non-essential output; also raises the log floor to warn')
 		.addOption(
 			new Option('-v, --verbose', 'Emit debug-level log records to stderr').conflicts('quiet'),
@@ -203,70 +295,6 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				'--log-format <format>',
 				'Log record format for exec/drain/TUI-flush output: pretty (default) or json. namzu exec --json always writes json, regardless of this flag.',
 			).choices(['pretty', 'json']),
-		)
-		.option(
-			'--dangerously-skip-permissions',
-			'Start in bypass mode: run tools without asking, except for what always needs a person. Only use in a sandbox or a folder you fully trust.',
-		)
-		.option('--yolo', 'Alias of --dangerously-skip-permissions.')
-		.option(
-			'--allow-dangerously-skip-permissions',
-			'Let Shift+Tab reach bypass mode, without starting in it.',
-		)
-		.option(
-			'--provider <id>',
-			'Start the interactive session on this provider for this launch only; the saved choice is untouched.',
-		)
-		.option(
-			'--account <label>',
-			'Start the interactive session on this account for this launch only: a label from /auth, or provider:label. The saved choice is untouched.',
-		)
-		.option(
-			'--model <id>',
-			'Start the interactive session on this model for this launch only. With --provider it models that provider; alone it re-models the saved primary.',
-		)
-		.addOption(
-			new Option(
-				'--max-output-tokens <n>',
-				'Output allowance per model call for this launch, including reasoning; overrides NAMZU_MAX_OUTPUT_TOKENS and limits.maxResponseTokens.',
-			).argParser((value) => {
-				try {
-					return positiveTokenCount(value, '--max-output-tokens')
-				} catch (error) {
-					throw new CommanderError(EX_USAGE, 'commander.invalidArgument', (error as Error).message)
-				}
-			}),
-		)
-		.addOption(
-			new Option(
-				'--effort <level>',
-				'Reasoning effort for this launch only. A level the model does not offer is reported and the default stays.',
-			).choices(REASONING_EFFORT_LEVELS),
-		)
-		.addOption(
-			new Option(
-				'--permission-mode <mode>',
-				'Permission mode for this launch only; wins over --yolo. auto lets a second model check each call; bypass runs without asking. /permissions changes it from inside.',
-			).choices(PERMISSION_MODE_NAMES),
-		)
-		.option(
-			'--append-system-prompt <text|@file>',
-			'Add standing instructions for this launch only; @file reads them from a file. They go after the cached part of the prompt, so the cache is untouched.',
-		)
-		.option(
-			'--allowed-tools <list>',
-			'Allow these tools without asking for this launch, e.g. "edit bash(git status*)"; repeatable. A deny rule still wins.',
-			collectFlagValue,
-		)
-		.option(
-			'--disallowed-tools <list>',
-			'Refuse these tools for this launch, e.g. "bash(rm *)"; repeatable.',
-			collectFlagValue,
-		)
-		.option(
-			'--fallback-model <provider/model[,…]>',
-			'Models to fall over to, in order, when the first cannot answer; replaces the saved fallbacks for this launch.',
-			collectFlagValue,
 		)
 		.addOption(
 			new Option(
@@ -287,26 +315,28 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			'--from-pr [value]',
 			'Open the picker with only the conversations linked to a pull request; a number or address narrows it to that one.',
 		)
-		.option(
-			'--add-dir <path>',
-			'Let the file tools reach another directory this session; repeatable. /add-dir does the same from inside.',
-			(value: string, previous: string[]) => [...previous, value],
-			[] as string[],
-		)
-		.option(
-			'--plugin-dir <path>',
-			'Load the plugin in this folder for this launch, without turning plugins on in the configuration; repeatable. It runs the plugin’s code, so name only folders you trust.',
-			(value: string, previous: string[]) => [...previous, value],
-			[] as string[],
-		)
-		.option(
-			'--profile <name>',
-			'Apply a named profile from the config files. A name no file declares is refused, not ignored.',
-		)
 		// Required by Commander 14 so subcommands (doctor) can opt into
 		// passThroughOptions for unparsed argument forwarding.
 		.hook('preAction', async (command, action) => {
 			rt ??= await import('./cli-runtime.js')
+			// `namzu resume <flags>`: the launch options given after the subcommand
+			// are folded into the root's, which is where the launch reads them. A
+			// flag given on both sides is not an error: the one after `resume`
+			// wins (a repeatable one adds its values to the root's).
+			if (action.name() === 'resume') {
+				for (const option of action.options) {
+					const key = option.attributeName()
+					const source = action.getOptionValueSource(key)
+					if (source === undefined || source === 'default') continue
+					const given = action.getOptionValue(key)
+					const before = command.getOptionValue(key)
+					command.setOptionValueWithSource(
+						key,
+						Array.isArray(given) && Array.isArray(before) ? [...before, ...given] : given,
+						source,
+					)
+				}
+			}
 			// The proxy and client certificate the environment names, for every
 			// request this process makes. Only a machine that sets one pays for
 			// loading the HTTP client library.
@@ -382,6 +412,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			// Commander's one-line complaint becomes sentences, wrapped, with a way forward.
 			outputError: (text, write) => write(formatUsageError(text, process.stderr.columns)),
 		})
+
+	addLaunchOptions(program)
 
 	const buildContext = (
 		load: () => ReturnType<typeof loadConfigWithProvenance>,
@@ -927,35 +959,36 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	// A copy/pasteable shell address for the durable conversation printed by
 	// clean TUI exit. The in-TUI `/resume` picker remains available when an id is
 	// not already known.
-	program
-		.command('resume')
-		.description('Resume an interactive conversation; without an id, choose from a list')
-		.argument(
-			'[conversation-id]',
-			'Conversation id printed when the TUI exited; leave out to pick one',
+	addLaunchOptions(
+		program
+			.command('resume')
+			.description('Resume an interactive conversation; without an id, choose from a list')
+			.argument(
+				'[conversation-id]',
+				'Conversation id printed when the TUI exited; leave out to pick one',
+			),
+	).action(async (conversationId: string | undefined) => {
+		if (conversationId === undefined) {
+			await launchInteractiveTui(undefined, true)
+			return
+		}
+		// Conversations are stored per folder. A scheduled run's id resumed
+		// from elsewhere would only be "not found"; say where it lives.
+		const { scheduledSessionElsewhere } = await import('./schedule/resume-command.js')
+		const elsewhere = scheduledSessionElsewhere(
+			runtime().resolveNamzuHome(),
+			conversationId,
+			process.cwd(),
 		)
-		.action(async (conversationId: string | undefined) => {
-			if (conversationId === undefined) {
-				await launchInteractiveTui(undefined, true)
-				return
-			}
-			// Conversations are stored per folder. A scheduled run's id resumed
-			// from elsewhere would only be "not found"; say where it lives.
-			const { scheduledSessionElsewhere } = await import('./schedule/resume-command.js')
-			const elsewhere = scheduledSessionElsewhere(
-				runtime().resolveNamzuHome(),
-				conversationId,
-				process.cwd(),
+		if (elsewhere) {
+			process.stderr.write(
+				`namzu: ${conversationId} is a run of the scheduled job ${elsewhere.job.name}, and its conversation is stored with the job’s folder, ${elsewhere.job.folder.canonical}. Open it there:\n  ${elsewhere.command}\n`,
 			)
-			if (elsewhere) {
-				process.stderr.write(
-					`namzu: ${conversationId} is a run of the scheduled job ${elsewhere.job.name}, and its conversation is stored with the job’s folder, ${elsewhere.job.folder.canonical}. Open it there:\n  ${elsewhere.command}\n`,
-				)
-				setExitCode(EX_USAGE)
-				return
-			}
-			await launchInteractiveTui(conversationId)
-		})
+			setExitCode(EX_USAGE)
+			return
+		}
+		await launchInteractiveTui(conversationId)
+	})
 
 	// Default behavior when `namzu` is invoked with no subcommand: launch
 	// the TUI (M3). When stdout is not a TTY (tests, pipes, CI), print a

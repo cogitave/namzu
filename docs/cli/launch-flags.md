@@ -24,7 +24,7 @@ namzu --permission-mode accept-edits resume <conversation-id>
 
 `namzu resume` takes the conversation id printed when Namzu last exited; with no id it opens the list of this folder's conversations, the same list `--resume` with no value opens.
 
-Five options choose how one interactive session starts. They are written **before** the command name (`namzu resume` is the one command that takes them) and they are **session-only**: nothing is written to `preferences.json`, so the next plain `namzu` starts on whatever you last picked in the app. Inside the session `/model`, `/effort` and `/permissions` work as they always do and replace the launch choice.
+Five options choose how one interactive session starts. They are written before the command name, or after `namzu resume` (the one command that takes them in both places), and they are **session-only**: nothing is written to `preferences.json`, so the next plain `namzu` starts on whatever you last picked in the app. Inside the session `/model`, `/effort` and `/permissions` work as they always do and replace the launch choice.
 
 | Flag | Chooses | Values |
 | --- | --- | --- |
@@ -41,6 +41,17 @@ A fifth, `--message <text>`, is the first message of the launch: the session sen
 Four more options are per-run settings rather than a choice of provider, model or mode: `--append-system-prompt <text|@file>`, `--allowed-tools <list>`, `--disallowed-tools <list>` and `--fallback-model <provider/model[,…]>`. They are session-only too, are written before the command, and are described in [Flags for one run](run-flags.md). `--max-budget-usd` is not one of them: a spend limit belongs to a headless run, so it is refused here and written after `exec`.
 
 The same four flags exist on `namzu exec` and `namzu drain`, written after the command, where they apply to that run. Written before `exec`, `drain` or any other subcommand they are refused with exit status 64 and a line naming where they go, so a flag is never silently ignored.
+
+## After `resume`
+
+`namzu resume <conversation-id>` is the command Namzu prints when it exits, so every launch option above is accepted after it as well as before it, with the same meaning: `--provider`, `--account`, `--model`, `--max-output-tokens`, `--effort`, `--permission-mode`, `--dangerously-skip-permissions` / `--yolo`, `--allow-dangerously-skip-permissions`, `--append-system-prompt`, `--allowed-tools`, `--disallowed-tools`, `--fallback-model`, `--add-dir`, `--plugin-dir`, `--profile` and `--output-schema`. They go through the same checks as before the command, including the one-time `Start in bypass mode? [y/N]` question, and a permission flag given at resume time wins over the mode the conversation was last in, exactly as it does for `namzu --resume <id> --yolo`.
+
+```sh
+namzu resume --yolo 11de68ce-02f2-49e4-a7e4-7f29355d7aaf
+namzu resume --permission-mode plan --model gpt-5
+```
+
+A flag given on both sides is not an error: the value after `resume` wins, and a repeatable one (`--add-dir`, `--plugin-dir`, `--allowed-tools`, …) keeps the values from both. `--continue`, `--resume`, `--from-pr` and `--message` choose or start a conversation, so they stay before the command, where they are refused beside `resume`. The global output flags (`--format`, `--quiet`, `--verbose`, `--debug`, `--log-format`) are not launch options and also stay before the command.
 
 ## Picking up a conversation: `-c` and `-r`
 
