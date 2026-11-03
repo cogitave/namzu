@@ -1287,6 +1287,7 @@ export class IterationOrchestrator {
 							stepModel,
 							servedBy,
 							forceFinalize,
+							limitStopReason: forceFinalize ? guardResult.stopReason : undefined,
 							iterationNum,
 							stepStartedAt,
 							usageBefore,
@@ -2952,6 +2953,8 @@ export class IterationOrchestrator {
 		stepModel: string
 		servedBy: StepProvenance
 		forceFinalize: boolean
+		/** The limit that asked for this closing step; it stays the reason the turn ended. */
+		limitStopReason?: StopReason | undefined
 		iterationNum: number
 		stepStartedAt: number
 		usageBefore: TokenUsage
@@ -3063,7 +3066,9 @@ export class IterationOrchestrator {
 		recorder.setLastError(
 			`${servedBy.model} declined to answer this message${refusal.explanation ? `: ${refusal.explanation}` : '.'}`,
 		)
-		recorder.setStopReason('refused')
+		// A closing step that a limit asked for keeps that limit as the reason
+		// the turn ended; the refusal is still announced.
+		recorder.setStopReason(input.limitStopReason ?? 'refused')
 		await announce('declined')
 		await closeIteration()
 		yield* this.ctx.drainPending()
