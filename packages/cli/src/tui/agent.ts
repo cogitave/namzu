@@ -5156,6 +5156,7 @@ export async function createAgentSession(
 			const environmentPrompt = composeEnvironmentPrompt({
 				...(await readEnvironmentFacts(cwd)),
 				additionalDirectories: [...directories],
+				...(options.ephemeral ? {} : scratchpadFact(paths, entry.sessionId)),
 				boundary: boundaryFor(false),
 				...(wsl ? { wsl } : {}),
 			})
@@ -6303,6 +6304,7 @@ export async function createAgentSession(
 							{
 								...environmentFacts,
 								additionalDirectories: [...directories],
+								...(options.ephemeral ? {} : scratchpadFact(paths, turnScope.sessionId)),
 								boundary: boundaryFor(
 									opts?.onPermission !== undefined,
 									stableEnvironment ? undefined : initialMode,
@@ -9215,5 +9217,17 @@ function emptySession(
 		close: async () => {
 			// Nothing was ever connected on this path.
 		},
+	}
+}
+
+/** The session's scratch folder as an environment fact; nothing when the layout cannot name it. */
+function scratchpadFact(
+	paths: { scratchpadPath(sessionId: SessionId): string },
+	sessionId: SessionId,
+): { readonly scratchpadDirectory?: string } {
+	try {
+		return { scratchpadDirectory: paths.scratchpadPath(sessionId) }
+	} catch {
+		return {}
 	}
 }

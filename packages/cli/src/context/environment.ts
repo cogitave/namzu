@@ -207,6 +207,12 @@ export interface EnvironmentFacts {
 	readonly today: string
 	/** Directories besides the working directory the file tools may reach, absolute. */
 	readonly additionalDirectories?: readonly string[]
+	/**
+	 * The session's own scratch folder, absolute. The file tools may write there
+	 * without asking. Left unstated when the tools run in a sandbox, which does not
+	 * have it.
+	 */
+	readonly scratchpadDirectory?: string
 	/** Where the tools run; absent leaves the boundary unstated, as before. */
 	readonly boundary?: ExecutionBoundary
 	/** Present when this is WSL. */
@@ -337,6 +343,11 @@ export function composeEnvironmentPrompt(
 	if (facts.additionalDirectories && facts.additionalDirectories.length > 0) {
 		lines.push(
 			`Besides the working directory, the file tools may reach these directories, by absolute path: ${facts.additionalDirectories.map((d) => `\`${d}\``).join(', ')}. Relative paths still resolve against the working directory.`,
+		)
+	}
+	if (facts.scratchpadDirectory && !facts.boundary?.sandbox) {
+		lines.push(
+			`This session has a private scratch folder, \`${facts.scratchpadDirectory}\`, which the file tools can write to without asking. Keep temporary files there rather than in the shared temporary folder.`,
 		)
 	}
 	if (facts.osVersion) lines.push(`Host OS version: ${facts.osVersion}.`)

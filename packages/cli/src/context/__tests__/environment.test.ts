@@ -179,3 +179,37 @@ describe('what the permission sentence says per mode', () => {
 		expect(text).not.toContain('Tools run on this machine')
 	})
 })
+
+describe('the session scratch folder', () => {
+	const facts: EnvironmentFacts = {
+		today: '2026-11-04',
+		branch: 'main',
+		isRepository: true,
+		scratchpadDirectory: '/tmp/namzu-1000/-work/abc/scratchpad',
+	}
+
+	it('is named once, in one short sentence, so temporary files go there', () => {
+		const prompt = composeEnvironmentPrompt(facts)
+		expect(prompt).toContain('`/tmp/namzu-1000/-work/abc/scratchpad`')
+		expect(prompt.match(/scratch folder/g)).toHaveLength(1)
+		expect(prompt).toContain('without asking')
+	})
+
+	it('is left out when the tools run in a sandbox, which does not have it', () => {
+		const prompt = composeEnvironmentPrompt({
+			...facts,
+			boundary: {
+				sandbox: { environment: 'linux-bwrap', enforced: ['filesystem'] },
+				escape: 'ask',
+				interactive: true,
+			},
+		})
+		expect(prompt).not.toContain('scratch folder')
+	})
+
+	it('is left out when the session has none', () => {
+		expect(
+			composeEnvironmentPrompt({ today: '2026-11-04', branch: 'main', isRepository: true }),
+		).not.toContain('scratch folder')
+	})
+})
