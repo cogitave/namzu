@@ -16,9 +16,9 @@ describe('a failure the app hit itself', () => {
 			details: { lockPath: '/fixture/memory/operation.lock', timeoutMs: 10_000 },
 		})
 		const text = explainFailure(error, 'Stored memory index not loaded.', false)
-		expect(text).toContain('Stored memory is locked at /fixture/memory/operation.lock.')
-		expect(text).toContain('Close Namzu sessions using this memory store')
-		expect(text).toContain('inspect the lock owner')
+		expect(text).toContain('Another Namzu process is using the stored memory')
+		expect(text).toContain('/fixture/memory/operation.lock')
+		expect(text).toContain('Close it, or wait for it to finish.')
 		expect(text).not.toContain('--debug')
 	})
 

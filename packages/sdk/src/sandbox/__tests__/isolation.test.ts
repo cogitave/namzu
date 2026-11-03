@@ -202,7 +202,7 @@ describe('the provider', () => {
 						stderr: PassThrough
 						stdio: PassThrough[]
 					}
-					child.pid = 42
+					child.pid = 2_147_483_000
 					child.stdout = new PassThrough()
 					child.stderr = new PassThrough()
 					child.stdio = [
