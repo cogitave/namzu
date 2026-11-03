@@ -46,6 +46,8 @@ const sentBy: string[] = []
 const closeOld = vi.fn(async () => {})
 const closeCandidate = vi.fn(async () => {})
 const screens: Screen[] = []
+/** What the next reply yields instead of a bare end, when a test needs one. */
+let replyScript: (() => AsyncIterable<AgentEvent>) | undefined
 
 function session(model: string, close = closeOld): AgentSession {
 	return fakeAgentSession({
@@ -54,6 +56,10 @@ function session(model: string, close = closeOld): AgentSession {
 		close,
 		send: async function* (): AsyncIterable<AgentEvent> {
 			sentBy.push(model)
+			if (replyScript) {
+				yield* replyScript()
+				return
+			}
 			yield { kind: 'done', stopReason: 'end_turn' }
 		},
 	})
@@ -139,6 +145,7 @@ beforeEach(() => {
 	constructed.length = 0
 	constructedOptions.length = 0
 	sentBy.length = 0
+	replyScript = undefined
 	closeOld.mockClear()
 	closeCandidate.mockClear()
 	activate = async (prefs) => session(prefs.providers[0]?.model ?? '', closeCandidate)
@@ -252,4 +259,29 @@ it('says Auto is already on instead of rebuilding', async () => {
 	await press(screen, '\r')
 	await until(screen, () => text(screen).includes('Auto is already on'), 'No notice')
 	expect(constructed).toHaveLength(1)
+})
+
+it('does not claim a pinned model when a fallback answers under Auto', async () => {
+	replyScript = async function* () {
+		yield {
+			kind: 'model-refusal',
+			model: 'model-current',
+			outcome: 'fallback',
+			fallbackModel: 'model-next',
+		}
+		yield { kind: 'delta', text: 'Here you go.' }
+		yield { kind: 'done', stopReason: 'end_turn' }
+	}
+	const screen = await start({ routing, autoDefault: true })
+	await press(screen, 'hello')
+	await press(screen, '\r')
+	await until(screen, () => text(screen).includes('answered instead'), 'No fallback row')
+	const shown = text(screen).replace(/\s+/g, ' ')
+	expect(shown).toContain(
+		'model-current declined to answer this message. This sometimes happens with safe, normal requests. model-next answered instead. Auto will choose a model again for your next message.',
+	)
+	expect(shown).not.toContain('/model switches back')
+	// Auto stays on: nothing was rebuilt around the fallback.
+	expect(constructed).toHaveLength(1)
+	expect(footer(screen)).toContain('Auto')
 })

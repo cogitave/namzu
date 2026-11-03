@@ -34,6 +34,12 @@ export type QueuedPrompt<Trigger extends string = string> =
 			/** The typed command when a slash action expanded it into `text` for the model. */
 			readonly recallText?: string
 			/**
+			 * A slash command typed while a reply was running that waits for it to end.
+			 * `text` is the command as typed; at the front of the queue it runs as a
+			 * command of its own, not as a message to the model.
+			 */
+			readonly command?: true
+			/**
 			 * Composer triggers armed when the operator sent it (`./triggers/`).
 			 * Only the composer's own submit sets this; see `SubmitMeta`.
 			 */

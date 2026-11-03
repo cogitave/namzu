@@ -562,7 +562,7 @@ it('persists and reuses the model-visible form of a file mention', async () => {
 	)
 })
 
-it('refuses to compact a turn that is still producing its next message', async () => {
+it('holds a compaction typed mid-reply until the reply has ended', async () => {
 	holdTurn()
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
@@ -571,7 +571,7 @@ it('refuses to compact a turn that is still producing its next message', async (
 	await submit(harness, 'a running question')
 	await waitUntil(() => sent.length === 1)
 	await submit(harness, '/compact')
-	await frameShows(harness, 'A reply is still running')
+	await frameShows(harness, '/compact · after this reply')
 	expect(compactCalls, 'the running conversation was summarized from an incomplete snapshot').toBe(
 		0,
 	)
