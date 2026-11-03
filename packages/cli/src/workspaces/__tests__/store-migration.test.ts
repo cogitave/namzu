@@ -100,8 +100,16 @@ describe('the layout file from before the rename', () => {
 		expect(store.load()).toBeUndefined()
 		store.save({ version: 3, workspaces: [] })
 		expect(said).toHaveLength(1)
-		expect(existsSync(h.next)).toBe(false)
 		expect(readFileSync(h.old, 'utf8')).toBe(body)
+	})
+
+	it('still lets workspaces.json be written when only the older file is from a newer version', () => {
+		const h = home()
+		writeFileSync(h.old, JSON.stringify({ version: 9, spaces: [] }))
+		const store = fileStore(h.next, undefined, h.old)
+		expect(store.load()).toBeUndefined()
+		store.save({ version: 3, workspaces: [] })
+		expect(existsSync(h.next)).toBe(true)
 	})
 
 	it('gives an empty layout when neither file exists', () => {

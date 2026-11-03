@@ -273,15 +273,26 @@ export function fileStore(
 ): WorkspacesStore {
 	// A file written by a newer Namzu is never overwritten by this one.
 	let foreign = false
-	const read = (from: string, known: readonly number[]): SavedLayout | undefined => {
+	const read = (
+		from: string,
+		known: readonly number[],
+		primary: boolean,
+	): SavedLayout | undefined => {
 		const raw: unknown = JSON.parse(readFileSync(from, 'utf8'))
 		const version =
 			typeof raw === 'object' && raw !== null ? (raw as { version?: unknown }).version : undefined
 		if (typeof version === 'number' && !known.includes(version)) {
-			if (!foreign) {
-				foreign = true
+			if (primary) {
+				if (!foreign) {
+					foreign = true
+					say?.(
+						`The saved workspaces layout at ${from} was written by a newer version of Namzu. It is left as it is, and this run starts with an empty layout that will not be saved.`,
+					)
+				}
+			} else {
+				// The older file cannot be read, but it does not stop the new file from being written.
 				say?.(
-					`The saved workspaces layout at ${from} was written by a newer version of Namzu. It is left as it is, and this run starts with an empty layout that will not be saved.`,
+					`The saved workspaces layout at ${from} was written by a newer version of Namzu. It is left as it is, and this run starts with an empty layout.`,
 				)
 			}
 			return undefined
@@ -292,13 +303,13 @@ export function fileStore(
 		load() {
 			let missing = false
 			try {
-				return read(path, [3])
+				return read(path, [3], true)
 			} catch (error) {
 				missing = (error as NodeJS.ErrnoException)?.code === 'ENOENT'
 			}
 			if (!missing || legacyPath === undefined) return undefined
 			try {
-				const converted = read(legacyPath, [1, 2])
+				const converted = read(legacyPath, [1, 2], false)
 				if (converted) store.save(converted)
 				return converted
 			} catch {
