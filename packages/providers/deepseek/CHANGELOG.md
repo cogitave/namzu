@@ -1,5 +1,12 @@
 # @namzu/deepseek
 
+## 2.3.0
+
+### Minor Changes
+
+- dd0f7eb: Reasoning effort now works on the native driver: it is sent as `reasoning_effort` (the vendor's documented field), so `NAMZU_EFFORT_LEVEL=max` no longer errors. `minimal` goes to `low`, `medium` and `xhigh` to `high`, `ultra` to `max` (the vendor's own mapping), and a level the model's `effort.supported_levels` lacks falls to the nearest offered one. `none` turns thinking off; `reasoningEffortLevelsFor` and `reasoningEffortDefaultFor` publish the menu and default. New export `resolveDeepSeekEffort`; `assertEffortUnsupported` is deprecated and no longer called. A call that sets `temperature` and friends with an effort other than `none` is still refused.
+- dd0f7eb: `deepseek-flash`, the vendor's current Flash id, is now in the catalogue and accepts images; `deepseek-v4-pro` stays text only, and `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` stay as the legacy names the vendor still serves. The driver reads `context_window` and `max_output_tokens` from the models endpoint when the vendor returns them and falls back to the documented 1,000,000 / 384,000, so compaction is measured against the real window instead of a 64,000-token guess. An image sent to a model that does not take one now names `deepseek-flash` in the error. The documented numbers are offered only on the vendor's own host (a custom `baseURL` gets what the listing reports), and `DEEPSEEK_CAPABILITIES` no longer declares `maxOutputTokens` driver-wide; the summary trigger is unchanged at 967,000 because the reserve is capped at 20,000 anyway.
+
 ## 2.2.0
 
 ### Minor Changes
