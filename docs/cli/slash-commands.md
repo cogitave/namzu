@@ -136,7 +136,12 @@ What a change applies to:
 - **Model.** The request being answered never changes. A model the current
   provider serves is used from the next request in the same reply (`Using
   <model> from the next request.`); the session itself is rebuilt on that model
-  when the reply ends. A different provider, or Auto, needs the session rebuilt,
+  when the reply ends. After a refusal handed the reply to another model, that
+  model stays for the rest of the reply, so a pick made then is held and says
+  `Switching to <model> when this reply finishes.`; it wins over the automatic
+  switch to the other model. A pick made before the refusal named the model that
+  declined, so it is dropped and the other model stays selected
+  (`<model> declined this message, so <other model> stays selected.`). A different provider, or Auto, needs the session rebuilt,
   so it takes effect when the reply ends (`Switching to <model> when this reply
   finishes.`). Queued messages run on the new model. `/model` with no argument
   lists the current provider's models in the chooser; for another provider, type

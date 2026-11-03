@@ -22,6 +22,18 @@ describe('the words for a model that declined', () => {
 		expect(text).not.toMatch(FORBIDDEN)
 	})
 
+	it('under Auto does not promise a switch back', () => {
+		const text = describeModelRefusal({
+			model: 'claude-sonnet-5-5',
+			outcome: 'fallback',
+			fallbackModel: 'claude-opus-5-5',
+			auto: true,
+		})
+		expect(text).toBe(
+			'claude-sonnet-5-5 declined to answer this message. This sometimes happens with safe, normal requests. claude-opus-5-5 answered instead. Auto will choose a model again for your next message.',
+		)
+	})
+
 	it('without another model, says how to edit the message or pick a model', () => {
 		const text = describeModelRefusal({ model: 'claude-sonnet-5-5', outcome: 'declined' })
 		expect(text).toBe(

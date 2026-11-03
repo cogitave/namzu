@@ -731,6 +731,130 @@ describe('publishing a picker selection', () => {
 		expect(built[1]?.providers[0]).toMatchObject({ id: 'openai', model: 'a-faster-model' })
 	})
 
+	describe('a model picked in a reply that a refusal handed to a fallback', () => {
+		const MODELS = [
+			{ id: 'a-model', name: 'a-model' },
+			{ id: 'a-faster-model', name: 'a-faster-model' },
+			{ id: 'a-fallback-model', name: 'a-fallback-model' },
+		]
+		const refusal = (fallbackModel = 'a-fallback-model') =>
+			({
+				kind: 'model-refusal',
+				model: 'a-model',
+				outcome: 'fallback',
+				fallbackModel,
+			}) as AgentEvent
+
+		it('holds a pick made after the fallback until the reply finishes and lets it win', async () => {
+			const answered = deferred<void>()
+			const release = deferred<void>()
+			const built: Preferences[] = []
+			listedModels = MODELS
+			createSession = async (prefs) => {
+				built.push(prefs)
+				return {
+					...sessionFixture('active-session'),
+					send: async function* () {
+						yield refusal()
+						yield { kind: 'delta', text: 'Here you go.' } as AgentEvent
+						answered.resolve()
+						await release.promise
+						yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+					},
+				}
+			}
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Type a message')
+			await tick(80)
+
+			await submit(harness, 'keep this provider alive')
+			await answered.promise
+			await submit(harness, '/model openai/a-faster-model')
+			await frameShows(
+				harness.lastFrame,
+				'Switching to openai · a-faster-model when this reply finishes',
+			)
+			expect(harness.lastFrame()).not.toContain('from the next request')
+
+			release.resolve()
+			await vi.waitFor(() => expect(built).toHaveLength(2))
+			await tick(80)
+			// The person's newer choice is applied, not the automatic one first.
+			expect(built).toHaveLength(2)
+			expect(built[1]?.providers[0]).toMatchObject({ id: 'openai', model: 'a-faster-model' })
+		})
+
+		it('drops a pick made before the refusal, because that model just declined', async () => {
+			const release = deferred<void>()
+			let sends = 0
+			const built: Preferences[] = []
+			listedModels = MODELS
+			createSession = async (prefs) => {
+				built.push(prefs)
+				return {
+					...sessionFixture('active-session'),
+					send: async function* () {
+						sends += 1
+						await release.promise
+						yield refusal()
+						yield { kind: 'delta', text: 'Here you go.' } as AgentEvent
+						yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+					},
+				}
+			}
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Type a message')
+			await tick(80)
+
+			await submit(harness, 'keep this provider alive')
+			await vi.waitFor(() => expect(sends).toBe(1))
+			await submit(harness, '/model openai/a-faster-model')
+			await frameShows(harness.lastFrame, 'Using a-faster-model from the next request')
+
+			release.resolve()
+			await frameShows(
+				harness.lastFrame,
+				'a-faster-model declined this message, so a-fallback-model stays selected.',
+			)
+			await vi.waitFor(() => expect(built).toHaveLength(2))
+			await tick(80)
+			expect(built).toHaveLength(2)
+			expect(built[1]?.providers[0]).toMatchObject({ id: 'openai', model: 'a-fallback-model' })
+		})
+
+		it('says the fallback could not be kept when it cannot be selected', async () => {
+			let sends = 0
+			const built: Preferences[] = []
+			listedModels = MODELS
+			createSession = async (prefs) => {
+				built.push(prefs)
+				return {
+					...sessionFixture('active-session'),
+					send: async function* () {
+						sends += 1
+						yield refusal('not-a-listed-model')
+						yield { kind: 'delta', text: 'Here you go.' } as AgentEvent
+						yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+					},
+				}
+			}
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Type a message')
+			await tick(80)
+
+			await submit(harness, 'keep this provider alive')
+			await vi.waitFor(() => expect(sends).toBe(1))
+			await frameShows(
+				harness.lastFrame,
+				'not-a-listed-model answered this message but could not be kept as the selected model.',
+			)
+			expect(built).toHaveLength(1)
+		})
+	})
+
 	it('stops using a model picked mid-reply when rebuilding the session fails', async () => {
 		const release = deferred<void>()
 		let sends = 0

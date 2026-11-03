@@ -2684,7 +2684,16 @@ function AppBody({
 	const deferredModelRef = useRef<{
 		readonly query: string
 		readonly quiet: boolean
+		/** The model named, for the line that says a declined pick was dropped. */
+		readonly model?: string
+		/** Picked while no refusal had happened in the running reply: the model it named was the one tried. */
+		readonly beforeRefusal?: boolean
 	} | null>(null)
+	/**
+	 * A refusal handed the running reply to a fallback model. The kernel's pin
+	 * holds for the rest of that reply, so a pick made now is held, not used live.
+	 */
+	const refusalFallbackActiveRef = useRef(false)
 	const liveModelPickRef = useRef<{
 		readonly session: AgentSession
 		readonly model: string
@@ -9424,9 +9433,10 @@ function AppBody({
 					st.refusalRowShown = true
 					const detail = refusalDetail(event)
 					if (event.outcome === 'fallback' && event.fallbackModel) {
+						refusalFallbackActiveRef.current = true
 						// Said when the other model has answered, not before.
 						st.pendingFallback = {
-							row: describeModelRefusal(event),
+							row: describeModelRefusal({ ...event, auto: autoActiveRef.current }),
 							detail,
 							model: event.fallbackModel,
 						}
@@ -10451,7 +10461,30 @@ function AppBody({
 							if (event.kind === 'done' && st.answeredFallbackModel && currentProvider) {
 								const model = st.answeredFallbackModel
 								st.answeredFallbackModel = undefined
-								await requestModelSwitch({ model, provider: currentProvider })
+								const held = deferredModelRef.current
+								// Under Auto every message is routed again, so nothing is pinned. A
+								// pick made after the refusal wins over the automatic switch, so
+								// the switch is not applied first.
+								const pin = !autoActiveRef.current && !(held && held.beforeRefusal !== true)
+								if (pin) {
+									if (held?.quiet === true && held.model) {
+										// Picked before the refusal and used live: that model is the
+										// one that just declined. Keep the one that answered.
+										deferredModelRef.current = null
+										liveModelPickRef.current = null
+										pushMessage(
+											'system',
+											`${held.model} declined this message, so ${model} stays selected.`,
+										)
+									}
+									const switched = await requestModelSwitch({ model, provider: currentProvider })
+									if (switched.kind === 'rejected') {
+										pushMessage(
+											'system',
+											`${model} answered this message but could not be kept as the selected model.`,
+										)
+									}
+								}
 							}
 						} else if (event.kind === 'delta') st.text += event.text
 						else if (event.kind === 'done' && event.text !== undefined) st.text = event.text
@@ -10478,6 +10511,7 @@ function AppBody({
 					pushSystem('error', explainFailure(err, 'That reply failed.'))
 				}
 			} finally {
+				refusalFallbackActiveRef.current = false
 				// The turn is over: a run of reads and searches in progress settles.
 				readSearchGroup.close()
 				if (st.completed && stillHere())
@@ -10733,8 +10767,28 @@ function AppBody({
 			const { selection } = resolved
 			const target = `${selection.id}/${selection.model}`
 			if (selection.id === currentProvider && !autoActiveRef.current) {
+				if (refusalFallbackActiveRef.current) {
+					// The fallback is pinned for the rest of this reply, so the pick
+					// cannot be used live; it takes over when the reply finishes.
+					deferredModelRef.current = {
+						query: target,
+						quiet: false,
+						model: selection.model,
+						beforeRefusal: false,
+					}
+					pushMessage(
+						'system',
+						`Switching to ${selection.id} · ${selection.model} when this reply finishes.`,
+					)
+					return
+				}
 				liveModelPickRef.current = { session, model: selection.model }
-				deferredModelRef.current = { query: target, quiet: true }
+				deferredModelRef.current = {
+					query: target,
+					quiet: true,
+					model: selection.model,
+					beforeRefusal: true,
+				}
 				pushMessage(
 					'system',
 					`Using ${selection.model} from the next request. The one being answered now keeps its model.`,
