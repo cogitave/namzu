@@ -20,6 +20,8 @@ export interface ModelRefusalFacts {
 	readonly fallbackModel?: string
 	readonly category?: string
 	readonly explanation?: string
+	/** Auto routes every message again, so nothing is pinned and nothing switches back. */
+	readonly auto?: boolean
 }
 
 function oneLine(value: string, max: number): string {
@@ -32,6 +34,8 @@ export function describeModelRefusal(facts: ModelRefusalFacts): string {
 	const model = oneLine(facts.model, 120)
 	switch (facts.outcome) {
 		case 'fallback':
+			if (facts.auto === true)
+				return `${model} ${DECLINED_AND_NORMAL} ${oneLine(facts.fallbackModel ?? 'Another model', 120)} answered instead. Auto will choose a model again for your next message.`
 			return `${model} ${DECLINED_AND_NORMAL} ${oneLine(facts.fallbackModel ?? 'Another model', 120)} answered instead; /model switches back.`
 		case 'retry':
 			return `${model} stopped its reply to this message. This sometimes happens with safe, normal requests. Trying once more with that noted.`

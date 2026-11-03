@@ -274,6 +274,12 @@ export type SubmitSource =
 	| 'operator-loop'
 	| 'model-loop'
 	| 'launch-message'
+	/**
+	 * A command the operator typed while a reply was running and the queue is
+	 * now handing back at the reply's end. The operator's words are already in
+	 * history, and the command runs at once rather than waiting a second time.
+	 */
+	| 'queued-command'
 
 /**
  * A trigger armed when the operator pressed Enter or Tab, with its words'

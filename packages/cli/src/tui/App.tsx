@@ -131,7 +131,7 @@ import {
 	PROGRESS_LOOK_MS,
 	describePendingWorkflowNotices,
 } from '../integrations/outstanding/progress-notices.js'
-import { hasApiCredential } from '../integrations/providers/access.js'
+import { canSelectModel, hasApiCredential } from '../integrations/providers/access.js'
 import { readCodexCredentialFile } from '../integrations/providers/harness-credentials.js'
 import {
 	type ApiKeyLogoutTarget,
@@ -673,6 +673,7 @@ import {
 	renderOutcome,
 	reviewPrompt,
 	runSlash,
+	slashTiming,
 } from './slashCommands.js'
 import { StatusLineRows } from './status-line/StatusLineRows.js'
 import { useStatusLine } from './status-line/useStatusLine.js'
@@ -961,6 +962,19 @@ type ChoicePickerState = {
 			/** Whether the switch was asked for by name (and so gets a reply line). */
 			readonly announce: boolean
 			readonly values: readonly ('decline' | 'accept')[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
+			/**
+			 * `/model` typed while a reply is being written: the current provider's
+			 * models, opened beside the stream. A pick takes effect on the next
+			 * request; another provider is typed as `/model provider/model`.
+			 */
+			readonly kind: 'model-live'
+			readonly title: string
+			readonly notice?: string
+			readonly provider: ProviderId
+			readonly values: readonly string[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
@@ -2140,7 +2154,21 @@ function AppBody({
 		selectionRef: selectedChoiceRef,
 		setSelection: setSelectedChoice,
 	} = useSelectionIndex(0)
+	/** Picks a model by `provider/model`; assigned once `selectModelIntent` exists. */
+	const chooseModelRef = useRef<(query: string) => void>(() => {})
+	/**
+	 * Panels a command opened while a reply was running close by themselves when
+	 * the reply ends. `slashWhileReplyRef` is true only for the synchronous part
+	 * of such a command, so a chooser the reply itself raises (a question to the
+	 * operator, a limit) is never taken for one of these.
+	 */
+	const slashWhileReplyRef = useRef(false)
+	/** What was queued behind a command that waited for the reply, while that command starts. */
+	const resumeOpeningRef = useRef(false)
+	const queuedBehindCommandRef = useRef<ReturnType<typeof roundQueue.items> | null>(null)
+	const retireAtTurnEndRef = useRef<ChoicePickerState | null>(null)
 	const setChoicePicker = useCallback((next: ChoicePickerState | null) => {
+		if (next !== null && slashWhileReplyRef.current) retireAtTurnEndRef.current = next
 		choicePickerRef.current = next
 		choiceQueryRef.current = ''
 		setChoiceQuery('')
@@ -2644,6 +2672,32 @@ function AppBody({
 	 * server's child process outlives the object that opened it.
 	 */
 	const previousSessionRef = useRef<AgentSession | null>(null)
+	/**
+	 * A model picked while a reply ran, which the session's own provider serves.
+	 * The running turn reads it before each request; it is dropped when the
+	 * session is rebuilt, because the rebuilt session carries the model itself.
+	 */
+	/**
+	 * A model picked while the conversation was held, applied to the session at
+	 * the next boundary. `quiet` when the pick was already told and used live.
+	 */
+	const deferredModelRef = useRef<{
+		readonly query: string
+		readonly quiet: boolean
+		/** The model named, for the line that says a declined pick was dropped. */
+		readonly model?: string
+		/** Picked while no refusal had happened in the running reply: the model it named was the one tried. */
+		readonly beforeRefusal?: boolean
+	} | null>(null)
+	/**
+	 * A refusal handed the running reply to a fallback model. The kernel's pin
+	 * holds for the rest of that reply, so a pick made now is held, not used live.
+	 */
+	const refusalFallbackActiveRef = useRef(false)
+	const liveModelPickRef = useRef<{
+		readonly session: AgentSession
+		readonly model: string
+	} | null>(null)
 	/** Bumped when a session's effort levels arrive after it opened, to redraw what reads them. */
 	const [, setReasoningVersion] = useState(0)
 	/** The profile `/browser profile` chose, kept across session rebuilds. */
@@ -4326,23 +4380,18 @@ function AppBody({
 				)
 				return
 			}
-			if (
-				state !== 'idle' ||
-				abortRef.current !== null ||
-				hasUnsettledTurn() ||
-				(roundQueueRef.current.items().length > 0 && selectedSession !== session) ||
-				permissionResolveRef.current !== null ||
-				compactingRef.current
-			) {
-				pushMessage(
-					'system',
-					'Reasoning effort was not changed: wait for the current reply and queued messages to finish.',
-				)
-				return
-			}
+			// A reply being written has already taken its level; the pick is read
+			// again when the next message starts, so it is never refused and never
+			// changes the request in flight.
+			const replyRunning = state !== 'idle' || abortRef.current !== null || hasUnsettledTurn()
 			if (effort === undefined) {
 				setReasoningEffort(undefined)
-				pushMessage('system', 'Reasoning: provider default.')
+				pushMessage(
+					'system',
+					replyRunning
+						? 'Reasoning effort set to the provider default. It applies from your next message.'
+						: 'Reasoning: provider default.',
+				)
 				return
 			}
 			if (!session.reasoningEffortLevels?.includes(effort)) {
@@ -4353,7 +4402,12 @@ function AppBody({
 				return
 			}
 			setReasoningEffort(effort)
-			pushMessage('system', `Reasoning: ${effort} (this conversation).`)
+			pushMessage(
+				'system',
+				replyRunning
+					? `Reasoning effort set to ${effort}. It applies from your next message.`
+					: `Reasoning: ${effort} (this conversation).`,
+			)
 		},
 		[hasUnsettledTurn, pushMessage, session, setReasoningEffort, state],
 	)
@@ -4365,7 +4419,7 @@ function AppBody({
 	 * message says so ("Effort stays X"). While it is on, `SendOptions.hypermode`
 	 * tells the model, in request-only context, to use the `workflow` tool for
 	 * substantial work (see `hypermodeReminders`). See `applyReasoningEffort`
-	 * above for the mirrored guard shape.
+	 * above for the mirrored shape: neither is refused while a reply runs.
 	 */
 	const applyHypermode = useCallback(
 		(enabled: boolean, selectedSession?: AgentSession): void => {
@@ -4380,20 +4434,6 @@ function AppBody({
 				pushMessage('system', 'Hypermode was not changed: the selected model is no longer active.')
 				return
 			}
-			if (
-				state !== 'idle' ||
-				abortRef.current !== null ||
-				hasUnsettledTurn() ||
-				(roundQueueRef.current.items().length > 0 && selectedSession !== session) ||
-				permissionResolveRef.current !== null ||
-				compactingRef.current
-			) {
-				pushMessage(
-					'system',
-					'Hypermode was not changed: wait for the current reply and queued messages to finish.',
-				)
-				return
-			}
 			if (!enabled && !hypermodeRef.current) {
 				pushMessage('system', 'Hypermode is off.')
 				return
@@ -4403,9 +4443,14 @@ function AppBody({
 			if (newlyEnabled) setHypermodeActivation((activation) => activation + 1)
 			const effort = reasoningEffortRef.current
 			const hasLevels = (session.reasoningEffortLevels?.length ?? 0) > 0
+			const replyRunning = state !== 'idle' || abortRef.current !== null || hasUnsettledTurn()
+			const said = enabled
+				? hypermodeOnMessage(effort, hasLevels)
+				: hypermodeOffMessage(effort, hasLevels)
 			pushMessage(
 				'system',
-				enabled ? hypermodeOnMessage(effort, hasLevels) : hypermodeOffMessage(effort, hasLevels),
+				// The reply being written has already been told; the next message is told.
+				replyRunning ? `${said} It applies from your next message.` : said,
 			)
 		},
 		[hasUnsettledTurn, pushMessage, session, setHypermode, state],
@@ -5076,6 +5121,10 @@ function AppBody({
 				return
 			}
 			setChoicePicker(null)
+			if (picker.kind === 'model-live') {
+				chooseModelRef.current(`${picker.provider}/${value as string}`)
+				return
+			}
 			if (picker.kind === 'resume-goal') {
 				if (value === 'resume' && scopeRef.current?.sessionId === picker.sessionId)
 					commandPickerSubmitRef.current('/goal resume')
@@ -6988,7 +7037,7 @@ function AppBody({
 	}, [autoResumeAt])
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
-	const doResume = useCallback(
+	const openResumePicker = useCallback(
 		async (query?: string, pr?: PullRequestFilter) => {
 			const sessions =
 				sessionsRef.current ?? (await ensureSessions().then(() => sessionsRef.current))
@@ -7034,6 +7083,22 @@ function AppBody({
 			}
 		},
 		[ensureSessions, pushMessage, resumeActiveTurn],
+	)
+
+	const doResume = useCallback(
+		async (query?: string, pr?: PullRequestFilter) => {
+			// The list is read before the picker opens. A message queued behind a
+			// `/resume` that waited for the reply must not start in that window,
+			// in the conversation about to be left.
+			resumeOpeningRef.current = true
+			try {
+				await openResumePicker(query, pr)
+			} finally {
+				resumeOpeningRef.current = false
+				setQueueSettleVersion((version) => version + 1)
+			}
+		},
+		[openResumePicker],
 	)
 
 	/** `/doctor`: run the health checks once and show the result in plain words. */
@@ -7594,6 +7659,10 @@ function AppBody({
 	const startFreshConversation = useCallback(
 		async (clearScreen: boolean) => {
 			if (conversationMutationRef.current) return
+			// Messages queued behind a `/clear` or `/new` that waited for the reply
+			// were typed for the conversation it opens, so they are kept.
+			const keepQueued = queuedBehindCommandRef.current
+			queuedBehindCommandRef.current = null
 			if (
 				palDefinitionRef.current &&
 				(abortRef.current || hasUnsettledTurn() || roundQueueRef.current.items().length > 0)
@@ -7625,9 +7694,13 @@ function AppBody({
 					} else targetSessionId = await startConversation(sessions)
 				}
 
-				const discardedQueued = roundQueueRef.current.items().length
+				const discardedQueued = Math.max(
+					0,
+					roundQueueRef.current.items().length - (keepQueued?.length ?? 0),
+				)
 				const interrupted = interruptTurn()
 				discardQueued()
+				if (keepQueued?.length) roundQueueRef.current.replace(keepQueued)
 				goalActivation.clear()
 				wakeGoalDriver()
 				cancelPendingModelSwitch()
@@ -9360,9 +9433,10 @@ function AppBody({
 					st.refusalRowShown = true
 					const detail = refusalDetail(event)
 					if (event.outcome === 'fallback' && event.fallbackModel) {
+						refusalFallbackActiveRef.current = true
 						// Said when the other model has answered, not before.
 						st.pendingFallback = {
-							row: describeModelRefusal(event),
+							row: describeModelRefusal({ ...event, auto: autoActiveRef.current }),
 							detail,
 							model: event.fallbackModel,
 						}
@@ -10239,6 +10313,12 @@ function AppBody({
 								? { effort: pinnedEffort ?? turnReasoningEffort }
 								: {}),
 							...(turnHypermode ? { hypermode: true } : {}),
+							// A model picked with /model while this turn runs: read before every
+							// request, so the next request of the loop uses it.
+							liveModel: () => {
+								const pick = liveModelPickRef.current
+								return pick && pick.session === previousSessionRef.current ? pick.model : undefined
+							},
 							...(ctxRef.current.refusalFallback
 								? { refusalFallback: ctxRef.current.refusalFallback }
 								: {}),
@@ -10381,7 +10461,30 @@ function AppBody({
 							if (event.kind === 'done' && st.answeredFallbackModel && currentProvider) {
 								const model = st.answeredFallbackModel
 								st.answeredFallbackModel = undefined
-								await requestModelSwitch({ model, provider: currentProvider })
+								const held = deferredModelRef.current
+								// Under Auto every message is routed again, so nothing is pinned. A
+								// pick made after the refusal wins over the automatic switch, so
+								// the switch is not applied first.
+								const pin = !autoActiveRef.current && !(held && held.beforeRefusal !== true)
+								if (pin) {
+									if (held?.quiet === true && held.model) {
+										// Picked before the refusal and used live: that model is the
+										// one that just declined. Keep the one that answered.
+										deferredModelRef.current = null
+										liveModelPickRef.current = null
+										pushMessage(
+											'system',
+											`${held.model} declined this message, so ${model} stays selected.`,
+										)
+									}
+									const switched = await requestModelSwitch({ model, provider: currentProvider })
+									if (switched.kind === 'rejected') {
+										pushMessage(
+											'system',
+											`${model} answered this message but could not be kept as the selected model.`,
+										)
+									}
+								}
 							}
 						} else if (event.kind === 'delta') st.text += event.text
 						else if (event.kind === 'done' && event.text !== undefined) st.text = event.text
@@ -10408,6 +10511,7 @@ function AppBody({
 					pushSystem('error', explainFailure(err, 'That reply failed.'))
 				}
 			} finally {
+				refusalFallbackActiveRef.current = false
 				// The turn is over: a run of reads and searches in progress settles.
 				readSearchGroup.close()
 				if (st.completed && stillHere())
@@ -10614,8 +10718,104 @@ function AppBody({
 		],
 	)
 
+	/**
+	 * A model chosen while a reply is being written, or while anything else
+	 * holds the conversation, is never refused.
+	 *
+	 * The request already in flight keeps its model. A model the session's own
+	 * provider serves is read before the next request of the same reply (see
+	 * `liveModelPickRef`); anything else, a different provider or Auto, needs the
+	 * session rebuilt, so it waits for the reply to end and says so. Either way
+	 * the session itself is switched at that boundary, so the screen, the saved
+	 * choice and the next reply agree with what was told here.
+	 */
+	const deferModelSelection = useCallback(
+		async (query: string, wantsAuto: boolean): Promise<void> => {
+			if (!session || !currentProvider) return
+			if (wantsAuto) {
+				deferredModelRef.current = { query, quiet: false }
+				pushMessage('system', 'Switching to Auto when this reply finishes.')
+				return
+			}
+			let resolved: Awaited<ReturnType<typeof resolveModelSelectionIntent>>
+			try {
+				resolved = await resolveModelSelectionIntent(query, {
+					currentProvider,
+					detected,
+					describeModels: describeProviderModels,
+					signal: appLifetime.signal,
+				})
+			} catch (error) {
+				if (appLifetime.signal.aborted) return
+				pushMessage(
+					'system',
+					`${explainFailure(error, 'Could not look up that model.')} The current model is unchanged.`,
+				)
+				return
+			}
+			if (appLifetime.signal.aborted) return
+			if (resolved.kind === 'rejected') {
+				pushMessage(
+					'system',
+					resolved.reason +
+						(resolved.choices?.length
+							? ` Choices: ${resolved.choices.map((choice) => `${choice.provider}/${choice.model}`).join(', ')}.`
+							: ''),
+				)
+				return
+			}
+			const { selection } = resolved
+			const target = `${selection.id}/${selection.model}`
+			if (selection.id === currentProvider && !autoActiveRef.current) {
+				if (refusalFallbackActiveRef.current) {
+					// The fallback is pinned for the rest of this reply, so the pick
+					// cannot be used live; it takes over when the reply finishes.
+					deferredModelRef.current = {
+						query: target,
+						quiet: false,
+						model: selection.model,
+						beforeRefusal: false,
+					}
+					pushMessage(
+						'system',
+						`Switching to ${selection.id} · ${selection.model} when this reply finishes.`,
+					)
+					return
+				}
+				liveModelPickRef.current = { session, model: selection.model }
+				deferredModelRef.current = {
+					query: target,
+					quiet: true,
+					model: selection.model,
+					beforeRefusal: true,
+				}
+				pushMessage(
+					'system',
+					`Using ${selection.model} from the next request. The one being answered now keeps its model.`,
+				)
+				return
+			}
+			liveModelPickRef.current = null
+			deferredModelRef.current = { query: target, quiet: false }
+			pushMessage(
+				'system',
+				`Switching to ${selection.id} · ${selection.model} when this reply finishes.`,
+			)
+		},
+		[appLifetime.signal, currentProvider, detected, pushMessage, session],
+	)
+
 	const selectModelIntent = useCallback(
-		async (query: string, options: { readonly fromPicker?: boolean } = {}): Promise<void> => {
+		async (
+			query: string,
+			options: {
+				readonly fromPicker?: boolean
+				/** The held-back pick being applied now that nothing holds the conversation. */
+				readonly atBoundary?: boolean
+				/** Already told when the pick was made; say nothing more on success. */
+				readonly quiet?: boolean
+			} = {},
+		): Promise<void> => {
 			const wantsAuto = isAutoQuery(query)
 			if (wantsAuto) {
 				const refusal = autoRefusal(
@@ -10631,25 +10831,24 @@ function AppBody({
 					return
 				}
 			}
+			if (!session || !currentProvider || (phase !== 'ready' && !options.fromPicker)) {
+				pushMessage('system', 'Choose a model with /model once a provider is connected.')
+				return
+			}
 			if (
-				!session ||
-				!currentProvider ||
-				state !== 'idle' ||
-				(phase !== 'ready' && !options.fromPicker) ||
-				abortRef.current ||
-				hasUnsettledTurn() ||
-				pendingModelSwitchRef.current ||
-				roundQueueRef.current.items().length > 0 ||
-				permissionResolveRef.current ||
-				compactingRef.current ||
-				conversationMutationRef.current ||
-				exportingRef.current ||
-				goalDriveInFlightRef.current
+				!options.atBoundary &&
+				(state !== 'idle' ||
+					abortRef.current ||
+					hasUnsettledTurn() ||
+					pendingModelSwitchRef.current ||
+					roundQueueRef.current.items().length > 0 ||
+					permissionResolveRef.current ||
+					compactingRef.current ||
+					conversationMutationRef.current ||
+					exportingRef.current ||
+					goalDriveInFlightRef.current)
 			) {
-				pushMessage(
-					'system',
-					'Model selection is unavailable until the active work and queue reach a stable boundary.',
-				)
+				await deferModelSelection(query, wantsAuto)
 				return
 			}
 			const wasAuto = autoActiveRef.current
@@ -10707,7 +10906,7 @@ function AppBody({
 						!pending.signal.aborted &&
 						previousSessionRef.current !== session
 					) {
-						pushMessage('system', AUTO_ON_NOTICE)
+						if (!options.quiet) pushMessage('system', AUTO_ON_NOTICE)
 					}
 					return
 				}
@@ -10750,12 +10949,17 @@ function AppBody({
 					!pending.signal.aborted &&
 					previousSessionRef.current !== session
 				) {
-					pushMessage(
-						'system',
-						`Switched to ${resolved.selection.id} · ${resolved.selection.model} for this conversation.${wasAuto ? AUTO_TURNED_OFF_SUFFIX : ''}`,
-					)
+					if (!options.quiet)
+						pushMessage(
+							'system',
+							`Switched to ${resolved.selection.id} · ${resolved.selection.model} for this conversation.${wasAuto ? AUTO_TURNED_OFF_SUFFIX : ''}`,
+						)
 				}
 			} catch (error) {
+				// A same-provider pick was already in use for the requests of the reply;
+				// the rebuild failing means the session keeps its own model, so the pick
+				// must stop applying or the message below would be false.
+				if (liveModelPickRef.current?.session === session) liveModelPickRef.current = null
 				if (owns())
 					pushMessage(
 						'system',
@@ -10770,6 +10974,7 @@ function AppBody({
 			}
 		},
 		[
+			deferModelSelection,
 			session,
 			currentProvider,
 			state,
@@ -10782,6 +10987,71 @@ function AppBody({
 			wakeGoalDriver,
 		],
 	)
+
+	chooseModelRef.current = (query) => {
+		void selectModelIntent(query)
+	}
+
+	/**
+	 * `/model` with a reply in progress: a panel beside the stream listing the
+	 * current provider's models, not the full-screen chooser that would hide it.
+	 * Another provider is one typed line away (`/model provider/model`).
+	 */
+	const openLiveModelPicker = useCallback(async (): Promise<void> => {
+		const entry = detected.find((item) => item.entry.id === currentProvider)
+		if (!session?.hasProvider || !currentProvider || !entry) {
+			pushMessage('system', 'Choose a model with /model once a provider is connected.')
+			return
+		}
+		const listing = await describeProviderModels(currentProvider, entry, appLifetime.signal).catch(
+			() => undefined,
+		)
+		if (appLifetime.signal.aborted) return
+		const models =
+			listing?.kind === 'ok'
+				? listing.models.filter((model) => canSelectModel(entry.entry, entry.apiKey, model.id))
+				: []
+		if (models.length === 0) {
+			pushMessage(
+				'system',
+				`The model list for ${entry.entry.label} could not be read. Type /model <name> to choose one.`,
+			)
+			return
+		}
+		const current = session.modelSummary
+		const picker: ChoicePickerState = {
+			kind: 'model-live',
+			title: `Select a model for ${entry.entry.label}`,
+			notice:
+				'Used from the next request; the one being answered now keeps its model. For another provider, type /model provider/model.',
+			provider: currentProvider,
+			values: models.map((model) => model.id),
+			options: models.map((model) => ({
+				label: model.name,
+				description: model.name === model.id ? '' : model.id,
+				current: model.id === current || model.name === current,
+				searchText: `${model.id} ${model.name}`,
+			})),
+		}
+		setSelectedChoice(
+			Math.max(
+				0,
+				picker.options.findIndex((option) => option.current),
+			),
+		)
+		const busy = abortRef.current !== null || hasUnsettledTurn()
+		setChoicePicker(picker)
+		if (busy) retireAtTurnEndRef.current = picker
+	}, [
+		appLifetime.signal,
+		currentProvider,
+		detected,
+		hasUnsettledTurn,
+		pushMessage,
+		session,
+		setChoicePicker,
+		setSelectedChoice,
+	])
 
 	// ── /auth: the accounts this conversation can run on ──────────────────────
 	// Binding is per conversation: it rebuilds this session's provider and
@@ -11468,7 +11738,12 @@ function AppBody({
 			}
 			// An agent is on screen: what is typed goes to it, not to the conversation.
 			const viewedId = viewingAgentRef.current
-			if (viewedId !== null && meta.source !== 'model-loop' && meta.source !== 'launch-message') {
+			if (
+				viewedId !== null &&
+				meta.source !== 'model-loop' &&
+				meta.source !== 'launch-message' &&
+				meta.source !== 'queued-command'
+			) {
 				const restore = (notice: string) => {
 					setViewNotice(notice)
 					composerDraftTokenRef.current += 1
@@ -11543,7 +11818,8 @@ function AppBody({
 			// leaves no line for Up to bring back. What was typed beside it waits
 			// here until the chooser opens, and returns when it closes.
 			keybindingDraftRef.current = meta.source === 'keybinding' ? (meta.draft ?? null) : null
-			if (!fromLoop && meta.source !== 'keybinding') setHistory((prev) => [...prev, value])
+			if (!fromLoop && meta.source !== 'keybinding' && meta.source !== 'queued-command')
+				setHistory((prev) => [...prev, value])
 			// What the model wrote is never the operator acting. A loop the model
 			// made (`session_loop`) fires this path on a timer, for up to a week,
 			// after one review of its creation — so its text must not reach the
@@ -11654,6 +11930,43 @@ function AppBody({
 					'This command is not available in Pal chat. Pal tools use its own computer; workspace and extension commands remain in ordinary conversations.',
 				)
 				return
+			}
+			// A command typed while a reply is being written either runs now (the
+			// ones that only show something or change a setting) or waits, as typed,
+			// and runs on its own after the reply, in order. One rule here decides;
+			// no handler below checks for itself whether a reply is running.
+			if (
+				operatorText &&
+				meta.source !== 'queued-command' &&
+				slashTiming(dispatch, userCommands, hostCommands) === 'queue' &&
+				(state !== 'idle' ||
+					abortRef.current !== null ||
+					hasUnsettledTurn() ||
+					permissionResolveRef.current !== null ||
+					compactingRef.current ||
+					Boolean(pendingModelSwitchRef.current) ||
+					// Messages held by a pause are not ahead of it in any useful sense:
+					// the pause only lifts through a command (`/resume`, `/clear`), so
+					// waiting behind them would wait for itself.
+					(roundQueueRef.current.items().length > 0 && roundQueueRef.current.pause() === null))
+			) {
+				enqueueQueued({
+					kind: 'human',
+					text: dispatch.trim(),
+					command: true,
+					...(meta.source === 'composer' ? { recallable: true as const } : {}),
+				})
+				return
+			}
+			if (
+				operatorText &&
+				(state !== 'idle' || abortRef.current !== null || hasUnsettledTurn()) &&
+				slashTiming(dispatch, userCommands, hostCommands) === 'now'
+			) {
+				slashWhileReplyRef.current = true
+				queueMicrotask(() => {
+					slashWhileReplyRef.current = false
+				})
 			}
 			const slash = operatorText ? runSlash(dispatch, slashCtx, hostCommands) : null
 			if (slash) {
@@ -12135,10 +12448,9 @@ function AppBody({
 							conversationMutationRef.current !== null ||
 							exportingRef.current
 						) {
-							pushMessage(
-								'system',
-								'Model choices are unavailable while a reply, a question, queued messages or a summary are in progress. Try again when they finish.',
-							)
+							// The full-screen chooser would hide the reply, so beside the
+							// stream it is a panel over the current provider's models.
+							void openLiveModelPicker()
 							return
 						}
 						// Opened as a choice, not as a repair. A launch-time refusal
@@ -12200,17 +12512,6 @@ function AppBody({
 							pushMessage('system', 'Choose a model before changing permissions.')
 							return
 						}
-						if (
-							state !== 'idle' ||
-							abortRef.current !== null ||
-							hasUnsettledTurn() ||
-							roundQueueRef.current.items().length > 0 ||
-							permissionResolveRef.current !== null ||
-							compactingRef.current
-						) {
-							pushMessage('system', 'Finish or stop the current work before changing permissions.')
-							return
-						}
 						const picker = permissionPicker(
 							permissionModeRef.current,
 							false,
@@ -12236,20 +12537,6 @@ function AppBody({
 							pushMessage(
 								'system',
 								'No exact reasoning-effort menu is available for the current model.',
-							)
-							return
-						}
-						if (
-							state !== 'idle' ||
-							abortRef.current !== null ||
-							hasUnsettledTurn() ||
-							roundQueueRef.current.items().length > 0 ||
-							permissionResolveRef.current !== null ||
-							compactingRef.current
-						) {
-							pushMessage(
-								'system',
-								'Reasoning-effort choices are unavailable while a reply, a question, a summary or queued messages are in progress. Try again when they finish.',
 							)
 							return
 						}
@@ -13278,6 +13565,7 @@ function AppBody({
 			materializeConversation,
 			nextId,
 			openAgentCockpit,
+			openLiveModelPicker,
 			abandonActiveTurn,
 			pushMessage,
 			rawOutput,
@@ -13297,6 +13585,7 @@ function AppBody({
 			startFreshConversation,
 			state,
 			terminal.rows,
+			userCommands,
 		],
 	)
 	// The "waiting for your input" notice (`tui.notifications` with `idle-prompt`):
@@ -13688,7 +13977,7 @@ function AppBody({
 		turnRunning: Boolean(abortRef.current),
 		unsettledTurn: hasUnsettledTurn(),
 		pendingModelSwitch: Boolean(pendingModelSwitchRef.current),
-		conversationMutation: Boolean(conversationMutationRef.current),
+		conversationMutation: Boolean(conversationMutationRef.current) || resumeOpeningRef.current,
 		exporting: Boolean(exportingRef.current),
 		compacting: Boolean(compactingRef.current),
 		textPrompt: Boolean(textPromptRef.current),
@@ -13841,6 +14130,59 @@ function AppBody({
 		wakeGoalDriver,
 	])
 
+	// A panel a command opened beside the reply closes when the reply ends, so it
+	// never outlives the work it sat next to and never holds the queue after.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the picker and the settle counter are wake-ups, not values read inside.
+	useEffect(() => {
+		const panel = retireAtTurnEndRef.current
+		if (panel === null) return
+		if (choicePickerRef.current !== panel) {
+			retireAtTurnEndRef.current = null
+			return
+		}
+		if (state !== 'idle' || abortRef.current !== null || hasUnsettledTurn()) return
+		retireAtTurnEndRef.current = null
+		setSelectedChoice(0)
+		setChoicePicker(null)
+	}, [
+		state,
+		choicePicker,
+		queueSettleVersion,
+		hasUnsettledTurn,
+		setChoicePicker,
+		setSelectedChoice,
+	])
+
+	// Apply a model picked mid-reply as soon as nothing holds the conversation.
+	// Declared before the queue pump below on purpose: it reserves the switch
+	// (`pendingModelSwitchRef`) synchronously, which is what keeps the next
+	// queued prompt from starting on the old session.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
+	useEffect(() => {
+		const deferred = deferredModelRef.current
+		if (!deferred) return
+		// The queue is deliberately not a reason to wait: those prompts are meant
+		// to run on the model the operator just chose.
+		const facts = { ...roundGateFacts(), queueLength: 0, queuePaused: false }
+		if (admissionBlocked('peer', facts) !== null) return
+		deferredModelRef.current = null
+		void selectModelIntent(deferred.query, {
+			atBoundary: true,
+			quiet: deferred.quiet,
+		})
+	}, [
+		state,
+		phase,
+		queued,
+		queueSettleVersion,
+		modelSwitchVersion,
+		textPrompt,
+		choicePicker,
+		copyPicker,
+		hasUnsettledTurn,
+		selectModelIntent,
+	])
+
 	// Drain the queue: when a turn settles (idle) and nothing is running,
 	// send the next queued message automatically.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
@@ -13851,7 +14193,30 @@ function AppBody({
 		// have appended to the ref, and replacing from that old snapshot would
 		// erase it.
 		const next = dequeueQueued()
-		if (next !== undefined) void runTurn(next)
+		if (next === undefined) return
+		// A command that waited for the reply runs as a command, not as a message.
+		// The queue is empty of it and the screen is idle, so it takes the same
+		// submit path it would have taken had it been typed now.
+		if (next.kind === 'human' && next.command) {
+			// What was queued behind the command waits aside while it starts: the
+			// commands that refuse to run over a queued message (restoring or
+			// exporting a conversation, forking to a worktree) would otherwise
+			// refuse themselves because of the very messages meant to follow them.
+			// Whatever the command queues for itself goes ahead of those.
+			const behind = roundQueueRef.current.items()
+			roundQueueRef.current.replace([])
+			queuedBehindCommandRef.current = behind
+			try {
+				handleSubmit(next.text, undefined, 'submit', {
+					source: 'queued-command',
+				})
+			} finally {
+				roundQueueRef.current.replace([...roundQueueRef.current.items(), ...behind])
+				queuedBehindCommandRef.current = null
+			}
+			return
+		}
+		void runTurn(next)
 	}, [
 		state,
 		phase,
@@ -13863,6 +14228,7 @@ function AppBody({
 		choicePicker,
 		copyPicker,
 		dequeueQueued,
+		handleSubmit,
 		hasUnsettledTurn,
 		runTurn,
 	])
@@ -16443,9 +16809,15 @@ function withAccountLabel(
 }
 
 function choicePickerSearchable(picker: ChoicePickerState): boolean {
-	return ['command', 'skill', 'plugin', 'review-branch', 'review-commit', 'account'].includes(
-		picker.kind,
-	)
+	return [
+		'command',
+		'skill',
+		'plugin',
+		'review-branch',
+		'review-commit',
+		'account',
+		'model-live',
+	].includes(picker.kind)
 }
 
 function loadedPluginPicker(owner: AgentSession): ChoicePickerState {

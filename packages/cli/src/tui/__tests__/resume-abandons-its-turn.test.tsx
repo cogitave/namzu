@@ -347,20 +347,27 @@ async function untilFrame(
 }
 
 /**
- * Render, run a turn until it parks on the gate, and open the `/resume` picker.
+ * Render, run a turn until it parks on the gate, type `/resume` into it (which
+ * waits for the reply instead of running), end the reply, and wait for the
+ * picker the queued command opens.
  *
  * Polled rather than slept through, for the reason `app-permission-keys`
  * documents: a fixed wait passes this file alone and fails under the full
  * parallel run, and the failure is reported as whatever the test was about.
  */
-async function pickerOpenMidTurn() {
+async function pickerOpenAfterTurn(
+	afterQueued?: (harness: ReturnType<typeof render>) => Promise<void>,
+) {
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
 	await tick(60)
 	await submit(harness, 'go')
-	harness.stdin.write('/resume')
-	await tick(30)
-	harness.stdin.write('\r')
+	await submit(harness, '/resume')
+	await afterQueued?.(harness)
+	expect(harness.lastFrame(), '/resume ran over the reply').not.toContain('Resume a conversation')
+	expect(abortSeenAtRelease, '/resume stopped the reply').toBe(false)
+	gates[0]?.release()
+	await appendsReach(1)
 	await untilFrame(harness, 'Resume a conversation', 'the resume picker never opened')
 	return harness
 }
@@ -393,9 +400,16 @@ async function appendsReach(n: number, timeoutMs?: number): Promise<void> {
 	await vi.waitFor(() => expect(appended.length).toBeGreaterThanOrEqual(n), timeoutMs)
 }
 
-describe('/resume while a turn is running', () => {
+describe('/resume typed while a turn is running', () => {
+	it('waits for the reply to end, then opens the picker, and saves the reply where it started', async () => {
+		const harness = await pickerOpenAfterTurn()
+		expect(appended.map((a) => a.sessionId)).toEqual([STARTED_IN])
+		expect(said(harness)).toContain('LEAKEDREPLY0')
+		expect(abortSeenAtRelease, 'the reply was stopped').toBe(false)
+	})
+
 	it('adds the restored operator prompt to live composer history', async () => {
-		const harness = await pickerOpenMidTurn()
+		const harness = await pickerOpenAfterTurn()
 
 		harness.stdin.write('\r')
 		await untilFrame(harness, 'RESTOREDANSWER', 'the selected conversation never opened')
@@ -407,67 +421,12 @@ describe('/resume while a turn is running', () => {
 		)
 	})
 
-	it('aborts it, keeps its output out of the resumed transcript, and saves it where it belongs', async () => {
-		const harness = await pickerOpenMidTurn()
-
-		harness.stdin.write('\r')
-		// The resumed conversation has to be on screen before the old turn is let
-		// go, or the test proves nothing about ordering.
-		await untilFrame(harness, 'RESTOREDANSWER', 'the conversation never loaded')
-
-		gates[0]?.release()
-		await appendsReach(1)
-		await tick(120)
-
-		// 1 — it was actually stopped. Without this the two assertions below still
-		// pass, because the transcript guard and the captured destination each
-		// hold on their own; a `/resume` that quietly let the turn keep running
-		// would go unreported.
-		expect(abortSeenAtRelease, 'the running turn was never aborted').toBe(true)
-
-		// 2 — nothing from it reached the screen after the switch. `said` reads
-		// across every frame and collapses the wrapping; see its docblock for why
-		// both halves of that matter.
-		const everything = said(harness)
-		expect(
-			everything,
-			"the abandoned turn's tool row landed in the resumed transcript",
-		).not.toContain('LEAKEDTOOL0')
-		expect(everything, "the abandoned turn's reply landed in the resumed transcript").not.toContain(
-			'LEAKEDREPLY0',
-		)
-
-		// 3 — the durable half. It must be written to the conversation it was
-		// started in, and to no other.
-		expect(appended.map((a) => a.sessionId)).toEqual([STARTED_IN])
-		// And whole: the events after the switch are consumed even though they are
-		// not rendered, so the saved reply is not truncated at the moment the
-		// operator happened to leave.
-		expect(
-			appended[0]?.contents.join(' '),
-			'the saved reply stops where the operator left',
-		).toContain('LEAKEDREPLY0')
-
-		// The reply the operator watched begin, before the switch, is part of what
-		// is saved — and its row is gone from the screen, so a late write against
-		// its id would be a silent no-op nothing else here would notice.
-		expect(appended[0]?.contents.join(' ')).toContain('EARLY0')
-
-		// 4 — and the operator is told, because those rows are correctly missing
-		// from the transcript they are now looking at.
-		expect(everything, 'the abandoned turn was dropped in silence').toContain(
-			'being saved to the conversation it started in',
-		)
-	})
-
 	it('keeps the picker until the conversation is actually read', async () => {
 		// The composer is live in the `ready` phase, and handing it back before the
-		// read settles gives a message nowhere to go: queued against a conversation
-		// being left, then dropped by the interrupt or sent somewhere nobody
-		// addressed it. Esc stops cancelling for the same interval — the choice is
-		// already being acted on.
+		// read settles gives a message nowhere to go. Esc stops cancelling for the
+		// same interval: the choice is already being acted on.
 		holdTheRead()
-		const harness = await pickerOpenMidTurn()
+		const harness = await pickerOpenAfterTurn()
 
 		harness.stdin.write('\r')
 		await tick(120)
@@ -485,120 +444,15 @@ describe('/resume while a turn is running', () => {
 		await untilFrame(harness, 'RESTOREDANSWER', 'the conversation never loaded')
 	})
 
-	it('keeps the abandoned turn from reporting its own failure into the resumed transcript', async () => {
-		// The other end of the same event loop. An abandoned turn that ENDS BADLY
-		// would print `Error: …` into a conversation that had nothing to do with
-		// it — the more confusing half, because an interrupted turn failing reads
-		// to the operator as the resumed conversation failing.
-		throwAtEnd = true
-		const harness = await pickerOpenMidTurn()
-
-		harness.stdin.write('\r')
-		await untilFrame(harness, 'RESTOREDANSWER', 'the conversation never loaded')
-
-		gates[0]?.release()
-		await appendsReach(1)
-		await tick(120)
-
-		expect(
-			said(harness),
-			"the abandoned turn's failure was reported into the resumed conversation",
-		).not.toContain('TURNBLEWUP')
-		// It still saved what it had, into its own conversation. A turn that fails
-		// is not a turn that produced nothing.
-		expect(appended.map((a) => a.sessionId)).toEqual([STARTED_IN])
-	})
-
-	it('leaves the screen to the turn that has started since', async () => {
-		// The reason the abandoned turn's cleanup is guarded rather than
-		// unconditional. It unwinds long after the switch — by then a turn in the
-		// resumed conversation can already be running, and a `finally` that
-		// cleared the abort handle would leave that turn unstoppable: `Esc` would
-		// do nothing, with no way to tell from the screen.
-		const harness = await pickerOpenMidTurn()
-		harness.stdin.write('\r')
-		await untilFrame(harness, 'RESTOREDANSWER', 'the conversation never loaded')
-
-		await submit(harness, 'ask again')
-		// Both turns are now live: the abandoned one still unwinding, the new one
-		// parked on its own gate.
-		expect(gates.length, 'the second turn never started').toBe(2)
-		await untilFrame(harness, 'RUNNING1', 'the second turn is not showing as running')
-
-		gates[0]?.release()
-		await appendsReach(1)
-		await tick(150)
-
-		// The live region is the visible half: the abandoned turn's cleanup would
-		// clear the active-tool list, so the turn still working would stop looking
-		// like it was — and the queue effect, which only runs while the screen says
-		// idle, would start firing follow-ups into the middle of it.
-		expect(harness.lastFrame(), "the abandoned turn cleared the live turn's state").toContain(
-			'RUNNING1',
-		)
-		// And the invisible half: the abort handle. `Esc` would do nothing, with
-		// nothing on the screen to say why.
-		harness.stdin.write('\x1B')
-		await tick(120)
-		expect(signals[1]?.aborted, 'Esc no longer stops the turn on screen').toBe(true)
-		expect(cancelCauseOf(signals[1]?.reason)).toBe('user')
-	})
-
-	it('does not send a queued follow-up into the conversation it lands in', async () => {
-		// The composer stays live while the agent works — that is what message
-		// queuing is built on — so a follow-up meant for THIS conversation is
-		// sitting in the queue at the moment the operator leaves it. The queue
-		// drains the instant the screen goes idle, which the interrupt is what
-		// makes happen, so the follow-up would be asked of a conversation nobody
-		// addressed it to. Interrupting means stop, not "run the next one
-		// somewhere else" — the same reason Esc and Ctrl+C drop it.
-		const harness = render(<App ctx={ctx} />)
-		mounted.push(harness)
-		await tick(60)
-		await submit(harness, 'go')
-		await queue(harness, 'FOLLOWUP')
-		await untilFrame(harness, '❯ FOLLOWUP · after this reply', 'the follow-up was not queued')
-		expect(harness.lastFrame()).toContain('❯ FOLLOWUP')
-
-		harness.stdin.write('/resume')
-		await tick(30)
-		harness.stdin.write('\r')
-		await untilFrame(harness, 'Resume a conversation', 'the resume picker never opened')
-		harness.stdin.write('\r')
-		await untilFrame(harness, 'RESTOREDANSWER', 'the conversation never loaded')
-		await tick(200)
-
-		expect(gates.length, 'the queued follow-up ran in the resumed conversation').toBe(1)
-	})
-
-	it('drops a queued prompt even when the old turn settles behind the picker first', async () => {
-		// This is the idle edge the ordinary interrupt case above cannot reach.
-		// The picker pauses queue draining. Letting the old turn finish while it is
-		// open removes abortRef, so a cleanup tied only to "was there a running
-		// turn?" returns early and hands the queued prompt to the resumed scope.
-		const harness = render(<App ctx={ctx} />)
-		mounted.push(harness)
-		await tick(60)
-		await submit(harness, 'go')
-		await queue(harness, 'IDLE_EDGE_FOLLOWUP')
-		await untilFrame(
-			harness,
-			'❯ IDLE_EDGE_FOLLOWUP · after this reply',
-			'the follow-up was not queued',
-		)
-		expect(harness.lastFrame()).toContain('❯ IDLE_EDGE_FOLLOWUP')
-
-		harness.stdin.write('/resume')
-		await tick(30)
-		harness.stdin.write('\r')
-		await untilFrame(harness, 'Resume a conversation', 'the resume picker never opened')
-
-		// Finish the source turn while the picker still owns the screen. The queue
-		// remains because its pump requires phase=ready, but there is no active
-		// AbortController left for `interruptTurn` to find.
-		gates[0]?.release()
-		await appendsReach(1)
+	it('does not send a message queued behind it into the conversation it lands in', async () => {
+		// A message typed after `/resume` was meant for the conversation being
+		// left; choosing another one drops it, and says so.
+		const harness = await pickerOpenAfterTurn(async (h) => {
+			await queue(h, 'FOLLOWUP')
+			await untilFrame(h, '❯ FOLLOWUP · after this reply', 'the follow-up was not queued')
+		})
 		await tick(100)
+		expect(gates.length, 'the follow-up ran behind the open picker').toBe(1)
 
 		harness.stdin.write('\r')
 		await untilFrame(harness, 'RESTOREDANSWER', 'the conversation never loaded')
@@ -609,44 +463,13 @@ describe('/resume while a turn is running', () => {
 		)
 		await tick(200)
 
-		expect(gates.length, 'the idle-edge prompt crossed into the resumed conversation').toBe(1)
+		expect(gates.length, 'the queued follow-up ran in the resumed conversation').toBe(1)
 		expect(appended.map((entry) => entry.sessionId)).toEqual([STARTED_IN])
 	})
 
-	it('settles a permission prompt the abandoned turn was parked on', async () => {
-		// The picker opens on an `await`, so a tool batch can reach the prompt
-		// while it is up — and the resume picker owns the keyboard ahead of the
-		// prompt, so the operator resumes without ever answering it.
-		//
-		// A turn parked on that promise never reaches its own `finally`, which is
-		// where its reply is saved. An abort alone leaves it there forever: the
-		// work is not stopped, it is suspended, and the partial reply the operator
-		// watched arrive is never written anywhere. So the interrupt answers it,
-		// with the decision Ctrl+C sends at that same prompt.
-		askPermission = true
-		const harness = await pickerOpenMidTurn()
-
-		gates[0]?.release()
-		await vi.waitFor(() => expect(permissionAsked, 'the turn never reached the prompt').toBe(true))
-
-		harness.stdin.write('\r')
-		await untilFrame(harness, 'RESTOREDANSWER', 'the conversation never loaded')
-		await appendsReach(1)
-
-		expect(decisions, 'the prompt was left unanswered, so the turn never unwound').toEqual([
-			{ kind: 'reject', feedback: 'User interrupted.' },
-		])
-		expect(appended.map((a) => a.sessionId)).toEqual([STARTED_IN])
-	})
-
 	it('disturbs nothing when the conversation cannot be read', async () => {
-		// The abort, the transcript reset and the scope switch all happen AFTER
-		// the read succeeds, deliberately: a resume that cannot be completed must
-		// leave a running turn running where it belongs, exactly as cancelling the
-		// picker does. Ordering is the whole of it, so it is asserted rather than
-		// left to the order the lines happen to be in.
 		loadShouldFail = true
-		const harness = await pickerOpenMidTurn()
+		const harness = await pickerOpenAfterTurn()
 
 		harness.stdin.write('\r')
 		await untilFrame(
@@ -654,37 +477,19 @@ describe('/resume while a turn is running', () => {
 			'Could not resume that conversation.',
 			'the failure was never reported',
 		)
-
-		gates[0]?.release()
-		await appendsReach(1)
-		await tick(120)
-
-		expect(abortSeenAtRelease, 'a failed resume aborted the turn anyway').toBe(false)
-		const everything = said(harness)
-		expect(everything, 'the turn stopped rendering into its own transcript').toContain(
-			'LEAKEDREPLY0',
-		)
+		expect(said(harness)).toContain('LEAKEDREPLY0')
 		expect(appended.map((a) => a.sessionId)).toEqual([STARTED_IN])
 	})
 
-	it('leaves the running turn alone when the picker is cancelled', async () => {
-		const harness = await pickerOpenMidTurn()
+	it('leaves everything alone when the picker is cancelled', async () => {
+		const harness = await pickerOpenAfterTurn()
 
 		harness.stdin.write('\x1B')
 		await tick(80)
 		expect(harness.lastFrame(), 'cancelling the picker resumed something').not.toContain(
 			'RESTOREDANSWER',
 		)
-
-		gates[0]?.release()
-		await appendsReach(1)
-		await tick(120)
-
-		expect(abortSeenAtRelease, 'cancelling the picker aborted the turn').toBe(false)
-		const everything = said(harness)
-		expect(everything, 'the turn stopped rendering into its own transcript').toContain(
-			'LEAKEDREPLY0',
-		)
+		expect(said(harness)).toContain('LEAKEDREPLY0')
 		expect(appended.map((a) => a.sessionId)).toEqual([STARTED_IN])
 	})
 })
@@ -702,36 +507,27 @@ describe('/fork after an interrupted turn', () => {
 
 		harness.stdin.write('\x1B')
 		await untilFrame(harness, 'Interrupted', 'Esc did not hand the screen back')
-		await submit(harness, '/compact')
-		expect(compactCalls, 'compaction read history before the interrupted turn settled').toBe(0)
-		expect(said(harness), 'the compaction refusal did not explain the unsettled write').toContain(
-			'still running or being saved',
-		)
+		// Typed while the stopped turn is still being saved, `/fork` waits as typed
+		// instead of copying a conversation that lacks that turn.
 		await submit(harness, '/fork')
-
 		expect(
 			forkedAfterAppends,
 			'fork reached the store before the interrupted iterator scheduled its append',
 		).toEqual([])
-		expect(said(harness), 'the unsettled refusal did not explain what remains').toContain(
-			'was stopped and is still being saved',
-		)
 
 		// While the old turn is still being recorded its iterator has not
-		// finished, so `/fork` still refuses: the store cannot observe a snapshot
-		// from before the turn the operator just watched.
+		// finished, so the queued `/fork` still waits: the store cannot observe a
+		// snapshot from before the turn the operator just watched.
 		holdTheAppend()
 		gates[0]?.release()
 		await appendsReach(1)
-		await submit(harness, '/fork')
+		await tick(120)
 		expect(
 			forkedAfterAppends,
 			'fork took its snapshot while the interrupted turn was still being recorded',
 		).toEqual([])
 
 		releaseTheAppend()
-		await tick(120)
-		await submit(harness, '/fork')
 		await vi.waitFor(() => expect(forkedAfterAppends.length).toBeGreaterThan(0))
 
 		expect(forkedAfterAppends).toEqual([1])

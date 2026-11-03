@@ -465,6 +465,14 @@ it('rechecks ownership after the turn-boundary await and before creating the pro
 	await submit(harness, '/goal stop before provider creation')
 	await evidenceEntered.promise
 	const source = scope!.sessionId
+	// A `/new` typed now would only wait for the round, so the way out of the
+	// boundary is an interrupt (Ctrl+C): it hands the screen back while the await
+	// is still pending, and the conversation can then change under it.
+	harness.stdin.write('\u0003')
+	await until(
+		() => harness.frames.join('\n').includes('Interrupted'),
+		'the interrupt did not free the round held at the boundary',
+	)
 	await submit(harness, '/new')
 	await until(
 		() => scope?.sessionId !== source,
@@ -474,6 +482,33 @@ it('rechecks ownership after the turn-boundary await and before creating the pro
 	await tick(160)
 
 	expect(sends).toBe(0)
+}, 30_000)
+
+it('keeps /new typed during the turn-boundary await waiting, so the round still runs in its own conversation', async () => {
+	const evidenceEntered = deferred()
+	const releaseEvidence = deferred()
+	turnBoundary = async () => {
+		evidenceEntered.resolve()
+		await releaseEvidence.promise
+	}
+	const sendSessions: string[] = []
+	sendImplementation = async function* (_messages, _options, bound) {
+		sendSessions.push(bound.scope.sessionId)
+		yield { kind: 'done', stopReason: 'end_turn' }
+	}
+
+	const { harness } = await mountedApp('namzu-goal-app-queued-new-')
+	await submit(harness, '/goal finish before the new conversation')
+	await evidenceEntered.promise
+	const source = scope!.sessionId
+	await submit(harness, '/new')
+	await tick(60)
+	expect(scope?.sessionId, 'the waiting /new switched conversations').toBe(source)
+
+	releaseEvidence.resolve()
+	await until(() => sendSessions.length >= 1, 'the round was dropped by a command that only waits')
+	expect(sendSessions[0]).toBe(source)
+	await until(() => scope?.sessionId !== source, 'the waiting /new did not run after the round')
 }, 30_000)
 
 it('disarms after an abnormal turn and requires an explicit /goal resume', async () => {

@@ -1,5 +1,23 @@
 # Changelog
 
+## 60.1.0
+
+### Minor Changes
+
+- 1ed55ae: A reply a provider declines to give is no longer an empty completion that settles as a finished turn. Before, a refusal (`finishReason: 'content_filter'`) with no output went into the empty-completion retry, which re-sent the whole prompt to the same model and was refused again, and the turn then ended `end_turn` with an empty result. Now the refused reply is kept out of the history sent next, and the turn recovers once: it re-runs the request on another model of the same provider when the provider names one (new optional `LLMProvider.refusalFallbackFor`), keeping that model for the rest of the turn, or retries once on the same model with a note when the refused reply had partial output. If nothing recovers it, the turn settles with the new stop reason `refused` and a `lastError` that says which model declined.
+
+  What changes for you: a new optional `refusal` field (`category`, `explanation`, `recommendedModel`) on `StreamChunk` and `ChatCompletionResponse`; a new `model_refusal` session event (SSE wire name `model.refusal`) that names the outcome (`fallback`, `retry`, `declined`) before the re-run; a new `'refused'` member of `StopReason`; a new `'refusal-retry'` runtime-context message kind; optional `refusalFallbackModel` and `turns[].refusal` on the mock provider. A host that switches over `StopReason`, `SessionEvent['type']` or the runtime-context kinds exhaustively must add a case. A host that treated a refused turn as `end_turn` with an empty result will now see `'refused'`. The union members are additive, so this is a minor.
+
+  New behaviour on a refusal: with a provider that implements `refusalFallbackFor` (the Anthropic driver does, in its own release), the request is re-run once on another model, which can be a larger and costlier one. Pass `refusalFallback: 'off'` in `QueryParams` to keep the model unchanged; the turn then retries once on the same model only when the refused reply had partial output, and otherwise settles `refused`. The empty-completion retry is unchanged for replies that were not refusals.
+
+  A closing step that a limit asked for is never moved or retried, and if it is declined the turn keeps the limit as its stop reason rather than `refused`.
+
+  The re-run request carries the effort the model it runs on offers: when the turn's effort is not a level the fallback model has (for example `xhigh` on a model that offers only `low`, `high` and `max`), that one request uses the next level down, or the lowest above when none is lower, taken from `reasoningEffortLevelsFor` of the provider. The turn's configured effort is unchanged for later requests on the original model, and a provider that cannot list a model's levels is left as before.
+
+### Patch Changes
+
+- 33971a6: The stored-memory lock (`operation.lock`) was never removed automatically, so a process that died while holding it, or between creating it and writing its owner record (a full disk, a kill), left a file that made every later start report the memory index as not loaded until someone deleted it by hand. The lock is now broken at the next acquire when its owner is provably gone: the recorded pid no longer exists on this machine, or the file is empty or unreadable and older than five seconds. A lock whose owner is alive, or was written on another host, is still waited for and never broken. Owner records now include the host name, and a failed write of the record removes the lock file. When the owner is alive the error now reads "Another Namzu process (pid N) is using the stored memory. Close it, or wait for it to finish."; its code and details are unchanged. Nothing to do.
+
 ## 60.0.0
 
 ### Major Changes

@@ -261,7 +261,7 @@ it('cancels an in-flight replacement and closes its late candidate without publi
 	expect(screen.viewport().join('\n')).not.toContain(`Switched to codex · ${NEXT}`)
 })
 
-it('does not carry a reserved switch into a newly selected conversation', async () => {
+it('settles a reserved switch on the conversation it was asked in before a waiting /new opens the next one', async () => {
 	const turn = deferred<void>()
 	sendOld = async function* (_messages, options) {
 		if (!options?.onModelSwitch) throw new Error('Model-switch callback missing')
@@ -273,15 +273,33 @@ it('does not carry a reserved switch into a newly selected conversation', async 
 	await submit(screen, 'switch to gpt-5.6-luna')
 	await until(screen, () => outcomes.length === 1, 'Switch not reserved')
 	await submit(screen, '/new')
+	// Typed over the reply, /new waits: the conversation is not left, and the
+	// reservation is neither dropped nor applied to a conversation that is not
+	// there yet.
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('/new · after this reply'),
+		'The command was not shown as waiting',
+	)
+	expect(screen.viewport().join('\n')).not.toContain('Started a fresh conversation')
+	expect(constructed).toHaveLength(1)
+	expect(closeOld).not.toHaveBeenCalled()
+
+	turn.resolve()
 	await until(
 		screen,
 		() => screen.viewport().join('\n').includes('Started a fresh conversation'),
 		'New conversation not selected',
 	)
-	turn.resolve()
-	await screen.waitForRender()
-	expect(constructed).toHaveLength(1)
-	expect(closeOld).not.toHaveBeenCalled()
+	// The switch landed once, on the session that asked for it, before /new ran;
+	// the new conversation carries the chosen model and nothing is reserved twice.
+	expect(constructed).toHaveLength(2)
+	expect(closeOld).toHaveBeenCalledTimes(1)
+	await submit(screen, 'first words of the new conversation')
+	await until(screen, () => sent.length === 2, 'The new conversation did not accept a turn')
+	expect(sent.map((request) => request.model)).toEqual([OLD, NEXT])
+	expect(JSON.stringify(sent[1]?.messages)).not.toContain('switch to gpt-5.6-luna')
+	expect(constructed).toHaveLength(2)
 })
 
 it.each(['child', 'job'] as const)(

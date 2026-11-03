@@ -310,7 +310,7 @@ it('/new keeps the old display but resets model and copy targets', async () => {
 	)
 })
 
-it('leaves the current context and running turn intact when the durable target cannot be created', async () => {
+it('queues /clear typed over a running turn, leaves that turn alone, and fails safe when the target cannot be created', async () => {
 	const root = await cwd()
 	const harness = await renderApp(root)
 
@@ -320,12 +320,15 @@ it('leaves the current context and running turn intact when the durable target c
 	failFreshStart = true
 	await submit(harness, '/clear')
 	await until(
-		() => (harness.lastFrame() ?? '').includes('start a new conversation'),
-		'the failed target creation was not reported',
+		() => (harness.lastFrame() ?? '').includes('/clear'),
+		'the typed command was not shown as waiting',
 	)
+	// Typed over the reply, the command is kept: it neither moves the scope nor
+	// touches the turn, and nothing has tried to create a target yet.
+	expect(sharedScope?.sessionId, 'the waiting command moved the durable scope').toBe(sourceSession)
+	expect(sends[0]?.signal?.aborted, 'the waiting command interrupted the source turn').toBe(false)
+	expect(failFreshStart, 'the target was created before the reply ended').toBe(true)
 
-	expect(sharedScope?.sessionId, 'the failed operation moved the durable scope').toBe(sourceSession)
-	expect(sends[0]?.signal?.aborted, 'the failed operation interrupted the source turn').toBe(false)
 	releaseRunning()
 	await until(
 		asyncFlag(async () =>
@@ -333,8 +336,15 @@ it('leaves the current context and running turn intact when the durable target c
 				textOf(messages).includes('LATE_OLD_REPLY'),
 			),
 		),
-		'the unchanged source turn stopped settling after the failed operation',
+		'the unchanged source turn stopped settling while the command waited',
 	)
+	// The turn is over, so the command runs, and its failure leaves the
+	// conversation it could not leave exactly as it was.
+	await until(
+		() => (harness.lastFrame() ?? '').includes('start a new conversation'),
+		'the failed target creation was not reported',
+	)
+	expect(sharedScope?.sessionId, 'the failed operation moved the durable scope').toBe(sourceSession)
 	await submit(harness, 'AFTER_FAILED_CLEAR')
 	await until(() => sends.length === 2, 'the source conversation did not accept another turn')
 	expect(textOf(sends[1]?.messages ?? [])).toContain('HOLD_RUNNING_FAIL_TARGET')
@@ -342,7 +352,7 @@ it('leaves the current context and running turn intact when the durable target c
 	expect(textOf(sends[1]?.messages ?? [])).toContain('AFTER_FAILED_CLEAR')
 })
 
-it('does not admit an old turn to session.send after clear crosses its turn-boundary await', async () => {
+it('does not admit an old turn to session.send after an interrupt and /clear cross its turn-boundary await', async () => {
 	holdFirstAdmission = true
 	const root = await cwd()
 	const harness = await renderApp(root)
@@ -353,6 +363,14 @@ it('does not admit an old turn to session.send after clear crosses its turn-boun
 	if (!sourceSession) throw new Error('fixture requires a durable source conversation')
 	expect(sends).toHaveLength(0)
 
+	// A turn held at its boundary is busy, so a typed /clear would wait. Ctrl+C
+	// takes the slot back and leaves the screen idle while the old await is
+	// still pending: that is the window the conversation can change in.
+	harness.stdin.write('\u0003')
+	await until(
+		() => harness.frames.join('\n').includes('Interrupted'),
+		'the interrupt did not free the held turn',
+	)
 	await submit(harness, '/clear')
 	await until(
 		() =>
@@ -378,7 +396,104 @@ it('does not admit an old turn to session.send after clear crosses its turn-boun
 	expect(durable.some((messages) => textOf(messages).includes('HELD_BEFORE_PROVIDER'))).toBe(false)
 })
 
-it('fences late events and persistence from a running turn after /clear', async () => {
+it('keeps /clear typed during the turn-boundary await waiting, so the held turn is still admitted to the old conversation', async () => {
+	holdFirstAdmission = true
+	const root = await cwd()
+	const harness = await renderApp(root)
+
+	await submit(harness, 'HELD_THEN_CLEARED')
+	await admissionReached
+	const sourceSession = sharedScope?.sessionId
+	if (!sourceSession) throw new Error('fixture requires a durable source conversation')
+
+	await submit(harness, '/clear')
+	await until(
+		() => (harness.lastFrame() ?? '').includes('/clear'),
+		'the typed command was not shown as waiting',
+	)
+	expect(sharedScope?.sessionId, 'the waiting command switched conversations').toBe(sourceSession)
+
+	releaseAdmission()
+	await until(() => sends.length === 1, 'the held turn was dropped by a command that only waits')
+	expect(sends[0]?.sessionId).toBe(sourceSession)
+	await until(
+		() => sharedScope?.sessionId !== sourceSession,
+		'the waiting /clear did not run once the turn ended',
+	)
+	await submit(harness, 'FRESH_AFTER_WAIT')
+	await until(() => sends.length === 2, 'the fresh conversation turn never reached the provider')
+	expect(sends[1]?.sessionId).not.toBe(sourceSession)
+	expect(textOf(sends[1]?.messages ?? [])).toContain('FRESH_AFTER_WAIT')
+	expect(textOf(sends[1]?.messages ?? [])).not.toContain('HELD_THEN_CLEARED')
+})
+
+it('keeps /clear waiting behind an interrupted turn that is still unwinding, so its late reply cannot reach the new conversation', async () => {
+	const root = await cwd()
+	const harness = await renderApp(root)
+
+	await submit(harness, 'HOLD_RUNNING')
+	await until(() => sends.length === 1, 'the running turn never reached the provider')
+	const sourceSession = sharedScope?.sessionId
+	// An interrupt hands the screen back at once, but the old generator is still
+	// alive: it can yield and persist until it unwinds. A /clear typed now waits
+	// for that, instead of opening a conversation the old turn could write into.
+	harness.stdin.write('\u001b')
+	await until(
+		() => sends[0]?.signal?.aborted === true,
+		'the interrupt did not reach the running provider turn',
+	)
+	await submit(harness, '/clear')
+	await until(
+		() => harness.frames.join('\n').includes('/clear'),
+		'the typed command was not shown as waiting',
+	)
+	await tick(100)
+	expect(
+		sharedScope?.sessionId,
+		'the conversation changed while the old turn was still alive',
+	).toBe(sourceSession)
+
+	releaseRunning()
+	await until(
+		() => sharedScope?.sessionId !== sourceSession,
+		'the waiting /clear did not run once the old turn unwound',
+	)
+	await submit(harness, 'NEW_AFTER_UNWIND')
+	await until(() => sends.length === 2, 'the fresh turn never reached the provider')
+	await until(
+		asyncFlag(async () => (await durableConversations(root)).length === 2),
+		'the old and new turns did not settle into separate conversations',
+	)
+
+	expect(textOf(sends[1]?.messages ?? [])).toContain('NEW_AFTER_UNWIND')
+	expect(textOf(sends[1]?.messages ?? [])).not.toContain('HOLD_RUNNING')
+	expect(textOf(sends[1]?.messages ?? [])).not.toContain('LATE_OLD_REPLY')
+	const durable = await durableConversations(root)
+	expect(
+		durable.some(
+			(messages) =>
+				textOf(messages).includes('HOLD_RUNNING') && textOf(messages).includes('NEW_AFTER_UNWIND'),
+		),
+		'the old turn and the new one landed in one conversation',
+	).toBe(false)
+	expect(
+		durable.some(
+			(messages) =>
+				textOf(messages).includes('LATE_OLD_REPLY') &&
+				textOf(messages).includes('NEW_AFTER_UNWIND'),
+		),
+		'the old turn late reply was persisted into the new conversation',
+	).toBe(false)
+
+	await submit(harness, 'THIRD_AFTER_OLD_UNWINDS')
+	await until(() => sends.length === 3, 'the conversation did not accept a turn after old unwind')
+	expect(textOf(sends[2]?.messages ?? [])).toContain('NEW_AFTER_UNWIND')
+	expect(textOf(sends[2]?.messages ?? [])).toContain('THIRD_AFTER_OLD_UNWINDS')
+	expect(textOf(sends[2]?.messages ?? [])).not.toContain('HOLD_RUNNING')
+	expect(textOf(sends[2]?.messages ?? [])).not.toContain('LATE_OLD_REPLY')
+})
+
+it('runs /clear typed over a running turn only after that turn has settled, and keeps its reply out of the new conversation', async () => {
 	const root = await cwd()
 	const harness = await renderApp(root)
 
@@ -387,35 +502,30 @@ it('fences late events and persistence from a running turn after /clear', async 
 	const sourceSession = sharedScope?.sessionId
 	await submit(harness, '/clear')
 	await until(
-		() => sharedScope?.sessionId !== sourceSession,
-		'the running turn did not yield to a new conversation',
+		() => (harness.lastFrame() ?? '').includes('/clear'),
+		'the typed command was not shown as waiting',
 	)
-	await submit(harness, 'NEW_SETTLES_FIRST')
-	await until(() => sends.length === 2, 'the fresh turn never settled ahead of the old one')
+	expect(sharedScope?.sessionId).toBe(sourceSession)
+	expect(sends[0]?.signal?.aborted, 'a waiting command interrupted the turn').toBe(false)
+
 	releaseRunning()
 	await until(
-		asyncFlag(async () => (await durableConversations(root)).length === 2),
-		'the old and new turns did not settle into separate conversations',
+		() => sharedScope?.sessionId !== sourceSession,
+		'the waiting /clear did not run after the turn',
 	)
-
-	expect(sends[0]?.signal?.aborted, 'the old provider turn was not interrupted').toBe(true)
-	expect(textOf(sends[1]?.messages ?? [])).toContain('NEW_SETTLES_FIRST')
-	expect(textOf(sends[1]?.messages ?? [])).not.toContain('HOLD_RUNNING')
-	expect(harness.frames.join('\n')).not.toContain('LATE_OLD_REPLY')
-	const durable = await durableConversations(root)
-	expect(
-		durable.some(
-			(messages) =>
-				textOf(messages).includes('HOLD_RUNNING') && textOf(messages).includes('NEW_SETTLES_FIRST'),
+	await until(
+		asyncFlag(async () =>
+			(await durableConversations(root)).some((messages) =>
+				textOf(messages).includes('LATE_OLD_REPLY'),
+			),
 		),
-	).toBe(false)
-
-	await submit(harness, 'THIRD_AFTER_OLD_UNWINDS')
-	await until(() => sends.length === 3, 'the conversation did not accept a turn after old unwind')
-	expect(textOf(sends[2]?.messages ?? [])).toContain('NEW_SETTLES_FIRST')
-	expect(textOf(sends[2]?.messages ?? [])).toContain('THIRD_AFTER_OLD_UNWINDS')
-	expect(textOf(sends[2]?.messages ?? [])).not.toContain('HOLD_RUNNING')
-	expect(textOf(sends[2]?.messages ?? [])).not.toContain('LATE_OLD_REPLY')
+		'the finished turn was not kept in the conversation it ran in',
+	)
+	await submit(harness, 'NEW_AFTER_WAIT')
+	await until(() => sends.length === 2, 'the fresh turn never reached the provider')
+	expect(textOf(sends[1]?.messages ?? [])).toContain('NEW_AFTER_WAIT')
+	expect(textOf(sends[1]?.messages ?? [])).not.toContain('HOLD_RUNNING')
+	expect(textOf(sends[1]?.messages ?? [])).not.toContain('LATE_OLD_REPLY')
 })
 
 /** Lift an async disk predicate into the polling helper without fixed sleeps. */
