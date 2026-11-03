@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-03
+
+- **Update** [Memory](sdk/memory.md#disk-coordination-and-recovery) and [CLI memory](cli/memory.md): the stored-memory operation lock is now broken automatically when its owner is provably gone (dead pid on this host, or an empty or unparsable file older than five seconds), never when a live or other-host owner could hold it; breakers are serialised through `operation.lock.break`; the busy error names the owner pid in plain words. `.changeset/memory-lock-recovery.md` (`@namzu/sdk` patch).
+
 ## 2026-11-02
 
 - **Update** [Background jobs](cli/background-jobs.md): the host-exit sweep and the kill helpers refuse a pid of 0, 1, a negative, a fractional or the host's own, because `kill(-1)` and `kill(0)` address every process of the user or the caller's own group. `.changeset/job-kill-pid-guard.md` (`@namzu/sdk` patch).
