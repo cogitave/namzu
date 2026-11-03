@@ -638,6 +638,7 @@ async function execPrint(
 		await release()
 		await sessionExport?.shutdown()
 	})
+	let pendingFallbackLine: string | undefined
 	const consume = async (stream: AsyncIterable<AgentEvent>): Promise<void> => {
 		stop.failed = null
 		stop.paused = null
@@ -651,8 +652,11 @@ async function execPrint(
 			// Which model took over, on stderr with the other status lines.
 			else if (event.kind === 'provider-fallback') ctx.formatter.info(event.text)
 			// A model that declined, and the model that answered in its place. The
-			// final `refused` stop below says it again when nothing answered.
-			else if (event.kind === 'model-refusal' && event.outcome !== 'declined')
+			// hand-over is said once the other model has answered, not before: if
+			// it declined too, the final `refused` stop below says so instead.
+			else if (event.kind === 'model-refusal' && event.outcome === 'fallback')
+				pendingFallbackLine = describeModelRefusal(event)
+			else if (event.kind === 'model-refusal' && event.outcome === 'retry')
 				ctx.formatter.info(describeModelRefusal(event))
 			else if (event.kind === 'error' || event.kind === 'paused') {
 				if (event.budget) measured.budget = event.budget
@@ -673,6 +677,11 @@ async function execPrint(
 				if (event.text !== undefined) text = event.text
 				stopReason = event.stopReason
 				if (event.budget) measured.budget = event.budget
+				if (pendingFallbackLine !== undefined) {
+					if (event.stopReason !== 'refused' && event.stopReason !== 'cancelled')
+						ctx.formatter.info(pendingFallbackLine)
+					pendingFallbackLine = undefined
+				}
 			}
 		}
 	}

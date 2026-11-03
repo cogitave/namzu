@@ -268,12 +268,46 @@ it('names the model that answered in place of one that declined', async () => {
 	const screen = await boot()
 	try {
 		await submit(screen, 'swapped')
-		await until(screen, () => text(screen).includes('Here you go.'))
+		await until(screen, () => text(screen).includes('answered instead'))
 		const shown = text(screen).replace(/\s+/g, ' ')
 		expect(shown).toContain(
 			'claude-sonnet-5-5 declined to answer this message. This sometimes happens with safe, normal requests. claude-opus-5-5 answered instead; /model switches back.',
 		)
 		expect(shown).not.toMatch(/new session/i)
+	} finally {
+		await screen.unmount()
+	}
+})
+
+it('does not say another model answered when the model that took over declined too', async () => {
+	scripts.twice = (map) =>
+		[
+			map(
+				sdk({
+					type: 'model_refusal',
+					model: 'claude-sonnet-5-5',
+					providerId: 'anthropic',
+					outcome: 'fallback',
+					fallbackModel: 'claude-opus-5-5',
+				}),
+			),
+			map(
+				sdk({
+					type: 'model_refusal',
+					model: 'claude-opus-5-5',
+					providerId: 'anthropic',
+					outcome: 'declined',
+				}),
+			),
+			{ kind: 'done', stopReason: 'refused' },
+		].filter(Boolean) as AgentEvent[]
+	const screen = await boot()
+	try {
+		await submit(screen, 'twice')
+		await until(screen, () => text(screen).includes('claude-opus-5-5 declined to answer'))
+		const shown = text(screen).replace(/\s+/g, ' ')
+		expect(shown).not.toContain('answered instead')
+		expect(shown.match(/declined to answer/g)).toHaveLength(1)
 	} finally {
 		await screen.unmount()
 	}

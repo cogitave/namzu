@@ -20,11 +20,11 @@ One plain row, with no ids and no instruction to start over:
 - When nothing answered: `<model> declined to answer this message. This sometimes happens with safe, normal requests. Press esc twice to edit your message, or pick another model with /model.` The turn then ends as stopped, not as a finished reply: no "done" closing line, and the notification says stopped.
 - When the model stopped part-way and the same model is tried once more with that noted: `<model> stopped its reply to this message. ... Trying once more with that noted.`
 
-If the provider said why, a `Details:` line under the row carries its category and its sentence. A restored conversation that holds a refused turn shows the second wording without the model name. A content-filter error a provider returns instead of a finished reply uses the same words.
+If the provider said why, a `Details:` line under the row carries its category and its sentence. It is shown in place, not behind a separate control; a long sentence (over 240 characters, kept to 600) folds like any long detail, and Ctrl+O shows it whole. A restored conversation that holds a refused turn shows the second wording without the model name. A content-filter error a provider returns instead of a finished reply uses the same words.
 
 ## The model is kept for the conversation
 
-When another model answers, the conversation switches to it when the turn settles, the way a model-requested switch does, and says `Switched to <provider> · <model> for this conversation.` `/model` switches back. The switch uses only a model the account can use: the provider names it from the model list it can read, and names none when it cannot read one.
+When another model answers, the row above appears and the conversation switches to it when the turn settles, the way a model-requested switch does, and says `Switched to <provider> · <model> for this conversation.` `/model` switches back. If the other model declines too, no row claims an answer, the second wording names that model, and the conversation keeps the model it had. The switch uses only a model the account can use: the provider names it from the model list it can read, and names none when it cannot read one.
 
 ## `refusalFallback`
 

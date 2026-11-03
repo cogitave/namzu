@@ -1125,6 +1125,18 @@ type StreamState = {
 	releaseTimer?: ReturnType<typeof setTimeout>
 	/** A row already told the person the model declined, so the settled stop line need not. */
 	refusalRowShown?: boolean
+	/**
+	 * A refusal that handed the message to another model. The row saying that
+	 * model answered, and the switch to it, wait until it has: a fallback that
+	 * is declined too must not claim an answer or change the conversation's model.
+	 */
+	pendingFallback?: {
+		readonly row: string
+		readonly detail: readonly string[]
+		readonly model: string
+	}
+	/** The fallback model that did answer, for the loop to switch the conversation to. */
+	answeredFallbackModel?: string
 	/** Only a normal turn end makes this text the next `/copy` target. */
 	completed: boolean
 	/** Exact durable turn outcome; notification wording is intentionally coarser. */
@@ -9343,6 +9355,15 @@ function AppBody({
 				case 'model-refusal': {
 					st.refusalRowShown = true
 					const detail = refusalDetail(event)
+					if (event.outcome === 'fallback' && event.fallbackModel) {
+						// Said when the other model has answered, not before.
+						st.pendingFallback = {
+							row: describeModelRefusal(event),
+							detail,
+							model: event.fallbackModel,
+						}
+						break
+					}
 					pushSystem(
 						'warning',
 						describeModelRefusal(event),
@@ -9408,6 +9429,22 @@ function AppBody({
 						outcome: st.completed ? 'completed' : 'stopped',
 					}
 					closeAssistant()
+					if (st.pendingFallback) {
+						const pending = st.pendingFallback
+						st.pendingFallback = undefined
+						if (
+							event.stopReason !== 'refused' &&
+							event.stopReason !== 'cancelled' &&
+							event.stopReason !== 'error'
+						) {
+							pushSystem(
+								'warning',
+								pending.row,
+								pending.detail.length > 0 ? { detail: pending.detail } : undefined,
+							)
+							st.answeredFallbackModel = pending.model
+						}
+					}
 					// A plain No stopped this turn: say so once, under the calls it left.
 					if (refusalEndedTurnRef.current) {
 						refusalEndedTurnRef.current = false
@@ -10328,22 +10365,17 @@ function AppBody({
 						// parked in a tool call — still saves a whole reply rather than one
 						// truncated at the moment the operator happened to leave.
 						if (stillHere()) {
-							// The model that declined is replaced for the conversation, not
-							// only for this turn: the switch is published when the turn
-							// settles, like one the model asked for, and `/model` undoes it.
-							if (
-								event.kind === 'model-refusal' &&
-								event.outcome === 'fallback' &&
-								event.fallbackModel &&
-								currentProvider
-							) {
-								await requestModelSwitch({
-									model: event.fallbackModel,
-									provider: currentProvider,
-								})
-							}
 							applyEvent(event, st)
 							markNonGoalAbnormal()
+							// The model that declined is replaced for the conversation, not
+							// only for this turn, once the model that took over has answered:
+							// the switch is published when the turn settles, like one the
+							// model asked for, and `/model` undoes it.
+							if (event.kind === 'done' && st.answeredFallbackModel && currentProvider) {
+								const model = st.answeredFallbackModel
+								st.answeredFallbackModel = undefined
+								await requestModelSwitch({ model, provider: currentProvider })
+							}
 						} else if (event.kind === 'delta') st.text += event.text
 						else if (event.kind === 'done' && event.text !== undefined) st.text = event.text
 					}
