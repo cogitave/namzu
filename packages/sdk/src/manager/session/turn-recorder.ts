@@ -130,6 +130,7 @@ const TURN_BOUND_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set<SessionEve
 	'hosted_tool',
 	'provider_retry',
 	'provider_fallback',
+	'model_refusal',
 	'tool_completed',
 	'user_question_asked',
 	'user_question_answered',

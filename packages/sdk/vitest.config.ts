@@ -6,6 +6,8 @@ import { sdkTestIsolation } from './vitest.shared.js'
 export default defineConfig({
 	test: {
 		...sdkTestIsolation,
+		// Unit suite only: the proc suite signals real pids on purpose.
+		setupFiles: [...sdkTestIsolation.setupFiles, './src/__fixtures__/no-broadcast-signal.ts'],
 		// A many-core host can start dozens of CPU-bound workers at once. That
 		// delayed valid async tests past Vitest's five-second wall-clock limit;
 		// the same 9,572 tests pass with four workers. Keep smaller CI hosts at

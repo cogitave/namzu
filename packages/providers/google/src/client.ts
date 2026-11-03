@@ -419,6 +419,8 @@ export class GoogleProvider implements LLMProvider {
 				id,
 				delta: {},
 				finishReason: finish,
+				// A blocked prompt or a safety stop; the API names no model to try instead.
+				...(finish === 'content_filter' ? { refusal: {} } : {}),
 				usage,
 				replayState: {
 					kind: 'namzu-google',

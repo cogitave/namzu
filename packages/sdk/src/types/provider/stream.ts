@@ -132,6 +132,12 @@ export interface StreamChunk {
 	 * room to continue into. Set only with `finishReason: 'length'`.
 	 */
 	finishDetail?: 'context_window'
+	/**
+	 * The provider declined to answer. Set with `finishReason: 'content_filter'`
+	 * by every driver whose finish was a refusal or a safety block; an empty
+	 * object when the provider gave no detail.
+	 */
+	refusal?: import('./chat.js').ProviderRefusal
 	usage?: TokenUsage
 	error?: string
 

@@ -494,6 +494,18 @@ export interface SlashCommand {
 	}
 	/** Compatibility-only commands remain executable but stay out of discovery UI. */
 	readonly discoverable?: false
+	/**
+	 * Whether the command runs the moment it is submitted while a reply is
+	 * being written, rather than waiting for the reply to end.
+	 *
+	 * One rule in the submit path reads this; no handler guards on "is a reply
+	 * running" for itself. A command qualifies when it only shows information,
+	 * opens a chooser beside the stream, or changes a setting without touching
+	 * the conversation. A function decides from the arguments (`/config` alone
+	 * opens a screen; `/config limits 5` just sets a value). Absent means the
+	 * command waits: it is queued as typed and runs, in order, after the reply.
+	 */
+	readonly immediate?: boolean | ((args: readonly string[]) => boolean)
 	/** A live precondition shared by discovery and execution. */
 	readonly unavailable?: (ctx: SlashContext) => string | undefined
 	readonly action: (ctx: SlashContext, args: readonly string[]) => SlashAction
@@ -687,6 +699,31 @@ export function kernelCommandDescriptors(): readonly SerializableHostCommand[] {
 	return kernelHostCommands({}).map(({ handler: _handler, ...rest }) => rest)
 }
 
+/**
+ * When a submitted line runs if a reply is in progress.
+ *
+ * `'now'` runs it at once and leaves the reply streaming; `'queue'` keeps the
+ * line as typed and runs it after the reply, in order; `null` is not a slash
+ * command at all. A skill or a saved prompt command sends a message of its
+ * own, so it always waits. A name nobody answers to runs at once, because all
+ * it does is say so.
+ */
+export function slashTiming(
+	line: string,
+	userCommands: readonly UserCommand[],
+	builtins: readonly SlashCommand[] = CLI_LOCAL_COMMANDS,
+): 'now' | 'queue' | null {
+	const parsed = parseSlash(line)
+	if (!parsed) return null
+	const command = builtins.find((c) => c.name === parsed.name)
+	if (command) {
+		const { immediate } = command
+		const now = typeof immediate === 'function' ? immediate(parsed.args) : immediate === true
+		return now ? 'now' : 'queue'
+	}
+	return userCommands.some((c) => c.name === parsed.name) ? 'queue' : 'now'
+}
+
 /** Returns null when the line is not a slash command. */
 export function parseSlash(line: string): ParsedSlash | null {
 	const trimmed = line.trim()
@@ -776,6 +813,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'config',
+		immediate: (args) => args.length > 0,
 		description: 'View or change model, reasoning, permissions and limits.',
 		help: {
 			usage: [
@@ -852,6 +890,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'btw',
+		immediate: true,
 		help: {
 			usage: ['/btw <question>'],
 			details: [
@@ -889,23 +928,27 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'settings',
+		immediate: (args) => args.length > 0,
 		description: 'View or change model, reasoning and permissions.',
 		action: () => ({ kind: 'settings-picker' }),
 	},
 	{
 		name: 'peers',
+		immediate: true,
 		description: 'Find and message other live terminals in this project.',
 		help: { usage: ['/peers [list|on|off]', '/peers send <ref> <message>'] },
 		action: (_ctx, args) => ({ kind: 'peers', args }),
 	},
 	{
 		name: 'workflows',
+		immediate: true,
 		description: 'List this conversation’s workflows and open one.',
 		help: { usage: ['/workflows'] },
 		action: () => ({ kind: 'workflows' }),
 	},
 	{
 		name: 'goal',
+		immediate: true,
 		description: 'Manage this conversation’s goal and automatic continuation.',
 		help: {
 			usage: [
@@ -933,6 +976,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'schedule',
+		immediate: true,
 		description: 'Scheduled jobs that run while namzu is closed: list, confirm, pause, run, add.',
 		help: {
 			usage: [
@@ -949,6 +993,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'browser',
+		immediate: (args) => args.length === 0,
 		description:
 			'The browser this conversation drives: engine, profile, site rules; switch profile.',
 		help: {
@@ -962,6 +1007,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'loop',
+		immediate: true,
 		description: 'Re-send a prompt on an interval, between replies.',
 		help: {
 			usage: ['/loop <interval> <prompt or /command>', '/loop list', '/loop stop <id>|all'],
@@ -973,6 +1019,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'help',
+		immediate: true,
 		description: 'Browse commands, or show usage with /help <command>.',
 		help: {
 			usage: ['/help', '/help <command>', '/help keys'],
@@ -1007,6 +1054,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'feedback',
+		immediate: true,
 		help: { usage: ['/feedback', '/feedback good|bad [note]'] },
 		unavailable: (ctx) =>
 			ctx.lastAssistantMessageId()
@@ -1052,11 +1100,15 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'clear',
+		// Changes which conversation is open, so it never runs over a reply: it is
+		// kept as typed and runs, with its guards met, when the reply has ended.
 		description: 'Clear the terminal and start a fresh conversation.',
 		action: () => ({ kind: 'new-conversation', clearScreen: true }),
 	},
 	{
 		name: 'new',
+		// Changes which conversation is open, so it never runs over a reply: it is
+		// kept as typed and runs, with its guards met, when the reply has ended.
 		description: 'Start a fresh conversation without clearing the terminal.',
 		action: () => ({ kind: 'new-conversation', clearScreen: false }),
 	},
@@ -1072,11 +1124,13 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'exit',
+		immediate: true,
 		description: 'Exit namzu.',
 		action: () => ({ kind: 'exit' }),
 	},
 	{
 		name: 'rename',
+		immediate: true,
 		help: { usage: ['/rename [name]', '/rename clear'] },
 		description:
 			'Rename this conversation; opens an editor when no name is supplied. /rename clear removes the saved name.',
@@ -1100,6 +1154,8 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		// Today the same copy as /branch. The name is kept for copying the
 		// conversation into a new background session, which will replace this.
 		name: 'fork',
+		// Changes which conversation is open, so it never runs over a reply: it is
+		// kept as typed and runs, with its guards met, when the reply has ended.
 		description: 'Continue in a copy, leaving the original unchanged.',
 		action: () => ({ kind: 'fork' }),
 	},
@@ -1113,6 +1169,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'add-dir',
+		immediate: (args) => args.length > 0,
 		help: {
 			usage: ['/add-dir [path]'],
 			details: ['Without a path, lists added directories. Paths may contain spaces.'],
@@ -1254,6 +1311,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'skills',
+		// The list, the picker, and the two commands that compose a turn of their own and
+		// queue themselves behind the running reply; only naming a skill to activate
+		// changes what the conversation is told, so only that waits.
+		immediate: (args) =>
+			args.length === 0 || ['list', 'new', 'save'].includes(args[0]?.toLowerCase() ?? ''),
 		help: {
 			usage: [
 				'/skills',
@@ -1295,6 +1357,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'plugins',
+		immediate: true,
 		description: 'See plugins and turn them on or off.',
 		help: {
 			usage: ['/plugins', '/plugins list', '/plugins <name>'],
@@ -1317,11 +1380,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'resume',
+		// Changes which conversation is open, so it never runs over a reply: it is
+		// kept as typed and runs, with its guards met, when the reply has ended.
 		description: 'Continue a paused reply, or resume a past conversation.',
 		action: () => ({ kind: 'resume' }),
 	},
 	{
 		name: 'abandon',
+		immediate: true,
 		description: 'Close a paused or stopped reply without resuming it.',
 		help: { usage: ['/abandon [reason]'] },
 		action: (_ctx, args) => ({
@@ -1331,6 +1397,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'model',
+		immediate: true,
 		description: 'Choose a model, or change providers.',
 		help: {
 			usage: ['/model', '/model <model-or-provider/model>'],
@@ -1396,6 +1463,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'cost',
+		immediate: true,
 		help: { usage: ['/cost [details]'] },
 		description: 'Show usage and cost for the current or latest reply.',
 		action: (ctx, args) =>
@@ -1403,6 +1471,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'doctor',
+		immediate: true,
 		help: { usage: ['/doctor'] },
 		description: 'Check that Namzu, its providers and the sandbox are working.',
 		action: (_ctx, args) =>
@@ -1412,6 +1481,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'tasks',
+		immediate: true,
 		description: 'View and manage everything running in the background',
 		help: { usage: ['/tasks', '/tasks list'] },
 		action: (ctx, args) =>
@@ -1424,6 +1494,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		// The same dialog under its second name; only /tasks is listed.
 		name: 'bashes',
+		immediate: true,
 		description: 'View and manage everything running in the background',
 		discoverable: false,
 		help: { usage: ['/bashes', '/bashes list'] },
@@ -1436,6 +1507,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'release-notes',
+		immediate: true,
 		help: { usage: ['/release-notes [version]'] },
 		description: 'Show what changed in the version that is running: /release-notes [version].',
 		action: (_ctx, args) => ({
@@ -1446,6 +1518,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'hooks',
+		immediate: true,
 		description: 'List the shell hooks this conversation runs, by event.',
 		action: (ctx) => ({
 			kind: 'message',
@@ -1481,6 +1554,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'mcp',
+		immediate: (args) => !['prompts', 'prompt', 'resources', 'resource'].includes(args[0] ?? ''),
 		help: {
 			usage: [
 				'/mcp [tools|details]',
@@ -1498,6 +1572,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'diff',
+		immediate: true,
 		description: 'Show what is uncommitted in this working tree.',
 		action: () => ({ kind: 'diff' }),
 	},
@@ -1518,11 +1593,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'copy',
+		// Opens a picker over the latest finished answer; kept as typed and run when
+		// the reply has ended, like the commands that change the conversation.
 		description: 'Copy the latest answer, a code block or a quote.',
 		action: () => ({ kind: 'copy' }),
 	},
 	{
 		name: 'raw',
+		immediate: true,
 		help: { usage: ['/raw [on|off]'] },
 		description: 'Toggle copy-friendly plain transcript rendering: /raw [on|off].',
 		action: (_ctx, args) => {
@@ -1553,6 +1631,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'status',
+		immediate: true,
 		help: { usage: ['/status [details|config|tools]'] },
 		description: 'Show the model, permissions, files and latest cost.',
 		action: (ctx, args) => {
@@ -1592,6 +1671,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'permissions',
+		immediate: true,
 		description: 'Choose which actions need your approval.',
 		help: {
 			usage: [
@@ -1642,6 +1722,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'theme',
+		immediate: true,
 		help: {
 			usage: ['/theme [auto|dark|light|dark-daltonized|light-daltonized|dark-ansi|light-ansi]'],
 			details: [
@@ -1658,6 +1739,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'effort',
+		immediate: true,
 		help: {
 			usage: ['/effort [level|default]'],
 			details: [
@@ -1712,6 +1794,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'hypermode',
+		immediate: true,
 		help: {
 			usage: ['/hypermode [on|off]'],
 			details: [
@@ -1724,6 +1807,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'orchestrate',
+		immediate: true,
 		help: {
 			usage: ['/orchestrate [on|off]'],
 			details: [

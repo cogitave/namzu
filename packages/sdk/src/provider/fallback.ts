@@ -572,6 +572,23 @@ export function withProviderFallback(
 					) => first.provider.effortLevelsFor?.(model, thinking) ?? [],
 				}
 			: {}),
+		// Answered by the member the next request goes to first, the one the
+		// cursor rests on: it is the member whose model just declined.
+		...(members.some((member) => member.provider.refusalFallbackFor)
+			? {
+					refusalFallbackFor: (
+						model: string,
+						refusal: Parameters<NonNullable<LLMProvider['refusalFallbackFor']>>[1],
+						signal?: AbortSignal,
+					) => {
+						const serving = members[cursor] ?? first
+						return (
+							serving.provider.refusalFallbackFor?.(serving.model ?? model, refusal, signal) ??
+							Promise.resolve(undefined)
+						)
+					},
+				}
+			: {}),
 		...(first.provider.resolveContextWindow
 			? {
 					resolveContextWindow: (model: string, signal?: AbortSignal) =>

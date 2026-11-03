@@ -184,6 +184,24 @@ export type ReasoningEffort =
 	| 'max'
 	| 'ultra'
 
+/**
+ * What a provider says about a reply it declined to give.
+ *
+ * Carried beside `finishReason: 'content_filter'` and set whenever the finish
+ * was a refusal or a safety block, so a host can tell a model that declined
+ * from a reply that was merely empty. Every field is optional because
+ * providers differ in what they report and several report a refusal with no
+ * detail at all: an empty object means "refused, nothing more is known".
+ */
+export interface ProviderRefusal {
+	/** The provider's own classification of why, when it gives one (for example `cyber`). */
+	category?: string
+	/** The provider's own sentence about the refusal. Show it; do not parse it. */
+	explanation?: string
+	/** A model the provider says can usually serve the request instead. */
+	recommendedModel?: string
+}
+
 export interface ChatCompletionResponse {
 	id: string
 	model: string
@@ -206,5 +224,7 @@ export interface ChatCompletionResponse {
 	 * window rather than the output token limit; see `StreamChunk.finishDetail`.
 	 */
 	finishDetail?: 'context_window'
+	/** Set with `finishReason: 'content_filter'` when the provider declined to answer. */
+	refusal?: ProviderRefusal
 	usage: TokenUsage
 }

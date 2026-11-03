@@ -858,6 +858,10 @@ const CONFIG_READERS: ConfigReaders = {
 			...(raw.check !== undefined ? { check: raw.check as boolean } : {}),
 		}
 	},
+	refusalFallback: (v, context) => {
+		if (v === 'auto' || v === 'off') return v
+		return invalidConfigValue(context, [], 'must be "auto" or "off"')
+	},
 	learningObservations: (v, context) => {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
@@ -2193,6 +2197,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// Installs software on this machine; read from `NAMZU_AUTO_UPDATE` and
 	// `NAMZU_UPDATE_CHANNEL` by the updater itself, not carried as a config field.
 	updates: undefined,
+	// Decides which model receives a conversation's content; a file decision, never a variable a shell profile could carry invisibly.
+	refusalFallback: undefined,
 	// Only records locally and can only be a file decision, but keeps the rule that no variable carries it.
 	learningObservations: undefined,
 	// Spends tokens in the background and changes what conversations are told; a file decision.

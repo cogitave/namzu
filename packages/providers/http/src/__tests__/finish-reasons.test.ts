@@ -55,6 +55,13 @@ describe('HTTP provider, OpenAI dialect finish reasons', () => {
 		expect(chunks.map((chunk) => chunk.finishReason).filter(Boolean)).toEqual([expected])
 	})
 
+	it('says a content filter is a refusal, and only a content filter', async () => {
+		const refused = await chunksOf('openai', [openAiFinish('content_filter'), 'data: [DONE]'])
+		expect(refused.find((chunk) => chunk.finishReason)?.refusal).toEqual({})
+		const stopped = await chunksOf('openai', [openAiFinish('stop'), 'data: [DONE]'])
+		expect(stopped.some((chunk) => chunk.refusal !== undefined)).toBe(false)
+	})
+
 	it('reports no finish reason for the null every frame but the last carries', async () => {
 		const chunks = await chunksOf('openai', [
 			openAiFinish(null),
@@ -151,6 +158,13 @@ describe('HTTP provider, Anthropic dialect', () => {
 	])('reports %s as %s', async (stopReason, expected) => {
 		const chunks = await chunksOf('anthropic', anthropicFrames(stopReason))
 		expect(chunks.find((chunk) => chunk.finishReason)?.finishReason).toBe(expected)
+	})
+
+	it('says a refusal is a refusal', async () => {
+		const chunks = await chunksOf('anthropic', anthropicFrames('refusal'))
+		expect(chunks.find((chunk) => chunk.finishReason)?.refusal).toEqual({})
+		const ended = await chunksOf('anthropic', anthropicFrames('end_turn'))
+		expect(ended.some((chunk) => chunk.refusal !== undefined)).toBe(false)
 	})
 
 	it('marks a context-window stop as one, so the turn loop does not continue it', async () => {

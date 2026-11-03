@@ -53,6 +53,17 @@ export type StopReason =
 	 * looking for a loop instead of at the reviewer.
 	 */
 	| 'answer_rejected'
+	/**
+	 * The model declined to answer and nothing recovered it.
+	 *
+	 * Its provider finished the reply as a refusal or a safety block, and the
+	 * one automatic retry this turn allows was not available or was refused
+	 * too. Distinct from `end_turn` so a host never reads a declined request
+	 * as a finished one, and from `error` because nothing failed: the model
+	 * answered, and the answer was no. The refused reply is not in the
+	 * history; a `model_refusal` event carries what the provider said.
+	 */
+	| 'refused'
 	/** An input guardrail refused the turn before it started. */
 	| 'input_guardrail'
 	/** An output guardrail refused the produced result. */

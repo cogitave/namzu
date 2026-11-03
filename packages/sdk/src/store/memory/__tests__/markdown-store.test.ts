@@ -536,14 +536,14 @@ describe('coordination', () => {
 		await store.list()
 		const release = await acquireMemoryOperationLock(join(directory, 'operation.lock'), 25)
 		try {
-			await expect(store.list()).rejects.toThrow('acquisition timed out after 25 ms')
+			await expect(store.list()).rejects.toThrow('is using the stored memory')
 			await expect(
 				new DiskMemoryStore({
 					baseDir: directory,
 					directory,
 					lockTimeoutMs: 25,
 				}).list(),
-			).rejects.toThrow('acquisition timed out')
+			).rejects.toThrow('is using the stored memory')
 		} finally {
 			await release()
 		}

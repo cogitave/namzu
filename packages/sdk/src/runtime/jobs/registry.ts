@@ -1,7 +1,7 @@
 import type { spawn } from 'node:child_process'
 
 import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
-import { killTree } from '../../process/kill-tree.js'
+import { isSignalablePid, killTree } from '../../process/kill-tree.js'
 import { describeSpawnFailure, spawnHostShell } from '../../tools/command-shell.js'
 import { scrubInheritedEnv } from '../../tools/env-scrub.js'
 import { createHostOutputDecoder } from '../../tools/host-output.js'
@@ -352,7 +352,7 @@ interface MonitorState {
 
 /** Whether any process of the group led by `pid` is still alive. */
 function groupAlive(pid: number | undefined): boolean {
-	if (pid === undefined || process.platform === 'win32') return false
+	if (!isSignalablePid(pid) || process.platform === 'win32') return false
 	try {
 		process.kill(-pid, 0)
 		return true
@@ -372,6 +372,7 @@ function groupAlive(pid: number | undefined): boolean {
  * that small.
  */
 function groupPresent(pid: number): boolean {
+	if (!isSignalablePid(pid)) return false
 	try {
 		process.kill(-pid, 0)
 		return true

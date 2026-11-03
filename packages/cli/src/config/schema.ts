@@ -571,6 +571,20 @@ export interface NamzuCliConfig {
 	 */
 	readonly hypermode?: boolean
 	/**
+	 * What happens when the model declines to answer a message (its provider
+	 * finished the reply as a refusal or a safety block). Absent or `'auto'`
+	 * re-runs the message once on another model of the same provider (the one
+	 * the provider recommends, or its own declared next one, only if the account
+	 * can use it), says so in the transcript, and keeps that model for the
+	 * session until `/model` switches back. `'off'` never changes the model: the
+	 * message is retried once on the same model only when the refused reply had
+	 * partial output, and otherwise the reply ends with a plain note. A refused
+	 * reply is kept out of what is sent next either way. A file setting only: no
+	 * environment variable sets it, because it decides which model receives a
+	 * conversation's content.
+	 */
+	readonly refusalFallback?: 'auto' | 'off'
+	/**
 	 * Keep what a conversation already classifies as a failure or an unrecovered
 	 * stop (a failed tool call, a provider error, a turn that ended early) as a
 	 * learning observation, so `namzu learn` has real input. Absent means on;

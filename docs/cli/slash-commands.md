@@ -95,6 +95,65 @@ For a user command file or a skill, help shows its full source path and scope (a
 problem that prevents execution. Its usage includes `[arguments]` only when
 the template contains `$ARGUMENTS`, followed by its `argument-hint` when it has one. Help does not expand or execute the template.
 
+## Commands while a reply is running
+
+A command typed while a reply is being written either runs at once or waits.
+One rule decides, from the command and its arguments; typing `/` still lists
+every command either way.
+
+- **Runs at once.** The reply keeps streaming. Commands that only show something
+  or change a setting without touching the conversation: `/model`, `/effort`,
+  `/status`, `/cost`, `/tasks`, `/permissions`, `/hooks`, `/mcp` (reports only),
+  `/btw`, `/exit`, `/rename`, `/skills` (the list), `/plugins`, `/goal`,
+  `/workflows`, `/feedback`, `/help`, `/theme`, `/diff`, `/raw`, `/hypermode`,
+  `/doctor`, `/release-notes`, `/peers`, `/schedule`, `/loop`, `/abandon`,
+  `/copy`, and `/skills save` and `/skills new`, which line themselves up behind
+  the reply. `/clear`, `/new`, `/fork` and `/resume` also run at once: they take
+  the conversation over and abandon the running reply on purpose.
+  `/config`, `/settings` and `/add-dir` run at once only with an argument;
+  `/browser` only without one.
+- **Waits.** Anything that changes or reads the conversation itself, a saved
+  prompt command or a skill: `/clear`, `/new`, `/fork`, `/resume` and `/copy`
+  (a command never replaces or stops the conversation under a reply that is
+  still being written), `/compact`, `/context`, `/plan`, `/memory`, `/branch`, `/rewind`, `/undo`,
+  `/review`, `/init`, `/export`, `/recap`, `/login`, `/logout`, `/auth`, and so on.
+  The line is kept as typed and shown under the reply as `/name · after this
+  reply`. When the reply ends each one runs as a command of its own, in order,
+  before any message queued behind it. Up recalls it like a queued message.
+  It is never sent to the model as text. Messages queued behind a `/clear` or
+  `/new` are kept for the conversation it opens.
+- A chooser that an immediate command opens (`/model`, `/effort`,
+  `/permissions`, and the rest) sits beside the stream and the composer stays
+  visible. Esc and Ctrl+C close only that chooser; they do not interrupt the
+  reply. It closes by itself when the reply ends. While one is open, queued work
+  is held.
+
+A message typed while a reply runs keeps its two keys: Enter steers it into the
+running reply, Tab queues it.
+
+What a change applies to:
+
+- **Model.** The request being answered never changes. A model the current
+  provider serves is used from the next request in the same reply (`Using
+  <model> from the next request.`); the session itself is rebuilt on that model
+  when the reply ends. After a refusal handed the reply to another model, that
+  model stays for the rest of the reply, so a pick made then is held and says
+  `Switching to <model> when this reply finishes.`; it wins over the automatic
+  switch to the other model. A pick made before the refusal named the model that
+  declined, so it is dropped and the other model stays selected
+  (`<model> declined this message, so <other model> stays selected.`). A different provider, or Auto, needs the session rebuilt,
+  so it takes effect when the reply ends (`Switching to <model> when this reply
+  finishes.`). Queued messages run on the new model. `/model` with no argument
+  lists the current provider's models in the chooser; for another provider, type
+  `/model provider/model`. Compaction follows the model of each request: the
+  context window is looked up for the model a request uses, so a smaller window
+  triggers compaction sooner, unless `contextWindowTokens` is set in your
+  config, which then applies to every model.
+- **Reasoning effort and hypermode.** Read when a turn starts, so a change made
+  while a reply runs applies from your next message (`Reasoning effort set to
+  <level>. It applies from your next message.`). A message steered into the
+  running reply joins it at the level it began with.
+
 ## Settings and model changes
 
 On exit, the CLI prints `namzu resume <id>`: the product command, never the
@@ -148,7 +207,8 @@ requested model before Enter. Exact IDs win; a unique complete suffix such as
 `opus-5` can resolve to `claude-opus-5`. Ambiguous selections require an explicit
 provider or the picker. These selections preserve history and saved defaults.
 Attachments and requests mixing model selection with other work remain ordinary
-prompts. Active work must settle before a direct host selection can apply.
+prompts. A selection typed while a reply is being written is never refused; see
+[Commands while a reply is running](#commands-while-a-reply-is-running).
 
 The composer also previews `/effort <level>` against the current session's
 published menu, marking unsupported values unavailable. Preview is not application.

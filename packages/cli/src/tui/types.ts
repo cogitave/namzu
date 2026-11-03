@@ -209,6 +209,8 @@ export interface TuiContext {
 	readonly composerTriggers?: ComposerTriggersConfig
 	/** See `NamzuCliConfig.hypermode`: the conversation starts with hypermode on. */
 	readonly hypermode?: boolean
+	/** See `NamzuCliConfig.refusalFallback`; absent means `'auto'`. */
+	readonly refusalFallback?: 'auto' | 'off'
 	/** See `NamzuCliConfig.learningObservations`; anything but `false` keeps them. */
 	readonly learningObservations?: boolean
 	/** See `NamzuCliConfig.learningGenerator`; absent means learning by itself is on. */

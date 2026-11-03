@@ -14,6 +14,19 @@ import { readFileSync, readdirSync } from 'node:fs'
  */
 const MSYS_SHELLS = new WeakMap<object, { readonly bash?: string; readonly tag: string }>()
 
+/**
+ * Whether a pid may be signalled, or addressed as a group with `-pid`.
+ *
+ * `kill(-1, sig)` signals every process the user may signal and `kill(0, sig)`
+ * signals the caller's own process group, so a recorded pid of 1, 0, a negative
+ * or a fractional number (a test double, a corrupt record, `NaN`) would take
+ * down the host's whole session. Only an integer above 1 that is not this
+ * process is a real, separate process. A refused pid is treated as already gone.
+ */
+export function isSignalablePid(pid: unknown): pid is number {
+	return typeof pid === 'number' && Number.isInteger(pid) && pid > 1 && pid !== process.pid
+}
+
 /** Remember how to find every process a Git Bash child started. Called by the spawn. */
 export function registerMsysShell(child: object, shell: { bash: string; tag: string }): void {
 	MSYS_SHELLS.set(child, shell)
@@ -62,7 +75,7 @@ export function signalTagged(tags: string | readonly string[], signal: NodeJS.Si
 	for (const entry of entries) {
 		if (!/^\d+$/.test(entry)) continue
 		const pid = Number(entry)
-		if (pid === process.pid) continue
+		if (!isSignalablePid(pid)) continue
 		try {
 			const environ = readFileSync(`/proc/${entry}/environ`, 'latin1')
 			if (!needles.some((needle) => environ.includes(needle))) continue
@@ -157,7 +170,7 @@ export function killTrees(
 ): void {
 	const tags: string[] = []
 	for (const child of children) {
-		if (!child.pid) continue
+		if (!isSignalablePid(child.pid)) continue
 		killOne(child, signal, tags)
 	}
 	if (tags.length > 0 && process.platform === 'linux') signalTagged(tags, signal)
@@ -168,7 +181,7 @@ function killOne(
 	signal: NodeJS.Signals,
 	tags: string[],
 ): void {
-	if (!child.pid) return
+	if (!isSignalablePid(child.pid)) return
 	try {
 		if (process.platform === 'win32') {
 			const msys = MSYS_SHELLS.get(child)

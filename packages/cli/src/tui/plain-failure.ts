@@ -31,7 +31,7 @@ export function explainFailure(
 	let cause: string | undefined
 	const lockPath = memoryLockPath(err)
 	if (lockPath !== undefined) {
-		cause = `Stored memory is locked at ${homePath(lockPath)}. Close Namzu sessions using this memory store and inspect the lock owner before recovering the lock.`
+		cause = `Another Namzu process is using the stored memory (${homePath(lockPath)}). Close it, or wait for it to finish.`
 	} else if (code === 'EACCES' || code === 'EPERM') {
 		cause = 'Namzu does not have permission to write its files.'
 	} else if (code === 'ENOSPC') {

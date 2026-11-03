@@ -51,6 +51,8 @@ const PREFS: Preferences = {
 let withSession = true
 let emptyDetection = false
 let exited = false
+/** What the provider lists when `/model` asks for its models. */
+let listedModels: { id: string; name: string }[] = []
 let probeCalls = 0
 let startConversationCalls = 0
 const archivedConversationIds: string[] = []
@@ -221,7 +223,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 				detected: emptyDetection ? [] : detectedProviders,
 			}
 		},
-		describeProviderModels: async () => ({ kind: 'ok' as const, models: [] }),
+		describeProviderModels: async () => ({ kind: 'ok' as const, models: listedModels }),
 		verifyCredential: async () => ({ kind: 'verified' as const }),
 		createAgentSession: (...args: Parameters<typeof createSession>) => createSession(...args),
 	}
@@ -292,6 +294,7 @@ async function frameShows(
 
 beforeEach(() => {
 	exited = false
+	listedModels = []
 	withSession = true
 	emptyDetection = false
 	probeCalls = 0
@@ -615,15 +618,23 @@ describe('first-run automatic start with nothing saved', () => {
 })
 
 describe('publishing a picker selection', () => {
-	it('does not replace the session while its active turn still owns provider events', async () => {
+	it('opens the model chooser beside a running reply and leaves the reply alone', async () => {
 		const release = deferred<void>()
 		let sends = 0
+		let aborted = false
+		listedModels = [
+			{ id: 'a-model', name: 'a-model' },
+			{ id: 'a-faster-model', name: 'a-faster-model' },
+		]
 		createSession = async () => ({
 			...sessionFixture('active-session'),
-			send: async function* (): AsyncIterable<AgentEvent> {
+			send: async function* (_messages: readonly Message[], opts?: SendOptions) {
 				sends += 1
+				opts?.signal?.addEventListener('abort', () => {
+					aborted = true
+				})
 				await release.promise
-				yield { kind: 'done', stopReason: 'end_turn' }
+				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
 			},
 		})
 		const harness = render(<App ctx={ctx} />)
@@ -634,11 +645,524 @@ describe('publishing a picker selection', () => {
 		await submit(harness, 'keep this provider alive')
 		await vi.waitFor(() => expect(sends).toBe(1))
 		await submit(harness, '/model')
-		await frameShows(harness.lastFrame, 'unavailable while a reply')
+		await frameShows(harness.lastFrame, 'Select a model for A Provider')
+		expect(harness.lastFrame()).toContain('a-faster-model')
 		expect(harness.lastFrame()).not.toContain('Choose a provider')
+		expect(harness.lastFrame()).not.toContain('unavailable while')
+
+		// Esc closes the panel and only the panel: the reply keeps running.
+		harness.stdin.write('\x1b')
+		await vi.waitFor(() =>
+			expect(harness.lastFrame()).not.toContain('Select a model for A Provider'),
+		)
+		await tick(80)
+		expect(aborted).toBe(false)
 
 		release.resolve()
 		await frameShows(harness.lastFrame, 'Type a message')
+	})
+
+	it('closes a panel opened beside a reply when the reply ends', async () => {
+		const release = deferred<void>()
+		let sends = 0
+		listedModels = [{ id: 'a-model', name: 'a-model' }]
+		createSession = async () => ({
+			...sessionFixture('active-session'),
+			send: async function* () {
+				sends += 1
+				await release.promise
+				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, 'keep this provider alive')
+		await vi.waitFor(() => expect(sends).toBe(1))
+		await submit(harness, '/model')
+		await frameShows(harness.lastFrame, 'Select a model for A Provider')
+
+		release.resolve()
+		await vi.waitFor(() =>
+			expect(harness.lastFrame()).not.toContain('Select a model for A Provider'),
+		)
+	})
+
+	it('uses a model picked mid-reply on the next request, and rebuilds the session after the reply', async () => {
+		const release = deferred<void>()
+		let sends = 0
+		const liveModels: (string | undefined)[] = []
+		const built: Preferences[] = []
+		listedModels = [
+			{ id: 'a-model', name: 'a-model' },
+			{ id: 'a-faster-model', name: 'a-faster-model' },
+		]
+		createSession = async (prefs) => {
+			built.push(prefs)
+			return {
+				...sessionFixture('active-session'),
+				send: async function* (_messages: readonly Message[], opts?: SendOptions) {
+					sends += 1
+					// Read the way the kernel does, before a request: first before the pick,
+					// then again after it.
+					liveModels.push(opts?.liveModel?.())
+					await release.promise
+					liveModels.push(opts?.liveModel?.())
+					yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+				},
+			}
+		}
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, 'keep this provider alive')
+		await vi.waitFor(() => expect(sends).toBe(1))
+		await submit(harness, '/model openai/a-faster-model')
+		await frameShows(harness.lastFrame, 'Using a-faster-model from the next request')
+		expect(built).toHaveLength(1)
+
+		release.resolve()
+		await vi.waitFor(() => expect(built).toHaveLength(2))
+		expect(liveModels).toEqual([undefined, 'a-faster-model'])
+		expect(built[1]?.providers[0]).toMatchObject({ id: 'openai', model: 'a-faster-model' })
+	})
+
+	describe('a model picked in a reply that a refusal handed to a fallback', () => {
+		const MODELS = [
+			{ id: 'a-model', name: 'a-model' },
+			{ id: 'a-faster-model', name: 'a-faster-model' },
+			{ id: 'a-fallback-model', name: 'a-fallback-model' },
+		]
+		const refusal = (fallbackModel = 'a-fallback-model') =>
+			({
+				kind: 'model-refusal',
+				model: 'a-model',
+				outcome: 'fallback',
+				fallbackModel,
+			}) as AgentEvent
+
+		it('holds a pick made after the fallback until the reply finishes and lets it win', async () => {
+			const answered = deferred<void>()
+			const release = deferred<void>()
+			const built: Preferences[] = []
+			listedModels = MODELS
+			createSession = async (prefs) => {
+				built.push(prefs)
+				return {
+					...sessionFixture('active-session'),
+					send: async function* () {
+						yield refusal()
+						yield { kind: 'delta', text: 'Here you go.' } as AgentEvent
+						answered.resolve()
+						await release.promise
+						yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+					},
+				}
+			}
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Type a message')
+			await tick(80)
+
+			await submit(harness, 'keep this provider alive')
+			await answered.promise
+			await submit(harness, '/model openai/a-faster-model')
+			await frameShows(
+				harness.lastFrame,
+				'Switching to openai · a-faster-model when this reply finishes',
+			)
+			expect(harness.lastFrame()).not.toContain('from the next request')
+
+			release.resolve()
+			await vi.waitFor(() => expect(built).toHaveLength(2))
+			await tick(80)
+			// The person's newer choice is applied, not the automatic one first.
+			expect(built).toHaveLength(2)
+			expect(built[1]?.providers[0]).toMatchObject({ id: 'openai', model: 'a-faster-model' })
+		})
+
+		it('drops a pick made before the refusal, because that model just declined', async () => {
+			const release = deferred<void>()
+			let sends = 0
+			const built: Preferences[] = []
+			listedModels = MODELS
+			createSession = async (prefs) => {
+				built.push(prefs)
+				return {
+					...sessionFixture('active-session'),
+					send: async function* () {
+						sends += 1
+						await release.promise
+						yield refusal()
+						yield { kind: 'delta', text: 'Here you go.' } as AgentEvent
+						yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+					},
+				}
+			}
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Type a message')
+			await tick(80)
+
+			await submit(harness, 'keep this provider alive')
+			await vi.waitFor(() => expect(sends).toBe(1))
+			await submit(harness, '/model openai/a-faster-model')
+			await frameShows(harness.lastFrame, 'Using a-faster-model from the next request')
+
+			release.resolve()
+			await frameShows(
+				harness.lastFrame,
+				'a-faster-model declined this message, so a-fallback-model stays selected.',
+			)
+			await vi.waitFor(() => expect(built).toHaveLength(2))
+			await tick(80)
+			expect(built).toHaveLength(2)
+			expect(built[1]?.providers[0]).toMatchObject({ id: 'openai', model: 'a-fallback-model' })
+		})
+
+		it('says the fallback could not be kept when it cannot be selected', async () => {
+			let sends = 0
+			const built: Preferences[] = []
+			listedModels = MODELS
+			createSession = async (prefs) => {
+				built.push(prefs)
+				return {
+					...sessionFixture('active-session'),
+					send: async function* () {
+						sends += 1
+						yield refusal('not-a-listed-model')
+						yield { kind: 'delta', text: 'Here you go.' } as AgentEvent
+						yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+					},
+				}
+			}
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Type a message')
+			await tick(80)
+
+			await submit(harness, 'keep this provider alive')
+			await vi.waitFor(() => expect(sends).toBe(1))
+			await frameShows(
+				harness.lastFrame,
+				'not-a-listed-model answered this message but could not be kept as the selected model.',
+			)
+			expect(built).toHaveLength(1)
+		})
+	})
+
+	it('stops using a model picked mid-reply when rebuilding the session fails', async () => {
+		const release = deferred<void>()
+		let sends = 0
+		let builds = 0
+		const liveModels: (string | undefined)[] = []
+		listedModels = [
+			{ id: 'a-model', name: 'a-model' },
+			{ id: 'a-faster-model', name: 'a-faster-model' },
+		]
+		createSession = async () => {
+			builds += 1
+			if (builds > 1) throw new Error('rebuild refused')
+			return {
+				...sessionFixture('active-session'),
+				send: async function* (_messages: readonly Message[], opts?: SendOptions) {
+					sends += 1
+					liveModels.push(opts?.liveModel?.())
+					if (sends === 1) await release.promise
+					yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+				},
+			}
+		}
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, 'keep this provider alive')
+		await vi.waitFor(() => expect(sends).toBe(1))
+		await submit(harness, '/model openai/a-faster-model')
+		await frameShows(harness.lastFrame, 'Using a-faster-model from the next request')
+
+		release.resolve()
+		await frameShows(harness.lastFrame, 'The current model is unchanged.')
+		await frameShows(harness.lastFrame, 'Type a message')
+
+		// The message said the model is unchanged, so the next reply must not use the pick.
+		await submit(harness, 'and now?')
+		await vi.waitFor(() => expect(sends).toBe(2))
+		expect(liveModels[1]).toBeUndefined()
+	})
+
+	it('runs queued commands in order ahead of a message queued with Tab', async () => {
+		const release = deferred<void>()
+		const sent: string[] = []
+		let unarchivedBeforeSecondSend = -1
+		createSession = async () => ({
+			...sessionFixture('active-session'),
+			send: async function* (messages: readonly Message[]) {
+				const last = messages[messages.length - 1]
+				sent.push(typeof last?.content === 'string' ? last.content : '')
+				if (sent.length === 1) await release.promise
+				else unarchivedBeforeSecondSend = archivedListCalls
+				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, 'keep this provider alive')
+		await vi.waitFor(() => expect(sent).toHaveLength(1))
+		await submit(harness, '/context')
+		await submit(harness, '/unarchive')
+		harness.stdin.write('tail message')
+		await tick()
+		harness.stdin.write('\t')
+		await tick(40)
+		expect(archivedListCalls).toBe(0)
+
+		release.resolve()
+		await vi.waitFor(() => expect(sent).toHaveLength(2))
+		// Both commands ran as commands, before the message queued behind them.
+		expect(unarchivedBeforeSecondSend).toBe(1)
+		expect(sent[1]).toContain('tail message')
+		expect(sent.some((text) => text.startsWith('/'))).toBe(false)
+	})
+
+	it('holds queued work while a chooser opened beside the reply is up', async () => {
+		const release = deferred<void>()
+		let sends = 0
+		listedModels = [{ id: 'a-model', name: 'a-model' }]
+		createSession = async () => ({
+			...sessionFixture('active-session'),
+			send: async function* () {
+				sends += 1
+				await release.promise
+				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, 'keep this provider alive')
+		await vi.waitFor(() => expect(sends).toBe(1))
+		await submit(harness, '/unarchive')
+		await submit(harness, '/model')
+		await frameShows(harness.lastFrame, 'Select a model for A Provider')
+		expect(archivedListCalls).toBe(0)
+
+		release.resolve()
+		await frameShows(harness.lastFrame, 'No archived conversations in this project.')
+		// The chooser retired first; the command did not run on top of it.
+		expect(harness.lastFrame()).not.toContain('Select a model for A Provider')
+		expect(archivedListCalls).toBe(1)
+	})
+
+	it('does not restart a running reply at a new effort when a message is steered into it', async () => {
+		const release = deferred<void>()
+		const efforts: unknown[] = []
+		createSession = async () => ({
+			...sessionFixture('active-session'),
+			reasoningEffortLevels: ['low', 'high'] as const,
+			send: async function* (_messages: readonly Message[], opts?: SendOptions) {
+				efforts.push(opts?.effort)
+				if (efforts.length === 1) await release.promise
+				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, 'keep this provider alive')
+		await vi.waitFor(() => expect(efforts).toHaveLength(1))
+		await submit(harness, '/effort high')
+		await frameShows(harness.lastFrame, 'It applies from your next message.')
+		await submit(harness, 'steer this in')
+		await tick(80)
+		// Still the one request it began with, at the level it began with.
+		expect(efforts).toEqual([undefined])
+		release.resolve()
+	})
+
+	it('says a different provider waits for the reply to end', async () => {
+		const release = deferred<void>()
+		let sends = 0
+		detectedProviders = [...DETECTED, DETECTED_B]
+		listedModels = [{ id: 'b-model', name: 'b-model' }]
+		createSession = async () => ({
+			...sessionFixture('active-session'),
+			send: async function* () {
+				sends += 1
+				await release.promise
+				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, 'keep this provider alive')
+		await vi.waitFor(() => expect(sends).toBe(1))
+		await submit(harness, '/model deepseek/b-model')
+		await frameShows(harness.lastFrame, 'Switching to deepseek · b-model when this reply finishes.')
+		expect(harness.lastFrame()).not.toContain('unavailable while')
+		release.resolve()
+	})
+
+	it('runs an immediate command at once and holds a queued one until the reply ends', async () => {
+		const release = deferred<void>()
+		let sends = 0
+		createSession = async () => ({
+			...sessionFixture('active-session'),
+			send: async function* () {
+				sends += 1
+				await release.promise
+				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, 'keep this provider alive')
+		await vi.waitFor(() => expect(sends).toBe(1))
+
+		await submit(harness, '/cost')
+		await frameShows(harness.lastFrame, 'No usage reported yet.')
+
+		await submit(harness, '/context')
+		await tick(80)
+		// Waiting: shown as a queued row, and not answered yet.
+		expect(harness.lastFrame()).toContain('/context')
+		expect(harness.lastFrame()).not.toContain('/context details for how it was summarised.')
+
+		release.resolve()
+		await frameShows(harness.lastFrame, '/context details for how it was summarised.')
+		// The command ran as a command: the model was not sent it as a message.
+		expect(sends).toBe(1)
+	})
+
+	it.each([
+		['/new', 'Started a fresh conversation.'],
+		['/clear', 'Started a fresh conversation.'],
+		['/fork', 'Could not fork.'],
+		['/resume', 'No past conversations to resume'],
+		['/copy', 'Nothing to copy yet'],
+	])(
+		'keeps %s as typed while a reply is written and runs it when the reply ends',
+		async (line, outcome) => {
+			const release = deferred<void>()
+			let sends = 0
+			createSession = async () => ({
+				...sessionFixture('active-session'),
+				send: async function* () {
+					sends += 1
+					if (sends === 1) await release.promise
+					yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+				},
+			})
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Type a message')
+			await tick(80)
+
+			await submit(harness, 'keep this provider alive')
+			await vi.waitFor(() => expect(sends).toBe(1))
+			await submit(harness, line)
+			await tick(80)
+			// Shown as a waiting row; the reply was not stopped and nothing ran.
+			expect(harness.lastFrame()).toContain(line)
+			expect(harness.lastFrame()).not.toContain(outcome)
+			expect(harness.lastFrame()).not.toContain('was stopped')
+
+			release.resolve()
+			await frameShows(harness.lastFrame, outcome)
+			// A command, never a message to the model.
+			expect(sends).toBe(1)
+		},
+	)
+
+	it('runs /new, /copy and a plain message in the order they were queued', async () => {
+		const release = deferred<void>()
+		const sent: string[] = []
+		createSession = async () => ({
+			...sessionFixture('active-session'),
+			send: async function* (messages: readonly Message[]) {
+				const last = messages[messages.length - 1]
+				sent.push(typeof last?.content === 'string' ? last.content : '')
+				if (sent.length === 1) await release.promise
+				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, 'keep this provider alive')
+		await vi.waitFor(() => expect(sent).toHaveLength(1))
+		await submit(harness, '/context')
+		await submit(harness, '/new')
+		await submit(harness, '/copy')
+		harness.stdin.write('tail message')
+		await tick()
+		harness.stdin.write('\t')
+		await tick(40)
+		expect(sent).toHaveLength(1)
+
+		release.resolve()
+		await vi.waitFor(() => expect(sent).toHaveLength(2))
+		// The message queued behind the commands was kept for the new conversation.
+		expect(sent[1]).toContain('tail message')
+		const frame = harness.lastFrame() ?? ''
+		const order = ['/context details', 'Started a fresh conversation.', 'Nothing to copy yet'].map(
+			(text) => frame.indexOf(text),
+		)
+		expect(order.every((at) => at >= 0)).toBe(true)
+		expect([...order].sort((a, b) => a - b)).toEqual(order)
+		expect(sent.some((text) => text.startsWith('/'))).toBe(false)
+	})
+
+	it('changes the reasoning effort mid-reply for the next message, and never refuses', async () => {
+		const release = deferred<void>()
+		const efforts: unknown[] = []
+		createSession = async () => ({
+			...sessionFixture('active-session'),
+			reasoningEffortLevels: ['low', 'high'] as const,
+			send: async function* (_messages: readonly Message[], opts?: SendOptions) {
+				efforts.push(opts?.effort)
+				if (efforts.length === 1) await release.promise
+				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, 'keep this provider alive')
+		await vi.waitFor(() => expect(efforts).toHaveLength(1))
+		await submit(harness, '/effort high')
+		await frameShows(
+			harness.lastFrame,
+			'Reasoning effort set to high. It applies from your next message.',
+		)
+
+		release.resolve()
+		await frameShows(harness.lastFrame, 'Type a message')
+		await submit(harness, 'and now?')
+		await vi.waitFor(() => expect(efforts).toEqual([undefined, 'high']))
 	})
 
 	it('opens and applies finite effort and permission choices without typed arguments', async () => {
@@ -1682,7 +2206,7 @@ describe('Ctrl+C from a ready conversation', () => {
 		expect(harness.lastFrame()).toContain('Restored: Archived example')
 	})
 
-	it('does not offer restore while the current turn is running', async () => {
+	it('holds the restore list until the current turn ends, as a queued command', async () => {
 		const started = deferred<void>()
 		const finish = deferred<void>()
 		createSession = async () => ({
@@ -1699,12 +2223,12 @@ describe('Ctrl+C from a ready conversation', () => {
 		await submit(harness, 'keep working')
 		await started.promise
 		await submit(harness, '/unarchive')
-		expect(harness.lastFrame()).toContain(
-			'Wait for the current reply and queued messages to finish',
-		)
+		expect(harness.lastFrame()).toContain('/unarchive · after this reply')
 		expect(archivedListCalls).toBe(0)
 		expect(restoredConversationIds).toEqual([])
 		finish.resolve()
+		await frameShows(harness.lastFrame, 'No archived conversations in this project.')
+		expect(archivedListCalls).toBe(1)
 	})
 })
 

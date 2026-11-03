@@ -72,6 +72,8 @@ export interface MockTurn {
 	/** Passages this scripted turn cites, emitted before its text. */
 	citations?: import('../message/index.js').Citation[]
 	finishReason?: 'stop' | 'tool_calls' | 'length' | 'content_filter'
+	/** What the provider says about a `'content_filter'` finish. Defaults to `{}`. */
+	refusal?: import('./chat.js').ProviderRefusal
 	usage?: Partial<import('../common/index.js').TokenUsage>
 	/** Text fragment size. */
 	chunkSize?: number
@@ -106,6 +108,11 @@ export interface MockScript {
 	 * registry-level declaration cannot express "a driver with no vision".
 	 */
 	capabilities?: ProviderCapabilities
+	/**
+	 * The model this provider names when asked where to re-run a refused
+	 * request (`LLMProvider.refusalFallbackFor`). Absent means it names none.
+	 */
+	refusalFallbackModel?: string
 	/** Observe every request (assert on tools, toolChoice, cacheControl…). */
 	onRequest?: (params: import('./chat.js').ChatCompletionParams) => void
 }

@@ -72,6 +72,7 @@ export async function collectChatCompletion(
 	let replayState: unknown
 	let finishReason: ChatCompletionResponse['finishReason'] = 'stop'
 	let finishDetail: ChatCompletionResponse['finishDetail']
+	let refusal: ChatCompletionResponse['refusal']
 	let usage: ChatCompletionResponse['usage'] = {
 		promptTokens: 0,
 		completionTokens: 0,
@@ -158,6 +159,7 @@ export async function collectChatCompletion(
 			finishReason = chunk.finishReason
 			finishDetail = chunk.finishReason === 'length' ? chunk.finishDetail : undefined
 		}
+		if (chunk.refusal) refusal = chunk.refusal
 		// Merge (per-field max), not last-write-wins: a late frame that omits
 		// input/cache tokens must not zero the counts captured earlier in the stream.
 		if (chunk.usage) usage = mergeTokenUsage(usage, chunk.usage)
@@ -207,6 +209,7 @@ export async function collectChatCompletion(
 		},
 		finishReason,
 		...(finishDetail ? { finishDetail } : {}),
+		...(refusal && finishReason === 'content_filter' ? { refusal } : {}),
 		usage,
 	}
 }

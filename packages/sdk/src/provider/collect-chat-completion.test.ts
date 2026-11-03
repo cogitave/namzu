@@ -255,4 +255,27 @@ describe('collectChatCompletion() — reasoning blocks', () => {
 		)
 		expect('reasoning' in result.message).toBe(false)
 	})
+
+	it('carries what the provider said about a refusal, and only on a refused finish', async () => {
+		const refused = await collectChatCompletion(
+			fromArray([
+				{
+					id: 'm',
+					delta: {},
+					finishReason: 'content_filter',
+					refusal: { category: 'cyber', recommendedModel: 'other-model' },
+				},
+			]),
+		)
+		expect(refused.finishReason).toBe('content_filter')
+		expect(refused.refusal).toEqual({
+			category: 'cyber',
+			recommendedModel: 'other-model',
+		})
+
+		const stray = await collectChatCompletion(
+			fromArray([{ id: 'm', delta: {}, finishReason: 'stop', refusal: {} }]),
+		)
+		expect('refusal' in stray).toBe(false)
+	})
 })

@@ -266,6 +266,19 @@ const MAPPING: {
 		}),
 	},
 
+	model_refusal: {
+		wire: 'model.refusal',
+		transform: (e) => ({
+			iteration: e.iteration,
+			model: e.model,
+			provider_id: e.providerId,
+			outcome: e.outcome,
+			...(e.fallbackModel ? { fallback_model: e.fallbackModel } : {}),
+			...(e.category ? { category: e.category } : {}),
+			...(e.explanation ? { explanation: e.explanation } : {}),
+		}),
+	},
+
 	user_question_asked: {
 		wire: 'question.asked',
 		transform: (e) => ({

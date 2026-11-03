@@ -164,7 +164,7 @@ function mapAnthropicStopReason(reason?: string | null): NamzuFinishReason {
  */
 function mapOpenAIFinish(
 	reason?: string | null,
-): Pick<StreamChunk, 'finishReason' | 'finishDetail'> {
+): Pick<StreamChunk, 'finishReason' | 'finishDetail' | 'refusal'> {
 	switch (reason) {
 		case null:
 		case undefined:
@@ -183,7 +183,7 @@ function mapOpenAIFinish(
 		case 'function_call':
 			return { finishReason: 'tool_calls' }
 		case 'content_filter':
-			return { finishReason: 'content_filter' }
+			return { finishReason: 'content_filter', refusal: {} }
 		case 'stop':
 		case 'eos':
 		case 'eos_token':
@@ -837,6 +837,7 @@ export class HttpProvider implements LLMProvider {
 									...(event.delta.stop_reason === 'model_context_window_exceeded'
 										? { finishDetail: 'context_window' as const }
 										: {}),
+									...(event.delta.stop_reason === 'refusal' ? { refusal: {} } : {}),
 									usage: event.usage ? parseAnthropicUsage(event.usage) : undefined,
 								}
 							} else if (event.usage) {

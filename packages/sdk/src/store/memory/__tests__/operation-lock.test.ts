@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
+import { renameSync, writeFileSync } from 'node:fs'
+import { mkdtemp, readFile, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -6,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { DiskMemoryStore } from '../disk.js'
-import { acquireMemoryOperationLock } from '../operation-lock.js'
+import { MEMORY_LOCK_RECORD_GRACE_MS, acquireMemoryOperationLock } from '../operation-lock.js'
 
 const roots: string[] = []
 afterEach(async () => removeTempDirs(roots.splice(0)))
@@ -32,11 +33,13 @@ describe('memory operation lock refuses unsafe or unresolved owners', () => {
 		expect(await readFile(path, 'utf8')).toBe(replacement)
 	})
 
-	it('bounds its wait and preserves a stale lock for explicit recovery', async () => {
+	it("bounds its wait and preserves a live owner's lock", async () => {
 		const { store, path } = await fixture()
-		const owner = JSON.stringify({ pid: 999_999_999, acquiredAt: 1, token: 'stale-fixture' })
+		const owner = JSON.stringify({ pid: process.pid, acquiredAt: 1, token: 'live-fixture' })
 		await writeFile(path, owner)
-		await expect(store.list()).rejects.toThrow('acquisition timed out after 25 ms')
+		await expect(store.list()).rejects.toThrow(
+			`Another Namzu process (pid ${process.pid}) is using the stored memory. Close it, or wait for it to finish.`,
+		)
 		await expect(
 			store.create({ title: 'must not write', summary: '', content: '' }),
 		).rejects.toMatchObject({ code: 'storage_error' })
@@ -61,3 +64,143 @@ describe('memory operation lock refuses unsafe or unresolved owners', () => {
 		},
 	)
 })
+
+describe('memory operation lock recovers when its owner is provably gone', () => {
+	const HOST = 'this-host'
+	const NOW = 1_800_000_000_000
+	const dead = () => false
+	const opts = (extra: Record<string, unknown> = {}) => ({
+		now: () => NOW,
+		hostname: HOST,
+		isPidAlive: dead,
+		...extra,
+	})
+
+	async function lockFile(content: string, ageMs = 0) {
+		const { path } = await fixture()
+		await writeFile(path, content)
+		const at = new Date(NOW - ageMs)
+		await utimes(path, at, at)
+		return path
+	}
+	const record = (extra: Record<string, unknown> = {}) =>
+		JSON.stringify({ pid: 4242, token: 't', acquiredAt: 1, ...extra })
+	const old = MEMORY_LOCK_RECORD_GRACE_MS + 1000
+
+	it('breaks a lock whose owner pid is dead and acquires it', async () => {
+		const path = await lockFile(record())
+		const infos: unknown[][] = []
+		const logger = { info: (...a: unknown[]) => infos.push(a) } as never
+		const release = await acquireMemoryOperationLock(path, 5_000, opts({ logger }))
+		expect(JSON.parse(await readFile(path, 'utf8')).pid).toBe(process.pid)
+		expect(infos.length).toBe(1)
+		await release()
+		await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })
+		await expect(stat(`${path}.break`)).rejects.toMatchObject({ code: 'ENOENT' })
+	})
+
+	it('times out on a live owner with the plain message and keeps the lock', async () => {
+		const path = await lockFile(record({ hostname: HOST }))
+		await expect(
+			acquireMemoryOperationLock(path, 25, opts({ isPidAlive: () => true })),
+		).rejects.toMatchObject({
+			code: 'storage_error',
+			message:
+				'Another Namzu process (pid 4242) is using the stored memory. Close it, or wait for it to finish.',
+			details: { lockPath: path, timeoutMs: 25 },
+			retryable: false,
+		})
+		expect(await readFile(path, 'utf8')).toBe(record({ hostname: HOST }))
+	})
+
+	it('respects a young empty lock and breaks an old empty or unparsable one', async () => {
+		const young = await lockFile('', 1000)
+		await expect(acquireMemoryOperationLock(young, 25, opts())).rejects.toMatchObject({
+			code: 'storage_error',
+		})
+		expect(await readFile(young, 'utf8')).toBe('')
+		for (const content of ['', '{"pid":', 'not json', '{"pid":"x"}']) {
+			const path = await lockFile(content, old)
+			const release = await acquireMemoryOperationLock(path, 5_000, opts())
+			await release()
+		}
+	})
+
+	it('never breaks a record written by another host', async () => {
+		const path = await lockFile(record({ hostname: 'elsewhere' }), old * 100)
+		await expect(acquireMemoryOperationLock(path, 25, opts())).rejects.toMatchObject({
+			code: 'storage_error',
+		})
+		expect(await readFile(path, 'utf8')).toBe(record({ hostname: 'elsewhere' }))
+	})
+
+	it('ends with exactly one holder when two acquirers meet one stale lock', async () => {
+		const path = await lockFile(record())
+		let holders = 0
+		let maxHolders = 0
+		const run = async () => {
+			const release = await acquireMemoryOperationLock(
+				path,
+				2000,
+				opts({ isPidAlive: (pid: number) => pid === process.pid }),
+			)
+			holders++
+			maxHolders = Math.max(maxHolders, holders)
+			await delayTick()
+			holders--
+			await release()
+		}
+		await Promise.all([run(), run(), run()])
+		expect(maxHolders).toBe(1)
+		await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' })
+		await expect(stat(`${path}.break`)).rejects.toMatchObject({ code: 'ENOENT' })
+	})
+
+	it('does not unlink a lock that was replaced after inspection', async () => {
+		const path = await lockFile(record())
+		const replacement = record({ pid: 777, token: 'new' })
+		let calls = 0
+		// Call 1 is the initial verdict on the stale owner. Call 2 is the
+		// re-inspection under the break file: a new lock lands there, so the unlink
+		// must not happen. The new owner (pid 777) is alive, so the wait ends in a
+		// refusal however fast or slow the disk is.
+		const isPidAlive = (pid: number) => {
+			calls++
+			if (calls === 2) {
+				writeFileSync(`${path}.swap`, replacement)
+				renameSync(`${path}.swap`, path)
+			}
+			return pid === 777
+		}
+		await expect(acquireMemoryOperationLock(path, 25, opts({ isPidAlive }))).rejects.toMatchObject({
+			code: 'storage_error',
+		})
+		expect(await readFile(path, 'utf8')).toBe(replacement)
+	})
+
+	it('still takes the lock it just broke when breaking outlasted the wait bound', async () => {
+		const path = await lockFile(record())
+		// Breaking takes longer than the one-millisecond bound: the lock is free
+		// by then, so the bound must not turn that into a refusal.
+		const slowDead = () => {
+			const end = performance.now() + 20
+			while (performance.now() < end) {
+				// busy wait: the slow disk
+			}
+			return false
+		}
+		const release = await acquireMemoryOperationLock(path, 1, opts({ isPidAlive: slowDead }))
+		expect(JSON.parse(await readFile(path, 'utf8')).pid).toBe(process.pid)
+		await release()
+	})
+
+	it("breaks a dead breaker's leftover break file once", async () => {
+		const path = await lockFile(record())
+		await writeFile(`${path}.break`, record({ pid: 5555 }))
+		const release = await acquireMemoryOperationLock(path, 5_000, opts())
+		await release()
+		await expect(stat(`${path}.break`)).rejects.toMatchObject({ code: 'ENOENT' })
+	})
+})
+
+const delayTick = () => new Promise<void>((resolve) => setImmediate(resolve))

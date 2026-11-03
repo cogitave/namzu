@@ -1,7 +1,7 @@
 import type { spawn } from 'node:child_process'
 import { describe, expect, it, vi } from 'vitest'
 
-import { killTree } from './kill-tree.js'
+import { isSignalablePid, killTree, killTrees } from './kill-tree.js'
 
 /**
  * The two guards, which are the only parts of this a unit test can reach.
@@ -66,5 +66,30 @@ describe('a group that is already gone is not an error', () => {
 		expect(() => killTree(child(4242), 'SIGKILL')).not.toThrow()
 
 		kill.mockRestore()
+	})
+})
+
+describe('a pid that addresses more than one process is never signalled', () => {
+	const refused = [0, 1, -1, -5, Number.NaN, 1.5, Number.POSITIVE_INFINITY, process.pid]
+
+	for (const pid of refused) {
+		it(`killTree, killTrees and the tag scan leave pid ${pid} alone`, () => {
+			// `kill(-1)` signals every process of the user and `kill(0)` the caller's
+			// own group; a refused pid counts as already gone and must not throw.
+			const kill = vi.spyOn(process, 'kill').mockImplementation(() => true)
+			try {
+				expect(() => killTree(child(pid), 'SIGKILL')).not.toThrow()
+				expect(() => killTrees([child(pid), child(pid)], 'SIGKILL')).not.toThrow()
+				expect(kill).not.toHaveBeenCalled()
+			} finally {
+				kill.mockRestore()
+			}
+		})
+	}
+
+	it('isSignalablePid accepts only an integer above 1 that is not this process', () => {
+		expect(isSignalablePid(2)).toBe(true)
+		expect(isSignalablePid(2_147_483_000)).toBe(true)
+		for (const pid of [...refused, undefined, null, '5']) expect(isSignalablePid(pid)).toBe(false)
 	})
 })

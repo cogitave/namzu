@@ -22,6 +22,7 @@ import { conversationInUseSentence, minutesUntilFree } from './conversation-in-u
 import { type ProposedChange, diffBodyFromFacts, proposedFromInput } from './diff-rows.js'
 import type { DiffInfo } from './diff-view.js'
 import { PLAN_FILE_LABEL, displayPath, isSessionPlanPath } from './display-path.js'
+import { createLiveModelStep } from './live-model-step.js'
 import { homePath } from './person-terms.js'
 import { explainFailure, workingDirectoryProblem } from './plain-failure.js'
 import {
@@ -767,6 +768,20 @@ export type AgentEvent =
 	 */
 	| { readonly kind: 'provider-fallback'; readonly text: string; readonly restart?: boolean }
 	/**
+	 * The model declined to answer, and what the turn did about it: moved the
+	 * request to `fallbackModel`, tried once more on the same model, or gave up
+	 * (the turn then settles `refused`). Its own kind because the person must be
+	 * told the model said no, and which model answered instead.
+	 */
+	| {
+			readonly kind: 'model-refusal'
+			readonly model: string
+			readonly outcome: 'fallback' | 'retry' | 'declined'
+			readonly fallbackModel?: string
+			readonly category?: string
+			readonly explanation?: string
+	  }
+	/**
 	 * A configured hook is running and declared a `statusMessage` for it. Shown
 	 * on the live status line until the next event arrives; never a transcript row.
 	 */
@@ -1001,6 +1016,14 @@ export interface SendOptions {
 	/** Model-specific reasoning effort for this turn's main query. */
 	readonly effort?: ReasoningEffort
 	/**
+	 * The model the operator picked while this turn runs, read before every
+	 * request. A model this session's provider serves takes effect on the next
+	 * request of the same tool loop; the request already in flight keeps its
+	 * model. Absent, or returning `undefined`, the turn keeps the model it
+	 * started with.
+	 */
+	readonly liveModel?: () => string | undefined
+	/**
 	 * The session's hypermode (`/hypermode`, or the `hypermode` config key) is
 	 * on for this turn. Default `false`. It tells the model, in a hidden
 	 * reminder kept in the conversation, to use the `workflow` tool for
@@ -1010,6 +1033,11 @@ export interface SendOptions {
 	 * permission; it creates no roster and starts no delegation by itself.
 	 */
 	readonly hypermode?: boolean
+	/**
+	 * What a refusal does (`NamzuCliConfig.refusalFallback`). Absent means
+	 * `'auto'`: the request is re-run once on another model of the same provider.
+	 */
+	readonly refusalFallback?: 'auto' | 'off'
 	/**
 	 * The operator's message armed the `workflow` composer trigger. Default
 	 * `false`. The `workflow` tool is listed on every turn that can run one;
@@ -6730,6 +6758,8 @@ export async function createAgentSession(
 									...(stableEnvironment
 										? []
 										: memoryContextSteps(curatedMemoryPrompt, storedMemory.prompt)),
+									// Last, so the operator's pick wins over a stage that chose a model.
+									...(opts?.liveModel ? [createLiveModelStep(opts.liveModel)] : []),
 								],
 								taskStore: turnTaskStore,
 								...(reminderSource ? { reminders: reminderSource } : {}),
@@ -7813,6 +7843,7 @@ async function* runTurn({
 	try {
 		const events = query({
 			maxOutputContinuations: MAX_OUTPUT_CONTINUATIONS,
+			...(opts?.refusalFallback ? { refusalFallback: opts.refusalFallback } : {}),
 			...(retainedToolPreviewChars !== undefined ? { retainedToolPreviewChars } : {}),
 			...(fileReadTracker ? { fileReadTracker } : {}),
 			...(structuredOutput ? { structuredOutput } : {}),
@@ -8631,6 +8662,15 @@ export function toAgentEvent(
 				kind: 'provider-fallback',
 				text: describeFallback(event),
 				...(event.restart ? { restart: true } : {}),
+			}
+		case 'model_refusal':
+			return {
+				kind: 'model-refusal',
+				model: event.model,
+				outcome: event.outcome,
+				...(event.fallbackModel ? { fallbackModel: event.fallbackModel } : {}),
+				...(event.category ? { category: event.category } : {}),
+				...(event.explanation ? { explanation: event.explanation } : {}),
 			}
 		case 'capability_warning':
 			return {
