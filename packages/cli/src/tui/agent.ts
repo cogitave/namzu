@@ -766,11 +766,7 @@ export type AgentEvent =
 	 * operator did not choose has succeeded while not doing what they asked,
 	 * which is the defect class this package keeps removing.
 	 */
-	| {
-			readonly kind: 'provider-fallback'
-			readonly text: string
-			readonly restart?: boolean
-	  }
+	| { readonly kind: 'provider-fallback'; readonly text: string; readonly restart?: boolean }
 	/**
 	 * A configured hook is running and declared a `statusMessage` for it. Shown
 	 * on the live status line until the next event arrives; never a transcript row.
@@ -894,10 +890,7 @@ export interface PermissionToolCall {
 	/** What the call reaches past the turn's boundary; see `ToolCallSummary.escalation`. */
 	readonly escalation?: ToolCallEscalation
 	/** Present when a rule asked for this call; no remembered answer may skip it. */
-	readonly authorization?: {
-		readonly explicitReview?: true
-		readonly askRule?: true
-	}
+	readonly authorization?: { readonly explicitReview?: true; readonly askRule?: true }
 	/** A hook asked for this call; no mode or remembered answer may skip it. */
 	readonly hookPermission?: { readonly decision?: string }
 	/** The tool needs a person's yes on every call. */
@@ -1337,10 +1330,7 @@ export interface AgentSession {
 	/** Loaded extensions; idle-session changes can explicitly be remembered across reconstruction. */
 	readonly plugins?: Pick<CliPluginRuntime, 'list' | 'setEnabled' | 'rememberState'>
 	/** Command folders of the enabled plugins; the composer turns their files into slash commands. */
-	readonly pluginCommandDirs?: readonly {
-		readonly plugin: string
-		readonly dir: string
-	}[]
+	readonly pluginCommandDirs?: readonly { readonly plugin: string; readonly dir: string }[]
 	readonly webSearchSummary?: string
 	readonly hasProvider: boolean
 	/**

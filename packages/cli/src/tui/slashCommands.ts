@@ -287,10 +287,7 @@ export type SlashAction =
 	 * `isCompletionArgument`) so App never has to parse an argument.
 	 */
 	| { kind: 'login'; pasted?: string }
-	| {
-			kind: 'logout'
-			target?: 'anthropic' | 'codex' | 'google' | 'all' | ApiKeyLogoutTarget
-	  }
+	| { kind: 'logout'; target?: 'anthropic' | 'codex' | 'google' | 'all' | ApiKeyLogoutTarget }
 	/**
 	 * `/auth`: choose the account this conversation runs on, or add one. Bare
 	 * opens the list; `add` opens the add flow; any other word is an account
