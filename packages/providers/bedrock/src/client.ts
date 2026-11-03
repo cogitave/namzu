@@ -49,9 +49,7 @@ import type { BedrockConfig } from './types.js'
  * and an extended TTL is priced differently, so choosing one is a cost
  * decision rather than a translation.
  */
-const CACHE_POINT: { cachePoint: CachePointBlock } = {
-	cachePoint: { type: 'default' },
-}
+const CACHE_POINT: { cachePoint: CachePointBlock } = { cachePoint: { type: 'default' } }
 
 /**
  * The extended-lifetime cache point. Sent only when a caller asked for `'1h'`
@@ -63,9 +61,7 @@ const CACHE_POINT_1H: { cachePoint: CachePointBlock } = {
 	cachePoint: { type: 'default', ttl: '1h' },
 }
 
-function cachePointFor(ttl: '5m' | '1h' | undefined): {
-	cachePoint: CachePointBlock
-} {
+function cachePointFor(ttl: '5m' | '1h' | undefined): { cachePoint: CachePointBlock } {
 	return ttl === '1h' ? CACHE_POINT_1H : CACHE_POINT
 }
 
@@ -559,10 +555,7 @@ export class BedrockProvider implements LLMProvider {
 				? '1h'
 				: '5m'
 		const system = extractSystemBlocks(params.messages, cachingEnabled, cacheTtl)
-		const messages = toBedrockMessages(params.messages, {
-			cachePoint: cachingEnabled,
-			cacheTtl,
-		})
+		const messages = toBedrockMessages(params.messages, { cachePoint: cachingEnabled, cacheTtl })
 		const toolConfig = toBedrockToolConfig(params, cachingEnabled, cacheTtl)
 
 		const inferenceConfig: Record<string, unknown> = {}
@@ -869,9 +862,7 @@ export class BedrockProvider implements LLMProvider {
 				messages: [{ role: 'user', content: [{ text: 'hi' }] }],
 				inferenceConfig: { maxTokens: 1 },
 			})
-			const response = await this.client.send(command, {
-				requestTimeout: 5000,
-			})
+			const response = await this.client.send(command, { requestTimeout: 5000 })
 
 			// No branch on the status code: this SDK throws for a non-2xx, so a
 			// handshake that returns at all returned success. A branch production
@@ -891,10 +882,7 @@ export class BedrockProvider implements LLMProvider {
 				if (failure) return reportForError(failure, model, elapsed())
 			}
 
-			return report('ok', `bedrock served ${model}`, {
-				model,
-				durationMs: elapsed(),
-			})
+			return report('ok', `bedrock served ${model}`, { model, durationMs: elapsed() })
 		} catch (err) {
 			return reportForError(err, model, elapsed())
 		}

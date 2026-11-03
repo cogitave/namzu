@@ -70,18 +70,8 @@ describe('Bedrock refusals', () => {
 describe('Bedrock tool-call ids', () => {
 	it('announces the id it keeps, so the arguments never arrive before one', async () => {
 		const chunks = await chunksOf([
-			{
-				contentBlockStart: {
-					contentBlockIndex: 0,
-					start: { toolUse: { name: 'write' } },
-				},
-			},
-			{
-				contentBlockDelta: {
-					contentBlockIndex: 0,
-					delta: { toolUse: { input: '{"a":1}' } },
-				},
-			},
+			{ contentBlockStart: { contentBlockIndex: 0, start: { toolUse: { name: 'write' } } } },
+			{ contentBlockDelta: { contentBlockIndex: 0, delta: { toolUse: { input: '{"a":1}' } } } },
 			{ messageStop: { stopReason: 'tool_use' } },
 		])
 

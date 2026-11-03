@@ -38,11 +38,7 @@ async function finishFor(stopReason: string): Promise<StreamChunk | undefined> {
 			delta: { type: 'input_json_delta', partial_json: '{"content":"half' },
 		},
 		{ type: 'content_block_stop', index: 0 },
-		{
-			type: 'message_delta',
-			delta: { stop_reason: stopReason },
-			usage: { output_tokens: 9 },
-		},
+		{ type: 'message_delta', delta: { stop_reason: stopReason }, usage: { output_tokens: 9 } },
 		{ type: 'message_stop' },
 	]
 	let finish: StreamChunk | undefined

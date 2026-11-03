@@ -32,12 +32,11 @@ async function chunksOf(frames: string[]): Promise<StreamChunk[]> {
 	const body = `${frames.map((f) => `data: ${f}\n\n`).join('')}data: [DONE]\n\n`
 	vi.stubGlobal(
 		'fetch',
-		vi.fn().mockResolvedValue(
-			new Response(body, {
-				status: 200,
-				headers: { 'Content-Type': 'text/event-stream' },
-			}),
-		),
+		vi
+			.fn()
+			.mockResolvedValue(
+				new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } }),
+			),
 	)
 	const provider = new OpenRouterProvider({
 		apiKey: 'test-key',

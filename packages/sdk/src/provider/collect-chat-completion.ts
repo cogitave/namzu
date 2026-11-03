@@ -92,9 +92,7 @@ export async function collectChatCompletion(
 	// there carry the same blocks in the same order.
 	const reasoningBuckets = new Map<
 		number,
-		{ -readonly [K in keyof ReasoningBlock]: ReasoningBlock[K] } & {
-			text: string
-		}
+		{ -readonly [K in keyof ReasoningBlock]: ReasoningBlock[K] } & { text: string }
 	>()
 
 	for await (const chunk of stream) {
@@ -127,11 +125,7 @@ export async function collectChatCompletion(
 					canAcceptMoreText(toolBuckets.get(i)?.argsBuf ?? ''),
 				)
 				if (typeof placement === 'number') {
-					const bucket = toolBuckets.get(placement) ?? {
-						id: '',
-						name: '',
-						argsBuf: '',
-					}
+					const bucket = toolBuckets.get(placement) ?? { id: '', name: '', argsBuf: '' }
 					if (tc.function?.name) bucket.name = tc.function.name
 					if (tc.function?.arguments) bucket.argsBuf += tc.function.arguments
 					toolBuckets.set(placement, bucket)

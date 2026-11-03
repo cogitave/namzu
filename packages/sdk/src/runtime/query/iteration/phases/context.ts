@@ -570,9 +570,7 @@ export async function* handleHITLDecision(
 				ctx.planManager.approve()
 				ctx.planManager.startExecution()
 			}
-			ctx.log.info('Plan approved by user', {
-				[NAMZU.TURN_ID]: ctx.recorder.turnId,
-			})
+			ctx.log.info('Plan approved by user', { [NAMZU.TURN_ID]: ctx.recorder.turnId })
 			return 'continue'
 		}
 		case 'continue':

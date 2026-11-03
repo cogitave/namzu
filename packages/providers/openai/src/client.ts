@@ -519,13 +519,7 @@ export class OpenAIProvider implements LLMProvider {
 						delta: {
 							content: delta?.content ?? undefined,
 							...(reasoning
-								? {
-										reasoning: {
-											index: 0,
-											type: 'thinking' as const,
-											text: reasoning,
-										},
-									}
+								? { reasoning: { index: 0, type: 'thinking' as const, text: reasoning } }
 								: {}),
 							toolCalls,
 						},

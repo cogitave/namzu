@@ -28,11 +28,7 @@ async function chunksOf(dialect: 'openai' | 'anthropic', frames: string[]): Prom
 		'fetch',
 		vi.fn(async () => sse(frames)),
 	)
-	const provider = new HttpProvider({
-		baseURL: 'https://example.test/v1',
-		apiKey: 'k',
-		dialect,
-	})
+	const provider = new HttpProvider({ baseURL: 'https://example.test/v1', apiKey: 'k', dialect })
 	const out: StreamChunk[] = []
 	for await (const chunk of provider.chatStream({
 		model: 'm',
@@ -121,17 +117,9 @@ describe('HTTP provider, OpenAI dialect tool calls with no index', () => {
 		const frame = (toolCall: Record<string, unknown>) =>
 			`data: ${JSON.stringify({ id: 'r', choices: [{ delta: { tool_calls: [toolCall] }, finish_reason: null }] })}`
 		const chunks = await chunksOf('openai', [
-			frame({
-				id: 'call_a',
-				type: 'function',
-				function: { name: 'read', arguments: '' },
-			}),
+			frame({ id: 'call_a', type: 'function', function: { name: 'read', arguments: '' } }),
 			frame({ function: { arguments: '{"path":"a.md"}' } }),
-			frame({
-				id: 'call_b',
-				type: 'function',
-				function: { name: 'read', arguments: '' },
-			}),
+			frame({ id: 'call_b', type: 'function', function: { name: 'read', arguments: '' } }),
 			frame({ function: { arguments: '{"path":"b.md"}' } }),
 			openAiFinish('tool_calls'),
 			'data: [DONE]',

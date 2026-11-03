@@ -790,9 +790,7 @@ export class IterationOrchestrator {
 					// estimated cost reduces every stage's headroom, and the same text
 					// reaches the provider even if a stage changes external state.
 					const contextSections =
-						this.ctx.promptContributions?.render('context', {
-							iteration: iterationNum,
-						}) ?? []
+						this.ctx.promptContributions?.render('context', { iteration: iterationNum }) ?? []
 					const deferredMcpHints =
 						this.ctx.showDeferredToolContext !== false
 							? this.ctx.tools.snapshotUntrustedDeferredContext()
@@ -1323,11 +1321,7 @@ export class IterationOrchestrator {
 					)
 					recorder.pushMessage(assistantMsg)
 					if (this.ctx.advisoryCtx && requestMessages) {
-						this.advisoryTurn = {
-							iteration: iterationNum,
-							requestMessages,
-							response: assistantMsg,
-						}
+						this.advisoryTurn = { iteration: iterationNum, requestMessages, response: assistantMsg }
 					}
 
 					if (this.ctx.workingStateManager && this.ctx.compactionConfig && assistantMsg.content) {
@@ -2242,9 +2236,7 @@ export class IterationOrchestrator {
 						let shed = false
 						while (!shed && overflowReliefs < OVERFLOW_RELIEF_LIMIT) {
 							overflowReliefs++
-							shed = await relieveOverflow(this.ctx, {
-								deeper: overflowReliefs > 1,
-							})
+							shed = await relieveOverflow(this.ctx, { deeper: overflowReliefs > 1 })
 						}
 						if (shed) {
 							// Clearing results is a compaction too: only summaries and reducers

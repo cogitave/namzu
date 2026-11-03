@@ -763,10 +763,7 @@ export function createProjectInstructionMessage(
 			'Project instruction paths must be unique, canonical project-relative paths.',
 		)
 	}
-	return {
-		...createUserMessage(escapeNoticeFrame(content), undefined, source),
-		retain: true,
-	}
+	return { ...createUserMessage(escapeNoticeFrame(content), undefined, source), retain: true }
 }
 
 export function createAssistantMessage(

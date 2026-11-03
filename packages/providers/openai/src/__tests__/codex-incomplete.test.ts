@@ -43,14 +43,8 @@ async function chunksOf(reason: 'max_output_tokens' | 'content_filter' | undefin
 			}
 		})(),
 	)
-	const provider = new CodexProvider({
-		accessToken: 'fixture',
-		accountId: 'fixture',
-		model: 'm',
-	})
-	;(provider as unknown as { client: unknown }).client = {
-		responses: { create },
-	}
+	const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture', model: 'm' })
+	;(provider as unknown as { client: unknown }).client = { responses: { create } }
 	const chunks: StreamChunk[] = []
 	for await (const chunk of provider.chatStream({
 		model: 'm',

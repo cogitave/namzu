@@ -620,9 +620,7 @@ export class TurnRecorder {
 			}
 			// Claiming a log may repair a torn tail. Refuse a foreign owner
 			// before that mutation, then recheck under the lease below.
-			await assertSessionLogAttribution(this.log, this.#config, {
-				execution: 'kernel',
-			})
+			await assertSessionLogAttribution(this.log, this.#config, { execution: 'kernel' })
 			if (!options.lease) {
 				const lease = await this.log.claim({
 					holder: this.#leaseHolder,
@@ -670,9 +668,7 @@ export class TurnRecorder {
 					...(options.session.forkedFrom ? { forkedFrom: options.session.forkedFrom } : {}),
 				})
 			} else {
-				await assertSessionLogAttribution(this.log, this.#config, {
-					execution: 'kernel',
-				})
+				await assertSessionLogAttribution(this.log, this.#config, { execution: 'kernel' })
 			}
 			if (options.session.forkedFrom) {
 				this.#turn.forkedFrom = options.session.forkedFrom

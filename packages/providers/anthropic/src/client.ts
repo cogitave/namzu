@@ -1548,10 +1548,7 @@ export class AnthropicProvider implements LLMProvider {
 								if (search?.appendix)
 									yield {
 										id: messageId,
-										delta: {
-											content: search.appendix,
-											contentOrigin: 'driver',
-										},
+										delta: { content: search.appendix, contentOrigin: 'driver' },
 									}
 								searchReplayEmitted = Boolean(search)
 								const replayState = search?.replay ?? completedReplayState()
@@ -1583,10 +1580,7 @@ export class AnthropicProvider implements LLMProvider {
 								if (search.appendix)
 									yield {
 										id: messageId,
-										delta: {
-											content: search.appendix,
-											contentOrigin: 'driver',
-										},
+										delta: { content: search.appendix, contentOrigin: 'driver' },
 									}
 								yield { id: messageId, delta: {}, replayState: search.replay }
 								return

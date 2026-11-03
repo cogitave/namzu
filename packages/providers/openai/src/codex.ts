@@ -541,10 +541,7 @@ export class CodexProvider implements LLMProvider {
 							event.item.type === 'message' &&
 							(event.item.phase === 'commentary' || event.item.phase === 'final_answer')
 						)
-							textItems.set(event.item.id, {
-								id: event.item.id,
-								phase: event.item.phase,
-							})
+							textItems.set(event.item.id, { id: event.item.id, phase: event.item.phase })
 						if (event.item.type === 'web_search_call') {
 							yield {
 								id: responseId,
@@ -681,10 +678,7 @@ export class CodexProvider implements LLMProvider {
 							const part = textParts[partIndex]
 							if (part) textParts[partIndex] = { ...part, text: part.text + suffix }
 							// The driver's text, not the model's.
-							yield {
-								id: responseId,
-								delta: { content: suffix, contentOrigin: 'driver' },
-							}
+							yield { id: responseId, delta: { content: suffix, contentOrigin: 'driver' } }
 						}
 						const replayState: CodexReplayState = {
 							kind: 'namzu.codex.responses',

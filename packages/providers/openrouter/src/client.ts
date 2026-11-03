@@ -278,12 +278,7 @@ function parseReasoning(
 		for (const [position, detail] of details.entries()) {
 			const index = typeof detail.index === 'number' ? detail.index : position
 			if (detail.type === 'reasoning.encrypted') {
-				if (detail.data)
-					mapped.push({
-						index,
-						type: 'redacted_thinking',
-						encrypted: detail.data,
-					})
+				if (detail.data) mapped.push({ index, type: 'redacted_thinking', encrypted: detail.data })
 				continue
 			}
 			if (typeof detail.text !== 'string' || detail.text.length === 0) continue
@@ -602,10 +597,7 @@ export class OpenRouterProvider implements LLMProvider {
 						// would close each block on the frame that opened it.
 						if ((typeof content === 'string' && content.length > 0) || toolCalls?.length) {
 							for (const index of openReasoning) {
-								yield {
-									id: parsed.id,
-									delta: { reasoning: { index, done: true } },
-								}
+								yield { id: parsed.id, delta: { reasoning: { index, done: true } } }
 							}
 							openReasoning.clear()
 						}

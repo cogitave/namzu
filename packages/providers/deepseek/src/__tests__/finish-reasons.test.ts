@@ -41,10 +41,7 @@ describe('DeepSeek finish reasons', () => {
 	it('fails a stream the server interrupted for lack of resources', async () => {
 		const provider = providerOver([
 			{ id: 'a', choices: [{ delta: { content: 'half an ans' } }] },
-			{
-				id: 'a',
-				choices: [{ delta: {}, finish_reason: 'insufficient_system_resource' }],
-			},
+			{ id: 'a', choices: [{ delta: {}, finish_reason: 'insufficient_system_resource' }] },
 		])
 		const error = await drain(provider).then(
 			() => undefined,
@@ -82,12 +79,7 @@ describe('DeepSeek finish reasons', () => {
 
 	it('still reports a length cut as length', async () => {
 		const out = await drain(
-			providerOver([
-				{
-					id: 'a',
-					choices: [{ delta: { content: 'x' }, finish_reason: 'length' }],
-				},
-			]),
+			providerOver([{ id: 'a', choices: [{ delta: { content: 'x' }, finish_reason: 'length' }] }]),
 		)
 		expect(out.at(-1)?.finishReason).toBe('length')
 	})

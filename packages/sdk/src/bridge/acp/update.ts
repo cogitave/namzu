@@ -132,26 +132,14 @@ export function toAcpSessionUpdate(
 			}
 
 		case 'reasoning_started':
-			return {
-				kind: 'agent_thought',
-				status: 'pending',
-				...thoughtIdentity(event),
-			}
+			return { kind: 'agent_thought', status: 'pending', ...thoughtIdentity(event) }
 
 		case 'reasoning_delta':
-			return {
-				kind: 'agent_thought_chunk',
-				text: event.text,
-				...thoughtIdentity(event),
-			}
+			return { kind: 'agent_thought_chunk', text: event.text, ...thoughtIdentity(event) }
 
 		case 'reasoning_completed':
 			// Readable text arrived as deltas. Never copy signed or opaque replay material.
-			return {
-				kind: 'agent_thought',
-				status: 'completed',
-				...thoughtIdentity(event),
-			}
+			return { kind: 'agent_thought', status: 'completed', ...thoughtIdentity(event) }
 
 		case 'tool_executing':
 			return {

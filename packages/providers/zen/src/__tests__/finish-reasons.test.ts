@@ -40,16 +40,8 @@ function anthropicFrames(stopReason: string): unknown[] {
 				usage: { input_tokens: 8, output_tokens: 0 },
 			},
 		},
-		{
-			type: 'content_block_start',
-			index: 0,
-			content_block: { type: 'text', text: '' },
-		},
-		{
-			type: 'content_block_delta',
-			index: 0,
-			delta: { type: 'text_delta', text: 'Hello' },
-		},
+		{ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+		{ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hello' } },
 		{ type: 'content_block_stop', index: 0 },
 		{
 			type: 'message_delta',
@@ -73,11 +65,7 @@ async function finishOf(stopReason: string) {
 	const provider = new ZenProvider({ apiKey, protocol: 'messages' }, 'zen')
 	const messages: Message[] = [{ role: 'user', content: 'Hi' }]
 	return collectChatCompletion(
-		provider.chatStream({
-			model: 'claude-haiku-4-5',
-			messages,
-			maxTokens: 256,
-		}),
+		provider.chatStream({ model: 'claude-haiku-4-5', messages, maxTokens: 256 }),
 	)
 }
 

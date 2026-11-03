@@ -131,12 +131,7 @@ export class MockLLMProvider implements LLMProvider {
 				id,
 				delta: {
 					toolCalls: [
-						{
-							index,
-							id: callId,
-							type: 'function',
-							function: { name: call.name, arguments: '' },
-						},
+						{ index, id: callId, type: 'function', function: { name: call.name, arguments: '' } },
 					],
 				},
 			}
@@ -155,9 +150,7 @@ export class MockLLMProvider implements LLMProvider {
 			for (let i = 0; i < args.length; i += step) {
 				yield {
 					id,
-					delta: {
-						toolCalls: [{ index, function: { arguments: args.slice(i, i + step) } }],
-					},
+					delta: { toolCalls: [{ index, function: { arguments: args.slice(i, i + step) } }] },
 				}
 			}
 

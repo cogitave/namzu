@@ -123,12 +123,7 @@ describe('collectChatCompletion()', () => {
 		const window = await collectChatCompletion(
 			fromArray([
 				{ id: 'r', delta: { content: 'half' } },
-				{
-					id: 'r',
-					delta: {},
-					finishReason: 'length',
-					finishDetail: 'context_window',
-				},
+				{ id: 'r', delta: {}, finishReason: 'length', finishDetail: 'context_window' },
 			]),
 		)
 		expect(window.finishReason).toBe('length')
@@ -137,12 +132,7 @@ describe('collectChatCompletion()', () => {
 		// A later finish that is not a length finish takes the detail with it.
 		const later = await collectChatCompletion(
 			fromArray([
-				{
-					id: 'r',
-					delta: {},
-					finishReason: 'length',
-					finishDetail: 'context_window',
-				},
+				{ id: 'r', delta: {}, finishReason: 'length', finishDetail: 'context_window' },
 				{ id: 'r', delta: {}, finishReason: 'stop' },
 			]),
 		)
@@ -208,10 +198,7 @@ describe('collectChatCompletion() — reasoning blocks', () => {
 	it('buckets reasoning fragments by index and concatenates in arrival order', async () => {
 		const result = await collectChatCompletion(
 			fromArray([
-				{
-					id: 'm',
-					delta: { reasoning: { index: 0, type: 'thinking', text: 'first ' } },
-				},
+				{ id: 'm', delta: { reasoning: { index: 0, type: 'thinking', text: 'first ' } } },
 				{ id: 'm', delta: { reasoning: { index: 0, text: 'second' } } },
 				{ id: 'm', delta: { content: 'answer' }, finishReason: 'stop' },
 			]),
@@ -243,12 +230,7 @@ describe('collectChatCompletion() — reasoning blocks', () => {
 			fromArray([
 				{ id: 'm', delta: { reasoning: { index: 0, text: 'thought' } } },
 				{ id: 'm', delta: { reasoning: { index: 0, signature: 'sig-1' } } },
-				{
-					id: 'm',
-					delta: {
-						reasoning: { index: 1, type: 'redacted_thinking', encrypted: 'op' },
-					},
-				},
+				{ id: 'm', delta: { reasoning: { index: 1, type: 'redacted_thinking', encrypted: 'op' } } },
 				{ id: 'm', delta: {}, finishReason: 'stop' },
 			]),
 		)

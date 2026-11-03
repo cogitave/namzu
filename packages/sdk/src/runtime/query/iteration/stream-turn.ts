@@ -742,10 +742,7 @@ export async function* streamProviderTurn(
 					// may hold another call's spliced-in fragments, or be missing
 					// whatever an id-less fragment carried elsewhere instead.
 					const parsed = bucket.interleaved
-						? {
-								ok: false as const,
-								parseError: INTERLEAVED_TOOL_INPUT_PARSE_ERROR,
-							}
+						? { ok: false as const, parseError: INTERLEAVED_TOOL_INPUT_PARSE_ERROR }
 						: parseToolArguments(bucket.argsBuf)
 					if (parsed.ok) {
 						bucket.parsed = parsed.value
@@ -1094,9 +1091,5 @@ export async function* streamProviderTurn(
 	chatSpan.setStatus({ code: SpanStatusCode.OK })
 	chatSpan.end()
 
-	return {
-		response,
-		messageId,
-		...(requestMessages ? { requestMessages } : {}),
-	}
+	return { response, messageId, ...(requestMessages ? { requestMessages } : {}) }
 }
