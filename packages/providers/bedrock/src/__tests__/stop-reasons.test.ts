@@ -52,11 +52,36 @@ describe('Bedrock stop reasons', () => {
 	})
 })
 
+describe('Bedrock refusals', () => {
+	it.each(['guardrail_intervened', 'content_filtered'])(
+		'says a %s stop is a refusal, and only those',
+		async (stopReason) => {
+			const chunks = await chunksOf([{ messageStop: { stopReason } }])
+			expect(chunks.find((chunk) => chunk.finishReason)?.refusal).toEqual({})
+		},
+	)
+
+	it('says nothing of a refusal on a normal finish', async () => {
+		const chunks = await chunksOf([{ messageStop: { stopReason: 'end_turn' } }])
+		expect(chunks.some((chunk) => chunk.refusal !== undefined)).toBe(false)
+	})
+})
+
 describe('Bedrock tool-call ids', () => {
 	it('announces the id it keeps, so the arguments never arrive before one', async () => {
 		const chunks = await chunksOf([
-			{ contentBlockStart: { contentBlockIndex: 0, start: { toolUse: { name: 'write' } } } },
-			{ contentBlockDelta: { contentBlockIndex: 0, delta: { toolUse: { input: '{"a":1}' } } } },
+			{
+				contentBlockStart: {
+					contentBlockIndex: 0,
+					start: { toolUse: { name: 'write' } },
+				},
+			},
+			{
+				contentBlockDelta: {
+					contentBlockIndex: 0,
+					delta: { toolUse: { input: '{"a":1}' } },
+				},
+			},
 			{ messageStop: { stopReason: 'tool_use' } },
 		])
 

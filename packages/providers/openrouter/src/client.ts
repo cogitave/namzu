@@ -53,7 +53,7 @@ const CONTEXT_WINDOW_NATIVE_REASONS = new Set([
 function mapFinishReason(
 	reason: string | null | undefined,
 	nativeReason: string | null | undefined,
-): Pick<StreamChunk, 'finishReason' | 'finishDetail'> {
+): Pick<StreamChunk, 'finishReason' | 'finishDetail' | 'refusal'> {
 	switch (reason) {
 		case null:
 		case undefined:
@@ -67,7 +67,7 @@ function mapFinishReason(
 		case 'function_call':
 			return { finishReason: 'tool_calls' }
 		case 'content_filter':
-			return { finishReason: 'content_filter' }
+			return { finishReason: 'content_filter', refusal: {} }
 		case 'error':
 			throw new ProviderRequestError({
 				kind: 'server',
@@ -278,7 +278,12 @@ function parseReasoning(
 		for (const [position, detail] of details.entries()) {
 			const index = typeof detail.index === 'number' ? detail.index : position
 			if (detail.type === 'reasoning.encrypted') {
-				if (detail.data) mapped.push({ index, type: 'redacted_thinking', encrypted: detail.data })
+				if (detail.data)
+					mapped.push({
+						index,
+						type: 'redacted_thinking',
+						encrypted: detail.data,
+					})
 				continue
 			}
 			if (typeof detail.text !== 'string' || detail.text.length === 0) continue
@@ -597,7 +602,10 @@ export class OpenRouterProvider implements LLMProvider {
 						// would close each block on the frame that opened it.
 						if ((typeof content === 'string' && content.length > 0) || toolCalls?.length) {
 							for (const index of openReasoning) {
-								yield { id: parsed.id, delta: { reasoning: { index, done: true } } }
+								yield {
+									id: parsed.id,
+									delta: { reasoning: { index, done: true } },
+								}
 							}
 							openReasoning.clear()
 						}

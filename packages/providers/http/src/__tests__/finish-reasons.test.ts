@@ -28,7 +28,11 @@ async function chunksOf(dialect: 'openai' | 'anthropic', frames: string[]): Prom
 		'fetch',
 		vi.fn(async () => sse(frames)),
 	)
-	const provider = new HttpProvider({ baseURL: 'https://example.test/v1', apiKey: 'k', dialect })
+	const provider = new HttpProvider({
+		baseURL: 'https://example.test/v1',
+		apiKey: 'k',
+		dialect,
+	})
 	const out: StreamChunk[] = []
 	for await (const chunk of provider.chatStream({
 		model: 'm',
@@ -53,6 +57,13 @@ describe('HTTP provider, OpenAI dialect finish reasons', () => {
 	])('reports %s as %s', async (reason, expected) => {
 		const chunks = await chunksOf('openai', [openAiFinish(reason), 'data: [DONE]'])
 		expect(chunks.map((chunk) => chunk.finishReason).filter(Boolean)).toEqual([expected])
+	})
+
+	it('says a content filter is a refusal, and only a content filter', async () => {
+		const refused = await chunksOf('openai', [openAiFinish('content_filter'), 'data: [DONE]'])
+		expect(refused.find((chunk) => chunk.finishReason)?.refusal).toEqual({})
+		const stopped = await chunksOf('openai', [openAiFinish('stop'), 'data: [DONE]'])
+		expect(stopped.some((chunk) => chunk.refusal !== undefined)).toBe(false)
 	})
 
 	it('reports no finish reason for the null every frame but the last carries', async () => {
@@ -110,9 +121,17 @@ describe('HTTP provider, OpenAI dialect tool calls with no index', () => {
 		const frame = (toolCall: Record<string, unknown>) =>
 			`data: ${JSON.stringify({ id: 'r', choices: [{ delta: { tool_calls: [toolCall] }, finish_reason: null }] })}`
 		const chunks = await chunksOf('openai', [
-			frame({ id: 'call_a', type: 'function', function: { name: 'read', arguments: '' } }),
+			frame({
+				id: 'call_a',
+				type: 'function',
+				function: { name: 'read', arguments: '' },
+			}),
 			frame({ function: { arguments: '{"path":"a.md"}' } }),
-			frame({ id: 'call_b', type: 'function', function: { name: 'read', arguments: '' } }),
+			frame({
+				id: 'call_b',
+				type: 'function',
+				function: { name: 'read', arguments: '' },
+			}),
 			frame({ function: { arguments: '{"path":"b.md"}' } }),
 			openAiFinish('tool_calls'),
 			'data: [DONE]',
@@ -151,6 +170,13 @@ describe('HTTP provider, Anthropic dialect', () => {
 	])('reports %s as %s', async (stopReason, expected) => {
 		const chunks = await chunksOf('anthropic', anthropicFrames(stopReason))
 		expect(chunks.find((chunk) => chunk.finishReason)?.finishReason).toBe(expected)
+	})
+
+	it('says a refusal is a refusal', async () => {
+		const chunks = await chunksOf('anthropic', anthropicFrames('refusal'))
+		expect(chunks.find((chunk) => chunk.finishReason)?.refusal).toEqual({})
+		const ended = await chunksOf('anthropic', anthropicFrames('end_turn'))
+		expect(ended.some((chunk) => chunk.refusal !== undefined)).toBe(false)
 	})
 
 	it('marks a context-window stop as one, so the turn loop does not continue it', async () => {

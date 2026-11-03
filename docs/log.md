@@ -2,6 +2,7 @@
 
 ## 2026-11-03
 
+- **Update** [When a model declines to answer](sdk/model-refusal.md#what-a-driver-reports): the Anthropic driver reads `stop_details` (category, explanation, recommended model) off a refusal, names the fallback model (`refusalFallbackFor`, checked against the account's model list) and no longer sends an empty assistant entry as the text `"null"`; the OpenAI, Codex, DeepSeek, HTTP, OpenRouter, Bedrock, Google and Zen drivers set `refusal: {}` on a content-filter finish. `.changeset/anthropic-refusal-details.md` (`@namzu/anthropic` minor) and `.changeset/drivers-report-refusals.md` (patch).
 - **Creation** [When a model declines to answer](sdk/model-refusal.md): a reply a provider finishes as a refusal is no longer an empty completion. The refused reply is kept out of the history sent next; the request is re-run once on another model of the same provider (`LLMProvider.refusalFallbackFor`, `QueryParams.refusalFallback`), or once more on the same model when the reply had partial output, and a turn nothing recovered settles with the new stop reason `refused` instead of `end_turn`. New `refusal` field on the finish chunk and response, new `model_refusal` event. `.changeset/model-refusal-recovery.md` (`@namzu/sdk` minor).
 ## 2026-11-02
 

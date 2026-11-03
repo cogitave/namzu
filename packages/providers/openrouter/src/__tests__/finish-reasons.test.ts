@@ -32,11 +32,12 @@ async function chunksOf(frames: string[]): Promise<StreamChunk[]> {
 	const body = `${frames.map((f) => `data: ${f}\n\n`).join('')}data: [DONE]\n\n`
 	vi.stubGlobal(
 		'fetch',
-		vi
-			.fn()
-			.mockResolvedValue(
-				new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } }),
-			),
+		vi.fn().mockResolvedValue(
+			new Response(body, {
+				status: 200,
+				headers: { 'Content-Type': 'text/event-stream' },
+			}),
+		),
 	)
 	const provider = new OpenRouterProvider({
 		apiKey: 'test-key',
@@ -62,6 +63,13 @@ describe('OpenRouter finish reasons', () => {
 		const chunks = await chunksOf([frame(null), frame(reason)])
 		expect(chunks[0]?.finishReason).toBeUndefined()
 		expect(chunks.at(-1)?.finishReason).toBe(expected)
+	})
+
+	it('says a content filter is a refusal, and only a content filter', async () => {
+		const refused = await chunksOf([frame(null), frame('content_filter')])
+		expect(refused.at(-1)?.refusal).toEqual({})
+		const stopped = await chunksOf([frame(null), frame('stop')])
+		expect(stopped.some((chunk) => chunk.refusal !== undefined)).toBe(false)
 	})
 
 	it('fails a stream whose upstream model failed', async () => {

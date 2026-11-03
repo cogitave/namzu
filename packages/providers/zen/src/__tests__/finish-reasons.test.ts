@@ -40,8 +40,16 @@ function anthropicFrames(stopReason: string): unknown[] {
 				usage: { input_tokens: 8, output_tokens: 0 },
 			},
 		},
-		{ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
-		{ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hello' } },
+		{
+			type: 'content_block_start',
+			index: 0,
+			content_block: { type: 'text', text: '' },
+		},
+		{
+			type: 'content_block_delta',
+			index: 0,
+			delta: { type: 'text_delta', text: 'Hello' },
+		},
 		{ type: 'content_block_stop', index: 0 },
 		{
 			type: 'message_delta',
@@ -65,7 +73,11 @@ async function finishOf(stopReason: string) {
 	const provider = new ZenProvider({ apiKey, protocol: 'messages' }, 'zen')
 	const messages: Message[] = [{ role: 'user', content: 'Hi' }]
 	return collectChatCompletion(
-		provider.chatStream({ model: 'claude-haiku-4-5', messages, maxTokens: 256 }),
+		provider.chatStream({
+			model: 'claude-haiku-4-5',
+			messages,
+			maxTokens: 256,
+		}),
 	)
 }
 
@@ -74,6 +86,14 @@ describe('Zen — a proxied backend context-window stop', () => {
 		const response = await finishOf('model_context_window_exceeded')
 		expect(response.finishReason).toBe('length')
 		expect(response.finishDetail).toBe('context_window')
+	})
+
+	it('says a refusal is a refusal, and only a refusal', async () => {
+		const refused = await finishOf('refusal')
+		expect(refused.finishReason).toBe('content_filter')
+		expect(refused.refusal).toEqual({})
+		const ended = await finishOf('end_turn')
+		expect('refusal' in ended).toBe(false)
 	})
 
 	it('gives no finishDetail for a plain output-limit length (max_tokens)', async () => {

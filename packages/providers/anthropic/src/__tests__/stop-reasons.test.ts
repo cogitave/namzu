@@ -38,7 +38,11 @@ async function finishFor(stopReason: string): Promise<StreamChunk | undefined> {
 			delta: { type: 'input_json_delta', partial_json: '{"content":"half' },
 		},
 		{ type: 'content_block_stop', index: 0 },
-		{ type: 'message_delta', delta: { stop_reason: stopReason }, usage: { output_tokens: 9 } },
+		{
+			type: 'message_delta',
+			delta: { stop_reason: stopReason },
+			usage: { output_tokens: 9 },
+		},
 		{ type: 'message_stop' },
 	]
 	let finish: StreamChunk | undefined
@@ -54,6 +58,69 @@ async function finishFor(stopReason: string): Promise<StreamChunk | undefined> {
 async function finishReasonFor(stopReason: string): Promise<StreamChunk['finishReason']> {
 	return (await finishFor(stopReason))?.finishReason
 }
+
+async function refusalFor(stopDetails: unknown): Promise<StreamChunk['refusal']> {
+	const events = [
+		{ type: 'message_start', message: { id: 'msg_1' } },
+		{
+			type: 'message_delta',
+			delta: {
+				stop_reason: 'refusal',
+				...(stopDetails === undefined ? {} : { stop_details: stopDetails }),
+			},
+			usage: { output_tokens: 3 },
+		},
+		{ type: 'message_stop' },
+	]
+	let finish: StreamChunk | undefined
+	for await (const chunk of providerOver(events).chatStream({
+		model: 'm',
+		messages: [{ role: 'user', content: 'q' }],
+	} as ChatCompletionParams)) {
+		if (chunk.finishReason) finish = chunk
+	}
+	return finish?.refusal
+}
+
+describe('Anthropic refusal details', () => {
+	it('carries the category, explanation and recommended model off stop_details', async () => {
+		expect(
+			await refusalFor({
+				type: 'refusal',
+				category: 'cyber',
+				explanation: 'The request looked like malware development.',
+				recommended_model: 'claude-opus-5',
+			}),
+		).toEqual({
+			category: 'cyber',
+			explanation: 'The request looked like malware development.',
+			recommendedModel: 'claude-opus-5',
+		})
+	})
+
+	it('leaves out a field the service sent as null, and keeps the refusal', async () => {
+		expect(
+			await refusalFor({
+				type: 'refusal',
+				category: null,
+				explanation: null,
+				recommended_model: null,
+			}),
+		).toEqual({})
+		expect(await refusalFor({ category: 'bio', explanation: '  ' })).toEqual({
+			category: 'bio',
+		})
+	})
+
+	it('still says refused when the service sent no stop_details at all', async () => {
+		expect(await refusalFor(undefined)).toEqual({})
+	})
+
+	it('says nothing of a refusal on any other stop', async () => {
+		expect((await finishFor('end_turn'))?.refusal).toBeUndefined()
+		expect((await finishFor('max_tokens'))?.refusal).toBeUndefined()
+	})
+})
 
 describe('Anthropic stop reasons', () => {
 	it('marks a context-window stop, so the turn loop does not continue a reply that filled it', async () => {

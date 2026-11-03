@@ -78,9 +78,21 @@ const TEXT_MODALITIES = Object.freeze(['text'] as const)
 const VISION_MODALITIES = Object.freeze(['text', 'image'] as const)
 const IMAGE_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 const KNOWN_MODELS = Object.freeze([
-	{ id: CURRENT_FLASH_MODEL, name: 'DeepSeek-V4.1-Flash', inputModalities: VISION_MODALITIES },
-	{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', inputModalities: TEXT_MODALITIES },
-	{ id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', inputModalities: TEXT_MODALITIES },
+	{
+		id: CURRENT_FLASH_MODEL,
+		name: 'DeepSeek-V4.1-Flash',
+		inputModalities: VISION_MODALITIES,
+	},
+	{
+		id: 'deepseek-v4-flash',
+		name: 'DeepSeek-V4-Flash',
+		inputModalities: TEXT_MODALITIES,
+	},
+	{
+		id: 'deepseek-v4-pro',
+		name: 'DeepSeek-V4-Pro',
+		inputModalities: TEXT_MODALITIES,
+	},
 	{
 		id: VISION_MODEL,
 		name: 'DeepSeek-V4-Flash-Vision-Exp',
@@ -871,6 +883,7 @@ export class DeepSeekProvider implements LLMProvider {
 						...(replayState !== undefined ? { replayState } : {}),
 						delta: { content: delta?.content ?? undefined, toolCalls },
 						finishReason,
+						...(finishReason === 'content_filter' ? { refusal: {} } : {}),
 						usage,
 					}
 				} catch (parseErr) {

@@ -519,11 +519,19 @@ export class OpenAIProvider implements LLMProvider {
 						delta: {
 							content: delta?.content ?? undefined,
 							...(reasoning
-								? { reasoning: { index: 0, type: 'thinking' as const, text: reasoning } }
+								? {
+										reasoning: {
+											index: 0,
+											type: 'thinking' as const,
+											text: reasoning,
+										},
+									}
 								: {}),
 							toolCalls,
 						},
 						finishReason,
+						// A content filter stopped the reply; the API says nothing more.
+						...(finishReason === 'content_filter' ? { refusal: {} } : {}),
 						usage,
 					}
 				} catch (parseErr) {

@@ -24,6 +24,8 @@ A driver whose finish was a refusal or a safety block sets `refusal` on the fini
 
 Every field is optional. An empty object means "refused, nothing more is known", which is all most providers can say. The Anthropic driver reads `category`, `explanation` and `recommended_model` from `stop_details` on the final message delta; a field the service sends as `null` is left out. The OpenAI, Codex, DeepSeek, HTTP, OpenRouter, Bedrock, Google and Zen drivers set `refusal: {}` on a content-filter finish.
 
+An empty assistant entry in the history (a refused or interrupted reply with no text, reasoning or call) has no wire form on the Anthropic Messages API. The driver used to serialise its `null` content as the literal text `"null"`; it now leaves the entry out, as the OpenAI driver does. The stored history is untouched.
+
 ## What the turn does
 
 A refused reply never enters the empty-completion retry that asks the model for a closing summary, and it never settles as `end_turn`. The turn recovers at most once of each kind, in this order:

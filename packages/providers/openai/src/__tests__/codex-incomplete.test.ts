@@ -43,8 +43,14 @@ async function chunksOf(reason: 'max_output_tokens' | 'content_filter' | undefin
 			}
 		})(),
 	)
-	const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture', model: 'm' })
-	;(provider as unknown as { client: unknown }).client = { responses: { create } }
+	const provider = new CodexProvider({
+		accessToken: 'fixture',
+		accountId: 'fixture',
+		model: 'm',
+	})
+	;(provider as unknown as { client: unknown }).client = {
+		responses: { create },
+	}
 	const chunks: StreamChunk[] = []
 	for await (const chunk of provider.chatStream({
 		model: 'm',
@@ -67,6 +73,13 @@ describe('Codex incomplete responses', () => {
 
 	it('reports a content-filter stop as content_filter', async () => {
 		expect((await chunksOf('content_filter')).at(-1)?.finishReason).toBe('content_filter')
+	})
+
+	it('says a content-filter stop is a refusal, and a length cut is not', async () => {
+		expect((await chunksOf('content_filter')).at(-1)?.refusal).toEqual({})
+		expect((await chunksOf('max_output_tokens')).some((chunk) => chunk.refusal !== undefined)).toBe(
+			false,
+		)
 	})
 
 	it('reports an incomplete response with no stated reason as length', async () => {
