@@ -26,13 +26,15 @@ export const computerCommand = lazyCommand(
 	async () => (await import('./computer.js')).computerCommand,
 )
 
-export const spacesCommand = lazyCommand(
+export const workspacesCommand = lazyCommand(
 	{
-		name: 'spaces',
+		name: 'workspaces',
+		// The name from before the rename; deprecated, removed in the next major.
+		aliases: ['spaces'],
 		description: 'Run Namzu sessions side by side in one terminal (preview)',
 		passThrough: true,
 	},
-	async () => (await import('./spaces.js')).spacesCommand,
+	async () => (await import('./workspaces.js')).workspacesCommand,
 )
 
 export const archiveCommand = lazyCommand(

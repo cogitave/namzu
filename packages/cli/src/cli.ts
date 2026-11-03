@@ -38,9 +38,9 @@ import {
 	serveCommand,
 	skillsCommand,
 	skillsJSONCommand,
-	spacesCommand,
 	stateCommand,
 	upgradeCommand,
+	workspacesCommand,
 } from './commands/manifest.js'
 import { registerCommandOrLazy } from './commands/registry.js'
 import type { CommandContext } from './commands/types.js'
@@ -555,7 +555,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		historyCommand,
 		skillsCommand,
 		skillsJSONCommand,
-		spacesCommand,
+		workspacesCommand,
 		providersJSONCommand,
 		upgradeCommand,
 		serveCommand,

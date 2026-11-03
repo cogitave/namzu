@@ -8,9 +8,9 @@ import { resolve } from 'node:path'
 import { render } from 'ink'
 import React from 'react'
 
-import { writeLaunchMouseReset } from '../spaces/mouse.js'
-import { hostedByHost, spacesSignal } from '../spaces/signal.js'
 import { type TerminationSignal, handleTerminationSignals } from '../termination.js'
+import { writeLaunchMouseReset } from '../workspaces/mouse.js'
+import { hostedByHost, workspacesSignal } from '../workspaces/signal.js'
 import { App } from './App.js'
 import { openConsoleInput } from './console-input.js'
 import {
@@ -27,11 +27,11 @@ import { terminalFocus } from './terminal-focus.js'
 import { applyLaunchTheme } from './theme-launch.js'
 import { fileTipHistory } from './tip-history.js'
 import type { TuiContext } from './types.js'
-import { leaveSpacesBounded } from './zoom/leave.js'
+import { leaveWorkspacesBounded } from './zoom/leave.js'
 import { type TerminalProxy, createTerminalProxy } from './zoom/proxy.js'
 
-/** How long leaving may wait for the spaces screen to hand the terminal back. */
-const LEAVE_SPACES_MS = 2000
+/** How long leaving may wait for the workspaces screen to hand the terminal back. */
+const LEAVE_WORKSPACES_MS = 2000
 
 export async function launchTui(
 	ctx: TuiContext,
@@ -88,9 +88,9 @@ export async function launchTui(
 	const stopFocusReporting = installFocusReporting(inputStream, process.stdout, (focused) =>
 		terminalFocus.set(focused),
 	)
-	// A session the spaces host started has no spaces screen of its own: its `←` asks the host
-	// to leave it (see `spaces/signal.ts`). Any other session at a terminal on a POSIX system has
-	// Ink mounted on a pair of pass-through streams, so the spaces screen can be put up on demand
+	// A session the workspaces host started has no workspaces screen of its own: its `←` asks the host
+	// to leave it (see `workspaces/signal.ts`). Any other session at a terminal on a POSIX system has
+	// Ink mounted on a pair of pass-through streams, so the workspaces screen can be put up on demand
 	// (see `zoom/`); until then they are the real terminal. The code behind it loads on the first `←`.
 	const hosted = hostedByHost(process.env, process.ppid)
 	const proxy: TerminalProxy | null =
@@ -103,20 +103,20 @@ export async function launchTui(
 			: null
 	const terminationExit: { current: (() => void) | null } = { current: null }
 	const repaint: { current: (() => void) | null } = { current: null }
-	const spaces: {
-		current: Promise<import('./zoom/entry.js').SpacesEntry> | null
+	const workspaces: {
+		current: Promise<import('./zoom/entry.js').WorkspacesEntry> | null
 	} = {
 		current: null,
 	}
-	const spacesEntry = (): Promise<import('./zoom/entry.js').SpacesEntry> => {
-		spaces.current ??= import('./zoom/entry.js').then((m) =>
-			m.createSpacesEntry({
+	const workspacesEntry = (): Promise<import('./zoom/entry.js').WorkspacesEntry> => {
+		workspaces.current ??= import('./zoom/entry.js').then((m) =>
+			m.createWorkspacesEntry({
 				proxy: proxy as TerminalProxy,
 				realOut: process.stdout,
 				env: process.env,
 				cwd: process.cwd(),
 				entry: process.argv[1] as string,
-				prefixSetting: ctx.tui?.spacesPrefix,
+				prefixSetting: ctx.tui?.workspacesPrefix ?? ctx.tui?.spacesPrefix,
 				...(ctx.tui?.mouse !== undefined ? { mouseSetting: ctx.tui.mouse } : {}),
 				...(ctx.tui?.copyOnSelect !== undefined ? { copyOnSelect: ctx.tui.copyOnSelect } : {}),
 				requestExit: () =>
@@ -124,17 +124,17 @@ export async function launchTui(
 				repaint: () => repaint.current?.(),
 			}),
 		)
-		return spaces.current
+		return workspaces.current
 	}
-	const onOpenSpaces: (() => Promise<boolean>) | undefined = hosted
+	const onOpenWorkspaces: (() => Promise<boolean>) | undefined = hosted
 		? () => {
-				process.stdout.write(spacesSignal('zoom-out'))
+				process.stdout.write(workspacesSignal('zoom-out'))
 				return Promise.resolve(true)
 			}
 		: proxy !== null
 			? async () => {
 					try {
-						return await (await spacesEntry()).open()
+						return await (await workspacesEntry()).open()
 					} catch {
 						return false
 					}
@@ -144,26 +144,28 @@ export async function launchTui(
 		!hosted && proxy !== null
 			? async () => {
 					try {
-						return spaces.current === null ? true : await (await spaces.current).confirmExit()
+						return workspaces.current === null
+							? true
+							: await (await workspaces.current).confirmExit()
 					} catch {
 						return true
 					}
 				}
 			: undefined
-	// Leaving while the spaces screen is up: the main screen comes back and the conversation
+	// Leaving while the workspaces screen is up: the main screen comes back and the conversation
 	// prints its whole history there before Ink unmounts, so the last frame follows it exactly as
 	// it does in a plain session. Bounded: a stuck step never holds the exit.
 	const beforeExit: (() => Promise<void>) | undefined =
 		!hosted && proxy !== null
 			? async () => {
-					if (spaces.current === null) return
-					await leaveSpacesBounded({
+					if (workspaces.current === null) return
+					await leaveWorkspacesBounded({
 						release: (stillWanted) =>
-							(spaces.current as NonNullable<typeof spaces.current>).then((entry) =>
+							(workspaces.current as NonNullable<typeof workspaces.current>).then((entry) =>
 								entry.release(stillWanted),
 							),
 						flush: () => instance.waitUntilRenderFlush(),
-						limitMs: LEAVE_SPACES_MS,
+						limitMs: LEAVE_WORKSPACES_MS,
 					})
 				}
 			: undefined
@@ -176,7 +178,7 @@ export async function launchTui(
 			},
 			terminationExit,
 			repaint,
-			...(onOpenSpaces ? { onOpenSpaces } : {}),
+			...(onOpenWorkspaces ? { onOpenWorkspaces } : {}),
 			...(onConfirmExit ? { onConfirmExit } : {}),
 			...(beforeExit ? { beforeExit } : {}),
 			examplePrompts: true,
@@ -208,14 +210,14 @@ export async function launchTui(
 		else instance.unmount()
 		await instance.waitUntilExit()
 		// The process ends when this step does, so hanging up the other sessions and handing the
-		// terminal back from the spaces screen has to finish inside it.
-		if (spaces.current !== null) await (await spaces.current).shutdown()
+		// terminal back from the workspaces screen has to finish inside it.
+		if (workspaces.current !== null) await (await workspaces.current).shutdown()
 	})
 	try {
 		await instance.waitUntilExit()
 	} finally {
-		// Leaving with the spaces screen up hangs up the other sessions and hands the terminal back first.
-		if (spaces.current !== null) await (await spaces.current).shutdown()
+		// Leaving with the workspaces screen up hangs up the other sessions and hands the terminal back first.
+		if (workspaces.current !== null) await (await workspaces.current).shutdown()
 		termination.dispose()
 		stopSizeWatch?.()
 		stopFocusReporting()

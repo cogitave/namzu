@@ -1,18 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { leaveSpacesBounded } from '../leave.js'
+import { leaveWorkspacesBounded } from '../leave.js'
 
 afterEach(() => vi.useRealTimers())
 
-describe('leaveSpacesBounded', () => {
+describe('leaveWorkspacesBounded', () => {
 	it('flushes after a release that handed the terminal back', async () => {
 		const flush = vi.fn(async () => undefined)
-		await leaveSpacesBounded({ release: async () => true, flush, limitMs: 2000 })
+		await leaveWorkspacesBounded({ release: async () => true, flush, limitMs: 2000 })
 		expect(flush).toHaveBeenCalledTimes(1)
 	})
 
 	it('does not flush when nothing was released', async () => {
 		const flush = vi.fn(async () => undefined)
-		await leaveSpacesBounded({ release: async () => false, flush, limitMs: 2000 })
+		await leaveWorkspacesBounded({ release: async () => false, flush, limitMs: 2000 })
 		expect(flush).not.toHaveBeenCalled()
 	})
 
@@ -21,7 +21,7 @@ describe('leaveSpacesBounded', () => {
 		let finish: (() => void) | undefined
 		let wantedAtResume: boolean | undefined
 		const flush = vi.fn(async () => undefined)
-		const done = leaveSpacesBounded({
+		const done = leaveWorkspacesBounded({
 			release: (stillWanted) =>
 				new Promise<boolean>((resolve) => {
 					finish = () => {
@@ -43,7 +43,7 @@ describe('leaveSpacesBounded', () => {
 	it('does not throw when the release fails', async () => {
 		const flush = vi.fn(async () => undefined)
 		await expect(
-			leaveSpacesBounded({
+			leaveWorkspacesBounded({
 				release: async () => {
 					throw new Error('x')
 				},

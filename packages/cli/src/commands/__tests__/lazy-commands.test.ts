@@ -146,7 +146,7 @@ describe('the command manifest', () => {
 				'serve',
 				'skills',
 				'skills-json',
-				'spaces',
+				'workspaces',
 				'state',
 				'upgrade',
 				'worktree',

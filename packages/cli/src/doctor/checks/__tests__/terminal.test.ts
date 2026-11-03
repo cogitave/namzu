@@ -13,7 +13,7 @@ describe('the pseudo-terminal row', () => {
 			async () => {},
 		)
 		expect(result.status).toBe('pass')
-		expect(result.message).toContain('namzu spaces')
+		expect(result.message).toContain('namzu workspaces')
 	})
 
 	it('warns, with how to get one, when the component does not load', async () => {

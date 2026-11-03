@@ -123,7 +123,7 @@ them. Its items are joined by a dim ` · `, left to right:
   exits. Nothing is written to the transcript, so nothing stays in scrollback.
   Ctrl+D with anything typed remains delete-forward.
 - **`← N agent(s)`**, dim, when `←` from an empty composer would open the agents
-  (never where `←` opens the spaces screen instead)
+  (never where `←` opens the workspaces screen instead)
   and N of them are running (agents plus workflow runs; capped at `99+`). It
   shows while a turn runs and while idle, and only with nothing typed, pasted
   or attached, no panel open and the rail not focused, so the row never names
@@ -145,13 +145,13 @@ The keys the hints name:
   to the pill. With no shells the first `↓` lands on the rail, and with no
   rows either it opens the agents cockpit, as before. Esc or any other key
   hands the keyboard back to the composer.
-- **`←`** from an empty composer opens the [spaces screen](spaces.md#opening-it-from-a-conversation)
+- **`←`** from an empty composer opens the [workspaces screen](workspaces.md#opening-it-from-a-conversation)
   where there is one (a POSIX terminal with a pseudo-terminal component), and
   the agents cockpit (`/agent`) everywhere else. With anything typed, pasted or
   attached, or with Shift/Ctrl/Alt held, it is cursor movement as always. A
   press right after the draft was emptied by editing only shows `Press ← again
-  to open spaces`; presses less than 150 ms apart (key repeat) or within a
-  second of one that opened or armed are ignored. With the spaces screen
+  to open workspaces`; presses less than 150 ms apart (key repeat) or within a
+  second of one that opened or armed are ignored. With the workspaces screen
   available the cockpit is reached with `↓` or Enter on an agent row in `/tasks`, and the footer does
   not offer `← N agents`.
 
