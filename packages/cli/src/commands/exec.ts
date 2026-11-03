@@ -66,6 +66,7 @@ import {
 	type TerminationSignal,
 	withTerminationHandling,
 } from '../termination.js'
+import { REFUSED_HEADLESS_NOTICE, describeModelRefusal } from '../tui/model-refusal.js'
 import { hostCommandNames } from '../tui/slashCommands.js'
 import { describeTurnInterruption, retryAfterMs } from '../tui/turn-interruption.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
@@ -649,6 +650,10 @@ async function execPrint(
 			else if (event.kind === 'context') ctx.formatter.info(event.text)
 			// Which model took over, on stderr with the other status lines.
 			else if (event.kind === 'provider-fallback') ctx.formatter.info(event.text)
+			// A model that declined, and the model that answered in its place. The
+			// final `refused` stop below says it again when nothing answered.
+			else if (event.kind === 'model-refusal' && event.outcome !== 'declined')
+				ctx.formatter.info(describeModelRefusal(event))
 			else if (event.kind === 'error' || event.kind === 'paused') {
 				if (event.budget) measured.budget = event.budget
 				stop.failed = describeTurnInterruption(event)
@@ -692,6 +697,7 @@ async function execPrint(
 		workflowReview: { currentPermissionMode: () => modeResult.mode },
 		// The `hypermode` config key reaches a headless turn too.
 		...(ctx.config.hypermode === true ? { hypermode: true } : {}),
+		...(ctx.config.refusalFallback ? { refusalFallback: ctx.config.refusalFallback } : {}),
 		onConversationMessages: (messages: readonly Message[]) => {
 			history = messages
 		},
@@ -866,7 +872,9 @@ async function execPrint(
 			message:
 				stopReason === 'cost_limit'
 					? `${describeSpendStop(spendLimitUsd)}${partial}`
-					: `turn did not finish normally: ${stopReason}${partial}`,
+					: stopReason === 'refused'
+						? `${REFUSED_HEADLESS_NOTICE}${partial}`
+						: `turn did not finish normally: ${stopReason}${partial}`,
 		})
 		return 1
 	}

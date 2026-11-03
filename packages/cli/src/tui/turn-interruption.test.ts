@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { type Interruption, describeTurnInterruption } from './turn-interruption.js'
+import {
+	type Interruption,
+	describeTurnInterruption,
+	describeTurnStop,
+} from './turn-interruption.js'
 
 const failed = (extra: Record<string, unknown>): Interruption =>
 	({
@@ -56,5 +60,15 @@ describe('the structured failure text used by exec and scheduled runs', () => {
 			}),
 		)
 		expect(text).toContain('Compaction: automatic compaction failed: reducer backend down')
+	})
+})
+
+describe('a turn that settled refused', () => {
+	it('is never read as a finished reply, and says what to do', () => {
+		expect(describeTurnStop('end_turn')).toBeUndefined()
+		const text = describeTurnStop('refused')
+		expect(text).toMatch(/declined to answer this message/)
+		expect(text).toMatch(/esc twice/)
+		expect(text).not.toMatch(/new session/i)
 	})
 })

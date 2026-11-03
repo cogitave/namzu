@@ -374,6 +374,7 @@ const historyReasons = new Set([
 	'step_refused',
 	'structured_output_failed',
 	'output_limit',
+	'refused',
 	'answer_rejected',
 	'input_guardrail',
 	'output_guardrail',
