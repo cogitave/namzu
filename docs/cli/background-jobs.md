@@ -32,6 +32,8 @@ When the process cannot be created at all (no such shell, a missing working dire
 
 On Windows a command's descendants that detach from the shell are not tracked after the shell exits; `taskkill /T` stops the tree while it is still linked.
 
+When the host exits, every job still tracked is signalled with SIGKILL. A recorded pid that is not an integer above 1 (or is the host itself) is never signalled, since `kill(-1)` and `kill(0)` address every process of the user or the host's own group; such a job is treated as already gone.
+
 # Job ids
 
 A job's id is `b` followed by eight characters of `0-9a-z`, drawn from `crypto.randomBytes` (for example `b1k3x9q2z`). It is the model's handle: `bash` returns it, `job` and `wait_for_job` take it, and the person never sees it. It is random rather than counted, so an id from an earlier session or a resumed conversation can never name a different, newer job; the registry also never hands out an id it already holds. Ids are opaque: nothing may parse them or rely on their shape. `job` and `wait_for_job` refuse only input that cannot be an id (empty, over 128 characters, or containing whitespace or control characters) with a plain error; any other id, whatever its shape, goes to the registry, and an unknown one answers `No background job <id>.` The SDK exports `createBackgroundJobId()` for a host that supplies its own registry and `isBackgroundJobId(id)`, a helper that answers whether an id looks like one the SDK minted; the tools do not use it as a gate.
