@@ -1,0 +1,5 @@
+---
+"@namzu/cli": minor
+---
+
+`namzu resume` now accepts the launch flags after it. The exit summary prints `namzu resume <id>`, and appending a flag to that line (`namzu resume --yolo <id>`, `namzu resume --dangerously-skip-permissions <id>`, `namzu resume --permission-mode bypass`) used to fail with "Unknown option", because these flags were only understood before the command name. They work in both places now, with the same meaning and the same checks, including the one-time bypass question: `--dangerously-skip-permissions` / `--yolo`, `--allow-dangerously-skip-permissions`, `--permission-mode`, `--provider`, `--account`, `--model`, `--effort`, `--max-output-tokens`, `--append-system-prompt`, `--allowed-tools`, `--disallowed-tools`, `--fallback-model`, `--add-dir`, `--plugin-dir`, `--profile` and `--output-schema`. A flag given on both sides is not an error; the one after `resume` wins (repeatable flags keep both). `--continue`, `--resume`, `--from-pr` and `--message` still go before the command. Nothing that worked before changes.
