@@ -1,5 +1,150 @@
 # @namzu/cli
 
+## 45.0.0
+
+### Major Changes
+
+- b501d3f: Ctrl+T now shows or hides the model's task checklist above the message box (every task, at most five rows, the rest counted as `… +N more`) and no longer opens the agents cockpit. The footer says `ctrl+t to hide tasks` or `ctrl+t to show tasks` while the model has tasks, a task the model creates or changes opens the list, and your own press is saved as `tui.showExpandedTodos` in your user config (a project file cannot set it). To reach the cockpit use `←` or `↓` on an empty message box, or Enter on an agent row in `/tasks`; with text already typed, empty the box first. `/agents` is removed with no replacement command: the running and finished subagents are rows in `/tasks`, and `/agents available` (the configured roster) and `/agents batches` (past batches) have no equivalent. The working line's `ctrl+t to view` now reads `↓ to view`.
+- b501d3f: `/tasks` now opens the `Background` dialog: everything running behind the conversation in one list, under `Shells` (background commands), `Monitors`, `Local agents` (subagents still running) and `Completed` (subagents that ended), with the subtitle `N active shells · N active agents`. Up/Down select, Enter opens the details (`Shell details`, `Monitor details`) or an agent's transcript, `x` stops the selected one, Esc closes, and an empty dialog reads `No tasks currently running`. `/bashes` opens the same dialog. `/jobs` is removed with no replacement alias; type `/tasks` instead (`/tasks list` is the old `/jobs list`). `/tasks` no longer prints the model's task checklist; that readout is gone from the slash commands. The footer pill that read `2 shells` or `1 monitor` is now one count, `3 bg`, for commands and monitors together, and its hint reads `enter to view tasks`. The words "shell job" and "background job" in what you see become "background command" and "background task"; the `job` and `wait_for_job` tools the model calls keep their names.
+- dd0f7eb: Compaction no longer fires every few turns on the DeepSeek API: the driver's 1M window is used, and `deepseek-flash` replaces `deepseek-v4-flash` as the default DeepSeek model (set `NAMZU_MODEL=deepseek-v4-flash` or `--model` to keep the old one). A model id ending in `[1m]` declares a one-million-token window for any model and is stripped before it reaches a provider (`--model`, `/model`, `NAMZU_MODEL`, `NAMZU_SUBAGENT_MODEL`, `NAMZU_SMALL_MODEL`, config); `NAMZU_DISABLE_1M_CONTEXT=1` turns that off.
+
+  Breaking: `NAMZU_AUTO_COMPACT_WINDOW` and `compaction.autoCompactWindowTokens` now take `786k`/`200000`/`1m`, a value under 100,000 is raised to 100,000 and one over 1,000,000 lowered to 1,000,000 (each with a one-line warning at launch), and a value that is not a size is ignored with a warning instead of refusing to start. If you set a window below 100k, set `compaction.contextWindowTokens` instead. `/context` says when the model's own window capped the setting.
+
+  `NAMZU_EFFORT_LEVEL` is now case-insensitive, accepts `med` for `medium`, and treats `auto` and `unset` as no override. `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` (the vendor SDK's own variables) point the Anthropic provider at an Anthropic-compatible endpoint: the token goes as a bearer credential, nothing saved is ever sent to another host (a base URL with no token or key variable is ignored with a notice at launch, and saved sign-ins keep going to the vendor's host; so is a base URL that is not a URL), and `/status` shows `Anthropic (Claude) via <host>`. Saved credentials and a vendor-host base URL behave as before. `ANTHROPIC_AUTH_TOKEN` is read only together with a third-party `ANTHROPIC_BASE_URL`; it is not a detected sign-in.
+
+- a51235c: `namzu logout` with no target, `namzu logout all` and `/logout all` now also delete `api-keys.json`, the file the Desktop's Settings > Models writes its keys to. Before, `all` removed only the sign-in files and the Google key, so a key pasted in the Desktop survived it. If you want that to stay, remove only the providers you want to forget: `namzu logout claude`, `codex`, `gemini`, or `<provider>` for one saved key (`anthropic-key` for an Anthropic API key, since `anthropic` removes the subscription).
+
+  An API key typed into the terminal's provider picker is now kept for every provider that takes one, not only Gemini. Before, a DeepSeek, OpenAI, OpenRouter or Anthropic key lived in memory until quit and the next start asked for it again; now it is saved privately in `api-keys.json` (owner-only) after the provider starts, the provider choice is saved with it, and the next start uses it without asking. A pasted Anthropic subscription token is still session-only because it expires in hours. Environment variables still win over a saved key.
+
+  Keys that an earlier build kept only in `accounts.json` (added with `/auth`) are copied once into the file startup reads, with a one-line notice; the accounts are unchanged, and a copy that failed is retried at the next start. A key added with `/auth` also becomes the provider's startup key when it has none. Removing the account does not remove that startup key; run `/logout <provider>`.
+
+- d72677f: Workflow scripts launched through the `workflow` tool are now deterministic, so a run can be resumed. This changes what existing scripts may do.
+
+  **What breaks.** A script that calls `Date.now()`, `new Date()` with no argument, bare `Date()` or `Math.random()` now fails at that call with a message ("breaks resume"), and `eval` is no longer available. A script that contains an escape byte or a lone carriage return is refused at launch because the review cannot show it. `new Date(x)`, `Date.parse` and `Date.UTC` still work. There is no switch to keep the old behaviour. To fix a script, pass the time through `args` (the caller stamps it), and put an index in the label or prompt when you want independent samples instead of `Math.random()`.
+
+  **What is new.**
+
+  - `workflow` takes `scriptPath` (a saved script, read fresh on every call; `script` is now optional) and `resumeFromRunId` (continue an earlier run under its own id). Agents whose prompt and options are unchanged return their saved results; the first call that differs, failed or never ran starts running again. The receipt names an editable copy of the script and the exact call that resumes the run, and a failed or stopped run's message says so too.
+  - A resume goes through the same review as a start and shows which run it continues, what it can reuse and whether the script was edited.
+  - A run's journal is chained and signed with a key in `~/.namzu/workflow-journal.key`; a run written before this release cannot be resumed (run it again from the start).
+  - When a conversation is opened again, runs a previous process left unfinished are marked stopped and the model is told once how to resume each (it is not woken for it); `/workflows` shows the pass and the saved results of a resumed run, and `r` on a run that is not going asks the model to resume it.
+  - A saved script approved in the review is refused if its file changed before the run started, and a run whose journal was signed with another key than this machine's is named with that reason instead of being skipped.
+
+### Minor Changes
+
+- b501d3f: `/branch [name]` creates a branch of the current conversation at this point: this screen continues in the copy (titled `name` when you give one) and the original stays unchanged in `/resume`. `/fork` does the same for now; it is reserved for copying the conversation into a new background session and will change to that meaning when background sessions arrive, so use `/branch` for an in-place copy.
+- 880586f: On Windows, computer use no longer takes the screen from a person who is using it. Input that cannot be delivered in the background (a web page's keys, a covered window, a window that needs real focus, anything sent with `delivery_mode: "foreground"`, display-scope input and `focus_window`) now waits until the user has had no real keyboard or mouse input for 2 s, holds a cross-session lease on the screen, is watched for the user's input while it runs, and afterwards puts back the previous window and pointer, but only if nobody touched input meanwhile.
+
+  What changes for the model: a blocked action comes back as "Not delivered" and safe to retry, naming what blocks it (the user is busy, another session holds the screen, the user said no, a lock screen or administrator prompt is in front, the target runs with higher rights). A background action that had to use the screen says so and for how long. If the user presses Escape during one, every later `computer_use` call of that turn returns the same stop message until the next turn. When the user stays busy for 15 s they are asked once whether the application may use the screen for a moment; where nobody can be asked (exec, scheduled runs) the action parks and retries for up to 120 s and then says what blocks it.
+
+  What changes for a host: `ComputerUseHost` gains optional `beginTurn(turnId)` and `endTurn()`; `FocusWindowResult` gains optional `delivery`, `retrySafety` and `detail`. All are additive. `SubprocessComputerUseHost` takes `foreground: { approve?, session?, timing? }` and exports `ComputerUseStoppedError`. Breaking default in `@namzu/computer-use` (hence the major): an action that used to reach the screen at once (a display click, `focus_window`, `delivery_mode: "foreground"`) now waits for a still moment and can come back as not delivered; the value that changed is the idle wait before display input and `focus_window`, from none to 2 s; to keep the old behaviour for a script that owns the machine, pass `foreground: { timing: { idleMs: 0, approvedIdleMs: 0 } }`. The CLI asks the one question through its question card.
+
+- 976d848: A background job whose exit a `wait_for_job` (or a `job` read of a stopped job) already returned is no longer announced a second time by a `[Background job update]` notice, and an idle session no longer wakes the model for it. A job-exit notice now carries the job's output inline when all of it is at most 2048 bytes (in an untrusted frame); larger output is still read with the `job` tool. New and opt-in: `WakeBudget` / `wakeBudgetFromEnv` and the `NAMZU_MAX_CONSECUTIVE_WAKES` setting cap how many automatic job wakes happen in a row (off unless set; only a person's message resets it), and `ToolContext.backgroundJobs` gains an optional `markCollected`. Nothing needs to change to keep the old behaviour except a host that parsed the notice text for the absence of output.
+- c9a0a73: The model now knows what is still running without being asked to look. Every model request of every turn carries a note listing the conversation's background jobs, monitors, background agents and workflow runs, one line each, saying whether it is progressing, waiting (and on what), stalled or dead, and how long since it last moved; it is rebuilt for each request, so it is present in a new turn and after a compaction and is not stored in the history.
+
+  `agent_task_list` returns the same lines (`outstanding`) and, for each workflow run, its phase, agent counts, recent `log()` lines, previews of what finished agents answered (marked as data) and elapsed time, with no estimate of the end; `run_id` reads one run. Task rows gain `elapsed_ms` and `last_progress_ms_ago`. `wait_for_task` now stops waiting after two minutes without activity from the task and says it went quiet; the task keeps running. The workflow completion message carries an `ended_at` time. The workflow launch receipt allows one status read when the person asks how it is going. A caller that parsed `agent_task_list` output keeps working: fields were added, none removed.
+
+- 42ebf7e: Pasting an image into the composer now works under WSL. Namzu reads the Windows clipboard through `powershell.exe` (found on the `PATH`, or at its fixed place under the Windows drive mount), and an empty terminal paste, which Windows Terminal sends for an image-only clipboard, attaches the image too. A paste made only of paths to image files, such as a dragged file or a `C:\...` path, attaches the files. Reading the clipboard no longer freezes the composer, and Enter pressed during a read waits for it. On Windows the image key is now `alt+v` only (`ctrl+v` stays the terminal's text paste); macOS and Linux keep `ctrl+v` and `alt+v`, and WSL binds both. If you rebound `chat:imagePaste` your binding is untouched. If `powershell.exe` cannot start, you get a message about Windows interop instead of a missing-tool hint.
+
+  An image larger than 5 MiB (as base64) is refused when pasted, with a message to save a smaller copy and paste its path, instead of failing every later turn. A clipboard read that fails for any reason other than "no image" (for example PowerShell blocked by policy) now says it could not read the clipboard rather than reporting an empty one, and file names with accented or non-Latin letters survive an Explorer copy. Dragged `C:\...` paths also attach on native Windows.
+
+  Images are now brought inside the provider's limits instead of only refused: anything over 2000 pixels on a side or 3.75 MiB is scaled to fit inside 2000 by 2000, then recompressed (palette PNG, JPEG at quality 80 down to 20, last a 1000 pixel wide JPEG), and BMP and other formats become PNG. This uses `sharp`, which is now an optional dependency of `@namzu/cli`, so an install may fetch a native binary for your platform; if it is not installed the CLI still works, images inside the limits still attach, and larger ones are refused with a message that says resizing is unavailable. On Linux the clipboard is asked what it holds first and a BMP is read when no PNG is offered. When the paste key finds no image it pastes the clipboard's text (2 second limit, binary text ignored), so a terminal that hands the key to Namzu instead of pasting loses nothing. A pasted or dragged image path is read wherever it is, since you pasted it yourself, so a Windows screenshot dragged in under WSL (`/mnt/c/...`) attaches; only a `read` deny rule for the path, or for the file a link at that path leads to, refuses it, with a message, and the path stays in the draft as text. A rule that asks does not refuse it. A chip pasted after text now has a space before it. `NAMZU_NO_CLIPBOARD=1` stops Namzu from starting any clipboard program. A resized photo is turned upright using its orientation tag; an animated GIF too large to attach is refused (shrinking would keep one frame); a pasted path that does not exist stays text. A deny rule always wins over a more specific allow for the same pasted path, and is checked before the file is looked at, so a denied path that does not exist is refused too.
+
+- 1cef008: `grep` and `glob` now skip files that `.gitignore`, `.ignore` and `.git/info/exclude` exclude (and never enter `.git`), and a limit no longer fails a search. Before, a repository with build output or a nested worktree could not be searched at all: the walk stopped at 20,000 examined entries and returned "File search stopped after examining 20000 entries" as an error.
+
+  What changes for a caller:
+
+  - Ignored files are no longer returned. To search them, pass `include_ignored: true` to `grep` or `glob`; for a direct walk pass `respectIgnore: false`. A search root named on purpose is never itself ignored, so `path: packages/sdk/dist` still searches `dist`.
+  - Reaching a limit (a full page, the 500-path `glob` cap, the examined-entry bound, the time budget with matches found, unreadable files) now returns `success: true` with the results found so far and a note saying what was cut. `data.truncated` stays true; `data.incomplete` and the `limited` / `incomplete` facts say which kind. Only a search that ran out of time with nothing found, or whose walk cannot start, is still an error. If you branched on `success === false` to detect a partial search, read `data.truncated` and `data.incomplete` instead.
+  - The examined-entry bound moves from 20,000 to 500,000 and `walkFilesLocally` / `walkFilesViaExec` no longer throw `ERR_FILE_WALK_LIMIT` by default: they end the walk and report `{ stopped: 'entry-limit' }` through the new `onSummary` option. To keep the thrown error, pass `failOnLimit: true`. A `Sandbox.walkFiles` implementation that does not go through `walkFilesViaExec` should honour `respectIgnore` and call `onSummary`.
+  - `grep` and `glob` paths are relative to the working directory when the file lies under it and absolute otherwise, without a `./` prefix. Code that stripped `./` can stay; code that required it must stop.
+  - `glob` and `grep` stop themselves after 12 seconds, inside the existing 15-second tool deadline, so they can return what they found. A file list stops reading at `offset + max(head_limit * 4, 1000)` matching files before it sorts newest first, so every offset the note offers can be served.
+
+  The ignore matcher is the SDK's own, with no new dependency: the sandbox guest program travels as one `node -e` argument and cannot import a package, so the host and the guest run the same source text. It is tested against `git check-ignore` over a generated corpus. A global `core.excludesFile` setting is not queried; the default global ignore file is read on the host.
+
+  A rule with an unclosed `[`, or more than three separate `*`, is dropped (the latter could make one name take seconds to test). `glob` honouring ignore files is deliberate: `include_ignored: true` gives the old listing.
+
+  `grep` and `glob` now search hidden files and directories by default (`.git` and the other version-control directories are always skipped). Before, host `grep` skipped them and `glob` needed `include_hidden: true`. Ignore files still apply, so a gitignored `.env` stays out, and a path the session's read rules deny is neither listed nor opened: `ToolContext` gains `readDenied(absolutePath)`, which the executor fills from the turn's authorization gate and the two tools call per file. To keep the old behavior pass `include_hidden: false` (new on `grep`, default flipped on `glob`). A host that builds its own `ToolContext` without `readDenied` gets no read-rule filtering, so supply it if you enable searching hidden files with your own rules.
+
+  `@namzu/cli`: a `read` deny rule no longer makes `grep` and `glob` refuse a search over a folder that holds the denied path; they search it and skip the path (`ls` still refuses).
+
+  `@namzu/sandbox` (minor): the public `testing` conformance suite gained mandatory cases (ignore rules, the bound's summary, and that `listFiles` names ignored files), so an existing third-party backend that does not honour `respectIgnore` or `onSummary` in `walkFiles`, or whose `listFiles` hides ignored files, can now fail it; its limit case passes `failOnLimit: true`. The Pal computer's `listFiles` (and so `ls`) still lists ignored entries and still throws past its bound.
+
+  In a sandbox, a path outside the folder the sandbox binds is treated as read-denied when the session has read rules, because it has no host path the rules could be checked against.
+
+- 8f37ca3: Spaces: drag to select text in a pane and it is copied when you let go (double-click picks a word, triple-click a line). New settings `tui.mouse` (`full`, `scroll` or `off`) and `tui.copyOnSelect`, and the environment variables `NAMZU_DISABLE_MOUSE` and `NAMZU_DISABLE_MOUSE_CLICKS`, let you capture less of the mouse or keep your terminal's own selection. Nothing breaks and no default changes for a plain `namzu` conversation, which never captures the mouse. `/copy` and a pane's own copy request now reach your terminal from inside spaces, and `/copy` works under tmux and screen. The mouse is switched off on `SIGTERM`, `SIGHUP` and `SIGINT`, and every interactive launch clears a mouse a killed run left on; no action needed. Copying now tries your machine's clipboard tool first (`pbcopy` on macOS, PowerShell `Set-Clipboard` on Windows and WSL with the text as UTF-8, `wl-copy`/`xclip`/`xsel` on Linux; not over SSH) and then the terminal's request, which is skipped only when a Linux tool worked in a VTE terminal; inside tmux the text also goes to tmux's paste buffer. This applies to the spaces selection, `/copy` and `/export` to the clipboard, runs in the background, and its notice reads "Copied N characters to the clipboard." when a tool took the text; nothing to do, and on WSL install nothing more, since `powershell.exe` is already there. A program's own copy request is never replaced by a selection made right after it, a clipboard tool that times out ends the attempt instead of trying the next, and WSL is also recognised when `sudo` dropped its variables; nothing to do.
+
+  New environment variable `NAMZU_NO_CLIPBOARD=1` turns off every clipboard tool for the process: no `pbcopy`, PowerShell, `wl-copy`, `xclip`, `xsel` or `tmux` is started, and a copy falls back to the terminal's request. It is unset by default; set it only if you want that.
+
+- c9a0a73: A turn now answers the person at once when they write while a long tool call runs: the call keeps going, the model is told it is still running, and its result follows later. The model also hears about running work without asking: a note when a workflow run moves to its next phase (it rides with the next request and does not start a turn), and a check-in when a background command has printed nothing for two minutes (it starts a turn if the session is idle, and comes again after twice the silence, four times in all for one stretch of silence, and is withdrawn if the command prints or ends before the model reads it). The workflow instructions tell the model to read a run's state, not the launch receipt, when asked how it is going. Nothing is removed or renamed.
+- c9a0a73: Show running workflow agents when the model asks what is still working. Task
+  inspection and controls now find active workflow children across the same
+  conversation's scheduler turns, rather than listing only completed siblings.
+  The current running and queued workflow facts reach every model request through the
+  outstanding-work note, which is described in its own changeset.
+
+  Use `agent_task_list` with `task_id` and `include_output: true` to inspect bounded
+  partial activity without waiting for completion. Listings include reported token
+  and tool counts, the last tool identifier and workflow/phase identity. Partial
+  output is marked as delegated data and is distinct from the final task result.
+
+### Patch Changes
+
+- 880586f: A `ui_snapshot` ref now names a control and survives later snapshots, a large window is shown as an outline you open one region at a time, and an action on a ref that no longer fits fails with a typed reason instead of acting on whatever is there.
+
+  What changes for the model: refs (`e12`) no longer die at the next `ui_snapshot`. `ui_act` finds the control again by its id, its place in the tree, then its role and name, and only then sends anything; if the control has gone the step fails with `STALE_REF`, and if several controls fit it fails with `AMBIGUOUS_TARGET`. Both mean nothing was sent, so it is safe to take a new snapshot and choose again. A window with more than about 220 controls comes back as an outline in which a region is marked `(+N more inside)` and has a ref; `ui_snapshot { root: <ref> }` reads that region alone (`offset` for the next page of a long one) and leaves every other ref usable, and `ui_snapshot { query: <text> }` lists only matching controls. The advice to "read a smaller window" is replaced by "drill into a region".
+
+  What changes for a host (additive and optional): `ComputerUseHost.uiSnapshot(windowId?, options?)` takes `UiSnapshotOptions` (`root`, `offset`, `query`); `UiElement` gains `hiddenChildren`; `UiSnapshot` gains `outline`, `total`, `region` and `next`; `UiActResult` gains `code` (`UiActFailureCode`: `STALE_REF`, `AMBIGUOUS_TARGET`). A host that ignores the new options keeps working: its refs are simply treated as stable for as long as it keeps them valid. The tool no longer discards the refs of earlier snapshots, so a host that reuses a ref string for a different control must not.
+
+  What changes in the Windows backend (`@namzu/computer-use`): refs carry identity evidence (automation id, role and name, tree path, window) and are re-resolved against a new read when older than 3 s, when a newer read of the window replaced the driver's handle, or after a driver restart; the same id under a different name is not accepted as the same control. The window is walked with the driver's own 5 000 node cap, a browser window is read once more when its first walk shows only the frame, and a control that holds nothing is no longer made the parent of rows the driver reported below a skipped level. Code that relied on an old ref being refused after the next snapshot, or on the exact wording "not a control of the latest ui_snapshot", should read `code` and `delivery` instead. This is `minor` for `@namzu/computer-use`: the refusal of an old ref has become a successful re-resolution, which no documented contract promised to preserve.
+
+  The CLI's permission review reads the new `ui_snapshot` fields (`root`, `offset`, `query`) as the read-only requests they are, instead of asking about an unknown field.
+
+- 976d848: A mistake in a workflow script's own hook calls now fails the run instead of quietly producing `null` items. Wrong `agent()` arguments (a missing or non-string prompt, non-object options), a non-object `schema`, a non-function item given to `parallel()` or `pipeline()`, and a bad `phase()` title are re-thrown out of `parallel()` and `pipeline()`; the run ends `failed` and the error names the call. A thunk that throws on its own and an agent that failed still resolve to `null` with a `log()` line. A misspelt `agent()` option is still ignored, so a saved script keeps running; a `log()` line now names the ignored option. A script that passed a wrong-typed prompt inside `parallel()` and relied on the `null` must be corrected: it now fails the run, where before it produced `null`. The Workflow tool description tells the model the same.
+- fcf5867: The footer under the composer no longer repeats `Hypermode on` beside the effort; the mode is shown once, on the composer's upper rule. The footer's effort item now reads just `effort high`. Nothing to do on your side.
+- 4f08f84: No change for anyone using the terminal app. Internal: the rules that decide when the next model round starts (queued messages, goal rounds, wake notices) move out of the screen component into their own module, so they can be run without a screen. Nothing exported changes and no setting or command differs.
+- c9a0a73: An agent that is still running is now listed once. Before, the model also saw a second, "unresolved" record of the same job under its session ID and could tell you there was a stray unfinished copy. The saved-agents view and the note about earlier agents now leave out any agent that is running; "unresolved" still marks an agent with no recorded ending that is not running, for example after a crash or restart.
+- 976d848: A session running under `strict`, `auto` or an unattended mode now tells the model, in the notice that announces the mode, that a refused call is not followed by a question, so it picks another route or reports what was blocked instead of asking for approval nobody will give. The notice goes out on the first request of a session that starts in the mode and whenever it is switched on; the system prompt states no mode, so a mode switch does not change the cached prefix and leaves no stale sentence. No setting changes.
+- Updated dependencies [c9a0a73]
+- Updated dependencies [880586f]
+- Updated dependencies [880586f]
+- Updated dependencies [880586f]
+- Updated dependencies [880586f]
+- Updated dependencies [880586f]
+- Updated dependencies [880586f]
+- Updated dependencies [880586f]
+- Updated dependencies [880586f]
+- Updated dependencies [880586f]
+- Updated dependencies [880586f]
+- Updated dependencies [dd0f7eb]
+- Updated dependencies [dd0f7eb]
+- Updated dependencies [dd0f7eb]
+- Updated dependencies [dd0f7eb]
+- Updated dependencies [976d848]
+- Updated dependencies [1b54334]
+- Updated dependencies [abe120f]
+- Updated dependencies [976d848]
+- Updated dependencies [1be03f4]
+- Updated dependencies [c9a0a73]
+- Updated dependencies [976d848]
+- Updated dependencies [976d848]
+- Updated dependencies [976d848]
+- Updated dependencies [b501d3f]
+- Updated dependencies [1cef008]
+- Updated dependencies [976d848]
+- Updated dependencies [976d848]
+- Updated dependencies [976d848]
+- Updated dependencies [d72677f]
+  - @namzu/sdk@60.0.0
+  - @namzu/computer-use@4.0.0
+  - @namzu/anthropic@6.6.0
+  - @namzu/deepseek@2.3.0
+  - @namzu/sandbox@35.0.0
+  - @namzu/browser@2.0.1
+  - @namzu/ollama@2.3.0
+  - @namzu/openai@4.3.2
+  - @namzu/openrouter@3.1.0
+
 ## 44.2.0
 
 ### Minor Changes
