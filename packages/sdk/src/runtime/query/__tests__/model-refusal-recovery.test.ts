@@ -37,6 +37,7 @@ async function run(
 	provider: MockLLMProvider,
 	extra: {
 		refusalFallback?: 'auto' | 'off'
+		effort?: 'low' | 'high' | 'xhigh' | 'max'
 		maxIterations?: number
 		tokenBudget?: number
 		signal?: AbortSignal
@@ -63,6 +64,7 @@ async function run(
 				tokenBudget: extra.tokenBudget ?? 500_000,
 				maxIterations: extra.maxIterations ?? 8,
 				maxResponseTokens: 2_000,
+				...(extra.effort ? { effort: extra.effort } : {}),
 			},
 			agentId: 'agent_r',
 			agentName: 'Refusal',
@@ -119,6 +121,39 @@ describe('a model that declines to answer', () => {
 		expect(turn.messages.some((m) => m.role === 'assistant' && !m.content && !m.toolCalls)).toBe(
 			false,
 		)
+	})
+
+	it('sends the fallback the nearest effort it offers, and only on that request', async () => {
+		const provider = Object.assign(
+			new MockLLMProvider({
+				refusalFallbackModel: 'fallback-model',
+				turns: [refused, { text: 'Here is the answer' }],
+			}),
+			{
+				reasoningEffortLevelsFor: (model: string) =>
+					model === 'fallback-model' ? (['low', 'high', 'max'] as const) : undefined,
+			},
+		)
+		const { turn } = await run(provider, { effort: 'xhigh' })
+
+		expect(provider.requests.map((r) => [r.model, r.effort])).toEqual([
+			['primary-model', 'xhigh'],
+			['fallback-model', 'high'],
+		])
+		expect(turn.stopReason).toBe('end_turn')
+		expect(turn.result).toBe('Here is the answer')
+	})
+
+	it('keeps an effort the fallback already offers', async () => {
+		const provider = Object.assign(
+			new MockLLMProvider({
+				refusalFallbackModel: 'fallback-model',
+				turns: [refused, { text: 'ok' }],
+			}),
+			{ reasoningEffortLevelsFor: () => ['low', 'high', 'max'] as const },
+		)
+		await run(provider, { effort: 'max' })
+		expect(provider.requests.map((r) => r.effort)).toEqual(['max', 'max'])
 	})
 
 	it('is tried on the fallback only once: a second refusal settles refused', async () => {

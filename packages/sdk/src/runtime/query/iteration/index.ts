@@ -74,6 +74,7 @@ import {
 	projectRequestRichContent,
 } from '../request-rich-content.js'
 import { formatSteeringNote, isOperatorUserMessage } from '../steering.js'
+import { effortForModel } from './effort-clamp.js'
 import { parseNativeCandidate } from './native-output.js'
 import {
 	drainArrivedTaskCompletions,
@@ -1071,6 +1072,25 @@ export class IterationOrchestrator {
 						model: requestedMember.model ?? stepModel,
 						chainIndex: requestedMember.index,
 					}
+					// The turn's effort was chosen for the turn's own model. A request
+					// moved to another model (a refusal fallback, a live pick) carries
+					// the nearest level that model offers, for this request only.
+					let requestEffort = turnConfig.effort
+					if (requestEffort && stepModel !== model) {
+						requestEffort = effortForModel(
+							this.ctx.provider,
+							stepModel,
+							requestEffort,
+							turnConfig.thinking,
+						)
+						if (requestEffort !== turnConfig.effort) {
+							this.ctx.log.debug('Effort lowered to a level this model offers', {
+								'namzu.runtime.model': stepModel,
+								'namzu.runtime.effort_requested': turnConfig.effort,
+								'namzu.runtime.effort_used': requestEffort,
+							})
+						}
+					}
 					const operatorInputAtDispatch = this.latestUserMessage
 					const latestReviewUserMessage =
 						(this.ctx.reviewAnswer || this.ctx.structuredOutput?.review) && operatorInputAtDispatch
@@ -1112,7 +1132,7 @@ export class IterationOrchestrator {
 								outputCapOverride ?? step.maxResponseTokens ?? turnConfig.maxResponseTokens,
 							cacheControl: { type: 'auto' },
 							...(turnConfig.thinking ? { thinking: turnConfig.thinking } : {}),
-							...(turnConfig.effort ? { effort: turnConfig.effort } : {}),
+							...(requestEffort ? { effort: requestEffort } : {}),
 							...(!forceFinalize && turnConfig.webSearch
 								? { webSearch: turnConfig.webSearch }
 								: {}),
