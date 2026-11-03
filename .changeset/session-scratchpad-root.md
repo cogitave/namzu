@@ -1,0 +1,8 @@
+---
+"@namzu/sdk": minor
+"@namzu/cli": minor
+---
+
+A session's own scratch folder is now a place the file tools may write without asking. Until now a write to anything under `/tmp` was asked about every time (default and accept-edits) or refused (plan). The folder is `<temp base>/namzu-<user>/<project>/<session>/scratchpad`, where the base is `NAMZU_TMPDIR` or the operating system's temporary folder. It is made the first time a call names it, and only after Namzu has checked that it lies inside the private temporary folder with no symbolic link on the way and nobody else as owner; otherwise it stays outside and is asked about as before. Inside it, `write` and `edit` are not reviewed in default, accept-edits, plan, auto or bypass modes, and a path there is never reported as outside the working directory (also for hosts that set `outsideRootAccess: 'refuse'`, such as Pals). The model is told the folder exists, in one sentence of the environment block.
+
+What does not change: `/tmp` in general is still outside the roots (it is shared and world-writable), so is another session's scratch folder, `strict` mode still asks about everything, and a `deny` rule, a rule that asked for review, a protected path and a tool's own approval requirement still win over the new allowance. A sandboxed session does not get the folder (it is not mounted there). New: `ToolCallSummary.scratchpadWrite`, `ToolExecutorConfig.scratchpadDirectory`, `SessionPaths.scratchpadPath`, `ensureScratchpadDirectory`, `privateTempRootPath`. A host with its own review handler can read `scratchpadWrite` or ignore it and keep asking.

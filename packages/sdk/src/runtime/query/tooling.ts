@@ -28,6 +28,8 @@ export interface ToolingBootstrapConfig {
 	workingDirectory: string
 	/** See `QueryParams.additionalDirectories`. */
 	additionalDirectories?: readonly string[]
+	/** See `ToolExecutorConfig.scratchpadDirectory`. */
+	scratchpadDirectory?: string
 	/** See `QueryParams.outsideRootAccess`. */
 	outsideRootAccess?: 'refuse' | 'review'
 	/** See `QueryParams.sandboxEscape`. */
@@ -99,6 +101,7 @@ export class ToolingBootstrap {
 				...(config.additionalDirectories?.length
 					? { additionalDirectories: config.additionalDirectories }
 					: {}),
+				...(config.scratchpadDirectory ? { scratchpadDirectory: config.scratchpadDirectory } : {}),
 				...(config.outsideRootAccess ? { outsideRootAccess: config.outsideRootAccess } : {}),
 				...(config.sandboxEscape ? { sandboxEscape: config.sandboxEscape } : {}),
 				permissionMode: config.permissionMode,

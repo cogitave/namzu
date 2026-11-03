@@ -12,7 +12,12 @@ import type {
 } from '../types/ids/index.js'
 import { type ProjectDocument, ProjectDocumentSchema } from '../types/session/records.js'
 import { type EntityIdKind, asSessionId, generateProjectId, isEntityId } from '../utils/id.js'
-import { type PrivateTempRootOptions, TempDirectoryError, privateTempRoot } from '../utils/temp.js'
+import {
+	type PrivateTempRootOptions,
+	TempDirectoryError,
+	privateTempRoot,
+	privateTempRootPath,
+} from '../utils/temp.js'
 import { uuidv7 } from '../utils/uuidv7.js'
 
 /**
@@ -408,9 +413,22 @@ export class SessionPaths {
 		return join(this.sessionDir(locator), 'lease.json')
 	}
 
-	/** `$TMPDIR/namzu-<user>/<slug>/<session-id>/scratchpad`. Not created; the per-user root is. */
+	/** `<temp base>/namzu-<user>/<slug>/<session-id>/scratchpad`. Not created; the per-user root is. */
 	tempDir(sessionId: SessionId): string {
 		this.#tempRoot ??= tempRoot()
 		return join(this.#tempRoot, this.slug, checkId(sessionId, 'session'), 'scratchpad')
+	}
+
+	/**
+	 * Where {@link tempDir} is, creating and checking nothing, not even the
+	 * per-user root: for a caller that makes the folder only when it is first used.
+	 */
+	scratchpadPath(sessionId: SessionId): string {
+		return join(
+			this.#tempRoot ?? privateTempRootPath(),
+			this.slug,
+			checkId(sessionId, 'session'),
+			'scratchpad',
+		)
 	}
 }

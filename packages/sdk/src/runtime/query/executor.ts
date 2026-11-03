@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import type { Span } from '@opentelemetry/api'
 import type { AuthorizationGate } from '../../authorization/gate.js'
 import { unknownProgramInLine } from '../../authorization/program.js'
@@ -24,7 +24,7 @@ import { fingerprintContent } from '../../tools/builtins/content-fingerprint.js'
 import { sandboxShellSpawn, withoutBashStartup } from '../../tools/command-shell.js'
 import { isAlwaysDestructive } from '../../tools/defineTool.js'
 import { createFileReadTracker } from '../../tools/file-read-tracker.js'
-import { pathOutsideRoots, toolRoots } from '../../tools/paths.js'
+import { pathOutsideRoots, resolveWithinAnyReal, toolRoots } from '../../tools/paths.js'
 import { resolveRetainedOutput } from '../../tools/retained-output.js'
 import type { ToolManager } from '../../toolsets/manager.js'
 import type { ToolSourceRef } from '../../toolsets/types.js'
@@ -70,6 +70,7 @@ import { generateToolCallId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
 import { parseStructuredResultJson } from '../../utils/structured-result-json.js'
+import { ensureScratchpadDirectory } from '../../utils/temp.js'
 import { type BackgroundJobRegistry, type JobProcess, bindOwner } from '../jobs/registry.js'
 import { type BatchDetach, stillRunningResult } from './detached-calls.js'
 import {
@@ -155,12 +156,15 @@ export interface PreparedToolBatch {
 		readonly escalation?: ToolCallEscalation
 		/** What a `pre_tool_use` hook asked for this call's approval; see `ToolCallSummary.hookPermission`. */
 		readonly hookPermission?: PluginHookPermission
+		/** The call writes inside the session's scratch folder; see `ToolCallSummary.scratchpadWrite`. */
+		readonly scratchpadWrite?: true
 	}[]
 }
 
 interface OwnedPreparedToolBatch extends PreparedToolBatch {
 	readonly calls: ReadonlyMap<string, PreparedDirectCall>
 	readonly escalations: ReadonlyMap<string, ToolCallEscalation>
+	readonly scratchpadWrites: ReadonlySet<string>
 }
 
 /**
@@ -363,6 +367,13 @@ export interface ToolExecutorConfig {
 	workingDirectory: string
 	/** See `ToolContext.additionalDirectories`. */
 	additionalDirectories?: readonly string[]
+	/**
+	 * Where this session's own scratch folder is (it need not exist). It becomes
+	 * a root of the file tools, and a write inside it needs no review, once a call
+	 * names it and the folder has been made and checked. Unset on a sandboxed
+	 * turn and on a session with no layout on disk.
+	 */
+	scratchpadDirectory?: string
 	/** See `QueryParams.outsideRootAccess`. Default `'refuse'`. */
 	outsideRootAccess?: 'refuse' | 'review'
 	/** See `QueryParams.sandboxEscape`. Default `'refuse'`. */
@@ -814,6 +825,68 @@ export class ToolExecutor {
 	}
 
 	/** True once the turn has a sandbox, or is certain to get one before a tool runs. */
+	/** The scratch folder, once a call has named it and it has been made and checked. */
+	private scratchpadReady: string | undefined
+
+	/** The tools' roots now: the turn's, plus the scratch folder once it is ready. */
+	private rootsNow(): readonly string[] {
+		return toolRoots({
+			workingDirectory: this.config.workingDirectory,
+			additionalDirectories: this.additionalDirectoriesNow(),
+		})
+	}
+
+	private additionalDirectoriesNow(): readonly string[] | undefined {
+		if (this.scratchpadReady === undefined) return this.config.additionalDirectories
+		return [...(this.config.additionalDirectories ?? []), this.scratchpadReady]
+	}
+
+	/**
+	 * Make the session's scratch folder a root when a call names it. Lazy: a
+	 * session that never uses it leaves nothing on disk. The folder must be
+	 * inside the private temporary root with no link on the way; otherwise it
+	 * stays outside the roots and a path in it is asked about like any other.
+	 */
+	private admitScratchpad(call: PreparedSafetyCall): void {
+		const directory = this.config.scratchpadDirectory
+		if (directory === undefined || this.scratchpadReady !== undefined || this.sandboxed) return
+		if (call.kind === 'synthetic') return
+		let named = false
+		try {
+			named = JSON.stringify(call.input)?.includes(JSON.stringify(directory).slice(1, -1)) === true
+		} catch {
+			// An input that cannot be serialised names nothing.
+		}
+		if (!named) return
+		try {
+			this.scratchpadReady = ensureScratchpadDirectory(directory)
+		} catch (error) {
+			this.log.warn('The session scratch folder could not be made, so it stays outside the roots', {
+				'exception.message': error instanceof Error ? error.message : String(error),
+			})
+		}
+	}
+
+	/** Whether `call` writes a file inside the ready scratch folder and nothing else about it is notable. */
+	private async writesScratchpad(
+		call: PreparedSafetyCall,
+		escalation: ToolCallEscalation | undefined,
+	): Promise<boolean> {
+		const root = this.scratchpadReady
+		if (root === undefined || escalation !== undefined || call.kind === 'synthetic') return false
+		if (call.toolName !== 'write' && call.toolName !== 'edit') return false
+		const tool = this.config.tools.get(call.toolName)
+		if (!tool?.pathArgument || call.input === null || typeof call.input !== 'object') return false
+		const value = (call.input as Record<string, unknown>)[tool.pathArgument]
+		if (typeof value !== 'string' || !isAbsolute(value)) return false
+		try {
+			await resolveWithinAnyReal([root], value)
+			return true
+		} catch {
+			return false
+		}
+	}
+
 	private get sandboxed(): boolean {
 		return this.config.sandbox !== undefined || this.sandboxGate !== undefined
 	}
@@ -1126,6 +1199,7 @@ export class ToolExecutor {
 		if ((response.message.toolCalls ?? []).length > 0) await this.awaitSandbox()
 		const calls = new Map<string, PreparedDirectCall>()
 		const escalations = new Map<string, ToolCallEscalation>()
+		const scratchpadWrites = new Set<string>()
 		const earlierPaths: string[] = []
 		for (const toolCall of response.message.toolCalls ?? []) {
 			const prepared = await prepareDirectCall(
@@ -1137,11 +1211,13 @@ export class ToolExecutor {
 			const path = inputPathOf(prepared)
 			if (path !== undefined) earlierPaths.push(path)
 			calls.set(toolCall.id, call)
+			this.admitScratchpad(call)
 			const escalation = await this.escalationOrUnfinished(call)
 			if (escalation) escalations.set(toolCall.id, escalation)
+			if (await this.writesScratchpad(call, escalation)) scratchpadWrites.add(toolCall.id)
 		}
 		this.config.abortSignal.throwIfAborted()
-		return this.publishPreparedBatch(calls, escalations)
+		return this.publishPreparedBatch(calls, escalations, scratchpadWrites)
 	}
 
 	/**
@@ -1250,7 +1326,7 @@ export class ToolExecutor {
 				// result that was cut told the model to look.
 				const retained =
 					tool.name === 'read' && (await resolveRetainedOutput(this.outputDirectory(), value))
-				const outside = retained ? undefined : await pathOutsideRoots(toolRoots(this.config), value)
+				const outside = retained ? undefined : await pathOutsideRoots(this.rootsNow(), value)
 				if (outside !== undefined) outsidePaths = [outside]
 			}
 		}
@@ -1307,7 +1383,7 @@ export class ToolExecutor {
 		protectedPaths: readonly string[]
 		dangerousRemoval?: string
 	}> {
-		const roots = toolRoots(this.config)
+		const roots = this.rootsNow()
 		const protectedPaths: string[] = []
 		let outsidePaths: readonly string[] = []
 		let removal: string | undefined
@@ -1376,6 +1452,7 @@ export class ToolExecutor {
 		}
 		const calls = new Map((previous as OwnedPreparedToolBatch).calls)
 		const escalations = new Map((previous as OwnedPreparedToolBatch).escalations)
+		const scratchpadWrites = new Set((previous as OwnedPreparedToolBatch).scratchpadWrites)
 		const earlierPaths: string[] = []
 		for (const toolCall of response.message.toolCalls ?? []) {
 			if (changedCallIds.has(toolCall.id)) {
@@ -1384,21 +1461,25 @@ export class ToolExecutor {
 					earlierPaths,
 				)
 				calls.set(toolCall.id, call)
+				this.admitScratchpad(call)
 				const escalation = await this.escalationOrUnfinished(call)
 				if (escalation) escalations.set(toolCall.id, escalation)
 				else escalations.delete(toolCall.id)
+				if (await this.writesScratchpad(call, escalation)) scratchpadWrites.add(toolCall.id)
+				else scratchpadWrites.delete(toolCall.id)
 			}
 			const prepared = calls.get(toolCall.id)
 			const path = prepared ? inputPathOf(prepared) : undefined
 			if (path !== undefined) earlierPaths.push(path)
 		}
 		this.config.abortSignal.throwIfAborted()
-		return this.publishPreparedBatch(calls, escalations)
+		return this.publishPreparedBatch(calls, escalations, scratchpadWrites)
 	}
 
 	private publishPreparedBatch(
 		calls: ReadonlyMap<string, PreparedDirectCall>,
 		escalations: ReadonlyMap<string, ToolCallEscalation>,
+		scratchpadWrites: ReadonlySet<string>,
 	): PreparedToolBatch {
 		const reviewCalls = [...calls.values()]
 			.filter(
@@ -1414,12 +1495,14 @@ export class ToolExecutor {
 					input: call.input,
 					...(escalation ? { escalation } : {}),
 					...(hookPermission ? { hookPermission } : {}),
+					...(scratchpadWrites.has(call.toolCall.id) ? { scratchpadWrite: true as const } : {}),
 				}
 			})
 		const batch: OwnedPreparedToolBatch = Object.freeze({
 			reviewCalls: Object.freeze(reviewCalls),
 			calls: new Map(calls),
 			escalations: new Map(escalations),
+			scratchpadWrites: new Set(scratchpadWrites),
 		})
 		this.preparedBatches.add(batch)
 		return batch
@@ -2032,6 +2115,7 @@ export class ToolExecutor {
 		} catch {
 			needsApproval = true
 		}
+		this.admitScratchpad(preparedCall)
 		const nestedEscalation = await this.escalationOrUnfinished(preparedCall)
 		if (nestedEscalation || needsApproval || (gateResult && gateResult.decision !== 'allow')) {
 			const reason = nestedEscalation
@@ -2276,8 +2360,8 @@ export class ToolExecutor {
 			sessionId: this.config.sessionId,
 			turnId: this.config.turnId,
 			workingDirectory: this.config.workingDirectory,
-			...(this.config.additionalDirectories?.length
-				? { additionalDirectories: this.config.additionalDirectories }
+			...(this.additionalDirectoriesNow()?.length
+				? { additionalDirectories: this.additionalDirectoriesNow() }
 				: {}),
 			...(this.config.authorizationGate
 				? {

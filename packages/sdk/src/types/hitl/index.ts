@@ -301,6 +301,14 @@ export interface ToolCallSummary {
 	 */
 	skillGrant?: { readonly skill: string }
 	/**
+	 * Set when this call writes a file inside the session's own scratch folder
+	 * and nothing else about it needs a person: the folder is the session's, so
+	 * the review policy does not ask about it (outside `strict`, which asks about
+	 * everything). A rule that asked for review, a protected path and a tool's
+	 * own `requiresApproval` all keep the call in review whatever this says.
+	 */
+	scratchpadWrite?: true
+	/**
 	 * What a `pre_tool_use` hook answered about approving this call, as the
 	 * hooks reported it. `ask` is acted on by the kernel (it makes the call an
 	 * explicit review); `allow` is acted on only through {@link hookGrant}.

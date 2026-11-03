@@ -298,7 +298,9 @@ export {
 	type TempDirectoryFailure,
 	createTempDir,
 	createTempDirSync,
+	ensureScratchpadDirectory,
 	privateTempRoot,
+	privateTempRootPath,
 	resolveTempBase,
 	tempFilePath,
 } from './utils/temp.js'

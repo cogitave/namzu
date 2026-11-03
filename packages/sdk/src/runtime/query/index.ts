@@ -1542,6 +1542,17 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// pre-approves ends with the turn. Shared by the executor, where the
 		// `skill` tool records a grant, and the review phase, which reads it.
 		const skillGrants = new SkillGrantSet()
+		// The session's own scratch folder, a root of the file tools once a call
+		// names it. Not for a sandboxed turn (it is not mounted there), and not
+		// for a session whose state is not on disk.
+		let scratchpadDirectory: string | undefined
+		if (!params.sandboxProvider) {
+			try {
+				scratchpadDirectory = ctx.storage.paths?.scratchpadPath(ctx.sessionId)
+			} catch {
+				scratchpadDirectory = undefined
+			}
+		}
 		const toolExecutor = ToolingBootstrap.init(
 			{
 				skillGrants,
@@ -1555,6 +1566,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				...(params.additionalDirectories?.length
 					? { additionalDirectories: params.additionalDirectories }
 					: {}),
+				...(scratchpadDirectory ? { scratchpadDirectory } : {}),
 				...(params.outsideRootAccess ? { outsideRootAccess: params.outsideRootAccess } : {}),
 				...(params.sandboxEscape ? { sandboxEscape: params.sandboxEscape } : {}),
 				permissionMode: () => ctx.permissionMode.current,

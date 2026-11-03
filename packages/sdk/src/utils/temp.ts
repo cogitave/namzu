@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { lstatSync, mkdirSync, mkdtempSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir, userInfo } from 'node:os'
-import { isAbsolute, join } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 /**
  * Namzu's own scratch space: the one place that decides where temporary files
@@ -133,8 +133,11 @@ function sha256Hex(value: string): string {
  *
  * @throws {TempDirectoryError} when it cannot be created or is not safe to use.
  */
-export function privateTempRoot(options: PrivateTempRootOptions = {}): string {
-	const platform = options.platform ?? process.platform
+/**
+ * Where {@link privateTempRoot} lives, without creating or checking anything.
+ * For a caller that needs to know a path before it is worth making it.
+ */
+export function privateTempRootPath(options: PrivateTempRootOptions = {}): string {
 	const getuid = 'getuid' in options ? options.getuid : process.getuid?.bind(process)
 	let user = 'user'
 	if (typeof getuid === 'function') {
@@ -147,7 +150,13 @@ export function privateTempRoot(options: PrivateTempRootOptions = {}): string {
 			// No user database entry: fall back to the fixed segment.
 		}
 	}
-	const root = join(options.tmpdir ?? resolveTempBase(options.env), `namzu-${user}`)
+	return join(options.tmpdir ?? resolveTempBase(options.env), `namzu-${user}`)
+}
+
+export function privateTempRoot(options: PrivateTempRootOptions = {}): string {
+	const platform = options.platform ?? process.platform
+	const getuid = 'getuid' in options ? options.getuid : process.getuid?.bind(process)
+	const root = privateTempRootPath(options)
 	try {
 		mkdirSync(root, { mode: 0o700 })
 	} catch (error) {
@@ -198,4 +207,44 @@ export async function createTempDir(
  */
 export function tempFilePath(name: string, options: PrivateTempRootOptions = {}): string {
 	return join(privateTempRoot(options), name)
+}
+
+/**
+ * Make a session's scratch folder (and the folders above it, mode 0700) and
+ * confirm it is safe to treat as a place the session may write freely: it lies
+ * inside the private root, and neither it nor any folder between it and the
+ * root is a symbolic link, a non-folder or owned by someone else. Made on
+ * first use, not before, so a session that never needs it leaves nothing behind.
+ *
+ * @throws {TempDirectoryError} when it cannot be made or is not safe; the
+ * caller then leaves the folder outside the session's roots.
+ */
+export function ensureScratchpadDirectory(
+	directory: string,
+	options: PrivateTempRootOptions = {},
+): string {
+	const root = privateTempRoot(options)
+	const target = resolve(directory)
+	const inside = relative(root, target)
+	if (inside === '' || inside.startsWith('..') || isAbsolute(inside)) {
+		throw refuse(target, 'it is not inside the private temporary folder.')
+	}
+	const getuid = 'getuid' in options ? options.getuid : process.getuid?.bind(process)
+	const platform = options.platform ?? process.platform
+	let current = root
+	for (const part of inside.split(sep)) {
+		current = join(current, part)
+		try {
+			mkdirSync(current, { mode: 0o700 })
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw explain(error, current) ?? error
+		}
+		const entry = lstatSync(current)
+		if (entry.isSymbolicLink()) throw refuse(current, 'it is a symbolic link.')
+		if (!entry.isDirectory()) throw refuse(current, 'it is not a directory.')
+		if (platform !== 'win32' && typeof getuid === 'function' && entry.uid !== getuid()) {
+			throw refuse(current, `it belongs to uid ${entry.uid}.`)
+		}
+	}
+	return target
 }
