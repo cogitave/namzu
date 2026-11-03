@@ -140,6 +140,25 @@ const MAPPING: {
 			],
 		}),
 
+	// The answer arriving next may come from another model than the peer asked
+	// for, or the turn may end declined: both are news. Still `running`; the
+	// stop reason carries the final word.
+	model_refusal: (e, ctx) =>
+		statusEvent(e.turnId, 'running', false, ctx, {
+			role: 'agent',
+			parts: [
+				{
+					kind: 'text',
+					text:
+						e.outcome === 'fallback' && e.fallbackModel
+							? `${e.model} declined to answer; continuing on ${e.fallbackModel}`
+							: e.outcome === 'retry'
+								? `${e.model} stopped its reply; continuing once with that noted`
+								: `${e.model} declined to answer`,
+				},
+			],
+		}),
+
 	tool_completed: (e, ctx) =>
 		artifactEvent(e.turnId, ctx, {
 			artifactId: `tool-${e.toolName}-${Date.now()}`,

@@ -46,6 +46,7 @@ const STOP_REASONS: Readonly<Record<string, AcpStopReason>> = {
 	input_guardrail: 'refused',
 	output_guardrail: 'refused',
 	step_refused: 'refused',
+	refused: 'refused',
 	plan_rejected: 'refused',
 	answer_rejected: 'refused',
 	structured_output_failed: 'error',
@@ -59,7 +60,11 @@ export function toAcpStopReason(reason: StopReason | string | undefined): AcpSto
 	return STOP_REASONS[reason] ?? 'error'
 }
 
-function messageIdentity(event: { messageId?: string; turnId?: string; iteration?: number }) {
+function messageIdentity(event: {
+	messageId?: string
+	turnId?: string
+	iteration?: number
+}) {
 	return {
 		...(event.messageId === undefined ? {} : { messageId: event.messageId }),
 		...(event.turnId === undefined ? {} : { turnId: event.turnId }),

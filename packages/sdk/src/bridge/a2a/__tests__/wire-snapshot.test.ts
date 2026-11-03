@@ -64,12 +64,12 @@ describe('every SessionEvent has a decided place on the A2A wire', () => {
 		expect(declined).toBeGreaterThan(mapped)
 	})
 
-	it('maps exactly twelve of the sixty-four, each as the turn of the session', () => {
+	it('maps exactly thirteen of the sixty-five, each as the turn of the session', () => {
 		// An A2A task is one turn and its context one session. Every mapped
 		// event is one that only happens inside a turn, so every one of them
 		// names its task.
 		const entries = Object.entries(FIXTURES)
-		expect(entries).toHaveLength(64)
+		expect(entries).toHaveLength(65)
 		const mapped = entries
 			.map(([type, build]) => {
 				// The shared fixture is minimal and carries no aggregated text;
@@ -79,7 +79,7 @@ describe('every SessionEvent has a decided place on the A2A wire', () => {
 				return { type, event, a2a: mapTurnToA2AEvent(event) }
 			})
 			.filter((entry) => entry.a2a !== null)
-		expect(mapped).toHaveLength(12)
+		expect(mapped).toHaveLength(13)
 		for (const { type, event, a2a } of mapped) {
 			expect(a2a?.taskId, type).toBe(event.turnId)
 			// With no context id from the peer, the session is the context.

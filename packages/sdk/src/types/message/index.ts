@@ -367,6 +367,7 @@ export const RUNTIME_CONTEXT_MESSAGE_KINDS = [
 	'peer-notice',
 	'reminder',
 	'repeat-call',
+	'refusal-retry',
 	'steering',
 	'step-context',
 	'structured-output',
@@ -695,9 +696,10 @@ export function createTurnContextEntry(
 }
 
 /** The key a recorded context entry is filed under, or undefined for any other message. */
-export function turnContextKey(message: { readonly role: string; readonly source?: unknown }):
-	| string
-	| undefined {
+export function turnContextKey(message: {
+	readonly role: string
+	readonly source?: unknown
+}): string | undefined {
 	if (message.role !== 'user') return undefined
 	const source = message.source as RuntimeContextMessageSource | undefined
 	return source?.type === 'runtime-context' && source.kind === 'turn-context'

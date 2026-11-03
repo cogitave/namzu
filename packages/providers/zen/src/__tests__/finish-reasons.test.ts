@@ -76,6 +76,14 @@ describe('Zen — a proxied backend context-window stop', () => {
 		expect(response.finishDetail).toBe('context_window')
 	})
 
+	it('says a refusal is a refusal, and only a refusal', async () => {
+		const refused = await finishOf('refusal')
+		expect(refused.finishReason).toBe('content_filter')
+		expect(refused.refusal).toEqual({})
+		const ended = await finishOf('end_turn')
+		expect('refusal' in ended).toBe(false)
+	})
+
 	it('gives no finishDetail for a plain output-limit length (max_tokens)', async () => {
 		const response = await finishOf('max_tokens')
 		expect(response.finishReason).toBe('length')

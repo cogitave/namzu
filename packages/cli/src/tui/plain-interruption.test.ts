@@ -70,6 +70,19 @@ describe('a conversation the model cannot hold', () => {
 		expect(text).not.toMatch(/\/new|\/clear|start (?:a )?new|start fresh|start over/i)
 	})
 
+	it('says a thrown content-filter error the way a refusal row does', () => {
+		const text = describePlainInterruption(
+			failed({
+				explanation: { id: 'provider.content_filter', message: 'x', hint: 'y' },
+				providerError: { kind: 'bad_request', providerId: 'openai' },
+			}),
+		)
+		expect(text).toBe(
+			'OpenAI declined to answer this message. This sometimes happens with safe, normal requests. Press esc twice to edit your message, or pick another model with /model.',
+		)
+		expect(text).not.toMatch(/new session|start (?:a )?new|rephrase/i)
+	})
+
 	it('adds the compaction cause on the debug line only', () => {
 		const event = failed({
 			message: 'prompt is too long · automatic compaction failed: reducer backend down',

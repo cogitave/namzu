@@ -3,6 +3,7 @@ import { type SessionTokenBudgetSummary, type StopReason, hostTimeZone } from '@
 import { currentTimeLine } from '../schedule/fire/unattended-note.js'
 
 import type { AgentEvent } from './agent.js'
+import { REFUSED_TURN_NOTICE } from './model-refusal.js'
 import { terminalDisplayText } from './terminal-display.js'
 import {
 	ZEN_FREE_REFUSED_NEXT,
@@ -58,6 +59,8 @@ export function describeTurnStop(
 			return 'An output check refused the result.'
 		case 'paused':
 			return 'Paused.'
+		case 'refused':
+			return REFUSED_TURN_NOTICE
 		case 'error':
 			return 'Stopped after an error.'
 	}

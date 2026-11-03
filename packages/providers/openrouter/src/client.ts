@@ -53,7 +53,7 @@ const CONTEXT_WINDOW_NATIVE_REASONS = new Set([
 function mapFinishReason(
 	reason: string | null | undefined,
 	nativeReason: string | null | undefined,
-): Pick<StreamChunk, 'finishReason' | 'finishDetail'> {
+): Pick<StreamChunk, 'finishReason' | 'finishDetail' | 'refusal'> {
 	switch (reason) {
 		case null:
 		case undefined:
@@ -67,7 +67,7 @@ function mapFinishReason(
 		case 'function_call':
 			return { finishReason: 'tool_calls' }
 		case 'content_filter':
-			return { finishReason: 'content_filter' }
+			return { finishReason: 'content_filter', refusal: {} }
 		case 'error':
 			throw new ProviderRequestError({
 				kind: 'server',

@@ -4,6 +4,7 @@ export type {
 	CacheControl,
 	ChatCompletionParams,
 	ChatCompletionResponse,
+	ProviderRefusal,
 	ReasoningEffort,
 	ThinkingConfig,
 } from './chat.js'

@@ -714,6 +714,7 @@ export class CodexProvider implements LLMProvider {
 							id: event.response.id,
 							delta: {},
 							finishReason: reason === 'content_filter' ? 'content_filter' : 'length',
+							...(reason === 'content_filter' ? { refusal: {} } : {}),
 							usage: responseUsage(event.response.usage ?? {}),
 						}
 						break

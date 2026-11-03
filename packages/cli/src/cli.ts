@@ -847,6 +847,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 						? { composerTriggers: resolvedCtx.config.composerTriggers }
 						: {}),
 					...(resolvedCtx.config.hypermode === true ? { hypermode: true } : {}),
+					...(resolvedCtx.config.refusalFallback
+						? { refusalFallback: resolvedCtx.config.refusalFallback }
+						: {}),
 					...(resolvedCtx.config.learningObservations === false
 						? { learningObservations: false }
 						: {}),
