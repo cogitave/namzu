@@ -370,6 +370,37 @@ it('draws a failed compaction as one plain sentence without the reducer or the r
 	}
 })
 
+it('draws a full disk as one plain row, and the recovery as one more, with nothing to start over', async () => {
+	scripts.fulldisk = (map) =>
+		[
+			map(
+				sdk({
+					type: 'session_log_degraded',
+					cause: 'disk_full',
+					bufferedRecords: 1,
+					bufferedBytes: 900,
+				}),
+			),
+			{ kind: 'delta', text: 'Still answering.' },
+			map(sdk({ type: 'session_log_recovered', flushedRecords: 3, droppedRecords: 0 })),
+			{ kind: 'done', stopReason: 'end_turn' },
+		].filter(Boolean) as AgentEvent[]
+	const screen = await boot()
+	try {
+		await submit(screen, 'fulldisk')
+		await until(screen, () => text(screen).includes('Transcript writes work again.'))
+		const shown = text(screen).replace(/\s+/g, ' ')
+		expect(shown.match(/Transcript writes are failing/g)).toHaveLength(1)
+		expect(shown).toContain(
+			'Transcript writes are failing (the disk is full). Recent messages may not be saved for resume.',
+		)
+		expect(shown.match(/Transcript writes work again\./g)).toHaveLength(1)
+		expect(shown).not.toMatch(/\/new|new session|start over|ENOSPC|disk_full|buffered/i)
+	} finally {
+		await screen.unmount()
+	}
+})
+
 it.each([
 	['refusal', 'step_refused', 'The model refused to continue.'],
 	['stopcond', 'stop_condition', 'a stop condition you set was met'],

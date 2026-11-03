@@ -400,6 +400,7 @@ import {
 import {
 	describeCapabilityNotice,
 	describeHistoryRepairNotice,
+	describeTranscriptWrites,
 	withDebugDetail,
 } from './capability-notice.js'
 import {
@@ -9450,6 +9451,12 @@ function AppBody({
 					)
 					break
 				}
+				case 'transcript-writes':
+					pushSystem(
+						event.state === 'working' ? 'notice' : 'warning',
+						describeTranscriptWrites(event.state),
+					)
+					break
 				case 'capability-warning':
 					pushSystem(
 						'warning',

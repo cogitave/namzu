@@ -792,6 +792,12 @@ export type AgentEvent =
 			readonly text: string
 			readonly halted?: true
 	  }
+	/**
+	 * The session log stopped being written (the disk is full) or writes again.
+	 * `failing` is sent on entering, `dropping` once more if the buffer of unsaved
+	 * messages overflowed, `working` on recovery.
+	 */
+	| { readonly kind: 'transcript-writes'; readonly state: 'failing' | 'dropping' | 'working' }
 	| {
 			readonly kind: 'capability-warning'
 			readonly capability: Extract<SessionEvent, { type: 'capability_warning' }>['capability']
@@ -8672,6 +8678,10 @@ export function toAgentEvent(
 				...(event.category ? { category: event.category } : {}),
 				...(event.explanation ? { explanation: event.explanation } : {}),
 			}
+		case 'session_log_degraded':
+			return { kind: 'transcript-writes', state: event.dropping ? 'dropping' : 'failing' }
+		case 'session_log_recovered':
+			return { kind: 'transcript-writes', state: 'working' }
 		case 'capability_warning':
 			return {
 				kind: 'capability-warning',
