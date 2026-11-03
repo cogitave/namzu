@@ -2,10 +2,12 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { REFUSED_REPLY_RETRY_MESSAGE } from '../../../constants/continuation.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
@@ -33,7 +35,13 @@ const refused: MockTurn = {
 
 async function run(
 	provider: MockLLMProvider,
-	extra: { refusalFallback?: 'auto' | 'off'; maxIterations?: number } = {},
+	extra: {
+		refusalFallback?: 'auto' | 'off'
+		maxIterations?: number
+		tokenBudget?: number
+		signal?: AbortSignal
+		onEvent?: (event: SessionEvent) => void
+	} = {},
 ) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-refusal-'))
 	dirs.push(workingDirectory)
@@ -41,11 +49,18 @@ async function run(
 	const turn = await drainQuery(
 		{
 			provider,
-			toolsets: [],
+			toolsets: [
+				testToolset({
+					name: 'observe',
+					description: 'Return observed work',
+					inputSchema: z.object({}),
+					execute: async () => ({ success: true, output: 'Observed.' }),
+				}),
+			],
 			turnConfig: {
 				model: 'primary-model',
 				timeoutMs: 20_000,
-				tokenBudget: 500_000,
+				tokenBudget: extra.tokenBudget ?? 500_000,
 				maxIterations: extra.maxIterations ?? 8,
 				maxResponseTokens: 2_000,
 			},
@@ -59,9 +74,11 @@ async function run(
 			tenantId: '09baa4c3-d377-42ba-80c6-b90340766578' as TenantId,
 			retry: false,
 			...(extra.refusalFallback ? { refusalFallback: extra.refusalFallback } : {}),
+			...(extra.signal ? { signal: extra.signal } : {}),
 		},
 		(event) => {
 			events.push(event)
+			extra.onEvent?.(event)
 		},
 	)
 	return { turn, events }
@@ -190,5 +207,42 @@ describe('a model that declines to answer', () => {
 		expect(provider.requests).toHaveLength(2)
 		expect(turn.stopReason).toBe('refused')
 		expect(refusals(events).map((e) => e.outcome)).toEqual(['retry', 'declined'])
+	})
+
+	it('keeps the limit as the stop reason when the closing step it asked for is declined', async () => {
+		const provider = new MockLLMProvider({
+			turns: [
+				{
+					toolCalls: [{ id: 'observe-1', name: 'observe', args: {} }],
+					usage: { promptTokens: 475, completionTokens: 475, totalTokens: 950 },
+				},
+				refused,
+			],
+		})
+		const { turn, events } = await run(provider, { tokenBudget: 1_000 })
+
+		// The closing step is never retried or moved: it is the last request.
+		expect(provider.requests).toHaveLength(2)
+		expect(turn.stopReason).toBe('token_budget')
+		expect(refusals(events).map((e) => e.outcome)).toEqual(['declined'])
+	})
+
+	it('settles cancelled, and announces nothing, when the turn was stopped as the reply was declined', async () => {
+		const controller = new AbortController()
+		const provider = new MockLLMProvider({
+			refusalFallbackModel: 'fallback-model',
+			turns: [refused, { text: 'unused' }],
+		})
+		// The stop lands after the last frame of the declined reply has arrived.
+		const stream = provider.chatStream.bind(provider)
+		provider.chatStream = async function* (params) {
+			yield* stream(params)
+			controller.abort()
+		}
+		const { turn, events } = await run(provider, { signal: controller.signal })
+
+		expect(provider.requests).toHaveLength(1)
+		expect(turn.stopReason).toBe('cancelled')
+		expect(refusals(events)).toEqual([])
 	})
 })
