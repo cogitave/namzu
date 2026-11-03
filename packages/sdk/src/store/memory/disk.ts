@@ -261,6 +261,7 @@ export class DiskMemoryStore implements ConditionalMemoryStore {
 		const release = await acquireMemoryOperationLock(
 			join(dirname(location.indexPath), 'operation.lock'),
 			this.lockTimeoutMs,
+			{ logger: this.log },
 		)
 		try {
 			await this.reloadIndex(location)

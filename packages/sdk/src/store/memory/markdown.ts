@@ -418,6 +418,7 @@ export class MarkdownMemoryStore implements ConditionalMemoryStore {
 		const release = await acquireMemoryOperationLock(
 			join(dir, 'operation.lock'),
 			this.lockTimeoutMs,
+			{ logger: this.log },
 		)
 		try {
 			const { loaded, superseded } = await this.load(dir, mode.importing ?? false)

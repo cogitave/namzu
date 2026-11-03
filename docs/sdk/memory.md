@@ -250,11 +250,34 @@ Read access therefore also requires permission to create and remove the lock.
 
 `lockTimeoutMs` defaults to 10,000 and must be a positive safe integer. It bounds
 waiting to acquire a busy lock, not the duration of the operation after acquiring
-it. An occupied symlink or non-regular lock file is refused. A crashed process
-can leave a lock behind: Namzu never removes one just because it looks old. The
-`storage_error` diagnostic names the lock path and tells the operator to stop
-all processes using the store and inspect its owner before removing a stale
-lock. An owner mismatch during release is also an error.
+it. An occupied symlink or non-regular lock file is refused.
+
+A lock left behind by a process that died is recovered automatically, and only
+when its owner is provably gone. The owner record holds the pid, a token, the
+acquisition time and the host name.
+
+- A record whose pid does not exist on this machine (`kill(pid, 0)` reports no
+  such process; "not permitted" counts as alive) is stale. A record from another
+  host is never broken, and a record without a host (an older version) is
+  treated as local.
+- An empty or unparsable lock file is stale only once its modification time is
+  more than five seconds old, longer than the gap between creating the file and
+  writing the record. A younger one is a writer in progress and is waited for.
+- A live pid is never overridden. A live pid that is not Namzu (the number was
+  reused after the real owner died) cannot be told apart from the owner, so
+  that lock stays until the pid goes away; the age of `acquiredAt` is not a
+  lease and is not used.
+- Breakers are serialised through `operation.lock.break`, created exclusively.
+  Under it the lock is read again, and it is unlinked only if it is still the
+  same file with the same content and the same stale verdict. A leftover break
+  file from a dead breaker is cleared by the same rule. The break is logged at
+  info level with the lock path and the reason.
+
+When the owner is alive, the `storage_error` (details `lockPath`, `timeoutMs`;
+not retryable) reads "Another Namzu process (pid N) is using the stored memory.
+Close it, or wait for it to finish." An owner mismatch during release is also
+an error. A write failure while recording the owner (a full disk) removes the
+lock file again, so it cannot leave an empty one.
 
 This is cooperating-writer exclusion, not distributed coordination or a
 crash-atomic transaction across the index and content files. An I/O failure or
