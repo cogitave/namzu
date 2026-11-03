@@ -11945,7 +11945,10 @@ function AppBody({
 					permissionResolveRef.current !== null ||
 					compactingRef.current ||
 					Boolean(pendingModelSwitchRef.current) ||
-					roundQueueRef.current.items().length > 0)
+					// Messages held by a pause are not ahead of it in any useful sense:
+					// the pause only lifts through a command (`/resume`, `/clear`), so
+					// waiting behind them would wait for itself.
+					(roundQueueRef.current.items().length > 0 && roundQueueRef.current.pause() === null))
 			) {
 				enqueueQueued({
 					kind: 'human',
