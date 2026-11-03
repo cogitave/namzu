@@ -65,6 +65,22 @@ describe('placing panes', () => {
 		expect(place(root, { ...AREA, width: 20 }).panes[0]?.outer.width).toBe(9)
 	})
 
+	it('never gives a pane no room, even in a degenerate area', () => {
+		const { root } = threePanes()
+		for (let width = 1; width <= 4; width++) {
+			for (let height = 1; height <= 4; height++) {
+				for (const ratio of [0.01, 0.5, 0.99]) {
+					const tree = root as { ratio: number }
+					tree.ratio = ratio
+					for (const p of place(root, { x: 0, y: 0, width, height }).panes) {
+						expect(p.outer.width).toBeGreaterThanOrEqual(1)
+						expect(p.outer.height).toBeGreaterThanOrEqual(1)
+					}
+				}
+			}
+		}
+	})
+
 	it('zooms the focused pane to the whole area, keeping its border', () => {
 		const { b, root } = threePanes()
 		const zoomed = placeTab({ root, focus: b, zoomed: true }, AREA)

@@ -194,20 +194,20 @@ export function place(root: Node, area: Rect): Placement {
 		if (node.dir === 'side') {
 			const first = firstShare(rect.width - SPLIT_GAP, node.ratio, MIN_PANE_WIDTH)
 			dividers.push({ split: node, area: rect, at: rect.x + first })
-			walk(node.a, { ...rect, width: first })
+			walk(node.a, { ...rect, width: Math.max(1, first) })
 			walk(node.b, {
 				...rect,
 				x: rect.x + first + SPLIT_GAP,
-				width: rect.width - first - SPLIT_GAP,
+				width: Math.max(1, rect.width - first - SPLIT_GAP),
 			})
 		} else {
 			const first = firstShare(rect.height - SPLIT_GAP, node.ratio, MIN_PANE_HEIGHT)
 			dividers.push({ split: node, area: rect, at: rect.y + first })
-			walk(node.a, { ...rect, height: first })
+			walk(node.a, { ...rect, height: Math.max(1, first) })
 			walk(node.b, {
 				...rect,
 				y: rect.y + first + SPLIT_GAP,
-				height: rect.height - first - SPLIT_GAP,
+				height: Math.max(1, rect.height - first - SPLIT_GAP),
 			})
 		}
 	}
