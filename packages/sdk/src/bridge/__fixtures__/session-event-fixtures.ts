@@ -184,6 +184,21 @@ export const SESSION_EVENT_FIXTURES: Record<SessionEvent['type'], () => SessionE
 		discoveries: 0,
 		failures: 0,
 	}),
+	session_log_degraded: () => ({
+		type: 'session_log_degraded',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		cause: 'disk_full',
+		bufferedRecords: 1,
+		bufferedBytes: 1,
+	}),
+	session_log_recovered: () => ({
+		type: 'session_log_recovered',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		flushedRecords: 1,
+		droppedRecords: 0,
+	}),
 	compaction_started: () => ({
 		type: 'compaction_started',
 		sessionId: FIXTURE_SESSION_ID,

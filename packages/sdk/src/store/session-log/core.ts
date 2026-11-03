@@ -211,7 +211,58 @@ export interface SessionLog {
 	/** The folded conversation (spec §4.5), spills read back. */
 	messages(options?: { readonly throughSeq?: number }): Promise<Message[]>
 	readSpill(ref: SpillRef, options?: SpillReadOptions): Promise<string>
+	/**
+	 * Be told when the log stops being able to write (the disk is full) and
+	 * when it can write again. Returns the function that stops the
+	 * notifications. A log that cannot degrade does not offer this.
+	 */
+	onWriteHealth?(listener: (change: SessionLogWriteHealth) => void): () => void
 }
+
+/** Why a log's writes are failing; each is a full or unwritable volume. */
+export type SessionLogDegradedCause = 'disk_full' | 'quota_exceeded' | 'read_only'
+
+/**
+ * A change in whether a log can write. While `degraded` the session goes on
+ * in memory and the records not yet written wait in a bounded buffer.
+ */
+export type SessionLogWriteHealth =
+	| {
+			readonly state: 'degraded'
+			readonly cause: SessionLogDegradedCause
+			/** Records waiting to be written, including the one that failed. */
+			readonly bufferedRecords: number
+			readonly bufferedBytes: number
+			/**
+			 * Set on the one notification sent when the buffer first overflowed
+			 * and the oldest waiting records were discarded.
+			 */
+			readonly dropping?: true
+	  }
+	| {
+			readonly state: 'recovered'
+			/** Records written from the buffer, in order. */
+			readonly flushedRecords: number
+			/** Records discarded while the buffer was full; the log has a gap where they were. */
+			readonly droppedRecords: number
+	  }
+
+/** The cause when `error` is the volume refusing writes, else `undefined`. */
+export function sessionLogDegradedCause(error: unknown): SessionLogDegradedCause | undefined {
+	switch ((error as NodeJS.ErrnoException | undefined)?.code) {
+		case 'ENOSPC':
+			return 'disk_full'
+		case 'EDQUOT':
+			return 'quota_exceeded'
+		case 'EROFS':
+			return 'read_only'
+		default:
+			return undefined
+	}
+}
+
+/** Default bound on records held in memory while a log cannot write. */
+export const DEFAULT_DEGRADED_BUFFER_BYTES = 8 * 1024 * 1024
 
 /** A draft that is not a valid session record once enveloped. */
 export class InvalidSessionRecordError extends Error {
@@ -271,6 +322,12 @@ export interface SessionLogCoreOptions {
 	 * and decisions. `all` or `none` as named.
 	 */
 	readonly sync?: 'boundaries' | 'all' | 'none'
+	/**
+	 * Bytes of records kept in memory while the volume refuses writes (full,
+	 * over quota, read-only). Past it the oldest are discarded. Default
+	 * {@link DEFAULT_DEGRADED_BUFFER_BYTES}.
+	 */
+	readonly degradedBufferBytes?: number
 }
 
 const BOUNDARY_TYPES: ReadonlySet<string> = new Set([
@@ -289,6 +346,8 @@ const BOUNDARY_TYPES: ReadonlySet<string> = new Set([
 
 /** Characters of a spilled message kept inline as its preview. */
 const PREVIEW_CHARS = 2000
+/** Added to a preview whose full body could not be written. */
+const NOT_SAVED_NOTE = '[… the rest of this output could not be saved: the disk is full]'
 /** Default byte bound above which a `compaction` record's summary is spilled. */
 const COMPACTION_SPILL_ABOVE_BYTES = 256 * 1024
 
@@ -339,6 +398,17 @@ export class SessionLogCore implements SessionLog {
 	/** Bytes of the log this instance has verified and applied. */
 	#synced = 0
 	#torn = 0
+	readonly #degradedBufferBytes: number
+	/** Records accepted into the chain that the medium has not taken yet, oldest first. */
+	#pending: { readonly bytes: Buffer; readonly sync: boolean }[] = []
+	#pendingBytes = 0
+	/** Bytes the medium holds while records are pending. */
+	#diskBytes = 0
+	#degradedCause: SessionLogDegradedCause | undefined
+	#droppedRecords = 0
+	#droppedNoticeSent = false
+	#flushedWhileDegraded = 0
+	readonly #healthListeners = new Set<(change: SessionLogWriteHealth) => void>()
 
 	constructor(options: SessionLogCoreOptions) {
 		this.sessionId = options.sessionId
@@ -362,12 +432,40 @@ export class SessionLogCore implements SessionLog {
 			this.#spillAbove,
 		)
 		this.#sync = options.sync ?? 'boundaries'
+		this.#degradedBufferBytes = Math.max(
+			0,
+			options.degradedBufferBytes ?? DEFAULT_DEGRADED_BUFFER_BYTES,
+		)
+	}
+
+	onWriteHealth(listener: (change: SessionLogWriteHealth) => void): () => void {
+		this.#healthListeners.add(listener)
+		return () => {
+			this.#healthListeners.delete(listener)
+		}
+	}
+
+	#notify(change: SessionLogWriteHealth): void {
+		for (const listener of this.#healthListeners) {
+			try {
+				listener(change)
+			} catch {
+				// A listener that throws must not turn a survived write into a failed one.
+			}
+		}
+	}
+
+	/** True while records wait in memory because the volume refuses writes. */
+	get degraded(): boolean {
+		return this.#degradedCause !== undefined
 	}
 
 	// ── state ──
 
 	/** Catch up with the medium: verify and apply whatever was appended since the last sync. */
 	async #catchUp(): Promise<void> {
+		// Records waiting for the disk are ahead of it; the lease keeps others out.
+		if (this.#pending.length > 0) return
 		const size = await this.#medium.size()
 		if (size === this.#synced + this.#torn && size >= this.#synced) return
 		if (size < this.#synced) this.#reset()
@@ -395,6 +493,8 @@ export class SessionLogCore implements SessionLog {
 		this.#turns = new SessionTurnState()
 		this.#synced = 0
 		this.#torn = 0
+		this.#pending = []
+		this.#pendingBytes = 0
 	}
 
 	async #requireCurrent(lease: SessionLease): Promise<void> {
@@ -461,6 +561,8 @@ export class SessionLogCore implements SessionLog {
 	 */
 	release(lease: SessionLease): Promise<void> {
 		return this.#mutex.run(async () => {
+			// One last try to save what the disk refused earlier.
+			if (this.#pending.length > 0) await this.#flushPending().catch(() => undefined)
 			if (this.#held?.fence === lease.fence) {
 				this.#held = undefined
 				untrackHeldSessionLease(this.#holding)
@@ -655,11 +757,124 @@ export class SessionLogCore implements SessionLog {
 		}
 		const bytes = Buffer.from(line, 'utf8')
 		const sync = this.#sync === 'all' || (this.#sync === 'boundaries' && BOUNDARY_TYPES.has(type))
-		await this.#medium.append(bytes, this.#synced, sync)
+		await this.#persist(bytes, sync)
 		const entry = this.#chain.accept(bytes, this.#synced)
 		this.#turns.apply(entry.record)
 		this.#synced += bytes.byteLength
 		return entry
+	}
+
+	/**
+	 * Hand a record's bytes to the medium. A volume that refuses writes (full,
+	 * over quota, read-only) does not fail the record: it waits in a bounded
+	 * buffer and goes out, in order, with the next record that can be written.
+	 * Any other error is thrown as before. Caller holds the mutex.
+	 */
+	async #persist(bytes: Buffer, sync: boolean): Promise<void> {
+		if (this.#pending.length === 0) {
+			try {
+				await this.#medium.append(bytes, this.#synced, sync)
+				return
+			} catch (error) {
+				const cause = sessionLogDegradedCause(error)
+				if (cause === undefined) throw error
+				this.#diskBytes = this.#synced
+				this.#degradedCause = cause
+				this.#bufferRecord(bytes, sync)
+				this.#notify({
+					state: 'degraded',
+					cause,
+					bufferedRecords: this.#pending.length,
+					bufferedBytes: this.#pendingBytes,
+				})
+				return
+			}
+		}
+		const queued = this.#bufferRecord(bytes, sync)
+		try {
+			await this.#flushPending()
+		} catch (error) {
+			// Only the volume refusing writes keeps the session going; anything else
+			// fails this record, which must then not stay queued.
+			if (sessionLogDegradedCause(error) === undefined) {
+				const at = this.#pending.indexOf(queued)
+				if (at !== -1) {
+					this.#pending.splice(at, 1)
+					this.#pendingBytes -= queued.bytes.byteLength
+				}
+				throw error
+			}
+		}
+	}
+
+	#bufferRecord(bytes: Buffer, sync: boolean): { readonly bytes: Buffer; readonly sync: boolean } {
+		const queued = { bytes, sync }
+		this.#pending.push(queued)
+		this.#pendingBytes += bytes.byteLength
+		let dropped = false
+		// The newest record always stays, whatever the bound.
+		while (this.#pendingBytes > this.#degradedBufferBytes && this.#pending.length > 1) {
+			const oldest = this.#pending.shift()
+			if (oldest === undefined) break
+			this.#pendingBytes -= oldest.bytes.byteLength
+			this.#droppedRecords += 1
+			dropped = true
+		}
+		if (dropped && !this.#droppedNoticeSent && this.#degradedCause !== undefined) {
+			this.#droppedNoticeSent = true
+			this.#notify({
+				state: 'degraded',
+				cause: this.#degradedCause,
+				bufferedRecords: this.#pending.length,
+				bufferedBytes: this.#pendingBytes,
+				dropping: true,
+			})
+		}
+		return queued
+	}
+
+	/** Write the buffer in order. Throws the error that stopped it; clears the degraded mark when it empties. */
+	async #flushPending(): Promise<void> {
+		// A refused write may have left part of a record behind; cut it back.
+		const size = await this.#medium.size()
+		if (size > this.#diskBytes) await this.#medium.truncate(this.#diskBytes, size)
+		while (this.#pending.length > 0) {
+			const next = this.#pending[0]
+			if (next === undefined) break
+			await this.#medium.append(next.bytes, this.#diskBytes, next.sync)
+			this.#diskBytes += next.bytes.byteLength
+			this.#pendingBytes -= next.bytes.byteLength
+			this.#pending.shift()
+			this.#flushedWhileDegraded += 1
+		}
+		const flushed = this.#flushedWhileDegraded
+		this.#flushedWhileDegraded = 0
+		const dropped = this.#droppedRecords
+		this.#degradedCause = undefined
+		this.#droppedRecords = 0
+		this.#droppedNoticeSent = false
+		this.#pendingBytes = 0
+		this.#notify({ state: 'recovered', flushedRecords: flushed, droppedRecords: dropped })
+	}
+
+	/**
+	 * Write a message body beside the log. When the volume refuses it the body
+	 * is given up (`undefined`) rather than the record,; the record's own write
+	 * then meets the same refusal and degrades the log.
+	 */
+	async #spillOrLose(
+		key: string,
+		content: Parameters<SpillStore['write']>[1],
+		text: string,
+	): Promise<SpillRef | undefined> {
+		try {
+			return await this.#spills.write(key, content, text)
+		} catch (error) {
+			const cause = sessionLogDegradedCause(error)
+			if (cause === undefined) throw error
+			// The record's own write, next, finds the volume refusing and degrades the log.
+			return undefined
+		}
 	}
 
 	async #spillIfLarge(original: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -684,11 +899,17 @@ export class SessionLogCore implements SessionLog {
 		if (size <= spillAbove) return candidate
 		if (type === 'turn_completed') {
 			if (typeof candidate.result !== 'string') return candidate
-			const ref = await this.#spills.write(
+			const ref = await this.#spillOrLose(
 				`record:${String(candidate.id)}`,
 				'message',
 				candidate.result,
 			)
+			if (ref === undefined) {
+				return {
+					...candidate,
+					result: `${candidate.result.slice(0, PREVIEW_CHARS)}\n${NOT_SAVED_NOTE}`,
+				}
+			}
 			const preview = `${candidate.result.slice(0, PREVIEW_CHARS)}\n[… ${ref.bytes} bytes spilled to ${ref.path}]`
 			return { ...candidate, result: preview, resultSpill: ref }
 		}
@@ -708,9 +929,20 @@ export class SessionLogCore implements SessionLog {
 				: type === 'message_replaced'
 					? `record:${String(candidate.id)}`
 					: `message:${String(candidate.messageId)}`
-		const ref = await this.#spills.write(key, 'message', JSON.stringify(content))
+		const ref = await this.#spillOrLose(key, 'message', JSON.stringify(content))
 		const text =
 			typeof content.content === 'string' ? content.content : JSON.stringify(content.content)
+		if (ref === undefined) {
+			// The body cannot be kept: the record carries its preview alone.
+			return {
+				...candidate,
+				content: {
+					role: content.role,
+					content: `${text.slice(0, PREVIEW_CHARS)}\n${NOT_SAVED_NOTE}`,
+					...(typeof content.toolCallId === 'string' ? { toolCallId: content.toolCallId } : {}),
+				},
+			}
+		}
 		const preview = {
 			role: content.role,
 			content: `${text.slice(0, PREVIEW_CHARS)}\n[… ${ref.bytes} bytes spilled to ${ref.path}]`,

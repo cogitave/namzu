@@ -285,9 +285,9 @@ describe('session-log fixtures', () => {
 })
 
 describe('the session event and record type lists', () => {
-	it('has 65 live event literals, 59 of them recorded', () => {
-		expect(SESSION_EVENT_TYPES).toHaveLength(65)
-		expect(new Set(SESSION_EVENT_TYPES).size).toBe(65)
+	it('has 67 live event literals, 59 of them recorded', () => {
+		expect(SESSION_EVENT_TYPES).toHaveLength(67)
+		expect(new Set(SESSION_EVENT_TYPES).size).toBe(67)
 		expect(PERSISTED_SESSION_EVENT_TYPES).toHaveLength(59)
 		for (const ephemeral of [
 			'text_delta',
@@ -296,6 +296,8 @@ describe('the session event and record type lists', () => {
 			'tool_progress',
 			'monitor_event',
 			'compaction_started',
+			'session_log_degraded',
+			'session_log_recovered',
 		]) {
 			expect(SESSION_EVENT_TYPES).toContain(ephemeral)
 			expect(PERSISTED_SESSION_EVENT_TYPES).not.toContain(ephemeral)
