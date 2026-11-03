@@ -65,6 +65,7 @@ const reasons = new Set([
 	'plan_rejected',
 	'step_refused',
 	'structured_output_failed',
+	'refused',
 	'answer_rejected',
 	'input_guardrail',
 	'output_guardrail',

@@ -102,7 +102,12 @@ type CoreSessionEvent =
 			/** The token ledger this turn spends from, keyed by the root turn. */
 			budget?: TurnBudgetBinding
 	  }
-	| { type: 'iteration_started'; sessionId: SessionId; turnId: TurnId; iteration: number }
+	| {
+			type: 'iteration_started'
+			sessionId: SessionId
+			turnId: TurnId
+			iteration: number
+	  }
 	/**
 	 * Who answers when this turn asks a human, changed mid-turn.
 	 *
@@ -453,6 +458,40 @@ type CoreSessionEvent =
 			 * message showed so far, as for a restarting retry.
 			 */
 			restart?: boolean
+	  }
+	/**
+	 * The model declined to answer, and what the turn did about it.
+	 *
+	 * The provider finished a reply as a refusal or a safety block. The refused
+	 * reply is kept out of the history sent next. `outcome` says what followed:
+	 *
+	 * - `'fallback'`: the request is being re-run on `fallbackModel`, which the
+	 *   rest of the turn keeps. A host that owns the session's model is expected
+	 *   to keep it for later turns too and to say so.
+	 * - `'retry'`: no other model was available and the refused reply had
+	 *   partial output, so the request is being re-run once on the same model
+	 *   with a note that the previous reply was stopped.
+	 * - `'declined'`: nothing recovered it. The turn settles with stop reason
+	 *   `'refused'`.
+	 *
+	 * Like `provider_fallback`, this is the feature's honesty: a swapped model
+	 * must be shown, not logged. It is emitted before the re-run starts.
+	 */
+	| {
+			type: 'model_refusal'
+			sessionId: SessionId
+			turnId: TurnId
+			iteration: number
+			/** The model that declined. */
+			model: string
+			providerId: string
+			outcome: 'fallback' | 'retry' | 'declined'
+			/** The model the request moves to. Set only with `outcome: 'fallback'`. */
+			fallbackModel?: string
+			/** The provider's own classification, when it gave one. */
+			category?: string
+			/** The provider's own sentence, when it gave one. Show it; do not parse it. */
+			explanation?: string
 	  }
 	| {
 			type: 'tool_completed'
@@ -892,7 +931,12 @@ type CoreSessionEvent =
 			steps: PlanStep[]
 			summary?: string
 	  }
-	| { type: 'plan_approved'; sessionId: SessionId; turnId: TurnId; planId: PlanId }
+	| {
+			type: 'plan_approved'
+			sessionId: SessionId
+			turnId: TurnId
+			planId: PlanId
+	  }
 	| {
 			type: 'plan_rejected'
 			sessionId: SessionId
@@ -923,7 +967,12 @@ type CoreSessionEvent =
 	 * through `onContextCreated`, so they proved the plan settled without ever
 	 * asking whether a consumer of the EVENT STREAM could see it.
 	 */
-	| { type: 'plan_completed'; sessionId: SessionId; turnId: TurnId; planId: PlanId }
+	| {
+			type: 'plan_completed'
+			sessionId: SessionId
+			turnId: TurnId
+			planId: PlanId
+	  }
 	/**
 	 * The plan is over and it did not finish.
 	 *
@@ -931,7 +980,13 @@ type CoreSessionEvent =
 	 * an event that says "failed" without saying why puts the reader back
 	 * where the missing event did.
 	 */
-	| { type: 'plan_failed'; sessionId: SessionId; turnId: TurnId; planId: PlanId; reason?: string }
+	| {
+			type: 'plan_failed'
+			sessionId: SessionId
+			turnId: TurnId
+			planId: PlanId
+			reason?: string
+	  }
 	| {
 			type: 'agent_pending'
 			sessionId: SessionId
@@ -1103,7 +1158,12 @@ type CoreSessionEvent =
 			exitCode: number
 			durationMs: number
 	  }
-	| { type: 'sandbox_destroyed'; sessionId: SessionId; turnId?: TurnId; sandboxId: SandboxId }
+	| {
+			type: 'sandbox_destroyed'
+			sessionId: SessionId
+			turnId?: TurnId
+			sandboxId: SandboxId
+	  }
 	// ─────────────────────────────────────────────────────────────────────
 	// v3 message + tool-input lifecycle (additive 2026-05; see
 	// ses_001-tool-stream-events). These are not yet emitted by the

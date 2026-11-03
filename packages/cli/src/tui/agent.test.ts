@@ -257,6 +257,35 @@ describe('toAgentEvent', () => {
 			expect(switched.text).not.toMatch(/HTTP 429|rate_limit|Provider chain|fallback #/i)
 		})
 
+		it('maps a model refusal to the facts a row needs, and drops what the provider left out', () => {
+			const refused = (extra: Record<string, unknown>) =>
+				toAgentEvent(
+					event({
+						type: 'model_refusal',
+						model: 'claude-sonnet-5-5',
+						providerId: 'anthropic',
+						outcome: 'fallback',
+						fallbackModel: 'claude-opus-5-5',
+						...extra,
+					}),
+					presenter,
+				)
+			expect(refused({ category: 'cyber', explanation: 'flagged' })).toEqual({
+				kind: 'model-refusal',
+				model: 'claude-sonnet-5-5',
+				outcome: 'fallback',
+				fallbackModel: 'claude-opus-5-5',
+				category: 'cyber',
+				explanation: 'flagged',
+			})
+			expect(refused({})).toEqual({
+				kind: 'model-refusal',
+				model: 'claude-sonnet-5-5',
+				outcome: 'fallback',
+				fallbackModel: 'claude-opus-5-5',
+			})
+		})
+
 		it('carries the order to drop the failed attempt’s pieces, and nothing otherwise', () => {
 			const swap = (extra: Record<string, unknown>) =>
 				toAgentEvent(

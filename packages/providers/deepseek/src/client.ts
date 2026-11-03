@@ -871,6 +871,7 @@ export class DeepSeekProvider implements LLMProvider {
 						...(replayState !== undefined ? { replayState } : {}),
 						delta: { content: delta?.content ?? undefined, toolCalls },
 						finishReason,
+						...(finishReason === 'content_filter' ? { refusal: {} } : {}),
 						usage,
 					}
 				} catch (parseErr) {

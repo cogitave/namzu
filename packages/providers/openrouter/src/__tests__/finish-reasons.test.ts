@@ -64,6 +64,13 @@ describe('OpenRouter finish reasons', () => {
 		expect(chunks.at(-1)?.finishReason).toBe(expected)
 	})
 
+	it('says a content filter is a refusal, and only a content filter', async () => {
+		const refused = await chunksOf([frame(null), frame('content_filter')])
+		expect(refused.at(-1)?.refusal).toEqual({})
+		const stopped = await chunksOf([frame(null), frame('stop')])
+		expect(stopped.some((chunk) => chunk.refusal !== undefined)).toBe(false)
+	})
+
 	it('fails a stream whose upstream model failed', async () => {
 		const error = await chunksOf([frame(null), frame('error')]).then(
 			() => undefined,

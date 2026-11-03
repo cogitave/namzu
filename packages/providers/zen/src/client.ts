@@ -760,6 +760,7 @@ export class ZenProvider implements LLMProvider {
 				id,
 				delta: {},
 				finishReason,
+				...(finishReason === 'content_filter' ? { refusal: {} } : {}),
 				...(finishReason === 'length' &&
 				finish.finishReason.raw &&
 				CONTEXT_WINDOW_RAW_FINISH_REASONS.has(finish.finishReason.raw)

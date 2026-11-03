@@ -27,6 +27,8 @@ export function runtimeContextLabel(kind: RuntimeContextMessageKind): string {
 			return 'Notice from another Namzu window'
 		case 'reminder':
 			return 'Reminder'
+		case 'refusal-retry':
+			return 'Retried after a stopped reply'
 		case 'repeat-call':
 			return 'Repeated call warning'
 		case 'steering':

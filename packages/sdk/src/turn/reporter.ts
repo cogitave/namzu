@@ -422,6 +422,18 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				})
 				break
 
+			case 'model_refusal':
+				log.warn('Model declined to answer', {
+					[NAMZU.TURN_ID]: event.turnId,
+					[NAMZU.ITERATION]: event.iteration,
+					'namzu.turn.from_model': event.model,
+					'namzu.turn.from_provider_id': event.providerId,
+					'namzu.turn.outcome': event.outcome,
+					'namzu.turn.to_model': event.fallbackModel,
+					'namzu.turn.category': event.category,
+				})
+				break
+
 			case 'provider_fallback':
 				// `warn` for the same reason as a retry, and one stronger: the rest
 				// of this turn is being served by a provider the caller did not pick.

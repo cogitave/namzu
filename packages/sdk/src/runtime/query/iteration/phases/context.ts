@@ -224,6 +224,8 @@ export interface IterationContext {
 	readonly compactionConfig?: CompactionConfig
 	/** See `QueryParams.maxOutputContinuations`. */
 	readonly maxOutputContinuations?: number
+	/** See `QueryParams.refusalFallback`. */
+	readonly refusalFallback?: 'auto' | 'off'
 
 	/**
 	 * What the driver said this model's context window is, resolved once.

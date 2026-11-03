@@ -197,11 +197,11 @@ rendered from the files at that moment. A memory file the store cannot read
 leaves that turn without the index and shows a notice naming the file; the turn
 still runs.
 
-An occupied stored-memory operation lock is reported with its path and recovery
-condition even without `--debug`. This lock is separate from the conversation's
-writer lease. Stop Namzu sessions using that memory store and inspect the lock
-owner before recovering an abandoned lock; restarting a conversation does not
-remove it. See [disk coordination and recovery](../sdk/memory.md#disk-coordination-and-recovery).
+A stored-memory operation lock held by a live Namzu process is reported with
+its path even without `--debug`: close that process or wait for it to finish. A
+lock left by a process that died (including a crash on a full disk) is removed
+automatically at the next start. This lock is separate from the conversation's
+writer lease. See [disk coordination and recovery](../sdk/memory.md#disk-coordination-and-recovery).
 
 The snapshot stays fixed across model steps in that send or resume; the next
 send or resume reads the files again. File-backed curated memory, the stored

@@ -377,6 +377,20 @@ export interface QueryParams {
 	 * before; `0` stops at the first cut-off.
 	 */
 	maxOutputContinuations?: number
+	/**
+	 * What the turn does when the model declines to answer (its provider
+	 * finished the reply as a refusal or a safety block).
+	 *
+	 * `'auto'` (the default) re-runs the refused request once on another model
+	 * of the same provider (the one the provider recommends, or the one its
+	 * own fallback order names) and keeps that model for the rest of the turn;
+	 * a `model_refusal` event names the swap so a host can keep it for later
+	 * turns. `'off'` never changes the model: the turn tries once more on the
+	 * same model only when the refused reply had partial output, and otherwise
+	 * settles with stop reason `'refused'`. A refused reply is never added to
+	 * the history sent next.
+	 */
+	refusalFallback?: 'auto' | 'off'
 
 	/**
 	 * Model-visible size cap for a single tool result. Over-budget output is
@@ -1883,6 +1897,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			...(params.maxOutputContinuations !== undefined
 				? { maxOutputContinuations: params.maxOutputContinuations }
 				: {}),
+			...(params.refusalFallback !== undefined ? { refusalFallback: params.refusalFallback } : {}),
 			...(params.inboundMessages ? { inboundMessages: params.inboundMessages } : {}),
 			...(params.reminders ? { reminders: params.reminders } : {}),
 			...(params.durableInbound ? { durableInbound: params.durableInbound } : {}),

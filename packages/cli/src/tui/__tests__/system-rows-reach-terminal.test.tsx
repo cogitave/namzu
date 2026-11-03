@@ -218,6 +218,108 @@ it('draws a provider switch by product name, with no chain, status or code', asy
 	}
 })
 
+it("says a model declined once, with the provider's words as a Details line, and never as a finished reply", async () => {
+	scripts.refused = (map) =>
+		[
+			map(
+				sdk({
+					type: 'model_refusal',
+					model: 'claude-sonnet-5-5',
+					providerId: 'anthropic',
+					outcome: 'declined',
+					category: 'cyber',
+					explanation: 'It looked like malware development.',
+				}),
+			),
+			{ kind: 'done', stopReason: 'refused' },
+		].filter(Boolean) as AgentEvent[]
+	const screen = await boot()
+	try {
+		await submit(screen, 'refused')
+		await until(screen, () => text(screen).includes('declined to answer'))
+		const shown = text(screen).replace(/\s+/g, ' ')
+		expect(shown).toContain(
+			'claude-sonnet-5-5 declined to answer this message. This sometimes happens with safe, normal requests. Press esc twice to edit your message, or pick another model with /model.',
+		)
+		// Said once: the stop line does not repeat the row.
+		expect(shown.match(/declined to answer/g)).toHaveLength(1)
+		expect(shown).not.toMatch(/new session|Worked for|· done/i)
+		expect(shown).toContain('Details: cyber · It looked like malware development.')
+	} finally {
+		await screen.unmount()
+	}
+})
+
+it('names the model that answered in place of one that declined', async () => {
+	scripts.swapped = (map) =>
+		[
+			map(
+				sdk({
+					type: 'model_refusal',
+					model: 'claude-sonnet-5-5',
+					providerId: 'anthropic',
+					outcome: 'fallback',
+					fallbackModel: 'claude-opus-5-5',
+				}),
+			),
+			{ kind: 'delta', text: 'Here you go.' },
+			{ kind: 'done', stopReason: 'end_turn' },
+		].filter(Boolean) as AgentEvent[]
+	const screen = await boot()
+	try {
+		await submit(screen, 'swapped')
+		await until(screen, () => text(screen).includes('answered instead'))
+		const shown = text(screen).replace(/\s+/g, ' ')
+		expect(shown).toContain(
+			'claude-sonnet-5-5 declined to answer this message. This sometimes happens with safe, normal requests. claude-opus-5-5 answered instead; /model switches back.',
+		)
+		expect(shown).not.toMatch(/new session/i)
+	} finally {
+		await screen.unmount()
+	}
+})
+
+it('does not say another model answered when the model that took over declined too', async () => {
+	scripts.twice = (map) =>
+		[
+			map(
+				sdk({
+					type: 'model_refusal',
+					model: 'claude-sonnet-5-5',
+					providerId: 'anthropic',
+					outcome: 'fallback',
+					fallbackModel: 'claude-opus-5-5',
+				}),
+			),
+			map(
+				sdk({
+					type: 'model_refusal',
+					model: 'claude-opus-5-5',
+					providerId: 'anthropic',
+					outcome: 'declined',
+				}),
+			),
+			{ kind: 'done', stopReason: 'refused' },
+		].filter(Boolean) as AgentEvent[]
+	const screen = await boot()
+	try {
+		await submit(screen, 'twice')
+		await until(screen, () => text(screen).includes('claude-opus-5-5 declined to answer'))
+		const shown = text(screen).replace(/\s+/g, ' ')
+		expect(shown).not.toContain('answered instead')
+		expect(shown.match(/declined to answer/g)).toHaveLength(1)
+	} finally {
+		await screen.unmount()
+	}
+})
+
+it('says a refused reply restored from history was declined, not finished', async () => {
+	const { describeTurnStop } = await import('../turn-interruption.js')
+	expect(describeTurnStop('refused')).toBe(
+		'The model declined to answer this message. This sometimes happens with safe, normal requests. Press esc twice to edit your message, or pick another model with /model.',
+	)
+})
+
 it('draws a failed compaction as one plain sentence without the reducer or the raw error', async () => {
 	scripts.squeeze = (map) =>
 		[

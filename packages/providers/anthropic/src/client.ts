@@ -27,6 +27,7 @@ import {
 	toolResultToText,
 } from '@namzu/sdk'
 import { attributionHeaders } from '@namzu/sdk'
+import { refusalFallbackFromList } from './refusal-fallback.js'
 import { SearchBlocks, restoreSearch } from './search-replay.js'
 import {
 	COMPATIBLE_ENDPOINT,
@@ -502,13 +503,24 @@ function toAnthropicMessages(
 					input: parsedInput,
 				})
 			}
-			out.push({ role: 'assistant', content: blocks })
+			// A turn with no text, no reasoning and no call has nothing to send.
+			if (blocks.length > 0) out.push({ role: 'assistant', content: blocks })
 			continue
 		}
 
 		// An assistant turn that reasoned replays those blocks even when it
 		// called no tool: dropping them invalidates the turn upstream.
 		const replayed = msg.role === 'assistant' ? replayReasoning(msg, targetRoute) : []
+		// An empty assistant entry (a refused or interrupted reply) has no wire
+		// form. It used to be serialised with `JSON.stringify(null)` and sent as
+		// the literal text "null". Skip it rather than invent filler text; the
+		// source history is untouched.
+		if (
+			msg.role === 'assistant' &&
+			replayed.length === 0 &&
+			(msg.content === null || msg.content === undefined || msg.content === '')
+		)
+			continue
 		const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
 		if (replayed.length > 0) {
 			const trailing: AnthropicContentBlock[] =
@@ -816,6 +828,31 @@ function parseUsage(raw?: RawAnthropicUsage, requestedTtl?: '5m' | '1h'): TokenU
 type NamzuFinishReason = ChatCompletionResponse['finishReason']
 
 /**
+ * What the service says about a refusal: `stop_details` on the final message
+ * delta. Every field can be null (and the whole object absent on an older
+ * service), so what is not a string is left out, and a refusal with no detail
+ * is still an object: the finish was a refusal either way.
+ */
+function refusalDetails(
+	reason: string | null | undefined,
+	details: RawStopDetails | null | undefined,
+): Pick<StreamChunk, 'refusal'> {
+	if (reason !== 'refusal') return {}
+	const text = (value: unknown) =>
+		typeof value === 'string' && value.trim().length > 0 ? value : undefined
+	const category = text(details?.category)
+	const explanation = text(details?.explanation)
+	const recommendedModel = text(details?.recommended_model)
+	return {
+		refusal: {
+			...(category ? { category } : {}),
+			...(explanation ? { explanation } : {}),
+			...(recommendedModel ? { recommendedModel } : {}),
+		},
+	}
+}
+
+/**
  * Which limit a `'length'` finish reached, when it was the context window
  * rather than `max_tokens`: after the one the turn loop continues a reply it
  * cut off, and after the other there is no room to continue into.
@@ -850,6 +887,14 @@ function mapStopReason(reason?: string | null): NamzuFinishReason {
 // --------------------------------------------------------------------------------------
 // Stream event types
 // --------------------------------------------------------------------------------------
+
+/** `stop_details` as it arrives on the wire. */
+interface RawStopDetails {
+	type?: string
+	category?: string | null
+	explanation?: string | null
+	recommended_model?: string | null
+}
 
 /**
  * A cited passage as it arrives on the wire.
@@ -938,11 +983,13 @@ interface StreamEvent {
 		text?: string
 		partial_json?: string
 		stop_reason?: string | null
+		stop_details?: RawStopDetails | null
 		citation?: RawAnthropicCitation
 		thinking?: string
 		signature?: string
 	}
 	usage?: RawAnthropicUsage
+	stop_details?: RawStopDetails | null
 }
 
 // --------------------------------------------------------------------------------------
@@ -1511,6 +1558,10 @@ export class AnthropicProvider implements LLMProvider {
 									delta: {},
 									finishReason: mapStopReason(event.delta.stop_reason),
 									...finishDetail(event.delta.stop_reason),
+									...refusalDetails(
+										event.delta.stop_reason,
+										event.delta.stop_details ?? event.stop_details,
+									),
 									usage: event.usage ? parseUsage(event.usage) : undefined,
 								}
 							} else if (event.usage) {
@@ -1715,6 +1766,32 @@ export class AnthropicProvider implements LLMProvider {
 
 	reasoningEffortLevelsFor(model: string, thinking?: ThinkingConfig): readonly ReasoningEffort[] {
 		return this.effortLevelsFor(model, thinking)
+	}
+
+	/**
+	 * Where to re-run a request `model` declined: the model the service
+	 * recommends in `stop_details` when this credential's own model list has it,
+	 * otherwise the next family of the same generation (see
+	 * {@link refusalFallbackFromList}). Nothing the list does not confirm is
+	 * returned, and a list that cannot be read answers `undefined` — the request
+	 * then stays where it was refused, which is better than a 404 on a guess.
+	 */
+	async refusalFallbackFor(
+		model: string,
+		refusal: { recommendedModel?: string },
+		signal?: AbortSignal,
+	): Promise<string | undefined> {
+		if (this.config.compatibleEndpoint === true) return undefined
+		let listed: string[]
+		try {
+			listed = (await this.listModelsStrict(signal)).map((entry) => entry.id)
+		} catch {
+			if (signal?.aborted) throw signal.reason
+			return undefined
+		}
+		const recommended = refusal.recommendedModel
+		if (recommended && recommended !== model && listed.includes(recommended)) return recommended
+		return refusalFallbackFromList(model, listed)
 	}
 }
 

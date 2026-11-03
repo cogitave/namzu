@@ -202,7 +202,10 @@ export function toBedrockMessages(
 		if (msg.role === 'system') continue
 
 		if (msg.role === 'tool') {
-			const toolMsg = msg as { toolCallId?: string; content?: ToolResultContent }
+			const toolMsg = msg as {
+				toolCallId?: string
+				content?: ToolResultContent
+			}
 			// `JSON.stringify` used to run here, so a tool result carrying an
 			// image sent the model a wall of quoted base64: unreadable, and
 			// paid for by the character. This driver does not map image
@@ -689,6 +692,9 @@ export class BedrockProvider implements LLMProvider {
 							id: requestId,
 							delta: {},
 							finishReason: mapStopReason(event.messageStop.stopReason),
+							...(mapStopReason(event.messageStop.stopReason) === 'content_filter'
+								? { refusal: {} }
+								: {}),
 							// The context window rather than `maxTokens`: the turn loop does
 							// not continue a reply that filled it.
 							...(event.messageStop.stopReason === 'model_context_window_exceeded'

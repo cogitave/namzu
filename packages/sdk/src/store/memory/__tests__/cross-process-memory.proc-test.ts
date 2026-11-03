@@ -97,7 +97,7 @@ it('retains every separate-process save and exposes it to warmed and fresh reade
 	expect((await readdir(join(baseDir, 'memory/content'))).length).toBe(49)
 }, 30_000)
 
-it('does not steal a crashed process lock or silently admit a new writer', async () => {
+it('leaves a live process its lock, and takes the lock over once that process is killed', async () => {
 	const baseDir = await mkdtemp(join(tmpdir(), 'namzu-memory-crashed-writer-'))
 	roots.push(baseDir)
 	await new DiskMemoryStore({ baseDir }).create({ title: 'seed', summary: '', content: 'seed' })
@@ -108,13 +108,21 @@ it('does not steal a crashed process lock or silently admit a new writer', async
 	const path = join(baseDir, 'memory/operation.lock')
 	const owner = await readFile(path, 'utf8')
 	expect(JSON.parse(owner).pid).toBe(held.child.pid)
-	const exited = new Promise<void>((resolve) => held.child.once('exit', () => resolve()))
-	held.child.kill('SIGKILL')
-	await exited
-	const fresh = new DiskMemoryStore({ baseDir, lockTimeoutMs: 25 })
-	await expect(fresh.create({ title: 'blocked', summary: '', content: '' })).rejects.toThrow(
-		'acquisition timed out',
+
+	// While the owner is alive nobody takes the lock, however long they wait.
+	const blocked = new DiskMemoryStore({ baseDir, lockTimeoutMs: 25 })
+	await expect(blocked.create({ title: 'blocked', summary: '', content: '' })).rejects.toThrow(
+		'is using the stored memory',
 	)
 	expect(await readFile(path, 'utf8')).toBe(owner)
 	expect((await readdir(join(baseDir, 'memory/content'))).length).toBe(1)
-}, 10_000)
+
+	// Once the owner is gone the next writer recovers the lock and writes.
+	const exited = new Promise<void>((resolve) => held.child.once('exit', () => resolve()))
+	held.child.kill('SIGKILL')
+	await exited
+	const fresh = new DiskMemoryStore({ baseDir, lockTimeoutMs: 5_000 })
+	await fresh.create({ title: 'after the crash', summary: '', content: 'after' })
+	expect((await readdir(join(baseDir, 'memory/content'))).length).toBe(2)
+	expect(existsSync(path)).toBe(false)
+}, 20_000)

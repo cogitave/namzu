@@ -91,6 +91,12 @@ export type SessionStreamEventType =
 	 * a provider it did not ask for, at a different price.
 	 */
 	| 'provider.fallback'
+	/**
+	 * The model declined to answer, and what the turn did about it: moved to
+	 * another model, retried once, or gave up. Without it a client cannot tell
+	 * a declined request from an empty answer.
+	 */
+	| 'model.refusal'
 	| 'tool.executing'
 	/** Ephemeral progress from a long-running tool. Not in the transcript. */
 	| 'tool.progress'

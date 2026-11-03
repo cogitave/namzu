@@ -612,6 +612,7 @@ export async function execJson(
 		workflowReview: { currentPermissionMode: () => modeResult.mode },
 		// The `hypermode` config key reaches a headless turn too.
 		...(ctx.config.hypermode === true ? { hypermode: true } : {}),
+		...(ctx.config.refusalFallback ? { refusalFallback: ctx.config.refusalFallback } : {}),
 		onConversationMessages: (settled: readonly Message[]) => {
 			history = settled
 		},

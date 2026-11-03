@@ -768,6 +768,20 @@ export type AgentEvent =
 	 */
 	| { readonly kind: 'provider-fallback'; readonly text: string; readonly restart?: boolean }
 	/**
+	 * The model declined to answer, and what the turn did about it: moved the
+	 * request to `fallbackModel`, tried once more on the same model, or gave up
+	 * (the turn then settles `refused`). Its own kind because the person must be
+	 * told the model said no, and which model answered instead.
+	 */
+	| {
+			readonly kind: 'model-refusal'
+			readonly model: string
+			readonly outcome: 'fallback' | 'retry' | 'declined'
+			readonly fallbackModel?: string
+			readonly category?: string
+			readonly explanation?: string
+	  }
+	/**
 	 * A configured hook is running and declared a `statusMessage` for it. Shown
 	 * on the live status line until the next event arrives; never a transcript row.
 	 */
@@ -1019,6 +1033,11 @@ export interface SendOptions {
 	 * permission; it creates no roster and starts no delegation by itself.
 	 */
 	readonly hypermode?: boolean
+	/**
+	 * What a refusal does (`NamzuCliConfig.refusalFallback`). Absent means
+	 * `'auto'`: the request is re-run once on another model of the same provider.
+	 */
+	readonly refusalFallback?: 'auto' | 'off'
 	/**
 	 * The operator's message armed the `workflow` composer trigger. Default
 	 * `false`. The `workflow` tool is listed on every turn that can run one;
@@ -7824,6 +7843,7 @@ async function* runTurn({
 	try {
 		const events = query({
 			maxOutputContinuations: MAX_OUTPUT_CONTINUATIONS,
+			...(opts?.refusalFallback ? { refusalFallback: opts.refusalFallback } : {}),
 			...(retainedToolPreviewChars !== undefined ? { retainedToolPreviewChars } : {}),
 			...(fileReadTracker ? { fileReadTracker } : {}),
 			...(structuredOutput ? { structuredOutput } : {}),
@@ -8642,6 +8662,15 @@ export function toAgentEvent(
 				kind: 'provider-fallback',
 				text: describeFallback(event),
 				...(event.restart ? { restart: true } : {}),
+			}
+		case 'model_refusal':
+			return {
+				kind: 'model-refusal',
+				model: event.model,
+				outcome: event.outcome,
+				...(event.fallbackModel ? { fallbackModel: event.fallbackModel } : {}),
+				...(event.category ? { category: event.category } : {}),
+				...(event.explanation ? { explanation: event.explanation } : {}),
 			}
 		case 'capability_warning':
 			return {

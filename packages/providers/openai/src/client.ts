@@ -524,6 +524,8 @@ export class OpenAIProvider implements LLMProvider {
 							toolCalls,
 						},
 						finishReason,
+						// A content filter stopped the reply; the API says nothing more.
+						...(finishReason === 'content_filter' ? { refusal: {} } : {}),
 						usage,
 					}
 				} catch (parseErr) {

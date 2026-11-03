@@ -15,7 +15,7 @@ const CMD: CommandShell = { path: undefined, dialect: 'cmd', source: 'platform' 
 
 function fakeChild() {
 	return Object.assign(new EventEmitter(), {
-		pid: 4242 as number | undefined,
+		pid: 2_147_483_000 as number | undefined,
 		stdout: new PassThrough(),
 		stderr: new PassThrough(),
 	})

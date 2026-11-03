@@ -1,6 +1,7 @@
 export { debugRequested } from '../debug-requested.js'
 import { isImageInputRefusalMessage } from '@namzu/sdk'
 import { conversationInUseSentence } from './conversation-in-use.js'
+import { DECLINED_AND_NORMAL, REFUSED_NEXT } from './model-refusal.js'
 import { formatSpan, localEndpoint, productName } from './person-terms.js'
 import { terminalDisplayText } from './terminal-display.js'
 import {
@@ -253,8 +254,8 @@ function copyFor(
 			}
 		case 'content':
 			return {
-				what: `${name} declined to answer that.`,
-				next: 'Rephrase your message and send it again.',
+				what: `${modelId ?? name} ${DECLINED_AND_NORMAL}`,
+				next: REFUSED_NEXT,
 			}
 		case 'bad_request':
 			// Resending the same request fails the same way, and the conversation is

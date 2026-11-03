@@ -69,6 +69,13 @@ describe('Codex incomplete responses', () => {
 		expect((await chunksOf('content_filter')).at(-1)?.finishReason).toBe('content_filter')
 	})
 
+	it('says a content-filter stop is a refusal, and a length cut is not', async () => {
+		expect((await chunksOf('content_filter')).at(-1)?.refusal).toEqual({})
+		expect((await chunksOf('max_output_tokens')).some((chunk) => chunk.refusal !== undefined)).toBe(
+			false,
+		)
+	})
+
 	it('reports an incomplete response with no stated reason as length', async () => {
 		expect((await chunksOf(undefined)).at(-1)?.finishReason).toBe('length')
 	})
