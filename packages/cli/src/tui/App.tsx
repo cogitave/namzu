@@ -1134,6 +1134,8 @@ type StreamState = {
 		readonly row: string
 		readonly detail: readonly string[]
 		readonly model: string
+		/** Set once the fallback produced text or a tool call; a stop before that claims nothing. */
+		answered?: boolean
 	}
 	/** The fallback model that did answer, for the loop to switch the conversation to. */
 	answeredFallbackModel?: string
@@ -8974,6 +8976,7 @@ function AppBody({
 			}
 			switch (event.kind) {
 				case 'delta': {
+					if (st.pendingFallback) st.pendingFallback.answered = true
 					if (
 						event.messageId &&
 						(st.sourceMessageId !== event.messageId ||
@@ -9025,6 +9028,7 @@ function AppBody({
 					break
 				}
 				case 'tool-start': {
+					if (st.pendingFallback) st.pendingFallback.answered = true
 					turnToolCallsRef.current += 1
 					closeAssistant()
 					// A call that only looks joins the open counted line; any other call ends it.
@@ -9432,7 +9436,10 @@ function AppBody({
 					if (st.pendingFallback) {
 						const pending = st.pendingFallback
 						st.pendingFallback = undefined
+						// Only a fallback that produced a reply gets the credit: a limit
+						// stop right after the retry, before it answered, claims nothing.
 						if (
+							pending.answered === true &&
 							event.stopReason !== 'refused' &&
 							event.stopReason !== 'cancelled' &&
 							event.stopReason !== 'error'

@@ -279,6 +279,32 @@ it('names the model that answered in place of one that declined', async () => {
 	}
 })
 
+it('does not say another model answered when a limit stopped the turn before it did', async () => {
+	scripts.limited = (map) =>
+		[
+			map(
+				sdk({
+					type: 'model_refusal',
+					model: 'claude-sonnet-5-5',
+					providerId: 'anthropic',
+					outcome: 'fallback',
+					fallbackModel: 'claude-opus-5-5',
+				}),
+			),
+			{ kind: 'done', stopReason: 'max_iterations' },
+		].filter(Boolean) as AgentEvent[]
+	const screen = await boot()
+	try {
+		await submit(screen, 'limited')
+		await until(screen, () => text(screen).includes('step limit'))
+		const shown = text(screen).replace(/\s+/g, ' ')
+		expect(shown).not.toContain('answered instead')
+		expect(shown).not.toContain('declined to answer')
+	} finally {
+		await screen.unmount()
+	}
+})
+
 it('does not say another model answered when the model that took over declined too', async () => {
 	scripts.twice = (map) =>
 		[
