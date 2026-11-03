@@ -536,7 +536,7 @@ it('does not notify for a manually interrupted turn', async () => {
 	expect(requests).toEqual([])
 })
 
-it('cannot emit a late approval or settlement after /resume gives ownership away', async () => {
+it('cannot emit a late approval or settlement from an interrupted turn once /resume has moved on', async () => {
 	scripts.push(
 		{
 			outcome: 'completed',
@@ -557,16 +557,27 @@ it('cannot emit a late approval or settlement after /resume gives ownership away
 
 	await submit(harness, 'old turn')
 	await waitUntil(() => gates.length === 1)
+	// The interrupt hands the screen back while the old provider turn is still
+	// parked. A /resume typed now waits for that turn to unwind: the picker
+	// cannot open over it.
+	harness.stdin.write('\x1B')
+	await frameShows(harness, 'Interrupted')
 	await submit(harness, '/resume')
+	await frameShows(harness, '/resume')
+	await tick(100)
+	expect(harness.frames.join('\n'), 'the picker opened over a live turn').not.toContain(
+		'Earlier work',
+	)
+
+	// The abandoned provider asks for approval and settles only now. Nothing it
+	// does is announced, and the picker then opens on a screen it no longer owns.
+	gates[0]?.release()
 	await frameShows(harness, 'Earlier work')
+	expect(requests).toEqual([])
 	harness.stdin.write('\r')
 	await frameShows(harness, 'Resumed: Earlier work')
 	await submit(harness, 'new turn')
 	await waitUntil(() => sendCalls === 2 && requests.length === 1)
-
-	// The abandoned provider asks for approval only after the switch. It has
-	// lost ownership of both the screen and notification channel by then.
-	gates[0]?.release()
 	await tick(150)
 	expect(requests).toEqual([
 		{
@@ -574,6 +585,34 @@ it('cannot emit a late approval or settlement after /resume gives ownership away
 			method: 'osc9',
 		},
 	])
+})
+
+it('keeps /resume typed over a running turn waiting, so the picker opens only after the turn has settled', async () => {
+	scripts.push({ outcome: 'completed', hold: 'before-terminal-event' })
+	recentConversations = [
+		{
+			id: 'resumed',
+			title: 'Earlier work',
+			updatedAt: new Date().toISOString(),
+			count: 2,
+		},
+	]
+	const harness = await mountReady({ notifications: true })
+
+	await submit(harness, 'running turn')
+	await waitUntil(() => gates.length === 1)
+	await submit(harness, '/resume')
+	await frameShows(harness, '/resume')
+	await tick(100)
+	expect(harness.frames.join('\n'), 'the picker opened over a running reply').not.toContain(
+		'Earlier work',
+	)
+
+	gates[0]?.release()
+	await frameShows(harness, 'ANSWER 0')
+	await frameShows(harness, 'Earlier work')
+	// More work is waiting, so the reply is not announced as the end of it.
+	expect(requests).toEqual([])
 })
 
 describe('terminal adapter failure reporting', () => {

@@ -235,7 +235,7 @@ it('requires the copy picker to paint before Return can select from it', async (
 	expect(requested).toEqual([raw])
 })
 
-it('uses the previous completed answer while the next one is still streaming', async () => {
+it('keeps /copy typed while the next answer is streaming waiting, then copies the answer that finished', async () => {
 	turns = [
 		{ text: 'FIRST FINISHED', stopReason: 'end_turn' },
 		{ text: 'SECOND FINISHED', stopReason: 'end_turn', hold: true },
@@ -251,20 +251,21 @@ it('uses the previous completed answer while the next one is still streaming', a
 	// block is intentionally still buffered, so screen text cannot be the
 	// synchronisation signal here; the held generator is the completion fence.
 	await tick(40)
-	await openCopyPicker(harness)
+	await submit(harness, '/copy')
+	await frameShows(harness, '/copy')
+	// Typed over a reply, /copy waits: no picker opens and nothing is read from
+	// the half-written answer.
+	await tick(100)
+	expect(harness.frames.join('\n')).not.toContain('Copy from response')
 	expect(requested).toEqual([])
 
-	// The open picker owns the first completion even when a newer answer settles.
-	// Selection must not re-read the live latest-output ref.
+	// When the reply ends the command runs and offers the newest finished answer,
+	// never the buffered text the stream held before it completed.
 	releaseHeldTurn()
-	await frameShows(harness, 'SECOND FINISHED')
+	await frameShows(harness, 'Copy from response')
 	harness.stdin.write('\r')
 	await waitUntil(() => requested.length === 1)
-	expect(requested).toEqual(['FIRST FINISHED'])
-
-	await chooseWholeResponse(harness)
-	await waitUntil(() => requested.length === 2)
-	expect(requested).toEqual(['FIRST FINISHED', 'SECOND FINISHED'])
+	expect(requested).toEqual(['SECOND FINISHED'])
 })
 
 it('copies exact fenced-code and prose-quote source regions', async () => {
@@ -308,18 +309,25 @@ it('holds queued work until the source picker closes', async () => {
 	await tick(80)
 	await submit(harness, 'second')
 	await waitUntil(() => sendCalls === 2)
-	await submit(harness, 'third')
-	await openCopyPicker(harness)
+	// A command typed over the reply waits, and runs ahead of messages queued
+	// with Tab behind it.
+	await submit(harness, '/copy')
+	await frameShows(harness, '/copy')
+	expect(harness.frames.join('\n')).not.toContain('Copy from response')
+	harness.stdin.write('third')
+	await tick()
+	harness.stdin.write('\t')
 
 	releaseHeldTurn()
-	await frameShows(harness, 'SECOND')
+	await frameShows(harness, 'Copy from response')
 	await tick(100)
-	expect(sendCalls).toBe(2)
+	expect(sendCalls, 'queued work started under the open picker').toBe(2)
 	expect(requested).toEqual([])
 
 	harness.stdin.write('\u001b')
 	await waitUntil(() => sendCalls === 3)
 	await frameShows(harness, 'THIRD')
+	expect(requested).toEqual([])
 })
 
 it('allows a bounded region even when the whole answer exceeds the clipboard limit', async () => {
