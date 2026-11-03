@@ -929,6 +929,87 @@ describe('publishing a picker selection', () => {
 		expect(sends).toBe(1)
 	})
 
+	it.each([
+		['/new', 'Started a fresh conversation.'],
+		['/clear', 'Started a fresh conversation.'],
+		['/fork', 'Could not fork.'],
+		['/resume', 'No past conversations to resume'],
+		['/copy', 'Nothing to copy yet'],
+	])(
+		'keeps %s as typed while a reply is written and runs it when the reply ends',
+		async (line, outcome) => {
+			const release = deferred<void>()
+			let sends = 0
+			createSession = async () => ({
+				...sessionFixture('active-session'),
+				send: async function* () {
+					sends += 1
+					if (sends === 1) await release.promise
+					yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+				},
+			})
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Type a message')
+			await tick(80)
+
+			await submit(harness, 'keep this provider alive')
+			await vi.waitFor(() => expect(sends).toBe(1))
+			await submit(harness, line)
+			await tick(80)
+			// Shown as a waiting row; the reply was not stopped and nothing ran.
+			expect(harness.lastFrame()).toContain(line)
+			expect(harness.lastFrame()).not.toContain(outcome)
+			expect(harness.lastFrame()).not.toContain('was stopped')
+
+			release.resolve()
+			await frameShows(harness.lastFrame, outcome)
+			// A command, never a message to the model.
+			expect(sends).toBe(1)
+		},
+	)
+
+	it('runs /new, /copy and a plain message in the order they were queued', async () => {
+		const release = deferred<void>()
+		const sent: string[] = []
+		createSession = async () => ({
+			...sessionFixture('active-session'),
+			send: async function* (messages: readonly Message[]) {
+				const last = messages[messages.length - 1]
+				sent.push(typeof last?.content === 'string' ? last.content : '')
+				if (sent.length === 1) await release.promise
+				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
+			},
+		})
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+
+		await submit(harness, 'keep this provider alive')
+		await vi.waitFor(() => expect(sent).toHaveLength(1))
+		await submit(harness, '/context')
+		await submit(harness, '/new')
+		await submit(harness, '/copy')
+		harness.stdin.write('tail message')
+		await tick()
+		harness.stdin.write('\t')
+		await tick(40)
+		expect(sent).toHaveLength(1)
+
+		release.resolve()
+		await vi.waitFor(() => expect(sent).toHaveLength(2))
+		// The message queued behind the commands was kept for the new conversation.
+		expect(sent[1]).toContain('tail message')
+		const frame = harness.lastFrame() ?? ''
+		const order = ['/context details', 'Started a fresh conversation.', 'Nothing to copy yet'].map(
+			(text) => frame.indexOf(text),
+		)
+		expect(order.every((at) => at >= 0)).toBe(true)
+		expect([...order].sort((a, b) => a - b)).toEqual(order)
+		expect(sent.some((text) => text.startsWith('/'))).toBe(false)
+	})
+
 	it('changes the reasoning effort mid-reply for the next message, and never refuses', async () => {
 		const release = deferred<void>()
 		const efforts: unknown[] = []

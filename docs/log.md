@@ -2,7 +2,7 @@
 
 ## 2026-11-03
 
-- **Update** [Slash commands](cli/slash-commands.md#commands-while-a-reply-is-running): while a reply is being written, commands that only show something or change a setting (`/model`, `/effort`, `/status` and the rest of the listed set) run at once and their choosers open beside the stream without interrupting it; every other command, saved prompt command and skill is queued as typed and runs, in order, after the reply. A model picked mid-reply is used from the next request when the current provider serves it, otherwise when the reply ends; an effort or hypermode change applies from the next message. None of them is refused any more. Compaction follows each request's model. `.changeset/commands-while-a-reply-runs.md` (`@namzu/cli` minor).
+- **Update** [Slash commands](cli/slash-commands.md#commands-while-a-reply-is-running): while a reply is being written, commands that only show something or change a setting (`/model`, `/effort`, `/status` and the rest of the listed set) run at once and their choosers open beside the stream without interrupting it; every other command, saved prompt command and skill is queued as typed and runs, in order, after the reply. A model picked mid-reply is used from the next request when the current provider serves it, otherwise when the reply ends; an effort or hypermode change applies from the next message. `/clear`, `/new`, `/fork`, `/resume` and `/copy` wait with the rest and run after the reply, ahead of messages queued behind them; messages queued behind a `/clear` or `/new` are kept. None of them is refused any more. Compaction follows each request's model. `.changeset/commands-while-a-reply-runs.md` (`@namzu/cli` minor).
 
 ## 2026-11-02
 

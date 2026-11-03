@@ -1100,19 +1100,15 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'clear',
-		// Takes the conversation over and abandons the running reply on purpose, with
-		// an ownership fence that only works if it runs now; queueing would make the
-		// person wait out the very reply they are leaving.
-		immediate: true,
+		// Changes which conversation is open, so it never runs over a reply: it is
+		// kept as typed and runs, with its guards met, when the reply has ended.
 		description: 'Clear the terminal and start a fresh conversation.',
 		action: () => ({ kind: 'new-conversation', clearScreen: true }),
 	},
 	{
 		name: 'new',
-		// Takes the conversation over and abandons the running reply on purpose, with
-		// an ownership fence that only works if it runs now; queueing would make the
-		// person wait out the very reply they are leaving.
-		immediate: true,
+		// Changes which conversation is open, so it never runs over a reply: it is
+		// kept as typed and runs, with its guards met, when the reply has ended.
 		description: 'Start a fresh conversation without clearing the terminal.',
 		action: () => ({ kind: 'new-conversation', clearScreen: false }),
 	},
@@ -1158,10 +1154,8 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		// Today the same copy as /branch. The name is kept for copying the
 		// conversation into a new background session, which will replace this.
 		name: 'fork',
-		// Takes the conversation over and abandons the running reply on purpose, with
-		// an ownership fence that only works if it runs now; queueing would make the
-		// person wait out the very reply they are leaving.
-		immediate: true,
+		// Changes which conversation is open, so it never runs over a reply: it is
+		// kept as typed and runs, with its guards met, when the reply has ended.
 		description: 'Continue in a copy, leaving the original unchanged.',
 		action: () => ({ kind: 'fork' }),
 	},
@@ -1386,10 +1380,8 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'resume',
-		// Takes the conversation over and abandons the running reply on purpose, with
-		// an ownership fence that only works if it runs now; queueing would make the
-		// person wait out the very reply they are leaving.
-		immediate: true,
+		// Changes which conversation is open, so it never runs over a reply: it is
+		// kept as typed and runs, with its guards met, when the reply has ended.
 		description: 'Continue a paused reply, or resume a past conversation.',
 		action: () => ({ kind: 'resume' }),
 	},
@@ -1601,10 +1593,8 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'copy',
-		// Reads a finished answer into a picker of its own and touches nothing else, so
-		// it works beside a streaming reply: the previous answer can be copied while
-		// the next is written.
-		immediate: true,
+		// Opens a picker over the latest finished answer; kept as typed and run when
+		// the reply has ended, like the commands that change the conversation.
 		description: 'Copy the latest answer, a code block or a quote.',
 		action: () => ({ kind: 'copy' }),
 	},

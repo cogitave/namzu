@@ -2146,6 +2146,9 @@ function AppBody({
 	 * operator, a limit) is never taken for one of these.
 	 */
 	const slashWhileReplyRef = useRef(false)
+	/** What was queued behind a command that waited for the reply, while that command starts. */
+	const resumeOpeningRef = useRef(false)
+	const queuedBehindCommandRef = useRef<ReturnType<typeof roundQueue.items> | null>(null)
 	const retireAtTurnEndRef = useRef<ChoicePickerState | null>(null)
 	const setChoicePicker = useCallback((next: ChoicePickerState | null) => {
 		if (next !== null && slashWhileReplyRef.current) retireAtTurnEndRef.current = next
@@ -7008,7 +7011,7 @@ function AppBody({
 	}, [autoResumeAt])
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
-	const doResume = useCallback(
+	const openResumePicker = useCallback(
 		async (query?: string, pr?: PullRequestFilter) => {
 			const sessions =
 				sessionsRef.current ?? (await ensureSessions().then(() => sessionsRef.current))
@@ -7054,6 +7057,22 @@ function AppBody({
 			}
 		},
 		[ensureSessions, pushMessage, resumeActiveTurn],
+	)
+
+	const doResume = useCallback(
+		async (query?: string, pr?: PullRequestFilter) => {
+			// The list is read before the picker opens. A message queued behind a
+			// `/resume` that waited for the reply must not start in that window,
+			// in the conversation about to be left.
+			resumeOpeningRef.current = true
+			try {
+				await openResumePicker(query, pr)
+			} finally {
+				resumeOpeningRef.current = false
+				setQueueSettleVersion((version) => version + 1)
+			}
+		},
+		[openResumePicker],
 	)
 
 	/** `/doctor`: run the health checks once and show the result in plain words. */
@@ -7614,6 +7633,10 @@ function AppBody({
 	const startFreshConversation = useCallback(
 		async (clearScreen: boolean) => {
 			if (conversationMutationRef.current) return
+			// Messages queued behind a `/clear` or `/new` that waited for the reply
+			// were typed for the conversation it opens, so they are kept.
+			const keepQueued = queuedBehindCommandRef.current
+			queuedBehindCommandRef.current = null
 			if (
 				palDefinitionRef.current &&
 				(abortRef.current || hasUnsettledTurn() || roundQueueRef.current.items().length > 0)
@@ -7645,9 +7668,13 @@ function AppBody({
 					} else targetSessionId = await startConversation(sessions)
 				}
 
-				const discardedQueued = roundQueueRef.current.items().length
+				const discardedQueued = Math.max(
+					0,
+					roundQueueRef.current.items().length - (keepQueued?.length ?? 0),
+				)
 				const interrupted = interruptTurn()
 				discardQueued()
+				if (keepQueued?.length) roundQueueRef.current.replace(keepQueued)
 				goalActivation.clear()
 				wakeGoalDriver()
 				cancelPendingModelSwitch()
@@ -13814,7 +13841,7 @@ function AppBody({
 		turnRunning: Boolean(abortRef.current),
 		unsettledTurn: hasUnsettledTurn(),
 		pendingModelSwitch: Boolean(pendingModelSwitchRef.current),
-		conversationMutation: Boolean(conversationMutationRef.current),
+		conversationMutation: Boolean(conversationMutationRef.current) || resumeOpeningRef.current,
 		exporting: Boolean(exportingRef.current),
 		compacting: Boolean(compactingRef.current),
 		textPrompt: Boolean(textPromptRef.current),
@@ -14042,12 +14069,14 @@ function AppBody({
 			// Whatever the command queues for itself goes ahead of those.
 			const behind = roundQueueRef.current.items()
 			roundQueueRef.current.replace([])
+			queuedBehindCommandRef.current = behind
 			try {
 				handleSubmit(next.text, undefined, 'submit', {
 					source: 'queued-command',
 				})
 			} finally {
 				roundQueueRef.current.replace([...roundQueueRef.current.items(), ...behind])
+				queuedBehindCommandRef.current = null
 			}
 			return
 		}

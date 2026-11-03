@@ -54,11 +54,6 @@ describe('which commands run while a reply is being written', () => {
 		'/doctor',
 		'/release-notes',
 		'/peers',
-		'/copy',
-		'/clear',
-		'/new',
-		'/fork',
-		'/resume',
 		'/abandon',
 	])('%s runs at once', (line) => {
 		expect(slashTiming(line, [], builtins)).toBe('now')
@@ -66,6 +61,13 @@ describe('which commands run while a reply is being written', () => {
 
 	it.each([
 		'/compact',
+		'/clear',
+		'/new',
+		'/fork',
+		'/resume',
+		'/copy',
+		'/fork a title',
+		'/resume work',
 		'/context',
 		'/plan',
 		'/memory',
@@ -126,6 +128,11 @@ describe('which commands run while a reply is being written', () => {
 			'compact',
 			'export',
 			'init',
+			'clear',
+			'new',
+			'fork',
+			'resume',
+			'copy',
 		])
 		for (const command of CLI_LOCAL_COMMANDS) {
 			const unspecified = command.immediate === undefined

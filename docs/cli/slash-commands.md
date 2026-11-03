@@ -113,13 +113,15 @@ every command either way.
   `/config`, `/settings` and `/add-dir` run at once only with an argument;
   `/browser` only without one.
 - **Waits.** Anything that changes or reads the conversation itself, a saved
-  prompt command or a skill: `/compact`, `/context`, `/plan`,
-  `/memory`, `/branch`, `/rewind`, `/undo`,
+  prompt command or a skill: `/clear`, `/new`, `/fork`, `/resume` and `/copy`
+  (a command never replaces or stops the conversation under a reply that is
+  still being written), `/compact`, `/context`, `/plan`, `/memory`, `/branch`, `/rewind`, `/undo`,
   `/review`, `/init`, `/export`, `/recap`, `/login`, `/logout`, `/auth`, and so on.
   The line is kept as typed and shown under the reply as `/name · after this
   reply`. When the reply ends each one runs as a command of its own, in order,
   before any message queued behind it. Up recalls it like a queued message.
-  It is never sent to the model as text.
+  It is never sent to the model as text. Messages queued behind a `/clear` or
+  `/new` are kept for the conversation it opens.
 - A chooser that an immediate command opens (`/model`, `/effort`,
   `/permissions`, and the rest) sits beside the stream and the composer stays
   visible. Esc and Ctrl+C close only that chooser; they do not interrupt the
