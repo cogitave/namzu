@@ -32,7 +32,7 @@ function runningCommand() {
 	const stdout = new PassThrough()
 	const stderr = new PassThrough()
 	const child = Object.assign(new EventEmitter(), {
-		pid: 4242 as number | undefined,
+		pid: 2_147_483_000 as number | undefined,
 		stdout,
 		stderr,
 	})
@@ -180,7 +180,7 @@ describe('a foreground command that outruns its timeout', () => {
 			workingDirectory: '/workspace',
 			spawn: () => ({
 				child: Object.assign(new EventEmitter(), {
-					pid: 1,
+					pid: 2_147_483_000,
 					stdout: new PassThrough(),
 					stderr: new PassThrough(),
 				}) as never,
