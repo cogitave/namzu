@@ -1,5 +1,32 @@
 # @namzu/cli
 
+## 45.1.0
+
+### Minor Changes
+
+- 1ed55ae: When a model declines to answer a message, the terminal now says so in plain words and does something about it, instead of ending the turn as a finished reply with nothing in it. The row names the model that declined (`<model> declined to answer this message. This sometimes happens with safe, normal requests.`), shows the provider's category and sentence on a `Details:` line when it gave them (in place; a long sentence folds and Ctrl+O shows it whole), and then either names the model that answered instead (`/model` switches back) or says how to edit the message or pick another model. The refused reply is no longer sent again on the next turn.
+
+  New behaviour on a refusal: with an Anthropic model, the message is re-run once on another model of the same provider, which can be a larger and costlier one (Sonnet to Opus, Opus to Sonnet, Haiku to Sonnet, or the model the service recommends, only if your account can use it), and the conversation keeps that model until you switch with `/model`. To keep the model unchanged, set `refusalFallback: off` in your configuration file; the message is then retried once on the same model only if the refused reply had partial output, and otherwise ends with the plain row. Other providers never swap models on a refusal; they report it and stop.
+
+  What breaks: a turn a model declined now ends with the stop reason `refused` and `namzu exec` exits 1 with `The model declined to answer this message.` on stderr, where it used to exit 0 with an empty reply. A script that treated an empty exit-0 reply as an answer will now see the failure; one that already handled a non-zero exit needs no change. `namzu exec --json` carries a new `model-refusal` event and the `refused` stop reason. The new configuration key `refusalFallback` accepts `auto` (the default) or `off`; any other value is refused at startup.
+
+  The "answered instead" row and the switch to the other model now require that the other model actually produced a reply (text or a tool call). A limit stop (step limit, budget) right after the retry, before it answered, shows nothing and keeps the conversation's model.
+
+### Patch Changes
+
+- 33971a6: The stored-memory lock (`operation.lock`) was never removed automatically, so a process that died while holding it, or between creating it and writing its owner record (a full disk, a kill), left a file that made every later start report the memory index as not loaded until someone deleted it by hand. The lock is now broken at the next acquire when its owner is provably gone: the recorded pid no longer exists on this machine, or the file is empty or unreadable and older than five seconds. A lock whose owner is alive, or was written on another host, is still waited for and never broken. Owner records now include the host name, and a failed write of the record removes the lock file. When the owner is alive the error now reads "Another Namzu process (pid N) is using the stored memory. Close it, or wait for it to finish."; its code and details are unchanged. Nothing to do.
+- Updated dependencies [1ed55ae]
+- Updated dependencies [1ed55ae]
+- Updated dependencies [33971a6]
+- Updated dependencies [1ed55ae]
+  - @namzu/anthropic@6.7.0
+  - @namzu/openai@4.3.3
+  - @namzu/deepseek@2.3.1
+  - @namzu/openrouter@3.1.1
+  - @namzu/google@1.2.1
+  - @namzu/zen@5.1.1
+  - @namzu/sdk@60.1.0
+
 ## 45.0.0
 
 ### Major Changes
