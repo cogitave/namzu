@@ -8,8 +8,8 @@ export interface Layout {
 	readonly rule: Rect | undefined
 	/** The pane area: the tab bar and the panes under it. */
 	readonly main: Rect
-	/** The one-row tab bar across the top of the main area. */
-	readonly tabBar: Rect
+	/** The tab bar across the top of the main area: the chips, then a rule. Not reported where it is not drawn (a session shown full screen). */
+	readonly tabBar: Rect | undefined
 	/** What is left for the panes. */
 	readonly panes: Rect
 }
@@ -21,6 +21,8 @@ export interface SidebarSetting {
 	readonly width: number
 }
 
+/** The rows the tab bar takes: the chips, then a thin rule that the active tab's span is drawn on. The panes start under it, on the row of the sidebar's first entry. */
+export const TAB_BAR_HEIGHT = 2
 export const SIDEBAR_MIN = 18
 export const SIDEBAR_MAX = 36
 export const SIDEBAR_DEFAULT = 26
@@ -59,11 +61,11 @@ export function computeLayout(
 	const main: Rect = shown
 		? { x: total, y: 0, width: cols - total, height: rows }
 		: { x: 0, y: 0, width: cols, height: rows }
-	const tabBar: Rect = { ...main, height: Math.min(1, main.height) }
+	const tabBar: Rect = { ...main, height: Math.min(TAB_BAR_HEIGHT, main.height) }
 	const panes: Rect = {
 		...main,
-		y: main.y + 1,
-		height: Math.max(1, main.height - 1),
+		y: main.y + Math.min(TAB_BAR_HEIGHT, Math.max(0, main.height - 1)),
+		height: Math.max(1, main.height - TAB_BAR_HEIGHT),
 	}
 	if (!shown)
 		return {

@@ -1,5 +1,5 @@
 import stringWidth from 'string-width'
-import { ATTR_BOLD, ATTR_DIM } from '../terminal/host/cell.js'
+import { ATTR_BOLD, ATTR_DIM, ATTR_INVERSE } from '../terminal/host/cell.js'
 import type { CellStyle, Frame, Rect } from '../terminal/host/frame.js'
 import type { GitStatus } from './git.js'
 import type { Palette } from './palette.js'
@@ -41,24 +41,25 @@ export type SidebarTarget =
 	| { readonly kind: 'collapse' }
 	| { readonly kind: 'split' }
 
+/** The shapes differ as well as the colours, so a state reads in 16 colours, with no colour and to a colour-blind eye. */
 const GLYPHS: Record<Dot, string> = {
-	blocked: '●',
-	done: '●',
 	working: '●',
 	idle: '○',
+	blocked: '◆',
+	done: '✓',
 	none: '·',
 }
 
 function dotColor(dot: Dot, palette: Palette): number {
 	switch (dot) {
 		case 'blocked':
-			return palette.red
+			return palette.blocked
 		case 'done':
-			return palette.teal
+			return palette.done
 		case 'working':
-			return palette.yellow
+			return palette.working
 		case 'idle':
-			return palette.green
+			return palette.idle
 		case 'none':
 			return palette.dim
 	}
@@ -384,7 +385,8 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 	const agents = agentList(roster, model.order)
 
 	if (geo.headerY !== undefined)
-		at(1, geo.headerY, 'workspaces', { fg: palette.dim, attrs: ATTR_BOLD })
+		at(1, geo.headerY, 'workspaces', { fg: palette.text, attrs: ATTR_BOLD })
+	const reversed: [number, number][] = []
 	const workspaces = roster.workspaces.slice(
 		model.scroll.workspaces,
 		model.scroll.workspaces + geo.workspaceCap,
@@ -396,6 +398,8 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 		const dot = roster.workspaceDot(workspace)
 		const bg = focused ? (navigating ? palette.cursorRow : palette.activeRow) : -1
 		tint(y, geo.workspaceStep, bg)
+		// Without colour the cursor row is the one drawn reversed.
+		if (palette.mono && focused && navigating) reversed.push([y, geo.workspaceStep])
 		if (geo.rail) {
 			at(0, y, railIndex(index), { fg: palette.dim, bg })
 			at(2, y, GLYPHS[dot], {
@@ -414,7 +418,7 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 		const note = workspaceNote(dot)
 		if (note) {
 			at(3, y + 1, clip(note, workspaceRoom), {
-				fg: dot === 'blocked' ? palette.red : palette.teal,
+				fg: dot === 'blocked' ? palette.blocked : palette.done,
 				bg,
 			})
 			return
@@ -422,11 +426,11 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 		const git = model.git(workspace.cwd)
 		if (!git) return
 		const counts: { text: string; fg: number }[] = []
-		if (git.ahead > 0) counts.push({ text: `↑${git.ahead}`, fg: palette.green })
-		if (git.behind > 0) counts.push({ text: `↓${git.behind}`, fg: palette.red })
+		if (git.ahead > 0) counts.push({ text: `↑${git.ahead}`, fg: palette.ahead })
+		if (git.behind > 0) counts.push({ text: `↓${git.behind}`, fg: palette.behind })
 		const tail = counts.reduce((sum, c) => sum + 1 + c.text.length, 0)
 		const branch = clip(git.branch, workspaceRoom - tail)
-		at(3, y + 1, branch, { fg: focused ? palette.mauve : palette.dim, bg })
+		at(3, y + 1, branch, { fg: palette.branch, bg })
 		let x = 3 + stringWidth(branch)
 		for (const c of counts) {
 			at(x + 1, y + 1, c.text, { fg: c.fg, bg })
@@ -434,6 +438,13 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 		}
 	})
 
+	for (const [top, rows] of reversed)
+		for (let row = 0; row < rows; row++)
+			for (let x = 0; x < rect.width; x++) {
+				const cell = frame.cellAt(rect.x + x, rect.y + top + row)
+				if (cell)
+					frame.set(rect.x + x, rect.y + top + row, { ...cell, attrs: cell.attrs | ATTR_INVERSE })
+			}
 	if (!geo.rail)
 		bar(
 			rect.width - 1,
@@ -486,7 +497,7 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 		})
 		const warning = agentWarning(entry)
 		at(3, y + 1, clip(warning ?? agentDetail(roster, entry, agentRoom), agentRoom), {
-			fg: warning ? palette.yellow : palette.dim,
+			fg: warning ? palette.warn : palette.dim,
 			bg,
 		})
 	})

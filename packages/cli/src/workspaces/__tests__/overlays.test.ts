@@ -63,7 +63,7 @@ describe('name and question modals', () => {
 		expect(lines.join('\n')).toContain('esc cancel')
 		// Centred on the screen.
 		const title = await find(t, 'new workspace')
-		const box = lines.findIndex((l) => l.includes('┌'))
+		const box = lines.findIndex((l) => l.includes('╭'))
 		expect(box).toBeGreaterThan(5)
 		expect(title.x).toBeGreaterThan(20)
 		// Everything behind it is dimmed.

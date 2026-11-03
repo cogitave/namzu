@@ -262,8 +262,8 @@ describe('restoring the layout', () => {
 			first: false,
 		})
 		const shown = await text(t)
-		expect(shown).toMatch(/^ [●○·] namzu/mu)
-		expect(shown).toMatch(/^ [●○·] site/mu)
+		expect(shown).toMatch(/^ [●○◆✓·] namzu/mu)
+		expect(shown).toMatch(/^ [●○◆✓·] site/mu)
 		// The other workspace opens lazily and resumes its own conversation, on its account.
 		nav(t, 'w')
 		// The sidebar walks the sessions in its own order: up from the site is the last session of the other workspace, then its first.

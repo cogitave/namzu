@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, statSync, writeSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, resolve } from 'node:path'
+import stringWidth from 'string-width'
 import {
 	type ClipboardCopier,
 	type CopyHost,
@@ -11,10 +12,11 @@ import {
 } from '../integrations/clipboard/copy.js'
 import { MAX_CLIPBOARD_TEXT_BYTES } from '../integrations/clipboard/text.js'
 import { ATTR_BOLD, ATTR_INVERSE, ATTR_UNDERLINE } from '../terminal/host/cell.js'
-import { Frame, type Rect } from '../terminal/host/frame.js'
+import { type CellStyle, Frame, type Rect } from '../terminal/host/frame.js'
 import { DiffWriter } from '../terminal/host/writer.js'
 import type { HostPtyModule } from '../terminal/pty.js'
 import type { HeadlessScreen } from '../terminal/screen.js'
+import { activeThemeName } from '../tui/theme.js'
 import { GitCache, type GitLookup, gitLookup } from './git.js'
 import { type GotoRow, currentRow, filterGoto, gotoRows } from './goto.js'
 import {
@@ -31,6 +33,7 @@ import {
 	type Layout,
 	SIDEBAR_DEFAULT,
 	type SidebarSetting,
+	TAB_BAR_HEIGHT,
 	clampSidebarWidth,
 	computeLayout,
 } from './layout.js'
@@ -51,7 +54,7 @@ import {
 	layoutModal,
 	layoutPopup,
 } from './overlay.js'
-import { type Palette, advertisesTruecolor, paletteFor } from './palette.js'
+import { type ColorLevel, type Palette, colorLevel, paletteFor } from './palette.js'
 import { type PeerSource, recordForPid, recordForSlot } from './peers.js'
 import type { Prefix } from './prefix.js'
 import { type Entry, Roster, type Tab, type Workspace } from './roster.js'
@@ -88,7 +91,7 @@ import {
 } from './sidebar.js'
 import type { SignalName } from './signal.js'
 import type { SavedLayout, SavedNode, SavedTab, WorkspacesStore } from './store.js'
-import { drawTabBar, layoutTabBar, tabBarTarget } from './tabbar.js'
+import { drawTabBar, ellipsize, layoutTabBar, tabBarTarget } from './tabbar.js'
 import {
 	type Direction,
 	type Divider,
@@ -96,6 +99,7 @@ import {
 	MIN_PANE_WIDTH,
 	type Node,
 	type Placement,
+	SPLIT_GAP,
 	type SplitDir,
 	dividerAt,
 	leaf,
@@ -217,8 +221,8 @@ export interface WorkspacesHostOptions {
 	readonly freshFirst?: boolean
 	/** Whether a conversation is already open in another terminal; asked before a restored session starts. */
 	readonly inUseElsewhere?: (query: ConversationQuery) => Promise<boolean>
-	/** Whether to draw in true colour; by default what the terminal advertises through COLORTERM. */
-	readonly truecolor?: boolean
+	/** How much colour to draw in; by default what the terminal and the environment (`NO_COLOR`, `COLORTERM`) say. */
+	readonly colors?: ColorLevel
 	readonly schedule?: Schedule
 	/** Reads a folder's branch for the sidebar; asked after the first frame, never while one is drawn. */
 	readonly git?: GitLookup
@@ -345,6 +349,10 @@ interface Context {
 	index: number
 }
 
+function inRect(rect: Rect, x: number, y: number): boolean {
+	return x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height
+}
+
 function defaultIsDirectory(path: string): boolean {
 	try {
 		return existsSync(path) && statSync(path).isDirectory()
@@ -413,7 +421,7 @@ export class WorkspacesHost {
 	private stopWatching: (() => void) | undefined
 	private reconciling = false
 	private readonly leaving: PaneSession[] = []
-	private readonly palette: Palette
+	private paletteCache: { level: ColorLevel; theme: string; palette: Palette } | undefined
 	/** A border being dragged: the split it moves and where on the border it was grabbed. */
 	private drag: { split: Divider['split']; offset: number } | undefined
 	private readonly router: InputRouter
@@ -490,11 +498,21 @@ export class WorkspacesHost {
 		}
 	}
 
+	/** The chrome's colours, from the theme showing now: a theme switched in the TUI restyles the screen at its next frame. */
+	private get palette(): Palette {
+		const level = this.options.colors ?? colorLevel(process.env)
+		const theme = activeThemeName()
+		const cached = this.paletteCache
+		if (cached && cached.level === level && cached.theme === theme) return cached.palette
+		const palette = paletteFor(level)
+		this.paletteCache = { level, theme, palette }
+		return palette
+	}
+
 	constructor(private readonly options: WorkspacesHostOptions) {
 		this.router = new InputRouter(options.prefix)
 		this.schedule = options.schedule ?? realSchedule
 		this.clicks = new ClickCounter(options.now ?? Date.now, DOUBLE_CLICK_MS)
-		this.palette = paletteFor(options.truecolor ?? advertisesTruecolor(process.env))
 		this.git = new GitCache(
 			options.git ?? gitLookup,
 			() => this.requestRender(),
@@ -771,7 +789,7 @@ export class WorkspacesHost {
 				rail: false,
 				rule: undefined,
 				main: whole,
-				tabBar: { ...whole, height: 1 },
+				tabBar: undefined,
 				panes: whole,
 			}
 		}
@@ -1522,7 +1540,7 @@ export class WorkspacesHost {
 		const outer = this.flatPanes().find((p) => p.entry === entry)?.outer
 		const room = dir === 'side' ? (outer?.width ?? 0) : (outer?.height ?? 0)
 		const least = dir === 'side' ? MIN_PANE_WIDTH : MIN_PANE_HEIGHT
-		if (room < least * 2) {
+		if (room < least * 2 + SPLIT_GAP) {
 			this.notice = 'There is not enough room to split this pane.'
 			return
 		}
@@ -1996,7 +2014,7 @@ export class WorkspacesHost {
 			)
 			if (hit?.kind === 'workspace') target = { kind: 'workspace', workspace: hit.workspace }
 			else if (hit?.kind === 'agent') target = { kind: 'pane', entry: hit.entry }
-		} else if (event.y === layout.tabBar.y) {
+		} else if (layout.tabBar && inRect(layout.tabBar, event.x, event.y)) {
 			const entry = this.roster.selected
 			const hit = entry
 				? tabBarTarget(
@@ -2110,11 +2128,13 @@ export class WorkspacesHost {
 		const layout = this.layout()
 		const entry = this.roster.selected
 		if (!entry) return
-		if (event.y === layout.tabBar.y) {
+		if (layout.tabBar && inRect(layout.tabBar, event.x, event.y)) {
 			const bar = layoutTabBar(this.roster.workspaceOf(entry), layout.tabBar)
 			const target = tabBarTarget(bar, event.x, event.y)
 			if (target?.kind === 'new') this.newTab()
 			else if (target?.kind === 'tab') this.open(target.tab.focus)
+			else if (target?.kind === 'previous') this.stepTab(-1)
+			else if (target?.kind === 'next') this.stepTab(1)
 			return
 		}
 		const placement = this.placement()
@@ -2500,7 +2520,7 @@ export class WorkspacesHost {
 		if (mode === 'resize')
 			return {
 				chip: 'RESIZE',
-				chipBg: this.palette.mauve,
+				chipBg: this.palette.resize,
 				hints: [
 					['esc', 'done'],
 					['h/l', 'width'],
@@ -2510,7 +2530,7 @@ export class WorkspacesHost {
 		if (mode === 'navigate')
 			return {
 				chip: 'NAVIGATE',
-				chipBg: this.palette.accent,
+				chipBg: this.palette.navigate,
 				hints: [
 					['↑/↓', 'session'],
 					['→', 'open'],
@@ -2530,24 +2550,52 @@ export class WorkspacesHost {
 		}
 	}
 
+	/**
+	 * Draws the mode bar at the right end of `area`, a row that holds no pane cells: the tab bar's
+	 * rule. Hints that do not fit are left out, the chip never is.
+	 */
 	private drawModeBar(frame: Frame, area: Rect, mode: InputMode): void {
 		const { palette } = this
 		const bar = this.modeBar(mode)
-		frame.fillRect(area, { bg: palette.panelBg })
-		let x = 0
-		const put = (text: string, style: { fg: number; bg: number; attrs?: number }): void => {
-			x += frame.writeText({ ...area, x: area.x + x, width: area.width - x }, 0, text, style)
-		}
-		put(` ${bar.chip} `, {
-			fg: palette.panelBg,
-			bg: bar.chipBg,
-			attrs: ATTR_BOLD,
-		})
-		put(' ', { fg: palette.dim, bg: palette.panelBg })
+		const chip = ` ${bar.chip} `
+		const pieces: { text: string; style: CellStyle }[] = [
+			{
+				text: chip,
+				style: palette.mono
+					? { attrs: ATTR_BOLD | ATTR_INVERSE }
+					: { fg: palette.ink, bg: bar.chipBg, attrs: ATTR_BOLD },
+			},
+			{ text: ' ', style: { fg: palette.dim } },
+		]
+		let width = stringWidth(chip) + 1
 		for (const [key, what] of bar.hints) {
-			put(key, { fg: palette.accent, bg: palette.panelBg, attrs: ATTR_BOLD })
-			put(` ${what}  `, { fg: palette.dim, bg: palette.panelBg })
+			const hint = ` ${what}  `
+			if (width + stringWidth(key) + stringWidth(hint) > area.width - 1) break
+			pieces.push({ text: key, style: { fg: palette.accent, attrs: ATTR_BOLD } })
+			pieces.push({ text: hint, style: { fg: palette.dim } })
+			width += stringWidth(key) + stringWidth(hint)
 		}
+		const used = Math.min(width, area.width)
+		let x = area.x + area.width - used
+		frame.fillRect({ ...area, x, width: used }, { bg: palette.base })
+		for (const piece of pieces) {
+			if (x >= area.x + area.width) break
+			x += frame.writeText(
+				{ ...area, x, width: area.x + area.width - x },
+				0,
+				piece.text,
+				piece.style,
+			)
+		}
+	}
+
+	/** A line of notice at the right end of `area`, in the warning colour. */
+	private drawNotice(frame: Frame, area: Rect, notice: string): void {
+		const text = ellipsize(` ${notice} `, Math.max(0, area.width - 1))
+		const width = stringWidth(text)
+		const rect = { ...area, x: area.x + area.width - width, width }
+		frame.fillRect(rect, { bg: this.palette.base })
+		frame.writeText(rect, 0, text, { fg: this.palette.warn })
 	}
 
 	private requestRender(): void {
@@ -2615,28 +2663,23 @@ export class WorkspacesHost {
 			})
 		}
 		if (layout.rule) drawRule(frame, layout.rule, this.palette)
-		if (entry && this.view === 'split')
+		if (entry && this.view === 'split' && layout.tabBar)
 			drawTabBar(frame, layout.tabBar, this.roster.workspaceOf(entry), this.palette)
 		// The focused pane is drawn last, so the cursor is the one it sets.
 		const ordered = [...panes].sort((a, b) => Number(a.entry === entry) - Number(b.entry === entry))
 		for (const pane of ordered)
 			this.drawPane(frame, pane, pane.entry === entry, placement?.bordered ?? false)
 		if (this.reorder) this.drawDrop(frame, layout)
-		const area = {
-			...layout.main,
-			y: layout.main.y + layout.main.height - 1,
-			height: 1,
-		}
+		// The mode bar and a notice go on the tab bar's rule row, never over a pane. A session shown
+		// full screen has no tab bar, so they take the screen's last row there.
+		const area: Rect =
+			layout.tabBar && layout.tabBar.height >= TAB_BAR_HEIGHT
+				? { ...layout.main, y: layout.main.y + 1, height: 1 }
+				: { ...layout.main, y: layout.main.y + layout.main.height - 1, height: 1 }
 		const mode = this.router.current
 		const asking = this.captured()
 		if (mode !== 'terminal' && !asking) this.drawModeBar(frame, area, mode)
-		else if (this.notice && !asking) {
-			frame.fillRect(area, { bg: this.palette.panelBg })
-			frame.writeText(area, 0, ` ${this.notice}`, {
-				fg: this.palette.yellow,
-				bg: this.palette.panelBg,
-			})
-		}
+		else if (this.notice && !asking) this.drawNotice(frame, area, this.notice)
 		this.drawOverlay(frame)
 		if (mode !== 'terminal' || asking)
 			frame.setCursor({ x: frame.cursor.x, y: frame.cursor.y, visible: false })
@@ -2738,7 +2781,7 @@ export class WorkspacesHost {
 		bordered: boolean,
 	): void {
 		const { entry, outer, inner } = pane
-		if (bordered) drawBox(frame, outer, focused ? this.palette.accent : this.palette.dim)
+		if (bordered) drawBox(frame, outer, focused ? this.palette.focus : this.palette.border)
 		const child = entry.child
 		if (child) {
 			frame.blit(child.screen.cells(entry.scrollBack), inner)

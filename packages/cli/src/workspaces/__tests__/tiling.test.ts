@@ -36,17 +36,18 @@ describe('placing panes', () => {
 		expect(placed.panes[0]).toMatchObject({ outer: AREA, inner: AREA })
 	})
 
-	it('halves a split, the first child taking the odd cell, and gives every pane its own border', () => {
+	it('halves a split, the first child taking the odd cell, and gives every pane its own border with a gap between neighbours', () => {
 		const { a, b, c, root } = threePanes()
 		const { panes, bordered } = place(root, AREA)
 		expect(bordered).toBe(true)
 		const at = (e: Entry) => panes.find((p) => p.entry === e)
+		// One cell is left between neighbours, so two border lines never sit side by side.
 		expect(at(a)?.outer).toEqual({ x: 26, y: 1, width: 67, height: 44 })
-		expect(at(b)?.outer).toEqual({ x: 93, y: 1, width: 67, height: 22 })
-		expect(at(c)?.outer).toEqual({ x: 93, y: 23, width: 67, height: 22 })
-		// Neighbours' borders touch, and the inside is one cell in on each side.
+		expect(at(b)?.outer).toEqual({ x: 94, y: 1, width: 66, height: 22 })
+		expect(at(c)?.outer).toEqual({ x: 94, y: 24, width: 66, height: 21 })
+		// The inside is one cell in on each side.
 		expect(at(a)?.inner).toEqual({ x: 27, y: 2, width: 65, height: 42 })
-		expect(at(b)?.inner).toEqual({ x: 94, y: 2, width: 65, height: 20 })
+		expect(at(b)?.inner).toEqual({ x: 95, y: 2, width: 64, height: 20 })
 	})
 
 	it('keeps a ratio inside 10 to 90 percent and every pane above its least size', () => {
@@ -58,10 +59,10 @@ describe('placing panes', () => {
 		expect(first).toBeGreaterThanOrEqual(12)
 		root.ratio = 0.99
 		first = place(root, AREA).panes[0]?.outer.width as number
-		expect(first).toBe(134 - 12)
-		// A room too small for two least-size panes is halved.
+		expect(first).toBe(134 - 1 - 12)
+		// A room too small for two least-size panes is halved, less the cell between them.
 		root.ratio = 0.1
-		expect(place(root, { ...AREA, width: 20 }).panes[0]?.outer.width).toBe(10)
+		expect(place(root, { ...AREA, width: 20 }).panes[0]?.outer.width).toBe(9)
 	})
 
 	it('zooms the focused pane to the whole area, keeping its border', () => {
@@ -158,12 +159,16 @@ describe('the mouse on borders and panes', () => {
 		expect(paneAt(panes, 30, 10)?.entry).toBe(a)
 		expect(paneAt(panes, 100, 10)?.entry).toBe(b)
 		expect(paneAt(panes, 5, 10)).toBeUndefined()
-		// The side border is the two touching columns, 92 and 93, down the whole height.
+		// The side border is the gap, column 93, and the edge on each side of it, down the whole height.
 		expect(dividerAt(dividers, 92, 30)?.split.dir).toBe('side')
 		expect(dividerAt(dividers, 93, 30)?.split.dir).toBe('side')
-		expect(dividerAt(dividers, 94, 30)).toBeUndefined()
-		// The right half's top-over-bottom border is the two touching rows, 22 and 23.
+		expect(dividerAt(dividers, 94, 30)?.split.dir).toBe('side')
+		expect(dividerAt(dividers, 95, 30)).toBeUndefined()
+		expect(dividerAt(dividers, 91, 30)).toBeUndefined()
+		// The right half's top-over-bottom border is the gap, row 23, and the edges around it.
 		expect(dividerAt(dividers, 120, 22)?.split.dir).toBe('stack')
+		expect(dividerAt(dividers, 120, 24)?.split.dir).toBe('stack')
+		expect(dividerAt(dividers, 120, 25)).toBeUndefined()
 		expect(dividerAt(dividers, 60, 22)).toBeUndefined()
 	})
 
@@ -172,8 +177,9 @@ describe('the mouse on borders and panes', () => {
 		const { dividers } = place(root, AREA)
 		const side = dividers[0]
 		if (!side) throw new Error('no divider')
-		expect(ratioFor(side, 26 + 67)).toBeCloseTo(0.5)
-		expect(ratioFor(side, 26 + 134 / 4)).toBeCloseTo(0.25)
+		// The ratio is of the room the two panes share, without the gap.
+		expect(ratioFor(side, 26 + 67)).toBeCloseTo(0.5, 1)
+		expect(ratioFor(side, 26 + 134 / 4)).toBeCloseTo(0.25, 1)
 		expect(ratioFor(side, 0)).toBe(0.1)
 		expect(ratioFor(side, 500)).toBe(0.9)
 	})

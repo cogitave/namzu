@@ -47,7 +47,7 @@ export function setup(
 		}),
 		folder: { cwd: '/work/namzu', name: 'namzu' },
 		prefix: DEFAULT_PREFIX,
-		truecolor: true,
+		colors: 'truecolor',
 		// No test reads a real repository; the ones about branches pass their own lookup.
 		git: () => Promise.resolve(undefined),
 		isDirectory: (path) => path.startsWith('/work/'),

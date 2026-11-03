@@ -178,7 +178,7 @@ describe('the host inside a conversation', () => {
 		t.host.start()
 		t.host.openWorkspaces()
 		expect(t.written[0]).toContain('\x1b[?1049h')
-		expect(local.sizes[0]).toMatchObject({ cols: 120 - 26, rows: 35 })
+		expect(local.sizes[0]).toMatchObject({ cols: 120 - 26, rows: 34 })
 		local.print('hello from the conversation')
 		await t.frame()
 		const lines = (await t.screen()).join('\n')
@@ -250,7 +250,7 @@ describe('the host inside a conversation', () => {
 		expect(pty.writes).toEqual(['hi'])
 		// The child's ← arrives as a private message in its output and is not shown.
 		pty.print(workspacesSignal('zoom-out'))
-		expect(pty.resizes.at(-1)).toEqual({ cols: 120 - 26, rows: 35 })
+		expect(pty.resizes.at(-1)).toEqual({ cols: 120 - 26, rows: 34 })
 		await t.frame()
 		lines = await t.screen()
 		expect(lines.join('\n')).toContain('NAVIGATE')

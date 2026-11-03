@@ -127,7 +127,7 @@ export function createWorkspacesEntry(deps: WorkspacesEntryDeps): WorkspacesEntr
 				name: deps.cwd.split(/[\\/]/u).filter(Boolean).pop() ?? 'session',
 			},
 			prefix,
-			truecolor: palette.advertisesTruecolor(deps.env),
+			colors: palette.colorLevel(deps.env),
 			mouse: mouse.resolveMouseMode(deps.env, deps.mouseSetting),
 			...(deps.copyOnSelect !== undefined ? { copyOnSelect: deps.copyOnSelect } : {}),
 			...(peers ? { peers } : {}),

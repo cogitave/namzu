@@ -1,6 +1,6 @@
 import stringWidth from 'string-width'
-import { ATTR_BOLD, ATTR_DIM } from '../terminal/host/cell.js'
-import type { Frame, Rect } from '../terminal/host/frame.js'
+import { ATTR_BOLD, ATTR_DIM, ATTR_INVERSE } from '../terminal/host/cell.js'
+import type { CellStyle, Frame, Rect } from '../terminal/host/frame.js'
 import type { Palette } from './palette.js'
 
 /** The size of the terminal an overlay is placed on. */
@@ -37,14 +37,19 @@ export function hitSurface(surface: Surface, x: number, y: number): Hit {
 }
 
 /** A square box in one colour. */
+/** The text cursor of a field: a block in the text colour, or reversed where there is no colour. */
+function caret(palette: Palette): CellStyle {
+	return palette.mono ? { attrs: ATTR_INVERSE } : { bg: palette.text }
+}
+
 export function drawBox(frame: Frame, rect: Rect, fg: number, bg?: number): void {
 	if (rect.width < 2 || rect.height < 2) return
 	const style = { fg, ...(bg !== undefined ? { bg } : {}) }
 	const right = rect.x + rect.width - 1
 	const bottom = rect.y + rect.height - 1
 	const across = '─'.repeat(rect.width - 2)
-	frame.writeText({ ...rect, height: 1 }, 0, `┌${across}┐`, style)
-	frame.writeText({ ...rect, y: bottom, height: 1 }, 0, `└${across}┘`, style)
+	frame.writeText({ ...rect, height: 1 }, 0, `╭${across}╮`, style)
+	frame.writeText({ ...rect, y: bottom, height: 1 }, 0, `╰${across}╯`, style)
 	for (let y = rect.y + 1; y < bottom; y++) {
 		frame.writeText({ x: rect.x, y, width: 1, height: 1 }, 0, '│', style)
 		frame.writeText({ x: right, y, width: 1, height: 1 }, 0, '│', style)
@@ -157,17 +162,17 @@ export function drawModal(
 	palette: Palette,
 ): void {
 	const { rect } = layout
-	const tone = spec.danger ? palette.red : palette.accent
-	frame.fillRect(rect, { bg: palette.panelBg })
-	drawBox(frame, rect, tone, palette.panelBg)
+	const tone = spec.danger ? palette.danger : palette.focus
+	frame.fillRect(rect, { bg: palette.base })
+	drawBox(frame, rect, tone, palette.base)
 	const inner = { x: rect.x + 2, y: rect.y, width: rect.width - 4, height: rect.height }
 	frame.writeText(inner, 1, spec.title, {
-		fg: spec.danger ? palette.red : palette.text,
-		bg: palette.panelBg,
+		fg: spec.danger ? palette.danger : palette.text,
+		bg: palette.base,
 		attrs: ATTR_BOLD,
 	})
 	;(spec.lines ?? []).forEach((line, i) =>
-		frame.writeText(inner, 2 + i, line, { fg: palette.subtext, bg: palette.panelBg }),
+		frame.writeText(inner, 2 + i, line, { fg: palette.subtext, bg: palette.base }),
 	)
 	if (layout.inputRect && spec.input) {
 		const field = layout.inputRect
@@ -179,25 +184,23 @@ export function drawModal(
 			fg: palette.text,
 			bg: palette.surface,
 		})
-		frame.writeText({ ...field, x: field.x + 1 + used, width: 1 }, 0, ' ', {
-			bg: palette.text,
-		})
+		frame.writeText({ ...field, x: field.x + 1 + used, width: 1 }, 0, ' ', caret(palette))
 		if (spec.error)
 			frame.writeText(inner, field.y - rect.y + 1, spec.error, {
-				fg: palette.red,
-				bg: palette.panelBg,
+				fg: palette.danger,
+				bg: palette.base,
 			})
 	}
 	spec.buttons.forEach((b) => {
 		const at = layout.buttons.find((l) => l.action === b.action)?.rect
 		if (!at) return
-		const fill = b.primary ? tone : palette.surface
-		frame.fillRect(at, { bg: fill })
-		frame.writeText({ ...at, x: at.x + 1, width: at.width - 1 }, 0, b.label, {
-			fg: b.primary ? palette.panelBg : palette.text,
-			bg: fill,
-			...(b.primary ? { attrs: ATTR_BOLD } : {}),
-		})
+		const style: CellStyle = !b.primary
+			? { fg: palette.text, bg: palette.surface }
+			: palette.mono
+				? { attrs: ATTR_BOLD | ATTR_INVERSE }
+				: { fg: palette.ink, bg: tone, attrs: ATTR_BOLD }
+		frame.fillRect(at, style)
+		frame.writeText({ ...at, x: at.x + 1, width: at.width - 1 }, 0, b.label, style)
 	})
 }
 
@@ -268,10 +271,10 @@ export function layoutList(screen: Screen, spec: ListSpec): ListLayout {
 
 export function drawList(frame: Frame, layout: ListLayout, spec: ListSpec, palette: Palette): void {
 	const { rect } = layout
-	frame.fillRect(rect, { bg: palette.panelBg })
-	drawBox(frame, rect, palette.accent, palette.panelBg)
+	frame.fillRect(rect, { bg: palette.base })
+	drawBox(frame, rect, palette.focus, palette.base)
 	const inner = { x: rect.x + 2, y: rect.y, width: rect.width - 4, height: rect.height }
-	frame.writeText(inner, 1, spec.title, { fg: palette.text, bg: palette.panelBg, attrs: ATTR_BOLD })
+	frame.writeText(inner, 1, spec.title, { fg: palette.text, bg: palette.base, attrs: ATTR_BOLD })
 	if (layout.inputRect && spec.input) {
 		const field = layout.inputRect
 		frame.fillRect(field, { bg: palette.surface })
@@ -282,7 +285,7 @@ export function drawList(frame: Frame, layout: ListLayout, spec: ListSpec, palet
 			fg: palette.text,
 			bg: palette.surface,
 		})
-		frame.writeText({ ...field, x: field.x + 1 + used, width: 1 }, 0, ' ', { bg: palette.text })
+		frame.writeText({ ...field, x: field.x + 1 + used, width: 1 }, 0, ' ', caret(palette))
 	}
 	const first = rect.y + (spec.input ? 4 : 3)
 	for (let i = 0; i < layout.capacity; i++) {
@@ -290,8 +293,9 @@ export function drawList(frame: Frame, layout: ListLayout, spec: ListSpec, palet
 		if (!row) break
 		const area = { x: rect.x + 1, y: first + i, width: rect.width - 2, height: 1 }
 		const chosen = layout.top + i === spec.index
-		const bg = chosen ? palette.cursorRow : palette.panelBg
-		frame.fillRect(area, { bg })
+		const bg = chosen ? palette.cursorRow : palette.base
+		const mark = chosen && palette.mono ? ATTR_INVERSE : 0
+		frame.fillRect(area, { bg, ...(mark ? { attrs: mark } : {}) })
 		let x = 1 + (row.indent ?? 0)
 		const put = (text: string, style: { fg: number; attrs?: number }): void => {
 			x += frame.writeText(
@@ -301,6 +305,7 @@ export function drawList(frame: Frame, layout: ListLayout, spec: ListSpec, palet
 				{
 					...style,
 					bg,
+					attrs: (style.attrs ?? 0) | mark,
 				},
 			)
 		}
@@ -314,7 +319,7 @@ export function drawList(frame: Frame, layout: ListLayout, spec: ListSpec, palet
 		}
 		put(row.text, {
 			fg: row.heading
-				? palette.dimmer
+				? palette.dim
 				: row.muted
 					? palette.dim
 					: chosen
@@ -325,7 +330,7 @@ export function drawList(frame: Frame, layout: ListLayout, spec: ListSpec, palet
 	}
 	frame.writeText({ ...inner, y: rect.y + rect.height - 2, height: 1 }, 0, spec.footer, {
 		fg: palette.dim,
-		bg: palette.panelBg,
+		bg: palette.base,
 	})
 }
 
@@ -363,18 +368,18 @@ export function drawPopup(
 	index: number,
 	palette: Palette,
 ): void {
-	frame.fillRect(surface.rect, { bg: palette.panelBg })
-	drawBox(frame, surface.rect, palette.accent, palette.panelBg)
+	frame.fillRect(surface.rect, { bg: palette.base })
+	drawBox(frame, surface.rect, palette.focus, palette.base)
 	items.forEach((item, i) => {
 		const row = surface.rows[i]?.rect
 		if (!row) return
 		const chosen = i === index
-		const bg = chosen ? palette.accent : palette.panelBg
-		frame.fillRect(row, { bg })
-		frame.writeText({ ...row, x: row.x + 1, width: row.width - 1 }, 0, item, {
-			fg: chosen ? palette.panelBg : palette.subtext,
-			bg,
-			...(chosen ? { attrs: ATTR_BOLD } : {}),
-		})
+		const style: CellStyle = !chosen
+			? { fg: palette.subtext, bg: palette.base }
+			: palette.mono
+				? { attrs: ATTR_BOLD | ATTR_INVERSE }
+				: { fg: palette.ink, bg: palette.accent, attrs: ATTR_BOLD }
+		frame.fillRect(row, style)
+		frame.writeText({ ...row, x: row.x + 1, width: row.width - 1 }, 0, item, style)
 	})
 }

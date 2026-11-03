@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { rgb } from '../../terminal/host/cell.js'
 import { Frame } from '../../terminal/host/frame.js'
 import { RAIL_WIDTH, computeLayout } from '../layout.js'
 import { paletteFor } from '../palette.js'
@@ -8,6 +7,7 @@ import {
 	type SidebarModel,
 	agentDetail,
 	agentList,
+	dotStyle,
 	drawSidebar,
 	geometry,
 	hitTest,
@@ -15,7 +15,7 @@ import {
 	scrollThumb,
 } from '../sidebar.js'
 
-const palette = paletteFor(true)
+const palette = paletteFor('truecolor')
 
 function build() {
 	const roster = new Roster()
@@ -60,16 +60,16 @@ describe('the sidebar', () => {
 			cwd === '/w/alpha' ? { branch: 'feat/x', ahead: 2, behind: 1 } : undefined
 		const { frame, text } = draw(model(roster, { git }))
 		expect(text(0)).toBe(' workspaces              ')
-		expect(text(2)).toMatch(/^ ○? ?alpha|^ [●○·] alpha/u)
+		expect(text(2)).toMatch(/^ ○? ?alpha|^ [●○◆✓·] alpha/u)
 		expect(text(3)).toBe('   feat/x ↑2 ↓1          ')
 		// Focused: bold, main text colour, mauve branch, faint tint on both lines.
 		expect(frame.cellAt(3, 2)?.attrs).toBe(1)
 		expect(frame.cellAt(3, 2)?.fg).toBe(palette.text)
-		expect(frame.cellAt(3, 3)?.fg).toBe(palette.mauve)
-		expect(frame.cellAt(3, 3)?.bg).toBe(rgb(30, 30, 46))
-		expect(frame.cellAt(10, 3)?.bg).toBe(rgb(30, 30, 46))
-		expect(frame.cellAt(10, 3)?.fg).toBe(palette.green)
-		expect(frame.cellAt(13, 3)?.fg).toBe(palette.red)
+		expect(frame.cellAt(3, 3)?.fg).toBe(palette.branch)
+		expect(frame.cellAt(3, 3)?.bg).toBe(palette.activeRow)
+		expect(frame.cellAt(10, 3)?.bg).toBe(palette.activeRow)
+		expect(frame.cellAt(10, 3)?.fg).toBe(palette.ahead)
+		expect(frame.cellAt(13, 3)?.fg).toBe(palette.behind)
 		// Not focused: subdued, not bold, no tint.
 		expect(text(4)).toContain('beta')
 		expect(frame.cellAt(3, 4)?.attrs).toBe(0)
@@ -80,7 +80,45 @@ describe('the sidebar', () => {
 	it('tints the cursor row more strongly while navigating', () => {
 		const { roster } = build()
 		const { frame } = draw(model(roster, { mode: 'navigate' }))
-		expect(frame.cellAt(3, 2)?.bg).toBe(rgb(49, 50, 68))
+		expect(frame.cellAt(3, 2)?.bg).toBe(palette.cursorRow)
+	})
+
+	it('draws the header in bold and the branch and counts in the theme colours', () => {
+		const { roster } = build()
+		const git = (cwd: string) =>
+			cwd === '/w/alpha' ? { branch: 'feat/x', ahead: 2, behind: 1 } : undefined
+		const { frame } = draw(model(roster, { git }))
+		const header = frame.cellAt(1, 0)
+		expect(header?.attrs).toBe(1)
+		expect(header?.fg).toBe(palette.text)
+		// accent.system for the branch, status.ok ahead and status.error behind.
+		expect(frame.cellAt(3, 3)?.fg).toBe(109)
+		expect(frame.cellAt(10, 3)?.fg).toBe(77)
+		expect(frame.cellAt(13, 3)?.fg).toBe(203)
+	})
+
+	it('tells the states apart by shape as well as colour', () => {
+		const shapes = (['working', 'idle', 'blocked', 'done', 'none'] as const).map(
+			(dot) => dotStyle(dot, palette).glyph,
+		)
+		expect(shapes).toEqual(['●', '○', '◆', '✓', '·'])
+		expect(new Set(shapes).size).toBe(5)
+		const plain = paletteFor('none')
+		for (const dot of ['working', 'idle', 'blocked', 'done'] as const)
+			expect(dotStyle(dot, plain).fg).toBe(-1)
+	})
+
+	it('reverses the cursor row where there is no colour', () => {
+		const { roster } = build()
+		const none = paletteFor('none')
+		const { frame } = draw(model(roster, { mode: 'navigate', palette: none }))
+		const marked = (y: number) => ((frame.cellAt(3, y)?.attrs ?? 0) & 32) !== 0
+		expect(marked(2)).toBe(true)
+		expect(marked(3)).toBe(true)
+		expect(marked(4)).toBe(false)
+		// Not navigating, nothing is reversed.
+		const calm = draw(model(roster, { palette: none }))
+		expect(((calm.frame.cellAt(3, 2)?.attrs ?? 0) & 32) !== 0).toBe(false)
 	})
 
 	it('puts new and menu on the last row of the workspaces section, above the rule', () => {
@@ -122,12 +160,12 @@ describe('the sidebar', () => {
 		b1.reported = 'idle'
 		b1.unseen = true
 		const { frame, text } = draw(model(roster))
-		expect(frame.cellAt(1, 2)?.fg).toBe(palette.red)
+		expect(frame.cellAt(1, 2)?.fg).toBe(palette.blocked)
 		expect(text(3)).toContain('needs approval')
-		expect(frame.cellAt(1, 4)?.fg).toBe(palette.teal)
+		expect(frame.cellAt(1, 4)?.fg).toBe(palette.done)
 		expect(text(5)).toContain('finished')
 		// Something wants a look, so menu carries a dot.
-		expect(text(geometry(45, 0, 0.5, false).footerY as number)).toContain('● menu')
+		expect(text(geometry(45, 0, 0.5, false).footerY as number)).toContain('◆ menu')
 	})
 
 	it('orders agents by priority: blocked, finished, working, idle, then newest change', () => {

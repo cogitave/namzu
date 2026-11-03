@@ -14,7 +14,7 @@ describe('WorkspacesHost', () => {
 		expect(pty.options.env).toEqual({ A: '1' })
 		expect(pty.options).toMatchObject({
 			cols: 74,
-			rows: 29,
+			rows: 28,
 			cwd: '/work/namzu',
 		})
 		expect(t.state.raw).toBe(true)
@@ -22,10 +22,11 @@ describe('WorkspacesHost', () => {
 		await t.frame()
 		const lines = await t.screen()
 		expect(lines[0]).toContain('workspaces')
-		expect(lines.join('\n')).toMatch(/^ [●○·] namzu/mu)
-		// The tab bar is the first row of the main area; the session starts under it.
+		expect(lines.join('\n')).toMatch(/^ [●○◆✓·] namzu/mu)
+		// The chips are the first row of the main area and a rule the second; the session starts under them.
 		expect(lines[0]).toContain('1')
-		expect(lines[1]).toContain('hello from the child')
+		expect(lines[1]).toContain('━')
+		expect(lines[2]).toContain('hello from the child')
 	})
 
 	it('sends keys to the child and keeps the prefix for itself', () => {
@@ -53,7 +54,7 @@ describe('WorkspacesHost', () => {
 		expect((await t.screen()).join('\n')).not.toContain('PREFIX')
 		t.type('\x02')
 		await t.frame()
-		const bar = (await t.screen()).at(-1) as string
+		const bar = (await t.screen())[1] as string
 		expect(bar).toContain('PREFIX')
 		expect(bar).toContain('esc cancel')
 		expect(bar).toContain('ctrl+b send prefix')
@@ -63,12 +64,32 @@ describe('WorkspacesHost', () => {
 		t.type('\x02')
 		t.type('w')
 		await t.frame()
-		expect((await t.screen()).at(-1) as string).toContain('NAVIGATE')
+		expect((await t.screen())[1] as string).toContain('NAVIGATE')
 		t.type('\x1b')
 		t.type('\x02')
 		t.type('r')
 		await t.frame()
-		expect((await t.screen()).at(-1) as string).toContain('RESIZE')
+		expect((await t.screen())[1] as string).toContain('RESIZE')
+	})
+
+	it('draws the mode bar and a notice on the tab bar rule, never over the session', async () => {
+		const t = setup()
+		t.host.start()
+		const pty = t.spawned[0] as FakePty
+		const last = t.output.rows - 1
+		pty.print(`\x1b[${last - 1};1Hthe last session row`)
+		await t.frame()
+		const before = await t.screen()
+		expect(before[last]).toContain('the last session row')
+		for (const keys of [['\x02'], ['\x02', 'w'], ['\x02', 'r']]) {
+			for (const key of keys) t.type(key)
+			await t.frame()
+			const lines = await t.screen()
+			expect(lines[1]).toMatch(/PREFIX|NAVIGATE|RESIZE/u)
+			// Every row from the second up to the last one is what it was without the bar.
+			expect(lines.slice(2)).toEqual(before.slice(2))
+			t.type('\x1b')
+		}
 	})
 
 	it('resizes the child to the main area when the terminal changes, and when the sidebar collapses to its rail', async () => {
@@ -78,10 +99,10 @@ describe('WorkspacesHost', () => {
 		t.output.columns = 80
 		t.output.rows = 20
 		for (const l of t.resizeListeners) l()
-		expect(pty.resizes.at(-1)).toEqual({ cols: 54, rows: 19 })
+		expect(pty.resizes.at(-1)).toEqual({ cols: 54, rows: 18 })
 		t.type('\x02')
 		t.type('b')
-		expect(pty.resizes.at(-1)).toEqual({ cols: 76, rows: 19 })
+		expect(pty.resizes.at(-1)).toEqual({ cols: 76, rows: 18 })
 		await t.frame()
 		const rail = (await t.screen()).join('\n')
 		expect(rail).not.toContain('workspaces')

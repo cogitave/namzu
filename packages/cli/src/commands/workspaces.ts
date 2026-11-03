@@ -1,10 +1,13 @@
 import { spawn } from 'node:child_process'
 import { openCliAccounts, storedAccountSignedIn } from '../integrations/accounts/open.js'
 import { type HostPtyModule, buildPtyEnv, loadHostPty } from '../terminal/pty.js'
+import { backgroundFromColorFgBg } from '../tui/theme-detect.js'
+import { type ThemeSetting, resolveTheme } from '../tui/theme-palettes.js'
+import { applyPalette } from '../tui/theme.js'
 import { WorkspacesHost } from '../workspaces/host.js'
 import type { ConversationQuery, HostAccount, SessionRequest } from '../workspaces/host.js'
 import { type MouseMode, resolveMouseMode } from '../workspaces/mouse.js'
-import { advertisesTruecolor } from '../workspaces/palette.js'
+import { colorLevel } from '../workspaces/palette.js'
 import { createPeerSource } from '../workspaces/peers.js'
 import type { PeerSource } from '../workspaces/peers.js'
 import { DEFAULT_PREFIX, parsePrefix } from '../workspaces/prefix.js'
@@ -194,7 +197,12 @@ export async function runWorkspaces(
 	rawArgs: readonly string[],
 	prefixSetting: string | undefined,
 	deps: WorkspacesDeps,
-	pointer: { readonly mouse?: MouseMode; readonly copyOnSelect?: boolean } = {},
+	pointer: {
+		readonly mouse?: MouseMode
+		readonly copyOnSelect?: boolean
+		/** The `tui.theme` setting; the chrome is drawn in the colours of that theme. */
+		readonly theme?: ThemeSetting
+	} = {},
 ): Promise<number> {
 	if (!deps.stdin.isTTY || !deps.stdout.isTTY) {
 		deps.stderr.write('namzu workspaces needs an interactive terminal.\n')
@@ -211,6 +219,8 @@ export async function runWorkspaces(
 		)
 		return deps.runPlain(process.execPath, args)
 	}
+	// The host runs without the conversation screen, so nothing else has chosen the theme yet.
+	applyPalette(resolveTheme(pointer.theme ?? 'dark', backgroundFromColorFgBg(deps.env.COLORFGBG)))
 	const prefix =
 		(prefixSetting !== undefined ? parsePrefix(prefixSetting) : undefined) ?? DEFAULT_PREFIX
 	const peers = createPeerSource(deps.env)
@@ -235,7 +245,7 @@ export async function runWorkspaces(
 		inUseElsewhere: deps.inUseElsewhere ?? ((query) => conversationInUse(query, peers, deps.env)),
 		folder: { cwd: deps.cwd, name: deps.cwd.split(/[\\/]/u).filter(Boolean).pop() ?? 'session' },
 		prefix,
-		truecolor: advertisesTruecolor(deps.env),
+		colors: colorLevel(deps.env),
 		mouse: resolveMouseMode(deps.env, pointer.mouse),
 		...(pointer.copyOnSelect !== undefined ? { copyOnSelect: pointer.copyOnSelect } : {}),
 		...(peers ? { peers } : {}),
@@ -265,6 +275,7 @@ export const workspacesCommand: CommandDef = {
 			ctx.config.tui?.workspacesPrefix ?? ctx.config.tui?.spacesPrefix,
 			realDeps(),
 			{
+				...(ctx.config.tui?.theme !== undefined ? { theme: ctx.config.tui.theme } : {}),
 				...(ctx.config.tui?.mouse !== undefined ? { mouse: ctx.config.tui.mouse } : {}),
 				...(ctx.config.tui?.copyOnSelect !== undefined
 					? { copyOnSelect: ctx.config.tui.copyOnSelect }

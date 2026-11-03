@@ -14,9 +14,9 @@ const wheelDown = (x: number, y: number) => `${ESC}[<65;${x + 1};${y + 1}M`
 const b64 = (text: string) => Buffer.from(text, 'utf8').toString('base64')
 const osc = (text: string) => `${ESC}]52;c;${b64(text)}${BEL}`
 
-/** A hundred columns: the pane's inside starts at column 26 and row 1, 74 wide and 29 tall. */
+/** A hundred columns: the pane's inside starts at column 26 and row 2, 74 wide and 28 tall. */
 const X = 26
-const Y = 1
+const Y = 2
 
 function rig(extra: Parameters<typeof setup>[1] = {}, columns = 100) {
 	const clock = { now: 0 }
@@ -101,9 +101,9 @@ describe('selecting text in a pane', () => {
 		const lines = Array.from({ length: 40 }, (_, i) => `line${String(i).padStart(2, '0')}`)
 		await print(lines.join('\r\n'))
 		const mark = t.written.length
-		// 40 lines in 29 rows: the top row shows line11. Three rows of history come back.
+		// 40 lines in 28 rows: the top row shows line12. Three rows of history come back.
 		await drive(press(X, Y), wheelUp(X, Y), drag(X + 5, Y), release(X + 5, Y))
-		expect(since(mark)).toContain(osc('8\nline09\nline10\nl'))
+		expect(since(mark)).toContain(osc('9\nline10\nline11\nl'))
 	})
 
 	it('copies nothing for a plain click or a selection of blanks', async () => {

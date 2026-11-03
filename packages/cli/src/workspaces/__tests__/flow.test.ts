@@ -52,8 +52,8 @@ describe('workspaces and sessions', () => {
 		expect(t.spawned).toHaveLength(2)
 		expect((t.spawned[1] as FakePty).options.cwd).toBe('/work/namzu/site')
 		const text = await lines(t)
-		expect(text).toMatch(/^ [●○·] namzu/mu)
-		expect(text).toMatch(/^ [●○·] site/mu)
+		expect(text).toMatch(/^ [●○◆✓·] namzu/mu)
+		expect(text).toMatch(/^ [●○◆✓·] site/mu)
 		expect(t.host.roster.selected && t.host.roster.workspaceOf(t.host.roster.selected).name).toBe(
 			'site',
 		)
@@ -91,7 +91,7 @@ describe('workspaces and sessions', () => {
 		t.type('build\r')
 		const text = await lines(t)
 		expect(text).toContain('fix test')
-		expect(text).toMatch(/^ [●○·] core/mu)
+		expect(text).toMatch(/^ [●○◆✓·] core/mu)
 		expect(text.split('\n')[0]).toContain('build')
 		// An empty name puts the number back.
 		nav(t, 'T')
@@ -175,10 +175,10 @@ describe('status feed', () => {
 		peers.publish('slot-1', 'busy')
 		const workspace = t.host.roster.workspaces[0]
 		expect(t.host.roster.workspaceDot(workspace as never)).toBe('working')
-		const row = (await lines(t)).split('\n').findIndex((l) => /^ [●○·] namzu/u.test(l))
+		const row = (await lines(t)).split('\n').findIndex((l) => /^ [●○◆✓·] namzu/u.test(l))
 		const cell = await t.cellAt(1, row)
 		expect(cell?.ch).toBe('●')
-		expect(cell?.fg).toBe(dotStyle('working', paletteFor(true)).fg)
+		expect(cell?.fg).toBe(dotStyle('working', paletteFor('truecolor')).fg)
 	})
 
 	it('turns a workspace red when a background session needs approval', async () => {
@@ -193,9 +193,9 @@ describe('status feed', () => {
 		const text = await lines(t)
 		expect(text).toContain('needs approval')
 		expect(t.host.roster.workspaceDot(t.host.roster.workspaces[0] as never)).toBe('blocked')
-		const row = (await t.screen()).findIndex((l) => /^ [●○·] namzu/u.test(l))
+		const row = (await t.screen()).findIndex((l) => /^ [●○◆✓·] namzu/u.test(l))
 		const cell = await t.cellAt(1, row)
-		expect(cell?.fg).toBe(dotStyle('blocked', paletteFor(true)).fg)
+		expect(cell?.fg).toBe(dotStyle('blocked', paletteFor('truecolor')).fg)
 	})
 
 	it('marks a session that finished while another was shown, and clears it when it is viewed', async () => {
@@ -318,7 +318,7 @@ describe('mouse', () => {
 		})
 		t.host.start()
 		let screen = await lines(t)
-		let row = screen.split('\n').findIndex((l) => /^ [●○·] site/u.test(l))
+		let row = screen.split('\n').findIndex((l) => /^ [●○◆✓·] site/u.test(l))
 		t.type(click(5, row))
 		expect(t.host.roster.selected?.workspaceId).toBe('workspace-2')
 		expect(t.spawned).toHaveLength(2)
@@ -372,12 +372,12 @@ describe('mouse', () => {
 		t.host.start()
 		let screen = await lines(t)
 		// The shown workspace and its sessions stay in view while the workspaces list is longer than the room.
-		expect(screen).toMatch(/^ [●○·] namzu/mu)
+		expect(screen).toMatch(/^ [●○◆✓·] namzu/mu)
 		expect(screen).toContain('session 1')
 		expect(screen).not.toMatch(/ s11/u)
 		for (let i = 0; i < 4; i++) t.type(wheel(false, 5, 3))
 		screen = await lines(t)
-		expect(screen).toMatch(/^ [●○·] s11/mu)
+		expect(screen).toMatch(/^ [●○◆✓·] s11/mu)
 		expect(screen).toContain('session 1')
 		expect((t.spawned[0] as FakePty).writes).toEqual([])
 	})

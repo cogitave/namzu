@@ -232,12 +232,12 @@ describe('the sidebar in the host', () => {
 		t.host.start()
 		t.type('\x02')
 		const lines = await text(t)
-		expect(lines.at(-1)).toContain(
+		expect(lines[1]).toContain(
 			'PREFIX  esc cancel  ctrl+b send prefix  w workspace nav  ? keybinds',
 		)
-		const bar = await t.cellAt(30, 29)
+		const bar = await t.cellAt(30, 1)
 		expect(bar?.bg).toBeDefined()
-		expect(lines.slice(0, 29).join('\n')).not.toContain('ctrl+b to navigate')
+		expect(lines.slice(2).join('\n')).not.toContain('ctrl+b to navigate')
 	})
 
 	it('a click on an agent of another workspace and tab shows that workspace, tab and pane', async () => {
@@ -266,7 +266,7 @@ describe('the sidebar in the host', () => {
 	})
 
 	it('draws the 16-colour sidebar with a tint on the shown workspace', async () => {
-		const t = setup({ columns: 100, rows: 30 }, { truecolor: false })
+		const t = setup({ columns: 100, rows: 30 }, { colors: '16' })
 		t.host.start()
 		await t.frame()
 		const cell = await t.cellAt(5, 2)

@@ -140,12 +140,15 @@ export interface Placed {
 	readonly inner: Rect
 }
 
-/** A border two panes share, which can be dragged. */
+/** The empty cell between two bordered neighbours: their borders never sit side by side. */
+export const SPLIT_GAP = 1
+
+/** The gap between two bordered panes, which can be dragged. */
 export interface Divider {
 	readonly split: Split
 	/** The room the whole split takes. */
 	readonly area: Rect
-	/** Where the second child starts: a column for `side`, a row for `stack`. */
+	/** The gap cell, where the first child's room ends: a column for `side`, a row for `stack`. The second child starts one cell later. */
 	readonly at: number
 }
 
@@ -171,7 +174,8 @@ function firstShare(total: number, ratio: number, least: number): number {
 
 /**
  * Lays the tree out in `area`. With more than one pane every pane has its own
- * border and neighbours' borders touch; a lone pane has none and fills the area.
+ * border and a one-cell gap separates neighbours, so two border lines are never
+ * drawn side by side; a lone pane has none and fills the area.
  */
 export function place(root: Node, area: Rect): Placement {
 	const count = leaves(root).length
@@ -188,15 +192,23 @@ export function place(root: Node, area: Rect): Placement {
 			return
 		}
 		if (node.dir === 'side') {
-			const first = firstShare(rect.width, node.ratio, MIN_PANE_WIDTH)
+			const first = firstShare(rect.width - SPLIT_GAP, node.ratio, MIN_PANE_WIDTH)
 			dividers.push({ split: node, area: rect, at: rect.x + first })
 			walk(node.a, { ...rect, width: first })
-			walk(node.b, { ...rect, x: rect.x + first, width: rect.width - first })
+			walk(node.b, {
+				...rect,
+				x: rect.x + first + SPLIT_GAP,
+				width: rect.width - first - SPLIT_GAP,
+			})
 		} else {
-			const first = firstShare(rect.height, node.ratio, MIN_PANE_HEIGHT)
+			const first = firstShare(rect.height - SPLIT_GAP, node.ratio, MIN_PANE_HEIGHT)
 			dividers.push({ split: node, area: rect, at: rect.y + first })
 			walk(node.a, { ...rect, height: first })
-			walk(node.b, { ...rect, y: rect.y + first, height: rect.height - first })
+			walk(node.b, {
+				...rect,
+				y: rect.y + first + SPLIT_GAP,
+				height: rect.height - first - SPLIT_GAP,
+			})
 		}
 	}
 	walk(root, area)
@@ -205,18 +217,19 @@ export function place(root: Node, area: Rect): Placement {
 
 /** The ratio that puts a split's second child at `at`. */
 export function ratioFor(divider: Divider, at: number): number {
-	const total = divider.split.dir === 'side' ? divider.area.width : divider.area.height
+	const total =
+		(divider.split.dir === 'side' ? divider.area.width : divider.area.height) - SPLIT_GAP
 	const start = divider.split.dir === 'side' ? divider.area.x : divider.area.y
 	return clampRatio((at - start) / total)
 }
 
-/** The divider whose border covers the cell, if any. */
+/** The divider whose gap, or the border cell on either side of it, covers the cell, if any. */
 export function dividerAt(dividers: readonly Divider[], x: number, y: number): Divider | undefined {
 	return dividers.find((d) => {
 		const { area } = d
 		if (d.split.dir === 'side')
-			return (x === d.at - 1 || x === d.at) && y >= area.y && y < area.y + area.height
-		return (y === d.at - 1 || y === d.at) && x >= area.x && x < area.x + area.width
+			return x >= d.at - 1 && x <= d.at + SPLIT_GAP && y >= area.y && y < area.y + area.height
+		return y >= d.at - 1 && y <= d.at + SPLIT_GAP && x >= area.x && x < area.x + area.width
 	})
 }
 
@@ -256,7 +269,8 @@ export function neighbour(
 		if (across === 0) continue
 		const start = horizontal ? outer.y : outer.x
 		const length = horizontal ? outer.height : outer.width
-		const covers = middle >= start && middle < start + length
+		// The gap cell before a pane belongs to it, so an edge whose middle falls in the gap faces the later pane.
+		const covers = middle >= start - SPLIT_GAP && middle < start + length
 		if (
 			!best ||
 			gap < best.gap ||

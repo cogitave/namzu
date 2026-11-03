@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: namzu workspaces (preview)
-description: A sidebar of workspaces and sessions beside a tiling of live Namzu panes in tabs, in one terminal, opened with the left arrow from a plain `namzu` or by `namzu workspaces`; its keys, the mouse, starting a session on an account, how tabs and pane trees are remembered and restored, overlays (modals, context menu, go to, keybinds, menu), the prefix setting, selecting and copying text with the mouse and the `tui.mouse` and `tui.copyOnSelect` settings, what happens when a session stops, and what the preview does not do yet.
+description: A sidebar of workspaces and sessions beside a tiling of live Namzu panes in tabs (a two-row tab bar with overflow cues, rounded bordered panes with a gap between them), in one terminal, opened with the left arrow from a plain `namzu` or by `namzu workspaces`; its keys, the mouse, starting a session on an account, how tabs and pane trees are remembered and restored, overlays (modals, context menu, go to, keybinds, menu), colours taken from the Namzu theme, the prefix setting, selecting and copying text with the mouse and the `tui.mouse` and `tui.copyOnSelect` settings, what happens when a session stops, and what the preview does not do yet.
 resource: packages/cli/src/commands/workspaces.ts
 tags: [cli, workspaces, terminal, preview]
 status: draft
@@ -14,7 +14,7 @@ generated:
 
 `namzu workspaces` opens one terminal with a sidebar on the left and the selected workspace on the right.
 The sidebar has two sections split by a rule. On top are your **workspaces**, which are project folders: a row is the most urgent state dot and the folder's name in bold, and under it the git branch with `↑` commits ahead and `↓` behind its upstream (a note such as "needs approval" takes the branch's place while something waits for you). The shown workspace has a faint background tint; in workspace navigation the cursor row has a stronger one. The last row of the section holds **new** (a workspace in the focused pane's folder, started at once) and **menu**. Below the rule is **agents**: every session of every workspace, two lines each (the dot and its workspace's name, then its tab, pane name and account, for example `tab 2 · session 3 · work`). Click an agent to focus that pane, switching workspace and tab. The header's right-hand word, `grouped` or `priority`, is a toggle: grouped follows the workspaces, priority puts blocked first, then finished, working and idle, newest change first. The branch is read in the background (never before the first frame), again every few seconds and when a workspace is shown, and a folder outside git shows no branch.
-A workspace has one or more **tabs**, shown as a bar across the top of the pane area with a "+" to add one, and each tab is a tiling of **panes**. Every pane is a whole Namzu running in its own terminal, so a pane that stops does not take the others down. There are no plain shell panes.
+A workspace has one or more **tabs**, shown in a two-row bar across the top of the pane area with a "+" to add one (see [The tab bar](#the-tab-bar)), and each tab is a tiling of **panes**. Every pane is a whole Namzu running in its own terminal, so a pane that stops does not take the others down. There are no plain shell panes.
 This is a preview. A plain `namzu` opens exactly as before, one conversation full screen with nothing else visible; the screen below is one key away (see the next section).
 
 "Workspace" names three different things in Namzu. Here it is a project folder in this screen's sidebar. In the sandbox settings (`sandbox.workspace`) it is the filesystem mode a session's tools see, shown in `/status` as **Files**. For a session it is the directory it works in, which the SDK calls the session workspace. They share a word, not a setting.
@@ -46,11 +46,13 @@ A session started by the host is itself a `namzu`, but it does not open a worksp
 
 | Dot | Meaning |
 | --- | --- |
-| red | A session needs your approval before it can go on. |
-| teal | A session finished a turn while you were looking at another one, and you have not looked since. |
-| yellow | A session is working. |
-| green (hollow) | A session is idle. |
-| grey | A session is starting, has not been opened yet, or has ended. |
+| `◆` red | A session needs your approval before it can go on. |
+| `✓` teal | A session finished a turn while you were looking at another one, and you have not looked since. |
+| `●` yellow | A session is working. |
+| `○` hollow | A session is idle. |
+| `·` grey | A session is starting, has not been opened yet, or has ended. |
+
+The shapes differ as well as the colours, so a state reads in 16 colours, with no colour at all and to a colour-blind eye.
 
 A workspace shows the most urgent of its sessions' dots, in the order above. Under a row, plain words say the same ("needs approval", "finished", "working"), and a session on a non-default account shows that account's label on its row.
 Showing a tab, or focusing a pane in it, clears the blue mark of the panes on screen: a pane finished in a split beside the focused one counts as seen, one in another tab does not.
@@ -59,9 +61,9 @@ The dots come from what each session reports about itself, not from reading its 
 
 ## Panes and tabs
 
-With more than one pane in a tab every pane has its own square border: the focused pane's is light blue and the rest are dim grey, and neighbours' borders touch. A lone pane has no border. Each session's terminal is sized to the inside of its pane, so it redraws when you split, close, resize or zoom, and when the terminal or the sidebar changes size.
+With more than one pane in a tab every pane has its own rounded border (`╭╮╰╯`): the focused pane's is in the theme's focus colour and the rest are dim, and one empty cell separates neighbours, so two border lines are never drawn side by side. A lone pane has no border. The gap and the edges on either side of it are the handle for dragging a border. Each session's terminal is sized to the inside of its pane, so it redraws when you split, close, resize or zoom, and when the terminal or the sidebar changes size.
 
-A split halves the focused pane and the new pane, a new session in the workspace's folder, takes focus. A border can be moved between 10 and 90 percent of its split, and no pane gets less than 12 columns or 5 rows (border included); a split that would go below that is refused with a note at the bottom. **Zoom** gives the focused pane the whole area, keeps its border and puts a `Z` after the tab's number; moving focus while zoomed moves the zoom with it, and splitting brings the layout back.
+A split halves the focused pane and the new pane, a new session in the workspace's folder, takes focus. A border can be moved between 10 and 90 percent of its split, and no pane gets less than 12 columns or 5 rows (border included); a split that would go below that is refused with a note on the tab bar's rule. **Zoom** gives the focused pane the whole area, keeps its border and puts a `Z` after the tab's number; moving focus while zoomed moves the zoom with it, and splitting brings the layout back.
 
 Closing a pane lets its neighbour take the room and focus, without asking. The last pane of a tab closes the tab. The last pane of a workspace's only tab asks to close the workspace; a workspace always keeps one tab.
 
@@ -94,7 +96,7 @@ Everything you type goes to the focused pane except the prefix, `ctrl+b` by defa
 | `q` | Quit. It asks first while a session is running. Panes do not outlive the host, so there is nothing to detach from; a multiplexer's detach key has no counterpart. |
 | `?` | The keybinds overlay. |
 
-While the prefix, workspace navigation or resize mode is active, a bar on the bottom row shows a coloured chip (`PREFIX`, `NAVIGATE`, `RESIZE`) followed by the keys that work, keys in bold light blue. Nothing is drawn there otherwise, and the sidebar carries no key list.
+While the prefix, workspace navigation or resize mode is active, a bar at the right end of the tab bar's second row (its rule) shows a chip (`PREFIX`, `NAVIGATE`, `RESIZE`) followed by the keys that work, keys in bold in the accent colour; hints that do not fit are left out, the chip is not. It never covers a pane, so a session's last row stays readable while a mode is on. A note such as "There is not enough room to split this pane." goes in the same place. A session shown full screen has no tab bar, so the bar takes the screen's last row there. Nothing is drawn when no mode is on, and the sidebar carries no key list.
 
 The keybinds overlay is printed from the same list the host runs, so it always matches the keys above. Both it and the table are the whole map: no other key does anything after the prefix.
 
@@ -169,9 +171,35 @@ With `copyOnSelect: false` a drag only highlights; `ctrl+c` copies it. With noth
 
 The mouse is switched off again on every way out that can be caught: quitting, an error, `SIGTERM`, `SIGHUP` and `SIGINT`. A process killed with `SIGKILL` cannot clean up, so every interactive `namzu` writes the "mouse off" request once before its first frame; if a shell prints stray `^[[<` characters when the mouse moves after a crash, starting `namzu` again, or `reset`, clears it.
 
+## The tab bar
+
+The bar over the panes is two rows and the panes start under it, on the same row as the sidebar's first entry; the sidebar's header is on the bar's first row.
+
+- **Row one** holds the tabs. The active tab is a chip filled with the accent colour, in bold with text in the theme's ink colour; the others are plain muted text with no fill. Every chip is at least eight cells wide, with the label centred and one cell of padding on each side, and one cell separates chips. A `Z` follows the label of a zoomed tab, and `+` adds a tab.
+- **Row two** is a thin rule. The span under the active tab is drawn heavy (`━`) in the accent colour, the rest is a thin line in the border colour. The mode bar and notices are drawn at its right end.
+- **Too many tabs.** When the tabs do not all fit, a window of them stays in view with the active tab always in it. `‹` at the left edge and `›` before the `+` mark the sides that have tabs out of sight; click one to move to the previous or next tab. The `+` moves to the far end.
+- **A tab wider than the room** is cut with `…` rather than dropped, so the active tab never disappears.
+
 ## Colours
 
-The host draws its borders, tab bar and mode bar in a fixed palette: light blue (137, 180, 250) for the focused border and the active tab, dim grey-blue (108, 112, 134) for other borders and quiet text, on a dark blue bar. When `COLORTERM` is not `truecolor` or `24bit` it uses the nearest of the terminal's 16 colours instead, with resting tabs drawn on bright black so they stay apart from the bar. The sidebar uses the same palette: dots are yellow (working), red (blocked), teal (finished, not seen), green hollow (idle) and grey (none); the shown workspace's name is bold in the main text colour, the others subdued, the shown workspace's branch is mauve and the rest dim grey, ahead counts green and behind counts red, and the tints are (30, 30, 46) and (49, 50, 68). In 16 colours both tints are bright black, and text that would match it is drawn in the main text colour. A list longer than its section shows a thin scrollbar thumb in the section's last column (not on the rail, which has no room; there the rows are numbered by their last two digits past 99). A terminal too narrow for 40 session columns beside the sidebar shows the rail instead, and below that no sidebar.
+The host takes every colour from the theme the rest of Namzu is drawn in (`tui.theme`, including `auto`), so dark, light, the colour-blind variants and the plain ANSI ones all restyle it, and a theme changed in a conversation shows from the next frame. There is no palette of its own:
+
+| What | Theme colour |
+| --- | --- |
+| Active tab, picked rows, keys in the mode bar, the `PREFIX` chip | assistant accent |
+| Focused pane border and modal borders | focus border |
+| Other pane borders, the rule under the tabs | default border |
+| Text on a filled chip | the theme's canvas colour |
+| Quiet text (resting tabs, hints, labels) | muted text |
+| Names | primary text (the shown workspace) and secondary text |
+| Workspace dots | warning (working), muted (idle), error (needs approval), shells accent (finished) |
+| Branch line | system accent; ahead is the ok status and behind the error status |
+| `NAVIGATE` and `RESIZE` chips | trigger accent and hypermode accent |
+| Notices | warning |
+
+The bar and the modals are on the terminal's own background, not a colour of their own. The two tints behind the shown workspace and the cursor row are faint greys (dark themes) or pale greys (light themes); in the ANSI themes and at 16 colours both are bright black, and text that would match them is drawn in the main text colour. An `ansi256` colour of the theme is used as that palette entry, a named one as one of the 16, and anything else as true colour where the terminal shows it (`COLORTERM`, Windows Terminal and the terminals the conversation screen already recognises) and the nearest entry elsewhere. Under `NO_COLOR`, `FORCE_COLOR=0` or `TERM=dumb` nothing is coloured: the active tab, the picked row and the primary button are drawn reversed and bold, the cursor row in the sidebar is reversed, and the state glyphs and the heavy rule carry the rest.
+
+A list longer than its section shows a thin scrollbar thumb in the section's last column (not on the rail, which has no room; there the rows are numbered by their last two digits past 99). A terminal too narrow for 40 session columns beside the sidebar shows the rail instead, and below that no sidebar.
 
 ## Changing the navigate key
 

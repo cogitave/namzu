@@ -1,19 +1,21 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { FakePty } from '../../terminal/__tests__/support/fake-pty.js'
-import { rgb } from '../../terminal/host/cell.js'
+import { applyPalette } from '../../tui/theme.js'
 import type { HostAccount, SessionRequest } from '../host.js'
 import type { SavedLayout, WorkspacesStore } from '../store.js'
 import { leaves } from '../tiling.js'
 import { setup } from './support/harness.js'
 
-const ACCENT = rgb(137, 180, 250)
-const DIM = rgb(108, 112, 134)
+// The dark theme: the accent is palette entry 83, the border of a pane without focus 239.
+const ACCENT = 83
+const FOCUS = 83
+const BORDER = 239
 
 function rig(extra: Parameters<typeof setup>[1] = {}, size = { columns: 100, rows: 30 }) {
 	const requests: SessionRequest[] = []
 	let n = 0
 	const t = setup(size, {
-		truecolor: true,
+		colors: 'truecolor',
 		newSlot: () => `slot-${++n}`,
 		spec: (request) => {
 			requests.push(request)
@@ -23,6 +25,8 @@ function rig(extra: Parameters<typeof setup>[1] = {}, size = { columns: 100, row
 	})
 	return { t, requests }
 }
+
+afterEach(() => applyPalette('dark'))
 
 type Rig = ReturnType<typeof rig>['t']
 
@@ -46,13 +50,14 @@ describe('splitting', () => {
 	it('splits side by side with v: each pane gets its inside, and the new one is a session with focus', () => {
 		const { t, requests } = rig()
 		t.host.start()
-		expect(pty(t, 0).options).toMatchObject({ cols: 74, rows: 29 })
+		expect(pty(t, 0).options).toMatchObject({ cols: 74, rows: 28 })
 		nav(t, 'v')
 		expect(t.spawned).toHaveLength(2)
 		expect(requests[1]).toMatchObject({ cwd: '/work/namzu', first: false })
 		expect(requests[1]?.resume).toBeUndefined()
-		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 35, rows: 27 })
-		expect(pty(t, 1).options).toMatchObject({ cols: 35, rows: 27 })
+		// 74 columns: the first pane takes 37, one cell is left between them, the second takes 36.
+		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 35, rows: 26 })
+		expect(pty(t, 1).options).toMatchObject({ cols: 34, rows: 26 })
 		t.type('hi')
 		expect(pty(t, 1).writes).toEqual(['hi'])
 		expect(pty(t, 0).writes).toEqual([])
@@ -62,45 +67,87 @@ describe('splitting', () => {
 		const { t } = rig()
 		t.host.start()
 		nav(t, '-')
-		// 29 rows: the upper pane takes the odd one.
-		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 72, rows: 13 })
-		expect(pty(t, 1).options).toMatchObject({ cols: 72, rows: 12 })
+		// 28 rows: the upper pane takes 14, one row is left between them, the lower takes 13.
+		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 72, rows: 12 })
+		expect(pty(t, 1).options).toMatchObject({ cols: 72, rows: 11 })
 	})
 
-	it('draws a square border on every pane, the focused one in the accent colour and the rest dim', async () => {
+	it('draws a rounded border on every pane with a gap between neighbours, the focused one in the focus colour and the rest dim', async () => {
 		const { t } = rig()
 		t.host.start()
-		expect((await rows(t))[1]?.[26]).not.toBe('┌')
+		expect((await rows(t))[2]?.[26]).not.toBe('╭')
 		nav(t, 'v')
 		nav(t, '-')
 		const screen = await rows(t)
-		// Left pane: columns 26 to 62. Right pane: columns 63 to 99, split at row 15.
-		expect(screen[1]?.[26]).toBe('┌')
-		expect(screen[1]?.[62]).toBe('┐')
-		expect(screen[1]?.[63]).toBe('┌')
-		expect(screen[29]?.[62]).toBe('┘')
-		expect(screen[1]?.slice(27, 62)).toBe('─'.repeat(35))
-		expect(screen[2]?.[26]).toBe('│')
-		expect(screen[15]?.[63]).toBe('└')
-		expect(screen[16]?.[63]).toBe('┌')
+		// Left pane: columns 26 to 62. Gap: column 63. Right panes: columns 64 to 99, split at row 16.
+		expect(screen[2]?.[26]).toBe('╭')
+		expect(screen[2]?.[62]).toBe('╮')
+		expect(screen[2]?.[63]).toBe(' ')
+		expect(screen[2]?.[64]).toBe('╭')
+		expect(screen[29]?.[62]).toBe('╯')
+		expect(screen[2]?.slice(27, 62)).toBe('─'.repeat(35))
+		expect(screen[3]?.[26]).toBe('│')
+		expect(screen[15]?.[64]).toBe('╰')
+		expect((screen[16] ?? '').slice(64).trim()).toBe('')
+		expect(screen[17]?.[64]).toBe('╭')
+		// No two border cells touch, across or down.
+		for (const row of screen) expect(row.slice(26)).not.toMatch(/[│╮╯][│╭╰]/u)
 		// The focused pane is the bottom right one.
-		expect((await t.cellAt(63, 16))?.fg).toBe(ACCENT)
-		expect((await t.cellAt(99, 29))?.fg).toBe(ACCENT)
-		expect((await t.cellAt(26, 1))?.fg).toBe(DIM)
-		expect((await t.cellAt(63, 1))?.fg).toBe(DIM)
+		expect((await t.cellAt(64, 17))?.fg).toBe(FOCUS)
+		expect((await t.cellAt(99, 29))?.fg).toBe(FOCUS)
+		expect((await t.cellAt(26, 2))?.fg).toBe(BORDER)
+		expect((await t.cellAt(64, 2))?.fg).toBe(BORDER)
 	})
 
 	it('uses the nearest of the 16 colours when the terminal does not show true colour', async () => {
-		const { t } = rig({ truecolor: false })
+		const { t } = rig({ colors: '16' })
 		t.host.start()
 		nav(t, 'v')
 		await t.frame()
-		const focused = (await t.cellAt(63, 1))?.fg as number
-		const other = (await t.cellAt(26, 1))?.fg as number
+		const focused = (await t.cellAt(64, 2))?.fg as number
+		const other = (await t.cellAt(26, 2))?.fg as number
 		expect(focused).toBeGreaterThanOrEqual(0)
 		expect(focused).toBeLessThan(16)
 		expect(other).toBeLessThan(16)
 		expect(focused).not.toBe(other)
+	})
+
+	it('follows the theme: a light theme draws the light accent from the next frame', async () => {
+		const { t } = rig()
+		t.host.start()
+		nav(t, 'v')
+		await t.frame()
+		expect((await t.cellAt(64, 2))?.fg).toBe(FOCUS)
+		try {
+			applyPalette('light')
+			t.type('x')
+			await t.frame()
+			// Light: the focus border is entry 28, a pane without focus 250, and the active chip is filled with 28.
+			expect((await t.cellAt(64, 2))?.fg).toBe(28)
+			expect((await t.cellAt(26, 2))?.fg).toBe(250)
+			expect((await t.cellAt(30, 0))?.bg).toBe(28)
+		} finally {
+			applyPalette('dark')
+		}
+	})
+
+	it('draws no colour and tells the focused pane by shape under NO_COLOR', async () => {
+		const { t } = rig({ colors: 'none' })
+		t.host.start()
+		nav(t, 'v')
+		const screen = await rows(t)
+		expect(screen[2]?.[26]).toBe('╭')
+		for (const [x, y] of [
+			[26, 2],
+			[64, 2],
+			[30, 0],
+		] as const) {
+			const cell = await t.cellAt(x, y)
+			expect(cell?.fg).toBe(-1)
+			expect(cell?.bg).toBe(-1)
+		}
+		// The active tab is reversed.
+		expect(((await t.cellAt(30, 0))?.attrs ?? 0) & 32).toBe(32)
 	})
 
 	it('refuses a split that would leave a pane too small, and says so', async () => {
@@ -109,8 +156,10 @@ describe('splitting', () => {
 		nav(t, '-')
 		expect(t.spawned).toHaveLength(1)
 		expect((await rows(t)).join('\n')).toContain('not enough room')
+		// The notice sits on the rule under the tab bar, at its right end.
+		expect((await rows(t))[1]).toMatch(/not enough room to split this pane\. $/u)
 		for (let i = 0; i < 6; i++) nav(t, 'v')
-		// 74 columns hold six panes of 12, never more.
+		// 74 columns hold six panes of 12 with a cell between each, never more.
 		expect(t.spawned.length).toBeLessThanOrEqual(6)
 	})
 
@@ -178,7 +227,7 @@ describe('moving between panes', () => {
 			'session 2',
 		])
 		// The swapped panes took each other's room.
-		expect(pty(t, 2).resizes.at(-1)).toEqual({ cols: 35, rows: 13 })
+		expect(pty(t, 2).resizes.at(-1)).toEqual({ cols: 34, rows: 12 })
 		expect(t.host.roster.selected?.label).toBe('session 3')
 	})
 })
@@ -189,13 +238,13 @@ describe('zoom', () => {
 		t.host.start()
 		nav(t, 'v')
 		nav(t, 'z')
-		expect(pty(t, 1).resizes.at(-1)).toEqual({ cols: 72, rows: 27 })
+		expect(pty(t, 1).resizes.at(-1)).toEqual({ cols: 72, rows: 26 })
 		let screen = await rows(t)
 		expect(screen[0]).toContain('1 Z')
-		expect(screen[1]?.[26]).toBe('┌')
-		expect(screen[1]?.[99]).toBe('┐')
+		expect(screen[2]?.[26]).toBe('╭')
+		expect(screen[2]?.[99]).toBe('╮')
 		nav(t, 'z')
-		expect(pty(t, 1).resizes.at(-1)).toEqual({ cols: 35, rows: 27 })
+		expect(pty(t, 1).resizes.at(-1)).toEqual({ cols: 34, rows: 26 })
 		screen = await rows(t)
 		expect(screen[0]).not.toContain('Z')
 	})
@@ -219,18 +268,18 @@ describe('resize mode', () => {
 		nav(t, 'v')
 		// The focused pane is on the right: l moves the border to the right, so it shrinks.
 		nav(t, 'r')
-		expect((await rows(t)).at(-1) ?? '').toContain('RESIZE')
+		expect((await rows(t))[1] ?? '').toContain('RESIZE')
 		t.type('l')
-		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 39, rows: 27 })
-		expect(pty(t, 1).resizes.at(-1)).toEqual({ cols: 31, rows: 27 })
+		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 38, rows: 26 })
+		expect(pty(t, 1).resizes.at(-1)).toEqual({ cols: 31, rows: 26 })
 		t.type('h')
 		t.type('h')
-		expect(pty(t, 1).resizes.at(-1)?.cols).toBe(39)
+		expect(pty(t, 1).resizes.at(-1)?.cols).toBe(38)
 		t.type('\x1b')
 		t.type('l')
 		// Back with the session: the key is typed into it.
 		expect(pty(t, 1).writes).toEqual(['l'])
-		expect((await rows(t)).at(-1) ?? '').not.toContain('RESIZE')
+		expect((await rows(t))[1] ?? '').not.toContain('RESIZE')
 	})
 
 	it('resizes the height of a stacked pane with j and k', () => {
@@ -252,7 +301,7 @@ describe('closing panes', () => {
 		nav(t, 'v')
 		nav(t, 'x')
 		expect(pty(t, 1).kills).toEqual(['SIGHUP'])
-		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 74, rows: 29 })
+		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 74, rows: 28 })
 		expect(t.host.roster.selected?.label).toBe('session 1')
 		expect(t.host.roster.shownTab?.root.kind).toBe('leaf')
 	})
@@ -281,12 +330,54 @@ describe('tabs', () => {
 		expect(screen[0]?.slice(26, 46)).toMatch(/^\s+1\s+\s+2\s+\+/)
 		expect((await t.cellAt(35, 0))?.bg).toBe(ACCENT)
 		expect((await t.cellAt(26, 0))?.bg).not.toBe(ACCENT)
-		expect(pty(t, 1).options).toMatchObject({ cols: 74, rows: 29 })
+		expect(pty(t, 1).options).toMatchObject({ cols: 74, rows: 28 })
 		// The plus is at columns 44 to 46.
 		t.type(click(45, 0))
 		expect(t.spawned).toHaveLength(3)
 		screen = await rows(t)
 		expect(screen[0]).toContain('3')
+	})
+
+	it('keeps the active tab in view when the tabs do not fit, with a cue for each side, and the cues move between tabs', async () => {
+		const { t } = rig()
+		t.host.start()
+		for (let i = 0; i < 11; i++) {
+			nav(t, 'c')
+			t.type('\r')
+		}
+		expect(t.host.roster.workspaces[0]?.tabs).toHaveLength(12)
+		let screen = await rows(t)
+		// 74 columns do not hold twelve tabs: the newest is active, earlier ones are out of sight on the left.
+		expect(screen[0]).toContain('12')
+		expect(screen[0]?.slice(26)).toContain('‹')
+		expect(screen[0]?.slice(26)).not.toContain('›')
+		expect(screen[0]?.slice(26).trimEnd().endsWith('+')).toBe(true)
+		// The cue is two cells at the left edge of the bar.
+		t.type(click(26, 0))
+		expect(t.host.roster.selected?.label).toBe('session 11')
+		// Tab 12 is still in view, so there is nothing hidden on the right yet.
+		screen = await rows(t)
+		expect(screen[0]?.slice(26)).not.toContain('›')
+		for (let i = 0; i < 6; i++) {
+			t.type(click(26, 0))
+			await rows(t)
+		}
+		expect(t.host.roster.selected?.label).toBe('session 5')
+		screen = await rows(t)
+		const at = (screen[0] ?? '').indexOf('›')
+		expect(at).toBeGreaterThan(26)
+		t.type(click(at, 0))
+		expect(t.host.roster.selected?.label).toBe('session 6')
+	})
+
+	it('does nothing for a click on the rule under the tabs', async () => {
+		const { t } = rig()
+		t.host.start()
+		nav(t, 'c')
+		t.type('\r')
+		t.type(click(30, 1))
+		expect(t.host.roster.selected?.label).toBe('session 2')
+		expect(t.spawned).toHaveLength(2)
 	})
 
 	it('moves with n, p and the number keys, and wraps', () => {
@@ -313,7 +404,7 @@ describe('tabs', () => {
 		nav(t, 'v')
 		nav(t, 'c')
 		t.type('\r')
-		expect(pty(t, 2).options).toMatchObject({ cols: 74, rows: 29 })
+		expect(pty(t, 2).options).toMatchObject({ cols: 74, rows: 28 })
 		nav(t, 'p')
 		expect(t.host.roster.selected?.label).toBe('session 2')
 		t.type('x')
@@ -382,13 +473,13 @@ describe('the mouse', () => {
 		const { t } = rig()
 		t.host.start()
 		nav(t, 'v')
-		// The border is columns 62 and 63. Grab 62 and pull it left by ten.
+		// The border is the gap at column 63 and the edges on both sides of it. Grab 62 and pull it left by ten.
 		t.type(click(62, 10))
 		t.type(drag(57, 10))
 		t.type(drag(52, 10))
 		t.type(release(52, 10))
-		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 25, rows: 27 })
-		expect(pty(t, 1).resizes.at(-1)).toEqual({ cols: 45, rows: 27 })
+		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 25, rows: 26 })
+		expect(pty(t, 1).resizes.at(-1)).toEqual({ cols: 44, rows: 26 })
 		// The press did not change focus; the second pane still has it.
 		t.type('z')
 		expect(pty(t, 1).writes).toEqual(['z'])
@@ -398,12 +489,12 @@ describe('the mouse', () => {
 		const { t } = rig()
 		t.host.start()
 		nav(t, '-')
-		// Rows 1 to 14 are the upper pane and 15 to 28 the lower; the border is rows 14 and 15.
+		// Rows 2 to 15 are the upper pane, row 16 the gap and rows 17 to 29 the lower.
 		t.type(click(60, 15))
 		t.type(drag(60, 20))
 		t.type(release(60, 20))
-		expect(pty(t, 0).resizes.at(-1)?.rows).toBe(18)
-		expect(pty(t, 1).resizes.at(-1)?.rows).toBe(7)
+		expect(pty(t, 0).resizes.at(-1)?.rows).toBe(17)
+		expect(pty(t, 1).resizes.at(-1)?.rows).toBe(6)
 	})
 
 	it('scrolls the pane under the pointer, not the focused one', async () => {
@@ -426,12 +517,12 @@ describe('collapsing the sidebar and resizing the terminal', () => {
 		t.host.start()
 		nav(t, 'v')
 		nav(t, 'b')
-		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 46, rows: 27 })
-		expect(pty(t, 1).resizes.at(-1)).toEqual({ cols: 46, rows: 27 })
+		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 46, rows: 26 })
+		expect(pty(t, 1).resizes.at(-1)).toEqual({ cols: 45, rows: 26 })
 		t.output.columns = 60
 		t.output.rows = 20
 		for (const l of t.resizeListeners) l()
-		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 26, rows: 17 })
+		expect(pty(t, 0).resizes.at(-1)).toEqual({ cols: 26, rows: 16 })
 	})
 })
 
@@ -499,8 +590,8 @@ describe('remembering tabs and trees', () => {
 		// Unzoomed, the panes sit where they were.
 		nav(b.t, 'z')
 		expect(pty(b.t, 2).resizes.at(-1) ?? pty(b.t, 2).options).toMatchObject({
-			cols: 35,
-			rows: 14,
+			cols: 34,
+			rows: 13,
 		})
 	})
 })

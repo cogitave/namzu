@@ -2,6 +2,7 @@
 
 ## 2026-11-03
 
+- **Update** [namzu workspaces (preview)](cli/workspaces.md#the-tab-bar): the tab bar is two rows (chips, then a rule with the active tab's span heavy) and the panes start under it; tabs that do not fit keep the active one in view with `‹`/`›` cues and a cut label rather than vanishing; mode hints and notices go on the rule row instead of over the panes; split panes are rounded with a one-cell gap; every colour is taken from the Namzu theme (`NO_COLOR` draws none) and state glyphs differ by shape
 - **Update** [namzu workspaces (preview)](cli/workspaces.md): `namzu spaces` is now `namzu workspaces` and a space is a workspace; `namzu spaces`, `tui.spacesPrefix` and `spaces.json` are deprecated but still read (the layout is converted to `workspaces.json`, version 3, once); the pane region is called the pane area, `/status` labels the sandbox file mode "Files", and the page says what "workspace" means in each place
 
 ## 2026-11-02
