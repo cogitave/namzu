@@ -24,10 +24,11 @@ import { ToolManager } from '../../../toolsets/manager.js'
  * Deterministic: the schemas are rendered from the source, nothing here reads
  * a clock, a network or the host.
  */
-const CEILING_BYTES = 17_000
+const CEILING_BYTES = 18_000
 
 const REASONS: readonly string[] = [
 	'Initial ceiling: 16498 bytes measured when this gate landed (nine tools), plus about 3% headroom for wording fixes.',
+	'Raised to 18000 at 17466 bytes. grep and glob gained include_ignored and include_hidden, and their descriptions say which files a search skips and when a result is limited (+854). job says whether each running job is progressing, waiting or stalled (+114). About 3% headroom kept.',
 ]
 
 function defaultToolsBlock() {
