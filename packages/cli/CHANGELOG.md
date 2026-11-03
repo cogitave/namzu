@@ -1,5 +1,33 @@
 # @namzu/cli
 
+## 45.2.0
+
+### Minor Changes
+
+- 6c091a8: Slash commands now work while a reply is being written, instead of being answered with "wait for the reply to finish". Commands that only show something or change a setting (`/model`, `/effort`, `/status`, `/cost`, `/tasks`, `/permissions`, `/hooks`, `/theme`, `/help` and the others listed in the slash-commands page) run at once and the reply keeps streaming; `/model` and `/effort` open as a chooser beside the stream, and Esc or Ctrl+C close only that chooser. Every other command, saved prompt command and skill is queued exactly as typed, shown under the reply as `/name · after this reply`, and runs as its own step when the reply ends, in order and ahead of messages queued behind it. A model picked mid-reply is used from the next request when the current provider serves it and otherwise when the reply ends (after a refusal handed the reply to another model, a pick is held until the reply ends and then wins; a pick made before the refusal is dropped, because that model declined); queued messages run on the new model. An effort or hypermode change applies from your next message. Behaviour change to know about: a command that used to run immediately mid-reply and act on the conversation (for example `/context`, `/compact`, `/plan`, `/review`) now waits for the reply to end. `/clear`, `/new`, `/fork`, `/resume` and `/copy` also wait for the reply to end instead of running at once; a `/clear` or `/new` typed mid-reply no longer stops that reply, and messages queued behind it are kept for the new conversation. Nothing is removed; to run one right away, press Esc to stop the reply first.
+
+  When a model that declined a message is replaced by another one for the rest of the session: under Auto the row says Auto will choose a model again instead of offering `/model`, and a fallback that cannot be selected for the conversation is reported as answered but not kept.
+
+- 9090998: `namzu resume` now accepts the launch flags after it. The exit summary prints `namzu resume <id>`, and appending a flag to that line (`namzu resume --yolo <id>`, `namzu resume --dangerously-skip-permissions <id>`, `namzu resume --permission-mode bypass`) used to fail with "Unknown option", because these flags were only understood before the command name. They work in both places now, with the same meaning and the same checks, including the one-time bypass question: `--dangerously-skip-permissions` / `--yolo`, `--allow-dangerously-skip-permissions`, `--permission-mode`, `--provider`, `--account`, `--model`, `--effort`, `--max-output-tokens`, `--append-system-prompt`, `--allowed-tools`, `--disallowed-tools`, `--fallback-model`, `--add-dir`, `--plugin-dir`, `--profile` and `--output-schema`. A flag given on both sides is not an error; the one after `resume` wins (repeatable flags keep both). `--continue`, `--resume`, `--from-pr` and `--message` still go before the command. Nothing that worked before changes.
+- f77a62d: `namzu spaces` is now `namzu workspaces`, and a "space" is called a workspace throughout the screen (sidebar, prompts, keybinds overlay, help, the `←` hint). Nothing you have set up stops working in this release:
+
+  - `namzu spaces` still starts the same screen, as a deprecated alias of `namzu workspaces`.
+  - `tui.spacesPrefix` is still read when `tui.workspacesPrefix` is not set; if both are set the new one wins. A value that is not a usable key is refused under the key it was written in. Move the value to `tui.workspacesPrefix`.
+  - The remembered layout moves from `spaces.json` to `workspaces.json` in your Namzu home. The first time `namzu workspaces` runs and `workspaces.json` does not exist, `spaces.json` is read and written out as the new file. `spaces.json` is never changed or deleted, so an older Namzu keeps working against it; after that only `workspaces.json` is read.
+  - The private environment variables and terminal message between the host and its sessions were renamed (`NAMZU_WORKSPACE_SLOT`, `NAMZU_WORKSPACE_HOST_PID`, `namzu-workspaces`). A session and a host from different builds still find each other: the old names are read and the old message is still recognised and stripped.
+
+  The alias, `tui.spacesPrefix`, the `spaces.json` fallback and the old variable and message names are removed in the next major release. If a script reads the terminal's wording, `/status` now labels the sandbox file mode "Files" instead of "Workspace", so it no longer shares a word with the workspaces screen.
+
+- f77a62d: The workspaces screen has a new two-row tab bar and takes its colours from your Namzu theme.
+
+  - The tab bar is two rows: tabs on the first, a thin rule on the second with the active tab's span drawn heavy. Panes start one row lower, so each session's terminal is one row shorter than before; nothing needs doing, a session redraws to fit.
+  - Tabs that do not fit no longer disappear. The active tab stays in view (a very long name is cut with `…`), `‹` and `›` mark tabs out of sight and can be clicked, and the `+` stays at the far end. Before, a long active tab emptied the bar.
+  - The mode hints (`PREFIX`, `NAVIGATE`, `RESIZE`) and notices are drawn at the right end of the rule row instead of over the bottom row of the panes, which stay readable while a mode is on. A session shown full screen has no tab bar, so these still take its last row.
+  - Split panes have rounded corners and one empty cell between neighbours instead of two border lines side by side; a border is dragged by that gap or either edge. A split needs one more column or row than before.
+  - Colours follow `tui.theme` (dark, light, the colour-blind variants, ANSI, `auto`) instead of a fixed blue palette, and use the same truecolor detection as the conversation screen, so terminals such as Windows Terminal that were drawn in 16 colours now get full colour. `NO_COLOR`, `FORCE_COLOR=0` and `TERM=dumb` draw no colour: the active tab and the picked row are reversed. State dots differ by shape (`●` working, `○` idle, `◆` needs approval, `✓` finished) as well as colour.
+
+  If a script reads the workspaces screen's cells or the size of a pane's terminal, expect the shifted rows and the new glyphs. No settings or flags change.
+
 ## 45.1.0
 
 ### Minor Changes
