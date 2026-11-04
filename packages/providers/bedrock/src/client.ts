@@ -226,6 +226,14 @@ export function toBedrockMessages(
 		flushToolResults()
 		if (isRequestOnlyContext(msg)) cacheEnd ??= out.length
 
+		// A reply with neither text nor a tool call (the model produced only
+		// reasoning, or was cut off) has no wire form: Converse rejects an empty
+		// or blank content block, and the fall-through below used to send the
+		// literal text "null". Leave it out; no filler is invented. A turn with
+		// tool calls is never dropped, so every tool result still follows its
+		// call, and the two user turns around a dropped reply merge below.
+		if (msg.role === 'assistant' && !msg.content && !(msg.toolCalls?.length ?? 0)) continue
+
 		if (msg.role === 'assistant' && 'toolCalls' in msg && msg.toolCalls) {
 			const content: ContentBlock[] = []
 			if (msg.content) {
