@@ -516,6 +516,34 @@ function mayReach(rule: AuthorizationRule, tool: string): boolean {
 }
 
 /**
+ * Tools a `deny_by_name` rule refuses and no rule before it could let
+ * through. Whatever the input, a call to one is refused, so offering it only
+ * invites calls that are turned back.
+ */
+export function refusedByName(rules: readonly AuthorizationRule[]): string[] {
+	const out = new Set<string>()
+	rules.forEach((rule, index) => {
+		if (rule.type !== 'deny_by_name') return
+		const earlier = rules.slice(0, index)
+		for (const tool of rule.toolNames) if (!earlier.some((r) => mayReach(r, tool))) out.add(tool)
+	})
+	return [...out]
+}
+
+/**
+ * The same, for permission layers read one at a time. Several layers compile
+ * into opaque rules that name no tool, so the names are read from each layer
+ * before they are combined; a deny in any layer holds whatever another allows.
+ */
+export function refusedByLayers(layers: readonly (PermissionsConfig | undefined)[]): string[] {
+	return [
+		...new Set(
+			layers.flatMap((layer) => (layer ? refusedByName(compilePermissions(layer).rules) : [])),
+		),
+	]
+}
+
+/**
  * Tools a scheduled run under this policy can never use, so their schemas
  * need not be sent with every model call. In a browser job's run, `bash`,
  * `edit`, `write`, the web tools and the agent and memory tools were about
@@ -531,12 +559,7 @@ export function withheldTools(
 	set: SchedulePermissionSet,
 	policy: Pick<CompiledJobPolicy, 'rules'>,
 ): string[] {
-	const out = new Set<string>()
-	policy.rules.forEach((rule, index) => {
-		if (rule.type !== 'deny_by_name') return
-		const earlier = policy.rules.slice(0, index)
-		for (const tool of rule.toolNames) if (!earlier.some((r) => mayReach(r, tool))) out.add(tool)
-	})
+	const out = new Set<string>(refusedByName(policy.rules))
 	if (set.unmatched === 'deny') {
 		for (const tool of STRICT_UNREACHABLE)
 			if (!policy.rules.some((r) => mayReach(r, tool))) out.add(tool)

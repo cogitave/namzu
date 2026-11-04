@@ -2,6 +2,7 @@
 
 ## 2026-11-04
 
+- **Update** [Flags for one run](cli/run-flags.md): in `namzu exec` and `exec --json`, a tool refused by name (`--disallowed-tools web_fetch`, or `deny` in any config layer) is no longer offered to the model, and the guidance written for it is left out of the system prompt, as a scheduled run already did; the interactive session is unchanged. `.changeset/refused-tools-not-offered.md` (patch for `@namzu/cli`).
 - **Update** [When a model declines to answer](sdk/model-refusal.md#what-a-driver-reports): an empty assistant reply (for example the answer to a denied tool call) no longer reaches a provider as an invalid message. The loop leaves a reply with no text, call, reasoning or citation out of every request, and the DeepSeek, HTTP, OpenRouter, Bedrock and Zen (chat lane) drivers leave out an entry that is empty on their wire, as the OpenAI and Anthropic drivers already did; a tool call and its result always stay together. `.changeset/empty-assistant-reply-wire.md` (patch for `@namzu/sdk`, `@namzu/deepseek`, `@namzu/http`, `@namzu/openrouter`, `@namzu/bedrock`, `@namzu/zen`).
 
 ## 2026-11-03

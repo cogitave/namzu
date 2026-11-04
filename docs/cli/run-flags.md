@@ -42,6 +42,8 @@ The text goes in the **uncached tail** of the system prompt, after everything th
 
 The lists are **two more layers on top of the ones in your config**, never a replacement: a rule that denies a call in any layer still denies it, a rule that asks still asks, and `--allowed-tools` only settles the calls nothing stricter decided. So `--allowed-tools bash` does not open a command your config denies, and `--disallowed-tools` is the way to close something for one run. The dangerous-command check stays on in every mode. An entry that cannot be read (a bracket never closed) is refused, naming the flag, rather than dropped, because a rule you believe is in force must not quietly be missing. See [Permission layers](permission-layers.md) for how layers combine.
 
+A tool named whole in `--disallowed-tools` (or denied by name in your config) is **not offered to the model at all** in `namzu exec` and `exec --json`: its definition is left out of every request, and so is the system-prompt guidance written for it (denying `web_fetch` and `web_search` removes the "Using the web" section). Before, the model saw the tool, tried it, and was turned back on each call. A deny in any layer counts, whatever another layer allows. An entry with a pattern (`bash(rm *)`) leaves the tool in place because only some of its calls are refused. The interactive session still offers the tool and refuses the call, because its permissions can change while it runs (`/permissions`).
+
 ## Fallback models
 
 `--fallback-model` names the models a run may fall over to, in order, when the one before it cannot answer (a busy provider, an outage, a rejected sign-in). It builds the same chain `providers.chain` does, for this run only. Each entry reads as:

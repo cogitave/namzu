@@ -4746,6 +4746,7 @@ export async function createAgentSession(
 	// Everything is composed by now but the deferred task tools, which no
 	// caller withholds.
 	const withheldTools = new Set(options.withheldTools ?? [])
+	const webToolsWithheld = withheldTools.has('web_fetch') && withheldTools.has('web_search')
 	// The session's own lifecycle, for hooks that set up or tear down
 	// something per session rather than per turn. These two calls belong to no
 	// turn, so they carry no turn id — nothing is minted to fill the field.
@@ -6360,7 +6361,8 @@ export async function createAgentSession(
 						// The citation rules that come with the web tools, only when the
 						// tools are there: guidance about a capability the turn does not
 						// have reads as a capability it should be looking for.
-						if (webCapability) promptContributions.register(webGuidanceContribution)
+						if (webCapability && !webToolsWithheld)
+							promptContributions.register(webGuidanceContribution)
 						const childOperatorNotices = options.ephemeral
 							? []
 							: await readChildOperatorNotices(paths, turnScope.sessionId)
