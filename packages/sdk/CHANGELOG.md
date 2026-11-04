@@ -1,5 +1,27 @@
 # Changelog
 
+## 60.2.0
+
+### Minor Changes
+
+- 8723565: A full disk no longer ends a session. When appending to the session log fails with `ENOSPC`, `EDQUOT` or `EROFS`, the turn keeps going: the unwritten records wait in an in-memory buffer (8 MiB by default, `degradedBufferBytes` on the log options; the oldest are dropped past it), every later record retries the write, and when the disk accepts writes again the buffer is written in order. Any other write error is raised as before.
+
+  What it costs: while the volume is refusing writes, a restart or crash resumes from the last record that reached the disk, and if the buffer overflowed the log has a gap where the dropped records were (a strict reader reports the break, a `tolerant` read stops at it). A large message body that cannot be spilled beside the log is kept as its preview with a note, instead of failing the turn.
+
+  New live events, both ephemeral and never recorded: `session_log_degraded` (SSE `session_log.degraded`) and `session_log_recovered` (SSE `session_log.recovered`). A consumer that switches exhaustively over `SessionEvent['type']` must handle them (or ignore them); the A2A bridge declines both. `SessionLog` gains an optional `onWriteHealth(listener)`. The CLI shows one row when writes start failing ("Transcript writes are failing (the disk is full). Recent messages may not be saved for resume.") and one when they work again; it never asks you to start a new session.
+
+- 8723565: Namzu's temporary files now live in one place you can move. Set `NAMZU_TMPDIR` to a full path to put them on another disk; unset, nothing moves from the operating system's temporary folder (`TMPDIR`, `TMP`, `TEMP`). Under it Namzu keeps a private `namzu-<user>` folder (mode 0700, refused when it is a symbolic link, belongs to someone else or is open to other users) and puts there what used to land loose in the shared temporary folder: the shell's working-directory marker (`namzu-cwd-*`), rendered PDF pages, the sandbox's own working directory, pasted clipboard images, the external editor's draft, the update download, the `namzu doctor` code-analysis probe and a local Pal computer's port-forward files. A pasted image or draft is therefore no longer a world-readable path under `/tmp`.
+
+  New SDK exports for hosts that want the same behaviour: `NAMZU_TMPDIR_ENV`, `resolveTempBase`, `privateTempRoot`, `createTempDir`, `createTempDirSync`, `tempFilePath`, `TempDirectoryError`. `tempRoot` now honours `NAMZU_TMPDIR` too and still throws `SessionPathError` for a refused folder.
+
+  What changes when something is wrong: there is no silent fallback to another folder. A folder that cannot be created on a full disk stops with one line that names it and the variable ("The disk is full, so Namzu could not create <folder>. Free some space and start again, or set NAMZU_TMPDIR to a folder on another disk.") and, at start-up, exits with status 69 instead of a stack trace; a used-up quota, an unwritable or missing folder and a relative `NAMZU_TMPDIR` get their own plain sentences. A full disk under `NAMZU_HOME` is reported the same way, naming `NAMZU_HOME`. `namzu doctor` now checks the chosen base and the private folder.
+
+  Unchanged on purpose: the peer-socket runtime directory still falls back to the operating system's folder (a long `NAMZU_TMPDIR` can exceed the socket-path limit), and the macOS computer-use screenshot file and the code-analysis host's working directory still use the operating system's folder. To keep every file where it was, leave `NAMZU_TMPDIR` unset.
+
+- 8723565: A session's own scratch folder is now a place the file tools may write without asking. Until now a write to anything under `/tmp` was asked about every time (default and accept-edits) or refused (plan). The folder is `<temp base>/namzu-<user>/<project>/<session>/scratchpad`, where the base is `NAMZU_TMPDIR` or the operating system's temporary folder. It is made the first time a call names it, and only after Namzu has checked that it lies inside the private temporary folder with no symbolic link on the way and nobody else as owner; otherwise it stays outside and is asked about as before. Inside it, `write` and `edit` are not reviewed in default, accept-edits, plan, auto or bypass modes, and a path there is never reported as outside the working directory (also for hosts that set `outsideRootAccess: 'refuse'`, such as Pals). The model is told the folder exists in one path-free sentence of the cached system prompt (identical for every session), and its path comes with the date and branch facts in the environment reminder, so the cached prefix stays the same across sessions.
+
+  What does not change: `/tmp` in general is still outside the roots (it is shared and world-writable), so is another session's scratch folder, `strict` mode still asks about everything, and a `deny` rule, a rule that asked for review, a protected path and a tool's own approval requirement still win over the new allowance. A sandboxed session does not get the folder (it is not mounted there). New: `ToolCallSummary.scratchpadWrite`, `ToolExecutorConfig.scratchpadDirectory`, `SessionPaths.scratchpadPath`, `ensureScratchpadDirectory`, `privateTempRootPath`. A host with its own review handler can read `scratchpadWrite` or ignore it and keep asking.
+
 ## 60.1.0
 
 ### Minor Changes
