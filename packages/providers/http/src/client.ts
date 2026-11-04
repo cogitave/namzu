@@ -205,8 +205,24 @@ function mapOpenAIFinish(
 // OpenAI dialect — request construction
 // --------------------------------------------------------------------------------------
 
+/**
+ * The history without assistant entries that have neither text nor a tool call
+ * (the model produced only reasoning, or was cut off). Endpoints reject such a
+ * message ("content or tool_calls must be set"), and the second dialect used to
+ * send it as the literal text "null". No filler is invented. An entry with tool
+ * calls is never dropped, so every tool result still follows the call it
+ * answers; the stored history is untouched.
+ */
+function withoutEmptyAssistantTurns(
+	messages: ChatCompletionParams['messages'],
+): ChatCompletionParams['messages'] {
+	return messages.filter(
+		(msg) => msg.role !== 'assistant' || Boolean(msg.content) || (msg.toolCalls?.length ?? 0) > 0,
+	)
+}
+
 function formatOpenAIMessages(messages: ChatCompletionParams['messages']): unknown[] {
-	return messages.map((msg) => {
+	return withoutEmptyAssistantTurns(messages).map((msg) => {
 		if (msg.role === 'tool') {
 			return {
 				role: 'tool',
@@ -219,7 +235,7 @@ function formatOpenAIMessages(messages: ChatCompletionParams['messages']): unkno
 				tool_call_id: (msg as { toolCallId?: string }).toolCallId,
 			}
 		}
-		if (msg.role === 'assistant' && 'toolCalls' in msg && msg.toolCalls) {
+		if (msg.role === 'assistant' && 'toolCalls' in msg && msg.toolCalls?.length) {
 			return {
 				role: 'assistant',
 				content: msg.content,
@@ -301,7 +317,7 @@ function formatAnthropicRequest(
 		}
 	}
 
-	for (const msg of params.messages) {
+	for (const msg of withoutEmptyAssistantTurns(params.messages)) {
 		if (msg.role === 'system') {
 			if (typeof msg.content === 'string') systemParts.push(msg.content)
 			continue

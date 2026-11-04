@@ -395,7 +395,15 @@ export class OpenRouterProvider implements LLMProvider {
 	}
 
 	private formatMessages(messages: ChatCompletionParams['messages']): unknown[] {
-		return messages.map((msg) => {
+		// An assistant entry with neither text nor a tool call (the model produced
+		// only reasoning, or was cut off) is rejected upstream with "content or
+		// tool_calls must be set". Leave it out; no filler is invented. An entry
+		// with tool calls is never dropped, so every tool result still follows the
+		// call it answers, and the stored history is untouched.
+		const sendable = messages.filter(
+			(msg) => msg.role !== 'assistant' || Boolean(msg.content) || (msg.toolCalls?.length ?? 0) > 0,
+		)
+		return sendable.map((msg) => {
 			if (msg.role === 'tool') {
 				return {
 					role: 'tool',
@@ -403,7 +411,7 @@ export class OpenRouterProvider implements LLMProvider {
 					tool_call_id: (msg as { toolCallId?: string }).toolCallId,
 				}
 			}
-			if (msg.role === 'assistant' && 'toolCalls' in msg && msg.toolCalls) {
+			if (msg.role === 'assistant' && 'toolCalls' in msg && msg.toolCalls?.length) {
 				return {
 					role: 'assistant',
 					content: msg.content,
