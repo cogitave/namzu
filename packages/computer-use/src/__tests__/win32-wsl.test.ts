@@ -179,7 +179,7 @@ describe('choosing the Windows backend', () => {
 	function fakeCua(fail?: Error): Adapter & { disposed: boolean } {
 		const adapter = {
 			disposed: false,
-			backend: 'cua-driver 0.28.2',
+			backend: 'cua-driver 0.38.0',
 			capabilities: Object.freeze({
 				displayServer: 'win32' as const,
 				screenshot: true,

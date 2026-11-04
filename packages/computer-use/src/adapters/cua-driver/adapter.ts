@@ -1252,6 +1252,9 @@ export class CuaDriverAdapter implements Adapter {
 					window_id: target.hwnd,
 					include_screenshot: false,
 					max_elements: UI_MAX_ELEMENTS,
+					// Since 0.35 the structured `elements` array is left out unless
+					// asked for; the tree is built from both it and the markdown.
+					full_output: true,
 					...(options.query ? { query: options.query } : {}),
 				},
 				UI_TREE_TIMEOUT_MS,

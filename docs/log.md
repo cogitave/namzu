@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-05
+
+- **Update** [The computer_use tool](sdk/computer-actions.md): the pinned Windows driver moves from cua-driver 0.28.2 to 0.38.0 (new archive and executable hashes, the window tree read with `full_output`); the package README names the new version, size and cache folder. `.changeset/cua-driver-0-38.md` (patch for `@namzu/computer-use`).
+
 ## 2026-11-04
 
 - **Update** [Flags for one run](cli/run-flags.md): in `namzu exec` and `exec --json`, a tool refused by name (`--disallowed-tools web_fetch`, or `deny` in any config layer) is no longer offered to the model, and the guidance written for it is left out of the system prompt, as a scheduled run already did; the interactive session is unchanged. `.changeset/refused-tools-not-offered.md` (patch for `@namzu/cli`).

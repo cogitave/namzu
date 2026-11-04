@@ -83,21 +83,21 @@ describe('taking one file out of a ZIP archive', () => {
 
 describe('the pinned cua-driver build', () => {
 	it('is pinned for both Windows architectures cua-driver publishes, and nothing else', () => {
-		expect(cuaDriverAsset('x64')?.archive).toBe('cua-driver-rs-0.28.2-windows-x86_64-binary.zip')
-		expect(cuaDriverAsset('arm64')?.archive).toBe('cua-driver-rs-0.28.2-windows-arm64-binary.zip')
+		expect(cuaDriverAsset('x64')?.archive).toBe('cua-driver-rs-0.38.0-windows-x86_64-binary.zip')
+		expect(cuaDriverAsset('arm64')?.archive).toBe('cua-driver-rs-0.38.0-windows-arm64-binary.zip')
 		expect(cuaDriverAsset('ia32')).toBeUndefined()
 		for (const pin of Object.values(CUA_DRIVER_RELEASE.windows)) {
 			expect(pin.archiveSha256).toMatch(/^[0-9a-f]{64}$/)
 			expect(pin.exeSha256).toMatch(/^[0-9a-f]{64}$/)
 		}
 		expect(cuaDriverDownloadUrl('a.zip')).toBe(
-			'https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.28.2/a.zip',
+			'https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.38.0/a.zip',
 		)
 	})
 
 	it('lives under NAMZU_HOME, versioned', () => {
 		expect(defaultCuaDriverCacheDir({ NAMZU_HOME: '/srv/namzu' })).toBe(
-			'/srv/namzu/computer-use/cua-driver/0.28.2',
+			'/srv/namzu/computer-use/cua-driver/0.38.0',
 		)
 	})
 })

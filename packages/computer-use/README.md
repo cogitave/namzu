@@ -107,10 +107,10 @@ one `cua-driver.exe mcp` process for the host's lifetime, spoken to over its
 standard streams:
 
 - **Pinned and checked.** The first `initialize()` downloads cua-driver
-  0.28.2 for this architecture (x64 or arm64, a 27–29 MB archive from the
+  0.38.0 for this architecture (x64 or arm64, a 34–36 MB archive from the
   project's GitHub releases), checks the SHA-256 of the archive and of the
   executable in it against values in this package, and keeps
-  `cua-driver.exe` in `<NAMZU_HOME>/computer-use/cua-driver/0.28.2/`
+  `cua-driver.exe` in `<NAMZU_HOME>/computer-use/cua-driver/0.38.0/`
   (`~/.namzu` by default). Nothing else in the archive is written. Later
   sessions start the cached copy after checking its hash again.
 - **Quiet.** It runs with its telemetry and its release check switched off
@@ -160,7 +160,7 @@ standard streams:
 - **Fallback.** When cua-driver cannot be downloaded, verified or started,
   or does not reach the desktop, the host uses PowerShell instead — one
   `powershell.exe` per action, DPI aware, Unicode text, no window list.
-  `host.backend` says which is in use (`cua-driver 0.28.2`, `powershell`),
+  `host.backend` says which is in use (`cua-driver 0.38.0`, `powershell`),
   `host.fallbackReason` why cua-driver is not.
 
 `NAMZU_CUA_DRIVER=off` keeps cua-driver out (no download); a path in it runs
