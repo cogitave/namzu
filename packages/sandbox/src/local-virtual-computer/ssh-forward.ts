@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process'
-import { mkdtemp, rmdir, unlink, writeFile } from 'node:fs/promises'
+import { rmdir, unlink, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
-import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
+import { createTempDir } from '@namzu/sdk'
 import type { LocalPortForward } from './engine.js'
 
 /** Internal retained authority for retrying an unconfirmed owned startup cleanup. */
@@ -60,7 +60,7 @@ export async function startLocalSshForward(
 	if (!/^ssh-ed25519 [A-Za-z0-9+/=]+$/.test(options.hostPublicKey))
 		throw new Error('The registered local machine did not provide its SSH host public key')
 	const ports = await Promise.all(options.ports.map(() => reservePort()))
-	const directory = await mkdtemp(join(tmpdir(), 'namzu-pal-forward-'))
+	const directory = await createTempDir('pal-forward-')
 	const knownHosts = join(directory, 'known_hosts')
 	await writeFile(knownHosts, `[127.0.0.1]:${options.port} ${options.hostPublicKey}\n`, {
 		mode: 0o600,

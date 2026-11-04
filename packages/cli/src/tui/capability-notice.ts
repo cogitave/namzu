@@ -145,3 +145,20 @@ export function describeProviderFallbackNotice(input: {
 export function withDebugDetail(plain: string, raw: string, debug: boolean): string {
 	return debug && raw.trim() !== '' ? `${plain}\n${raw}` : plain
 }
+
+/**
+ * The one row for a session log that cannot be written, and the one for when
+ * it can again. Plain words: no ids, no paths, and no instruction to start over.
+ * `dropping` is sent at most once, when the unsaved messages no longer all fit
+ * in memory.
+ */
+export function describeTranscriptWrites(state: 'failing' | 'dropping' | 'working'): string {
+	switch (state) {
+		case 'failing':
+			return 'Transcript writes are failing (the disk is full). Recent messages may not be saved for resume.'
+		case 'dropping':
+			return 'Some of the oldest unsaved messages could not be kept and will not be available for resume.'
+		case 'working':
+			return 'Transcript writes work again.'
+	}
+}

@@ -182,6 +182,22 @@ const MAPPING: {
 			failures: e.failures,
 		}),
 	},
+	session_log_degraded: {
+		wire: 'session_log.degraded',
+		transform: (e) => ({
+			cause: e.cause,
+			buffered_records: e.bufferedRecords,
+			buffered_bytes: e.bufferedBytes,
+			...(e.dropping ? { dropping: true } : {}),
+		}),
+	},
+	session_log_recovered: {
+		wire: 'session_log.recovered',
+		transform: (e) => ({
+			flushed_records: e.flushedRecords,
+			dropped_records: e.droppedRecords,
+		}),
+	},
 	compaction_started: {
 		wire: 'compaction.started',
 		transform: (e) => ({

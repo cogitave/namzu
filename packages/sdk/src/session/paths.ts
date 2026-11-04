@@ -1,7 +1,5 @@
 import { createHash } from 'node:crypto'
-import { lstatSync, mkdirSync } from 'node:fs'
 import { link, mkdir, open, readFile, realpath, unlink } from 'node:fs/promises'
-import { tmpdir, userInfo } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import type {
 	CheckpointId,
@@ -14,6 +12,12 @@ import type {
 } from '../types/ids/index.js'
 import { type ProjectDocument, ProjectDocumentSchema } from '../types/session/records.js'
 import { type EntityIdKind, asSessionId, generateProjectId, isEntityId } from '../utils/id.js'
+import {
+	type PrivateTempRootOptions,
+	TempDirectoryError,
+	privateTempRoot,
+	privateTempRootPath,
+} from '../utils/temp.js'
 import { uuidv7 } from '../utils/uuidv7.js'
 
 /**
@@ -243,68 +247,26 @@ export async function ensureProject(options: EnsureProjectOptions): Promise<Ensu
 	)
 }
 
-export interface TempRootOptions {
-	/** Base directory. Default `os.tmpdir()`. */
-	readonly tmpdir?: string
-	/** Default `process.platform`. */
-	readonly platform?: NodeJS.Platform
-	/**
-	 * Default `process.getuid`. Pass `undefined` explicitly to model a
-	 * platform without it (win32).
-	 */
-	readonly getuid?: (() => number) | undefined
-	/** Default `os.userInfo().username`. */
-	readonly username?: () => string
-}
+/** See {@link PrivateTempRootOptions}; `tmpdir` is the base. */
+export type TempRootOptions = PrivateTempRootOptions
 
 /**
- * The per-user temporary root, `$TMPDIR/namzu-<user>`, created if missing.
- *
- * `<user>` is the numeric uid where the platform has one; otherwise the first
- * 12 hex digits of the SHA-256 of the user name; otherwise `user`. On POSIX
- * the directory is created with mode 0700 and refused if it is a symlink, not
- * a directory, owned by another uid, or open to group or others. On win32
- * `%TEMP%` is already per user: a symlink or junction is refused and the
- * owner check is skipped.
+ * The per-user temporary root, `<base>/namzu-<user>`, created if missing,
+ * where the base is `NAMZU_TMPDIR` or `os.tmpdir()`. A root that is a symlink,
+ * not a directory, owned by another uid or open to others is refused with a
+ * {@link SessionPathError}; one that cannot be created raises the
+ * {@link TempDirectoryError} that names the directory and `NAMZU_TMPDIR`.
+ * See {@link privateTempRoot}.
  */
 export function tempRoot(options: TempRootOptions = {}): string {
-	const platform = options.platform ?? process.platform
-	const getuid = 'getuid' in options ? options.getuid : process.getuid?.bind(process)
-	let user = 'user'
-	if (typeof getuid === 'function') {
-		user = String(getuid())
-	} else {
-		try {
-			const name = (options.username ?? (() => userInfo().username))()
-			if (name.length > 0) user = sha256Hex(name).slice(0, 12)
-		} catch {
-			// No user database entry: fall back to the fixed segment.
-		}
-	}
-	const root = join(options.tmpdir ?? tmpdir(), `namzu-${user}`)
 	try {
-		mkdirSync(root, { mode: 0o700 })
+		return privateTempRoot(options)
 	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-	}
-	const entry = lstatSync(root)
-	if (entry.isSymbolicLink()) {
-		throw new SessionPathError(`Refusing temporary root ${root}: it is a symbolic link.`)
-	}
-	if (!entry.isDirectory()) {
-		throw new SessionPathError(`Refusing temporary root ${root}: it is not a directory.`)
-	}
-	if (platform !== 'win32' && typeof getuid === 'function') {
-		if (entry.uid !== getuid()) {
-			throw new SessionPathError(`Refusing temporary root ${root}: it belongs to uid ${entry.uid}.`)
+		if (error instanceof TempDirectoryError && error.reason === 'refused') {
+			throw new SessionPathError(error.message)
 		}
-		if ((entry.mode & 0o077) !== 0) {
-			throw new SessionPathError(
-				`Refusing temporary root ${root}: mode ${(entry.mode & 0o777).toString(8)} lets other users in; it must be 700.`,
-			)
-		}
+		throw error
 	}
-	return root
 }
 
 /** Every path of one project's layout. Pure: nothing is created or read. */
@@ -451,9 +413,22 @@ export class SessionPaths {
 		return join(this.sessionDir(locator), 'lease.json')
 	}
 
-	/** `$TMPDIR/namzu-<user>/<slug>/<session-id>/scratchpad`. Not created; the per-user root is. */
+	/** `<temp base>/namzu-<user>/<slug>/<session-id>/scratchpad`. Not created; the per-user root is. */
 	tempDir(sessionId: SessionId): string {
 		this.#tempRoot ??= tempRoot()
 		return join(this.#tempRoot, this.slug, checkId(sessionId, 'session'), 'scratchpad')
+	}
+
+	/**
+	 * Where {@link tempDir} is, creating and checking nothing, not even the
+	 * per-user root: for a caller that makes the folder only when it is first used.
+	 */
+	scratchpadPath(sessionId: SessionId): string {
+		return join(
+			this.#tempRoot ?? privateTempRootPath(),
+			this.slug,
+			checkId(sessionId, 'session'),
+			'scratchpad',
+		)
 	}
 }

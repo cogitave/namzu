@@ -238,6 +238,12 @@ export async function* runToolReview(
 				...(requiresApproval ? { requiresApproval: true as const } : {}),
 				...(escalation ? { escalation } : {}),
 				...(hookPermission ? { hookPermission } : {}),
+				...('scratchpadWrite' in tc && tc.scratchpadWrite
+					? { scratchpadWrite: true as const }
+					: {}),
+				...('scratchpadWrite' in tc && tc.scratchpadWrite
+					? { scratchpadWrite: true as const }
+					: {}),
 			}
 		})
 	}

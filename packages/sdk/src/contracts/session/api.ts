@@ -68,6 +68,8 @@ export type SessionStreamEventType =
 	| 'background_job.exited'
 	| 'monitor.event'
 	| 'compaction.started'
+	| 'session_log.degraded'
+	| 'session_log.recovered'
 	| 'compaction.failed'
 	/** A guardrail refused or corrected the turn. */
 	| 'guardrail.triggered'

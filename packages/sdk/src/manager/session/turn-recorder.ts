@@ -12,6 +12,7 @@ import {
 	type SessionLog,
 	type SessionLogEntry,
 	type SessionLogHead,
+	type SessionLogWriteHealth,
 	SessionMessageFold,
 	withMessageId,
 } from '../../store/session-log/index.js'
@@ -651,6 +652,9 @@ export class TurnRecorder {
 				this.#leaseHeartbeat = setInterval(() => this.#queueLeaseRenewal(), this.#leaseTtlMs / 2)
 				this.#leaseHeartbeat.unref()
 			}
+			this.#stopWatchingHealth ??= this.log.onWriteHealth?.((change) => {
+				for (const listener of this.#healthListeners) listener(change)
+			})
 			const head = await this.log.head()
 			if (head === null) {
 				this.#lastEntry = await this.log.append(lease, {
@@ -680,6 +684,21 @@ export class TurnRecorder {
 			throw error
 		}
 	}
+
+	/**
+	 * Be told when the session log stops writing (the disk is full) and when
+	 * it writes again. Sent while the recorder holds the log, from `open` to
+	 * `release`.
+	 */
+	onLogWriteHealth(listener: (change: SessionLogWriteHealth) => void): () => void {
+		this.#healthListeners.add(listener)
+		return () => {
+			this.#healthListeners.delete(listener)
+		}
+	}
+
+	readonly #healthListeners = new Set<(change: SessionLogWriteHealth) => void>()
+	#stopWatchingHealth: (() => void) | undefined
 
 	/** Serialize timer and write-triggered renewals so release uses the latest token. */
 	#queueLeaseRenewal(): void {
@@ -725,6 +744,8 @@ export class TurnRecorder {
 
 	/** Give up a lease the recorder claimed. Never throws. */
 	async release(): Promise<void> {
+		this.#stopWatchingHealth?.()
+		this.#stopWatchingHealth = undefined
 		if (!this.#ownsLease || !this.#lease) return
 		this.#released = true
 		if (this.#leaseHeartbeat !== undefined) clearInterval(this.#leaseHeartbeat)

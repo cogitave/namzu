@@ -65,11 +65,34 @@ rewritten.
 ```
 
 A temporary scratch directory per session lives outside the home, at
-`$TMPDIR/namzu-<user>/<slug>/<session-id>/scratchpad/`. On POSIX it is created
+`<temp base>/namzu-<user>/<slug>/<session-id>/scratchpad/`. On POSIX it is created
 with mode 0700 and refused if it is a symlink or owned by another user.
 For a confirmed no-project script job, a separate private working directory
 is created beside `NAMZU_HOME`, under `<NAMZU_HOME>-schedule-workspaces/<job-id>/`.
 It is not a session or a filesystem sandbox.
+
+### Where scratch files go
+
+Everything Namzu writes to a temporary place (the shell's directory marker, rendered PDF pages, a
+pasted image, the external editor's draft, the update download, the sandbox's own working directory,
+the port-forward files of a local Pal computer) goes under one private folder,
+`<temp base>/namzu-<user>/`. The base is `NAMZU_TMPDIR` when it is set to a full path, otherwise the
+operating system's temporary folder (`TMPDIR`, `TMP` or `TEMP`). The folder is created with mode 0700
+and refused when it is a symbolic link, not a folder, owned by someone else or open to other users;
+there is no fallback to another place. When it cannot be created, Namzu says so in one line that names
+the folder and the cause, for example "The disk is full, so Namzu could not create /tmp/namzu-1000. Free
+some space and start again, or set NAMZU_TMPDIR to a folder on another disk.", and exits with status 69
+at start-up. The same sentence form covers a used-up quota ("Your disk quota is used up") and a folder
+that cannot be written to (it names `NAMZU_TMPDIR`). A full disk under `NAMZU_HOME` is reported the same
+way, naming `NAMZU_HOME`. `namzu doctor` checks the base and the private folder.
+
+Two places deliberately keep the operating system's folder: the runtime directory for peer sockets
+(its last candidate, because a long `NAMZU_TMPDIR` can exceed the socket-path limit; see
+[Peer messaging](../sdk/peer-messaging.md#the-runtime-directory)), and a computer-use screenshot on macOS,
+which a separate package writes and which does not depend on the newest kernel.
+
+When the disk fills while a session runs, the session keeps going and says so once; see
+[Session log](../sdk/session-log.md#a-volume-that-stops-accepting-writes).
 
 ## What each piece is
 

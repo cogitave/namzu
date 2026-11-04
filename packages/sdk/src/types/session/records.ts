@@ -647,6 +647,8 @@ const SESSION_EVENT_TYPE_TABLE: Record<SessionEventType, true> = {
 	request_envelope: true,
 	iteration_completed: true,
 	compaction_started: true,
+	session_log_degraded: true,
+	session_log_recovered: true,
 	compaction_shed: true,
 	compaction_completed: true,
 	compaction_tool_results_cleared: true,

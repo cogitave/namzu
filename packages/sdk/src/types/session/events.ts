@@ -211,6 +211,40 @@ type CoreSessionEvent =
 			/** The window the trigger measured against. */
 			contextWindowTokens: number
 	  }
+	/**
+	 * The session log can no longer write: the volume holding it is full, over
+	 * its quota or read-only. The session goes on in memory and the records not
+	 * yet written wait in a bounded buffer, so a reply is not lost, but a
+	 * restart before the log recovers would resume from an older point. Emitted
+	 * once on entering that state, and once more with `dropping` when the
+	 * buffer first overflowed and its oldest records were discarded.
+	 *
+	 * Live only, never recorded: the log is what cannot be written.
+	 */
+	| {
+			type: 'session_log_degraded'
+			sessionId: SessionId
+			turnId?: TurnId
+			cause: 'disk_full' | 'quota_exceeded' | 'read_only'
+			/** Records waiting to be written. */
+			bufferedRecords: number
+			bufferedBytes: number
+			/** The buffer overflowed and the oldest waiting records were discarded. */
+			dropping?: boolean
+	  }
+	/**
+	 * The session log writes again after `session_log_degraded`: the waiting
+	 * records were written, in order. `droppedRecords` is how many were
+	 * discarded while the buffer was full; the log has a gap where they were.
+	 * Live only, never recorded.
+	 */
+	| {
+			type: 'session_log_recovered'
+			sessionId: SessionId
+			turnId?: TurnId
+			flushedRecords: number
+			droppedRecords: number
+	  }
 	| {
 			type: 'compaction_completed'
 			sessionId: SessionId
@@ -1370,6 +1404,8 @@ export type SessionEventListener = (event: SessionEvent) => void | Promise<void>
  * runtime-context message or tool result that carried it, and a noisy watch
  * would write tens of megabytes an hour of raw process output a second time.
  * `background_job_exited.monitor` is the durable record of how a watch ended.
+ * `session_log_degraded` and `session_log_recovered` are ephemeral because the
+ * log is what cannot be written while they matter.
  * `compaction_started` is ephemeral too: it only says a pass is about to run,
  * and the `compaction` record or `compaction_failed` that ends it is the
  * durable fact.
@@ -1381,13 +1417,15 @@ export const EPHEMERAL_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set<Sess
 	'tool_progress',
 	'monitor_event',
 	'compaction_started',
+	'session_log_degraded',
+	'session_log_recovered',
 ])
 
 export function isEphemeralEvent(event: { readonly type: string }): boolean {
 	return EPHEMERAL_EVENT_TYPES.has(event.type as SessionEventType)
 }
 
-/** The event types a session log records: every literal except the ephemeral six. */
+/** The event types a session log records: every literal except the ephemeral eight. */
 export type PersistedSessionEventType = Exclude<
 	SessionEventType,
 	| 'text_delta'
@@ -1396,4 +1434,6 @@ export type PersistedSessionEventType = Exclude<
 	| 'tool_progress'
 	| 'monitor_event'
 	| 'compaction_started'
+	| 'session_log_degraded'
+	| 'session_log_recovered'
 >

@@ -5,7 +5,10 @@ import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LocalForwardCleanupError, startLocalSshForward } from '../ssh-forward.js'
 
-vi.mock('node:child_process', () => ({ spawn: vi.fn() }))
+vi.mock('node:child_process', async () => {
+	const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process')
+	return { ...actual, spawn: vi.fn() }
+})
 vi.mock('node:fs/promises', async () => {
 	const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
 	return { ...actual, rmdir: vi.fn(actual.rmdir) }

@@ -66,6 +66,27 @@ describe('the environment reminder', () => {
 	})
 })
 
+describe('the session scratch folder in the reminder', () => {
+	const withFolder = { ...monday, scratchpadDirectory: '/tmp/namzu-1000/-work/abc/scratchpad' }
+
+	it('names the folder once, with the facts, and again only when it changes', () => {
+		const [first] = environmentReminders({ messages: [createUserMessage('go')], facts: withFolder })
+		expect(first).toContain('`/tmp/namzu-1000/-work/abc/scratchpad`')
+		const messages = told(withFolder)
+		expect(environmentReminders({ messages, facts: withFolder })).toEqual([])
+		const [again] = environmentReminders({
+			messages,
+			facts: { ...withFolder, scratchpadDirectory: '/tmp/namzu-1000/-work/xyz/scratchpad' },
+		})
+		expect(again).toContain('xyz/scratchpad')
+	})
+
+	it('says nothing about it for a session without one', () => {
+		const [first] = environmentReminders({ messages: [createUserMessage('go')], facts: monday })
+		expect(first).not.toContain('scratch')
+	})
+})
+
 describe('the cached environment block', () => {
 	const stable = (facts: Facts) =>
 		composeEnvironmentPrompt(

@@ -3,7 +3,7 @@
 // where the command shell starts; `bin.ts` itself stays a few lines long.
 
 import { runCli } from './cli.js'
-import { EXIT_INTERNAL_ERROR } from './exit-codes.js'
+import { EXIT_INTERNAL_ERROR, EXIT_UNAVAILABLE } from './exit-codes.js'
 import { resumeInvocation } from './resume-invocation.js'
 import { sessionLeasesMayBeHeld, terminationInProgress } from './termination-state.js'
 
@@ -17,6 +17,22 @@ async function exitProcess(code: number): Promise<void> {
 	// A signal may have arrived during the release; its handler owns that exit.
 	if (terminationInProgress() !== null) return
 	process.exit(code)
+}
+
+async function plainFailure(err: unknown): Promise<string | undefined> {
+	try {
+		const { plainStartupFailure } = await import('./startup-failure.js')
+		const { namzuHomePath } = await import('./integrations/state/home.js')
+		return plainStartupFailure(err, () => {
+			try {
+				return namzuHomePath()
+			} catch {
+				return undefined
+			}
+		})
+	} catch {
+		return undefined
+	}
 }
 
 /** Run the command line as `entrypoint`, the file that was started (`bin.js`, or `bin.ts` from source). */
@@ -43,19 +59,25 @@ export function main(entrypoint: string): Promise<void> {
 		},
 		async (err) => {
 			if (terminationInProgress() !== null) return
+			// A full disk that stopped a folder from being created is a sentence, not a crash.
+			const plain = await plainFailure(err)
 			// Loaded here and not at the top: the report resolves the Namzu home
 			// through the SDK, which `--version` has no other reason to compile.
 			let report: string
 			try {
-				const { reportCrash } = await import('./crash-report.js')
-				report = reportCrash(err)
+				if (plain !== undefined) {
+					report = `${plain}\n`
+				} else {
+					const { reportCrash } = await import('./crash-report.js')
+					report = reportCrash(err)
+				}
 			} catch (reportFailure) {
 				// The runtime that would write the report is what failed to load.
 				const why = reportFailure instanceof Error ? reportFailure.message : String(reportFailure)
 				report = `Namzu stopped because of an unexpected problem, and could not save details: ${why}\n`
 			}
 			process.stderr.write(report)
-			await exitProcess(EXIT_INTERNAL_ERROR)
+			await exitProcess(plain !== undefined ? EXIT_UNAVAILABLE : EXIT_INTERNAL_ERROR)
 		},
 	)
 }

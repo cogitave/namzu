@@ -14,9 +14,9 @@
  */
 
 import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import { createTempDir } from '@namzu/sdk'
 import { CLIPBOARD_KILL_SWITCH } from './copy.js'
 import { type FitResult, fitImage, sniffImageFormat } from './image-fit.js'
 import { DEFAULT_WSL_MOUNT_ROOT, isWslEnv, parseWslMountRoot, readTextOrUndefined } from './wsl.js'
@@ -332,7 +332,7 @@ async function readMac(
 	run: CommandRunner,
 	fit: (bytes: Buffer) => Promise<FitResult>,
 ): Promise<ClipboardRead> {
-	const dir = await mkdtemp(join(tmpdir(), 'namzu-clip-'))
+	const dir = await createTempDir('clip-')
 	const file = join(dir, 'clip.png')
 	try {
 		const result = await run(

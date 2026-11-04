@@ -207,6 +207,14 @@ export interface EnvironmentFacts {
 	readonly today: string
 	/** Directories besides the working directory the file tools may reach, absolute. */
 	readonly additionalDirectories?: readonly string[]
+	/**
+	 * The session's own scratch folder, absolute. The file tools may write there
+	 * without asking. Left unstated when the tools run in a sandbox, which does not
+	 * have it. The path is session-specific, so it is said with the date and branch
+	 * (a reminder, or the dynamic block), never in the cached prefix; the prefix only
+	 * says, without the path, that the folder exists.
+	 */
+	readonly scratchpadDirectory?: string
 	/** Where the tools run; absent leaves the boundary unstated, as before. */
 	readonly boundary?: ExecutionBoundary
 	/** Present when this is WSL. */
@@ -304,7 +312,10 @@ export interface EnvironmentPromptOptions {
 
 /** Date and repository facts that can change under a running session. */
 export function environmentFactLines(
-	facts: Pick<EnvironmentFacts, 'today' | 'branch' | 'isRepository' | 'linkedWorktree'>,
+	facts: Pick<
+		EnvironmentFacts,
+		'today' | 'branch' | 'isRepository' | 'linkedWorktree' | 'scratchpadDirectory'
+	>,
 ): string[] {
 	const lines = [`Today's date is ${facts.today}.`]
 	if (!facts.isRepository) {
@@ -320,6 +331,9 @@ export function environmentFactLines(
 		lines.push(
 			'This is a linked git worktree: it has its own working files and HEAD, but shares repository history with other worktrees.',
 		)
+	}
+	if (facts.scratchpadDirectory) {
+		lines.push(`The session's scratch folder is \`${facts.scratchpadDirectory}\`.`)
 	}
 	return lines
 }
@@ -337,6 +351,12 @@ export function composeEnvironmentPrompt(
 	if (facts.additionalDirectories && facts.additionalDirectories.length > 0) {
 		lines.push(
 			`Besides the working directory, the file tools may reach these directories, by absolute path: ${facts.additionalDirectories.map((d) => `\`${d}\``).join(', ')}. Relative paths still resolve against the working directory.`,
+		)
+	}
+	if (facts.scratchpadDirectory && !facts.boundary?.sandbox) {
+		lines.push(
+			// No path here: it differs for every session, and this block is in the cached prefix. The path is one of the environment facts.
+			'This session has a private scratch folder, named in the environment facts, which the file tools can write to without asking. Keep temporary files there rather than in the shared temporary folder.',
 		)
 	}
 	if (facts.osVersion) lines.push(`Host OS version: ${facts.osVersion}.`)

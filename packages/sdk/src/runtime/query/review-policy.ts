@@ -1051,8 +1051,19 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			mode === 'plan' &&
 			options.planModeWrite?.(tc) === true &&
 			tc.authorization?.decision !== 'deny'
+		// A file written inside the session's own scratch folder, in any mode but
+		// `strict`: the folder is the session's, so it is not a change anyone
+		// reviews, and not "outside the roots". A rule that asked for review keeps
+		// the call in the batch; a deny still refuses it.
+		const isScratchpadWrite = (tc: ToolCallSummary): boolean =>
+			mode !== 'strict' &&
+			tc.scratchpadWrite === true &&
+			tc.escalation === undefined &&
+			tc.requiresApproval !== true &&
+			!tc.authorization?.explicitReview &&
+			tc.authorization?.decision !== 'deny'
 		const reviewable = request.toolCalls.filter(
-			(tc) => !(isPlanFileWrite(tc) && !tc.authorization?.explicitReview),
+			(tc) => !(isPlanFileWrite(tc) && !tc.authorization?.explicitReview) && !isScratchpadWrite(tc),
 		)
 		if (!batchNeedsReview(reviewable, exempt)) {
 			return { action: 'approve_tools' }
@@ -1089,7 +1100,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		if (
 			mode === 'plan' &&
 			!onlyReadsOutsideRoots(
-				reviewable.filter((tc) => !isPlanFileWrite(tc)),
+				reviewable.filter((tc) => !isPlanFileWrite(tc) && !isScratchpadWrite(tc)),
 				exempt,
 			)
 		) {

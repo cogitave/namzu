@@ -268,6 +268,9 @@ const MAPPING: {
 	// a peer models a task lifecycle — shipping a session's deleted history over
 	// an external wire by default is a disclosure nobody asked for.
 	compaction_started: null,
+	// Where this runtime keeps its own transcript is not a fact about a peer's task.
+	session_log_degraded: null,
+	session_log_recovered: null,
 	compaction_shed: null,
 	compaction_completed: null,
 	// Same reason as the two below: which of this runtime's context-relief

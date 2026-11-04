@@ -109,3 +109,31 @@ describe('appended system instructions reach the model after the cached prompt',
 		expect(withText.slice(without.length)).toContain(APPENDED)
 	})
 })
+
+describe('the session scratch folder reaches the model without moving the cached prompt', () => {
+	/** Every message of the one request, system messages and reminders alike. */
+	async function wholeRequest(): Promise<{
+		system: string
+		all: string
+	}> {
+		const system = (await systemMessagesOf({})).join('\n\n')
+		const all = (requests[0]?.messages ?? []).map((m) => String(m.content)).join('\n\n')
+		return { system, all }
+	}
+
+	it('says the folder exists in the system prompt and names it only in the per-turn facts', async () => {
+		const first = await wholeRequest()
+		const second = await wholeRequest()
+		const folders = [...first.all.matchAll(/The session's scratch folder is `([^`]+)`/g)].map(
+			(match) => match[1] as string,
+		)
+		expect(folders).toHaveLength(1)
+		expect(first.system).toContain('private scratch folder')
+		expect(first.system).not.toContain(folders[0] as string)
+		const otherFolders = [...second.all.matchAll(/The session's scratch folder is `([^`]+)`/g)]
+		expect(otherFolders[0]?.[1]).toBeDefined()
+		// Two sessions, two folders, one prompt.
+		expect(otherFolders[0]?.[1]).not.toBe(folders[0])
+		expect(first.system).toBe(second.system)
+	})
+})

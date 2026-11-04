@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import { createTempDir } from '../../utils/temp.js'
 import { readBoundedFile } from './bounded-file-read.js'
 import { screenshotTargetSize } from './computer-use-image.js'
 import { describeRaster } from './view-image.js'
@@ -254,7 +254,7 @@ export async function readPdfPages(
 		}
 		last = total === null ? PDF_WHOLE_READ_MAX_PAGES : total
 	}
-	const directory = await mkdtemp(join(tmpdir(), 'namzu-pdf-'))
+	const directory = await createTempDir('pdf-')
 	try {
 		const rendered = await renderPages(bytes, first, last, directory, signal)
 		if (!rendered.ok) return { ok: false, message: rendered.message }

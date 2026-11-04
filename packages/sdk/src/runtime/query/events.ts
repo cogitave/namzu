@@ -79,6 +79,25 @@ export class EventTranslator {
 		this.recorder = recorder
 		this.probes = probeRegistry
 		this.log = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'runtime/query/events' })
+		recorder.onLogWriteHealth((change) => {
+			// Live only: the log is what cannot be written. The listener runs inside
+			// a log write, so it must not wait on one.
+			void this.emitEvent(
+				change.state === 'degraded'
+					? {
+							type: 'session_log_degraded',
+							cause: change.cause,
+							bufferedRecords: change.bufferedRecords,
+							bufferedBytes: change.bufferedBytes,
+							...(change.dropping ? { dropping: true } : {}),
+						}
+					: {
+							type: 'session_log_recovered',
+							flushedRecords: change.flushedRecords,
+							droppedRecords: change.droppedRecords,
+						},
+			)
+		})
 	}
 
 	/** Serializes appends and reads against each other. */

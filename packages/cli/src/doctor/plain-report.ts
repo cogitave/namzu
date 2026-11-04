@@ -114,7 +114,7 @@ const REASONS: Readonly<Record<string, PlainReason>> = {
 	},
 	'runtime.tmpdir-writable': {
 		fail: 'Namzu cannot write to the temporary folder',
-		advice: 'Point your temporary folder at a place you can write to.',
+		advice: 'Set NAMZU_TMPDIR to a folder you can write to, on a disk with free space.',
 	},
 	'vault.registered': {
 		fail: 'secret storage is not set up',

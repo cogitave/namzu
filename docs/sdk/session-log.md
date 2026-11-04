@@ -53,7 +53,7 @@ $NAMZU_HOME/
         ├── file-history/
         ├── lease.<fence>.json            one per claim; the highest fence is the holding
         └── lease.json                    {"v":1,"kind":"lease","holder":…,"fence":…,"expiresAt":…} (a readable copy)
-$TMPDIR/namzu-<user>/<slug>/<session-id>/scratchpad/
+$NAMZU_TMPDIR (else $TMPDIR)/namzu-<user>/<slug>/<session-id>/scratchpad/
 ```
 
 - **Slug.** `slugForCwd` replaces every character of the canonical working
@@ -68,10 +68,15 @@ $TMPDIR/namzu-<user>/<slug>/<session-id>/scratchpad/
   racing processes exactly one mints the id and the other adopts it. If the
   existing `project.json` names a different directory, the project moves to
   `<slug>-<first 8 hex of sha256(cwd)>`.
-- **Temporary root.** `tempRoot` uses the numeric uid where the platform has
-  one, otherwise 12 hex digits of the SHA-256 of the user name. On POSIX the
-  directory is mode 0700 and refused if it is a symlink, owned by another
-  uid or open to others. On win32 a symlink or junction is refused.
+- **Temporary root.** `tempRoot` (built on `privateTempRoot`, with `resolveTempBase`,
+  `createTempDir`, `createTempDirSync` and `tempFilePath` for the rest of Namzu's scratch
+  files) is `<base>/namzu-<user>`, where the base is `NAMZU_TMPDIR` or `os.tmpdir()`. It uses
+  the numeric uid where the platform has one, otherwise 12 hex digits of the SHA-256 of the
+  user name. On POSIX the directory is mode 0700 and refused if it is a symlink, owned by
+  another uid or open to others (`SessionPathError` from `tempRoot`, `TempDirectoryError`
+  from the others). On win32 a symlink or junction is refused. A full disk, an exhausted
+  quota, an unwritable or missing parent raise a `TempDirectoryError` whose message is one
+  plain sentence naming the folder and `NAMZU_TMPDIR`; nothing falls back to another place.
 - **Nothing generated goes under the working directory.** Project config
   that people write (`<cwd>/.namzu/agents`, `skills`, `commands`, `plugins`,
   `MEMORY.md`) is read from there, and never written.
@@ -188,9 +193,10 @@ type**.
 ### Persisted events
 
 The live event union (`SessionEvent`, `packages/sdk/src/types/session/events.ts`)
-has 64 type literals. Every one except the six ephemeral ones —
+has 67 type literals. Every one except the eight ephemeral ones —
 `text_delta`, `tool_input_delta`, `reasoning_delta`, `tool_progress`,
-`monitor_event` and `compaction_started` — is
+`monitor_event`, `compaction_started`, `session_log_degraded` and
+`session_log_recovered` — is
 appended as a record of the same `type`. The record is the event with
 `sessionId` and `turnId` moved to the envelope and `lineage` dropped (it
 follows from `session_started.parent`). Its payload is the event's.
@@ -408,6 +414,38 @@ step results and activity tracking can independently retain historical payloads.
   rootTurnId)`. A child session's turns bind to the root turn that spawned
   them; a resumed turn reuses its key; a new turn opens a new ledger, so a
   limit that changed between turns is not a conflict.
+
+## A volume that stops accepting writes
+
+When an append fails with `ENOSPC` (disk full), `EDQUOT` (quota used up) or
+`EROFS` (read-only), the session does not end. The log is marked **degraded**:
+the record is accepted into the chain in memory and held in a buffer, and the
+turn goes on. Every later record is added to the buffer and the log tries to
+write the whole buffer again, oldest first; the first time that works the buffer
+is empty and the mark is cleared. Part of a record the refused write left behind
+is cut off before the retry, so the file stays a valid chain.
+
+The buffer holds `degradedBufferBytes` (default `DEFAULT_DEGRADED_BUFFER_BYTES`,
+8 MiB) of records. Past that the oldest are discarded, and the log tells its
+listeners once (`dropping`). The log then has a gap where they were: a reader in
+`tolerant` mode stops at the gap and everything before it is intact, but a strict
+reader reports the break. A body that cannot be spilled to `tool-results/` for the
+same reason is replaced in its record by the preview and a note that the rest
+could not be saved. Any other write error (`EACCES`, `EIO`, a writer conflict)
+is thrown as before and fails the record.
+
+Two live events report it, both ephemeral (never recorded, because the log is what
+cannot be written): `session_log_degraded` (SSE `session_log.degraded`: `cause`,
+`bufferedRecords`, `bufferedBytes`, and `dropping` on the one extra event sent
+when the buffer first overflowed) when it begins, and `session_log_recovered`
+(SSE `session_log.recovered`: `flushedRecords`, `droppedRecords`) when the
+buffer has been written. Each is sent once per change, not once per record. A
+log offers `onWriteHealth(listener)` for the same two changes.
+
+What is not saved while degraded is lost if the process exits first: a restart
+resumes from the last record that reached the disk. The lease release at the end
+of a turn tries one more write. Checkpoint documents are not buffered; a pause
+that cannot write its checkpoint still fails.
 
 ## A writer that stops
 

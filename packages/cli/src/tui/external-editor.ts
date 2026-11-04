@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { lstat, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createTempDir } from '@namzu/sdk'
 
 import { formatSize } from './person-terms.js'
 
@@ -122,7 +122,10 @@ export async function editDraftInExternalEditor(
 ): Promise<string> {
 	options.signal?.throwIfAborted()
 	const command = resolveExternalEditorCommand(options.env, options.pressed)
-	const directory = await mkdtemp(join(options.temporaryRoot ?? tmpdir(), 'namzu-editor-'))
+	const directory =
+		options.temporaryRoot === undefined
+			? await createTempDir('editor-')
+			: await mkdtemp(join(options.temporaryRoot, 'namzu-editor-'))
 	const draftPath = join(directory, 'draft.md')
 	let edited: string | undefined
 	let failure: unknown

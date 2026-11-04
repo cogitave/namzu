@@ -792,6 +792,12 @@ export type AgentEvent =
 			readonly text: string
 			readonly halted?: true
 	  }
+	/**
+	 * The session log stopped being written (the disk is full) or writes again.
+	 * `failing` is sent on entering, `dropping` once more if the buffer of unsaved
+	 * messages overflowed, `working` on recovery.
+	 */
+	| { readonly kind: 'transcript-writes'; readonly state: 'failing' | 'dropping' | 'working' }
 	| {
 			readonly kind: 'capability-warning'
 			readonly capability: Extract<SessionEvent, { type: 'capability_warning' }>['capability']
@@ -5150,6 +5156,7 @@ export async function createAgentSession(
 			const environmentPrompt = composeEnvironmentPrompt({
 				...(await readEnvironmentFacts(cwd)),
 				additionalDirectories: [...directories],
+				...(options.ephemeral ? {} : scratchpadFact(paths, entry.sessionId)),
 				boundary: boundaryFor(false),
 				...(wsl ? { wsl } : {}),
 			})
@@ -6297,6 +6304,7 @@ export async function createAgentSession(
 							{
 								...environmentFacts,
 								additionalDirectories: [...directories],
+								...(options.ephemeral ? {} : scratchpadFact(paths, turnScope.sessionId)),
 								boundary: boundaryFor(
 									opts?.onPermission !== undefined,
 									stableEnvironment ? undefined : initialMode,
@@ -6546,7 +6554,13 @@ export async function createAgentSession(
 										mode: () => modeControl.current(),
 										...(stableEnvironment
 											? {
-													environment: () => environmentFacts,
+													environment: () => ({
+														...environmentFacts,
+														// The sandbox does not have the folder (see the environment block).
+														...(options.ephemeral || (sandbox.provider && sandbox.environment)
+															? {}
+															: scratchpadFact(paths, turnScope.sessionId)),
+													}),
 													model: () => ({
 														provider: turnProvider.id,
 														model: autoRoute?.model ?? model,
@@ -8672,6 +8686,10 @@ export function toAgentEvent(
 				...(event.category ? { category: event.category } : {}),
 				...(event.explanation ? { explanation: event.explanation } : {}),
 			}
+		case 'session_log_degraded':
+			return { kind: 'transcript-writes', state: event.dropping ? 'dropping' : 'failing' }
+		case 'session_log_recovered':
+			return { kind: 'transcript-writes', state: 'working' }
 		case 'capability_warning':
 			return {
 				kind: 'capability-warning',
@@ -9205,5 +9223,17 @@ function emptySession(
 		close: async () => {
 			// Nothing was ever connected on this path.
 		},
+	}
+}
+
+/** The session's scratch folder as an environment fact; nothing when the layout cannot name it. */
+function scratchpadFact(
+	paths: { scratchpadPath(sessionId: SessionId): string },
+	sessionId: SessionId,
+): { readonly scratchpadDirectory?: string } {
+	try {
+		return { scratchpadDirectory: paths.scratchpadPath(sessionId) }
+	} catch {
+		return {}
 	}
 }

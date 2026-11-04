@@ -16,7 +16,10 @@ import { frameReminder, reminderKindOf } from './frame.js'
  */
 export interface EnvironmentReminderInput {
 	readonly messages: readonly Message[]
-	readonly facts: Pick<EnvironmentFacts, 'today' | 'branch' | 'isRepository'>
+	readonly facts: Pick<
+		EnvironmentFacts,
+		'today' | 'branch' | 'isRepository' | 'scratchpadDirectory'
+	>
 }
 
 const FIRST =

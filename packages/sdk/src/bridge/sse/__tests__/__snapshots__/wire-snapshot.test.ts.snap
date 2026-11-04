@@ -423,6 +423,25 @@ exports[`every SessionEvent has a decided place on the SSE wire > pins the wire 
     ],
     "wire": "sandbox.exec",
   },
+  "session_log_degraded": {
+    "keys": [
+      "buffered_bytes",
+      "buffered_records",
+      "cause",
+      "session_id",
+      "turn_id",
+    ],
+    "wire": "session_log.degraded",
+  },
+  "session_log_recovered": {
+    "keys": [
+      "dropped_records",
+      "flushed_records",
+      "session_id",
+      "turn_id",
+    ],
+    "wire": "session_log.recovered",
+  },
   "task_created": {
     "keys": [
       "session_id",

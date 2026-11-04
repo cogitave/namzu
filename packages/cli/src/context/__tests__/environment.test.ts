@@ -18,6 +18,7 @@ import type { PermissionMode } from '../../permissions/mode.js'
 import {
 	type EnvironmentFacts,
 	composeEnvironmentPrompt,
+	environmentFactLines,
 	localIsoDate,
 	readEnvironmentFacts,
 } from '../environment.js'
@@ -177,5 +178,55 @@ describe('what the permission sentence says per mode', () => {
 		})
 		expect(text).toContain('Shell commands run in a sandbox (linux-bwrap')
 		expect(text).not.toContain('Tools run on this machine')
+	})
+})
+
+describe('the session scratch folder', () => {
+	const path = '/tmp/namzu-1000/-work/abc/scratchpad'
+	const facts: EnvironmentFacts = {
+		today: '2026-11-04',
+		branch: 'main',
+		isRepository: true,
+		scratchpadDirectory: path,
+	}
+	const stable = (f: EnvironmentFacts) => composeEnvironmentPrompt(f, { stable: true })
+
+	it('is said in the cached block in one short sentence that carries no path', () => {
+		const prompt = stable(facts)
+		expect(prompt.match(/scratch folder/g)).toHaveLength(1)
+		expect(prompt).toContain('without asking')
+		expect(prompt).not.toContain(path)
+		expect(prompt).not.toContain('/tmp')
+	})
+
+	it('is byte-identical for two sessions, whatever their folder is called', () => {
+		const other = { ...facts, scratchpadDirectory: '/var/tmp/namzu-1001/-other/def/scratchpad' }
+		expect(stable(other)).toBe(stable(facts))
+	})
+
+	it('has its path among the facts that ride with the date and the branch', () => {
+		expect(environmentFactLines(facts)).toContain(`The session's scratch folder is \`${path}\`.`)
+		expect(composeEnvironmentPrompt(facts)).toContain(`\`${path}\``)
+		expect(
+			environmentFactLines({ today: '2026-11-04', branch: 'main', isRepository: true }).join(' '),
+		).not.toContain('scratch')
+	})
+
+	it('is left out when the tools run in a sandbox, which does not have it', () => {
+		const prompt = stable({
+			...facts,
+			boundary: {
+				sandbox: { environment: 'linux-bwrap', enforced: ['filesystem'] },
+				escape: 'ask',
+				interactive: true,
+			},
+		})
+		expect(prompt).not.toContain('scratch folder')
+	})
+
+	it('is left out when the session has none', () => {
+		expect(stable({ today: '2026-11-04', branch: 'main', isRepository: true })).not.toContain(
+			'scratch folder',
+		)
 	})
 })

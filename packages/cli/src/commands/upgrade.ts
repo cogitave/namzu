@@ -1,5 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { stripVTControlCharacters } from 'node:util'
@@ -290,7 +289,10 @@ interface InstallInput {
 async function installUpdate(input: InstallInput): Promise<number> {
 	const { deps, ctx, release, prefix, pnpmDir } = input
 	const scope = scopeFor(deps.platform, prefix, pnpmDir)
-	const scratch = deps.safety ? undefined : mkdtempSync(join(tmpdir(), 'namzu-upgrade-'))
+	// Loaded here, not at the top: `namzu upgrade` should not pull the runtime in for a path it may not take.
+	const scratch = deps.safety
+		? undefined
+		: (await import('@namzu/sdk')).createTempDirSync('upgrade-')
 	const file = deps.safety
 		? tarballPath(deps.safety.home, scope, release.version)
 		: join(scratch ?? '', `namzu-cli-${release.version}.tgz`)

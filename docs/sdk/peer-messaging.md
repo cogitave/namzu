@@ -29,7 +29,7 @@ on TCP.
 
 `resolvePeerRuntimeDir({ env, namzuHome, uid })` chooses and hardens the
 per-user directory sockets and registry records live in, among
-`$XDG_RUNTIME_DIR/namzu`, `$NAMZU_HOME/run`, `$TMPDIR/namzu-<uid>`. Fitting
+`$XDG_RUNTIME_DIR/namzu`, `$NAMZU_HOME/run`, `$TMPDIR/namzu-<uid>` (the operating system's folder, not `NAMZU_TMPDIR`: a relocated base is usually a long path, and this is the candidate of last resort). Fitting
 the platform's `sockaddr_un.sun_path` limit (104 bytes on macOS, 108 on
 Linux, minus the longest socket filename this module ever creates — a
 36-character UUIDv7 session id plus `.sock`) and being hardenable are
