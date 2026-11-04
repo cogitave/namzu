@@ -73,6 +73,7 @@ import {
 	markProviderRejectedImage,
 	projectRequestRichContent,
 } from '../request-rich-content.js'
+import { withoutVoidAssistantTurns } from '../request-void-turns.js'
 import { formatSteeringNote, isOperatorUserMessage } from '../steering.js'
 import { effortForModel } from './effort-clamp.js'
 import { parseNativeCandidate } from './native-output.js'
@@ -929,7 +930,7 @@ export class IterationOrchestrator {
 					// and a mode change would re-key the whole conversation.
 					if (policyNotice) requestHistory.push(stepContextMessage(policyNotice))
 					const projected = projectRequestRichContent(
-						this.projectObservations(requestHistory),
+						withoutVoidAssistantTurns(this.projectObservations(requestHistory)),
 						this.ctx.turnConfig.maxRequestRichContentBytes ??
 							DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 						{ imagesReadable: this.modelReadsImages(stepModel) },
@@ -3155,7 +3156,7 @@ export class IterationOrchestrator {
 				...(workingMemory.context ? [workingMemory.context] : []),
 			]
 			const finalMessages = projectRequestRichContent(
-				this.projectObservations(finalHistory),
+				withoutVoidAssistantTurns(this.projectObservations(finalHistory)),
 				this.ctx.turnConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 				{ imagesReadable: this.modelReadsImages(model) },
 			)
