@@ -470,6 +470,15 @@ export function toDeepSeekMessages(
 			pendingToolImages.push(...images.map(imagePart))
 			continue
 		}
+		// The endpoint rejects an assistant message that has neither content nor
+		// tool calls ("content or tool_calls must be set"), and `reasoning_content`
+		// does not count. An empty reply (the model produced only reasoning, or
+		// was cut off) has no wire form: leave it out rather than invent filler
+		// text. Only a message with no tool calls can be skipped, so every tool
+		// result still follows the assistant entry that made its call; the
+		// stored history, reasoning included, is untouched.
+		const hasToolCalls = 'toolCalls' in msg && msg.toolCalls && msg.toolCalls.length > 0
+		if (!msg.content && !hasToolCalls) continue
 		const assistant: ChatCompletionMessageParam = {
 			role: 'assistant',
 			content: msg.content,

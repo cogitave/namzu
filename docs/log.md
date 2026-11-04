@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-04
+
+- **Update** [When a model declines to answer](sdk/model-refusal.md#what-a-driver-reports): an empty assistant reply (for example the answer to a denied tool call) no longer reaches a provider as an invalid message. The loop leaves a reply with no text, call, reasoning or citation out of every request, and the DeepSeek, HTTP, OpenRouter, Bedrock and Zen (chat lane) drivers leave out an entry that is empty on their wire, as the OpenAI and Anthropic drivers already did; a tool call and its result always stay together. `.changeset/empty-assistant-reply-wire.md` (patch for `@namzu/sdk`, `@namzu/deepseek`, `@namzu/http`, `@namzu/openrouter`, `@namzu/bedrock`, `@namzu/zen`).
+
 ## 2026-11-03
 
 - **Update** [Crossing the tool boundary](sdk/escalations.md#the-sessions-scratch-folder) and [Where tools run](cli/tool-boundary.md#the-default-host-execution-under-the-permission-system): the session's own scratch folder is an implicit root of the file tools, made and checked on first use; a `write` or `edit` there is not asked about in `prompt`, `accept-edits` or `plan` (`ToolCallSummary.scratchpadWrite`), `strict` still asks, sibling sessions' folders and the rest of `/tmp` stay outside; the model is told in one path-free sentence of the cached system prompt, and gets the path with the date and branch facts in the environment reminder (so the prefix does not differ between sessions). `.changeset/session-scratchpad-root.md`.

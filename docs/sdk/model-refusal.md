@@ -26,6 +26,13 @@ Every field is optional. An empty object means "refused, nothing more is known",
 
 An empty assistant entry in the history (a refused or interrupted reply with no text, reasoning or call) has no wire form on the Anthropic Messages API. The driver used to serialise its `null` content as the literal text `"null"`; it now leaves the entry out, as the OpenAI driver does. The stored history is untouched.
 
+The same holds on every Chat Completions-shaped wire. An empty reply stays in the history (the model may have produced only reasoning, or been cut off, or answered a denied call with nothing) and the loop goes on to ask again, so the next request would carry it. Those endpoints reject the request with `HTTP 400: Invalid assistant message: content or tool_calls must be set`, and reasoning does not count as content. Two layers keep it out of the request, and neither edits the stored history:
+
+- The loop leaves out an assistant entry with no text, no tool call, no reasoning and no citation, in every request it sends, the closing request after an empty completion included.
+- Each driver leaves out an assistant entry that is still empty on its own wire: the OpenAI, DeepSeek, HTTP (OpenAI and Anthropic dialects), OpenRouter and Bedrock drivers, and the Zen chat lane, which also drops a turn that holds reasoning only. The Anthropic Messages, Google and Zen Messages and Responses lanes already did, or replay reasoning on its own.
+
+An entry with tool calls is never dropped, so a tool result, including the plain "not executed" sentence a denied call gets, always follows the call it answers, and the driver sends no empty `tool_calls` array.
+
 ## What the turn does
 
 A refused reply never enters the empty-completion retry that asks the model for a closing summary, and it never settles as `end_turn`. The turn recovers at most once of each kind, in this order:

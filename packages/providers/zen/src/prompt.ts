@@ -510,7 +510,19 @@ function buildModelPrompt(
 					})),
 				]
 				// Google and Anthropic reject empty assistant turns after foreign reasoning is removed.
-				if (content.length > 0) prompt.push({ role: 'assistant', content })
+				// A Chat Completions endpoint also rejects a turn that is reasoning only
+				// ("content or tool_calls must be set"): reasoning rides with text or a
+				// call there, never alone. Native Messages and Responses lanes can replay
+				// a reasoning-only turn, so only the chat lane drops it. Outbound only:
+				// the stored history keeps the reasoning.
+				const sendable =
+					protocol === 'chat'
+						? content.some(
+								(part) =>
+									(part.type === 'text' && part.text.length > 0) || part.type === 'tool-call',
+							)
+						: content.length > 0
+				if (sendable) prompt.push({ role: 'assistant', content })
 				break
 			}
 			case 'tool': {
