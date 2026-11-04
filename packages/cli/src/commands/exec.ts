@@ -61,6 +61,7 @@ import {
 	permissionLayersOf,
 	warnLegacyMcpPermissionNames,
 } from '../permissions/rules.js'
+import { refusedByLayers } from '../schedule/policy.js'
 import {
 	type TerminationHandling,
 	type TerminationSignal,
@@ -341,10 +342,11 @@ async function execPrint(
 	}
 
 	warnLegacyMcpPermissionNames(ctx.config.permissions)
-	const permissions = compilePermissionLayers(
-		[...permissionLayersOf(ctx.config), ...run.permissionLayers],
-		ctx.config.permissionChecks,
-	)
+	const permissionTables = [...permissionLayersOf(ctx.config), ...run.permissionLayers]
+	const permissions = compilePermissionLayers(permissionTables, ctx.config.permissionChecks)
+	// A tool a layer refuses by name is left out of the run: its rules are
+	// fixed, and an offered tool that is always refused only invites calls.
+	const refusedTools = refusedByLayers(permissionTables)
 	for (const d of permissions.diagnostics) {
 		const where = d.pattern ? `permissions.${d.tool}."${d.pattern}"` : `permissions.${d.tool}`
 		ctx.formatter.error({ message: `${where}: ${d.message}` })
@@ -464,6 +466,7 @@ async function execPrint(
 		learningObservations: ctx.config.learningObservations !== false,
 		monitorTimeoutCapMs: EXEC_MONITOR_CAP_MS,
 		rules: permissions.rules,
+		...(refusedTools.length > 0 ? { withheldTools: refusedTools } : {}),
 		...(run.appendSystem ? { appendSystem: run.appendSystem } : {}),
 		...(sessionExport ? { onSessionEvent: sessionExport.listener } : {}),
 		// The operator's --gate commands, as a standing condition on the
