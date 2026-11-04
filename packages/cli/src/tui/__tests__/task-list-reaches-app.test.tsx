@@ -157,13 +157,11 @@ afterEach(() => {
 
 const tick = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-async function frameShows(read: () => string | undefined, needle: string, budgetMs = 4000) {
-	const deadline = Date.now() + budgetMs
-	while (Date.now() < deadline) {
-		if ((read() ?? '').includes(needle)) return
-		await tick(20)
-	}
-	throw new Error(`no frame showed ${JSON.stringify(needle)} within ${budgetMs}ms`)
+// Waits for the frame to show `needle` with no deadline of its own: a frame that
+// never shows it is a hang, and the per-test timeout reports that. A wall-clock
+// budget here measured how loaded the runner was, not whether the screen was right.
+async function frameShows(read: () => string | undefined, needle: string) {
+	while (!(read() ?? '').includes(needle)) await tick(20)
 }
 
 async function open() {
