@@ -1,5 +1,15 @@
 # @namzu/cli
 
+## 45.3.1
+
+### Patch Changes
+
+- Updated dependencies [89abc04]
+  - @namzu/sdk@60.2.1
+  - @namzu/deepseek@2.3.2
+  - @namzu/openrouter@3.1.2
+  - @namzu/zen@5.1.2
+
 ## 45.3.0
 
 ### Minor Changes
