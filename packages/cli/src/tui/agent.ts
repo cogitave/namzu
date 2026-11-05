@@ -288,10 +288,12 @@ import { createRepositorySnapshotStep, readTurnSnapshot } from '../context/turn-
 import { openCliAccounts } from '../integrations/accounts/open.js'
 import { accountProductName } from '../integrations/accounts/rows.js'
 import { createLazyCodeAnalysis } from '../integrations/analysis/provider.js'
+import { gateMemoryPromotion } from '../integrations/decision/memory-admit.js'
 import {
 	maybeCreateDecisionModel,
 	maybeCreateDecisionTool,
 } from '../integrations/decision/model.js'
+import { createDecisionPoints } from '../integrations/decision/points.js'
 import { type RouteTier, routeModel } from '../integrations/decision/routing.js'
 import {
 	type LearningGeneratorConfig,
@@ -4676,7 +4678,15 @@ export async function createAgentSession(
 	// Share the project store with tools and recall. Each turn selects either
 	// this extracted-claim promoter or explicit consolidation, never both.
 	// Candidates without useful claims write nothing.
-	const promoteMemory = createMemoryPromoter({ store: memoryStore })
+	// A decision model may be asked, beside that rule, whether a turn's claims are worth keeping
+	// (`decision.points.memory-admit`); a confident no writes nothing, anything else writes as before.
+	const promoteMemory = gateMemoryPromotion(
+		createMemoryPromoter({ store: memoryStore }),
+		createDecisionPoints({
+			model: maybeCreateDecisionModel(options.decision, process.env),
+			modes: options.decision?.points,
+		}),
+	)
 	// Plugins are the last fallible startup resource. The ordering is ownership:
 	// a malformed MCP entry cannot strand imported plugin hooks, and a plugin
 	// refusal closes the MCP processes already opened for this candidate before

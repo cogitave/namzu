@@ -29,6 +29,13 @@ describe('decision.points', () => {
 		expect(load(azure).decision).toMatchObject({ points: { 'notify-worthy': 'on' } })
 	})
 
+	it('knows the memory point too, and names every point when it refuses one', () => {
+		expect(load(`${base}  points:\n    memory-admit: shadow\n`).decision).toMatchObject({
+			points: { 'memory-admit': 'shadow' },
+		})
+		expect(() => load(`${base}  points:\n    guess: on\n`)).toThrow(/notify-worthy, memory-admit/u)
+	})
+
 	it('refuses an unknown point or mode by name', () => {
 		expect(() => load(`${base}  points:\n    guess: on\n`)).toThrow(ConfigValueError)
 		expect(() => load(`${base}  points:\n    guess: on\n`)).toThrow(/guess/u)

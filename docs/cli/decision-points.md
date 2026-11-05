@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Decision points
-description: "decision.points: the places the CLI can ask the decision model a yes/no question beside its own rule, the off, shadow and on modes, the first point (notify-worthy), what is sent and what the decision log holds."
+description: "decision.points: the places the CLI can ask the decision model a yes/no question beside its own rule, the off, shadow and on modes, the points (notify-worthy, memory-admit), what is sent and what the decision log holds."
 resource: packages/cli/src/integrations/decision/points.ts
 tags: [cli, config, decision]
 ---
@@ -45,6 +45,18 @@ in "done" rings. With the point `on`, the model reads the last 1,200 characters 
 reply and a confident yes sounds a short reply, a confident no mutes a long one. A stop,
 a failure and an approval always sound, whatever the model says. The reply tail is the
 only text that leaves the machine.
+
+## `memory-admit`
+
+Is what this turn learned worth remembering? At settle the session writes one stored
+memory for any turn whose compaction pass extracted a claim, which keeps whatever a turn
+happened to learn: routine progress and facts the code already states fill the store, and
+the model reads that store on every search. With the point `on`, the decision model reads
+the task and the claims (requirements, decisions, discoveries, failures, environment) and a
+confident no (`P(true)` of 0.3 or less) writes nothing; anything else, a failure included,
+writes as before. It runs after the answer is settled, so it never delays a reply. A turn
+with no claim asks nothing. The claims are the text that leaves the machine; file paths are
+not sent.
 
 ## The log
 

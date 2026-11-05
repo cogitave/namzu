@@ -103,6 +103,7 @@ import type {
 	WorkflowCliConfig,
 } from './schema.js'
 import {
+	DECISION_POINT_IDS,
 	DEFAULT_CONFIG,
 	type HookEntry,
 	type HooksConfig,
@@ -1866,17 +1867,17 @@ const CONFIG_READERS: ConfigReaders = {
 				return invalidConfigValue(context, ['points'], 'must be a mapping')
 			const out: Partial<Record<DecisionPointId, DecisionPointMode>> = {}
 			for (const [name, mode] of Object.entries(value)) {
-				if (name !== 'notify-worthy') {
+				if (!(DECISION_POINT_IDS as readonly string[]).includes(name)) {
 					return invalidConfigValue(
 						context,
 						['points', name],
-						'is not a decision point (notify-worthy)',
+						`is not a decision point (${DECISION_POINT_IDS.join(', ')})`,
 					)
 				}
 				if (mode !== 'off' && mode !== 'shadow' && mode !== 'on') {
 					return invalidConfigValue(context, ['points', name], 'must be "off", "shadow" or "on"')
 				}
-				out[name] = mode
+				out[name as DecisionPointId] = mode
 			}
 			return out
 		}
