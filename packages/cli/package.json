@@ -1,6 +1,6 @@
 {
 	"name": "@namzu/cli",
-	"version": "45.9.2",
+	"version": "45.9.3",
 	"description": "Interactive and headless terminal agent for Namzu, with provider discovery, durable sessions, tools and diagnostics.",
 	"keywords": [
 		"namzu",
