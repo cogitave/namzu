@@ -9,8 +9,8 @@
  * `markdown-table.ts`: a box when it fits, stacked records when it does not.
  *
  * Stylistic choices:
- *  - code blocks: a dim left rule + code-colored lines (no syntax
- *    highlighter dependency), with an optional language label.
+ *  - code blocks: code-colored lines and nothing beside them (no syntax
+ *    highlighter dependency), so a selection copies the code and only the code.
  *  - inline code: a single code color, no background, so it stays legible.
  *  - headings: bold; H1/H2 take the accent color for hierarchy.
  *  - bullets: a fixed-width marker gutter so wrapped lines hang-indent.
@@ -161,19 +161,13 @@ const BlockView = memo(function BlockView({
 				</Box>
 			)
 		case 'code':
+			// Nothing is drawn beside the code: a rule or a label would be copied with
+			// it, a `│` at the start of every line and a stray word above the first, and
+			// what is pasted into a terminal has to be the command and nothing else. The
+			// colour and the blank line above set the block apart; `/copy` takes a block
+			// exactly as written.
 			return (
-				<Box
-					marginTop={gap}
-					flexDirection="column"
-					borderStyle="round"
-					borderTop={false}
-					borderRight={false}
-					borderBottom={false}
-					borderLeft={true}
-					borderColor={theme.border.default}
-					paddingLeft={1}
-				>
-					{block.lang ? <Text color={theme.text.muted}>{block.lang}</Text> : null}
+				<Box marginTop={gap} flexDirection="column">
 					{(block.lines.length > 0 ? block.lines : ['']).map((line, i) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
 						<Text key={`c-${i}`} color={theme.status.ok}>

@@ -2,6 +2,7 @@
 
 ## 2026-11-05
 
+- **Update** [Terminal design](cli/terminal-design.md#code-blocks): a fenced code block is drawn without the rule at the start of each line and without the language word above it, so selecting it with the mouse copies the code and nothing else. `.changeset/code-block-copies-clean.md` (patch for `@namzu/cli`).
 - **Update** [namzu workspaces (preview)](cli/workspaces.md) and [Messages between live terminals](cli/peer-messaging.md): an agent row is the workspace with its tab on the first line and the session's name on the second; the name is the conversation's (`/rename`, else the generated title), which is also the title in the terminal's live peer record, so the sidebar, `list_sessions` and message headers use one name and a rename shows at once. `.changeset/agent-rows-peer-name.md` (minor for `@namzu/cli`).
 - **Update** [namzu workspaces (preview)](cli/workspaces.md): a workspace row is one line when it has no branch or note to show (a folder outside git), two lines otherwise, as the agents rows below it are; scrolling, clicks, the drop line of a drag and keeping the shown workspace in view follow each row's height. `.changeset/workspaces-one-line-rows.md` (patch for `@namzu/cli`).
 - **Update** [namzu workspaces (preview)](cli/workspaces.md): the real terminal's cursor stays hidden over a session. A session draws its own caret in the composer and parks the program's cursor below the text, where a terminal that showed it made a stray blinking bar. `.changeset/workspaces-hide-session-cursor.md` (patch for `@namzu/cli`).
