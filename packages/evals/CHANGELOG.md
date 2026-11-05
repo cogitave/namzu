@@ -1,5 +1,11 @@
 # @namzu/evals
 
+## 1.0.2
+
+### Patch Changes
+
+- 7d27644: The `zod` dependency moves to 4, to match `@namzu/sdk`. Nothing in the suites changes.
+
 ## 1.0.1
 
 ### Patch Changes

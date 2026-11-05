@@ -1,5 +1,23 @@
 # @namzu/cli
 
+## 45.6.0
+
+### Minor Changes
+
+- 7d27644: The CLI now runs on `@namzu/sdk` with Zod 4. What you may notice: the text of a tool-argument error the model reads is Zod 4's wording (for example `Invalid input: expected string, received undefined` where it said `Required`), and an argument an MCP server declares required but leaves untyped is now genuinely required, as the server said.
+
+### Patch Changes
+
+- Updated dependencies [7d27644]
+  - @namzu/sdk@61.0.0
+  - @namzu/browser@2.0.1
+  - @namzu/computer-use@4.0.1
+  - @namzu/anthropic@6.7.0
+  - @namzu/ollama@2.3.0
+  - @namzu/openai@4.3.3
+  - @namzu/openrouter@3.1.2
+  - @namzu/sandbox@36.0.0
+
 ## 45.5.0
 
 ### Minor Changes
