@@ -53,6 +53,25 @@ export function soundFor(moment: SoundMoment, turnMs: number | undefined): Sound
 	return turnMs !== undefined && turnMs >= SOUND_MIN_TURN_MS ? 'done' : undefined
 }
 
+/**
+ * `soundFor`, with what a decision model said about a finished reply. A confident `yes`
+ * sounds a reply the length rule would have left silent, and a confident `no` mutes one
+ * it would have sounded; anything else is the rule. A stop, a failure and an approval
+ * never wait on a verdict.
+ */
+export function soundForVerdict(
+	moment: SoundMoment,
+	turnMs: number | undefined,
+	verdict: 'yes' | 'no' | 'unsure' | undefined,
+): SoundKind | undefined {
+	if (moment.kind !== 'turn-settled' || moment.outcome !== 'completed') {
+		return soundFor(moment, turnMs)
+	}
+	if (verdict === 'yes') return 'done'
+	if (verdict === 'no') return undefined
+	return soundFor(moment, turnMs)
+}
+
 export interface SoundPlayer {
 	readonly name: string
 	readonly command: string
@@ -186,6 +205,8 @@ const defaultSpawn: SoundSpawn = (command, args, options) => {
 }
 
 export interface PlayOptions {
+	/** What a decision model said about this reply, when one was asked. */
+	readonly verdict?: 'yes' | 'no' | 'unsure'
 	readonly enabled?: boolean
 	readonly isTTY?: boolean
 	readonly env?: NodeJS.ProcessEnv
@@ -217,7 +238,7 @@ export function playMoment(
 		const env = options.env ?? process.env
 		if (options.enabled === false || options.isTTY === false) return undefined
 		if (env[SOUND_KILL_SWITCH] === '1') return undefined
-		const kind = soundFor(moment, turnMs)
+		const kind = soundForVerdict(moment, turnMs, options.verdict)
 		if (!kind) return undefined
 		const now = (options.now ?? Date.now)()
 		if (now - lastPlayedAt < SOUND_SPACING_MS) return undefined

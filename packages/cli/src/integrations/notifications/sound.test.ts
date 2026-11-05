@@ -13,6 +13,7 @@ import {
 	selectSoundPlayer,
 	soundFilePath,
 	soundFor,
+	soundForVerdict,
 } from './sound.js'
 import { chimeSeconds, chimeWav } from './sound/chime.js'
 
@@ -207,5 +208,25 @@ describe('playMoment', () => {
 		expect(() =>
 			playMoment(settled, 60_000, { env: {}, player, spawn, home: home() }),
 		).not.toThrow()
+	})
+})
+
+describe('soundForVerdict', () => {
+	it('lets a confident yes sound a short reply and a confident no mute a long one', () => {
+		expect(soundForVerdict(settled, 2_000, 'yes')).toBe('done')
+		expect(soundForVerdict(settled, 60_000, 'no')).toBeUndefined()
+	})
+
+	it('keeps the length rule when the model is unsure or was not asked', () => {
+		for (const verdict of ['unsure', undefined] as const) {
+			expect(soundForVerdict(settled, 60_000, verdict)).toBe('done')
+			expect(soundForVerdict(settled, 2_000, verdict)).toBeUndefined()
+		}
+	})
+
+	it('never lets a verdict touch a stop, a failure or an approval', () => {
+		const stopped = { kind: 'turn-settled', outcome: 'stopped' } as const
+		expect(soundForVerdict(stopped, 100, 'no')).toBe('request')
+		expect(soundForVerdict({ kind: 'approval-required' }, undefined, 'no')).toBe('request')
 	})
 })

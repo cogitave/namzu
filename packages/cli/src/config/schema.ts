@@ -730,8 +730,21 @@ export interface ScheduleConfig {
  * See `NamzuCliConfig.decision`. Auth is declarative: the config names the
  * environment variable that holds a credential, never the credential itself.
  */
+export type DecisionPointId = 'notify-worthy'
+
+/** What a decision point does: `off` asks nothing, `shadow` asks and only records, `on` lets the answer act. */
+export type DecisionPointMode = 'off' | 'shadow' | 'on'
+
+/**
+ * The decision points and their modes. Every point is `off` unless it is named
+ * here, because a point's question carries text of the conversation to the
+ * decision service.
+ */
+export type DecisionPointsConfig = Readonly<Partial<Record<DecisionPointId, DecisionPointMode>>>
+
 export type DecisionConfig =
 	| {
+			readonly points?: DecisionPointsConfig
 			readonly provider: 'azure'
 			/** Resource endpoint of the Azure AI Foundry deployment. */
 			readonly endpoint: string
@@ -741,6 +754,7 @@ export type DecisionConfig =
 			readonly tokenEnv?: string
 	  }
 	| {
+			readonly points?: DecisionPointsConfig
 			readonly provider: 'http'
 			/** Endpoint of an HTTP decision service. */
 			readonly url: string

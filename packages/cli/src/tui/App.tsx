@@ -107,6 +107,13 @@ import {
 	createClipboardCopier,
 	describeCopy,
 } from '../integrations/clipboard/copy.js'
+import { maybeCreateDecisionModel } from '../integrations/decision/model.js'
+import { notifyWorthyQuestion } from '../integrations/decision/notify-worthy.js'
+import {
+	type DecisionPoints,
+	createDecisionPoints,
+	verdictOf,
+} from '../integrations/decision/points.js'
 import {
 	type PullRequestFilter,
 	type PullRequestLink,
@@ -121,7 +128,7 @@ import {
 	approveShownMcpServers,
 	pendingServersMessage,
 } from '../integrations/mcp/project-approval.js'
-import { playMoment } from '../integrations/notifications/sound.js'
+import { playMoment, soundFor } from '../integrations/notifications/sound.js'
 import {
 	type TerminalNotification,
 	terminalNotificationEnabled,
@@ -5320,8 +5327,17 @@ function AppBody({
 		[clipboard, pushMessage, setCopyPicker, pushSystem],
 	)
 
+	// The decision points the operator turned on; every point is off unless `decision.points`
+	// names it, and with no `decision` block there is no model to ask.
+	const decisionPointsRef = useRef<DecisionPoints | null>(null)
+	if (decisionPointsRef.current === null) {
+		decisionPointsRef.current = createDecisionPoints({
+			model: maybeCreateDecisionModel(ctx.decision, process.env),
+			modes: ctx.decision?.points,
+		})
+	}
 	const sendTerminalNotification = useCallback(
-		(notification: TerminalNotification, turnMs?: number) => {
+		(notification: TerminalNotification, turnMs?: number, reply?: string) => {
 			// The hooks hear about every moment the operator's attention is wanted,
 			// whether or not a terminal notification is configured: a script may be
 			// the only thing that reaches them.
@@ -5347,10 +5363,28 @@ function AppBody({
 				})
 			}
 			// The chime is its own setting: it neither needs nor implies a terminal notification.
-			playMoment(notification, turnMs, {
-				enabled: ctx.tui?.sound !== false,
-				isTTY: stdout.isTTY,
-			})
+			const sound = { enabled: ctx.tui?.sound !== false, isTTY: stdout.isTTY }
+			const points = decisionPointsRef.current
+			if (
+				reply !== undefined &&
+				sound.enabled &&
+				notification.kind === 'turn-settled' &&
+				notification.outcome === 'completed' &&
+				points?.mode('notify-worthy') !== 'off'
+			) {
+				// Beside the length rule: the model reads the end of the reply and says whether it
+				// needs the person. In `shadow` only the log hears; in `on` a confident answer
+				// overrides the rule. No answer in time leaves the rule alone.
+				void points
+					?.ask(
+						notifyWorthyQuestion({
+							reply,
+							turnMs: turnMs ?? 0,
+							rule: soundFor(notification, turnMs) !== undefined,
+						}),
+					)
+					.then((p) => playMoment(notification, turnMs, { ...sound, verdict: verdictOf(p) }))
+			} else playMoment(notification, turnMs, sound)
 			if (!terminalNotificationEnabled(ctx.tui?.notifications, notification)) return
 			const result = writeTerminalNotification(
 				notification,
@@ -10634,6 +10668,7 @@ function AppBody({
 						sendTerminalNotification(
 							st.notification,
 							st.startedAt !== undefined ? Date.now() - st.startedAt : undefined,
+							st.text,
 						)
 					}
 				}

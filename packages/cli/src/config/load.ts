@@ -85,6 +85,9 @@ import type {
 	ComposerTriggerArming,
 	ComposerTriggerId,
 	ComposerTriggerLanguage,
+	DecisionPointId,
+	DecisionPointMode,
+	DecisionPointsConfig,
 	OtlpExportConfig,
 	PluginConfig,
 	ProfileConfig,
@@ -1855,10 +1858,34 @@ const CONFIG_READERS: ConfigReaders = {
 				}
 			}
 		}
+		// Each point is `off`, `shadow` or `on`; an unknown point or mode is refused by name.
+		const readPoints = (): DecisionPointsConfig | undefined => {
+			const value = raw.points
+			if (value === undefined) return undefined
+			if (!isConfigMapping(value))
+				return invalidConfigValue(context, ['points'], 'must be a mapping')
+			const out: Partial<Record<DecisionPointId, DecisionPointMode>> = {}
+			for (const [name, mode] of Object.entries(value)) {
+				if (name !== 'notify-worthy') {
+					return invalidConfigValue(
+						context,
+						['points', name],
+						'is not a decision point (notify-worthy)',
+					)
+				}
+				if (mode !== 'off' && mode !== 'shadow' && mode !== 'on') {
+					return invalidConfigValue(context, ['points', name], 'must be "off", "shadow" or "on"')
+				}
+				out[name] = mode
+			}
+			return out
+		}
 		if (raw.provider === 'azure') {
-			allow(['provider', 'endpoint', 'deployment', 'tokenEnv'], 'azure')
+			allow(['provider', 'endpoint', 'deployment', 'tokenEnv', 'points'], 'azure')
 			const tokenEnv = optionalString('tokenEnv')
+			const points = readPoints()
 			return {
+				...(points !== undefined ? { points } : {}),
 				provider: 'azure' as const,
 				endpoint: requireString('endpoint'),
 				deployment: requireString('deployment'),
@@ -1866,10 +1893,12 @@ const CONFIG_READERS: ConfigReaders = {
 			}
 		}
 		if (raw.provider === 'http') {
-			allow(['provider', 'url', 'model', 'apiKeyEnv'], 'http')
+			allow(['provider', 'url', 'model', 'apiKeyEnv', 'points'], 'http')
 			const model = optionalString('model')
 			const apiKeyEnv = optionalString('apiKeyEnv')
+			const points = readPoints()
 			return {
+				...(points !== undefined ? { points } : {}),
 				provider: 'http' as const,
 				url: requireString('url'),
 				...(model !== undefined ? { model } : {}),
