@@ -138,7 +138,7 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 	}
 
 	/**
-	 * What drives the desktop once initialised — `cua-driver 0.28.2`,
+	 * What drives the desktop once initialised — `cua-driver 0.38.0`,
 	 * `powershell`, … — for logs and diagnosis. Undefined before
 	 * `initialize()` and for adapters that do not say.
 	 */

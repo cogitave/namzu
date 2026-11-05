@@ -10,28 +10,28 @@ import { extractZipEntry } from './zip.js'
  *
  * cua-driver (github.com/trycua/cua, MIT) publishes every build as a GitHub
  * prerelease with a `checksums.txt`; the archive hashes below are the ones it
- * lists for `cua-driver-rs-v0.28.2`, and the executable hashes were taken
+ * lists for `cua-driver-rs-v0.38.0`, and the executable hashes were taken
  * from those archives. Moving to another build means changing all four and
  * re-running the Windows verification in `docs/sdk/computer-actions.md`.
  */
 export const CUA_DRIVER_RELEASE = {
-	version: '0.28.2',
-	tag: 'cua-driver-rs-v0.28.2',
+	version: '0.38.0',
+	tag: 'cua-driver-rs-v0.38.0',
 	baseUrl: 'https://github.com/trycua/cua/releases/download',
 	windows: {
 		x64: {
-			archive: 'cua-driver-rs-0.28.2-windows-x86_64-binary.zip',
-			archiveSize: 29_085_823,
-			archiveSha256: '1f4bfceeab64cb7f56be7aad774c3dc2d2910d1427e4be1d79939c706e8029ba',
-			exeSize: 30_922_064,
-			exeSha256: 'dbbd52d75759900155fbf3d5f0a13c759a12d06ef17338b88b3f2b8b9c1ef8dc',
+			archive: 'cua-driver-rs-0.38.0-windows-x86_64-binary.zip',
+			archiveSize: 35_890_999,
+			archiveSha256: '5edaa74d0afa1b55a9668dbc4f32736507bd2bd4d75b18ca1dc8881bb12402b5',
+			exeSize: 38_673_232,
+			exeSha256: 'ffa58d88779ee219304b0c307f4cfa970fe822f830c6ecf9254eda5c29e22bf2',
 		},
 		arm64: {
-			archive: 'cua-driver-rs-0.28.2-windows-arm64-binary.zip',
-			archiveSize: 27_394_922,
-			archiveSha256: '578b88ff2dd56f06eb7e984d73aaf5e76f59c6fde9542c967d6a30d00213c680',
-			exeSize: 26_643_272,
-			exeSha256: '8f36d502e841485c59fd6734e2193841c61f234870f8b92c3d7d0c18123b28ba',
+			archive: 'cua-driver-rs-0.38.0-windows-arm64-binary.zip',
+			archiveSize: 33_682_556,
+			archiveSha256: 'd25c8ebfffb34e4c095ea170baf47b87c35dc0d1116f42e46b39df2bcbff8700',
+			exeSize: 32_621_904,
+			exeSha256: '2d6a0822be887a8a51678f57682d7362d484d4049b769ef964f0c2dffda29de1',
 		},
 	},
 } as const

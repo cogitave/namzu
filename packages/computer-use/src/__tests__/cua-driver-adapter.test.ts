@@ -78,7 +78,7 @@ function cuaDriver(
 	const adapter = new CuaDriverAdapter({
 		executable: '/cache/cua-driver.exe',
 		env: {},
-		version: '0.28.2',
+		version: '0.38.0',
 		spawnProcess: spawner.spawnProcess,
 		requestTimeoutMs: 1_000,
 		startTimeoutMs: 1_000,
@@ -93,7 +93,7 @@ describe('the cua-driver adapter', () => {
 		const { adapter, calls } = cuaDriver()
 		await adapter.getDisplayGeometry()
 		expect(calls()[0]).toEqual({ name: 'set_agent_cursor_enabled', arguments: { enabled: false } })
-		expect(adapter.backend).toBe('cua-driver 0.28.2')
+		expect(adapter.backend).toBe('cua-driver 0.38.0')
 		expect(adapter.capabilities.windows).toBe(true)
 		expect(adapter.capabilities.windowScroll).toBe(false)
 		expect(adapter.capabilities.regionCapture).toBe(false)

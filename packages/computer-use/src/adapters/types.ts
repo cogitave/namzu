@@ -30,7 +30,7 @@ import type {
  */
 export interface Adapter {
 	readonly capabilities: ComputerUseCapabilities
-	/** What drives the desktop, for diagnosis: `cua-driver 0.28.2`, `powershell`. */
+	/** What drives the desktop, for diagnosis: `cua-driver 0.38.0`, `powershell`. */
 	readonly backend?: string
 	/** Why the preferred backend is not the one in use, when the adapter fell back. */
 	readonly fallbackReason?: string

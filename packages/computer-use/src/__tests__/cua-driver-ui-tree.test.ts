@@ -325,6 +325,7 @@ describe('the cua-driver adapter’s UI tree', () => {
 		expect(calls()[1]?.arguments).toEqual({
 			pid: 11432,
 			window_id: 2494982,
+			full_output: true,
 			include_screenshot: false,
 			max_elements: 5000,
 		})
