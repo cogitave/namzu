@@ -403,7 +403,9 @@ function toneColor(tone: NoticeTone | undefined): string {
 		? theme.status.error
 		: tone === 'warn'
 			? theme.status.warn
-			: theme.text.muted
+			: tone === 'ok'
+				? theme.status.ok
+				: theme.text.muted
 }
 
 /** `text` with its `strong` part bold (when the whole part survived the fitting). */

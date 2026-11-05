@@ -405,7 +405,10 @@ describe('updating through a real package manager', () => {
 				platform: process.platform,
 				fetchRelease: (channel) => fetchNamzuRelease({ registry, channel }),
 				applyDeps: deps,
-				onEvent: (event) => events.push(event),
+				// Outcomes only: the "installing" progress event is covered by updater.test.ts.
+				onEvent: (event) => {
+					if (event.type !== 'installing' && event.type !== 'idle') events.push(event)
+				},
 			})
 			await updater.runCycle()
 			expect(events).toEqual([{ type: 'installed', from: '1.0.0', to: '2.0.0' }])

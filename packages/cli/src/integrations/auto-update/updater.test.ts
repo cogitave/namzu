@@ -65,6 +65,8 @@ function harness(
 	failWith?: string,
 ) {
 	const events: UpdaterEvent[] = []
+	// Progress, not outcomes: an install has started, or ended with nothing to report.
+	const progress: UpdaterEvent[] = []
 	const fetchRelease = vi.fn(async (_channel: 'latest' | 'stable') => release)
 	const installs: InstallerRequest[] = []
 	const install: InstallKind = {
@@ -82,7 +84,8 @@ function harness(
 		platform: 'linux',
 		fetchRelease,
 		uptimeMs: () => 0,
-		onEvent: (event) => events.push(event),
+		onEvent: (event) =>
+			(event.type === 'installing' || event.type === 'idle' ? progress : events).push(event),
 		applyDeps: {
 			installedVersion: readInstalledVersion,
 			smokeTest: async (at, version) => readInstalledVersion(at) === version,
@@ -105,7 +108,7 @@ function harness(
 		...over,
 	}
 	const updater = createUpdater(deps)
-	return { updater, events, fetchRelease, installs, deps }
+	return { updater, events, progress, fetchRelease, installs, deps }
 }
 
 const tick = (ms: number) => vi.advanceTimersByTimeAsync(ms)
@@ -222,6 +225,8 @@ describe('installing, or telling', () => {
 		h.updater.start()
 		await tick(FIRST_CHECK_AFTER_MS)
 		expect(h.events).toEqual([{ type: 'installed', from: '1.0.0', to: '2.0.0' }])
+		// The footer is told the install has started before it ends, so it can say "Updating…".
+		expect(h.progress).toEqual([{ type: 'installing', to: '2.0.0' }])
 		expect(h.installs).toHaveLength(1)
 		expect(readLastResult(home, scope())).toMatchObject({
 			outcome: 'installed',
@@ -267,6 +272,8 @@ describe('installing, or telling', () => {
 		const h = harness()
 		await h.updater.runCycle()
 		expect(h.events).toEqual([])
+		// "Updating…" must not stay on the footer for an install this process never made.
+		expect(h.progress.map((e) => e.type)).toEqual(['installing', 'idle'])
 		held?.release()
 		await tick(SHARED_THROTTLE_MS)
 		await h.updater.runCycle()
@@ -391,9 +398,9 @@ describe('when installing fails', () => {
 		// The same command, without the wording about failing.
 		expect(second.events).toEqual([{ type: 'available', latest: '2.0.0', command, blocked: true }])
 		// The footer stays short and points to `namzu doctor` for the command and the reason.
-		expect(updaterEventAmbient(second.events[0] as UpdaterEvent).text).toBe(
-			"Update available, can't install here. See namzu doctor",
-		)
+		expect(
+			updaterEventAmbient(second.events[0] as Exclude<UpdaterEvent, { type: 'idle' }>).text,
+		).toBe("Update available, can't install here. See namzu doctor")
 	})
 
 	it('keeps the last failed attempt where `namzu upgrade --check` reads it', async () => {

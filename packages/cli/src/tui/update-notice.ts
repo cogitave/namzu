@@ -17,18 +17,22 @@ export function updateAmbient(update: UpdateInfo): {
 
 type AmbientLine = {
 	readonly text: string
-	readonly tone: 'warn' | 'dim'
+	readonly tone: 'warn' | 'dim' | 'ok'
 	readonly strong?: string
 }
 
 /**
- * The one line the background updater leaves in the footer: dim when an
- * update was installed (nothing is shown while it works), yellow with the exact
- * command when Namzu could not or may not do it itself.
+ * The one line the background updater leaves in the footer: a dim "Updating…"
+ * while it installs, a green check once an update is installed, yellow with the
+ * exact command when Namzu could not or may not do it itself. An install that ended
+ * with nothing to say (`idle`) clears the line, which the caller does.
  */
-export function updaterEventAmbient(event: UpdaterEvent): AmbientLine {
+export function updaterEventAmbient(event: Exclude<UpdaterEvent, { type: 'idle' }>): AmbientLine {
+	if (event.type === 'installing') {
+		return { text: `Updating to ${event.to}…`, tone: 'dim', strong: event.to }
+	}
 	if (event.type === 'installed') {
-		return { text: `Updated to ${event.to}, restart to use it`, tone: 'dim', strong: event.to }
+		return { text: `✓ Updated to ${event.to} · restart to use it`, tone: 'ok', strong: event.to }
 	}
 	if (event.type === 'failed') {
 		const what = event.code === 'verify_failed' ? 'could not start here' : 'could not be installed'
