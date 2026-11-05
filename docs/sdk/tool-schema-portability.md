@@ -25,6 +25,27 @@ Only the third row means the same thing on both. The kernel therefore renders
 the **intersection**: a schema that is valid, and says the same thing, whichever
 dialect reads it.
 
+## From Zod to JSON Schema
+
+`renderToolSchema` calls Zod's own `z.toJSONSchema` (draft-07, rendered for what
+a caller may send, so a field with a default stays optional) through
+`zodToJsonSchema` in `registry/tool/json-schema.ts`, which also serves the MCP
+bridge's OpenAPI 3.0 rendering. Three details of the raw output carry nothing a
+model can use and would change the bytes of the cached `tools` block, so the
+renderer removes them:
+
+- A plain object renders `additionalProperties: false` (and an open one `true`),
+  because Zod drops unknown keys and the model should be told the object is
+  closed.
+- An `.int()` field is not bounded by the safe-integer range; a bound the
+  author wrote is kept.
+- A named string format (`uuid`, `date-time`) is not also given the regular
+  expression that implements it.
+
+A type with no JSON form (a date, a transform) renders as an unconstrained
+value rather than failing the tool. A schema built with Zod 3 is refused with a
+message that says so; the kernel needs Zod 4.
+
 ## The profile
 
 `findPortableSchemaViolations(schema)` returns every place a schema leaves that

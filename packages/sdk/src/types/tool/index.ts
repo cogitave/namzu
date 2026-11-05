@@ -1024,7 +1024,7 @@ export type ShellDialect = 'bash' | 'sh' | 'cmd'
 export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInput> {
 	name: string
 	description: string
-	inputSchema: z.ZodType<TInput, z.ZodTypeDef, unknown>
+	inputSchema: z.ZodType<TInput, unknown>
 	/**
 	 * Optional canonical JSON Schema shown to models instead of the runtime
 	 * Zod schema. Use this when runtime compatibility accepts aliases or

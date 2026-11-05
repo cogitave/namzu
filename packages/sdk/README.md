@@ -24,12 +24,12 @@ generated: { by: human:bahadirarda, at: 2026-10-13T00:00:00Z }
 ## Install
 
 ```sh
-pnpm add @namzu/sdk zod@^3
+pnpm add @namzu/sdk zod
 ```
 
 Requires `node` 20 or newer and an ESM project (`"type": "module"`). The
-package also declares `@opentelemetry/api` and `zod-to-json-schema` as peer
-dependencies. Install those two too if your package manager does not add peers.
+package also declares `zod` (v4) and `@opentelemetry/api` as peer
+dependencies. Install those too if your package manager does not add peers.
 
 ## Your first agent
 
@@ -203,7 +203,7 @@ capabilities, see [model prices](https://github.com/cogitave/namzu/blob/main/doc
 ## Requirements
 
 - `node` 20 or newer, in an ESM project.
-- Peers: `zod` `^3.23.0`, `@opentelemetry/api` `^1.9.0`, `zod-to-json-schema` `^3.23.0`.
+- Peers: `zod` `^4.1.0`, `@opentelemetry/api` `^1.9.0`.
 
 ## Status and versioning
 

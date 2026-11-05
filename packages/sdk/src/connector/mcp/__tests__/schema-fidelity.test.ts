@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { zodToJsonSchema } from 'zod-to-json-schema'
+import { zodToJsonSchema } from '../../../registry/tool/json-schema.js'
 
 import type { MCPJsonSchema } from '../../../types/connector/index.js'
 import { mcpJsonSchemaToZod } from '../adapter.js'
@@ -23,9 +23,7 @@ const asSchema = (schema: unknown) => schema as MCPJsonSchema
 type RenderedSchema = Record<string, any>
 
 const render = (schema: unknown) =>
-	zodToJsonSchema(mcpJsonSchemaToZod(asSchema(schema)), {
-		target: 'openApi3',
-	}) as RenderedSchema
+	zodToJsonSchema(mcpJsonSchemaToZod(asSchema(schema)), 'openapi-3.0') as RenderedSchema
 
 describe('a schema built from $defs', () => {
 	const schema = {

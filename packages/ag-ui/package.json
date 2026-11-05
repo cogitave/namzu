@@ -57,7 +57,7 @@
 	},
 	"peerDependencies": {
 		"@namzu/sdk": ">=48.0.0",
-		"zod": "^3.23.0"
+		"zod": "^4.1.0"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
@@ -66,7 +66,7 @@
 		"typescript": "^5.5.0",
 		"vitest": "^4.1.11",
 		"@ag-ui/client": "0.0.59",
-		"zod": "^3.23.0"
+		"zod": "^4.6.7"
 	},
 	"dependencies": {
 		"@ag-ui/core": "0.0.59",

@@ -18,7 +18,7 @@ export const TextPartSchema = z
 	.object({
 		kind: z.literal('text'),
 		text: z.string().min(1),
-		metadata: z.record(z.unknown()).optional(),
+		metadata: z.record(z.string(), z.unknown()).optional(),
 	})
 	.strict()
 
@@ -33,16 +33,16 @@ export const FilePartSchema = z
 				bytes: z.string().optional(),
 			})
 			.strict(),
-		metadata: z.record(z.unknown()).optional(),
+		metadata: z.record(z.string(), z.unknown()).optional(),
 	})
 	.strict()
 
 export const DataPartSchema = z
 	.object({
 		kind: z.literal('data'),
-		data: z.record(z.unknown()),
+		data: z.record(z.string(), z.unknown()),
 		mimeType: z.string().optional(),
-		metadata: z.record(z.unknown()).optional(),
+		metadata: z.record(z.string(), z.unknown()).optional(),
 	})
 	.strict()
 
@@ -56,7 +56,7 @@ export const A2AMessageSchema = z
 	.object({
 		role: A2AMessageRoleSchema,
 		parts: z.array(A2APartSchema).min(1, 'Message must have at least one part'),
-		metadata: z.record(z.unknown()).optional(),
+		metadata: z.record(z.string(), z.unknown()).optional(),
 	})
 	.strict()
 
@@ -74,7 +74,7 @@ export const A2AArtifactSchema = z
 		name: z.string().optional(),
 		description: z.string().optional(),
 		parts: z.array(A2APartSchema).min(1),
-		metadata: z.record(z.unknown()).optional(),
+		metadata: z.record(z.string(), z.unknown()).optional(),
 	})
 	.strict()
 
@@ -83,7 +83,7 @@ export const A2AMessageSendSchema = z
 		message: A2AMessageSchema,
 		id: z.string().optional(),
 		contextId: z.string().optional(),
-		metadata: z.record(z.unknown()).optional(),
+		metadata: z.record(z.string(), z.unknown()).optional(),
 	})
 	.strict()
 
@@ -115,7 +115,7 @@ export const A2ATaskSchema = z.object({
 	status: A2ATaskStatusSchema,
 	history: z.array(A2AMessageSchema).optional(),
 	artifacts: z.array(A2AArtifactSchema).optional(),
-	metadata: z.record(z.unknown()).optional(),
+	metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 export const A2AErrorCodeSchema = z.enum([

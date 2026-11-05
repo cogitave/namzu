@@ -15,7 +15,7 @@ export const CreateMessageSchema = z
 	.object({
 		role: z.literal('user'),
 		content: z.string().min(1, 'Message content cannot be empty'),
-		metadata: z.record(z.unknown()).optional(),
+		metadata: z.record(z.string(), z.unknown()).optional(),
 	})
 	.strict()
 

@@ -12,7 +12,7 @@ export interface ConnectorToolConfig {
 const connectorExecuteInputSchema = z.object({
 	instance_id: z.string().describe('The connector instance ID to execute against'),
 	method: z.string().describe('The connector method to invoke (e.g. "request", "send")'),
-	input: z.record(z.unknown()).describe('Input parameters for the connector method'),
+	input: z.record(z.string(), z.unknown()).describe('Input parameters for the connector method'),
 })
 
 const connectorListInputSchema = z.object({})

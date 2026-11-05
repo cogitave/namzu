@@ -56,7 +56,7 @@ const FileSchema = z
 	.object({
 		version: z.literal(ACCOUNTS_FILE_VERSION),
 		accounts: z.array(AccountSchema),
-		keys: z.record(z.string()),
+		keys: z.record(z.string(), z.string()),
 	})
 	.passthrough()
 type StoreFile = z.infer<typeof FileSchema>

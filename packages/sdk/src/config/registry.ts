@@ -1,4 +1,4 @@
-import type { ZodType, ZodTypeDef } from 'zod'
+import type { ZodType } from 'zod'
 
 import { RegistryCollisionError } from '../registry/collision.js'
 import { type ConfigOverrideStore, InMemoryConfigOverrideStore } from '../store/config/index.js'
@@ -90,7 +90,7 @@ export interface ConfigRegistryOptions {
  * for a field that always has a value. What is parsed here really is
  * `unknown` — a persisted override is whatever was on disk.
  */
-type ConfigSchema<T> = ZodType<T, ZodTypeDef, unknown>
+type ConfigSchema<T> = ZodType<T, unknown>
 
 interface Entry<T> {
 	readonly schema: ConfigSchema<T>

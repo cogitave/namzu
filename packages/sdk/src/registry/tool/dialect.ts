@@ -7,9 +7,9 @@
  * at the boundary where it knows which wire it is about to talk to.
  *
  * This exists because that layering was missing and it cost a production
- * outage. `renderToolSchema` emits draft-07 (zod-to-json-schema's
- * `jsonSchema7` target), every driver forwarded it verbatim, and one of the
- * wires namzu speaks requires draft 2020-12. Measured against that live
+ * outage. `renderToolSchema` emits draft-07 (Zod's `draft-7` target), every
+ * driver forwarded it verbatim, and one of the wires namzu speaks requires
+ * draft 2020-12. Measured against that live
  * endpoint:
  *
  * | tool schema                    | result                                  |
@@ -27,7 +27,7 @@
  * lives here.
  *
  * Only the conversions namzu can actually emit are implemented. The renderer
- * runs with `$refStrategy: 'none'`, so there are no `$ref`/`definitions` to
+ * inlines every reused schema, so there are no `$ref`/`definitions` to
  * rewrite; a construct that cannot appear is not worth code that cannot be
  * tested.
  */

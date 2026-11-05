@@ -320,10 +320,8 @@ const approvePlanModelInputSchema: Record<string, unknown> = {
 function delegateSchema(agentIds: readonly string[]): z.ZodType<string> {
 	if (agentIds.length === 0) {
 		return z.never({
-			errorMap: () => ({
-				message:
-					'This turn has no delegates configured, so it cannot launch a task. That is the configured state, not a missing argument.',
-			}),
+			error: () =>
+				'This turn has no delegates configured, so it cannot launch a task. That is the configured state, not a missing argument.',
 		}) as unknown as z.ZodType<string>
 	}
 	return z.enum(agentIds as [string, ...string[]])

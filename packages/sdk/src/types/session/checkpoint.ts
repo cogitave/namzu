@@ -65,7 +65,7 @@ const count = z.number().int().nonnegative().safe()
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/)
 const iso = z.string().datetime({ offset: false })
 /** Annotated with the id's own alias, so declarations name it rather than expanding its brand. */
-function id<T extends string>(kind: EntityIdKind): z.ZodType<T, z.ZodTypeDef, unknown> {
+function id<T extends string>(kind: EntityIdKind): z.ZodType<T, unknown> {
 	return z.custom<T>((value) => isEntityId(value, kind), {
 		message: `expected a ${kind} id (UUID)`,
 	})

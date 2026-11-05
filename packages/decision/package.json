@@ -53,7 +53,7 @@
     "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build"
   },
   "dependencies": {
-    "zod": "^3.23.0"
+    "zod": "^4.1.0"
   },
   "peerDependencies": {
     "@namzu/sdk": ">=36.0.0"

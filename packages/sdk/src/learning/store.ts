@@ -495,7 +495,7 @@ export class SqliteLearningStore {
 					'finished',
 				]),
 				stage: z.enum(['explore', 'generate', 'verification', 'confirmation']).optional(),
-				data: z.record(z.unknown()),
+				data: z.record(z.string(), z.unknown()),
 			})
 			.parse(input)
 		const body = JSON.stringify(event)

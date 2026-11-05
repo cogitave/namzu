@@ -74,7 +74,7 @@ describe('structuredOutput', () => {
 				name: z.string(),
 				metadata: z.object({
 					tags: z.array(z.string()),
-					settings: z.record(z.unknown()),
+					settings: z.record(z.string(), z.unknown()),
 				}),
 			})
 			const tool = createStructuredOutputTool(schema)

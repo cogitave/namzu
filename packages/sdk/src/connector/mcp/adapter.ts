@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import { zodToJsonSchema } from 'zod-to-json-schema'
 import type { WorkingStatePin } from '../../compaction/types.js'
+import { zodToJsonSchema } from '../../registry/tool/json-schema.js'
 import { type UntrustedEnvelope, wrapUntrusted } from '../../tools/untrusted-envelope.js'
 import type {
 	MCPJsonSchema,
@@ -46,19 +46,21 @@ import { inlineSchemaRefs } from './schema-refs.js'
  * a round trip — server JSON Schema → Zod → JSON Schema on the wire — and
  * whatever this function drops is dropped from what the MODEL is shown. The
  * previous version collapsed `array` to `z.array(z.unknown())` and `object`
- * to `z.record(z.unknown())`, so every MCP tool taking a structured
+ * to `z.record(z.string(), z.unknown())`, so every MCP tool taking a structured
  * argument was presented as "an array of anything" or "an object with any
  * keys". Nested properties, item types, enums, and descriptions all
  * vanished, and the model was left guessing at a shape the server had
  * spelled out precisely.
  */
-export function mcpJsonSchemaToZod(schema: MCPJsonSchema): z.ZodType {
+// biome-ignore lint/suspicious/noExplicitAny: the shape of a server's input is only known at run time, and callers read its fields as they did when `z.ZodType` inferred `any`; `unknown` would make every `input.url` an error in a host that has already checked the schema it passed.
+export function mcpJsonSchemaToZod(schema: MCPJsonSchema): z.ZodType<Record<string, any>> {
 	// Pointers first: a `$ref` is invisible to every branch below, and a
 	// schema whose main argument is a `$ref` was rendered to the model as
 	// "anything" — and, because the result is inherently optional in Zod,
 	// stopped being required as well.
 	const inlined = inlineSchemaRefs(schema as unknown as Record<string, unknown>)
-	return objectToZod(inlined, 0)
+	// biome-ignore lint/suspicious/noExplicitAny: see the signature.
+	return objectToZod(inlined, 0) as z.ZodType<Record<string, any>>
 }
 
 /**
@@ -83,7 +85,7 @@ function objectToZod(rawSchema: Record<string, unknown>, depth: number): z.ZodTy
 	if (!properties || Object.keys(properties).length === 0) {
 		return closeOrOpen(z.object({}), schema, depth)
 	}
-	if (depth >= MAX_CONVERSION_DEPTH) return z.record(z.unknown())
+	if (depth >= MAX_CONVERSION_DEPTH) return z.record(z.string(), z.unknown())
 
 	const shape: Record<string, z.ZodType> = {}
 	const required = new Set((schema.required as string[] | undefined) ?? [])
@@ -204,7 +206,7 @@ function applyConstraints(base: z.ZodType, schema: Record<string, unknown>): z.Z
 	}
 
 	if (base instanceof z.ZodArray) {
-		let out = base as z.ZodArray<z.ZodTypeAny>
+		let out = base as z.ZodArray
 		const minItems = num(schema.minItems)
 		const maxItems = num(schema.maxItems)
 		if (minItems !== undefined) out = out.min(minItems)
@@ -241,7 +243,7 @@ function baseTypeToZod(schema: Record<string, unknown>, depth = 0): z.ZodType {
 		return enumToZod(enumValues)
 	}
 	if (schema.const !== undefined) {
-		return z.literal(schema.const as z.Primitive)
+		return z.literal(schema.const as LiteralValue)
 	}
 
 	const composite = (schema.anyOf ?? schema.oneOf) as unknown[] | undefined
@@ -453,18 +455,21 @@ function mergeAllOf(members: readonly unknown[], parent: Record<string, unknown>
 
 type JsonRecord = Record<string, unknown>
 
+/** What `z.literal` takes. */
+type LiteralValue = string | number | bigint | boolean | null | undefined
+
 function enumToZod(values: readonly unknown[]): z.ZodType {
 	if (values.every((v): v is string => typeof v === 'string')) {
 		return z.enum(values as [string, ...string[]])
 	}
-	const literals = values.map((v) => z.literal(v as z.Primitive))
+	const literals = values.map((v) => z.literal(v as LiteralValue))
 	return literals.length === 1
 		? (literals[0] as z.ZodType)
 		: z.union(literals as unknown as [z.ZodType, z.ZodType, ...z.ZodType[]])
 }
 
 export function zodToMCPJsonSchema(zodSchema: z.ZodType): MCPJsonSchema {
-	const jsonSchema = zodToJsonSchema(zodSchema, { target: 'openApi3' })
+	const jsonSchema = zodToJsonSchema(zodSchema, 'openapi-3.0')
 	return {
 		type: 'object',
 		...jsonSchema,

@@ -188,10 +188,10 @@ A Pal can also have its own Linux desktop, a persistent guest computer with a br
 
 ### Build an agent with the SDK
 
-Install the kernel. Pin `zod` to v3, because the kernel is built against it and a bare `pnpm add zod` installs v4:
+Install the kernel. It needs `zod` v4, which is what a bare `pnpm add zod` installs:
 
 ```bash
-pnpm add @namzu/sdk zod@^3
+pnpm add @namzu/sdk zod
 ```
 
 Save this as `agent.ts` and run it with `pnpm exec tsx agent.ts`. It needs no key and no network, because the mock provider plays a scripted answer:

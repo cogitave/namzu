@@ -129,7 +129,7 @@ export function defineTool<S extends z.ZodType>(
 	return {
 		name: options.name,
 		description: options.description,
-		inputSchema: options.inputSchema,
+		inputSchema: options.inputSchema as z.ZodType<TInput, unknown>,
 		modelInputSchema: options.modelInputSchema,
 		enforceModelInput: options.enforceModelInput,
 		validationErrorHint: options.validationErrorHint,

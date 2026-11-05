@@ -923,8 +923,8 @@ node assert-sandbox-public-surface.mjs
 # @namzu/telemetry two-assertion fixture (ses_004-sdk-dependency-diet §5.1).
 # ---------------------------------------------------------------------------
 #
-# Install SDK + telemetry + their peers (@opentelemetry/api, zod,
-# zod-to-json-schema) in a single install step so peer-dep resolution is
+# Install SDK + telemetry + their peers (@opentelemetry/api, zod) in a
+# single install step so peer-dep resolution is
 # forced to settle on the consumer's root — not inside nested package
 # trees. Then run two Node assertions inside the installed project.
 
@@ -955,8 +955,7 @@ run_install \
   @opentelemetry/api@^1.9.0 \
   @opentelemetry/sdk-trace-base@^1.30.0 \
   @opentelemetry/sdk-trace-node@^1.30.0 \
-  zod@^3.23.0 \
-  zod-to-json-schema@^3.23.0
+  zod@^4.1.0
 
 test -d "node_modules/@namzu/sdk" || { echo "    ✗ @namzu/sdk did not install"; exit 1; }
 test -d "node_modules/@namzu/telemetry" || { echo "    ✗ @namzu/telemetry did not install"; exit 1; }

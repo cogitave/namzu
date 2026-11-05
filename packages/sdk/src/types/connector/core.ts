@@ -27,13 +27,13 @@ export type ConnectorCategory =
 export interface ConnectorMethod<TInput = unknown, TOutput = unknown> {
 	name: string
 	description: string
-	inputSchema: z.ZodType<TInput, z.ZodTypeDef, unknown>
+	inputSchema: z.ZodType<TInput, unknown>
 	/**
 	 * Canonical output contract for this method. ConnectorManager validates a
 	 * successful implementation result before publishing it and exposes the
 	 * rendered schema to tool and MCP consumers.
 	 */
-	outputSchema?: z.ZodType<TOutput, z.ZodTypeDef, unknown>
+	outputSchema?: z.ZodType<TOutput, unknown>
 }
 
 /**

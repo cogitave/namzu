@@ -13,7 +13,7 @@ status: stable
 `ZenGoProvider` implement the same `LLMProvider.chatStream` contract as
 other Namzu providers, connecting to OpenCode's Zen and Go services.
 Install it alongside `@namzu/sdk >=36.0.0` and the
-SDK's Zod v3 peer in a Node.js 20+ application.
+SDK's Zod v4 peer in a Node.js 20+ application.
 
 Zen publishes a free-model catalogue, but a listing does not guarantee keyless
 access from Namzu. `space-bunny-free` is the verified direct default. Every
@@ -24,7 +24,7 @@ Models that need an API key are listed after the free ones, under their own head
 Zen Go is a separate service and requires its own API key.
 
 ```bash
-pnpm add @namzu/sdk @namzu/zen zod@^3
+pnpm add @namzu/sdk @namzu/zen zod
 ```
 
 The driver calls the official AI SDK provider adapters' low-level

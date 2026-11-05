@@ -24,7 +24,7 @@ export interface ConnectorDefinition<TConfig = unknown> {
 	 * Omit only when a custom connector intentionally accepts every scheme.
 	 */
 	supportedAuth?: readonly AuthType[]
-	configSchema: z.ZodType<TConfig, z.ZodTypeDef, unknown>
+	configSchema: z.ZodType<TConfig, unknown>
 	methods: ConnectorMethod[]
 	/**
 	 * Declared, not implemented — see {@link ConnectorTrigger}.

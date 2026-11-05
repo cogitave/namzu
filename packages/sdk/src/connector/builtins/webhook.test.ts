@@ -133,6 +133,15 @@ describe('WebhookConnector', () => {
 		)
 	})
 
+	it('a send with no payload is accepted, as it was before Zod 4 made an unknown field required', async () => {
+		const c = new WebhookConnector()
+		await c.connect({ url: 'https://hook.example.com' })
+		fetchMock.mockResolvedValueOnce(makeResponse({ status: 200, body: 'ok' }))
+		const result = await c.execute('send', {})
+		expect(result.success).toBe(true)
+		expect(fetchMock).toHaveBeenCalledTimes(1)
+	})
+
 	it('input.url may override the path on the configured origin', async () => {
 		const c = new WebhookConnector()
 		await c.connect({ url: 'https://hook.example.com/default' })

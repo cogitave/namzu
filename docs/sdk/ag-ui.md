@@ -15,7 +15,7 @@ clients such as the official `HttpAgent`. It is an optional leaf package:
 the host supplies a trusted SDK query configuration, and the adapter runs
 `query` with that configuration.
 
-Install `@namzu/ag-ui` 3.x, `@namzu/sdk >=48.0.0`, and the SDK's Zod v3 peer in a
+Install `@namzu/ag-ui` 3.x, `@namzu/sdk >=48.0.0`, and the SDK's Zod v4 peer in a
 Node.js 20+ ESM application. Use `@namzu/ag-ui` 2.x with SDK 45.1–47; version 3
 requires `QueryParams.toolsets` in each host `createQuery` result. `zod` is a
 peer of `@namzu/ag-ui` too, because the frontend tools it builds carry a Zod

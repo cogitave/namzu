@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import type { z } from 'zod'
-import { zodToJsonSchema } from 'zod-to-json-schema'
+import { zodToJsonSchema } from '../../../registry/tool/json-schema.js'
 
 import * as publicRuntime from '../../../index.js'
 import type { TurnStatus } from '../../../types/session/turn.js'
