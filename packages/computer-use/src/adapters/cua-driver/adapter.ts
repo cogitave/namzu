@@ -140,6 +140,19 @@ const SPARSE_TREE = 12
 const CHOICE_ROLES = /^(ComboBox|List|ListBox)$/i
 /** Waits (ms) before each read that looks for an input's effect: at once, then a little later. */
 const OBSERVE_WAITS_MS = [0, 80, 200, 450] as const
+/**
+ * How old (ms) the window list read just before an input may be and still
+ * stand for the check that the window has not moved. A list takes over a
+ * second on a real desktop, so reading it again for the same input only
+ * moves the check by that much later, not closer to the send.
+ */
+const WINDOW_LIST_FRESH_MS = 1_000
+
+/** The window list as the driver gave it, and when it was read. */
+interface WindowListing {
+	readonly windows: readonly WindowInfo[]
+	readonly at: number
+}
 
 /** How one attempt at a window input was routed, filled in as it runs. */
 interface InputRoute {
@@ -782,12 +795,14 @@ export class CuaDriverAdapter implements Adapter {
 		let before: Observation | undefined
 		let earlier: Observation | undefined
 		let windows: ReadonlySet<string> | undefined
+		let listing: WindowListing | undefined
 		if (watched && target) {
 			// A press or a key has no text to look for, so it is attributed only if the window was still before it.
 			if (typed === undefined) earlier = await this.observe(target)
 			before = await this.observe(target)
 			// A new window of the program is an effect of a press and the sign of one for a text.
-			windows = await this.windowIdsOf(target.pid)
+			listing = await this.windowListing()
+			windows = listing ? windowIdsOfProgram(listing.windows, target.pid) : undefined
 		}
 		// A shortcut that stands for a command of the window's classic menu is that command, sent as the message
 		// the menu item sends: no key is pressed and the screen is not used.
@@ -799,7 +814,8 @@ export class CuaDriverAdapter implements Adapter {
 			!route.foreground
 				? await this.shortcutByMenu(frame, action.keys)
 				: undefined
-		const sent = byMenu ?? (await this.deliverWindowInput(captureId, action, route))
+		// The list just read also answers the check that the window is where it was captured, for this input.
+		const sent = byMenu ?? (await this.deliverWindowInput(captureId, action, route, listing))
 		let edit: EditStill | undefined
 		if (
 			sent?.delivery === 'delivered_unverified' &&
@@ -868,20 +884,34 @@ export class CuaDriverAdapter implements Adapter {
 		},
 	): Promise<ObservedVerdict | undefined> {
 		const afters: Observation[] = []
-		for (const wait of OBSERVE_WAITS_MS) {
-			if (wait > 0) await this.settle(wait)
+		// Every read of the window list is a global walk of the desktop; the window's own tree is read at every
+		// wait, the list only where a new window can be told: at the first wait, at the last, and whenever the
+		// tree itself changed (a dialog that stays open is found at the last wait at the latest).
+		const openedAfter = async (): Promise<ObservedVerdict | undefined> => {
 			const opened = reads.windows ? await this.newWindowOf(target.pid, reads.windows) : undefined
-			if (opened)
-				return {
-					delivery: 'delivered_verified',
-					retrySafety: 'unsafe',
-					...(opened.title.trim() !== '' ? { observed: opened.title.trim() } : {}),
-					detail: 'A new window of the same program opened after the input.',
-				}
+			if (!opened) return undefined
+			return {
+				delivery: 'delivered_verified',
+				retrySafety: 'unsafe',
+				...(opened.title.trim() !== '' ? { observed: opened.title.trim() } : {}),
+				detail: 'A new window of the same program opened after the input.',
+			}
+		}
+		for (const [index, wait] of OBSERVE_WAITS_MS.entries()) {
+			if (wait > 0) await this.settle(wait)
+			const listedNow = index === 0 || index === OBSERVE_WAITS_MS.length - 1
+			if (listedNow) {
+				const opened = await openedAfter()
+				if (opened) return opened
+			}
 			const after = await this.observe(target)
 			if (!after) return undefined
 			afters.push(after)
 			if (sameObservation(reads.before, after)) continue
+			if (!listedNow) {
+				const opened = await openedAfter()
+				if (opened) return opened
+			}
 			const later = reads.typed === undefined ? await this.observe(target) : undefined
 			const verdict = judgeObserved(reads.typed !== undefined ? { typed: reads.typed } : {}, {
 				before: reads.before,
@@ -902,8 +932,15 @@ export class CuaDriverAdapter implements Adapter {
 	}
 
 	private async windowIdsOf(pid: number): Promise<ReadonlySet<string> | undefined> {
+		const listing = await this.windowListing()
+		return listing ? windowIdsOfProgram(listing.windows, pid) : undefined
+	}
+
+	/** The window list as it is now, with when it was read; undefined when the driver could not give it. */
+	private async windowListing(): Promise<WindowListing | undefined> {
 		try {
-			return new Set((await this.listWindows()).filter((w) => w.pid === pid).map((w) => w.id))
+			const windows = await this.listWindows()
+			return { windows, at: this.now() }
 		} catch {
 			return undefined
 		}
@@ -937,6 +974,7 @@ export class CuaDriverAdapter implements Adapter {
 		captureId: string,
 		action: WindowInputAction,
 		route: InputRoute = { foreground: false, onScreen: false },
+		listing?: WindowListing,
 	): Promise<WindowInputResult | undefined> {
 		const frame = this.windowFrame
 		if (!frame || frame.id !== captureId)
@@ -964,8 +1002,15 @@ export class CuaDriverAdapter implements Adapter {
 			pid: frame.window.pid,
 			window_id: parseWindowId(frame.window.id),
 		} as const
+		// Only the first send may use the list read before it; a send after a refusal reads the window again.
+		let unused = listing
 		const call = async (name: string, args: Record<string, unknown>): Promise<McpToolResult> => {
-			const windows = await this.listWindows()
+			const prior = unused
+			unused = undefined
+			const windows =
+				prior && this.now() - prior.at <= WINDOW_LIST_FRESH_MS
+					? prior.windows
+					: await this.listWindows()
 			const current = windows.find((window) => window.id === frame.window.id)
 			if (
 				!current ||
@@ -2558,6 +2603,11 @@ function windowBounds(value: unknown): WindowInfo['bounds'] | undefined {
 	)
 		return undefined
 	return { x, y, width, height }
+}
+
+/** The ids of one program's windows in a list. */
+function windowIdsOfProgram(windows: readonly WindowInfo[], pid: number): ReadonlySet<string> {
+	return new Set(windows.filter((w) => w.pid === pid).map((w) => w.id))
 }
 
 function sameBounds(a: WindowInfo['bounds'], b: WindowInfo['bounds']): boolean {
