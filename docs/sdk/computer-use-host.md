@@ -69,6 +69,7 @@ window input path: `false` refuses scoped pixel scroll before a batch starts;
 | `windows` | `listWindows()`, `focusWindow(id)` | `list_windows`, `focus_window` |
 | `windowCapture` | `captureWindow(id)`, `executeWindow(captureId, action)` | `screenshot {window_id}`, then scoped click, drag, scroll, text or key |
 | `windowScroll` | No extra method; `false` refuses scoped pixel scrolling before a batch starts | Hosts whose `executeWindow` cannot safely scroll |
+| `maxClickCount` | No extra method; `2` or `3` lets `mouse_click` carry `count` up to that many clicks in a row (absent means 1) | Hosts whose click can repeat; `count` is sent to `execute` and `executeWindow` only above 1 |
 | `regionCapture` | `captureRegion(rect)` | `zoom`, which otherwise crops a full capture |
 | `uiTree` (experimental) | `uiSnapshot(windowId?)`, `uiAct(ref, action, value?)` | `ui_snapshot`, `ui_act` |
 
@@ -89,10 +90,9 @@ action against that capture. Text and key actions can request `foreground`
 delivery for input that the host cannot send in the background; the pinned
 Windows driver still validates the captured PID and HWND before keyboard
 input. It does not offer an atomic focus-by-pixel text or key action. The pinned
-Windows adapter reports `windowScroll: false` and refuses window pixel
-scrolling because the driver's
-background path cannot deliver it and its foreground wheel cannot prove
-which window receives the event.
+Windows adapter reports `windowScroll: true`: the driver (0.38 and later)
+posts a window scroll to the window itself, and takes a point to pick a nested
+scrolling surface only in the foreground.
 The host rejects the token when another window
 capture changes its coordinate mapping, when the target PID/HWND disappears,
 its bounds change, or the driver session restarts. A failed window capture

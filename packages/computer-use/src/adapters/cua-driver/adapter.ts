@@ -188,6 +188,11 @@ const IDENTITY_FRESH_MS = 3_000
 const MAX_REFS = 4_000
 /** The most refs one read creates; a quarter of the budget, so one read cannot evict the rest. */
 const NEW_REFS_PER_READ = 1_000
+/** The driver's click count, sent only above 1 so a single click is the call it always was. */
+function clickCount(action: { readonly count?: 1 | 2 | 3 }): { count?: number } {
+	return action.count !== undefined && action.count > 1 ? { count: action.count } : {}
+}
+
 /** cua-driver refuses more than 50 ticks in one scroll call. */
 const MAX_SCROLL_TICKS = 50
 /** A drag glides through intermediate moves; many targets ignore one that teleports. */
@@ -453,9 +458,11 @@ export class CuaDriverAdapter implements Adapter {
 			]),
 			mouseClickButtons: Object.freeze(['left' as const, 'right' as const, 'middle' as const]),
 			mouseDragButtons: Object.freeze(['left' as const, 'right' as const, 'middle' as const]),
+			// The driver's click takes a count of 1 to 3.
+			maxClickCount: 3,
 			windows: true,
 			windowCapture: true,
-			windowScroll: false,
+			windowScroll: true,
 			// No display-relative region capture in cua-driver (its zoom is
 			// per-window and pads the region); the tool crops a full capture.
 			regionCapture: false,
@@ -504,6 +511,7 @@ export class CuaDriverAdapter implements Adapter {
 					x: action.at.x,
 					y: action.at.y,
 					button: action.button,
+					...clickCount(action),
 				})
 			case 'mouse_drag':
 				return this.pointer('drag', {
@@ -1061,6 +1069,7 @@ export class CuaDriverAdapter implements Adapter {
 		const send = async (
 			name: string,
 			args: Record<string, unknown>,
+			onScreenArgs: Record<string, unknown> = {},
 		): Promise<WindowInputResult> => {
 			const subject = {
 				app: this.windowApps.get(frame.window.id) ?? frame.window.app,
@@ -1073,7 +1082,9 @@ export class CuaDriverAdapter implements Adapter {
 					.run(this.burstRequest(subject, true), async (burst) => {
 						await burst.checkpoint()
 						try {
-							return inputDelivery(await dispatch(name, { ...args, delivery_mode: 'foreground' }))
+							return inputDelivery(
+								await dispatch(name, { ...args, ...onScreenArgs, delivery_mode: 'foreground' }),
+							)
 						} catch (error) {
 							if (isDeliveredPointerAction(error)) return foregroundLostDelivery()
 							if (error instanceof McpToolError) return failureDelivery(error)
@@ -1143,6 +1154,7 @@ export class CuaDriverAdapter implements Adapter {
 							x: action.at.x,
 							y: action.at.y,
 							button: action.button,
+							...clickCount(action),
 						})
 					} catch (error) {
 						if (isDeliveredPointerAction(error)) return foregroundLostDelivery()
@@ -1158,10 +1170,26 @@ export class CuaDriverAdapter implements Adapter {
 						duration_ms: DRAG.durationMs,
 						steps: DRAG.steps,
 					})
-				case 'scroll':
-					throw new Error(
-						'computer-use: window pixel scrolling is unavailable on this Windows driver; use foreground PAGE_DOWN or ARROW_DOWN in this window, or take a deliberate display screenshot before display scrolling.',
-					)
+				case 'scroll': {
+					// The driver posts the scroll to the window itself. It takes a point only in the
+					// foreground (to pick a nested scrolling surface), so the point rides on that route alone.
+					const onScreen = { x: action.at.x, y: action.at.y }
+					let remaining = Math.max(1, Math.trunc(action.amount))
+					let last: WindowInputResult | undefined
+					while (remaining > 0) {
+						const ticks = Math.min(remaining, MAX_SCROLL_TICKS)
+						try {
+							last = await send('scroll', { direction: action.direction, amount: ticks }, onScreen)
+						} catch (error) {
+							if (isDeliveredPointerAction(error)) return foregroundLostDelivery()
+							throw error
+						}
+						// A part that was not delivered ends the scroll: the rest would land on a different view.
+						if (last.delivery === 'not_delivered') return last
+						remaining -= ticks
+					}
+					return last
+				}
 				case 'type_text': {
 					if (action.text.length === 0) return undefined
 					return await send('type_text', {

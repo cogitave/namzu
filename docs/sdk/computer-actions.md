@@ -101,7 +101,7 @@ the action still reports success and the text says to take one.
 | `zoom` | `region: { x, y, width, height }` | a closer view, not a new coordinate space |
 | `cursor_position` | — | no |
 | `mouse_move` | `to` | yes |
-| `mouse_click` | `at`, `button` (left when omitted) | yes |
+| `mouse_click` | `at`, `button` (left when omitted), `count` (1 to 3 clicks in a row, 1 when omitted; only on a host that declares `maxClickCount`) | yes |
 | `mouse_drag` | `from`, `to`, `button` (left when omitted) | yes |
 | `scroll` | `at`, `direction`, `amount` | yes |
 | `type_text` | `text`, optional `delivery_mode` on a window screenshot | yes |
@@ -164,15 +164,27 @@ Hosts that set `windowScroll: false` refuse scoped pixel scrolling before a
 batch starts. A host that can deliver it safely may leave the flag unset or
 set it to `true`.
 
+`count` makes a double-click (2) or a triple-click (3). A host declares how many
+clicks in a row one `mouse_click` may make with `maxClickCount` (1, 2 or 3);
+absent means 1. The tool offers `count` to the model only above 1, and refuses a
+`count` above the cap with a message naming it before the host is reached, so a
+host that only clicks once never receives a multi-click. A `count` above 1 needs
+the left button; right and middle are refused. The tool sends `count` to the host
+only when it is above 1, in a batch item as well, so a single click is the same
+action it always was.
+
 The pinned Windows driver uses only background pointer delivery for scoped
 clicks and drags. Foreground pointer events do not prove which window is
 under the cursor when an overlay covers the point. If the driver refuses a
 window click or drag, inspect a fresh image or use a UI control ref; take a
-deliberate display screenshot before display input if needed. Scoped pixel
-scrolling is refused because the driver's background path cannot deliver it
-and its foreground wheel can reach a covering window. On a browser page,
-`key {keys:"PAGE_DOWN", delivery_mode:"foreground"}` or arrow keys retain
-the window target when keyboard focus is appropriate. `focus_window` followed
+deliberate display screenshot before display input if needed. The driver
+(version 0.38 and later) scrolls a window itself, by posting the scroll to it,
+so scoped pixel scrolling works in the background and `windowScroll` is `true`.
+The point of `at` is sent to the driver only when the scroll runs in the
+foreground, where it picks a nested scrolling surface; in the background the
+whole window scrolls. `amount` is in ticks, split into calls of at most 50. On
+a browser page, `key {keys:"PAGE_DOWN", delivery_mode:"foreground"}` or arrow keys
+remain an option when keyboard focus is appropriate. `focus_window` followed
 by automatic capture returns pixels for that window on a host with window capture.
 
 ## A window's controls
@@ -451,7 +463,8 @@ means no action is available. `zoom` and `wait` follow `screenshot`, and
 
 `mouseClickButtons` and `mouseDragButtons` optionally restrict each gesture's
 buttons separately. Empty button lists disable that gesture. Missing lists
-leave button validation to the host. Shipped adapters freeze their action lists
+leave button validation to the host. `maxClickCount` is the most clicks in a
+row one `mouse_click` may make; absent means 1. Shipped adapters freeze their action lists
 after probing; availability still depends on OS permissions and a live desktop.
 
 The model schema is one flat object (no root `anyOf`, which some custom-tool
@@ -463,7 +476,7 @@ invalid empty enum on provider transports, and refuses all execution.
 
 | Adapter | Action limits |
 | --- | --- |
-| Windows / WSL | Screenshot, cursor, move, click, drag, scroll, text and keys, every button. With the cua-driver backend also `windows` (list and focus) and `uiTree` (UI Automation); no region capture. |
+| Windows / WSL | Screenshot, cursor, move, click, drag, scroll, text and keys, every button. With the cua-driver backend a click may be a double or triple click (`maxClickCount: 3`, left button) and a window scrolls in the background. With the cua-driver backend also `windows` (list and focus) and `uiTree` (UI Automation); no region capture. |
 | X11 | Screenshot depends on maim; input and cursor depend on xdotool. |
 | Wayland | Screenshot depends on grim; mouse actions on ydotool; keyboard on wtype or ydotool. Cursor position is unavailable. Daemon permissions are checked by the underlying operation, not established by binary detection. |
 | macOS | Screenshot (main display, physical pixels) and keyboard use system tools. Move, drag and cursor require cliclick; scroll is unavailable. Without cliclick only left clicks are supported; with it left/right clicks are supported. Drag supports only the left button. Pointer coordinates are converted from the capture's pixels to points at the adapter, so a Retina click lands where the screenshot showed. |

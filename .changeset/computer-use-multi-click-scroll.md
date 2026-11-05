@@ -1,0 +1,6 @@
+---
+'@namzu/sdk': minor
+'@namzu/computer-use': minor
+---
+
+The computer-use tool can double-click and triple-click, and a Windows window can be scrolled in the background. `mouse_click` takes an optional `count` (an integer from 1 to 3; 1 when omitted), and `ComputerUseCapabilities` gains `maxClickCount?: 1 | 2 | 3`, the most clicks in a row one `mouse_click` may make. The model is offered `count` only when a host declares a `maxClickCount` above 1; a `count` above the host's cap is refused with a message naming the cap before the host is touched, and a `count` above 1 with the right or middle button is refused. A multi-click reaches `ComputerUseHost.execute` and `executeWindow` as `count` on the `mouse_click` action only when it is above 1. The Windows driver backend in `@namzu/computer-use` now declares `maxClickCount: 3` and `windowScroll: true`: a window scroll is posted to the window by the driver instead of being refused, and the scroll's point is sent only when the scroll runs in the foreground. Nothing changes unless a host declares `maxClickCount`: a host without it clicks once per action exactly as before, and a custom host that never set `windowScroll: false` sees no difference.
