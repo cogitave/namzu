@@ -730,7 +730,10 @@ export interface ScheduleConfig {
  * See `NamzuCliConfig.decision`. Auth is declarative: the config names the
  * environment variable that holds a credential, never the credential itself.
  */
-export type DecisionPointId = 'notify-worthy'
+/** Every decision point the host knows, in the order the docs list them. */
+export const DECISION_POINT_IDS = ['notify-worthy', 'memory-admit'] as const
+
+export type DecisionPointId = (typeof DECISION_POINT_IDS)[number]
 
 /** What a decision point does: `off` asks nothing, `shadow` asks and only records, `on` lets the answer act. */
 export type DecisionPointMode = 'off' | 'shadow' | 'on'

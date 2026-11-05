@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-06
+
+- **Update** [Decision points](cli/decision-points.md#memory-admit): a second point, `memory-admit`, asks the decision model whether what a turn learned is worth remembering before the session writes its stored memory; a confident no writes nothing, anything else (and any failure) writes as before. Off unless named in `decision.points`; the claims are what is sent, file paths are not. `.changeset/decision-memory-admit.md` (minor for `@namzu/cli`).
+
 ## 2026-11-05
 
 - **Update** [Updates](cli/updates.md) and [Terminal design](cli/terminal-design.md): the footer says `Updating to <version>…` (quiet) while the background updater installs, and `✓ Updated to <version> · restart to use it` in green once it has; an install that another terminal holds the lock for clears the line. `.changeset/update-banner.md` (patch for `@namzu/cli`).
