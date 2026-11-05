@@ -2,6 +2,7 @@
 
 ## 2026-11-05
 
+- **Creation** [Slash commands](cli/slash-commands.md): `/run` puts a shell command from the latest answer in the prompt after `!` (one command goes straight in, several open a picker like `/copy`); nothing runs until Enter. `.changeset/run-command.md` (minor for `@namzu/cli`).
 - **Update** [The composer prefixes](cli/composer-prefixes.md#command--the-operators-own-shell): a `!` line runs in the same shell as the model's `bash` tool (bash where the machine has it, `/bin/sh` otherwise, Git Bash or the platform shell on Windows) instead of always `/bin/sh`; and a session with a person typing at it tells the model about the prefix, so a command the person must run comes with a note that `!` before it runs it in the session. `.changeset/bang-uses-the-bash-tool-shell.md` (minor for `@namzu/cli`).
 - **Update** [Terminal design](cli/terminal-design.md#code-blocks): a fenced code block is drawn without the rule at the start of each line and without the language word above it, so selecting it with the mouse copies the code and nothing else. `.changeset/code-block-copies-clean.md` (patch for `@namzu/cli`).
 - **Update** [Portable tool schemas](sdk/tool-schema-portability.md), [Run the kernel](sdk/quick-start.md), [Zen](sdk/zen.md) and [AG-UI](sdk/ag-ui.md): the SDK moves to Zod 4 and no longer needs `zod-to-json-schema`; the install lines drop the `zod@^3` pin, and the renderer's three normalisations of Zod's own JSON Schema are described

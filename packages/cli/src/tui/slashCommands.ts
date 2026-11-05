@@ -224,6 +224,8 @@ export type SlashAction =
 	| { kind: 'context'; details: boolean }
 	/** Choose a raw source region from the latest available assistant output. */
 	| { kind: 'copy' }
+	/** Put a command from the latest answer in the prompt, after `!`, to run it. */
+	| { kind: 'run' }
 	/** Toggle or explicitly select copy-friendly plain transcript rendering. */
 	| { kind: 'raw'; enabled: boolean | 'toggle' }
 	/** Choose whether the verified Markdown projection goes to the clipboard or a file. */
@@ -1597,6 +1599,13 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		// the reply has ended, like the commands that change the conversation.
 		description: 'Copy the latest answer, a code block or a quote.',
 		action: () => ({ kind: 'copy' }),
+	},
+	{
+		name: 'run',
+		// Finds the shell commands in the latest finished answer and puts the one you
+		// choose in the prompt after `!`: nothing runs until you press Enter.
+		description: 'Put a command from the latest answer in the prompt, to run it.',
+		action: () => ({ kind: 'run' }),
 	},
 	{
 		name: 'raw',

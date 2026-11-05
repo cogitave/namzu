@@ -424,7 +424,11 @@ import { approvalIsDeliberate } from './consent-timing.js'
 import { CONTEXT_NOTICE_KEY, contextMeter, contextNotice } from './context-meter.js'
 import { buildContextRow, effectiveContextWindow } from './context-usage.js'
 import { assistantTranscriptTexts } from './conversation-history.js'
-import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
+import {
+	type CopyResponseTarget,
+	copyTargetsForResponse,
+	runnableCommands,
+} from './copy-targets.js'
 import { isSessionPlanPath } from './display-path.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
@@ -845,6 +849,8 @@ type PendingExternalEditor = {
 type CopyPickerState = {
 	readonly targets: readonly CopyResponseTarget[]
 	readonly provenance: 'normal-completion' | 'persisted'
+	/** `run`: the choice goes into the prompt after `!` instead of the clipboard. */
+	readonly mode?: 'copy' | 'run'
 }
 type ReviewPreset = 'base-branch' | 'uncommitted' | 'commit' | 'custom'
 type TextPromptState = {
@@ -5283,6 +5289,18 @@ function AppBody({
 			const picker = copyPickerRef.current
 			const target = picker?.targets[index]
 			if (!picker || !target) return
+			if (picker.mode === 'run') {
+				// Nothing runs here: the command is in the prompt for the person to read,
+				// change and send, like any `!` line they typed.
+				setCopyPicker(null)
+				composerDraftTokenRef.current += 1
+				setComposerDraft({ token: composerDraftTokenRef.current, text: `!${target.text}` })
+				pushMessage(
+					'system',
+					'The command is in the prompt: press Enter to run it, or edit it first.',
+				)
+				return
+			}
 			// Release the overlay synchronously before its transcript notice lands.
 			// The queue pump still observes React state and can proceed only after
 			// this event has finished publishing the result.
@@ -13318,6 +13336,36 @@ function AppBody({
 						})
 						return
 					}
+					case 'run': {
+						const target = lastCompletedOutputRef.current
+						const commands = target ? runnableCommands(target.text) : []
+						if (!target || commands.length === 0) {
+							pushMessage(
+								'system',
+								'No command to run in the latest answer — /run looks for shell code blocks in the latest answer that finished normally.',
+							)
+							return
+						}
+						if (commands.length === 1) {
+							composerDraftTokenRef.current += 1
+							setComposerDraft({
+								token: composerDraftTokenRef.current,
+								text: `!${commands[0]?.text ?? ''}`,
+							})
+							pushMessage(
+								'system',
+								'The command is in the prompt: press Enter to run it, or edit it first.',
+							)
+							return
+						}
+						setSelectedCopy(0)
+						setCopyPicker({
+							targets: commands.map((c) => ({ kind: 'code', label: c.label, text: c.text })),
+							provenance: target.provenance,
+							mode: 'run',
+						})
+						return
+					}
 					case 'raw': {
 						const enabled = slash.enabled === 'toggle' ? !rawOutput : slash.enabled
 						// Rows already emitted by <Static> cannot observe a new render
@@ -16335,7 +16383,11 @@ function AppBody({
 							scheduleReviewPrompt === null &&
 							!childSurfaceOpen &&
 							copyPicker ? (
-							<CopyPicker targets={copyPicker.targets} selected={selectedCopy} />
+							<CopyPicker
+								targets={copyPicker.targets}
+								selected={selectedCopy}
+								{...(copyPicker.mode ? { mode: copyPicker.mode } : {})}
+							/>
 						) : null}
 						{scrollOpen && permission === null && scheduleReviewPrompt === null ? (
 							<TranscriptScrollView

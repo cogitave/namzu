@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { copyTargetsForResponse } from './copy-targets.js'
+import { copyTargetsForResponse, runnableCommands } from './copy-targets.js'
 
 describe('copyTargetsForResponse', () => {
 	it('preserves fenced code language, CRLF, trailing whitespace and source order', () => {
@@ -56,5 +56,33 @@ describe('copyTargetsForResponse', () => {
 		copyTargetsForResponse(source)
 
 		expect(source).toBe(before)
+	})
+})
+
+describe('runnableCommands', () => {
+	it('offers shell blocks and bare blocks, in order, and leaves other languages out', () => {
+		const source =
+			'a\n\n```bash\nls -la\n```\n\n```json\n{"a":1}\n```\n\n```\necho bare\n```\n\n```zsh\npwd\n```\n'
+		expect(runnableCommands(source).map((c) => c.text)).toEqual(['ls -la', 'echo bare', 'pwd'])
+	})
+
+	it('drops the prompt from a transcript-style block, and only when every line has one', () => {
+		expect(runnableCommands('```console\n$ git status\n$ git diff\n```\n')[0]?.text).toBe(
+			'git status\ngit diff',
+		)
+		expect(runnableCommands('```console\n$ git status\nOn branch main\n```\n')[0]?.text).toBe(
+			'$ git status\nOn branch main',
+		)
+	})
+
+	it('keeps a multi-line script as written and drops the trailing newline', () => {
+		expect(
+			runnableCommands('```sh\nset -e\nfor f in a b; do\n  echo $f\ndone\n```\n')[0]?.text,
+		).toBe('set -e\nfor f in a b; do\n  echo $f\ndone')
+	})
+
+	it('offers nothing for an empty block or one that is only comments', () => {
+		expect(runnableCommands('```sh\n\n```\n')).toEqual([])
+		expect(runnableCommands('```bash\n# just a note\n```\n')).toEqual([])
 	})
 })
