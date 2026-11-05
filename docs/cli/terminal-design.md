@@ -1223,6 +1223,10 @@ Off by default. `tui.notifications` in a config file turns on notices written to
 
 `tui.notificationMethod` picks the escape sequence: `osc9` (the default; iTerm2's form, `Namzu: <text>`), `kitty` (OSC 99 in three writes: title, body, focus request), `ghostty` (OSC 777 `notify`) or `bel`. There is no automatic choice from `TERM_PROGRAM` and no iTerm2-with-bell variant; none of these is acknowledged by the terminal, so "sent" means written, not shown. The sequences end in BEL.
 
+### The turn chime
+
+On by default, and separate from the notices above: it needs no `tui.notifications` and is not part of `true`. When a turn that ran for ten seconds or more finishes, a soft rising pair of notes plays; when a turn stops, fails or waits for approval, a double tap plays. A shorter finished turn is silent, because the person was watching it, and so is the `idle-prompt` reminder. The approval sound goes out with the approval notice, after its 6 s of quiet. Two sounds within 1.5 s are one. Both sounds are synthesised in code (`integrations/notifications/sound/chime.ts`), written once as WAV files to `<NAMZU_HOME>/cache/sound/`, and played by the first program that exists: PowerShell's `SoundPlayer` on Windows and, through interop, on WSL; `afplay` on macOS; `paplay`, `pw-play` or `aplay` on Linux. The sound plays on the machine Namzu runs on, so it is silent over SSH, and a missing player leaves everything as it was. `tui.sound: false` or `NAMZU_NO_SOUND=1` turns it off (`sound.ts`).
+
 ## Paste and response boundaries
 
 The composer enables terminal bracketed paste while it owns input. A paste split
