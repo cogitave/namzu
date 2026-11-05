@@ -49,6 +49,13 @@ one line of text before the image:
 Screenshot s3: 1568x656 pixels, showing the 3440x1440 display. Send coordinates in this image's pixels (x 0–1567, y 0–655); the tool maps them onto the display.
 ```
 
+When the display is at least twice as large as the image (a 5120×1440 ultrawide
+fitted to 1568×441, a 3.3 times shrink), the line ends with a sentence telling
+the model so and to use `zoom` on the area to read small text at full detail:
+`The display is 3.3 times larger than this image, so small text is hard to read
+here: use zoom on the area to read it at full detail.` A smaller shrink adds
+nothing.
+
 Every x/y the model sends is a pixel of the latest screenshot (or of the one
 named in `screenshot_id`), never a screen pixel. The tool maps image pixel
 `x` to display pixel `floor((x + 0.5) × displayWidth / imageWidth)` — the
