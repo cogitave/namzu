@@ -2935,6 +2935,8 @@ function AppBody({
 		readonly generated?: string
 	}>({})
 	const namesSessionRef = useRef<string | undefined>(undefined)
+	const conversationNamesRef = useRef(conversationNames)
+	conversationNamesRef.current = conversationNames
 	// A conversation is titled once per launch: the first message asks, and a
 	// failed ask frees the next message to try again.
 	const generatedTitleAttemptedRef = useRef(new Set<string>())
@@ -14306,6 +14308,7 @@ function AppBody({
 				wakePeers((version) => version + 1)
 			},
 			report: (text) => pushMessage('system', text),
+			name: () => conversationNamesRef.current.named ?? conversationNamesRef.current.generated,
 			...(workspaceHostSlot ? { hostSlot: workspaceHostSlot } : {}),
 			// Only a session inside a workspaces host writes the new record fields, so a plain
 			// session stays readable by builds that predate them.
@@ -14335,6 +14338,14 @@ function AppBody({
 				if (!disposed) pushSystem('error', explainFailure(error, 'Peer messaging unavailable.'))
 			})
 	}, [phase, appLifetime.signal, pushMessage, pushSystem])
+
+	// A rename or a generated title reaches the session's record, so the sidebar and the
+	// other sessions call it by its new name.
+	const peerName = conversationNames.named ?? conversationNames.generated
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the name is only a trigger; publish reads it through a ref.
+	useEffect(() => {
+		peersRef.current?.publish()
+	}, [peerName])
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	useEffect(() => {

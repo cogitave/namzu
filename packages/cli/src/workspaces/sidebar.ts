@@ -358,11 +358,11 @@ function clip(text: string, max: number): string {
 }
 
 /**
- * The second line of an agent: its tab (when the workspace has several), its name and
- * its account. When they do not fit, the tab shrinks to its number, then the name
- * gives way; the account is the part worth keeping.
+ * The first line of an agent: its workspace and, when the workspace has several tabs,
+ * the tab the session is in. When they do not fit the tab shrinks to its number, and then
+ * the workspace name gives way.
  */
-export function agentDetail(
+export function agentHeadline(
 	roster: Roster,
 	entry: Entry,
 	width = Number.POSITIVE_INFINITY,
@@ -371,15 +371,31 @@ export function agentDetail(
 	const tab = roster.tabOf(entry)
 	const index = tab ? workspace.tabs.indexOf(tab) + 1 : 0
 	const many = workspace.tabs.length > 1 && tab !== undefined
-	const join = (parts: string[]): string => parts.join(' · ')
-	const account = entry.account ? [entry.account] : []
-	const full = join([...(many ? [tab.name ?? `tab ${index}`] : []), entry.label, ...account])
+	if (!many) return clip(workspace.name, width)
+	const full = `${workspace.name} · ${tab.name ?? `tab ${index}`}`
 	if (stringWidth(full) <= width) return full
-	const short = join([...(many ? [String(index)] : []), entry.label, ...account])
+	const short = `${workspace.name} · ${index}`
 	if (stringWidth(short) <= width) return short
-	const tail = account.length > 0 ? ` · ${entry.account}` : ''
-	const head = join([...(many ? [String(index)] : []), entry.label])
-	return `${clip(head, Math.max(1, width - stringWidth(tail)))}${tail}`
+	const tail = ` · ${index}`
+	return `${clip(workspace.name, Math.max(1, width - stringWidth(tail)))}${tail}`
+}
+
+/**
+ * The second line of an agent: its name and its account. The name is what its terminal
+ * calls the conversation (the one a person gave it, else the one the small model wrote),
+ * and the session's own label until it has one. When they do not fit the name gives way;
+ * the account is the part worth keeping.
+ */
+export function agentDetail(
+	_roster: Roster,
+	entry: Entry,
+	width = Number.POSITIVE_INFINITY,
+): string {
+	const name = entry.peerName ?? entry.label
+	const full = entry.account ? `${name} · ${entry.account}` : name
+	if (stringWidth(full) <= width) return full
+	const tail = entry.account ? ` · ${entry.account}` : ''
+	return `${clip(name, Math.max(1, width - stringWidth(tail)))}${tail}`
 }
 
 /** What replaces an agent's detail when something about it needs a look. */
@@ -565,7 +581,7 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 		}
 		at(1, y, GLYPHS[dot], { fg: dotColor(dot, palette), bg })
 		const gone = entry.child?.status === 'exited'
-		at(3, y, clip(roster.workspaceOf(entry).name, agentRoom), {
+		at(3, y, agentHeadline(roster, entry, agentRoom), {
 			fg: gone ? palette.dim : focused ? palette.text : palette.subtext,
 			bg,
 			attrs: ATTR_BOLD,

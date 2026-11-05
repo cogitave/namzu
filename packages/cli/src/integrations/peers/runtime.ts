@@ -26,6 +26,7 @@ import {
 	udsPeerAddress,
 	writePeerRecord,
 } from '@namzu/sdk'
+import { sanitizeLine } from '../notifications/desktop/sanitize.js'
 import { restrictToOwner } from '../providers/credential-store.js'
 
 const INBOX_CAPACITY = 32
@@ -62,12 +63,27 @@ export interface LivePeersOptions {
 	readonly hostSlot?: string
 	/** The conversation this terminal is on, once it has one. */
 	readonly conversation?: () => string | undefined
+	/**
+	 * What the conversation is called (the name a person gave it, else the one the
+	 * small model wrote). It becomes the session's display name, so two sessions in
+	 * one folder tell each other apart by more than a ref.
+	 */
+	readonly name?: () => string | undefined
 	/** The non-default account label the conversation is bound to. */
 	readonly account?: () => string | undefined
 	/** True while the bound account is out of allowance. */
 	readonly limited?: () => boolean
 	/** When the spent allowance is expected back (epoch ms), if known. */
 	readonly limitedUntil?: () => number | undefined
+}
+
+/** The longest display name a record carries: it is drawn in a narrow sidebar and in a message header. */
+const TITLE_MAX = 40
+
+/** The session's display name: its conversation's name as one safe line, else the folder's. */
+export function displayTitle(name: string | undefined, cwd: string): string {
+	const line = name === undefined ? '' : sanitizeLine(name, TITLE_MAX)
+	return line === '' ? basename(cwd) : line
 }
 
 /** The directory live-session records and sockets are kept in, hardened for the current user. */
@@ -113,7 +129,7 @@ export async function openLivePeers(options: LivePeersOptions) {
 		pid: process.pid,
 		startedAt,
 		kind: 'tui',
-		title: basename(cwd),
+		title: displayTitle(options.name?.(), cwd),
 		cwd,
 		permissionMode: options.mode(),
 		state: options.state(),

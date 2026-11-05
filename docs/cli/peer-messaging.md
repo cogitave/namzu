@@ -31,7 +31,11 @@ choice.
 Participation starts on when the interactive application becomes ready. This
 setting lasts for this terminal process. The model gets `list_sessions` and
 `send_session_message`, using the exact live session id, short reference or
-unambiguous title returned by discovery. Endpoint tokens are never returned to
+unambiguous title returned by discovery. A terminal's title is the name of its
+conversation (the one you gave it with `/rename`, else the one the small model
+wrote, at most 40 characters on one line) and the folder's name until it has
+one; a rename reaches the live record at once, so two terminals in one folder
+tell each other apart by more than a reference. Endpoint tokens are never returned to
 the model. A live terminal id is separate from its durable conversation id;
 resuming another conversation does not redirect that conversation's queued mail.
 
