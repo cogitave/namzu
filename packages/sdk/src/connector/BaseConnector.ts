@@ -22,7 +22,7 @@ export abstract class BaseConnector<TConfig = unknown> implements ConnectorLifec
 	abstract readonly connectionType: ConnectionType
 	/** Omit only when the connector intentionally accepts every auth scheme. */
 	readonly supportedAuth?: readonly AuthType[]
-	abstract readonly configSchema: z.ZodType<TConfig, z.ZodTypeDef, unknown>
+	abstract readonly configSchema: z.ZodType<TConfig, unknown>
 	abstract readonly methods: ConnectorMethod[]
 
 	protected log: Logger

@@ -87,7 +87,7 @@ function registryWith(
 			defineTool({
 				name,
 				description: `Test ${name}`,
-				inputSchema: z.record(z.unknown()),
+				inputSchema: z.record(z.string(), z.unknown()),
 				category: 'custom',
 				permissions: [],
 				readOnly: false,

@@ -49,7 +49,7 @@ const isoUtc = z.string().datetime({ offset: false })
 const text = z.string()
 
 /** Annotated with the id's own alias, so declarations name `SessionId` rather than expanding its brand. */
-function idSchema<T extends string>(kind: EntityIdKind): z.ZodType<T, z.ZodTypeDef, unknown> {
+function idSchema<T extends string>(kind: EntityIdKind): z.ZodType<T, unknown> {
 	return z.custom<T>((value) => isEntityId(value, kind), {
 		message: `expected a ${kind} id (UUID)`,
 	})
@@ -199,7 +199,7 @@ const platformError = z
 	.object({
 		code: text,
 		message: text,
-		details: z.record(z.unknown()).optional(),
+		details: z.record(z.string(), z.unknown()).optional(),
 		retryable: z.boolean(),
 	})
 	.strict()
@@ -219,7 +219,7 @@ const toolHandoff = z
 	.object({
 		kind: z.literal('human-required'),
 		reason: text,
-		detail: z.record(text).optional(),
+		detail: z.record(z.string(), text).optional(),
 	})
 	.strict()
 
@@ -799,11 +799,7 @@ const RECORD_OPTIONS = [
 	...Object.values(SPECIFIED_EVENT_SCHEMAS),
 	...Object.values(RECORD_ONLY_SCHEMAS),
 	OtherEventRecordSchema,
-] as unknown as [
-	z.ZodDiscriminatedUnionOption<'type'>,
-	z.ZodDiscriminatedUnionOption<'type'>,
-	...z.ZodDiscriminatedUnionOption<'type'>[],
-]
+] as unknown as [z.ZodObject, z.ZodObject, ...z.ZodObject[]]
 
 /**
  * A record of a type this reader does not know, written by a newer writer

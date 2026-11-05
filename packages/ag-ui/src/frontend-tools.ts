@@ -121,7 +121,7 @@ function frontendTool(
 	return defineTool({
 		name: tool.name,
 		description: tool.description,
-		inputSchema: z.record(z.unknown()),
+		inputSchema: z.record(z.string(), z.unknown()),
 		modelInputSchema: parameters ?? { type: 'object', properties: {} },
 		category: 'custom',
 		permissions: [],

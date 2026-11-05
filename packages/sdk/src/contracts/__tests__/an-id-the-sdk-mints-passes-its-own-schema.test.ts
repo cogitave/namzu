@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { zodToJsonSchema } from 'zod-to-json-schema'
+import { zodToJsonSchema } from '../../registry/tool/json-schema.js'
 
 import {
 	asMessageId,

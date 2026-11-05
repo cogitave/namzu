@@ -120,7 +120,7 @@ describe('MCP schema round trip', () => {
 
 	it('preserves a nested object instead of flattening it to "any keys"', () => {
 		// This is what the model is shown for a bridged tool. Collapsing it
-		// to `z.record(z.unknown())` left the model guessing at a shape the
+		// to `z.record(z.string(), z.unknown())` left the model guessing at a shape the
 		// server had spelled out precisely.
 		const rendered = render({
 			type: 'object',
@@ -224,7 +224,7 @@ describe('MCP schema round trip', () => {
 		} as unknown as MCPJsonSchema)
 
 		expect(zod.safeParse({ filter: { limit: 10 } }).success).toBe(true)
-		// `z.record(z.unknown())` accepted both of these.
+		// `z.record(z.string(), z.unknown())` accepted both of these.
 		expect(zod.safeParse({ filter: { limit: 'ten' } }).success).toBe(false)
 		expect(zod.safeParse({ filter: {} }).success).toBe(false)
 	})

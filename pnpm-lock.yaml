@@ -59,8 +59,8 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.11)(vite@8.3.1(@types/node@22.19.17)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
       zod:
-        specifier: ^3.23.0
-        version: 3.25.76
+        specifier: ^4.6.7
+        version: 4.6.7
 
   packages/analysis:
     dependencies:
@@ -255,8 +255,8 @@ importers:
   packages/decision:
     dependencies:
       zod:
-        specifier: ^3.23.0
-        version: 3.25.76
+        specifier: ^4.1.0
+        version: 4.6.7
     devDependencies:
       '@biomejs/biome':
         specifier: ^1.9.4
@@ -407,8 +407,8 @@ importers:
   packages/evals:
     dependencies:
       zod:
-        specifier: ^3.25.76
-        version: 3.25.76
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       '@namzu/sdk':
         specifier: workspace:*
@@ -451,8 +451,8 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.11)(vite@8.3.1(@types/node@22.19.17)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
       zod:
-        specifier: ^3.25.76
-        version: 3.25.76
+        specifier: ^4.6.7
+        version: 4.6.7
 
   packages/lsp:
     devDependencies:
@@ -476,7 +476,7 @@ importers:
     dependencies:
       '@anthropic-ai/sdk':
         specifier: ^0.115.0
-        version: 0.115.0(zod@4.6.5)
+        version: 0.115.0(zod@4.6.7)
     devDependencies:
       '@biomejs/biome':
         specifier: ^1.9.4
@@ -520,7 +520,7 @@ importers:
     dependencies:
       openai:
         specifier: ^6.0.0
-        version: 6.34.0(ws@8.21.3)(zod@4.6.5)
+        version: 6.34.0(ws@8.21.3)(zod@4.6.7)
     devDependencies:
       '@biomejs/biome':
         specifier: ^1.9.4
@@ -556,8 +556,8 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.11)(vite@8.3.1(@types/node@22.19.17)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
       zod:
-        specifier: ^3.23.0
-        version: 3.25.76
+        specifier: ^4.6.7
+        version: 4.6.7
 
   packages/providers/http:
     devDependencies:
@@ -625,7 +625,7 @@ importers:
     dependencies:
       openai:
         specifier: ^6.0.0
-        version: 6.34.0(ws@8.21.3)(zod@4.6.5)
+        version: 6.34.0(ws@8.21.3)(zod@4.6.7)
     devDependencies:
       '@biomejs/biome':
         specifier: ^1.9.4
@@ -665,16 +665,16 @@ importers:
     dependencies:
       '@ai-sdk/anthropic':
         specifier: 3.0.116
-        version: 3.0.116(zod@3.25.76)
+        version: 3.0.116(zod@4.6.7)
       '@ai-sdk/google':
         specifier: 3.0.121
-        version: 3.0.121(zod@3.25.76)
+        version: 3.0.121(zod@4.6.7)
       '@ai-sdk/openai':
         specifier: 3.0.109
-        version: 3.0.109(zod@3.25.76)
+        version: 3.0.109(zod@4.6.7)
       '@ai-sdk/openai-compatible':
         specifier: 2.0.74
-        version: 2.0.74(zod@3.25.76)
+        version: 2.0.74(zod@4.6.7)
       '@ai-sdk/provider':
         specifier: 3.0.15
         version: 3.0.15
@@ -695,8 +695,8 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.11)(vite@8.3.1(@types/node@22.19.17)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
       zod:
-        specifier: ^3.23.0
-        version: 3.25.76
+        specifier: ^4.6.7
+        version: 4.6.7
 
   packages/sandbox:
     dependencies:
@@ -790,11 +790,8 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.19.17)(@vitest/coverage-v8@4.1.11)(vite@8.3.1(@types/node@22.19.17)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.1))
       zod:
-        specifier: ^3.23.0
-        version: 3.25.76
-      zod-to-json-schema:
-        specifier: ^3.23.0
-        version: 3.25.2(zod@3.25.76)
+        specifier: ^4.6.7
+        version: 4.6.7
 
   packages/telemetry:
     dependencies:
@@ -4945,8 +4942,8 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
-  zod@4.6.5:
-    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+  zod@4.6.7:
+    resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
 
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
@@ -4981,37 +4978,37 @@ snapshots:
       '@bufbuild/protobuf': 2.14.1
       '@protobuf-ts/protoc': 2.11.1
 
-  '@ai-sdk/anthropic@3.0.116(zod@3.25.76)':
+  '@ai-sdk/anthropic@3.0.116(zod@4.6.7)':
     dependencies:
       '@ai-sdk/provider': 3.0.15
-      '@ai-sdk/provider-utils': 4.0.50(zod@3.25.76)
-      zod: 3.25.76
+      '@ai-sdk/provider-utils': 4.0.50(zod@4.6.7)
+      zod: 4.6.7
 
-  '@ai-sdk/google@3.0.121(zod@3.25.76)':
+  '@ai-sdk/google@3.0.121(zod@4.6.7)':
     dependencies:
       '@ai-sdk/provider': 3.0.15
-      '@ai-sdk/provider-utils': 4.0.50(zod@3.25.76)
-      zod: 3.25.76
+      '@ai-sdk/provider-utils': 4.0.50(zod@4.6.7)
+      zod: 4.6.7
 
-  '@ai-sdk/openai-compatible@2.0.74(zod@3.25.76)':
+  '@ai-sdk/openai-compatible@2.0.74(zod@4.6.7)':
     dependencies:
       '@ai-sdk/provider': 3.0.15
-      '@ai-sdk/provider-utils': 4.0.50(zod@3.25.76)
-      zod: 3.25.76
+      '@ai-sdk/provider-utils': 4.0.50(zod@4.6.7)
+      zod: 4.6.7
 
-  '@ai-sdk/openai@3.0.109(zod@3.25.76)':
+  '@ai-sdk/openai@3.0.109(zod@4.6.7)':
     dependencies:
       '@ai-sdk/provider': 3.0.15
-      '@ai-sdk/provider-utils': 4.0.50(zod@3.25.76)
-      zod: 3.25.76
+      '@ai-sdk/provider-utils': 4.0.50(zod@4.6.7)
+      zod: 4.6.7
 
-  '@ai-sdk/provider-utils@4.0.50(zod@3.25.76)':
+  '@ai-sdk/provider-utils@4.0.50(zod@4.6.7)':
     dependencies:
       '@ai-sdk/provider': 3.0.15
       '@standard-schema/spec': 1.1.0
       eventsource-parser: 3.1.1
       undici: 6.28.1
-      zod: 3.25.76
+      zod: 4.6.7
 
   '@ai-sdk/provider@3.0.15':
     dependencies:
@@ -5022,12 +5019,12 @@ snapshots:
       ansi-styles: 6.2.3
       is-fullwidth-code-point: 5.1.0
 
-  '@anthropic-ai/sdk@0.115.0(zod@4.6.5)':
+  '@anthropic-ai/sdk@0.115.0(zod@4.6.7)':
     dependencies:
       json-schema-to-ts: 3.1.1
       standardwebhooks: 1.0.0
     optionalDependencies:
-      zod: 4.6.5
+      zod: 4.6.7
 
   '@aws-sdk/client-bedrock-runtime@3.1101.0':
     dependencies:
@@ -5977,11 +5974,11 @@ snapshots:
       eventsource-parser: 3.1.1
       jose: 6.2.12
       pkce-challenge: 5.0.1
-      zod: 4.6.5
+      zod: 4.6.7
 
   '@modelcontextprotocol/core@2.1.0':
     dependencies:
-      zod: 4.6.5
+      zod: 4.6.7
 
   '@napi-rs/wasm-runtime@1.2.4(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)':
     dependencies:
@@ -7806,7 +7803,7 @@ snapshots:
       tinyglobby: 0.2.17
       unbash: 4.0.11
       yaml: 2.9.1
-      zod: 4.6.5
+      zod: 4.6.7
 
   lazy-val@1.0.5: {}
 
@@ -8450,10 +8447,10 @@ snapshots:
       regex: 6.1.0
       regex-recursion: 6.0.2
 
-  openai@6.34.0(ws@8.21.3)(zod@4.6.5):
+  openai@6.34.0(ws@8.21.3)(zod@4.6.7):
     optionalDependencies:
       ws: 8.21.3
-      zod: 4.6.5
+      zod: 4.6.7
 
   outdent@0.5.0: {}
 
@@ -9489,6 +9486,6 @@ snapshots:
 
   zod@3.25.76: {}
 
-  zod@4.6.5: {}
+  zod@4.6.7: {}
 
   zwitch@2.0.4: {}

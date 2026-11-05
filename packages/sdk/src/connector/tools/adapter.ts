@@ -77,7 +77,7 @@ const ConnectorRouterInputSchema = z.object({
 		.describe('The connector definition ID (e.g., "conn_http", "conn_webhook")'),
 	instanceId: z.string().describe('The connector instance ID (e.g., "ci_abc123")'),
 	method: z.string().describe('The method to execute on the connector'),
-	input: z.record(z.unknown()).describe('The input data for the method'),
+	input: z.record(z.string(), z.unknown()).describe('The input data for the method'),
 })
 
 export type ConnectorRouterInput = z.infer<typeof ConnectorRouterInputSchema>

@@ -32,7 +32,7 @@ const HttpConnectorConfigSchema = z.object({
 		.string()
 		.url()
 		.refine((value) => /^https?:/i.test(value), 'baseUrl must use http: or https:'),
-	defaultHeaders: z.record(z.string()).optional(),
+	defaultHeaders: z.record(z.string(), z.string()).optional(),
 	maxResponseBytes: z
 		.number()
 		.int()
@@ -52,8 +52,8 @@ const HttpConnectorConfigSchema = z.object({
 const HttpRequestInputSchema = z.object({
 	method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']),
 	path: z.string(),
-	headers: z.record(z.string()).optional(),
-	query: z.record(z.string()).optional(),
+	headers: z.record(z.string(), z.string()).optional(),
+	query: z.record(z.string(), z.string()).optional(),
 	body: z.unknown().optional(),
 })
 

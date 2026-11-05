@@ -33,7 +33,7 @@ const WebhookConnectorConfigSchema = z.object({
 		.url()
 		.refine((value) => /^https?:/i.test(value), 'url must use http: or https:'),
 	secret: z.string().optional(),
-	defaultHeaders: z.record(z.string()).optional(),
+	defaultHeaders: z.record(z.string(), z.string()).optional(),
 	maxResponseBytes: z
 		.number()
 		.int()
@@ -51,8 +51,8 @@ const WebhookConnectorConfigSchema = z.object({
 })
 
 const WebhookSendInputSchema = z.object({
-	payload: z.unknown(),
-	headers: z.record(z.string()).optional(),
+	payload: z.unknown().optional(),
+	headers: z.record(z.string(), z.string()).optional(),
 	url: z.string().url().optional(),
 })
 

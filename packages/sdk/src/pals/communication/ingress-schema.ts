@@ -54,7 +54,7 @@ export const activityScopeSchema = z
 	.strict()
 
 /** Trusted host-stored source cursors only; this schema does not authenticate an anchor. */
-export const activityCursorSchema: z.ZodType<PalActivityCursor> = z
+export const activityCursorSchema: z.ZodType<PalActivityCursor, PalActivityCursor> = z
 	.object({
 		v: z.literal(1),
 		scopeHash: digest,

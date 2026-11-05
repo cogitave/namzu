@@ -1,5 +1,5 @@
 import type { z } from 'zod'
-import { zodToJsonSchema } from 'zod-to-json-schema'
+import { zodToJsonSchema } from './json-schema.js'
 import { toPortableToolSchema } from './portable.js'
 
 /**
@@ -8,7 +8,7 @@ import { toPortableToolSchema } from './portable.js'
  *
  * Two things were wrong with converting at each call site:
  *
- * 1. **`$schema` leaked into every request.** `zodToJsonSchema` stamps
+ * 1. **`$schema` leaked into every request.** the converter stamps
  *    `"$schema": "http://json-schema.org/draft-07/schema#"` on the root.
  *    No provider reads it, and it rides in the tools block — which renders
  *    at position 0, inside the cached prefix — once per tool, per request,
@@ -40,10 +40,7 @@ export function renderToolSchema(schema: z.ZodType): Record<string, unknown> {
 	const cached = CACHE.get(schema)
 	if (cached) return cached
 
-	const json = zodToJsonSchema(schema, {
-		target: 'jsonSchema7',
-		$refStrategy: 'none',
-	}) as Record<string, unknown>
+	const json = zodToJsonSchema(schema, 'draft-7')
 
 	const normalized = deepFreeze(normalizeToolSchema(json))
 	CACHE.set(schema, normalized)

@@ -211,7 +211,7 @@ export const RuntimeConfigSchema = z.object({
 	timeoutMs: z.number().int().nonnegative().default(600_000),
 	maxIterations: z.number().int().nonnegative().default(200),
 	taskRouter: TaskRouterConfigSchema,
-	compaction: CompactionConfigSchema.default({}),
+	compaction: CompactionConfigSchema.prefault({}),
 	agentBus: AgentBusConfigSchema.optional(),
 	plugins: PluginRuntimeConfigSchema.optional(),
 	sandbox: SandboxConfigSchema.optional(),

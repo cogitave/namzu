@@ -44,7 +44,7 @@ export const CreateTurnSchema = z
 	.object({
 		message: z.string().min(1, 'message is required'),
 		config: TurnConfigSchema,
-		env: z.record(z.string()).optional(),
+		env: z.record(z.string(), z.string()).optional(),
 		stream: z.boolean().optional(),
 	})
 	.strict()
@@ -55,6 +55,6 @@ export const CreateEphemeralSessionSchema = z
 		agent_id: z.string().min(1, 'agent_id is required'),
 		message: z.string().min(1, 'message is required'),
 		config: TurnConfigSchema,
-		env: z.record(z.string()).optional(),
+		env: z.record(z.string(), z.string()).optional(),
 	})
 	.strict()

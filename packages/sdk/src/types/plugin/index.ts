@@ -560,7 +560,7 @@ export const PluginMCPServerConfigSchema = z
 		name: z.string().min(1),
 		command: z.string().min(1),
 		args: z.array(z.string()).optional(),
-		env: z.record(z.string()).optional(),
+		env: z.record(z.string(), z.string()).optional(),
 		connectTimeoutMs: z.number().int().positive().max(3_600_000).optional(),
 	})
 	.strict()

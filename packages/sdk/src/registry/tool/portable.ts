@@ -67,8 +67,8 @@ const OUTSIDE_THE_INTERSECTION: ReadonlyMap<string, string> = new Map([
 	// the function-declaration schema on one of these wires is an OpenAPI 3.0
 	// subset that has never documented it.
 	['prefixItems', NO_TUPLES],
-	// A rendered tool schema has to stand alone. The renderer already runs with
-	// `$refStrategy: 'none'`, and the MCP bridge inlines refs before handing a
+	// A rendered tool schema has to stand alone. The renderer already inlines
+	// every reused schema, and the MCP bridge inlines refs before handing a
 	// schema out, because a wire that does not resolve them sees an empty
 	// constraint or refuses the document.
 	['$ref', 'inline the referenced schema; a tool schema has to stand alone'],

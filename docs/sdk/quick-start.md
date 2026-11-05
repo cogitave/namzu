@@ -12,10 +12,10 @@ status: stable
 Namzu is an agent kernel. `@namzu/sdk` exposes its runtime in TypeScript;
 `@namzu/cli` is a terminal application built on that SDK.
 
-Install `@namzu/sdk` and its supported Zod v3 peer in an ESM project:
+Install `@namzu/sdk` and its Zod v4 peer in an ESM project:
 
 ```bash
-pnpm add @namzu/sdk zod@^3
+pnpm add @namzu/sdk zod
 pnpm add -D tsx
 ```
 
