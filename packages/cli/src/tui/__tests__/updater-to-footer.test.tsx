@@ -48,8 +48,9 @@ function launch() {
 		fetchRelease: async () => ({ version: '2.0.0', integrity: 'sha512-AAAA' }),
 		uptimeMs: () => 0,
 		onEvent: (event) => {
-			events.push(event)
-			ambient = updaterEventAmbient(event)
+			// Outcomes only; the footer still follows every event, progress included.
+			if (event.type !== 'installing' && event.type !== 'idle') events.push(event)
+			ambient = event.type === 'idle' ? null : updaterEventAmbient(event)
 		},
 		applyDeps: {
 			installedVersion: readInstalledVersion,

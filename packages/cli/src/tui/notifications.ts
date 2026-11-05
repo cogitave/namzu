@@ -23,7 +23,7 @@
 export type NoticePriority = 'immediate' | 'high' | 'medium' | 'low'
 
 /** How a notice is drawn; none given means dim. */
-export type NoticeTone = 'dim' | 'warn' | 'error'
+export type NoticeTone = 'dim' | 'warn' | 'error' | 'ok'
 
 export interface Notice {
 	/** Identity: the same key is the same notice. */

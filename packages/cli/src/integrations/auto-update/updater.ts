@@ -62,6 +62,10 @@ function mayTryAgain(attempt: AttemptRecord, now: number): boolean {
 export const MAX_CONSECUTIVE_FAILURES = 3
 
 export type UpdaterEvent =
+	/** An install has started; one of `installed`, `available`, `failed` or `idle` follows. */
+	| { readonly type: 'installing'; readonly to: string }
+	/** The install ended with nothing to report (another Namzu did it, or is doing it). */
+	| { readonly type: 'idle' }
 	/** Installed; the next start uses it. */
 	| { readonly type: 'installed'; readonly from: string; readonly to: string }
 	/** A newer version exists and Namzu will not (or could not) install it. */
@@ -229,6 +233,7 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 				return
 			}
 
+			deps.onEvent({ type: 'installing', to: release.version })
 			const result = await applyUpdate(
 				{
 					...deps.applyDeps,
@@ -244,12 +249,13 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 			const method = install.kind
 			switch (result.status) {
 				case 'locked':
+					deps.onEvent({ type: 'idle' })
 					return
 				case 'already':
 					if (compareVersions(result.to, deps.currentVersion) > 0) {
 						installedThisSession = true
 						deps.onEvent({ type: 'installed', from: deps.currentVersion, to: result.to })
-					}
+					} else deps.onEvent({ type: 'idle' })
 					return
 				case 'installed':
 					failures = 0

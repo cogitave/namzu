@@ -2,7 +2,8 @@ import { render } from 'ink-testing-library'
 import { describe, expect, it } from 'vitest'
 
 import { StatusBar, fitStatusLine } from '../StatusBar.js'
-import { updateAmbient } from '../update-notice.js'
+import { theme } from '../theme.js'
+import { updateAmbient, updaterEventAmbient } from '../update-notice.js'
 
 const update = updateAmbient({
 	name: 'namzu',
@@ -34,6 +35,20 @@ describe('the right end of the footer', () => {
 		)
 		expect(lastFrame()).toContain('Update available! Run: namzu upgrade')
 		unmount()
+	})
+
+	it('draws an installed update with a check, in the ok colour, and an install in progress dim', () => {
+		const done = updaterEventAmbient({ type: 'installed', from: '1.0.0', to: '1.1.0' })
+		expect(done.tone).toBe('ok')
+		const shown = render(<StatusBar provider="p" model="m" state="idle" ambient={done} />)
+		expect(shown.lastFrame()).toContain('✓ Updated to 1.1.0 · restart to use it')
+		shown.unmount()
+		const working = updaterEventAmbient({ type: 'installing', to: '1.1.0' })
+		const progress = render(<StatusBar provider="p" model="m" state="idle" ambient={working} />)
+		expect(progress.lastFrame()).toContain('Updating to 1.1.0…')
+		progress.unmount()
+		// Two tones that read apart: the ok colour is not the muted one.
+		expect(theme.status.ok).not.toBe(theme.text.muted)
 	})
 
 	it('keeps one row at 40 columns with a notice, dropping left items first', () => {

@@ -11,11 +11,12 @@ generated: { by: process:agent, at: 2026-10-27T00:00:00Z }
 # Updates
 
 The terminal looks for a newer Namzu while it is open and, where Namzu may,
-installs it in the background. Nothing is shown while it works. When an update
-was installed, the right end of the footer says so once:
+installs it in the background. While it installs, the right end of the footer
+says `Updating to 41.3.0…` in the quiet tone, and once an update is installed it
+says so with a green check:
 
 ```text
-Updated to 41.3.0, restart to use it
+✓ Updated to 41.3.0 · restart to use it
 ```
 
 The running conversation is never restarted or interrupted; the next `namzu` you

@@ -14513,7 +14513,8 @@ function AppBody({
 		updaterRef.current = startAutoUpdate({
 			currentVersion: ctx.version,
 			config: ctx.updates,
-			onEvent: (event) => setUpdateNotice(updaterEventAmbient(event)),
+			onEvent: (event) =>
+				setUpdateNotice(event.type === 'idle' ? null : updaterEventAmbient(event)),
 		})
 	}, [phase, ctx.version, ctx.updates])
 	useEffect(() => () => updaterRef.current?.stop(), [])

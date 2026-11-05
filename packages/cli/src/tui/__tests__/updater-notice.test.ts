@@ -3,9 +3,17 @@ import { describe, expect, it } from 'vitest'
 import { updaterEventAmbient } from '../update-notice.js'
 
 describe('the footer line the background updater leaves', () => {
-	it('says plainly that an update was installed and what to do, in the quiet tone', () => {
+	it('says plainly that an update was installed and what to do, with a green check', () => {
 		expect(updaterEventAmbient({ type: 'installed', from: '1.0.0', to: '2.0.0' })).toEqual({
-			text: 'Updated to 2.0.0, restart to use it',
+			text: '✓ Updated to 2.0.0 · restart to use it',
+			tone: 'ok',
+			strong: '2.0.0',
+		})
+	})
+
+	it('says it is updating, quietly, while an install runs', () => {
+		expect(updaterEventAmbient({ type: 'installing', to: '2.0.0' })).toEqual({
+			text: 'Updating to 2.0.0…',
 			tone: 'dim',
 			strong: '2.0.0',
 		})
