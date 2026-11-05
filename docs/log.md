@@ -3,6 +3,7 @@
 ## 2026-11-05
 
 - **Update** [namzu workspaces (preview)](cli/workspaces.md): a workspace row is one line when it has no branch or note to show (a folder outside git), two lines otherwise, as the agents rows below it are; scrolling, clicks, the drop line of a drag and keeping the shown workspace in view follow each row's height. `.changeset/workspaces-one-line-rows.md` (patch for `@namzu/cli`).
+- **Update** [namzu workspaces (preview)](cli/workspaces.md): the real terminal's cursor stays hidden over a session. A session draws its own caret in the composer and parks the program's cursor below the text, where a terminal that showed it made a stray blinking bar. `.changeset/workspaces-hide-session-cursor.md` (patch for `@namzu/cli`).
 - **Update** [Terminal design](cli/terminal-design.md#the-turn-chime): a chime plays when a turn needs the person back — a soft rising pair after a turn of ten seconds or more finishes, a double tap when one stops, fails or waits for approval. On by default; `tui.sound: false` or `NAMZU_NO_SOUND=1` turns it off. `.changeset/turn-chime.md` (minor for `@namzu/cli`).
 - **Update** [The computer_use tool](sdk/computer-actions.md): the pinned Windows driver moves from cua-driver 0.28.2 to 0.38.0 (new archive and executable hashes, the window tree read with `full_output`); the package README names the new version, size and cache folder. `.changeset/cua-driver-0-38.md` (patch for `@namzu/computer-use`).
 
