@@ -66,6 +66,7 @@ describe('which commands run while a reply is being written', () => {
 		'/fork',
 		'/resume',
 		'/copy',
+		'/run',
 		'/fork a title',
 		'/resume work',
 		'/context',
@@ -133,6 +134,7 @@ describe('which commands run while a reply is being written', () => {
 			'fork',
 			'resume',
 			'copy',
+			'run',
 		])
 		for (const command of CLI_LOCAL_COMMANDS) {
 			const unspecified = command.immediate === undefined

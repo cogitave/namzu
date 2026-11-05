@@ -205,3 +205,46 @@ function quoteHasProse(lines: readonly SourceLine[]): boolean {
 	}
 	return false
 }
+
+/** Fence languages whose block is a command line a shell runs. */
+const SHELL_LANGUAGES = new Set([
+	'sh',
+	'bash',
+	'shell',
+	'zsh',
+	'console',
+	'shellsession',
+	'terminal',
+])
+
+/** A shell command found in a reply, ready to be put after `!`. */
+export interface RunnableCommand {
+	readonly label: string
+	/** The command text: no prompt characters, no trailing newline. */
+	readonly text: string
+}
+
+/**
+ * The commands in a reply a person can run with one keystroke: each fenced block written
+ * as a shell language, or with no language at all (a bare block is usually the command the
+ * sentence above it names). A transcript-style block, where every line starts with `$ `,
+ * loses that prompt. A block that is empty or only comments is not offered.
+ */
+export function runnableCommands(source: string): readonly RunnableCommand[] {
+	const out: RunnableCommand[] = []
+	for (const target of copyTargetsForResponse(source)) {
+		if (target.kind !== 'code') continue
+		// A fenced target's label is `<language> code`, or `Code block` for a fence with none.
+		const language = target.label.endsWith(' code')
+			? target.label.slice(0, -5).toLowerCase()
+			: undefined
+		if (language !== undefined && !SHELL_LANGUAGES.has(language)) continue
+		const lines = target.text.replace(/\r\n/gu, '\n').replace(/\n+$/u, '').split('\n')
+		const content = lines.filter((line) => line.trim() !== '')
+		if (content.length === 0 || content.every((line) => line.trim().startsWith('#'))) continue
+		const prompted = content.every((line) => /^\$ /u.test(line))
+		const text = (prompted ? lines.map((line) => line.replace(/^\$ /u, '')) : lines).join('\n')
+		out.push({ label: target.label, text })
+	}
+	return out
+}
