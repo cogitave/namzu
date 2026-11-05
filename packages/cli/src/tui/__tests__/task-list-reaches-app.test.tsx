@@ -28,6 +28,14 @@ const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagent
 let turn = 0
 /** When set, the first turn adds two tasks and removes one instead. */
 let removal = false
+/**
+ * When set, the first turn waits after its second reply instead of going on to complete the
+ * first task. The state a test reads there (`0/2 done`) is otherwise a window of a pause long:
+ * a loaded runner that is slow to handle a key misses it and the step has moved on.
+ */
+let holdAfterSecondReply = false
+let releaseHeld: () => void = () => {}
+let held: Promise<void> = Promise.resolve()
 
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
@@ -109,7 +117,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 					}
 					await pause()
 					yield { kind: 'delta', text: 'Looked around.\n\n' }
-					await pause()
+					if (holdAfterSecondReply) await held
+					else await pause()
 					yield {
 						kind: 'task',
 						taskId: 't1',
@@ -149,8 +158,10 @@ const ctx: TuiContext = {
 const mounted: Array<{ unmount: () => void }> = []
 afterEach(() => {
 	for (const m of mounted.splice(0)) m.unmount()
+	releaseHeld()
 	turn = 0
 	removal = false
+	holdAfterSecondReply = false
 	vi.clearAllMocks()
 	vi.unstubAllEnvs()
 })
@@ -246,16 +257,22 @@ describe('the task checklist', () => {
 		vi.stubEnv('LINES', '18')
 		// Ctrl+T saves its choice; keep that out of the real user file.
 		vi.stubEnv('NAMZU_HOME', mkdtempSync(join(tmpdir(), 'namzu-todos-')))
+		holdAfterSecondReply = true
+		held = new Promise<void>((resolve) => {
+			releaseHeld = resolve
+		})
 		const harness = await open()
 		await submit(harness, 'go')
 
 		// On a short screen the reply pushes the block's head off, and the model's
 		// own tasks have opened the list; Ctrl+T folds it to the step it is on,
-		// which is not a second checklist.
+		// which is not a second checklist. The turn waits here until the test has
+		// read the folded row, so no timing decides whether `0/2 done` is still true.
 		await frameShows(harness.lastFrame, 'Looked around.')
 		harness.stdin.write('\x14')
 		await frameShows(harness.lastFrame, '■ Çalışma alanını incele · 0/2 done')
 		expect(harness.lastFrame() ?? '', 'not a second checklist').not.toContain('Tasks · 0/2 done')
+		releaseHeld()
 	})
 
 	it('leaves the finished plan in the transcript and clears the row when the plan is done', async () => {
