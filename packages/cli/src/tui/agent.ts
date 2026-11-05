@@ -280,6 +280,7 @@ import {
 } from '../context/sandbox.js'
 import {
 	DEFERRED_TOOL_GUIDANCE,
+	SHELL_ESCAPE_GUIDANCE,
 	composeSessionSystemPrompt,
 	sessionPromptInput,
 } from '../context/system-prompt.js'
@@ -4788,6 +4789,9 @@ export async function createAgentSession(
 	)
 		? composeMemoryGuidance({ taskList: !withheldTools.has('task_create') })
 		: undefined
+	// A `!` line only exists where a person types at the session, which is where
+	// `askUser` is on; a headless run is never told of a prefix it cannot be given.
+	const shellEscapeGuidance = options.askUser ? SHELL_ESCAPE_GUIDANCE : undefined
 	// Built once for every host-side read this session needs (the presenter,
 	// the roster shown to `/tools`, the exempt-tool list, MCP provenance for
 	// `toolResultScreens`) — never for execution, which `query()` does with
@@ -5173,6 +5177,7 @@ export async function createAgentSession(
 						environment: environmentPrompt,
 						withheldTools: options.withheldTools,
 						memoryGuidance,
+						shellEscapeGuidance,
 						conversationSessions: options.conversationSessions,
 						toolLoading: options.toolLoading,
 						anyToolDeferred: anyDeferred(sessionToolsets),
@@ -6470,6 +6475,7 @@ export async function createAgentSession(
 									environment: environmentPrompt,
 									withheldTools: options.withheldTools,
 									memoryGuidance,
+									shellEscapeGuidance,
 									conversationSessions: options.conversationSessions,
 									toolLoading: options.toolLoading,
 									anyToolDeferred: anyDeferred(runToolsets),

@@ -14,7 +14,7 @@
  * transcript can hold.
  */
 
-import { execHostShell } from '@namzu/sdk'
+import { execHostShell, hostCommandShell } from '@namzu/sdk'
 
 export const SHELL_ESCAPE_TIMEOUT_MS = 60_000
 export const SHELL_ESCAPE_MAX_OUTPUT_CHARS = 20_000
@@ -61,12 +61,11 @@ export async function runShellEscape(
 			env: process.env,
 			timeout: options.timeoutMs ?? SHELL_ESCAPE_TIMEOUT_MS,
 			maxBuffer: SHELL_ESCAPE_MAX_OUTPUT_CHARS * 4,
-			// Keep the existing POSIX interpreter. Windows must use its native
-			// platform shell; /bin/sh would either fail or enter another OS.
-			shell:
-				process.platform === 'win32'
-					? { path: undefined, dialect: 'cmd', source: 'platform' }
-					: { path: '/bin/sh', dialect: 'sh', source: 'sh' },
+			// The shell the model's own `bash` tool runs in, so a line behaves the same
+			// typed after `!` as it does when the model runs it: bash where the machine
+			// has it (arrays, `[[ ]]`, process substitution work), the POSIX shell where
+			// it does not, and on Windows Git Bash, or cmd without it.
+			shell: hostCommandShell(),
 			signal: options.signal,
 			onOutput: ({ data }) => append(data),
 		})
