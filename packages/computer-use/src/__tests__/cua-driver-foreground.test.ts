@@ -70,6 +70,7 @@ function driver(
 						],
 					)
 				case 'click':
+				case 'scroll':
 				case 'type_text':
 					return click(call) as never
 				default:
@@ -120,6 +121,36 @@ describe('foreground fallback for window input', () => {
 		expect(monitor.calls).toEqual(['state', 'begin', 'state', 'end'])
 		const clicks = calls().filter((call) => call.name === 'click')
 		expect(clicks.map((call) => call.arguments.delivery_mode)).toEqual([undefined, 'foreground'])
+		await adapter.dispose()
+	})
+
+	it('sends the scroll point only on the foreground retry, never in the background', async () => {
+		const { adapter, calls } = driver((call) =>
+			call.arguments.delivery_mode === 'foreground'
+				? toolResult({ effect: 'unverifiable', delivery: { mode: 'foreground' } })
+				: refusal('background_unavailable', 'needs real focus'),
+		)
+		const shot = await adapter.captureWindow('0x111')
+		await adapter.executeWindow(shot.captureId, {
+			type: 'scroll',
+			at: { x: 40, y: 50 },
+			direction: 'down',
+			amount: 4,
+		})
+		const scrolls = calls().filter((call) => call.name === 'scroll')
+		expect(scrolls.map((call) => call.arguments)).toEqual([
+			{ scope: 'window', pid: 42, window_id: 0x111, direction: 'down', amount: 4 },
+			{
+				scope: 'window',
+				pid: 42,
+				window_id: 0x111,
+				direction: 'down',
+				amount: 4,
+				x: 40,
+				y: 50,
+				delivery_mode: 'foreground',
+			},
+		])
 		await adapter.dispose()
 	})
 

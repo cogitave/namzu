@@ -37,6 +37,12 @@ export interface ComputerUseCapabilities {
 	/** Supported drag buttons; absent leaves button admission to the host. */
 	readonly mouseDragButtons?: readonly MouseButton[]
 	/**
+	 * The most clicks in a row one `mouse_click` may make (2 is a double-click).
+	 * Absent means 1: the tool refuses a larger `count` before the host is
+	 * reached, and does not offer the field to the model.
+	 */
+	readonly maxClickCount?: 1 | 2 | 3
+	/**
 	 * Why every flag above is false, when a host loaded but the desktop did
 	 * not answer — a WSL process with PowerShell and no interactive Windows
 	 * session, an ssh session with no display. Present, the tool stays
@@ -395,6 +401,12 @@ export type ComputerUseAction =
 			readonly type: 'mouse_click'
 			readonly at: Point
 			readonly button: MouseButton
+			/**
+			 * Clicks in a row at `at`: 2 is a double-click. Absent means 1, and the
+			 * tool sends it only above 1, only with the left button, and only to a
+			 * host whose {@link ComputerUseCapabilities.maxClickCount} allows it.
+			 */
+			readonly count?: 1 | 2 | 3
 	  }
 	| {
 			readonly type: 'mouse_drag'

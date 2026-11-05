@@ -146,6 +146,9 @@ const regionSchema = z.object({
 // Left when omitted: a model asked to "click the Start button" often leaves
 // the button out, and refusing that cost a whole round trip for nothing.
 const mouseButtonSchema = z.enum(['left', 'right', 'middle']).default('left')
+// One to three clicks in a row at the same point: 2 is a double-click. Absent
+// means 1. How many a host can do is its `maxClickCount`.
+const clickCountSchema = z.number().int().min(1).max(3).optional()
 const screenshotIdSchema = z.string().min(1).optional()
 
 const cursorPositionSchema = z.object({ type: z.literal('cursor_position') })
@@ -157,6 +160,7 @@ const mouseClickSchema = z.object({
 	type: z.literal('mouse_click'),
 	at: pointSchema,
 	button: mouseButtonSchema,
+	count: clickCountSchema,
 	/** Accepted only to return an explicit refusal; pointer foreground is unsafe. */
 	delivery_mode: z.enum(['background', 'foreground']).optional(),
 })
@@ -597,6 +601,11 @@ function buildDescription(
 	return finish(lines, caps, available)
 }
 
+/** How many clicks in a row one mouse_click may make on this host. */
+function maxClickCount(caps: ComputerUseCapabilities): 1 | 2 | 3 {
+	return caps.maxClickCount ?? 1
+}
+
 function finish(
 	lines: string[],
 	caps: ComputerUseCapabilities,
@@ -604,6 +613,10 @@ function finish(
 ): string {
 	if (caps.mouseClickButtons && available.includes('mouse_click'))
 		lines.push(`Click buttons: ${caps.mouseClickButtons.join(', ') || 'none'}.`)
+	if (maxClickCount(caps) > 1 && available.includes('mouse_click'))
+		lines.push(
+			`Click count: mouse_click takes count up to ${maxClickCount(caps)} (2 is a double-click, 3 a triple-click), with the left button only; 1 when omitted.`,
+		)
 	if (caps.mouseDragButtons && available.includes('mouse_drag'))
 		lines.push(`Drag buttons: ${caps.mouseDragButtons.join(', ') || 'none'}.`)
 	return lines.join(' ')
@@ -698,6 +711,17 @@ function hostModelSchema(
 				enum: buttonEnum,
 				description: 'Mouse button; left when omitted.',
 			},
+			...(actions.includes('mouse_click') && maxClickCount(caps) > 1
+				? {
+						count: {
+							type: 'integer',
+							minimum: 1,
+							maximum: maxClickCount(caps),
+							description:
+								'For mouse_click: how many clicks in a row at the point (2 is a double-click, 3 a triple-click); left button only; 1 when omitted.',
+						},
+					}
+				: {}),
 			direction: {
 				type: 'string',
 				enum: ['up', 'down', 'left', 'right'],
@@ -930,7 +954,9 @@ function itemLabel(
 		case 'mouse_move':
 			return `Move pointer to ${pointLabel(input.to)}`
 		case 'mouse_click':
-			return `Click ${input.button} at ${pointLabel(input.at)}`
+			return `${
+				input.count === 2 ? 'Double-click' : input.count === 3 ? 'Triple-click' : 'Click'
+			} ${input.button} at ${pointLabel(input.at)}`
 		case 'mouse_drag':
 			return `Drag ${input.button} from ${pointLabel(input.from)} to ${pointLabel(input.to)}`
 		case 'scroll':
@@ -1483,10 +1509,29 @@ export function createComputerUseTool(
 					throw new StepFailure(
 						`computer_use: action "mouse_click" does not support button "${item.button}" on this host.`,
 					)
+				const count = item.count ?? 1
+				if (count > maxClickCount(caps))
+					throw new StepFailure(
+						maxClickCount(caps) === 1
+							? `computer_use: action "mouse_click" does not support count ${count} on this host; it clicks once per action. Click once, or repeat the click.`
+							: `computer_use: action "mouse_click" does not support count ${count} on this host; it clicks at most ${maxClickCount(caps)} times in a row.`,
+					)
+				if (count > 1 && item.button !== 'left')
+					throw new StepFailure(
+						`computer_use: action "mouse_click" with count ${count} needs the left button; "${item.button}" can only be clicked once.`,
+					)
 				const frame = frameFor(frameId)
 				const at = mapPoint(frame, item.at, 'at')
 				return step(async () => {
-					const outcome = await runHost({ type: 'mouse_click', at, button: item.button }, frame)
+					const outcome = await runHost(
+						{
+							type: 'mouse_click',
+							at,
+							button: item.button,
+							...(count > 1 ? { count: count as 2 | 3 } : {}),
+						},
+						frame,
+					)
 					const nudge = coordinateNudge(frame)
 					if (!nudge) return outcome
 					return typeof outcome === 'string'

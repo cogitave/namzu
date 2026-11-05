@@ -95,7 +95,8 @@ describe('the cua-driver adapter', () => {
 		expect(calls()[0]).toEqual({ name: 'set_agent_cursor_enabled', arguments: { enabled: false } })
 		expect(adapter.backend).toBe('cua-driver 0.38.0')
 		expect(adapter.capabilities.windows).toBe(true)
-		expect(adapter.capabilities.windowScroll).toBe(false)
+		expect(adapter.capabilities.windowScroll).toBe(true)
+		expect(adapter.capabilities.maxClickCount).toBe(3)
 		expect(adapter.capabilities.regionCapture).toBe(false)
 		await adapter.dispose()
 	})
@@ -252,17 +253,136 @@ describe('the cua-driver adapter', () => {
 			keys: ['ctrl', 'a'],
 			delivery_mode: 'foreground',
 		})
-		await expect(
-			adapter.executeWindow(second.captureId, {
-				type: 'scroll',
-				at: { x: 220, y: 130 },
-				direction: 'down',
-				amount: 3,
-			}),
-		).rejects.toThrow(/window pixel scrolling is unavailable/)
-		expect(calls().some((call) => call.name === 'scroll')).toBe(false)
+		await adapter.executeWindow(second.captureId, {
+			type: 'scroll',
+			at: { x: 220, y: 130 },
+			direction: 'down',
+			amount: 3,
+		})
+		// The point is a foreground-only argument: a background scroll is posted to the window.
+		expect(calls().find((call) => call.name === 'scroll')?.arguments).toEqual({
+			scope: 'window',
+			pid: 42,
+			window_id: 0x222,
+			direction: 'down',
+			amount: 3,
+		})
 		expect(calls().some((call) => call.name === 'get_desktop_state')).toBe(false)
 		await adapter.dispose()
+	})
+
+	describe('multi-click and window scroll', () => {
+		const WINDOW = {
+			window_id: 0x111,
+			pid: 42,
+			title: 'Notes',
+			app_name: 'editor.exe',
+			bounds: { x: 100, y: 80, width: 1200, height: 700 },
+			z_index: 1,
+		}
+		const windowDriver = (extra: Parameters<typeof cuaDriver>[0] = {}) =>
+			cuaDriver({
+				list_windows: () => toolResult({ windows: [WINDOW] }),
+				get_window_state: () =>
+					toolResult(
+						{
+							pid: 42,
+							window_id: 0x111,
+							window_bounds: WINDOW.bounds,
+							screenshot_width: 1200,
+							screenshot_height: 700,
+						},
+						[
+							{
+								type: 'image',
+								data: pngHeader(1200, 700).toString('base64'),
+								mimeType: 'image/png',
+							},
+						],
+					),
+				...extra,
+			})
+
+		it('sends count to the driver click only above 1, on the desktop and in a window', async () => {
+			const { adapter, calls } = windowDriver()
+			const at = { x: 220, y: 130 }
+			await adapter.execute({ type: 'mouse_click', at, button: 'left', count: 2 })
+			await adapter.execute({ type: 'mouse_click', at, button: 'left', count: 1 })
+			await adapter.execute({ type: 'mouse_click', at, button: 'left' })
+			const shot = await adapter.captureWindow('0x111')
+			await adapter.executeWindow(shot.captureId, {
+				type: 'mouse_click',
+				at,
+				button: 'left',
+				count: 3,
+			})
+			await adapter.executeWindow(shot.captureId, {
+				type: 'mouse_click',
+				at,
+				button: 'left',
+				count: 1,
+			})
+			const clicks = calls()
+				.filter((call) => call.name === 'click')
+				.map((call) => call.arguments)
+			expect(clicks).toEqual([
+				{ scope: 'desktop', x: 220, y: 130, button: 'left', count: 2 },
+				{ scope: 'desktop', x: 220, y: 130, button: 'left' },
+				{ scope: 'desktop', x: 220, y: 130, button: 'left' },
+				{ scope: 'window', pid: 42, window_id: 0x111, x: 220, y: 130, button: 'left', count: 3 },
+				{ scope: 'window', pid: 42, window_id: 0x111, x: 220, y: 130, button: 'left' },
+			])
+			await adapter.dispose()
+		})
+
+		it('scrolls a window by tick count without a point, and splits a long scroll', async () => {
+			const { adapter, calls } = windowDriver()
+			const shot = await adapter.captureWindow('0x111')
+			await adapter.executeWindow(shot.captureId, {
+				type: 'scroll',
+				at: { x: 600, y: 300 },
+				direction: 'up',
+				amount: 120,
+			})
+			expect(
+				calls()
+					.filter((call) => call.name === 'scroll')
+					.map((call) => call.arguments),
+			).toEqual(
+				[50, 50, 20].map((amount) => ({
+					scope: 'window',
+					pid: 42,
+					window_id: 0x111,
+					direction: 'up',
+					amount,
+				})),
+			)
+			await adapter.dispose()
+		})
+
+		it('reports a scroll the driver refuses as a typed failure, not a crash', async () => {
+			const { adapter, calls } = windowDriver({
+				scroll: () => ({
+					result: {
+						isError: true,
+						structuredContent: { code: 'window_target_not_found', effect: 'refused' },
+						content: [{ type: 'text', text: 'window_id 273 is closed, stale, or invalid.' }],
+					},
+				}),
+			})
+			const shot = await adapter.captureWindow('0x111')
+			const result = await adapter.executeWindow(shot.captureId, {
+				type: 'scroll',
+				at: { x: 600, y: 300 },
+				direction: 'down',
+				amount: 3,
+			})
+			expect(result).toMatchObject({ delivery: 'not_delivered' })
+			expect(result?.detail).toBeTruthy()
+			// A refused first part ends it: the rest would land on a view the model did not ask for.
+			expect(calls().filter((call) => call.name === 'scroll')).toHaveLength(1)
+			await adapter.dispose()
+		})
 	})
 
 	it('reports a window click already sent as unverified and a refused one as not delivered', async () => {

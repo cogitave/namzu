@@ -1363,6 +1363,112 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 			expect(calls).toHaveLength(1)
 		})
 
+		describe('click count', () => {
+			const click = { type: 'mouse_click', at: { x: 5, y: 6 } } as const
+			type Node = { properties?: Record<string, unknown>; items?: Node }
+			const countOf = (tool: ReturnType<typeof createComputerUseTool>) => {
+				const schema = (tool.modelInputSchema ?? {}) as Node
+				const item = (schema.properties?.actions as Node | undefined)?.items
+				return { top: schema.properties?.count, item: item?.properties?.count }
+			}
+
+			it('does not offer count, and refuses it above 1, on a host that clicks once', async () => {
+				const { host, calls } = makeHost()
+				const tool = createComputerUseTool(host, FAST)
+				expect(countOf(tool)).toEqual({ top: undefined, item: undefined })
+				expect(tool.description).not.toContain('Click count')
+				await run(tool, { type: 'screenshot' })
+				const refused = await run(tool, { ...click, count: 2 })
+				expect(refused.success).toBe(false)
+				expect(refused.error).toContain('does not support count 2')
+				expect(refused.error).toContain('clicks once per action')
+				expect(calls.map((call) => call.action.type)).toEqual(['screenshot'])
+				// The same field as 1 is the ordinary click and reaches the host unchanged.
+				expect((await run(tool, { ...click, count: 1 })).success).toBe(true)
+				expect(calls.find((call) => call.action.type === 'mouse_click')?.action).toEqual({
+					type: 'mouse_click',
+					at: { x: 5, y: 6 },
+					button: 'left',
+				})
+			})
+
+			it('names the cap and refuses above it before the host is reached', async () => {
+				const { host, calls } = makeHost({ capabilities: { maxClickCount: 2 } })
+				const tool = createComputerUseTool(host, FAST)
+				await run(tool, { type: 'screenshot' })
+				const refused = await run(tool, { ...click, count: 3 })
+				expect(refused.success).toBe(false)
+				expect(refused.error).toContain('at most 2 times in a row')
+				const inBatch = await run(tool, { type: 'batch', actions: [{ ...click, count: 3 }] })
+				expect(inBatch.success).toBe(false)
+				expect(calls.map((call) => call.action.type)).toEqual(['screenshot'])
+			})
+
+			it('offers count up to the cap, in the schema and the description', () => {
+				const { host } = makeHost({ capabilities: { maxClickCount: 3 } })
+				const tool = createComputerUseTool(host, FAST)
+				const field = { type: 'integer', minimum: 1, maximum: 3 }
+				expect(countOf(tool).top).toMatchObject(field)
+				expect(countOf(tool).item).toMatchObject(field)
+				expect(tool.description).toContain('mouse_click takes count up to 3')
+				const validator = new Validator()
+				expect(validator.validate({ ...click, count: 2 }, tool.modelInputSchema ?? {}).valid).toBe(
+					true,
+				)
+				const two = createComputerUseTool(
+					makeHost({ capabilities: { maxClickCount: 2 } }).host,
+					FAST,
+				)
+				expect(countOf(two).top).toMatchObject({ maximum: 2 })
+			})
+
+			it('does not offer count when the host has no click', () => {
+				const { host } = makeHost({
+					capabilities: { maxClickCount: 3, supportedActions: ['screenshot'] },
+				})
+				const tool = createComputerUseTool(host, FAST)
+				expect(countOf(tool).top).toBeUndefined()
+				expect(tool.description).not.toContain('Click count')
+			})
+
+			it('sends count to the host only above 1, alone and in a batch item', async () => {
+				const { host, actions } = makeHost({ capabilities: { maxClickCount: 3 } })
+				const tool = createComputerUseTool(host, FAST)
+				await run(tool, { type: 'screenshot' })
+				await run(tool, { ...click, count: 2 })
+				await run(tool, click)
+				await run(tool, { type: 'batch', actions: [{ ...click, count: 3 }, { ...click }] })
+				const clicks = actions().filter((action) => action.type === 'mouse_click')
+				expect(clicks).toEqual([
+					{ type: 'mouse_click', at: { x: 5, y: 6 }, button: 'left', count: 2 },
+					{ type: 'mouse_click', at: { x: 5, y: 6 }, button: 'left' },
+					{ type: 'mouse_click', at: { x: 5, y: 6 }, button: 'left', count: 3 },
+					{ type: 'mouse_click', at: { x: 5, y: 6 }, button: 'left' },
+				])
+			})
+
+			it('refuses a multi-click with the right or middle button', async () => {
+				const { host, calls } = makeHost({ capabilities: { maxClickCount: 3 } })
+				const tool = createComputerUseTool(host, FAST)
+				await run(tool, { type: 'screenshot' })
+				for (const button of ['right', 'middle']) {
+					const refused = await run(tool, { ...click, button, count: 2 })
+					expect(refused.success).toBe(false)
+					expect(refused.error).toContain('needs the left button')
+				}
+				expect(calls.map((call) => call.action.type)).toEqual(['screenshot'])
+			})
+
+			it('rejects a count outside 1 to 3 as a malformed input', () => {
+				const tool = createComputerUseTool(
+					makeHost({ capabilities: { maxClickCount: 3 } }).host,
+					FAST,
+				)
+				for (const count of [0, 4, 1.5, '2'])
+					expect(tool.inputSchema.safeParse({ ...click, count }).success, String(count)).toBe(false)
+			})
+		})
+
 		it('exact declarations cannot enable a disabled broad capability', async () => {
 			const { host, calls } = makeHost({
 				capabilities: { mouse: false, supportedActions: ['screenshot', 'mouse_click'] },

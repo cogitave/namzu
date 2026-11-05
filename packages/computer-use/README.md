@@ -139,11 +139,11 @@ standard streams:
   bring the verified window forward for browser text and modifier shortcuts
   that background delivery cannot send. To focus a browser field, click its
   window-image point first; an atomic foreground focus-and-type is not offered
-  because the native focus click could hit an overlay. `windowScroll: false`
-  declares that window pixel scrolling
-  is refused: its background path does not deliver, and its foreground wheel
-  can reach a covering window. Use a foreground `PAGE_DOWN` key on the window
-  when appropriate. A new window capture invalidates the
+  because the native focus click could hit an overlay. Window pixel scrolling
+  works in the background (`windowScroll: true`): the driver posts the scroll
+  to the window, and takes the point only in the foreground, to pick a nested
+  scrolling surface. A click may be a double or triple click (`maxClickCount: 3`,
+  left button). A new window capture invalidates the
   previous token, including another window of the same process. A stale
   token never falls back to desktop input. The pinned driver's screen-region
   fallback may show a covering window, and its MCP result does not report
