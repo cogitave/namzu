@@ -7,13 +7,16 @@ import { describe, expect, it } from 'vitest'
 import type { WslProbes } from '../adapters/wsl.js'
 import { presenceScriptLine } from '../presence/helper-script.js'
 import {
+	APPEAR_MS,
 	FADE_MS,
-	GLIDE_MS,
+	GLIDE_MAX_MS,
+	GLIDE_MIN_MS,
 	HOLD_MS,
 	PRESENCE_BOOTSTRAP,
 	PRESENCE_ENV,
 	PRESENCE_HELPER_SCRIPT,
 	type PresenceProcess,
+	RIPPLE_MS,
 	WindowsPresence,
 	createWindowsPresence,
 	presenceDisabledByEnv,
@@ -235,11 +238,47 @@ describe('the helper script', () => {
 		expect(PRESENCE_HELPER_SCRIPT).toContain('if (!Excluded) throw')
 	})
 
-	it('glides fast, and holds then fades after the last action', () => {
-		expect(GLIDE_MS).toBeLessThanOrEqual(150)
+	it('glides by distance, fades in on first appearance, and holds then fades after the last action', () => {
+		// Was a single 120 ms glide (`GLIDE_MS`) and a 2.5 s hold with a 0.6 s fade; the cursor now
+		// glides 140 to 420 ms along a curve, fades in over 160 ms, and holds 2 s then fades 0.5 s.
+		expect(GLIDE_MIN_MS).toBeLessThanOrEqual(150)
+		expect(GLIDE_MAX_MS).toBeLessThanOrEqual(450)
+		expect(APPEAR_MS).toBeGreaterThan(0)
 		expect(HOLD_MS).toBeGreaterThan(0)
 		expect(FADE_MS).toBeGreaterThan(0)
-		expect(PRESENCE_HELPER_SCRIPT).toContain(`GlideMs = ${GLIDE_MS}`)
+		expect(RIPPLE_MS).toBeGreaterThan(0)
+		expect(PRESENCE_HELPER_SCRIPT).toContain(`GlideMinMs = ${GLIDE_MIN_MS}`)
+		expect(PRESENCE_HELPER_SCRIPT).toContain(`GlideMaxMs = ${GLIDE_MAX_MS}`)
+		expect(PRESENCE_HELPER_SCRIPT).toContain(`HoldMs = ${HOLD_MS}`)
+		expect(PRESENCE_HELPER_SCRIPT).toContain(`FadeMs = ${FADE_MS}`)
+	})
+
+	it('draws smooth shapes with System.Drawing, not a dither or a pixel-art sprite', () => {
+		expect(PRESENCE_HELPER_SCRIPT).toContain('-ReferencedAssemblies System.Drawing')
+		expect(PRESENCE_HELPER_SCRIPT).toContain('SmoothingMode.AntiAlias')
+		expect(PRESENCE_HELPER_SCRIPT).toContain('PixelFormat.Format32bppPArgb')
+		expect(PRESENCE_HELPER_SCRIPT).not.toMatch(/Bayer|Sprite = \{|Dens\b/)
+		// The display scale comes from the operated window, so sizes follow its DPI.
+		expect(PRESENCE_HELPER_SCRIPT).toContain('GetDpiForWindow(h)')
+		expect(PRESENCE_HELPER_SCRIPT).toContain('ScaleOf(tg)')
+	})
+
+	it('redraws nothing when nothing changed, and keeps the 16 ms timer', () => {
+		expect(PRESENCE_HELPER_SCRIPT).toContain('SetTimer(frm, (UIntPtr)1, 16, IntPtr.Zero)')
+		// The cursor window is only drawn and pushed when one of the things it shows changed.
+		expect(PRESENCE_HELPER_SCRIPT).toContain('if (!force && !curDirty && sx == dSx')
+		// Bitmaps are allocated per size, not per tick: no `new int[` in the cursor drawing.
+		const draw = PRESENCE_HELPER_SCRIPT.slice(
+			PRESENCE_HELPER_SCRIPT.indexOf('static void DrawCursor('),
+			PRESENCE_HELPER_SCRIPT.indexOf('static int Steps('),
+		)
+		expect(draw).not.toMatch(/new (int|float|byte)\[|new Bitmap\(/)
+	})
+
+	it('is one here-string that ends where the protocol loop starts', () => {
+		// A line starting `'@` ends the C#; there must be exactly one, and none inside it.
+		expect(PRESENCE_HELPER_SCRIPT.match(/^'@/gm)).toHaveLength(1)
+		expect(PRESENCE_HELPER_SCRIPT).not.toContain('${')
 	})
 
 	it('fits a Windows command line once started through the bootstrap', () => {

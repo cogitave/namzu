@@ -187,22 +187,51 @@ an agent is using the computer. Two things are drawn, both by the package and
 neither by the desktop driver (the driver's own cursor can only switch between
 themes it has installed, and its glide cost 0.9 to 3.8 s per action):
 
-- an **agent cursor**: a pixel-art arrow in Namzu green with a dark outline,
-  separate from the real pointer, which it never moves. It glides to each
-  action point in 120 ms and pulses on a click and on typing. For a control
-  action it goes to the centre of the control; for typing it stays where it is.
-- a **presence border**: a frame inside the window being operated, drawn as an
-  ordered (Bayer) dither that thins towards the middle. It follows the window
-  when it moves or is resized, holds for 2.5 s after the last action, fades out
-  over 0.6 s, and disappears at once when the turn ends (`endTurn`) or the host
+- an **agent cursor**: a smooth, anti-aliased arrow (about 22 by 15 logical
+  pixels) in Namzu green: a light-to-deep green gradient, a fine dark outline,
+  a soft highlight down its upper-left edge and a soft drop shadow, so it reads
+  on light and dark windows. It is separate from the real pointer, which it
+  never moves. The first time it shows in a window it fades in and grows from
+  85 % over 160 ms instead of popping in. After that it glides to each action
+  point along a gentle curve (the path bows by a tenth of its length, always
+  to the same side of the line, so repeated moves do not zigzag), in 140 to
+  420 ms depending on the distance, eased in and out and at sub-pixel
+  positions. On a click it dips to 88 % over 70 ms and returns over 110 ms,
+  and a circular ripple (2 px green stroke, 5 to 26 px over 420 ms, fading
+  out) spreads from the tip once it arrives; typing makes a smaller, softer
+  ripple (4 to 14 px) and no dip. For a control action it goes to the centre
+  of the control; for typing it stays where it is.
+- a **presence border**: a smooth rounded frame inside the window being
+  operated (corner radius 8 px): a 2 px green stroke at about 60 % opacity with
+  a soft 8 px glow fading inward. It breathes very gently (plus or minus 8 %
+  every 2.4 s) while the cursor is active, follows the window when it moves or
+  is resized, holds for 2 s after the last action, fades out over 0.5 s with
+  the cursor, and disappears at once when the turn ends (`endTurn`) or the host
   is disposed. It also shows while the foreground ladder is in use.
+
+Every size is in logical pixels and is multiplied by the operated window's
+display scale (its DPI over 96, read again when the window changes), so the
+cursor is the same visual size on a 100 %, 150 % or 200 % display. The pointer
+is drawn once per scale with its shadow baked in, and the two windows' bitmaps
+are allocated once per size; the 16 ms timer only compares, so while nothing
+moves, appears or fades the cursor window is neither redrawn nor updated, and
+the frame is updated only for its breathing. The numbers (durations, sizes, the
+curve and easing formulas) are in `presence/motion.ts`, written into the
+helper script and pinned by tests.
 
 Both are drawn by one long-lived PowerShell helper that starts the first time
 the model lists windows (about 0.35 s, compiling a small library) and is
-reused: an update is one line written to it, about 0.02 ms on the host side, and
-a drawing tick takes about 0.5 ms every 16 ms while something is shown. Its
+reused: an update is one line written to it, about 0.02 ms on the host side. Its
 script is handed over as the first line of its input, since the encoded script
 is longer than a Windows command line.
+
+For development the helper also answers one command that draws nothing on the
+screen: `{"cmd":"preview","dpi":96|144|192,"state":"rest"|"press"|"ripple"|"frame","path":"<png>"}`
+renders that state (the pointer, the pointer at the bottom of a click's dip, a
+half-grown click ripple, or the frame) to an offscreen bitmap on a mid-grey
+checker, a white and a near-black panel, and writes it as a PNG, so the design
+can be checked without touching the desktop. `previewCommandLine` in
+`presence/preview.ts` builds the line.
 
 The two windows never take input (`WS_EX_TRANSPARENT`), are never activated
 (`WS_EX_NOACTIVATE`), are not in the taskbar or alt-tab (`WS_EX_TOOLWINDOW`)
