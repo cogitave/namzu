@@ -1,5 +1,13 @@
 # @namzu/cli
 
+## 45.9.2
+
+### Patch Changes
+
+- Updated dependencies [b19db83]
+  - @namzu/sdk@61.2.0
+  - @namzu/computer-use@4.1.0
+
 ## 45.9.1
 
 ### Patch Changes
