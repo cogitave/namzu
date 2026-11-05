@@ -6,6 +6,7 @@ import { Roster } from '../roster.js'
 import {
 	type SidebarModel,
 	agentDetail,
+	agentHeadline,
 	agentList,
 	clampScroll,
 	dotStyle,
@@ -191,12 +192,39 @@ describe('the sidebar', () => {
 		a1.account = 'work'
 		const { text } = draw(model(roster))
 		const top = geometry(45, 0, 0.5, false).agentTop
-		expect(text(top)).toContain('alpha')
-		expect(text(top + 1)).toBe('   1 · session 1 · work  ')
+		// First line: the workspace, with the tab when it has several. Second: the session and its account.
+		expect(text(top)).toContain('alpha · tab 1')
+		expect(text(top + 1)).toBe('   session 1 · work      ')
+		expect(text(top + 2)).toContain('alpha · tab 2')
+		expect(text(top + 3)).toBe('   session 2             ')
 		expect(text(top + 4)).toContain('beta')
+		expect(text(top + 4)).not.toContain('tab')
 		expect(text(top + 5)).toBe('   session 1             ')
 		expect(agentDetail(roster, a1, 12)).toMatch(/·? ?work$/u)
 		expect(roster.entries).toContain(b1)
+	})
+
+	it('names an agent by what its terminal calls the conversation, and by its label until then', () => {
+		const { roster, a1, b1 } = build()
+		a1.peerName = 'login fix'
+		a1.account = 'work'
+		expect(agentDetail(roster, a1)).toBe('login fix · work')
+		expect(agentDetail(roster, b1)).toBe('session 1')
+		const { text } = draw(model(roster))
+		const top = geometry(45, 0, 0.5, false).agentTop
+		expect(text(top + 1)).toBe('   login fix · work      ')
+		// Too narrow for both: the name gives way, the account stays.
+		expect(agentDetail(roster, a1, 12)).toBe('logi… · work')
+	})
+
+	it('shrinks the first line to the tab number, then the workspace name, as the width runs out', () => {
+		const { roster, a1 } = build()
+		expect(agentHeadline(roster, a1)).toBe('alpha · tab 1')
+		expect(agentHeadline(roster, a1, 9)).toBe('alpha · 1')
+		expect(agentHeadline(roster, a1, 6)).toBe('a… · 1')
+		const onlyTab = roster.workspaces[1] ? roster.workspaces[1] : undefined
+		expect(onlyTab?.name).toBe('beta')
+		expect(agentHeadline(roster, roster.entries[2] as never)).toBe('beta')
 	})
 
 	it('replaces an agent line with the warning when its account is out of allowance', () => {

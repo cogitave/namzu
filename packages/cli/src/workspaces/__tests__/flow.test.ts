@@ -181,6 +181,21 @@ describe('status feed', () => {
 		expect(cell?.fg).toBe(dotStyle('working', paletteFor('truecolor')).fg)
 	})
 
+	it("calls a session by its terminal's conversation name, and by its label until it has one", async () => {
+		const { t, peers } = rig()
+		t.host.start()
+		// A session titled by its folder has no name of its own yet: the label shows.
+		peers.publish('slot-1', 'idle', { cwd: '/work/namzu', title: 'namzu' })
+		expect(t.host.roster.entries[0]?.peerName).toBeUndefined()
+		expect(await lines(t)).toContain('session 1')
+		// Named, it shows the name; a rename reaches the sidebar through the record alone.
+		peers.publish('slot-1', 'idle', { cwd: '/work/namzu', title: 'login fix' })
+		expect(t.host.roster.entries[0]?.peerName).toBe('login fix')
+		expect(await lines(t)).toContain('login fix')
+		peers.publish('slot-1', 'idle', { cwd: '/work/namzu', title: 'namzu' })
+		expect(t.host.roster.entries[0]?.peerName).toBeUndefined()
+	})
+
 	it('turns a workspace red when a background session needs approval', async () => {
 		const { t, peers } = rig({ listed: [] })
 		t.host.start()
@@ -322,9 +337,9 @@ describe('mouse', () => {
 		t.type(click(5, row))
 		expect(t.host.roster.selected?.workspaceId).toBe('workspace-2')
 		expect(t.spawned).toHaveLength(2)
-		// An agent's second line names its tab and pane; clicking it shows that pane.
+		// An agent's first line names its workspace and tab, its second the session; clicking shows that pane.
 		screen = await lines(t)
-		row = screen.split('\n').findIndex((l) => l.startsWith('   tab 2 · session 2'))
+		row = screen.split('\n').findIndex((l) => /^ [●○◆✓·] site · tab 2/u.test(l))
 		t.type(click(5, row))
 		expect(t.host.roster.selected?.label).toBe('session 2')
 		expect(t.spawned).toHaveLength(3)

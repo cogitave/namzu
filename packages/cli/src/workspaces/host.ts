@@ -999,6 +999,11 @@ export class WorkspacesHost {
 				this.rememberAccount(entry, record.account)
 			}
 			entry.account = record.account
+			// A session with no name of its own is titled by its folder, which says nothing new.
+			const peerName =
+				record.title && record.title !== basename(record.cwd) ? record.title : undefined
+			if (entry.peerName !== peerName) changed = true
+			entry.peerName = peerName
 			if (entry.limited !== (record.limited === true)) changed = true
 			entry.limited = record.limited === true
 			entry.limitedUntil = record.limited === true ? record.limitedUntil : undefined

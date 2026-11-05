@@ -12,7 +12,13 @@ import {
 import { afterEach, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../subagents/__fixtures__/parent.js'
-import { type LivePeers, openLivePeers, peerMailMessage, resolvePeerRuntime } from './runtime.js'
+import {
+	type LivePeers,
+	displayTitle,
+	openLivePeers,
+	peerMailMessage,
+	resolvePeerRuntime,
+} from './runtime.js'
 
 const roots: string[] = []
 const opened: LivePeers[] = []
@@ -456,4 +462,45 @@ it('publishes the host slot, conversation, account and limit only when it has th
 	limited = true
 	peers.publish()
 	expect(read()).toMatchObject({ conversationId: 'conv-1', limited: true })
+})
+
+it('titles a session by its conversation name, and by its folder until it has one', async () => {
+	const root = mkdtempSync(join(tmpdir(), 'np-'))
+	roots.push(root)
+	const home = join(root, 'h')
+	const cwd = join(root, 'proj')
+	mkdirSync(cwd)
+	let name: string | undefined
+	const peers = await openLivePeers({
+		home,
+		cwd,
+		version: 'fixture',
+		env: {},
+		mode: () => 'auto',
+		owner: () => 0,
+		state: () => 'idle' as const,
+		ready: () => true,
+		available: () => {},
+		report: () => {},
+		name: () => name,
+	})
+	opened.push(peers)
+	const titleOnDisk = () => {
+		const runtime = resolvePeerRuntime(home, {})
+		return readPeerRecords(runtime.sessionsDir).find((r) => r.pid === process.pid)?.title
+	}
+	expect(titleOnDisk()).toBe('proj')
+	name = 'login fix'
+	peers.publish()
+	expect(titleOnDisk()).toBe('login fix')
+	name = undefined
+	peers.publish()
+	expect(titleOnDisk()).toBe('proj')
+})
+
+it('keeps a display name to one safe line of bounded length', () => {
+	expect(displayTitle(undefined, '/work/proj')).toBe('proj')
+	expect(displayTitle('   ', '/work/proj')).toBe('proj')
+	expect(displayTitle('fix\nthe\u202e login', '/work/proj')).not.toMatch(/[\n\u202e]/u)
+	expect([...displayTitle('x'.repeat(200), '/work/proj')]).toHaveLength(40)
 })

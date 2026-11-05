@@ -44,6 +44,8 @@ export class Entry {
 	/** The label of the non-usual account the session is on, as its terminal last reported. */
 	account: string | undefined
 	conversationId: string | undefined
+	/** What the session's terminal calls its conversation; absent until it is named. */
+	peerName: string | undefined
 	limited = false
 	/** When the spent allowance is expected back (epoch ms), if the terminal knows. */
 	limitedUntil: number | undefined
