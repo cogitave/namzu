@@ -2089,8 +2089,15 @@ export function createComputerUseTool(
 		}
 		const { display } = frame
 		const scaled = frame.imageWidth !== display.width || frame.imageHeight !== display.height
+		// A display much larger than the image makes small text unreadable in it; say so, and say
+		// what to do, rather than let the model guess at blurred pixels.
+		const shrink = display.width / frame.imageWidth
+		const shrunkNote =
+			shrink >= 2
+				? ` The display is ${Math.round(shrink * 10) / 10} times larger than this image, so small text is hard to read here: use zoom on the area to read it at full detail.`
+				: ''
 		return scaled
-			? `Screenshot ${frame.id}: ${frame.imageWidth}x${frame.imageHeight} pixels, showing the ${display.width}x${display.height} display. Send coordinates in this image's pixels (x 0–${frame.imageWidth - 1}, y 0–${frame.imageHeight - 1}); the tool maps them onto the display.`
+			? `Screenshot ${frame.id}: ${frame.imageWidth}x${frame.imageHeight} pixels, showing the ${display.width}x${display.height} display. Send coordinates in this image's pixels (x 0–${frame.imageWidth - 1}, y 0–${frame.imageHeight - 1}); the tool maps them onto the display.${shrunkNote}`
 			: `Screenshot ${frame.id}: ${frame.imageWidth}x${frame.imageHeight} pixels, the display at full size. Send coordinates in this image's pixels (x 0–${frame.imageWidth - 1}, y 0–${frame.imageHeight - 1}).`
 	}
 

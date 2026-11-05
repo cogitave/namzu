@@ -235,6 +235,25 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 			expect(textOf(result)).toContain('1280x800 pixels, the display at full size')
 		})
 
+		it('tells the model to zoom when the image is at least twice as small as the display', async () => {
+			// An ultrawide display fitted to the standard limits is a sliver: 5120x1440 becomes 1568x441.
+			const { host } = makeHost({ width: 5120, height: 1440 })
+			const result = await run(createComputerUseTool(host, FAST), { type: 'screenshot' })
+			expect(imageOf(result)).toEqual({ width: 1568, height: 441 })
+			expect(textOf(result)).toContain('The display is 3.3 times larger than this image')
+			expect(textOf(result)).toContain('use zoom on the area')
+		})
+
+		it('does not add the zoom hint for a modest shrink or a full-size image', async () => {
+			const modest = makeHost({ width: 1600, height: 900, display: null })
+			const shot = await run(createComputerUseTool(modest.host, FAST), { type: 'screenshot' })
+			expect(textOf(shot)).not.toContain('times larger than this image')
+			const full = makeHost({ width: 1280, height: 800 })
+			expect(
+				textOf(await run(createComputerUseTool(full.host, FAST), { type: 'screenshot' })),
+			).not.toContain('times larger than this image')
+		})
+
 		it('honours the high-resolution tier when asked', async () => {
 			// The standard limits shrink 2000x1000 to 1568x784; the high tier keeps it.
 			const { host } = makeHost({ width: 2000, height: 1000 })
