@@ -259,7 +259,7 @@ describe('the sidebar in the host', () => {
 		const list = agentList(roster, 'grouped')
 		const at = list.indexOf(extra)
 		expect(at).toBeGreaterThan(0)
-		t.type(press(5, geo.agentTop + at * geo.workspaceStep))
+		t.type(press(5, geo.agentTop + at * geo.agentStep))
 		expect(roster.selected).toBe(extra)
 		expect(roster.workspaceOf(extra)).toBe(second)
 		expect(second.activeTab).toBe(roster.tabOf(extra))

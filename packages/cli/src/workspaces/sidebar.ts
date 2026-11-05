@@ -87,10 +87,10 @@ export interface Geometry {
 	/** The "workspaces" header; none on the rail. */
 	readonly headerY: number | undefined
 	readonly workspaceTop: number
-	/** Rows a workspace takes: 2 in the full sidebar, 1 on the rail. */
-	readonly workspaceStep: 1 | 2
-	/** How many workspaces fit. */
-	readonly workspaceCap: number
+	/** Rows the workspaces list has between its top and the "new" row. */
+	readonly workspaceRows: number
+	/** Rows an agent takes: 2 in the full sidebar, 1 on the rail. */
+	readonly agentStep: 1 | 2
 	/** The "new" and "menu" row; none on the rail. */
 	readonly footerY: number | undefined
 	readonly agentHeaderY: number | undefined
@@ -122,8 +122,8 @@ export function geometry(
 			ruleY,
 			headerY: undefined,
 			workspaceTop: 0,
-			workspaceStep: 1,
-			workspaceCap: Math.max(0, ruleY),
+			workspaceRows: Math.max(0, ruleY),
+			agentStep: 1,
 			footerY: undefined,
 			agentHeaderY: undefined,
 			agentTop: ruleY + 1,
@@ -139,8 +139,8 @@ export function geometry(
 		ruleY,
 		headerY: 0,
 		workspaceTop: 2,
-		workspaceStep: 2,
-		workspaceCap: Math.max(0, Math.floor((footerY - 2) / 2)),
+		workspaceRows: Math.max(0, footerY - 2),
+		agentStep: 2,
 		footerY,
 		agentHeaderY: ruleY + 1,
 		agentTop,
@@ -184,10 +184,92 @@ function within(scroll: number, total: number, cap: number, reveal: number): num
 	return Math.max(0, Math.min(next, most))
 }
 
+/**
+ * Rows each workspace takes. The second line holds a note or the branch, and a row
+ * with nothing to put there is one line, not a line and a blank one. The rail is
+ * always one line.
+ */
+export function workspaceHeights(
+	model: Pick<SidebarModel, 'roster' | 'git' | 'rail'>,
+): readonly (1 | 2)[] {
+	return model.roster.workspaces.map((workspace) => {
+		if (model.rail) return 1
+		if (workspaceNote(model.roster.workspaceDot(workspace)) !== undefined) return 2
+		return model.git(workspace.cwd) ? 2 : 1
+	})
+}
+
+/** How many rows, from `start`, fit whole in `rows`. */
+function fitting(heights: readonly number[], start: number, rows: number): number {
+	let used = 0
+	let count = 0
+	for (let i = start; i < heights.length; i++) {
+		used += heights[i] ?? 1
+		if (used > rows) break
+		count++
+	}
+	return count
+}
+
+/** The last first-row that still shows everything after it. */
+function lastStart(heights: readonly number[], rows: number): number {
+	let used = 0
+	let start = heights.length
+	while (start > 0 && used + (heights[start - 1] ?? 1) <= rows) {
+		used += heights[start - 1] ?? 1
+		start--
+	}
+	return start
+}
+
+/** `within` for rows of different heights: the first row shown, kept in range and, if asked, with `reveal` in view. */
+function withinRows(
+	scroll: number,
+	heights: readonly number[],
+	rows: number,
+	reveal: number,
+): number {
+	const most = lastStart(heights, rows)
+	let next = Math.max(0, Math.min(scroll, most))
+	if (reveal >= 0 && rows > 0) {
+		if (reveal < next) next = reveal
+		else while (next < reveal && next + fitting(heights, next, rows) <= reveal) next++
+	}
+	return Math.max(0, Math.min(next, most))
+}
+
+/** Where one workspace sits in the sidebar. */
+export interface WorkspaceSlot {
+	readonly workspace: Workspace
+	readonly index: number
+	/** Row from the top of the sidebar. */
+	readonly y: number
+	readonly height: 1 | 2
+}
+
+/** The workspaces on screen, from the first one shown, each with its row and height. */
+export function workspaceSlots(
+	model: Pick<SidebarModel, 'roster' | 'git' | 'rail' | 'scroll' | 'foot' | 'split'>,
+	height: number,
+): WorkspaceSlot[] {
+	const geo = geometry(height, model.foot.length, model.split, model.rail)
+	const heights = workspaceHeights(model)
+	const slots: WorkspaceSlot[] = []
+	let y = geo.workspaceTop
+	for (let index = model.scroll.workspaces; index < heights.length; index++) {
+		const rows = heights[index] ?? 1
+		if (y + rows > geo.workspaceTop + geo.workspaceRows) break
+		const workspace = model.roster.workspaces[index]
+		if (workspace) slots.push({ workspace, index, y, height: rows })
+		y += rows
+	}
+	return slots
+}
+
 /** Keeps both scrolls in range and, if asked, brings the shown workspace and session into view. */
 export function clampScroll(
 	scroll: SidebarScroll,
-	model: Pick<SidebarModel, 'roster' | 'order' | 'foot' | 'split' | 'rail'>,
+	model: Pick<SidebarModel, 'roster' | 'order' | 'foot' | 'split' | 'rail' | 'git'>,
 	height: number,
 	reveal = false,
 ): SidebarScroll {
@@ -196,10 +278,10 @@ export function clampScroll(
 	const workspace = selected ? model.roster.workspaceOf(selected) : undefined
 	const agents = agentList(model.roster, model.order)
 	return {
-		workspaces: within(
+		workspaces: withinRows(
 			scroll.workspaces,
-			model.roster.workspaces.length,
-			geo.workspaceCap,
+			workspaceHeights(model),
+			geo.workspaceRows,
 			reveal && workspace ? model.roster.workspaces.indexOf(workspace) : -1,
 		),
 		agents: within(
@@ -230,7 +312,7 @@ export function orderLabel(order: AgentOrder): string {
 
 /** What a click at a cell of the sidebar lands on. */
 export function hitTest(
-	model: Pick<SidebarModel, 'roster' | 'scroll' | 'order' | 'foot' | 'split' | 'rail'>,
+	model: Pick<SidebarModel, 'roster' | 'scroll' | 'order' | 'foot' | 'split' | 'rail' | 'git'>,
 	width: number,
 	height: number,
 	x: number,
@@ -247,18 +329,14 @@ export function hitTest(
 	if (geo.agentHeaderY !== undefined && y === geo.agentHeaderY) {
 		return x >= width - orderLabel(model.order).length - 1 ? { kind: 'order' } : undefined
 	}
-	const workspaceLine = y - geo.workspaceTop
-	if (workspaceLine >= 0 && workspaceLine < geo.workspaceCap * geo.workspaceStep && y < geo.ruleY) {
-		const workspace =
-			model.roster.workspaces[
-				model.scroll.workspaces + Math.floor(workspaceLine / geo.workspaceStep)
-			]
-		return workspace ? { kind: 'workspace', workspace } : undefined
+	if (y >= geo.workspaceTop && y < geo.ruleY) {
+		const slot = workspaceSlots(model, height).find((s) => y >= s.y && y < s.y + s.height)
+		return slot ? { kind: 'workspace', workspace: slot.workspace } : undefined
 	}
 	const agentLine = y - geo.agentTop
-	if (agentLine >= 0 && agentLine < geo.agentCap * geo.workspaceStep) {
+	if (agentLine >= 0 && agentLine < geo.agentCap * geo.agentStep) {
 		const entry = agentList(model.roster, model.order)[
-			model.scroll.agents + Math.floor(agentLine / geo.workspaceStep)
+			model.scroll.agents + Math.floor(agentLine / geo.agentStep)
 		]
 		return entry ? { kind: 'agent', entry } : undefined
 	}
@@ -379,7 +457,8 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 		if (!thumb) return
 		for (let i = 0; i < thumb.length; i++) at(x, top + thumb.start + i, '┃', { fg: palette.dim })
 	}
-	const workspaceRoom = rect.width - 3 - (roster.workspaces.length > geo.workspaceCap ? 1 : 0)
+	const slots = workspaceSlots(model, rect.height)
+	const workspaceRoom = rect.width - 3 - (slots.length < roster.workspaces.length ? 1 : 0)
 	const agentRoom = rect.width - 3 - (agentList(roster, model.order).length > geo.agentCap ? 1 : 0)
 	const shown = roster.selected ? roster.workspaceOf(roster.selected) : undefined
 	const agents = agentList(roster, model.order)
@@ -387,19 +466,13 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 	if (geo.headerY !== undefined)
 		at(1, geo.headerY, 'workspaces', { fg: palette.text, attrs: ATTR_BOLD })
 	const reversed: [number, number][] = []
-	const workspaces = roster.workspaces.slice(
-		model.scroll.workspaces,
-		model.scroll.workspaces + geo.workspaceCap,
-	)
-	workspaces.forEach((workspace, i) => {
-		const y = geo.workspaceTop + i * geo.workspaceStep
-		const index = model.scroll.workspaces + i
+	for (const { workspace, index, y, height } of slots) {
 		const focused = workspace === shown
 		const dot = roster.workspaceDot(workspace)
 		const bg = focused ? (navigating ? palette.cursorRow : palette.activeRow) : -1
-		tint(y, geo.workspaceStep, bg)
+		tint(y, height, bg)
 		// Without colour the cursor row is the one drawn reversed.
-		if (palette.mono && focused && navigating) reversed.push([y, geo.workspaceStep])
+		if (palette.mono && focused && navigating) reversed.push([y, height])
 		if (geo.rail) {
 			at(0, y, railIndex(index), { fg: palette.dim, bg })
 			at(2, y, GLYPHS[dot], {
@@ -407,7 +480,7 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 				bg,
 				...(focused ? { attrs: ATTR_BOLD } : {}),
 			})
-			return
+			continue
 		}
 		at(1, y, GLYPHS[dot], { fg: dotColor(dot, palette), bg })
 		at(3, y, clip(workspace.name, workspaceRoom), {
@@ -415,16 +488,18 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 			bg,
 			...(focused ? { attrs: ATTR_BOLD } : {}),
 		})
+		// A row with nothing to say under its name is one line.
+		if (height === 1) continue
 		const note = workspaceNote(dot)
 		if (note) {
 			at(3, y + 1, clip(note, workspaceRoom), {
 				fg: dot === 'blocked' ? palette.blocked : palette.done,
 				bg,
 			})
-			return
+			continue
 		}
 		const git = model.git(workspace.cwd)
-		if (!git) return
+		if (!git) continue
 		const counts: { text: string; fg: number }[] = []
 		if (git.ahead > 0) counts.push({ text: `↑${git.ahead}`, fg: palette.ahead })
 		if (git.behind > 0) counts.push({ text: `↓${git.behind}`, fg: palette.behind })
@@ -436,7 +511,7 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 			at(x + 1, y + 1, c.text, { fg: c.fg, bg })
 			x += 1 + c.text.length
 		}
-	})
+	}
 
 	for (const [top, rows] of reversed)
 		for (let row = 0; row < rows; row++)
@@ -449,9 +524,9 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 		bar(
 			rect.width - 1,
 			geo.workspaceTop,
-			geo.workspaceCap * geo.workspaceStep,
+			geo.workspaceRows,
 			roster.workspaces.length,
-			geo.workspaceCap,
+			slots.length,
 			model.scroll.workspaces,
 		)
 	if (geo.footerY !== undefined) {
@@ -473,12 +548,12 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 	}
 	const visible = agents.slice(model.scroll.agents, model.scroll.agents + geo.agentCap)
 	visible.forEach((entry, i) => {
-		const y = geo.agentTop + i * geo.workspaceStep
+		const y = geo.agentTop + i * geo.agentStep
 		const index = model.scroll.agents + i
 		const focused = entry === roster.selected
 		const dot = entry.dot()
 		const bg = focused ? palette.activeRow : -1
-		tint(y, geo.workspaceStep, bg)
+		tint(y, geo.agentStep, bg)
 		if (geo.rail) {
 			at(0, y, railIndex(index), { fg: palette.dim, bg })
 			at(2, y, GLYPHS[dot], {
@@ -506,7 +581,7 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 		bar(
 			rect.width - 1,
 			geo.agentTop,
-			geo.agentCap * geo.workspaceStep,
+			geo.agentCap * geo.agentStep,
 			agents.length,
 			geo.agentCap,
 			model.scroll.agents,

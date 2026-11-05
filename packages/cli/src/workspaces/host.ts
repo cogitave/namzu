@@ -88,6 +88,7 @@ import {
 	hitTest,
 	regionAt,
 	ruleRow,
+	workspaceSlots,
 } from './sidebar.js'
 import type { SignalName } from './signal.js'
 import type { SavedLayout, SavedNode, SavedTab, WorkspacesStore } from './store.js'
@@ -1985,17 +1986,11 @@ export class WorkspacesHost {
 		if (target?.kind === 'workspace') drag.to = this.roster.workspaces.indexOf(target.workspace)
 		else if (!target) {
 			// Blank sidebar area under the last workspace row: the workspace goes to the end.
-			const geo = geometry(
-				layout.sidebar.height,
-				this.sidebarModel(layout.rail).foot.length,
-				this.split,
-				layout.rail,
-			)
-			const shown = this.roster.workspaces.length - this.sidebarScroll.workspaces
-			if (
-				event.y >= geo.workspaceTop + shown * geo.workspaceStep &&
-				event.y < (geo.footerY ?? geo.ruleY)
-			)
+			const model = this.sidebarModel(layout.rail)
+			const geo = geometry(layout.sidebar.height, model.foot.length, this.split, layout.rail)
+			const last = workspaceSlots(model, layout.sidebar.height).at(-1)
+			const end = last ? last.y + last.height : geo.workspaceTop
+			if (event.y >= end && event.y < (geo.footerY ?? geo.ruleY))
 				drag.to = this.roster.workspaces.length - 1
 		}
 		this.requestRender()
@@ -2742,11 +2737,11 @@ export class WorkspacesHost {
 		if (!drag || !sidebar) return
 		const from = this.roster.workspaces.indexOf(drag.workspace)
 		if (drag.to === from) return
-		const geo = geometry(sidebar.height, 0, this.split, layout.rail)
-		const shown = drag.to - this.sidebarScroll.workspaces
-		if (shown < 0 || shown >= geo.workspaceCap) return
-		const top = geo.workspaceTop + shown * geo.workspaceStep
-		const y = (drag.to < from ? top : top + geo.workspaceStep) - 1
+		const slot = workspaceSlots(this.sidebarModel(layout.rail), sidebar.height).find(
+			(s) => s.index === drag.to,
+		)
+		if (!slot) return
+		const y = (drag.to < from ? slot.y : slot.y + slot.height) - 1
 		for (let x = 0; x < sidebar.width; x++) {
 			const cell = frame.cellAt(x, y)
 			if (!cell) continue
