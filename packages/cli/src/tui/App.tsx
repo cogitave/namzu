@@ -121,6 +121,7 @@ import {
 	approveShownMcpServers,
 	pendingServersMessage,
 } from '../integrations/mcp/project-approval.js'
+import { playMoment } from '../integrations/notifications/sound.js'
 import {
 	type TerminalNotification,
 	terminalNotificationEnabled,
@@ -5300,7 +5301,7 @@ function AppBody({
 	)
 
 	const sendTerminalNotification = useCallback(
-		(notification: TerminalNotification) => {
+		(notification: TerminalNotification, turnMs?: number) => {
 			// The hooks hear about every moment the operator's attention is wanted,
 			// whether or not a terminal notification is configured: a script may be
 			// the only thing that reaches them.
@@ -5325,6 +5326,11 @@ function AppBody({
 								: 'The turn failed.',
 				})
 			}
+			// The chime is its own setting: it neither needs nor implies a terminal notification.
+			playMoment(notification, turnMs, {
+				enabled: ctx.tui?.sound !== false,
+				isTTY: stdout.isTTY,
+			})
 			if (!terminalNotificationEnabled(ctx.tui?.notifications, notification)) return
 			const result = writeTerminalNotification(
 				notification,
@@ -10605,7 +10611,10 @@ function AppBody({
 						st.notification &&
 						(roundQueueRef.current.items().length === 0 || shouldPauseQueued)
 					) {
-						sendTerminalNotification(st.notification)
+						sendTerminalNotification(
+							st.notification,
+							st.startedAt !== undefined ? Date.now() - st.startedAt : undefined,
+						)
 					}
 				}
 				// The kernel recorded the turn in the session log as it ran; nothing is

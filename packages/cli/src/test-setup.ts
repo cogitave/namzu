@@ -127,6 +127,12 @@ if (process.env.NAMZU_CUA_DRIVER === undefined) {
 	process.env.NAMZU_CUA_DRIVER = 'off'
 }
 
+// A turn chime starts an audio player. No test makes a sound on the machine
+// running it; the ones about the chime inject their own player and spawner.
+if (process.env.NAMZU_NO_SOUND === undefined) {
+	process.env.NAMZU_NO_SOUND = '1'
+}
+
 // Production now routes generated state through NAMZU_HOME. Give every test
 // suite an owned application home so a command-level test can never inspect
 // or mutate the developer's real sessions merely because it exercises the

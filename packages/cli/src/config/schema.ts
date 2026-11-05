@@ -48,6 +48,14 @@ export interface TuiConfig {
 	/** Terminal protocol to write. Defaults to `osc9` when notifications are on. */
 	readonly notificationMethod?: TerminalNotificationMethod
 	/**
+	 * Play a short chime when a turn needs you back: a soft rising pair when a
+	 * turn that ran for ten seconds or more finishes, a double tap when it stops,
+	 * fails or waits for approval. On by default; `false` turns it off. It plays
+	 * where Namzu runs (so not over SSH) and is separate from `notifications`.
+	 * `NAMZU_NO_SOUND=1` in the environment turns it off whatever this says.
+	 */
+	readonly sound?: boolean
+	/**
 	 * The key that puts `namzu workspaces` in navigate mode: `ctrl+<letter>` or
 	 * `ctrl+space`. Absent means `ctrl+b`. Keys a terminal program needs for itself
 	 * (`ctrl+c`, `ctrl+d`, `ctrl+z`) and the ones that are Tab, Enter, Backspace or

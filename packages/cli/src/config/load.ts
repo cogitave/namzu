@@ -2010,7 +2010,10 @@ const CONFIG_READERS: ConfigReaders = {
 			spacesPrefix?: unknown
 			mouse?: unknown
 			copyOnSelect?: unknown
+			sound?: unknown
 		}
+		if (raw.sound !== undefined && typeof raw.sound !== 'boolean')
+			return invalidConfigValue(context, ['sound'], 'must be true or false')
 		if (raw.spinnerTips !== undefined && typeof raw.spinnerTips !== 'boolean')
 			return invalidConfigValue(context, ['spinnerTips'], 'must be a boolean')
 
@@ -2099,6 +2102,7 @@ const CONFIG_READERS: ConfigReaders = {
 			...(raw.showExpandedTodos !== undefined ? { showExpandedTodos: raw.showExpandedTodos } : {}),
 			...(raw.recap !== undefined ? { recap: raw.recap } : {}),
 			...(raw.spinnerTips !== undefined ? { spinnerTips: raw.spinnerTips } : {}),
+			...(raw.sound !== undefined ? { sound: raw.sound } : {}),
 		}
 	},
 }

@@ -51,6 +51,11 @@ const DESKTOP_PROGRAMS = new Set([
 	"maim",
 	"grim",
 	"scrot",
+	// Sound players: the turn chime.
+	"afplay",
+	"paplay",
+	"pw-play",
+	"aplay",
 ]);
 
 const REFUSED_PATH = "/nonexistent/namzu-test-desktop-guard";
