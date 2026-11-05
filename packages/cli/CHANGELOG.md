@@ -1,5 +1,11 @@
 # @namzu/cli
 
+## 45.4.2
+
+### Patch Changes
+
+- d68e20e: In `namzu workspaces`, the terminal's own cursor is no longer shown over a session. Before, a terminal that showed it (some Windows setups did) drew a blinking bar under the composer, away from where you type; the composer's own caret is unchanged.
+
 ## 45.4.1
 
 ### Patch Changes
