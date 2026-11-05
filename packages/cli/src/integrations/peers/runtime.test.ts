@@ -504,3 +504,63 @@ it('keeps a display name to one safe line of bounded length', () => {
 	expect(displayTitle('fix\nthe\u202e login', '/work/proj')).not.toMatch(/[\n\u202e]/u)
 	expect([...displayTitle('x'.repeat(200), '/work/proj')]).toHaveLength(40)
 })
+
+async function pairInOneHome(sender: { hostSlot?: string }, receiver: { hostSlot?: string }) {
+	const root = mkdtempSync(join(tmpdir(), 'np-'))
+	roots.push(root)
+	const home = join(root, 'h')
+	const cwd = join(root, 'p')
+	mkdirSync(cwd)
+	const base = {
+		home,
+		cwd,
+		version: 'fixture',
+		env: {},
+		mode: () => 'auto',
+		owner: () => 0,
+		state: () => 'idle' as const,
+		ready: () => true,
+		available: () => {},
+		report: () => {},
+	}
+	const to = await openLivePeers({ ...base, ...receiver })
+	opened.push(to)
+	const from = await openLivePeers({ ...base, ...sender })
+	opened.push(from)
+	const runtime = resolvePeerRuntime(home, {})
+	const read = (id: string) => readPeerRecords(runtime.sessionsDir).find((r) => r.sessionId === id)
+	return { from, to, read }
+}
+
+it('records who a terminal sent to and received from, never what, when it is inside a workspaces host', async () => {
+	const { from, to, read } = await pairInOneHome({ hostSlot: 's-a' }, { hostSlot: 's-b' })
+	expect(read(from.id)?.trail).toBeUndefined()
+	expect(await from.send(to.ref, 'private words')).toMatchObject({ status: 'queued' })
+	const sent = read(from.id)?.trail
+	const got = read(to.id)?.trail
+	expect(sent).toEqual([{ with: to.ref, dir: 'out', at: expect.any(Number) }])
+	expect(got).toEqual([{ with: from.ref, dir: 'in', at: expect.any(Number) }])
+	expect(JSON.stringify([sent, got])).not.toContain('private words')
+})
+
+it('keeps the four latest exchanges, newest last', async () => {
+	const { from, to, read } = await pairInOneHome({ hostSlot: 's-a' }, { hostSlot: 's-b' })
+	for (let i = 0; i < 6; i++) await from.send(to.ref, `m${i}`)
+	const trail = read(from.id)?.trail ?? []
+	expect(trail).toHaveLength(4)
+	expect(trail.every((e) => e.dir === 'out' && e.with === to.ref)).toBe(true)
+	expect(trail.map((e) => e.at)).toEqual([...trail.map((e) => e.at)].sort((a, b) => a - b))
+})
+
+it('leaves the trail out of a terminal that is not inside a workspaces host, so older builds still read it', async () => {
+	const { from, to, read } = await pairInOneHome({}, {})
+	await from.send(to.ref, 'hello')
+	expect(read(from.id)?.trail).toBeUndefined()
+	expect(read(to.id)?.trail).toBeUndefined()
+})
+
+it('does not record an exchange the other side refused', async () => {
+	const { from, read } = await pairInOneHome({ hostSlot: 's-a' }, { hostSlot: 's-b' })
+	expect(await from.send('nobody', 'hello')).toMatchObject({ status: 'refused' })
+	expect(read(from.id)?.trail).toBeUndefined()
+})

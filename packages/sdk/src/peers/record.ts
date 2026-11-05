@@ -23,6 +23,24 @@ import {
 /** Bumped only if the on-disk record shape changes incompatibly. */
 export const PEER_RECORD_VERSION = 1
 
+/**
+ * One exchange this terminal took part in: who with (their short reference), which way
+ * it went, and when. Never the text, never a size: a host that draws who is talking to
+ * whom needs nothing more, and a record is readable by every process of the user.
+ */
+export const PeerExchangeSchema = z
+	.object({
+		with: PeerRefSchema,
+		dir: z.enum(['in', 'out']),
+		at: z.number().int().nonnegative(),
+	})
+	.strict()
+
+export type PeerExchange = z.infer<typeof PeerExchangeSchema>
+
+/** The most recent exchanges a record keeps, newest last. A burst between two reads of a record is not lost for four or fewer. */
+export const PEER_TRAIL_MAX = 4
+
 export const PeerRecordSchema = z
 	.object({
 		v: z.literal(PEER_RECORD_VERSION),
@@ -53,6 +71,8 @@ export const PeerRecordSchema = z
 		limited: z.boolean().optional(),
 		/** When the allowance is expected back (epoch ms); absent when the provider did not say. */
 		limitedUntil: z.number().int().positive().optional(),
+		/** The latest exchanges with other terminals, newest last; absent for a terminal that has had none or does not report them. */
+		trail: z.array(PeerExchangeSchema).max(PEER_TRAIL_MAX).optional(),
 	})
 	.strict()
 

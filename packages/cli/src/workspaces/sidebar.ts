@@ -30,7 +30,15 @@ export interface SidebarModel {
 	readonly split: number
 	/** Draw the thin rail of dots instead of the lists. */
 	readonly rail: boolean
+	/**
+	 * The time to pulse an exchange's dot by, or absent to draw it still (reduced motion,
+	 * no colour). Without it a row that is talking still says so, in words.
+	 */
+	readonly exchangeClock?: number
 }
+
+/** How long, in milliseconds, a pulse stays on one side of its beat. */
+export const PULSE_HALF_MS = 300
 
 export type SidebarTarget =
 	| { readonly kind: 'workspace'; readonly workspace: Workspace }
@@ -579,7 +587,17 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 			})
 			return
 		}
-		at(1, y, GLYPHS[dot], { fg: dotColor(dot, palette), bg })
+		// A row that is exchanging a message beats between its colour and the text colour.
+		const talking = entry.exchange !== undefined
+		const beatOn =
+			talking &&
+			model.exchangeClock !== undefined &&
+			Math.floor(model.exchangeClock / PULSE_HALF_MS) % 2 === 0
+		at(1, y, GLYPHS[dot], {
+			fg: beatOn ? palette.text : dotColor(dot, palette),
+			bg,
+			...(talking ? { attrs: ATTR_BOLD } : {}),
+		})
 		const gone = entry.child?.status === 'exited'
 		at(3, y, agentHeadline(roster, entry, agentRoom), {
 			fg: gone ? palette.dim : focused ? palette.text : palette.subtext,
@@ -587,8 +605,13 @@ export function drawSidebar(frame: Frame, rect: Rect, model: SidebarModel): void
 			attrs: ATTR_BOLD,
 		})
 		const warning = agentWarning(entry)
-		at(3, y + 1, clip(warning ?? agentDetail(roster, entry, agentRoom), agentRoom), {
-			fg: warning ? palette.warn : palette.dim,
+		// Something to look at beats the quiet detail line, and a warning beats both.
+		const exchange =
+			warning === undefined && entry.exchange
+				? `${entry.exchange.dir === 'out' ? '→' : '←'} ${entry.exchange.name}`
+				: undefined
+		at(3, y + 1, clip(warning ?? exchange ?? agentDetail(roster, entry, agentRoom), agentRoom), {
+			fg: warning ? palette.warn : exchange ? palette.accent : palette.dim,
 			bg,
 		})
 	})

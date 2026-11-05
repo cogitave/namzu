@@ -196,6 +196,58 @@ describe('status feed', () => {
 		expect(t.host.roster.entries[0]?.peerName).toBeUndefined()
 	})
 
+	it("shows a message between two sessions for a few seconds, by the other one's name, then lets go", async () => {
+		let clock = 100_000
+		const { t, peers } = rig({ listed: [], now: () => clock })
+		t.host.start()
+		nav(t, 'c')
+		t.type('\r')
+		peers.publish('slot-1', 'idle', { ref: 'aaaaaa', title: 'login fix', cwd: '/work/namzu' })
+		peers.publish('slot-2', 'idle', { ref: 'bbbbbb', cwd: '/work/namzu' })
+		// slot-1 just sent to slot-2.
+		peers.publish('slot-1', 'idle', {
+			ref: 'aaaaaa',
+			title: 'login fix',
+			cwd: '/work/namzu',
+			trail: [{ with: 'bbbbbb', dir: 'out', at: clock - 500 }],
+		})
+		peers.publish('slot-2', 'idle', {
+			ref: 'bbbbbb',
+			cwd: '/work/namzu',
+			trail: [{ with: 'aaaaaa', dir: 'in', at: clock - 500 }],
+		})
+		const [first, second] = t.host.roster.entries
+		expect(first?.exchange).toMatchObject({ dir: 'out', name: 'session 2' })
+		expect(second?.exchange).toMatchObject({ dir: 'in', name: 'login fix' })
+		const shown = await lines(t)
+		expect(shown).toContain('→ session 2')
+		expect(shown).toContain('← login fix')
+		// Past its few seconds the rows go back to their detail.
+		clock += 4_500
+		t.tick(300)
+		expect(t.host.roster.entries[0]?.exchange).toBeUndefined()
+		expect(t.host.roster.entries[1]?.exchange).toBeUndefined()
+		expect(await lines(t)).not.toContain('→')
+	})
+
+	it('names a session outside this host by its reference, and shows nothing for an old exchange', async () => {
+		const clock = 100_000
+		const { t, peers } = rig({ now: () => clock })
+		t.host.start()
+		peers.publish('slot-1', 'idle', {
+			ref: 'aaaaaa',
+			cwd: '/work/namzu',
+			trail: [{ with: 'cccccc', dir: 'out', at: clock - 100 }],
+		})
+		expect(t.host.roster.entries[0]?.exchange).toMatchObject({ name: 'cccccc' })
+		peers.publish('slot-1', 'idle', {
+			ref: 'aaaaaa',
+			cwd: '/work/namzu',
+			trail: [{ with: 'cccccc', dir: 'out', at: clock - 9_000 }],
+		})
+		expect(t.host.roster.entries[0]?.exchange).toBeUndefined()
+	})
+
 	it('turns a workspace red when a background session needs approval', async () => {
 		const { t, peers } = rig({ listed: [] })
 		t.host.start()

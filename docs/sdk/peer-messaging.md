@@ -56,12 +56,17 @@ then rename) and mode 0600: `PeerRecordSchema` — `v`, `sessionId`, `ref`
 `pid`, `startedAt`, `kind` (`tui` | `exec` | `resident` | `scheduled`),
 `title?`, `cwd`, `permissionMode`, `state` (`busy` | `idle` |
 `awaiting-permission`), `acceptsMessages`, `address`, `token`, `protocol`
-(`namzu-peer/1`), `cliVersion`, and five optional fields a workspaces host uses:
+(`namzu-peer/1`), `cliVersion`, and six optional fields a workspaces host uses:
 `hostSlot` (the slot the host launched the terminal under), `conversationId`
 (the conversation it is on, once it has one), `account` (the label of a
 non-default account the conversation is bound to), `limited` (true while
 that account is out of allowance) and `limitedUntil` (epoch milliseconds the
-allowance is expected back, when the provider said). A record without them is still valid, and
+allowance is expected back, when the provider said), and `trail` (up to four
+exchanges the terminal has just taken part in, newest last, each `{ with, dir,
+at }`: the other terminal's `ref`, `in` or `out`, and when in epoch
+milliseconds; `PEER_TRAIL_MAX` is the cap). A trail names who talked and never
+what was said: no text and no size ever reach a record, which every process of
+the user can read. A record without them is still valid, and
 only a session started inside a workspaces host writes them. A reader from this
 release on ignores a field it does not know; earlier builds skip a record that
 has one, so a workspaces host's terminals are invisible to them. Writing a record

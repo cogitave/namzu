@@ -16,6 +16,7 @@ import { type CellStyle, Frame, type Rect } from '../terminal/host/frame.js'
 import { DiffWriter } from '../terminal/host/writer.js'
 import type { HostPtyModule } from '../terminal/pty.js'
 import type { HeadlessScreen } from '../terminal/screen.js'
+import { motionAllowed } from '../tui/motion.js'
 import { activeThemeName } from '../tui/theme.js'
 import { GitCache, type GitLookup, gitLookup } from './git.js'
 import { type GotoRow, currentRow, filterGoto, gotoRows } from './goto.js'
@@ -77,6 +78,7 @@ import {
 } from './session.js'
 import {
 	type AgentOrder,
+	PULSE_HALF_MS,
 	type SidebarScroll,
 	agentList,
 	clampScroll,
@@ -253,6 +255,8 @@ export interface WorkspacesHostOptions {
 /** At most about 60 frames a second. */
 const FRAME_MS = 16
 /** How often the records are read when the file watcher says nothing. */
+/** How long a message between two sessions stays on their rows. */
+const EXCHANGE_SHOW_MS = 4000
 const POLL_MS = 1000
 /** How often each terminal is asked directly, to catch a change that was never written. */
 const RECONCILE_MS = 2500
@@ -400,6 +404,7 @@ export class WorkspacesHost {
 	private readonly clicks: ClickCounter
 	private tipShown = false
 	private cancelNote: (() => void) | undefined
+	private cancelExchange: (() => void) | undefined
 	private readonly watched = new WeakSet<HeadlessScreen>()
 	private readonly lastForward = new WeakMap<HeadlessScreen, number>()
 	private readonly pendingForward = new Map<HeadlessScreen, string>()
@@ -809,7 +814,41 @@ export class WorkspacesHost {
 			order: this.order,
 			split: this.split,
 			rail,
+			// Reduced motion and no colour draw the exchange still, in words.
+			...(this.exchangeActive() && motionAllowed()
+				? { exchangeClock: (this.options.now ?? Date.now)() }
+				: {}),
 		}
+	}
+
+	private exchangeActive(): boolean {
+		return this.roster.entries.some((entry) => entry.exchange !== undefined)
+	}
+
+	/** Keeps the rows that are exchanging a message redrawn until each one's few seconds are over. Idle when nothing is. */
+	private armExchange(): void {
+		if (this.closed || this.cancelExchange || !this.exchangeActive()) return
+		const now = (this.options.now ?? Date.now)()
+		// Moving, the pulse needs a frame per half beat; still, one redraw at the end is enough.
+		const next = motionAllowed()
+			? PULSE_HALF_MS
+			: Math.max(
+					50,
+					Math.min(
+						...this.roster.entries.flatMap((entry) =>
+							entry.exchange ? [entry.exchange.at + EXCHANGE_SHOW_MS - now] : [],
+						),
+					),
+				)
+		this.cancelExchange = this.schedule(() => {
+			this.cancelExchange = undefined
+			const at = (this.options.now ?? Date.now)()
+			for (const entry of this.roster.entries) {
+				if (entry.exchange && at - entry.exchange.at >= EXCHANGE_SHOW_MS) entry.exchange = undefined
+			}
+			this.requestRender()
+			this.armExchange()
+		}, next)
 	}
 
 	/** Where the shown tab's panes are. */
@@ -986,12 +1025,14 @@ export class WorkspacesHost {
 			return
 		}
 		let changed = false
+		const known: { entry: Entry; record: (typeof records)[number] }[] = []
 		for (const entry of this.roster.entries) {
 			if (!entry.child || entry.child.status === 'exited') continue
 			const record = entry.child.local
 				? recordForPid(records, entry.child.pid)
 				: recordForSlot(records, entry.slot, entry.child.pid)
 			if (!record) continue
+			known.push({ entry, record })
 			if (entry.reported !== record.state) changed = true
 			entry.reported = record.state
 			if (entry.account !== record.account) {
@@ -1013,10 +1054,29 @@ export class WorkspacesHost {
 			}
 			this.roster.update(entry)
 		}
+		// Who has just messaged whom, by the short reference each record carries. A session
+		// outside this host has no row, so its side is named by the reference alone.
+		const byRef = new Map(known.map(({ entry, record }) => [record.ref, entry]))
+		const at = (this.options.now ?? Date.now)()
+		for (const { entry, record } of known) {
+			const last = record.trail?.at(-1)
+			const other = last ? byRef.get(last.with) : undefined
+			const next =
+				last && at - last.at < EXCHANGE_SHOW_MS
+					? {
+							dir: last.dir,
+							at: last.at,
+							name: other ? (other.peerName ?? other.label) : last.with,
+						}
+					: undefined
+			if (entry.exchange?.at !== next?.at || entry.exchange?.name !== next?.name) changed = true
+			entry.exchange = next
+		}
 		if (changed) {
 			this.persist()
 			this.requestRender()
 		}
+		this.armExchange()
 	}
 
 	/** A session that moved to another account makes that account the one its workspace offers first. */
@@ -2929,6 +2989,7 @@ export class WorkspacesHost {
 		this.settleExit(true)
 		this.cancelKill?.()
 		this.cancelNote?.()
+		this.cancelExchange?.()
 		this.cancelPoll?.()
 		this.cancelReconcile?.()
 		this.cancelGit?.()

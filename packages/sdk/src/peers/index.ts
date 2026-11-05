@@ -24,8 +24,8 @@ export {
 } from './dir.js'
 export type { HardenPeerDirectory, PeerRuntimeDir, ResolvePeerRuntimeDirOptions } from './dir.js'
 
-export { derivePeerRef, PEER_RECORD_VERSION, PeerRecordSchema } from './record.js'
-export type { PeerRecord } from './record.js'
+export { derivePeerRef, PEER_RECORD_VERSION, PEER_TRAIL_MAX, PeerRecordSchema } from './record.js'
+export type { PeerExchange, PeerRecord } from './record.js'
 
 export {
 	isPeerRecordLive,
