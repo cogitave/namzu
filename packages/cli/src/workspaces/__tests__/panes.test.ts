@@ -614,3 +614,19 @@ describe('moving a workspace', () => {
 		expect(second).toBeDefined()
 	})
 })
+
+describe('the cursor over a session', () => {
+	it('stays hidden even when the session shows its own', async () => {
+		const { t } = rig()
+		t.host.start()
+		await t.frame()
+		// The session prints some text and asks for its cursor, as a terminal layer in between may.
+		pty(t, 0).print('\x1b[?25l> hello\r\nbelow the composer\x1b[?25h')
+		await t.frame()
+		const shown = t.written.join('')
+		const hidden = shown.lastIndexOf('\x1b[?25l')
+		const visible = shown.lastIndexOf('\x1b[?25h')
+		expect(hidden, 'the host hid the cursor').toBeGreaterThanOrEqual(0)
+		expect(hidden, 'and the last request it wrote was the hide').toBeGreaterThan(visible)
+	})
+})

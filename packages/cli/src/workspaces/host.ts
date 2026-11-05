@@ -2780,6 +2780,11 @@ export class WorkspacesHost {
 		const child = entry.child
 		if (child) {
 			frame.blit(child.screen.cells(entry.scrollBack), inner)
+			// A session draws its own caret in the composer and parks the program's cursor
+			// below the text, where a visible one reads as a stray blinking bar. Whether
+			// the session asked for it or a terminal layer in between re-showed it, the
+			// host leaves the real cursor hidden over a session.
+			frame.setCursor({ ...frame.cursor, visible: false })
 			const sel = this.select
 			if (sel?.active && sel.entry === entry && sel.screen === child.screen)
 				this.paintSelection(frame, sel, inner)
