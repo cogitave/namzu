@@ -667,6 +667,10 @@ are named from the query the provider reports; a provider that opens a page
 rather than running a query is shown as a fetch of that page. A failed call
 is drawn like any failed call (below).
 
+## Code blocks
+
+A fenced block in a reply is drawn as its lines in the accent colour with a blank line above, and nothing beside them: no rule at the start of a line and no language word above the first. What the screen shows is what a mouse selection takes, so a command selected and pasted into a terminal is the command alone. `/copy` still offers each block exactly as it was written.
+
 ## Tables
 
 A markdown table in a reply is drawn as a box of one-cell rule glyphs

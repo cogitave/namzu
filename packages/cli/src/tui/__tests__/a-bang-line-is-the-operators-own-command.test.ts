@@ -1,4 +1,4 @@
-import { execHostShell } from '@namzu/sdk'
+import { execHostShell, hostCommandShell } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -40,15 +40,25 @@ describe('a `!` line', () => {
 		}
 	})
 
-	it('uses the platform shell on Windows and retains /bin/sh on POSIX', async () => {
+	it("runs in the shell the model's own bash tool runs in", async () => {
 		vi.mocked(execHostShell).mockResolvedValueOnce({ stdout: '', stderr: '' })
 		await runShellEscape('echo ready', { cwd: process.cwd() })
-		expect(vi.mocked(execHostShell).mock.calls[0]?.[1].shell).toEqual(
-			process.platform === 'win32'
-				? { path: undefined, dialect: 'cmd', source: 'platform' }
-				: { path: '/bin/sh', dialect: 'sh', source: 'sh' },
-		)
+		expect(vi.mocked(execHostShell).mock.calls[0]?.[1].shell).toEqual(hostCommandShell())
 	})
+
+	it.skipIf(process.platform === 'win32' || hostCommandShell().dialect !== 'bash')(
+		'understands bash syntax where the machine has bash, as the model does',
+		async () => {
+			const result = await runShellEscape(
+				'[[ abc == a* ]] && arr=(x y) && printf "ok ${#arr[@]}"',
+				{
+					cwd: process.cwd(),
+				},
+			)
+			expect(result.output).toBe('ok 2')
+			expect(result.exitCode).toBe(0)
+		},
+	)
 
 	it('preserves shared-runner deadline cancellation and decoded progress', async () => {
 		const controller = new AbortController()

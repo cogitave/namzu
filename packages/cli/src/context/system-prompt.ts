@@ -42,6 +42,14 @@ import {
 } from './doctrine.js'
 import { AGENT_LAUNCH_TOOL, NAMZU_IDENTITY } from './identity.js'
 
+/**
+ * Said only where a person is typing at the session. They can run any line
+ * themselves by starting it with `!`, and a command that needs their own
+ * authority is better run that way than described.
+ */
+export const SHELL_ESCAPE_GUIDANCE =
+	'When the person has to run a command themselves, give it as one exact line they can paste and tell them they can run it here by typing `!` before it. A `!` line runs in this session, in the working directory, with their own authority, and its output comes back to you. It cannot answer a prompt: for a command that asks for a password or an interactive sign-in, tell them to run it in another terminal instead. Do not suggest it for a command you can run with your own tools.'
+
 export const DEFERRED_TOOL_GUIDANCE =
 	'The deferred_tools catalogue is a discovery snapshot, not live availability status. The current runtime tool schemas are authoritative: call a tool directly when its schema is visible, even if the catalogue lists it as deferred. Only when a needed deferred tool schema is absent, call search_tools with its exact name to load it. Loading a tool does not change its permissions.'
 
@@ -61,6 +69,7 @@ export interface SessionPromptInput {
 	readonly conversationEvidence?: string | undefined
 	/** The memory section, present only for a session that holds the tool it teaches. */
 	readonly memoryGuidance?: string | undefined
+	readonly shellEscapeGuidance?: string | undefined
 	/** True when a tool in this turn's roster is deferred behind `search_tools`. */
 	readonly toolsDeferred: boolean
 	/** See {@link SessionPromptTurn.planInReminders}. */
@@ -82,6 +91,8 @@ export interface SessionPromptFacts {
 	readonly conversationSessions?: unknown
 	/** Written once at session start, so the prefix stays byte-stable. */
 	readonly memoryGuidance?: string | undefined
+	/** For a session with a person typing at it; see `SHELL_ESCAPE_GUIDANCE`. */
+	readonly shellEscapeGuidance?: string | undefined
 	readonly toolLoading?: 'eager' | 'deferred' | undefined
 	/** True when any tool in the toolset this turn sends is deferred. */
 	readonly anyToolDeferred: boolean
@@ -123,6 +134,7 @@ export function sessionPromptInput(
 		workflowOffered: turn.workflowOffered,
 		conversationEvidence: facts.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 		memoryGuidance: facts.memoryGuidance,
+		shellEscapeGuidance: facts.shellEscapeGuidance,
 		toolsDeferred: facts.toolLoading === 'deferred' || facts.anyToolDeferred,
 		planInReminders: turn.planInReminders,
 		permissionMode: turn.permissionMode,
@@ -149,6 +161,7 @@ export function composeSessionSystemPrompt(input: SessionPromptInput): string | 
 		resident ? undefined : input.palBlock,
 		input.conversationEvidence,
 		resident ? undefined : input.memoryGuidance,
+		resident ? undefined : input.shellEscapeGuidance,
 		// Whenever anything is deferred: a deferred tool the model was never
 		// told how to load is a tool it does not have.
 		input.toolsDeferred ? DEFERRED_TOOL_GUIDANCE : undefined,

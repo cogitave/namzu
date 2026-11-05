@@ -15,6 +15,7 @@ import { composeEnvironmentPrompt } from '../environment.js'
 import { AGENT_LAUNCH_TOOL, NAMZU_IDENTITY } from '../identity.js'
 import {
 	DEFERRED_TOOL_GUIDANCE,
+	SHELL_ESCAPE_GUIDANCE,
 	type SessionPromptFacts,
 	type SessionPromptInput,
 	type SessionPromptTurn,
@@ -228,5 +229,37 @@ describe('the session system prompt', () => {
 			expect(source, name).not.toContain(name)
 		}
 		expect(source.match(/composeSessionSystemPrompt\(/g)).toHaveLength(2)
+	})
+})
+
+describe('the shell-escape guidance', () => {
+	const base = {
+		resident: false,
+		delegationAvailable: false,
+		workflowOffered: false,
+		toolsDeferred: false,
+	}
+
+	it('is in the prompt of a session with a person typing at it, once', () => {
+		const prompt = composeSessionSystemPrompt({
+			...base,
+			shellEscapeGuidance: SHELL_ESCAPE_GUIDANCE,
+		})
+		expect(prompt?.split(SHELL_ESCAPE_GUIDANCE)).toHaveLength(2)
+	})
+
+	it('is left out where nobody types, and from a resident step', () => {
+		expect(composeSessionSystemPrompt({ ...base })).not.toContain('`!`')
+		expect(
+			composeSessionSystemPrompt({
+				...base,
+				resident: true,
+				shellEscapeGuidance: SHELL_ESCAPE_GUIDANCE,
+			}),
+		).not.toContain(SHELL_ESCAPE_GUIDANCE)
+	})
+
+	it('warns that a prompt cannot be answered', () => {
+		expect(SHELL_ESCAPE_GUIDANCE).toContain('cannot answer a prompt')
 	})
 })

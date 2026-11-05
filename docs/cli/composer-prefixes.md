@@ -28,7 +28,7 @@ The prefix has the same operator authority in auto mode: it is not sent through
 the model's permission classifier. A model-authored `!` line does not enter this
 operator execution path.
 
-On POSIX hosts the interpreter remains `/bin/sh`; on Windows it uses the native platform command shell (normally CMD). Shell syntax follows that interpreter. The shared host runner decodes split UTF-8 output, refuses a signal already aborted before launch, and retains process-start errors in the transcript.
+The line runs in the shell the model's own `bash` tool runs in, so it behaves the same typed after `!` as when the model runs it: bash where the machine has it (`NAMZU_BASH_SHELL` names another), `/bin/sh` where it does not, and on Windows Git Bash, or the platform command shell (normally CMD) without it. Shell syntax follows that interpreter. The command has no keyboard: it cannot answer a prompt, so something that asks for a password or an interactive sign-in belongs in another terminal. A session with a person typing at it tells the model about the prefix, so a command the person has to run themselves comes as one exact line with a note that `!` before it runs it here. The shared host runner decodes split UTF-8 output, refuses a signal already aborted before launch, and retains process-start errors in the transcript.
 
 Bounds: a command that has not ended after 60 seconds is stopped with its owned process tree, and the row says `killed after 60s`. Output is cut at 20,000 characters for the transcript and 8,000 for the model. The host runner also stops a command once either stream exceeds 80,000 bytes, keeping memory bounded; the row marks the truncated output.
 
