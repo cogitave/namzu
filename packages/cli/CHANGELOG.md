@@ -1,5 +1,16 @@
 # @namzu/cli
 
+## 45.5.0
+
+### Minor Changes
+
+- c6818ed: In `namzu workspaces`, each agent row now shows its workspace and tab on the first line and the session's name on the second, and the name is what the session's terminal calls its conversation: the one you gave it with `/rename`, else the one the small model wrote. The same name is the terminal's title in the live peer record, so `list_sessions` and the header of a message from it use it too, and two terminals in one folder no longer look alike. A session with no name keeps its `session N` label, and a record with no name is still titled by its folder.
+- 589f081: A `!` line now runs in the same shell as the model's own `bash` tool instead of always `/bin/sh`: bash where the machine has it (so arrays, `[[ ]]` and process substitution work), the POSIX shell where it does not, and on Windows Git Bash, or the platform shell without it. `NAMZU_BASH_SHELL` still names another shell. A line that depended on a quirk of `/bin/sh` that bash does not share will behave as bash does. The model is also told, in a session with a person typing, that a command the person has to run themselves can be given as one exact line to run here by typing `!` before it; it is told such a line cannot answer a prompt.
+
+### Patch Changes
+
+- 589f081: A fenced code block in a reply no longer has a `│` rule at the start of each line or the language word above it, so selecting it with the mouse and pasting into a terminal gives the command alone. The block is still set apart by colour and a blank line above, and `/copy` still copies a block exactly as written.
+
 ## 45.4.2
 
 ### Patch Changes
