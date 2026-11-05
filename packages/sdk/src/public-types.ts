@@ -800,7 +800,7 @@ export type {
 	PeerRuntimeDir,
 	ResolvePeerRuntimeDirOptions,
 } from './peers/dir.js'
-export type { PeerRecord } from './peers/record.js'
+export type { PeerExchange, PeerRecord } from './peers/record.js'
 export type { AccountBoundRecord } from './types/session/records.js'
 export type {
 	Account,

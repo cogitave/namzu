@@ -46,6 +46,8 @@ export class Entry {
 	conversationId: string | undefined
 	/** What the session's terminal calls its conversation; absent until it is named. */
 	peerName: string | undefined
+	/** A message this session has just sent or received, shown on its row for a few seconds. */
+	exchange: { readonly dir: 'in' | 'out'; readonly at: number; readonly name: string } | undefined
 	limited = false
 	/** When the spent allowance is expected back (epoch ms), if the terminal knows. */
 	limitedUntil: number | undefined

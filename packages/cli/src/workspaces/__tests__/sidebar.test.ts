@@ -4,6 +4,7 @@ import { RAIL_WIDTH, computeLayout } from '../layout.js'
 import { paletteFor } from '../palette.js'
 import { Roster } from '../roster.js'
 import {
+	PULSE_HALF_MS,
 	type SidebarModel,
 	agentDetail,
 	agentHeadline,
@@ -225,6 +226,41 @@ describe('the sidebar', () => {
 		const onlyTab = roster.workspaces[1] ? roster.workspaces[1] : undefined
 		expect(onlyTab?.name).toBe('beta')
 		expect(agentHeadline(roster, roster.entries[2] as never)).toBe('beta')
+	})
+
+	it('shows who a session is messaging on its second line, and who messaged it', () => {
+		const { roster, a1, b1 } = build()
+		a1.exchange = { dir: 'out', at: 1, name: 'login fix' }
+		b1.exchange = { dir: 'in', at: 1, name: 'session 1' }
+		const { text, frame } = draw(model(roster))
+		const top = geometry(45, 0, 0.5, false).agentTop
+		expect(text(top + 1)).toBe('   → login fix           ')
+		expect(text(top + 5)).toBe('   ← session 1           ')
+		// In the accent colour, so it reads as something happening.
+		expect(frame.cellAt(3, top + 1)?.fg).toBe(palette.accent)
+	})
+
+	it('lets a warning keep the second line over an exchange', () => {
+		const { roster, a1 } = build()
+		a1.limited = true
+		a1.exchange = { dir: 'out', at: 1, name: 'x' }
+		const { text } = draw(model(roster))
+		expect(text(geometry(45, 0, 0.5, false).agentTop + 1)).toContain('may be limited')
+	})
+
+	it('beats the dot between its colour and the text colour while the clock runs, and holds it still without one', () => {
+		const { roster, a1 } = build()
+		a1.exchange = { dir: 'out', at: 1, name: 'x' }
+		const top = geometry(45, 0, 0.5, false).agentTop
+		const colourAt = (clock: number | undefined) =>
+			draw(model(roster, clock === undefined ? {} : { exchangeClock: clock })).frame.cellAt(1, top)
+				?.fg
+		expect(colourAt(0)).toBe(palette.text)
+		expect(colourAt(PULSE_HALF_MS)).not.toBe(palette.text)
+		expect(colourAt(PULSE_HALF_MS * 2)).toBe(palette.text)
+		expect(colourAt(undefined)).not.toBe(palette.text)
+		// The dot is bold while it talks, so it reads without colour too.
+		expect(draw(model(roster)).frame.cellAt(1, top)?.attrs).toBe(1)
 	})
 
 	it('replaces an agent line with the warning when its account is out of allowance', () => {

@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { PEER_PROTOCOL_VERSION } from './protocol.js'
-import { PEER_RECORD_VERSION, PeerRecordSchema, derivePeerRef } from './record.js'
+import {
+	PEER_RECORD_VERSION,
+	PeerRecordReaderSchema,
+	PeerRecordSchema,
+	derivePeerRef,
+} from './record.js'
 
 function validRecord() {
 	return {
@@ -49,6 +54,38 @@ describe('PeerRecordSchema', () => {
 		expect(
 			PeerRecordSchema.safeParse({ ...validRecord(), title: 'Fix the flaky test' }).success,
 		).toBe(true)
+	})
+
+	it('accepts a trail of at most four exchanges, newest last, and refuses a fifth', () => {
+		const exchange = (n: number) => ({ with: 'abcdef', dir: n % 2 ? 'in' : 'out', at: 1000 + n })
+		const four = [1, 2, 3, 4].map(exchange)
+		expect(PeerRecordSchema.safeParse({ ...validRecord(), trail: four }).success).toBe(true)
+		expect(
+			PeerRecordSchema.safeParse({ ...validRecord(), trail: [...four, exchange(5)] }).success,
+		).toBe(false)
+	})
+
+	it('keeps a trail to who, which way and when: no text, no other field', () => {
+		const withText = { with: 'abcdef', dir: 'out', at: 1, text: 'secret' }
+		expect(PeerRecordSchema.safeParse({ ...validRecord(), trail: [withText] }).success).toBe(false)
+		expect(
+			PeerRecordSchema.safeParse({
+				...validRecord(),
+				trail: [{ with: 'ZZZZZZ', dir: 'in', at: 1 }],
+			}).success,
+		).toBe(false)
+		expect(
+			PeerRecordSchema.safeParse({
+				...validRecord(),
+				trail: [{ with: 'abcdef', dir: 'up', at: 1 }],
+			}).success,
+		).toBe(false)
+	})
+
+	it('lets a reader that does not know a field drop it instead of losing the record', () => {
+		const parsed = PeerRecordReaderSchema.safeParse({ ...validRecord(), future: 'field' })
+		expect(parsed.success).toBe(true)
+		expect(parsed.success && 'future' in parsed.data).toBe(false)
 	})
 
 	it('is a closed shape: refuses an unknown field', () => {

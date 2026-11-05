@@ -6,7 +6,9 @@ import {
 	type DeliverResponse,
 	type Message,
 	PEER_PROTOCOL_VERSION,
+	PEER_TRAIL_MAX,
 	PeerClient,
+	type PeerExchange,
 	type PeerFrom,
 	type PeerRecord,
 	type PeerSessionState,
@@ -119,6 +121,13 @@ export async function openLivePeers(options: LivePeersOptions) {
 	let enabled = true
 	let closed = false
 	let closing: Promise<void> | undefined
+	/** The latest exchanges with other terminals, for a host that draws who is talking to whom. Who, which way, when: never text. */
+	const trail: PeerExchange[] = []
+	const noteExchange = (peerRef: string, dir: 'in' | 'out') => {
+		trail.push({ with: peerRef, dir, at: Date.now() })
+		if (trail.length > PEER_TRAIL_MAX) trail.splice(0, trail.length - PEER_TRAIL_MAX)
+		publish()
+	}
 	const pending: PeerMail[] = []
 	const accepted = new Map<string, { readonly text: string; readonly owner: number }>()
 	const client = new PeerClient()
@@ -145,6 +154,9 @@ export async function openLivePeers(options: LivePeersOptions) {
 		...(options.limited?.() && options.limitedUntil?.()
 			? { limitedUntil: options.limitedUntil() as number }
 			: {}),
+		// Only a terminal inside a workspaces host writes it, like the other host-facing fields, so a
+		// plain terminal stays readable by builds that predate it.
+		...(options.hostSlot && trail.length > 0 ? { trail: [...trail] } : {}),
 	})
 	const from = (): PeerFrom => {
 		const current = record()
@@ -241,6 +253,7 @@ export async function openLivePeers(options: LivePeersOptions) {
 			text: request.text,
 		})
 		options.available()
+		noteExchange(request.from.ref, 'in')
 		return {
 			status: 'queued',
 			reason: 'Accepted in the live inbox; this is not proof of model delivery.',
@@ -335,6 +348,7 @@ export async function openLivePeers(options: LivePeersOptions) {
 			from: from(),
 			text: message,
 		})
+		if (result.kind === 'responded' && result.status === 'queued') noteExchange(peer.ref, 'out')
 		return result.kind === 'responded'
 			? {
 					id,

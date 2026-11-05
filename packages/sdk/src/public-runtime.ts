@@ -1865,6 +1865,7 @@ export {
 	OUTSTANDING_EXPIRY_MS,
 	PEER_PROTOCOL_VERSION,
 	PEER_RECORD_VERSION,
+	PEER_TRAIL_MAX,
 	PeerAddressError,
 	PeerClient,
 	PeerClientError,
