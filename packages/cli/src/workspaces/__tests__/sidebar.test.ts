@@ -7,12 +7,15 @@ import {
 	type SidebarModel,
 	agentDetail,
 	agentList,
+	clampScroll,
 	dotStyle,
 	drawSidebar,
 	geometry,
 	hitTest,
 	ruleRow,
 	scrollThumb,
+	workspaceHeights,
+	workspaceSlots,
 } from '../sidebar.js'
 
 const palette = paletteFor('truecolor')
@@ -113,12 +116,63 @@ describe('the sidebar', () => {
 		const none = paletteFor('none')
 		const { frame } = draw(model(roster, { mode: 'navigate', palette: none }))
 		const marked = (y: number) => ((frame.cellAt(3, y)?.attrs ?? 0) & 32) !== 0
+		// Nothing under the name: the cursor row is one line.
 		expect(marked(2)).toBe(true)
-		expect(marked(3)).toBe(true)
-		expect(marked(4)).toBe(false)
+		expect(marked(3)).toBe(false)
 		// Not navigating, nothing is reversed.
 		const calm = draw(model(roster, { palette: none }))
 		expect(((calm.frame.cellAt(3, 2)?.attrs ?? 0) & 32) !== 0).toBe(false)
+	})
+
+	it('draws a workspace with nothing to say under its name as one line', () => {
+		const { roster } = build()
+		const { frame, text } = draw(model(roster))
+		expect(text(2)).toMatch(/alpha/u)
+		expect(text(3)).toMatch(/beta/u)
+		// Both rows are tinted only as far as they go: the focused one is a single line.
+		expect(frame.cellAt(3, 2)?.bg).toBe(palette.activeRow)
+		expect(frame.cellAt(3, 3)?.bg).not.toBe(palette.activeRow)
+	})
+
+	it('gives a workspace a second line only when it has a branch or a note, and lays the rest out under it', () => {
+		const { roster } = build()
+		const git = (cwd: string) =>
+			cwd === '/w/alpha' ? { branch: 'main', ahead: 0, behind: 0 } : undefined
+		const m = model(roster, { git })
+		const { text } = draw(m)
+		expect(text(2)).toMatch(/alpha/u)
+		expect(text(3)).toContain('main')
+		expect(text(4)).toMatch(/beta/u)
+		expect(workspaceHeights(m)).toEqual([2, 1])
+		const at = (y: number) => hitTest(m, 25, 45, 5, y)
+		expect(at(3)).toEqual({ kind: 'workspace', workspace: roster.workspaces[0] })
+		expect(at(4)).toEqual({ kind: 'workspace', workspace: roster.workspaces[1] })
+		expect(at(5)).toBeUndefined()
+	})
+
+	it('keeps a session in view when workspaces are of different heights', () => {
+		const roster = new Roster()
+		for (let i = 0; i < 9; i++) {
+			const workspace = roster.addWorkspace(`/w/s${i}`, `s${i}`)
+			roster.addTab(workspace, roster.addSession(workspace, `x${i}`))
+		}
+		// Every other workspace has a branch: heights 2,1,2,1,...
+		const git = (cwd: string) =>
+			Number(cwd.slice(-1)) % 2 === 0 ? { branch: 'b', ahead: 0, behind: 0 } : undefined
+		const m = model(roster, { git })
+		const height = 20
+		const heights = workspaceHeights(m)
+		expect(heights.slice(0, 4)).toEqual([2, 1, 2, 1])
+		roster.select(roster.entries[8] as never)
+		const scroll = clampScroll({ workspaces: 0, agents: 0 }, m, height, true)
+		const slots = workspaceSlots({ ...m, scroll }, height)
+		expect(slots.map((s) => s.index)).toContain(8)
+		const geo = geometry(height, 0, 0.5, false)
+		for (const slot of slots)
+			expect(slot.y + slot.height).toBeLessThanOrEqual(geo.footerY as number)
+		// Scrolled back up, the first one is first again.
+		const top = clampScroll({ workspaces: 0, agents: 0 }, m, height)
+		expect(workspaceSlots({ ...m, scroll: top }, height)[0]?.index).toBe(0)
 	})
 
 	it('puts new and menu on the last row of the workspaces section, above the rule', () => {
@@ -195,15 +249,9 @@ describe('the sidebar', () => {
 		const { roster, a1, b1 } = build()
 		const m = model(roster)
 		const at = (x: number, y: number) => hitTest(m, 25, 45, x, y)
-		expect(at(5, 2)?.kind).toBe('workspace')
-		expect(at(5, 3)).toEqual({
-			kind: 'workspace',
-			workspace: roster.workspaces[0],
-		})
-		expect(at(5, 4)).toEqual({
-			kind: 'workspace',
-			workspace: roster.workspaces[1],
-		})
+		expect(at(5, 2)).toEqual({ kind: 'workspace', workspace: roster.workspaces[0] })
+		expect(at(5, 3)).toEqual({ kind: 'workspace', workspace: roster.workspaces[1] })
+		expect(at(5, 4)).toBeUndefined()
 		expect(at(1, 22)).toEqual({ kind: 'new' })
 		expect(at(23, 22)).toEqual({ kind: 'menu' })
 		expect(at(10, 22)).toBeUndefined()
@@ -240,7 +288,7 @@ describe('the layout', () => {
 		for (const rail of [false, true])
 			for (let height = 0; height <= 4; height++) {
 				const geo = geometry(height, 0, 0.5, rail)
-				expect(geo.workspaceCap).toBeGreaterThanOrEqual(0)
+				expect(geo.workspaceRows).toBeGreaterThanOrEqual(0)
 				expect(geo.agentCap).toBeGreaterThanOrEqual(0)
 				expect(() => draw(model(roster, { rail }), rail ? 4 : 25, height)).not.toThrow()
 				expect(() => hitTest(model(roster, { rail }), 25, height, 3, 0)).not.toThrow()

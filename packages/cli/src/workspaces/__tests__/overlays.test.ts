@@ -221,8 +221,9 @@ describe('reordering workspaces by dragging', () => {
 		const t = start({ listed })
 		await t.frame()
 		expect(t.host.roster.workspaces.map((s) => s.name)).toEqual(['namzu', 'site', 'docs'])
-		t.type(press(4, 6))
-		t.type(drag(4, 4))
+		// Outside a repository a workspace is one line: rows 2, 3 and 4.
+		t.type(press(4, 4))
+		t.type(drag(4, 3))
 		t.type(drag(4, 2))
 		await t.frame()
 		// The drop line shows where it would land: under the header's gap above the first workspace.
@@ -236,7 +237,7 @@ describe('reordering workspaces by dragging', () => {
 		const t = start({ listed })
 		await t.frame()
 		t.type(press(4, 2))
-		t.type(drag(4, 4))
+		t.type(drag(4, 3))
 		t.type(drag(4, 10))
 		t.type(release(4, 10))
 		expect(t.host.roster.workspaces.map((s) => s.name)).toEqual(['site', 'docs', 'namzu'])
@@ -244,8 +245,8 @@ describe('reordering workspaces by dragging', () => {
 
 	it('leaves the order alone for a plain click', async () => {
 		const t = start({ listed })
-		t.type(press(4, 4))
-		t.type(release(4, 4))
+		t.type(press(4, 3))
+		t.type(release(4, 3))
 		expect(t.host.roster.workspaces.map((s) => s.name)).toEqual(['namzu', 'site', 'docs'])
 		expect(t.host.roster.selected?.label).toBe('session 1')
 		expect(t.host.roster.workspaceOf(t.host.roster.selected as never).name).toBe('site')
