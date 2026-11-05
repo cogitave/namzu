@@ -1,13 +1,49 @@
+import {
+	APPEAR_FROM_SCALE,
+	APPEAR_MS,
+	CLICK_RIPPLE,
+	DIP_DOWN_MS,
+	DIP_SCALE,
+	DIP_UP_MS,
+	FADE_MS,
+	FRAME_PULSE_DEPTH,
+	FRAME_PULSE_MS,
+	GLIDE_BOW,
+	GLIDE_MAX_MS,
+	GLIDE_MIN_MS,
+	GLIDE_MS_PER_PX,
+	HOLD_MS,
+	KEY_RIPPLE,
+	RIPPLE_MS,
+} from './motion.js'
+
+export {
+	APPEAR_MS,
+	FADE_MS,
+	GLIDE_MAX_MS,
+	GLIDE_MIN_MS,
+	HOLD_MS,
+	RIPPLE_MS,
+} from './motion.js'
+
 /**
  * The Windows side of the presence overlay: one long-lived PowerShell process
  * that owns two small windows and draws them itself.
  *
- * - the agent cursor, a pixel-art arrow in the project's green with a dark
- *   outline, that glides to each action point in {@link GLIDE_MS} and pulses on
- *   a click or on typing;
- * - the presence border, a frame inside the operated window made of an
- *   ordered (Bayer) dither that thins towards the middle, which follows the
- *   window and fades out a while after the last action.
+ * - the agent cursor, a smooth anti-aliased arrow in the project's green with
+ *   a dark outline, a soft highlight and a soft shadow, drawn once per display
+ *   scale and composited at sub-pixel positions. It fades in on its first
+ *   appearance, glides along a gentle curve to each action point (140 to
+ *   420 ms by distance), dips on a click and sends out a circular ripple (a
+ *   smaller one for typing);
+ * - the presence border, a smooth rounded frame inside the operated window
+ *   (a green stroke with a soft glow inward), which follows the window, breathes
+ *   very gently while the cursor is active and fades out with it.
+ *
+ * Sizes are written in logical pixels and multiplied by the operated window's
+ * display scale (its DPI over 96). The numbers and the formulas are in
+ * `motion.ts`; the C# below follows them. Nothing is redrawn when nothing moves:
+ * the 16 ms timer only compares, and bitmaps are allocated once per size.
  *
  * Both windows are layered, click-through (`WS_EX_TRANSPARENT`), never
  * activated (`WS_EX_NOACTIVATE`), kept out of the taskbar and alt-tab
@@ -20,19 +56,16 @@
  *
  * Like the foreground helper it is handed to PowerShell as an encoded command
  * and speaks one JSON object per line in each direction; its input closing
- * ends it, and its windows go with it.
+ * ends it, and its windows go with it. Besides `act`, `hide`, `info` and `quit`
+ * it answers `preview`, a development aid that draws one state of the overlay
+ * into a PNG without showing a window (see `preview.ts`).
  */
-export const GLIDE_MS = 120
-/** How long the border and cursor stay after the last action, then fade. */
-export const HOLD_MS = 2_500
-export const FADE_MS = 600
-
 export const PRESENCE_HELPER_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
-Add-Type -TypeDefinition @"
-using System; using System.Diagnostics; using System.Runtime.InteropServices; using System.Threading;
+Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
+using System; using System.Collections.Generic; using System.Diagnostics; using System.Drawing; using System.Drawing.Drawing2D; using System.Drawing.Imaging; using System.Runtime.InteropServices; using System.Threading;
 public static class NzP {
  [StructLayout(LayoutKind.Sequential)] struct PT { public int x; public int y; }
  [StructLayout(LayoutKind.Sequential)] struct SZ { public int cx; public int cy; }
@@ -63,6 +96,7 @@ public static class NzP {
  [DllImport("user32.dll", EntryPoint="SetWindowLongPtrW", SetLastError=true)] static extern IntPtr SetWindowLongPtr64(IntPtr h, int i, IntPtr v);
  [DllImport("user32.dll", EntryPoint="SetWindowLongW", SetLastError=true)] static extern int SetWindowLongPtr32(IntPtr h, int i, int v);
  [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);
+ [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr h);
  [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr h);
  [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr h, IntPtr dc);
  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
@@ -77,14 +111,29 @@ public static class NzP {
  [DllImport("kernel32.dll")] static extern IntPtr GetModuleHandle(string n);
 
  const uint EX = 0x20 | 0x08000000 | 0x80;
- static readonly string[] Sprite = {
-  "#...........","##..........","#g#.........","#gg#........","#ggg#.......","#gggg#......","#ggggg#.....","#gggggg#....","#ggggggg#...",
-  "#gggggggg#..","#ggggg#####.","#gg#gg#.....","#g#.#gg#....","##..#gg#....","#....#gg#...",".....#gg#...","......##...."
+
+ // ---- Design, in logical px; every size is multiplied by the window's display scale. ----
+ // The cursor window reaches Pad around the tip (room for the ripple and the shadow).
+ const double Pad = 32, SprMargin = 8, SprRight = 20, SprDown = 32;
+ const double ShadowDx = 1.5, ShadowDy = 2.5, ShadowBlur = 4, ShadowA = 0.32;
+ const double OutlineW = 1.25;
+ const double FrameStroke = 2, FrameGlow = 8, FrameRadius = 8, FrameStrokeA = 0.65, FrameGlowA = 0.30;
+ const int AccentR = 0x34, AccentG = 0xd3, AccentB = 0x69;
+ // The arrow: x, y (tip at 0,0) and the radius that rounds each corner.
+ static readonly float[][] Arrow = {
+  new float[]{0f, 0f, 1.1f}, new float[]{0f, 18.8f, 1.3f}, new float[]{4.5f, 15.2f, 0.9f}, new float[]{7.7f, 21.6f, 1.2f},
+  new float[]{11.2f, 20.1f, 1.2f}, new float[]{8.0f, 15.2f, 0.9f}, new float[]{14.0f, 15.2f, 1.3f}
  };
- static readonly int[] Bayer = { 0,8,2,10, 12,4,14,6, 3,11,1,9, 15,7,13,5 };
- const int S = 3, PAD = 36, CW = 100, CH = 110, T = 8, CELL = 2;
- static readonly double[] Dens = { 1.0, 0.62, 0.38, 0.16 };
- const int GREEN = 0x5fff5f, INK = 0x0b0f0c;
+
+ // ---- Motion (the numbers and formulas are in motion.ts). ----
+ const int GlideMinMs = ${GLIDE_MIN_MS}, GlideMaxMs = ${GLIDE_MAX_MS}, AppearMs = ${APPEAR_MS}, DipDownMs = ${DIP_DOWN_MS}, DipUpMs = ${DIP_UP_MS}, RippleMs = ${RIPPLE_MS}, FramePulseMs = ${FRAME_PULSE_MS};
+ const double GlideMsPerPx = ${GLIDE_MS_PER_PX}, GlideBow = ${GLIDE_BOW}, AppearFrom = ${APPEAR_FROM_SCALE}, DipScale = ${DIP_SCALE}, PulseDepth = ${FRAME_PULSE_DEPTH};
+ const double ClickFrom = ${CLICK_RIPPLE.from}, ClickTo = ${CLICK_RIPPLE.to}, ClickA = ${CLICK_RIPPLE.alpha}, ClickW = ${CLICK_RIPPLE.stroke};
+ const double KeyFrom = ${KEY_RIPPLE.from}, KeyTo = ${KEY_RIPPLE.to}, KeyA = ${KEY_RIPPLE.alpha}, KeyW = ${KEY_RIPPLE.stroke};
+ public static int HoldMs = ${HOLD_MS}, FadeMs = ${FADE_MS};
+
+ sealed class Spr { public Bitmap Bmp; public double Tx; public double Ty; public int W; public int H; }
+ static Dictionary<int, Spr> sprites = new Dictionary<int, Spr>();
 
  static IntPtr frm, cur, mem1, mem2, bmp1, bmp2, bits1, bits2; static WP proc;
  static int fw, fh, lastX, lastY, lastW, lastH; static IntPtr lastPrev;
@@ -92,15 +141,45 @@ public static class NzP {
  static ManualResetEvent ready = new ManualResetEvent(false);
  static object gate = new object();
  // Command state (written by the reader thread, read by the UI thread).
- static IntPtr target; static double ax, ay; static bool hasPoint; static int kind; static long actTick; static bool hidden = true;
- // Animation state (UI thread only).
- static double rx, ry, fx, fy, tx, ty; static long glideAt = -1000; static long pulseAt = -10000; static int pulseKind; static bool placed;
- static int lastAlpha = -1; static bool borderDrawn; static IntPtr drawnFor;
+ static IntPtr target; static double ax, ay; static bool hasPoint; static int kind; static bool hidden = true, pending, retarget;
+ // Animation state (UI thread only). Positions are physical pixels from the operated window's corner.
+ static double rx, ry, fx, fy, tx, ty, kx, ky; static long glideAt = -100000; static int glideDur; static long appearAt = -100000, pressAt = -100000, holdFrom; static int pressKind; static bool placed;
+ // What is drawn now, to tell whether anything changed.
+ static int lastAlpha = -1; static long lastPush = -1000; static bool borderDrawn; static IntPtr drawnFor; static double frameScale;
+ static Bitmap curBmp; static Graphics curG; static int curW, curPad; static double curScale; static bool curDirty = true;
+ static double dSx = -1e9, dSy = -1e9, dSc, dRr, dRa, dRw; static int dA = -1, dRk = -1;
+ static int[] frameBuf;
  public static long Ticks, TickUs, MaxTickUs; static Stopwatch sw = Stopwatch.StartNew();
  static bool timerOn; static long refuseUntil; public static int Refused;
- public static int GlideMs = ${GLIDE_MS}, HoldMs = ${HOLD_MS}, FadeMs = ${FADE_MS};
 
  static long Now() { return sw.ElapsedMilliseconds; }
+ static double Clamp(double v, double lo, double hi) { return v < lo ? lo : (v > hi ? hi : v); }
+ static double EaseInOut(double u) { u = Clamp(u, 0, 1); return u < 0.5 ? 4 * u * u * u : 1 - Math.Pow(-2 * u + 2, 3) / 2; }
+ static double EaseOut(double u) { u = Clamp(u, 0, 1); return 1 - Math.Pow(1 - u, 3); }
+ static int GlideDuration(double logical) { return (int)Math.Round(Clamp(GlideMinMs + logical * GlideMsPerPx, GlideMinMs, GlideMaxMs)); }
+ // The middle of the path moved sideways by GlideBow of its length, always to the same side of the line (up; right for a vertical one), whichever way it is travelled.
+ static void Control(double x0, double y0, double x1, double y1, out double cx, out double cy) {
+  double dx = x1 - x0, dy = y1 - y0, len = Math.Sqrt(dx * dx + dy * dy);
+  cx = (x0 + x1) / 2; cy = (y0 + y1) / 2; if (len < 1e-9) return;
+  double nx = -dy / len, ny = dx / len;
+  if (ny > 1e-9 || (Math.Abs(ny) <= 1e-9 && nx < 0)) { nx = -nx; ny = -ny; }
+  cx += nx * len * GlideBow; cy += ny * len * GlideBow;
+ }
+ static double Dip(double ms) {
+  if (ms < 0 || ms >= DipDownMs + DipUpMs) return 1;
+  if (ms < DipDownMs) return 1 - (1 - DipScale) * EaseOut(ms / DipDownMs);
+  return DipScale + (1 - DipScale) * EaseOut((ms - DipDownMs) / DipUpMs);
+ }
+ // The ripple k (1 click, 2 key) ms after it lands; false before it and once faded.
+ static bool Ripple(int k, double ms, out double radius, out double alpha, out double stroke) {
+  radius = 0; alpha = 0; stroke = 0;
+  if (k == 0 || ms < 0 || ms >= RippleMs) return false;
+  double p = ms / RippleMs, from = k == 2 ? KeyFrom : ClickFrom, to = k == 2 ? KeyTo : ClickTo;
+  radius = from + (to - from) * EaseOut(p); alpha = (k == 2 ? KeyA : ClickA) * (1 - p); stroke = k == 2 ? KeyW : ClickW;
+  return true;
+ }
+ static double ScaleOf(IntPtr h) { try { uint d = GetDpiForWindow(h); return d == 0 ? 1.0 : d / 96.0; } catch (Exception) { return 1.0; } }
+
  static IntPtr Wnd(IntPtr h, uint m, IntPtr w, IntPtr l) {
   if (m == 0x113) { try { Tick(); } catch (Exception e) { Err = e.Message; } return IntPtr.Zero; }
   if (m == 0x8000) { try { Tick(); } catch (Exception e) { Err = e.Message; } return IntPtr.Zero; }
@@ -135,7 +214,6 @@ public static class NzP {
     frm = Make("NzPresence", ref a1); cur = Make("NzPresence", ref a2);
     Hwnd1 = (long)frm; Hwnd2 = (long)cur; Excluded = a1 == 0x11 && a2 == 0x11;
     if (!Excluded) throw new Exception("capture exclusion not applied");
-    bmp2 = Dib(CW, CH, out mem2, out bits2);
     Ready = true; ready.Set();
     MSG m; while (GetMessage(out m, IntPtr.Zero, 0, 0) > 0) { DispatchMessage(ref m); }
    } catch (Exception e) { Err = e.Message; ready.Set(); }
@@ -146,15 +224,14 @@ public static class NzP {
  // Called from the reader thread.
  public static void Act(long hwnd, double x, double y, bool point, int k) {
   lock (gate) {
-   IntPtr h = (IntPtr)hwnd; if (h != target) { target = h; placed = false; borderDrawn = false; }
-   hasPoint = point; ax = x; ay = y; kind = k; actTick = Now(); hidden = false; pending = true;
+   IntPtr h = (IntPtr)hwnd; if (h != target) { target = h; retarget = true; }
+   hasPoint = point; ax = x; ay = y; kind = k; hidden = false; pending = true;
   }
   PostMessage(frm, 0x8000, IntPtr.Zero, IntPtr.Zero);
  }
- static bool pending;
  public static void Hide() { lock (gate) { hidden = true; pending = true; } PostMessage(frm, 0x8000, IntPtr.Zero, IntPtr.Zero); }
  static void HideNow() {
-  ShowWindow(frm, 0); ShowWindow(cur, 0); lastW = 0; lastH = 0; lastPrev = IntPtr.Zero; lastAlpha = -1;
+  ShowWindow(frm, 0); ShowWindow(cur, 0); lastW = 0; lastH = 0; lastPrev = IntPtr.Zero; lastAlpha = -1; curDirty = true; placed = false; pressKind = 0;
   if (timerOn) { KillTimer(frm, (UIntPtr)1); timerOn = false; }
  }
  // An owned window stays directly above its owner in the z-order whatever else moves, in front of or behind other windows, without raising the owner.
@@ -167,28 +244,54 @@ public static class NzP {
  // A window without a frame rectangle (a hidden application window) covers nothing.
  static bool Overlaps(IntPtr h, RC r) { RC o; if (!Rect(h, out o)) return false; return o.l < r.r && o.r > r.l && o.t < r.b && o.b > r.t; }
  static bool Rect(IntPtr h, out RC r) { return DwmGetWindowAttribute(h, 9, out r, 16) == 0 && r.r > r.l && r.b > r.t; }
+
+ // A new action, on the UI thread: where the pointer goes, how it gets there and when its press lands.
+ static void Begin(long now, RC r, int w, int h, double px, double py, bool hp, int k, bool retargeted, double s) {
+  long arrive = now; bool appear = !placed || retargeted;
+  if (hp) {
+   px = Clamp(px - r.l, 0, w - 1); py = Clamp(py - r.t, 0, h - 1);
+   if (appear) { fx = px; fy = py; tx = px; ty = py; rx = px; ry = py; glideDur = 0; }
+   else {
+    fx = rx; fy = ry; tx = px; ty = py;
+    double dist = Math.Sqrt((tx - fx) * (tx - fx) + (ty - fy) * (ty - fy)) / s;
+    if (dist < 0.5) glideDur = 0; else { glideDur = GlideDuration(dist); Control(fx, fy, tx, ty, out kx, out ky); }
+    glideAt = now; arrive = now + glideDur;
+   }
+  } else if (appear) { tx = w / 2.0; ty = h / 2.0; fx = tx; fy = ty; rx = tx; ry = ty; glideDur = 0; }
+  else if (glideAt + glideDur > now) arrive = glideAt + glideDur;
+  if (appear) { appearAt = now; arrive = now + AppearMs; placed = true; }
+  if (k != 0) { pressAt = arrive; pressKind = k; }
+  holdFrom = arrive;
+ }
+
  static void Tick() {
-  long t0 = sw.ElapsedTicks; IntPtr tg; bool hid, hp, ch; double px, py; int k; long at;
-  lock (gate) { tg = target; hid = hidden; hp = hasPoint; px = ax; py = ay; k = kind; at = actTick; ch = pending; pending = false; }
+  long t0 = sw.ElapsedTicks; IntPtr tg; bool hid, hp, ch, rt; double px, py; int k;
+  lock (gate) { tg = target; hid = hidden; hp = hasPoint; px = ax; py = ay; k = kind; ch = pending; rt = retarget; pending = false; retarget = false; }
   if (hid || tg == IntPtr.Zero || !IsWindow(tg) || IsIconic(tg) || !IsWindowVisible(tg)) { HideNow(); return; }
   RC r; if (!Rect(tg, out r)) { HideNow(); return; }
   long now = Now(); int w = r.r - r.l, h = r.b - r.t;
-  double age = now - at, alpha = 1.0;
+  double s = ScaleOf(tg);
+  if (ch) Begin(now, r, w, h, px, py, hp, k, rt, s);
+  double age = now - holdFrom, alpha = 1.0;
   if (age > HoldMs) alpha = 1.0 - (age - HoldMs) / FadeMs;
   if (alpha <= 0) { lock (gate) { hidden = true; } HideNow(); return; }
   if (now < refuseUntil) return;
   if (!timerOn) { SetTimer(frm, (UIntPtr)1, 16, IntPtr.Zero); timerOn = true; }
-  if (ch && hp) {
-   // New action point in window coordinates: relative to the window's rectangle.
-   px -= r.l; py -= r.t; fx = placed ? rx : px; fy = placed ? ry : py; tx = px; ty = py; glideAt = now; placed = true; if (k != 0) { pulseAt = now; pulseKind = k; }
-  } else if (ch) {
-   if (k != 0) { pulseAt = now; pulseKind = k; }
-   if (!placed) { tx = w / 2.0; ty = h / 2.0; fx = tx; fy = ty; rx = tx; ry = ty; placed = true; glideAt = -1000; }
-  }
+  // Where the pointer is now: along the curve, eased, in sub-pixels.
   if (placed) {
-   double u = (now - glideAt) / (double)GlideMs; if (u > 1) u = 1; if (u < 0) u = 0;
-   double e = 1 - Math.Pow(1 - u, 3); rx = fx + (tx - fx) * e; ry = fy + (ty - fy) * e;
+   double u = glideDur > 0 ? Clamp((now - glideAt) / (double)glideDur, 0, 1) : 1;
+   if (u >= 1) { rx = tx; ry = ty; }
+   else { double e = EaseInOut(u), b = 1 - e; rx = b * b * fx + 2 * b * e * kx + e * e * tx; ry = b * b * fy + 2 * b * e * ky + e * e * ty; }
   }
+  double ap = EaseOut((now - appearAt) / (double)AppearMs);
+  double sc = AppearFrom + (1 - AppearFrom) * ap;
+  if (pressKind == 1) sc *= Dip(now - pressAt);
+  double rr, ra, rw; int rk = 0;
+  if (Ripple(pressKind, now - pressAt, out rr, out ra, out rw)) rk = pressKind;
+  double sx = Clamp(r.l + rx, r.l, r.r - 1), sy = Clamp(r.t + ry, r.t, r.b - 1);
+  int ca = (int)Math.Round(255 * alpha * ap);
+  int fa = (int)Math.Round(255 * alpha * ap * (1 - PulseDepth + PulseDepth * Math.Sin(2 * Math.PI * (now % FramePulseMs) / FramePulseMs)));
+  EnsureCursor(s);
   // z-order: directly above the operated window, never above others.
   IntPtr prev = GetWindow(tg, 3);
   // Windows that are not shown (input-method helpers and the like) sit in bands of their own: ordering against them has no effect.
@@ -198,22 +301,14 @@ public static class NzP {
   // The operated window can move up past the overlay (it is raised, or the window above it closes): the overlay must be right above it again.
   bool moved = r.l != lastX || r.t != lastY || w != lastW || h != lastH || prev != lastPrev || Steps(frm, tg) < 0;
   bool fresh = lastW == 0;
-  if (w != fw || h != fh || !borderDrawn || drawnFor != tg) DrawBorder(w, h, tg);
-  int a = (int)(alpha * 255);
-  if (moved || fresh || a != lastAlpha) {
-   PT pd = new PT(); pd.x = r.l; pd.y = r.t; SZ sz = new SZ(); sz.cx = w; sz.cy = h; PT ps = new PT();
-   BF bf = new BF(); bf.op = 0; bf.fl = 0; bf.a = (byte)a; bf.fmt = 1;
-   UpdateLayeredWindow(frm, IntPtr.Zero, ref pd, ref sz, mem1, ref ps, 0, ref bf, 2);
-   lastAlpha = a;
-  }
-  // The cursor window follows the glide; its sprite tip sits at the window's (PAD,PAD).
-  double sx = r.l + rx, sy = r.t + ry;
-  if (sx < r.l) sx = r.l; if (sy < r.t) sy = r.t; if (sx > r.r - 1) sx = r.r - 1; if (sy > r.b - 1) sy = r.b - 1;
-  DrawCursor(now, (int)Math.Round(sx) - PAD, (int)Math.Round(sy) - PAD, alpha);
+  if (w != fw || h != fh || !borderDrawn || drawnFor != tg || frameScale != s) BuildFrame(w, h, s, tg);
+  // The frame's picture is whole; only its opacity breathes, so it is pushed when it moved or its opacity changed enough to see.
+  if (moved || fresh || (fa != lastAlpha && now - lastPush >= 33)) PushFrame(r, w, h, fa, now);
+  int cx = (int)Math.Floor(sx) - curPad, cy = (int)Math.Floor(sy) - curPad;
+  DrawCursor(s, sx - Math.Floor(sx), sy - Math.Floor(sy), sx, sy, sc, rk, rr, ra, rw, ca, cx, cy, fresh);
   uint fl = 0x10 | 0x40; // NOACTIVATE | SHOWWINDOW
   if (ownedBy != tg) { ownedBy = Own(frm, tg) && Own(cur, tg) ? tg : IntPtr.Zero; moved = true; }
   if (moved || fresh) {
-   int cx = (int)Math.Round(sx) - PAD, cy = (int)Math.Round(sy) - PAD;
    // Ownership keeps an owned window above its owner only when it is raised; it does not reorder
    // windows already stacked above the owner (a target created after the overlay), so the order is
    // set explicitly: right above the operated window, never above others.
@@ -223,7 +318,7 @@ public static class NzP {
    for (int up = 0; !SetWindowPos(frm, ins, r.l, r.t, 0, 0, fl | 0x1) && ins != IntPtr.Zero && ins != (IntPtr)(-1) && up < 40; up++) ins = GetWindow(ins, 3);
    SetWindowPos(cur, frm, cx, cy, 0, 0, fl | 0x1);
    // A layered window shown for the first time takes its picture again.
-   if (fresh) { PT p2 = new PT(); p2.x = r.l; p2.y = r.t; SZ s2 = new SZ(); s2.cx = w; s2.cy = h; PT q2 = new PT(); BF b2 = new BF(); b2.fmt = 1; b2.a = (byte)a; UpdateLayeredWindow(frm, IntPtr.Zero, ref p2, ref s2, mem1, ref q2, 0, ref b2, 2); }
+   if (fresh) { PushFrame(r, w, h, fa, now); DrawCursor(s, sx - Math.Floor(sx), sy - Math.Floor(sy), sx, sy, sc, rk, rr, ra, rw, ca, cx, cy, true); }
    lastX = r.l; lastY = r.t; lastW = w; lastH = h; lastPrev = prev;
    // A window the overlay cannot be ordered against gets no overlay at all: a frame hidden
    // behind its window is worse than none.
@@ -232,52 +327,196 @@ public static class NzP {
   long us = (sw.ElapsedTicks - t0) * 1000000 / Stopwatch.Frequency;
   Ticks++; TickUs += us; if (us > MaxTickUs) MaxTickUs = us;
  }
- static void DrawBorder(int w, int h, IntPtr tg) {
+
+ // ---- The frame: a rounded stroke with a soft glow inward, from a distance field (smooth edges, no dithering). ----
+ static void BuildFrame(int w, int h, double s, IntPtr tg) {
   if (bmp1 != IntPtr.Zero) { SelectObject(mem1, IntPtr.Zero); DeleteObject(bmp1); DeleteDC(mem1); }
-  bmp1 = Dib(w, h, out mem1, out bits1); fw = w; fh = h; drawnFor = tg; borderDrawn = true;
-  int[] px = new int[w * h]; int g = unchecked((int)(0xFF000000 | GREEN));
-  for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) {
-   int d = Math.Min(Math.Min(x, w - 1 - x), Math.Min(y, h - 1 - y)); if (d >= T) { if (y >= T && y < h - T) { x = w - T - 1; } continue; }
-   int c = d / CELL; int cx = x / CELL, cy = y / CELL;
-   if (Bayer[(cy & 3) * 4 + (cx & 3)] < Dens[c] * 16) px[y * w + x] = g;
-  }
-  Marshal.Copy(px, 0, bits1, w * h); lastAlpha = -1;
+  bmp1 = Dib(w, h, out mem1, out bits1); fw = w; fh = h; drawnFor = tg; frameScale = s; borderDrawn = true;
+  int n = w * h; if (frameBuf == null || frameBuf.Length < n) frameBuf = new int[n]; else Array.Clear(frameBuf, 0, n);
+  FrameFill(frameBuf, w, h, s);
+  Marshal.Copy(frameBuf, 0, bits1, n); lastAlpha = -1;
  }
- static void Put(int[] b, int x, int y, int argb) { if (x >= 0 && y >= 0 && x < CW && y < CH) b[y * CW + x] = argb; }
- static int Pre(int rgb, int a) {
-  int r = ((rgb >> 16) & 255) * a / 255, g = ((rgb >> 8) & 255) * a / 255, b = (rgb & 255) * a / 255;
-  return (a << 24) | (r << 16) | (g << 8) | b;
- }
- static void DrawCursor(long now, int x, int y, double alpha) {
-  int[] b = new int[CW * CH];
-  // Pulse: a square pixel ring that grows and fades around the tip.
-  double pu = (now - pulseAt) / 360.0;
-  if (pu >= 0 && pu < 1) {
-   int rad = (pulseKind == 2 ? 6 : 8) + (int)(pu * (pulseKind == 2 ? 14 : 22)) / 2 * 2; int a = (int)((1 - pu) * 230);
-   for (int i = -rad; i <= rad; i += 2) {
-    foreach (int[] p in new int[][] { new int[]{i,-rad}, new int[]{i,rad}, new int[]{-rad,i}, new int[]{rad,i} }) {
-     int bx = PAD + p[0], by = PAD + p[1];
-     if (Bayer[(((by / 2) & 3) * 4) + ((bx / 2) & 3)] < 11) { for (int dy = 0; dy < 2; dy++) for (int dx = 0; dx < 2; dx++) Put(b, bx + dx, by + dy, Pre(GREEN, a)); }
-    }
+ // Fills premultiplied pixels for a w x h window: the stroke FrameStroke wide on the inside of a rounded rectangle, then the glow FrameGlow deep fading to nothing.
+ static void FrameFill(int[] px, int w, int h, double s) {
+  double rad = FrameRadius * s, sw2 = FrameStroke * s, gw = FrameGlow * s;
+  int band = (int)Math.Ceiling(sw2 + gw) + 1;
+  double cx = w / 2.0, cy = h / 2.0, ex = cx - rad, ey = cy - rad;
+  for (int y = 0; y < h; y++) {
+   bool edgeRow = y < band || y >= h - band;
+   for (int x = 0; x < w; x++) {
+    if (!edgeRow && x >= band && x < w - band) { x = w - band - 1; continue; }
+    double qx = Math.Abs(x + 0.5 - cx) - ex, qy = Math.Abs(y + 0.5 - cy) - ey;
+    double ox = Math.Max(qx, 0), oy = Math.Max(qy, 0);
+    double din = -(Math.Sqrt(ox * ox + oy * oy) + Math.Min(Math.Max(qx, qy), 0) - rad);
+    if (din < -0.5) continue;
+    double outer = Clamp(din + 0.5, 0, 1), inStroke = Clamp(sw2 - din + 0.5, 0, 1), t = Clamp((din - sw2) / gw, 0, 1);
+    double a = outer * (FrameStrokeA * inStroke + FrameGlowA * (1 - t) * (1 - t) * (1 - inStroke));
+    int ia = (int)Math.Round(a * 255); if (ia <= 0) continue;
+    px[y * w + x] = (ia << 24) | ((AccentR * ia / 255) << 16) | ((AccentG * ia / 255) << 8) | (AccentB * ia / 255);
    }
   }
-  for (int sy = 0; sy < Sprite.Length; sy++) for (int sx = 0; sx < Sprite[sy].Length; sx++) {
-   char c = Sprite[sy][sx]; if (c == '.') continue;
-   int col = c == '#' ? INK : GREEN;
-   for (int dy = 0; dy < S; dy++) for (int dx = 0; dx < S; dx++) Put(b, PAD + sx * S + dx, PAD + sy * S + dy, Pre(col, 255));
+ }
+ static void PushFrame(RC r, int w, int h, int a, long now) {
+  PT pd = new PT(); pd.x = r.l; pd.y = r.t; SZ sz = new SZ(); sz.cx = w; sz.cy = h; PT ps = new PT();
+  BF bf = new BF(); bf.op = 0; bf.fl = 0; bf.a = (byte)Math.Max(0, Math.Min(255, a)); bf.fmt = 1;
+  UpdateLayeredWindow(frm, IntPtr.Zero, ref pd, ref sz, mem1, ref ps, 0, ref bf, 2);
+  lastAlpha = a; lastPush = now;
+ }
+
+ // ---- The pointer: drawn once per display scale with its shadow baked in, then composited at sub-pixel positions. ----
+ static GraphicsPath ArrowPath() {
+  GraphicsPath gp = new GraphicsPath(); int n = Arrow.Length; PointF[] a = new PointF[n], b = new PointF[n];
+  for (int i = 0; i < n; i++) {
+   float[] v = Arrow[i], p = Arrow[(i + n - 1) % n], q = Arrow[(i + 1) % n];
+   float dp = (float)Math.Sqrt((p[0] - v[0]) * (p[0] - v[0]) + (p[1] - v[1]) * (p[1] - v[1])), dq = (float)Math.Sqrt((q[0] - v[0]) * (q[0] - v[0]) + (q[1] - v[1]) * (q[1] - v[1]));
+   float tp = Math.Min(v[2], dp / 2), tq = Math.Min(v[2], dq / 2);
+   a[i] = new PointF(v[0] + (p[0] - v[0]) / dp * tp, v[1] + (p[1] - v[1]) / dp * tp);
+   b[i] = new PointF(v[0] + (q[0] - v[0]) / dq * tq, v[1] + (q[1] - v[1]) / dq * tq);
   }
-  Marshal.Copy(b, 0, bits2, CW * CH);
-  PT pd = new PT(); pd.x = x; pd.y = y; SZ sz = new SZ(); sz.cx = CW; sz.cy = CH; PT ps = new PT();
-  BF bf = new BF(); bf.op = 0; bf.fl = 0; bf.a = (byte)(alpha * 255); bf.fmt = 1;
+  PointF cur0 = b[0];
+  for (int i = 1; i <= n; i++) {
+   int j = i % n; PointF v = new PointF(Arrow[j][0], Arrow[j][1]);
+   gp.AddLine(cur0, a[j]);
+   gp.AddBezier(a[j], new PointF(a[j].X + (v.X - a[j].X) * 2f / 3f, a[j].Y + (v.Y - a[j].Y) * 2f / 3f), new PointF(b[j].X + (v.X - b[j].X) * 2f / 3f, b[j].Y + (v.Y - b[j].Y) * 2f / 3f), b[j]);
+   cur0 = b[j];
+  }
+  gp.CloseFigure(); return gp;
+ }
+ static void BoxBlur(float[] a, int w, int h, int r) {
+  float[] t = new float[a.Length];
+  for (int pass = 0; pass < 3; pass++) {
+   for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) { float sum = 0; for (int i = -r; i <= r; i++) { int xx = x + i; if (xx >= 0 && xx < w) sum += a[y * w + xx]; } t[y * w + x] = sum / (2 * r + 1); }
+   for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) { float sum = 0; for (int i = -r; i <= r; i++) { int yy = y + i; if (yy >= 0 && yy < h) sum += t[yy * w + x]; } a[y * w + x] = sum / (2 * r + 1); }
+  }
+ }
+ static Spr MakeSprite(double s) {
+  int mg = (int)Math.Round(SprMargin * s), W = mg + (int)Math.Ceiling(SprRight * s), H = mg + (int)Math.Ceiling(SprDown * s);
+  Spr sp = new Spr(); sp.W = W; sp.H = H; sp.Tx = mg; sp.Ty = mg;
+  using (GraphicsPath gp = ArrowPath()) {
+   // The shadow: the silhouette, offset, blurred and faint.
+   float[] sh = new float[W * H];
+   using (Bitmap tmp = new Bitmap(W, H, PixelFormat.Format32bppArgb)) {
+    using (Graphics gt = Graphics.FromImage(tmp)) {
+     gt.SmoothingMode = SmoothingMode.AntiAlias; gt.TranslateTransform((float)(mg + ShadowDx * s), (float)(mg + ShadowDy * s)); gt.ScaleTransform((float)s, (float)s);
+     gt.FillPath(Brushes.Black, gp);
+    }
+    BitmapData d = tmp.LockBits(new Rectangle(0, 0, W, H), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+    int[] px = new int[W * H]; Marshal.Copy(d.Scan0, px, 0, W * H); tmp.UnlockBits(d);
+    for (int i = 0; i < px.Length; i++) sh[i] = ((px[i] >> 24) & 255) / 255f;
+   }
+   BoxBlur(sh, W, H, Math.Max(1, (int)Math.Round(ShadowBlur * s / 2)));
+   int[] outp = new int[W * H];
+   for (int i = 0; i < outp.Length; i++) outp[i] = ((int)Math.Round(sh[i] * ShadowA * 255)) << 24;
+   sp.Bmp = new Bitmap(W, H, PixelFormat.Format32bppPArgb);
+   BitmapData bd = sp.Bmp.LockBits(new Rectangle(0, 0, W, H), ImageLockMode.WriteOnly, PixelFormat.Format32bppPArgb);
+   Marshal.Copy(outp, 0, bd.Scan0, W * H); sp.Bmp.UnlockBits(bd);
+   using (Graphics g = Graphics.FromImage(sp.Bmp)) {
+    g.SmoothingMode = SmoothingMode.AntiAlias; g.CompositingQuality = CompositingQuality.HighQuality; g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+    g.TranslateTransform(mg, mg); g.ScaleTransform((float)s, (float)s);
+    RectangleF bb = gp.GetBounds();
+    using (LinearGradientBrush fill = new LinearGradientBrush(new PointF(0, bb.Top), new PointF(0, bb.Bottom), Color.FromArgb(0x8c, 0xff, 0x8c), Color.FromArgb(0x2f, 0xcb, 0x63))) g.FillPath(fill, gp);
+    // A fine highlight down the upper-left edge, fading with depth.
+    g.SetClip(gp);
+    using (LinearGradientBrush hb = new LinearGradientBrush(new PointF(0, 2f), new PointF(0, 16f), Color.FromArgb(190, 255, 255, 255), Color.FromArgb(0, 255, 255, 255)))
+    using (Pen hp = new Pen(hb, 1.0f)) { g.DrawLine(hp, 1.35f, 2.4f, 1.35f, 16f); }
+    g.ResetClip();
+    using (Pen op = new Pen(Color.FromArgb(230, 0x0b, 0x0f, 0x0c), (float)OutlineW)) { op.LineJoin = LineJoin.Round; g.DrawPath(op, gp); }
+   }
+  }
+  return sp;
+ }
+ static Spr Sprite(double s) {
+  int key = (int)Math.Round(s * 96);
+  lock (sprites) {
+   Spr sp; if (sprites.TryGetValue(key, out sp)) return sp;
+   sp = MakeSprite(key / 96.0); sprites[key] = sp; return sp;
+  }
+ }
+ // The cursor picture: the ripple, then the pointer scaled about its tip, with the tip at (pad + fracX, pad + fracY).
+ static void Compose(Graphics g, Spr sp, double s, int pad, double fracX, double fracY, double sc, double rr, double ra, double rw) {
+  g.Clear(Color.Transparent);
+  g.SmoothingMode = SmoothingMode.AntiAlias; g.CompositingQuality = CompositingQuality.HighQuality; g.InterpolationMode = InterpolationMode.HighQualityBicubic; g.PixelOffsetMode = PixelOffsetMode.Half;
+  double tipx = pad + fracX, tipy = pad + fracY;
+  if (ra > 0.002 && rr > 0) {
+   using (Pen p = new Pen(Color.FromArgb((int)Math.Round(ra * 255), AccentR, AccentG, AccentB), (float)(rw * s))) {
+    float rd = (float)(rr * s); g.DrawEllipse(p, (float)tipx - rd, (float)tipy - rd, rd * 2, rd * 2);
+   }
+  }
+  RectangleF dst = new RectangleF((float)(tipx - sp.Tx * sc), (float)(tipy - sp.Ty * sc), (float)(sp.W * sc), (float)(sp.H * sc));
+  g.DrawImage(sp.Bmp, dst, new RectangleF(0f, 0f, (float)sp.W, (float)sp.H), GraphicsUnit.Pixel);
+ }
+ // The cursor window's bitmap is allocated once per size and drawn into in place.
+ static void EnsureCursor(double s) {
+  int pad = (int)Math.Round(Pad * s);
+  if (pad * 2 != curW) {
+   if (curG != null) { curG.Dispose(); curG = null; } if (curBmp != null) { curBmp.Dispose(); curBmp = null; }
+   if (bmp2 != IntPtr.Zero) { SelectObject(mem2, IntPtr.Zero); DeleteObject(bmp2); DeleteDC(mem2); }
+   curW = pad * 2; curPad = pad; bmp2 = Dib(curW, curW, out mem2, out bits2);
+   curBmp = new Bitmap(curW, curW, curW * 4, PixelFormat.Format32bppPArgb, bits2); curG = Graphics.FromImage(curBmp); curDirty = true;
+  }
+  if (curScale != s) { curScale = s; curDirty = true; }
+ }
+ // Draws and pushes the cursor window only when something about it changed since the last time.
+ static void DrawCursor(double s, double fracX, double fracY, double sx, double sy, double sc, int rk, double rr, double ra, double rw, int ca, int cx, int cy, bool force) {
+  if (!force && !curDirty && sx == dSx && sy == dSy && sc == dSc && rr == dRr && ra == dRa && ca == dA && rk == dRk) return;
+  dSx = sx; dSy = sy; dSc = sc; dRr = rr; dRa = ra; dRw = rw; dA = ca; dRk = rk; curDirty = false;
+  Compose(curG, Sprite(s), s, curPad, fracX, fracY, sc, rr, ra, rw);
+  PT pd = new PT(); pd.x = cx; pd.y = cy; SZ sz = new SZ(); sz.cx = curW; sz.cy = curW; PT ps = new PT();
+  BF bf = new BF(); bf.op = 0; bf.fl = 0; bf.a = (byte)Math.Max(0, Math.Min(255, ca)); bf.fmt = 1;
   UpdateLayeredWindow(cur, IntPtr.Zero, ref pd, ref sz, mem2, ref ps, 0, ref bf, 2);
  }
  static int Steps(IntPtr from, IntPtr to) { IntPtr w = from; for (int i = 0; i < 400 && w != IntPtr.Zero; i++) { if (w == to) return i; w = GetWindow(w, 2); } return -1; }
+
+ // ---- Development aid: one state of the overlay drawn offscreen and saved as a PNG; no window is shown. ----
+ static void Backdrop(Graphics g, int kindOf, int x0, int w, int h, double s) {
+  if (kindOf == 0) {
+   int sq = Math.Max(2, (int)Math.Round(8 * s));
+   using (SolidBrush a = new SolidBrush(Color.FromArgb(0x7d, 0x7d, 0x7d))) using (SolidBrush b = new SolidBrush(Color.FromArgb(0x93, 0x93, 0x93)))
+    for (int y = 0; y * sq < h; y++) for (int x = 0; x * sq < w; x++) g.FillRectangle(((x + y) & 1) == 0 ? a : b, x0 + x * sq, y * sq, sq, sq);
+  } else using (SolidBrush c = new SolidBrush(kindOf == 1 ? Color.FromArgb(0xf3, 0xf4, 0xf6) : Color.FromArgb(0x1b, 0x1e, 0x23))) g.FillRectangle(c, x0, 0, w, h);
+ }
+ public static string Preview(int dpi, string state, string path) {
+  if (dpi < 48 || dpi > 576) throw new Exception("dpi out of range");
+  if (state != "rest" && state != "press" && state != "ripple" && state != "frame") throw new Exception("unknown preview state");
+  if (string.IsNullOrEmpty(path)) throw new Exception("preview needs a path");
+  double s = dpi / 96.0;
+  bool frame = state == "frame";
+  int pw = (int)Math.Round((frame ? 200 : 80) * s), ph = (int)Math.Round((frame ? 130 : 80) * s);
+  using (Bitmap scene = new Bitmap(pw * 3, ph, PixelFormat.Format32bppPArgb)) {
+   using (Graphics g = Graphics.FromImage(scene)) {
+    for (int i = 0; i < 3; i++) Backdrop(g, i, i * pw, pw, ph, s);
+    g.SmoothingMode = SmoothingMode.AntiAlias; g.CompositingQuality = CompositingQuality.HighQuality;
+    if (frame) {
+     int[] px = new int[pw * ph]; FrameFill(px, pw, ph, s);
+     using (Bitmap fb = new Bitmap(pw, ph, PixelFormat.Format32bppPArgb)) {
+      BitmapData d = fb.LockBits(new Rectangle(0, 0, pw, ph), ImageLockMode.WriteOnly, PixelFormat.Format32bppPArgb);
+      Marshal.Copy(px, 0, d.Scan0, pw * ph); fb.UnlockBits(d);
+      for (int i = 0; i < 3; i++) g.DrawImageUnscaled(fb, i * pw, 0);
+     }
+    } else {
+     int pad = (int)Math.Round(Pad * s);
+     double sc = 1, rr = 0, ra = 0, rw = 0;
+     if (state == "press") { sc = DipScale; Ripple(1, 40, out rr, out ra, out rw); }
+     if (state == "ripple") Ripple(1, 200, out rr, out ra, out rw);
+     Spr sp = MakeSprite(s);
+     using (Bitmap canvas = new Bitmap(pad * 2, pad * 2, PixelFormat.Format32bppPArgb)) {
+      using (Graphics gc = Graphics.FromImage(canvas)) Compose(gc, sp, s, pad, 0.4, 0.4, sc, rr, ra, rw);
+      for (int i = 0; i < 3; i++) g.DrawImageUnscaled(canvas, i * pw + (int)Math.Round(34 * s) - pad, (int)Math.Round(28 * s) - pad);
+     }
+     sp.Bmp.Dispose();
+    }
+   }
+   scene.Save(path, ImageFormat.Png);
+  }
+  return path;
+ }
+
  public static string Info() {
   uint a1, a2; GetWindowDisplayAffinity(frm, out a1); GetWindowDisplayAffinity(cur, out a2);
   return "{\"frame\":\"0x" + Hwnd1.ToString("X") + "\",\"cursor\":\"0x" + Hwnd2.ToString("X") + "\",\"affinity\":[" + a1 + "," + a2 + "],\"ex\":[" + (uint)GetWindowLong(frm, -20) + "," + (uint)GetWindowLong(cur, -20) + "],\"above\":" + (Steps(frm, target) >= 0 ? "true" : "false") + ",\"fvis\":" + (IsWindowVisible(frm) ? 1 : 0) + ",\"cvis\":" + (IsWindowVisible(cur) ? 1 : 0) + ",\"lastAlpha\":" + lastAlpha + ",\"fwh\":\"" + fw + "x" + fh + " last " + lastW + "x" + lastH + " at " + lastX + "," + lastY + "\",\"owned\":" + (ownedBy == target ? "true" : "false") + ",\"refused\":" + Refused + ",\"err\":\"" + Err.Replace("\"", "'") + "\",\"ticks\":" + Ticks + ",\"avgTickUs\":" + (Ticks == 0 ? 0 : TickUs / Ticks) + ",\"maxTickUs\":" + MaxTickUs + ",\"foreground\":\"0x" + ((long)GetForegroundWindow()).ToString("X") + "\"}";
  }
 }
-"@
+'@
 $ok = [NzP]::Start()
 function Reply($o) { [Console]::Out.WriteLine((ConvertTo-Json -InputObject $o -Compress -Depth 6)) }
 Reply @{ ok = $ok; excluded = [NzP]::Excluded; error = [NzP]::Err }
@@ -297,6 +536,7 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
       }
       'hide' { [NzP]::Hide(); $r = @{ ok = $true } }
       'info' { $r = ([NzP]::Info() | ConvertFrom-Json) }
+      'preview' { $r = @{ path = [NzP]::Preview([int]$c.dpi, [string]$c.state, [string]$c.path) } }
       'quit' { break }
       default { $r = @{ error = 'unknown command' } }
     }
