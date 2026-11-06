@@ -975,6 +975,18 @@ describe('computer_use advisor', () => {
 		expect(result.error).toContain('Button "Beş" (e2)')
 	})
 
+	it('ui_do holds below 0.85 even with a wide lead, the confidence a no-match question was seen to reach', async () => {
+		const { host, acts } = makeUiHost()
+		const tool = createComputerUseTool(host, {
+			settleMs: 0,
+			advisor: advisor(async () => ranked(['e2', 0.8], ['e3', 0.05]), true),
+		})
+		await run(tool, { type: 'ui_snapshot', window_id: '0x261206' })
+		const result = await run(tool, { type: 'ui_do', target: 'launch the rocket', action: 'invoke' })
+		expect(result.success).toBe(false)
+		expect(acts).toEqual([])
+	})
+
 	it('ui_do needs the best control to lead the next one', async () => {
 		const { host, acts } = makeUiHost()
 		const tool = createComputerUseTool(host, {

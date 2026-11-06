@@ -139,7 +139,7 @@ export interface ComputerUseAdvisor {
 }
 
 /** The least confidence in the best control for the tool to act on it. */
-const ADVICE_MIN_CONFIDENCE = 0.7
+const ADVICE_MIN_CONFIDENCE = 0.85
 /** How far the best control must lead the next one. */
 const ADVICE_MIN_MARGIN = 0.4
 /** The most controls an advisor is asked about at once. */

@@ -271,7 +271,7 @@ fails, is slow or is unsure is the same as none, and with no advisor the tool ha
   where `chosen` is the ref the model itself used, and the tool does not wait for the answer or use it.
 - With an advisor whose `acts` is true, the tool also offers `ui_do { target, action, value, window_id }`.
   It asks `pick({ intent: target, candidates })` over the controls of the latest `ui_snapshot` that offer
-  the action and acts, as `ui_act` on that ref, only when the best control has a confidence of 0.7 or more
+  the action and acts, as `ui_act` on that ref, only when the best control has a confidence of 0.85 or more
   and leads the next by 0.4 or more. Otherwise nothing is sent and the failure (`Not delivered`, safe to
   retry) lists the closest controls. The result names the control it chose and how sure the advisor was.
   Refused with no snapshot taken, with no control offering the action, and for `set_value` without `value`.

@@ -94,7 +94,7 @@ differ in what they do:
 - `on`: as `shadow`, and the tool also offers `ui_do { target, action, value, window_id }`, which names a
   control in words ("the Save button"). The decision model chooses it from the controls of the latest
   `ui_snapshot` that offer the action, and the tool acts only when the best control has a probability of
-  0.7 or more and leads the next one by 0.4 or more. Otherwise it acts on nothing and lists the closest
+  0.85 or more and leads the next one by 0.4 or more. Otherwise it acts on nothing and lists the closest
   controls, so the model uses `ui_act` on one of them. The result says which control it chose and how sure
   the decision model was.
 
@@ -107,6 +107,11 @@ screenshot, no typed value and no other window content leaves the machine. The l
 holds `options` (how many controls were put to the model) and `agreed` (shadow only).
 
 It applies to the desktop of the session you run, not to a Pal's virtual computer.
+
+The threshold is higher than the 0.7 of the yes/no points on purpose. Run against the live service on windows of
+5 and 90 controls, the right control came back at 0.94 to 1.00 every time, while a request that matched nothing
+("launch the rocket") still put 0.70 on its nearest control; 0.85 acts on the first and holds on the second.
+With 255 controls, many of them near-duplicates, the best control got 0.56 to 0.59 and the tool held, as it should.
 
 ## The log
 
