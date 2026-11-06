@@ -3,6 +3,8 @@ import type {
 	ComputerUseCapabilities,
 	ComputerUseHost,
 	ComputerUseResult,
+	ComputerUseSettleRequest,
+	ComputerUseSettleResult,
 	DisplayGeometry,
 	FocusWindowResult,
 	Rect,
@@ -16,6 +18,7 @@ import type {
 	WindowInputResult,
 	WindowScreenshotResult,
 } from '@namzu/sdk'
+import { type AccessibilityBackend, createWindowsA11yHost } from './a11y/index.js'
 import { type Adapter, AdapterUnavailableError } from './adapters/types.js'
 import type { Win32AdapterOptions } from './adapters/win32.js'
 import { detectDisplayServer } from './detect/index.js'
@@ -78,6 +81,15 @@ export interface SubprocessComputerUseHostOptions {
 	 * one built for this machine (for tests).
 	 */
 	readonly presence?: boolean | Presence
+	/**
+	 * The resident accessibility host (Windows, with the driver backend): the
+	 * window list and the wait for a window to settle after an input come from
+	 * it, and the driver answers whenever it cannot. On by default; `false`
+	 * turns it off, as does the environment variable
+	 * `NAMZU_COMPUTER_USE_A11Y=off`. A ready backend replaces the one built
+	 * for this machine (for tests).
+	 */
+	readonly a11y?: boolean | AccessibilityBackend
 }
 
 export interface SubprocessComputerUseHostForegroundOptions {
@@ -119,6 +131,7 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 	private adapter: Adapter | null = null
 	private ladder: ForegroundLadder | undefined
 	private presence: Presence | undefined
+	private a11y: AccessibilityBackend | undefined
 
 	constructor(private readonly options: SubprocessComputerUseHostOptions = {}) {
 		const displayServer = detectDisplayServer(options.env, options.platform)
@@ -174,7 +187,24 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 							...(option === false ? { enabled: false } : {}),
 						})
 		}
-		const adapter = await loadAdapter(displayServer, this.options, this.ladder, this.presence)
+		if (!this.a11y && displayServer === 'win32') {
+			const option = this.options.a11y
+			this.a11y =
+				typeof option === 'object'
+					? option
+					: createWindowsA11yHost({
+							...(this.options.env !== undefined ? { env: this.options.env } : {}),
+							...(this.options.platform !== undefined ? { platform: this.options.platform } : {}),
+							...(option === false ? { enabled: false } : {}),
+						})
+		}
+		const adapter = await loadAdapter(
+			displayServer,
+			this.options,
+			this.ladder,
+			this.presence,
+			this.a11y,
+		)
 		// Loading an adapter proves its tools exist on PATH, not that a desktop
 		// answers. A WSL process finds PowerShell and still may have no
 		// interactive Windows session to capture; an ssh session finds xdotool
@@ -322,6 +352,20 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 		)
 	}
 
+	/**
+	 * Waits for the window the last input went to to stop changing, in place
+	 * of the tool's fixed pause. Undefined whenever the adapter cannot say
+	 * (the driver backend without its accessibility host, any other platform).
+	 */
+	async settle(
+		request: ComputerUseSettleRequest,
+		signal?: AbortSignal,
+	): Promise<ComputerUseSettleResult | undefined> {
+		const adapter = this.adapter
+		if (!adapter?.settleAfterInput) return undefined
+		return adapter.settleAfterInput(request, signal)
+	}
+
 	/** Offered to the model only when `capabilities.regionCapture` is true. */
 	async captureRegion(rect: Rect, signal?: AbortSignal): Promise<ScreenshotResult> {
 		const adapter = this.requireAdapter()
@@ -402,6 +446,7 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 		await adapter?.dispose?.()
 		await this.ladder?.dispose()
 		await this.presence?.dispose()
+		await this.a11y?.close()
 	}
 
 	/**
@@ -496,6 +541,7 @@ async function loadAdapter(
 	options: SubprocessComputerUseHostOptions,
 	ladder: ForegroundLadder | undefined,
 	presence: Presence | undefined,
+	a11y: AccessibilityBackend | undefined,
 ): Promise<Adapter> {
 	switch (displayServer) {
 		case 'darwin': {
@@ -518,6 +564,7 @@ async function loadAdapter(
 				...(options.platform !== undefined ? { platform: options.platform } : {}),
 				...(ladder ? { foreground: ladder } : {}),
 				...(presence ? { presence } : {}),
+				...(a11y ? { a11y } : {}),
 			})
 		}
 		case 'unknown':

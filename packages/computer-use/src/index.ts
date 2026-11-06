@@ -39,3 +39,22 @@ export { SpawnError } from './util/spawn.js'
 export type { SpawnOptions, SpawnResult } from './util/spawn.js'
 export { PRESENCE_ENV } from './presence/index.js'
 export type { Presence, PresenceKind, PresenceMark } from './presence/index.js'
+export { A11Y_ENV, A11yError } from './a11y/index.js'
+export type {
+	A11yAction,
+	A11yChangeKind,
+	A11yDisplay,
+	A11yFingerprint,
+	A11yIdentityRequest,
+	A11yNode,
+	A11yRect,
+	A11yResolution,
+	A11yResolveRequest,
+	A11ySeq,
+	A11ySnapshot,
+	A11ySnapshotRequest,
+	A11yWaitRequest,
+	A11yWaitResult,
+	A11yWindow,
+	AccessibilityBackend,
+} from './a11y/index.js'

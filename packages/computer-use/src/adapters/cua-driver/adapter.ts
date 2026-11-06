@@ -20,6 +20,7 @@ import type {
 	WindowInputResult,
 	WindowScreenshotResult,
 } from '@namzu/sdk'
+import type { A11ySeq, A11yWindow, AccessibilityBackend } from '../../a11y/interface.js'
 import { droppedInputNote, foregroundNote, interferenceNote } from '../../foreground/guard.js'
 import type { ForegroundLadder, LadderRequest } from '../../foreground/ladder.js'
 import { BurstInterrupted, type ForegroundSubject } from '../../foreground/types.js'
@@ -105,6 +106,14 @@ export interface CuaDriverAdapterOptions {
 	 * Absent, nothing is drawn.
 	 */
 	readonly presence?: Presence
+	/**
+	 * A resident accessibility host. While it is up, the window list is served
+	 * from it (a fraction of a millisecond, with no driver call), and a window
+	 * input is followed by waiting for the window to stop changing instead of
+	 * a fixed pause. Absent, or on any failure of it, the driver answers as it
+	 * always did.
+	 */
+	readonly a11y?: AccessibilityBackend
 	/** For tests: the clock the freshness of a read is judged by. */
 	readonly now?: () => number
 	/** For tests: how the adapter waits for a window to show an input's effect. */
@@ -147,6 +156,12 @@ const OBSERVE_WAITS_MS = [0, 80, 200, 450] as const
  * moves the check by that much later, not closer to the send.
  */
 const WINDOW_LIST_FRESH_MS = 1_000
+/** After the accessibility host failed once, the driver answers alone for this long (ms), doubled for each further failure. */
+const A11Y_BACKOFF_MS = 30_000
+/** The accessibility host is given up on for the session after this many failures. */
+const A11Y_MAX_FAILURES = 3
+/** How long (ms) a window must stay quiet after its last change before an action counts as settled. */
+const SETTLE_QUIET_MS = 120
 
 /** The window list as the driver gave it, and when it was read. */
 interface WindowListing {
@@ -399,6 +414,13 @@ export class CuaDriverAdapter implements Adapter {
 	private readonly windowApps = new Map<string, string>()
 	private readonly foreground: ForegroundLadder | undefined
 	private readonly presence: Presence | undefined
+	private readonly a11y: AccessibilityBackend | undefined
+	private a11yFailures = 0
+	private a11yRetryAt = 0
+	/** Whether the latest window list came from the accessibility host (its bounds are then its own, not the driver's). */
+	private listedByHost = false
+	/** Per window: the change marker taken before the first input since its last capture. */
+	private readonly settleMarks = new Map<number, A11ySeq>()
 	/** False once the driver would not switch its own cursor off: Namzu's is then not shown, so there is never a second one. */
 	private driverCursorOff: boolean | undefined
 	/** cua-driver's screenshot resize registry is per PID, so only this capture may drive input. */
@@ -423,6 +445,9 @@ export class CuaDriverAdapter implements Adapter {
 		this.backend = `cua-driver${options.version ? ` ${options.version}` : ''}`
 		this.foreground = options.foreground
 		this.presence = options.presence
+		this.a11y = options.a11y
+		// Compiling the helper takes a moment; start it now so the first window list can already use it.
+		options.a11y?.warm()
 		this.now = options.now ?? Date.now
 		this.settle = options.settle ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
 		this.client = new McpStdioClient({
@@ -569,11 +594,14 @@ export class CuaDriverAdapter implements Adapter {
 	async listWindows(): Promise<readonly WindowInfo[]> {
 		// The model is about to work in a window: have the overlay ready for its first action.
 		this.tryPresence((presence) => presence.warm())
-		const listed = structured(
-			await this.callTool('list_windows', {}, LIST_TIMEOUT_MS),
-			'list_windows',
-		)
-		const windows = toWindowInfos(listed.windows)
+		const fromHost = await this.windowsFromHost()
+		this.listedByHost = fromHost !== undefined
+		const windows =
+			fromHost ??
+			toWindowInfos(
+				structured(await this.callTool('list_windows', {}, LIST_TIMEOUT_MS), 'list_windows')
+					.windows,
+			)
 		this.windowPids.clear()
 		this.windowApps.clear()
 		for (const window of windows) {
@@ -581,6 +609,77 @@ export class CuaDriverAdapter implements Adapter {
 			this.windowApps.set(window.id, window.app)
 		}
 		return windows
+	}
+
+	/**
+	 * The window list from the accessibility host, or undefined when it is not
+	 * up yet (it is started now and used from the next call), was given up
+	 * on, or failed this time. A failure is never retried within the call:
+	 * the driver answers it, and the host is left alone for a while.
+	 */
+	private async windowsFromHost(): Promise<WindowInfo[] | undefined> {
+		const a11y = this.a11y
+		if (!a11y || this.a11yFailures >= A11Y_MAX_FAILURES) return undefined
+		if (!a11y.isReady) {
+			a11y.warm()
+			return undefined
+		}
+		if (this.now() < this.a11yRetryAt) return undefined
+		try {
+			const windows = windowInfosFromHost(
+				await a11y.listWindows({ includeOwned: true }, currentCallSignal()),
+			)
+			this.a11yFailures = 0
+			return windows
+		} catch {
+			this.a11yFailures++
+			this.a11yRetryAt = this.now() + A11Y_BACKOFF_MS * 2 ** (this.a11yFailures - 1)
+			return undefined
+		}
+	}
+
+	/**
+	 * Called by the tool instead of its fixed pause after a batch: waits for
+	 * the window the batch acted in to stop changing, as the window reports it.
+	 * Undefined when there is nothing to wait on (the host is not up, the
+	 * batch did not act in a window through this adapter, the host failed):
+	 * the tool then pauses as it always did.
+	 */
+	async settleAfterInput(
+		request: { readonly windowId?: string; readonly budgetMs: number },
+		signal?: AbortSignal,
+	): Promise<{ readonly waitedMs: number; readonly changed: boolean } | undefined> {
+		const a11y = this.a11y
+		if (!a11y || !a11y.isReady || request.windowId === undefined) return undefined
+		const hwnd = parseWindowId(request.windowId)
+		const since = hwnd === undefined ? undefined : this.settleMarks.get(hwnd)
+		if (hwnd === undefined || since === undefined) return undefined
+		this.settleMarks.delete(hwnd)
+		try {
+			const waited = await a11y.waitForChange(
+				{
+					windowId: windowIdOf(hwnd),
+					since,
+					quietMs: Math.min(SETTLE_QUIET_MS, request.budgetMs),
+					timeoutMs: request.budgetMs,
+				},
+				signal,
+			)
+			return { waitedMs: waited.settledMs, changed: waited.changed }
+		} catch {
+			return undefined
+		}
+	}
+
+	/** Takes (and, for a window not watched yet, starts) the change marker an input's settle counts from. Never fails the input. */
+	private async markForSettle(hwnd: number): Promise<void> {
+		const a11y = this.a11y
+		if (!a11y?.isReady || this.settleMarks.has(hwnd)) return
+		try {
+			this.settleMarks.set(hwnd, await a11y.seq(windowIdOf(hwnd)))
+		} catch {
+			this.settleMarks.delete(hwnd)
+		}
 	}
 
 	async focusWindow(id: string): Promise<FocusWindowResult> {
@@ -615,6 +714,17 @@ export class CuaDriverAdapter implements Adapter {
 		// A failed or overlapping capture invalidates the old resize ratio even
 		// if the driver returned no image. Never let it address a later action.
 		this.windowFrame = undefined
+		// What an earlier input changed was seen by the screenshot being taken now; and the window
+		// starts being watched while it is captured, so the first input after it loses no event.
+		this.settleMarks.delete(target.hwnd)
+		const armed = this.a11y?.isReady
+			? this.a11y.seq(windowIdOf(target.hwnd)).catch(() => undefined)
+			: undefined
+		// The window where the host says it is before the capture: the host's rectangle is its own,
+		// so "did not move during the capture" is judged against it, not against the driver's.
+		const hostBefore = this.listedByHost
+			? (await this.windowsFromHost())?.find((window) => window.id === windowIdOf(target.hwnd))
+			: undefined
 		let captureStarts = 0
 		let captureGeneration = this.sessionGeneration
 		const result = await this.callTool(
@@ -665,12 +775,13 @@ export class CuaDriverAdapter implements Adapter {
 			throw new Error(
 				'cua-driver: the driver session changed after the window capture; take a new screenshot.',
 			)
+		await armed
 		const listed = windows.find((window) => window.id === windowIdOf(target.hwnd))
 		if (
 			!listed ||
 			listed.pid !== target.pid ||
 			listed.minimized ||
-			!sameBounds(listed.bounds, bounds)
+			!sameBounds(listed.bounds, this.listedByHost && hostBefore ? hostBefore.bounds : bounds)
 		)
 			throw new Error(
 				`cua-driver: window ${id} moved, closed or was minimized during capture; take a new screenshot.`,
@@ -1033,6 +1144,7 @@ export class CuaDriverAdapter implements Adapter {
 					'computer-use: the captured window changed or its driver restarted; take a new window screenshot.',
 				)
 			this.showPresence(frame, current.bounds, name, args)
+			await this.markForSettle(target.window_id as number)
 			return this.callTool(name, { ...target, ...args }, undefined, undefined, undefined, frame)
 		}
 		// The driver's hotkey finds a shortcut only through an accelerator the window names, and refuses (sending
@@ -2595,6 +2707,39 @@ export function toWindowInfos(raw: unknown): WindowInfo[] {
 		.sort((a, b) => (b.z === a.z ? a.index - b.index : b.z - a.z))
 	const front = ordered.find((entry) => !entry.info.minimized && Number.isFinite(entry.z))
 	return ordered.map((entry) => ({ ...entry.info, focused: entry === front }))
+}
+
+/**
+ * The accessibility host's window list → the host's `WindowInfo`, front to
+ * back, with the same drops as {@link toWindowInfos} (untitled windows, the
+ * driver's own, the shell's `Program Manager`, windows a pixel wide or tall).
+ * `focused` is the window the system reports as the foreground one when it
+ * is among those kept, else the front-most one that is not minimized.
+ */
+export function windowInfosFromHost(raw: readonly A11yWindow[]): WindowInfo[] {
+	const kept: A11yWindow[] = []
+	for (const entry of raw) {
+		const hwnd = parseWindowId(entry.windowId)
+		if (hwnd === undefined || entry.title.trim().length === 0) continue
+		const app = entry.processName.toLowerCase()
+		if (app === 'cua-driver.exe') continue
+		if (app === 'explorer.exe' && entry.title === 'Program Manager') continue
+		if (entry.bounds.width <= 1 || entry.bounds.height <= 1) continue
+		kept.push(entry)
+	}
+	kept.sort((a, b) => a.z - b.z)
+	const front =
+		kept.find((entry) => entry.focused && !entry.minimized) ??
+		kept.find((entry) => !entry.minimized)
+	return kept.map((entry) => ({
+		id: windowIdOf(parseWindowId(entry.windowId) as number),
+		title: entry.title,
+		app: entry.processName.replace(/\.exe$/i, ''),
+		pid: entry.processId,
+		bounds: { ...entry.bounds },
+		minimized: entry.minimized,
+		focused: entry === front,
+	}))
 }
 
 function structured(result: McpToolResult, tool: string): Record<string, unknown> {

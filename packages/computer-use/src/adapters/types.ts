@@ -47,6 +47,14 @@ export interface Adapter {
 		captureId: string,
 		action: WindowInputAction,
 	): Promise<WindowInputResult | undefined>
+	/**
+	 * Waits for the window the last input went to to stop changing, as the
+	 * window reports it, within `budgetMs`. Undefined when it cannot say.
+	 */
+	settleAfterInput?(
+		request: { readonly windowId?: string; readonly budgetMs: number },
+		signal?: AbortSignal,
+	): Promise<{ readonly waitedMs: number; readonly changed: boolean } | undefined>
 	/** With `capabilities.regionCapture`. */
 	captureRegion?(rect: Rect): Promise<ScreenshotResult>
 	/** With `capabilities.uiTree`. */
