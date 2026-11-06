@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-07
+
+- **Update** [Computer-use host](sdk/computer-use-host.md#the-accessibility-host-the-window-list-and-waiting-for-a-window-to-settle): `ui_act` on a control takes the window's change marker before it acts, so the wait after it ends when the window stops changing instead of falling back to the fixed pause. `.changeset/computer-use-act-settle-marker.md` (patch for `@namzu/computer-use`).
+
 ## 2026-11-06
 
 - **Update** [Decision points](cli/decision-points.md): the points have one-word names, `notify`, `memory` and `skill`; the names they were released under (`notify-worthy`, `memory-admit`, `skill-worthy`) are still read as aliases. `.changeset/decision-point-names.md` (patch for `@namzu/cli`).

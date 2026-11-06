@@ -1652,6 +1652,9 @@ export class CuaDriverAdapter implements Adapter {
 		const facts = resolved.entry
 		const { pid, token } = facts
 		const uiRef = { ref, facts }
+		// The window's change marker is taken before the control is acted on, so the wait that follows
+		// counts what this action changed rather than the quiet before it.
+		await this.markForSettle(facts.hwnd)
 		this.tryPresence((presence) =>
 			presence.mark({
 				hwnd: facts.hwnd,

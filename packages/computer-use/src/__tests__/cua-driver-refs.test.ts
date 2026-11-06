@@ -35,6 +35,7 @@ function window(
 		onClick?: () => void
 		onTool?: (call: ToolCall) => void
 		foreground?: CuaDriverAdapterOptions['foreground']
+		a11y?: CuaDriverAdapterOptions['a11y']
 	} = {},
 ) {
 	const state = {
@@ -183,6 +184,7 @@ function window(
 		settle: async () => undefined,
 		now: () => state.clock,
 		...(options.foreground ? { foreground: options.foreground } : {}),
+		...(options.a11y ? { a11y: options.a11y } : {}),
 	})
 	return { adapter, state, calls, clicks, externalRead: () => render() }
 }
@@ -889,6 +891,74 @@ describe('choosing an option in a list the driver does not change', () => {
 		)
 		expect(outcome).toMatchObject({ ok: false, delivery: 'not_delivered', retrySafety: 'safe' })
 		expect(outcome.detail).toContain('A person is using the screen.')
+		await w.adapter.dispose()
+	})
+})
+
+describe('settling after acting on a control', () => {
+	it('takes the window’s change marker before the control is acted on and waits from it', async () => {
+		const log: string[] = []
+		const waits: { since?: number }[] = []
+		let marker = 40
+		const backend = {
+			id: 'fake',
+			isReady: true,
+			warm() {},
+			ready: async () => true,
+			listWindows: async () => [
+				{
+					windowId: '0x64',
+					processId: 7,
+					processName: 'app.exe',
+					title: 'Page',
+					bounds: { x: 0, y: 0, width: 800, height: 600 },
+					minimized: false,
+					focused: true,
+					z: 0,
+				},
+			],
+			listDisplays: async () => [],
+			snapshot: async () => {
+				throw new Error('not used')
+			},
+			seq: async () => {
+				log.push('seq')
+				return marker++
+			},
+			waitForChange: async (request: { since?: number }) => {
+				waits.push(request)
+				return {
+					changed: true,
+					settled: true,
+					firstEventMs: 3,
+					settledMs: 120,
+					events: 1,
+					newWindows: [],
+				}
+			},
+			identity: async () => {
+				throw new Error('not used')
+			},
+			resolve: async () => {
+				throw new Error('not used')
+			},
+			close: async () => {},
+		} as unknown as NonNullable<CuaDriverAdapterOptions['a11y']>
+		const w = window(page(button('Save')), {
+			effect: 'confirmed',
+			a11y: backend,
+			onClick: () => log.push('click'),
+		})
+		const snapshot = await w.adapter.uiSnapshot('0x64')
+		const save = find(snapshot, 'Button', 'Save').ref
+		log.length = 0
+		await w.adapter.uiAct(save, 'invoke')
+		// The marker came first, then the click; the settle counts from that marker.
+		expect(log.indexOf('seq')).toBeGreaterThan(-1)
+		expect(log.indexOf('seq')).toBeLessThan(log.indexOf('click'))
+		const settled = await w.adapter.settleAfterInput({ windowId: '0x64', budgetMs: 500 })
+		expect(settled).toEqual({ waitedMs: 120, changed: true })
+		expect(waits[0]?.since).toBeDefined()
 		await w.adapter.dispose()
 	})
 })
