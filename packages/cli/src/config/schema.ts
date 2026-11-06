@@ -755,6 +755,11 @@ export type DecisionConfig =
 			readonly deployment: string
 			/** Environment variable holding the Entra bearer token. Default `AZURE_FOUNDRY_TOKEN`. */
 			readonly tokenEnv?: string
+			/**
+			 * Environment variable holding an API key, for a resource that allows key authentication.
+			 * Sent as `api-key` instead of a bearer token; naming both this and `tokenEnv` is refused.
+			 */
+			readonly apiKeyEnv?: string
 	  }
 	| {
 			readonly points?: DecisionPointsConfig

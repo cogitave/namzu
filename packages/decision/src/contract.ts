@@ -18,12 +18,18 @@ export interface YesNoDecision {
 export interface ChoiceDecision<T extends string> {
 	option: T
 	probabilities: Record<T, number>
+	/** 1 minus the answer's normalised entropy: how peaked it is, not how often it is right. */
+	confidence?: number
 }
 
 export interface ScoreDecision {
-	/** Index into the `levels` array passed to `score`. */
+	/** Index into the `levels` array passed to `score`: the most probable level. */
 	level: number
 	probabilities: number[]
+	/** The probability-weighted average of the level indices, so it can fall between levels. */
+	score?: number
+	/** 1 minus the answer's normalised entropy: how peaked it is, not how often it is right. */
+	confidence?: number
 }
 
 export interface DecisionModel {

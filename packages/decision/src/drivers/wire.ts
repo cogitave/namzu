@@ -72,18 +72,21 @@ export function yesnoQuestion(instructions: string): Question {
 	return { type: 'noul', instructions }
 }
 
-// TODO(decision): confirm the live wire field for choice options against the
-// Foundry OpenAPI schema (yesno is verified; choice/score request shape is
-// provisional).
+/**
+ * A choice question: the options are the keys of `criteria` (2 to 255 of them), each with a
+ * description or `null` for a bare label. Verified against the live service.
+ */
 export function choiceQuestion(instructions: string, options: readonly string[]): Question {
-	return { type: 'choice', instructions, options: [...options] }
+	return {
+		type: 'choice',
+		instructions,
+		criteria: Object.fromEntries(options.map((option) => [option, null])),
+	}
 }
 
-// TODO(decision): confirm the live wire field for score levels against the
-// Foundry OpenAPI schema (yesno is verified; choice/score request shape is
-// provisional).
+/** A score question: `criteria` is the ordered scale, lowest first (2 to 10 levels). Verified against the live service. */
 export function scoreQuestion(instructions: string, levels: readonly string[]): Question {
-	return { type: 'score', instructions, levels: [...levels] }
+	return { type: 'score', instructions, criteria: [...levels] }
 }
 
 export function parseYesNo(answer: unknown): YesNoDecision {
@@ -94,36 +97,45 @@ export function parseYesNo(answer: unknown): YesNoDecision {
 	return { p: noul }
 }
 
+/** A choice answer is `{ choice, probabilities, confidence }`; the most probable option stands in if `choice` is absent. */
 export function parseChoice<const T extends string>(answer: unknown): ChoiceDecision<T> {
-	const body = isRecord(answer) && isRecord(answer.choice) ? answer.choice : answer
-	const probabilities = numberRecord(isRecord(body) ? body.probabilities : undefined)
-	let option = isRecord(body) ? body.option : undefined
+	const body = isRecord(answer) ? answer : {}
+	const probabilities = numberRecord(body.probabilities)
+	let option: unknown = body.choice
 	if (typeof option !== 'string') {
-		// Defensive: fall back to the most probable option.
 		option = Object.entries(probabilities).sort((a, b) => b[1] - a[1])[0]?.[0]
 	}
 	if (typeof option !== 'string') {
 		throw new DecisionError('Decision response carried no "choice" answer')
 	}
-	return { option: option as T, probabilities: probabilities as Record<T, number> }
+	return {
+		option: option as T,
+		probabilities: probabilities as Record<T, number>,
+		...(typeof body.confidence === 'number' ? { confidence: body.confidence } : {}),
+	}
 }
 
+/**
+ * A score answer is `{ score, probabilities, legend, confidence }`: `score` is the
+ * probability-weighted average of the level indices (so it can fall between levels),
+ * `probabilities` is keyed by index. `level` is the most probable level.
+ */
 export function parseScore(answer: unknown): ScoreDecision {
-	const body = isRecord(answer) && isRecord(answer.score) ? answer.score : answer
-	const raw = isRecord(body) ? body : {}
-	const probabilities = Array.isArray(raw.probabilities)
-		? raw.probabilities.filter((x): x is number => typeof x === 'number')
-		: []
-	let level = raw.level
-	if (typeof level !== 'number') {
-		let best = -1
-		probabilities.forEach((p, i) => {
-			if (best < 0 || p > (probabilities[best] ?? 0)) best = i
-		})
-		level = best >= 0 ? best : undefined
-	}
-	if (typeof level !== 'number') {
+	const body = isRecord(answer) ? answer : {}
+	const keyed = numberRecord(body.probabilities)
+	const size = Object.keys(keyed).reduce((n, k) => Math.max(n, Number(k) + 1), 0)
+	const probabilities = Array.from({ length: size }, (_, i) => keyed[String(i)] ?? 0)
+	let level = 0
+	probabilities.forEach((p, i) => {
+		if (p > (probabilities[level] ?? 0)) level = i
+	})
+	if (probabilities.length === 0 && typeof body.score !== 'number') {
 		throw new DecisionError('Decision response carried no "score" answer')
 	}
-	return { level, probabilities }
+	return {
+		level: probabilities.length > 0 ? level : Math.round(body.score as number),
+		probabilities,
+		...(typeof body.score === 'number' ? { score: body.score } : {}),
+		...(typeof body.confidence === 'number' ? { confidence: body.confidence } : {}),
+	}
 }

@@ -21,8 +21,16 @@ export interface AzureFoundryConfig {
 	endpoint: string
 	/** Foundry deployment name, e.g. "decision-1". */
 	deployment: string
-	/** Returns an Entra bearer token. The host supplies it, which keeps this package free of an Azure SDK. */
-	getToken: () => Promise<string>
+	/**
+	 * Returns an Entra bearer token. The host supplies it, which keeps this package free of an
+	 * Azure SDK. Not needed when `getApiKey` is given.
+	 */
+	getToken?: () => Promise<string>
+	/**
+	 * Returns an API key for a resource that allows key authentication, sent as `api-key`. Read at
+	 * each call, so a rotated key is picked up. Wins over `getToken` when both are given.
+	 */
+	getApiKey?: () => string | Promise<string>
 	/** Injectable for tests; defaults to `globalThis.fetch`. */
 	fetch?: typeof fetch
 }
@@ -61,13 +69,21 @@ export class AzureFoundryDecisionModel implements DecisionModel {
 		question: Question,
 		opts?: DecisionRequestOptions,
 	): Promise<unknown> {
-		const token = await this.config.getToken()
+		const headers = await this.authHeaders()
 		return postDecision({
 			url: `${this.config.endpoint.replace(/\/$/, '')}/providers/microsoft/v1/systemone`,
-			headers: { Authorization: `Bearer ${token}` },
+			headers,
 			body: { model: this.config.deployment, state, questions: { q: question } },
 			fetch: this.config.fetch ?? globalThis.fetch,
 			...(opts?.signal ? { signal: opts.signal } : {}),
 		})
+	}
+
+	private async authHeaders(): Promise<Record<string, string>> {
+		if (this.config.getApiKey) return { 'api-key': await this.config.getApiKey() }
+		if (!this.config.getToken) {
+			throw new Error('The Azure decision provider needs getToken or getApiKey')
+		}
+		return { Authorization: `Bearer ${await this.config.getToken()}` }
 	}
 }

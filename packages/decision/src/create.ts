@@ -11,7 +11,10 @@ export interface AzureDecisionProviderConfig {
 	provider: 'azure'
 	endpoint: string
 	deployment: string
-	getToken: () => Promise<string>
+	/** An Entra bearer token. Not needed when `getApiKey` is given. */
+	getToken?: () => Promise<string>
+	/** An API key, for a resource that allows key authentication. Wins over `getToken`. */
+	getApiKey?: () => string | Promise<string>
 	fetch?: typeof fetch
 }
 
@@ -41,7 +44,8 @@ export function createDecisionModel(config: DecisionProviderConfig): DecisionMod
 			return new AzureFoundryDecisionModel({
 				endpoint: config.endpoint,
 				deployment: config.deployment,
-				getToken: config.getToken,
+				...(config.getToken ? { getToken: config.getToken } : {}),
+				...(config.getApiKey ? { getApiKey: config.getApiKey } : {}),
 				...(config.fetch ? { fetch: config.fetch } : {}),
 			})
 		case 'http':

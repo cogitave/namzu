@@ -46,24 +46,27 @@ describe('HttpDecisionModel', () => {
 		expect((c.init.headers as Record<string, string>)['x-trace']).toBe('t')
 	})
 
-	it('choice and score map their answers', async () => {
+	it('choice and score map their answers in the live shape', async () => {
 		const choice = fake(200, {
-			answers: { q: { choice: { option: 'b', probabilities: { a: 0.3, b: 0.7 } } } },
+			answers: { q: { choice: 'b', probabilities: { a: 0.3, b: 0.7 }, type: 'choice' } },
 		})
 		const cModel = new HttpDecisionModel({ url: 'http://h/d', fetch: choice.f })
 		expect(await cModel.choice('s', 'pick', ['a', 'b'])).toEqual({
 			option: 'b',
 			probabilities: { a: 0.3, b: 0.7 },
 		})
-		expect(choice.calls[0]!.body.questions.q.options).toEqual(['a', 'b'])
+		expect(choice.calls[0]?.body.questions.q.criteria).toEqual({ a: null, b: null })
 
-		const score = fake(200, { answers: { q: { score: { level: 0, probabilities: [0.9, 0.1] } } } })
+		const score = fake(200, {
+			answers: { q: { score: 0.1, probabilities: { '0': 0.9, '1': 0.1 }, type: 'score' } },
+		})
 		const sModel = new HttpDecisionModel({ url: 'http://h/d', fetch: score.f })
 		expect(await sModel.score('s', 'rate', ['lo', 'hi'])).toEqual({
 			level: 0,
 			probabilities: [0.9, 0.1],
+			score: 0.1,
 		})
-		expect(score.calls[0]!.body.questions.q.levels).toEqual(['lo', 'hi'])
+		expect(score.calls[0]?.body.questions.q.criteria).toEqual(['lo', 'hi'])
 	})
 
 	it('throws DecisionError with status and code on a non-2xx', async () => {

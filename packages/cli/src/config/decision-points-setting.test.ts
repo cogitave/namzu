@@ -42,3 +42,17 @@ describe('decision.points', () => {
 		expect(() => load(`${base}  points:\n    notify-worthy: loud\n`)).toThrow(/off.*shadow.*on/u)
 	})
 })
+
+describe('decision azure authentication', () => {
+	const azure = 'decision:\n  provider: azure\n  endpoint: https://x.example\n  deployment: d\n'
+
+	it('reads an API key variable', () => {
+		expect(load(`${azure}  apiKeyEnv: FOUNDRY_KEY\n`).decision).toMatchObject({
+			apiKeyEnv: 'FOUNDRY_KEY',
+		})
+	})
+
+	it('refuses a config that names both a key and a token variable', () => {
+		expect(() => load(`${azure}  apiKeyEnv: K\n  tokenEnv: T\n`)).toThrow(/apiKeyEnv/u)
+	})
+})
