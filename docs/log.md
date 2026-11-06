@@ -2,6 +2,7 @@
 
 ## 2026-11-07
 
+- **Update** [Computer actions](sdk/computer-actions.md#naming-a-control-in-words-the-advisor) and [Decision points](cli/decision-points.md#pick): the computer tool takes an optional advisor, a fast second opinion on which control an intent names. With one, `ui_act` accepts an `intent`; with one that acts, the tool offers `ui_do`, which names a control in words and acts only when the advisor is sure and clearly ahead. The CLI builds one from a fourth decision point, `pick` (off by default; `shadow` only records how often the decision model agrees with the model's own choice; `on` also offers `ui_do`). `.changeset/computer-use-ui-do.md` (minor for `@namzu/sdk`) and `.changeset/decision-pick.md` (minor for `@namzu/cli`).
 - **Update** [Computer-use host](sdk/computer-use-host.md#the-accessibility-host-the-window-list-and-waiting-for-a-window-to-settle): `ui_act` on a control takes the window's change marker before it acts, so the wait after it ends when the window stops changing instead of falling back to the fixed pause. `.changeset/computer-use-act-settle-marker.md` (patch for `@namzu/computer-use`).
 
 ## 2026-11-06

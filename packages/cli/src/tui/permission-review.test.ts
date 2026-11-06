@@ -612,6 +612,36 @@ describe('buildPermissionSummary — desktop actions', () => {
 		expect(summarize({ type: 'ui_act', ref: 'e1', action: 'teleport' }).complete).toBe(false)
 	})
 
+	it('reads an intent on a ui_act, and a ui_do by the words it names the control with', () => {
+		expect(
+			summarize({
+				type: 'ui_act',
+				ref: 'e1',
+				action: 'invoke',
+				intent: 'save it',
+			}),
+		).toMatchObject({ complete: true })
+		const named = summarize({
+			type: 'ui_do',
+			target: 'the Save button',
+			action: 'invoke',
+		})
+		expect(named.complete).toBe(true)
+		expect(named.text).toContain('Press the control for "the Save button"')
+		const set = summarize({
+			type: 'ui_do',
+			target: 'the name field',
+			action: 'set_value',
+			value: 'Ada',
+			window_id: '0x1',
+		})
+		expect(set.text).toContain('Set the control for "the name field" to "Ada"')
+		expect(summarize({ type: 'ui_do', target: 'x', action: 'teleport' }).complete).toBe(false)
+		expect(summarize({ type: 'ui_do', target: 'x', action: 'invoke', extra: 1 }).complete).toBe(
+			false,
+		)
+	})
+
 	it('opens exact-first for a desktop action or field it does not know', () => {
 		for (const input of [
 			{ type: 'mouse_click', at: { x: 1, y: 2 }, button: 'left', hidden: true },

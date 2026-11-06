@@ -177,3 +177,122 @@ describe('the notify question', () => {
 		expect(q.rule).toBe(true)
 	})
 })
+
+describe('a decision point asked to choose', () => {
+	const options = ['e1 Button "Save"', 'e2 Button "Cancel"', 'e3 Edit "Name"']
+	function chooser(probabilities: Record<string, number> | (() => Promise<never>)) {
+		const choice = vi.fn(
+			typeof probabilities === 'function'
+				? probabilities
+				: async () => ({ option: options[0], probabilities }),
+		)
+		return { model: { choice } as unknown as DecisionModel, choice }
+	}
+	const ask = (chosen?: string) => ({
+		point: 'pick' as const,
+		state: 'Described action: save the file',
+		instructions: 'Choose.',
+		options,
+		...(chosen ? { chosen } : {}),
+	})
+
+	it('asks nothing when it is off', async () => {
+		const { model, choice } = chooser({ [options[0]]: 1 })
+		const entries: DecisionLogEntry[] = []
+		const points = createDecisionPoints({
+			model,
+			modes: undefined,
+			log: (e) => entries.push(e),
+		})
+		expect(await points.choose(ask())).toBeUndefined()
+		expect(choice).not.toHaveBeenCalled()
+		expect(entries).toEqual([])
+	})
+
+	it('in shadow mode logs how likely the model thought the option already chosen, and whether it agreed', async () => {
+		const { model } = chooser({
+			[options[0]]: 0.1,
+			[options[1]]: 0.8,
+			[options[2]]: 0.1,
+		})
+		const entries: DecisionLogEntry[] = []
+		const points = createDecisionPoints({
+			model,
+			modes: { pick: 'shadow' },
+			log: (e) => entries.push(e),
+			now: () => 5,
+		})
+		expect(await points.choose(ask(options[0]))).toBeUndefined()
+		expect(entries).toEqual([
+			{
+				at: 5,
+				point: 'pick',
+				mode: 'shadow',
+				p: 0.1,
+				rule: true,
+				latencyMs: 0,
+				outcome: 'answered',
+				chars: 'Described action: save the file'.length,
+				options: 3,
+				agreed: false,
+			},
+		])
+	})
+
+	it('in on mode hands back the options best first', async () => {
+		const { model } = chooser({
+			[options[0]]: 0.1,
+			[options[1]]: 0.8,
+			[options[2]]: 0.1,
+		})
+		const entries: DecisionLogEntry[] = []
+		const points = createDecisionPoints({
+			model,
+			modes: { pick: 'on' },
+			log: (e) => entries.push(e),
+		})
+		const ranking = await points.choose(ask())
+		expect(ranking?.ranked[0]).toEqual({ option: options[1], p: 0.8 })
+		expect(ranking?.ranked).toHaveLength(3)
+		// Nothing chose before the model, so there is nothing to compare with.
+		expect(entries[0]).toMatchObject({ p: 0.8, rule: false })
+		expect(entries[0]).not.toHaveProperty('agreed')
+	})
+
+	it('gives no answer when the options are too few or too many, or the model fails', async () => {
+		const failing = chooser(async () => {
+			throw new Error('503')
+		})
+		const entries: DecisionLogEntry[] = []
+		const points = createDecisionPoints({
+			model: failing.model,
+			modes: { pick: 'on' },
+			log: (e) => entries.push(e),
+		})
+		expect(await points.choose({ ...ask(), options: ['only one'] })).toBeUndefined()
+		expect(
+			await points.choose({
+				...ask(),
+				options: Array.from({ length: 256 }, (_, i) => `o${i}`),
+			}),
+		).toBeUndefined()
+		expect(failing.choice).not.toHaveBeenCalled()
+		expect(await points.choose(ask())).toBeUndefined()
+		expect(entries.map((e) => e.outcome)).toEqual(['error'])
+	})
+
+	it('holds no text of the screen in the log', async () => {
+		const { model } = chooser({
+			[options[0]]: 0.9,
+			[options[1]]: 0.05,
+			[options[2]]: 0.05,
+		})
+		const entries: DecisionLogEntry[] = []
+		await createDecisionPoints({
+			model,
+			modes: { pick: 'shadow' },
+			log: (e) => entries.push(e),
+		}).choose(ask(options[0]))
+		expect(JSON.stringify(entries)).not.toMatch(/Save|Cancel|Name|file/)
+	})
+})
