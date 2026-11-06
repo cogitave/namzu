@@ -1,5 +1,13 @@
 # @namzu/cli
 
+## 45.11.1
+
+### Patch Changes
+
+- Updated dependencies [126828d]
+  - @namzu/computer-use@4.2.0
+  - @namzu/sdk@61.3.0
+
 ## 45.11.0
 
 ### Minor Changes

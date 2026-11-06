@@ -1,5 +1,11 @@
 # Changelog
 
+## 61.3.0
+
+### Minor Changes
+
+- 126828d: On Windows, the driver backend now keeps a second resident helper (an accessibility host) that answers the window list in under a millisecond instead of 1.3 to 1.75 s through the driver, and lets a window input be followed by waiting for the window to stop changing (about 130 ms after a change) instead of the tool's fixed 500 ms pause; a window that does not change still takes the full pause, so it is never slower. If the helper cannot start or fails, the driver answers exactly as before, in the same call; set `NAMZU_COMPUTER_USE_A11Y=off` (or `a11y: false` on `SubprocessComputerUseHost`) to turn it off. Chromium and Electron windows are never read through it unless a caller asks (`allowChromium`), because reading one switches that program's accessibility on. `@namzu/computer-use` also exports the platform-neutral `AccessibilityBackend` types and `A11Y_ENV`. `@namzu/sdk` gains the optional `ComputerUseHost.settle(request, signal)` with `ComputerUseSettleRequest` and `ComputerUseSettleResult`: the `computer_use` tool asks it before the screenshot that follows an action and sleeps `settleMs` only when it is absent, answers `undefined` or fails; `settleMs` and its default of 500 are unchanged, so a host that does not implement it behaves as before.
+
 ## 61.2.1
 
 ### Patch Changes
