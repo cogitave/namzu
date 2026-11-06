@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Decision points
-description: "decision.points: the places the CLI can ask the decision model a yes/no question beside its own rule, the off, shadow and on modes, the points (notify-worthy, memory-admit), what is sent and what the decision log holds."
+description: "decision.points: the places the CLI can ask the decision model a yes/no question beside its own rule, the off, shadow and on modes, the points (notify-worthy, memory-admit, skill-worthy), what is sent and what the decision log holds."
 resource: packages/cli/src/integrations/decision/points.ts
 tags: [cli, config, decision]
 ---
@@ -62,6 +62,16 @@ confident no (`P(true)` of 0.3 or less) writes nothing; anything else, a failure
 writes as before. It runs after the answer is settled, so it never delays a reply. A turn
 with no claim asks nothing. The claims are the text that leaves the machine; file paths are
 not sent.
+
+## `skill-worthy`
+
+Is this finished turn a procedure worth saving as a skill? The rule looks at the turn's
+shape (six successful tool calls, two distinct tools, a clean tail) and cannot tell a
+routine you will want again from a one-off that happened to take six calls. With the point
+`on`, a proposal the rule already made is put to the decision model, and a confident no
+(`P(true)` of 0.3 or less) withdraws it. The model never creates a proposal the rule did not
+make, and nothing is saved either way. What is sent is your request (cut at 600
+characters) and the names of the tools used; no tool arguments, results or file contents.
 
 ## The log
 

@@ -33,7 +33,9 @@ describe('decision.points', () => {
 		expect(load(`${base}  points:\n    memory-admit: shadow\n`).decision).toMatchObject({
 			points: { 'memory-admit': 'shadow' },
 		})
-		expect(() => load(`${base}  points:\n    guess: on\n`)).toThrow(/notify-worthy, memory-admit/u)
+		expect(() => load(`${base}  points:\n    guess: on\n`)).toThrow(
+			/notify-worthy, memory-admit, skill-worthy/u,
+		)
 	})
 
 	it('refuses an unknown point or mode by name', () => {
