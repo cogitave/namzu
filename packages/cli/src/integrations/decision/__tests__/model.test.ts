@@ -73,3 +73,23 @@ describe('maybeCreateDecisionModel', () => {
 		expect(typeof model?.score).toBe('function')
 	})
 })
+
+describe('NAMZU_NO_DECISION', () => {
+	const cfg = { provider: 'http', url: 'https://d' } as const
+
+	it('builds the model and the tool without it', () => {
+		expect(maybeCreateDecisionModel(cfg, {})).toBeDefined()
+		expect(maybeCreateDecisionTool(cfg, {})).toBeDefined()
+	})
+
+	it('builds neither when it is 1, whatever the config says', () => {
+		const off = { NAMZU_NO_DECISION: '1' }
+		expect(maybeCreateDecisionModel(cfg, off)).toBeUndefined()
+		expect(maybeCreateDecisionTool(cfg, off)).toBeUndefined()
+	})
+
+	it('is a switch for 1 only, so a stray value does not silently disable it', () => {
+		expect(maybeCreateDecisionModel(cfg, { NAMZU_NO_DECISION: '0' })).toBeDefined()
+		expect(maybeCreateDecisionModel(cfg, { NAMZU_NO_DECISION: '' })).toBeDefined()
+	})
+})

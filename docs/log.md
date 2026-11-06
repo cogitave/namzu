@@ -2,6 +2,7 @@
 
 ## 2026-11-06
 
+- **Update** [Decision points](cli/decision-points.md): `NAMZU_NO_DECISION=1` turns every use of the decision model off at once (decision points, `model: auto` routing and the `decide` tool), whatever the config says. `.changeset/decision-kill-switch.md` (patch for `@namzu/cli`).
 - **Update** [Decision points](cli/decision-points.md#memory-admit): a second point, `memory-admit`, asks the decision model whether what a turn learned is worth remembering before the session writes its stored memory; a confident no writes nothing, anything else (and any failure) writes as before. Off unless named in `decision.points`; the claims are what is sent, file paths are not. `.changeset/decision-memory-admit.md` (minor for `@namzu/cli`).
 
 ## 2026-11-05

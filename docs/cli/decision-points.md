@@ -24,6 +24,11 @@ decision:
 
 `decision` is read only from your user and managed config, never from a project's file.
 
+Everything here is a choice you make. With no `decision` block there is no model and
+nothing is asked; with one, a point you do not name is `off`; and `NAMZU_NO_DECISION=1`
+in the environment turns every use of the decision model off at once (these points, `model:
+auto` routing and the `decide` tool), whatever the config says.
+
 ## Modes
 
 | Mode | What happens |

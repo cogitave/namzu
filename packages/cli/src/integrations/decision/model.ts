@@ -35,6 +35,13 @@ export function buildDecisionProviderConfig(
 	}
 }
 
+/** `NAMZU_NO_DECISION=1` turns every use of the decision model off, whatever the config says. */
+export const DECISION_KILL_SWITCH = 'NAMZU_NO_DECISION'
+
+function decisionSwitchedOff(env: NodeJS.ProcessEnv): boolean {
+	return env[DECISION_KILL_SWITCH] === '1'
+}
+
 /**
  * The optional `decide` tool, or `undefined` when no provider is configured.
  * Absent config means the tool is simply not mounted; a configured model that
@@ -44,7 +51,7 @@ export function maybeCreateDecisionTool(
 	cfg: DecisionConfig | undefined,
 	env: NodeJS.ProcessEnv,
 ): ToolDefinition | undefined {
-	if (!cfg) return undefined
+	if (!cfg || decisionSwitchedOff(env)) return undefined
 	return createDecisionTool(createDecisionModel(buildDecisionProviderConfig(cfg, env)))
 }
 
@@ -58,6 +65,6 @@ export function maybeCreateDecisionModel(
 	cfg: DecisionConfig | undefined,
 	env: NodeJS.ProcessEnv,
 ): DecisionModel | undefined {
-	if (!cfg) return undefined
+	if (!cfg || decisionSwitchedOff(env)) return undefined
 	return createDecisionModel(buildDecisionProviderConfig(cfg, env))
 }
