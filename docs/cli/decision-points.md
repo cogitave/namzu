@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Decision points
-description: "decision.points: the places the CLI can ask the decision model a yes/no question beside its own rule, the off, shadow and on modes, the points (notify-worthy, memory-admit, skill-worthy), what is sent and what the decision log holds."
+description: "decision.points: the places the CLI can ask the decision model a yes/no question beside its own rule, the off, shadow and on modes, the points (notify, memory, skill), what is sent and what the decision log holds."
 resource: packages/cli/src/integrations/decision/points.ts
 tags: [cli, config, decision]
 ---
@@ -19,10 +19,15 @@ decision:
   endpoint: https://<resource>.services.ai.azure.com
   deployment: <deployment>
   points:
-    notify-worthy: shadow
+    notify: shadow
 ```
 
 `decision` is read only from your user and managed config, never from a project's file.
+
+Each point has a one-word name: `notify` (is a finished reply worth a chime), `memory` (is what a turn learned worth
+remembering) and `skill` (is a turn worth proposing as a skill). The names they were released under
+(`notify-worthy`, `memory-admit`, `skill-worthy`) are still read and mean the same points; use the one-word
+names, and a point named both ways is refused.
 
 Everything here is a choice you make. With no `decision` block there is no model and
 nothing is asked; with one, a point you do not name is `off`; and `NAMZU_NO_DECISION=1`
@@ -40,7 +45,7 @@ auto` routing and the `decide` tool), whatever the config says.
 A question is cut short, has its control characters removed, and is answered inside
 1.5 seconds, or not at all.
 
-## `notify-worthy`
+## `notify`
 
 Is this finished reply worth calling you back for? The rule is the length of the turn:
 a turn that ran ten seconds or more ends with the [chime](terminal-design.md#the-turn-chime),
@@ -51,7 +56,7 @@ reply and a confident yes sounds a short reply, a confident no mutes a long one.
 a failure and an approval always sound, whatever the model says. The reply tail is the
 only text that leaves the machine.
 
-## `memory-admit`
+## `memory`
 
 Is what this turn learned worth remembering? At settle the session writes one stored
 memory for any turn whose compaction pass extracted a claim, which keeps whatever a turn
@@ -63,7 +68,7 @@ writes as before. It runs after the answer is settled, so it never delays a repl
 with no claim asks nothing. The claims are the text that leaves the machine; file paths are
 not sent.
 
-## `skill-worthy`
+## `skill`
 
 Is this finished turn a procedure worth saving as a skill? The rule looks at the turn's
 shape (six successful tool calls, two distinct tools, a clean tail) and cannot tell a

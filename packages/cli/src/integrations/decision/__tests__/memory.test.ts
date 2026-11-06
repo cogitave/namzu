@@ -6,7 +6,7 @@ import {
 	gateMemoryPromotion,
 	holdsClaims,
 	memoryAdmitQuestion,
-} from '../memory-admit.js'
+} from '../memory.js'
 import { type DecisionPoints, createDecisionPoints } from '../points.js'
 
 type Candidate = Parameters<PromoteMemory>[0]
@@ -49,16 +49,16 @@ function pointsAnswering(
 							return { p }
 						},
 					} as never),
-		modes: { 'memory-admit': mode },
+		modes: { memory: mode },
 		log: () => {},
 	})
 	return { points, asked }
 }
 
-describe('the memory-admit point', () => {
+describe('the memory point', () => {
 	it('asks the model about the claims and the task, never the file paths', () => {
 		const q = memoryAdmitQuestion(candidate())
-		expect(q.point).toBe('memory-admit')
+		expect(q.point).toBe('memory')
 		expect(q.rule).toBe(true)
 		expect(q.state).toContain('Fix the login redirect')
 		expect(q.state).toContain('Keep the session cookie httpOnly')

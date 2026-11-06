@@ -731,9 +731,20 @@ export interface ScheduleConfig {
  * environment variable that holds a credential, never the credential itself.
  */
 /** Every decision point the host knows, in the order the docs list them. */
-export const DECISION_POINT_IDS = ['notify-worthy', 'memory-admit', 'skill-worthy'] as const
+export const DECISION_POINT_IDS = ['notify', 'memory', 'skill'] as const
 
 export type DecisionPointId = (typeof DECISION_POINT_IDS)[number]
+
+/**
+ * The names the points were released under, still read so a config written for them keeps
+ * working. The one-word name is the one to use; a point named both ways is refused.
+ * @deprecated Use the one-word names.
+ */
+export const LEGACY_DECISION_POINT_NAMES: Readonly<Record<string, DecisionPointId>> = {
+	'notify-worthy': 'notify',
+	'memory-admit': 'memory',
+	'skill-worthy': 'skill',
+}
 
 /** What a decision point does: `off` asks nothing, `shadow` asks and only records, `on` lets the answer act. */
 export type DecisionPointMode = 'off' | 'shadow' | 'on'

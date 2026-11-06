@@ -108,13 +108,13 @@ import {
 	describeCopy,
 } from '../integrations/clipboard/copy.js'
 import { maybeCreateDecisionModel } from '../integrations/decision/model.js'
-import { notifyWorthyQuestion } from '../integrations/decision/notify-worthy.js'
+import { notifyWorthyQuestion } from '../integrations/decision/notify.js'
 import {
 	type DecisionPoints,
 	createDecisionPoints,
 	verdictOf,
 } from '../integrations/decision/points.js'
-import { skillProposalStands } from '../integrations/decision/skill-worthy.js'
+import { skillProposalStands } from '../integrations/decision/skill.js'
 import {
 	type PullRequestFilter,
 	type PullRequestLink,
@@ -4043,9 +4043,9 @@ function AppBody({
 				)
 			}
 			const points = decisionPointsRef.current
-			// A decision model may withdraw a proposal the rule made (`decision.points.skill-worthy`);
+			// A decision model may withdraw a proposal the rule made (`decision.points.skill`);
 			// with the point off, or no answer in time, the proposal stands as it always did.
-			if (!points || points.mode('skill-worthy') === 'off' || !st.request) {
+			if (!points || points.mode('skill') === 'off' || !st.request) {
 				show()
 				return
 			}
@@ -5389,7 +5389,7 @@ function AppBody({
 				sound.enabled &&
 				notification.kind === 'turn-settled' &&
 				notification.outcome === 'completed' &&
-				points?.mode('notify-worthy') !== 'off'
+				points?.mode('notify') !== 'off'
 			) {
 				// Beside the length rule: the model reads the end of the reply and says whether it
 				// needs the person. In `shadow` only the log hears; in `on` a confident answer

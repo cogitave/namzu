@@ -40,7 +40,7 @@ export function skillWorthyQuestion(input: {
 	const request = [...printable(input.request).trim()].slice(0, SKILL_WORTHY_REQUEST_CHARS).join('')
 	const tools = [...new Set(input.tools)].sort().join(', ')
 	return {
-		point: 'skill-worthy',
+		point: 'skill',
 		state: `Request: ${request}\n\nThe turn took ${input.steps} steps using these tools: ${tools}`,
 		instructions: SKILL_WORTHY_INSTRUCTIONS,
 		// The rule has already said yes by the time this is asked.
@@ -54,7 +54,7 @@ export async function skillProposalStands(
 	input: { readonly request: string; readonly tools: readonly string[]; readonly steps: number },
 	signal?: AbortSignal,
 ): Promise<boolean> {
-	if (points.mode('skill-worthy') === 'off') return true
+	if (points.mode('skill') === 'off') return true
 	const p = await points.ask(skillWorthyQuestion(input), signal)
 	return verdictOf(p) !== 'no'
 }

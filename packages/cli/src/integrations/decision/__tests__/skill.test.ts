@@ -2,11 +2,7 @@ import type { DecisionModel } from '@namzu/decision'
 import { describe, expect, it } from 'vitest'
 
 import { createDecisionPoints } from '../points.js'
-import {
-	SKILL_WORTHY_REQUEST_CHARS,
-	skillProposalStands,
-	skillWorthyQuestion,
-} from '../skill-worthy.js'
+import { SKILL_WORTHY_REQUEST_CHARS, skillProposalStands, skillWorthyQuestion } from '../skill.js'
 
 const input = {
 	request: 'Prepare the release branch and tag it',
@@ -25,14 +21,14 @@ function pointsAnswering(p: number | undefined, mode: 'off' | 'shadow' | 'on') {
 	} as unknown as DecisionModel
 	return {
 		asked,
-		points: createDecisionPoints({ model, modes: { 'skill-worthy': mode }, log: () => {} }),
+		points: createDecisionPoints({ model, modes: { skill: mode }, log: () => {} }),
 	}
 }
 
-describe('the skill-worthy question', () => {
+describe('the skill question', () => {
 	it('sends the request and the distinct tool names, and nothing else', () => {
 		const q = skillWorthyQuestion(input)
-		expect(q.point).toBe('skill-worthy')
+		expect(q.point).toBe('skill')
 		expect(q.state).toContain('Prepare the release branch')
 		expect(q.state).toContain('bash, edit')
 		expect(q.state.match(/bash/gu)).toHaveLength(1)
