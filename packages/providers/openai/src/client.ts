@@ -117,48 +117,129 @@ function isCompatibleHost(baseURL: string | undefined): boolean {
 	}
 }
 
-/** Optional declarations returned by compatible model catalogues. Missing is unknown. */
-function compatibleModelMetadata(model: unknown): Partial<ModelInfo> {
-	const row = model as Record<string, unknown>
-	const result: Partial<ModelInfo> = {}
-	// Catalogues spell the same two limits several ways: the first that is a positive integer wins.
-	// `context_window` and `max_output_tokens` are what DeepSeek's own endpoint sends, `context_length`
-	// what OpenRouter-style gateways send and `max_model_len` what vLLM sends.
-	for (const [wires, field] of [
-		[
-			['context_window_tokens', 'context_window', 'context_length', 'max_model_len'],
-			'contextWindow',
-		],
-		[['maximum_output_tokens', 'max_output_tokens'], 'maxOutputTokens'],
-	] as const) {
-		for (const wire of wires) {
-			const value = row[wire]
-			if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) {
-				result[field] = value
-				break
-			}
-		}
+/** The most a compatible endpoint's listing may take before the window is left to the SDK's table. */
+const WINDOW_LISTING_TIMEOUT_MS = 3_000
+/** How long a failed listing is remembered, so a gateway without a usable listing is not asked every turn. */
+const WINDOW_LISTING_RETRY_MS = 5 * 60_000
+
+const EFFORT_VOCABULARY: readonly string[] = [
+	'none',
+	'minimal',
+	'low',
+	'medium',
+	'high',
+	'xhigh',
+	'max',
+	'ultra',
+]
+type InputModality = NonNullable<ModelInfo['inputModalities']>[number]
+const INPUT_MODALITIES: readonly InputModality[] = ['text', 'image', 'document']
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+	return typeof value === 'object' && value !== null && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: undefined
+}
+
+/** The first of these fields of `row` that holds a positive safe integer. */
+function firstCount(row: Record<string, unknown> | undefined, wires: readonly string[]) {
+	for (const wire of wires) {
+		const value = row?.[wire]
+		if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) return value
 	}
-	const vocabulary: readonly string[] = [
-		'none',
-		'minimal',
-		'low',
-		'medium',
-		'high',
-		'xhigh',
-		'max',
-		'ultra',
-	]
-	const offered = row.supported_reasoning_efforts
-	if (
-		Array.isArray(offered) &&
-		offered.every((level) => typeof level === 'string' && vocabulary.includes(level)) &&
-		new Set(offered).size === offered.length
-	) {
-		result.reasoningEffortLevels = [...offered] as ReasoningEffort[]
+	return undefined
+}
+
+/** A price per token that is a number or a numeric string, as a rate per million tokens. */
+function ratePerMillion(value: unknown): number | undefined {
+	const perToken = typeof value === 'string' && value.trim() !== '' ? Number(value) : value
+	if (typeof perToken !== 'number' || !Number.isFinite(perToken) || perToken < 0) return undefined
+	return Number((perToken * 1_000_000).toPrecision(12))
+}
+
+function inputModalitiesOf(
+	row: Record<string, unknown>,
+	capabilities: Record<string, unknown> | undefined,
+): InputModality[] | undefined {
+	// An explicit vision flag is the clearest statement a listing makes about images.
+	if (capabilities?.vision === true) return ['text', 'image']
+	if (capabilities?.vision === false) return ['text']
+	const declared =
+		row.input_modalities ??
+		asRecord(row.architecture)?.input_modalities ??
+		// A plain `modalities` list is read for a chat model only: on another task it may name outputs.
+		(row.task === undefined || row.task === 'chat' ? row.modalities : undefined)
+	if (!Array.isArray(declared)) return undefined
+	const known = INPUT_MODALITIES.filter((kind) => declared.includes(kind))
+	return known.length > 0 ? known : undefined
+}
+
+/**
+ * Optional declarations returned by compatible model catalogues. Missing is unknown: a field is
+ * read only where its meaning is stated (a limit, a flag, a list, a price in dollars per token), and
+ * a value that could mean something else, such as a default output length or a price in a
+ * gateway's own credits, is left out rather than guessed.
+ */
+function compatibleModelMetadata(model: unknown): Partial<ModelInfo> {
+	const row = asRecord(model) ?? {}
+	const capabilities = asRecord(row.capabilities)
+	const result: Partial<ModelInfo> = {}
+
+	// Catalogues spell the same limits several ways: the first spelling that holds a positive
+	// integer wins.
+	const contextWindow = firstCount(row, [
+		'context_window_tokens',
+		'context_window',
+		'context_length',
+		'max_model_len',
+	])
+	if (contextWindow !== undefined) result.contextWindow = contextWindow
+	const maxOutputTokens =
+		firstCount(row, ['maximum_output_tokens', 'max_output_tokens', 'max_completion_tokens']) ??
+		firstCount(asRecord(row.top_provider), ['max_completion_tokens'])
+	if (maxOutputTokens !== undefined) result.maxOutputTokens = maxOutputTokens
+
+	const inputModalities = inputModalitiesOf(row, capabilities)
+	if (inputModalities !== undefined) result.inputModalities = inputModalities
+
+	// Tool use is assumed unless the listing says the model has none.
+	if (capabilities?.tools === false) result.supportsToolUse = false
+
+	// Dollars per token, the convention gateways share, as dollars per million. A price in another
+	// currency, or a listing that does not say, is not a dollar price.
+	const pricing = asRecord(row.pricing)
+	const currency =
+		typeof pricing?.currency === 'string' ? pricing.currency.toUpperCase() : undefined
+	if (pricing && (currency === undefined || currency === 'USD')) {
+		const input = ratePerMillion(pricing.prompt)
+		const output = ratePerMillion(pricing.completion)
+		if (input !== undefined) result.inputPrice = input
+		if (output !== undefined) result.outputPrice = output
+	}
+
+	// The effort menu: listed outright, or as the values the endpoint accepts together with the
+	// names it maps onto them. An endpoint that lists no values (null) has an unknown menu; one that
+	// says it has no effort control has an empty menu.
+	let offered: readonly unknown[] | undefined = Array.isArray(row.supported_reasoning_efforts)
+		? row.supported_reasoning_efforts
+		: undefined
+	if (offered === undefined && Array.isArray(capabilities?.reasoning_effort_values)) {
+		const aliases = asRecord(capabilities.reasoning_effort_aliases)
+		offered = [...new Set([...capabilities.reasoning_effort_values, ...Object.keys(aliases ?? {})])]
+	}
+	const menu =
+		offered !== undefined &&
+		new Set(offered).size === offered.length &&
+		offered.every((level) => typeof level === 'string' && EFFORT_VOCABULARY.includes(level))
+			? (offered as ReasoningEffort[])
+			: undefined
+	if (menu) {
+		result.reasoningEffortLevels = [...menu]
 		const defaultEffort = row.reasoning_effort
-		if (typeof defaultEffort === 'string' && offered.includes(defaultEffort))
+		if (typeof defaultEffort === 'string' && menu.includes(defaultEffort as ReasoningEffort))
 			result.reasoningEffortDefault = defaultEffort as ReasoningEffort
+	} else if (offered === undefined && capabilities?.reasoning_effort === false) {
+		result.reasoningEffortLevels = []
 	}
 	return result
 }
@@ -413,6 +494,8 @@ export class OpenAIProvider implements LLMProvider {
 	private readonly compatibleHost: boolean
 	/** The windows a compatible endpoint's last fulfilled listing declared, by model id. */
 	private declaredWindows?: Map<string, number>
+	/** Before this time (ms since the epoch) a failed listing is not asked for again. */
+	private windowListingRetryAt = 0
 
 	constructor(config: OpenAIConfig) {
 		if (!config.apiKey) {
@@ -437,7 +520,8 @@ export class OpenAIProvider implements LLMProvider {
 
 		this.client = new OpenAI(clientOptions)
 		this.defaultModel = config.model
-		this.compatibleHost = isCompatibleHost(config.baseURL)
+		// The client reads the standard base-URL variable when none is given, so that is where requests go.
+		this.compatibleHost = isCompatibleHost(config.baseURL ?? process.env.OPENAI_BASE_URL)
 	}
 
 	/**
@@ -446,14 +530,21 @@ export class OpenAIProvider implements LLMProvider {
 	 * answer. The table is a hand-kept guess by model name; an endpoint that serves a model knows
 	 * how long a prompt it takes. OpenAI's own API declares no window, so it is not asked.
 	 *
-	 * A fulfilled listing is cached for this driver; a failure is not, and never fails a turn.
+	 * The listing is asked once and a fulfilled one is kept. A failure is remembered for a few
+	 * minutes, so an endpoint with no usable listing is not asked at the start of every turn, and a
+	 * listing that hangs is cut short. Neither ever fails a turn.
 	 */
 	async resolveContextWindow(model: string, signal?: AbortSignal): Promise<number | undefined> {
 		signal?.throwIfAborted()
 		if (!this.compatibleHost) return undefined
 		if (!this.declaredWindows) {
+			if (Date.now() < this.windowListingRetryAt) return undefined
+			const controller = new AbortController()
+			const forward = () => controller.abort()
+			signal?.addEventListener('abort', forward, { once: true })
+			const timer = setTimeout(forward, WINDOW_LISTING_TIMEOUT_MS)
 			try {
-				const listed = await this.listModels(signal)
+				const listed = await this.listModels(controller.signal)
 				this.declaredWindows ??= new Map(
 					listed.flatMap((entry) =>
 						entry.contextWindow !== undefined ? [[entry.id, entry.contextWindow] as const] : [],
@@ -462,7 +553,11 @@ export class OpenAIProvider implements LLMProvider {
 			} catch {
 				// The listing is a refinement; a turn must not fail because it is down.
 				signal?.throwIfAborted()
+				this.windowListingRetryAt = Date.now() + WINDOW_LISTING_RETRY_MS
 				return undefined
+			} finally {
+				clearTimeout(timer)
+				signal?.removeEventListener('abort', forward)
 			}
 		}
 		return this.declaredWindows.get(model)
@@ -625,9 +720,9 @@ export class OpenAIProvider implements LLMProvider {
 		return page.data.map((m) => ({
 			id: m.id,
 			name: m.id,
-			...compatibleModelMetadata(m),
 			supportsToolUse: true,
 			supportsStreaming: true,
+			...compatibleModelMetadata(m),
 		}))
 	}
 
