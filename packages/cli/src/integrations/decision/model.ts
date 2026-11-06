@@ -24,7 +24,10 @@ export function buildDecisionProviderConfig(
 			provider: 'azure',
 			endpoint: cfg.endpoint,
 			deployment: cfg.deployment,
-			getToken: async () => env[cfg.tokenEnv ?? 'AZURE_FOUNDRY_TOKEN'] ?? '',
+			// A key, read at each call, or a bearer token; never both (the loader refuses a config naming both).
+			...(cfg.apiKeyEnv
+				? { getApiKey: () => env[cfg.apiKeyEnv as string] ?? '' }
+				: { getToken: async () => env[cfg.tokenEnv ?? 'AZURE_FOUNDRY_TOKEN'] ?? '' }),
 		}
 	}
 	return {

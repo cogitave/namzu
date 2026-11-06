@@ -41,13 +41,23 @@ It takes the resource `endpoint`, the Foundry `deployment` name, and a
 Azure SDK. A `fetch` can be injected for tests.
 
 Each call is a `POST` to `<endpoint>/providers/microsoft/v1/systemone` with
-`Authorization: Bearer <token>` and a body of
+`Authorization: Bearer <token>` (or `api-key: <key>` when the config gives
+`getApiKey`, for a resource that allows key authentication; a resource with local
+authentication disabled accepts only the token) and a body of
 `{ model, state, questions: { q } }`.
 
-Yes/no is verified live: the question is `{ type: 'noul', instructions }` and
-the answer is `answers.q.noul`. The choice (`options`) and score (`levels`)
-request shapes are provisional until confirmed against the Foundry schema; the
-driver parses their answers defensively.
+All three question types are verified live:
+
+| Method | Question | Answer (`answers.q`) |
+|---|---|---|
+| `yesno` | `{ type: 'noul', instructions }` | `{ noul }`, P(true) |
+| `choice` | `{ type: 'choice', instructions, criteria: { <option>: null, … } }` (2 to 255 options) | `{ choice, probabilities, confidence }` |
+| `score` | `{ type: 'score', instructions, criteria: [<lowest>, …, <highest>] }` (2 to 10 levels) | `{ score, probabilities, legend, confidence }` |
+
+`score` is the probability-weighted average of the level indices, so it can fall
+between levels (`ScoreDecision.score`); `level` is the most probable level.
+`confidence` is one minus the answer's normalised entropy, how peaked the answer
+is, not how often it is right.
 
 ## HTTP driver
 
@@ -85,6 +95,15 @@ decision:
   endpoint: https://my-resource.services.ai.azure.com
   deployment: my-decision-deployment
   tokenEnv: AZURE_FOUNDRY_TOKEN   # optional; this is the default
+```
+
+```yaml
+# Azure AI Foundry, on a resource that allows API keys
+decision:
+  provider: azure
+  endpoint: https://my-resource.services.ai.azure.com
+  deployment: my-decision-deployment
+  apiKeyEnv: FOUNDRY_KEY           # sent as api-key; cannot be combined with tokenEnv
 ```
 
 ```yaml

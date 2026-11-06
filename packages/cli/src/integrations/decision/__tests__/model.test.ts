@@ -16,9 +16,22 @@ describe('buildDecisionProviderConfig', () => {
 		if (out.provider !== 'azure') return
 		expect(out.endpoint).toBe('https://x')
 		expect(out.deployment).toBe('d')
-		expect(await out.getToken()).toBe('one')
+		expect(await out.getToken?.()).toBe('one')
 		env.MY_TOKEN = 'two'
-		expect(await out.getToken()).toBe('two')
+		expect(await out.getToken?.()).toBe('two')
+	})
+
+	it('maps an azure key variable to an api key read at call time, and sends no token', () => {
+		const env: NodeJS.ProcessEnv = { MY_KEY: 'k1' }
+		const out = buildDecisionProviderConfig(
+			{ provider: 'azure', endpoint: 'https://x', deployment: 'd', apiKeyEnv: 'MY_KEY' },
+			env,
+		)
+		if (out.provider !== 'azure') throw new Error('azure')
+		expect(out.getToken).toBeUndefined()
+		expect(out.getApiKey?.()).toBe('k1')
+		env.MY_KEY = 'k2'
+		expect(out.getApiKey?.()).toBe('k2')
 	})
 
 	it('defaults the azure token variable and yields an empty token when unset', async () => {
@@ -31,8 +44,8 @@ describe('buildDecisionProviderConfig', () => {
 			{},
 		)
 		if (withDefault.provider !== 'azure' || without.provider !== 'azure') throw new Error('azure')
-		expect(await withDefault.getToken()).toBe('tok')
-		expect(await without.getToken()).toBe('')
+		expect(await withDefault.getToken?.()).toBe('tok')
+		expect(await without.getToken?.()).toBe('')
 	})
 
 	it('maps an http block, with a key only when apiKeyEnv is set', () => {

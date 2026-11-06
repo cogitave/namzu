@@ -1882,8 +1882,16 @@ const CONFIG_READERS: ConfigReaders = {
 			return out
 		}
 		if (raw.provider === 'azure') {
-			allow(['provider', 'endpoint', 'deployment', 'tokenEnv', 'points'], 'azure')
+			allow(['provider', 'endpoint', 'deployment', 'tokenEnv', 'apiKeyEnv', 'points'], 'azure')
 			const tokenEnv = optionalString('tokenEnv')
+			const apiKeyEnv = optionalString('apiKeyEnv')
+			if (tokenEnv !== undefined && apiKeyEnv !== undefined) {
+				return invalidConfigValue(
+					context,
+					['apiKeyEnv'],
+					'cannot be set together with tokenEnv: a request carries a key or a bearer token, not both',
+				)
+			}
 			const points = readPoints()
 			return {
 				...(points !== undefined ? { points } : {}),
@@ -1891,6 +1899,7 @@ const CONFIG_READERS: ConfigReaders = {
 				endpoint: requireString('endpoint'),
 				deployment: requireString('deployment'),
 				...(tokenEnv !== undefined ? { tokenEnv } : {}),
+				...(apiKeyEnv !== undefined ? { apiKeyEnv } : {}),
 			}
 		}
 		if (raw.provider === 'http') {
