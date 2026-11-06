@@ -360,7 +360,8 @@ A helper that ends is started once more by the next question and then stays off.
 `ready()` resolves `false`, never throws, when PowerShell is missing or the
 greeting is not the one the client speaks. `settle` answers `undefined`
 whenever there is nothing to wait on, which sends the tool back to its fixed
-pause.
+pause. The marker the wait counts from is taken before the action is sent, for
+a coordinate input and for `ui_act` on a control alike.
 
 On by default on Windows and WSL when the driver backend is in use. Turn it
 off with the host option `a11y: false` (`SubprocessComputerUseHostOptions`) or
