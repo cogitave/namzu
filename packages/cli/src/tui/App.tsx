@@ -114,6 +114,7 @@ import {
 	createDecisionPoints,
 	verdictOf,
 } from '../integrations/decision/points.js'
+import { skillProposalStands } from '../integrations/decision/skill-worthy.js'
 import {
 	type PullRequestFilter,
 	type PullRequestLink,
@@ -1181,6 +1182,8 @@ type StreamState = {
 	notification: TerminalNotification | null
 	/** Names this stream's task blocks, so one turn never extends another's. */
 	taskBlockKey?: string
+	/** What the person asked this turn, for the skill decision point; set for a human turn only. */
+	request?: string
 	/** When this turn began, for the closing line of a turn that delegated. */
 	startedAt?: number
 	/** What the pause clock read when this turn began, so waiting for the person is left out of its time. */
@@ -4022,21 +4025,37 @@ function AppBody({
 				skillFlowTurn: st.skillFlow === true,
 			})
 			if (!verdict.suggest) return
-			const home = resolveNamzuHome()
-			const admission = admitSuggestion(readSuggestionLedger(home))
-			if (admission.show === 'nothing') return
-			conversation.proposed = true
-			writeSuggestionLedger(home, admission.next)
-			pushMessage(
-				'system',
-				admission.show === 'proposal'
-					? skillSuggestionNotice(verdict.steps, verdict.tools)
-					: SUGGESTIONS_STOPPED_NOTICE,
-				false,
-				'✻',
-				undefined,
-				tokenColor('text.muted'),
-			)
+			const show = () => {
+				const home = resolveNamzuHome()
+				const admission = admitSuggestion(readSuggestionLedger(home))
+				if (admission.show === 'nothing') return
+				conversation.proposed = true
+				writeSuggestionLedger(home, admission.next)
+				pushMessage(
+					'system',
+					admission.show === 'proposal'
+						? skillSuggestionNotice(verdict.steps, verdict.tools)
+						: SUGGESTIONS_STOPPED_NOTICE,
+					false,
+					'✻',
+					undefined,
+					tokenColor('text.muted'),
+				)
+			}
+			const points = decisionPointsRef.current
+			// A decision model may withdraw a proposal the rule made (`decision.points.skill-worthy`);
+			// with the point off, or no answer in time, the proposal stands as it always did.
+			if (!points || points.mode('skill-worthy') === 'off' || !st.request) {
+				show()
+				return
+			}
+			void skillProposalStands(points, {
+				request: st.request,
+				tools: [...st.learning.tools],
+				steps: verdict.steps,
+			}).then((stands) => {
+				if (stands) show()
+			})
 		},
 		[conversationLearning, pushMessage],
 	)
@@ -10022,6 +10041,7 @@ function AppBody({
 				...(prompt.kind === 'human'
 					? {
 							learning: createTurnActivity(),
+							request: prompt.text,
 							...(prompt.skillFlow ? { skillFlow: true } : {}),
 							startedInPlanMode: permissionModeRef.current === 'plan',
 						}
