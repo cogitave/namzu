@@ -163,3 +163,37 @@ it('does not ask OpenAI’s own API, which declares no window', async () => {
 	})
 	expect(await withBase.resolveContextWindow('gpt-5')).toBeUndefined()
 })
+
+it('reads a gateway row that spells its limits its own way, and invents nothing it does not state', async () => {
+	// A row as a hosted gateway sends it: the window is `context_length`; the output figure is a default,
+	// not a maximum; prices are in the gateway's own credits; the effort menu is not listed.
+	const provider = await endpoint({
+		object: 'model',
+		owned_by: 'gateway',
+		task: 'chat',
+		modalities: ['text'],
+		pricing: { prompt_token_price: 0, completion_token_price: 0, currency: 'CR' },
+		context_length: 524_288,
+		default_max_output_tokens: 16_384,
+		capabilities: {
+			tools: true,
+			thinking: true,
+			reasoning_effort: true,
+			reasoning_effort_values: null,
+			reasoning_effort_aliases: { medium: 'high', minimal: 'low' },
+			vision: false,
+		},
+	})
+	expect(await provider.resolveContextWindow('compatible-model')).toBe(524_288)
+	const [model] = await provider.listModels()
+	expect(model).toMatchObject({ id: 'compatible-model', contextWindow: 524_288 })
+	// A default is not a limit, credits are not dollars and an unlisted menu is unknown.
+	for (const key of [
+		'maxOutputTokens',
+		'inputPrice',
+		'outputPrice',
+		'reasoningEffortLevels',
+		'reasoningEffortDefault',
+	])
+		expect(model).not.toHaveProperty(key)
+})
