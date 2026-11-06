@@ -107,16 +107,37 @@ export function openAIReasoningEffortLevels(model: string): readonly ReasoningEf
 	return undefined
 }
 
+/** Whether a base URL names a host other than OpenAI's own API. */
+function isCompatibleHost(baseURL: string | undefined): boolean {
+	if (!baseURL) return false
+	try {
+		return new URL(baseURL).hostname !== 'api.openai.com'
+	} catch {
+		return false
+	}
+}
+
 /** Optional declarations returned by compatible model catalogues. Missing is unknown. */
 function compatibleModelMetadata(model: unknown): Partial<ModelInfo> {
 	const row = model as Record<string, unknown>
 	const result: Partial<ModelInfo> = {}
-	for (const [wire, field] of [
-		['context_window_tokens', 'contextWindow'],
-		['maximum_output_tokens', 'maxOutputTokens'],
+	// Catalogues spell the same two limits several ways: the first that is a positive integer wins.
+	// `context_window` and `max_output_tokens` are what DeepSeek's own endpoint sends, `context_length`
+	// what OpenRouter-style gateways send and `max_model_len` what vLLM sends.
+	for (const [wires, field] of [
+		[
+			['context_window_tokens', 'context_window', 'context_length', 'max_model_len'],
+			'contextWindow',
+		],
+		[['maximum_output_tokens', 'max_output_tokens'], 'maxOutputTokens'],
 	] as const) {
-		const value = row[wire]
-		if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) result[field] = value
+		for (const wire of wires) {
+			const value = row[wire]
+			if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) {
+				result[field] = value
+				break
+			}
+		}
 	}
 	const vocabulary: readonly string[] = [
 		'none',
@@ -388,6 +409,10 @@ export class OpenAIProvider implements LLMProvider {
 
 	private client: OpenAI
 	private defaultModel?: string
+	/** Whether requests go somewhere other than OpenAI's own API, which is where a model's window is worth asking for. */
+	private readonly compatibleHost: boolean
+	/** The windows a compatible endpoint's last fulfilled listing declared, by model id. */
+	private declaredWindows?: Map<string, number>
 
 	constructor(config: OpenAIConfig) {
 		if (!config.apiKey) {
@@ -412,6 +437,35 @@ export class OpenAIProvider implements LLMProvider {
 
 		this.client = new OpenAI(clientOptions)
 		this.defaultModel = config.model
+		this.compatibleHost = isCompatibleHost(config.baseURL)
+	}
+
+	/**
+	 * The window the runtime measures compaction against, as a compatible endpoint's own model
+	 * listing declares it, or `undefined` when it declares none, which leaves the SDK's table to
+	 * answer. The table is a hand-kept guess by model name; an endpoint that serves a model knows
+	 * how long a prompt it takes. OpenAI's own API declares no window, so it is not asked.
+	 *
+	 * A fulfilled listing is cached for this driver; a failure is not, and never fails a turn.
+	 */
+	async resolveContextWindow(model: string, signal?: AbortSignal): Promise<number | undefined> {
+		signal?.throwIfAborted()
+		if (!this.compatibleHost) return undefined
+		if (!this.declaredWindows) {
+			try {
+				const listed = await this.listModels(signal)
+				this.declaredWindows ??= new Map(
+					listed.flatMap((entry) =>
+						entry.contextWindow !== undefined ? [[entry.id, entry.contextWindow] as const] : [],
+					),
+				)
+			} catch {
+				// The listing is a refinement; a turn must not fail because it is down.
+				signal?.throwIfAborted()
+				return undefined
+			}
+		}
+		return this.declaredWindows.get(model)
 	}
 
 	private resolveModel(params: ChatCompletionParams): string {

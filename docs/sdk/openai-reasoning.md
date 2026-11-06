@@ -78,13 +78,21 @@ behavior, not account access or the backend's execution strategy for a level.
 ## Compatible API catalogues and reasoning
 
 The API-key Chat Completions driver also reads optional compatible-endpoint
-declarations from `/models`: positive safe integers `context_window_tokens`
-and `maximum_output_tokens` become `ModelInfo.contextWindow` and
-`maxOutputTokens`. A valid, duplicate-free `supported_reasoning_efforts` array
+declarations from `/models`: positive safe integers become `ModelInfo.contextWindow`
+(read from `context_window_tokens`, `context_window`, `context_length` or
+`max_model_len`, the first that is present) and `ModelInfo.maxOutputTokens` (from
+`maximum_output_tokens` or `max_output_tokens`). A valid, duplicate-free `supported_reasoning_efforts` array
 becomes `reasoningEffortLevels`; its `reasoning_effort` default is retained only
 when it belongs to that menu. Missing or malformed declarations remain unknown.
 The CLI uses these model rows when discovering an unfamiliar model's effort
 menu, without a model-name allowlist.
+
+For a base URL that is not OpenAI's own API, the driver also implements
+`resolveContextWindow`: the window the endpoint declares for the model decides where
+compaction triggers, ahead of the SDK's model-name table, which cannot know what a
+gateway serves under a familiar name. The listing is requested once per driver and
+only a fulfilled one is kept; a failure, or a model the listing does not carry, leaves
+the table to answer. OpenAI's own API declares no window, so it is not asked.
 
 Streaming string fields `delta.reasoning_content` and `delta.reasoning` are
 preserved as thinking deltas (`reasoning_content` takes precedence). This keeps

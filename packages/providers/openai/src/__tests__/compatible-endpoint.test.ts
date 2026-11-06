@@ -101,3 +101,65 @@ it.each(['reasoning_content', 'reasoning'])(
 		expect(response.usage.completionTokens).toBe(8192)
 	},
 )
+
+it('reports the window a compatible endpoint declares, in any of the spellings catalogues use', async () => {
+	for (const field of [
+		'context_window',
+		'context_length',
+		'max_model_len',
+		'context_window_tokens',
+	]) {
+		const provider = await endpoint({ [field]: 1_000_000, max_output_tokens: 384_000 })
+		expect(await provider.resolveContextWindow('compatible-model')).toBe(1_000_000)
+		const [model] = await provider.listModels()
+		expect(model?.maxOutputTokens).toBe(384_000)
+	}
+})
+
+it('leaves the answer to the SDK table when the endpoint declares nothing for the model', async () => {
+	const provider = await endpoint({})
+	expect(await provider.resolveContextWindow('compatible-model')).toBeUndefined()
+	expect(await provider.resolveContextWindow('another-model')).toBeUndefined()
+})
+
+it('asks for the listing once and survives a listing that fails', async () => {
+	let listings = 0
+	const server = createServer((req, res) => {
+		req.resume()
+		listings++
+		if (listings === 1) {
+			res.writeHead(500).end('{}')
+			return
+		}
+		res.writeHead(200, { 'content-type': 'application/json' })
+		res.end(
+			JSON.stringify({
+				object: 'list',
+				data: [{ id: 'compatible-model', context_window: 262_144 }],
+			}),
+		)
+	})
+	servers.push(server)
+	await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+	const provider = new OpenAIProvider({
+		apiKey: 'fixture',
+		baseURL: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`,
+		maxRetries: 0,
+	})
+	// A failure is not an error and is not remembered.
+	expect(await provider.resolveContextWindow('compatible-model')).toBeUndefined()
+	expect(await provider.resolveContextWindow('compatible-model')).toBe(262_144)
+	expect(await provider.resolveContextWindow('compatible-model')).toBe(262_144)
+	expect(listings).toBe(2)
+})
+
+it('does not ask OpenAI’s own API, which declares no window', async () => {
+	const provider = new OpenAIProvider({ apiKey: 'fixture', maxRetries: 0 })
+	expect(await provider.resolveContextWindow('gpt-5')).toBeUndefined()
+	const withBase = new OpenAIProvider({
+		apiKey: 'fixture',
+		baseURL: 'https://api.openai.com/v1',
+		maxRetries: 0,
+	})
+	expect(await withBase.resolveContextWindow('gpt-5')).toBeUndefined()
+})
