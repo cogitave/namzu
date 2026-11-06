@@ -8,7 +8,7 @@
  * The decision model reads the end of the reply and says whether it needs the person.
  *
  * The question carries the last part of the reply, so it is only asked when the
- * operator turned the point on (`decision.points.notify-worthy`).
+ * operator turned the point on (`decision.points.notify`).
  */
 
 import type { DecisionQuestion } from './points.js'
@@ -45,7 +45,7 @@ export function notifyWorthyQuestion(input: NotifyWorthyInput): DecisionQuestion
 	const tail = chars.slice(-NOTIFY_WORTHY_TAIL_CHARS).join('')
 	const seconds = Math.round(input.turnMs / 1000)
 	return {
-		point: 'notify-worthy',
+		point: 'notify',
 		state: `${tail}\n\n[the turn took ${seconds}s]`,
 		instructions: NOTIFY_WORTHY_INSTRUCTIONS,
 		rule: input.rule,

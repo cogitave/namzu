@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import type { DecisionModel } from '@namzu/decision'
 import { describe, expect, it, vi } from 'vitest'
 
-import { notifyWorthyQuestion } from '../notify-worthy.js'
+import { notifyWorthyQuestion } from '../notify.js'
 import {
 	CONFIDENT_NO,
 	CONFIDENT_YES,
@@ -33,15 +33,15 @@ describe('a decision point', () => {
 		const { model, yesno } = modelAnswering(0.9)
 		const entries: DecisionLogEntry[] = []
 		const points = createDecisionPoints({ model, modes: undefined, log: (e) => entries.push(e) })
-		expect(points.mode('notify-worthy')).toBe('off')
+		expect(points.mode('notify')).toBe('off')
 		expect(await points.ask(question)).toBeUndefined()
 		expect(yesno).not.toHaveBeenCalled()
 		expect(entries).toEqual([])
 	})
 
 	it('is off without a model, whatever the config says', async () => {
-		const points = createDecisionPoints({ model: undefined, modes: { 'notify-worthy': 'on' } })
-		expect(points.mode('notify-worthy')).toBe('off')
+		const points = createDecisionPoints({ model: undefined, modes: { notify: 'on' } })
+		expect(points.mode('notify')).toBe('off')
 		expect(await points.ask(question)).toBeUndefined()
 	})
 
@@ -50,7 +50,7 @@ describe('a decision point', () => {
 		const entries: DecisionLogEntry[] = []
 		const points = createDecisionPoints({
 			model,
-			modes: { 'notify-worthy': 'shadow' },
+			modes: { notify: 'shadow' },
 			log: (e) => entries.push(e),
 			now: () => 1000,
 		})
@@ -59,7 +59,7 @@ describe('a decision point', () => {
 		expect(entries).toEqual([
 			{
 				at: 1000,
-				point: 'notify-worthy',
+				point: 'notify',
 				mode: 'shadow',
 				p: 0.9,
 				rule: false,
@@ -72,7 +72,7 @@ describe('a decision point', () => {
 
 	it('in on mode hands the probability back', async () => {
 		const { model } = modelAnswering(0.12)
-		const points = createDecisionPoints({ model, modes: { 'notify-worthy': 'on' }, log: () => {} })
+		const points = createDecisionPoints({ model, modes: { notify: 'on' }, log: () => {} })
 		expect(await points.ask(question)).toBe(0.12)
 	})
 
@@ -83,7 +83,7 @@ describe('a decision point', () => {
 			const slow = modelAnswering(() => new Promise(() => {}))
 			const pending = createDecisionPoints({
 				model: slow.model,
-				modes: { 'notify-worthy': 'on' },
+				modes: { notify: 'on' },
 				timeoutMs: 200,
 				log: (e) => entries.push(e),
 			}).ask(question)
@@ -96,7 +96,7 @@ describe('a decision point', () => {
 			expect(
 				await createDecisionPoints({
 					model: broken.model,
-					modes: { 'notify-worthy': 'on' },
+					modes: { notify: 'on' },
 					log: (e) => entries.push(e),
 				}).ask(question),
 			).toBeUndefined()
@@ -105,7 +105,7 @@ describe('a decision point', () => {
 			expect(
 				await createDecisionPoints({
 					model: nonsense.model,
-					modes: { 'notify-worthy': 'on' },
+					modes: { notify: 'on' },
 					log: (e) => entries.push(e),
 				}).ask(question),
 			).toBeUndefined()
@@ -119,7 +119,7 @@ describe('a decision point', () => {
 		const { model } = modelAnswering(0.9)
 		const points = createDecisionPoints({
 			model,
-			modes: { 'notify-worthy': 'on' },
+			modes: { notify: 'on' },
 			log: () => {
 				throw new Error('disk full')
 			},
@@ -136,7 +136,7 @@ describe('the decision log', () => {
 		appendDecisionLog(
 			{
 				at: 1,
-				point: 'notify-worthy',
+				point: 'notify',
 				mode: 'shadow',
 				p: 0.5,
 				rule: q.rule,
@@ -149,7 +149,7 @@ describe('the decision log', () => {
 		const text = readFileSync(join(home, 'decision', 'points.jsonl'), 'utf8')
 		expect(text).not.toContain('hunter2')
 		expect(JSON.parse(text.trim())).toMatchObject({
-			point: 'notify-worthy',
+			point: 'notify',
 			mode: 'shadow',
 			p: 0.5,
 		})
@@ -165,7 +165,7 @@ describe('verdictOf', () => {
 	})
 })
 
-describe('the notify-worthy question', () => {
+describe('the notify question', () => {
 	it('shows the end of the reply, where a question sits, and drops control characters', () => {
 		const long = `${'x'.repeat(5000)}\u0007\u001b[31mWhich one?`
 		const q = notifyWorthyQuestion({ reply: long, turnMs: 12_300, rule: true })

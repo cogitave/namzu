@@ -1,5 +1,5 @@
 /**
- * The notify-worthy decision point is an App boundary: with the point on, the end of a
+ * The notify decision point is an App boundary: with the point on, the end of a
  * finished reply is put to the decision model and a confident answer decides the chime;
  * in shadow mode the model is asked and nothing changes; off, it is never asked. These
  * drive the rendered App with a fake decision model.
@@ -141,10 +141,10 @@ const http = (points?: Record<string, string>) =>
 		...(points ? { points } : {}),
 	}) as TuiContext['decision']
 
-describe('the notify-worthy decision point', () => {
+describe('the notify decision point', () => {
 	it('on: a confident yes sounds a reply the length rule would have left silent', async () => {
 		answer = 0.9
-		await runOneTurn(http({ 'notify-worthy': 'on' }))
+		await runOneTurn(http({ notify: 'on' }))
 		expect(asked).toHaveLength(1)
 		expect(asked[0]).toContain('All done.')
 		expect(played[0]?.verdict).toBe('yes')
@@ -152,13 +152,13 @@ describe('the notify-worthy decision point', () => {
 
 	it('on: an unsure answer leaves the rule alone', async () => {
 		answer = 0.5
-		await runOneTurn(http({ 'notify-worthy': 'on' }))
+		await runOneTurn(http({ notify: 'on' }))
 		expect(played[0]?.verdict).toBe('unsure')
 	})
 
 	it('shadow: the model is asked and the sound is decided by the rule alone', async () => {
 		answer = 0.9
-		await runOneTurn(http({ 'notify-worthy': 'shadow' }))
+		await runOneTurn(http({ notify: 'shadow' }))
 		expect(asked).toHaveLength(1)
 		expect(played[0]?.verdict).toBe('unsure')
 	})

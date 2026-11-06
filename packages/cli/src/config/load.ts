@@ -107,6 +107,7 @@ import {
 	DEFAULT_CONFIG,
 	type HookEntry,
 	type HooksConfig,
+	LEGACY_DECISION_POINT_NAMES,
 	type NamzuCliConfig,
 	type WebConfig,
 } from './schema.js'
@@ -1867,7 +1868,11 @@ const CONFIG_READERS: ConfigReaders = {
 				return invalidConfigValue(context, ['points'], 'must be a mapping')
 			const out: Partial<Record<DecisionPointId, DecisionPointMode>> = {}
 			for (const [name, mode] of Object.entries(value)) {
-				if (!(DECISION_POINT_IDS as readonly string[]).includes(name)) {
+				// A name from before the points had one-word names still works.
+				const point = (DECISION_POINT_IDS as readonly string[]).includes(name)
+					? (name as DecisionPointId)
+					: LEGACY_DECISION_POINT_NAMES[name]
+				if (point === undefined) {
 					return invalidConfigValue(
 						context,
 						['points', name],
@@ -1877,7 +1882,14 @@ const CONFIG_READERS: ConfigReaders = {
 				if (mode !== 'off' && mode !== 'shadow' && mode !== 'on') {
 					return invalidConfigValue(context, ['points', name], 'must be "off", "shadow" or "on"')
 				}
-				out[name as DecisionPointId] = mode
+				if (out[point] !== undefined) {
+					return invalidConfigValue(
+						context,
+						['points', name],
+						`names the "${point}" point a second time (an old name and the new one)`,
+					)
+				}
+				out[point] = mode
 			}
 			return out
 		}

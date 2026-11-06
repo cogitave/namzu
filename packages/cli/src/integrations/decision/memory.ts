@@ -67,7 +67,7 @@ export function memoryAdmitQuestion(candidate: Candidate): DecisionQuestion {
 		),
 	].join('\n\n')
 	return {
-		point: 'memory-admit',
+		point: 'memory',
 		state: [...printable(text)].slice(0, MEMORY_ADMIT_STATE_CHARS).join(''),
 		instructions: MEMORY_ADMIT_INSTRUCTIONS,
 		// The rule writes whenever there is a claim.
@@ -78,7 +78,7 @@ export function memoryAdmitQuestion(candidate: Candidate): DecisionQuestion {
 /** The promoter, behind the point: a confident no from the model writes nothing, otherwise the promoter runs. */
 export function gateMemoryPromotion(promote: PromoteMemory, points: DecisionPoints): PromoteMemory {
 	return async (candidate) => {
-		if (points.mode('memory-admit') === 'off' || !holdsClaims(candidate)) return promote(candidate)
+		if (points.mode('memory') === 'off' || !holdsClaims(candidate)) return promote(candidate)
 		const p = await points.ask(memoryAdmitQuestion(candidate))
 		if (verdictOf(p) === 'no') return
 		return promote(candidate)

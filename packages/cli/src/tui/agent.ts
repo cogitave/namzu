@@ -288,7 +288,7 @@ import { createRepositorySnapshotStep, readTurnSnapshot } from '../context/turn-
 import { openCliAccounts } from '../integrations/accounts/open.js'
 import { accountProductName } from '../integrations/accounts/rows.js'
 import { createLazyCodeAnalysis } from '../integrations/analysis/provider.js'
-import { gateMemoryPromotion } from '../integrations/decision/memory-admit.js'
+import { gateMemoryPromotion } from '../integrations/decision/memory.js'
 import {
 	maybeCreateDecisionModel,
 	maybeCreateDecisionTool,
@@ -4679,7 +4679,7 @@ export async function createAgentSession(
 	// this extracted-claim promoter or explicit consolidation, never both.
 	// Candidates without useful claims write nothing.
 	// A decision model may be asked, beside that rule, whether a turn's claims are worth keeping
-	// (`decision.points.memory-admit`); a confident no writes nothing, anything else writes as before.
+	// (`decision.points.memory`); a confident no writes nothing, anything else writes as before.
 	const promoteMemory = gateMemoryPromotion(
 		createMemoryPromoter({ store: memoryStore }),
 		createDecisionPoints({
