@@ -731,7 +731,7 @@ export interface ScheduleConfig {
  * environment variable that holds a credential, never the credential itself.
  */
 /** Every decision point the host knows, in the order the docs list them. */
-export const DECISION_POINT_IDS = ['notify', 'memory', 'skill'] as const
+export const DECISION_POINT_IDS = ['notify', 'memory', 'skill', 'pick'] as const
 
 export type DecisionPointId = (typeof DECISION_POINT_IDS)[number]
 

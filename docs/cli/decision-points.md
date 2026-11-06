@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Decision points
-description: "decision.points: the places the CLI can ask the decision model a yes/no question beside its own rule, the off, shadow and on modes, the points (notify, memory, skill), what is sent and what the decision log holds."
+description: "decision.points: the places the CLI can ask the decision model a question beside its own rule, the off, shadow and on modes, the points (notify, memory, skill, pick), what is sent and what the decision log holds."
 resource: packages/cli/src/integrations/decision/points.ts
 tags: [cli, config, decision]
 ---
@@ -25,7 +25,8 @@ decision:
 `decision` is read only from your user and managed config, never from a project's file.
 
 Each point has a one-word name: `notify` (is a finished reply worth a chime), `memory` (is what a turn learned worth
-remembering) and `skill` (is a turn worth proposing as a skill). The names they were released under
+remembering), `skill` (is a turn worth proposing as a skill) and `pick` (which control on the screen does an action
+name; a choice among controls, not a yes/no). The names they were released under
 (`notify-worthy`, `memory-admit`, `skill-worthy`) are still read and mean the same points; use the one-word
 names, and a point named both ways is refused.
 
@@ -77,6 +78,40 @@ routine you will want again from a one-off that happened to take six calls. With
 (`P(true)` of 0.3 or less) withdraws it. The model never creates a proposal the rule did not
 make, and nothing is saved either way. What is sent is your request (cut at 600
 characters) and the names of the tools used; no tool arguments, results or file contents.
+
+## `pick`
+
+Which control does this action name? The computer tool acts on a control by the ref the model read in
+a `ui_snapshot`. Choosing the ref is a model round trip over a long tree; a decision model can choose
+among the controls in a few hundred milliseconds. Unlike the points above, this is a choice among up to
+255 controls rather than a yes/no, and there is no rule of the host's to fall back on, so the two modes
+differ in what they do:
+
+- `shadow`: the tool offers `ui_act` an optional `intent` (a few words on what the action is for). When the
+  model passes one, the decision model is asked, beside the action and without delaying it, which of the
+  window's controls the intent names, and the log records the probability it gave the control the model
+  chose and whether its top choice was the same one. Nothing the model does changes.
+- `on`: as `shadow`, and the tool also offers `ui_do { target, action, value, window_id }`, which names a
+  control in words ("the Save button"). The decision model chooses it from the controls of the latest
+  `ui_snapshot` that offer the action, and the tool acts only when the best control has a probability of
+  0.85 or more and leads the next one by 0.4 or more. Otherwise it acts on nothing and lists the closest
+  controls, so the model uses `ui_act` on one of them. The result says which control it chose and how sure
+  the decision model was.
+
+A permission prompt for `ui_do` cannot name the control, since the tool has not chosen it yet; it reads
+"Press the control for "the Save button"", the same level of detail a coordinate click gives.
+
+What is sent: the intent (cut at 200 characters) and the controls to choose among, each as its ref, kind and
+name (cut at 120). They are the application's own text, which is why the point is off until you name it. No
+screenshot, no typed value and no other window content leaves the machine. The log's line for a choice also
+holds `options` (how many controls were put to the model) and `agreed` (shadow only).
+
+It applies to the desktop of the session you run, not to a Pal's virtual computer.
+
+The threshold is higher than the 0.7 of the yes/no points on purpose. Run against the live service on windows of
+5 and 90 controls, the right control came back at 0.94 to 1.00 every time, while a request that matched nothing
+("launch the rocket") still put 0.70 on its nearest control; 0.85 acts on the first and holds on the second.
+With 255 controls, many of them near-duplicates, the best control got 0.56 to 0.59 and the tool held, as it should.
 
 ## The log
 

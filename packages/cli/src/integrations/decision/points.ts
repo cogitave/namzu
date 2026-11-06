@@ -38,6 +38,13 @@ export interface DecisionLogEntry {
 	readonly outcome: 'answered' | 'timeout' | 'error'
 	/** Characters of the question's state: a size, never the text. */
 	readonly chars: number
+	/**
+	 * For a choice among several options: whether the model's top option was the one the host (or
+	 * the model being watched) chose. Absent for a yes/no question and when the model gave no answer.
+	 */
+	readonly agreed?: boolean
+	/** For a choice: how many options were put to the model. */
+	readonly options?: number
 }
 
 export interface DecisionQuestion {
@@ -47,6 +54,25 @@ export interface DecisionQuestion {
 	readonly instructions: string
 	/** The answer the host's rule gave, for the log. */
 	readonly rule: boolean
+}
+
+/** A choice among named options; the answer is a ranking of them. */
+export interface DecisionChoiceQuestion {
+	readonly point: DecisionPointId
+	readonly state: string
+	readonly instructions: string
+	/** 2 to 255 distinct options. */
+	readonly options: readonly string[]
+	/**
+	 * The option already chosen by the host's rule or by the model being watched, for the log. Absent
+	 * when nothing has chosen: the answer then decides, and there is nothing to compare with.
+	 */
+	readonly chosen?: string
+}
+
+/** Options in order of fit, best first, each with the probability the model gave it. */
+export interface DecisionRanking {
+	readonly ranked: readonly { readonly option: string; readonly p: number }[]
 }
 
 export interface DecisionPointsOptions {
@@ -67,6 +93,16 @@ export interface DecisionPoints {
 	 * caller that gets nothing keeps its rule.
 	 */
 	ask(question: DecisionQuestion, signal?: AbortSignal): Promise<number | undefined>
+	/**
+	 * Ask the model to choose among options, as the point's mode allows. Resolves to the ranking only
+	 * in `on` mode and only when the model answered in time; `undefined` otherwise. In `shadow` and
+	 * `on` the answer is logged: the probability it gave the option already chosen, and whether its
+	 * top option was that one.
+	 */
+	choose(
+		question: DecisionChoiceQuestion,
+		signal?: AbortSignal,
+	): Promise<DecisionRanking | undefined>
 }
 
 const DEFAULT_TIMEOUT_MS = 1_500
@@ -80,58 +116,130 @@ export function createDecisionPoints(options: DecisionPointsOptions): DecisionPo
 	const mode = (point: DecisionPointId): DecisionPointMode =>
 		model === undefined ? 'off' : (options.modes?.[point] ?? 'off')
 
+	/** Runs one call to the model inside the timeout and the caller's signal. Never throws. */
+	const timed = async <T>(
+		exec: (model: DecisionModel, signal: AbortSignal) => Promise<T>,
+		model: DecisionModel,
+		signal: AbortSignal | undefined,
+	): Promise<{ value?: T; outcome: DecisionLogEntry['outcome'] }> => {
+		const controller = new AbortController()
+		let timer: ReturnType<typeof setTimeout> | undefined
+		const onOuterAbort = () => controller.abort()
+		signal?.addEventListener('abort', onOuterAbort, { once: true })
+		if (signal?.aborted) controller.abort()
+		try {
+			const timedOut = new Promise<never>((_, reject) => {
+				timer = setTimeout(() => {
+					controller.abort()
+					reject(new Error('timeout'))
+				}, timeoutMs)
+			})
+			const value = await Promise.race([exec(model, controller.signal), timedOut])
+			return { value, outcome: 'answered' }
+		} catch (error) {
+			return {
+				outcome: error instanceof Error && error.message === 'timeout' ? 'timeout' : 'error',
+			}
+		} finally {
+			if (timer !== undefined) clearTimeout(timer)
+			signal?.removeEventListener('abort', onOuterAbort)
+		}
+	}
+	const record = (entry: DecisionLogEntry): void => {
+		try {
+			log(entry)
+		} catch {
+			// A log that cannot be written is not a reason to lose the decision.
+		}
+	}
+
 	return {
 		mode,
 		async ask(question, signal) {
 			const current = mode(question.point)
 			if (current === 'off' || model === undefined) return undefined
 			const startedAt = now()
-			const controller = new AbortController()
-			let timer: ReturnType<typeof setTimeout> | undefined
-			const onOuterAbort = () => controller.abort()
-			signal?.addEventListener('abort', onOuterAbort, { once: true })
-			if (signal?.aborted) controller.abort()
-			let p: number | undefined
-			let outcome: DecisionLogEntry['outcome'] = 'answered'
-			try {
-				const timedOut = new Promise<never>((_, reject) => {
-					timer = setTimeout(() => {
-						controller.abort()
-						reject(new Error('timeout'))
-					}, timeoutMs)
-				})
-				const answer = await Promise.race([
-					model.yesno(question.state, question.instructions, { signal: controller.signal }),
-					timedOut,
-				])
-				p = answer.p
-				if (typeof p !== 'number' || !Number.isFinite(p) || p < 0 || p > 1) {
-					p = undefined
-					outcome = 'error'
-				}
-			} catch (error) {
-				outcome = error instanceof Error && error.message === 'timeout' ? 'timeout' : 'error'
-			} finally {
-				if (timer !== undefined) clearTimeout(timer)
-				signal?.removeEventListener('abort', onOuterAbort)
+			const called = await timed(
+				(m, s) => m.yesno(question.state, question.instructions, { signal: s }),
+				model,
+				signal,
+			)
+			let p: number | undefined = called.value?.p
+			let outcome = called.outcome
+			if (
+				outcome === 'answered' &&
+				(typeof p !== 'number' || !Number.isFinite(p) || p < 0 || p > 1)
+			) {
+				p = undefined
+				outcome = 'error'
 			}
-			try {
-				log({
-					at: startedAt,
-					point: question.point,
-					mode: current,
-					...(p !== undefined ? { p } : {}),
-					rule: question.rule,
-					latencyMs: Math.max(0, now() - startedAt),
-					outcome,
-					chars: question.state.length,
-				})
-			} catch {
-				// A log that cannot be written is not a reason to lose the decision.
-			}
+			record({
+				at: startedAt,
+				point: question.point,
+				mode: current,
+				...(p !== undefined ? { p } : {}),
+				rule: question.rule,
+				latencyMs: Math.max(0, now() - startedAt),
+				outcome,
+				chars: question.state.length,
+			})
 			return current === 'on' ? p : undefined
 		},
+		async choose(question, signal) {
+			const current = mode(question.point)
+			if (current === 'off' || model === undefined) return undefined
+			if (question.options.length < 2 || question.options.length > 255) return undefined
+			const startedAt = now()
+			const called = await timed(
+				(m, s) =>
+					m.choice(question.state, question.instructions, question.options, {
+						signal: s,
+					}),
+				model,
+				signal,
+			)
+			let ranking: DecisionRanking | undefined
+			let outcome = called.outcome
+			if (outcome === 'answered') {
+				ranking = rankOptions(question.options, called.value?.probabilities)
+				if (!ranking) outcome = 'error'
+			}
+			const top = ranking?.ranked[0]
+			const chosenP =
+				question.chosen !== undefined
+					? ranking?.ranked.find((entry) => entry.option === question.chosen)?.p
+					: top?.p
+			record({
+				at: startedAt,
+				point: question.point,
+				mode: current,
+				...(chosenP !== undefined ? { p: chosenP } : {}),
+				rule: question.chosen !== undefined,
+				latencyMs: Math.max(0, now() - startedAt),
+				outcome,
+				chars: question.state.length,
+				options: question.options.length,
+				...(top && question.chosen !== undefined ? { agreed: top.option === question.chosen } : {}),
+			})
+			return current === 'on' ? ranking : undefined
+		},
 	}
+}
+
+/** The options sorted by the probability the model gave them; undefined when it gave none usable. */
+function rankOptions(
+	options: readonly string[],
+	probabilities: Readonly<Record<string, number>> | undefined,
+): DecisionRanking | undefined {
+	if (!probabilities) return undefined
+	const ranked = options
+		.map((option) => ({ option, p: probabilities[option] }))
+		.filter(
+			(entry): entry is { option: string; p: number } =>
+				typeof entry.p === 'number' && Number.isFinite(entry.p) && entry.p >= 0 && entry.p <= 1,
+		)
+		.sort((a, b) => b.p - a.p)
+	return ranked.length > 0 ? { ranked } : undefined
 }
 
 /** Appends one entry to the decision log, rotating it once at a megabyte. Never throws. */

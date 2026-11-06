@@ -1172,9 +1172,30 @@ function computerUseAction(
 						coordinates: false,
 					}
 				: null
-		case 'ui_act': {
-			if (!fields('ref', 'action', 'value') || !text(item.ref) || !text(item.action)) return null
+		case 'ui_do': {
+			// Named in words, so the control is not known until the tool chooses it: the review says so.
+			if (
+				!fields('target', 'action', 'value', 'window_id') ||
+				!text(item.target) ||
+				!text(item.action)
+			)
+				return null
 			if (item.value !== undefined && !text(item.value)) return null
+			if (item.window_id !== undefined && !text(item.window_id)) return null
+			const named = JSON.stringify(item.target)
+			if (item.action === 'set_value')
+				return {
+					line: `Set the control for ${named} to ${JSON.stringify(item.value ?? '')}`,
+					coordinates: false,
+				}
+			const verb = UI_ACT_VERBS[item.action]
+			return verb ? { line: `${verb} the control for ${named}`, coordinates: false } : null
+		}
+		case 'ui_act': {
+			if (!fields('ref', 'action', 'value', 'intent') || !text(item.ref) || !text(item.action))
+				return null
+			if (item.value !== undefined && !text(item.value)) return null
+			if (item.intent !== undefined && !text(item.intent)) return null
 			// The application's own words for the control, as the session's tool
 			// last read them; the ref stays, since that is what runs.
 			const target = context.describeUiRef?.(item.ref) ?? `control ${item.ref}`

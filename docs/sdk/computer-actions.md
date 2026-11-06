@@ -118,7 +118,8 @@ the action still reports success and the text says to take one.
 | `focus_window` | `window_id` | yes |
 | `ui_snapshot` | `window_id` (optional; the window in front without it), `root` (a region's ref), `offset`, `query` | no — the window's controls as text |
 | `wait_for` | `until`, `match`, `role`, `window_id`, `timeout_ms` | no — the window's controls as text, as `ui_snapshot` |
-| `ui_act` | `ref`, `action`, `value` (for `set_value`) | yes |
+| `ui_act` | `ref`, `action`, `value` (for `set_value`), `intent` (only with an advisor) | yes |
+| `ui_do` | `target`, `action`, `value` (for `set_value`), `window_id` (only with an advisor that acts) | yes |
 | `batch` | `actions` | one, at the end |
 
 Coordinate actions, `type_text`, `key`, `zoom` and `batch` take an optional
@@ -258,6 +259,25 @@ action the control does not list, or `set_value` without `value`, is refused
 before anything runs; in a batch that refuses the whole batch. The host's
 refusal comes back in its own words (`that control is from an older UI
 snapshot; take a new one`). It normally returns a screenshot afterwards.
+
+### Naming a control in words: the advisor
+
+`ComputerUseToolOptions.advisor` takes a `ComputerUseAdvisor`, a fast second opinion on which control an
+intent names (a host runs a small decision model behind it). The tool never depends on it: one that
+fails, is slow or is unsure is the same as none, and with no advisor the tool has neither field below.
+
+- With any advisor, `ui_act` accepts `intent`, a few words on what the action is for. The advisor is asked
+  `pick({ intent, candidates, chosen })` about the controls the latest reading of that window showed,
+  where `chosen` is the ref the model itself used, and the tool does not wait for the answer or use it.
+- With an advisor whose `acts` is true, the tool also offers `ui_do { target, action, value, window_id }`.
+  It asks `pick({ intent: target, candidates })` over the controls of the latest `ui_snapshot` that offer
+  the action and acts, as `ui_act` on that ref, only when the best control has a confidence of 0.85 or more
+  and leads the next by 0.4 or more. Otherwise nothing is sent and the failure (`Not delivered`, safe to
+  retry) lists the closest controls. The result names the control it chose and how sure the advisor was.
+  Refused with no snapshot taken, with no control offering the action, and for `set_value` without `value`.
+
+The advisor sees control refs, kinds and names (cut), never a screenshot. The CLI builds one from its
+[`pick` decision point](../cli/decision-points.md#pick).
 
 ### What an action reports about itself
 

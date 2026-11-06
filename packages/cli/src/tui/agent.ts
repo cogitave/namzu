@@ -293,6 +293,7 @@ import {
 	maybeCreateDecisionModel,
 	maybeCreateDecisionTool,
 } from '../integrations/decision/model.js'
+import { createPickAdvisor } from '../integrations/decision/pick.js'
 import { createDecisionPoints } from '../integrations/decision/points.js'
 import { type RouteTier, routeModel } from '../integrations/decision/routing.js'
 import {
@@ -3458,6 +3459,12 @@ export async function createAgentSession(
 	// invisible to the model. Probe first to retain absent/broken diagnostics;
 	// only a successfully initialised adapter earns a schema in the registry.
 	const capabilities = await probeCapabilities()
+	// One set of decision points for the session: the places a decision model may be asked beside the
+	// host's own rule (`decision.points`), none of them until named.
+	const decisionPoints = createDecisionPoints({
+		model: maybeCreateDecisionModel(options.decision, process.env),
+		modes: options.decision?.points,
+	})
 	const computerUsePackage = capabilities.find((probe) => probe.specifier === '@namzu/computer-use')
 	// Who answers a question this turn; filled per turn. Read when computer use
 	// needs to ask whether it may use the screen, and when an MCP server asks.
@@ -3506,7 +3513,8 @@ export async function createAgentSession(
 		})
 		try {
 			await candidate.initialize()
-			computerUseTool = createComputerUseTool(candidate)
+			const advisor = createPickAdvisor(decisionPoints)
+			computerUseTool = createComputerUseTool(candidate, advisor ? { advisor } : {})
 			// A host that loaded but reports no control at all (no screenshot,
 			// mouse, keyboard, clipboard or window access) would answer every
 			// call with its limitation. Read live, so the tool appears once the
@@ -4682,10 +4690,7 @@ export async function createAgentSession(
 	// (`decision.points.memory`); a confident no writes nothing, anything else writes as before.
 	const promoteMemory = gateMemoryPromotion(
 		createMemoryPromoter({ store: memoryStore }),
-		createDecisionPoints({
-			model: maybeCreateDecisionModel(options.decision, process.env),
-			modes: options.decision?.points,
-		}),
+		decisionPoints,
 	)
 	// Plugins are the last fallible startup resource. The ordering is ownership:
 	// a malformed MCP entry cannot strand imported plugin hooks, and a plugin

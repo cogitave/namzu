@@ -91,11 +91,72 @@ const MAX_UI_SNAPSHOT_CHARS = 14_000
 /** The refs of earlier snapshots the tool still resolves for the host. */
 const MAX_HELD_UI_REFS = 4_000
 
+/** One control an advisor may be asked to choose among. */
+export interface ComputerUseAdvisorCandidate {
+	/** The ref the model was shown for it. */
+	readonly ref: string
+	/** The control as the model reads it, such as `Button "Save"`. */
+	readonly description: string
+}
+
+/** What an advisor is asked: which of these controls does this intent name? */
+export interface ComputerUseAdvisorRequest {
+	/** What the model wants done, in its own words. */
+	readonly intent: string
+	readonly candidates: readonly ComputerUseAdvisorCandidate[]
+	/**
+	 * The ref the model itself chose for this intent, when it chose one. Then the
+	 * advisor is only watching: the answer is not acted on.
+	 */
+	readonly chosen?: string
+}
+
+/** An advisor's answer: the candidates in order of fit, best first, each with how sure it is (0 to 1). */
+export interface ComputerUseAdvice {
+	readonly ranked: readonly {
+		readonly ref: string
+		readonly confidence: number
+	}[]
+}
+
+/**
+ * A fast second opinion on which control an intent names, for hosts that run a
+ * small decision model beside the main one. The tool never depends on it: an
+ * advisor that fails, is slow or is unsure is the same as none.
+ */
+export interface ComputerUseAdvisor {
+	/**
+	 * Whether the tool may act on the answer. Then the model can name a control
+	 * by words (`ui_do`) and the tool chooses; when false the advisor is asked
+	 * about the controls the model chose by ref (`ui_act` with `intent`) and its
+	 * answer is not used.
+	 */
+	readonly acts: boolean
+	pick(
+		request: ComputerUseAdvisorRequest,
+		signal?: AbortSignal,
+	): Promise<ComputerUseAdvice | undefined>
+}
+
+/** The least confidence in the best control for the tool to act on it. */
+const ADVICE_MIN_CONFIDENCE = 0.85
+/** How far the best control must lead the next one. */
+const ADVICE_MIN_MARGIN = 0.4
+/** The most controls an advisor is asked about at once. */
+const MAX_ADVISED_CANDIDATES = 255
+
 /**
  * How `createComputerUseTool` sizes screenshots, paces actions and bounds a
  * batch. Every field is optional.
  */
 export interface ComputerUseToolOptions {
+	/**
+	 * A second opinion on which control an intent names; see
+	 * {@link ComputerUseAdvisor}. With one that `acts`, the tool offers `ui_do`
+	 * (name a control by words); with any, `ui_act` accepts an `intent`. Absent,
+	 * neither exists and the tool is exactly what it was.
+	 */
+	readonly advisor?: ComputerUseAdvisor
 	/**
 	 * What every screenshot and zoom image is fitted to before the model sees
 	 * it. Default {@link STANDARD_SCREENSHOT_LIMITS}, which every current vision
@@ -270,6 +331,16 @@ const uiActSchema = z.object({
 	ref: z.string().min(1),
 	action: z.enum(UI_ACTIONS),
 	value: z.string().optional(),
+	/** What this is for, in a few words; only read when the tool has an advisor. */
+	intent: z.string().min(1).max(200).optional(),
+})
+const uiDoSchema = z.object({
+	type: z.literal('ui_do'),
+	/** The control, in words: "the Save button", "the name field". */
+	target: z.string().min(1).max(200),
+	action: z.enum(UI_ACTIONS),
+	value: z.string().optional(),
+	window_id: z.string().min(1).optional(),
 })
 
 /** What a batch may carry: everything but the image-returning actions and another batch. */
@@ -285,6 +356,7 @@ const batchItemSchema = z.discriminatedUnion('type', [
 	listWindowsSchema,
 	focusWindowSchema,
 	uiActSchema,
+	uiDoSchema,
 ])
 
 const withFrame = { screenshot_id: screenshotIdSchema }
@@ -308,6 +380,7 @@ const actionSchema = z.discriminatedUnion('type', [
 	uiSnapshotSchema,
 	waitForSchema,
 	uiActSchema.extend(withFrame),
+	uiDoSchema.extend(withFrame),
 	z.object({
 		type: z.literal('batch'),
 		actions: z.array(batchItemSchema).min(1),
@@ -355,6 +428,7 @@ const ALL_ACTIONS: readonly ToolActionType[] = [
 	'ui_snapshot',
 	'wait_for',
 	'ui_act',
+	'ui_do',
 	'batch',
 ]
 
@@ -376,6 +450,7 @@ const DESTRUCTIVE_ACTIONS = new Set<string>([
 	'key',
 	'scroll',
 	'ui_act',
+	'ui_do',
 ])
 
 /** Observations that show the model what is on the screen, on their own. */
@@ -454,6 +529,7 @@ function requiredCapability(type: string): keyof ComputerUseCapabilities | null 
 		case 'ui_snapshot':
 		case 'wait_for':
 		case 'ui_act':
+		case 'ui_do':
 			return 'uiTree'
 		default:
 			return null
@@ -481,7 +557,11 @@ function windowCaptureAvailable(host: ComputerUseHost, caps: ComputerUseCapabili
 	)
 }
 
-function availableActions(host: ComputerUseHost, caps: ComputerUseCapabilities): ToolActionType[] {
+function availableActions(
+	host: ComputerUseHost,
+	caps: ComputerUseCapabilities,
+	advisor?: ComputerUseAdvisor,
+): ToolActionType[] {
 	const displayScreenshot = hostActionAvailable(caps, 'screenshot')
 	const window = windowCaptureAvailable(host, caps)
 	const screenshot = displayScreenshot || window
@@ -516,6 +596,8 @@ function availableActions(host: ComputerUseHost, caps: ComputerUseCapabilities):
 			case 'wait_for':
 			case 'ui_act':
 				return uiTree
+			case 'ui_do':
+				return uiTree && advisor?.acts === true
 			case 'batch':
 				return false
 			default:
@@ -550,8 +632,9 @@ function buildDescription(
 	host: ComputerUseHost,
 	caps: ComputerUseCapabilities,
 	settings: ResolvedSettings,
+	advisor?: ComputerUseAdvisor,
 ): string {
-	const available = availableActions(host, caps)
+	const available = availableActions(host, caps, advisor)
 	const unavailable = unavailableHostActions(host, caps)
 	const intro = hostActionAvailable(caps, 'screenshot')
 		? `Controls the user's desktop on a ${caps.displayServer} host: screenshots, mouse and keyboard, for GUI tasks.`
@@ -596,6 +679,10 @@ function buildDescription(
 	)
 		lines.push(
 			'To start a Windows program, a shell command (Start-Process <program>, or cmd.exe /c start <program>) is surest when you have a shell tool. The Start menu searches by display names in the system language, and ENTER on a name it does not find opens a web search in the browser.',
+		)
+	if (available.includes('ui_do'))
+		lines.push(
+			'ui_do {target, action, value, window_id} acts on a control named in words ("the Save button") among those the latest ui_snapshot showed: a second model chooses it and the tool says which control it acted on. When it is not sure it acts on nothing and lists the closest controls: then use ui_act on one of their refs. Use ui_act with a ref whenever you already have one.',
 		)
 	if (available.includes('list_windows'))
 		lines.push(
@@ -695,6 +782,7 @@ const ACTION_REQUIREMENTS: Readonly<Record<ToolActionType, string>> = {
 		'ui_snapshot takes an optional window_id, root (a ref to open) and query (text to find)',
 	wait_for: 'wait_for needs until and match; role, window_id and timeout_ms are optional',
 	ui_act: 'ui_act needs ref and action, and value for set_value',
+	ui_do: 'ui_do needs target (the control, in words) and action, and value for set_value',
 	batch: 'batch needs actions',
 }
 
@@ -712,10 +800,11 @@ function hostModelSchema(
 	host: ComputerUseHost,
 	caps: ComputerUseCapabilities,
 	settings: ResolvedSettings,
+	advisor?: ComputerUseAdvisor,
 ): Record<string, unknown> {
 	// An unavailable host remains a diagnostic tool. Avoid invalid empty enums
 	// on provider wires; every execution is still refused before host access.
-	const offered = availableActions(host, caps)
+	const offered = availableActions(host, caps, advisor)
 	const actions = offered.length > 0 ? offered : ALL_ACTIONS.filter((a) => a !== 'batch')
 	const items = actions.filter((action) => !OUTSIDE_BATCH.has(action))
 	const buttons = new Set<string>()
@@ -841,6 +930,30 @@ function hostModelSchema(
 				type: 'string',
 				description: 'The text set_value puts in the control.',
 			}
+			if (advisor)
+				fields.intent = {
+					type: 'string',
+					description:
+						'For ui_act: what this is for, in a few words ("save the file"). Optional; it only helps check the choice.',
+				}
+		}
+		if (present.includes('ui_do')) {
+			fields.target = {
+				type: 'string',
+				description:
+					'For ui_do: the control in words, such as "the Save button" or "the name field". The tool picks the control from the latest ui_snapshot.',
+			}
+			if (!present.includes('ui_act')) {
+				fields.action = {
+					type: 'string',
+					enum: [...UI_ACTIONS],
+					description: 'What ui_do does to the control.',
+				}
+				fields.value = {
+					type: 'string',
+					description: 'The text set_value puts in the control.',
+				}
+			}
 		}
 		if (!forItems && present.includes('zoom'))
 			fields.region = {
@@ -963,6 +1076,33 @@ function uiActLabel(
 	}
 }
 
+/** What a ui_do does, over the words the model named the control with. */
+function uiDoLabel(input: {
+	readonly target: string
+	readonly action: UiElementAction
+	readonly value?: string
+}): string {
+	const target = quotedText(input.target)
+	switch (input.action) {
+		case 'invoke':
+			return `Press the control for ${target}`
+		case 'set_value':
+			return `Set the control for ${target} to ${quotedText(input.value ?? '')}`
+		case 'toggle':
+			return `Toggle the control for ${target}`
+		case 'select':
+			return `Select the control for ${target}`
+		case 'expand':
+			return `Expand the control for ${target}`
+		case 'collapse':
+			return `Collapse the control for ${target}`
+		case 'focus':
+			return `Focus the control for ${target}`
+		case 'scroll_into_view':
+			return `Scroll to the control for ${target}`
+	}
+}
+
 /**
  * Human activity text for one action; the raw input remains the model-facing
  * record. `describe` names a ui_act ref's control when the tool knows it.
@@ -1008,6 +1148,8 @@ function itemLabel(
 			return `Wait until ${input.until.replace('_', ' ')} ${quotedText(input.match)}`
 		case 'ui_act':
 			return uiActLabel(input, describe)
+		case 'ui_do':
+			return uiDoLabel(input)
 		case 'batch':
 			return batchLabel(input.actions, describe)
 	}
@@ -1349,7 +1491,8 @@ export function createComputerUseTool(
 			}
 		: host.capabilities
 	const frames = new ScreenshotFrames()
-	const available = new Set<string>(availableActions(host, caps))
+	const available = new Set<string>(availableActions(host, caps, options.advisor))
+	const advisor = options.advisor
 
 	// The controls of the latest ui_snapshot, by the ref the model was shown.
 	// A ref names a control, not one reading of it: the same host ref keeps the
@@ -1357,6 +1500,8 @@ export function createComputerUseTool(
 	// control. Whether the control is still there is the host's answer.
 	const uiRefs = new Map<string, UiRef>()
 	const uiRefByHost = new Map<string, string>()
+	// The refs the latest reading of each window showed, so an advisor is asked about what is there now.
+	const shownRefs = new Map<string, Set<string>>()
 	let uiSnapshots = 0
 	let uiRefCount = 0
 	let uiSnapshotWindowId: string | undefined
@@ -1370,6 +1515,30 @@ export function createComputerUseTool(
 		return entry ? `${uiElementText(entry.element)} (${ref})` : undefined
 	}
 	const label = (input: BatchItem | ActionInput): string => itemLabel(input, describeUiRef)
+
+	/** The controls of a window's latest reading that offer an action (any, when none is named), as an advisor is shown them. */
+	const advisedCandidates = (
+		windowId: string | undefined,
+		action?: UiElementAction,
+	): ComputerUseAdvisorCandidate[] => {
+		const shown = shownRefs.get(windowId ?? '')
+		const out: ComputerUseAdvisorCandidate[] = []
+		if (!shown) return out
+		for (const ref of shown) {
+			const entry = uiRefs.get(ref)
+			if (!entry) continue
+			const offered = entry.element.actions ?? []
+			if (offered.length === 0) continue
+			if (action !== undefined && !offered.includes(action)) continue
+			const text = uiElementText(entry.element)
+			out.push({
+				ref,
+				description: text.length > 80 ? `${text.slice(0, 79)}…` : text,
+			})
+			if (out.length >= MAX_ADVISED_CANDIDATES) break
+		}
+		return out
+	}
 
 	const refusal = (type: string): string | null => {
 		if (available.has(type)) return null
@@ -1705,6 +1874,14 @@ export function createComputerUseTool(
 				if (item.action === 'set_value' && item.value === undefined)
 					throw new StepFailure('set_value needs value, the text to put in the control')
 				return step(async () => {
+					// A second opinion on the model's own choice: asked beside the action, never waited for.
+					if (advisor && item.intent !== undefined) {
+						const candidates = advisedCandidates(entry.windowId)
+						if (candidates.length >= 2)
+							void advisor
+								.pick({ intent: item.intent, candidates, chosen: item.ref })
+								.catch(() => undefined)
+					}
 					let outcome: UiActResult
 					try {
 						outcome = await (host.uiAct as NonNullable<ComputerUseHost['uiAct']>)(
@@ -1726,6 +1903,62 @@ export function createComputerUseTool(
 										`${item.action} did not take effect on ${describeUiRef(item.ref)}`),
 						})
 					return deliveryOutcome(outcome)
+				})
+			}
+			case 'ui_do': {
+				if (!advisor?.acts)
+					throw new StepFailure('ui_do is not available here; use ui_act with a ref')
+				if (item.action === 'set_value' && item.value === undefined)
+					throw new StepFailure('set_value needs value, the text to put in the control')
+				if (uiSnapshots === 0)
+					throw new StepFailure(
+						'no ui_snapshot has been taken yet; take one, because ui_do chooses among the controls it showed',
+					)
+				const windowId = item.window_id ?? uiSnapshotWindowId
+				const candidates = advisedCandidates(windowId, item.action)
+				if (candidates.length === 0)
+					throw new StepFailure(
+						`no control in the latest ui_snapshot${windowId ? ` of window ${windowId}` : ''} offers ${item.action}; take a ui_snapshot and act with ui_act on a ref`,
+					)
+				const target = item.target
+				return step(async (signal) => {
+					let advice: ComputerUseAdvice | undefined
+					try {
+						advice = await advisor.pick({ intent: target, candidates }, signal)
+					} catch {
+						if (signal?.aborted) throw new StepFailure('cancelled')
+					}
+					const [best, next] = advice?.ranked ?? []
+					const sure =
+						best !== undefined &&
+						best.confidence >= ADVICE_MIN_CONFIDENCE &&
+						best.confidence - (next?.confidence ?? 0) >= ADVICE_MIN_MARGIN &&
+						uiRefs.has(best.ref)
+					if (!best || !sure) {
+						const close = (advice?.ranked ?? [])
+							.filter((entry) => uiRefs.has(entry.ref))
+							.slice(0, 3)
+							.map((entry) => describeUiRef(entry.ref))
+						throw deliveryFailure({
+							delivery: 'not_delivered',
+							retrySafety: 'safe',
+							detail: `ui_do was not sure which control is ${quotedText(target)}, so it acted on nothing.${close.length > 0 ? ` Closest: ${close.join('; ')}.` : ''} Use ui_act on one of the refs, or ui_snapshot {query: ...} to find it.`,
+						})
+					}
+					const chosen = describeUiRef(best.ref) ?? best.ref
+					const ran = await plan(
+						{
+							type: 'ui_act',
+							ref: best.ref,
+							action: item.action,
+							...(item.value !== undefined ? { value: item.value } : {}),
+						},
+						undefined,
+					).run(signal)
+					const prefix = `chose ${chosen} for ${quotedText(target)} (${Math.round(best.confidence * 100)}% sure)`
+					return typeof ran === 'string'
+						? `${prefix}: ${ran}`
+						: { ...ran, note: `${prefix}: ${ran.note}` }
 				})
 			}
 		}
@@ -1822,6 +2055,11 @@ export function createComputerUseTool(
 			}
 		}
 		uiSnapshotWindowId = snapshot.windowId ?? requestedWindowId
+		{
+			const key = uiSnapshotWindowId ?? ''
+			const now = new Set(refs.keys())
+			shownRefs.set(key, snapshot.region ? new Set([...(shownRefs.get(key) ?? []), ...now]) : now)
+		}
 		if (uiSnapshotWindowId !== undefined) treeUsable.set(uiSnapshotWindowId, refs.size > 0)
 		uiSnapshotFrame = frames.latest()
 		const window =
@@ -2347,7 +2585,7 @@ export function createComputerUseTool(
 				if (step.item.type === 'focus_window' && windowCaptureAvailable(host, caps))
 					postWindowId = step.item.window_id
 				else if (
-					step.item.type === 'ui_act' &&
+					(step.item.type === 'ui_act' || step.item.type === 'ui_do') &&
 					uiSnapshotWindowId &&
 					!explicitDisplayFrame &&
 					windowCaptureAvailable(host, caps)
@@ -2504,9 +2742,9 @@ export function createComputerUseTool(
 
 	const tool = defineTool({
 		name: COMPUTER_USE_TOOL_NAME,
-		description: buildDescription(host, caps, settings),
+		description: buildDescription(host, caps, settings, options.advisor),
 		inputSchema: actionSchema,
-		modelInputSchema: hostModelSchema(host, caps, settings),
+		modelInputSchema: hostModelSchema(host, caps, settings, options.advisor),
 		validationErrorHint: `Action requirements: ${ALL_ACTIONS.map((action) => actionRequirement(action, host, caps)).join('; ')}. A batch is {"type":"batch","actions":[...]} with at most ${settings.maxBatchActions} actions and no screenshot, zoom, ui_snapshot or batch inside.`,
 		category: 'custom',
 		permissions: [],

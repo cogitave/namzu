@@ -12,7 +12,12 @@ import type {
 	WindowInfo,
 } from '../../../types/computer-use/index.js'
 import type { ToolContext, ToolResult } from '../../../types/tool/index.js'
-import { createComputerUseTool } from '../computer-use.js'
+import {
+	type ComputerUseAdvice,
+	type ComputerUseAdvisor,
+	type ComputerUseAdvisorRequest,
+	createComputerUseTool,
+} from '../computer-use.js'
 
 /**
  * `ui_snapshot` and `ui_act`: a window's controls as text with refs, and
@@ -861,5 +866,207 @@ describe('computer_use typing with a terminal in front', () => {
 		// Once before the text; the key after typing needs no new read, the
 		// key after a key does.
 		expect(lists()).toBe(2)
+	})
+})
+
+describe('computer_use advisor', () => {
+	function advisor(
+		answer: (request: ComputerUseAdvisorRequest) => Promise<ComputerUseAdvice | undefined>,
+		acts: boolean,
+	): ComputerUseAdvisor & { asked: ComputerUseAdvisorRequest[] } {
+		const asked: ComputerUseAdvisorRequest[] = []
+		return {
+			acts,
+			asked,
+			async pick(request) {
+				asked.push(request)
+				return answer(request)
+			},
+		}
+	}
+	const ranked = (...pairs: [string, number][]): ComputerUseAdvice => ({
+		ranked: pairs.map(([ref, confidence]) => ({ ref, confidence })),
+	})
+	const schemaOf = (tool: ReturnType<typeof createComputerUseTool>) =>
+		tool.modelInputSchema as {
+			properties: Record<string, { enum?: string[] }>
+		}
+
+	it('adds nothing without an advisor', () => {
+		const tool = createComputerUseTool(makeUiHost().host)
+		expect(schemaOf(tool).properties.type?.enum).not.toContain('ui_do')
+		expect(schemaOf(tool).properties).not.toHaveProperty('intent')
+		expect(schemaOf(tool).properties).not.toHaveProperty('target')
+		expect(tool.description).not.toContain('ui_do')
+	})
+
+	it('a watching advisor adds intent to ui_act and no ui_do', () => {
+		const tool = createComputerUseTool(makeUiHost().host, {
+			advisor: advisor(async () => undefined, false),
+		})
+		expect(schemaOf(tool).properties.type?.enum).not.toContain('ui_do')
+		expect(schemaOf(tool).properties).toHaveProperty('intent')
+	})
+
+	it('asks a watching advisor about the model’s own choice and does not wait for it', async () => {
+		const { host, acts } = makeUiHost()
+		const watcher = advisor(() => new Promise(() => {}), false)
+		const tool = createComputerUseTool(host, { settleMs: 0, advisor: watcher })
+		await run(tool, { type: 'ui_snapshot', window_id: '0x261206' })
+		const result = await run(tool, {
+			type: 'ui_act',
+			ref: 'e2',
+			action: 'invoke',
+			intent: 'press five',
+		})
+		expect(result.success).toBe(true)
+		expect(acts).toEqual([{ ref: 'h1:Beş', action: 'invoke' }])
+		expect(watcher.asked).toHaveLength(1)
+		expect(watcher.asked[0]).toMatchObject({
+			intent: 'press five',
+			chosen: 'e2',
+		})
+		expect(watcher.asked[0]?.candidates.map((c) => c.ref)).toEqual(['e1', 'e2', 'e3', 'e4'])
+	})
+
+	it('does not ask without an intent', async () => {
+		const { host } = makeUiHost()
+		const watcher = advisor(async () => undefined, false)
+		const tool = createComputerUseTool(host, { settleMs: 0, advisor: watcher })
+		await run(tool, { type: 'ui_snapshot', window_id: '0x261206' })
+		await run(tool, { type: 'ui_act', ref: 'e2', action: 'invoke' })
+		expect(watcher.asked).toEqual([])
+	})
+
+	it('ui_do acts on the control a sure advisor picks and says which it chose', async () => {
+		const { host, acts } = makeUiHost()
+		const chooser = advisor(async () => ranked(['e2', 0.95], ['e3', 0.02]), true)
+		const tool = createComputerUseTool(host, { settleMs: 0, advisor: chooser })
+		expect(schemaOf(tool).properties.type?.enum).toContain('ui_do')
+		await run(tool, { type: 'ui_snapshot', window_id: '0x261206' })
+		const result = await run(tool, {
+			type: 'ui_do',
+			target: 'the five key',
+			action: 'invoke',
+		})
+		expect(result.success).toBe(true)
+		expect(acts).toEqual([{ ref: 'h1:Beş', action: 'invoke' }])
+		expect(text(result)).toContain('chose Button "Beş" (e2) for "the five key" (95% sure)')
+		// Only the controls that offer the action were put to the advisor.
+		expect(chooser.asked[0]?.candidates.map((c) => c.ref)).toEqual(['e1', 'e2', 'e3'])
+		expect(chooser.asked[0]?.chosen).toBeUndefined()
+	})
+
+	it('ui_do acts on nothing when the advisor is not sure, and lists the closest', async () => {
+		const { host, acts } = makeUiHost()
+		const tool = createComputerUseTool(host, {
+			settleMs: 0,
+			advisor: advisor(async () => ranked(['e2', 0.5], ['e1', 0.3]), true),
+		})
+		await run(tool, { type: 'ui_snapshot', window_id: '0x261206' })
+		const result = await run(tool, {
+			type: 'ui_do',
+			target: 'five',
+			action: 'invoke',
+		})
+		expect(result.success).toBe(false)
+		expect(acts).toEqual([])
+		expect(result.error).toContain('was not sure which control is "five"')
+		expect(result.error).toContain('Button "Beş" (e2)')
+	})
+
+	it('ui_do holds below 0.85 even with a wide lead, the confidence a no-match question was seen to reach', async () => {
+		const { host, acts } = makeUiHost()
+		const tool = createComputerUseTool(host, {
+			settleMs: 0,
+			advisor: advisor(async () => ranked(['e2', 0.8], ['e3', 0.05]), true),
+		})
+		await run(tool, { type: 'ui_snapshot', window_id: '0x261206' })
+		const result = await run(tool, { type: 'ui_do', target: 'launch the rocket', action: 'invoke' })
+		expect(result.success).toBe(false)
+		expect(acts).toEqual([])
+	})
+
+	it('ui_do needs the best control to lead the next one', async () => {
+		const { host, acts } = makeUiHost()
+		const tool = createComputerUseTool(host, {
+			settleMs: 0,
+			advisor: advisor(async () => ranked(['e2', 0.75], ['e3', 0.7]), true),
+		})
+		await run(tool, { type: 'ui_snapshot', window_id: '0x261206' })
+		const result = await run(tool, {
+			type: 'ui_do',
+			target: 'a number',
+			action: 'invoke',
+		})
+		expect(result.success).toBe(false)
+		expect(acts).toEqual([])
+	})
+
+	it('ui_do ignores an advisor that fails, is empty or names a ref nobody showed', async () => {
+		for (const answer of [
+			async () => {
+				throw new Error('service down')
+			},
+			async () => undefined,
+			async () => ranked(['e99', 0.99]),
+		]) {
+			const { host, acts } = makeUiHost()
+			const tool = createComputerUseTool(host, {
+				settleMs: 0,
+				advisor: advisor(answer, true),
+			})
+			await run(tool, { type: 'ui_snapshot', window_id: '0x261206' })
+			const result = await run(tool, {
+				type: 'ui_do',
+				target: 'five',
+				action: 'invoke',
+			})
+			expect(result.success).toBe(false)
+			expect(acts).toEqual([])
+		}
+	})
+
+	it('ui_do needs a snapshot first, and a value for set_value', async () => {
+		const { host } = makeUiHost()
+		const tool = createComputerUseTool(host, {
+			settleMs: 0,
+			advisor: advisor(async () => ranked(['e4', 0.99]), true),
+		})
+		const early = await run(tool, {
+			type: 'ui_do',
+			target: 'the note',
+			action: 'invoke',
+		})
+		expect(early.error).toContain('no ui_snapshot has been taken yet')
+		await run(tool, { type: 'ui_snapshot', window_id: '0x261206' })
+		const bare = await run(tool, {
+			type: 'ui_do',
+			target: 'the note',
+			action: 'set_value',
+		})
+		expect(bare.error).toContain('set_value needs value')
+		const set = await run(tool, {
+			type: 'ui_do',
+			target: 'the note',
+			action: 'set_value',
+			value: 'merhaba',
+		})
+		expect(set.success).toBe(true)
+	})
+
+	it('ui_do rides in a batch', async () => {
+		const { host, acts } = makeUiHost()
+		const tool = createComputerUseTool(host, {
+			settleMs: 0,
+			advisor: advisor(async () => ranked(['e2', 0.9]), true),
+		})
+		await run(tool, { type: 'ui_snapshot', window_id: '0x261206' })
+		const result = await run(tool, {
+			type: 'batch',
+			actions: [{ type: 'ui_do', target: 'five', action: 'invoke' }],
+		})
+		expect(result.success).toBe(true)
+		expect(acts).toHaveLength(1)
 	})
 })
