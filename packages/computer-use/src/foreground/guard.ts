@@ -162,6 +162,7 @@ export function guardForeground(adapter: Adapter, ladder: ForegroundLadder): Ada
 		'captureRegion',
 		'uiSnapshot',
 		'uiAct',
+		'settleAfterInput',
 	] as const) {
 		const method = adapter[name]
 		if (method) (guarded as unknown as Record<string, unknown>)[name] = method.bind(adapter)

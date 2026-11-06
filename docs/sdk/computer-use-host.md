@@ -72,6 +72,7 @@ window input path: `false` refuses scoped pixel scroll before a batch starts;
 | `maxClickCount` | No extra method; `2` or `3` lets `mouse_click` carry `count` up to that many clicks in a row (absent means 1) | Hosts whose click can repeat; `count` is sent to `execute` and `executeWindow` only above 1 |
 | `regionCapture` | `captureRegion(rect)` | `zoom`, which otherwise crops a full capture |
 | `uiTree` (experimental) | `uiSnapshot(windowId?)`, `uiAct(ref, action, value?)` | `ui_snapshot`, `ui_act` |
+| none (the method alone) | `settle({ windowId?, budgetMs }, signal?)` | the pause before the screenshot that follows an action |
 
 `listWindows()` returns `WindowInfo` records (`id`, `title`, `app`, `pid`,
 `bounds`, `focused`, `minimized`); `id` is opaque and host-defined. The
@@ -144,6 +145,19 @@ These shapes are `@experimental`: `@namzu/computer-use`'s Windows backend is
 the first host that implements them, and they may still change in a minor
 release. How the tool shows them to the model is in
 [the computer_use tool](computer-actions.md#a-windows-controls).
+
+`settle(request, signal?)` is optional and has no flag. After a batch that
+changed something the tool waits `settleMs` (500 by default) before it takes
+the screenshot it returns. A host that is told by the window itself when it has
+stopped changing implements `settle`: the tool passes the window the batch
+acted in (`windowId`, absent for display input) and its `settleMs` as
+`budgetMs`, and the host resolves `{ waitedMs, changed }` as soon as the window
+changed and then stayed quiet, or after the whole budget when nothing changed
+at all, so it is never slower than the fixed pause. Resolving `undefined` or
+rejecting means "I cannot say"; the tool then sleeps the fixed time as it
+always did, and so it does for a host without the method. The default
+`settleMs` is unchanged. `@namzu/computer-use` implements it for the Windows
+driver backend (see [the accessibility host](#the-accessibility-host-the-window-list-and-waiting-for-a-window-to-settle)).
 
 The contract applies to any backend: a custom helper and a desktop driver
 both fit, and a host without optional methods is still a complete host.
@@ -264,6 +278,144 @@ On by default on Windows and WSL. Turn it off with the host option
 `presence: false` (`SubprocessComputerUseHostOptions`) or the environment
 variable `NAMZU_COMPUTER_USE_PRESENCE=off` (`0`, `false`, `no` and `none` also
 work). A failure of the overlay never fails or delays an action.
+
+## The accessibility host: the window list and waiting for a window to settle
+
+Two things in the Windows driver backend were slow for a reason that had
+nothing to do with the work itself. The driver's `list_windows` took 1.3 to
+1.75 s on a real desktop (an uncached accessibility walk, a property read per
+window and a process listing on every call), and the window list is read
+before each capture and each window input; and the tool paused a fixed 500 ms
+after every action whether the window had changed in 5 ms or not at all.
+
+`@namzu/computer-use` therefore keeps a second long-lived helper, the
+**accessibility host**, started the same way as the presence overlay (a
+PowerShell process whose C# library is compiled on start, its script handed
+over as the first line of its input, one JSON object per line in each
+direction, ended by its input closing). Everything it answers is behind the
+platform-neutral `AccessibilityBackend` interface (`a11y/interface.ts`, its
+types free of Windows terms: a window is a `windowId` string, rectangles are
+virtual-desktop physical pixels), so a macOS or a Linux backend only adds a
+file that implements it. The Windows implementation is `WindowsA11yHost`.
+
+| Question | What answers it |
+| --- | --- |
+| `listWindows()` | Win32 window enumeration only, no accessibility call: visible, not cloaked (other virtual desktops, suspended apps), not a tool window, with an owner or without one as asked; each with process id and name, title, the visible frame, minimized, foreground and front-to-back position |
+| `listDisplays()` | every monitor: bounds, work area, scale, primary |
+| `snapshot({ windowId })` | one cached subtree request of the window's control view (up to `maxNodes` 400 and `maxDepth` 12 listed, `total` counting the rest; `skeleton` lists only the window, its children and theirs with `childCount` on the containers); each control carries role, name (120 characters), automation id, rectangle, enabled, offscreen, focused, and the patterns it offers (`invoke`, `value`, `toggle`, `expandCollapse`, `selectionItem`, `scroll`) with the value, toggle, expand and selection state |
+| `identity` and `resolve` | a fingerprint of a listed control (runtime id, automation id and role, role and a hash of the name with the path of its ancestors, ordinal among equal siblings, process start) and the way back: runtime id, else automation id and role, else role, name hash and path, answering `not_found` or `ambiguous` rather than guessing |
+| `seq(windowId?)` and `waitForChange` | events, see below |
+
+### Waiting for a window to settle
+
+`seq(windowId)` returns a marker in the stream of changes and starts watching
+that window: accessibility events for its whole subtree (structure changes and
+changes to name, enabled, offscreen, toggle, expand, value and selection) and
+system window events scoped to its process (windows and controls created,
+destroyed, shown, hidden, renamed, valued or moved), so a new top-level window
+of the same program counts too. `waitForChange({ windowId, since, quietMs,
+timeoutMs })` resolves from those events: once at least one change arrived
+since the marker and the window then stayed quiet for `quietMs` (default
+120), as `{ changed: true, settled: true, firstEventMs, settledMs, events,
+newWindows }`; or `{ changed: false, timedOut: true }` after `timeoutMs`
+(default 2 000, at most 10 000) with none. The reply always comes within
+`timeoutMs` plus a few milliseconds, and a window that is still changing at the
+timeout answers `settled: false`. The marker closes the race between an action
+and the wait for its effect:
+
+```text
+const since = await backend.seq(windowId)   // also arms the window, once
+// ... send the input ...
+await backend.waitForChange({ windowId, since })  // counts what the input did, even if it was instant
+```
+
+Event handlers only record into a queue; nothing calls back into the
+accessibility API from a handler. A marker taken before the helper restarted is
+refused (`stale_seq`) rather than misread.
+
+The Windows driver adapter uses this in two places. The window list
+(`listWindows`, the one the model sees and the one checked before each window
+capture and input) is served from `listWindows({ includeOwned: true })` while the
+host is up. The first call after start still goes to the driver, since the host
+needs a moment to compile (about 0.4 s), and the host is started when the
+adapter is created. A window input takes a marker just before it is sent
+(the window is already being watched from its capture), and the host's `settle`
+waits from that marker with `quietMs` 120, or the whole budget if that is
+smaller, instead of the tool's fixed pause. A marker is dropped when the window is
+captured again, so a wait never counts changes a screenshot already showed; a
+batch counts from its first input. Display input and the control actions
+(`ui_act`) take no marker and keep the fixed pause.
+
+Because the host's rectangle for a window is the visible frame and the
+driver's is its own, the check that a window "did not move during a capture"
+compares the host's list before and after the capture when the host served
+the list, and the driver's `window_bounds` otherwise.
+
+### When it falls back, and the switch
+
+On any failure of the host the driver answers exactly as it did before, in the
+same call, without a retry: the first failure pauses the host for 30 s, each
+further one doubles that, and after three it is given up on for the session.
+A helper that ends is started once more by the next question and then stays off.
+`ready()` resolves `false`, never throws, when PowerShell is missing or the
+greeting is not the one the client speaks. `settle` answers `undefined`
+whenever there is nothing to wait on, which sends the tool back to its fixed
+pause.
+
+On by default on Windows and WSL when the driver backend is in use. Turn it
+off with the host option `a11y: false` (`SubprocessComputerUseHostOptions`) or
+the environment variable `NAMZU_COMPUTER_USE_A11Y=off` (`0`, `false`, `no` and
+`none` also work).
+
+### Chromium and Electron windows
+
+Reading the accessibility tree of a Chromium or Electron window switches the
+accessibility of that whole application on for the rest of its life, which
+costs the user speed in a program they did not hand over to be read. `snapshot`
+therefore refuses such a window (class `Chrome_*`, a Gecko window, or one that
+embeds a Chromium child window) with the error code `chromium_not_activated`
+unless the request sets `allowChromium: true`; the check uses window classes,
+never accessibility. The window list needs no accessibility at all, and a wait
+on one of these windows listens to system window events only.
+
+### What it measured
+
+On a real Windows 11 desktop under WSL (one process, warm unless noted; the
+first call after start in brackets; 15 runs, min / median / max in
+milliseconds, round trip through the client):
+
+| Call | Cold | min / median / max |
+| --- | --- | --- |
+| start, compile, first greeting | 385 | n/a |
+| `windows` (7 of 484 top-level windows) | 31 | 0.58 / 0.64 / 0.85 |
+| `displays` | 1.7 | 0.17 / 0.18 / 0.22 |
+| `snapshot` of a terminal window (35 controls) | 72 (67 reading) | 10.1 / 10.4 / 11.1 |
+| `snapshot`, skeleton, same window | n/a | 8.0 / 8.3 / 8.9 |
+| `snapshot` of a small form (9 controls) | 49 | 21.2 / 21.8 / 22.8 |
+| `identity` | 1.7 | n/a |
+| `seq(window)`, watching a window for the first time | 250 to 350 for the first window of a run, 150 for the next | 0.36 once watched |
+
+`adapter.listWindows()` through the host: 0.63 / 0.71 ms (median) against 1 300
+to 1 750 ms through the driver. Change to answer of `waitForChange`, measured
+on an off-screen test form of the measurement's own (20 trials each, the time
+from the instant the form changed to the instant the reply was written, 120 ms
+of quiet included):
+
+| Change | min / median / max |
+| --- | --- |
+| a label's text | 130.0 / 131.3 / 145.2 |
+| a button enabled or disabled | 130.4 / 131.5 / 132.7 |
+| a control added (structure) | 147.3 / 148.3 / 172.6 |
+| a second window of the same program opened (reported in `newWindows` each time) | 146.8 / 149.3 / 150.5 |
+
+About 120 ms of each is the quiet time; the rest is how long the accessibility
+events take to arrive (about 10 ms for a property, 25 to 30 ms for a new
+control or window). A quiet window answers `{ changed: false }` at its
+timeout, 403 ms for a 400 ms wait. Against the fixed 500 ms pause this ends
+the wait 350 to 370 ms sooner for a window that changes and takes the same
+time as before for one that does not. A change that already happened when the
+wait starts (the marker was taken before it) is counted: such a wait returns
+after 1 to 2 ms.
 
 ## Windows driver session recovery
 

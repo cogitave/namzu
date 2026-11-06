@@ -568,6 +568,40 @@ export interface ComputerUseHost {
 		signal?: AbortSignal,
 	): Promise<UiActResult>
 
+	/**
+	 * Wait until the window the last action went to has stopped changing,
+	 * instead of the tool sleeping a fixed {@link ComputerUseSettleRequest.budgetMs}
+	 * before it takes the screenshot it returns. A host that is told by the
+	 * window itself (events, not polling) answers as soon as a change was
+	 * seen and the window has been quiet for a moment, and after the whole
+	 * budget when nothing changed at all, so it is never slower than the fixed
+	 * wait.
+	 *
+	 * Resolve `undefined` (or reject) when the host cannot say; the tool then
+	 * sleeps the fixed time as it always did. A host that omits this method
+	 * keeps the fixed wait.
+	 */
+	settle?(
+		request: ComputerUseSettleRequest,
+		signal?: AbortSignal,
+	): Promise<ComputerUseSettleResult | undefined>
+
 	initialize?(): Promise<void>
 	dispose?(): Promise<void>
+}
+
+/** What the tool asks of {@link ComputerUseHost.settle}. */
+export interface ComputerUseSettleRequest {
+	/** The window the batch acted in, when it acted in one; absent for display input. */
+	readonly windowId?: string
+	/** The most the tool is willing to wait, in milliseconds (its `settleMs`). */
+	readonly budgetMs: number
+}
+
+/** What {@link ComputerUseHost.settle} reports. */
+export interface ComputerUseSettleResult {
+	/** How long the host waited, in milliseconds. */
+	readonly waitedMs: number
+	/** Whether the window changed at all while it waited. */
+	readonly changed: boolean
 }

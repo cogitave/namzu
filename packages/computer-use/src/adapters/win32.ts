@@ -1,3 +1,4 @@
+import type { AccessibilityBackend } from '../a11y/interface.js'
 import { guardForeground } from '../foreground/guard.js'
 import type { ForegroundLadder } from '../foreground/ladder.js'
 import type { Presence } from '../presence/presence.js'
@@ -40,6 +41,8 @@ export interface Win32AdapterOptions {
 	readonly foreground?: ForegroundLadder
 	/** The agent cursor and window border shown while a window is operated. Absent, none. */
 	readonly presence?: Presence
+	/** The resident accessibility host the driver backend serves its window list from. Absent, the driver does. */
+	readonly a11y?: AccessibilityBackend
 	/** For tests. */
 	readonly wslProbes?: WslProbes
 	/** For tests. */
@@ -129,6 +132,7 @@ export class Win32Adapter {
 				...(resolved.source === 'configured' ? {} : { version: CUA_DRIVER_RELEASE.version }),
 				...(ladder ? { foreground: ladder } : {}),
 				...(options.presence ? { presence: options.presence } : {}),
+				...(options.a11y ? { a11y: options.a11y } : {}),
 			}
 			adapter = options.createCuaDriverAdapter
 				? options.createCuaDriverAdapter(adapterOptions)

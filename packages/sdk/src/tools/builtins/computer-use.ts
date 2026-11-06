@@ -58,6 +58,33 @@ const DEFAULT_SETTLE_MS = 500
 const DEFAULT_MAX_BATCH_ACTIONS = 20
 const DEFAULT_MAX_WAIT_MS = 10_000
 const DEFAULT_WAIT_FOR_MS = 10_000
+
+/**
+ * The wait between the last action and the screenshot that follows it. A host
+ * that can tell when the window stopped changing (see
+ * {@link ComputerUseHost.settle}) is asked first and ends the wait early; a
+ * host without it, one that cannot say, or one that fails keeps the fixed
+ * `settleMs` it always had. Cancellation is never swallowed.
+ */
+async function settleAfterActions(
+	host: ComputerUseHost,
+	windowId: string | undefined,
+	settleMs: number,
+	signal: AbortSignal | undefined,
+): Promise<void> {
+	if (settleMs > 0 && typeof host.settle === 'function') {
+		try {
+			const settled = await host.settle(
+				{ budgetMs: settleMs, ...(windowId !== undefined ? { windowId } : {}) },
+				signal,
+			)
+			if (settled !== undefined) return
+		} catch {
+			// Fall through to the fixed wait; a cancelled signal makes it reject at once.
+		}
+	}
+	await sleep(settleMs, signal)
+}
 const MAX_LISTED_WINDOWS = 50
 /** The most of a ui_snapshot the model is shown, in characters (about 4 000 tokens). */
 const MAX_UI_SNAPSHOT_CHARS = 14_000
@@ -2377,7 +2404,7 @@ export function createComputerUseTool(
 		let shotError: string | undefined
 		if (looks) {
 			try {
-				await sleep(settings.settleMs, signal)
+				await settleAfterActions(host, postWindowId, settings.settleMs, signal)
 				shot = await capture(postWindowId)
 			} catch (error) {
 				shotError = signal?.aborted ? 'cancelled' : errorText(error)
