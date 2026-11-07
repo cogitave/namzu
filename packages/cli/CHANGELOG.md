@@ -1,5 +1,12 @@
 # @namzu/cli
 
+## 45.13.1
+
+### Patch Changes
+
+- Updated dependencies [01110fd]
+  - @namzu/openai@4.4.0
+
 ## 45.13.0
 
 ### Minor Changes
