@@ -78,13 +78,34 @@ behavior, not account access or the backend's execution strategy for a level.
 ## Compatible API catalogues and reasoning
 
 The API-key Chat Completions driver also reads optional compatible-endpoint
-declarations from `/models`: positive safe integers `context_window_tokens`
-and `maximum_output_tokens` become `ModelInfo.contextWindow` and
-`maxOutputTokens`. A valid, duplicate-free `supported_reasoning_efforts` array
-becomes `reasoningEffortLevels`; its `reasoning_effort` default is retained only
-when it belongs to that menu. Missing or malformed declarations remain unknown.
-The CLI uses these model rows when discovering an unfamiliar model's effort
-menu, without a model-name allowlist.
+declarations from `/models`. A field is read only where its meaning is stated;
+anything else stays unknown, which a consumer treats as "ask the SDK's table" or
+"do not show", never as zero.
+
+| `ModelInfo` field | Read from, first that is present and valid |
+| --- | --- |
+| `contextWindow` | `context_window_tokens`, `context_window`, `context_length`, `max_model_len` (positive safe integers) |
+| `maxOutputTokens` | `maximum_output_tokens`, `max_output_tokens`, `max_completion_tokens`, `top_provider.max_completion_tokens` |
+| `inputModalities` | `capabilities.vision` (true: text and image, false: text), else `input_modalities`, `architecture.input_modalities`, or `modalities` on a chat model (`task` absent or `chat`); only `text`, `image` and `document` are kept |
+| `supportsToolUse` | `false` only when `capabilities.tools` is `false`; otherwise true as before |
+| `inputPrice`, `outputPrice` | `pricing.prompt`, `pricing.completion`, dollars per token (a number or numeric string) as dollars per million; not read when `pricing.currency` is anything but USD |
+| `reasoningEffortLevels` | a valid, duplicate-free `supported_reasoning_efforts`; else `capabilities.reasoning_effort_values` together with the names in `capabilities.reasoning_effort_aliases` (the endpoint accepts them); `capabilities.reasoning_effort: false` is an empty menu; a menu listed as `null` is unknown |
+| `reasoningEffortDefault` | `reasoning_effort`, kept only when it belongs to the menu |
+
+A default output length (`default_max_output_tokens`) is not a limit, and a price
+in a gateway's own credits is not a dollar price, so neither is read. The CLI
+uses these model rows when discovering an unfamiliar model's effort menu, without
+a model-name allowlist.
+
+For a base URL that is not OpenAI's own API (from `baseURL` or `OPENAI_BASE_URL`),
+the driver also implements `resolveContextWindow`: the window the endpoint declares
+for the model decides where compaction triggers, ahead of the SDK's model-name
+table, which cannot know what a gateway serves under a familiar name. A window set
+in config still outranks it. The listing is requested once per driver and a
+fulfilled one is kept; a failure is remembered for five minutes and a listing that
+takes more than three seconds is cut short, so a model the listing does not carry,
+or an endpoint without a usable listing, leaves the table to answer at the cost of
+one request. OpenAI's own API declares no window, so it is not asked.
 
 Streaming string fields `delta.reasoning_content` and `delta.reasoning` are
 preserved as thinking deltas (`reasoning_content` takes precedence). This keeps
