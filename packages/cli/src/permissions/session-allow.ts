@@ -24,6 +24,7 @@ import {
 	type AuthorizationRule,
 	NOOP_LOGGER,
 	lexShellCommandLine,
+	mustAskPerson,
 } from '@namzu/sdk'
 
 import { cliLogger } from '../logging.js'
@@ -71,20 +72,8 @@ function alwaysAsked(call: AllowableCall): boolean {
 	return mustAskPerson(call) || call.isDestructive === true
 }
 
-/**
- * A call that exists to put a question to a person: it crosses the turn's
- * boundary, its tool needs a yes every time, or a rule or a hook asked for it.
- * Neither a mode nor a remembered answer may approve it unseen.
- */
-export function mustAskPerson(call: AllowableCall): boolean {
-	return (
-		call.escalation !== undefined ||
-		call.requiresApproval === true ||
-		call.authorization?.explicitReview === true ||
-		call.authorization?.askRule === true ||
-		call.hookPermission?.decision === 'ask'
-	)
-}
+/** The kernel's own test for a call that exists to put a question to a person. */
+export { mustAskPerson }
 
 // ---------------------------------------------------------------------------
 // the shape of a suggested command rule

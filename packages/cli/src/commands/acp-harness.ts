@@ -534,6 +534,8 @@ export function withCliHarnesses(
 									name: review.title,
 									input: review.input,
 									isDestructive: true,
+									// An external engine's own question is its own to put each time.
+									alwaysAsk: true,
 								},
 							],
 						})

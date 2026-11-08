@@ -5,6 +5,7 @@ import {
 	type ExternalRefTarget,
 	HostCommandRegistry,
 	type Message,
+	type MustAskCall,
 	type Origin,
 	type PalEnvironmentLease,
 	ServerStdioTransport,
@@ -1014,16 +1015,19 @@ export function createCliAcpRuntime(
 				let failureMessage: string | undefined
 				let settledHistory: readonly Message[] | undefined
 				const onPermission = async (request: {
-					toolCalls: readonly {
+					toolCalls: readonly (MustAskCall & {
 						id: string
 						name: string
 						input: unknown
 						isDestructive: boolean
-					}[]
+					})[]
+					screenConsent?: true
 				}) => {
 					const outcome = await ask({
 						sessionId,
-						toolCalls: await withPreviews(request.toolCalls, [record.cwd]),
+						toolCalls: await withPreviews(request.toolCalls, [record.cwd], {
+							askEveryCall: request.screenConsent === true,
+						}),
 					})
 					switch (outcome.kind) {
 						case 'approve':
@@ -1206,7 +1210,9 @@ export function createCliAcpRuntime(
 					onPermission: async (request) => {
 						const outcome = await ask({
 							sessionId,
-							toolCalls: await withPreviews(request.toolCalls, [record.cwd]),
+							toolCalls: await withPreviews(request.toolCalls, [record.cwd], {
+								askEveryCall: request.screenConsent === true,
+							}),
 						})
 						if (outcome.kind === 'approve_all') return { kind: 'approve-all' }
 						if (outcome.kind === 'approve') return { kind: 'approve' }

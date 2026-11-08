@@ -162,4 +162,36 @@ describe('the preview of a pending file change', () => {
 			isDestructive: true,
 		})
 	})
+
+	it('sends only the always-ask mark, never the reasons behind it', async () => {
+		const plain = { id: 'p', name: 'bash', input: {}, isDestructive: false }
+		const calls = await withPreviews(
+			[
+				plain,
+				{ ...plain, id: 'e', escalation: { sandboxEscape: true } },
+				{ ...plain, id: 'r', authorization: { askRule: true } },
+				{ ...plain, id: 'h', hookPermission: { decision: 'ask' } },
+				{ ...plain, id: 'n', requiresApproval: true },
+			],
+			[dir],
+		)
+		expect(calls[0]).not.toHaveProperty('alwaysAsk')
+		for (const call of calls.slice(1)) expect(call.alwaysAsk).toBe(true)
+		for (const call of calls) {
+			expect(Object.keys(call).sort()).toEqual(
+				['alwaysAsk', 'id', 'input', 'isDestructive', 'name'].filter(
+					(key) => key !== 'alwaysAsk' || 'alwaysAsk' in call,
+				),
+			)
+		}
+	})
+
+	it('marks every call when the question belongs to the request', async () => {
+		const calls = await withPreviews(
+			[{ id: 's', name: 'screenshot', input: {}, isDestructive: false }],
+			[dir],
+			{ askEveryCall: true },
+		)
+		expect(calls[0]?.alwaysAsk).toBe(true)
+	})
 })
