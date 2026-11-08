@@ -11,9 +11,13 @@ const record = (value: unknown): value is Record<string, unknown> =>
 
 /** The answer a window sent, checked. Throws a sentence a person can read. */
 export function readPermissionResponse(value: unknown): PermissionResponse {
-	if (!record(value) || (value.outcome !== 'approve' && value.outcome !== 'reject'))
+	if (
+		!record(value) ||
+		(value.outcome !== 'approve' && value.outcome !== 'approve_all' && value.outcome !== 'reject')
+	)
 		throw new Error('Invalid approval.')
 	if (value.feedback === undefined && value.note === undefined) return { outcome: value.outcome }
+	// Only a reject carries words; an approval of either kind has none.
 	if (value.outcome !== 'reject') throw new Error('Invalid approval.')
 	if (
 		(value.feedback !== undefined && typeof value.feedback !== 'string') ||
@@ -46,6 +50,8 @@ export function readPermissionCalls(value: unknown): PermissionView['calls'] {
 			name: raw.name,
 			input: raw.input,
 			isDestructive: raw.isDestructive === true,
+			// Only the agent's literal word counts; anything else is an ordinary call.
+			...(raw.alwaysAsk === true ? { alwaysAsk: true as const } : {}),
 		}
 		const preview = raw.preview
 		if (

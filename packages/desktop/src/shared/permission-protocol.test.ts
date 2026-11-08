@@ -5,8 +5,9 @@ import {
 	readPermissionResponse,
 } from './permission-protocol.js'
 
-it('accepts the two outcomes and trims a note', () => {
+it('accepts the three outcomes and trims a note', () => {
 	expect(readPermissionResponse({ outcome: 'approve' })).toEqual({ outcome: 'approve' })
+	expect(readPermissionResponse({ outcome: 'approve_all' })).toEqual({ outcome: 'approve_all' })
 	expect(readPermissionResponse({ outcome: 'reject' })).toEqual({ outcome: 'reject' })
 	expect(readPermissionResponse({ outcome: 'reject', feedback: '  no  ' })).toEqual({
 		outcome: 'reject',
@@ -23,7 +24,9 @@ it('refuses unknown outcomes, a note on approve, and a note over the limit', () 
 		null,
 		'approve',
 		true,
-		{ outcome: 'approve_all' },
+		{ outcome: 'approve_all', feedback: 'x' },
+		{ outcome: 'approve_all', note: 'x' },
+		{ outcome: 'approve-all' },
 		{ outcome: 'approve', feedback: 'x' },
 		{ outcome: 'reject', feedback: 3 },
 	])
@@ -69,6 +72,18 @@ it('keeps a well-formed preview and drops a malformed one without losing the cal
 	expect(calls[1]?.isDestructive).toBe(true)
 	expect(calls[2]?.preview).toBeUndefined()
 	expect(readPermissionCalls('nope')).toEqual([])
+})
+
+it('reads the agent’s always-ask mark only when it is the literal true', () => {
+	const calls = readPermissionCalls([
+		{ id: 'a', name: 'bash', input: {}, isDestructive: false, alwaysAsk: true },
+		{ id: 'b', name: 'bash', input: {}, isDestructive: false },
+		{ id: 'c', name: 'bash', input: {}, isDestructive: false, alwaysAsk: 'yes' },
+		{ id: 'd', name: 'bash', input: {}, isDestructive: false, alwaysAsk: false },
+	])
+	expect(calls[0]?.alwaysAsk).toBe(true)
+	// An older agent sends no field, and a value that is not `true` is no mark: ordinary calls.
+	for (const ordinary of calls.slice(1)) expect('alwaysAsk' in ordinary).toBe(false)
 })
 
 it('keeps the typed note apart from the wrapper the model reads, and bounds both', () => {

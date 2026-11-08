@@ -487,11 +487,22 @@ export interface PermissionView {
 		isDestructive: boolean
 		/** Absent for other tools and for engines that send none. */
 		preview?: PermissionPreview
+		/**
+		 * Set by the agent on a call it asks about every time, whatever the person said before:
+		 * a run outside the sandbox, a path outside the project or a protected one, a catastrophic
+		 * removal, a program nobody can name, a tool or rule that always needs a person, the first
+		 * look at the screen. Absent on an ordinary call and from an agent that sends none.
+		 */
+		alwaysAsk?: true
 	}[]
 }
-/** Reject carries the person's note to the model (`feedback`) and, apart from any wrapper, as they wrote it (`note`) for the record; approve carries nothing. */
+/**
+ * Reject carries the person's note to the model (`feedback`) and, apart from any wrapper, as they wrote it (`note`) for the record; approve carries nothing.
+ * `approve_all` allows this request and every later ordinary one in the same conversation (the agent's own latch), so a card offers it only where that is safe. The agent still asks about a call it marks `alwaysAsk`, and an `approve_all` given to a request holding one approves only that request.
+ */
 export type PermissionResponse =
 	| { outcome: 'approve'; feedback?: undefined }
+	| { outcome: 'approve_all'; feedback?: undefined }
 	| { outcome: 'reject'; feedback?: string; note?: string }
 export type WindowMenu = 'edit' | 'view' | 'window'
 export type WindowAppearance = 'light' | 'dark'

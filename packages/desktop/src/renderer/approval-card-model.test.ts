@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import type { PermissionView } from '../shared/protocol.js'
 import {
+	CONVERSATION_ALLOWANCE_SCOPE,
 	FEEDBACK_NOTE_MAX,
 	approvalDetails,
 	approvalWarning,
 	baseName,
 	buildApprovalCard,
 	declineFeedback,
+	offersConversationAllowance,
 	palMessageNote,
 	previewNote,
+	rejectsFirst,
 	summarizeInput,
 } from './approval-card-model.js'
 
@@ -279,6 +282,17 @@ it('says there is no change when the file already holds what the call writes', (
 	expect(created.unchanged).toBeUndefined()
 })
 
+it('words the conversation-wide yes as ending the ordinary asks and keeping the few that always need a person', () => {
+	expect(CONVERSATION_ALLOWANCE_SCOPE).toContain('Applies to this conversation only.')
+	// The ordinary asks, deletes and commands included, are what stops.
+	expect(CONVERSATION_ALLOWANCE_SCOPE).toContain('deletes and commands included')
+	// And the exception is promised, because the agent keeps it.
+	expect(CONVERSATION_ALLOWANCE_SCOPE).toContain(
+		'still asks before the few things that always need you',
+	)
+	expect(CONVERSATION_ALLOWANCE_SCOPE).not.toMatch(/will not ask again|for anything/)
+})
+
 describe('approvalDetails', () => {
 	it('shows a message to a Pal as labelled fields, with the Pal named and no id or JSON', () => {
 		const groups = approvalDetails(
@@ -324,5 +338,92 @@ describe('approvalDetails', () => {
 		])
 		expect(groups).toHaveLength(2)
 		expect(groups.every((group) => typeof group.title === 'string')).toBe(true)
+	})
+})
+
+describe('the standing yes and where Enter lands', () => {
+	const created = call(
+		'write',
+		{ path: 'n.md' },
+		{ isDestructive: true, preview: { path: '/w/n.md', before: null, after: 'x\n' } },
+	)
+	const overwrite = call(
+		'write',
+		{ path: 'n.md' },
+		{ isDestructive: true, preview: { path: '/w/n.md', before: 'a\n', after: 'b\n' } },
+	)
+	const offered = (...calls: PermissionView['calls']) => offersConversationAllowance(request(calls))
+
+	it('offers it for an edit, a new file, an ordinary command and a read-only tool', () => {
+		expect(offered(call('edit', { path: 'a.ts', old_string: 'a', new_string: 'b' }))).toBe(true)
+		// The agent flags every write destructive, but a write to a path that held no file replaces nothing.
+		expect(offered(created)).toBe(true)
+		expect(offered(call('bash', { command: 'pnpm test' }))).toBe(true)
+		expect(offered(call('web_fetch', { url: 'https://example.com' }))).toBe(true)
+	})
+
+	it('withholds it from anything that deletes, overwrites, runs a risky command or reaches beyond the project', () => {
+		expect(offered(overwrite)).toBe(false)
+		// A write whose before cannot be shown might replace a file.
+		expect(offered(call('write', { path: 'n.md', content: 'x' }, { isDestructive: true }))).toBe(
+			false,
+		)
+		expect(offered(call('delete_file', { path: 'a.ts' }))).toBe(false)
+		expect(offered(call('bash', { command: 'rm -rf build' }))).toBe(false)
+		expect(offered(call('bash', { command: 'ls' }, { isDestructive: true }))).toBe(false)
+		expect(offered(call('computer_use', { action: 'click' }))).toBe(false)
+		expect(offered(call('browser_act', { action: 'click' }))).toBe(false)
+		expect(offered()).toBe(false)
+	})
+
+	it('withholds it from a call the agent marks as one it always asks about, whatever the tool is', () => {
+		// Read from the agent's word, not the name: a write that creates a file is otherwise offered it,
+		// but one the agent marks (a protected path, a path outside the project) would only be approved once.
+		expect(offered(call('write', { path: 'n.md' }, { ...created, alwaysAsk: true }))).toBe(false)
+		expect(offered(call('edit', { path: 'a.ts' }, { alwaysAsk: true }))).toBe(false)
+		expect(offered(call('web_fetch', { url: 'https://example.com' }, { alwaysAsk: true }))).toBe(
+			false,
+		)
+		// One marked call is enough to withhold it from the whole request.
+		expect(
+			offered(
+				call('edit', { path: 'a.ts', old_string: 'a', new_string: 'b' }),
+				call('bash', { command: 'ls' }, { alwaysAsk: true }),
+			),
+		).toBe(false)
+	})
+
+	it('does not offer it on the strength of the mark for a call that is not marked', () => {
+		// The mark says which asks come back. It says nothing for a call without it, so the name checks
+		// stay: a later delete or screen action would run with no card under a standing yes.
+		expect(offered(call('delete_file', { path: 'a.ts' }))).toBe(false)
+		expect(offered(call('computer_use', { action: 'click' }))).toBe(false)
+		expect(offered(call('bash', { command: 'rm -rf build' }))).toBe(false)
+	})
+
+	it('withholds it when any call of the batch is one of those', () => {
+		expect(offered(created, overwrite)).toBe(false)
+		expect(offered(created, call('bash', { command: 'sudo make install' }))).toBe(false)
+		expect(offered(created, call('edit', { path: 'a.ts', old_string: 'a', new_string: 'b' }))).toBe(
+			true,
+		)
+	})
+
+	it('puts the keyboard on Reject for a delete, a command that deletes and a destructive other tool, not on a file write', () => {
+		const rejectFirst = (...calls: PermissionView['calls']) => {
+			const permission = request(calls)
+			return rejectsFirst(buildApprovalCard(permission), permission)
+		}
+		expect(rejectFirst(call('delete_file', { path: 'a.ts' }))).toBe(true)
+		expect(rejectFirst(call('bash', { command: 'git reset --hard' }))).toBe(true)
+		expect(rejectFirst(call('browser_act', { action: 'remove' }, { isDestructive: true }))).toBe(
+			true,
+		)
+		expect(rejectFirst(call('bash', { command: 'ls' }))).toBe(false)
+		expect(rejectFirst(overwrite)).toBe(false)
+		expect(rejectFirst(created)).toBe(false)
+		expect(rejectFirst(call('edit', { path: 'a.ts', old_string: 'a', new_string: 'b' }))).toBe(
+			false,
+		)
 	})
 })
