@@ -57,6 +57,7 @@ import { ChangesPanel } from './changes-panel.js'
 import { type ChangeTotals, changeTotals } from './changes-totals.js'
 import { ChatErrorBanner } from './chat-error-banner.js'
 import { CommandPalette, type CommandPaletteItem } from './command-palette.js'
+import { historyEntries } from './composer-history.js'
 import {
 	type ComposerPlugin,
 	type ComposerPluginInventory,
@@ -90,6 +91,7 @@ import {
 } from './conversation-tabs.js'
 import { ConversationTasks } from './conversation-tasks.js'
 import { copyPlainText } from './copy-button.js'
+import { holdsDiscardableDraft } from './discard-draft.js'
 import { signInHelpFor } from './engine-setup.js'
 import { setEngineSignedOut } from './engine-sign-in.js'
 import { FilePanelBody } from './file-panel/file-panel.js'
@@ -234,6 +236,7 @@ import {
 	settleLaunchSeed,
 	sidebarSeed,
 } from './startup-restore.js'
+import { type StopRequests, clearStop, isStopping, requestStop } from './stop-request.js'
 import { createSubmitGuard } from './submit-guard.js'
 import { type TabChord, movedTabIndex, selectedTabIndex, tabChord } from './tab-keys.js'
 import { TerminalPane } from './terminal-pane.js'
@@ -465,6 +468,10 @@ export function App({
 		pending?: { name: string; path: string }
 	}>()
 	const [removingConversation, setRemovingConversation] = useState<ConversationView>()
+	// A draft pane being closed while it holds words or attachments: the person is asked first.
+	const [discardingDraft, setDiscardingDraft] = useState<ConversationView>()
+	// Stop is a request; the reply goes on until the host reports it ended.
+	const [stopRequests, setStopRequests] = useState<StopRequests>({})
 	const [removingProject, setRemovingProject] = useState<ProjectView>()
 	const [renamingProject, setRenamingProject] = useState<ProjectView>()
 	const projectRemovalTrigger = useRef<HTMLElement | null>(null)
@@ -1416,6 +1423,7 @@ export function App({
 				updatedAt: '',
 			},
 	)
+	const composerHistory = useMemo(() => historyEntries(thread.messages), [thread.messages])
 	const draftOwner = sessionId || `project:${projectId}:workspace:${windowId}:${group.id}`
 	const draft = drafts[draftOwner] ?? ''
 	// Main answers a draft only for a project it has registered. A project the window is told about
@@ -5086,13 +5094,34 @@ export function App({
 		else void act(() => openConversation(view))
 	}
 	// Returns whether the chord meant something here, so an inert chord stays the browser's.
+	// Closing a pane never written in that holds words or attachments asks first; everything else closes.
+	const closeConversationTab = (tabId: string): Promise<unknown> => {
+		const view =
+			conversations.find((item) => item.id === tabId) ??
+			savedViews.find((item) => item.id === tabId)
+		if (
+			view &&
+			holdsDiscardableDraft({
+				view,
+				thread: threads[tabId],
+				draft: drafts[tabId] ?? '',
+				attachmentCount: attached.get(tabId).length,
+			})
+		) {
+			removalTrigger.current =
+				document.activeElement instanceof HTMLElement ? document.activeElement : null
+			setDiscardingDraft(view)
+			return Promise.resolve()
+		}
+		return onAction({ kind: 'close', groupId: group.id, tabId })
+	}
 	const runTabChord = (chord: TabChord): boolean => {
 		if (context.current.frozen || loading) return false
 		const at = stripIds.indexOf(frontTabId)
 		switch (chord.kind) {
 			case 'close':
 				if (!frontTabId) return false
-				void onAction({ kind: 'close', groupId: group.id, tabId: frontTabId }).catch((failure) =>
+				void closeConversationTab(frontTabId).catch((failure) =>
 					showError(failure, 'close the tab'),
 				)
 				return true
@@ -5608,11 +5637,7 @@ export function App({
 				group.tabs.length > 1 ? (view, position) => onSplit(group.id, view.id, position) : undefined
 			}
 			onClose={(view) =>
-				void onAction({
-					kind: 'close',
-					groupId: group.id,
-					tabId: view.id,
-				}).catch((failure) => showError(failure, 'close the tab'))
+				void closeConversationTab(view.id).catch((failure) => showError(failure, 'close the tab'))
 			}
 		/>
 	)
@@ -6049,6 +6074,35 @@ export function App({
 							/>
 						)}
 
+						{discardingDraft && (
+							<ConfirmRemovalDialog
+								key={`discard-draft:${discardingDraft.id}`}
+								title="Discard draft?"
+								description="This conversation has not been written in yet. Closing it throws away what you typed and any files you attached."
+								actionLabel="Discard"
+								pendingLabel="Discarding…"
+								onClose={() => setDiscardingDraft(undefined)}
+								returnFocus={removalReturnFocus}
+								onConfirm={async () => {
+									const target = discardingDraft
+									const files = attached.get(target.id)
+									// The removal runs inside confirmedRemoval; closing the tab waits for it, because
+									// the tab's controller waits for every operation in flight and would wait for itself.
+									await confirmedRemoval(async () => {
+										draftEditRevisions.current.set(
+											target.id,
+											(draftEditRevisions.current.get(target.id) ?? 0) + 1,
+										)
+										draftsRef.current[target.id] = ''
+										setDrafts((all) => ({ ...all, [target.id]: '' }))
+										await api.saveDraft(target.id, '')
+										for (const file of files) await api.removeAttachment(target.id, file.id)
+										if (files.length > 0) await attached.reload(target.id)
+									})
+									await onAction({ kind: 'close', groupId: group.id, tabId: target.id })
+								}}
+							/>
+						)}
 						{removingProject &&
 							(() => {
 								const copy = projectRemovalCopy(removingProject)
@@ -7115,6 +7169,8 @@ export function App({
 								}
 								speechStatus={<VoiceInputStatus voice={voice} />}
 								running={thread.running}
+								stopping={isStopping(stopRequests, sessionId, thread)}
+								history={composerHistory}
 								liveInputSupported={thread.liveInputSupported && !palConversation}
 								sending={sending[draftOwner] ?? false}
 								shells={
@@ -7144,7 +7200,18 @@ export function App({
 								}}
 								onSend={() => void act(send)}
 								onQueue={() => void act(() => send('queue'))}
-								onStop={() => void act(() => api.cancel(sessionId))}
+								onStop={() => {
+									const target = sessionId
+									setStopRequests((all) => requestStop(all, target, thread))
+									void act(async () => {
+										try {
+											await api.cancel(target)
+										} catch (failure) {
+											setStopRequests((all) => clearStop(all, target))
+											throw failure
+										}
+									})
+								}}
 							/>
 							{speech.error && (
 								<p className="inline-error" role="alert">

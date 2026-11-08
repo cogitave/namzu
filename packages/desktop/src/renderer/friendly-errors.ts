@@ -503,21 +503,42 @@ export function waitSeconds(wait: { at: number; delayMs: number }, now: number):
 	return Math.max(0, Math.ceil((wait.at + wait.delayMs - now) / 1000))
 }
 
+/** Which repeat this is, "retry 2 of 3", when the wait carries the count; the first call is not one. */
+function retryCount(wait: { attempt?: number; maxRetries?: number }): string | undefined {
+	const { attempt, maxRetries } = wait
+	if (!attempt || !maxRetries || attempt < 1 || maxRetries < 1) return undefined
+	return `retry ${Math.min(attempt, maxRetries)} of ${maxRetries}`
+}
+
 /**
  * The line shown while the provider makes Namzu wait, so a long pause never reads as a hang. It
- * names the provider and the time left; the count changes every second, so it is drawn but not
- * announced each time.
+ * names the provider, the time left and which retry is next; the count changes every second, so it
+ * is drawn but not announced each time (see `providerWaitAnnouncement`).
  */
 export function providerWaitText(
-	wait: { at: number; delayMs: number; throttled: boolean },
+	wait: { at: number; delayMs: number; throttled: boolean; attempt?: number; maxRetries?: number },
 	now: number,
 	name: string,
 ): string {
 	const seconds = waitSeconds(wait, now)
 	const tail = seconds > 0 ? `retrying in ${seconds}s` : 'retrying now'
-	return wait.throttled
+	const count = retryCount(wait)
+	const line = wait.throttled
 		? `Waiting for ${name} to accept more requests… ${tail}`
 		: `Couldn’t get an answer from ${name}… ${tail}`
+	return count ? `${line} · ${count}` : line
+}
+
+/** What a screen reader hears about the wait: it never changes with the countdown, so it is said once. */
+export function providerWaitAnnouncement(
+	wait: { throttled: boolean; attempt?: number; maxRetries?: number },
+	name: string,
+): string {
+	const count = retryCount(wait)
+	const head = wait.throttled
+		? `Waiting for ${name} to accept more requests.`
+		: `Couldn’t get an answer from ${name}.`
+	return `${head} Retrying soon${count ? ` (${count})` : ''}.`
 }
 
 /** The one line shown when the connection to Namzu dropped, for as long as it is true. */
