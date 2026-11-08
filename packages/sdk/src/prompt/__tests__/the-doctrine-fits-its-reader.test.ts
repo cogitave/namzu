@@ -32,6 +32,18 @@ describe('the coding-agent doctrine', () => {
 		expect(named.has('Agent')).toBe(false)
 	})
 
+	it('speaks of the task list without naming a tool, and never asks to remove a file', () => {
+		// The list is optional and its tools are described where they are offered;
+		// naming them here sent a model that had none to call a tool it lacked.
+		expect(CODING_AGENT_DELEGATION_DOCTRINE).toContain('A task list is optional.')
+		expect(CODING_AGENT_DELEGATION_DOCTRINE).not.toMatch(/`task_[a-z_]+`/)
+		// A model once deleted its own deliverable on being told to clean up.
+		expect(CODING_AGENT_WORKING_DOCTRINE).toContain('say where any throwaway file you made is')
+		expect(CODING_AGENT_WORKING_DOCTRINE).not.toMatch(
+			/\b(?:remove|delete|clean up) (?:any |the )?(?:throwaway|scratch|temporary)/i,
+		)
+	})
+
 	it('forbids changing git config or other persistent settings without asking', () => {
 		// A live session set `git config user.name`/`user.email` on its own
 		// when a commit failed for want of an identity.
