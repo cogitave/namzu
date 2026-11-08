@@ -107,7 +107,7 @@ import {
 } from '@namzu/sdk'
 
 import type { TurnLimitsConfig } from '../../config/schema.js'
-import { resolveTurnGuards } from '../../config/turn-guards.js'
+import { resolveTurnGuards, turnConfigFields } from '../../config/turn-guards.js'
 import { NAMZU_CHILD_WORKING_DOCTRINE } from '../../context/doctrine.js'
 import { composeMemoryGuidance } from '../../memory/typed.js'
 import type { SideLedger } from '../small-model/side-model.js'
@@ -1582,7 +1582,7 @@ export async function createSubagentRuntime(
 		const review = childReview(context.turnId, fileAgent?.permissionMode)
 		const resumeHandler = review.resumeHandler
 		const configOverrides = {
-			...resolveTurnGuards(opts, opts.resolveLimits?.(context.turnId)),
+			...turnConfigFields(resolveTurnGuards(opts, opts.resolveLimits?.(context.turnId))),
 			...(selection ? { model: selection.model, effort: selection.effort } : {}),
 			...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
 			// The parent turn's tool-result screens, so a sub-agent judges a
@@ -2988,7 +2988,7 @@ export async function createSubagentRuntime(
 						workspace: { mode: 'shared' },
 						configOverrides: {
 							...owned.config,
-							...resolveTurnGuards(opts, opts.resolveLimits?.(turnId)),
+							...turnConfigFields(resolveTurnGuards(opts, opts.resolveLimits?.(turnId))),
 							...(() => {
 								const review = childReview(turnId, owned.declaredMode)
 								return {
@@ -3486,6 +3486,9 @@ function buildDefinition(
 				maxIterations: cappedTurns(limits.maxIterations, file?.maxTurns),
 				...(limits.maxResponseTokens !== undefined
 					? { maxResponseTokens: limits.maxResponseTokens }
+					: {}),
+				...(limits.maxReasoningTokens !== undefined
+					? { reasoning: { maxTokens: limits.maxReasoningTokens } }
 					: {}),
 				pruneKeepLast: CLI_CHECKPOINT_RETENTION,
 				provider,

@@ -261,7 +261,7 @@ import {
 	resolveToolResultScreens,
 	unmatchedPassthroughTools,
 } from '../config/tool-result-screens.js'
-import { readStoredTurnGuards, resolveTurnGuards } from '../config/turn-guards.js'
+import { readStoredTurnGuards, resolveTurnGuards, turnConfigFields } from '../config/turn-guards.js'
 import { type CapabilityProbe, probeCapabilities } from '../context/capabilities.js'
 import { type SessionDirectories, createSessionDirectories } from '../context/directories.js'
 import {
@@ -5158,8 +5158,21 @@ export async function createAgentSession(
 		operations.promise(signal, async (ownedSignal) => {
 			const selectTaskStore = beginTaskStoreReadout()
 			// The turn's own limits, as its `turn_started` recorded them.
-			const resumedLimits =
-				(await readStoredTurnGuards(sessionLog, entry.turnId)) ?? resolveTurnGuards(options.limits)
+			const configuredLimits = resolveTurnGuards(options.limits)
+			const storedLimits = await readStoredTurnGuards(sessionLog, entry.turnId)
+			// The reasoning cap and the done-gate are not part of what a turn
+			// records, so the resumed turn takes them from the current settings.
+			const resumedLimits = storedLimits
+				? {
+						...storedLimits,
+						...(configuredLimits.maxReasoningTokens !== undefined
+							? { maxReasoningTokens: configuredLimits.maxReasoningTokens }
+							: {}),
+						...(configuredLimits.doneGate !== undefined
+							? { doneGate: configuredLimits.doneGate }
+							: {}),
+					}
+				: configuredLimits
 			// The same prelude a turn runs, and for the same reasons: a lapsed
 			// OAuth token has to be renewed before the provider is used, and the
 			// fallback chain has to be built AFTER that so its members do not
@@ -5354,7 +5367,7 @@ export async function createAgentSession(
 						...(route?.effort ? { effort: route.effort } : {}),
 						...(resumeWebSearch ? { webSearch: resumeWebSearch } : {}),
 						...(sandbox.provider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
-						...resumedLimits,
+						...turnConfigFields(resumedLimits, { completionAudit: true }),
 						maxResponseTokens: resumedLimits.maxResponseTokens ?? 8192,
 						permissionMode: 'auto',
 						pruneKeepLast: CLI_CHECKPOINT_RETENTION,
@@ -7964,7 +7977,7 @@ async function* runTurn({
 				...(sandboxProvider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
 				...(opts?.effort !== undefined ? { effort: opts.effort } : {}),
 				...(webSearch ? { webSearch } : {}),
-				...resolveTurnGuards(limits),
+				...turnConfigFields(resolveTurnGuards(limits), { completionAudit: true }),
 				maxResponseTokens: limits?.maxResponseTokens ?? 8192,
 				permissionMode: 'auto',
 				// The kernel keeps every checkpoint unless told otherwise.
