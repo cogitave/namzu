@@ -1386,7 +1386,10 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			case 'approve':
 				return { action: 'approve_tools' }
 			case 'approve-all':
-				remembered.all = true
+				// A rule's or a hook's question was put to this person once; an
+				// "approve all" to it approves it and leaves the latch as it was,
+				// as the ACP bridge does.
+				if (!request.toolCalls.some(mustAskPerson)) remembered.all = true
 				return { action: 'approve_tools' }
 			case 'reject':
 				return {

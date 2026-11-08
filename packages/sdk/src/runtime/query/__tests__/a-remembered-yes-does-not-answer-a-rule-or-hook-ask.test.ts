@@ -91,4 +91,22 @@ describe('a remembered approve-all', () => {
 		await handler(review(ordinary))
 		expect(prompt).toHaveBeenCalledTimes(2)
 	})
+
+	it('is not set by an approve-all to a rule or hook ask either, so the next ordinary call is still asked', async () => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve-all' }))
+		const remembered = { all: false }
+		const handler = createReviewHandler({ mode: 'prompt', prompt, remembered })
+		expect(await handler(review(ordinary, askedByHook))).toEqual({ action: 'approve_tools' })
+		expect(remembered.all).toBe(false)
+		await handler(review(ordinary))
+		expect(prompt).toHaveBeenCalledTimes(2)
+	})
+
+	it('is still set by an approve-all to an ordinary call', async () => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve-all' }))
+		const remembered = { all: false }
+		const handler = createReviewHandler({ mode: 'prompt', prompt, remembered })
+		await handler(review(ordinary))
+		expect(remembered.all).toBe(true)
+	})
 })
