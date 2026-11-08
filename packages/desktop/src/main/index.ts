@@ -1549,6 +1549,7 @@ async function createWindow(
 			// A window that failed before its first paint would otherwise never appear.
 			if (!window.isVisible() && !window.isMinimized()) window.show()
 		},
+		hangExpired: () => diagnostics.record('renderer_process_gone', { reason: 'renderer-hung' }),
 		endProcess: () => window.webContents.forcefullyCrashRenderer(),
 		closed: () => window.isDestroyed() || window.webContents.isDestroyed(),
 	})

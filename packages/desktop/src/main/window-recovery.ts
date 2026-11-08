@@ -25,6 +25,8 @@ export interface WindowRecoveryDeps {
 	showCard(cause: RecoveryCause): void
 	/** Ends a window process that stopped answering. */
 	endProcess(): void
+	/** The grace period ran out and Namzu is about to end the process; a place to write that down. */
+	hangExpired(): void
 	/** The window no longer exists; nothing is reloaded for it. */
 	closed(): boolean
 }
@@ -67,6 +69,7 @@ export class WindowRecovery {
 			this.cancelHang = undefined
 			if (this.deps.closed()) return
 			this.hangEnded = true
+			this.deps.hangExpired()
 			try {
 				this.deps.endProcess()
 			} catch {

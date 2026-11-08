@@ -42,13 +42,16 @@ function fakeTimers() {
 
 function setup() {
 	const clock = fakeTimers()
-	const log = { reloads: 0, ended: 0, cards: [] as RecoveryCause[], closed: false }
+	const log = { reloads: 0, ended: 0, hangs: 0, cards: [] as RecoveryCause[], closed: false }
 	const recovery = new WindowRecovery({
 		timers: clock.timers,
 		reload: () => {
 			log.reloads += 1
 		},
 		showCard: (cause) => log.cards.push(cause),
+		hangExpired: () => {
+			log.hangs += 1
+		},
 		endProcess: () => {
 			log.ended += 1
 		},
@@ -164,6 +167,16 @@ describe('WindowRecovery hang handling', () => {
 		expect(log.cards).toEqual([{ kind: 'hung', reloads: 3 }])
 	})
 
+	it('writes the hang down once, when the grace period runs out and not before', () => {
+		const { clock, log, recovery } = setup()
+		recovery.unresponsive()
+		clock.advance(HANG_GRACE_MS - 1)
+		expect(log.hangs).toBe(0)
+		clock.advance(1)
+		expect(log.hangs).toBe(1)
+		expect(log.ended).toBe(1)
+	})
+
 	it('reloads when the process cannot be ended because it is already gone', () => {
 		const clock = fakeTimers()
 		let reloads = 0
@@ -173,6 +186,7 @@ describe('WindowRecovery hang handling', () => {
 				reloads += 1
 			},
 			showCard: () => undefined,
+			hangExpired: () => undefined,
 			endProcess: () => {
 				throw new Error('gone')
 			},

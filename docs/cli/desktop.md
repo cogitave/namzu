@@ -1130,8 +1130,10 @@ reloaded after a crash, is handed it again.
 
 Proved in the real Electron app (`e2e/recovery.test.mjs`): a forced renderer crash is reloaded
 three times and the fourth shows the card; a real click on Reload loads the app and restarts the
-count; a missing page and a dead development server show the card and keep the window; a busy-loop
-page is ended after the grace period and reloaded; each damaged file is set aside and told
+count; a missing page and a dead development server show the card and keep the window; a page
+reported unresponsive (the test raises the `unresponsive` event on the window by hand; Chromium's
+own detection of a real busy loop was not exercised) is ended after the grace period and reloaded,
+and the end is written to the diagnostic log as `renderer-hung`; each damaged file is set aside and told
 once, and told again to a window reloaded before the person dismissed it; the graphics switch
 is saved and applied on the next start. Screenshots are in
 [`research/desktop-recovery-20261108/`](../../research/desktop-recovery-20261108/).
