@@ -7042,6 +7042,32 @@ function compatibleEndpointNotices(): string[] {
 	return notice ? [notice] : []
 }
 
+/**
+ * The request fields that switch reasoning off on a compatible endpoint that
+ * has a switch of its own, for a call that asked for no effort. Hosts and model
+ * families without a known switch get none, and `reasoning_effort: none` alone
+ * goes out as before.
+ */
+export function compatibleThinkingOff(
+	baseURL: string | undefined,
+): ((model: string) => Readonly<Record<string, unknown>> | undefined) | undefined {
+	if (!baseURL) return undefined
+	let host: string
+	try {
+		host = new URL(baseURL).hostname.toLowerCase()
+	} catch {
+		return undefined
+	}
+	if (host === 'api.openai.com' || host.endsWith('.openai.com')) return undefined
+	return (model) => {
+		const id = model.toLowerCase()
+		if (host.includes('deepseek') || id.includes('deepseek'))
+			return { thinking: { type: 'disabled' } }
+		if (host.includes('dashscope') || id.startsWith('qwen')) return { enable_thinking: false }
+		return undefined
+	}
+}
+
 /** `<provider label> via host` when requests go to a compatible third party. */
 function withEndpointHost(label: string): string {
 	const host = thirdPartyHost()
@@ -7104,6 +7130,9 @@ function constructBareProvider(
 				// The kernel retries, counts and shows each try; the vendor SDK must not
 				// try again silently underneath.
 				maxRetries: 0,
+				...(compatibleThinkingOff(det?.baseUrl)
+					? { thinkingOffFields: compatibleThinkingOff(det?.baseUrl) }
+					: {}),
 			})
 			return provider
 		}

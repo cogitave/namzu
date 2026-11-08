@@ -226,6 +226,8 @@ export interface BaseAgentConfig {
 	 */
 	thinking?: import('../provider/index.js').ThinkingConfig
 	effort?: import('../provider/index.js').ReasoningEffort
+	/** How the turn bounds its reasoning; see {@link import('../session/config.js').TurnConfig.reasoning}. */
+	reasoning?: import('../session/config.js').TurnConfig['reasoning']
 
 	/**
 	 * Deduplicate a retried invocation instead of running it twice.

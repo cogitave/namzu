@@ -46,6 +46,7 @@ const configRoutes = {
 	env: 'turn',
 	thinking: 'turn',
 	effort: 'turn',
+	reasoning: 'turn',
 	idempotencyKey: 'special',
 	projectId: 'special',
 	topicId: 'special',

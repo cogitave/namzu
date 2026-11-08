@@ -496,6 +496,7 @@ export class OpenAIProvider implements LLMProvider {
 	private declaredWindows?: Map<string, number>
 	/** Before this time (ms since the epoch) a failed listing is not asked for again. */
 	private windowListingRetryAt = 0
+	private thinkingOffFields: OpenAIConfig['thinkingOffFields']
 
 	constructor(config: OpenAIConfig) {
 		if (!config.apiKey) {
@@ -520,6 +521,7 @@ export class OpenAIProvider implements LLMProvider {
 
 		this.client = new OpenAI(clientOptions)
 		this.defaultModel = config.model
+		this.thinkingOffFields = config.thinkingOffFields
 		// The client reads the standard base-URL variable when none is given, so that is where requests go.
 		this.compatibleHost = isCompatibleHost(config.baseURL ?? process.env.OPENAI_BASE_URL)
 	}
@@ -582,6 +584,16 @@ export class OpenAIProvider implements LLMProvider {
 		assertThinkingSupported(params)
 		assertOpenAIReasoningEffort(model, params.effort)
 
+		// A call that asked for no effort (or for thinking to be off) means no
+		// reasoning at all. `reasoning_effort` alone is ignored by some compatible
+		// endpoints, so the endpoint's own switch goes along with it.
+		const reasoningOff = params.effort === 'none' || params.thinking?.type === 'disabled'
+		const offFields = reasoningOff
+			? typeof this.thinkingOffFields === 'function'
+				? this.thinkingOffFields(model)
+				: this.thinkingOffFields
+			: undefined
+
 		let stream: Awaited<ReturnType<typeof this.client.chat.completions.create>>
 		try {
 			stream = await this.client.chat.completions.create(
@@ -601,6 +613,7 @@ export class OpenAIProvider implements LLMProvider {
 						presence_penalty: params.presencePenalty,
 						stop: params.stop,
 						response_format: params.responseFormat,
+						...(offFields ?? {}),
 					},
 					params.effort,
 				),
@@ -632,12 +645,15 @@ export class OpenAIProvider implements LLMProvider {
 					// Compatible endpoints can expose public reasoning under either
 					// spelling. Structured or encrypted values are not public text.
 					const extra = delta as { reasoning_content?: unknown; reasoning?: unknown } | undefined
-					const reasoning =
+					const emitted =
 						typeof extra?.reasoning_content === 'string'
 							? extra.reasoning_content
 							: typeof extra?.reasoning === 'string'
 								? extra.reasoning
 								: undefined
+					// Reasoning that arrives although none was asked for is dropped,
+					// so a request for no thinking never shows or bills it as thought.
+					const reasoning = reasoningOff ? undefined : emitted
 
 					const toolCalls = delta?.tool_calls?.map((tc) => ({
 						index: tc.index,

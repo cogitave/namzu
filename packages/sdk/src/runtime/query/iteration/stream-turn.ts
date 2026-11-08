@@ -4,6 +4,7 @@ import {
 	assertNativeStructuredOutputSupported,
 } from '../../../provider/capabilities.js'
 import { ProviderRequestError, isProviderRequestError } from '../../../provider/errors.js'
+import { StepStopped } from '../../../provider/step-stopped.js'
 import { StreamTextAccumulator } from '../../../provider/stream-text.js'
 import {
 	INTERLEAVED_TOOL_INPUT_PARSE_ERROR,
@@ -120,6 +121,8 @@ export interface StreamingTurnResult {
 	messageId: import('../../../types/ids/index.js').MessageId
 	/** Captured only for host review, at the provider-chain dispatch boundary. */
 	requestMessages?: readonly Message[]
+	/** The step was cut short because its reasoning reached the cap before it acted. */
+	reasoningCapped?: boolean
 }
 
 /**
@@ -249,6 +252,12 @@ export async function* streamProviderTurn(
 	captureRequest = false,
 	/** The session the turn belongs to, named on the chat span as `gen_ai.conversation.id`. */
 	sessionId?: import('../../../types/ids/index.js').SessionId,
+	/**
+	 * The most characters of reasoning this step may stream before it has made a
+	 * call. When it is reached the request is stopped on purpose (the abort carries
+	 * a {@link StepStopped} reason) and the step ends with what it produced so far.
+	 */
+	reasoningCapChars?: number,
 ): AsyncGenerator<SessionEvent, StreamingTurnResult> {
 	assertNativeStructuredOutputSupported(provider, params)
 	assertHostedWebSearchSupported(provider, params)
@@ -355,8 +364,20 @@ export async function* streamProviderTurn(
 	/** The stream broke tool-call framing; nothing it sent becomes a tool call. */
 	let framingViolated = false
 
+	// The step's own stop: aborting it ends the request without being a caller's
+	// Stop, so the turn is not cancelled by it.
+	const stepStop = new AbortController()
+	let reasoningCapped = false
+	let reasoningStreamed = 0
 	const streamParams = {
 		...params,
+		...(reasoningCapChars !== undefined
+			? {
+					signal: params.signal
+						? AbortSignal.any([params.signal, stepStop.signal])
+						: stepStop.signal,
+				}
+			: {}),
 		stream: true,
 	} satisfies import('../../../types/provider/index.js').ChatCompletionParams
 	let requestMessages: readonly Message[] | undefined
@@ -420,6 +441,7 @@ export async function* streamProviderTurn(
 		finishDetail = undefined
 		refusal = undefined
 		streamedLength = 0
+		reasoningStreamed = 0
 		lastOutputCall = undefined
 		usage = {
 			promptTokens: 0,
@@ -554,6 +576,7 @@ export async function* streamProviderTurn(
 				if (reasoning.text) {
 					bucket.text += reasoning.text
 					streamedLength += reasoning.text.length
+					reasoningStreamed += reasoning.text.length
 					await emitEvent({
 						type: 'reasoning_delta',
 						turnId,
@@ -575,6 +598,28 @@ export async function* streamProviderTurn(
 						signed: bucket.signature !== undefined,
 					})
 					yield* drainPending()
+				}
+				// Reasoning that reaches the cap before any call has begun ends the step.
+				if (
+					reasoningCapChars !== undefined &&
+					reasoningStreamed >= reasoningCapChars &&
+					toolBuckets.size === 0
+				) {
+					reasoningCapped = true
+					if (!reasoning.done) {
+						await emitEvent({
+							type: 'reasoning_completed',
+							turnId,
+							iteration,
+							messageId,
+							blockIndex: reasoning.index,
+							...(bucket.text ? { text: bucket.text } : {}),
+							signed: bucket.signature !== undefined,
+						})
+						yield* drainPending()
+					}
+					stepStop.abort(new StepStopped())
+					break
 				}
 			}
 
@@ -1091,5 +1136,10 @@ export async function* streamProviderTurn(
 	chatSpan.setStatus({ code: SpanStatusCode.OK })
 	chatSpan.end()
 
-	return { response, messageId, ...(requestMessages ? { requestMessages } : {}) }
+	return {
+		response,
+		messageId,
+		...(requestMessages ? { requestMessages } : {}),
+		...(reasoningCapped ? { reasoningCapped } : {}),
+	}
 }

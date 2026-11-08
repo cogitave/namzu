@@ -6,6 +6,7 @@ import { ProviderError, classifyProviderError } from '../types/provider/errors.j
 import type { LLMProvider, StreamChunk } from '../types/provider/index.js'
 import { cancelCauseOf } from '../types/session/cancel-cause.js'
 import { isProviderRequestError } from './errors.js'
+import { isStepStopped } from './step-stopped.js'
 
 export class TokenBudgetAdmissionError extends ProviderError {
 	constructor() {
@@ -117,6 +118,7 @@ export function withTokenBudget(provider: LLMProvider, budget: SessionTokenBudge
 				}
 				if (Object.keys(chunk.delta).length > 0) outputObserved = true
 				if (typeof chunk.delta.content === 'string') streamedChars += chunk.delta.content.length
+				streamedChars += chunk.delta.reasoning?.text?.length ?? 0
 				if (chunk.error) throw new Error(chunk.error)
 				yield chunk
 			}
@@ -161,10 +163,13 @@ export function withTokenBudget(provider: LLMProvider, budget: SessionTokenBudge
 				// because of work somebody chose to stop. The estimate can under-count
 				// what the provider billed for the part it never reported; a failure
 				// that was not a cancellation keeps its marker as before.
+				//
+				// A step the loop stopped on purpose (it reached its reasoning cap) is
+				// closed the same way: nobody chose to lose track of that spend.
 				if (
 					usage === undefined &&
 					signal?.aborted === true &&
-					cancelCauseOf(signal.reason) === 'user' &&
+					(cancelCauseOf(signal.reason) === 'user' || isStepStopped(signal.reason)) &&
 					!uncertainRetry
 				) {
 					const prompt = estimateMessagesTokens(params.messages)
