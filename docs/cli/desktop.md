@@ -3257,6 +3257,20 @@ wrapper (`Attached text file: "name"` followed by the file's text, or `Attached 
 back into the person's words plus one chip per file, in `shared/attachment-wrapper.ts`; the file's text
 is never shown as typed. The sidebar row stops spinning as soon as a turn is stopped.
 
+### The message box's keys
+
+The message box decides a key press in `composer-keys.ts` (`decideComposerKey`), and nowhere wider:
+
+- **Up and Down** walk back through the messages sent in this conversation (`composer-history.ts`, the newest hundred, a message sent twice in a row kept once). An empty box takes the newest waiting message back to edit first; after that Up recalls. A line under the box counts the walk ("Earlier message 2 of 5") and says that Down brings back what was being typed. The arrow key leaves the text only when the caret is at the very start going up or the very end going down and nothing is selected, so a long recalled paragraph that wraps over several rows keeps its caret moves until the caret reaches the edge; a recalled message is only text, so editing it ends the walk and nothing is sent or armed by it.
+- **Enter** sends. While a reply runs and the engine takes input into it, Enter steers the message into the reply, and **Ctrl+Enter** (**Cmd+Enter** on a Mac) or **Tab** holds it for after the reply. The empty box says so in its placeholder. The chord lives on the box: an approval card has its own Ctrl+Enter that answers it, and a key pressed in the box never reaches it.
+- An input method that is composing owns every key, including the legacy key code 229 some engines send instead of the composing flag.
+- A paste that does not fit the 50,000 characters the box holds says so ("The box holds 50,000 characters, so the last N of that paste were left out.") instead of cutting silently; the next keystroke clears the notice.
+- **Stop** is a request. From the click until the host reports the turn ended, the button reads "Stopping reply" (`stop-request.ts`, remembered with the turn it was asked for, so it never carries over to a later reply, and forgotten when the request fails).
+- Closing a tab (its close button or Ctrl/Cmd+W) of a conversation never written in, whose box holds text or attachments, asks "Discard draft?" (`discard-draft.ts`). Cancel keeps the pane and the words; Discard clears the text and removes the attachments, then closes the tab. A conversation that has messages keeps its unsent text as before.
+- While the provider makes a reply wait, the line adds which retry is next ("retry 2 of 10"); what a screen reader hears does not change with the countdown.
+
+`e2e/composer-keys.test.mjs` drives all of it in the real app.
+
 ### Status badge
 
 An engine's tab carries a dot (its accessible name says it in words) for what its program is doing, read
