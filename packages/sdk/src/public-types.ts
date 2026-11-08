@@ -457,6 +457,7 @@ export type {
 } from './runtime/query/auto-review/index.js'
 
 export type {
+	MustAskCall,
 	ReviewExemption,
 	ReviewMode,
 	ReviewPolicyOptions,

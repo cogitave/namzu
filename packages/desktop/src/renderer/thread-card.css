@@ -78,8 +78,12 @@
 .sidebar-thread-item .conversation-row-state > .connection-dot {
 	margin-right: 4px;
 }
-.sidebar-thread-item .conversation-row-state > [aria-label="Approval needed"] {
+.sidebar-thread-item .conversation-row-state > [aria-label="Approval needed"],
+.sidebar-thread-item .conversation-row-state > [aria-label="Question waiting"] {
 	margin-right: -1px;
+}
+.sidebar-thread-item .conversation-row-state > .thread-unread-dot {
+	margin-right: 2px;
 }
 .sidebar-thread-item:hover .sidebar-thread-actions,
 .sidebar-thread-item:has(:focus-visible) .sidebar-thread-actions,
@@ -165,4 +169,20 @@
 	flex: none;
 	/* After the title, so a pinned row's label stays aligned with its siblings. */
 	color: var(--sidebar-muted-foreground);
+}
+
+/*
+ * A finished turn nobody has looked at: an 8px dot in the state slot, where the age was, and a
+ * firmer title. The dot is not the only cue: it carries the name "New reply" for assistive tech.
+ */
+.thread-unread-dot {
+	display: block;
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: 999px;
+	background: var(--primary);
+}
+.sidebar-thread-item[data-status="unread"] .conversation-row-title {
+	font-weight: 600;
 }

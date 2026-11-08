@@ -1498,6 +1498,7 @@ export {
 	isReviewExempt,
 	isReviewMode,
 	modeReviewsAllowedCalls,
+	mustAskPerson,
 } from './runtime/query/review-policy.js'
 // The model that decides, in the `classify` review mode, what a person would
 // otherwise be asked. See `runtime/query/auto-review/`.

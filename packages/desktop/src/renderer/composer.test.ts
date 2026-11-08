@@ -648,3 +648,29 @@ it('shows how many shells run and the branch pull request, quietly, beside the m
 	expect(html).toContain('Pull request 607, changes requested. Open in browser')
 	expect(render({ shells: { count: 1, onOpen: () => {} } })).toContain('>1 shell<')
 })
+
+it('teaches the send and hold keys in the empty box while a reply runs', () => {
+	const live = render({ running: true, liveInputSupported: true, draft: '', onQueue: () => {} })
+	expect(live).toMatch(
+		/placeholder="Enter sends now · (?:Ctrl|Cmd)\+Enter or Tab sends after this reply"/,
+	)
+	const plain = render({ running: true, draft: '' })
+	expect(plain).toContain('placeholder="Enter sends after this reply"')
+})
+
+it('turns Stop into a "Stopping" state until the reply ends', () => {
+	const stop = button(render({ running: true, draft: '' }), 'Stop reply')
+	expect(stop).not.toContain('data-stopping')
+	const stopping = render({ running: true, stopping: true, draft: '' })
+	const tag = button(stopping, 'Stopping reply')
+	expect(tag).toContain('aria-busy="true"')
+	expect(tag).toContain('data-stopping="true"')
+	// The square gives way to the spinner, and the label no longer offers to stop.
+	expect(stopping).not.toContain('aria-label="Stop reply"')
+	expect(stopping).toContain('composer-send-spinner')
+})
+
+it('shows no Stopping state once the reply is over', () => {
+	const html = render({ running: false, stopping: true, draft: 'next' })
+	expect(html).not.toContain('Stopping reply')
+})

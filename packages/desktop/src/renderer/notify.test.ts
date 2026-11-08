@@ -112,6 +112,17 @@ describe('notify routing', () => {
 		})
 	})
 
+	it('does not close a notice that asked to stay until dismissed when a newer one arrives', () => {
+		const hub = createToastHub()
+		const { sink, added, leave } = recordingSink()
+		hub.register(sink)
+		const stay = hub.notify('Read me.', { tone: 'warning', timeoutMs: 0 })
+		hub.notify('Copied.')
+		expect(added.map((item) => item.title)).toEqual(['Read me.'])
+		leave(stay)
+		expect(added.map((item) => item.title)).toEqual(['Read me.', 'Copied.'])
+	})
+
 	it('maps tone to type, priority and lifetime', () => {
 		const hub = createToastHub()
 		const { sink, added, leave } = recordingSink()

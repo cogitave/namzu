@@ -758,7 +758,11 @@ What it holds, and where each value lives (one source of truth per value):
 - **General** — *When Namzu starts*: `Continue where I left off` (default) or `Start on the home
   screen` (see [Starting the app](#starting-the-app)); *Default terminal shell* (drawn only where
   there is more than one shell to choose, in practice Windows, and left out of search where it is
-  not) and *Bring terminal tabs back* (see [Terminal tabs](#terminal-tabs)).
+  not) and *Bring terminal tabs back* (see [Terminal tabs](#terminal-tabs)), and *Use the graphics
+  card* (default on; `hardwareAcceleration` in `desktop-settings.json`). Turn it off when windows
+  flicker, go blank or stop working soon after they open. It is read once, before the app is ready,
+  and applied with `app.disableHardwareAcceleration()`, so a change takes effect the next time
+  Namzu starts; the running windows are unchanged.
 - **Models** — which providers Namzu can answer with and how each is connected: a key in the
   environment (the variable's name, never its value), a key saved here, an existing `claude-code` or
   Codex sign-in, an OpenCode key, a local server, or the keyless free tier (listed as free, and
@@ -1074,6 +1078,65 @@ page (47–64 ms), the welcome with "What would you like to work on?" (268–291
 (875–893 ms), then the conversation (899–914 ms). After: an empty dark page, the skeleton, the
 conversation. The conversation itself still arrives when the folder's CLI host is up and has
 read the journal; what changed is what is painted until then.
+
+## When a window crashes, hangs or does not load
+
+A window whose page dies does not close, and does not loop. `WindowRecovery`
+(`src/main/window-recovery.ts`) answers three events, each window on its own:
+
+- **The process ended** (`render-process-gone`, any reason but a clean exit). The window loads its
+  page again after 0.5 s, then 2 s, then 10 s: at most three automatic reloads in any 60 s. The
+  fourth ends the reloading and shows the card below. Terminals and computer keyboard capture
+  are released the moment the process ends, and the new document attaches afresh.
+- **The window stops answering** (`unresponsive`). Namzu waits 20 s, because a long job that
+  finishes is not a hang; if the window answers again (`responsive`) nothing happens. Otherwise it
+  ends the stuck process with `forcefullyCrashRenderer()` and handles that exactly like a crash,
+  so a hang counts toward the same three reloads, and the card says the window stopped
+  responding instead of crashing.
+- **The page fails to load** (`did-fail-load` for the main frame, except a load a newer one
+  cancelled). Loading the same page again would fail the same way, so the card shows at once. A
+  window whose first load failed is no longer closed; it stays and shows the card. A development
+  server that is not running reads as that.
+
+**The card** (`src/main/recovery-card.ts`) is one inline page loaded as a `data:` URL, with no script and
+a content policy that allows no script and no request. It carries a plain title, one sentence
+that says reloading did not help and that conversations and files are not affected, a **Reload**
+link that has the focus, and **Details** (a `details` element): what ended the process in words
+(crashed, ran out of memory, could not start), how many times Namzu reloaded the window in the
+last minute, and "Press Ctrl+Shift+L to open the diagnostic logs, which show what Namzu
+recorded." (**Cmd+Shift+L** on macOS). The heading and message sit in a `div` with
+`role="alert"` inside `main`, so the page keeps its landmark. The top 36 px is a drag strip. The
+colours follow the scheme main last heard from the renderer (`setWindowAppearance`), dark until
+then. The Reload link is `namzu-recovery://reload`, which `will-navigate` honours only while the
+card is showing; it starts the count again. Closing a window that shows the card, or whose
+process is gone, closes it at once rather than waiting for a page to acknowledge. The preload does not
+read the boot snapshot on a `data:` page.
+
+### Saved files that cannot be read
+
+`desktop-settings.json`, `workspace-layout.json` and `projects.json` are read at start. A file
+that is missing is a first run. A file that is there but is not what Namzu wrote (not JSON, too
+large, not an object or array, a layout that does not validate) is moved to `<name>.bad`
+beside it, replacing an older `.bad`, and the app starts on defaults; the next save writes a
+fresh file, so the damaged one is never overwritten. A file that cannot be opened at all
+(permissions, a folder in its place) is left alone. Entries that are individually wrong inside
+a valid settings file still fall back one by one, as before (`src/main/damaged-files.ts`).
+
+The person is told once, in one sentence naming what was affected ("Namzu could not read your
+saved settings and project list, so it started with the defaults. The damaged files were set
+aside, not deleted."). It rides in `DesktopBoot.notice` as a sticky toast that stays until it is
+dismissed; dismissing calls `acknowledgeNotice(id)`, and until then every window, including one
+reloaded after a crash, is handed it again.
+
+Proved in the real Electron app (`e2e/recovery.test.mjs`): a forced renderer crash is reloaded
+three times and the fourth shows the card; a real click on Reload loads the app and restarts the
+count; a missing page and a dead development server show the card and keep the window; a page
+reported unresponsive (the test raises the `unresponsive` event on the window by hand; Chromium's
+own detection of a real busy loop was not exercised) is ended after the grace period and reloaded,
+and the end is written to the diagnostic log as `renderer-hung`; each damaged file is set aside and told
+once, and told again to a window reloaded before the person dismissed it; the graphics switch
+is saved and applied on the next start. Screenshots are in
+[`research/desktop-recovery-20261108/`](../../research/desktop-recovery-20261108/).
 
 ## Trust again when automatic settings change
 
@@ -2941,6 +3004,38 @@ of the file, and a saved `pals` only applies while the group exists (more than t
 `e2e/sidebar-sections.test.mjs` checks 0, 1 and 3 Pals have no heading, four make a group that folds, shows
 the dot for a Pal message while folded and stays folded after a restart, Projects folds from the keyboard
 with its + separate, and Recents has no toggle.
+**Status mark, unread and days.** A conversation row shows one status mark in the slot where its age is,
+and the mark is derived from facts the app holds, never from what the model wrote. From the one that needs the
+person most: a request waiting for an answer (the shield for an approval; a question mark for a question the model
+put to the person), a running turn (the spinner), a turn that ended in an error (the red dot), a finished turn nobody
+has looked at yet (**unread**: an 8px accent dot, and the title in a firmer weight), and otherwise the age.
+Each has words, not colour alone: the mark's accessible name is "Approval needed", "Question waiting", "Running",
+"Needs attention" or "New reply", the row's status line (`aria-describedby`) repeats it, and `data-status` on the row
+carries the kind. The pure rule is `conversationGlyph` in `src/shared/conversation-status.ts`.
+*Unread* means a turn ended while no window showed that conversation, and it clears once, when a window shows it.
+Main is the only owner: it sees the turn end (the projection goes from running to not running), asks which
+conversations are in front (the active tab of every pane of every window that is shown and not minimized,
+`viewedTabs` in `src/main/viewed-conversations.ts`), and keeps the set (`ConversationUnread`). Every window shows
+what main holds, so two windows never disagree and none clears it for the other. Main announces each change with
+`{ kind: 'unread', ids, sequence }`, the whole set, and answers `conversationUnread()` with the same shape; an invoke
+reply can arrive before an event main sent earlier, so a window keeps whichever answer has the higher `sequence`
+(`ConversationUnreadStore`). A marker is read when a tab comes to the front (the layout changed) or a window is shown
+or restored; opening the conversation again later sets and clears nothing. The row menu has **Mark as unread** and
+**Mark as read** (`setConversationUnread(id, unread)`); a conversation with no reply yet is not offered **Mark as unread** (a marker already set can always be cleared); main holds at most 1024 markers and drops the oldest rather than fail a turn that ends; archiving a conversation or removing its project forgets its marker, saves and announces that; marking the conversation that is in front keeps the marker
+until it is looked at again. Pal conversations keep their own "New message" dot. Main keeps the set in
+`unread-conversations.json`, a file of its own (`desktop-conversations.json` refuses a key it does not know, which
+would cost an older app its drafts), so a restart brings it back, and a marker whose tab is in front at launch is read. A collapsed Projects heading's dot also names "A conversation has a new reply" after waiting and
+running.
+**Recents by day.** The Recents list has small headings. Pinned conversations come first under **Pinned**, whatever
+day they were last touched; the rest sit under **Today**, **Yesterday**, a short date for each of the five days
+before that, and **Older**; an empty group has no heading. The day boundaries are local midnights built from the
+calendar date, never 24 hours earlier, so a 23 or 25 hour day (a clock change) still starts at midnight
+(`groupByDay`, tested with an injected clock in `America/New_York` across both changes), and the list draws again
+when the local day changes. Project lists are not grouped.
+`e2e/ux-sidebar-unread.test.mjs` runs two real windows on one app: a turn finishes in a conversation neither window
+shows and both show the unread mark, main's `sequence` and both windows' `unread` events say one set and one clear,
+showing the conversation reads it in both, leaving and returning changes nothing, and the menu marks unread and read
+again; it also checks the Pinned and day headings, the approval mark and the sidebar at 1280, 1000, 900 and 640px.
 Clicking a project row reuses the project's untouched "New conversation" (also after a restart) instead of
 adding another empty tab. **Archived conversations** are a view of the Recents section, not a dialog. The Recents heading
 carries one quiet icon button at its right edge, on the same right edge as the Projects **+**
@@ -3188,11 +3283,38 @@ reads **Queue message**. When the file a write would change already holds exactl
 permission preview is still sent (with `before` equal to `after`) and the card says "No change to
 `name`." instead of "couldn't show what's in `name`".
 
+**Allow for this conversation.** On the Namzu engine the card offers a quiet **Allow for this conversation**
+beside Reject and Accept. It sends `approve_all`, which the agent keeps as a latch for the rest of the
+conversation: ordinary asks stop, deletes and commands included. The agent still asks about the few
+things that always need a person (a run outside the sandbox, a path outside the project or a protected
+one, a catastrophic removal, the first look at the screen and similar), and the tooltip and the
+screen-reader text say so without listing them. The agent marks such a call `alwaysAsk: true` on the
+permission request; the window reads only that literal mark (`shared/permission-protocol.ts`) and offers
+the answer only when no call is marked. It also withholds it, by name, from a delete, a command that looks
+like it deletes or overwrites, a destructive tool that is not a new file, and a screen or web action, since
+the mark says nothing about a call it is absent from. Esc is a No that leaves the reply running, the
+keyboard starts on Reject for a delete, a risky command and a destructive tool, and Allow waits 400 ms
+after a card appears and, for a command, message or diff that overflows, until its end has been scrolled to.
+
 A note typed when declining ("You asked Namzu to do this instead: ...") is drawn as the person's own
 message, in the right-hand bubble. After a reload, a user message that carries the host's attachment
 wrapper (`Attached text file: "name"` followed by the file's text, or `Attached image: "name"`) is read
 back into the person's words plus one chip per file, in `shared/attachment-wrapper.ts`; the file's text
 is never shown as typed. The sidebar row stops spinning as soon as a turn is stopped.
+
+### The message box's keys
+
+The message box decides a key press in `composer-keys.ts` (`decideComposerKey`), and nowhere wider:
+
+- **Up and Down** walk back through the messages sent in this conversation (`composer-history.ts`, the newest hundred, a message sent twice in a row kept once). An empty box takes the newest waiting message back to edit first; after that Up recalls. A line under the box counts the walk ("Earlier message 2 of 5") and says that Down brings back what was being typed. The arrow key leaves the text only when the caret is at the very start going up or the very end going down and nothing is selected, so a long recalled paragraph that wraps over several rows keeps its caret moves until the caret reaches the edge; a recalled message is only text, so editing it ends the walk and nothing is sent or armed by it.
+- **Enter** sends. While a reply runs and the engine takes input into it, Enter steers the message into the reply, and **Ctrl+Enter** (**Cmd+Enter** on a Mac) or **Tab** holds it for after the reply. The empty box says so in its placeholder. The chord lives on the box: an approval card has its own Ctrl+Enter that answers it, and a key pressed in the box never reaches it.
+- An input method that is composing owns every key, including the legacy key code 229 some engines send instead of the composing flag.
+- A paste that does not fit the 50,000 characters the box holds says so ("The box holds 50,000 characters, so the last N of that paste were left out.") instead of cutting silently; the next keystroke clears the notice.
+- **Stop** is a request. From the click until the host reports the turn ended, the button reads "Stopping reply" (`stop-request.ts`, remembered with the turn it was asked for, so it never carries over to a later reply, and forgotten when the request fails).
+- Closing a tab (its close button or Ctrl/Cmd+W) of a conversation never written in, whose box holds text or attachments, asks "Discard draft?" (`discard-draft.ts`). Cancel keeps the pane and the words; Discard clears the text and removes the attachments, then closes the tab. A conversation that has messages keeps its unsent text as before.
+- While the provider makes a reply wait, the line adds which retry is next ("retry 2 of 10"); what a screen reader hears does not change with the countdown.
+
+`e2e/composer-keys.test.mjs` drives all of it in the real app.
 
 ### Status badge
 

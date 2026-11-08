@@ -291,3 +291,15 @@
 	font-size: 12px;
 	line-height: 18px;
 }
+
+/* An Allow that is held (a long command or diff not yet scrolled to its end) reads as unavailable but still explains itself. */
+.approval-button[data-held] {
+	opacity: 0.5;
+	cursor: default;
+}
+.approval-button[data-tone="accept"][data-held]:hover {
+	background: var(--message-action);
+}
+.approval-read-hint {
+	text-align: right;
+}

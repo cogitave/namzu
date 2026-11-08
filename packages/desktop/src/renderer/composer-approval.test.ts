@@ -10,13 +10,19 @@ const bash = (command: string): PermissionView => ({
 	projectId: 'p',
 	calls: [{ id: 'c1', name: 'bash', input: { command }, isDestructive: false }],
 })
-const draw = (permission: PermissionView, folder?: string, projectName?: string) =>
+const draw = (
+	permission: PermissionView,
+	folder?: string,
+	projectName?: string,
+	conversationAllowance?: boolean,
+) =>
 	renderToStaticMarkup(
 		createElement(ComposerApproval, {
 			permission,
 			count: 1,
 			folder,
 			projectName,
+			conversationAllowance,
 			onRespond: () => true,
 		}),
 	)
@@ -40,12 +46,71 @@ it('names the folder a command runs in and what it can change', () => {
 })
 
 it('tells the person which keys answer the card', () => {
-	expect(draw(bash('ls'))).toContain('Enter accepts. Esc stops this reply')
+	expect(draw(bash('ls'))).toContain('Enter accepts. Esc rejects.')
+	expect(draw(bash('ls'))).not.toContain('stops this reply')
 })
 
-it('does not leave Enter on yes for a command that deletes', () => {
-	expect(draw(bash('rm -rf build'))).toContain('Enter rejects it')
+it('does not leave Enter on yes for a command or a file that deletes', () => {
+	expect(draw(bash('rm -rf build'))).toContain('Enter rejects it. Esc rejects it too.')
 	expect(draw(bash('rm -rf build'))).not.toContain('Enter accepts')
+	const removal = draw({
+		id: 'r3',
+		sessionId: 's',
+		projectId: 'p',
+		calls: [{ id: 'c3', name: 'delete_file', input: { path: 'a.ts' }, isDestructive: true }],
+	})
+	expect(removal).toContain('Enter rejects it')
+})
+
+it('offers the quiet conversation-wide yes only when the engine keeps it and the call is safe', () => {
+	expect(draw(bash('ls'), undefined, undefined, true)).toMatch(
+		/class="approval-button approval-instead"[^>]*>Allow for this conversation</,
+	)
+	// It is a quiet action beside Reject and Accept, never the filled one.
+	expect(draw(bash('ls'), undefined, undefined, true)).not.toMatch(
+		/data-tone="[a-z]*"[^>]*>Allow for this conversation</,
+	)
+	expect(draw(bash('ls'), undefined, undefined, false)).not.toContain('Allow for this conversation')
+	expect(draw(bash('ls'))).not.toContain('Allow for this conversation')
+	expect(draw(bash('rm -rf build'), undefined, undefined, true)).not.toContain(
+		'Allow for this conversation',
+	)
+})
+
+it('says what the conversation-wide yes stops and what it keeps asking', () => {
+	// Ordinary asks stop, deletes and commands included; the few that always need a person still come back.
+	const html = draw(bash('ls'), undefined, undefined, true)
+	const said =
+		'Namzu stops asking about most actions in it, deletes and commands included, but still asks before the few things that always need you.'
+	expect(html).toContain(`title="Applies to this conversation only. ${said}"`)
+	expect(html).toMatch(new RegExp(`class="sr-only">Applies to this conversation only. ${said}<`))
+	expect(html).not.toMatch(/will not ask again|for anything/)
+})
+
+it('does not offer the conversation-wide yes on a request holding a call the agent always asks about', () => {
+	const marked = draw(
+		{
+			id: 'r4',
+			sessionId: 's',
+			projectId: 'p',
+			calls: [
+				{ id: 'c4', name: 'bash', input: { command: 'ls' }, isDestructive: false, alwaysAsk: true },
+			],
+		},
+		undefined,
+		undefined,
+		true,
+	)
+	expect(marked).not.toContain('Allow for this conversation')
+	// The two ordinary answers are still there.
+	expect(marked).toMatch(/data-tone="accept"[^>]*>Accept</)
+	expect(marked).toMatch(/data-tone="reject"[^>]*>Reject</)
+})
+
+it('starts with Accept announced as unavailable while the click guard runs', () => {
+	expect(draw(bash('ls'))).toMatch(
+		/aria-disabled="true"[^>]*data-tone="accept"|data-tone="accept"[^>]*aria-disabled="true"/,
+	)
 })
 
 it('explains the added-lines badge to a screen reader and on hover', () => {

@@ -67,6 +67,21 @@ describe('the actions matrix', () => {
 		expect(ids(input())).toContain('copy-markdown')
 		expect(ids(input())).toContain('copy-path')
 	})
+	it('offers to mark unread or read only where the host keeps the markers', () => {
+		const withMarkers = { ...can, unread: true }
+		expect(find(input({ can: withMarkers }), 'mark-unread')).toMatchObject({
+			label: 'Mark as unread',
+			icon: 'mark-unread',
+		})
+		expect(find(input({ can: withMarkers, unread: true }), 'mark-unread')).toMatchObject({
+			label: 'Mark as read',
+			icon: 'mark-read',
+		})
+		expect(ids(input())).not.toContain('mark-unread')
+		expect(ids(input({ can: withMarkers, hasReply: false }))).not.toContain('mark-unread')
+		expect(ids(input({ can: withMarkers, hasReply: false, unread: true }))).toContain('mark-unread')
+		expect(ids(input({ can: withMarkers, isPal: true }))).not.toContain('mark-unread')
+	})
 	it('hides rename, fork and Markdown for the Codex and Claude Code engines', () => {
 		for (const harness of ['codex-cli', 'claude-code'] as const) {
 			const result = ids(input({ view: { ...view, harness } }))

@@ -71,6 +71,10 @@ export interface DesktopDiagnosticContext {
 		| 'unhandled-rejection'
 		| 'process-ended'
 		| 'turn-failed'
+		/** The window stopped answering and was ended by Namzu after a grace period. */
+		| 'renderer-hung'
+		/** A saved file could not be read and was set aside. */
+		| 'file-damaged'
 }
 export interface DesktopDiagnosticSink {
 	record(event: DesktopDiagnosticEvent, context?: DesktopDiagnosticContext): void
@@ -122,8 +126,12 @@ const OPERATIONS = new Set([
 	'sidebarCollapsed',
 	'setSidebarSectionCollapsed',
 	'setSidebarSnapshot',
+	'acknowledgeNotice',
 	'palUnread',
 	'setPalUnread',
+	'conversationUnread',
+	'unreadConversations',
+	'setConversationUnread',
 	'palProviders',
 	'providerConnections',
 	'saveProviderKey',
@@ -547,6 +555,8 @@ export class DesktopDiagnostics implements DesktopDiagnosticSink {
 					'unhandled-rejection',
 					'process-ended',
 					'turn-failed',
+					'renderer-hung',
+					'file-damaged',
 				].includes(context.reason)
 			)
 				attributes['namzu.desktop.failure.reason'] = context.reason

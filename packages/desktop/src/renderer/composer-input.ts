@@ -57,3 +57,58 @@ export function stopTooltip(input: {
 			: 'Stop · Esc. Queue is off until you type a message.'
 	return 'Stop · Esc'
 }
+
+/** What the message box and the saved draft hold at most. */
+export const DRAFT_LIMIT = 50000
+
+/**
+ * How many characters of a paste the box could not take. The box cuts a paste at its limit without
+ * saying so, so the person is told what was left out.
+ */
+export function pasteOverflow({
+	current,
+	selectionStart,
+	selectionEnd,
+	pasted,
+	limit = DRAFT_LIMIT,
+}: {
+	current: string
+	selectionStart: number
+	selectionEnd: number
+	pasted: string
+	limit?: number
+}): number {
+	const kept = current.length - Math.abs(selectionEnd - selectionStart)
+	return Math.max(0, kept + pasted.length - limit)
+}
+
+export function pasteOverflowNotice(left: number, limit = DRAFT_LIMIT): string {
+	return `The box holds ${limit.toLocaleString('en-US')} characters, so the last ${left.toLocaleString('en-US')} of that paste ${left === 1 ? 'was' : 'were'} left out.`
+}
+
+/** The key that goes with Enter to hold a message for after the reply, as this computer names it. */
+export function queueModifierName(mac: boolean): string {
+	return mac ? 'Cmd' : 'Ctrl'
+}
+
+/** The empty message box's hint. While a reply runs it teaches what Enter and the queue chord do. */
+export function composerPlaceholder(input: {
+	compact: boolean
+	cliMode: boolean
+	cliLabel: string
+	/** A waiting message can be taken back with the up arrow. */
+	editableQueued: boolean
+	hasDraft: boolean
+	running: boolean
+	/** Enter reaches the running reply instead of waiting behind it. */
+	liveInputSupported: boolean
+	mac: boolean
+}): string {
+	if (input.cliMode) return `Optional first message for ${input.cliLabel} in a terminal`
+	if (input.editableQueued && !input.hasDraft) return 'Press ↑ to edit queued messages'
+	if (input.running)
+		return input.liveInputSupported
+			? `Enter sends now · ${queueModifierName(input.mac)}+Enter or Tab sends after this reply`
+			: 'Enter sends after this reply'
+	return input.compact ? 'Send a message' : 'Ask Namzu anything'
+}

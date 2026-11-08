@@ -113,6 +113,7 @@ The kernel.
 
 * [Learning guidance](learning-guidance.md) - The revisioned guidance store, evaluated promotion, rollback, source-bound skills, bounded projection and the carry-over of earlier stores.
 * [Learning](learning.md) - The learning module every host shares: observations, the cycle, its store, the leak tripwire, the experience library, and the built-in generator.
+* [Learning your work, one work profile at a time](work-profiles.md) - Draft direction: work profiles, consent defaults, readiness states, status surfaces, hand-off to a Pal and optional model training.
 * [Durable learning records](learning-storage.md) - Scoped SQLite journals, immutable artifacts and explicit host execution.
 * [Learning cycle](learning-cycle.md) - Generated guidance, independent evaluation, fresh confirmation and exact-revision activation.
 * [Learning discovery](learning-discovery.md) - Select retained failures and atomically admit one experiment per task, evaluator and baseline.

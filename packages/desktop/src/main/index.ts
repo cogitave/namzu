@@ -35,6 +35,7 @@ import type {
 	PalComputerInput,
 	PalCreateInput,
 	PermissionResponse,
+	WindowAppearance,
 	WorkspaceAction,
 } from '../shared/protocol.js'
 import type { DataFolderKind, DesktopInfo } from '../shared/settings-protocol.js'
@@ -47,10 +48,17 @@ import {
 import {
 	type WorkspaceWindowBounds,
 	locateWorkspaceTab,
+	parseWorkspaceLayout,
 	workspaceGroups,
 } from '../shared/workspace-layout.js'
 import { bundledCliEntry } from './bundled-runtime.js'
 import { ClipboardTextWriter } from './clipboard-text.js'
+import {
+	DamagedFileError,
+	DamagedFilesNotices,
+	parseJsonShape,
+	readStoredFile,
+} from './damaged-files.js'
 import { DesktopSettingsStore } from './desktop-settings.js'
 import { DesktopDiagnostics, observeDesktopIpc, observeRendererConsole } from './diagnostics.js'
 import {
@@ -95,6 +103,7 @@ import { PalStreamProxy } from './pal-stream-proxy.js'
 import { projectDraftOwner } from './project-draft-owner.js'
 import { setFileSortLocale } from './project-files.js'
 import { ProjectNameStore } from './project-names.js'
+import { recoveryCardPage, recoveryCardUrl } from './recovery-card.js'
 import { selectRendererPage } from './renderer-page.js'
 import { RunningReplyGuard } from './running-reply-guard.js'
 import {
@@ -119,6 +128,7 @@ import {
 	bakedFeedDeclared,
 	updateFeedFromEnv,
 } from './updater.js'
+import { viewedTabs } from './viewed-conversations.js'
 import { VoiceInputManager } from './voice-input.js'
 import {
 	readWindowMenu,
@@ -127,6 +137,7 @@ import {
 	windowChrome,
 	windowChromeOptions,
 } from './window-chrome.js'
+import { WindowRecovery } from './window-recovery.js'
 import {
 	WorkspaceWindowRegistry,
 	WorkspaceWindows,
@@ -184,20 +195,29 @@ const streamProxy = new PalStreamProxy(() =>
 )
 const windows = new WorkspaceWindowRegistry<BrowserWindow>()
 const workspaceFile = join(app.getPath('userData'), 'workspace-layout.json')
-const restoredWorkspace = (() => {
-	try {
-		return JSON.parse(readFileSync(workspaceFile, 'utf8')) as unknown
-	} catch (error) {
-		if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT'))
-			diagnostics.record('project_restore_failed', { error })
-		return undefined
-	}
-})()
+/** Saved files this start could not read and set aside; told to the person once, in the window. */
+const damagedNotices = new DamagedFilesNotices()
+function noteDamagedFile(kind: 'settings' | 'layout' | 'projects', movedAside: boolean): void {
+	diagnostics.record('project_restore_failed', { reason: 'file-damaged', severity: 'warn' })
+	damagedNotices.add(kind, movedAside)
+}
+const restoredWorkspace = readStoredFile({
+	file: workspaceFile,
+	parse: (text) => {
+		const value = parseJsonShape(text, 'object')
+		if (!parseWorkspaceLayout(value)) throw new DamagedFileError('not a window layout')
+		return value
+	},
+	onDamaged: (movedAside) => noteDamagedFile('layout', movedAside),
+	onUnreadable: (error) => diagnostics.record('project_restore_failed', { error }),
+})
 let savedWorkspaceContent: string | undefined
 const workspace = new WorkspaceWindows(
 	restoredWorkspace,
 	randomUUID,
 	() => {
+		// A tab became active, or a window came or went: what is on screen may have changed.
+		reconcileViewed()
 		const currentIds = new Set(workspace.snapshot().windows.map((item) => item.id))
 		for (const [id, window] of windows.entries())
 			if (!window.isDestroyed() && currentIds.has(id))
@@ -225,6 +245,25 @@ const workspace = new WorkspaceWindows(
 		savedWorkspaceContent = content
 	},
 )
+/** The scheme the renderer last reported; the recovery card, which has no renderer, wears it. */
+let heardAppearance: WindowAppearance = 'dark'
+/** The tabs a person can see now: the active tab of every shown, not minimised window. */
+let operatorReady = false
+function viewedConversations(): ReadonlySet<string> {
+	const open = new Map(windows.entries())
+	return viewedTabs(workspace.snapshot(), (windowId) => {
+		const window = open.get(windowId)
+		return Boolean(window && !window.isDestroyed() && window.isVisible() && !window.isMinimized())
+	})
+}
+function reconcileViewed(): void {
+	try {
+		// `operator` is created after the workspace; a change before then has nothing to clear.
+		if (operatorReady) operator.reconcileViewedConversations()
+	} catch (error) {
+		diagnostics.record('ipc_failed', { operation: 'conversationUnread', error })
+	}
+}
 const transferTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const closeTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const allowNativeClose = new Set<string>()
@@ -294,6 +333,22 @@ function discardAbortedWindows(): void {
 			clearTimeout(timer)
 			transferTimers.delete(id)
 		}
+}
+/** The window's tabs move to another window, then it closes; the last one on Windows and Linux ends the app. */
+function finishWindowClose(id: string, window: BrowserWindow): void {
+	const pending = new Set(workspace.pendingNativeWindows())
+	const target = windows
+		.entries()
+		.find(
+			([otherId, candidate]) => otherId !== id && !pending.has(otherId) && !candidate.isDestroyed(),
+		)
+	if (target || process.platform === 'darwin') {
+		workspace.closeWindow(id, target?.[0])
+		windows.remove(id)
+		discardAbortedWindows()
+		allowNativeClose.add(id)
+		window.close()
+	} else app.quit()
 }
 function watchTransfer(id: string): void {
 	if (transferTimers.has(id)) return
@@ -451,8 +506,10 @@ const operator = new Operator(
 	{
 		autoReconnect: true,
 		projectNames: new ProjectNameStore(join(app.getPath('userData'), 'project-names.json')),
+		viewedConversations,
 	},
 )
+operatorReady = true
 /** Documents as the platform names it; the home folder's Documents when the platform has none. */
 function documentsFolder(): string {
 	try {
@@ -505,7 +562,10 @@ const settingsStore = new DesktopSettingsStore({
 			operation: operation === 'read' ? 'settings' : 'setSettings',
 			error,
 		}),
+	onDamaged: (movedAside) => noteDamagedFile('settings', movedAside),
 })
+// Read before the app is ready, the only time Electron lets the graphics card be turned off.
+if (!settingsStore.get().hardwareAcceleration) app.disableHardwareAcceleration()
 const voiceInput = new VoiceInputManager({
 	conversation: {
 		activity: (sessionId) => operator.voiceActivity(sessionId),
@@ -794,20 +854,7 @@ function register(): void {
 		const timer = closeTimers.get(id)
 		if (timer) clearTimeout(timer)
 		closeTimers.delete(id)
-		const pending = new Set(workspace.pendingNativeWindows())
-		const target = windows
-			.entries()
-			.find(
-				([otherId, candidate]) =>
-					otherId !== id && !pending.has(otherId) && !candidate.isDestroyed(),
-			)
-		if (target || process.platform === 'darwin') {
-			workspace.closeWindow(id, target?.[0])
-			windows.remove(id)
-			discardAbortedWindows()
-			allowNativeClose.add(id)
-			window.close()
-		} else app.quit()
+		finishWindowClose(id, window)
 	})
 	handleWindow('workspaceAction', async ({ id, window }, action: WorkspaceAction) => {
 		if (!action || typeof action !== 'object') throw new Error('Invalid workspace action.')
@@ -872,6 +919,7 @@ function register(): void {
 				launch,
 				sidebar: sidebarSnapshot.get(),
 				collapsedSections: operator.sidebarCollapsed(),
+				notice: damagedNotices.current(),
 			} satisfies DesktopBoot
 		} catch (error) {
 			diagnostics.record('ipc_failed', { operation: 'boot', error })
@@ -1024,6 +1072,7 @@ function register(): void {
 		const colors = windowCaptionColors(appearance)
 		if (window.isDestroyed()) return
 		nativeTheme.themeSource = appearance === 'light' ? 'light' : 'dark'
+		heardAppearance = appearance === 'light' ? 'light' : 'dark'
 		if (process.platform === 'win32' || process.platform === 'linux')
 			window.setTitleBarOverlay(colors)
 	})
@@ -1046,6 +1095,9 @@ function register(): void {
 	handle('projects', () => operator.projectsForWindow())
 	handle('pals', () => operator.listPals())
 	handle('sidebarCollapsed', () => operator.sidebarCollapsed())
+	handle('acknowledgeNotice', (id: unknown) => {
+		damagedNotices.acknowledge(id)
+	})
 	handle('setSidebarSnapshot', (value: unknown) => {
 		if (!sidebarSnapshot.set(value)) throw new Error('Invalid sidebar snapshot.')
 	})
@@ -1054,6 +1106,10 @@ function register(): void {
 	)
 	handle('palUnread', () => operator.palUnread())
 	handle('setPalUnread', (id: unknown, unread: unknown) => operator.setPalUnread(id, unread))
+	handle('conversationUnread', () => operator.conversationUnread())
+	handle('setConversationUnread', (id: unknown, unread: unknown) =>
+		operator.setConversationUnread(id, unread),
+	)
 	handle('palInbox', (sessionId: string, palId: string) => operator.palInbox(sessionId, palId))
 	handle('palCommunication', (sessionId: string, palId: string) =>
 		operator.palCommunication(sessionId, palId),
@@ -1492,7 +1548,43 @@ async function createWindow(
 	// adding the operating system's second menu row on Windows and Linux.
 	if (process.platform !== 'darwin') window.setMenuBarVisibility(false)
 	window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+	const recovery = new WindowRecovery({
+		timers: {
+			now: () => Date.now(),
+			after: (ms, run) => {
+				const timer = setTimeout(run, ms)
+				return () => clearTimeout(timer)
+			},
+		},
+		reload: () => {
+			if (window.isDestroyed()) return
+			if (!window.isVisible() && !window.isMinimized()) window.show()
+			void window.loadURL(page).catch(() => {
+				// A failed load reaches did-fail-load, which shows the card; nothing more to do here.
+			})
+		},
+		showCard: (cause) => {
+			if (window.isDestroyed()) return
+			const html = recoveryCardPage(cause, {
+				platform: process.platform,
+				appearance: heardAppearance,
+			})
+			void window.loadURL(recoveryCardUrl(html)).catch((error) => {
+				diagnostics.record('renderer_load_failed', { error })
+			})
+			// A window that failed before its first paint would otherwise never appear.
+			if (!window.isVisible() && !window.isMinimized()) window.show()
+		},
+		hangExpired: () => diagnostics.record('renderer_process_gone', { reason: 'renderer-hung' }),
+		endProcess: () => window.webContents.forcefullyCrashRenderer(),
+		closed: () => window.isDestroyed() || window.webContents.isDestroyed(),
+	})
 	window.webContents.on('will-navigate', (event, url) => {
+		// The card's Reload link is the one address a page may ask for that is not the app's page.
+		if (recovery.navigation(url)) {
+			event.preventDefault()
+			return
+		}
 		if (url !== page) event.preventDefault()
 	})
 	window.webContents.on('will-redirect', (event, url) => {
@@ -1505,7 +1597,11 @@ async function createWindow(
 		workspace.abortTransfers(windowId)
 		discardAbortedWindows()
 	}
-	window.on('unresponsive', abortTransfers)
+	window.on('unresponsive', () => {
+		abortTransfers()
+		recovery.unresponsive()
+	})
+	window.on('responsive', () => recovery.responsive())
 	window.webContents.on('render-process-gone', (_event, details) => {
 		diagnostics.record('renderer_process_gone', {
 			reason: 'process-ended',
@@ -1513,11 +1609,13 @@ async function createWindow(
 		})
 		abortTransfers()
 		terminals.releaseWindow(windowId)
+		recovery.processGone(details.reason, details.exitCode)
 	})
 	window.webContents.on('did-fail-load', (_event, errorCode, _description, _url, isMainFrame) => {
 		if (isMainFrame) {
 			diagnostics.record('renderer_load_failed', { exitCode: errorCode })
 			abortTransfers()
+			recovery.loadFailed(errorCode)
 		}
 	})
 	window.webContents.on('preload-error', (_event, _path, error) => {
@@ -1538,6 +1636,11 @@ async function createWindow(
 		}
 	})
 	window.once('ready-to-show', () => window.show())
+	// Showing, hiding and minimising change which conversations a person can see.
+	window.on('show', reconcileViewed)
+	window.on('hide', reconcileViewed)
+	window.on('minimize', reconcileViewed)
+	window.on('restore', reconcileViewed)
 	const saveBounds = () => {
 		if (!window.isDestroyed() && !window.isMinimized() && !window.isMaximized())
 			workspace.setBounds(windowId, window.getBounds())
@@ -1560,6 +1663,13 @@ async function createWindow(
 			return
 		}
 		saveBounds()
+		// A window showing the recovery card, or whose process is gone, has no page to acknowledge
+		// the close, so waiting for one would leave it open for half a minute.
+		if (recovery.cardShowing || window.webContents.isCrashed()) {
+			workspace.abortTransfers(windowId)
+			finishWindowClose(windowId, window)
+			return
+		}
 		if (workspace.pendingNativeWindows().includes(windowId)) {
 			workspace.abortTransfers(windowId)
 			discardAbortedWindows()
@@ -1580,6 +1690,7 @@ async function createWindow(
 		closeTimers.set(windowId, timer)
 	})
 	window.on('closed', () => {
+		recovery.dispose()
 		localSpeechRouting.cancelWindow(windowId)
 		voiceInput.stopWindow(windowId)
 		terminals.releaseWindow(windowId)
@@ -1590,11 +1701,13 @@ async function createWindow(
 	})
 	try {
 		await window.loadURL(page)
-	} catch (error) {
-		windows.remove(windowId)
-		workspace.closeWindow(windowId, windows.entries()[0]?.[0])
-		window.destroy()
-		throw error
+	} catch {
+		// The window stays: did-fail-load has put the card in it, and Reload loads the page again.
+		// A load that failed without that event (the window was destroyed under it) has nothing to keep.
+		if (window.isDestroyed()) {
+			windows.remove(windowId)
+			workspace.closeWindow(windowId, windows.entries()[0]?.[0])
+		}
 	}
 }
 app.on('activate', () => {
@@ -1966,17 +2079,15 @@ void app
 		const saved = workspace.snapshot().windows
 		const tabs = layoutTabs()
 		for (const layout of saved) launchWindows.add(layout.id)
-		let priorPaths: string[] = []
-		try {
-			const paths = JSON.parse(
-				readFileSync(join(app.getPath('userData'), 'projects.json'), 'utf8'),
-			) as unknown
-			if (Array.isArray(paths))
-				priorPaths = paths.slice(0, 20).filter((path): path is string => typeof path === 'string')
-		} catch (error) {
-			if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT'))
-				diagnostics.record('project_restore_failed', { error })
-		}
+		const storedPaths = readStoredFile({
+			file: join(app.getPath('userData'), 'projects.json'),
+			parse: (text) => parseJsonShape(text, 'array'),
+			onDamaged: (movedAside) => noteDamagedFile('projects', movedAside),
+			onUnreadable: (error) => diagnostics.record('project_restore_failed', { error }),
+		})
+		const priorPaths = Array.isArray(storedPaths)
+			? storedPaths.slice(0, 20).filter((path): path is string => typeof path === 'string')
+			: []
 		const restorePaths = [
 			...new Set([
 				...operator.restoredProjectPaths(

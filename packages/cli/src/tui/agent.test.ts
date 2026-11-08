@@ -759,6 +759,27 @@ describe('makeResumeHandler', () => {
 		expect(onPermission).toHaveBeenCalledOnce() // second batch not prompted
 	})
 
+	it('a remembered approve-all still asks about a call a rule or a hook asked a person about', async () => {
+		// The ACP bridge's latch decides what it forwards; this handler decides
+		// what reaches the bridge at all. A call that exists to put its own
+		// question must reach it after an approve-all, or the client is never asked.
+		const approval = { all: false }
+		const onPermission = vi.fn(async () => ({ kind: 'approve-all' }) as PermissionDecision)
+		const handler = makeResumeHandler(approval, onPermission)
+		await handler(toolReview([tc({ name: 'write' })]))
+		expect(approval.all).toBe(true)
+		await handler(
+			toolReview([
+				tc({
+					name: 'deploy',
+					authorization: { decision: 'review', explicitReview: true, askRule: true },
+				}),
+			]),
+		)
+		await handler(toolReview([tc({ name: 'deploy', hookPermission: { decision: 'ask' } })]))
+		expect(onPermission).toHaveBeenCalledTimes(3)
+	})
+
 	it('auto-approves everything when no onPermission is supplied', async () => {
 		const handler = makeResumeHandler({ all: false }, undefined)
 		expect(await handler(toolReview([tc({ name: 'write' })]))).toEqual({
