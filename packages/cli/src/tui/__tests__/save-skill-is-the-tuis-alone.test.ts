@@ -177,7 +177,6 @@ describe('save_skill belongs to the TUI alone', () => {
 			'commands/drain.ts',
 			'commands/acp.ts',
 			'schedule/fire/fire.ts',
-			'integrations/resident/session-step.ts',
 		]) {
 			expect(readFileSync(join(SRC, surface), 'utf8')).not.toMatch(/save_skill|buildSaveSkillTool/)
 		}

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
 import { parseExecFlags } from './exec-flags.js'
-import { parseResidentFlags } from './resident-flags.js'
 import { describeSpendStop } from './run-flags.js'
 
 describe('the per-run flags parse into the shared exec input', () => {
@@ -47,18 +46,6 @@ describe('the per-run flags parse into the shared exec input', () => {
 			expect(() => parseExecFlags([`--max-budget-usd=${value}`])).toThrow('--max-budget-usd')
 		},
 	)
-
-	it('are refused by a resident, which would otherwise ignore them', () => {
-		for (const flag of [
-			['--append-system-prompt', 'x'],
-			['--max-budget-usd', '1'],
-			['--allowed-tools', 'edit'],
-			['--disallowed-tools', 'bash'],
-			['--fallback-model', 'openai'],
-		]) {
-			expect(() => parseResidentFlags(['run', ...flag])).toThrow(/not to a resident/)
-		}
-	})
 })
 
 describe('describeSpendStop', () => {

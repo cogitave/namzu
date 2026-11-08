@@ -208,7 +208,7 @@ describe('source-bound learning', () => {
 	})
 })
 
-describe('versioned resident preferences', () => {
+describe('versioned preferences', () => {
 	it('corrects the named previous evidence without mutating the original profile', () => {
 		const first = reviseLearningProfile(undefined, {
 			identity: 'A careful research assistant.',
@@ -330,7 +330,7 @@ describe('versioned resident preferences', () => {
 	})
 })
 
-describe('evaluated resident skills', () => {
+describe('evaluated skills', () => {
 	it('hashes the validated named content deterministically and detects content changes', () => {
 		const candidate = skill()
 		const hash = hashLearningSkill(candidate)
@@ -473,7 +473,7 @@ describe('evaluated resident skills', () => {
 	})
 })
 
-describe('bounded resident learning projection', () => {
+describe('bounded learning projection', () => {
 	it('includes only named skills and counts missing selections even without a profile', () => {
 		expect(projectLearning(undefined, { maxChars: 1_000, skillNames: ['missing'] })).toEqual({
 			text: '',

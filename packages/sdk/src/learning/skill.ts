@@ -119,11 +119,11 @@ export const learningSchema = z
 		)
 			context.addIssue({
 				code: z.ZodIssueCode.custom,
-				message: 'Invalid resident learning identity or content digest.',
+				message: 'Invalid learning identity or content digest.',
 			})
 	})
 
-/** @experimental Versioned behavioral overlay; the original resident mandate remains unchanged. */
+/** @experimental Versioned behavioral overlay; the original identity remains unchanged. */
 export interface LearningState {
 	readonly revision: number
 	readonly identity?: { readonly text: string; readonly evidence: LearningEvidence }
@@ -219,7 +219,7 @@ function base(current: LearningState | undefined, evidence: LearningEvidence): L
 	}
 }
 
-/** Internal pure profile transition; storage owns exact agenda CAS and idle admission. */
+/** Internal pure profile transition; storage owns the exact-revision check. */
 export function reviseLearningProfile(
 	current: LearningState | undefined,
 	input: LearningProfileUpdate,
@@ -306,7 +306,7 @@ export function promoteLearningSkill(
 			batch.candidate.length > 128 ||
 			batch.attributions.length > 128
 		)
-			throw new Error('Resident skill evaluation is bounded to 64 tasks per round.')
+			throw new Error('Skill evaluation is bounded to 64 tasks per round.')
 		// Recorded evidence must consistently identify success and complete measurements.
 		for (const trial of [...batch.baseline, ...batch.candidate]) {
 			if (
@@ -322,7 +322,7 @@ export function promoteLearningSkill(
 		protection,
 	)
 	if (review.decision !== 'accept')
-		throw new Error(`Resident skill promotion ${review.decision}: ${review.reason}`)
+		throw new Error(`Skill promotion ${review.decision}: ${review.reason}`)
 	const skill: LearnedSkill = {
 		...candidate,
 		hash,
@@ -358,7 +358,7 @@ export function restoreLearningSkill(
 ): LearningState {
 	name.parse(skillName)
 	if (!current?.skills.some((s) => s.name === skillName))
-		throw new Error('No active resident skill to roll back.')
+		throw new Error('No active skill to roll back.')
 	const next = base(current, evidenceFor(current, inputEvidence))
 	const previous = historical
 		? freezeLearning(historical).skills.find((s) => s.name === skillName)
@@ -398,7 +398,7 @@ export function projectLearning(
 	options: LearningProjectionOptions,
 ): LearningProjection {
 	if (!Number.isSafeInteger(options.maxChars) || options.maxChars < 0 || options.maxChars > 64_000)
-		throw new TypeError('Resident learning context requires maxChars between 0 and 64000.')
+		throw new TypeError('Learning context requires maxChars between 0 and 64000.')
 	const selected = z.array(name).max(16).parse(options.skillNames)
 	const purpose = z.enum(['task', 'exploration']).parse(options.purpose ?? 'task')
 	if (new Set(selected).size !== selected.length) throw new Error('Duplicate selected skill names.')

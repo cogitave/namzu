@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -122,11 +122,11 @@ describe('project guidance', () => {
 
 	it('hands later conversations the guidance a confirmed experiment activated', async () => {
 		const { paths, tenantId } = setup()
-		const agenda = await openProjectGuidance(paths, tenantId)
+		const guidance = await openProjectGuidance(paths, tenantId)
 		const candidate = skill('Check the file exists before editing it.')
-		const state = await agenda.read()
-		if (!state) throw new Error('agenda missing')
-		await agenda.promoteSkill(state, candidate, evaluation(candidate), evidence('activate'))
+		const state = await guidance.read()
+		if (!state) throw new Error('guidance missing')
+		await guidance.promoteSkill(state, candidate, evaluation(candidate), evidence('activate'))
 		const text = await readProjectGuidance(paths, tenantId)
 		expect(text).toContain('Check the file exists before editing it.')
 		expect(text).toContain('not a permission')
@@ -138,11 +138,39 @@ describe('project guidance', () => {
 
 	it('never hands a conversation an exploration policy', async () => {
 		const { paths, tenantId } = setup()
-		const agenda = await openProjectGuidance(paths, tenantId)
+		const guidance = await openProjectGuidance(paths, tenantId)
 		const policy = { ...skill(), purpose: 'exploration' as const }
-		const state = await agenda.read()
-		if (!state) throw new Error('agenda missing')
-		await agenda.promoteSkill(state, policy, evaluation(policy), evidence('policy'))
+		const state = await guidance.read()
+		if (!state) throw new Error('guidance missing')
+		await guidance.promoteSkill(state, policy, evaluation(policy), evidence('policy'))
 		expect(await readProjectGuidance(paths, tenantId)).toBeNull()
+	})
+
+	it('carries guidance an earlier version learned over on first use, and leaves it in place', async () => {
+		// Written by the earlier version's own store: four revisions, the last
+		// one an evaluated skill activation, for this tenant and scope.
+		const tenantId = '0b1c2d3e-4f50-4a61-8b72-93a4b5c6d7e8'
+		const { paths } = setup()
+		const earlier = join(paths.projectDir(), 'learning', 'guidance')
+		cpSync(
+			join(import.meta.dirname, '..', '..', '__fixtures__', 'earlier-project-guidance'),
+			earlier,
+			{
+				recursive: true,
+			},
+		)
+		const text = await readProjectGuidance(paths, tenantId)
+		expect(text).toContain('Read the designated source before reporting its value.')
+		expect(
+			existsSync(join(paths.projectDir(), 'learning', 'session-guidance', 'adopted.json')),
+		).toBe(true)
+		// The earlier store is untouched and can still be read by the version that wrote it.
+		expect(existsSync(join(earlier, tenantId, 'sessions', 'agenda', 'revisions', '4.json'))).toBe(
+			true,
+		)
+		// An undo from the new store reaches the revisions that were carried over.
+		const guidance = await openProjectGuidance(paths, tenantId)
+		expect((await guidance.read())?.revision).toBe(4)
+		expect((await guidance.readRevision(3))?.learning?.skills).toEqual([])
 	})
 })

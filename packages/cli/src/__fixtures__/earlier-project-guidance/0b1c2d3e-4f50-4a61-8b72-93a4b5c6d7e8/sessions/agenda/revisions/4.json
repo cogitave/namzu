@@ -1,0 +1,79 @@
+{
+  "tenantId": "0b1c2d3e-4f50-4a61-8b72-93a4b5c6d7e8",
+  "agentKey": "sessions",
+  "identity": "Guidance for conversations in this project.",
+  "revision": 4,
+  "paused": false,
+  "learning": {
+    "revision": 2,
+    "identity": {
+      "text": "Prefers short answers.",
+      "evidence": {
+        "key": "profile-1",
+        "source": "fixture:trace",
+        "reason": "Asked for short answers."
+      }
+    },
+    "preferences": [
+      {
+        "key": "tone",
+        "value": "plain",
+        "evidence": {
+          "key": "profile-1",
+          "source": "fixture:trace",
+          "reason": "Asked for short answers."
+        }
+      }
+    ],
+    "skills": [
+      {
+        "name": "inspect-source",
+        "description": "Ground the finding.",
+        "body": "Read the designated source before reporting its value.",
+        "hash": "d27442d5b15ed01d33d0cd702a98117e5c503fa72e2b7f66544ba048ba4068fc",
+        "evidence": {
+          "key": "6febcd88-2f59-4f5d-9706-f81d75761ecc",
+          "source": "learning-cycle:6febcd88-2f59-4f5d-9706-f81d75761ecc",
+          "reason": "Paired verification and fresh confirmation of guidance derived from evidence missing-source."
+        },
+        "verification": {
+          "baselineHash": "none",
+          "candidateHash": "d27442d5b15ed01d33d0cd702a98117e5c503fa72e2b7f66544ba048ba4068fc",
+          "evidenceDigest": "834be84aceabac5669f87dfc681c14b54101cb4c1c61e9e58f0d7816aaf52c84",
+          "verificationTasks": 5,
+          "confirmationTasks": 5,
+          "protection": {
+            "verificationTasks": 1,
+            "confirmationTasks": 1,
+            "planDigest": "fba698ff76d9f94de610d7e247fdc55dd48dafe2580983ef1ba622962460df93"
+          }
+        }
+      }
+    ],
+    "lastChange": {
+      "key": "6febcd88-2f59-4f5d-9706-f81d75761ecc",
+      "source": "learning-cycle:6febcd88-2f59-4f5d-9706-f81d75761ecc",
+      "reason": "Paired verification and fresh confirmation of guidance derived from evidence missing-source."
+    }
+  },
+  "pursuits": [
+    {
+      "id": "b187c1de-e4e6-43bc-8f79-e6a9018e6ebe",
+      "state": {
+        "tenantId": "0b1c2d3e-4f50-4a61-8b72-93a4b5c6d7e8",
+        "agentKey": "sessions",
+        "pursuitId": "b187c1de-e4e6-43bc-8f79-e6a9018e6ebe",
+        "identity": "Guidance for conversations in this project.",
+        "objective": "Check the build output every morning.",
+        "revision": 1,
+        "stepsAdmitted": 0,
+        "phase": "waiting",
+        "wakeAt": 0,
+        "reason": "Initial pursuit",
+        "summary": null,
+        "claimId": null
+      }
+    }
+  ],
+  "schemaVersion": 6
+}

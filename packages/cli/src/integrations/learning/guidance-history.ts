@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { DiskResidentAgenda, SqliteLearningStore } from '@namzu/sdk'
+import type { DiskLearningGuidance, SqliteLearningStore } from '@namzu/sdk'
 import { SESSION_SKILL } from './session-feed.js'
 
 /**
@@ -18,27 +18,30 @@ export interface LearnedRevision {
 	readonly replaced: string
 	/** True for the revision conversations start with now. */
 	readonly active: boolean
-	/** The agenda revision this activation created, which an undo restores from. */
-	readonly agendaRevision: number
+	/** The guidance revision this activation created, which an undo restores from. */
+	readonly guidanceRevision: number
 }
 
 /** Activations of this project's guidance, newest first. */
 export async function listLearnedGuidance(
 	store: SqliteLearningStore,
-	agenda: Pick<DiskResidentAgenda, 'read'>,
+	guidance: Pick<DiskLearningGuidance, 'read'>,
 ): Promise<{ readonly active: string | null; readonly revisions: readonly LearnedRevision[] }> {
-	const state = await agenda.read()
+	const state = await guidance.read()
 	const current = state?.learning?.skills.find((s) => s.name === SESSION_SKILL)?.hash ?? null
 	const rows = await store.list({ limit: 100 })
 	const revisions: LearnedRevision[] = []
 	for (const row of rows) {
 		const result = row.result
+		// A journal written before the rename calls this field `agendaRevision`.
+		const created =
+			result?.guidanceRevision ?? (result as { agendaRevision?: number } | null)?.agendaRevision
 		if (
 			row.skillName !== SESSION_SKILL ||
 			result?.status !== 'activated' ||
 			!result.candidate ||
 			!result.candidateRevision ||
-			result.agendaRevision === undefined
+			created === undefined
 		)
 			continue
 		revisions.push({
@@ -49,7 +52,7 @@ export async function listLearnedGuidance(
 			body: result.candidate.body,
 			replaced: result.baselineRevision ?? 'none',
 			active: result.candidateRevision === current,
-			agendaRevision: result.agendaRevision,
+			guidanceRevision: created,
 		})
 	}
 	return { active: current, revisions }
@@ -70,24 +73,24 @@ export type UndoOutcome =
  */
 export async function undoLearnedGuidance(
 	store: SqliteLearningStore,
-	agenda: Pick<DiskResidentAgenda, 'read' | 'readRevision' | 'rollbackSkill'>,
+	guidance: Pick<DiskLearningGuidance, 'read' | 'readRevision' | 'rollbackSkill'>,
 	cycleId?: string,
 ): Promise<UndoOutcome> {
-	const { revisions } = await listLearnedGuidance(store, agenda)
+	const { revisions } = await listLearnedGuidance(store, guidance)
 	const target = cycleId
 		? revisions.find((r) => r.cycleId === cycleId)
 		: revisions.find((r) => r.active)
 	if (cycleId && !target) return { status: 'refused', reason: 'unknown-cycle' }
 	if (!target) return { status: 'refused', reason: 'nothing-active' }
 	if (!target.active) return { status: 'refused', reason: 'not-active' }
-	const snapshot = await agenda.read()
-	const before = target.agendaRevision - 1
-	const historical = before >= 1 ? await agenda.readRevision(before) : null
+	const snapshot = await guidance.read()
+	const before = target.guidanceRevision - 1
+	const historical = before >= 1 ? await guidance.readRevision(before) : null
 	if (!snapshot || !historical) return { status: 'refused', reason: 'history-missing' }
 	const previous = historical.learning?.skills.find((s) => s.name === SESSION_SKILL)?.hash ?? 'none'
 	// The snapshot must be the one this activation replaced, or the history is not what it says.
 	if (previous !== target.replaced) return { status: 'refused', reason: 'history-missing' }
-	await agenda.rollbackSkill(snapshot, SESSION_SKILL, before, {
+	await guidance.rollbackSkill(snapshot, SESSION_SKILL, before, {
 		key: randomUUID(),
 		source: 'namzu-learn:undo',
 		reason: 'The person reverted what Namzu learned for this project.',

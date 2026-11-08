@@ -3,8 +3,7 @@
  * session, newline-delimited JSON framing, a closed op set (design §1.1,
  * §1.3). Mirrors the shape of this repository's other local control
  * endpoints (`startEndpoint` in
- * `packages/cli/src/schedule/daemon/endpoint.ts`, `createRunnerControlServer`
- * in `packages/cli/src/integrations/resident/runner-control.ts`): a total
+ * `packages/cli/src/schedule/daemon/endpoint.ts`): a total
  * read deadline per connection (not an inactivity timer a slow sender can
  * reset), a bounded connection count, and a destroyed socket rather than an
  * error response for anything malformed — request bytes and tokens are

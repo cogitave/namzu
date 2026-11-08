@@ -36,6 +36,7 @@ export const DEFAULT_PEER_READ_DEADLINE_MS = 2_000
 /** Concurrent connections a `createPeerEndpoint` server accepts before refusing new ones. */
 export const MAX_PEER_CONNECTIONS = 16
 
+// 'resident' is no longer announced; it stays so an older peer's record still parses.
 export const PeerSessionKindSchema = z.enum(['tui', 'exec', 'resident', 'scheduled'])
 export type PeerSessionKind = z.infer<typeof PeerSessionKindSchema>
 

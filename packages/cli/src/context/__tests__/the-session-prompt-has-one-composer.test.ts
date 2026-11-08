@@ -9,10 +9,9 @@ import {
 	NAMZU_DELEGATION_DOCTRINE,
 	NAMZU_PLAN_FILE_DOCTRINE,
 	NAMZU_PLAN_MODE_DOCTRINE,
-	NAMZU_WORKING_DOCTRINE,
 } from '../doctrine.js'
 import { composeEnvironmentPrompt } from '../environment.js'
-import { AGENT_LAUNCH_TOOL, NAMZU_IDENTITY } from '../identity.js'
+import { AGENT_LAUNCH_TOOL } from '../identity.js'
 import {
 	DEFERRED_TOOL_GUIDANCE,
 	SHELL_ESCAPE_GUIDANCE,
@@ -24,7 +23,6 @@ import {
 } from '../system-prompt.js'
 
 const state: SessionPromptInput = {
-	resident: false,
 	browserDesktopRouting: 'ROUTING',
 	palBlock: 'PALS',
 	environment: 'ENVIRONMENT',
@@ -52,7 +50,6 @@ describe('the session system prompt', () => {
 		skillsOverflowNote: 'OVERFLOW',
 	}
 	const newTurn: SessionPromptTurn = {
-		resident: false,
 		workflowOffered: false,
 		permissionMode: 'auto',
 		extraSystem: 'SKILLS',
@@ -194,25 +191,6 @@ describe('the session system prompt', () => {
 		expect(compose({ toolsDeferred: false })).not.toContain(DEFERRED_TOOL_GUIDANCE)
 	})
 
-	it('gives a resident step the identity and routing, not the working policy or the environment', () => {
-		const text = compose({ resident: true, permissionMode: 'plan', extraSystem: 'EXTRA' })
-		expect(text).toContain(NAMZU_IDENTITY)
-		expect(text).toContain('ROUTING')
-		expect(text).toContain('EVIDENCE')
-		expect(text).toContain('OVERFLOW')
-		for (const absent of [
-			NAMZU_WORKING_DOCTRINE,
-			NAMZU_DELEGATION_DOCTRINE,
-			NAMZU_PLAN_MODE_DOCTRINE,
-			'PALS',
-			'ENVIRONMENT',
-			'EXTRA',
-			'NOTE',
-		]) {
-			expect(text).not.toContain(absent)
-		}
-	})
-
 	it('is the only place that lists the sections: the agent file names none of the doctrines', () => {
 		const source = readFileSync(
 			fileURLToPath(new URL('../../tui/agent.ts', import.meta.url)),
@@ -234,7 +212,6 @@ describe('the session system prompt', () => {
 
 describe('the shell-escape guidance', () => {
 	const base = {
-		resident: false,
 		delegationAvailable: false,
 		workflowOffered: false,
 		toolsDeferred: false,
@@ -248,15 +225,8 @@ describe('the shell-escape guidance', () => {
 		expect(prompt?.split(SHELL_ESCAPE_GUIDANCE)).toHaveLength(2)
 	})
 
-	it('is left out where nobody types, and from a resident step', () => {
+	it('is left out where nobody types', () => {
 		expect(composeSessionSystemPrompt({ ...base })).not.toContain('`!`')
-		expect(
-			composeSessionSystemPrompt({
-				...base,
-				resident: true,
-				shellEscapeGuidance: SHELL_ESCAPE_GUIDANCE,
-			}),
-		).not.toContain(SHELL_ESCAPE_GUIDANCE)
 	})
 
 	it('warns that a prompt cannot be answered', () => {

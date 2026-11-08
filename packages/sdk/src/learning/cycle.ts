@@ -9,8 +9,7 @@ import {
 	type HarnessVerificationBatch,
 	reviewHarnessCandidate,
 } from '../eval/harness-verification.js'
-import type { DiskResidentAgenda } from '../manager/resident/agenda.js'
-import { ResidentConflictError } from '../manager/resident/store.js'
+import { type DiskLearningGuidance, LearningGuidanceConflictError } from './guidance.js'
 import {
 	LearningLeakError,
 	type LearningLeakFinding,
@@ -113,7 +112,8 @@ export interface LearningCycleOptions {
 	readonly purpose?: 'task' | 'exploration'
 	/** Fixed before generation; both rounds must preserve every named task. */
 	readonly protection: HarnessProtectionPlan
-	readonly agenda: Pick<DiskResidentAgenda, 'read' | 'promoteSkill'>
+	/** Where the active guidance is read and where an accepted candidate is activated. */
+	readonly guidance: Pick<DiskLearningGuidance, 'read' | 'promoteSkill'>
 	readonly skillName: string
 	readonly failure: { readonly evidence: LearningEvidence; readonly trace: string }
 	readonly parentCycleId?: string
@@ -158,7 +158,8 @@ export interface LearningCycleResult {
 	readonly candidate?: LearningSkillCandidate
 	readonly candidateRevision?: string
 	readonly baselineRevision?: string
-	readonly agendaRevision?: number
+	/** The guidance revision this activation created. */
+	readonly guidanceRevision?: number
 	readonly review?: HarnessReview
 	/** Present when the cycle was refused as a leak: where it was seen, never the text. */
 	readonly leak?: readonly LearningLeakFinding[]
@@ -239,7 +240,7 @@ export async function runLearningCycle(
 		...(baselineRevision ? { baselineRevision } : {}),
 		...(review ? { review } : {}),
 		...(leak ? { leak } : {}),
-		...(activatedRevision !== undefined ? { agendaRevision: activatedRevision } : {}),
+		...(activatedRevision !== undefined ? { guidanceRevision: activatedRevision } : {}),
 		consumption: usage(),
 		auditComplete,
 	})
@@ -270,10 +271,8 @@ export async function runLearningCycle(
 			},
 			{ subject: 'failure.trace', text: failure.trace },
 		)
-		const snapshot = structuredClone(await options.agenda.read())
-		if (!snapshot) throw new Error('No resident agenda exists for this learning cycle.')
-		if (snapshot.paused || snapshot.pursuits.some((p) => p.state.phase === 'running'))
-			throw new Error('Resident learning requires an unpaused agenda without running pursuits.')
+		const snapshot = structuredClone(await options.guidance.read())
+		if (!snapshot) throw new Error('No learning guidance exists for this learning cycle.')
 		const current = snapshot.learning?.skills.find((s) => s.name === skillName)
 		if (current && (current.purpose ?? 'task') !== purpose)
 			throw new Error(
@@ -294,7 +293,7 @@ export async function runLearningCycle(
 		await append('started', {
 			tenantId: snapshot.tenantId,
 			agentKey: snapshot.agentKey,
-			agendaRevision: snapshot.revision,
+			guidanceRevision: snapshot.revision,
 			baselineRevision,
 			skillName,
 			...purposeContext,
@@ -306,7 +305,7 @@ export async function runLearningCycle(
 		})
 		const check = async () => {
 			options.signal.throwIfAborted()
-			const latest = await options.agenda.read()
+			const latest = await options.guidance.read()
 			options.signal.throwIfAborted()
 			if (
 				!latest ||
@@ -314,7 +313,7 @@ export async function runLearningCycle(
 				latest.agentKey !== snapshot.agentKey ||
 				latest.revision !== snapshot.revision
 			)
-				throw new ResidentConflictError()
+				throw new LearningGuidanceConflictError()
 		}
 		const stage = async <T extends { usageComplete: boolean }>(
 			name: LearningStage,
@@ -497,7 +496,7 @@ export async function runLearningCycle(
 		await check()
 		const evidence: LearningEvidence = {
 			key: cycleId,
-			source: `resident-learning-cycle:${cycleId}`,
+			source: `learning-cycle:${cycleId}`,
 			reason: `Paired verification and fresh confirmation of guidance derived from evidence ${failure.evidence.key}.`,
 		}
 		// Validate all existing activation contracts before entering the ambiguous
@@ -511,11 +510,11 @@ export async function runLearningCycle(
 		await append('activation-requested', {
 			baselineRevision,
 			candidateRevision,
-			agendaRevision: snapshot.revision,
+			guidanceRevision: snapshot.revision,
 		})
 		options.signal.throwIfAborted()
 		activationRequested = true
-		const updated = await options.agenda.promoteSkill(
+		const updated = await options.guidance.promoteSkill(
 			snapshot,
 			candidate,
 			{ verification, confirmation, protection },
@@ -532,7 +531,7 @@ export async function runLearningCycle(
 		outcome = result(
 			error instanceof LearningLeakError
 				? 'failed'
-				: error instanceof ResidentConflictError
+				: error instanceof LearningGuidanceConflictError
 					? 'conflict'
 					: activationRequested
 						? 'activation-unknown'

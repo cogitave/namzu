@@ -33,7 +33,6 @@ import {
 	logoutCommand,
 	mcpCommand,
 	providersJSONCommand,
-	residentCommand,
 	scheduleCommand,
 	serveCommand,
 	skillsCommand,
@@ -193,17 +192,12 @@ const REMOVED_COMMANDS: Readonly<Record<string, string>> = {
  * `drain` belongs here because it continues turns another launch parked, and
  * the model such a turn was on may be one only the live or last-good catalogue
  * carries: continued on the bundled snapshot alone, it would have no wire.
- * `namzu resident run` is matched by its action (`opensSessions`); a
- * background runner (`resident start`) is a forked worker that never passes
- * through here and starts its own refresh.
  */
 const CATALOGUE_REFRESH_COMMANDS: ReadonlySet<string> = new Set(['exec', 'acp', 'drain'])
 
 /** Whether the command commander is about to run opens agent sessions. */
-export function opensSessions(name: string, args: readonly unknown[]): boolean {
-	if (CATALOGUE_REFRESH_COMMANDS.has(name)) return true
-	// `resident`'s action is its first operand, exactly as `parseResidentFlags` reads it.
-	return name === 'resident' && args[0] === 'run'
+export function opensSessions(name: string): boolean {
+	return CATALOGUE_REFRESH_COMMANDS.has(name)
 }
 
 export interface RunCliOptions {
@@ -401,7 +395,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					},
 				)
 			}
-			if (opensSessions(action.name(), action.args)) {
+			if (opensSessions(action.name())) {
 				beginCatalogueRefresh(getBootstrapContext().config)
 			}
 		})
@@ -555,9 +549,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		return recoveryCtx
 	}
 
-	// Stopping or inspecting a resident must remain possible with broken config.
-	// Its turn action resolves this bridge only after trusting the bound cwd.
-	const getResidentContext = () =>
+	// Learning must stay reachable with broken config. Its turn action resolves
+	// this bridge only after trusting the bound cwd.
+	const getLearningContext = () =>
 		bindTrustedProjectContext(getRecoveryContext(), getTrustedContext)
 	const worktreeCommand = createLazyWorktreeCommand(async (target) => {
 		const previous = process.cwd()
@@ -576,7 +570,6 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		archiveCommand,
 		doctorCommand,
 		execCommand,
-		residentCommand,
 		learnCommand,
 		learningCommand,
 		loginCommand,
@@ -599,8 +592,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	]) {
 		registerCommandOrLazy(program, def, {
 			getContext:
-				def === residentCommand || def === learnCommand || def === learningCommand
-					? getResidentContext
+				def === learnCommand || def === learningCommand
+					? getLearningContext
 					: def === stateCommand ||
 							def === worktreeCommand ||
 							def === mcpCommand ||

@@ -3,16 +3,15 @@ import { realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { resolve } from 'node:path'
 import { SessionPaths, SqliteLearningStore } from '@namzu/sdk'
-import { findResidentProject } from '../resident/storage.js'
 import { resolveNamzuHome } from '../state/home.js'
 import { readIdentity } from '../state/identity.js'
+import { findProject } from '../state/project-lookup.js'
 import { cliProjectRoot } from '../state/project.js'
 import { SESSION_AGENT_KEY } from './session-feed.js'
 
 /**
  * The project's conversation observations, opened read-only unless `readOnly` is false. Null when this
- * folder has no project, no identity, or nothing has been recorded. Needs no
- * resident.
+ * folder has no project, no identity, or nothing has been recorded.
  */
 export async function sessionLearningStore(
 	cwd: string,
@@ -21,7 +20,7 @@ export async function sessionLearningStore(
 	const root = resolveNamzuHome()
 	const identity = readIdentity(root)
 	if (!identity) return null
-	const project = await findResidentProject(root, cliProjectRoot(await realpath(resolve(cwd))))
+	const project = await findProject(root, cliProjectRoot(await realpath(resolve(cwd))))
 	if (!project) return null
 	const directory = join(
 		new SessionPaths({ home: root, slug: project.slug }).projectDir(),

@@ -28,7 +28,7 @@ export async function recordTurn(
 		readonly turnId?: TurnId
 		readonly result?: string
 		readonly status?: 'completed' | 'cancelled' | 'failed' | 'paused'
-		readonly originKind?: 'prompt' | 'goal-round' | 'resident-step' | 'verification'
+		readonly originKind?: 'prompt' | 'goal-round' | 'verification'
 		/** Records appended after the messages, before the turn settles (without `turnId`). */
 		readonly records?: readonly Record<string, unknown>[]
 	} = {},

@@ -82,7 +82,7 @@ export function legacyMcpPermissionNames(config: PermissionsConfig | undefined):
 
 const warnedLegacyMcpNames = new Set<string>()
 
-/** Say the migration warning once per name and process, including resident steps. */
+/** Say the migration warning once per name and process. */
 export function warnLegacyMcpPermissionNames(
 	config: PermissionsConfig | undefined,
 	log: Pick<Logger, 'warn'> = cliLogger(),

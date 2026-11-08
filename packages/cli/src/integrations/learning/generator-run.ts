@@ -131,7 +131,7 @@ export async function runGeneratorCycle(options: GeneratorRunOptions): Promise<G
 	if (!release) return { status: 'skipped', reason: 'busy' }
 	try {
 		const { paths, tenantId, projectId } = target.target
-		const agenda = await openProjectGuidance(paths, tenantId)
+		const guidance = await openProjectGuidance(paths, tenantId)
 		const experience = new SqliteLearningExperienceStore({
 			databasePath: join(dir, 'experience.sqlite'),
 			scope: {
@@ -170,7 +170,7 @@ export async function runGeneratorCycle(options: GeneratorRunOptions): Promise<G
 		const cycle = await runStoredLearningCycle(target, {
 			skillName: SESSION_SKILL,
 			protection: plan.protection,
-			agenda,
+			guidance,
 			leakGuard,
 			signal: options.signal,
 			resources: { unit: 'tokens', maxUnits: Math.min(settings.cycleTokens, left) },

@@ -1,7 +1,7 @@
 /**
  * The proposal to save a task as a skill is the interactive terminal's
  * alone. A headless run (`exec`, `exec --json`, `drain`), ACP, a scheduled
- * run, a resident worker and a sub-agent have no one to read it: none of
+ * run and a sub-agent have no one to read it: none of
  * them imports the heuristic or its ledger, and only the App does.
  */
 
@@ -42,7 +42,6 @@ describe('skill suggestions belong to the TUI alone', () => {
 			'commands/drain.ts',
 			'commands/acp.ts',
 			'schedule/fire/fire.ts',
-			'integrations/resident/session-step.ts',
 			'integrations/subagents/runtime.ts',
 			'tui/agent.ts',
 		]) {

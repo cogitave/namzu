@@ -213,7 +213,7 @@ describe('browser session reachability', () => {
 })
 
 describe('headless surfaces never ask for the browser', () => {
-	// exec, exec --json, drain, acp and the resident step build their own
+	// exec, exec --json, drain and acp build their own
 	// session options. None of them may name the browser: a signed-in
 	// browser with nobody at the window is exactly what they must not get.
 	it.each([
@@ -221,7 +221,6 @@ describe('headless surfaces never ask for the browser', () => {
 		'../../commands/exec-json.ts',
 		'../../commands/drain.ts',
 		'../../commands/acp.ts',
-		'../../integrations/resident/session-step.ts',
 	])('%s passes no browser option', (file) => {
 		const text = readFileSync(new URL(file, import.meta.url), 'utf8')
 		expect(text).not.toMatch(/\bbrowser\s*:/)

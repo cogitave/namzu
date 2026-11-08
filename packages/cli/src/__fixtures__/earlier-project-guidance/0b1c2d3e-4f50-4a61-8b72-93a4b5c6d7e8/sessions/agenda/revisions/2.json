@@ -1,0 +1,27 @@
+{
+  "tenantId": "0b1c2d3e-4f50-4a61-8b72-93a4b5c6d7e8",
+  "agentKey": "sessions",
+  "identity": "Guidance for conversations in this project.",
+  "revision": 2,
+  "paused": false,
+  "pursuits": [
+    {
+      "id": "b187c1de-e4e6-43bc-8f79-e6a9018e6ebe",
+      "state": {
+        "tenantId": "0b1c2d3e-4f50-4a61-8b72-93a4b5c6d7e8",
+        "agentKey": "sessions",
+        "pursuitId": "b187c1de-e4e6-43bc-8f79-e6a9018e6ebe",
+        "identity": "Guidance for conversations in this project.",
+        "objective": "Check the build output every morning.",
+        "revision": 1,
+        "stepsAdmitted": 0,
+        "phase": "waiting",
+        "wakeAt": 0,
+        "reason": "Initial pursuit",
+        "summary": null,
+        "claimId": null
+      }
+    }
+  ],
+  "schemaVersion": 6
+}

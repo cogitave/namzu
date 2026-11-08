@@ -11,9 +11,9 @@ import type { PermissionSettings } from './settings.js'
 /**
  * How a launch settles its permission mode, and what it may not start in.
  *
- * One function for every entry point (the terminal, `exec`, `exec --json`, a
- * resident step) so the answer to "may this process run without asking?" is
- * the same wherever the question is put.
+ * One function for every entry point (the terminal, `exec`, `exec --json`)
+ * so the answer to "may this process run without asking?" is the same
+ * wherever the question is put.
  */
 
 export interface LaunchEnvironment {

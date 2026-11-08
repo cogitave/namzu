@@ -39,8 +39,8 @@ export async function listLearned(ctx: CommandContext, cwd: string): Promise<num
 		ctx.formatter.print({ text: 'Nothing has been learned for this folder yet.', revisions: [] })
 		return 0
 	}
-	const agenda = await openProjectGuidance(target.target.paths, target.target.tenantId)
-	const { active, revisions } = await listLearnedGuidance(target, agenda)
+	const guidance = await openProjectGuidance(target.target.paths, target.target.tenantId)
+	const { active, revisions } = await listLearnedGuidance(target, guidance)
 	ctx.formatter.print({
 		text: revisions.length
 			? [
@@ -71,8 +71,8 @@ export async function undoLearned(
 		ctx.formatter.print({ text: 'Nothing has been learned for this folder yet.', result: null })
 		return EXIT_USAGE
 	}
-	const agenda = await openProjectGuidance(target.target.paths, target.target.tenantId)
-	const outcome = await undoLearnedGuidance(target, agenda, cycleId)
+	const guidance = await openProjectGuidance(target.target.paths, target.target.tenantId)
+	const outcome = await undoLearnedGuidance(target, guidance, cycleId)
 	if (outcome.status === 'refused') {
 		ctx.formatter.print({ text: describeUndoRefusal(outcome.reason), result: outcome })
 		return EXIT_USAGE

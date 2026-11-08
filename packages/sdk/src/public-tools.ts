@@ -41,7 +41,6 @@ export type { UntrustedEnvelope, WrapUntrustedOptions } from './tools/untrusted-
 // ─── Built-in tools ──────────────────────────────────────────────────────
 
 export { getBuiltinTools } from './tools/builtins/index.js'
-export { buildResidentHistoryTools } from './tools/resident-history.js'
 // A host compiling operator permissions has a tool name and needs an argument
 // to attach a pattern to. Without one it can only match against the serialised
 // input, which is how an `allow` for `git status*` came to approve
@@ -269,8 +268,6 @@ export {
 	type ObservationSeedContext,
 	seedObservationLedger,
 } from './runtime/query/file-evidence-seed.js'
-
-export { buildResidentToolEvidenceTools } from './tools/resident-tool-evidence.js'
 
 export { createPalMessagingTools } from './pals/communication/tools.js'
 export { createPalOperatorMessagingTools } from './pals/communication/operator.js'
