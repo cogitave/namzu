@@ -378,7 +378,7 @@ describe('actual Pal chat activity', () => {
 			},
 		}
 		expect(palChatStatus(waiting, { now: 1000, provider: 'OpenAI' })).toBe(
-			'Waiting for OpenAI to accept more requests… retrying in 8s',
+			'Waiting for OpenAI to accept more requests… retrying in 8s · retry 1 of 3',
 		)
 		expect(palChatStatus(waiting)).toBe('Working…')
 	})
