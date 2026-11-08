@@ -19,12 +19,10 @@ follow upstream without waiting for a new release.
 
 Every launch that opens agent sessions starts one refresh: the interactive TUI
 (`namzu`, `namzu resume`), `namzu exec` (with or without `--json`), `namzu acp`,
-`namzu drain` and `namzu resident run`. A background resident runner
-(`namzu resident start`) is a separate forked process, and it starts its own
-refresh when it begins. Other commands (`doctor`, `login`, `state`, `eval`,
-`resident status` and the rest) open no session and start none.
+and `namzu drain`. Other commands (`doctor`, `login`, `state`, `eval` and the
+rest) open no session and start none.
 
-`drain` and the resident runner are on the list because they continue turns
+`drain` is on the list because it continues turns
 another launch started. A turn that parked on a model only the live or last-good
 catalogue carries would otherwise be continued on the bundled catalogue alone,
 where that model has no known wire format. The last-good copy always comes from

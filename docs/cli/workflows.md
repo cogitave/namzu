@@ -54,8 +54,7 @@ conversation reads what was already said from its history and does not hear the
 full text again), to use the tool for every
 substantial task and to work alone only on conversational or trivial turns. A
 scheduled run has no one to review a script and no `workflow` tool; with the
-`hypermode` config key on it is told to delegate to parallel agents instead, and
-a resident run is told nothing. The tool text carries the quality patterns
+`hypermode` config key on it is told to delegate to parallel agents instead. The tool text carries the quality patterns
 (adversarial verify, judge panel, loop until dry, completeness critic) and
 keeps `Agent` calls with a `workflow` label for small fan-outs.
 
@@ -411,7 +410,7 @@ for that turn (the last one wins; text the model or a tool wrote is never read).
 It is read from the prompt a person typed in the terminal, from the prompt given to
 `namzu exec` (plain or `--json`) and from a prompt sent over ACP. The turns Namzu
 starts itself, such as the report after a workflow or monitor finishes, a goal
-round, peer mail, a scheduled run or a resident step, never carry one.
+round, peer mail, or a scheduled run, never carry one.
 A workflow started in the turn sees it as `budget.total`, and `agent()` throws
 once the run has spent that many output tokens, so a script can size itself
 (`budget.total ? Math.floor(budget.total / 100_000) : 5`). With the turn's own

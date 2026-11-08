@@ -1712,6 +1712,11 @@ export { createResidentDeliveryWindow } from './manager/resident/delivery-window
 export { hashLearningSkill, projectLearning } from './learning/skill.js'
 export { runLearningCycle } from './learning/cycle.js'
 export {
+	DiskLearningGuidance,
+	LearningGuidanceConflictError,
+	earlierGuidanceDirectory,
+} from './learning/guidance.js'
+export {
 	LEARNING_FLOOR_COMPONENTS,
 	LEARNING_SURFACE_KINDS,
 	learningExperienceFromCycle,

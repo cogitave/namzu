@@ -639,6 +639,10 @@ export type {
 	LearningCycleOptions,
 	LearningCycleResult,
 } from './learning/cycle.js'
+export type {
+	DiskLearningGuidanceOptions,
+	LearningGuidanceState,
+} from './learning/guidance.js'
 
 export type {
 	LearningModel,

@@ -14,7 +14,7 @@ import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 /**
  * Failures and recoveries an ordinary conversation already classifies, kept as
  * learning observations so a later `namzu learn` has something real to work
- * from. A conversation needs no resident for this.
+ * from. A conversation needs nothing set up for this.
  *
  * What is kept: a reference to the conversation and turn, the kind of failure,
  * and one short redacted sentence. Never the prompt, the model's answer or a

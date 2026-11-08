@@ -45,7 +45,7 @@ import {
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_FAIL, EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
-import { readSessionStart } from '../integrations/resident/session-log-reads.js'
+import { readSessionStart } from '../integrations/sessions/session-start.js'
 import { contextLogging, createStderrSink, installCliLogging } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import {

@@ -163,7 +163,7 @@ A sub-agent borrows the review channel of the turn that started it, so each call
 
 ## Headless runs
 
-`namzu exec`, `exec --json` and the resident step take `--permission-mode` and `--yolo` the same way. With neither flag and nobody to ask, the kernel's own unattended default applies (it has no word of its own): routine calls run and anything out of bounds is refused. `--yolo` there means `bypass`, so a path outside the folder runs and the immune list above is refused. `--permission-mode auto` needs a model it can reach and exits 64 with the reason when there is none. `--allow-dangerously-skip-permissions` is for the interactive session only.
+`namzu exec` and `exec --json` take `--permission-mode` and `--yolo` the same way. With neither flag and nobody to ask, the kernel's own unattended default applies (it has no word of its own): routine calls run and anything out of bounds is refused. `--yolo` there means `bypass`, so a path outside the folder runs and the immune list above is refused. `--permission-mode auto` needs a model it can reach and exits 64 with the reason when there is none. `--allow-dangerously-skip-permissions` is for the interactive session only.
 
 ## Desktop and ACP
 

@@ -10,8 +10,8 @@ generated: { by: process:claude-code, at: 2026-10-26T00:00:00Z }
 
 # Learning in the CLI
 
-Learning is not tied to residents. Two commands are the front door, and an
-ordinary conversation, in the terminal or through `namzu exec`, feeds it.
+Two commands are the front door, and an ordinary conversation, in the terminal
+or through `namzu exec`, feeds it.
 
 ## Commands
 
@@ -33,14 +33,22 @@ host module you chose, through the SDK's [learning cycle](../sdk/learning.md).
 The module supplies the generator and the independent evaluation, it runs only
 with `--trust`, and the result becomes active only for the exact revision that
 passed. `namzu learning` lists experiments, shows one, or lists observations.
-`--observations` lists a resident's; `--sessions` lists what conversations in
-the folder kept (below) and needs no resident. It only reads.
+`--observations` lists a learning target's; `--sessions` lists what
+conversations in the folder kept (below). It only reads.
 
-`namzu resident learn` and `namzu resident learning` are the same commands under
-their older names and behave identically. The experiment's activation target is
-still an agent's saved guidance, so both need an agent in the folder
-(`--agent`, default `default`); without one, `namzu learn` says so and stops
-(`--sessions` needs none, below); see [Resident work](resident-work.md#explicit-learning-experiments).
+A module run without `--sessions` learns into a named **learning target**
+(`--agent <name>`, default `default`): its own experiment journal and its own
+revisioned guidance under `projects/<project>/learning/targets/<name>/`
+(`store/` and `guidance/`), created the first time a trusted module runs into
+it. `namzu learning` on a target that does not exist yet says no experiments
+are recorded and creates nothing.
+
+`namzu resident learn` and `namzu resident learning` no longer exist; the
+commands above are the same commands. A target an earlier version learned into
+(its journal, artifacts and guidance under `projects/<project>/residents/<name>/`)
+is carried over the first time it is used: the files are copied, nothing is
+deleted from the old location, and the result is the same journal and the same
+guidance history. See [Learning guidance](../sdk/learning-guidance.md#guidance-an-earlier-version-kept).
 
 ## What a conversation keeps
 
@@ -78,22 +86,23 @@ Turn recording off with `learningObservations: false` in the user or project
 config. Absent means on. Ephemeral conversations (`exec` without a
 conversation) keep nothing.
 
-## Learning from conversations, with no resident
+## Learning from conversations
 
 `namzu learn --sessions <module>` starts from the observations conversations in
-this folder kept, with no agent needed. The module is the same kind of host
+this folder kept. The module is the same kind of host
 module and runs only with `--trust`; the independent two-round check and the
 confirmation are unchanged, and only the exact revision that passed is
 activated. The result is this project's own guidance (the evaluated skills,
-stored with their history under `projects/<project>/learning/guidance/`), not
-an agent's. If no conversation here has kept an observation yet, it says so
+stored with their history under `projects/<project>/learning/session-guidance/`),
+not a named target's. Guidance an earlier version kept in
+`projects/<project>/learning/guidance/` is carried over the first time it is used. If no conversation here has kept an observation yet, it says so
 and stops with exit 64.
 
 Every later conversation in the folder starts with that guidance in its
 context, as advice about how to work here: it grants no permission and runs
 nothing. Ephemeral conversations do not read it. An exploration policy is never
 handed to a conversation. Revert by activating an earlier revision through the
-same history, as for a resident.
+same history (`namzu learn --undo`).
 
 ## Learning by itself
 

@@ -1,0 +1,9 @@
+{
+  "tenantId": "01a1b76f-fc08-74ca-a822-2c5b64ec33aa",
+  "agentKey": "default",
+  "identity": "Pursue only objectives explicitly added by this project’s operator. Respect project instructions and current tool permissions.",
+  "revision": 1,
+  "paused": false,
+  "pursuits": [],
+  "schemaVersion": 6
+}

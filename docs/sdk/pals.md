@@ -324,6 +324,6 @@ reports the host's tenant Pals as ID, name, purpose, `paused` and an `idle` flag
 that is only the host application's own view. See
 [operator-conversation input](pal-ingress.md#source-identity).
 
-Communication does not start a resident daemon, create schedules, configure an
+Communication does not start a background daemon, create schedules, configure an
 external transport or expose host plugins automatically. Pal Team coordination
 and external channel membership are separate host concerns.

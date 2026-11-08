@@ -60,7 +60,7 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 	}
 })
 
-vi.mock('../../integrations/resident/session-log-reads.js', () => ({
+vi.mock('../../integrations/sessions/session-start.js', () => ({
 	readSessionStart: spies.readSessionStart,
 }))
 

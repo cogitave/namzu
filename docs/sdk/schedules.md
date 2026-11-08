@@ -116,7 +116,7 @@ Occurrences are counted, never enumerated, up to 100 000 (`capped` says when the
 - `scanSchedulePrompt` flags invisible characters, "ignore previous instructions", secret files and exfiltration shapes. The findings are shown in the confirmation and never block on their own.
 - The tool declares its own `timeoutMs`, thirty minutes, so the executor's two-minute default deadline never cuts a person off mid-read (the same duration `save_skill` uses for the same reason). Both `host.confirm()` and `host.confirmAction()` are given the tool's abort signal; it fires when that deadline elapses or the turn is stopped, and either settles the pending call as `cancel`/`false` and, in a host that draws a screen, closes it — never leaves it on screen after the tool has stopped waiting for the answer.
 
-Register it only where a person can confirm. The CLI registers it in the interactive TUI and never in `exec`, a scheduled run, a sub-agent, a resident worker or ACP.
+Register it only where a person can confirm. The CLI registers it in the interactive TUI and never in `exec`, a scheduled run, a sub-agent or ACP.
 
 `buildSessionLoopTools(host: SessionLoopHost)` returns `session_loop` (`create`, `list`, `delete`): re-send a prompt to the same conversation on an interval while the session is open. `create` is an ordinary reviewed call, not review-exempt, so in `prompt` mode the operator sees it first. The CLI's host is described in [Session loops](../cli/session-loops.md).
 

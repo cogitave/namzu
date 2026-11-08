@@ -1,0 +1,207 @@
+---
+type: Design
+title: Learning cycle
+description: One host-authorized experiment from recorded failure to generated guidance, paired evaluation, fresh confirmation and durable activation.
+resource: packages/sdk/src/learning/cycle.ts
+tags: [sdk, learning, evaluation]
+status: draft
+---
+
+# Learning cycle
+
+The learning code lives in the [learning module](learning.md).
+
+`runLearningCycle` connects the [learning guidance](learning-guidance.md)
+and [harness verification](harness-verification.md) contracts. It generates one
+instructional candidate from a recorded failure, requests independent evaluation
+and fresh confirmation, and activates accepted content through the guidance
+store's exact-revision transaction. It is an optional SDK workflow, not another
+provider loop or an automatically installed background learner.
+
+Optional [`purpose: 'exploration'`](exploration-policies.md) admits a policy for
+choosing experiments. The generated candidate must retain that purpose; ordinary
+task projection withholds it. The omitted purpose remains task guidance.
+
+The [RSI assessment](../../research/resident/rsi-readiness.md) (a historical study,
+written before the resident feature was removed; its scripts no longer run) explains the source
+comparison and the distinction between persisted guidance and recursive
+improvement of the improvement procedure. This API does not train model weights,
+execute generated skill code or establish a generalization result.
+
+## Status and what is missing
+
+Verified 2026-10-26. The cycle is `@experimental`. From the CLI it is reached
+through `namzu learn <file> --trust` with a host-supplied `<file>.learning.js`
+generator, or through Namzu's own built-in generator (the terminal runs it by itself; see [Learning in the CLI](../cli/learning.md#learning-by-itself)).
+The cycle handles one candidate per run: there is no fan-out, composition or
+blind selection among candidates yet. The `resources` option is a per-cycle budget
+cap, not a trigger policy: it bounds what one cycle may spend and does not
+decide when a cycle runs. The historical [readiness assessment](../../research/resident/rsi-readiness.md#verified-status-2026-10-26)
+lists what was built, what was opt-in and the staged plan as of its date; it predates the removal of the resident feature.
+
+## Host responsibilities and execution
+
+`LearningCycleOptions` requires a `guidance` store with `read` and `promoteSkill`
+(a [`DiskLearningGuidance`](learning-guidance.md)),
+a `skillName`, a bounded `failure` containing evidence and a trace, a cancellation
+signal, a resource policy, a `protection` plan and three callbacks:
+
+- `generate` receives the failure, active baseline and stage context. It returns
+  a candidate with the requested name and an explicit `usageComplete` declaration.
+  It can use normal `runAgent` or another host-owned execution path.
+- Optional [`explore`](learning-exploration.md) runs first, using normal tools to
+  collect model-selected environment experiments. It retains observed outputs
+  before synthesis; `generate` receives them through `context.exploration`.
+  This path requires no hand-authored correction and shares the cycle's usage,
+  cancellation, journal and preservation contracts.
+- `evaluate` receives the exact candidate and baseline, their hashes, and the
+  stage (`verification` or `confirmation`). It runs and retains its own cases,
+  scoring and trace attribution, then returns a `HarnessVerificationBatch` and
+  `usageComplete`. Existing `runExperiment` is the intended execution mechanism.
+- `record` durably appends each `LearningCycleEvent` before acknowledging.
+  A host can use an owned JSONL file or the optional
+  [SQLite learning store](learning-storage.md). Events are delivered
+  in sequence even when a callback records several run receipts concurrently.
+
+The host authenticates the source of the failure and the independent evaluator;
+the SDK cannot establish either fact from a string label. Confirmation tasks
+must remain unavailable to generation. Full evaluation artifacts remain in host
+storage: journal entries retain their digests and trace references, not complete
+trajectories. Use a fresh experiment identity after an explicitly inspected
+failure; there is no automatic replay or resume of a partly executed cycle.
+An optional `parentCycleId` records declared ancestry, whose authenticity the
+host must enforce.
+
+The guidance must already exist. The baseline and guidance revision are captured
+before generation. Changes are checked at stage boundaries and activation uses
+the original snapshot, so a racing update cannot silently receive evaluation
+produced for a different baseline. The workflow does not hold the guidance locked
+during model calls. A result's `guidanceRevision` is the revision an activation
+created (journals written by earlier versions call it `agendaRevision`).
+
+Normalized name, description, body and any host-declared source bindings identify a candidate through
+`hashLearningSkill`. A changed name or mismatched evaluation revision is refused.
+An identical candidate is rejected without evaluation. The existing review gate
+requires at least five tasks with exactly two trials per side, independently
+attributed improvement, no observed regression or ambiguous measurement, and a
+fresh confirmation of the same size. Each round is bounded to 64 paired tasks.
+An already rejected or insufficient verification does not consume confirmation
+work. These are engineering acceptance rules, not a statistical proof.
+
+`protection: { verification: [...taskIds], confirmation: [...taskIds] }` is
+required before generation. The SDK validates and freezes both selections before
+its first callback, records them in the `started` event, and does not expose them
+to `generate`. Returning another selection from generation/evaluation cannot
+replace the admitted plan. Missing verification controls stop the cycle before
+confirmation. Both rounds must satisfy the
+[preservation gate](harness-verification.md#declared-preservation-tasks) before
+activation. Hosts retain the task inputs/scorers and choose semantic coverage;
+strings alone cannot certify independence or freedom from evaluation leakage.
+
+This is a breaking admission requirement: earlier hosts without `protection`
+must declare real preservation tasks and include their paired runs in each
+batch. Do not label a newly recovered task as a preservation control. The stored
+proof records control counts and a plan digest; the full selection remains in
+the journal and is included in the evaluation digest. Previously activated
+guidance is readable but has no retroactively invented preservation evidence.
+
+## Consumption and cancellation
+
+Each callback must await `context.recordUsage` for every non-overlapping execution,
+including generation, unsuccessful cases, reviewers and other side calls.
+`LearningReceipt` contains a UUID `turnId`, `tokens` and `costUsd`.
+Unknown fields are `null`. Duplicate UUIDs, including case aliases, are refused;
+an invalid receipt invalidates the stage even if the callback catches the error.
+There are at most 1,024 receipts in one cycle. Token totals must remain safe
+integers, and price totals finite.
+
+Use one accounting convention consistently. For example, do not submit both a
+parent's descendant-inclusive usage and its children's own usage. Retry and cache
+buckets already present in a cumulative run must not be added again. The SDK
+does not authenticate provider receipts or discover this overlap automatically.
+
+The resource policy selects `tokens` or `usd` and a positive `maxUnits`.
+Incomplete evidence in that unit stops subsequent stages and activation.
+Unpriced work may proceed under an explicit token policy; the result still
+reports unknown costs. A stage claiming completeness without any receipt is
+incomplete, including when its host needs to report a zero-cost local execution.
+
+`remainingUnits` helps the host plan each stage. Observed exhaustion stops the
+next stage; observed excess also prevents activation. This is **not an atomic
+reservation or an in-flight spending ceiling**. The host must impose turn limits
+and propagate the signal to every model, tool and evaluator it owns. The workflow
+waits for callbacks and does not detach an uncooperative executor on cancellation.
+
+`LearningConsumption` preserves known totals, unknown receipt counts and
+unfinished stages. The older numeric `HarnessReview.usage.costUsd` cannot express
+unpriced work; use the cycle's consumption fields for that decision. A callback
+that fails after recording some runs retains those receipts and leaves its stage
+incomplete. A process death requires inspecting the host journal and underlying
+run receipts; the SDK does not infer a missing final receipt as zero.
+
+## Activation and recovery
+
+Possible results are `activated`, `rejected`, `inconclusive`, `conflict`,
+`cancelled`, `failed` and `activation-unknown`. Every result includes the cycle
+identity, available candidate identity, recorded consumption and `auditComplete`.
+Stage start/finish, usage, candidate, evaluation and activation-request events
+make unfinished work inspectable.
+
+Activation writes the cycle UUID as the learned skill's evidence key. If the
+store commits but its acknowledgement is lost, the workflow reports
+`activation-unknown`. Inspect the active skill's evidence key and content hash
+before taking another action. An error appending the final event after a
+successful commit returns `activated` with `auditComplete: false`; it must not
+trigger another activation or model replay. Cancellation observed before the
+commit prevents it; a successfully acknowledged commit is reported even if
+cancellation arrives afterwards.
+
+A host projects the accepted guidance into later work with `projectLearning`; a
+conversation in a project starts with it. `rollbackSkill` appends an explicit
+reversal using an earlier guidance revision; neither activation nor rollback
+rewrites the context of a turn that is already running.
+
+```ts
+import {
+  runLearningCycle,
+  type LearningCycleOptions,
+} from '@namzu/sdk'
+
+async function evaluateOneSkill(host: LearningCycleOptions) {
+  const result = await runLearningCycle(host)
+  return {
+    status: result.status,
+    candidate: result.candidateRevision,
+    usage: result.consumption,
+    inspectJournal: !result.auditComplete || result.status === 'activation-unknown',
+  }
+}
+```
+
+## Recorded experiment
+
+The historical `learning-cycle-experiment.mjs` was run at `f92daf81` with
+scripted inference and, separately, Zen's `muse-spark-1.3-contributor-free` at
+low effort. The later `learning-protection-study.mjs` recorded the current
+admission contract. These producers still use SDK interfaces removed since
+their runs (`ToolRegistry`, `DefaultPathBuilder` and the old query and result
+shapes); their scripted and live commands do not run in this checkout. Consult
+[the protection study](../../research/resident/learning-protection.md) (historical: it
+describes the resident-based setup that was removed) for its retained results. A new run needs a migrated, tested producer. A live Muse run
+also needs a real Zen key and fresh gateway verification: direct keyless Namzu
+requests to Muse returned HTTP 403 on 2026-09-28. A key has not been tested
+here. The old batches do not establish the new admission requirement.
+
+The host supplies a synthetic workspace routing convention after observing a
+cold knowledge gap. The experiment separates frozen behavior, retained raw
+correction and generated guidance in fresh turns. The primary activation comparison
+is guidance versus frozen behavior; the raw-memory control may explain the same
+gain. Confirmation, holdout, reopening and rollback are separately recorded.
+This is a narrow acquired-convention experiment, not a demonstration that
+generated guidance outperforms raw memory or that the learner improves itself.
+
+The [recorded Muse/low results](../../research/resident/learning-cycle-results.md)
+(historical: produced by scripts that import removed exports and no longer run)
+include all three arms, a real CLI admission after reopening, explicit rollback,
+recorded unpriced consumption and a read-only artifact auditor. The raw-memory
+and generated-guidance arms achieved the same accuracy in that experiment.

@@ -1,11 +1,7 @@
 import { runLearningCommand } from './learning.js'
 import type { CommandDef } from './types.js'
 
-/**
- * Learning is a feature of the whole kernel, not of residents. These two
- * commands are the front door; `namzu resident learn` and
- * `namzu resident learning` stay as the same thing under their old names.
- */
+/** The two front doors of learning: running it, and inspecting what it kept. */
 export const learnCommand: CommandDef = {
 	name: 'learn',
 	description: 'Learn from what conversations kept, now; list or undo what was learned',
@@ -29,20 +25,20 @@ export const learnCommand: CommandDef = {
 		'independent check, asks you to confirm, and activates only the exact',
 		'revision that passed. Nothing is started in the background.',
 		'',
-		'Without --sessions an agent must already exist in the folder (`namzu resident',
-		"add`): the result becomes that agent's saved guidance. Failures an ordinary",
-		'conversation hits are kept as local observations (turn off with',
-		'`learningObservations: false`). With --sessions the experiment starts from',
-		"those observations and a confirmed result becomes this project's guidance,",
-		'which later conversations here start with; no resident is needed.',
-		'`namzu learning --sessions` lists what was kept.',
+		'Without --sessions the result becomes the saved guidance of the named',
+		'learning target (--agent, default: default), which is created the first time',
+		'a module runs into it. Failures an ordinary conversation hits are kept as',
+		'local observations (turn off with `learningObservations: false`). With',
+		'--sessions the experiment starts from those observations and a confirmed',
+		"result becomes this project's guidance, which later conversations here",
+		'start with. `namzu learning --sessions` lists what was kept.',
 		'',
 		'  --list          List what Namzu learned for this folder (no module)',
 		'  --undo [id]     Restore the guidance an activation replaced (no module)',
 		"  --sessions      Learn from this folder's conversations, into its project guidance",
 		'  --trust         Allow the module to run in this folder',
 		'  --cwd <path>    Work in another folder',
-		'  --agent <name>  The agent whose guidance this changes (default: default)',
+		'  --agent <name>  The learning target this changes (default: default)',
 		'',
 		'Exit: 0 done, 64 invalid arguments, 77 untrusted execution.',
 	].join('\n'),
@@ -60,10 +56,10 @@ export const learningCommand: CommandDef = {
 		'',
 		'List experiments, show one with its events, or list the failures and',
 		'recoveries that were kept as observations. Read-only. `--observations` reads a',
-		"resident's; `--sessions` reads what conversations kept and needs no resident.",
+		"learning target's; `--sessions` reads what conversations kept.",
 		'',
 		'  --cwd <path>    Look in another folder',
-		'  --agent <name>  The agent whose records to read (default: default)',
+		'  --agent <name>  The learning target whose records to read (default: default)',
 	].join('\n'),
 	handler: ({ ctx, rawArgs }) => runLearningCommand({ ctx, rawArgs: ['learning', ...rawArgs] }),
 }

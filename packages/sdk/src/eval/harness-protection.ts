@@ -41,7 +41,7 @@ const planSchema = z
 export function normalizeHarnessProtection(input: HarnessProtectionPlan): HarnessProtectionPlan {
 	if (input === undefined || input === null)
 		throw new Error(
-			'Declare protection.verification and protection.confirmation task IDs before resident learning or promotion.',
+			'Declare protection.verification and protection.confirmation task IDs before learning or promotion.',
 		)
 	const plan = planSchema.parse(input)
 	return Object.freeze({
