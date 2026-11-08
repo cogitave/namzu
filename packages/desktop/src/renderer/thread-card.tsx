@@ -3,6 +3,7 @@ import {
 	type BackgroundWorkStatus,
 	freshBackgroundWorkStatus,
 } from '../shared/background-work-protocol.js'
+import { conversationGlyph } from '../shared/conversation-status.js'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectGitView, ProjectView } from '../shared/protocol.js'
 import { ConversationContextMenu } from './conversation-actions-menu.js'
@@ -16,6 +17,7 @@ import {
 	LoaderCircleIcon,
 	PinIcon,
 	PinOffIcon,
+	QuestionCircleIcon,
 	ShieldQuestionIcon,
 	TerminalIcon,
 } from './icons.js'
@@ -52,6 +54,7 @@ export function ThreadCard({
 	onClick,
 	rowActions,
 	projectLabel,
+	unread = false,
 }: {
 	conversation: ConversationView
 	project: ProjectView
@@ -62,6 +65,8 @@ export function ThreadCard({
 	rowActions?: ThreadRowActions
 	/** The project's name, shown after the title where rows from several projects share a list. */
 	projectLabel?: string
+	/** A turn finished here while no window showed this conversation. */
+	unread?: boolean
 }) {
 	const statusId = useId()
 	// A button's tooltip opens beside the row, off the group's outer edge: above or below it would
@@ -103,13 +108,14 @@ export function ThreadCard({
 			: undefined
 	// A stopped turn is not running, even before the host has settled it.
 	const busy = !!thread?.running && thread.stopReason === undefined
-	const threadStatus = thread?.permissions.length
-		? 'Approval needed'
-		: busy
-			? 'Running'
-			: thread?.error
-				? 'Needs attention'
-				: undefined
+	// The row's one mark. Main decides what is unread, so a conversation being looked at never is.
+	const glyph = conversationGlyph({
+		permissions: thread?.permissions ?? [],
+		running: busy,
+		error: !!thread?.error,
+		unread,
+	})
+	const threadStatus = glyph.kind === 'idle' ? undefined : glyph.label
 	const archiveReason = archiveBlockedReason({
 		running: !!thread?.running,
 		queued: thread?.queued.length ?? 0,
@@ -132,6 +138,7 @@ export function ThreadCard({
 		'data-removable': actions ? true : undefined,
 		'data-action-count': actions ? (archiveButton && pinButton ? 2 : 1) : undefined,
 		'data-menu-open': menuOpen || undefined,
+		'data-status': glyph.kind === 'idle' ? undefined : glyph.kind,
 		onPointerEnter: (event: React.PointerEvent) => {
 			if (event.pointerType === 'touch' || menusOpen > 0) return
 			intent.enter()
@@ -186,23 +193,29 @@ export function ThreadCard({
 									{work.needsAttention ? '!' : <TerminalIcon />}
 								</span>
 							)}
-							{thread?.permissions.length ? (
+							{glyph.kind === 'permission' ? (
 								<ShieldQuestionIcon
 									className="size-3.5 text-warning-foreground"
-									aria-label="Approval needed"
+									aria-label={glyph.label}
 								/>
-							) : busy ? (
+							) : glyph.kind === 'question' ? (
+								<QuestionCircleIcon
+									className="size-3.5 text-warning-foreground"
+									aria-label={glyph.label}
+								/>
+							) : glyph.kind === 'running' ? (
 								<LoaderCircleIcon
 									className="thread-running-indicator"
 									role="img"
-									aria-label="Running"
+									aria-label={glyph.label}
 									aria-hidden={false}
 								/>
+							) : glyph.kind === 'error' ? (
+								<span className="connection-dot error" role="img" aria-label={glyph.label} />
+							) : glyph.kind === 'unread' ? (
+								<span className="thread-unread-dot" role="img" aria-label={glyph.label} />
 							) : (
 								<span className="conversation-age">{time}</span>
-							)}
-							{thread?.error && (
-								<span className="connection-dot error" aria-label="Needs attention" />
 							)}
 						</span>
 					</div>

@@ -89,6 +89,7 @@ import {
 	ConversationTabs,
 } from './conversation-tabs.js'
 import { ConversationTasks } from './conversation-tasks.js'
+import { useConversationUnread } from './conversation-unread-store.js'
 import { copyPlainText } from './copy-button.js'
 import { signInHelpFor } from './engine-setup.js'
 import { setEngineSignedOut } from './engine-sign-in.js'
@@ -982,6 +983,7 @@ export function App({
 	const pal = pals.find((item) => item.id === project?.palId)
 	// A Pal row shows a marker from the moment the person messages it until they open it.
 	const { collapsed: collapsedSections, setSectionCollapsed } = useSidebarSections(api)
+	const { ids: unreadConversations, set: setConversationUnread } = useConversationUnread(api)
 	const [unreadPals, setUnreadPals] = useState<ReadonlySet<string>>(() => new Set())
 	const countedPalSends = useRef(new Set<string>())
 	useEffect(() => {
@@ -2118,6 +2120,8 @@ export function App({
 				)
 				return
 			}
+			// The unread store listens for its own event; nothing here belongs to a conversation.
+			if (event.kind === 'unread') return
 			if (event.kind === 'providers-changed') {
 				// A key was saved or removed. Forget what each pane remembered about providers
 				// and read them again; the send button follows the new answer.
@@ -3568,6 +3572,7 @@ export function App({
 			hasMessages: state.messages.length > 0,
 			hasReply: lastReplyText(state.messages) !== undefined,
 			hasProjectPath: Boolean(owner && !owner.isChat && !owner.palId && owner.path),
+			unread: unreadConversations.has(view.id),
 			editorLabel: editors[0]?.label,
 			canMoveRight: group.tabs.length > 1,
 			can: {
@@ -3580,6 +3585,7 @@ export function App({
 				moveRight: true,
 				moveWindow: true,
 				openIn: Boolean(api.openProjectPath),
+				unread: Boolean(api.setConversationUnread),
 			},
 		}
 	}
@@ -3646,6 +3652,10 @@ export function App({
 						},
 					})
 				})
+				return
+			case 'mark-unread':
+				if (!api.setConversationUnread) return
+				void act(() => setConversationUnread(view.id, !unreadConversations.has(view.id)))
 				return
 			case 'fork':
 				if (!api.forkConversation) return
@@ -6137,6 +6147,7 @@ export function App({
 							rowActions={sidebarRowActions}
 							threads={threads}
 							backgroundWork={backgroundWork}
+							unread={unreadConversations}
 							open={!pageOpen && sideOpen}
 							onRemoveProject={api.removeProject ? requestProjectRemoval : undefined}
 							onRenameProject={api.renameProject ? requestProjectRename : undefined}

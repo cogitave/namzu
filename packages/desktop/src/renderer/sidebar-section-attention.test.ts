@@ -50,4 +50,17 @@ describe('conversationsAttention', () => {
 		expect(conversationsAttention([view('a')], { z: waiting })).toBeUndefined()
 		expect(conversationsAttention([], {})).toBeUndefined()
 	})
+	it('mentions a reply nobody has read after waiting and running', () => {
+		const rows = [view('a'), view('b')]
+		expect(conversationsAttention(rows, {}, undefined, new Set(['a']))).toBe(
+			'A conversation has a new reply',
+		)
+		expect(conversationsAttention(rows, {}, undefined, new Set(['a', 'b']))).toBe(
+			'2 conversations have new replies',
+		)
+		expect(
+			conversationsAttention(rows, { a: thread({ running: true }) }, undefined, new Set(['b'])),
+		).toBe('A conversation is running')
+		expect(conversationsAttention(rows, {}, undefined, new Set(['gone']))).toBeUndefined()
+	})
 })
