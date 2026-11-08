@@ -336,9 +336,38 @@ describe('an edit against a file that moved is refused, not applied', () => {
 		)
 
 		expect(result.success).toBe(false)
-		expect(result.error).toContain('has not been read yet')
+		expect(result.error).toContain('had not been read in this session')
 		expect(result.error).toContain('Nothing was written')
 		expect(readFileSync(join(dir, 'doc.md'), 'utf-8')).toBe('alpha\nbeta\n')
+	})
+
+	it('shows a small unread file and admits the repeated edit', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
+		writeFileSync(join(dir, 'doc.md'), 'alpha\nbeta\n')
+		const context = contextWith(dir, trackerOver(new Map()))
+		const input = { path: 'doc.md', old_string: 'beta', new_string: 'gamma', replace_all: false }
+
+		const first = await EditTool.execute(input, context)
+		expect(first.success).toBe(false)
+		expect(first.error).toContain('1\talpha')
+		expect(first.error).toContain('2\tbeta')
+		// The file was handed over, so the read it amounts to is credited.
+		const second = await EditTool.execute(input, context)
+		expect(second.success).toBe(true)
+		expect(readFileSync(join(dir, 'doc.md'), 'utf-8')).toBe('alpha\ngamma\n')
+	})
+
+	it('names the remedy for a file too large to hand over, and does not credit it', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
+		writeFileSync(join(dir, 'big.md'), `${'x'.repeat(30_000)}\nbeta\n`)
+		const context = contextWith(dir, trackerOver(new Map()))
+		const input = { path: 'big.md', old_string: 'beta', new_string: 'gamma', replace_all: false }
+
+		const first = await EditTool.execute(input, context)
+		expect(first.success).toBe(false)
+		expect(first.error).toContain('Read it with the read tool')
+		expect(first.error).not.toContain('xxxx')
+		expect((await EditTool.execute(input, context)).success).toBe(false)
 	})
 
 	it('refuses an unread sandbox file too', async () => {
@@ -348,7 +377,7 @@ describe('an edit against a file that moved is refused, not applied', () => {
 			contextWith('/sandbox', trackerOver(new Map()), backend.sandbox),
 		)
 		expect(result.success).toBe(false)
-		expect(result.error).toContain('has not been read yet')
+		expect(result.error).toContain('had not been read in this session')
 		expect(backend.writes()).toBe(0)
 	})
 })

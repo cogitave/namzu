@@ -346,7 +346,11 @@ it('carries a successful write and its exact content into the next provider requ
 			alternatives: [],
 		} as DetectedProvider,
 	]
-	const session = await createAgentSession(preferences, detected, { cwd, permissionMode: 'auto' })
+	const session = await createAgentSession(preferences, detected, {
+		cwd,
+		permissionMode: 'auto',
+		limits: { doneGate: false },
+	})
 	let history: readonly Message[] | undefined
 	try {
 		for await (const _event of session.send([createUserMessage('Create a greeting file')], {

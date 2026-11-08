@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 
 import type { ToolContext } from '../../../types/tool/index.js'
@@ -14,7 +14,13 @@ import { BashTool } from '../bash.js'
  */
 
 const dirs: string[] = []
+beforeEach(() => {
+	// The roots are the temp directory too unless this is set; the "outside"
+	// fixtures here are made in it, so guard it like any other directory.
+	vi.stubEnv('NAMZU_GUARD_TEMP_DIR', '1')
+})
 afterEach(() => {
+	vi.unstubAllEnvs()
 	forgetCarriedDirectories()
 	for (const dir of dirs) removeTempDir(dir)
 	dirs.length = 0

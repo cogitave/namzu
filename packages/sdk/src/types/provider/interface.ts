@@ -180,6 +180,19 @@ export interface LLMProvider {
 	): readonly import('./chat.js').ReasoningEffort[] | undefined
 
 	/**
+	 * Whether `model` takes a forced tool choice (`toolChoice: 'required'` or a
+	 * named function) under the thinking configuration the request will carry.
+	 *
+	 * The kernel asks before it requires a tool call on a step it wants to act,
+	 * and when the answer is `false` it keeps the step at low effort and asks the
+	 * model in words instead of sending a choice the driver would refuse. Optional:
+	 * a provider that does not declare it is treated as taking the choice, so
+	 * every existing driver behaves as before. A wrapper that rebuilds a provider
+	 * forwards it.
+	 */
+	acceptsForcedToolChoiceFor?(model: string, thinking?: import('./chat.js').ThinkingConfig): boolean
+
+	/**
 	 * The effort a model uses when a request omits an explicit level.
 	 *
 	 * A directional control cannot infer this from the menu: a model may start

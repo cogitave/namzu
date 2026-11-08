@@ -17,8 +17,9 @@ describe('keeping the person informed', () => {
 		expect(NAMZU_WORKING_DOCTRINE).toContain('after a long stretch without one')
 	})
 
-	it('opens a task list for work of three or more steps', () => {
-		expect(NAMZU_DELEGATION_DOCTRINE).toContain('work of three or more steps')
+	it('makes a task list optional, for work of three or more distinct steps', () => {
+		expect(NAMZU_DELEGATION_DOCTRINE).toContain('A task list is optional')
+		expect(NAMZU_DELEGATION_DOCTRINE).toContain('three or more distinct steps')
 		expect(NAMZU_DELEGATION_DOCTRINE).toContain('two-step job')
 	})
 })

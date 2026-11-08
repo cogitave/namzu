@@ -110,6 +110,10 @@ function addLaunchOptions(command: Command): Command {
 			'--model <id>',
 			'Start the interactive session on this model for this launch only. With --provider it models that provider; alone it re-models the saved primary.',
 		)
+		.option(
+			'--no-done-gate',
+			'Do not ask once for a check of edits (tests, lint) before a turn that changed files ends; also limits.doneGate: false.',
+		)
 		.addOption(
 			new Option(
 				'--max-output-tokens <n>',
@@ -631,6 +635,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				account?: string
 				model?: string
 				maxOutputTokens?: number
+				doneGate?: boolean
 				effort?: (typeof REASONING_EFFORT_LEVELS)[number]
 				permissionMode?: (typeof PERMISSION_MODE_NAMES)[number]
 				message?: string
@@ -888,13 +893,16 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.statusLine ? { statusLine: resolvedCtx.config.statusLine } : {}),
 					...(resolvedCtx.config.compaction ? { compaction: resolvedCtx.config.compaction } : {}),
 					...(resolvedCtx.config.memory ? { memory: resolvedCtx.config.memory } : {}),
-					...(resolvedCtx.config.limits || launchOpts.maxOutputTokens !== undefined
+					...(resolvedCtx.config.limits ||
+					launchOpts.maxOutputTokens !== undefined ||
+					launchOpts.doneGate === false
 						? {
 								limits: {
 									...resolvedCtx.config.limits,
 									...(launchOpts.maxOutputTokens !== undefined
 										? { maxResponseTokens: launchOpts.maxOutputTokens }
 										: {}),
+									...(launchOpts.doneGate === false ? { doneGate: false } : {}),
 								},
 							}
 						: {}),

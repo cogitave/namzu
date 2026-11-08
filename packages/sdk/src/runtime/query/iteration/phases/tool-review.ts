@@ -1127,9 +1127,11 @@ export async function* runToolReview(
 					}
 				}
 				if (mod.action === 'deny' && !denials.has(mod.toolCallId)) {
-					denials.set(mod.toolCallId, DECLINED_TOOL_CALL_FEEDBACK)
-					// A per-call deny is the person's own answer; gate denials above are not.
-					humanDenied.set(mod.toolCallId, {})
+					const policy = reviewDecision.policyRefusals?.[mod.toolCallId]
+					denials.set(mod.toolCallId, policy ?? DECLINED_TOOL_CALL_FEEDBACK)
+					// A per-call deny is the person's own answer; gate denials and a
+					// policy's refusal of one call are not.
+					if (policy === undefined) humanDenied.set(mod.toolCallId, {})
 				}
 			}
 

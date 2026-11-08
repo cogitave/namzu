@@ -90,6 +90,14 @@ allowance the endpoint supports; a larger value permits more output per call.
 The CLI retries output cutoffs at most three consecutive times and then reports
 `output_limit`, including when the endpoint exposed no reasoning or answer.
 
+## Reasoning pace
+
+A step that streams more reasoning than the cap before it has made a call is cut short and the model is asked to act ([Reasoning pace](../sdk/reasoning-pace.md)). The cap is on by default, 24,000 tokens per step at medium effort and above, and a run that thinks for many steps without changing anything is nudged. `limits.maxReasoningTokens` sets the cap, a nonnegative whole number of tokens; `0` removes it. The cap and the done-gate reach the interactive turn, a resumed turn and delegated children from the resolved limits; a resumed turn takes them from the current settings, because a turn does not record them.
+
+## Done-gate
+
+A turn that changed files and tries to end without running a test, lint, format check, typecheck or build after the last change is asked once to check its work first ([Completion audit](../sdk/completion-audit.md)). It is on for the interactive session and for `namzu exec`. `limits.doneGate: false` in the config turns it off, and `--no-done-gate` does the same for one interactive launch (`namzu exec` takes the config key). Delegated children are not audited.
+
 ## Spend limit
 
 A turn can be stopped by what it has spent as well as by how long it ran. `limits.costLimitUsd` (a number of dollars, `0` or omitted for none) applies to interactive turns and to `exec` and `drain` (a scheduled run keeps the budget of its job), and `namzu exec --max-budget-usd 2.50` sets it for one run, `exec --json` included. The flag takes a number above zero; the config key takes `0` to lift a limit a lower layer set.

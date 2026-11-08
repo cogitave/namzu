@@ -9,8 +9,8 @@
  * What stays here is the identity block in `tui/agent.ts`, which says WHO
  * this agent is and what it must never claim, and the decision of which text
  * reaches which reader: the working doctrine goes to the parent and to every
- * delegated sub-agent; the delegation doctrine, which names `task_create` and
- * `Agent`, goes to the parent only; the plan-mode text only while the session
+ * delegated sub-agent; the delegation doctrine, which names `Agent` and speaks of the
+ * task list, goes to the parent only; the plan-mode text only while the session
  * is in `plan` mode. The hypermode text is not part of the system prompt: it
  * travels as request-only context (`tui/hypermode.ts`), so switching the mode
  * does not change the cached prefix.

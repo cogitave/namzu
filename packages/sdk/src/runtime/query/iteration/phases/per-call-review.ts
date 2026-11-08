@@ -573,11 +573,13 @@ export class PerCallReview implements ReviewedExecution {
 				for (const call of calls) {
 					const mods = decision.modifications.filter((mod) => mod.toolCallId === call.id)
 					if (mods.some((mod) => mod.action === 'deny')) {
-						verdicts.set(call.id, {
-							run: false,
-							reason: DECLINED_TOOL_CALL_FEEDBACK,
-							declined: {},
-						})
+						const policy = decision.policyRefusals?.[call.id]
+						verdicts.set(
+							call.id,
+							policy !== undefined
+								? { run: false, reason: policy }
+								: { run: false, reason: DECLINED_TOOL_CALL_FEEDBACK, declined: {} },
+						)
 					} else if (mods.some((mod) => mod.action === 'modify')) {
 						verdicts.set(call.id, { run: false, reason: EDIT_NOT_OFFERED })
 					} else if (mods.some((mod) => mod.action === 'approve')) {

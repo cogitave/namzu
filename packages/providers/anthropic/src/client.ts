@@ -36,7 +36,7 @@ import {
 	resolveThinkingBody,
 	resolveThinkingCapability,
 } from './thinking-capability.js'
-import { assertForcedToolChoiceAccepted } from './tool-choice.js'
+import { assertForcedToolChoiceAccepted, forcedToolChoiceAccepted } from './tool-choice.js'
 import type { AnthropicConfig } from './types.js'
 
 // Floor for `max_tokens` when neither the request nor the provider
@@ -1766,6 +1766,15 @@ export class AnthropicProvider implements LLMProvider {
 
 	reasoningEffortLevelsFor(model: string, thinking?: ThinkingConfig): readonly ReasoningEffort[] {
 		return this.effortLevelsFor(model, thinking)
+	}
+
+	/**
+	 * Whether a forced tool choice would be accepted, by the rule the request
+	 * path refuses by ({@link assertForcedToolChoiceAccepted}): not on the
+	 * models that refuse it, and not with manual extended thinking.
+	 */
+	acceptsForcedToolChoiceFor(model: string, thinking?: ThinkingConfig): boolean {
+		return forcedToolChoiceAccepted(model, resolveThinkingBody(thinking, this.capabilityFor(model)))
 	}
 
 	/**

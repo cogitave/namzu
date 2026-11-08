@@ -1,4 +1,5 @@
 import { realpath } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 
 /**
@@ -50,10 +51,24 @@ export const OUTSIDE_ROOTS_GUIDANCE = (reach: string): string =>
 	`This turn's file tools reach ${reach}. The boundary is the session's, not the file system's: ask the user to add the directory to the session (or approve the path, where the host asks), rather than retrying another spelling of the same path.`
 
 /**
+ * Set to `1` to guard the operating system's temporary directory like any other
+ * directory outside the roots. Unset, it is a root of every turn.
+ */
+export const GUARD_TEMP_DIR_ENV = 'NAMZU_GUARD_TEMP_DIR'
+
+/**
  * The directories a tool may reach: the working directory first, then any
  * the host added for the session (`/add-dir`), then any path a review
- * approved for THIS call (`ToolContext.approvedPaths`). Relative paths
- * resolve against the first; an absolute path is accepted inside any.
+ * approved for THIS call (`ToolContext.approvedPaths`), then the operating
+ * system's temporary directory unless {@link GUARD_TEMP_DIR_ENV} is `1`.
+ * Relative paths resolve against the first; an absolute path is accepted
+ * inside any.
+ *
+ * The temporary directory is where a script writes its output and a shell
+ * line redirects to, so asking about it cost the turn a refusal for ordinary
+ * work. Nothing wider is exempt: `/`, the home directory and the directories
+ * above the working directory stay guarded, and a sibling that merely shares
+ * the temporary directory's name as a prefix is outside.
  */
 export function toolRoots(context: {
 	readonly workingDirectory: string
@@ -64,6 +79,7 @@ export function toolRoots(context: {
 		context.workingDirectory,
 		...(context.additionalDirectories ?? []),
 		...(context.approvedPaths ?? []),
+		...(process.env[GUARD_TEMP_DIR_ENV] === '1' ? [] : [tmpdir()]),
 	]
 }
 

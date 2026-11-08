@@ -162,10 +162,13 @@ describe('by default the CLI runs tools on the host', () => {
 		// ordinary calls, never a path outside the roots.
 		const { handler } = await turn({ permissionMode: 'auto' })
 
-		expect(await handler(review(outsideRead))).toEqual({
-			action: 'reject_tools',
-			feedback: OUTSIDE_ROOTS_UNATTENDED_REFUSAL,
-		})
+		// The refusal names the path it stopped and the flag that would allow it.
+		const decision = await handler(review(outsideRead))
+		expect(decision).toMatchObject({ action: 'reject_tools' })
+		const feedback = (decision as { feedback: string }).feedback
+		expect(feedback.startsWith(OUTSIDE_ROOTS_UNATTENDED_REFUSAL)).toBe(true)
+		expect(feedback).toContain('Blocked: /mnt/c/Users/me/notes.txt.')
+		expect(feedback).toContain('--add-dir /mnt/c/Users/me')
 	})
 
 	it('asks about a path outside under --yolo (auto) when a person is there', async () => {

@@ -68,6 +68,33 @@ export interface TurnConfig {
 	 * high-effort and silently was not is worse than a startup error.
 	 */
 	effort?: import('../provider/index.js').ReasoningEffort
+
+	/**
+	 * How the turn bounds its reasoning. On by default.
+	 *
+	 * Two guards live here. A step that streams more than `maxTokens` of
+	 * reasoning before it has made a call is cut short, and the model is told
+	 * to act; when the cap is absent it is 24,000 tokens at medium effort and
+	 * above and not applied below that, and `0` removes it. The stall monitor
+	 * counts steps that changed nothing (the task list does not count), nudges
+	 * the model after a run of them and then makes the next step an action step;
+	 * `stall: false` turns it off.
+	 */
+	reasoning?: import('../../runtime/query/turn/stall-monitor.js').ReasoningPaceConfig
+
+	/**
+	 * Ask once, before a turn that changed files ends, for a check of the change.
+	 *
+	 * The audit reads the turn's own record: a successful `edit`, `write`,
+	 * `apply_patch` or `notebook_edit` call is a change, and a successful shell
+	 * call after the last change that runs a test, lint, format-check, typecheck
+	 * or build target is a check. When the model tries to end the turn with a
+	 * change and no check after it, one reminder is added and the loop goes on.
+	 * That is the only block a turn gets, so the audit cannot trap a run.
+	 *
+	 * Off when absent, so an embedding host sees no change.
+	 */
+	completionAudit?: boolean
 	/** Provider-hosted search for this turn. Explicit opt-in; no local network permission. */
 	webSearch?: import('../provider/index.js').ChatCompletionParams['webSearch']
 	/** Cumulative parent-and-descendant tokens; 0 is unlimited with usage accounting. */

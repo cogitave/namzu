@@ -58,6 +58,33 @@ export const DANGEROUS_PATTERNS = [
 	/\beval\s+["'`$]/,
 ]
 
+/**
+ * Why a line matched {@link DANGEROUS_PATTERNS}, in a few words, so the refusal
+ * can say what to avoid instead of leaving the model to guess. Kept in step with
+ * the list above by position.
+ */
+const DANGEROUS_REASONS: readonly string[] = [
+	'it removes the file system root recursively',
+	'it creates a file system on a device',
+	'it writes raw data to a device or file with dd',
+	'it defines a fork bomb',
+	'it runs with elevated privileges (sudo)',
+	'it switches user with su -',
+	'it makes the root directory world-writable',
+	'it pipes a download into a shell',
+	'it pipes a download into a shell',
+	'it opens a remote shell (ssh user@host)',
+	'it evaluates a dynamic string with eval',
+]
+
+/** The reason {@link DANGEROUS_PATTERNS} refuses `command`, or a general one when none is recorded. */
+export function dangerousCommandReason(command: string): string {
+	const index = DANGEROUS_PATTERNS.findIndex((pattern) => pattern.test(command))
+	return (
+		(index >= 0 ? DANGEROUS_REASONS[index] : undefined) ?? 'it matches a pattern this tool refuses'
+	)
+}
+
 export const FILESYSTEM_TOOLS = new Set(['glob', 'read', 'write', 'bash'])
 
 /**

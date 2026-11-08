@@ -113,6 +113,12 @@ reasoning-only output cutoffs observable to the runtime. Object-valued or
 encrypted reasoning fields are not treated as displayable text. These optional
 fields do not change the driver's outbound history normalization described above.
 
+## Effort none on a compatible endpoint
+
+A call that asks for `effort: 'none'`, or whose thinking is disabled, means no reasoning at all. `reasoning_effort` alone is ignored by many compatible endpoints, which have a switch of their own, so `OpenAIConfig.thinkingOffFields` names it: an object of request fields, or a function of the model id that returns them (or `undefined` for a model with none). They are added to the request only on such a call. Reasoning that still arrives on one is dropped from the stream, so a request for no thinking never shows or bills it as thought.
+
+The CLI sets the fields for the endpoints it knows (a `thinking` object for DeepSeek models, `enable_thinking` for Qwen and DashScope) and none for OpenAI's own API or an unknown host, where `reasoning_effort: none` goes out alone as before.
+
 ## Hosted web search
 
 The Codex subscription driver also supports opt-in `webSearch: { mode: 'live' }`

@@ -554,6 +554,13 @@ export function withProviderFallback(
 			const serving = members[cursor] ?? first
 			return serving.provider.supportsImageInputFor?.(serving.model ?? model) ?? true
 		},
+		// A chain takes a forced choice only if every member does: the request may
+		// be served by any of them, and the one that refuses would fail the step.
+		acceptsForcedToolChoiceFor: (model: string, thinking?: ThinkingConfig) =>
+			members.every(
+				(member) =>
+					member.provider.acceptsForcedToolChoiceFor?.(member.model ?? model, thinking) ?? true,
+			),
 		reasoningEffortLevelsFor: (model: string, thinking?: ThinkingConfig) =>
 			commonReasoningEffortLevels(members, model, thinking),
 		// Present on the chain wrapper for the same reason the menu method is:

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { loadConfig, takeConfigWarnings } from './load.js'
-import { resolveTurnGuards } from './turn-guards.js'
+import { resolveTurnGuards, turnConfigFields } from './turn-guards.js'
 
 const roots: string[] = []
 
@@ -180,4 +180,36 @@ it('lets a later layer set, change or lift the spend limit a turn runs under', (
 	)
 	expect(resolveTurnGuards({ tokenBudget: 10 })).not.toHaveProperty('costLimitUsd')
 	expect(() => resolveTurnGuards({ costLimitUsd: -1 })).toThrow('costLimitUsd')
+})
+
+it('carries the reasoning cap and the done-gate from the resolved limits into the turn', () => {
+	const guards = resolveTurnGuards({ maxReasoningTokens: 9000 }, { doneGate: true })
+	expect(turnConfigFields(guards, { completionAudit: true })).toMatchObject({
+		reasoning: { maxTokens: 9000 },
+		completionAudit: true,
+	})
+	// Delegated children are not audited, but they keep the cap.
+	expect(turnConfigFields(guards)).toEqual(
+		expect.not.objectContaining({ completionAudit: expect.anything() }),
+	)
+	expect(turnConfigFields(guards).reasoning).toEqual({ maxTokens: 9000 })
+})
+
+it('leaves both at the kernel default when nothing sets them, and lets a later layer lift the cap', () => {
+	expect(turnConfigFields(resolveTurnGuards({}), { completionAudit: true })).toEqual({
+		tokenBudget: 0,
+		maxIterations: 0,
+		timeoutMs: 0,
+		completionAudit: true,
+	})
+	expect(
+		turnConfigFields(resolveTurnGuards({ maxReasoningTokens: 9000 }, { maxReasoningTokens: 0 }))
+			.reasoning,
+	).toEqual({ maxTokens: 0 })
+})
+
+it('turns the done-gate off with doneGate: false, and refuses a bad cap', () => {
+	const off = resolveTurnGuards({ doneGate: false })
+	expect(turnConfigFields(off, { completionAudit: true }).completionAudit).toBeUndefined()
+	expect(() => resolveTurnGuards({ maxReasoningTokens: -1 })).toThrow('maxReasoningTokens')
 })

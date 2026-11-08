@@ -3,10 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { HITLDecisionRequest, ToolCallSummary } from '../../../types/hitl/index.js'
 import type { CheckpointId, SessionId, TurnId } from '../../../types/ids/index.js'
 import {
-	OUTSIDE_ROOTS_UNATTENDED_REFUSAL,
 	type ToolReviewPrompt,
 	UNKNOWN_PROGRAM_UNATTENDED_REFUSAL,
 	createReviewHandler,
+	outsideRootsRefusal,
 } from '../review-policy.js'
 
 function review(...toolCalls: ToolCallSummary[]): HITLDecisionRequest {
@@ -42,7 +42,7 @@ describe('an unreadable program alongside a sandbox escape', () => {
 		})
 	})
 
-	it('is refused in a mixed batch despite unattended escape approval', async () => {
+	it('is refused on its own call in a mixed batch despite unattended escape approval', async () => {
 		const handler = createReviewHandler({ mode: 'auto', unattendedSandboxEscape: 'allow' })
 		const otherCall: ToolCallSummary = {
 			...unknownCall,
@@ -50,12 +50,17 @@ describe('an unreadable program alongside a sandbox escape', () => {
 			escalation: { unknownProgram: 'decided at runtime: $(echo echo)' },
 		}
 		expect(await handler(review(escapeCall, otherCall))).toEqual({
-			action: 'reject_tools',
-			feedback: UNKNOWN_PROGRAM_UNATTENDED_REFUSAL,
+			action: 'modify_tools',
+			modifications: [
+				{ toolCallId: 'b1', action: 'approve' },
+				{ toolCallId: 'b2', action: 'deny' },
+			],
+			policyRefusals: { b2: UNKNOWN_PROGRAM_UNATTENDED_REFUSAL },
+			confirmedEscalations: ['b1'],
 		})
 	})
 
-	it('also refuses a separate outside-roots read in the same batch', async () => {
+	it('also refuses a separate outside-roots read, on its own call', async () => {
 		const handler = createReviewHandler({ mode: 'auto', unattendedSandboxEscape: 'allow' })
 		const outsideRead: ToolCallSummary = {
 			id: 'r1',
@@ -65,8 +70,13 @@ describe('an unreadable program alongside a sandbox escape', () => {
 			escalation: { outsidePaths: ['/elsewhere'] },
 		}
 		expect(await handler(review(escapeCall, outsideRead))).toEqual({
-			action: 'reject_tools',
-			feedback: OUTSIDE_ROOTS_UNATTENDED_REFUSAL,
+			action: 'modify_tools',
+			modifications: [
+				{ toolCallId: 'b1', action: 'approve' },
+				{ toolCallId: 'r1', action: 'deny' },
+			],
+			policyRefusals: { r1: outsideRootsRefusal([outsideRead]) },
+			confirmedEscalations: ['b1'],
 		})
 	})
 

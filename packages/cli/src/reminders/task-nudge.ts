@@ -3,8 +3,8 @@ import type { Message, Task } from '@namzu/sdk'
 import { frameReminder, isOperatorTurn, reminderKindOf } from './frame.js'
 
 /**
- * The task-list nudge: after 10 model
- * turns without a task tool, and no more than once per 10 model turns, the
+ * The task-list nudge: after 25 model
+ * turns without a task tool, and no more than once per 25 model turns, the
  * model is reminded the list exists and shown its current contents. It speaks
  * only while the current request has run three or more steps (model turns
  * that called a tool), because a list is for work of that size.
@@ -16,8 +16,8 @@ import { frameReminder, isOperatorTurn, reminderKindOf } from './frame.js'
  * conversation itself, so it survives a resume and restarts when compaction
  * drops the history it was counting.
  */
-export const TASK_NUDGE_AFTER_TURNS = 10
-export const TASK_NUDGE_EVERY_TURNS = 10
+export const TASK_NUDGE_AFTER_TURNS = 25
+export const TASK_NUDGE_EVERY_TURNS = 25
 export const TASK_NUDGE_MIN_STEPS = 3
 
 const TASK_TOOLS = new Set(['task_create', 'task_update'])

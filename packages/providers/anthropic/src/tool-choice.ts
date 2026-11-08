@@ -74,8 +74,22 @@ function forcedToolChoiceRefusal(
  * `toolChoice: 'auto'` and say in the prompt which tool to call.
  */
 export function acceptsForcedToolChoice(model: string, thinking?: ThinkingConfig): boolean {
-	const body = resolveThinkingBody(thinking, resolveThinkingCapability(model))
-	return forcedToolChoiceRefusal(model, body) === undefined
+	return forcedToolChoiceAccepted(
+		model,
+		resolveThinkingBody(thinking, resolveThinkingCapability(model)),
+	)
+}
+
+/**
+ * {@link acceptsForcedToolChoice} for a thinking body already resolved against
+ * a capability. The request path and the driver's answer to the kernel both end
+ * here, so what is asked and what is sent cannot disagree.
+ */
+export function forcedToolChoiceAccepted(
+	model: string,
+	thinkingBody: ResolvedThinkingBody,
+): boolean {
+	return forcedToolChoiceRefusal(model, thinkingBody) === undefined
 }
 
 /**

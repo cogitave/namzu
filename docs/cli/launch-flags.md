@@ -14,7 +14,7 @@ The [process-local model profile](model-profiles.md) also accepts model choices
 through environment variables. Explicit `--provider`, `--model` and `--effort`
 flags win over those defaults. `--max-output-tokens <n>` sets the per-call output
 allowance for an interactive launch, including `namzu resume`, without editing
-config or preferences; pass it after `exec` for headless work.
+config or preferences; pass it after `exec` for headless work. `--no-done-gate` turns off, for one launch, the reminder to check edits before a turn ends ([Turn limits](turn-limits.md#done-gate)); `namzu exec` reads `limits.doneGate` from the config instead.
 
 ```sh
 namzu --provider openai --model gpt-5 --effort high --permission-mode plan
@@ -44,7 +44,7 @@ The same four flags exist on `namzu exec` and `namzu drain`, written after the c
 
 ## After `resume`
 
-`namzu resume <conversation-id>` is the command Namzu prints when it exits, so every launch option above is accepted after it as well as before it, with the same meaning: `--provider`, `--account`, `--model`, `--max-output-tokens`, `--effort`, `--permission-mode`, `--dangerously-skip-permissions` / `--yolo`, `--allow-dangerously-skip-permissions`, `--append-system-prompt`, `--allowed-tools`, `--disallowed-tools`, `--fallback-model`, `--add-dir`, `--plugin-dir`, `--profile` and `--output-schema`. They go through the same checks as before the command, including the one-time `Start in bypass mode? [y/N]` question, and a permission flag given at resume time wins over the mode the conversation was last in, exactly as it does for `namzu --resume <id> --yolo`.
+`namzu resume <conversation-id>` is the command Namzu prints when it exits, so every launch option above is accepted after it as well as before it, with the same meaning: `--provider`, `--account`, `--model`, `--max-output-tokens`, `--no-done-gate`, `--effort`, `--permission-mode`, `--dangerously-skip-permissions` / `--yolo`, `--allow-dangerously-skip-permissions`, `--append-system-prompt`, `--allowed-tools`, `--disallowed-tools`, `--fallback-model`, `--add-dir`, `--plugin-dir`, `--profile` and `--output-schema`. They go through the same checks as before the command, including the one-time `Start in bypass mode? [y/N]` question, and a permission flag given at resume time wins over the mode the conversation was last in, exactly as it does for `namzu --resume <id> --yolo`.
 
 ```sh
 namzu resume --yolo 11de68ce-02f2-49e4-a7e4-7f29355d7aaf

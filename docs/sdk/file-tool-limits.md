@@ -73,10 +73,24 @@ bound. A host that sets `maxToolOutputChars` explicitly still bounds it.
 
 ## edit and write
 
-`edit` refuses a file the session has not read: `<path> has not been read yet. Read it first, then redo the
-edit. Nothing was written.` `write` already refused an existing file it had not read. Both consult the
-turn's `fileReadTracker`; a host that supplies none is not refused, because it has nothing to ask. A windowed
+`edit` refuses a file the session has not read: `<path> had not been read in this session, so this edit was not
+applied. It has now been read for you; its current contents follow. Repeat the edit against them. Nothing was
+written.`, followed by the numbered contents. The file is already in hand when the refusal is made, so showing it and
+crediting the read that showing amounts to keeps the turn: the repeat is one call and is admitted. A file too large
+to hand over (more than 600 lines or 24,000 characters, or not text) is refused with the remedy in one line, `<path>
+has not been read in this session, so the edit was not applied. Read it with the read tool (one call, no range),
+then repeat the edit.`, and is not credited. `write` already refused an existing file it had not read. Both consult
+the turn's `fileReadTracker`; a host that supplies none is not refused, because it has nothing to ask. A windowed
 read counts as a read here (the ledger records the whole body); an edit after a partial view is not refused.
+
+A shell command that prints a file counts as a read too. After a successful `bash` call whose line shows a file
+with `cat`, `nl`, `tac`, `less`, `more`, `bat`, `rev` or `sed -n` with a print range (`1,40p`), the file is
+put on the ledger with its whole current body, exactly as a windowed `read` does. Only literal operands qualify: a
+path a variable or substitution stands for, a glob, a `~` path and a path named after a `cd` in the same line earn
+nothing. A line earns nothing when it does anything else than print: a redirection that writes, a pipe into
+`tee` or any program that is not a printer, or a `sed` or `awk` script that transforms. The body is read after the
+command ended, so only a line that cannot have changed the file is trusted to have shown it. `head` and `tail`
+show a window, not the file, and earn nothing. Sandboxed turns are not credited, because the ledger's keys there are sandbox paths.
 
 A file that changed since the read is compared by content fingerprint, not by modification time, so a touch
 that leaves the bytes alone is not drift. When the content did change, `edit` and `write` are both refused:

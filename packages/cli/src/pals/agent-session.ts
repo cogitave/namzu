@@ -41,7 +41,7 @@ import {
 	resumeSession,
 	toolset,
 } from '@namzu/sdk'
-import { readStoredTurnGuards, resolveTurnGuards } from '../config/turn-guards.js'
+import { readStoredTurnGuards, resolveTurnGuards, turnConfigFields } from '../config/turn-guards.js'
 import { maybeCreateDecisionTool } from '../integrations/decision/model.js'
 import { resolveAutoDefault } from '../integrations/decision/routing.js'
 import { canSelectModel } from '../integrations/providers/access.js'
@@ -1043,7 +1043,7 @@ export async function createPalAgentSession(
 					...(opts?.origin ? { origin: opts.origin } : {}),
 					turnConfig: {
 						model,
-						...resolveTurnGuards(options.limits, opts?.limits),
+						...turnConfigFields(resolveTurnGuards(options.limits, opts?.limits)),
 						...(admission ? { sandbox: { workspace: 'working-directory' as const } } : {}),
 						permissionMode: 'auto',
 						...(opts?.effort ? { effort: opts.effort } : {}),

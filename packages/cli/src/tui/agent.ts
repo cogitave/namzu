@@ -254,7 +254,7 @@ import {
 	resolveToolResultScreens,
 	unmatchedPassthroughTools,
 } from '../config/tool-result-screens.js'
-import { readStoredTurnGuards, resolveTurnGuards } from '../config/turn-guards.js'
+import { readStoredTurnGuards, resolveTurnGuards, turnConfigFields } from '../config/turn-guards.js'
 import { type CapabilityProbe, probeCapabilities } from '../context/capabilities.js'
 import { type SessionDirectories, createSessionDirectories } from '../context/directories.js'
 import {
@@ -5096,8 +5096,21 @@ export async function createAgentSession(
 		operations.promise(signal, async (ownedSignal) => {
 			const selectTaskStore = beginTaskStoreReadout()
 			// The turn's own limits, as its `turn_started` recorded them.
-			const resumedLimits =
-				(await readStoredTurnGuards(sessionLog, entry.turnId)) ?? resolveTurnGuards(options.limits)
+			const configuredLimits = resolveTurnGuards(options.limits)
+			const storedLimits = await readStoredTurnGuards(sessionLog, entry.turnId)
+			// The reasoning cap and the done-gate are not part of what a turn
+			// records, so the resumed turn takes them from the current settings.
+			const resumedLimits = storedLimits
+				? {
+						...storedLimits,
+						...(configuredLimits.maxReasoningTokens !== undefined
+							? { maxReasoningTokens: configuredLimits.maxReasoningTokens }
+							: {}),
+						...(configuredLimits.doneGate !== undefined
+							? { doneGate: configuredLimits.doneGate }
+							: {}),
+					}
+				: configuredLimits
 			// The same prelude a turn runs, and for the same reasons: a lapsed
 			// OAuth token has to be renewed before the provider is used, and the
 			// fallback chain has to be built AFTER that so its members do not
@@ -5291,7 +5304,7 @@ export async function createAgentSession(
 						...(route?.effort ? { effort: route.effort } : {}),
 						...(resumeWebSearch ? { webSearch: resumeWebSearch } : {}),
 						...(sandbox.provider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
-						...resumedLimits,
+						...turnConfigFields(resumedLimits, { completionAudit: true }),
 						maxResponseTokens: resumedLimits.maxResponseTokens ?? 8192,
 						permissionMode: 'auto',
 						pruneKeepLast: CLI_CHECKPOINT_RETENTION,
@@ -6884,6 +6897,32 @@ function compatibleEndpointNotices(): string[] {
 	return notice ? [notice] : []
 }
 
+/**
+ * The request fields that switch reasoning off on a compatible endpoint that
+ * has a switch of its own, for a call that asked for no effort. Hosts and model
+ * families without a known switch get none, and `reasoning_effort: none` alone
+ * goes out as before.
+ */
+export function compatibleThinkingOff(
+	baseURL: string | undefined,
+): ((model: string) => Readonly<Record<string, unknown>> | undefined) | undefined {
+	if (!baseURL) return undefined
+	let host: string
+	try {
+		host = new URL(baseURL).hostname.toLowerCase()
+	} catch {
+		return undefined
+	}
+	if (host === 'api.openai.com' || host.endsWith('.openai.com')) return undefined
+	return (model) => {
+		const id = model.toLowerCase()
+		if (host.includes('deepseek') || id.includes('deepseek'))
+			return { thinking: { type: 'disabled' } }
+		if (host.includes('dashscope') || id.startsWith('qwen')) return { enable_thinking: false }
+		return undefined
+	}
+}
+
 /** `<provider label> via host` when requests go to a compatible third party. */
 function withEndpointHost(label: string): string {
 	const host = thirdPartyHost()
@@ -6946,6 +6985,9 @@ function constructBareProvider(
 				// The kernel retries, counts and shows each try; the vendor SDK must not
 				// try again silently underneath.
 				maxRetries: 0,
+				...(compatibleThinkingOff(det?.baseUrl)
+					? { thinkingOffFields: compatibleThinkingOff(det?.baseUrl) }
+					: {}),
 			})
 			return provider
 		}
@@ -7777,7 +7819,7 @@ async function* runTurn({
 				...(sandboxProvider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
 				...(opts?.effort !== undefined ? { effort: opts.effort } : {}),
 				...(webSearch ? { webSearch } : {}),
-				...resolveTurnGuards(limits),
+				...turnConfigFields(resolveTurnGuards(limits), { completionAudit: true }),
 				maxResponseTokens: limits?.maxResponseTokens ?? 8192,
 				permissionMode: 'auto',
 				// The kernel keeps every checkpoint unless told otherwise.

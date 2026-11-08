@@ -10,6 +10,52 @@ export type TurnGuards = { -readonly [K in TurnGuardKey]: number } & {
 	costLimitUsd?: number
 	/** Per-call output allowance; absent keeps each host's existing default. */
 	maxResponseTokens?: number
+	/** Most reasoning, in tokens, one model call may stream before acting; 0 removes the cap, absent keeps the kernel's default. */
+	maxReasoningTokens?: number
+	/** `false` turns the check-your-edits reminder off; absent leaves it on. */
+	doneGate?: boolean
+}
+
+/** The turn-config fields a resolved set of limits stands for; see {@link turnConfigFields}. */
+export interface TurnConfigFields {
+	tokenBudget: number
+	maxIterations: number
+	timeoutMs: number
+	costLimitUsd?: number
+	maxResponseTokens?: number
+	reasoning?: { maxTokens: number }
+	completionAudit?: boolean
+}
+
+/**
+ * The turn-config fields a resolved set of limits stands for. Spread this, not
+ * the limits themselves, into a turn: the limits carry host-only keys, and the
+ * reasoning cap and the done-gate have to be translated into the kernel's
+ * `reasoning` and `completionAudit` settings to reach the turn at all.
+ *
+ * `completionAudit` asks for the done-gate where the turn is one a person
+ * follows (the interactive session and `exec`); delegated children are not
+ * audited.
+ */
+export function turnConfigFields(
+	guards: TurnGuards,
+	options: { readonly completionAudit?: boolean } = {},
+): TurnConfigFields {
+	return {
+		tokenBudget: guards.tokenBudget,
+		maxIterations: guards.maxIterations,
+		timeoutMs: guards.timeoutMs,
+		...(guards.costLimitUsd !== undefined ? { costLimitUsd: guards.costLimitUsd } : {}),
+		...(guards.maxResponseTokens !== undefined
+			? { maxResponseTokens: guards.maxResponseTokens }
+			: {}),
+		...(guards.maxReasoningTokens !== undefined
+			? { reasoning: { maxTokens: guards.maxReasoningTokens } }
+			: {}),
+		...(options.completionAudit === true && guards.doneGate !== false
+			? { completionAudit: true }
+			: {}),
+	}
 }
 
 const GUARD_KEYS = ['tokenBudget', 'maxIterations', 'timeoutMs'] as const
@@ -38,6 +84,15 @@ export function resolveTurnGuards(...layers: readonly (LimitsConfig | undefined)
 				throw new Error('Invalid maxResponseTokens: use a positive safe integer.')
 			resolved.maxResponseTokens = response
 		}
+		const reasoning = layer?.maxReasoningTokens
+		if (reasoning !== undefined) {
+			if (!Number.isSafeInteger(reasoning) || reasoning < 0)
+				throw new Error(
+					'Invalid maxReasoningTokens: use a nonnegative safe integer. 0 removes the cap.',
+				)
+			resolved.maxReasoningTokens = reasoning
+		}
+		if (layer?.doneGate !== undefined) resolved.doneGate = layer.doneGate
 		const spend = layer?.costLimitUsd
 		if (spend === undefined) continue
 		if (!Number.isFinite(spend) || spend < 0)

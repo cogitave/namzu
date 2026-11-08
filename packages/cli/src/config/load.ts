@@ -1488,6 +1488,8 @@ const CONFIG_READERS: ConfigReaders = {
 				![
 					'maxIterations',
 					'maxResponseTokens',
+					'maxReasoningTokens',
+					'doneGate',
 					'tokenBudget',
 					'timeoutMs',
 					'waitForProviderMs',
@@ -1497,9 +1499,14 @@ const CONFIG_READERS: ConfigReaders = {
 				return invalidConfigValue(
 					context,
 					[key],
-					'is not a limit (maxIterations, maxResponseTokens, tokenBudget, timeoutMs, waitForProviderMs, costLimitUsd)',
+					'is not a limit (maxIterations, maxResponseTokens, maxReasoningTokens, doneGate, tokenBudget, timeoutMs, waitForProviderMs, costLimitUsd)',
 				)
 			const value = (v as Record<string, unknown>)[key]
+			if (key === 'doneGate') {
+				if (typeof value !== 'boolean')
+					return invalidConfigValue(context, [key], 'must be true or false')
+				continue
+			}
 			if (key === 'costLimitUsd') {
 				if (typeof value !== 'number' || !Number.isFinite(value) || value < 0)
 					return invalidConfigValue(context, [key], 'must be a number of dollars, 0 or more')

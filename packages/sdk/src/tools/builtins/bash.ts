@@ -2,7 +2,7 @@ import { rm } from 'node:fs/promises'
 import { z } from 'zod'
 import { isReadOnlyCommandLine } from '../../authorization/readonly-commands.js'
 import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
-import { DANGEROUS_PATTERNS } from '../../constants/tools/index.js'
+import { DANGEROUS_PATTERNS, dangerousCommandReason } from '../../constants/tools/index.js'
 import { killTree } from '../../process/kill-tree.js'
 import { genericLabel } from '../../registry/tool/presentation.js'
 import { cancelCauseOf } from '../../types/session/cancel-cause.js'
@@ -33,6 +33,7 @@ import {
 } from './bash-cwd.js'
 import { judgeExit } from './exit-semantics.js'
 import { jsonStringEscapes } from './json-string-hint.js'
+import { creditShellReads } from './shell-read-credit.js'
 import { leadingLongSleep, longSleepRefusal } from './sleep-guard.js'
 
 // Namzu owns its own bash timeout knob — `NAMZU_BASH_TIMEOUT_MS` — and
@@ -517,6 +518,8 @@ export function execHostShell(
 	})
 }
 
+export { dangerousCommandReason }
+
 /** The dangerous-pattern check `bash` applies, shared so the `monitor` tool refuses the same lines. */
 export function isDangerousCommand(command: string): boolean {
 	return DANGEROUS_PATTERNS.some((pattern) => pattern.test(command))
@@ -592,7 +595,7 @@ const BashToolBase = defineTool({
 			return {
 				success: false,
 				output: '',
-				error: `Dangerous command blocked: "${input.command}"`,
+				error: `Dangerous command blocked: "${input.command}". Why: ${dangerousCommandReason(input.command)}. Nothing ran. Use a narrower command that avoids it, or ask the user to run this one.`,
 				facts: { kind: 'failure', reason: 'blocked', subject: 'bash' },
 			}
 		}
@@ -898,6 +901,7 @@ const BashToolBase = defineTool({
 				}
 			}
 			const reset = await settle()
+			await creditShellReads(input.command, context, startDirectory)
 			return {
 				success: true,
 				output: withResetNotice(formatShellOutput(stdout, stderr) || '(no output)', reset),

@@ -148,6 +148,18 @@ export type HooksConfig = ShellHooksConfig
 export interface TurnLimitsConfig {
 	/** Per model call output allowance, including reasoning. Omitted keeps 8192. Must be positive. */
 	readonly maxResponseTokens?: number
+	/**
+	 * Most reasoning, in tokens, one model call may stream before it has made a
+	 * call. Past it the call is cut short and the model is asked to act. Omitted
+	 * keeps the default (24,000 at medium effort and above); 0 removes the cap.
+	 */
+	readonly maxReasoningTokens?: number
+	/**
+	 * `false` turns off the one reminder a turn gets when it tries to end after
+	 * changing files without running a test, lint or typecheck. On by default.
+	 * `--no-done-gate` turns it off for one launch.
+	 */
+	readonly doneGate?: boolean
 	/** Main-loop iterations one turn may make. Omitted or 0 means unlimited. */
 	readonly maxIterations?: number
 	/** Aggregate prompt and completion tokens for the turn and descendants. Omitted or 0 means unlimited. */

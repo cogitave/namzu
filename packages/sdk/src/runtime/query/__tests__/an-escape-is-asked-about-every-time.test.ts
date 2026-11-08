@@ -8,6 +8,7 @@ import {
 	SANDBOX_ESCAPE_UNATTENDED_REFUSAL,
 	type ToolReviewPrompt,
 	createReviewHandler,
+	outsideRootsRefusal,
 } from '../review-policy.js'
 
 /**
@@ -100,11 +101,16 @@ describe('a sandbox escape', () => {
 		})
 	})
 
-	it('does not let the unattended escape opt-in approve another call outside the roots', async () => {
+	it('does not let the unattended escape opt-in approve another call outside the roots, and does not cost the escape its own run', async () => {
 		const handler = createReviewHandler({ mode: 'auto', unattendedSandboxEscape: 'allow' })
 		expect(await handler(review(escapeCall, outsideRead))).toEqual({
-			action: 'reject_tools',
-			feedback: OUTSIDE_ROOTS_UNATTENDED_REFUSAL,
+			action: 'modify_tools',
+			modifications: [
+				{ toolCallId: 'b1', action: 'approve' },
+				{ toolCallId: 'r1', action: 'deny' },
+			],
+			policyRefusals: { r1: outsideRootsRefusal([outsideRead]) },
+			confirmedEscalations: ['b1'],
 		})
 	})
 })
@@ -126,10 +132,15 @@ describe('a path outside the working directory', () => {
 
 	it('is refused, not approved, by auto mode with nobody to ask', async () => {
 		const handler = createReviewHandler({ mode: 'auto', exempt: exemptReads })
-		expect(await handler(review(outsideRead))).toEqual({
+		const refused = await handler(review(outsideRead))
+		expect(refused).toEqual({
 			action: 'reject_tools',
-			feedback: OUTSIDE_ROOTS_UNATTENDED_REFUSAL,
+			feedback: outsideRootsRefusal([outsideRead]),
 		})
+		// It names the blocked path and how to allow it.
+		expect(outsideRootsRefusal([outsideRead])).toContain(OUTSIDE_ROOTS_UNATTENDED_REFUSAL)
+		expect(outsideRootsRefusal([outsideRead])).toContain('/mnt/c/Users/me/notes.txt')
+		expect(outsideRootsRefusal([outsideRead])).toContain('--add-dir /mnt/c/Users/me')
 	})
 
 	it('is asked about under auto mode when a person is there', async () => {

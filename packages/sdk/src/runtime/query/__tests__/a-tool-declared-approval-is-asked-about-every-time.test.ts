@@ -156,9 +156,15 @@ describe('a call the tool declared always needs approval', () => {
 
 	it('is not waived by unattended sandbox escape approval in a mixed batch', async () => {
 		const handler = createReviewHandler({ mode: 'auto', unattendedSandboxEscape: 'allow' })
+		// The refused call is refused on its own; the escape the operator allowed runs.
 		expect(await handler(review(escapeCall, approvalWrite))).toEqual({
-			action: 'reject_tools',
-			feedback: REQUIRES_APPROVAL_UNATTENDED_REFUSAL,
+			action: 'modify_tools',
+			modifications: [
+				{ toolCallId: 'b1', action: 'approve' },
+				{ toolCallId: 'p3', action: 'deny' },
+			],
+			policyRefusals: { p3: REQUIRES_APPROVAL_UNATTENDED_REFUSAL },
+			confirmedEscalations: ['b1'],
 		})
 	})
 

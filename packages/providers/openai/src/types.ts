@@ -29,6 +29,16 @@ export interface OpenAIConfig {
 	 * silently first.
 	 */
 	maxRetries?: number
+	/**
+	 * Request fields that switch reasoning off on a compatible endpoint, sent
+	 * only on a call that asked for `effort: 'none'` or disabled thinking. Many
+	 * compatible endpoints ignore `reasoning_effort` and have a switch of their
+	 * own (a `thinking` object, a template flag). Pass the fields, or a function
+	 * of the model id that returns them or `undefined` for a model with none.
+	 */
+	thinkingOffFields?:
+		| Readonly<Record<string, unknown>>
+		| ((model: string) => Readonly<Record<string, unknown>> | undefined)
 }
 
 export interface OpenAIProviderConfig extends OpenAIConfig {

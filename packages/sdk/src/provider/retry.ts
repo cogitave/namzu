@@ -384,6 +384,14 @@ export function withProviderRetry(
 					supportsImageInputFor: (model: string) => provider.supportsImageInputFor?.(model) ?? true,
 				}
 			: {}),
+		...(provider.acceptsForcedToolChoiceFor
+			? {
+					acceptsForcedToolChoiceFor: (
+						model: string,
+						thinking?: Parameters<NonNullable<LLMProvider['acceptsForcedToolChoiceFor']>>[1],
+					) => provider.acceptsForcedToolChoiceFor?.(model, thinking) ?? true,
+				}
+			: {}),
 		...(provider.reasoningEffortLevelsFor
 			? {
 					reasoningEffortLevelsFor: (

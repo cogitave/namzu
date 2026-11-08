@@ -42,7 +42,7 @@ import {
 	createToolMessage,
 } from '../../../types/message/index.js'
 import { classifyProviderError, readOutputOverflow } from '../../../types/provider/errors.js'
-import type { ChatCompletionResponse } from '../../../types/provider/index.js'
+import type { ChatCompletionResponse, ReasoningEffort } from '../../../types/provider/index.js'
 import type { AnswerReview, AnswerReviewContext } from '../../../types/session/answer-review.js'
 import type {
 	SessionEvent,
@@ -75,6 +75,15 @@ import {
 } from '../request-rich-content.js'
 import { withoutVoidAssistantTurns } from '../request-void-turns.js'
 import { formatSteeringNote, isOperatorUserMessage } from '../steering.js'
+import { COMPLETION_AUDIT_MESSAGE, CompletionAudit } from '../turn/completion-audit.js'
+import {
+	FORCED_STEP_MESSAGE,
+	REASONING_CAPPED_MESSAGE,
+	REASONING_ONLY_MESSAGE,
+	StallMonitor,
+	callChangedState,
+	reasoningCapChars,
+} from '../turn/stall-monitor.js'
 import { effortForModel } from './effort-clamp.js'
 import { parseNativeCandidate } from './native-output.js'
 import {
@@ -118,6 +127,9 @@ import {
 	workContext,
 } from './step-shaping.js'
 import { streamProviderTurn } from './stream-turn.js'
+
+/** Capped steps in a row after which the per-step cap stops applying for the turn's next step. */
+const MAX_CAPPED_STREAK = 3
 
 type ReviewRequest = Pick<AnswerReviewContext, 'requestMessages' | 'latestUserMessage'>
 
@@ -299,6 +311,16 @@ export class IterationOrchestrator {
 	private stopDeferredForOutstandingWork = false
 	/** Nudges sent since the model last finished a call without hitting its output cap. */
 	private outputContinuations = 0
+	/** Watches the turn's steps for reasoning that piles up while nothing changes. */
+	private readonly stallMonitor?: StallMonitor
+	/** Holds the turn back once when it changed files and checked nothing afterwards. */
+	private readonly completionAudit?: CompletionAudit
+	/** The next step must call a tool, at low effort: set by the stall monitor or a capped step. */
+	private forceActionNextStep = false
+	/** Steps in a row cut at the per-step reasoning cap; past a few the cap stops applying. */
+	private cappedStreak = 0
+	/** A reply that held only reasoning was already answered with one more request. */
+	private reasoningOnlyRetried = false
 	/**
 	 * The model a refused request moved to. Once set it replaces the model the
 	 * step asked for, for the rest of the turn: the request that was refused
@@ -392,6 +414,10 @@ export class IterationOrchestrator {
 			onSteeringDelivered: (text) => {
 				this.rememberUserMessage(createRuntimeContextMessage(text, 'steering'))
 			},
+		}
+		if (ctx.turnConfig.completionAudit === true) this.completionAudit = new CompletionAudit()
+		if (ctx.turnConfig.reasoning?.stall !== false) {
+			this.stallMonitor = new StallMonitor(ctx.turnConfig.reasoning?.stall || undefined)
 		}
 		ctx.checkpointMgr.setLatestUserMessageSource(() => this.latestUserMessage)
 		ctx.checkpointMgr.setAnswerReviewAttemptsSource?.(() => this.answerReviewAttempts)
@@ -1063,6 +1089,11 @@ export class IterationOrchestrator {
 					// died part-way has already emitted both `message_started` and
 					// `message_completed` under this id, which is the trail a
 					// reader wants most on exactly that turn.
+					// A step the loop forces to act runs at low effort with a tool call
+					// required, for this step only. Low is used only where the model
+					// is known to offer it; effort is refused, not clamped.
+					const forcedAction = this.forceActionNextStep && !forceFinalize && llmTools.length > 0
+					this.forceActionNextStep = false
 					stepMessageId = generateMessageId()
 					const requestedMember = this.ctx.servingMember?.() ?? {
 						index: 0,
@@ -1092,12 +1123,30 @@ export class IterationOrchestrator {
 							})
 						}
 					}
+					// A forced action step runs at low effort, where the model is known
+					// to offer it; effort is refused, not clamped.
+					const offeredEfforts = this.ctx.provider.reasoningEffortLevelsFor?.(stepModel)
+					const stepEffort: ReasoningEffort | undefined =
+						forcedAction && requestEffort && (offeredEfforts?.includes('low') ?? false)
+							? 'low'
+							: requestEffort
+					// A provider that refuses a forced tool choice (some models do, and
+					// so does manual extended thinking) is not sent one: the step keeps
+					// its low effort and asks in words, on this request only.
+					const forcedChoiceRefused =
+						forcedAction &&
+						this.ctx.provider.acceptsForcedToolChoiceFor?.(stepModel, turnConfig.thinking) === false
 					const operatorInputAtDispatch = this.latestUserMessage
 					const latestReviewUserMessage =
 						(this.ctx.reviewAnswer || this.ctx.structuredOutput?.review) && operatorInputAtDispatch
 							? structuredClone(operatorInputAtDispatch)
 							: undefined
-					const { response, messageId, requestMessages } = yield* streamProviderTurn(
+					const {
+						response,
+						messageId,
+						requestMessages,
+						reasoningCapped = false,
+					} = yield* streamProviderTurn(
 						this.ctx.provider,
 						{
 							model: stepModel,
@@ -1114,7 +1163,9 @@ export class IterationOrchestrator {
 									}
 								: {}),
 							providerRoute: requestedRoute,
-							messages,
+							messages: forcedChoiceRefused
+								? [...messages, createRuntimeContextMessage(FORCED_STEP_MESSAGE, 'progress-nudge')]
+								: messages,
 							tools: llmTools.length > 0 ? llmTools : undefined,
 							...(enforceToolInputSchema ? { enforceToolInputSchema } : {}),
 							// The forced-final turn wins: a step that asked to force a
@@ -1126,14 +1177,16 @@ export class IterationOrchestrator {
 								forceFinalize && llmTools.length > 0
 									? 'none'
 									: llmTools.length > 0
-										? step.toolChoice
+										? forcedAction && !forcedChoiceRefused
+											? (step.toolChoice ?? 'required')
+											: step.toolChoice
 										: undefined,
 							temperature: step.temperature ?? turnConfig.temperature,
 							maxTokens:
 								outputCapOverride ?? step.maxResponseTokens ?? turnConfig.maxResponseTokens,
 							cacheControl: { type: 'auto' },
 							...(turnConfig.thinking ? { thinking: turnConfig.thinking } : {}),
-							...(requestEffort ? { effort: requestEffort } : {}),
+							...(stepEffort ? { effort: stepEffort } : {}),
 							...(!forceFinalize && turnConfig.webSearch
 								? { webSearch: turnConfig.webSearch }
 								: {}),
@@ -1159,8 +1212,15 @@ export class IterationOrchestrator {
 							this.ctx.reviewAnswer || this.ctx.structuredOutput?.review || this.ctx.advisoryCtx,
 						),
 						recorder.sessionId,
+						// Applies only to a step that can act. Stops after a few capped
+						// steps in a row, so a model that cannot act within the allowance
+						// still gets to finish.
+						this.cappedStreak >= MAX_CAPPED_STREAK || forceFinalize || llmTools.length === 0
+							? undefined
+							: reasoningCapChars(turnConfig.reasoning, stepEffort),
 					)
 					stepResponse = response
+					this.cappedStreak = reasoningCapped ? this.cappedStreak + 1 : 0
 					const reviewRequest: ReviewRequest = {
 						...(requestMessages ? { requestMessages } : {}),
 						...(latestReviewUserMessage ? { latestUserMessage: latestReviewUserMessage } : {}),
@@ -1461,6 +1521,28 @@ export class IterationOrchestrator {
 							costBefore,
 						})
 
+						// The step spent its whole reasoning allowance before acting. Tell
+						// the model so and make the next step an action step.
+						if (reasoningCapped && !forceFinalize) {
+							this.ctx.log.info('Reasoning reached the per-step cap — asking the model to act', {
+								[NAMZU.TURN_ID]: recorder.turnId,
+								[NAMZU.ITERATION]: iterationNum,
+							})
+							recorder.pushMessage(
+								createRuntimeContextMessage(REASONING_CAPPED_MESSAGE, 'progress-nudge'),
+							)
+							this.forceActionNextStep = true
+							this.observeStall(response, [])
+							await this.ctx.emitEvent({
+								type: 'iteration_completed',
+								turnId: recorder.turnId,
+								iteration: iterationNum,
+								hasToolCalls: false,
+							})
+							yield* this.ctx.drainPending()
+							continue
+						}
+
 						if (this.ctx.structuredOutput?.mode === 'native') {
 							const candidate = await parseNativeCandidate(
 								this.ctx.structuredOutput.schema,
@@ -1745,6 +1827,28 @@ export class IterationOrchestrator {
 						let closingStopReason: StopReason | undefined = forceFinalize
 							? guardResult.stopReason
 							: undefined
+						const reasoningOnly = !hasContent && (response.message.reasoning?.length ?? 0) > 0
+						if (hasContent) this.reasoningOnlyRetried = false
+						// A reply of reasoning alone is not an end: ask once more, plainly,
+						// before the closing request below.
+						if (reasoningOnly && !forceFinalize && !this.reasoningOnlyRetried) {
+							this.reasoningOnlyRetried = true
+							this.ctx.log.warn('Reply held reasoning only — asking once more', {
+								[NAMZU.TURN_ID]: recorder.turnId,
+								[NAMZU.ITERATION]: iterationNum,
+							})
+							recorder.pushMessage(
+								createRuntimeContextMessage(REASONING_ONLY_MESSAGE, 'progress-nudge'),
+							)
+							await this.ctx.emitEvent({
+								type: 'iteration_completed',
+								turnId: recorder.turnId,
+								iteration: iterationNum,
+								hasToolCalls: false,
+							})
+							yield* this.ctx.drainPending()
+							continue
+						}
 						if (!hasContent && !forceFinalize) {
 							this.ctx.log.warn('Empty completion detected — requesting final summary', {
 								[NAMZU.ITERATION]: iterationNum,
@@ -1755,6 +1859,23 @@ export class IterationOrchestrator {
 								'end_turn',
 							)
 							yield* this.ctx.drainPending()
+							// Never end silently: if even the closing request produced nothing,
+							// say so in plain words and how to go on.
+							if (
+								reasoningOnly &&
+								closingStopReason === undefined &&
+								!(
+									(
+										[...recorder.messages].reverse().find((m) => m.role === 'assistant') as
+											| { content?: string | null }
+											| undefined
+									)?.content ?? ''
+								).length
+							) {
+								recorder.setLastError(
+									'The model stopped after thinking without giving an answer or taking an action, even when asked again. Say "continue" and it will pick the work up from here.',
+								)
+							}
 						}
 
 						await this.ctx.emitEvent({
@@ -1787,6 +1908,21 @@ export class IterationOrchestrator {
 						// The model is done and has no tool calls. A `turn_end` (or
 						// `subagent_stop`) hook may refuse to let it be: its reason goes
 						// back to the model and the turn goes on.
+						// Files were changed and nothing checked them afterwards: ask once
+						// for a check before the turn is allowed to end.
+						if (
+							!forceFinalize &&
+							closingStopReason === undefined &&
+							this.completionAudit?.takeBlock()
+						) {
+							this.ctx.log.info('Files changed and nothing checked them — asking for a check', {
+								[NAMZU.TURN_ID]: recorder.turnId,
+							})
+							recorder.pushMessage(
+								createRuntimeContextMessage(COMPLETION_AUDIT_MESSAGE, 'progress-nudge'),
+							)
+							continue
+						}
 						if (!forceFinalize && closingStopReason === undefined) {
 							const feedback = yield* this.askStopHooks()
 							const stoppedByHook = this.ctx.toolExecutor.takeHalt?.()
@@ -1833,6 +1969,9 @@ export class IterationOrchestrator {
 						usageBefore,
 						costBefore,
 					})
+					this.reasoningOnlyRetried = false
+					this.observeStall(response, reviewOutcome.results)
+					this.observeAudit(response, reviewOutcome.results)
 
 					if (reviewOutcome.decision === 'stop') {
 						return
@@ -3115,6 +3254,69 @@ export class IterationOrchestrator {
 				'exception.message': toErrorMessage(err),
 			})
 			return undefined
+		}
+	}
+
+	/** Feed the completion audit the calls of one finished step. */
+	private observeAudit(
+		response: ChatCompletionResponse,
+		results: readonly ToolCallOutcome[],
+	): void {
+		const audit = this.completionAudit
+		if (!audit) return
+		const calls = new Map((response.message.toolCalls ?? []).map((c) => [c.id, c]))
+		audit.observe(
+			results.map((result) => {
+				let input: unknown
+				try {
+					const call = calls.get(result.toolCallId)
+					input = call ? JSON.parse(call.function.arguments) : undefined
+				} catch {
+					input = undefined
+				}
+				return { toolName: result.toolName, input, isError: result.isError }
+			}),
+		)
+	}
+
+	/**
+	 * Feed the stall monitor one finished step and act on its verdict: a nudge
+	 * is recorded as a message, a force makes the next step an action step.
+	 */
+	private observeStall(
+		response: ChatCompletionResponse,
+		results: readonly ToolCallOutcome[],
+	): void {
+		const monitor = this.stallMonitor
+		if (!monitor) return
+		const calls = new Map((response.message.toolCalls ?? []).map((c) => [c.id, c]))
+		let changedState = false
+		for (const result of results) {
+			const call = calls.get(result.toolCallId)
+			let readOnly: boolean | undefined
+			try {
+				const input = call ? JSON.parse(call.function.arguments) : undefined
+				readOnly = this.ctx.tools.get(result.toolName)?.isReadOnly?.(input)
+			} catch {
+				readOnly = undefined
+			}
+			if (callChangedState(result.toolName, readOnly, result.isError)) changedState = true
+		}
+		const reasoningChars = (response.message.reasoning ?? []).reduce(
+			(n, block) => n + (block.text?.length ?? 0),
+			0,
+		)
+		const directive = monitor.observe({ reasoningChars, changedState })
+		if (directive.kind === 'nudge') {
+			this.ctx.log.info('Many steps without a change — nudging the model to act', {
+				[NAMZU.TURN_ID]: this.ctx.recorder.turnId,
+			})
+			this.ctx.recorder.pushMessage(createRuntimeContextMessage(directive.text, 'progress-nudge'))
+		} else if (directive.kind === 'force') {
+			this.ctx.log.info('Still no change after the nudge — forcing an action step', {
+				[NAMZU.TURN_ID]: this.ctx.recorder.turnId,
+			})
+			this.forceActionNextStep = true
 		}
 	}
 

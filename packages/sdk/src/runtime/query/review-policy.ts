@@ -21,6 +21,9 @@
  * person (`prompt`).
  */
 
+import { homedir } from 'node:os'
+import { dirname, parse } from 'node:path'
+
 import { unknownProgramInLine } from '../../authorization/program.js'
 import type { ShellWord } from '../../authorization/shell-lexer.js'
 import {
@@ -38,6 +41,7 @@ import type {
 	ResumeHandler,
 	ToolCallDeclined,
 	ToolCallSummary,
+	ToolModification,
 } from '../../types/hitl/index.js'
 import type { ApprovalPolicy } from '../../types/hitl/policy.js'
 import type { SessionId, TurnId } from '../../types/ids/index.js'
@@ -242,7 +246,7 @@ function onlyReadsOutsideRoots(
  * one that needed a person is dropped would run a plan with a hole in it.
  */
 export const SANDBOX_ESCAPE_UNATTENDED_REFUSAL =
-	'Refused: a call in this batch asks to run outside the sandbox, which needs a person to confirm it each time, and nobody can be asked in this session. Nothing in this batch ran. Run the command inside the sandbox, or resend the other calls without the escape.'
+	'Refused: this call asks to run outside the sandbox, which needs a person to confirm it each time, and nobody can be asked in this session. This call did not run; the other calls in the batch are not affected. Run the command inside the sandbox instead.'
 
 /**
  * What the model is told when a batch reaches a path outside the turn's roots
@@ -254,7 +258,7 @@ export const SANDBOX_ESCAPE_UNATTENDED_REFUSAL =
  * the CLI's `--add-dir`), where an operator wrote the directory down.
  */
 export const OUTSIDE_ROOTS_UNATTENDED_REFUSAL =
-	"Refused: a call in this batch reaches a path outside the working directory and the added directories, which needs a person to approve it each time, and nobody can be asked in this session. Nothing in this batch ran. Stay inside the working directory, or tell the user which directory you need so they can add it to the session (the CLI's --add-dir)."
+	"Refused: this call reaches a path outside the working directory and the directories added to this session, which needs a person to approve it each time, and nobody can be asked in this session. This call did not run; the other calls in the batch are not affected. Use a path inside the working directory, or tell the user which directory you need so they can start the session with it added (the CLI's --add-dir)."
 
 /**
  * What the model is told when a batch carries a call the tool itself
@@ -265,7 +269,7 @@ export const OUTSIDE_ROOTS_UNATTENDED_REFUSAL =
  * remembered grant can stand in for the person it names.
  */
 export const REQUIRES_APPROVAL_UNATTENDED_REFUSAL =
-	"Refused: a call in this batch is one the tool itself declared always needs a person's approval, and nobody can be asked in this session. Nothing in this batch ran. This cannot be granted by a rule, an automation mode, a remembered approval or a skill; run it in a session where a person can be asked."
+	"Refused: this call is one the tool itself declared always needs a person's approval, and nobody can be asked in this session. This call did not run; the other calls in the batch are not affected. This cannot be granted by a rule, an automation mode, a remembered approval or a skill; run it in a session where a person can be asked."
 
 /**
  * What the model is told when a batch runs a command whose own program name
@@ -277,7 +281,7 @@ export const REQUIRES_APPROVAL_UNATTENDED_REFUSAL =
  * "unattended allow" for this.
  */
 export const UNKNOWN_PROGRAM_UNATTENDED_REFUSAL =
-	'Refused: a call in this batch runs a command whose own program name is decided at runtime (a substitution or a variable stands for it), which needs a person to approve it each time, and nobody can be asked in this session. Nothing in this batch ran. Write the program name literally; compute what needs computing in the arguments instead.'
+	'Refused: this call runs a command whose own program name is decided at runtime (a substitution or a variable stands for it), which needs a person to approve it each time, and nobody can be asked in this session. This call did not run; the other calls in the batch are not affected. Write the program name literally; compute what needs computing in the arguments instead.'
 
 /**
  * What the model is told when a batch writes a protected path (a git hook, a
@@ -289,7 +293,7 @@ export const UNKNOWN_PROGRAM_UNATTENDED_REFUSAL =
  * existed (a mode, a rule, "approve all") is not an answer about it.
  */
 export const PROTECTED_PATH_UNATTENDED_REFUSAL =
-	"Refused: a call in this batch writes a protected path (a git hook or config, a shell startup file, editor or tool configuration, or the project's .namzu directory), which needs a person to approve it each time, and nobody can be asked in this session. Nothing in this batch ran. Leave those files alone, or tell the user what change you need so they can make it."
+	"Refused: this call writes a protected path (a git hook or config, a shell startup file, editor or tool configuration, or the project's .namzu directory), which needs a person to approve it each time, and nobody can be asked in this session. This call did not run; the other calls in the batch are not affected. Leave those files alone, or tell the user what change you need so they can make it."
 
 /**
  * What the model is told when a batch removes something catastrophic (the
@@ -297,21 +301,21 @@ export const PROTECTED_PATH_UNATTENDED_REFUSAL =
  * across directories, a target a variable may empty) and nobody can be asked.
  */
 export const DANGEROUS_REMOVAL_UNATTENDED_REFUSAL =
-	'Refused: a call in this batch removes something this check treats as catastrophic (the file system root, a top-level or home directory, the working directory or a parent of it, a glob across directories, or a target a variable or substitution may leave empty), which needs a person to approve it each time, and nobody can be asked in this session. Nothing in this batch ran. Name the exact directory to remove with a literal path.'
+	'Refused: this call removes something this check treats as catastrophic (the file system root, a top-level or home directory, the working directory or a parent of it, a glob across directories, or a target a variable or substitution may leave empty), which needs a person to approve it each time, and nobody can be asked in this session. This call did not run; the other calls in the batch are not affected. Name the exact directory to remove with a literal path.'
 
 /**
  * What the model is told when a batch carries a call a rule or a hook asked a
  * person to approve and nobody can be asked.
  */
 export const ASK_RULE_UNATTENDED_REFUSAL =
-	'Refused: a call in this batch is one a rule or a hook says a person must approve, and nobody can be asked in this session. Nothing in this batch ran. Run it in a session where a person can be asked, or have the operator change the rule.'
+	'Refused: this call is one a rule or a hook says a person must approve, and nobody can be asked in this session. This call did not run; the other calls in the batch are not affected. Run it in a session where a person can be asked, or have the operator change the rule.'
 
 /**
  * What the model is told when the checks that decide whether a call reaches
  * past its boundary did not finish and nobody can be asked.
  */
 export const UNFINISHED_CHECK_UNATTENDED_REFUSAL =
-	'Refused: the safety checks on a call in this batch did not finish, so it cannot be shown to be safe, and a person has to approve it and nobody can be asked in this session. Nothing in this batch ran. Try a simpler form of the call.'
+	'Refused: the safety checks on this call did not finish, so it cannot be shown to be safe, and a person has to approve it and nobody can be asked in this session. This call did not run; the other calls in the batch are not affected. Try a simpler form of the call.'
 
 /** What the model is told when the conversation is too long for the classifier to read. */
 export const CLASSIFIER_TRANSCRIPT_TOO_LONG_FEEDBACK =
@@ -534,6 +538,37 @@ export interface ScreenConsentRecord {
 	readonly sessions: Set<string>
 }
 
+/** The directory to name for a path the guard stopped: the path itself unless it looks like a file. */
+function directoryToAllow(path: string): string {
+	const last = path.split(/[\\/]/).pop() ?? ''
+	return last.includes('.') ? dirname(path) : path
+}
+
+/** The outside-the-roots refusal, naming the directory and the way to allow it. */
+export function outsideRootsRefusal(toolCalls: readonly ToolCallSummary[]): string {
+	const paths = [...new Set(toolCalls.flatMap((tc) => tc.escalation?.outsidePaths ?? []))]
+	if (paths.length === 0) return OUTSIDE_ROOTS_UNATTENDED_REFUSAL
+	const blocked = `${OUTSIDE_ROOTS_UNATTENDED_REFUSAL} Blocked: ${paths.slice(0, 3).join(', ')}.`
+	const directories = [...new Set(paths.map(directoryToAllow))]
+	// A directory that is the file system root or the home directory is too wide to
+	// suggest adding; a path directly under the root is more often a mistyped name.
+	const wide = new Set([parse(directories[0] ?? '/').root, homedir()])
+	const addable = directories.filter((d) => !wide.has(d)).slice(0, 3)
+	if (addable.length === 0) {
+		return `${blocked} It sits directly under a directory too wide to add; if the name is a typo, use a path inside the working directory or the system temp directory.`
+	}
+	return `${blocked} To allow it, the user starts the session with ${addable.map((d) => `--add-dir ${d}`).join(' ')}.`
+}
+
+/** The catastrophic-removal refusal with the one-line reason the check found. */
+export function dangerousRemovalRefusal(toolCalls: readonly ToolCallSummary[]): string {
+	const why = toolCalls.find((tc) => tc.escalation?.dangerousRemoval !== undefined)?.escalation
+		?.dangerousRemoval
+	return why === undefined
+		? DANGEROUS_REMOVAL_UNATTENDED_REFUSAL
+		: `${DANGEROUS_REMOVAL_UNATTENDED_REFUSAL} Why: ${why}.`
+}
+
 /**
  * Whether the call writes a protected path, removes something catastrophic, or
  * could not be checked.
@@ -552,7 +587,7 @@ function floorRefusal(toolCalls: readonly ToolCallSummary[]): string {
 		return PROTECTED_PATH_UNATTENDED_REFUSAL
 	}
 	return toolCalls.some((tc) => tc.escalation?.dangerousRemoval !== undefined)
-		? DANGEROUS_REMOVAL_UNATTENDED_REFUSAL
+		? dangerousRemovalRefusal(toolCalls)
 		: UNFINISHED_CHECK_UNATTENDED_REFUSAL
 }
 
@@ -634,7 +669,7 @@ function immuneRefusal(
 		return PROTECTED_PATH_UNATTENDED_REFUSAL
 	}
 	if (toolCalls.some((tc) => tc.escalation?.dangerousRemoval !== undefined)) {
-		return DANGEROUS_REMOVAL_UNATTENDED_REFUSAL
+		return dangerousRemovalRefusal(toolCalls)
 	}
 	if (toolCalls.some((tc) => tc.escalation?.unfinishedCheck !== undefined)) {
 		return UNFINISHED_CHECK_UNATTENDED_REFUSAL
@@ -1027,7 +1062,20 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		return acceptEditsAllows(tc, sessionId)
 	}
 
-	return async (request, context?: ResumeContext): Promise<HITLResumeDecision> => {
+	// Decisions that refuse one call and say so. The wrapper below splits a batch on
+	// this mark, never on the wording of the refusal.
+	const perCallRefusals = new WeakSet<object>()
+	const callRefusal = (feedback: string): HITLResumeDecision => {
+		const decision: HITLResumeDecision = { action: 'reject_tools', feedback }
+		perCallRefusals.add(decision)
+		return decision
+	}
+
+	const decide = async (
+		request: Parameters<ResumeHandler>[0],
+		context?: ResumeContext,
+		classified = false,
+	): Promise<HITLResumeDecision> => {
 		if (request.type !== 'tool_review') {
 			return request.type === 'plan_approval' ? { action: 'approve_plan' } : { action: 'continue' }
 		}
@@ -1161,7 +1209,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			}
 			const live = request.toolCalls.filter((tc) => tc.authorization?.decision !== 'deny')
 			const escapes = live.filter((tc) => tc.escalation?.sandboxEscape === true).map((tc) => tc.id)
-			if (mode === 'classify') {
+			if (mode === 'classify' && !classified) {
 				const classifier = options.classifier as AutoReviewClassifier
 				const transcript = context?.transcript() ?? []
 				for (const tc of live) {
@@ -1213,7 +1261,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			if (!live.some(isBypassImmune)) return { action: 'approve_tools' }
 			if (!prompt) {
 				const refusal = immuneRefusal(live, options.unattendedSandboxEscape === 'allow')
-				if (refusal !== undefined) return { action: 'reject_tools', feedback: refusal }
+				if (refusal !== undefined) return callRefusal(refusal)
 				return {
 					action: 'approve_tools',
 					...(escapes.length > 0 ? { confirmedEscalations: escapes } : {}),
@@ -1233,22 +1281,22 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		if (escapes.length > 0) {
 			if (!prompt) {
 				if (options.unattendedSandboxEscape !== 'allow') {
-					return { action: 'reject_tools', feedback: SANDBOX_ESCAPE_UNATTENDED_REFUSAL }
+					return callRefusal(SANDBOX_ESCAPE_UNATTENDED_REFUSAL)
 				}
 				// This opt-in confirms only the sandbox escape. A different call in
 				// the batch, or another boundary on this same call, still needs a
 				// person; the early return must not approve that boundary too.
 				if (request.toolCalls.some(reachesAFloor)) {
-					return { action: 'reject_tools', feedback: floorRefusal(request.toolCalls) }
+					return callRefusal(floorRefusal(request.toolCalls))
 				}
 				if (request.toolCalls.some((tc) => (tc.escalation?.outsidePaths?.length ?? 0) > 0)) {
-					return { action: 'reject_tools', feedback: OUTSIDE_ROOTS_UNATTENDED_REFUSAL }
+					return callRefusal(outsideRootsRefusal(request.toolCalls))
 				}
 				if (request.toolCalls.some((tc) => tc.requiresApproval === true)) {
-					return { action: 'reject_tools', feedback: REQUIRES_APPROVAL_UNATTENDED_REFUSAL }
+					return callRefusal(REQUIRES_APPROVAL_UNATTENDED_REFUSAL)
 				}
 				if (request.toolCalls.some((tc) => tc.escalation?.unknownProgram !== undefined)) {
-					return { action: 'reject_tools', feedback: UNKNOWN_PROGRAM_UNATTENDED_REFUSAL }
+					return callRefusal(UNKNOWN_PROGRAM_UNATTENDED_REFUSAL)
 				}
 				return { action: 'approve_tools', confirmedEscalations: escapes }
 			}
@@ -1271,7 +1319,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		// far: `auto` and a remembered "approve all" were answers given before
 		// the call existed. With nobody to ask it is refused, not approved.
 		if (request.toolCalls.some(reachesAFloor)) {
-			if (!prompt) return { action: 'reject_tools', feedback: floorRefusal(request.toolCalls) }
+			if (!prompt) return callRefusal(floorRefusal(request.toolCalls))
 			const answer = await ask()
 			if (answer.kind === 'reject') {
 				return {
@@ -1290,7 +1338,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		// given about tools, before this path was named, and neither saw it.
 		// With nobody to ask it is refused, not approved.
 		if (request.toolCalls.some((tc) => (tc.escalation?.outsidePaths?.length ?? 0) > 0)) {
-			if (!prompt) return { action: 'reject_tools', feedback: OUTSIDE_ROOTS_UNATTENDED_REFUSAL }
+			if (!prompt) return callRefusal(outsideRootsRefusal(request.toolCalls))
 			const answer = await ask()
 			if (answer.kind === 'reject') {
 				return {
@@ -1311,7 +1359,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		// declaration travels with the tool, and no rule, mode or remembered
 		// grant was ever an answer to IT specifically.
 		if (request.toolCalls.some((tc) => tc.requiresApproval === true)) {
-			if (!prompt) return { action: 'reject_tools', feedback: REQUIRES_APPROVAL_UNATTENDED_REFUSAL }
+			if (!prompt) return callRefusal(REQUIRES_APPROVAL_UNATTENDED_REFUSAL)
 			const answer = await ask()
 			if (answer.kind === 'reject') {
 				return {
@@ -1332,7 +1380,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		// escape — an operator who wants this can only write the program
 		// name literally.
 		if (request.toolCalls.some((tc) => tc.escalation?.unknownProgram !== undefined)) {
-			if (!prompt) return { action: 'reject_tools', feedback: UNKNOWN_PROGRAM_UNATTENDED_REFUSAL }
+			if (!prompt) return callRefusal(UNKNOWN_PROGRAM_UNATTENDED_REFUSAL)
 			const answer = await ask()
 			if (answer.kind === 'reject') {
 				return {
@@ -1398,6 +1446,52 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 					...(answer.declined ? { declined: answer.declined } : {}),
 					...(answer.endTurn ? { endTurn: true as const } : {}),
 				}
+		}
+	}
+	// With nobody to ask, a refusal that belongs to one call is that call's
+	// alone. The batch is not refused for it: each call is decided on its own,
+	// the ones that pass run, and the one that does not gets its own reason.
+	// Without this a single stray path in a parallel batch costs the turn every
+	// other call in it.
+	return async (request, context?: ResumeContext): Promise<HITLResumeDecision> => {
+		const whole = await decide(request, context)
+		if (
+			whole.action !== 'reject_tools' ||
+			prompt ||
+			request.type !== 'tool_review' ||
+			request.toolCalls.length < 2 ||
+			!perCallRefusals.has(whole)
+		) {
+			return whole
+		}
+		// The whole-batch pass has already put every call to the classifier (it
+		// refuses only after all of them were allowed), so the per-call passes do
+		// not ask it again. One at a time: no pass races another on shared state.
+		const alone: HITLResumeDecision[] = []
+		for (const tc of request.toolCalls) {
+			alone.push(await decide({ ...request, toolCalls: [tc] }, context, true))
+		}
+		const modifications: ToolModification[] = []
+		const policyRefusals: Record<string, string> = {}
+		const confirmed: string[] = []
+		for (const [i, decision] of alone.entries()) {
+			const id = (request.toolCalls[i] as ToolCallSummary).id
+			if (decision.action === 'approve_tools') {
+				modifications.push({ toolCallId: id, action: 'approve' })
+				confirmed.push(...(decision.confirmedEscalations ?? []))
+			} else if (decision.action === 'reject_tools' && !decision.endTurn && !decision.declined) {
+				modifications.push({ toolCallId: id, action: 'deny' })
+				policyRefusals[id] = decision.feedback
+			} else {
+				return whole
+			}
+		}
+		if (Object.keys(policyRefusals).length === 0) return whole
+		return {
+			action: 'modify_tools',
+			modifications,
+			policyRefusals,
+			...(confirmed.length > 0 ? { confirmedEscalations: confirmed } : {}),
 		}
 	}
 }

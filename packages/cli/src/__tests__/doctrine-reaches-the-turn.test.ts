@@ -129,10 +129,7 @@ const DOCTRINE_SENTENCES = [
 	'Before your first tool call, say in one short line',
 ]
 
-const DELEGATION_SENTENCES = [
-	'open a task list with `task_create`',
-	'When the `Agent` tool is available',
-]
+const DELEGATION_SENTENCES = ['A task list is optional.', 'When the `Agent` tool is available']
 
 async function subagentSystemPrompt(): Promise<string> {
 	const registered: AgentDefinition[] = []

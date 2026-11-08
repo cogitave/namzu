@@ -70,6 +70,14 @@ export type HITLResumeDecision =
 			modifications: ToolModification[]
 			/** See the `approve_tools` field of the same name. */
 			confirmedEscalations?: readonly string[]
+			/**
+			 * Why a policy (not a person) denied a call, by call id. A `deny` modification
+			 * whose id is listed here carries this text to the model in place of the
+			 * generic "declined" answer and is not recorded as a person's No. It lets a
+			 * handler with nobody to ask refuse one call of a batch for its own reason
+			 * while the other calls in the batch run.
+			 */
+			policyRefusals?: Readonly<Record<string, string>>
 	  }
 	| {
 			action: 'reject_tools'

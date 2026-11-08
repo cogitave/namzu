@@ -25,6 +25,8 @@ export function runtimeContextLabel(kind: RuntimeContextMessageKind): string {
 			return 'Message from a connected channel'
 		case 'peer-notice':
 			return 'Notice from another Namzu window'
+		case 'progress-nudge':
+			return 'Asked to act'
 		case 'reminder':
 			return 'Reminder'
 		case 'refusal-retry':
