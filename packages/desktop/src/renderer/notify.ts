@@ -62,16 +62,21 @@ export function createToastHub() {
 	// What is on screen now, and what waits for it to leave. An error the person has not seen
 	// for its full time is never closed by a newer notice: the newer one waits its turn. Errors
 	// wait ahead of everything else; of the others only the newest waits.
-	let active: { id: string; text: string; tone: ToastTone; sink: ToastSink } | undefined
+	let active:
+		| { id: string; text: string; tone: ToastTone; held: boolean; sink: ToastSink }
+		| undefined
 	let waiting: Pending[] = []
 
 	const toneOf = (item: Pending): ToastTone => item.options.tone ?? 'neutral'
+	// An error, or a notice that asked to stay until dismissed, is never closed unseen by a newer one.
+	const heldOf = (item: Pending): boolean =>
+		toneOf(item) === 'error' || item.options.timeoutMs === 0
 
 	const enqueue = (item: Pending) => {
 		if (waiting.some((other) => other.text === item.text && toneOf(other) === toneOf(item))) return
-		const errors = waiting.filter((other) => toneOf(other) === 'error')
-		const others = waiting.filter((other) => toneOf(other) !== 'error')
-		waiting = toneOf(item) === 'error' ? [...errors, item, ...others] : [...errors, item]
+		const errors = waiting.filter(heldOf)
+		const others = waiting.filter((other) => !heldOf(other))
+		waiting = heldOf(item) ? [...errors, item, ...others] : [...errors, item]
 	}
 
 	const showNext = () => {
@@ -86,7 +91,7 @@ export function createToastHub() {
 		const action = options.action
 		// One notice at a time: a new one takes the place of an earlier one that is not an error.
 		const earlier = active
-		active = { id, text, tone, sink }
+		active = { id, text, tone, held: heldOf(item), sink }
 		if (earlier) {
 			earlier.sink.close(earlier.id)
 			shownBy.delete(earlier.id)
@@ -134,10 +139,10 @@ export function createToastHub() {
 		}
 		// The same words already on screen or waiting are one notice, not two.
 		if (active.text === item.text && active.tone === toneOf(item)) return active.id
-		if (active.tone === 'error') enqueue(item)
+		if (active.held) enqueue(item)
 		else {
 			// A newer notice takes the place of an older one that is not an error.
-			waiting = waiting.filter((other) => toneOf(other) === 'error')
+			waiting = waiting.filter(heldOf)
 			show(sink, item)
 		}
 		return item.id
