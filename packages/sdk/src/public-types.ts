@@ -472,9 +472,6 @@ export type {
 	PromptContribution,
 	PromptContributionContext,
 	PromptPlacement,
-	ResidentStepPromptOptions,
-	ResidentStepContextOptions,
-	ResidentStepContextBundle,
 } from './prompt/index.js'
 
 export type {
@@ -534,89 +531,6 @@ export type {
 } from './runtime/query/request-context.js'
 
 export type {
-	ResidentDecision,
-	ResidentState,
-	ResidentStore,
-} from './manager/resident/store.js'
-export type {
-	ResidentActivityScope,
-	ResidentAdmission,
-	ResidentSettlement,
-	ResidentActivityOptions,
-	ResidentActivityPage,
-	ResidentActivitySource,
-} from './manager/resident/activity.js'
-export type {
-	ResidentConsumptionReceipt,
-	ResidentConsumptionResolver,
-	ResidentConsumptionOptions,
-	ResidentConsumptionAttempt,
-	ResidentConsumptionReport,
-} from './manager/resident/consumption.js'
-export type {
-	ResidentHistoryScope,
-	ResidentHistoryAddress,
-	ResidentHistoryMatch,
-	ResidentHistorySearchOptions,
-	ResidentHistorySearchResult,
-	ResidentHistoryReadOptions,
-	ResidentHistoryText,
-	ResidentHistoryReadResult,
-	ResidentHistorySource,
-} from './manager/resident/history.js'
-export type {
-	ResidentStep,
-	ResidentStepResult,
-	ResidentLoopOptions,
-} from './manager/resident/loop.js'
-export type { ResidentExecutionStore } from './manager/resident/store.js'
-export type {
-	ResidentAgendaState,
-	ResidentAgendaStore,
-	ResidentPursuit,
-} from './manager/resident/agenda.js'
-export type {
-	ResidentHostResult,
-	ResidentHostRunOptions,
-	ResidentPursuitStep,
-} from './manager/resident/host.js'
-
-export type {
-	ResidentObservation,
-	ResidentFeedback,
-	ResidentSelectionConfig,
-	ResidentCandidate,
-	ResidentSelection,
-	ResidentSelector,
-} from './manager/resident/initiative.js'
-export type {
-	ResidentHostOptions,
-	ResidentObserver,
-} from './manager/resident/host.js'
-export type {
-	ResidentProposal,
-	ResidentProposalLimits,
-	ResidentProposalOrigin,
-} from './manager/resident/proposal.js'
-
-export type { ResidentMessageFactory } from './manager/resident/host.js'
-export type {
-	ResidentMessageInput,
-	ResidentOutboxMessage,
-	ResidentDeliveryOutcome,
-	ResidentOutboxStore,
-	ResidentDeliveryGate,
-	ResidentMessageTransport,
-	ResidentDeliveryOptions,
-	ResidentDeliveryResult,
-} from './manager/resident/outbox.js'
-export type { ResidentDeliveryWindowConfig } from './manager/resident/delivery-window.js'
-
-export type {
-	ResidentStepContext,
-	ResidentContextualStep,
-} from './manager/resident/host.js'
-export type {
 	LearningEvidence,
 	LearningSkillCandidate,
 	LearnedSkill,
@@ -640,6 +554,10 @@ export type {
 	LearningCycleOptions,
 	LearningCycleResult,
 } from './learning/cycle.js'
+export type {
+	DiskLearningGuidanceOptions,
+	LearningGuidanceState,
+} from './learning/guidance.js'
 
 export type {
 	LearningModel,
@@ -671,13 +589,6 @@ export type {
 } from './learning/leak-tripwire.js'
 
 export type {
-	ResidentArchiveRequest,
-	ResidentArchiveEntry,
-	ResidentArchivePage,
-	ResidentArchiveListOptions,
-} from './manager/resident/agenda.js'
-
-export type {
 	SessionEvidenceScope,
 	SessionEvidenceSourceOptions,
 	SessionEvidenceSearchOptions,
@@ -693,18 +604,7 @@ export type {
 	SessionTextEvidenceSource,
 } from './store/evidence/types.js'
 export type { EvidenceRecordKind } from './store/evidence/source-kind.js'
-export type {
-	ResidentToolEvidenceScope,
-	ResidentSettledInvocation,
-	ResidentToolEvidenceOptions,
-	ResidentToolEvidenceSearchOptions,
-	ResidentToolEvidenceSearchResult,
-	ResidentToolEvidenceReadOptions,
-	ResidentToolEvidenceReadResult,
-	ResidentToolEvidenceSource,
-} from './manager/resident/tool-evidence.js'
 
-export type { ResidentEvidenceRecallOptions } from './manager/resident/evidence-recall.js'
 export type {
 	JsonClaimValue,
 	JsonClaimRequirement,
@@ -872,36 +772,3 @@ export type {
 } from './pals/activity/subscription-policy.js'
 export type { PalActivitySubscriptionRunnerOptions } from './pals/activity/subscriptions.js'
 export type { PalActivityCausalityOptions } from './pals/activity/causality.js'
-
-// Deprecated resident-prefixed names, kept until the next major.
-export type {
-	ResidentLearningEvidence,
-	ResidentSkillCandidate,
-	ResidentLearnedSkill,
-	ResidentLearningState,
-	ResidentProfileUpdate,
-	ResidentSkillEvaluation,
-	ResidentLearningProjectionOptions,
-	ResidentLearningSource,
-	ResidentLearningProjection,
-	ResidentLearningStage,
-	ResidentLearningReceipt,
-	ResidentLearningConsumption,
-	ResidentLearningCycleEvent,
-	ResidentLearningCycleContext,
-	ResidentLearningGenerationContext,
-	ResidentLearningExplorationContext,
-	ResidentLearningExploration,
-	ResidentLearningEvaluationContext,
-	ResidentLearningCycleOptions,
-	ResidentLearningCycleResult,
-	SqliteResidentLearningStoreOptions,
-	ResidentLearningArtifact,
-	ResidentLearningRecordedUsage,
-	ResidentLearningCycleSummary,
-	ResidentLearningDiscoveryOptions,
-	ResidentLearningDiscoveryResult,
-	ResidentLearningObservation,
-	ResidentLearningObservationRecord,
-	ResidentLearningTarget,
-} from './learning/deprecated.js'

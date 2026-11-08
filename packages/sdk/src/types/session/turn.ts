@@ -92,9 +92,10 @@ export type OriginProtocol =
 	| 'acp'
 	| 'http'
 	| 'desktop'
+	// Kept so logs written while the resident feature existed still parse.
 	| 'resident'
 
-/** What kind of work a turn is. A prompt, a goal round, a resident step and a verification step are each a new turn. */
+/** What kind of work a turn is. A prompt, a goal round and a verification step are each a new turn. 'resident-step' is no longer written; it stays in the union so older logs still parse. */
 export type TurnOriginKind = 'prompt' | 'goal-round' | 'resident-step' | 'verification'
 
 export interface Origin {

@@ -89,41 +89,36 @@ describe('the launch starts a background Zen catalogue refresh', () => {
 		expect(started[0]?.settled).toBe(true)
 	})
 
-	// `drain` and `resident run` open agent sessions too: a turn parked on a
+	// `drain` opens agent sessions too: a turn parked on a
 	// model only the live or last-good catalogue carries is continued there.
-	it.each([
-		['drain', ['drain']],
-		['resident run', ['resident', 'run']],
-	])('starts one for `namzu %s`, and cancels it on return', async (_label, args) => {
-		Reflect.deleteProperty(process.env, 'NAMZU_MODEL_CATALOGUE_REFRESH')
-		const originalHome = process.env.NAMZU_HOME
-		process.env.NAMZU_HOME = mkdtempSync(join(tmpdir(), 'namzu-zen-launch-home-'))
-		try {
-			// Whatever the command itself makes of an empty home, the launch
-			// returns while the refresh is still outstanding — it never waits on it.
-			await runCli({ argv: ['node', 'namzu', ...args] })
-		} finally {
-			if (originalHome === undefined) Reflect.deleteProperty(process.env, 'NAMZU_HOME')
-			else process.env.NAMZU_HOME = originalHome
-		}
-		expect(launchTui).not.toHaveBeenCalled()
-		expect(started).toHaveLength(1)
-		expect(started[0]?.signal.aborted).toBe(true)
-		expect(started[0]?.settled).toBe(true)
-	})
+	it.each([['drain', ['drain']]])(
+		'starts one for `namzu %s`, and cancels it on return',
+		async (_label, args) => {
+			Reflect.deleteProperty(process.env, 'NAMZU_MODEL_CATALOGUE_REFRESH')
+			const originalHome = process.env.NAMZU_HOME
+			process.env.NAMZU_HOME = mkdtempSync(join(tmpdir(), 'namzu-zen-launch-home-'))
+			try {
+				// Whatever the command itself makes of an empty home, the launch
+				// returns while the refresh is still outstanding — it never waits on it.
+				await runCli({ argv: ['node', 'namzu', ...args] })
+			} finally {
+				if (originalHome === undefined) Reflect.deleteProperty(process.env, 'NAMZU_HOME')
+				else process.env.NAMZU_HOME = originalHome
+			}
+			expect(launchTui).not.toHaveBeenCalled()
+			expect(started).toHaveLength(1)
+			expect(started[0]?.signal.aborted).toBe(true)
+			expect(started[0]?.settled).toBe(true)
+		},
+	)
 
 	it('names exactly the commands that open sessions', () => {
 		for (const name of ['exec', 'acp', 'drain']) {
-			expect(opensSessions(name, [])).toBe(true)
+			expect(opensSessions(name)).toBe(true)
 		}
-		expect(opensSessions('resident', ['run', '--max-steps', '1'])).toBe(true)
-		for (const removed of ['run', 'run-stream']) expect(opensSessions(removed, [])).toBe(false)
-		// `start` forks a worker that refreshes for itself; the launcher opens nothing.
-		for (const action of [[], ['status'], ['start'], ['add', 'x'], ['--agent', 'run']]) {
-			expect(opensSessions('resident', action)).toBe(false)
-		}
+		for (const removed of ['run', 'run-stream']) expect(opensSessions(removed)).toBe(false)
 		for (const name of ['doctor', 'config', 'login', 'eval']) {
-			expect(opensSessions(name, [])).toBe(false)
+			expect(opensSessions(name)).toBe(false)
 		}
 	})
 

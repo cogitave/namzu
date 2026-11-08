@@ -3,7 +3,7 @@
 //
 // `tsc --build` emits only the declarations (tsconfig: emitDeclarationOnly). This script
 // writes every runtime file: `dist/bin.js` (the published bin), `dist/index.js` (the package
-// export), the resident runner worker, and the shared chunks. Static imports are merged;
+// export), and the shared chunks. Static imports are merged;
 // every `import()` stays its own chunk, so the lazy command graph still loads lazily.
 //
 // Kept external, because they are native, optional, or found by name or path at run time:
@@ -40,7 +40,6 @@ const external = [
 const entries = {
 	bin: join(srcDir, 'bin.ts'),
 	index: join(srcDir, 'index.ts'),
-	'integrations/resident/runner-worker': join(srcDir, 'integrations/resident/runner-worker.ts'),
 	// The process that parses for the code index. It is forked by path, so it is an
 	// entry of its own rather than a chunk.
 	'analysis-host': join(srcDir, 'integrations/analysis/host-entry.ts'),

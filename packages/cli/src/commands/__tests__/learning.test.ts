@@ -1,13 +1,23 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import {
+	cpSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	realpathSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { SqliteLearningStore } from '@namzu/sdk'
+import { SqliteLearningStore, slugForCwd } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import { residentLearningStore } from '../../integrations/resident/learning-storage.js'
-import { lookupResident, residentDirectoryFor } from '../../integrations/resident/storage.js'
+import { lookupNamedTarget } from '../../integrations/learning/target.js'
+import { cliProjectRoot } from '../../integrations/state/project.js'
 import { learnCommand, learningCommand } from '../learn.js'
-import { residentCommand } from '../resident.js'
 import type { CommandContext } from '../types.js'
 
 let root: string
@@ -27,6 +37,7 @@ afterEach(() => {
 	removeTempDir(root)
 })
 
+/** Run `namzu learn …` or `namzu learning …` the way the CLI would. */
 async function command(args: string[]) {
 	const printed: Record<string, unknown>[] = []
 	const errors: string[] = []
@@ -39,9 +50,10 @@ async function command(args: string[]) {
 			error: (value) => errors.push(value.message),
 		},
 	}
-	const code = await residentCommand.handler({
+	const [name, ...rest] = args
+	const code = await (name === 'learn' ? learnCommand : learningCommand).handler({
 		ctx,
-		rawArgs: [...args, '--cwd', cwd],
+		rawArgs: [...rest, '--cwd', cwd],
 	})
 	return { code, printed, errors }
 }
@@ -79,37 +91,36 @@ export default function(host) {
 	return path
 }
 
-async function resident() {
-	const value = await lookupResident(cwd, 'default')
-	if (!value) throw new Error('Missing fixture resident.')
+async function target() {
+	const value = await lookupNamedTarget(cwd, 'default')
+	if (!value) throw new Error('Missing fixture target.')
 	return value
 }
 
-/** The resident's own learning database, beside its runner state. */
+/** The target's own journal. */
 async function learningDatabase(): Promise<string> {
-	const value = await resident()
-	return join(residentDirectoryFor(value.root, value.slug, value.agentKey), 'learning.sqlite')
+	return join((await target()).storeDirectory, 'learning.sqlite')
 }
 
 it('does not create learning state or load a module during empty inspection', async () => {
-	expect((await command(['learning'])).code).toBe(0)
+	const empty = await command(['learning'])
+	expect(empty.code).toBe(0)
+	expect(empty.printed[0]?.text).toBe('No learning experiments recorded.')
 	expect(existsSync(join(home, 'state'))).toBe(false)
-	expect((await command(['add', '--trust', 'Inspect sources.'])).code).toBe(0)
-	expect((await command(['learning'])).code).toBe(0)
-	expect(existsSync(await learningDatabase())).toBe(false)
-	expect(existsSync(join(home, 'learning'))).toBe(false)
+	expect(existsSync(join(home, 'projects'))).toBe(false)
+	expect((await command(['learning', '--observations'])).code).toBe(0)
+	expect(existsSync(join(home, 'projects'))).toBe(false)
 })
 
 it('refuses untrusted host execution before importing the selected module', async () => {
-	await command(['add', '--trust', 'Inspect sources.'])
 	const path = moduleFile()
 	expect((await command(['learn', path])).code).toBe(77)
 	expect(existsSync(join(root, 'imported'))).toBe(false)
-	expect(existsSync(await learningDatabase())).toBe(false)
+	// Nothing was created for a module that was refused.
+	expect(existsSync(join(home, 'projects'))).toBe(false)
 })
 
 it('refuses a legacy host without protection before executing generation', async () => {
-	await command(['add', '--trust', 'Inspect sources.'])
 	const path = moduleFile()
 	writeFileSync(
 		path,
@@ -124,19 +135,18 @@ it('refuses a legacy host without protection before executing generation', async
 	expect(response.code).not.toBe(0)
 	expect(response.errors.join('\n')).toContain('Declare protection.verification')
 	expect(response.errors.join('\n')).not.toContain('generation must not run')
-	expect((await (await resident()).agenda.read())?.learning).toBeUndefined()
+	expect((await (await target()).guidance.read())?.learning).toBeUndefined()
 })
 
 it('runs the host factory through the real SDK gate, persists both batches and inspects after reopening', async () => {
-	await command(['add', '--trust', 'Inspect sources.'])
 	const path = moduleFile()
 	const response = await command(['learn', path, '--trust'])
 	expect(response.errors).toEqual([])
 	expect(response.code).toBe(0)
-	const handle = await resident()
-	const state = await handle.agenda.read()
+	const handle = await target()
+	const state = await handle.guidance.read()
 	expect(state?.learning?.skills[0]?.name).toBe('source-check')
-	const store = residentLearningStore(handle, true)
+	const store = handle.openStore(true)
 	if (!store) throw new Error('Expected recorded store.')
 	const cycle = (await store.list())[0]
 	if (!cycle) throw new Error('Expected recorded cycle.')
@@ -162,7 +172,6 @@ it('runs the host factory through the real SDK gate, persists both batches and i
 })
 
 it('forwards optional environment exploration and retains its evidence before synthesis', async () => {
-	await command(['add', '--trust', 'Explore the local service.'])
 	const path = moduleFile()
 	writeFileSync(
 		path,
@@ -178,7 +187,7 @@ it('forwards optional environment exploration and retains its evidence before sy
 	const response = await command(['learn', path, '--trust'])
 	expect(response.errors).toEqual([])
 	expect(response.code).toBe(0)
-	const store = residentLearningStore(await resident(), true)
+	const store = (await target()).openStore(true)
 	if (!store) throw new Error('Expected learning store.')
 	const cycle = (await store.list())[0]
 	if (!cycle) throw new Error('Expected cycle.')
@@ -191,11 +200,10 @@ it('forwards optional environment exploration and retains its evidence before sy
 })
 
 it('retains evaluator failure and partial usage without activating a skill', async () => {
-	await command(['add', '--trust', 'Inspect sources.'])
 	const response = await command(['learn', moduleFile(true), '--trust'])
 	expect(response.code).toBe(1)
-	const handle = await resident()
-	const store = residentLearningStore(handle, true)
+	const handle = await target()
+	const store = handle.openStore(true)
 	if (!store) throw new Error('Expected recorded store.')
 	const cycle = (await store.list())[0]
 	if (!cycle) throw new Error('Expected recorded cycle.')
@@ -203,11 +211,10 @@ it('retains evaluator failure and partial usage without activating a skill', asy
 		status: 'failed',
 		result: { consumption: { tokens: 25, unfinishedStages: 1 } },
 	})
-	expect((await handle.agenda.read())?.learning).toBeUndefined()
+	expect((await handle.guidance.read())?.learning).toBeUndefined()
 })
 
 it('preserves acknowledged activation in the output when the final journal write fails', async () => {
-	await command(['add', '--trust', 'Inspect sources.'])
 	const original = SqliteLearningStore.prototype.append
 	vi.spyOn(SqliteLearningStore.prototype, 'append').mockImplementation(function (
 		this: SqliteLearningStore,
@@ -223,22 +230,27 @@ it('preserves acknowledged activation in the output when the final journal write
 		auditComplete: false,
 	})
 	expect(response.printed[0]?.text).toContain('journal is incomplete')
-	expect((await (await resident()).agenda.read())?.learning?.skills).toHaveLength(1)
+	expect((await (await target()).guidance.read())?.learning?.skills).toHaveLength(1)
 })
 
-it('rejects unsupported command flags and paused residents before importing code', async () => {
-	await command(['add', '--trust', 'Inspect sources.'])
+it('rejects unsupported command flags before importing code', async () => {
 	expect((await command(['learning', '--provider', 'zen'])).code).toBe(64)
-	await command(['pause'])
-	expect((await command(['learn', moduleFile(), '--trust'])).code).toBe(1)
+	expect((await command(['learn', '--provider', 'zen', moduleFile()])).code).toBe(64)
 	expect(existsSync(join(root, 'imported'))).toBe(false)
 })
 
+it('refuses a module name that is not a learning module before importing anything', async () => {
+	const path = join(root, 'host.mjs')
+	writeFileSync(path, 'throw new Error("must not load")')
+	const response = await command(['learn', path, '--trust'])
+	expect(response.code).toBe(1)
+	expect(response.errors.join('\n')).toContain('.learning.js')
+})
+
 it('inspects observations without leaking full traces or implying an executor is alive', async () => {
-	await command(['add', '--trust', 'Improve the source check.'])
-	const resident = await lookupResident(cwd, 'default')
-	if (!resident) throw new Error('Missing resident.')
-	const store = residentLearningStore(resident)
+	// A module run creates the target; here it only has to exist.
+	expect((await command(['learn', moduleFile(), '--trust'])).code).toBe(0)
+	const store = (await target()).openStore()
 	if (!store) throw new Error('Missing store.')
 	await store.observe({
 		sessionId: '0199a8d2-37dd-7f8e-9e13-4e57937fd049',
@@ -265,7 +277,6 @@ it('inspects observations without leaking full traces or implying an executor is
 })
 
 it('selects a stored failure through the host module and does not replay it on a second CLI invocation', async () => {
-	await command(['add', '--trust', 'Improve source checks.'])
 	const path = moduleFile()
 	let body = readFileSync(path, 'utf8')
 	body = body.replace('export default function(host)', 'export default async function(host)')
@@ -292,41 +303,116 @@ it('selects a stored failure through the host module and does not replay it on a
 	])
 })
 
-it('`namzu learn` and `namzu learning` behave as their resident aliases', async () => {
-	await command(['add', '--trust', 'Inspect sources.'])
+it('`namzu learn` runs a module into a named target and `namzu learning` lists what it recorded', async () => {
 	const path = moduleFile()
-	const top = async (def: typeof learnCommand, args: string[]) => {
-		const printed: Record<string, unknown>[] = []
-		const errors: string[] = []
-		const code = await def.handler({
-			ctx: {
-				config: {},
-				formatter: {
-					name: 'json',
-					print: (value) => printed.push(value as Record<string, unknown>),
-					info: () => {},
-					error: (value) => errors.push(value.message),
-				},
-			} as CommandContext,
-			rawArgs: [...args, '--cwd', cwd],
-		})
-		return { code, printed, errors }
-	}
-	const untrusted = await top(learnCommand, [path])
+	const untrusted = await command(['learn', path])
 	expect(untrusted.code).toBe(77)
 	expect(existsSync(join(root, 'imported'))).toBe(false)
-	const ran = await top(learnCommand, [path, '--trust'])
+	const ran = await command(['learn', path, '--trust'])
 	expect(ran.errors).toEqual([])
 	expect(ran.code).toBe(0)
-	expect((await (await resident()).agenda.read())?.learning?.skills[0]?.name).toBe('source-check')
-	const viaTop = await top(learningCommand, [])
-	const viaResident = await command(['learning'])
-	expect(viaTop.code).toBe(0)
-	expect(viaTop.printed).toEqual(viaResident.printed)
-	expect((viaTop.printed[0]?.cycles as unknown[]).length).toBe(1)
+	expect((await (await target()).guidance.read())?.learning?.skills[0]?.name).toBe('source-check')
+	const listed = await command(['learning'])
+	expect(listed.code).toBe(0)
+	expect((listed.printed[0]?.cycles as unknown[]).length).toBe(1)
+	// Another name is another target: nothing recorded there.
+	const other = await command(['learning', '--agent', 'other'])
+	expect(other.printed[0]?.text).toBe('No learning experiments recorded.')
+	expect((await command(['learn', path, '--trust', '--agent', 'Not A Name'])).code).toBe(1)
 })
 
-it('lists what conversations kept without a resident', async () => {
+/**
+ * A target laid out the way an earlier version kept it: its journal, artifacts
+ * and guidance under `residents/`, copied here from disk (see
+ * __fixtures__/earlier-resident-target). The guidance revisions are in the
+ * earlier shape; the journal row already uses the current `guidanceRevision`
+ * field name, so the older `agendaRevision` name is covered separately, in
+ * guidance-history.test.ts.
+ */
+const EARLIER_TARGET = join(
+	import.meta.dirname,
+	'..',
+	'..',
+	'__fixtures__',
+	'earlier-resident-target',
+)
+
+function digests(directory: string): Record<string, string> {
+	const out: Record<string, string> = {}
+	const walk = (dir: string) => {
+		for (const name of readdirSync(dir)) {
+			const path = join(dir, name)
+			if (statSync(path).isDirectory()) walk(path)
+			else
+				out[path.slice(directory.length)] = createHash('sha256')
+					.update(readFileSync(path))
+					.digest('hex')
+		}
+	}
+	walk(directory)
+	return out
+}
+
+function installEarlierTarget(): { projectDirectory: string; residents: string; cycleId: string } {
+	const meta = JSON.parse(readFileSync(join(EARLIER_TARGET, 'meta.json'), 'utf8'))
+	writeFileSync(
+		join(home, 'identity.json'),
+		JSON.stringify({ tenantId: meta.tenantId, createdAt: new Date(0).toISOString() }),
+	)
+	const projectRoot = cliProjectRoot(realpathSync(cwd))
+	const slug = slugForCwd(projectRoot)
+	const projectDirectory = join(home, 'projects', slug)
+	mkdirSync(projectDirectory, { recursive: true })
+	writeFileSync(
+		join(projectDirectory, 'project.json'),
+		JSON.stringify({
+			v: 1,
+			kind: 'project',
+			projectId: meta.projectId,
+			cwd: projectRoot,
+			slug,
+			createdAt: new Date(0).toISOString(),
+		}),
+	)
+	const residents = join(projectDirectory, 'residents')
+	cpSync(join(EARLIER_TARGET, 'residents'), residents, { recursive: true })
+	return { projectDirectory, residents, cycleId: meta.cycleId }
+}
+
+it('carries a target an earlier version learned into over on first use and leaves the old files as they were', async () => {
+	const earlier = installEarlierTarget()
+	const before = digests(earlier.residents)
+
+	// Inspecting finds the journal the earlier version recorded, observation and cycle.
+	const listed = await command(['learning'])
+	expect(listed.code).toBe(0)
+	expect(listed.printed[0]?.cycles).toEqual([
+		expect.objectContaining({ cycleId: earlier.cycleId, status: 'activated' }),
+	])
+	const observed = await command(['learning', '--observations'])
+	expect(String(observed.printed[0]?.text)).toContain('execution-error · usage unresolved')
+	const detail = await command(['learning', earlier.cycleId])
+	expect(detail.code).toBe(0)
+	expect(detail.printed[0]?.artifacts).toHaveLength(2)
+
+	// The guidance activated back then is still there, with its history.
+	const handle = await target()
+	const state = await handle.guidance.read()
+	expect(state?.revision).toBe(2)
+	expect(state?.learning?.skills.map((s) => s.name)).toEqual(['source-check'])
+	expect((await handle.guidance.readRevision(1))?.learning).toBeUndefined()
+	expect(existsSync(join(handle.storeDirectory, 'adopted.json'))).toBe(true)
+
+	// Working on top of it adds to the carried-over state, never to the old files.
+	const ran = await command(['learn', moduleFile(), '--trust'])
+	expect(ran.code).toBe(2) // the same guidance again: identical to the active baseline
+	expect(ran.errors).toEqual([])
+	const after = await command(['learning'])
+	expect(after.printed[0]?.cycles).toHaveLength(2)
+	expect(digests(earlier.residents)).toEqual(before)
+})
+
+it('lists what conversations kept', async () => {
 	const { openSessions } = await import('../../integrations/sessions/store.js')
 	const { createSessionLearningFeed } = await import('../../integrations/learning/session-feed.js')
 	const { loadIdentity } = await import('../../integrations/state/identity.js')

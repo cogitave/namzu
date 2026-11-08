@@ -1,9 +1,8 @@
 /**
  * A client for one connection of `namzu-peer/1`: connect, write one request
  * line, read one response line, close. Mirrors the shape of this
- * repository's other local control clients (`queryRunner` in
- * `packages/cli/src/integrations/resident/runner-control.ts`,
- * `callEndpoint` in `packages/cli/src/schedule/daemon/endpoint.ts`): an
+ * repository's other local control clients (`callEndpoint` in
+ * `packages/cli/src/schedule/daemon/endpoint.ts`): an
  * authenticated response PROVES responsiveness, and its absence never proves
  * the peer is dead — only that this attempt could not reach it.
  *

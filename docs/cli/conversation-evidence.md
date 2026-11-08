@@ -63,7 +63,7 @@ large compaction records, after reopening the conversation. A scan that skips
 a block array reports the page as incomplete; it does not claim that no
 matching rich text exists. See [SDK retention boundaries](../sdk/retained-tool-evidence.md#large-compaction-records).
 
-When these tools are mounted, ordinary, resumed and resident CLI turns receive
+When these tools are mounted, ordinary and resumed CLI turns receive
 stable guidance to recover an earlier observation if its detail is missing or
 clipped. Recovery is useful before compaction too. The SDK's general evidence
 rules distinguish historical observations from current state; the CLI names

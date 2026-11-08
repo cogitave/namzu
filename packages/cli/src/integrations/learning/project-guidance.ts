@@ -1,62 +1,89 @@
 import { existsSync, lstatSync } from 'node:fs'
 import { join } from 'node:path'
-import { DiskResidentAgenda, type SessionPaths, projectLearning } from '@namzu/sdk'
+import {
+	DiskLearningGuidance,
+	type SessionPaths,
+	earlierGuidanceDirectory,
+	projectLearning,
+} from '@namzu/sdk'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 
 /**
  * Guidance a project learned from its own conversations. It is the same
- * evaluated, revisioned store a resident's guidance lives in, kept under the
- * project's `learning/guidance` directory, so activation, history and rollback
- * work the same way. Only guidance that passed its evaluation is ever
- * activated here, by `namzu learn --sessions` or by the background cycle; the
- * person can take either back with `namzu learn --undo`.
+ * evaluated, revisioned store a named learning target keeps its guidance in,
+ * kept under the project's `learning/session-guidance` directory, so
+ * activation, history and rollback work the same way. Only guidance that
+ * passed its evaluation is ever activated here, by `namzu learn --sessions` or
+ * by the background cycle; the person can take either back with
+ * `namzu learn --undo`.
+ *
+ * Guidance an earlier version kept in `learning/guidance` is carried over, with
+ * every revision, the first time this store is used. The earlier files are
+ * only read.
  */
-const IDENTITY = 'Guidance for conversations in this project.'
 const AGENT_KEY = 'sessions'
 const MAX_CHARS = 8_000
 const MAX_SKILLS = 16
 
-function guidanceRoot(paths: SessionPaths): string {
+function earlierRoot(paths: SessionPaths): string {
 	return join(paths.projectDir(), 'learning', 'guidance')
+}
+
+function guidanceDirectory(paths: SessionPaths): string {
+	return join(paths.projectDir(), 'learning', 'session-guidance')
+}
+
+function store(paths: SessionPaths, tenantId: string): DiskLearningGuidance {
+	return new DiskLearningGuidance(
+		guidanceDirectory(paths),
+		{ tenantId: tenantId as never, agentKey: AGENT_KEY },
+		{
+			adoptFrom: earlierGuidanceDirectory(earlierRoot(paths), {
+				tenantId,
+				agentKey: AGENT_KEY,
+			}),
+		},
+	)
 }
 
 /** The store `namzu learn --sessions` activates into. Created on first use. */
 export async function openProjectGuidance(
 	paths: SessionPaths,
 	tenantId: string,
-): Promise<DiskResidentAgenda> {
+): Promise<DiskLearningGuidance> {
 	const learning = ensurePrivateStateDirectory(paths.projectDir(), 'learning')
-	const root = ensurePrivateStateDirectory(learning, 'guidance')
-	const agenda = new DiskResidentAgenda(root, { tenantId: tenantId as never, agentKey: AGENT_KEY })
-	if (!(await agenda.read())) {
-		try {
-			await agenda.create(IDENTITY)
-		} catch (error) {
-			if (!(await agenda.read())) throw error
-		}
-	}
-	return agenda
+	ensurePrivateStateDirectory(learning, 'session-guidance')
+	const guidance = store(paths, tenantId)
+	await guidance.open()
+	return guidance
+}
+
+function isRealDirectory(path: string): boolean {
+	const entry = lstatSync(path)
+	return entry.isDirectory() && !entry.isSymbolicLink()
 }
 
 /**
  * The text a conversation in this project starts with: the active guidance,
  * newest revision, within a fixed size. Null when nothing has been activated,
- * and never creates anything. A guidance store that cannot be read is skipped
- * rather than failing the conversation.
+ * and never creates anything that was not already there to carry over. A
+ * guidance store that cannot be read is skipped rather than failing the
+ * conversation.
  */
 export async function readProjectGuidance(
 	paths: SessionPaths,
 	tenantId: string,
 ): Promise<string | null> {
 	try {
-		const root = guidanceRoot(paths)
-		if (!existsSync(root) || !lstatSync(root).isDirectory() || lstatSync(root).isSymbolicLink())
-			return null
-		const agenda = new DiskResidentAgenda(root, {
-			tenantId: tenantId as never,
-			agentKey: AGENT_KEY,
-		})
-		const state = await agenda.read()
+		const current = guidanceDirectory(paths)
+		const earlier = earlierRoot(paths)
+		const hasCurrent = existsSync(current)
+		if (hasCurrent ? !isRealDirectory(current) : !existsSync(earlier)) return null
+		if (!hasCurrent) {
+			if (!isRealDirectory(earlier)) return null
+			ensurePrivateStateDirectory(join(paths.projectDir(), 'learning'), 'session-guidance')
+		}
+		const state = await store(paths, tenantId).read()
 		const learning = state?.learning
 		if (!learning) return null
 		const names = learning.skills

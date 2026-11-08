@@ -11,7 +11,7 @@ import type { Id } from './brand.js'
  * for values received from JSON, flags, URLs, or other untyped boundaries.
  */
 /**
- * One turn of a session: a user prompt (or a goal round, resident step or
+ * One turn of a session: a user prompt (or a goal round or a
  * verification step) and everything the agent did to answer it. Recorded in
  * the session log between `turn_started` and `turn_completed`/`turn_failed`.
  */

@@ -1,7 +1,7 @@
 /**
  * Composer triggers are the interactive terminal's alone. Only files under
  * `tui/` import `tui/triggers/`; `config/` holds the shape and the merge rule
- * but never the matcher; and no headless, scheduled, resident or delegated
+ * but never the matcher; and no headless, scheduled or delegated
  * surface reaches it. `namzu exec "hypermode …"` is prose.
  */
 
@@ -38,13 +38,12 @@ describe('composer triggers belong to the TUI alone', () => {
 		expect(importers).toContain('tui/App.tsx')
 	})
 
-	it('no headless, scheduled, resident or delegated surface mentions it', () => {
+	it('no headless, scheduled or delegated surface mentions it', () => {
 		for (const surface of [
 			'commands/exec.ts',
 			'commands/drain.ts',
 			'commands/acp.ts',
 			'schedule/fire/fire.ts',
-			'integrations/resident/session-step.ts',
 			'integrations/subagents/runtime.ts',
 			'tui/agent.ts',
 			'config/load.ts',

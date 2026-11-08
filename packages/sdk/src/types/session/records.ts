@@ -141,6 +141,8 @@ export interface RecordEnvelope {
 
 export const OriginSchema = z
 	.object({
+		// 'resident' and 'resident-step' are no longer written; they stay so logs
+		// recorded while the resident feature existed still parse.
 		protocol: z.enum(['cli', 'sdk', 'ag-ui', 'a2a', 'acp', 'http', 'desktop', 'resident']),
 		externalSessionId: text.optional(),
 		externalTurnId: text.optional(),

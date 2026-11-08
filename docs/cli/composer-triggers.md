@@ -30,7 +30,7 @@ Three rules hold for every trigger:
   looks like), a recalled prompt (↑, Ctrl+R), a restored draft (Esc Esc), text
   from the external editor (Ctrl+G), a yank (Ctrl+Y) and an accepted
   completion only *suggest*. A loop, a picker, a scheduled run, `namzu exec`,
-  `drain`, ACP, a resident step and a sub-agent never carry a trigger at all:
+  `drain`, ACP and a sub-agent never carry a trigger at all:
   `namzu exec "hypermode …"` is prose.
 - **A trigger is a shorthand for something namzu already does.** It grants
   nothing and skips no confirmation: no trigger changes the permission mode,

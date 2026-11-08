@@ -1,7 +1,7 @@
 /**
  * The `schedule` and `session_loop` tools exist only where a person can
- * confirm: the interactive TUI. Never in `exec`, a scheduled run, a resident
- * worker, ACP, or a sub-agent (whose registry `createAgentSession` builds
+ * confirm: the interactive TUI. Never in `exec`, a scheduled run,
+ * ACP, or a sub-agent (whose registry `createAgentSession` builds
  * separately from the host's `extraTools`).
  */
 

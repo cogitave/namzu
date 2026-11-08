@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Task tracking and execution
-description: Existing planning tasks, delegated execution handles and resident pursuits, their scopes and the host wiring needed to expose them.
+description: Existing planning tasks, delegated execution handles, their scopes and the host wiring needed to expose them.
 resource: packages/sdk/src/types/task/index.ts
 tags: [sdk, tasks, agents, planning, hosts]
 ---
@@ -9,7 +9,7 @@ tags: [sdk, tasks, agents, planning, hosts]
 # Task tracking and execution
 
 Namzu already has task tracking. Its planning list, delegated execution and
-resident agenda describe different records. A host chooses which capabilities
+approved plans describe different records. A host chooses which capabilities
 to compose; displaying a task does not create a running worker.
 
 | Record | Existing API and tools | What its state means |
@@ -17,7 +17,6 @@ to compose; displaying a task does not create a running worker.
 | Session planning task | `TaskStore`, `buildTaskTools`; `task_create`, `task_update`, `task_list` | Agent-maintained plan with subject, owner and dependency edges. |
 | Delegated invocation | `AgentManager`, `TaskScheduler`; coordinator `create_task`, `agent_task_list`, `continue_task`, `cancel_task` | Actual admission, execution, cancellation and retained worker result. |
 | Approved plan and steps | `PlanManager`; coordinator `approve_plan` and optional plan-step correlation | A host-approved plan and reported step outcomes. |
-| Resident pursuit | `ResidentAgenda` and resident execution stores | A persistent resident's bounded pursuit, feedback and continuation state. |
 
 Keep the IDs and scopes of these records separate. Correlation is explicit:
 coordinator delegation can name a planning task or an approved plan step.

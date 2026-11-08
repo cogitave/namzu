@@ -1696,7 +1696,7 @@ design preview does not manufacture message or subscription records.
 
 The browser design preview supports in-memory creation and customization, and
 explicitly reports that a real computer needs the native application. This MVP
-does not yet run a resident autonomous loop, Pal Team or external channel adapter.
+does not yet run an autonomous background loop, Pal Team or external channel adapter.
 
 ## Appearance and message display
 
@@ -2495,7 +2495,7 @@ unavailable notice rather than clearing them as if the tasks were deleted.
 Older CLI connections keep their existing behavior without this optional
 extension. External harness transcripts are not silently interpreted as Namzu
 planning tasks. See [task tracking](../sdk/task-tracking.md) for the existing
-planning, delegated-invocation and resident-pursuit contracts.
+planning and delegated-invocation contracts.
 
 ### Reply summary, attachments and dates
 

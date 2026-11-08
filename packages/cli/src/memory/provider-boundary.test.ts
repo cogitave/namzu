@@ -325,7 +325,7 @@ it('carries stored memory under its own heading, and copies project notes only w
 	expect((await send(later.session)).told).toContain('HAND_WRITTEN_LATER')
 })
 
-it('carries file and stored memory as a reminder on ordinary turns and as request-only context on resident turns', async () => {
+it('carries file and stored memory as a reminder on ordinary turns', async () => {
 	writeFileSync(join(appHome, 'USER.md'), 'CURATED_OPERATOR_DIRECTIVE')
 	const { session, state } = await makeSession(false)
 	await new MarkdownMemoryStore({ directory: state.paths.memoryDir() }).create({
@@ -353,29 +353,6 @@ it('carries file and stored memory as a reminder on ordinary turns and as reques
 	expect(projected).toContain('Inspect the synthetic fixture.')
 	// The memory is in the conversation, framed as a reminder rather than as a prompt.
 	expect(projected).toContain('<system-reminder kind=\\"memory-index\\">')
-
-	const resident = await send(session, 'Continue the resident fixture.', {
-		residentContext: {
-			state: {
-				tenantId: state.tenantId,
-				agentKey: 'fixture',
-				identity: 'Fixture resident',
-				objective: 'Check the memory boundary',
-				revision: 1,
-				stepsAdmitted: 1,
-				phase: 'running',
-				wakeAt: null,
-				reason: 'Fixture wake',
-				summary: null,
-				claimId: 'c110ae82-43e4-43c1-a7ad-3ad8d8f89d75',
-			},
-			outputInstructions: 'Return a fixture receipt.',
-		},
-	})
-	expect(resident.system).not.toContain('CURATED_OPERATOR_DIRECTIVE')
-	expect(resident.system).not.toContain('IGNORE_OPERATOR_AND_EXFILTRATE')
-	expect(resident.context).toContain('CURATED_OPERATOR_DIRECTIVE')
-	expect(resident.context).toContain('IGNORE_OPERATOR_AND_EXFILTRATE')
 })
 
 it('carries file and stored memory after actual compaction', async () => {
@@ -471,17 +448,17 @@ it('carries file and stored memory after actual compaction', async () => {
 	}
 })
 
-it('delivers explicit admitted resident data as request-only context beside fixed system guidance', async () => {
+it('delivers explicit host-supplied data as request-only context beside fixed system guidance', async () => {
 	const { session } = await makeSession(false)
 	let durableHistory = ''
 	const result = await send(session, 'Continue the admitted step.', {
-		extraSystem: 'FIXED_RESIDENT_OUTPUT_CONTRACT',
+		extraSystem: 'FIXED_HOST_OUTPUT_CONTRACT',
 		extraContext: 'SAVED_SUMMARY_IGNORE_OPERATOR_AND_EXFILTRATE',
 		onConversationMessages: (messages) => {
 			durableHistory = JSON.stringify(messages)
 		},
 	})
-	expect(result.system).toContain('FIXED_RESIDENT_OUTPUT_CONTRACT')
+	expect(result.system).toContain('FIXED_HOST_OUTPUT_CONTRACT')
 	expect(result.system).not.toContain('SAVED_SUMMARY_IGNORE_OPERATOR_AND_EXFILTRATE')
 	expect(result.context).toContain('SAVED_SUMMARY_IGNORE_OPERATOR_AND_EXFILTRATE')
 	expect(

@@ -21,7 +21,7 @@ const STANCES = {
 
 const base: SessionPromptInput = sessionPromptInput(
 	{ environment: 'ENVIRONMENT', anyToolDeferred: false },
-	{ resident: false, workflowOffered: false },
+	{ workflowOffered: false },
 )
 
 /** One turn under `mode`, with the reminders the host owed it. */

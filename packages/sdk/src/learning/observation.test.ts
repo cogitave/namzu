@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DiskResidentAgenda } from '../manager/resident/agenda.js'
 import { generateProjectId, generateTenantId } from '../utils/id.js'
+import { DiskLearningGuidance } from './guidance.js'
 import type { LearningObservation } from './observation.js'
 import { hashLearningSkill } from './skill.js'
 import {
@@ -57,8 +57,8 @@ async function fixture() {
 		scope,
 	}
 	const store = new SqliteLearningStore(storage)
-	const agenda = new DiskResidentAgenda(join(root, 'agenda'), scope)
-	await agenda.create('Use retained observations to improve source selection.')
+	const guidance = new DiskLearningGuidance(join(root, 'guidance'), scope)
+	await guidance.create()
 	const generate = vi.fn(async () => {
 		throw new Error('Generator interrupted after admission.')
 	})
@@ -66,7 +66,7 @@ async function fixture() {
 		throw new Error('Unexpected evaluation.')
 	})
 	const options: LearningDiscoveryOptions = {
-		agenda,
+		guidance,
 		evaluators: [target],
 		signal: new AbortController().signal,
 		resources: { unit: 'tokens', maxUnits: 100 },
@@ -74,10 +74,10 @@ async function fixture() {
 		generate,
 		evaluate,
 	}
-	return { root, storage, store, agenda, options, generate, evaluate }
+	return { root, storage, store, guidance, options, generate, evaluate }
 }
 
-describe('resident learning observations and admission', () => {
+describe('learning observations and admission', () => {
 	it('retains immutable host evidence, UUID aliases and ordered pages across reopen', async () => {
 		const f = await fixture()
 		const a = observation()
@@ -185,12 +185,12 @@ describe('resident learning observations and admission', () => {
 	it('binds admission to the baseline actually read by the cycle', async () => {
 		const f = await fixture()
 		await f.store.observe(observation())
-		const read = f.agenda.read.bind(f.agenda)
+		const read = f.guidance.read.bind(f.guidance)
 		let calls = 0
-		vi.spyOn(f.agenda, 'read').mockImplementation(async () => {
+		vi.spyOn(f.guidance, 'read').mockImplementation(async () => {
 			const state = await read()
 			if (++calls === 1) return state
-			if (!state) throw new Error('Missing agenda.')
+			if (!state) throw new Error('Missing guidance.')
 			const skill = { name: target.skillName, description: 'Changed', body: 'New baseline' }
 			const hash = hashLearningSkill(skill)
 			const evidence = observation().evidence
@@ -222,7 +222,7 @@ describe('resident learning observations and admission', () => {
 		expect(f.generate).not.toHaveBeenCalled()
 		expect((await f.store.observations())[0]?.attemptedCycleId).toBeNull()
 	})
-	it('isolates observation selection and inspection by tenant, project and resident', async () => {
+	it('isolates observation selection and inspection by tenant, project and scope key', async () => {
 		const f = await fixture()
 		await f.store.observe(observation())
 		for (const scope of [

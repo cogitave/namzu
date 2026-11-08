@@ -267,7 +267,7 @@ describe('explicit tool loading reaches the real session and query', () => {
 				const events: AgentEvent[] = []
 				for await (const event of session.send([createUserMessage('Track the fixture check')], {
 					permissionMode: 'plan',
-					extraSystem: 'RESIDENT_CONTINUITY_MUST_REMAIN: earlier saved summary.',
+					extraSystem: 'SAVED_SUMMARY_MUST_REMAIN: earlier saved summary.',
 				}))
 					events.push(event)
 				expect(events.at(-1), JSON.stringify(events)).toMatchObject({
@@ -296,7 +296,7 @@ describe('explicit tool loading reaches the real session and query', () => {
 				const prompt = JSON.stringify(first.messages)
 				for (const retained of [
 					'PROJECT_INSTRUCTION_MUST_REMAIN',
-					'RESIDENT_CONTINUITY_MUST_REMAIN',
+					'SAVED_SUMMARY_MUST_REMAIN',
 					'## How you work',
 					'### Planning and delegating',
 					'## Plan mode',

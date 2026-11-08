@@ -65,16 +65,6 @@ export const execCommand = lazyCommand(
 	async () => (await import('./exec.js')).execCommand,
 )
 
-export const residentCommand = lazyCommand(
-	{
-		name: 'resident',
-		description:
-			'Deprecated: persistent resident work, removed in the next major release (namzu learn stays)',
-		passThrough: true,
-	},
-	async () => (await import('./resident.js')).residentCommand,
-)
-
 export const learnCommand = lazyCommand(
 	{
 		name: 'learn',

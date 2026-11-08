@@ -48,7 +48,7 @@ rewritten.
     └── <slug>/                       one per working directory
         ├── project.json              {"v":1,"kind":"project","projectId","cwd","slug","createdAt"}
         ├── memory/                   stored memories + MEMORY.md index
-        ├── residents/<agent-key>/    resident state, learning.sqlite, artifacts/
+        ├── learning/                 observations, guidance, targets/<name>/{store,guidance}
         ├── worktrees/<label>/        git worktrees the agent creates
         ├── <session-id>.jsonl        the session log
         └── <session-id>/

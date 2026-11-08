@@ -4,7 +4,7 @@
  * - it hands only http(s) to the opener and reports a started launcher as
  *   launched, never as "the page appeared";
  * - the TUI and `exec` mount it; `exec --json`, `drain`, ACP, a scheduled run,
- *   a resident worker and every sub-agent do not;
+ *   and every sub-agent do not;
  * - in `prompt` mode a call to it is put to the user like any outward action.
  */
 
@@ -157,7 +157,6 @@ describe('where open_url is mounted', () => {
 			'commands/drain.ts',
 			'commands/acp.ts',
 			'schedule/fire/fire.ts',
-			'integrations/resident/session-step.ts',
 		]) {
 			expect(readFileSync(join(SRC, surface), 'utf8')).not.toMatch(/openUrl|createOpenUrlTool/)
 		}

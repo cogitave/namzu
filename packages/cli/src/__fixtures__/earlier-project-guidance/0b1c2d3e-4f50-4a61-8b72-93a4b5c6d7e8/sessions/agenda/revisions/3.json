@@ -1,0 +1,55 @@
+{
+  "tenantId": "0b1c2d3e-4f50-4a61-8b72-93a4b5c6d7e8",
+  "agentKey": "sessions",
+  "identity": "Guidance for conversations in this project.",
+  "revision": 3,
+  "paused": false,
+  "learning": {
+    "revision": 1,
+    "identity": {
+      "text": "Prefers short answers.",
+      "evidence": {
+        "key": "profile-1",
+        "source": "fixture:trace",
+        "reason": "Asked for short answers."
+      }
+    },
+    "preferences": [
+      {
+        "key": "tone",
+        "value": "plain",
+        "evidence": {
+          "key": "profile-1",
+          "source": "fixture:trace",
+          "reason": "Asked for short answers."
+        }
+      }
+    ],
+    "skills": [],
+    "lastChange": {
+      "key": "profile-1",
+      "source": "fixture:trace",
+      "reason": "Asked for short answers."
+    }
+  },
+  "pursuits": [
+    {
+      "id": "b187c1de-e4e6-43bc-8f79-e6a9018e6ebe",
+      "state": {
+        "tenantId": "0b1c2d3e-4f50-4a61-8b72-93a4b5c6d7e8",
+        "agentKey": "sessions",
+        "pursuitId": "b187c1de-e4e6-43bc-8f79-e6a9018e6ebe",
+        "identity": "Guidance for conversations in this project.",
+        "objective": "Check the build output every morning.",
+        "revision": 1,
+        "stepsAdmitted": 0,
+        "phase": "waiting",
+        "wakeAt": 0,
+        "reason": "Initial pursuit",
+        "summary": null,
+        "claimId": null
+      }
+    }
+  ],
+  "schemaVersion": 6
+}

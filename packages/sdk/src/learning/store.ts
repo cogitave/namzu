@@ -286,7 +286,7 @@ export class SqliteLearningStore {
 			row.project_id !== this.scope.projectId ||
 			row.agent_key !== this.scope.agentKey
 		)
-			throw new Error('Learning cycle does not belong to this tenant, project and resident.')
+			throw new Error('Learning cycle does not belong to this tenant, project and scope key.')
 		return row
 	}
 
@@ -524,7 +524,7 @@ export class SqliteLearningStore {
 					(event.data.tenantId !== this.scope.tenantId ||
 						event.data.agentKey !== this.scope.agentKey)
 				)
-					throw new Error('Learning start does not match the bound resident.')
+					throw new Error('Learning start does not match the bound scope key.')
 				const parent =
 					event.data.parentCycleId === undefined ? null : uuid.parse(event.data.parentCycleId)
 				if (parent && !this.owned(db, parent))
@@ -843,11 +843,10 @@ export async function runStoredLearningFromObservations(
 	options: LearningDiscoveryOptions,
 ): Promise<LearningDiscoveryResult> {
 	options.signal.throwIfAborted()
-	const agenda = await options.agenda.read()
-	if (!agenda || agenda.paused || agenda.pursuits.some((p) => p.state.phase === 'running'))
-		throw new Error('Learning discovery requires an unpaused agenda without running pursuits.')
+	const guidance = await options.guidance.read()
+	if (!guidance) throw new Error('Learning discovery requires existing learning guidance.')
 	const targets = options.evaluators.map((target) => {
-		const skill = agenda.learning?.skills.find((s) => s.name === target.skillName)
+		const skill = guidance.learning?.skills.find((s) => s.name === target.skillName)
 		return { ...target, baselineRevision: skill ? hashLearningSkill(skill) : 'none' }
 	})
 	const observation = await store.selectObservation(targets)

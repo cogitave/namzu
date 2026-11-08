@@ -166,7 +166,7 @@ A person who comes back while it is running sees the usual compacting state. No 
 
 Recorded CLI conversations enable the
 [SDK evidence recall step](../sdk/evidence-recall.md) by default, including
-resume and resident turns using the conversation host. It can supply historical
+resume turns using the conversation host. It can supply historical
 details missing from a retained preview or compacted history without requiring
 the user to name an archive tool. Stateless sessions do not gain archive access;
 the SDK itself still requires the host to install this step.

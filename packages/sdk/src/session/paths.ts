@@ -28,7 +28,7 @@ import { uuidv7 } from '../utils/uuidv7.js'
  *   index.sqlite                     rebuildable index over every log
  *   projects/<slug>/
  *     project.json                   the project id, minted once
- *     memory/  residents/  worktrees/<label>/
+ *     memory/  worktrees/<label>/
  *     <session-id>.jsonl             the session log (source of truth)
  *     <session-id>/
  *       subagents/<child-id>.jsonl, <child-id>.meta.json, <child-id>/subagents/…
@@ -96,7 +96,7 @@ export class SessionPathError extends Error {
 }
 
 const SLUG = /^[A-Za-z0-9-]+$/
-/** Worktree labels and resident agent keys: one plain segment, never `.` or `..`. */
+/** Worktree labels: one plain segment, never `.` or `..`. */
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 /** Longest slug before a hash suffix replaces the tail; well under the 255-byte segment limit. */
 const MAX_SLUG = 200
@@ -299,10 +299,6 @@ export class SessionPaths {
 
 	memoryDir(): string {
 		return join(this.projectDir(), 'memory')
-	}
-
-	residentDir(agentKey: string): string {
-		return join(this.projectDir(), 'residents', checkName(agentKey, 'resident agent key'))
 	}
 
 	/** The `GitWorktreeManager` default root, or one labelled worktree inside it. */

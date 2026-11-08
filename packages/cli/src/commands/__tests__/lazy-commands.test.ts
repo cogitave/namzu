@@ -141,7 +141,6 @@ describe('the command manifest', () => {
 				'mcp',
 				'pal',
 				'providers-json',
-				'resident',
 				'schedule',
 				'serve',
 				'skills',

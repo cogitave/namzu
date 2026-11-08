@@ -185,7 +185,7 @@ metadata:
 ```
 
 **Only the TUI has it.** The App registers `save_skill` for its own session;
-`namzu exec`, `drain`, a scheduled run, ACP, a resident worker and every
+`namzu exec`, `drain`, a scheduled run, ACP and every
 sub-agent build their tools without it. **Its screen is its own question, not
 the permission gate's**: in `prompt`, `accept-edits`, `bypass` and `auto` the gate does
 not ask about it, and the screen asks every time, `bypass` and `auto` included. `plan` and
@@ -271,8 +271,8 @@ follow until `/skills save on`. The count is kept in
 bool }`); a missing or unreadable file starts again from zero
 (`packages/cli/src/tui/skills/suggestion-ledger.ts`).
 
-**Only the TUI proposes.** `namzu exec`, `drain`, ACP, a scheduled run, a
-resident worker and sub-agents never import the heuristic; a test checks the
+**Only the TUI proposes.** `namzu exec`, `drain`, ACP, a scheduled run
+and sub-agents never import the heuristic; a test checks the
 import graph (`packages/cli/src/tui/__tests__/skill-suggestion-is-the-tuis-alone.test.ts`).
 
 ## Frontmatter
