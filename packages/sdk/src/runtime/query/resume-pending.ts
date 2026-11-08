@@ -248,7 +248,7 @@ function derivePartialDenials(
 			for (const call of asked) {
 				const mods = decision.modifications.filter((mod) => mod.toolCallId === call.id)
 				if (mods.some((mod) => mod.action === 'deny'))
-					denials.set(call.id, DECLINED_TOOL_CALL_FEEDBACK)
+					denials.set(call.id, decision.policyRefusals?.[call.id] ?? DECLINED_TOOL_CALL_FEEDBACK)
 				else if (!mods.some((mod) => mod.action === 'approve')) {
 					denials.set(
 						call.id,
@@ -280,7 +280,8 @@ function derivePartialDeclines(
 		const denied = asked.filter(
 			(call) =>
 				!gateDenied.has(call.id) &&
-				decision.modifications.some((mod) => mod.toolCallId === call.id && mod.action === 'deny'),
+				decision.modifications.some((mod) => mod.toolCallId === call.id && mod.action === 'deny') &&
+				decision.policyRefusals?.[call.id] === undefined,
 		)
 		if (denied.length > 0) return new Map(denied.map((call) => [call.id, {}]))
 	}
@@ -833,7 +834,10 @@ function derriveDeclines(
 	}
 	if (decision.action === 'modify_tools') {
 		const denied = decision.modifications.filter(
-			(mod) => mod.action === 'deny' && !gateDenied.has(mod.toolCallId),
+			(mod) =>
+				mod.action === 'deny' &&
+				!gateDenied.has(mod.toolCallId) &&
+				decision.policyRefusals?.[mod.toolCallId] === undefined,
 		)
 		if (denied.length > 0) return new Map(denied.map((mod) => [mod.toolCallId, {}]))
 	}
@@ -868,7 +872,10 @@ function derriveDenials(
 			const denials = new Map<string, string>()
 			for (const mod of decision.modifications) {
 				if (mod.action === 'deny') {
-					denials.set(mod.toolCallId, DECLINED_TOOL_CALL_FEEDBACK)
+					denials.set(
+						mod.toolCallId,
+						decision.policyRefusals?.[mod.toolCallId] ?? DECLINED_TOOL_CALL_FEEDBACK,
+					)
 				}
 			}
 			for (const mod of decision.modifications) {

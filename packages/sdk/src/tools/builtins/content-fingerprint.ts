@@ -34,6 +34,31 @@ export function unreadFileError(path: string, operation: 'edit' | 'write' = 'edi
 	return `${path} has not been read yet. Read it first, then redo the ${operation}. Nothing was written.`
 }
 
+/** The longest file `edit` hands back when it refuses one the session never read, in lines. */
+export const UNREAD_EDIT_SHOWN_MAX_LINES = 600
+/** The longest file `edit` hands back when it refuses one the session never read, in characters. */
+export const UNREAD_EDIT_SHOWN_MAX_CHARS = 24_000
+
+/**
+ * What `edit` tells the agent when the session never read the file and the
+ * file is small enough to hand over: the refusal and the numbered contents.
+ * The caller records the read, so the repeated edit is admitted. `undefined`
+ * when the file is too large or is not text.
+ */
+export function unreadEditShownError(path: string, content: string): string | undefined {
+	if (content.length > UNREAD_EDIT_SHOWN_MAX_CHARS || content.includes('\u0000')) return undefined
+	const lines = content.split('\n')
+	if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
+	if (lines.length > UNREAD_EDIT_SHOWN_MAX_LINES) return undefined
+	const numbered = lines.map((line, i) => `${i + 1}\t${line}`).join('\n')
+	return `${path} had not been read in this session, so this edit was not applied. It has now been read for you; its current contents follow. Repeat the edit against them. Nothing was written.\n\n${numbered}`
+}
+
+/** What `edit` tells the agent when the file was never read and is too large to hand over. */
+export function unreadEditTooLargeError(path: string): string {
+	return `${path} has not been read in this session, so the edit was not applied. Read it with the read tool (one call, no range), then repeat the edit.`
+}
+
 /**
  * Whether the file at `key` has moved on disk since the session read it.
  *

@@ -518,6 +518,52 @@ describe('per-call review: the batch path does not change', () => {
 	})
 })
 
+describe('a policy refusal of one call does not cost the batch', () => {
+	const refusal = 'Refused: this call reaches a path outside the working directory.'
+
+	it('runs the calls that passed and gives the refused one its own reason', async () => {
+		const h = harness({
+			batchHandler: () => ({
+				action: 'modify_tools',
+				modifications: [
+					{ toolCallId: 'r1', action: 'approve' },
+					{ toolCallId: 'r2', action: 'deny' },
+				],
+				policyRefusals: { r2: refusal },
+			}),
+		})
+		const resp = responseOf(call('r1', 'read'), call('r2', 'read'))
+		const running = drive(h.ctx, resp)
+		await h.untilStarted('r1')
+		h.finish('r1')
+		const outcome = await running
+
+		expect(outcome.decision).toBe('executed')
+		expect(h.started).toEqual(['r1'])
+		expect(toolText(h.messages, 'r2')).toContain(refusal)
+		expectEveryCallAnswered(h.messages, resp)
+	})
+
+	it("is the person's answer only when no policy reason is given", async () => {
+		const h = harness({
+			batchHandler: () => ({
+				action: 'modify_tools',
+				modifications: [
+					{ toolCallId: 'r1', action: 'approve' },
+					{ toolCallId: 'r2', action: 'deny' },
+				],
+			}),
+		})
+		const resp = responseOf(call('r1', 'read'), call('r2', 'read'))
+		const running = drive(h.ctx, resp)
+		await h.untilStarted('r1')
+		h.finish('r1')
+		await running
+		expect(toolText(h.messages, 'r2')).not.toContain(refusal)
+		expect(toolText(h.messages, 'r2')).toMatch(/declin|did not/i)
+	})
+})
+
 describe('per-call review: re-checks while questions are open', () => {
 	function withRules() {
 		const listeners = new Set<() => void>()

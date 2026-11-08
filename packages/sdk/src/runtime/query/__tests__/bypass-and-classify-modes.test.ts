@@ -45,6 +45,7 @@ import {
 	UNFINISHED_CHECK_UNATTENDED_REFUSAL,
 	createReviewHandler,
 	createReviewPolicy,
+	dangerousRemovalRefusal,
 	isReviewMode,
 	modeReviewsAllowedCalls,
 } from '../review-policy.js'
@@ -136,6 +137,13 @@ const immune: Record<string, () => ToolCallSummary> = {
 		bash('echo x >> ~/.bashrc', { escalation: { protectedPaths: ['/home/u/.bashrc'] } }),
 }
 
+/** The refusal for a call, which names the reason the removal check found. */
+function refusalText(what: string, call: ToolCallSummary): string {
+	return what === 'a catastrophic removal'
+		? dangerousRemovalRefusal([call])
+		: (refusalFor[what] as string)
+}
+
 const refusalFor: Record<string, string> = {
 	'an ask rule': ASK_RULE_UNATTENDED_REFUSAL,
 	'a catastrophic removal': DANGEROUS_REMOVAL_UNATTENDED_REFUSAL,
@@ -214,9 +222,10 @@ describe('bypass', () => {
 		})
 
 		it(`refuses ${what} when nobody can be asked`, async () => {
-			expect(await createReviewHandler({ mode: 'bypass' })(review(make()))).toEqual({
+			const call = make()
+			expect(await createReviewHandler({ mode: 'bypass' })(review(call))).toEqual({
 				action: 'reject_tools',
-				feedback: refusalFor[what],
+				feedback: refusalText(what, call),
 			})
 		})
 	}
@@ -239,11 +248,21 @@ describe('bypass', () => {
 				review(escapeCall),
 			),
 		).toEqual({ action: 'approve_tools', confirmedEscalations: [escapeCall.id] })
+		// The removal is refused on its own call; the escape the host allowed still runs.
+		const removal = immune['a catastrophic removal']?.() as ToolCallSummary
 		expect(
 			await createReviewHandler({ mode: 'bypass', unattendedSandboxEscape: 'allow' })(
-				review(escapeCall, immune['a catastrophic removal']?.() as ToolCallSummary),
+				review(escapeCall, removal),
 			),
-		).toEqual({ action: 'reject_tools', feedback: DANGEROUS_REMOVAL_UNATTENDED_REFUSAL })
+		).toEqual({
+			action: 'modify_tools',
+			modifications: [
+				{ toolCallId: escapeCall.id, action: 'approve' },
+				{ toolCallId: removal.id, action: 'deny' },
+			],
+			policyRefusals: { [removal.id]: dangerousRemovalRefusal([removal]) },
+			confirmedEscalations: [escapeCall.id],
+		})
 	})
 
 	it('does not ask about a call a gate denial already refused', async () => {
@@ -291,11 +310,10 @@ describe('classify routing', () => {
 
 		it(`refuses ${what} unattended without consulting the classifier`, async () => {
 			const { classifier } = scripted()
+			const call = immune[what]?.() as ToolCallSummary
 			expect(
-				await createReviewHandler({ mode: 'classify', classifier, registry })(
-					review(immune[what]?.() as ToolCallSummary),
-				),
-			).toEqual({ action: 'reject_tools', feedback: refusalFor[what] })
+				await createReviewHandler({ mode: 'classify', classifier, registry })(review(call)),
+			).toEqual({ action: 'reject_tools', feedback: refusalText(what, call) })
 			expect(classifier.review).not.toHaveBeenCalled()
 		})
 	}

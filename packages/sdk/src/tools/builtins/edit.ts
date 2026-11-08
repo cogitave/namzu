@@ -7,7 +7,12 @@ import { defineTool } from '../defineTool.js'
 import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
 import { clip, describeChange } from './classifier-input.js'
-import { fingerprintContent, staleFileError, unreadFileError } from './content-fingerprint.js'
+import {
+	fingerprintContent,
+	staleFileError,
+	unreadEditShownError,
+	unreadEditTooLargeError,
+} from './content-fingerprint.js'
 import {
 	type EditApplyFailure,
 	type NormalizedEditInput,
@@ -368,10 +373,14 @@ function admitAgainstRead(
 ): EditAdmission {
 	const tracker = context.fileReadTracker
 	if (tracker && !tracker.hasRead(key)) {
+		// The file is already in hand, so a small one is shown and the read that
+		// showing amounts to is credited: the repeat is one call and is admitted.
+		const shown = unreadEditShownError(key, content)
+		if (shown !== undefined) tracker.recordRead(key, content)
 		return {
 			success: false,
 			output: '',
-			error: unreadFileError(key, 'edit'),
+			error: shown ?? unreadEditTooLargeError(key),
 			facts: { kind: 'failure', reason: 'not_read', subject: key },
 		}
 	}
