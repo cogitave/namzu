@@ -1,5 +1,47 @@
 # @namzu/cli
 
+## 46.0.0
+
+### Major Changes
+
+- ab159f6: A turn that changed files and ends without running anything to check them is now asked once to check first, and the task list is optional.
+
+  What changes for you in the CLI: when a model changes files (`edit`, `write`, `apply_patch`, `notebook_edit`) and tries to end the turn with no test, lint, format check, typecheck or build run after its last change, it gets one reminder asking it to rerun its reproduction, run the project's tests and lint, confirm the diff holds only what was asked, and name any throwaway file it made. This is a changed default in the interactive session and in `namzu exec`. To keep the old behaviour pass `--no-done-gate` or set `limits.doneGate: false`. The working doctrine now orders the work as reproduce, change, rerun, test and report, and says a task list is optional; the task-list reminder speaks after 25 model turns without one instead of 10.
+
+  In the SDK: `TurnConfig.completionAudit` (off when absent, so an embedding host sees no change) and the same field on agent configs.
+
+- ab159f6: A step that thinks too long before acting is now cut short, and a run that keeps thinking without changing anything is nudged. Both are on by default.
+
+  What changes for you: a model call that streams more than 24,000 tokens of reasoning before it makes a call is stopped, at medium, high, xhigh and max effort, and the model is told to act; the next step requires a tool call and runs at low effort where the model offers it. A reply that holds only reasoning is asked for once more, and a turn that still produces nothing now ends with a plain error instead of ending silently. After 12 steps in a row that changed nothing (a failed, read-only or task-list call changes nothing) the model is nudged, and 5 steps later the next step is an action step. The cap is a changed default, hence major. To keep the old behaviour set `reasoning: { maxTokens: 0, stall: false }` on the turn; the CLI takes `limits.maxReasoningTokens: 0`, and the CLI's default is the changed one too, hence major there as well. New: `TurnConfig.reasoning`, the `progress-nudge` runtime-context message kind (a host that switches over the kinds exhaustively adds a case) and `StepStopped` for a provider wrapper that must tell a deliberate step stop from a caller's Stop.
+
+- 27b4fb2: Remove `namzu resident` and everything behind it. The command, its actions (`add`, `run`, `start`, `status`, `inspect`, `stop`, `release`, `pause`, `resume`, `wake`, `archive`, `reconcile`, `learn`, `learning`), the managed background runner and its worker bundle are gone, and `namzu resident` now exits 64 like any unknown command. A script that calls it must change: use `namzu schedule` for recurring work, `/goal` for work that spans turns, background agents for parallel work, and `namzu learn` / `namzu learning` for learning (they are the same commands `namzu resident learn` and `namzu resident learning` were).
+
+  State an earlier version saved for residents stays on disk under `projects/<project>/residents/`; this version neither reads nor deletes it, except for the learning target described next. A resident runner process started by an earlier version is not stopped by this upgrade; stop it with that version before upgrading.
+
+  Learning data carries over. A learning target an earlier version used (`projects/<project>/residents/<name>/`, with its experiment journal, artifacts and guidance) is copied into `projects/<project>/learning/targets/<name>/` the first time `namzu learn <module> --agent <name>` uses it. The old files are left in place and the journal and guidance history are the same. `namzu learning` on a target that does not exist yet says no experiments are recorded and creates nothing.
+
+### Patch Changes
+
+- 1d9c8c3: `namzu acp` marks the permission asks that always need a person (a run outside the sandbox, a protected or outside-the-project path, a catastrophic removal, a rule or hook ask, the first look at the screen, an external engine's own question) so a client's "allow for this conversation" no longer answers them. Only the mark is sent, not the reasons behind it.
+- 4ee3555: `namzu --model <id>` no longer checks the id against the provider's model list when it starts. That check warned "has no model called …" for a model the provider does serve whenever the id carried a `[1m]` window marker, and it would equally misfire for an endpoint whose list is incomplete or names models differently. The id is now sent as given (without its marker), and a model the provider really does not know is explained when its reply fails, with a pointer to `/model`. Nothing to change on your side.
+- Updated dependencies [1d9c8c3]
+- Updated dependencies [ab159f6]
+- Updated dependencies [ab159f6]
+- Updated dependencies [ab159f6]
+- Updated dependencies [ab159f6]
+- Updated dependencies [ab159f6]
+- Updated dependencies [ab159f6]
+- Updated dependencies [27b4fb2]
+- Updated dependencies [1d9c8c3]
+  - @namzu/sdk@62.0.0
+  - @namzu/anthropic@6.8.0
+  - @namzu/openai@4.5.0
+  - @namzu/browser@2.0.1
+  - @namzu/computer-use@4.2.1
+  - @namzu/ollama@2.3.0
+  - @namzu/openrouter@3.1.2
+  - @namzu/sandbox@37.0.0
+
 ## 45.13.1
 
 ### Patch Changes

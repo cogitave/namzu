@@ -1,5 +1,19 @@
 # @namzu/sandbox
 
+## 37.0.0
+
+### Patch Changes
+
+- Updated dependencies [1d9c8c3]
+- Updated dependencies [ab159f6]
+- Updated dependencies [ab159f6]
+- Updated dependencies [ab159f6]
+- Updated dependencies [ab159f6]
+- Updated dependencies [ab159f6]
+- Updated dependencies [27b4fb2]
+- Updated dependencies [1d9c8c3]
+  - @namzu/sdk@62.0.0
+
 ## 36.0.0
 
 ### Patch Changes
