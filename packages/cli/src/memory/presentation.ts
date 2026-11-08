@@ -13,7 +13,7 @@ import type { TypedNoteResult } from './typed.js'
 export const MEMORY_PREVIEW_MAX_CHARS = 2_000
 export const MEMORY_PREVIEW_MAX_LINES = 20
 
-function preview(text: string, path: string): string {
+export function preview(text: string, path: string): string {
 	let end = Math.min(text.length, MEMORY_PREVIEW_MAX_CHARS)
 	let position = 0
 	for (let line = 0; line < MEMORY_PREVIEW_MAX_LINES; line += 1) {

@@ -232,6 +232,19 @@ import {
 } from '../integrations/workflows/view.js'
 import { openManagedWorktrees, worktreeOpenHint } from '../integrations/worktrees/managed.js'
 import {
+	DELETE_ALL_RECORDED,
+	type ManagedMemory,
+	deleteOutcomeLine,
+	deleteRecordedLine,
+	listMatches,
+	matchMemories,
+	memoryDescription,
+	memoryLabel,
+	memoryListChoices,
+	recordedMemories,
+	renderMemoryDetail,
+} from '../memory/manage.js'
+import {
 	renderMemoryReport,
 	renderMemorySaveResult,
 	renderStoredMemorySection,
@@ -911,6 +924,21 @@ type ChoicePickerState = {
 	readonly request?: object
 } & (
 	| PluginChoiceState
+	| {
+			/**
+			 * `/memory`: the project's stored memories, one memory's actions, and the
+			 * two confirmations. `values` are memory ids or an action word.
+			 */
+			readonly kind: 'memory'
+			readonly step: 'list' | 'actions' | 'confirm' | 'confirm-recorded'
+			readonly title: string
+			readonly notice?: string
+			readonly owner: AgentSession
+			readonly items: readonly ManagedMemory[]
+			readonly target?: ManagedMemory
+			readonly values: readonly string[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
 	| {
 			readonly kind: 'resume-goal'
 			readonly title: string
@@ -4966,6 +4994,79 @@ function AppBody({
 						)
 					},
 				)
+				return
+			}
+			if (picker.kind === 'memory') {
+				if (picker.owner !== session) return
+				const manage = picker.owner.storedMemories
+				if (!manage) return
+				const finish = (text: string): void => {
+					setChoicePicker(null)
+					pushMessage('system', text)
+				}
+				const failed = (err: unknown): void => {
+					setChoicePicker(null)
+					pushSystem('error', explainFailure(err, 'Could not change memory.'))
+				}
+				if (picker.step === 'list') {
+					setSelectedChoice(0)
+					if (value === DELETE_ALL_RECORDED) {
+						setChoicePicker({
+							...memoryRecordedConfirm(picker.owner, picker.items),
+							back: picker,
+						})
+						return
+					}
+					const item = picker.items.find((entry) => entry.id === value)
+					if (item)
+						setChoicePicker({
+							...memoryActionsPicker(picker.owner, picker.items, item),
+							back: picker,
+						})
+					return
+				}
+				const target = picker.target
+				if (picker.step === 'actions' && target) {
+					if (value === 'show') {
+						void manage
+							.read(target)
+							.then(
+								(body) =>
+									finish(
+										body === undefined
+											? `“${memoryLabel(target)}” is already gone.`
+											: renderMemoryDetail(target, body),
+									),
+								failed,
+							)
+						return
+					}
+					setSelectedChoice(1)
+					setChoicePicker({
+						...memoryDeleteConfirm(picker.owner, picker.items, target),
+						back: picker,
+					})
+					return
+				}
+				if (picker.step === 'confirm' && target) {
+					if (value !== 'delete') {
+						setChoicePicker(null)
+						return
+					}
+					void manage
+						.remove(target)
+						.then((outcome) => finish(deleteOutcomeLine(target, outcome)), failed)
+					return
+				}
+				if (picker.step === 'confirm-recorded') {
+					if (value !== 'delete') {
+						setChoicePicker(null)
+						return
+					}
+					void manage
+						.removeRecorded(picker.items)
+						.then((result) => finish(deleteRecordedLine(result)), failed)
+				}
 				return
 			}
 			if (picker.kind === 'review-preset') {
@@ -12723,32 +12824,59 @@ function AppBody({
 						)
 						return
 					}
-					case 'show-memory': {
-						const curated = renderMemoryReport(readMemory(undefined, ctx.cwd), {
-							cwd: ctx.cwd,
-						})
-						const stored = session?.storedMemoryIndex
-						if (!stored) {
-							pushMessage('system', curated)
+					case 'manage-memory': {
+						const manage = session?.storedMemories
+						if (!session || !manage) {
+							pushMessage(
+								'system',
+								'Stored memory is not open yet; /memory works once a conversation has started.',
+							)
 							return
 						}
-						void stored().then(
-							({ directory, index, derived }) => {
-								const section = renderStoredMemorySection(directory, index, derived)
-								pushMessage(
-									'system',
-									section
-										? curated.startsWith('No saved memory.')
-											? section
-											: `${section}\n\n${curated}`
-										: curated,
-								)
+						const owner = session
+						void manage.load().then(
+							(items) => {
+								if (slash.recorded) {
+									if (recordedMemories(items).length === 0) {
+										pushMessage('system', 'Nothing was recorded by turns.')
+										return
+									}
+									setSelectedChoice(1)
+									setChoicePicker(memoryRecordedConfirm(owner, items))
+									return
+								}
+								if (slash.target !== undefined) {
+									const found = matchMemories(items, slash.target)
+									if (found.length === 0) {
+										pushMessage('system', `No memory named “${slash.target}”. /memory lists them.`)
+									} else if (found.length > 1) {
+										pushMessage(
+											'system',
+											`More than one memory matches “${slash.target}”:\n${listMatches(found)}`,
+										)
+									} else if (found[0]) {
+										setSelectedChoice(1)
+										setChoicePicker(memoryDeleteConfirm(owner, items, found[0]))
+									}
+									return
+								}
+								if (items.length === 0) {
+									void memoryReport(owner, ctx.cwd).then((report) =>
+										pushMemoryReport(report, pushMessage, pushSystem),
+									)
+									return
+								}
+								setSelectedChoice(0)
+								setChoicePicker(memoryListPicker(owner, items))
 							},
 							(err: unknown) =>
-								pushSystem(
-									'error',
-									explainFailure(err, `${curated}\n\nStored memories not loaded.`),
-								),
+								pushSystem('error', explainFailure(err, 'Memory could not be listed.')),
+						)
+						return
+					}
+					case 'show-memory': {
+						void memoryReport(session, ctx.cwd).then((report) =>
+							pushMemoryReport(report, pushMessage, pushSystem),
 						)
 						return
 					}
@@ -16939,6 +17067,123 @@ function choicePickerSearchable(picker: ChoicePickerState): boolean {
 		'account',
 		'model-live',
 	].includes(picker.kind)
+}
+
+/** The text `/memory show` prints: curated files, then what the store holds. */
+async function memoryReport(
+	session: AgentSession | null | undefined,
+	cwd: string,
+): Promise<{ readonly text: string; readonly failed?: true }> {
+	const curated = renderMemoryReport(readMemory(undefined, cwd), { cwd })
+	const stored = session?.storedMemoryIndex
+	if (!stored) return { text: curated }
+	try {
+		const { directory, index, derived } = await stored()
+		const section = renderStoredMemorySection(directory, index, derived)
+		if (!section) return { text: curated }
+		return {
+			text: curated.startsWith('No saved memory.') ? section : `${section}\n\n${curated}`,
+		}
+	} catch (err) {
+		return {
+			text: explainFailure(err, `${curated}\n\nStored memories not loaded.`),
+			failed: true,
+		}
+	}
+}
+
+function pushMemoryReport(
+	report: { readonly text: string; readonly failed?: true },
+	push: (role: 'system', text: string) => unknown,
+	pushError: (kind: 'error', text: string) => unknown,
+): void {
+	if (report.failed) pushError('error', report.text)
+	else push('system', report.text)
+}
+
+function memoryListPicker(owner: AgentSession, items: readonly ManagedMemory[]): ChoicePickerState {
+	const { values, options } = memoryListChoices(items)
+	return {
+		kind: 'memory',
+		step: 'list',
+		owner,
+		items,
+		title: 'Memory',
+		notice: 'Select one to read or delete it',
+		values,
+		options,
+	}
+}
+
+function memoryActionsPicker(
+	owner: AgentSession,
+	items: readonly ManagedMemory[],
+	target: ManagedMemory,
+): ChoicePickerState {
+	return {
+		kind: 'memory',
+		step: 'actions',
+		owner,
+		items,
+		target,
+		title: memoryLabel(target),
+		notice: memoryDescription(target),
+		values: ['show', 'delete'],
+		options: [
+			{ label: 'Show', description: 'Print the whole memory.' },
+			{
+				label: 'Delete',
+				description: 'Remove it so Namzu does not recall it again.',
+			},
+		],
+	}
+}
+
+function memoryDeleteConfirm(
+	owner: AgentSession,
+	items: readonly ManagedMemory[],
+	target: ManagedMemory,
+): ChoicePickerState {
+	return {
+		kind: 'memory',
+		step: 'confirm',
+		owner,
+		items,
+		target,
+		title: `Delete “${memoryLabel(target)}”?`,
+		notice: memoryDescription(target),
+		values: ['keep', 'delete'],
+		options: [
+			{ label: 'Keep', description: 'Leave it as it is.' },
+			{
+				label: 'Delete',
+				description: 'Remove it so Namzu does not recall it again.',
+			},
+		],
+	}
+}
+
+function memoryRecordedConfirm(
+	owner: AgentSession,
+	items: readonly ManagedMemory[],
+): ChoicePickerState {
+	const count = recordedMemories(items).length
+	return {
+		kind: 'memory',
+		step: 'confirm-recorded',
+		owner,
+		items,
+		title: `Delete all ${count} memories recorded by turns?`,
+		notice: 'Memories you or Namzu saved stay.',
+		values: ['keep', 'delete'],
+		options: [
+			{ label: 'Keep', description: 'Leave them as they are.' },
+			{
+				label: `Delete ${count}`,
+				description: 'Remove every memory a turn recorded on its own.',
+			},
+		],
+	}
 }
 
 function loadedPluginPicker(owner: AgentSession): ChoicePickerState {

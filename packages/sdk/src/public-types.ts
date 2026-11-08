@@ -218,6 +218,7 @@ export type {
 	MemoryContentRejection,
 	MemoryImportOutcome,
 	RenderedMemoryIndex,
+	MemoryOrigin,
 	Timestamped,
 } from './store/index.js'
 

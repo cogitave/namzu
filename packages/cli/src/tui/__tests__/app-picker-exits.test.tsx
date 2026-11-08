@@ -20,10 +20,14 @@
  * answer the key itself, and that half is `tui/index.tsx`, not here.
  */
 
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { Message } from '@namzu/sdk'
+import { MarkdownMemoryStore, type Message } from '@namzu/sdk'
 import {
 	type DetectedProvider,
 	PROVIDER_REGISTRY,
@@ -31,6 +35,12 @@ import {
 	VENDOR_NAMES,
 } from '../../integrations/providers/index.js'
 import type { RecentConversation } from '../../integrations/sessions/store.js'
+import {
+	deleteManagedMemory,
+	deleteRecordedMemories,
+	loadManagedMemories,
+	readMemoryBody,
+} from '../../memory/manage.js'
 import * as memoryStore from '../../memory/store.js'
 import * as userCommandStore from '../../user-commands/store.js'
 
@@ -1406,6 +1416,93 @@ describe('publishing a picker selection', () => {
 			expect(harness.lastFrame() ?? '').toContain('RUN_RECORDED')
 		},
 	)
+
+	describe('/memory picker', () => {
+		let directory = ''
+		let store: MarkdownMemoryStore
+
+		beforeEach(async () => {
+			directory = mkdtempSync(join(tmpdir(), 'namzu-memory-picker-'))
+			store = new MarkdownMemoryStore({ directory })
+			await store.create({
+				title: 'Use pnpm',
+				summary: 's',
+				content: 'Run pnpm test.',
+				name: 'use-pnpm',
+				type: 'project',
+			})
+			await store.create({
+				title: 'Fixed the flake',
+				summary: 's',
+				content: 'A turn fixed a flaky test.',
+				name: 'fixed-the-flake',
+				metadata: { source: 'session-memory' },
+			})
+			createSession = async () => ({
+				...sessionFixture(),
+				storedMemories: {
+					load: () => loadManagedMemories(store, directory),
+					read: (item) => readMemoryBody(store, item.id),
+					remove: (item) => deleteManagedMemory(store, item),
+					removeRecorded: (items) => deleteRecordedMemories(store, items),
+				},
+			})
+		})
+
+		afterEach(() => {
+			rmSync(directory, { recursive: true, force: true })
+		})
+
+		it('lists memories, shows one, and deletes it after a second question', async () => {
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Type a message')
+			await tick(80)
+			await submit(harness, '/memory')
+			await frameShows(harness.lastFrame, 'Delete all 1 recorded by turns')
+			expect(harness.lastFrame() ?? '').toContain('recorded by a turn')
+			harness.stdin.write('\x1b[B')
+			await tick(40)
+			harness.stdin.write('\r')
+			await frameShows(harness.lastFrame, 'Show')
+			harness.stdin.write('\x1b[B')
+			await tick(40)
+			harness.stdin.write('\r')
+			await frameShows(harness.lastFrame, 'Delete “Use pnpm”?')
+			expect(existsSync(join(directory, 'use-pnpm.md'))).toBe(true)
+			harness.stdin.write('\x1b[B')
+			await tick(40)
+			harness.stdin.write('\r')
+			await frameShows(harness.lastFrame, 'Namzu will not recall it again.')
+			expect(existsSync(join(directory, 'use-pnpm.md'))).toBe(false)
+			expect(existsSync(join(directory, 'fixed-the-flake.md'))).toBe(true)
+		})
+
+		it('deletes all recorded by turns and keeps the ones someone chose', async () => {
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Type a message')
+			await tick(80)
+			await submit(harness, '/memory delete --recorded')
+			await frameShows(harness.lastFrame, 'Delete all 1 memories recorded by turns?')
+			expect(existsSync(join(directory, 'fixed-the-flake.md'))).toBe(true)
+			harness.stdin.write('\x1b[B')
+			await tick(40)
+			harness.stdin.write('\r')
+			await frameShows(harness.lastFrame, 'Deleted 1 memory recorded by turns.')
+			expect(existsSync(join(directory, 'fixed-the-flake.md'))).toBe(false)
+			expect(existsSync(join(directory, 'use-pnpm.md'))).toBe(true)
+		})
+
+		it('says plainly when no memory has that name', async () => {
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Type a message')
+			await tick(80)
+			await submit(harness, '/memory delete nothing-here')
+			await frameShows(harness.lastFrame, 'No memory named “nothing-here”. /memory lists them.')
+		})
+	})
 
 	it.each(['/memory add NEW_NOTE', '#NEW_NOTE'])(
 		'reports saved but clipped memory for %s',

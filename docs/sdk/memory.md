@@ -232,6 +232,8 @@ and does not belong in a prompt.
 `renderMemoryIndex(records, { maxLines, derived })` is the same rendering over any
 `MemoryRecord`s — it reads each record's metadata to tell who wrote it. The host
 decides where the index goes in its prompt.
+`memoryOrigin(record.content.metadata)` returns `'operator'`, `'model'` or `'derived'`, the same
+reading, for a host that lists memories with who wrote each (the CLI's `/memory` picker does).
 
 `importRecord(record, { type })` brings in a record from another store keeping
 its id, timestamps, status and metadata. It is idempotent by id — a record
