@@ -50,6 +50,7 @@ import {
 	resolveBoundAccount,
 	resolveTriggerThreshold,
 	resolveWorkflowLimits,
+	turnContextEntries,
 	wakeBudgetFromEnv,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
@@ -234,8 +235,10 @@ import { openManagedWorktrees, worktreeOpenHint } from '../integrations/worktree
 import {
 	DELETE_ALL_RECORDED,
 	type ManagedMemory,
+	RECALLED_MEMORY_KEY,
 	deleteOutcomeLine,
 	deleteRecordedLine,
+	historyHoldsMemory,
 	listMatches,
 	matchMemories,
 	memoryDescription,
@@ -5059,7 +5062,20 @@ function AppBody({
 					}
 					void manage
 						.remove(target)
-						.then((outcome) => finish(deleteOutcomeLine(target, outcome)), failed)
+						.then(
+							(outcome) =>
+								finish(
+									deleteOutcomeLine(
+										target,
+										outcome,
+										historyHoldsMemory(
+											turnContextEntries(modelHistoryRef.current, RECALLED_MEMORY_KEY),
+											target,
+										),
+									),
+								),
+							failed,
+						)
 					return
 				}
 				if (picker.step === 'confirm-recorded') {

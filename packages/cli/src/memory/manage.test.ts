@@ -13,6 +13,7 @@ import {
 	deleteOutcomeLine,
 	deleteRecordedLine,
 	deleteRecordedMemories,
+	historyHoldsMemory,
 	listMatches,
 	loadManagedMemories,
 	matchMemories,
@@ -177,6 +178,19 @@ describe('deleting', () => {
 			'Deleted “Use pnpm”. Namzu will not recall it again.',
 		)
 		expect(await deleteManagedMemory(store, target)).toBe('gone')
+	})
+
+	it('says when the conversation already holds the deleted record', async () => {
+		const { store, directory } = tempStore()
+		await seed(store)
+		const items = await loadManagedMemories(store, directory)
+		const target = items.find((item) => item.name === 'use-pnpm')
+		if (!target) throw new Error('seed missing')
+		const entry = `header\n${JSON.stringify({ id: target.id, updatedAt: 1 })}`
+		expect(historyHoldsMemory([entry], target)).toBe(true)
+		expect(historyHoldsMemory(['{"id":"other","updatedAt":1}', 'plain'], target)).toBe(false)
+		expect(deleteOutcomeLine(target, 'deleted', true)).toContain('/clear starts fresh without it.')
+		expect(deleteOutcomeLine(target, 'deleted', false)).not.toContain('/clear')
 	})
 
 	it('keeps a memory that changed after it was listed', async () => {

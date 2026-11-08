@@ -203,12 +203,41 @@ export async function deleteRecordedMemories(
 	return { deleted, kept }
 }
 
-export function deletedLine(item: ManagedMemory): string {
-	return `Deleted “${memoryLabel(item)}”. Namzu will not recall it again.`
+/** The key the SDK's memory recall records its context entries under. */
+export const RECALLED_MEMORY_KEY = 'memory'
+
+/**
+ * Whether a recorded memory context entry still carries the record. Recall
+ * writes one JSON line per record; any version of the id counts, since the
+ * copy the model holds stays after the file is gone.
+ */
+export function historyHoldsMemory(entries: readonly string[], item: ManagedMemory): boolean {
+	for (const entry of entries) {
+		for (const line of entry.split('\n')) {
+			if (!line.startsWith('{')) continue
+			try {
+				if ((JSON.parse(line) as { id?: unknown }).id === item.id) return true
+			} catch {
+				// a line of the entry that is not a record
+			}
+		}
+	}
+	return false
 }
 
-export function deleteOutcomeLine(item: ManagedMemory, outcome: DeleteOutcome): string {
-	if (outcome === 'deleted') return deletedLine(item)
+export function deletedLine(item: ManagedMemory, inHistory = false): string {
+	const line = `Deleted “${memoryLabel(item)}”. Namzu will not recall it again.`
+	return inHistory
+		? `${line} This conversation already has it; /clear starts fresh without it.`
+		: line
+}
+
+export function deleteOutcomeLine(
+	item: ManagedMemory,
+	outcome: DeleteOutcome,
+	inHistory = false,
+): string {
+	if (outcome === 'deleted') return deletedLine(item, inHistory)
 	if (outcome === 'changed')
 		return `“${memoryLabel(item)}” changed since it was listed, so it was kept. /memory lists it again.`
 	return `“${memoryLabel(item)}” was already gone.`
