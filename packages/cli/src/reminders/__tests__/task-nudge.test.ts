@@ -16,8 +16,8 @@ import {
 } from '../task-nudge.js'
 
 /**
- * The task-list nudge: after 10 model turns without a task tool, at most once
- * per 10 model turns, with the list as it stands. A model turn is one
+ * The task-list nudge: after 25 model turns without a task tool, at most once
+ * per 25 model turns, with the list as it stands. A model turn is one
  * assistant message.
  */
 
@@ -44,7 +44,7 @@ const tasks = [
 ]
 
 describe('the task-list nudge', () => {
-	it('waits for 10 turns without a task tool', () => {
+	it('waits for 25 turns without a task tool', () => {
 		const history = [createUserMessage('go'), ...turns(TASK_NUDGE_AFTER_TURNS - 1)]
 		expect(taskNudge(history, tasks)).toEqual([])
 		const [nudge] = taskNudge([...history, ...turn('read')], tasks)
@@ -56,33 +56,41 @@ describe('the task-list nudge', () => {
 
 	it('is reset by task_create and by task_update', () => {
 		for (const name of ['task_create', 'task_update']) {
-			const history = [createUserMessage('go'), ...turns(12), ...turn(name), ...turns(9)]
+			const history = [
+				createUserMessage('go'),
+				...turns(TASK_NUDGE_AFTER_TURNS + 2),
+				...turn(name),
+				...turns(TASK_NUDGE_AFTER_TURNS - 1),
+			]
 			expect(taskNudge(history, tasks), name).toEqual([])
 			expect(taskNudge([...history, ...turn('read')], tasks), name).toHaveLength(1)
 		}
 	})
 
-	it('speaks at most once per 10 turns', () => {
-		const history: Message[] = [createUserMessage('go'), ...turns(10)]
+	it('speaks at most once per 25 turns', () => {
+		const history: Message[] = [createUserMessage('go'), ...turns(TASK_NUDGE_AFTER_TURNS)]
 		const [first] = taskNudge(history, tasks)
-		history.push(createRuntimeContextMessage(first as string, 'reminder'), ...turns(9))
+		history.push(
+			createRuntimeContextMessage(first as string, 'reminder'),
+			...turns(TASK_NUDGE_EVERY_TURNS - 1),
+		)
 		expect(taskNudge(history, tasks)).toEqual([])
 		history.push(...turn('read'))
 		expect(taskNudge(history, tasks)).toHaveLength(1)
 	})
 
 	it('still nudges with an empty list, and says nothing without a conversation', () => {
-		const [nudge] = taskNudge([createUserMessage('go'), ...turns(10)], [])
+		const [nudge] = taskNudge([createUserMessage('go'), ...turns(TASK_NUDGE_AFTER_TURNS)], [])
 		expect(nudge).toContain('task_create')
 		expect(nudge).not.toContain('The task list now')
 		expect(taskNudge([], tasks)).toEqual([])
-		expect(TASK_NUDGE_EVERY_TURNS).toBe(10)
+		expect(TASK_NUDGE_EVERY_TURNS).toBe(25)
 	})
 
 	it('stays quiet until the request has run three tool steps', () => {
-		// Ten model turns without a task tool, but the person's latest message
+		// Many model turns without a task tool, but the person's latest message
 		// came after nearly all of them.
-		const old = [createUserMessage('earlier'), ...turns(12)]
+		const old = [createUserMessage('earlier'), ...turns(TASK_NUDGE_AFTER_TURNS + 2)]
 		const short = [
 			...old,
 			createUserMessage('and one more thing'),
@@ -106,7 +114,7 @@ describe('the task-list nudge', () => {
 	})
 
 	it('tells the model to keep the note to itself', () => {
-		const [nudge] = taskNudge([createUserMessage('go'), ...turns(10)], tasks)
+		const [nudge] = taskNudge([createUserMessage('go'), ...turns(TASK_NUDGE_AFTER_TURNS)], tasks)
 		expect(nudge).toContain('three or more steps')
 		expect(nudge).toContain('keep it out of your replies to the user')
 	})

@@ -75,6 +75,7 @@ import {
 } from '../request-rich-content.js'
 import { withoutVoidAssistantTurns } from '../request-void-turns.js'
 import { formatSteeringNote, isOperatorUserMessage } from '../steering.js'
+import { COMPLETION_AUDIT_MESSAGE, CompletionAudit } from '../turn/completion-audit.js'
 import {
 	REASONING_CAPPED_MESSAGE,
 	REASONING_ONLY_MESSAGE,
@@ -311,6 +312,8 @@ export class IterationOrchestrator {
 	private outputContinuations = 0
 	/** Watches the turn's steps for reasoning that piles up while nothing changes. */
 	private readonly stallMonitor?: StallMonitor
+	/** Holds the turn back once when it changed files and checked nothing afterwards. */
+	private readonly completionAudit?: CompletionAudit
 	/** The next step must call a tool, at low effort: set by the stall monitor or a capped step. */
 	private forceActionNextStep = false
 	/** Steps in a row cut at the per-step reasoning cap; past a few the cap stops applying. */
@@ -411,6 +414,7 @@ export class IterationOrchestrator {
 				this.rememberUserMessage(createRuntimeContextMessage(text, 'steering'))
 			},
 		}
+		if (ctx.turnConfig.completionAudit === true) this.completionAudit = new CompletionAudit()
 		if (ctx.turnConfig.reasoning?.stall !== false) {
 			this.stallMonitor = new StallMonitor(ctx.turnConfig.reasoning?.stall || undefined)
 		}
@@ -1895,6 +1899,21 @@ export class IterationOrchestrator {
 						// The model is done and has no tool calls. A `turn_end` (or
 						// `subagent_stop`) hook may refuse to let it be: its reason goes
 						// back to the model and the turn goes on.
+						// Files were changed and nothing checked them afterwards: ask once
+						// for a check before the turn is allowed to end.
+						if (
+							!forceFinalize &&
+							closingStopReason === undefined &&
+							this.completionAudit?.takeBlock()
+						) {
+							this.ctx.log.info('Files changed and nothing checked them — asking for a check', {
+								[NAMZU.TURN_ID]: recorder.turnId,
+							})
+							recorder.pushMessage(
+								createRuntimeContextMessage(COMPLETION_AUDIT_MESSAGE, 'progress-nudge'),
+							)
+							continue
+						}
 						if (!forceFinalize && closingStopReason === undefined) {
 							const feedback = yield* this.askStopHooks()
 							const stoppedByHook = this.ctx.toolExecutor.takeHalt?.()
@@ -1943,6 +1962,7 @@ export class IterationOrchestrator {
 					})
 					this.reasoningOnlyRetried = false
 					this.observeStall(response, reviewOutcome.results)
+					this.observeAudit(response, reviewOutcome.results)
 
 					if (reviewOutcome.decision === 'stop') {
 						return
@@ -3226,6 +3246,28 @@ export class IterationOrchestrator {
 			})
 			return undefined
 		}
+	}
+
+	/** Feed the completion audit the calls of one finished step. */
+	private observeAudit(
+		response: ChatCompletionResponse,
+		results: readonly ToolCallOutcome[],
+	): void {
+		const audit = this.completionAudit
+		if (!audit) return
+		const calls = new Map((response.message.toolCalls ?? []).map((c) => [c.id, c]))
+		audit.observe(
+			results.map((result) => {
+				let input: unknown
+				try {
+					const call = calls.get(result.toolCallId)
+					input = call ? JSON.parse(call.function.arguments) : undefined
+				} catch {
+					input = undefined
+				}
+				return { toolName: result.toolName, input, isError: result.isError }
+			}),
+		)
 	}
 
 	/**
