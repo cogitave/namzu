@@ -124,6 +124,14 @@ describe('which models take a forced tool choice', () => {
 	it.each(rows)('%s with thinking %j: %s', (model, thinking, accepted) => {
 		expect(acceptsForcedToolChoice(model, thinking)).toBe(accepted)
 	})
+
+	it.each(rows)(
+		'the driver answers the kernel the same way: %s with thinking %j: %s',
+		(model, thinking, accepted) => {
+			const { provider } = providerWithCapturedRequest()
+			expect(provider.acceptsForcedToolChoiceFor(model, thinking)).toBe(accepted)
+		},
+	)
 })
 
 describe('a forced choice the wire would refuse is refused before sending', () => {

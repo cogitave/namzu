@@ -22,6 +22,13 @@ export const REASONING_ONLY_MESSAGE =
 export const STALL_NUDGE_MESSAGE =
 	'Several steps have passed and nothing has changed yet. Begin changing things now: make the first edit you are sure of, or run the one check that settles what you are unsure of. Reading more or planning again will not move the task.'
 
+/**
+ * Said again, on one request only, when a step must act but the provider
+ * refuses a forced tool choice: the instruction travels in words instead.
+ */
+export const FORCED_STEP_MESSAGE =
+	'This reply must be a tool call, not more planning. Make the call that moves the task forward now.'
+
 /** The default per-step reasoning allowance, in tokens. */
 export const DEFAULT_MAX_REASONING_TOKENS = 24_000
 

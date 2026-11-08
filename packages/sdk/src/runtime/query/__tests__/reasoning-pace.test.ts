@@ -15,7 +15,11 @@ import type {
 } from '../../../types/provider/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
-import { REASONING_CAPPED_MESSAGE, REASONING_ONLY_MESSAGE } from '../turn/stall-monitor.js'
+import {
+	FORCED_STEP_MESSAGE,
+	REASONING_CAPPED_MESSAGE,
+	REASONING_ONLY_MESSAGE,
+} from '../turn/stall-monitor.js'
 
 /**
  * A step that spends its reasoning allowance before acting is cut short and the
@@ -191,5 +195,38 @@ describe('a reply of thinking only', () => {
 		const provider = scripted([{ reasoning: 'thinking' }])
 		const turn = await run(provider, { maxTokens: 0 })
 		expect(turn.lastError ?? '').toContain('stopped after thinking')
+	})
+})
+
+describe('a provider that refuses a forced tool choice', () => {
+	it('is not sent one: the step keeps low effort and the instruction travels in words, once', async () => {
+		const provider = Object.assign(
+			scripted(
+				[{ reasoning: 'x'.repeat(8_000) }, { call: 'observe' }, { text: 'done' }],
+				['low', 'high'],
+			),
+			{ acceptsForcedToolChoiceFor: () => false },
+		)
+		const turn = await run(provider)
+
+		expect(turn.result).toBe('done')
+		expect(provider.requests[1]?.toolChoice).not.toBe('required')
+		expect(provider.requests[1]?.effort).toBe('low')
+		expect(nudges(provider, FORCED_STEP_MESSAGE)).toEqual([0, 1, 0])
+		const lastOf = (i: number) => provider.requests[i]?.messages.at(-1)
+		expect(lastOf(1)?.content).toBe(FORCED_STEP_MESSAGE)
+		// Not recorded: the step after it does not carry it.
+		expect(provider.requests[2]?.messages.some((m) => m.content === FORCED_STEP_MESSAGE)).toBe(
+			false,
+		)
+	})
+
+	it('is sent one when it says it accepts', async () => {
+		const provider = Object.assign(
+			scripted([{ reasoning: 'x'.repeat(8_000) }, { call: 'observe' }, { text: 'done' }]),
+			{ acceptsForcedToolChoiceFor: () => true },
+		)
+		await run(provider)
+		expect(provider.requests[1]?.toolChoice).toBe('required')
 	})
 })

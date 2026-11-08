@@ -77,6 +77,7 @@ import { withoutVoidAssistantTurns } from '../request-void-turns.js'
 import { formatSteeringNote, isOperatorUserMessage } from '../steering.js'
 import { COMPLETION_AUDIT_MESSAGE, CompletionAudit } from '../turn/completion-audit.js'
 import {
+	FORCED_STEP_MESSAGE,
 	REASONING_CAPPED_MESSAGE,
 	REASONING_ONLY_MESSAGE,
 	StallMonitor,
@@ -1129,6 +1130,12 @@ export class IterationOrchestrator {
 						forcedAction && requestEffort && (offeredEfforts?.includes('low') ?? false)
 							? 'low'
 							: requestEffort
+					// A provider that refuses a forced tool choice (some models do, and
+					// so does manual extended thinking) is not sent one: the step keeps
+					// its low effort and asks in words, on this request only.
+					const forcedChoiceRefused =
+						forcedAction &&
+						this.ctx.provider.acceptsForcedToolChoiceFor?.(stepModel, turnConfig.thinking) === false
 					const operatorInputAtDispatch = this.latestUserMessage
 					const latestReviewUserMessage =
 						(this.ctx.reviewAnswer || this.ctx.structuredOutput?.review) && operatorInputAtDispatch
@@ -1156,7 +1163,9 @@ export class IterationOrchestrator {
 									}
 								: {}),
 							providerRoute: requestedRoute,
-							messages,
+							messages: forcedChoiceRefused
+								? [...messages, createRuntimeContextMessage(FORCED_STEP_MESSAGE, 'progress-nudge')]
+								: messages,
 							tools: llmTools.length > 0 ? llmTools : undefined,
 							...(enforceToolInputSchema ? { enforceToolInputSchema } : {}),
 							// The forced-final turn wins: a step that asked to force a
@@ -1168,7 +1177,7 @@ export class IterationOrchestrator {
 								forceFinalize && llmTools.length > 0
 									? 'none'
 									: llmTools.length > 0
-										? forcedAction
+										? forcedAction && !forcedChoiceRefused
 											? (step.toolChoice ?? 'required')
 											: step.toolChoice
 										: undefined,

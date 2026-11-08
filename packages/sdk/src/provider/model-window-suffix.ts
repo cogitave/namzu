@@ -18,6 +18,7 @@ const MODEL_FIRST_METHODS: ReadonlySet<string> = new Set([
 	'supportsImageInputFor',
 	'reasoningEffortLevelsFor',
 	'reasoningEffortDefaultFor',
+	'acceptsForcedToolChoiceFor',
 	'effortLevelsFor',
 	'resolveContextWindow',
 	'refusalFallbackFor',

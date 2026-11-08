@@ -26,6 +26,8 @@ A step that streams more reasoning than the cap before it has begun a tool call 
 
 A step the loop forces to act (after a capped step, or after the stall monitor) requires a tool call and, where the step's model offers it, runs at low effort for that step only. Effort is refused, not clamped, so low is used only when the model's menu lists it. The effort is the one the step would have used for the model serving it, so a refusal fallback model keeps its own clamped level.
 
+A provider that refuses a forced tool choice (Anthropic's Opus 5.5, Fable 5.1 and Mythos 5.1, and any request with manual extended thinking) is not sent one. The kernel asks `LLMProvider.acceptsForcedToolChoiceFor(model, thinking)`; when the answer is `false`, the step keeps low effort, sends no `toolChoice: 'required'`, and carries one more instruction in words (this reply must be a tool call) on that request only. A provider that does not declare the method is taken to accept, and a fallback chain accepts only if every member does. Before this, a stalled run on such a model failed the turn with `forced_tool_choice_unsupported`.
+
 ## The stall monitor
 
 The monitor counts consecutive steps that changed nothing. A step changed something when a call in it succeeded and was not read-only; a failed call, a read-only call and any task-list call changed nothing, because keeping a list is not progress on the task.
