@@ -758,7 +758,11 @@ What it holds, and where each value lives (one source of truth per value):
 - **General** — *When Namzu starts*: `Continue where I left off` (default) or `Start on the home
   screen` (see [Starting the app](#starting-the-app)); *Default terminal shell* (drawn only where
   there is more than one shell to choose, in practice Windows, and left out of search where it is
-  not) and *Bring terminal tabs back* (see [Terminal tabs](#terminal-tabs)).
+  not) and *Bring terminal tabs back* (see [Terminal tabs](#terminal-tabs)), and *Use the graphics
+  card* (default on; `hardwareAcceleration` in `desktop-settings.json`). Turn it off when windows
+  flicker, go blank or stop working soon after they open. It is read once, before the app is ready,
+  and applied with `app.disableHardwareAcceleration()`, so a change takes effect the next time
+  Namzu starts; the running windows are unchanged.
 - **Models** — which providers Namzu can answer with and how each is connected: a key in the
   environment (the variable's name, never its value), a key saved here, an existing `claude-code` or
   Codex sign-in, an OpenCode key, a local server, or the keyless free tier (listed as free, and
@@ -1074,6 +1078,63 @@ page (47–64 ms), the welcome with "What would you like to work on?" (268–291
 (875–893 ms), then the conversation (899–914 ms). After: an empty dark page, the skeleton, the
 conversation. The conversation itself still arrives when the folder's CLI host is up and has
 read the journal; what changed is what is painted until then.
+
+## When a window crashes, hangs or does not load
+
+A window whose page dies does not close, and does not loop. `WindowRecovery`
+(`src/main/window-recovery.ts`) answers three events, each window on its own:
+
+- **The process ended** (`render-process-gone`, any reason but a clean exit). The window loads its
+  page again after 0.5 s, then 2 s, then 10 s: at most three automatic reloads in any 60 s. The
+  fourth ends the reloading and shows the card below. Terminals and computer keyboard capture
+  are released the moment the process ends, and the new document attaches afresh.
+- **The window stops answering** (`unresponsive`). Namzu waits 20 s, because a long job that
+  finishes is not a hang; if the window answers again (`responsive`) nothing happens. Otherwise it
+  ends the stuck process with `forcefullyCrashRenderer()` and handles that exactly like a crash,
+  so a hang counts toward the same three reloads, and the card says the window stopped
+  responding instead of crashing.
+- **The page fails to load** (`did-fail-load` for the main frame, except a load a newer one
+  cancelled). Loading the same page again would fail the same way, so the card shows at once. A
+  window whose first load failed is no longer closed; it stays and shows the card. A development
+  server that is not running reads as that.
+
+**The card** (`src/main/recovery-card.ts`) is one inline page loaded as a `data:` URL, with no script and
+a content policy that allows no script and no request. It carries a plain title, one sentence
+that says reloading did not help and that conversations and files are not affected, a **Reload**
+link that has the focus, and **Details** (a `details` element): what ended the process in words
+(crashed, ran out of memory, could not start), how many times Namzu reloaded the window in the
+last minute, and "Press Ctrl+Shift+L to open the diagnostic logs, which show what Namzu
+recorded." (**Cmd+Shift+L** on macOS). The heading and message sit in a `div` with
+`role="alert"` inside `main`, so the page keeps its landmark. The top 36 px is a drag strip. The
+colours follow the scheme main last heard from the renderer (`setWindowAppearance`), dark until
+then. The Reload link is `namzu-recovery://reload`, which `will-navigate` honours only while the
+card is showing; it starts the count again. Closing a window that shows the card, or whose
+process is gone, closes it at once rather than waiting for a page to acknowledge. The preload does not
+read the boot snapshot on a `data:` page.
+
+### Saved files that cannot be read
+
+`desktop-settings.json`, `workspace-layout.json` and `projects.json` are read at start. A file
+that is missing is a first run. A file that is there but is not what Namzu wrote (not JSON, too
+large, not an object or array, a layout that does not validate) is moved to `<name>.bad`
+beside it, replacing an older `.bad`, and the app starts on defaults; the next save writes a
+fresh file, so the damaged one is never overwritten. A file that cannot be opened at all
+(permissions, a folder in its place) is left alone. Entries that are individually wrong inside
+a valid settings file still fall back one by one, as before (`src/main/damaged-files.ts`).
+
+The person is told once, in one sentence naming what was affected ("Namzu could not read your
+saved settings and project list, so it started with the defaults. The damaged files were set
+aside, not deleted."). It rides in `DesktopBoot.notice` as a sticky toast that stays until it is
+dismissed; dismissing calls `acknowledgeNotice(id)`, and until then every window, including one
+reloaded after a crash, is handed it again.
+
+Proved in the real Electron app (`e2e/recovery.test.mjs`): a forced renderer crash is reloaded
+three times and the fourth shows the card; a real click on Reload loads the app and restarts the
+count; a missing page and a dead development server show the card and keep the window; a busy-loop
+page is ended after the grace period and reloaded; each damaged file is set aside and told
+once, and told again to a window reloaded before the person dismissed it; the graphics switch
+is saved and applied on the next start. Screenshots are in
+[`research/desktop-recovery-20261108/`](../../research/desktop-recovery-20261108/).
 
 ## Trust again when automatic settings change
 

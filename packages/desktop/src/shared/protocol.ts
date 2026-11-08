@@ -732,6 +732,11 @@ export interface DesktopBoot {
 	sidebar?: SidebarSnapshot
 	/** The sections the person folded, so the first frame already shows them folded. */
 	collapsedSections?: SidebarSectionId[]
+	/**
+	 * One plain sentence about files this start set aside because they were damaged. It is handed
+	 * to every window, including one reloaded after a crash, until a window acknowledges it.
+	 */
+	notice?: { id: string; text: string }
 }
 
 export interface DesktopApi {
@@ -835,6 +840,8 @@ export interface DesktopApi {
 	setSidebarSectionCollapsed?(id: SidebarSectionId, collapsed: boolean): Promise<SidebarSectionId[]>
 	/** Reports how the sidebar looks now; main keeps it for the next start's first frame. */
 	setSidebarSnapshot?(snapshot: SidebarSnapshot): Promise<void>
+	/** The person has seen the start-up notice in `boot`; main stops handing it out. */
+	acknowledgeNotice?(id: string): Promise<void>
 	/** Ids of the Pals with an unread "New message" marker; kept by main across restarts. */
 	palUnread?(): Promise<string[]>
 	setPalUnread?(id: string, unread: boolean): Promise<string[]>
