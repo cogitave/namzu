@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { stripVTControlCharacters } from 'node:util'
 import {
-	type DiskResidentAgenda,
+	type DiskLearningGuidance,
 	type LearningCycleOptions,
 	type LearningCycleSummary,
 	type LearningDiscoveryOptions,
@@ -18,8 +18,11 @@ import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import { openProjectGuidance } from '../integrations/learning/project-guidance.js'
 import { SESSION_AGENT_KEY } from '../integrations/learning/session-feed.js'
 import { sessionLearningStore } from '../integrations/learning/session-store.js'
-import { residentLearningStore } from '../integrations/resident/learning-storage.js'
-import { lookupResident } from '../integrations/resident/storage.js'
+import {
+	type NamedLearningTarget,
+	createNamedTarget,
+	lookupNamedTarget,
+} from '../integrations/learning/target.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolveWorkingDirectory } from './exec-flags.js'
 import type { CommandHandlerArgs } from './types.js'
@@ -94,22 +97,20 @@ interface LearnSubject {
 	readonly tenantId: string
 	readonly projectId: string
 	readonly agentKey: string
-	readonly agenda: Pick<DiskResidentAgenda, 'read' | 'promoteSkill'>
+	readonly guidance: Pick<DiskLearningGuidance, 'read' | 'promoteSkill'>
 	openStore(): SqliteLearningStore | null
 }
 
-const residentSubject = (
-	resident: NonNullable<Awaited<ReturnType<typeof lookupResident>>>,
-): LearnSubject => ({
-	cwd: resident.cwd,
-	tenantId: resident.tenantId,
-	projectId: resident.projectId,
-	agentKey: resident.agentKey,
-	agenda: resident.agenda,
-	openStore: () => residentLearningStore(resident),
+const namedSubject = (target: NamedLearningTarget): LearnSubject => ({
+	cwd: target.cwd,
+	tenantId: target.tenantId,
+	projectId: target.projectId,
+	agentKey: target.name,
+	guidance: target.guidance,
+	openStore: () => target.openStore(),
 })
 
-/** This project's own conversations: observations in, guidance out, no resident. */
+/** This project's own conversations: observations in, guidance out. */
 async function openSessionSubject(cwd: string): Promise<LearnSubject | null> {
 	const store = await sessionLearningStore(cwd, false)
 	if (!store) return null
@@ -119,7 +120,7 @@ async function openSessionSubject(cwd: string): Promise<LearnSubject | null> {
 		tenantId,
 		projectId,
 		agentKey: SESSION_AGENT_KEY,
-		agenda: await openProjectGuidance(paths, tenantId),
+		guidance: await openProjectGuidance(paths, tenantId),
 		openStore: () => store,
 	}
 }
@@ -133,7 +134,7 @@ export async function runLearningCommand({ ctx, rawArgs }: CommandHandlerArgs): 
 		.allowExcessArguments(false)
 		.argument(execute ? '[experiment.learning.js]' : '[cycle-id]')
 		.option('--cwd <path>')
-		.option('--agent <name>', 'Resident name', 'default')
+		.option('--agent <name>', 'Learning target name', 'default')
 	if (execute)
 		parser
 			.option('--trust')
@@ -141,16 +142,13 @@ export async function runLearningCommand({ ctx, rawArgs }: CommandHandlerArgs): 
 			.option('--undo [cycle-id]', 'Restore the guidance an activation replaced')
 			.option(
 				'--sessions',
-				"Learn from the failures conversations in this folder kept, into this project's own guidance (no resident needed)",
+				"Learn from the failures conversations in this folder kept, into this project's own guidance",
 			)
 	else
 		parser
 			.option('--events')
-			.option('--observations', "Inspect a resident's host-scored learning observations")
-			.option(
-				'--sessions',
-				'Inspect the failures conversations in this folder kept (no resident needed)',
-			)
+			.option('--observations', "Inspect a learning target's host-scored learning observations")
+			.option('--sessions', 'Inspect the failures conversations in this folder kept')
 			.option('--after <sequence>', '', integer)
 			.option('--before <ordinal>', '', integer)
 			.option('--limit <count>', '', integer)
@@ -230,23 +228,25 @@ export async function runLearningCommand({ ctx, rawArgs }: CommandHandlerArgs): 
 			})
 			return EXIT_USAGE
 		}
-		const resident = sessionSubject ? null : await lookupResident(target.cwd, flags.agent)
-		if (!sessionSubject && !resident) {
+		// An inspection never creates a target; a module run creates it once it is trusted and found.
+		const named =
+			sessionSubject || execute ? null : await lookupNamedTarget(target.cwd, flags.agent)
+		if (!execute && !named) {
 			ctx.formatter.print({
-				text: 'No resident exists here. Use namzu resident add <objective> first.',
+				text: 'No learning experiments recorded.',
 				cycles: [],
 			})
-			return execute ? EXIT_USAGE : 0
+			return 0
 		}
 		if (!execute) {
-			if (!resident) throw new Error('A resident is required to inspect its experiments.')
+			if (!named) throw new Error('A learning target is required to inspect its experiments.')
 			const id = parser.args[0]
 			if (flags.observations) {
 				if (id || flags.events || flags.before !== undefined)
 					throw new Error(
 						'--observations uses --after and --limit, without a cycle ID, --events or --before.',
 					)
-				const store = residentLearningStore(resident, true)
+				const store = named.openStore(true)
 				const observations = store
 					? await store.observations({ after: flags.after, limit: flags.limit })
 					: []
@@ -263,7 +263,7 @@ export async function runLearningCommand({ ctx, rawArgs }: CommandHandlerArgs): 
 				throw new Error('--events and --after require a cycle ID.')
 			if (flags.after !== undefined && !flags.events) throw new Error('--after requires --events.')
 			if (id && flags.before !== undefined) throw new Error('--before applies to the cycle list.')
-			const store = residentLearningStore(resident, true)
+			const store = named.openStore(true)
 			if (!store) {
 				ctx.formatter.print({
 					text: 'No learning experiments recorded.',
@@ -305,29 +305,26 @@ export async function runLearningCommand({ ctx, rawArgs }: CommandHandlerArgs): 
 			}
 			return 0
 		}
-		const subject = sessionSubject ?? (resident ? residentSubject(resident) : null)
-		if (!subject) throw new Error('Nothing to learn into.')
+		const directory = sessionSubject?.cwd ?? (await realpath(target.cwd))
 		const trust = decideHeadlessTrust({
-			cwd: subject.cwd,
+			cwd: directory,
 			trustFlag: flags.trust === true,
 		})
 		if (!trust.allowed) {
 			ctx.formatter.error({
-				message: trust.message ?? 'Resident directory is not trusted.',
+				message: trust.message ?? 'This folder is not trusted.',
 			})
 			return EXIT_UNTRUSTED
 		}
-		if (trust.cwd !== subject.cwd)
-			throw new Error('Execution directory changed its canonical path.')
-		const agenda = await subject.agenda.read()
-		if (!agenda || agenda.paused || agenda.pursuits.some((p) => p.state.phase === 'running'))
-			throw new Error('Learning requires an unpaused resident with no running pursuits.')
+		if (trust.cwd !== directory) throw new Error('Execution directory changed its canonical path.')
 		const file = resolve(target.cwd, parser.args[0])
 		if (!file.endsWith('.learning.js') && !file.endsWith('.learning.mjs'))
 			throw new Error('Choose an explicit .learning.js or .learning.mjs host module.')
 		const entry = lstatSync(file)
 		if (!entry.isFile() || entry.isSymbolicLink())
 			throw new Error('Learning experiment must be a regular host module, without a symbolic link.')
+		const subject = sessionSubject ?? namedSubject(await createNamedTarget(target.cwd, flags.agent))
+		if (!(await subject.guidance.read())) throw new Error('Learning guidance is unavailable.')
 		process.on('SIGINT', interrupt)
 		process.on('SIGTERM', interrupt)
 		controller.signal.throwIfAborted()
@@ -345,13 +342,13 @@ export async function runLearningCommand({ ctx, rawArgs }: CommandHandlerArgs): 
 			signal: controller.signal,
 			store,
 		})) as
-			| Omit<LearningCycleOptions, 'agenda' | 'signal' | 'record'>
-			| Omit<LearningDiscoveryOptions, 'agenda' | 'signal'>
+			| Omit<LearningCycleOptions, 'guidance' | 'signal' | 'record'>
+			| Omit<LearningDiscoveryOptions, 'guidance' | 'signal'>
 		controller.signal.throwIfAborted()
 		const explore = options.explore
 		const execution = {
 			...options,
-			agenda: subject.agenda,
+			guidance: subject.guidance,
 			signal: controller.signal,
 			...(explore
 				? {

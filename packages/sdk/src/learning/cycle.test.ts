@@ -4,8 +4,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { HarnessTrial, HarnessVerificationBatch } from '../eval/harness-verification.js'
-import { DiskResidentAgenda } from '../manager/resident/agenda.js'
-import { ResidentHost } from '../manager/resident/host.js'
 import { generateTenantId } from '../utils/id.js'
 import {
 	type LearningCycleEvent,
@@ -13,6 +11,7 @@ import {
 	type LearningEvaluationContext,
 	runLearningCycle,
 } from './cycle.js'
+import { DiskLearningGuidance } from './guidance.js'
 import { hashLearningSkill, projectLearning } from './skill.js'
 
 /** Every receipt in this file belongs to one session; the turn is what varies. */
@@ -92,9 +91,9 @@ function batch(
 	}
 }
 
-async function snapshot(agenda: DiskResidentAgenda) {
-	const state = await agenda.read()
-	if (!state) throw new Error('Missing fixture agenda.')
+async function snapshot(guidance: DiskLearningGuidance) {
+	const state = await guidance.read()
+	if (!state) throw new Error('Missing fixture guidance.')
 	return state
 }
 
@@ -102,14 +101,14 @@ async function fixture() {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-learning-cycle-'))
 	roots.push(root)
 	const scope = { tenantId: generateTenantId(), agentKey: 'learning-test' }
-	const agenda = new DiskResidentAgenda(root, scope)
-	const initial = await agenda.create('Inspect sources and learn only evaluated guidance.')
+	const guidance = new DiskLearningGuidance(root, scope)
+	const initial = await guidance.create()
 	const events: LearningCycleEvent[] = []
 	const stages: string[] = []
 	const controller = new AbortController()
 	const options: LearningCycleOptions = {
 		protection: { verification: ['verification-1'], confirmation: ['confirmation-1'] },
-		agenda,
+		guidance,
 		skillName: skill.name,
 		failure: { evidence, trace: 'Expected supported source value, observed unsupported.' },
 		signal: controller.signal,
@@ -138,10 +137,10 @@ async function fixture() {
 			return { batch: batch(context), usageComplete: true }
 		},
 	}
-	return { root, scope, agenda, initial, events, stages, controller, options }
+	return { root, scope, guidance, initial, events, stages, controller, options }
 }
 
-describe('resident learning cycle', () => {
+describe('learning cycle', () => {
 	it('admits and retains an exploration policy without projecting it as task guidance', async () => {
 		const f = await fixture()
 		const result = await runLearningCycle({
@@ -155,7 +154,7 @@ describe('resident learning cycle', () => {
 		})
 		expect(result.status).toBe('activated')
 		expect(f.events.find((e) => e.kind === 'started')?.data.purpose).toBe('exploration')
-		const learning = (await f.agenda.read())?.learning
+		const learning = (await f.guidance.read())?.learning
 		expect(
 			projectLearning(learning, { maxChars: 4000, skillNames: [skill.name] }).includedSkills,
 		).toEqual([])
@@ -257,7 +256,7 @@ describe('resident learning cycle', () => {
 			expect(result.status).toBe('inconclusive')
 			expect(f.stages).toEqual([])
 			expect(f.events.some((e) => e.kind === 'exploration')).toBe(true)
-			expect((await snapshot(f.agenda)).learning).toBeUndefined()
+			expect((await snapshot(f.guidance)).learning).toBeUndefined()
 		},
 	)
 	it.each(['', 'x'.repeat(32_001)])(
@@ -332,7 +331,7 @@ describe('resident learning cycle', () => {
 			},
 		})
 		expect(outcome.status).toBe('activated')
-		const active = (await snapshot(f.agenda)).learning?.skills[0]
+		const active = (await snapshot(f.guidance)).learning?.skills[0]
 		if (!active) throw new Error('Expected activated guidance.')
 		expect(active.verification.protection).toMatchObject({
 			verificationTasks: 1,
@@ -359,7 +358,7 @@ describe('resident learning cycle', () => {
 		})
 		expect(outcome.status).toBe('inconclusive')
 		expect(f.stages).toEqual(['generate', 'verification'])
-		expect((await snapshot(f.agenda)).learning).toBeUndefined()
+		expect((await snapshot(f.guidance)).learning).toBeUndefined()
 		expect(f.events.some((event) => event.kind === 'activation-requested')).toBe(false)
 	})
 	it('never activates when fresh confirmation loses a protected baseline success', async () => {
@@ -381,7 +380,7 @@ describe('resident learning cycle', () => {
 		expect(outcome.status).toBe('rejected')
 		expect(outcome.review?.protection?.confirmation?.regressedTasks).toEqual(['confirmation-1'])
 		expect(f.stages).toEqual(['generate', 'verification', 'confirmation'])
-		expect((await snapshot(f.agenda)).learning).toBeUndefined()
+		expect((await snapshot(f.guidance)).learning).toBeUndefined()
 	})
 	it('keeps source bindings through generation, confirmation, persistence and a later baseline', async () => {
 		const f = await fixture()
@@ -406,7 +405,7 @@ describe('resident learning cycle', () => {
 		})
 		expect(first.status).toBe('activated')
 		expect(
-			(await snapshot(new DiskResidentAgenda(f.root, f.scope))).learning?.skills[0]?.sources,
+			(await snapshot(new DiskLearningGuidance(f.root, f.scope))).learning?.skills[0]?.sources,
 		).toEqual(sources)
 		const second = await runLearningCycle({
 			...f.options,
@@ -440,31 +439,25 @@ describe('resident learning cycle', () => {
 			data: { parentCycleId, failure: f.options.failure, baselineRevision: 'none' },
 		})
 		expect(f.events.map((e) => e.sequence)).toEqual(f.events.map((_, i) => i + 1))
-		expect(f.events.find((e) => e.kind === 'activation-requested')?.data.agendaRevision).toBe(
+		expect(f.events.find((e) => e.kind === 'activation-requested')?.data.guidanceRevision).toBe(
 			f.initial.revision,
 		)
-		const reopened = new DiskResidentAgenda(f.root, f.scope)
+		const reopened = new DiskLearningGuidance(f.root, f.scope)
 		expect((await reopened.read())?.learning?.skills[0]?.hash).toBe(outcome.candidateRevision)
 		const projections: string[][] = []
-		await reopened.add(await snapshot(reopened), 'Inspect the current source.')
-		const host = new ResidentHost(
-			reopened,
-			async (_p, _s, context) => {
-				projections.push([
-					...projectLearning(context.learning, { maxChars: 4000, skillNames: [skill.name] })
-						.includedSkills,
-				])
-				return { kind: 'complete', summary: 'Observed admitted skill.' }
-			},
-			{ learning: true },
-		)
-		await host.run({ signal: f.controller.signal, maxSteps: 1 })
+		const project = async () =>
+			projections.push([
+				...projectLearning((await snapshot(reopened)).learning, {
+					maxChars: 4000,
+					skillNames: [skill.name],
+				}).includedSkills,
+			])
+		await project()
 		await reopened.rollbackSkill(await snapshot(reopened), skill.name, f.initial.revision, {
 			...evidence,
 			key: 'rollback',
 		})
-		await reopened.add(await snapshot(reopened), 'Inspect again after rollback.')
-		await host.run({ signal: f.controller.signal, maxSteps: 1 })
+		await project()
 		expect(projections).toEqual([[skill.name], []])
 	})
 
@@ -487,7 +480,7 @@ describe('resident learning cycle', () => {
 			})
 			expect(outcome.status).toBe('rejected')
 			expect(f.stages).toEqual(['generate', 'verification'])
-			expect(await f.agenda.read()).toEqual(f.initial)
+			expect(await f.guidance.read()).toEqual(f.initial)
 		},
 	)
 
@@ -509,7 +502,7 @@ describe('resident learning cycle', () => {
 			},
 		})
 		expect(outcome).toMatchObject({ status: 'rejected', consumption: { tokens: 45 } })
-		expect(await f.agenda.read()).toEqual(f.initial)
+		expect(await f.guidance.read()).toEqual(f.initial)
 	})
 
 	it('requires fresh confirmation conditions and identities', async () => {
@@ -527,7 +520,7 @@ describe('resident learning cycle', () => {
 			},
 		})
 		expect(outcome.status).toBe('inconclusive')
-		expect(await f.agenda.read()).toEqual(f.initial)
+		expect(await f.guidance.read()).toEqual(f.initial)
 	})
 
 	it.each(['tokens', 'usd'] as const)(
@@ -592,7 +585,7 @@ describe('resident learning cycle', () => {
 				},
 			},
 		})
-		expect(await f.agenda.read()).toEqual(f.initial)
+		expect(await f.guidance.read()).toEqual(f.initial)
 	})
 
 	it('does not accept a stage that claims completeness without receipts', async () => {
@@ -650,22 +643,25 @@ describe('resident learning cycle', () => {
 			},
 		})
 		expect(outcome.status).toBe('cancelled')
-		expect(await f.agenda.read()).toEqual(f.initial)
+		expect(await f.guidance.read()).toEqual(f.initial)
 	})
 
-	it('stops before another expensive callback when the agenda changed', async () => {
+	it('stops before another expensive callback when the guidance changed', async () => {
 		const f = await fixture()
 		const outcome = await runLearningCycle({
 			...f.options,
 			generate: async (context) => {
 				const value = await f.options.generate(context)
-				await f.agenda.add(f.initial, 'Unrelated new work changed the agenda.')
+				await f.guidance.updateProfile(f.initial, {
+					identity: 'A concurrent correction changed the guidance.',
+					evidence: { key: 'concurrent', source: 'fixture:trace', reason: 'Changed elsewhere.' },
+				})
 				return value
 			},
 		})
 		expect(outcome.status).toBe('conflict')
 		expect(f.stages).toEqual(['generate'])
-		expect((await f.agenda.read())?.learning).toBeUndefined()
+		expect((await f.guidance.read())?.learning?.skills).toEqual([])
 	})
 
 	it('does not misreport committed activation when the terminal journal append fails', async () => {
@@ -678,7 +674,7 @@ describe('resident learning cycle', () => {
 			},
 		})
 		expect(outcome).toMatchObject({ status: 'activated', auditComplete: false })
-		expect((await f.agenda.read())?.learning?.skills[0]?.hash).toBe(outcome.candidateRevision)
+		expect((await f.guidance.read())?.learning?.skills[0]?.hash).toBe(outcome.candidateRevision)
 	})
 
 	it('does not run inference if the initial journal append fails', async () => {
@@ -697,16 +693,16 @@ describe('resident learning cycle', () => {
 		const f = await fixture()
 		const outcome = await runLearningCycle({
 			...f.options,
-			agenda: {
-				read: () => f.agenda.read(),
+			guidance: {
+				read: () => f.guidance.read(),
 				promoteSkill: async (...args) => {
-					await f.agenda.promoteSkill(...args)
+					await f.guidance.promoteSkill(...args)
 					throw new Error('Lost commit acknowledgement.')
 				},
 			},
 		})
 		expect(outcome.status).toBe('activation-unknown')
-		expect((await f.agenda.read())?.learning?.skills[0]?.hash).toBe(outcome.candidateRevision)
+		expect((await f.guidance.read())?.learning?.skills[0]?.hash).toBe(outcome.candidateRevision)
 	})
 
 	it('rejects mismatched evaluated content before promotion', async () => {
@@ -719,7 +715,7 @@ describe('resident learning cycle', () => {
 			},
 		})
 		expect(outcome.status).toBe('failed')
-		expect(await f.agenda.read()).toEqual(f.initial)
+		expect(await f.guidance.read()).toEqual(f.initial)
 	})
 
 	it('stops when a callback catches a rejected usage receipt', async () => {
@@ -739,7 +735,7 @@ describe('resident learning cycle', () => {
 			},
 		})
 		expect(outcome.status).toBe('failed')
-		expect(await f.agenda.read()).toEqual(f.initial)
+		expect(await f.guidance.read()).toEqual(f.initial)
 	})
 
 	it('rejects inconsistent trial success before attempting a commit', async () => {
@@ -756,15 +752,7 @@ describe('resident learning cycle', () => {
 		})
 		expect(outcome.status).toBe('failed')
 		expect(f.events.some((e) => e.kind === 'activation-requested')).toBe(false)
-		expect(await f.agenda.read()).toEqual(f.initial)
-	})
-
-	it('does not generate while the agenda is paused', async () => {
-		const f = await fixture()
-		await f.agenda.setPaused(f.initial, true)
-		const outcome = await runLearningCycle(f.options)
-		expect(outcome.status).toBe('failed')
-		expect(f.stages).toEqual([])
+		expect(await f.guidance.read()).toEqual(f.initial)
 	})
 
 	it('does not admit more work with zero remaining recorded allowance', async () => {

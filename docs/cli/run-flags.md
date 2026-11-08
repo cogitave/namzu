@@ -28,7 +28,7 @@ namzu --append-system-prompt @team-rules.md --allowed-tools "edit read"
 | `--fallback-model <provider/model[,…]>` | yes, repeatable | yes, repeatable |
 | `--max-budget-usd <amount>` | yes | refused: it stops a headless run, so it is written after `exec` |
 
-Written before `exec`, `drain` or any other subcommand they are refused with exit status 64 and a line saying where they go. `namzu resident` refuses all five, since a resident step does not read them.
+Written before `exec`, `drain` or any other subcommand they are refused with exit status 64 and a line saying where they go.
 
 ## Appended instructions
 
@@ -70,4 +70,4 @@ A fallback lasts for the rest of that reply only. The next reply starts again wi
 
 `--no-session-persistence` runs against an in-memory session log from the outset. No conversation journal or durable fork is created, even while the turn is running or if the process crashes, so `--continue` will not find it and `namzu drain` has nothing to finish. With `--continue` or `--resume <id>`, existing history is read through an in-memory index without initializing persistent metadata, then copied into the transient run; the original is never written to. `--wait-for-provider` can resume a pause in this process, but a paused turn cannot be resumed after the process exits. Other state a run may touch (memory, project files), and explicitly configured telemetry/session exports, are not disabled by this flag.
 
-`exec --json` accepts `--no-session-persistence` as an explicit spelling of its default stateless mode; it refuses the flag beside `--session` rather than silently losing the host's keyed history. `--fork-session` is refused by `exec --json`. Resident work refuses both flags because it owns its sessions.
+`exec --json` accepts `--no-session-persistence` as an explicit spelling of its default stateless mode; it refuses the flag beside `--session` rather than silently losing the host's keyed history. `--fork-session` is refused by `exec --json`.

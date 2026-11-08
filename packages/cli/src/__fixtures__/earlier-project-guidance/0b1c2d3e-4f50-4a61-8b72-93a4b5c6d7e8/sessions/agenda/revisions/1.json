@@ -1,0 +1,9 @@
+{
+  "tenantId": "0b1c2d3e-4f50-4a61-8b72-93a4b5c6d7e8",
+  "agentKey": "sessions",
+  "identity": "Guidance for conversations in this project.",
+  "revision": 1,
+  "paused": false,
+  "pursuits": [],
+  "schemaVersion": 6
+}

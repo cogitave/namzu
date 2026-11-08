@@ -12,7 +12,7 @@
 The kernel.
 
 * [Workflows](workflows.md) - Run a model-authored orchestration script in the code interpreter with `agent()` as its only capability, bounded scheduling, phases, events and a journal.
-* [Task tracking and execution](task-tracking.md) - Existing planning tasks, delegated invocation handles, resident pursuits and the host wiring that exposes their state.
+* [Task tracking and execution](task-tracking.md) - Existing planning tasks, delegated invocation handles and the host wiring that exposes their state.
 
 * [Query input and durable delivery](query.md) - Optional host input recorded and acknowledged before inference, complete tool boundaries and cancellable settle waits.
 
@@ -31,7 +31,7 @@ The kernel.
 
 * [Structured output review](structured-output-review.md) - Parsed-result validation, bounded corrections and checkpoint recovery.
 * [Tool call budgets](tool-call-budget.md) - Durable per-turn admissions, batch limits and recovery accounting.
-* [Environment exploration before learning](resident-exploration.md) - Active tool experiments and retained observations before independent skill evaluation.
+* [Environment exploration before learning](learning-exploration.md) - Active tool experiments and retained observations before independent skill evaluation.
 * [Evaluating exploration policies](exploration-policies.md) - Purpose-bound learning instructions and independent measurement of evidence acquisition.
 
 * [Tool discovery](tool-discovery.md) - Deferred tool search, host readiness, source-bound receipts and allowed-tool filtering.
@@ -110,27 +110,21 @@ The kernel.
 * [Paired harness verification](harness-verification.md) - Trace-attributed comparison and fresh confirmation of harness candidates.
 * [Memory retrieval research](memory-research.md) - Source-backed retrieval gaps, admission fix and evaluation priorities.
 * [Measured automatic memory recall](memory-recall-scores.md) - Live paired Luna low correctness and consumption results.
-* [Resident agents experiment](resident-agents.md) - Staged continuity plan, durable pursuit admission and bounded internal continuation.
-* [Resident step context](resident-context.md) - Stable guidance and captured objective, evidence and learning for each admitted invocation.
 
-* [Resident initiative experiment](resident-initiative.md) - Explainable selection, verified observations, bounded subgoal proposals and measured tradeoffs.
 
-* [Resident communication experiment](resident-communication.md) - Atomic outbound intents, acknowledged delivery and explicit time windows.
 
-* [Resident learning experiment](resident-learning.md) - Evidence-backed behavioral revisions, evaluated guidance and admitted context.
-* [Learning](learning.md) - The learning module every host shares: observations, the cycle, its store, the leak tripwire, the experience library, the built-in generator, and the deprecated resident-prefixed names.
-* [Durable resident learning records](resident-learning-storage.md) - Scoped SQLite journals, immutable artifacts and explicit host execution.
-* [Resident learning cycle](resident-learning-cycle.md) - Generated guidance, independent evaluation, fresh confirmation and exact-revision activation.
-* [Resident learning discovery](resident-learning-discovery.md) - Select retained failures and atomically admit one experiment per task, evaluator and baseline.
-* [Resident retention and history](resident-retention.md) - Terminal archival with durable deduplication and ancestry limits.
-* [Resident evidence recall](resident-recall.md) - Bounded reads of earlier settled summaries and consumed inputs within one pursuit.
+* [Learning guidance](learning-guidance.md) - The revisioned guidance store, evaluated promotion, rollback, source-bound skills, bounded projection and the carry-over of earlier stores.
+* [Learning](learning.md) - The learning module every host shares: observations, the cycle, its store, the leak tripwire, the experience library, and the built-in generator.
+* [Learning your work, one work profile at a time](work-profiles.md) - Draft direction: work profiles, consent defaults, readiness states, status surfaces, hand-off to a Pal and optional model training.
+* [Durable learning records](learning-storage.md) - Scoped SQLite journals, immutable artifacts and explicit host execution.
+* [Learning cycle](learning-cycle.md) - Generated guidance, independent evaluation, fresh confirmation and exact-revision activation.
+* [Learning discovery](learning-discovery.md) - Select retained failures and atomically admit one experiment per task, evaluator and baseline.
 
 * [The session index](sqlite-sessions.md) - The rebuildable index over every session log: sessions, turns, children, pending decisions, external ids and full-text search, in SQLite or scanned in memory.
 
 * [Retained tool evidence](retained-tool-evidence.md) - Bounded indexed retrieval of original tool and conversation text from authorized session logs.
 * [Assistant text phases](assistant-text.md) - Preserve public progress items while selecting settled answers and native replay.
 
-* [Automatic resident tool evidence recall](resident-evidence-recall.md) - Bounded historical tool retrieval across settled resident admissions.
 
 * [Cancellation and timeouts](cancellation-and-timeouts.md) - Findings and open composition options for provider-request cancellation, the whole-turn timeout gap, and the two idle-timeout mechanisms.
 

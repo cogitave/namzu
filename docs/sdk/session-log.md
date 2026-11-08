@@ -12,7 +12,7 @@ generated: { by: process:claude-code, at: 2026-09-21T00:00:00Z }
 
 The kernel's model is **session → turn → message**. A session is one
 conversation with one agent. A turn is one unit of work inside it: a user
-prompt, a goal round, a resident step or a verification step, and everything
+prompt, a goal round or a verification step, and everything
 the agent did to answer it. A subagent is a child session, with its own log.
 
 Each session has exactly one log: an append-only JSONL file whose lines are
@@ -42,7 +42,7 @@ $NAMZU_HOME/
 ├── index.sqlite                        rebuildable index (PRAGMA user_version = 1)
 └── projects/<slug>/
     ├── project.json                    {"v":1,"kind":"project","projectId":…,"cwd":…,"slug":…,"createdAt":…}
-    ├── memory/   residents/<agent-key>/   worktrees/<label>/
+    ├── memory/   worktrees/<label>/
     ├── <session-id>.jsonl              the session log
     └── <session-id>/
         ├── subagents/<child-id>.jsonl, <child-id>.meta.json, <child-id>/subagents/…
@@ -310,7 +310,7 @@ the record, `fromSeq <= toSeq < seq`.
 
 `origin` is `{protocol, externalSessionId?, externalTurnId?, kind?, goalId?,
 round?}`, where `protocol` is `cli`, `sdk`, `ag-ui`, `a2a`, `acp`, `http`,
-`desktop` or `resident`. An external reference is `{protocol, kind, externalId}`
+`desktop` or `resident` (which no version writes any more; a log written by an earlier one still parses). An external reference is `{protocol, kind, externalId}`
 with `kind` `session`, `thread` or `context`. The index's `external_refs` table
 is derived only from these two, never written directly, so it survives a
 rebuild.
@@ -405,7 +405,7 @@ step results and activity tracking can independently retain historical payloads.
   leaves that turn's messages out of the context the next turn carries (the
   records stay in the log, and a host's cached copy of them is dropped by id).
   Without it the provider would see the re-sent prompt twice.
-- **What is a new turn:** a user prompt, a goal round, a resident step and a
+- **What is a new turn:** a user prompt, a goal round and a
   verification step (`origin.kind` says which). Steering and automatic
   continuation are `message` records inside the current turn. The prompt that
   opens a turn is the `message` record right after `turn_started`, named by

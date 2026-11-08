@@ -13,7 +13,7 @@ generated: { by: process:claude-code, at: 2026-09-21T00:00:00Z }
 The working directory is where tools execute. The Project groups the
 conversations and stored memory that belong to that directory. A Session is
 one conversation; a Turn is one unit of work inside it — a prompt you send, a
-goal round, a resident step — and everything the agent did to answer it. A
+goal round — and everything the agent did to answer it. A
 delegated agent runs in a child session of its own. The file layout is on
 [Session storage](session-storage.md); this page is about identity and
 ownership.
@@ -71,9 +71,13 @@ Generated state lives under `~/.namzu`, or `NAMZU_HOME` when configured:
   `/restore` snapshots under `file-history/`, and the writer's `lease.json`.
 - `projects/<slug>/memory/` holds stored memories, one Markdown file per
   memory and a generated `MEMORY.md` index (see [Memory](memory.md)).
-- `projects/<slug>/residents/<agent>/` holds explicitly created resident state,
-  including its learning database; see
-  [Durable learning records](../sdk/resident-learning-storage.md).
+- `projects/<slug>/learning/` holds what the project learned: the observations
+  its conversations kept, its guidance (`session-guidance/`) and one directory
+  per named learning target under `targets/<name>/` (`store/` with the learning
+  database, `guidance/`); see [Learning in the CLI](learning.md) and
+  [Durable learning records](../sdk/learning-storage.md). A `residents/<agent>/`
+  directory an earlier version made is left as it is; what learning kept in it
+  is copied into `learning/` the first time it is used.
 - `projects/<slug>/worktrees/` holds git worktrees the agent creates.
 
 A session's title, archive flag and desktop window mapping are records in its

@@ -40,15 +40,15 @@ const second = (p: Fixture) =>
 	learn(p, { markers: ['BETA'], proposal: proposalText(SECOND_BODY) }, 30)
 const handle = async (p: Fixture) => ({
 	store: p.target,
-	agenda: await openProjectGuidance(p.paths as SessionPaths, p.tenantId),
+	guidance: await openProjectGuidance(p.paths as SessionPaths, p.tenantId),
 })
 
 describe('what Namzu learned, and undoing it', () => {
 	it('lists an activation as the active revision', async () => {
 		const p = await project()
 		const cycle = await learn(p, {})
-		const { store, agenda } = await handle(p)
-		const { active, revisions } = await listLearnedGuidance(store, agenda)
+		const { store, guidance } = await handle(p)
+		const { active, revisions } = await listLearnedGuidance(store, guidance)
 		expect(cycle.status).toBe('activated')
 		expect(active).toBe(cycle.candidateRevision)
 		expect(revisions).toHaveLength(1)
@@ -66,27 +66,27 @@ describe('what Namzu learned, and undoing it', () => {
 		const newest = await second(p)
 		expect(newest.status).toBe('activated')
 		expect(await readProjectGuidance(p.paths, p.tenantId)).toContain('BETA')
-		const { store, agenda } = await handle(p)
-		const undone = await undoLearnedGuidance(store, agenda)
+		const { store, guidance } = await handle(p)
+		const undone = await undoLearnedGuidance(store, guidance)
 		expect(undone).toMatchObject({ status: 'undone', revision: { cycleId: newest.cycleId } })
-		const guidance = await readProjectGuidance(p.paths, p.tenantId)
-		expect(guidance).toContain(GOOD_BODY)
-		expect(guidance).not.toContain('BETA')
+		const text = await readProjectGuidance(p.paths, p.tenantId)
+		expect(text).toContain(GOOD_BODY)
+		expect(text).not.toContain('BETA')
 		// The undo is a revision of its own: the history still lists both activations.
-		const { revisions } = await listLearnedGuidance(store, agenda)
+		const { revisions } = await listLearnedGuidance(store, guidance)
 		expect(revisions.map((r) => r.active)).toEqual([false, true])
 	})
 
 	it('undoes the only activation back to no learned guidance', async () => {
 		const p = await project()
 		await learn(p, {})
-		const { store, agenda } = await handle(p)
-		expect(await undoLearnedGuidance(store, agenda)).toMatchObject({
+		const { store, guidance } = await handle(p)
+		expect(await undoLearnedGuidance(store, guidance)).toMatchObject({
 			status: 'undone',
 			restored: 'none',
 		})
 		expect(await readProjectGuidance(p.paths, p.tenantId)).toBeNull()
-		expect(await undoLearnedGuidance(store, agenda)).toEqual({
+		expect(await undoLearnedGuidance(store, guidance)).toEqual({
 			status: 'refused',
 			reason: 'nothing-active',
 		})
@@ -96,16 +96,46 @@ describe('what Namzu learned, and undoing it', () => {
 		const p = await project()
 		const first = await learn(p, {})
 		await second(p)
-		const { store, agenda } = await handle(p)
-		expect(await undoLearnedGuidance(store, agenda, first.cycleId)).toEqual({
+		const { store, guidance } = await handle(p)
+		expect(await undoLearnedGuidance(store, guidance, first.cycleId)).toEqual({
 			status: 'refused',
 			reason: 'not-active',
 		})
-		expect(await undoLearnedGuidance(store, agenda, 'nope')).toEqual({
+		expect(await undoLearnedGuidance(store, guidance, 'nope')).toEqual({
 			status: 'refused',
 			reason: 'unknown-cycle',
 		})
 		expect(await readProjectGuidance(p.paths, p.tenantId)).toContain('BETA')
 		expect(describeUndoRefusal('not-active')).toMatch(/undo that one first/)
+	})
+
+	it('reads a journal that still names the revision `agendaRevision`, for list and for undo', async () => {
+		const p = await project()
+		await learn(p, {})
+		const newest = await second(p)
+		const { store, guidance } = await handle(p)
+		// A journal written before the rename: the same rows, with the revision under its older name.
+		const earlier = {
+			list: async (options?: Parameters<typeof store.list>[0]) =>
+				(await store.list(options)).map((row) => {
+					const { guidanceRevision, ...rest } = (row.result ?? {}) as Record<string, unknown>
+					return {
+						...row,
+						result:
+							guidanceRevision === undefined
+								? row.result
+								: { ...rest, agendaRevision: guidanceRevision },
+					}
+				}),
+		} as unknown as typeof store
+		const { revisions } = await listLearnedGuidance(earlier, guidance)
+		expect(revisions.map((r) => r.cycleId)).toContain(newest.cycleId)
+		expect(revisions).toHaveLength(2)
+		expect(revisions[0]?.guidanceRevision).toBeGreaterThan(revisions[1]?.guidanceRevision ?? 0)
+		expect(await undoLearnedGuidance(earlier, guidance)).toMatchObject({
+			status: 'undone',
+			revision: { cycleId: newest.cycleId },
+		})
+		expect(await readProjectGuidance(p.paths, p.tenantId)).not.toContain('BETA')
 	})
 })

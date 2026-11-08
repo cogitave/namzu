@@ -271,10 +271,9 @@ describe('SessionPaths', () => {
 		)
 	})
 
-	it('keeps worktrees and residents under the project', () => {
+	it('keeps worktrees under the project', () => {
 		expect(paths.worktrees()).toBe(`${project}/worktrees`)
 		expect(paths.worktrees('fix-1')).toBe(`${project}/worktrees/fix-1`)
-		expect(paths.residentDir('reviewer')).toBe(`${project}/residents/reviewer`)
 	})
 
 	it.each([
@@ -286,7 +285,6 @@ describe('SessionPaths', () => {
 		['a traversal label', () => paths.worktrees('../escape')],
 		['a dotted label', () => paths.worktrees('a..b')],
 		['an empty tool-use id', () => paths.toolResultFile({ sessionId: root }, '')],
-		['a slashed agent key', () => paths.residentDir('a/b')],
 	])('refuses %s as a path segment', (_name, build) => {
 		expect(build).toThrow(SessionPathError)
 	})

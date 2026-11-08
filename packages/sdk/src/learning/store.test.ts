@@ -58,7 +58,7 @@ const result = (cycleId: string, tokens = 0): LearningCycleResult => ({
 	auditComplete: true,
 })
 
-describe('SQLite resident learning journal', () => {
+describe('SQLite learning journal', () => {
 	it('reopens exploration evidence and its usage stage without replaying execution', async () => {
 		const f = fixture()
 		await f.store.append(f.start)

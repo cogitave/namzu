@@ -9,21 +9,21 @@
  *
  * Which audience gets which section, written down once:
  *
- * | Section                   | Session turn | Resumed turn | Resident step | Sub-agent |
- * |---------------------------|--------------|--------------|---------------|-----------|
- * | identity                  | yes          | yes          | yes           | no, own role |
- * | working doctrine          | yes          | yes          | no, resident context carries it | yes (inside its role) |
- * | browser/desktop routing   | yes          | yes          | yes           | no        |
- * | delegation doctrine       | if the Agent tool is not withheld | same | no | no, a child does not delegate |
- * | workflow doctrine         | if the workflow tool is offered | no, a resumed turn is not offered it | no | no |
- * | pal block                 | yes          | yes          | no            | no        |
- * | conversation evidence     | if enabled   | if enabled   | if enabled    | no        |
- * | memory guidance           | if the memory tool is mounted | same | no, resident context carries it | taught in its own prompt, when it holds the tool |
- * | deferred-tool guidance    | if any tool is deferred | same | same | no |
- * | plan doctrine             | no: the plan-mode reminder carries it (no plan file: under `plan`) | under `plan` | no | no |
- * | environment               | yes          | yes          | no, it rides in the dynamic block | child reads its own |
- * | extra system / note       | yes          | yes, the same skills prompt and note a turn gets | no | no |
- * | skills overflow note      | no, the skill-list reminder carries it | yes | yes | no |
+ * | Section                   | Session turn | Resumed turn | Sub-agent |
+ * |---------------------------|--------------|--------------|-----------|
+ * | identity                  | yes          | yes          | no, own role |
+ * | working doctrine          | yes          | yes          | yes (inside its role) |
+ * | browser/desktop routing   | yes          | yes          | no        |
+ * | delegation doctrine       | if the Agent tool is not withheld | same | no, a child does not delegate |
+ * | workflow doctrine         | if the workflow tool is offered | no, a resumed turn is not offered it | no |
+ * | pal block                 | yes          | yes          | no        |
+ * | conversation evidence     | if enabled   | if enabled   | no        |
+ * | memory guidance           | if the memory tool is mounted | same | taught in its own prompt, when it holds the tool |
+ * | deferred-tool guidance    | if any tool is deferred | same | no |
+ * | plan doctrine             | no: the plan-mode reminder carries it (no plan file: under `plan`) | under `plan` | no |
+ * | environment               | yes          | yes          | child reads its own |
+ * | extra system / note       | yes          | yes, the same skills prompt and note a turn gets | no |
+ * | skills overflow note      | no, the skill-list reminder carries it | yes | no |
  *
  * Sub-agents are built by `integrations/subagents/runtime.ts` from a role
  * prompt of their own; they share the working doctrine by import and nothing
@@ -54,8 +54,6 @@ export const DEFERRED_TOOL_GUIDANCE =
 	'The deferred_tools catalogue is a discovery snapshot, not live availability status. The current runtime tool schemas are authoritative: call a tool directly when its schema is visible, even if the catalogue lists it as deferred. Only when a needed deferred tool schema is absent, call search_tools with its exact name to load it. Loading a tool does not change its permissions.'
 
 export interface SessionPromptInput {
-	/** A resident step carries its own context; it gets the identity and little else. */
-	readonly resident: boolean
 	/** Pre-rendered optional blocks, in the order they are read. */
 	readonly browserDesktopRouting?: string | null | undefined
 	readonly palBlock?: string | undefined
@@ -103,7 +101,6 @@ export interface SessionPromptFacts {
 
 /** What differs between one turn and another that holds the same facts. */
 export interface SessionPromptTurn {
-	readonly resident: boolean
 	/** A resumed turn runs over the session's toolset, which has no workflow tool. */
 	readonly workflowOffered: boolean
 	/**
@@ -126,7 +123,6 @@ export function sessionPromptInput(
 	turn: SessionPromptTurn,
 ): SessionPromptInput {
 	return {
-		resident: turn.resident,
 		browserDesktopRouting: facts.browserDesktopRouting,
 		palBlock: facts.palBlock,
 		environment: facts.environment,
@@ -147,21 +143,20 @@ export function sessionPromptInput(
 }
 
 export function composeSessionSystemPrompt(input: SessionPromptInput): string | undefined {
-	const { resident } = input
 	const sections: (string | null | undefined)[] = [
 		NAMZU_IDENTITY,
-		resident ? undefined : NAMZU_WORKING_DOCTRINE,
+		NAMZU_WORKING_DOCTRINE,
 		input.browserDesktopRouting,
 		// Advice on delegating, for a turn that has the Agent tool: a run whose
 		// job withholds it would only be told how to use a tool it was not sent.
-		resident || !input.delegationAvailable ? undefined : NAMZU_DELEGATION_DOCTRINE,
+		!input.delegationAvailable ? undefined : NAMZU_DELEGATION_DOCTRINE,
 		input.workflowOffered
 			? [WORKFLOW_DOCTRINE, input.workflowSizeAdvice].filter(Boolean).join('\n\n')
 			: undefined,
-		resident ? undefined : input.palBlock,
+		input.palBlock,
 		input.conversationEvidence,
-		resident ? undefined : input.memoryGuidance,
-		resident ? undefined : input.shellEscapeGuidance,
+		input.memoryGuidance,
+		input.shellEscapeGuidance,
 		// Whenever anything is deferred: a deferred tool the model was never
 		// told how to load is a tool it does not have.
 		input.toolsDeferred ? DEFERRED_TOOL_GUIDANCE : undefined,
@@ -169,14 +164,14 @@ export function composeSessionSystemPrompt(input: SessionPromptInput): string | 
 		// plan-mode reminder carries it: with a plan file the reminder is the
 		// single source, so a toggle leaves the cached prefix alone. A turn with
 		// no reminder channel (a resumed one) keeps it here.
-		!resident && input.permissionMode === 'plan' && !(input.planPath && input.planInReminders)
+		input.permissionMode === 'plan' && !(input.planPath && input.planInReminders)
 			? input.planPath
 				? NAMZU_PLAN_FILE_DOCTRINE
 				: NAMZU_PLAN_MODE_DOCTRINE
 			: undefined,
-		resident ? undefined : input.environment,
-		resident ? undefined : input.extraSystem,
-		resident ? undefined : input.systemNote,
+		input.environment,
+		input.extraSystem,
+		input.systemNote,
 		input.skillsOverflowNote,
 	]
 	return sections.filter((s): s is string => Boolean(s)).join('\n\n') || undefined

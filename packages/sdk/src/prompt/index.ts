@@ -23,7 +23,3 @@ export {
 	codingAgentDoctrineContribution,
 } from './coding-agent-doctrine.js'
 export type { CodingAgentDoctrineOptions } from './coding-agent-doctrine.js'
-export { createResidentStepContributions } from './resident-step.js'
-export type { ResidentStepPromptOptions } from './resident-step.js'
-export { createResidentStepContext } from './resident-learning.js'
-export type { ResidentStepContextOptions, ResidentStepContextBundle } from './resident-learning.js'

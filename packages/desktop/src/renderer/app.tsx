@@ -57,6 +57,7 @@ import { ChangesPanel } from './changes-panel.js'
 import { type ChangeTotals, changeTotals } from './changes-totals.js'
 import { ChatErrorBanner } from './chat-error-banner.js'
 import { CommandPalette, type CommandPaletteItem } from './command-palette.js'
+import { historyEntries } from './composer-history.js'
 import {
 	type ComposerPlugin,
 	type ComposerPluginInventory,
@@ -89,7 +90,9 @@ import {
 	ConversationTabs,
 } from './conversation-tabs.js'
 import { ConversationTasks } from './conversation-tasks.js'
+import { useConversationUnread } from './conversation-unread-store.js'
 import { copyPlainText } from './copy-button.js'
+import { holdsDiscardableDraft } from './discard-draft.js'
 import { signInHelpFor } from './engine-setup.js'
 import { setEngineSignedOut } from './engine-sign-in.js'
 import { FilePanelBody } from './file-panel/file-panel.js'
@@ -234,6 +237,7 @@ import {
 	settleLaunchSeed,
 	sidebarSeed,
 } from './startup-restore.js'
+import { type StopRequests, clearStop, isStopping, requestStop } from './stop-request.js'
 import { createSubmitGuard } from './submit-guard.js'
 import { type TabChord, movedTabIndex, selectedTabIndex, tabChord } from './tab-keys.js'
 import { TerminalPane } from './terminal-pane.js'
@@ -465,6 +469,10 @@ export function App({
 		pending?: { name: string; path: string }
 	}>()
 	const [removingConversation, setRemovingConversation] = useState<ConversationView>()
+	// A draft pane being closed while it holds words or attachments: the person is asked first.
+	const [discardingDraft, setDiscardingDraft] = useState<ConversationView>()
+	// Stop is a request; the reply goes on until the host reports it ended.
+	const [stopRequests, setStopRequests] = useState<StopRequests>({})
 	const [removingProject, setRemovingProject] = useState<ProjectView>()
 	const [renamingProject, setRenamingProject] = useState<ProjectView>()
 	const projectRemovalTrigger = useRef<HTMLElement | null>(null)
@@ -982,6 +990,7 @@ export function App({
 	const pal = pals.find((item) => item.id === project?.palId)
 	// A Pal row shows a marker from the moment the person messages it until they open it.
 	const { collapsed: collapsedSections, setSectionCollapsed } = useSidebarSections(api)
+	const { ids: unreadConversations, set: setConversationUnread } = useConversationUnread(api)
 	const [unreadPals, setUnreadPals] = useState<ReadonlySet<string>>(() => new Set())
 	const countedPalSends = useRef(new Set<string>())
 	useEffect(() => {
@@ -1416,6 +1425,7 @@ export function App({
 				updatedAt: '',
 			},
 	)
+	const composerHistory = useMemo(() => historyEntries(thread.messages), [thread.messages])
 	const draftOwner = sessionId || `project:${projectId}:workspace:${windowId}:${group.id}`
 	const draft = drafts[draftOwner] ?? ''
 	// Main answers a draft only for a project it has registered. A project the window is told about
@@ -2118,6 +2128,8 @@ export function App({
 				)
 				return
 			}
+			// The unread store listens for its own event; nothing here belongs to a conversation.
+			if (event.kind === 'unread') return
 			if (event.kind === 'providers-changed') {
 				// A key was saved or removed. Forget what each pane remembered about providers
 				// and read them again; the send button follows the new answer.
@@ -3568,6 +3580,7 @@ export function App({
 			hasMessages: state.messages.length > 0,
 			hasReply: lastReplyText(state.messages) !== undefined,
 			hasProjectPath: Boolean(owner && !owner.isChat && !owner.palId && owner.path),
+			unread: unreadConversations.has(view.id),
 			editorLabel: editors[0]?.label,
 			canMoveRight: group.tabs.length > 1,
 			can: {
@@ -3580,6 +3593,7 @@ export function App({
 				moveRight: true,
 				moveWindow: true,
 				openIn: Boolean(api.openProjectPath),
+				unread: Boolean(api.setConversationUnread),
 			},
 		}
 	}
@@ -3646,6 +3660,10 @@ export function App({
 						},
 					})
 				})
+				return
+			case 'mark-unread':
+				if (!api.setConversationUnread) return
+				void act(() => setConversationUnread(view.id, !unreadConversations.has(view.id)))
 				return
 			case 'fork':
 				if (!api.forkConversation) return
@@ -5086,13 +5104,34 @@ export function App({
 		else void act(() => openConversation(view))
 	}
 	// Returns whether the chord meant something here, so an inert chord stays the browser's.
+	// Closing a pane never written in that holds words or attachments asks first; everything else closes.
+	const closeConversationTab = (tabId: string): Promise<unknown> => {
+		const view =
+			conversations.find((item) => item.id === tabId) ??
+			savedViews.find((item) => item.id === tabId)
+		if (
+			view &&
+			holdsDiscardableDraft({
+				view,
+				thread: threads[tabId],
+				draft: drafts[tabId] ?? '',
+				attachmentCount: attached.get(tabId).length,
+			})
+		) {
+			removalTrigger.current =
+				document.activeElement instanceof HTMLElement ? document.activeElement : null
+			setDiscardingDraft(view)
+			return Promise.resolve()
+		}
+		return onAction({ kind: 'close', groupId: group.id, tabId })
+	}
 	const runTabChord = (chord: TabChord): boolean => {
 		if (context.current.frozen || loading) return false
 		const at = stripIds.indexOf(frontTabId)
 		switch (chord.kind) {
 			case 'close':
 				if (!frontTabId) return false
-				void onAction({ kind: 'close', groupId: group.id, tabId: frontTabId }).catch((failure) =>
+				void closeConversationTab(frontTabId).catch((failure) =>
 					showError(failure, 'close the tab'),
 				)
 				return true
@@ -5608,11 +5647,7 @@ export function App({
 				group.tabs.length > 1 ? (view, position) => onSplit(group.id, view.id, position) : undefined
 			}
 			onClose={(view) =>
-				void onAction({
-					kind: 'close',
-					groupId: group.id,
-					tabId: view.id,
-				}).catch((failure) => showError(failure, 'close the tab'))
+				void closeConversationTab(view.id).catch((failure) => showError(failure, 'close the tab'))
 			}
 		/>
 	)
@@ -6049,6 +6084,35 @@ export function App({
 							/>
 						)}
 
+						{discardingDraft && (
+							<ConfirmRemovalDialog
+								key={`discard-draft:${discardingDraft.id}`}
+								title="Discard draft?"
+								description="This conversation has not been written in yet. Closing it throws away what you typed and any files you attached."
+								actionLabel="Discard"
+								pendingLabel="Discarding…"
+								onClose={() => setDiscardingDraft(undefined)}
+								returnFocus={removalReturnFocus}
+								onConfirm={async () => {
+									const target = discardingDraft
+									const files = attached.get(target.id)
+									// The removal runs inside confirmedRemoval; closing the tab waits for it, because
+									// the tab's controller waits for every operation in flight and would wait for itself.
+									await confirmedRemoval(async () => {
+										draftEditRevisions.current.set(
+											target.id,
+											(draftEditRevisions.current.get(target.id) ?? 0) + 1,
+										)
+										draftsRef.current[target.id] = ''
+										setDrafts((all) => ({ ...all, [target.id]: '' }))
+										await api.saveDraft(target.id, '')
+										for (const file of files) await api.removeAttachment(target.id, file.id)
+										if (files.length > 0) await attached.reload(target.id)
+									})
+									await onAction({ kind: 'close', groupId: group.id, tabId: target.id })
+								}}
+							/>
+						)}
 						{removingProject &&
 							(() => {
 								const copy = projectRemovalCopy(removingProject)
@@ -6137,6 +6201,7 @@ export function App({
 							rowActions={sidebarRowActions}
 							threads={threads}
 							backgroundWork={backgroundWork}
+							unread={unreadConversations}
 							open={!pageOpen && sideOpen}
 							onRemoveProject={api.removeProject ? requestProjectRemoval : undefined}
 							onRenameProject={api.renameProject ? requestProjectRename : undefined}
@@ -7115,6 +7180,8 @@ export function App({
 								}
 								speechStatus={<VoiceInputStatus voice={voice} />}
 								running={thread.running}
+								stopping={isStopping(stopRequests, sessionId, thread)}
+								history={composerHistory}
 								liveInputSupported={thread.liveInputSupported && !palConversation}
 								sending={sending[draftOwner] ?? false}
 								shells={
@@ -7144,7 +7211,18 @@ export function App({
 								}}
 								onSend={() => void act(send)}
 								onQueue={() => void act(() => send('queue'))}
-								onStop={() => void act(() => api.cancel(sessionId))}
+								onStop={() => {
+									const target = sessionId
+									setStopRequests((all) => requestStop(all, target, thread))
+									void act(async () => {
+										try {
+											await api.cancel(target)
+										} catch (failure) {
+											setStopRequests((all) => clearStop(all, target))
+											throw failure
+										}
+									})
+								}}
 							/>
 							{speech.error && (
 								<p className="inline-error" role="alert">

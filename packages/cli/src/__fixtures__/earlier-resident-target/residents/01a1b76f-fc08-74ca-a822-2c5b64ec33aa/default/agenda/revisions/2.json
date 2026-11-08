@@ -1,0 +1,43 @@
+{
+  "tenantId": "01a1b76f-fc08-74ca-a822-2c5b64ec33aa",
+  "agentKey": "default",
+  "identity": "Pursue only objectives explicitly added by this project’s operator. Respect project instructions and current tool permissions.",
+  "revision": 2,
+  "paused": false,
+  "learning": {
+    "revision": 1,
+    "preferences": [],
+    "skills": [
+      {
+        "name": "source-check",
+        "description": "Inspect the designated source.",
+        "body": "Read the actual source before reporting its value.",
+        "hash": "bf7bab943d85df052658e443edefd17b73568e8dec1e875bdf296f2ec37b6062",
+        "evidence": {
+          "key": "32111f55-3560-4fb5-ae53-c7d969dd63c7",
+          "source": "learning-cycle:32111f55-3560-4fb5-ae53-c7d969dd63c7",
+          "reason": "Paired verification and fresh confirmation of guidance derived from evidence failed-read."
+        },
+        "verification": {
+          "baselineHash": "none",
+          "candidateHash": "bf7bab943d85df052658e443edefd17b73568e8dec1e875bdf296f2ec37b6062",
+          "evidenceDigest": "c9b8c07be3a044aa5ed5c4928a4ff733beb6591c1e0c6ef50e1f2f642a93b5ea",
+          "verificationTasks": 5,
+          "confirmationTasks": 5,
+          "protection": {
+            "verificationTasks": 1,
+            "confirmationTasks": 1,
+            "planDigest": "fba698ff76d9f94de610d7e247fdc55dd48dafe2580983ef1ba622962460df93"
+          }
+        }
+      }
+    ],
+    "lastChange": {
+      "key": "32111f55-3560-4fb5-ae53-c7d969dd63c7",
+      "source": "learning-cycle:32111f55-3560-4fb5-ae53-c7d969dd63c7",
+      "reason": "Paired verification and fresh confirmation of guidance derived from evidence failed-read."
+    }
+  },
+  "pursuits": [],
+  "schemaVersion": 6
+}

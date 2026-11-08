@@ -3,9 +3,9 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { DiskResidentAgenda } from '../manager/resident/agenda.js'
 import { generateTenantId } from '../utils/id.js'
 import { type LearningCycleEvent, type LearningCycleOptions, runLearningCycle } from './cycle.js'
+import { DiskLearningGuidance } from './guidance.js'
 import { createLearningCanary } from './leak-tripwire.js'
 
 const roots: string[] = []
@@ -23,16 +23,16 @@ const evidence = { key: 'missing-source', source: 'fixture:trace', reason: 'No s
 async function fixture(canary: string, over: Partial<LearningCycleOptions> = {}) {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-leak-cycle-'))
 	roots.push(root)
-	const agenda = new DiskResidentAgenda(root, {
+	const guidance = new DiskLearningGuidance(root, {
 		tenantId: generateTenantId(),
 		agentKey: 'leak-test',
 	})
-	await agenda.create('Learn only from clean evidence.')
+	await guidance.create()
 	const events: LearningCycleEvent[] = []
 	const called: string[] = []
 	const options: LearningCycleOptions = {
 		protection: { verification: ['v-1'], confirmation: ['c-1'] },
-		agenda,
+		guidance,
 		skillName: skill.name,
 		failure: { evidence, trace: 'Expected a supported value, observed an unsupported one.' },
 		leakGuard: { canaries: [canary] },
@@ -101,9 +101,9 @@ describe('learning cycle leak tripwire', () => {
 	it('refuses an active baseline that carries a canary before generation', async () => {
 		const canary = createLearningCanary()
 		const f = await fixture(canary)
-		const real = f.options.agenda
-		const agenda = Object.create(real) as typeof real
-		agenda.read = async () => {
+		const real = f.options.guidance
+		const guidance = Object.create(real) as typeof real
+		guidance.read = async () => {
 			const snap = await real.read()
 			if (!snap) return snap
 			return {
@@ -116,7 +116,7 @@ describe('learning cycle leak tripwire', () => {
 				},
 			} as unknown as typeof snap
 		}
-		const result = await runLearningCycle({ ...f.options, agenda })
+		const result = await runLearningCycle({ ...f.options, guidance })
 		expect(result.status).toBe('failed')
 		expect(result.leak).toEqual([{ kind: 'canary', subject: 'baseline', rule: 'canary[0]' }])
 		expect(f.called).toEqual([])

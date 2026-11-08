@@ -14,7 +14,23 @@ import type { ProjectPrView } from '../shared/protocol.js'
 import { usableProviders } from '../shared/provider-connections.js'
 import { AttachmentList } from './attachment-list.js'
 import { ComposerApproval } from './composer-approval.js'
-import { UNSUPPORTED_ATTACHMENTS_HINT, decidePaste, stopTooltip } from './composer-input.js'
+import {
+	type HistoryWalk,
+	activeWalk,
+	caretAfterStep,
+	historyCounter,
+	stepHistory,
+} from './composer-history.js'
+import {
+	DRAFT_LIMIT,
+	UNSUPPORTED_ATTACHMENTS_HINT,
+	composerPlaceholder,
+	decidePaste,
+	pasteOverflow,
+	pasteOverflowNotice,
+	stopTooltip,
+} from './composer-input.js'
+import { decideComposerKey, isComposing } from './composer-keys.js'
 import {
 	type ComposerPlugin,
 	type ComposerPluginInventory,
@@ -99,6 +115,8 @@ export function Composer({
 	auto,
 	choiceUnchosen,
 	running,
+	stopping = false,
+	history = [],
 	liveInputSupported = false,
 	sending,
 	pending,
@@ -187,6 +205,10 @@ export function Composer({
 	/** Auto (the model side decides per task) is offered for this conversation. */
 	auto?: { active: boolean; onSelect: () => void }
 	running: boolean
+	/** Stop was asked for and the reply has not ended yet. */
+	stopping?: boolean
+	/** What the person sent in this conversation, oldest first, for the up arrow. */
+	history?: readonly string[]
 	liveInputSupported?: boolean
 	sending: boolean
 	/** Messages typed while a reply runs, shown in the tray fused to the composer. */
@@ -257,6 +279,20 @@ export function Composer({
 	const attachmentsStranded = attachments.length > 0 && !attachmentsSupported
 	const hasDraft = draft.length > 0 || attachments.length > 0
 	const [pasteNotice, setPasteNotice] = useState<string>()
+	// A notice written by a paste outlives the change event that paste causes, and nothing else.
+	const keepPasteNotice = useRef(false)
+	const [walk, setWalk] = useState<HistoryWalk | null>(null)
+	const walking = activeWalk(walk, draft)
+	// Where the caret goes once a recalled message is in the box: its start after an older one, its end after a newer one.
+	const caretAfterRecall = useRef<number | null>(null)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the new text is what the caret waits for.
+	useLayoutEffect(() => {
+		const caret = caretAfterRecall.current
+		if (caret === null) return
+		caretAfterRecall.current = null
+		inputRef.current?.setSelectionRange(caret, caret)
+	}, [draft, inputRef])
+	const mac = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform)
 	const cliMode = !compact && surface?.value === 'cli'
 	// Only a computer with nothing to answer with (not even the free models) shows the card.
 	const noProvider = !providersLoading && usableProviders(providers).length === 0 && !cliMode
@@ -546,6 +582,10 @@ export function Composer({
 									count={permissions.length}
 									folder={projectPath}
 									projectName={projectName}
+									// Only the Namzu engine keeps an "allow for this conversation" answer.
+									conversationAllowance={
+										(permissionEngine ?? harnessView?.selected ?? 'namzu') === 'namzu'
+									}
 									onRespond={(permission, response) =>
 										approvalDisabled ? false : onApproval(permission, response)
 									}
@@ -587,6 +627,15 @@ export function Composer({
 											{pasteNotice}
 										</output>
 									)}
+									{walking && (
+										<output
+											className="block pb-2 text-xs text-muted-foreground"
+											data-history-counter
+										>
+											{historyCounter(walking, history.length)} ·{' '}
+											{walking.stash ? '↓ brings back what you were typing' : '↓ goes forward'}
+										</output>
+									)}
 									{attachmentsBusy && (
 										<output className="pb-2 text-xs text-muted-foreground">Adding files…</output>
 									)}
@@ -607,31 +656,43 @@ export function Composer({
 										aria-label="Message Namzu"
 										ref={inputRef}
 										value={draft}
-										maxLength={50000}
+										maxLength={DRAFT_LIMIT}
 										disabled={draftDisabled}
-										placeholder={
-											compact
-												? 'Send a message'
-												: cliMode
-													? `Optional first message for ${cliLabel} in a terminal`
-													: editableRows.length > 0 && !hasDraft
-														? 'Press ↑ to edit queued messages'
-														: 'Ask Namzu anything'
-										}
+										placeholder={composerPlaceholder({
+											compact,
+											cliMode,
+											cliLabel,
+											editableQueued: editableRows.length > 0,
+											hasDraft,
+											running,
+											liveInputSupported,
+											mac,
+										})}
 										onChange={(event) => {
-											setPasteNotice(undefined)
+											if (keepPasteNotice.current) keepPasteNotice.current = false
+											else setPasteNotice(undefined)
+											setWalk(null)
 											onDraftChange(event.target.value)
 										}}
 										onPaste={(event) => {
 											const files = Array.from(event.clipboardData.files)
+											const text = event.clipboardData.getData('text/plain')
 											const decision = decidePaste({
-												text: event.clipboardData.getData('text/plain'),
+												text,
 												fileCount: files.length,
 												importDisabled,
 												attachmentsSupported,
 											})
 											if (decision.action === 'default') {
-												setPasteNotice(undefined)
+												const target = event.currentTarget
+												const left = pasteOverflow({
+													current: target.value,
+													selectionStart: target.selectionStart,
+													selectionEnd: target.selectionEnd,
+													pasted: text,
+												})
+												keepPasteNotice.current = left > 0
+												setPasteNotice(left > 0 ? pasteOverflowNotice(left) : undefined)
 												return
 											}
 											event.preventDefault()
@@ -641,51 +702,57 @@ export function Composer({
 											} else setPasteNotice(decision.notice)
 										}}
 										onKeyDown={(event) => {
-											// Up in an empty box takes the newest waiting message back to edit.
-											if (
-												event.key === 'ArrowUp' &&
-												!event.shiftKey &&
-												!event.altKey &&
-												!event.ctrlKey &&
-												!event.metaKey &&
-												!event.nativeEvent.isComposing &&
-												!hasDraft &&
-												editableRows.length > 0 &&
-												trayEditing === null
-											) {
-												event.preventDefault()
-												setTrayEditing(editableRows[editableRows.length - 1]?.id ?? null)
-												return
-											}
-											// Tab holds what is typed for after this reply, as in the terminal. Without
-											// anything typed it still moves focus.
-											if (
-												event.key === 'Tab' &&
-												!event.shiftKey &&
-												!event.altKey &&
-												!event.ctrlKey &&
-												!event.metaKey &&
-												!event.nativeEvent.isComposing &&
-												running &&
-												liveInputSupported &&
-												onQueue &&
-												draft.trim() &&
-												attachments.length === 0 &&
-												!sending &&
-												!attachmentsStranded
-											) {
-												event.preventDefault()
-												onQueue()
-												return
-											}
-											if (
-												event.key === 'Enter' &&
-												!event.shiftKey &&
-												!event.nativeEvent.isComposing
-											) {
-												event.preventDefault()
-												if (noProvider) focusConnectCard()
-												else if (!attachmentsStranded) onSend()
+											keepPasteNotice.current = false
+											const target = event.currentTarget
+											const key = decideComposerKey({
+												key: event.key,
+												shiftKey: event.shiftKey,
+												altKey: event.altKey,
+												ctrlKey: event.ctrlKey,
+												metaKey: event.metaKey,
+												composing: isComposing(event),
+												value: target.value,
+												selectionStart: target.selectionStart,
+												selectionEnd: target.selectionEnd,
+												hasDraft,
+												editableQueued: editableRows.length > 0,
+												trayEditing: trayEditing !== null,
+												hasHistory: history.length > 0,
+												walking: walking !== null,
+												canHold:
+													running &&
+													liveInputSupported &&
+													Boolean(onQueue) &&
+													draft.trim().length > 0 &&
+													attachments.length === 0 &&
+													!sending &&
+													!attachmentsStranded,
+											})
+											switch (key.action) {
+												case 'edit-queued':
+													event.preventDefault()
+													setTrayEditing(editableRows[editableRows.length - 1]?.id ?? null)
+													return
+												case 'recall': {
+													const step = stepHistory(history, walking, draft, key.direction)
+													if (!step) return
+													event.preventDefault()
+													caretAfterRecall.current = caretAfterStep(step.text, key.direction)
+													setWalk(step.walk)
+													onDraftChange(step.text)
+													return
+												}
+												case 'queue':
+													event.preventDefault()
+													onQueue?.()
+													return
+												case 'send':
+													event.preventDefault()
+													if (noProvider) focusConnectCard()
+													else if (!attachmentsStranded) onSend()
+													return
+												default:
+													return
 											}
 										}}
 									/>
@@ -771,25 +838,36 @@ export function Composer({
 															type="button"
 															// One look whether the turn is running or waiting for a decision.
 															className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-2xs inset-shadow-white/16 transition-all duration-150 hover:bg-destructive hover:scale-105 active:inset-shadow-black/8 active:shadow-none"
-															aria-label="Stop reply"
+															aria-label={stopping ? 'Stopping reply' : 'Stop reply'}
+															aria-busy={stopping}
+															data-stopping={stopping ? 'true' : undefined}
 															disabled={draftDisabled}
 															onClick={onStop}
 														/>
 													}
 												>
-													<SquareIcon className="size-3 fill-current" />
+													{stopping ? (
+														<LoaderCircleIcon
+															className="composer-send-spinner size-3.5"
+															aria-hidden="true"
+														/>
+													) : (
+														<SquareIcon className="size-3 fill-current" />
+													)}
 												</TooltipTrigger>
 												<TooltipPopup>
-													{stopTooltip({
-														waitingOnPerson,
-														liveInputSupported,
-														queueDisabled:
-															(!draft.trim() && attachments.length === 0) ||
-															sending ||
-															draftDisabled ||
-															attachmentsStranded,
-														attachmentsStranded,
-													})}
+													{stopping
+														? 'Stopping this reply…'
+														: stopTooltip({
+																waitingOnPerson,
+																liveInputSupported,
+																queueDisabled:
+																	(!draft.trim() && attachments.length === 0) ||
+																	sending ||
+																	draftDisabled ||
+																	attachmentsStranded,
+																attachmentsStranded,
+															})}
 												</TooltipPopup>
 											</Tooltip>
 										)}

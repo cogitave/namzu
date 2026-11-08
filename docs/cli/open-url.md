@@ -19,7 +19,7 @@ refused before anything starts.
 ## Where it is available
 
 The interactive terminal and `namzu exec` have it: both run in front of you.
-`exec --json`, `drain`, ACP, a resident worker and a scheduled run do not, and
+`exec --json`, `drain`, ACP and a scheduled run do not, and
 no sub-agent does (`AgentSessionOptions.openUrl`).
 
 ## Review

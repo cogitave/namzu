@@ -779,7 +779,10 @@ export class ACPServer {
 		signal.throwIfAborted()
 		// The latch, read from the SESSION. Checked here rather than in the
 		// gateway so no gateway can forget it.
-		if (session.approveAll) return { kind: 'approve_all' }
+		// A call marked `alwaysAsk` exists to put a question to a person, so the
+		// latch does not answer a request that holds one.
+		const mustAsk = request.toolCalls.some((call) => call.alwaysAsk === true)
+		if (session.approveAll && !mustAsk) return { kind: 'approve_all' }
 
 		const answer = await this.request<AcpRequestPermissionResult>(
 			ACP_CLIENT_REQUESTS.REQUEST_PERMISSION,
@@ -797,6 +800,9 @@ export class ACPServer {
 			case 'approve':
 				return { kind: 'approve' }
 			case 'approve_all':
+				// To a request that must be asked, an approve_all is one yes: the
+				// latch stays as it was, and the kernel is told a plain approve.
+				if (mustAsk) return { kind: 'approve' }
 				session.approveAll = true
 				return { kind: 'approve_all' }
 			case 'reject': {

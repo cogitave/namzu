@@ -210,8 +210,8 @@ is set, which the CLI sets. SDK tests check
 stage composition, token estimates, freshness and retained operator intent;
 the CLI Session test checks actual OpenAI and Anthropic request bodies with
 network transport replaced by a recording fixture.
-Resident continuation, wake evidence and learned guidance use the same
-request-only channel; fixed resident doctrine and the host output contract
+Continuation state, new evidence and learned guidance use the same
+request-only channel; fixed doctrine and the host output contract
 remain system guidance.
 
 ## Derived work context
@@ -310,7 +310,7 @@ mid-session change would be. The preamble says so, so the model does not read a
 replayed observation as a live one.
 
 None of this duplicates conversation retrieval. `search_conversation` and
-`read_conversation`, and the resident [retained tool
+`read_conversation`, and the [retained tool
 evidence](retained-tool-evidence.md) subsystem, are tools the model invokes to
 reach content that compaction or a restart has taken out of the request. This
 projection invokes nothing and reaches nothing: every entry points at a call

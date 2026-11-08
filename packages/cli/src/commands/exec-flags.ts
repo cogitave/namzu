@@ -8,8 +8,8 @@
  * prompt, so `--cwd /elsewhere "fix the test"` sent the model a prompt
  * beginning `--cwd /elsewhere` and worked in this directory anyway.
  *
- * One parser, so the two output modes cannot drift again. `namzu resident`
- * reads the same flags for the turns it starts.
+ * One parser, so the two output modes cannot drift again. The parser
+ * is shared by every command that starts a turn.
  *
  * What the modes still differ on is how a bad argument is REPORTED, and that is
  * deliberate: the default mode answers a shell, so it exits non-zero; `--json`

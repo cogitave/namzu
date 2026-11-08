@@ -68,8 +68,8 @@ Preservation cannot replace the separate requirement for attributable improvemen
 `HarnessReview.protection` reports each round's status plus `missingTasks`,
 `unprovenTasks` and `regressedTasks`. A round that has not run has no check.
 
-Generic reviews may omit this plan. [Resident learning](resident-learning-cycle.md)
-and direct resident skill promotion **require** it, snapshot it, and retain its
+Generic reviews may omit this plan. [The learning cycle](learning-cycle.md)
+and direct skill promotion **require** it, snapshot it, and retain its
 identity with the activation evidence. No extra model calls occur in the reviewer.
 This strict finite-sample gate is not a statistical non-inferiority test: it can
 withhold a useful candidate because of noise, and cannot rule out untested harms.

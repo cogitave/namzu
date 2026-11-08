@@ -1498,6 +1498,7 @@ export {
 	isReviewExempt,
 	isReviewMode,
 	modeReviewsAllowedCalls,
+	mustAskPerson,
 } from './runtime/query/review-policy.js'
 // The model that decides, in the `classify` review mode, what a person would
 // otherwise be asked. See `runtime/query/auto-review/`.
@@ -1529,8 +1530,6 @@ export {
 	PromptContributionRegistry,
 	SKILLS_CONTRIBUTION_ID,
 	codingAgentDoctrineContribution,
-	createResidentStepContributions,
-	createResidentStepContext,
 	skillsContribution,
 } from './prompt/index.js'
 
@@ -1694,23 +1693,13 @@ export {
 	diffRequestContext,
 } from './runtime/query/request-context.js'
 
-export {
-	DiskResidentStore,
-	ResidentConflictError,
-} from './manager/resident/store.js'
-export { runResident, stepResident } from './manager/resident/loop.js'
-export { DiskResidentAgenda } from './manager/resident/agenda.js'
-export { inspectResidentConsumption } from './manager/resident/consumption.js'
-export { ResidentHost } from './manager/resident/host.js'
-
-export { createResidentSelector } from './manager/resident/initiative.js'
-export { validateResidentProposal } from './manager/resident/proposal.js'
-
-export { deliverResidentMessage } from './manager/resident/outbox.js'
-export { createResidentDeliveryWindow } from './manager/resident/delivery-window.js'
-
 export { hashLearningSkill, projectLearning } from './learning/skill.js'
 export { runLearningCycle } from './learning/cycle.js'
+export {
+	DiskLearningGuidance,
+	LearningGuidanceConflictError,
+	earlierGuidanceDirectory,
+} from './learning/guidance.js'
 export {
 	LEARNING_FLOOR_COMPONENTS,
 	LEARNING_SURFACE_KINDS,
@@ -1744,23 +1733,12 @@ export {
 	classifyEvidenceSource,
 	EVIDENCE_RECORD_GUIDANCE,
 } from './store/evidence/source-kind.js'
-export { createResidentToolEvidenceSource } from './manager/resident/tool-evidence.js'
-
-export { createResidentEvidenceRecallStep } from './manager/resident/evidence-recall.js'
 
 export {
 	SqliteLearningStore,
 	runStoredLearningCycle,
 	runStoredLearningFromObservations,
 } from './learning/store.js'
-export {
-	SqliteResidentLearningStore,
-	hashResidentSkill,
-	projectResidentLearning,
-	runResidentLearningCycle,
-	runStoredResidentLearningCycle,
-	runStoredResidentLearningFromObservations,
-} from './learning/deprecated.js'
 
 // ─── sessions, turns and the session log ─────────────────────────────────
 //
