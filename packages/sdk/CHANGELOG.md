@@ -1,5 +1,60 @@
 # Changelog
 
+## 62.0.0
+
+### Major Changes
+
+- ab159f6: A call the guard refuses with nobody to ask no longer costs the turn the other calls in its batch, and the temporary directory is no longer a refusal.
+
+  What breaks: the operating system's temporary directory (`os.tmpdir()`) is now a root of every turn, so a path there is no longer an `outsidePaths` escalation. That is a changed default; a host that relied on the question being asked sets `NAMZU_GUARD_TEMP_DIR=1` to keep it. Nothing wider is exempt: `/`, the home directory and the directories above the working directory stay guarded.
+
+  What changes with it: with no prompt to ask, `createReviewHandler` now decides each call of a batch on its own. The calls that pass run and each refused call gets its own reason, returned as a `modify_tools` decision whose new optional `policyRefusals` field (call id to text) carries the reasons; before this, one stray path refused the whole batch with "Nothing in this batch ran". The `*_UNATTENDED_REFUSAL` texts now say the call did not run and the rest of the batch is unaffected, and the outside-roots and catastrophic-removal refusals name the blocked path and the `--add-dir` directory that would allow it, or the reason the removal check found; a blocked `bash` command says why it matched. A handler written for the old shape needs no change. A host that switches over `modify_tools` and treats every `deny` as a person's No should read `policyRefusals` to tell the two apart.
+
+  Also: a shell command that only prints a file (`cat`, `nl`, `tac`, `less`, `more`, `bat`, `rev`, `sed -n` with a print range) and writes nothing on the same line counts as a read for `edit`'s freshness check, and `edit` on a file the session never read now hands back a small file's contents with the refusal and credits that read, so the repeat is one call.
+
+- ab159f6: A step that thinks too long before acting is now cut short, and a run that keeps thinking without changing anything is nudged. Both are on by default.
+
+  What changes for you: a model call that streams more than 24,000 tokens of reasoning before it makes a call is stopped, at medium, high, xhigh and max effort, and the model is told to act; the next step requires a tool call and runs at low effort where the model offers it. A reply that holds only reasoning is asked for once more, and a turn that still produces nothing now ends with a plain error instead of ending silently. After 12 steps in a row that changed nothing (a failed, read-only or task-list call changes nothing) the model is nudged, and 5 steps later the next step is an action step. The cap is a changed default, hence major. To keep the old behaviour set `reasoning: { maxTokens: 0, stall: false }` on the turn; the CLI takes `limits.maxReasoningTokens: 0`, and the CLI's default is the changed one too, hence major there as well. New: `TurnConfig.reasoning`, the `progress-nudge` runtime-context message kind (a host that switches over the kinds exhaustively adds a case) and `StepStopped` for a provider wrapper that must tell a deliberate step stop from a caller's Stop.
+
+- 27b4fb2: Remove the resident feature, which was deprecated, and the `Resident`-prefixed learning aliases.
+
+  Removed exports. Nothing replaces the first group; use `namzu schedule` for recurring work, `/goal` for work across turns and background agents for parallel work:
+
+  - the resident manager: `DiskResidentStore`, `ResidentConflictError`, `runResident`, `stepResident`, `DiskResidentAgenda`, `ResidentHost`, `inspectResidentConsumption`, `createResidentSelector`, `validateResidentProposal`, `deliverResidentMessage`, `createResidentDeliveryWindow`, and every `Resident<X>` type that described them (`ResidentState`, `ResidentStore`, `ResidentAgendaState`, `ResidentAgendaStore`, `ResidentPursuit`, `ResidentHostOptions`, `ResidentHostResult`, `ResidentHostRunOptions`, `ResidentStep`, `ResidentStepResult`, `ResidentLoopOptions`, `ResidentProposal`, `ResidentOutbox*`, `ResidentDelivery*`, `ResidentMessage*`, `ResidentConsumption*`, `ResidentActivity*`, `ResidentArchive*`, `ResidentHistory*`, `ResidentSelect*`, and the rest of that family);
+  - the resident step prompt and tools: `createResidentStepContributions`, `createResidentStepContext`, `ResidentStepPromptOptions`, `ResidentStepContextOptions`, `ResidentStepContextBundle`, `buildResidentHistoryTools`, `buildResidentToolEvidenceTools`, `createResidentToolEvidenceSource`, `createResidentEvidenceRecallStep` and the `ResidentToolEvidence*` and `ResidentEvidenceRecallOptions` types;
+  - `SessionPaths.residentDir`.
+
+  Removed aliases. The `Resident`-prefixed learning names were deprecated aliases; use the names without the prefix: `SqliteLearningStore` (was `SqliteResidentLearningStore`), `runLearningCycle`, `runStoredLearningCycle`, `runStoredLearningFromObservations`, `hashLearningSkill`, `projectLearning`, and the matching `Learning<X>` types (`ResidentLearningEvidence` is `LearningEvidence`, `ResidentSkillCandidate` is `LearningSkillCandidate`, `ResidentLearnedSkill` is `LearnedSkill`, `ResidentProfileUpdate` is `LearningProfileUpdate`, `ResidentSkillEvaluation` is `LearningSkillEvaluation`, and so on).
+
+  Changed. `LearningCycleOptions.agenda` is now `guidance` and takes the new `DiskLearningGuidance` instead of a resident agenda; `LearningCycleResult.agendaRevision` is now `guidanceRevision`. `DiskLearningGuidance`, `LearningGuidanceConflictError` and `earlierGuidanceDirectory` are new exports.
+
+  Learning data carries over. Guidance and journals an earlier version kept under `residents/<name>/` are read the first time they are used (`earlierGuidanceDirectory` points at them): the files are copied, nothing is deleted from the old location, and a journal that names the revision `agendaRevision` is still read.
+
+  Unchanged on purpose. The wire values `'resident'` (session `Origin.protocol`, peer session kind) and `'resident-step'` (turn origin kind) still parse, so a log or peer record an earlier version wrote can be read; nothing writes them any more.
+
+### Minor Changes
+
+- 1d9c8c3: The ACP bridge's `approve_all` latch no longer answers a permission request that holds a call marked to always ask a person. `AcpPermissionRequest` calls take an optional `alwaysAsk`; a request with a marked call is sent to the client even when the latch is set, and an `approve_all` answer to it approves that request once and leaves the latch as it was. A call without the field is an ordinary call, so a host that sends none behaves as before. To get the new floor, set the mark from `mustAskPerson(call)`, now exported with the `MustAskCall` type. A host that relied on the latch silencing every ask, including a sandbox escape, a protected path or a rule's ask it forwarded, now sees those asks again once it sets the mark; one that does not set it keeps the old latch.
+- ab159f6: A turn that changed files and ends without running anything to check them is now asked once to check first, and the task list is optional.
+
+  What changes for you in the CLI: when a model changes files (`edit`, `write`, `apply_patch`, `notebook_edit`) and tries to end the turn with no test, lint, format check, typecheck or build run after its last change, it gets one reminder asking it to rerun its reproduction, run the project's tests and lint, confirm the diff holds only what was asked, and name any throwaway file it made. This is a changed default in the interactive session and in `namzu exec`. To keep the old behaviour pass `--no-done-gate` or set `limits.doneGate: false`. The working doctrine now orders the work as reproduce, change, rerun, test and report, and says a task list is optional; the task-list reminder speaks after 25 model turns without one instead of 10.
+
+  In the SDK: `TurnConfig.completionAudit` (off when absent, so an embedding host sees no change) and the same field on agent configs.
+
+- ab159f6: A run that stalls is pushed into acting without failing the turn on a model that refuses a forced tool choice.
+
+  `LLMProvider` gains an optional `acceptsForcedToolChoiceFor(model, thinking)`. The kernel asks it before it requires a tool call on an action step, and when the answer is `false` it keeps the step at low effort and asks the model in words instead of sending `toolChoice: 'required'`. A provider that does not declare it is treated as taking the choice, so every existing driver and custom provider behaves as before. The Anthropic provider declares it from the same rule it already rejects by, so it is `false` for Opus 5.5, Fable 5.1, Mythos 5.1 and any request that carries manual extended thinking; before this, a stalled run on those models failed the turn with `forced_tool_choice_unsupported`.
+
+  Additive, hence minor: nothing is removed or changed for a caller. A wrapper that rebuilds a provider and wants forced steps to keep working on these models forwards the new member, as the SDK's own retry, idle-timeout, fallback and window-marker wrappers now do.
+
+### Patch Changes
+
+- ab159f6: The delegation doctrine no longer names the task-list tools, and its tidy-up advice no longer risks a deleted deliverable.
+
+  `CODING_AGENT_DELEGATION_DOCTRINE` says a task list is optional and how to keep one without naming `task_create` or `task_update`, so a host that offers neither tool does not send the model to call one it lacks. The working doctrine's closing advice asks the model to say where any throwaway file it made is, rather than to remove it: a model told to clean up once deleted the file it had been asked to produce.
+
+- 1d9c8c3: A remembered `approve-all` no longer approves a batch that holds a call a rule or a hook asked a person about (`authorization.askRule`, `authorization.explicitReview`, or a hook permission of `ask`); such a batch goes to the prompt, and neither a plain yes nor an approve-all to it sets the latch. Before, the latch answered those asks without a person seeing them. Nothing to change in a host: ordinary calls are still answered by the latch.
+
 ## 61.4.0
 
 ### Minor Changes
