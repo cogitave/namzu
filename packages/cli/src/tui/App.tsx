@@ -6349,22 +6349,6 @@ function AppBody({
 							signal: admissionSignal,
 							announce,
 						})
-						// A model name the provider does not list would only fail on the
-						// first message, so say so now. Never blocks the launch.
-						const askedModel = launch.model
-						const listed = probe.detected.find((item) => item.entry.id === askedFor)
-						if (askedModel && listed) {
-							void describeProviderModels(listed.entry.id, listed, admissionSignal)
-								.then((listing) => {
-									if (listing.kind === 'ok' && !listing.models.some((m) => m.id === askedModel)) {
-										pushMessage(
-											'system',
-											`${productName(listed.entry.id) ?? 'The provider'} has no model called ${askedModel}. Replies will fail until you pick another with /model.`,
-										)
-									}
-								})
-								.catch(() => undefined)
-						}
 					} catch (error) {
 						if (admissionSignal.aborted) return
 						toPicker(
