@@ -12,7 +12,7 @@ import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/pro
 import type { ChatMessage } from '../shared/protocol.js'
 import { type ActivityActions, ActivityActionsContext } from './activity-actions.js'
 import { AttachmentList } from './attachment-list.js'
-import { providerWaitText } from './friendly-errors.js'
+import { providerWaitAnnouncement, providerWaitText } from './friendly-errors.js'
 import { ChevronRightIcon } from './icons.js'
 import { Message, MessageContent, MessageFooter, timeDescription, timeRoleOf } from './message.js'
 import { PalMessageReceipts } from './pal-message-receipts.js'
@@ -570,7 +570,7 @@ function LiveStatus({
 			<output className="working working-wait" aria-live="polite" data-transcript-phase="working">
 				{/* The count below changes every second; what is announced does not. */}
 				<span className="transcript-visually-hidden">
-					Waiting for {provider} to accept more requests. Retrying soon.
+					{providerWaitAnnouncement(wait, provider)}
 				</span>
 				<span className="working-label" aria-hidden="true">
 					{providerWaitText(wait, now, provider)}

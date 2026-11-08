@@ -3,6 +3,8 @@ import {
 	describeBlockedRetry,
 	describeFailure,
 	providerName,
+	providerWaitAnnouncement,
+	providerWaitText,
 	sanitizeDetails,
 	unknownUsageDetail,
 } from './friendly-errors.js'
@@ -449,5 +451,35 @@ describe('Zen declining a free model that carried no key', () => {
 				'openai (HTTP 403) — the provider rejected the request credentials: free tier not available',
 			).kind,
 		).toBe('rejected-key')
+	})
+})
+
+describe('the provider wait line', () => {
+	const wait = { at: 1000, delayMs: 8000, throttled: true, attempt: 2, maxRetries: 3 }
+
+	it('says which retry is next, beside the countdown', () => {
+		expect(providerWaitText(wait, 1000, 'OpenAI')).toBe(
+			'Waiting for OpenAI to accept more requests… retrying in 8s · retry 2 of 3',
+		)
+		expect(providerWaitText({ ...wait, throttled: false }, 9000, 'OpenAI')).toBe(
+			'Couldn’t get an answer from OpenAI… retrying now · retry 2 of 3',
+		)
+	})
+
+	it('leaves the count out when the wait does not carry one', () => {
+		const { attempt: _a, maxRetries: _m, ...bare } = wait
+		expect(providerWaitText(bare, 1000, 'OpenAI')).toBe(
+			'Waiting for OpenAI to accept more requests… retrying in 8s',
+		)
+		expect(providerWaitText({ ...wait, maxRetries: 0 }, 1000, 'OpenAI')).not.toContain('retry 2')
+	})
+
+	it('announces text that does not change with the countdown', () => {
+		const said = providerWaitAnnouncement(wait, 'OpenAI')
+		expect(said).toBe('Waiting for OpenAI to accept more requests. Retrying soon (retry 2 of 3).')
+		expect(said).not.toMatch(/\d+s/)
+		expect(providerWaitAnnouncement({ ...wait, throttled: false }, 'OpenAI')).toBe(
+			'Couldn’t get an answer from OpenAI. Retrying soon (retry 2 of 3).',
+		)
 	})
 })
