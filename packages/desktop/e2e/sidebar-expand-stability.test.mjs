@@ -34,7 +34,7 @@ async function dumpIdle(w, file) {
 		pick("project heading", ".sidebar-project-heading");
 		pick("project more", ".sidebar-project-more");
 		pick("recents title", ".sidebar-recents .sidebar-section-title");
-		pick("recent row", ".sidebar-recent-list li");
+		pick("recent row", ".sidebar-recent-list li[data-thread-item]");
 		pick("archive toggle", ".sidebar-archive-toggle");
 		pick("pals create", ".sidebar-pal-create");
 		return out;

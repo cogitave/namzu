@@ -40,15 +40,26 @@ it('numbers every change so a late answer can be told from a newer one', () => {
 	expect(unread.sequence).toBe(3)
 })
 
-it('refuses an id that would make the saved file unreadable, and a flood of them', () => {
+it('refuses an id that would make the saved file unreadable', () => {
 	const unread = new ConversationUnread([], 2)
 	expect(() => unread.set('', true)).toThrow('Invalid conversation')
 	expect(() => unread.set('a\u0000b', true)).toThrow('Invalid conversation')
 	expect(() => unread.set('x'.repeat(401), true)).toThrow('Invalid conversation')
-	unread.set('a', true)
-	unread.set('b', true)
-	expect(() => unread.set('c', true)).toThrow('Too many')
 	expect(new ConversationUnread(['a', '', 'b', 'c'], 2).ids()).toEqual(['a', 'b'])
+})
+
+it('drops the oldest marker instead of failing when the set is full', () => {
+	const unread = new ConversationUnread([], 2)
+	expect(unread.set('a', true)).toBe(true)
+	expect(unread.set('b', true)).toBe(true)
+	expect(() => unread.set('c', true)).not.toThrow()
+	expect(unread.ids()).toEqual(['b', 'c'])
+	expect(unread.sequence).toBe(3)
+	const full = new ConversationUnread(Array.from({ length: 1024 }, (_, i) => `id${i}`))
+	expect(full.turnEnded('late', none)).toBe(true)
+	expect(full.ids()).toHaveLength(1024)
+	expect(full.has('id0')).toBe(false)
+	expect(full.has('late')).toBe(true)
 })
 
 it('forgets conversations that are gone', () => {

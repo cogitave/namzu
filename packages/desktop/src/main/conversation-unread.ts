@@ -4,7 +4,7 @@
  * Main is the only owner: every window shows what this holds, so two windows can never disagree
  * about a marker or each clear it. A turn that ends while some window is showing that conversation
  * leaves no marker; one that ends elsewhere sets it, and showing the conversation clears it once.
- * `sequence` counts changes, so a window can tell an answer that arrived late from a newer event.
+ * At the limit the oldest marker is dropped. `sequence` counts changes, so a window can tell an answer that arrived late from a newer event.
  */
 export class ConversationUnread {
 	private readonly held = new Set<string>()
@@ -34,7 +34,12 @@ export class ConversationUnread {
 		if (!valid(id)) throw new Error('Invalid conversation.')
 		if (unread) {
 			if (this.held.has(id)) return false
-			if (this.held.size >= this.limit) throw new Error('Too many conversations are marked unread.')
+			// A full set drops its oldest marker rather than refuse: a turn ending is not the caller's
+			// to fail, and the oldest unread conversation is the one least likely to be missed.
+			if (this.held.size >= this.limit) {
+				const oldest = this.held.values().next().value
+				if (oldest !== undefined) this.held.delete(oldest)
+			}
 			this.held.add(id)
 		} else if (!this.held.delete(id)) return false
 		this.counter++

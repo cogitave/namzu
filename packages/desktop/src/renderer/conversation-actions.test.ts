@@ -78,6 +78,8 @@ describe('the actions matrix', () => {
 			icon: 'mark-read',
 		})
 		expect(ids(input())).not.toContain('mark-unread')
+		expect(ids(input({ can: withMarkers, hasReply: false }))).not.toContain('mark-unread')
+		expect(ids(input({ can: withMarkers, hasReply: false, unread: true }))).toContain('mark-unread')
 		expect(ids(input({ can: withMarkers, isPal: true }))).not.toContain('mark-unread')
 	})
 	it('hides rename, fork and Markdown for the Codex and Claude Code engines', () => {

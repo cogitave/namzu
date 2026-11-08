@@ -118,7 +118,8 @@ export function conversationActionGroups(
 				label: input.view.pinned ? 'Unpin' : 'Pin',
 				icon: input.view.pinned ? 'unpin' : 'pin',
 			})
-		if (input.can.unread)
+		// Nothing to come back to before the first reply; a marker already set can always be cleared.
+		if (input.can.unread && (input.unread || input.hasReply))
 			first.push({
 				id: 'mark-unread',
 				label: input.unread ? 'Mark as read' : 'Mark as unread',

@@ -123,15 +123,23 @@ it('keeps the marker across a restart', async () => {
 	expect(after.owner.conversationUnread().ids).toEqual([a.id])
 })
 
-it('forgets the marker of a conversation that was archived, and saves that', async () => {
+it('forgets the marker of a conversation that was archived, and saves and announces that', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-desktop-unread-'))
 	directories.push(root)
 	const { owner, unreadEvents } = harness(root)
 	const project = await owner.openProject(process.cwd())
 	const a = await owner.newConversation(project.id)
+	const b = await owner.newConversation(project.id)
 	owner.setConversationUnread(a.id, true)
-	expect(readUnreadFile(root)).toEqual([a.id])
-	owner.setConversationUnread(a.id, false)
+	owner.setConversationUnread(b.id, true)
+	expect(readUnreadFile(root).sort()).toEqual([a.id, b.id].sort())
+	await owner.removeConversation(a.id)
+	expect(owner.conversationUnread().ids).toEqual([b.id])
+	expect(readUnreadFile(root)).toEqual([b.id])
+	expect(unreadEvents().at(-1)).toEqual({ kind: 'unread', ids: [b.id], sequence: 3 })
+	// Removing the whole project forgets the rest.
+	await owner.removeProject(project.id)
+	expect(owner.conversationUnread().ids).toEqual([])
 	expect(readUnreadFile(root)).toEqual([])
-	expect(unreadEvents()).toHaveLength(2)
+	expect(unreadEvents().at(-1)).toEqual({ kind: 'unread', ids: [], sequence: 4 })
 })
