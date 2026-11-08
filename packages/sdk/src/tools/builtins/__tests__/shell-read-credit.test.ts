@@ -14,7 +14,18 @@ describe('which files a shell line shows', () => {
 	it.each([
 		['cat src/a.ts', ['src/a.ts']],
 		['sed -n 1,40p src/a.ts', ['src/a.ts']],
-		['head src/a.ts && tail src/b.ts', ['src/a.ts', 'src/b.ts']],
+		['cat src/a.ts && cat src/b.ts', ['src/a.ts', 'src/b.ts']],
+		['head src/a.ts', []],
+		['tail -n 3 src/a.ts', []],
+		['cat f.txt && echo x >> f.txt', []],
+		['cat f.txt > g.txt', []],
+		['cat f.txt | tee f.txt', []],
+		['cat f.txt; python rewrite.py f.txt', []],
+		['sed s/a/b/ src/a.ts', []],
+		['sed -n w/out src/a.ts', []],
+		['awk 1 src/a.ts', []],
+		['cat src/a.ts 2>&1', ['src/a.ts']],
+		['cat src/a.ts && echo done', ['src/a.ts']],
 		['less src/a.ts', ['src/a.ts']],
 		['grep foo src/a.ts', []],
 		['cat "$FILE"', []],
@@ -70,11 +81,11 @@ describe('a shell read counts as a read', () => {
 		expect(unread.success).toBe(false)
 	})
 
-	it('credits `head -n 20 file` although the flag value is read as an operand', async () => {
+	it('earns nothing for a line that also rewrites the file it prints', async () => {
 		await writeFile(join(dir, 'a.txt'), 'one\n')
 		const tracker = createFileReadTracker()
-		await creditShellReads('head -n 20 a.txt', contextOf(tracker), dir)
-		expect(tracker.hasRead(join(dir, 'a.txt'))).toBe(true)
+		await creditShellReads('cat a.txt && echo x >> a.txt', contextOf(tracker), dir)
+		expect(tracker.hasRead(join(dir, 'a.txt'))).toBe(false)
 	})
 
 	it('earns nothing when the command failed or the path is unreadable', async () => {

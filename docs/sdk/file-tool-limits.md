@@ -84,10 +84,13 @@ the turn's `fileReadTracker`; a host that supplies none is not refused, because 
 read counts as a read here (the ledger records the whole body); an edit after a partial view is not refused.
 
 A shell command that prints a file counts as a read too. After a successful `bash` call whose line shows a file
-with `cat`, `head`, `tail`, `sed` (without `-i`), `nl`, `tac`, `less`, `more`, `bat`, `awk` or `rev`, the file is
+with `cat`, `nl`, `tac`, `less`, `more`, `bat`, `rev` or `sed -n` with a print range (`1,40p`), the file is
 put on the ledger with its whole current body, exactly as a windowed `read` does. Only literal operands qualify: a
 path a variable or substitution stands for, a glob, a `~` path and a path named after a `cd` in the same line earn
-nothing. Sandboxed turns are not credited, because the ledger's keys there are sandbox paths.
+nothing. A line earns nothing when it does anything else than print: a redirection that writes, a pipe into
+`tee` or any program that is not a printer, or a `sed` or `awk` script that transforms. The body is read after the
+command ended, so only a line that cannot have changed the file is trusted to have shown it. `head` and `tail`
+show a window, not the file, and earn nothing. Sandboxed turns are not credited, because the ledger's keys there are sandbox paths.
 
 A file that changed since the read is compared by content fingerprint, not by modification time, so a touch
 that leaves the bytes alone is not drift. When the content did change, `edit` and `write` are both refused:

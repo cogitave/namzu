@@ -273,6 +273,37 @@ describe('bypass', () => {
 	})
 })
 
+describe('an unattended batch with one refused call', () => {
+	it('puts each call to the classifier once and runs the others', async () => {
+		const { classifier, seen } = scripted()
+		const ordinary = bash('npm run build')
+		const needsPerson = bash('npm test', { requiresApproval: true })
+		const decision = await createReviewHandler({ mode: 'classify', classifier, registry })(
+			review(ordinary, needsPerson),
+		)
+		expect(decision).toEqual({
+			action: 'modify_tools',
+			modifications: [
+				{ toolCallId: ordinary.id, action: 'approve' },
+				{ toolCallId: needsPerson.id, action: 'deny' },
+			],
+			policyRefusals: { [needsPerson.id]: REQUIRES_APPROVAL_UNATTENDED_REFUSAL },
+		})
+		expect(seen.map((s) => s.call.id)).toEqual([ordinary.id])
+	})
+
+	it('refuses the whole batch when every call is refused', async () => {
+		const a = bash('npm test', { requiresApproval: true })
+		const b = bash('make', { requiresApproval: true })
+		const decision = await createReviewHandler({ mode: 'bypass' })(review(a, b))
+		expect(decision.action).toBe('modify_tools')
+		expect(Object.keys((decision as { policyRefusals: object }).policyRefusals)).toEqual([
+			a.id,
+			b.id,
+		])
+	})
+})
+
 describe('classify routing', () => {
 	const decide = (
 		extra: Partial<Parameters<typeof createReviewHandler>[0]> = {},

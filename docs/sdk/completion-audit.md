@@ -17,7 +17,7 @@ A model that edits code and then answers can skip every check. The completion au
 ## The rule
 
 - A change is a successful `edit`, `write`, `apply_patch` or `notebook_edit` call.
-- A check is a successful `bash` call after the last change whose command runs a test, lint, format-check, typecheck or build target of a project runner (`pnpm test`, `cargo clippy`, `go test`, `make check` and the like) or a checker invoked directly (`vitest`, `pytest`, `tsc`, `biome`, `eslint`, `ruff` and the like). The command's exit status is not judged: the model sees it and answers for it.
+- A check is a successful `bash` call after the last change whose command runs a test, lint, format-check, typecheck or build target of a project runner (`pnpm test`, `cargo clippy`, `go test`, `make check` and the like) or a checker invoked directly (`vitest`, `pytest`, `tsc`, `biome`, `eslint`, `ruff` and the like). A call that failed does not count, whatever the cause: a check that exits non-zero, is refused or times out leaves the edit unchecked, so the one reminder still follows and the model is asked to run it again and report the result.
 - When the model ends the turn with a change and no later check, one reminder is added and the loop goes on: rerun the reproduction, run the tests and the lint or format check, review the diff, name any throwaway file made, and report what ran and what did not.
 - That is the only block a turn gets. After it the turn ends however the model answers, so the audit cannot trap a run.
 

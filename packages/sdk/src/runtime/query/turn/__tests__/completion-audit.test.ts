@@ -68,6 +68,12 @@ describe('the completion audit', () => {
 		expect(noCheck.takeBlock()).toBe(true)
 	})
 
+	it('does not count a check that failed', () => {
+		const audit = new CompletionAudit()
+		audit.observe([edit, { toolName: 'bash', input: { command: 'pnpm test' }, isError: true }])
+		expect(audit.takeBlock()).toBe(true)
+	})
+
 	it('asks to name a throwaway file, never to remove one', () => {
 		expect(COMPLETION_AUDIT_MESSAGE).toContain('name any throwaway file you made')
 		expect(COMPLETION_AUDIT_MESSAGE).not.toMatch(/\b(delete|remove|rm)\b/i)

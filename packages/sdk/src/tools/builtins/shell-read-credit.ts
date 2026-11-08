@@ -21,8 +21,6 @@ const PRINTERS: ReadonlyMap<
 	{ readonly valued: ReadonlySet<string>; readonly script?: true }
 > = new Map([
 	['cat', { valued: new Set() }],
-	['head', { valued: new Set(['-n', '-c']) }],
-	['tail', { valued: new Set(['-n', '-c']) }],
 	['nl', { valued: new Set(['-b', '-n', '-w', '-s']) }],
 	['tac', { valued: new Set(['-s']) }],
 	['less', { valued: new Set() }],
@@ -30,8 +28,22 @@ const PRINTERS: ReadonlyMap<
 	['bat', { valued: new Set(['-r', '-l', '--line-range', '--language']) }],
 	['rev', { valued: new Set() }],
 	['sed', { valued: new Set(['-e', '-f']), script: true }],
-	['awk', { valued: new Set(['-F', '-v', '-f']), script: true }],
 ])
+
+/** Commands that may share the line with a printer: they change no file. */
+const HARMLESS = new Set(['echo', 'printf', 'true', 'pwd'])
+
+/** `sed -n` scripts that only print lines of the file: `p`, `5p`, `1,40p`, `10,$p`. */
+const PRINT_RANGE = /^(?:\d+|\$)?(?:,(?:\d+|\$))?p$/
+
+/** Redirections that write: anything but input and a descriptor duplicated onto a descriptor. */
+function writes(r: { operator: string; target: { value: string } }): boolean {
+	if (r.operator === '<' || r.operator === '<<' || r.operator === '<<-' || r.operator === '<<<') {
+		return false
+	}
+	if (r.operator === '>&' || r.operator === '<&') return !/^(?:\d+|-)$/.test(r.target.value)
+	return true
+}
 
 const MAX_CREDITED_FILES = 8
 const MAX_CREDITED_BYTES = 2 * 1024 * 1024
@@ -52,6 +64,16 @@ export function shellShownFiles(line: string, sandboxed: boolean): string[] {
 		)
 	) {
 		return []
+	}
+	// A line that also writes, or runs anything but a printer, may change the file
+	// it prints: the body read afterwards would not be the body shown.
+	if (lexed.redirections.some(writes)) return []
+	for (const command of lexed.commands) {
+		if (command.redirections.some(writes)) return []
+		const name = command.words[command.assignments]
+		if (name === undefined) continue
+		if (name.expands || name.quoted || name.substitutes) return []
+		if (!PRINTERS.has(name.value) && !HARMLESS.has(name.value)) return []
 	}
 	const files: string[] = []
 	for (const command of lexed.commands) {
@@ -83,8 +105,19 @@ export function shellShownFiles(line: string, sandboxed: boolean): string[] {
 			operands.push(word.expands || word.substitutes ? '' : value)
 		}
 		if (inPlace) continue
+		if (head.value === 'sed') {
+			const script = words.slice(1).find((w) => !w.value.startsWith('-'))
+			if (
+				!words.some((w) => w.value === '-n') ||
+				script === undefined ||
+				!PRINT_RANGE.test(script.value)
+			) {
+				return []
+			}
+		}
 		// `sed` and `awk` take the script first unless it was given by an option.
-		if (printer.script && !scriptGiven) operands.shift()
+		if (scriptGiven) return []
+		if (printer.script) operands.shift()
 		for (const operand of operands) {
 			if (operand === '' || operand === '-' || operand.startsWith('~')) continue
 			files.push(operand)

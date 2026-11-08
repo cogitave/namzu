@@ -1029,9 +1029,19 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		return acceptEditsAllows(tc, sessionId)
 	}
 
+	// Decisions that refuse one call and say so. The wrapper below splits a batch on
+	// this mark, never on the wording of the refusal.
+	const perCallRefusals = new WeakSet<object>()
+	const callRefusal = (feedback: string): HITLResumeDecision => {
+		const decision: HITLResumeDecision = { action: 'reject_tools', feedback }
+		perCallRefusals.add(decision)
+		return decision
+	}
+
 	const decide = async (
 		request: Parameters<ResumeHandler>[0],
 		context?: ResumeContext,
+		classified = false,
 	): Promise<HITLResumeDecision> => {
 		if (request.type !== 'tool_review') {
 			return request.type === 'plan_approval' ? { action: 'approve_plan' } : { action: 'continue' }
@@ -1166,7 +1176,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			}
 			const live = request.toolCalls.filter((tc) => tc.authorization?.decision !== 'deny')
 			const escapes = live.filter((tc) => tc.escalation?.sandboxEscape === true).map((tc) => tc.id)
-			if (mode === 'classify') {
+			if (mode === 'classify' && !classified) {
 				const classifier = options.classifier as AutoReviewClassifier
 				const transcript = context?.transcript() ?? []
 				for (const tc of live) {
@@ -1218,7 +1228,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			if (!live.some(isBypassImmune)) return { action: 'approve_tools' }
 			if (!prompt) {
 				const refusal = immuneRefusal(live, options.unattendedSandboxEscape === 'allow')
-				if (refusal !== undefined) return { action: 'reject_tools', feedback: refusal }
+				if (refusal !== undefined) return callRefusal(refusal)
 				return {
 					action: 'approve_tools',
 					...(escapes.length > 0 ? { confirmedEscalations: escapes } : {}),
@@ -1238,22 +1248,22 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		if (escapes.length > 0) {
 			if (!prompt) {
 				if (options.unattendedSandboxEscape !== 'allow') {
-					return { action: 'reject_tools', feedback: SANDBOX_ESCAPE_UNATTENDED_REFUSAL }
+					return callRefusal(SANDBOX_ESCAPE_UNATTENDED_REFUSAL)
 				}
 				// This opt-in confirms only the sandbox escape. A different call in
 				// the batch, or another boundary on this same call, still needs a
 				// person; the early return must not approve that boundary too.
 				if (request.toolCalls.some(reachesAFloor)) {
-					return { action: 'reject_tools', feedback: floorRefusal(request.toolCalls) }
+					return callRefusal(floorRefusal(request.toolCalls))
 				}
 				if (request.toolCalls.some((tc) => (tc.escalation?.outsidePaths?.length ?? 0) > 0)) {
-					return { action: 'reject_tools', feedback: outsideRootsRefusal(request.toolCalls) }
+					return callRefusal(outsideRootsRefusal(request.toolCalls))
 				}
 				if (request.toolCalls.some((tc) => tc.requiresApproval === true)) {
-					return { action: 'reject_tools', feedback: REQUIRES_APPROVAL_UNATTENDED_REFUSAL }
+					return callRefusal(REQUIRES_APPROVAL_UNATTENDED_REFUSAL)
 				}
 				if (request.toolCalls.some((tc) => tc.escalation?.unknownProgram !== undefined)) {
-					return { action: 'reject_tools', feedback: UNKNOWN_PROGRAM_UNATTENDED_REFUSAL }
+					return callRefusal(UNKNOWN_PROGRAM_UNATTENDED_REFUSAL)
 				}
 				return { action: 'approve_tools', confirmedEscalations: escapes }
 			}
@@ -1276,7 +1286,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		// far: `auto` and a remembered "approve all" were answers given before
 		// the call existed. With nobody to ask it is refused, not approved.
 		if (request.toolCalls.some(reachesAFloor)) {
-			if (!prompt) return { action: 'reject_tools', feedback: floorRefusal(request.toolCalls) }
+			if (!prompt) return callRefusal(floorRefusal(request.toolCalls))
 			const answer = await ask()
 			if (answer.kind === 'reject') {
 				return {
@@ -1295,8 +1305,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		// given about tools, before this path was named, and neither saw it.
 		// With nobody to ask it is refused, not approved.
 		if (request.toolCalls.some((tc) => (tc.escalation?.outsidePaths?.length ?? 0) > 0)) {
-			if (!prompt)
-				return { action: 'reject_tools', feedback: outsideRootsRefusal(request.toolCalls) }
+			if (!prompt) return callRefusal(outsideRootsRefusal(request.toolCalls))
 			const answer = await ask()
 			if (answer.kind === 'reject') {
 				return {
@@ -1317,7 +1326,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		// declaration travels with the tool, and no rule, mode or remembered
 		// grant was ever an answer to IT specifically.
 		if (request.toolCalls.some((tc) => tc.requiresApproval === true)) {
-			if (!prompt) return { action: 'reject_tools', feedback: REQUIRES_APPROVAL_UNATTENDED_REFUSAL }
+			if (!prompt) return callRefusal(REQUIRES_APPROVAL_UNATTENDED_REFUSAL)
 			const answer = await ask()
 			if (answer.kind === 'reject') {
 				return {
@@ -1338,7 +1347,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		// escape — an operator who wants this can only write the program
 		// name literally.
 		if (request.toolCalls.some((tc) => tc.escalation?.unknownProgram !== undefined)) {
-			if (!prompt) return { action: 'reject_tools', feedback: UNKNOWN_PROGRAM_UNATTENDED_REFUSAL }
+			if (!prompt) return callRefusal(UNKNOWN_PROGRAM_UNATTENDED_REFUSAL)
 			const answer = await ask()
 			if (answer.kind === 'reject') {
 				return {
@@ -1412,14 +1421,17 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			prompt ||
 			request.type !== 'tool_review' ||
 			request.toolCalls.length < 2 ||
-			whole.feedback === SCREEN_CONSENT_UNATTENDED_REFUSAL ||
-			!/^Refused: (?:this call|the safety checks on this call)/.test(whole.feedback)
+			!perCallRefusals.has(whole)
 		) {
 			return whole
 		}
-		const alone = await Promise.all(
-			request.toolCalls.map((tc) => decide({ ...request, toolCalls: [tc] }, context)),
-		)
+		// The whole-batch pass has already put every call to the classifier (it
+		// refuses only after all of them were allowed), so the per-call passes do
+		// not ask it again. One at a time: no pass races another on shared state.
+		const alone: HITLResumeDecision[] = []
+		for (const tc of request.toolCalls) {
+			alone.push(await decide({ ...request, toolCalls: [tc] }, context, true))
+		}
 		const modifications: ToolModification[] = []
 		const policyRefusals: Record<string, string> = {}
 		const confirmed: string[] = []
