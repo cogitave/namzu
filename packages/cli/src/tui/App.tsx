@@ -474,6 +474,7 @@ import {
 	describeLoginStart,
 	describeProviderLogout,
 } from './login-prompt.js'
+import { type UsedMemory, memoryUsedRow, mergeUsedMemories } from './memory-used-row.js'
 import {
 	AUTO_ALREADY_ON,
 	AUTO_MODEL_LABEL,
@@ -1184,6 +1185,8 @@ type StreamState = {
 	releaseTimer?: ReturnType<typeof setTimeout>
 	/** A row already told the person the model declined, so the settled stop line need not. */
 	refusalRowShown?: boolean
+	/** The one `Used N memories` row of this run, so a later recall adds to it. */
+	memoryRow?: { readonly id: string; readonly memories: readonly UsedMemory[] }
 	/**
 	 * A refusal that handed the message to another model. The row saying that
 	 * model answered, and the switch to it, wait until it has: a fallback that
@@ -1297,6 +1300,7 @@ export function projectConversation(
 	const out: TranscriptMessage[] = []
 	for (const message of messages) {
 		out.push(...writer.enter(message))
+		if (message.role === 'assistant') out.push(...writer.memoryRows(message))
 		const rows = projectMessage(message)
 		out.push(...rows)
 		if (message.role === 'assistant') {
@@ -9621,6 +9625,35 @@ function AppBody({
 						describeTranscriptWrites(event.state),
 					)
 					break
+				case 'memory-recalled': {
+					const held = st.memoryRow?.memories ?? []
+					const memories = mergeUsedMemories(held, event.memories)
+					const row = memoryUsedRow(memories)
+					if (!row || memories.length === held.length) break
+					if (st.memoryRow) {
+						const rowId = st.memoryRow.id
+						setMessages((prev) =>
+							prev.map((m) =>
+								m.id === rowId ? { ...m, content: row.content, detail: row.detail } : m,
+							),
+						)
+						st.memoryRow = { id: rowId, memories }
+						break
+					}
+					const style = systemRowStyle('notice')
+					const rowId = pushMessage(
+						'system',
+						row.content,
+						false,
+						style.glyph,
+						row.detail,
+						style.color,
+						row.hint,
+						'summary',
+					)
+					st.memoryRow = { id: rowId, memories }
+					break
+				}
 				case 'capability-warning':
 					pushSystem(
 						'warning',

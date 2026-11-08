@@ -803,6 +803,18 @@ export type AgentEvent =
 	 * messages overflowed, `working` on recovery.
 	 */
 	| { readonly kind: 'transcript-writes'; readonly state: 'failing' | 'dropping' | 'working' }
+	/** Stored memories a recall step added to the conversation for this turn. */
+	| {
+			readonly kind: 'memory-recalled'
+			readonly turnId?: string
+			readonly memories: readonly {
+				readonly id: string
+				readonly name?: string
+				readonly title: string
+				readonly origin: 'operator' | 'model' | 'derived'
+				readonly updatedAt: number
+			}[]
+	  }
 	| {
 			readonly kind: 'capability-warning'
 			readonly capability: Extract<SessionEvent, { type: 'capability_warning' }>['capability']
@@ -8625,6 +8637,18 @@ export function toAgentEvent(
 			return { kind: 'transcript-writes', state: event.dropping ? 'dropping' : 'failing' }
 		case 'session_log_recovered':
 			return { kind: 'transcript-writes', state: 'working' }
+		case 'memory_recalled':
+			return {
+				kind: 'memory-recalled',
+				...(event.turnId ? { turnId: event.turnId } : {}),
+				memories: event.memories.map((memory) => ({
+					id: memory.id,
+					...(memory.name ? { name: memory.name } : {}),
+					title: memory.title,
+					origin: memory.origin,
+					updatedAt: memory.updatedAt,
+				})),
+			}
 		case 'capability_warning':
 			return {
 				kind: 'capability-warning',

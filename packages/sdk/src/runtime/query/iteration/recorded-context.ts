@@ -26,6 +26,7 @@ export function appendRecordedContext(
 	items: readonly RecordedContextItem[] | undefined,
 	log: Pick<Logger, 'warn'>,
 	at: Date = new Date(),
+	onAppended?: (item: RecordedContextItem) => void,
 ): Message[] {
 	const appended: Message[] = []
 	for (const item of items ?? []) {
@@ -43,6 +44,7 @@ export function appendRecordedContext(
 		const entry = createTurnContextEntry(item.key, text, at, { later: earlier.length > 0 })
 		recorder.pushMessage(entry)
 		appended.push(entry)
+		onAppended?.(item)
 	}
 	return appended
 }

@@ -69,6 +69,21 @@ describe('recalled memory recorded in the conversation', () => {
 		expect(result?.recordedContext?.[0]?.text).toContain('cerulean-cache expires after 14 hours')
 	})
 
+	it('names each recalled memory and who wrote it next to the recorded text', async () => {
+		const { store, entries } = await seeded()
+		const result = await createMemoryRecallStep({ store, record: true })(
+			context([createUserMessage(QUERY)]),
+		)
+		expect(result?.recordedContext?.[0]?.recalledMemories).toEqual([
+			{
+				id: entries[0]?.id,
+				title: 'Cache finding 0',
+				origin: 'operator',
+				updatedAt: entries[0]?.updatedAt,
+			},
+		])
+	})
+
 	it('keeps the old request-only behaviour when record is not set', async () => {
 		const { store } = await seeded()
 		const result = await createMemoryRecallStep({ store })(context([createUserMessage(QUERY)]))

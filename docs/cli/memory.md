@@ -273,6 +273,16 @@ this sense and are never listed or deleted here; `/memory show` still prints
 them with their paths. A note that begins with the word `delete` is saved with
 `/memory add delete ...`.
 
+### Seeing which memories a message used
+
+When stored memory went into a turn, a quiet row appears under the message:
+`● Used 2 memories (ctrl+o to expand)`. Ctrl+O opens it into one line per
+memory, `<title> · <who wrote it> · <age>`, and a last line,
+`/memory delete <name> removes one.`, naming the first memory. Later recalls in
+the same turn add to the same row. A resumed conversation shows the row too, as
+the event is kept in the session journal. To remove one, use `/memory delete
+<name>` or pick it in `/memory`.
+
 ### Moving the older memory in
 
 A JSON store in the stored-memory directory (`index.json` and `content/`, from

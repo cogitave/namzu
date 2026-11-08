@@ -317,6 +317,11 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 					'namzu.monitor.chars': event.text.length,
 				})
 				break
+			case 'memory_recalled':
+				log.debug('Stored memories recalled into the turn', {
+					'namzu.memory.count': event.memories.length,
+				})
+				break
 			case 'memory_consolidated':
 				log.info('Turn learnings consolidated into the memory store', {
 					'namzu.memory.id': event.memoryId,

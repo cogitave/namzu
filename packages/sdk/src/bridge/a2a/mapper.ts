@@ -280,6 +280,8 @@ const MAPPING: {
 	// What the turn wrote to its own memory store is this runtime's business;
 	// a peer sees the task's outcome, not its housekeeping.
 	memory_consolidated: null,
+	// Which stored memories went into a turn is this runtime's own business.
+	memory_recalled: null,
 	// A job's exit is housekeeping of this runtime's host; the peer sees the
 	// task's outcome.
 	background_job_exited: null,

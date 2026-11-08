@@ -737,6 +737,25 @@ type CoreSessionEvent =
 			text: string
 	  }
 	/**
+	 * A recall step put stored memories into the conversation for this turn:
+	 * the ones newly added on that step, never ones the history already
+	 * carried. Emitted after the entry was recorded, so a host can show which
+	 * memories went with a message and let the person delete them.
+	 */
+	| {
+			type: 'memory_recalled'
+			sessionId: SessionId
+			turnId?: TurnId
+			memories: Array<{
+				id: string
+				name?: string
+				type?: string
+				title: string
+				origin: 'operator' | 'model' | 'derived'
+				updatedAt: number
+			}>
+	  }
+	/**
 	 * What the turn learned was written to the host's memory store: its
 	 * decisions, discoveries and failures as one entry a later session can
 	 * search for. Emitted only when a host asked (`consolidateInto`) and

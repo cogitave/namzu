@@ -64,12 +64,12 @@ describe('every SessionEvent has a decided place on the A2A wire', () => {
 		expect(declined).toBeGreaterThan(mapped)
 	})
 
-	it('maps exactly thirteen of the sixty-seven, each as the turn of the session', () => {
+	it('maps exactly thirteen of the sixty-eight, each as the turn of the session', () => {
 		// An A2A task is one turn and its context one session. Every mapped
 		// event is one that only happens inside a turn, so every one of them
 		// names its task.
 		const entries = Object.entries(FIXTURES)
-		expect(entries).toHaveLength(67)
+		expect(entries).toHaveLength(68)
 		const mapped = entries
 			.map(([type, build]) => {
 				// The shared fixture is minimal and carries no aggregated text;

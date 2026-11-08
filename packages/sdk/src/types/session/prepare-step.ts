@@ -255,6 +255,23 @@ export interface RecordedContextItem {
 	/** Lowercase words joined by hyphens (for example `repository`). */
 	readonly key: string
 	readonly text: string
+	/**
+	 * The stored memories the text carries, when it is recalled memory. Once
+	 * the entry is recorded the loop reports them with a `memory_recalled`
+	 * event; an item that adds nothing reports nothing.
+	 */
+	readonly recalledMemories?: readonly RecalledMemory[]
+}
+
+/** One stored memory a recall step put into the conversation. */
+export interface RecalledMemory {
+	readonly id: string
+	readonly name?: string
+	readonly type?: string
+	readonly title: string
+	/** Who wrote it: the operator, the model (`save_memory`), or a turn on its own. */
+	readonly origin: 'operator' | 'model' | 'derived'
+	readonly updatedAt: number
 }
 
 /**
