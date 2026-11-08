@@ -199,7 +199,7 @@ part](https://github.com/pydantic/pydantic-ai/blob/65a8efe7b0d5bb393e26e9de1a4bd
 while its static memory guidance remains instructions. Namzu must preserve the
 same trust boundary: model-authored memory text is evidence for the next request,
 not operator policy. CLI provider-wire regressions now verify this role on
-ordinary and resident turns, paused-turn resume, and a turn after actual
+ordinary turns, paused-turn resume, and a turn after actual
 compaction. This boundary is more urgent than changing the store format.
 
 Local plugin installation and reload are still manual. Pydantic CLAI2

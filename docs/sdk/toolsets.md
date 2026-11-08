@@ -312,8 +312,7 @@ server (kind `mcp_server`, id `mcp:<server>` — `McpConnection.toolsets`,
 `integrations/mcp/servers.ts`), one `plugin:<name>` file-tool source and one
 `plugin:<name>/mcp:<server>` source per plugin server (all live entries from
 `PluginLifecycleManager.toolsets`), `computer-use`,
-`browser`, `web-search`/`web-fetch`, `session-goals`, `resident-history`,
-`resident-tool-evidence`, `conversation-sessions`, `ask-user-question`,
+`browser`, `web-search`/`web-fetch`, `session-goals`, `conversation-sessions`, `ask-user-question`,
 `extra` (host `extraTools`), a dynamic `skills` toolset (its `tools()`
 closure reads live plugin-skill counts, so an enable/disable is picked up
 the next time `ToolManager.refresh()` is asked, with nothing to register or

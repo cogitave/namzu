@@ -1,28 +1,29 @@
 ---
 type: Design
-title: Resident learning cycle
+title: Learning cycle
 description: One host-authorized experiment from recorded failure to generated guidance, paired evaluation, fresh confirmation and durable activation.
 resource: packages/sdk/src/learning/cycle.ts
-tags: [sdk, agents, learning, evaluation]
+tags: [sdk, learning, evaluation]
 status: draft
 ---
 
-# Resident learning cycle
+# Learning cycle
 
-The learning code is not resident-specific: it lives in the [learning module](learning.md), and the old `Resident`-prefixed names are deprecated aliases. This page keeps its name because the activation target is still a resident's agenda.
+The learning code lives in the [learning module](learning.md).
 
-`runLearningCycle` connects the existing [resident learning](resident-learning.md)
+`runLearningCycle` connects the [learning guidance](learning-guidance.md)
 and [harness verification](harness-verification.md) contracts. It generates one
 instructional candidate from a recorded failure, requests independent evaluation
-and fresh confirmation, and activates accepted content through the agenda's
-existing exact-revision transaction. It is an optional SDK workflow, not another
+and fresh confirmation, and activates accepted content through the guidance
+store's exact-revision transaction. It is an optional SDK workflow, not another
 provider loop or an automatically installed background learner.
 
 Optional [`purpose: 'exploration'`](exploration-policies.md) admits a policy for
 choosing experiments. The generated candidate must retain that purpose; ordinary
 task projection withholds it. The omitted purpose remains task guidance.
 
-The [RSI assessment](../../research/resident/rsi-readiness.md) explains the source
+The [RSI assessment](../../research/resident/rsi-readiness.md) (a historical study,
+written before the resident feature was removed; its scripts no longer run) explains the source
 comparison and the distinction between persisted guidance and recursive
 improvement of the improvement procedure. This API does not train model weights,
 execute generated skill code or establish a generalization result.
@@ -35,19 +36,20 @@ generator, or through Namzu's own built-in generator (the terminal runs it by it
 The cycle handles one candidate per run: there is no fan-out, composition or
 blind selection among candidates yet. The `resources` option is a per-cycle budget
 cap, not a trigger policy: it bounds what one cycle may spend and does not
-decide when a cycle runs. The [readiness assessment](../../research/resident/rsi-readiness.md#verified-status-2026-10-26)
-lists what is built, what is opt-in and the staged plan.
+decide when a cycle runs. The historical [readiness assessment](../../research/resident/rsi-readiness.md#verified-status-2026-10-26)
+lists what was built, what was opt-in and the staged plan as of its date; it predates the removal of the resident feature.
 
 ## Host responsibilities and execution
 
-`LearningCycleOptions` requires an agenda with `read` and `promoteSkill`,
+`LearningCycleOptions` requires a `guidance` store with `read` and `promoteSkill`
+(a [`DiskLearningGuidance`](learning-guidance.md)),
 a `skillName`, a bounded `failure` containing evidence and a trace, a cancellation
 signal, a resource policy, a `protection` plan and three callbacks:
 
 - `generate` receives the failure, active baseline and stage context. It returns
   a candidate with the requested name and an explicit `usageComplete` declaration.
   It can use normal `runAgent` or another host-owned execution path.
-- Optional [`explore`](resident-exploration.md) runs first, using normal tools to
+- Optional [`explore`](learning-exploration.md) runs first, using normal tools to
   collect model-selected environment experiments. It retains observed outputs
   before synthesis; `generate` receives them through `context.exploration`.
   This path requires no hand-authored correction and shares the cycle's usage,
@@ -58,7 +60,7 @@ signal, a resource policy, a `protection` plan and three callbacks:
   `usageComplete`. Existing `runExperiment` is the intended execution mechanism.
 - `record` durably appends each `LearningCycleEvent` before acknowledging.
   A host can use an owned JSONL file or the optional
-  [SQLite learning store](resident-learning-storage.md). Events are delivered
+  [SQLite learning store](learning-storage.md). Events are delivered
   in sequence even when a callback records several run receipts concurrently.
 
 The host authenticates the source of the failure and the independent evaluator;
@@ -70,11 +72,12 @@ failure; there is no automatic replay or resume of a partly executed cycle.
 An optional `parentCycleId` records declared ancestry, whose authenticity the
 host must enforce.
 
-Only an unpaused agenda without running pursuits can start. The baseline and
-agenda revision are captured before generation. Changes are checked at stage
-boundaries and activation uses the original snapshot, so a racing update cannot
-silently receive evaluation produced for a different baseline. The workflow
-does not hold the agenda locked during model calls.
+The guidance must already exist. The baseline and guidance revision are captured
+before generation. Changes are checked at stage boundaries and activation uses
+the original snapshot, so a racing update cannot silently receive evaluation
+produced for a different baseline. The workflow does not hold the guidance locked
+during model calls. A result's `guidanceRevision` is the revision an activation
+created (journals written by earlier versions call it `agendaRevision`).
 
 Normalized name, description, body and any host-declared source bindings identify a candidate through
 `hashLearningSkill`. A changed name or mismatched evaluation revision is refused.
@@ -153,11 +156,10 @@ trigger another activation or model replay. Cancellation observed before the
 commit prevents it; a successfully acknowledged commit is reported even if
 cancellation arrives afterwards.
 
-The next `ResidentHost` admission with `learning: true` can project the accepted
-guidance. The existing CLI resident execution path already enables that projection.
-`rollbackSkill` appends an explicit reversal using an earlier agenda revision;
-neither activation nor rollback rewrites the originally admitted context of an
-already running pursuit.
+A host projects the accepted guidance into later work with `projectLearning`; a
+conversation in a project starts with it. `rollbackSkill` appends an explicit
+reversal using an earlier guidance revision; neither activation nor rollback
+rewrites the context of a turn that is already running.
 
 ```ts
 import {
@@ -184,8 +186,8 @@ low effort. The later `learning-protection-study.mjs` recorded the current
 admission contract. These producers still use SDK interfaces removed since
 their runs (`ToolRegistry`, `DefaultPathBuilder` and the old query and result
 shapes); their scripted and live commands do not run in this checkout. Consult
-[the protection study](../../research/resident/learning-protection.md) for its
-retained results. A new run needs a migrated, tested producer. A live Muse run
+[the protection study](../../research/resident/learning-protection.md) (historical: it
+describes the resident-based setup that was removed) for its retained results. A new run needs a migrated, tested producer. A live Muse run
 also needs a real Zen key and fresh gateway verification: direct keyless Namzu
 requests to Muse returned HTTP 403 on 2026-09-28. A key has not been tested
 here. The old batches do not establish the new admission requirement.
@@ -199,6 +201,7 @@ This is a narrow acquired-convention experiment, not a demonstration that
 generated guidance outperforms raw memory or that the learner improves itself.
 
 The [recorded Muse/low results](../../research/resident/learning-cycle-results.md)
+(historical: produced by scripts that import removed exports and no longer run)
 include all three arms, a real CLI admission after reopening, explicit rollback,
 recorded unpriced consumption and a read-only artifact auditor. The raw-memory
 and generated-guidance arms achieved the same accuracy in that experiment.

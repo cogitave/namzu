@@ -312,8 +312,8 @@ export async function findShipmentTokens(source: SessionTextEvidenceSource) {
 }
 ```
 
-This optional SDK operation is a candidate-discovery primitive. Existing CLI
-and resident search tools retain their literal-query interfaces. Automatic
+This optional SDK operation is a candidate-discovery primitive. The CLI's
+conversation search tool retains its literal-query interface. Automatic
 selection and request-context attachment are provided separately by the
 [bounded recall step](evidence-recall.md); adding multi-term discovery alone
 does not establish reliable natural-language recall.
@@ -488,8 +488,6 @@ the same source, query and ownership checks still apply. A page can stop before
 the next record fits, or a read can fail because a required record exceeds the
 remaining allowance. Neither means that the requested text is absent. Callers
 must account for failed reads conservatively when no byte receipt is returned.
-The resident wrapper can additionally combine history, attempt resolution and
-session-source allowances through the explicit operation budget described below.
 
 One log record and one spill manifest are each limited to 4 MiB. Manifests accept at most 4,096 chunks; the encoded
 manifest limit can be reached earlier. Oversized/torn records are refused.
@@ -506,135 +504,15 @@ no automatic index-generation garbage collector.
 
 The index directory's parent must exist and be private and host-owned. The
 source can create the final index directory after checking ownership. Observed
-symlinks, non-regular files and source changes during reads are refused. As with
-resident history, this is a trusted local filesystem contract, not atomic
+symlinks, non-regular files and source changes during reads are refused. This is a trusted local filesystem contract, not atomic
 protection against a hostile process replacing ancestor directories. Hashes
 detect changed selected bytes; they do not establish that a tool's claim was
 true or that every unselected chunk is still present.
 
-## Resident and host integration
-
-`createResidentToolEvidenceSource({ history, projectId, resolveRun })` combines
-the disk/backend interface with a bounded `ResidentHistorySource`. The latter
-verifies settlement in adjacent agenda revisions before `resolveRun` receives
-a `ResidentSettledInvocation` identity. The host then validates that claim's
-execution receipt and returns its explicitly authorized `SessionEvidenceSource`.
-The wrapper checks tenant/project agreement. It admits neither current running
-claims, other pursuits nor steps beyond the captured upper revision.
-
-Each resident search page examines at most one invocation, newest settled step
-first. It carries `revision`, `claimId`, the session-level `evidence` result and
-a resident continuation cursor. History scanning has its own 32-revision/8 MiB
-bound, reported as `historyBytes`; this is in addition to the session-source
-bound.
-Missing attempt bindings mark the revision unavailable and allow traversal of
-earlier history. Reads reauthorize the settlement and attempt on every call.
-
-Returned search/read pages must agree with all four fields of the resolved
-invocation's owner: tenant, project, session and turn. A matching source object
-does not excuse a page identifying another invocation. Cancellation is checked
-again after resolution and after backend reads, including when a custom backend
-returns despite its signal. Matching identity fields alone do not authenticate
-arbitrary text supplied by trusted host code.
-
-### Optional shared resident read budget
-
-`ResidentToolEvidenceSearchOptions.maxReadBytes` and
-`ResidentToolEvidenceReadOptions.maxReadBytes` cap the combined operation rather
-than just the underlying session read. A bounded call requires the source factory's
-`resolutionReadBytes`: the host-enforced maximum encoded document bytes read by
-`resolveRun`. Zero asserts that resolution reads no documents. The declaration
-is charged in full, not presented as measured bytes. A custom resolver must
-enforce its bound; the SDK cannot inspect arbitrary callback I/O.
-
-The operation's allowance is a positive integer no greater than 8 MiB, with
-enough room for the declared resolution allowance, at least 1 MiB for the
-session reader and at least one byte for history. Invalid or insufficient allowances,
-and absent resolution declarations, are refused before history I/O. History
-receives the remainder after these reservations. Its actual returned read count
-is charged, resolution's declared allowance is charged if an invocation is
-selected, and the session reader receives the still-available budget. The
-source's own read ceiling can lower that value further.
-
-Bounded results carry `chargedBytes`, including these three stages. Existing
-`historyBytes` and session `scannedBytes` remain their measured component counts.
-When source resolution or session search throws without a valid byte receipt, the
-search charges the whole remaining allowance, marks the revision unavailable
-and returns no evidence from it. A thrown history operation or exact read returns
-no total receipt: a composing caller must conservatively charge its entire
-admitted allowance. Returned invalid costs are refused, not subtracted.
-
-This accounts encoded history, resolution documents and archive/index reads.
-It does not measure physical filesystem blocks, SQLite index/page traffic,
-metadata syscalls, parsing heap expansion or index writes. In the CLI,
-resolution reserves two 64 KiB attempt documents, whose sizes are checked before
-allocation/read; the existing Session ownership lookup is also preserved.
-An incomplete page or continuation does not prove absence. Changing an allowance
-does not change cursor scope. Calls omitting the operation budget retain their
-separate existing limits and omit `chargedBytes`.
-
-These are host-side controls. The model-facing resident tool schemas do not add
-a budget parameter. Automatic resident preparation is a separate integration.
-
-`buildResidentToolEvidenceTools(resolveSource)` mounts `search_resident_tools`
-and `read_resident_tool`. The host must validate the executing `ToolContext`
-before returning its source. Tool arguments select no filesystem path, tenant,
-project, pursuit or arbitrary Session. After mounting these tools, pass
-`toolEvidence: true` to `createResidentStepContributions`. Stable retrieval
-guidance survives compaction; it does not eagerly attach past outputs. Ordinary
-chat and delegated children acquire no access from this option implicitly.
-
-```ts
-import {
-  createSessionEvidenceSource,
-  type SessionEvidenceSourceOptions,
-} from '@namzu/sdk'
-
-export async function findRetainedReceipt(authorized: SessionEvidenceSourceOptions) {
-  const source = createSessionEvidenceSource(authorized)
-  let page = await source.search({ query: 'receipt' })
-  let incomplete = page.incomplete
-  while (page.matches.length === 0 && page.nextCursor) {
-    page = await source.search({ query: 'receipt', cursor: page.nextCursor })
-    incomplete ||= page.incomplete
-  }
-  const match = page.matches[0]
-  return match
-    ? source.read({ address: match.address, byteOffset: match.byteOffset })
-    : { incomplete }
-}
-```
+## Host integration
 
 The SDK exports the scope, source, options, result and address-related types
 used by these factories. Alternative stores implement `SessionEvidenceSource`;
-the core does not import the CLI. The [CLI binding](../cli/resident-work.md)
-adds its own attempt/Session checks. [Verification notes](../../research/resident/tool-evidence.md)
-separate deterministic execution tests from the live small-model experiment.
-
-Ordinary CLI conversations use the [conversation text view](../cli/conversation-evidence.md)
-with their own Session authorization; they do not acquire resident pursuit access.
-
-### Resident token discovery and cursor recovery
-
-Resident source searches accept either a case-sensitive literal `query` or
-1–16 `terms` for case-insensitive whole-token discovery. An optional
-`excludeSuccessfulTools` omits successful copies from exact named tools before
-selection. Terms and filters together must fit 512 UTF-8 bytes as JSON; invalid
-inputs are refused before history I/O. Ordinary query-only search retains its
-previous 256-character limit and literal semantics.
-
-Passing only `cursor` resumes its captured query and filters, including token
-searches, after reopening the same source. Explicit replacement search inputs
-must match; the per-call byte allowance is not query identity. A page with
-`nextCursor` is incomplete even when the current invocation was searched fully.
-[Automatic resident recall](resident-evidence-recall.md) uses this path without
-a second history store or broader Session access.
-
-The resident factory also advertises `supportsTermRefinement`. Supply
-`{ cursor, refineTerms }` to branch a strict subset of that cursor's captured
-token terms; omit `refineTerms` on subsequent cursor-only calls. Original scope,
-exclusions and settlement checks remain mandatory. If the resolved invocation
-source supports refinement, it continues at its authenticated position. Otherwise
-the factory searches the subset from the beginning of that selected invocation,
-charging those rereads normally. Custom resident sources without the capability
-are not sent this option by automatic recall.
+the core does not import the CLI. Ordinary CLI conversations use the
+[conversation text view](../cli/conversation-evidence.md) with their own Session
+authorization.

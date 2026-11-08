@@ -520,8 +520,7 @@ of the same turn reuse that block unchanged, including the availability note
 when the first call failed or timed out, so a tool result written to the
 archive mid-turn cannot change a block the model already has and the request
 keeps the opening of the one before it; the next turn, and a new operator input
-inside a turn, read the archive afresh. The resident hook is not held this way:
-a resident reads again on every iteration. With `record: true` the passages are
+inside a turn, read the archive afresh. With `record: true` the passages are
 recorded as entries instead (see [recorded turn context](recorded-context.md)):
 a passage whose address an earlier entry carries is not offered again, the
 entries together hold at most `sessionMaxChars` (24,000 by default) of passages,

@@ -14,7 +14,7 @@ In the interactive terminal the model has two browser tools: `browser`, which op
 
 The tools are the SDK's [browser tools](../sdk/browser-tools.md) over the [`@namzu/browser` host](../sdk/browser-host.md), which the CLI installs as a regular dependency. Nothing starts when namzu starts: the browser launches on the model's first browser call, and closes when the session ends (unless `browser.keepOpen`). When no browser engine can run here (for example `browser.headless: never` with no display), the two tools are mounted but not sent to the model, because every call would only be refused; they are sent once a profile switch finds a usable engine.
 
-`namzu exec`, `exec --json`, `drain`, `acp` and the resident step never get the browser: nobody is at a window there to sign in or to answer a review. A scheduled job gets one only through its own grant: see [Scheduled jobs](#scheduled-jobs).
+`namzu exec`, `exec --json`, `drain` and `acp` never get the browser: nobody is at a window there to sign in or to answer a review. A scheduled job gets one only through its own grant: see [Scheduled jobs](#scheduled-jobs).
 
 ## Which browser runs where
 

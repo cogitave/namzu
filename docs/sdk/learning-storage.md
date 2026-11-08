@@ -1,25 +1,25 @@
 ---
 type: Reference
-title: Durable resident learning records
+title: Durable learning records
 description: SQLite experiment authority, immutable JSON artifacts, scoped inspection and explicit host execution.
 resource: packages/sdk/src/learning/store.ts
-tags: [sdk, agents, learning, sqlite, storage]
+tags: [sdk, learning, sqlite, storage]
 status: draft
 ---
 
-# Durable resident learning records
+# Durable learning records
 
-`SqliteLearningStore` retains the [learning cycle](resident-learning-cycle.md)
+`SqliteLearningStore` retains the [learning cycle](learning-cycle.md)
 without introducing another model executor. `runStoredLearningCycle`
 supplies its durable event callback and saves the full verification and confirmation
 batches. The caller still owns generation, independent evaluation, authorization,
-execution limits and the agenda. Both APIs are experimental and opt-in.
+execution limits and the [guidance store](learning-guidance.md). Both APIs are experimental and opt-in.
 
-[Learning discovery](resident-learning-discovery.md) adds host-scored observations
+[Learning discovery](learning-discovery.md) adds host-scored observations
 and per-task attempt claims in the same database. A host can let the SDK select
 an eligible retained failure through `runStoredLearningFromObservations`.
 Both host paths require a predeclared `protection` plan under the
-[learning-cycle contract](resident-learning-cycle.md). The `started` event
+[learning-cycle contract](learning-cycle.md). The `started` event
 retains its exact selection before generation; evaluation artifacts retain the
 actual paired control trials. Reopening a historical cycle does not add controls
 or qualify its candidate under the new gate.
@@ -30,19 +30,24 @@ or qualify its candidate under the new gate.
 | --- | --- | --- |
 | Cycle identity, declared parent, ordered events, receipt totals and final result | SQLite | The summary and event commit together; list queries do not scan artifacts. |
 | Complete evaluation batches and optional host traces | Immutable JSON files, referenced by SHA-256 from SQLite | Verify size and digest before using their content. |
-| Accepted skill, its evidence and agenda revision | Existing resident agenda | This is the activation authority, even if the final experiment event is missing. |
+| Accepted skill, its evidence and guidance revision | The [guidance store](learning-guidance.md) | This is the activation authority, even if the final experiment event is missing. |
 | Provider calls and tool results | The host's session log | A learning receipt references the session and turn it measured; it does not replace that log. |
 
-The CLI uses one `learning.sqlite` per resident, under
-`<NAMZU_HOME>/projects/<slug>/residents/<agent-key>/`, and `artifacts/<sha256>.json`
-beside it for complete content. SQL ownership includes installation tenant,
-Project and resident key. A database written by an earlier version (its
+The CLI uses one `learning.sqlite` per named learning target, under
+`<NAMZU_HOME>/projects/<slug>/learning/targets/<name>/store/`, and
+`artifacts/<sha256>.json` beside it for complete content; the target's guidance
+is in `guidance/` next to `store/`. A project's own conversations keep theirs in
+`learning/`. SQL ownership includes installation tenant, Project and scope key.
+A database a target kept under `residents/<name>/` in an earlier version is
+copied into `store/` the first time the target is used, together with its
+artifacts and any unfinished-write journal file, by publishing one staged
+directory; `store/adopted.json` records it. The earlier files are only read. A database written by an earlier version (its
 `PRAGMA user_version` differs) is refused rather than migrated. A parent cycle must already exist
 in that same scope. There is no folder or JSON registry per experiment.
 
 The SQLite event journal is authoritative, rather than a disposable index. JSONL
 exports can be derived by paging `events`; they are observations, not a second
-writable authority or a replay queue. Session storage and the resident agenda
+writable authority or a replay queue. Session storage and the guidance store
 keep their existing boundaries.
 
 ## Open and inspect
@@ -123,7 +128,7 @@ or candidate file. No automatic deletion or garbage collection is performed.
 
 `running` means a start was retained; it does not prove an executor still exists.
 `activation-pending` means the request was recorded without a terminal receipt.
-The agenda and learning database are separate authorities for different facts:
+The guidance store and learning database are separate authorities for different facts:
 there is no transaction spanning both. Inspect the skill's exact evidence key
 (cycle UUID) and content hash before acting on a pending or `activation-unknown`
 cycle. The CLI preserves an acknowledged `activated` result with
@@ -131,9 +136,7 @@ cycle. The CLI preserves an acknowledged `activated` result with
 model calls or activation automatically.
 
 For a simple consistent backup, stop writers and copy the database, artifacts,
-resident agenda and referenced session evidence together. Do not copy only a live
+guidance store and referenced session evidence together. Do not copy only a live
 SQLite main file or restore an artifact directory as though it were the complete
 journal. A missing or corrupted blob produces an explicit read failure.
 
-The [source comparison and tool experiment](../../research/resident/learning-storage.md)
-records why these boundaries were chosen and the limits of the current evidence.

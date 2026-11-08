@@ -115,8 +115,6 @@ These are observation-time receipts, not atomic multi-source snapshots, durable
 truth guarantees, or verification of arbitrary summary prose. Sources may change
 after a read. If an operation needs atomic check-and-use, implement that transaction
 in its authoritative host. Streamed candidate text is not undone by later rejection.
-See [resident CLI verification](../cli/resident-work.md#configured-claim-verification)
-for a concrete adapter and command.
 
 ## Turn-owned review inference
 

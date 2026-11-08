@@ -125,7 +125,7 @@ machine whose browser cannot run drops the two browser tools as well (35 tools,
 build` runs `tsc --build`, which now writes only the type declarations (`emitDeclarationOnly`), and then
 `packages/cli/scripts/bundle.mjs` (esbuild, ESM, Node 22 target), which writes every runtime file under
 `dist/`: `bin.js` (the published `bin`, unchanged name and path), `index.js` (the package export), the
-resident runner worker, and the shared chunks in `dist/chunks/`. Every `import()` stays its own chunk,
+code-index process, and the shared chunks in `dist/chunks/`. Every `import()` stays its own chunk,
 so the lazy command list above still loads lazily; only what a launch needs is read.
 
 - `bin.js` is a few lines: it turns on the compile cache and the warning filter, then imports
@@ -140,7 +140,7 @@ so the lazy command list above still loads lazily; only what a launch needs is r
   depend on how a package manager lays out the SDK's dependencies). The SDK, the provider packages and
   the other npm dependencies are inside the bundle.
 - A source that finds its neighbours with `import.meta.url` (`version.ts`, `skills/store.ts`, the
-  scheduler's `installedBin`, `commands/acp.ts`, the resident runner's worker) still sees the place it
+  scheduler's `installedBin`, `commands/acp.ts`) still sees the place it
   had in the old layout: the build rewrites the expression to the dist root plus the old path, so
   `../package.json`, `../../skills/` and `bin.js` resolve as before. The SDK's own `VERSION` is written
   into the bundle at build time.

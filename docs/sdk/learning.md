@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Learning
-description: The learning module of the SDK, which belongs to every Namzu host and not to residents: observations, the learning cycle, its durable store, the leak tripwire, the experience library, the built-in generator, the names it exports and the old resident-prefixed names kept as deprecated aliases.
+description: The learning module of the SDK, which belongs to every Namzu host: observations, the learning cycle, its guidance and durable stores, the leak tripwire, the experience library, the built-in generator and the names it exports.
 resource: packages/sdk/src/learning/cycle.ts
 tags: [sdk, learning, evaluation, observations]
 status: draft
@@ -11,28 +11,28 @@ generated: { by: process:claude-code, at: 2026-10-26T00:00:00Z }
 # Learning
 
 Learning is a feature of the whole kernel. A conversation, a scheduled run or a
-resident can all produce the failures it starts from, and all can read what it
-approves. The code lives in `packages/sdk/src/learning/` and its names no longer
-say resident.
+host module can all produce the failures it starts from, and all can read what it
+approves. The code lives in `packages/sdk/src/learning/`.
 
 | Part | File | Main names |
 | --- | --- | --- |
 | Guidance, state and projection | `skill.ts` | `LearningSkillCandidate`, `LearningState`, `hashLearningSkill`, `projectLearning` |
+| Revisioned guidance store | `guidance.ts` | `DiskLearningGuidance`, `LearningGuidanceState`, `LearningGuidanceConflictError`, `earlierGuidanceDirectory` |
 | One experiment | `cycle.ts` | `runLearningCycle`, `LearningCycleOptions`, `LearningCycleResult` |
 | Durable records | `store.ts` | `SqliteLearningStore`, `runStoredLearningCycle`, `runStoredLearningFromObservations` |
 | Experience library and edit ledger | `experience.ts`, `experience-store.ts` | `SqliteLearningExperienceStore`, `LearningExperienceEntry`, `normalizeLearningExperience`, `selectLearningExperience` |
 | Built-in generator, one surface | `generator.ts` | `proposeLearningCandidate`, `resolveLearningSurface`, `learningExperienceFromCycle`, `LearningModel` |
 | Host-scored observations | `observation.ts` | `LearningObservation`, `LearningObservationRecord`, `LearningTarget` |
 
-Behaviour is unchanged by the move. The cycle still needs a host that supplies
-how a candidate is generated and how it is judged, still activates only the
-exact revision that passed paired verification and fresh confirmation, and is
-still `@experimental`. The detail pages are [Resident learning cycle](resident-learning-cycle.md),
-[Durable learning records](resident-learning-storage.md),
-[Learning discovery](resident-learning-discovery.md) and
-[Approved learning](resident-learning.md); their file names keep the word
-resident because the activation target today is a resident's agenda
-(`LearningCycleOptions.agenda`).
+The cycle needs a host that supplies how a candidate is generated and how it is
+judged, activates only the exact revision that passed paired verification and
+fresh confirmation, and is `@experimental`. It activates into a
+[`DiskLearningGuidance`](learning-guidance.md) passed as
+`LearningCycleOptions.guidance`; the stored discovery takes the same option. The
+detail pages are [Learning cycle](learning-cycle.md),
+[Durable learning records](learning-storage.md),
+[Learning discovery](learning-discovery.md) and
+[Learning guidance](learning-guidance.md).
 
 ## Leak tripwire
 
@@ -169,21 +169,20 @@ The candidate then goes through `runLearningCycle` unchanged: paired
 verification, the protection plan, a fresh confirmation round and activation by
 exact revision. `@experimental`, like the rest of the module.
 
-## Old names
+## Names that were removed
 
-Every name that carried `Resident` still works and is the same value or type as
-the new one. Each is marked `@deprecated` and is removed in the next major
-release.
+The `Resident`-prefixed aliases of the learning names were removed in the major
+release that also removed residents. Use the names on this page:
+`runLearningCycle`, `SqliteLearningStore`, `runStoredLearningCycle`,
+`runStoredLearningFromObservations`, `hashLearningSkill`, `projectLearning`, the
+`Learning<X>` types and the `LearningSkillCandidate`, `LearnedSkill`,
+`LearningProfileUpdate` and `LearningSkillEvaluation` types.
 
-| Old | New |
-| --- | --- |
-| `runResidentLearningCycle` | `runLearningCycle` |
-| `SqliteResidentLearningStore` | `SqliteLearningStore` |
-| `runStoredResidentLearningCycle` | `runStoredLearningCycle` |
-| `runStoredResidentLearningFromObservations` | `runStoredLearningFromObservations` |
-| `hashResidentSkill`, `projectResidentLearning` | `hashLearningSkill`, `projectLearning` |
-| `ResidentSkillCandidate`, `ResidentLearnedSkill`, `ResidentProfileUpdate`, `ResidentSkillEvaluation` | `LearningSkillCandidate`, `LearnedSkill`, `LearningProfileUpdate`, `LearningSkillEvaluation` |
-| `ResidentLearning<X>` (state, evidence, cycle and store types) | `Learning<X>` |
+`LearningCycleOptions.agenda` became `guidance` and takes a
+[`DiskLearningGuidance`](learning-guidance.md) instead of a resident agenda;
+`LearningCycleResult.agendaRevision` became `guidanceRevision`. Guidance and
+journals written by earlier versions are carried over on first use (see
+[Learning guidance](learning-guidance.md#guidance-an-earlier-version-kept)).
 
 ## Retention
 

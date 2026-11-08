@@ -395,7 +395,7 @@ that is the only thing that says so.
 
 The tool is mounted only where somebody is watching — the interactive
 terminal, the same condition `ask_user_question` is mounted under. `namzu exec`
-in either mode, `namzu drain` and the resident step have no rail for a
+in either mode, `namzu drain` has no rail for a
 line to appear above, and a tool whose whole answer is "the operator saw this"
 must not be offered where there is no operator to show it to.
 

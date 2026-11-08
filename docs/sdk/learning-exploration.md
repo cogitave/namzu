@@ -3,7 +3,7 @@ type: Reference
 title: Environment exploration before learning
 description: Optional active tool experiments, retained observations and independently evaluated guidance without a supplied correction.
 resource: packages/sdk/src/learning/cycle.ts
-tags: [sdk, resident, learning, exploration]
+tags: [sdk, learning, exploration]
 status: draft
 ---
 
@@ -33,23 +33,20 @@ arbitrary trace. Retain the source tool transcript for independent inspection.
 `LearningStage` includes `explore`. Its stage and usage events share the
 existing ordered journal and resource accounting. Incomplete, unpriced
 cost-limited or exhausted exploration stops before generation. Cancellation,
-agenda revision conflicts and journal failures do not turn partial experiments
+guidance revision conflicts and journal failures do not turn partial experiments
 into accepted guidance. Every execution needs a non-overlapping receipt,
 including failed probes and side calls; callbacks enforce in-flight limits.
 There is no automatic replay after interruption.
 
 The predeclared preservation plan and held-out evaluation tasks are never passed
 to exploration or generation. Verification, fresh confirmation and exact-revision
-activation still use the existing [learning cycle](resident-learning-cycle.md).
+activation still use the existing [learning cycle](learning-cycle.md).
 Hosts must keep hidden cases out of the tools and filesystem visible to both
 callbacks. The SDK cannot authenticate independence from a task label alone.
 
-The [CLI learning host](../cli/resident-work.md#explicit-learning-experiments)
-forwards `explore`, shows an environment-exploration phase, and stores the
-observations in its SQLite event journal. The source-backed experiment under
-`research/resident/autonomous-learning-study.mjs` exercises model-selected
-black-box probes, generated guidance, raw-experience controls and fresh-task
-evaluation. Its scripted mode checks execution only; live mode selects Muse low.
+The [CLI learning host](../cli/learning.md) forwards `explore`, shows an
+environment-exploration phase, and stores the observations in its SQLite event
+journal.
 
 This capability supports learning from environment feedback. It changes retained
 instructional guidance, not model weights or the improvement procedure itself.

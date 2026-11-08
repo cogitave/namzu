@@ -3,7 +3,7 @@ type: Design
 title: Evaluating exploration policies
 description: Purpose-bound learned instructions for the procedure that acquires evidence, evaluated separately from task knowledge.
 resource: packages/sdk/src/learning/skill.ts
-tags: [sdk, resident, learning, exploration]
+tags: [sdk, learning, exploration]
 status: draft
 ---
 
@@ -12,7 +12,7 @@ status: draft
 A `LearningSkillCandidate` may declare `purpose: 'exploration'`. Its body then
 describes how an explorer chooses experiments. A host can measure whether those
 instructions improve later acquisition of useful evidence, using the existing
-[learning cycle](resident-learning-cycle.md) and independent evaluator. This is
+[learning cycle](learning-cycle.md) and independent evaluator. This is
 different from storing a rule learned about one particular environment.
 
 `runLearningCycle` accepts the same optional `purpose`. The host declares
@@ -24,7 +24,7 @@ Use a distinct name and new evaluation for another purpose.
 Omission and explicit `task` mean ordinary task guidance. Existing hashes stay
 unchanged. Exploration purpose is bound into `hashLearningSkill`, so copying its
 proof while changing it into task guidance fails validation. Normalization,
-immutable agenda revisions, SQLite artifacts, acceptance and rollback retain
+immutable guidance revisions, SQLite artifacts, acceptance and rollback retain
 the field through their existing paths.
 
 `projectLearning(state, { maxChars, skillNames })` selects task guidance.
@@ -34,7 +34,7 @@ skill for another purpose appears in `withheldSkills` with reason
 does not bypass source freshness checks or the size cap. Profile identity and
 preferences follow the existing projection behavior in either mode.
 
-CLI resident steps use ordinary task projection, so accepted exploration policies
+The CLI uses ordinary task projection, so accepted exploration policies
 do not become instructions for unrelated work. A learning host must explicitly
 project an accepted policy into its explorer. Projection does not register tools,
 execute generated code, change permissions or schedule learning automatically.
@@ -46,7 +46,6 @@ explorer's claim that its policy improved. Declare preservation tasks and indepe
 confirmation before proposing the policy. Record incomplete usage and failed runs
 without silently substituting new trials.
 
-The [research study](../../research/resident/exploration-policy.md) exercises this
-contract through the built CLI with Muse low. A policy update is a bounded change
+A policy update is a bounded change
 to learning instructions. A successful experiment alone does not establish recursive
 self-improvement of the full learning program or general intelligence.

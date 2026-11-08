@@ -453,7 +453,7 @@ Current pause state blocks the next admission and each next guest operation.
 It does not rewrite a conversation's pinned purpose or model. Pausing is not a
 request to terminate an already admitted process halfway through an operation.
 
-This MVP has no autonomous resident loop or Pal Team. Manual compaction is not
+This MVP has no autonomous background loop or Pal Team. Manual compaction is not
 available in Pal sessions. A new user message can continue a settled or
 explicitly abandoned turn.
 

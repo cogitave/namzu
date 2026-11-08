@@ -53,7 +53,7 @@ Each participating session writes one record to
 `<runtime-dir>/sessions/<sessionId>.json`, atomically (fsynced temporary,
 then rename) and mode 0600: `PeerRecordSchema` — `v`, `sessionId`, `ref`
 (the first 6 hex characters of `sha256(sessionId)`, from `derivePeerRef`),
-`pid`, `startedAt`, `kind` (`tui` | `exec` | `resident` | `scheduled`),
+`pid`, `startedAt`, `kind` (`tui` | `exec` | `scheduled`; `resident` still parses, from a record an earlier version wrote),
 `title?`, `cwd`, `permissionMode`, `state` (`busy` | `idle` |
 `awaiting-permission`), `acceptsMessages`, `address`, `token`, `protocol`
 (`namzu-peer/1`), `cliVersion`, and six optional fields a workspaces host uses:
@@ -295,6 +295,6 @@ implementing the SDK protocol's possible hold/approve flow.
 
 This SDK module remains transport and storage: it does not itself enqueue,
 start model turns, or grant approvals. Other hosts implement those policies.
-Exec, resident and scheduled sessions do not register through this CLI wiring;
+Exec and scheduled sessions do not register through this CLI wiring;
 idle subscriptions, durable peer mail and external A2A routing remain separate
 contracts.

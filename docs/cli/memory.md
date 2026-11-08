@@ -25,7 +25,7 @@ reported as no longer present). Every request therefore begins with the earlier
 ones, so the provider can cache the memory instead of billing it again at each
 step, and a note saved mid-session does not rewrite the cached system prompt. A
 compaction that drops the reminder makes the next request say the memory again,
-in full. A resident (long-lived) session keeps sending it with each request.
+in full.
 
 ## Curated memory: read into every turn
 
@@ -156,7 +156,7 @@ of a recalled memory against the current code before acting on it. When the
 person says "remember", the model saves it; when the repository already records
 the thing, it saves only what was surprising or non-obvious about it. When the
 person says "forget", it finds the memory and removes it. A session that
-withholds `save_memory`, and a resident continuation, get no such section. A
+withholds `save_memory` gets no such section. A
 sub-agent that holds `save_memory` gets the same section in its own prompt (with
 progress belonging in the conversation, since a sub-agent has no task list).
 The mechanics (types, the `Why:` and `How to apply:` lines, `[[name]]` links,
