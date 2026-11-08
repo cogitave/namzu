@@ -128,3 +128,12 @@ then silence). Three flows: a spoken command becomes a message the model answers
 and sends nothing; and while a tool approval waits, speech is held, shown back, never sent and approves nothing. Dark and light screenshots, including the
 Settings card, land in `research/voice-input-20261016/`. A real microphone, echo cancellation and Windows
 permissions are not covered: Xvfb has no audio device.
+
+## Approval card
+
+`approval-card.test.mjs` covers the approval card's extra answers and holds in the real app: Allow for this conversation (the next
+write of the same conversation asks nothing, while a write the agent always asks about, such as a git hook, still gets a card with no standing yes on it), a plain Accept that still asks again, the answer withheld from an overwrite and from a
+risky command (the keyboard starts on Reject), Esc as a No that leaves the reply running, the end-of-command read gate (a click and the
+accept chord ignored until the box is scrolled to its end, a short command never held), and the 400 ms click guard. The guard flow holds
+the page's `Date.now` still and moves it from the test, so it never depends on how fast the machine is. Pictures go to
+`$NAMZU_E2E_SHOTS` when set.

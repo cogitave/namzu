@@ -64,6 +64,22 @@ it('passes a valid preview to the window and answers a reject with the written n
 	})
 })
 
+it('carries the agent’s always-ask mark to the window, and sends none for an ordinary call', async () => {
+	for (const [env, marked] of [
+		[{ FIXTURE_ALWAYS_ASK: '1' }, true],
+		[undefined, false],
+	] as const) {
+		const { owner, permission } = harness(env)
+		const project = await owner.openProject(process.cwd())
+		const session = await owner.newConversation(project.id)
+		const asked = permission()
+		owner.send(session.id, 'Change it')
+		const review = await asked
+		expect(review.calls[0]?.alwaysAsk).toBe(marked ? true : undefined)
+		owner.respondPermission(session.id, review.id, { outcome: 'approve' })
+	}
+})
+
 it('drops a malformed preview instead of showing it, and refuses an over-long or misplaced note', async () => {
 	const { owner, permission } = harness({
 		FIXTURE_PREVIEW: JSON.stringify({ path: '/work/a.ts', before: 7, after: 'two' }),
@@ -88,4 +104,42 @@ it('drops a malformed preview instead of showing it, and refuses an over-long or
 	).toThrow('Invalid approval')
 	// Neither refusal consumed the request: it is still answerable.
 	owner.respondPermission(session.id, review.id, { outcome: 'approve' })
+})
+
+it('forwards allow for this conversation to the agent as its own outcome', async () => {
+	const { owner, permission, wait } = harness()
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const asked = permission()
+	owner.send(session.id, 'Change it')
+	const review = await asked
+	const ended = wait(
+		(event) => event.kind === 'state' && event.sessionId === session.id && !event.running,
+	)
+	owner.respondPermission(session.id, review.id, { outcome: 'approve_all' })
+	await ended
+	// The fixture echoes the outcome it received, so a collapse into a plain approve would read differently.
+	expect(
+		(await owner.openConversation(project.id, session.id)).thread?.messages.at(-1),
+	).toMatchObject({ role: 'assistant', text: 'Approved for the conversation' })
+	// The request is answered once: a second answer finds nothing pending.
+	expect(() => owner.respondPermission(session.id, review.id, { outcome: 'approve' })).toThrow(
+		'no longer pending',
+	)
+})
+
+it('refuses a note on allow for this conversation without consuming the request', async () => {
+	const { owner, permission } = harness()
+	const project = await owner.openProject(process.cwd())
+	const session = await owner.newConversation(project.id)
+	const asked = permission()
+	owner.send(session.id, 'Change it')
+	const review = await asked
+	expect(() =>
+		owner.respondPermission(session.id, review.id, {
+			outcome: 'approve_all',
+			feedback: 'sneaky',
+		} as never),
+	).toThrow('Invalid approval')
+	owner.respondPermission(session.id, review.id, { outcome: 'approve_all' })
 })

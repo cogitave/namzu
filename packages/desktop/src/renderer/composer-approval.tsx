@@ -3,6 +3,7 @@ import {
 	type KeyboardEvent,
 	useCallback,
 	useEffect,
+	useId,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -18,10 +19,12 @@ import {
 	approvalWarning,
 	buildApprovalCard,
 	declineFeedback,
+	offersConversationAllowance,
 	palMessageNote,
 	previewNote,
-	riskyCommand,
+	rejectsFirst,
 } from './approval-card-model.js'
+import { createClickGuard, readGateHint, unreadContent } from './approval-gate.js'
 import { gateNotice, richDiffVerdict } from './changes-review/diff-gate.js'
 import { unifiedDiff } from './changes-review/model.js'
 import { formatLineCount } from './changes-totals.js'
@@ -44,20 +47,53 @@ function useDocumentDark(): boolean {
 	return dark
 }
 
+/**
+ * Whether a scrolling box has an end that has not been on screen yet. Allowing is held until it has,
+ * so the tail of a long command or diff cannot be accepted unseen. A box that fits is never held.
+ */
+function useReadGate(): { attach: (node: HTMLElement | null) => void; unread: boolean } {
+	const [node, setNode] = useState<HTMLElement | null>(null)
+	const [unread, setUnread] = useState(false)
+	useLayoutEffect(() => {
+		if (!node) {
+			setUnread(false)
+			return
+		}
+		const measure = () => setUnread(unreadContent(node))
+		measure()
+		node.addEventListener('scroll', measure, { passive: true })
+		// A diff draws after it mounts and a window resize rewraps text, so the size is watched too.
+		const observer = new ResizeObserver(measure)
+		observer.observe(node)
+		if (node.firstElementChild) observer.observe(node.firstElementChild)
+		return () => {
+			node.removeEventListener('scroll', measure)
+			observer.disconnect()
+		}
+	}, [node])
+	return { attach: setNode, unread }
+}
+
 function DiffBox({
 	model,
 	wrap,
 	expanded,
 	onExpand,
+	onUnread,
 }: {
 	model: ApprovalCardModel
 	wrap: boolean
 	expanded: boolean
 	onExpand: (value: boolean) => void
+	onUnread: (unread: boolean) => void
 }) {
 	const dark = useDocumentDark()
 	const diff = model.diff
-	const scroller = useRef<HTMLDivElement>(null)
+	const gate = useReadGate()
+	useEffect(() => {
+		onUnread(gate.unread)
+		return () => onUnread(false)
+	}, [gate.unread, onUnread])
 	const content = useRef<HTMLDivElement>(null)
 	const [overflowing, setOverflowing] = useState(false)
 	const options = useMemo(
@@ -108,7 +144,7 @@ function DiffBox({
 	return (
 		<div className="approval-diff">
 			<div
-				ref={scroller}
+				ref={gate.attach}
 				className="approval-diff-scroll"
 				data-expanded={expanded || undefined}
 				// A scrolling box has to take focus so the keyboard can scroll it.
@@ -158,6 +194,7 @@ export function ComposerApproval({
 	count,
 	folder,
 	projectName,
+	conversationAllowance,
 	onRespond,
 }: {
 	permission: PermissionView
@@ -169,6 +206,12 @@ export function ComposerApproval({
 	folder?: string | undefined
 	/** The project's name, which a command's approval gives as the place it runs. */
 	projectName?: string | undefined
+	/**
+	 * Whether the engine behind this conversation keeps an "allow for this conversation" answer.
+	 * The card still withholds it on a request with a call that deletes, overwrites or reaches
+	 * beyond the project.
+	 */
+	conversationAllowance?: boolean | undefined
 	onRespond: (permission: PermissionView, response: PermissionResponse) => unknown
 }) {
 	const model = useMemo(() => buildApprovalCard(permission, palNames), [permission, palNames])
@@ -177,8 +220,36 @@ export function ComposerApproval({
 	const [editing, setEditing] = useState(false)
 	const [note, setNote] = useState('')
 	const editButton = useRef<HTMLButtonElement>(null)
-	const risky =
-		model.kind === 'command' && model.command !== undefined && riskyCommand(model.command)
+	// A delete, or a command that looks like it deletes, never has Enter on yes: a stray Enter must not run it.
+	const risky = rejectsFirst(model, permission)
+	const canAllowConversation =
+		conversationAllowance === true && offersConversationAllowance(permission)
+	const [diffUnread, setDiffUnread] = useState(false)
+	const commandGate = useReadGate()
+	const messageGate = useReadGate()
+	const unread = diffUnread || commandGate.unread || messageGate.unread
+	const readHint = readGateHint({
+		command: commandGate.unread,
+		message: messageGate.unread,
+		diff: diffUnread,
+	})
+	const hintId = useId()
+	const scopeId = useId()
+	// A click that lands just after the card replaced another was aimed at the old one. The guard
+	// restarts for every request, and Accept says it is unavailable (to a screen reader as well) until it ends.
+	const [guarding, setGuarding] = useState(true)
+	const guard = useRef<ReturnType<typeof createClickGuard>>(undefined)
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the guard restarts for each request, so the id is the trigger
+	useLayoutEffect(() => {
+		setGuarding(true)
+		const started = createClickGuard(() => setGuarding(false))
+		guard.current = started
+		return () => {
+			started.dispose()
+			if (guard.current === started) guard.current = undefined
+		}
+	}, [permission.id])
+	const allowHeld = guarding || unread
 	const acceptButton = useRef<HTMLButtonElement>(null)
 	const rejectButton = useRef<HTMLButtonElement>(null)
 	const noteField = useRef<HTMLInputElement>(null)
@@ -204,7 +275,13 @@ export function ComposerApproval({
 		},
 		[onRespond, permission],
 	)
-	const accept = () => respond({ outcome: 'approve' })
+	// Saying yes waits for the guard and for the end of anything long; saying no never does.
+	const allow = (response: PermissionResponse) => {
+		if ((guard.current?.active() ?? true) || unread) return
+		respond(response)
+	}
+	const accept = () => allow({ outcome: 'approve' })
+	const acceptForConversation = () => allow({ outcome: 'approve_all' })
 	const reject = () => respond({ outcome: 'reject' })
 	const send = () => {
 		if (!note.trim()) return
@@ -222,7 +299,6 @@ export function ComposerApproval({
 		const typing =
 			(active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) &&
 			active.value.trim().length > 0
-		// A command that deletes never has Enter on yes: a stray Enter must not run it.
 		if (!typing) (risky ? rejectButton : acceptButton).current?.focus()
 	}, [risky])
 	useEffect(() => {
@@ -247,6 +323,11 @@ export function ComposerApproval({
 		if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
 			event.preventDefault()
 			accept()
+		} else if (event.key === 'Escape') {
+			// Esc answers this card with a No and leaves the reply running; the window's own Esc, which stops the reply, never sees it.
+			event.preventDefault()
+			event.stopPropagation()
+			reject()
 		}
 	}
 
@@ -302,18 +383,34 @@ export function ComposerApproval({
 									<p className="approval-note">{previewNote(model)}</p>
 								)}
 								{!model.unchanged && (
-									<DiffBox model={model} wrap={wrap} expanded={expanded} onExpand={setExpanded} />
+									<DiffBox
+										model={model}
+										wrap={wrap}
+										expanded={expanded}
+										onExpand={setExpanded}
+										onUnread={setDiffUnread}
+									/>
 								)}
 								{model.command !== undefined && (
-									// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region
-									<pre className="approval-command" tabIndex={0} aria-label="Command">
+									<pre
+										ref={commandGate.attach}
+										className="approval-command"
+										// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region
+										tabIndex={0}
+										aria-label="Command"
+									>
 										{model.command}
 									</pre>
 								)}
 								{model.message !== undefined && (
 									// A message is prose the person wrote, not something that will be run.
-									// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region
-									<blockquote className="approval-message" tabIndex={0} aria-label="Message">
+									<blockquote
+										ref={messageGate.attach}
+										className="approval-message"
+										// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region
+										tabIndex={0}
+										aria-label="Message"
+									>
 										{model.message}
 									</blockquote>
 								)}
@@ -364,6 +461,11 @@ export function ComposerApproval({
 											</div>
 										))}
 									</details>
+								)}
+								{readHint && !editing && (
+									<output id={hintId} className="approval-note approval-read-hint">
+										{readHint}
+									</output>
 								)}
 								<footer className="approval-footer">
 									{editing ? (
@@ -418,6 +520,25 @@ export function ComposerApproval({
 											>
 												Tell Namzu what to do instead
 											</button>
+											{canAllowConversation && (
+												<>
+													<button
+														type="button"
+														className="approval-button approval-instead"
+														data-held={unread || undefined}
+														aria-disabled={allowHeld || undefined}
+														aria-describedby={unread ? `${scopeId} ${hintId}` : scopeId}
+														title="Applies to this conversation only. Namzu still asks before the few actions that always need you."
+														onClick={acceptForConversation}
+													>
+														Allow for this conversation
+													</button>
+													<span id={scopeId} className="sr-only">
+														Applies to this conversation only. Namzu still asks before the few
+														actions that always need you.
+													</span>
+												</>
+											)}
 											<button
 												ref={rejectButton}
 												type="button"
@@ -432,6 +553,9 @@ export function ComposerApproval({
 												type="button"
 												className="approval-button"
 												data-tone="accept"
+												data-held={unread || undefined}
+												aria-disabled={allowHeld || undefined}
+												aria-describedby={unread ? hintId : undefined}
 												onClick={accept}
 											>
 												Accept
@@ -442,8 +566,8 @@ export function ComposerApproval({
 								{!editing && (
 									<p className="approval-hint">
 										{risky
-											? 'This one looks risky, so Enter rejects it. Esc stops this reply and nothing waiting here runs.'
-											: 'Enter accepts. Esc stops this reply and nothing waiting here runs.'}
+											? 'This one looks risky, so Enter rejects it. Esc rejects it too.'
+											: 'Enter accepts. Esc rejects.'}
 									</p>
 								)}
 							</div>
