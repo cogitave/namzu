@@ -254,7 +254,8 @@ active stored memory of the project: the ones you or Namzu saved first, then
 those turns recorded on their own, newest first within each group. A row shows
 the title, then who wrote it (`you`, `Namzu saved`, `recorded by a turn`), the
 type and the age. When turns recorded any, the first row is
-`Delete all N recorded by turns`. With no stored memory it prints the report
+`Delete all N memories recorded by turns` (`Delete the 1 memory recorded by a
+turn` when there is one). With no stored memory it prints the report
 instead.
 
 Selecting a memory offers Show, which prints the whole memory with its file, and

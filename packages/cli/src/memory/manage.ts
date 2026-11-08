@@ -123,7 +123,10 @@ export function memoryListChoices(
 	if (recorded > 0) {
 		values.push(DELETE_ALL_RECORDED)
 		options.push({
-			label: `Delete all ${recorded} recorded by turns`,
+			label:
+				recorded === 1
+					? 'Delete the 1 memory recorded by a turn'
+					: `Delete all ${recorded} memories recorded by turns`,
 			description: 'Memories you or Namzu saved stay.',
 		})
 	}

@@ -91,7 +91,7 @@ describe('memoryListChoices', () => {
 		const now = Date.now()
 		const { values, options } = memoryListChoices(items, now)
 		expect(values[0]).toBe(DELETE_ALL_RECORDED)
-		expect(options[0]?.label).toBe('Delete all 1 recorded by turns')
+		expect(options[0]?.label).toBe('Delete the 1 memory recorded by a turn')
 		expect(options.slice(1).map((option) => option.label)).toEqual([
 			'Use pnpm',
 			'Answer tersely',

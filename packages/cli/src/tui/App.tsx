@@ -17222,7 +17222,10 @@ function memoryRecordedConfirm(
 		step: 'confirm-recorded',
 		owner,
 		items,
-		title: `Delete all ${count} memories recorded by turns?`,
+		title:
+			count === 1
+				? 'Delete the memory recorded by a turn?'
+				: `Delete all ${count} memories recorded by turns?`,
 		notice: 'Memories you or Namzu saved stay.',
 		values: ['keep', 'delete'],
 		options: [
