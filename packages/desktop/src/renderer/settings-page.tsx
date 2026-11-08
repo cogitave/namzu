@@ -437,6 +437,18 @@ export function TerminalSettings({
 					onChange={(value) => void settings.change({ restoreTerminals: value })}
 				/>
 			</Row>
+			<Row
+				id="hardware-acceleration"
+				label="Use the graphics card"
+				description="Turn this off if Namzu’s windows flicker, go blank or stop working soon after they open. Takes effect the next time Namzu starts."
+			>
+				<Switch
+					label="Use the graphics card"
+					checked={settings.settings?.hardwareAcceleration ?? true}
+					disabled={!settings.settings}
+					onChange={(value) => void settings.change({ hardwareAcceleration: value })}
+				/>
+			</Row>
 		</>
 	)
 }

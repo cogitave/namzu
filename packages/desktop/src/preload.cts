@@ -18,6 +18,8 @@ const invoke = (name: string, ...args: unknown[]) =>
 	})
 /** One synchronous read so the first render knows the saved layout; any failure falls back to the async path. */
 function readBoot(): DesktopBoot | undefined {
+	// The recovery card is an inline page with no app behind it; main would refuse the read.
+	if (location.protocol === 'data:') return undefined
 	try {
 		const value = ipcRenderer.sendSync('namzu:boot') as DesktopBoot | null
 		return value && typeof value === 'object' && value.workspace && Array.isArray(value.projects)
@@ -83,6 +85,7 @@ const api: DesktopApi = {
 	setSidebarSectionCollapsed: (id, collapsed) =>
 		invoke('setSidebarSectionCollapsed', id, collapsed),
 	setSidebarSnapshot: (snapshot) => invoke('setSidebarSnapshot', snapshot),
+	acknowledgeNotice: (id) => invoke('acknowledgeNotice', id),
 	palUnread: () => invoke('palUnread'),
 	setPalUnread: (id, unread) => invoke('setPalUnread', id, unread),
 	palProviders: () => invoke('palProviders'),
