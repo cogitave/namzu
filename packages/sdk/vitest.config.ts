@@ -8,6 +8,9 @@ export default defineConfig({
 		...sdkTestIsolation,
 		// Unit suite only: the proc suite signals real pids on purpose.
 		setupFiles: [...sdkTestIsolation.setupFiles, './src/__fixtures__/no-broadcast-signal.ts'],
+		// The suite builds its "outside the roots" fixtures in the temp directory,
+		// which the guard otherwise exempts; tests of the exemption unset this.
+		env: { NAMZU_GUARD_TEMP_DIR: '1' },
 		// A many-core host can start dozens of CPU-bound workers at once. That
 		// delayed valid async tests past Vitest's five-second wall-clock limit;
 		// the same 9,572 tests pass with four workers. Keep smaller CI hosts at

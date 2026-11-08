@@ -17,6 +17,9 @@ export default defineConfig({
 	test: {
 		// Keeps the kernel's default state root out of the user's home.
 		globalSetup: ['../../tools/vitest-state-root.mjs'],
+		// The OS temp directory is a root by default; these tests put the files they
+		// must NOT reach under it, so they keep the guard on, as the SDK's own suite does.
+		env: { NAMZU_GUARD_TEMP_DIR: '1' },
 		exclude: ['**/node_modules/**', '**/dist/**'],
 	},
 })
