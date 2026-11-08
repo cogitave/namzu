@@ -24,6 +24,9 @@ when that process is gone) before it launches anything, so a parallel run queues
 `NAMZU_E2E_NO_LOCK=1` turns the lock off, for a run with one display per file. Do not raise a timeout to cover a
 parallel flake; wait for the state the test needs instead.
 
+The harness starts the real CLI, so build `@namzu/cli` too (`pnpm -r build` does): the e2e needs `packages/cli/dist`.
+An ownerless stale display lock can block `xvfb-run -a`; pick a free display by hand with `xvfb-run --server-num=<n>`.
+
 Display: on WSL and Linux CI the run uses `xvfb-run` (Electron needs a display).
 It was run in WSL under Xvfb, not on the Windows side.
 

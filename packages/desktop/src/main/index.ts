@@ -119,6 +119,7 @@ import {
 	bakedFeedDeclared,
 	updateFeedFromEnv,
 } from './updater.js'
+import { viewedTabs } from './viewed-conversations.js'
 import { VoiceInputManager } from './voice-input.js'
 import {
 	readWindowMenu,
@@ -198,6 +199,8 @@ const workspace = new WorkspaceWindows(
 	restoredWorkspace,
 	randomUUID,
 	() => {
+		// A tab became active, or a window came or went: what is on screen may have changed.
+		reconcileViewed()
 		const currentIds = new Set(workspace.snapshot().windows.map((item) => item.id))
 		for (const [id, window] of windows.entries())
 			if (!window.isDestroyed() && currentIds.has(id))
@@ -225,6 +228,23 @@ const workspace = new WorkspaceWindows(
 		savedWorkspaceContent = content
 	},
 )
+/** The tabs a person can see now: the active tab of every shown, not minimised window. */
+let operatorReady = false
+function viewedConversations(): ReadonlySet<string> {
+	const open = new Map(windows.entries())
+	return viewedTabs(workspace.snapshot(), (windowId) => {
+		const window = open.get(windowId)
+		return Boolean(window && !window.isDestroyed() && window.isVisible() && !window.isMinimized())
+	})
+}
+function reconcileViewed(): void {
+	try {
+		// `operator` is created after the workspace; a change before then has nothing to clear.
+		if (operatorReady) operator.reconcileViewedConversations()
+	} catch (error) {
+		diagnostics.record('ipc_failed', { operation: 'conversationUnread', error })
+	}
+}
 const transferTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const closeTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const allowNativeClose = new Set<string>()
@@ -451,8 +471,10 @@ const operator = new Operator(
 	{
 		autoReconnect: true,
 		projectNames: new ProjectNameStore(join(app.getPath('userData'), 'project-names.json')),
+		viewedConversations,
 	},
 )
+operatorReady = true
 /** Documents as the platform names it; the home folder's Documents when the platform has none. */
 function documentsFolder(): string {
 	try {
@@ -1054,6 +1076,10 @@ function register(): void {
 	)
 	handle('palUnread', () => operator.palUnread())
 	handle('setPalUnread', (id: unknown, unread: unknown) => operator.setPalUnread(id, unread))
+	handle('conversationUnread', () => operator.conversationUnread())
+	handle('setConversationUnread', (id: unknown, unread: unknown) =>
+		operator.setConversationUnread(id, unread),
+	)
 	handle('palInbox', (sessionId: string, palId: string) => operator.palInbox(sessionId, palId))
 	handle('palCommunication', (sessionId: string, palId: string) =>
 		operator.palCommunication(sessionId, palId),
@@ -1538,6 +1564,11 @@ async function createWindow(
 		}
 	})
 	window.once('ready-to-show', () => window.show())
+	// Showing, hiding and minimising change which conversations a person can see.
+	window.on('show', reconcileViewed)
+	window.on('hide', reconcileViewed)
+	window.on('minimize', reconcileViewed)
+	window.on('restore', reconcileViewed)
 	const saveBounds = () => {
 		if (!window.isDestroyed() && !window.isMinimized() && !window.isMaximized())
 			workspace.setBounds(windowId, window.getBounds())

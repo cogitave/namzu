@@ -2941,6 +2941,38 @@ of the file, and a saved `pals` only applies while the group exists (more than t
 `e2e/sidebar-sections.test.mjs` checks 0, 1 and 3 Pals have no heading, four make a group that folds, shows
 the dot for a Pal message while folded and stays folded after a restart, Projects folds from the keyboard
 with its + separate, and Recents has no toggle.
+**Status mark, unread and days.** A conversation row shows one status mark in the slot where its age is,
+and the mark is derived from facts the app holds, never from what the model wrote. From the one that needs the
+person most: a request waiting for an answer (the shield for an approval; a question mark for a question the model
+put to the person), a running turn (the spinner), a turn that ended in an error (the red dot), a finished turn nobody
+has looked at yet (**unread**: an 8px accent dot, and the title in a firmer weight), and otherwise the age.
+Each has words, not colour alone: the mark's accessible name is "Approval needed", "Question waiting", "Running",
+"Needs attention" or "New reply", the row's status line (`aria-describedby`) repeats it, and `data-status` on the row
+carries the kind. The pure rule is `conversationGlyph` in `src/shared/conversation-status.ts`.
+*Unread* means a turn ended while no window showed that conversation, and it clears once, when a window shows it.
+Main is the only owner: it sees the turn end (the projection goes from running to not running), asks which
+conversations are in front (the active tab of every pane of every window that is shown and not minimized,
+`viewedTabs` in `src/main/viewed-conversations.ts`), and keeps the set (`ConversationUnread`). Every window shows
+what main holds, so two windows never disagree and none clears it for the other. Main announces each change with
+`{ kind: 'unread', ids, sequence }`, the whole set, and answers `conversationUnread()` with the same shape; an invoke
+reply can arrive before an event main sent earlier, so a window keeps whichever answer has the higher `sequence`
+(`ConversationUnreadStore`). A marker is read when a tab comes to the front (the layout changed) or a window is shown
+or restored; opening the conversation again later sets and clears nothing. The row menu has **Mark as unread** and
+**Mark as read** (`setConversationUnread(id, unread)`); a conversation with no reply yet is not offered **Mark as unread** (a marker already set can always be cleared); main holds at most 1024 markers and drops the oldest rather than fail a turn that ends; archiving a conversation or removing its project forgets its marker, saves and announces that; marking the conversation that is in front keeps the marker
+until it is looked at again. Pal conversations keep their own "New message" dot. Main keeps the set in
+`unread-conversations.json`, a file of its own (`desktop-conversations.json` refuses a key it does not know, which
+would cost an older app its drafts), so a restart brings it back, and a marker whose tab is in front at launch is read. A collapsed Projects heading's dot also names "A conversation has a new reply" after waiting and
+running.
+**Recents by day.** The Recents list has small headings. Pinned conversations come first under **Pinned**, whatever
+day they were last touched; the rest sit under **Today**, **Yesterday**, a short date for each of the five days
+before that, and **Older**; an empty group has no heading. The day boundaries are local midnights built from the
+calendar date, never 24 hours earlier, so a 23 or 25 hour day (a clock change) still starts at midnight
+(`groupByDay`, tested with an injected clock in `America/New_York` across both changes), and the list draws again
+when the local day changes. Project lists are not grouped.
+`e2e/ux-sidebar-unread.test.mjs` runs two real windows on one app: a turn finishes in a conversation neither window
+shows and both show the unread mark, main's `sequence` and both windows' `unread` events say one set and one clear,
+showing the conversation reads it in both, leaving and returning changes nothing, and the menu marks unread and read
+again; it also checks the Pinned and day headings, the approval mark and the sidebar at 1280, 1000, 900 and 640px.
 Clicking a project row reuses the project's untouched "New conversation" (also after a restart) instead of
 adding another empty tab. **Archived conversations** are a view of the Recents section, not a dialog. The Recents heading
 carries one quiet icon button at its right edge, on the same right edge as the Projects **+**

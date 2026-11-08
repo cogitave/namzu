@@ -3,6 +3,7 @@ import type { AttachmentView, ChatMessage, ConversationView } from '../shared/pr
 export type ConversationActionId =
 	| 'rename'
 	| 'pin'
+	| 'mark-unread'
 	| 'side-chat'
 	| 'fork'
 	| 'copy'
@@ -22,6 +23,8 @@ export type ConversationIconId =
 	| 'rename'
 	| 'pin'
 	| 'unpin'
+	| 'mark-unread'
+	| 'mark-read'
 	| 'side-chat'
 	| 'fork'
 	| 'copy'
@@ -60,6 +63,8 @@ export interface ConversationActionCapabilities {
 	moveWindow: boolean
 	/** The host can open a project folder in an editor, the file manager or a terminal. */
 	openIn?: boolean
+	/** The host keeps unread markers, so the menu can set or clear one. */
+	unread?: boolean
 }
 
 export interface ConversationActionInput {
@@ -72,6 +77,8 @@ export interface ConversationActionInput {
 	hasMessages: boolean
 	hasReply: boolean
 	hasProjectPath: boolean
+	/** A finished turn here has not been looked at. */
+	unread?: boolean
 	/** Name of the editor the host opens a folder in; absent when none was found. */
 	editorLabel?: string
 	/** A pane that holds a single conversation cannot give one of them a split. */
@@ -110,6 +117,12 @@ export function conversationActionGroups(
 				id: 'pin',
 				label: input.view.pinned ? 'Unpin' : 'Pin',
 				icon: input.view.pinned ? 'unpin' : 'pin',
+			})
+		if (input.can.unread)
+			first.push({
+				id: 'mark-unread',
+				label: input.unread ? 'Mark as read' : 'Mark as unread',
+				icon: input.unread ? 'mark-read' : 'mark-unread',
 			})
 		groups.push(first)
 		if (namzu && input.can.fork) {
