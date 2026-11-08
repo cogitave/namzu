@@ -133,6 +133,27 @@ around it in `feedback`. The agent records the call as declined by them, so a
 reloaded conversation can say so and show the note; a bare `reject` is recorded as
 it always was, as a refusal with no presentation.
 
+## A standing yes and the asks that always come back
+
+A client's `approve_all` answer latches for the session: the bridge answers later asks itself, with no
+`session/request_permission` sent. The latch answers ordinary calls only. Each entry of
+`toolCalls` may carry an optional `alwaysAsk: true`, set by the host that built the ask on a call it
+puts to a person every time: a run outside the sandbox, a path outside the working folders or a
+protected one, a catastrophic removal, an unnamed program, an unfinished check, a tool that needs a yes
+on every call, a call a rule or hook asked about, and the first look at the screen.
+
+- A request that holds any marked call is sent to the client even when the latch is set.
+- An `approve_all` given to such a request approves it once and leaves the latch as it was (set or not).
+  `reject` is honoured as usual.
+- A call without the field is an ordinary call, which is today's behaviour: a gateway or an older host
+  that sends none keeps the latch answering everything.
+
+`mustAskPerson(call)` (exported from `@namzu/sdk`, with the `MustAskCall` type) is the kernel's test for
+such a call, so a host sets the mark from the same rule the kernel uses: true for any `escalation`, for
+`requiresApproval`, for `authorization.askRule` or `explicitReview`, and for a `hookPermission` that
+asked. A host adds the screen consent itself, since that belongs to the request
+(`ToolReviewRequest.screenConsent`) and not to one call.
+
 ## Negotiated planning notifications
 
 An embedding host can set `AcpServerOptions.supportsTaskNotifications: true`

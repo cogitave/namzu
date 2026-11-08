@@ -18,6 +18,14 @@ export interface AcpPermissionRequest {
 	readonly toolCalls: readonly (ToolCallSummary & {
 		/** Rides to the client untouched; see {@link AcpFileChangePreview}. */
 		readonly preview?: AcpFileChangePreview
+		/**
+		 * The host says this call must be put to a person even after an
+		 * "approve all" (a sandbox escape, a path outside the roots, a call a
+		 * rule or hook asked about, the first look at the screen). Absent means
+		 * an ordinary call: the latch answers it. Compute it with
+		 * `mustAskPerson`; a gateway that sends none keeps the old behaviour.
+		 */
+		readonly alwaysAsk?: boolean
 	})[]
 }
 

@@ -118,6 +118,12 @@ export interface AcpRequestPermissionParams {
 		readonly isDestructive: boolean
 		/** For `edit` and `write` calls, when the agent could compute it. */
 		readonly preview?: AcpFileChangePreview
+		/**
+		 * True on a call the agent asks about every time, whatever the person
+		 * said before. An `approve_all` given to a request holding one approves
+		 * that request only. Absent on an ordinary call and from an older agent.
+		 */
+		readonly alwaysAsk?: true
 	}[]
 }
 
