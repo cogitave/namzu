@@ -3283,6 +3283,19 @@ reads **Queue message**. When the file a write would change already holds exactl
 permission preview is still sent (with `before` equal to `after`) and the card says "No change to
 `name`." instead of "couldn't show what's in `name`".
 
+**Allow for this conversation.** On the Namzu engine the card offers a quiet **Allow for this conversation**
+beside Reject and Accept. It sends `approve_all`, which the agent keeps as a latch for the rest of the
+conversation: ordinary asks stop, deletes and commands included. The agent still asks about the few
+things that always need a person (a run outside the sandbox, a path outside the project or a protected
+one, a catastrophic removal, the first look at the screen and similar), and the tooltip and the
+screen-reader text say so without listing them. The agent marks such a call `alwaysAsk: true` on the
+permission request; the window reads only that literal mark (`shared/permission-protocol.ts`) and offers
+the answer only when no call is marked. It also withholds it, by name, from a delete, a command that looks
+like it deletes or overwrites, a destructive tool that is not a new file, and a screen or web action, since
+the mark says nothing about a call it is absent from. Esc is a No that leaves the reply running, the
+keyboard starts on Reject for a delete, a risky command and a destructive tool, and Allow waits 400 ms
+after a card appears and, for a command, message or diff that overflows, until its end has been scrolled to.
+
 A note typed when declining ("You asked Namzu to do this instead: ...") is drawn as the person's own
 message, in the right-hand bubble. After a reload, a user message that carries the host's attachment
 wrapper (`Attached text file: "name"` followed by the file's text, or `Attached image: "name"`) is read

@@ -38,6 +38,9 @@ async function fixture({
 	unresolved = false,
 	limit = 0,
 	sessionClosesTurns = true,
+	reviewRequest = {
+		toolCalls: [{ id: 'write', name: 'write', input: {}, isDestructive: true }],
+	} as Record<string, unknown>,
 } = {}) {
 	const f = await providerPaused(state, { unresolved, limit })
 	let route: ((event: SessionEvent) => void) | undefined
@@ -54,10 +57,7 @@ async function fixture({
 		(async function* () {
 			duringResume?.()
 			await params.assertExecutionAllowed?.()
-			if (params.onPermission)
-				review = await params.onPermission({
-					toolCalls: [{ id: 'write', name: 'write', input: {}, isDestructive: true }],
-				} as never)
+			if (params.onPermission) review = await params.onPermission(reviewRequest as never)
 			route?.({
 				type: 'text_delta',
 				sessionId: f.sessionId,
@@ -261,6 +261,40 @@ async function fixture({
 }
 
 describe('CLI explicit provider retry composition', () => {
+	it('marks every call of a resumed review that is the first look at the screen as always asked', async () => {
+		const f = await fixture({
+			reviewRequest: {
+				toolCalls: [
+					{ id: 'shot', name: 'screenshot', input: {}, isDestructive: false },
+					{ id: 'shot2', name: 'screenshot', input: {}, isDestructive: false },
+				],
+				screenConsent: true,
+			},
+		})
+		try {
+			await f.pause()
+			f.finish()
+			await f.retry()
+			expect(f.ask).toHaveBeenCalledOnce()
+			const asked = (f.ask.mock.calls[0] as unknown as [{ toolCalls: { alwaysAsk?: true }[] }])[0]
+			expect(asked.toolCalls).toHaveLength(2)
+			expect(asked.toolCalls.every((call) => call.alwaysAsk === true)).toBe(true)
+		} finally {
+			await f.runtime.close()
+		}
+	})
+	it('leaves an ordinary resumed review unmarked', async () => {
+		const f = await fixture()
+		try {
+			await f.pause()
+			f.finish()
+			await f.retry()
+			const asked = (f.ask.mock.calls[0] as unknown as [{ toolCalls: object[] }])[0]
+			expect(asked.toolCalls[0]).not.toHaveProperty('alwaysAsk')
+		} finally {
+			await f.runtime.close()
+		}
+	})
 	it.each([false, true])(
 		'preserves the exact paused approval, effort and model with ownedPal=%s',
 		async (ownedPal) => {

@@ -582,6 +582,10 @@ export function Composer({
 									count={permissions.length}
 									folder={projectPath}
 									projectName={projectName}
+									// Only the Namzu engine keeps an "allow for this conversation" answer.
+									conversationAllowance={
+										(permissionEngine ?? harnessView?.selected ?? 'namzu') === 'namzu'
+									}
 									onRespond={(permission, response) =>
 										approvalDisabled ? false : onApproval(permission, response)
 									}

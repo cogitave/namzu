@@ -1,10 +1,16 @@
 import { readFile, stat } from 'node:fs/promises'
-import { type AcpFileChangePreview, dryRunEdit, resolveWithinAnyReal } from '@namzu/sdk'
+import {
+	type AcpFileChangePreview,
+	type MustAskCall,
+	dryRunEdit,
+	mustAskPerson,
+	resolveWithinAnyReal,
+} from '@namzu/sdk'
 
 /** Bigger than this and the card says nothing about the change, rather than shipping a megabyte per approval. */
 export const PREVIEW_MAX_BYTES = 1024 * 1024
 
-interface CallLike {
+interface CallLike extends MustAskCall {
 	readonly id: string
 	readonly name: string
 	readonly input: unknown
@@ -79,8 +85,19 @@ async function readCurrent(path: string): Promise<string | null | undefined> {
 	return buffer.toString('utf-8')
 }
 
-/** The four fields a review shows, plus the preview when there is one. */
-export async function withPreviews(calls: readonly CallLike[], roots: readonly string[]) {
+/**
+ * The four fields a review shows, the preview when there is one, and the
+ * agent's own mark on a call it asks about every time. Only the mark is sent:
+ * the reasons behind it (a rule, a hook, an escalation) stay in the kernel.
+ *
+ * `askEveryCall` marks every call, for a question that belongs to the request
+ * rather than to a call (the first look at the screen).
+ */
+export async function withPreviews(
+	calls: readonly CallLike[],
+	roots: readonly string[],
+	options: { readonly askEveryCall?: boolean } = {},
+) {
 	return Promise.all(
 		calls.map(async (call) => {
 			const preview = await buildFilePreview(call, roots)
@@ -90,6 +107,9 @@ export async function withPreviews(calls: readonly CallLike[], roots: readonly s
 				input: call.input,
 				isDestructive: call.isDestructive,
 				...(preview ? { preview } : {}),
+				...(options.askEveryCall === true || mustAskPerson(call)
+					? { alwaysAsk: true as const }
+					: {}),
 			}
 		}),
 	)

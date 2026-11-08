@@ -322,6 +322,79 @@ export function riskyCommand(command: string): boolean {
 }
 
 /**
+ * Tools that act on the person's screen or accounts rather than on the project's files. The first
+ * look at the screen is asked about every time (the agent marks it), but the actions after it are
+ * ordinary asks, so a standing yes would cover them: a card for one never offers it.
+ */
+const OUTSIDE_PROJECT_TOOLS = new Set(['computer_use', 'browser', 'browser_act'])
+
+/** A call that changes nothing already on disk: a write to a path that held no file. */
+function createsFile(call: Call): boolean {
+	return call.name.toLowerCase() === 'write' && call.preview?.before === null
+}
+
+/**
+ * Whether one call is too consequential for a standing "yes". Two different reasons:
+ *
+ * - The agent marked it `alwaysAsk`. It asks about such a call every time, so an
+ *   "Allow for this conversation" given to it would approve only this request and leave nothing
+ *   standing: offering the answer would promise what it does not do. This is read from the agent's
+ *   word, never guessed from the tool's name.
+ * - The standing yes would cover later calls of its kind with no card: it deletes, it looks like a
+ *   command that deletes or overwrites, it reaches the screen or the web, or the agent flagged it
+ *   destructive and it is not a brand-new file (a write whose before cannot be shown might replace
+ *   one). The mark says nothing about a call that is not marked, so these name-based checks stay as
+ *   they were: they are not a guess about what the agent asks, they are about what a standing yes
+ *   would let through.
+ */
+function withholdsStandingYes(call: Call): boolean {
+	if (call.alwaysAsk === true) return true
+	const name = call.name.toLowerCase()
+	if (DELETE_TOOLS.has(name) || OUTSIDE_PROJECT_TOOLS.has(name)) return true
+	const command = record(call.input) ? call.input.command : undefined
+	if (typeof command === 'string' && riskyCommand(command)) return true
+	return call.isDestructive && !createsFile(call)
+}
+
+/**
+ * What "Allow for this conversation" does, in the words the card and its screen-reader text use. The
+ * agent keeps the answer as a latch for the rest of the conversation and then answers the ordinary
+ * asks itself, deletes and commands included. It still asks about the few things that always need a
+ * person (a run outside the sandbox, a path outside the project or a protected one, a catastrophic
+ * removal, the first look at the screen and similar), and the text says so without listing them.
+ */
+export const CONVERSATION_ALLOWANCE_SCOPE =
+	'Applies to this conversation only. Namzu stops asking about most actions in it, deletes and commands included, but still asks before the few things that always need you.'
+
+/**
+ * Whether the card may offer "Allow for this conversation". The agent keeps that answer for the rest
+ * of the conversation and stops asking about ordinary calls, so the card offers it only on a request
+ * that holds no call that deletes, overwrites, runs a risky command or reaches beyond the project,
+ * and none the agent marks as one it always asks about (see {@link withholdsStandingYes}): the person
+ * is never handed the standing yes on the one call where it would matter most, or one that would
+ * not take.
+ */
+export function offersConversationAllowance(permission: PermissionView): boolean {
+	return permission.calls.length > 0 && !permission.calls.some(withholdsStandingYes)
+}
+
+/**
+ * Whether a bare Enter must not be one keystroke from running the request: a delete, a command that
+ * looks like it deletes, or another tool the agent flagged destructive. The card then puts the
+ * keyboard on Reject. A file write keeps Enter on Accept even when it replaces a file, because the
+ * card already says so in its warning and the diff shows what changes.
+ */
+export function rejectsFirst(model: ApprovalCardModel, permission: PermissionView): boolean {
+	if (model.kind === 'delete') return true
+	return permission.calls.some((call) => {
+		if (DELETE_TOOLS.has(call.name.toLowerCase())) return true
+		const command = record(call.input) ? call.input.command : undefined
+		if (typeof command === 'string' && riskyCommand(command)) return true
+		return model.kind === 'other' && call.isDestructive
+	})
+}
+
+/**
  * One sentence on what saying yes lets happen: where it happens and what it can change.
  * Nothing for an action the card already explains by its own content.
  */
