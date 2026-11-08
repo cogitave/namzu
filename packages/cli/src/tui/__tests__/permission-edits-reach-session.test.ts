@@ -13,8 +13,13 @@ import { type AgentEvent, createAgentSession } from '../agent.js'
 
 let cwd: string
 let request = 0
+// The CLI asks once for a check of the edits before a turn that wrote ends, so
+// a model that alternates write and text is asked to write again. The script
+// writes once per run and answers in text after that, whatever was asked.
+let wroteThisRun = false
 function response(forceTool?: boolean) {
-	const tool = forceTool ?? request % 2 === 0
+	const tool = forceTool ?? !wroteThisRun
+	if (tool) wroteThisRun = true
 	request++
 	const delta = tool
 		? {
@@ -81,6 +86,7 @@ it('removes a launch-time local deny for later calls without restarting the real
 	)
 	let asks = 0
 	const run = async () => {
+		wroteThisRun = false
 		const events: AgentEvent[] = []
 		for await (const event of session.send([createUserMessage('Write the result.')], {
 			permissionMode: 'prompt',

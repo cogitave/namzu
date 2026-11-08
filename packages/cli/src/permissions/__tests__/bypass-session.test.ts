@@ -23,14 +23,20 @@ import {
 	toolset,
 } from '@namzu/sdk'
 import type { ProjectId } from '@namzu/sdk'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { type PermissionFn, makeResumeHandler } from '../../tui/agent.js'
 import type { PermissionMode } from '../mode.js'
 
 const dirs: string[] = []
+beforeEach(() => {
+	// The fixtures' "outside the folder" paths sit in the operating system's
+	// temp directory, a root of every turn unless it is guarded.
+	vi.stubEnv('NAMZU_GUARD_TEMP_DIR', '1')
+})
 afterEach(() => {
+	vi.unstubAllEnvs()
 	for (const dir of dirs.splice(0)) removeTempDir(dir)
 })
 
