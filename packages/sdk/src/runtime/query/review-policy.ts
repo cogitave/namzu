@@ -589,6 +589,39 @@ function isBypassImmune(tc: ToolCallSummary): boolean {
 	)
 }
 
+/** The slice of a reviewed call {@link mustAskPerson} reads; a `ToolCallSummary` fits it. */
+export interface MustAskCall {
+	readonly escalation?: unknown
+	readonly requiresApproval?: boolean
+	readonly authorization?: { readonly explicitReview?: boolean; readonly askRule?: boolean }
+	readonly hookPermission?: { readonly decision?: string }
+}
+
+/**
+ * Whether a standing "yes" (a remembered `approve-all`, or a host's own
+ * "allow for this conversation") must not cover this call: it exists to put a
+ * question to a person.
+ *
+ * It crosses the turn's boundary in any way (a sandbox escape, a path outside
+ * the roots, a protected path, a catastrophic removal, a program nobody can
+ * name, a check that did not finish), its tool needs a yes on every call, or a
+ * rule or a hook asked for a person. `escalation` is tested as a whole rather
+ * than field by field, so a kind of escalation added later is asked about
+ * before anyone remembers to list it. A call that reaches the first look at
+ * the screen is asked about too; that is a property of the request
+ * (`ToolReviewRequest.screenConsent`), so a host adds it where it builds the
+ * ask.
+ */
+export function mustAskPerson(call: MustAskCall): boolean {
+	return (
+		call.escalation !== undefined ||
+		call.requiresApproval === true ||
+		call.authorization?.explicitReview === true ||
+		call.authorization?.askRule === true ||
+		call.hookPermission?.decision === 'ask'
+	)
+}
+
 /** The refusal for the first immune thing in a batch nobody can be asked about, or undefined. */
 function immuneRefusal(
 	toolCalls: readonly ToolCallSummary[],
@@ -1312,7 +1345,10 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			if (answer.kind === 'approve-all') remembered.all = true
 			return { action: 'approve_tools' }
 		}
-		if (mode === 'auto' || !prompt || remembered.all) {
+		// A remembered "approve all" answers ordinary calls. A call a rule or a
+		// hook asked a person about exists to put its own question, which the
+		// latch was never an answer to (`mustAskPerson`): it goes on to ask.
+		if (mode === 'auto' || !prompt || (remembered.all && !request.toolCalls.some(mustAskPerson))) {
 			return { action: 'approve_tools' }
 		}
 		// Every call a person would be asked about is one a skill loaded in
