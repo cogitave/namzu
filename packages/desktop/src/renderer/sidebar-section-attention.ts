@@ -31,16 +31,19 @@ export function palsAttention(
 
 /**
  * What a collapsed Projects or Recents heading says is inside: conversations waiting for an
- * answer come first, then ones still working. Nothing to say gives `undefined`.
+ * answer come first, then ones still working, then ones with a reply nobody has read. Nothing to say gives `undefined`.
  */
 export function conversationsAttention(
 	rows: readonly ConversationView[],
 	threads: Readonly<Record<string, ThreadState>>,
 	backgroundWork?: Readonly<Record<string, BackgroundWorkStatus>>,
+	unread?: ReadonlySet<string>,
 ): string | undefined {
 	let waiting = 0
 	let running = 0
+	let fresh = 0
 	for (const view of rows) {
+		if (unread?.has(view.id)) fresh += 1
 		const thread = threads[view.id]
 		if (thread?.running && thread.permissions.length > 0) waiting += 1
 		else if (thread?.running || hasVisibleBackgroundWork(view, backgroundWork?.[view.id]))
@@ -52,5 +55,9 @@ export function conversationsAttention(
 			: `${waiting} conversations are waiting for you`
 	if (running > 0)
 		return running === 1 ? 'A conversation is running' : `${running} conversations are running`
+	if (fresh > 0)
+		return fresh === 1
+			? 'A conversation has a new reply'
+			: `${fresh} conversations have new replies`
 	return undefined
 }

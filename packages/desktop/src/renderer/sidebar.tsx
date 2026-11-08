@@ -1,5 +1,5 @@
 import { Menu } from '@base-ui/react/menu'
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { BackgroundWorkStatus } from '../shared/background-work-protocol.js'
 import type { ThreadState } from '../shared/projection.js'
 import type { ConversationView, ProjectView } from '../shared/protocol.js'
@@ -30,6 +30,7 @@ import {
 	archiveToggleLabel,
 	nextArchiveView,
 } from './sidebar-archive.js'
+import { recentSections } from './sidebar-date-groups.js'
 import { createSidebarListMotion } from './sidebar-motion.js'
 import { conversationsAttention, hasVisibleBackgroundWork } from './sidebar-section-attention.js'
 import { SidebarSection } from './sidebar-section.js'
@@ -38,6 +39,7 @@ import { ThreadCard, type ThreadRowActions } from './thread-card.js'
 import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
+import { useLocalDay } from './use-local-day.js'
 import { Wordmark } from './wordmark.js'
 import './sidebar-navigation.css'
 
@@ -114,6 +116,7 @@ export function Sidebar({
 	onExpandedProjectsChange,
 	quietMotion,
 	startSettled,
+	unread,
 }: {
 	/** False until the first list of projects has arrived; the empty hint waits for it. */
 	projectsLoaded?: boolean
@@ -163,6 +166,8 @@ export function Sidebar({
 	quietMotion?: () => boolean
 	/** True once every project has answered; until then remembered rows may stand in for live ones. */
 	startSettled?: boolean
+	/** Conversations with a finished turn nobody has looked at; main owns this set. */
+	unread?: ReadonlySet<string>
 }) {
 	const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>(() =>
 		Object.fromEntries((initialExpandedProjects ?? []).map((id) => [id, false])),
@@ -350,6 +355,7 @@ export function Sidebar({
 							groups.flatMap(({ project, rows }) => (project.missing ? [] : rows)),
 							threads,
 							backgroundWork,
+							unread,
 						)}
 						actions={
 							<AddProjectMenu
@@ -454,6 +460,7 @@ export function Sidebar({
 												project={project}
 												threads={threads}
 												backgroundWork={backgroundWork}
+												unread={unread}
 												sessionId={sessionId}
 												active={conversationCollection === 'projects'}
 												expanded={Boolean(expandedLists[project.id])}
@@ -568,6 +575,7 @@ export function Sidebar({
 												projects={projectById}
 												threads={threads}
 												backgroundWork={backgroundWork}
+												unread={unread}
 												sessionId={sessionId}
 												active={conversationCollection === 'recents'}
 												onConversation={(view) => onConversation(view, 'recents')}
@@ -784,6 +792,7 @@ function ThreadList({
 	project,
 	threads,
 	backgroundWork,
+	unread,
 	sessionId,
 	active,
 	expanded,
@@ -796,6 +805,7 @@ function ThreadList({
 	project: ProjectView
 	threads: Record<string, ThreadState>
 	backgroundWork?: Readonly<Record<string, BackgroundWorkStatus>>
+	unread?: ReadonlySet<string>
 	sessionId: string
 	active: boolean
 	expanded: boolean
@@ -826,6 +836,7 @@ function ThreadList({
 					project={project}
 					thread={threads[item.id]}
 					backgroundWork={backgroundWork?.[item.id]}
+					unread={unread?.has(item.id)}
 					active={active && item.id === sessionId}
 					onClick={() => onConversation(item)}
 					rowActions={rowActions}
@@ -852,6 +863,7 @@ function RecentList({
 	projects,
 	threads,
 	backgroundWork,
+	unread,
 	sessionId,
 	active,
 	onConversation,
@@ -862,6 +874,7 @@ function RecentList({
 	projects: ReadonlyMap<string, ProjectView>
 	threads: Record<string, ThreadState>
 	backgroundWork?: Readonly<Record<string, BackgroundWorkStatus>>
+	unread?: ReadonlySet<string>
 	sessionId: string
 	active: boolean
 	onConversation: (view: ConversationView) => void
@@ -869,28 +882,42 @@ function RecentList({
 	quietMotion?: () => boolean
 }) {
 	const list = useThreadListMotion(quietMotion)
+	useLocalDay()
+	const sections = recentSections(rows, Date.now())
 	return (
 		<ul
 			ref={list}
 			className="sidebar-recent-list relative flex flex-col gap-px"
 			aria-label="Recent conversations"
 		>
-			{rows.map((item) => {
-				const project = projects.get(item.projectId)
-				return project ? (
-					<ThreadCard
-						key={item.id}
-						conversation={item}
-						project={project}
-						thread={threads[item.id]}
-						backgroundWork={backgroundWork?.[item.id]}
-						active={active && item.id === sessionId}
-						onClick={() => onConversation(item)}
-						rowActions={rowActions}
-						projectLabel={project.name}
-					/>
-				) : null
-			})}
+			{sections.map((section) => (
+				<Fragment key={section.key}>
+					<li
+						className="sidebar-day-heading list-none"
+						data-sidebar-key={`day:${section.key}`}
+						data-day-group={section.key}
+					>
+						<h3>{section.label}</h3>
+					</li>
+					{section.rows.map((item) => {
+						const project = projects.get(item.projectId)
+						return project ? (
+							<ThreadCard
+								key={item.id}
+								conversation={item}
+								project={project}
+								thread={threads[item.id]}
+								backgroundWork={backgroundWork?.[item.id]}
+								unread={unread?.has(item.id)}
+								active={active && item.id === sessionId}
+								onClick={() => onConversation(item)}
+								rowActions={rowActions}
+								projectLabel={project.name}
+							/>
+						) : null
+					})}
+				</Fragment>
+			))}
 		</ul>
 	)
 }

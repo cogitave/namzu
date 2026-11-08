@@ -81,6 +81,7 @@ import {
 	validateAttachmentBatch,
 } from './attachments.js'
 import { type BackgroundWorkOwner, BackgroundWorkStatusTracker } from './background-work-status.js'
+import { ConversationUnread } from './conversation-unread.js'
 import {
 	type DesktopConversationSnapshot,
 	DesktopConversationStore,
@@ -104,6 +105,7 @@ import {
 	readCurrent,
 } from './superseded-settings.js'
 import type { FolderTrustGuard } from './trusted-folders.js'
+import { readUnreadFile, writeUnreadFile } from './unread-file.js'
 
 interface PendingMessage {
 	id: string
@@ -416,6 +418,8 @@ export class Operator {
 	private readonly lastModels = new Map<string, SavedLastModel>()
 	/** Pals with a message from the person they have not opened; survives a restart. */
 	private readonly unreadPals = new Set<string>()
+	/** Conversations whose turn ended while no window showed them; main alone decides this. */
+	private readonly unreadConversations: ConversationUnread
 	/** Sidebar sections the person folded away; survives a restart. */
 	private readonly collapsedSections = new Set<SidebarSectionId>()
 	constructor(
@@ -426,8 +430,14 @@ export class Operator {
 		private readonly streamProxy?: Pick<PalStreamProxy, 'onClosed' | 'open' | 'close'>,
 		private readonly openIn?: Pick<OpenIn, 'editors' | 'open'>,
 		private readonly folderGuard?: FolderTrustGuard,
-		private readonly options: { autoReconnect?: boolean; projectNames?: ProjectNameStore } = {},
+		private readonly options: {
+			autoReconnect?: boolean
+			projectNames?: ProjectNameStore
+			/** The conversations some open window is showing right now. */
+			viewedConversations?: () => ReadonlySet<string>
+		} = {},
 	) {
+		this.unreadConversations = new ConversationUnread()
 		this.backgroundWork = new BackgroundWorkStatusTracker((event) => this.publish(event))
 		this.communication = new PalCommunicationManager(
 			this.communicationScope.bind(this),
@@ -439,6 +449,7 @@ export class Operator {
 				onError: (error) => diagnostics?.record('ipc_failed', { operation: 'models', error }),
 			})
 			this.desktopStore = new DesktopConversationStore(registryDirectory)
+			this.unreadConversations = new ConversationUnread(readUnreadFile(registryDirectory))
 			try {
 				this.savedDesktop = this.desktopStore.read()
 				for (const item of this.savedDesktop?.projectDrafts ?? [])
@@ -714,6 +725,41 @@ export class Operator {
 		} else if (!this.unreadPals.delete(id)) return this.palUnread()
 		this.persistDesktop(true)
 		return this.palUnread()
+	}
+	/** The conversations with a finished turn the person has not looked at, and which change this is. */
+	conversationUnread(): { ids: string[]; sequence: number } {
+		return { ids: this.unreadConversations.ids(), sequence: this.unreadConversations.sequence }
+	}
+	/** The person marked one conversation unread or read from the menu. */
+	setConversationUnread(id: unknown, unread: unknown): { ids: string[]; sequence: number } {
+		if (typeof id !== 'string' || typeof unread !== 'boolean')
+			throw new Error('Invalid conversation.')
+		if (!this.conversations.has(id)) throw new Error('That conversation is not open.')
+		if (this.unreadConversations.set(id, unread)) this.unreadChanged()
+		return this.conversationUnread()
+	}
+	/**
+	 * Windows or their tabs changed: any marker whose conversation is on screen now is read. One
+	 * place clears it, so two windows showing the same conversation never clear it twice.
+	 */
+	reconcileViewedConversations(): void {
+		const viewed = this.options.viewedConversations?.()
+		if (viewed && this.unreadConversations.reconcile(viewed).length > 0) this.unreadChanged()
+	}
+	private unreadChanged(): void {
+		if (this.registryDirectory) {
+			try {
+				writeUnreadFile(this.registryDirectory, this.unreadConversations.ids())
+			} catch (error) {
+				// A marker that is not saved is only lost on a restart; the running app is unaffected.
+				this.diagnostics?.record('ipc_failed', { operation: 'unreadConversations', error })
+			}
+		}
+		this.publish({
+			kind: 'unread',
+			ids: this.unreadConversations.ids(),
+			sequence: this.unreadConversations.sequence,
+		})
 	}
 	/** The folder to reveal for one Pal; the Pal is named by id and the path comes from main's own record. */
 	async palFolder(id: string): Promise<string> {
@@ -1534,7 +1580,8 @@ export class Operator {
 			event.kind !== 'open-settings' &&
 			event.kind !== 'tab-command' &&
 			event.kind !== 'model-catalogue-updated' &&
-			event.kind !== 'providers-changed'
+			event.kind !== 'providers-changed' &&
+			event.kind !== 'unread'
 		) {
 			const id = event.kind === 'permission' ? event.request.sessionId : event.sessionId
 			const session = this.conversations.get(id)
@@ -1546,7 +1593,12 @@ export class Operator {
 					...(event.at === undefined ? { at: Date.now() } : {}),
 					revision: session.projection.revision + 1,
 				}
+				const wasRunning = session.projection.running
 				session.projection = applyEvent(session.projection, versioned)
+				if (wasRunning && !session.projection.running && !session.view.palId) {
+					const viewed = this.options.viewedConversations?.() ?? new Set<string>()
+					if (this.unreadConversations.turnEnded(id, viewed)) this.unreadChanged()
+				}
 				if (
 					versioned.kind === 'prompt' ||
 					versioned.kind === 'permission' ||
@@ -1669,6 +1721,7 @@ export class Operator {
 		for (const item of this.savedDesktop?.conversations ?? [])
 			if (item.view.projectId === projectId) sessionIds.add(item.view.id)
 		const retiredOwners = new Set(sessionIds)
+		if (this.unreadConversations.forget(sessionIds)) this.unreadChanged()
 		const isProjectDraft = (ownerId: string) => {
 			try {
 				return projectDraftOwner(ownerId)?.projectId === projectId
@@ -2266,6 +2319,7 @@ export class Operator {
 			this.backgroundWork.invalidate(sessionId)
 			this.conversations.delete(sessionId)
 			this.attachmentPreviews.forget(sessionId)
+			if (this.unreadConversations.forget([sessionId])) this.unreadChanged()
 			for (const [attachmentId, file] of this.attachmentFiles)
 				if (file.ownerId === sessionId) this.attachmentFiles.delete(attachmentId)
 			project.conversationCatalogue?.delete(sessionId)
@@ -2423,6 +2477,7 @@ export class Operator {
 			for (const item of this.savedDesktop?.conversations ?? [])
 				if (item.view.projectId === projectId) sessionIds.add(item.view.id)
 			const retiredOwners = new Set(sessionIds)
+			if (this.unreadConversations.forget(sessionIds)) this.unreadChanged()
 			for (const id of sessionIds) {
 				this.conversations.delete(id)
 				this.attachmentPreviews.forget(id)
