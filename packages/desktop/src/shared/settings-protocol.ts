@@ -19,6 +19,11 @@ export interface DesktopSettings {
 	restoreTerminals: boolean
 	/** The person agreed to voice input once: the microphone may be opened by Namzu's own windows. */
 	voiceInputAccepted: boolean
+	/**
+	 * Draw windows with the graphics card. Turn it off when windows flicker, go blank or crash at
+	 * start; it is read once, before the app is ready, so a change applies on the next start.
+	 */
+	hardwareAcceleration: boolean
 }
 
 export const DEFAULT_DESKTOP_SETTINGS: Readonly<DesktopSettings> = {
@@ -28,6 +33,7 @@ export const DEFAULT_DESKTOP_SETTINGS: Readonly<DesktopSettings> = {
 	terminalShell: 'auto',
 	restoreTerminals: true,
 	voiceInputAccepted: false,
+	hardwareAcceleration: true,
 }
 
 const KEYS = Object.keys(DEFAULT_DESKTOP_SETTINGS) as (keyof DesktopSettings)[]

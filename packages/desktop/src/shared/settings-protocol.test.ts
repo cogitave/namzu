@@ -47,6 +47,7 @@ it('reads a stored file entry by entry and ignores what it does not know', () =>
 		terminalShell: 'auto',
 		restoreTerminals: true,
 		voiceInputAccepted: false,
+		hardwareAcceleration: true,
 	})
 })
 
@@ -58,6 +59,7 @@ it('documents the defaults the spec names', () => {
 		terminalShell: 'auto',
 		restoreTerminals: true,
 		voiceInputAccepted: false,
+		hardwareAcceleration: true,
 	})
 })
 

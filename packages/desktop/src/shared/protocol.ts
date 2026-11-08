@@ -240,6 +240,11 @@ export interface ProjectView {
 	/** The picked folder was already one of the projects: it is opened as it is, with no new trust prompt. */
 	alreadyAdded?: true
 }
+/** The unread conversations and which change of the set this is; a higher `sequence` is newer. */
+export interface ConversationUnreadView {
+	ids: string[]
+	sequence: number
+}
 export interface ConversationView {
 	id: string
 	projectId: string
@@ -667,6 +672,11 @@ export type DesktopEvent = (
 			sessionIds: string[]
 	  }
 	| { kind: 'conversation-updated'; sessionId: string; view: ConversationView }
+	/**
+	 * The conversations with a finished turn nobody has looked at, whole each time. Main owns the
+	 * set; `sequence` grows with every change, so a window keeps only the newest answer it saw.
+	 */
+	| { kind: 'unread'; ids: string[]; sequence: number }
 	| {
 			kind: 'conversation-removed'
 			sessionId: string
@@ -743,6 +753,11 @@ export interface DesktopBoot {
 	sidebar?: SidebarSnapshot
 	/** The sections the person folded, so the first frame already shows them folded. */
 	collapsedSections?: SidebarSectionId[]
+	/**
+	 * One plain sentence about files this start set aside because they were damaged. It is handed
+	 * to every window, including one reloaded after a crash, until a window acknowledges it.
+	 */
+	notice?: { id: string; text: string }
 }
 
 export interface DesktopApi {
@@ -846,9 +861,15 @@ export interface DesktopApi {
 	setSidebarSectionCollapsed?(id: SidebarSectionId, collapsed: boolean): Promise<SidebarSectionId[]>
 	/** Reports how the sidebar looks now; main keeps it for the next start's first frame. */
 	setSidebarSnapshot?(snapshot: SidebarSnapshot): Promise<void>
+	/** The person has seen the start-up notice in `boot`; main stops handing it out. */
+	acknowledgeNotice?(id: string): Promise<void>
 	/** Ids of the Pals with an unread "New message" marker; kept by main across restarts. */
 	palUnread?(): Promise<string[]>
 	setPalUnread?(id: string, unread: boolean): Promise<string[]>
+	/** Conversations that finished a turn while no window showed them; one owner in main. */
+	conversationUnread?(): Promise<ConversationUnreadView>
+	/** Mark one conversation unread (menu) or read. Every window follows through an `unread` event. */
+	setConversationUnread?(id: string, unread: boolean): Promise<ConversationUnreadView>
 	palProviders(): Promise<ProviderView>
 	/** Settings ▸ Models: every provider Namzu can use and how each is connected. */
 	providerConnections?(): Promise<ProviderConnectionView[]>

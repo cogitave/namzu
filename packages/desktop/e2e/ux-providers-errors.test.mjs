@@ -381,13 +381,13 @@ flow(
 		const line = w.page.locator(".working-wait");
 		await expect(line).toBeVisible({ timeout: T });
 		await expect(line).toContainText(
-			new RegExp(`Waiting for ${PROVIDER_NAME} to accept more requests… retrying in \\d+s`),
+			new RegExp(`Waiting for ${PROVIDER_NAME} to accept more requests… retrying in \\d+s · retry 1 of \\d+`),
 		);
 		// The announced text does not change every second.
 		const announced = await line.locator(".transcript-visually-hidden").innerText();
-		assert.equal(
+		assert.match(
 			announced,
-			`Waiting for ${PROVIDER_NAME} to accept more requests. Retrying soon.`,
+			new RegExp(`^Waiting for ${PROVIDER_NAME} to accept more requests\\. Retrying soon \\(retry 1 of \\d+\\)\\.$`),
 		);
 		await shots(w, "12-rate-limit-wait");
 	},
