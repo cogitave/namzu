@@ -1,5 +1,18 @@
 # @namzu/cli
 
+## 46.1.0
+
+### Minor Changes
+
+- 7ddc5bd: `/memory` with no arguments now opens a picker of every stored memory of the project, instead of printing the report. Pick one to read or delete it, delete all the memories turns recorded on their own, or delete every memory of the project; each delete asks once more. `/memory delete <name>`, `/memory delete --recorded` and `/memory delete --all` do the same by typing. The curated `MEMORY.md` and `USER.md` are never deleted this way. `/memory show` and `/memory list` keep printing the report. A note that starts with the word `delete` now needs `/memory add delete ...`. `@namzu/sdk` exports `memoryOrigin` and `MemoryOrigin`, which say who wrote a memory.
+- 7ddc5bd: A recall step run with `record: true` now says which stored memories it added to the conversation: `RecordedContextItem.recalledMemories` carries them, and the loop emits a `memory_recalled` session event (persisted; `memory.recalled` on the SSE wire) once the entry is recorded. A consumer that switches exhaustively over `SessionEvent['type']` must handle the new member. The CLI shows `Used N memories (ctrl+o to expand)` under the message, one line per memory behind ctrl+o with `/memory delete <name>` to remove one, live and on resume.
+
+### Patch Changes
+
+- Updated dependencies [7ddc5bd]
+- Updated dependencies [7ddc5bd]
+  - @namzu/sdk@62.1.0
+
 ## 46.0.0
 
 ### Major Changes
