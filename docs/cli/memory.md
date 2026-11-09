@@ -41,7 +41,7 @@ The user paths above use the default application home. An explicit `NAMZU_HOME`
 moves both user files into that application directory. Project files stay bound
 to the checkout.
 
-`/memory`, `/memory show` and `/memory list` display stored memory followed by
+`/memory show` and `/memory list` display stored memory followed by
 the combined curated memory, without saving anything. Stored memory comes in two
 labelled sections, each with its count and the directory the files are in:
 `Stored memories (N), in every turn's index` — every active memory you or the
@@ -246,6 +246,47 @@ it in a separate model-visible text block.
 A memory whose file would exceed 256 KiB, or that contains a NUL character, is
 refused before it is written, so one oversized save cannot stop the store. A
 fresh session in the same project reads the same files.
+
+### Seeing and deleting stored memory
+
+`/memory` with no arguments opens a picker titled Memory that lists every
+active stored memory of the project: the ones you or Namzu saved first, then
+those turns recorded on their own, newest first within each group. A row shows
+the title, then who wrote it (`you`, `Namzu saved`, `recorded by a turn`), the
+type and the age. The first row is `Delete all N memories`, which removes
+every stored memory of the project, also those you or Namzu saved. When turns
+recorded some but not all of them, the next row is `Delete all N memories
+recorded by turns` (`Delete the 1 memory recorded by a turn` when there is
+one). With no stored memory it prints the report instead.
+
+Selecting a memory offers Show, which prints the whole memory with its file, and
+Delete, which asks once more (Delete or Keep) before removing the file. The
+delete refuses a memory that changed since the list opened and says so; the
+next `/memory` lists it again. `Delete all N memories` asks `Delete all N
+memories?`, with Keep selected, and the recorded row asks `Delete all N
+memories recorded by turns? Memories you or Namzu saved stay.`; each then
+reports how many it deleted, and says so when the conversation already carries
+one of them (`/clear` starts fresh without it). A reply in progress is not
+interrupted: the next recall step simply no longer finds the file.
+
+`/memory delete <name-or-id>` opens the same confirmation for the memory with
+that exact name or id (`No memory named “x”. /memory lists them.` when none,
+a list when several), `/memory delete --recorded` opens the confirmation for
+those turns recorded, and `/memory delete --all` the one for every memory.
+The curated files (`MEMORY.md`, `USER.md`) are not memories in this sense
+and are never listed or deleted here; `/memory show` still prints them with
+their paths. A note that begins with the word `delete` is saved with
+`/memory add delete ...`.
+
+### Seeing which memories a message used
+
+When stored memory went into a turn, a quiet row appears under the message:
+`● Used 2 memories (ctrl+o to expand)`. Ctrl+O opens it into one line per
+memory, `<title> · <who wrote it> · <age>`, and a last line,
+`/memory delete <name> removes one.`, naming the first memory. Later recalls in
+the same turn add to the same row. A resumed conversation shows the row too, as
+the event is kept in the session journal. To remove one, use `/memory delete
+<name>` or pick it in `/memory`.
 
 ### Moving the older memory in
 

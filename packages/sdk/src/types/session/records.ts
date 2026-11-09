@@ -673,6 +673,7 @@ const SESSION_EVENT_TYPE_TABLE: Record<SessionEventType, true> = {
 	background_job_exited: true,
 	monitor_event: true,
 	memory_consolidated: true,
+	memory_recalled: true,
 	turn_completed: true,
 	turn_failed: true,
 	capability_warning: true,

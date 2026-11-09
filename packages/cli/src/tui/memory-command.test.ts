@@ -26,7 +26,6 @@ const context: SlashContext = {
 
 describe('/memory dispatch', () => {
 	it.each([
-		'/memory',
 		'/memory show',
 		'/memory list',
 		'/memory SHOW',
@@ -37,6 +36,28 @@ describe('/memory dispatch', () => {
 		'  /memory   show  ',
 	])('%s inspects memory without dispatching a write', (command) => {
 		expect(runSlash(command, context)).toEqual({ kind: 'show-memory' })
+	})
+
+	it('opens the memory picker when bare', () => {
+		expect(runSlash('/memory', context)).toEqual({ kind: 'manage-memory' })
+		expect(runSlash('  /memory  ', context)).toEqual({ kind: 'manage-memory' })
+	})
+
+	it('deletes by name, or all that turns recorded, after a confirmation', () => {
+		expect(runSlash('/memory delete staging-is-read-only', context)).toEqual({
+			kind: 'manage-memory',
+			target: 'staging-is-read-only',
+		})
+		expect(runSlash('/memory DELETE --recorded', context)).toEqual({
+			kind: 'manage-memory',
+			recorded: true,
+		})
+		expect(runSlash('/memory delete', context)).toMatchObject({ kind: 'message' })
+		expect(runSlash('/memory delete --all', context)).toEqual({
+			kind: 'manage-memory',
+			all: true,
+		})
+		expect(runSlash('/memory delete --every', context)).toMatchObject({ kind: 'message' })
 	})
 
 	it.each([

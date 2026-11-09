@@ -24,6 +24,8 @@ export {
 	renderMemoryIndex,
 } from './memory/index-file.js'
 export type { RenderedMemoryIndex } from './memory/index-file.js'
+export { memoryOrigin } from './memory/origin.js'
+export type { MemoryOrigin } from './memory/origin.js'
 export {
 	MEMORY_VERIFY_NOTICE,
 	describeMemoryAge,

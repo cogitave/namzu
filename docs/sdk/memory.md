@@ -232,6 +232,8 @@ and does not belong in a prompt.
 `renderMemoryIndex(records, { maxLines, derived })` is the same rendering over any
 `MemoryRecord`s — it reads each record's metadata to tell who wrote it. The host
 decides where the index goes in its prompt.
+`memoryOrigin(record.content.metadata)` returns `'operator'`, `'model'` or `'derived'`, the same
+reading, for a host that lists memories with who wrote each (the CLI's `/memory` picker does).
 
 `importRecord(record, { type })` brings in a record from another store keeping
 its id, timestamps, status and metadata. It is idempotent by id — a record
@@ -380,6 +382,16 @@ offered again only when its `updatedAt` differs from the one an earlier entry
 carries, and once the entries hold `sessionMaxChars` (24,000 by default) recall
 adds nothing and the model reads records with `read_memory`. `record` defaults
 to `false`.
+
+With `record: true` the step also names what it recorded. Each
+`RecordedContextItem` carries `recalledMemories`: per memory its `id`, `name`,
+`type`, `title`, `origin` (`operator`, `model` or `derived`, from
+`memoryOrigin`) and `updatedAt`. After the loop has appended the entry, it
+emits one `memory_recalled` session event with those memories: only the ones
+newly added on that step, and nothing when the entry added nothing. The event is
+persisted to the session journal, so a host can show which stored memories went
+with a message, now and after a resume, and let the person delete them. SSE
+carries it as `memory.recalled`; the A2A mapping declines it.
 Explicit `read_memory` results remain ordinary tool history and have their
 normal retention behavior. Stored text can still influence the model; this
 role separation is not a guarantee against prompt injection.

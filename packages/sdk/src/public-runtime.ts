@@ -591,6 +591,7 @@ export {
 	isMemoryName,
 	memoryIndexLine,
 	memoryLinkNames,
+	memoryOrigin,
 	renderMemoryIndex,
 	slugifyMemoryName,
 } from './store/index.js'

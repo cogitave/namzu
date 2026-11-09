@@ -172,6 +172,19 @@ const MAPPING: {
 			text: e.text,
 		}),
 	},
+	memory_recalled: {
+		wire: 'memory.recalled',
+		transform: (e) => ({
+			memories: e.memories.map((m) => ({
+				id: m.id,
+				...(m.name ? { name: m.name } : {}),
+				...(m.type ? { type: m.type } : {}),
+				title: m.title,
+				origin: m.origin,
+				updated_at: m.updatedAt,
+			})),
+		}),
+	},
 	memory_consolidated: {
 		wire: 'memory.consolidated',
 		transform: (e) => ({

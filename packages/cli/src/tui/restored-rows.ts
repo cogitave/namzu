@@ -25,6 +25,8 @@ import {
 	workflowNotice,
 } from './agent-transcript-rows.js'
 import { type AgentEvent, toAgentEvent } from './agent.js'
+import { type UsedMemory, memoryUsedRow, mergeUsedMemories } from './memory-used-row.js'
+import { systemRowStyle } from './system-rows.js'
 import { tokenColor } from './theme.js'
 import { type ToolEndStart, type ToolRow, formatToolCall, toolEndRows } from './tool-end-rows.js'
 import { describeTurnStop } from './turn-interruption.js'
@@ -70,12 +72,15 @@ export interface RestoredTrail {
 	readonly turns: ReadonlyMap<string, TurnTrail>
 	/** The turn each saved message was written in, by message id. */
 	readonly turnOfMessage: ReadonlyMap<string, string>
+	/** The stored memories a recall put into each turn, in the order recalled. */
+	readonly recalled?: ReadonlyMap<string, readonly UsedMemory[]>
 }
 
 const NO_TRAIL: RestoredTrail = {
 	calls: new Map(),
 	turns: new Map(),
 	turnOfMessage: new Map(),
+	recalled: new Map(),
 }
 
 const callKey = (turnId: string | undefined, toolUseId: string): string =>
@@ -86,12 +91,36 @@ function atOf(record: Record_): number | undefined {
 	return Number.isFinite(at) ? at : undefined
 }
 
+function usedMemoriesOf(raw: readonly unknown[]): readonly UsedMemory[] {
+	const out: UsedMemory[] = []
+	for (const item of raw) {
+		const memory = item as Record_ | null
+		if (
+			!memory ||
+			typeof memory.id !== 'string' ||
+			typeof memory.title !== 'string' ||
+			typeof memory.updatedAt !== 'number' ||
+			(memory.origin !== 'operator' && memory.origin !== 'model' && memory.origin !== 'derived')
+		)
+			continue
+		out.push({
+			id: memory.id,
+			...(typeof memory.name === 'string' ? { name: memory.name } : {}),
+			title: memory.title,
+			origin: memory.origin,
+			updatedAt: memory.updatedAt,
+		})
+	}
+	return out
+}
+
 /** Index the journal's records for the tool calls, turns and messages a saved conversation shows. */
 export function trailFromRecords(records: readonly SessionRecord[] | undefined): RestoredTrail {
 	if (!records || records.length === 0) return NO_TRAIL
 	const calls = new Map<string, CallTrail>()
 	const turns = new Map<string, TurnTrail>()
 	const turnOfMessage = new Map<string, string>()
+	const recalled = new Map<string, readonly UsedMemory[]>()
 	const turn = (id: string): TurnTrail => {
 		let found = turns.get(id)
 		if (!found) {
@@ -110,6 +139,13 @@ export function trailFromRecords(records: readonly SessionRecord[] | undefined):
 				break
 			case 'turn_started':
 				if (turnId) turn(turnId).startedAt = atOf(record)
+				break
+			case 'memory_recalled':
+				if (turnId && Array.isArray(record.memories))
+					recalled.set(
+						turnId,
+						mergeUsedMemories(recalled.get(turnId) ?? [], usedMemoriesOf(record.memories)),
+					)
 				break
 			case 'turn_completed':
 			case 'turn_failed':
@@ -163,7 +199,7 @@ export function trailFromRecords(records: readonly SessionRecord[] | undefined):
 		const index = agents?.indexOf(false) ?? -1
 		if (agents && index >= 0) agents[index] = true
 	}
-	return { calls, turns, turnOfMessage }
+	return { calls, turns, turnOfMessage, recalled }
 }
 
 function parseInput(call: ToolCall): unknown {
@@ -364,6 +400,12 @@ export interface RestoredTurnWriter {
 		readonly rows: readonly TranscriptMessage[]
 		readonly launchedIn?: string
 	}
+	/**
+	 * The `Used N memories` row of the turn an assistant message belongs to,
+	 * once, before the turn's first assistant message; none when the journal
+	 * holds no recall for it.
+	 */
+	memoryRows(message: Message): readonly TranscriptMessage[]
 	/** Called with the turn of each projected message; yields the previous turn's closing rows on a change. */
 	enter(message: Message): readonly TranscriptMessage[]
 	/** The closing rows of the last turn. */
@@ -381,6 +423,8 @@ export function createRestoredTurnWriter(
 		if (message.role === 'tool') results.set(message.toolCallId, message)
 	}
 	let current: string | undefined
+	const shownMemories = new Set<string>()
+	const atTurn = (turnId: string): number => trail.turns.get(turnId)?.startedAt ?? Date.now()
 	const closing = (turnId: string | undefined): readonly TranscriptMessage[] => {
 		if (!turnId) return []
 		const turn = trail.turns.get(turnId)
@@ -435,6 +479,26 @@ export function createRestoredTurnWriter(
 				}
 			}
 			return { rows, ...(launched && turnId ? { launchedIn: turnId } : {}) }
+		},
+		memoryRows(message) {
+			const turnId = message.id ? trail.turnOfMessage.get(message.id) : undefined
+			if (!turnId || shownMemories.has(turnId)) return []
+			const row = memoryUsedRow(trail.recalled?.get(turnId) ?? [], atTurn(turnId))
+			if (!row) return []
+			shownMemories.add(turnId)
+			const noticeStyle = systemRowStyle('notice')
+			return [
+				{
+					id: nextId(),
+					role: 'system',
+					content: row.content,
+					glyph: noticeStyle.glyph,
+					glyphColor: noticeStyle.color,
+					detail: row.detail,
+					meta: row.hint,
+					activity: 'summary',
+				},
+			]
 		},
 		enter(message) {
 			const turnId = message.id ? trail.turnOfMessage.get(message.id) : undefined

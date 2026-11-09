@@ -45,6 +45,7 @@ import { classifyProviderError, readOutputOverflow } from '../../../types/provid
 import type { ChatCompletionResponse, ReasoningEffort } from '../../../types/provider/index.js'
 import type { AnswerReview, AnswerReviewContext } from '../../../types/session/answer-review.js'
 import type {
+	RecalledMemory,
 	SessionEvent,
 	StepFailure,
 	StepProvenance,
@@ -887,7 +888,16 @@ export class IterationOrchestrator {
 					// history now, after its last message, so this request and every
 					// later one begin with it. Nothing is inserted ahead of a message
 					// that is already recorded.
-					appendRecordedContext(recorder, step.recordedContext, this.ctx.log)
+					const recalled: RecalledMemory[] = []
+					appendRecordedContext(recorder, step.recordedContext, this.ctx.log, undefined, (item) =>
+						recalled.push(...(item.recalledMemories ?? [])),
+					)
+					if (recalled.length > 0)
+						await this.ctx.emitEvent?.({
+							type: 'memory_recalled',
+							turnId: recorder.turnId,
+							memories: recalled,
+						})
 					const baseMessages = recorder.messages
 
 					// Step guidance is appended to the REQUEST, never pushed onto

@@ -455,6 +455,15 @@ import {
 } from '../integrations/workflows/size.js'
 import type { WorkflowRunView } from '../integrations/workflows/view.js'
 import { cliLogger } from '../logging.js'
+import {
+	type DeleteOutcome,
+	type ManagedMemory,
+	deleteManagedMemory,
+	deleteMemories,
+	deleteRecordedMemories,
+	loadManagedMemories,
+	readMemoryBody,
+} from '../memory/manage.js'
 import { formatMemoryDiagnostics } from '../memory/presentation.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
 import {
@@ -795,6 +804,18 @@ export type AgentEvent =
 	 * messages overflowed, `working` on recovery.
 	 */
 	| { readonly kind: 'transcript-writes'; readonly state: 'failing' | 'dropping' | 'working' }
+	/** Stored memories a recall step added to the conversation for this turn. */
+	| {
+			readonly kind: 'memory-recalled'
+			readonly turnId?: string
+			readonly memories: readonly {
+				readonly id: string
+				readonly name?: string
+				readonly title: string
+				readonly origin: 'operator' | 'model' | 'derived'
+				readonly updatedAt: number
+			}[]
+	  }
 	| {
 			readonly kind: 'capability-warning'
 			readonly capability: Extract<SessionEvent, { type: 'capability_warning' }>['capability']
@@ -1703,6 +1724,24 @@ export interface AgentSession {
 		readonly index: RenderedMemoryIndex
 		readonly derived: RenderedMemoryIndex
 	}>
+	/**
+	 * What `/memory` does with stored memory: list every active memory of the
+	 * project, read one, delete one, all of those turns recorded on their own,
+	 * or all of them.
+	 * A delete is a file operation and refuses a record changed since it was
+	 * listed; a running turn recalls the change at its next step.
+	 */
+	readonly storedMemories?: {
+		readonly load: () => Promise<readonly ManagedMemory[]>
+		readonly read: (item: ManagedMemory) => Promise<string | undefined>
+		readonly remove: (item: ManagedMemory) => Promise<DeleteOutcome>
+		readonly removeRecorded: (
+			items: readonly ManagedMemory[],
+		) => Promise<{ readonly deleted: number; readonly kept: number }>
+		readonly removeAll: (
+			items: readonly ManagedMemory[],
+		) => Promise<{ readonly deleted: number; readonly kept: number }>
+	}
 	/**
 	 * Whether "approve all" has been answered through a host prompt (ACP,
 	 * Desktop). The terminal no longer offers that answer and does not read
@@ -6073,6 +6112,13 @@ export async function createAgentSession(
 				derived: true,
 			}),
 		}),
+		storedMemories: {
+			load: () => loadManagedMemories(memoryStore, memoryDirectory),
+			read: (item) => readMemoryBody(memoryStore, item.id),
+			remove: (item) => deleteManagedMemory(memoryStore, item),
+			removeRecorded: (items) => deleteRecordedMemories(memoryStore, items),
+			removeAll: (items) => deleteMemories(memoryStore, items),
+		},
 		webSearchSummary: webSearchLabel(options.web, nativeSearchAvailable),
 		close: () => operations.close(),
 		errorHint: null,
@@ -8597,6 +8643,18 @@ export function toAgentEvent(
 			return { kind: 'transcript-writes', state: event.dropping ? 'dropping' : 'failing' }
 		case 'session_log_recovered':
 			return { kind: 'transcript-writes', state: 'working' }
+		case 'memory_recalled':
+			return {
+				kind: 'memory-recalled',
+				...(event.turnId ? { turnId: event.turnId } : {}),
+				memories: event.memories.map((memory) => ({
+					id: memory.id,
+					...(memory.name ? { name: memory.name } : {}),
+					title: memory.title,
+					origin: memory.origin,
+					updatedAt: memory.updatedAt,
+				})),
+			}
 		case 'capability_warning':
 			return {
 				kind: 'capability-warning',

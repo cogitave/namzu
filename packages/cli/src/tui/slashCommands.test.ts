@@ -1271,8 +1271,9 @@ describe('/cost and the context', () => {
 })
 
 describe('/memory', () => {
-	it('shows what namzu remembers when bare, and saves a fact when given one', () => {
-		expect(runSlash('/memory', ctx)).toEqual({ kind: 'show-memory' })
+	it('opens stored memory when bare, and saves a fact when given one', () => {
+		expect(runSlash('/memory', ctx)).toEqual({ kind: 'manage-memory' })
+		expect(runSlash('/memory show', ctx)).toEqual({ kind: 'show-memory' })
 		expect(runSlash('/memory the deploy key lives in 1Password', ctx)).toEqual({
 			kind: 'remember',
 			text: 'the deploy key lives in 1Password',

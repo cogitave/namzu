@@ -1,5 +1,10 @@
 # Documentation update log
 
+## 2026-11-08
+
+- **Update** [Memory](cli/memory.md#seeing-which-memories-a-message-used) and [Memory recall](sdk/memory.md#optional-recall-before-a-model-step): a recall step that records memory now reports them with a persisted `memory_recalled` session event (id, name, type, title, who wrote it, updated); the TUI shows `Used N memories (ctrl+o to expand)` under the message, live and on resume. `.changeset/memory-recalled.md` (`@namzu/sdk` minor, `@namzu/cli` minor).
+- **Update** [Memory](cli/memory.md#seeing-and-deleting-stored-memory): bare `/memory` opens a picker of every stored memory; read or delete one, delete all that turns recorded, or delete them all; `/memory delete <name>`, `/memory delete --recorded` and `/memory delete --all` do the same by typing; `/memory show` keeps the report. `@namzu/sdk` exports `memoryOrigin`. `.changeset/memory-delete.md` (`@namzu/cli` minor, `@namzu/sdk` minor).
+
 ## 2026-11-07
 
 - **Update** [File tool limits](sdk/file-tool-limits.md#edit-and-write) and [Completion audit](sdk/completion-audit.md#the-rule): a shell read is credited only when the line cannot have changed the file it printed (no writing redirection, no non-printer command, no `head`/`tail`, `sed` only as `-n` with a print range); a refusal that belongs to one call is recognised by a mark on the decision, not by its wording, and each call of an unattended batch is decided once, in order; the done-gate says a failed check does not count. `.changeset/guard-waste.md` text updated.

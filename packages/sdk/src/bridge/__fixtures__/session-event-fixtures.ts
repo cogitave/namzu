@@ -174,6 +174,20 @@ export const SESSION_EVENT_FIXTURES: Record<SessionEvent['type'], () => SessionE
 		kind: 'output',
 		text: 'ERROR: deploy failed',
 	}),
+	memory_recalled: () => ({
+		type: 'memory_recalled',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		memories: [
+			{
+				id: 'aaca7ad3-d28c-4d6b-b455-53b07ebfb807',
+				name: 'a-fixture',
+				title: 'A fixture',
+				origin: 'operator',
+				updatedAt: 1,
+			},
+		],
+	}),
 	memory_consolidated: () => ({
 		type: 'memory_consolidated',
 		sessionId: FIXTURE_SESSION_ID,
