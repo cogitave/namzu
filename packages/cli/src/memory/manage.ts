@@ -104,12 +104,16 @@ export interface MemoryChoice {
 }
 
 export const DELETE_ALL_RECORDED = '__delete-all-recorded__'
+export const DELETE_ALL = '__delete-all__'
 
 export function recordedMemories(items: readonly ManagedMemory[]): readonly ManagedMemory[] {
 	return items.filter((item) => item.origin === 'derived')
 }
 
-/** The list picker: a bulk row first when turns recorded memories, then every memory. */
+/**
+ * The list picker: a row that deletes every memory, a row that deletes those
+ * turns recorded when only some were, then every memory.
+ */
 export function memoryListChoices(
 	items: readonly ManagedMemory[],
 	now: number = Date.now(),
@@ -120,7 +124,14 @@ export function memoryListChoices(
 	const values: string[] = []
 	const options: MemoryChoice[] = []
 	const recorded = recordedMemories(items).length
-	if (recorded > 0) {
+	if (items.length > 0) {
+		values.push(DELETE_ALL)
+		options.push({
+			label: items.length === 1 ? 'Delete the 1 memory' : `Delete all ${items.length} memories`,
+			description: 'Every memory of this project, also those you or Namzu saved.',
+		})
+	}
+	if (recorded > 0 && recorded < items.length) {
 		values.push(DELETE_ALL_RECORDED)
 		options.push({
 			label:
@@ -192,18 +203,32 @@ export async function deleteManagedMemory(
 	}
 }
 
-export async function deleteRecordedMemories(
+export interface BulkDeleteResult {
+	readonly deleted: number
+	/** Changed since they were listed, so they stayed. */
+	readonly kept: number
+}
+
+/** Delete each listed memory at the version listed; one changed meanwhile stays. */
+export async function deleteMemories(
 	store: MarkdownMemoryStore,
 	items: readonly ManagedMemory[],
-): Promise<{ readonly deleted: number; readonly kept: number }> {
+): Promise<BulkDeleteResult> {
 	let deleted = 0
 	let kept = 0
-	for (const item of recordedMemories(items)) {
+	for (const item of items) {
 		const outcome = await deleteManagedMemory(store, item)
 		if (outcome === 'deleted') deleted += 1
 		else if (outcome === 'changed') kept += 1
 	}
 	return { deleted, kept }
+}
+
+export function deleteRecordedMemories(
+	store: MarkdownMemoryStore,
+	items: readonly ManagedMemory[],
+): Promise<BulkDeleteResult> {
+	return deleteMemories(store, recordedMemories(items))
 }
 
 /** The key the SDK's memory recall records its context entries under. */
@@ -228,6 +253,13 @@ export function historyHoldsMemory(entries: readonly string[], item: ManagedMemo
 	return false
 }
 
+export function historyHoldsAnyMemory(
+	entries: readonly string[],
+	items: readonly ManagedMemory[],
+): boolean {
+	return items.some((item) => historyHoldsMemory(entries, item))
+}
+
 export function deletedLine(item: ManagedMemory, inHistory = false): string {
 	const line = `Deleted “${memoryLabel(item)}”. Namzu will not recall it again.`
 	return inHistory
@@ -246,12 +278,27 @@ export function deleteOutcomeLine(
 	return `“${memoryLabel(item)}” was already gone.`
 }
 
-export function deleteRecordedLine(result: {
-	readonly deleted: number
-	readonly kept: number
-}): string {
-	const noun = (n: number): string => `${n} ${n === 1 ? 'memory' : 'memories'}`
-	return result.kept > 0
-		? `Deleted ${noun(result.deleted)} recorded by turns. ${noun(result.kept)} changed meanwhile and stayed.`
-		: `Deleted ${noun(result.deleted)} recorded by turns.`
+const memories = (n: number): string => `${n} ${n === 1 ? 'memory' : 'memories'}`
+
+function bulkLine(done: string, result: BulkDeleteResult, inHistory: boolean): string {
+	const kept = result.kept > 0 ? ` ${memories(result.kept)} changed meanwhile and stayed.` : ''
+	const history = !inHistory
+		? ''
+		: result.deleted === 1
+			? ' This conversation already has it; /clear starts fresh without it.'
+			: ' This conversation already has some of them; /clear starts fresh without them.'
+	return `${done}${kept}${history}`
+}
+
+export function deleteRecordedLine(result: BulkDeleteResult, inHistory = false): string {
+	return bulkLine(`Deleted ${memories(result.deleted)} recorded by turns.`, result, inHistory)
+}
+
+export function deleteAllLine(result: BulkDeleteResult, inHistory = false): string {
+	const them = result.deleted === 1 ? 'it' : 'them'
+	return bulkLine(
+		`Deleted ${memories(result.deleted)}. Namzu will not recall ${them} again.`,
+		result,
+		inHistory,
+	)
 }

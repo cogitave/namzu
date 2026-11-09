@@ -459,6 +459,7 @@ import {
 	type DeleteOutcome,
 	type ManagedMemory,
 	deleteManagedMemory,
+	deleteMemories,
 	deleteRecordedMemories,
 	loadManagedMemories,
 	readMemoryBody,
@@ -1725,7 +1726,8 @@ export interface AgentSession {
 	}>
 	/**
 	 * What `/memory` does with stored memory: list every active memory of the
-	 * project, read one, delete one or all of those turns recorded on their own.
+	 * project, read one, delete one, all of those turns recorded on their own,
+	 * or all of them.
 	 * A delete is a file operation and refuses a record changed since it was
 	 * listed; a running turn recalls the change at its next step.
 	 */
@@ -1734,6 +1736,9 @@ export interface AgentSession {
 		readonly read: (item: ManagedMemory) => Promise<string | undefined>
 		readonly remove: (item: ManagedMemory) => Promise<DeleteOutcome>
 		readonly removeRecorded: (
+			items: readonly ManagedMemory[],
+		) => Promise<{ readonly deleted: number; readonly kept: number }>
+		readonly removeAll: (
 			items: readonly ManagedMemory[],
 		) => Promise<{ readonly deleted: number; readonly kept: number }>
 	}
@@ -6112,6 +6117,7 @@ export async function createAgentSession(
 			read: (item) => readMemoryBody(memoryStore, item.id),
 			remove: (item) => deleteManagedMemory(memoryStore, item),
 			removeRecorded: (items) => deleteRecordedMemories(memoryStore, items),
+			removeAll: (items) => deleteMemories(memoryStore, items),
 		},
 		webSearchSummary: webSearchLabel(options.web, nativeSearchAvailable),
 		close: () => operations.close(),

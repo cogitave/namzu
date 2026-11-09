@@ -53,7 +53,11 @@ describe('/memory dispatch', () => {
 			recorded: true,
 		})
 		expect(runSlash('/memory delete', context)).toMatchObject({ kind: 'message' })
-		expect(runSlash('/memory delete --all', context)).toMatchObject({ kind: 'message' })
+		expect(runSlash('/memory delete --all', context)).toEqual({
+			kind: 'manage-memory',
+			all: true,
+		})
+		expect(runSlash('/memory delete --every', context)).toMatchObject({ kind: 'message' })
 	})
 
 	it.each([

@@ -233,12 +233,14 @@ import {
 } from '../integrations/workflows/view.js'
 import { openManagedWorktrees, worktreeOpenHint } from '../integrations/worktrees/managed.js'
 import {
+	DELETE_ALL,
 	DELETE_ALL_RECORDED,
 	type ManagedMemory,
 	RECALLED_MEMORY_KEY,
+	deleteAllLine,
 	deleteOutcomeLine,
 	deleteRecordedLine,
-	historyHoldsMemory,
+	historyHoldsAnyMemory,
 	listMatches,
 	matchMemories,
 	memoryDescription,
@@ -931,10 +933,10 @@ type ChoicePickerState = {
 	| {
 			/**
 			 * `/memory`: the project's stored memories, one memory's actions, and the
-			 * two confirmations. `values` are memory ids or an action word.
+			 * confirmations. `values` are memory ids or an action word.
 			 */
 			readonly kind: 'memory'
-			readonly step: 'list' | 'actions' | 'confirm' | 'confirm-recorded'
+			readonly step: 'list' | 'actions' | 'confirm' | 'confirm-recorded' | 'confirm-all'
 			readonly title: string
 			readonly notice?: string
 			readonly owner: AgentSession
@@ -5015,8 +5017,20 @@ function AppBody({
 					setChoicePicker(null)
 					pushSystem('error', explainFailure(err, 'Could not change memory.'))
 				}
+				const inHistory = (items: readonly ManagedMemory[]): boolean =>
+					historyHoldsAnyMemory(
+						turnContextEntries(modelHistoryRef.current, RECALLED_MEMORY_KEY),
+						items,
+					)
 				if (picker.step === 'list') {
 					setSelectedChoice(0)
+					if (value === DELETE_ALL) {
+						setChoicePicker({
+							...memoryAllConfirm(picker.owner, picker.items),
+							back: picker,
+						})
+						return
+					}
 					if (value === DELETE_ALL_RECORDED) {
 						setChoicePicker({
 							...memoryRecordedConfirm(picker.owner, picker.items),
@@ -5063,17 +5077,7 @@ function AppBody({
 					void manage
 						.remove(target)
 						.then(
-							(outcome) =>
-								finish(
-									deleteOutcomeLine(
-										target,
-										outcome,
-										historyHoldsMemory(
-											turnContextEntries(modelHistoryRef.current, RECALLED_MEMORY_KEY),
-											target,
-										),
-									),
-								),
+							(outcome) => finish(deleteOutcomeLine(target, outcome, inHistory([target]))),
 							failed,
 						)
 					return
@@ -5083,9 +5087,20 @@ function AppBody({
 						setChoicePicker(null)
 						return
 					}
+					const recorded = recordedMemories(picker.items)
 					void manage
 						.removeRecorded(picker.items)
-						.then((result) => finish(deleteRecordedLine(result)), failed)
+						.then((result) => finish(deleteRecordedLine(result, inHistory(recorded))), failed)
+					return
+				}
+				if (picker.step === 'confirm-all') {
+					if (value !== 'delete') {
+						setChoicePicker(null)
+						return
+					}
+					void manage
+						.removeAll(picker.items)
+						.then((result) => finish(deleteAllLine(result, inHistory(picker.items))), failed)
 				}
 				return
 			}
@@ -12885,6 +12900,15 @@ function AppBody({
 						const owner = session
 						void manage.load().then(
 							(items) => {
+								if (slash.all) {
+									if (items.length === 0) {
+										pushMessage('system', 'There is no stored memory to delete.')
+										return
+									}
+									setSelectedChoice(0)
+									setChoicePicker(memoryAllConfirm(owner, items))
+									return
+								}
 								if (slash.recorded) {
 									if (recordedMemories(items).length === 0) {
 										pushMessage('system', 'Nothing was recorded by turns.')
@@ -17207,6 +17231,26 @@ function memoryDeleteConfirm(
 			{
 				label: 'Delete',
 				description: 'Remove it so Namzu does not recall it again.',
+			},
+		],
+	}
+}
+
+function memoryAllConfirm(owner: AgentSession, items: readonly ManagedMemory[]): ChoicePickerState {
+	const count = items.length
+	return {
+		kind: 'memory',
+		step: 'confirm-all',
+		owner,
+		items,
+		title: count === 1 ? 'Delete the 1 memory?' : `Delete all ${count} memories?`,
+		notice: 'Also those you or Namzu saved. MEMORY.md and USER.md stay.',
+		values: ['keep', 'delete'],
+		options: [
+			{ label: 'Keep', description: 'Leave them as they are.' },
+			{
+				label: `Delete ${count}`,
+				description: 'Remove every memory of this project so Namzu does not recall them again.',
 			},
 		],
 	}

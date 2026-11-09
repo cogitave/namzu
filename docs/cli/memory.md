@@ -253,25 +253,29 @@ fresh session in the same project reads the same files.
 active stored memory of the project: the ones you or Namzu saved first, then
 those turns recorded on their own, newest first within each group. A row shows
 the title, then who wrote it (`you`, `Namzu saved`, `recorded by a turn`), the
-type and the age. When turns recorded any, the first row is
-`Delete all N memories recorded by turns` (`Delete the 1 memory recorded by a
-turn` when there is one). With no stored memory it prints the report
-instead.
+type and the age. The first row is `Delete all N memories`, which removes
+every stored memory of the project, also those you or Namzu saved. When turns
+recorded some but not all of them, the next row is `Delete all N memories
+recorded by turns` (`Delete the 1 memory recorded by a turn` when there is
+one). With no stored memory it prints the report instead.
 
 Selecting a memory offers Show, which prints the whole memory with its file, and
 Delete, which asks once more (Delete or Keep) before removing the file. The
 delete refuses a memory that changed since the list opened and says so; the
-next `/memory` lists it again. The bulk row asks `Delete all N memories
-recorded by turns? Memories you or Namzu saved stay.` and then reports how many
-it deleted. A reply in progress is not interrupted: the next recall step simply
-no longer finds the file.
+next `/memory` lists it again. `Delete all N memories` asks `Delete all N
+memories?`, with Keep selected, and the recorded row asks `Delete all N
+memories recorded by turns? Memories you or Namzu saved stay.`; each then
+reports how many it deleted, and says so when the conversation already carries
+one of them (`/clear` starts fresh without it). A reply in progress is not
+interrupted: the next recall step simply no longer finds the file.
 
 `/memory delete <name-or-id>` opens the same confirmation for the memory with
 that exact name or id (`No memory named “x”. /memory lists them.` when none,
-a list when several), and `/memory delete --recorded` opens the bulk
-confirmation. The curated files (`MEMORY.md`, `USER.md`) are not memories in
-this sense and are never listed or deleted here; `/memory show` still prints
-them with their paths. A note that begins with the word `delete` is saved with
+a list when several), `/memory delete --recorded` opens the confirmation for
+those turns recorded, and `/memory delete --all` the one for every memory.
+The curated files (`MEMORY.md`, `USER.md`) are not memories in this sense
+and are never listed or deleted here; `/memory show` still prints them with
+their paths. A note that begins with the word `delete` is saved with
 `/memory add delete ...`.
 
 ### Seeing which memories a message used

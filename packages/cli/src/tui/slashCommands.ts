@@ -165,7 +165,7 @@ export type SlashAction =
 			memoryType?: MemoryType
 	  }
 	| { kind: 'show-memory' }
-	| { kind: 'manage-memory'; target?: string; recorded?: boolean }
+	| { kind: 'manage-memory'; target?: string; recorded?: boolean; all?: boolean }
 	/** Move the project's curated `#note`-shaped bullets into stored memory. */
 	| { kind: 'import-notes' }
 	| { kind: 'list-skills' }
@@ -1248,12 +1248,13 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/memory show|list',
 				'/memory delete <name>',
 				'/memory delete --recorded',
+				'/memory delete --all',
 				'/memory add [--type user|feedback|project|reference] <text>',
 				'/memory --user add <text>',
 				'/memory import-notes',
 			],
 			details: [
-				'/memory opens every stored memory of this project: pick one to read or delete it, or delete all those turns recorded on their own. /memory delete <name> asks before deleting one memory; /memory delete --recorded asks before deleting all that turns recorded. Memories you or Namzu saved stay unless you delete them one by one.',
+				'/memory opens every stored memory of this project: pick one to read or delete it, delete all those turns recorded on their own, or delete them all. /memory delete <name> asks before deleting one memory; /memory delete --recorded asks before deleting all that turns recorded; /memory delete --all asks before deleting every one. The curated MEMORY.md and USER.md are never deleted here.',
 				'Show and list print stored and curated memory, with what turns recorded on their own in a section of its own. Add saves a typed memory file for this project (type project unless --type says otherwise); --user appends a note to the curated file for all projects.',
 				'Direct /memory <text> also saves a project note. To save a reserved word as a note, use /memory add show.',
 				'import-notes copies every top-level bullet of the project’s curated MEMORY.md, where #note used to append, into typed memory files, skipping any already stored. The curated file is never changed; delete bullets from it yourself.',
@@ -1272,12 +1273,13 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			if (!user && memoryArgs[0]?.toLowerCase() === 'delete') {
 				const target = memoryArgs.slice(1).join(' ').trim()
 				if (target === '--recorded') return { kind: 'manage-memory', recorded: true }
+				if (target === '--all') return { kind: 'manage-memory', all: true }
 				if (target.length === 0 || target.startsWith('--')) {
 					return {
 						kind: 'message',
 						role: 'system',
 						content:
-							'Usage: /memory delete <name>, or /memory delete --recorded. /memory lists them.',
+							'Usage: /memory delete <name>, /memory delete --recorded or /memory delete --all. /memory lists them.',
 					}
 				}
 				return { kind: 'manage-memory', target }

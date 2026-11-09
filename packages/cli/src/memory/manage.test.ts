@@ -7,9 +7,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import {
+	DELETE_ALL,
 	DELETE_ALL_RECORDED,
 	ageLabel,
+	deleteAllLine,
 	deleteManagedMemory,
+	deleteMemories,
 	deleteOutcomeLine,
 	deleteRecordedLine,
 	deleteRecordedMemories,
@@ -84,26 +87,33 @@ describe('loadManagedMemories', () => {
 })
 
 describe('memoryListChoices', () => {
-	it('puts the bulk row first only when turns recorded memories, and words each row plainly', async () => {
+	it('puts delete-all first, then the recorded row when only some were recorded, and words each row plainly', async () => {
 		const { store, directory } = tempStore()
 		await seed(store)
 		const items = await loadManagedMemories(store, directory)
 		const now = Date.now()
 		const { values, options } = memoryListChoices(items, now)
-		expect(values[0]).toBe(DELETE_ALL_RECORDED)
-		expect(options[0]?.label).toBe('Delete the 1 memory recorded by a turn')
-		expect(options.slice(1).map((option) => option.label)).toEqual([
+		expect(values.slice(0, 2)).toEqual([DELETE_ALL, DELETE_ALL_RECORDED])
+		expect(options[0]?.label).toBe('Delete all 3 memories')
+		expect(options[1]?.label).toBe('Delete the 1 memory recorded by a turn')
+		expect(options.slice(2).map((option) => option.label)).toEqual([
 			'Use pnpm',
 			'Answer tersely',
 			'Fixed the flake',
 		])
-		expect(options.slice(1).map((option) => option.description)).toEqual([
+		expect(options.slice(2).map((option) => option.description)).toEqual([
 			'you · project · today',
 			'Namzu saved · feedback · today',
 			'recorded by a turn · project · today',
 		])
 		const chosen = items.filter((item) => item.origin !== 'derived')
 		expect(memoryListChoices(chosen, now).values).not.toContain(DELETE_ALL_RECORDED)
+		const onlyRecorded = items.filter((item) => item.origin === 'derived')
+		const single = memoryListChoices(onlyRecorded, now)
+		expect(single.values).not.toContain(DELETE_ALL_RECORDED)
+		expect(single.values[0]).toBe(DELETE_ALL)
+		expect(single.options[0]?.label).toBe('Delete the 1 memory')
+		expect(memoryListChoices([], now).values).toEqual([])
 	})
 
 	it('orders newest first within a group', () => {
@@ -137,7 +147,7 @@ describe('memoryListChoices', () => {
 				updatedAt: 9,
 			},
 		])
-		expect(values).toEqual([DELETE_ALL_RECORDED, 'new', 'old', 'rec'])
+		expect(values).toEqual([DELETE_ALL, DELETE_ALL_RECORDED, 'new', 'old', 'rec'])
 	})
 })
 
@@ -229,6 +239,28 @@ describe('deleting', () => {
 		)
 		expect(deleteRecordedLine({ deleted: 3, kept: 0 })).toBe(
 			'Deleted 3 memories recorded by turns.',
+		)
+	})
+
+	it('deletes every memory in bulk, yours too, and keeps the curated file and a changed one', async () => {
+		const { store, directory } = tempStore()
+		await seed(store)
+		const items = await loadManagedMemories(store, directory)
+		const mine = items.find((item) => item.name === 'use-pnpm')
+		if (!mine) throw new Error('seed missing')
+		await store.update(mine.id, { content: 'changed meanwhile' })
+		const result = await deleteMemories(store, items)
+		expect(result).toEqual({ deleted: 2, kept: 1 })
+		expect(
+			readdirSync(directory)
+				.filter((file) => file.endsWith('.md'))
+				.sort(),
+		).toEqual(['MEMORY.md', 'use-pnpm.md'])
+		expect(deleteAllLine(result)).toBe(
+			'Deleted 2 memories. Namzu will not recall them again. 1 memory changed meanwhile and stayed.',
+		)
+		expect(deleteAllLine({ deleted: 1, kept: 0 }, true)).toBe(
+			'Deleted 1 memory. Namzu will not recall it again. This conversation already has it; /clear starts fresh without it.',
 		)
 	})
 })

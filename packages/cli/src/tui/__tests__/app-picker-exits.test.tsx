@@ -37,6 +37,7 @@ import {
 import type { RecentConversation } from '../../integrations/sessions/store.js'
 import {
 	deleteManagedMemory,
+	deleteMemories,
 	deleteRecordedMemories,
 	loadManagedMemories,
 	readMemoryBody,
@@ -1445,6 +1446,7 @@ describe('publishing a picker selection', () => {
 					read: (item) => readMemoryBody(store, item.id),
 					remove: (item) => deleteManagedMemory(store, item),
 					removeRecorded: (items) => deleteRecordedMemories(store, items),
+					removeAll: (items) => deleteMemories(store, items),
 				},
 			})
 		})
@@ -1460,7 +1462,9 @@ describe('publishing a picker selection', () => {
 			await tick(80)
 			await submit(harness, '/memory')
 			await frameShows(harness.lastFrame, 'Delete the 1 memory recorded by a turn')
-			expect(harness.lastFrame() ?? '').toContain('recorded by a turn')
+			expect(harness.lastFrame() ?? '').toContain('Delete all 2 memories')
+			harness.stdin.write('\x1b[B')
+			await tick(40)
 			harness.stdin.write('\x1b[B')
 			await tick(40)
 			harness.stdin.write('\r')
@@ -1492,6 +1496,28 @@ describe('publishing a picker selection', () => {
 			await frameShows(harness.lastFrame, 'Deleted 1 memory recorded by turns.')
 			expect(existsSync(join(directory, 'fixed-the-flake.md'))).toBe(false)
 			expect(existsSync(join(directory, 'use-pnpm.md'))).toBe(true)
+		})
+
+		it('deletes every memory from the first row, after a question that starts on Keep', async () => {
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Type a message')
+			await tick(80)
+			await submit(harness, '/memory')
+			await frameShows(harness.lastFrame, 'Delete all 2 memories')
+			harness.stdin.write('\r')
+			await frameShows(harness.lastFrame, 'Delete all 2 memories?')
+			harness.stdin.write('\r')
+			await vi.waitFor(() => expect(harness.lastFrame() ?? '').not.toContain('memories?'))
+			expect(existsSync(join(directory, 'use-pnpm.md'))).toBe(true)
+			await submit(harness, '/memory delete --all')
+			await frameShows(harness.lastFrame, 'Delete all 2 memories?')
+			harness.stdin.write('\x1b[B')
+			await tick(40)
+			harness.stdin.write('\r')
+			await frameShows(harness.lastFrame, 'Deleted 2 memories. Namzu will not recall them again.')
+			expect(existsSync(join(directory, 'use-pnpm.md'))).toBe(false)
+			expect(existsSync(join(directory, 'fixed-the-flake.md'))).toBe(false)
 		})
 
 		it('says plainly when no memory has that name', async () => {

@@ -3,7 +3,7 @@
 ## 2026-11-08
 
 - **Update** [Memory](cli/memory.md#seeing-which-memories-a-message-used) and [Memory recall](sdk/memory.md#optional-recall-before-a-model-step): a recall step that records memory now reports them with a persisted `memory_recalled` session event (id, name, type, title, who wrote it, updated); the TUI shows `Used N memories (ctrl+o to expand)` under the message, live and on resume. `.changeset/memory-recalled.md` (`@namzu/sdk` minor, `@namzu/cli` minor).
-- **Update** [Memory](cli/memory.md#seeing-and-deleting-stored-memory): bare `/memory` opens a picker of every stored memory; read or delete one, or delete all that turns recorded; `/memory delete <name>` and `/memory delete --recorded` do the same by typing; `/memory show` keeps the report. `@namzu/sdk` exports `memoryOrigin`. `.changeset/memory-delete.md` (`@namzu/cli` minor, `@namzu/sdk` minor).
+- **Update** [Memory](cli/memory.md#seeing-and-deleting-stored-memory): bare `/memory` opens a picker of every stored memory; read or delete one, delete all that turns recorded, or delete them all; `/memory delete <name>`, `/memory delete --recorded` and `/memory delete --all` do the same by typing; `/memory show` keeps the report. `@namzu/sdk` exports `memoryOrigin`. `.changeset/memory-delete.md` (`@namzu/cli` minor, `@namzu/sdk` minor).
 
 ## 2026-11-07
 
