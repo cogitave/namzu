@@ -24,7 +24,7 @@ import type { FencingToken } from './durable.js'
 import type { Lineage } from './lineage.js'
 import type { MessageStopReason, StopReason } from './stop-reason.js'
 import type { SubSessionKind } from './sub-session.js'
-import type { Origin, TurnBudgetBinding, TurnConfigSnapshot, TurnSettlement } from './turn.js'
+import type { LiveTurnSettlement, Origin, TurnBudgetBinding, TurnConfigSnapshot } from './turn.js'
 
 /**
  * Live events of a session: the stream a host listens to while a turn runs.
@@ -809,7 +809,7 @@ type CoreSessionEvent =
 			 * value where an honest gap belongs.
 			 */
 			cancelCause?: CancelCause
-			settlement: TurnSettlement
+			settlement: LiveTurnSettlement
 	  }
 	/**
 	 * The turn failed. Terminal, like `turn_completed`.
@@ -853,7 +853,7 @@ type CoreSessionEvent =
 			 * it sends the reader somewhere specific and wrong.
 			 */
 			explanation?: { id: string; message: string; hint: string }
-			settlement: TurnSettlement
+			settlement: LiveTurnSettlement
 	  }
 	// Additive 2026-07 (provider capability negotiation): emitted once per
 	// turn when the request asks for something the provider DRIVER declared

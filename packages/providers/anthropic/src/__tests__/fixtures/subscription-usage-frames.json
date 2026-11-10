@@ -1,0 +1,77 @@
+{
+	"note": "Usage frames recorded from two consecutive calls of one non-interactive turn on the vendor subscription sign-in (counts only).",
+	"calls": [
+		[
+			{
+				"type": "message_start",
+				"message": {
+					"id": "msg_fixture",
+					"usage": {
+						"input_tokens": 4,
+						"cache_creation_input_tokens": 26378,
+						"cache_read_input_tokens": 0,
+						"cache_creation": {
+							"ephemeral_5m_input_tokens": 26378,
+							"ephemeral_1h_input_tokens": 0
+						},
+						"output_tokens": 2,
+						"service_tier": "standard",
+						"inference_geo": "global",
+						"speed": "standard"
+					}
+				}
+			},
+			{
+				"type": "message_delta",
+				"delta": {
+					"stop_reason": "tool_use"
+				},
+				"usage": {
+					"input_tokens": 4,
+					"cache_creation_input_tokens": 26378,
+					"cache_read_input_tokens": 0,
+					"output_tokens": 131,
+					"output_tokens_details": {
+						"thinking_tokens": 27
+					}
+				}
+			}
+		],
+		[
+			{
+				"type": "message_start",
+				"message": {
+					"id": "msg_fixture",
+					"usage": {
+						"input_tokens": 2,
+						"cache_creation_input_tokens": 163,
+						"cache_read_input_tokens": 26378,
+						"cache_creation": {
+							"ephemeral_5m_input_tokens": 163,
+							"ephemeral_1h_input_tokens": 0
+						},
+						"output_tokens": 16,
+						"service_tier": "standard",
+						"inference_geo": "global",
+						"speed": "standard"
+					}
+				}
+			},
+			{
+				"type": "message_delta",
+				"delta": {
+					"stop_reason": "tool_use"
+				},
+				"usage": {
+					"input_tokens": 2,
+					"cache_creation_input_tokens": 163,
+					"cache_read_input_tokens": 26378,
+					"output_tokens": 49,
+					"output_tokens_details": {
+						"thinking_tokens": 0
+					}
+				}
+			}
+		]
+	]
+}

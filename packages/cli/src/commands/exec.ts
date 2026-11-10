@@ -35,7 +35,7 @@ import {
 import type { Message, StopReason, StructuredOutputConfig } from '@namzu/sdk'
 import type { AgentEvent } from '../tui/agent.js'
 
-import { pendingProjectMcpServers } from '../config/load.js'
+import { pendingProjectMcpServers, takeConfigWarnings } from '../config/load.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import { pendingServersMessage } from '../integrations/mcp/project-approval.js'
@@ -554,6 +554,9 @@ async function execPrint(
 				.join(', ')}`,
 		)
 	}
+	// A setting that was read but not honoured (a repository file asking to loosen
+	// the sandbox) is told here too: a headless run has nobody to see it otherwise.
+	for (const warning of takeConfigWarnings()) ctx.formatter.info(warning)
 	// A refusal that says nothing is indistinguishable from a project that
 	// declared nothing, and the two want opposite responses from the reader.
 	for (const skip of session.skippedInstructionFiles) {
@@ -580,6 +583,13 @@ async function execPrint(
 	const measured: {
 		usage?: Extract<AgentEvent, { kind: 'usage' }>
 		budget?: Extract<AgentEvent, { kind: 'done' }>['budget']
+		/**
+		 * What the command's turns changed and what checked it. A report turn that
+		 * follows the work (a workflow's) changes nothing, and must not wipe the
+		 * record of the turn that did: the latest turn that changed something or
+		 * failed a check stands, else the latest.
+		 */
+		outcome?: Extract<AgentEvent, { kind: 'done' }>['outcome']
 	} = {}
 	// The budgets of the turns before the last one: a workflow the model started
 	// is reported on in a turn of its own, and the command spent both.
@@ -601,6 +611,7 @@ async function execPrint(
 				}
 			: {}),
 		...(spend() ? { budget: spend() } : {}),
+		...(measured.outcome ? { outcome: measured.outcome } : {}),
 	})
 	let stopReason: StopReason | undefined
 	// Written from inside `consume`, so held on an object: a `let` assigned
@@ -680,6 +691,9 @@ async function execPrint(
 				if (event.text !== undefined) text = event.text
 				stopReason = event.stopReason
 				if (event.budget) measured.budget = event.budget
+				if (event.outcome && (event.outcome.verdict !== 'unchanged' || !measured.outcome)) {
+					measured.outcome = event.outcome
+				}
 				if (pendingFallbackLine !== undefined) {
 					if (event.stopReason !== 'refused' && event.stopReason !== 'cancelled')
 						ctx.formatter.info(pendingFallbackLine)

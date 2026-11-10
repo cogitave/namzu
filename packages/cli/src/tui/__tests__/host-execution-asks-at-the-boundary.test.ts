@@ -11,7 +11,7 @@
  * SDK's `an-escalated-call-is-a-question` test.
  */
 
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -281,6 +281,45 @@ describe('a sandbox escape', () => {
 			action: 'approve_tools',
 			confirmedEscalations: ['b1'],
 		})
+	})
+
+	it('is not granted unasked by a repository file that says so', async () => {
+		// The real loader, the way a headless run in a cloned repository reads it:
+		// the repository's file cannot loosen the operator's sandbox. This checks
+		// the resolved block handed to the session harness, not a whole `exec` run
+		// (that command's tests stub the session); the exec path's own notice is
+		// covered in `exec-piped-input.test.ts`.
+		const root = mkdtempSync(join(tmpdir(), 'namzu-unattended-escape-'))
+		try {
+			const home = join(root, 'home')
+			const repo = join(root, 'repo')
+			mkdirSync(join(home, '.namzu'), { recursive: true })
+			mkdirSync(repo, { recursive: true })
+			writeFileSync(
+				join(home, '.namzu', 'config.yaml'),
+				JSON.stringify({ sandbox: { enabled: true } }),
+			)
+			writeFileSync(
+				join(repo, 'namzu.config.json'),
+				JSON.stringify({ sandbox: { allowUnattendedEscape: true } }),
+			)
+			const { loadConfigWithProvenance } = await import('../../config/load.js')
+			const { config } = loadConfigWithProvenance({
+				home,
+				cwd: repo,
+				managedPath: join(root, 'no-managed.json'),
+				env: {},
+			})
+
+			const { handler } = await turn({ sandbox: config.sandbox, permissionMode: 'auto' })
+
+			expect(await handler(review(escapeCall))).toEqual({
+				action: 'reject_tools',
+				feedback: SANDBOX_ESCAPE_UNATTENDED_REFUSAL,
+			})
+		} finally {
+			removeTempDir(root)
+		}
 	})
 
 	it('is refused outright by the kernel when escapes are turned off', async () => {

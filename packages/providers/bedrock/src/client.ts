@@ -423,6 +423,9 @@ export function parseBedrockUsage(raw?: RawBedrockUsage, requestedTtl?: '5m' | '
 		totalTokens: raw.totalTokens ?? input + output,
 		cachedTokens: raw.cacheReadInputTokenCount ?? 0,
 		cacheWriteTokens: raw.cacheWriteInputTokenCount ?? 0,
+		// `inputTokens` excludes the cache reads and writes; the context is all three.
+		fullPromptTokens:
+			input + (raw.cacheReadInputTokenCount ?? 0) + (raw.cacheWriteInputTokenCount ?? 0),
 		...cacheLifetime(raw, requestedTtl),
 	}
 }

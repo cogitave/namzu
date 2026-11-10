@@ -475,15 +475,19 @@ describe('semantic validation of known file settings', () => {
 	})
 
 	it('reads the two escape switches as written', () => {
+		// The user's file: a repository's file cannot set allowUnattendedEscape
+		// (see sandbox-layers.test.ts).
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeFileSync(
-			join(cwd, 'namzu.config.json'),
+			join(home, '.namzu', 'config.yaml'),
 			JSON.stringify({
 				sandbox: { enabled: true, allowEscape: false, allowUnattendedEscape: true },
 			}),
 		)
 
-		const config = loadConfig({ home: tmpdir(), cwd, env: {} })
+		const config = loadConfig({ home, cwd, env: {} })
 		expect(config.sandbox).toEqual({
 			enabled: true,
 			allowEscape: false,

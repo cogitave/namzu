@@ -213,3 +213,13 @@ it('turns the done-gate off with doneGate: false, and refuses a bad cap', () => 
 	expect(turnConfigFields(off, { completionAudit: true }).completionAudit).toBeUndefined()
 	expect(() => resolveTurnGuards({ maxReasoningTokens: -1 })).toThrow('maxReasoningTokens')
 })
+
+it('hands the turn a change detector only when the caller has one for the directory its tools change', () => {
+	const guards = resolveTurnGuards({ tokenBudget: 10, maxIterations: 2, timeoutMs: 1000 })
+	const detect = async () => 'fingerprint'
+	expect(turnConfigFields(guards, { detectChanges: detect }).outcome).toEqual({
+		detectChanges: detect,
+	})
+	expect('outcome' in turnConfigFields(guards)).toBe(false)
+	expect('outcome' in turnConfigFields(guards, { detectChanges: undefined })).toBe(false)
+})

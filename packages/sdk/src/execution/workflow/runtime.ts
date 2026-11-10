@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { cpus } from 'node:os'
 
+import type { TurnOutcome } from '../../types/session/outcome.js'
 import { encodeCodeValue } from '../code-runtime/json-value.js'
 import type { CodeFrame, CodeRuntime, HostCallResult } from '../code-runtime/types.js'
 import { WorkerCodeRuntime } from '../code-runtime/worker.js'
@@ -209,6 +210,7 @@ interface AgentRecord {
 		readonly childSessionId?: string
 	}
 	childSessionId?: string
+	outcome?: TurnOutcome
 }
 
 interface Waiter {
@@ -504,6 +506,7 @@ export class WorkflowRuntime {
 					? { interrupted: true as const }
 					: {}),
 				...(agent.childSessionId !== undefined ? { childSessionId: agent.childSessionId } : {}),
+				...(agent.outcome !== undefined ? { outcome: agent.outcome } : {}),
 			})
 			return { ok: true, value: { v: value, t: totalTokens() } }
 		}
@@ -516,6 +519,7 @@ export class WorkflowRuntime {
 			agent.tokens = count(outcome.tokens)
 			agent.toolCalls = count(outcome.toolCalls)
 			if (outcome.sessionId !== undefined) agent.childSessionId = outcome.sessionId
+			if (outcome.outcome !== undefined) agent.outcome = outcome.outcome
 			if (agent.userSkipped || outcome.state === 'skipped') {
 				return settle(agent, { state: 'done', skipped: true })
 			}

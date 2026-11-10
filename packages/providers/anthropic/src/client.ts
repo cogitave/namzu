@@ -817,6 +817,7 @@ function highWater(current: TokenUsage | undefined, next: TokenUsage): TokenUsag
 		totalTokens: promptTokens + completionTokens,
 		cachedTokens: Math.max(current.cachedTokens, next.cachedTokens),
 		cacheWriteTokens: Math.max(current.cacheWriteTokens, next.cacheWriteTokens),
+		fullPromptTokens: Math.max(current.fullPromptTokens ?? 0, next.fullPromptTokens ?? 0),
 		...(current.reasoningTokens !== undefined || next.reasoningTokens !== undefined
 			? { reasoningTokens: reasoning }
 			: {}),
@@ -891,6 +892,11 @@ function parseUsage(
 		totalTokens: input + output,
 		cachedTokens: raw.cache_read_input_tokens ?? 0,
 		cacheWriteTokens: raw.cache_creation_input_tokens ?? 0,
+		// `input_tokens` is only what came after the last cache breakpoint: a
+		// warm turn reports 2-4 of them beside tens of thousands of cache reads
+		// and writes. The context the model was given is all three.
+		fullPromptTokens:
+			input + (raw.cache_read_input_tokens ?? 0) + (raw.cache_creation_input_tokens ?? 0),
 		// Only when reported. Defaulting to 0 would say "this turn did no
 		// thinking" about every turn on every driver that stays silent, and
 		// about every streamed event before the last one.

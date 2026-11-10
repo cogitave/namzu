@@ -62,6 +62,13 @@ export {
 } from './fold.js'
 export { type TornTailRepair, repairRecordDraft } from './heal.js'
 export {
+	foldChildOutcomes,
+	foldTurnOutcomes,
+	parseTurnOutcome,
+	readOutcomeProgress,
+	readTurnOutcome,
+} from './turn-outcome.js'
+export {
 	type ReleaseHeldSessionLeasesOptions,
 	type ReleaseHeldSessionLeasesResult,
 	SessionLeasesReleasedError,

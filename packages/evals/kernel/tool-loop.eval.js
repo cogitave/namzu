@@ -15,7 +15,7 @@
  * Every case pins an invariant this kernel has broken at least once.
  */
 
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -24,8 +24,10 @@ import {
 	toolset,
 	autoApproveHandler,
 	completionScorer,
+	customScorer,
 	drainQuery,
 	evalTurnFromTurn,
+	getBuiltinTools,
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
@@ -72,16 +74,32 @@ function toolsets(failing = []) {
 	];
 }
 
-/** @param {{turns: unknown[], maxIterations?: number, prepareStep?: unknown, failing?: string[]}} input */
+/**
+ * The real `read` and `edit`, for a case that needs the tool's own input
+ * handling rather than a stand-in. Only these two are offered: nothing else is
+ * in the scripted turns.
+ * @returns {readonly import("@namzu/sdk").Toolset[]}
+ */
+function fileToolsets() {
+	return [
+		toolset(
+			"files",
+			getBuiltinTools().filter((t) => t.name === "read" || t.name === "edit"),
+		),
+	];
+}
+
+/** @param {{turns: unknown[], maxIterations?: number, prepareStep?: unknown, failing?: string[], file?: {name: string, body: string}}} input */
 async function runCase(input) {
 	// One scratch directory per case, removed when the case ends. Every
 	// case used to leave its directory, and the run state in it, behind.
 	const scratch = await mkdtemp(join(tmpdir(), "namzu-eval-"));
 	try {
+		if (input.file) await writeFile(join(scratch, input.file.name), input.file.body);
 		const provider = new MockLLMProvider({ turns: input.turns });
 		const turn = await drainQuery({
 			provider,
-			toolsets: toolsets(input.failing),
+			toolsets: input.file ? fileToolsets() : toolsets(input.failing),
 			turnConfig: {
 				model: "mock-model",
 				timeoutMs: 30_000,
@@ -115,18 +133,47 @@ async function runCase(input) {
 			...(input.prepareStep ? { prepareStep: input.prepareStep } : {}),
 		});
 
-		return evalTurnFromTurn(turn);
+		const evalTurn = evalTurnFromTurn(turn);
+		// A case about a file is judged on the file, not on the closing text.
+		if (input.file) {
+			return {
+				...evalTurn,
+				output: await readFile(join(scratch, input.file.name), "utf8"),
+			};
+		}
+		return evalTurn;
 	} finally {
 		await rm(scratch, { recursive: true, force: true });
 	}
 }
 
 const call = (id, name) => ({ id, name, rawArguments: "{}" });
+const callWith = (id, name, args) => ({
+	id,
+	name,
+	rawArguments: JSON.stringify(args),
+});
+
+/** The file case's scorer: cases without `expectedFile` are not about a file. */
+const fileScorer = customScorer("file-edited", (turn, evalCase) => {
+	const want = /** @type {{expectedFile?: string}} */ (evalCase).expectedFile;
+	if (want === undefined) return { score: 1, reason: "not a file case" };
+	const ok = turn.output === want;
+	return {
+		score: ok ? 1 : 0,
+		reason: ok ? "the file holds the edit" : "the file does not hold the edit",
+	};
+});
 
 export default async function toolLoop() {
 	return runExperiment({
 		name: "kernel/tool-loop",
-		scorers: [trajectoryScorer(), completionScorer(), stepBudgetScorer(8)],
+		scorers: [
+			trajectoryScorer(),
+			completionScorer(),
+			stepBudgetScorer(8),
+			fileScorer,
+		],
 		run: (input) => runCase(input),
 		cases: [
 			{
@@ -178,6 +225,33 @@ export default async function toolLoop() {
 				// cannot stop. It stops here because the knob lives on the step.
 				expectedTools: ["read_file"],
 				expected: "after",
+			},
+			{
+				name: "an edit call that sends an empty batch beside one edit is applied in one step",
+				input: {
+					file: { name: "levels.md", body: "# Levels\n\ndebug\ninfo\nwarn\n" },
+					turns: [
+						{ toolCalls: [callWith("a", "read", { path: "levels.md" })] },
+						// What a small model sends when it fills every optional
+						// field: an empty `edits` list beside the single edit it
+						// means. That is the single edit, not a refusal that costs
+						// the model a second call.
+						{
+							toolCalls: [
+								callWith("b", "edit", {
+									path: "levels.md",
+									old_string: "info\nwarn",
+									new_string: "info\nnotice\nwarn",
+									edits: [],
+								}),
+							],
+						},
+						{ text: "done" },
+					],
+				},
+				expectedTools: ["read", "edit"],
+				expected: "done",
+				expectedFile: "# Levels\n\ndebug\ninfo\nnotice\nwarn\n",
 			},
 		],
 	});

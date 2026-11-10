@@ -2,7 +2,7 @@ import type { Span } from '@opentelemetry/api'
 import { consolidationEntry, isConsolidated } from '../../compaction/consolidation.js'
 import type { WorkingStateManager } from '../../compaction/manager.js'
 import { NAMZU } from '../../constants/telemetry/index.js'
-import type { SessionEvent, StepResult } from '../../types/session/index.js'
+import type { SessionEvent, StepResult, TurnOutcome } from '../../types/session/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import type { TurnContext } from './context.js'
 import type { EventTranslator } from './events.js'
@@ -53,6 +53,12 @@ export interface TurnFinalization {
 	 * immediately before the record is written.
 	 */
 	readonly takeSteps: () => readonly StepResult[]
+	/**
+	 * The turn's outcome record, read here for the same reason as the steps: the
+	 * workspace is compared once, as late as it can be and before the record is
+	 * written. Never throws; `undefined` means no record was kept.
+	 */
+	readonly takeOutcome?: () => Promise<TurnOutcome | undefined>
 	/**
 	 * Whether the loop already fired `turn_end` (and `subagent_stop`) when the
 	 * model finished, so a hook could keep the turn going. Fired there, it is
@@ -108,6 +114,7 @@ export async function* finalizeTurn(
 	// Hand the step record to the turn before it settles, so the
 	// returned `Turn` carries it.
 	ctx.recorder.setSteps(takeSteps())
+	if (finalization.takeOutcome) ctx.recorder.setOutcome(await finalization.takeOutcome())
 
 	// Gates the FINAL result, not the stream — `text_delta` already
 	// reached the host as the model produced it. A rewrite is

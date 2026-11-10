@@ -232,6 +232,8 @@ export interface BaseAgentConfig {
 	reasoning?: import('../session/config.js').TurnConfig['reasoning']
 	/** Ask once for a check of edits before a turn ends; see {@link import('../session/config.js').TurnConfig.completionAudit}. */
 	completionAudit?: boolean
+	/** The outcome record's hooks; see {@link import('../session/config.js').TurnConfig.outcome}. */
+	outcome?: import('../session/config.js').TurnConfig['outcome']
 
 	/**
 	 * Deduplicate a retried invocation instead of running it twice.
@@ -411,6 +413,8 @@ export interface BaseAgentResult {
 	durationMs: number
 	messages: Message[]
 	result?: string
+	/** What the turn changed and what checked it; see {@link import('../session/turn.js').Turn.outcome}. */
+	outcome?: import('../session/outcome.js').TurnOutcome
 	/**
 	 * The schema-validated answer, when the turn was configured to produce one.
 	 *
