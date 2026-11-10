@@ -566,6 +566,14 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		{ defaultText: 'off' },
 	),
 	d(
+		'compaction.clearStaleResultsAfterIdle',
+		'agent',
+		'Shed old results after a long break',
+		'When you return after the provider cache has expired, replace old, large tool results with a short note before the first request. They stay readable through the note.',
+		on,
+		{ defaultText: 'on' },
+	),
+	d(
 		'compaction.idleCompactionMinTokens',
 		'agent',
 		'Idle shortening starts at',

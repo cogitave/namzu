@@ -1009,6 +1009,10 @@ describe('compaction', () => {
 			['compaction:\n  idleCompactionMinTokens: 0\n', 'compaction.idleCompactionMinTokens'],
 			['compaction:\n  idleCompactionMinTokens: 1.5\n', 'compaction.idleCompactionMinTokens'],
 			['compaction:\n  promptCacheTtl: 2h\n', 'compaction.promptCacheTtl'],
+			[
+				'compaction:\n  clearStaleResultsAfterIdle: maybe\n',
+				'compaction.clearStaleResultsAfterIdle',
+			],
 		]) {
 			writeFileSync(join(home, '.namzu', 'config.yaml'), bad)
 			expect(() => loadConfig({ home, cwd: tmpdir(), env: {} }), bad).toThrow(path)

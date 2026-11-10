@@ -110,6 +110,7 @@ import {
 	measureContext,
 	relieveOverflow,
 	runCompactionCheck,
+	runStaleResultClear,
 	stopOnRefill,
 } from './phases/compaction.js'
 import { runHandoffPause } from './phases/handoff.js'
@@ -869,6 +870,7 @@ export class IterationOrchestrator {
 					// edge BEFORE compaction runs (so the refreshed slot is what
 					// compaction preserves). No-op when no provider is configured.
 					await refreshWorkingMemory(this.ctx)
+					if (iterationNum === 1) await runStaleResultClear(this.ctx)
 					await runCompactionCheck(this.ctx)
 					yield* this.ctx.drainPending()
 					if (this.stopForCompactionBreaker()) break

@@ -10,6 +10,7 @@ it('retries ten times, from half a second to thirty-two, with Retry-After as a f
 		maxRetryAfterMs: 60_000,
 		jitter: 'proportional',
 		retryAfter: 'floor',
+		overloadedFallOverAfter: 3,
 	})
 })
 
