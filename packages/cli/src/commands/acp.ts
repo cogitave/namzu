@@ -595,9 +595,20 @@ const DEFAULT_RUNTIME_DEPS: AcpRuntimeDependencies = {
  * that boundary into the model runtime: one AgentSession and event route per
  * wire session, never one mutable connection-global slot.
  */
+export interface CliAcpRuntimeOptions {
+	/**
+	 * Mount the host `computer_use` tool in each conversation. The desktop
+	 * application sets it; a bare `namzu acp` client does not, so its
+	 * behaviour is unchanged. Every call still goes through the person's
+	 * approval, and a Pal conversation keeps its own computer instead.
+	 */
+	readonly computerUse?: boolean
+}
+
 export function createCliAcpRuntime(
 	bootstrapCtx: CommandContext,
 	deps: AcpRuntimeDependencies = DEFAULT_RUNTIME_DEPS,
+	runtimeOptions: CliAcpRuntimeOptions = {},
 ): CliAcpRuntime {
 	const records = new Map<string, AcpRuntimeRecord>()
 	const liveInputs = new Map<string, LivePromptInbox>()
@@ -826,6 +837,11 @@ export function createCliAcpRuntime(
 						: undefined
 				candidate = await deps.createSession(prefs, probe.detected, {
 					...(palEnvironment ? { palEnvironment } : {}),
+					// The host PC, for the desktop only. A Pal conversation has its own
+					// computer behind the same tool name, so it never gets both.
+					...(runtimeOptions.computerUse === true && !palEnvironment
+						? { enableComputerUse: true }
+						: {}),
 					cwd,
 					sessionId: target.sessionId,
 					...(conversationState
@@ -1907,7 +1923,10 @@ export async function closeAcpResources(
 }
 
 export async function runAcpCommand(ctx: CommandContext, desktop = false): Promise<number> {
-	const runtime = withCliHarnesses(createCliAcpRuntime(ctx), process.cwd())
+	const runtime = withCliHarnesses(
+		createCliAcpRuntime(ctx, DEFAULT_RUNTIME_DEPS, { computerUse: desktop }),
+		process.cwd(),
+	)
 	const transport = new ServerStdioTransport()
 	// The terminals this process hosts for the desktop. Their output travels as
 	// notifications on the same stream, written in the order it was produced; once
