@@ -7,22 +7,24 @@
  */
 
 // Written for the `u` flag, which every compiled expression carries.
-const POSIX_CLASSES: Record<string, string> = {
-	alnum: '\\p{L}\\p{Nl}\\p{Nd}',
-	alpha: '\\p{L}\\p{Nl}',
-	ascii: '\\x00-\\x7f',
-	blank: '\\p{Zs}\\t',
-	cntrl: '\\p{Cc}',
-	digit: '\\p{Nd}',
-	graph: '\\x21-\\x7e',
-	lower: '\\p{Ll}',
-	print: '\\x20-\\x7e',
-	punct: '\\p{P}\\p{S}',
-	space: '\\s',
-	upper: '\\p{Lu}',
-	word: '\\p{L}\\p{Nl}\\p{Nd}_',
-	xdigit: '0-9a-fA-F',
-}
+const POSIX_CLASSES: ReadonlyMap<string, string> = new Map(
+	Object.entries({
+		alnum: '\\p{L}\\p{Nl}\\p{Nd}',
+		alpha: '\\p{L}\\p{Nl}',
+		ascii: '\\x00-\\x7f',
+		blank: '\\p{Zs}\\t',
+		cntrl: '\\p{Cc}',
+		digit: '\\p{Nd}',
+		graph: '\\x21-\\x7e',
+		lower: '\\p{Ll}',
+		print: '\\x20-\\x7e',
+		punct: '\\p{P}\\p{S}',
+		space: '\\s',
+		upper: '\\p{Lu}',
+		word: '\\p{L}\\p{Nl}\\p{Nd}_',
+		xdigit: '0-9a-fA-F',
+	}),
+)
 
 export interface CompiledSegment {
 	/** Set when the segment has no magic: the exact name it matches. */
@@ -32,20 +34,34 @@ export interface CompiledSegment {
 }
 
 /**
+ * The longest segment, in UTF-16 code units, that `compileSegment` accepts. A
+ * file name is at most 255 bytes on the file systems Namzu runs on, so a
+ * pattern for one name beyond four times that is never legitimate, while
+ * compiling a segment costs time in proportion to the square of its length.
+ */
+export const MAX_GLOB_SEGMENT_LENGTH = 1024
+
+/** How much of an over-long pattern an error message shows. */
+const PREVIEW_LENGTH = 60
+
+/**
  * Raised for a segment that repeats a group (`*( )` or `+( )`) which could match
  * the same text more than one way. Such a group backtracks exponentially on a
  * name that nearly matches, and glob patterns come from untrusted input.
  */
 export class GlobTooComplexError extends Error {
 	readonly segment: string
-	constructor(segment: string, reason: 'ambiguous' | 'stretch' = 'ambiguous') {
+	constructor(segment: string, reason: 'ambiguous' | 'stretch' | 'length' = 'ambiguous') {
 		super(
-			reason === 'stretch'
-				? `The pattern '${segment}' has more than three wildcards that can stretch; split it across folders or use fewer *.`
-				: `The pattern '${segment}' repeats a group that can match the same text more than one way; use ** or {a,b} instead.`,
+			reason === 'length'
+				? `The pattern '${segment.slice(0, PREVIEW_LENGTH)}...' is too long (${segment.length} characters; at most ${MAX_GLOB_SEGMENT_LENGTH} between slashes); shorten it or split it across folders.`
+				: reason === 'stretch'
+					? `The pattern '${segment}' has more than three wildcards that can stretch; split it across folders or use fewer *.`
+					: `The pattern '${segment}' repeats a group that can match the same text more than one way; use ** or {a,b} instead.`,
 		)
 		this.name = 'GlobTooComplexError'
-		this.segment = segment
+		// An over-long pattern is not kept whole: the error may be logged.
+		this.segment = reason === 'length' ? segment.slice(0, PREVIEW_LENGTH) : segment
 	}
 }
 
@@ -85,7 +101,7 @@ function classEnd(text: string, start: number): number {
 		if (ch === '\\') index += 1
 		else if (ch === '[' && text[index + 1] === ':') {
 			const end = text.indexOf(':]', index + 2)
-			if (end > 0 && POSIX_CLASSES[text.slice(index + 2, end)]) index = end + 1
+			if (end > 0 && POSIX_CLASSES.has(text.slice(index + 2, end))) index = end + 1
 		} else if (ch === ']') return index
 	}
 	return -1
@@ -134,8 +150,9 @@ function classSource(body: string): string {
 		if (ch === '[' && body[index + 1] === ':') {
 			const end = body.indexOf(':]', index + 2)
 			const name = end > 0 ? body.slice(index + 2, end) : ''
-			if (POSIX_CLASSES[name]) {
-				out += POSIX_CLASSES[name]
+			const members = POSIX_CLASSES.get(name)
+			if (members !== undefined) {
+				out += members
 				index = end + 1
 				continue
 			}
@@ -268,6 +285,7 @@ function isOneGroup(text: string): boolean {
  * segment that itself begins with a literal `.` can.
  */
 export function compileSegment(segment: string, dot: boolean): CompiledSegment {
+	if (segment.length > MAX_GLOB_SEGMENT_LENGTH) throw new GlobTooComplexError(segment, 'length')
 	const guard = dot ? '' : '(?!\\.)'
 	let parsed: Parsed
 	try {
