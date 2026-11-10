@@ -430,6 +430,20 @@ it('classifies a typed setup error by its code, whatever its wording', () => {
 		})
 })
 
+it('classifies the sentences the project open path throws', () => {
+	expect(desktopFailure('That folder no longer exists. Choose another folder.')).toMatchObject({
+		reason: 'project-folder-missing',
+	})
+	expect(
+		desktopFailure(
+			'Namzu can’t open that folder. Check that you have access to it, or choose another folder.',
+		),
+	).toMatchObject({ reason: 'project-folder-unreadable' })
+	expect(desktopFailure('That is a file, not a folder. Choose a folder.')).toMatchObject({
+		reason: 'project-folder-not-a-directory',
+	})
+})
+
 it('records the open and quit timeline as events with the milliseconds since the process started', () => {
 	const { sink } = create()
 	for (const event of [

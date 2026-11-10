@@ -53,6 +53,9 @@ precedence over a stale endpoint cell for the exact affected models.
 1. On launch the session starts with the **bundled** catalogue. The refresh
    first reads the **last-good copy** at `cli/zen-catalogue.json` under the
    application home (`~/.namzu` or `NAMZU_HOME`), and uses it if it is valid.
+   A copy written within the last six hours (`ZEN_CATALOGUE_CACHE_MAX_AGE_MS`)
+   is also enough: the refresh ends there without asking the network, so the
+   several engines Desktop starts together do not each fetch the five sources.
 2. When the refresh **lands**, its catalogue becomes the one the session uses
    straight away: for the model picker, anonymous-access checks, routing,
    context windows and effort levels. That includes providers built before it
@@ -61,8 +64,10 @@ precedence over a stale endpoint cell for the exact affected models.
    place.
 3. When the refresh **fails** (a source unreachable, too slow, too large, or no
    longer in the shape the rules read), the session keeps what it had: the
-   last-good copy, otherwise the bundled catalogue. It logs one `warn` line
-   saying which one it kept and why.
+   last-good copy, otherwise the bundled catalogue. It logs one line saying
+   which one it kept and why. Being offline, a blocked host or a slow answer is
+   a normal state and the line is `debug` (the reason is on it); a source that
+   answered and was wrong (moved, no longer parses) stays a `warn`.
 
 The catalogue is used whole or not at all. A half-written, edited or
 wrong-version copy on disk is refused with one `warn` line and ignored, never
