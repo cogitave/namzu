@@ -136,8 +136,9 @@
 }
 .model-provider-tab:focus-visible,
 .model-picker-row:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
 }
 .model-provider-mark {
 	display: grid;
@@ -212,8 +213,9 @@
 	background: color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 .model-picker-back:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 1px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .model-picker-heading-copy {
 	flex: 1 1 auto;
@@ -502,8 +504,9 @@
 	background: color-mix(in srgb, var(--foreground) 5%, var(--popover));
 }
 .model-picker-fold:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
 }
 .model-picker-fold svg {
 	width: 14px;
@@ -550,8 +553,9 @@
 	background: color-mix(in srgb, var(--foreground) 5%, var(--popover));
 }
 .model-picker-fold:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
 }
 .model-picker-fold svg {
 	width: 14px;
@@ -580,6 +584,7 @@
 	cursor: pointer;
 }
 .model-picker-retry:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 1px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }

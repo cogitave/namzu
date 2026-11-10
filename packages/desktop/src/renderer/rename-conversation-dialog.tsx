@@ -83,7 +83,7 @@ export function RenameConversationDialog({
 								ref={field}
 								type="text"
 								aria-label={fieldLabel}
-								className="mt-4 h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+								className="mt-4 h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-hidden focus-visible:border-ring focus-visible:[box-shadow:var(--focus-ring)]!/40"
 								value={value}
 								maxLength={maxLength}
 								disabled={pending}

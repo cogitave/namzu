@@ -160,7 +160,7 @@ export function ThreadCard({
 							aria-current={active ? 'page' : undefined}
 							onClick={onClick}
 							className={cn(
-								'group/sidebar-row sidebar-conversation-button relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+								'group/sidebar-row sidebar-conversation-button relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-hidden select-none focus-visible:[box-shadow:var(--focus-ring-inset)]!',
 								active
 									? 'bg-sidebar-row-active text-sidebar-foreground'
 									: 'bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover',

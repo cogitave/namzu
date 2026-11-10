@@ -355,8 +355,9 @@
 	background: transparent;
 }
 .composer-project-row:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
 }
 .composer-project-row > svg,
 .composer-project-check > svg {

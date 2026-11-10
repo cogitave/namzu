@@ -78,8 +78,9 @@
 	background: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 .tool-output-more:focus-visible {
-	outline: 2px solid var(--ring, currentColor);
-	outline-offset: 1px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .tool-note {
 	margin: 0;
