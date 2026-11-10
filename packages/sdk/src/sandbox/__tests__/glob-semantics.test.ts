@@ -225,9 +225,12 @@ const expected: Record<string, { hidden: string[]; visible: string[] }> = {
 		visible: ['src/one.ts'],
 		hidden: ['src/one.ts'],
 	},
+	// The one row that differs from the recording: the minimatch 9 expression for
+	// this pattern also let a root file named `a b.md` through. That was a
+	// defect, not a contract (a class names one character, then a `/`).
 	'[ab]/**': {
-		visible: ['a b.md', 'a/b/x', 'b/x'],
-		hidden: ['a b.md', 'a/b/x', 'b/x'],
+		visible: ['a/b/x', 'b/x'],
+		hidden: ['a/b/x', 'b/x'],
 	},
 	'[!a]/x': {
 		visible: ['b/x', 'c/x'],

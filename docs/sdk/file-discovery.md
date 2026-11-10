@@ -48,6 +48,14 @@ during enumeration. Known file paths can be read directly. The runtime prompt
 no longer requires a discovery call before every read. The tool call label
 includes both pattern and directory.
 
+The walk compiles patterns itself (`sandbox/glob-segment.ts`): braces are expanded
+first (at most 256 branches), then each path segment becomes a plain name or a
+regular expression covering `*`, `?`, `[...]` classes, POSIX classes, the five
+extglob forms and `\` escapes, with `**` spanning any number of directories. The
+same expressions run on the host and in the sandbox guest, so both see the same
+files. A wildcard never matches a name starting with `.` unless hidden entries
+are included or the pattern spells the dot out.
+
 ## Content searches
 
 `grep` uses the same incremental enumerator before reading file contents.

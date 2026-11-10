@@ -104,7 +104,7 @@
 		"brace-expansion": "^2.1.7",
 		"diff": "9.0.0",
 		"fast-png": "^8.0.0",
-		"minimatch": "^9.0.9",
+		"minimatch": "^11.0.1",
 		"pica": "^10.0.3",
 		"quickjs-emscripten-core": "0.32.0",
 		"turndown": "^7.2.4",
