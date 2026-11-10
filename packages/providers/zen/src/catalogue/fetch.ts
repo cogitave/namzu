@@ -50,11 +50,11 @@ const DEFAULT_TIMEOUT_MS = 15_000
 const MIB = 1024 * 1024
 
 function docsBase(ref: string): string {
-	// The docs site moved under `services/www`; the two pages are read from
+	// The docs site moved under `services/site` (earlier `services/www`); the two pages are read from
 	// there now. `ZEN_SERVICES` carries each page's path under this root.
 	return `https://raw.githubusercontent.com/anomalyco/opencode/${encodeURIComponent(
 		ref,
-	)}/services/www/src/docs/content`
+	)}/services/site/src/docs/content`
 }
 
 /** The URL of one service's documentation page. */

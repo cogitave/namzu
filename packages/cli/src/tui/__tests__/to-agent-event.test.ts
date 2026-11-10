@@ -521,6 +521,33 @@ describe('toAgentEvent carries the context figures across', () => {
 			presenter,
 		)
 
+	it('carries the input and cache shares of the spend beside the total', () => {
+		const event = toAgentEvent(
+			{
+				type: 'token_usage_updated',
+				sessionId,
+				turnId,
+				usage: {
+					totalTokens: 887,
+					completionTokens: 869,
+					promptTokens: 18,
+					cachedTokens: 53_000,
+					cacheWriteTokens: 27_000,
+				},
+				cost: COST,
+			} as unknown as SessionEvent,
+			presenter,
+		)
+		expect(event).toMatchObject({
+			kind: 'usage',
+			totalTokens: 887,
+			outputTokens: 869,
+			inputTokens: 18,
+			cacheReadTokens: 53_000,
+			cacheWriteTokens: 27_000,
+		})
+	})
+
 	it('carries both terms and both provenances', () => {
 		expect(
 			usageEvent({
