@@ -16,10 +16,19 @@ import {
 } from '@namzu/sdk'
 
 import { preview } from './presentation.js'
+import { RETIRED_DUPLICATE, isUnused, retiredReasonOf } from './sweep.js'
+import type { MemoryUsage } from './usage.js'
 
 const DAY_MS = 86_400_000
 
 type MemoryId = Parameters<MarkdownMemoryStore['delete']>[0]
+
+/**
+ * `active`: recall may offer it. `set-aside`: a refused request carried it, so
+ * recall does not offer it until it is restored. `retired`: the sweep archived
+ * it. Retired and set-aside memories stay on disk.
+ */
+export type ManagedMemoryState = 'active' | 'set-aside' | 'retired'
 
 export interface ManagedMemory {
 	readonly id: MemoryId
@@ -34,40 +43,88 @@ export interface ManagedMemory {
 	readonly path: string
 	/** The title of the memory this one replaced, when the small model superseded one. */
 	readonly replaces?: string
+	/** Absent means `active`. */
+	readonly state?: ManagedMemoryState
+	/** Why the sweep retired it. Only with `state: 'retired'`. */
+	readonly retiredReason?: string
+	/** You or Namzu saved it and it has not been recalled for a long time. Nothing was changed. */
+	readonly possiblyStale?: true
+}
+
+export interface ManagedMemoryLookups {
+	readonly usage?: MemoryUsage
+	readonly now?: number
+	/** Days; with `usage`, marks a memory you or Namzu saved that recall has not offered for that long. */
+	readonly retireAfterDays?: number
 }
 
 export type DeleteOutcome = 'deleted' | 'changed' | 'gone'
 
-/** Active memories of the project, in the order the picker shows them. */
+/**
+ * The memories of the project, in the order the picker shows them: those
+ * recall may offer, those a refused request set aside, and those the sweep
+ * retired.
+ */
 export async function loadManagedMemories(
 	store: MarkdownMemoryStore,
 	directory: string,
+	lookups: ManagedMemoryLookups = {},
 ): Promise<readonly ManagedMemory[]> {
-	const { entries } = await store.list({ status: 'active' })
 	const items: ManagedMemory[] = []
-	for (const entry of entries) {
-		const record = await store.getVersionedRecord(entry.id)
-		if (!record || record.entry.status !== 'active') continue
-		const supersedes = record.content.metadata?.supersedes
-		const replaced =
-			typeof supersedes === 'string'
-				? (await store.getRecord(supersedes as MemoryId))?.entry.title
-				: undefined
-		items.push({
-			id: record.entry.id,
-			name: record.entry.name,
-			title: record.entry.title,
-			type: record.entry.type,
-			origin: memoryOrigin(record.content.metadata),
-			createdAt: record.entry.createdAt,
-			updatedAt: record.entry.updatedAt,
-			revision: record.revision,
-			path: record.entry.name ? join(directory, `${record.entry.name}.md`) : directory,
-			...(replaced ? { replaces: replaced } : {}),
-		})
+	const { usage } = lookups
+	const at = lookups.now ?? Date.now()
+	for (const status of ['active', 'archived'] as const) {
+		const { entries } = await store.list({ status })
+		for (const entry of entries) {
+			const record = await store.getVersionedRecord(entry.id)
+			if (!record || record.entry.status !== status) continue
+			const metadata = record.content.metadata
+			const retiredReason = status === 'archived' ? retiredReasonOf(metadata) : undefined
+			// An archived record the sweep did not retire was put away on purpose.
+			if (status === 'archived' && retiredReason === undefined) continue
+			const origin = memoryOrigin(metadata)
+			const supersedes = metadata?.supersedes
+			const replaced =
+				typeof supersedes === 'string'
+					? (await store.getRecord(supersedes as MemoryId))?.entry.title
+					: undefined
+			const state: ManagedMemoryState =
+				status === 'archived' ? 'retired' : usage?.isSetAside(entry.id) ? 'set-aside' : 'active'
+			const stale =
+				status === 'active' &&
+				origin !== 'derived' &&
+				usage !== undefined &&
+				lookups.retireAfterDays !== undefined &&
+				lookups.retireAfterDays > 0 &&
+				usage.state === 'known' &&
+				isUnused({
+					usage,
+					id: entry.id,
+					touchedAt: record.entry.updatedAt,
+					at,
+					retireAfterDays: lookups.retireAfterDays,
+				})
+			items.push({
+				id: record.entry.id,
+				name: record.entry.name,
+				title: record.entry.title,
+				type: record.entry.type,
+				origin,
+				createdAt: record.entry.createdAt,
+				updatedAt: record.entry.updatedAt,
+				revision: record.revision,
+				path: record.entry.name ? join(directory, `${record.entry.name}.md`) : directory,
+				...(replaced ? { replaces: replaced } : {}),
+				...(state !== 'active' ? { state } : {}),
+				...(retiredReason !== undefined ? { retiredReason } : {}),
+				...(stale ? { possiblyStale: true as const } : {}),
+			})
+		}
 	}
 	return sortManagedMemories(items)
 }
+
+const STATE_RANK: Record<ManagedMemoryState, number> = { active: 0, 'set-aside': 1, retired: 2 }
 
 const ORIGIN_RANK: Record<MemoryOrigin, number> = {
 	operator: 0,
@@ -79,6 +136,7 @@ const ORIGIN_RANK: Record<MemoryOrigin, number> = {
 export function sortManagedMemories(items: readonly ManagedMemory[]): readonly ManagedMemory[] {
 	return [...items].sort(
 		(a, b) =>
+			STATE_RANK[a.state ?? 'active'] - STATE_RANK[b.state ?? 'active'] ||
 			ORIGIN_RANK[a.origin] - ORIGIN_RANK[b.origin] ||
 			b.updatedAt - a.updatedAt ||
 			(a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
@@ -100,8 +158,18 @@ export function memoryLabel(item: ManagedMemory): string {
 	return line
 }
 
+/** The marker a set-aside, retired or possibly stale memory carries in lists. */
+export function stateLabel(item: ManagedMemory): string | undefined {
+	if (item.state === 'set-aside') return 'set aside: a refused request carried it'
+	if (item.state === 'retired')
+		return item.retiredReason === RETIRED_DUPLICATE
+			? 'retired: a newer copy exists'
+			: 'retired: not recalled for a while'
+	return item.possiblyStale ? 'possibly stale: not recalled for a while' : undefined
+}
+
 export function memoryDescription(item: ManagedMemory, now: number = Date.now()): string {
-	return [originLabel(item.origin), item.type, ageLabel(item.updatedAt, now)]
+	return [stateLabel(item), originLabel(item.origin), item.type, ageLabel(item.updatedAt, now)]
 		.filter((part): part is string => Boolean(part))
 		.join(' · ')
 }
@@ -181,6 +249,7 @@ export function renderMemoryDetail(item: ManagedMemory, body: string): string {
 	return [
 		memoryLabel(item),
 		`Written by: ${originLabel(item.origin)}`,
+		...(stateLabel(item) ? [`State: ${stateLabel(item)}`] : []),
 		...(item.replaces ? [`Replaced: ${item.replaces.replace(/\s+/g, ' ').trim()}`] : []),
 		...(item.type ? [`Type: ${item.type}`] : []),
 		`Created: ${stamp(item.createdAt)}`,
@@ -210,6 +279,43 @@ export async function deleteManagedMemory(
 		if (!(error instanceof MemoryRevisionConflictError)) throw error
 		return (await store.getRecord(item.id)) ? 'changed' : 'gone'
 	}
+}
+
+export type RestoreOutcome = 'restored' | 'changed' | 'gone' | 'not-needed'
+
+/**
+ * Bring a set-aside or retired memory back. A set-aside one is offered by
+ * recall again; a retired one becomes active, without the marks the sweep
+ * left. A record changed since it was listed stays as it is.
+ */
+export async function restoreManagedMemory(
+	store: MarkdownMemoryStore,
+	item: ManagedMemory,
+	liftSetAside: (id: string) => Promise<void>,
+): Promise<RestoreOutcome> {
+	if (item.state === 'set-aside') {
+		await liftSetAside(item.id)
+		return 'restored'
+	}
+	if (item.state !== 'retired') return 'not-needed'
+	try {
+		const record = await store.getVersionedRecord(item.id)
+		if (!record) return 'gone'
+		const { retiredAt: _at, retiredReason: _reason, ...rest } = record.content.metadata ?? {}
+		await store.updateIfRevision(item.id, { status: 'active', metadata: rest }, item.revision)
+		return 'restored'
+	} catch (error) {
+		if (!(error instanceof MemoryRevisionConflictError)) throw error
+		return (await store.getRecord(item.id)) ? 'changed' : 'gone'
+	}
+}
+
+export function restoreOutcomeLine(item: ManagedMemory, outcome: RestoreOutcome): string {
+	if (outcome === 'restored') return `Restored “${memoryLabel(item)}”. Namzu may recall it again.`
+	if (outcome === 'changed')
+		return `“${memoryLabel(item)}” changed since it was listed, so it was left as it was. /memory lists it again.`
+	if (outcome === 'gone') return `“${memoryLabel(item)}” was already gone.`
+	return `“${memoryLabel(item)}” needs no restoring.`
 }
 
 export interface BulkDeleteResult {

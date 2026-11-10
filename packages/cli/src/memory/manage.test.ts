@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { MarkdownMemoryStore } from '@namzu/sdk'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import {
@@ -24,10 +24,16 @@ import {
 	memoryListChoices,
 	readMemoryBody,
 	renderMemoryDetail,
+	restoreManagedMemory,
+	restoreOutcomeLine,
 } from './manage.js'
 
+import { MemoryUsage } from './usage.js'
+
+const DAY = 86_400_000
 const roots: string[] = []
 afterEach(() => {
+	vi.useRealTimers()
 	for (const root of roots.splice(0)) removeTempDir(root)
 })
 
@@ -311,5 +317,122 @@ describe('a replaced memory', () => {
 		expect(renderMemoryDetail(item, 'pnpm for this repository.')).toContain(
 			'Replaced: Use pnpm everywhere',
 		)
+	})
+})
+
+describe('set-aside, retired and possibly stale memories', () => {
+	it('lists them after the active ones, marked, and offers each to restore', async () => {
+		// Records take their time from the clock, so the test owns it.
+		vi.useFakeTimers({ toFake: ['Date'] })
+		vi.setSystemTime(10 * DAY)
+		const { store, directory } = tempStore()
+		const { mine, saved, recorded } = await seed(store)
+		const retired = await store.create({
+			title: 'Old claim',
+			summary: 's',
+			content: 'c',
+			name: 'old-claim',
+			metadata: { source: 'session-memory' },
+		})
+		const record = await store.getVersionedRecord(retired.entry.id)
+		await store.updateIfRevision(
+			retired.entry.id,
+			{
+				status: 'archived',
+				metadata: { ...record?.content.metadata, retiredAt: 5, retiredReason: 'unused' },
+			},
+			record?.revision as string,
+		)
+		// Archived on purpose by a person: not a retired memory, so not listed.
+		const away = await store.create({ title: 'Put away', summary: 's', content: 'c' })
+		await store.update(away.entry.id, { status: 'archived' })
+
+		const usage = new MemoryUsage({ file: join(directory, 'usage.json'), now: () => 10 * DAY })
+		await usage.load()
+		usage.recalled(['x'])
+		await usage.flush()
+		usage.setAside([recorded.entry.id])
+
+		const items = await loadManagedMemories(store, directory, {
+			usage,
+			now: 40 * DAY,
+			retireAfterDays: 21,
+		})
+		expect(
+			items.map((item) => [item.id, item.state ?? 'active', item.possiblyStale === true]),
+		).toEqual([
+			[mine.entry.id, 'active', true],
+			[saved.entry.id, 'active', true],
+			[recorded.entry.id, 'set-aside', false],
+			[retired.entry.id, 'retired', false],
+		])
+		const text = (id: string) => {
+			const item = items.find((entry) => entry.id === id)
+			return item ? memoryDescription(item, 40 * DAY) : ''
+		}
+		expect(text(recorded.entry.id)).toMatch(/^set aside: a refused request carried it · /u)
+		expect(text(retired.entry.id)).toMatch(/^retired: not recalled for a while · /u)
+		expect(text(mine.entry.id)).toMatch(/^possibly stale: /u)
+	})
+
+	it('marks nothing stale when the counts are unknown or the sweep is off', async () => {
+		vi.useFakeTimers({ toFake: ['Date'] })
+		vi.setSystemTime(10 * DAY)
+		const { store, directory } = tempStore()
+		await seed(store)
+		const unknown = new MemoryUsage({ file: join(directory, 'none.json'), now: () => 0 })
+		await unknown.load()
+		for (const lookups of [
+			{ usage: unknown, now: 400 * DAY, retireAfterDays: 21 },
+			{ now: 400 * DAY, retireAfterDays: 21 },
+			{ usage: unknown, now: 400 * DAY, retireAfterDays: 0 },
+		])
+			expect(
+				(await loadManagedMemories(store, directory, lookups)).some((item) => item.possiblyStale),
+			).toBe(false)
+	})
+
+	it('restores a set-aside memory by lifting it, and says so', async () => {
+		const { store, directory } = tempStore()
+		const { recorded } = await seed(store)
+		const usage = new MemoryUsage({ file: join(directory, 'usage.json'), now: () => 1 })
+		await usage.load()
+		usage.setAside([recorded.entry.id])
+		const [item] = (await loadManagedMemories(store, directory, { usage })).filter(
+			(entry) => entry.id === recorded.entry.id,
+		)
+		const lifted: string[] = []
+		expect(
+			await restoreManagedMemory(store, item as never, async (id) => void lifted.push(id)),
+		).toBe('restored')
+		expect(lifted).toEqual([recorded.entry.id])
+		expect(restoreOutcomeLine(item as never, 'restored')).toBe(
+			'Restored “Fixed the flake”. Namzu may recall it again.',
+		)
+	})
+
+	it('leaves a retired memory that changed since it was listed', async () => {
+		const { store, directory } = tempStore()
+		const made = await store.create({
+			title: 'Old claim',
+			summary: 's',
+			content: 'c',
+			metadata: { source: 'session-memory' },
+		})
+		const record = await store.getVersionedRecord(made.entry.id)
+		await store.updateIfRevision(
+			made.entry.id,
+			{
+				status: 'archived',
+				metadata: { ...record?.content.metadata, retiredAt: 5, retiredReason: 'duplicate' },
+			},
+			record?.revision as string,
+		)
+		const [item] = await loadManagedMemories(store, directory)
+		expect(item?.state).toBe('retired')
+		await store.update(made.entry.id, { title: 'Edited by a person' })
+		expect(await restoreManagedMemory(store, item as never, async () => undefined)).toBe('changed')
+		expect((await store.getRecord(made.entry.id))?.entry.status).toBe('archived')
+		expect(restoreOutcomeLine(item as never, 'changed')).toMatch(/changed since it was listed/u)
 	})
 })

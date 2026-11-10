@@ -285,6 +285,8 @@ function resolveConfigWithProvenance(
 				'profiles.*.memory.select',
 				'memory.curation',
 				'profiles.*.memory.curation',
+				'memory.retireAfterDays',
+				'profiles.*.memory.retireAfterDays',
 			])
 		: {}
 	// `.mcp.json`: the project's shared tool servers. Read under the same trust
@@ -315,6 +317,8 @@ function resolveConfigWithProvenance(
 				'profiles.*.memory.select',
 				'memory.curation',
 				'profiles.*.memory.curation',
+				'memory.retireAfterDays',
+				'profiles.*.memory.retireAfterDays',
 			])
 		: {}
 	const managedCfg = readJsonIfExists(managedPath, shortHomePath(managedPath))
@@ -1013,7 +1017,8 @@ const CONFIG_READERS: ConfigReaders = {
 				key !== 'recall' &&
 				key !== 'identifierGrounding' &&
 				key !== 'select' &&
-				key !== 'curation'
+				key !== 'curation' &&
+				key !== 'retireAfterDays'
 			)
 				return invalidConfigValue(context, [key], 'is not a memory key')
 		}
@@ -1029,7 +1034,20 @@ const CONFIG_READERS: ConfigReaders = {
 		if (v.curation !== undefined && v.curation !== 'on' && v.curation !== 'off') {
 			return invalidConfigValue(context, ['curation'], 'must be "on" or "off"')
 		}
+		if (
+			v.retireAfterDays !== undefined &&
+			(typeof v.retireAfterDays !== 'number' ||
+				!Number.isInteger(v.retireAfterDays) ||
+				v.retireAfterDays < 0)
+		) {
+			return invalidConfigValue(
+				context,
+				['retireAfterDays'],
+				'must be a whole number of days, or 0 to keep records active for ever',
+			)
+		}
 		return {
+			...(v.retireAfterDays === undefined ? {} : { retireAfterDays: v.retireAfterDays as number }),
 			...(v.select === undefined ? {} : { select: v.select as 'on' | 'off' }),
 			...(v.curation === undefined ? {} : { curation: v.curation as 'on' | 'off' }),
 			...(v.recall === undefined ? {} : { recall: v.recall as boolean }),

@@ -249,6 +249,7 @@ import {
 	memoryListChoices,
 	recordedMemories,
 	renderMemoryDetail,
+	restoreOutcomeLine,
 } from '../memory/manage.js'
 import {
 	renderMemoryReport,
@@ -5096,6 +5097,12 @@ function AppBody({
 				}
 				const target = picker.target
 				if (picker.step === 'actions' && target) {
+					if (value === 'restore' && manage.restore) {
+						void manage
+							.restore(target)
+							.then((outcome) => finish(restoreOutcomeLine(target, outcome)), failed)
+						return
+					}
 					if (value === 'show') {
 						void manage
 							.read(target)
@@ -13001,6 +13008,21 @@ function AppBody({
 						)
 						return
 					}
+					case 'tidy-memory': {
+						const manage = session?.storedMemories
+						if (!manage?.tidy) {
+							pushMessage(
+								'system',
+								'Stored memory is not open yet; /memory tidy works once a conversation has started.',
+							)
+							return
+						}
+						void manage.tidy().then(
+							(text) => pushMessage('system', text),
+							(err: unknown) => pushSystem('error', explainFailure(err, 'Memory was not tidied.')),
+						)
+						return
+					}
 					case 'show-memory': {
 						void memoryReport(session, ctx.cwd).then((report) =>
 							pushMemoryReport(report, pushMessage, pushSystem),
@@ -17304,9 +17326,20 @@ function memoryActionsPicker(
 		target,
 		title: memoryLabel(target),
 		notice: memoryDescription(target),
-		values: ['show', 'delete'],
+		values: target.state ? ['show', 'restore', 'delete'] : ['show', 'delete'],
 		options: [
 			{ label: 'Show', description: 'Print the whole memory.' },
+			...(target.state
+				? [
+						{
+							label: 'Restore',
+							description:
+								target.state === 'set-aside'
+									? 'Let Namzu recall it again.'
+									: 'Make it active again so Namzu may recall it.',
+						},
+					]
+				: []),
 			{
 				label: 'Delete',
 				description: 'Remove it so Namzu does not recall it again.',

@@ -463,20 +463,24 @@ import {
 } from '../memory/curation-runtime.js'
 import { MemoryCurator } from '../memory/curator.js'
 import { MemoryInbox } from '../memory/inbox.js'
+import { MemoryLifecycle } from '../memory/lifecycle.js'
 import {
 	type DeleteOutcome,
 	type ManagedMemory,
+	type RestoreOutcome,
 	deleteManagedMemory,
 	deleteMemories,
 	deleteRecordedMemories,
 	loadManagedMemories,
 	readMemoryBody,
+	restoreManagedMemory,
 } from '../memory/manage.js'
 import { formatMemoryDiagnostics } from '../memory/presentation.js'
 import { archiveUnscreenedRecords } from '../memory/screen-archive.js'
 import { consolidationScreen, screenMemoryPromotion } from '../memory/screen.js'
 import { memorySelectionOptions } from '../memory/select.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
+import { DEFAULT_RETIRE_AFTER_DAYS, describeSweep } from '../memory/sweep.js'
 import {
 	type TypedNoteResult,
 	composeMemoryGuidance,
@@ -487,6 +491,7 @@ import {
 	migrateMemoryOnce,
 	saveTypedNote,
 } from '../memory/typed.js'
+import { MemoryUsage } from '../memory/usage.js'
 import {
 	type RecentBlock,
 	classifierUnavailableReason,
@@ -793,7 +798,7 @@ export type AgentEvent =
 	| {
 			readonly kind: 'model-refusal'
 			readonly model: string
-			readonly outcome: 'fallback' | 'retry' | 'declined'
+			readonly outcome: 'fallback' | 'retry' | 'withheld' | 'declined'
 			readonly fallbackModel?: string
 			readonly category?: string
 			readonly explanation?: string
@@ -1753,6 +1758,10 @@ export interface AgentSession {
 	 */
 	readonly storedMemories?: {
 		readonly load: () => Promise<readonly ManagedMemory[]>
+		/** Bring a set-aside or retired memory back. */
+		readonly restore?: (item: ManagedMemory) => Promise<RestoreOutcome>
+		/** Run the sweep now and say what it archived. */
+		readonly tidy?: () => Promise<string>
 		readonly read: (item: ManagedMemory) => Promise<string | undefined>
 		readonly remove: (item: ManagedMemory) => Promise<DeleteOutcome>
 		readonly removeRecorded: (
@@ -4753,6 +4762,33 @@ export async function createAgentSession(
 									: `${result.applied}/${result.kept}/${result.dropped}`,
 						}),
 				})
+	// What recall did with each memory is counted beside the records, never in
+	// them. The idle sweep retires what recall has not offered for a while, and
+	// what a refused request carried is set aside until the person restores it.
+	const memoryUsage = new MemoryUsage({
+		file: join(paths.home, 'memory-usage', `${paths.slug}.json`),
+		now: Date.now,
+		log: (message, fields) => cliLogger().debug(message, fields),
+	})
+	const memoryLifecycle = new MemoryLifecycle({
+		store: memoryStore,
+		usage: memoryUsage,
+		now: Date.now,
+		retireAfterDays: options.memory?.retireAfterDays ?? DEFAULT_RETIRE_AFTER_DAYS,
+		setTimer: (run, ms) => {
+			const handle = setTimeout(run, ms)
+			handle.unref?.()
+			return handle
+		},
+		clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+		log: (message, fields) => cliLogger().info(message, fields),
+		onSwept: (report) => {
+			const lines = [
+				`Retired ${report.archived.length} ${report.archived.length === 1 ? 'memory' : 'memories'} that were not used. /memory restores ${report.archived.length === 1 ? 'it' : 'them'}.`,
+			]
+			for (const listener of curationListeners) listener(lines)
+		},
+	})
 	// The screen comes first, so neither the decision model nor the inbox ever
 	// holds a claim the screen refuses.
 	const promoteMemory = composeMemoryPromotion({
@@ -5023,6 +5059,7 @@ export async function createAgentSession(
 	// What an earlier process left in the inbox is curated now when a turn can
 	// count the model's tokens, otherwise by the first turn of this session.
 	curation?.start()
+	void memoryLifecycle.start()
 	// Owns the background model-listing lookup below, so closing the session ends it.
 	const reasoningLookup = new AbortController()
 	// Keep the same log (and the SDK's log-owned memory checkpoints) across sends and resumes.
@@ -5033,6 +5070,7 @@ export async function createAgentSession(
 		reasoningLookup.abort()
 		// What the last turns learned is curated before the runtime closes under it.
 		await curation?.dispose()
+		await memoryLifecycle.dispose()
 		// Runs stop before the delegation runtime closes under them.
 		workflowHost?.registry.close()
 		const results = await Promise.allSettled([
@@ -5369,6 +5407,7 @@ export async function createAgentSession(
 			delegationScopes.set(entry.turnId, turnScope)
 			latestTurn = { sessionId: turnScope.sessionId, turnId: entry.turnId }
 			curation?.turnStarted()
+			memoryLifecycle.turnStarted()
 			delegationLimits.set(entry.turnId, resumedLimits)
 			if (route && pinned)
 				delegationModels.set(entry.turnId, {
@@ -5419,6 +5458,7 @@ export async function createAgentSession(
 										store: memoryStore,
 										identifierGrounding: options.memory?.identifierGrounding,
 										record: true,
+										excluded: memoryLifecycle.excluded,
 										...memorySelection,
 									}),
 								]),
@@ -6010,6 +6050,7 @@ export async function createAgentSession(
 							delegationScopes.set(turnId, turnScope)
 							latestTurn = { sessionId: turnScope.sessionId, turnId }
 							curation?.turnStarted()
+							memoryLifecycle.turnStarted()
 							delegationLimits.set(turnId, resolveTurnGuards(options.limits, opts?.limits))
 							delegatedResumeHandlers.set(turnId, control.handler)
 							delegatedReviewAllowedCalls.set(turnId, control.reviewAllowedCalls)
@@ -6229,7 +6270,17 @@ export async function createAgentSession(
 			}),
 		}),
 		storedMemories: {
-			load: () => loadManagedMemories(memoryStore, memoryDirectory),
+			load: () =>
+				loadManagedMemories(memoryStore, memoryDirectory, {
+					usage: memoryUsage,
+					retireAfterDays: options.memory?.retireAfterDays ?? DEFAULT_RETIRE_AFTER_DAYS,
+				}),
+			restore: (item) =>
+				restoreManagedMemory(memoryStore, item, (id) => memoryLifecycle.restore(id)),
+			tidy: async () => {
+				const retireAfterDays = options.memory?.retireAfterDays ?? DEFAULT_RETIRE_AFTER_DAYS
+				return describeSweep(await memoryLifecycle.tidy(), retireAfterDays)
+			},
 			read: (item) => readMemoryBody(memoryStore, item.id),
 			remove: (item) => deleteManagedMemory(memoryStore, item),
 			removeRecorded: (items) => deleteRecordedMemories(memoryStore, items),
@@ -6362,6 +6413,7 @@ export async function createAgentSession(
 						delegationScopes.set(turnId, turnScope)
 						latestTurn = { sessionId: turnScope.sessionId, turnId }
 						curation?.turnStarted()
+						memoryLifecycle.turnStarted()
 						delegationLimits.set(turnId, turnLimits)
 						const typedTarget = parseTokenTarget(opts?.typedInput ?? '')
 						if (typedTarget !== undefined) workflowTokenTargets.set(turnId, typedTarget)
@@ -6798,6 +6850,7 @@ export async function createAgentSession(
 								reviewAnswer: options.reviewAnswer,
 								maxAnswerReviews: options.maxAnswerReviews,
 								promoteMemory: options.compaction?.consolidate ? undefined : promoteMemory,
+								...(options.memory?.recall === false ? {} : { memoryLifecycle }),
 								prepareStep: [
 									createTaskContextStep(turnTaskStore, turnScope.tenantId),
 									outstandingWorkStep,
@@ -6811,6 +6864,7 @@ export async function createAgentSession(
 													query: lastPromptText(messages),
 													identifierGrounding: options.memory?.identifierGrounding,
 													record: true,
+													excluded: memoryLifecycle.excluded,
 													...memorySelection,
 												}),
 											]),
@@ -7812,6 +7866,11 @@ interface TurnParams {
 	readonly maxAnswerReviews: number | undefined
 	/** What this turn should leave behind when it settles. */
 	readonly promoteMemory: PromoteMemory | undefined
+	/**
+	 * Counts what recall offered, sets aside what a refused request carried, and
+	 * asks for that request to be retried without it. Absent when recall is off.
+	 */
+	readonly memoryLifecycle?: MemoryLifecycle
 	readonly prepareStep?: PrepareStepChain
 	/** Exact interactive authority shared with children launched by this turn. */
 	readonly resumeHandler: ResumeHandler
@@ -7890,7 +7949,9 @@ async function* runTurn({
 	reviewAnswer,
 	maxAnswerReviews,
 	promoteMemory,
+	memoryLifecycle,
 	prepareStep,
+
 	resumeHandler,
 	approvalPolicyName,
 	onApprovalPolicy,
@@ -7932,6 +7993,12 @@ async function* runTurn({
 		const events = query({
 			maxOutputContinuations: MAX_OUTPUT_CONTINUATIONS,
 			...(opts?.refusalFallback ? { refusalFallback: opts.refusalFallback } : {}),
+			...(memoryLifecycle
+				? {
+						withholdOnRefusal: memoryLifecycle.withholdOnRefusal,
+						withheldKeys: memoryLifecycle.withheldKeys(),
+					}
+				: {}),
 			...(retainedToolPreviewChars !== undefined ? { retainedToolPreviewChars } : {}),
 			...(fileReadTracker ? { fileReadTracker } : {}),
 			...(structuredOutput ? { structuredOutput } : {}),
@@ -8065,6 +8132,7 @@ async function* runTurn({
 				// TUI renders — an export that only saw what the screen showed would
 				// be a recording of the interface rather than of the session.
 				onSessionEvent?.(event)
+				memoryLifecycle?.observe(event)
 				if (signal?.aborted) {
 					if (!abortReported) {
 						abortReported = true
