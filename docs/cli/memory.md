@@ -317,8 +317,8 @@ memory:
 Privacy: with `memory.select` on, the small model sees your message and the titles
 and descriptions of the candidate memories, sent to your own provider (the small
 model is one of that provider's, or the `smallModel` you set). It sees no memory
-body. A project's `namzu.config.json` cannot set `memory.select`; only your own
-config and a managed config can. One line per selection goes to the log with
+body. A project's `namzu.config.json` (or the local file), including a profile in it, cannot
+set `memory.select`; only your own config and a managed config can. One line per selection goes to the log with
 counts, the reason a fallback happened (`none`, `no side model`, `main route`,
 `timeout`, `invalid`, `error`) and the time taken; it holds no message or memory
 text.

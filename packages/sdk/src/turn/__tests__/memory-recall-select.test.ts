@@ -234,15 +234,20 @@ describe('memory recall selector', () => {
 		const { store } = await seeded()
 		const controller = new AbortController()
 		let seen: AbortSignal | undefined
+		let called!: () => void
+		const calledPromise = new Promise<void>((resolve) => {
+			called = resolve
+		})
 		const recall = createMemoryRecallStep({
 			store,
 			select: ({ signal }) => {
 				seen = signal
+				called()
 				return new Promise(() => undefined)
 			},
 		})
 		const pending = recall({ ...context([createUserMessage(QUERY)]), signal: controller.signal })
-		await vi.waitFor(() => expect(seen).toBeDefined())
+		await calledPromise
 		controller.abort(new Error('cancelled'))
 		await expect(pending).rejects.toThrow(/cancelled/)
 		expect(seen?.aborted).toBe(true)
@@ -260,15 +265,120 @@ describe('memory recall selector', () => {
 			expect(shown).not.toHaveProperty('reason')
 	})
 
-	it('says how many other memories matched', async () => {
+	it('keeps the earlier header and adds no other-matches line when nothing new is configured', async () => {
+		const { store } = await seeded()
+		const text = (
+			await createMemoryRecallStep({ store, maxMemories: 1 })(context([createUserMessage(QUERY)]))
+		)?.context
+		expect(text).toContain('Retrieved project memory')
+		expect(text).not.toContain('Use a record only if it actually applies')
+		expect(text).not.toContain('other memor')
+	})
+
+	it('says how many other memories matched when the words chose, not when the selector answered', async () => {
 		const { store, both } = await seeded()
-		const recall = createMemoryRecallStep({
-			store,
-			maxMemories: 1,
-			shortlist: 8,
-			select: async () => [{ id: both.id }],
+		const base = { store, maxMemories: 1, shortlist: 8 }
+		const words = (
+			await createMemoryRecallStep({ ...base, select: async () => undefined })(
+				context([createUserMessage(QUERY)]),
+			)
+		)?.context
+		expect(words).toMatch(/2 other memories matched; search_memory can find them\./)
+		expect(words).toContain('Use a record only if it actually applies')
+		const chosen = (
+			await createMemoryRecallStep({ ...base, select: async () => [{ id: both.id }] })(
+				context([createUserMessage(QUERY)]),
+			)
+		)?.context
+		expect(chosen).not.toContain('other memor')
+	})
+
+	it('reads down the whole shortlist for coverage, so one-word matches do not use up the places', async () => {
+		const store = new InMemoryMemoryStore()
+		const decoys = []
+		for (const n of ['one', 'two', 'three'])
+			decoys.push(
+				(
+					await store.create({
+						title: `Cerulean ${n}`,
+						summary: `Paint ${n}`,
+						content: `Shade ${n}`,
+					})
+				).entry,
+			)
+		const target = (
+			await store.create({
+				title: 'Warmup notes',
+				summary: 'Deploy chores',
+				content: 'The cerulean cache is refilled by hand',
+			})
+		).entry
+		const text = (
+			await createMemoryRecallStep({
+				store,
+				shortlist: 8,
+				minCoverage: 2,
+				select: async () => undefined,
+			})(context([createUserMessage(QUERY)]))
+		)?.context
+		expect(ids(text, [target, ...decoys])).toEqual([target.id])
+	})
+
+	describe('the decision kept for a message', () => {
+		it('asks again for the same words sent as a new message', async () => {
+			const { store, both } = await seeded()
+			const select = vi.fn(async () => [{ id: both.id }])
+			const recall = createMemoryRecallStep({ store, shortlist: 8, select })
+			const first = [createUserMessage(QUERY), createAssistantMessage('Done.')]
+			await recall(context(first))
+			await recall(context([...first, createUserMessage(QUERY)]))
+			expect(select).toHaveBeenCalledTimes(2)
 		})
-		const text = (await recall(context([createUserMessage(QUERY)])))?.context
-		expect(text).toMatch(/2 other memories matched; search_memory can find them\./)
+
+		it('reuses it for a steering note inside the turn', async () => {
+			const { store, both } = await seeded()
+			const select = vi.fn(async () => [{ id: both.id }])
+			const recall = createMemoryRecallStep({ store, shortlist: 8, select })
+			const first = [createUserMessage(QUERY)]
+			await recall(context(first))
+			await recall(
+				context([
+					...first,
+					createUserMessage('Also mind the cerulean warmup.', undefined, {
+						type: 'runtime-context',
+						kind: 'steering',
+					}),
+				]),
+			)
+			expect(select).toHaveBeenCalledTimes(1)
+		})
+
+		it('does not keep a decision lost to a cancelled turn', async () => {
+			const { store } = await seeded()
+			const controller = new AbortController()
+			let called!: () => void
+			const calledPromise = new Promise<void>((resolve) => {
+				called = resolve
+			})
+			const select = vi.fn(({ signal }: MemorySelectorInput) => {
+				called()
+				return new Promise<readonly MemorySelection[] | undefined>((resolve) =>
+					signal.addEventListener('abort', () => resolve(undefined), { once: true }),
+				)
+			})
+			const recall = createMemoryRecallStep({ store, select })
+			const messages = [createUserMessage(QUERY)]
+			const pending = recall({ ...context(messages), signal: controller.signal })
+			const settled = expect(pending).rejects.toThrow(/cancelled/)
+			await calledPromise
+			controller.abort(new Error('cancelled'))
+			await settled
+			// Let the dropped decision settle before the next step asks.
+			await Promise.resolve()
+			await Promise.resolve()
+			select.mockImplementation(async () => [])
+			await recall(context(messages))
+			expect(select).toHaveBeenCalledTimes(2)
+		})
 	})
 })

@@ -504,7 +504,10 @@ judgement between the two without changing the default.
   given; with no selector `reason` is absent.
 - The selector runs at most once per user message. Its answer, including "nothing"
   and "did not answer", is kept by the step for the tool iterations that follow,
-  and a new user message (or new steering) asks again. It is not called when the
+  and a new user message asks again, the same words sent twice included. A steering
+  note inside the turn reuses the decision of the message it steers. A decision
+  lost to the `timeoutMs` store-read budget or to a cancelled turn is not kept. It
+  is not called when the
   lexical stage found nothing new for it to judge. The `id@updatedAt` check
   against what the conversation already holds is unchanged.
 - Its deadline is its own. The `timeoutMs` budget bounds the store reads and is
@@ -513,10 +516,15 @@ judgement between the two without changing the default.
   is still cut off at `selectTimeoutMs` (default 2,500 ms), when `signal` aborts.
   The host's own, shorter deadline should be the one that normally fires.
 
-When more records matched than were injected, the block ends with
-`N other memories matched; search_memory can find them.` (when it fits the
-character allowance), and the header adds that a record should be used only if
-it actually applies to the request.
+A step given `select` or `shortlist` changes the block in two ways; without
+either, the block is byte-for-byte what it was. The header adds that a record
+should be used only if it actually applies to the request, and, when the words
+chose (no selector, or it did not answer) and more records matched than were
+injected, the block ends with `N other memories matched; search_memory can find
+them.` (when it fits the character allowance). The count leaves out records
+the coverage floor turned away; when the selector answered there is no such
+line, as it judged the rest not to apply. With `minCoverage` above 1 the words
+path reads down the whole shortlist and stops once `maxMemories` records pass.
 
 ### Exercise recall without a provider
 

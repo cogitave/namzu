@@ -1398,4 +1398,18 @@ describe('memory.select config', () => {
 		const bare = noHome()
 		expect(loadConfig({ home: bare, cwd, env: {} }).memory).toEqual({ recall: false })
 	})
+
+	it('ignores it in a profile of a project or local file, even when that profile is selected', () => {
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const profiles = { work: { memory: { select: 'on', recall: false } } }
+		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ profiles }))
+		const bare = noHome()
+		const loaded = loadConfig({ home: bare, cwd, env: {}, profile: 'work' })
+		expect(loaded.memory).toEqual({ recall: false })
+		const local = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(join(local, 'namzu.config.local.json'), JSON.stringify({ profiles }))
+		expect(
+			loadConfig({ home: bare, cwd: local, env: {}, profile: 'work' }).memory ?? {},
+		).not.toHaveProperty('select')
+	})
 })

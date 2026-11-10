@@ -312,7 +312,7 @@ export interface MemoryCliConfig {
 	 * match, which then needs two shared words. `off`: the word match alone,
 	 * one shared word, as before. The small model sees the message and
 	 * memory titles, on your own provider. Your own config and managed
-	 * config only; a project file cannot set it.
+	 * config only; a project file, or a profile in one, cannot set it.
 	 */
 	readonly select?: 'on' | 'off'
 }

@@ -282,6 +282,7 @@ function resolveConfigWithProvenance(
 				'routing',
 				'smallModel',
 				'memory.select',
+				'profiles.*.memory.select',
 			])
 		: {}
 	// `.mcp.json`: the project's shared tool servers. Read under the same trust
@@ -309,6 +310,7 @@ function resolveConfigWithProvenance(
 				'model',
 				'routing',
 				'memory.select',
+				'profiles.*.memory.select',
 			])
 		: {}
 	const managedCfg = readJsonIfExists(managedPath, shortHomePath(managedPath))
@@ -660,18 +662,22 @@ function readJsonIfExists(
 		})
 	}
 	if (drop.length > 0 && parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-		for (const key of drop) {
-			const dot = key.indexOf('.')
-			if (dot < 0) {
-				delete (parsed as Record<string, unknown>)[key]
-				continue
-			}
-			const section = (parsed as Record<string, unknown>)[key.slice(0, dot)]
-			if (section !== null && typeof section === 'object' && !Array.isArray(section))
-				delete (section as Record<string, unknown>)[key.slice(dot + 1)]
-		}
+		for (const key of drop) dropKey(parsed, key.split('.'))
 	}
 	return asConfigObject(path, parsed, label)
+}
+
+/** Deletes the key a dotted path names; `*` stands for every key of a section (each profile). */
+function dropKey(node: unknown, path: readonly string[]): void {
+	if (node === null || typeof node !== 'object' || Array.isArray(node)) return
+	const [head, ...rest] = path
+	if (head === undefined) return
+	const section = node as Record<string, unknown>
+	if (rest.length === 0) {
+		delete section[head]
+		return
+	}
+	for (const child of head === '*' ? Object.values(section) : [section[head]]) dropKey(child, rest)
 }
 
 /**
