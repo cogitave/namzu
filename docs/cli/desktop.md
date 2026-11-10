@@ -165,9 +165,10 @@ node tools\node_modules\electron-builder\cli.js --win nsis --x64 --publish never
 The staged runtimes (`extra/cli` and the app's own `node_modules`) leave out files a running
 program never reads: source maps, `.d.ts`/`.d.cts`/`.d.mts` declarations, `*.test.*` files and
 README, CHANGELOG and HISTORY notes (licence and notice files stay, and the `typescript` package is
-kept whole because its compiler reads its own declaration files). Measured on the 0.2.7 stage,
-the whole staged tree went from 433 MB in 31,835 files to 337 MB in 17,559 files, and `extra/cli`
-from 320 MB in 27,665 files to 225 MB in 13,588; a copy of this many small files is what an
+kept whole because its compiler reads its own declaration files). Counted with `du` and `find` on a
+Linux run of `scripts/stage-installer.mjs` for 0.2.7, before and after the change, the whole staged
+tree went from 433 MB in 31,835 files to 337 MB in 17,559 files, and `extra/cli` from 320 MB in
+27,665 files to 225 MB in 13,588; a copy of this many small files is what an
 installer on NTFS with a virus scanner spends its time on. The staged CLI was run from the
 staged tree (`--version`, and `acp --desktop` answering `initialize`) to check it still boots.
 
@@ -1084,12 +1085,15 @@ empty composer while a saved tab is on its way back.
   folder connected), `conversations_listed` (the first conversation list read) and
   `quit_requested`, each once per run with `elapsedMs` since the process started.
 - **How fast it quits.** Quitting stops listening and writes the terminals' last screens first (their
-  hosts are read for that), then stops the runtimes, releases the speech engines, stops an idle Pal
-  computer's machine and closes the live viewer's port all at once (`runShutdown`,
-  `src/main/shutdown-sequence.ts`). A runtime still flushes its own journals and is waited for
-  (up to its 5 second end-of-input wait before it is ended), and the machine stop is given at most
-  6 seconds. With a 5 second runtime stop and a 5 second machine stop, quit takes 5.3 s of
-  waiting where the steps one after another took 10.55 s. A runtime that cannot be confirmed
+  hosts are read for that), then stops the runtimes, releases the speech engines and stops an idle Pal
+  computer's machine at once, and closes the live viewer's port after the runtimes have stopped,
+  since a runtime lets go of its live viewers while it ends (`runShutdown`,
+  `src/main/shutdown-sequence.ts`). The machine stop is safe beside the runtimes: it does nothing
+  while a Pal computer runs, and `computer stop-idle` refuses while anything does. A runtime still
+  flushes its own journals and is waited for (up to its 5 second end-of-input wait before it is
+  ended), and the machine stop is given at most 6 seconds. In the unit test's simulated worst case
+  (fake timers, a 5 second runtime stop and a 5 second machine stop) quit waits 5.35 s where the
+  steps one after another waited 10.55 s; this is not a measurement of a real quit. A runtime that cannot be confirmed
   stopped still fails the quit as before.
 - **Folders still waiting their turn.** The restore reopens folders (see above), so a
   first `projects()` read used to answer "none" and the welcome screen painted. Main now

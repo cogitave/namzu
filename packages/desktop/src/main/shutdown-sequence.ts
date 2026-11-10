@@ -5,7 +5,11 @@
  * 1. Listening stops and the terminals write their last screens. The terminals' hosts are still
  *    running at this point, because their screens are read from them.
  * 2. Only then do the runtimes stop (they flush their own journals while ending), the speech
- *    engines are released, the idle Pal computer machine is stopped and the live viewer's port closes.
+ *    engines are released and the idle Pal computer machine is stopped, all at once. The machine stop
+ *    is safe beside them: it does nothing while a Pal computer runs, and `computer stop-idle` refuses
+ *    while anything does.
+ * 3. The live viewer's port closes once the runtimes have stopped, because a runtime lets go of its
+ *    live viewers while it ends.
  */
 export interface ShutdownSteps {
 	stopListening: () => Promise<void>
@@ -39,13 +43,11 @@ export async function runShutdown(steps: ShutdownSteps): Promise<void> {
 			.catch((error: unknown) => steps.record(error))
 			.then(resolve)
 	}).finally(() => cancel?.())
-	// closeRuntimes is called first: it lets go of the live viewers before the port closes.
-	const required = await Promise.allSettled([
-		steps.closeRuntimes(),
-		steps.disposeSpeech(),
-		steps.disposeListening(),
-		steps.closeStreams(),
-	])
+	const released = Promise.allSettled([steps.disposeSpeech(), steps.disposeListening()])
+	const [runtimes] = await Promise.allSettled([steps.closeRuntimes()])
+	// Only after the runtimes: they let go of the live viewers while they end.
+	const [streams] = await Promise.allSettled([steps.closeStreams()])
+	const required = [runtimes, ...(await released), streams]
 	await computer
 	const failed = required.find((result) => result.status === 'rejected')
 	if (failed?.status === 'rejected') throw failed.reason

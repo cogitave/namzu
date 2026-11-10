@@ -1640,7 +1640,7 @@ export class Operator {
 	/**
 	 * Folders the app is about to reopen from the last run, keyed by path. Until a folder's
 	 * connection is registered the window is told it is `connecting`, so a launch never reads
-	 * as "no projects" while the sequential restore has not reached them yet.
+	 * as "no projects" while the pooled restore (three at a time) has not reached them yet.
 	 */
 	private readonly expectedProjects = new Map<string, ProjectView>()
 	/** Saved projects whose folder no longer exists: listed as such until located or removed. */

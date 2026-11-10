@@ -3982,10 +3982,13 @@ export function App({
 		const read = async () => {
 			let ready = false
 			let failed = false
+			// Only a read that answered ends the back-off; a skipped read (hidden, pending) keeps it.
+			let answered = false
 			try {
 				if (document.hidden) return
 				if (controlPending.current || startingComputers.current.has(id)) return
 				const computer = await api.palComputer(id)
+				answered = true
 				if (
 					!current ||
 					epoch !== computerReadEpoch.current ||
@@ -4058,7 +4061,7 @@ export function App({
 					}))
 				}
 			} finally {
-				failures = failed ? failures + 1 : 0
+				failures = failed ? failures + 1 : answered ? 0 : failures
 				if (current)
 					timer = setTimeout(
 						() => void read(),

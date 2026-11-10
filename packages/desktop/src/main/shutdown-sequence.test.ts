@@ -42,11 +42,13 @@ describe('runShutdown', () => {
 	it('runs the independent steps together, not one after another', async () => {
 		const { steps, log } = build()
 		await runShutdown(steps)
-		const starts = ['runtimes', 'speech', 'dispose-listening', 'computer', 'streams'].map((name) =>
+		const starts = ['runtimes', 'speech', 'dispose-listening', 'computer'].map((name) =>
 			log.indexOf(`${name}:start`),
 		)
 		const firstEnd = Math.min(
-			...['runtimes', 'speech', 'computer', 'streams'].map((n) => log.indexOf(`${n}:end`)),
+			...['runtimes', 'speech', 'dispose-listening', 'computer'].map((n) =>
+				log.indexOf(`${n}:end`),
+			),
 		)
 		for (const start of starts) expect(start).toBeLessThan(firstEnd)
 	})
@@ -69,14 +71,20 @@ describe('runShutdown', () => {
 		})
 		await vi.advanceTimersByTimeAsync(10_000)
 		await run
-		// Before: 200 + 300 + 5000 + 5000 + 50 = 10 550 ms. Now: 300 + 5000.
-		expect(finished).toBe(5300)
+		// Before: 200 + 300 + 5000 + 5000 + 50 = 10 550 ms. Now: 300 + 5000 + 50 (the port after the runtimes).
+		expect(finished).toBe(5350)
 	})
 
-	it('starts the runtimes first, so live viewers are released before the port closes', async () => {
+	it('closes the live port only after the runtimes stopped, so live viewers are released first', async () => {
 		const { steps, log } = build()
 		await runShutdown(steps)
-		expect(log.indexOf('runtimes:start')).toBeLessThan(log.indexOf('streams:start'))
+		expect(log.indexOf('runtimes:end')).toBeLessThan(log.indexOf('streams:start'))
+	})
+
+	it('closes the live port even when a runtime could not be confirmed stopped', async () => {
+		const { steps, log } = build({ closeRuntimes: () => Promise.reject(new Error('stuck')) })
+		await expect(runShutdown(steps)).rejects.toThrow('stuck')
+		expect(log).toContain('streams:end')
 	})
 
 	it('goes on without a machine stop that never answers, after the cap', async () => {
