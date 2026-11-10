@@ -37,6 +37,7 @@ import {
 	isEphemeralEvent,
 } from '../../types/session/events.js'
 import type { ProjectId, TopicId } from '../../types/session/ids.js'
+import type { TurnOutcome } from '../../types/session/outcome.js'
 import type { SessionRecord } from '../../types/session/records.js'
 import type { StepResult } from '../../types/session/step.js'
 import type { StopReason } from '../../types/session/stop-reason.js'
@@ -492,6 +493,12 @@ export class TurnRecorder {
 		this.#turn.abandonedJobIds = [...jobIds]
 	}
 
+	/** The turn's outcome record, set once as the loop ends; absent means none was kept. */
+	setOutcome(outcome: TurnOutcome | undefined): void {
+		if (outcome === undefined) delete this.#turn.outcome
+		else this.#turn.outcome = outcome
+	}
+
 	setSteps(steps: readonly StepResult[]): void {
 		this.#turn.steps = steps
 	}
@@ -600,6 +607,7 @@ export class TurnRecorder {
 			...(turn.metadata.servingProvider ? { servingProvider: turn.metadata.servingProvider } : {}),
 			abandonedTaskIds: [...(turn.abandonedTaskIds ?? [])],
 			abandonedJobIds: [...(turn.abandonedJobIds ?? [])],
+			...(turn.outcome ? { outcome: turn.outcome } : {}),
 		}
 	}
 

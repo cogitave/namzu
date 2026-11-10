@@ -2823,6 +2823,9 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 						}
 					}
 
+					// The parked batch runs here, outside the loop's own steps, so
+					// the outcome record is told about it here.
+					await iterationOrchestrator.outcomeBefore(pendingResume.response)
 					const resumedBatch = await applyPendingResume(
 						pendingResume,
 						ctx.recorder,
@@ -2831,6 +2834,11 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 						pendingResumeAssistantId,
 					)
 					iterationOrchestrator.setResumedToolResults(resumedBatch.results)
+					await iterationOrchestrator.outcomeObserve(
+						ctx.recorder.currentIteration,
+						pendingResume.response,
+						resumedBatch.results,
+					)
 					yield* eventTranslator.drainPending()
 				}
 
@@ -2911,6 +2919,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					params,
 					eventTranslator,
 					takeSteps: () => iterationOrchestrator.getSteps(),
+					takeOutcome: () => iterationOrchestrator.takeOutcome(),
 					turnEndHooksFired: () => iterationOrchestrator.turnEndHooksFired,
 					workingStateManager,
 					resultAssembler,
@@ -2933,6 +2942,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				if (isTurnInProgressError(err) && !ctx.recorder.isActive) throw err
 				// A failed turn still spent its steps; report them.
 				ctx.recorder.setSteps(iterationOrchestrator.getSteps())
+				ctx.recorder.setOutcome(await iterationOrchestrator.takeOutcome())
 				await executeUserInterruptHooks(err)
 				yield* eventTranslator.drainPending()
 				await executeTurnFailureHooks(err)

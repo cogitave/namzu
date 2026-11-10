@@ -11,6 +11,7 @@ import type {
 import type { Message } from '../message/index.js'
 import type { ProviderErrorInfo } from '../provider/index.js'
 import type { TurnConfig } from './config.js'
+import type { TurnOutcome } from './outcome.js'
 import type { StepResult } from './step.js'
 import type { StopReason } from './stop-reason.js'
 
@@ -149,6 +150,12 @@ export interface TurnSettlement {
 	readonly abandonedTaskIds: readonly string[]
 	/** Background jobs the model was waiting on that were still running. Not stopped; named. */
 	readonly abandonedJobIds: readonly string[]
+	/**
+	 * What the turn changed and what checked it, from its own tool calls. Absent
+	 * for a turn that never ran the loop, one resumed from a checkpoint that did
+	 * not keep the record, and a log written before the record existed.
+	 */
+	readonly outcome?: TurnOutcome
 }
 
 /** Metadata of one turn: who ran it, with what, and where it sits in the session tree. */
@@ -216,6 +223,8 @@ export interface Turn {
 	abandonedTaskIds?: readonly string[]
 	/** Background jobs the model awaited that were still running when this turn ended. */
 	abandonedJobIds?: readonly string[]
+	/** What the turn changed and what checked it; see {@link TurnSettlement.outcome}. */
+	outcome?: TurnOutcome
 	/** Present on a child session's turn. */
 	parentSessionId?: SessionId
 	/** Present on a child session's turn. */

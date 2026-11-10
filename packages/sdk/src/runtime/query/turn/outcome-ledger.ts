@@ -204,6 +204,11 @@ export class OutcomeLedger {
 		this.config = config
 	}
 
+	/** False once the record is known to be missing what came before a resume. */
+	get recorded(): boolean {
+		return !this.unrecorded
+	}
+
 	/**
 	 * The turn resumed from a checkpoint that carries no ledger. What happened
 	 * before it is unknown, and a record that began as `unchanged` would be a

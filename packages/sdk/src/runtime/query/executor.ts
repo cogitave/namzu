@@ -577,6 +577,12 @@ export interface ToolCallOutcome {
 	/** Rich form for the model, when the tool supplied one. */
 	content?: ToolResultContent
 	isError?: boolean
+	/**
+	 * What the call was about and what came of it, as typed fields; the same value
+	 * `tool_completed` carries. Absent when a post-tool hook replaced the output,
+	 * so a reader never takes an exit status from a result the hook rewrote.
+	 */
+	facts?: ToolFacts
 	/** Provider argument admission failure, never inferred from receipt text. */
 	inputFailure?: CompletedToolRecord['inputFailure']
 	/** A pre-tool hook deliberately skipped execution; its receipt is not an output candidate. */
@@ -2967,6 +2973,7 @@ export class ToolExecutor {
 				? { handoff: result.handoff }
 				: {}),
 			...(revealedTools !== undefined ? { revealedTools } : {}),
+			...(result.facts !== undefined && !postOverride ? { facts: result.facts } : {}),
 		}
 	}
 
@@ -3623,6 +3630,7 @@ export class ToolExecutor {
 			toolName,
 			output: outcome.output,
 			isError: outcome.kind === 'error',
+			...(outcome.facts ? { facts: outcome.facts } : {}),
 			...(outcome.inputFailure ? { inputFailure: outcome.inputFailure } : {}),
 			...(outcome.skipped ? { skipped: true as const } : {}),
 		}

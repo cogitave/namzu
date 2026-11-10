@@ -25,6 +25,7 @@ import {
 	type SessionEvent,
 	type SessionEventType,
 } from './events.js'
+import { TurnOutcomeSchema } from './outcome.js'
 
 /**
  * The session log: one append-only, hash-chained JSONL file per session, the
@@ -270,6 +271,7 @@ export const TurnSettlementSchema = z
 		servingProvider: text.optional(),
 		abandonedTaskIds: z.array(text),
 		abandonedJobIds: z.array(text),
+		outcome: TurnOutcomeSchema.optional(),
 	})
 	.strict()
 

@@ -84,6 +84,7 @@ type CheckpointState = Pick<
 	| 'review'
 	| 'latestUserMessageId'
 	| 'workingState'
+	| 'outcome'
 >
 
 /**
@@ -276,6 +277,11 @@ export class CheckpointManager {
 	private restoredNativeAttempts = 0
 	private toolStructuredAttemptsSource?: () => number
 	private restoredToolAttempts = 0
+	private outcomeSource?: () => Readonly<Record<string, unknown>> | undefined
+	private restoredOutcomeState: { resumed: boolean; snapshot?: Readonly<Record<string, unknown>> } =
+		{
+			resumed: false,
+		}
 	private lastCreatedId?: CheckpointId
 	private traceSource?: () => SerializedSpanContext | undefined
 	private parkTtlMs?: number
@@ -327,6 +333,23 @@ export class CheckpointManager {
 	}
 	get restoredToolStructuredAttempts(): number {
 		return this.restoredToolAttempts
+	}
+
+	/** Wire the turn's outcome record in, so every checkpoint carries what it had gathered. */
+	setOutcomeSource(source: () => Readonly<Record<string, unknown>> | undefined): void {
+		this.outcomeSource = source
+	}
+
+	/**
+	 * What a resumed turn's checkpoint kept of the outcome record. `resumed` is
+	 * false for a turn that began here; true with no `snapshot` for one resumed
+	 * from a checkpoint that predates the record.
+	 */
+	get restoredOutcome(): {
+		readonly resumed: boolean
+		readonly snapshot?: Readonly<Record<string, unknown>>
+	} {
+		return this.restoredOutcomeState
 	}
 
 	setStructuredReviewAttemptsSource(source: () => number): void {
@@ -417,6 +440,7 @@ export class CheckpointManager {
 			},
 			...(latestUserMessageId ? { latestUserMessageId } : {}),
 			...withDefined('workingState', this.workingStateSource?.()),
+			...withDefined('outcome', this.outcomeSource?.() ?? this.restoredOutcomeState.snapshot),
 		}
 	}
 
@@ -445,6 +469,7 @@ export class CheckpointManager {
 			review: state.review,
 			...(state.latestUserMessageId ? { latestUserMessageId: state.latestUserMessageId } : {}),
 			...withDefined('workingState', state.workingState),
+			...withDefined('outcome', state.outcome),
 			...withDefined('trace', this.traceSource?.()),
 			turnCreatedAt: this.turnCreatedAt ?? new Date(recorder.getTurn().startedAt).toISOString(),
 			createdAt: new Date().toISOString(),
@@ -654,6 +679,10 @@ export class CheckpointManager {
 		this.restoredNativeAttempts = document.review.nativeStructuredAttempts
 		this.restoredToolAttempts = document.review.toolStructuredAttempts ?? 0
 		this.restoredReviewAttempts = document.review.structuredAttempts
+		this.restoredOutcomeState = {
+			resumed: true,
+			...(document.outcome !== undefined ? { snapshot: document.outcome } : {}),
+		}
 		this.restoredUserMessage = restored.latestUserMessage
 		this.restoredUserMessageId = restored.latestUserMessage
 			? document.latestUserMessageId
