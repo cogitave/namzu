@@ -2,7 +2,7 @@
 
 ## 2026-11-10
 
-- **Update** [Memory](cli/memory.md#what-turns-record-on-their-own) and [Memory](sdk/memory.md#promotion-after-a-turn): turns record only durable preferences, under a neutral title, with search traces, raw errors, secrets and injected instructions dropped; derived records the screen would not write are archived once per store; `save_memory` and `update_memory` refuse secrets. Adds `MemoryPromoterOptions.acceptClaim` and `findSecretShape`. `.changeset/memory-screen.md` (`@namzu/sdk` minor, `@namzu/cli` minor).
+- **Update** [Memory](cli/memory.md#what-turns-record-on-their-own) and [Memory](sdk/memory.md#promotion-after-a-turn): turns record only durable preferences, under a neutral title, with search traces, raw errors, secrets and injected instructions dropped; derived records the screen would not write are archived once per store; `save_memory` and `update_memory` refuse secrets. Adds `MemoryPromoterOptions.acceptClaim`, `findSecretShape` and `ConsolidationScreen` (the CLI screens `compaction.consolidate` records too). `.changeset/memory-screen.md` (`@namzu/sdk` minor, `@namzu/cli` minor).
 
 ## 2026-11-08
 

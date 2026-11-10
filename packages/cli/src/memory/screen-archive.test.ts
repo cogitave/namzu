@@ -73,6 +73,25 @@ describe('the one-time archive pass', () => {
 		expect(existsSync(join(directory, SCREEN_MARKER_FILE))).toBe(true)
 	})
 
+	it('archives a consolidation record that quotes the request, and spares an operator one', async () => {
+		const { store, directory } = temp()
+		const consolidated = await store.create({
+			title: 'Learned: open the browser',
+			summary: 's',
+			content: 'Task: open the browser\n\n## Decisions\n\n- a\n',
+			metadata: { kind: 'consolidation' },
+		})
+		const mine = await store.create({
+			title: 'Learned the hard way',
+			summary: 's',
+			content: 'keep',
+		})
+		await archiveUnscreenedRecords({ store, directory, log: NOOP_LOGGER })
+		const active = new Set((await store.list({ status: 'active' })).entries.map((e) => e.id))
+		expect(active.has(consolidated.entry.id)).toBe(false)
+		expect(active.has(mine.entry.id)).toBe(true)
+	})
+
 	it('runs once per store', async () => {
 		const { store, directory } = temp()
 		await seed(store)

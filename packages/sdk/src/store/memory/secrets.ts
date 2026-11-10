@@ -52,13 +52,32 @@ function entropy(text: string): number {
 	return bits
 }
 
+/** How many times the token switches between a letter and a digit. */
+function letterDigitSwitches(token: string): number {
+	let switches = 0
+	let previous: 'letter' | 'digit' | undefined
+	for (const ch of token) {
+		const kind = /\d/.test(ch) ? 'digit' : /[A-Za-z]/.test(ch) ? 'letter' : undefined
+		if (kind === undefined) continue
+		if (previous !== undefined && previous !== kind) switches += 1
+		previous = kind
+	}
+	return switches
+}
+
+/**
+ * Random, not merely long: a long identifier with a trailing number
+ * (`DecisionsAbcDefGhi1234567890`) has mixed case and a digit but few
+ * letter-digit switches and a low spread, a key has both. A path-like token
+ * is a path.
+ */
 function looksRandom(token: string): boolean {
 	return (
-		/[A-Za-z]/.test(token) &&
-		/\d/.test(token) &&
+		!token.includes('/') &&
 		/[A-Z]/.test(token) &&
 		/[a-z]/.test(token) &&
-		entropy(token) >= 4.2
+		letterDigitSwitches(token) >= 4 &&
+		entropy(token) >= 4.5
 	)
 }
 

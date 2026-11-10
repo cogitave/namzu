@@ -35,6 +35,16 @@ describe('findSecretShape', () => {
 		}
 	})
 
+	it('does not flag a long identifier, a component name or a path', () => {
+		for (const text of [
+			'DecisionsAbcDefGhiJklMnoPqrStu1234567890',
+			'UserProfileSettingsPanelContainerV2Component',
+			'packages/sdk/src/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789.ts',
+		]) {
+			expect(findSecretShape(text, { entropy: true })).toBeUndefined()
+		}
+	})
+
 	it('flags a long random token only when asked to look for entropy', () => {
 		const token = 'q8Zr3KvT1mXe9LpB7sWd2NyHc5GfJa4U'
 		expect(findSecretShape(`token ${token}`)).toBeUndefined()

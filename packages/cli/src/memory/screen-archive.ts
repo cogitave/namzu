@@ -82,7 +82,15 @@ function wouldNotBeWritten(
 	metadata: Readonly<Record<string, unknown>> | undefined,
 ): boolean {
 	if (contentReason(`${title}\n${body}`) !== undefined) return true
-	// A consolidation has no claim sections to re-read; the content screen above is all it gets.
+	// A consolidation quotes the first request as `Learned: <task>` and `Task: <task>`
+	// and carries failures verbatim; it has no claim sections to re-read.
+	if (
+		metadata?.kind === 'consolidation' ||
+		title.startsWith('Learned') ||
+		/^\s*Task:/m.test(body)
+	) {
+		return true
+	}
 	if (metadata?.source !== SESSION_MEMORY_TAG) return false
 	// A title that is not the neutral one is the first request, quoted.
 	if (!title.startsWith('Session notes')) return true

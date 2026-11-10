@@ -466,7 +466,7 @@ import {
 } from '../memory/manage.js'
 import { formatMemoryDiagnostics } from '../memory/presentation.js'
 import { archiveUnscreenedRecords } from '../memory/screen-archive.js'
-import { screenMemoryPromotion } from '../memory/screen.js'
+import { consolidationScreen, screenMemoryPromotion } from '../memory/screen.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
 import {
 	type TypedNoteResult,
@@ -5336,7 +5336,7 @@ export async function createAgentSession(
 						...memoryContextSteps(curatedMemoryPrompt, storedMemory.prompt),
 					],
 					...(options.compaction?.consolidate
-						? { consolidateInto: memoryStore }
+						? { consolidateInto: memoryStore, consolidationScreen }
 						: { promoteMemory }),
 					projectInstructionContext: projectInstructions.createTurnContext(),
 					...(resumePlanPath
@@ -6642,7 +6642,9 @@ export async function createAgentSession(
 								retainedToolPreviewChars: options.conversationSessions
 									? (options.compaction?.retainedToolPreviewChars ?? 4_000)
 									: undefined,
-								...(options.compaction?.consolidate ? { consolidateInto: memoryStore } : {}),
+								...(options.compaction?.consolidate
+									? { consolidateInto: memoryStore, consolidationScreen }
+									: {}),
 								...(jobRegistry
 									? {
 											backgroundJobs: jobRegistry,
@@ -7858,7 +7860,7 @@ async function* runTurn({
 			...(codeAnalysis ? { codeAnalysis } : {}),
 			authorizationGate: gateFor(rules),
 			compactionConfig,
-			...(consolidateInto ? { consolidateInto } : {}),
+			...(consolidateInto ? { consolidateInto, consolidationScreen } : {}),
 			...(backgroundJobs ? { backgroundJobs, backgroundJobOwner } : {}),
 			// A monitor's end is acknowledged through the job-exit callback with its
 			// job id, its events through their own; both also clear the session's

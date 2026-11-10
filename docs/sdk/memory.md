@@ -559,6 +559,8 @@ In a `MarkdownMemoryStore`, neither writer's records enter the generated
 every prompt keeps the same prompt when a turn writes one. They are reached
 through recall and `search_memory`.
 
+`consolidationScreen` (a `ConsolidationScreen`: `task(task)` returns the text allowed in the title and body or `undefined`, `keep(category, text)` decides each decision, discovery, failure or file) lets a host keep a consolidation from quoting what should not persist; absent keeps today's verbatim record. The CLI sets one that never quotes the task, drops failures and search traces, and applies its content screen.
+
 The CLI uses promotion by default. Its explicit `compaction.consolidate` option
 selects consolidation into the same store instead of running both writers.
 SDK hosts configure promotion and consolidation separately. Neither writing

@@ -177,11 +177,15 @@ export async function* finalizeTurn(
 	}
 
 	if (params.consolidateInto && workingStateManager) {
-		const entry = consolidationEntry(workingStateManager.getState(), {
-			sessionId: ctx.sessionId,
-			turnId: ctx.turnId,
-			at: Date.now(),
-		})
+		const entry = consolidationEntry(
+			workingStateManager.getState(),
+			{
+				sessionId: ctx.sessionId,
+				turnId: ctx.turnId,
+				at: Date.now(),
+			},
+			params.consolidationScreen,
+		)
 		if (entry) {
 			try {
 				// Same knowledge, same record: a later turn that learned what an

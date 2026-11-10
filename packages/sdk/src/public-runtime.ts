@@ -1337,6 +1337,7 @@ export {
 	consolidationEntry,
 	isConsolidated,
 } from './compaction/consolidation.js'
+export type { ConsolidationScreen } from './compaction/consolidation.js'
 // The sibling state-bearing system message. A host that carries a turn's
 // conversation into a fresh query must distinguish this ledger from the fresh
 // identity/environment prompt floor without copying its private header string.
