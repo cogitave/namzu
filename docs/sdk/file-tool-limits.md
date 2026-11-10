@@ -151,7 +151,7 @@ would corrupt one.
 
 ## grep
 
-The `grep` description says to use `glob` for file names and the `glob` description says to use `grep` for contents. The `bash` description sends reading and searching to `read`, `grep` and `glob`, because a file read through the shell earns no read credit and the next edit of it is refused once, and says to run a test, lint or build command on its own: its output is already trimmed with the head and tail kept, and a pipe (`| tail`, `| grep`) hides the exit status, so the [turn outcome](turn-outcome.md) cannot credit the run. The three descriptions together grew by about 120 estimated tokens; a test pins the budget at 250.
+The `grep` description says to use `glob` for file names and the `glob` description says to use `grep` for contents. The `bash` description sends reading and searching to `read`, `grep` and `glob`, because a file read through the shell earns no read credit and the next edit of it is refused once, and says to run a test, lint or build command on its own: its output is already trimmed with the head and tail kept, and a pipe (`| tail`, `| grep`) hides the exit status, so the [turn outcome](turn-outcome.md) cannot credit the run. The three descriptions together may grow by at most 250 estimated tokens (characters divided by 4) over their size before this guidance; `tool-guidance.test.ts` pins that sum against the recorded baseline, so the figure is checkable there.
 
 `output_mode` is `files_with_matches` (default), `content` or `count`.
 

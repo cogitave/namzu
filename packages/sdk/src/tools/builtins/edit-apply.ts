@@ -251,6 +251,8 @@ function applyOne(
 	}
 }
 
+const NEAR_LINE_MIN_CHARS = 8
+
 /** The line of `content` that matches the first non-blank line of `needle` apart from spacing, 1-based. */
 function nearLine(content: string, needle: string): number | undefined {
 	const squash = (text: string) => text.replace(/\s+/g, ' ').trim()
@@ -258,7 +260,8 @@ function nearLine(content: string, needle: string): number | undefined {
 		.split('\n')
 		.map(squash)
 		.find((line) => line !== '')
-	if (first === undefined) return undefined
+	// A bare brace or paren is on many lines; naming the first one would point at the wrong place.
+	if (first === undefined || first.length < NEAR_LINE_MIN_CHARS) return undefined
 	const lines = content.split('\n')
 	for (let i = 0; i < lines.length; i++) {
 		if (squash(lines[i] ?? '') === first) return i + 1

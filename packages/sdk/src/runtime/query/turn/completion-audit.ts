@@ -60,7 +60,7 @@ const AUDIT_TAIL =
 
 /** The reminder for a check that ran with its exit status hidden (a pipe, `;`, `||`, a trailing `&`). */
 export function maskedCheckMessage(command: string): string {
-	return `Files were changed in this turn, and the only check run, \`${auditCommandText(command)}\`, had its exit status hidden, so it cannot be told whether it passed. Run it again on its own, without the pipe or anything else attached to it; its output is already trimmed to the head and tail. ${AUDIT_TAIL}`
+	return `Files were changed in this turn, and a check run, \`${auditCommandText(command)}\`, had its exit status hidden, so it cannot be told whether it passed. Run it again on its own, without the pipe or anything else attached to it; its output is already trimmed to the head and tail. ${AUDIT_TAIL}`
 }
 
 /** The reminder for a check that passed before files changed again. */
@@ -133,11 +133,10 @@ export class CompletionAudit {
 
 	/**
 	 * Whether the turn must be held back from ending. True at most once: asking
-	 * records the block.
+	 * records the block. This is `takeReminder()` without an outcome record, kept
+	 * for callers that only need the yes or no.
 	 */
 	takeBlock(): boolean {
-		if (this.blocked || !this.edited || this.checkedSinceEdit) return false
-		this.blocked = true
-		return true
+		return this.takeReminder() !== undefined
 	}
 }

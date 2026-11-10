@@ -121,4 +121,18 @@ describe('the command a reminder repeats', () => {
 		expect(message.length).toBeLessThan(700)
 		expect(message.split('`')).toHaveLength(3)
 	})
+
+	it('does not claim the masked check was the only one when another is unsettled', () => {
+		const audit = new CompletionAudit()
+		audit.observe([edit])
+		const message =
+			audit.takeReminder(() =>
+				record('inconclusive', [
+					row('npm test 2>&1 | tail', 'masked'),
+					row('pnpm lint', 'unsettled'),
+				]),
+			) ?? ''
+		expect(message).toContain('a check run, `npm test 2>&1 | tail`, had its exit status hidden')
+		expect(message).not.toContain('only check')
+	})
 })

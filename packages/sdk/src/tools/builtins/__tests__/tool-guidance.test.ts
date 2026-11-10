@@ -82,6 +82,18 @@ describe('the edit tool when the text is not found or not unique', () => {
 		expect(result.error).toContain('read around it again')
 	})
 
+	it('names no line when the first line is only a brace', async () => {
+		const context = fileWith('function a() {\n  x()\n}\nfunction b() {\n  y()\n}\n')
+		const result = await EditTool.execute(
+			{ path: 'a.ts', old_string: '}\n  nothing()', new_string: 'z' },
+			context,
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('not found in file')
+		expect(result.error).not.toContain('matches its first line')
+		expect(result.error).toContain('Read the lines you mean to change again')
+	})
+
 	it('says to read again when nothing is near', async () => {
 		const context = fileWith('one\ntwo\n')
 		const result = await EditTool.execute(
