@@ -9,6 +9,10 @@ import type { ProviderRetryConfig } from '@namzu/sdk'
  * the backoff is slept, and a provider that asks for more than a minute is
  * not waited for (the turn then stops and offers Enter to try again).
  *
+ * With a fallback chain declared, a member that answers overloaded three times
+ * in a row is left for the next one instead of spending all ten retries; the
+ * last member and a lone provider keep the whole budget.
+ *
  * The SDK's own defaults are shorter (three retries, full jitter) and stay
  * that way for hosts that did not choose this policy.
  */
@@ -19,6 +23,7 @@ export const TERMINAL_PROVIDER_RETRY: Partial<ProviderRetryConfig> = {
 	maxRetryAfterMs: 60_000,
 	jitter: 'proportional',
 	retryAfter: 'floor',
+	overloadedFallOverAfter: 3,
 }
 
 /**

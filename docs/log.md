@@ -2,7 +2,7 @@
 
 ## 2026-11-11
 
-- **Update** [Provider retry](sdk/provider-retry.md#leaving-a-saturated-member-early): a provider chain member that answers overloaded three times in a row (`overloadedFallOverAfter`, `0` turns it off) is left for the next member instead of spending the whole retry budget; rate limits are not counted; the `fallback` notice names the member left and the count. The last member and a chain of one keep the whole budget. `.changeset/overloaded-leaves-the-member.md` (`@namzu/sdk` minor).
+- **Update** [Provider retry](sdk/provider-retry.md#leaving-a-saturated-member-early): a provider chain member that answers overloaded three times in a row (`overloadedFallOverAfter`, off unless set; the terminal sets 3) is left for the next member instead of spending the whole retry budget; rate limits are not counted; the `fallback` notice names the member left and the count. The last member and a chain of one keep the whole budget. `.changeset/overloaded-leaves-the-member.md` (`@namzu/sdk` minor, `@namzu/cli` patch).
 
 ## 2026-11-10
 

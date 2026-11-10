@@ -51,7 +51,7 @@ value to a custom rule.
 | `jitter` | `'full'` | `'full'` sleeps a random amount between zero and the step. `'proportional'` sleeps the step plus up to a quarter of it, never less. |
 | `retryAfter` | `'exact'` | `'exact'` sleeps what `Retry-After` said. `'floor'` sleeps the longer of that and this attempt's backoff. |
 | `retryMidStream` | `false` | Also retry a stream that failed after it produced text. Off, such a failure ends the call, because the consumer has already seen the text. A stream that produced only reasoning, or only the start of a tool call, is retried whatever this says. |
-| `overloadedFallOverAfter` | `3` on a chain member that has a successor, otherwise off | Leave this member after this many overloaded answers (529, 503) in a row and let the provider chain ask the next one. Rate limits are not counted, they carry their own wait; a different failure between two overloaded answers restarts the count; any success ends it. `0` keeps the whole retry budget. `query()` ignores it on the last member and on a chain of one. A bare `withProviderRetry` leaves a member early only when the option is set. |
+| `overloadedFallOverAfter` | off (`0`); the terminal sets `3` | Leave this member after this many overloaded answers in a row and let the provider chain ask the next one. An answer counts when it classifies as `overloaded`, by code and not by status: a 529, a 503, or a provider message that says it is overloaded. Rate limits are not counted, they carry their own wait; a different failure between two overloaded answers restarts the count; any success ends it. `0` or absent keeps the whole retry budget. `query()` passes it to every chain member that has a successor and forces `0` on the last member and on a chain of one, whatever was asked. A bare `withProviderRetry` leaves a member early only when the option is set. |
 
 A provider that sends `x-should-retry: false` is believed: the failure is not
 retried whatever its status. `true` is not acted on, because a retryable status
@@ -60,16 +60,18 @@ through `providerHttpError({ shouldRetry })` or `providerVendorError`.
 
 ## Leaving a saturated member early
 
-With a chain declared (`fallbackProviders`), a member that keeps saying it is
-overloaded is not argued with for the whole budget: after three answers in a
-row (`overloadedFallOverAfter`) the error escapes as it would when the budget is
+With a chain declared (`fallbackProviders`) and `overloadedFallOverAfter` set, a
+member that keeps saying it is overloaded is not argued with for the whole
+budget: after that many answers in a row (the terminal sets three) the error escapes as it would when the budget is
 spent, and the chain moves to the next member. The terminal's budget is eleven
 tries, so before this a saturated head cost eleven tries and their waits before
-the second member was asked; now it costs three. The `fallback` notice (and
+the second member was asked; with the terminal's setting it costs three. The SDK
+leaves the option off, so an embedding host that declares a chain keeps the whole
+budget until it opts in. The `fallback` notice (and
 `provider_fallback` event) names the member and model left, carries
 `code: 'overloaded'`, and its `reason` begins "Left after 3 overloaded answers
 in a row". Only a chain the host declared is affected: a lone provider, and the
-last member of a chain, keep the whole budget. The swap loses the prompt cache,
+last member of a chain, keep the whole budget even when the option is set. The swap loses the prompt cache,
 as every fall-over does, which is why one overloaded answer followed by a success
 does not trigger it.
 
@@ -77,12 +79,15 @@ In the terminal this composes with auto model routing without double-switching:
 routing reads only how a turn ended. A turn the chain recovered ends well, so the
 next turn is routed as usual; a turn the whole chain failed ends in a provider
 error, and only then does the next routed turn climb one tier. Auto-routed turns
-carry no fallback chain today, so the two never see the same failure.
+carry no fallback chain today, so the two never see the same failure. Leaving a
+member is shown by the `fallback` notice only; it is not written to the routing
+history.
 
 A finite token budget changes this path: a 5xx that came back without usage is
 counted as unresolved spend and the budget then refuses further requests, so no
 retry and no fall-over follows it. A turn with no limit (`tokenBudget: 0`) takes
-the path described here.
+the path described here. The terminal's default `tokenBudget` is `0`, so a turn
+there takes this path unless the operator set a finite `limits.tokenBudget`.
 
 ## Telling the consumer
 

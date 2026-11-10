@@ -75,9 +75,6 @@ import { assertMaxToolCalls } from './tool-call-budget.js'
  * state passed back in: each field is a value the prelude produced and the
  * body reads afterwards.
  */
-/** Consecutive overloaded answers a chain member gets before the chain moves on. */
-const DEFAULT_OVERLOADED_FALL_OVER_AFTER = 3
-
 export interface PreparedTurn {
 	readonly turnConfig: TurnConfig
 	readonly budget: SessionTokenBudget
@@ -433,9 +430,10 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 		]
 		assertCostIsAttributable(chain, params.pricing)
 		assertBudgetIsMeasurable(params)
-		// A member with a successor leaves after a few overloaded answers in a row
+		// When the caller asks for it (`retry.overloadedFallOverAfter`), a member
+		// with a successor leaves after that many overloaded answers in a row
 		// instead of spending the whole budget on a saturated provider; the last
-		// member has nowhere to go, so it keeps the full budget. `0` opts out.
+		// member has nowhere to go, so it keeps the full budget whatever was asked.
 		const withRecovery = (provider: LLMProvider, hasSuccessor: boolean): LLMProvider => {
 			const withIdleBound = withStreamIdleTimeout(provider, {
 				idleTimeoutMs: streamIdleTimeoutMs,
@@ -448,7 +446,7 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 						config: {
 							...params.retry,
 							overloadedFallOverAfter: hasSuccessor
-								? (params.retry?.overloadedFallOverAfter ?? DEFAULT_OVERLOADED_FALL_OVER_AFTER)
+								? (params.retry?.overloadedFallOverAfter ?? 0)
 								: 0,
 						},
 						log,

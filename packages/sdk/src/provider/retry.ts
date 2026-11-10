@@ -80,9 +80,12 @@ export interface ProviderRetryConfig extends BackoffPolicy {
 	 * answers restarts the count, and the count belongs to one request, so any
 	 * success starts the next request clean.
 	 *
-	 * Absent or `0` keeps the full budget. `query()` sets `3` on every chain
-	 * member that has a successor and ignores the option on the last one;
-	 * a bare `withProviderRetry` never gives up early unless asked.
+	 * Absent or `0` keeps the full budget; nothing gives up early unless asked.
+	 * `query()` passes the option to every chain member that has a successor
+	 * and forces `0` on the last one, which has nowhere to go.
+	 *
+	 * An answer counts when its classified code is `overloaded`, whatever the
+	 * status that carried it (529, a 503, or a provider message that says so).
 	 */
 	readonly overloadedFallOverAfter?: number
 }
