@@ -1,5 +1,30 @@
 # @namzu/cli
 
+## 49.1.0
+
+### Minor Changes
+
+- 13a734d: Fullscreen mode (opt-in with `tui.fullscreen` or `NAMZU_FULLSCREEN=1`; nothing changes when it is off) draws replies as rendered Markdown, lets you select and copy text, and searches the conversation.
+
+  A drag selects text in the window (double click a word, triple click a line); on release the plain text is copied to the clipboard, as `/copy` does, without styling, gutter glyphs or the line breaks a wrap added. Esc lets go. `tui.copyOnSelect: false` keeps the selection and copies on ctrl+c. Alt+S opens a search line: matches are highlighted as you type, Enter and Shift+Enter move between them, and Esc returns to where you were. In this mode the terminal is now asked for drags as well as the wheel, which turns off the terminal's own selection inside the app; set `tui.mouse: scroll` or `off` (or `NAMZU_DISABLE_MOUSE_CLICKS=1`) to keep it.
+
+### Patch Changes
+
+- 3951100: Anthropic driver gaps: paused hosted searches, side-call parameters, the model menu, cache diagnostics and usage.
+
+  `@namzu/anthropic` (minor): a hosted search the service pauses (`pause_turn`) now continues, up to five times within one turn, instead of failing it; a turn still paused after five continuations fails as unfinished. On the vendor's own host the driver sends `diagnostics.previous_message_id` and reads the miss reason into `TokenUsage.cacheMiss`; nothing is sent to a compatible or third-party endpoint. Usage now reads `server_tool_use.web_search_requests`, `service_tier` and `inference_geo`. `OFFLINE_MODEL_CATALOGUE` no longer lists `claude-opus-4-1-20250805` (retired) or `claude-sonnet-4-5-20250929` (retires 2026-11-30) and lists `claude-sonnet-5-5` and `claude-opus-4-8`; both removed ids still work for a caller that names them until the vendor stops serving them.
+
+  `@namzu/sdk` (minor): `TokenUsage` gains `webSearchRequests` (summed), `serviceTier`, `inferenceGeo` and `cacheMiss`; `ModelPricing.webSearchCostPer1000` prices hosted searches (Anthropic: $10 per 1,000), and tokens served on the `priority` or `batch` tier are reported as unpriced rather than at the standard rate, since the vendor publishes no per-token price for them. A cost limit on a priority-tier account is refused as unmeasurable until a price is published. `token_usage_updated` gains `cacheMiss`. Compaction summaries, their verifier and the auto-review classifier now resend without `temperature` when a model refuses it, as the turn already did; the turn's repair also recognises a refused `top_k`.
+
+  `@namzu/cli` (patch): forwards `cacheMiss` on the usage item; shows nothing new.
+
+- ebaec69: Raises the minimum of four runtime dependencies to releases that carry security fixes: `minimatch` to 11.0.1 (GHSA-g3hv-75wg-m249, ReDoS), `sharp` to 0.35.5 (GHSA-f88m-g3jw-g9cj, GHSA-rgj7-g3m4-5g8c, GHSA-wq5f-xc86-pv6w), `undici` to 7.30.1 (cache poisoning, TLS bypass and renegotiation, content-encoding DoS) and `@modelcontextprotocol/client` to 2.3.0 (GHSA-6qxp-vccf-f47h, GHSA-6prh-2h8m-c8cw). MCP clients no longer follow a same-origin redirect with a saved sign-in token; point the server entry at the final URL if a redirect is expected. Nothing else changes for the operator.
+- 1a260bd: Desktop conversations can now use this PC's computer (`computer_use`): the engine Desktop starts, `namzu acp --desktop`, offers the tool as the terminal already did. Every approval is unchanged, and `namzu acp` without `--desktop` and Pal conversations behave as before.
+- Updated dependencies [3951100]
+- Updated dependencies [ebaec69]
+  - @namzu/anthropic@7.1.0
+  - @namzu/sdk@62.6.0
+
 ## 49.0.0
 
 ### Major Changes
