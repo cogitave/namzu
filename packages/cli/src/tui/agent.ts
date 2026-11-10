@@ -284,6 +284,7 @@ import { createRepositorySnapshotStep, readTurnSnapshot } from '../context/turn-
 import { openCliAccounts } from '../integrations/accounts/open.js'
 import { accountProductName } from '../integrations/accounts/rows.js'
 import { createLazyCodeAnalysis } from '../integrations/analysis/provider.js'
+import { carriedAcrossCompaction } from '../integrations/compaction/carried.js'
 import { gateMemoryPromotion } from '../integrations/decision/memory.js'
 import {
 	maybeCreateDecisionModel,
@@ -515,7 +516,7 @@ import type { PermissionSettings } from '../permissions/settings.js'
 import { EXIT_PLAN_MODE_TOOL_NAME, type PlanApprovalFn } from '../plan/approval.js'
 import { buildEnterPlanModeTool } from '../plan/enter-plan-mode-tool.js'
 import { buildExitPlanModeTool } from '../plan/exit-plan-mode-tool.js'
-import { isPlanFileWrite, planCarriedAcrossCompaction } from '../plan/plan-file.js'
+import { isPlanFileWrite } from '../plan/plan-file.js'
 import { terminalProviderRetry } from '../provider-retry.js'
 import { createCliReminderSource, hypermodeExitOwed } from '../reminders/index.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
@@ -5534,9 +5535,13 @@ export async function createAgentSession(
 						? { consolidateInto: memoryStore, consolidationScreen }
 						: { promoteMemory }),
 					projectInstructionContext: projectInstructions.createTurnContext(),
-					...(resumePlanPath
-						? { postCompactionContext: () => planCarriedAcrossCompaction(resumePlanPath) }
-						: {}),
+					postCompactionContext: () =>
+						carriedAcrossCompaction({
+							planPath: resumePlanPath,
+							goals: options.sessionGoals,
+							sessionId: entry.sessionId,
+							tenantId: entry.tenantId,
+						}),
 					...(summaryRouteFor(entry.sessionId)
 						? { compactionSummaryRoute: summaryRouteFor(entry.sessionId) }
 						: {}),
@@ -5803,10 +5808,13 @@ export async function createAgentSession(
 				const sessionId = scope.sessionId
 				const sessions = options.conversationSessions
 				await prepareProviderCredential(signal)
-				const planNote =
-					options.planApproval && !options.ephemeral
-						? await planCarriedAcrossCompaction(paths.planFile({ sessionId }))
-						: undefined
+				const planNote = await carriedAcrossCompaction({
+					planPath:
+						options.planApproval && !options.ephemeral ? paths.planFile({ sessionId }) : undefined,
+					goals: options.sessionGoals,
+					sessionId,
+					tenantId: scope.tenantId,
+				})
 				const common = {
 					config: compactionConfigFor(options.compaction),
 					...(planNote ? { restoreNote: planNote } : {}),
@@ -6955,9 +6963,13 @@ export async function createAgentSession(
 								systemPrompt,
 								messages,
 								projectInstructionContext: projectInstructions.createTurnContext(),
-								...(planPath
-									? { postCompactionContext: () => planCarriedAcrossCompaction(planPath) }
-									: {}),
+								postCompactionContext: () =>
+									carriedAcrossCompaction({
+										planPath,
+										goals: options.sessionGoals,
+										sessionId: turnScope.sessionId,
+										tenantId: turnScope.tenantId,
+									}),
 								...(summaryRouteFor(turnScope.sessionId)
 									? { compactionSummaryRoute: summaryRouteFor(turnScope.sessionId) }
 									: {}),
@@ -7969,6 +7981,8 @@ interface TurnParams {
 	readonly fileReadTracker?: ReturnType<typeof createFileReadTracker>
 	readonly messages: readonly Message[]
 	readonly projectInstructionContext: ProjectInstructionContext
+	/** What the host carries across a compaction: the plan file and the session goal. */
+	readonly postCompactionContext?: () => Promise<string | undefined>
 	readonly opts: SendOptions | undefined
 	readonly taskGateway: TaskScheduler | undefined
 	readonly completionInbox?: CompletionInbox
@@ -8042,6 +8056,7 @@ async function* runTurn({
 	systemPrompt,
 	messages,
 	projectInstructionContext,
+	postCompactionContext,
 	opts,
 	taskGateway,
 	completionInbox,
@@ -8158,6 +8173,7 @@ async function* runTurn({
 			agentName: 'namzu',
 			...(systemPrompt ? { systemPrompt } : {}),
 			projectInstructionContext,
+			...(postCompactionContext ? { postCompactionContext } : {}),
 			messages: [...messages],
 			...(reminders ? { reminders } : {}),
 			...(announceApprovalPolicyChange === false ? { announceApprovalPolicyChange } : {}),

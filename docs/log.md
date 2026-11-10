@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-11
+
+- **Update** [Context and compaction in the CLI](cli/context-and-compaction.md#after-a-compaction): a compaction now carries the session goal (state, replies used, objective cut at 600 characters, stamped as of the compaction) beside the plan file. Normal turns passed the plan-file note to the turn runner, which dropped it, so only resumed turns and `/compact` carried the plan; the runner now forwards it. Running background work needed no change: the per-request outstanding-work note already survives a compaction, and a test pins it. `.changeset/goal-across-compaction.md` (`@namzu/cli` patch).
+
 ## 2026-11-10
 
 - **Update** [File discovery](sdk/file-discovery.md): a glob segment longer than 1,024 characters (`MAX_GLOB_SEGMENT_LENGTH`) is refused with `GlobTooComplexError` before any compiling, because compiling took time in proportion to the square of the length (200 KB took 7.8 s); `glob` and `grep` return it as a tool error and start no walk. A POSIX class name that `Object.prototype` has, such as `[[:constructor:]]`, is now an unknown name like any other instead of an expression that matches nothing. The segment compiler's answers are recorded as language-neutral vectors in `conformance/glob-segment/vectors.json` with a generator, `scripts/generate-conformance-vectors.mjs --check`, and a drift test that runs with the SDK suite. `.changeset/glob-segment-edges.md` (`@namzu/sdk` patch).
