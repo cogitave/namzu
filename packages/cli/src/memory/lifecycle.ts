@@ -122,6 +122,16 @@ export class MemoryLifecycle {
 		this.#deps.onTurnSettled?.()
 	}
 
+	/**
+	 * The turn left by a road that announced no completion (a cancel, a thrown
+	 * error): settle it, so what waited for quiet is not held until the session
+	 * closes. Does nothing when the turn already settled.
+	 */
+	turnEnded(): void {
+		if (this.#disposed || !this.#turnRunning) return
+		this.turnSettled()
+	}
+
 	/** Lift the set-aside of one record and write it. */
 	async restore(id: string): Promise<void> {
 		this.#deps.usage.restore(id)

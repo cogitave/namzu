@@ -23,7 +23,9 @@ import {
 } from './curation-runtime.js'
 import { type CurationLogEntry, MemoryCurator } from './curator.js'
 import { MemoryInbox } from './inbox.js'
+import { MemoryLifecycle } from './lifecycle.js'
 import { screenMemoryPromotion } from './screen.js'
+import { MemoryUsage } from './usage.js'
 
 const roots: string[] = []
 afterEach(() => {
@@ -173,9 +175,9 @@ describe('curation runtime', () => {
 		expect(asked).toHaveLength(1)
 	})
 
-	it('a turn starting mid-curation is not held by it', async () => {
+	it('a turn starting mid-curation neither waits for it nor lets a second drain start', async () => {
 		const { inbox, store } = setup()
-		let release: (reply: string | undefined) => void = () => {}
+		const releases: ((reply: string | undefined) => void)[] = []
 		const asked: string[] = []
 		const runtime = new CurationRuntime({
 			inbox,
@@ -187,7 +189,7 @@ describe('curation runtime', () => {
 					ask: (request) =>
 						new Promise((resolve) => {
 							asked.push(request.body)
-							release = resolve
+							releases.push(resolve)
 						}),
 				}),
 				fallback: async () => {},
@@ -202,14 +204,62 @@ describe('curation runtime', () => {
 		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS)
 		await vi.waitFor(() => expect(asked).toHaveLength(1))
 		expect(runtime.draining).toBe(true)
-		// The turn starts while the model call is out: the call returns at once,
-		// nothing is awaited and nothing new is armed.
+		// The turn starts while the model call is out: it returns at once (the
+		// first request has nothing to wait for) and the call stays in flight.
 		runtime.turnStarted()
-		// The drain in flight finishes by itself; a second one is not started.
-		release(undefined)
+		expect(runtime.draining).toBe(true)
+		// More arrives during the turn: it waits, the idle pause does not drain it.
+		await inbox.append(candidate('Prefer small commits'))
+		runtime.appended()
+		releases[0]?.(undefined)
 		await vi.waitFor(() => expect(runtime.draining).toBe(false))
-		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS * 2)
+		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS * 4)
 		expect(asked).toHaveLength(1)
+		// The turn settles: only then does the second drain run.
+		runtime.turnSettled()
+		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS)
+		await vi.waitFor(() => expect(asked).toHaveLength(2))
+		releases[1]?.(undefined)
+		await vi.waitFor(() => expect(runtime.draining).toBe(false))
+	})
+
+	it('drains after a turn that ended with no completion event once the lifecycle settles it', async () => {
+		const { inbox, store } = setup()
+		const asked: string[] = []
+		const runtime = new CurationRuntime({
+			inbox,
+			curator: new MemoryCurator({
+				store,
+				sideModel: () => undefined,
+				fallback: async (c) => {
+					asked.push(c.userRequirements.join())
+				},
+			}),
+			setTimer: (run, ms) => setTimeout(run, ms),
+			clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+			turn: () => ({ sessionId: 's1' as SessionId, turnId: 't1' as TurnId }),
+			hasSideModel: () => false,
+		})
+		const lifecycle = new MemoryLifecycle({
+			store,
+			usage: new MemoryUsage({ file: join(roots[0] as string, 'usage.json'), now: Date.now }),
+			now: Date.now,
+			retireAfterDays: 0,
+			setTimer: (run, ms) => setTimeout(run, ms),
+			clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+			onTurnSettled: () => runtime.turnSettled(),
+		})
+		await inbox.append(candidate('Always use pnpm'))
+		runtime.turnStarted()
+		lifecycle.turnStarted()
+		runtime.appended()
+		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS * 4)
+		// A cancelled turn announced nothing: the drain stays held.
+		expect(asked).toEqual([])
+		// The host's exit path settles it.
+		lifecycle.turnEnded()
+		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS)
+		await vi.waitFor(() => expect(asked).toEqual(['Always use pnpm']))
 	})
 
 	it('looks again after the next pause when the person is typing, then drains', async () => {

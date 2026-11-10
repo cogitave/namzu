@@ -112,7 +112,9 @@ export class CurationRuntime {
 	 * A turn is starting. Nothing is drained while it runs, so curation never
 	 * competes with a streaming reply or a running tool and the turn's first
 	 * request never waits for it. What was waiting drains after the turn
-	 * settles. A drain already in flight is not waited for and not stopped.
+	 * settles. A drain already in flight is neither waited for nor stopped: it
+	 * is one bounded side-model call (`CURATE_DEADLINE_MS`) that finishes by
+	 * itself, and stopping it would throw its work away. It starts no new one.
 	 */
 	turnStarted(): void {
 		if (this.#disposed) return

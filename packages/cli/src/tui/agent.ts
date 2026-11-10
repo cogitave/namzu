@@ -5632,6 +5632,7 @@ export async function createAgentSession(
 						: {}),
 				})
 			} finally {
+				memoryLifecycle.turnEnded()
 				liveModeControls.delete(modeControl)
 				recordedModes.set(String(entry.sessionId), modeControl.current())
 				if (delegatedResumeHandlers.get(entry.turnId) === resumeHandler) {
@@ -6137,6 +6138,9 @@ export async function createAgentSession(
 							const cleanup = () => {
 								if (cleanupPromise) return cleanupPromise
 								cleanupPromise = (async () => {
+									// Only while this is still the newest turn: a continuation
+									// that outlives it must not settle a later turn.
+									if (latestTurn?.turnId === turnId) memoryLifecycle.turnEnded()
 									liveModeControls.delete(control)
 									delegationScopes.delete(turnId)
 									delegationLimits.delete(turnId)
@@ -8289,6 +8293,8 @@ async function* runTurn({
 			...(isNamzuError(err) ? { failure: toPlatformError(err) } : {}),
 		}
 	} finally {
+		// A turn that ended by a cancel or an error announced no completion.
+		memoryLifecycle?.turnEnded()
 		turnManager.dispose()
 	}
 }

@@ -97,11 +97,38 @@ async function setup(
 describe('the lifecycle host', () => {
 	it('tells the curator when a turn settles, and only then', async () => {
 		let settled = 0
-		const t = await setup({ onTurnSettled: () => (settled += 1) })
+		const t = await setup({
+			onTurnSettled: () => {
+				settled += 1
+			},
+		})
 		t.lifecycle.turnStarted()
 		expect(settled).toBe(0)
 		t.lifecycle.observe({ type: 'turn_completed' } as never)
 		expect(settled).toBe(1)
+	})
+
+	it('settles a turn that ended with no completion event, once', async () => {
+		let settled = 0
+		const t = await setup({
+			onTurnSettled: () => {
+				settled += 1
+			},
+		})
+		// Nothing started: nothing to settle.
+		t.lifecycle.turnEnded()
+		expect(settled).toBe(0)
+		t.lifecycle.turnStarted()
+		// A cancelled turn emitted neither turn_completed nor turn_failed.
+		t.lifecycle.turnEnded()
+		expect(settled).toBe(1)
+		t.lifecycle.turnEnded()
+		expect(settled).toBe(1)
+		// One that did settle is not settled a second time on the way out.
+		t.lifecycle.turnStarted()
+		t.lifecycle.observe({ type: 'turn_failed' } as never)
+		t.lifecycle.turnEnded()
+		expect(settled).toBe(2)
 	})
 
 	it('counts what recall offered, and which of it a selector chose', async () => {
