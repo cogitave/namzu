@@ -431,7 +431,9 @@ export class IterationOrchestrator {
 			})
 			yield* this.ctx.drainPending()
 		}
-		if (feedback.length === 0) {
+		// Once the cap has been reached, refusals stay ignored for the rest of the turn,
+		// whatever a tool call does to the count; a halt was already passed on above.
+		if (feedback.length === 0 || this.hookRefusalCapReached) {
 			this.turnEndFired = true
 			return undefined
 		}
