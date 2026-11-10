@@ -10,11 +10,20 @@ import { builtinModules } from 'node:module'
 import { dirname, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-/** The platform an installer is built for, as Node names it: `{ platform: 'win32', arch: 'x64' }`. */
+/**
+ * The platform an installer is built for, as Node names it: `{ platform: 'win32', arch: 'x64' }`.
+ * A Linux target also names its C library: `linux-x64` is glibc, `linux-x64-musl` is musl. Only
+ * Linux has the choice, so a suffix on another platform is refused.
+ */
 export function parseTarget(text) {
-	const match = /^(win32|darwin|linux)-(x64|arm64|ia32)$/.exec(text ?? '')
-	if (!match) throw new Error(`--target must look like win32-x64, darwin-arm64 or linux-x64, not "${text}".`)
-	return { platform: match[1], arch: match[2] }
+	const match = /^(win32|darwin|linux)-(x64|arm64|ia32)(?:-(glibc|musl))?$/.exec(text ?? '')
+	if (!match || (match[3] && match[1] !== 'linux'))
+		throw new Error(
+			`--target must look like win32-x64, darwin-arm64, linux-x64 or linux-x64-musl, not "${text}".`,
+		)
+	return match[1] === 'linux'
+		? { platform: match[1], arch: match[2], libc: match[3] ?? 'glibc' }
+		: { platform: match[1], arch: match[2] }
 }
 
 /** The externals the bundle declares, read from the CLI package's own list. */
@@ -49,7 +58,9 @@ const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'))
  * bindings, the speech engine's addon) say so in the `os`, `cpu` and `libc` fields of their
  * manifest, the same fields a package manager reads. A package that sets none is for everyone.
  * `libc` only means something on Linux, so a Windows or macOS target never matches a libc-specific
- * package and a package that sets only `libc` is a Linux one.
+ * package and a package that sets only `libc` is a Linux one. A Linux target that names its `libc`
+ * (`parseTarget` always does) matches only the packages for that library, so the musl build of a
+ * binding is not kept for a glibc target; a target that names none matches both.
  */
 export function appliesToTarget(manifest, target) {
 	const accepts = (list, value) => {
@@ -60,7 +71,10 @@ export function appliesToTarget(manifest, target) {
 		return allowed.length === 0 || allowed.includes(value)
 	}
 	if (!accepts(manifest.os, target.platform) || !accepts(manifest.cpu, target.arch)) return false
-	if (Array.isArray(manifest.libc) && manifest.libc.length > 0 && target.platform !== 'linux') return false
+	if (Array.isArray(manifest.libc) && manifest.libc.length > 0) {
+		if (target.platform !== 'linux') return false
+		if (target.libc && !accepts(manifest.libc, target.libc)) return false
+	}
 	return true
 }
 
@@ -79,7 +93,8 @@ export function isForeignPrebuild(directoryName, target) {
 		directoryName,
 	)
 	if (!match) return false
-	return !(match[1] === target.platform && match[2] === target.arch)
+	const platform = target.platform === 'linux' && target.libc === 'musl' ? 'linuxmusl' : target.platform
+	return !(match[1] === platform && match[2] === target.arch)
 }
 
 /** Find a package named `name` the way Node would from `fromDir`, never above `root`. */

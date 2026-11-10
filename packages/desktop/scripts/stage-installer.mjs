@@ -26,7 +26,7 @@ import {
 } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { checkStagedCli } from './check-staged-cli.mjs'
+import { STAGED_CLI_FILES, checkStagedCli } from './check-staged-cli.mjs'
 import { leanCli, loadExternals, measure, parseTarget, pruneForeignPrebuilds } from './lean-cli.mjs'
 
 const pkgRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -258,18 +258,31 @@ async function main() {
 
 	// 2. The CLI runtime: a hoisted, link-free production install of the workspace package.
 	const cli = join(out, 'extra/cli')
-	run('pnpm', ['--filter', '@namzu/cli', 'deploy', '--prod', '--legacy', '--config.node-linker=hoisted', cli], {
-		cwd: repoRoot,
-	})
+	// Deployed for the target, not for this machine: without --os, --cpu and --libc pnpm fetches the
+	// optional packages of the staging machine (Linux on a runner), and a Windows installer would
+	// carry no sharp, oxc-parser or node-pty binding.
+	run(
+		'pnpm',
+		[
+			'--filter',
+			'@namzu/cli',
+			'deploy',
+			'--prod',
+			'--legacy',
+			'--config.node-linker=hoisted',
+			`--os=${target.platform}`,
+			`--cpu=${target.arch}`,
+			...(target.libc ? [`--libc=${target.libc}`] : []),
+			cli,
+		],
+		{ cwd: repoRoot },
+	)
 	prune(cli, (entry) => entry.name === '.bin' || entry.isSymbolicLink())
 	// The bundle inlines most of what the deploy installed. Keep the packages it leaves external, what
 	// they depend on and the target's native binaries; the rest is never loaded.
 	const before = measure(cli)
-	const lean = leanCli({
-		root: cli,
-		externals: await loadExternals(join(repoRoot, 'packages/cli')),
-		target,
-	})
+	const externals = await loadExternals(join(repoRoot, 'packages/cli'))
+	const lean = leanCli({ root: cli, externals, target })
 	pruneDeadWeight(join(cli, 'node_modules'))
 	pruneDeadWeight(join(cli, 'dist'))
 	const after = measure(cli)
@@ -279,7 +292,7 @@ async function main() {
 	// Terminals need node-pty, an optional dependency of the CLI that a deploy on a machine without a
 	// compiler can silently omit. The target's binaries ship inside the package, so check for them here
 	// rather than finding an installer whose terminals are all unavailable.
-	const targetName = `${target.platform}-${target.arch}`
+	const targetName = `${target.platform}-${target.arch}${target.libc === 'musl' ? '-musl' : ''}`
 	if (
 		target.platform === 'win32' &&
 		!existsSync(join(cli, `node_modules/node-pty/prebuilds/${targetName}/pty.node`))
@@ -288,14 +301,13 @@ async function main() {
 	// The staged CLI must work from its own files: version, the Desktop's first call, every import.
 	const { failures, report } = await checkStagedCli({
 		cliDir: cli,
-		externals: await loadExternals(join(repoRoot, 'packages/cli')),
+		externals,
 		target,
+		requiredFiles: STAGED_CLI_FILES,
 	})
 	console.log(
 		`Staged CLI check: --version ${report.version} in ${report.timings.versionMs?.toFixed(0)} ms, initialize in ${report.timings.initializeMs?.toFixed(0)} ms, ${report.specifiers} specifiers resolved, ${report.imported} imported${report.notImported.length ? `, not imported on this host (assert files for ${targetName}): ${report.notImported.join(', ')}` : ''}${report.notShipped.length ? `; deliberately not shipped: ${report.notShipped.join(', ')}` : ''}`,
 	)
-	for (const line of report.nativeMissing)
-		console.warn(`Warning: no ${targetName} binary staged for ${line} (this machine's deploy fetched its own platform's optional packages).`)
 	if (failures.length > 0)
 		throw new Error(`The staged CLI does not work from its own files:\n  ${failures.join('\n  ')}`)
 

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
-type Target = { platform: string; arch: string }
+type Target = { platform: string; arch: string; libc?: string }
 type Lean = {
 	parseTarget: (text: string) => Target
 	loadExternals: (cliPackageDir: string) => Promise<string[]>
@@ -31,7 +31,10 @@ type Check = {
 		cliDir: string
 		externals: string[]
 		target: Target
+		requiredFiles?: string[]
 	}) => Promise<{ failures: string[]; report: { notImported: string[] } }>
+	missingFiles: (cliDir: string, files: string[]) => string[]
+	STAGED_CLI_FILES: string[]
 }
 const lean = (await import(
 	/* @vite-ignore */ new URL('../../scripts/lean-cli.mjs', import.meta.url).href
@@ -214,6 +217,23 @@ describe('native binaries by target', () => {
 		expect(lean.appliesToTarget({ libc: ['glibc'] }, WIN)).toBe(false)
 	})
 
+	it('names the C library of a Linux target, and keeps only the packages built for it', () => {
+		expect(lean.parseTarget('linux-x64')).toEqual({ platform: 'linux', arch: 'x64', libc: 'glibc' })
+		expect(lean.parseTarget('linux-arm64-musl')).toEqual({ platform: 'linux', arch: 'arm64', libc: 'musl' })
+		expect(() => lean.parseTarget('win32-x64-musl')).toThrow(/--target/)
+		const glibc = lean.parseTarget('linux-x64')
+		const musl = lean.parseTarget('linux-x64-musl')
+		const gnuPackage = { os: ['linux'], cpu: ['x64'], libc: ['glibc'] }
+		const muslPackage = { os: ['linux'], cpu: ['x64'], libc: ['musl'] }
+		expect(lean.appliesToTarget(gnuPackage, glibc)).toBe(true)
+		expect(lean.appliesToTarget(muslPackage, glibc)).toBe(false)
+		expect(lean.appliesToTarget(muslPackage, musl)).toBe(true)
+		expect(lean.appliesToTarget(gnuPackage, musl)).toBe(false)
+		expect(lean.isForeignPrebuild('linuxmusl-x64', glibc)).toBe(true)
+		expect(lean.isForeignPrebuild('linuxmusl-x64', musl)).toBe(false)
+		expect(lean.isForeignPrebuild('linux-x64', musl)).toBe(true)
+	})
+
 	it('names the prebuild folders of other platforms, and only those', () => {
 		for (const name of ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-arm64', 'linuxmusl-x64'])
 			expect(lean.isForeignPrebuild(name, WIN)).toBe(true)
@@ -284,6 +304,7 @@ export const lazy = () => import('fakeext/sub.js')
 	it('does not import a package that only loads on another target, it asks for its files', async () => {
 		const root = staged()
 		pkg(root, 'fakeext', { optionalDependencies: { 'fakeext-win32-x64': '1' } })
+		pkg(root, 'fakeext-win32-x64', { os: ['win32'], cpu: ['x64'] })
 		const { failures, report } = await check.checkStagedCli({
 			cliDir: root,
 			externals: ['fakeext'],
@@ -291,6 +312,45 @@ export const lazy = () => import('fakeext/sub.js')
 		})
 		expect(report.notImported).toContain('fakeext/sub.js')
 		expect(failures).toEqual([])
+	})
+
+	it('fails when the binding for the target was never staged, even on another machine', async () => {
+		const root = staged()
+		pkg(root, 'fakeext', { optionalDependencies: { 'fakeext-win32-x64': '1' } })
+		const { failures } = await check.checkStagedCli({
+			cliDir: root,
+			externals: ['fakeext'],
+			target: { platform: process.platform === 'win32' ? 'linux' : 'win32', arch: 'x64' },
+		})
+		expect(failures.join('\n')).toMatch(/fakeext has no binary for/)
+	})
+
+	it('fails when a kept @namzu package lazily imports something the tree lacks', async () => {
+		const root = staged()
+		pkg(root, '@namzu/inner', {}, { 'dist/index.js': "export const load = () => import('forgotten-dep')\n" })
+		const { failures } = await check.checkStagedCli({ cliDir: root, externals: ['fakeext'], target: HOST })
+		expect(failures.join('\n')).toMatch(/@namzu\/inner imports forgotten-dep/)
+		pkg(root, 'forgotten-dep')
+		const again = await check.checkStagedCli({ cliDir: root, externals: ['fakeext'], target: HOST })
+		expect(again.failures).toEqual([])
+	})
+
+	it('fails when a file the CLI loads by path is missing, or a folder of them is empty', async () => {
+		const root = staged()
+		write(join(root, 'CHANGELOG.md'), 'x')
+		mkdirSync(join(root, 'skills'))
+		expect(check.missingFiles(root, ['CHANGELOG.md', 'skills/', 'dist/analysis-host.js'])).toEqual([
+			'skills/',
+			'dist/analysis-host.js',
+		])
+		const { failures } = await check.checkStagedCli({
+			cliDir: root,
+			externals: ['fakeext'],
+			target: HOST,
+			requiredFiles: ['dist/analysis-host.js'],
+		})
+		expect(failures.join('\n')).toMatch(/dist\/analysis-host\.js is loaded by path/)
+		expect(check.STAGED_CLI_FILES).toContain('node_modules/@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.wasm')
 	})
 
 	it('fails, naming the package, when one the bundle needs has been removed', async () => {

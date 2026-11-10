@@ -7,6 +7,9 @@
 //       resolves from the staged tree, and imports for the platform running this check. A package
 //       with a native part that only loads on the target platform is not imported when the host is
 //       another platform; its files for the target are asserted to exist instead.
+//   (d) the packages of the CLI's own that stay on disk (`@namzu/*`) have the dependencies their
+//       emitted files import, lazy `import()` and `require()` included, and the files the CLI loads
+//       by path exist.
 // It never waits on a clock: a child that hangs is the caller's timeout to catch.
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
@@ -82,6 +85,58 @@ export function nativeStatus(packageDir, root, target, host = { platform: proces
 		hasTarget: wanted.some((dep) => dep.applies && !dep.absent),
 		detail: `a platform package for ${targetName} (optional dependencies: ${wanted.length})`,
 	}
+}
+
+/**
+ * Files the CLI loads by path, which no import of a specifier would find missing, relative to the
+ * staged CLI folder. A name ending in `/` is a folder that must hold at least one entry.
+ */
+export const STAGED_CLI_FILES = [
+	'dist/bin.js',
+	'dist/analysis-host.js',
+	'skills/',
+	'assets/pal-blender-mcp.py',
+	'assets/pal-godot-mcp.cjs',
+	'assets/pal-godot-mcp-pin.json',
+	'CHANGELOG.md',
+	'node_modules/@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.wasm',
+	'node_modules/playwright-core/package.json',
+	'node_modules/@namzu/sandbox/dist/local-virtual-computer/detached-worker.js',
+]
+
+/** Which of `files` are missing from `cliDir`. */
+export function missingFiles(cliDir, files) {
+	return files.filter((file) => {
+		const path = join(cliDir, file)
+		if (!existsSync(path)) return true
+		return file.endsWith('/') && readdirSync(path).length === 0
+	})
+}
+
+/**
+ * Dependencies the staged `@namzu/*` packages import and the tree lacks. Their own emitted files
+ * are scanned, so a lazy `import()` or `require()` of something the package forgot to declare is
+ * found; each specifier is looked up the way Node would from that package's folder.
+ * Returns `{ scanned, problems }`.
+ */
+export function checkKeptPackageImports(cliDir) {
+	const scope = join(cliDir, 'node_modules', '@namzu')
+	const problems = []
+	let scanned = 0
+	if (!existsSync(scope)) return { scanned, problems }
+	for (const entry of readdirSync(scope, { withFileTypes: true })) {
+		const packageDir = join(scope, entry.name)
+		const dist = join(packageDir, 'dist')
+		if (!entry.isDirectory() || !existsSync(dist)) continue
+		scanned++
+		for (const [specifier, file] of scanSpecifiers(dist)) {
+			const name = packageNameOf(specifier)
+			if (name === `@namzu/${entry.name}` || name in NOT_SHIPPED) continue
+			if (!findPackage(name, packageDir, cliDir))
+				problems.push(`@namzu/${entry.name} imports ${specifier} (in ${file.split(/[\\/]dist[\\/]/).pop()}), which the staged tree does not have`)
+		}
+	}
+	return { scanned, problems }
 }
 
 function childEnv(home) {
@@ -169,9 +224,9 @@ console.log(JSON.stringify(out))
  * Run the checks against a staged CLI (the folder holding package.json, dist and node_modules).
  * Returns `{ failures, report }`: an empty `failures` is a pass. `timings` are measurements only.
  */
-export async function checkStagedCli({ cliDir, externals, target, host = { platform: process.platform, arch: process.arch }, node = process.execPath }) {
+export async function checkStagedCli({ cliDir, externals, target, host = { platform: process.platform, arch: process.arch }, node = process.execPath, requiredFiles = [] }) {
 	const failures = []
-	const report = { version: undefined, timings: {}, specifiers: 0, imported: 0, notImported: [], notShipped: [], nativeMissing: [] }
+	const report = { version: undefined, timings: {}, specifiers: 0, imported: 0, notImported: [], notShipped: [], keptPackagesScanned: 0 }
 	const home = mkdtempSync(join(tmpdir(), 'namzu-staged-check-'))
 	const project = join(home, 'project')
 	mkdirSync(project)
@@ -235,13 +290,15 @@ export async function checkStagedCli({ cliDir, externals, target, host = { platf
 			for (const entry of bad)
 				failures.push(`${entry.specifier} (named in ${String(specifiers.get(entry.specifier)).split(/[\\/]dist[\\/]/).pop()}) does not ${entry.stage} from the staged tree: ${entry.message}`)
 		}
-		// Natives: files for the target must exist. node-pty is required; the others only warn when
-		// the staging machine is not the target, because a deploy fetches the host's optional packages.
-		for (const status of natives.values()) {
-			if (status.hasTarget) continue
-			if (crossTarget && status.name !== 'node-pty') report.nativeMissing.push(`${status.name}: ${status.detail}`)
-			else failures.push(`${status.name} has no binary for ${target.platform}-${target.arch} (${status.detail}).`)
-		}
+		// Natives: files for the target must exist, whichever machine staged them. The deploy is made
+		// for the target, so a missing binding is a build that would ship without that feature.
+		for (const status of natives.values())
+			if (!status.hasTarget) failures.push(`${status.name} has no binary for ${target.platform}-${target.arch} (${status.detail}).`)
+
+		const kept = checkKeptPackageImports(cliDir)
+		report.keptPackagesScanned = kept.scanned
+		failures.push(...kept.problems)
+		for (const file of missingFiles(cliDir, requiredFiles)) failures.push(`${file} is loaded by path and is not in the staged tree`)
 	} finally {
 		rmSync(home, { recursive: true, force: true })
 	}
