@@ -58,6 +58,11 @@ describe('runCli', () => {
 		expect(stderr).toContain('--model, --effort apply to the interactive TUI, not this subcommand')
 	})
 
+	it('refuses --fast on a subcommand instead of ignoring it', async () => {
+		expect(await invoke(['--fast', 'providers-json'])).toBe(64)
+		expect(stderr).toContain('--fast apply to the interactive TUI, not this subcommand')
+	})
+
 	it('refuses --message on a subcommand instead of ignoring it', async () => {
 		expect(await invoke(['--message', 'hi', 'providers-json'])).toBe(64)
 		expect(stderr).toContain('--message apply to the interactive TUI, not this subcommand')
@@ -97,6 +102,7 @@ describe('runCli', () => {
 			'--provider <id>',
 			'--model <id>',
 			'--effort <level>',
+			'--fast',
 			'--permission-mode <mode>',
 			'--message <text>',
 			'-c, --continue',

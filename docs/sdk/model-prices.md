@@ -52,6 +52,17 @@ is the one answer known for every model that could ever appear, and
 `unmetered: true`. Such a driver "is priced at zero, which is KNOWN-free and
 therefore distinct from unknown".
 
+## Fast mode
+
+A call served in fast mode costs a published multiple of every rate on its
+card. `ModelPricing.fastMultiplier` carries it (`fastMultiplier` in
+`rates.source.json`; 2 on `claude-opus-5-5`, `claude-fable-5-2`,
+`claude-mythos-5-2`, `claude-opus-5` and `claude-opus-4-8`) and applies to input,
+output and cache tokens alike. A driver reports the speed that served the call as
+`TokenUsage.speed`. A fast call on a card with no multiplier is counted as
+unpriced, never charged at the standard rate, so `costLimitUsd` refuses rather
+than under-counts.
+
 ## How a reader should render it
 
 Three answers, three renderings, and the third is the one that used to be

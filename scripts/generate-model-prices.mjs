@@ -158,6 +158,16 @@ function validate(source) {
 					problems.push(`${where} model "${model.id}" has a non-finite or negative \`${field}\`.`)
 				}
 			}
+			if (
+				model.fastMultiplier !== undefined &&
+				(typeof model.fastMultiplier !== 'number' ||
+					!Number.isFinite(model.fastMultiplier) ||
+					model.fastMultiplier < 1)
+			) {
+				problems.push(
+					`${where} model "${model.id}" has a \`fastMultiplier\` that is not a finite number of at least 1.`,
+				)
+			}
 			if (vendor.reportsCacheWrites === false && model.cacheWritePer1M !== undefined) {
 				problems.push(
 					`${where} model "${model.id}" carries a write rate while the vendor declares it never reports cache writes. One of the two is wrong, and a rate nothing multiplies is the kind of declaration this table exists to keep out.`,
@@ -185,7 +195,8 @@ function render(source) {
 					].join(', ')
 					return (
 						`\t\t\t['${model.id}', { inputCostPer1M: ${model.inputPer1M}, ` +
-						`outputCostPer1M: ${model.outputPer1M}, cache: { ${cache} } }],`
+						`outputCostPer1M: ${model.outputPer1M}, cache: { ${cache} }` +
+						`${model.fastMultiplier === undefined ? '' : `, fastMultiplier: ${model.fastMultiplier}`} }],`
 					)
 				})
 			const models = rows.length === 0 ? '\t\t\t// none — see `unmetered`.\n' : `${rows.join('\n')}\n`

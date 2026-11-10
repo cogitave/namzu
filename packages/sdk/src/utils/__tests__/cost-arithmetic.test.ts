@@ -143,3 +143,35 @@ describe('the rate fields describe the whole total or they are absent', () => {
 		expect(run.unpricedTokens).toBe(900)
 	})
 })
+
+describe('fast mode pricing', () => {
+	const fast = usage({
+		promptTokens: 1_000_000,
+		completionTokens: 1_000_000,
+		totalTokens: 2_000_000,
+		cachedTokens: 1_000_000,
+		speed: 'fast',
+	})
+	const standard = { ...fast, speed: undefined }
+
+	it('applies the published multiplier to every component of a fast call', () => {
+		const card: ModelPricing = { ...ADDITIVE, fastMultiplier: 2 }
+		const base = calculateCost(standard, card).totalCost
+		expect(base).toBe(10 + 100 + 1)
+		expect(calculateCost(fast, card).totalCost).toBe(base * 2)
+		expect(calculateCost(fast, card).unpricedTokens).toBe(0)
+	})
+
+	it('leaves a standard call alone even when the card has a multiplier', () => {
+		const card: ModelPricing = { ...ADDITIVE, fastMultiplier: 2 }
+		expect(calculateCost({ ...fast, speed: 'standard' }, card).totalCost).toBe(111)
+	})
+
+	it('reports a fast call on a card with no multiplier as unpriced, not as standard', () => {
+		const cost = calculateCost(fast, ADDITIVE)
+		expect(cost.totalCost).toBe(0)
+		expect(cost.unpricedTokens).toBe(2_000_000)
+		const total = accumulateCost(ZERO_COST, fast, ADDITIVE)
+		expect(total.unpricedTokens).toBe(2_000_000)
+	})
+})

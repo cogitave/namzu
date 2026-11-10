@@ -76,3 +76,15 @@ watchdog wrappers bind the original receiver. Fallback wrappers evaluate each
 member's actual configured model; they cannot advertise a head-only guarantee.
 `QueryAgentConfig.webSearch` forwards the same setting into the query's turn.
 See [Web search](../cli/web-search.md) for driver restrictions and replay behavior.
+
+## Request rich-content budget
+
+`turnConfig.maxRequestRichContentBytes` bounds the base64 of inline images and
+documents on one model request. When it is not set, the budget is the one the
+provider declares in `ProviderCapabilities.maxRequestRichContentBytes`, and when
+the provider declares none, the 24 MiB kernel default. A set value always wins,
+in either direction. A fallback chain is limited by its smallest member (a
+member that declares nothing counts as 24 MiB), so a request built for a wide
+head is never sent to a narrower fallback. `@namzu/anthropic` declares 100 MiB
+for the vendor's own endpoint (the first-party limit is 128 MB) and nothing
+behind another base URL; the other drivers declare nothing. The turn record keeps only the value a caller set; the provider's declaration is read where the budget is applied, so it follows the provider serving the turn and a resumed turn or nested agent never inherits it as an override.
