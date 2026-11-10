@@ -69,6 +69,34 @@ export interface ProviderRetryConfig extends BackoffPolicy {
 	 * restarted, because that work is real.
 	 */
 	readonly retryMidStream?: boolean
+	/**
+	 * Give up on this member after this many overloaded answers in a row
+	 * (529 and 503), so a provider chain can move on to its next member
+	 * instead of spending the whole retry budget on a saturated one.
+	 *
+	 * The error escapes as it would when the budget is spent, and
+	 * {@link wasGivenUpOnEarly} says so. Rate-limit answers are not counted:
+	 * they carry their own wait. A different failure between two overloaded
+	 * answers restarts the count, and the count belongs to one request, so any
+	 * success starts the next request clean.
+	 *
+	 * Absent or `0` keeps the full budget. `query()` sets `3` on every chain
+	 * member that has a successor and ignores the option on the last one;
+	 * a bare `withProviderRetry` never gives up early unless asked.
+	 */
+	readonly overloadedFallOverAfter?: number
+}
+
+/** Errors this decorator let go early, with the number of overloaded answers behind each. */
+const gaveUpEarly = new WeakMap<object, number>()
+
+/**
+ * How many overloaded answers in a row made {@link withProviderRetry} give up
+ * on a member before its budget was spent, or `undefined` when the error
+ * escaped for any other reason.
+ */
+export function wasGivenUpOnEarly(err: unknown): number | undefined {
+	return typeof err === 'object' && err !== null ? gaveUpEarly.get(err) : undefined
 }
 
 export const DEFAULT_PROVIDER_RETRY: ProviderRetryConfig = {
@@ -157,7 +185,10 @@ export function withProviderRetry(
 	// retried anyway.
 	if (config.maxRetries <= 0) return provider
 
+	const overloadLimit = config.overloadedFallOverAfter ?? 0
+
 	async function* chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
+		let overloadedInARow = 0
 		for (let attempt = 0; ; attempt++) {
 			let produced = false
 			// Reasoning has streamed and nothing else has. The consumer holds
@@ -247,6 +278,23 @@ export function withProviderRetry(
 					// the vendor's `kind` at the boundary — the existing
 					// stream-recovery test caught exactly that.
 					throw isProviderRequestError(err) ? err : classified
+				}
+
+				overloadedInARow = classified.code === 'overloaded' ? overloadedInARow + 1 : 0
+				if (overloadLimit > 0 && overloadedInARow >= overloadLimit) {
+					log?.warn('Provider call failed — repeated overload, leaving the member', {
+						[GENAI.SYSTEM]: provider.id,
+						'namzu.provider.code': classified.code,
+						'namzu.provider.status': classified.status,
+						'namzu.retry.attempt': attempt + 1,
+						'namzu.provider.overloaded_in_a_row': overloadedInARow,
+						'namzu.provider.reason': 'the caller has another member to ask',
+					})
+					const escaping = isProviderRequestError(err) ? err : classified
+					if (typeof escaping === 'object' && escaping !== null) {
+						gaveUpEarly.set(escaping, overloadedInARow)
+					}
+					throw escaping
 				}
 
 				const serverDirected = classified.retryAfterMs

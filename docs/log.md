@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-11
+
+- **Update** [Provider retry](sdk/provider-retry.md#leaving-a-saturated-member-early): a provider chain member that answers overloaded three times in a row (`overloadedFallOverAfter`, `0` turns it off) is left for the next member instead of spending the whole retry budget; rate limits are not counted; the `fallback` notice names the member left and the count. The last member and a chain of one keep the whole budget. `.changeset/overloaded-leaves-the-member.md` (`@namzu/sdk` minor).
+
 ## 2026-11-10
 
 - **Update** [Permission layers](cli/permission-layers.md#the-sandbox-block) and [Tool boundary](cli/tool-boundary.md#which-file-may-set-it): a project file, the local file and a profile declared in either may only tighten `sandbox` (`enabled` on, `allowEscape` and `allowUnattendedEscape` off, `requireIsolation` grows, `workspace` to `ephemeral`; `teardownTimeoutMs` is not theirs); a loosening that would have changed something is named once at launch with its file. The user file merges per key; the managed file replaces the whole block; `namzu exec` prints the notes on stderr; a profile is classed by where its file is, not its name. Before, a repository file replaced the whole block. `.changeset/sandbox-settings-stay-operators.md` (`@namzu/cli` minor).

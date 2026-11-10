@@ -75,6 +75,9 @@ import { assertMaxToolCalls } from './tool-call-budget.js'
  * state passed back in: each field is a value the prelude produced and the
  * body reads afterwards.
  */
+/** Consecutive overloaded answers a chain member gets before the chain moves on. */
+const DEFAULT_OVERLOADED_FALL_OVER_AFTER = 3
+
 export interface PreparedTurn {
 	readonly turnConfig: TurnConfig
 	readonly budget: SessionTokenBudget
@@ -430,7 +433,10 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 		]
 		assertCostIsAttributable(chain, params.pricing)
 		assertBudgetIsMeasurable(params)
-		const withRecovery = (provider: LLMProvider): LLMProvider => {
+		// A member with a successor leaves after a few overloaded answers in a row
+		// instead of spending the whole budget on a saturated provider; the last
+		// member has nowhere to go, so it keeps the full budget. `0` opts out.
+		const withRecovery = (provider: LLMProvider, hasSuccessor: boolean): LLMProvider => {
 			const withIdleBound = withStreamIdleTimeout(provider, {
 				idleTimeoutMs: streamIdleTimeoutMs,
 				log,
@@ -439,7 +445,12 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 			return params.retry === false
 				? metered
 				: withProviderRetry(metered, {
-						config: params.retry,
+						config: {
+							...params.retry,
+							overloadedFallOverAfter: hasSuccessor
+								? (params.retry?.overloadedFallOverAfter ?? DEFAULT_OVERLOADED_FALL_OVER_AFTER)
+								: 0,
+						},
 						log,
 						canRetry: () => budget.remaining > 0,
 					})
@@ -455,9 +466,9 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 			current: { index: 0, providerId: params.provider.id },
 		}
 		const resilientProvider = withProviderFallback(
-			chain.map((member) => ({
+			chain.map((member, position) => ({
 				...member,
-				provider: withRecovery(member.provider),
+				provider: withRecovery(member.provider, position < chain.length - 1),
 			})),
 			{
 				log,
