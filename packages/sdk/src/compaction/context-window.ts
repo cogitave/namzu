@@ -155,6 +155,7 @@ const WINDOWS: ReadonlyArray<readonly [prefix: string, tokens: number]> = [
 	['claude-mythos', 1_000_000],
 	['claude-opus-5', 1_000_000],
 	['claude-sonnet-5', 1_000_000],
+	['claude-haiku-5', 1_000_000],
 	['claude-opus-4-8', 1_000_000],
 	['claude-opus-4-7', 1_000_000],
 	['claude-opus-4-6', 1_000_000],

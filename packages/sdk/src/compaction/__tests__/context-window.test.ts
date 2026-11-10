@@ -17,6 +17,10 @@ describe('lookupContextWindow', () => {
 	it('resolves dated model ids through their family prefix', () => {
 		expect(lookupContextWindow('claude-opus-5-20260514')).toBe(1_000_000)
 		expect(lookupContextWindow('claude-sonnet-5')).toBe(1_000_000)
+		expect(lookupContextWindow('claude-sonnet-5-5')).toBe(1_000_000)
+		expect(lookupContextWindow('claude-haiku-5-5')).toBe(1_000_000)
+		// The 4.5 Haiku stays at 200k: `claude-haiku-5` must not out-rank it.
+		expect(lookupContextWindow('claude-haiku-4-5')).toBe(200_000)
 	})
 
 	it('resolves namespaced ids from Bedrock and OpenRouter', () => {

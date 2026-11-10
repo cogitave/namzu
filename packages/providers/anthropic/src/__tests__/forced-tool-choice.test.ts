@@ -94,6 +94,7 @@ describe('which models take a forced tool choice', () => {
 	const rows: readonly [string, ThinkingConfig | undefined, boolean][] = [
 		// Refused whatever the thinking settings.
 		['claude-opus-5-5', undefined, false],
+		['claude-sonnet-5-5', undefined, false],
 		['claude-fable-5-1', undefined, false],
 		['claude-mythos-5-1', undefined, false],
 		['anthropic/claude-opus-5-5', undefined, false],
@@ -109,6 +110,9 @@ describe('which models take a forced tool choice', () => {
 		['claude-fable-5', undefined, true],
 		['claude-mythos-5', undefined, true],
 		['claude-sonnet-5', undefined, true],
+		// Haiku 5.5 has thinking on by default and still takes it (vendor note
+		// on the forcing-tool-use table).
+		['claude-haiku-5-5', undefined, true],
 		// Manual thinking refuses it on every model that has it, decided on
 		// what is actually sent: an `enabled` intent on an adaptive-only model
 		// goes out as `adaptive` and is fine, and an `adaptive` intent on a
