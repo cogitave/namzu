@@ -28,7 +28,7 @@ const removal: PermissionToolCall = {
 describe('the prompt for a protected write or a catastrophic removal', () => {
 	it('names the protected path and says it is asked every time', () => {
 		expect(permissionEscalationNotes([hook])).toEqual([
-			'Writes a protected file or folder: /work/proj/.git/hooks/pre-commit. Asked every time, in every mode; no earlier answer covers it.',
+			'Writes a protected file or folder, or creates or deletes a top-level entry of the home folder or filesystem root: /work/proj/.git/hooks/pre-commit. Asked every time, in every mode; no earlier answer covers it.',
 		])
 	})
 

@@ -18,6 +18,7 @@
  * | workflow doctrine         | if the workflow tool is offered | no, a resumed turn is not offered it | no |
  * | pal block                 | yes          | yes          | no        |
  * | conversation evidence     | if enabled   | if enabled   | no        |
+ * | where-files-go guidance  | yes          | yes          | no        |
  * | memory guidance           | if the memory tool is mounted | same | taught in its own prompt, when it holds the tool |
  * | deferred-tool guidance    | if any tool is deferred | same | no |
  * | plan doctrine             | no: the plan-mode reminder carries it (no plan file: under `plan`) | under `plan` | no |
@@ -68,6 +69,8 @@ export interface SessionPromptInput {
 	/** The memory section, present only for a session that holds the tool it teaches. */
 	readonly memoryGuidance?: string | undefined
 	readonly shellEscapeGuidance?: string | undefined
+	/** The platform's "Where files go" section; a function of the platform alone, so it never changes mid-session. */
+	readonly filePlacementGuidance?: string | undefined
 	/** True when a tool in this turn's roster is deferred behind `search_tools`. */
 	readonly toolsDeferred: boolean
 	/** See {@link SessionPromptTurn.planInReminders}. */
@@ -91,6 +94,8 @@ export interface SessionPromptFacts {
 	readonly memoryGuidance?: string | undefined
 	/** For a session with a person typing at it; see `SHELL_ESCAPE_GUIDANCE`. */
 	readonly shellEscapeGuidance?: string | undefined
+	/** See {@link SessionPromptInput.filePlacementGuidance}. */
+	readonly filePlacementGuidance?: string | undefined
 	readonly toolLoading?: 'eager' | 'deferred' | undefined
 	/** True when any tool in the toolset this turn sends is deferred. */
 	readonly anyToolDeferred: boolean
@@ -131,6 +136,7 @@ export function sessionPromptInput(
 		conversationEvidence: facts.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 		memoryGuidance: facts.memoryGuidance,
 		shellEscapeGuidance: facts.shellEscapeGuidance,
+		filePlacementGuidance: facts.filePlacementGuidance,
 		toolsDeferred: facts.toolLoading === 'deferred' || facts.anyToolDeferred,
 		planInReminders: turn.planInReminders,
 		permissionMode: turn.permissionMode,
@@ -155,6 +161,7 @@ export function composeSessionSystemPrompt(input: SessionPromptInput): string | 
 			: undefined,
 		input.palBlock,
 		input.conversationEvidence,
+		input.filePlacementGuidance,
 		input.memoryGuidance,
 		input.shellEscapeGuidance,
 		// Whenever anything is deferred: a deferred tool the model was never

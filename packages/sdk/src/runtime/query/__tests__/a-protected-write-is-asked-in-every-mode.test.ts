@@ -416,7 +416,7 @@ describe('a shell line that names a path outside the roots', () => {
 	it('is refused with nobody to ask', async () => {
 		const { text } = await runCall({
 			tool: 'bash',
-			args: { command: 'echo x > ~/.namzu-test-never-written' },
+			args: { command: 'echo x > /etc/namzu-test-never-written' },
 			mode: 'auto',
 			outsideRootAccess: 'review',
 		})

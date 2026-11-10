@@ -1390,7 +1390,11 @@ export class ToolExecutor {
 		if (tool.pathArgument !== undefined && tool.isReadOnly?.(input) !== true) {
 			const value = input[tool.pathArgument]
 			if (typeof value === 'string') {
-				const hit = await declaredWriteEscalation(roots, value)
+				const hit = await declaredWriteEscalation(
+					roots,
+					value,
+					this.config.outsideRootAccess === 'review' && !sandboxed,
+				)
 				if (hit !== undefined) protectedPaths.push(hit)
 			}
 		}
@@ -1402,6 +1406,7 @@ export class ToolExecutor {
 					roots,
 					...(shellCwd !== undefined ? { cwd: shellCwd } : {}),
 					reviewOutside: this.config.outsideRootAccess === 'review' && !sandboxed,
+					topLevel: this.config.outsideRootAccess === 'review' && !sandboxed,
 				})
 				protectedPaths.push(...found.protectedPaths)
 				outsidePaths = found.outsidePaths
