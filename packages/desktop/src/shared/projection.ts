@@ -76,6 +76,13 @@ export interface ThreadState {
 	turn: number
 	turns: Record<number, TurnState>
 	running: boolean
+	/**
+	 * How full the conversation is, as the engine last said. Absent until it says; a field it did not
+	 * report stays absent, and the context ring draws only from what is here.
+	 */
+	usage?: ThreadUsage
+	/** A compaction pass in flight, or one that just finished; cleared by the next thing the turn does. */
+	compaction?: { state: 'running' } | { state: 'done'; tokensBefore?: number; tokensAfter?: number }
 	liveInputSupported: boolean
 	queued: string[]
 	queuedItems: QueuedMessageView[]
@@ -116,6 +123,13 @@ export interface ThreadState {
 	stopReason?: string
 	reason?: string
 	result?: string
+}
+export interface ThreadUsage {
+	contextTokens?: number
+	contextWindowTokens?: number
+	measuredBy?: 'provider' | 'estimate'
+	/** Cost so far in US dollars, only when every token was priced. */
+	cost?: number
 }
 export interface ProviderWait {
 	/** When the host saw the failed attempt; the wait ends `delayMs` after it. */
@@ -427,6 +441,50 @@ function settledAnswer(
 	)
 }
 export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadState {
+	if (event.kind === 'usage') return applyUsage(previous, event)
+	const next = applyEventCore(previous, event)
+	if (!next.compaction) return next
+	// Compaction runs inside a turn: it ends with the turn, and a finished note lasts until the turn goes on.
+	if (event.kind === 'state' && !event.running) return { ...next, compaction: undefined }
+	if (event.kind === 'prompt') return { ...next, compaction: undefined }
+	if (event.kind === 'update' && next.compaction.state === 'done')
+		return { ...next, compaction: undefined }
+	return next
+}
+function applyUsage(
+	thread: ThreadState,
+	event: Extract<DesktopEvent, { kind: 'usage' }>,
+): ThreadState {
+	const hasUsage =
+		event.contextTokens !== undefined ||
+		event.contextWindowTokens !== undefined ||
+		event.cost !== undefined
+	// Each notice is the whole picture the engine has: a figure it left out is gone, not kept.
+	const usage: ThreadUsage | undefined = hasUsage
+		? {
+				...(event.contextTokens === undefined ? {} : { contextTokens: event.contextTokens }),
+				...(event.contextWindowTokens === undefined
+					? {}
+					: { contextWindowTokens: event.contextWindowTokens }),
+				...(event.contextMeasuredBy ? { measuredBy: event.contextMeasuredBy } : {}),
+				...(event.cost === undefined ? {} : { cost: event.cost }),
+			}
+		: thread.usage
+	const compaction: ThreadState['compaction'] =
+		event.compaction === 'started'
+			? { state: 'running' }
+			: event.compaction === 'finished'
+				? {
+						state: 'done',
+						...(event.tokensBefore === undefined ? {} : { tokensBefore: event.tokensBefore }),
+						...(event.tokensAfter === undefined ? {} : { tokensAfter: event.tokensAfter }),
+					}
+				: event.compaction === 'failed'
+					? undefined
+					: thread.compaction
+	return { ...thread, ...(usage ? { usage } : {}), compaction }
+}
+function applyEventCore(previous: ThreadState, event: DesktopEvent): ThreadState {
 	if (event.kind === 'connection' || event.kind === 'background-work-status') return previous
 	if (event.revision !== undefined && event.revision <= previous.revision) return previous
 	let thread = event.revision === undefined ? previous : { ...previous, revision: event.revision }
