@@ -2460,6 +2460,22 @@ function readEnv(env: NodeJS.ProcessEnv): {
 	return { config, variables }
 }
 
+/** Every top-level config key the loader reads. Desktop's settings list is checked against it. */
+export const CONFIG_KEYS: readonly string[] = Object.keys(CONFIG_READERS)
+
+/**
+ * Run the loader's own reader for one top-level key. Throws `ConfigValueError`
+ * with the sentence the loader would print. For callers that validate a value
+ * before they write it, so a write cannot make the next launch refuse to start.
+ */
+export function readConfigKey(key: string, value: unknown, file: string): unknown {
+	if (!Object.hasOwn(CONFIG_READERS, key)) throw new Error(`${key} is not a setting.`)
+	return (CONFIG_READERS as Record<string, (v: unknown, c: ConfigReaderContext) => unknown>)[key](
+		value,
+		{ source: { kind: 'file', path: file }, path: [key] },
+	)
+}
+
 function sanitize(
 	value: object,
 	source: ConfigValueSource,

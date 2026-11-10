@@ -117,6 +117,8 @@ const OPERATIONS = new Set([
 	'diagnostics',
 	'settings',
 	'setSettings',
+	'configSettings',
+	'setConfigSetting',
 	'desktopInfo',
 	'openDataFolder',
 	'openPalFolder',
