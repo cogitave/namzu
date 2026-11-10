@@ -106,6 +106,18 @@ reviewer. A call on a file that changed since the read therefore reaches no appr
 gets the same text with the failure kind `changed_on_disk`. A path that is missing, outside the roots or never read
 is left to the tool, and `execute` repeats the check, because the file can move again between the question and the run.
 
+### One shape per call
+
+An `edit` call is a single edit (`old_string` and `new_string`, or `insertLine` and `new_string`) or a batch
+(`edits`), never both. Two overlaps are not a conflict, because nothing can be dropped from them, and both are
+applied as the one edit they say: an empty `edits: []` beside a top-level edit (a flat schema invites a model to fill
+every optional field), and a one-entry `edits` that restates the top-level edit exactly, `replace_all` included. The
+input a review card, the classifier and the executor see is the canonical one, with the redundant half removed. A
+different top-level edit beside a batch, a longer list beside one, or an `insertLine` beside a list stays refused, and
+the message shows both accepted shapes, one per line, as `Single edit: {...}` and `Several edits: {...}`. An empty
+`edits` with nothing beside it is refused the same way. The read-before-edit rule, the uniqueness of `old_string`,
+path containment and the notebook check apply to the canonical edit exactly as before.
+
 `edit` matches `old_string` exactly, but recovers a few differences that are not the model being wrong about
 the text, only about one interchangeable detail — the cases below, tried in this
 order: a straight quote against the file's curly one (`' ' " "`) or the reverse, and a `\uXXXX` escape where

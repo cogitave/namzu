@@ -34,7 +34,7 @@ describe('EditTool', () => {
 				old_string: {
 					type: 'string',
 					description:
-						'Exact unique text from the file, without read-tool line-number prefixes. Must not be empty.',
+						'For ONE change: exact unique text from the file, without read-tool line-number prefixes. Must not be empty. Do not send together with edits.',
 				},
 				new_string: {
 					type: 'string',
@@ -69,7 +69,7 @@ describe('EditTool', () => {
 						additionalProperties: false,
 					},
 					description:
-						'Several replacements in one file, applied in order and committed together. Nothing is written unless every one applies. Use this instead of several edit calls when the changes only make sense together.',
+						'For SEVERAL changes to one file: a non-empty list, applied in order and committed together. Nothing is written unless every one applies. Leave this field out entirely when you send old_string/new_string; never send an empty list.',
 				},
 			},
 			// `old_string` left out on purpose: an insert has no text to match,
