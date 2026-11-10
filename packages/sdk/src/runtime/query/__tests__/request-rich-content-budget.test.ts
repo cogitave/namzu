@@ -25,11 +25,7 @@ import {
 	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
-import {
-	DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
-	projectRequestRichContent,
-	projectRequestWithoutImage,
-} from '../request-rich-content.js'
+import { projectRequestRichContent, projectRequestWithoutImage } from '../request-rich-content.js'
 
 registerMock()
 
@@ -301,6 +297,55 @@ describe('one accumulated budget covers user and tool rich content', () => {
 		})
 	})
 
+	it('applies the budget the serving provider declares when the turn sets none', async () => {
+		const pending = ['A'.repeat(8), 'B'.repeat(8)]
+		const tools = testToolset(
+			defineTool({
+				name: 'capture',
+				description: 'Capture an image',
+				inputSchema: z.object({}),
+				category: 'custom',
+				permissions: [],
+				readOnly: true,
+				destructive: false,
+				concurrencySafe: true,
+				execute: async () => ({
+					success: true,
+					output: 'captured',
+					content: [
+						{ type: 'text' as const, text: 'captured' },
+						{ type: 'image' as const, data: pending.shift() ?? '', mediaType: 'image/png' },
+					],
+				}),
+			}),
+		)
+		const provider = new MockLLMProvider({
+			capabilities: {
+				supportsTools: true,
+				supportsStreaming: true,
+				supportsFunctionCalling: true,
+				maxRequestRichContentBytes: 10,
+			},
+			turns: [
+				{ toolCalls: [{ id: 'call_first', name: 'capture', args: {} }] },
+				{ toolCalls: [{ id: 'call_second', name: 'capture', args: {} }] },
+				{ text: 'done' },
+			],
+		})
+		const settled = await run({
+			provider,
+			tools,
+			messages: [{ role: 'user', content: 'capture twice' }],
+		})
+		const sent = provider.requests[2]?.messages.filter(
+			(message): message is ToolMessage => message.role === 'tool',
+		)
+		expect(sent?.[0]?.content).toContainEqual(
+			expect.objectContaining({ text: expect.stringContaining('image omitted') }),
+		)
+		expect(settled.metadata.config.maxRequestRichContentBytes).toBeUndefined()
+	})
+
 	it('shares the same oldest-first budget across a user image and document', async () => {
 		const image = { data: 'I'.repeat(6), mediaType: 'image/png' }
 		const document = {
@@ -440,15 +485,19 @@ describe('the budget is resolved before a turn can spend anything', () => {
 		},
 	)
 
-	it('persists the effective default in the turn evidence', async () => {
+	it('keeps only the caller override in the turn evidence, never the resolved budget', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
 		const settled = await run({
 			provider,
 			messages: [{ role: 'user', content: 'go' }],
 		})
+		expect(settled.metadata.config.maxRequestRichContentBytes).toBeUndefined()
 
-		expect(settled.metadata.config.maxRequestRichContentBytes).toBe(
-			DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
-		)
+		const overridden = await run({
+			provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
+			messages: [{ role: 'user', content: 'go' }],
+			turnConfig: { maxRequestRichContentBytes: 10 },
+		})
+		expect(overridden.metadata.config.maxRequestRichContentBytes).toBe(10)
 	})
 })

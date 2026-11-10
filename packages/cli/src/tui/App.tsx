@@ -1797,7 +1797,14 @@ function AppBody({
 	// per-session like reasoningEffort above; no preferences file involved.
 	// Starts on when the `hypermode` config key says so; `/hypermode off` ends it
 	// for this conversation only.
-	// Fast inference: a per-conversation switch like the two above. Off unless
+	const [hypermode, setHypermodeState] = useState(initialCtx.hypermode === true)
+	const hypermodeRef = useRef(initialCtx.hypermode === true)
+	const [hypermodeActivation, setHypermodeActivation] = useState(0)
+	const setHypermode = useCallback((next: boolean) => {
+		hypermodeRef.current = next
+		setHypermodeState(next)
+	}, [])
+	// Fast inference: a per-conversation switch like hypermode. Off unless
 	// `--fast` asked, never saved, and dropped (with a message) by a model change
 	// that cannot keep it.
 	const [fastMode, setFastModeState] = useState(false)
@@ -1806,13 +1813,6 @@ function AppBody({
 	const setFastMode = useCallback((next: boolean) => {
 		fastModeRef.current = next
 		setFastModeState(next)
-	}, [])
-	const [hypermode, setHypermodeState] = useState(initialCtx.hypermode === true)
-	const hypermodeRef = useRef(initialCtx.hypermode === true)
-	const [hypermodeActivation, setHypermodeActivation] = useState(0)
-	const setHypermode = useCallback((next: boolean) => {
-		hypermodeRef.current = next
-		setHypermodeState(next)
 	}, [])
 	const [activeSkills, setActiveSkills] = useState<ReadonlyArray<{ name: string; body: string }>>(
 		[],
@@ -4560,31 +4560,6 @@ function AppBody({
 	 * substantial work (see `hypermodeReminders`). See `applyReasoningEffort`
 	 * above for the mirrored shape: neither is refused while a reply runs.
 	 */
-	const applyFastMode = useCallback(
-		async (enabled: boolean): Promise<void> => {
-			if (!session?.hasProvider) {
-				pushMessage('system', 'No model is connected yet — pick a provider with /model first.')
-				return
-			}
-			if (!enabled) {
-				if (!fastModeRef.current) pushMessage('system', 'Fast mode is off.')
-				else {
-					setFastMode(false)
-					pushMessage('system', fastOffMessage())
-				}
-				return
-			}
-			const blocker = await fastModeBlocker(session.providerId, session.modelSummary)
-			if (blocker !== undefined) {
-				pushMessage('system', blocker)
-				return
-			}
-			setFastMode(true)
-			pushMessage('system', fastOnMessage())
-		},
-		[pushMessage, session, setFastMode],
-	)
-
 	const applyHypermode = useCallback(
 		(enabled: boolean, selectedSession?: AgentSession): void => {
 			if (!session?.hasProvider) {
@@ -4618,6 +4593,36 @@ function AppBody({
 			)
 		},
 		[hasUnsettledTurn, pushMessage, session, setHypermode, state],
+	)
+
+	/**
+	 * Turn fast inference on or off for this conversation. Turning it on is
+	 * refused, with the reason, when the provider, endpoint or model cannot take
+	 * it; it is never saved.
+	 */
+	const applyFastMode = useCallback(
+		async (enabled: boolean): Promise<void> => {
+			if (!session?.hasProvider) {
+				pushMessage('system', 'No model is connected yet — pick a provider with /model first.')
+				return
+			}
+			if (!enabled) {
+				if (!fastModeRef.current) pushMessage('system', 'Fast mode is off.')
+				else {
+					setFastMode(false)
+					pushMessage('system', fastOffMessage())
+				}
+				return
+			}
+			const blocker = await fastModeBlocker(session.providerId, session.modelSummary)
+			if (blocker !== undefined) {
+				pushMessage('system', blocker)
+				return
+			}
+			setFastMode(true)
+			pushMessage('system', fastOnMessage())
+		},
+		[pushMessage, session, setFastMode],
 	)
 
 	/** Alt+T: thinking off is the model's `none` level; on puts back the level it had. */
@@ -11136,6 +11141,21 @@ function AppBody({
 						`Switching to ${selection.id} · ${selection.model} when this reply finishes.`,
 					)
 					return
+				}
+				if (fastModeRef.current) {
+					// Fast mode rides on every request of this reply, and the driver
+					// refuses `speed` on a model without it. A pick that cannot keep it
+					// takes over when the reply finishes, where the session is rebuilt
+					// and fast mode is dropped with the reason.
+					const blocker = await fastModeBlocker(selection.id, selection.model)
+					if (blocker !== undefined) {
+						deferredModelRef.current = { query: target, quiet: false }
+						pushMessage(
+							'system',
+							`Switching to ${selection.id} · ${selection.model} when this reply finishes. Fast mode ends then: ${blocker}`,
+						)
+						return
+					}
 				}
 				liveModelPickRef.current = { session, model: selection.model }
 				deferredModelRef.current = {

@@ -178,7 +178,12 @@ are the same request and send nothing.
 Any other model, and Opus 4.8 from 2026-11-30, is refused before sending with a
 `bad_request` `ProviderRequestError` whose `providerCode` is
 `fast_mode_unsupported`; the Opus 4.8 message names `claude-opus-5-5`. A
-compatible third-party endpoint (`compatibleEndpoint: true`) is refused too.
+driver that is not on the vendor's own host (`compatibleEndpoint: true`, or a
+`baseURL` other than `api.anthropic.com`, such as a gateway, Microsoft Foundry
+or Bedrock) is refused too: those platforms do not take `speed`, or sell fast
+variants as separate model ids. `speed` is a per-turn setting, so a turn that
+switches models mid-way (or falls back to another model) and lands on one
+without fast mode fails with the same error; it is not dropped quietly.
 The refusal is local because the vendor either errors or, on Opus 4.6, quietly
 serves standard speed while the caller believes otherwise. The removal date is
 read from `AnthropicConfig.clock` (default `Date.now`). The beta header is

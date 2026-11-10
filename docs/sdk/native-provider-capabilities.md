@@ -87,4 +87,4 @@ in either direction. A fallback chain is limited by its smallest member (a
 member that declares nothing counts as 24 MiB), so a request built for a wide
 head is never sent to a narrower fallback. `@namzu/anthropic` declares 100 MiB
 for the vendor's own endpoint (the first-party limit is 128 MB) and nothing
-behind another base URL; the other drivers declare nothing.
+behind another base URL; the other drivers declare nothing. The turn record keeps only the value a caller set; the provider's declaration is read where the budget is applied, so it follows the provider serving the turn and a resumed turn or nested agent never inherits it as an override.

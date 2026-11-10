@@ -43,14 +43,16 @@ export type {
 	ResolvedThinkingBody,
 } from './thinking-capability.js'
 
-// Whether a step may force a tool call on a given model. Some models refuse a
-// forced choice outright, and manual thinking refuses it everywhere; the driver
-// refuses such a request before sending it, and this answers the same question
-// in advance, from the same resolution.
+// Fast mode (`speed: "fast"`): which models take it, and the beta header the previews need.
 export {
 	FAST_MODE_BETA,
 	resolveFastMode as resolveFastModeVerdict,
 	supportsFastMode,
 } from './fast-mode.js'
 export type { FastModeVerdict } from './fast-mode.js'
+
+// Whether a step may force a tool call on a given model. Some models refuse a
+// forced choice outright, and manual thinking refuses it everywhere; the driver
+// refuses such a request before sending it, and this answers the same question
+// in advance, from the same resolution.
 export { acceptsForcedToolChoice } from './tool-choice.js'

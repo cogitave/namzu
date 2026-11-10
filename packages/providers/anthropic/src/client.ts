@@ -1254,7 +1254,7 @@ export class AnthropicProvider implements LLMProvider {
 			assertFastModeAccepted(
 				model,
 				(this.config.clock ?? Date.now)(),
-				this.config.compatibleEndpoint === true,
+				this.config.compatibleEndpoint !== true && isVendorEndpoint(this.config.baseURL),
 			)
 			body.speed = 'fast'
 		}
@@ -1273,6 +1273,24 @@ export class AnthropicProvider implements LLMProvider {
 	 * Casting via `unknown` keeps us out of `any` territory while acknowledging
 	 * that the translation layer bridges two type worlds.
 	 */
+	private createRaw(
+		body: Record<string, unknown>,
+		opts?: { signal?: AbortSignal },
+	): Promise<unknown> {
+		const create = this.client.messages.create as unknown as (
+			body: Record<string, unknown>,
+			options?: { signal?: AbortSignal; headers?: Record<string, string> },
+		) => Promise<unknown>
+		const beta = this.betaHeaderFor(body)
+		// Pass the caller AbortSignal as the SDK's per-request RequestOptions so
+		// aborting it tears down the in-flight HTTP/2 SSE request (rejects with
+		// APIUserAbortError). A non-aborted signal is identical to omitting it.
+		return create.call(this.client.messages, body, {
+			signal: opts?.signal,
+			...(beta ? { headers: { 'anthropic-beta': beta } } : {}),
+		})
+	}
+
 	/**
 	 * The `anthropic-beta` value for this request when it needs one beyond the
 	 * client's defaults. A per-request header REPLACES the default of the same
@@ -1291,24 +1309,6 @@ export class AnthropicProvider implements LLMProvider {
 				? (configured ?? OAUTH_BETAS)
 				: configured
 		return [base, extra].filter(Boolean).join(',')
-	}
-
-	private createRaw(
-		body: Record<string, unknown>,
-		opts?: { signal?: AbortSignal },
-	): Promise<unknown> {
-		const create = this.client.messages.create as unknown as (
-			body: Record<string, unknown>,
-			options?: { signal?: AbortSignal; headers?: Record<string, string> },
-		) => Promise<unknown>
-		const beta = this.betaHeaderFor(body)
-		// Pass the caller AbortSignal as the SDK's per-request RequestOptions so
-		// aborting it tears down the in-flight HTTP/2 SSE request (rejects with
-		// APIUserAbortError). A non-aborted signal is identical to omitting it.
-		return create.call(this.client.messages, body, {
-			signal: opts?.signal,
-			...(beta ? { headers: { 'anthropic-beta': beta } } : {}),
-		})
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {

@@ -17,6 +17,13 @@ describe('what /fast and --fast ask of the model', () => {
 		expect(await fastModeBlocker(undefined, 'claude-opus-5-5', BEFORE)).toContain('Anthropic')
 	})
 
+	it('refuses a custom or compatible endpoint, naming the host', async () => {
+		const reason = await fastModeBlocker('anthropic', 'claude-opus-5-5', BEFORE, 'gw.example.com')
+		expect(reason).toContain('gw.example.com')
+		expect(reason).toContain('own endpoint')
+		expect(await fastModeBlocker('anthropic', 'claude-opus-5-5', BEFORE, null)).toBeUndefined()
+	})
+
 	it('refuses an Anthropic model without it, naming where it exists', async () => {
 		expect(await fastModeBlocker('anthropic', 'claude-sonnet-5-5', BEFORE)).toContain('Opus 5.5')
 		expect(await fastModeBlocker('anthropic', null, BEFORE)).toContain('needs a model')

@@ -69,10 +69,10 @@ import {
 	snapshotRequestContext,
 } from '../request-context.js'
 import {
-	DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 	type RequestImageIdentity,
 	markProviderRejectedImage,
 	projectRequestRichContent,
+	resolveMaxRequestRichContentBytes,
 } from '../request-rich-content.js'
 import { withoutVoidAssistantTurns } from '../request-void-turns.js'
 import { formatSteeringNote, isOperatorUserMessage } from '../steering.js'
@@ -255,6 +255,20 @@ export class IterationOrchestrator {
 	}
 
 	/** Whether a request for `model` may carry images: the driver's catalogue and this run's own evidence agree. */
+	/**
+	 * The request rich-content budget, resolved each time it is read: the
+	 * caller's `turnConfig` override if one was given, else what the provider
+	 * serving now declares. Never written back into `turnConfig`, which would
+	 * turn the first provider's declaration into an override that a resumed
+	 * turn, a nested agent or a later provider then inherits.
+	 */
+	private richContentBudget(): number {
+		return resolveMaxRequestRichContentBytes(
+			this.ctx.turnConfig.maxRequestRichContentBytes,
+			this.ctx.provider.capabilities?.maxRequestRichContentBytes,
+		)
+	}
+
 	private modelReadsImages(model: string): boolean {
 		const serving = this.servingModel(model)
 		return (
@@ -967,8 +981,7 @@ export class IterationOrchestrator {
 					if (policyNotice) requestHistory.push(stepContextMessage(policyNotice))
 					const projected = projectRequestRichContent(
 						withoutVoidAssistantTurns(this.projectObservations(requestHistory)),
-						this.ctx.turnConfig.maxRequestRichContentBytes ??
-							DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
+						this.richContentBudget(),
 						{ imagesReadable: this.modelReadsImages(stepModel) },
 					)
 					// Request-only data (the context contributions, notes about the
@@ -3370,7 +3383,7 @@ export class IterationOrchestrator {
 			]
 			const finalMessages = projectRequestRichContent(
 				withoutVoidAssistantTurns(this.projectObservations(finalHistory)),
-				this.ctx.turnConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
+				this.richContentBudget(),
 				{ imagesReadable: this.modelReadsImages(model) },
 			)
 			// The closing directive is the last thing the model reads: after

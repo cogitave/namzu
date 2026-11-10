@@ -106,19 +106,20 @@ export function supportsFastMode(model: string, now: number = Date.now()): boole
 /**
  * Refuse, before transport, a fast request the vendor would error on or
  * quietly serve at standard speed. Returns the beta header to send, if any.
- * The error is the `bad_request` the vendor's 400 would have become, with its
+ * `firstPartyEndpoint` is true only for the vendor's own host with no
+ * `compatibleEndpoint` flag. The error is the `bad_request` the vendor's 400 would have become, with its
  * own code, like `assertForcedToolChoiceAccepted`.
  */
 export function assertFastModeAccepted(
 	model: string,
 	now: number,
-	compatibleEndpoint: boolean,
+	firstPartyEndpoint: boolean,
 ): string | undefined {
-	const verdict = compatibleEndpoint
+	const verdict = !firstPartyEndpoint
 		? ({
 				ok: false,
 				reason:
-					'Fast mode is a first-party Anthropic feature; a compatible third-party endpoint is not known to honour it.',
+					"Fast mode is offered on the vendor's own endpoint only. Another host (a gateway, Microsoft Foundry, Bedrock, a compatible service) is not known to honour `speed`, and Foundry answers it with an error, selling fast variants as separate model ids.",
 			} as const)
 		: resolveFastMode(model, now)
 	if (verdict.ok) return verdict.beta

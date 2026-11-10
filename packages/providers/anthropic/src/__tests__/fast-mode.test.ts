@@ -168,6 +168,23 @@ describe('fast mode on the wire', () => {
 		})
 	})
 
+	it('refuses fast on a non-vendor host even without compatibleEndpoint', async () => {
+		for (const baseURL of [
+			'https://example.services.ai.azure.com/anthropic',
+			'https://bedrock-runtime.us-east-1.amazonaws.com',
+			'https://gw.example',
+		]) {
+			const { provider, calls } = harness({ baseURL })
+			await expect(send(provider, { speed: 'fast' })).rejects.toMatchObject({
+				providerCode: 'fast_mode_unsupported',
+			})
+			expect(calls).toHaveLength(0)
+		}
+		const vendor = harness({ baseURL: 'https://api.anthropic.com' })
+		await send(vendor.provider, { speed: 'fast' })
+		expect(vendor.calls).toHaveLength(1)
+	})
+
 	it('reports speed on usage: the response wins, the request is the fallback', async () => {
 		const { provider } = harness()
 		const usages = await send(provider, { speed: 'fast' })

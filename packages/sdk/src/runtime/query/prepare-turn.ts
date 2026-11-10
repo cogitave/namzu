@@ -332,7 +332,11 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 	const promptCache = params.promptCache
 	const taskScheduler = params.taskScheduler
 	const streamIdleTimeoutMs = resolveStreamIdleTimeoutMs(params.turnConfig.streamIdleTimeoutMs)
-	const maxRequestRichContentBytes = resolveMaxRequestRichContentBytes(
+	// Validated here, at the door, but only the caller's own override is kept on
+	// the turn: the provider's declaration is read where it is used (see
+	// `IterationOrchestrator.richContentBudget`), so it follows the provider
+	// that serves the turn rather than being pinned by the first one.
+	resolveMaxRequestRichContentBytes(
 		params.turnConfig.maxRequestRichContentBytes,
 		params.provider.capabilities?.maxRequestRichContentBytes,
 	)
@@ -344,7 +348,6 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 	const turnConfig: TurnConfig = {
 		...params.turnConfig,
 		streamIdleTimeoutMs,
-		maxRequestRichContentBytes,
 	}
 
 	// The turn's one correlated logger, built before anything below needs
