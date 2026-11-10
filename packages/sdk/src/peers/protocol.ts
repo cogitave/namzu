@@ -37,7 +37,9 @@ export const DEFAULT_PEER_READ_DEADLINE_MS = 2_000
 export const MAX_PEER_CONNECTIONS = 16
 
 // 'resident' is no longer announced; it stays so an older peer's record still parses.
-export const PeerSessionKindSchema = z.enum(['tui', 'exec', 'resident', 'scheduled'])
+// 'cli' is a one-shot command-line sender (`namzu peers send`): it listens only long enough to be
+// verified, never accepts messages, and is not a terminal.
+export const PeerSessionKindSchema = z.enum(['tui', 'exec', 'resident', 'scheduled', 'cli'])
 export type PeerSessionKind = z.infer<typeof PeerSessionKindSchema>
 
 export const PeerSessionStateSchema = z.enum(['busy', 'idle', 'awaiting-permission'])

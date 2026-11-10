@@ -46,6 +46,15 @@ export const archiveCommand = lazyCommand(
 	async () => (await import('./archive.js')).archiveCommand,
 )
 
+export const peersCommand = lazyCommand(
+	{
+		name: 'peers',
+		description: 'List live terminals in this project or send one a message',
+		passThrough: true,
+	},
+	async () => (await import('./peers.js')).peersCommand,
+)
+
 export const doctorCommand = lazyCommand(
 	{
 		name: 'doctor',

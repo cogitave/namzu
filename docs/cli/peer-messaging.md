@@ -28,6 +28,29 @@ choice.
 - `/peers off`: refuse new mail and pause delivery of mail already accepted.
 - `/peers on`: allow mail again; accepted pending mail can resume.
 
+## From a command line
+
+`namzu peers` reaches a live terminal without opening one, for a script or a second shell in the same folder:
+
+```sh
+namzu peers list [--json]
+namzu peers send <ref|id|title> <message...> [--json] [--mode <mode>] [--file <path>|-]
+```
+
+`list` prints the live terminals in this project: reference, title, state and permission mode. `send` takes the message as words, or from `--file` (`-` reads standard input) to keep line breaks and any language intact; words and `--file` do not mix. Flags may stand anywhere, and `--` ends them.
+
+The command is a short-lived sender with its own identity: it writes a `cli` record in the same registry, listens only for the receiver's check, and removes the record when it exits. The receiver applies the same rules as for a terminal: same canonical project, same account and runtime directory, same permission mode. `--mode` states the mode this command acts under; without it, the mode a new terminal would start in here (`permissions.defaultMode`, else `prompt`). A different mode is refused, including `bypass`. The mail reaches the model as from a command-line sender, not a terminal, and never as operator text or approval. A command-line sender takes no messages and is not listed.
+
+The receipt is printed in words, and `--json` prints one JSON object with `status`, `reason`, `ref`, `id` and `mode`.
+
+| Receipt | Meaning | Exit |
+|---|---|---|
+| Queued | Accepted into the live inbox, not proof the model read it. | 0 |
+| Refused | The terminal or the command declined, with the reason. | 1 |
+| Unreachable | No terminal answered; acceptance is unknown, do not retry blindly. | 69 |
+
+Bad arguments exit 64. A message over 32 KiB, or one that is over the 64 KiB request limit once quotes and control characters are escaped, is refused before anything is sent. The `/peers send` slash command collapses runs of whitespace; `namzu peers send --file` does not.
+
 Participation starts on when the interactive application becomes ready. This
 setting lasts for this terminal process. The model gets `list_sessions` and
 `send_session_message`, using the exact live session id, short reference or
@@ -58,7 +81,7 @@ The transcript attributes peer text to the other terminal. Durable history uses
 `runtime-context/peer-message`; peer text is never an operator message or
 approval. The receiving terminal retains its own rules, mode, budgets and
 credentials. Automatic acceptance requires a verified live TUI sender in the
-same project and the same permission mode. A different mode is refused rather
+same project and the same permission mode (a terminal, or a command-line sender from `namzu peers send`). A different mode is refused rather
 than treated as consent, including when the receiver uses bypass mode. The
 receiver checks its current mode again before an idle wake consumes mail and
 before busy-turn delivery. If the mode changes after acceptance, incompatible

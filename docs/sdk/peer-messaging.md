@@ -53,7 +53,7 @@ Each participating session writes one record to
 `<runtime-dir>/sessions/<sessionId>.json`, atomically (fsynced temporary,
 then rename) and mode 0600: `PeerRecordSchema` — `v`, `sessionId`, `ref`
 (the first 6 hex characters of `sha256(sessionId)`, from `derivePeerRef`),
-`pid`, `startedAt`, `kind` (`tui` | `exec` | `scheduled`; `resident` still parses, from a record an earlier version wrote),
+`pid`, `startedAt`, `kind` (`tui` | `exec` | `scheduled` | `cli`, a one-shot command-line sender; `resident` still parses, from a record an earlier version wrote),
 `title?`, `cwd`, `permissionMode`, `state` (`busy` | `idle` |
 `awaiting-permission`), `acceptsMessages`, `address`, `token`, `protocol`
 (`namzu-peer/1`), `cliVersion`, and six optional fields a workspaces host uses:
