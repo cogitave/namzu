@@ -475,6 +475,14 @@ function withSavedMcpOAuth(
 		// auto-follow a redirect with it, including to another path on the
 		// same origin, even if an SDK transport changes its own redirect mode.
 		const response = await rawFetch(input, { ...init, redirect: 'manual' })
+		// The official transport (2.3 and later) follows a same-origin redirect
+		// itself by calling this fetch again with the same headers, so refuse it.
+		if (response.status >= 300 && response.status < 400) {
+			void response.body?.cancel().catch(() => undefined)
+			throw new Error(
+				'MCP OAuth refused to follow a redirect; configure the final MCP endpoint directly.',
+			)
+		}
 		if (response.status !== 401) return response
 		// Intercept the challenge before `withOAuth` can start an independent
 		// refresh for every simultaneous request. Its token attachment remains
