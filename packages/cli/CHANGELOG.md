@@ -1,5 +1,17 @@
 # @namzu/cli
 
+## 47.0.0
+
+### Major Changes
+
+- 75441b0: What a turn learns is no longer written as a record when the turn ends. The screened claims wait in a durable inbox under your Namzu home, and the small model curates them off the turn: for each it reads the related memories (titles and descriptions, never bodies) and adds a record, updates or replaces one a turn recorded, or does nothing because a memory, also one you or the assistant saved, already holds it. A replaced record is archived with links to its successor, never deleted; a memory you or the assistant wrote is never changed; a quiet `Remembered`, `Updated` or `Replaced` row reports what changed. Where no small model is available (the side route would be the conversation's own model) or it fails, the screened claims are written as before. Set `memory.curation: off` in your own config (a project file, or a profile in one, cannot set it) to restore the earlier behaviour exactly: no inbox, no model, the claims written when the turn ends. With it on, the small model sees the claims and the titles of related memories, on your own provider. The decision point `memory` now filters claims before the inbox.
+- a428f4b: Which stored memories go with a message is now chosen by the small model, not by shared words alone. Up to 16 candidates are shown to it (titles and descriptions, no bodies) and it picks up to three, or none; the `Used N memories` row shows why each was chosen. Where no small model is available (the side route would be the conversation's own model) or it does not answer within two seconds, recall falls back to the words, and a memory must now share two words of your message, not one, to be added. Set `memory.select: off` in your own config (a project file, or a profile in one, cannot set it) to keep the earlier behaviour exactly. With it on, the small model sees your message and memory titles, on your own provider.
+
+### Patch Changes
+
+- Updated dependencies [a428f4b]
+  - @namzu/sdk@62.3.0
+
 ## 46.2.1
 
 ### Patch Changes
