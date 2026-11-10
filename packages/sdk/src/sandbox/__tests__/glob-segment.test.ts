@@ -1,6 +1,6 @@
 import { Minimatch } from 'minimatch'
 import { describe, expect, it } from 'vitest'
-import { GlobTooComplexError, compileSegment } from '../glob-segment.js'
+import { GlobTooComplexError, MAX_GLOB_SEGMENT_LENGTH, compileSegment } from '../glob-segment.js'
 
 const matches = (segment: string, name: string, dot = false) => {
 	const { literal, source } = compileSegment(segment, dot)
@@ -294,5 +294,57 @@ describe('wildcards that can stretch', () => {
 		for (const pattern of PINNED_PATTERNS) {
 			expect(() => compileSegment(pattern, false)).not.toThrow()
 		}
+	})
+})
+
+describe('POSIX class names', () => {
+	it.each(['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf'])(
+		'treats the inherited name %s like any other unknown name',
+		(name) => {
+			const unknown = compileSegment('[[:nosuchclass:]]', false)
+			const inherited = compileSegment(`[[:${name}:]]`, false)
+			// Exactly what an unknown name compiles to, with only the name different.
+			expect(inherited.source).toBe(unknown.source.replace('nosuchclass', name))
+			expect(inherited.source).not.toContain('(?!)')
+		},
+	)
+	it('still honours a real class', () => {
+		expect(new RegExp(compileSegment('[[:digit:]]', false).source, 'u').test('7')).toBe(true)
+	})
+})
+
+describe('segment length cap', () => {
+	it('compiles a segment at the cap and refuses one past it', () => {
+		expect(compileSegment('a'.repeat(MAX_GLOB_SEGMENT_LENGTH), false).literal).toHaveLength(
+			MAX_GLOB_SEGMENT_LENGTH,
+		)
+		expect(() => compileSegment('a'.repeat(MAX_GLOB_SEGMENT_LENGTH + 1), false)).toThrow(
+			GlobTooComplexError,
+		)
+	})
+	it('says the pattern is too long without echoing it', () => {
+		const long = `${'[[:alpha:]'.repeat(20_000)}`
+		let message = ''
+		try {
+			compileSegment(long, true)
+		} catch (error) {
+			message = (error as Error).message
+		}
+		expect(message).toContain(`The pattern '${long.slice(0, 60)}...' is too long`)
+		expect(message).toContain('200000 characters')
+		expect(message).toContain('shorten it or split it across folders')
+		expect(message.length).toBeLessThan(250)
+	})
+	it('cuts the preview on a code point, not inside a surrogate pair', () => {
+		const long = `${'a'.repeat(59)}\u{1F600}${'b'.repeat(MAX_GLOB_SEGMENT_LENGTH)}`
+		let error: GlobTooComplexError | undefined
+		try {
+			compileSegment(long, false)
+		} catch (caught) {
+			error = caught as GlobTooComplexError
+		}
+		expect(error?.segment).toBe(`${'a'.repeat(59)}\u{1F600}`)
+		expect(error?.message).toContain(`'${'a'.repeat(59)}\u{1F600}...'`)
+		expect(error?.message).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/)
 	})
 })

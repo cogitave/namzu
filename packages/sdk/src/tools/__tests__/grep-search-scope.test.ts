@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { walkFilesLocally, walkFilesViaExec } from '../../sandbox/file-walk.js'
+import { MAX_GLOB_SEGMENT_LENGTH } from '../../sandbox/glob-segment.js'
 import type {
 	Sandbox,
 	SandboxFileEntry,
@@ -60,6 +61,25 @@ describe('grep refuses a pattern that could backtrack without end', () => {
 		expect(exec).not.toHaveBeenCalled()
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('repeats a group that can match the same text more than one way')
+	})
+})
+
+describe('grep refuses a segment longer than the cap', () => {
+	it('returns a tool error and never runs a guest script', async () => {
+		const exec = vi.fn()
+		const sandbox = {
+			rootDir: ROOT,
+			walkFiles: (root: string, options: SandboxWalkFilesOptions) =>
+				walkFilesViaExec(exec, root, options),
+		} as unknown as Sandbox
+		const result = await GrepTool.execute(
+			args({ include: `${'a'.repeat(MAX_GLOB_SEGMENT_LENGTH + 1)}.ts` }),
+			context(sandbox),
+		)
+		expect(exec).not.toHaveBeenCalled()
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('is too long')
+		expect(result.error?.length).toBeLessThan(300)
 	})
 })
 
