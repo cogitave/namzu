@@ -17,7 +17,6 @@ import { join } from "node:path";
 import {
 	MockLLMProvider,
 	SessionPaths,
-	toolset,
 	autoApproveHandler,
 	createSlidingWindowReducer,
 	customScorer,
@@ -29,6 +28,7 @@ import {
 	generateTopicId,
 	runExperiment,
 	slugForCwd,
+	toolset,
 } from "@namzu/sdk";
 import { z } from "zod";
 
@@ -53,13 +53,53 @@ function toolsets() {
 	];
 }
 
+/** Characters of message text one request carries. */
+function requestChars(request) {
+	let total = 0;
+	for (const m of request.messages ?? []) {
+		total +=
+			typeof m.content === "string"
+				? m.content.length
+				: JSON.stringify(m.content ?? "").length;
+	}
+	return total;
+}
+
+/** `steps` finished read steps, each a call and a large result, then a new request. */
+function longHistory(steps) {
+	const messages = [{ role: "user", content: "go", timestamp: 1 }];
+	for (let i = 0; i < steps; i++) {
+		messages.push({
+			role: "assistant",
+			content: "",
+			toolCalls: [
+				{
+					id: `old${i}`,
+					type: "function",
+					function: { name: "fetch_a_lot", arguments: "{}" },
+				},
+			],
+			timestamp: 2 + i * 2,
+		});
+		messages.push({
+			role: "tool",
+			toolCallId: `old${i}`,
+			content: `${BULK}[old result ${i}]`,
+			timestamp: 3 + i * 2,
+		});
+	}
+	messages.push({ role: "user", content: "continue", timestamp: 1_000 });
+	return messages;
+}
+
 async function runCase(input) {
 	// One scratch directory per case, removed when the case ends. Every
 	// case used to leave its directory, and the run state in it, behind.
 	const scratch = await mkdtemp(join(tmpdir(), "namzu-eval-ctx-"));
 	try {
+		const provider = new MockLLMProvider({ turns: input.turns });
 		const turn = await drainQuery({
-			provider: new MockLLMProvider({ turns: input.turns }),
+			provider,
 			toolsets: toolsets(),
 			turnConfig: {
 				model: "mock-model",
@@ -81,7 +121,9 @@ async function runCase(input) {
 			topicId: generateTopicId(),
 			projectId: generateProjectId(),
 			tenantId: generateTenantId(),
-			messages: [{ role: "user", content: "go", timestamp: 1 }],
+			messages: input.history?.() ?? [
+				{ role: "user", content: "go", timestamp: 1 },
+			],
 			resumeHandler: autoApproveHandler,
 			...(input.compactionConfig
 				? { compactionConfig: input.compactionConfig }
@@ -92,7 +134,12 @@ async function runCase(input) {
 		const evalTurn = evalTurnFromTurn(turn);
 		// The scorers below need the final history, which `EvalTurn` does not
 		// carry. Attached rather than widening the shared type for one suite.
-		return Object.assign(evalTurn, { finalMessages: turn.messages ?? [] });
+		return Object.assign(evalTurn, {
+			finalMessages: turn.messages ?? [],
+			firstRequestChars: provider.requests[0]
+				? requestChars(provider.requests[0])
+				: undefined,
+		});
 	} finally {
 		await rm(scratch, { recursive: true, force: true });
 	}
@@ -133,6 +180,29 @@ const keepsTheSystemFloor = customScorer("keeps-system-floor", (turn) => {
 			};
 });
 
+/**
+ * A conversation resumed after its prompt cache expired: the first request is
+ * smaller when the host asks for stale results to go, and the model can still
+ * read the old result (the placeholder keeps the way back, and a read-only call
+ * returns it again). Scored only on the cases that carry a `staleCheck`.
+ */
+const firstRequestShrinksAndStaysReadable = customScorer(
+	"first-request-shrinks-and-stays-readable",
+	(turn) => {
+		const check = turn.staleCheck;
+		if (!check) return { score: 1, reason: "not a stale-results case" };
+		const smaller = check.shedChars < check.baselineChars * 0.75;
+		const kept = check.recentKept;
+		const readable = check.placeholderPointsBack && check.reRead;
+		const ok = smaller && kept && readable;
+		return {
+			score: ok ? 1 : 0,
+			reason: `first request ${check.shedChars} chars against ${check.baselineChars} without the shed; recent results kept: ${kept}; old result readable again: ${readable}`,
+			details: check,
+		};
+	},
+);
+
 const settled = customScorer("settled", (turn) =>
 	turn.error
 		? { score: 0, reason: `turn threw: ${turn.error}` }
@@ -142,8 +212,55 @@ const settled = customScorer("settled", (turn) =>
 export default async function context() {
 	return runExperiment({
 		name: "kernel/context",
-		scorers: [noOrphanedResults, keepsTheSystemFloor, settled],
-		run: (input) => runCase(input),
+		scorers: [
+			noOrphanedResults,
+			keepsTheSystemFloor,
+			firstRequestShrinksAndStaysReadable,
+			settled,
+		],
+		run: async (input) => {
+			const turn = await runCase(input);
+			if (!input.staleResults) return turn;
+			// The same conversation with the host not asking: what the first
+			// request costs when the old results are resent whole.
+			const { clearStaleToolResultsAtStart: _asked, ...plain } =
+				input.compactionConfig;
+			const baseline = await runCase({ ...input, compactionConfig: plain });
+			const old = longHistory(input.staleResults.steps);
+			const results = (turn.finalMessages ?? []).filter(
+				(m) => m.role === "tool",
+			);
+			const oldResults = results.slice(0, input.staleResults.steps);
+			const newest = results.slice(
+				input.staleResults.steps - input.staleResults.keepRecent,
+				input.staleResults.steps,
+			);
+			return Object.assign(turn, {
+				staleCheck: {
+					baselineChars: baseline.firstRequestChars,
+					shedChars: turn.firstRequestChars,
+					recentKept: newest.every((m) =>
+						old.some((o) => o.role === "tool" && o.content === m.content),
+					),
+					placeholderPointsBack: oldResults
+						.slice(0, input.staleResults.steps - input.staleResults.keepRecent)
+						.every(
+							(m) =>
+								typeof m.content === "string" &&
+								m.content.startsWith("[tool output cleared] fetch_a_lot") &&
+								m.content.includes("Recover from"),
+						),
+					// The scripted model calls the read-only tool again and the
+					// full text comes back.
+					reRead: results.some(
+						(m) =>
+							typeof m.content === "string" &&
+							m.content === BULK &&
+							m.toolCallId === "again",
+					),
+				},
+			});
+		},
 		cases: [
 			{
 				name: "a run that outgrows its window still finishes",
@@ -225,6 +342,25 @@ export default async function context() {
 						clearToolResults: true,
 					},
 					contextReducer: createSlidingWindowReducer(),
+				},
+			},
+			{
+				name: "the first request after a long idle is smaller and the old result can still be read",
+				input: {
+					staleResults: { steps: 10, keepRecent: 3 },
+					history: () => longHistory(10),
+					turns: [{ toolCalls: [call("again")] }, { text: "finished" }],
+					compactionConfig: {
+						strategy: "structured",
+						contextWindowTokens: 1_000_000,
+						llmVerification: false,
+						clearToolResults: true,
+						keepRecentToolResults: 3,
+						clearStaleToolResultsAtStart: {
+							minSavedTokens: 2_000,
+							keepRecentToolResults: 3,
+						},
+					},
 				},
 			},
 			{
