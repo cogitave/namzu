@@ -13,6 +13,7 @@
 	height: 0.8em;
 	border-radius: var(--radius-pill);
 	background: color-mix(in srgb, var(--muted-foreground) 22%, transparent);
+	animation: var(--placeholder-reveal);
 }
 .model-picker-trigger-starting {
 	color: var(--muted-foreground);
@@ -51,7 +52,7 @@
 }
 .model-picker-resize {
 	overflow: hidden;
-	transition: height 150ms var(--motion-ease), width 150ms var(--motion-ease);
+	transition: height var(--dur-quick) var(--ease-out), width var(--dur-quick) var(--ease-out);
 }
 @media (prefers-reduced-motion: reduce) {
 	.model-picker-resize {
@@ -114,7 +115,8 @@
 	color: var(--muted-foreground);
 	background: transparent;
 	cursor: pointer;
-	transition: background-color 150ms ease, color 150ms ease;
+	transition: background-color var(--dur-quick) var(--ease-out), color var(--dur-quick)
+		var(--ease-out);
 }
 .model-provider-tab[data-active],
 .model-provider-tab:hover {
@@ -203,7 +205,7 @@
 	font-size: 12px;
 	line-height: 18px;
 	cursor: pointer;
-	transition: background-color 150ms var(--motion-ease);
+	transition: background-color var(--dur-quick) var(--ease-out);
 }
 .model-picker-back svg {
 	width: 14px;
@@ -330,7 +332,7 @@
 	cursor: pointer;
 	font-size: 13px;
 	line-height: 18px;
-	transition: background-color 150ms ease;
+	transition: background-color var(--dur-quick) var(--ease-out);
 }
 .model-picker-row:hover {
 	background: color-mix(in srgb, var(--foreground) 5%, var(--popover));
@@ -430,7 +432,7 @@
 	width: 14px;
 	height: 14px;
 	flex: none;
-	animation: model-loading 1s linear infinite;
+	animation: model-loading 1s linear infinite, var(--placeholder-reveal);
 }
 @keyframes model-loading {
 	to {
@@ -443,12 +445,13 @@
 	.model-picker-row {
 		transition: none;
 	}
-	.model-picker-loading {
-		animation: none;
+	.model-picker-loading,
+	.model-picker-trigger-skeleton {
+		animation: var(--placeholder-reveal-still) !important;
 	}
 }
 .model-picker-trigger [data-composer-control-chevron] {
-	transition: transform 180ms var(--motion-ease);
+	transition: transform var(--dur-base) var(--ease-out);
 }
 .model-picker-trigger[aria-expanded="true"] [data-composer-control-chevron] {
 	transform: rotate(180deg);
@@ -498,7 +501,7 @@
 	line-height: 18px;
 	text-align: left;
 	cursor: pointer;
-	transition: background-color 150ms ease;
+	transition: background-color var(--dur-quick) var(--ease-out);
 }
 .model-picker-fold:hover {
 	background: color-mix(in srgb, var(--foreground) 5%, var(--popover));
@@ -511,7 +514,7 @@
 .model-picker-fold svg {
 	width: 14px;
 	height: 14px;
-	transition: transform 150ms var(--motion-ease);
+	transition: transform var(--dur-quick) var(--ease-out);
 }
 .model-picker-fold[aria-expanded="true"] svg {
 	transform: rotate(90deg);
@@ -547,7 +550,7 @@
 	line-height: 18px;
 	text-align: left;
 	cursor: pointer;
-	transition: background-color 150ms ease;
+	transition: background-color var(--dur-quick) var(--ease-out);
 }
 .model-picker-fold:hover {
 	background: color-mix(in srgb, var(--foreground) 5%, var(--popover));
@@ -560,7 +563,7 @@
 .model-picker-fold svg {
 	width: 14px;
 	height: 14px;
-	transition: transform 150ms var(--motion-ease);
+	transition: transform var(--dur-quick) var(--ease-out);
 }
 .model-picker-fold[aria-expanded="true"] svg {
 	transform: rotate(90deg);

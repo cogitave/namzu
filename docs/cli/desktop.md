@@ -1736,6 +1736,12 @@ Panels that open and close by height-free travel (grid rows from 0fr to 1fr, wit
 duration) are the task list, background job details, Pal output and folder-access details; the
 transcript's own work disclosure keeps its measured height travel. All of it is off under the system
 reduced-motion setting (Desktop has no separate in-app setting yet).
+Loading is honest about its speed. A skeleton or a loading spinner (the restoring conversation, the
+project and archive lists, a Pal's model, the model picker) is held back for 500 ms (`--placeholder-delay`)
+and then fades in over 150 ms (`--placeholder-fade`), so a load that finishes first shows nothing at all.
+With reduced motion the wait stays and the fade becomes a single step. In the design preview,
+`/preview?slow=<ms>` holds the first project read so the placeholders can be looked at (under 500 ms
+none shows).
 The 32px integrated title bar keeps the operating system’s caption controls and
 resize frame. Back and Forward revisit the window’s admitted project and
 conversation views, with no prompt replay; the adjacent panel control toggles

@@ -1,4 +1,5 @@
 .restore-skeleton {
+	animation: var(--placeholder-reveal);
 	flex: 1;
 	min-height: 0;
 	display: flex;
@@ -28,6 +29,11 @@
 	height: 72px;
 	border-radius: var(--radius-panel);
 	border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+	.restore-skeleton {
+		animation: var(--placeholder-reveal-still) !important;
+	}
 }
 @media (prefers-reduced-motion: no-preference) {
 	.restore-skeleton-line {

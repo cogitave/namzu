@@ -50,7 +50,7 @@
 	gap: 7px;
 	width: 100%;
 	margin: 0 0 24px;
-	animation: pals-arrive var(--motion-duration) var(--motion-ease) both;
+	animation: pals-arrive var(--dur-base) var(--ease-out) both;
 }
 .pal-welcome-identity {
 	align-self: center;
@@ -133,6 +133,7 @@
 	border-radius: var(--radius-chip);
 	background: var(--muted);
 	vertical-align: middle;
+	animation: var(--placeholder-reveal);
 }
 .pal-model-error {
 	display: flex;
@@ -149,7 +150,7 @@
 	inset: 0;
 	background: rgb(0 0 0 / 36%);
 	opacity: 1;
-	transition: opacity var(--motion-duration) var(--motion-ease);
+	transition: opacity var(--dur-base) var(--ease-out);
 }
 .pal-customize-backdrop[data-starting-style],
 .pal-customize-backdrop[data-ending-style] {
@@ -177,8 +178,7 @@
 	box-shadow: var(--shadow-dialog);
 	opacity: 1;
 	transform: translateY(0) scale(1);
-	transition: opacity var(--motion-duration) var(--motion-ease), transform var(--motion-duration)
-		var(--motion-ease);
+	transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
 }
 .pal-customize-popup[data-starting-style],
 .pal-customize-popup[data-ending-style] {
@@ -247,8 +247,8 @@
 	border: 1px solid transparent;
 	border-radius: var(--radius-card);
 	cursor: pointer;
-	transition: background-color 160ms var(--motion-ease), border-color 160ms var(--motion-ease),
-		transform 160ms var(--motion-ease);
+	transition: background-color var(--dur-quick) var(--ease-out), border-color var(--dur-quick)
+		var(--ease-out), transform var(--dur-quick) var(--ease-out);
 }
 .pal-color-choice {
 	width: 60px;
@@ -365,7 +365,7 @@
 	flex: 1;
 	min-height: 230px;
 	padding: 8px 0 14px;
-	animation: pals-arrive var(--motion-duration) var(--motion-ease) both;
+	animation: pals-arrive var(--dur-base) var(--ease-out) both;
 }
 .pal-customize-character .pal-character-scene {
 	width: 100%;
@@ -400,7 +400,7 @@
 	overflow-wrap: anywhere;
 }
 .pal-loading {
-	animation: pals-spin 900ms linear infinite;
+	animation: pals-spin 900ms linear infinite, var(--placeholder-reveal);
 }
 .sidebar-pals {
 	padding: 0 var(--sidebar-scroll-end) 14px var(--sidebar-content-inset);
@@ -435,7 +435,7 @@
 	color: var(--sidebar-foreground);
 	font-size: 13px;
 	font-weight: 400;
-	transition: background-color 160ms var(--motion-ease);
+	transition: background-color var(--dur-quick) var(--ease-out);
 }
 .sidebar-pals .sidebar-pal-row[aria-current="page"] {
 	background: var(--sidebar-row-active);
@@ -468,7 +468,7 @@
 	margin: 8px;
 	border-radius: var(--radius-pill);
 	background: color-mix(in srgb, var(--sidebar-muted-foreground) 22%, transparent);
-	animation: sidebar-skeleton-pulse 1.4s ease-in-out infinite;
+	animation: sidebar-skeleton-pulse 1.4s ease-in-out infinite, var(--placeholder-reveal);
 }
 @keyframes sidebar-skeleton-pulse {
 	50% {
@@ -477,7 +477,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
 	.sidebar-skeleton {
-		animation: none;
+		animation: var(--placeholder-reveal-still) !important;
 	}
 }
 @keyframes pals-arrive {
@@ -564,9 +564,12 @@
 }
 @media (prefers-reduced-motion: reduce) {
 	.pal-welcome,
-	.pal-loading,
 	.pal-customize-character {
 		animation: none;
+	}
+	.pal-loading,
+	.pal-model-skeleton {
+		animation: var(--placeholder-reveal-still) !important;
 	}
 	.pal-customize-backdrop,
 	.pal-customize-popup,

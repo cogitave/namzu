@@ -28,7 +28,7 @@
 	width: 10px;
 	height: 10px;
 	opacity: 0;
-	transition: opacity 120ms var(--motion-ease), transform var(--motion-duration) var(--motion-ease);
+	transition: opacity var(--dur-quick) var(--ease-out), transform var(--dur-base) var(--ease-out);
 }
 .sidebar-section-toggle:hover .sidebar-section-chevron,
 .sidebar-section-toggle:focus-visible .sidebar-section-chevron,
@@ -57,8 +57,12 @@
 	border-radius: var(--radius-chip);
 	background: var(--sidebar-row-active);
 	opacity: 0.7;
+	animation: var(--placeholder-reveal);
 }
 @media (prefers-reduced-motion: reduce) {
+	.sidebar-section-skeleton {
+		animation: var(--placeholder-reveal-still) !important;
+	}
 	.sidebar-section-chevron {
 		transition: none;
 	}

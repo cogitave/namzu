@@ -1771,3 +1771,10 @@ pre {
 		background: var(--background);
 	}
 }
+/* Loading placeholders (skeletons, loading spinners) use this through --placeholder-reveal: the
+   element is transparent through the delay, then fades to whatever its own animation says. */
+@keyframes placeholder-reveal {
+	from {
+		opacity: 0;
+	}
+}
