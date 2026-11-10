@@ -31,6 +31,7 @@ import {
 	readClaudeFileCredentialCandidates,
 	readCodexFileCredentialCandidates,
 	readOpenCodeApiCredentialCandidates,
+	wslWindowsHome,
 } from './harness-credentials.js'
 import { KEYCHAIN_SERVICE, readAgentKeychainCredential } from './keychain.js'
 import type { CredentialOrigin } from './oauth.js'
@@ -172,7 +173,15 @@ export async function discoverProviders(
 	// The vocabulary agreement is asserted instead, where it can fail loudly.
 	const credentials = new EnvCredentialProvider({ env, anyKey: true })
 	const detected: DetectedProvider[] = []
-	const geminiCredentials = readGeminiFileCredentialCandidates(opts.home, env, opts.windowsHome)
+	// Asked once for the four credential families below: on WSL each ask is a
+	// blocking round trip into Windows.
+	const windowsHome =
+		opts.windowsHome !== undefined
+			? opts.windowsHome
+			: opts.home === undefined
+				? wslWindowsHome(env)
+				: null
+	const geminiCredentials = readGeminiFileCredentialCandidates(opts.home, env, windowsHome)
 
 	// Read both credential sources once, up front, so the loop body stays
 	// uniform. Only anthropic consumes either.
@@ -219,12 +228,12 @@ export async function discoverProviders(
 	// knows the default service, so it must not supply a different account.
 	const keychainCredential =
 		opts.skipKeychain || env.CLAUDE_CONFIG_DIR ? null : readAgentKeychainCredential()
-	const claudeFileCredentials = readClaudeFileCredentialCandidates(opts.home, env, opts.windowsHome)
-	const openCodeCredentials = readOpenCodeApiCredentialCandidates(opts.home, env, opts.windowsHome)
+	const claudeFileCredentials = readClaudeFileCredentialCandidates(opts.home, env, windowsHome)
+	const openCodeCredentials = readOpenCodeApiCredentialCandidates(opts.home, env, windowsHome)
 	const codexFileCredentials = readCodexFileCredentialCandidates(
 		opts.home,
 		env,
-		opts.windowsHome,
+		windowsHome,
 	).filter(
 		(candidate) =>
 			candidate.credential.expiresAt === undefined ||
