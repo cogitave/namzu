@@ -1,4 +1,4 @@
-import { KeyRound, Volume2 } from 'lucide-react'
+import { Activity, Bot, KeyRound, SquareTerminal, Volume2, Wrench } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { ProjectView } from '../shared/protocol.js'
 import {
@@ -58,12 +58,12 @@ import './settings-page.css'
 const SECTION_ICONS: Record<SettingsSection, IconComponent> = {
 	general: SettingsIcon,
 	models: KeyRound as IconComponent,
-	agent: SettingsIcon,
-	tools: SettingsIcon,
+	agent: Bot as IconComponent,
+	tools: Wrench as IconComponent,
 	projects: FoldersIcon,
 	appearance: SunIcon,
-	terminal: SettingsIcon,
-	telemetry: InfoIcon,
+	terminal: SquareTerminal as IconComponent,
+	telemetry: Activity as IconComponent,
 	updates: DownloadIcon,
 	speech: Volume2 as IconComponent,
 	about: InfoIcon,
