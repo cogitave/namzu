@@ -1,0 +1,5 @@
+---
+'@namzu/sdk': minor
+---
+
+In the automatic approval mode the classifier now reads a script the agent wrote before it lets the agent run it. Until now a `write` call reached the classifier as its path, length and first 300 characters, so a script with a harmful part later in the file was judged on its harmless-looking launch (`bash script.sh`). Now, when a shell call launches a file the agent wrote or edited in this session by a literal path, or one that appeared during the session, the file's current text (at most 16 KB, head and tail with the cut marked) is attached to that one review as untrusted content, with a note if it changed since the agent wrote it or could not be read, and the file is checked again when the call runs. No extra model call. Additive: `FileReadTracker.authoredFingerprint` and `startedAt`, `ResumeContext.launchedScripts` and `AutoReviewRequest.scripts` are optional. A host that wraps the resume handler must pass its second argument on, as before, for this to apply; nothing else to change.

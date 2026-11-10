@@ -4,6 +4,7 @@ import { fingerprintContent } from './builtins/content-fingerprint.js'
 /** A body larger than this is not kept; the file's change is still seen by fingerprint. */
 const MAX_BODY_CHARS = 512 * 1024
 const MAX_BODIES = 128
+const MAX_AUTHORED = 1024
 
 /** Host-owned observation ledger. Share only across turns of the same conversation and filesystem. */
 export function createFileReadTracker(): FileReadTracker {
@@ -36,6 +37,20 @@ export function createFileReadTracker(): FileReadTracker {
 	// than the cap keeps no body (its change is still detectable by
 	// fingerprint), and the oldest bodies go first.
 	const bodies = new Map<string, string>()
+	// What the agent itself last wrote or edited into each file, by
+	// fingerprint. Not a body: a classifier reads the file as it is, and uses
+	// this only to say whether it is still what the agent wrote.
+	const authored = new Map<string, string>()
+	const startedAt = Date.now()
+	function keepAuthored(key: string, content: string): void {
+		authored.delete(key)
+		authored.set(key, fingerprintContent(content))
+		while (authored.size > MAX_AUTHORED) {
+			const oldest = authored.keys().next().value
+			if (oldest === undefined) break
+			authored.delete(oldest)
+		}
+	}
 	function keepBody(key: string, content: string | undefined): void {
 		bodies.delete(key)
 		if (content === undefined || content.length > MAX_BODY_CHARS) return
@@ -63,6 +78,7 @@ export function createFileReadTracker(): FileReadTracker {
 		// A write supplies the whole body; any other observation without a
 		// witness may be a window of the file, which proves nothing about the rest.
 		keepBody(key, fullWriteCallId ? content : undefined)
+		if (content !== undefined && fullWriteCallId) keepAuthored(key, content)
 		if (next !== undefined && fullWriteCallId) {
 			writes.set(key, fullWriteCallId)
 			// A full body arrived whole in one call, so the chain is empty
@@ -76,6 +92,8 @@ export function createFileReadTracker(): FileReadTracker {
 	const MAX_WINDOWS_PER_FILE = 6
 	const MAX_WINDOWED_FILES = 512
 	return {
+		startedAt,
+		authoredFingerprint: (key) => authored.get(key),
 		recordReadWindow(key, window, entry) {
 			let forFile = windows.get(key)
 			if (forFile) windows.delete(key)
@@ -127,6 +145,7 @@ export function createFileReadTracker(): FileReadTracker {
 			reads.delete(key)
 			fingerprints.set(key, fingerprintContent(content))
 			keepBody(key, content)
+			keepAuthored(key, content)
 			if (!chained) {
 				writes.delete(key)
 				chains.delete(key)

@@ -29,7 +29,11 @@ import { resolveRetainedOutput } from '../../tools/retained-output.js'
 import type { ToolManager } from '../../toolsets/manager.js'
 import type { ToolSourceRef } from '../../toolsets/types.js'
 import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
-import type { ToolCallDeclined, ToolCallEscalation } from '../../types/hitl/index.js'
+import type {
+	LaunchedScript,
+	ToolCallDeclined,
+	ToolCallEscalation,
+} from '../../types/hitl/index.js'
 import type { SessionId, ToolUseId, TurnId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import {
@@ -72,6 +76,12 @@ import { compressShellOutput } from '../../utils/shell-compress.js'
 import { parseStructuredResultJson } from '../../utils/structured-result-json.js'
 import { ensureScratchpadDirectory } from '../../utils/temp.js'
 import { type BackgroundJobRegistry, type JobProcess, bindOwner } from '../jobs/registry.js'
+import {
+	type ScriptEvidence,
+	changedSinceRead,
+	launchedScriptPaths,
+	readLaunchedScripts,
+} from './auto-review/script-evidence.js'
 import { type BatchDetach, stillRunningResult } from './detached-calls.js'
 import {
 	type ToolAdmissionHost,
@@ -740,6 +750,9 @@ export class ToolExecutor {
 	private readonly toolCallBudget?: ToolCallBudget
 	private readonly preparedBatches = new WeakSet<PreparedToolBatch>()
 	private readonly preparedBashDirectories = new WeakMap<PreparedSafetyCall, string>()
+	/** Script files a classifier read for a call, by call id, to be checked again when it runs. */
+	private readonly reviewedScripts = new Map<string, ScriptEvidence['watch']>()
+	private readonly startedAt = Date.now()
 	/** Ephemeral proof of actual execution; restored messages do not acquire it. */
 	private readonly recordedObservations = new Map<
 		string,
@@ -988,6 +1001,46 @@ export class ToolExecutor {
 			this.config.workingDirectory,
 			this.sandboxed,
 		)
+	}
+
+	/**
+	 * The script files a shell line launches that the agent wrote or that
+	 * appeared during the session, read now for the auto-mode classifier.
+	 * Remembers what was read for `callId`, so the file can be checked again
+	 * just before the call runs.
+	 */
+	async launchedScripts(
+		callId: string,
+		line: string,
+		dialect: ShellDialect,
+	): Promise<readonly LaunchedScript[]> {
+		if (this.sandboxed) {
+			// A sandbox's files are not on this host's disk. Say so rather than
+			// letting a launch inside one look like a launch of nothing.
+			const named = launchedScriptPaths(line, dialect)
+			return named.length === 0
+				? []
+				: [
+						{
+							path: named[0] as string,
+							origin: 'unknown',
+							state: 'unreadable',
+							note: 'the command runs in a sandbox whose files are not read for this review, so what the script does is not known',
+						},
+					]
+		}
+		const evidence = await readLaunchedScripts(line, dialect, {
+			cwd: effectiveBashWorkingDirectory(this.config.sessionId, this.config.workingDirectory, {
+				sandboxed: false,
+			}),
+			startedAt: this.fileReadTracker.startedAt ?? this.startedAt,
+			...(this.fileReadTracker.authoredFingerprint
+				? { authoredFingerprint: (key: string) => this.fileReadTracker.authoredFingerprint?.(key) }
+				: {}),
+		})
+		if (evidence.watch.length > 0) this.reviewedScripts.set(callId, evidence.watch)
+		else this.reviewedScripts.delete(callId)
+		return evidence.scripts
 	}
 
 	/** The whole of the evidence as one text, from the same ledger. No filesystem I/O. */
@@ -1783,13 +1836,25 @@ export class ToolExecutor {
 					let outcome: ToolCallOutcome
 					started.add(toolCall.id)
 					try {
-						outcome = await this.executeSingle(
-							toolCall,
-							ctx,
-							recordObservation,
-							() => progress.close(),
-							preparedCall,
-						)
+						const reviewedScripts = this.reviewedScripts.get(toolCall.id)
+						this.reviewedScripts.delete(toolCall.id)
+						const moved =
+							reviewedScripts === undefined ? undefined : await changedSinceRead(reviewedScripts)
+						outcome =
+							moved !== undefined
+								? {
+										toolCallId: toolCall.id,
+										toolName: toolCall.function.name,
+										output: `Error: ${moved} changed after the safety check read it, so the command was not run. Run it again and it will be checked against the new text.`,
+										isError: true,
+									}
+								: await this.executeSingle(
+										toolCall,
+										ctx,
+										recordObservation,
+										() => progress.close(),
+										preparedCall,
+									)
 					} catch (error) {
 						// A call already answered with the placeholder has no batch
 						// left to fail; its failure is its outcome.

@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-11
+
+- **Update** [The auto-review classifier](sdk/auto-review.md#a-script-the-agent-wrote-and-then-runs), [Permission modes](cli/permission-modes.md#the-classifier) and [The review policy](sdk/review-policy.md): a shell call that launches a file the agent wrote or edited this session (or one that appeared during it) is reviewed with that file's current text attached to that one review, read at review time, capped at 16 KB with head and tail kept and the cut marked, framed as untrusted, with a note when it changed since it was authored or could not be read (never silently left out); the file is read again when the call runs and a change refuses it. `FileReadTracker` gains optional `authoredFingerprint` and `startedAt`, `ResumeContext` gains optional `launchedScripts`, `AutoReviewRequest` gains `scripts`. No extra model call. `.changeset/classifier-reads-authored-scripts.md` (`@namzu/sdk` minor).
+
 ## 2026-11-10
 
 - **Update** [Permission layers](cli/permission-layers.md#the-sandbox-block) and [Tool boundary](cli/tool-boundary.md#which-file-may-set-it): a project file, the local file and a profile declared in either may only tighten `sandbox` (`enabled` on, `allowEscape` and `allowUnattendedEscape` off, `requireIsolation` grows, `workspace` to `ephemeral`; `teardownTimeoutMs` is not theirs); a loosening that would have changed something is named once at launch with its file. The user file merges per key; the managed file replaces the whole block; `namzu exec` prints the notes on stderr; a profile is classed by where its file is, not its name. Before, a repository file replaced the whole block. `.changeset/sandbox-settings-stay-operators.md` (`@namzu/cli` minor).
