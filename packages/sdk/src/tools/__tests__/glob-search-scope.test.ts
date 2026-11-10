@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import type { Sandbox } from '../../types/sandbox/index.js'
+import { walkFilesViaExec } from '../../sandbox/file-walk.js'
+import type { Sandbox, SandboxWalkFilesOptions } from '../../types/sandbox/index.js'
 import type { ToolContext } from '../../types/tool/index.js'
 import { GlobTool } from '../builtins/glob.js'
 import { ReadFileTool } from '../builtins/read-file.js'
@@ -28,6 +29,33 @@ function sandboxWith(files: readonly string[]) {
 		walkFiles,
 	} as unknown as Sandbox & { listFiles: typeof listFiles; walkFiles: typeof walkFiles }
 }
+
+describe('a pattern that could backtrack without end is a tool error', () => {
+	it('glob returns the refusal to the model and never runs a guest script', async () => {
+		const exec = vi.fn()
+		const sandbox = {
+			rootDir: '/sandbox/project',
+			walkFiles: (root: string, options: SandboxWalkFilesOptions) =>
+				walkFilesViaExec(exec, root, options),
+		} as unknown as Sandbox
+		const result = await GlobTool.execute({ pattern: '*(*(a))', path: '.' }, context(sandbox))
+		expect(exec).not.toHaveBeenCalled()
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('repeats a group that can match the same text more than one way')
+		expect(result.error).toContain('use ** or {a,b} instead')
+	})
+	it('glob refuses it on the host walk too', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'namzu-glob-refuse-'))
+		temporary.push(root)
+		await writeFile(join(root, 'a'), '')
+		const result = await GlobTool.execute(
+			{ pattern: '+(a|aa)', path: root },
+			context(undefined, root),
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toContain("The pattern '+(a|aa)' repeats a group")
+	})
+})
 
 describe('glob keeps the requested search scope', () => {
 	it('a plain star lists immediate files without entering a nested project', async () => {
