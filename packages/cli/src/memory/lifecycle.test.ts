@@ -55,7 +55,12 @@ function timers() {
 }
 
 async function setup(
-	options: { retireAfterDays?: number; busy?: () => boolean; draining?: () => boolean } = {},
+	options: {
+		retireAfterDays?: number
+		busy?: () => boolean
+		draining?: () => boolean
+		onTurnSettled?: () => void
+	} = {},
 ) {
 	const directory = mkdtempSync(join(tmpdir(), 'namzu-memory-lifecycle-'))
 	roots.push(directory)
@@ -73,6 +78,7 @@ async function setup(
 		clearTimer: wheel.clearTimer,
 		...(options.busy ? { isBusy: options.busy } : {}),
 		...(options.draining ? { isDraining: options.draining } : {}),
+		...(options.onTurnSettled ? { onTurnSettled: options.onTurnSettled } : {}),
 		onSwept: (report) => swept.push(report.archived.length),
 	})
 	return {
@@ -89,6 +95,15 @@ async function setup(
 }
 
 describe('the lifecycle host', () => {
+	it('tells the curator when a turn settles, and only then', async () => {
+		let settled = 0
+		const t = await setup({ onTurnSettled: () => (settled += 1) })
+		t.lifecycle.turnStarted()
+		expect(settled).toBe(0)
+		t.lifecycle.observe({ type: 'turn_completed' } as never)
+		expect(settled).toBe(1)
+	})
+
 	it('counts what recall offered, and which of it a selector chose', async () => {
 		const t = await setup()
 		await t.lifecycle.start()

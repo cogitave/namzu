@@ -1,5 +1,10 @@
 # Documentation update log
 
+## 2026-11-11
+
+- **Update** [Memory](cli/memory.md#memory-that-names-files) and [Memory recall](sdk/memory.md): a memory the curator stores that names files of the project carries anchors (relative path, size, time, SHA-256, at most five, never content; paths outside the project ignored). At recall, the one to three memories about to be shown are checked; a gone or changed file adds `caution: "may be out of date: ..."` to the line and the memory is shown anyway. The usage file keeps `brokenSince`, and the idle sweep archives a recorded memory broken for 14 days with `retiredReason: anchors`. `MemoryRecallOptions.caution` and `RecalledMemory.caution` are new in the SDK. `.changeset/memory-anchors.md` (`@namzu/cli` minor, `@namzu/sdk` minor).
+- **Update** [Memory](cli/memory.md#how-what-turns-learn-is-curated): curation never drains while a turn is streaming or a tool runs. The drain at a turn's start is gone; what waited drains after the turn settles and the pause, and an idle drain skipped because you are typing is armed again instead of dropped. The closing drain still runs. `.changeset/memory-curation-after-turn.md` (`@namzu/cli` patch).
+
 ## 2026-11-10
 
 - **Update** [Permission layers](cli/permission-layers.md#the-sandbox-block) and [Tool boundary](cli/tool-boundary.md#which-file-may-set-it): a project file, the local file and a profile declared in either may only tighten `sandbox` (`enabled` on, `allowEscape` and `allowUnattendedEscape` off, `requireIsolation` grows, `workspace` to `ephemeral`; `teardownTimeoutMs` is not theirs); a loosening that would have changed something is named once at launch with its file. The user file merges per key; the managed file replaces the whole block; `namzu exec` prints the notes on stderr; a profile is classed by where its file is, not its name. Before, a repository file replaced the whole block. `.changeset/sandbox-settings-stay-operators.md` (`@namzu/cli` minor).

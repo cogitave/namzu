@@ -279,6 +279,36 @@ and are never listed or deleted here; `/memory show` still prints them with
 their paths. A note that begins with the word `delete` is saved with
 `/memory add delete ...`.
 
+### Memory that names files
+
+A memory such as "the cache lives in `src/cache.ts`" goes stale silently when the
+file moves. So when the curator stores a memory whose text names files of the
+current project (a path in the text, or a file the turn touched whose path or
+name the text mentions), it records an **anchor** for each, at most five, in
+the record's `anchors` metadata: the path relative to the project, the file's
+size and modification time, and a SHA-256 of its bytes. No file content is kept,
+only the digest, and a file over 1 MiB is anchored by size and time alone. A path
+that resolves outside the project (a `..`, an absolute path elsewhere, or a link
+that leaves it) is never anchored and never checked. Commands are not anchored.
+
+When recall is about to show a memory with anchors (the one to three chosen for
+the message, never more), it checks each anchor with one `stat`: the same size
+and time pass without reading the file; otherwise the bytes are hashed and
+compared. A file that is gone, or whose bytes differ, adds
+`caution: "may be out of date: <path> no longer exists since this was saved"` (or
+`has changed`) to that memory's line, so the model reads that it may no longer
+hold. The memory is still shown, never dropped, and no model is asked. The check
+runs inside the recall deadline; a failing check says nothing.
+
+The usage file keeps `brokenSince` for a memory whose anchors first failed (the
+first time is kept; it is lifted when the files are as recorded again). The idle
+sweep archives a memory a turn recorded on its own once its anchors have stayed
+broken for 14 days, with `retiredReason: anchors`; a memory you or Namzu saved
+is only marked `possibly stale`. Nothing is retired for this when
+`memory.retireAfterDays` is `0` or the usage counts are unknown, and restoring a
+retired memory starts its clock over. `/memory` shows such a one as `retired: a
+file it names is gone or changed`.
+
 ### Memory that goes unused, and memory a refusal set aside
 
 Memory is kept small by use, not by a cap, and nothing is deleted on its own.
@@ -375,11 +405,19 @@ and a crash after the append loses nothing: the next process finds the line.
 
 Off the turn, the small model curates the inbox. It runs:
 
-- a quarter of a minute after a turn ends, when no other turn has started;
-- when the next turn starts, after that turn has been dispatched, so it never
-  delays the reply (this is also how a new process picks up what an earlier one
-  left, including a one-shot `exec` run that ended before its own drain);
-- when the session closes, for at most eight seconds.
+- a quarter of a minute after a turn ends, when no other turn has started and
+  you are not typing; if you are, it looks again after the next pause;
+- after a turn settles, for what waited while that turn ran, after the same
+  pause (this is also how a new process picks up what an earlier one left);
+- when the session closes, for at most eight seconds, whether or not a turn is
+  running.
+
+**Never during a turn.** While a turn is streaming or a tool is running nothing
+is drained, curation never starts, and the turn's first request never waits for
+it. A turn that starts while a drain is already in flight does not wait for it
+and does not stop it; the drain finishes on its own and is not started again. A
+one-shot `exec` run that ends before its own pause is drained by the closing
+drain.
 
 At most eight claim sets go to the model in one call. For each, Namzu first
 finds the five to eight active memories that share the most words with it, of
@@ -400,7 +438,9 @@ The model proposes and Namzu decides. A target must be one of that claim set's
 related memories. A memory you wrote, or the assistant saved, is never changed:
 when it already says the same thing the claim is dropped, so a preference the
 assistant just saved is not written a second time by the turn's record. A claim
-the model marks `ephemeral` is dropped. Every field has a length limit, and the
+the model marks `ephemeral` is dropped. When a stored memory's text names files
+that exist in the project, the record also carries an anchor for each (see
+[Memory that names files](#memory-that-names-files)). Every field has a length limit, and the
 secret and injected-instruction screen runs again over everything the model
 wrote. An update that finds the record changed since it was read (you edited it,
 or deleted it) is dropped; the record you changed wins. Nothing is ever deleted

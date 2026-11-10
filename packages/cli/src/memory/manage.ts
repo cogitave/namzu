@@ -16,7 +16,7 @@ import {
 } from '@namzu/sdk'
 
 import { preview } from './presentation.js'
-import { RETIRED_DUPLICATE, isUnused, retiredReasonOf } from './sweep.js'
+import { RETIRED_ANCHORS, RETIRED_DUPLICATE, isUnused, retiredReasonOf } from './sweep.js'
 import type { MemoryUsage } from './usage.js'
 
 const DAY_MS = 86_400_000
@@ -168,7 +168,11 @@ export function stateLabel(item: ManagedMemory): string | undefined {
 	if (item.state === 'set-aside') return 'set aside: a refused request carried it'
 	if (item.state === 'retired') {
 		const why =
-			item.retiredReason === RETIRED_DUPLICATE ? 'a newer copy exists' : 'not recalled for a while'
+			item.retiredReason === RETIRED_DUPLICATE
+				? 'a newer copy exists'
+				: item.retiredReason === RETIRED_ANCHORS
+					? 'a file it names is gone or changed'
+					: 'not recalled for a while'
 		return item.alsoSetAside ? `retired and set aside: ${why}` : `retired: ${why}`
 	}
 	return item.possiblyStale ? 'possibly stale: not recalled for a while' : undefined

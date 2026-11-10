@@ -10,6 +10,9 @@
  *
  * - `recalls`, `selected`, `lastRecalledAt` for each id the terminal saw
  *   recalled;
+ * - `brokenSince`, when recall first found that a file a record names is gone
+ *   or changed (see `anchors.ts`); the idle sweep retires a record whose
+ *   anchors stayed broken for a while;
  * - `setAside`, the ids a refused request carried. Recall never offers them
  *   again until the person restores them in `/memory`;
  * - `since`, when this file started counting.
@@ -38,6 +41,8 @@ export interface UsageCounters {
 	readonly recalls: number
 	readonly selected: number
 	readonly lastRecalledAt: number
+	/** When recall first found a file the record names gone or changed; absent while its anchors hold. */
+	readonly brokenSince?: number
 }
 
 export interface SetAside {
@@ -113,7 +118,14 @@ function parse(text: string): UsageFile | undefined {
 		const lastRecalledAt = count(value.lastRecalledAt)
 		if (recalls === undefined || selected === undefined || lastRecalledAt === undefined)
 			return undefined
-		records[id] = { recalls, selected, lastRecalledAt }
+		const brokenSince = value.brokenSince === undefined ? undefined : count(value.brokenSince)
+		if (value.brokenSince !== undefined && brokenSince === undefined) return undefined
+		records[id] = {
+			recalls,
+			selected,
+			lastRecalledAt,
+			...(brokenSince === undefined ? {} : { brokenSince }),
+		}
 	}
 	const setAside: Record<string, SetAside> = {}
 	for (const [id, value] of Object.entries(raw.setAside)) {
@@ -139,6 +151,8 @@ export class MemoryUsage {
 	readonly #deltas = new Map<string, Delta>()
 	readonly #asideAdded = new Map<string, SetAside>()
 	readonly #asideLifted = new Set<string>()
+	readonly #brokenSet = new Map<string, number>()
+	readonly #brokenCleared = new Set<string>()
 	#flushing: Promise<void> = Promise.resolve()
 
 	constructor(deps: MemoryUsageDeps) {
@@ -212,6 +226,16 @@ export class MemoryUsage {
 				lastRecalledAt: Math.max(base?.lastRecalledAt ?? 0, delta.lastRecalledAt),
 			})
 		}
+		for (const [id, at] of this.#brokenSet) {
+			const base = records.get(id) ?? { recalls: 0, selected: 0, lastRecalledAt: 0 }
+			records.set(id, { ...base, brokenSince: base.brokenSince ?? at })
+		}
+		for (const id of this.#brokenCleared) {
+			const base = records.get(id)
+			if (base?.brokenSince === undefined) continue
+			const { brokenSince: _cleared, ...rest } = base
+			records.set(id, rest)
+		}
 		const aside = new Map(Object.entries(file?.setAside ?? {}))
 		for (const [id, entry] of this.#asideAdded) aside.set(id, entry)
 		for (const id of this.#asideLifted) aside.delete(id)
@@ -239,6 +263,24 @@ export class MemoryUsage {
 		this.#merge(this.#base())
 	}
 
+	/** Recall found a file this record names gone or changed. The first time is kept. */
+	anchorsBroken(id: string): void {
+		this.#brokenCleared.delete(id)
+		if (this.#records.get(id)?.brokenSince === undefined && !this.#brokenSet.has(id)) {
+			this.#brokenSet.set(id, this.#now())
+			this.#merge(this.#base())
+		}
+	}
+
+	/** Recall found every file this record names as it was. */
+	anchorsHeld(id: string): void {
+		this.#brokenSet.delete(id)
+		if (this.#records.get(id)?.brokenSince !== undefined) {
+			this.#brokenCleared.add(id)
+			this.#merge(this.#base())
+		}
+	}
+
 	/** Set records aside: recall does not offer them again until `restore`. */
 	setAside(ids: readonly string[]): void {
 		const at = this.#now()
@@ -251,6 +293,8 @@ export class MemoryUsage {
 
 	/** Lift the set-aside of one record. */
 	restore(id: string): void {
+		// A restored memory starts its anchors' clock again.
+		this.anchorsHeld(id)
 		this.#asideAdded.delete(id)
 		this.#asideLifted.add(id)
 		this.#merge(this.#base())
@@ -277,7 +321,13 @@ export class MemoryUsage {
 
 	/** Whether anything waits to be written. */
 	get dirty(): boolean {
-		return this.#deltas.size > 0 || this.#asideAdded.size > 0 || this.#asideLifted.size > 0
+		return (
+			this.#deltas.size > 0 ||
+			this.#asideAdded.size > 0 ||
+			this.#asideLifted.size > 0 ||
+			this.#brokenSet.size > 0 ||
+			this.#brokenCleared.size > 0
+		)
 	}
 
 	/** Write what is pending. Never rejects; calls queue behind one another. */
@@ -321,6 +371,8 @@ export class MemoryUsage {
 			this.#deltas.clear()
 			this.#asideAdded.clear()
 			this.#asideLifted.clear()
+			this.#brokenSet.clear()
+			this.#brokenCleared.clear()
 			this.#baseRecords = body.records
 			this.#baseAside = body.setAside
 			this.#state = 'known'

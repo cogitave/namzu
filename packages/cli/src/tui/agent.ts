@@ -459,6 +459,7 @@ import {
 } from '../integrations/workflows/size.js'
 import type { WorkflowRunView } from '../integrations/workflows/view.js'
 import { cliLogger } from '../logging.js'
+import { createAnchorCaution } from '../memory/anchors.js'
 import {
 	CurationRuntime,
 	composeMemoryPromotion,
@@ -4791,6 +4792,7 @@ export async function createAgentSession(
 						store: memoryStore,
 						sideModel: () => sideModel,
 						fallback: screenedPromoter,
+						anchorRoot: cliProjectRoot(cwd),
 						log: createCurationLog(join(paths.home, 'memory', 'curation.jsonl')),
 					}),
 					setTimer: (run, ms) => {
@@ -4822,6 +4824,9 @@ export async function createAgentSession(
 		now: Date.now,
 		log: (message, fields) => cliLogger().debug(message, fields),
 	})
+	// A recalled memory that names files of the project says so when one is
+	// gone or changed, and the usage file notes how long that has been so.
+	const memoryCaution = createAnchorCaution({ root: cliProjectRoot(cwd), usage: memoryUsage })
 	const memoryLifecycle = new MemoryLifecycle({
 		store: memoryStore,
 		usage: memoryUsage,
@@ -5524,6 +5529,7 @@ export async function createAgentSession(
 										identifierGrounding: options.memory?.identifierGrounding,
 										record: true,
 										excluded: memoryLifecycle.excluded,
+										caution: memoryCaution,
 										...memorySelection,
 									}),
 								]),
@@ -6938,6 +6944,7 @@ export async function createAgentSession(
 													identifierGrounding: options.memory?.identifierGrounding,
 													record: true,
 													excluded: memoryLifecycle.excluded,
+													caution: memoryCaution,
 													...memorySelection,
 												}),
 											]),

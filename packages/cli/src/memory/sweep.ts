@@ -30,6 +30,9 @@ import type { MemoryUsage } from './usage.js'
 export const DEFAULT_RETIRE_AFTER_DAYS = 21
 export const RETIRED_UNUSED = 'unused'
 export const RETIRED_DUPLICATE = 'duplicate'
+export const RETIRED_ANCHORS = 'anchors'
+/** Days a file a memory names must stay gone or changed, by recall's own checks, before the memory is retired. */
+export const ANCHORS_BROKEN_RETIRE_DAYS = 14
 const DAY_MS = 86_400_000
 
 type MemoryId = Parameters<MarkdownMemoryStore['delete']>[0]
@@ -47,7 +50,7 @@ export interface SweepDeps {
 export interface SweptMemory {
 	readonly id: string
 	readonly title: string
-	readonly reason: typeof RETIRED_UNUSED | typeof RETIRED_DUPLICATE
+	readonly reason: typeof RETIRED_UNUSED | typeof RETIRED_DUPLICATE | typeof RETIRED_ANCHORS
 }
 
 export interface SweepReport {
@@ -110,12 +113,24 @@ export async function sweepMemory(deps: SweepDeps): Promise<SweepReport> {
 		})
 	}
 
+	// Recall noted when a file a memory names went; with usage unreadable or
+	// retiring switched off, nothing is retired for it either.
+	const anchorsBroken = (id: string): boolean => {
+		const since = usage.get(id)?.brokenSince
+		return (
+			retireAfterDays > 0 &&
+			usage.state === 'known' &&
+			since !== undefined &&
+			at - since >= ANCHORS_BROKEN_RETIRE_DAYS * DAY_MS
+		)
+	}
+
 	for (const entry of entries) {
 		const record = await store.getVersionedRecord(entry.id)
 		if (!record || record.entry.status !== 'active') continue
 		const row: Row = { id: entry.id, record }
 		if (memoryOrigin(record.content.metadata) === 'derived') derived.push(row)
-		else if (unusedRow(row)) possiblyStale.push(entry.id)
+		else if (unusedRow(row) || anchorsBroken(entry.id)) possiblyStale.push(entry.id)
 	}
 
 	const archive = async (
@@ -172,8 +187,9 @@ export async function sweepMemory(deps: SweepDeps): Promise<SweepReport> {
 	}
 
 	for (const row of derived) {
-		if (settled.has(row.id) || !unusedRow(row)) continue
-		await archive(row, RETIRED_UNUSED)
+		if (settled.has(row.id)) continue
+		if (unusedRow(row)) await archive(row, RETIRED_UNUSED)
+		else if (anchorsBroken(row.id)) await archive(row, RETIRED_ANCHORS)
 	}
 
 	return {
@@ -197,7 +213,9 @@ export function describeSweep(report: SweepReport, retireAfterDays: number): str
 				`  ${item.title.replace(/\s+/gu, ' ').trim()} · ${
 					item.reason === RETIRED_DUPLICATE
 						? 'a newer copy exists'
-						: `not recalled for ${retireAfterDays} days`
+						: item.reason === RETIRED_ANCHORS
+							? `a file it names has been gone or changed for ${ANCHORS_BROKEN_RETIRE_DAYS} days`
+							: `not recalled for ${retireAfterDays} days`
 				}`,
 			)
 	}
