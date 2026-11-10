@@ -22,6 +22,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { WorkingStateManager } from '../../../../compaction/manager.js'
 import { CompactionConfigSchema } from '../../../../config/runtime.js'
+import { TurnRecorder } from '../../../../manager/session/turn-recorder.js'
 import type { TurnId } from '../../../../types/ids/index.js'
 import {
 	type Message,
@@ -30,6 +31,7 @@ import {
 	createToolMessage,
 	createUserMessage,
 } from '../../../../types/message/index.js'
+import { generateSessionId, generateTurnId } from '../../../../utils/id.js'
 import type { Logger } from '../../../../utils/logger.js'
 import { measureContext, runCompactionCheck } from './compaction.js'
 import type { IterationContext } from './context.js'
@@ -231,5 +233,64 @@ describe('the tool catalogue', () => {
 
 		await expect(runCompactionCheck(ctx)).resolves.toBeUndefined()
 		expect(compactionLog(log)).toBeDefined()
+	})
+})
+
+describe('a driver that keeps the cache apart from promptTokens', () => {
+	// The warm call of the recorded subscription turn: 2 uncached tokens beside
+	// 26,378 read from the cache and 163 written. Read as `promptTokens` the
+	// context looked like a handful of tokens against a 2,500-token trigger.
+	const warm = {
+		promptTokens: 2,
+		completionTokens: 10,
+		totalTokens: 12,
+		cachedTokens: 26_378,
+		cacheWriteTokens: 163,
+		fullPromptTokens: 26_545,
+	}
+
+	function measuredRecorder(): TurnRecorder {
+		const sessionId = generateSessionId()
+		const r = new TurnRecorder({
+			sessionId,
+			sessionLog: { sessionId },
+			turnId: generateTurnId(),
+			agentId: 'ctx',
+			agentName: 'Ctx',
+			turnConfig: { model: 'mock-model', tokenBudget: 1_000_000, timeoutMs: 5_000 },
+			providerId: 'mock',
+			log: makeLogger(),
+		} as never)
+		r.recordTurnUsage(warm, { providerId: 'mock', model: 'm' })
+		return r
+	}
+
+	it('measures the whole prompt, plus what was appended since', () => {
+		const measured: Message[] = [createUserMessage('go'), createAssistantMessage('working')]
+		const tail = createAssistantMessage(bulk(500))
+		const { ctx } = makeCtx({
+			messages: [...measured, tail],
+			lastPromptTokens: measuredRecorder().lastPromptTokens,
+			lastPromptMessageCount: measured.length,
+		})
+		const size = measureContext(ctx)
+		expect(size.source).toBe('provider')
+		expect(size.tokens).toBeGreaterThanOrEqual(26_545 + 500)
+		expect(size.tokens).toBeLessThan(26_545 + 600)
+	})
+
+	it('fires the compaction trigger on it', async () => {
+		const messages: Message[] = [createUserMessage('go'), createAssistantMessage('done')]
+		const { ctx, log } = makeCtx({
+			messages,
+			lastPromptTokens: measuredRecorder().lastPromptTokens,
+			lastPromptMessageCount: messages.length,
+		})
+		await runCompactionCheck(ctx)
+
+		const entry = compactionLog(log)
+		expect(entry).toBeDefined()
+		expect(entry?.[MEASURED_BY]).toBe('provider')
+		expect(entry?.[CONTEXT_TOKENS]).toBe(26_545)
 	})
 })

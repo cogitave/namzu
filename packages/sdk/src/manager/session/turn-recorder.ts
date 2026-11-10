@@ -24,6 +24,7 @@ import {
 	accumulateTokenUsage,
 	isTerminalStatus,
 	mergeTokenUsage,
+	promptSizeOf,
 } from '../../types/common/index.js'
 import { NamzuError } from '../../types/errors/index.js'
 import type { MessageId, SessionId, TenantId, TurnId } from '../../types/ids/index.js'
@@ -535,7 +536,7 @@ export class TurnRecorder {
 	 */
 	recordTurnUsage(usage: TokenUsage, servedBy: PricingSubject): void {
 		this.accumulateUsage(usage, servedBy)
-		this.#lastPromptTokens = usage.promptTokens
+		this.#lastPromptTokens = promptSizeOf(usage)
 		this.#lastPromptMessageCount = this.#turn.messages.length
 	}
 

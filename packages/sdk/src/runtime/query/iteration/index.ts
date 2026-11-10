@@ -31,7 +31,7 @@ import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { STRUCTURED_OUTPUT_TOOL_NAME } from '../../../tools/builtins/structuredOutput.js'
 import type { ToolManager } from '../../../toolsets/manager.js'
 import { RECALLED_MEMORY_ENTRY_KEY, recalledMemoryIds } from '../../../turn/memory-recall.js'
-import type { CostInfo, TokenUsage } from '../../../types/common/index.js'
+import { type CostInfo, type TokenUsage, promptSizeOf } from '../../../types/common/index.js'
 import { NamzuError } from '../../../types/errors/index.js'
 import type { MessageId, SessionId, TurnId } from '../../../types/ids/index.js'
 import {
@@ -1353,7 +1353,7 @@ export class IterationOrchestrator {
 						'namzu.runtime.has_content':
 							response.message.content !== null && response.message.content.length > 0,
 						'namzu.runtime.tool_call_count': response.message.toolCalls?.length ?? 0,
-						[GENAI.USAGE_INPUT_TOKENS]: response.usage.promptTokens,
+						[GENAI.USAGE_INPUT_TOKENS]: promptSizeOf(response.usage),
 						[GENAI.USAGE_OUTPUT_TOKENS]: response.usage.completionTokens,
 						'namzu.usage.total_tokens': recorder.tokenUsage.totalTokens,
 						'namzu.runtime.total_cost': recorder.costInfo.totalCost,
@@ -1470,7 +1470,7 @@ export class IterationOrchestrator {
 					yield* this.ctx.drainPending()
 
 					iterSpan.setAttributes({
-						[GENAI.USAGE_INPUT_TOKENS]: response.usage.promptTokens,
+						[GENAI.USAGE_INPUT_TOKENS]: promptSizeOf(response.usage),
 						[GENAI.USAGE_OUTPUT_TOKENS]: response.usage.completionTokens,
 					})
 					iterSpan.setStatus({ code: SpanStatusCode.OK })

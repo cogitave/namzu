@@ -696,6 +696,17 @@ export type AgentEvent =
 			/** The output share of `totalTokens`: what the model has written this turn. */
 			readonly outputTokens?: number
 			/**
+			 * The input share of `totalTokens`, cumulative for the turn. For a
+			 * driver that keeps cache tokens apart this is
+			 * only the uncached remainder: add the two cache figures below for
+			 * what the model was sent.
+			 */
+			readonly inputTokens?: number
+			/** Input tokens served from the prompt cache, cumulative for the turn. */
+			readonly cacheReadTokens?: number
+			/** Input tokens written to the prompt cache, cumulative for the turn. */
+			readonly cacheWriteTokens?: number
+			/**
 			 * The prompt cache after this model call, when the driver reports how
 			 * long it lives. Absent means unknown; nothing may assume a lifetime.
 			 */
@@ -4481,6 +4492,8 @@ export async function createAgentSession(
 						void subagentRuntime?.sideLedger.chargeLater({
 							turnId,
 							sessionId,
+							// Already spent: the ledger books `usage` as it is and uses the estimate only to
+							// admit the charge, so the uncached count, not the whole prompt, keeps it admitted.
 							estimatedPromptTokens: usage.promptTokens,
 							usage,
 						})
@@ -5013,6 +5026,8 @@ export async function createAgentSession(
 		void subagentRuntime?.sideLedger.chargeLater({
 			turnId: latestTurn.turnId,
 			sessionId,
+			// Already spent: the ledger books `usage` as it is and uses the estimate only to
+			// admit the charge, so the uncached count, not the whole prompt, keeps it admitted.
 			estimatedPromptTokens: usage.promptTokens,
 			usage,
 		})
@@ -8873,6 +8888,9 @@ export function toAgentEvent(
 				...(event.turnId ? { turnId: event.turnId } : {}),
 				totalTokens: event.usage.totalTokens,
 				outputTokens: event.usage.completionTokens,
+				inputTokens: event.usage.promptTokens,
+				cacheReadTokens: event.usage.cachedTokens,
+				cacheWriteTokens: event.usage.cacheWriteTokens,
 				...(event.cache ? { cache: event.cache } : {}),
 				...(event.cacheMiss ? { cacheMiss: event.cacheMiss } : {}),
 				...(event.budget ? { budget: event.budget } : {}),

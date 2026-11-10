@@ -665,8 +665,8 @@ describe('fetchZenCatalogue', () => {
 			'https://models.dev/api.json',
 			'https://opencode.ai/zen/go/v1/models',
 			'https://opencode.ai/zen/v1/models',
-			'https://raw.githubusercontent.com/anomalyco/opencode/dev/services/www/src/docs/content/console/go.mdx',
-			'https://raw.githubusercontent.com/anomalyco/opencode/dev/services/www/src/docs/content/console/models.mdx',
+			'https://raw.githubusercontent.com/anomalyco/opencode/dev/services/site/src/docs/content/console/go.mdx',
+			'https://raw.githubusercontent.com/anomalyco/opencode/dev/services/site/src/docs/content/console/models.mdx',
 		])
 		for (const [, init] of fetchFn.mock.calls) expect(init?.redirect).toBe('error')
 	})
