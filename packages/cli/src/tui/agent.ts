@@ -1,6 +1,7 @@
 import { debugRequested } from '../debug-requested.js'
 import { isDefaultAccountId } from '../integrations/accounts/binding.js'
 import { resolveIdleCompactionMinTokens } from '../integrations/compaction/idle-compaction.js'
+import { changeDetectorFor } from '../integrations/outcome/change-detector.js'
 import { createCurrentCredentialReader } from '../integrations/providers/current-credential.js'
 import { TextOnlyModels } from '../integrations/providers/image-input.js'
 import { promptCacheTtl, setPromptCacheTtl } from '../integrations/providers/prompt-cache-ttl.js'
@@ -155,6 +156,7 @@ import {
 	type Toolset,
 	type TopicId,
 	type TurnId,
+	type TurnOutcome,
 	WebFetchTool,
 	abandonTurn,
 	asTaskId,
@@ -894,6 +896,8 @@ export type AgentEvent =
 			readonly text?: string
 			readonly stopReason?: StopReason
 			readonly budget?: SessionTokenBudgetSummary
+			/** What the turn changed and what checked it, from the kernel's own record of its calls. */
+			readonly outcome?: TurnOutcome
 	  }
 	| {
 			/** A recoverable turn stopped with an addressable checkpoint. */
@@ -5496,7 +5500,13 @@ export async function createAgentSession(
 						...(route?.effort ? { effort: route.effort } : {}),
 						...(resumeWebSearch ? { webSearch: resumeWebSearch } : {}),
 						...(sandbox.provider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
-						...turnConfigFields(resumedLimits, { completionAudit: true }),
+						...turnConfigFields(resumedLimits, {
+							completionAudit: true,
+							detectChanges: changeDetectorFor(cwd, {
+								active: Boolean(sandbox.provider),
+								workspace: sandboxWorkspace,
+							}),
+						}),
 						maxResponseTokens: resumedLimits.maxResponseTokens ?? 8192,
 						permissionMode: 'auto',
 						pruneKeepLast: CLI_CHECKPOINT_RETENTION,
@@ -8066,7 +8076,13 @@ async function* runTurn({
 				...(opts?.effort !== undefined ? { effort: opts.effort } : {}),
 				...(opts?.speed === 'fast' ? { speed: opts.speed } : {}),
 				...(webSearch ? { webSearch } : {}),
-				...turnConfigFields(resolveTurnGuards(limits), { completionAudit: true }),
+				...turnConfigFields(resolveTurnGuards(limits), {
+					completionAudit: true,
+					detectChanges: changeDetectorFor(workingDirectory, {
+						active: Boolean(sandboxProvider),
+						workspace: sandboxWorkspace,
+					}),
+				}),
 				maxResponseTokens: limits?.maxResponseTokens ?? 8192,
 				permissionMode: 'auto',
 				// The kernel keeps every checkpoint unless told otherwise.
@@ -8945,6 +8961,7 @@ export function toAgentEvent(
 				text: event.result,
 				...(event.budget ? { budget: event.budget } : {}),
 				...(event.stopReason ? { stopReason: event.stopReason } : {}),
+				...(event.settlement?.outcome ? { outcome: event.settlement.outcome } : {}),
 			}
 		case 'turn_failed':
 			// Keep the compatibility string and the structure. Prefixing the

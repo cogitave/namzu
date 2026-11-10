@@ -25,6 +25,8 @@ export interface TurnConfigFields {
 	maxResponseTokens?: number
 	reasoning?: { maxTokens: number }
 	completionAudit?: boolean
+	/** The outcome record's hooks; see the SDK's `TurnConfig.outcome`. */
+	outcome?: { detectChanges: () => Promise<string | null> }
 }
 
 /**
@@ -39,7 +41,15 @@ export interface TurnConfigFields {
  */
 export function turnConfigFields(
 	guards: TurnGuards,
-	options: { readonly completionAudit?: boolean } = {},
+	options: {
+		readonly completionAudit?: boolean
+		/**
+		 * How the turn's outcome record watches the directory its tools change.
+		 * Left out where that directory cannot be read from here; the record then
+		 * rests on the kernel's own write tools alone.
+		 */
+		readonly detectChanges?: () => Promise<string | null>
+	} = {},
 ): TurnConfigFields {
 	return {
 		tokenBudget: guards.tokenBudget,
@@ -55,6 +65,7 @@ export function turnConfigFields(
 		...(options.completionAudit === true && guards.doneGate !== false
 			? { completionAudit: true }
 			: {}),
+		...(options.detectChanges ? { outcome: { detectChanges: options.detectChanges } } : {}),
 	}
 }
 
