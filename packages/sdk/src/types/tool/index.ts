@@ -332,6 +332,16 @@ export interface FileReadTracker {
 	 */
 	recordEdit?(key: string, content: string, callId: string): void
 	/**
+	 * Optional: the fingerprint of the content the agent itself last put in
+	 * the file at `key` through a full write or an edit, if it did. A file the
+	 * agent only read, or never touched, has none. Shell redirection is not
+	 * seen here: such a file is of unknown authorship. Used by the auto-mode
+	 * classifier to tell a script the agent wrote from one it did not.
+	 */
+	authoredFingerprint?(key: string): string | undefined
+	/** Optional: when this ledger began, in milliseconds since the epoch. */
+	readonly startedAt?: number
+	/**
 	 * Optional witness of a read that returned the file WHOLE, with the
 	 * fingerprint of the rendering it returned.
 	 *

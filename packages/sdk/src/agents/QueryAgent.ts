@@ -40,6 +40,7 @@ const configRoutes = {
 	compactionSummaryRoute: 'query',
 	allowedTools: 'special',
 	toolResultGuardrails: 'query',
+	fileReadTracker: 'query',
 	deniedTools: 'special',
 	persona: 'query',
 	logger: 'special',
