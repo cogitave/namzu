@@ -360,8 +360,43 @@ describe('why the Windows helper is not available', () => {
 
 	it('reads an error record out of the CLIXML envelope', () => {
 		const clixml =
-			'#< CLIXML\r\n<Objs Version="1.1.0.1"><S S="Error">Add-Type : Cannot add type._x000D__x000A_</S><S S="Error">Access &lt;denied&gt;_x000D__x000A_</S></Objs>'
+			'#< CLIXML\r\n<Objs Version="1.1.0.1"><S S="Error">Add-Type : Cannot add type._x000D__x000A_</S><S S="Error">+ FullyQualifiedErrorId : A_x000D__x000A_</S><S S="Error">Access &lt;denied&gt;_x000D__x000A_</S></Objs>'
 		expect(stderrCause(clixml)).toBe('Access <denied>')
+	})
+
+	it('reports the message of an error record, not its location and category lines', () => {
+		const record = (line: string) => `<S S="Error">${line}_x000D__x000A_</S>`
+		const clixml = `#< CLIXML\r\n<Objs Version="1.1.0.1">${record('Add-Type : Cannot compile')}${record('At line:3 char:1')}${record('+ Add-Type -TypeDefinition $x')}${record('+ ~~~~')}${record('+ CategoryInfo          : InvalidOperation')}${record('+ FullyQualifiedErrorId : SOURCE_CODE_ERROR')}</Objs>`
+		expect(stderrCause(clixml)).toBe('Add-Type : Cannot compile')
+		expect(stderrCause('boom\nAt line:1 char:1\n+ CategoryInfo : X')).toBe('boom')
+	})
+
+	it('does not report a progress fragment left by a cut tail as the cause', () => {
+		expect(stderrCause('<S S="progress">Preparing</S></Obj></Objs>')).toBeUndefined()
+		expect(stderrCause('</Obj></Objs>')).toBeUndefined()
+		expect(
+			stderrCause('<AV>Preparing modules for first use.</AV><AI>0</AI></PR></MS></Obj></Objs>'),
+		).toBeUndefined()
+	})
+
+	it('is not running from the moment the process ends, before its streams close', async () => {
+		let ended: () => void = () => undefined
+		const proc: HelperProcess = {
+			write: () => undefined,
+			onLine: (h) => queueMicrotask(() => h(JSON.stringify({ ok: true, hooks: true }))),
+			onExit: () => undefined,
+			onEnded: (h) => {
+				ended = h
+			},
+			kill: () => undefined,
+		}
+		const monitor = new WindowsInputMonitor({ powershell: 'ps', spawnHelper: () => proc })
+		await monitor.start()
+		expect(monitor.running).toBe(true)
+		ended()
+		expect(monitor.running).toBe(false)
+		// Rejects at once, not after the request timeout.
+		await expect(monitor.state()).rejects.toThrow(/not running/)
 	})
 
 	it('trims a long cause to about 200 characters', () => {

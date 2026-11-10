@@ -19,6 +19,12 @@ export interface HelperProcess {
 	onLine(handler: (line: string) => void): void
 	/** `info` is absent where the process cannot say how it ended. */
 	onExit(handler: (info?: HelperExit) => void): void
+	/**
+	 * The process itself has ended, which can be before its streams close (a
+	 * child that inherited them keeps them open). Absent where there is no such
+	 * moment.
+	 */
+	onEnded?(handler: () => void): void
 	kill(): void
 }
 
@@ -34,6 +40,8 @@ export interface HelperExit {
 
 /** Most of the helper's error stream that is kept. */
 const STDERR_KEEP = 2_048
+/** How long after the process ends its streams get to close before the exit is reported anyway, ms. */
+const EXIT_GRACE_MS = 500
 /** Longest cause line put in a reason. */
 const CAUSE_MAX = 200
 
@@ -49,31 +57,54 @@ function xmlText(text: string): string {
 		.replace(/&amp;/g, '&')
 }
 
+/** Lines of a PowerShell error record that are location and category detail, not the message. */
+function isRecordDetail(line: string): boolean {
+	return line.startsWith('+ ') || line.startsWith('At line:')
+}
+
 /**
- * The last non-empty line of what the helper wrote to its error stream, or
+ * What the helper wrote to its error stream, reduced to its cause, or
  * undefined. PowerShell wraps non-interactive output in a CLIXML envelope; its
  * progress records ("Preparing modules for first use") are noise, its error
- * records are the cause.
+ * records are the cause. The kept tail may begin in the middle of the envelope,
+ * so a fragment of it counts as CLIXML too. Of an error record the message
+ * (its first line) is reported, not the `+ CategoryInfo` lines after it.
  */
 export function stderrCause(stderr: string | undefined): string | undefined {
 	if (!stderr) return undefined
 	let text = stderr
-	if (text.includes('CLIXML') || /<Objs[\s>]/.test(text)) {
+	let clixml = false
+	if (/CLIXML|<Objs[\s>]|<\/Objs>|<Obj |S="progress"/.test(text)) {
 		const errors: string[] = []
 		for (const match of text.matchAll(/<S S="Error">([\s\S]*?)<\/S>/g))
 			errors.push(xmlText(match[1] ?? ''))
-		text = `${text
-			.replace(/#< CLIXML/g, '')
-			.replace(/<Objs[\s\S]*?<\/Objs>/g, '')
-			.replace(/<Objs[\s\S]*$/, '')}\n${errors.join('')}`
+		// What is outside the error records is progress; none of it is a cause.
+		text = errors.join('')
+		clixml = true
 	}
 	const lines = text
 		.split(/\r?\n/)
 		.map((line) => line.trim())
-		.filter(Boolean)
-	const last = lines[lines.length - 1]
-	if (!last) return undefined
-	return last.length > CAUSE_MAX ? `${last.slice(0, CAUSE_MAX - 1)}…` : last
+		.filter((line) => line && !line.startsWith('<'))
+	let cause: string | undefined
+	if (!clixml) {
+		cause = lines.filter((line) => !isRecordDetail(line)).pop()
+	} else {
+		cause = lastRecordMessage(lines)
+	}
+	if (!cause) return undefined
+	return cause.length > CAUSE_MAX ? `${cause.slice(0, CAUSE_MAX - 1)}…` : cause
+}
+
+/** An error record ends at its FullyQualifiedErrorId line; the message of the last one. */
+function lastRecordMessage(lines: string[]): string | undefined {
+	const records: string[][] = [[]]
+	for (const line of lines) {
+		const current = records[records.length - 1] as string[]
+		if (!isRecordDetail(line)) current.push(line)
+		if (line.startsWith('+ FullyQualifiedErrorId')) records.push([])
+	}
+	return [...records].reverse().find((r) => r.length > 0)?.[0]
 }
 
 /** Why the helper is gone, in words the model can pass on. */
@@ -172,7 +203,15 @@ function spawnPowerShell(options: WindowsMonitorOptions): HelperProcess {
 			}
 			// `close` follows the end of the error stream, so its tail is complete.
 			child.once('close', (code, signal) => finish({ code, signal, stderr }))
+			// A grandchild holding the pipes can keep `close` from coming: after the
+			// process has ended, what was read so far is the answer.
+			child.once('exit', (code, signal) => {
+				setTimeout(() => finish({ code, signal, stderr }), EXIT_GRACE_MS).unref()
+			})
 			child.once('error', (spawnError) => finish({ spawnError, stderr }))
+		},
+		onEnded: (handler) => {
+			child.once('exit', handler)
 		},
 		kill: () => {
 			try {
@@ -218,6 +257,10 @@ export class WindowsInputMonitor implements ForegroundMonitor {
 		)
 		this.proc = proc
 		proc.onLine((line) => this.onLine(line))
+		// Not running from the moment the process ends; the reason follows when its streams close.
+		proc.onEnded?.(() => {
+			this.exited = true
+		})
 		proc.onExit((info) => {
 			this.exited = true
 			const reason = describeHelperExit(info, this.greeted)

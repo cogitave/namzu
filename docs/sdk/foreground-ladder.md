@@ -79,13 +79,16 @@ A helper that has ended is replaced, quietly, before anything else happens:
 - If the first look or `begin` of a run fails (the helper died or hung), nothing
   has been sent yet, so the monitor is dropped and the run goes again once with
   a fresh helper. A second failure is a `monitor_unavailable` block carrying the
-  real reason; `ladder.run` does not reject.
-- A start that fails is retried once at once. After two failed starts in a row
+  real reason; `ladder.run` does not reject. Only a helper that is gone or did
+  not answer in time is replaced; an error a running helper reports about one
+  command is passed on, after the window it may have raised is put back.
+- A start that fails is retried once at once, except a start that already waited
+  out its timeout, which is not waited for twice. After two failed starts in a row
   the failure is remembered until `endTurn` and later calls in the same turn get
   the same block without another compile; the next turn tries again.
 - A helper that ends in the middle of a burst is never restarted inside it: the
-  burst stops at its next check with "the keyboard-and-mouse helper stopped
-  during the action". The helper cannot put the window and cursor back once it
+  burst ends with "the keyboard-and-mouse helper stopped during the action",
+  whether it noticed at its next check or a call of its own failed. The helper cannot put the window and cursor back once it
   is gone; the next call gets a fresh one.
 
 The helper's error stream is kept (the last 2 KB) so the reason names the cause:

@@ -512,6 +512,7 @@ describe('the helper going away', () => {
 		const { ladder, made } = spawning((monitor, n) => {
 			if (n === 0) {
 				monitor.state_ = () => {
+					monitor.running = false
 					throw new Error('the Windows helper is not running')
 				}
 			}
@@ -527,8 +528,10 @@ describe('the helper going away', () => {
 	it('replaces a helper that fails begin before anything was sent', async () => {
 		const { ladder, made } = spawning((monitor, n) => {
 			if (n === 0)
-				monitor.begin = async () =>
-					Promise.reject(new Error('the Windows helper stopped (exit code 9)'))
+				monitor.begin = async () => {
+					monitor.running = false
+					return Promise.reject(new Error('the Windows helper stopped (exit code 9)'))
+				}
 		})
 		const outcome = await ladder.run({ subject: SUBJECT }, async () => 'sent')
 		expect(outcome).toMatchObject({ kind: 'ran', value: 'sent' })
@@ -538,6 +541,7 @@ describe('the helper going away', () => {
 	it('returns a block with the real reason, not an error, when the new helper fails too', async () => {
 		const { ladder, made, fs } = spawning((monitor, n) => {
 			monitor.state_ = () => {
+				monitor.running = false
 				throw new Error(`the Windows helper stopped (exit code ${n + 1})`)
 			}
 		})
@@ -606,6 +610,71 @@ describe('the helper going away', () => {
 		const next = await ladder.run({ subject: SUBJECT }, async () => 'ok')
 		expect(next).toMatchObject({ kind: 'ran', value: 'ok' })
 		expect(made).toHaveLength(2)
+	})
+
+	it('does not wait out a start timeout twice, and remembers it', async () => {
+		const { ladder, made } = spawning((monitor) => {
+			monitor.startError = new Error('the Windows helper did not answer in time')
+		})
+		const outcome = await ladder.run({ subject: SUBJECT }, async () => 1)
+		expect(outcome).toMatchObject({ kind: 'blocked', block: { code: 'monitor_unavailable' } })
+		expect(made).toHaveLength(1)
+		await ladder.run({ subject: SUBJECT }, async () => 1)
+		expect(made).toHaveLength(1)
+	})
+
+	it('leaves a live helper alone when it reports an error about one command', async () => {
+		const { ladder, made } = spawning((monitor) => {
+			monitor.state_ = () => {
+				throw new Error('bad pid')
+			}
+		})
+		await expect(ladder.run({ subject: SUBJECT }, async () => 1)).rejects.toThrow('bad pid')
+		expect(made).toHaveLength(1)
+		expect(made[0]?.disposed).toBe(0)
+	})
+
+	it('puts a raised window back when begin fails on a live helper', async () => {
+		const { ladder, made } = spawning((monitor) => {
+			monitor.begin = async () => Promise.reject(new Error('no such window'))
+		})
+		await expect(ladder.run({ subject: SUBJECT }, async () => 1)).rejects.toThrow('no such window')
+		expect(made[0]?.ends).toEqual([{ restore: true }])
+	})
+
+	it('forgets a start failure set by a run queued behind the end of the turn', async () => {
+		const { ladder, made } = spawning((monitor, n) => {
+			if (n < 2) monitor.startError = new Error('blocked')
+		})
+		const run = ladder.run({ subject: SUBJECT }, async () => 1)
+		await ladder.endTurn()
+		expect((await run).kind).toBe('blocked')
+		const next = await ladder.run({ subject: SUBJECT }, async () => 2)
+		expect(next).toMatchObject({ kind: 'ran', value: 2 })
+		expect(made).toHaveLength(3)
+	})
+
+	it('forgets a start failure when the turn changes without endTurn', async () => {
+		let fail = true
+		const { ladder, made } = spawning((monitor) => {
+			if (fail) monitor.startError = new Error('blocked')
+		})
+		ladder.beginTurn('a')
+		expect((await ladder.run({ subject: SUBJECT }, async () => 1)).kind).toBe('blocked')
+		fail = false
+		ladder.beginTurn('b')
+		expect(await ladder.run({ subject: SUBJECT }, async () => 2)).toMatchObject({ kind: 'ran' })
+		expect(made).toHaveLength(3)
+	})
+
+	it('ends a burst whose own call fails because the helper died with the helper-stopped words', async () => {
+		const { ladder, made } = spawning()
+		await expect(
+			ladder.run({ subject: SUBJECT }, async () => {
+				;(made[0] as FakeMonitor).running = false
+				throw new Error('write EPIPE')
+			}),
+		).rejects.toThrow('the keyboard-and-mouse helper stopped during the action')
 	})
 
 	it('words the block without sending the model back to ui_act', async () => {
