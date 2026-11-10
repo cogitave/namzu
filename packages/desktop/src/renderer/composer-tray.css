@@ -107,7 +107,8 @@
 	outline: none;
 }
 .composer-tray-editor:focus-visible {
-	box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 30%, transparent);
+	outline: 2px solid transparent;
+	box-shadow: var(--focus-ring);
 }
 /* The composer's top edge meets the tray square, so the two read as one unit. */
 .composer-with-tray [data-slot="composer-host"],

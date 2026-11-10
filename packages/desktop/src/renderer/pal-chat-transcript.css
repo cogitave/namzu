@@ -43,8 +43,9 @@
 	text-underline-offset: 2px;
 }
 .pal-chat-message a.message-link:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .pal-chat-bubble .message-text {
 	line-height: 1.5;

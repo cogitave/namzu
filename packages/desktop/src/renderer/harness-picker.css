@@ -43,8 +43,9 @@
 	background: color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 .engine-panel-back:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 1px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 /* The mark and chevron of the engine in force; the hit area stays at least 24px square. */
 .engine-chip {
@@ -80,8 +81,9 @@
 	background: color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 .engine-chip:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 1px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .engine-chip:disabled {
 	opacity: 0.5;
@@ -112,8 +114,9 @@
 	background: color-mix(in srgb, var(--foreground) 9%, var(--popover));
 }
 .harness-picker-row:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
 }
 .harness-picker-row[data-disabled] {
 	color: var(--muted-foreground);
@@ -179,8 +182,9 @@
 	color: var(--foreground);
 }
 .surface-switch button:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 1px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .surface-switch button:disabled {
 	cursor: default;

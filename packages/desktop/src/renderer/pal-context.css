@@ -182,8 +182,9 @@
 }
 .pal-context-tasks .conversation-tasks:focus-visible {
 	border-radius: 6px;
-	outline: 2px solid var(--ring);
-	outline-offset: 4px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .pal-plan-toggle {
 	display: flex;
@@ -201,8 +202,9 @@
 	text-align: left;
 }
 .pal-plan-toggle:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 4px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .pal-plan-summary {
 	display: flex;

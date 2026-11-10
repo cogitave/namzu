@@ -752,7 +752,7 @@ function TerminalList({
 						aria-label={`${tab.title}, terminal${tab.status === 'running' ? '' : ', ended'}`}
 						aria-current={activeId === tab.id ? 'page' : undefined}
 						onClick={() => onOpen?.(tab)}
-						className={`group/sidebar-row sidebar-conversation-button relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring text-sidebar-foreground ${
+						className={`group/sidebar-row sidebar-conversation-button relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-hidden select-none focus-visible:[box-shadow:var(--focus-ring-inset)]! text-sidebar-foreground ${
 							activeId === tab.id
 								? 'bg-sidebar-row-active'
 								: 'bg-transparent hover:bg-sidebar-row-hover'

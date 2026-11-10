@@ -92,8 +92,9 @@
 }
 .conversation-details-row:focus-visible,
 .conversation-details-more:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
 }
 .conversation-details-static {
 	cursor: default;

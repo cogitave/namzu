@@ -180,8 +180,9 @@
 }
 .panel-tab-name:focus-visible,
 .panel-tab-close:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
 }
 .panel-tab-add[data-active],
 .panel-tab-add[data-popup-open] {
@@ -297,7 +298,9 @@
 	color: var(--foreground);
 }
 .file-crumb:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .file-crumb-current {
 	flex: 0 1 auto;
@@ -446,8 +449,9 @@
 	cursor: pointer;
 }
 .document-file-link:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 	border-radius: 3px;
 }
 .document-inert-link {
@@ -584,8 +588,9 @@
 }
 .file-tree-row[data-focused]:focus-visible,
 .file-tree-row:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
 }
 .file-tree-chevron {
 	flex: none;
@@ -662,8 +667,9 @@
 	text-underline-offset: 3px;
 }
 .message-file-link:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 	border-radius: 3px;
 }
 

@@ -57,8 +57,9 @@
 	cursor: inherit;
 }
 .local-speech-toggle input:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .local-speech-toggle:has(input:disabled) {
 	cursor: default;
@@ -158,8 +159,9 @@
 	rotate: 180deg;
 }
 .local-speech-details-trigger:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 3px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .local-speech-resource-details [data-slot="collapsible-panel"] dl {
 	padding-top: 6px;

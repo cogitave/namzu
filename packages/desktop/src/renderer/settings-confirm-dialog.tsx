@@ -78,7 +78,7 @@ export function SettingsConfirmDialog({
 						<div className="mt-5 flex justify-end gap-2">
 							<Button
 								ref={cancel}
-								className="focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background"
+								className="focus-visible:[box-shadow:var(--focus-ring)]!"
 								variant="outline"
 								disabled={pending}
 								onClick={onCancel}
@@ -87,7 +87,7 @@ export function SettingsConfirmDialog({
 							</Button>
 							<Button
 								variant="destructive"
-								className="focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+								className="focus-visible:[box-shadow:var(--focus-ring)]!"
 								disabled={pending}
 								onClick={() => void confirm()}
 							>

@@ -1707,6 +1707,18 @@ panel and message transitions respect the system reduced-motion preference.
 In the project and engine pickers the arrow keys only move the highlight; Enter,
 Space or a click chooses and closes. Dark-theme muted text, placeholders, control
 labels and muted icons use `#979797`, at least 4.5:1 on every dark surface.
+The renderer's shared design tokens live in `packages/desktop/src/renderer/theme.css`
+for both themes: five durations (`--dur-instant` 60 ms to `--dur-slow` 450 ms) and four easings,
+semantic radii (`--radius-chip`, `--radius-control`, `--radius-card`, `--radius-panel`,
+`--radius-pill`), shadows (`--shadow-1`, `--shadow-2`, `--shadow-popover`, `--shadow-dialog`,
+stronger in dark), named layers (`--z-local` to `--z-toast`) and a translucent ink ramp
+(`--ink-1` to `--ink-4`). The older `--motion-duration`, `--motion-ease` and `--control-radius`
+keep their values. In dark, the popover layer sits between the surface and the raised surface
+(`#2a2a2a`), so a menu is never darker than the control that opened it. Every control shows one
+keyboard focus ring, `--focus-ring` (`--focus-ring-inset` inside clipped rows,
+`--focus-ring-danger` on an invalid field): a two-pixel gap in the page colour and a two-pixel band in
+the accent. It appears for keyboard focus only, never after a click, and in forced-colors mode
+the control keeps a system-coloured outline.
 The 32px integrated title bar keeps the operating system’s caption controls and
 resize frame. Back and Forward revisit the window’s admitted project and
 conversation views, with no prompt replay; the adjacent panel control toggles

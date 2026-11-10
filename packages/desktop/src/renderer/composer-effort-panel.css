@@ -60,8 +60,9 @@
 	background: color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 .composer-effort-model:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 1px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .composer-effort-slider {
 	width: 100%;
@@ -79,8 +80,9 @@
 	touch-action: none;
 }
 .composer-effort-control:has(input:focus-visible) {
-	outline: 2px solid var(--ring);
-	outline-offset: 1px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .composer-effort-slider[data-disabled] .composer-effort-control {
 	cursor: default;
