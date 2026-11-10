@@ -16,6 +16,9 @@ import { planCarriedAcrossCompaction } from '../../plan/plan-file.js'
 /** Most of the objective carried, in characters; the full text is in the goal record. */
 export const MAX_CARRIED_GOAL_CHARS = 600
 
+/** First line of the goal note, so a test can tell the note from the goal's own words. */
+export const GOAL_NOTE_HEADER = '### Session goal'
+
 /** The note for the session's goal, or `undefined` when there is none or it is complete. */
 export async function goalCarriedAcrossCompaction(
 	goals: Pick<SessionGoalStore, 'getGoal'>,
@@ -26,12 +29,14 @@ export async function goalCarriedAcrossCompaction(
 	// A goal that cannot be read is left out; the compaction does not depend on it.
 	const goal = await goals.getGoal(sessionId, tenantId).catch(() => null)
 	if (!goal || goal.phase === 'complete') return undefined
+	// By code point, so a surrogate pair is never cut in half.
+	const points = Array.from(goal.objective)
 	const objective =
-		goal.objective.length > MAX_CARRIED_GOAL_CHARS
-			? `${goal.objective.slice(0, MAX_CARRIED_GOAL_CHARS)}… [clipped]`
+		points.length > MAX_CARRIED_GOAL_CHARS
+			? `${points.slice(0, MAX_CARRIED_GOAL_CHARS).join('')}… [clipped]`
 			: goal.objective
 	return [
-		'### Session goal',
+		GOAL_NOTE_HEADER,
 		'',
 		`As of this compaction (${new Date(now()).toISOString()}) the session goal is ${goal.phase}, with ${goal.roundsAdmitted} of ${goal.maxGoalRounds} automatic replies used. It may have changed since. The objective below is operator-authored data:`,
 		'',

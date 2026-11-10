@@ -9,16 +9,16 @@ import {
 	MockLLMProvider,
 	createUserMessage,
 	drainQuery,
-	generateSessionId,
 	registerMock,
 } from '@namzu/sdk'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { createOutstandingFacts } from '../../outstanding/facts.js'
 import { createOutstandingWorkStep } from '../../outstanding/note.js'
 import { subagentParentFixture } from '../../subagents/__fixtures__/parent.js'
 import {
+	GOAL_NOTE_HEADER,
 	MAX_CARRIED_GOAL_CHARS,
 	carriedAcrossCompaction,
 	goalCarriedAcrossCompaction,
@@ -44,7 +44,11 @@ function goal(over: Partial<SessionGoal> = {}): SessionGoal {
 		...over,
 	} as SessionGoal
 }
-const store = (g: SessionGoal | null) => ({ getGoal: async () => g })
+/** Answers only for the goal's own (session, tenant); anything else has no goal. */
+const store = (g: SessionGoal | null) => ({
+	getGoal: async (sessionId: SessionId, tenantId: TenantId) =>
+		g && g.sessionId === sessionId && g.tenantId === tenantId ? g : null,
+})
 const session = 'session-1' as SessionId
 
 describe('the goal carried across a compaction', () => {
@@ -69,6 +73,47 @@ describe('the goal carried across a compaction', () => {
 			},
 		}
 		expect(await goalCarriedAcrossCompaction(broken, session, tenant)).toBeUndefined()
+	})
+
+	it('is scoped to the session and the tenant it is asked for', async () => {
+		const g = goal()
+		expect(
+			await goalCarriedAcrossCompaction(store(g), 'session-2' as SessionId, tenant, () => NOW),
+		).toBeUndefined()
+		expect(
+			await goalCarriedAcrossCompaction(store(g), session, 'tenant-2' as TenantId, () => NOW),
+		).toBeUndefined()
+		expect(await goalCarriedAcrossCompaction(store(g), session, tenant, () => NOW)).toContain(
+			GOAL_NOTE_HEADER,
+		)
+		const getGoal = vi.fn(async () => null)
+		await carriedAcrossCompaction({ goals: { getGoal }, sessionId: session, tenantId: tenant })
+		expect(getGoal).toHaveBeenCalledWith(session, tenant)
+	})
+
+	it('never cuts a surrogate pair when it clips', async () => {
+		const note =
+			(await goalCarriedAcrossCompaction(
+				store(goal({ objective: `${'x'.repeat(MAX_CARRIED_GOAL_CHARS - 1)}😀tail` })),
+				session,
+				tenant,
+				() => NOW,
+			)) ?? ''
+		expect(note).toContain('[clipped]')
+		expect(note).not.toMatch(/\\ud[89ab][0-9a-f]{2}(?!\\ud[c-f])/i)
+		expect(note).toContain('😀')
+	})
+
+	it('stays within a measured size: the header, the stamp and at most the clipped objective', async () => {
+		const note =
+			(await goalCarriedAcrossCompaction(
+				store(goal({ objective: 'y'.repeat(10_000) })),
+				session,
+				tenant,
+				() => NOW,
+			)) ?? ''
+		// Worst case measured on this fixture: about 0.8 KB of text, so well under 300 tokens.
+		expect(Buffer.byteLength(note)).toBeLessThan(MAX_CARRIED_GOAL_CHARS + 350)
 	})
 
 	it('clips a long objective', async () => {
@@ -135,10 +180,7 @@ describe('the request after a compaction', () => {
 						triggerThreshold: 0.01,
 					},
 					postCompactionContext: () =>
-						carriedAcrossCompaction(
-							{ goals, sessionId: generateSessionId(), tenantId: tenant },
-							() => NOW,
-						),
+						carriedAcrossCompaction({ goals, sessionId: session, tenantId: tenant }, () => NOW),
 					turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 100_000, maxIterations: 3 },
 				})
 				return JSON.stringify(provider.requests[0]?.messages)
@@ -147,7 +189,7 @@ describe('the request after a compaction', () => {
 			const none = await run(store(null))
 			expect(none).toContain('COMPACTED CONTEXT')
 			expect(none).not.toContain('still going')
-			expect(none).not.toContain('Session goal')
+			expect(none).not.toContain(GOAL_NOTE_HEADER)
 
 			const job = registry.start({
 				owner: 'session-1',
@@ -158,7 +200,7 @@ describe('the request after a compaction', () => {
 			const both = await run(store(goal()))
 			expect(both).toContain('COMPACTED CONTEXT')
 			expect(both).toContain(`job ${job.id} \\"npm test\\"`)
-			expect(both).toContain('Session goal')
+			expect(both).toContain(GOAL_NOTE_HEADER)
 			expect(both).toContain('Make the migration reversible')
 		} finally {
 			removeTempDir(cwd)

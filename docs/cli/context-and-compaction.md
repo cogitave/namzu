@@ -101,7 +101,7 @@ A summary says that a skill was loaded and a file was read; it cannot give the n
 
 Running background work is not restored: the CLI already tells the model what is still going, rebuilt from the job registry on every request (`integrations/outstanding/note.ts`), so it is present after a compaction and a copy in the summary would only go stale.
 
-The caps shrink on a small window: files may take at most a tenth of it and skills a twentieth, so a 100,000-token window restores about 10,000 and 5,000 tokens. A body that does not fit is cut and says so. What was restored survives a resumed session and the next compaction, and the model is told a file may have changed since it was read. `/compact` and `/compact <what to keep>` restore the same things.
+The caps shrink on a small window: files may take at most a tenth of it and skills a twentieth, so a 100,000-token window restores about 10,000 and 5,000 tokens. A body that does not fit is cut and says so. What was restored survives a resumed session and the next compaction, and the goal note is rebuilt at each compaction rather than copied forward, so it is never older than the pass that wrote it. A summary made by a pass between turns (`/compact`) is kept as it was by a later automatic one, so the two can each hold a goal note; each says "as of" its own time, and the newer one is the one to trust. The model is told a file may have changed since it was read. `/compact` and `/compact <what to keep>` restore the same things.
 
 # The `compaction` key
 

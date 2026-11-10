@@ -2,7 +2,7 @@
 
 ## 2026-11-11
 
-- **Update** [Context and compaction in the CLI](cli/context-and-compaction.md#after-a-compaction): a compaction now carries the session goal (state, replies used, objective cut at 600 characters, stamped as of the compaction) beside the plan file. Normal turns passed the plan-file note to the turn runner, which dropped it, so only resumed turns and `/compact` carried the plan; the runner now forwards it. Running background work needed no change: the per-request outstanding-work note already survives a compaction, and a test pins it. `.changeset/goal-across-compaction.md` (`@namzu/cli` patch).
+- **Update** [Context and compaction in the CLI](cli/context-and-compaction.md#after-a-compaction): a compaction now carries the session goal (state, replies used, objective cut at 600 characters, stamped as of the compaction) beside the plan file. Normal turns passed the plan-file note to the turn runner, which dropped it, so only resumed turns and `/compact` carried the plan; the runner now forwards it. Running background work needed no change: the per-request outstanding-work note already survives a compaction, and a test pins it. The objective is clipped by code point so a surrogate pair is never split; the note is about 0.8 KB at most (pinned by a test). A summary from a `/compact` between turns is kept by a later automatic pass, so two goal notes can coexist, each stamped with its own time (stated in the page). `.changeset/goal-across-compaction.md` (`@namzu/cli` patch).
 
 ## 2026-11-10
 
