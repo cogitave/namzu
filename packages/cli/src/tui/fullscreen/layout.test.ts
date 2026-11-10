@@ -9,12 +9,13 @@ function message(i: number, content = `reply ${i}`): TranscriptMessage {
 
 describe('laying the transcript out for the viewport', () => {
 	it('indexes each message by the rows it took, separator included', () => {
-		const messages = [message(0), message(1, 'a\nb\nc')]
+		const messages = [message(0), message(1, 'a\n\nb\n\nc')]
 		const { rows, index } = layoutTranscript(messages, null, undefined, 40, createLayoutCache())
 		expect(index.ids).toEqual(['m0', 'm1'])
 		expect(index.starts).toEqual([0, 1])
 		expect(index.total).toBe(rows.length)
-		expect(rows).toHaveLength(1 + 1 + 3)
+		// Three paragraphs and the blank row between each pair.
+		expect(rows).toHaveLength(1 + 1 + 5)
 	})
 
 	it('puts the streaming reply where it stands in the conversation', () => {

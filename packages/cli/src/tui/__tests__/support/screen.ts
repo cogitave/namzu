@@ -93,6 +93,7 @@ export interface CellStyle {
 	readonly fg: string
 	readonly dim: boolean
 	readonly bold: boolean
+	readonly inverse: boolean
 }
 
 /** Where the cursor is, in viewport coordinates. */
@@ -358,6 +359,7 @@ export async function renderToScreen(
 				fg: cell ? color(cell.isFgRGB(), cell.isFgPalette(), cell.getFgColor()) : 'default',
 				dim: (cell?.isDim() ?? 0) !== 0,
 				bold: (cell?.isBold() ?? 0) !== 0,
+				inverse: (cell?.isInverse() ?? 0) !== 0,
 			}
 		},
 		scrollback: () => Array.from({ length: term.buffer.active.length }, (_, i) => lineAt(i)),

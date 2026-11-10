@@ -905,9 +905,12 @@ Leaving works the same on `/exit`, SIGINT, SIGTERM and SIGHUP, and a process
 that dies mid-frame still writes the pointer and cursor reset. The external
 editor gets the main screen for as long as it runs.
 
-The conversation is a window onto the same rows the scroll box above draws:
-a glyph gutter, wrapped text shown as written (not rendered Markdown), a blank
-row between entries. Only the rows that fit are built into elements, so the
+The conversation is a window onto rows like the scroll box above draws: a glyph
+gutter, wrapped text, a blank row between entries. A reply is drawn as
+Markdown, the way the normal transcript draws it (headings, lists, code blocks
+with nothing beside them, tables, inline styling), from the same parser,
+wrapper and table layout; a code line too long for the row is cut by the same
+wrapper the normal transcript uses. Other messages are plain wrapped text. Only the rows that fit are built into elements, so the
 cost of a frame follows the terminal's height, not the conversation's.
 Messages are laid out once per width and kept. The spinner, composer and
 footer are pinned under it and the window takes the rest of the height; the
@@ -921,6 +924,10 @@ incremental repainting, so only changed lines are written.
 | PgUp / PgDn | a page, one row less than the window |
 | Home / End | the first row, and back to the latest, while the composer is empty |
 | Typing or Enter | back to the latest |
+| Drag | select text, shown inverted; on release it is copied |
+| Double click, triple click | select a word, select a line |
+| Esc | let go of the selection, or close the search |
+| Alt+S | search the conversation |
 
 Reaching the end resumes following. Scrolled up, the view holds still while
 output arrives, and one row above the composer says so: `↓ Jump to latest ·
@@ -930,19 +937,58 @@ a row inside it, not a row number, so a resize that re-wraps everything keeps
 them on the same text; if a compaction replaced that message the view returns
 to the latest. After a resize the screen is erased by the renderer that drew it
 and drawn whole once the size has settled, so no old frame is left under the
-new one. Only the wheel is requested from the terminal (button reports are
-taken off the input before the composer sees them).
+new one. The terminal is asked for button reports (wheel, presses and drags);
+they are taken off the input before the composer sees them.
+
+#### Selecting and copying
+
+With the pointer at `full` (the default; `tui.mouse: scroll` or `off`, and
+`NAMZU_DISABLE_MOUSE` / `NAMZU_DISABLE_MOUSE_CLICKS`, keep the terminal's own
+selection and leave only the wheel), the terminal reports drags, so a drag
+selects text in the window, drawn inverted. A double click selects a word, a
+triple click the line; dragging past the top or bottom edge scrolls. The
+selection is on rows and cells of the text, not on the screen, so it stays on
+its text while the view scrolls and while output arrives below it; a resize,
+which wraps the rows again, lets go of it.
+
+On release the text is copied (`tui.copyOnSelect: false` keeps it selected and
+makes `ctrl+c` copy it instead, as in `namzu workspaces`). The copy is the
+plain text of the rows: no styling, no gutter glyph, no hanging indent. Rows
+that one line was wrapped over are joined back into that line, with the space
+the wrap broke at or with nothing where it cut a word; separate lines and
+paragraphs keep their line breaks. Widths follow the display-width helper the
+rest of the interface uses, so a CJK letter or an emoji is two cells and is
+never cut in half. The text goes to the machine's clipboard tool and, as an OSC
+52 request, to the terminal, by the same copier `/copy` uses; a line saying what
+was copied replaces the last row for two seconds without moving any row. `Esc`
+lets go of the selection.
+
+#### Searching
+
+`Alt+S` opens a one-line search field in the last row of the window and the
+composer stands aside. Matches are found as you type, in the rows as drawn:
+case is ignored unless the query has a capital letter, and a match lies inside
+one row, so a phrase the wrap split across two rows is not found. The nearest
+match at or above the bottom of the window is current; matches are underlined
+and the current one is inverted, and the window scrolls to put it in view.
+`Enter` or `↓` goes to the next match and `Shift+Enter`, `Alt+Enter` or `↑` to
+the previous, round the ends; `PgUp` and `PgDn` still scroll. `Esc` closes the
+field and returns the window to where it was, or to the latest if you were
+following.
 
 While it is on, the `←` workspaces screen is not offered, the terminal's own
-scrollback and drag-to-select are not available inside the app, and the
-detailed transcript and agent views draw in the live area as before. Selection
-and copy, transcript search, clickable rows and rendered Markdown in the
-window are not part of this mode yet, and it is not the default. Code:
+scrollback is not available inside the app, and the detailed transcript and
+agent views draw in the live area as before. Clickable rows are not part of
+this mode yet, and it is not the default. Code:
 `packages/cli/src/tui/fullscreen/` (`viewport.ts` the scroll arithmetic,
-`layout.ts` the rows, `mouse-wheel.ts` the pointer, `mode.ts` the switch,
-`FullscreenTranscript.tsx` the window); the launcher wires it in `index.tsx`.
-Covered by `viewport.test.ts`, `mode.test.ts`, `mouse-wheel.test.ts`,
-`layout.test.ts`, `a-fullscreen-view-draws-only-its-window.test.tsx` and
+`layout.ts` the rows, `markdown-rows.ts` the Markdown, `selection.ts` and
+`cells.ts` the selection, `search.ts` the search, `paint.ts` the highlights,
+`mouse-wheel.ts` the pointer, `mode.ts` the switch, `FullscreenTranscript.tsx`
+the window); the launcher wires it in `index.tsx`. Covered by `viewport.test.ts`,
+`mode.test.ts`, `mouse-wheel.test.ts`, `layout.test.ts`, `markdown-rows.test.tsx`,
+`selection.test.ts`, `search.test.ts`,
+`a-fullscreen-view-draws-only-its-window.test.tsx`,
+`a-fullscreen-window-selects-copies-and-searches.test.tsx` and
 `a-fullscreen-app-draws-a-window-and-follows.test.tsx`.
 
 ## Commands and settings

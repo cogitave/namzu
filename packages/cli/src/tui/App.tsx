@@ -509,7 +509,7 @@ import {
 } from './fast-mode.js'
 import { FullscreenTranscript } from './fullscreen/FullscreenTranscript.js'
 import type { FullscreenControl } from './fullscreen/FullscreenTranscript.js'
-import type { WheelDirection } from './fullscreen/mouse-wheel.js'
+import type { PointerReport, WheelDirection } from './fullscreen/mouse-wheel.js'
 import {
 	HYPERMODE,
 	HYPERMODE_ROW_LABEL,
@@ -835,6 +835,10 @@ export interface AppProps {
 	 */
 	readonly fullscreen?: {
 		readonly subscribeWheel: (listener: (direction: WheelDirection) => void) => () => void
+		/** Left-button reports, present when the terminal was asked for drags (selecting text). */
+		readonly subscribePointer?: (listener: (report: PointerReport) => void) => () => void
+		/** Whether a selection is copied the moment the button is released; true when absent. */
+		readonly copyOnSelect?: boolean
 	}
 	/**
 	 * Opens the workspaces screen: `←` on an empty composer. Absent where there is
@@ -1629,6 +1633,15 @@ function AppBody({
 	const terminal = useWindowSize()
 	const fullscreenOn = fullscreen !== undefined
 	const fullscreenControl = useRef<FullscreenControl | null>(null)
+	// The search line owns the keyboard while it is open: the composer stands aside.
+	const [fullscreenSearching, setFullscreenSearching] = useState(false)
+	const copyFullscreenSelection = useCallback(
+		async (text: string) => {
+			const outcome = await clipboard.copy(text)
+			return outcome ? describeCopy(outcome, bypassKey(process.env)) : null
+		},
+		[clipboard],
+	)
 	// Ink's line diff knows the screen only through its own last frame. After a
 	// resize the terminal has moved things under it, so one empty frame goes out
 	// first: the screen is erased by the renderer that drew it, and the next
@@ -16459,6 +16472,12 @@ function AppBody({
 				resetTranscript()
 				return
 			}
+			// Fullscreen: Esc closes the search or lets go of a selection before it is
+			// anything else, and ctrl+c copies a selection that was not copied on release.
+			if (fullscreenControl.current) {
+				if (key.escape && fullscreenControl.current.takeEscape()) return
+				if (isAction('app:interrupt', input, key) && fullscreenControl.current.takeCopy()) return
+			}
 			// A Codex sign-in is waiting on the browser: Esc cancels it and removes
 			// the half-made account folder.
 			if (key.escape && accountLoginRef.current) {
@@ -16837,6 +16856,11 @@ function AppBody({
 						}
 						homeEndActive={!composerHasDraft}
 						subscribeWheel={fullscreen.subscribeWheel}
+						{...(fullscreen.subscribePointer
+							? { subscribePointer: fullscreen.subscribePointer, copy: copyFullscreenSelection }
+							: {})}
+						copyOnSelect={fullscreen.copyOnSelect !== false}
+						onSearchChange={setFullscreenSearching}
 						control={fullscreenControl}
 						header={
 							transcriptOwned ? (
@@ -17261,6 +17285,7 @@ function AppBody({
 								onCycleMode={cyclePermissionMode}
 								disabled={
 									transcriptScreen ||
+									fullscreenSearching ||
 									scrollOpen ||
 									jobSurface !== null ||
 									phase !== 'ready' ||
