@@ -7,6 +7,7 @@ import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { memoryFieldsSchema } from './fields.js'
 import { resolveMemoryReference } from './resolve.js'
+import { refuseSecret } from './secret-guard.js'
 
 export function buildUpdateMemoryTool(store: MemoryStore): ToolDefinition {
 	return defineTool({
@@ -52,6 +53,14 @@ export function buildUpdateMemoryTool(store: MemoryStore): ToolDefinition {
 					error: 'Conditional memory update unavailable',
 				}
 			}
+			const refused = refuseSecret([
+				updates.title,
+				updates.summary,
+				updates.content,
+				updates.description,
+				...(updates.tags ?? []),
+			])
+			if (refused) return refused
 			const reference = await resolveMemoryReference(store, id)
 			if (!reference.found) {
 				return {

@@ -7,6 +7,7 @@ import {
 } from '../../advisory/index.js'
 import { AuthorizationGate } from '../../authorization/gate.js'
 import { SkillGrantSet } from '../../authorization/skill-grant.js'
+import type { ConsolidationScreen } from '../../compaction/consolidation.js'
 import { repairToolMessageHistory, toolHistoryRepairChanged } from '../../compaction/dangling.js'
 import { extractFromUserMessage } from '../../compaction/extractor.js'
 import { WorkingStateManager } from '../../compaction/manager.js'
@@ -962,6 +963,13 @@ export interface QueryParams {
 	 * written. A store that fails is logged and never fails the turn.
 	 */
 	consolidateInto?: MemoryStore
+
+	/**
+	 * What a consolidation may quote. Absent keeps the task, decisions,
+	 * discoveries and failures verbatim; a host whose store is recalled into
+	 * later prompts sets it to drop or neutralise what should not persist.
+	 */
+	consolidationScreen?: ConsolidationScreen
 
 	/**
 	 * Optional neutral working-memory seam. When set, the iteration loop

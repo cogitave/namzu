@@ -477,7 +477,7 @@ export type {
 // the model reads this store, so noise here is context spent on a turn that
 // did nothing.
 export { SESSION_MEMORY_TAG, createMemoryPromoter } from './turn/index.js'
-export type { MemoryPromoterOptions } from './turn/index.js'
+export type { MemoryPromoterOptions, SessionMemoryCategory } from './turn/index.js'
 export { createMemoryRecallStep } from './turn/memory-recall.js'
 export type { MemoryRecallOptions } from './turn/memory-recall.js'
 export {
@@ -592,6 +592,7 @@ export {
 	memoryIndexLine,
 	memoryLinkNames,
 	memoryOrigin,
+	findSecretShape,
 	renderMemoryIndex,
 	slugifyMemoryName,
 } from './store/index.js'
@@ -1336,6 +1337,7 @@ export {
 	consolidationEntry,
 	isConsolidated,
 } from './compaction/consolidation.js'
+export type { ConsolidationScreen } from './compaction/consolidation.js'
 // The sibling state-bearing system message. A host that carries a turn's
 // conversation into a fresh query must distinguish this ledger from the fresh
 // identity/environment prompt floor without copying its private header string.

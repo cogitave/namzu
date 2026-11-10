@@ -196,3 +196,31 @@ it('puts useful facts in the summary and avoids replaying the same claims or rev
 	await promote(fact)
 	expect((await store.list({ status: 'active' })).totalCount).toBe(0)
 })
+
+describe('acceptClaim', () => {
+	it('leaves out the claims it rejects and keeps the rest', async () => {
+		const store = new InMemoryMemoryStore()
+		await createMemoryPromoter({
+			store,
+			acceptClaim: (category, text) => category !== 'failures' && !text.includes('drop'),
+		})(
+			candidate({
+				userRequirements: ['keep this one', 'drop this one'],
+				failures: ['raw error text'],
+			}),
+		)
+		const [entry] = (await stored(store)).entries
+		const body = (await store.get(entry?.id as never))?.content ?? ''
+		expect(body).toContain('keep this one')
+		expect(body).not.toContain('drop this one')
+		expect(body).not.toContain('raw error text')
+	})
+
+	it('writes nothing when every claim is rejected', async () => {
+		const store = new InMemoryMemoryStore()
+		await createMemoryPromoter({ store, acceptClaim: () => false })(
+			candidate({ userRequirements: ['anything'] }),
+		)
+		expect((await stored(store)).totalCount).toBe(0)
+	})
+})
