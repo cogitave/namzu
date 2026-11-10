@@ -35,6 +35,7 @@ import { type Logger, resolveLogger } from '../utils/logger.js'
 import { ToolsetConflictError } from './combine.js'
 import type { ToolSourceRef, Toolset, ToolsetAvailability } from './types.js'
 import { toToolSourceRef, toolsetIsReady } from './types.js'
+import { type ValidationIssueLike, describeValidationIssues } from './validation-issues.js'
 
 export type { ToolExecutionResult }
 
@@ -984,16 +985,9 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 	private validationFailure(
 		tool: ToolDefinition,
 		rawInput: unknown,
-		error: {
-			readonly issues: readonly {
-				readonly path: readonly PropertyKey[]
-				readonly message: string
-			}[]
-		},
+		error: { readonly issues: readonly ValidationIssueLike[] },
 	): ToolExecutionResult {
-		const errorMessage = error.issues
-			.map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-			.join('; ')
+		const errorMessage = describeValidationIssues(error.issues)
 		const isEmptyInput =
 			rawInput === null ||
 			rawInput === undefined ||
@@ -1006,7 +1000,9 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 			: ''
 		const enrichedMessage = isEmptyInput
 			? `Tool "${tool.name}" was called with no arguments. ${requiredHint}${recoveryHint} Retry the call with the required parameters populated.`
-			: `Validation failed for "${tool.name}": ${errorMessage}. ${requiredHint}${recoveryHint}`
+			: `Validation failed for "${tool.name}": ${errorMessage}${
+					errorMessage.includes('\n') ? '\n' : '. '
+				}${requiredHint}${recoveryHint}`
 		this.log.error('Tool input validation failed', {
 			'namzu.tool.name': tool.name,
 			'namzu.registry.errors': errorMessage,

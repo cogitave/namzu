@@ -13,6 +13,22 @@ export interface TokenUsage {
 	cacheWriteTokens: number
 
 	/**
+	 * The whole prompt this call processed, cache reads and cache writes
+	 * included: the size of the context the model was given.
+	 *
+	 * Drivers disagree on what `promptTokens` counts. Some include cached
+	 * tokens, others report only the uncached remainder,
+	 * which on a warm cache is a handful of tokens against a context of tens
+	 * of thousands. Context size, the compaction trigger and the context meter
+	 * need the whole prompt, so a driver that excludes cache from
+	 * `promptTokens` reports it here. Absent means `promptTokens` already is
+	 * the whole prompt; read it through {@link promptSizeOf}.
+	 *
+	 * A per-call fact like {@link TokenUsage.cacheTtlMs}: never summed.
+	 */
+	fullPromptTokens?: number
+
+	/**
 	 * Output tokens the model spent on internal reasoning.
 	 *
 	 * A SUBSET of `completionTokens`, not an addition to it — reasoning is
@@ -88,6 +104,11 @@ export interface CacheMiss {
 	missedTokens?: number
 }
 
+/** The whole prompt one call processed: {@link TokenUsage.fullPromptTokens} when the driver reports it, else `promptTokens`. */
+export function promptSizeOf(usage: TokenUsage): number {
+	return usage.fullPromptTokens ?? usage.promptTokens
+}
+
 export function accumulateTokenUsage(current: TokenUsage, addition: TokenUsage): TokenUsage {
 	return {
 		promptTokens: current.promptTokens + addition.promptTokens,
@@ -105,7 +126,7 @@ export function accumulateTokenUsage(current: TokenUsage, addition: TokenUsage):
 		...(current.webSearchRequests !== undefined || addition.webSearchRequests !== undefined
 			? { webSearchRequests: (current.webSearchRequests ?? 0) + (addition.webSearchRequests ?? 0) }
 			: {}),
-		// `cacheTtlMs`, `cacheWriteTtlTokens`, `speed`, `serviceTier`,
+		// `fullPromptTokens`, `cacheTtlMs`, `cacheWriteTtlTokens`, `speed`, `serviceTier`,
 		// `inferenceGeo` and `cacheMiss` are per-call facts and are deliberately
 		// not carried into a sum.
 	}
@@ -139,6 +160,9 @@ export function mergeTokenUsage(current: TokenUsage, next: TokenUsage): TokenUsa
 		totalTokens: Math.max(current.totalTokens, next.totalTokens, promptTokens + completionTokens),
 		cachedTokens: Math.max(current.cachedTokens, next.cachedTokens),
 		cacheWriteTokens: Math.max(current.cacheWriteTokens, next.cacheWriteTokens),
+		...(current.fullPromptTokens !== undefined || next.fullPromptTokens !== undefined
+			? { fullPromptTokens: Math.max(current.fullPromptTokens ?? 0, next.fullPromptTokens ?? 0) }
+			: {}),
 		...(current.reasoningTokens !== undefined || next.reasoningTokens !== undefined
 			? { reasoningTokens: Math.max(current.reasoningTokens ?? 0, next.reasoningTokens ?? 0) }
 			: {}),

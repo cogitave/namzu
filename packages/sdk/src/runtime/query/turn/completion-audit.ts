@@ -8,7 +8,12 @@
  */
 
 /** Tools that write to the project regardless of their input. */
-const WRITING_TOOLS = new Set(['edit', 'write', 'apply_patch', 'notebook_edit'])
+export const WRITING_TOOLS: ReadonlySet<string> = new Set([
+	'edit',
+	'write',
+	'apply_patch',
+	'notebook_edit',
+])
 
 /**
  * A command that checks work: a project runner invoked with a test, lint,

@@ -13,6 +13,7 @@ import { __resetCliLoggerForTests, cliLogger, installCliLogging } from '../../lo
 import { requiresCredentialForModel } from './access.js'
 import { PROVIDER_REGISTRY } from './registry.js'
 import {
+	ZEN_CATALOGUE_CACHE_MAX_AGE_MS,
 	ZEN_CATALOGUE_CACHE_PATH,
 	__resetZenCatalogueForTests,
 	activeZenCatalogue,
@@ -533,5 +534,59 @@ describe('startZenCatalogueRefresh', () => {
 		expect(parseZenCatalogue(JSON.parse(readFileSync(path, 'utf8'))).zen[0]?.id).toBe(
 			'second-model',
 		)
+	})
+
+	it('warns about a moved source once per cache period, then quietly, and again after it', async () => {
+		const dir = home()
+		let clock = 1_000_000
+		const gone = async (): Promise<ZenCatalogueResult> => {
+			throw new Error('https://example.test/go.mdx answered 404 — the branch or the path moved.')
+		}
+		const launch = async () => {
+			const { log, warnings, debugs } = capturing()
+			await startZenCatalogueRefresh({
+				home: dir,
+				log,
+				now: () => clock,
+				fetchCatalogue: gone,
+			}).done
+			return { warned: warnings().length, quiet: debugs().length }
+		}
+		expect((await launch()).warned).toBe(1)
+		// Launches inside the period keep the reason on a debug line.
+		clock += 60_000
+		expect(await launch()).toMatchObject({ warned: 0, quiet: 1 })
+		clock += ZEN_CATALOGUE_CACHE_MAX_AGE_MS - 120_000
+		expect((await launch()).warned).toBe(0)
+		// Past it, one more warning.
+		clock += 120_000
+		expect((await launch()).warned).toBe(1)
+	})
+
+	it('forgets the failure once a refresh lands, so a later failure warns again', async () => {
+		const dir = home()
+		// The default period and a fake clock: a zero period would make the old
+		// record read as expired whether or not it was removed.
+		let clock = 1_000_000
+		const fail = async (): Promise<ZenCatalogueResult> => {
+			throw new Error('models.dev answered 503.')
+		}
+		const launch = async (fetchCatalogue: () => Promise<ZenCatalogueResult>) => {
+			const { log, warnings, debugs } = capturing()
+			await startZenCatalogueRefresh({ home: dir, log, now: () => clock, fetchCatalogue }).done
+			return { warned: warnings().length, quiet: debugs().length }
+		}
+		expect((await launch(fail)).warned).toBe(1)
+		// Still inside the period: quiet, as without any refresh in between.
+		clock += 60_000
+		expect(await launch(fail)).toMatchObject({ warned: 0, quiet: 1 })
+		// A refresh lands inside the same period, then the source fails again.
+		clock += 60_000
+		await launch(async () => result(catalogue()))
+		clock += 60_000
+		expect((await launch(fail)).warned).toBe(1)
+		// That warning starts a new period of its own.
+		clock += 60_000
+		expect((await launch(fail)).warned).toBe(0)
 	})
 })

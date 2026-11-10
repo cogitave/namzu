@@ -512,6 +512,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				durationMs: Date.now() - startTime,
 				messages: turn.messages,
 				result: turn.result,
+				...(turn.outcome ? { outcome: turn.outcome } : {}),
 				// `BaseAgentResult.structuredOutput` names "an archetype's result
 				// literal did not copy it" as a defect it was written to close.
 				// This literal still did not copy it, so the same defect was live

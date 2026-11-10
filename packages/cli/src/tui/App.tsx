@@ -710,6 +710,7 @@ import {
 } from './mentions.js'
 import { describeModelRefusal, refusalDetail } from './model-refusal.js'
 import { openInBrowser } from './open-browser.js'
+import { outcomeLine } from './outcome-line.js'
 import { PauseClock } from './pause-clock.js'
 import {
 	type WithheldCall,
@@ -10259,6 +10260,11 @@ function AppBody({
 							? undefined
 							: describeTurnStop(event.stopReason, event.budget)
 					if (stopNotice) pushSystem('warning', stopNotice)
+					// What the turn changed and what checked it, from the kernel's own
+					// record of its calls: one quiet line, and none for a turn that
+					// changed nothing.
+					const outcomeText = outcomeLine(event.outcome)
+					if (outcomeText) pushSystem('notice', outcomeText)
 					if (st.startedAt !== undefined) {
 						const since = st.startedAt
 						const delegated = subagentsRef.current.filter(

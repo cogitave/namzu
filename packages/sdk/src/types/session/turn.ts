@@ -11,6 +11,7 @@ import type {
 import type { Message } from '../message/index.js'
 import type { ProviderErrorInfo } from '../provider/index.js'
 import type { TurnConfig } from './config.js'
+import type { TurnOutcome } from './outcome.js'
 import type { StepResult } from './step.js'
 import type { StopReason } from './stop-reason.js'
 
@@ -151,6 +152,22 @@ export interface TurnSettlement {
 	readonly abandonedJobIds: readonly string[]
 }
 
+/**
+ * The settlement a live `turn_completed` or `turn_failed` event carries: the
+ * persisted {@link TurnSettlement} plus the turn's outcome record. The record
+ * is in memory only here. The session log keeps it in its own records
+ * (`turn_outcome_recorded`), never in the settlement, so a release that
+ * validates the settlement strictly still reads the log.
+ */
+export interface LiveTurnSettlement extends TurnSettlement {
+	/**
+	 * What the turn changed and what checked it, from its own tool calls. Absent
+	 * for a turn that never ran the loop and one resumed from a checkpoint that
+	 * did not keep the record.
+	 */
+	readonly outcome?: TurnOutcome
+}
+
 /** Metadata of one turn: who ran it, with what, and where it sits in the session tree. */
 export interface TurnMetadata {
 	/** This turn's owner, independent of a shared ancestor token account. */
@@ -216,6 +233,8 @@ export interface Turn {
 	abandonedTaskIds?: readonly string[]
 	/** Background jobs the model awaited that were still running when this turn ended. */
 	abandonedJobIds?: readonly string[]
+	/** What the turn changed and what checked it; see {@link LiveTurnSettlement.outcome}. */
+	outcome?: TurnOutcome
 	/** Present on a child session's turn. */
 	parentSessionId?: SessionId
 	/** Present on a child session's turn. */
