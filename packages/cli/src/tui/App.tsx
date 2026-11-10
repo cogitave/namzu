@@ -90,6 +90,7 @@ import {
 import type { PlanApprovalAnswer, PlanApprovalFn, PlanApprovalRequest } from '../plan/approval.js'
 
 import { resolveComposerTriggers } from '../config/composer-triggers.js'
+import type { DecisionConfig } from '../config/schema.js'
 import { setUserConfigValue } from '../config/user-config.js'
 import {
 	bindAccount,
@@ -108,6 +109,15 @@ import {
 	createClipboardCopier,
 	describeCopy,
 } from '../integrations/clipboard/copy.js'
+import {
+	connectionToBlock,
+	decisionStatusLine,
+	readDecisionKey,
+	readOffer,
+	readUserDecisionSetting,
+	recordOffer,
+	shouldOfferDecisionSetup,
+} from '../integrations/decision/connection.js'
 import { maybeCreateDecisionModel } from '../integrations/decision/model.js'
 import { notifyWorthyQuestion } from '../integrations/decision/notify.js'
 import {
@@ -115,6 +125,14 @@ import {
 	createDecisionPoints,
 	verdictOf,
 } from '../integrations/decision/points.js'
+import {
+	type ConnectionTestDeps,
+	type SetupDraft,
+	connectedNotice,
+	listAzureDeployments,
+	saveConnection,
+	testDecisionConnection,
+} from '../integrations/decision/setup.js'
 import { skillProposalStands } from '../integrations/decision/skill.js'
 import {
 	type PullRequestFilter,
@@ -455,6 +473,17 @@ import {
 	copyTargetsForResponse,
 	runnableCommands,
 } from './copy-targets.js'
+import {
+	DECISION_KIND_OPTIONS,
+	DECISION_KIND_VALUES,
+	DECISION_OFFER_OPTIONS,
+	DECISION_OFFER_TITLE,
+	DECISION_OFFER_VALUES,
+	type DecisionAdvance,
+	type DecisionStep,
+	advanceDecisionFlow,
+	decisionPrompt,
+} from './decision-setup-flow.js'
 import { isSessionPlanPath } from './display-path.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
@@ -802,6 +831,21 @@ export interface AppProps {
 	readonly queuedHintCount?: QueuedHintCount
 	/** Where spinner tips are remembered between launches; absent shows no tips (tests, embeds). */
 	readonly tipHistory?: TipHistoryStore
+	/**
+	 * Turns on the decision-model offer after a model is picked and the connect flow behind it.
+	 * The launcher passes `{}`; the fields are test seams. Absent, nothing is offered.
+	 */
+	readonly decisionSetup?: DecisionSetupHost
+}
+
+export interface DecisionSetupHost {
+	/** The OS home the user config and credential store live under (testing). */
+	readonly home?: string
+	readonly env?: NodeJS.ProcessEnv
+	readonly now?: () => number
+	/** Reaches the decision service (testing). */
+	readonly test?: ConnectionTestDeps
+	readonly fetch?: typeof fetch
 }
 
 type PendingPermission = ScreenPermissionRequest & {
@@ -891,6 +935,8 @@ type TextPromptState = {
 		| 'goal-edit'
 		| 'turn-limit'
 		| 'account-step'
+		| 'decision-step'
+	readonly decisionStep?: DecisionStep
 	readonly limitKey?: TurnGuardKey
 	/** Show the typed value as dots (an API key). */
 	readonly mask?: boolean
@@ -943,6 +989,15 @@ type ChoicePickerState = {
 			readonly owner: AgentSession
 			readonly items: readonly ManagedMemory[]
 			readonly target?: ManagedMemory
+			readonly values: readonly string[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+	| {
+			/** The decision-model offer after a model pick, and the choice of what to connect. */
+			readonly kind: 'decision-setup'
+			readonly step: 'offer' | 'kind'
+			readonly title: string
+			readonly notice?: string
 			readonly values: readonly string[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
@@ -1504,6 +1559,7 @@ function AppBody({
 	examplePrompts = false,
 	queuedHintCount,
 	tipHistory,
+	decisionSetup,
 }: AppProps) {
 	// Bind approval and every operation it admits to one real directory. A
 	// lexical cwd may be a writable symlink; resolving it again after the gate
@@ -2241,6 +2297,13 @@ function AppBody({
 	const [textPrompt, setTextPromptState] = useState<TextPromptState | null>(null)
 	const textPromptRef = useRef<TextPromptState | null>(null)
 	const textPromptTokenRef = useRef(0)
+	/** The decision-model connect flow: what has been typed so far, and who handles each answer. */
+	const decisionDraftRef = useRef<SetupDraft | null>(null)
+	const decisionOfferPendingRef = useRef(false)
+	const decisionStartCheckedRef = useRef(false)
+	const decisionChooseRef = useRef<((value: string, step: 'offer' | 'kind') => void) | null>(null)
+	const decisionSubmitRef = useRef<((step: DecisionStep, value: string) => void) | null>(null)
+	const [connectedDecision, setConnectedDecision] = useState<DecisionConfig | null>(null)
 	const accountLoginRef = useRef<AbortController | null>(null)
 	const accountWizardRef = useRef<AccountWizard | null>(null)
 	const pendingAccountSwitchRef = useRef<{
@@ -5299,6 +5362,10 @@ function AppBody({
 				chooseModelRef.current(`${picker.provider}/${value as string}`)
 				return
 			}
+			if (picker.kind === 'decision-setup') {
+				decisionChooseRef.current?.(value as string, picker.step)
+				return
+			}
 			if (picker.kind === 'resume-goal') {
 				if (value === 'resume' && scopeRef.current?.sessionId === picker.sessionId)
 					commandPickerSubmitRef.current('/goal resume')
@@ -6088,6 +6155,8 @@ function AppBody({
 				}
 				// Hypermode is independent of effort, so the picker a model change
 				// asks for opens whether or not it is on.
+				// A model was picked: the decision-model offer follows once the menus are closed.
+				if (options.chooseReasoningEffort) decisionOfferPendingRef.current = true
 				if (options.chooseReasoningEffort && s.reasoningEffortLevels?.length) {
 					// Own input before publishing ready or releasing a paused queue. The
 					// menu closes only after choosing an effort or keeping the new default.
@@ -6955,6 +7024,15 @@ function AppBody({
 		userCommands,
 		configDebug: ctx.configDebug ?? null,
 		webSearchSummary: session?.webSearchSummary,
+		...(decisionSetup
+			? {
+					decisionSummary: decisionStatusLine({
+						config: connectedDecision ?? ctx.decision,
+						connected: connectedDecision !== null,
+						env: decisionSetup.env ?? process.env,
+					}),
+				}
+			: {}),
 		columns: terminal.columns,
 		sessionId: scopeRef.current?.sessionId,
 	}
@@ -8203,6 +8281,176 @@ function AppBody({
 	)
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
+	// --- the decision model: offered after a model pick, connected in a few fields ----------
+	const decisionOptions = useCallback(
+		() => ({
+			...(decisionSetup?.home ? { home: decisionSetup.home } : {}),
+			env: decisionSetup?.env ?? process.env,
+		}),
+		[decisionSetup],
+	)
+	const decisionClock = useCallback(() => {
+		const now = decisionSetup?.now
+		return now ? () => new Date(now()) : () => new Date()
+	}, [decisionSetup])
+	const openDecisionPrompt = useCallback(
+		(
+			step: DecisionStep,
+			draft: SetupDraft,
+			hints?: { readonly deployments?: readonly string[] },
+			notice?: string,
+		) => {
+			decisionDraftRef.current = draft
+			const spec = decisionPrompt(step, hints)
+			textPromptTokenRef.current += 1
+			setChoicePicker(null)
+			setTextPrompt({
+				token: textPromptTokenRef.current,
+				kind: 'decision-step',
+				decisionStep: step,
+				title: spec.title,
+				placeholder: spec.placeholder,
+				emptyNotice: spec.emptyNotice,
+				initialValue: spec.initialValue,
+				sessionId: scopeRef.current?.sessionId as SessionId,
+				...(spec.mask ? { mask: true } : {}),
+				...(spec.allowEmpty ? { allowEmpty: true } : {}),
+			})
+			if (notice) pushMessage('system', notice)
+		},
+		[pushMessage, setChoicePicker, setTextPrompt],
+	)
+	const finishDecisionSetup = useCallback(
+		async (draft: SetupDraft) => {
+			const opts = decisionOptions()
+			let saved: ReturnType<typeof saveConnection>
+			try {
+				saved = saveConnection(draft, opts)
+			} catch (error) {
+				pushSystem('error', explainFailure(error, 'Could not save the decision model.'))
+				return
+			}
+			pushMessage('system', 'Decision model saved. Testing the connection…')
+			const deps: ConnectionTestDeps = {
+				readStoredKey: () => readDecisionKey(opts),
+				...(decisionSetup?.fetch ? { fetch: decisionSetup.fetch } : {}),
+				...decisionSetup?.test,
+			}
+			const result = await testDecisionConnection(saved.connection, opts.env, deps)
+			if (appLifetime.signal.aborted) return
+			pushMessage('system', connectedNotice(result))
+			// The points start now; the decide tool joins the next conversation.
+			const block = connectionToBlock(saved.connection)
+			decisionPointsRef.current = createDecisionPoints({
+				model: maybeCreateDecisionModel(block, opts.env, deps),
+				modes: block.points,
+			})
+			setConnectedDecision(block)
+		},
+		[decisionOptions, decisionSetup, pushMessage, pushSystem, appLifetime],
+	)
+	const handleDecisionAdvance = useCallback(
+		(next: DecisionAdvance) => {
+			if (next.kind === 'ask') {
+				openDecisionPrompt(next.step, next.draft)
+			} else if (next.kind === 'retry') {
+				openDecisionPrompt(next.step, next.draft, undefined, next.notice)
+			} else if (next.kind === 'list-deployments') {
+				decisionDraftRef.current = null
+				const { endpoint, key } = next.draft
+				void listAzureDeployments(endpoint as string, key as string, {
+					...(decisionSetup?.fetch ? { fetch: decisionSetup.fetch } : {}),
+				}).then((names) => {
+					if (appLifetime.signal.aborted) return
+					if (names.length === 1) void finishDecisionSetup({ ...next.draft, deployment: names[0] })
+					else openDecisionPrompt('azure-deployment', next.draft, { deployments: names })
+				})
+			} else {
+				decisionDraftRef.current = null
+				void finishDecisionSetup(next.draft)
+			}
+		},
+		[appLifetime, decisionSetup, finishDecisionSetup, openDecisionPrompt],
+	)
+	decisionSubmitRef.current = (step, value) => {
+		const draft: SetupDraft = decisionDraftRef.current ?? {
+			kind: step.startsWith('http') ? 'http' : 'azure',
+		}
+		handleDecisionAdvance(advanceDecisionFlow(draft, step, value))
+	}
+	decisionChooseRef.current = (value, step) => {
+		if (step === 'offer') {
+			if (value === 'yes') {
+				setSelectedChoice(0)
+				setChoicePicker({
+					kind: 'decision-setup',
+					step: 'kind',
+					title: 'What do you want to connect?',
+					values: [...DECISION_KIND_VALUES],
+					options: DECISION_KIND_OPTIONS,
+				})
+				return
+			}
+			try {
+				recordOffer(value === 'never' ? 'never' : 'later', decisionOptions(), decisionClock())
+			} catch (error) {
+				pushSystem('error', explainFailure(error, 'Could not remember that answer.'))
+			}
+			return
+		}
+		openDecisionPrompt(value === 'http' ? 'http-url' : 'azure-paste', {
+			kind: value === 'http' ? 'http' : 'azure',
+		})
+	}
+	// After a model pick has settled (the effort menu closed, the session ready), offer once.
+	// `decision: true` with nothing connected opens the connect flow once at start instead.
+	useEffect(() => {
+		if (!decisionSetup) return
+		if (phase !== 'ready' || choicePicker !== null || textPrompt !== null || permission !== null)
+			return
+		const opts = decisionOptions()
+		const offerPick = decisionOfferPendingRef.current
+		const atStart = !decisionStartCheckedRef.current
+		if (!offerPick && !atStart) return
+		decisionOfferPendingRef.current = false
+		decisionStartCheckedRef.current = true
+		if (opts.env.NAMZU_NO_DECISION === '1') return
+		const setting = readUserDecisionSetting(opts)
+		if (setting === 'shorthand' && ctx.decision === undefined && atStart) {
+			setSelectedChoice(0)
+			setChoicePicker({
+				kind: 'decision-setup',
+				step: 'kind',
+				title: 'Connect a decision model',
+				values: [...DECISION_KIND_VALUES],
+				options: DECISION_KIND_OPTIONS,
+			})
+			return
+		}
+		if (!offerPick) return
+		const now = decisionSetup.now ?? Date.now
+		if (!shouldOfferDecisionSetup({ record: readOffer(opts), setting, env: opts.env, now: now() }))
+			return
+		setSelectedChoice(0)
+		setChoicePicker({
+			kind: 'decision-setup',
+			step: 'offer',
+			title: DECISION_OFFER_TITLE,
+			values: [...DECISION_OFFER_VALUES],
+			options: DECISION_OFFER_OPTIONS,
+		})
+	}, [
+		decisionSetup,
+		decisionOptions,
+		phase,
+		choicePicker,
+		textPrompt,
+		permission,
+		ctx.decision,
+		setChoicePicker,
+		setSelectedChoice,
+	])
+
 	const submitTextPrompt = useCallback(
 		(value: string) => {
 			const prompt = textPromptRef.current
@@ -8229,6 +8477,10 @@ function AppBody({
 
 			if (prompt.kind === 'account-step') {
 				accountActionsRef.current?.submitStep(value)
+				return
+			}
+			if (prompt.kind === 'decision-step' && prompt.decisionStep) {
+				decisionSubmitRef.current?.(prompt.decisionStep, value)
 				return
 			}
 
@@ -8272,7 +8524,7 @@ function AppBody({
 				(error: unknown) => pushSystem('error', explainFailure(error, 'Could not save the name.')),
 			)
 		},
-		[pushMessage, runConversationExport, setTextPrompt],
+		[pushMessage, pushSystem, resolveQuestion, runConversationExport, setTextPrompt],
 	)
 	const cancelTextPrompt = useCallback(() => {
 		const prompt = textPromptRef.current
@@ -8284,6 +8536,7 @@ function AppBody({
 			// A cancelled free-text answer is a skipped question, not a hung tool.
 			if (prompt?.kind === 'user-question') resolveQuestion({ kind: 'skip' })
 			if (prompt?.kind === 'account-step') accountWizardRef.current = null
+			if (prompt?.kind === 'decision-step') decisionDraftRef.current = null
 		})
 	}, [resolveQuestion, setTextPrompt])
 
@@ -15778,6 +16031,14 @@ function AppBody({
 					reviewChoiceInFlightRef.current = null
 					setSelectedChoice(0)
 					setChoicePicker(key.escape ? (picker.back ?? null) : null)
+					// Leaving the offer is "Not now": it asks again after a later pick, at most once a day.
+					if (picker.kind === 'decision-setup' && picker.step === 'offer') {
+						try {
+							recordOffer('later', decisionOptions(), decisionClock())
+						} catch {
+							// An unwritable record costs one more question.
+						}
+					}
 					// Esc leaves the question unanswered and the turn running; the
 					// tool tells the model so. Ctrl+C is the operator saying stop.
 					if (picker.kind === 'user-question') {

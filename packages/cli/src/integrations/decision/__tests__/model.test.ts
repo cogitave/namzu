@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
 	buildDecisionProviderConfig,
 	maybeCreateDecisionModel,
@@ -60,7 +60,8 @@ describe('buildDecisionProviderConfig', () => {
 			apiKey: 'secret',
 		})
 		const keyless = buildDecisionProviderConfig({ provider: 'http', url: 'https://d' }, { K: 's' })
-		expect(keyless).toEqual({ provider: 'http', url: 'https://d' })
+		expect(keyless).toMatchObject({ provider: 'http', url: 'https://d' })
+		expect(keyless).not.toHaveProperty('apiKey')
 	})
 })
 
@@ -104,5 +105,82 @@ describe('NAMZU_NO_DECISION', () => {
 	it('is a switch for 1 only, so a stray value does not silently disable it', () => {
 		expect(maybeCreateDecisionModel(cfg, { NAMZU_NO_DECISION: '0' })).toBeDefined()
 		expect(maybeCreateDecisionModel(cfg, { NAMZU_NO_DECISION: '' })).toBeDefined()
+	})
+})
+
+describe('the key saved when the model was connected', () => {
+	const azure = { provider: 'azure', endpoint: 'https://x', deployment: 'd' } as const
+
+	it('is sent as the api key, read once and only when a call is made', () => {
+		const readStoredKey = vi.fn(() => 'stored-key')
+		const out = buildDecisionProviderConfig(azure, {}, { readStoredKey })
+		if (out.provider !== 'azure') throw new Error('azure')
+		expect(out.getToken).toBeUndefined()
+		expect(out.getApiKey?.()).toBe('stored-key')
+		expect(out.getApiKey?.()).toBe('stored-key')
+		expect(readStoredKey).toHaveBeenCalledTimes(1)
+	})
+
+	it('loses to a variable the config names', () => {
+		const out = buildDecisionProviderConfig(
+			{ ...azure, apiKeyEnv: 'MY_KEY' },
+			{ MY_KEY: 'from-env' },
+			{ readStoredKey: () => 'stored-key' },
+		)
+		if (out.provider !== 'azure') throw new Error('azure')
+		expect(out.getApiKey?.()).toBe('from-env')
+	})
+
+	it('leaves a config that names a token variable on the token path', async () => {
+		const out = buildDecisionProviderConfig(
+			{ ...azure, tokenEnv: 'T' },
+			{ T: 'tok' },
+			{ readStoredKey: () => 'stored-key' },
+		)
+		if (out.provider !== 'azure') throw new Error('azure')
+		expect(out.getApiKey).toBeUndefined()
+		expect(await out.getToken?.()).toBe('tok')
+	})
+
+	it('goes to the token path when no key is saved', async () => {
+		const out = buildDecisionProviderConfig(
+			azure,
+			{ AZURE_FOUNDRY_TOKEN: 'tok' },
+			{
+				readStoredKey: () => null,
+			},
+		)
+		if (out.provider !== 'azure') throw new Error('azure')
+		expect(await out.getToken?.()).toBe('tok')
+	})
+
+	it('is sent to an http server as a bearer token, and nothing is sent when none is saved', async () => {
+		const seen: Array<string | null> = []
+		const fetchFn = (async (_url: unknown, init?: RequestInit) => {
+			seen.push(new Headers(init?.headers).get('authorization'))
+			return new Response('{}')
+		}) as typeof fetch
+		const keyed = buildDecisionProviderConfig(
+			{ provider: 'http', url: 'http://h' },
+			{},
+			{ readStoredKey: () => 'k', fetch: fetchFn },
+		)
+		const keyless = buildDecisionProviderConfig(
+			{ provider: 'http', url: 'http://h' },
+			{},
+			{ readStoredKey: () => null, fetch: fetchFn },
+		)
+		if (keyed.provider !== 'http' || keyless.provider !== 'http') throw new Error('http')
+		await keyed.fetch?.('http://h', {})
+		await keyless.fetch?.('http://h', {})
+		expect(seen).toEqual(['Bearer k', null])
+	})
+
+	it('is not read at all when the kill switch is set', () => {
+		const readStoredKey = vi.fn(() => 'k')
+		expect(
+			maybeCreateDecisionModel(azure, { NAMZU_NO_DECISION: '1' }, { readStoredKey }),
+		).toBeUndefined()
+		expect(readStoredKey).not.toHaveBeenCalled()
 	})
 })
