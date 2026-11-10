@@ -142,6 +142,14 @@ const ALWAYS_ON_FROM: readonly VersionFloor[] = [
 	{ family: 'fable', major: 0, minor: 0 },
 	{ family: 'mythos', major: 0, minor: 0 },
 	{ family: 'opus', major: 5, minor: 5 },
+	// Sonnet 5.5 is not always-on — it has `between_tools`, which turns off
+	// up-front thinking — but it answers `thinking: {type: "disabled"}` with a
+	// 400 whatever the effort, so for this driver it is the same row: a
+	// `disabled` intent is omitted rather than sent. `between_tools` is not
+	// sent for it, because it adds effort rules of its own (`xhigh`/`max` and a
+	// per-message change are 400s) that a shared config would trip. SOURCED
+	// from the vendor's errors page, not measured on the wire.
+	{ family: 'sonnet', major: 5, minor: 5 },
 ]
 
 /**
@@ -218,7 +226,10 @@ export function resolveThinkingCapability(model: string): ThinkingCapability {
 		// "5 and later" would have caught Sonnet 5 too and dropped an effort
 		// that wire honours. Opus from 5.5 never reaches this line: it cannot
 		// switch thinking off at all, and returned above.
-		const opus5Plus = family === 'opus' && major >= 5
+		// Haiku 5.5 does take `disabled`, but holds it to the same cap: at
+		// `xhigh`/`max` it answers 400 (the vendor's errors page; SOURCED, not
+		// measured).
+		const opus5Plus = (family === 'opus' || family === 'haiku') && major >= 5
 		return {
 			adaptive: true,
 			manual: false,
