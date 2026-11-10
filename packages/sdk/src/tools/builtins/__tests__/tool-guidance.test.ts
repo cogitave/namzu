@@ -48,7 +48,7 @@ describe('the tool guidance', () => {
 	})
 
 	it('has the shell tool say to run a check on its own, because a pipe hides the status', () => {
-		expect(BashTool.description).toContain('never piped through tail, head or grep')
+		expect(BashTool.description).toContain('not piped')
 		expect(BashTool.description).toContain('already trimmed')
 		expect(BashTool.description).toContain('hides the exit status')
 	})

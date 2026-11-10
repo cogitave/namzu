@@ -537,7 +537,7 @@ export const SANDBOX_ESCAPE_NOT_APPROVED =
 	'dangerously_disable_sandbox was not approved for this call, so the command did not run. Leaving the sandbox needs the user to confirm it each time, and this turn either cannot ask or does not allow it. Run the command inside the sandbox, or tell the user what it needs and let them run it.'
 
 const BASH_DESCRIPTION =
-	'Executes a command line using the execution shell disclosed in the system context and returns stdout/stderr output. The working directory persists between calls, but shell state does not. Command timeout is configurable. The `command` parameter is required, so every call carries one. Long file content goes through `write`, not a heredoc, so it cannot hit the output token limit mid-stream. Read and search files with `read`, `grep` and `glob`, not with cat, grep, find or head loops here: a file read through the shell earns no read credit, so the next edit of it is refused once. Run a test, lint or build command on its own, never piped through tail, head or grep: its output is already trimmed with the head and tail kept, and a pipe hides the exit status, so the run cannot be credited as a check.'
+	'Executes a command line using the execution shell disclosed in the system context and returns stdout/stderr output. The working directory persists between calls, but shell state does not. Command timeout is configurable. Read and search with `read`, `grep` and `glob`, not shell loops: a file read through the shell earns no read credit, so its next edit is refused once. Run a check on its own, not piped: its output is already trimmed, and a pipe hides the exit status.'
 
 const BashToolBase = defineTool({
 	name: 'bash',
