@@ -63,6 +63,20 @@ output and cache tokens alike. A driver reports the speed that served the call a
 unpriced, never charged at the standard rate, so `costLimitUsd` refuses rather
 than under-counts.
 
+## Hosted web searches and service tiers
+
+A hosted web search is billed per request, on top of tokens.
+`ModelPricing.webSearchCostPer1000` carries the price (`webSearchPer1000` on a
+vendor in `rates.source.json`, copied onto each of its rows; $10 for Anthropic) and
+`TokenUsage.webSearchRequests` carries the count, which is summed across calls. Fast
+mode does not multiply it. A card without the field leaves searches out of the total,
+as before.
+
+A driver also reports `TokenUsage.serviceTier` and `TokenUsage.inferenceGeo` when the
+provider says them. Only the `standard` tier (or none reported) is priced from the
+card: the vendor publishes no per-token price for `priority` or `batch`, so tokens
+served on either are counted as unpriced instead of at the standard rate.
+
 ## How a reader should render it
 
 Three answers, three renderings, and the third is the one that used to be

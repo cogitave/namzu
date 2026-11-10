@@ -1,6 +1,7 @@
 import type { CompactionConfig } from '../config/runtime.js'
 import { collectChatCompletion } from '../provider/collect-chat-completion.js'
 import { resolveStreamIdleTimeoutMs, withStreamIdleTimeout } from '../provider/idle-timeout.js'
+import { chatStreamWithSamplingRepair } from '../runtime/query/iteration/side-call.js'
 import { isOperatorUserMessage } from '../runtime/query/steering.js'
 import {
 	generateRenderNonce,
@@ -347,7 +348,7 @@ export async function requestModelSummary(input: ModelSummaryInput): Promise<str
 			try {
 				const response = await deadline.race(
 					collectChatCompletion(
-						provider.chatStream({
+						chatStreamWithSamplingRepair(provider, {
 							model: route.model,
 							messages: [
 								{ role: 'system', content: SUMMARY_SYSTEM_PROMPT },

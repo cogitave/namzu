@@ -148,7 +148,7 @@ import { registerAnthropic } from '@namzu/anthropic'
 
 registerAnthropic()
 
-const model = 'claude-sonnet-4-5-20250929'
+const model = 'claude-sonnet-5-5'
 const { provider } = ProviderRegistry.create({
   type: 'anthropic',
   apiKey: process.env.ANTHROPIC_API_KEY,

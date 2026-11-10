@@ -344,7 +344,7 @@ export const DEFAULT_TIMEOUT_MS = 300_000
  * ```ts
  * const { output } = await runAgent({
  *   provider,
- *   model: 'claude-sonnet-4-5',
+ *   model: 'claude-sonnet-5-5',
  *   prompt: 'What is 2 + 2?',
  * })
  * ```

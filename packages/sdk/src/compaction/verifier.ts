@@ -2,6 +2,7 @@ import type { CompactionConfig } from '../config/runtime.js'
 import { SECTION_HEADERS } from '../constants/compaction/index.js'
 import { collectChatCompletion } from '../provider/collect-chat-completion.js'
 import { resolveStreamIdleTimeoutMs, withStreamIdleTimeout } from '../provider/idle-timeout.js'
+import { chatStreamWithSamplingRepair } from '../runtime/query/iteration/side-call.js'
 import {
 	generateRenderNonce,
 	nonceClosureStatement,
@@ -306,7 +307,7 @@ async function buildVerifiedSummaryWithProvider(
 		]
 		try {
 			response = await collectChatCompletion(
-				provider.chatStream({
+				chatStreamWithSamplingRepair(provider, {
 					model: model ?? '',
 					messages: verificationMessages,
 					maxTokens: config.llmVerificationMaxTokens,

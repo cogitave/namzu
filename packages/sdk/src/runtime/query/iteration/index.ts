@@ -1383,6 +1383,9 @@ export class IterationOrchestrator {
 									},
 								}
 							: {}),
+						...(response.usage.cacheMiss !== undefined
+							? { cacheMiss: response.usage.cacheMiss }
+							: {}),
 						...contextFigures,
 					})
 

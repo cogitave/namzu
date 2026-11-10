@@ -147,6 +147,16 @@ export class SearchBlocks {
 		if (b && this.json.has(index)) b.input = replayInput(this.json.get(index) ?? '')
 		this.active.delete(index)
 	}
+	/**
+	 * The content received so far, as the service sent it, for sending back to
+	 * continue a paused turn. Complete blocks only, in order; server tool use
+	 * and result blocks are carried intact.
+	 */
+	content(): Block[] {
+		if (this.active.size)
+			throw new Error('Anthropic search stream paused with incomplete content blocks.')
+		return structuredClone([...this.blocks.entries()].sort(([a], [b]) => a - b).map(([, b]) => b))
+	}
 	complete(route: ProviderRoute) {
 		if (!this.hasSearch) return
 		if (this.active.size)
