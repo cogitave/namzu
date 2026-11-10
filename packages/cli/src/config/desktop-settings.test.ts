@@ -75,6 +75,7 @@ describe('Desktop settings descriptors', () => {
 		expect(entry?.control).toMatchObject({ kind: 'select' })
 		expect(entry?.defaultText).toBe('ask')
 		expect(entry?.confirm).toBeTruthy()
+		expect(entry?.confirmValue).toBe('ask')
 	})
 
 	it('keep terminal-only keys in the terminal section', () => {

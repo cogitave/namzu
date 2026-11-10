@@ -1351,7 +1351,6 @@ export interface SessionWorkflows {
 	readonly reset: () => void
 }
 
-/** Most bytes of a page `web_fetch` reads (ten mebibytes). */
 /**
  * What the model reads when `permissions.outsideRoot` is `refuse` and a file
  * tool names a path outside the working directory and the added directories.
@@ -1359,6 +1358,7 @@ export interface SessionWorkflows {
 const OUTSIDE_ROOT_REFUSAL =
 	'Your settings (permissions.outsideRoot: refuse) do not allow files outside the working directory and its added directories, so Namzu does not ask. Work inside those folders, or tell the user the folder has to be added (--add-dir or /add-dir) or the setting changed.'
 
+/** Most bytes of a page `web_fetch` reads (ten mebibytes). */
 const WEB_FETCH_MAX_BYTES = 10 * 1024 * 1024
 /** Most tokens of answer the small model gives to a question about a page. */
 const WEB_EXTRACT_MAX_TOKENS = 8192

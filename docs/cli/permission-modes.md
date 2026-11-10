@@ -73,6 +73,8 @@ In both modes these are never decided by the mode:
 - a sandbox escape (`dangerously_disable_sandbox`): asked every time;
 - a call whose safety checks did not finish: asked.
 
+The one exception runs the other way: with `permissions.outsideRoot: refuse`, a file tool's path outside the working folder is refused in both modes without asking. See [Settings](#settings).
+
 With nobody to ask (`exec`, `exec --json`, a scheduled run), each of these is refused instead.
 
 **Bypass** runs everything else, including a path outside the folder (`cat /tmp/x`), a program the line does not name (`$CMD build`, `$(...)`, `[[ ]]`, arithmetic), and `cd sub && echo hi > f` inside your folder.
@@ -124,7 +126,7 @@ permissions:
 | `outsideRoot` | any file; `refuse` is not undone by an `ask` in another file, so a project file can make it stricter and cannot loosen what your own or the managed file set |
 | `autoMode.*` | the user file and the managed file only: it chooses where the conversation goes and what the classifier lets through |
 
-`outsideRoot` decides what a file tool's path outside the working directory and the [added directories](add-dir.md) becomes. `ask` (the default, the same as leaving it out) is the approval request [described here](tool-boundary.md). `refuse` refuses the call without asking, before any mode is consulted, so `bypass` and `auto` do not lift it, with a message that names the setting and says `--add-dir` or `/add-dir` reaches a folder. It covers `read`, `write`, `edit`, `glob`, `grep` and `ls`; the session's scratch folder and its retained tool output stay reachable. Shell command operands and redirections are still asked about as before, and a sandboxed session does not use it (its file tools work inside the sandbox). Desktop Settings lists it as "Paths outside the working folder"; changing it asks first, in either direction.
+`outsideRoot` decides what a file tool's path outside the working directory and the [added directories](add-dir.md) becomes. `ask` (the default, the same as leaving it out) is the approval request [described here](tool-boundary.md). `refuse` refuses the call without asking, before any mode is consulted, so `bypass` and `auto` do not lift it, with a message that names the setting and says `--add-dir` or `/add-dir` reaches a folder. It covers `read`, `write`, `edit`, `glob`, `grep`, `ls` and every other tool that declares a path argument (`view_image`, `lsp`, `code_analysis`, `browser`); the session's scratch folder and its retained tool output stay reachable. Shell command operands and redirections are still asked about as before, and a sandboxed session does not use it (its file tools work inside the sandbox). Desktop Settings lists it as "Paths outside the working folder"; changing it asks first only when the new value is `ask`, since `refuse` narrows what can happen.
 
 In `autoMode`, a list left out keeps the built-in rules; a list that is given replaces them; the entry `$defaults` stands for the built-ins at that position, and `[]` removes them. `allow` names ordinary work never to block, `softDeny` what is blocked unless your own messages name the action and its risky detail, `hardDeny` what is blocked whatever you said, and `environment` what is trusted here.
 

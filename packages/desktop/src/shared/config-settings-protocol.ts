@@ -51,6 +51,8 @@ export interface ConfigSettingDescriptor {
 	confirm?: string
 	/** Which new value asks: `on`/`off` for a toggle, `zero` for a cap. Absent: every change asks. */
 	confirmWhen?: 'on' | 'off' | 'zero'
+	/** For a select, the one new value that asks. Absent: every change asks. */
+	confirmValue?: string
 	keywords?: string[]
 }
 
@@ -158,6 +160,7 @@ export function readConfigSettingsView(value: unknown): ConfigSettingsView {
 			...(d.confirmWhen === 'on' || d.confirmWhen === 'off' || d.confirmWhen === 'zero'
 				? { confirmWhen: d.confirmWhen }
 				: {}),
+			...(typeof d.confirmValue === 'string' ? { confirmValue: d.confirmValue } : {}),
 			...(Array.isArray(d.keywords)
 				? { keywords: d.keywords.filter((k): k is string => typeof k === 'string') }
 				: {}),
