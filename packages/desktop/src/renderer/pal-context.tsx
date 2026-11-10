@@ -439,7 +439,7 @@ function PalContextBody({
 											<span title={item.label}>{item.label}</span>
 											<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
 										</CollapsibleTrigger>
-										<CollapsiblePanel>
+										<CollapsiblePanel rows>
 											<div className="pal-output-details">{item.content}</div>
 										</CollapsiblePanel>
 									</Collapsible>

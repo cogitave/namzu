@@ -52,7 +52,7 @@ function PalTaskProgress({
 						</span>
 						<ChevronRightIcon className="pal-plan-chevron" aria-hidden="true" />
 					</CollapsibleTrigger>
-					<CollapsiblePanel>
+					<CollapsiblePanel rows>
 						<ul className="pal-plan-steps">
 							{thread.tasks.map((task) => {
 								const dependencies = task.blockedBy.map((id) => byId.get(id))

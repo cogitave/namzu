@@ -1725,6 +1725,17 @@ use `--shadow-popover`, dialogs, the command palette and the update dialog use `
 layers use the named `--z-*` tiers (a dialog sits below menus, a tooltip is above the dialog, and a
 toast is above everything, so a failure shown while a dialog is open is visible). A test fails on a
 radius, elevation shadow or layer number written outside that scale.
+Messages have a little life. A message you send settles in over 450 ms with a small overshoot (a
+slightly smaller, lower start that eases past rest and back), only when it is sent in a live
+conversation: a saved or restored conversation, a tab switch and every reply keep the plain fade, and
+nothing about the text changes, so selection and the memoised Markdown blocks are untouched. The row of
+actions under a message (clock, copy, retry) waits a 100 ms hover-intent beat before it fades in over
+120 ms, leaves in 60 ms with no wait, and shows at once for keyboard focus; sweeping the pointer down a
+long transcript no longer flickers the rows. A streaming block fades in over 300 ms, not 600 ms.
+Panels that open and close by height-free travel (grid rows from 0fr to 1fr, with a fade, over the base
+duration) are the task list, background job details, Pal output and folder-access details; the
+transcript's own work disclosure keeps its measured height travel. All of it is off under the system
+reduced-motion setting (Desktop has no separate in-app setting yet).
 The 32px integrated title bar keeps the operating system’s caption controls and
 resize frame. Back and Forward revisit the window’s admitted project and
 conversation views, with no prompt replay; the adjacent panel control toggles

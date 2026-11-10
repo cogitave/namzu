@@ -188,7 +188,7 @@ export function FolderAccessDialog({
 								<CollapsibleTrigger className="text-sm font-medium text-foreground underline underline-offset-2">
 									Details
 								</CollapsibleTrigger>
-								<CollapsiblePanel>
+								<CollapsiblePanel rows>
 									<dl className="mt-2 max-h-60 space-y-2 overflow-y-auto rounded-md bg-muted p-2 text-xs">
 										{copy.details.map((item) => (
 											<div key={item.label}>
