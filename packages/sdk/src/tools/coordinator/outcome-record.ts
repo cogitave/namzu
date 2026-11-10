@@ -12,6 +12,8 @@ import { KERNEL_RECORD_PREFIX } from '../untrusted-envelope.js'
  * workspace did not change after it; it does not mean the check covers the
  * change.
  *
+ * A run that changed nothing and failed no check gets no line.
+ *
  * The command is the child's own text, so it is shown as plain data: one line
  * of printable ASCII with no quotes or backticks, cut short. A command that
  * does not survive that is named as "a command" instead.
@@ -51,9 +53,9 @@ function describe(outcome: TurnOutcome): string | undefined {
 
 	switch (outcome.verdict) {
 		case 'unchanged':
-			return outcome.basis === 'workspace'
-				? 'nothing in the workspace changed.'
-				: 'no file was changed by an edit tool. Shell commands are not recorded.'
+			// Nothing to say, and a line on every delegation that only read would
+			// be noise the parent learns to skip. The record is still in `data`.
+			return undefined
 		case 'unchecked':
 			return `${lead}nothing was run to check ${total(outcome) === 1 ? 'it' : 'them'}.`
 		case 'failing': {

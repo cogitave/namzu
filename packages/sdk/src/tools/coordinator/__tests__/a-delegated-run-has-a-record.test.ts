@@ -96,7 +96,7 @@ describe('the Agent tool names what the kernel recorded of the child', () => {
 			'Record of this run: 4 files changed; `pnpm test` passed and nothing changed after it.',
 		)
 		// Outside the block: the block's closing tag comes before it.
-		const close = out.output.indexOf('</namzu-untrusted-')
+		const close = out.output.lastIndexOf('</namzu-untrusted-')
 		expect(close).toBeGreaterThan(0)
 		expect(out.output.indexOf('Record of this run:')).toBeGreaterThan(close)
 	})
@@ -250,7 +250,7 @@ describe('the sentence the kernel writes', () => {
 				checks: [],
 				changes: { total: 0, paths: [], outsideKnownTools: false },
 			},
-			'Record of this run: nothing in the workspace changed.',
+			undefined,
 		],
 		[
 			'unchanged, seen only on the calls',
@@ -260,7 +260,7 @@ describe('the sentence the kernel writes', () => {
 				checks: [],
 				changes: { total: 0, paths: [], outsideKnownTools: false },
 			},
-			'Record of this run: no file was changed by an edit tool. Shell commands are not recorded.',
+			undefined,
 		],
 	])('%s', (_name, over, line) => {
 		expect(describeOutcomeRecord(outcome(over))).toBe(line)
