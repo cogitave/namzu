@@ -457,7 +457,7 @@ export class IterationOrchestrator {
 				)
 				this.ctx.log.warn('Hook refusal limit reached — ending the turn', {
 					[NAMZU.TURN_ID]: recorder.turnId,
-					limit,
+					'namzu.runtime.limit': limit,
 				})
 			}
 			return undefined
