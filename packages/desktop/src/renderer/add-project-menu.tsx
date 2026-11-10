@@ -56,11 +56,11 @@ export function AddProjectMenu({
 		<Menu.Root>
 			<Menu.Trigger render={trigger} disabled={disabled} />
 			<Menu.Portal>
-				<Menu.Positioner className="z-[150] outline-none" align={align} sideOffset={4}>
+				<Menu.Positioner className="z-(--z-popover) outline-none" align={align} sideOffset={4}>
 					<Menu.Popup
 						aria-label={ADD_PROJECT_LABEL}
 						data-add-project-menu
-						className="window-titlebar-popup dropdown-glass min-w-52 rounded-lg p-1 text-sm text-popover-foreground shadow-xl outline-none"
+						className="window-titlebar-popup dropdown-glass min-w-52 rounded-lg p-1 text-sm text-popover-foreground shadow-[var(--shadow-popover)] outline-none"
 					>
 						<AddProjectItems onCreate={onCreate} onOpen={onOpen} />
 					</Menu.Popup>

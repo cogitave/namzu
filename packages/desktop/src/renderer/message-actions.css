@@ -8,8 +8,8 @@
 }
 .message-actions > button,
 .message-copy-button {
-	transition: color 140ms var(--motion-ease), background-color 140ms var(--motion-ease), box-shadow
-		140ms var(--motion-ease);
+	transition: color var(--dur-quick) var(--ease-out), background-color var(--dur-quick)
+		var(--ease-out), box-shadow var(--dur-quick) var(--ease-out);
 }
 @media (prefers-reduced-motion: reduce) {
 	.message-actions > button,

@@ -35,7 +35,7 @@
 	margin: 0 auto 24px;
 	padding: 15px 16px;
 	border: 1px solid var(--border);
-	border-radius: 18px;
+	border-radius: var(--radius-panel);
 	background: var(--surface);
 }
 .pal-onboarding-footer p {
@@ -50,7 +50,7 @@
 	gap: 7px;
 	width: 100%;
 	margin: 0 0 24px;
-	animation: pals-arrive var(--motion-duration) var(--motion-ease) both;
+	animation: pals-arrive var(--dur-base) var(--ease-out) both;
 }
 .pal-welcome-identity {
 	align-self: center;
@@ -68,7 +68,7 @@
 	max-width: 250px;
 	overflow: hidden;
 	border: 1px solid var(--border);
-	border-radius: 20px;
+	border-radius: var(--radius-panel);
 	padding: 3px 10px;
 	color: var(--foreground);
 	font-size: 14px;
@@ -79,7 +79,7 @@
 .pal-welcome-message {
 	max-width: 100%;
 	padding: 10px 16px;
-	border-radius: 22px;
+	border-radius: var(--radius-panel);
 	background: var(--message-surface);
 	color: var(--message-foreground);
 	font-size: 14px;
@@ -90,7 +90,7 @@
 .pal-welcome .pal-welcome-customize {
 	height: 40px;
 	padding: 10px 16px;
-	border-radius: 22px;
+	border-radius: var(--radius-panel);
 	background: color-mix(in srgb, var(--primary) 10%, var(--background));
 	color: var(--primary);
 	font-size: 13px;
@@ -118,7 +118,7 @@
 .pal-model-choice .model-picker-trigger {
 	padding: 4px 10px;
 	border: 1px solid var(--border);
-	border-radius: 18px;
+	border-radius: var(--radius-panel);
 	background: var(--surface);
 	color: var(--foreground);
 }
@@ -130,9 +130,10 @@
 	display: inline-block;
 	width: 120px;
 	height: 14px;
-	border-radius: 7px;
+	border-radius: var(--radius-chip);
 	background: var(--muted);
 	vertical-align: middle;
+	animation: var(--placeholder-reveal);
 }
 .pal-model-error {
 	display: flex;
@@ -145,11 +146,11 @@
 }
 .pal-customize-backdrop {
 	position: fixed;
-	z-index: 160;
+	z-index: var(--z-scrim);
 	inset: 0;
 	background: rgb(0 0 0 / 36%);
 	opacity: 1;
-	transition: opacity var(--motion-duration) var(--motion-ease);
+	transition: opacity var(--dur-base) var(--ease-out);
 }
 .pal-customize-backdrop[data-starting-style],
 .pal-customize-backdrop[data-ending-style] {
@@ -157,7 +158,7 @@
 }
 .pal-customize-viewport {
 	position: fixed;
-	z-index: 161;
+	z-index: var(--z-dialog);
 	inset: 0;
 	display: grid;
 	place-items: center;
@@ -170,15 +171,14 @@
 	max-height: calc(100dvh - 48px);
 	overflow: auto;
 	border: 1px solid var(--border);
-	border-radius: 24px;
+	border-radius: var(--radius-panel);
 	background: var(--background);
 	color: var(--foreground);
 	outline: none;
-	box-shadow: 0 24px 80px rgb(0 0 0 / 25%);
+	box-shadow: var(--shadow-dialog);
 	opacity: 1;
 	transform: translateY(0) scale(1);
-	transition: opacity var(--motion-duration) var(--motion-ease), transform var(--motion-duration)
-		var(--motion-ease);
+	transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
 }
 .pal-customize-popup[data-starting-style],
 .pal-customize-popup[data-ending-style] {
@@ -245,10 +245,10 @@
 	justify-content: center;
 	flex: none;
 	border: 1px solid transparent;
-	border-radius: 14px;
+	border-radius: var(--radius-card);
 	cursor: pointer;
-	transition: background-color 160ms var(--motion-ease), border-color 160ms var(--motion-ease),
-		transform 160ms var(--motion-ease);
+	transition: background-color var(--dur-quick) var(--ease-out), border-color var(--dur-quick)
+		var(--ease-out), transform var(--dur-quick) var(--ease-out);
 }
 .pal-color-choice {
 	width: 60px;
@@ -324,7 +324,7 @@
 	width: 100%;
 	height: 64px;
 	padding: 0;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	text-align: center;
 	color: var(--foreground);
 	font-size: 40px;
@@ -365,7 +365,7 @@
 	flex: 1;
 	min-height: 230px;
 	padding: 8px 0 14px;
-	animation: pals-arrive var(--motion-duration) var(--motion-ease) both;
+	animation: pals-arrive var(--dur-base) var(--ease-out) both;
 }
 .pal-customize-character .pal-character-scene {
 	width: 100%;
@@ -375,14 +375,14 @@
 .pal-customize-preview .pal-customize-save {
 	width: 100%;
 	height: 36px;
-	border-radius: 20px;
+	border-radius: var(--radius-panel);
 }
 .pal-customize-model {
 	margin-top: 8px;
 }
-/* The nested model portal must sit above this dialog's viewport (161). */
+/* The nested model portal must sit above this dialog's viewport. */
 .pal-customize-model-positioner {
-	z-index: 162;
+	z-index: var(--z-dialog-top);
 }
 .pal-customize-model .pal-field-label {
 	margin-bottom: 7px;
@@ -400,7 +400,7 @@
 	overflow-wrap: anywhere;
 }
 .pal-loading {
-	animation: pals-spin 900ms linear infinite;
+	animation: pals-spin 900ms linear infinite, var(--placeholder-reveal);
 }
 .sidebar-pals {
 	padding: 0 var(--sidebar-scroll-end) 14px var(--sidebar-content-inset);
@@ -431,11 +431,11 @@
 	height: 34px;
 	min-height: 34px;
 	padding: 3px 8px;
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	color: var(--sidebar-foreground);
 	font-size: 13px;
 	font-weight: 400;
-	transition: background-color 160ms var(--motion-ease);
+	transition: background-color var(--dur-quick) var(--ease-out);
 }
 .sidebar-pals .sidebar-pal-row[aria-current="page"] {
 	background: var(--sidebar-row-active);
@@ -466,9 +466,9 @@
 	height: 10px;
 	width: 55%;
 	margin: 8px;
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	background: color-mix(in srgb, var(--sidebar-muted-foreground) 22%, transparent);
-	animation: sidebar-skeleton-pulse 1.4s ease-in-out infinite;
+	animation: sidebar-skeleton-pulse 1.4s ease-in-out infinite, var(--placeholder-reveal);
 }
 @keyframes sidebar-skeleton-pulse {
 	50% {
@@ -477,7 +477,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
 	.sidebar-skeleton {
-		animation: none;
+		animation: var(--placeholder-reveal-still) !important;
 	}
 }
 @keyframes pals-arrive {
@@ -564,9 +564,12 @@
 }
 @media (prefers-reduced-motion: reduce) {
 	.pal-welcome,
-	.pal-loading,
 	.pal-customize-character {
 		animation: none;
+	}
+	.pal-loading,
+	.pal-model-skeleton {
+		animation: var(--placeholder-reveal-still) !important;
 	}
 	.pal-customize-backdrop,
 	.pal-customize-popup,
@@ -589,7 +592,7 @@
 	margin: 0 auto 12px;
 	padding: 10px 16px;
 	border: 1px solid var(--border);
-	border-radius: 14px;
+	border-radius: var(--radius-card);
 	background: var(--surface);
 	color: var(--muted-foreground);
 	font-size: 13px;
@@ -614,7 +617,7 @@
 	flex: none;
 	width: 8px;
 	height: 8px;
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	background: var(--primary);
 }
 .sidebar-pals-failed {

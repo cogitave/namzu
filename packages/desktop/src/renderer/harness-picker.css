@@ -27,7 +27,7 @@
 	gap: 2px;
 	padding: 2px 6px 2px 2px;
 	border: 0;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	background: transparent;
 	color: var(--foreground);
 	font-size: 12px;
@@ -58,7 +58,7 @@
 	min-height: 24px;
 	padding: 0 4px;
 	border: 0;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	background: transparent;
 	color: var(--foreground);
 	cursor: pointer;
@@ -100,7 +100,7 @@
 	min-width: 0;
 	min-height: 36px;
 	padding: 7px 8px;
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	color: var(--foreground);
 	font-size: 13px;
 	line-height: 20px;
@@ -157,14 +157,14 @@
 	display: inline-flex;
 	flex: none;
 	padding: 2px;
-	border-radius: 7px;
+	border-radius: var(--radius-chip);
 	background: color-mix(in srgb, var(--foreground) 7%, transparent);
 }
 .surface-switch button {
 	min-height: 20px;
 	padding: 0 7px;
 	border: 0;
-	border-radius: 5px;
+	border-radius: var(--radius-chip);
 	background: transparent;
 	color: var(--muted-foreground);
 	font: inherit;
@@ -176,7 +176,7 @@
 .surface-switch button[data-selected] {
 	background: var(--background);
 	color: var(--foreground);
-	box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 14%, transparent);
+	box-shadow: var(--shadow-1);
 }
 .surface-switch button:hover:not(:disabled):not([data-selected]) {
 	color: var(--foreground);
@@ -251,7 +251,7 @@
 	gap: 8px;
 	margin: 0 4px 4px;
 	padding: 8px;
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	background: color-mix(in srgb, var(--foreground) 5%, var(--popover));
 	color: var(--muted-foreground);
 	font-size: 12px;
@@ -279,7 +279,7 @@
 	flex: 1;
 	min-width: 0;
 	padding: 3px 6px;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	background: var(--background);
 	color: var(--foreground);
 	font-size: 11.5px;

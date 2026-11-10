@@ -20,8 +20,8 @@
 	display: flex;
 	align-items: center;
 	min-height: 30px;
-	border-radius: 8px;
-	transition: background-color 150ms ease;
+	border-radius: var(--radius-control);
+	transition: background-color var(--dur-quick) var(--ease-out);
 }
 
 .sidebar-project-heading[data-selected] {
@@ -54,7 +54,7 @@
 .sidebar-project-heading .sidebar-project-toggle {
 	width: 28px;
 	height: 30px;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	background: transparent;
 	color: var(--sidebar-muted-foreground);
 }
@@ -96,7 +96,7 @@
 	line-height: 18px;
 	font-weight: 400;
 	background: transparent;
-	transition: color 150ms ease;
+	transition: color var(--dur-quick) var(--ease-out);
 }
 
 .sidebar-project-folder {
@@ -113,7 +113,7 @@
 	inset: 0;
 	width: 100%;
 	height: 100%;
-	transition: opacity 150ms ease, transform 150ms ease;
+	transition: opacity var(--dur-quick) var(--ease-out), transform var(--dur-quick) var(--ease-out);
 }
 
 .sidebar-project-folder-closed {
@@ -164,8 +164,9 @@
 
 .sidebar-project-list .sidebar-conversation-button,
 .sidebar-recent-list .sidebar-conversation-button {
-	border-radius: 8px;
-	transition: background-color 150ms ease, color 150ms ease;
+	border-radius: var(--radius-control);
+	transition: background-color var(--dur-quick) var(--ease-out), color var(--dur-quick)
+		var(--ease-out);
 }
 
 .sidebar-project-list .sidebar-conversation-button[aria-current="page"] {
@@ -251,13 +252,13 @@
 	display: inline-block;
 }
 .sidebar-recents[data-swapped] .sidebar-recents-label {
-	animation: sidebar-heading-forward 180ms ease-out both;
+	animation: sidebar-heading-forward var(--dur-base) var(--ease-out) both;
 }
 .sidebar-recents[data-swapped] .sidebar-recents-label[data-direction="back"] {
 	animation-name: sidebar-heading-back;
 }
 .sidebar-recents[data-swapped] .sidebar-recents-body {
-	animation: sidebar-list-in 180ms ease-out both;
+	animation: sidebar-list-in var(--dur-base) var(--ease-out) both;
 }
 .sidebar-recents-body:focus {
 	outline: none;
@@ -296,9 +297,9 @@
 	content: "";
 	height: 10px;
 	width: 55%;
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	background: color-mix(in srgb, var(--sidebar-muted-foreground) 22%, transparent);
-	animation: sidebar-skeleton-pulse 1.4s ease-in-out infinite;
+	animation: sidebar-skeleton-pulse 1.4s ease-in-out infinite, var(--placeholder-reveal);
 }
 .sidebar-archive-failure {
 	display: flex;
@@ -319,12 +320,13 @@
 	width: 100%;
 	min-height: 28px;
 	padding: 4px 8px;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	color: var(--sidebar-muted-foreground);
 	font-size: 12px;
 	text-align: left;
 	cursor: pointer;
-	transition: background-color 150ms ease, color 150ms ease;
+	transition: background-color var(--dur-quick) var(--ease-out), color var(--dur-quick)
+		var(--ease-out);
 }
 
 .sidebar-list-disclosure > button:hover {
@@ -340,9 +342,11 @@
 
 @media (prefers-reduced-motion: reduce) {
 	.sidebar-recents[data-swapped] .sidebar-recents-label,
-	.sidebar-recents[data-swapped] .sidebar-recents-body,
-	.sidebar-archive-placeholder::before {
+	.sidebar-recents[data-swapped] .sidebar-recents-body {
 		animation: none;
+	}
+	.sidebar-archive-placeholder::before {
+		animation: var(--placeholder-reveal-still) !important;
 	}
 	.sidebar-project-heading,
 	.sidebar-project-list .sidebar-conversation-button,
@@ -386,7 +390,7 @@
 	align-items: center;
 	gap: 0 8px;
 	padding: 0 8px 6px 0;
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 }
 .sidebar-project-missing-name {
 	display: flex;

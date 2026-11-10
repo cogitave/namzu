@@ -19,7 +19,7 @@
 }
 .pal-computer-view[data-control="operator"] .pal-computer-control-bar {
 	margin-top: 0;
-	border-radius: 0 0 18px 18px;
+	border-radius: 0 0 var(--radius-panel) var(--radius-panel);
 	background: var(--primary);
 	color: var(--primary-foreground);
 }
@@ -87,10 +87,10 @@
 	min-height: 0;
 	overflow: hidden;
 	border: 1px solid var(--border);
-	border-radius: 22px;
+	border-radius: var(--radius-panel);
 	background: var(--surface);
 	outline: none;
-	box-shadow: 0 12px 36px rgb(0 0 0 / 8%);
+	box-shadow: var(--shadow-2);
 	transition: box-shadow 180ms var(--motion-ease), border-color 180ms var(--motion-ease);
 }
 .pal-computer-screen:focus-visible {
@@ -152,7 +152,7 @@
 	gap: 8px;
 	padding: 8px 12px;
 	border: 1px solid var(--border);
-	border-radius: 20px;
+	border-radius: var(--radius-panel);
 	background: var(--popover);
 	color: var(--foreground);
 	font-size: 12px;
@@ -194,7 +194,7 @@
 	min-height: 32px;
 	padding: 0 12px;
 	border-color: transparent;
-	border-radius: 20px;
+	border-radius: var(--radius-panel);
 	background: var(--foreground);
 	color: var(--background);
 	font-size: 12px;
@@ -240,7 +240,7 @@
 		display: none;
 	}
 	.pal-computer-screen {
-		border-radius: 16px;
+		border-radius: var(--radius-panel);
 	}
 }
 @media (prefers-reduced-motion: reduce) {

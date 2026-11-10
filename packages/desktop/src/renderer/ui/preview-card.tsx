@@ -38,14 +38,14 @@ function PreviewCardPopup({
 		<PreviewCardPrimitive.Portal>
 			<PreviewCardPrimitive.Positioner
 				align={align}
-				className={cn('z-[130] max-w-(--available-width)', positionerClassName)}
+				className={cn('z-(--z-popover) max-w-(--available-width)', positionerClassName)}
 				data-slot="preview-card-positioner"
 				side={side}
 				sideOffset={sideOffset}
 			>
 				<PreviewCardPrimitive.Popup
 					className={cn(
-						'dropdown-glass relative origin-(--transform-origin) rounded-lg text-popover-foreground outline-none transition-[opacity,transform] duration-150 ease-(--motion-ease) before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] data-starting-style:translate-y-0.5 data-starting-style:scale-[0.98] data-starting-style:opacity-0 data-ending-style:translate-y-0.5 data-ending-style:scale-[0.98] data-ending-style:opacity-0 motion-reduce:data-starting-style:translate-y-0 motion-reduce:data-starting-style:scale-100 motion-reduce:data-ending-style:translate-y-0 motion-reduce:data-ending-style:scale-100 shadow-[0_16px_40px_-18px_rgb(0_0_0/55%)] dark:shadow-[0_18px_44px_-18px_rgb(0_0_0/80%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]',
+						'dropdown-glass relative origin-(--transform-origin) rounded-lg text-popover-foreground outline-none transition-[opacity,transform] duration-150 ease-(--motion-ease) before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] data-starting-style:translate-y-0.5 data-starting-style:scale-[0.98] data-starting-style:opacity-0 data-ending-style:translate-y-0.5 data-ending-style:scale-[0.98] data-ending-style:opacity-0 motion-reduce:data-starting-style:translate-y-0 motion-reduce:data-starting-style:scale-100 motion-reduce:data-ending-style:translate-y-0 motion-reduce:data-ending-style:scale-100 shadow-[var(--shadow-popover)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]',
 						className,
 					)}
 					data-slot="preview-card-popup"

@@ -62,12 +62,12 @@ export function RenameConversationDialog({
 			}}
 		>
 			<Dialog.Portal>
-				<Dialog.Backdrop className="fixed inset-0 z-[160] bg-black/50" />
-				<Dialog.Viewport className="fixed inset-0 z-[161] grid place-items-center overflow-y-auto p-4">
+				<Dialog.Backdrop className="fixed inset-0 z-(--z-scrim) bg-black/50" />
+				<Dialog.Viewport className="fixed inset-0 z-(--z-dialog) grid place-items-center overflow-y-auto p-4">
 					<Dialog.Popup
 						initialFocus={field}
 						finalFocus={returnFocus}
-						className="w-full max-w-md rounded-2xl border border-border bg-background p-5 text-foreground shadow-xl outline-none"
+						className="w-full max-w-md rounded-2xl border border-border bg-background p-5 text-foreground shadow-[var(--shadow-dialog)] outline-none"
 					>
 						<form
 							onSubmit={(event) => {
