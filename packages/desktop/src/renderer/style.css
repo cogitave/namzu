@@ -60,13 +60,13 @@ pre {
 	-webkit-app-region: drag;
 }
 .app {
-	--content-corner-radius: 16px;
+	--content-corner-radius: var(--radius-panel);
 	position: relative;
 	display: grid;
 	grid-template-columns: 48px 288px minmax(0, 1fr);
 	grid-template-rows: 32px minmax(0, 1fr);
 	height: 100%;
-	transition: grid-template-columns var(--motion-duration) var(--motion-ease);
+	transition: grid-template-columns var(--dur-base) var(--ease-out);
 }
 .app[data-sidebar-collapsed="true"] {
 	grid-template-columns: 48px 0 minmax(0, 1fr);
@@ -83,7 +83,7 @@ pre {
 	border-right: 1px solid var(--sidebar-border);
 	border-radius: var(--content-corner-radius) 0 0 var(--content-corner-radius);
 	overflow: hidden;
-	transition: opacity var(--motion-duration) var(--motion-ease);
+	transition: opacity var(--dur-base) var(--ease-out);
 }
 .app[data-sidebar-collapsed="true"] .sidebar:not(.open) {
 	opacity: 0;
@@ -111,7 +111,7 @@ pre {
 	grid-column: 1 / -1;
 	grid-row: 1;
 	position: relative;
-	z-index: 60;
+	z-index: var(--z-titlebar);
 	display: flex;
 	align-items: center;
 	height: 32px;
@@ -156,7 +156,7 @@ pre {
 	align-items: center;
 	gap: 12px;
 	padding: 8px 12px;
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	cursor: pointer;
 }
 .sidebar-brand {
@@ -168,7 +168,7 @@ pre {
 	flex: none;
 	padding: 0 6px;
 	border: 1px solid color-mix(in srgb, var(--primary) 40%, transparent);
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	background: color-mix(in srgb, var(--primary) 12%, transparent);
 	color: var(--primary);
 	font-size: 10px;
@@ -200,7 +200,7 @@ pre {
 	justify-content: space-between;
 	gap: 24px;
 	padding: 8px 10px;
-	border-radius: 5px;
+	border-radius: var(--radius-chip);
 	outline: none;
 }
 .window-titlebar-item[data-highlighted] {
@@ -228,7 +228,7 @@ pre {
 	height: 26px;
 	padding: 0 9px;
 	font-size: 12px;
-	border-radius: 5px;
+	border-radius: var(--radius-chip);
 }
 .window-titlebar-caption {
 	position: absolute;
@@ -246,16 +246,16 @@ pre {
 	gap: 8px;
 	padding: 14px 5px 12px;
 	background: var(--chrome);
-	z-index: 55;
+	z-index: var(--z-rail);
 }
 .rail-button {
 	position: relative;
 	width: 36px;
 	height: 36px;
-	border-radius: 10px;
+	border-radius: var(--radius-control);
 	color: var(--muted-foreground);
-	transition: background-color 150ms var(--motion-ease), color 150ms var(--motion-ease), transform
-		150ms var(--motion-ease);
+	transition: background-color var(--dur-quick) var(--ease-out), color var(--dur-quick)
+		var(--ease-out), transform var(--dur-quick) var(--ease-out);
 }
 .rail-button:active {
 	transform: scale(0.94);
@@ -285,7 +285,7 @@ pre {
 	pointer-events: none;
 	fill: var(--primary);
 	opacity: 0.14;
-	animation: brand-dither-arrive 360ms var(--motion-ease);
+	animation: brand-dither-arrive 360ms var(--ease-out);
 }
 @keyframes brand-dither-arrive {
 	from {
@@ -319,7 +319,7 @@ pre {
 	min-height: 34px;
 	margin: 2px 10px;
 	padding: 7px 10px;
-	border-radius: 7px;
+	border-radius: var(--radius-chip);
 	text-align: left;
 	font-size: 13px;
 	color: var(--sidebar-foreground);
@@ -384,7 +384,7 @@ pre {
 }
 .conversation-age {
 	opacity: 0;
-	transition: opacity 150ms;
+	transition: opacity var(--dur-quick);
 }
 .conversations button:hover .conversation-age,
 .conversations button:focus-visible .conversation-age {
@@ -407,7 +407,7 @@ pre {
 	width: fit-content;
 	max-width: 100%;
 	padding: 8px 10px;
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	color: var(--muted-foreground);
 	font-size: 13px;
 	text-align: left;
@@ -529,7 +529,7 @@ pre {
 }
 .workspace > :is(.topbar, .connection-error, .welcome, .chat-stage) {
 	width: 100%;
-	transition: width var(--motion-duration) var(--motion-ease);
+	transition: width var(--dur-base) var(--ease-out);
 }
 .workspace.jobs-open > :is(.topbar, .connection-error, .welcome, .chat-stage) {
 	width: calc(100% - var(--panel-width));
@@ -582,10 +582,10 @@ pre {
 	scrollbar-gutter: stable both-edges;
 	padding: 20px var(--workspace-gutter-end) calc(var(--composer-height, 200px) + 16px)
 		var(--workspace-gutter-start);
-	transition: padding-right var(--motion-duration) var(--motion-ease);
+	transition: padding-right var(--dur-base) var(--ease-out);
 }
 .composer-wrap > div {
-	transition: padding-inline-end var(--motion-duration) var(--motion-ease);
+	transition: padding-inline-end var(--dur-base) var(--ease-out);
 }
 .conversation-body {
 	width: 100%;
@@ -598,7 +598,7 @@ pre {
 	left: 50%;
 	z-index: 3;
 	translate: -50% 0;
-	animation: content-arrive 120ms ease-out;
+	animation: content-arrive var(--dur-quick) var(--ease-out);
 }
 .transcript-latest {
 	/* Opaque enough that the line of text behind it does not read through the arrow. */
@@ -610,7 +610,7 @@ pre {
 	}
 }
 .message {
-	animation: content-arrive 180ms ease-out;
+	animation: content-arrive var(--dur-base) var(--ease-out);
 }
 .message-text {
 	overflow-wrap: anywhere;
@@ -678,7 +678,7 @@ pre {
 	margin: 0;
 	padding: 4px 12px;
 	border: 1px solid var(--border);
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	background: var(--background);
 	white-space: nowrap;
 	transform: translateX(-50%);
@@ -749,7 +749,7 @@ pre {
 	width: 14px;
 	height: 14px;
 	flex-shrink: 0;
-	transition: transform 180ms ease;
+	transition: transform var(--dur-base) var(--ease-out);
 }
 [data-panel-open] > .disclosure-chevron {
 	transform: rotate(90deg);
@@ -762,7 +762,7 @@ pre {
 	outline: 2px solid transparent;
 	outline-offset: 2px;
 	box-shadow: var(--focus-ring);
-	border-radius: 4px;
+	border-radius: var(--radius-chip);
 }
 .reasoning {
 	color: var(--muted-foreground);
@@ -813,7 +813,7 @@ pre {
 	cursor: pointer;
 	text-align: left;
 	line-height: 1.625;
-	transition: background-color 150ms;
+	transition: background-color var(--dur-quick);
 }
 .tool-trigger:hover {
 	background: color-mix(in srgb, var(--accent) 20%, transparent);
@@ -858,7 +858,7 @@ pre {
 .tool-progress {
 	padding: 10px 12px;
 	background: var(--surface);
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	font-size: 12px;
 	line-height: 1.65;
 }
@@ -877,7 +877,7 @@ pre {
 .approval {
 	margin: 16px 0;
 	padding: 16px;
-	border-radius: 16px;
+	border-radius: var(--radius-panel);
 	border: 1px solid var(--border);
 	background: var(--surface-raised);
 }
@@ -909,7 +909,7 @@ pre {
 }
 .inline-error-retry {
 	padding: 0 2px;
-	border-radius: 4px;
+	border-radius: var(--radius-chip);
 	color: var(--foreground);
 	font: inherit;
 	text-decoration: underline;
@@ -935,10 +935,10 @@ pre {
 	flex-direction: column;
 	border-left: 1px solid var(--border);
 	background: var(--background);
-	z-index: 35;
+	z-index: var(--z-panel-raised);
 	transform: translateX(100%);
 	visibility: hidden;
-	transition: transform var(--motion-duration) var(--motion-ease), visibility var(--motion-duration);
+	transition: transform var(--dur-base) var(--ease-out), visibility var(--dur-base);
 }
 .panel-back-row {
 	display: none;
@@ -982,7 +982,7 @@ pre {
 .background-processes-heading kbd {
 	padding: 1px 5px;
 	border: 1px solid var(--border);
-	border-radius: 4px;
+	border-radius: var(--radius-chip);
 	font-size: 10px;
 	font-family: var(--font-sans);
 	font-variant-numeric: tabular-nums;
@@ -994,7 +994,7 @@ pre {
 }
 .job {
 	font-size: 12px;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 }
 .job-heading {
 	display: flex;
@@ -1031,7 +1031,7 @@ pre {
 }
 .job-chevron {
 	flex: none;
-	transition: transform 200ms var(--motion-ease);
+	transition: transform var(--dur-base) var(--ease-out);
 }
 .job-trigger[data-panel-open] .job-chevron {
 	transform: rotate(90deg);
@@ -1041,7 +1041,7 @@ pre {
 	font-size: 10px;
 	line-height: 18px;
 	padding: 0 6px;
-	border-radius: 4px;
+	border-radius: var(--radius-chip);
 	background: var(--surface);
 	color: var(--muted-foreground);
 }
@@ -1057,7 +1057,7 @@ pre {
 }
 .job-stop {
 	opacity: 0;
-	transition: opacity 150ms var(--motion-ease);
+	transition: opacity var(--dur-quick) var(--ease-out);
 }
 .job:hover .job-stop,
 .job:focus-within .job-stop,
@@ -1087,7 +1087,7 @@ pre {
 	margin: 0 4px 8px;
 	padding: 8px;
 	border: 1px solid var(--border);
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 }
 .job-output-heading {
 	display: flex;
@@ -1180,7 +1180,7 @@ pre {
 	.jobs-panel {
 		width: 100%;
 		box-shadow: none;
-		z-index: 30;
+		z-index: var(--z-panel);
 	}
 	.panel-back-row {
 		display: flex;
@@ -1195,10 +1195,10 @@ pre {
 		position: absolute;
 		inset: 32px auto 0 48px;
 		width: min(288px, calc(100vw - 64px));
-		z-index: 50;
+		z-index: var(--z-nav);
 		visibility: hidden;
 		transform: translateX(-100%);
-		transition: transform var(--motion-duration) var(--motion-ease);
+		transition: transform var(--dur-base) var(--ease-out);
 	}
 	.sidebar.open {
 		visibility: visible;
@@ -1216,7 +1216,7 @@ pre {
 		display: block;
 		position: fixed;
 		inset: 32px 0 0 48px;
-		z-index: 45;
+		z-index: var(--z-scrim-nav);
 		background: rgb(0 0 0 / 45%);
 	}
 	.breadcrumb-project {
@@ -1399,7 +1399,7 @@ pre {
 	min-width: 1rem;
 	align-items: center;
 	justify-content: center;
-	border-radius: 0.25rem;
+	border-radius: var(--radius-chip);
 	text-decoration: none;
 	font-size: 0.6875rem;
 	font-weight: 600;
@@ -1407,7 +1407,7 @@ pre {
 
 .chat-markdown :not(pre) > code {
 	border: 1px solid var(--border);
-	border-radius: 0.375rem;
+	border-radius: var(--radius-chip);
 	background: var(--muted);
 	padding: 0.1rem 0.35rem;
 	color: var(--contrast-foreground);
@@ -1418,7 +1418,7 @@ pre {
 	max-width: 100%;
 	overflow-x: auto;
 	border: 1px solid var(--border);
-	border-radius: 0.75rem;
+	border-radius: var(--radius-card);
 	background: var(--muted);
 	padding: 0.8rem 0.9rem;
 	scrollbar-width: thin;
@@ -1437,7 +1437,7 @@ pre {
 }
 
 .chat-markdown pre::-webkit-scrollbar-thumb {
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	background: color-mix(in srgb, var(--border) 78%, transparent);
 }
 
@@ -1458,7 +1458,7 @@ pre {
 	margin: 0.65rem 0;
 	overflow: hidden;
 	border: 1px solid var(--border);
-	border-radius: 0.75rem;
+	border-radius: var(--radius-card);
 	background: var(--muted);
 }
 .chat-markdown .chat-markdown-codeblock-language {
@@ -1495,7 +1495,7 @@ pre {
 @media (prefers-reduced-motion: no-preference) {
 	.chat-markdown[data-streaming] > *,
 	.chat-markdown[data-streaming] .chat-markdown-shiki {
-		transition: opacity 600ms ease-out;
+		transition: opacity var(--dur-sheet) var(--ease-out);
 
 		@starting-style {
 			opacity: 0;
@@ -1514,7 +1514,7 @@ pre {
 	overflow-x: auto;
 	overscroll-behavior-x: contain;
 	border: 1px solid var(--border);
-	border-radius: 0.75rem;
+	border-radius: var(--radius-card);
 	scrollbar-width: thin;
 	scrollbar-color: color-mix(in srgb, var(--border) 78%, transparent) transparent;
 }
@@ -1568,7 +1568,7 @@ pre {
 }
 
 .rail-button svg[data-filled] {
-	animation: rail-icon-select 160ms var(--motion-ease);
+	animation: rail-icon-select var(--dur-quick) var(--ease-out);
 }
 @keyframes rail-icon-select {
 	from {
@@ -1597,7 +1597,7 @@ pre {
 	max-height: calc(100dvh - 64px);
 	overflow: auto;
 	border: 1px solid var(--border);
-	border-radius: 18px;
+	border-radius: var(--radius-panel);
 	background: var(--surface);
 	padding: 20px;
 }
@@ -1611,7 +1611,7 @@ pre {
 	width: 100%;
 	height: auto;
 	margin: 16px 0;
-	border-radius: 10px;
+	border-radius: var(--radius-control);
 }
 
 .computer-chat-launcher {
@@ -1701,9 +1701,9 @@ pre {
 	width: min(560px, calc(100% - 36px));
 	height: min(650px, calc(100% - 80px));
 	border: 1px solid var(--border);
-	border-radius: 22px;
+	border-radius: var(--radius-panel);
 	background: var(--background);
-	box-shadow: 0 16px 48px rgb(0 0 0 / 20%);
+	box-shadow: var(--shadow-dialog);
 	overflow: hidden;
 }
 .computer-floating-chat-heading {
@@ -1748,7 +1748,7 @@ pre {
 		width: calc(100% - 24px);
 		height: min(520px, 65%);
 		border: 1px solid var(--border);
-		border-radius: 18px;
+		border-radius: var(--radius-panel);
 		background: var(--background);
 	}
 }
@@ -1767,7 +1767,14 @@ pre {
 		width: min(560px, calc(100% - 24px));
 		height: min(520px, 65%);
 		border: 1px solid var(--border);
-		border-radius: 18px;
+		border-radius: var(--radius-panel);
 		background: var(--background);
+	}
+}
+/* Loading placeholders (skeletons, loading spinners) use this through --placeholder-reveal: the
+   element is transparent through the delay, then fades to whatever its own animation says. */
+@keyframes placeholder-reveal {
+	from {
+		opacity: 0;
 	}
 }

@@ -336,12 +336,12 @@ export function ComposerPermissions({
 				}}
 			>
 				<AlertDialog.Portal>
-					<AlertDialog.Backdrop className="fixed inset-0 z-[160] bg-black/50" />
-					<AlertDialog.Viewport className="fixed inset-0 z-[161] grid place-items-center overflow-y-auto p-4">
+					<AlertDialog.Backdrop className="fixed inset-0 z-(--z-scrim) bg-black/50" />
+					<AlertDialog.Viewport className="fixed inset-0 z-(--z-dialog) grid place-items-center overflow-y-auto p-4">
 						<AlertDialog.Popup
 							initialFocus={cancel}
 							finalFocus={trigger}
-							className="w-full max-w-md rounded-2xl border border-border bg-background p-5 text-foreground shadow-xl outline-none"
+							className="w-full max-w-md rounded-2xl border border-border bg-background p-5 text-foreground shadow-[var(--shadow-dialog)] outline-none"
 						>
 							<AlertDialog.Title className="text-lg font-semibold">
 								{fullAccessCopy(engine).title}

@@ -366,12 +366,12 @@ export function UndoDialog({
 			}}
 		>
 			<Dialog.Portal>
-				<Dialog.Backdrop className="fixed inset-0 z-[160] bg-black/50" />
-				<Dialog.Viewport className="fixed inset-0 z-[161] grid place-items-center overflow-y-auto p-4">
+				<Dialog.Backdrop className="fixed inset-0 z-(--z-scrim) bg-black/50" />
+				<Dialog.Viewport className="fixed inset-0 z-(--z-dialog) grid place-items-center overflow-y-auto p-4">
 					<Dialog.Popup
 						initialFocus={cancel}
 						finalFocus={returnFocus}
-						className="undo-dialog w-full max-w-xl rounded-2xl border border-border bg-background p-5 text-foreground shadow-xl outline-none"
+						className="undo-dialog w-full max-w-xl rounded-2xl border border-border bg-background p-5 text-foreground shadow-[var(--shadow-dialog)] outline-none"
 					>
 						<Dialog.Title className="text-lg font-semibold">
 							{phase.kind === 'done' ? 'Undo finished' : 'Undo this reply’s file changes?'}

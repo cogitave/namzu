@@ -103,7 +103,7 @@
 	justify-content: flex-start;
 	height: 28px;
 	padding-inline: 5px;
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	color: var(--foreground);
 }
 /* The page edge under the composer is solid, so a long reply never shows through the gap below the card. */
@@ -276,7 +276,7 @@
 	width: 280px;
 	max-width: min(280px, var(--available-width), calc(100vw - 24px));
 	max-height: var(--available-height);
-	border-radius: 16px;
+	border-radius: var(--radius-panel);
 }
 .composer-project-popup [data-slot="popover-viewport"] {
 	display: flex;
@@ -454,7 +454,7 @@
 	margin: 12px 0;
 	padding: 14px 16px;
 	border: 1px solid var(--border);
-	border-radius: 12px;
+	border-radius: var(--radius-card);
 	background: var(--surface, var(--background));
 	color: var(--foreground);
 }

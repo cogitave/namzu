@@ -5,6 +5,9 @@
 	--transcript-entry-ease: ease-out;
 	--transcript-phase-ease: ease-out;
 	--transcript-frame-ease: cubic-bezier(0.42, 0, 0.58, 1);
+	/* The sent message's settle is the one place the scale's overshoot is used. */
+	--transcript-pop-duration: var(--dur-slow);
+	--transcript-pop-ease: var(--ease-pop);
 }
 .normal-transcript .message {
 	/* Stored history and tab selection are immediate. Live entries use their admission effects. */

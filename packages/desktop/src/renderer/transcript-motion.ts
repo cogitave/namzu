@@ -7,7 +7,15 @@ export const transcriptMotion = {
 	entry: { duration: 120, easing: 'ease-out' },
 	phase: { duration: 120, easing: 'ease-out' },
 	frame: { duration: 260, easing: 'cubic-bezier(0.42, 0, 0.58, 1)' },
+	/** A message the person has just sent settles in with a small overshoot; nothing else does. */
+	pop: { duration: 450, easing: 'cubic-bezier(0.34, 1.3, 0.64, 1)' },
 } as const
+
+/** Where a sent message starts from: a little smaller and lower, anchored to its own edge. */
+export const sentMessageFrames: Keyframe[] = [
+	{ opacity: 0, transform: 'scale(0.94) translateY(6px)', transformOrigin: '100% 100%' },
+	{ opacity: 1, transform: 'none', transformOrigin: '100% 100%' },
+]
 
 export function transcriptEntryKey(entry: TimelineEntry): string {
 	return entry.kind === 'message' ? `message-${entry.index}` : `${entry.kind}-${entry.id}`
@@ -241,13 +249,23 @@ export function createTranscriptEntryMotion(node: HTMLElement) {
 			}
 			if (!enabled || pendingHistory(history)) cancel()
 			if (media?.matches || !added.size) return
+			// Only the person's own live message pops; replies, tools and restored history keep the plain fade.
+			const sentMessageKeys = new Set(
+				entries
+					.filter(
+						(entry) => entry.kind === 'message' && thread.messages[entry.index]?.role === 'user',
+					)
+					.map(transcriptEntryKey),
+			)
 			for (const row of node.querySelectorAll<HTMLElement>('[data-transcript-entry-key]')) {
 				if (!added.has(row.dataset.transcriptEntryKey ?? '') || !row.animate) continue
+				const key = row.dataset.transcriptEntryKey ?? ''
+				const sent = sentMessageKeys.has(key)
 				const effect = row.animate(
-					[{ opacity: 0.65 }, { opacity: 1 }],
-					motionOptions(node, 'entry'),
+					sent ? sentMessageFrames : [{ opacity: 0.65 }, { opacity: 1 }],
+					motionOptions(node, sent ? 'pop' : 'entry'),
 				)
-				effect.id = 'namzu-transcript-entry'
+				effect.id = sent ? 'namzu-transcript-sent' : 'namzu-transcript-entry'
 				effects.add(effect)
 				effect.addEventListener('finish', () => effects.delete(effect), {
 					once: true,

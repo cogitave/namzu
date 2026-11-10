@@ -30,7 +30,7 @@
 	height: 28px;
 	white-space: nowrap;
 	padding: 0 10px;
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	background: var(--accent);
 	color: var(--foreground);
 	font-size: 13px;
@@ -71,7 +71,7 @@
 	gap: 2px;
 	margin-inline-start: auto;
 	padding: 2px;
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	background: color-mix(in srgb, var(--accent) 70%, transparent);
 }
 .changes-icon-button {
@@ -80,7 +80,7 @@
 	place-items: center;
 	width: 24px;
 	height: 24px;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	color: var(--muted-foreground);
 	cursor: pointer;
 }
@@ -118,7 +118,7 @@
 	margin: 4px 12px;
 	padding: 3px 10px;
 	border: 1px solid var(--border);
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	color: var(--foreground);
 	font-size: 12px;
 	cursor: pointer;
@@ -163,7 +163,7 @@
 	margin-bottom: 6px;
 	padding: 0 10px;
 	border: 1px solid var(--border);
-	border-radius: 10px;
+	border-radius: var(--radius-control);
 	color: var(--muted-foreground);
 }
 .changes-filter:focus-within {
@@ -197,7 +197,7 @@
 	align-items: center;
 	gap: 6px;
 	padding-inline-end: 8px;
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	color: var(--foreground);
 	font-size: 13px;
 	text-align: left;
@@ -298,7 +298,7 @@
 .changes-gate-button {
 	padding: 2px 8px;
 	border: 1px solid var(--border);
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	background: transparent;
 	color: var(--foreground);
 	font: inherit;

@@ -137,7 +137,7 @@ export function JobRow({
 					{error}
 				</p>
 			)}
-			<CollapsiblePanel keepMounted>
+			<CollapsiblePanel keepMounted rows>
 				<div className="job-details">
 					<div className="job-output-heading">
 						<span>Terminal output</span>

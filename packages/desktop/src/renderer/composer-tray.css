@@ -5,7 +5,7 @@
 	z-index: 10;
 	border: 1px solid var(--chat-composer-outline);
 	border-bottom: 0;
-	border-radius: 24px 24px 0 0;
+	border-radius: var(--radius-panel) var(--radius-panel) 0 0;
 	padding: 6px 4px 2px;
 	font-size: 13px;
 	line-height: 18px;
@@ -41,7 +41,7 @@
 	column-gap: 8px;
 	min-height: var(--row-height);
 	padding: 4px 8px 4px 12px;
-	border-radius: 10px;
+	border-radius: var(--radius-control);
 }
 .composer-tray-row:is(:hover, :focus-within) {
 	background: color-mix(in srgb, var(--foreground) 5%, transparent);
@@ -100,7 +100,7 @@
 	resize: none;
 	margin: 0;
 	padding: 2px 6px;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	background: color-mix(in srgb, var(--foreground) 6%, transparent);
 	color: var(--foreground);
 	font: inherit;

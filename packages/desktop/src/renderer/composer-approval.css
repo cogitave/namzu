@@ -60,7 +60,7 @@
 .approval-diff {
 	overflow: hidden;
 	border: 1px solid var(--border);
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	background: var(--code-background);
 }
 .approval-diff-scroll {
@@ -113,7 +113,7 @@
 	padding: 8px 10px;
 	overflow: auto;
 	border: 1px solid var(--border);
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	background: var(--code-background);
 	color: var(--code-foreground);
 	font-family: var(--font-mono);
@@ -128,7 +128,7 @@
 	overflow: auto;
 	border: 1px solid var(--border);
 	border-left: 3px solid var(--border-strong, var(--muted-foreground));
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	background: var(--surface);
 	color: var(--foreground);
 	font-size: 13px;
@@ -165,7 +165,7 @@
 .approval-details summary {
 	width: fit-content;
 	cursor: pointer;
-	border-radius: 4px;
+	border-radius: var(--radius-chip);
 }
 .approval-details summary:focus-visible {
 	outline: 2px solid transparent;
@@ -186,7 +186,7 @@
 	padding: 8px;
 	overflow: auto;
 	border: 1px solid var(--border);
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	background: var(--muted);
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
@@ -215,7 +215,7 @@
 	height: 28px;
 	padding: 0 10px;
 	border: 1px solid var(--input);
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	background: transparent;
 	color: var(--foreground);
 	font: inherit;
@@ -235,7 +235,7 @@
 	height: 28px;
 	padding: 0 12px;
 	border: 1px solid var(--border);
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	background: transparent;
 	color: var(--foreground);
 	font: inherit;

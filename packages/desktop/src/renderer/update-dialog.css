@@ -1,13 +1,13 @@
 .update-dialog-backdrop {
 	position: fixed;
 	inset: 0;
-	z-index: 160;
+	z-index: var(--z-scrim);
 	background: rgb(0 0 0 / 40%);
 }
 .update-dialog-viewport {
 	position: fixed;
 	inset: 0;
-	z-index: 161;
+	z-index: var(--z-dialog);
 	display: grid;
 	place-items: center;
 	padding: 16px;
@@ -17,10 +17,10 @@
 	width: min(420px, 100%);
 	padding: 20px 22px 22px;
 	border: 1px solid var(--border);
-	border-radius: 20px;
+	border-radius: var(--radius-panel);
 	background: var(--popover);
 	color: var(--popover-foreground);
-	box-shadow: 0 16px 48px -12px rgb(0 0 0 / 45%);
+	box-shadow: var(--shadow-dialog);
 	outline: none;
 }
 .update-dialog-title {

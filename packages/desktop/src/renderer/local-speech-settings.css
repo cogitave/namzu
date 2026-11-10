@@ -42,7 +42,7 @@
 .local-speech-badge {
 	flex: none;
 	padding: 2px 6px;
-	border-radius: 5px;
+	border-radius: var(--radius-chip);
 	background: color-mix(in srgb, var(--foreground) 6%, transparent);
 	color: var(--muted-foreground);
 	font-size: 10px;
@@ -93,7 +93,7 @@
 .local-speech-resources {
 	padding: 10px;
 	border: 1px solid var(--border);
-	border-radius: 9px;
+	border-radius: var(--radius-control);
 	background: color-mix(in srgb, var(--foreground) 3%, transparent);
 }
 .local-speech-resources header {
