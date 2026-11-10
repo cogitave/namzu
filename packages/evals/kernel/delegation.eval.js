@@ -743,9 +743,17 @@ const disjointCase = twoWriters({
 });
 
 /**
- * Both children read the shared file and then replace it. The second one's
- * write is held until the first has written, so the order is fixed and the
- * second is working from a read that is no longer current.
+ * Both children read the shared file before either writes, and the second
+ * one's write is held until the first has landed: the order is fixed, so the
+ * second is working from a read that is no longer current on disk.
+ *
+ * What the kernel does with that is pinned as it is today. A child runs with
+ * its parent's file ledger (`BaseAgentConfig.fileReadTracker`), so the two
+ * siblings share one ledger too, and the first child's write is recorded in
+ * it as the newest observation of the file. The second child's copy then
+ * matches the ledger and its write is admitted: it replaces the first edit
+ * and nobody is told. A ledger of its own per child would refuse the second
+ * write as stale instead; when that is the behaviour, this case moves with it.
  */
 const sameFileStaleCase = (() => {
 	const reader = (content, answer) => ({
@@ -757,7 +765,7 @@ const sameFileStaleCase = (() => {
 		],
 	});
 	return twoWriters({
-		name: "baseline: two parallel children replacing one file from the same read, the later write is refused as stale and only the first lands",
+		name: "baseline: two parallel children replacing one file from the same read share the parent's ledger, so the later write is not refused as stale and the first edit is silently replaced",
 		files: { "shared.txt": "original\n" },
 		children: {
 			writer_a: reader("from a\n", "A replaced shared.txt."),
@@ -777,32 +785,35 @@ const sameFileStaleCase = (() => {
 		expect: { children: 2, tokens: 180, lostEdits: 1 },
 		checks: async (w, ps) => {
 			const body = await w.read("shared.txt");
-			const a = ps.find((p) => attributedTo(p, "writer_a"));
-			const b = ps.find((p) => attributedTo(p, "writer_b"));
+			const both = ps.every(
+				(p) => p.recordLine?.includes("1 file changed") === true,
+			);
 			const bRequests = w.ledger.requests.filter(
 				(r) => r.provider === "writer_b",
 			);
 			const bSaw = toolMessages(bRequests.at(-1)?.messages ?? []).join("\n");
 			return [
 				yes(
-					"the file holds the first write only",
-					body === "from a\n",
+					"the file holds the later write only",
+					body === "from b\n",
 					JSON.stringify(body),
 				),
 				yes(
-					"the second child was told its copy was stale",
-					/changed on disk after you read it/.test(bSaw),
+					"the second child was not told its copy was stale",
+					!/changed on disk after you read it/.test(bSaw),
 					bSaw,
 				),
 				yes(
-					"the first child reports one file changed",
-					a?.recordLine?.includes("1 file changed") === true,
-					String(a?.recordLine),
+					"both children report one file changed",
+					both,
+					ps.map((p) => p.recordLine).join(" / "),
 				),
 				yes(
-					"the second reports no change, so its refusal never reaches the parent as a change",
-					b?.recordLine === undefined,
-					String(b?.recordLine),
+					"nothing the parent reads says an edit was replaced",
+					!/overwr|replaced by|conflict|lost|stale/i.test(
+						ps.map((p) => p.after).join("\n"),
+					),
+					ps.map((p) => p.after).join("\n"),
 				),
 			];
 		},
