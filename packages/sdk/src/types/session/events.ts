@@ -920,6 +920,13 @@ type CoreSessionEvent =
 			 */
 			cache?: { ttlMs: number; touched: boolean }
 			/**
+			 * Why the provider says the latest model call did not read the cache
+			 * prefix it had before, when it explains one. Absent means no miss was
+			 * explained: nothing reported, a pending answer, or a hit. A host that
+			 * shows it should do so quietly; a miss after an edit is ordinary.
+			 */
+			cacheMiss?: { reason: string; missedTokens?: number }
+			/**
 			 * How large the CONTEXT is right now, and how large it may get.
 			 *
 			 * These are a different quantity from `usage` beside them and the

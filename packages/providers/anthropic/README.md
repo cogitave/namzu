@@ -52,12 +52,12 @@ registerAnthropic()
 const { provider } = ProviderRegistry.create({
   type: 'anthropic',
   apiKey: process.env.ANTHROPIC_API_KEY,
-  model: 'claude-sonnet-4-5-20250929',
+  model: 'claude-sonnet-5-5',
 })
 
 const response = await collectChatCompletion(
   provider.chatStream({
-    model: 'claude-sonnet-4-5-20250929',
+    model: 'claude-sonnet-5-5',
     messages: [{ role: 'user', content: 'Hello' }],
   }),
 )
@@ -96,6 +96,31 @@ The existing `listModels(signal?)` retains its offline-menu behavior: on failure
 or an empty response it returns `OFFLINE_MODEL_CATALOGUE`. Those fallback rows
 are known model definitions, not evidence of current credential or account
 access. The CLI's desktop catalogue uses the strict method.
+
+The offline menu offers current models only: `claude-sonnet-5-5`,
+`claude-opus-4-8` and `claude-haiku-4-5`. A model the vendor has retired
+(`claude-opus-4-1-20250805`) is not offered, and `claude-sonnet-4-5-20250929`,
+announced for retirement on 2026-11-30, is no longer recommended; naming it still
+works until the vendor stops serving it.
+
+## Paused server tools
+
+When a server tool such as hosted search stops a response with `pause_turn`,
+`chatStream` sends the content received so far, unchanged, as the last assistant
+message and continues, up to five times, as one turn: one finish, usage added
+up. A turn still paused after that fails with a `server` provider error.
+
+## Cache diagnostics
+
+On the vendor's own host the driver sends `diagnostics: { previous_message_id }`
+(`null` on a conversation's first request) and reads the response's
+`cache_miss_reason` into `TokenUsage.cacheMiss`. It sends nothing to a
+compatible or third-party endpoint.
+
+## Usage fields
+
+`TokenUsage` also carries `webSearchRequests` (from `server_tool_use`),
+`serviceTier` and `inferenceGeo` when the response reports them.
 
 ## Documentation
 

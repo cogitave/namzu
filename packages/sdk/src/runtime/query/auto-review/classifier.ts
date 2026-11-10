@@ -38,6 +38,7 @@ import {
 } from '../../../utils/backoff.js'
 import { SCOPE_ATTRIBUTE } from '../../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../../utils/logger.js'
+import { chatStreamWithSamplingRepair } from '../iteration/side-call.js'
 import {
 	STAGE_ONE_INSTRUCTION,
 	STAGE_TWO_INSTRUCTION,
@@ -209,7 +210,7 @@ export function createAutoReviewClassifier(
 				// ignores it would otherwise hold the call open past its deadline, and
 				// a turn cancelled while it waits would wait with it.
 				const collected = collectChatCompletion(
-					options.provider.chatStream({
+					chatStreamWithSamplingRepair(options.provider, {
 						model: options.model,
 						messages,
 						maxTokens: stage === 1 ? 64 : 8_192,

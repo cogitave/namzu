@@ -135,6 +135,14 @@ function validate(source) {
 				}
 			}
 		}
+		if (
+			vendor.webSearchPer1000 !== undefined &&
+			(typeof vendor.webSearchPer1000 !== 'number' ||
+				!Number.isFinite(vendor.webSearchPer1000) ||
+				vendor.webSearchPer1000 < 0)
+		) {
+			problems.push(`${where} has a \`webSearchPer1000\` that is not a finite, non-negative number.`)
+		}
 		const seenModels = new Set()
 		for (const model of vendor.models) {
 			if (typeof model.id !== 'string' || model.id.length === 0) {
@@ -196,7 +204,8 @@ function render(source) {
 					return (
 						`\t\t\t['${model.id}', { inputCostPer1M: ${model.inputPer1M}, ` +
 						`outputCostPer1M: ${model.outputPer1M}, cache: { ${cache} }` +
-						`${model.fastMultiplier === undefined ? '' : `, fastMultiplier: ${model.fastMultiplier}`} }],`
+						`${model.fastMultiplier === undefined ? '' : `, fastMultiplier: ${model.fastMultiplier}`}` +
+						`${vendor.webSearchPer1000 === undefined ? '' : `, webSearchCostPer1000: ${vendor.webSearchPer1000}`} }],`
 					)
 				})
 			const models = rows.length === 0 ? '\t\t\t// none — see `unmetered`.\n' : `${rows.join('\n')}\n`

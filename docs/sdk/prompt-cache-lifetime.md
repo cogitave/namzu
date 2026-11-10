@@ -27,6 +27,14 @@ reports that time as a fact about each call and never guesses it.
 - The `token_usage_updated` event carries `cache: { ttlMs, touched }` when the
   call reported a lifetime. `touched` is true when the call read or wrote cache.
 
+- `TokenUsage.cacheMiss` is why the provider says the call did not read a cache
+  prefix it had before (`{ reason, missedTokens? }`; reasons such as
+  `system_changed`, `tools_changed`, `messages_changed`, `model_changed`,
+  `previous_message_not_found`, `unavailable`). It belongs to one call and is
+  never summed. Absent means no miss was explained. The `token_usage_updated` event
+  carries it as `cacheMiss`. The Anthropic driver asks for it only on the vendor's
+  own host, naming the previous response of the same conversation.
+
 ## CacheClock
 
 `CacheClock` tracks when the conversation's cache lapses. `record(usage, at)`
