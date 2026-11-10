@@ -260,6 +260,10 @@ The workflow is not part of the `ci.yml`/`release.yml` gate parity.
 The installer is unsigned, so anyone who can write to that release can ship an update to every
 install; restrict who has `contents: write`, and sign the installer before wide distribution.
 
+### Computer use on this PC
+
+Desktop starts the engine as `namzu acp --desktop`, and that path mounts the host `computer_use` tool, so an agent in a Desktop conversation can look at and drive this PC the way the terminal can (`packages/cli/src/commands/acp.ts`, `CliAcpRuntimeOptions.computerUse`). A plain `namzu acp` client does not get it. Nothing about the approvals changes: the first look at the screen in a conversation is asked about, every action still follows the conversation's permission mode, and the host's `Escape` stops it. A conversation with a Pal keeps the Pal's own computer behind the same tool name and does not also get the PC's. When this device cannot offer computer use (the helper did not start, or the provider cannot return images), the tool is listed with the reason and the agent says so when it is asked. The "an application needs the screen for a moment" question has no card in Desktop yet, so that case waits for a still moment instead of asking. This is separate from the Pal computer below.
+
 ### Pal computer on Windows
 
 On Windows a Pal's computer runs on Microsoft's Linux container support, as Namzu's own light
