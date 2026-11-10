@@ -4828,6 +4828,7 @@ export async function createAgentSession(
 		now: Date.now,
 		retireAfterDays: options.memory?.retireAfterDays ?? DEFAULT_RETIRE_AFTER_DAYS,
 		isDraining: () => curation?.draining === true,
+		onTurnSettled: () => curation?.turnSettled(),
 		setTimer: (run, ms) => {
 			const handle = setTimeout(run, ms)
 			handle.unref?.()

@@ -130,19 +130,114 @@ describe('curation runtime', () => {
 		runtime.appended()
 		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS - 1)
 		runtime.turnStarted()
-		// The idle timer is gone; only the turn-start drain, on a timer of zero, remains.
+		// The idle timer is gone and nothing is armed while the turn runs.
+		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS * 4)
 		expect(asked).toEqual([])
-		await vi.advanceTimersByTimeAsync(0)
-		await vi.waitFor(() => expect(asked).toHaveLength(1))
+		expect(vi.getTimerCount()).toBe(0)
 	})
 
-	it('a turn starting drains behind the dispatch and never before it', async () => {
+	it('curation queued during a running turn starts only after the turn settles, and after the pause', async () => {
+		const { inbox, runtime, asked } = setup()
+		runtime.turnStarted()
+		// A turn's own release appends while the turn is still running.
+		await inbox.append(candidate('Always use pnpm'))
+		runtime.appended()
+		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS * 4)
+		expect(asked).toEqual([])
+		runtime.turnSettled()
+		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS - 1)
+		expect(asked).toEqual([])
+		await vi.advanceTimersByTimeAsync(1)
+		await vi.waitFor(() => expect(asked).toHaveLength(1))
+		expect(await inbox.pending()).toEqual([])
+	})
+
+	it('what an earlier process left drains after the first turn settles, never during it', async () => {
 		const { inbox, runtime, asked } = setup()
 		await inbox.append(candidate('Always use pnpm'))
 		runtime.turnStarted()
-		expect(asked).toEqual([])
 		await vi.advanceTimersByTimeAsync(0)
+		expect(asked).toEqual([])
+		runtime.turnSettled()
+		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS)
 		await vi.waitFor(() => expect(asked).toHaveLength(1))
+	})
+
+	it('a drain asked for by name while a turn runs is skipped, and the closing drain is not', async () => {
+		const { inbox, runtime, asked } = setup()
+		await inbox.append(candidate('Always use pnpm'))
+		runtime.turnStarted()
+		await expect(runtime.drain('idle')).resolves.toBeUndefined()
+		expect(asked).toEqual([])
+		await runtime.dispose()
+		expect(asked).toHaveLength(1)
+	})
+
+	it('a turn starting mid-curation is not held by it', async () => {
+		const { inbox, store } = setup()
+		let release: (reply: string | undefined) => void = () => {}
+		const asked: string[] = []
+		const runtime = new CurationRuntime({
+			inbox,
+			curator: new MemoryCurator({
+				store,
+				sideModel: () => ({
+					route: async () => ({ providerId: 'p', model: 'm', source: 'cheapest' as const }),
+					smallProvider: async () => undefined,
+					ask: (request) =>
+						new Promise((resolve) => {
+							asked.push(request.body)
+							release = resolve
+						}),
+				}),
+				fallback: async () => {},
+			}),
+			setTimer: (run, ms) => setTimeout(run, ms),
+			clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+			turn: () => ({ sessionId: 's1' as SessionId, turnId: 't1' as TurnId }),
+			hasSideModel: () => true,
+		})
+		await inbox.append(candidate('Always use pnpm'))
+		runtime.appended()
+		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS)
+		await vi.waitFor(() => expect(asked).toHaveLength(1))
+		expect(runtime.draining).toBe(true)
+		// The turn starts while the model call is out: the call returns at once,
+		// nothing is awaited and nothing new is armed.
+		runtime.turnStarted()
+		// The drain in flight finishes by itself; a second one is not started.
+		release(undefined)
+		await vi.waitFor(() => expect(runtime.draining).toBe(false))
+		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS * 2)
+		expect(asked).toHaveLength(1)
+	})
+
+	it('looks again after the next pause when the person is typing, then drains', async () => {
+		const { inbox, store } = setup()
+		let busy = true
+		const asked: string[] = []
+		const runtime = new CurationRuntime({
+			inbox,
+			curator: new MemoryCurator({
+				store,
+				sideModel: () => undefined,
+				fallback: async (c) => {
+					asked.push(c.userRequirements.join())
+				},
+			}),
+			setTimer: (run, ms) => setTimeout(run, ms),
+			clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+			turn: () => undefined,
+			hasSideModel: () => false,
+			isBusy: () => busy,
+		})
+		await inbox.append(candidate('Always use pnpm'))
+		runtime.appended()
+		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS * 3)
+		expect(asked).toEqual([])
+		busy = false
+		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS)
+		await vi.waitFor(() => expect(asked).toEqual(['Always use pnpm']))
 	})
 
 	it('does not fire the idle drain while the person is busy', async () => {
@@ -173,7 +268,8 @@ describe('curation runtime', () => {
 		expect((await inbox.pending()).length).toBe(1)
 		setTurn({ sessionId: 's1' as SessionId, turnId: 't2' as TurnId })
 		runtime.turnStarted()
-		await vi.advanceTimersByTimeAsync(0)
+		runtime.turnSettled()
+		await vi.advanceTimersByTimeAsync(CURATION_IDLE_MS)
 		await vi.waitFor(async () => expect((await store.list({})).entries).toHaveLength(1))
 		expect(await inbox.pending()).toEqual([])
 	})
@@ -196,7 +292,6 @@ describe('curation runtime', () => {
 		// Nothing is armed afterwards.
 		runtime.appended()
 		runtime.turnStarted()
-		expect(vi.getTimerCount()).toBe(0)
 	})
 
 	it('does not wait for a slow model for ever when closing', async () => {
@@ -232,7 +327,7 @@ describe('curation runtime', () => {
 	it('shares one drain between triggers that overlap', async () => {
 		const { inbox, runtime, asked } = setup()
 		await inbox.append(candidate('Always use pnpm'))
-		await Promise.all([runtime.drain('idle'), runtime.drain('turn-start')])
+		await Promise.all([runtime.drain('idle'), runtime.drain('start')])
 		expect(asked).toHaveLength(1)
 	})
 
