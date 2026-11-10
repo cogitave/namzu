@@ -36,7 +36,9 @@ describe('message actions reveal', () => {
 	it('outranks the hover rule for a pressed or copying action, so its delay never applies', () => {
 		// .message:hover > .message-footer is (0,3,0); a bare .message-footer:has([attr]) is only (0,2,0).
 		const pressed = all.find((r) => r.selector.includes('[aria-pressed="true"]'))
-		expect(pressed?.selector).toMatch(/:is\(\.message, \.pal-chat-message\)\s+\.message-footer:has\(/)
+		expect(pressed?.selector).toMatch(
+			/:is\(\.message, \.pal-chat-message\)\s+\.message-footer:has\(/,
+		)
 	})
 
 	it('has no fade and no wait under reduced motion, for every state that sets a transition', () => {
