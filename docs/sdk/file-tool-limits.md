@@ -111,10 +111,10 @@ is left to the tool, and `execute` repeats the check, because the file can move 
 An `edit` call is a single edit (`old_string` and `new_string`, or `insertLine` and `new_string`) or a batch
 (`edits`), never both. Two overlaps are not a conflict, because nothing can be dropped from them, and both are
 applied as the one edit they say: an empty `edits: []` beside a top-level edit (a flat schema invites a model to fill
-every optional field), and a one-entry `edits` that restates the top-level edit exactly, `replace_all` included. The
+every optional field), and a one-entry `edits` that restates the top-level edit exactly, `replace_all` included (the first was seen in a bench run, the second is a precaution against the same habit). The
 input a review card, the classifier and the executor see is the canonical one, with the redundant half removed. A
 different top-level edit beside a batch, a longer list beside one, or an `insertLine` beside a list stays refused, and
-the message shows both accepted shapes, one per line, as `Single edit: {...}` and `Several edits: {...}`. An empty
+the message shows both accepted shapes, one per line, as `Single edit: {...}` and `Several edits: {...}`, and the required-fields hint follows on a line of its own so the last JSON line stays pure. An empty
 `edits` with nothing beside it is refused the same way. The read-before-edit rule, the uniqueness of `old_string`,
 path containment and the notebook check apply to the canonical edit exactly as before.
 

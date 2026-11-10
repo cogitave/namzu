@@ -15,7 +15,8 @@ import { type EditInput, EditTool } from '../edit.js'
  * but not the arguments of a refused call, so the inputs below are the shape
  * each error names: `edits: []` beside a top-level edit (error "edits: Too small:
  * expected array to have >=1 items" plus the "not both" refusal, three calls)
- * and a list entry beside the same top-level edit ("not both" alone, one call).
+ * and a list entry beside the same top-level edit ("not both" alone, one call;
+ * this second fixture is ANTICIPATED, not seen: the run does not record its input).
  * The text is the real `docs/levels.md` change the bench task asked for.
  */
 
@@ -199,6 +200,17 @@ describe('a genuinely conflicting pair stays refused', () => {
 		if (prepared.success) return
 		expect(prepared.result.error).toContain('Single edit: {"path"')
 		expect(prepared.result.error).toContain('Several edits: {"path"')
+	})
+
+	it('ends the `Several edits:` line in JSON, with the required-fields hint on its own line', () => {
+		const prepared = manager().prepareExecution('edit', conflicts[0]?.[1])
+		expect(prepared.success).toBe(false)
+		if (prepared.success) return
+		const lines = (prepared.result.error ?? '').split('\n')
+		const line = lines.find((l) => l.startsWith('Several edits: '))
+		expect(line).toBeDefined()
+		expect(() => JSON.parse((line ?? '').slice('Several edits: '.length))).not.toThrow()
+		expect(lines[lines.length - 1]).toContain('Required')
 	})
 })
 

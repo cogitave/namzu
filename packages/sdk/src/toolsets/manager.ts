@@ -1000,7 +1000,9 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 			: ''
 		const enrichedMessage = isEmptyInput
 			? `Tool "${tool.name}" was called with no arguments. ${requiredHint}${recoveryHint} Retry the call with the required parameters populated.`
-			: `Validation failed for "${tool.name}": ${errorMessage}. ${requiredHint}${recoveryHint}`
+			: `Validation failed for "${tool.name}": ${errorMessage}${
+					errorMessage.includes('\n') ? '\n' : '. '
+				}${requiredHint}${recoveryHint}`
 		this.log.error('Tool input validation failed', {
 			'namzu.tool.name': tool.name,
 			'namzu.registry.errors': errorMessage,

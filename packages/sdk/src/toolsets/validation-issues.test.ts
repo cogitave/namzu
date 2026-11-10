@@ -42,6 +42,11 @@ describe('validation issues as plain sentences', () => {
 		)
 	})
 
+	it('a top-level refinement with no path keeps its message, minus the trailing period', () => {
+		const schema = z.object({ a: z.string() }).refine(() => false, 'Send a, not both.')
+		expect(render(schema, { a: 'x' })).toBe('Send a, not both')
+	})
+
 	it('anything else keeps its own message', () => {
 		expect(render(z.object({ a: z.string().regex(/^x$/, 'must be x.') }), { a: 'y' })).toBe(
 			'a: must be x',
