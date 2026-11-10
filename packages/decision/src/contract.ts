@@ -8,6 +8,12 @@
 
 export interface DecisionRequestOptions {
 	signal?: AbortSignal
+	/**
+	 * For a yes/no question: what makes the answer yes, in plain words. Some hosted decision
+	 * models refuse a yes/no question that carries none. A driver sends it only where the service
+	 * is known to take the field; the others leave it out, so the request they send is unchanged.
+	 */
+	criteria?: string
 }
 
 /** P(true), 0..1. */

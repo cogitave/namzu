@@ -679,7 +679,9 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					// turned them off had that decision revert behind every
 					// delegation. One merged `configOverrides`, because a second
 					// spread of the key would replace this one.
-					...(Object.keys(_context.env ?? {}).length > 0 || _context.toolResultGuardrails
+					...(Object.keys(_context.env ?? {}).length > 0 ||
+					_context.toolResultGuardrails ||
+					_context.fileReadTracker
 						? {
 								configOverrides: {
 									...(_context.env && Object.keys(_context.env).length > 0
@@ -687,6 +689,9 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 										: {}),
 									...(_context.toolResultGuardrails
 										? { toolResultGuardrails: _context.toolResultGuardrails }
+										: {}),
+									...(_context.fileReadTracker
+										? { fileReadTracker: _context.fileReadTracker }
 										: {}),
 								},
 							}

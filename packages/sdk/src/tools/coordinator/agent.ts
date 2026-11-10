@@ -170,13 +170,16 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 					// of every delegation. Merged into ONE `configOverrides`
 					// rather than spread twice — the second spread would replace
 					// the first and drop the environment.
-					...(Object.keys(context.env ?? {}).length > 0 || context.toolResultGuardrails
+					...(Object.keys(context.env ?? {}).length > 0 ||
+					context.toolResultGuardrails ||
+					context.fileReadTracker
 						? {
 								configOverrides: {
 									...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
 									...(context.toolResultGuardrails
 										? { toolResultGuardrails: context.toolResultGuardrails }
 										: {}),
+									...(context.fileReadTracker ? { fileReadTracker: context.fileReadTracker } : {}),
 								},
 							}
 						: {}),
