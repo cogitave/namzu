@@ -100,7 +100,7 @@ A turn that changed files and tries to end without running a test, lint, format 
 
 ## Hook refusals
 
-A `turn_end` or `subagent_stop` hook can refuse to let a turn end ([Hooks](../sdk/hooks.md#a-hook-that-keeps-refusing-to-let-a-turn-end)). After `limits.maxHookRefusals` refusals in a row (default 8; `0` removes the limit) Namzu ends the turn anyway and records one message naming the hook. A tool call between refusals starts the count over. A hook that refuses fewer times is not affected.
+A `turn_end` or `subagent_stop` hook can refuse to let a turn end ([Hooks](../sdk/hooks.md#a-hook-that-keeps-refusing-to-let-a-turn-end)). After `limits.maxHookRefusals` refusals in a row (default 8; `0` removes the limit and restores the old behaviour, where only `maxIterations` ends such a loop) Namzu ends the turn anyway and records one message naming the hook. A tool call between refusals starts the count over. A hook that refuses fewer times is not affected.
 
 ## Spend limit
 

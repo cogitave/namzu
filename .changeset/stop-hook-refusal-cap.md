@@ -3,4 +3,4 @@
 '@namzu/cli': minor
 ---
 
-A `turn_end` or `subagent_stop` hook that keeps refusing to let a turn end no longer keeps it going until `maxIterations`. The new default is 8: after 8 refusals in a row the turn ends anyway and one message in the transcript names the hook; a tool call between refusals starts the count over, and a hook that refuses fewer times behaves as before. Set the limit with `TurnConfig.maxHookRefusals` in the SDK or `limits.maxHookRefusals` in the CLI config; `0` removes the limit and restores the old behaviour. Nothing else to change.
+The SDK gains an optional `TurnConfig.maxHookRefusals`: how many times in a row a `turn_end` or `subagent_stop` hook may refuse to let a turn end before the turn ends anyway. Nothing changes for a host that does not set it. The CLI now ends a turn after 8 end-of-turn hook refusals in a row with no tool call between them (a tool call starts the count over, so a hook that sends the agent back to work is unaffected) and names the hook once in the transcript. Set `limits.maxHookRefusals: 0` in the CLI config to restore the old behaviour, where only `maxIterations` ends such a loop.

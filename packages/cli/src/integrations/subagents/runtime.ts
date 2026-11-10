@@ -107,7 +107,11 @@ import {
 } from '@namzu/sdk'
 
 import type { TurnLimitsConfig } from '../../config/schema.js'
-import { resolveTurnGuards, turnConfigFields } from '../../config/turn-guards.js'
+import {
+	DEFAULT_MAX_HOOK_REFUSALS,
+	resolveTurnGuards,
+	turnConfigFields,
+} from '../../config/turn-guards.js'
 import { NAMZU_CHILD_WORKING_DOCTRINE } from '../../context/doctrine.js'
 import { composeMemoryGuidance } from '../../memory/typed.js'
 import type { SideLedger } from '../small-model/side-model.js'
@@ -3492,9 +3496,7 @@ function buildDefinition(
 				...(limits.maxReasoningTokens !== undefined
 					? { reasoning: { maxTokens: limits.maxReasoningTokens } }
 					: {}),
-				...(limits.maxHookRefusals !== undefined
-					? { maxHookRefusals: limits.maxHookRefusals }
-					: {}),
+				maxHookRefusals: limits.maxHookRefusals ?? DEFAULT_MAX_HOOK_REFUSALS,
 				pruneKeepLast: CLI_CHECKPOINT_RETENTION,
 				provider,
 				...(pluginManager ? { pluginManager } : {}),

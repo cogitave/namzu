@@ -407,7 +407,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Hook refusals before a turn ends',
 		'How many times in a row a hook may refuse to let a turn end before Namzu ends it anyway. 0 means no limit.',
 		num(0),
-		{ defaultText: '8' },
+		{ defaultText: '8 (0 for no limit)' },
 	),
 	d('limits.maxIterations', 'agent', 'Most steps per task', '0 means no limit.', num(0), {
 		defaultText: 'no limit',

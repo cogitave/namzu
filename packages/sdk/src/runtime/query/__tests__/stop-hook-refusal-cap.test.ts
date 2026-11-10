@@ -102,6 +102,7 @@ describe('a turn-end hook that always refuses', () => {
 		const asked: PluginHookEvent[] = []
 		const { provider, turn } = await run({
 			turns: texts(60),
+			maxHookRefusals: 8,
 			pluginManager: manager(asked, () => refuse),
 		})
 		// First answer + 8 continuations; the 9th refusal is not honoured.
@@ -112,6 +113,17 @@ describe('a turn-end hook that always refuses', () => {
 		expect(found).toHaveLength(1)
 		expect(found[0]?.content).toContain('"closing-gate"')
 		expect(found[0]?.content).toContain('8 times in a row')
+	})
+
+	it('is not capped when the option is absent', async () => {
+		const { provider, turn } = await run({
+			turns: texts(60),
+			maxIterations: 20,
+			pluginManager: manager([], () => refuse),
+		})
+		expect(provider.requests.length).toBe(20)
+		expect(turn.stopReason).toBe('max_iterations')
+		expect(notices(turn)).toHaveLength(0)
 	})
 
 	it('takes its limit from maxHookRefusals', async () => {

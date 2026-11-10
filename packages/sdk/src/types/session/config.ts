@@ -111,7 +111,8 @@ export interface TurnConfig {
 	 * let the turn end (answer `skip`) before the turn stops honouring them. At
 	 * the limit the turn ends, one notice naming the hook is recorded, and the
 	 * remaining refusals are ignored. A tool call between refusals resets the
-	 * count. Defaults to 8; 0 removes the limit.
+	 * count. Off when absent or 0, so an embedding host sees no change; a
+	 * positive integer sets the limit.
 	 */
 	maxHookRefusals?: number
 	/** Provider-hosted search for this turn. Explicit opt-in; no local network permission. */

@@ -163,9 +163,6 @@ export type { ToolReviewOutcome } from './phases/index.js'
  */
 const DEFAULT_ANSWER_REVIEW_LIMIT = 3
 
-/** End-of-turn hook refusals honoured in a row before the turn ends anyway. */
-const DEFAULT_MAX_HOOK_REFUSALS = 8
-
 /** Left unused when an output cap is shrunk to fit the window (reference: 1000). */
 const OUTPUT_CAP_MARGIN_TOKENS = 1000
 /** A shrunk output cap below this is not worth a call (reference floor: 3000). */
@@ -437,7 +434,7 @@ export class IterationOrchestrator {
 			this.turnEndFired = true
 			return undefined
 		}
-		const limit = this.ctx.turnConfig.maxHookRefusals ?? DEFAULT_MAX_HOOK_REFUSALS
+		const limit = this.ctx.turnConfig.maxHookRefusals ?? 0
 		if (limit > 0 && this.consecutiveHookRefusals >= limit) {
 			// The turn has been kept going `limit` times in a row. A hook that
 			// still refuses is not going to stop; say so once, and let the turn end.

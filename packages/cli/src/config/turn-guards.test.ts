@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { loadConfig, takeConfigWarnings } from './load.js'
-import { resolveTurnGuards, turnConfigFields } from './turn-guards.js'
+import { DEFAULT_MAX_HOOK_REFUSALS, resolveTurnGuards, turnConfigFields } from './turn-guards.js'
 
 const roots: string[] = []
 
@@ -201,6 +201,7 @@ it('leaves both at the kernel default when nothing sets them, and lets a later l
 		maxIterations: 0,
 		timeoutMs: 0,
 		completionAudit: true,
+		maxHookRefusals: DEFAULT_MAX_HOOK_REFUSALS,
 	})
 	expect(
 		turnConfigFields(resolveTurnGuards({ maxReasoningTokens: 9000 }, { maxReasoningTokens: 0 }))
@@ -215,12 +216,11 @@ it('turns the done-gate off with doneGate: false, and refuses a bad cap', () => 
 })
 
 it('carries the hook refusal limit into the turn, and refuses a bad one', () => {
+	expect(turnConfigFields(resolveTurnGuards({})).maxHookRefusals).toBe(DEFAULT_MAX_HOOK_REFUSALS)
+	expect(DEFAULT_MAX_HOOK_REFUSALS).toBe(8)
 	expect(turnConfigFields(resolveTurnGuards({ maxHookRefusals: 3 })).maxHookRefusals).toBe(3)
 	expect(
 		turnConfigFields(resolveTurnGuards({ maxHookRefusals: 3 }, { maxHookRefusals: 0 })),
-	).toMatchObject({
-		maxHookRefusals: 0,
-	})
-	expect(turnConfigFields(resolveTurnGuards({}))).not.toHaveProperty('maxHookRefusals')
+	).toMatchObject({ maxHookRefusals: 0 })
 	expect(() => resolveTurnGuards({ maxHookRefusals: -1 })).toThrow('maxHookRefusals')
 })
