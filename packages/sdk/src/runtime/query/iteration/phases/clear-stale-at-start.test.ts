@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import { isClearedToolResult } from '../../../../compaction/tool-result-editing.js'
 import { CompactionConfigSchema } from '../../../../config/runtime.js'
@@ -5,6 +6,7 @@ import type { Message } from '../../../../types/message/index.js'
 import type { SessionEvent } from '../../../../types/session/index.js'
 import { NOOP_LOGGER } from '../../../../utils/log/create-logger.js'
 import { runStaleResultClear } from './compaction.js'
+import { compactionBreaker } from './compaction-breaker.js'
 import type { IterationContext } from './context.js'
 
 const BIG = `${'line of output '.repeat(2_000)}`
@@ -32,11 +34,13 @@ function history(steps: number): Message[] {
 function context(
 	messages: Message[],
 	option: { minSavedTokens: number; keepRecentToolResults?: number } | undefined,
+	extra: Record<string, unknown> = {},
 ) {
 	const events: SessionEvent[] = []
 	const invalidate = vi.fn()
 	const config = CompactionConfigSchema.parse({
 		contextWindowTokens: 1_000_000,
+		...extra,
 		...(option ? { clearStaleToolResultsAtStart: option } : {}),
 	})
 	const ctx = {
@@ -118,5 +122,40 @@ describe('clearing stale tool results at the start of a turn', () => {
 			context(short, { minSavedTokens: 1_000, keepRecentToolResults: 4 }).ctx,
 		)
 		expect(short).toEqual(copy)
+	})
+
+	it('does not run when the shed history is switched off, so no original is lost unrecorded', async () => {
+		const messages = history(12)
+		const original = [...messages]
+		const { ctx, events } = context(
+			messages,
+			{ minSavedTokens: 1_000, keepRecentToolResults: 4 },
+			{ recordShedHistory: false },
+		)
+		await runStaleResultClear(ctx)
+		expect(messages).toEqual(original)
+		expect(events).toEqual([])
+	})
+
+	it('does not reset the circuit breaker failure streak', async () => {
+		const { ctx, events } = context(
+			history(12),
+			{ minSavedTokens: 1_000, keepRecentToolResults: 4 },
+			{ circuitBreaker: true },
+		)
+		const breaker = compactionBreaker(ctx)
+		breaker?.recordFailure()
+		breaker?.recordFailure()
+		await runStaleResultClear(ctx)
+		expect(events.map((e) => e.type)).toContain('compaction_tool_results_cleared')
+		breaker?.recordFailure()
+		expect(breaker?.failuresOpen).toBe(true)
+	})
+
+	it('runs from exactly one place, the first iteration of a turn', () => {
+		const source = readFileSync(new URL('../index.ts', import.meta.url), 'utf8')
+		const calls = source.split('\n').filter((line) => line.includes('runStaleResultClear('))
+		expect(calls).toHaveLength(1)
+		expect(calls[0]).toContain('iterationNum === 1')
 	})
 })

@@ -185,7 +185,9 @@ async function commitToolResultClear(
 	ctx.recorder.clearLastPromptTokens?.()
 	await emitToolResultClear(ctx, plan)
 	await emitContextUsageSnapshot(ctx, estimateTokens(ctx), contextWindowTokens, windowSource)
-	compactionBreaker(ctx)?.recordRelief()
+	// A host-requested pass is not the kernel's own relief of a full context,
+	// so it must not reset the breaker's failure streak.
+	if (reason !== 'manual') compactionBreaker(ctx)?.recordRelief()
 }
 
 /**
@@ -194,13 +196,19 @@ async function commitToolResultClear(
  * either way. Does nothing unless `clearStaleToolResultsAtStart` is set and the
  * clear would save at least its floor. Reuses the in-turn clear, so the same
  * results are protected, the originals are recorded before they are replaced,
- * and the host gets the same `compaction_tool_results_cleared` event.
+ * and the host gets the same `compaction_tool_results_cleared` event. It is
+ * not a threshold pass: the `pre_compact` / `post_compact` hooks, the
+ * near-limit and busy guards and the circuit breaker's relief count do not
+ * see it.
  */
 export async function runStaleResultClear(ctx: IterationContext): Promise<void> {
 	const config = ctx.compactionConfig
 	const option = config?.clearStaleToolResultsAtStart
 	if (!config || !option) return
 	if (config.strategy === 'disabled' || config.clearToolResults === false) return
+	// The pass promises the originals stay in the log. With the log switched
+	// off, replacing them would lose them, so the pass does not run.
+	if (config.recordShedHistory === false) return
 
 	const live = ctx.recorder.messages
 	const edit = clearStaleToolResults(live, {
