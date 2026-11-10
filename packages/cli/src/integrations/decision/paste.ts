@@ -16,8 +16,10 @@ export interface ParsedAzurePaste {
 	readonly deployment?: string
 }
 
+// The address must start a word (or follow `endpoint=` and the like) and end at its host: a
+// longer host (`...azure.com.evil.net`) or an address inside another URL's query is not one.
 const ENDPOINT_PATTERN =
-	/https:\/\/[a-z0-9][a-z0-9-]*\.(?:services\.ai|cognitiveservices)\.azure\.com/i
+	/(?<=^|[\s"'`(\[{<,;]|(?:endpoint|uri|url)[=:])https:\/\/[a-z0-9][a-z0-9-]*\.(?:services\.ai|cognitiveservices)\.azure\.com(?=[\s/:?#"'`),;\]}>]|\.(?:\s|$)|$)/i
 const DEPLOYMENT_IN_URL = /\/deployments\/([A-Za-z0-9][A-Za-z0-9._-]*)/
 /** An unbroken run long enough that it is not a word. */
 const KEY_SHAPE = /^[A-Za-z0-9+/_=-]{20,}$/
@@ -67,6 +69,7 @@ export function parseAzurePaste(input: string): ParsedAzurePaste {
 	const tokens = words(input)
 
 	const labelled: { rank: number; value: string }[] = []
+	let sawLabel = false
 	for (let i = 0; i < tokens.length; i += 1) {
 		const word = (tokens[i] as string).toLowerCase()
 		let at = -1
@@ -82,6 +85,7 @@ export function parseAzurePaste(input: string): ParsedAzurePaste {
 			at = i + 2
 		}
 		if (at >= 0) {
+			sawLabel = true
 			let next = tokens[at]
 			// "KEY 1" puts the number in its own word.
 			if (next !== undefined && /^[12]$/.test(next)) {
@@ -97,8 +101,14 @@ export function parseAzurePaste(input: string): ParsedAzurePaste {
 		}
 	}
 	labelled.sort((a, b) => a.rank - b.rank)
-	// Nothing labelled: the first word that is shaped like a key.
-	const key = labelled[0]?.value ?? tokens.find((token) => looksLikeKey(token))
+	// Nothing labelled: a word shaped like a key, but only in a paste that is nothing else. Beside an
+	// endpoint or a label, a long word with a digit is more likely a deployment name than a key,
+	// and a key is saved to the credential store; a hyphenated word is a name, not a key.
+	const key =
+		labelled[0]?.value ??
+		(endpoint === undefined && !sawLabel
+			? tokens.find((token) => looksLikeKey(token) && !token.includes('-'))
+			: undefined)
 
 	return {
 		...(endpoint !== undefined ? { endpoint } : {}),

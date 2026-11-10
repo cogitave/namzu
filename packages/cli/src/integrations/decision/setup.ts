@@ -4,6 +4,7 @@ import { setUserConfigValue } from '../../config/user-config.js'
 import {
 	type ConnectionOptions,
 	type SavedConnection,
+	clearDecisionKey,
 	connectionToBlock,
 	saveDecisionKey,
 	writeConnection,
@@ -137,7 +138,9 @@ export interface SaveOutcome {
 export function saveConnection(draft: SetupDraft, opts: ConnectionOptions = {}): SaveOutcome {
 	const connection = draftToConnection(draft)
 	if (!connection) throw new Error('The connection is missing its address.')
+	// No key typed means no key: one saved for an earlier connection must not carry over to this one.
 	if (draft.key) saveDecisionKey(draft.key, opts)
+	else clearDecisionKey(opts)
 	writeConnection(connection, opts)
 	const configFile = setUserConfigValue(['decision'], connectionToBlock(connection), {
 		...(opts.home ? { home: opts.home } : {}),

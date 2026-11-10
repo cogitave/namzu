@@ -110,9 +110,10 @@ import {
 	describeCopy,
 } from '../integrations/clipboard/copy.js'
 import {
+	connectedPointsNotice,
 	connectionToBlock,
 	decisionStatusLine,
-	readDecisionKey,
+	readBoundDecisionKey,
 	readOffer,
 	readUserDecisionSetting,
 	recordOffer,
@@ -8280,7 +8281,6 @@ function AppBody({
 		[materializeConversation, pushMessage, setTextPrompt, pushSystem],
 	)
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	// --- the decision model: offered after a model pick, connected in a few fields ----------
 	const decisionOptions = useCallback(
 		() => ({
@@ -8332,15 +8332,16 @@ function AppBody({
 			}
 			pushMessage('system', 'Decision model saved. Testing the connection…')
 			const deps: ConnectionTestDeps = {
-				readStoredKey: () => readDecisionKey(opts),
+				readStoredKey: (address) => readBoundDecisionKey(address, opts),
 				...(decisionSetup?.fetch ? { fetch: decisionSetup.fetch } : {}),
 				...decisionSetup?.test,
 			}
+			const block = connectionToBlock(saved.connection)
 			const result = await testDecisionConnection(saved.connection, opts.env, deps)
 			if (appLifetime.signal.aborted) return
 			pushMessage('system', connectedNotice(result))
+			pushMessage('system', connectedPointsNotice(block.points))
 			// The points start now; the decide tool joins the next conversation.
-			const block = connectionToBlock(saved.connection)
 			decisionPointsRef.current = createDecisionPoints({
 				model: maybeCreateDecisionModel(block, opts.env, deps),
 				modes: block.points,
@@ -8417,6 +8418,17 @@ function AppBody({
 		if (opts.env.NAMZU_NO_DECISION === '1') return
 		const setting = readUserDecisionSetting(opts)
 		if (setting === 'shorthand' && ctx.decision === undefined && atStart) {
+			// The same answers as the offer after a pick: "never" and a "not now" of the last day hold.
+			const now = decisionSetup.now ?? Date.now
+			if (
+				!shouldOfferDecisionSetup({
+					record: readOffer(opts),
+					setting: 'absent',
+					env: opts.env,
+					now: now(),
+				})
+			)
+				return
 			setSelectedChoice(0)
 			setChoicePicker({
 				kind: 'decision-setup',
@@ -8451,6 +8463,7 @@ function AppBody({
 		setSelectedChoice,
 	])
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the list predates linting of .tsx files; changing it changes when this runs, so it is left as written.
 	const submitTextPrompt = useCallback(
 		(value: string) => {
 			const prompt = textPromptRef.current
@@ -8524,7 +8537,7 @@ function AppBody({
 				(error: unknown) => pushSystem('error', explainFailure(error, 'Could not save the name.')),
 			)
 		},
-		[pushMessage, pushSystem, resolveQuestion, runConversationExport, setTextPrompt],
+		[pushMessage, runConversationExport, setTextPrompt],
 	)
 	const cancelTextPrompt = useCallback(() => {
 		const prompt = textPromptRef.current
@@ -16031,8 +16044,8 @@ function AppBody({
 					reviewChoiceInFlightRef.current = null
 					setSelectedChoice(0)
 					setChoicePicker(key.escape ? (picker.back ?? null) : null)
-					// Leaving the offer is "Not now": it asks again after a later pick, at most once a day.
-					if (picker.kind === 'decision-setup' && picker.step === 'offer') {
+					// Leaving the offer or the connect picker is "Not now": it asks again at most once a day.
+					if (picker.kind === 'decision-setup') {
 						try {
 							recordOffer('later', decisionOptions(), decisionClock())
 						} catch {

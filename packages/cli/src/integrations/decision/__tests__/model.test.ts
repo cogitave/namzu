@@ -184,3 +184,40 @@ describe('the key saved when the model was connected', () => {
 		expect(readStoredKey).not.toHaveBeenCalled()
 	})
 })
+
+describe('the saved key and the address it belongs to', () => {
+	it('is asked for with the address the block names, and a key bound elsewhere is not sent', async () => {
+		const asked: string[] = []
+		const seen: Array<string | null> = []
+		const fetchFn = (async (_url: unknown, init?: RequestInit) => {
+			seen.push(new Headers(init?.headers).get('authorization'))
+			return new Response('{}')
+		}) as typeof fetch
+		const out = buildDecisionProviderConfig(
+			{ provider: 'http', url: 'http://other' },
+			{},
+			{
+				readStoredKey: (address) => {
+					asked.push(address)
+					return address === 'http://saved' ? 'k' : null
+				},
+				fetch: fetchFn,
+			},
+		)
+		if (out.provider !== 'http') throw new Error('http')
+		await out.fetch?.('http://other', {})
+		expect(asked).toEqual(['http://other'])
+		expect(seen).toEqual([null])
+	})
+
+	it('goes to the token path for an azure endpoint the key was not saved with', () => {
+		const out = buildDecisionProviderConfig(
+			{ provider: 'azure', endpoint: 'https://b', deployment: 'd' },
+			{},
+			{ readStoredKey: (address) => (address === 'https://a' ? 'k' : null) },
+		)
+		if (out.provider !== 'azure') throw new Error('azure')
+		expect(out.getApiKey).toBeUndefined()
+		expect(out.getToken).toBeDefined()
+	})
+})

@@ -4,7 +4,11 @@ import { dirname, join } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 
 import type { DecisionConfig, DecisionPointsConfig } from '../../config/schema.js'
-import { readStoredApiKey, writeStoredApiKey } from '../providers/credential-store.js'
+import {
+	clearStoredApiKey,
+	readStoredApiKey,
+	writeStoredApiKey,
+} from '../providers/credential-store.js'
 import { resolveNamzuHome } from '../state/home.js'
 
 /**
@@ -30,6 +34,27 @@ export const DEFAULT_CONNECTED_POINTS: DecisionPointsConfig = {
 	memory: 'shadow',
 	skill: 'on',
 	pick: 'shadow',
+}
+
+/** One line saying which points act as soon as a model is connected and which only record. */
+export function connectedPointsNotice(
+	points: DecisionPointsConfig = DEFAULT_CONNECTED_POINTS,
+): string {
+	const names = (mode: string) =>
+		Object.entries(points)
+			.filter(([, value]) => value === mode)
+			.map(([name]) => name)
+	const on = names('on')
+	const shadow = names('shadow')
+	const join = (list: string[]) => list.join(' and ')
+	if (on.length === 0 && shadow.length === 0) return 'No decision point is on.'
+	const parts: string[] = []
+	if (on.length > 0) parts.push(`${join(on)} ${on.length > 1 ? 'are' : 'is'} on`)
+	if (shadow.length > 0)
+		parts.push(
+			`${join(shadow)} only record${shadow.length > 1 ? '' : 's'} to the decision log until you set ${shadow.length > 1 ? 'them' : 'it'} to on`,
+		)
+	return `${parts.join('; ')}.`
 }
 
 export type SavedConnection =
@@ -90,6 +115,7 @@ function writeAtomic(path: string, body: string): void {
 
 export function writeConnection(conn: SavedConnection, opts: ConnectionOptions = {}): void {
 	writeAtomic(connectionPath(opts), `${JSON.stringify(conn, null, 2)}\n`)
+	resetBoundKeyCache()
 }
 
 /** The `decision` block for a connection, with the points the person starts on. */
@@ -101,11 +127,47 @@ export function connectionToBlock(
 }
 
 export function saveDecisionKey(key: string, opts: ConnectionOptions = {}): string {
-	return writeStoredApiKey(DECISION_KEY_ID, key, opts.home)
+	const path = writeStoredApiKey(DECISION_KEY_ID, key, opts.home)
+	resetBoundKeyCache()
+	return path
 }
 
 export function readDecisionKey(opts: ConnectionOptions = {}): string | null {
 	return readStoredApiKey(DECISION_KEY_ID, opts.home)
+}
+
+/** Remove the saved decision key; no error when there is none. */
+export function clearDecisionKey(opts: ConnectionOptions = {}): void {
+	clearStoredApiKey(DECISION_KEY_ID, opts.home)
+	resetBoundKeyCache()
+}
+
+/** The address a saved key belongs to: the endpoint of an azure connection, the url of an http one. */
+export function connectionAddress(conn: SavedConnection): string {
+	return conn.provider === 'azure' ? conn.endpoint : conn.url
+}
+
+const boundKeys = new Map<string, string | null>()
+
+/** Forget what {@link readBoundDecisionKey} remembered; a save or a clear does this itself. */
+export function resetBoundKeyCache(): void {
+	boundKeys.clear()
+}
+
+/**
+ * The saved key, only for the address it was saved with. A block that names another
+ * address (a managed or hand-written one) gets nothing, so a key never reaches a server
+ * the person did not give it to. Read once per address and process: each read of the
+ * private file proves it private, which on Windows is several processes.
+ */
+export function readBoundDecisionKey(address: string, opts: ConnectionOptions = {}): string | null {
+	const id = `${opts.home ?? ''}\u0000${address}`
+	const known = boundKeys.get(id)
+	if (known !== undefined) return known
+	const conn = readConnection(opts)
+	const key = conn && connectionAddress(conn) === address ? readDecisionKey(opts) : null
+	boundKeys.set(id, key)
+	return key
 }
 
 /**

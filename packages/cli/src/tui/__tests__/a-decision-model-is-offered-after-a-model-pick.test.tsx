@@ -1,5 +1,5 @@
 /** After a model pick, the app offers a decision model once, and connects one in a few fields. */
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Message } from '@namzu/sdk'
@@ -151,7 +151,7 @@ const fakeServer = (async (url: string, init?: RequestInit) => {
 	askedFor.push(`${url} ${new Headers(init?.headers).get('authorization') ?? 'no key'}`)
 	return new Response(JSON.stringify({ answers: { q: { noul: 0.9 } } }))
 }) as unknown as typeof fetch
-async function open(cols = 100) {
+async function open(cols = 100, ready = 'Type a message') {
 	const screen = await renderToScreen(
 		<App
 			ctx={{ cwd: '/workspace/namzu', version: '0.0.0-test' }}
@@ -160,7 +160,7 @@ async function open(cols = 100) {
 		{ cols, rows: 30 },
 	)
 	screens.push(screen)
-	await shows(screen, 'Type a message')
+	await shows(screen, ready)
 	return screen
 }
 async function pickModel(screen: Screen, model: string, nth: number) {
@@ -230,6 +230,7 @@ it('connects my own server in three fields, keeps the key out of the config, and
 	await shows(screen, 'Model name (optional)')
 	await press(screen, '\r')
 	await shows(screen, 'Connected · ')
+	await shows(screen, 'notify and skill are on')
 	expect(askedFor).toEqual(['http://127.0.0.1:8080/decide Bearer SECRET-SERVER-KEY-0123456789'])
 	const config = readFileSync(join(home, '.namzu', 'config.yaml'), 'utf8')
 	expect(config).toContain('http://127.0.0.1:8080/decide')
@@ -247,4 +248,29 @@ it('shows one line of decision status in /status', async () => {
 	await submit(screen, '/status')
 	await shows(screen, 'Decision')
 	expect(screen.viewport().join('\n')).toContain('Not connected')
+})
+
+function chooseConnectAtStart(answer?: 'later' | 'never', at = clock) {
+	mkdirSync(join(home, '.namzu'), { recursive: true })
+	writeFileSync(join(home, '.namzu', 'config.yaml'), 'decision: true\n')
+	if (answer) {
+		writeFileSync(offerFile(), `${JSON.stringify({ answer, at: new Date(at).toISOString() })}\n`)
+	}
+}
+
+it('opens the connect picker at start for decision: true, and leaving it counts as Not now', async () => {
+	chooseConnectAtStart()
+	const screen = await open(100, 'Connect a decision model')
+	await press(screen, '\x1b')
+	await shows(screen, 'Type a message')
+	expect(JSON.parse(readFileSync(offerFile(), 'utf8')).answer).toBe('later')
+})
+
+it('does not open the connect picker at start after Not now within a day, or after never', async () => {
+	chooseConnectAtStart('later', clock - 60 * 60 * 1000)
+	const soon = await open()
+	expect(soon.viewport().join('\n')).not.toContain('Connect a decision model')
+	chooseConnectAtStart('never', clock - 400 * 24 * 60 * 60 * 1000)
+	const never = await open()
+	expect(never.viewport().join('\n')).not.toContain('Connect a decision model')
 })

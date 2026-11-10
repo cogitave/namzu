@@ -79,3 +79,35 @@ describe('normalizeAzureEndpoint', () => {
 		expect(normalizeAzureEndpoint('https://x.openai.azure.com')).toBeUndefined()
 	})
 })
+
+describe('what is not an endpoint or a key', () => {
+	it('refuses a longer host that only starts like an Azure one', () => {
+		expect(normalizeAzureEndpoint('https://x.services.ai.azure.com.evil.net/path')).toBeUndefined()
+		expect(
+			normalizeAzureEndpoint('https://evil.net/?r=https://x.services.ai.azure.com'),
+		).toBeUndefined()
+	})
+
+	it('still reads an endpoint in quotes, after a label, or ending a sentence', () => {
+		expect(normalizeAzureEndpoint('"https://x.services.ai.azure.com"')).toBe(
+			'https://x.services.ai.azure.com',
+		)
+		expect(normalizeAzureEndpoint('endpoint=https://x.services.ai.azure.com/')).toBe(
+			'https://x.services.ai.azure.com',
+		)
+		expect(normalizeAzureEndpoint('Use https://x.services.ai.azure.com.')).toBe(
+			'https://x.services.ai.azure.com',
+		)
+	})
+
+	it('does not take a deployment name for a key', () => {
+		expect(parseAzurePaste('gpt-4o-mini-decision-01').key).toBeUndefined()
+		expect(
+			parseAzurePaste('https://x.services.ai.azure.com gpt4omini0decision01abc').key,
+		).toBeUndefined()
+	})
+
+	it('still takes a key pasted alone', () => {
+		expect(parseAzurePaste(KEY1).key).toBe(KEY1)
+	})
+})

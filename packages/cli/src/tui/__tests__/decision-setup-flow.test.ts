@@ -98,6 +98,35 @@ describe('the own-server path', () => {
 	})
 })
 
+describe('a key over plain http', () => {
+	it('is refused for any host but this machine', () => {
+		for (const url of [
+			'http://example.com/x',
+			'http://10.0.0.5:8080/d',
+			'http://localhost.evil.net/d',
+		]) {
+			expect(advanceDecisionFlow({ kind: 'http' }, 'http-url', url)).toMatchObject({
+				kind: 'retry',
+			})
+		}
+	})
+
+	it('is allowed to this machine, and over https anywhere', () => {
+		for (const url of [
+			'http://localhost:1/d',
+			'http://127.0.0.1/d',
+			'http://[::1]:2/d',
+			'http://a.localhost/d',
+			'https://example.com/d',
+		]) {
+			expect(advanceDecisionFlow({ kind: 'http' }, 'http-url', url)).toMatchObject({
+				kind: 'ask',
+				step: 'http-key',
+			})
+		}
+	})
+})
+
 describe('the fields', () => {
 	it('mask what can hold a key, and let the optional ones stay empty', () => {
 		expect(decisionPrompt('azure-paste').mask).toBe(true)

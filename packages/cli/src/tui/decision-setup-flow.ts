@@ -17,7 +17,8 @@ export type DecisionOfferValue = (typeof DECISION_OFFER_VALUES)[number]
 export const DECISION_OFFER_OPTIONS: readonly ChoicePickerOption[] = [
 	{
 		label: 'Yes',
-		description: 'Connect one. It sees short excerpts of a turn for the points you turn on.',
+		description:
+			'Connect one. It sees short excerpts of a turn: it acts on notify and skill, and only records for memory and pick until you turn those on.',
 	},
 	{ label: 'Not now', description: 'Ask again after a later model pick, at most once a day.' },
 	{ label: "Don't ask again", description: 'You can still connect one by hand in the config.' },
@@ -121,6 +122,17 @@ export function decisionPrompt(
 	}
 }
 
+/** `localhost`, `*.localhost`, `127.x.x.x` and `::1`: the only hosts plain http may name. */
+export function isLoopbackHost(hostname: string): boolean {
+	const host = hostname.replace(/^\[|\]$/g, '').toLowerCase()
+	return (
+		host === 'localhost' ||
+		host.endsWith('.localhost') ||
+		host === '::1' ||
+		/^127(?:\.\d{1,3}){3}$/.test(host)
+	)
+}
+
 export type DecisionAdvance =
 	| { readonly kind: 'ask'; readonly draft: SetupDraft; readonly step: DecisionStep }
 	/** The deployment is the one thing missing and the resource may list it: look, then ask. */
@@ -203,6 +215,15 @@ export function advanceDecisionFlow(
 					draft,
 					step,
 					notice: 'That is not an address (http://host:port/path).',
+				}
+			}
+			if (url.protocol === 'http:' && !isLoopbackHost(url.hostname)) {
+				return {
+					kind: 'retry',
+					draft,
+					step,
+					notice:
+						'A key would travel unencrypted to that host. Use an https:// address, or http:// only for this machine (localhost).',
 				}
 			}
 			if (url.protocol !== 'http:' && url.protocol !== 'https:') {

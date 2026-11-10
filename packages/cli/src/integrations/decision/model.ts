@@ -6,13 +6,17 @@ import {
 } from '@namzu/decision'
 import type { ToolDefinition } from '@namzu/sdk'
 import type { DecisionConfig } from '../../config/schema.js'
-import { readDecisionKey } from './connection.js'
+import { readBoundDecisionKey } from './connection.js'
 import { type RunAz, createAzureTokenSource } from './token.js'
 
 /** What `buildDecisionProviderConfig` reads besides the config and the environment; every part is a test seam. */
 export interface DecisionBuildDeps {
-	/** The key saved for the decision model, read lazily and once. Defaults to the private credential store. */
-	readonly readStoredKey?: () => string | null
+	/**
+	 * The key saved for the decision model, for the address (endpoint or url) the block names,
+	 * read lazily and once. Defaults to the private credential store, which answers only for the
+	 * address the key was saved with.
+	 */
+	readonly readStoredKey?: (address: string) => string | null
 	readonly fetch?: typeof fetch
 	readonly now?: () => number
 	readonly runAz?: RunAz
@@ -31,13 +35,15 @@ export function buildDecisionProviderConfig(
 	env: NodeJS.ProcessEnv,
 	deps: DecisionBuildDeps = {},
 ): DecisionProviderConfig {
-	const readStored = deps.readStoredKey ?? (() => readDecisionKey())
+	const address = cfg.provider === 'azure' ? cfg.endpoint : cfg.url
+	const readStored = deps.readStoredKey ?? readBoundDecisionKey
+	const read = () => readStored(address)
 	// One read of the private file per run: on Windows each read proves the file private.
 	let stored: string | null | undefined
 	const storedKey = (): string | null => {
 		if (stored === undefined) {
 			try {
-				stored = readStored()
+				stored = read()
 			} catch {
 				stored = null
 			}

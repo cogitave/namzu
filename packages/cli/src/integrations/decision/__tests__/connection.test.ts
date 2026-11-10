@@ -6,12 +6,15 @@ import { describe, expect, it } from 'vitest'
 import { loadConfig } from '../../../config/load.js'
 import {
 	DECISION_KEY_ID,
+	connectedPointsNotice,
 	decisionStatusLine,
+	readBoundDecisionKey,
 	readConnection,
 	readDecisionKey,
 	readOffer,
 	readUserDecisionSetting,
 	recordOffer,
+	resetBoundKeyCache,
 	shouldOfferDecisionSetup,
 	writeConnection,
 } from '../connection.js'
@@ -184,5 +187,47 @@ describe('decisionStatusLine', () => {
 				env: {},
 			}),
 		).toBe('Connected · notify on, pick shadow')
+	})
+})
+
+describe('a key belongs to the connection it was saved with', () => {
+	it('is dropped when the next connection is saved without one', () => {
+		const { opts } = scratch()
+		saveConnection(
+			{
+				kind: 'azure',
+				endpoint: 'https://r.services.ai.azure.com',
+				deployment: 'd',
+				key: 'old-key-1',
+			},
+			opts,
+		)
+		expect(readDecisionKey(opts)).toBe('old-key-1')
+		saveConnection({ kind: 'http', url: 'http://127.0.0.1:9/x' }, opts)
+		expect(readDecisionKey(opts)).toBeNull()
+	})
+
+	it('is read back only for the address it was saved with', () => {
+		const { opts } = scratch()
+		resetBoundKeyCache()
+		saveConnection({ kind: 'http', url: 'http://127.0.0.1:9/x', key: 'k-1' }, opts)
+		expect(readBoundDecisionKey('http://127.0.0.1:9/x', opts)).toBe('k-1')
+		expect(readBoundDecisionKey('https://elsewhere.example/x', opts)).toBeNull()
+	})
+
+	it('is read again after a new key is saved in the same process', () => {
+		const { opts } = scratch()
+		saveConnection({ kind: 'http', url: 'http://127.0.0.1:9/x', key: 'k-1' }, opts)
+		expect(readBoundDecisionKey('http://127.0.0.1:9/x', opts)).toBe('k-1')
+		saveConnection({ kind: 'http', url: 'http://127.0.0.1:9/x', key: 'k-2' }, opts)
+		expect(readBoundDecisionKey('http://127.0.0.1:9/x', opts)).toBe('k-2')
+	})
+})
+
+describe('connectedPointsNotice', () => {
+	it('says which points act and which only record, for the defaults', () => {
+		expect(connectedPointsNotice()).toBe(
+			'notify and skill are on; memory and pick only record to the decision log until you set them to on.',
+		)
 	})
 })
