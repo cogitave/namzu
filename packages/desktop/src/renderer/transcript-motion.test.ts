@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { emptyThread } from '../shared/projection.js'
 import {
 	createTranscriptEntryMotion,
 	createTranscriptPhaseMotion,
 	livePhaseLabel,
+	sentMessageFrames,
 	turnActivityLabel,
 } from './transcript-motion.js'
 
@@ -319,4 +320,95 @@ it('does not claim a duration for work that took under a second', () => {
 	expect(turnActivityLabel(thread, 1)).toBe('Worked')
 	thread.turns[1] = { recordedDurationMs: 1_000, reason: 'end_turn' }
 	expect(turnActivityLabel(thread, 1)).toBe('Worked for 1s')
+})
+
+describe('a sent message', () => {
+	afterEach(() => vi.useRealTimers())
+
+	function live() {
+		const f = fixture()
+		const controller = createTranscriptEntryMotion(f.root)
+		const thread = historyThread()
+		controller.update(thread)
+		thread.running = true
+		controller.update(thread)
+		return { f, controller, thread }
+	}
+
+	it("settles in with the overshoot ease, and only the person's own live message does", () => {
+		const { f, controller, thread } = live()
+		const sent = f.row('message-2')
+		const reply = f.row('message-3')
+		thread.messages.push(
+			{ role: 'user', text: 'Next question' },
+			{ role: 'assistant', text: 'Answer' },
+		)
+		thread.timeline.push(
+			{ kind: 'message', index: 2, turn: 2 },
+			{ kind: 'message', index: 3, turn: 2 },
+		)
+		thread.turn = 2
+		controller.update(thread)
+		const [popped, faded] = f.effects
+		expect(sent.animate).toHaveBeenCalledWith(sentMessageFrames, expect.anything())
+		expect(popped?.effect.options.duration).toBe(450)
+		expect(popped?.effect.options.easing).toBe('cubic-bezier(0.34, 1.3, 0.64, 1)')
+		expect(popped?.effect.id).toBe('namzu-transcript-sent')
+		expect(sentMessageFrames[0]).toMatchObject({
+			opacity: 0,
+			transform: 'scale(0.94) translateY(6px)',
+		})
+		// The reply keeps the plain fade.
+		expect(reply.animate).toHaveBeenCalledOnce()
+		expect(faded?.effect.frames).toEqual([{ opacity: 0.65 }, { opacity: 1 }])
+		expect(faded?.effect.options.duration).toBe(120)
+	})
+
+	it('never pops a restored history, a tab restore or a hydration', () => {
+		const f = fixture()
+		const controller = createTranscriptEntryMotion(f.root)
+		f.row('message-0')
+		f.row('message-1')
+		controller.update(emptyThread())
+		f.history('loading')
+		controller.update(historyThread())
+		f.history('authoritative')
+		controller.update(historyThread())
+		expect(f.effects).toEqual([])
+	})
+
+	it('does not pop under reduced motion', () => {
+		const { f, controller, thread } = live()
+		f.reduce()
+		f.row('message-2')
+		thread.messages.push({ role: 'user', text: 'Quiet' })
+		thread.timeline.push({ kind: 'message', index: 2, turn: 2 })
+		controller.update(thread)
+		expect(f.effects).toEqual([])
+	})
+
+	it('lets go of the animation when it finishes, on the clock and not before', () => {
+		vi.useFakeTimers()
+		const { f, controller, thread } = live()
+		f.row('message-2')
+		thread.messages.push({ role: 'user', text: 'Hello' })
+		thread.timeline.push({ kind: 'message', index: 2, turn: 2 })
+		controller.update(thread)
+		const effect = f.effects[0]?.effect
+		setTimeout(() => effect?.finish(), 450)
+		vi.advanceTimersByTime(449)
+		controller.dispose()
+		expect(effect?.cancel).toHaveBeenCalledOnce()
+
+		const again = live()
+		again.f.row('message-2')
+		again.thread.messages.push({ role: 'user', text: 'Hello' })
+		again.thread.timeline.push({ kind: 'message', index: 2, turn: 2 })
+		again.controller.update(again.thread)
+		const second = again.f.effects[0]?.effect
+		setTimeout(() => second?.finish(), 450)
+		vi.advanceTimersByTime(450)
+		again.controller.dispose()
+		expect(second?.cancel).not.toHaveBeenCalled()
+	})
 })

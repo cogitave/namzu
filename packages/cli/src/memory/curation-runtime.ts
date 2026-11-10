@@ -159,14 +159,25 @@ export class CurationRuntime {
  * a title or a conversation. A failure to write is swallowed; the log is a
  * record, not a dependency.
  */
-export function createCurationLog(file: string): (entry: CurationLogEntry) => void {
-	let directory: Promise<unknown> | undefined
-	return (entry) => {
-		directory ??= mkdir(dirname(file), { recursive: true, mode: 0o700 }).catch(() => {})
-		void directory
-			.then(() => appendFile(file, `${JSON.stringify(entry)}\n`, { mode: 0o600 }))
-			.catch(() => {})
+/** The curation log writer; `settled()` resolves once every line written so far is on disk. */
+export interface CurationLog {
+	(entry: CurationLogEntry): void
+	settled(): Promise<void>
+}
+
+export function createCurationLog(file: string): CurationLog {
+	// One write at a time, in call order: two appends started together may land in either order.
+	// The folder is made on the first write, never before: a session that logs nothing creates nothing.
+	let tail: Promise<void> | undefined
+	const write = (entry: CurationLogEntry): void => {
+		const line = `${JSON.stringify(entry)}\n`
+		tail ??= mkdir(dirname(file), { recursive: true, mode: 0o700 }).then(
+			() => undefined,
+			() => undefined,
+		)
+		tail = tail.then(() => appendFile(file, line, { mode: 0o600 })).catch(() => {})
 	}
+	return Object.assign(write, { settled: () => tail ?? Promise.resolve() })
 }
 
 /**

@@ -268,7 +268,7 @@ export function LocalSpeechResourceCard({
 					<CollapsibleTrigger className="local-speech-details-trigger">
 						More resources <ChevronDownIcon />
 					</CollapsibleTrigger>
-					<CollapsiblePanel>
+					<CollapsiblePanel rows>
 						<dl>
 							{extra.map(([label, value]) => (
 								<div key={label}>

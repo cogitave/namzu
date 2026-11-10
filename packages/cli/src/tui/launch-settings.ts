@@ -19,6 +19,8 @@ export interface TuiLaunchSettings {
 	readonly account?: string
 	readonly model?: string
 	readonly effort?: ReasoningEffort
+	/** `--fast`: start with fast inference on, if the model takes it. */
+	readonly fast?: boolean
 	readonly permissionMode?: PermissionMode
 	/** `--fallback-model`: models to fall over to, in order, for this launch. */
 	readonly fallbackModels?: readonly string[]

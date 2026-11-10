@@ -1,6 +1,6 @@
 .turn-changes {
 	margin: 4px 4px 16px;
-	border-radius: 12px;
+	border-radius: var(--radius-card);
 	background: var(--secondary);
 	color: var(--foreground);
 	font-size: 13px;
@@ -29,7 +29,7 @@
 	gap: 10px;
 	min-width: 0;
 	padding: 0;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	text-align: left;
 }
 .turn-changes-toggle:focus-visible,
@@ -107,7 +107,7 @@
 	justify-content: space-between;
 	gap: 12px;
 	padding: 6px 6px;
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	text-align: left;
 }
 .turn-changes-file:hover {
@@ -129,7 +129,7 @@
 .turn-changes-undone-chip {
 	flex: none;
 	padding: 2px 8px;
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	background: color-mix(in srgb, var(--muted-foreground) 14%, transparent);
 	color: var(--muted-foreground);
 	font-size: 12px;

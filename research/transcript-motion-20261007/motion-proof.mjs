@@ -118,7 +118,7 @@ async function hoverSeries(page, selector, scenario, name, hoverTarget = selecto
     if (!scenario.startsWith('reduced-')) {
       assert.equal(start.clock.opacity, '0')
       assert.ok(Number(middle.clock.opacity) > 0 && Number(middle.clock.opacity) < 1)
-      assert.ok(animations.some(a => a.transitionProperty === 'opacity' && a.timing.duration === 160))
+      assert.ok(animations.some(a => a.transitionProperty === 'opacity' && (a.timing.duration === 160 || (a.timing.duration === 120 && a.timing.delay === 100))), 'a clock fades over 160 ms; the message actions row over 120 ms after a 100 ms hover-intent delay')
       assert.ok(animations.every(a => !['max-width','max-height','width','height'].includes(a.transitionProperty)))
       if (name === 'tool' || name === 'duration-tool') {
         assert.equal(start.labelColor, end.labelColor)

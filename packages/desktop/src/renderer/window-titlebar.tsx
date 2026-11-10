@@ -121,8 +121,12 @@ export function WindowTitlebar({
 							File
 						</Menu.Trigger>
 						<Menu.Portal>
-							<Menu.Positioner className="z-[150] outline-none" align="start" sideOffset={4}>
-								<Menu.Popup className="window-titlebar-popup dropdown-glass min-w-52 rounded-lg p-1 text-sm text-popover-foreground shadow-xl outline-none">
+							<Menu.Positioner
+								className="z-(--z-popover) outline-none"
+								align="start"
+								sideOffset={4}
+							>
+								<Menu.Popup className="window-titlebar-popup dropdown-glass min-w-52 rounded-lg p-1 text-sm text-popover-foreground shadow-[var(--shadow-popover)] outline-none">
 									<Menu.Item
 										className="window-titlebar-item"
 										onClick={onNewConversation}

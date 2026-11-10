@@ -30,6 +30,8 @@ export interface StatusBarProps {
 	readonly model: string | null
 	/** An explicit reasoning-effort override; omitted/undefined means the model's own default, which this footer does not name. */
 	readonly effort?: string | null
+	/** Fast inference is on for this conversation: shown as `fast`, never when off. */
+	readonly fast?: boolean
 	/** Ambient durable goal status; interaction hints take precedence. */
 	readonly goal?: string | null
 	readonly state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission'
@@ -181,6 +183,7 @@ export function StatusBar({
 	provider,
 	model,
 	effort,
+	fast = false,
 	goal,
 	state,
 	hint,
@@ -228,6 +231,7 @@ export function StatusBar({
 		model,
 		provider,
 		effort: effort ?? null,
+		fast,
 		hint,
 		notice: notice?.text ?? null,
 		ambient: ambient?.text ?? null,
@@ -301,6 +305,13 @@ export function StatusBar({
 		parts.push(
 			<Text key="effort" color={theme.text.secondary}>
 				{layout.effort}
+			</Text>,
+		)
+	}
+	if (layout.fast) {
+		parts.push(
+			<Text key="fast" color={theme.text.secondary}>
+				{layout.fast}
 			</Text>,
 		)
 	}
@@ -443,6 +454,7 @@ export interface StatusLineLayout {
 	readonly shells: string | null
 	readonly pr: { readonly prefix: string | null; readonly label: string } | null
 	readonly effort: string | null
+	readonly fast: string | null
 	readonly agents: string | null
 	readonly manage: string | null
 	readonly tasks: string | null
@@ -477,6 +489,7 @@ export function fitStatusLine(input: {
 	readonly provider: string | null
 	readonly model: string | null
 	readonly effort?: string | null
+	readonly fast?: boolean
 	readonly hint?: string | undefined
 	/** The notice that is up; ahead of the goal, behind a hint. */
 	readonly notice?: string | null | undefined
@@ -525,6 +538,7 @@ export function fitStatusLine(input: {
 	let tasks: string | null = input.tasks ?? null
 	let pr = input.pr ?? null
 	let effort: string | null = input.effort ? `effort ${input.effort}` : null
+	let fast: string | null = input.fast === true ? 'fast' : null
 
 	const parts = (): string[] =>
 		[
@@ -532,6 +546,7 @@ export function fitStatusLine(input: {
 			pr ? `${pr.prefix ? `${pr.prefix} ` : ''}${pr.label}` : null,
 			shells,
 			effort,
+			fast,
 			interrupt,
 			agents,
 			manage,
@@ -556,6 +571,7 @@ export function fitStatusLine(input: {
 	// Only now does the pointer to the agents go: the mode's own cycle hint and the
 	// other hints leave first, the effort, shells and pull request after.
 	if (over()) manage = null
+	if (over()) fast = null
 	if (over()) effort = null
 	if (over()) shells = null
 	if (over()) pr = null
@@ -582,6 +598,7 @@ export function fitStatusLine(input: {
 		shells,
 		pr,
 		effort,
+		fast,
 		agents,
 		manage,
 		tasks,

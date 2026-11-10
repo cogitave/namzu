@@ -87,7 +87,7 @@ function Peek({
 			className={cn(
 				surfaceColors,
 				neutralOutline,
-				'absolute inset-x-0 bottom-0 z-0 mx-auto h-3 w-[96%] cursor-pointer rounded-t-2xl border border-b-0 shadow-md',
+				'absolute inset-x-0 bottom-0 z-0 mx-auto h-3 w-[96%] cursor-pointer rounded-t-2xl border border-b-0 shadow-(--shadow-1)',
 				'bg-(--chat-composer-attached-surface)/(--glass-opacity) backdrop-blur-(--glass-blur) backdrop-saturate-(--glass-saturation)',
 				'not-supports-[((backdrop-filter:blur(1px))_or_(-webkit-backdrop-filter:blur(1px)))]:bg-(--chat-composer-attached-surface)',
 				'transition-opacity duration-150 ease-out focus-visible:[box-shadow:var(--focus-ring)]!',

@@ -3,7 +3,7 @@
 	max-width: calc(100vw - 32px);
 	max-height: min(70dvh, var(--available-height, 560px));
 	border: 1px solid var(--border);
-	border-radius: 16px;
+	border-radius: var(--radius-panel);
 	background: var(--popover);
 	color: var(--foreground);
 	--details-added: #15803d;
@@ -78,7 +78,7 @@
 	min-height: 32px;
 	padding: 5px 8px;
 	border: 0;
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	background: transparent;
 	color: var(--foreground);
 	font-size: 13px;
@@ -198,7 +198,7 @@
 	margin: 2px 0 0;
 	padding: 3px 8px;
 	border: 0;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	background: transparent;
 	font-size: 12px;
 	color: var(--muted-foreground);

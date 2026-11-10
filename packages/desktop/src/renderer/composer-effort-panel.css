@@ -34,7 +34,7 @@
 	margin-block-start: 2px;
 	margin-inline-start: -6px;
 	border: 1px solid var(--border);
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	background: color-mix(in srgb, var(--foreground) 4%, transparent);
 	color: var(--foreground);
 	font-size: 12px;
@@ -74,7 +74,7 @@
 	align-items: center;
 	height: 22px;
 	padding-inline: 13px;
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	background: color-mix(in srgb, var(--foreground) 9%, var(--popover));
 	cursor: pointer;
 	touch-action: none;
@@ -94,7 +94,7 @@
 	height: 100%;
 }
 .composer-effort-fill {
-	border-radius: 0 999px 999px 0;
+	border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
 	background: var(--primary);
 	transition: width 120ms var(--motion-ease);
 }
@@ -105,7 +105,7 @@
 	right: 100%;
 	bottom: 0;
 	width: 13px;
-	border-radius: 999px 0 0 999px;
+	border-radius: var(--radius-pill) 0 0 var(--radius-pill);
 	background: var(--primary);
 }
 .composer-effort-stops {
@@ -142,7 +142,7 @@
 	left: -13px;
 	width: calc(100% + 26px);
 	height: 100%;
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	overflow: hidden;
 	pointer-events: none;
 }

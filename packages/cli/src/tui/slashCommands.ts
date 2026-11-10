@@ -141,6 +141,8 @@ export type SlashAction =
 	 * deprecation line before doing exactly what `/hypermode` does.
 	 */
 	| { kind: 'hypermode'; enabled: boolean | 'toggle'; via?: 'orchestrate' }
+	/** Turn fast inference on or off (or flip it) for this conversation. */
+	| { kind: 'fast-mode'; enabled: boolean | 'toggle' }
 	/** `/config triggers on|off|list`: the composer triggers' one switch, written to the user config. */
 	| { kind: 'composer-triggers'; setting: 'on' | 'off' | 'list' }
 	/** Open the theme chooser. */
@@ -1841,6 +1843,18 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		action: (_ctx, args) => hypermodeAction(args),
 	},
 	{
+		name: 'fast',
+		immediate: true,
+		help: {
+			usage: ['/fast [on|off]'],
+			details: [
+				'Fast mode asks the model for faster replies at twice the standard rate. It exists on a few Anthropic models; on any other it is refused with the reason. Off by default, never saved, and it never changes reasoning effort. With no argument, toggles the current state. `namzu --fast` starts a conversation with it on.',
+			],
+		},
+		description: 'Toggle fast inference for this conversation: /fast [on|off].',
+		action: (_ctx, args) => fastAction(args),
+	},
+	{
 		name: 'orchestrate',
 		immediate: true,
 		help: {
@@ -1926,6 +1940,15 @@ export function initPrompt(instructionFiles: readonly string[]): string {
 }
 
 /** The session's shell hooks, by event, in the order the config file gave them. */
+/** `/fast [on|off]`. */
+function fastAction(args: readonly string[]): SlashAction {
+	const choice = args.join(' ').trim().toLowerCase()
+	if (choice.length === 0) return { kind: 'fast-mode', enabled: 'toggle' }
+	if (choice === 'on') return { kind: 'fast-mode', enabled: true }
+	if (choice === 'off') return { kind: 'fast-mode', enabled: false }
+	return { kind: 'message', role: 'system', content: 'Usage: /fast [on|off]' }
+}
+
 /** `/hypermode [on|off]`, and its deprecated `/orchestrate` alias. */
 function hypermodeAction(args: readonly string[], via?: 'orchestrate'): SlashAction {
 	const choice = args.join(' ').trim().toLowerCase()

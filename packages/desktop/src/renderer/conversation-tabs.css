@@ -54,7 +54,7 @@
 	flex: 0 1 auto;
 	padding-right: 4px;
 	border: 1px solid transparent;
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	transition: background-color 140ms ease, border-color 140ms ease;
 	-webkit-app-region: no-drag;
 }

@@ -42,6 +42,14 @@ export interface TokenUsage {
 	 * {@link TokenUsage.cacheTtlMs}.
 	 */
 	cacheWriteTtlTokens?: { fiveMin?: number; oneHour?: number }
+
+	/**
+	 * The speed the provider says served this call, when it says. `'fast'` is a
+	 * premium-priced mode, so pricing reads it per call: a per-call fact like
+	 * {@link TokenUsage.cacheTtlMs}, never summed. Absent means standard or
+	 * unreported.
+	 */
+	speed?: import('../provider/chat.js').InferenceSpeed
 }
 
 export function accumulateTokenUsage(current: TokenUsage, addition: TokenUsage): TokenUsage {
@@ -100,6 +108,9 @@ export function mergeTokenUsage(current: TokenUsage, next: TokenUsage): TokenUsa
 			: {}),
 		...(next.cacheWriteTtlTokens !== undefined || current.cacheWriteTtlTokens !== undefined
 			? { cacheWriteTtlTokens: next.cacheWriteTtlTokens ?? current.cacheWriteTtlTokens }
+			: {}),
+		...(next.speed !== undefined || current.speed !== undefined
+			? { speed: next.speed ?? current.speed }
 			: {}),
 	}
 }

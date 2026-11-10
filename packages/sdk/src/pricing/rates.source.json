@@ -19,6 +19,11 @@
 		"inference. Its turns are priced at zero, which is KNOWN-free and therefore",
 		"distinct from unknown. Such a vendor needs no model rows.",
 		"",
+		"fastMultiplier (optional) is the vendor's published multiple of every rate for",
+		"a request served in fast mode (verified 2026-11-10 against the fast-mode page:",
+		"2x on the full context window, stacking with cache pricing). A model without it",
+		"has no published fast price, so a fast request on it is reported as unpriced.",
+		"",
 		"Matching is EXACT on a normalised id (lowercased, one trailing -YYYYMMDD or",
 		"@YYYYMMDD snapshot suffix removed). Deliberately not prefix or substring:",
 		"within one vendor here, ids one character apart differ in price by 4x, so a",
@@ -66,14 +71,16 @@
 					"inputPer1M": 8,
 					"outputPer1M": 40,
 					"cacheReadPer1M": 0.2,
-					"cacheWritePer1M": 10
+					"cacheWritePer1M": 10,
+					"fastMultiplier": 2
 				},
 				{
 					"id": "claude-mythos-5-2",
 					"inputPer1M": 8,
 					"outputPer1M": 40,
 					"cacheReadPer1M": 0.2,
-					"cacheWritePer1M": 10
+					"cacheWritePer1M": 10,
+					"fastMultiplier": 2
 				},
 				{
 					"id": "claude-fable-5-1",
@@ -94,7 +101,8 @@
 					"inputPer1M": 4,
 					"outputPer1M": 20,
 					"cacheReadPer1M": 0.2,
-					"cacheWritePer1M": 5
+					"cacheWritePer1M": 5,
+					"fastMultiplier": 2
 				},
 				{
 					"id": "claude-sonnet-5-5",
@@ -122,14 +130,16 @@
 					"inputPer1M": 5,
 					"outputPer1M": 25,
 					"cacheReadPer1M": 0.5,
-					"cacheWritePer1M": 6.25
+					"cacheWritePer1M": 6.25,
+					"fastMultiplier": 2
 				},
 				{
 					"id": "claude-opus-4-8",
 					"inputPer1M": 5,
 					"outputPer1M": 25,
 					"cacheReadPer1M": 0.5,
-					"cacheWritePer1M": 6.25
+					"cacheWritePer1M": 6.25,
+					"fastMultiplier": 2
 				},
 				{
 					"id": "claude-opus-4-7",

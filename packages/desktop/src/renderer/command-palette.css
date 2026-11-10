@@ -1,7 +1,7 @@
 .command-palette-backdrop {
 	position: fixed;
 	inset: 0;
-	z-index: 150;
+	z-index: var(--z-overlay-scrim);
 	background: rgb(0 0 0 / 18%);
 	opacity: 1;
 	transition: opacity 150ms var(--motion-ease);
@@ -13,7 +13,7 @@
 .command-palette-viewport {
 	position: fixed;
 	inset: 0;
-	z-index: 151;
+	z-index: var(--z-overlay);
 	display: grid;
 	place-items: center;
 	padding: 16px;
@@ -28,10 +28,10 @@
 	min-height: 0;
 	overflow: hidden;
 	border: 1px solid var(--border);
-	border-radius: 20px;
+	border-radius: var(--radius-panel);
 	background: var(--surface-raised);
 	color: var(--foreground);
-	box-shadow: 0 20px 60px rgb(0 0 0 / 22%), 0 2px 10px rgb(0 0 0 / 8%);
+	box-shadow: var(--shadow-dialog);
 	font-family: var(--font-sans);
 	font-size: 13px;
 	line-height: 1.45;
@@ -103,7 +103,7 @@
 	min-width: 0;
 	min-height: 31px;
 	padding: 5px 8px;
-	border-radius: 12px;
+	border-radius: var(--radius-card);
 	outline: none;
 	cursor: pointer;
 	transition: background-color 100ms ease, color 100ms ease, transform 100ms var(--motion-ease);
@@ -157,7 +157,7 @@
 	min-width: 18px;
 	padding: 0 6px;
 	white-space: nowrap;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	background: color-mix(in srgb, var(--foreground) 8%, transparent);
 	color: var(--muted-foreground);
 	font: inherit;
@@ -194,7 +194,7 @@
 	flex: none;
 	padding: 2px 6px;
 	border: 0;
-	border-radius: 5px;
+	border-radius: var(--radius-chip);
 	background: transparent;
 	color: var(--foreground);
 	font: inherit;

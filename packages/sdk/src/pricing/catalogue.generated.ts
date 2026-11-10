@@ -49,6 +49,7 @@ export const VENDOR_RATES: readonly VendorRates[] = [
 					inputCostPer1M: 8,
 					outputCostPer1M: 40,
 					cache: { promptIncludesCacheReads: false, readCostPer1M: 0.2, writeCostPer1M: 10 },
+					fastMultiplier: 2,
 				},
 			],
 			[
@@ -81,6 +82,7 @@ export const VENDOR_RATES: readonly VendorRates[] = [
 					inputCostPer1M: 8,
 					outputCostPer1M: 40,
 					cache: { promptIncludesCacheReads: false, readCostPer1M: 0.2, writeCostPer1M: 10 },
+					fastMultiplier: 2,
 				},
 			],
 			[
@@ -121,6 +123,7 @@ export const VENDOR_RATES: readonly VendorRates[] = [
 					inputCostPer1M: 5,
 					outputCostPer1M: 25,
 					cache: { promptIncludesCacheReads: false, readCostPer1M: 0.5, writeCostPer1M: 6.25 },
+					fastMultiplier: 2,
 				},
 			],
 			[
@@ -129,6 +132,7 @@ export const VENDOR_RATES: readonly VendorRates[] = [
 					inputCostPer1M: 5,
 					outputCostPer1M: 25,
 					cache: { promptIncludesCacheReads: false, readCostPer1M: 0.5, writeCostPer1M: 6.25 },
+					fastMultiplier: 2,
 				},
 			],
 			[
@@ -137,6 +141,7 @@ export const VENDOR_RATES: readonly VendorRates[] = [
 					inputCostPer1M: 4,
 					outputCostPer1M: 20,
 					cache: { promptIncludesCacheReads: false, readCostPer1M: 0.2, writeCostPer1M: 5 },
+					fastMultiplier: 2,
 				},
 			],
 			[

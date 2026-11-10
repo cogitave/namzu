@@ -135,6 +135,12 @@ function addLaunchOptions(command: Command): Command {
 		)
 		.addOption(
 			new Option(
+				'--fast',
+				'Start with fast inference on for this launch only (Anthropic models that offer it; billed at twice the standard rate). Off by default. /fast changes it from inside.',
+			),
+		)
+		.addOption(
+			new Option(
 				'--permission-mode <mode>',
 				'Permission mode for this launch only; wins over --yolo. auto lets a second model check each call; bypass runs without asking. /permissions changes it from inside.',
 			).choices(PERMISSION_MODE_NAMES),
@@ -347,6 +353,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					'provider',
 					'model',
 					'effort',
+					'fast',
 					'permissionMode',
 					'message',
 					'continue',
@@ -639,6 +646,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				maxOutputTokens?: number
 				doneGate?: boolean
 				effort?: (typeof REASONING_EFFORT_LEVELS)[number]
+				fast?: boolean
 				permissionMode?: (typeof PERMISSION_MODE_NAMES)[number]
 				message?: string
 				appendSystemPrompt?: string
@@ -801,6 +809,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				...(launchAccount ? { account: launchAccount } : {}),
 				...(model ? { model } : {}),
 				...(effort ? { effort } : {}),
+				...(launchOpts.fast === true ? { fast: true } : {}),
 				...(launchPlan.source === 'launch-flag' || launchPlan.source === 'config-default'
 					? { permissionMode: launchPlan.mode }
 					: {}),

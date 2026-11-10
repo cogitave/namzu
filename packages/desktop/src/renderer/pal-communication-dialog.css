@@ -1,14 +1,14 @@
 .pal-communication-backdrop {
 	position: fixed;
 	inset: 0;
-	z-index: 80;
+	z-index: var(--z-scrim);
 	background: rgb(0 0 0 / 45%);
 	transition: opacity 180ms var(--motion-ease);
 }
 .pal-communication-viewport {
 	position: fixed;
 	inset: 0;
-	z-index: 81;
+	z-index: var(--z-dialog);
 	display: grid;
 	place-items: center;
 	padding: 24px;
@@ -20,10 +20,10 @@
 	display: flex;
 	flex-direction: column;
 	border: 1px solid var(--border);
-	border-radius: 20px;
+	border-radius: var(--radius-panel);
 	background: var(--surface-raised);
 	color: var(--foreground);
-	box-shadow: 0 24px 80px rgb(0 0 0 / 24%);
+	box-shadow: var(--shadow-dialog);
 	transition: opacity 180ms var(--motion-ease), transform 180ms var(--motion-ease);
 }
 .pal-communication-backdrop[data-starting-style],
@@ -71,7 +71,7 @@
 .pal-communication-tab-list button {
 	padding: 7px 10px;
 	border: 0;
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	background: transparent;
 	color: var(--muted-foreground);
 	font-size: 13px;
@@ -94,7 +94,7 @@
 	padding: 10px 12px;
 	margin: 12px 22px;
 	border: 1px solid var(--border);
-	border-radius: 10px;
+	border-radius: var(--radius-control);
 	color: var(--muted-foreground);
 	font-size: 13px;
 	line-height: 1.5;
@@ -123,7 +123,7 @@
 .pal-communication-row {
 	padding: 14px;
 	border: 1px solid var(--border);
-	border-radius: 12px;
+	border-radius: var(--radius-card);
 	background: var(--surface);
 }
 .pal-communication-row header,
@@ -178,7 +178,7 @@
 	padding: 14px;
 	margin-bottom: 16px;
 	border: 1px solid var(--border);
-	border-radius: 12px;
+	border-radius: var(--radius-card);
 }
 .pal-communication-selects {
 	display: grid;
@@ -203,7 +203,7 @@
 	margin: 0 0 8px;
 	padding: 8px 12px;
 	border-left: 3px solid var(--border);
-	border-radius: 4px;
+	border-radius: var(--radius-chip);
 	background: var(--background);
 	color: var(--foreground);
 	font-size: 13px;

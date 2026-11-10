@@ -5,6 +5,7 @@ export type {
 	ChatCompletionParams,
 	ChatCompletionResponse,
 	ProviderRefusal,
+	InferenceSpeed,
 	ReasoningEffort,
 	ThinkingConfig,
 } from './chat.js'

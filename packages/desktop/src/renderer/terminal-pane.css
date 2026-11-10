@@ -53,7 +53,7 @@
 	border: 1px solid var(--border);
 	border-radius: var(--radius-md, 6px);
 	background: var(--popover, var(--muted));
-	box-shadow: 0 2px 8px rgb(0 0 0 / 0.25);
+	box-shadow: var(--shadow-1);
 }
 .terminal-find input {
 	flex: 0 1 20rem;
@@ -79,7 +79,7 @@
 	flex: none;
 	width: 0.5rem;
 	height: 0.5rem;
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	background: var(--muted-foreground);
 }
 .terminal-badge[data-activity="working"] {

@@ -1056,6 +1056,8 @@ export interface SendOptions {
 	readonly onMonitorEventsDelivered?: (eventIds: readonly string[]) => void
 	/** Model-specific reasoning effort for this turn's main query. */
 	readonly effort?: ReasoningEffort
+	/** `'fast'` asks the provider for its fast inference mode for this turn; absent is standard. */
+	readonly speed?: 'fast'
 	/**
 	 * The model the operator picked while this turn runs, read before every
 	 * request. A model this session's provider serves takes effect on the next
@@ -1428,6 +1430,8 @@ export interface AgentSession {
 	readonly sandbox: SandboxSummary
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
+	/** The provider's registry id, for rules keyed on the vendor rather than its label. */
+	readonly providerId?: string
 	/** Under `model: auto`, the tier and model the latest top-level turn was routed to. */
 	readonly autoRoute?: AutoRouteSummary
 	/** Exact primary route declarations; absent means support has not been declared. */
@@ -5696,6 +5700,7 @@ export async function createAgentSession(
 		},
 		providerSummary: entry.id === 'anthropic' ? withEndpointHost(entry.label) : entry.label,
 		modelSummary: model,
+		providerId: entry.id,
 		get autoRoute() {
 			return lastAutoRoute
 		},
@@ -8053,6 +8058,7 @@ async function* runTurn({
 				model,
 				...(sandboxProvider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
 				...(opts?.effort !== undefined ? { effort: opts.effort } : {}),
+				...(opts?.speed === 'fast' ? { speed: opts.speed } : {}),
 				...(webSearch ? { webSearch } : {}),
 				...turnConfigFields(resolveTurnGuards(limits), { completionAudit: true }),
 				maxResponseTokens: limits?.maxResponseTokens ?? 8192,

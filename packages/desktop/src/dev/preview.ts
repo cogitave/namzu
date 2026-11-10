@@ -406,6 +406,7 @@ const pickMode = ['drive', 'home', 'system', 'plain', 'risky'].find(
 ) as 'drive' | 'home' | 'system' | 'plain' | 'risky' | undefined
 // ?create=fail makes Start from scratch fail the way a read-only Documents folder would.
 const createFails = new URLSearchParams(location.search).get('create') === 'fail'
+const slowStart = Math.min(10_000, Number(new URLSearchParams(location.search).get('slow')) || 0)
 let sampleConnectStarted = false
 function settleSampleConnect(sample: ProjectView) {
 	setTimeout(() => {
@@ -1009,6 +1010,9 @@ const api: DesktopApi = {
 	setWindowAppearance: async () => {},
 	popupWindowMenu: async () => nativeOnly('Native window menus'),
 	projects: async () => {
+		// ?slow=<ms> holds the first project read, so the loading placeholders can be looked at: under
+		// 500 ms they never show, past it they fade in.
+		if (slowStart > 0) await new Promise((resolve) => setTimeout(resolve, slowStart))
 		beginSampleConnect()
 		return clone(projects)
 	},

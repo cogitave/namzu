@@ -61,6 +61,12 @@ export interface AnthropicConfig {
 	 * breakpoint in a request carries the same lifetime.
 	 */
 	promptCacheTtl?: '5m' | '1h'
+	/**
+	 * The clock, in epoch milliseconds, used to decide dated vendor deprecations
+	 * (fast mode on `claude-opus-4-8` is refused from 2026-11-30). Defaults to
+	 * `Date.now`; set it in tests so a date cut-off needs no waiting.
+	 */
+	clock?: () => number
 }
 
 export interface AnthropicProviderConfig extends AnthropicConfig {
