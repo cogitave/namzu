@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { ProviderRequestError } from '../../provider/errors.js'
 import type { ChatCompletionParams, StreamChunk } from '../../types/provider/index.js'
 import type { LLMProvider } from '../../types/provider/interface.js'
 import { runExperiment } from '../experiment.js'
@@ -315,5 +316,45 @@ describe('a broken judge is not a bad run', () => {
 		expect(report.failed).toBe(1)
 		expect(report.inconclusive).toBe(0)
 		expect(report.cases[0]?.scores.judge?.unavailable).toBeUndefined()
+	})
+})
+
+describe('a model that refuses sampling parameters', () => {
+	it('is graded again without temperature', async () => {
+		const seen: ChatCompletionParams[] = []
+		const provider = {
+			id: 'fake',
+			name: 'fake',
+			async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
+				seen.push(params)
+				if (params.temperature !== undefined) {
+					throw new ProviderRequestError({
+						kind: 'bad_request',
+						providerId: 'fake',
+						status: 400,
+						detail:
+							'`temperature` is deprecated for this model. Sampling parameters are not supported: omit temperature, top_p, and top_k.',
+					})
+				}
+				yield {
+					id: 'j',
+					delta: { content: '{"grade": 4, "reason": "ok"}' },
+					finishReason: 'stop',
+					usage: {
+						promptTokens: 1,
+						completionTokens: 1,
+						totalTokens: 2,
+						cachedTokens: 0,
+						cacheWriteTokens: 0,
+					},
+				}
+			},
+		} as unknown as LLMProvider
+		const score = await judgeScorer({ provider, model: 'refusing-model', rubric: RUBRIC }).score(
+			TURN,
+			CASE,
+		)
+		expect(score.score).toBe(1)
+		expect(seen.at(-1)?.temperature).toBeUndefined()
 	})
 })

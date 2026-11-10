@@ -132,6 +132,18 @@ describe('pause_turn', () => {
 		expect(ids).toEqual(['m1-s', 'm2-s', 'm2-s'])
 	})
 
+	it('continues when a later paused request reported no usage', async () => {
+		const silent = response('m2', 'pause_turn').filter((e) => e.type !== 'message_start')
+		silent.unshift({ type: 'message_start', message: { id: 'm2' } })
+		const { provider } = providerFor([
+			response('m1', 'pause_turn'),
+			silent,
+			response('m3', 'end_turn', { withResult: true, text: 'ok' }),
+		])
+		const chunks = await collect(provider, request)
+		expect(chunks.filter((c) => c.finishReason !== undefined)).toHaveLength(1)
+	})
+
 	it('stops after five continuations and reports the answer unfinished', async () => {
 		const { provider, create } = providerFor([response('m', 'pause_turn')])
 		await expect(collect(provider, request)).rejects.toMatchObject({
@@ -169,6 +181,16 @@ describe('cache diagnostics', () => {
 		expect((create.mock.calls[1]?.[0] as Body).diagnostics).toEqual({
 			previous_message_id: 'msg_1',
 		})
+	})
+
+	it('does not name a response that never finished', async () => {
+		const aborted = [
+			{ type: 'message_start', message: { id: 'msg_lost', usage: { input_tokens: 1 } } },
+		]
+		const { provider, create } = providerFor([aborted, answer('msg_2')])
+		await expect(collect(provider, plain)).rejects.toBeDefined()
+		await collect(provider, plain)
+		expect((create.mock.calls[1]?.[0] as Body).diagnostics).toEqual({ previous_message_id: null })
 	})
 
 	it('does not name another conversation’s response', async () => {

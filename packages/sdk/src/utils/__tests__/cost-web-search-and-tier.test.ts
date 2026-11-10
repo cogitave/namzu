@@ -64,6 +64,10 @@ describe('service tiers', () => {
 		expect(calculateCost(base, pricing).totalCost).toBe(2)
 	})
 
+	it.each(['default', 'auto'])('prices a compatible endpoint reporting %s as standard', (tier) => {
+		expect(calculateCost({ ...base, serviceTier: tier }, pricing).totalCost).toBe(2)
+	})
+
 	it.each(['priority', 'batch'])('report %s tokens as unpriced, not as standard', (tier) => {
 		const cost = calculateCost({ ...base, serviceTier: tier }, pricing)
 		expect(cost.totalCost).toBe(0)

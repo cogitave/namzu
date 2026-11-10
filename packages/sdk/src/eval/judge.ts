@@ -1,5 +1,6 @@
 import { collectChatCompletion } from '../provider/collect-chat-completion.js'
 import { resolveStreamIdleTimeoutMs, withStreamIdleTimeout } from '../provider/idle-timeout.js'
+import { chatStreamWithSamplingRepair } from '../runtime/query/iteration/side-call.js'
 import type { LLMProvider } from '../types/provider/interface.js'
 import type { EvalCase, EvalTurn, Score, Scorer } from './types.js'
 
@@ -221,7 +222,7 @@ export function judgeScorer(config: JudgeScorerConfig): Scorer {
 		name: config.name ?? 'judge',
 		async score(turn: EvalTurn, evalCase: EvalCase, signal?: AbortSignal): Promise<Score> {
 			const response = await collectChatCompletion(
-				provider.chatStream({
+				chatStreamWithSamplingRepair(provider, {
 					model: config.model,
 					messages: [{ role: 'user', content: buildPrompt(config, turn, evalCase, scale) }],
 					// The same turn must grade the same way twice, or a

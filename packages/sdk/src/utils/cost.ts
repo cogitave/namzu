@@ -75,12 +75,12 @@ function priceUsage(usage: TokenUsage, pricing: ModelPricing): Priced {
 }
 
 /**
- * Tiers with a published per-token price. The vendor lists none for `priority`
+ * Tiers with a published per-token price (anything but `priority` and `batch`; a compatible endpoint may report `default` or `auto`). The vendor lists none for `priority`
  * (a capacity commitment) or `batch` (a different endpoint), so tokens served
  * on one are unpriced rather than charged at the standard rate.
  */
 function isStandardTier(tier: string | undefined): boolean {
-	return tier === undefined || tier === 'standard'
+	return tier !== 'priority' && tier !== 'batch'
 }
 
 function priceTokens(usage: TokenUsage, pricing: ModelPricing): Priced {

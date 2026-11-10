@@ -1573,7 +1573,6 @@ export class AnthropicProvider implements LLMProvider {
 							if (event.message?.id) {
 								if (!messageId) messageId = event.message.id
 								responseId = event.message.id
-								this.rememberResponse(createParams.messages as unknown[], responseId)
 							}
 							if (event.message?.usage) {
 								yield {
@@ -1820,7 +1819,7 @@ export class AnthropicProvider implements LLMProvider {
 							if (paused) {
 								paused = false
 								pauses++
-								spent = addUsage(spent, current as TokenUsage)
+								if (current) spent = addUsage(spent, current)
 								current = undefined
 								indexOffset = maxIndex + 1
 								const next: Record<string, unknown> = {
@@ -1837,6 +1836,9 @@ export class AnthropicProvider implements LLMProvider {
 								iter = (await open(next))[Symbol.asyncIterator]()
 								break
 							}
+							// Only a whole, final response is named by the next request;
+							// an aborted or failed one never reaches this point.
+							if (responseId) this.rememberResponse(createParams.messages as unknown[], responseId)
 							if (searchReplayEmitted) return
 							const search = searchBlocks.complete(providerRoute)
 							if (search) {
