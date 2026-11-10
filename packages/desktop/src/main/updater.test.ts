@@ -230,6 +230,29 @@ describe('states', () => {
 		expect(controller.state).toEqual({ status: 'idle' })
 	})
 
+	it('tells the host when a check finds nothing newer, and survives its failure', () => {
+		const calls: string[] = []
+		const updater = new FakeUpdater()
+		const controller = new UpdateController({
+			updater: () => updater,
+			enabled: true,
+			mainBlockers: () => [],
+			shutdown: async () => undefined,
+			relaunch: () => undefined,
+			broadcast: () => undefined,
+			record: () => undefined,
+			onUpToDate: () => {
+				calls.push('up-to-date')
+				throw new Error('disk busy')
+			},
+		})
+		controller.start()
+		updater.emit('checking-for-update')
+		updater.emit('update-not-available')
+		expect(calls).toEqual(['up-to-date'])
+		expect(controller.state).toEqual({ status: 'idle' })
+	})
+
 	it('reports a failed check quietly, keeps no details, and recovers on the next check', async () => {
 		const { updater, controller, records } = build()
 		controller.start()

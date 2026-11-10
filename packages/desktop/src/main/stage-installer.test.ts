@@ -14,6 +14,8 @@ const staging = (await import(
 	/* @vite-ignore */ new URL('../../scripts/stage-installer.mjs', import.meta.url).href
 )) as {
 	parseArguments: (args: string[]) => Options
+	isDeadWeight: (path: string) => boolean
+	pruneDeadWeight: (directory: string) => number
 	stagePalComputer: (
 		out: string,
 		image: string | undefined,
@@ -156,5 +158,47 @@ describe('stage-installer Pal computer image', () => {
 		expect(() => staging.stagePalComputer(out, missing, join(out, 'm.json'))).toThrow(
 			'none.tar.zst does not exist',
 		)
+	})
+})
+
+describe('stage-installer dead weight', () => {
+	it('names what a running program never reads', () => {
+		for (const path of [
+			'node_modules/a/index.js.map',
+			'node_modules/a/index.d.ts',
+			'node_modules/a/index.d.cts',
+			'node_modules/a/index.d.mts',
+			'node_modules/a/README.md',
+			'node_modules/a/CHANGELOG.md',
+			'node_modules/a/History.md',
+			'node_modules/a/util.test.js',
+			'node_modules\\a\\index.d.ts',
+		])
+			expect(staging.isDeadWeight(path), path).toBe(true)
+	})
+
+	it('keeps code, licences, notices and the TypeScript compiler libraries', () => {
+		for (const path of [
+			'node_modules/a/index.js',
+			'node_modules/a/index.mjs',
+			'node_modules/a/package.json',
+			'node_modules/a/LICENSE',
+			'node_modules/a/LICENSE.md',
+			'node_modules/a/NOTICE',
+			'node_modules/a/readme-loader.js',
+			'node_modules/a/data.json',
+			'node_modules/typescript/lib/lib.es5.d.ts',
+			'node_modules/typescript/README.md',
+		])
+			expect(staging.isDeadWeight(path), path).toBe(false)
+	})
+
+	it('removes only those files and counts them', () => {
+		const root = scratch()
+		mkdirSync(join(root, 'a/lib'), { recursive: true })
+		for (const file of ['a/index.js', 'a/LICENSE', 'a/index.d.ts', 'a/lib/x.js.map', 'a/README.md'])
+			writeFileSync(join(root, file), 'x')
+		expect(staging.pruneDeadWeight(root)).toBe(3)
+		expect(readdirSync(join(root, 'a')).sort()).toEqual(['LICENSE', 'index.js', 'lib'])
 	})
 })
