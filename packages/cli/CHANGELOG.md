@@ -1,5 +1,17 @@
 # @namzu/cli
 
+## 49.1.1
+
+### Patch Changes
+
+- f143276: Desktop now asks, with a card, when an application needs your keyboard and mouse for a moment (Allow this app or Not now; a yes covers that application for the rest of the conversation, and "Allow for this conversation" never answers it); before, that case waited for a still moment without asking. When the pinned cua-driver is not cached the helper is downloaded as before, now with a one-time notice, and older cua-driver version folders in the cache are removed afterwards.
+- 23a4f5d: The desktop host answers `namzu/config/get` and `namzu/config/set`, so Namzu Desktop can show and change the user config keys. Each write is checked by the loader's own reader before the user file is written, and keys that hold commands or secrets are never read out. Nothing changes for the terminal app or for an existing config file. `namzu/config/set` accepts `dryRun` to check a change without writing it, and both config methods refuse a Pal session.
+- 5548118: A normal start no longer logs a warning for being offline: the Zen model catalogue refresh reports an unreachable network at debug level, and skips the network when the saved copy is under six hours old, so Desktop's several engines do not each fetch it. A saved project folder that cannot be reopened at start is recorded as missing, unreadable or not a folder and the remaining projects still restore; reads for a project that is still connecting, missing or failed to open no longer fail.
+- Updated dependencies [f143276]
+- Updated dependencies [df1dcfb]
+  - @namzu/computer-use@4.3.1
+  - @namzu/sdk@62.6.1
+
 ## 49.1.0
 
 ### Minor Changes

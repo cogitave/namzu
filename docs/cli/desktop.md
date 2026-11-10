@@ -559,7 +559,13 @@ method, connection and request correlation, numeric RPC code when supplied,
 and recognized failure reason or OS code. For example,
 `docker-engine-or-image-required`, `podman-machine-stopped`,
 `provider-not-configured` and `model-catalogue-unavailable` identify actionable
-failures. Unrecognized errors retain their safe type and `unclassified`
+failures. A saved project folder that cannot be reopened at start is recorded as
+`project_restore_failed` with `project-folder-missing`,
+`project-folder-unreadable` or `project-folder-not-a-directory`; one folder
+failing never stops the others from being restored. A window's read of providers, harnesses,
+attachments or draft settings for a project that is still waiting its turn,
+is missing or failed to open is answered empty instead of failing, and is not logged as
+`ipc_failed`. Unrecognized errors retain their safe type and `unclassified`
 reason. Raw stderr, error messages/stacks, prompts, tool inputs/results,
 credentials, project paths and URLs are never stored. Renderer reports include
 only a fixed failure kind and numeric source position.
