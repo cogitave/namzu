@@ -4775,6 +4775,7 @@ export async function createAgentSession(
 		usage: memoryUsage,
 		now: Date.now,
 		retireAfterDays: options.memory?.retireAfterDays ?? DEFAULT_RETIRE_AFTER_DAYS,
+		isDraining: () => curation?.draining === true,
 		setTimer: (run, ms) => {
 			const handle = setTimeout(run, ms)
 			handle.unref?.()

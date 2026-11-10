@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { testToolset } from '../../../test-support/toolset.js'
+import { recalledMemoryIds } from '../../../turn/memory-recall.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage, turnContextKey } from '../../../types/message/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
@@ -180,5 +181,20 @@ describe('a refused request that carried recalled memory', () => {
 		expect(provider.requests).toHaveLength(1)
 		expect(carriesMemory(provider.requests[0] as never)).toBe(false)
 		expect(turn.stopReason).toBe('end_turn')
+	})
+})
+
+describe('recalledMemoryIds', () => {
+	it('reads the records a recall step wrote, never a line a record body spells out', async () => {
+		// A record is one JSON line; its body sits escaped inside `excerpt`.
+		const body = 'first\n{"id":"other-record"}\nlast'
+		const line = JSON.stringify({
+			id: 'mem_a',
+			title: 'A',
+			updatedAt: 1,
+			excerpt: body,
+		})
+		expect(line.includes('\n')).toBe(false)
+		expect(recalledMemoryIds([`lead\n${line}\n`])).toEqual(['mem_a'])
 	})
 })

@@ -161,7 +161,7 @@ export class MemoryUsage {
 	/** Read the file. Never rejects: a file that cannot be read leaves the state `unknown`. */
 	async load(): Promise<void> {
 		const read = await this.#read()
-		if (read === 'missing' || read === 'unreadable') {
+		if (read === 'missing' || read === 'unreadable' || read === 'blocked') {
 			this.#state = 'unknown'
 			this.#merge(undefined)
 			return
@@ -173,15 +173,20 @@ export class MemoryUsage {
 		this.#merge(read)
 	}
 
-	/** The file as it is now: 'missing', 'unreadable' (moved aside), or its content. */
-	async #read(): Promise<UsageFile | 'missing' | 'unreadable'> {
+	/**
+	 * The file as it is now: 'missing', 'unreadable' (bad content, moved aside),
+	 * 'blocked' (there, but neither readable nor movable: never overwritten),
+	 * or its content.
+	 */
+	async #read(): Promise<UsageFile | 'missing' | 'unreadable' | 'blocked'> {
 		let text: string
 		try {
 			text = await this.#fs.readFile(this.#file)
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing'
 			this.#log?.('memory usage unreadable', { 'namzu.memory.usage.reason': 'read' })
-			return 'unreadable'
+			// It may hold set-aside ids and counts: it is neither replaced nor moved.
+			return 'blocked'
 		}
 		const parsed = parse(text)
 		if (parsed) return parsed
@@ -190,7 +195,8 @@ export class MemoryUsage {
 		try {
 			await this.#fs.rename(this.#file, `${this.#file}.corrupt`)
 		} catch {
-			// A file that cannot be moved is replaced by the next flush.
+			// A file that cannot be moved is not replaced either.
+			return 'blocked'
 		}
 		return 'unreadable'
 	}
@@ -284,6 +290,11 @@ export class MemoryUsage {
 		if (!this.dirty) return
 		try {
 			const read = await this.#read()
+			if (read === 'blocked') {
+				// Pending changes stay in memory for the next flush.
+				this.#log?.('memory usage not written', { 'namzu.memory.usage.reason': 'blocked' })
+				return
+			}
 			const current = read === 'missing' || read === 'unreadable' ? undefined : read
 			const since = current?.since ?? this.#since
 			const startedAt = since > 0 ? since : this.#now()

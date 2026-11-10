@@ -55,9 +55,15 @@ export class CurationRuntime {
 	readonly #deps: CurationRuntimeDeps
 	#timer: unknown = null
 	#disposed = false
+	#draining = 0
 
 	constructor(deps: CurationRuntimeDeps) {
 		this.#deps = deps
+	}
+
+	/** Whether a drain is in flight right now. */
+	get draining(): boolean {
+		return this.#draining > 0
 	}
 
 	#cancel(): void {
@@ -121,6 +127,7 @@ export class CurationRuntime {
 			this.#deps.report?.(reason, 'skipped')
 			return undefined
 		}
+		this.#draining += 1
 		try {
 			const lines: string[] = []
 			const result = await inbox.drain(async (entries) => {
@@ -141,6 +148,8 @@ export class CurationRuntime {
 		} catch {
 			this.#deps.report?.(reason, 'failed')
 			return undefined
+		} finally {
+			this.#draining -= 1
 		}
 	}
 }

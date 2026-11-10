@@ -47,6 +47,8 @@ export interface ManagedMemory {
 	readonly state?: ManagedMemoryState
 	/** Why the sweep retired it. Only with `state: 'retired'`. */
 	readonly retiredReason?: string
+	/** A retired memory a refused request had also set aside: restoring lifts both. */
+	readonly alsoSetAside?: true
 	/** You or Namzu saved it and it has not been recalled for a long time. Nothing was changed. */
 	readonly possiblyStale?: true
 }
@@ -117,6 +119,9 @@ export async function loadManagedMemories(
 				...(replaced ? { replaces: replaced } : {}),
 				...(state !== 'active' ? { state } : {}),
 				...(retiredReason !== undefined ? { retiredReason } : {}),
+				...(state === 'retired' && usage?.isSetAside(entry.id)
+					? { alsoSetAside: true as const }
+					: {}),
 				...(stale ? { possiblyStale: true as const } : {}),
 			})
 		}
@@ -161,10 +166,11 @@ export function memoryLabel(item: ManagedMemory): string {
 /** The marker a set-aside, retired or possibly stale memory carries in lists. */
 export function stateLabel(item: ManagedMemory): string | undefined {
 	if (item.state === 'set-aside') return 'set aside: a refused request carried it'
-	if (item.state === 'retired')
-		return item.retiredReason === RETIRED_DUPLICATE
-			? 'retired: a newer copy exists'
-			: 'retired: not recalled for a while'
+	if (item.state === 'retired') {
+		const why =
+			item.retiredReason === RETIRED_DUPLICATE ? 'a newer copy exists' : 'not recalled for a while'
+		return item.alsoSetAside ? `retired and set aside: ${why}` : `retired: ${why}`
+	}
 	return item.possiblyStale ? 'possibly stale: not recalled for a while' : undefined
 }
 
@@ -286,7 +292,7 @@ export type RestoreOutcome = 'restored' | 'changed' | 'gone' | 'not-needed'
 /**
  * Bring a set-aside or retired memory back. A set-aside one is offered by
  * recall again; a retired one becomes active, without the marks the sweep
- * left. A record changed since it was listed stays as it is.
+ * left, and lifted from the set-aside too when a refusal had set it aside. A record changed since it was listed stays as it is.
  */
 export async function restoreManagedMemory(
 	store: MarkdownMemoryStore,
@@ -303,6 +309,9 @@ export async function restoreManagedMemory(
 		if (!record) return 'gone'
 		const { retiredAt: _at, retiredReason: _reason, ...rest } = record.content.metadata ?? {}
 		await store.updateIfRevision(item.id, { status: 'active', metadata: rest }, item.revision)
+		// A refusal may have set it aside before the sweep retired it; recall
+		// would still skip it. Harmless when it was not set aside.
+		await liftSetAside(item.id)
 		return 'restored'
 	} catch (error) {
 		if (!(error instanceof MemoryRevisionConflictError)) throw error

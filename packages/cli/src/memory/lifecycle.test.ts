@@ -54,7 +54,9 @@ function timers() {
 	}
 }
 
-async function setup(options: { retireAfterDays?: number; busy?: () => boolean } = {}) {
+async function setup(
+	options: { retireAfterDays?: number; busy?: () => boolean; draining?: () => boolean } = {},
+) {
 	const directory = mkdtempSync(join(tmpdir(), 'namzu-memory-lifecycle-'))
 	roots.push(directory)
 	const store = new MarkdownMemoryStore({ directory: join(directory, 'records') })
@@ -70,6 +72,7 @@ async function setup(options: { retireAfterDays?: number; busy?: () => boolean }
 		setTimer: wheel.setTimer,
 		clearTimer: wheel.clearTimer,
 		...(options.busy ? { isBusy: options.busy } : {}),
+		...(options.draining ? { isDraining: options.draining } : {}),
 		onSwept: (report) => swept.push(report.archived.length),
 	})
 	return {
@@ -189,6 +192,75 @@ describe('the lifecycle host', () => {
 		t.at(1_000 + 30 * DAY)
 		const report = await t.lifecycle.tidy()
 		expect(report.archived).toMatchObject([{ title: 'Old claim', reason: 'unused' }])
+	})
+})
+
+describe('the sweep and the rest of the session', () => {
+	async function stale(t: Awaited<ReturnType<typeof setup>>, titles: string[]) {
+		await t.lifecycle.start()
+		t.usage.recalled(['x'])
+		await t.usage.flush()
+		for (const title of titles)
+			await t.store.create({
+				title,
+				summary: 's',
+				content: `body of ${title}`,
+				metadata: { source: SESSION_MEMORY_TAG },
+			})
+		t.at(1_000 + 40 * DAY)
+	}
+
+	it('stops writing the moment a turn starts', async () => {
+		const t = await setup()
+		await stale(t, ['One', 'Two', 'Three'])
+		// The first archive write starts the turn; the rest must stay active.
+		const update = t.store.updateIfRevision.bind(t.store)
+		let writes = 0
+		t.store.updateIfRevision = (async (...args: Parameters<typeof update>) => {
+			writes += 1
+			const result = await update(...args)
+			t.lifecycle.turnStarted()
+			return result
+		}) as typeof t.store.updateIfRevision
+		t.lifecycle.turnSettled()
+		await t.wheel.fire()
+		expect(writes).toBe(1)
+		const { entries } = await t.store.list({ status: 'active' })
+		expect(entries).toHaveLength(2)
+	})
+
+	it('waits while the curator drains, and looks again after the next pause', async () => {
+		let draining = true
+		const t = await setup({ draining: () => draining })
+		await stale(t, ['One'])
+		t.lifecycle.turnSettled()
+		await t.wheel.fire()
+		expect((await t.store.list({ status: 'active' })).entries).toHaveLength(1)
+		expect(t.wheel.pending()).toEqual([SWEEP_IDLE_MS])
+		draining = false
+		await t.wheel.fire()
+		expect((await t.store.list({ status: 'active' })).entries).toHaveLength(0)
+	})
+
+	it('/memory tidy waits for an idle sweep already running, and never overlaps it', async () => {
+		const t = await setup()
+		await stale(t, ['One', 'Two'])
+		let running = 0
+		let overlapped = false
+		const update = t.store.updateIfRevision.bind(t.store)
+		t.store.updateIfRevision = (async (...args: Parameters<typeof update>) => {
+			running += 1
+			if (running > 1) overlapped = true
+			await Promise.resolve()
+			const result = await update(...args)
+			running -= 1
+			return result
+		}) as typeof t.store.updateIfRevision
+		t.lifecycle.turnSettled()
+		const idle = t.wheel.fire()
+		const tidy = t.lifecycle.tidy()
+		await Promise.all([idle, tidy])
+		expect(overlapped).toBe(false)
 	})
 })
 

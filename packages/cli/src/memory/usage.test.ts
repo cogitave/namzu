@@ -200,4 +200,58 @@ describe('the usage sidecar', () => {
 		await usage.flush()
 		expect(existsSync(file)).toBe(false)
 	})
+
+	it('never overwrites a sidecar it could not read, and writes once it can', async () => {
+		const { file } = temp()
+		const first = new MemoryUsage({ file, now: clock().now })
+		await first.load()
+		first.recalled(['a'])
+		first.setAside(['a'])
+		await first.flush()
+		const before = readFileSync(file, 'utf8')
+
+		let failing = true
+		const fs: UsageFs = {
+			...nodeUsageFs,
+			readFile: (path) =>
+				failing && path === file
+					? Promise.reject(Object.assign(new Error('denied'), { code: 'EACCES' }))
+					: nodeUsageFs.readFile(path),
+		}
+		const usage = new MemoryUsage({ file, now: clock(9_000).now, fs })
+		await usage.load()
+		expect(usage.state).toBe('unknown')
+		usage.recalled(['b'])
+		await usage.flush()
+		// Left as it was, and the pending count is kept for later.
+		expect(readFileSync(file, 'utf8')).toBe(before)
+		expect(usage.dirty).toBe(true)
+
+		failing = false
+		await usage.flush()
+		const after = read(file)
+		expect(after.setAside.a).toBeDefined()
+		expect(after.records.a.recalls).toBe(1)
+		expect(after.records.b.recalls).toBe(1)
+		expect(usage.dirty).toBe(false)
+	})
+
+	it('does not replace a corrupt sidecar it could not move aside', async () => {
+		const { file } = temp()
+		const first = new MemoryUsage({ file, now: clock().now })
+		await first.load()
+		first.recalled(['a'])
+		await first.flush()
+		writeFileSync(file, '{"version":1,"since":"soon"')
+		const fs: UsageFs = {
+			...nodeUsageFs,
+			rename: (from, to) =>
+				to.endsWith('.corrupt') ? Promise.reject(new Error('busy')) : nodeUsageFs.rename(from, to),
+		}
+		const usage = new MemoryUsage({ file, now: clock(5_000).now, fs })
+		await usage.load()
+		usage.recalled(['b'])
+		await usage.flush()
+		expect(readFileSync(file, 'utf8')).toBe('{"version":1,"since":"soon"')
+	})
 })

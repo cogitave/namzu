@@ -33,6 +33,8 @@ export interface MemoryLifecycleDeps {
 	readonly retireAfterDays: number
 	/** Whether the person is using the terminal right now. Read at fire time; defaults to not. */
 	readonly isBusy?: () => boolean
+	/** Whether the curator is draining its inbox; the sweep waits for it to finish. */
+	readonly isDraining?: () => boolean
 	/** Counts only, never titles. */
 	readonly log?: (message: string, fields: LogAttributes) => void
 	/** A sweep that changed something. */
@@ -43,7 +45,8 @@ export class MemoryLifecycle {
 	readonly #deps: MemoryLifecycleDeps
 	#timer: unknown = null
 	#turnRunning = false
-	#sweeping = false
+	/** The sweep in flight, so a second one queues behind it. */
+	#inflight: Promise<unknown> | undefined
 	#lastSweepAt: number | undefined
 	#disposed = false
 	/** A refused request was retried without the memories it carried. */
@@ -125,17 +128,33 @@ export class MemoryLifecycle {
 	/** The sweep, now. Never waits for quiet. */
 	async tidy(): Promise<SweepReport> {
 		await this.#deps.usage.flush()
-		const report = await this.#sweep()
+		const report = await this.#serial(() => this.#sweep())
 		this.#lastSweepAt = this.#deps.now()
 		return report
 	}
 
-	async #sweep(): Promise<SweepReport> {
+	/** One sweep at a time: a run waits for the one in flight. */
+	async #serial<T>(run: () => Promise<T>): Promise<T> {
+		const behind = this.#inflight
+		const current = (async () => {
+			if (behind) await behind.catch(() => undefined)
+			return run()
+		})()
+		this.#inflight = current
+		try {
+			return await current
+		} finally {
+			if (this.#inflight === current) this.#inflight = undefined
+		}
+	}
+
+	async #sweep(shouldStop?: () => boolean): Promise<SweepReport> {
 		const report = await sweepMemory({
 			store: this.#deps.store,
 			usage: this.#deps.usage,
 			now: this.#deps.now,
 			retireAfterDays: this.#deps.retireAfterDays,
+			...(shouldStop ? { shouldStop } : {}),
 		})
 		this.#deps.log?.('memory sweep finished', {
 			'namzu.memory.sweep.archived_count': report.archived.length,
@@ -167,24 +186,26 @@ export class MemoryLifecycle {
 	}
 
 	async #idle(): Promise<void> {
-		if (this.#disposed || this.#turnRunning || this.#sweeping) return
-		if (this.#deps.isBusy?.() === true) {
+		if (this.#disposed || this.#turnRunning || this.#inflight) return
+		if (this.#deps.isBusy?.() === true || this.#deps.isDraining?.() === true) {
 			// Someone is using the terminal: look again after the next pause.
 			this.#arm()
 			return
 		}
 		const last = this.#lastSweepAt
 		if (last !== undefined && this.#deps.now() - last < SWEEP_MIN_GAP_MS) return
-		this.#sweeping = true
 		try {
 			await this.#deps.usage.flush()
-			const report = await this.#sweep()
+			// A turn starting, or the curator draining, stops the sweep between writes.
+			const report = await this.#serial(() =>
+				this.#sweep(
+					() => this.#turnRunning || this.#disposed || this.#deps.isDraining?.() === true,
+				),
+			)
 			this.#lastSweepAt = this.#deps.now()
 			if (report.archived.length > 0) this.#deps.onSwept?.(report)
 		} catch {
 			this.#deps.log?.('memory sweep failed', { 'namzu.memory.sweep.reason': 'store' })
-		} finally {
-			this.#sweeping = false
 		}
 	}
 

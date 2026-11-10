@@ -435,4 +435,77 @@ describe('set-aside, retired and possibly stale memories', () => {
 		expect((await store.getRecord(made.entry.id))?.entry.status).toBe('archived')
 		expect(restoreOutcomeLine(item as never, 'changed')).toMatch(/changed since it was listed/u)
 	})
+
+	it('restores a memory that was both set aside and retired, so recall offers it again', async () => {
+		const { store, directory } = tempStore()
+		const made = await store.create({
+			title: 'Old claim',
+			summary: 's',
+			content: 'c',
+			metadata: { source: 'session-memory' },
+		})
+		const record = await store.getVersionedRecord(made.entry.id)
+		await store.updateIfRevision(
+			made.entry.id,
+			{
+				status: 'archived',
+				metadata: {
+					...record?.content.metadata,
+					retiredAt: 5,
+					retiredReason: 'unused',
+				},
+			},
+			record?.revision as string,
+		)
+		const usage = new MemoryUsage({
+			file: join(directory, 'usage.json'),
+			now: () => 1,
+		})
+		await usage.load()
+		usage.setAside([made.entry.id])
+		const [item] = await loadManagedMemories(store, directory, { usage })
+		expect(item?.state).toBe('retired')
+		expect(memoryDescription(item as never)).toMatch(/^retired and set aside: not recalled/u)
+
+		expect(await restoreManagedMemory(store, item as never, async (id) => usage.restore(id))).toBe(
+			'restored',
+		)
+		expect((await store.getRecord(made.entry.id))?.entry.status).toBe('active')
+		expect(usage.isSetAside(made.entry.id)).toBe(false)
+	})
+
+	it('leaves the set-aside alone when the retired memory changed and stayed', async () => {
+		const { store, directory } = tempStore()
+		const made = await store.create({
+			title: 'Old claim',
+			summary: 's',
+			content: 'c',
+			metadata: { source: 'session-memory' },
+		})
+		const record = await store.getVersionedRecord(made.entry.id)
+		await store.updateIfRevision(
+			made.entry.id,
+			{
+				status: 'archived',
+				metadata: {
+					...record?.content.metadata,
+					retiredAt: 5,
+					retiredReason: 'unused',
+				},
+			},
+			record?.revision as string,
+		)
+		const usage = new MemoryUsage({
+			file: join(directory, 'usage.json'),
+			now: () => 1,
+		})
+		await usage.load()
+		usage.setAside([made.entry.id])
+		const [item] = await loadManagedMemories(store, directory, { usage })
+		await store.update(made.entry.id, { title: 'Edited by a person' })
+		expect(await restoreManagedMemory(store, item as never, async (id) => usage.restore(id))).toBe(
+			'changed',
+		)
+		expect(usage.isSetAside(made.entry.id)).toBe(true)
+	})
 })

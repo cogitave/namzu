@@ -40,6 +40,8 @@ export interface SweepDeps {
 	readonly now: () => number
 	/** Days without a recall before a recorded memory is retired. 0 never retires for being unused. */
 	readonly retireAfterDays: number
+	/** Read before each write; true leaves the rest of the records as they are. */
+	readonly shouldStop?: () => boolean
 }
 
 export interface SweptMemory {
@@ -83,7 +85,7 @@ export function isUnused(input: {
 }
 
 export async function sweepMemory(deps: SweepDeps): Promise<SweepReport> {
-	const { store, usage, now, retireAfterDays } = deps
+	const { store, usage, now, retireAfterDays, shouldStop } = deps
 	const at = now()
 	const { entries } = await store.list({ status: 'active' })
 	const archived: SweptMemory[] = []
@@ -121,6 +123,7 @@ export async function sweepMemory(deps: SweepDeps): Promise<SweepReport> {
 		reason: SweptMemory['reason'],
 		extra: Record<string, unknown> = {},
 	): Promise<void> => {
+		if (shouldStop?.() === true) return
 		try {
 			await store.updateIfRevision(
 				row.id,
