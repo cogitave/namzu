@@ -145,7 +145,10 @@ describe('the turn memory promoter', () => {
 		const page = await store.list()
 		expect(page.totalCount).toBe(1)
 		expect(page.entries[0]?.type).toBe('project')
-		expect(page.entries[0]?.title).toContain('invoice')
+		// The title never quotes the turn's request; the kept preference is in
+		// the description the index and search show.
+		expect(page.entries[0]?.title).toBe('Session notes')
+		expect(page.entries[0]?.description).toContain('never email an invoice twice')
 	})
 
 	it('keeps what it writes out of the index, so the next turn’s system prompt is unchanged', async () => {
