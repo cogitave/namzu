@@ -376,7 +376,13 @@ it('carries file and stored memory after actual compaction', async () => {
 	vi.mocked(ProviderRegistry.createProvider).mockImplementation(() => scripted)
 	const sessionEvents: string[] = []
 	const { session, state, scope } = await makeSession(false, cwd, {
-		compaction: { strategy: 'structured', contextWindowTokens: 64_000 },
+		// A window this size puts the derived trigger far above the prompt
+		// (about a sixth of it is used). At 64k the prompt sat a few hundred
+		// tokens under the 0.5 line, so the system prompt growing or a longer
+		// path in the environment block tipped it into a threshold compaction
+		// before the scripted overflow, leaving the overflow nothing to shed.
+		// Only the overflow may start compaction here.
+		compaction: { strategy: 'structured', contextWindowTokens: 200_000 },
 		onSessionEvent: (event) => sessionEvents.push(event.type),
 	})
 	await seedPlan(state, scope.sessionId, 'TASK_AFTER_COMPACTION')
