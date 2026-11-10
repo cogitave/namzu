@@ -334,6 +334,7 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 	const streamIdleTimeoutMs = resolveStreamIdleTimeoutMs(params.turnConfig.streamIdleTimeoutMs)
 	const maxRequestRichContentBytes = resolveMaxRequestRichContentBytes(
 		params.turnConfig.maxRequestRichContentBytes,
+		params.provider.capabilities?.maxRequestRichContentBytes,
 	)
 	const sandboxTeardownTimeoutMs = resolveSandboxTeardownTimeoutMs(params.sandboxTeardownTimeoutMs)
 	// Persist the EFFECTIVE value, not only an override. A turn replayed after a

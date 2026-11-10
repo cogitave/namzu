@@ -170,6 +170,14 @@ export interface ProviderCapabilities {
 	 * or the lifetime is the provider's own and cannot be chosen or read).
 	 */
 	cacheTtl?: readonly ('5m' | '1h')[]
+	/**
+	 * The most base64 characters of inline images and documents this provider
+	 * will take in one request, when its wire limit differs from the kernel's
+	 * default (24 MiB). Counts the encoded value, like
+	 * `turnConfig.maxRequestRichContentBytes`, which still overrides it.
+	 * Absent means the kernel default.
+	 */
+	maxRequestRichContentBytes?: number
 }
 
 export interface ProviderFactoryResult {

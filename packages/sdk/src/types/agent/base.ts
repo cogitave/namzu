@@ -226,6 +226,8 @@ export interface BaseAgentConfig {
 	 */
 	thinking?: import('../provider/index.js').ThinkingConfig
 	effort?: import('../provider/index.js').ReasoningEffort
+	/** Inference speed; see {@link import('../session/config.js').TurnConfig.speed}. */
+	speed?: import('../provider/index.js').InferenceSpeed
 	/** How the turn bounds its reasoning; see {@link import('../session/config.js').TurnConfig.reasoning}. */
 	reasoning?: import('../session/config.js').TurnConfig['reasoning']
 	/** Ask once for a check of edits before a turn ends; see {@link import('../session/config.js').TurnConfig.completionAudit}. */

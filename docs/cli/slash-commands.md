@@ -70,6 +70,7 @@ clause, so no line ends mid-sentence.
 | `/theme` | Change the colors: `/theme [name]`. Opens a picker with a live preview, or applies `auto`, `dark`, `light`, `dark-daltonized`, `light-daltonized`, `dark-ansi` or `light-ansi` directly. See [Themes](themes.md). |
 | `/effort` | Choose reasoning effort for future replies: /effort [level\|default]. |
 | `/hypermode` | Toggle hypermode for this conversation: /hypermode [on\|off]. An independent on/off, shown beside effort and never changing it: while on, the model is told to use the `workflow` tool for every substantial task. |
+| `/fast` | Toggle fast inference for this conversation: /fast [on\|off]. Faster replies at twice the standard rate, on the Anthropic models that offer it (Opus 5.5, Fable 5.2, Mythos 5.2, and Opus 5 in preview); any other model is refused with the reason. Off by default, never saved, shown as `fast` in the footer, and it never changes reasoning effort. A model change that cannot keep it turns it off and says so. |
 | `/orchestrate` | Deprecated alias of `/hypermode`, from before the mode was renamed. It prints a line saying so, then does what `/hypermode` does. It will be removed in a later major version. |
 | `/init` | Write an AGENTS.md describing this project to future agents. |
 | `/goal` | Open this conversation’s goal menu. `/goal status` reads progress; `/goal set` opens the objective editor. |

@@ -27,6 +27,7 @@ import {
 	toolResultToText,
 } from '@namzu/sdk'
 import { attributionHeaders } from '@namzu/sdk'
+import { assertFastModeAccepted, fastModeBeta } from './fast-mode.js'
 import { refusalFallbackFromList } from './refusal-fallback.js'
 import { SearchBlocks, restoreSearch } from './search-replay.js'
 import {
@@ -750,6 +751,7 @@ interface RawAnthropicUsage {
 	input_tokens?: number
 	output_tokens?: number
 	cache_read_input_tokens?: number | null
+	speed?: string | null
 	cache_creation_input_tokens?: number | null
 	/** Cache-write tokens by lifetime, when the service breaks them down. */
 	cache_creation?: {
@@ -782,7 +784,11 @@ function emptyUsage(): TokenUsage {
  * the response carries no per-lifetime breakdown. The breakdown wins because
  * the service may write a shorter-lived entry than the one asked for.
  */
-function parseUsage(raw?: RawAnthropicUsage, requestedTtl?: '5m' | '1h'): TokenUsage {
+function parseUsage(
+	raw?: RawAnthropicUsage,
+	requestedTtl?: '5m' | '1h',
+	requestedSpeed?: 'fast',
+): TokenUsage {
 	if (!raw) return emptyUsage()
 	const written5m = raw.cache_creation?.ephemeral_5m_input_tokens ?? 0
 	const written1h = raw.cache_creation?.ephemeral_1h_input_tokens ?? 0
@@ -810,6 +816,14 @@ function parseUsage(raw?: RawAnthropicUsage, requestedTtl?: '5m' | '1h'): TokenU
 		// about every streamed event before the last one.
 		...(thinking !== undefined ? { reasoningTokens: thinking } : {}),
 		...(cacheTtlMs !== undefined ? { cacheTtlMs } : {}),
+		// What the response says served the call; when it says nothing, what was
+		// asked for, because fast is the expensive answer and an unreported
+		// speed must not price as standard.
+		...(raw.speed === 'fast' || raw.speed === 'standard'
+			? { speed: raw.speed }
+			: requestedSpeed !== undefined
+				? { speed: requestedSpeed }
+				: {}),
 		...(raw.cache_creation
 			? {
 					cacheWriteTtlTokens: {
@@ -1012,12 +1026,29 @@ export const ANTHROPIC_CAPABILITIES: ProviderCapabilities = {
 	supportsToolResultImages: true,
 	supportsToolResultDocuments: false,
 	cacheTtl: ['5m', '1h'],
+	// The first-party Messages limit is 128 MB (raised from 32 MB on 2026-10-28;
+	// https://platform.claude.com/docs/en/api/overview). 100 MiB of base64
+	// leaves headroom for the JSON envelope, text and tool schemas. A driver
+	// pointed anywhere else does not claim it: see the constructor.
+	maxRequestRichContentBytes: 100 * 1024 * 1024,
+}
+
+/** The request rich-content budget only the vendor's own endpoint is known to take. */
+function capabilitiesFor(config: AnthropicConfig): ProviderCapabilities {
+	if (config.compatibleEndpoint !== true && isVendorEndpoint(config.baseURL)) {
+		return ANTHROPIC_CAPABILITIES
+	}
+	// A gateway, proxy or partner platform (Bedrock accepts 20 MB, Google-managed
+	// 30 MB, https://platform.claude.com/docs/en/api/overview) has its own limit
+	// this driver cannot read from a base URL, so it keeps the kernel default.
+	const { maxRequestRichContentBytes: _first, ...rest } = ANTHROPIC_CAPABILITIES
+	return rest
 }
 
 export class AnthropicProvider implements LLMProvider {
 	readonly id = 'anthropic'
 	readonly name = 'Anthropic'
-	readonly capabilities = ANTHROPIC_CAPABILITIES
+	readonly capabilities: ProviderCapabilities
 
 	private client: Anthropic
 	private config: AnthropicConfig
@@ -1032,6 +1063,7 @@ export class AnthropicProvider implements LLMProvider {
 		)
 			throw new Error('maxRetries must be a nonnegative integer.')
 		this.config = config
+		this.capabilities = capabilitiesFor(config)
 
 		const clientOpts: Record<string, unknown> = {
 			timeout: config.timeout ?? DEFAULT_TIMEOUT_MS,
@@ -1214,6 +1246,19 @@ export class AnthropicProvider implements LLMProvider {
 		}
 		if (Object.keys(outputConfig).length) body.output_config = outputConfig
 
+		// Only 'fast' is a wire value: 'standard' is what an absent field means.
+		// Admission is decided locally, before transport, because the vendor
+		// either errors (removed or unsupported models) or, on Opus 4.6, quietly
+		// serves standard speed while the caller believes otherwise.
+		if (params.speed === 'fast') {
+			assertFastModeAccepted(
+				model,
+				(this.config.clock ?? Date.now)(),
+				this.config.compatibleEndpoint === true,
+			)
+			body.speed = 'fast'
+		}
+
 		if (params.temperature !== undefined) body.temperature = params.temperature
 		if (params.topP !== undefined) body.top_p = params.topP
 		if (params.topK !== undefined) body.top_k = params.topK
@@ -1228,23 +1273,48 @@ export class AnthropicProvider implements LLMProvider {
 	 * Casting via `unknown` keeps us out of `any` territory while acknowledging
 	 * that the translation layer bridges two type worlds.
 	 */
+	/**
+	 * The `anthropic-beta` value for this request when it needs one beyond the
+	 * client's defaults. A per-request header REPLACES the default of the same
+	 * name, so the defaults (the subscription betas, or the caller's own) are
+	 * carried into it.
+	 */
+	private betaHeaderFor(body: Record<string, unknown>): string | undefined {
+		if (body.speed !== 'fast') return undefined
+		const extra = fastModeBeta(String(body.model))
+		if (extra === undefined) return undefined
+		const configured = Object.entries(this.config.defaultHeaders ?? {}).find(
+			([name]) => name.toLowerCase() === 'anthropic-beta',
+		)?.[1]
+		const base =
+			this.config.authToken && this.config.compatibleEndpoint !== true
+				? (configured ?? OAUTH_BETAS)
+				: configured
+		return [base, extra].filter(Boolean).join(',')
+	}
+
 	private createRaw(
 		body: Record<string, unknown>,
 		opts?: { signal?: AbortSignal },
 	): Promise<unknown> {
 		const create = this.client.messages.create as unknown as (
 			body: Record<string, unknown>,
-			options?: { signal?: AbortSignal },
+			options?: { signal?: AbortSignal; headers?: Record<string, string> },
 		) => Promise<unknown>
+		const beta = this.betaHeaderFor(body)
 		// Pass the caller AbortSignal as the SDK's per-request RequestOptions so
 		// aborting it tears down the in-flight HTTP/2 SSE request (rejects with
 		// APIUserAbortError). A non-aborted signal is identical to omitting it.
-		return create.call(this.client.messages, body, { signal: opts?.signal })
+		return create.call(this.client.messages, body, {
+			signal: opts?.signal,
+			...(beta ? { headers: { 'anthropic-beta': beta } } : {}),
+		})
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const providerRoute = resolveAnthropicRoute(this.resolveModel(params), params.providerRoute)
 		const createParams = this.buildCreateParams(params, true)
+		const requestedSpeed = createParams.speed === 'fast' ? ('fast' as const) : undefined
 		const signal = params.signal
 
 		let stream: AsyncIterable<StreamEvent>
@@ -1351,7 +1421,7 @@ export class AnthropicProvider implements LLMProvider {
 								yield {
 									id: messageId,
 									delta: {},
-									usage: parseUsage(event.message.usage, this.cacheTtlFor(params)),
+									usage: parseUsage(event.message.usage, this.cacheTtlFor(params), requestedSpeed),
 								}
 							}
 							break
@@ -1562,13 +1632,15 @@ export class AnthropicProvider implements LLMProvider {
 										event.delta.stop_reason,
 										event.delta.stop_details ?? event.stop_details,
 									),
-									usage: event.usage ? parseUsage(event.usage) : undefined,
+									usage: event.usage
+										? parseUsage(event.usage, undefined, requestedSpeed)
+										: undefined,
 								}
 							} else if (event.usage) {
 								yield {
 									id: messageId,
 									delta: {},
-									usage: parseUsage(event.usage),
+									usage: parseUsage(event.usage, undefined, requestedSpeed),
 								}
 							}
 							break

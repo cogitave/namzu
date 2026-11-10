@@ -160,3 +160,52 @@ const toolChoice = acceptsForcedToolChoice('claude-opus-5-5') ? 'required' : 'au
 
 Pass the thinking configuration you will send as the second argument; the
 answer comes from the same resolution the request uses.
+
+## Fast mode
+
+`speed: 'fast'` (on `ChatCompletionParams`, or `turnConfig.speed` for a turn) asks
+for the vendor's fast mode: faster replies at twice the standard rates, on the
+full context window. The driver sends it as the top-level `speed: "fast"` field
+and only to models the vendor documents it on; `'standard'` and an absent value
+are the same request and send nothing.
+
+| Model | Beta header |
+| --- | --- |
+| Claude Opus 5.5 and later Opus, Fable 5.2 and later Fable, Mythos 5.2 and later Mythos | none |
+| Claude Opus 5 (research preview, needs account access) | `fast-mode-2026-02-01` |
+| Claude Opus 4.8 (research preview, until 2026-11-30) | `fast-mode-2026-02-01` |
+
+Any other model, and Opus 4.8 from 2026-11-30, is refused before sending with a
+`bad_request` `ProviderRequestError` whose `providerCode` is
+`fast_mode_unsupported`; the Opus 4.8 message names `claude-opus-5-5`. A
+compatible third-party endpoint (`compatibleEndpoint: true`) is refused too.
+The refusal is local because the vendor either errors or, on Opus 4.6, quietly
+serves standard speed while the caller believes otherwise. The removal date is
+read from `AnthropicConfig.clock` (default `Date.now`). The beta header is
+added to the headers the client already sends, never in place of them.
+
+`usage.speed` on the response reaches `TokenUsage.speed`, and the SDK prices a
+`'fast'` call at the catalogue's `fastMultiplier` (2 on the five models above).
+A model with no multiplier reports a fast call as unpriced, not as standard.
+Fast mode has its own rate limit, and its prompt cache is separate from standard
+speed: dropping `speed` after a 429 is a cache miss.
+
+```ts
+import { supportsFastMode } from '@namzu/anthropic'
+
+const speed = supportsFastMode('claude-opus-5-5') ? 'fast' : undefined
+```
+
+Source: https://platform.claude.com/docs/en/build-with-claude/fast-mode
+
+## Request size
+
+The driver declares `ProviderCapabilities.maxRequestRichContentBytes` of 100 MiB
+of base64 for the vendor's own endpoint: the first-party Messages limit is
+128 MB, and the rest is headroom for the JSON envelope, text and tool schemas
+(https://platform.claude.com/docs/en/api/overview). Behind any other `baseURL`
+or with `compatibleEndpoint: true` it declares nothing and the SDK default of
+24 MiB applies, because a gateway or partner platform has its own limit
+(Amazon Bedrock 20 MB, Google-managed 30 MB). `turnConfig.maxRequestRichContentBytes`
+overrides it. The vendor's per-image limit (10 MB of base64) is separate and
+unchanged.

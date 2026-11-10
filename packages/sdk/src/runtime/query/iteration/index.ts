@@ -1197,6 +1197,7 @@ export class IterationOrchestrator {
 							cacheControl: { type: 'auto' },
 							...(turnConfig.thinking ? { thinking: turnConfig.thinking } : {}),
 							...(stepEffort ? { effort: stepEffort } : {}),
+							...(turnConfig.speed ? { speed: turnConfig.speed } : {}),
 							...(!forceFinalize && turnConfig.webSearch
 								? { webSearch: turnConfig.webSearch }
 								: {}),
@@ -3411,6 +3412,7 @@ export class IterationOrchestrator {
 				// is exactly the shape a field goes missing from — so it is tested
 				// separately rather than assumed to have been kept in step.
 				...(this.ctx.turnConfig.effort ? { effort: this.ctx.turnConfig.effort } : {}),
+				...(this.ctx.turnConfig.speed ? { speed: this.ctx.turnConfig.speed } : {}),
 				// Cancellable too: a Stop during the closing summary must not
 				// stream to completion.
 				signal: this.ctx.abortController.signal,

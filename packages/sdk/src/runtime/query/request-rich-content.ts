@@ -12,8 +12,17 @@ export const DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES = 24 * 1024 * 1024
 
 const MAX_REQUEST_RICH_CONTENT_BYTES = Number.MAX_SAFE_INTEGER
 
-export function resolveMaxRequestRichContentBytes(value: number | undefined): number {
-	const resolved = value ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES
+/**
+ * The budget for one turn: the caller's `turnConfig.maxRequestRichContentBytes`
+ * when set, else the one the provider declares for its own wire limit
+ * (`ProviderCapabilities.maxRequestRichContentBytes`), else the kernel default.
+ * The override always wins, so a host can tighten or loosen what a driver declares.
+ */
+export function resolveMaxRequestRichContentBytes(
+	value: number | undefined,
+	providerDeclared?: number,
+): number {
+	const resolved = value ?? providerDeclared ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES
 	if (
 		!Number.isSafeInteger(resolved) ||
 		resolved < 0 ||

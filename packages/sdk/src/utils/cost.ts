@@ -41,6 +41,13 @@ export interface ModelPricing {
 	 * part. The catalogue always supplies this.
 	 */
 	cache?: CacheRates
+	/**
+	 * The vendor's published multiple of every rate on this card for a request
+	 * served in fast mode (`TokenUsage.speed === 'fast'`). Absent means there is
+	 * no published fast price: fast usage is then counted as unpriced, never
+	 * charged at the standard rate, which would under-report it.
+	 */
+	fastMultiplier?: number
 }
 
 export { ZERO_COST }
@@ -54,6 +61,22 @@ interface Priced {
 }
 
 function priceUsage(usage: TokenUsage, pricing: ModelPricing): Priced {
+	if (usage.speed === 'fast') {
+		const multiplier = pricing.fastMultiplier
+		if (multiplier === undefined) {
+			return { cost: 0, cacheDiscount: 0, unpriced: usage.totalTokens }
+		}
+		const standard = priceStandard({ ...usage, speed: undefined }, pricing)
+		return {
+			cost: standard.cost * multiplier,
+			cacheDiscount: standard.cacheDiscount * multiplier,
+			unpriced: standard.unpriced,
+		}
+	}
+	return priceStandard(usage, pricing)
+}
+
+function priceStandard(usage: TokenUsage, pricing: ModelPricing): Priced {
 	const perMillion = (tokens: number, rate: number) => (tokens / 1_000_000) * rate
 
 	const cache = pricing.cache

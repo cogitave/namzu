@@ -460,6 +460,13 @@ import { isSessionPlanPath } from './display-path.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
 import { ExternalEditorError, editDraftInExternalEditor } from './external-editor.js'
+import {
+	fastDroppedMessage,
+	fastLaunchRefusal,
+	fastModeBlocker,
+	fastOffMessage,
+	fastOnMessage,
+} from './fast-mode.js'
 import { FullscreenTranscript } from './fullscreen/FullscreenTranscript.js'
 import type { FullscreenControl } from './fullscreen/FullscreenTranscript.js'
 import type { WheelDirection } from './fullscreen/mouse-wheel.js'
@@ -1790,6 +1797,16 @@ function AppBody({
 	// per-session like reasoningEffort above; no preferences file involved.
 	// Starts on when the `hypermode` config key says so; `/hypermode off` ends it
 	// for this conversation only.
+	// Fast inference: a per-conversation switch like the two above. Off unless
+	// `--fast` asked, never saved, and dropped (with a message) by a model change
+	// that cannot keep it.
+	const [fastMode, setFastModeState] = useState(false)
+	const fastModeRef = useRef(false)
+	const launchFastPendingRef = useRef(initialCtx.launchSettings?.fast === true)
+	const setFastMode = useCallback((next: boolean) => {
+		fastModeRef.current = next
+		setFastModeState(next)
+	}, [])
 	const [hypermode, setHypermodeState] = useState(initialCtx.hypermode === true)
 	const hypermodeRef = useRef(initialCtx.hypermode === true)
 	const [hypermodeActivation, setHypermodeActivation] = useState(0)
@@ -4543,6 +4560,31 @@ function AppBody({
 	 * substantial work (see `hypermodeReminders`). See `applyReasoningEffort`
 	 * above for the mirrored shape: neither is refused while a reply runs.
 	 */
+	const applyFastMode = useCallback(
+		async (enabled: boolean): Promise<void> => {
+			if (!session?.hasProvider) {
+				pushMessage('system', 'No model is connected yet — pick a provider with /model first.')
+				return
+			}
+			if (!enabled) {
+				if (!fastModeRef.current) pushMessage('system', 'Fast mode is off.')
+				else {
+					setFastMode(false)
+					pushMessage('system', fastOffMessage())
+				}
+				return
+			}
+			const blocker = await fastModeBlocker(session.providerId, session.modelSummary)
+			if (blocker !== undefined) {
+				pushMessage('system', blocker)
+				return
+			}
+			setFastMode(true)
+			pushMessage('system', fastOnMessage())
+		},
+		[pushMessage, session, setFastMode],
+	)
+
 	const applyHypermode = useCallback(
 		(enabled: boolean, selectedSession?: AgentSession): void => {
 			if (!session?.hasProvider) {
@@ -6119,6 +6161,21 @@ function AppBody({
 			void previousSessionRef.current?.close()
 			previousSessionRef.current = s
 			setSession(s)
+			// Fast mode follows the model: a launch `--fast` is applied once the
+			// session exists, and a model change that cannot take it ends it.
+			if (launchFastPendingRef.current && s.hasProvider) {
+				launchFastPendingRef.current = false
+				void fastModeBlocker(s.providerId, s.modelSummary).then((blocker) => {
+					if (blocker === undefined) setFastMode(true)
+					else pushMessage('system', fastLaunchRefusal(blocker))
+				})
+			} else if (fastModeRef.current) {
+				void fastModeBlocker(s.providerId, s.modelSummary).then((blocker) => {
+					if (blocker === undefined) return
+					setFastMode(false)
+					pushMessage('system', fastDroppedMessage(blocker))
+				})
+			}
 			// What the effort menu decides once the levels are final: a launch
 			// `--effort`, and the picker a model change asks for. Run at once when the
 			// provider named its levels, else when its model listing has answered.
@@ -9095,6 +9152,7 @@ function AppBody({
 				onAutoModeLimit: handleAutoModeLimit,
 				limits: resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current),
 				...(reasoningEffortRef.current !== undefined ? { effort: reasoningEffortRef.current } : {}),
+				...(fastModeRef.current ? { speed: 'fast' as const } : {}),
 				...(hypermodeRef.current ? { hypermode: true } : {}),
 				...(ctxRef.current.refusalFallback
 					? { refusalFallback: ctxRef.current.refusalFallback }
@@ -10498,6 +10556,7 @@ function AppBody({
 				scopeRef.current?.sessionId === workflowSessionId
 			const turnReasoningEffort = reasoningEffortRef.current
 			const turnHypermode = hypermodeRef.current
+			const turnFast = fastModeRef.current
 			const turnLimits = resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current)
 			// Always carry the guarded callback. `auto` and `strict` decide before
 			// calling it in makeResumeHandler; retaining it is what lets a session
@@ -10604,6 +10663,7 @@ function AppBody({
 								? { effort: pinnedEffort ?? turnReasoningEffort }
 								: {}),
 							...(turnHypermode ? { hypermode: true } : {}),
+							...(turnFast ? { speed: 'fast' as const } : {}),
 							// A model picked with /model while this turn runs: read before every
 							// request, so the next request of the loop uses it.
 							liveModel: () => {
@@ -13790,6 +13850,10 @@ function AppBody({
 						)
 						return
 					}
+					case 'fast-mode': {
+						void applyFastMode(slash.enabled === 'toggle' ? !fastModeRef.current : slash.enabled)
+						return
+					}
 					case 'hypermode': {
 						if (slash.via === 'orchestrate') pushMessage('system', ORCHESTRATE_ALIAS_NOTICE)
 						const enabled = slash.enabled === 'toggle' ? !hypermodeRef.current : slash.enabled
@@ -16920,6 +16984,7 @@ function AppBody({
 							session?.account?.label,
 						)}
 						effort={reasoningEffort}
+						fast={fastMode}
 						goal={statusGoal}
 						state={state}
 						hint={statusHint}

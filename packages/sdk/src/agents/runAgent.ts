@@ -13,7 +13,12 @@ import type { AuthorizationGateConfig } from '../types/authorization/index.js'
 import type { InputGuardrailSpec, OutputGuardrailSpec } from '../types/guardrail/index.js'
 import type { ProjectId, SessionId, TenantId, TopicId } from '../types/ids/index.js'
 import type { Message } from '../types/message/index.js'
-import type { LLMProvider, ReasoningEffort, ThinkingConfig } from '../types/provider/index.js'
+import type {
+	InferenceSpeed,
+	LLMProvider,
+	ReasoningEffort,
+	ThinkingConfig,
+} from '../types/provider/index.js'
 import type { SandboxProvider } from '../types/sandbox/index.js'
 import type { TurnConfig } from '../types/session/config.js'
 import type { SessionEventListener } from '../types/session/events.js'
@@ -202,6 +207,8 @@ export interface RunAgentOptions extends AgentIdentity {
 	 */
 	thinking?: ThinkingConfig
 	effort?: ReasoningEffort
+	/** Inference speed for every model call; see `TurnConfig.speed`. */
+	speed?: InferenceSpeed
 
 	/** Names the agent in traces and events. Defaults to `Agent`. */
 	name?: string
@@ -295,6 +302,7 @@ const RUN_AGENT_OPTION_ROUTES = {
 	structuredOutput: 'query',
 	thinking: 'special',
 	effort: 'special',
+	speed: 'turn',
 	name: 'special',
 	signal: 'query',
 	listener: 'special',

@@ -22,10 +22,12 @@
  */
 
 import { GENAI } from '../constants/telemetry/index.js'
+import { DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES } from '../runtime/query/request-rich-content.js'
 import { classifyProviderError, isAbortError } from '../types/provider/errors.js'
 import type {
 	ChatCompletionParams,
 	LLMProvider,
+	ProviderCapabilities,
 	ReasoningEffort,
 	StreamChunk,
 	ThinkingConfig,
@@ -513,7 +515,7 @@ export function withProviderFallback(
 			return first.provider.name
 		},
 		get capabilities() {
-			return first.provider.capabilities
+			return chainCapabilities(members, first.provider.capabilities)
 		},
 		chatStream,
 		...(first.provider.listModels
@@ -603,4 +605,34 @@ export function withProviderFallback(
 				}
 			: {}),
 	} as LLMProvider
+}
+
+/**
+ * The head's declarations, with the request rich-content budget narrowed to
+ * what EVERY member can take: a request is built once and may be served by any
+ * of them, so a head with a large budget must not send a fallback more than it
+ * accepts. A member that declares nothing counts as the kernel default. When
+ * no member declares one the head's capabilities are returned untouched.
+ */
+function chainCapabilities(
+	members: readonly { readonly provider: Pick<LLMProvider, 'capabilities'> }[],
+	head: ProviderCapabilities | undefined,
+): ProviderCapabilities | undefined {
+	if (!members.some((m) => m.provider.capabilities?.maxRequestRichContentBytes !== undefined)) {
+		return head
+	}
+	const budget = Math.min(
+		...members.map(
+			(m) =>
+				m.provider.capabilities?.maxRequestRichContentBytes ??
+				DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
+		),
+	)
+	return {
+		supportsTools: true,
+		supportsStreaming: true,
+		supportsFunctionCalling: true,
+		...head,
+		maxRequestRichContentBytes: budget,
+	}
 }

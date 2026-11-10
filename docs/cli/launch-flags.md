@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Launch flags for the interactive session
-description: --provider, --model, --effort, --permission-mode, --message, --continue, --resume and --from-pr on the interactive namzu and namzu resume, what each chooses for that launch only, how they combine with the saved choice and --yolo, the switch that lets Shift+Tab reach bypass, and what happens when one cannot be honoured.
+description: --provider, --model, --effort, --fast, --permission-mode, --message, --continue, --resume and --from-pr on the interactive namzu and namzu resume, what each chooses for that launch only, how they combine with the saved choice and --yolo, the switch that lets Shift+Tab reach bypass, and what happens when one cannot be honoured.
 resource: packages/cli/src/tui/launch-settings.ts
 tags: [cli, tui, providers, permissions]
 status: stable
@@ -32,6 +32,7 @@ Five options choose how one interactive session starts. They are written before 
 | `--account <name>` | the account for this launch | a name from `/auth`, or `provider:name` ([Accounts](accounts.md)) |
 | `--model <id>` | the model for this launch | a model id the provider offers |
 | `--effort <level>` | the reasoning effort | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` |
+| `--fast` | fast inference, on for the first session | none; Anthropic models that offer it (`/fast` explains), billed at twice the standard rate |
 | `--permission-mode <mode>` | the permission mode | `prompt`, `accept-edits`, `plan`, `bypass`, `auto`, `strict` ([Permission modes](permission-modes.md)) |
 
 Two switches change what Shift+Tab may reach rather than where the session starts. `--dangerously-skip-permissions` (alias `--yolo`) starts in `bypass`, and `--allow-dangerously-skip-permissions` keeps the launch mode but lets Shift+Tab and `/permissions` reach `bypass`; the cycle is `prompt`, `accept-edits`, `plan`, then `bypass` (only when the launch allowed it), then `auto` (unless `permissions.disableAutoMode` is set), then `prompt`. `--permission-mode bypass` counts as launching in `bypass`. `--permission-mode auto` is the classifier mode, not the old no-prompt one. A launch the settings or the root guard forbid (`permissions.disableBypassMode`, bypass as the superuser outside a sandbox) is refused with exit status 64 and a plain sentence. The first time a launch starts in `bypass` it asks `Start in bypass mode? [y/N]` once; a no starts in the ordinary mode. `--allow-dangerously-skip-permissions` is for the interactive session only; `namzu exec` does not take it.
@@ -69,6 +70,7 @@ These apply to the interactive session only (the same flags on `namzu exec` are 
 - **`--provider`** replaces the provider chain with that provider alone, so a fallback you saved cannot answer in its place. With `--model` it names that provider's model; without it the provider chooses its own default.
 - **`--model` alone** re-models the saved primary provider and keeps the saved fallbacks behind it. With nothing saved there is no provider to apply it to: the provider list opens and says so.
 - **`--permission-mode`** names the starting mode outright and wins over `--yolo` / `--dangerously-skip-permissions`, which in turn win over `permissions.defaultMode`. The status report (`/permissions`, `/status`) says the mode was selected at launch, or by the configuration.
+- **`--fast`** applies to the first session the launch opens and is never saved. On a model without fast mode it is reported (`--fast was not applied: <reason> Continuing at standard speed.`) and the session runs normally. `/fast` toggles it from inside; the footer shows `fast` while it is on.
 - **`--effort`** applies to the first session the launch opens. A level the chosen model does not offer is reported (`--effort high is not offered by <model>; using the provider default.`) and the default stays; the levels a model offers are the ones `/effort` lists.
 
 ## When a launch cannot be honoured

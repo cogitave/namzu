@@ -935,6 +935,21 @@ describe('/effort', () => {
 	})
 })
 
+describe('/fast', () => {
+	it('toggles with no argument and takes an explicit state', () => {
+		expect(runSlash('/fast', context())).toEqual({ kind: 'fast-mode', enabled: 'toggle' })
+		expect(runSlash('/fast on', context())).toEqual({ kind: 'fast-mode', enabled: true })
+		expect(runSlash('/fast off', context())).toEqual({ kind: 'fast-mode', enabled: false })
+	})
+
+	it('answers a bad argument with its usage', () => {
+		expect(runSlash('/fast sideways', context())).toMatchObject({
+			kind: 'message',
+			content: 'Usage: /fast [on|off]',
+		})
+	})
+})
+
 describe('/hypermode', () => {
 	it('describes the independent workflow switch in /help, not a pinned effort', () => {
 		const result = runSlash('/help hypermode', context())
