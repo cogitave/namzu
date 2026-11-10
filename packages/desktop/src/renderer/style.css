@@ -184,8 +184,9 @@ pre {
 	background: var(--sidebar-row-hover);
 }
 .sidebar-workspace-menu:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
 }
 .window-titlebar-menus {
 	display: flex;
@@ -353,8 +354,9 @@ pre {
 .project-row:focus-visible,
 .sidebar-new-conversation:focus-visible,
 .starter-actions button:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
 }
 .conversation-row {
 	display: flex;
@@ -757,8 +759,9 @@ pre {
 }
 .activity-trigger:focus-visible,
 .tool-trigger:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 3px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 	border-radius: 4px;
 }
 .reasoning {
@@ -913,8 +916,9 @@ pre {
 	cursor: pointer;
 }
 .inline-error-retry:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .connection-error {
 	/* In the column, between the tab strip and the page: it takes its own height, so it never
@@ -1515,8 +1519,9 @@ pre {
 	scrollbar-color: color-mix(in srgb, var(--border) 78%, transparent) transparent;
 }
 .chat-markdown .table-scroll:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .chat-markdown table {
 	width: 100%;

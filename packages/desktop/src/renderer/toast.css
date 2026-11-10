@@ -160,8 +160,9 @@
 }
 .toast-action:focus-visible,
 .toast-close:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 1px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 @media (prefers-reduced-motion: reduce) {
 	.toast-root,

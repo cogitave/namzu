@@ -72,6 +72,7 @@
 /* The panel clips an outline drawn outside the row, so the focus ring sits inside it. */
 .normal-transcript .tool-trigger:focus-visible {
 	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
 }
 .normal-transcript .tool-run-trigger {
 	width: fit-content;
@@ -119,8 +120,9 @@
 	opacity: 1;
 }
 .normal-transcript .message-time:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 	transition: none;
 }
 .normal-transcript .message-time[aria-pressed="true"] {
@@ -215,8 +217,9 @@
 	text-underline-offset: 2px;
 }
 .normal-transcript a.message-link:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .normal-transcript .transcript-phase-label {
 	display: inline-grid;

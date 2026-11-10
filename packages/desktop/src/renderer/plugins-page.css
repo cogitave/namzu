@@ -110,8 +110,9 @@
 	color: var(--foreground);
 }
 .plugins-page-tab:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .plugins-page-tab-panel {
 	outline: none;
@@ -201,8 +202,9 @@ output.plugins-page-notice {
 	cursor: pointer;
 }
 .plugins-page-row-main:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 4px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .plugins-page-row-main:hover .plugins-page-row-icon {
 	background: var(--sidebar-row-active);
@@ -320,8 +322,9 @@ output.plugins-page-notice {
 	cursor: pointer;
 }
 .plugins-sidebar-navigation button:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .plugins-sidebar-navigation svg {
 	width: 16px;
@@ -383,8 +386,9 @@ output.plugins-page-notice {
 	background: var(--sidebar-row-active);
 }
 .plugins-sidebar-installed li button:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .plugins-sidebar-installed li svg {
 	width: 16px;

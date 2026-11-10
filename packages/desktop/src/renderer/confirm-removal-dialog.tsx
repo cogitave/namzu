@@ -118,7 +118,7 @@ export function ConfirmRemovalDialog({
 							))}
 							<Button
 								ref={cancel}
-								className="focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background"
+								className="focus-visible:[box-shadow:var(--focus-ring)]!"
 								variant="outline"
 								disabled={pending}
 								onClick={onClose}

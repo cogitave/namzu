@@ -281,8 +281,9 @@
 }
 .pal-color-choice:has(input:focus-visible),
 .pal-character-choice-option:has(input:focus-visible) {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .pal-color-choice:has(input:disabled),
 .pal-character-choice-option:has(input:disabled) {
@@ -354,7 +355,8 @@
 	color: var(--error-foreground);
 }
 .pal-name-preview input:focus-visible {
-	box-shadow: 0 2px 0 var(--ring);
+	outline: 2px solid transparent;
+	box-shadow: var(--focus-ring);
 }
 .pal-customize-character {
 	display: flex;

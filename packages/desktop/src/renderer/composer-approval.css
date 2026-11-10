@@ -73,8 +73,9 @@
 }
 .approval-diff-scroll:focus-visible,
 .approval-command:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
 }
 .approval-more {
 	display: flex;
@@ -95,8 +96,9 @@
 	color: var(--foreground);
 }
 .approval-more:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
 }
 .approval-more svg {
 	width: 14px;
@@ -135,8 +137,9 @@
 	overflow-wrap: anywhere;
 }
 .approval-message:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
 }
 .approval-entries {
 	display: grid;
@@ -165,7 +168,9 @@
 	border-radius: 4px;
 }
 .approval-details summary:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .approval-detail-group {
 	margin-top: 6px;
@@ -219,8 +224,9 @@
 	color: var(--placeholder);
 }
 .approval-note-field:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 1px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .approval-button {
 	display: inline-flex;
@@ -244,8 +250,9 @@
 	cursor: default;
 }
 .approval-button:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 1px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .approval-icon-button {
 	gap: 4px;
