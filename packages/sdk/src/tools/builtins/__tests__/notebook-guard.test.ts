@@ -182,6 +182,48 @@ describe('notebook-safe edits', () => {
 		expect(allowed.success).toBe(true)
 	})
 
+	it('lets an older-format notebook, which keeps its cells in worksheets, be edited', async () => {
+		const old = `${JSON.stringify(
+			{
+				metadata: { name: 'old' },
+				nbformat: 3,
+				nbformat_minor: 0,
+				worksheets: [{ cells: [{ cell_type: 'code', input: ['print("old")\\n'], outputs: [] }] }],
+			},
+			null,
+			1,
+		)}\n`
+		const { dir, path } = scratch('old.ipynb', old)
+		const result = await EditTool.execute(
+			{ path, old_string: 'print(\\"old\\")', new_string: 'print(\\"new\\")' },
+			ctx(dir),
+		)
+		expect(result.success).toBe(true)
+		expect(JSON.parse(readFileSync(path, 'utf8')).worksheets[0].cells[0].input[0]).toContain('new')
+		expect(notebookRefusal('old.ipynb', JSON.stringify({ metadata: {}, nbformat: 3 }))).toContain(
+			'"worksheets" list',
+		)
+	})
+
+	it('says so when the notebook was already broken, instead of asking to keep a structure it never had', async () => {
+		const broken = '{"cells": [], "nbformat": 4'
+		const { dir, path } = scratch('broken.ipynb', broken)
+		const result = await EditTool.execute(
+			{ path, old_string: '"cells": []', new_string: '"cells": [ ]' },
+			ctx(dir),
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('already does not open')
+		expect(result.error).toContain('replace the file with a write')
+		expect(readFileSync(path, 'utf8')).toBe(broken)
+		// One change that leaves a whole valid notebook goes through.
+		const mended = await EditTool.execute(
+			{ path, old_string: '"nbformat": 4', new_string: '"nbformat": 4, "metadata": {}}' },
+			ctx(dir),
+		)
+		expect(mended.success).toBe(true)
+	})
+
 	describe('in a sandbox', () => {
 		function sandboxCtx(body: string | null) {
 			const writeFile = vi.fn(async () => {})

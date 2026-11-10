@@ -122,10 +122,15 @@ newline with it, so removing a whole line leaves no blank one behind.
 `edit` and `write` treat every file as text, so for a path ending in `.ipynb` (any letter case) the body about to be
 written is checked first: it must parse as JSON and be an object with a `cells` list, a numeric `nbformat` and a
 `metadata` object, and every cell needs a `cell_type` of `code`, `markdown` or `raw` and a `source` that is a string or
-a list of strings. A body that fails is refused with `Not written: <path> is a notebook, and after this change it would
-no longer open because <reason>. ... The file is unchanged.` The check runs on every write path, single `edit`,
-`edits` batches, `write`, and the sandboxed branch of each, and the dry-run preview of `edit` reports the same refusal.
-Other files are not checked. There is no notebook editing tool; the check only stops a write that would corrupt one.
+a list of strings. A notebook in a format before 4 keeps its cells inside `worksheets`, so for those only the envelope
+is checked (`nbformat`, `metadata`, a `worksheets` list). A body that fails is refused with `Not written: <path> is a
+notebook, and after this change it would no longer open because <reason>. ... The file is unchanged.` When the file
+on disk already failed the check, `edit` says so instead (`... a notebook that already does not open ...`): such a file
+cannot be mended one string at a time, only by one change that leaves a whole valid notebook or by a `write` of the
+corrected file. The check runs on every write path, single `edit`, `edits` batches, `write`, and the sandboxed branch
+of each, and the dry-run preview of `edit` reports the same refusal. `write` checks the file a symlink points at, not
+the name typed. Other files are not checked. There is no notebook editing tool; the check only stops a write that
+would corrupt one.
 
 ## grep
 

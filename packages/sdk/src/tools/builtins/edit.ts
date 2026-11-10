@@ -186,7 +186,7 @@ export function dryRunEdit(
 	}
 	const result = applyEdit(content, normalized.operations)
 	if (!result.success) return result
-	const notebook = notebookRefusal(parsed.data.path, result.content)
+	const notebook = notebookRefusal(parsed.data.path, result.content, content)
 	if (notebook) return { success: false, error: notebook }
 	return { success: true, content: result.content }
 }
@@ -574,7 +574,7 @@ export const EditTool = defineTool({
 				if (!admitted.success) return admitted
 				const result = admitted.result
 				if (!result.success) return refusedEdit(result, parsed.data.path)
-				const notebook = notebookRefusal(parsed.data.path, result.content)
+				const notebook = notebookRefusal(parsed.data.path, result.content, content)
 				if (notebook) return { success: false as const, output: '', error: notebook }
 
 				await context.sandbox.writeFile(parsed.data.path, result.content)
@@ -599,7 +599,7 @@ export const EditTool = defineTool({
 			if (!admitted.success) return admitted
 			const result = admitted.result
 			if (!result.success) return refusedEdit(result, hostPath)
-			const notebook = notebookRefusal(hostPath, result.content)
+			const notebook = notebookRefusal(hostPath, result.content, content)
 			if (notebook) return { success: false as const, output: '', error: notebook }
 
 			// Temp file, fsync, rename — a reader sees the old body or the new
