@@ -82,6 +82,8 @@ export interface ScreenOptions {
 	 * reader has no way to ever say otherwise.
 	 */
 	readonly alternateScreen?: boolean
+	/** Hand the renderer its line-diff mode, as the fullscreen launcher does. */
+	readonly incrementalRendering?: boolean
 }
 
 /** What one cell of the screen looks like. */
@@ -289,6 +291,7 @@ export async function renderToScreen(
 		debug: false,
 		interactive: true,
 		alternateScreen: options.alternateScreen ?? false,
+		incrementalRendering: options.incrementalRendering ?? false,
 		maxFps,
 		exitOnCtrlC: false,
 		patchConsole: false,

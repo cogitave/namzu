@@ -1358,6 +1358,28 @@ describe('theme and motion config', () => {
 		})
 	})
 
+	it('reads fullscreen from the user file and ignores it in a project file', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		writeFileSync(join(home, 'config.yaml'), 'tui:\n  fullscreen: true\n')
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		expect(loadConfig({ cwd, env: { NAMZU_HOME: home } }).tui).toEqual({ fullscreen: true })
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({ tui: { fullscreen: false, notifications: true } }),
+		)
+		expect(loadConfig({ cwd, env: { NAMZU_HOME: home } }).tui).toEqual({
+			fullscreen: true,
+			notifications: true,
+		})
+	})
+
+	it('refuses a fullscreen that is not true or false', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		writeFileSync(join(home, 'config.yaml'), 'tui:\n  fullscreen: sometimes\n')
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		expect(() => loadConfig({ cwd, env: { NAMZU_HOME: home } })).toThrow(/fullscreen/)
+	})
+
 	it('refuses a showExpandedTodos that is not true or false', () => {
 		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
 		writeFileSync(join(home, 'config.yaml'), 'tui:\n  showExpandedTodos: sometimes\n')
