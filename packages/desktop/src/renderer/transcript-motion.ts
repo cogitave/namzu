@@ -1,5 +1,6 @@
 import { type RefObject, useLayoutEffect, useRef } from 'react'
 import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/projection.js'
+import { COMPACTING_TEXT, compactedText } from './context-ring.js'
 import { latestPlanTurn } from './plan-row.js'
 import { elapsedLabel, transcriptOutcome, turnDurationMs } from './transcript-layout.js'
 
@@ -21,10 +22,15 @@ export function transcriptEntryKey(entry: TimelineEntry): string {
 	return entry.kind === 'message' ? `message-${entry.index}` : `${entry.kind}-${entry.id}`
 }
 
+function compactionText(compaction: NonNullable<ThreadState['compaction']>): string {
+	return compaction.state === 'running' ? COMPACTING_TEXT : compactedText(compaction)
+}
+
 export function livePhaseLabel(thread: ThreadState): string | undefined {
 	const phase = threadPhase(thread)
 	if (phase === 'idle') return undefined
 	if (phase === 'waiting') return 'Waiting for your decision'
+	if (thread.compaction) return compactionText(thread.compaction)
 	if (phase === 'thinking') return 'Thinking'
 	// Before anything of this turn has been drawn there is no action to name, so say what is happening.
 	if (phase === 'working' && drawnEntries(thread).length === 0) return 'Reading your message'
@@ -34,7 +40,7 @@ export function livePhaseLabel(thread: ThreadState): string | undefined {
 export interface LiveStage {
 	text: string
 	/** Where the words came from; only `waiting` holds still instead of shimmering. */
-	source: 'waiting' | 'reasoning' | 'gap'
+	source: 'waiting' | 'reasoning' | 'gap' | 'compaction' | 'compacted'
 }
 
 /** What the live block's bottom line says, and which row it replaces. */
@@ -110,6 +116,14 @@ export function liveStatus(thread: ThreadState): LiveStatus {
 	if (phase === 'idle') return {}
 	if (phase === 'waiting')
 		return { stage: { text: 'Waiting for your decision', source: 'waiting' } }
+	// Summarising can take many seconds with nothing else to show; the note that follows holds still.
+	if (thread.compaction)
+		return {
+			stage: {
+				text: compactionText(thread.compaction),
+				source: thread.compaction.state === 'running' ? 'compaction' : 'compacted',
+			},
+		}
 	const newest = drawnEntries(thread).at(-1)
 	if (newest?.kind === 'reasoning') {
 		const segment = thread.reasoning[newest.id]
