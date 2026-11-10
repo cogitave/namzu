@@ -33,6 +33,12 @@ describe('message actions reveal', () => {
 		expect(focus?.body).not.toContain('--message-actions-delay')
 	})
 
+	it('outranks the hover rule for a pressed or copying action, so its delay never applies', () => {
+		// .message:hover > .message-footer is (0,3,0); a bare .message-footer:has([attr]) is only (0,2,0).
+		const pressed = all.find((r) => r.selector.includes('[aria-pressed="true"]'))
+		expect(pressed?.selector).toMatch(/:is\(\.message, \.pal-chat-message\)\s+\.message-footer:has\(/)
+	})
+
 	it('has no fade and no wait under reduced motion, for every state that sets a transition', () => {
 		const reduced = footer.slice(footer.indexOf('@media (prefers-reduced-motion: reduce)'))
 		const covered = rules(reduced)[0]
@@ -64,6 +70,12 @@ describe('disclosure by grid rows', () => {
 		expect(css).toContain('duration-(--dur-base)')
 		expect(css).toContain('[&[hidden]]:hidden')
 		expect(css).toContain('motion-reduce:transition-none')
+	})
+	it('clips its content only while the panel travels, so an open panel keeps its focus ring and popovers', () => {
+		const wrapper = css.slice(css.indexOf('<div className="min-h-0'))
+		expect(wrapper).toContain('in-data-starting-style:overflow-hidden')
+		expect(wrapper).toContain('in-data-ending-style:overflow-hidden')
+		expect(wrapper).not.toMatch(/className="min-h-0 overflow-hidden"/)
 	})
 	it('leaves the transcript disclosures on the measured-height path its proof owns', () => {
 		for (const name of ['transcript.tsx', 'tool-transcript-row.tsx', 'plan-row-view.tsx']) {

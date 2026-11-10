@@ -29,7 +29,7 @@ function CollapsiblePanel({
 	instant?: boolean
 	/**
 	 * Travel by grid rows (0fr to 1fr) with a fade, so the panel needs no measured height and the
-	 * content can change size while it moves. The children are wrapped in one clipping box.
+	 * content can change size while it moves. The children are wrapped in one box that clips only while the panel travels.
 	 */
 	rows?: boolean
 }) {
@@ -45,7 +45,10 @@ function CollapsiblePanel({
 				data-slot="collapsible-panel"
 				{...props}
 			>
-				<div className="min-h-0 overflow-hidden">{children}</div>
+				{/* Clip only while the panel travels; when open, a focus ring or popover at the edge stays visible. */}
+				<div className="min-h-0 in-data-ending-style:overflow-hidden in-data-starting-style:overflow-hidden">
+					{children}
+				</div>
 			</CollapsiblePrimitive.Panel>
 		)
 	}

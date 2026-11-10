@@ -22,7 +22,8 @@
 /* Keyboard focus and a pressed or copying action show the row at once. */
 .message:focus-within > .message-footer,
 .pal-chat-message:focus-within > .message-footer,
-.message-footer:has(
+:is(.message, .pal-chat-message)
+	.message-footer:has(
 		[aria-pressed="true"],
 		[data-copy-state="pending"],
 		[data-copy-state="copied"],
@@ -70,7 +71,8 @@
 	.pal-chat-message:hover > .message-footer,
 	.message:focus-within > .message-footer,
 	.pal-chat-message:focus-within > .message-footer,
-	.message-footer:has(
+	:is(.message, .pal-chat-message)
+		.message-footer:has(
 			[aria-pressed="true"],
 			[data-copy-state="pending"],
 			[data-copy-state="copied"],

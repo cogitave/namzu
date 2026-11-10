@@ -68,8 +68,17 @@ describe('radius, shadow and layer scales', () => {
 	})
 
 	it('components take dialog and popover elevation from the tokens', () => {
-		const offenders = tsx.filter((p) =>
-			/shadow-xl|shadow-\[0_1[68]px_4[04]px/.test(readFileSync(p, 'utf8')),
+		// Tailwind's own sizes (shadow-sm to shadow-2xl) and the two old literals are elevation outside the scale.
+		const stock = /\bshadow-(?:sm|md|lg|xl|2xl)\b|shadow-\[0_1[68]px_4[04]px/
+		const allowed: Record<string, string> = {
+			'ui/button.tsx': 'a 1px edge on a pill or dark-on-photo button, not a raised surface',
+			'ui/empty.tsx': 'a 5%-alpha hairline under a 36px icon tile',
+			'ui/popover.tsx':
+				'the tooltip-styled hint at 5% alpha; every real popover takes --shadow-popover',
+			'ui/tooltip.tsx': 'the plain tooltip at 5% alpha; the glass one takes --shadow-popover',
+		}
+		const offenders = tsx.filter(
+			(p) => stock.test(readFileSync(p, 'utf8')) && !(relative(root, p) in allowed),
 		)
 		expect(offenders.map((p) => relative(root, p))).toEqual([])
 	})

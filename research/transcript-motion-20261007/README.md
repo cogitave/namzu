@@ -67,7 +67,7 @@ The earlier four-scenario motion receipt and its images remain unchanged. That m
 
 ## Message actions reveal (2026-11-10)
 
-The row under a message (`.message-footer`: clock, copy, retry) no longer shows the instant the pointer enters. It waits a 100 ms hover-intent beat, then fades in over 120 ms (`--dur-quick`); it leaves in 60 ms with no wait (`--dur-instant`), and keyboard focus or a pressed or copying action shows it at once. `motion-proof.mjs` accepts either a 160 ms clock fade or this 120 ms fade with a 100 ms delay. The message clock's own 160 ms opacity fade, the 260 ms panel and the fixed slots are unchanged. A sent message now enters with a 450 ms settle (`namzu-transcript-sent`); restored history, tab restores and replies keep the plain fade.
+The row under a message (`.message-footer`: clock, copy, retry) no longer shows the instant the pointer enters. It waits a 100 ms hover-intent beat, then fades in over 120 ms (`--dur-quick`); it leaves in 60 ms with no wait (`--dur-instant`), and keyboard focus or a pressed or copying action shows it at once. `motion-proof.mjs` was widened to allow either a 160 ms clock fade or this 120 ms fade with a 100 ms delay, because the footer behaviour changed on purpose. That is a statement of intent, not evidence: the proof is red at baseline on `origin/main` (a panel-midpoint assertion fails before it reaches the footer check) and has not been seen to pass for this change, so the new reveal is unverified by it. The message clock's own 160 ms opacity fade, the 260 ms panel and the fixed slots are unchanged. A sent message now enters with a 450 ms settle (`namzu-transcript-sent`); restored history, tab restores and replies keep the plain fade.
 
 ## Preserved evidence
 
