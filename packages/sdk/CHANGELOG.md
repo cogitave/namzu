@@ -1,5 +1,14 @@
 # Changelog
 
+## 62.4.0
+
+### Minor Changes
+
+- d4aeca8: Add `namzu peers list` and `namzu peers send <ref|id|title> <message...>` to message a live terminal in the same project from a command line, with `--json`, `--mode <mode>` and `--file <path>|-`. The message is attributed to a command-line sender, never to the operator, and the receiver still refuses a different permission mode. Exit 0 queued, 1 refused, 69 unreachable, 64 bad arguments or an empty message, 65 input that is not UTF-8 text, 66 an unreadable file. A terminal now also accepts mail from a verified `cli` sender in its own project. The SDK's `PeerSessionKind` gains `cli`, so a consumer that switches exhaustively over it adds a case (shipped as `minor` on purpose: the union only grows in values the SDK hands out, and no existing call changes behaviour); the peer message provenance text differs for that kind.
+- 2f0e360: A session now tells the model where to put what it creates (temporary work in the scratchpad, app data and config in the platform's standard folders, containers in a named project folder, a checklist for anything that keeps running) and ends a setup with a short receipt. The terminal UI shows one quiet line at start when the working folder is your home folder or the filesystem root.
+
+  **Breaking for unattended runs:** bypass mode now asks before a call creates or deletes a top-level entry directly in your home folder or the filesystem root (`mkdir ~/newthing`, `git clone <url> ~/repo`, `rm -rf ~/thing`, a file tool creating `~/new.txt`), like it already does for protected files; where nobody can be asked (`exec`, a scheduled run) the call is refused with a message that says why. If you want such a folder, create it yourself (for example with `!mkdir` in the composer) or answer yes when asked; a rule cannot allow it. Anything inside an existing folder, and changes to a top-level entry that already exists, are not asked about. In the SDK, a query that sets `outsideRootAccess: 'review'` (and runs without a sandbox) reports these paths in `escalation.protectedPaths`; queries that do not set it are unchanged.
+
 ## 62.3.0
 
 ### Minor Changes
