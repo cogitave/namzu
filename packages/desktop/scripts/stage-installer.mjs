@@ -2,6 +2,7 @@
 //
 //   node scripts/stage-installer.mjs <out-dir> [--python-archive <file.tar.gz>]
 //                                    [--pal-computer-image <file> [--pal-computer-manifest <file>]]
+//                                    [--target win32-x64]
 //
 // <out-dir> receives: build/ (the app icon), package.json (generated from this package, same version), dist/ (the built
 // desktop), node_modules/ (the main process's runtime dependencies), electron-builder.yml,
@@ -25,6 +26,8 @@ import {
 } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { checkStagedCli } from './check-staged-cli.mjs'
+import { leanCli, loadExternals, measure, parseTarget, pruneForeignPrebuilds } from './lean-cli.mjs'
 
 const pkgRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repoRoot = resolve(pkgRoot, '../..')
@@ -98,11 +101,13 @@ export function parseArguments(args) {
 		pythonArchive: undefined,
 		palComputerImage: undefined,
 		palComputerManifest: undefined,
+		target: parseTarget('win32-x64'),
 	}
 	const flags = {
 		'--python-archive': 'pythonArchive',
 		'--pal-computer-image': 'palComputerImage',
 		'--pal-computer-manifest': 'palComputerManifest',
+		'--target': 'target',
 	}
 	const positional = []
 	for (let index = 0; index < args.length; index += 1) {
@@ -113,12 +118,12 @@ export function parseArguments(args) {
 		}
 		const value = args[index + 1]
 		if (value === undefined || value.startsWith('--')) throw new Error(`${args[index]} needs a file.`)
-		options[key] = resolve(value)
+		options[key] = key === 'target' ? parseTarget(value) : resolve(value)
 		index += 1
 	}
 	if (positional.length !== 1)
 		throw new Error(
-			'Usage: stage-installer.mjs <out-dir> [--python-archive <file>] [--pal-computer-image <file> [--pal-computer-manifest <file>]]',
+			'Usage: stage-installer.mjs <out-dir> [--python-archive <file>] [--pal-computer-image <file> [--pal-computer-manifest <file>]] [--target <platform>-<arch>]',
 		)
 	if (options.palComputerManifest && !options.palComputerImage)
 		throw new Error('--pal-computer-manifest needs --pal-computer-image.')
@@ -185,6 +190,7 @@ async function main() {
 		pythonArchive: explicitArchive,
 		palComputerImage,
 		palComputerManifest,
+		target,
 	} = parseArguments(process.argv.slice(2))
 	if (out === repoRoot || out.startsWith(`${repoRoot}/`) || out.startsWith(`${repoRoot}\\`))
 		throw new Error('Stage outside the repository; build output does not belong in Git.')
@@ -225,8 +231,9 @@ async function main() {
 	cpSync(join(pkgRoot, 'build'), join(out, 'build'), { recursive: true })
 	cpSync(join(pkgRoot, 'electron-builder.yml'), join(out, 'electron-builder.yml'))
 	cpSync(join(pkgRoot, 'scripts/installer-after-pack.cjs'), join(out, 'installer-after-pack.cjs'))
-	// The installer is Windows x64 whatever machine stages it, so the platform-specific optional
-	// packages (the speech engine's native addon) are chosen for it, not for this host.
+	// The installer is for --target (Windows x64 by default) whatever machine stages it, so the
+	// platform-specific optional packages (the speech engine's native addon) are chosen for it, not
+	// for this host.
 	run(
 		'npm',
 		[
@@ -236,16 +243,18 @@ async function main() {
 			'--no-audit',
 			'--no-fund',
 			'--no-package-lock',
-			'--os=win32',
-			'--cpu=x64',
+			`--os=${target.platform}`,
+			`--cpu=${target.arch}`,
 		],
 		{ cwd: out },
 	)
-	if (!existsSync(join(out, 'node_modules/sherpa-onnx-win-x64/sherpa-onnx.node')))
-		throw new Error('The staged app has no sherpa-onnx win-x64 addon; local listening would not work.')
+	const sherpaAddon = `sherpa-onnx-${target.platform === 'win32' ? 'win' : target.platform}-${target.arch}`
+	if (!existsSync(join(out, `node_modules/${sherpaAddon}/sherpa-onnx.node`)))
+		throw new Error(`The staged app has no ${sherpaAddon} addon; local listening would not work.`)
 
 	prune(join(out, 'node_modules'), (entry) => entry.name === '.bin')
 	pruneDeadWeight(join(out, 'node_modules'))
+	pruneForeignPrebuilds(out, target)
 
 	// 2. The CLI runtime: a hoisted, link-free production install of the workspace package.
 	const cli = join(out, 'extra/cli')
@@ -253,12 +262,42 @@ async function main() {
 		cwd: repoRoot,
 	})
 	prune(cli, (entry) => entry.name === '.bin' || entry.isSymbolicLink())
+	// The bundle inlines most of what the deploy installed. Keep the packages it leaves external, what
+	// they depend on and the target's native binaries; the rest is never loaded.
+	const before = measure(cli)
+	const lean = leanCli({
+		root: cli,
+		externals: await loadExternals(join(repoRoot, 'packages/cli')),
+		target,
+	})
 	pruneDeadWeight(join(cli, 'node_modules'))
+	pruneDeadWeight(join(cli, 'dist'))
+	const after = measure(cli)
+	console.log(
+		`CLI runtime: ${(before.bytes / 1e6).toFixed(1)} MB in ${before.files} files -> ${(after.bytes / 1e6).toFixed(1)} MB in ${after.files} files; ${lean.keep.size} packages kept, ${lean.removedPackages} removed (${lean.foreignPrebuilds} foreign prebuild folders), skipped for ${target.platform}-${target.arch}: ${lean.skippedForTarget.join(', ') || 'none'}`,
+	)
 	// Terminals need node-pty, an optional dependency of the CLI that a deploy on a machine without a
-	// compiler can silently omit. The Windows binaries ship inside the package, so check for them here
+	// compiler can silently omit. The target's binaries ship inside the package, so check for them here
 	// rather than finding an installer whose terminals are all unavailable.
-	if (!existsSync(join(cli, 'node_modules/node-pty/prebuilds/win32-x64/pty.node')))
-		throw new Error('The staged CLI runtime has no node-pty win32-x64 binary; terminals would not work.')
+	const targetName = `${target.platform}-${target.arch}`
+	if (
+		target.platform === 'win32' &&
+		!existsSync(join(cli, `node_modules/node-pty/prebuilds/${targetName}/pty.node`))
+	)
+		throw new Error(`The staged CLI runtime has no node-pty ${targetName} binary; terminals would not work.`)
+	// The staged CLI must work from its own files: version, the Desktop's first call, every import.
+	const { failures, report } = await checkStagedCli({
+		cliDir: cli,
+		externals: await loadExternals(join(repoRoot, 'packages/cli')),
+		target,
+	})
+	console.log(
+		`Staged CLI check: --version ${report.version} in ${report.timings.versionMs?.toFixed(0)} ms, initialize in ${report.timings.initializeMs?.toFixed(0)} ms, ${report.specifiers} specifiers resolved, ${report.imported} imported${report.notImported.length ? `, not imported on this host (assert files for ${targetName}): ${report.notImported.join(', ')}` : ''}${report.notShipped.length ? `; deliberately not shipped: ${report.notShipped.join(', ')}` : ''}`,
+	)
+	for (const line of report.nativeMissing)
+		console.warn(`Warning: no ${targetName} binary staged for ${line} (this machine's deploy fetched its own platform's optional packages).`)
+	if (failures.length > 0)
+		throw new Error(`The staged CLI does not work from its own files:\n  ${failures.join('\n  ')}`)
 
 	// 3. The Pal computer image, when this build carries one.
 	const palComputer = stagePalComputer(out, palComputerImage, palComputerManifest)
