@@ -15,6 +15,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	COMPACTION_HEADER,
+	COMPACTION_RESUME_NOTE,
 	MockLLMProvider,
 	SessionPaths,
 	toolset,
@@ -121,9 +123,8 @@ async function runCase(input) {
 			topicId: generateTopicId(),
 			projectId: generateProjectId(),
 			tenantId: generateTenantId(),
-			messages: input.history?.() ?? [
-				{ role: "user", content: "go", timestamp: 1 },
-			],
+			messages: input.history?.() ??
+				input.messages ?? [{ role: "user", content: "go", timestamp: 1 }],
 			resumeHandler: autoApproveHandler,
 			...(input.compactionConfig
 				? { compactionConfig: input.compactionConfig }
@@ -209,6 +210,30 @@ const settled = customScorer("settled", (turn) =>
 		: { score: 1, reason: `settled as ${turn.stopReason ?? "unknown"}` },
 );
 
+/**
+ * A summary that replaces history must close on how to pick the work back up.
+ * Scripted, so this checks the text the model would be handed, not how a
+ * model behaves on it: that a finished step is not redone needs a live model.
+ */
+const summaryTellsHowToResume = customScorer(
+	"summary-tells-how-to-resume",
+	(turn) => {
+		const summaries = (turn.finalMessages ?? []).filter(
+			(m) =>
+				typeof m.content === "string" && m.content.startsWith(COMPACTION_HEADER),
+		);
+		if (summaries.length === 0) {
+			return { score: 1, reason: "no summary in this run, nothing to close" };
+		}
+		const bad = summaries.filter(
+			(m) => m.content.split(COMPACTION_RESUME_NOTE).length !== 2,
+		);
+		return bad.length === 0
+			? { score: 1, reason: "every summary closes on the resume note, once" }
+			: { score: 0, reason: `${bad.length} summary without exactly one resume note` };
+	},
+);
+
 export default async function context() {
 	return runExperiment({
 		name: "kernel/context",
@@ -217,6 +242,7 @@ export default async function context() {
 			keepsTheSystemFloor,
 			firstRequestShrinksAndStaysReadable,
 			settled,
+			summaryTellsHowToResume,
 		],
 		run: async (input) => {
 			const turn = await runCase(input);
@@ -280,6 +306,29 @@ export default async function context() {
 						llmVerification: false,
 						richStateThreshold: 1_000,
 						clearToolResults: true,
+					},
+				},
+			},
+			{
+				// The cases above never fold history (their summary scorer passes
+				// for lack of a summary); this one starts over the window, so the
+				// first request is the one right after a compaction.
+				name: "after a compaction the summary says how to carry on",
+				input: {
+					turns: [{ text: "finished" }],
+					messages: [
+						{ role: "user", content: "first request", timestamp: 1 },
+						{ role: "assistant", content: `earlier work ${BULK}`, timestamp: 2 },
+						{ role: "user", content: "second request", timestamp: 3 },
+						{ role: "assistant", content: `more work ${BULK}`, timestamp: 4 },
+						{ role: "user", content: "third request", timestamp: 5 },
+					],
+					compactionConfig: {
+						strategy: "structured",
+						contextWindowTokens: 1_000,
+						keepRecentMessages: 2,
+						llmVerification: false,
+						clearToolResults: false,
 					},
 				},
 			},

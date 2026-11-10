@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { WorkingStateManager } from '../../../../compaction/manager.js'
-import { COMPACTION_HEADER, COMPACTION_RECOVERY_NOTE } from '../../../../compaction/summary.js'
+import {
+	COMPACTION_HEADER,
+	COMPACTION_RECOVERY_NOTE,
+	COMPACTION_RESUME_NOTE,
+} from '../../../../compaction/summary.js'
 import { CompactionConfigSchema } from '../../../../config/runtime.js'
 import type { CompactionConfig } from '../../../../config/runtime.js'
 import type { Message } from '../../../../types/message/index.js'
@@ -75,7 +79,9 @@ describe('the pointer at the end of an in-turn compaction summary', () => {
 
 		await runCompactionCheck(h.ctx)
 
-		expect(summaryOf(h.ctx).endsWith(`\n\n${COMPACTION_RECOVERY_NOTE}`)).toBe(true)
+		expect(
+			summaryOf(h.ctx).endsWith(`\n\n${COMPACTION_RECOVERY_NOTE}\n\n${COMPACTION_RESUME_NOTE}`),
+		).toBe(true)
 	})
 
 	it.each([[['read']], [['search_conversation']], [['read_conversation', 'read']]])(
