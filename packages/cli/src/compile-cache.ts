@@ -37,6 +37,15 @@ export type CompileCacheOutcome =
 	| { readonly state: 'skipped'; readonly reason: string }
 	| { readonly state: 'failed'; readonly reason: string }
 
+export interface CompileCacheFlushOptions {
+	/** The `node:module` surface; a test supplies its own. */
+	readonly module?: { readonly flushCompileCache?: () => void }
+	/** How long the process must have been left alone first. Default 2000. */
+	readonly delayMs?: number
+	/** Timer seam; a test supplies a fake clock's. */
+	readonly setTimer?: (run: () => void, ms: number) => { unref?: () => unknown }
+}
+
 export interface CompileCacheOptions {
 	readonly env?: NodeJS.ProcessEnv
 	/** The OS home directory when `NAMZU_HOME` is unset. */
@@ -93,5 +102,39 @@ export function enableStartupCompileCache(options: CompileCacheOptions = {}): Co
 		return { state: 'failed', reason: result.message ?? 'Node did not enable the cache' }
 	} catch (error) {
 		return { state: 'failed', reason: error instanceof Error ? error.message : String(error) }
+	}
+}
+
+/**
+ * Write the compile cache now, once, after the process has been idle a while.
+ *
+ * Node writes what it compiled when the process exits, so an engine that its
+ * host ends by killing it never leaves the cache warm: measured, the second
+ * start of an engine that was killed stayed at the cold figure (298 ms to
+ * answer `initialize`, against 215 ms with the cache written). A long-lived
+ * process therefore asks for the write itself. It waits `delayMs` on a timer
+ * that does not keep the process alive, so the write does not compete with the
+ * first requests, and it is a no-op where `module.flushCompileCache` is absent
+ * (before Node 22.10) or the cache was never enabled.
+ *
+ * Returns a function that cancels the pending flush.
+ */
+export function flushCompileCacheWhenIdle(options: CompileCacheFlushOptions = {}): () => void {
+	const mod = options.module ?? nodeModule
+	if (typeof mod.flushCompileCache !== 'function') return () => undefined
+	const flush = mod.flushCompileCache.bind(mod)
+	const setTimer = options.setTimer ?? ((run: () => void, ms: number) => setTimeout(run, ms))
+	let cancelled = false
+	const timer = setTimer(() => {
+		if (cancelled) return
+		try {
+			flush()
+		} catch {
+			// A cache that cannot be written leaves the next start cold, as before.
+		}
+	}, options.delayMs ?? 2_000)
+	timer.unref?.()
+	return () => {
+		cancelled = true
 	}
 }
