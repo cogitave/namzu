@@ -106,9 +106,26 @@ export function googleApiKeyPath(home?: string): string {
 	return join(namzuHomePath(home), 'gemini-api-key.json')
 }
 
+/**
+ * Whether no entry exists at `path`. Looking a name up opens no handle to a
+ * file's data, so a missing credential is answered without first proving its
+ * directory private: on Windows that proof is two processes, and discovery
+ * asks about several files that usually do not exist. A file that exists is
+ * still proved, directory first, before it is opened.
+ */
+function credentialEntryAbsent(path: string): boolean {
+	try {
+		lstatSync(path)
+		return false
+	} catch (error) {
+		return (error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT'
+	}
+}
+
 /** Return only a Namzu-owned, private Gemini API key. Never read a symlink. */
 export function readStoredGeminiApiKey(home?: string): string | null {
 	const path = googleApiKeyPath(home)
+	if (credentialEntryAbsent(path)) return null
 	try {
 		protectCredentialParentOnWindows(path)
 		const entry = lstatSync(path)
@@ -154,6 +171,7 @@ export function apiKeysPath(home?: string): string {
 
 function readApiKeyDocument(home?: string): Record<string, string> {
 	const path = apiKeysPath(home)
+	if (credentialEntryAbsent(path)) return {}
 	try {
 		protectCredentialParentOnWindows(path)
 		const entry = lstatSync(path)
@@ -175,6 +193,15 @@ function readApiKeyDocument(home?: string): Record<string, string> {
 /** The saved key for one provider id, or `null`. Never throws. */
 export function readStoredApiKey(providerId: string, home?: string): string | null {
 	return readApiKeyDocument(home)[providerId] ?? null
+}
+
+/**
+ * Every saved key at once, from one read of the file, for a caller that asks
+ * about several providers (discovery): each read proves the file private, which
+ * on Windows is four processes. Never throws.
+ */
+export function readStoredApiKeys(home?: string): Readonly<Record<string, string>> {
+	return readApiKeyDocument(home)
 }
 
 /** Provider ids that have a saved key. Never carries a key. */
