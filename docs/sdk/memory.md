@@ -508,12 +508,6 @@ judgement between the two without changing the default.
   `memory_recalled` event, persisted, and `reason` in the SSE `memory.recalled`
   payload). An id that is not among the candidates is ignored. `[]` means
   nothing is relevant, and nothing is added.
-- `caution(record)` is asked once for each record about to be shown (at most
-  `maxMemories` a request), with its id and metadata, never its body. A returned
-  string is added to the record's line as `caution` and to the `recalledMemories`
-  entry; the record is still shown. It runs inside the recall deadline, so it
-  must be cheap; a throw or a passed deadline means no caution. A host uses it to
-  check what a record names against the project as it is now.
 - `undefined`, a throw, or an abort means the selector did not answer. Recall
   then uses lexical order and holds each record to `minCoverage`: the number of
   distinct words of the request (default 1, today's behaviour; never more than
@@ -533,6 +527,12 @@ judgement between the two without changing the default.
   then starts again for the reads that follow; a selector that ignores `signal`
   is still cut off at `selectTimeoutMs` (default 2,500 ms), when `signal` aborts.
   The host's own, shorter deadline should be the one that normally fires.
+- `caution(record)` is asked once for each record about to be shown (at most
+  `maxMemories` a request), with its id and metadata, never its body. A returned
+  string is added to the record's line as `caution` and to the `recalledMemories`
+  entry; the record is still shown. It runs inside the recall deadline, so it
+  must be cheap; a throw or a passed deadline means no caution. A host uses it to
+  check what a record names against the project as it is now.
 
 A step given `select` or `shortlist` changes the block in two ways; without
 either, the block is byte-for-byte what it was. The header adds that a record
