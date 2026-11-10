@@ -50,7 +50,7 @@ const GENERATED = [
 	{ repeat: 'a', times: 'cap' },
 	{ repeat: 'a', times: 'cap+1' },
 	{ repeat: '[[:alpha:]', times: 20000 },
-	{ repeat: '*', times: 2000 },
+	{ repeat: '*a', times: 'cap' },
 ]
 
 const expand = (segment) =>

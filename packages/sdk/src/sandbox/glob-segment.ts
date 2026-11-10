@@ -41,8 +41,14 @@ export interface CompiledSegment {
  */
 export const MAX_GLOB_SEGMENT_LENGTH = 1024
 
-/** How much of an over-long pattern an error message shows. */
+/** How much of an over-long pattern an error message shows, in code points. */
 const PREVIEW_LENGTH = 60
+
+/** The first `PREVIEW_LENGTH` code points of `text`, never cutting a surrogate pair. */
+const preview = (text: string) =>
+	Array.from(text.slice(0, PREVIEW_LENGTH * 2))
+		.slice(0, PREVIEW_LENGTH)
+		.join('')
 
 /**
  * Raised for a segment that repeats a group (`*( )` or `+( )`) which could match
@@ -54,14 +60,14 @@ export class GlobTooComplexError extends Error {
 	constructor(segment: string, reason: 'ambiguous' | 'stretch' | 'length' = 'ambiguous') {
 		super(
 			reason === 'length'
-				? `The pattern '${segment.slice(0, PREVIEW_LENGTH)}...' is too long (${segment.length} characters; at most ${MAX_GLOB_SEGMENT_LENGTH} between slashes); shorten it or split it across folders.`
+				? `The pattern '${preview(segment)}...' is too long (${segment.length} characters; at most ${MAX_GLOB_SEGMENT_LENGTH} between slashes); shorten it or split it across folders.`
 				: reason === 'stretch'
 					? `The pattern '${segment}' has more than three wildcards that can stretch; split it across folders or use fewer *.`
 					: `The pattern '${segment}' repeats a group that can match the same text more than one way; use ** or {a,b} instead.`,
 		)
 		this.name = 'GlobTooComplexError'
 		// An over-long pattern is not kept whole: the error may be logged.
-		this.segment = reason === 'length' ? segment.slice(0, PREVIEW_LENGTH) : segment
+		this.segment = reason === 'length' ? preview(segment) : segment
 	}
 }
 

@@ -335,4 +335,16 @@ describe('segment length cap', () => {
 		expect(message).toContain('shorten it or split it across folders')
 		expect(message.length).toBeLessThan(250)
 	})
+	it('cuts the preview on a code point, not inside a surrogate pair', () => {
+		const long = `${'a'.repeat(59)}\u{1F600}${'b'.repeat(MAX_GLOB_SEGMENT_LENGTH)}`
+		let error: GlobTooComplexError | undefined
+		try {
+			compileSegment(long, false)
+		} catch (caught) {
+			error = caught as GlobTooComplexError
+		}
+		expect(error?.segment).toBe(`${'a'.repeat(59)}\u{1F600}`)
+		expect(error?.message).toContain(`'${'a'.repeat(59)}\u{1F600}...'`)
+		expect(error?.message).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/)
+	})
 })
