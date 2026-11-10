@@ -315,6 +315,18 @@ export interface MemoryCliConfig {
 	 * config only; a project file, or a profile in one, cannot set it.
 	 */
 	readonly select?: 'on' | 'off'
+	/**
+	 * Let the small model curate what turns learn. `on` (default): a turn's
+	 * claims wait in a durable inbox and, off the turn, the small model
+	 * compares each with the memories you already have and adds, updates,
+	 * replaces or skips; where there is no small model (the side route would
+	 * be the conversation's own model) the screened claims are written as
+	 * before. `off`: the screened claims are written when the turn ends, with
+	 * no inbox and no model. The small model sees the claims and the titles of
+	 * related memories, on your own provider. Your own config and managed
+	 * config only; a project file, or a profile in one, cannot set it.
+	 */
+	readonly curation?: 'on' | 'off'
 }
 
 /**

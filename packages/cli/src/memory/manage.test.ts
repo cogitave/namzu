@@ -280,3 +280,36 @@ describe('renderMemoryDetail', () => {
 		expect(memoryDescription(first)).toBe('you · project · today')
 	})
 })
+
+describe('a replaced memory', () => {
+	it('leaves the archived old one out of the list and tells which it replaced', async () => {
+		const { store, directory } = tempStore()
+		const old = await store.create({
+			title: 'Use pnpm everywhere',
+			summary: 'pnpm',
+			content: 'Always pnpm.',
+			name: 'use-pnpm-everywhere',
+			type: 'project',
+			metadata: { source: 'session-memory' },
+		})
+		const next = await store.create({
+			title: 'Use pnpm in this repository only',
+			summary: 'pnpm here, yarn elsewhere',
+			content: 'pnpm for this repository; yarn is fine elsewhere.',
+			name: 'use-pnpm-here',
+			type: 'project',
+			metadata: { source: 'session-memory', supersedes: old.entry.id },
+		})
+		await store.update(old.entry.id, {
+			status: 'archived',
+			metadata: { source: 'session-memory', supersededBy: next.entry.id },
+		})
+		const items = await loadManagedMemories(store, directory)
+		expect(items.map((item) => item.name)).toEqual(['use-pnpm-here'])
+		const [item] = items
+		if (!item) throw new Error('missing')
+		expect(renderMemoryDetail(item, 'pnpm for this repository.')).toContain(
+			'Replaced: Use pnpm everywhere',
+		)
+	})
+})

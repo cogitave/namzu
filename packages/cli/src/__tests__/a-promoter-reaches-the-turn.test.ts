@@ -50,6 +50,7 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 })
 
 let cwd: string
+let lastSession: { close(): Promise<void> } | undefined
 
 beforeEach(() => {
 	queryCalls.length = 0
@@ -101,9 +102,16 @@ function candidate(over: Partial<SessionMemoryCandidate> = {}): SessionMemoryCan
 	}
 }
 
-async function drive(): Promise<(c: SessionMemoryCandidate) => void | Promise<void>> {
+/** `memory.curation: off` writes at settle; the default queues for the curator (see below). */
+async function drive(
+	curation: 'on' | 'off' = 'off',
+): Promise<(c: SessionMemoryCandidate) => void | Promise<void>> {
 	const { createAgentSession } = await import('../tui/agent.js')
-	const session = await createAgentSession(prefs, detectedAnthropic(), { cwd })
+	const session = await createAgentSession(prefs, detectedAnthropic(), {
+		cwd,
+		memory: { curation },
+	})
+	lastSession = session
 	for await (const _ of session.send([{ role: 'user', content: 'hi', timestamp: 0 }])) {
 		// drain
 	}
@@ -151,9 +159,26 @@ describe('the turn memory promoter', () => {
 		expect(page.entries[0]?.description).toContain('never email an invoice twice')
 	})
 
+	it('by default queues what the turn learned and writes it into the SAME store once curated', async () => {
+		const promote = await drive('on')
+
+		await promote(candidate({ userRequirements: ['never email an invoice twice'] }))
+		// Queued, not written in the turn: the curator applies it off the reply's path.
+		expect((await sessionMemoryStore(cwd).list()).totalCount).toBe(0)
+		// Closing the session curates what is queued; with no side model the
+		// screened promoter writes it, into the store `search_memory` reads.
+		await lastSession?.close()
+		const page = await sessionMemoryStore(cwd).list()
+		expect(page.totalCount).toBe(1)
+		expect(page.entries[0]?.description).toContain('never email an invoice twice')
+	})
+
 	it('keeps what it writes out of the index, so the next turn’s system prompt is unchanged', async () => {
 		const { createAgentSession } = await import('../tui/agent.js')
-		const session = await createAgentSession(prefs, detectedAnthropic(), { cwd })
+		const session = await createAgentSession(prefs, detectedAnthropic(), {
+			cwd,
+			memory: { curation: 'off' },
+		})
 		const turn = async () => {
 			for await (const _ of session.send([{ role: 'user', content: 'hi', timestamp: 0 }])) {
 				// drain

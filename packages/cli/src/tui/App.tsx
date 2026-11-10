@@ -479,6 +479,7 @@ import {
 	describeLoginStart,
 	describeProviderLogout,
 } from './login-prompt.js'
+import { memoryCuratedRow } from './memory-curated-row.js'
 import { type UsedMemory, memoryUsedRow, mergeUsedMemories } from './memory-used-row.js'
 import {
 	AUTO_ALREADY_ON,
@@ -14072,6 +14073,13 @@ function AppBody({
 		},
 	})
 	idleCompactionRef.current = idleCompaction
+	// What the small model curated from a turn's learning, once the turn is over.
+	useEffect(() => {
+		return session?.memoryCuration?.subscribe((lines) => {
+			const row = memoryCuratedRow(lines)
+			if (row) pushSystem('notice', row)
+		})
+	}, [session, pushSystem])
 	// A permission or a question waiting on the person: the notice countdown
 	// ends when none is left, and the turn's "Worked for" leaves the wait out.
 	const awaitingPerson =

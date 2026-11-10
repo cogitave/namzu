@@ -308,6 +308,88 @@ again. To restore an archived record, open its file in the memory directory and
 change `status: archived` to `status: active`; to run the pass again, delete the
 marker.
 
+### How what turns learn is curated
+
+The screened claims of a turn no longer become a record of their own. When the
+turn ends, the CLI appends them to a small durable inbox, one JSON line in
+`<NAMZU_HOME>/memory-inbox/<project>.jsonl`, and goes on. That takes a few
+milliseconds and calls no model. Nothing is written to your memory in the turn,
+and a crash after the append loses nothing: the next process finds the line.
+
+Off the turn, the small model curates the inbox. It runs:
+
+- a quarter of a minute after a turn ends, when no other turn has started;
+- when the next turn starts, after that turn has been dispatched, so it never
+  delays the reply (this is also how a new process picks up what an earlier one
+  left, including a one-shot `exec` run that ended before its own drain);
+- when the session closes, for at most eight seconds.
+
+At most eight claim sets go to the model in one call. For each, Namzu first
+finds the five to eight active memories that share the most words with it, of
+every writer: yours, the ones the assistant saved with `save_memory` and the ones
+turns recorded. The model sees each claim set, and for each related memory only
+its id, title, description, type, who wrote it and age, never its body. It answers
+with one operation per claim set:
+
+| Operation | Meaning | What Namzu does |
+| --- | --- | --- |
+| `add` | A lasting fact no related memory holds. | Writes a record, marked `curated` and `unverified`, with the reason in its metadata. |
+| `update` | It refines a related memory a turn recorded. | Rewrites that record in place. |
+| `supersede` | It contradicts or replaces such a memory. | Writes the new record linking to the old one (`supersedes`), then archives the old one with `supersededBy` and `invalidAt`. |
+| `noop` | A related memory already holds it, or it is not worth keeping. | Nothing. |
+| `reject` | It is unsafe or is not a fact. | Nothing. |
+
+The model proposes and Namzu decides. A target must be one of that claim set's
+related memories. A memory you wrote, or the assistant saved, is never changed:
+when it already says the same thing the claim is dropped, so a preference the
+assistant just saved is not written a second time by the turn's record. A claim
+the model marks `ephemeral` is dropped. Every field has a length limit, and the
+secret and injected-instruction screen runs again over everything the model
+wrote. An update that finds the record changed since it was read (you edited it,
+or deleted it) is dropped; the record you changed wins. Nothing is ever deleted
+by this: a replaced record is archived, and `/memory` does not list it. To bring
+one back, change `status: archived` to `status: active` in its file.
+
+When the small model cannot be used (none is set aside, the route would be the
+conversation's own model, it does not answer within 25 seconds, or it answers
+something unreadable), the claim sets are written as they were before, one
+record each, so a failing small model never makes memory worse than it was. A
+claim set the model said nothing about is written that way too. The claims were
+already screened (see above) before they reached the inbox.
+
+When a drain changed something, one quiet row appears in the transcript, a line
+per change: `Remembered: <title>`, `Updated: <title>`, `Replaced: <old> → <new>`.
+Nothing appears for a claim that was skipped. `/memory show <name>` of a record
+that replaced another says `Replaced: <old title>`.
+
+The curation log, `<NAMZU_HOME>/memory/curation.jsonl`, has one line per
+operation: the time, the operation, the ids it touched, the turn, a reason code
+(`added`, `updated`, `superseded`, `noop` (held already, or not worth keeping), `ephemeral`, `secret`,
+`injection`, `invalid-target`, `protected-target`, `conflict`, `duplicate-digest`,
+or for a fallback `no side model`, `main route`, `timeout`, `invalid`, `error`,
+`unanswered`), whether the small model or the fallback ran, how long it took
+and the outcome. It holds no claim, title or conversation text, and a run of
+`fallback` lines is how a small model that is silently failing shows.
+
+Privacy: the small model sees the claims a turn learned (already screened) and
+the titles and descriptions of related memories, sent to your own provider.
+Set `memory.curation: off` in your own config to keep the earlier behaviour:
+
+```yaml
+# ~/.namzu/config.yaml
+memory:
+  curation: off   # default: on
+```
+
+With it off there is no inbox and no model: the screened claims are written when
+the turn ends, as before. A project's `namzu.config.json` (or the local file),
+including a profile in it, cannot set `memory.curation`; only your own config and
+a managed config can. With `compaction.consolidate` on, consolidation writes the
+turn's record and the inbox is not used. If the decision point `memory` is on,
+it still looks at a turn's claims first, when the turn ends: a confident no keeps
+them out of the inbox, and that single question to your decision endpoint is
+asked as the turn is released.
+
 ### Seeing which memories a message used
 
 When stored memory went into a turn, a quiet row appears under the message:

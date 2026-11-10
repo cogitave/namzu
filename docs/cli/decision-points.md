@@ -59,15 +59,17 @@ only text that leaves the machine.
 
 ## `memory`
 
-Is what this turn learned worth remembering? At settle the session writes one stored
-memory for any turn whose compaction pass extracted a claim, which keeps whatever a turn
-happened to learn: routine progress and facts the code already states fill the store, and
-the model reads that store on every search. With the point `on`, the decision model reads
-the task and the claims (requirements, decisions, discoveries, failures, environment) and a
-confident no (`P(true)` of 0.3 or less) writes nothing; anything else, a failure included,
-writes as before. It runs after the answer is settled, so it never delays a reply. A turn
-with no claim asks nothing. The claims are the text that leaves the machine; file paths are
-not sent.
+Is what this turn learned worth remembering? A turn whose compaction pass extracted a
+claim leaves screened claims for [the memory curator](memory.md#how-what-turns-learn-is-curated),
+and a store of whatever a turn happened to learn fills with routine progress and facts the
+code already states, which the model then reads on every search. With the point `on`, the
+decision model reads the task and the screened claims (requirements, decisions, discoveries,
+failures, environment) as the turn is released, and a confident no (`P(true)` of 0.3 or
+less) keeps them out of the curator's inbox; anything else, a failure included, passes them
+on. The question is asked in the turn's release step, so it can delay the end of the turn by
+up to its timeout, unlike the curator itself, which runs off the turn. A turn with no claim
+asks nothing. The claims are the text that leaves the machine; file paths are not sent. With
+`memory.curation: off` the point works as it did, gating the write at settle.
 
 ## `skill`
 
