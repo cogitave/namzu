@@ -35,7 +35,7 @@ import {
 import type { Message, StopReason, StructuredOutputConfig } from '@namzu/sdk'
 import type { AgentEvent } from '../tui/agent.js'
 
-import { pendingProjectMcpServers } from '../config/load.js'
+import { pendingProjectMcpServers, takeConfigWarnings } from '../config/load.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import { pendingServersMessage } from '../integrations/mcp/project-approval.js'
@@ -554,6 +554,9 @@ async function execPrint(
 				.join(', ')}`,
 		)
 	}
+	// A setting that was read but not honoured (a repository file asking to loosen
+	// the sandbox) is told here too: a headless run has nobody to see it otherwise.
+	for (const warning of takeConfigWarnings()) ctx.formatter.info(warning)
 	// A refusal that says nothing is indistinguishable from a project that
 	// declared nothing, and the two want opposite responses from the reader.
 	for (const skip of session.skippedInstructionFiles) {
