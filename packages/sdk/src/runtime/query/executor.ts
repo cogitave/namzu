@@ -78,8 +78,8 @@ import { ensureScratchpadDirectory } from '../../utils/temp.js'
 import { type BackgroundJobRegistry, type JobProcess, bindOwner } from '../jobs/registry.js'
 import {
 	type ScriptEvidence,
+	analyzeLaunches,
 	changedSinceRead,
-	launchedScriptPaths,
 	readLaunchedScripts,
 } from './auto-review/script-evidence.js'
 import { type BatchDetach, stillRunningResult } from './detached-calls.js'
@@ -1017,12 +1017,13 @@ export class ToolExecutor {
 		if (this.sandboxed) {
 			// A sandbox's files are not on this host's disk. Say so rather than
 			// letting a launch inside one look like a launch of nothing.
-			const named = launchedScriptPaths(line, dialect)
-			return named.length === 0
+			const analysis = analyzeLaunches(line, dialect)
+			const named = analysis.launches.map((l) => l.path)
+			return named.length === 0 && analysis.unresolved.length === 0
 				? []
 				: [
 						{
-							path: named[0] as string,
+							path: named[0] ?? '(launch form not resolved)',
 							origin: 'unknown',
 							state: 'unreadable',
 							note: 'the command runs in a sandbox whose files are not read for this review, so what the script does is not known',
@@ -2050,6 +2051,7 @@ export class ToolExecutor {
 					} catch (error) {
 						failure ??= { error }
 					} finally {
+						this.reviewedScripts.delete(unit.toolCall.id)
 						settledUnit()
 						inFlight.delete(unit)
 						pump()
@@ -3584,6 +3586,8 @@ export class ToolExecutor {
 		preparedCall?: PreparedDirectCall,
 		declined?: ToolCallDeclined,
 	): Promise<ToolCallOutcome> {
+		// A call that does not run has no use for what a review read of its scripts.
+		this.reviewedScripts.delete(toolCall.id)
 		const toolName = preparedCall?.toolName ?? toolCall.function.name
 		let input: unknown = preparedCall?.input ?? {}
 		if (!preparedCall) {
