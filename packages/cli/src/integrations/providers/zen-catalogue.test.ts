@@ -13,6 +13,7 @@ import { __resetCliLoggerForTests, cliLogger, installCliLogging } from '../../lo
 import { requiresCredentialForModel } from './access.js'
 import { PROVIDER_REGISTRY } from './registry.js'
 import {
+	ZEN_CATALOGUE_CACHE_MAX_AGE_MS,
 	ZEN_CATALOGUE_CACHE_PATH,
 	__resetZenCatalogueForTests,
 	activeZenCatalogue,
@@ -533,5 +534,57 @@ describe('startZenCatalogueRefresh', () => {
 		expect(parseZenCatalogue(JSON.parse(readFileSync(path, 'utf8'))).zen[0]?.id).toBe(
 			'second-model',
 		)
+	})
+
+	it('warns about a moved source once per cache period, then quietly, and again after it', async () => {
+		const dir = home()
+		let clock = 1_000_000
+		const gone = async (): Promise<ZenCatalogueResult> => {
+			throw new Error('https://example.test/go.mdx answered 404 — the branch or the path moved.')
+		}
+		const launch = async () => {
+			const { log, warnings, debugs } = capturing()
+			await startZenCatalogueRefresh({
+				home: dir,
+				log,
+				now: () => clock,
+				fetchCatalogue: gone,
+			}).done
+			return { warned: warnings().length, quiet: debugs().length }
+		}
+		expect((await launch()).warned).toBe(1)
+		// Launches inside the period keep the reason on a debug line.
+		clock += 60_000
+		expect(await launch()).toMatchObject({ warned: 0, quiet: 1 })
+		clock += ZEN_CATALOGUE_CACHE_MAX_AGE_MS - 120_000
+		expect((await launch()).warned).toBe(0)
+		// Past it, one more warning.
+		clock += 120_000
+		expect((await launch()).warned).toBe(1)
+	})
+
+	it('forgets the failure once a refresh lands, so a later failure warns again', async () => {
+		const dir = home()
+		const fail = async (): Promise<ZenCatalogueResult> => {
+			throw new Error('models.dev answered 503.')
+		}
+		const first = capturing()
+		await startZenCatalogueRefresh({ home: dir, log: first.log, fetchCatalogue: fail }).done
+		expect(first.warnings()).toHaveLength(1)
+		const ok = capturing()
+		await startZenCatalogueRefresh({
+			home: dir,
+			log: ok.log,
+			cacheMaxAgeMs: 0,
+			fetchCatalogue: async () => result(catalogue()),
+		}).done
+		const again = capturing()
+		await startZenCatalogueRefresh({
+			home: dir,
+			log: again.log,
+			cacheMaxAgeMs: 0,
+			fetchCatalogue: fail,
+		}).done
+		expect(again.warnings()).toHaveLength(1)
 	})
 })
