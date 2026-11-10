@@ -36,7 +36,7 @@ The operator application.
 * [GitHub workflows and pull request links](github.md) - namzu github install writes Actions workflows that answer @namzu mentions and review new pull requests; conversations that open a pull request are linked to it and --from-pr lists them.
 * [Managed Git worktrees](worktrees.md) - Create separate checkouts, fork a settled conversation into one, and reopen its project.
 * [Session storage](session-storage.md) - Every file the CLI keeps under NAMZU_HOME, the one log per session, the rebuildable index, and which files are safe to delete.
-* [Messages between live terminals](peer-messaging.md) - Discover independent terminals in the same project and send attributed context at safe request boundaries.
+* [Messages between live terminals](peer-messaging.md) - Discover independent terminals in the same project and send attributed context at safe request boundaries, from a terminal or with `namzu peers`.
 * [Accounts in the terminal](accounts.md) - `/auth` and `--account`: choose the account a conversation uses, add a Codex sign-in or labelled API key, and what happens when an account runs out of allowance.
 * [Provider credentials and private state](credentials.md) - Existing subscription profiles, credential discovery, the provider list and its credential entry, and Windows and POSIX storage privacy checks.
 * [Native conversation engines](native-engines.md) - Installed native execution, engine catalogues, exact durable continuation, live reviews and confirmed shutdown.

@@ -221,7 +221,9 @@ export async function openLivePeers(options: LivePeersOptions) {
 		const sender = readPeerRecords(runtime.sessionsDir).find(
 			(peer) => peer.sessionId === request.from.sessionId,
 		)
-		if (!sender || sender.cwd !== cwd || sender.kind !== 'tui')
+		// A command-line sender (`namzu peers send`) is a verified record like a terminal's, but
+		// listed apart: its mail says so, and it never takes mail.
+		if (!sender || sender.cwd !== cwd || (sender.kind !== 'tui' && sender.kind !== 'cli'))
 			return {
 				status: 'refused',
 				reason: 'Only live terminals in the same project may send here.',
