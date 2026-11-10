@@ -389,7 +389,9 @@ export interface ToolCallEscalation {
 	 * asked; no rule, mode or remembered approval covers it. Set for the file
 	 * tools' declared path and for the visible write targets of a shell line:
 	 * output redirections, and the operands of `cp`, `mv`, `tee`, `touch`,
-	 * `mkdir`, `rm`, `rmdir` and `sed -i`.
+	 * `mkdir`, `rm`, `rmdir` and `sed -i`. A top-level entry of the home folder or
+	 * the filesystem root that the call would create or delete is listed here
+	 * too (when the turn reviews outside paths and runs without a sandbox).
 	 */
 	protectedPaths?: readonly string[]
 	/**

@@ -7,6 +7,9 @@
  * - does it write a protected path (a git hook, a shell rc file, editor or
  *   tool configuration, the project's `.namzu` directory)?
  * - does its shell line remove something catastrophic?
+ * - does its call create or delete a top-level entry of the home folder or the
+ *   filesystem root (see `authorization/top-level-entries.ts`)? It is reported
+ *   as a protected path: the same question, asked the same way.
  * - does its shell line reach a path outside the turn's roots, through a
  *   command whose operands are paths or through a redirection?
  *
@@ -22,6 +25,10 @@ import { isProtectedPath } from '../../authorization/protected-paths.js'
 import { dangerousRemoval } from '../../authorization/removal.js'
 import type { ShellDialect } from '../../authorization/shell-lexer.js'
 import { readShellLine, shellPathAccess } from '../../authorization/shell-paths.js'
+import {
+	topLevelEntriesOfMovers,
+	topLevelEntryChange,
+} from '../../authorization/top-level-entries.js'
 import { canonicalize, pathOutsideRoots } from '../../tools/paths.js'
 
 /** What the escalation records carry. */
@@ -38,6 +45,12 @@ export interface PathEscalationContext {
 	readonly cwd?: string
 	/** Whether to report paths outside the roots (`outsideRootAccess: 'review'`, no sandbox). */
 	readonly reviewOutside: boolean
+	/**
+	 * Whether to report a top-level entry of the home folder or the filesystem
+	 * root the line would create or delete. Like `reviewOutside`, off in a sandbox,
+	 * where the paths are the guest's.
+	 */
+	readonly topLevel?: boolean
 }
 
 /**
@@ -137,11 +150,13 @@ function beforeGlob(path: string): string {
 export async function declaredWriteEscalation(
 	roots: readonly string[],
 	value: string,
+	topLevel = false,
 ): Promise<string | undefined> {
 	const [first] = roots
 	if (first === undefined || value === '') return undefined
 	const absolute = resolve(resolve(first), value)
-	return (await isProtectedWrite(value, absolute, roots)) ? absolute : undefined
+	if (await isProtectedWrite(value, absolute, roots)) return absolute
+	return topLevel ? topLevelEntryChange(absolute, 'write', homedir()) : undefined
 }
 
 /** What a shell line reaches. */
@@ -190,6 +205,15 @@ export async function shellEscalations(
 					for (const candidate of absolutes) {
 						if (await isProtectedWrite(spelled, candidate, context.roots))
 							protectedPaths.add(candidate)
+						else if (
+							context.topLevel === true &&
+							'path' in settled &&
+							(!use.unresolved || /^\$(?:\{HOME\}|HOME)\//.test(spelled)) &&
+							use.via !== 'mv'
+						) {
+							const entry = topLevelEntryChange(candidate, use.via, home)
+							if (entry !== undefined) protectedPaths.add(entry)
+						}
 					}
 				}
 				if (!context.reviewOutside) continue
@@ -223,6 +247,14 @@ export async function shellEscalations(
 				}
 			}
 		}
+	}
+	if (context.topLevel === true) {
+		for (const entry of topLevelEntriesOfMovers(reading, {
+			home,
+			cwd,
+			changesDirectory: access.changesDirectory,
+		}))
+			protectedPaths.add(entry)
 	}
 	const removalAt = (directory: string | undefined) =>
 		directory === undefined

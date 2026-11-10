@@ -90,7 +90,7 @@ function Peek({
 				'absolute inset-x-0 bottom-0 z-0 mx-auto h-3 w-[96%] cursor-pointer rounded-t-2xl border border-b-0 shadow-md',
 				'bg-(--chat-composer-attached-surface)/(--glass-opacity) backdrop-blur-(--glass-blur) backdrop-saturate-(--glass-saturation)',
 				'not-supports-[((backdrop-filter:blur(1px))_or_(-webkit-backdrop-filter:blur(1px)))]:bg-(--chat-composer-attached-surface)',
-				'transition-opacity duration-150 ease-out focus-visible:outline-2 focus-visible:outline-ring',
+				'transition-opacity duration-150 ease-out focus-visible:[box-shadow:var(--focus-ring)]!',
 				peekBorder[variant],
 				className,
 			)}
@@ -185,7 +185,7 @@ function Row({
 		className: cn(
 			'group/banner-row grid min-h-(--composer-banner-icon-column) w-full min-w-0 grid-cols-[var(--composer-banner-icon-column)_minmax(0,1fr)_auto] items-center gap-x-1 text-start',
 			'not-has-[>[data-slot=composer-banner-actions]]:grid-cols-[var(--composer-banner-icon-column)_minmax(0,1fr)]',
-			'[&:is(button)]:cursor-pointer [&:is(button)]:rounded-md [&:is(button)]:focus-visible:outline-2 [&:is(button)]:focus-visible:-outline-offset-2 [&:is(button)]:focus-visible:outline-ring',
+			'[&:is(button)]:cursor-pointer [&:is(button)]:rounded-md [&:is(button)]:focus-visible:[box-shadow:var(--focus-ring-inset)]!',
 			layout === 'wrap-actions' &&
 				'@max-[400px]:*:data-[slot=composer-banner-content]:min-h-(--composer-banner-icon-column)',
 			layout === 'wrap-actions-narrow' &&

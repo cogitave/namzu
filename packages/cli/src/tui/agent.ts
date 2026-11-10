@@ -263,6 +263,7 @@ import {
 	detectWsl,
 	readEnvironmentFacts,
 } from '../context/environment.js'
+import { composeFilePlacementGuidance } from '../context/file-placement.js'
 import { AGENT_LAUNCH_TOOL, FOREGROUND_BASH_DESCRIPTION } from '../context/identity.js'
 import { ProjectInstructionTracker } from '../context/project-tracker.js'
 import {
@@ -4876,6 +4877,8 @@ export async function createAgentSession(
 	// A `!` line only exists where a person types at the session, which is where
 	// `askUser` is on; a headless run is never told of a prefix it cannot be given.
 	const shellEscapeGuidance = options.askUser ? SHELL_ESCAPE_GUIDANCE : undefined
+	// A function of the platform alone, written once, so the prefix stays byte-stable.
+	const filePlacementGuidance = composeFilePlacementGuidance(process.platform)
 	// Built once for every host-side read this session needs (the presenter,
 	// the roster shown to `/tools`, the exempt-tool list, MCP provenance for
 	// `toolResultScreens`) — never for execution, which `query()` does with
@@ -5280,6 +5283,7 @@ export async function createAgentSession(
 						withheldTools: options.withheldTools,
 						memoryGuidance,
 						shellEscapeGuidance,
+						filePlacementGuidance,
 						conversationSessions: options.conversationSessions,
 						toolLoading: options.toolLoading,
 						anyToolDeferred: anyDeferred(sessionToolsets),
@@ -6527,6 +6531,7 @@ export async function createAgentSession(
 									withheldTools: options.withheldTools,
 									memoryGuidance,
 									shellEscapeGuidance,
+									filePlacementGuidance,
 									conversationSessions: options.conversationSessions,
 									toolLoading: options.toolLoading,
 									anyToolDeferred: anyDeferred(runToolsets),

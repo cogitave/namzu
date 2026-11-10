@@ -333,8 +333,9 @@
 }
 
 .sidebar-list-disclosure > button:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
 }
 
 @media (prefers-reduced-motion: reduce) {

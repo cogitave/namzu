@@ -68,8 +68,9 @@
 	font-size: var(--text-ui-sm, 12px);
 }
 .terminal-find input:focus-visible {
-	outline: 1px solid var(--ring);
-	outline-offset: 0;
+	outline: 2px solid transparent;
+	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
 }
 
 /* The badge is a dot: its colour is the state, its label is for assistive technology and the tooltip. */
