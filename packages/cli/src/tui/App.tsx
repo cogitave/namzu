@@ -11022,6 +11022,14 @@ function AppBody({
 							},
 							// Only the person's own words can set a token target.
 							...(typedInput !== undefined ? { typedInput } : {}),
+							// A conversation resumed after its prompt cache expired is
+							// re-read at full price anyway: old results can go now.
+							...(() => {
+								const stale = session.clearStaleResultsAfterIdle
+									? idleCompaction.compactor.staleResultsRequest()
+									: undefined
+								return stale ? { clearStaleToolResults: stale } : {}
+							})(),
 							// The TUI never resumes a turn whose process is gone; the next
 							// prompt closes it. A paused turn is never closed this way.
 							abandonInterrupted: true,

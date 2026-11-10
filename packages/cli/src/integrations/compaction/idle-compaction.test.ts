@@ -4,6 +4,8 @@ import {
 	IDLE_COMPACTION_DEFAULT_MIN_TOKENS,
 	IdleCompactor,
 	type IdleCompactorDeps,
+	STALE_RESULTS_KEEP_RECENT,
+	STALE_RESULTS_MIN_SAVED_TOKENS,
 	resolveIdleCompactionMinTokens,
 } from './idle-compaction.js'
 
@@ -267,5 +269,51 @@ describe('the minimum context', () => {
 		expect(resolveIdleCompactionMinTokens('nope', 250_000)).toBe(250_000)
 		expect(resolveIdleCompactionMinTokens(50_000)).toBe(100_000)
 		expect(resolveIdleCompactionMinTokens(0, undefined)).toBe(IDLE_COMPACTION_DEFAULT_MIN_TOKENS)
+	})
+})
+
+describe('asking for stale tool results to be shed when a turn starts', () => {
+	it('asks once the last request is older than the cache lifetime it reported', () => {
+		const h = harness()
+		h.endTurn()
+		h.world.now += HOUR + 1
+		expect(h.compactor.staleResultsRequest()).toEqual({
+			minSavedTokens: STALE_RESULTS_MIN_SAVED_TOKENS,
+			keepRecentToolResults: STALE_RESULTS_KEEP_RECENT,
+		})
+	})
+
+	it('does not ask at the lifetime, or any time before it', () => {
+		const h = harness()
+		h.endTurn()
+		h.world.now += HOUR
+		expect(h.compactor.staleResultsRequest()).toBeUndefined()
+		h.world.now -= 30 * MINUTE
+		expect(h.compactor.staleResultsRequest()).toBeUndefined()
+	})
+
+	it('follows a five-minute lifetime too, not only the one-hour one', () => {
+		const h = harness()
+		h.endTurn({ ttlMs: 5 * MINUTE, touched: true })
+		h.world.now += 5 * MINUTE - 1
+		expect(h.compactor.staleResultsRequest()).toBeUndefined()
+		h.world.now += 2
+		expect(h.compactor.staleResultsRequest()).toBeDefined()
+	})
+
+	it('does not ask when no lifetime is known', () => {
+		const h = harness()
+		expect(h.compactor.staleResultsRequest()).toBeUndefined()
+		h.endTurn(null)
+		h.world.now += 10 * HOUR
+		expect(h.compactor.staleResultsRequest()).toBeUndefined()
+	})
+
+	it('does not ask after the context was rewritten, whose cache is unknown', () => {
+		const h = harness()
+		h.endTurn()
+		h.compactor.contextChanged()
+		h.world.now += 10 * HOUR
+		expect(h.compactor.staleResultsRequest()).toBeUndefined()
 	})
 })

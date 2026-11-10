@@ -38,6 +38,20 @@ export const IDLE_COMPACTION_LATENESS_MS = 60_000
 export const IDLE_COMPACTION_PRESENCE_MS = 60_000
 const ONE_HOUR_MS = 3_600_000
 
+/**
+ * What a turn that starts after the prompt cache has lapsed asks the kernel
+ * to do: shed old tool results when that saves at least `minSavedTokens` (the
+ * kernel's own estimate), keeping the newest `keepRecentToolResults` results
+ * as they are. Twenty thousand tokens is about where the shed is worth the
+ * model losing the text; six results keeps the last few steps whole.
+ */
+export const STALE_RESULTS_MIN_SAVED_TOKENS = 20_000
+export const STALE_RESULTS_KEEP_RECENT = 6
+export interface StaleResultsRequest {
+	readonly minSavedTokens: number
+	readonly keepRecentToolResults: number
+}
+
 /** The configured minimum, floored; an unusable value falls back to the default. */
 export function resolveIdleCompactionMinTokens(
 	...candidates: readonly (number | string | undefined)[]
@@ -121,6 +135,23 @@ export class IdleCompactor {
 			cacheTtlMs: cache.ttlMs,
 		}
 		this.#clock.record(usage, this.#deps.now())
+	}
+
+	/**
+	 * Called as a turn starts: the request to shed old tool results when the
+	 * last request was longer ago than the cache lifetime that request
+	 * reported, otherwise undefined. Undefined too when no lifetime is known
+	 * (a driver that reports none, a rewritten context, or a process that has
+	 * not seen a request yet), because then nobody can say the cache is gone.
+	 */
+	staleResultsRequest(): StaleResultsRequest | undefined {
+		const state = this.#clock.state
+		if (state === null || !(state.ttlMs > 0)) return undefined
+		if (this.#deps.now() - state.lastActivityAt <= state.ttlMs) return undefined
+		return {
+			minSavedTokens: STALE_RESULTS_MIN_SAVED_TOKENS,
+			keepRecentToolResults: STALE_RESULTS_KEEP_RECENT,
+		}
 	}
 
 	/** A request is about to be sent: whatever was armed is now out of date. */
