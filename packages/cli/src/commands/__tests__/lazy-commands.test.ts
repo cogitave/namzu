@@ -140,6 +140,7 @@ describe('the command manifest', () => {
 				'logout',
 				'mcp',
 				'pal',
+				'peers',
 				'providers-json',
 				'schedule',
 				'serve',

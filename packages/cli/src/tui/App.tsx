@@ -15,6 +15,7 @@ import { TURN_LIMIT_FIELDS, turnLimitCommands } from './turn-limits-settings.js'
  */
 
 import { existsSync, rmSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import {
 	type Account,
@@ -498,6 +499,9 @@ import { isSessionPlanPath } from './display-path.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
 import { ExternalEditorError, editDraftInExternalEditor } from './external-editor.js'
+import { FullscreenTranscript } from './fullscreen/FullscreenTranscript.js'
+import type { FullscreenControl } from './fullscreen/FullscreenTranscript.js'
+import type { WheelDirection } from './fullscreen/mouse-wheel.js'
 import {
 	HYPERMODE,
 	HYPERMODE_ROW_LABEL,
@@ -780,6 +784,7 @@ import { usePrStatus } from './use-pr-status.js'
 import { useSelectionIndex } from './use-selection-index.js'
 import { useNotifications } from './useNotifications.js'
 import { useReadSearchGroup } from './useReadSearchGroup.js'
+import { workingFolderNotice } from './working-folder-notice.js'
 import { renderWorkspaceDiff, workspaceDiff } from './workspace-diff.js'
 import {
 	type ReviewCommit,
@@ -814,6 +819,15 @@ export interface AppProps {
 	 * width does not change and the App's own resize reset would not run.
 	 */
 	readonly repaint?: { current: (() => void) | null }
+	/**
+	 * Present when the screen is drawn fullscreen: on the alternate screen, with
+	 * the conversation scrolled by the app itself (see `fullscreen/`) instead of
+	 * handed to the terminal's scrollback. The launcher owns the terminal modes
+	 * and the pointer reports; this is how the wheel reaches the view.
+	 */
+	readonly fullscreen?: {
+		readonly subscribeWheel: (listener: (direction: WheelDirection) => void) => () => void
+	}
 	/**
 	 * Opens the workspaces screen: `←` on an empty composer. Absent where there is
 	 * no workspaces screen to open (Windows, no terminal), which keeps `←` opening the
@@ -1516,6 +1530,9 @@ interface AccountActions {
  */
 const SCROLL_VIEW_RESERVED_ROWS = 9
 
+/** Longer than the renderer's frame interval, so the empty frame after a resize is drawn. */
+const FULLSCREEN_RESIZE_SETTLE_MS = 60
+
 /**
  * Rows the live region occupies apart from the transcript window: the activity
  * line, the composer frame and its padding, the status bar.
@@ -1563,6 +1580,7 @@ function AppBody({
 	externalEditor = defaultExternalEditor,
 	terminationExit,
 	repaint,
+	fullscreen,
 	onOpenWorkspaces,
 	onConfirmExit,
 	beforeExit,
@@ -1601,6 +1619,22 @@ function AppBody({
 		[clipboardSeam, stdout.isTTY, writeStdout],
 	)
 	const terminal = useWindowSize()
+	const fullscreenOn = fullscreen !== undefined
+	const fullscreenControl = useRef<FullscreenControl | null>(null)
+	// Ink's line diff knows the screen only through its own last frame. After a
+	// resize the terminal has moved things under it, so one empty frame goes out
+	// first: the screen is erased by the renderer that drew it, and the next
+	// frame is drawn whole. The timer outlasts the renderer's frame interval.
+	const [fullscreenBlank, setFullscreenBlank] = useState(false)
+	const fullscreenSizeRef = useRef(`${terminal.columns}x${terminal.rows}`)
+	useEffect(() => {
+		const size = `${terminal.columns}x${terminal.rows}`
+		if (!fullscreenOn || fullscreenSizeRef.current === size) return
+		fullscreenSizeRef.current = size
+		setFullscreenBlank(true)
+		const timer = setTimeout(() => setFullscreenBlank(false), FULLSCREEN_RESIZE_SETTLE_MS)
+		return () => clearTimeout(timer)
+	}, [terminal.columns, terminal.rows, fullscreenOn])
 	const hyperlinks = terminalSupportsHyperlinks(process.env, stdout.isTTY === true)
 	/**
 	 * The last assistant message id the turn reported, for `/feedback`.
@@ -3465,7 +3499,9 @@ function AppBody({
 	// live on the rows, so emptying `messages` takes them with it.
 	const resetTranscript = useCallback(
 		(options: { preserveTranscriptScreen?: boolean } = {}) => {
-			if (stdout.isTTY) writeStdout('\x1b[2J\x1b[3J\x1b[H')
+			// Fullscreen has no scrollback to clear and Ink's line diff must keep
+			// matching the screen, so the view repaints itself instead.
+			if (stdout.isTTY && !fullscreenOn) writeStdout('\x1b[2J\x1b[3J\x1b[H')
 			if (!options.preserveTranscriptScreen) setTranscriptScreen(false)
 			// The scrollback floor goes with the log it counted. <Static> is remounted
 			// by the key below and has emitted nothing again; a floor that survived
@@ -3473,7 +3509,7 @@ function AppBody({
 			settledRef.current = 0
 			setResetKey((k) => k + 1)
 		},
-		[stdout.isTTY, writeStdout],
+		[stdout.isTTY, writeStdout, fullscreenOn],
 	)
 	// The workspaces screen switches the terminal between a mirror and the real screen; whichever
 	// way, the screen is rebuilt from the messages, whether or not the width changed.
@@ -3567,7 +3603,9 @@ function AppBody({
 			// a cooked terminal, not the raw byte stream the composer consumes.
 			await new Promise<void>((resolve) => setImmediate(resolve))
 			if (request.controller.signal.aborted) return
-			if (stdout.isTTY) writeStdout('\x1b[2J\x1b[H')
+			// The editor is a full-screen program of its own: it gets the main screen,
+			// and the alternate screen comes back once it has finished.
+			if (stdout.isTTY) writeStdout(fullscreenOn ? '\x1b[?1049l\x1b[2J\x1b[H' : '\x1b[2J\x1b[H')
 			let edited: string | undefined
 			let failure: unknown
 			try {
@@ -3580,6 +3618,7 @@ function AppBody({
 			} catch (error) {
 				failure = error
 			}
+			if (stdout.isTTY && fullscreenOn) writeStdout('\x1b[?1049h\x1b[?25l')
 			if (request.controller.signal.aborted) return
 			if (externalEditorRequestRef.current === request) {
 				externalEditorRequestRef.current = null
@@ -3589,7 +3628,14 @@ function AppBody({
 			if (failure !== undefined) request.reject(failure)
 			else request.resolve(edited ?? '')
 		})()
-	}, [externalEditor, externalEditorRequest, resetTranscript, stdout.isTTY, writeStdout])
+	}, [
+		externalEditor,
+		externalEditorRequest,
+		resetTranscript,
+		stdout.isTTY,
+		writeStdout,
+		fullscreenOn,
+	])
 
 	useEffect(
 		() => () => {
@@ -3700,6 +3746,7 @@ function AppBody({
 	 * picks the dot's colour, and a second line, when there is one, hangs
 	 * under the dot as `⎿`. No caller chooses a glyph of its own.
 	 */
+	const workingFolderNoticeShownRef = useRef(false)
 	const pushSystem = useCallback(
 		(
 			level: SystemLevel,
@@ -6241,6 +6288,12 @@ function AppBody({
 				// remember and most likely to be surprised by.
 				for (const notice of s.configNotices) {
 					pushMessage('system', notice)
+				}
+				// Once per session: a provider change re-enters this block.
+				if (!workingFolderNoticeShownRef.current) {
+					workingFolderNoticeShownRef.current = true
+					const folderNotice = workingFolderNotice(activeCtx.cwd, homedir())
+					if (folderNotice) pushMessage('system', folderNotice)
 				}
 				// Named, not counted. "2 files" tells a user their conventions were
 				// found but not WHICH ones, and the interesting case is the one
@@ -16649,23 +16702,36 @@ function AppBody({
 	return (
 		// One row short of the terminal, always: see ViewportBound.tsx for the
 		// renderer path a taller frame takes and the scrollback row it costs.
-		<ViewportBound rows={terminal.rows} display={externalEditorRequest ? 'none' : 'flex'}>
-			<Box flexDirection="column" paddingX={1}>
+		<ViewportBound
+			rows={terminal.rows}
+			display={externalEditorRequest || fullscreenBlank ? 'none' : 'flex'}
+			fill={fullscreenOn}
+		>
+			<Box flexDirection="column" paddingX={1} flexGrow={fullscreenOn ? 1 : 0}>
 				{/* Keep the Static owner mounted through startup pickers. Removing its
 				    ancestor frees Yoga memory that Ink still references during its final flush. */}
-				<TranscriptFrame>
-					<Transcript
+				{fullscreen ? (
+					<FullscreenTranscript
 						messages={finalized}
 						pending={messages.find((m) => m.pending) ?? null}
 						pendingAt={pendingAt}
-						state={state}
-						settled={transcriptOwned ? renderedSettled : 0}
-						resetKey={resetKey}
-						raw={rawOutput}
-						hyperlinks={hyperlinks}
-						showLive={!lifecycleOwnsViewport}
-						// The one column of padding the enclosing box gives every row.
-						staticIndent={1}
+						columns={Math.max(4, terminal.columns - 2)}
+						maxRows={Math.max(3, terminal.rows - 1)}
+						hidden={lifecycleOwnsViewport}
+						keysActive={
+							phase === 'ready' &&
+							permission === null &&
+							scheduleReviewPrompt === null &&
+							choicePicker === null &&
+							copyPicker === null &&
+							textPrompt === null &&
+							questionDialog === null &&
+							externalEditorRequest === null &&
+							!lifecycleOwnsViewport
+						}
+						homeEndActive={!composerHasDraft}
+						subscribeWheel={fullscreen.subscribeWheel}
+						control={fullscreenControl}
 						header={
 							transcriptOwned ? (
 								<BrandHeader
@@ -16676,7 +16742,32 @@ function AppBody({
 							) : undefined
 						}
 					/>
-				</TranscriptFrame>
+				) : (
+					<TranscriptFrame>
+						<Transcript
+							messages={finalized}
+							pending={messages.find((m) => m.pending) ?? null}
+							pendingAt={pendingAt}
+							state={state}
+							settled={transcriptOwned ? renderedSettled : 0}
+							resetKey={resetKey}
+							raw={rawOutput}
+							hyperlinks={hyperlinks}
+							showLive={!lifecycleOwnsViewport}
+							// The one column of padding the enclosing box gives every row.
+							staticIndent={1}
+							header={
+								transcriptOwned ? (
+									<BrandHeader
+										version={ctx.version}
+										permissionMode={displayedPermissionMode}
+										cwd={ctx.cwd}
+									/>
+								) : undefined
+							}
+						/>
+					</TranscriptFrame>
+				)}
 				{providerSetup ? (
 					<ProviderSetup
 						cwd={ctx.cwd}
@@ -17118,7 +17209,11 @@ function AppBody({
 												})
 										: undefined
 								}
-								onScrollTranscript={() => setScrollOpen(true)}
+								onScrollTranscript={() =>
+									fullscreenControl.current
+										? fullscreenControl.current.scroll('page-up')
+										: setScrollOpen(true)
+								}
 								onRecallQueued={recallQueuedPrompt}
 								queuedHintCount={queuedHintCount}
 								queuedEdit={{

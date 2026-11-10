@@ -36,7 +36,7 @@ The operator application.
 * [GitHub workflows and pull request links](github.md) - namzu github install writes Actions workflows that answer @namzu mentions and review new pull requests; conversations that open a pull request are linked to it and --from-pr lists them.
 * [Managed Git worktrees](worktrees.md) - Create separate checkouts, fork a settled conversation into one, and reopen its project.
 * [Session storage](session-storage.md) - Every file the CLI keeps under NAMZU_HOME, the one log per session, the rebuildable index, and which files are safe to delete.
-* [Messages between live terminals](peer-messaging.md) - Discover independent terminals in the same project and send attributed context at safe request boundaries.
+* [Messages between live terminals](peer-messaging.md) - Discover independent terminals in the same project and send attributed context at safe request boundaries, from a terminal or with `namzu peers`.
 * [Accounts in the terminal](accounts.md) - `/auth` and `--account`: choose the account a conversation uses, add a Codex sign-in or labelled API key, and what happens when an account runs out of allowance.
 * [Provider credentials and private state](credentials.md) - Existing subscription profiles, credential discovery, the provider list and its credential entry, and Windows and POSIX storage privacy checks.
 * [Native conversation engines](native-engines.md) - Installed native execution, engine catalogues, exact durable continuation, live reviews and confirmed shutdown.
@@ -57,6 +57,7 @@ The operator application.
 * [Slash commands](slash-commands.md) - Every builtin slash command the interactive session answers to, one line each, with the composer keys that are not commands.
 * [Plugins](plugins.md) - Trusted extension loading, live contributions and session enable/disable controls.
 * [Skills](skills.md) - Where SKILL.md skills come from and which tier wins a name, how the model is offered them and loads one with the skill tool, which directory it is told a skill's files are in, the manifest budget, tool gating, and the skills config keys.
+* [Where files go](where-files-go.md) - The standing guidance on where a session puts what it creates, the checklist for long-running installs, and the home-folder startup line.
 * [The composer prefixes](composer-prefixes.md) - What a line starting with `!` or `#` does in the composer: a command run on the host without the model, or a note remembered, and what the model learns of either.
 * [Composer triggers](composer-triggers.md) - Words in a message that name one namzu action for it — the hypermode keyword, save-as-skill phrases in English and Turkish — how they are matched and shown, Alt+W, what they change about the turn, and the composerTriggers key that turns them off.
 * [Custom status line](status-line.md) - The statusLine key: a command whose output is drawn above the footer, the JSON it reads on stdin, when it runs, where it may be set, and what an empty or failed run shows.

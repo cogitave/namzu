@@ -95,7 +95,8 @@
 }
 .pal-computer-screen:focus-visible {
 	border-color: var(--ring);
-	box-shadow: 0 0 0 2px var(--ring);
+	outline: 2px solid transparent;
+	box-shadow: var(--focus-ring);
 }
 .pal-computer-screen[data-interactive="true"] {
 	cursor: default;

@@ -62,6 +62,10 @@ export const EXIT_OK = 0
 export const EXIT_FAIL = 1
 export const EXIT_NO_CONFIG = 2
 export const EXIT_USAGE = 64
+/** sysexits EX_DATAERR: the input was read but is not usable (not UTF-8 text). */
+export const EXIT_DATAERR = 65
+/** sysexits EX_NOINPUT: an input file or stream could not be read. */
+export const EXIT_NOINPUT = 66
 export const EXIT_UNAVAILABLE = 69
 export const EXIT_INTERNAL_ERROR = 70
 export const EXIT_NEEDS_CONSENT = 75

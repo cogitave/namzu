@@ -204,8 +204,9 @@
 	background: var(--sidebar-row-hover);
 }
 .command-palette-status button:focus-visible {
-	outline: 1px solid var(--muted-foreground);
-	outline-offset: 1px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 @keyframes command-palette-row-enter {
 	from {

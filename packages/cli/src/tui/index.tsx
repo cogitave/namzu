@@ -19,6 +19,12 @@ import {
 	formatTuiExitSummary,
 } from './exit-summary.js'
 import { installFocusReporting } from './focus-reporting.js'
+import { resolveFullscreen } from './fullscreen/mode.js'
+import {
+	FULLSCREEN_PANIC_RESET,
+	type WheelDirection,
+	installMouseWheel,
+} from './fullscreen/mouse-wheel.js'
 import { fileQueuedHintCount } from './hint-counts.js'
 import { installTuiLogSink } from './log-pane.js'
 import { watchOutputSize } from './output-size-watch.js'
@@ -61,7 +67,15 @@ export async function launchTui(
 	// native scrollback still works as the transcript grows.
 	// A killed earlier run may have left the pointer captured; clear that before the first frame.
 	writeLaunchMouseReset(process.stdout, hostedByHost(process.env, process.ppid))
-	if (process.stdout.isTTY) {
+	// Fullscreen draws on the alternate screen, so the terminal's own screen and
+	// scrollback are left exactly as they were and come back when the app ends.
+	const fullscreen = resolveFullscreen({
+		env: process.env,
+		...(ctx.tui?.fullscreen !== undefined ? { setting: ctx.tui.fullscreen } : {}),
+		interactive: process.stdout.isTTY === true && process.stdin.isTTY === true,
+		hosted: hostedByHost(process.env, process.ppid),
+	})
+	if (process.stdout.isTTY && !fullscreen) {
 		process.stdout.write('\x1b[2J\x1b[3J\x1b[H')
 	}
 	// SIGTERM, SIGHUP and SIGINT give the conversation back and leave cleanly
@@ -95,6 +109,7 @@ export async function launchTui(
 	const hosted = hostedByHost(process.env, process.ppid)
 	const proxy: TerminalProxy | null =
 		!hosted &&
+		!fullscreen &&
 		consoleInput === undefined &&
 		process.platform !== 'win32' &&
 		process.stdout.isTTY === true &&
@@ -170,6 +185,17 @@ export async function launchTui(
 				}
 			: undefined
 	let terminatedBy: TerminationSignal | null = null
+	const wheelListeners = new Set<(direction: WheelDirection) => void>()
+	const fullscreenHost = fullscreen
+		? {
+				subscribeWheel: (listener: (direction: WheelDirection) => void) => {
+					wheelListeners.add(listener)
+					return () => {
+						wheelListeners.delete(listener)
+					}
+				},
+			}
+		: undefined
 	const instance = render(
 		React.createElement(App, {
 			ctx,
@@ -178,6 +204,7 @@ export async function launchTui(
 			},
 			terminationExit,
 			repaint,
+			...(fullscreenHost ? { fullscreen: fullscreenHost } : {}),
 			...(onOpenWorkspaces ? { onOpenWorkspaces } : {}),
 			...(onConfirmExit ? { onConfirmExit } : {}),
 			...(beforeExit ? { beforeExit } : {}),
@@ -193,12 +220,25 @@ export async function launchTui(
 			exitOnCtrlC: false,
 			// A CI marker in the environment must not blank a real terminal (see render-mode.ts).
 			...liveRenderOption(process.stdout, process.stdin, consoleInput !== undefined),
+			// Ink enters the alternate screen here and leaves it on every way out
+			// (unmount, a signal, a crash). It repaints only the lines that changed.
+			...(fullscreen ? { alternateScreen: true, incrementalRendering: true } : {}),
 			kittyKeyboard: {
 				mode: 'auto',
 				flags: ['disambiguateEscapeCodes'],
 			},
 		},
 	)
+	// The wheel is asked of the terminal once Ink holds the alternate screen. If
+	// the process dies without the normal teardown, the exit hook still hands the
+	// pointer and the cursor back; Ink's own exit hook returns the main screen.
+	const stopWheel = fullscreen
+		? installMouseWheel(inputStream, process.stdout, (direction) => {
+				for (const listener of wheelListeners) listener(direction)
+			})
+		: undefined
+	const panicReset = fullscreen ? () => process.stdout.write(FULLSCREEN_PANIC_RESET) : undefined
+	if (panicReset) process.on('exit', panicReset)
 	termination.onTerminate(async (signal) => {
 		terminatedBy = signal
 		if (signal === 'SIGHUP') {
@@ -222,6 +262,8 @@ export async function launchTui(
 		termination.dispose()
 		stopSizeWatch?.()
 		stopFocusReporting()
+		stopWheel?.()
+		if (panicReset) process.off('exit', panicReset)
 		consoleInput?.release()
 		logs.close()
 		// A hangup means the terminal is gone: nobody is there to read the

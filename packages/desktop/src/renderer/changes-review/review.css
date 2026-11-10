@@ -44,8 +44,9 @@
 .changes-scope:focus-visible,
 .changes-icon-button:focus-visible,
 .changes-files-toggle:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 1px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .changes-totals,
 .changes-diff-counts,
@@ -208,8 +209,9 @@
 }
 .changes-tree-row[data-focused]:focus-visible,
 .changes-tree-row:focus-visible {
-	outline: 2px solid var(--ring);
+	outline: 2px solid transparent;
 	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
 }
 .changes-tree-row[data-status="deleted"] .changes-tree-name {
 	color: var(--muted-foreground);
@@ -306,8 +308,9 @@
 	background: var(--accent);
 }
 .changes-gate-button:focus-visible {
-	outline: 2px solid var(--ring);
-	outline-offset: 1px;
+	outline: 2px solid transparent;
+	outline-offset: 2px;
+	box-shadow: var(--focus-ring);
 }
 .changes-plain-patch {
 	margin: 0;

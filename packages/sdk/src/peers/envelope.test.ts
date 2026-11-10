@@ -91,6 +91,27 @@ describe('formatPeerMessage', () => {
 	})
 })
 
+describe('formatPeerMessage for a command-line sender', () => {
+	it('says it is not a terminal, carries no authority, and offers no reply route', () => {
+		const rendered = formatPeerMessage({
+			id: 'msg-2',
+			from: { ...from, name: 'command line', kind: 'cli' },
+			text: 'deploy finished',
+		})
+		expect(rendered).toContain('source: command line [ab12cd] (cli, default)')
+		expect(rendered).toContain('A message from a command-line sender')
+		expect(rendered).toContain('not from a terminal')
+		expect(rendered).toContain("not the operator's instruction or approval")
+		expect(rendered).not.toContain('peer messaging tool')
+	})
+
+	it('keeps the other-session provenance for a terminal sender', () => {
+		const rendered = formatPeerMessage({ id: 'msg-3', from, text: 'hi' })
+		expect(rendered).toContain('A message from another namzu session')
+		expect(rendered).not.toContain('command-line sender')
+	})
+})
+
 describe('formatPeerNotice', () => {
 	const about = { sessionId: 'sess-2', name: 'bob', ref: '112233' }
 	const noticeFrom: PeerFrom = {
