@@ -1,5 +1,14 @@
 # @namzu/desktop
 
+## 0.2.8
+
+### Patch Changes
+
+- f143276: Desktop now asks, with a card, when an application needs your keyboard and mouse for a moment (Allow this app or Not now; a yes covers that application for the rest of the conversation, and "Allow for this conversation" never answers it); before, that case waited for a still moment without asking. When the pinned cua-driver is not cached the helper is downloaded as before, now with a one-time notice, and older cua-driver version folders in the cache are removed afterwards.
+- 23a4f5d: Settings now shows every Namzu config setting, in new Agent, Tools, Terminal and Telemetry sections and a "Namzu settings" group under General, Models, Projects and Updates. A change that widens what runs without asking asks first. Settings that hold commands or secrets, such as MCP servers, hooks and decision-model keys, show only whether they are set and stay in the config file. A conversation that is already open may keep the old value until it is started again.
+- e6bc458: Namzu Desktop installs and opens faster and quits sooner, with no feature removed: the installer's bundled runtimes no longer carry source maps, type declarations, tests or READMEs (about 14,000 fewer files); the installer of an already installed update is removed from the updater cache; saved folders reconnect three at a time while the windows load; quitting stops its parts together; and a Pal computer that keeps failing is polled less and less often. Nothing to change on your side.
+- 5548118: A normal start no longer logs a warning for being offline: the Zen model catalogue refresh reports an unreachable network at debug level, and skips the network when the saved copy is under six hours old, so Desktop's several engines do not each fetch it. A saved project folder that cannot be reopened at start is recorded as missing, unreadable or not a folder and the remaining projects still restore; reads for a project that is still connecting, missing or failed to open no longer fail.
+
 ## 0.2.7
 
 ### Patch Changes

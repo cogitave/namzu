@@ -1,6 +1,5 @@
 import { isAbsolute, join, posix } from 'node:path'
 import braceExpansion from 'brace-expansion'
-import { GLOBSTAR, Minimatch } from 'minimatch'
 import type {
 	SandboxExecOptions,
 	SandboxExecResult,
@@ -10,10 +9,14 @@ import type {
 } from '../types/sandbox/index.js'
 import { subscribeToAbort } from '../utils/abort.js'
 import { FILE_WALK_PROGRAM } from './file-walk-program.js'
+import { compileSegment } from './glob-segment.js'
 import { VCS_NAMES, createIgnoreStack } from './ignore-matcher.js'
 
 /** Entries a walk examines before it stops with what it has: a safety valve, not a budget. */
 export const DEFAULT_MAX_VISITED_ENTRIES = 500_000
+
+const GLOBSTAR = Symbol('globstar')
+type Segment = string | { source: string; flags: string } | typeof GLOBSTAR
 
 interface WalkPlan {
 	root: string
@@ -62,22 +65,26 @@ function planWalk(root: string, options: SandboxWalkFilesOptions): WalkPlan {
 	// that cap can silently truncate before our extra branch proves incompleteness.
 	const branches = expandBraces(pattern, { max: 257, maxLength: Number.POSITIVE_INFINITY })
 	if (branches.length > 256) throw new RangeError('File walk pattern exceeds 256 brace expansions')
-	const matchers = branches.map((branch) => {
+	const dot = options.includeHidden ?? false
+	const sets = branches.map((branch) => {
 		if (branch.startsWith('/') || /^[a-z]:/i.test(branch) || branch.split('/').includes('..')) {
 			throw new Error('Expanded file walk pattern escapes its root')
 		}
-		return new Minimatch(branch, {
-			nobrace: true,
-			nonegate: true,
-			nocomment: true,
-			dot: options.includeHidden ?? false,
-			platform: 'linux',
-		})
+		return branch
+			.split('/')
+			.filter(
+				(segment, index, all) => segment !== '.' && (segment !== '' || index === all.length - 1),
+			)
+			.reduce<Segment[]>((set, segment) => {
+				if (segment === '**') {
+					if (set[set.length - 1] !== GLOBSTAR) set.push(GLOBSTAR)
+					return set
+				}
+				const { literal, source } = compileSegment(segment, dot)
+				set.push(literal !== null ? literal : { source, flags: 'u' })
+				return set
+			}, [])
 	})
-	const sets = matchers.flatMap((matcher) => matcher.set)
-	if (sets.some((set) => set.some((segment) => segment === '..'))) {
-		throw new Error('Expanded file walk pattern escapes its root')
-	}
 	const patternDepth = Math.max(
 		1,
 		...sets.map((set) => (set.includes(GLOBSTAR) ? Number.POSITIVE_INFINITY : set.length)),
@@ -100,10 +107,24 @@ function planWalk(root: string, options: SandboxWalkFilesOptions): WalkPlan {
 			break
 		prefix.push(segment)
 	}
-	const expressions = matchers.flatMap((matcher) => {
-		const expression = matcher.makeRe()
-		return expression ? [{ source: expression.source, flags: expression.flags }] : []
-	})
+	const hiddenGuard = dot ? '' : '(?!\\.)'
+	const expressions = sets.map((set) => ({
+		source: `^${set
+			.map((segment, index) => {
+				const last = index === set.length - 1
+				if (segment === GLOBSTAR) {
+					const run = `(?:${hiddenGuard}[^/]+/)*`
+					return last ? `${run}${hiddenGuard}[^/]+` : run
+				}
+				const body =
+					typeof segment === 'string'
+						? segment.replace(/[\\^$.*+?()[\]{}|/]/g, '\\$&')
+						: segment.source.slice(1, -1)
+				return last ? `(?:${body})` : `(?:${body})/`
+			})
+			.join('')}$`,
+		flags: 'u',
+	}))
 	return {
 		root,
 		prefix,
