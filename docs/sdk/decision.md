@@ -51,6 +51,9 @@ All three question types are verified live:
 | Method | Question | Answer (`answers.q`) |
 |---|---|---|
 | `yesno` | `{ type: 'noul', instructions }` | `{ noul }`, P(true) |
+
+The HTTP driver adds `criteria: <string>` to a `yesno` question when the caller passes `opts.criteria` (a sentence saying what makes the answer yes); some hosted models refuse a yes/no question without it. The Azure driver never sends it, so its request keeps the shape above.
+
 | `choice` | `{ type: 'choice', instructions, criteria: { <option>: null, … } }` (2 to 255 options) | `{ choice, probabilities, confidence }` |
 | `score` | `{ type: 'score', instructions, criteria: [<lowest>, …, <highest>] }` (2 to 10 levels) | `{ score, probabilities, legend, confidence }` |
 

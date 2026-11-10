@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-11
+
+- **Update** [Decision models](sdk/decision.md) and [Decision points](cli/decision-points.md): a yes/no question can carry `criteria`, a plain sentence saying what makes the answer yes, through the new `criteria` option of `DecisionModel.yesno`. The HTTP driver sends it as `questions.q.criteria`; the Azure driver does not (the field is not verified against that endpoint), so its request is unchanged; choice and score questions are unchanged. The notify, memory, skill and both routing questions and the connection test each carry one. `.changeset/decision-yesno-criteria.md` (`@namzu/decision` minor, `@namzu/cli` patch).
+
 ## 2026-11-10
 
 - **Update** [Permission layers](cli/permission-layers.md#the-sandbox-block) and [Tool boundary](cli/tool-boundary.md#which-file-may-set-it): a project file, the local file and a profile declared in either may only tighten `sandbox` (`enabled` on, `allowEscape` and `allowUnattendedEscape` off, `requireIsolation` grows, `workspace` to `ephemeral`; `teardownTimeoutMs` is not theirs); a loosening that would have changed something is named once at launch with its file. The user file merges per key; the managed file replaces the whole block; `namzu exec` prints the notes on stderr; a profile is classed by where its file is, not its name. Before, a repository file replaced the whole block. `.changeset/sandbox-settings-stay-operators.md` (`@namzu/cli` minor).

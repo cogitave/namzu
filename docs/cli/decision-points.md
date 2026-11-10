@@ -45,7 +45,7 @@ and sends nothing anywhere until you connect one:
   and `typesafe/jev-1.14`. The connection is an ordinary `http` block, so nothing about the config changed:
   `url: https://openrouter.ai/api/v1/systemone`, `model: <id>`, and `apiKeyEnv: OPENROUTER_API_KEY` when the
   key lives in the environment (the key itself is never written to `config.yaml`). Some models want a
-  differently shaped question (for example one that rejects a yes/no question with no criteria): the test then
+  differently shaped question (every yes/no question Namzu asks carries a `criteria` sentence saying what makes the answer yes, which an `http` connection sends; a model that still rejects the shape): the test then
   says the model does not work with Namzu's questions and asks you to pick another, and never falls back
   to a different one by itself.
 - **Azure AI Foundry**: one field takes the portal's "Keys and Endpoint" text as it copies, or the endpoint

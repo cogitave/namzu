@@ -21,6 +21,10 @@ export const SKILL_WORTHY_INSTRUCTIONS =
 	'Answer yes for a multi-step routine with a stable shape, such as preparing a release, setting up a project, or a recurring check. ' +
 	'Answer no for a one-off task, an investigation into a particular problem, or work that only made sense for this one situation.'
 
+/** What makes the answer yes, for services that want it spelled out. */
+export const SKILL_WORTHY_CRITERIA =
+	'Yes for a multi-step routine with a stable shape that the person would want done the same way again, such as preparing a release, setting up a project or a recurring check. No for a one-off task, an investigation into one problem, or work that only made sense for this situation.'
+
 /** Control characters other than newline and tab are dropped before the text leaves the machine. */
 function printable(text: string): string {
 	let out = ''
@@ -43,6 +47,7 @@ export function skillWorthyQuestion(input: {
 		point: 'skill',
 		state: `Request: ${request}\n\nThe turn took ${input.steps} steps using these tools: ${tools}`,
 		instructions: SKILL_WORTHY_INSTRUCTIONS,
+		criteria: SKILL_WORTHY_CRITERIA,
 		// The rule has already said yes by the time this is asked.
 		rule: true,
 	}
