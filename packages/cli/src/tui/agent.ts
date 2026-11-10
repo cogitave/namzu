@@ -1425,7 +1425,7 @@ export interface AgentSession {
 	readonly sandbox: SandboxSummary
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
-	/** The provider's id (`anthropic`), for rules keyed on the vendor rather than its label. */
+	/** The provider's registry id, for rules keyed on the vendor rather than its label. */
 	readonly providerId?: string
 	/** Under `model: auto`, the tier and model the latest top-level turn was routed to. */
 	readonly autoRoute?: AutoRouteSummary

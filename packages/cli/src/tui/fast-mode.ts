@@ -13,9 +13,10 @@ const FAST_PROVIDER = 'anthropic'
 
 /**
  * Why fast mode cannot run on this provider, endpoint and model right now, or
- * `undefined` when it can. The endpoint matters: `anthropic` also names a
- * compatible or custom `ANTHROPIC_BASE_URL`, where the driver refuses `speed`. The model rule belongs to `@namzu/anthropic` (one table, shared
- * with the request path), which is imported only when asked, so the check costs
+ * `undefined` when it can. The endpoint matters: the same provider id also
+ * covers a compatible or custom base URL, where the driver refuses `speed`.
+ * The model rule lives in the provider package (one table, shared with the
+ * request path), which is imported only when asked, so the check costs
  * nothing at startup.
  */
 export async function fastModeBlocker(
