@@ -16,7 +16,7 @@
  * reaches providers that were built before it.
  */
 
-import { mkdir, open, rename, rm } from 'node:fs/promises'
+import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import type { Logger } from '@namzu/sdk'
@@ -32,6 +32,14 @@ import type { ZenModel, ZenService } from '@namzu/zen/models'
 
 /** Where the last-good catalogue lives, relative to the application home. */
 export const ZEN_CATALOGUE_CACHE_PATH = join('cli', 'zen-catalogue.json')
+
+/**
+ * Where the time of the last refresh that failed for a reason worth a warning
+ * is kept, beside the last-good copy. A warning is shown once per
+ * `ZEN_CATALOGUE_CACHE_MAX_AGE_MS`: a source that moved is a defect, but it
+ * is one the operator hears about once, not on every launch until it is fixed.
+ */
+export const ZEN_CATALOGUE_FAILURE_PATH = join('cli', 'zen-catalogue-failed.json')
 
 /** The whole refresh — five reads and the derivation — gets this long, then stops. */
 export const ZEN_CATALOGUE_REFRESH_BUDGET_MS = 30_000
@@ -146,6 +154,7 @@ export function startZenCatalogueRefresh(
 	const budget = options.budgetMs ?? ZEN_CATALOGUE_REFRESH_BUDGET_MS
 	const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(budget)])
 	const cachePath = join(options.home, ZEN_CATALOGUE_CACHE_PATH)
+	const failurePath = join(options.home, ZEN_CATALOGUE_FAILURE_PATH)
 	const source = options.log
 	const log = (): Logger => (typeof source === 'function' ? source() : source)
 	let landed = false
@@ -192,6 +201,7 @@ export function startZenCatalogueRefresh(
 					'namzu.zen_catalogue.reason': errorText(error),
 				})
 			})
+			await rm(failurePath, { force: true }).catch(() => {})
 			log().debug('Zen model catalogue refreshed', {
 				'namzu.zen_catalogue.zen_models': catalogue.zen.length,
 				'namzu.zen_catalogue.go_models': catalogue.go.length,
@@ -215,7 +225,12 @@ export function startZenCatalogueRefresh(
 			}
 			const message = 'Zen model catalogue refresh failed; keeping the catalogue already in use'
 			if (isConnectivityFailure(signal.aborted, reason)) log().debug(message, attributes)
-			else log().warn(message, attributes)
+			else if (await warnedRecently(failurePath, (options.now ?? Date.now)(), options)) {
+				log().debug(message, attributes)
+			} else {
+				log().warn(message, attributes)
+				await noteWarned(failurePath, (options.now ?? Date.now)())
+			}
 			return { kind: 'failed', using, reason }
 		}
 	}
@@ -230,6 +245,32 @@ export function startZenCatalogueRefresh(
 	return {
 		done,
 		cancel: () => controller.abort(new Error('The launch ended before the Zen catalogue refresh.')),
+	}
+}
+
+/** Whether a warning for a failed refresh was already shown within the cache period. */
+async function warnedRecently(
+	path: string,
+	nowMs: number,
+	options: StartZenCatalogueRefreshOptions,
+): Promise<boolean> {
+	try {
+		const at = (JSON.parse(await readFile(path, 'utf8')) as { warnedAtMs?: unknown }).warnedAtMs
+		if (typeof at !== 'number') return false
+		const age = nowMs - at
+		return age >= 0 && age < (options.cacheMaxAgeMs ?? ZEN_CATALOGUE_CACHE_MAX_AGE_MS)
+	} catch {
+		return false
+	}
+}
+
+/** Record that the warning was shown now. Best effort: a failed write only means it may be shown again. */
+async function noteWarned(path: string, nowMs: number): Promise<void> {
+	try {
+		await mkdir(dirname(path), { recursive: true })
+		await writeFile(path, `${JSON.stringify({ warnedAtMs: nowMs })}\n`, { mode: 0o600 })
+	} catch {
+		// Best effort.
 	}
 }
 

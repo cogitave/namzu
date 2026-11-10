@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -17,25 +17,31 @@ const VALID = readFileSync(
 	'utf8',
 )
 
+type Insert = readonly [afterSeq: number, extra: Record<string, unknown>]
+
 /**
- * The log a newer writer would produce: `extra` is inserted after record
- * `afterSeq`, later records are renumbered and the whole chain is re-linked,
- * as a writer appending in that order would have linked it.
+ * The log a newer writer would produce: each extra record is inserted after
+ * the original record `afterSeq`, later records are renumbered and the whole
+ * chain is re-linked, as a writer appending in that order would have linked it.
+ * `rename` is how an older reader sees the same bytes: the types it does not
+ * know under another name, relinked like the rest.
  */
-function newerLog(afterSeq: number, extra: Record<string, unknown>): string {
+function newerLogWith(inserts: readonly Insert[], rename?: (type: string) => string): string {
 	const records = VALID.split('\n')
 		.filter((line) => line.length > 0)
 		.map((line) => JSON.parse(line) as Record<string, unknown>)
 	const base = records[0] as Record<string, unknown>
-	const inserted = {
-		v: base.v,
-		id: '6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f',
-		sessionId: base.sessionId,
-		gen: base.gen,
-		ts: base.ts,
-		...extra,
+	for (const [afterSeq, extra] of [...inserts].sort((x, y) => y[0] - x[0])) {
+		records.splice(afterSeq, 0, {
+			v: base.v,
+			id: randomUUID(),
+			sessionId: base.sessionId,
+			gen: base.gen,
+			ts: base.ts,
+			...extra,
+		})
 	}
-	records.splice(afterSeq, 0, inserted)
+	if (rename) for (const record of records) record.type = rename(record.type as string)
 	let offset = 0
 	let prev: unknown = null
 	const out: string[] = []
@@ -55,6 +61,10 @@ function newerLog(afterSeq: number, extra: Record<string, unknown>): string {
 		out.push(line)
 	})
 	return out.join('')
+}
+
+function newerLog(afterSeq: number, extra: Record<string, unknown>): string {
+	return newerLogWith([[afterSeq, extra]])
 }
 
 async function read(text: string) {
@@ -152,6 +162,91 @@ describe('a newer log read by the current reader', () => {
 		const first = JSON.parse(VALID.split('\n')[0] as string) as Record<string, unknown>
 		const line = `${JSON.stringify({ ...first, type: 'future_annotation', ignorable: true })}\n`
 		const error = await read(line).catch((e: unknown) => e)
+		expect(error).toBeInstanceOf(SessionLogIntegrityError)
+	})
+})
+
+describe('the turn outcome records on a log read by an older release', () => {
+	const TURN = '2efe5139-799c-4a05-821e-285dbc1eb45f'
+	const OUTCOME = {
+		verdict: 'unchecked',
+		basis: 'calls',
+		changes: { total: 1, paths: ['a.ts'], outsideKnownTools: false },
+		checks: [],
+	}
+	// Where a real writer puts them: the progress just before a checkpoint
+	// record, the turn's outcome just before its end record, a child's just
+	// before `child_session_ended`.
+	const INSERTS: readonly Insert[] = [
+		[
+			13,
+			{
+				type: 'outcome_progress_written',
+				ignorable: true,
+				turnId: TURN,
+				checkpointId: 'b1f0a9c2-3d4e-4f5a-8b6c-7d8e9f0a1b2c',
+				progress: { v: 1 },
+			},
+		],
+		[14, { type: 'turn_outcome_recorded', ignorable: true, turnId: TURN, outcome: OUTCOME }],
+		[
+			15,
+			{
+				type: 'child_outcome_recorded',
+				ignorable: true,
+				childSessionId: 'c2a1b0d3-4e5f-4a6b-9c7d-8e9f0a1b2c3d',
+				outcome: OUTCOME,
+			},
+		],
+	]
+	const NEW_TYPES = ['outcome_progress_written', 'turn_outcome_recorded', 'child_outcome_recorded']
+
+	it('are read by the current release, in the chain, and leave the fold alone', async () => {
+		const plain = await read(VALID)
+		const newer = await read(newerLogWith(INSERTS))
+		expect(newer.summary.intact).toBe(true)
+		expect(newer.records).toHaveLength(plain.records.length + 3)
+		expect(newer.records.filter((r) => NEW_TYPES.includes(r.type))).toHaveLength(3)
+		expect(await foldSessionMessages(newer.records)).toEqual(
+			await foldSessionMessages(plain.records),
+		)
+	})
+
+	it('are skipped by a release that has never heard of them, which loses only the outcome', async () => {
+		const plain = await read(VALID)
+		const baseline = await foldSessionMessages(plain.records)
+		const olderView = (type: string) => (NEW_TYPES.includes(type) ? `future_${type}` : type)
+		const text = newerLogWith(INSERTS, olderView)
+		const older = await read(text)
+		expect(older.summary.intact).toBe(true)
+		expect(older.records).toHaveLength(plain.records.length + 3)
+		// The records around them are the ones the plain log has, in order.
+		expect(older.records.map((r) => r.type).filter((type) => !type.startsWith('future_'))).toEqual(
+			plain.records.map((r) => r.type),
+		)
+		expect(await foldSessionMessages(older.records)).toEqual(baseline)
+		// The index rebuild walks the same bytes and passes them too.
+		const path = join(mkdtempSync(join(tmpdir(), 'newer-log-')), 'log.jsonl')
+		writeFileSync(path, text)
+		const types: string[] = []
+		for await (const entry of readIndexableRecords(path)) types.push(entry.record.type)
+		expect(types).toHaveLength(plain.records.length + 3)
+		expect(types.filter((type) => type.startsWith('future_'))).toHaveLength(3)
+	})
+
+	it('are read by the current release by the index rebuild too', async () => {
+		const text = newerLogWith(INSERTS)
+		const path = join(mkdtempSync(join(tmpdir(), 'newer-log-')), 'log.jsonl')
+		writeFileSync(path, text)
+		const types: string[] = []
+		for await (const entry of readIndexableRecords(path)) types.push(entry.record.type)
+		expect(types.filter((type) => NEW_TYPES.includes(type))).toHaveLength(3)
+	})
+
+	it('are refused when they are not flagged ignorable, so an older release would refuse them', async () => {
+		const [, extra] = INSERTS[1] as Insert
+		const { ignorable: _flag, ...unflagged } = extra
+		const error = await read(newerLog(14, unflagged)).catch((e: unknown) => e)
 		expect(error).toBeInstanceOf(SessionLogIntegrityError)
 	})
 })

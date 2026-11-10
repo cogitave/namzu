@@ -3,6 +3,7 @@ import { type TurnRecorder, readFoldedHistory } from '../../manager/session/turn
 import type { CheckpointScope, SessionCheckpointStore } from '../../store/checkpoint/index.js'
 import type { SessionLog } from '../../store/session-log/index.js'
 import { restoreSpilledRequestInputs } from '../../store/session-log/spilled-input.js'
+import { readOutcomeProgress } from '../../store/session-log/turn-outcome.js'
 import type { SerializedSpanContext } from '../../telemetry/attributes.js'
 import { NamzuError } from '../../types/errors/index.js'
 import type {
@@ -84,7 +85,14 @@ type CheckpointState = Pick<
 	| 'review'
 	| 'latestUserMessageId'
 	| 'workingState'
->
+> & {
+	/**
+	 * What the turn's outcome record had gathered. Not a field of the document:
+	 * it is written as its own `outcome_progress_written` record beside the
+	 * checkpoint, so a release that validates the document strictly reads it.
+	 */
+	readonly outcome?: Readonly<Record<string, unknown>>
+}
 
 /**
  * A checkpoint read back for a resume: the document, the context it
@@ -276,6 +284,11 @@ export class CheckpointManager {
 	private restoredNativeAttempts = 0
 	private toolStructuredAttemptsSource?: () => number
 	private restoredToolAttempts = 0
+	private outcomeSource?: () => Readonly<Record<string, unknown>> | undefined
+	private restoredOutcomeState: { resumed: boolean; snapshot?: Readonly<Record<string, unknown>> } =
+		{
+			resumed: false,
+		}
 	private lastCreatedId?: CheckpointId
 	private traceSource?: () => SerializedSpanContext | undefined
 	private parkTtlMs?: number
@@ -327,6 +340,23 @@ export class CheckpointManager {
 	}
 	get restoredToolStructuredAttempts(): number {
 		return this.restoredToolAttempts
+	}
+
+	/** Wire the turn's outcome record in, so every checkpoint carries what it had gathered. */
+	setOutcomeSource(source: () => Readonly<Record<string, unknown>> | undefined): void {
+		this.outcomeSource = source
+	}
+
+	/**
+	 * What a resumed turn's checkpoint kept of the outcome record. `resumed` is
+	 * false for a turn that began here; true with no `snapshot` for one resumed
+	 * from a checkpoint that predates the record.
+	 */
+	get restoredOutcome(): {
+		readonly resumed: boolean
+		readonly snapshot?: Readonly<Record<string, unknown>>
+	} {
+		return this.restoredOutcomeState
 	}
 
 	setStructuredReviewAttemptsSource(source: () => number): void {
@@ -417,6 +447,7 @@ export class CheckpointManager {
 			},
 			...(latestUserMessageId ? { latestUserMessageId } : {}),
 			...withDefined('workingState', this.workingStateSource?.()),
+			...withDefined('outcome', this.outcomeSource?.() ?? this.restoredOutcomeState.snapshot),
 		}
 	}
 
@@ -448,6 +479,19 @@ export class CheckpointManager {
 			...withDefined('trace', this.traceSource?.()),
 			turnCreatedAt: this.turnCreatedAt ?? new Date(recorder.getTurn().startedAt).toISOString(),
 			createdAt: new Date().toISOString(),
+		}
+		// What the outcome record had gathered goes in its own record, ahead of the
+		// one that commits the checkpoint, and is read back by the checkpoint's id.
+		// Failing to write it is not failing to checkpoint: a resume without it
+		// reports no outcome, never a false `unchanged`.
+		if (state.outcome !== undefined) {
+			await recorder.appendIgnorableRecord({
+				type: 'outcome_progress_written',
+				turnId: this.scope.turnId,
+				ignorable: true,
+				checkpointId: document.checkpointId,
+				progress: state.outcome,
+			})
 		}
 		const receipt = await this.store.write(this.scope, document)
 		await recorder.appendRecord({
@@ -654,6 +698,14 @@ export class CheckpointManager {
 		this.restoredNativeAttempts = document.review.nativeStructuredAttempts
 		this.restoredToolAttempts = document.review.toolStructuredAttempts ?? 0
 		this.restoredReviewAttempts = document.review.structuredAttempts
+		await this.recorder.flush()
+		const progress = await readOutcomeProgress(this.recorder.log, checkpointId).catch(
+			() => undefined,
+		)
+		this.restoredOutcomeState = {
+			resumed: true,
+			...(progress !== undefined ? { snapshot: progress } : {}),
+		}
 		this.restoredUserMessage = restored.latestUserMessage
 		this.restoredUserMessageId = restored.latestUserMessage
 			? document.latestUserMessageId

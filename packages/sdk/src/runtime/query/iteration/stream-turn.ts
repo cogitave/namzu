@@ -21,7 +21,7 @@ import {
 	recordTokenUsage,
 } from '../../../telemetry/metrics.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
-import { mergeTokenUsage } from '../../../types/common/index.js'
+import { mergeTokenUsage, promptSizeOf } from '../../../types/common/index.js'
 import { NamzuError } from '../../../types/errors/index.js'
 import type { ToolUseId } from '../../../types/ids/index.js'
 import type {
@@ -196,7 +196,7 @@ async function settleCancelledTurn(args: {
 		recordTokenUsage(args.model, args.usage)
 		recordModelDuration(args.model, Date.now() - args.startedAt)
 		args.span.setAttributes({
-			[GENAI.USAGE_INPUT_TOKENS]: args.usage.promptTokens,
+			[GENAI.USAGE_INPUT_TOKENS]: promptSizeOf(args.usage),
 			[GENAI.USAGE_OUTPUT_TOKENS]: args.usage.completionTokens,
 			[NAMZU.CACHE_READ_TOKENS]: args.usage.cachedTokens ?? 0,
 			[NAMZU.CACHE_WRITE_TOKENS]: args.usage.cacheWriteTokens ?? 0,
@@ -1128,7 +1128,7 @@ export async function* streamProviderTurn(
 		[GENAI.RESPONSE_MODEL]: response.model,
 		[GENAI.RESPONSE_ID]: response.id,
 		[GENAI.RESPONSE_FINISH_REASONS]: [response.finishReason],
-		[GENAI.USAGE_INPUT_TOKENS]: usage.promptTokens,
+		[GENAI.USAGE_INPUT_TOKENS]: promptSizeOf(usage),
 		[GENAI.USAGE_OUTPUT_TOKENS]: usage.completionTokens,
 		[NAMZU.CACHE_READ_TOKENS]: usage.cachedTokens ?? 0,
 		[NAMZU.CACHE_WRITE_TOKENS]: usage.cacheWriteTokens ?? 0,

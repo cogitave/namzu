@@ -67,4 +67,14 @@ describe('cache lifetime on the Converse wire', () => {
 		expect(parseBedrockUsage({ cacheReadInputTokenCount: 5 }, '1h').cacheTtlMs).toBe(3_600_000)
 		expect(parseBedrockUsage({ inputTokens: 5 }).cacheTtlMs).toBeUndefined()
 	})
+
+	it('reports the whole prompt, since inputTokens leaves the cache out', () => {
+		const usage = parseBedrockUsage({
+			inputTokens: 3,
+			cacheReadInputTokenCount: 9000,
+			cacheWriteInputTokenCount: 200,
+		})
+		expect(usage.promptTokens).toBe(3)
+		expect(usage.fullPromptTokens).toBe(9203)
+	})
 })

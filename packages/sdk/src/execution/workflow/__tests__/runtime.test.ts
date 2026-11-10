@@ -722,6 +722,32 @@ describe('journal', () => {
 		expect(records[5]).toMatchObject({ type: 'run_finished', status: 'completed', result: 'v' })
 	})
 
+	it('keeps what the kernel recorded of an agent beside its outcome, and does not hand it to the script', async () => {
+		const records: WorkflowJournalRecord[] = []
+		const outcome = {
+			verdict: 'unchecked' as const,
+			basis: 'calls' as const,
+			changes: { total: 1, paths: ['a.ts'], outsideKnownTools: false },
+			checks: [],
+		}
+		const { result } = await runScript(`${META}return await agent('fix it')`, {
+			host: {
+				...makeHost(),
+				spawnAgent: async () => ({
+					state: 'done',
+					text: 'fixed',
+					tokens: 2,
+					toolCalls: 1,
+					outcome,
+				}),
+			},
+			journal: { append: (record) => void records.push(record) },
+		})
+		// The script's value is what it always was.
+		expect(result.result).toBe('fixed')
+		expect(records.find((r) => r.type === 'agent_outcome')).toMatchObject({ outcome })
+	})
+
 	it('keeps running and reports it when the journal cannot be written', async () => {
 		const { result } = await runScript(`${META}return await agent('x')`, {
 			journal: {

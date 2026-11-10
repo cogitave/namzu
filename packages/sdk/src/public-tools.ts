@@ -30,10 +30,14 @@ export {
 // the reader for it, because a screen that judges a result has to reach past
 // the frame without re-spelling the tag.
 export {
+	KERNEL_RECORD_PREFIX,
 	neutralizeEnvelopeDelimiter,
 	untrustedEnvelopeBody,
 	wrapUntrusted,
 } from './tools/untrusted-envelope.js'
+// The kernel's one line about what a delegated run did, written beside the
+// child's answer and outside its block.
+export { describeOutcomeRecord } from './tools/coordinator/outcome-record.js'
 export { matchesToolSelector } from './tools/roster.js'
 export type { ToolSelector } from './tools/roster.js'
 export type { UntrustedEnvelope, WrapUntrustedOptions } from './tools/untrusted-envelope.js'

@@ -31,4 +31,5 @@ The CLI turns it on for the interactive session and for `exec`. `limits.doneGate
 
 ## Related
 
+* [Turn outcome](turn-outcome.md): the record of what the turn changed and what checked it, which also sees shell commands when the host supplies a change detector.
 * [Reasoning pace](reasoning-pace.md): the stall monitor, which treats a turn that only edits its task list as having made no progress.

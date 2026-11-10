@@ -1,6 +1,7 @@
 import { mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { SessionLog, SessionRecordDraft } from '../../store/session-log/index.js'
+import { parseTurnOutcome } from '../../store/session-log/turn-outcome.js'
 import type { SessionId } from '../../types/ids/index.js'
 import { type ChildSessionMeta, ChildSessionMetaSchema } from '../../types/session/records.js'
 import { atomicWriteFile } from '../../utils/atomic-write.js'
@@ -54,6 +55,41 @@ export async function childSessionEnded(
 		}
 	}
 	return ended
+}
+
+/** `child_outcome_recorded`, as the parent's writer appends it. */
+export type ChildOutcomeRecordedDraft = Extract<
+	SessionRecordDraft,
+	{ type: 'child_outcome_recorded' }
+>
+
+/**
+ * The parent's `child_outcome_recorded` record for a child: the outcome record
+ * the child's last settled turn wrote in its own log. `null` when the child has
+ * no settled turn or that turn kept none, so a child whose outcome is unknown
+ * is never reported as having changed nothing. The parent's writer appends it
+ * just before the child's `child_session_ended`, with the same `turnId` rule.
+ */
+export async function childOutcomeRecorded(
+	childLog: SessionLog,
+): Promise<ChildOutcomeRecordedDraft | null> {
+	let written: { turnId: string; outcome: Readonly<Record<string, unknown>> } | undefined
+	let outcome: Readonly<Record<string, unknown>> | undefined
+	for await (const { record } of childLog.read({ mode: 'tolerant' })) {
+		if (record.type === 'turn_outcome_recorded') {
+			written = { turnId: record.turnId, outcome: record.outcome }
+		} else if (record.type === 'turn_completed' || record.type === 'turn_failed') {
+			// Only the turn that settled counts: an earlier turn's record does not carry over.
+			outcome = written?.turnId === record.turnId ? written.outcome : undefined
+		}
+	}
+	if (outcome === undefined || parseTurnOutcome(outcome) === undefined) return null
+	return {
+		type: 'child_outcome_recorded',
+		ignorable: true,
+		childSessionId: childLog.sessionId,
+		outcome,
+	}
 }
 
 /** A `<child-id>.meta.json` that belongs to another child or another parent. */
