@@ -725,7 +725,7 @@ const failedCase = {
 					return measured(w, turn, {
 						intended: [{ file: "partial.txt", contains: "half" }],
 						checks: [
-							yes("the parent is told the subagent failed", first.startsWith("Subagent worker"), first),
+							yes("the parent is told the subagent failed", first.includes("Subagent worker failed"), first),
 							yes("the result is not framed as an answer", !parts(first).framed, first),
 							yes("the parent does not treat it as an answer", (turn.result ?? "") === "the child failed", turn.result ?? ""),
 							yes("the kernel's line still says a file changed", first.includes(`${RECORD}1 file changed`), first),
