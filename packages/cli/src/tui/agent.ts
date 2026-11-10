@@ -459,6 +459,7 @@ import {
 } from '../integrations/workflows/size.js'
 import type { WorkflowRunView } from '../integrations/workflows/view.js'
 import { cliLogger } from '../logging.js'
+import { createAnchorCaution } from '../memory/anchors.js'
 import {
 	CurationRuntime,
 	composeMemoryPromotion,
@@ -4791,6 +4792,7 @@ export async function createAgentSession(
 						store: memoryStore,
 						sideModel: () => sideModel,
 						fallback: screenedPromoter,
+						anchorRoot: cliProjectRoot(cwd),
 						log: createCurationLog(join(paths.home, 'memory', 'curation.jsonl')),
 					}),
 					setTimer: (run, ms) => {
@@ -4822,12 +4824,16 @@ export async function createAgentSession(
 		now: Date.now,
 		log: (message, fields) => cliLogger().debug(message, fields),
 	})
+	// A recalled memory that names files of the project says so when one is
+	// gone or changed, and the usage file notes how long that has been so.
+	const memoryCaution = createAnchorCaution({ root: cliProjectRoot(cwd), usage: memoryUsage })
 	const memoryLifecycle = new MemoryLifecycle({
 		store: memoryStore,
 		usage: memoryUsage,
 		now: Date.now,
 		retireAfterDays: options.memory?.retireAfterDays ?? DEFAULT_RETIRE_AFTER_DAYS,
 		isDraining: () => curation?.draining === true,
+		onTurnSettled: () => curation?.turnSettled(),
 		setTimer: (run, ms) => {
 			const handle = setTimeout(run, ms)
 			handle.unref?.()
@@ -5526,6 +5532,7 @@ export async function createAgentSession(
 										identifierGrounding: options.memory?.identifierGrounding,
 										record: true,
 										excluded: memoryLifecycle.excluded,
+										caution: memoryCaution,
 										...memorySelection,
 									}),
 								]),
@@ -5628,6 +5635,7 @@ export async function createAgentSession(
 						: {}),
 				})
 			} finally {
+				memoryLifecycle.turnEnded()
 				liveModeControls.delete(modeControl)
 				recordedModes.set(String(entry.sessionId), modeControl.current())
 				if (delegatedResumeHandlers.get(entry.turnId) === resumeHandler) {
@@ -6133,6 +6141,9 @@ export async function createAgentSession(
 							const cleanup = () => {
 								if (cleanupPromise) return cleanupPromise
 								cleanupPromise = (async () => {
+									// Only while this is still the newest turn: a continuation
+									// that outlives it must not settle a later turn.
+									if (latestTurn?.turnId === turnId) memoryLifecycle.turnEnded()
 									liveModeControls.delete(control)
 									delegationScopes.delete(turnId)
 									delegationLimits.delete(turnId)
@@ -6940,6 +6951,7 @@ export async function createAgentSession(
 													identifierGrounding: options.memory?.identifierGrounding,
 													record: true,
 													excluded: memoryLifecycle.excluded,
+													caution: memoryCaution,
 													...memorySelection,
 												}),
 											]),
@@ -8284,6 +8296,8 @@ async function* runTurn({
 			...(isNamzuError(err) ? { failure: toPlatformError(err) } : {}),
 		}
 	} finally {
+		// A turn that ended by a cancel or an error announced no completion.
+		memoryLifecycle?.turnEnded()
 		turnManager.dispose()
 	}
 }

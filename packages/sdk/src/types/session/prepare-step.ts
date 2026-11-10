@@ -285,6 +285,8 @@ export interface RecalledMemory {
 	 * Absent when no selector ran; the words of the request chose it.
 	 */
 	readonly reason?: string
+	/** Set when the host's check found the record may no longer hold, e.g. `may be out of date: a file it names is gone`. */
+	readonly caution?: string
 }
 
 /**
