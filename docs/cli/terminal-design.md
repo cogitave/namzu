@@ -888,6 +888,63 @@ flag, not a count, and it clears when the view closes. Rows come from
 opens it. Covered by `the-transcript-scrolls-back-and-returns.test.tsx` and
 `the-transcript-scrolls-from-the-composer.test.tsx`.
 
+### Fullscreen mode
+
+An opt-in alternative to the terminal's scrollback. Set `tui.fullscreen: true`
+in your own config (a project file cannot turn it on) or start with
+`NAMZU_FULLSCREEN=1`; `NAMZU_FULLSCREEN=0` turns it off whatever the config
+says. Absent, nothing changes: the transcript goes to the terminal's
+scrollback exactly as before. It is also off when output or input is not a
+terminal and inside a `namzu workspaces` host, which owns the alternate screen
+there.
+
+On, the app takes the alternate screen when it starts and hands the main
+screen back, untouched, when it ends. The launch no longer clears the screen
+and its scrollback, so what was above the prompt is still there afterwards.
+Leaving works the same on `/exit`, SIGINT, SIGTERM and SIGHUP, and a process
+that dies mid-frame still writes the pointer and cursor reset. The external
+editor gets the main screen for as long as it runs.
+
+The conversation is a window onto the same rows the scroll box above draws:
+a glyph gutter, wrapped text shown as written (not rendered Markdown), a blank
+row between entries. Only the rows that fit are built into elements, so the
+cost of a frame follows the terminal's height, not the conversation's.
+Messages are laid out once per width and kept. The spinner, composer and
+footer are pinned under it and the window takes the rest of the height; the
+frame is always one row short of the terminal so the renderer never takes its
+clear-everything path (see `ViewportBound.tsx`). The renderer is asked for
+incremental repainting, so only changed lines are written.
+
+| Input | Does |
+| --- | --- |
+| Mouse wheel | three rows up or down |
+| PgUp / PgDn | a page, one row less than the window |
+| Home / End | the first row, and back to the latest, while the composer is empty |
+| Typing or Enter | back to the latest |
+
+Reaching the end resumes following. Scrolled up, the view holds still while
+output arrives, and one row above the composer says so: `↓ Jump to latest ·
+PgDn`, shortened to `↓ Latest` and `↓` as the width falls, with `New activity
+· ` in front once something arrived below. The reader's place is a message and
+a row inside it, not a row number, so a resize that re-wraps everything keeps
+them on the same text; if a compaction replaced that message the view returns
+to the latest. After a resize the screen is erased by the renderer that drew it
+and drawn whole once the size has settled, so no old frame is left under the
+new one. Only the wheel is requested from the terminal (button reports are
+taken off the input before the composer sees them).
+
+While it is on, the `←` workspaces screen is not offered, the terminal's own
+scrollback and drag-to-select are not available inside the app, and the
+detailed transcript and agent views draw in the live area as before. Selection
+and copy, transcript search, clickable rows and rendered Markdown in the
+window are not part of this mode yet, and it is not the default. Code:
+`packages/cli/src/tui/fullscreen/` (`viewport.ts` the scroll arithmetic,
+`layout.ts` the rows, `mouse-wheel.ts` the pointer, `mode.ts` the switch,
+`FullscreenTranscript.tsx` the window); the launcher wires it in `index.tsx`.
+Covered by `viewport.test.ts`, `mode.test.ts`, `mouse-wheel.test.ts`,
+`layout.test.ts`, `a-fullscreen-view-draws-only-its-window.test.tsx` and
+`a-fullscreen-app-draws-a-window-and-follows.test.tsx`.
+
 ## Commands and settings
 
 Successful reasoning changes receive a short session-scoped confirmation;

@@ -49,15 +49,36 @@ export interface ViewportBoundProps {
 	/** Terminal height. */
 	readonly rows: number | undefined
 	readonly display?: 'flex' | 'none'
+	/**
+	 * Take the whole capped height instead of only what the content needs. The
+	 * fullscreen view uses it: its transcript box grows into the room the live
+	 * region leaves, so the frame is always exactly as tall as the cap and the
+	 * live region stays pinned to the bottom.
+	 */
+	readonly fill?: boolean
 	readonly children: ReactNode
 }
 
-export function ViewportBound({ rows, display = 'flex', children }: ViewportBoundProps) {
+export function ViewportBound({
+	rows,
+	display = 'flex',
+	fill = false,
+	children,
+}: ViewportBoundProps) {
 	const cap = liveRegionCap(rows)
 	if (cap === undefined) {
 		return (
 			<Box flexDirection="column" display={display}>
 				{children}
+			</Box>
+		)
+	}
+	if (fill) {
+		return (
+			<Box flexDirection="column" display={display} height={cap} overflowY="hidden">
+				<Box flexDirection="column" flexGrow={1} flexShrink={1}>
+					{children}
+				</Box>
 			</Box>
 		)
 	}

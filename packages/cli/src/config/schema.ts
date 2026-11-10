@@ -101,6 +101,13 @@ export interface TuiConfig {
 	 */
 	readonly showExpandedTodos?: boolean
 	/**
+	 * Draw the terminal UI on the alternate screen with its own scrolling (mouse
+	 * wheel, PgUp and PgDn, Home and End) instead of the terminal's scrollback.
+	 * Absent or `false` means the scrollback. `NAMZU_FULLSCREEN=1` or `=0` in the
+	 * environment overrides it. Your own config files only.
+	 */
+	readonly fullscreen?: boolean
+	/**
 	 * The one-line recap shown when a person returns to the terminal after a few
 	 * minutes away. Absent or `true` means on; only `false` turns it off. The
 	 * `NAMZU_RECAP` variable overrides this either way.
