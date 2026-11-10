@@ -1,5 +1,12 @@
 # @namzu/cli
 
+## 46.1.1
+
+### Patch Changes
+
+- Updated dependencies [95533ac]
+  - @namzu/computer-use@4.3.0
+
 ## 46.1.0
 
 ### Minor Changes

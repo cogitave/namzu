@@ -3,6 +3,7 @@
 ## 2026-11-10
 
 - **Update** [Memory](cli/memory.md#what-turns-record-on-their-own) and [Memory](sdk/memory.md#promotion-after-a-turn): turns record only durable preferences, under a neutral title, with search traces, raw errors, secrets and injected instructions dropped; derived records the screen would not write are archived once per store; `save_memory` and `update_memory` refuse secrets. Adds `MemoryPromoterOptions.acceptClaim`, `findSecretShape` and `ConsolidationScreen` (the CLI screens `compaction.consolidate` records too). `.changeset/memory-screen.md` (`@namzu/sdk` minor, `@namzu/cli` minor).
+- **Update** [Foreground ladder](sdk/foreground-ladder.md#when-the-helper-is-not-running): a Windows helper that has ended is replaced before use, a failed first look or start is retried once with a fresh helper, two failed starts are remembered until the turn ends, a death mid-burst fails that burst without a restart, and the block names the cause (exit code, last error line, language mode) and no longer sends `ui_act` callers back into `ui_act`. `ForegroundMonitor.running` and `ForegroundBlock.reason` are optional additions. `.changeset/cu-helper-resilient.md` (`@namzu/computer-use` minor).
 
 ## 2026-11-08
 

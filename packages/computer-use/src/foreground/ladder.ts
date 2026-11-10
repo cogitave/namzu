@@ -101,6 +101,23 @@ export interface ForegroundLadderOptions {
 export const STOPPED_TEXT =
 	'The user pressed Escape, so computer use is stopped for the rest of this turn. Stop now: tell the user what is still undone, and do not call computer_use again until they send a new message.'
 
+/**
+ * A block's detail for a caller where controls by ref (ui_act) are a real
+ * alternative to the screen (display actions, window actions): the helper
+ * being down does not touch them, so it says so.
+ */
+export function blockDetailWithRefAdvice(block: ForegroundBlock): string {
+	return block.code === 'monitor_unavailable'
+		? `${block.detail} Controls by ref (ui_act) still work in the background.`
+		: block.detail
+}
+
+/** A block's detail for ui_act's own fallbacks to the screen: the model must not be sent back into ui_act. */
+export function uiActBlockDetail(block: ForegroundBlock): string {
+	if (block.code !== 'monitor_unavailable') return block.detail
+	return `The control could not be pressed in the background, and the screen could not be used because this computer cannot watch for the user's keyboard and mouse (${block.reason ?? 'the helper is not available'}). Nothing was sent. Try another control, or ask the user to do this step.`
+}
+
 const seconds = (ms: number): string => `${Math.max(1, Math.round(ms / 1000))} s`
 
 const BLOCKS = {
@@ -127,7 +144,8 @@ const BLOCKS = {
 	}),
 	monitor_unavailable: (reason: string): ForegroundBlock => ({
 		code: 'monitor_unavailable',
-		detail: `This computer cannot watch for the user's keyboard and mouse (${reason}), so the screen is not used and nothing was sent. Use controls by ref (ui_act) in the background, or ask the user to do this step.`,
+		detail: `This computer cannot watch for the user's keyboard and mouse (${reason}), so the screen is not used and nothing was sent. Ask the user to do this step if it needs the screen.`,
+		reason,
 	}),
 	declined: (app: string): ForegroundBlock => ({
 		code: 'declined',
@@ -146,6 +164,25 @@ const BLOCKS = {
 
 /** Times a burst start is retried because input arrived between the last look and the start. */
 const MAX_INTERFERED_STARTS = 3
+
+/** What the monitor says when a request or the start gets no answer. */
+const NO_ANSWER = 'did not answer in time'
+
+function isNoAnswer(error: unknown): boolean {
+	return error instanceof Error && error.message.includes(NO_ANSWER)
+}
+
+/**
+ * A call made before anything was sent failed because the helper is gone or
+ * hung, so it can be replaced and the run repeated. An error the helper
+ * reports about one command while it runs is not this.
+ */
+function helperGone(monitor: ForegroundMonitor, error: unknown): boolean {
+	return monitor.running === false || isNoAnswer(error)
+}
+
+/** The helper ended while a burst was sending; said to the caller as the burst's failure. */
+export const HELPER_STOPPED_MID_BURST = 'the keyboard-and-mouse helper stopped during the action'
 
 interface Stop {
 	readonly turnId: string | undefined
@@ -196,6 +233,10 @@ export class ForegroundLadder {
 	private turn: string | undefined
 	private readonly allowed = new Set<string>()
 	private readonly denied = new Set<string>()
+	/** Programs the user could not be asked about this turn; they are not asked again. */
+	private readonly unanswered = new Set<string>()
+	/** Why the helper could not be started twice in a row; answered until the turn ends. */
+	private startFailure: string | undefined
 
 	constructor(private readonly options: ForegroundLadderOptions) {
 		this.timing = { ...DEFAULT_TIMING, ...options.timing }
@@ -224,6 +265,8 @@ export class ForegroundLadder {
 		if (this.stop && (turnId === undefined || turnId !== this.stop.turnId)) this.stop = undefined
 		if (turnId === undefined || turnId !== this.turn) {
 			this.denied.clear()
+			this.unanswered.clear()
+			this.startFailure = undefined
 			this.parkedMs = 0
 		}
 		this.turn = turnId
@@ -305,9 +348,12 @@ export class ForegroundLadder {
 	/** The model's turn ended or was interrupted: nothing stays watched or held. */
 	async endTurn(): Promise<void> {
 		this.denied.clear()
+		this.unanswered.clear()
 		// A burst in flight puts its window and cursor back through the monitor
 		// when it ends; dropping the monitor first would restore under it.
 		await this.queue
+		// After the wait: a queued run that finished meanwhile may have set it.
+		this.startFailure = undefined
 		await this.dropMonitor()
 	}
 
@@ -330,6 +376,7 @@ export class ForegroundLadder {
 		request: LadderRequest,
 		burst: (context: BurstContext) => Promise<T>,
 		attempt = 0,
+		restarted = false,
 	): Promise<ForegroundOutcome<T>> {
 		const { subject, signal } = request
 		if (this.stop) return { kind: 'blocked', block: BLOCKS.stopped() }
@@ -349,17 +396,44 @@ export class ForegroundLadder {
 			}
 		let deferred = false
 		try {
-			const state = await this.gate(monitor.monitor, subject, signal)
-			if ('block' in state) return { kind: 'blocked', block: state.block }
-			const startedAt = this.clock.now()
-			const begun = await monitor.monitor.begin({
-				leasePath: this.lease.path,
-				token,
-				// Checked by the monitor before it raises anything, so a person who
-				// started typing after the last look is not displaced.
-				idleMs: state.needed,
-				...(subject.hwnd !== undefined ? { raise: subject.hwnd } : {}),
-			})
+			let state: Awaited<ReturnType<ForegroundLadder['gate']>>
+			let begun: Awaited<ReturnType<ForegroundMonitor['begin']>>
+			let startedAt: number
+			let beginSent = false
+			try {
+				state = await this.gate(monitor.monitor, subject, signal)
+				if ('block' in state) return { kind: 'blocked', block: state.block }
+				startedAt = this.clock.now()
+				beginSent = true
+				begun = await monitor.monitor.begin({
+					leasePath: this.lease.path,
+					token,
+					// Checked by the monitor before it raises anything, so a person who
+					// started typing after the last look is not displaced.
+					idleMs: state.needed,
+					...(subject.hwnd !== undefined ? { raise: subject.hwnd } : {}),
+				})
+			} catch (error) {
+				if (error instanceof CallAbortedError) throw error
+				const gone = helperGone(monitor.monitor, error)
+				// A helper that is still answering may have raised the target window
+				// before it failed: put it back, as an interfered start does.
+				if (beginSent && !gone) await monitor.monitor.end({ restore: true }).catch(() => undefined)
+				// An error the live helper reported about this command is the caller's.
+				if (!gone) throw error
+				// Nothing has been sent yet: a helper that died or hung here is replaced,
+				// once, and the run goes again. A second failure is a block, never a throw.
+				await this.dropMonitor()
+				if (restarted)
+					return {
+						kind: 'blocked',
+						block: BLOCKS.monitor_unavailable(
+							error instanceof Error ? error.message : String(error),
+						),
+					}
+				this.lease.release(token)
+				return await this.runOne(request, burst, attempt, true)
+			}
 			// A person touched input between the last look and now: not yet.
 			if (begun.refused === true || begun.userInputs !== state.state.userInputs) {
 				if (attempt >= MAX_INTERFERED_STARTS) {
@@ -375,6 +449,7 @@ export class ForegroundLadder {
 					burst,
 					token,
 					attempt + 1,
+					restarted,
 				)
 			}
 			const beat = setInterval(
@@ -388,7 +463,11 @@ export class ForegroundLadder {
 				value = await burst({
 					checkpoint: async () => {
 						if (!this.lease.heartbeat(token)) throw new BurstInterrupted()
-						const now = await monitor.monitor.state()
+						const now = await monitor.monitor.state().catch((error: unknown) => {
+							// A helper that ended mid-burst is never restarted inside it: the burst stops here.
+							if (monitor.monitor.running === false) throw new Error(HELPER_STOPPED_MID_BURST)
+							throw error
+						})
 						if (now.userInputs !== begun.userInputs) throw new BurstInterrupted()
 						// The hooks see nothing typed into a window above this program's rights,
 						// so a person there cannot be told from silence: stop rather than guess.
@@ -405,7 +484,13 @@ export class ForegroundLadder {
 					},
 				})
 			} catch (error) {
-				failure = { error }
+				// A helper that ended during the burst's own calls is the burst's failure, in the same words.
+				failure = {
+					error:
+						monitor.monitor.running === false && !(error instanceof BurstInterrupted)
+							? new Error(HELPER_STOPPED_MID_BURST)
+							: error,
+				}
 			} finally {
 				clearInterval(beat)
 			}
@@ -485,30 +570,42 @@ export class ForegroundLadder {
 		burst: (context: BurstContext) => Promise<T>,
 		token: string,
 		attempt: number,
+		restarted: boolean,
 	): Promise<ForegroundOutcome<T>> {
 		// A raise that happened just before a person's input is undone too.
 		await monitor.end({ restore: true }).catch(() => undefined)
 		// The lease is ours until runOne's finally; release it so the nested run takes it afresh.
 		this.lease.release(token)
-		return this.runOne(request, burst, attempt)
+		return this.runOne(request, burst, attempt, restarted)
 	}
 
 	private async ensureMonitor(): Promise<
 		{ readonly ok: true; readonly monitor: ForegroundMonitor } | { ok: false; reason: string }
 	> {
-		if (this.monitor) return { ok: true, monitor: this.monitor }
-		const monitor = this.options.createMonitor()
-		try {
-			await monitor.start()
-		} catch (error) {
-			await monitor.dispose().catch(() => undefined)
-			return {
-				ok: false,
-				reason: error instanceof Error ? error.message : String(error),
-			}
+		if (this.monitor) {
+			if (this.monitor.running !== false) return { ok: true, monitor: this.monitor }
+			// The helper ended since it was last used: it is replaced, not reported.
+			await this.dropMonitor()
 		}
-		this.monitor = monitor
-		return { ok: true, monitor }
+		if (this.startFailure !== undefined) return { ok: false, reason: this.startFailure }
+		let reason = ''
+		// A transient spawn or pipe failure gets one more try before it costs the user the action.
+		for (let attempt = 0; attempt < 2; attempt++) {
+			const monitor = this.options.createMonitor()
+			try {
+				await monitor.start()
+			} catch (error) {
+				await monitor.dispose().catch(() => undefined)
+				reason = error instanceof Error ? error.message : String(error)
+				// A start that waited out its whole timeout is not tried again: that would wait twice as long.
+				if (isNoAnswer(error)) break
+				continue
+			}
+			this.monitor = monitor
+			return { ok: true, monitor }
+		}
+		this.startFailure = reason
+		return { ok: false, reason }
 	}
 
 	private async dropMonitor(): Promise<void> {
@@ -567,7 +664,11 @@ export class ForegroundLadder {
 			) {
 				if (phase === 'gate' && !signal?.aborted) {
 					if (this.denied.has(key)) return { block: BLOCKS.declined(who.app) }
-					const answer = (await this.options.approve?.(who, signal)) ?? 'unavailable'
+					// A run repeated with a fresh helper does not put the question again.
+					const answer = this.unanswered.has(key)
+						? 'unavailable'
+						: ((await this.options.approve?.(who, signal)) ?? 'unavailable')
+					if (answer === 'unavailable') this.unanswered.add(key)
 					if (answer === 'deny') {
 						this.denied.add(key)
 						return { block: BLOCKS.declined(who.app) }

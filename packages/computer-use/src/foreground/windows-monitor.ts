@@ -17,8 +17,108 @@ import { WINDOWS_HELPER_SCRIPT } from './windows-helper-script.js'
 export interface HelperProcess {
 	write(line: string): void
 	onLine(handler: (line: string) => void): void
-	onExit(handler: () => void): void
+	/** `info` is absent where the process cannot say how it ended. */
+	onExit(handler: (info?: HelperExit) => void): void
+	/**
+	 * The process itself has ended, which can be before its streams close (a
+	 * child that inherited them keeps them open). Absent where there is no such
+	 * moment.
+	 */
+	onEnded?(handler: () => void): void
 	kill(): void
+}
+
+/** How the helper process ended. */
+export interface HelperExit {
+	readonly code?: number | null
+	readonly signal?: string | null
+	/** The tail of what it wrote to its error stream (about 2 KB). */
+	readonly stderr?: string
+	/** The process could not be started at all. */
+	readonly spawnError?: Error
+}
+
+/** Most of the helper's error stream that is kept. */
+const STDERR_KEEP = 2_048
+/** How long after the process ends its streams get to close before the exit is reported anyway, ms. */
+const EXIT_GRACE_MS = 500
+/** Longest cause line put in a reason. */
+const CAUSE_MAX = 200
+
+function xmlText(text: string): string {
+	return text
+		.replace(/_x([0-9A-Fa-f]{4})_/g, (_, hex: string) =>
+			String.fromCharCode(Number.parseInt(hex, 16)),
+		)
+		.replace(/&lt;/g, '<')
+		.replace(/&gt;/g, '>')
+		.replace(/&quot;/g, '"')
+		.replace(/&apos;/g, "'")
+		.replace(/&amp;/g, '&')
+}
+
+/** Lines of a PowerShell error record that are location and category detail, not the message. */
+function isRecordDetail(line: string): boolean {
+	return line.startsWith('+ ') || line.startsWith('At line:')
+}
+
+/**
+ * What the helper wrote to its error stream, reduced to its cause, or
+ * undefined. PowerShell wraps non-interactive output in a CLIXML envelope; its
+ * progress records ("Preparing modules for first use") are noise, its error
+ * records are the cause. The kept tail may begin in the middle of the envelope,
+ * so a fragment of it counts as CLIXML too. Of an error record the message
+ * (its first line) is reported, not the `+ CategoryInfo` lines after it.
+ */
+export function stderrCause(stderr: string | undefined): string | undefined {
+	if (!stderr) return undefined
+	let text = stderr
+	let clixml = false
+	if (/CLIXML|<Objs[\s>]|<\/Objs>|<Obj |S="progress"/.test(text)) {
+		const errors: string[] = []
+		for (const match of text.matchAll(/<S S="Error">([\s\S]*?)<\/S>/g))
+			errors.push(xmlText(match[1] ?? ''))
+		// What is outside the error records is progress; none of it is a cause.
+		text = errors.join('')
+		clixml = true
+	}
+	const lines = text
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter((line) => line && !line.startsWith('<'))
+	let cause: string | undefined
+	if (!clixml) {
+		cause = lines.filter((line) => !isRecordDetail(line)).pop()
+	} else {
+		cause = lastRecordMessage(lines)
+	}
+	if (!cause) return undefined
+	return cause.length > CAUSE_MAX ? `${cause.slice(0, CAUSE_MAX - 1)}…` : cause
+}
+
+/** An error record ends at its FullyQualifiedErrorId line; the message of the last one. */
+function lastRecordMessage(lines: string[]): string | undefined {
+	const records: string[][] = [[]]
+	for (const line of lines) {
+		const current = records[records.length - 1] as string[]
+		if (!isRecordDetail(line)) current.push(line)
+		if (line.startsWith('+ FullyQualifiedErrorId')) records.push([])
+	}
+	return [...records].reverse().find((r) => r.length > 0)?.[0]
+}
+
+/** Why the helper is gone, in words the model can pass on. */
+export function describeHelperExit(info: HelperExit | undefined, greeted: boolean): string {
+	if (!info) return 'the Windows helper exited'
+	if (info.spawnError) return `could not start Windows PowerShell (${info.spawnError.message})`
+	const how =
+		info.code !== null && info.code !== undefined
+			? `exit code ${info.code}`
+			: info.signal
+				? `signal ${info.signal}`
+				: undefined
+	const cause = stderrCause(info.stderr)
+	return `${greeted ? 'the Windows helper stopped' : 'the Windows helper stopped while starting'}${how ? ` (${how})` : ''}${cause ? `: ${cause}` : ''}`
 }
 
 export interface WindowsMonitorOptions {
@@ -43,6 +143,8 @@ interface Reply {
 	readonly error?: string
 	readonly hooks?: boolean
 	readonly hookError?: string
+	/** PowerShell's language mode, sent when the helper could not compile its hook library. */
+	readonly languageMode?: string
 }
 
 /**
@@ -75,8 +177,15 @@ function spawnPowerShell(options: WindowsMonitorOptions): HelperProcess {
 			'-EncodedCommand',
 			encodeHelperCommand(),
 		],
-		{ env: options.env, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true },
+		{ env: options.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
 	)
+	// Only the tail is kept, and the stream is always drained so a chatty helper cannot block.
+	let stderr = ''
+	child.stderr.setEncoding('utf8')
+	child.stderr.on('data', (chunk: string) => {
+		stderr = (stderr + chunk).slice(-STDERR_KEEP)
+	})
+	child.stderr.on('error', () => undefined)
 	// Without a listener a helper that exits first turns a write into an uncaught error.
 	child.stdin.on('error', () => undefined)
 	child.stdin.write(`${helperScriptLine()}\n`)
@@ -86,8 +195,23 @@ function spawnPowerShell(options: WindowsMonitorOptions): HelperProcess {
 		},
 		onLine: (handler) => createInterface({ input: child.stdout }).on('line', handler),
 		onExit: (handler) => {
+			let done = false
+			const finish = (info: HelperExit) => {
+				if (done) return
+				done = true
+				handler(info)
+			}
+			// `close` follows the end of the error stream, so its tail is complete.
+			child.once('close', (code, signal) => finish({ code, signal, stderr }))
+			// A grandchild holding the pipes can keep `close` from coming: after the
+			// process has ended, what was read so far is the answer.
+			child.once('exit', (code, signal) => {
+				setTimeout(() => finish({ code, signal, stderr }), EXIT_GRACE_MS).unref()
+			})
+			child.once('error', (spawnError) => finish({ spawnError, stderr }))
+		},
+		onEnded: (handler) => {
 			child.once('exit', handler)
-			child.once('error', handler)
 		},
 		kill: () => {
 			try {
@@ -115,6 +239,14 @@ export class WindowsInputMonitor implements ForegroundMonitor {
 		timer: ReturnType<typeof setTimeout>
 	}> = []
 	private exited = false
+	private exitReason: string | undefined
+	/** The helper has sent its first line. */
+	private greeted = false
+
+	/** The helper process is started and has not ended. */
+	get running(): boolean {
+		return this.proc !== undefined && !this.exited
+	}
 
 	constructor(private readonly options: WindowsMonitorOptions) {}
 
@@ -125,18 +257,27 @@ export class WindowsInputMonitor implements ForegroundMonitor {
 		)
 		this.proc = proc
 		proc.onLine((line) => this.onLine(line))
-		proc.onExit(() => {
+		// Not running from the moment the process ends; the reason follows when its streams close.
+		proc.onEnded?.(() => {
 			this.exited = true
+		})
+		proc.onExit((info) => {
+			this.exited = true
+			const reason = describeHelperExit(info, this.greeted)
+			if (info) this.exitReason = reason
 			for (const waiter of this.waiting.splice(0)) {
 				clearTimeout(waiter.timer)
-				waiter.resolve({ ok: false, error: 'the Windows helper exited' })
+				waiter.resolve({ ok: false, error: reason })
 			}
 		})
 		const hello = await this.expect(this.options.startTimeoutMs ?? 60_000)
 		if (!hello.ok || hello.hooks !== true) {
 			await this.dispose()
+			const why = hello.hookError || hello.error || 'the keyboard and mouse hooks did not start'
 			throw new Error(
-				hello.hookError || hello.error || 'the keyboard and mouse hooks did not start',
+				hello.languageMode && hello.languageMode !== 'FullLanguage'
+					? `${why} (PowerShell language mode: ${hello.languageMode})`
+					: why,
 			)
 		}
 	}
@@ -252,6 +393,7 @@ export class WindowsInputMonitor implements ForegroundMonitor {
 			})
 			return
 		}
+		if (reply.id == null) this.greeted = true
 		// A reply to a request that already timed out must not answer the next one.
 		const index = reply.id == null ? 0 : this.waiting.findIndex((w) => w.id === reply.id)
 		if (index < 0) return
@@ -277,7 +419,8 @@ export class WindowsInputMonitor implements ForegroundMonitor {
 
 	private async call<T>(command: Record<string, unknown>): Promise<T> {
 		const proc = this.proc
-		if (!proc || this.exited) throw new Error('the Windows helper is not running')
+		if (!proc || this.exited)
+			throw new Error(this.exitReason ?? 'the Windows helper is not running')
 		const id = this.nextId++
 		const reply = this.expect(this.options.requestTimeoutMs ?? 10_000, id)
 		proc.write(JSON.stringify({ ...command, id }))

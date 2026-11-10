@@ -69,6 +69,45 @@ answers in about 0.5 ms; starting the helper takes about 0.8 s warm. If the
 hooks cannot be installed the burst is refused (`monitor_unavailable`): the
 ladder never runs unwatched.
 
+### When the helper is not running
+
+A helper that has ended is replaced, quietly, before anything else happens:
+
+- A cached monitor reports `running === false` (the optional `running` member of
+  `ForegroundMonitor`; `WindowsInputMonitor` answers from its process). The
+  ladder disposes it and starts a fresh one before the next call.
+- If the first look or `begin` of a run fails (the helper died or hung), nothing
+  has been sent yet, so the monitor is dropped and the run goes again once with
+  a fresh helper. A second failure is a `monitor_unavailable` block carrying the
+  real reason; `ladder.run` does not reject. Only a helper that is gone or did
+  not answer in time is replaced; an error a running helper reports about one
+  command is passed on, after the window it may have raised is put back.
+- A start that fails is retried once at once, except a start that already waited
+  out its timeout, which is not waited for twice. After two failed starts in a row
+  the failure is remembered until `endTurn` and later calls in the same turn get
+  the same block without another compile; the next turn tries again.
+- A helper that ends in the middle of a burst is never restarted inside it: the
+  burst ends with "the keyboard-and-mouse helper stopped during the action",
+  whether it noticed at its next check or a call of its own failed. The helper cannot put the window and cursor back once it
+  is gone; the next call gets a fresh one.
+
+The helper's error stream is kept (the last 2 KB) so the reason names the cause:
+`could not start Windows PowerShell (<error>)`, `the Windows helper stopped while
+starting (exit code N): <last stderr line>` and `the Windows helper stopped
+(exit code N)`. PowerShell's CLIXML progress records ("Preparing modules for
+first use") are not a cause and are dropped; its error records are read. The
+helper script also catches a failed compile of its hook library (antivirus,
+Constrained Language Mode) and greets with `ok: false`, the `hookError` and the
+`languageMode`, so a blocked compile arrives as a readable reason.
+
+What the model reads: the `monitor_unavailable` block states the cause and that
+nothing was sent. Where controls by ref are a real alternative (display actions
+and window actions) it adds that `ui_act` still works in the background. When
+`ui_act` itself fell back to the screen (a refused background click, choosing by
+keyboard) it says instead that the control could not be pressed in the background
+and the screen could not be used, and to try another control or ask the user. The
+bare cause is also on the block as the optional `reason`.
+
 Windows lets a program take the front only if it has just been given input, so
 the helper unlocks the raise with a tap of an unassigned key (flagged as
 injected, so it is never counted as the user's) and, failing that, attaches to
@@ -211,7 +250,7 @@ next one. Nothing in a blocked result was sent:
 | `lease_busy` | Another session holds the screen | Try again in a moment |
 | `declined` | The user said no | Do not ask again this turn |
 | `stopped` | Escape was pressed | Stop; tell the user what is left undone |
-| `monitor_unavailable` | Real input cannot be observed | Use controls by ref or ask the user |
+| `monitor_unavailable` | Real input cannot be observed (the cause is named) | Ask the user to do the step; for display and window actions, controls by ref still work; from `ui_act`, try another control |
 | `locked_desktop` | LockApp, LogonUI or winlogon in front | Ask the user to unlock; never work around it |
 | `uac_prompt` | consent.exe in front | Ask the user to answer it |
 | `secure_desktop` | The input desktop is not `Default` | Ask the user to answer it |
