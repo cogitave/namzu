@@ -45,6 +45,7 @@ import {
 } from '@namzu/sdk'
 
 import type { SideModel } from '../integrations/small-model/side-model.js'
+import { ANCHORS_KEY, type AnchorFs, recordAnchors } from './anchors.js'
 import { ageLabel } from './manage.js'
 import { contentReason } from './screen.js'
 
@@ -112,6 +113,12 @@ export interface CuratorDeps {
 	/** One entry per op and per fallback, ids and codes only. */
 	readonly log?: (entry: CurationLogEntry) => void
 	readonly deadlineMs?: number
+	/**
+	 * The project root. With it, a memory that names files of the project is
+	 * stored with an anchor for each (see `anchors.ts`); without it none is.
+	 */
+	readonly anchorRoot?: string
+	readonly anchorFs?: AnchorFs
 }
 
 export interface CurateContext {
@@ -564,8 +571,20 @@ export class MemoryCurator {
 			: this.#supersede(op, target, candidate)
 	}
 
-	#metadata(op: ProposedOp, candidate: SessionMemoryCandidate, digest: string) {
+	async #metadata(op: ProposedOp, candidate: SessionMemoryCandidate, digest: string) {
+		const root = this.#deps.anchorRoot
+		const anchors = root
+			? await recordAnchors({
+					root,
+					text: `${op.title}\n${op.summary}\n${op.content}`,
+					files: candidate.files,
+					...(this.#deps.anchorFs ? { fs: this.#deps.anchorFs } : {}),
+				})
+			: []
 		return {
+			// Always written when anchoring is on, so an update that names no file
+			// drops the anchors of the text it replaced.
+			...(root ? { [ANCHORS_KEY]: anchors } : {}),
 			sessionId: candidate.sessionId,
 			turnId: candidate.turnId,
 			source: SESSION_MEMORY_TAG,
@@ -607,7 +626,7 @@ export class MemoryCurator {
 			tags: [SESSION_MEMORY_TAG, `${KNOWLEDGE_TAG}${digest}`],
 			type: op.type,
 			format: 'markdown',
-			metadata: this.#metadata(op, candidate, digest),
+			metadata: await this.#metadata(op, candidate, digest),
 		})
 		return {
 			code: 'added',
@@ -647,7 +666,7 @@ export class MemoryCurator {
 					],
 					metadata: {
 						...current.content.metadata,
-						...this.#metadata(op, candidate, digest),
+						...(await this.#metadata(op, candidate, digest)),
 					},
 				},
 				current.revision,
@@ -746,7 +765,7 @@ export class MemoryCurator {
 				tags: [SESSION_MEMORY_TAG, `${KNOWLEDGE_TAG}${digest}`, `${SUPERSEDES_TAG}${old.entry.id}`],
 				type: op.type,
 				format: 'markdown',
-				metadata: { ...this.#metadata(op, candidate, digest), supersedes: old.entry.id },
+				metadata: { ...(await this.#metadata(op, candidate, digest)), supersedes: old.entry.id },
 			}))
 		try {
 			await store.updateIfRevision(

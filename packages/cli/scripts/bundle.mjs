@@ -6,36 +6,18 @@
 // export), and the shared chunks. Static imports are merged;
 // every `import()` stays its own chunk, so the lazy command graph still loads lazily.
 //
-// Kept external, because they are native, optional, or found by name or path at run time:
-//   @namzu/browser, @namzu/sandbox, @namzu/telemetry, @namzu/computer-use  optional packages
-//   node-pty, playwright-core, react-devtools-core                         native / by path / optional
-//   sharp                                                                   native, optional; loaded on first use to shrink a pasted image
-//   oxc-parser                                                             native; a real dependency (@namzu/analysis itself is bundled, like @namzu/decision)
-//   quickjs-emscripten-core, @jitl/quickjs-wasmfile-release-sync           resolved by path
+// What stays external (optional, native, or found by name or path at run time) is listed in
+// scripts/externals.mjs, which the Desktop installer's staging also reads.
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, posix, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
+import { external } from './externals.mjs'
 
 const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const srcDir = join(pkgDir, 'src')
 const outDir = join(pkgDir, 'dist')
 const ROOT_TOKEN = '__NAMZU_DIST_ROOT__'
-
-const external = [
-	'@namzu/browser',
-	'@namzu/sandbox',
-	'@namzu/telemetry',
-	'@namzu/computer-use',
-	'node-pty',
-	'sharp',
-	'@lydell/node-pty',
-	'oxc-parser',
-	'playwright-core',
-	'react-devtools-core',
-	'quickjs-emscripten-core',
-	'@jitl/quickjs-wasmfile-release-sync',
-]
 
 const entries = {
 	bin: join(srcDir, 'bin.ts'),

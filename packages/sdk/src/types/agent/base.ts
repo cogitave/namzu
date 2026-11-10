@@ -245,6 +245,8 @@ export interface BaseAgentConfig {
 	reasoning?: import('../session/config.js').TurnConfig['reasoning']
 	/** Ask once for a check of edits before a turn ends; see {@link import('../session/config.js').TurnConfig.completionAudit}. */
 	completionAudit?: boolean
+	/** Consecutive end-of-turn hook refusals honoured; see {@link import('../session/config.js').TurnConfig.maxHookRefusals}. */
+	maxHookRefusals?: number
 	/** The outcome record's hooks; see {@link import('../session/config.js').TurnConfig.outcome}. */
 	outcome?: import('../session/config.js').TurnConfig['outcome']
 

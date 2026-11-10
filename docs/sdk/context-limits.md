@@ -244,6 +244,19 @@ unresolved errors, bugs and open questions, open items and the next step, and
 the specific names, values and commands that step needs, and to list everything
 missing, because trimming can happen later and a gap cannot be recovered.
 
+## How the next step picks the work back up
+
+Every summary message ends on one closing paragraph, after the recovery pointer
+when there is one: carry on from where the summary says the work stood without
+asking the person to repeat it, treat steps it marks done as done, read a file
+again before editing it because files may have changed or may not be shown in full, and
+check first on anything the summary names as still running or waiting. It is
+`COMPACTION_RESUME_NOTE`, appended by `buildCompactionMessage` to the summary
+of an in-turn pass, `compactNow` and `compactRegion` alike. It sits outside
+`COMPACTION_HEADER`, whose bytes are unchanged, and it is the same text every
+time, so a summary renders deterministically. The `kernel/context` eval checks
+that each summary carries it once.
+
 ## A summary written by a model
 
 A host can name the model that writes the summary: `QueryParams.compactionSummaryRoute`

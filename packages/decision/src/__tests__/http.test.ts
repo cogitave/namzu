@@ -30,6 +30,30 @@ describe('HttpDecisionModel', () => {
 		expect((c.init.headers as Record<string, string>).Authorization).toBeUndefined()
 	})
 
+	it('yesno adds criteria when given, and leaves the field out when not', async () => {
+		const withIt = fake(200, { answers: { q: { noul: 0.5, type: 'noul' } } })
+		await new HttpDecisionModel({ url: 'http://h/d', fetch: withIt.f }).yesno('s', 'is it?', {
+			criteria: 'Yes when it is.',
+		})
+		expect(withIt.calls[0]?.body.questions.q).toEqual({
+			type: 'noul',
+			instructions: 'is it?',
+			criteria: 'Yes when it is.',
+		})
+		const without = fake(200, { answers: { q: { noul: 0.5, type: 'noul' } } })
+		const model = new HttpDecisionModel({ url: 'http://h/d', fetch: without.f })
+		await model.yesno('s', 'is it?')
+		await model.yesno('s', 'is it?', { criteria: '' })
+		expect(without.calls[0]?.body.questions.q).toEqual({ type: 'noul', instructions: 'is it?' })
+		expect(without.calls[1]?.body.questions.q).toEqual({ type: 'noul', instructions: 'is it?' })
+	})
+
+	it('choice and score never carry the yes/no criteria text', async () => {
+		const c = fake(200, { answers: { q: { choice: 'a', probabilities: { a: 1 } } } })
+		await new HttpDecisionModel({ url: 'http://h/d', fetch: c.f }).choice('s', 'i', ['a', 'b'])
+		expect(c.calls[0]?.body.questions.q.criteria).toEqual({ a: null, b: null })
+	})
+
 	it('sends the model field and a bearer token when configured', async () => {
 		const { calls, f } = fake(200, { answers: { q: { noul: 0.5, type: 'noul' } } })
 		const model = new HttpDecisionModel({

@@ -1325,7 +1325,12 @@ export { compactNow, compactRegion } from './compaction/manual.js'
 // A host persisting manual compaction has to recognise the system message on
 // resume. Export the identity predicate rather than making every host copy the
 // marker string and eventually disagree with the writer.
-export { COMPACTION_RECOVERY_NOTE, isCompactionMessage } from './compaction/summary.js'
+export {
+	COMPACTION_HEADER,
+	COMPACTION_RECOVERY_NOTE,
+	COMPACTION_RESUME_NOTE,
+	isCompactionMessage,
+} from './compaction/summary.js'
 export {
 	DEFAULT_SALIENCE_CONFIG,
 	DEFAULT_SALIENCE_WEIGHTS,

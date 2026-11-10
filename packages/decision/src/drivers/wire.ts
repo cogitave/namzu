@@ -68,8 +68,13 @@ export async function postDecision(post: DecisionPost): Promise<unknown> {
 	return isRecord(answers) ? answers.q : undefined
 }
 
-export function yesnoQuestion(instructions: string): Question {
-	return { type: 'noul', instructions }
+/** A yes/no question; `criteria` (what makes the answer yes) is added only when given. */
+export function yesnoQuestion(instructions: string, criteria?: string): Question {
+	return {
+		type: 'noul',
+		instructions,
+		...(criteria !== undefined && criteria.length > 0 ? { criteria } : {}),
+	}
 }
 
 /**
