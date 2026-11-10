@@ -260,11 +260,15 @@ describe('working-memory compaction seam', () => {
 			type: 'function' as const,
 			function: { name: 'read', arguments: '{}' },
 		}
+		// The older turns are long enough that summarising them still shrinks the
+		// history once the summary's closing resume note is counted; a summary
+		// that saved nothing would be declined and this test would not reach the cut.
+		const LONG = FILLER.repeat(4)
 		const messages: Message[] = [
 			createSystemMessage(`STATIC SYSTEM PROMPT ${FILLER}`, 'cache'),
-			createUserMessage(`user 0 ${FILLER}`),
-			createAssistantMessage(`assistant 0 ${FILLER}`),
-			createUserMessage(`user 1 ${FILLER}`),
+			createUserMessage(`user 0 ${LONG}`),
+			createAssistantMessage(`assistant 0 ${LONG}`),
+			createUserMessage(`user 1 ${LONG}`),
 			createAssistantMessage(`calling a tool ${FILLER}`, [toolCall]), // idx 4
 			createToolMessage(`tool result ${FILLER}`, 't1'), // idx 5 — naive recent[0]
 			createAssistantMessage(`assistant 2 ${FILLER}`),

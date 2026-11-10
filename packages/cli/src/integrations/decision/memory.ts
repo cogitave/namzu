@@ -23,6 +23,10 @@ export const MEMORY_ADMIT_INSTRUCTIONS =
 	'Answer yes for requirements the person stated, decisions with their reasons, non-obvious discoveries about how the project works, and mistakes worth not repeating. ' +
 	'Answer no for routine progress, facts that are easy to read again from the code, and details of this one turn that will not matter later.'
 
+/** What makes the answer yes, for services that want it spelled out. */
+export const MEMORY_ADMIT_CRITERIA =
+	'Yes for a requirement the person stated, a decision with its reason, a non-obvious discovery about how the project works, or a mistake worth not repeating. No for routine progress, facts easy to read again from the code, and details that will not matter after this turn.'
+
 /** How much of the claims the model reads. */
 export const MEMORY_ADMIT_STATE_CHARS = 1_600
 
@@ -70,6 +74,7 @@ export function memoryAdmitQuestion(candidate: Candidate): DecisionQuestion {
 		point: 'memory',
 		state: [...printable(text)].slice(0, MEMORY_ADMIT_STATE_CHARS).join(''),
 		instructions: MEMORY_ADMIT_INSTRUCTIONS,
+		criteria: MEMORY_ADMIT_CRITERIA,
 		// The rule writes whenever there is a claim.
 		rule: true,
 	}

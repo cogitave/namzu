@@ -119,7 +119,10 @@ export async function testDecisionConnection(
 	const timeout = (deps.startTimeout ?? realTimeout)(CONNECTION_TEST_TIMEOUT_MS)
 	const started = now()
 	try {
-		await model.yesno('ok', 'Is this a connection test?', { signal: timeout.signal })
+		await model.yesno('ok', 'Is this a connection test?', {
+			signal: timeout.signal,
+			criteria: 'Yes when the text is a short plain word.',
+		})
 		return {
 			ok: true,
 			ms: Math.max(0, Math.round(now() - started)),

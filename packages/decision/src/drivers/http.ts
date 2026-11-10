@@ -46,7 +46,7 @@ export class HttpDecisionModel implements DecisionModel {
 		instructions: string,
 		opts?: DecisionRequestOptions,
 	): Promise<YesNoDecision> {
-		return parseYesNo(await this.ask(state, yesnoQuestion(instructions), opts))
+		return parseYesNo(await this.ask(state, yesnoQuestion(instructions, opts?.criteria), opts))
 	}
 
 	async choice<const T extends string>(

@@ -107,6 +107,15 @@ export interface TurnConfig {
 	 */
 	completionAudit?: boolean
 	/**
+	 * How many times in a row `turn_end` / `subagent_stop` hooks may refuse to
+	 * let the turn end (answer `skip`) before the turn stops honouring them. At
+	 * the limit the turn ends, one notice naming the hook is recorded, and the
+	 * remaining refusals are ignored. A tool call between refusals resets the
+	 * count. Off when absent or 0, so an embedding host sees no change; a
+	 * positive integer sets the limit.
+	 */
+	maxHookRefusals?: number
+	/**
 	 * The turn's outcome record: what changed, what was run to check it, and
 	 * whether the last word of each check was said about the workspace as the
 	 * turn left it (`Turn.outcome`).

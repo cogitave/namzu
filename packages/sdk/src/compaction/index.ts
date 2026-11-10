@@ -79,6 +79,7 @@ export type { CompactionResult, CompactNowInput, CompactRegionInput } from './ma
 export {
 	COMPACTION_HEADER,
 	COMPACTION_RECOVERY_NOTE,
+	COMPACTION_RESUME_NOTE,
 	buildCompactionMessage,
 	isCompactionMessage,
 } from './summary.js'
