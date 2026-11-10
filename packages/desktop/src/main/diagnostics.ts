@@ -38,6 +38,11 @@ const EVENTS = {
 	renderer_load_failed: 'Desktop renderer could not load',
 	renderer_process_gone: 'Desktop renderer process ended',
 	project_restore_failed: 'Desktop project restoration failed',
+	update_cache_cleared: 'Desktop removed an installed update from its cache',
+	window_shown: 'Desktop window shown',
+	engine_ready: 'Desktop first project connected',
+	conversations_listed: 'Desktop first conversation list read',
+	quit_requested: 'Desktop quit requested',
 	rate_limited: 'Desktop diagnostics were rate limited',
 } as const
 export type DesktopDiagnosticEvent = keyof typeof EVENTS
@@ -55,6 +60,10 @@ export interface DesktopDiagnosticContext {
 	platform?: 'win32' | 'linux' | 'darwin' | 'other'
 	line?: number
 	column?: number
+	/** window_shown, engine_ready, conversations_listed, quit_requested: milliseconds since the process started. */
+	elapsedMs?: number
+	/** update_cache_cleared: how many leftover installer files were removed. */
+	count?: number
 	/** engine_timing: which external engine, which step, and what it cost in milliseconds. */
 	engineId?: 'codex-cli' | 'claude-code'
 	step?: 'open' | 'models'
@@ -533,7 +542,16 @@ export class DesktopDiagnostics implements DesktopDiagnosticSink {
 					: 'unknown'
 			if (context.connection && /^[0-9a-f-]{36}$/.test(context.connection))
 				attributes['namzu.desktop.connection'] = context.connection
-			for (const key of ['request', 'bytes', 'exitCode', 'rpcCode', 'line', 'column'] as const) {
+			for (const key of [
+				'request',
+				'bytes',
+				'exitCode',
+				'rpcCode',
+				'line',
+				'column',
+				'elapsedMs',
+				'count',
+			] as const) {
 				const value = context[key]
 				if (typeof value === 'number' && Number.isSafeInteger(value))
 					attributes[`namzu.desktop.${key}`] = value
@@ -573,6 +591,11 @@ export class DesktopDiagnostics implements DesktopDiagnosticSink {
 				context.severity && ['debug', 'info', 'warn', 'error'].includes(context.severity)
 					? context.severity
 					: event === 'started' ||
+							event === 'window_shown' ||
+							event === 'update_cache_cleared' ||
+							event === 'engine_ready' ||
+							event === 'conversations_listed' ||
+							event === 'quit_requested' ||
 							event === 'cli_started' ||
 							event === 'cli_closed' ||
 							event === 'engine_timing'

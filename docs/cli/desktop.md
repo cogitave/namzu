@@ -162,12 +162,30 @@ node tools\node_modules\electron-builder\cli.js --win nsis --x64 --publish never
   --config electron-builder.yml --config.electronVersion=44.5.1
 ```
 
+The staged runtimes (`extra/cli` and the app's own `node_modules`) leave out files a running
+program never reads: source maps, `.d.ts`/`.d.cts`/`.d.mts` declarations, `*.test.*` files and
+README, CHANGELOG and HISTORY notes (licence and notice files stay, and the `typescript` package is
+kept whole because its compiler reads its own declaration files). Counted with `du` and `find` on a
+Linux run of `scripts/stage-installer.mjs` for 0.2.7, before and after the change, the whole staged
+tree went from 433 MB in 31,835 files to 337 MB in 17,559 files, and `extra/cli` from 320 MB in
+27,665 files to 225 MB in 13,588; a copy of this many small files is what an
+installer on NTFS with a virus scanner spends its time on. The staged CLI was run from the
+staged tree (`--version`, and `acp --desktop` answering `initialize`) to check it still boots.
+
 `--config.extraMetadata.version=<n>` builds a test version for update tests; never edit the
 version by hand. electron-builder drops a `node_modules` folder given to `extraResources`,
 so `scripts/installer-after-pack.cjs` copies the CLI's after packing. The result for 0.1.0 is
 `Namzu-Setup-0.1.0.exe` (about 179 MB, 503 MB with the Pal computer image) with its blockmap.
 
 ### App updates
+
+`electron-updater` leaves the installer it downloaded in `%LOCALAPPDATA%\namzu-updater\pending` after the
+update is installed, about 500 MB for each. When a check finds nothing newer (`onUpToDate`),
+`clearInstalledPending` (`src/main/updater-cache.ts`) removes the pending installer, and its
+`update-info.json`, whose version is not newer than the running one. A pending installer that is
+newer (downloaded, not installed yet) stays, and so does `installer.exe` beside the `pending`
+folder: it is the copy the next differential download is built from. The feed, the channel and the
+file formats are unchanged. A removal is recorded as `update_cache_cleared` with the number of files.
 
 The installed app updates itself with `electron-updater` (`src/main/updater.ts`), driven
 by a state machine of `disabled | idle | checking | available | downloading | ready | installing | error`.
@@ -1064,7 +1082,28 @@ empty composer while a saved tab is on its way back.
   by the same sequence rules as before, and a failed or missing reply leaves the old path in
   place. Only the panes mounted by the launch commit seed from it (`src/renderer/startup-restore.ts`);
   a pane opened later, or after a reload, reads live state.
-- **Folders still waiting their turn.** The restore reopens folders one after another, so a
+- **How fast it opens.** The saved folders start their runtimes at the same time as the windows
+  load their page, not after the windows finished, and up to three at a time
+  (`restoreProjects`, `src/main/restore-projects.ts`), in the saved order; a folder that fails
+  never stops the others and is still settled. With the staged CLI a runtime answers
+  `initialize` in about 0.3 s, so six folders took 1.77 s one after another and 0.60 s three at a
+  time. All saved windows are created first and load side by side, and a window is shown as soon
+  as it paints (`ready-to-show`, over the window's dark background colour), never held back for
+  the folders. The timeline is in the diagnostic log: `window_shown`, `engine_ready` (the first
+  folder connected), `conversations_listed` (the first conversation list read) and
+  `quit_requested`, each once per run with `elapsedMs` since the process started.
+- **How fast it quits.** Quitting stops listening and writes the terminals' last screens first (their
+  hosts are read for that), then stops the runtimes, releases the speech engines and stops an idle Pal
+  computer's machine at once, and closes the live viewer's port after the runtimes have stopped,
+  since a runtime lets go of its live viewers while it ends (`runShutdown`,
+  `src/main/shutdown-sequence.ts`). The machine stop is safe beside the runtimes: it does nothing
+  while a Pal computer runs, and `computer stop-idle` refuses while anything does. A runtime still
+  flushes its own journals and is waited for (up to its 5 second end-of-input wait before it is
+  ended), and the machine stop is given at most 6 seconds. In the unit test's simulated worst case
+  (fake timers, a 5 second runtime stop and a 5 second machine stop) quit waits 5.35 s where the
+  steps one after another waited 10.55 s; this is not a measurement of a real quit. A runtime that cannot be confirmed
+  stopped still fails the quit as before.
+- **Folders still waiting their turn.** The restore reopens folders (see above), so a
   first `projects()` read used to answer "none" and the welcome screen painted. Main now
   registers the folders to reopen (`Operator.expectProjects`) before any window exists and
   lists them as `connecting` until their connection registers; a folder that never registers is

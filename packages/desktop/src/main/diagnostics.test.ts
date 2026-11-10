@@ -443,3 +443,25 @@ it('classifies the sentences the project open path throws', () => {
 		reason: 'project-folder-not-a-directory',
 	})
 })
+
+it('records the open and quit timeline as events with the milliseconds since the process started', () => {
+	const { sink } = create()
+	for (const event of [
+		'window_shown',
+		'engine_ready',
+		'conversations_listed',
+		'quit_requested',
+	] as const)
+		sink.record(event, { elapsedMs: 1234 })
+	const lines = records(sink)
+	expect(lines.map((line) => line.eventName)).toEqual([
+		'namzu.desktop.window_shown',
+		'namzu.desktop.engine_ready',
+		'namzu.desktop.conversations_listed',
+		'namzu.desktop.quit_requested',
+	])
+	for (const line of lines) {
+		expect(line.severityText).toBe('info')
+		expect(line.attributes).toEqual({ 'namzu.desktop.elapsedMs': 1234 })
+	}
+})
