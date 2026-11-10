@@ -174,7 +174,13 @@ What it does:
 - A cleared result keeps the tool name, its original size and the route back: the overflow pointer when the output was spilled, otherwise a sentence telling the model to recover it by a read-only call and never to repeat a state-changing one. The full text stays in the conversation log (`compaction_shed`), where [conversation evidence search](conversation-evidence.md) can find it.
 - The transcript and the context meter treat it as a tool-result clear: no row, the meter drops to the new estimate until the next reply.
 
-It acts only when this process has seen a reply that reported a cache lifetime. A provider that reports none, a conversation just resumed in a new process, and a context that was compacted or rewritten since (which forgets the lifetime) get no shed. The setting is read when the conversation starts.
+It acts only when this process has seen a reply that reported a cache lifetime and that reply read or wrote the cache. Nothing is saved to disk, so a conversation resumed in a new process has no shed: coming back after a long gap helps only when the conversation stayed open in the terminal the whole time. A provider that reports no lifetime, a reply that did not touch the cache, another conversation or model than the one that last replied, and a context that was compacted, cleared, rewound or resumed since (each forgets the lifetime) get no shed either. The setting is read when the conversation starts.
+
+Limits worth knowing:
+
+- Only an ordinary prompt asks for it. A paused turn that is resumed and a message sent to a running sub-agent do not, so they send old results as they were.
+- It is not a threshold pass: the `pre_compact` and `post_compact` hooks do not run for it, it does not count toward the circuit breaker, and it needs `recordShedHistory` on (the default) so the originals are always kept; with it off, nothing is shed.
+- Results that conversation evidence recall surfaced are not marked on the history, so they are not protected: only pinned results, errors and the newest six are. Recall can still find the original in the log.
 
 # Automatic historical evidence
 

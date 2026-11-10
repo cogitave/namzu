@@ -2,7 +2,7 @@
 
 ## 2026-11-11
 
-- **Update** [Context and compaction in the CLI](cli/context-and-compaction.md#shedding-old-results-after-the-cache-expired) and [Compaction trigger, overflow recovery, circuit breaker and output limits](sdk/context-limits.md#clearing-stale-results-at-the-start-of-a-turn): new `compaction.clearStaleResultsAfterIdle` (default on) and `compactionConfig.clearStaleToolResultsAtStart`. A turn that starts after the prompt cache has expired clears old, large tool results before its first request when that saves at least 20,000 tokens, keeping the newest six, and records the originals as `compaction_shed`. `.changeset/stale-results-after-idle.md` (`@namzu/cli` minor, `@namzu/sdk` patch).
+- **Update** [Context and compaction in the CLI](cli/context-and-compaction.md#shedding-old-results-after-the-cache-expired) and [Compaction trigger, overflow recovery, circuit breaker and output limits](sdk/context-limits.md#clearing-stale-results-at-the-start-of-a-turn): new `compaction.clearStaleResultsAfterIdle` (default on) and `compactionConfig.clearStaleToolResultsAtStart`. A turn that starts after the prompt cache has expired clears old, large tool results before its first request when that saves at least 20,000 tokens, keeping the newest six, and records the originals as `compaction_shed`; it acts only within the process that saw the last reply, never for another conversation or a reply that did not use the cache, and not with `recordShedHistory` off. `.changeset/stale-results-after-idle.md` (`@namzu/cli` minor, `@namzu/sdk` patch).
 
 ## 2026-11-10
 
