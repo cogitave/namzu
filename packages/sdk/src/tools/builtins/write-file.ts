@@ -75,7 +75,7 @@ const modelInputSchema: Record<string, unknown> = {
 export const WriteFileTool = defineTool({
 	name: 'write',
 	description:
-		'Writes a file to the local filesystem. Overwrites the existing file at the path if there is one.\n\n- If the file already exists, you must use the `read` tool on it first in this conversation, or this call will fail.\n- To modify an existing file, use `edit`: it only sends the diff and preserves the rest of the file byte-for-byte.\n- Use `write` to create a new file or to perform a deliberate full rewrite of a file you have already read.\n- Self-budget content/newStr under 12000 characters before emitting the tool call. For long content, write a smaller opening section, then use `edit` with insertLine: "end" to extend the file section by section. Chaining several `write` calls to one path loses content, because each overwrites the previous.',
+		'Writes a file to the local filesystem. Overwrites the existing file at the path if there is one.\n\n- If the file already exists, you must use the `read` tool on it first in this conversation, or this call will fail.\n- To modify an existing file, use `edit`: it only sends the diff and preserves the rest of the file byte-for-byte.\n- Use `write` to create a new file or to perform a deliberate full rewrite of a file you have already read.\n- Self-budget content/newStr under 12000 characters before emitting the tool call. For long content, write a smaller opening section, then use `edit` with insertLine: "end" to extend the file section by section. Chaining several `write` calls to one path loses content, because each overwrites the previous.\n- A `.ipynb` body must stay a valid notebook (JSON with cells, nbformat and metadata), or the write is refused.',
 	inputSchema,
 	modelInputSchema,
 	enforceModelInput: true,
@@ -155,8 +155,12 @@ export const WriteFileTool = defineTool({
 		}
 		const valid = parsed.data
 		const content = valid.content ?? valid.newStr ?? ''
-		const notebook = notebookRefusal(valid.path, content)
-		if (notebook) return { success: false as const, output: '', error: notebook }
+		// The sandbox has its own root, so its path is checked as typed. The
+		// host path is checked below, once containment has resolved symlinks.
+		if (context.sandbox) {
+			const notebook = notebookRefusal(valid.path, content)
+			if (notebook) return { success: false as const, output: '', error: notebook }
+		}
 		// Host-side containment, on the host branch only. The sandbox has its
 		// own root and its own resolver; canonicalizing a sandbox-relative
 		// path against the HOST filesystem asks a question about the wrong
@@ -164,6 +168,10 @@ export const WriteFileTool = defineTool({
 		const filePath = context.sandbox
 			? undefined
 			: await resolveWithinAnyReal(toolRoots(context), valid.path)
+		if (filePath !== undefined) {
+			const notebook = notebookRefusal(filePath, content)
+			if (notebook) return { success: false as const, output: '', error: notebook }
+		}
 		// The exists-check and the write are a check-then-act pair. Unlocked,
 		// two writers both see "absent", both skip the read-before-overwrite
 		// guard, and the second silently discards the first.

@@ -1,8 +1,9 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { ToolContext } from '../../../types/tool/index.js'
+import { createFileReadTracker } from '../../file-read-tracker.js'
 import { EditTool, dryRunEdit } from '../edit.js'
 import { notebookRefusal } from '../notebook-guard.js'
 import { WriteFileTool } from '../write-file.js'
@@ -137,9 +138,92 @@ describe('notebook-safe edits', () => {
 	it('shows the same refusal in a dry run', () => {
 		const result = dryRunEdit(notebook, {
 			path: 'a.ipynb',
-			old_string: '"metadata": {},\n "nbformat"',
-			new_string: '"nbformat"',
+			old_string: ' "nbformat": 4,',
+			new_string: '',
 		})
 		expect(result.success).toBe(false)
+		if (!result.success) expect(result.error).toContain('no longer open')
+	})
+
+	it('refuses an edit that makes a cell source a number, and does not touch the read tracker', async () => {
+		const { dir, path } = scratch('a.ipynb', notebook)
+		const tracker = createFileReadTracker()
+		const recordRead = vi.spyOn(tracker, 'recordRead')
+		const recordWindow = vi.spyOn(tracker, 'recordReadWindow')
+		tracker.recordRead(path, notebook, 'seed')
+		recordRead.mockClear()
+		const result = await EditTool.execute(
+			{ path, oldStr: '"source": "hello"', newStr: '"source": 3' },
+			{ ...ctx(dir), fileReadTracker: tracker },
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('cell 1 needs a "source"')
+		expect(recordRead).not.toHaveBeenCalled()
+		expect(recordWindow).not.toHaveBeenCalled()
+		expect(readFileSync(path, 'utf-8')).toBe(notebook)
+	})
+
+	it('checks the real file behind a symlink, not the name typed', async () => {
+		const { dir, path } = scratch('real.ipynb', notebook)
+		symlinkSync(path, join(dir, 'x.txt'))
+		const refused = await WriteFileTool.execute(
+			{ path: join(dir, 'x.txt'), content: 'plain' },
+			ctx(dir),
+		)
+		expect(refused.success).toBe(false)
+		expect(readFileSync(path, 'utf-8')).toBe(notebook)
+
+		const text = scratch('t.txt', 'plain')
+		symlinkSync(text.path, join(text.dir, 'n.ipynb'))
+		const allowed = await WriteFileTool.execute(
+			{ path: join(text.dir, 'n.ipynb'), content: 'still plain' },
+			ctx(text.dir),
+		)
+		expect(allowed.success).toBe(true)
+	})
+
+	describe('in a sandbox', () => {
+		function sandboxCtx(body: string | null) {
+			const writeFile = vi.fn(async () => {})
+			const readFile = vi.fn(async () => {
+				if (body === null) throw Object.assign(new Error('missing'), { code: 'ENOENT' })
+				return Buffer.from(body)
+			})
+			const context = {
+				...ctx('/sandbox'),
+				sandbox: { writeFile, readFile },
+			} as unknown as ToolContext
+			return { context, writeFile }
+		}
+
+		it('edit refuses a broken notebook and writes a valid one', async () => {
+			const bad = sandboxCtx(notebook)
+			const refused = await EditTool.execute(
+				{ path: 'a.ipynb', old_string: '"cells"', new_string: '"cellz"' },
+				bad.context,
+			)
+			expect(refused.success).toBe(false)
+			expect(bad.writeFile).not.toHaveBeenCalled()
+
+			const ok = sandboxCtx(notebook)
+			const done = await EditTool.execute(
+				{ path: 'a.ipynb', old_string: 'print(\\"old\\")', new_string: 'print(\\"new\\")' },
+				ok.context,
+			)
+			expect(done.success).toBe(true)
+			expect(ok.writeFile).toHaveBeenCalledTimes(1)
+		})
+
+		it('write refuses a broken notebook and writes a valid one', async () => {
+			const bad = sandboxCtx(null)
+			const refused = await WriteFileTool.execute({ path: 'a.ipynb', content: 'nope' }, bad.context)
+			expect(refused.success).toBe(false)
+			expect(bad.writeFile).not.toHaveBeenCalled()
+
+			const ok = sandboxCtx(null)
+			const done = await WriteFileTool.execute({ path: 'a.ipynb', content: notebook }, ok.context)
+			expect(done.success).toBe(true)
+			expect(ok.writeFile).toHaveBeenCalledWith('a.ipynb', notebook)
+		})
 	})
 })
