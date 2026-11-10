@@ -54,7 +54,7 @@ function escalationReason(escalation: ToolCallSummary['escalation']): string {
 		return `this call removes something catastrophic (${escalation.dangerousRemoval})`
 	}
 	if (escalation?.protectedPaths?.length) {
-		return `this call writes a protected ${escalation.protectedPaths.length === 1 ? 'path' : 'paths'} (${escalation.protectedPaths.join(', ')})`
+		return `this call writes a protected ${escalation.protectedPaths.length === 1 ? 'path' : 'paths'} or changes a top-level entry of the home folder or the filesystem root (${escalation.protectedPaths.join(', ')})`
 	}
 	if (escalation?.outsidePaths?.length)
 		return `this call reaches ${escalation.outsidePaths.length === 1 ? 'a path' : 'paths'} outside the turn's boundary`

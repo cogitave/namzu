@@ -278,7 +278,7 @@ export function permissionEscalationNotes(toolCalls: readonly PermissionToolCall
 	const protectedPaths = toolCalls.flatMap((call) => call.escalation?.protectedPaths ?? [])
 	if (protectedPaths.length > 0) {
 		notes.push(
-			`Writes a protected file or folder: ${protectedPaths.join(', ')}. Asked every time, in every mode; no earlier answer covers it.`,
+			`Writes a protected file or folder, or creates or deletes a top-level entry of the home folder or filesystem root: ${protectedPaths.join(', ')}. Asked every time, in every mode; no earlier answer covers it.`,
 		)
 	}
 	if (toolCalls.some((call) => call.escalation?.dangerousRemoval !== undefined)) {

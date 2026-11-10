@@ -68,13 +68,14 @@ In both modes these are never decided by the mode:
 - a `deny` rule, and the dangerous-pattern floor: refused;
 - an `ask` rule: asked;
 - a catastrophic removal (the file system root, a top-level or home directory, the working directory or a parent, a cross-directory glob, a target a variable may leave empty): asked;
+- a call that creates or deletes a top-level entry directly in your home folder or the filesystem root (`mkdir ~/newthing`, `git clone <url> ~/repo`, `rm -rf ~/thing`, a `write` creating `~/new.txt`, `mkdir /newthing`): asked, with the path named. Anything inside an existing top-level folder (`~/projects/x/new`, `/tmp/x`) and changes to a top-level entry that is already there are not asked about. Only what can be read before the line runs counts: a path built from a variable or command substitution, or a relative path after a `cd` in the same line, is not judged. See [Where files go](where-files-go.md#the-home-folder-and-the-root-are-asked-about);
 - a tool that always needs approval (`requiresApproval`), for instance a WebSocket `monitor`: asked;
 - a sandbox escape (`dangerously_disable_sandbox`): asked every time;
 - a call whose safety checks did not finish: asked.
 
 With nobody to ask (`exec`, `exec --json`, a scheduled run), each of these is refused instead.
 
-**Bypass** runs everything else, including a path outside the folder (`cat /tmp/x`), a program the line does not name (`$CMD build`, `$(...)`, `[[ ]]`, arithmetic), a protected-path write, and `cd sub && echo hi > f` inside your folder.
+**Bypass** runs everything else, including a path outside the folder (`cat /tmp/x`), a program the line does not name (`$CMD build`, `$(...)`, `[[ ]]`, arithmetic), and `cd sub && echo hi > f` inside your folder.
 
 **Auto** sends what `prompt` would have asked about to the classifier, which allows or blocks it. Never sent: calls a rule allows, reads, calls `accept-edits` would allow, and the safe tools (read, grep, glob, LSP and code analysis, `search_tools`, task and plan tools), unless the call reaches outside your folders or a rule asked for it. While auto is active, allow rules for interpreters and launchers (`python*`, `node`, `bash`, `sh`, `pwsh`, `ssh`, `sudo`, `env`, `xargs`, `make`, `awk`, `npm run` and `npm test`, `pnpm build`, `bun app.ts`, `uv run`, `cargo run`, `git -c` and the like) and for delegation are not consulted, because they would approve code the classifier never read.
 

@@ -41,8 +41,38 @@ byte-stable. It says:
 - A finished setup ends with a receipt: what was installed, where, how it
   starts, how to remove it.
 
-This is guidance, not enforcement: it changes no permission. Only the
-schedule tool refuses the home folder as a task directory.
+The guidance is backed by a check in code, below. The schedule tool also
+refuses the home folder as a task directory.
+
+## The home folder and the root are asked about
+
+A call that would create or delete a top-level entry (the first name below the
+home folder, or below `/`) is asked of a person in every mode, `bypass`
+included, with the path named. It joins the questions no mode answers in
+advance (see [Permission modes](permission-modes.md#what-bypass-and-auto-still-ask)):
+it is listed with protected paths, never covered by "Yes, and don't ask again"
+or a standing yes, and refused where nobody can be asked (`exec`, a scheduled
+run) with a message that says why.
+
+Asked about: `mkdir ~/newthing` (also `mkdir -p ~/newthing/sub`),
+`git clone <url> ~/repo` (or a clone into the home folder when it is the
+working folder), `touch`, `cp`, `mv` or a redirect into a new name, `rm` or
+`mv` of an existing top-level entry, and the `write` and `edit` tools creating
+a new file there. The same at the filesystem root.
+
+Not asked about: anything inside a top-level entry that exists
+(`~/projects/x/new`, `/tmp/x`, the session scratchpad), and changing a
+top-level entry that is already there.
+
+Limits. Only what can be read before the line runs counts: a path built from a
+variable or a command substitution is not judged, so it does not prompt on
+every command, and a relative path after a `cd` in the same line is not
+judged either. The check runs where outside paths are reviewed (the
+interactive CLI) and not inside a sandbox, whose paths are the guest's.
+
+To proceed: work in a project folder (create it with your own `!mkdir`, or
+answer yes when asked), or tell the session which folder to use. A rule cannot
+waive this question; it is not an `allow`-able command.
 
 ## The home-folder line
 

@@ -293,7 +293,7 @@ export const UNKNOWN_PROGRAM_UNATTENDED_REFUSAL =
  * existed (a mode, a rule, "approve all") is not an answer about it.
  */
 export const PROTECTED_PATH_UNATTENDED_REFUSAL =
-	"Refused: this call writes a protected path (a git hook or config, a shell startup file, editor or tool configuration, or the project's .namzu directory), which needs a person to approve it each time, and nobody can be asked in this session. This call did not run; the other calls in the batch are not affected. Leave those files alone, or tell the user what change you need so they can make it."
+	"Refused: this call writes a protected path (a git hook or config, a shell startup file, editor or tool configuration, or the project's .namzu directory) or creates or deletes a top-level entry directly in the home folder or the filesystem root, which needs a person to approve it each time, and nobody can be asked in this session. This call did not run; the other calls in the batch are not affected. Work inside a project folder instead (create it first, or use an existing one), or tell the user what change you need so they can make it."
 
 /**
  * What the model is told when a batch removes something catastrophic (the
