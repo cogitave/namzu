@@ -296,7 +296,7 @@ describe('settling a turn', () => {
 })
 
 describe('the curation log file', () => {
-	it('appends one JSON line per entry', async () => {
+	it('appends one JSON line per entry, in the order they were written', async () => {
 		vi.useRealTimers()
 		const root = mkdtempSync(join(tmpdir(), 'namzu-curation-log-'))
 		roots.push(root)
@@ -313,8 +313,15 @@ describe('the curation log file', () => {
 		}
 		write(entry)
 		write({ ...entry, op: 'noop', ids: [] })
-		await vi.waitFor(() => expect(readFileSync(file, 'utf8').trim().split('\n')).toHaveLength(2))
-		expect(readFileSync(file, 'utf8').trim().split('\n')[0]).toBe(JSON.stringify(entry))
+		write({ ...entry, op: 'update', ids: ['mem_2'] })
+		await write.settled()
+		const lines = readFileSync(file, 'utf8').trim().split('\n')
+		expect(lines).toHaveLength(3)
+		expect(lines.map((line) => (JSON.parse(line) as CurationLogEntry).op)).toEqual([
+			'add',
+			'noop',
+			'update',
+		])
 	})
 })
 
