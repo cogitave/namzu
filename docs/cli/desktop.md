@@ -767,6 +767,14 @@ Attachments name the file and the limit in one size style (`shared/format-size.t
 
 A model or engine list read that a newer choice overtook is never an error and never leaves the model button on "Not available": the main process waits for the choice to settle and reads again against the current selection (`readCurrent`, `Operator.rereadCurrent`), a read whose connection was replaced runs once more against the new one, and a choice that a later choice replaced answers with what is selected now. The window has no message matching and no retry loop of its own.
 
+## When a conversation needs you
+
+While no Namzu window is focused and a conversation is running with an approval card or a question waiting (a question is a request like any other, carried by the `ask_user_question` call, so it counts through the same rule as the sidebar's "Approval needed" and "Question waiting" marks; a stopped turn does not count), Desktop shows a count on the app icon and flashes the taskbar or dock once; moving from one Namzu window to another does not flash. It uses the platform's own mark: the macOS and Linux icon badge (`app.setBadgeCount`) with one dock bounce (`app.dock.bounce('informational')`) on macOS, and on Windows a small taskbar overlay with the count drawn on it, described to screen readers as "N conversations need you", with one `flashFrame`. `setBadgeCount` is not used on Windows, where it does nothing. A finished reply that nobody has read is the separate unread marker and never counts here, and a Pal's conversation does not count.
+
+The logic has two parts. `src/shared/attention-state.ts` is pure: given each conversation's running flag and number of waiting asks it returns the ids that need the person. The operator in main computes it from the same projection the transcript uses and reports it whenever a conversation starts or stops running, gains or loses a waiting ask, or goes away; `src/main/attention-signals.ts` applies it. It flashes only on the change from nothing needing the person to something, not on every event or every added count, and lets go of the badge, the overlay and the flash as soon as a window gains focus, nothing needs the person, or the setting is turned off. Losing focus with something still waiting signals again. There is no desktop notification, sound or keep-awake.
+
+**Settings > General > Show when a conversation needs you** turns the badge and flash off (`attentionSignals` in `desktop-settings.json`, default on). Only the pure state, the controller with a fake window and app, the overlay pixels and the settings round trip are covered by tests; no real taskbar or dock was driven.
+
 ## Settings
 
 **Settings** is a page of its own in the main area, like Plugins: the rail's gear, the
