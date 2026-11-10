@@ -8,6 +8,7 @@ import {
 	createUserMessage,
 	drainQuery,
 	readPeerRecords,
+	writePeerRecord,
 } from '@namzu/sdk'
 import { afterEach, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -563,4 +564,31 @@ it('does not record an exchange the other side refused', async () => {
 	const { from, read } = await pairInOneHome({ hostSlot: 's-a' }, { hostSlot: 's-b' })
 	expect(await from.send('nobody', 'hello')).toMatchObject({ status: 'refused' })
 	expect(read(from.id)?.trail).toBeUndefined()
+})
+
+it('accepts a command-line sender in its own project and shows the mail as a command line', async () => {
+	const f = await fixture()
+	const sessionsDir = join(f.home, 'run', 'sessions')
+	const records = readPeerRecords(sessionsDir)
+	const receiver = records.find((record) => record.sessionId === f.receiver.id)!
+	const live = records.find((record) => record.sessionId === f.sender.id)!
+	writePeerRecord(sessionsDir, { ...live, kind: 'cli', title: 'command line' })
+	const result = await new PeerClient().deliver(receiver, {
+		id: 'cli-here',
+		text: 'from a script',
+		from: {
+			sessionId: live.sessionId,
+			ref: live.ref,
+			name: 'command line',
+			address: live.address,
+			mode: live.permissionMode,
+			kind: 'cli',
+		},
+	})
+	expect(result).toMatchObject({ kind: 'responded', status: 'queued' })
+	const [mail] = f.receiver.take(0)
+	expect(mail?.from.kind).toBe('cli')
+	expect(JSON.stringify(peerMailMessage(mail as NonNullable<typeof mail>))).toContain(
+		'not from a terminal',
+	)
 })

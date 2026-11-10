@@ -1,7 +1,14 @@
 /** Message a live Namzu terminal from a command line, without opening a TUI. */
 
-import { readFileSync } from 'node:fs'
-import { EXIT_FAIL, EXIT_OK, EXIT_UNAVAILABLE, EXIT_USAGE } from '../exit-codes.js'
+import { MAX_PEER_MESSAGE_TEXT_BYTES } from '@namzu/sdk'
+import {
+	EXIT_DATAERR,
+	EXIT_FAIL,
+	EXIT_NOINPUT,
+	EXIT_OK,
+	EXIT_UNAVAILABLE,
+	EXIT_USAGE,
+} from '../exit-codes.js'
 import {
 	type PeerListing,
 	type PeerSendReceipt,
@@ -12,7 +19,7 @@ import { resolveNamzuHome } from '../integrations/state/home.js'
 import { planLaunchMode } from '../permissions/launch.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
 import { CLI_VERSION } from '../version.js'
-import { readStdin } from './stdin.js'
+import { decodePeerInput, readBoundedFile, readBoundedStream } from './peer-input.js'
 import type { CommandDef } from './types.js'
 
 const HELP = `namzu peers — message a live Namzu terminal in this folder
@@ -35,7 +42,8 @@ Receipts:
   Queued       accepted into the live inbox; not proof the model read it. Exit 0.
   Refused      the terminal or this command declined, with the reason. Exit 1.
   Unreachable  no terminal answered; acceptance is unknown, do not retry blindly. Exit 69.
-Bad arguments exit 64. A message over 32 KiB is refused before anything is sent.\n`
+Bad arguments or an empty message exit 64, input that is not UTF-8 text 65, an
+unreadable file 66. A message over 32 KiB is refused before anything is sent.\n`
 
 export type PeersArgs =
 	| { readonly verb: 'list'; readonly json: boolean }
@@ -129,10 +137,14 @@ export const peersCommand: CommandDef = {
 	help: HELP,
 	handler: async ({ ctx, rawArgs }) => {
 		const parsed = parsePeersArgs(rawArgs)
-		if ('error' in parsed) {
-			ctx.formatter.error({ message: `${parsed.error}\n\n${HELP}` })
-			return EXIT_USAGE
+		// With --json every outcome, errors included, is one JSON object on stdout.
+		const wantsJson = 'error' in parsed ? rawArgs.includes('--json') : parsed.json
+		const fail = (message: string, code: number, withHelp = false): number => {
+			if (wantsJson) process.stdout.write(`${JSON.stringify({ error: message, exit: code })}\n`)
+			else ctx.formatter.error({ message: withHelp ? `${message}\n\n${HELP}` : message })
+			return code
 		}
+		if ('error' in parsed) return fail(parsed.error, EXIT_USAGE, true)
 		const emit = (value: object, text: string) => {
 			if (parsed.json) process.stdout.write(`${JSON.stringify(value)}\n`)
 			else ctx.formatter.print({ ...value, text: terminalDisplayText(text) })
@@ -153,32 +165,43 @@ export const peersCommand: CommandDef = {
 				permissionModeFlag: mode,
 				settings: ctx.config.permissionSettings,
 			})
-			if ('error' in plan) {
-				ctx.formatter.error({ message: plan.error })
-				return EXIT_USAGE
-			}
+			if ('error' in plan) return fail(plan.error, EXIT_USAGE)
 			mode = plan.plan.mode
 			let message = parsed.words.join(' ')
 			if (parsed.file !== undefined) {
+				let bytes: Uint8Array
 				try {
-					message = parsed.file === '-' ? await readStdin() : readFileSync(parsed.file, 'utf8')
+					bytes =
+						parsed.file === '-'
+							? await readBoundedStream(process.stdin)
+							: await readBoundedFile(parsed.file)
 				} catch (cause) {
-					ctx.formatter.error({
-						message: `Cannot read ${parsed.file}: ${cause instanceof Error ? cause.message : String(cause)}`,
-					})
-					return EXIT_USAGE
+					return fail(
+						`Cannot read ${parsed.file}: ${cause instanceof Error ? cause.message : String(cause)}`,
+						EXIT_NOINPUT,
+					)
 				}
-				// One trailing line break is the file's, not the message's.
-				message = message.replace(/\r?\n$/, '')
+				const input = decodePeerInput(bytes)
+				if (input.kind === 'invalid') return fail(input.reason, EXIT_DATAERR)
+				if (input.kind === 'too-large') {
+					const receipt: PeerSendReceipt = {
+						status: 'refused',
+						reason: `Message is over the ${MAX_PEER_MESSAGE_TEXT_BYTES / 1024} KiB limit. Nothing was sent.`,
+					}
+					emit({ ...receipt, mode }, renderReceipt(receipt))
+					return receiptExitCode(receipt)
+				}
+				message = input.text
 			}
+			if (!message.trim()) return fail('send needs a message with some text.', EXIT_USAGE)
 			const receipt = await sendToTerminal({ ...base, target: parsed.target, message, mode })
 			emit({ ...receipt, mode }, renderReceipt(receipt))
 			return receiptExitCode(receipt)
 		} catch (cause) {
-			ctx.formatter.error({
-				message: `Peer messaging is unavailable: ${terminalDisplayText(cause instanceof Error ? cause.message : String(cause))}`,
-			})
-			return EXIT_UNAVAILABLE
+			return fail(
+				`Peer messaging is unavailable: ${terminalDisplayText(cause instanceof Error ? cause.message : String(cause))}`,
+				EXIT_UNAVAILABLE,
+			)
 		}
 	},
 }

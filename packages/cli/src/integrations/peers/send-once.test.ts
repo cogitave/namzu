@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PeerClient, readPeerRecords, udsPeerAddress, writePeerRecord } from '@namzu/sdk'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
 	type LivePeers,
@@ -104,10 +104,75 @@ it('does not see a terminal in another project', async () => {
 	})
 	expect(receipt.status).toBe('refused')
 	expect(await listProjectTerminals({ ...f.common, cwd: other })).toEqual([])
-	// The receiver also refuses a command-line record from elsewhere, if one reached it on the wire.
+})
+
+it('refuses, at the receiver, a command-line record from another project', async () => {
+	const f = await fixture()
+	const other = join(f.root, 'other')
+	mkdirSync(other)
+	const foreign = await openLivePeers({
+		...f.common,
+		cwd: other,
+		mode: () => 'auto',
+		owner: () => 0,
+		state: () => 'idle' as const,
+		ready: () => true,
+		available: () => {},
+		report: () => {},
+	})
+	opened.push(foreign)
 	const runtime = resolvePeerRuntime(f.home, {})
-	const [target] = readPeerRecords(runtime.sessionsDir)
-	expect(target).toBeDefined()
+	const records = readPeerRecords(runtime.sessionsDir)
+	const receiver = records.find((record) => record.sessionId === f.receiver.id)!
+	const live = records.find((record) => record.sessionId === foreign.id)!
+	// Same live endpoint, registered as a command-line sender in a project the receiver is not in.
+	writePeerRecord(runtime.sessionsDir, { ...live, kind: 'cli' })
+	expect(
+		await new PeerClient().deliver(receiver, {
+			id: 'cli-elsewhere',
+			text: 'outside project',
+			from: {
+				sessionId: live.sessionId,
+				ref: live.ref,
+				name: 'command line',
+				address: live.address,
+				mode: live.permissionMode,
+				kind: 'cli',
+			},
+		}),
+	).toMatchObject({
+		kind: 'responded',
+		status: 'refused',
+		reason: 'Only live terminals in the same project may send here.',
+	})
+	expect(f.receiver.pending).toBe(0)
+})
+
+it('removes its record when a signal ends the send', async () => {
+	const f = await fixture()
+	const runtime = resolvePeerRuntime(f.home, {})
+	const before = readPeerRecords(runtime.sessionsDir).length
+	const exited: string[] = []
+	const listenersBefore = process.listenerCount('SIGTERM')
+	const deliver = vi.spyOn(PeerClient.prototype, 'deliver').mockImplementation(async () => {
+		expect(readPeerRecords(runtime.sessionsDir).length).toBe(before + 1)
+		process.emit('SIGTERM')
+		expect(readPeerRecords(runtime.sessionsDir).length).toBe(before)
+		return { kind: 'unreachable' } as never
+	})
+	try {
+		await sendToTerminal({
+			...f.common,
+			target: f.receiver.ref,
+			message: 'hi',
+			mode: 'auto',
+			exitOnSignal: (signal) => exited.push(signal),
+		})
+	} finally {
+		deliver.mockRestore()
+	}
+	await vi.waitFor(() => expect(exited).toEqual(['SIGTERM']))
+	expect(process.listenerCount('SIGTERM')).toBe(listenersBefore)
 })
 
 it('lists live terminals without tokens or addresses', async () => {

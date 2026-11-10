@@ -92,6 +92,8 @@ export async function sendToTerminal(
 		readonly target: string
 		readonly message: string
 		readonly mode: string
+		/** What to do after cleanup when a signal ends the send; by default the signal is re-raised. */
+		readonly exitOnSignal?: (signal: NodeJS.Signals) => void
 	},
 ): Promise<PeerSendReceipt> {
 	const { message } = options
@@ -168,6 +170,31 @@ export async function sendToTerminal(
 		}),
 		onNotice: () => {},
 	})
+	const removeRecord = () => {
+		try {
+			removePeerRecord(runtime.sessionsDir, sessionId, uid)
+		} catch {
+			// A leftover record of a dead pid is cleaned by the next list.
+		}
+	}
+	// A signal skips `finally`; without this the record and socket outlive the send.
+	const signals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM']
+	const handlers = new Map<NodeJS.Signals, () => void>()
+	const detach = () => {
+		for (const [name, handler] of handlers) process.removeListener(name, handler)
+	}
+	for (const name of signals) {
+		const handler = () => {
+			detach()
+			removeRecord()
+			void endpoint
+				.close()
+				.catch(() => {})
+				.then(() => (options.exitOnSignal ?? ((sig) => process.kill(process.pid, sig)))(name))
+		}
+		handlers.set(name, handler)
+		process.once(name, handler)
+	}
 	try {
 		writePeerRecord(runtime.sessionsDir, {
 			v: 1,
@@ -205,11 +232,8 @@ export async function sendToTerminal(
 			id,
 		}
 	} finally {
+		detach()
 		await endpoint.close().catch(() => {})
-		try {
-			removePeerRecord(runtime.sessionsDir, sessionId, uid)
-		} catch {
-			// A leftover record of a dead pid is cleaned by the next list.
-		}
+		removeRecord()
 	}
 }
