@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-11
+
+- **Creation** [The delegation suite](../packages/evals/README.md#the-delegation-suite): `kernel/delegation` runs scripted delegation scenarios against the real agent manager and records child sessions, tokens, success and lost edits for each, with the baseline numbers on current main. Two cases pin what the kernel does today when two children write one file. `.changeset/delegation-eval-suite.md`.
+
 ## 2026-11-10
 
 - **Update** [Permission layers](cli/permission-layers.md#the-sandbox-block) and [Tool boundary](cli/tool-boundary.md#which-file-may-set-it): a project file, the local file and a profile declared in either may only tighten `sandbox` (`enabled` on, `allowEscape` and `allowUnattendedEscape` off, `requireIsolation` grows, `workspace` to `ephemeral`; `teardownTimeoutMs` is not theirs); a loosening that would have changed something is named once at launch with its file. The user file merges per key; the managed file replaces the whole block; `namzu exec` prints the notes on stderr; a profile is classed by where its file is, not its name. Before, a repository file replaced the whole block. `.changeset/sandbox-settings-stay-operators.md` (`@namzu/cli` minor).
