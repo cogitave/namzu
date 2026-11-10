@@ -219,7 +219,11 @@ describe('native binaries by target', () => {
 
 	it('names the C library of a Linux target, and keeps only the packages built for it', () => {
 		expect(lean.parseTarget('linux-x64')).toEqual({ platform: 'linux', arch: 'x64', libc: 'glibc' })
-		expect(lean.parseTarget('linux-arm64-musl')).toEqual({ platform: 'linux', arch: 'arm64', libc: 'musl' })
+		expect(lean.parseTarget('linux-arm64-musl')).toEqual({
+			platform: 'linux',
+			arch: 'arm64',
+			libc: 'musl',
+		})
 		expect(() => lean.parseTarget('win32-x64-musl')).toThrow(/--target/)
 		const glibc = lean.parseTarget('linux-x64')
 		const musl = lean.parseTarget('linux-x64-musl')
@@ -327,8 +331,17 @@ export const lazy = () => import('fakeext/sub.js')
 
 	it('fails when a kept @namzu package lazily imports something the tree lacks', async () => {
 		const root = staged()
-		pkg(root, '@namzu/inner', {}, { 'dist/index.js': "export const load = () => import('forgotten-dep')\n" })
-		const { failures } = await check.checkStagedCli({ cliDir: root, externals: ['fakeext'], target: HOST })
+		pkg(
+			root,
+			'@namzu/inner',
+			{},
+			{ 'dist/index.js': "export const load = () => import('forgotten-dep')\n" },
+		)
+		const { failures } = await check.checkStagedCli({
+			cliDir: root,
+			externals: ['fakeext'],
+			target: HOST,
+		})
 		expect(failures.join('\n')).toMatch(/@namzu\/inner imports forgotten-dep/)
 		pkg(root, 'forgotten-dep')
 		const again = await check.checkStagedCli({ cliDir: root, externals: ['fakeext'], target: HOST })
@@ -350,7 +363,9 @@ export const lazy = () => import('fakeext/sub.js')
 			requiredFiles: ['dist/analysis-host.js'],
 		})
 		expect(failures.join('\n')).toMatch(/dist\/analysis-host\.js is loaded by path/)
-		expect(check.STAGED_CLI_FILES).toContain('node_modules/@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.wasm')
+		expect(check.STAGED_CLI_FILES).toContain(
+			'node_modules/@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.wasm',
+		)
 	})
 
 	it('fails, naming the package, when one the bundle needs has been removed', async () => {
