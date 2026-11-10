@@ -19,7 +19,7 @@ describe('lookupContextWindow', () => {
 		expect(lookupContextWindow('claude-sonnet-5')).toBe(1_000_000)
 		expect(lookupContextWindow('claude-sonnet-5-5')).toBe(1_000_000)
 		expect(lookupContextWindow('claude-haiku-5-5')).toBe(1_000_000)
-		// The 4.5 Haiku stays at 200k: `claude-haiku-5` must not out-rank it.
+		// The 4.5 Haiku stays at 200k: the 5.x Haiku prefix must not out-rank it.
 		expect(lookupContextWindow('claude-haiku-4-5')).toBe(200_000)
 	})
 
