@@ -37,6 +37,8 @@ export {
 	isMemoryName,
 	slugifyMemoryName,
 } from './memory/naming.js'
+export { findSecretShape } from './memory/secrets.js'
+export type { SecretScanOptions, SecretShape } from './memory/secrets.js'
 export type { MemoryContentRejection } from './memory/naming.js'
 export { MemoryRevisionConflictError } from './memory/revision.js'
 

@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-10
+
+- **Update** [Memory](cli/memory.md#what-turns-record-on-their-own) and [Memory](sdk/memory.md#promotion-after-a-turn): turns record only durable preferences, under a neutral title, with search traces, raw errors, secrets and injected instructions dropped; derived records the screen would not write are archived once per store; `save_memory` and `update_memory` refuse secrets. Adds `MemoryPromoterOptions.acceptClaim` and `findSecretShape`. `.changeset/memory-screen.md` (`@namzu/sdk` minor, `@namzu/cli` minor).
+
 ## 2026-11-08
 
 - **Update** [Memory](cli/memory.md#seeing-which-memories-a-message-used) and [Memory recall](sdk/memory.md#optional-recall-before-a-model-step): a recall step that records memory now reports them with a persisted `memory_recalled` session event (id, name, type, title, who wrote it, updated); the TUI shows `Used N memories (ctrl+o to expand)` under the message, live and on resume. `.changeset/memory-recalled.md` (`@namzu/sdk` minor, `@namzu/cli` minor).

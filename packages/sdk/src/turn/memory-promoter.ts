@@ -55,17 +55,33 @@ export interface MemoryPromoterOptions {
 	 * that costs context every time it is retrieved.
 	 */
 	readonly maxPerCategory?: number
+	/**
+	 * Decide whether one extracted claim may become part of a record. Called
+	 * with the candidate's category (`userRequirements`, `decisions`,
+	 * `discoveries`, `failures` or `environment`) and the claim text. A claim
+	 * it rejects is left out; a record with no claim left is not written.
+	 * Defaults to keeping every claim.
+	 */
+	readonly acceptClaim?: (category: SessionMemoryCategory, text: string) => boolean
 }
+
+/** The claim categories of a {@link SessionMemoryCandidate}. */
+export type SessionMemoryCategory = (typeof KNOWLEDGE)[number][0]
 
 /** Everything the candidate knows, as `[heading, items]`, empties dropped. */
 function knowledge(
 	candidate: SessionMemoryCandidate,
 	cap: number,
+	accept: (category: SessionMemoryCategory, text: string) => boolean,
 ): readonly (readonly [string, readonly string[]])[] {
 	const out: (readonly [string, readonly string[]])[] = []
 	for (const [key, heading] of KNOWLEDGE) {
 		const items = [
-			...new Set((candidate[key] as readonly string[]).map((item) => item.trim()).filter(Boolean)),
+			...new Set(
+				(candidate[key] as readonly string[])
+					.map((item) => item.trim())
+					.filter((item) => item !== '' && accept(key, item)),
+			),
 		]
 		if (items.length > 0) out.push([heading, items.slice(0, cap)])
 	}
@@ -115,10 +131,11 @@ export function createMemoryPromoter(options: MemoryPromoterOptions): PromoteMem
 	const cap = options.maxPerCategory ?? 20
 	if (!Number.isSafeInteger(cap) || cap < 1)
 		throw new Error('maxPerCategory must be a positive integer')
+	const accept = options.acceptClaim ?? (() => true)
 	const tags = [SESSION_MEMORY_TAG, ...(options.tags ?? [])]
 
 	return async (candidate: SessionMemoryCandidate): Promise<void> => {
-		const sections = knowledge(candidate, cap)
+		const sections = knowledge(candidate, cap, accept)
 		// Nothing learned, nothing written. Not an empty record: a store full
 		// of rows describing runs that discovered nothing is a store whose
 		// search results are mostly noise, and the model reads that store.
