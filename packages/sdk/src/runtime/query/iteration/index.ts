@@ -81,7 +81,7 @@ import {
 } from '../request-rich-content.js'
 import { withoutVoidAssistantTurns } from '../request-void-turns.js'
 import { formatSteeringNote, isOperatorUserMessage } from '../steering.js'
-import { COMPLETION_AUDIT_MESSAGE, CompletionAudit } from '../turn/completion-audit.js'
+import { CompletionAudit } from '../turn/completion-audit.js'
 import { type OutcomeCall, OutcomeLedger, type PendingOutcomeCall } from '../turn/outcome-ledger.js'
 import {
 	FORCED_STEP_MESSAGE,
@@ -1964,17 +1964,15 @@ export class IterationOrchestrator {
 						// back to the model and the turn goes on.
 						// Files were changed and nothing checked them afterwards: ask once
 						// for a check before the turn is allowed to end.
-						if (
-							!forceFinalize &&
-							closingStopReason === undefined &&
-							this.completionAudit?.takeBlock()
-						) {
+						const auditReminder =
+							!forceFinalize && closingStopReason === undefined
+								? this.completionAudit?.takeReminder(() => this.outcomeLedger.peek())
+								: undefined
+						if (auditReminder !== undefined) {
 							this.ctx.log.info('Files changed and nothing checked them — asking for a check', {
 								[NAMZU.TURN_ID]: recorder.turnId,
 							})
-							recorder.pushMessage(
-								createRuntimeContextMessage(COMPLETION_AUDIT_MESSAGE, 'progress-nudge'),
-							)
+							recorder.pushMessage(createRuntimeContextMessage(auditReminder, 'progress-nudge'))
 							continue
 						}
 						if (!forceFinalize && closingStopReason === undefined) {
