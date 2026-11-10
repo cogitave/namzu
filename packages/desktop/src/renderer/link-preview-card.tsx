@@ -37,7 +37,13 @@ function SiteRow({ url, icon, siteName }: { url: string; icon?: string; siteName
 	return (
 		<div className="flex min-w-0 items-center gap-1.5">
 			{icon ? (
-				<img alt="" className="size-4 shrink-0 rounded-[4px]" height={16} src={icon} width={16} />
+				<img
+					alt=""
+					className="size-4 shrink-0 rounded-[var(--radius-chip)]"
+					height={16}
+					src={icon}
+					width={16}
+				/>
 			) : (
 				<Globe aria-hidden="true" className="shrink-0 text-muted-foreground" size={14} />
 			)}

@@ -65,6 +65,10 @@ After navigating to the other cached tab and back, Owner A keeps reader message 
 
 The earlier four-scenario motion receipt and its images remain unchanged. That matrix ran against its recorded earlier Transcript component. The restoration change left the CSS, motion hook and Collapsible source bytes unchanged; its focused receipt did **not** claim a complete motion rerun. The subsequent [fixed-slot hover proof](HOVER_PROOF.md) checks hover and disclosure motion against its own source fingerprints, while the separate persistence receipt above checks cached tabs and held history reload.
 
+## Message actions reveal (2026-11-10)
+
+The row under a message (`.message-footer`: clock, copy, retry) no longer shows the instant the pointer enters. It waits a 100 ms hover-intent beat, then fades in over 120 ms (`--dur-quick`); it leaves in 60 ms with no wait (`--dur-instant`), and keyboard focus or a pressed or copying action shows it at once. `motion-proof.mjs` was widened to allow either a 160 ms clock fade or this 120 ms fade with a 100 ms delay, because the footer behaviour changed on purpose. That is a statement of intent, not evidence: the proof is red at baseline on `origin/main` (a panel-midpoint assertion fails before it reaches the footer check) and has not been seen to pass for this change, so the new reveal is unverified by it. The message clock's own 160 ms opacity fade, the 260 ms panel and the fixed slots are unchanged. A sent message now enters with a 450 ms settle (`namzu-transcript-sent`); restored history, tab restores and replies keep the plain fade.
+
 ## Preserved evidence
 
 `artifacts/motion-before.json` preserves the first draft measurements: the 240 ms front-loaded frame was already about 88% open at its temporal midpoint, and hover dimensions changed immediately while only opacity animated. That early capture then stopped on a fixture-clock assertion because installing the virtual clock replaced the fixture's `Date.now` override; the error was in the proof harness, not a product timing claim.

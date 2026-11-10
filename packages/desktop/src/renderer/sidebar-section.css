@@ -16,7 +16,7 @@
 	font: inherit;
 	letter-spacing: inherit;
 	cursor: pointer;
-	border-radius: 4px;
+	border-radius: var(--radius-chip);
 }
 .sidebar-section-toggle:focus-visible {
 	outline: 2px solid transparent;
@@ -28,7 +28,7 @@
 	width: 10px;
 	height: 10px;
 	opacity: 0;
-	transition: opacity 120ms var(--motion-ease), transform var(--motion-duration) var(--motion-ease);
+	transition: opacity var(--dur-quick) var(--ease-out), transform var(--dur-base) var(--ease-out);
 }
 .sidebar-section-toggle:hover .sidebar-section-chevron,
 .sidebar-section-toggle:focus-visible .sidebar-section-chevron,
@@ -43,7 +43,7 @@
 	width: 6px;
 	height: 6px;
 	margin-left: 2px;
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	background: var(--primary);
 }
 .sidebar-section-body[hidden] {
@@ -54,11 +54,15 @@
 	height: 10px;
 	width: 96px;
 	margin: 12px 8px;
-	border-radius: 5px;
+	border-radius: var(--radius-chip);
 	background: var(--sidebar-row-active);
 	opacity: 0.7;
+	animation: var(--placeholder-reveal);
 }
 @media (prefers-reduced-motion: reduce) {
+	.sidebar-section-skeleton {
+		animation: var(--placeholder-reveal-still) !important;
+	}
 	.sidebar-section-chevron {
 		transition: none;
 	}

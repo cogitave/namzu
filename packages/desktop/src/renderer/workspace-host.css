@@ -33,7 +33,7 @@
 	margin: 8px 16px;
 	padding: 10px 14px;
 	border: 1px solid var(--border);
-	border-radius: 10px;
+	border-radius: var(--radius-control);
 	background: var(--popover);
 	color: var(--popover-foreground);
 	font-size: 12px;
@@ -54,7 +54,7 @@
 		/* A pane this narrow cannot hold both: the panel takes it, and "Hide panel" gives the chat back. */
 		width: 100%;
 		/* Above the composer (z 20), which would otherwise cover the bottom of an open file. */
-		z-index: 30;
+		z-index: var(--z-panel);
 		box-shadow: none;
 	}
 	.workspace[data-page="computer"][data-computer-chat="split"] {

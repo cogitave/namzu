@@ -85,7 +85,7 @@ function PopoverPopup({
 				collisionAvoidance={collisionAvoidance}
 				collisionPadding={collisionPadding}
 				className={cn(
-					'z-[130] h-(--positioner-height) w-(--positioner-width) max-w-[min(var(--available-width),calc(100vw-1rem))] transition-transform data-instant:transition-none',
+					'z-(--z-popover) h-(--positioner-height) w-(--positioner-width) max-w-[min(var(--available-width),calc(100vw-1rem))] transition-transform data-instant:transition-none',
 					positionerClassName,
 				)}
 				data-slot="popover-positioner"
@@ -97,8 +97,7 @@ function PopoverPopup({
 						'dropdown-glass relative flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) rounded-lg text-popover-foreground outline-none transition-[width,height,scale,opacity] duration-150 ease-(--motion-ease) motion-reduce:transition-none before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] has-data-[slot=calendar]:rounded-xl has-data-[slot=calendar]:before:rounded-[calc(var(--radius-xl)-1px)] data-starting-style:scale-98 data-starting-style:opacity-0 data-ending-style:scale-98 data-ending-style:opacity-0 dark:before:shadow-[0_-1px_--theme(--color-white/6%)]',
 						tooltipStyle &&
 							'w-fit text-balance rounded-md text-xs shadow-md/5 before:rounded-[calc(var(--radius-md)-1px)]',
-						!tooltipStyle &&
-							'shadow-[0_16px_40px_-18px_rgb(0_0_0/55%)] dark:shadow-[0_18px_44px_-18px_rgb(0_0_0/80%)]',
+						!tooltipStyle && 'shadow-[var(--shadow-popover)]',
 						width !== 'auto' && ['max-w-[calc(100vw-2rem)]', popoverPopupWidthClassName[width]],
 						className,
 					)}

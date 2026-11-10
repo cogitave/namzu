@@ -180,7 +180,7 @@
 	flex: none;
 	width: 8px;
 	height: 8px;
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	background: var(--primary);
 }
 .sidebar-thread-item[data-status="unread"] .conversation-row-title {
