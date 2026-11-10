@@ -194,3 +194,9 @@ describe('the OpenRouter path', () => {
 		})
 	})
 })
+
+it('rejects a typed OpenRouter model id that is not an id', () => {
+	for (const bad of ['has space', 'x'.repeat(129), 'a\u001b[2J', 'a"b']) {
+		expect(advanceDecisionFlow({ kind: 'openrouter' }, 'openrouter-model', bad).kind).toBe('retry')
+	}
+})

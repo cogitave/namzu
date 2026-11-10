@@ -2,6 +2,7 @@ import {
 	DEFAULT_OPENROUTER_DECISION_MODEL,
 	FALLBACK_OPENROUTER_DECISION_MODELS,
 	type OpenRouterKey,
+	isValidDecisionModelId,
 } from '../integrations/decision/openrouter.js'
 import { normalizeAzureEndpoint, parseAzurePaste } from '../integrations/decision/paste.js'
 import type { SetupDraft } from '../integrations/decision/setup.js'
@@ -209,9 +210,16 @@ export function advanceDecisionFlow(
 				? { kind: 'list-models', draft: { ...draft, key: text } }
 				: { kind: 'retry', draft, step, notice: 'A key is required. Press Esc to cancel.' }
 		case 'openrouter-model':
-			return text
-				? { kind: 'done', draft: { ...draft, model: text } }
-				: { kind: 'retry', draft, step, notice: 'A model is required. Press Esc to cancel.' }
+			if (!text)
+				return { kind: 'retry', draft, step, notice: 'A model is required. Press Esc to cancel.' }
+			if (!isValidDecisionModelId(text))
+				return {
+					kind: 'retry',
+					draft,
+					step,
+					notice: 'That is not a model id. Use letters, digits and . - _ : / only.',
+				}
+			return { kind: 'done', draft: { ...draft, model: text } }
 		case 'azure-paste': {
 			const parsed = parseAzurePaste(text)
 			if (!parsed.endpoint && !parsed.key) {

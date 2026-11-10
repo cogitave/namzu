@@ -126,6 +126,7 @@ import {
 	decisionModelOptions,
 	fetchDecisionModels,
 	findOpenRouterKey,
+	isValidDecisionModelId,
 	openRouterKeyNotice,
 } from '../integrations/decision/openrouter.js'
 import {
@@ -8466,7 +8467,8 @@ function AppBody({
 		if (step === 'model') {
 			const draft = decisionDraftRef.current
 			decisionDraftRef.current = null
-			if (draft) void finishDecisionSetup({ ...draft, model: value })
+			if (draft && isValidDecisionModelId(value))
+				void finishDecisionSetup({ ...draft, model: value })
 			return
 		}
 		if (value === 'openrouter') {

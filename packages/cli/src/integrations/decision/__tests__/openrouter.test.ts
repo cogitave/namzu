@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { createDecisionModel } from '@namzu/decision'
+import { DecisionError, createDecisionModel } from '@namzu/decision'
 import { loadConfig } from '../../../config/load.js'
 import { writeStoredApiKey } from '../../providers/credential-store.js'
 import { connectionToBlock, readConnection } from '../connection.js'
@@ -11,6 +11,7 @@ import { buildDecisionProviderConfig } from '../model.js'
 import {
 	DEFAULT_OPENROUTER_DECISION_MODEL,
 	FALLBACK_OPENROUTER_DECISION_MODELS,
+	MAX_DECISION_LIST_BYTES,
 	OPENROUTER_DECISION_MODELS_URL,
 	OPENROUTER_DECISION_URL,
 	decisionModelOptions,
@@ -18,6 +19,7 @@ import {
 	findOpenRouterKey,
 	openRouterKeyNotice,
 	parseDecisionModels,
+	sanitizeServiceText,
 } from '../openrouter.js'
 import {
 	type TimeoutHandle,
@@ -161,7 +163,9 @@ describe('the key', () => {
 		writeStoredApiKey('openrouter', FAKE_KEY, home)
 		const found = findOpenRouterKey({}, home)
 		expect(found).toEqual({ source: 'store', key: FAKE_KEY })
-		expect(openRouterKeyNotice(found as never)).toBe('Using the OpenRouter key you already saved.')
+		expect(openRouterKeyNotice(found as never)).toBe(
+			'Using the OpenRouter key you already saved, and saving a copy for the decision model.',
+		)
 	})
 
 	it('is absent when neither has one, so the flow asks', () => {
@@ -322,5 +326,52 @@ describe('testing an OpenRouter model', () => {
 		)
 		expect(result).toEqual({ ok: false, reason: 'the service answered 400: bad json' })
 		expect(explainConnectionFailure(new Error('x'), false)).toContain('could not reach')
+	})
+})
+
+describe('untrusted list and server text', () => {
+	it('strips escapes and controls, caps names and ids, and caps rows', () => {
+		const rows = [
+			{ id: 'a/b', name: '\u001b[31mred\u001b[0m\u0007 name\nline' },
+			{ id: `x${'y'.repeat(200)}`, name: 'long id dropped' },
+			{ id: 'bad id\u001b[2J', name: 'escape id dropped' },
+			{ id: 'c/d', name: 'n'.repeat(500) },
+			...Array.from({ length: 400 }, (_, i) => ({ id: `m/${i}`, name: `m${i}` })),
+		]
+		const models = parseDecisionModels({ data: rows })
+		expect(models.length).toBeLessThanOrEqual(200)
+		expect(models.find((m) => m.id === 'a/b')?.name).toBe('red name line')
+		expect(models.some((m) => m.id.length > 128 || m.id.includes('\u001b'))).toBe(false)
+		expect(models.find((m) => m.id === 'c/d')?.name.length).toBe(80)
+	})
+
+	it('sanitizes and caps service text', () => {
+		expect(sanitizeServiceText('a\u001b]0;title\u0007b\u001b[1mc', 50)).toBe('abc')
+		expect(sanitizeServiceText('z'.repeat(300), 200)).toHaveLength(200)
+	})
+
+	it('refuses a list body past the size cap', async () => {
+		const big = `{"data":[],"pad":"${'x'.repeat(MAX_DECISION_LIST_BYTES + 10)}"}`
+		expect(
+			await fetchDecisionModels({ fetch: (async () => new Response(big)) as typeof fetch }),
+		).toEqual({ ok: false })
+	})
+
+	it('does not treat any 400 that mentions a question as a model that cannot be used', () => {
+		const other = new DecisionError('question text is too long', 400)
+		expect(explainConnectionFailure(other, false)).toBe(
+			'the service answered 400: question text is too long',
+		)
+		const shape = new DecisionError('question 0 has missing or null instructions or criteria', 400)
+		expect(explainConnectionFailure(shape, false)).toContain('does not work with')
+	})
+
+	it('sanitizes and caps the server message in the failure reason', () => {
+		const reason = explainConnectionFailure(
+			new DecisionError(`\u001b[2Jbad${'!'.repeat(500)}`, 400),
+			false,
+		)
+		expect(reason).not.toContain('\u001b')
+		expect(reason.length).toBeLessThan(260)
 	})
 })

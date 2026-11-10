@@ -10,7 +10,7 @@ import {
 	writeConnection,
 } from './connection.js'
 import { type DecisionBuildDeps, maybeCreateDecisionModel } from './model.js'
-import { OPENROUTER_DECISION_URL } from './openrouter.js'
+import { OPENROUTER_DECISION_URL, sanitizeServiceText } from './openrouter.js'
 
 /** What the person gave the connect flow; the paste and the form steps fill it in. */
 export interface SetupDraft {
@@ -62,21 +62,24 @@ export function isQuestionShapeError(error: unknown): boolean {
 	return (
 		error instanceof DecisionError &&
 		error.status === 400 &&
-		/instructions|criteria|question|shape/i.test(error.message)
+		/(missing|null|required).*(instructions|criteria)|(instructions|criteria).*(missing|null|required)/i.test(
+			error.message,
+		)
 	)
 }
 
 /** The plain reason a decision call failed, in words that say what to look at. */
 export function explainConnectionFailure(error: unknown, timedOut: boolean): string {
+	const said = (e: DecisionError) => sanitizeServiceText(e.message, 200)
 	if (timedOut) return `no answer within ${CONNECTION_TEST_TIMEOUT_MS / 1000} s`
 	if (error instanceof DecisionError) {
 		if (error.status === 401 || error.status === 403)
 			return `the service refused the key (${error.status})`
 		if (isQuestionShapeError(error))
-			return `the model does not work with Namzu's questions (${error.message})`
+			return `the model does not work with Namzu's questions (${said(error)})`
 		if (error.status === 404) return 'nothing answered at that address or deployment (404)'
-		if (error.status !== undefined) return `the service answered ${error.status}: ${error.message}`
-		return error.message
+		if (error.status !== undefined) return `the service answered ${error.status}: ${said(error)}`
+		return said(error)
 	}
 	const message = error instanceof Error ? error.message : String(error)
 	if (/no credential|empty|token|api.?key/i.test(message)) return `no credential: ${message}`

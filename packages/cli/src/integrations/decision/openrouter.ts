@@ -18,6 +18,27 @@ export const FALLBACK_OPENROUTER_DECISION_MODELS = [
 	'typesafe/jev-1.14',
 ] as const
 export const OPENROUTER_LIST_TIMEOUT_MS = 3000
+export const MAX_DECISION_MODEL_ROWS = 200
+export const MAX_DECISION_MODEL_ID = 128
+export const MAX_DECISION_MODEL_NAME = 80
+export const MAX_DECISION_LIST_BYTES = 1_000_000
+
+/** A model id as the service writes them: word characters, dots, dashes, colons and slashes. */
+export function isValidDecisionModelId(id: string): boolean {
+	return /^[\w.\-:/]{1,128}$/.test(id)
+}
+
+/** Text from a service made safe for the terminal: no control characters or escapes, capped. */
+export function sanitizeServiceText(text: string, max: number): string {
+	const clean = text
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping them is the point
+		.replace(/\u001b(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001b]*(?:\u0007|\u001b\\)?|[@-Z\\-_])?/g, '')
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping them is the point
+		.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ')
+		.replace(/ {2,}/g, ' ')
+		.trim()
+	return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean
+}
 
 export interface OpenRouterDecisionModel {
 	readonly id: string
@@ -37,14 +58,17 @@ export function parseDecisionModels(body: unknown): OpenRouterDecisionModel[] {
 	const data = isRecord(body) ? body.data : undefined
 	if (!Array.isArray(data)) return []
 	const out: OpenRouterDecisionModel[] = []
-	for (const item of data) {
-		if (!isRecord(item) || typeof item.id !== 'string' || item.id.length === 0) continue
+	for (const item of data.slice(0, MAX_DECISION_MODEL_ROWS)) {
+		if (!isRecord(item) || typeof item.id !== 'string' || !isValidDecisionModelId(item.id)) continue
 		const price = isRecord(item.pricing) ? Number(item.pricing.prompt) : Number.NaN
 		const hasPrice = Number.isFinite(price) && price >= 0
 		const context = Number(item.context_length)
 		out.push({
 			id: item.id,
-			name: typeof item.name === 'string' && item.name ? item.name : item.id,
+			name:
+				(typeof item.name === 'string'
+					? sanitizeServiceText(item.name, MAX_DECISION_MODEL_NAME)
+					: '') || item.id,
 			...(hasPrice ? { pricePerMillion: price * 1_000_000 } : {}),
 			free: hasPrice && price === 0,
 			...(Number.isFinite(context) && context > 0 ? { contextLength: context } : {}),
@@ -75,6 +99,31 @@ function realTimeout(ms: number) {
 	return { signal: controller.signal, clear: () => clearTimeout(timer) }
 }
 
+/** The body as text, or undefined when it runs past `max` bytes; the read stops at the cap. */
+async function readCapped(res: Response, max: number): Promise<string | undefined> {
+	const declared = Number(res.headers?.get('content-length'))
+	if (Number.isFinite(declared) && declared > max) return undefined
+	if (!res.body) {
+		const text = await res.text()
+		return text.length > max ? undefined : text
+	}
+	const reader = res.body.getReader()
+	const decoder = new TextDecoder()
+	let total = 0
+	let text = ''
+	for (;;) {
+		const { done, value } = await reader.read()
+		if (done) break
+		total += value.byteLength
+		if (total > max) {
+			await reader.cancel().catch(() => {})
+			return undefined
+		}
+		text += decoder.decode(value, { stream: true })
+	}
+	return text + decoder.decode()
+}
+
 /** Fetch the decision models live, with a short deadline. Any failure, or an empty list, is `ok: false`. */
 export async function fetchDecisionModels(deps: ListDeps = {}): Promise<DecisionModelList> {
 	const timeout = (deps.startTimeout ?? realTimeout)(OPENROUTER_LIST_TIMEOUT_MS)
@@ -83,7 +132,9 @@ export async function fetchDecisionModels(deps: ListDeps = {}): Promise<Decision
 			signal: timeout.signal,
 		})
 		if (!res.ok) return { ok: false }
-		const models = parseDecisionModels(await res.json())
+		const text = await readCapped(res, MAX_DECISION_LIST_BYTES)
+		if (text === undefined) return { ok: false }
+		const models = parseDecisionModels(JSON.parse(text))
 		return models.length > 0 ? { ok: true, models } : { ok: false }
 	} catch {
 		return { ok: false }
@@ -156,5 +207,5 @@ export function findOpenRouterKey(
 export function openRouterKeyNotice(found: OpenRouterKey): string {
 	return found.source === 'env'
 		? `Using your OpenRouter key from ${found.env}.`
-		: 'Using the OpenRouter key you already saved.'
+		: 'Using the OpenRouter key you already saved, and saving a copy for the decision model.'
 }
