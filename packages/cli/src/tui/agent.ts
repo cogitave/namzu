@@ -291,6 +291,7 @@ import {
 } from '../integrations/decision/model.js'
 import { createPickAdvisor } from '../integrations/decision/pick.js'
 import { createDecisionPoints } from '../integrations/decision/points.js'
+import { createRouteHistory, failedOnItsModel } from '../integrations/decision/route-history.js'
 import { type RouteTier, routeModel } from '../integrations/decision/routing.js'
 import {
 	type LearningGeneratorConfig,
@@ -3277,6 +3278,10 @@ export async function createAgentSession(
 	let turnRouteTarget: { readonly provider: string; readonly model: string } | undefined
 	// What `model: auto` decided for the latest top-level turn, for the status line.
 	let lastAutoRoute: AutoRouteSummary | undefined
+	// The tier each conversation's last auto-routed turn ran on and whether it
+	// failed there, so the next turn can climb one tier. Per conversation: a
+	// session object outlives the conversation it shows.
+	const routeHistory = createRouteHistory()
 	const providerForSession = (sessionId: SessionId): LLMProvider =>
 		primary.id === 'zen' || primary.id === 'zen-go'
 			? constructProvider(primary.id, det, model, { sessionId })
@@ -5216,6 +5221,9 @@ export async function createAgentSession(
 		signal: AbortSignal,
 	): Promise<{ readonly provider: LLMProvider; readonly model: string } | undefined> => {
 		const routing = options.routing
+		// Read once, before anything can throw: the flag escalates this turn or
+		// nothing, and a pinned model or auto turned off never leaves it behind.
+		const failedOn = routeHistory.take(sessionId)
 		if (!routing) return undefined
 		try {
 			const routed = await routeModel(
@@ -5229,6 +5237,7 @@ export async function createAgentSession(
 						// tier out.
 						usesComputerUse: options.enableComputerUse === true && conversationDrovePc(messages),
 						usesPal: false,
+						...(failedOn ? { previousTurnFailedOnTier: failedOn } : {}),
 					},
 					signal,
 				},
@@ -5245,6 +5254,7 @@ export async function createAgentSession(
 				},
 			)
 			lastAutoRoute = { tier: routed.tier, model: routed.model }
+			routeHistory.ran(sessionId, routed.tier)
 			if (routed.provider === primary.id && routed.model === model) {
 				turnRouteTarget = undefined
 				return undefined
@@ -5260,6 +5270,7 @@ export async function createAgentSession(
 			signal.throwIfAborted()
 			turnRouteTarget = undefined
 			lastAutoRoute = undefined
+			routeHistory.forget(sessionId)
 			cliLogger().warn(
 				'auto model routing failed, using the session model',
 				exceptionAttributes(err),
@@ -5306,6 +5317,9 @@ export async function createAgentSession(
 		readonly model?: ResumePausedParams['model']
 	}): Promise<ResumeOutcome> =>
 		operations.promise(signal, async (ownedSignal) => {
+			// A resumed turn runs where it was pinned, not where routing chose, so
+			// a failure on it says nothing about the tier the last routed turn used.
+			routeHistory.forget(entry.sessionId)
 			const selectTaskStore = beginTaskStoreReadout()
 			// The turn's own limits, as its `turn_started` recorded them.
 			const configuredLimits = resolveTurnGuards(options.limits)
@@ -6972,6 +6986,12 @@ export async function createAgentSession(
 									: {}),
 								...(codeAnalysis ? { codeAnalysis } : {}),
 							})) {
+								if (event.kind === 'done' || event.kind === 'error') {
+									routeHistory.settle(
+										turnScope.sessionId,
+										failedOnItsModel(event, signal?.aborted === true),
+									)
+								}
 								yield event
 								if (
 									event.kind === 'done' &&

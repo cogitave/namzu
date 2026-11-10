@@ -56,6 +56,7 @@ import { applyCachedAttachmentPreviewEviction } from './attachment-preview-event
 import { ChangesPanel } from './changes-panel.js'
 import { type ChangeTotals, changeTotals } from './changes-totals.js'
 import { ChatErrorBanner } from './chat-error-banner.js'
+import { applyClosedTabEvent } from './closed-tab.js'
 import { CommandPalette, type CommandPaletteItem } from './command-palette.js'
 import { historyEntries } from './composer-history.js'
 import {
@@ -2203,10 +2204,11 @@ export function App({
 				read?.sessionId !== id &&
 				activeSession.current !== id
 			) {
-				if (event.kind === 'state')
+				// Only whether it runs and how full it is; a finished turn clears its compaction note.
+				if (event.kind === 'state' || event.kind === 'usage')
 					setThreads((all) => ({
 						...all,
-						[id]: { ...(all[id] ?? emptyThread()), running: event.running },
+						[id]: applyClosedTabEvent(all[id] ?? emptyThread(), event),
 					}))
 				return
 			}
@@ -7194,6 +7196,7 @@ export function App({
 								history={composerHistory}
 								liveInputSupported={thread.liveInputSupported && !palConversation}
 								sending={sending[draftOwner] ?? false}
+								usage={palConversation ? undefined : thread.usage}
 								shells={
 									// The open Activity panel's own list is the freshest count; otherwise the observer's.
 									detailsWork.state === 'known' && detailsWork.running > 0

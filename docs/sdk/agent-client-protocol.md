@@ -154,6 +154,8 @@ such a call, so a host sets the mark from the same rule the kernel uses: true fo
 asked. A host adds the screen consent itself, since that belongs to the request
 (`ToolReviewRequest.screenConsent`) and not to one call.
 
+The shared mapping to `session/update` deliberately carries no token usage and no compaction (`toAcpSessionUpdate` answers `null` for `token_usage_updated` and `compaction_completed`). The Namzu desktop host announces them on its own `namzu/session/usage` notification instead; see [Usage and compaction notices](../cli/desktop.md#usage-and-compaction-notices).
+
 ## Negotiated planning notifications
 
 An embedding host can set `AcpServerOptions.supportsTaskNotifications: true`

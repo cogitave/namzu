@@ -338,7 +338,8 @@
 	color: transparent;
 	animation: working-shine 2.2s linear infinite;
 }
-.normal-transcript .stage-line[data-stage-source="waiting"] .stage-text {
+.normal-transcript .stage-line[data-stage-source="waiting"] .stage-text,
+.normal-transcript .stage-line[data-stage-source="compacted"] .stage-text {
 	background: none;
 	color: var(--muted-foreground);
 	animation: none;

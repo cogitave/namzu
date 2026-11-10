@@ -2826,6 +2826,15 @@ design. These proofs use isolated events rather than native/model actions. The
 checks constant parent, neighbour and scroll geometry through hover, reversal
 and focus in four viewport and motion settings, with the [source-bound receipt](../../research/transcript-motion-20261007/artifacts/hover-fixed-layout-564aaf64-ce37969e.json).
 
+### Context ring and compaction
+
+Desktop receives the host's [usage and compaction notices](#usage-and-compaction-notices) (`shared/usage-protocol.ts` reads them; anything that does not read, or that names a conversation this connection does not own or a Pal conversation, is dropped) and keeps the last picture per conversation in the thread (`ThreadState.usage`, `ThreadState.compaction`). Usage outlives a closed tab, so the ring is right when the conversation is opened again.
+
+- **Context ring.** A small ring at the left of the composer's send controls (`renderer/context-ring-view.tsx`, model in `context-ring.ts`) fills with the share of the window the conversation holds. It is a focusable control named "Context 6% full. 12.4k of 200k tokens." and its tooltip says the same in words, adds "estimated" when the host did not get a count from the provider, adds "Cost so far: $0.42" only when the engine priced every token, and from 75% (amber) and 90% (red) adds that older messages may be summarised to make room. It is **not drawn at all** until the engine has reported both a context size and a window (a custom model with no known window, or an engine that reports nothing); there is no placeholder. A figure the engine stops reporting disappears at the next notice.
+- **Compacting line.** From the moment a pass starts the live status line reads "Compacting the conversation…" (shimmering, still under reduced motion), and when it finishes it reads "Conversation compacted · 150k to 40k tokens" without a shimmer until the turn goes on, when the next streamed update replaces it. A pass that changed nothing, the end of the turn and the next prompt clear it at once. A decision wait still takes the line first.
+
+The ring and the line use the design tokens (`--radius-pill`, `--dur-quick`, `--dur-base`, `--focus-ring`, `--warning`, `--error`) and no animation under `prefers-reduced-motion`.
+
 ### Action rows
 
 The work list sits flush with its heading (no indent, no left rail); finished rows are a step
@@ -3978,6 +3987,22 @@ One view holds the keyboard at a time. `attach` with `writer: true` takes it whe
 **Starting the bundled CLI in a terminal on Windows.** The Electron executable is a Windows-subsystem program, and on a pseudo-console it behaves differently from `node.exe`: started directly as the terminal's program (`command` = the executable, `ELECTRON_RUN_AS_NODE=1`) it exits 0 and prints nothing; started through `cmd.exe` (`command: "cmd.exe"`, `args: ["/d", "/c", <executable>, <script>, …]`, no nested quoting) it prints, `process.stdout.isTTY` is true, but `process.stdin` is not the console, so the interactive screen could not read a key. The interactive screen therefore opens the console input device (`\\.\CONIN$`) as its input when, and only when, it runs on Windows with a terminal for output and none for input (`src/tui/console-input.ts`); every other launch keeps `process.stdin`. Measured on Windows 10 with Electron 44.5.1 against the staged CLI runtime: a terminal started as `cmd.exe /d /c electron.exe tui-entry.mjs --provider … --model … --effort high --permission-mode plan` showed the chosen model, `Plan (read-only)` and the effort notice, and accepted typed keys through `namzu/terminal/write`. Turkish text round-trips through `cmd.exe` after `chcp 65001` (`ğüşöçı İ` echoed intact); Windows PowerShell 5.1 drops a typed `İ`, so the default shell is `pwsh.exe` when installed, else `cmd.exe` with `chcp 65001`.
 
 `node-pty@1.1.0` (N-API, no rebuild for Electron) is an **optional** dependency of `@namzu/cli`. It ships Windows and macOS binaries and compiles on Linux at install time; if that fails, everything else works and `namzu/terminal/status` reports `available: false`. Requests are validated on the host (`packages/cli/src/terminal/protocol.ts`: closed shapes, bounded sizes, a `__proto__` environment name is data) and every answer and notification is validated again by the Desktop (`src/shared/terminal-protocol.ts`); a test fails when the two files' method names or limits drift. The host's terminal command and the Desktop's Namzu engine terminals share one recipe: the bundled CLI is the program (`process.execPath` with `ELECTRON_RUN_AS_NODE=1`), with the [launch flags](launch-flags.md) for the composer's choices.
+
+### Usage and compaction notices
+
+The shared protocol bridge says nothing about how full a conversation is or that it is being compacted, and that stays so for every other client. Under `--desktop` only, the host announces both itself as one `namzu/session/usage` notification per conversation (`src/commands/desktop-usage-feed.ts`). It is sent without any request and needs no negotiation: a client that does not know it ignores it.
+
+| Field | Meaning |
+| --- | --- |
+| `sessionId` | the conversation, as the client opened it |
+| `contextTokens` | size of the conversation the model is sent now, in tokens; falls after a compaction |
+| `contextWindowTokens` | the most the model accepts; absent when the engine resolved none |
+| `contextMeasuredBy` | `provider` when counted by the provider, `estimate` otherwise |
+| `cost` | cost so far in US dollars; present only when every token was priced and the total is above zero |
+| `compaction` | `started` when a pass begins, `finished` when it ends (also when clearing old tool results made room), `failed` when it changed nothing |
+| `tokensBefore`, `tokensAfter` | the size the pass started from and ended at, when known |
+
+A field the engine did not report is left out, never sent as zero. Usage notices are coalesced to at most one per conversation every 400 ms (the first goes at once, a burst ends with one carrying the latest numbers); compaction notices are never delayed. Compaction that runs while no turn is open (the idle pass) is not announced.
 
 ### Working-tree changes
 

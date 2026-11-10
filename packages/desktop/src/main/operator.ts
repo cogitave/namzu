@@ -77,6 +77,7 @@ import {
 import { readTaskUpdate, readTasks } from '../shared/task-protocol.js'
 import { readUndoPreview, readUndoResult, readUndoStatus } from '../shared/undo-protocol.js'
 import type { UpdateBlocker } from '../shared/update-protocol.js'
+import { USAGE_NOTIFICATION, readUsageNotice } from '../shared/usage-protocol.js'
 import { AttachmentPreviewBudget } from './attachment-preview-budget.js'
 import {
 	type AdmittedAttachment,
@@ -5680,6 +5681,18 @@ export class Operator {
 					...(params.deleted ? { deleted: true } : {}),
 				})
 			}
+		} else if (frame.method === USAGE_NOTIFICATION) {
+			// How full a conversation is. A notice that does not read, or names a conversation this
+			// connection does not own, is dropped; a Pal's conversation has no ring to feed.
+			const notice = readUsageNotice(frame.params)
+			const session = notice ? this.runtimeSession(project, notice.sessionId) : undefined
+			if (
+				notice &&
+				session &&
+				!session.view.palId &&
+				(!session.view.harness || session.view.harness === 'namzu')
+			)
+				this.emit({ ...notice, kind: 'usage', sessionId: session.view.id })
 		} else if (frame.method === 'session/update') {
 			const params = frame.params as AcpSessionUpdateNotification
 			const session = this.runtimeSession(project, params?.sessionId)
