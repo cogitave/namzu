@@ -25,7 +25,7 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { basename, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
 	RENAMED_PLUGIN_HOOK_EVENTS,
 	SHELL_HOOK_EVENTS,
@@ -95,6 +95,7 @@ import type {
 	ProfilesConfig,
 	RoutingConfig,
 	RoutingTarget,
+	SandboxConfig,
 	SessionExportRedactorName,
 	TerminalNotificationEvent,
 	TuiConfig,
@@ -185,7 +186,13 @@ export type ConfigSource =
 	 * asks here. "profile" does not say which file to open, and the path does
 	 * not say which of that file's profiles is in force.
 	 */
-	| { readonly kind: 'profile'; readonly name: string; readonly path: string }
+	| {
+			readonly kind: 'profile'
+			readonly name: string
+			readonly path: string
+			/** Set when the declaring file is the repository's (project or local file). */
+			readonly repository?: true
+	  }
 	| { readonly kind: 'env'; readonly variable: string }
 	/** A machine-wide file that wins the cascade; see `MANAGED_CONFIG_PATH`. */
 	| { readonly kind: 'managed'; readonly path: string }
@@ -351,6 +358,7 @@ function resolveConfigWithProvenance(
 			[managedCfg, managedPath],
 		],
 		mode.deferUnknownProfile,
+		new Set([projectPath, localPath]),
 	)
 
 	const merged = mergeConfigs(
@@ -495,6 +503,7 @@ function profileLayers(
 	name: string | undefined,
 	files: readonly (readonly [MutableConfig, string])[],
 	deferUnknown = false,
+	repositoryPaths: ReadonlySet<string> = new Set(),
 ): ConfigLayer[] {
 	if (name === undefined || name === '') return []
 
@@ -512,7 +521,14 @@ function profileLayers(
 		// admits inherited `toString`, `constructor`, and `__proto__` as profiles
 		// a file never declared.
 		if (selected === undefined) continue
-		layers.push(constantLayer(selected as MutableConfig, { kind: 'profile', name, path }))
+		layers.push(
+			constantLayer(selected as MutableConfig, {
+				kind: 'profile',
+				name,
+				path,
+				...(repositoryPaths.has(path) ? { repository: true as const } : {}),
+			}),
+		)
 	}
 
 	if (layers.length === 0) {
@@ -2674,6 +2690,23 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 				provenance[key] = layer.sourceFor(key)
 				continue
 			}
+			if (key === 'sandbox' && layer.config.sandbox) {
+				// Merged per key; a project layer only tightens. See `mergeSandboxConfig`.
+				const source = layer.sourceFor(key)
+				// The managed file is the policy and says all of it: it replaces the
+				// block, so a key it leaves out is not carried over from a user's file.
+				out.sandbox =
+					source.kind === 'managed'
+						? { ...layer.config.sandbox }
+						: mergeSandboxConfig(
+								out.sandbox,
+								layer.config.sandbox,
+								isProjectSource(source),
+								describeSource(source),
+							)
+				provenance[key] = source
+				continue
+			}
 			if (key === 'memory' && layer.config.memory) {
 				// Merged per key, so a layer that sets `recall` does not unset a
 				// `select` an earlier one chose.
@@ -2938,13 +2971,67 @@ export function mergeUpdatesConfig(
 	}
 }
 
+/**
+ * `sandbox` from one more layer, over what the layers below it said.
+ *
+ * The sandbox is the operator's. A user or environment layer sets each key it
+ * names and keeps the rest of what is below (the managed file does not come
+ * through here: it replaces the block, so what it leaves out is not inherited) (`requireIsolation` is
+ * replaced, as any list is). A project or local file, or a profile declared in
+ * one, may only tighten:
+ *
+ * - `enabled` goes on, never off.
+ * - `allowEscape` and `allowUnattendedEscape` go off, never on.
+ * - `requireIsolation` only grows: what a lower layer required stays required.
+ * - `workspace` may become `ephemeral` (a disposable tree confines more),
+ *   never `working-directory` over an `ephemeral` below.
+ * - `teardownTimeoutMs` is not the repository's to set: a short wait can
+ *   abandon a sandbox still running, and `0` waits forever.
+ *
+ * Each loosening that was dropped and would have changed something is told
+ * once at launch, naming the key and the file.
+ */
+export function mergeSandboxConfig(
+	below: SandboxConfig | undefined,
+	layer: SandboxConfig,
+	fromProject: boolean,
+	where: string,
+): SandboxConfig {
+	if (!fromProject) return { ...below, ...layer }
+	const note = (key: string, written: string, what: string) =>
+		configWarnings.add(
+			`sandbox.${key}: ${written} in ${where} is ignored; ${what} is set in your own config file (~/.namzu/config.yaml).`,
+		)
+	const out: { -readonly [K in keyof SandboxConfig]?: SandboxConfig[K] } = { ...below }
+	const wasOn =
+		below?.enabled ??
+		((below?.requireIsolation?.length ?? 0) > 0 || below?.workspace === 'ephemeral')
+	if (layer.enabled === true) out.enabled = true
+	else if (layer.enabled === false && wasOn) note('enabled', 'false', 'turning the sandbox off')
+	if (layer.allowEscape === false) out.allowEscape = false
+	else if (layer.allowEscape === true && below?.allowEscape === false)
+		note('allowEscape', 'true', 'letting a command leave the sandbox')
+	if (layer.allowUnattendedEscape === false) out.allowUnattendedEscape = false
+	else if (layer.allowUnattendedEscape === true && below?.allowUnattendedEscape !== true)
+		note('allowUnattendedEscape', 'true', 'leaving the sandbox without asking')
+	if (layer.requireIsolation !== undefined) {
+		out.requireIsolation = [
+			...new Set([...(below?.requireIsolation ?? []), ...layer.requireIsolation]),
+		]
+	}
+	if (layer.workspace === 'ephemeral') out.workspace = 'ephemeral'
+	else if (layer.workspace === 'working-directory' && below?.workspace === 'ephemeral')
+		note('workspace', '"working-directory"', 'the sandbox workspace')
+	if (layer.teardownTimeoutMs !== undefined && layer.teardownTimeoutMs !== below?.teardownTimeoutMs)
+		note('teardownTimeoutMs', String(layer.teardownTimeoutMs), 'the sandbox cleanup time limit')
+	return out
+}
+
 function isProjectSource(source: ConfigSource): boolean {
 	return (
 		source.kind === 'project-file' ||
 		source.kind === 'local-file' ||
-		(source.kind === 'profile' &&
-			(basename(source.path) === 'namzu.config.json' ||
-				basename(source.path) === LOCAL_CONFIG_FILE))
+		(source.kind === 'profile' && source.repository === true)
 	)
 }
 

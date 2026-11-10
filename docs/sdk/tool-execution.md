@@ -46,6 +46,13 @@ do not rerun input validation. Only actual schema mismatches carry trusted
 `inputFailure: 'schema_validation'`; cancellation and thrown validator failures
 are not schema correction evidence.
 
+A schema mismatch reaches the model as `Validation failed for "<tool>": <sentences>. Required: ...`, where each
+issue is one plain sentence naming the field the way the call wrote it (`edits[0].old_string`), not zod's own wording:
+an empty string is `"x" must not be empty; send the text itself`, a short list says how many entries it needs and
+that the field may be left out, a missing field says how to send it, a wrong type says what it was, and an unknown
+field is named with the fix to remove it. An issue of another kind keeps its own message. A tool's own refinement may
+write its message to name the next call to send (`edit` does, for a call with both shapes).
+
 ## Observing background output
 
 `BackgroundJobRegistry.waitForOutput(id, options)` observes a literal condition
