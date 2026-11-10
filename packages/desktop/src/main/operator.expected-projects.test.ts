@@ -196,3 +196,35 @@ it('lists a folder that turns missing where it was', async () => {
 	owner.settleExpectedProject(path)
 	expect(owner.projectsForWindow().map((item) => item.id)).toEqual(['project', 'pal-project'])
 })
+
+it('answers the startup reads of a project that is waiting, missing or failed to open, without throwing', async () => {
+	const { owner, path } = await setup()
+	const owned = 'project:project'
+	owner.expectProjects([path])
+	// Waiting its turn in the restore: the window may already be asking.
+	await expect(owner.providers('project')).resolves.toEqual({ available: [], selected: null })
+	await expect(owner.harnesses('project')).resolves.toMatchObject({ engines: [] })
+	expect(owner.attachments(owned)).toEqual([])
+	expect(owner.draftSettings(owned)).toEqual({})
+	// Failed to open although the folder is there.
+	owner.settleExpectedProject(path)
+	await expect(owner.providers('project')).resolves.toEqual({ available: [], selected: null })
+	expect(owner.attachments(owned)).toEqual([])
+	// Gone.
+	await rm(path, { recursive: true, force: true })
+	owner.expectProjects([path])
+	owner.settleExpectedProject(path)
+	await expect(owner.harnesses('project')).resolves.toMatchObject({ engines: [] })
+	// A project nobody saved is still a real error.
+	await expect(owner.providers('nobody')).rejects.toThrow()
+})
+
+it('forgets a failed-to-open entry once the same project connects', async () => {
+	const { owner, path } = await setup()
+	const unopened = (owner as unknown as { unopenedProjects: Map<string, unknown> }).unopenedProjects
+	owner.expectProjects([path])
+	owner.settleExpectedProject(path)
+	expect(unopened.has('project')).toBe(true)
+	await owner.openProject(path)
+	expect(unopened.has('project')).toBe(false)
+})

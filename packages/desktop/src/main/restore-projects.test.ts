@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { desktopFailure } from './diagnostics.js'
 import { RESTORE_CONCURRENCY, restoreProjects } from './restore-projects.js'
 
 function gates(paths: string[]) {
@@ -107,5 +108,57 @@ describe('restoreProjects', () => {
 			settle: () => undefined,
 			failed: () => undefined,
 		})
+	})
+})
+
+describe('restoreProjects when a folder cannot be opened', () => {
+	it('names the reason, keeps going and settles every path', async () => {
+		const settled: string[] = []
+		const failures: unknown[] = []
+		await restoreProjects({
+			paths: ['/a', '/gone', '/b'],
+			limit: 1,
+			stopped: () => false,
+			open: async (path) => {
+				if (path === '/gone')
+					throw new Error('That folder no longer exists. Choose another folder.')
+			},
+			settle: (path) => settled.push(path),
+			failed: (error) => failures.push(error),
+		})
+		expect(settled).toEqual(['/a', '/gone', '/b'])
+		expect(failures.map((error) => desktopFailure(error).reason)).toEqual([
+			'project-folder-missing',
+		])
+	})
+
+	it('keeps restoring when recording the failure itself throws', async () => {
+		const settled: string[] = []
+		await restoreProjects({
+			paths: ['/a', '/b'],
+			limit: 1,
+			stopped: () => false,
+			open: async () => {
+				throw new Error('boom')
+			},
+			settle: (path) => settled.push(path),
+			failed: () => {
+				throw new Error('sink broken')
+			},
+		})
+		expect(settled).toEqual(['/a', '/b'])
+	})
+
+	it('names why a saved folder could not be opened, so a person can act on it', () => {
+		const reason = (message: string) => desktopFailure(new Error(message)).reason
+		expect(reason('This folder no longer exists: /x')).toBe('project-folder-missing')
+		expect(reason('Namzu can’t open that folder. Check that you have access to it.')).toBe(
+			'project-folder-unreadable',
+		)
+		expect(reason('Namzu could not open this folder.')).toBe('project-folder-unreadable')
+		expect(reason('That is a file, not a folder. Choose a folder.')).toBe(
+			'project-folder-not-a-directory',
+		)
+		expect(reason('Namzu is closing.')).toBe('app-closing')
 	})
 })
