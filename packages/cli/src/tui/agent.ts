@@ -697,6 +697,8 @@ export type AgentEvent =
 			 * long it lives. Absent means unknown; nothing may assume a lifetime.
 			 */
 			readonly cache?: { readonly ttlMs: number; readonly touched: boolean }
+			/** Why the provider says the cache prefix was not read, when it explains one. */
+			readonly cacheMiss?: { readonly reason: string; readonly missedTokens?: number }
 			/**
 			 * The kernel's cost record, carried whole.
 			 *
@@ -8809,6 +8811,7 @@ export function toAgentEvent(
 				totalTokens: event.usage.totalTokens,
 				outputTokens: event.usage.completionTokens,
 				...(event.cache ? { cache: event.cache } : {}),
+				...(event.cacheMiss ? { cacheMiss: event.cacheMiss } : {}),
 				...(event.budget ? { budget: event.budget } : {}),
 				cost: event.cost,
 				...(event.contextTokens !== undefined ? { contextTokens: event.contextTokens } : {}),

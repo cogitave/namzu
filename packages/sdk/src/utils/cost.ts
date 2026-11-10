@@ -48,6 +48,12 @@ export interface ModelPricing {
 	 * charged at the standard rate, which would under-report it.
 	 */
 	fastMultiplier?: number
+	/**
+	 * What the vendor charges per 1,000 hosted web searches
+	 * (`TokenUsage.webSearchRequests`). Absent means no published search price:
+	 * searches are then not part of the total, as before this field existed.
+	 */
+	webSearchCostPer1000?: number
 }
 
 export { ZERO_COST }
@@ -61,6 +67,26 @@ interface Priced {
 }
 
 function priceUsage(usage: TokenUsage, pricing: ModelPricing): Priced {
+	const tokens = priceTokens(usage, pricing)
+	const searches = usage.webSearchRequests ?? 0
+	if (searches === 0 || pricing.webSearchCostPer1000 === undefined) return tokens
+	// Per request, so no speed or tier multiple applies to it.
+	return { ...tokens, cost: tokens.cost + (searches / 1000) * pricing.webSearchCostPer1000 }
+}
+
+/**
+ * Tiers with a published per-token price (anything but `priority` and `batch`; a compatible endpoint may report `default` or `auto`). The vendor lists none for `priority`
+ * (a capacity commitment) or `batch` (a different endpoint), so tokens served
+ * on one are unpriced rather than charged at the standard rate.
+ */
+function isStandardTier(tier: string | undefined): boolean {
+	return tier !== 'priority' && tier !== 'batch'
+}
+
+function priceTokens(usage: TokenUsage, pricing: ModelPricing): Priced {
+	if (!isStandardTier(usage.serviceTier)) {
+		return { cost: 0, cacheDiscount: 0, unpriced: usage.totalTokens }
+	}
 	if (usage.speed === 'fast') {
 		const multiplier = pricing.fastMultiplier
 		if (multiplier === undefined) {

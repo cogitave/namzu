@@ -15,7 +15,7 @@
  * description: Reviews a diff for correctness and convention drift.
  * tools: read, grep, glob          # optional allowlist, intersected with the parent's set
  * disallowedTools: bash            # optional; removed from whatever the rest allows
- * model: claude-sonnet-4-5         # optional override; `inherit` keeps the session's
+ * model: claude-sonnet-5-5         # optional override; `inherit` keeps the session's
  * effort: high                     # optional reasoning effort
  * maxTurns: 20                     # optional cap on the agent's own turns
  * background: true                 # optional; runs in the background unless the call says otherwise

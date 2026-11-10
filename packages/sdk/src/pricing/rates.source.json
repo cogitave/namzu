@@ -24,6 +24,12 @@
 		"2x on the full context window, stacking with cache pricing). A model without it",
 		"has no published fast price, so a fast request on it is reported as unpriced.",
 		"",
+		"webSearchPer1000 (optional, per vendor) is the price in USD of 1,000 hosted web",
+		"searches, billed per request on top of tokens (verified 2026-11-10 against the",
+		"pricing page's web search section: $10 per 1,000, a failed search is not billed).",
+		"It is copied onto every model row of that vendor. Absent means searches are not",
+		"part of the total.",
+		"",
 		"Matching is EXACT on a normalised id (lowercased, one trailing -YYYYMMDD or",
 		"@YYYYMMDD snapshot suffix removed). Deliberately not prefix or substring:",
 		"within one vendor here, ids one character apart differ in price by 4x, so a",
@@ -64,6 +70,7 @@
 			"verified": "2026-11-10",
 			"promptIncludesCacheReads": false,
 			"reportsCacheWrites": true,
+			"webSearchPer1000": 10,
 			"note": "The last two rows exist because the driver's own offline catalogue offers those models and this table did not price them — a lookup-key gap that reads as `cost unknown` and is invisible to the generator's own check, which only proves the module matches this file. `providers/anthropic` asserts the two lists agree. Vendor list prices, every row checked against its pricing page on the `verified` date. Cache read is the vendor's published 0.1x of the input rate, except on the six models it prices differently: 0.05x on claude-opus-5-5 and claude-sonnet-5-5 and 0.025x on claude-fable-5-1, claude-mythos-5-1, claude-fable-5-2 and claude-mythos-5-2, entered at the published rate rather than derived. claude-haiku-5-5 has no row on purpose: the vendor prices it by prompt length ($0.10 in / $0.50 out up to 100,000 prompt tokens, $0.50 / $2.50 above, cache counted in the length), this table holds one rate per model, and either single rate would be wrong for the other half of requests, so its cost reports unknown. Cache write is its published 1.25x for the five-minute entry, which is the default TTL and the one the driver's `cacheControl: { type: 'auto' }` asks for. claude-sonnet-5 launched at an introductory $2/$10 with $3/$15 scheduled from 2026-09-01, and this table recorded the scheduled rate; the vendor has since made $2/$10 the standard price and cancelled the increase. The table has no time dimension, so a future promotional window is still recorded at the list rate and over-reported rather than mis-modelled.",
 			"models": [
 				{

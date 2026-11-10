@@ -49,6 +49,13 @@ import type { AnthropicConfig } from './types.js'
 // ceiling, so passing 64k just means "don't bound below the model".
 const DEFAULT_MAX_TOKENS = 64_000
 const DEFAULT_TIMEOUT_MS = 120_000
+/**
+ * How many times one turn is resumed after the service pauses a server tool,
+ * before it is reported unfinished. The service's own limit per request is ten
+ * sampling iterations, so five resumptions is generous and still bounded.
+ */
+const MAX_PAUSE_CONTINUATIONS = 5
+
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 0
 
 // Claude Code OAuth tokens are scoped to Claude Code usage. Anthropic
@@ -752,6 +759,10 @@ interface RawAnthropicUsage {
 	output_tokens?: number
 	cache_read_input_tokens?: number | null
 	speed?: string | null
+	service_tier?: string | null
+	inference_geo?: string | null
+	/** Hosted-tool request counts, billed per request. */
+	server_tool_use?: { web_search_requests?: number | null } | null
 	cache_creation_input_tokens?: number | null
 	/** Cache-write tokens by lifetime, when the service breaks them down. */
 	cache_creation?: {
@@ -767,6 +778,74 @@ interface RawAnthropicUsage {
 	 * an absent value has to mean "not reported" and not "zero".
 	 */
 	output_tokens_details?: { thinking_tokens?: number } | null
+}
+
+/**
+ * The `diagnostics` object on a response: `null`, `{ cache_miss_reason: null }`
+ * (not decided yet) or `{ cache_miss_reason: { type, cache_missed_input_tokens? } }`.
+ */
+type CacheMiss = NonNullable<TokenUsage['cacheMiss']>
+
+interface RawCacheDiagnostics {
+	cache_miss_reason?: { type?: string; cache_missed_input_tokens?: number | null } | null
+}
+
+/** The miss the service explained, or nothing: a hit and a pending answer say no miss. */
+function parseCacheMiss(raw: RawCacheDiagnostics | null | undefined): CacheMiss | undefined {
+	const reason = raw?.cache_miss_reason
+	if (!reason || typeof reason.type !== 'string' || reason.type.length === 0) return undefined
+	return {
+		reason: reason.type,
+		...(typeof reason.cache_missed_input_tokens === 'number'
+			? { missedTokens: reason.cache_missed_input_tokens }
+			: {}),
+	}
+}
+
+/** Frames of one request are cumulative: the larger of each count is the request's own. */
+function highWater(current: TokenUsage | undefined, next: TokenUsage): TokenUsage {
+	if (!current) return next
+	const promptTokens = Math.max(current.promptTokens, next.promptTokens)
+	const completionTokens = Math.max(current.completionTokens, next.completionTokens)
+	const reasoning = Math.max(current.reasoningTokens ?? 0, next.reasoningTokens ?? 0)
+	const searches = Math.max(current.webSearchRequests ?? 0, next.webSearchRequests ?? 0)
+	return {
+		...current,
+		...next,
+		promptTokens,
+		completionTokens,
+		totalTokens: promptTokens + completionTokens,
+		cachedTokens: Math.max(current.cachedTokens, next.cachedTokens),
+		cacheWriteTokens: Math.max(current.cacheWriteTokens, next.cacheWriteTokens),
+		...(current.reasoningTokens !== undefined || next.reasoningTokens !== undefined
+			? { reasoningTokens: reasoning }
+			: {}),
+		...(current.webSearchRequests !== undefined || next.webSearchRequests !== undefined
+			? { webSearchRequests: searches }
+			: {}),
+		...(next.cacheMiss === undefined && current.cacheMiss !== undefined
+			? { cacheMiss: current.cacheMiss }
+			: {}),
+	}
+}
+
+/** What a paused turn's earlier requests already spent, added under the one now running. */
+function addUsage(base: TokenUsage | undefined, request: TokenUsage): TokenUsage {
+	if (!base) return request
+	return {
+		...request,
+		promptTokens: base.promptTokens + request.promptTokens,
+		completionTokens: base.completionTokens + request.completionTokens,
+		totalTokens: base.totalTokens + request.totalTokens,
+		cachedTokens: base.cachedTokens + request.cachedTokens,
+		cacheWriteTokens: base.cacheWriteTokens + request.cacheWriteTokens,
+		...(base.reasoningTokens !== undefined || request.reasoningTokens !== undefined
+			? { reasoningTokens: (base.reasoningTokens ?? 0) + (request.reasoningTokens ?? 0) }
+			: {}),
+		...(base.webSearchRequests !== undefined || request.webSearchRequests !== undefined
+			? { webSearchRequests: (base.webSearchRequests ?? 0) + (request.webSearchRequests ?? 0) }
+			: {}),
+	}
 }
 
 function emptyUsage(): TokenUsage {
@@ -788,6 +867,7 @@ function parseUsage(
 	raw?: RawAnthropicUsage,
 	requestedTtl?: '5m' | '1h',
 	requestedSpeed?: 'fast',
+	diagnostics?: RawCacheDiagnostics | null,
 ): TokenUsage {
 	if (!raw) return emptyUsage()
 	const written5m = raw.cache_creation?.ephemeral_5m_input_tokens ?? 0
@@ -824,6 +904,16 @@ function parseUsage(
 			: requestedSpeed !== undefined
 				? { speed: requestedSpeed }
 				: {}),
+		...(typeof raw.server_tool_use?.web_search_requests === 'number'
+			? { webSearchRequests: raw.server_tool_use.web_search_requests }
+			: {}),
+		...(typeof raw.service_tier === 'string' && raw.service_tier.length > 0
+			? { serviceTier: raw.service_tier }
+			: {}),
+		...(typeof raw.inference_geo === 'string' && raw.inference_geo.length > 0
+			? { inferenceGeo: raw.inference_geo }
+			: {}),
+		...(parseCacheMiss(diagnostics) ? { cacheMiss: parseCacheMiss(diagnostics) } : {}),
 		...(raw.cache_creation
 			? {
 					cacheWriteTtlTokens: {
@@ -982,7 +1072,7 @@ function toCitation(raw: RawAnthropicCitation, index: number): Citation | undefi
 
 interface StreamEvent {
 	type: string
-	message?: { id?: string; usage?: RawAnthropicUsage }
+	message?: { id?: string; usage?: RawAnthropicUsage; diagnostics?: RawCacheDiagnostics | null }
 	index?: number
 	content_block?: {
 		type?: string
@@ -1137,6 +1227,35 @@ export class AnthropicProvider implements LLMProvider {
 		return params.cacheControl.ttl ?? this.config.promptCacheTtl ?? '5m'
 	}
 
+	/**
+	 * The last response id per conversation, so the next request can name it.
+	 * A conversation is told apart by its first message with cache markers
+	 * removed; this driver instance also serves compaction and review calls,
+	 * and naming another conversation's response would report a miss that never
+	 * happened. Bounded, oldest dropped.
+	 */
+	private readonly lastResponses = new Map<string, string>()
+
+	private conversationKey(messages: readonly unknown[]): string {
+		return JSON.stringify(messages[0] ?? null, (key, value) =>
+			key === 'cache_control' ? undefined : value,
+		)
+	}
+
+	private previousMessageFor(messages: readonly unknown[]): string | undefined {
+		return this.lastResponses.get(this.conversationKey(messages))
+	}
+
+	private rememberResponse(messages: readonly unknown[], id: string): void {
+		const key = this.conversationKey(messages)
+		this.lastResponses.delete(key)
+		this.lastResponses.set(key, id)
+		if (this.lastResponses.size > 32) {
+			const oldest = this.lastResponses.keys().next().value
+			if (oldest !== undefined) this.lastResponses.delete(oldest)
+		}
+	}
+
 	private buildCreateParams(
 		params: ChatCompletionParams,
 		stream: boolean,
@@ -1259,6 +1378,15 @@ export class AnthropicProvider implements LLMProvider {
 			body.speed = 'fast'
 		}
 
+		// Cache diagnostics ask the service to say why a prefix it had stopped
+		// being served from cache. First-party only: the field is documented for
+		// the Claude API, not for Bedrock, Vertex or a compatible server, which
+		// may reject an unknown field. `null` opts in on a conversation's first
+		// request, and later ones name the response they continue.
+		if (this.config.compatibleEndpoint !== true && isVendorEndpoint(this.config.baseURL)) {
+			body.diagnostics = { previous_message_id: this.previousMessageFor(messages) ?? null }
+		}
+
 		if (params.temperature !== undefined) body.temperature = params.temperature
 		if (params.topP !== undefined) body.top_p = params.topP
 		if (params.topK !== undefined) body.top_k = params.topK
@@ -1317,23 +1445,45 @@ export class AnthropicProvider implements LLMProvider {
 		const requestedSpeed = createParams.speed === 'fast' ? ('fast' as const) : undefined
 		const signal = params.signal
 
-		let stream: AsyncIterable<StreamEvent>
-		try {
-			stream = (await this.createRaw(createParams, {
-				signal,
-			})) as AsyncIterable<StreamEvent>
-		} catch (err) {
-			// The vendor SDK builds its error message FROM the response body, so a
-			// credential the upstream echoed back is already inside `err.message`
-			// before this code runs (proven with a planted fake token). Classify from
-			// the status and drop the vendor error entirely — no re-throw, no
-			// `cause`, because a `cause` is exactly what a structured logger walks.
-			if (isCallerAbortError(err, signal)) throw signal?.reason ?? err
-			if (isProviderRequestError(err)) throw err
-			throw providerVendorError({ providerId: 'anthropic', error: err })
+		const open = async (body: Record<string, unknown>): Promise<AsyncIterable<StreamEvent>> => {
+			try {
+				return (await this.createRaw(body, {
+					signal,
+				})) as AsyncIterable<StreamEvent>
+			} catch (err) {
+				// The vendor SDK builds its error message FROM the response body, so a
+				// credential the upstream echoed back is already inside `err.message`
+				// before this code runs (proven with a planted fake token). Classify from
+				// the status and drop the vendor error entirely — no re-throw, no
+				// `cause`, because a `cause` is exactly what a structured logger walks.
+				if (isCallerAbortError(err, signal)) throw signal?.reason ?? err
+				if (isProviderRequestError(err)) throw err
+				throw providerVendorError({ providerId: 'anthropic', error: err })
+			}
 		}
+		const stream = await open(createParams)
 
+		// A server tool (hosted search) can stop a response with `pause_turn`
+		// before the answer exists. The documented way on is to send what came
+		// back, unchanged, as the last assistant message and ask again. The
+		// continuations are part of one turn to the caller: indices keep
+		// counting up, usage adds up, and the finish arrives once.
+		let paused = false
+		let pauses = 0
+		let indexOffset = 0
+		let maxIndex = -1
+		let spent: TokenUsage | undefined
+		let current: TokenUsage | undefined
+		const usageOf = (
+			raw: RawAnthropicUsage,
+			ttl?: '5m' | '1h',
+			diagnostics?: RawCacheDiagnostics | null,
+		): TokenUsage => {
+			current = highWater(current, parseUsage(raw, ttl, requestedSpeed, diagnostics))
+			return addUsage(spent, current)
+		}
 		let messageId = ''
+		let responseId = ''
 		// Track active tool-use blocks by content_block index so input_json_delta
 		// fragments can reference the right tool call.
 		const activeTools = new Map<number, { id: string; name: string }>()
@@ -1379,7 +1529,7 @@ export class AnthropicProvider implements LLMProvider {
 		// `streamIdleTimeoutMs`; otherwise the request timeout and caller
 		// AbortSignal own lifecycle cancellation.
 		const streamIdleTimeoutMs = this.config.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
-		const iter = (stream as AsyncIterable<StreamEvent>)[Symbol.asyncIterator]()
+		let iter = (stream as AsyncIterable<StreamEvent>)[Symbol.asyncIterator]()
 		const nextWithIdleTimeout = async (): Promise<IteratorResult<StreamEvent>> => {
 			if (!Number.isFinite(streamIdleTimeoutMs) || streamIdleTimeoutMs <= 0) {
 				return iter.next()
@@ -1412,16 +1562,27 @@ export class AnthropicProvider implements LLMProvider {
 				signal?.throwIfAborted()
 				const result = await nextWithIdleTimeout()
 				if (result.done) break
-				const event = result.value
+				const event =
+					indexOffset > 0 && typeof result.value.index === 'number'
+						? { ...result.value, index: result.value.index + indexOffset }
+						: result.value
+				if (typeof event.index === 'number') maxIndex = Math.max(maxIndex, event.index)
 				try {
 					switch (event.type) {
 						case 'message_start': {
-							if (event.message?.id) messageId = event.message.id
+							if (event.message?.id) {
+								if (!messageId) messageId = event.message.id
+								responseId = event.message.id
+							}
 							if (event.message?.usage) {
 								yield {
 									id: messageId,
 									delta: {},
-									usage: parseUsage(event.message.usage, this.cacheTtlFor(params), requestedSpeed),
+									usage: usageOf(
+										event.message.usage,
+										this.cacheTtlFor(params),
+										event.message.diagnostics,
+									),
 								}
 							}
 							break
@@ -1609,8 +1770,19 @@ export class AnthropicProvider implements LLMProvider {
 						}
 						case 'message_delta': {
 							if (event.delta?.stop_reason) {
-								if (event.delta.stop_reason === 'pause_turn')
-									throw new Error('Anthropic paused hosted search before completing its answer.')
+								if (event.delta.stop_reason === 'pause_turn') {
+									if (pauses >= MAX_PAUSE_CONTINUATIONS)
+										throw new ProviderRequestError({
+											kind: 'server',
+											providerId: 'anthropic',
+											detail: `the hosted search was still paused after ${MAX_PAUSE_CONTINUATIONS} continuations, so the answer is unfinished`,
+										})
+									paused = true
+									if (event.usage) {
+										yield { id: messageId, delta: {}, usage: usageOf(event.usage) }
+									}
+									break
+								}
 								const search = searchBlocks.complete(providerRoute)
 								// The sources list is the driver's text, not the model's: it
 								// must not read as the model moving on from a tool call the
@@ -1632,20 +1804,41 @@ export class AnthropicProvider implements LLMProvider {
 										event.delta.stop_reason,
 										event.delta.stop_details ?? event.stop_details,
 									),
-									usage: event.usage
-										? parseUsage(event.usage, undefined, requestedSpeed)
-										: undefined,
+									usage: event.usage ? usageOf(event.usage) : undefined,
 								}
 							} else if (event.usage) {
 								yield {
 									id: messageId,
 									delta: {},
-									usage: parseUsage(event.usage, undefined, requestedSpeed),
+									usage: usageOf(event.usage),
 								}
 							}
 							break
 						}
 						case 'message_stop': {
+							if (paused) {
+								paused = false
+								pauses++
+								if (current) spent = addUsage(spent, current)
+								current = undefined
+								indexOffset = maxIndex + 1
+								const next: Record<string, unknown> = {
+									...createParams,
+									messages: [
+										...(createParams.messages as unknown[]),
+										{ role: 'assistant', content: searchBlocks.content() },
+									],
+								}
+								if (next.diagnostics !== undefined) {
+									next.diagnostics = { previous_message_id: responseId || null }
+								}
+								await iter.return?.().catch(() => undefined)
+								iter = (await open(next))[Symbol.asyncIterator]()
+								break
+							}
+							// Only a whole, final response is named by the next request;
+							// an aborted or failed one never reaches this point.
+							if (responseId) this.rememberResponse(createParams.messages as unknown[], responseId)
 							if (searchReplayEmitted) return
 							const search = searchBlocks.complete(providerRoute)
 							if (search) {
@@ -1893,25 +2086,27 @@ export class AnthropicProvider implements LLMProvider {
  * whether the keys in it match what a driver actually reports. Only a test
  * that feeds real driver output through the real lookup can see it, and
  * `__tests__/pricing-conformance.test.ts` is that test.
+ *
+ * A model the vendor has retired is not offered here, and one it has
+ * announced for retirement is not recommended: it still works until the
+ * vendor says otherwise, and an operator who names it keeps it.
  */
 export const OFFLINE_MODEL_CATALOGUE: readonly ModelInfo[] = [
 	{
-		id: 'claude-sonnet-4-5-20250929',
-		name: 'Claude Sonnet 4.5',
-		contextWindow: 200_000,
-		maxOutputTokens: 64_000,
-		inputPrice: 3.0,
-		outputPrice: 15.0,
+		id: 'claude-sonnet-5-5',
+		name: 'Claude Sonnet 5.5',
+		contextWindow: 1_000_000,
+		inputPrice: 2.0,
+		outputPrice: 10.0,
 		supportsToolUse: true,
 		supportsStreaming: true,
 	},
 	{
-		id: 'claude-opus-4-1-20250805',
-		name: 'Claude Opus 4.1',
-		contextWindow: 200_000,
-		maxOutputTokens: 32_000,
-		inputPrice: 15.0,
-		outputPrice: 75.0,
+		id: 'claude-opus-4-8',
+		name: 'Claude Opus 4.8',
+		contextWindow: 1_000_000,
+		inputPrice: 5.0,
+		outputPrice: 25.0,
 		supportsToolUse: true,
 		supportsStreaming: true,
 	},

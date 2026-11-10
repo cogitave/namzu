@@ -111,8 +111,11 @@ Protocol reference: [OpenAI web search](https://developers.openai.com/api/docs/g
 Anthropic replays complete search content blocks on an unchanged matching route,
 including encrypted results and citation indices. Modified text, tool calls or
 reasoning invalidate this private replay; portable answer text and source links
-remain available. A server `pause_turn` is reported as unfinished, not a complete
-answer; automatic multi-request continuation of that stop reason is not implemented.
+remain available. When the service pauses a search with `pause_turn`, the
+driver sends what came back, unchanged, as the last assistant message and asks again, up
+to five times within the same turn; the person sees one answer. The requests' tokens and
+searches are added up. A search still paused after five continuations fails the turn
+as unfinished rather than showing a partial answer.
 Google grounding sources are appended as links when missing from the answer.
 
 References: [Anthropic web search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool),
