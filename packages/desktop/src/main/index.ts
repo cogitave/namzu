@@ -113,6 +113,7 @@ import {
 } from './runtime-node-args.js'
 import { readRuntimeVersions } from './runtime-versions.js'
 import { SettingsConfirmation } from './settings-confirmation.js'
+import { runShutdown } from './shutdown-sequence.js'
 import { SidebarSnapshotStore } from './sidebar-snapshot-store.js'
 import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
 import { SupersededConversationSettingsError } from './superseded-settings.js'
@@ -1897,18 +1898,21 @@ function shutdown(): Promise<void> {
 	quitting = true
 	sidebarSnapshot.flush()
 	// The terminals' last screens are read from their hosts, so they go before the hosts do.
-	shutdownRun = voiceInput
-		.stopAll('quit')
-		.then(() => terminals.shutdown())
-		.catch((error: unknown) => diagnostics.record('shutdown_failed', { error }))
-		.then(() => Promise.all([operator.close(), localSpeech.dispose(), localListening.dispose()]))
-		.then(() =>
-			palComputerIdle
-				.stopForQuit()
-				.catch((error: unknown) => diagnostics.record('shutdown_failed', { error })),
-		)
-		.then(async () => {
-			await streamProxy.shutdown()
+	shutdownRun = runShutdown({
+		stopListening: () => voiceInput.stopAll('quit'),
+		shutdownTerminals: () => terminals.shutdown(),
+		closeRuntimes: () => operator.close(),
+		disposeSpeech: () => localSpeech.dispose(),
+		disposeListening: () => localListening.dispose(),
+		stopComputer: () => palComputerIdle.stopForQuit(),
+		closeStreams: () => streamProxy.shutdown(),
+		record: (error) => diagnostics.record('shutdown_failed', { error }),
+		after: (ms, run) => {
+			const timer = setTimeout(run, ms)
+			return () => clearTimeout(timer)
+		},
+	})
+		.then(() => {
 			stopped = true
 		})
 		.catch((error: unknown) => {
