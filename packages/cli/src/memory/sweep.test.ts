@@ -6,7 +6,7 @@ import { MarkdownMemoryStore, SESSION_MEMORY_TAG } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
-import { loadManagedMemories, restoreManagedMemory } from './manage.js'
+import { loadManagedMemories, memoryDescription, restoreManagedMemory } from './manage.js'
 import { describeSweep, sweepMemory } from './sweep.js'
 import { MemoryUsage } from './usage.js'
 
@@ -211,8 +211,36 @@ describe('the sweep', () => {
 		expect(text).toBe(
 			'Retired 1 memory. /memory restores them.\n  Old claim · not recalled for 21 days',
 		)
-		expect(describeSweep({ archived: [], possiblyStale: [], kept: 0 }, 21)).toBe(
+		expect(describeSweep({ archived: [], possiblyStale: [], staleReasons: {}, kept: 0 }, 21)).toBe(
 			'Nothing to tidy: no memory was set aside.',
+		)
+	})
+
+	it('says a saved memory is stale because a file is gone, not because it was not recalled', async () => {
+		vi.useFakeTimers()
+		vi.setSystemTime(1_000)
+		const t = await setup(1_000)
+		const mine = await create(t.store, 'Mine', null)
+		t.at(1_000 + DAY)
+		t.usage.anchorsBroken(mine.id)
+		// Recalled recently, so it is not unused; the file has been gone for 15 days.
+		t.at(1_000 + 16 * DAY)
+		t.usage.recalled([mine.id])
+		vi.setSystemTime(1_000 + 16 * DAY)
+		const report = await t.sweep()
+		expect(report.possiblyStale).toEqual([mine.id])
+		expect(report.staleReasons).toEqual({ [mine.id]: 'anchors' })
+		const text = describeSweep(report, 21)
+		expect(text).toContain('a file that has been gone for 14 days')
+		expect(text).not.toContain('not been recalled')
+		const [item] = await loadManagedMemories(t.store, t.directory, {
+			usage: t.usage,
+			now: 1_000 + 16 * DAY,
+			retireAfterDays: 21,
+		})
+		expect(item?.possiblyStale).toBe(true)
+		expect(memoryDescription(item as never, 1_000 + 16 * DAY)).toMatch(
+			/^possibly stale: a file it names is gone · /u,
 		)
 	})
 

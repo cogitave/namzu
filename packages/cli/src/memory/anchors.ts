@@ -14,6 +14,9 @@
  * model decides what to trust. Matching size and time pass without reading
  * the file, so the usual check is one `stat` per anchor.
  *
+ * A file that commonly holds a secret (`.env`, keys, credentials) is never
+ * anchored, so no digest of one is kept.
+ *
  * Bounds: at most `ANCHOR_MAX` anchors per memory and no file larger than
  * `ANCHOR_HASH_MAX_BYTES` is read; a larger file is anchored by size and time
  * alone. A path that resolves outside the project (by `..`, an absolute path
@@ -30,6 +33,8 @@ import { basename, isAbsolute, relative, resolve, sep } from 'node:path'
 export const ANCHOR_MAX = 5
 /** The largest file whose bytes are read to make or check a digest. */
 export const ANCHOR_HASH_MAX_BYTES = 1_048_576
+/** The most verdicts one session remembers. */
+const ANCHOR_CACHE_MAX = 256
 /** The metadata key the anchors are kept under. */
 export const ANCHORS_KEY = 'anchors'
 
@@ -79,6 +84,19 @@ async function locate(
 	return inside(realRoot, real) === undefined ? undefined : { real, rel: lexical }
 }
 
+// Files that commonly hold a secret. An anchor would keep a digest of one, and
+// a digest of a small secret file can be tested against guesses.
+const SECRET_NAME =
+	/^(?:\.env(?:\..*)?|\.npmrc|\.netrc|\.pypirc|\.htpasswd|\.git-credentials|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?|credentials(?:\.[\w-]+)?|secrets?(?:\.[\w-]+)?|.*\.(?:pem|key|p12|pfx|jks|keystore|kdbx|tfvars))$/iu
+const SECRET_DIRECTORY = /^\.(?:ssh|aws|gnupg|kube|docker)$/iu
+
+/** Whether a project-relative path names a file that commonly holds a secret. */
+export function looksSecret(rel: string): boolean {
+	const parts = rel.split('/')
+	const name = parts[parts.length - 1] ?? ''
+	return SECRET_NAME.test(name) || parts.slice(0, -1).some((part) => SECRET_DIRECTORY.test(part))
+}
+
 // A name with a directory, or a name with an extension.
 const PATH_TOKEN =
 	/(?:^|[\s`'"(\[{,])((?:\.{1,2}\/)?[\w@.+-]+(?:\/[\w@.+-]+)+|[\w@+-][\w@.+-]*\.[A-Za-z][A-Za-z0-9]{0,7})(?=$|[\s`'")\]},.;:!?])/gu
@@ -120,6 +138,7 @@ export async function recordAnchors(input: {
 		try {
 			const at = await locate(input.root, candidate, fs)
 			if (!at || anchors.some((anchor) => anchor.path === at.rel)) continue
+			if (looksSecret(at.rel)) continue
 			const info = await fs.stat(at.real)
 			if (!info) continue
 			const sha256 =
@@ -164,11 +183,21 @@ export interface AnchorVerdict {
 	readonly checked: number
 }
 
+/** A file that is gone outranks one that only changed: it is the one that can retire a memory. */
+function goneFirst(
+	current: AnchorVerdict['broken'],
+	next: NonNullable<AnchorVerdict['broken']>,
+): NonNullable<AnchorVerdict['broken']> {
+	return current?.why === 'gone' ? current : next
+}
+
 /** Check each anchor against the file now. Never throws; a path outside the project is skipped. */
 export async function checkAnchors(input: {
 	readonly root: string
 	readonly anchors: readonly MemoryAnchor[]
 	readonly fs?: AnchorFs
+	/** Remembers whether a file at a given size and time matches an anchor's digest, so a file that stays changed is read once. */
+	readonly cache?: Map<string, boolean>
 }): Promise<AnchorVerdict> {
 	const fs = input.fs ?? nodeAnchorFs
 	let checked = 0
@@ -184,7 +213,7 @@ export async function checkAnchors(input: {
 				// A lexically inside path that is gone.
 				if (inside(input.root, resolve(input.root, anchor.path)) === undefined) continue
 				checked += 1
-				broken ??= { path: anchor.path, why: 'gone' }
+				broken = goneFirst(broken, { path: anchor.path, why: 'gone' })
 				continue
 			}
 			// Outside by a link or a `..`: not this project's, not ours to judge.
@@ -192,18 +221,27 @@ export async function checkAnchors(input: {
 			checked += 1
 			const info = await fs.stat(at.real)
 			if (!info) {
-				broken ??= { path: anchor.path, why: 'gone' }
+				broken = goneFirst(broken, { path: anchor.path, why: 'gone' })
 				continue
 			}
 			if (info.size === anchor.size && info.mtimeMs === anchor.mtimeMs) continue
 			if (anchor.sha256 && info.size <= ANCHOR_HASH_MAX_BYTES) {
-				if (digest(await fs.readFile(at.real)) === anchor.sha256) continue
+				const key = `${at.real}\0${info.size}\0${info.mtimeMs}\0${anchor.sha256}`
+				let same = input.cache?.get(key)
+				if (same === undefined) {
+					same = digest(await fs.readFile(at.real)) === anchor.sha256
+					if (input.cache) {
+						if (input.cache.size >= ANCHOR_CACHE_MAX) input.cache.clear()
+						input.cache.set(key, same)
+					}
+				}
+				if (same) continue
 			}
 			broken ??= { path: anchor.path, why: 'changed' }
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
 				checked += 1
-				broken ??= { path: anchor.path, why: 'gone' }
+				broken = goneFirst(broken, { path: anchor.path, why: 'gone' })
 			}
 			// Any other failure (permissions) says nothing about the file.
 		}
@@ -217,7 +255,12 @@ export function cautionFor(broken: NonNullable<AnchorVerdict['broken']>): string
 	return `may be out of date: ${path} ${broken.why === 'gone' ? 'no longer exists' : 'has changed'} since this was saved`
 }
 
-/** What the usage file offers to the check: a broken anchor is noted, a held one lifts the note. */
+/**
+ * What the usage file offers to the check: a file that is gone is noted, one
+ * that is there (as it was, or only changed) lifts the note. A changed file
+ * gets a caution on recall but never starts the clock that retires a memory:
+ * "the entry is `src/bin.ts`" is still true after the file is edited.
+ */
 export interface AnchorUsage {
 	anchorsBroken(id: string): void
 	anchorsHeld(id: string): void
@@ -236,16 +279,20 @@ export function createAnchorCaution(deps: {
 	readonly id: string
 	readonly metadata?: Readonly<Record<string, unknown>>
 }) => Promise<string | undefined> {
+	// One per session: a file that stays changed is read once, not on every request.
+	const cache = new Map<string, boolean>()
 	return async (record) => {
 		const anchors = anchorsOf(record.metadata)
 		if (anchors.length === 0) return undefined
 		const verdict = await checkAnchors({
 			root: deps.root,
 			anchors,
+			cache,
 			...(deps.fs ? { fs: deps.fs } : {}),
 		})
 		if (verdict.broken) {
-			deps.usage?.anchorsBroken(record.id)
+			if (verdict.broken.why === 'gone') deps.usage?.anchorsBroken(record.id)
+			else deps.usage?.anchorsHeld(record.id)
 			return cautionFor(verdict.broken)
 		}
 		if (verdict.checked > 0) deps.usage?.anchorsHeld(record.id)

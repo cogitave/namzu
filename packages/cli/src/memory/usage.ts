@@ -11,8 +11,8 @@
  * - `recalls`, `selected`, `lastRecalledAt` for each id the terminal saw
  *   recalled;
  * - `brokenSince`, when recall first found that a file a record names is gone
- *   or changed (see `anchors.ts`); the idle sweep retires a record whose
- *   anchors stayed broken for a while;
+ *   (see `anchors.ts`); the idle sweep retires a record whose
+ *   file stayed gone for a while. A file that only changed never starts it;
  * - `setAside`, the ids a refused request carried. Recall never offers them
  *   again until the person restores them in `/memory`;
  * - `since`, when this file started counting.
@@ -41,7 +41,7 @@ export interface UsageCounters {
 	readonly recalls: number
 	readonly selected: number
 	readonly lastRecalledAt: number
-	/** When recall first found a file the record names gone or changed; absent while its anchors hold. */
+	/** When recall first found a file the record names gone; absent while it is there. */
 	readonly brokenSince?: number
 }
 
@@ -263,7 +263,7 @@ export class MemoryUsage {
 		this.#merge(this.#base())
 	}
 
-	/** Recall found a file this record names gone or changed. The first time is kept. */
+	/** Recall found a file this record names gone. The first time is kept. */
 	anchorsBroken(id: string): void {
 		this.#brokenCleared.delete(id)
 		if (this.#records.get(id)?.brokenSince === undefined && !this.#brokenSet.has(id)) {

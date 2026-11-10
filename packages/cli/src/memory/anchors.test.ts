@@ -21,6 +21,7 @@ import {
 	anchorsOf,
 	checkAnchors,
 	createAnchorCaution,
+	nodeAnchorFs,
 	pathsNamed,
 	recordAnchors,
 } from './anchors.js'
@@ -59,6 +60,21 @@ describe('anchors at write time', () => {
 		const cache = anchors.find((anchor) => anchor.path === 'src/cache.ts')
 		expect(cache).toMatchObject({ size: 23, sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) })
 		expect(JSON.stringify(anchors)).not.toContain('export const')
+	})
+
+	it('never anchors a file that commonly holds a secret, so no digest of one is kept', async () => {
+		const { root } = project()
+		writeFileSync(join(root, '.env'), 'TOKEN=abc\n')
+		writeFileSync(join(root, '.env.local'), 'TOKEN=abc\n')
+		writeFileSync(join(root, 'deploy.pem'), 'key\n')
+		mkdirSync(join(root, '.aws'))
+		writeFileSync(join(root, '.aws', 'config'), 'x\n')
+		const anchors = await recordAnchors({
+			root,
+			text: 'Set it in .env, .env.local, deploy.pem and .aws/config; the cache is src/cache.ts.',
+			files: ['.env', 'deploy.pem'],
+		})
+		expect(anchors.map((anchor) => anchor.path)).toEqual(['src/cache.ts'])
 	})
 
 	it('drops a name that is not a file here, and a folder', async () => {
@@ -141,6 +157,36 @@ describe('anchors at check time', () => {
 		expect(await checkAnchors({ root, anchors })).toMatchObject({
 			broken: { path: 'src/cache.ts', why: 'changed' },
 		})
+	})
+
+	it('reads a file that stays changed once, not on every check', async () => {
+		const { root } = project()
+		const anchors = await recordAnchors({ root, text: 'src/cache.ts' })
+		writeFileSync(join(root, 'src', 'cache.ts'), 'export const cache = 2 // longer\n')
+		let reads = 0
+		const fs = {
+			...nodeAnchorFs,
+			readFile: (path: string) => {
+				reads += 1
+				return nodeAnchorFs.readFile(path)
+			},
+		}
+		const cache = new Map<string, boolean>()
+		for (let round = 0; round < 3; round += 1)
+			expect(await checkAnchors({ root, anchors, fs, cache })).toMatchObject({
+				broken: { why: 'changed' },
+			})
+		expect(reads).toBe(1)
+		// A new write is a new size and time: read again.
+		writeFileSync(join(root, 'src', 'cache.ts'), 'export const cache = 3 // longer still\n')
+		await checkAnchors({ root, anchors, fs, cache })
+		expect(reads).toBe(2)
+		// Put back as it was: matches, and is remembered as matching.
+		writeFileSync(join(root, 'src', 'cache.ts'), 'export const cache = 1\n')
+		utimesSync(join(root, 'src', 'cache.ts'), new Date(1), new Date(1))
+		expect((await checkAnchors({ root, anchors, fs, cache })).broken).toBeUndefined()
+		expect((await checkAnchors({ root, anchors, fs, cache })).broken).toBeUndefined()
+		expect(reads).toBe(3)
 	})
 
 	it('skips an anchor that points outside the project', async () => {
@@ -303,12 +349,21 @@ describe('anchors at selection', () => {
 		expect(usage.dirty).toBe(false)
 	})
 
-	it('marks a memory whose file changed, and lifts the count when the file is back as it was', async () => {
+	it('marks a memory whose file changed, without starting the clock that retires it', async () => {
 		const { recall, root, usage, made, at } = await recalling()
 		const file = join(root, 'src', 'cache.ts')
 		writeFileSync(file, 'export const cache = 2 // longer\n')
 		at(11 * DAY)
 		expect(textOf(await recall())).toContain('has changed')
+		expect(usage.get(made.id)?.brokenSince).toBeUndefined()
+	})
+
+	it('lifts the count when a gone file is back', async () => {
+		const { recall, root, usage, made, at } = await recalling()
+		const file = join(root, 'src', 'cache.ts')
+		rmSync(file)
+		at(11 * DAY)
+		await recall()
 		expect(usage.get(made.id)?.brokenSince).toBe(11 * DAY)
 		writeFileSync(file, 'export const cache = 1\n')
 		await recall()
@@ -364,6 +419,23 @@ describe('anchors and the idle sweep', () => {
 		// Restoring starts the clock again.
 		usage.restore(made.id)
 		expect(usage.get(made.id)?.brokenSince).toBeUndefined()
+	})
+
+	it('never retires a recorded memory whose file only changed, however long ago', async () => {
+		const { recall, root, usage, made, store, at } = await recalling()
+		writeFileSync(join(root, 'src', 'cache.ts'), 'export const cache = 2 // longer\n')
+		at(11 * DAY)
+		await recall()
+		await usage.flush()
+		const report = await sweepMemory({
+			store,
+			usage,
+			now: () => 11 * DAY + 100 * ANCHORS_BROKEN_RETIRE_DAYS * DAY,
+			retireAfterDays: 100_000,
+		})
+		expect(report.archived).toEqual([])
+		expect(report.possiblyStale).toEqual([])
+		expect((await store.getRecord(made.id as never))?.entry.status).toBe('active')
 	})
 
 	it('leaves it alone when its anchors hold, when retiring is off, or when usage is unknown', async () => {

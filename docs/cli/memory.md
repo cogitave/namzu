@@ -289,25 +289,35 @@ the record's `anchors` metadata: the path relative to the project, the file's
 size and modification time, and a SHA-256 of its bytes. No file content is kept,
 only the digest, and a file over 1 MiB is anchored by size and time alone. A path
 that resolves outside the project (a `..`, an absolute path elsewhere, or a link
-that leaves it) is never anchored and never checked. Commands are not anchored.
+that leaves it) is never anchored and never checked. A file that commonly holds
+a secret (`.env` and `.env.*`, `.npmrc`, `.netrc`, keys and certificates such as
+`*.pem` and `*.key`, `id_rsa`, `credentials`, anything under `.ssh`, `.aws`,
+`.gnupg`, `.kube` or `.docker`) is never anchored, so no digest of one is kept.
+Commands are not anchored.
 
 When recall is about to show a memory with anchors (the one to three chosen for
 the message, never more), it checks each anchor with one `stat`: the same size
 and time pass without reading the file; otherwise the bytes are hashed and
-compared. A file that is gone, or whose bytes differ, adds
+compared; a verdict is remembered per file, size and time for the session, so a
+file that stays changed is read once, not on every request. A file that is gone,
+or whose bytes differ, adds
 `caution: "may be out of date: <path> no longer exists since this was saved"` (or
 `has changed`) to that memory's line, so the model reads that it may no longer
 hold. The memory is still shown, never dropped, and no model is asked. The check
 runs inside the recall deadline; a failing check says nothing.
 
-The usage file keeps `brokenSince` for a memory whose anchors first failed (the
-first time is kept; it is lifted when the files are as recorded again). The idle
-sweep archives a memory a turn recorded on its own once its anchors have stayed
-broken for 14 days, with `retiredReason: anchors`; a memory you or Namzu saved
-is only marked `possibly stale`. Nothing is retired for this when
-`memory.retireAfterDays` is `0` or the usage counts are unknown, and restoring a
-retired memory starts its clock over. `/memory` shows such a one as `retired: a
-file it names is gone or changed`.
+A file that only **changed** adds the caution and nothing more: "the entry is
+`src/bin.ts`" is still true after the file is edited, so a changed file never
+starts the retirement clock. The usage file keeps `brokenSince` for a memory
+whose file is **gone** (the first time is kept; it is lifted when the file is
+there again). The idle sweep archives a memory a turn recorded on its own once a
+file it names has stayed gone for 14 days, with `retiredReason: anchors`; a
+memory you or Namzu saved is only marked `possibly stale`, and `/memory` says why:
+`possibly stale: a file it names is gone` here, `possibly stale: not recalled for
+a while` for one that went unused. `/memory tidy` counts the two apart. Nothing
+is retired for this when `memory.retireAfterDays` is `0` or the usage counts are
+unknown, and restoring a retired memory starts its clock over. `/memory` shows
+such a retired one as `retired: a file it names is gone`.
 
 ### Memory that goes unused, and memory a refusal set aside
 
@@ -414,8 +424,12 @@ Off the turn, the small model curates the inbox. It runs:
 
 **Never during a turn.** While a turn is streaming or a tool is running nothing
 is drained, curation never starts, and the turn's first request never waits for
-it. A turn that starts while a drain is already in flight does not wait for it
-and does not stop it; the drain finishes on its own and is not started again. A
+it. One exception, said plainly: a drain already in flight when a turn starts is
+not stopped. It is a single side-model call bounded by its own deadline, and
+stopping it would throw its work away, so it can overlap the start of the turn;
+it does not wait for the turn and the turn does not wait for it, and no new drain
+starts until the turn has settled. A turn that ends by a cancel or an error
+settles the same way as one that completes, so what waited is drained after it. A
 one-shot `exec` run that ends before its own pause is drained by the closing
 drain.
 
