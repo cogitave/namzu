@@ -47,6 +47,7 @@ lines.on('line', (line) => {
     for (const [key, prompt] of pending) if (prompt.sessionId === params.sessionId) { pending.delete(key); reply(prompt.id, { stopReason: 'cancelled' }) }
     reply(id, {})
   } else if (method === 'test/task') { notify(params); reply(id, {}) }
+  else if (method === 'test/usage') { send({ method: 'namzu/session/usage', params }); reply(id, {}) }
   else if (method === 'test/exit') process.exit(0)
   else reply(id, {})
 })

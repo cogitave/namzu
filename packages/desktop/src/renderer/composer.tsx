@@ -69,6 +69,8 @@ import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import { Textarea } from './ui/textarea.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import './composer.css'
+import type { ThreadUsage } from '../shared/projection.js'
+import { ContextRing } from './context-ring-view.js'
 
 /**
  * The picker's modes are the ones this window offers. The kernel's old `auto`,
@@ -122,6 +124,7 @@ export function Composer({
 	pending,
 	trayActions,
 	shells,
+	usage,
 	pullRequest,
 	onSend,
 	onQueue,
@@ -216,6 +219,8 @@ export function Composer({
 	trayActions: ComposerTrayActions
 	/** Background shell commands running for this conversation; absent when there are none. */
 	shells?: { count: number; onOpen: () => void }
+	/** How full the conversation is, as the engine last said; the ring is drawn only when it is complete. */
+	usage?: ThreadUsage
 	/** The branch's pull request; absent when there is none to show. */
 	pullRequest?: { pr: ProjectPrView; onOpen: () => void }
 	onSend: () => void
@@ -803,6 +808,7 @@ export function Composer({
 										</div>
 									)}
 									<div className="pal-composer-send-actions flex shrink-0 flex-nowrap items-center justify-end gap-2">
+										<ContextRing usage={usage} />
 										{running && liveInputSupported && onQueue && (
 											<Tooltip>
 												<TooltipTrigger

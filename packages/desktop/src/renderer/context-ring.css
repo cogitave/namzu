@@ -1,0 +1,47 @@
+/* The context ring: how full the conversation is. Quiet by default, louder only near the limit. */
+.context-ring {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-pill);
+	background: transparent;
+	color: var(--muted-foreground);
+	cursor: default;
+	transition: background-color var(--dur-quick) ease-out;
+}
+.context-ring:hover {
+	background: var(--accent);
+}
+.context-ring:focus-visible {
+	outline: none;
+	box-shadow: var(--focus-ring);
+}
+.context-ring[data-context-ring="high"] {
+	color: var(--warning);
+}
+.context-ring[data-context-ring="full"] {
+	color: var(--error);
+}
+.context-ring-track {
+	fill: none;
+	stroke: color-mix(in srgb, currentColor 24%, transparent);
+	stroke-width: 2;
+}
+.context-ring-fill {
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2;
+	stroke-linecap: round;
+	transition: stroke-dashoffset var(--dur-base) ease-out, stroke var(--dur-base) ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+	.context-ring,
+	.context-ring-fill {
+		transition: none;
+	}
+}

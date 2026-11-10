@@ -2812,6 +2812,15 @@ design. These proofs use isolated events rather than native/model actions. The
 checks constant parent, neighbour and scroll geometry through hover, reversal
 and focus in four viewport and motion settings, with the [source-bound receipt](../../research/transcript-motion-20261007/artifacts/hover-fixed-layout-564aaf64-ce37969e.json).
 
+### Context ring and compaction
+
+Desktop receives the host's [usage and compaction notices](#usage-and-compaction-notices) (`shared/usage-protocol.ts` reads them; anything that does not read, or that names a conversation this connection does not own or a Pal conversation, is dropped) and keeps the last picture per conversation in the thread (`ThreadState.usage`, `ThreadState.compaction`). Usage outlives a closed tab, so the ring is right when the conversation is opened again.
+
+- **Context ring.** A small ring at the left of the composer's send controls (`renderer/context-ring-view.tsx`, model in `context-ring.ts`) fills with the share of the window the conversation holds. It is a focusable control named "Context 6% full. 12.4k of 200k tokens." and its tooltip says the same in words, adds "estimated" when the host did not get a count from the provider, adds "Cost so far: $0.42" only when the engine priced every token, and from 75% (amber) and 90% (red) adds that older messages may be summarised to make room. It is **not drawn at all** until the engine has reported both a context size and a window (a custom model with no known window, or an engine that reports nothing); there is no placeholder. A figure the engine stops reporting disappears at the next notice.
+- **Compacting line.** From the moment a pass starts the live status line reads "Compacting the conversation…" (shimmering, still under reduced motion), and when it finishes it reads "Conversation compacted · 150k to 40k tokens" without a shimmer until the turn goes on, when the next streamed update replaces it. A pass that changed nothing, the end of the turn and the next prompt clear it at once. A decision wait still takes the line first.
+
+The ring and the line use the design tokens (`--radius-pill`, `--dur-quick`, `--dur-base`, `--focus-ring`, `--warning`, `--error`) and no animation under `prefers-reduced-motion`.
+
 ### Action rows
 
 The work list sits flush with its heading (no indent, no left rail); finished rows are a step

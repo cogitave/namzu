@@ -2208,6 +2208,9 @@ export function App({
 						...all,
 						[id]: { ...(all[id] ?? emptyThread()), running: event.running },
 					}))
+				// How full a conversation is outlives its tab: the ring is right when it is opened again.
+				if (event.kind === 'usage')
+					setThreads((all) => ({ ...all, [id]: applyEvent(all[id] ?? emptyThread(), event) }))
 				return
 			}
 			setThreads((all) => ({
@@ -7194,6 +7197,7 @@ export function App({
 								history={composerHistory}
 								liveInputSupported={thread.liveInputSupported && !palConversation}
 								sending={sending[draftOwner] ?? false}
+								usage={palConversation ? undefined : thread.usage}
 								shells={
 									// The open Activity panel's own list is the freshest count; otherwise the observer's.
 									detailsWork.state === 'known' && detailsWork.running > 0
