@@ -753,6 +753,8 @@ type CoreSessionEvent =
 				title: string
 				origin: 'operator' | 'model' | 'derived'
 				updatedAt: number
+				/** Why it went with the message: the selector's reason, or `matched words`. */
+				reason?: string
 			}>
 	  }
 	/**

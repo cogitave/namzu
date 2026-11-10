@@ -2,6 +2,7 @@
 
 ## 2026-11-10
 
+- **Update** [Memory](cli/memory.md#how-a-memory-is-chosen-for-a-message), [Memory recall](sdk/memory.md#letting-the-host-choose-among-the-candidates) and [the small model](cli/small-model.md#what-it-runs): the small model now chooses which stored memories go with a message (up to three, from 16 candidates, with a reason shown in the `Used N memories` row); without it a memory must share two words of the message. `memory.select: off` keeps the earlier behaviour. `createMemoryRecallStep` gains `select`, `shortlist`, `minCoverage` and `selectTimeoutMs`; `RecalledMemory` and `memory_recalled` gain `reason`. `.changeset/memory-select-sdk.md` (`@namzu/sdk` minor), `.changeset/memory-select-cli.md` (`@namzu/cli` major).
 - **Update** [Foreground ladder](sdk/foreground-ladder.md#when-the-helper-is-not-running): a Windows helper that has ended is replaced before use, a failed first look or start is retried once with a fresh helper, two failed starts are remembered until the turn ends, a death mid-burst fails that burst without a restart, and the block names the cause (exit code, last error line, language mode) and no longer sends `ui_act` callers back into `ui_act`. `ForegroundMonitor.running` and `ForegroundBlock.reason` are optional additions. `.changeset/cu-helper-resilient.md` (`@namzu/computer-use` minor).
 
 ## 2026-11-08

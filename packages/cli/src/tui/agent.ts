@@ -465,6 +465,7 @@ import {
 	readMemoryBody,
 } from '../memory/manage.js'
 import { formatMemoryDiagnostics } from '../memory/presentation.js'
+import { memorySelectionOptions } from '../memory/select.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
 import {
 	type TypedNoteResult,
@@ -814,6 +815,7 @@ export type AgentEvent =
 				readonly title: string
 				readonly origin: 'operator' | 'model' | 'derived'
 				readonly updatedAt: number
+				readonly reason?: string
 			}[]
 	  }
 	| {
@@ -3776,6 +3778,20 @@ export async function createAgentSession(
 	// on a small model. Present only where a turn's ledger can count them.
 	let sideModel: SideModel | undefined
 	let learning: SideLearningModel | undefined
+	// Which stored memories go with a message: the small model chooses among a
+	// wider shortlist, and without it recall asks for two shared words. `off`
+	// leaves recall exactly as it was. The model is read at call time, like
+	// the one above: it exists once the delegation runtime does.
+	const memorySelection = memorySelectionOptions(options.memory?.select, {
+		sideModel: () => sideModel,
+		log: (entry) =>
+			cliLogger().info('memory selection', {
+				'namzu.memory.select.candidates': entry.candidates,
+				'namzu.memory.select.picked': entry.picked,
+				'namzu.memory.select.fallback': entry.fallback,
+				'namzu.memory.select.latency_ms': entry.latencyMs,
+			}),
+	})
 	// On unless the config says `web.fetch: false`; every new domain is asked once.
 	const webCapability =
 		options.web?.fetch !== false
@@ -5317,6 +5333,7 @@ export async function createAgentSession(
 										store: memoryStore,
 										identifierGrounding: options.memory?.identifierGrounding,
 										record: true,
+										...memorySelection,
 									}),
 								]),
 						...(options.conversationSessions ? [createContextInventoryStep()] : []),
@@ -6691,6 +6708,7 @@ export async function createAgentSession(
 													query: lastPromptText(messages),
 													identifierGrounding: options.memory?.identifierGrounding,
 													record: true,
+													...memorySelection,
 												}),
 											]),
 									...(options.conversationSessions ? [createContextInventoryStep()] : []),
@@ -8653,6 +8671,7 @@ export function toAgentEvent(
 					title: memory.title,
 					origin: memory.origin,
 					updatedAt: memory.updatedAt,
+					...(memory.reason ? { reason: memory.reason } : {}),
 				})),
 			}
 		case 'capability_warning':

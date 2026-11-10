@@ -1374,3 +1374,28 @@ describe('theme and motion config', () => {
 		)
 	})
 })
+
+describe('memory.select config', () => {
+	const noHome = () => mkdtempSync(join(tmpdir(), 'namzu-home-'))
+
+	it('reads on and off from the user file, and refuses anything else', () => {
+		expect(
+			loadConfig({ home: userConfig('memory:\n  select: off\n'), cwd: tmpdir(), env: {} }).memory,
+		).toEqual({ select: 'off' })
+		expect(() =>
+			loadConfig({ home: userConfig('memory:\n  select: maybe\n'), cwd: tmpdir(), env: {} }),
+		).toThrow(ConfigValueError)
+	})
+
+	it('ignores it in a project file, keeping the rest of that file', () => {
+		const home = userConfig('memory:\n  select: off\n')
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({ memory: { select: 'on', recall: false } }),
+		)
+		expect(loadConfig({ home, cwd, env: {} }).memory).toEqual({ select: 'off', recall: false })
+		const bare = noHome()
+		expect(loadConfig({ home: bare, cwd, env: {} }).memory).toEqual({ recall: false })
+	})
+})

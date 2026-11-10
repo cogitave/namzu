@@ -282,11 +282,46 @@ their paths. A note that begins with the word `delete` is saved with
 
 When stored memory went into a turn, a quiet row appears under the message:
 `● Used 2 memories (ctrl+o to expand)`. Ctrl+O opens it into one line per
-memory, `<title> · <who wrote it> · <age>`, and a last line,
+memory, `<title> · <who wrote it> · <age> · <why>`, and a last line,
 `/memory delete <name> removes one.`, naming the first memory. Later recalls in
 the same turn add to the same row. A resumed conversation shows the row too, as
 the event is kept in the session journal. To remove one, use `/memory delete
-<name>` or pick it in `/memory`.
+<name>` or pick it in `/memory`. The last part is why it went with the message:
+the small model's own words (`covers the cache lifetime`) or `matched words`; with
+`memory.select: off` there is none.
+
+### How a memory is chosen for a message
+
+The words of your message find up to 16 candidates. The small model then reads
+the message, the assistant's last line and one line per candidate (its title,
+description, type, age and who wrote it, never the body) and names up to three that would
+clearly help, or none. This happens once per message, before the first model
+call of the turn, with a limit of two seconds; the tool steps that follow reuse
+the answer. Memories the conversation already holds are not offered again.
+
+When there is no small model to ask, it is too slow, or it answers something
+unreadable, Namzu falls back to the words alone, and then a memory must share at
+least two words of your message (one is no longer enough). The model is never
+the conversation's own: when the small-model route would resolve to the main
+model (see [the small model](small-model.md#which-model)), nothing is asked.
+
+Set `memory.select: off` in your own config to keep the earlier behaviour
+exactly: the words alone, up to three memories, one shared word enough.
+
+```yaml
+# ~/.namzu/config.yaml
+memory:
+  select: off   # default: on
+```
+
+Privacy: with `memory.select` on, the small model sees your message and the titles
+and descriptions of the candidate memories, sent to your own provider (the small
+model is one of that provider's, or the `smallModel` you set). It sees no memory
+body. A project's `namzu.config.json` cannot set `memory.select`; only your own
+config and a managed config can. One line per selection goes to the log with
+counts, the reason a fallback happened (`none`, `no side model`, `main route`,
+`timeout`, `invalid`, `error`) and the time taken; it holds no message or memory
+text.
 
 ### Moving the older memory in
 

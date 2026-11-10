@@ -106,6 +106,7 @@ function usedMemoriesOf(raw: readonly unknown[]): readonly UsedMemory[] {
 		out.push({
 			id: memory.id,
 			...(typeof memory.name === 'string' ? { name: memory.name } : {}),
+			...(typeof memory.reason === 'string' && memory.reason ? { reason: memory.reason } : {}),
 			title: memory.title,
 			origin: memory.origin,
 			updatedAt: memory.updatedAt,

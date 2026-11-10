@@ -52,6 +52,22 @@ describe('memoryUsedRow', () => {
 		expect(memoryUsedRow([note], NOW)?.content).toBe('Used 1 memory')
 	})
 
+	it('adds the reason a memory was chosen to its line', () => {
+		expect(
+			memoryUsedRow(
+				[
+					{ ...note, reason: 'covers cache lifetime' },
+					{ ...turn, reason: 'matched words' },
+				],
+				NOW,
+			)?.detail,
+		).toEqual([
+			'Cache notes · you · 3 days ago · covers cache lifetime',
+			'A turn account · recorded by a turn · today · matched words',
+			'/memory delete cache-notes removes one.',
+		])
+	})
+
 	it('falls back to the id when the first memory has no name', () => {
 		expect(memoryUsedRow([turn], NOW)?.detail.at(-1)).toBe('/memory delete m2 removes one.')
 	})
@@ -80,6 +96,71 @@ describe('memory_recalled in the TUI', () => {
 				{ id: 'm1', name: 'cache-notes', title: 'Cache notes', origin: 'operator', updatedAt: 1 },
 			],
 		})
+	})
+
+	it('carries the reason through the event and onto a restored row', () => {
+		const withReason: SessionEvent = {
+			type: 'memory_recalled',
+			sessionId: 's' as never,
+			memories: [
+				{
+					id: 'm1',
+					title: 'Cache notes',
+					origin: 'operator',
+					updatedAt: 1,
+					reason: 'cache lifetime',
+				},
+			],
+		}
+		expect(toAgentEvent(withReason, builtinToolPresenter())).toMatchObject({
+			memories: [{ id: 'm1', reason: 'cache lifetime' }],
+		})
+		const TURN = '00000000-0000-4000-8000-000000000002'
+		const messages: Message[] = [
+			{ ...createUserMessage('cache?'), id: 'u1' } as Message,
+			{ ...createAssistantMessage('Fourteen hours.'), id: 'a1' } as Message,
+		]
+		const records = [
+			...messages.map(
+				(message, index) =>
+					({
+						v: 1,
+						id: `m-${index}`,
+						seq: 10 + index,
+						ts: '2026-11-08T10:00:00.000Z',
+						type: 'message',
+						sessionId: 's',
+						turnId: TURN,
+						messageId: message.id,
+						role: message.role,
+						content: message,
+					}) as unknown as SessionRecord,
+			),
+			{
+				v: 1,
+				id: 'r1',
+				seq: 1,
+				ts: '2026-11-08T10:00:00.000Z',
+				type: 'memory_recalled',
+				sessionId: 's',
+				turnId: TURN,
+				memories: [
+					{
+						id: 'm1',
+						title: 'Cache notes',
+						origin: 'operator',
+						updatedAt: 1,
+						reason: 'cache lifetime',
+					},
+				],
+			} as unknown as SessionRecord,
+		]
+		let id = 0
+		const rows = projectConversation(messages, () => `row-${++id}`, [], {
+			trail: trailFromRecords(records),
+		})
+		const used = rows.find((row) => row.content === 'Used 1 memory')
+		expect(used?.detail?.[0]).toMatch(/^Cache notes · you · .* · cache lifetime$/)
 	})
 
 	it('shows the row once before the first reply of a resumed turn, from the journal', () => {

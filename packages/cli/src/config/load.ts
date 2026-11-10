@@ -281,6 +281,7 @@ function resolveConfigWithProvenance(
 				'model',
 				'routing',
 				'smallModel',
+				'memory.select',
 			])
 		: {}
 	// `.mcp.json`: the project's shared tool servers. Read under the same trust
@@ -303,7 +304,12 @@ function resolveConfigWithProvenance(
 	// folder. Read under the same trust as the project file and held to the
 	// same limits, since a folder that arrives as an archive can carry one.
 	const localCfg = mode.includeProject
-		? readJsonIfExists(localPath, LOCAL_FILE_LABEL, ['decision', 'model', 'routing'])
+		? readJsonIfExists(localPath, LOCAL_FILE_LABEL, [
+				'decision',
+				'model',
+				'routing',
+				'memory.select',
+			])
 		: {}
 	const managedCfg = readJsonIfExists(managedPath, shortHomePath(managedPath))
 	const { config: envCfg, variables: envVariables } = readEnv(env)
@@ -639,7 +645,7 @@ export function shortHomePath(path: string): string {
 function readJsonIfExists(
 	path: string,
 	label: string,
-	/** Top-level keys dropped before validation, for keys a layer must not carry. */
+	/** Keys dropped before validation, for keys a layer must not carry; `a.b` names a key inside a section. */
 	drop: readonly string[] = [],
 ): MutableConfig {
 	const raw = readIfPresent(path)
@@ -654,7 +660,16 @@ function readJsonIfExists(
 		})
 	}
 	if (drop.length > 0 && parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-		for (const key of drop) delete (parsed as Record<string, unknown>)[key]
+		for (const key of drop) {
+			const dot = key.indexOf('.')
+			if (dot < 0) {
+				delete (parsed as Record<string, unknown>)[key]
+				continue
+			}
+			const section = (parsed as Record<string, unknown>)[key.slice(0, dot)]
+			if (section !== null && typeof section === 'object' && !Array.isArray(section))
+				delete (section as Record<string, unknown>)[key.slice(dot + 1)]
+		}
 	}
 	return asConfigObject(path, parsed, label)
 }
@@ -984,7 +999,7 @@ const CONFIG_READERS: ConfigReaders = {
 	memory: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
-			if (key !== 'recall' && key !== 'identifierGrounding')
+			if (key !== 'recall' && key !== 'identifierGrounding' && key !== 'select')
 				return invalidConfigValue(context, [key], 'is not a memory key')
 		}
 		if (v.recall !== undefined && typeof v.recall !== 'boolean') {
@@ -993,7 +1008,11 @@ const CONFIG_READERS: ConfigReaders = {
 		if (v.identifierGrounding !== undefined && typeof v.identifierGrounding !== 'boolean') {
 			return invalidConfigValue(context, ['identifierGrounding'], 'must be true or false')
 		}
+		if (v.select !== undefined && v.select !== 'on' && v.select !== 'off') {
+			return invalidConfigValue(context, ['select'], 'must be "on" or "off"')
+		}
 		return {
+			...(v.select === undefined ? {} : { select: v.select as 'on' | 'off' }),
 			...(v.recall === undefined ? {} : { recall: v.recall as boolean }),
 			...(v.identifierGrounding === undefined
 				? {}
@@ -2576,6 +2595,13 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 					layer.config.composerTriggers,
 					isProjectSource(layer.sourceFor(key)),
 				)
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
+			if (key === 'memory' && layer.config.memory) {
+				// Merged per key, so a layer that sets `recall` does not unset a
+				// `select` an earlier one chose.
+				out.memory = { ...out.memory, ...layer.config.memory }
 				provenance[key] = layer.sourceFor(key)
 				continue
 			}

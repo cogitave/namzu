@@ -477,6 +477,47 @@ The CLI enables this hook by default. Set `memory.recall: false` in CLI
 configuration to disable automatic recall while retaining the explicit tools.
 SDK hosts opt in by supplying the hook.
 
+### Letting the host choose among the candidates
+
+Words find candidates; they do not judge them. A record that shares one common
+word with the request is injected, and one that says the same thing in other
+words is missed. Three options on `createMemoryRecallStep` let a host put a
+judgement between the two without changing the default.
+
+- `select(input)` receives `{ sessionId, turnId, query, recent?, candidates, signal }`
+  and resolves `{ id, why? }[]` or `undefined`. A candidate (`RecallCandidate`) is
+  `id`, `name`, `title`, `description` (the description, else the summary), `type`,
+  `origin`, `updatedAt` and `age`; a body is never passed. The candidates are the
+  active lexical matches the conversation does not already hold, as many as
+  `shortlist` (default `maxMemories`, which is today's behaviour; a host with a
+  selector sets about 16). `maxMemories` still bounds what is injected.
+- An array is the answer: those ids, in that order, at most `maxMemories`, each
+  carried with its `why` as `RecalledMemory.reason` (and so on the
+  `memory_recalled` event, persisted, and `reason` in the SSE `memory.recalled`
+  payload). An id that is not among the candidates is ignored. `[]` means
+  nothing is relevant, and nothing is added.
+- `undefined`, a throw, or an abort means the selector did not answer. Recall
+  then uses lexical order and holds each record to `minCoverage`: the number of
+  distinct words of the request (default 1, today's behaviour; never more than
+  the request has) that the record's name, title, description or body must
+  contain. Those records carry `reason: "matched words"` when a selector was
+  given; with no selector `reason` is absent.
+- The selector runs at most once per user message. Its answer, including "nothing"
+  and "did not answer", is kept by the step for the tool iterations that follow,
+  and a new user message (or new steering) asks again. It is not called when the
+  lexical stage found nothing new for it to judge. The `id@updatedAt` check
+  against what the conversation already holds is unchanged.
+- Its deadline is its own. The `timeoutMs` budget bounds the store reads and is
+  paused while the selector runs (the selector is not part of "the whole pass"),
+  then starts again for the reads that follow; a selector that ignores `signal`
+  is still cut off at `selectTimeoutMs` (default 2,500 ms), when `signal` aborts.
+  The host's own, shorter deadline should be the one that normally fires.
+
+When more records matched than were injected, the block ends with
+`N other memories matched; search_memory can find them.` (when it fits the
+character allowance), and the header adds that a record should be used only if
+it actually applies to the request.
+
 ### Exercise recall without a provider
 
 This example invokes the same preparation hook directly, with no model or

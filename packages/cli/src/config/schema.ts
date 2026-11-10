@@ -304,6 +304,17 @@ export interface MemoryCliConfig {
 	readonly recall?: boolean
 	/** Ground automatic recall in mixed letter/digit identifiers when present. Default false. */
 	readonly identifierGrounding?: boolean
+	/**
+	 * Let the small model choose which stored memories go with a message.
+	 * `on` (default): it reads the message and each candidate's title and
+	 * description and picks up to three; where there is no small model (the
+	 * side route would be the conversation's own model) recall uses its word
+	 * match, which then needs two shared words. `off`: the word match alone,
+	 * one shared word, as before. The small model sees the message and
+	 * memory titles, on your own provider. Your own config and managed
+	 * config only; a project file cannot set it.
+	 */
+	readonly select?: 'on' | 'off'
 }
 
 /**

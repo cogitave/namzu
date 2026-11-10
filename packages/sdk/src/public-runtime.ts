@@ -479,7 +479,13 @@ export type {
 export { SESSION_MEMORY_TAG, createMemoryPromoter } from './turn/index.js'
 export type { MemoryPromoterOptions } from './turn/index.js'
 export { createMemoryRecallStep } from './turn/memory-recall.js'
-export type { MemoryRecallOptions } from './turn/memory-recall.js'
+export type {
+	MemoryRecallOptions,
+	MemorySelection,
+	MemorySelector,
+	MemorySelectorInput,
+	RecallCandidate,
+} from './turn/memory-recall.js'
 export {
 	createEvidenceRecallStep,
 	refineEvidenceRecallTerms,

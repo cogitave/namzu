@@ -125,7 +125,9 @@ async function makeSession(
 		sandbox: { enabled: false },
 		permissionMode: 'auto',
 		limits: { maxIterations: 2, tokenBudget: 100_000 },
-		...(recall === undefined ? {} : { memory: { recall } }),
+		// These tests count the provider's requests, so the small model that would
+		// choose among candidates stays off; its own tests are in select.test.ts.
+		memory: { select: 'off', ...(recall === undefined ? {} : { recall }) },
 		...sessionOptions,
 	})
 	sessions.push(session)
