@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { ProjectView } from '../shared/protocol.js'
 import { SETTINGS_SECTIONS } from '../shared/settings-protocol.js'
 import {
+	ENGINE_ONLY_SECTIONS,
 	SETTINGS_ENTRIES,
 	SETTINGS_SECTION_TITLES,
 	aboutDetailsText,
@@ -65,7 +66,7 @@ describe('search', () => {
 		expect(new Set(ids).size).toBe(ids.length)
 		for (const entry of SETTINGS_ENTRIES)
 			expect(SETTINGS_SECTION_TITLES[entry.section]).toBeTruthy()
-		for (const section of SETTINGS_SECTIONS)
+		for (const section of SETTINGS_SECTIONS.filter((s) => !ENGINE_ONLY_SECTIONS.includes(s)))
 			expect(SETTINGS_ENTRIES.some((e) => e.section === section)).toBe(true)
 	})
 })

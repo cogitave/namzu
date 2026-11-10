@@ -462,3 +462,69 @@
 		transition: none;
 	}
 }
+
+/* Settings the engine describes (limits, tools, sandbox, terminal app, ...). */
+.settings-config-control {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 6px;
+	min-width: 0;
+	max-width: 100%;
+}
+.settings-row[data-stacked] .settings-config-control {
+	align-items: stretch;
+	width: 100%;
+}
+.settings-config-field {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+}
+.settings-config-input {
+	min-width: 0;
+	padding: 5px 8px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	background: var(--background);
+	color: var(--foreground);
+	font: inherit;
+	font-size: 13px;
+}
+input.settings-config-input[type="number"] {
+	width: 140px;
+	font-variant-numeric: tabular-nums;
+}
+.settings-config-wide {
+	width: min(320px, 100%);
+}
+.settings-config-area {
+	width: 100%;
+	font-family: var(--font-mono, ui-monospace, monospace);
+	font-size: 12px;
+	line-height: 18px;
+	resize: vertical;
+}
+.settings-config-json {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	width: 100%;
+}
+.settings-config-json > span {
+	display: flex;
+	gap: 6px;
+}
+.settings-config-input:focus-visible {
+	outline: 2px solid transparent;
+	box-shadow: var(--focus-ring);
+}
+.settings-config-unit {
+	color: var(--muted-foreground);
+	font-size: 12px;
+}
+.settings-config-error {
+	margin: 0;
+}

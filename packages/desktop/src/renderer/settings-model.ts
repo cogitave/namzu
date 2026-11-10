@@ -10,8 +10,12 @@ import { foldSearchText } from './text-fold.js'
 export const SETTINGS_SECTION_TITLES: Record<SettingsSection, string> = {
 	general: 'General',
 	models: 'Models',
+	agent: 'Agent',
+	tools: 'Tools',
 	projects: 'Projects',
 	appearance: 'Appearance',
+	terminal: 'Terminal',
+	telemetry: 'Telemetry',
 	updates: 'Updates',
 	speech: 'Speech',
 	about: 'About',
@@ -21,12 +25,24 @@ export const SETTINGS_SECTION_TITLES: Record<SettingsSection, string> = {
 export const SETTINGS_SECTION_SUBTITLES: Record<SettingsSection, string> = {
 	general: 'How Namzu starts, looks and keeps your projects safe.',
 	models: 'The providers and models Namzu can use.',
-	projects: 'The folders Namzu knows, and when it asks you to trust them again.',
+	agent: 'How long Namzu works, how it remembers, and what it learns.',
+	tools: 'The web, the browser, connected servers, hooks and plugins.',
+	projects: 'The folders Namzu knows, what it may do in them, and when it asks you.',
 	appearance: 'Choose how Namzu looks.',
+	terminal: 'Applies to the namzu terminal app, not to this window.',
+	telemetry: 'Where records of your work may be sent. Off unless you set a place.',
 	updates: 'Keep Namzu and the programs it works with up to date.',
 	speech: 'Talk to Namzu and have replies read aloud, with voices that stay on this computer.',
 	about: 'Versions, your system, and where Namzu keeps its files.',
 }
+
+/** Sections whose rows all come from the engine's own description, so none is listed here. */
+export const ENGINE_ONLY_SECTIONS: readonly SettingsSection[] = [
+	'agent',
+	'tools',
+	'terminal',
+	'telemetry',
+]
 
 /** The line under the heading while a search is showing results. */
 export const SETTINGS_SEARCH_SUBTITLE = 'Matches from every section.'

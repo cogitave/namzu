@@ -81,8 +81,12 @@ export function storedDesktopSettings(value: unknown): DesktopSettings {
 export const SETTINGS_SECTIONS = [
 	'general',
 	'models',
+	'agent',
+	'tools',
 	'projects',
 	'appearance',
+	'terminal',
+	'telemetry',
 	'updates',
 	'speech',
 	'about',

@@ -757,6 +757,8 @@ fieldsets, the section list is a `nav`, and the page works at the 560px minimum 
 Screenshots of every section in both themes, narrow, the search, and both removal
 surfaces are in [`research/settings-20261008/`](../../research/settings-20261008/).
 
+Sections `agent`, `tools`, `terminal` and `telemetry` and a **Namzu settings** group in General, Models, Projects and Updates hold the keys of the user config file, drawn from the engine's own list; see [Desktop settings for config keys](desktop-settings.md).
+
 What it holds, and where each value lives (one source of truth per value):
 
 - **General** — *When Namzu starts*: `Continue where I left off` (default) or `Start on the home
