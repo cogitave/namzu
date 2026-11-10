@@ -1,5 +1,13 @@
 # @namzu/cli
 
+## 46.2.1
+
+### Patch Changes
+
+- Updated dependencies [04a696a]
+  - @namzu/sdk@62.2.1
+  - @namzu/anthropic@6.8.1
+
 ## 46.2.0
 
 ### Minor Changes
