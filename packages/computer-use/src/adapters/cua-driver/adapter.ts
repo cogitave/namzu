@@ -22,7 +22,12 @@ import type {
 } from '@namzu/sdk'
 import type { A11ySeq, A11yWindow, AccessibilityBackend } from '../../a11y/interface.js'
 import { droppedInputNote, foregroundNote, interferenceNote } from '../../foreground/guard.js'
-import type { ForegroundLadder, LadderRequest } from '../../foreground/ladder.js'
+import {
+	type ForegroundLadder,
+	type LadderRequest,
+	blockDetailWithRefAdvice,
+	uiActBlockDetail,
+} from '../../foreground/ladder.js'
 import { BurstInterrupted, type ForegroundSubject } from '../../foreground/types.js'
 import type { Presence } from '../../presence/presence.js'
 import { CallAbortedError, currentCallSignal, markSent } from '../../util/call-scope.js'
@@ -1227,7 +1232,7 @@ export class CuaDriverAdapter implements Adapter {
 				}
 				if (outcome.kind === 'blocked') {
 					route.blocked = outcome.block.code
-					return verdict('not_delivered', 'safe', outcome.block.detail)
+					return verdict('not_delivered', 'safe', blockDetailWithRefAdvice(outcome.block))
 				}
 				route.onScreen = true
 				const dropped = droppedInputNote(outcome)
@@ -1828,7 +1833,7 @@ export class CuaDriverAdapter implements Adapter {
 				ok: false,
 				delivery: 'not_delivered',
 				retrySafety: 'safe',
-				detail: `${outcome.block.detail} ${instead}`,
+				detail: `${uiActBlockDetail(outcome.block)} ${instead}`,
 			}
 		const dropped = droppedInputNote(outcome)
 		if (dropped)
@@ -2061,7 +2066,7 @@ export class CuaDriverAdapter implements Adapter {
 					ok: false,
 					delivery: 'not_delivered',
 					retrySafety: 'safe',
-					detail: outcome.block.detail,
+					detail: uiActBlockDetail(outcome.block),
 				}
 			const dropped = droppedInputNote(outcome)
 			if (dropped)

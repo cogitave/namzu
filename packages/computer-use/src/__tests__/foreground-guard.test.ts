@@ -165,4 +165,23 @@ describe('foregroundNote', () => {
 		})
 		expect(nothing).not.toMatch(/not put back/)
 	})
+
+	it('tells the model that controls by ref still work when the helper is down for a display action', async () => {
+		const monitor = new FakeMonitor()
+		monitor.startError = new Error(
+			'the Windows helper stopped while starting (exit code 1): blocked',
+		)
+		const { ladder } = makeLadder({ monitor })
+		const { adapter, executed } = inner()
+		const result = await guardForeground(adapter, ladder).execute({
+			type: 'mouse_click',
+			at: { x: 1, y: 1 },
+			button: 'left',
+		})
+		expect(executed).toEqual([])
+		expect(result).toMatchObject({ delivery: 'not_delivered', retrySafety: 'safe' })
+		const detail = 'detail' in result ? result.detail : ''
+		expect(detail).toContain('exit code 1): blocked')
+		expect(detail).toContain('Controls by ref (ui_act) still work in the background.')
+	})
 })

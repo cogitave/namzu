@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-10
+
+- **Update** [Foreground ladder](sdk/foreground-ladder.md#when-the-helper-is-not-running): a Windows helper that has ended is replaced before use, a failed first look or start is retried once with a fresh helper, two failed starts are remembered until the turn ends, a death mid-burst fails that burst without a restart, and the block names the cause (exit code, last error line, language mode) and no longer sends `ui_act` callers back into `ui_act`. `ForegroundMonitor.running` and `ForegroundBlock.reason` are optional additions. `.changeset/cu-helper-resilient.md` (`@namzu/computer-use` minor).
+
 ## 2026-11-08
 
 - **Update** [Memory](cli/memory.md#seeing-which-memories-a-message-used) and [Memory recall](sdk/memory.md#optional-recall-before-a-model-step): a recall step that records memory now reports them with a persisted `memory_recalled` session event (id, name, type, title, who wrote it, updated); the TUI shows `Used N memories (ctrl+o to expand)` under the message, live and on resume. `.changeset/memory-recalled.md` (`@namzu/sdk` minor, `@namzu/cli` minor).

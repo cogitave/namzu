@@ -19,6 +19,12 @@ export const WINDOWS_HELPER_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
+function NzFail($what, $e) {
+  $o = @{ ok = $false; hooks = $false; hookError = ('{0}: {1}' -f $what, $e.Exception.Message); languageMode = [string]$ExecutionContext.SessionState.LanguageMode }
+  [Console]::Out.WriteLine((ConvertTo-Json -InputObject $o -Compress))
+  exit 1
+}
+try {
 Add-Type -TypeDefinition @"
 using System; using System.Text; using System.Threading; using System.Runtime.InteropServices;
 public static class NzG {
@@ -301,7 +307,8 @@ public static class NzG {
  }
 }
 "@
-$hooks = [NzG]::StartHooks()
+} catch { NzFail 'the hook library did not compile' $_ }
+try { $hooks = [NzG]::StartHooks() } catch { NzFail 'the hooks did not start' $_ }
 $selfIntegrity = [NzG]::SelfIntegrity()
 $selfElevated = ($selfIntegrity -ge 12288)
 $ownStart = 0; $ownEnd = 0

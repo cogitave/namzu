@@ -33,6 +33,8 @@ function window(
 		sparseFirst?: boolean
 		effect?: string
 		onClick?: () => void
+		/** Answers a click that carries no delivery mode (the background one) instead of performing it. */
+		refuseBackgroundClick?: () => unknown
 		onTool?: (call: ToolCall) => void
 		foreground?: CuaDriverAdapterOptions['foreground']
 		a11y?: CuaDriverAdapterOptions['a11y']
@@ -164,6 +166,8 @@ function window(
 								},
 							},
 						}
+					if (call.arguments.delivery_mode === undefined && options.refuseBackgroundClick)
+						return options.refuseBackgroundClick() as never
 					clicks.push({ token, read: latestRead })
 					options.onClick?.()
 					return toolResult({ effect: options.effect ?? 'unverifiable', route: 'accessibility' })
@@ -891,6 +895,59 @@ describe('choosing an option in a list the driver does not change', () => {
 		)
 		expect(outcome).toMatchObject({ ok: false, delivery: 'not_delivered', retrySafety: 'safe' })
 		expect(outcome.detail).toContain('A person is using the screen.')
+		await w.adapter.dispose()
+	})
+})
+
+describe('when the keyboard-and-mouse helper is down', () => {
+	const blocked = {
+		code: 'monitor_unavailable',
+		detail:
+			"This computer cannot watch for the user's keyboard and mouse (the Windows helper stopped while starting (exit code 1): blocked), so the screen is not used and nothing was sent. Ask the user to do this step if it needs the screen.",
+		reason: 'the Windows helper stopped while starting (exit code 1): blocked',
+	}
+	const down = (): CuaDriverAdapterOptions['foreground'] =>
+		({
+			run: async () => ({ kind: 'blocked', block: blocked }),
+		}) as unknown as CuaDriverAdapterOptions['foreground']
+
+	it('does not send a ui_act click that fell back to the screen back into ui_act', async () => {
+		const w = window(page(button('Save')), {
+			foreground: down(),
+			refuseBackgroundClick: () => ({
+				result: {
+					isError: true,
+					structuredContent: { code: 'background_unavailable' },
+					content: [{ type: 'text', text: 'needs real focus' }],
+				},
+			}),
+		})
+		const snapshot = await w.adapter.uiSnapshot('0x64')
+		const outcome = await w.adapter.uiAct(find(snapshot, 'Button', 'Save').ref, 'invoke')
+		expect(outcome).toMatchObject({ ok: false, delivery: 'not_delivered', retrySafety: 'safe' })
+		expect(outcome.detail).toContain('could not be pressed in the background')
+		expect(outcome.detail).toContain('exit code 1): blocked')
+		expect(outcome.detail).toMatch(/another control, or ask the user/i)
+		expect(outcome.detail).not.toMatch(/ui_act/)
+		await w.adapter.dispose()
+	})
+
+	it('gives the same advice when choosing an option by keyboard', async () => {
+		const w = window(
+			page({ role: 'ComboBox', label: 'Color', actions: ['set_value'], value: 'red' }),
+			{
+				foreground: down(),
+			},
+		)
+		const snapshot = await w.adapter.uiSnapshot('0x64')
+		const outcome = await w.adapter.uiAct(
+			find(snapshot, 'ComboBox', 'Color').ref,
+			'set_value',
+			'blue',
+		)
+		expect(outcome).toMatchObject({ ok: false, delivery: 'not_delivered' })
+		expect(outcome.detail).toContain('could not be pressed in the background')
+		expect(outcome.detail).not.toMatch(/ui_act/)
 		await w.adapter.dispose()
 	})
 })

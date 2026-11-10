@@ -7,7 +7,7 @@ import type {
 import type { Adapter } from '../adapters/types.js'
 import { currentCallSignal } from '../util/call-scope.js'
 import type { ForegroundLadder } from './ladder.js'
-import { STOPPED_TEXT } from './ladder.js'
+import { STOPPED_TEXT, blockDetailWithRefAdvice } from './ladder.js'
 import type { ForegroundOutcome, ForegroundSubject } from './types.js'
 
 /** Display actions that put input on the user's screen. */
@@ -98,7 +98,7 @@ export function guardForeground(adapter: Adapter, ladder: ForegroundLadder): Ada
 					type: 'ok',
 					delivery: 'not_delivered',
 					retrySafety: 'safe',
-					detail: outcome.block.detail,
+					detail: blockDetailWithRefAdvice(outcome.block),
 				}
 			const dropped = droppedInputNote(outcome)
 			if (dropped)
@@ -150,7 +150,7 @@ export function guardForeground(adapter: Adapter, ladder: ForegroundLadder): Ada
 					focusedId: null,
 					delivery: 'not_delivered',
 					retrySafety: 'safe',
-					detail: outcome.block.detail,
+					detail: blockDetailWithRefAdvice(outcome.block),
 				}
 			const note = interferenceNote(outcome)
 			return note ? { ...outcome.value, detail: note } : outcome.value
