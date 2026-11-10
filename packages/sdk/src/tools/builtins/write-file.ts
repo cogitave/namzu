@@ -11,6 +11,7 @@ import { fingerprintContent, staleFileError } from './content-fingerprint.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
 import { fileWriteResult } from './file-write-result.js'
 import { jsonStringEscapes } from './json-string-hint.js'
+import { notebookRefusal } from './notebook-guard.js'
 import { staleBeforeReview } from './stale-before-review.js'
 
 const inputSchema = z
@@ -154,6 +155,8 @@ export const WriteFileTool = defineTool({
 		}
 		const valid = parsed.data
 		const content = valid.content ?? valid.newStr ?? ''
+		const notebook = notebookRefusal(valid.path, content)
+		if (notebook) return { success: false as const, output: '', error: notebook }
 		// Host-side containment, on the host branch only. The sandbox has its
 		// own root and its own resolver; canonicalizing a sandbox-relative
 		// path against the HOST filesystem asks a question about the wrong

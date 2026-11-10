@@ -22,6 +22,7 @@ import {
 import { withFileMutationLock } from './file-mutation-lock.js'
 import { jsonStringEscapes } from './json-string-hint.js'
 import { lineDiff } from './line-diff.js'
+import { notebookRefusal } from './notebook-guard.js'
 import { staleBeforeReview } from './stale-before-review.js'
 
 /**
@@ -184,7 +185,10 @@ export function dryRunEdit(
 		}
 	}
 	const result = applyEdit(content, normalized.operations)
-	return result.success ? { success: true, content: result.content } : result
+	if (!result.success) return result
+	const notebook = notebookRefusal(parsed.data.path, result.content)
+	if (notebook) return { success: false, error: notebook }
+	return { success: true, content: result.content }
 }
 
 /**
@@ -570,6 +574,8 @@ export const EditTool = defineTool({
 				if (!admitted.success) return admitted
 				const result = admitted.result
 				if (!result.success) return refusedEdit(result, parsed.data.path)
+				const notebook = notebookRefusal(parsed.data.path, result.content)
+				if (notebook) return { success: false as const, output: '', error: notebook }
 
 				await context.sandbox.writeFile(parsed.data.path, result.content)
 				recordEditedContent(context, parsed.data.path, result.content)
@@ -593,6 +599,8 @@ export const EditTool = defineTool({
 			if (!admitted.success) return admitted
 			const result = admitted.result
 			if (!result.success) return refusedEdit(result, hostPath)
+			const notebook = notebookRefusal(hostPath, result.content)
+			if (notebook) return { success: false as const, output: '', error: notebook }
 
 			// Temp file, fsync, rename — a reader sees the old body or the new
 			// one, never a half-written one. A plain `writeFile` that fails
