@@ -15426,6 +15426,9 @@ function AppBody({
 			lastKeyAtRef.current = Date.now()
 			terminalFocus.noteInput()
 			if (transcriptScreen || (scrollOpen && permission === null)) return
+			// The fullscreen search line owns typed keys; only Esc (closes it) and
+			// Ctrl+C (interrupt) stay the App's.
+			if (fullscreenSearching && !key.escape && !isAction('app:interrupt', input, key)) return
 			// The save-skill screen owns its keys, Esc and Ctrl+C included: neither
 			// may interrupt the turn that is waiting on its answer. A permission
 			// request (an agent's, say) takes the screen over it and gets the keys.

@@ -368,9 +368,12 @@ export function FullscreenTranscript({
 					closeSearch()
 					return true
 				}
-				if (selectionRef.current) {
+				const held = selectionRef.current
+				if (held) {
 					updateSelection(null)
-					return true
+					// A selection already copied is only a highlight: letting go of it
+					// must not cost the Esc that interrupts a running turn.
+					return !held.copied
 				}
 				return false
 			},

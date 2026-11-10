@@ -243,12 +243,28 @@ it('lets go of the selection on Escape, and the copy stays where it was put', as
 	h.pointer('release', TEXT_LEFT + 3, y)
 	await h.screen.waitForRender()
 	expect(invertedOn(h.screen, y - 1)).toBe('some')
+	// Already copied, the highlight goes but the Esc stays the owner's, so it
+	// can still interrupt a running turn.
+	expect(h.control.current?.takeEscape()).toBe(false)
+	await h.screen.waitForRender()
+	expect(invertedOn(h.screen, y - 1)).toBe('')
+	expect(h.control.current?.takeEscape()).toBe(false)
+	expect(h.copies).toEqual(['some'])
+})
+
+it('takes the Escape that lets go of a selection that was not copied', async () => {
+	const h = await mount([reply('a', 'some text here'), reply('b', 'tail')], {
+		copyOnSelect: false,
+	})
+	const y = rowOf(h.screen, 'some text') + 1
+	h.pointer('press', TEXT_LEFT, y)
+	h.pointer('drag', TEXT_LEFT + 3, y)
+	h.pointer('release', TEXT_LEFT + 3, y)
+	await h.screen.waitForRender()
 	expect(h.control.current?.takeEscape()).toBe(true)
 	await h.screen.waitForRender()
 	expect(invertedOn(h.screen, y - 1)).toBe('')
-	// Nothing left to close: the key is the owner's.
-	expect(h.control.current?.takeEscape()).toBe(false)
-	expect(h.copies).toEqual(['some'])
+	expect(h.copies).toEqual([])
 })
 
 it('keeps the selection on its text while output arrives below it', async () => {

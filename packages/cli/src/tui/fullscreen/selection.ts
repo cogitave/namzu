@@ -86,6 +86,7 @@ export function rowCells(
  * The text of a range: plain characters, no gutter and no styling. A row that
  * the wrap continued is joined to the one above it the way it was before the
  * wrap (the space it broke at, or nothing); a line of its own gets a line break.
+ * Table borders and bullet markers are part of the text as drawn and are copied.
  */
 export function extractRows(rows: readonly FsRow[], cols: number, range: Range): string {
 	let out = ''

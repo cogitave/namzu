@@ -18,6 +18,17 @@ describe('laying the transcript out for the viewport', () => {
 		expect(rows).toHaveLength(1 + 1 + 5)
 	})
 
+	it('keeps the meta suffix of a reply that carries one', () => {
+		const { rows } = layoutTranscript(
+			[{ ...message(0, 'hello'), meta: 'two seconds' }],
+			null,
+			undefined,
+			40,
+			createLayoutCache(),
+		)
+		expect(rows.map((row) => row.text).join('\n')).toContain('hello · two seconds')
+	})
+
 	it('puts the streaming reply where it stands in the conversation', () => {
 		const pending = { ...message(9, 'streaming'), pending: true }
 		const { index } = layoutTranscript(

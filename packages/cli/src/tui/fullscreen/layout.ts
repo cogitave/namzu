@@ -43,6 +43,9 @@ function rendersMarkdown(message: TranscriptMessage): boolean {
 		message.role === 'assistant' &&
 		message.content.length > 0 &&
 		message.statusRows === undefined &&
+		// The rendered rows carry the content only; a reply with a meta suffix keeps
+		// the plain rows, which show it as the normal transcript does.
+		message.meta === undefined &&
 		message.contextView === undefined &&
 		message.kind !== 'recap' &&
 		!message.group
