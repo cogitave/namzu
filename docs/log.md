@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-11
+
+- **Update** [Model prices](sdk/model-prices.md): the price source records why `gpt-6-astra` has no row (the vendor prices it by input length, so no single rate is right), after a check of every model the Anthropic offline menu, the OpenAI driver and the Gemini driver name against the table. No rate changed.
+
 ## 2026-11-10
 
 - **Update** [Startup](cli/startup.md#the-compile-cache), [Credentials](cli/credentials.md) and [Session log](sdk/session-log.md#a-writer-that-stops): three costs a turn paid before any model was asked. On WSL, provider discovery started `cmd.exe` four times at every launch to learn the paired Windows home (about 35 ms each, blocking); it asks once per process, keeping only an answer so a timed-out probe is asked again. The query prelude renewed the turn's writer lease on every confirmation (four fsyncs each, three or more per turn); while the lease has more than half its time left it reads the fence instead, renews past half-life, and renews once more when the lease is handed to the turn recorder so the recorder starts with a full lifetime. `namzu acp` writes the compile cache itself two seconds after it starts, so an engine its host kills after that still leaves the next start warm (killed sooner, the cache stays cold). Measured on one Linux machine against a local scripted OpenAI-compatible model: `exec` warm turn medians about 520 ms, engine `initialize` after a killed start about 210 ms against about 325 ms cold (method in the Startup page; the figures are noisy and one machine's). `.changeset/turn-fixed-cost-cli.md` (`@namzu/cli` patch), `.changeset/turn-fixed-cost-sdk.md` (`@namzu/sdk` patch).
