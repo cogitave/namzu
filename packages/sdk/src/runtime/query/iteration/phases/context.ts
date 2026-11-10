@@ -471,6 +471,12 @@ function resumeContextOf(ctx: IterationContext, scope?: AskScope): ResumeContext
 	return {
 		transcript: () => ctx.recorder.messages,
 		...(signal ? { signal } : {}),
+		...(typeof ctx.toolExecutor?.launchedScripts === 'function'
+			? {
+					launchedScripts: (callId, line, dialect) =>
+						ctx.toolExecutor.launchedScripts(callId, line, dialect),
+				}
+			: {}),
 	}
 }
 
