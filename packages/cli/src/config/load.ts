@@ -1579,6 +1579,7 @@ const CONFIG_READERS: ConfigReaders = {
 					'maxResponseTokens',
 					'maxReasoningTokens',
 					'doneGate',
+					'maxHookRefusals',
 					'tokenBudget',
 					'timeoutMs',
 					'waitForProviderMs',
@@ -1588,7 +1589,7 @@ const CONFIG_READERS: ConfigReaders = {
 				return invalidConfigValue(
 					context,
 					[key],
-					'is not a limit (maxIterations, maxResponseTokens, maxReasoningTokens, doneGate, tokenBudget, timeoutMs, waitForProviderMs, costLimitUsd)',
+					'is not a limit (maxIterations, maxResponseTokens, maxReasoningTokens, doneGate, maxHookRefusals, tokenBudget, timeoutMs, waitForProviderMs, costLimitUsd)',
 				)
 			const value = (v as Record<string, unknown>)[key]
 			if (key === 'doneGate') {

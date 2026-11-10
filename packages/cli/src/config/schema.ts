@@ -167,6 +167,12 @@ export interface TurnLimitsConfig {
 	 * `--no-done-gate` turns it off for one launch.
 	 */
 	readonly doneGate?: boolean
+	/**
+	 * How many times in a row a hook may refuse to let a turn end before Namzu
+	 * ends it anyway, with one notice naming the hook. Omitted keeps 8; 0
+	 * removes the limit. A tool call between refusals starts the count over.
+	 */
+	readonly maxHookRefusals?: number
 	/** Main-loop iterations one turn may make. Omitted or 0 means unlimited. */
 	readonly maxIterations?: number
 	/** Aggregate prompt and completion tokens for the turn and descendants. Omitted or 0 means unlimited. */
