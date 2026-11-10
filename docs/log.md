@@ -2,6 +2,7 @@
 
 ## 2026-11-11
 
+- **Update** [Decision models](sdk/decision.md): the `decide` tool takes an optional `criteria` for a `yesno` call and passes it on; the connection test's criteria sentence no longer states the answer.
 - **Update** [Decision models](sdk/decision.md) and [Decision points](cli/decision-points.md): a yes/no question can carry `criteria`, a plain sentence saying what makes the answer yes, through the new `criteria` option of `DecisionModel.yesno`. The HTTP driver sends it as `questions.q.criteria`; the Azure driver does not (the field is not verified against that endpoint), so its request is unchanged; choice and score questions are unchanged. The notify, memory, skill and both routing questions and the connection test each carry one. `.changeset/decision-yesno-criteria.md` (`@namzu/decision` minor, `@namzu/cli` patch).
 
 ## 2026-11-10

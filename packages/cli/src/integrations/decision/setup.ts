@@ -121,7 +121,7 @@ export async function testDecisionConnection(
 	try {
 		await model.yesno('ok', 'Is this a connection test?', {
 			signal: timeout.signal,
-			criteria: 'Yes when the text is a connection test. This is one.',
+			criteria: 'Yes when the text is a short plain word.',
 		})
 		return {
 			ok: true,

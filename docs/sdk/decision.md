@@ -78,8 +78,8 @@ extra `headers`. A `fetch` can be injected for tests.
 ## The `decide` tool
 
 `createDecisionTool(model)` builds the agent-facing `decide` tool. Its input is
-`{ kind: 'yesno' | 'choice' | 'score', context, question, options?, levels? }`
-and its result is the typed decision. The tool is optional and advisory: the
+`{ kind: 'yesno' | 'choice' | 'score', context, question, criteria?, options?, levels? }`
+and its result is the typed decision. `criteria` is for `yesno` only and is passed on as `opts.criteria`. The tool is optional and advisory: the
 agent chooses whether to call it and may ignore the answer.
 
 It is fail-open. When the model errors, times out or is unreachable, the tool
