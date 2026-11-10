@@ -365,6 +365,10 @@ export class IterationOrchestrator {
 	private turnEndFired = false
 	/** A hook already kept this turn going once: it is asked again with `stop_hook_active`. */
 	private stopHookActive = false
+	/** End-of-turn refusals honoured since the last tool call. */
+	private consecutiveHookRefusals = 0
+	/** The cap was reached and its notice recorded; refusals are ignored for the rest of the turn. */
+	private hookRefusalCapReached = false
 	get turnEndHooksFired(): boolean {
 		return this.turnEndFired
 	}
@@ -377,12 +381,22 @@ export class IterationOrchestrator {
 	 * are returned, joined, as feedback for the model. A hook that asks for the
 	 * turn to halt wins over any such feedback (`takeHalt`). With nothing asked,
 	 * the events have fired for this turn and the finalizer does not repeat them.
+	 *
+	 * Refusals are counted in a row (a tool call in between starts the count
+	 * over). Once `maxHookRefusals` have been honoured the next one is not: the
+	 * turn ends, with one notice that names the hook.
 	 */
 	private async *askStopHooks(): AsyncGenerator<SessionEvent, string | undefined> {
 		const manager = this.ctx.pluginManager
 		if (!manager) return undefined
 		const recorder = this.ctx.recorder
 		const feedback: string[] = []
+		const refusers: string[] = []
+		const emit = async (event: SessionEvent): Promise<void> => {
+			if (event.type === 'plugin_hook_completed' && event.result.action === 'skip')
+				refusers.push(String(event.pluginId))
+			await this.ctx.emitEvent(event)
+		}
 		const ask = async (
 			event: 'turn_end' | 'subagent_stop',
 			extra: {
@@ -400,7 +414,7 @@ export class IterationOrchestrator {
 					...(this.stopHookActive ? { stopHookActive: true } : {}),
 					signal: this.ctx.abortController.signal,
 				},
-				this.ctx.emitEvent,
+				emit,
 			)
 			applyLifecycleHookResults(event, results)
 			for (const result of results) {
@@ -420,10 +434,35 @@ export class IterationOrchestrator {
 			})
 			yield* this.ctx.drainPending()
 		}
-		if (feedback.length === 0) {
+		// Once the cap has been reached, refusals stay ignored for the rest of the turn,
+		// whatever a tool call does to the count; a halt was already passed on above.
+		if (feedback.length === 0 || this.hookRefusalCapReached) {
 			this.turnEndFired = true
 			return undefined
 		}
+		const limit = this.ctx.turnConfig.maxHookRefusals ?? 0
+		if (limit > 0 && this.consecutiveHookRefusals >= limit) {
+			// The turn has been kept going `limit` times in a row. A hook that
+			// still refuses is not going to stop; say so once, and let the turn end.
+			this.turnEndFired = true
+			if (!this.hookRefusalCapReached) {
+				this.hookRefusalCapReached = true
+				const names = [...new Set(refusers)]
+				const who = names.length > 0 ? names.map((n) => `"${n}"`).join(', ') : 'A hook'
+				recorder.pushMessage(
+					createRuntimeContextMessage(
+						`${who} asked for more before this turn could end ${limit} times in a row. Namzu is ending the turn anyway and will not honour further requests from it this turn.`,
+						'hook-feedback',
+					),
+				)
+				this.ctx.log.warn('Hook refusal limit reached — ending the turn', {
+					[NAMZU.TURN_ID]: recorder.turnId,
+					'namzu.runtime.limit': limit,
+				})
+			}
+			return undefined
+		}
+		this.consecutiveHookRefusals++
 		this.stopHookActive = true
 		return feedback.join('\n')
 	}
@@ -2001,6 +2040,9 @@ export class IterationOrchestrator {
 						)
 						break
 					}
+
+					// A real tool call: whatever a hook refused before it is behind us.
+					this.consecutiveHookRefusals = 0
 
 					await this.outcomeBefore(response)
 					const reviewOutcome = yield* runToolReview(this.ctx, response, iterationNum)

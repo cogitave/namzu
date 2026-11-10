@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { walkFilesViaExec } from '../../sandbox/file-walk.js'
+import { MAX_GLOB_SEGMENT_LENGTH } from '../../sandbox/glob-segment.js'
 import type { Sandbox, SandboxWalkFilesOptions } from '../../types/sandbox/index.js'
 import type { ToolContext } from '../../types/tool/index.js'
 import { GlobTool } from '../builtins/glob.js'
@@ -54,6 +55,26 @@ describe('a pattern that could backtrack without end is a tool error', () => {
 		)
 		expect(result.success).toBe(false)
 		expect(result.error).toContain("The pattern '+(a|aa)' repeats a group")
+	})
+})
+
+describe('a segment longer than the cap is a tool error', () => {
+	it('glob returns the refusal and never runs a guest script', async () => {
+		const exec = vi.fn()
+		const sandbox = {
+			rootDir: '/sandbox/project',
+			walkFiles: (root: string, options: SandboxWalkFilesOptions) =>
+				walkFilesViaExec(exec, root, options),
+		} as unknown as Sandbox
+		const result = await GlobTool.execute(
+			{ pattern: `src/${'a'.repeat(MAX_GLOB_SEGMENT_LENGTH + 1)}`, path: '.' },
+			context(sandbox),
+		)
+		expect(exec).not.toHaveBeenCalled()
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('is too long')
+		expect(result.error).toContain('split it across folders')
+		expect(result.error?.length).toBeLessThan(300)
 	})
 })
 

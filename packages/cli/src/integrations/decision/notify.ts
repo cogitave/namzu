@@ -21,6 +21,10 @@ export const NOTIFY_WORTHY_INSTRUCTIONS =
 	'Answer yes when the reply asks them something, needs their decision or approval, hands over a finished result, or reports a failure they must act on. ' +
 	'Answer no for progress notes, acknowledgements, and a short answer to something they just asked and are watching for.'
 
+/** What makes the answer yes, for services that want it spelled out. */
+export const NOTIFY_WORTHY_CRITERIA =
+	'Yes when the reply asks the person something, needs their decision or approval, hands over a finished result, or reports a failure they must act on. No for progress notes, acknowledgements and a short answer they are already watching for.'
+
 export interface NotifyWorthyInput {
 	/** The reply the turn ended with, as written. */
 	readonly reply: string
@@ -48,6 +52,7 @@ export function notifyWorthyQuestion(input: NotifyWorthyInput): DecisionQuestion
 		point: 'notify',
 		state: `${tail}\n\n[the turn took ${seconds}s]`,
 		instructions: NOTIFY_WORTHY_INSTRUCTIONS,
+		criteria: NOTIFY_WORTHY_CRITERIA,
 		rule: input.rule,
 	}
 }

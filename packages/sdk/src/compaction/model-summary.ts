@@ -13,7 +13,7 @@ import { classifyProviderError } from '../types/provider/errors.js'
 import type { LLMProvider } from '../types/provider/interface.js'
 import type { WorkingStateManager } from './manager.js'
 import { serializeState } from './serializer.js'
-import { isCompactionMessage } from './summary.js'
+import { isCompactionMessage, withoutClosingNotes } from './summary.js'
 import {
 	MAX_COMPACTION_INSTRUCTIONS_CHARS,
 	type UsageSink,
@@ -185,7 +185,7 @@ export function fitTranscript(entries: readonly string[], budget: number): strin
 /** The text of a prior summary without the restored files and skills that follow it. */
 export function summaryBodyOf(content: string): string {
 	const cut = content.indexOf('\n## Restored after compaction')
-	return (cut >= 0 ? content.slice(0, cut) : content).trim()
+	return withoutClosingNotes((cut >= 0 ? content.slice(0, cut) : content).trim())
 }
 
 /** Replaceable earlier summaries on the leading floor, oldest first. */
