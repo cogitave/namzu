@@ -27,6 +27,21 @@ The same table also holds five settings that are not tools: `defaultMode`, `disa
 
 Before this, a layer that wrote a `permissions` table replaced the whole table of every layer below it, key by key.
 
+## The sandbox block
+
+`sandbox` is the operator's, and the layers combine key by key (before, the later file replaced the whole block). The user file, the managed file and the environment keep full control, the managed file last. The project file, the local file and a profile declared in either may only tighten it:
+
+| Key | A repository file may | A repository file may not |
+|---|---|---|
+| `enabled` | turn it on | turn it off |
+| `allowEscape` | set `false` | set `true` over a user `false` |
+| `allowUnattendedEscape` | set `false` | set `true` |
+| `requireIsolation` | add controls | remove one a lower layer required |
+| `workspace` | ask for `ephemeral` (it confines more) | set `working-directory` over a user `ephemeral` |
+| `teardownTimeoutMs` | nothing | set it: a short wait can abandon a sandbox still running, and `0` waits forever |
+
+Each value that was ignored and would have changed something is named once at launch, with the key and the file, and says to set it in `~/.namzu/config.yaml`. A repository that repeats what you already chose is not mentioned. A profile follows the file that declares it: a profile in `~/.namzu/config.yaml` has full control, one in `namzu.config.json` does not. The keys are described in [Tool boundary](tool-boundary.md#leaving-the-sandbox-for-one-command).
+
 ## Rules as lists
 
 Besides the per-tool table, `permissions` accepts three lists, `allow`, `ask` and `deny`, whose entries are a tool name or a tool name with a specifier in parentheses. The lists are folded into the table when the file is read, so they join across layers exactly as the table does and the two can be mixed in one file.
@@ -119,5 +134,7 @@ An answer never covers a call that is asked every time: a sandbox escape, a path
 `ls`, `cat`, `git status`, `git diff` and the other commands on the read-only list run without a prompt in `prompt` and `accept-edits`, and in `plan`. The list, the conditions and what is not ported are in [The bash tool](../sdk/bash-tool.md#read-only-lines). The path floor still applies: a read-only command that reads outside the working directory and added directories is asked about.
 
 ## Upgrading
+
+If a repository file loosened the sandbox (`enabled: false`, `allowUnattendedEscape: true`), that no longer applies: put the setting in your own config file or the managed file.
 
 If you relied on a project or managed table replacing a user's rules, move the rule you wanted gone out of the lower file; there is no way for a higher layer to switch a lower layer's deny off, by design. A rule that used to be hidden by a higher layer's table now applies again, which can ask about or refuse calls that used to run.
