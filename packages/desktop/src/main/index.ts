@@ -53,6 +53,7 @@ import {
 } from '../shared/workspace-layout.js'
 import { bundledCliEntry } from './bundled-runtime.js'
 import { ClipboardTextWriter } from './clipboard-text.js'
+import { ConfigSettings } from './config-settings.js'
 import {
 	DamagedFileError,
 	DamagedFilesNotices,
@@ -990,6 +991,15 @@ function register(): void {
 	})
 	handleWindow('setSettings', ({ id }, patch: unknown, token: unknown) =>
 		settingsConfirmation.change(id, patch, token),
+	)
+	const configSettings = new ConfigSettings({
+		read: () => operator.configSettings(),
+		write: (path, value) => operator.setConfigSetting(path, value),
+		validate: (path, value) => operator.validateConfigSetting(path, value),
+	})
+	handle('configSettings', () => configSettings.read())
+	handleWindow('setConfigSetting', ({ id }, change: unknown, token: unknown) =>
+		configSettings.change(id, change, token),
 	)
 	handle('desktopInfo', () => desktopInfo())
 	handle('openDataFolder', (kind: unknown) => openDataFolder(kind))

@@ -470,8 +470,8 @@ export interface NamzuCliConfig {
 	 * Search defaults to automatic native/Exa routing; set `search: off`
 	 * to disable it. Queries are sent only when the tool runs, subject to
 	 * normal network-tool review. `backend: native` selects provider-hosted
-	 * search instead, without local-tool review. `fetch: true` separately
-	 * mounts guarded URL fetching; fetch remains off by default.
+	 * search instead, without local-tool review. `fetch` separately
+	 * mounts guarded URL fetching, on by default; `fetch: false` removes it.
 	 */
 	readonly web?: WebConfig
 	/**

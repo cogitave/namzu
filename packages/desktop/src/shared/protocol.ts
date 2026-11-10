@@ -9,6 +9,11 @@ import type {
 } from '@namzu/sdk'
 import type { BackgroundWorkStatus, BackgroundWorkStatusEvent } from './background-work-protocol.js'
 import type {
+	ConfigSettingChange,
+	ConfigSettingResult,
+	ConfigSettingsView,
+} from './config-settings-protocol.js'
+import type {
 	EngineUpdateAnnouncement,
 	EngineUpdateNotice,
 	EngineUpdateRequest,
@@ -846,6 +851,9 @@ export interface DesktopApi {
 	/** Saved preferences main acts on; changes arrive as `settings` events. */
 	settings?(): Promise<DesktopSettings>
 	setSettings?(patch: Partial<DesktopSettings>, token?: string): Promise<SettingsChangeResult>
+	/** Settings the engine owns (limits, tools, sandbox, ...); the engine describes and validates them. */
+	configSettings?(): Promise<ConfigSettingsView>
+	setConfigSetting?(change: ConfigSettingChange, token?: string): Promise<ConfigSettingResult>
 	desktopInfo?(): Promise<DesktopInfo>
 	/** Opens one of the app's own data folders in the file manager. */
 	openDataFolder?(kind: DataFolderKind): Promise<void>

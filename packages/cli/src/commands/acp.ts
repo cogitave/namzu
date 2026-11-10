@@ -88,6 +88,7 @@ import {
 } from '../tui/agent.js'
 import { withCliHarnesses } from './acp-harness.js'
 import { type ProviderRetryStatus, readProviderRetryStatus } from './acp-provider-retry.js'
+import { questionsOverPermission } from './acp-screen-question.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
 import { desktopModelCatalogue } from './desktop-model-catalogue.js'
 import { withPreviews } from './permission-preview.js'
@@ -1110,6 +1111,11 @@ export function createCliAcpRuntime(
 						: {}),
 					signal,
 					onPermission,
+					// The one question a Desktop conversation can raise itself: the screen is
+					// needed for a moment. It reaches the person as a card, never as a standing yes.
+					...(runtimeOptions.computerUse === true
+						? { onQuestion: questionsOverPermission(sessionId, ask, signal) }
+						: {}),
 					...(monitorSnapshot.text ? { hostContext: () => [monitorSnapshot.text as string] } : {}),
 					...(inputInbox
 						? {

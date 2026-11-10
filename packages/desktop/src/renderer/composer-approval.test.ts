@@ -131,3 +131,42 @@ it('explains the added-lines badge to a screen reader and on hover', () => {
 	expect(html).toContain('aria-label="2 lines added"')
 	expect(html).toContain('title="2 lines added"')
 })
+
+const screenMoment = (app = 'Editor'): PermissionView => ({
+	id: 'r-screen',
+	sessionId: 's',
+	projectId: 'p',
+	calls: [
+		{
+			id: 'screen-moment-1',
+			name: 'screen_moment',
+			input: { app },
+			isDestructive: false,
+			alwaysAsk: true,
+		},
+	],
+})
+
+it('draws the screen question as a one-time choice between allow now and not now', () => {
+	// A conversation that holds a standing yes still gets the question, and is not offered another one.
+	const html = draw(screenMoment(), '/work/site', 'Site', true)
+	expect(html).toContain('aria-label="Screen question"')
+	expect(html).toContain('Let Editor use your keyboard and mouse for a moment?')
+	expect(html).toContain('Namzu needs your keyboard and mouse for a moment to use Editor.')
+	expect(html).toMatch(/data-tone="accept"[^>]*>Allow this app</)
+	expect(html).toMatch(/data-tone="reject"[^>]*>Not now</)
+	expect(html).not.toContain('Allow for this conversation')
+	expect(html).not.toContain('Tell Namzu what to do instead')
+	expect(html).not.toContain('Details')
+})
+
+it('keeps a stray Enter from allowing the keyboard to be taken', () => {
+	const html = draw(screenMoment())
+	expect(html).toContain('Enter says not now')
+	expect(html).toContain('Esc says not now too')
+	expect(html).not.toContain('Enter accepts')
+})
+
+it('names an application nobody could name', () => {
+	expect(draw(screenMoment(' '))).toContain('Let an application use your keyboard and mouse')
+})
