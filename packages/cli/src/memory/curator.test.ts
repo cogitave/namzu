@@ -144,7 +144,7 @@ describe('memory curator', () => {
 		// The saved record was in front of the model, with who wrote it.
 		expect(requests[0]?.body).toContain('Answer in Turkish')
 		expect(requests[0]?.body).toContain('the assistant')
-		expect(log).toMatchObject([{ op: 'noop', reason: 'already-held' }])
+		expect(log).toMatchObject([{ op: 'noop', reason: 'noop' }])
 	})
 
 	it('turns an add that repeats a model-saved record into nothing, even when the model proposes an update of it', async () => {
@@ -463,7 +463,7 @@ describe('memory curator', () => {
 		await curator.curate([claim('Always use pnpm'), claim('Never use tabs')], context)
 		expect(fallen.map((candidate) => candidate.userRequirements)).toEqual([['Never use tabs']])
 		expect(log.map((entry) => [entry.op, entry.reason])).toEqual([
-			['noop', 'already-held'],
+			['noop', 'noop'],
 			['fallback', 'unanswered'],
 		])
 	})

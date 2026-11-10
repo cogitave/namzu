@@ -364,7 +364,7 @@ that replaced another says `Replaced: <old title>`.
 
 The curation log, `<NAMZU_HOME>/memory/curation.jsonl`, has one line per
 operation: the time, the operation, the ids it touched, the turn, a reason code
-(`added`, `updated`, `superseded`, `already-held`, `ephemeral`, `secret`,
+(`added`, `updated`, `superseded`, `noop` (held already, or not worth keeping), `ephemeral`, `secret`,
 `injection`, `invalid-target`, `protected-target`, `conflict`, `duplicate-digest`,
 or for a fallback `no side model`, `main route`, `timeout`, `invalid`, `error`,
 `unanswered`), whether the small model or the fallback ran, how long it took
