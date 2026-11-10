@@ -227,6 +227,10 @@ same path has a different identity and is proved afresh. The account's security 
 also read once per process. Only a successful proof is remembered, never a refusal. The trade is
 stated: an access-list edit made to that same folder while Namzu runs is noticed at the next start,
 not at the next open. Credential files, and the directories that hold them, are proved at every read and write.
+A credential file that does not exist is answered without a proof: looking its name up opens no
+handle to any data, and provider discovery asks about several such files at every start. Discovery
+also reads the saved API keys once for all providers instead of once per provider, so on Windows a
+start with no saved keys runs no `icacls` at all for them.
 
 Windows ACL mutation and verification pass extended absolute paths to `icacls`.
 This permits private state under long project paths without changing its stored

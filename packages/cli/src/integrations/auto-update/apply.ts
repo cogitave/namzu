@@ -9,15 +9,8 @@
  */
 
 import { execFile } from 'node:child_process'
-import {
-	cpSync,
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	readdirSync,
-	renameSync,
-	rmSync,
-} from 'node:fs'
+import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { cp, mkdir, rename, rm } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 
 import { compareVersions } from '../updates.js'
@@ -338,36 +331,51 @@ export function describeFailure(code: FailureStatus): string {
 	}
 }
 
-/** Keep a copy of the package folder that is about to be replaced. */
-export function backupPackage(root: string, home: string, version: string, scope?: string): string {
+/**
+ * Keep a copy of the package folder that is about to be replaced. The copy is
+ * thousands of files (the package and its dependencies) and runs in the
+ * terminal's own process, so it is asynchronous: copied synchronously it froze
+ * the screen for as long as it took, which on Windows, with every file scanned
+ * as it is written, is seconds.
+ */
+export async function backupPackage(
+	root: string,
+	home: string,
+	version: string,
+	scope?: string,
+): Promise<string> {
 	const target = previousDir(home, version, scope)
-	rmSync(target, { recursive: true, force: true })
-	mkdirSync(join(target, '..'), { recursive: true })
-	cpSync(root, target, { recursive: true, verbatimSymlinks: true })
+	await rm(target, { recursive: true, force: true })
+	await mkdir(join(target, '..'), { recursive: true })
+	await cp(root, target, { recursive: true, verbatimSymlinks: true })
 	return target
 }
 
-/** Put a kept copy back in place of whatever the installer left. */
-export function restorePackage(root: string, backup: string, pid = process.pid): void {
+/** Put a kept copy back in place of whatever the installer left. Asynchronous for the same reason. */
+export async function restorePackage(
+	root: string,
+	backup: string,
+	pid = process.pid,
+): Promise<void> {
 	// Copy beside the folder first and swap by rename, so a crash or a locked file
 	// never leaves the package missing: the old folder is only moved aside.
 	const fresh = `${root}.restore-${pid}`
 	const aside = `${root}.replaced-${pid}`
-	rmSync(fresh, { recursive: true, force: true })
-	rmSync(aside, { recursive: true, force: true })
+	await rm(fresh, { recursive: true, force: true })
+	await rm(aside, { recursive: true, force: true })
 	try {
-		cpSync(backup, fresh, { recursive: true, verbatimSymlinks: true })
+		await cp(backup, fresh, { recursive: true, verbatimSymlinks: true })
 		const hadRoot = existsSync(root)
-		if (hadRoot) renameSync(root, aside)
+		if (hadRoot) await rename(root, aside)
 		try {
-			renameSync(fresh, root)
+			await rename(fresh, root)
 		} catch (error) {
-			if (hadRoot) renameSync(aside, root)
+			if (hadRoot) await rename(aside, root)
 			throw error
 		}
 	} finally {
-		rmSync(fresh, { recursive: true, force: true })
-		rmSync(aside, { recursive: true, force: true })
+		await rm(fresh, { recursive: true, force: true })
+		await rm(aside, { recursive: true, force: true })
 	}
 }
 
@@ -532,7 +540,7 @@ async function installFromTarball(
 	try {
 		writeInProgress(shared, { pid, to: release.version, from: onDisk, at }, scope)
 		if (install.kind === 'npm-global') {
-			backup = backupPackage(install.root, shared, onDisk, scope)
+			backup = await backupPackage(install.root, shared, onDisk, scope)
 			writeInProgress(shared, { pid, to: release.version, from: onDisk, backup, at }, scope)
 		}
 	} catch {
@@ -544,7 +552,7 @@ async function installFromTarball(
 		try {
 			if (install.kind === 'npm-global') {
 				if (!backup) return false
-				restorePackage(install.root, backup, deps.pid)
+				await restorePackage(install.root, backup, deps.pid)
 				return true
 			}
 			// pnpm keeps the old version in its store: installing it again is a link, not a download.
@@ -752,7 +760,7 @@ export async function repairInterruptedUpdate(
 				isKeptCopy(shared, marker.backup) &&
 				existsSync(marker.backup)
 			) {
-				restorePackage(install.root, marker.backup, own)
+				await restorePackage(install.root, marker.backup, own)
 				restored = deps.installedVersion(root) === marker.from
 			} else if (install.kind === 'pnpm-global') {
 				restored =

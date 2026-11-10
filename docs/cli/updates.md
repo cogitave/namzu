@@ -78,6 +78,9 @@ In CI the terminal still looks, but it does not install unless you ask for it
    end of the log is kept with the last result.
 3. A copy of the version being replaced is kept first
    (`.namzu-update/updates/previous/<install>/<version>` inside the install, the two newest are kept; in the install so that a process with another Namzu home can put it back).
+   The copy, and putting it back, run asynchronously, so the terminal keeps
+   answering while thousands of files are copied (on Windows, where each is
+   scanned as it is written, that takes seconds).
 4. The installed version is read back, and the new copy is started and must
    answer with the version it should be and then load what a terminal session
    needs when it starts: the terminal interface, the runtime under it, and the

@@ -20,7 +20,7 @@ import {
 	apiKeysPath,
 	credentialsPath,
 	googleApiKeyPath,
-	readStoredApiKey,
+	readStoredApiKeys,
 	readStoredCodexCredential,
 	readStoredGeminiApiKey,
 	readStoredSubscriptionCredential,
@@ -206,6 +206,10 @@ export async function discoverProviders(
 	const storedCodexCredential = opts.skipStored
 		? null
 		: readStoredCodexCredential(...(opts.home === undefined ? [] : [opts.home]))
+	// One read for every provider that accepts a typed key, not one per provider.
+	const storedApiKeys: Readonly<Record<string, string>> = opts.skipStored
+		? {}
+		: readStoredApiKeys(...(opts.home === undefined ? [] : [opts.home]))
 	const storedGeminiApiKey = opts.skipStored
 		? null
 		: readStoredGeminiApiKey(...(opts.home === undefined ? [] : [opts.home]))
@@ -368,7 +372,7 @@ export async function discoverProviders(
 			}
 		}
 		if (!opts.skipStored && id !== 'google' && entry.acceptsTypedCredential) {
-			const saved = readStoredApiKey(id, opts.home)
+			const saved = Object.hasOwn(storedApiKeys, id) ? (storedApiKeys[id] ?? null) : null
 			if (saved && hasApiCredential(entry, saved)) {
 				if (apiKey === undefined) apiKey = saved
 				sources.push({ kind: 'stored-api-key', path: apiKeysPath(opts.home) })

@@ -343,7 +343,7 @@ async function installVerified({
 	let backup: string | undefined
 	if (deps.safety && prefix) {
 		try {
-			backup = backupPackage(
+			backup = await backupPackage(
 				deps.packageRoot,
 				shared,
 				deps.currentVersion,
@@ -383,7 +383,7 @@ async function installVerified({
 			' The previous version could not be put back; reinstall Namzu if it does not start.'
 		if (backup) {
 			try {
-				restorePackage(deps.packageRoot, backup)
+				await restorePackage(deps.packageRoot, backup)
 				if (marking) clearInProgress(shared, scope)
 				return ' The previous version was put back.'
 			} catch {
