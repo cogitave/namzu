@@ -218,3 +218,13 @@ it('answers the startup reads of a project that is waiting, missing or failed to
 	// A project nobody saved is still a real error.
 	await expect(owner.providers('nobody')).rejects.toThrow()
 })
+
+it('forgets a failed-to-open entry once the same project connects', async () => {
+	const { owner, path } = await setup()
+	const unopened = (owner as unknown as { unopenedProjects: Map<string, unknown> }).unopenedProjects
+	owner.expectProjects([path])
+	owner.settleExpectedProject(path)
+	expect(unopened.has('project')).toBe(true)
+	await owner.openProject(path)
+	expect(unopened.has('project')).toBe(false)
+})

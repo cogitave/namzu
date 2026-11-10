@@ -356,6 +356,21 @@ describe('startZenCatalogueRefresh', () => {
 		expect(warnings()).toHaveLength(1)
 	})
 
+	it('still warns when a source answered with a server error after its attempts', async () => {
+		const { log, warnings } = capturing()
+		const refresh = startZenCatalogueRefresh({
+			home: home(),
+			log,
+			fetchCatalogue: async () => {
+				throw new Error(
+					'https://models.dev/api.json could not be read after 2 attempts: https://models.dev/api.json answered 503.',
+				)
+			},
+		})
+		await refresh.done
+		expect(warnings()).toHaveLength(1)
+	})
+
 	it('uses a recent last-good copy without fetching, and fetches once it is old', async () => {
 		const dir = home()
 		const path = join(dir, ZEN_CATALOGUE_CACHE_PATH)

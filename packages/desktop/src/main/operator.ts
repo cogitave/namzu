@@ -1987,6 +1987,7 @@ export class Operator {
 			session.needsLoad = true
 		}
 		this.projects.set(view.id, project)
+		this.unopenedProjects.delete(view.id)
 		this.rememberProjectOrder(view.id)
 		this.relocations.delete(cwd)
 		this.missingProjects.delete(view.id)
@@ -3025,6 +3026,8 @@ export class Operator {
 		// The window reads this as soon as it lists a project, which can be before the sequential
 		// restore has connected it or after its folder went. Say "nothing to choose yet" and let
 		// the connection event bring the real answer; do not fail the read.
+		// A connected project whose status is 'error' answers empty too: the failure itself is
+		// reported by its connection event, not by this read.
 		const known = this.projects.get(projectId)
 		if (this.unconnectedProject(projectId) || known?.view.status === 'error')
 			return { selected: 'namzu', locked: false, engines: [] }

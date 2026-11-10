@@ -155,6 +155,8 @@ export function startZenCatalogueRefresh(
 		// file read or a fetch happens after the caller has its handle back.
 		await Promise.resolve()
 		let freshCopy: ZenCatalogue | undefined
+		// The last-good read is awaited before the fetch (one small file read
+		// ahead of every refresh) so a fresh copy can skip the network entirely.
 		const cached = readLastGood(cachePath, log).then((copy) => {
 			if (copy && !landed && !controller.signal.aborted) {
 				active = copy.catalogue
@@ -296,7 +298,11 @@ export async function writeLastGood(path: string, catalogue: ZenCatalogue): Prom
  * read after N attempt(s)" and the budget running out is the other.
  */
 function isConnectivityFailure(timedOut: boolean, reason: string): boolean {
-	return timedOut || /could not be read after \d+ attempts?:/.test(reason)
+	if (timedOut) return true
+	const unread = /could not be read after \d+ attempts?: (.*)$/s.exec(reason)
+	// A source that answered with a status (403, 429, 5xx) was reached and is
+	// wrong; only a failed or timed-out request is a connectivity failure.
+	return unread !== null && !/ answered \d{3}\./.test(unread[1] ?? '')
 }
 
 function errorText(error: unknown): string {
