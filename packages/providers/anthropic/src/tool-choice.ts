@@ -14,10 +14,11 @@ import { type VersionFloor, reachesFloor } from './version-floor.js'
  *
  * `tool_choice: {type: "any"}` and `{type: "tool", name}` come back 400 —
  * `tool_choice: type "tool" and "any" are not supported for this model.` — on
- * Claude Opus 5.5, Claude Fable 5.1 and Claude Mythos 5.1, and on the
+ * Claude Opus 5.5, Claude Sonnet 5.5, Claude Fable 5.1 and Claude Mythos 5.1,
+ * and on the
  * token-counting endpoint too. That list is the vendor's, stated identically
  * in its error reference and in the "Forcing tool use" table of its tool
- * definition page. Opus 5 and Fable 5 still take a forced choice, so these are
+ * definition page. Opus 5, Sonnet 5, Haiku 5.5 and Fable 5 still take a forced choice, so these are
  * version floors and not family rules — and not the always-on line in
  * `thinking-capability.ts` either: Fable 5 cannot stop thinking and accepts a
  * forced choice all the same.
@@ -29,6 +30,7 @@ import { type VersionFloor, reachesFloor } from './version-floor.js'
  */
 const REFUSES_FORCED_TOOL_CHOICE_FROM: readonly VersionFloor[] = [
 	{ family: 'opus', major: 5, minor: 5 },
+	{ family: 'sonnet', major: 5, minor: 5 },
 	{ family: 'fable', major: 5, minor: 1 },
 	{ family: 'mythos', major: 5, minor: 1 },
 ]

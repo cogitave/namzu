@@ -26,8 +26,13 @@ describe('golden rates', () => {
 	it.each([
 		['anthropic', 'claude-opus-5', 5, 25, 0.5, 6.25],
 		// Cache reads off the usual 0.1x: 0.05x on Opus 5.5, 0.025x on the 5.1
-		// pair. A row derived from the 0.1x rule would bill these at 2x and 4x.
+		// and 5.2 pairs. A row derived from the 0.1x rule would bill these at 2x and 4x.
 		['anthropic', 'claude-opus-5-5', 4, 20, 0.2, 5],
+		['anthropic', 'claude-sonnet-5-5', 2, 10, 0.1, 2.5],
+		['anthropic', 'claude-opus-4', 15, 75, 1.5, 18.75],
+		['anthropic', 'claude-sonnet-4', 3, 15, 0.3, 3.75],
+		['anthropic', 'claude-fable-5-2', 8, 40, 0.2, 10],
+		['anthropic', 'claude-mythos-5-2', 8, 40, 0.2, 10],
 		['anthropic', 'claude-fable-5-1', 10, 50, 0.25, 12.5],
 		['anthropic', 'claude-mythos-5-1', 10, 50, 0.25, 12.5],
 		// Recorded at the $3/$15 scheduled for 2026-09-01; the vendor kept the
@@ -72,6 +77,8 @@ describe('resolution', () => {
 		// context-window table uses — would happily resolve it through
 		// `claude-opus-5`. Here that is a wrong bill, not a stale window.
 		expect(resolveModelPricing('anthropic', 'claude-opus-5x')).toBeUndefined()
+		// Priced by prompt length ($0.10 or $0.50 in), which one rate cannot say.
+		expect(resolveModelPricing('anthropic', 'claude-haiku-5-5')).toBeUndefined()
 		expect(resolveModelPricing('openai', 'gpt-4o-audio')).toBeUndefined()
 	})
 

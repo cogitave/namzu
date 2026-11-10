@@ -1,5 +1,25 @@
 # Changelog
 
+## 62.2.1
+
+### Patch Changes
+
+- 04a696a: Prices `claude-fable-5-2` and `claude-mythos-5-2` ($8 input, $40 output, $0.20 cache read, $10 five-minute cache write per million tokens), `claude-sonnet-5-5` ($2, $10, $0.10, $2.50) and the retired `claude-opus-4` and `claude-sonnet-4`. Before, a turn on these models reported its cost as unknown, so a turn with `turnConfig.costLimitUsd` and no `pricing` table of your own was refused or stopped with `cost_unmeasurable`. `claude-haiku-5-5` stays unpriced on purpose: the vendor charges it by prompt length, which one rate cannot express, so its cost is still unknown and a cost limit still needs your own `pricing` entry for it.
+
+  `claude-haiku-5-*` now resolves to a 1M-token context window instead of the 200k default, so compaction triggers later on it.
+
+  `@namzu/anthropic` now matches the vendor on Sonnet 5.5, and the `claude-sonnet-5-5` behaviour changes. A forced tool choice (`toolChoice: 'required'` or a named function) is refused before sending with `forced_tool_choice_unsupported`, as the API would answer 400; use `toolChoice: 'auto'` or `responseFormat`. A `thinking: { type: 'disabled' }` setting is no longer sent to it, because the API rejects it: the request runs on the model's default adaptive thinking, as already happens on Opus 5.5. `claude-sonnet-5` is unchanged. On `claude-haiku-5-5`, `disabled` is still sent but `effort` `xhigh` or `max` alongside it is refused locally, as the API rejects it.
+
+## 62.2.0
+
+### Minor Changes
+
+- 6bd8ac2: Automatic memory no longer stores what you asked for, secrets or injected text. This is a behaviour change of automatic memory only; nothing you or the model saved on purpose is touched.
+
+  `@namzu/cli`: the records a turn writes on its own now keep only a durable preference or rule from your messages (a cue such as always, never, prefer, don't, from now on, in English or Turkish; at most 240 characters; not a question and not a request to do something now). The record is titled `Session notes` with the touched file names instead of your first message. `Searched: ...` discoveries and raw tool error text are no longer stored, and any claim that looks like a secret or an injected instruction is dropped. A turn with nothing left writes no record. Records an earlier version derived that this screen would not write are archived once per memory directory, not deleted; they stop being recalled and listed. To restore one, change `status: archived` to `status: active` in its file in the memory directory; to repeat the pass, delete `.derived-screen-v1` there.
+
+  `@namzu/sdk`: additive. `createMemoryPromoter` accepts `acceptClaim(category, text)` to leave claims out (the default keeps every claim, as before), `findSecretShape` is exported, and `consolidationEntry` and the query option `consolidationScreen` accept a `ConsolidationScreen` so a host can neutralise the task and drop items from a consolidation record (the CLI does, so `compaction.consolidate` records no longer quote your request or failures; earlier `Learned: ...` records are archived by the same pass). `save_memory` and `update_memory` now refuse content holding a provider API key or token, a private key block, a JWT, a bearer token or a URL with a password; the refusal says so without repeating the text. Text that merely talks about instructions is still accepted.
+
 ## 62.1.0
 
 ### Minor Changes
