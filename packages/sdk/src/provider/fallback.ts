@@ -37,6 +37,7 @@ import {
 	assertHostedWebSearchSupported,
 	assertNativeStructuredOutputSupported,
 } from './capabilities.js'
+import { wasGivenUpOnEarly } from './retry.js'
 
 /**
  * One member of the chain: a constructed provider, and the model to ask it for.
@@ -468,6 +469,7 @@ export function withProviderFallback(
 				}
 
 				const classified = classifyProviderError(err, member.provider.id)
+				const overloadedCount = wasGivenUpOnEarly(err)
 				cursor = next
 				log?.warn('Provider chain: falling over', {
 					'namzu.provider.from': member.provider.id,
@@ -496,7 +498,10 @@ export function withProviderFallback(
 						...(to.model !== undefined ? { toModel: to.model } : {}),
 						code: classified.code,
 						...(classified.status !== undefined ? { status: classified.status } : {}),
-						reason: classified.message,
+						reason:
+							overloadedCount !== undefined
+								? `Left after ${overloadedCount} overloaded answers in a row: ${classified.message}`
+								: classified.message,
 						...(fragments ? { restart: true } : {}),
 					},
 				}
