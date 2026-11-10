@@ -151,6 +151,50 @@ describe('memory inbox', () => {
 		expect(readdirSync(join(file, '..'))).toEqual([])
 	})
 
+	it('lets only one of two drains adopt the same stale claim', async () => {
+		const { make, file, inbox } = setup()
+		await inbox.append(candidate('seed'))
+		const dir = join(file, '..')
+		// A claim a crashed process left behind, older than the stale limit.
+		const entry = { id: 'dead0001', at: 1, attempts: 0, candidate: candidate('crashed') }
+		writeFileSync(
+			join(dir, `proj.claim-${clock - INBOX_CLAIM_STALE_MS - 1}-dead.jsonl`),
+			`${JSON.stringify(entry)}\n`,
+		)
+		const seen: string[] = []
+		const handle = async (entries: readonly { candidate: SessionMemoryCandidate }[]) => {
+			seen.push(...(notes(entries) as string[]))
+		}
+		await Promise.all([make().drain(handle), make().drain(handle)])
+		expect(seen.filter((note) => note === 'crashed')).toEqual(['crashed'])
+		expect(readdirSync(join(file, '..')).filter((name) => name.includes('claim'))).toEqual([])
+	})
+
+	it('keeps a line whose append straddled a drain', async () => {
+		const { root, file, inbox: first } = setup()
+		await first.append(candidate('already there'))
+		let n = 100
+		let hits = 0
+		const racing = new MemoryInbox({
+			file,
+			now: tick,
+			newId: () => `${++n}`.padStart(8, '0'),
+			afterAppendWrite: async () => {
+				hits += 1
+				// A drain claims the file right after the line was written, reads it,
+				// and replaces the claim, which loses the old file.
+				if (hits === 1) await first.drain(async () => {})
+			},
+		})
+		await racing.append(candidate('straddling'))
+		expect(root).toBeTruthy()
+		const got: string[] = []
+		await first.drain(async (entries) => {
+			got.push(...(notes(entries) as string[]))
+		})
+		expect(got).toContain('straddling')
+	})
+
 	it('is idempotent: a second drain over an empty inbox does nothing', async () => {
 		const { inbox } = setup()
 		await inbox.append(candidate('once'))

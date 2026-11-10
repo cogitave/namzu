@@ -24,7 +24,17 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { appendFile, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
+import {
+	appendFile,
+	mkdir,
+	open,
+	readFile,
+	readdir,
+	rename,
+	stat,
+	unlink,
+	writeFile,
+} from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 
 import type { SessionMemoryCandidate } from '@namzu/sdk'
@@ -37,6 +47,7 @@ export const INBOX_MAX_BATCHES = 3
 export const INBOX_CLAIM_STALE_MS = 120_000
 /** A line that failed this many drains is dropped rather than retried for ever. */
 export const INBOX_MAX_ATTEMPTS = 3
+const APPEND_ATTEMPTS = 5
 const CLAIM_PATTERN = /\.claim-(\d+)-[0-9a-f-]+\.jsonl$/u
 const CLAIM_FILE_MODE = 0o600
 const DIRECTORY_MODE = 0o700
@@ -55,6 +66,8 @@ export interface InboxDeps {
 	readonly file: string
 	readonly now: () => number
 	readonly newId?: () => string
+	/** Test seam: runs after an append wrote its line, before it checks the file was not claimed. */
+	readonly afterAppendWrite?: () => Promise<void>
 }
 
 export type DrainHandler = (entries: readonly InboxEntry[]) => Promise<void>
@@ -113,12 +126,14 @@ export class MemoryInbox {
 	readonly #file: string
 	readonly #now: () => number
 	readonly #newId: () => string
+	readonly #afterAppendWrite: (() => Promise<void>) | undefined
 	#draining: Promise<DrainResult> | undefined
 
 	constructor(deps: InboxDeps) {
 		this.#file = deps.file
 		this.#now = deps.now
 		this.#newId = deps.newId ?? randomUUID
+		this.#afterAppendWrite = deps.afterAppendWrite
 	}
 
 	get file(): string {
@@ -133,7 +148,28 @@ export class MemoryInbox {
 	async append(candidate: SessionMemoryCandidate): Promise<string> {
 		await this.#ensureDirectory()
 		const entry: InboxEntry = { id: this.#newId(), at: this.#now(), attempts: 0, candidate }
-		await appendFile(this.#file, serialize([entry]), { mode: CLAIM_FILE_MODE })
+		const line = serialize([entry])
+		// A drain may rename the inbox between this open and this write, and then
+		// replace the claim it renamed it to; the line would go with the old file.
+		// So after writing, check the file written to is still the inbox. If it is
+		// not, write the line again to the current one: a drain that already read
+		// it finds the same id and the duplicate is dropped by the id.
+		for (let attempt = 0; attempt < APPEND_ATTEMPTS; attempt += 1) {
+			const handle = await open(this.#file, 'a', CLAIM_FILE_MODE)
+			let written: bigint
+			try {
+				await handle.appendFile(line)
+				written = (await handle.stat({ bigint: true })).ino
+			} finally {
+				await handle.close()
+			}
+			await this.#afterAppendWrite?.()
+			try {
+				if ((await stat(this.#file, { bigint: true })).ino === written) break
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+			}
+		}
 		return entry.id
 	}
 
@@ -145,6 +181,13 @@ export class MemoryInbox {
 			readIfPresent(this.#file),
 		])
 		return dedupe(texts.flatMap((text) => (text === undefined ? [] : parseLines(text))))
+	}
+
+	#newClaimPath(now: number): string {
+		return join(
+			dirname(this.#file),
+			`${basename(this.#file, '.jsonl')}.claim-${now}-${this.#newId()}.jsonl`,
+		)
 	}
 
 	async #claimFiles(): Promise<readonly { path: string; at: number }[]> {
@@ -194,10 +237,7 @@ export class MemoryInbox {
 		const stale = (await this.#claimFiles()).filter(
 			(claim) => now - claim.at >= INBOX_CLAIM_STALE_MS,
 		)
-		const claimPath = join(
-			dirname(this.#file),
-			`${basename(this.#file, '.jsonl')}.claim-${now}-${this.#newId()}.jsonl`,
-		)
+		const claimPath = this.#newClaimPath(now)
 		let renamed = false
 		try {
 			await rename(this.#file, claimPath)
@@ -205,22 +245,35 @@ export class MemoryInbox {
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
 		}
+		// A stale claim is adopted by renaming it to a claim of this drain's own.
+		// A rename succeeds for one process only, so the entries are applied once;
+		// the loser sees ENOENT and leaves them to the winner.
+		const adopted: string[] = []
+		for (const claim of stale) {
+			const own = this.#newClaimPath(now)
+			try {
+				await rename(claim.path, own)
+				adopted.push(own)
+			} catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+			}
+		}
 		const texts = await Promise.all([
-			...stale.map((claim) => readIfPresent(claim.path)),
+			...adopted.map((path) => readIfPresent(path)),
 			renamed ? readIfPresent(claimPath) : undefined,
 		])
 		let pending = dedupe(texts.flatMap((text) => (text === undefined ? [] : parseLines(text))))
 		if (pending.length === 0) {
 			await Promise.all([
-				...stale.map((claim) => unlink(claim.path).catch(() => {})),
+				...adopted.map((path) => unlink(path).catch(() => {})),
 				renamed ? unlink(claimPath).catch(() => {}) : undefined,
 			])
 			return { applied: 0, kept: 0, dropped: 0 }
 		}
 		// Adopted claims fold into this drain's own claim before they are removed.
-		if (stale.length > 0) {
+		if (adopted.length > 0) {
 			await atomicWrite(claimPath, serialize(pending))
-			await Promise.all(stale.map((claim) => unlink(claim.path).catch(() => {})))
+			await Promise.all(adopted.map((path) => unlink(path).catch(() => {})))
 		}
 
 		let applied = 0

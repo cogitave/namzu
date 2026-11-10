@@ -62,6 +62,7 @@ const QUERY_MAX = 800
 const CLAIM_MAX = 400
 const NOTE_FIELD_MAX = 200
 const KNOWLEDGE_TAG = 'knowledge:'
+const SUPERSEDES_TAG = 'supersedes:'
 
 export type CurateFallback =
 	| 'no side model'
@@ -511,10 +512,11 @@ export class MemoryCurator {
 				continue
 			}
 			const notes = neighbours[index] ?? []
+			let answered = false
 			for (const op of mine) {
 				const applied =
 					'invalid' in op
-						? ({ code: 'invalid-op', ids: [], outcome: 'skipped' } satisfies Applied)
+						? ({ code: 'invalid-op', ids: [], outcome: 'dropped' } satisfies Applied)
 						: await this.#apply(op, notes, candidate)
 				this.#log({
 					op: 'invalid' in op ? 'noop' : op.op,
@@ -526,9 +528,13 @@ export class MemoryCurator {
 					outcome: applied.outcome,
 				})
 				if (applied.line) lines.push(applied.line)
+				if (applied.outcome !== 'dropped') answered = true
 			}
+			// Every op for this claim set was dropped, so nothing of it was kept.
+			if (!answered) unanswered.push(index)
 		}
-		// A claim set the model said nothing about is not dropped: it is written as before.
+		// A claim set the model said nothing about, or whose every op was dropped,
+		// is not lost: it is written as before.
 		if (unanswered.length > 0) await this.#fallback(usable, 'unanswered', started, unanswered)
 		return { lines, engine: 'side model' }
 	}
@@ -570,10 +576,17 @@ export class MemoryCurator {
 		}
 	}
 
-	/** Whether a record of this exact text exists already, archived ones included. */
+	/**
+	 * Whether an active record of this exact text exists. An archived or
+	 * replaced one does not count, so a preference that was reverted can be
+	 * stated again in the same words.
+	 */
 	async #holds(digest: string): Promise<boolean> {
 		const { store } = this.#deps
-		const found = await store.list({ tags: [SESSION_MEMORY_TAG, `${KNOWLEDGE_TAG}${digest}`] })
+		const found = await store.list({
+			tags: [SESSION_MEMORY_TAG, `${KNOWLEDGE_TAG}${digest}`],
+			status: 'active',
+		})
 		for (const entry of found.entries) {
 			const full = await store.get(entry.id)
 			if (full?.metadata?.knowledgeDigest === digest) return true
@@ -653,6 +666,61 @@ export class MemoryCurator {
 		}
 	}
 
+	/** The record an earlier, interrupted supersede wrote for `oldId`, if any. */
+	async #successorOf(oldId: string) {
+		const { store } = this.#deps
+		const found = await store.list({
+			tags: [SESSION_MEMORY_TAG, `${SUPERSEDES_TAG}${oldId}`],
+			status: 'active',
+		})
+		for (const entry of found.entries) {
+			const record = await store.getRecord(entry.id)
+			if (record?.entry.status === 'active' && record.content.metadata?.supersedes === oldId) {
+				return record
+			}
+		}
+		return undefined
+	}
+
+	/** An active record of this text that is not `exceptId`. */
+	async #activeWith(digest: string, exceptId: string) {
+		const { store } = this.#deps
+		const found = await store.list({
+			tags: [SESSION_MEMORY_TAG, `${KNOWLEDGE_TAG}${digest}`],
+			status: 'active',
+		})
+		for (const entry of found.entries) {
+			if (entry.id === exceptId) continue
+			const record = await store.getRecord(entry.id)
+			if (
+				record?.entry.status === 'active' &&
+				record.content.metadata?.knowledgeDigest === digest
+			) {
+				return record
+			}
+		}
+		return undefined
+	}
+
+	/** Take back a replacement that lost its race: archived, with what happened, never deleted. */
+	async #archiveOrphan(id: string, oldId: string): Promise<void> {
+		const { store } = this.#deps
+		const record = await store.getVersionedRecord(id as MemoryId)
+		if (!record || record.entry.status !== 'active') return
+		await store.updateIfRevision(
+			record.entry.id,
+			{
+				status: 'archived',
+				metadata: {
+					...record.content.metadata,
+					supersededBy: oldId,
+					invalidAt: new Date(this.#now()).toISOString(),
+				},
+			},
+			record.revision,
+		)
+	}
+
 	async #supersede(
 		op: ProposedOp,
 		target: Neighbour,
@@ -664,16 +732,22 @@ export class MemoryCurator {
 			return { code: 'target-gone', ids: [target.id], outcome: 'dropped' }
 		}
 		const digest = digestOf(op)
-		const created = await store.create({
-			title: op.title,
-			summary: op.summary,
-			description: op.summary,
-			content: op.content,
-			tags: [SESSION_MEMORY_TAG, `${KNOWLEDGE_TAG}${digest}`],
-			type: op.type,
-			format: 'markdown',
-			metadata: { ...this.#metadata(op, candidate, digest), supersedes: old.entry.id },
-		})
+		// A batch applied before a crash may have written the successor already.
+		// Then only the archiving is left, linked to that record.
+		const successor =
+			(await this.#successorOf(old.entry.id)) ?? (await this.#activeWith(digest, old.entry.id))
+		const created =
+			successor ??
+			(await store.create({
+				title: op.title,
+				summary: op.summary,
+				description: op.summary,
+				content: op.content,
+				tags: [SESSION_MEMORY_TAG, `${KNOWLEDGE_TAG}${digest}`, `${SUPERSEDES_TAG}${old.entry.id}`],
+				type: op.type,
+				format: 'markdown',
+				metadata: { ...this.#metadata(op, candidate, digest), supersedes: old.entry.id },
+			}))
 		try {
 			await store.updateIfRevision(
 				old.entry.id,
@@ -689,9 +763,9 @@ export class MemoryCurator {
 			)
 		} catch (error) {
 			// The old record changed under us, so whoever changed it wins: the new
-			// record we just wrote is taken back and the old one stays active.
+			// record we just wrote is archived (never deleted) and says why.
 			if (error instanceof MemoryRevisionConflictError) {
-				await store.delete(created.entry.id).catch(() => false)
+				if (!successor) await this.#archiveOrphan(created.entry.id, old.entry.id)
 				return { code: 'conflict', ids: [target.id], outcome: 'dropped' }
 			}
 			throw error
