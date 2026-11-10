@@ -197,7 +197,9 @@ describe('the two shapes are kept apart', () => {
 		)
 
 		expect(result.success).toBe(false)
-		expect(result.error).toContain('not both')
+		expect(result.error).toContain('both an `edits` list and a different top-level edit')
+		expect(result.error).toContain('Single edit: {')
+		expect(result.error).toContain('Several edits: {')
 		expect(read()).toBe(SOURCE)
 	})
 

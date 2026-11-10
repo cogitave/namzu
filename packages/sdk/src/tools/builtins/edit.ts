@@ -25,6 +25,88 @@ import { lineDiff } from './line-diff.js'
 import { notebookRefusal } from './notebook-guard.js'
 import { staleBeforeReview } from './stale-before-review.js'
 
+type RawEditInput = {
+	path: string
+	old_string?: string
+	oldStr?: string
+	new_string?: string
+	newStr?: string
+	insertLine?: number | string
+	replace_all?: boolean
+	edits?: { old_string: string; new_string: string; replace_all?: boolean }[]
+}
+
+const ONE_SHAPE_EACH =
+	'Single edit: {"path":"file.md","old_string":"exact unique text","new_string":"replacement text"}\nSeveral edits: {"path":"file.md","edits":[{"old_string":"a","new_string":"b"},{"old_string":"c","new_string":"d"}]}'
+
+const hasTopLevelEdit = (value: RawEditInput): boolean =>
+	value.old_string !== undefined ||
+	value.oldStr !== undefined ||
+	value.new_string !== undefined ||
+	value.newStr !== undefined ||
+	value.insertLine !== undefined
+
+/**
+ * A top-level edit that is exactly the one entry of a one-entry batch: the same
+ * call said twice, not two intentions. Anything else (a different text, a
+ * longer list, an insertion) is a real conflict and stays refused.
+ */
+function restatesTheBatch(value: RawEditInput): boolean {
+	const entries = value.edits
+	if (entries === undefined || entries.length !== 1 || value.insertLine !== undefined) return false
+	const [entry] = entries
+	return (
+		entry !== undefined &&
+		(value.old_string ?? value.oldStr) === entry.old_string &&
+		(value.new_string ?? value.newStr) === entry.new_string &&
+		(value.replace_all ?? false) === (entry.replace_all ?? false)
+	)
+}
+
+/**
+ * Which of the two shapes this call is, and what to say when it is neither.
+ *
+ * An empty `edits` beside a top-level edit, and a one-entry `edits` that restates
+ * the top-level edit, are the single edit: the intent is not in doubt and nothing
+ * is dropped. A batch beside a DIFFERENT top-level edit stays refused, because
+ * any precedence would silently drop an edit somebody believes was made.
+ */
+function checkEditShape(value: RawEditInput): string | undefined {
+	const batch = value.edits !== undefined && value.edits.length > 0
+	const top = hasTopLevelEdit(value)
+	if (value.edits !== undefined && !batch && !top) {
+		return `\`edits\` is an empty list, so there is nothing to change. Send exactly one of these, and leave out the field you are not using:\n${ONE_SHAPE_EACH}`
+	}
+	if (batch && top && !restatesTheBatch(value)) {
+		return `This call has both an \`edits\` list and a different top-level edit, and only one can be applied. Send exactly one of these, and leave out the field you are not using:\n${ONE_SHAPE_EACH}`
+	}
+	if (batch) return undefined
+	if (typeof value.new_string !== 'string' && typeof value.newStr !== 'string') {
+		return 'Either new_string or newStr is required.'
+	}
+	if (
+		value.insertLine === undefined &&
+		typeof value.old_string !== 'string' &&
+		typeof value.oldStr !== 'string'
+	) {
+		return 'Either old_string/oldStr or insertLine is required.'
+	}
+	return undefined
+}
+
+/**
+ * The input every later stage sees: one shape, with the redundant half gone. The
+ * review card, the classifier, the dry run and the apply step all read this, so
+ * none of them meets `edits: []` or a restated edit.
+ */
+function canonicalEditInput(value: RawEditInput): RawEditInput {
+	if (value.edits === undefined) return value
+	const { edits, ...rest } = value
+	if (edits.length === 0) return rest
+	const { old_string, oldStr, new_string, newStr, insertLine, ...kept } = rest
+	return { ...kept, edits }
+}
+
 /**
  * Two schemas, on purpose.
  *
@@ -107,48 +189,23 @@ const inputSchema = z
 					})
 					.strict(),
 			)
-			.min(1)
+			// No `.min(1)`: a model that fills every optional field of a flat object
+			// sends `edits: []` next to a single top-level edit, and that is the
+			// single edit, not an error. An empty list with nothing beside it is
+			// refused by `checkEditShape` below, in a sentence that says what to send.
 			.optional()
 			.describe(
-				'Several replacements in one file, applied in order and committed together. Nothing is written unless every one applies.',
+				'Several replacements in one file, applied in order and committed together. Nothing is written unless every one applies. Leave out when sending a single old_string/new_string.',
 			),
 	})
 	.strict()
-	.refine(
-		(value) =>
-			value.edits !== undefined ||
-			typeof value.new_string === 'string' ||
-			typeof value.newStr === 'string',
-		{ message: 'Either new_string or newStr is required.' },
-	)
-	.refine(
-		(value) =>
-			value.edits !== undefined ||
-			value.insertLine !== undefined ||
-			typeof value.old_string === 'string' ||
-			typeof value.oldStr === 'string',
-		{ message: 'Either old_string/oldStr or insertLine is required.' },
-	)
-	// Refused rather than resolved. A call carrying both an `edits` list and a
-	// top-level replacement is two different intentions in one object, and any
-	// precedence this code picked would be a guess about which the model meant
-	// — silently dropping the other. There is no reading of that which is safe:
-	// the dropped half is an edit somebody believes was made.
-	.refine(
-		(value) =>
-			value.edits === undefined ||
-			(value.old_string === undefined &&
-				value.oldStr === undefined &&
-				value.new_string === undefined &&
-				value.newStr === undefined &&
-				value.insertLine === undefined),
-		{
-			message:
-				'Use either `edits` or a single top-level edit, not both. Move the top-level old_string/new_string into the edits list.',
-		},
-	)
+	.superRefine((value, ctx) => {
+		const problem = checkEditShape(value)
+		if (problem) ctx.addIssue({ code: 'custom', message: problem })
+	})
+	.transform(canonicalEditInput)
 
-export type EditInput = z.infer<typeof inputSchema>
+export type EditInput = z.output<typeof inputSchema>
 
 /**
  * What an `edit` call WOULD produce for a file body, without touching any file.
@@ -209,7 +266,7 @@ const modelInputSchema: Record<string, unknown> = {
 		old_string: {
 			type: 'string',
 			description:
-				'Exact unique text from the file, without read-tool line-number prefixes. Must not be empty.',
+				'For a single change: exact unique text from the file, without read-tool line-number prefixes. Must not be empty. Do not send together with edits.',
 		},
 		new_string: {
 			type: 'string',
@@ -286,7 +343,7 @@ const modelInputSchema: Record<string, unknown> = {
 				additionalProperties: false,
 			},
 			description:
-				'Several replacements in one file, applied in order and committed together. Nothing is written unless every one applies. Use this instead of several edit calls when the changes only make sense together.',
+				'For SEVERAL changes to one file: a non-empty list, applied in order and committed together. Nothing is written unless every one applies. Leave this field out entirely when you send old_string/new_string; never send an empty list.',
 		},
 	},
 	// `old_string` is deliberately NOT required, and this is the fix.
@@ -441,7 +498,7 @@ function refusedEdit(result: EditApplyFailure, path: string) {
 export const EditTool = defineTool({
 	name: 'edit',
 	description:
-		'Makes targeted edits to a file using exact string find-and-replace or line insertion. To change an existing file, use `edit`: `write` overwrites the whole body and discards earlier work on partial failure, while `edit` keeps the rest of the file byte-for-byte intact and is recoverable: if a single edit fails (old_string/oldStr ambiguous, broader restructuring needed), follow up with another `edit` instead of re-emitting the entire file via `write`. The old_string/oldStr must be unique in the file unless replace_all is true. For insertions, pass insertLine plus new_string/newStr; use insertLine: "end" to extend a file at the end. Keep new_string/newStr under 12000 characters, because a longer payload can be cut off mid-call and fail; use repeated bounded edits for long sections. Preserves file formatting and indentation. To make several changes to one file that only make sense together, send them as `edits`: a list of {old_string, new_string} applied in order and committed as one write — if any of them does not apply, nothing is written and the reply names which one, so the file is never left half-changed. An edit that would leave a `.ipynb` file as invalid notebook JSON is refused and the file is unchanged.',
+		'Makes targeted edits to a file using exact string find-and-replace or line insertion. To change an existing file, use `edit`: `write` overwrites the whole body and discards earlier work on partial failure, while `edit` keeps the rest of the file byte-for-byte intact and is recoverable: if a single edit fails (old_string/oldStr ambiguous, broader restructuring needed), follow up with another `edit` instead of re-emitting the entire file via `write`. The old_string/oldStr must be unique in the file unless replace_all is true. For insertions, pass insertLine plus new_string/newStr; use insertLine: "end" to extend a file at the end. Keep new_string/newStr under 12000 characters, because a longer payload can be cut off mid-call and fail; use repeated bounded edits for long sections. Preserves file formatting and indentation. To make several changes to one file that only make sense together, send them as `edits` (and then no top-level old_string/new_string; for a single change leave `edits` out): a list of {old_string, new_string} applied in order and committed as one write — if any of them does not apply, nothing is written and the reply names which one, so the file is never left half-changed. An edit that would leave a `.ipynb` file as invalid notebook JSON is refused and the file is unchanged.',
 	inputSchema,
 	modelInputSchema,
 	enforceModelInput: true,
@@ -462,7 +519,7 @@ export const EditTool = defineTool({
 	refuseBeforeReview: (input: EditInput, context) => staleBeforeReview(context, input.path, 'edit'),
 	// The classifier judges which file changes and in what way, in a line.
 	classifierInput: (input: EditInput) => {
-		if (input.edits !== undefined) {
+		if (input.edits !== undefined && input.edits.length > 0) {
 			const shown = input.edits.slice(0, 5).map((e) => describeChange(e.old_string, e.new_string))
 			const more =
 				input.edits.length > shown.length ? `; ${input.edits.length - shown.length} more` : ''
