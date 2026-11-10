@@ -28,6 +28,7 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { FileCheckpointStore, type TurnUndoStatus, type UndoPreview } from '../checkpoints/store.js'
+import { flushCompileCacheWhenIdle } from '../compile-cache.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { type PluginInventoryView, readPluginInventory } from '../integrations/plugins/inventory.js'
 import { canSelectModel } from '../integrations/providers/access.js'
@@ -2015,6 +2016,10 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	// cannot emit the project-aware boot narrative. Still make the live protocol
 	// owner observable on stderr; stdout remains exclusively JSON-RPC frames.
 	cliLogger().info('ACP protocol server started')
+	// The engine is ended by its host, often by a signal, and the cache is
+	// otherwise written only on a graceful exit: write it once the first
+	// requests have been answered so the next start is warm either way.
+	flushCompileCacheWhenIdle()
 	try {
 		// Held open until stdin ends. The client owns the lifetime — it spawned
 		// this process — so there is no idle timeout to get wrong.
