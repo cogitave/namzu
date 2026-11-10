@@ -266,7 +266,7 @@ const modelInputSchema: Record<string, unknown> = {
 		old_string: {
 			type: 'string',
 			description:
-				'For ONE change: exact unique text from the file, without read-tool line-number prefixes. Must not be empty. Do not send together with edits.',
+				'For a single change: exact unique text from the file, without read-tool line-number prefixes. Must not be empty. Do not send together with edits.',
 		},
 		new_string: {
 			type: 'string',
