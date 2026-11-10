@@ -15,6 +15,7 @@ import { TURN_LIMIT_FIELDS, turnLimitCommands } from './turn-limits-settings.js'
  */
 
 import { existsSync, rmSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import {
 	type Account,
@@ -741,6 +742,7 @@ import { usePrStatus } from './use-pr-status.js'
 import { useSelectionIndex } from './use-selection-index.js'
 import { useNotifications } from './useNotifications.js'
 import { useReadSearchGroup } from './useReadSearchGroup.js'
+import { workingFolderNotice } from './working-folder-notice.js'
 import { renderWorkspaceDiff, workspaceDiff } from './workspace-diff.js'
 import {
 	type ReviewCommit,
@@ -3623,6 +3625,7 @@ function AppBody({
 	 * picks the dot's colour, and a second line, when there is one, hangs
 	 * under the dot as `⎿`. No caller chooses a glyph of its own.
 	 */
+	const workingFolderNoticeShownRef = useRef(false)
 	const pushSystem = useCallback(
 		(
 			level: SystemLevel,
@@ -6158,6 +6161,12 @@ function AppBody({
 				// remember and most likely to be surprised by.
 				for (const notice of s.configNotices) {
 					pushMessage('system', notice)
+				}
+				// Once per session: a provider change re-enters this block.
+				if (!workingFolderNoticeShownRef.current) {
+					workingFolderNoticeShownRef.current = true
+					const folderNotice = workingFolderNotice(activeCtx.cwd, homedir())
+					if (folderNotice) pushMessage('system', folderNotice)
 				}
 				// Named, not counted. "2 files" tells a user their conventions were
 				// found but not WHICH ones, and the interesting case is the one
