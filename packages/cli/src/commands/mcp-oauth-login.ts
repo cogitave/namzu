@@ -166,7 +166,10 @@ export async function loginMcpServer(options: McpOAuthLoginOptions): Promise<voi
 				// only on the exact MCP endpoint, never in requestInit, which the
 				// official client would merge into the authorization-server calls.
 				// Manual redirects keep both headers and the Bearer token on this
-				// one URL, including for same-origin 307/308 responses.
+				// one URL, including for same-origin 307/308 responses. The official
+				// transport (2.3 and later) follows a same-origin redirect itself by
+				// calling this fetch again with the same headers, so a redirect is
+				// refused here instead of being left for it to replay.
 				fetch: (input, init) => {
 					const targetUrl = new URL(String(input))
 					if (!isSecureMcpOAuthUrl(targetUrl)) {
@@ -178,7 +181,15 @@ export async function loginMcpServer(options: McpOAuthLoginOptions): Promise<voi
 						for (const [name, value] of Object.entries(options.headers ?? {}))
 							headers.set(name, value)
 					}
-					return fetch(input, { ...init, headers, redirect: 'manual' })
+					return fetch(input, { ...init, headers, redirect: 'manual' }).then((response) => {
+						if (response.status >= 300 && response.status < 400) {
+							void response.body?.cancel().catch(() => undefined)
+							throw new Error(
+								'MCP OAuth refused to follow a redirect; configure the final MCP endpoint directly.',
+							)
+						}
+						return response
+					})
 				},
 			})
 		firstTransport = transport()

@@ -53,7 +53,7 @@
 	},
 	"dependencies": {
 		"@jitl/quickjs-wasmfile-release-sync": "0.32.0",
-		"@modelcontextprotocol/client": "^2.1.0",
+		"@modelcontextprotocol/client": "^2.3.0",
 		"@namzu/anthropic": "workspace:*",
 		"@namzu/browser": "workspace:*",
 		"@namzu/computer-use": "workspace:*",
@@ -71,12 +71,12 @@
 		"commander": "^14.0.3",
 		"diff": "9.0.0",
 		"ink": "7.0.3",
-		"minimatch": "^9.0.9",
+		"minimatch": "^11.0.1",
 		"oxc-parser": "0.155.0",
 		"quickjs-emscripten-core": "0.32.0",
 		"react": "19.2.6",
 		"string-width": "8.2.1",
-		"undici": "^7.30.0",
+		"undici": "^7.30.1",
 		"yaml": "^2.9.0"
 	},
 	"devDependencies": {
@@ -99,6 +99,6 @@
 	"optionalDependencies": {
 		"@lydell/node-pty": "1.2.0-beta.18",
 		"node-pty": "1.1.0",
-		"sharp": "0.34.5"
+		"sharp": "0.35.5"
 	}
 }

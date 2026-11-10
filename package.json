@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.33.0",
-  "description": "Namzu — an agent kernel with a TypeScript SDK, a terminal application, and optional capability packages.",
+  "description": "Namzu \u2014 an agent kernel with a TypeScript SDK, a terminal application, and optional capability packages.",
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",
@@ -32,7 +32,11 @@
     ],
     "overrides": {
       "js-yaml@3": "^3.15.2",
-      "js-yaml@4": "^4.3.2"
+      "js-yaml@4": "^4.3.2",
+      "undici@<7": "^6.29.1",
+      "fast-uri": "^3.1.9",
+      "smol-toml": "^1.9.0",
+      "source-map-js": "^1.2.2"
     }
   },
   "engines": {
