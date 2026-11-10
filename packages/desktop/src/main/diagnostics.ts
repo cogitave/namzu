@@ -329,6 +329,14 @@ export function desktopFailure(error: unknown): {
 		if (error instanceof SupersededConversationSettingsError)
 			reason = 'conversation-settings-superseded'
 		else if (setupReason) reason = setupReason
+		// A saved folder that is gone, closed to us or not a folder: each has its own remedy, and none
+		// of the sentences carries an operating-system code for the generic classes below.
+		else if (/folder no longer exists|Folder not found/i.test(message))
+			reason = 'project-folder-missing'
+		else if (/can[’']t open that folder|could not open this folder/i.test(message))
+			reason = 'project-folder-unreadable'
+		else if (/is a file, not a folder/i.test(message)) reason = 'project-folder-not-a-directory'
+		else if (/Namzu is closing/i.test(message)) reason = 'app-closing'
 		else if (/local Docker engine.*required|local Docker.*required/i.test(message))
 			reason = 'docker-engine-or-image-required'
 		else if (/local Podman machine.*required/i.test(message))

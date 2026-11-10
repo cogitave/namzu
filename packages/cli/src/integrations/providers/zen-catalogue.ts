@@ -36,6 +36,14 @@ export const ZEN_CATALOGUE_CACHE_PATH = join('cli', 'zen-catalogue.json')
 /** The whole refresh — five reads and the derivation — gets this long, then stops. */
 export const ZEN_CATALOGUE_REFRESH_BUDGET_MS = 30_000
 
+/**
+ * A last-good copy written within this long is used as it is and the network
+ * is not asked again. Several CLI processes start together (the Desktop runs
+ * one per open project), and without this each one fetches the same five
+ * sources.
+ */
+export const ZEN_CATALOGUE_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000
+
 /** A stored catalogue past this is refused unread. The live one serialises to ~40 KB. */
 const MAX_CACHE_BYTES = 4 * 1024 * 1024
 
@@ -84,6 +92,7 @@ export function __resetZenCatalogueForTests(): void {
 /** How a refresh ended. `cancelled` is the launch ending first, which is not a failure. */
 export type ZenCatalogueRefreshOutcome =
 	| { readonly kind: 'live'; readonly catalogue: ZenCatalogue }
+	| { readonly kind: 'fresh-cache'; readonly catalogue: ZenCatalogue }
 	| { readonly kind: 'failed'; readonly using: 'cache' | 'bundled'; readonly reason: string }
 	| { readonly kind: 'cancelled' }
 
@@ -110,6 +119,10 @@ export interface StartZenCatalogueRefreshOptions {
 	readonly fetch?: typeof fetch
 	/** Defaults to `ZEN_CATALOGUE_REFRESH_BUDGET_MS`. */
 	readonly budgetMs?: number
+	/** How recent a last-good copy must be to skip the network. Defaults to `ZEN_CATALOGUE_CACHE_MAX_AGE_MS`; 0 always fetches. */
+	readonly cacheMaxAgeMs?: number
+	/** Test seam for the clock the cache age is measured on. Defaults to `Date.now`. */
+	readonly now?: () => number
 	/** Test seam for the derivation; defaults to `@namzu/zen/catalogue`'s `fetchZenCatalogue`. */
 	readonly fetchCatalogue?: (options: {
 		readonly fetch?: typeof fetch
@@ -141,14 +154,26 @@ export function startZenCatalogueRefresh(
 		// Yield before touching anything, so even the synchronous prelude of a
 		// file read or a fetch happens after the caller has its handle back.
 		await Promise.resolve()
-		const cached = readLastGood(cachePath, log).then((catalogue) => {
-			if (catalogue && !landed && !controller.signal.aborted) {
-				active = catalogue
+		let freshCopy: ZenCatalogue | undefined
+		const cached = readLastGood(cachePath, log).then((copy) => {
+			if (copy && !landed && !controller.signal.aborted) {
+				active = copy.catalogue
 				activeSource = 'cache'
+				const age = (options.now ?? Date.now)() - copy.writtenAtMs
+				if (age >= 0 && age < (options.cacheMaxAgeMs ?? ZEN_CATALOGUE_CACHE_MAX_AGE_MS)) {
+					freshCopy = copy.catalogue
+				}
 			}
 		})
 		try {
 			signal.throwIfAborted()
+			await cached
+			if (freshCopy) {
+				log().debug('Zen model catalogue last-good copy is recent; not fetching', {
+					'namzu.zen_catalogue.cache_path': cachePath,
+				})
+				return { kind: 'fresh-cache', catalogue: freshCopy }
+			}
 			const fetchCatalogue = options.fetchCatalogue ?? fetchZenCatalogue
 			const { catalogue } = await fetchCatalogue({
 				...(options.fetch ? { fetch: options.fetch } : {}),
@@ -177,10 +202,18 @@ export function startZenCatalogueRefresh(
 			const reason = signal.aborted
 				? `the refresh did not finish within ${budget}ms`
 				: errorText(error)
-			log().warn('Zen model catalogue refresh failed; keeping the catalogue already in use', {
+			// Offline, a blocked host or a slow answer is a normal state for a
+			// desktop app: the session runs on the catalogue it has, and the
+			// reason is on the debug line for whoever asks. Anything else — a
+			// source that moved or no longer parses — is a defect and stays a
+			// warning.
+			const attributes = {
 				'namzu.zen_catalogue.using': using,
 				'namzu.zen_catalogue.reason': reason,
-			})
+			}
+			const message = 'Zen model catalogue refresh failed; keeping the catalogue already in use'
+			if (isConnectivityFailure(signal.aborted, reason)) log().debug(message, attributes)
+			else log().warn(message, attributes)
 			return { kind: 'failed', using, reason }
 		}
 	}
@@ -199,12 +232,17 @@ export function startZenCatalogueRefresh(
 }
 
 /** The last-good copy, or undefined — one log line when one exists and is refused. */
-async function readLastGood(path: string, log: () => Logger): Promise<ZenCatalogue | undefined> {
+async function readLastGood(
+	path: string,
+	log: () => Logger,
+): Promise<{ readonly catalogue: ZenCatalogue; readonly writtenAtMs: number } | undefined> {
 	let text: string
+	let writtenAtMs: number
 	try {
 		const handle = await open(path, 'r')
 		try {
-			const { size } = await handle.stat()
+			const { size, mtimeMs } = await handle.stat()
+			writtenAtMs = mtimeMs
 			if (size > MAX_CACHE_BYTES) throw new Error(`it is ${size} bytes, past ${MAX_CACHE_BYTES}`)
 			text = await handle.readFile('utf8')
 		} finally {
@@ -219,7 +257,7 @@ async function readLastGood(path: string, log: () => Logger): Promise<ZenCatalog
 		return undefined
 	}
 	try {
-		return parseZenCatalogue(JSON.parse(text))
+		return { catalogue: parseZenCatalogue(JSON.parse(text)), writtenAtMs }
 	} catch (error) {
 		log().warn('Zen model catalogue last-good copy is not a valid catalogue; ignoring it', {
 			'namzu.zen_catalogue.cache_path': path,
@@ -250,6 +288,15 @@ export async function writeLastGood(path: string, catalogue: ZenCatalogue): Prom
 		await rm(temp, { force: true }).catch(() => {})
 		throw error
 	}
+}
+
+/**
+ * A refresh that could not reach its sources, as opposed to one that reached
+ * them and found them wrong. `readZenSource` words the first as "could not be
+ * read after N attempt(s)" and the budget running out is the other.
+ */
+function isConnectivityFailure(timedOut: boolean, reason: string): boolean {
+	return timedOut || /could not be read after \d+ attempts?:/.test(reason)
 }
 
 function errorText(error: unknown): string {

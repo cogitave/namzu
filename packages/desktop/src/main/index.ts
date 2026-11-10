@@ -106,6 +106,7 @@ import { setFileSortLocale } from './project-files.js'
 import { ProjectNameStore } from './project-names.js'
 import { recoveryCardPage, recoveryCardUrl } from './recovery-card.js'
 import { selectRendererPage } from './renderer-page.js'
+import { restoreProjects } from './restore-projects.js'
 import { RunningReplyGuard } from './running-reply-guard.js'
 import {
 	desktopCliPrefix,
@@ -2116,18 +2117,12 @@ void app
 			for (const layout of saved) await createWindow(layout.id, layout.bounds)
 		} else await createWindow()
 		if (process.argv.includes(CONTINUE_SETUP_FLAG)) void palComputerSetup.continueAfterRestart()
-		void (async () => {
-			for (const path of restorePaths) {
-				if (quitting) return
-				try {
-					await operator.openProject(path)
-				} catch (error) {
-					diagnostics.record('project_restore_failed', { error })
-				} finally {
-					operator.settleExpectedProject(path)
-				}
-			}
-		})()
+		void restoreProjects(restorePaths, {
+			open: (path) => operator.openProject(path),
+			settle: (path) => operator.settleExpectedProject(path),
+			failed: (error) => diagnostics.record('project_restore_failed', { error }),
+			quitting: () => quitting,
+		})
 	})
 	.catch((error: unknown) => {
 		diagnostics.record('startup_failed', { error })

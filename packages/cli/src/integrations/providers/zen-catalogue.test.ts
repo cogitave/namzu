@@ -47,6 +47,7 @@ function capturing() {
 		log,
 		records,
 		warnings: () => records.filter((r) => r.severityText === 'warn'),
+		debugs: () => records.filter((r) => r.severityText === 'debug'),
 	}
 }
 
@@ -164,6 +165,7 @@ describe('startZenCatalogueRefresh', () => {
 		const refresh = startZenCatalogueRefresh({
 			home: dir,
 			log,
+			cacheMaxAgeMs: 0,
 			fetchCatalogue: async () => {
 				throw new Error('models.dev answered 503.')
 			},
@@ -307,7 +309,7 @@ describe('startZenCatalogueRefresh', () => {
 	})
 
 	it('gives up within its budget rather than holding the launch', async () => {
-		const { log, warnings } = capturing()
+		const { log, warnings, debugs } = capturing()
 		const { fetchCatalogue } = hanging()
 		const started = Date.now()
 		const refresh = startZenCatalogueRefresh({
@@ -322,7 +324,69 @@ describe('startZenCatalogueRefresh', () => {
 			reason: 'the refresh did not finish within 50ms',
 		})
 		expect(Date.now() - started).toBeLessThan(2_000)
+		expect(warnings()).toHaveLength(0)
+		expect(debugs()).toHaveLength(1)
+	})
+
+	it('says an unreachable network quietly: the reason is on a debug line, not a warning', async () => {
+		const { log, warnings, debugs } = capturing()
+		const reason = 'https://models.dev/api.json could not be read after 1 attempt: fetch failed'
+		const refresh = startZenCatalogueRefresh({
+			home: home(),
+			log,
+			fetchCatalogue: async () => {
+				throw new Error(reason)
+			},
+		})
+		await expect(refresh.done).resolves.toEqual({ kind: 'failed', using: 'bundled', reason })
+		expect(warnings()).toHaveLength(0)
+		expect(debugs()[0]?.attributes).toMatchObject({ 'namzu.zen_catalogue.reason': reason })
+	})
+
+	it('still warns when a source answered and was wrong', async () => {
+		const { log, warnings } = capturing()
+		const refresh = startZenCatalogueRefresh({
+			home: home(),
+			log,
+			fetchCatalogue: async () => {
+				throw new Error('https://models.dev/api.json answered 404 — the branch or the path moved.')
+			},
+		})
+		await refresh.done
 		expect(warnings()).toHaveLength(1)
+	})
+
+	it('uses a recent last-good copy without fetching, and fetches once it is old', async () => {
+		const dir = home()
+		const path = join(dir, ZEN_CATALOGUE_CACHE_PATH)
+		await writeLastGood(path, catalogue('cached'))
+		const { statSync } = await import('node:fs')
+		const written = statSync(path).mtimeMs
+		let fetches = 0
+		const fetchCatalogue = async (): Promise<ZenCatalogueResult> => {
+			fetches++
+			return result(catalogue('live'))
+		}
+		const { log, warnings } = capturing()
+		const recent = startZenCatalogueRefresh({
+			home: dir,
+			log,
+			fetchCatalogue,
+			now: () => written + 60_000,
+		})
+		await expect(recent.done).resolves.toMatchObject({ kind: 'fresh-cache' })
+		expect(fetches).toBe(0)
+		expect(activeZenCatalogueSource()).toBe('cache')
+
+		const old = startZenCatalogueRefresh({
+			home: dir,
+			log,
+			fetchCatalogue,
+			now: () => written + 7 * 60 * 60 * 1000,
+		})
+		await expect(old.done).resolves.toMatchObject({ kind: 'live' })
+		expect(fetches).toBe(1)
+		expect(warnings()).toHaveLength(0)
 	})
 
 	it('logs nothing when the launch ends first', async () => {

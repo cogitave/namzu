@@ -1662,6 +1662,8 @@ export class Operator {
 	private readonly expectedProjects = new Map<string, ProjectView>()
 	/** Saved projects whose folder no longer exists: listed as such until located or removed. */
 	private readonly missingProjects = new Map<string, ProjectView>()
+	/** Saved projects whose folder is there but whose connection failed at restore; reads for them are answered empty. */
+	private readonly unopenedProjects = new Map<string, ProjectView>()
 	/** A located folder takes over the id of the missing project it replaces, keyed by its path. */
 	private readonly relocations = new Map<string, string>()
 	expectProjects(paths: readonly string[]): void {
@@ -1681,6 +1683,18 @@ export class Operator {
 			})
 		}
 	}
+	/**
+	 * A saved project that has no live connection yet or any more: waiting its turn in the
+	 * restore, or listed as missing. A read for it is an expected state, not a fault.
+	 */
+	private unconnectedProject(id: string): ProjectView | undefined {
+		if (this.projects.has(id)) return undefined
+		return (
+			this.missingProjects.get(id) ??
+			this.unopenedProjects.get(id) ??
+			[...this.expectedProjects.values()].find((item) => item.id === id)
+		)
+	}
 	/** The restore of this folder is over; a folder that never registered is reported as failed. */
 	settleExpectedProject(path: string): void {
 		const placeholder = this.expectedProjects.get(path)
@@ -1698,10 +1712,13 @@ export class Operator {
 			this.emit({ kind: 'connection', project: { ...missing } })
 			return
 		}
-		this.emit({
-			kind: 'connection',
-			project: { ...placeholder, status: 'error', error: 'Namzu could not open this folder.' },
-		})
+		const failed: ProjectView = {
+			...placeholder,
+			status: 'error',
+			error: 'Namzu could not open this folder.',
+		}
+		this.unopenedProjects.set(failed.id, failed)
+		this.emit({ kind: 'connection', project: { ...failed } })
 	}
 	missingProject(id: string): ProjectView | undefined {
 		// A folder that vanished while its project was open is missing too, though it is still connected.
@@ -1758,6 +1775,7 @@ export class Operator {
 			this.attachmentPreviews.forget(id)
 		}
 		this.missingProjects.delete(projectId)
+		this.unopenedProjects.delete(projectId)
 		for (const [path, id] of this.relocations) if (id === projectId) this.relocations.delete(path)
 		if (this.savedDesktop)
 			this.savedDesktop = withoutProject(
@@ -3004,6 +3022,12 @@ export class Operator {
 		}
 	}
 	async harnesses(projectId: string, sessionId?: string): Promise<HarnessView> {
+		// The window reads this as soon as it lists a project, which can be before the sequential
+		// restore has connected it or after its folder went. Say "nothing to choose yet" and let
+		// the connection event bring the real answer; do not fail the read.
+		const known = this.projects.get(projectId)
+		if (this.unconnectedProject(projectId) || known?.view.status === 'error')
+			return { selected: 'namzu', locked: false, engines: [] }
 		const project = this.project(projectId)
 		if (!project.view.trusted) throw new Error('Trust this folder first.')
 		const session = sessionId ? this.session(sessionId) : undefined
@@ -3566,6 +3590,7 @@ export class Operator {
 		if (session && session.view.projectId !== id)
 			throw new Error('This conversation belongs to another project.')
 		const known = this.projects.get(id)
+		if (this.unconnectedProject(id)) return { available: [], selected: null }
 		if (known?.view.status === 'error')
 			return session?.providers ?? known.providers ?? { available: [], selected: null }
 		const project = this.project(id)
@@ -4931,7 +4956,11 @@ export class Operator {
 	} {
 		const projectOwner = projectDraftOwner(ownerId)
 		if (!projectOwner) return this.draftSession(ownerId)
-		if (!this.projects.has(projectOwner.projectId)) throw new Error('Unknown project.')
+		if (
+			!this.projects.has(projectOwner.projectId) &&
+			!this.unconnectedProject(projectOwner.projectId)
+		)
+			throw new Error('Unknown project.')
 		let owner = this.projectDrafts.get(ownerId)
 		if (!owner) {
 			owner = { draft: '' }
