@@ -157,6 +157,12 @@ and attachment captions only), and the token-gap-guided growth step becomes the
 halving of the excerpt. An oversized user message or attachment has no clearing
 mechanism and stays: only tool results are cleared.
 
+## Clearing stale results at the start of a turn
+
+`compactionConfig.clearStaleToolResultsAtStart: { minSavedTokens, keepRecentToolResults? }` (absent by default) is for a host that knows the provider's prompt cache has expired since the last request, so the whole prefix is paid for at full price anyway. Before the first request of a turn (iteration 1 only), the kernel runs the same clear a threshold pass runs, ahead of the threshold check: results older than the newest `keepRecentToolResults` (default `compactionConfig.keepRecentToolResults`), at least `minToolResultCharsToClear` long, become the usual placeholder with the call's tool name, original size and the pointer or recovery sentence. Errors, results already cleared, `retain`-pinned messages and tools in `preserveToolResultsFrom` stay as they are.
+
+It does nothing unless the clear would save at least `minSavedTokens` by the kernel's own estimate, and nothing under `strategy: 'disabled'` or `clearToolResults: false`. When it runs it records the originals as a `compaction_shed` event with `reason: 'manual'` (a host-requested pass), then emits `compaction_tool_results_cleared` (with `reliefWasEnough: true`) and a context usage snapshot, so a transcript, `fullTranscript` and a context meter see it like any clear. The kernel does not know the cache lifetime: the host decides when to set the field for a turn. The CLI does: see [Context and compaction in the CLI](../cli/context-and-compaction.md#shedding-old-results-after-the-cache-expired).
+
 ## The circuit breaker
 
 `compactionConfig.circuitBreaker: true` (off unless set) adds two stops, per

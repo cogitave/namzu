@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-11
+
+- **Update** [Context and compaction in the CLI](cli/context-and-compaction.md#shedding-old-results-after-the-cache-expired) and [Compaction trigger, overflow recovery, circuit breaker and output limits](sdk/context-limits.md#clearing-stale-results-at-the-start-of-a-turn): new `compaction.clearStaleResultsAfterIdle` (default on) and `compactionConfig.clearStaleToolResultsAtStart`. A turn that starts after the prompt cache has expired clears old, large tool results before its first request when that saves at least 20,000 tokens, keeping the newest six, and records the originals as `compaction_shed`. `.changeset/stale-results-after-idle.md` (`@namzu/cli` minor, `@namzu/sdk` patch).
+
 ## 2026-11-10
 
 - **Update** [Permission layers](cli/permission-layers.md#the-sandbox-block) and [Tool boundary](cli/tool-boundary.md#which-file-may-set-it): a project file, the local file and a profile declared in either may only tighten `sandbox` (`enabled` on, `allowEscape` and `allowUnattendedEscape` off, `requireIsolation` grows, `workspace` to `ephemeral`; `teardownTimeoutMs` is not theirs); a loosening that would have changed something is named once at launch with its file. The user file merges per key; the managed file replaces the whole block; `namzu exec` prints the notes on stderr; a profile is classed by where its file is, not its name. Before, a repository file replaced the whole block. `.changeset/sandbox-settings-stay-operators.md` (`@namzu/cli` minor).
