@@ -76,6 +76,11 @@ export const ROUTING_FAST_QUESTION =
 	'Is this task simple enough for a small, fast model to complete correctly? Answer yes only for short chat, a lookup, or a single small step.'
 export const ROUTING_BIG_QUESTION =
 	'Does this task need deep multi-step reasoning or large-scale code changes across many files?'
+/** What makes the answer yes to each routing question, for services that want it spelled out. */
+export const ROUTING_FAST_CRITERIA =
+	'Yes only for short chat, a lookup, or a single small step that a small model completes correctly. No for anything with several steps or that needs care.'
+export const ROUTING_BIG_CRITERIA =
+	'Yes when the task needs deep multi-step reasoning or changes across many files. No for chat, a lookup, or a small contained change.'
 export const ROUTING_SCORE_LEVELS: readonly string[] = [
 	'trivial: chat, lookup, or one step',
 	'small: a single-file or single-tool task',
@@ -262,13 +267,21 @@ export async function routeModel(input: RouteInput, deps: RouteDeps = {}): Promi
 					Promise.all([
 						fast
 							? askOnce(
-									(inner) => model.yesno(state, ROUTING_FAST_QUESTION, { signal: inner }),
+									(inner) =>
+										model.yesno(state, ROUTING_FAST_QUESTION, {
+											signal: inner,
+											criteria: ROUTING_FAST_CRITERIA,
+										}),
 									signal,
 								)
 							: Promise.resolve(undefined),
 						big
 							? askOnce(
-									(inner) => model.yesno(state, ROUTING_BIG_QUESTION, { signal: inner }),
+									(inner) =>
+										model.yesno(state, ROUTING_BIG_QUESTION, {
+											signal: inner,
+											criteria: ROUTING_BIG_CRITERIA,
+										}),
 									signal,
 								)
 							: Promise.resolve(undefined),

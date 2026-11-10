@@ -43,6 +43,24 @@ describe('testDecisionConnection', () => {
 		expect(connectedNotice(result)).toBe('Connected · 180 ms')
 	})
 
+	it('sends a criteria sentence that does not state the answer', async () => {
+		let sent: { questions?: { q?: { criteria?: string } } } = {}
+		await testDecisionConnection(
+			http,
+			{},
+			{
+				fetch: (async (_u: unknown, init?: RequestInit) => {
+					sent = JSON.parse(String(init?.body))
+					return ok()
+				}) as typeof fetch,
+				readStoredKey: () => null,
+			},
+		)
+		const criteria = sent.questions?.q?.criteria ?? ''
+		expect(criteria.length).toBeGreaterThan(10)
+		expect(criteria).not.toMatch(/this is one/i)
+	})
+
 	it('asks for a 3 s deadline', async () => {
 		const t = manualTimeout()
 		await testDecisionConnection(

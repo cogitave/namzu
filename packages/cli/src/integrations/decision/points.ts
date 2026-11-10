@@ -52,6 +52,8 @@ export interface DecisionQuestion {
 	/** What the model is shown. It leaves the machine, so it is cut by the caller. */
 	readonly state: string
 	readonly instructions: string
+	/** What makes the answer yes, in plain words; sent to services that want it. */
+	readonly criteria?: string
 	/** The answer the host's rule gave, for the log. */
 	readonly rule: boolean
 }
@@ -160,7 +162,11 @@ export function createDecisionPoints(options: DecisionPointsOptions): DecisionPo
 			if (current === 'off' || model === undefined) return undefined
 			const startedAt = now()
 			const called = await timed(
-				(m, s) => m.yesno(question.state, question.instructions, { signal: s }),
+				(m, s) =>
+					m.yesno(question.state, question.instructions, {
+						signal: s,
+						...(question.criteria !== undefined ? { criteria: question.criteria } : {}),
+					}),
 				model,
 				signal,
 			)

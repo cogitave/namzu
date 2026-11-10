@@ -26,6 +26,12 @@ function model(f: typeof fetch, getToken = async () => 'tok-1') {
 }
 
 describe('AzureFoundryDecisionModel', () => {
+	it('yesno leaves criteria out of the request whether or not one is given', async () => {
+		const { calls, f } = fake(200, { answers: { q: { noul: 0.5, type: 'noul' } } })
+		await model(f).yesno('s', 'is it?', { criteria: 'Yes when it is.' })
+		expect(calls[0]?.body.questions.q).toEqual({ type: 'noul', instructions: 'is it?' })
+	})
+
 	it('yesno posts a noul question and returns p', async () => {
 		const { calls, f } = fake(200, { answers: { q: { noul: 0.97, type: 'noul' } } })
 		const r = await model(f).yesno('state', 'is it?')
