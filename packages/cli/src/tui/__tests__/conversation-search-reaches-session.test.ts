@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
 	COMPACTION_RECOVERY_NOTE,
+	COMPACTION_RESUME_NOTE,
 	MockLLMProvider,
 	ProviderRegistry,
 	createAssistantMessage,
@@ -248,9 +249,11 @@ describe('the pointer at the end of a compaction summary the host asks for', () 
 		const withTools = await mounted.compact(history())
 		const without = await bare.compact(history())
 
-		expect(String(withTools?.summary.content).endsWith(`\n\n${COMPACTION_RECOVERY_NOTE}`)).toBe(
-			true,
-		)
+		expect(
+			String(withTools?.summary.content).endsWith(
+				`\n\n${COMPACTION_RECOVERY_NOTE}\n\n${COMPACTION_RESUME_NOTE}`,
+			),
+		).toBe(true)
 		expect(String(without?.summary.content)).not.toContain(COMPACTION_RECOVERY_NOTE)
 	})
 })

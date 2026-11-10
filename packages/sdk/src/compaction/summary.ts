@@ -35,13 +35,24 @@ export const COMPACTION_RECOVERY_NOTE =
 	'Earlier output was cut from this summary. To get exact earlier text, call search_conversation, then read_conversation.'
 
 /**
+ * The closing instruction after every summary. It is written for the first
+ * request after a pass, when the model has only the summary and no memory of
+ * the steps it describes. Kept out of {@link COMPACTION_HEADER}, which prompt
+ * caching and the replace-in-place check both read byte for byte, and kept
+ * constant so the same summary always renders the same message.
+ */
+export const COMPACTION_RESUME_NOTE =
+	'Carry on from where this summary says the work stood, without asking the person to repeat it. Treat steps it marks done as done. File contents are no longer in context, so read a file again before editing it. If it names something still running or waiting, check on that first.'
+
+/**
  * The summary, as the system message that replaces what it summarises.
- * `recoveryNote` is appended as its own paragraph.
+ * `recoveryNote` is appended as its own paragraph, then the resume note, which
+ * always closes the message.
  */
 export function buildCompactionMessage(body: string, recoveryNote?: string): Message {
 	return {
 		...createSystemMessage(
-			`${COMPACTION_HEADER}\n\n${body}${recoveryNote ? `\n\n${recoveryNote}` : ''}`,
+			`${COMPACTION_HEADER}\n\n${body}${recoveryNote ? `\n\n${recoveryNote}` : ''}\n\n${COMPACTION_RESUME_NOTE}`,
 		),
 		source: { type: 'compaction-summary' },
 	}
