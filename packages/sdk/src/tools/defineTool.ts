@@ -41,6 +41,8 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	executionBarrier?: boolean
 	/** The tool bounds its own output; see {@link ToolDefinition.selfLimitingOutput}. */
 	selfLimitingOutput?: boolean
+	/** A tighter per-result cap; see {@link ToolDefinition.maxOutputChars}. */
+	maxOutputChars?: number
 	tier?: string
 	/**
 	 * How this tool's call and result should be shown; see
@@ -163,6 +165,7 @@ export function defineTool<S extends z.ZodType>(
 		...(options.selfLimitingOutput !== undefined
 			? { selfLimitingOutput: options.selfLimitingOutput }
 			: {}),
+		...(options.maxOutputChars !== undefined ? { maxOutputChars: options.maxOutputChars } : {}),
 		category: options.category,
 		permissions: options.permissions,
 		isReadOnly:
