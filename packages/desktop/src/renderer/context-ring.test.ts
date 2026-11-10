@@ -3,6 +3,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 import { applyEvent, emptyThread } from '../shared/projection.js'
+import { applyClosedTabEvent } from './closed-tab.js'
 import { ContextRing } from './context-ring-view.js'
 import {
 	COMPACTING_TEXT,
@@ -166,4 +167,33 @@ it('does not claim compaction while idle', () => {
 	const idle = applyEvent(emptyThread(), { kind: 'usage', sessionId: 'a', compaction: 'started' })
 	expect(livePhaseLabel(idle)).toBeUndefined()
 	expect(liveStatus(idle)).toEqual({})
+})
+
+it('keeps usage for a conversation whose tab is closed', () => {
+	const thread = applyClosedTabEvent(emptyThread(), {
+		kind: 'usage',
+		sessionId: 'a',
+		contextTokens: 5000,
+		contextWindowTokens: 200_000,
+	})
+	expect(thread.usage).toMatchObject({ contextTokens: 5000, contextWindowTokens: 200_000 })
+})
+
+it('does not reopen a closed tab on a stale compaction note', () => {
+	let thread = applyClosedTabEvent(emptyThread(), {
+		kind: 'state',
+		sessionId: 'a',
+		running: true,
+		queued: [],
+	})
+	thread = applyClosedTabEvent(thread, { kind: 'usage', sessionId: 'a', compaction: 'started' })
+	expect(thread.compaction).toEqual({ state: 'running' })
+	thread = applyClosedTabEvent(thread, {
+		kind: 'state',
+		sessionId: 'a',
+		running: false,
+		queued: [],
+	})
+	expect(thread.running).toBe(false)
+	expect(thread.compaction).toBeUndefined()
 })

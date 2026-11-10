@@ -50,6 +50,8 @@ interface Pending {
 	lastSentAt: number | undefined
 	cancel: (() => void) | undefined
 	dirty: boolean
+	/** A turn ended; the entry goes once nothing of it is left to send. */
+	ended: boolean
 }
 
 const finite = (value: unknown): value is number =>
@@ -66,7 +68,13 @@ export function createUsageFeed(options: UsageFeedOptions): UsageFeed {
 	const entry = (sessionId: string): Pending => {
 		let found = sessions.get(sessionId)
 		if (!found) {
-			found = { snapshot: {}, lastSentAt: undefined, cancel: undefined, dirty: false }
+			found = {
+				snapshot: {},
+				lastSentAt: undefined,
+				cancel: undefined,
+				dirty: false,
+				ended: false,
+			}
 			sessions.set(sessionId, found)
 		}
 		return found
@@ -76,7 +84,11 @@ export function createUsageFeed(options: UsageFeedOptions): UsageFeed {
 		pending.cancel = undefined
 		pending.dirty = false
 		pending.lastSentAt = options.now()
-		const body: UsageNotification = { sessionId, ...defined(pending.snapshot), ...extra }
+		const body: UsageNotification = {
+			sessionId,
+			...defined(pending.snapshot),
+			...extra,
+		}
 		try {
 			options.notify(USAGE_NOTIFICATION, { ...body })
 		} catch {
@@ -97,13 +109,28 @@ export function createUsageFeed(options: UsageFeedOptions): UsageFeed {
 		pending.cancel = options.schedule(() => {
 			pending.cancel = undefined
 			if (!closed && pending.dirty) send(sessionId, pending)
+			if (pending.ended && !pending.cancel && !pending.dirty) sessions.delete(sessionId)
 		}, interval - since)
 	}
 	return {
 		observe(sessionId, event) {
 			if (closed) return
+			if (
+				event.type === 'turn_completed' ||
+				event.type === 'turn_failed' ||
+				event.type === 'turn_paused'
+			) {
+				// Each turn reports its own figures, so an idle conversation keeps no entry.
+				const pending = sessions.get(sessionId)
+				if (pending) {
+					pending.ended = true
+					if (!pending.cancel && !pending.dirty) sessions.delete(sessionId)
+				}
+				return
+			}
 			if (event.type === 'token_usage_updated') {
 				const pending = entry(sessionId)
+				pending.ended = false
 				const snapshot: Writable<Pending['snapshot']> = { ...pending.snapshot }
 				if (finite(event.contextTokens)) snapshot.contextTokens = event.contextTokens
 				if (finite(event.contextWindowTokens) && event.contextWindowTokens > 0)
@@ -131,7 +158,10 @@ export function createUsageFeed(options: UsageFeedOptions): UsageFeed {
 			} else if (event.type === 'compaction_completed') {
 				const pending = entry(sessionId)
 				if (finite(event.tokensAfter))
-					pending.snapshot = { ...pending.snapshot, contextTokens: event.tokensAfter }
+					pending.snapshot = {
+						...pending.snapshot,
+						contextTokens: event.tokensAfter,
+					}
 				send(sessionId, pending, {
 					compaction: 'finished',
 					tokensBefore: event.tokensBefore,

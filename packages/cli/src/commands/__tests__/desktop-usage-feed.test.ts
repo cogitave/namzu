@@ -175,4 +175,33 @@ describe('the desktop usage feed', () => {
 		})
 		expect(() => feed.observe('a', usage(1))).not.toThrow()
 	})
+
+	it('forgets a conversation once its turn has ended and nothing is left to send', () => {
+		const h = harness()
+		h.feed.observe('a', usage(1200))
+		h.feed.observe('a', {
+			type: 'turn_completed',
+			sessionId: 'a',
+		} as unknown as SessionEvent)
+		// A new turn with no window of its own starts clean: nothing is carried over.
+		h.feed.observe('a', usage(5, { contextWindowTokens: undefined, cost: undefined }))
+		expect(h.sent).toHaveLength(2)
+		expect(h.sent[1]).toEqual({
+			sessionId: 'a',
+			contextTokens: 5,
+			contextMeasuredBy: 'provider',
+		})
+	})
+
+	it('still sends the trailing update of a turn that ended inside the window', () => {
+		const h = harness()
+		h.feed.observe('a', usage(1))
+		h.feed.observe('a', usage(2))
+		h.feed.observe('a', {
+			type: 'turn_completed',
+			sessionId: 'a',
+		} as unknown as SessionEvent)
+		h.advance(1000)
+		expect(h.sent.map((body) => body.contextTokens)).toEqual([1, 2])
+	})
 })
