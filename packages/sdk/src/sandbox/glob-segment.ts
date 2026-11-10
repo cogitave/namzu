@@ -65,7 +65,7 @@ function classEnd(text: string, start: number): number {
 		if (ch === '\\') index += 1
 		else if (ch === '[' && text[index + 1] === ':') {
 			const end = text.indexOf(':]', index + 2)
-			if (end > 0) index = end + 1
+			if (end > 0 && POSIX_CLASSES[text.slice(index + 2, end)]) index = end + 1
 		} else if (ch === ']') return index
 	}
 	return -1
@@ -126,7 +126,14 @@ function classSource(body: string): string {
 		} else if (ch === '-' && out !== '' && index + 1 < body.length) out += '-'
 		else out += escapeInClass(ch)
 	}
-	return `[${negate ? '^' : ''}${out}]`
+	const source = `[${negate ? '^' : ''}${out}]`
+	try {
+		new RegExp(source, 'u')
+	} catch {
+		// An out-of-order range such as `[z-a]` matches no name rather than failing the walk.
+		return '(?!)'
+	}
+	return source
 }
 
 /** `guard`, when set, is put before each alternative of a group at the very start that does not itself spell out a leading `.`. */
@@ -200,6 +207,13 @@ function startsWithDot(text: string): boolean {
 	return false
 }
 
+/** Whether the segment is a single `?(`, `*(`, `@(` or `+(` group, whose alternatives carry the leading-dot guard themselves. */
+function isOneGroup(text: string): boolean {
+	return (
+		'?*@+'.includes(text[0] ?? '') && text[1] === '(' && closeGroup(text, 2) === text.length - 1
+	)
+}
+
 /**
  * `dot` lets a wildcard match a name that starts with `.`; without it only a
  * segment that itself begins with a literal `.` can.
@@ -209,6 +223,6 @@ export function compileSegment(segment: string, dot: boolean): CompiledSegment {
 	const parsed = parse(segment, guard)
 	if (!parsed.magic) return { literal: parsed.literal, source: `^${parsed.source}$` }
 	const grouped = (segment.startsWith('@(') || segment.startsWith('+(')) && !dot
-	const lead = grouped || dot || startsWithDot(segment) ? '' : guard
+	const lead = grouped || dot || startsWithDot(segment) || isOneGroup(segment) ? '' : guard
 	return { literal: null, source: `^${lead}(?:${parsed.source})$` }
 }

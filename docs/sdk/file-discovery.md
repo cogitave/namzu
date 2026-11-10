@@ -54,7 +54,9 @@ regular expression covering `*`, `?`, `[...]` classes, POSIX classes, the five
 extglob forms and `\` escapes, with `**` spanning any number of directories. The
 same expressions run on the host and in the sandbox guest, so both see the same
 files. A wildcard never matches a name starting with `.` unless hidden entries
-are included or the pattern spells the dot out.
+are included or the pattern spells the dot out. A range written backwards (`[z-a]`)
+matches nothing. The few forms where the answer differs from minimatch 9 are pinned in
+`glob-segment.test.ts`.
 
 ## Content searches
 

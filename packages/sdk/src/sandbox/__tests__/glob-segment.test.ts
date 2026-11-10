@@ -1,3 +1,4 @@
+import { Minimatch } from 'minimatch'
 import { describe, expect, it } from 'vitest'
 import { compileSegment } from '../glob-segment.js'
 
@@ -44,4 +45,105 @@ describe('compileSegment', () => {
 		expect(matches('@(.config|src)', '.config')).toBe(true)
 		expect(matches('@(.config|*)', '.other')).toBe(false)
 	})
+
+	it('matches nothing, and does not throw, for an out-of-order range', () => {
+		expect(() => compileSegment('[z-a]', false)).not.toThrow()
+		expect(matches('[z-a]', 'a')).toBe(false)
+		expect(matches('[z-a]', 'z')).toBe(false)
+		expect(matches('x[z-a]y', 'xay')).toBe(false)
+	})
+})
+
+const oracle = (segment: string, name: string, dot: boolean) =>
+	new Minimatch(segment, {
+		nobrace: true,
+		nonegate: true,
+		nocomment: true,
+		platform: 'linux',
+		dot,
+	}).match(name)
+
+describe('compileSegment against Minimatch', () => {
+	const patterns = [
+		'[z-a]',
+		'[!z-a]',
+		'[a',
+		'[]a]',
+		'[]',
+		'[a-]',
+		'[-a]',
+		'[[:foo:]]',
+		'[[:digit:]]x',
+		'*(a|.b)',
+		'?(a)',
+		'+(a|b)x*',
+		'@(a|b)',
+		'!(a).ts',
+		'!(a)',
+		'*.@(ts|js)',
+		'a@(b|c)d',
+	]
+	const names = [
+		'a',
+		'b',
+		'z',
+		'ab',
+		'ax',
+		'x',
+		'-',
+		'[',
+		']',
+		'[]',
+		'f]',
+		':]',
+		'a]',
+		']a',
+		'.a',
+		'.b',
+		'.env',
+		'a.ts',
+		'three.ts',
+		'abd',
+		'acd',
+		'7x',
+		'bx',
+	]
+	for (const dot of [false, true]) {
+		for (const pattern of patterns) {
+			it(`${pattern} (dot ${dot}) gives the same answer for every name`, () => {
+				for (const name of names) {
+					expect({ pattern, name, dot, got: matches(pattern, name, dot) }).toEqual({
+						pattern,
+						name,
+						dot,
+						got: oracle(pattern, name, dot),
+					})
+				}
+			})
+		}
+	}
+
+	// Forms where the answer differs from the minimatch 9 the walk used before. Each row is pinned to what the
+	// walk answers now; the third column is what minimatch 9 answered.
+	const differences: [
+		segment: string,
+		name: string,
+		dot: boolean,
+		now: boolean,
+		before: boolean,
+	][] = [
+		['@(a|b)*', 'a', false, true, false],
+		['@(a|b)*', 'b', true, true, false],
+		['+(a)*', 'a', false, true, false],
+		['+(a)*', 'a', true, true, false],
+		['!(a)*', 'a', false, false, true],
+		['!(.a)*', '.a', true, false, true],
+		['?(a)*', '.env', false, false, true],
+		['*(a)*', '.env', false, false, true],
+	]
+	for (const [segment, name, dot, now] of differences) {
+		it(`pins ${segment} on ${name} (dot ${dot}) to ${now}`, () => {
+			expect(matches(segment, name, dot)).toBe(now)
+		})
+	}
 })
