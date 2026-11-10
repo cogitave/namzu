@@ -9,7 +9,7 @@ import { render } from 'ink'
 import React from 'react'
 
 import { type TerminationSignal, handleTerminationSignals } from '../termination.js'
-import { writeLaunchMouseReset } from '../workspaces/mouse.js'
+import { resolveMouseMode, writeLaunchMouseReset } from '../workspaces/mouse.js'
 import { hostedByHost, workspacesSignal } from '../workspaces/signal.js'
 import { App } from './App.js'
 import { openConsoleInput } from './console-input.js'
@@ -22,6 +22,7 @@ import { installFocusReporting } from './focus-reporting.js'
 import { resolveFullscreen } from './fullscreen/mode.js'
 import {
 	FULLSCREEN_PANIC_RESET,
+	type PointerReport,
 	type WheelDirection,
 	installMouseWheel,
 } from './fullscreen/mouse-wheel.js'
@@ -186,8 +187,23 @@ export async function launchTui(
 			: undefined
 	let terminatedBy: TerminationSignal | null = null
 	const wheelListeners = new Set<(direction: WheelDirection) => void>()
+	// Selecting text needs drags reported, which turns the terminal's own selection off:
+	// `tui.mouse` and the NAMZU_DISABLE_MOUSE variables keep it for whoever wants it.
+	const pointerListeners = new Set<(report: PointerReport) => void>()
+	const selectable = fullscreen && resolveMouseMode(process.env, ctx.tui?.mouse) === 'full'
 	const fullscreenHost = fullscreen
 		? {
+				...(selectable
+					? {
+							subscribePointer: (listener: (report: PointerReport) => void) => {
+								pointerListeners.add(listener)
+								return () => {
+									pointerListeners.delete(listener)
+								}
+							},
+						}
+					: {}),
+				...(ctx.tui?.copyOnSelect !== undefined ? { copyOnSelect: ctx.tui.copyOnSelect } : {}),
 				subscribeWheel: (listener: (direction: WheelDirection) => void) => {
 					wheelListeners.add(listener)
 					return () => {
@@ -233,9 +249,18 @@ export async function launchTui(
 	// the process dies without the normal teardown, the exit hook still hands the
 	// pointer and the cursor back; Ink's own exit hook returns the main screen.
 	const stopWheel = fullscreen
-		? installMouseWheel(inputStream, process.stdout, (direction) => {
-				for (const listener of wheelListeners) listener(direction)
-			})
+		? installMouseWheel(
+				inputStream,
+				process.stdout,
+				(direction) => {
+					for (const listener of wheelListeners) listener(direction)
+				},
+				selectable
+					? (report) => {
+							for (const listener of pointerListeners) listener(report)
+						}
+					: undefined,
+			)
 		: undefined
 	const panicReset = fullscreen ? () => process.stdout.write(FULLSCREEN_PANIC_RESET) : undefined
 	if (panicReset) process.on('exit', panicReset)

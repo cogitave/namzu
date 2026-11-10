@@ -50,6 +50,42 @@ export interface TokenUsage {
 	 * unreported.
 	 */
 	speed?: import('../provider/chat.js').InferenceSpeed
+
+	/**
+	 * Hosted web searches the provider ran for this call and bills per request.
+	 * Unlike the per-call facts below it IS a count of work done, so it is
+	 * summed across calls. Absent means the provider did not report one.
+	 */
+	webSearchRequests?: number
+
+	/**
+	 * The service tier the provider says served this call (`standard`,
+	 * `priority`, `batch`). A per-call fact, never summed. Absent means
+	 * unreported.
+	 */
+	serviceTier?: string
+
+	/** The region the provider says ran this call, when it says. Per call, never summed. */
+	inferenceGeo?: string
+
+	/**
+	 * Why the provider's prompt cache did not serve a prefix it had before, when
+	 * it explains. Per call, never summed. Absent means no miss was explained: the
+	 * provider reported nothing, a pending answer, or a hit.
+	 */
+	cacheMiss?: CacheMiss
+}
+
+/** A prompt-cache miss as the provider explains it. See {@link TokenUsage.cacheMiss}. */
+export interface CacheMiss {
+	/**
+	 * The provider's own reason, e.g. `model_changed`, `system_changed`,
+	 * `tools_changed`, `messages_changed`, `previous_message_not_found`,
+	 * `unavailable`.
+	 */
+	reason: string
+	/** Input tokens that missed the cache because of it, when the provider counts them. */
+	missedTokens?: number
 }
 
 export function accumulateTokenUsage(current: TokenUsage, addition: TokenUsage): TokenUsage {
@@ -66,8 +102,12 @@ export function accumulateTokenUsage(current: TokenUsage, addition: TokenUsage):
 		...(current.reasoningTokens !== undefined || addition.reasoningTokens !== undefined
 			? { reasoningTokens: (current.reasoningTokens ?? 0) + (addition.reasoningTokens ?? 0) }
 			: {}),
-		// `cacheTtlMs` and `cacheWriteTtlTokens` are per-call facts and are
-		// deliberately not carried into a sum.
+		...(current.webSearchRequests !== undefined || addition.webSearchRequests !== undefined
+			? { webSearchRequests: (current.webSearchRequests ?? 0) + (addition.webSearchRequests ?? 0) }
+			: {}),
+		// `cacheTtlMs`, `cacheWriteTtlTokens`, `speed`, `serviceTier`,
+		// `inferenceGeo` and `cacheMiss` are per-call facts and are deliberately
+		// not carried into a sum.
 	}
 }
 
@@ -111,6 +151,18 @@ export function mergeTokenUsage(current: TokenUsage, next: TokenUsage): TokenUsa
 			: {}),
 		...(next.speed !== undefined || current.speed !== undefined
 			? { speed: next.speed ?? current.speed }
+			: {}),
+		...(next.webSearchRequests !== undefined || current.webSearchRequests !== undefined
+			? { webSearchRequests: Math.max(current.webSearchRequests ?? 0, next.webSearchRequests ?? 0) }
+			: {}),
+		...(next.serviceTier !== undefined || current.serviceTier !== undefined
+			? { serviceTier: next.serviceTier ?? current.serviceTier }
+			: {}),
+		...(next.inferenceGeo !== undefined || current.inferenceGeo !== undefined
+			? { inferenceGeo: next.inferenceGeo ?? current.inferenceGeo }
+			: {}),
+		...(next.cacheMiss !== undefined || current.cacheMiss !== undefined
+			? { cacheMiss: next.cacheMiss ?? current.cacheMiss }
 			: {}),
 	}
 }

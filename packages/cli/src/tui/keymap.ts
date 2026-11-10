@@ -93,6 +93,13 @@ export const ACTIONS = [
 		help: 'Search earlier messages',
 	}),
 	action({
+		id: 'app:searchTranscript',
+		context: 'Global',
+		group: 'Conversation',
+		keys: ['meta+s'],
+		help: 'Search the conversation on screen (fullscreen mode)',
+	}),
+	action({
 		id: 'historySearch:newer',
 		context: 'HistorySearch',
 		group: 'Conversation',

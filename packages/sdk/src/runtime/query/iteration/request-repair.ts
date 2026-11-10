@@ -39,7 +39,13 @@ import { isProviderRejectedImageError } from './provider-rejected-image.js'
  * compaction summaries, do not pass through it.
  */
 
-export type RejectedParameter = 'effort' | 'thinking' | 'temperature' | 'topP' | 'responseFormat'
+export type RejectedParameter =
+	| 'effort'
+	| 'thinking'
+	| 'temperature'
+	| 'topP'
+	| 'topK'
+	| 'responseFormat'
 
 export interface MediaRemoval {
 	readonly count: number
@@ -110,6 +116,7 @@ const PARAMETER_NAMES: Record<RejectedParameter, string> = {
 	thinking: 'thinking',
 	temperature: 'temperature',
 	topP: 'top[_ ]?p',
+	topK: 'top[_ ]?k',
 	responseFormat:
 		'(?:response_format|output_config(?:\\.format)?|json_schema|json_object|structured\\s+output)',
 }
@@ -123,6 +130,10 @@ const PARAMETER_PATTERNS = Object.fromEntries(
 		},
 	]),
 ) as Record<RejectedParameter, { named: RegExp; refused: RegExp }>
+
+const SAMPLING = ['temperature', 'topP', 'topK'] as const satisfies readonly RejectedParameter[]
+const SAMPLING_GROUP =
+	/\btemperature\b.{0,80}\btop[_ ]?[pk]\b|\btop[_ ]?[pk]\b.{0,80}\btemperature\b/i
 
 const BOTH_SAMPLING =
 	/temperature.{0,60}top[_ ]?p.{0,80}(?:cannot|can['’]t|may\s+not|should\s+not).{0,20}(?:both|together)/i
@@ -156,6 +167,7 @@ function rejectedParameters(
 		thinking: params.thinking !== undefined,
 		temperature: params.temperature !== undefined,
 		topP: params.topP !== undefined,
+		topK: params.topK !== undefined,
 		responseFormat: params.responseFormat !== undefined,
 	} satisfies Record<RejectedParameter, boolean>
 	const found: RejectedParameter[] = []
@@ -165,6 +177,12 @@ function rejectedParameters(
 		if (structured ? pattern.named.test(text) : pattern.refused.test(text)) found.push(name)
 	}
 	if (found.length === 0 && set.topP && BOTH_SAMPLING.test(text)) found.push('topP')
+	// The vendor words a refusal of sampling controls as a group ("Omit
+	// temperature, top_p, and top_k"), so naming one of them in a refusal that
+	// names the others is enough for whichever of them was sent.
+	if (found.length === 0 && SAMPLING_GROUP.test(text)) {
+		for (const name of SAMPLING) if (set[name]) found.push(name)
+	}
 	return found
 }
 
@@ -726,6 +744,7 @@ function withoutParameters(
 	if (names.has('thinking')) next.thinking = undefined
 	if (names.has('temperature')) next.temperature = undefined
 	if (names.has('topP')) next.topP = undefined
+	if (names.has('topK')) next.topK = undefined
 	if (names.has('responseFormat')) next.responseFormat = undefined
 	return next
 }
@@ -740,4 +759,26 @@ function isHandledElsewhere(error: unknown, params: ChatCompletionParams): boole
 		return true
 	}
 	return isImageInputRefusal(error)
+}
+
+/**
+ * Which of `temperature`, `top_p` and `top_k` a provider refused on this
+ * request, from the same reading of its rejection the main turn uses. Empty
+ * for any other failure, so a caller can strip exactly these and nothing else.
+ */
+export function rejectedSamplingParameters(
+	error: unknown,
+	params: ChatCompletionParams,
+): RejectedParameter[] {
+	const rejection = classifyRequestRejection(error, params)
+	if (rejection?.kind !== 'parameter') return []
+	return rejection.parameters.filter((name) => (SAMPLING as readonly string[]).includes(name))
+}
+
+/** The request without the named sampling parameters. */
+export function withoutSamplingParameters(
+	params: ChatCompletionParams,
+	names: ReadonlySet<RejectedParameter>,
+): ChatCompletionParams {
+	return withoutParameters(params, names)
 }

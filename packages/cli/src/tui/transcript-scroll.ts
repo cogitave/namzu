@@ -61,6 +61,15 @@ export function scrollTextWidth(columns: number): number {
 	return Math.max(4, Math.floor(columns) - GUTTER)
 }
 
+/** The text a message's first rows show, before it is wrapped. */
+export function scrollBodyText(message: TranscriptMessage): string {
+	return message.statusRows
+		? message.statusRows.map(([label, value]) => `${label}  ${value}`).join('\n')
+		: `${message.content.length > 0 ? message.content : message.pending ? '…' : ''}${
+				message.meta ? ` · ${terminalDisplayText(message.meta)}` : ''
+			}`
+}
+
 /** One message's rows, and the blank row that goes above them when something precedes. */
 export interface MessageScrollRows {
 	readonly gap: ScrollRow | null
@@ -82,11 +91,7 @@ export function messageScrollRows(
 		paint(message.glyphColor) ??
 		(glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
 	const color = paint(message.contentColor) ?? contentColorForRole(message.role)
-	const joined = message.statusRows
-		? message.statusRows.map(([label, value]) => `${label}  ${value}`).join('\n')
-		: `${message.content.length > 0 ? message.content : message.pending ? '…' : ''}${
-				message.meta ? ` · ${terminalDisplayText(message.meta)}` : ''
-			}`
+	const joined = scrollBodyText(message)
 	const body = wrapChoiceText(joined, width)
 	const detail = message.statusRows
 		? []
