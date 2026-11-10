@@ -53,6 +53,7 @@ import type {
 	UpdateState,
 	UpdateUiBusy,
 } from './update-protocol.js'
+import type { UsageNotice } from './usage-protocol.js'
 export type { PalComputerInput } from '@namzu/sdk'
 import type {
 	WorkspaceDropPosition,
@@ -618,6 +619,8 @@ export type DesktopEvent = (
 	  }
 	| { kind: 'permission'; request: PermissionView }
 	| { kind: 'task'; sessionId: string; task: AcpTask; deleted?: true }
+	/** How full the conversation is and whether it is being compacted; see `UsageNotice`. */
+	| ({ kind: 'usage' } & UsageNotice)
 	| { kind: 'tasks'; sessionId: string; tasks?: AcpTask[]; notice?: string }
 	| { kind: 'permission-cleared'; sessionId: string; requestId?: string }
 	/** Display-only retirement; admitted, queued and retry file bytes are unchanged. */
