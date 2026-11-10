@@ -106,6 +106,14 @@ export interface TurnConfig {
 	 * Off when absent, so an embedding host sees no change.
 	 */
 	completionAudit?: boolean
+	/**
+	 * How many times in a row `turn_end` / `subagent_stop` hooks may refuse to
+	 * let the turn end (answer `skip`) before the turn stops honouring them. At
+	 * the limit the turn ends, one notice naming the hook is recorded, and the
+	 * remaining refusals are ignored. A tool call between refusals resets the
+	 * count. Defaults to 8; 0 removes the limit.
+	 */
+	maxHookRefusals?: number
 	/** Provider-hosted search for this turn. Explicit opt-in; no local network permission. */
 	webSearch?: import('../provider/index.js').ChatCompletionParams['webSearch']
 	/** Cumulative parent-and-descendant tokens; 0 is unlimited with usage accounting. */

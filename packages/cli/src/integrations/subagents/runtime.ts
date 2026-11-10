@@ -3492,6 +3492,9 @@ function buildDefinition(
 				...(limits.maxReasoningTokens !== undefined
 					? { reasoning: { maxTokens: limits.maxReasoningTokens } }
 					: {}),
+				...(limits.maxHookRefusals !== undefined
+					? { maxHookRefusals: limits.maxHookRefusals }
+					: {}),
 				pruneKeepLast: CLI_CHECKPOINT_RETENTION,
 				provider,
 				...(pluginManager ? { pluginManager } : {}),

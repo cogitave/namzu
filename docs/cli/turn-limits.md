@@ -98,6 +98,10 @@ A step that streams more reasoning than the cap before it has made a call is cut
 
 A turn that changed files and tries to end without running a test, lint, format check, typecheck or build after the last change is asked once to check its work first ([Completion audit](../sdk/completion-audit.md)). It is on for the interactive session and for `namzu exec`. `limits.doneGate: false` in the config turns it off, and `--no-done-gate` does the same for one interactive launch (`namzu exec` takes the config key). Delegated children are not audited.
 
+## Hook refusals
+
+A `turn_end` or `subagent_stop` hook can refuse to let a turn end ([Hooks](../sdk/hooks.md#a-hook-that-keeps-refusing-to-let-a-turn-end)). After `limits.maxHookRefusals` refusals in a row (default 8; `0` removes the limit) Namzu ends the turn anyway and records one message naming the hook. A tool call between refusals starts the count over. A hook that refuses fewer times is not affected.
+
 ## Spend limit
 
 A turn can be stopped by what it has spent as well as by how long it ran. `limits.costLimitUsd` (a number of dollars, `0` or omitted for none) applies to interactive turns and to `exec` and `drain` (a scheduled run keeps the budget of its job), and `namzu exec --max-budget-usd 2.50` sets it for one run, `exec --json` included. The flag takes a number above zero; the config key takes `0` to lift a limit a lower layer set.

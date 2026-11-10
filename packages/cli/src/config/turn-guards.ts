@@ -14,6 +14,8 @@ export type TurnGuards = { -readonly [K in TurnGuardKey]: number } & {
 	maxReasoningTokens?: number
 	/** `false` turns the check-your-edits reminder off; absent leaves it on. */
 	doneGate?: boolean
+	/** Hook refusals in a row honoured before a turn ends anyway; 0 removes the cap, absent keeps the kernel's default. */
+	maxHookRefusals?: number
 }
 
 /** The turn-config fields a resolved set of limits stands for; see {@link turnConfigFields}. */
@@ -25,6 +27,7 @@ export interface TurnConfigFields {
 	maxResponseTokens?: number
 	reasoning?: { maxTokens: number }
 	completionAudit?: boolean
+	maxHookRefusals?: number
 }
 
 /**
@@ -52,6 +55,7 @@ export function turnConfigFields(
 		...(guards.maxReasoningTokens !== undefined
 			? { reasoning: { maxTokens: guards.maxReasoningTokens } }
 			: {}),
+		...(guards.maxHookRefusals !== undefined ? { maxHookRefusals: guards.maxHookRefusals } : {}),
 		...(options.completionAudit === true && guards.doneGate !== false
 			? { completionAudit: true }
 			: {}),
@@ -91,6 +95,14 @@ export function resolveTurnGuards(...layers: readonly (LimitsConfig | undefined)
 					'Invalid maxReasoningTokens: use a nonnegative safe integer. 0 removes the cap.',
 				)
 			resolved.maxReasoningTokens = reasoning
+		}
+		const refusals = layer?.maxHookRefusals
+		if (refusals !== undefined) {
+			if (!Number.isSafeInteger(refusals) || refusals < 0)
+				throw new Error(
+					'Invalid maxHookRefusals: use a nonnegative safe integer. 0 removes the limit.',
+				)
+			resolved.maxHookRefusals = refusals
 		}
 		if (layer?.doneGate !== undefined) resolved.doneGate = layer.doneGate
 		const spend = layer?.costLimitUsd

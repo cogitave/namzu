@@ -213,3 +213,14 @@ it('turns the done-gate off with doneGate: false, and refuses a bad cap', () => 
 	expect(turnConfigFields(off, { completionAudit: true }).completionAudit).toBeUndefined()
 	expect(() => resolveTurnGuards({ maxReasoningTokens: -1 })).toThrow('maxReasoningTokens')
 })
+
+it('carries the hook refusal limit into the turn, and refuses a bad one', () => {
+	expect(turnConfigFields(resolveTurnGuards({ maxHookRefusals: 3 })).maxHookRefusals).toBe(3)
+	expect(
+		turnConfigFields(resolveTurnGuards({ maxHookRefusals: 3 }, { maxHookRefusals: 0 })),
+	).toMatchObject({
+		maxHookRefusals: 0,
+	})
+	expect(turnConfigFields(resolveTurnGuards({}))).not.toHaveProperty('maxHookRefusals')
+	expect(() => resolveTurnGuards({ maxHookRefusals: -1 })).toThrow('maxHookRefusals')
+})

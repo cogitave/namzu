@@ -37,6 +37,12 @@ A hook is a function an extension registers on the plugin lifecycle manager, or 
 
 All the hooks registered for an event start together, each on the context the event carried, and the kernel reads their answers in priority order (then registration order). None waits for another and none short-circuits, so a hook that refuses does not keep its siblings from running. The answers combine so that a refusal (`skip`) outranks `ask`, which outranks `allow`; of several rewrites (`modify`, `replace`) the last in order wins and no hook sees another's rewrite; every `context` is kept; every `halt` is honoured. Before `@namzu/sdk` 52 the hooks ran one by one (`post_*` in reverse), each seeing the previous hook's `modify`, and a refusal stopped the chain.
 
+### A hook that keeps refusing to let a turn end
+
+A `skip` from `turn_end` or `subagent_stop` keeps the turn going, and the model gets the reason as a `hook-feedback` message. A hook that answers `skip` every time would keep the turn going until `maxIterations` ended it (a turn with no iteration limit would never end), so the kernel counts the refusals. Refusals are counted in a row: a round in which `turn_end` and `subagent_stop` both refuse is one refusal, and a tool call between refusals starts the count over.
+
+Once `TurnConfig.maxHookRefusals` refusals have been honoured (8 when unset; `0` removes the limit) the next one is not: the turn ends the way it would have with no hook, and one `hook-feedback` message is recorded in the transcript naming the hook ("`closing-gate` asked for more before this turn could end 8 times in a row. Namzu is ending the turn anyway..."). The hook is still asked, and a `halt` it asks for is still honoured. A hook that refuses fewer times than the limit sees no change. The count is per turn and is not carried to the next one. In the CLI the limit is `limits.maxHookRefusals` ([Turn limits](../cli/turn-limits.md#hook-refusals)).
+
 ### What `continue`, `skip` and `modify` can carry
 
 Beyond their action, the verdicts that let work go on take three optional fields:

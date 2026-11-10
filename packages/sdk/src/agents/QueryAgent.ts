@@ -49,6 +49,7 @@ const configRoutes = {
 	speed: 'turn',
 	reasoning: 'turn',
 	completionAudit: 'turn',
+	maxHookRefusals: 'turn',
 	idempotencyKey: 'special',
 	projectId: 'special',
 	topicId: 'special',
