@@ -3965,6 +3965,22 @@ One view holds the keyboard at a time. `attach` with `writer: true` takes it whe
 
 `node-pty@1.1.0` (N-API, no rebuild for Electron) is an **optional** dependency of `@namzu/cli`. It ships Windows and macOS binaries and compiles on Linux at install time; if that fails, everything else works and `namzu/terminal/status` reports `available: false`. Requests are validated on the host (`packages/cli/src/terminal/protocol.ts`: closed shapes, bounded sizes, a `__proto__` environment name is data) and every answer and notification is validated again by the Desktop (`src/shared/terminal-protocol.ts`); a test fails when the two files' method names or limits drift. The host's terminal command and the Desktop's Namzu engine terminals share one recipe: the bundled CLI is the program (`process.execPath` with `ELECTRON_RUN_AS_NODE=1`), with the [launch flags](launch-flags.md) for the composer's choices.
 
+### Usage and compaction notices
+
+The shared protocol bridge says nothing about how full a conversation is or that it is being compacted, and that stays so for every other client. Under `--desktop` only, the host announces both itself as one `namzu/session/usage` notification per conversation (`src/commands/desktop-usage-feed.ts`). It is sent without any request and needs no negotiation: a client that does not know it ignores it.
+
+| Field | Meaning |
+| --- | --- |
+| `sessionId` | the conversation, as the client opened it |
+| `contextTokens` | size of the conversation the model is sent now, in tokens; falls after a compaction |
+| `contextWindowTokens` | the most the model accepts; absent when the engine resolved none |
+| `contextMeasuredBy` | `provider` when counted by the provider, `estimate` otherwise |
+| `cost` | cost so far in US dollars; present only when every token was priced and the total is above zero |
+| `compaction` | `started` when a pass begins, `finished` when it ends (also when clearing old tool results made room), `failed` when it changed nothing |
+| `tokensBefore`, `tokensAfter` | the size the pass started from and ended at, when known |
+
+A field the engine did not report is left out, never sent as zero. Usage notices are coalesced to at most one per conversation every 400 ms (the first goes at once, a burst ends with one carrying the latest numbers); compaction notices are never delayed. Compaction that runs while no turn is open (the idle pass) is not announced.
+
 ### Working-tree changes
 
 `namzu/project/changes` and `namzu/project/diff` back the Changes view's "Uncommitted changes" scope. They run only in a trusted folder and read, never write. Git runs with no shell as `git -c core.fsmonitor=false --no-optional-locks` and `GIT_OPTIONAL_LOCKS=0`, a 10 s timeout and a 1 MiB output cap per call, with `--no-ext-diff --no-textconv`, so repository configuration cannot run a program. The list comes from `diff --numstat -z --find-renames HEAD` (binary files are `-\t-`) and `diff --name-status` for the status letters, with `--relative` so paths are relative to the host folder and changes outside it are left out. In a repository with no commit yet it compares against git's empty tree. Untracked files come from `ls-files --others --exclude-standard -z`: the first 200 are read and counted as added lines (text only, at most 2 MiB each, never through a link); the rest are listed as new with no count.
