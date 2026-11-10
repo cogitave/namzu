@@ -17,6 +17,7 @@ import { join } from "node:path";
 import {
 	MockLLMProvider,
 	SessionPaths,
+	toolset,
 	autoApproveHandler,
 	createSlidingWindowReducer,
 	customScorer,
@@ -28,7 +29,6 @@ import {
 	generateTopicId,
 	runExperiment,
 	slugForCwd,
-	toolset,
 } from "@namzu/sdk";
 import { z } from "zod";
 
