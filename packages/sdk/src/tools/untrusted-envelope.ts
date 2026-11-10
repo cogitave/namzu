@@ -206,6 +206,28 @@ export function wrapUntrusted(
 }
 
 /**
+ * The opening words of the one line the kernel writes beside a delegated
+ * agent's answer, outside its block, to say what the run did according to its
+ * own record (`describeOutcomeRecord`).
+ */
+export const KERNEL_RECORD_PREFIX = 'Record of this run: '
+
+/**
+ * `text` without a kernel record line that follows its last block.
+ *
+ * A reader of the block must still find it when the kernel has said one more
+ * thing after it. The line is the kernel's: everything a child produced is
+ * inside the block, where this module has already made its delimiter
+ * impossible to forge, so a line out here asks the reader to trust nothing
+ * that it did not already trust.
+ */
+function withoutKernelRecord(trimmed: string): string {
+	const at = trimmed.lastIndexOf(`\n\n${KERNEL_RECORD_PREFIX}`)
+	if (at < 0 || trimmed.indexOf('\n', at + 2) >= 0) return trimmed
+	return trimmed.slice(0, at)
+}
+
+/**
  * The body of a single wrapped block, when `text` is one.
  *
  * Two lines sit between the opening tag and the content, and both are THIS
@@ -246,7 +268,7 @@ export function wrapUntrusted(
  * it, which is the one failure this function must not have.
  */
 export function untrustedEnvelopeBody(text: string): string | undefined {
-	const trimmed = text.trim()
+	const trimmed = withoutKernelRecord(text.trim())
 	const opening = OPENING_TAG_PATTERN.exec(trimmed)
 	if (!opening) return undefined
 	const nonce = opening[1]

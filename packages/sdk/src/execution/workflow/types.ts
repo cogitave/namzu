@@ -4,6 +4,8 @@
  * runtime schedules them. See `docs/sdk/workflows.md`.
  */
 
+import type { TurnOutcome } from '../../types/session/outcome.js'
+
 /** One phase declared in `meta.phases`. */
 export interface WorkflowPhaseMeta {
 	readonly title: string
@@ -55,6 +57,11 @@ export interface WorkflowAgentOutcome {
 	readonly error?: string
 	/** The id of the child session the host ran this agent in, recorded in the journal. */
 	readonly sessionId?: string
+	/**
+	 * The kernel's record of what the agent's turn changed and what checked it.
+	 * Written to the journal beside the outcome; the script never receives it.
+	 */
+	readonly outcome?: TurnOutcome
 }
 
 /**
@@ -245,6 +252,8 @@ export type WorkflowJournalRecord =
 			/** Where a cached result was first recorded. */
 			readonly resultFrom?: { readonly pass: number; readonly index: number }
 			readonly childSessionId?: string
+			/** What the agent's turn changed and what checked it; see `TurnOutcome`. */
+			readonly outcome?: TurnOutcome
 	  }
 	| { readonly type: 'log'; readonly at: number; readonly message: string }
 	| {

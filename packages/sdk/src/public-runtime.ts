@@ -1764,6 +1764,7 @@ export {
 	isEphemeralEvent,
 } from './types/session/events.js'
 export {
+	ChildOutcomeRecordedRecordSchema,
 	ChildSessionMetaSchema,
 	CompactionRecordSchema,
 	ExternalRefSchema,
@@ -1771,6 +1772,7 @@ export {
 	MessageRecordSchema,
 	MessageReplacedRecordSchema,
 	OriginSchema,
+	OutcomeProgressWrittenRecordSchema,
 	PERSISTED_SESSION_EVENT_TYPES,
 	ProjectDocumentSchema,
 	RecordPointerSchema,
@@ -1783,6 +1785,7 @@ export {
 	SessionStartedRecordSchema,
 	TurnCompletedRecordSchema,
 	TurnFailedRecordSchema,
+	TurnOutcomeRecordedRecordSchema,
 	TurnSettlementSchema,
 	TurnStartedRecordSchema,
 	parseSessionRecord,

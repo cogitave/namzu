@@ -59,6 +59,7 @@ The kernel.
 * [Tool execution barriers](tool-execution.md) - Explicit batch ordering while independent read segments remain parallel.
 * [Unreadable tool input](unreadable-tool-input.md) - Streamed tool arguments that do not parse: truncated or malformed by finish reason, what the model and host are told, and how tool-call fragments are grouped.
 * [OpenAI reasoning menus](openai-reasoning.md) - Model-specific API and subscription effort levels and validation.
+* [Turn outcome](turn-outcome.md) - What a turn changed and what checked it, from the kernel's own record of its calls: the verdicts, what `checked` does not mean, and where the record is kept.
 * [Completion audit](completion-audit.md) - The one reminder a turn gets when it ends after changing files without a check, what counts as a check, and how to switch it on or off.
 * [Reasoning pace](reasoning-pace.md) - The per-step reasoning cap, the stall monitor's nudge and forced action step, and the retry for a reply of thinking only.
 

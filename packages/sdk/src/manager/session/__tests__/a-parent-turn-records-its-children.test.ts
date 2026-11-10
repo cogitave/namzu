@@ -58,7 +58,10 @@ async function begunTurn(sessionLog: SessionLog) {
 }
 
 /** A child log holding one settled turn, as the child's own recorder leaves it. */
-async function settledChild(childId: SessionId): Promise<SessionLog> {
+async function settledChild(
+	childId: SessionId,
+	outcome?: Record<string, unknown>,
+): Promise<SessionLog> {
 	const log = new InMemorySessionLog({ sessionId: childId })
 	const lease = await log.claim({ holder: 'child', ttlMs: 60_000 })
 	if (!lease) throw new Error('claim failed')
@@ -74,6 +77,14 @@ async function settledChild(childId: SessionId): Promise<SessionLog> {
 		userMessageId: generateMessageId(),
 		config: { model: 'mock', tokenBudget: 0, timeoutMs: 0 },
 	})
+	if (outcome) {
+		await log.append(lease, {
+			type: 'turn_outcome_recorded',
+			ignorable: true,
+			turnId,
+			outcome,
+		} as never)
+	}
 	await log.append(lease, {
 		type: 'turn_completed',
 		turnId,
@@ -141,6 +152,43 @@ describe('a parent turn records its children', () => {
 		})
 		const ended = await childSessionEnded(childLog)
 		expect(tail[2]).toMatchObject({ ...ended, turnId: recorder.turnId })
+	})
+
+	it("records the child's outcome in a record of its own just before the ended record", async () => {
+		const parentLog = new InMemorySessionLog({ sessionId: SESSION })
+		const recorder = await begunTurn(parentLog)
+		const childId = generateSessionId()
+		const outcome = {
+			verdict: 'unchecked',
+			basis: 'calls',
+			changes: { total: 1, paths: ['a.ts'], outsideKnownTools: false },
+			checks: [],
+		}
+		const childLog = await settledChild(childId, outcome)
+		await recorder.recordChildSessionEvent(spawned(childId, recorder.turnId))
+		await recorder.recordChildSessionEvent(
+			{
+				type: 'child_session_idled',
+				sessionId: SESSION,
+				turnId: recorder.turnId,
+				childSessionId: childId,
+			},
+			childLog,
+		)
+		await recorder.flush()
+
+		const tail = (await parentLog.readAll()).entries.map((entry) => entry.record).slice(-2)
+		expect(tail.map((record) => record.type)).toEqual([
+			'child_outcome_recorded',
+			'child_session_ended',
+		])
+		expect(tail[0]).toMatchObject({
+			ignorable: true,
+			childSessionId: childId,
+			turnId: recorder.turnId,
+			outcome,
+		})
+		expect(tail[1]).not.toHaveProperty('outcome')
 	})
 
 	it('records a child that idles once the turn has queued its end outside that turn', async () => {

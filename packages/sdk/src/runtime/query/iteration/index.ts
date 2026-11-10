@@ -36,6 +36,7 @@ import { NamzuError } from '../../../types/errors/index.js'
 import type { MessageId, SessionId, TurnId } from '../../../types/ids/index.js'
 import {
 	type Message,
+	type ToolCall,
 	type UserMessage,
 	createAssistantMessage,
 	createRuntimeContextMessage,
@@ -54,6 +55,7 @@ import type {
 	StepProvenance,
 	StepResult,
 	StopReason,
+	TurnOutcome,
 } from '../../../types/session/index.js'
 import type { LLMToolSchema } from '../../../types/tool/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
@@ -80,6 +82,7 @@ import {
 import { withoutVoidAssistantTurns } from '../request-void-turns.js'
 import { formatSteeringNote, isOperatorUserMessage } from '../steering.js'
 import { COMPLETION_AUDIT_MESSAGE, CompletionAudit } from '../turn/completion-audit.js'
+import { type OutcomeCall, OutcomeLedger, type PendingOutcomeCall } from '../turn/outcome-ledger.js'
 import {
 	FORCED_STEP_MESSAGE,
 	REASONING_CAPPED_MESSAGE,
@@ -333,6 +336,9 @@ export class IterationOrchestrator {
 	private readonly stallMonitor?: StallMonitor
 	/** Holds the turn back once when it changed files and checked nothing afterwards. */
 	private readonly completionAudit?: CompletionAudit
+	/** What the turn changed and what checked it; see {@link OutcomeLedger}. Kept whether or not the host asked. */
+	private readonly outcomeLedger: OutcomeLedger
+	private outcomeHydrated = false
 	/** The next step must call a tool, at low effort: set by the stall monitor or a capped step. */
 	private forceActionNextStep = false
 	/** Steps in a row cut at the per-step reasoning cap; past a few the cap stops applying. */
@@ -436,6 +442,13 @@ export class IterationOrchestrator {
 			},
 		}
 		if (ctx.turnConfig.completionAudit === true) this.completionAudit = new CompletionAudit()
+		this.outcomeLedger = new OutcomeLedger(ctx.turnConfig.outcome)
+		ctx.checkpointMgr.setOutcomeSource?.(() => {
+			this.hydrateOutcome()
+			return this.outcomeLedger.recorded
+				? (this.outcomeLedger.snapshot() as unknown as Record<string, unknown>)
+				: undefined
+		})
 		if (ctx.turnConfig.reasoning?.stall !== false) {
 			this.stallMonitor = new StallMonitor(ctx.turnConfig.reasoning?.stall || undefined)
 		}
@@ -1989,6 +2002,7 @@ export class IterationOrchestrator {
 						break
 					}
 
+					await this.outcomeBefore(response)
 					const reviewOutcome = yield* runToolReview(this.ctx, response, iterationNum)
 
 					// The step record is built even for a rejected batch: a turn that
@@ -2013,6 +2027,7 @@ export class IterationOrchestrator {
 					this.reasoningOnlyRetried = false
 					this.observeStall(response, reviewOutcome.results)
 					this.observeAudit(response, reviewOutcome.results)
+					await this.outcomeObserve(iterationNum, response, reviewOutcome.results)
 
 					if (reviewOutcome.decision === 'stop') {
 						return
@@ -3328,6 +3343,102 @@ export class IterationOrchestrator {
 			return next !== undefined && next.length > 0 && next !== model ? next : undefined
 		} catch (err) {
 			this.ctx.log.warn('The provider could not name a model to retry a refusal on', {
+				'exception.message': toErrorMessage(err),
+			})
+			return undefined
+		}
+	}
+
+	/**
+	 * Take back the outcome record a checkpoint kept. Done at first use rather
+	 * than at construction: the checkpoint is read after this is built. A turn
+	 * resumed from a checkpoint with no record cannot say what came before it,
+	 * so it keeps none.
+	 */
+	private hydrateOutcome(): void {
+		if (this.outcomeHydrated) return
+		this.outcomeHydrated = true
+		const restored = this.ctx.checkpointMgr.restoredOutcome
+		if (restored?.resumed !== true) return
+		if (restored.snapshot === undefined) this.outcomeLedger.markUnrecorded()
+		else this.outcomeLedger.restore(restored.snapshot)
+	}
+
+	/** Whether a call is one the outcome record may treat as only looking. */
+	private lookedOnly(toolName: string, input: unknown): boolean {
+		try {
+			return !callChangedState(toolName, this.ctx.tools.get(toolName)?.isReadOnly?.(input), false)
+		} catch {
+			return false
+		}
+	}
+
+	private parsedInput(call: ToolCall | undefined): unknown {
+		try {
+			return call ? JSON.parse(call.function.arguments) : undefined
+		} catch {
+			return undefined
+		}
+	}
+
+	/**
+	 * Before a step's calls run: the first one that could change the workspace
+	 * takes the starting fingerprint. A failure here must not fail the turn.
+	 */
+	async outcomeBefore(response: ChatCompletionResponse): Promise<void> {
+		try {
+			this.hydrateOutcome()
+			const pending: PendingOutcomeCall[] = (response.message.toolCalls ?? []).map((call) => {
+				const input = this.parsedInput(call)
+				return {
+					toolName: call.function.name,
+					input,
+					readOnly: this.lookedOnly(call.function.name, input),
+				}
+			})
+			await this.outcomeLedger.before(pending)
+		} catch (err) {
+			this.ctx.log.warn('The outcome record could not take its starting point', {
+				'exception.message': toErrorMessage(err),
+			})
+		}
+	}
+
+	/** Feed the outcome record the calls of one finished step. */
+	async outcomeObserve(
+		step: number,
+		response: ChatCompletionResponse,
+		results: readonly ToolCallOutcome[],
+	): Promise<void> {
+		try {
+			this.hydrateOutcome()
+			const calls = new Map((response.message.toolCalls ?? []).map((c) => [c.id, c]))
+			const seen: OutcomeCall[] = results.map((result) => {
+				const input = this.parsedInput(calls.get(result.toolCallId))
+				return {
+					toolName: result.toolName,
+					input,
+					isError: result.isError,
+					...(result.skipped ? { skipped: true } : {}),
+					readOnly: this.lookedOnly(result.toolName, input),
+					...(result.facts ? { facts: result.facts } : {}),
+				}
+			})
+			await this.outcomeLedger.observe(step, seen)
+		} catch (err) {
+			this.ctx.log.warn('The outcome record could not read a step', {
+				'exception.message': toErrorMessage(err),
+			})
+		}
+	}
+
+	/** The outcome record as the turn leaves it; `undefined` when none was kept. */
+	async takeOutcome(): Promise<TurnOutcome | undefined> {
+		try {
+			this.hydrateOutcome()
+			return await this.outcomeLedger.finish()
+		} catch (err) {
+			this.ctx.log.warn('The outcome record could not be settled', {
 				'exception.message': toErrorMessage(err),
 			})
 			return undefined
