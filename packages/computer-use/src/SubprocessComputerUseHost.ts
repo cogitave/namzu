@@ -109,7 +109,7 @@ export interface SubprocessComputerUseHostForegroundOptions {
 
 export type SubprocessComputerUseHostWindowsOptions = Pick<
 	Win32AdapterOptions,
-	'backend' | 'cuaDriverPath' | 'cacheDir' | 'download'
+	'backend' | 'cuaDriverPath' | 'cacheDir' | 'download' | 'onNotice'
 >
 
 /**

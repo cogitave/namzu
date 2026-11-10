@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { deflateRawSync } from 'node:zlib'
@@ -11,6 +11,7 @@ import {
 	cuaDriverAsset,
 	cuaDriverDownloadUrl,
 	defaultCuaDriverCacheDir,
+	removeSupersededCuaDrivers,
 	resolveCuaDriver,
 } from '../adapters/cua-driver/provision.js'
 import { ZipFormatError, extractZipEntry } from '../adapters/cua-driver/zip.js'
@@ -195,5 +196,95 @@ describe('resolving cua-driver', () => {
 
 	it('refuses an architecture cua-driver does not build for', async () => {
 		await expect(resolveCuaDriver({ cacheDir: dir, arch: 'ia32' })).rejects.toThrow(/ia32/)
+	})
+})
+
+describe('the cache of cua-driver builds', () => {
+	let root: string
+	let cache: string
+	const exe = Buffer.from('MZ pretend windows executable '.repeat(500))
+	const archive = makeZip({ 'cua-driver.exe': exe })
+	const asset = {
+		archive: 'test.zip',
+		archiveSize: archive.length,
+		archiveSha256: sha256(archive),
+		exeSize: exe.length,
+		exeSha256: sha256(exe),
+	}
+	const fetcher = () =>
+		vi.fn(async () => new Response(new Uint8Array(archive))) as unknown as typeof fetch
+
+	beforeEach(async () => {
+		_resetVerifiedCuaDriverCache()
+		root = await mkdtemp(join(tmpdir(), 'namzu-cua-cache-'))
+		cache = join(root, 'computer-use', 'cua-driver')
+		await mkdir(join(cache, '0.28.2'), { recursive: true })
+		await writeFile(join(cache, '0.28.2', 'cua-driver.exe'), 'old')
+	})
+	afterEach(async () => {
+		await rm(root, { recursive: true, force: true })
+	})
+
+	it('downloads the pinned build when only an older one is cached, says so once, and removes the older one', async () => {
+		const notices: string[] = []
+		const dir = join(cache, CUA_DRIVER_RELEASE.version)
+		const resolved = await resolveCuaDriver({
+			cacheDir: dir,
+			asset,
+			fetch: fetcher(),
+			onDownload: (notice) => notices.push(notice),
+		})
+		expect(resolved.source).toBe('download')
+		expect(notices).toHaveLength(1)
+		expect(notices[0]).toMatch(/downloading the computer-use helper/)
+		expect(await readdir(cache)).toEqual([CUA_DRIVER_RELEASE.version])
+
+		// The next use is the cache: no download, no second notice.
+		_resetVerifiedCuaDriverCache()
+		const again = await resolveCuaDriver({
+			cacheDir: dir,
+			asset,
+			fetch: fetcher(),
+			onDownload: (notice) => notices.push(notice),
+		})
+		expect(again.source).toBe('cache')
+		expect(notices).toHaveLength(1)
+	})
+
+	it('removes only version folders, never the one in use or anything else', async () => {
+		const keep = join(cache, '0.38.0')
+		await mkdir(keep)
+		await mkdir(join(cache, '0.30.1'))
+		await mkdir(join(cache, 'notes'))
+		await mkdir(join(cache, '0.30'))
+		await writeFile(join(cache, '0.31.0'), 'a file named like a version')
+		const outside = join(root, 'outside')
+		await mkdir(outside)
+		await symlink(outside, join(cache, '0.32.0'), 'dir')
+		const removed = await removeSupersededCuaDrivers(keep)
+		expect(removed.sort()).toEqual(['0.28.2', '0.30.1'])
+		expect((await readdir(cache)).sort()).toEqual(['0.30', '0.31.0', '0.32.0', '0.38.0', 'notes'])
+		expect(await readdir(outside)).toEqual([])
+	})
+
+	it('leaves a folder alone when the build in use is not in a version folder', async () => {
+		const custom = join(cache, 'custom')
+		await mkdir(custom)
+		await expect(removeSupersededCuaDrivers(custom)).resolves.toEqual([])
+		expect(await readdir(cache)).toContain('0.28.2')
+	})
+
+	it('does not tell the person anything for a build that is already cached', async () => {
+		const dir = join(cache, CUA_DRIVER_RELEASE.version)
+		await resolveCuaDriver({ cacheDir: dir, asset, fetch: fetcher() })
+		_resetVerifiedCuaDriverCache()
+		const notices: string[] = []
+		await resolveCuaDriver({
+			cacheDir: dir,
+			asset,
+			download: false,
+			onDownload: (n) => notices.push(n),
+		})
+		expect(notices).toEqual([])
 	})
 })

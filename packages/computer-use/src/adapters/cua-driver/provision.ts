@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
-import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { extractZipEntry } from './zip.js'
 
 /**
@@ -61,6 +61,11 @@ export interface ResolveCuaDriverOptions {
 	readonly env?: NodeJS.ProcessEnv
 	/** How long the archive download may take. Default 180 s. */
 	readonly downloadTimeoutMs?: number
+	/**
+	 * Told, once and in plain words, before the pinned build is downloaded, so a person
+	 * waiting on the first use knows why. Not called when the build is cached.
+	 */
+	readonly onDownload?: (notice: string) => void
 	/** For tests. */
 	readonly fetch?: typeof fetch
 	/** For tests: another pin than the architecture's. */
@@ -127,6 +132,7 @@ export async function resolveCuaDriver(
 	const exe = join(dir, EXE_NAME)
 
 	if (await isPinnedExecutable(exe, asset.exeSize, asset.exeSha256)) {
+		await removeSupersededCuaDrivers(dir)
 		return { path: exe, source: 'cache' }
 	}
 	if (options.download === false) {
@@ -136,6 +142,9 @@ export async function resolveCuaDriver(
 	}
 
 	const url = cuaDriverDownloadUrl(asset.archive)
+	options.onDownload?.(
+		`Namzu is downloading the computer-use helper (cua-driver ${CUA_DRIVER_RELEASE.version}, about ${Math.max(1, Math.round(asset.archiveSize / 1_000_000))} MB) once. It is checked before it is used, so the first use takes a little longer.`,
+	)
 	const archive = await download(url, options.fetch ?? fetch, options.downloadTimeoutMs ?? 180_000)
 	if (archive.length !== asset.archiveSize || sha256(archive) !== asset.archiveSha256) {
 		throw new CuaDriverUnavailableError(
@@ -163,7 +172,35 @@ export async function resolveCuaDriver(
 	}
 	const written = await stat(exe)
 	verified.set(exe, `${written.size}:${written.mtimeMs}`)
+	await removeSupersededCuaDrivers(dir)
 	return { path: exe, source: 'download' }
+}
+
+/** A cache folder named like a release: `0.28.2`. Nothing else in the cache is Namzu's to remove. */
+const VERSION_FOLDER = /^\d+\.\d+\.\d+$/
+
+/**
+ * Removes the older builds beside the one in use. `keep` is the folder of the build now in use;
+ * only when it is named like a version (the default layout) are its sibling folders looked at, and
+ * only those named like a version are removed. A file, a link, a folder with any other name and
+ * the kept folder are left alone, and a build that cannot be removed (still running) is skipped.
+ */
+export async function removeSupersededCuaDrivers(keep: string): Promise<string[]> {
+	if (!VERSION_FOLDER.test(basename(keep))) return []
+	const parent = dirname(keep)
+	const entries = await readdir(parent, { withFileTypes: true }).catch(() => [])
+	const removed: string[] = []
+	for (const entry of entries) {
+		if (!entry.isDirectory() || !VERSION_FOLDER.test(entry.name)) continue
+		if (entry.name === basename(keep)) continue
+		try {
+			await rm(join(parent, entry.name), { recursive: true })
+			removed.push(entry.name)
+		} catch {
+			// In use or protected: it stays, and the next start tries again.
+		}
+	}
+	return removed
 }
 
 async function isPinnedExecutable(path: string, size: number, digest: string): Promise<boolean> {
