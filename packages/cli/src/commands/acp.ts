@@ -91,6 +91,7 @@ import { type ProviderRetryStatus, readProviderRetryStatus } from './acp-provide
 import { questionsOverPermission } from './acp-screen-question.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
 import { desktopModelCatalogue } from './desktop-model-catalogue.js'
+import { type UsageFeed, createUsageFeed } from './desktop-usage-feed.js'
 import { withPreviews } from './permission-preview.js'
 import type { CommandContext, CommandDef } from './types.js'
 
@@ -604,6 +605,12 @@ export interface CliAcpRuntimeOptions {
 	 * approval, and a Pal conversation keeps its own computer instead.
 	 */
 	readonly computerUse?: boolean
+	/**
+	 * Sees every session event of a conversation, with its wire session id, after
+	 * the protocol bridge has had it. The desktop host reads usage and compaction
+	 * here, which the shared bridge leaves out. It must not throw or wait.
+	 */
+	readonly observeEvent?: (sessionId: string, event: SessionEvent) => void
 }
 
 export function createCliAcpRuntime(
@@ -1024,6 +1031,11 @@ export function createCliAcpRuntime(
 					onEvent(event)
 				} finally {
 					activeRecord = outer
+				}
+				try {
+					runtimeOptions.observeEvent?.(sessionId, event)
+				} catch {
+					/* An observer is a view of the turn, never part of it. */
 				}
 			}
 			record.route = routedEvent
@@ -1929,11 +1941,30 @@ export async function closeAcpResources(
 }
 
 export async function runAcpCommand(ctx: CommandContext, desktop = false): Promise<number> {
+	const transport = new ServerStdioTransport()
+	// Desktop only: how full each conversation is, and when it is being compacted.
+	// The shared bridge carries neither, so the host announces them itself.
+	let announcingUsage = true
+	const usageFeed: UsageFeed | undefined = desktop
+		? createUsageFeed({
+				notify: (method, params) => {
+					if (announcingUsage) void transport.send({ jsonrpc: '2.0', method, params })
+				},
+				now: () => Date.now(),
+				schedule: (run, ms) => {
+					const timer = setTimeout(run, ms)
+					timer.unref?.()
+					return () => clearTimeout(timer)
+				},
+			})
+		: undefined
 	const runtime = withCliHarnesses(
-		createCliAcpRuntime(ctx, DEFAULT_RUNTIME_DEPS, { computerUse: desktop }),
+		createCliAcpRuntime(ctx, DEFAULT_RUNTIME_DEPS, {
+			computerUse: desktop,
+			...(usageFeed ? { observeEvent: (id, event) => usageFeed.observe(id, event) } : {}),
+		}),
 		process.cwd(),
 	)
-	const transport = new ServerStdioTransport()
 	// The terminals this process hosts for the desktop. Their output travels as
 	// notifications on the same stream, written in the order it was produced; once
 	// shutdown begins nothing more is written to a client that may already be gone.
@@ -1998,6 +2029,8 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 		})
 	} finally {
 		announcing = false
+		announcingUsage = false
+		usageFeed?.close()
 		try {
 			await terminals?.close()
 			await palInboxStart?.close()
