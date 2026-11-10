@@ -3535,6 +3535,8 @@ export async function createAgentSession(
 	let computerUseHost: SubprocessComputerUseHost | undefined
 	let computerUseTool: ReturnType<typeof createComputerUseTool> | undefined
 	let computerUseError: Error | undefined
+	// Said once at the start: the helper is being downloaded the first time it is needed.
+	const computerUseNotices: string[] = []
 	// What this conversation has learned about which models read images, and
 	// whether the model answering the turn in flight does. A tool that exists to
 	// show the model a picture is suspended while it does not: `/model` and Auto
@@ -3573,6 +3575,7 @@ export async function createAgentSession(
 	} else if (options.enableComputerUse === true && computerUsePackage?.state === 'present') {
 		const candidate = new SubprocessComputerUseHost({
 			foreground: { approve: screenApprover(() => elicitationHost.ask) },
+			windows: { onNotice: (notice) => computerUseNotices.push(notice) },
 		})
 		try {
 			await candidate.initialize()
@@ -6256,6 +6259,7 @@ export async function createAgentSession(
 			...takeConfigWarnings(),
 			...compatibleEndpointNotices(),
 			...memoryMigrationNotices,
+			...computerUseNotices,
 		],
 		rememberNote: (text, type) => saveTypedNote(memoryStore, text, type),
 		importCuratedNotes: async () =>

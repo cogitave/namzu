@@ -31,6 +31,8 @@ export interface Win32AdapterOptions {
 	readonly cacheDir?: string
 	/** Download the pinned build when it is missing. Default true. */
 	readonly download?: boolean
+	/** Told once, in plain words, before the pinned build is downloaded. */
+	readonly onNotice?: (notice: string) => void
 	readonly env?: NodeJS.ProcessEnv
 	readonly platform?: NodeJS.Platform
 	/**
@@ -123,6 +125,7 @@ export class Win32Adapter {
 				...(cuaDriverPath !== undefined ? { path: cuaDriverPath } : {}),
 				...(options.cacheDir !== undefined ? { cacheDir: options.cacheDir } : {}),
 				...(options.download !== undefined ? { download: options.download } : {}),
+				...(options.onNotice ? { onDownload: options.onNotice } : {}),
 			}
 			const resolved = await (options.resolve ?? resolveCuaDriver)(resolveOptions)
 			const wsl = isWsl(env, platform, probes)

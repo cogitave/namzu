@@ -112,7 +112,11 @@ standard streams:
   executable in it against values in this package, and keeps
   `cua-driver.exe` in `<NAMZU_HOME>/computer-use/cua-driver/0.38.0/`
   (`~/.namzu` by default). Nothing else in the archive is written. Later
-  sessions start the cached copy after checking its hash again.
+  sessions start the cached copy after checking its hash again. A cache that
+  holds only an older version is not used: the pinned one is downloaded, the
+  host reports "Namzu is downloading the computer-use helper…" once (`windows.onNotice`),
+  and afterwards the older version folders beside it (names like `0.28.2`,
+  nothing else) are removed.
 - **Quiet.** It runs with its telemetry and its release check switched off
   (`CUA_DRIVER_RS_TELEMETRY_ENABLED=0`, `CUA_DRIVER_RS_UPDATE_CHECK=0`,
   forwarded through `WSLENV`), without any environment variable whose name

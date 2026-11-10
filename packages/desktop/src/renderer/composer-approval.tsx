@@ -24,6 +24,7 @@ import {
 	palMessageNote,
 	previewNote,
 	rejectsFirst,
+	screenMomentNote,
 } from './approval-card-model.js'
 import { createClickGuard, readGateHint, unreadContent } from './approval-gate.js'
 import { gateNotice, richDiffVerdict } from './changes-review/diff-gate.js'
@@ -335,14 +336,19 @@ export function ComposerApproval({
 	const consequence = approvalConsequence(model, folder, projectName)
 	const consequenceTitle = approvalConsequenceTitle(model, folder)
 	const hasDiff = Boolean(model.diff) && !model.unchanged
-	const showDetails = !(model.diff && !model.diff.fragment) || permission.calls.length > 1
+	const screenMoment = model.screenMoment
+	const showDetails =
+		(!screenMoment && !(model.diff && !model.diff.fragment)) || permission.calls.length > 1
 	const showWarning = model.destructive && model.kind !== 'create' && !model.unchanged
 	return (
 		// The whole card, border and background, sits above the composer with a gap, not tucked under it.
 		<div className="mx-auto flex w-[calc(100%-2*var(--chat-composer-drawer-inset))] items-end pb-2 pt-3">
 			<ComposerBanner.Column>
 				<ComposerBanner.Attachment>
-					<section aria-label="Tool approval" onKeyDown={onKeyDown}>
+					<section
+						aria-label={screenMoment ? 'Screen question' : 'Tool approval'}
+						onKeyDown={onKeyDown}
+					>
 						{/* The status line the transcript used to draw far above; it belongs next to the card. */}
 						<p className="approval-waiting" aria-hidden="true">
 							Waiting for your decision
@@ -438,6 +444,11 @@ export function ComposerApproval({
 										{consequence}
 									</p>
 								)}
+								{screenMoment && (
+									<p className="approval-note approval-consequence">
+										{screenMomentNote(screenMoment.app)}
+									</p>
+								)}
 								{model.others.length > 0 && (
 									<p className="approval-note">
 										Also in this request: {model.others.join(', ')}. Your answer covers all of them.
@@ -513,14 +524,16 @@ export function ComposerApproval({
 													Wrap lines
 												</button>
 											)}
-											<button
-												ref={editButton}
-												type="button"
-												className="approval-button approval-instead"
-												onClick={() => setEditing(true)}
-											>
-												Tell Namzu what to do instead
-											</button>
+											{!screenMoment && (
+												<button
+													ref={editButton}
+													type="button"
+													className="approval-button approval-instead"
+													onClick={() => setEditing(true)}
+												>
+													Tell Namzu what to do instead
+												</button>
+											)}
 											{canAllowConversation && (
 												<>
 													<button
@@ -546,7 +559,7 @@ export function ComposerApproval({
 												data-tone="reject"
 												onClick={reject}
 											>
-												Reject
+												{screenMoment ? 'Not now' : 'Reject'}
 											</button>
 											<button
 												ref={acceptButton}
@@ -558,16 +571,18 @@ export function ComposerApproval({
 												aria-describedby={unread ? hintId : undefined}
 												onClick={accept}
 											>
-												Accept
+												{screenMoment ? 'Allow this app' : 'Accept'}
 											</button>
 										</>
 									)}
 								</footer>
 								{!editing && (
 									<p className="approval-hint">
-										{risky
-											? 'This one looks risky, so Enter rejects it. Esc rejects it too.'
-											: 'Enter accepts. Esc rejects.'}
+										{screenMoment
+											? 'Enter says not now, in case you are typing. Esc says not now too. Ctrl+Enter allows it.'
+											: risky
+												? 'This one looks risky, so Enter rejects it. Esc rejects it too.'
+												: 'Enter accepts. Esc rejects.'}
 									</p>
 								)}
 							</div>

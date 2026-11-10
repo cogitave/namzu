@@ -238,6 +238,21 @@ describe('choosing the Windows backend', () => {
 		expect(adapter.fallbackReason).toMatch(/no interactive session/)
 	})
 
+	it('hands the resolver the way to tell the person about a download', async () => {
+		const onNotice = vi.fn()
+		const resolve = vi.fn(async (options?: { onDownload?: (notice: string) => void }) => {
+			options?.onDownload?.('downloading')
+			return { path: '/cache/cua-driver.exe', source: 'download' as const }
+		})
+		await Win32Adapter.create({
+			...common,
+			onNotice,
+			resolve,
+			createCuaDriverAdapter: () => fakeCua(),
+		})
+		expect(onNotice).toHaveBeenCalledExactlyOnceWith('downloading')
+	})
+
 	it('refuses instead of falling back when cua-driver was required', async () => {
 		await expect(
 			Win32Adapter.create({
