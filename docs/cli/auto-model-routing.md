@@ -39,6 +39,13 @@ routing:
    driven the desktop (called the computer-use tool recently), runs in a Pal, carries attachments or sits in a long conversation never goes to
    `fast` (small models are poor at multi-step tool use). A turn that follows a
    failed one moves up one tier: `fast` to `default`, `default` to `big`.
+   "Failed" means the turn ended on a provider or model error (a turn that
+   stopped with `error`, or a provider failure). Your interrupt, a refused
+   permission, a budget or iteration stop, a guardrail and the model declining
+   to answer are not the tier's fault and do not escalate. The memory is per
+   conversation, applies to the very next routed turn only, and is dropped by a
+   successful turn, a resumed turn, a model you picked by hand and Auto being
+   off. `exec` and `exec --json` route the same way.
 2. `yesno` asks two questions in parallel: is this simple enough for a small
    model (probability at least `thresholds.fast` selects `fast`), and does it
    need deep multi-step reasoning (at least `thresholds.big` selects `big`).
