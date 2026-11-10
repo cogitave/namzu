@@ -74,15 +74,25 @@ export function useConfigSettings(api: Api | undefined, active: boolean): Config
 	)
 	const confirm = useCallback(async () => {
 		if (!confirmation || !api?.setConfigSetting) return
-		const result = await api.setConfigSetting(
-			{
-				path: confirmation.path,
-				...(confirmation.value === undefined ? {} : { value: confirmation.value }),
-			},
-			confirmation.token,
-		)
-		if (result.status === 'saved') setView(result.view)
-		setConfirmation(undefined)
+		const { path } = confirmation
+		try {
+			const result = await api.setConfigSetting(
+				{
+					path,
+					...(confirmation.value === undefined ? {} : { value: confirmation.value }),
+				},
+				confirmation.token,
+			)
+			if (live.current && result.status === 'saved') setView(result.view)
+		} catch (failure) {
+			// An expired confirmation or a refused value lands under the setting, not as a crash.
+			if (live.current)
+				setErrors((current) => ({
+					...current,
+					[path]: plainErrorText(failure, 'save the setting'),
+				}))
+		}
+		if (live.current) setConfirmation(undefined)
 	}, [api, confirmation])
 	const dismiss = useCallback(() => setConfirmation(undefined), [])
 	return { view, loadError, errors, change, confirmation, confirm, dismiss }

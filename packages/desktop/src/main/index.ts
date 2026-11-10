@@ -983,6 +983,7 @@ function register(): void {
 	const configSettings = new ConfigSettings({
 		read: () => operator.configSettings(),
 		write: (path, value) => operator.setConfigSetting(path, value),
+		validate: (path, value) => operator.validateConfigSetting(path, value),
 	})
 	handle('configSettings', () => configSettings.read())
 	handleWindow('setConfigSetting', ({ id }, change: unknown, token: unknown) =>

@@ -53,6 +53,12 @@ export interface SettingDescriptor {
 	readonly defaultText?: string
 	/** A sentence shown in the confirmation dialog. Present means the change is confirmed first. */
 	readonly confirm?: string
+	/**
+	 * Which new value asks. `on` and `off` apply to a toggle, `zero` to a number where 0 removes a
+	 * cap. Absent means every change asks. Clearing a setting always asks, because the default it
+	 * returns to is not known to the one asking.
+	 */
+	readonly confirmWhen?: 'on' | 'off' | 'zero'
 	/** Search words beyond the label. */
 	readonly keywords?: readonly string[]
 }
@@ -86,7 +92,7 @@ function d(
 	label: string,
 	description: string,
 	control: SettingControl,
-	more: Pick<SettingDescriptor, 'defaultText' | 'confirm' | 'keywords'> = {},
+	more: Pick<SettingDescriptor, 'defaultText' | 'confirm' | 'confirmWhen' | 'keywords'> = {},
 ): SettingDescriptor {
 	return { path, section, label, description, control, ...more }
 }
@@ -95,13 +101,13 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 	// General
 	d(
 		'format',
-		'general',
+		'terminal',
 		'Output format',
 		'How the command line prints its results.',
 		pick('text', 'json', 'yaml'),
 		{ defaultText: 'text' },
 	),
-	d('quiet', 'general', 'Quiet output', 'Print only what was asked for.', on, {
+	d('quiet', 'terminal', 'Quiet output', 'Print only what was asked for.', on, {
 		defaultText: 'off',
 	}),
 	d(
@@ -110,7 +116,11 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Hypermode',
 		'Let Namzu run longer, larger jobs without stopping to check in.',
 		on,
-		{ defaultText: 'off' },
+		{
+			defaultText: 'off',
+			confirm: 'Namzu will run longer jobs without stopping to check in with you.',
+			confirmWhen: 'on',
+		},
 	),
 	d(
 		'profiles',
@@ -208,6 +218,10 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Forbid bypass mode',
 		'Remove the mode that skips every question.',
 		on,
+		{
+			confirm: 'Bypass mode, which skips every question, will be available again.',
+			confirmWhen: 'off',
+		},
 	),
 	d(
 		'permissions.disableAutoMode',
@@ -215,6 +229,10 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Forbid auto mode',
 		'Remove the mode that lets a model approve actions.',
 		on,
+		{
+			confirm: 'Auto mode, where a model approves actions, will be available again.',
+			confirmWhen: 'off',
+		},
 	),
 	d(
 		'permissions',
@@ -232,6 +250,9 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Permission self-checks',
 		'Cases that must come out as allow, ask or deny, checked when Namzu starts.',
 		json('[ { "tool": "bash", "input": "rm -rf /", "expect": "deny" } ]'),
+		{
+			confirm: 'Removing a check means a rule that lets the wrong thing through goes unnoticed.',
+		},
 	),
 	d(
 		'additionalDirectories',
@@ -251,6 +272,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		on,
 		{
 			confirm: 'Without a sandbox, commands run directly on this computer.',
+			confirmWhen: 'off',
 		},
 	),
 	d(
@@ -262,6 +284,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		{
 			defaultText: 'on',
 			confirm: 'Namzu will be able to ask to run commands outside the sandbox.',
+			confirmWhen: 'on',
 		},
 	),
 	d(
@@ -273,6 +296,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		{
 			defaultText: 'off',
 			confirm: 'Unattended work could run commands outside the sandbox with nobody to stop it.',
+			confirmWhen: 'on',
 		},
 	),
 	d(
@@ -302,12 +326,13 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 	// Updates
 	d(
 		'updates.auto',
-		'updates',
+		'terminal',
 		'Install command line updates automatically',
 		'Namzu updates itself in the background.',
 		on,
 		{
 			confirm: 'Namzu will install new versions of its command line on its own.',
+			confirmWhen: 'on',
 		},
 	),
 	d(
@@ -320,7 +345,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 	),
 	d(
 		'updates.check',
-		'updates',
+		'terminal',
 		'Check for command line updates',
 		'Look for a new version when Namzu starts.',
 		on,
@@ -341,7 +366,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Thinking budget',
 		'The most a model may think before answering. 0 removes the cap.',
 		num(0, undefined, 'tokens'),
-		{ defaultText: '24000' },
+		{ defaultText: '24000 at medium effort and above' },
 	),
 	d(
 		'limits.doneGate',
@@ -349,10 +374,16 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Check before finishing',
 		'Namzu checks its own work once before it ends a turn.',
 		on,
-		{ defaultText: 'on' },
+		{
+			defaultText: 'on',
+			confirm: 'Namzu will end a turn without checking its own work first.',
+			confirmWhen: 'off',
+		},
 	),
 	d('limits.maxIterations', 'agent', 'Most steps per task', '0 means no limit.', num(0), {
 		defaultText: 'no limit',
+		confirm: 'With no limit, a task can keep taking steps until it ends on its own.',
+		confirmWhen: 'zero',
 	}),
 	d(
 		'limits.tokenBudget',
@@ -360,7 +391,11 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Most tokens per task',
 		'0 means no limit.',
 		num(0, undefined, 'tokens'),
-		{ defaultText: 'no limit' },
+		{
+			defaultText: 'no limit',
+			confirm: 'With no limit, a task can use as many tokens as it needs.',
+			confirmWhen: 'zero',
+		},
 	),
 	d(
 		'limits.timeoutMs',
@@ -376,11 +411,15 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Most spend per task',
 		'In US dollars. 0 means no limit.',
 		num(0, undefined, 'USD'),
-		{ defaultText: 'no limit' },
+		{
+			defaultText: 'no limit',
+			confirm: 'With no limit, a task can spend as much as it takes.',
+			confirmWhen: 'zero',
+		},
 	),
 	d(
 		'limits.waitForProviderMs',
-		'agent',
+		'terminal',
 		'Wait for a busy provider',
 		'How long a one-shot run waits when a provider is busy.',
 		num(0, undefined, 'ms'),
@@ -652,9 +691,11 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		},
 	),
 	d('web.fetch', 'tools', 'Fetch web pages', 'Let Namzu read the web pages it is pointed to.', on, {
+		defaultText: 'on',
 		confirm: 'Namzu will download pages from the internet.',
+		confirmWhen: 'on',
 	}),
-	d('browser.enabled', 'tools', 'Browser', 'Let the terminal app use a browser.', on, {
+	d('browser.enabled', 'terminal', 'Browser', 'Let the terminal app use a browser.', on, {
 		defaultText: 'on',
 	}),
 	d(
@@ -704,7 +745,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 	),
 	d(
 		'codeAnalysis.enabled',
-		'tools',
+		'terminal',
 		'Code analysis',
 		'Understand code structure in the terminal app.',
 		on,
@@ -727,6 +768,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 	d('plugins.enabled', 'tools', 'Plugins', 'Allow plugins to run code.', on, {
 		defaultText: 'off',
 		confirm: 'Plugins run code on this computer.',
+		confirmWhen: 'on',
 	}),
 	d(
 		'plugins.autoDiscovery',
@@ -795,7 +837,7 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'telemetry.otlp.endpoint',
 		'telemetry',
 		'Send traces to',
-		'An OpenTelemetry address.',
+		'An OpenTelemetry address. Do not put a password in it; the address is shown here as written.',
 		{ kind: 'text', placeholder: 'https://' },
 		{
 			confirm: 'Traces of your work will be sent to this address.',

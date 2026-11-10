@@ -49,6 +49,8 @@ export interface ConfigSettingDescriptor {
 	control: ConfigSettingControl
 	defaultText?: string
 	confirm?: string
+	/** Which new value asks: `on`/`off` for a toggle, `zero` for a cap. Absent: every change asks. */
+	confirmWhen?: 'on' | 'off' | 'zero'
 	keywords?: string[]
 }
 
@@ -153,6 +155,9 @@ export function readConfigSettingsView(value: unknown): ConfigSettingsView {
 			control: ctl,
 			...(typeof d.defaultText === 'string' ? { defaultText: d.defaultText } : {}),
 			...(typeof d.confirm === 'string' ? { confirm: d.confirm } : {}),
+			...(d.confirmWhen === 'on' || d.confirmWhen === 'off' || d.confirmWhen === 'zero'
+				? { confirmWhen: d.confirmWhen }
+				: {}),
 			...(Array.isArray(d.keywords)
 				? { keywords: d.keywords.filter((k): k is string => typeof k === 'string') }
 				: {}),

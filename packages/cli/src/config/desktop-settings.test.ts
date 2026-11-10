@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { describeChange, readSettings, writeSetting } from './desktop-settings.js'
+import { checkSetting, describeChange, readSettings, writeSetting } from './desktop-settings.js'
 import { CONFIG_KEYS } from './load.js'
 import {
 	SETTING_DESCRIPTORS,
@@ -48,6 +48,39 @@ describe('Desktop settings descriptors', () => {
 			'telemetry.sessionExport.destination',
 		])
 			expect(describeChange(path).confirm, path).toBeTruthy()
+	})
+
+	it('ask before every control that removes a check or a cap', () => {
+		const expected: Record<string, string> = {
+			'permissions.disableBypassMode': 'off',
+			'permissions.disableAutoMode': 'off',
+			'limits.doneGate': 'off',
+			'limits.maxIterations': 'zero',
+			'limits.tokenBudget': 'zero',
+			'limits.costLimitUsd': 'zero',
+			'sandbox.enabled': 'off',
+			'web.fetch': 'on',
+			hypermode: 'on',
+		}
+		for (const [path, when] of Object.entries(expected)) {
+			const entry = SETTING_DESCRIPTORS.find((e) => e.path === path)
+			expect(entry?.confirm, path).toBeTruthy()
+			expect(entry?.confirmWhen, path).toBe(when)
+		}
+		expect(SETTING_DESCRIPTORS.find((e) => e.path === 'permissionChecks')?.confirm).toBeTruthy()
+	})
+
+	it('keep terminal-only keys in the terminal section', () => {
+		for (const path of [
+			'format',
+			'quiet',
+			'browser.enabled',
+			'codeAnalysis.enabled',
+			'limits.waitForProviderMs',
+			'updates.auto',
+			'updates.check',
+		])
+			expect(SETTING_DESCRIPTORS.find((e) => e.path === path)?.section, path).toBe('terminal')
 	})
 
 	it('never put a secret-bearing key behind an editable control', () => {
@@ -95,6 +128,17 @@ describe('writing a Desktop setting', () => {
 		expect(() => writeSetting({ path: 'skills.disabled', value: '{bad' }, opts())).toThrow(
 			/not valid JSON/,
 		)
+	})
+
+	it('checks a change without writing it', () => {
+		expect(() => checkSetting({ path: 'workflow.maxConcurrency', value: 99 }, opts())).toThrow(
+			/16 or less/,
+		)
+		expect(() => checkSetting({ path: 'permissions', value: '{bad' }, opts())).toThrow(
+			/not valid JSON/,
+		)
+		checkSetting({ path: 'limits.maxIterations', value: 5 }, opts())
+		expect(existsSync(userConfigPath(opts()))).toBe(false)
 	})
 
 	it('refuses a path that is not described, and a file-only one', () => {

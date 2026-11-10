@@ -42,7 +42,11 @@ applies to the namzu terminal app: `tui.*`, composer triggers and the status lin
 - **Use default** removes the key.
 - Desktop main asks first for a setting whose descriptor carries a `confirm` sentence (permissions,
   sandbox, extra folders, plugins, web access, anything that sends text out or removes a check): the
-  in-app dialog, with a one-time token bound to that window and that exact change.
+  in-app dialog, with a one-time token bound to that window and that exact change. `confirmWhen`
+  (`on`, `off`, `zero`) narrows it to the direction that widens, so turning a sandbox on does not warn
+  about having none; **Use default** on a confirmed setting always asks. The engine checks the value
+  first (`dryRun` on `namzu/config/set`), so a refused value never shows a dialog. `namzu/config/get`
+  and `set` both refuse a Pal.
 - A running conversation may keep the values it started with; a new one reads the saved file.
 
 ## What is never shown

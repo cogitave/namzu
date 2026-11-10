@@ -19,6 +19,24 @@ const view: ConfigSettingsView = {
 			section: 'projects',
 			control: { kind: 'toggle' },
 			confirm: 'Without a sandbox, commands run directly.',
+			confirmWhen: 'off',
+		},
+		{
+			path: 'limits.maxIterations',
+			label: 'Steps',
+			description: 'x',
+			section: 'agent',
+			control: { kind: 'number' },
+			confirm: 'No limit means no stop.',
+			confirmWhen: 'zero',
+		},
+		{
+			path: 'permissions',
+			label: 'Rules',
+			description: 'x',
+			section: 'projects',
+			control: { kind: 'json', example: '{}' },
+			confirm: 'Rules can let tools run.',
 		},
 	],
 	settings: [],
@@ -26,7 +44,12 @@ const view: ConfigSettingsView = {
 
 function build() {
 	const write = vi.fn(async () => view)
-	return { write, settings: new ConfigSettings({ read: async () => view, write }) }
+	const validate = vi.fn(async () => {})
+	return {
+		write,
+		validate,
+		settings: new ConfigSettings({ read: async () => view, write, validate }),
+	}
 }
 
 describe('changing an engine setting', () => {
@@ -57,8 +80,51 @@ describe('changing an engine setting', () => {
 			settings.change('w2', { path: 'sandbox.enabled', value: false }, first.token),
 		).rejects.toThrow(/expired/)
 		await expect(
-			settings.change('w1', { path: 'sandbox.enabled', value: true }, first.token),
+			settings.change('w1', { path: 'sandbox.enabled', value: false, extra: 1 }, first.token),
+		).rejects.toThrow()
+		const rules = await settings.change('w1', { path: 'permissions', value: '{"a":1}' })
+		if (rules.status !== 'confirm') throw new Error('expected a confirmation')
+		await expect(
+			settings.change('w1', { path: 'permissions', value: '{"a":2}' }, rules.token),
 		).rejects.toThrow(/expired/)
+		expect(write).not.toHaveBeenCalled()
+	})
+
+	it('asks only for the direction that widens', async () => {
+		const { settings, write } = build()
+		expect((await settings.change('w1', { path: 'sandbox.enabled', value: true })).status).toBe(
+			'saved',
+		)
+		expect((await settings.change('w1', { path: 'limits.maxIterations', value: 20 })).status).toBe(
+			'saved',
+		)
+		expect((await settings.change('w1', { path: 'limits.maxIterations', value: 0 })).status).toBe(
+			'confirm',
+		)
+		expect(write).toHaveBeenCalledTimes(2)
+	})
+
+	it('asks before a clear of a setting that has a confirmation', async () => {
+		const { settings, write } = build()
+		const first = await settings.change('w1', { path: 'sandbox.enabled' })
+		expect(first.status).toBe('confirm')
+		expect(write).not.toHaveBeenCalled()
+		if (first.status !== 'confirm') return
+		expect((await settings.change('w1', { path: 'sandbox.enabled' }, first.token)).status).toBe(
+			'saved',
+		)
+		expect(write).toHaveBeenCalledWith('sandbox.enabled', undefined)
+	})
+
+	it('refuses a bad value before it shows a dialog', async () => {
+		const validate = vi.fn(async () => {
+			throw new Error('That is not valid JSON')
+		})
+		const write = vi.fn(async () => view)
+		const settings = new ConfigSettings({ read: async () => view, write, validate })
+		await expect(settings.change('w1', { path: 'permissions', value: '{bad' })).rejects.toThrow(
+			/not valid JSON/,
+		)
 		expect(write).not.toHaveBeenCalled()
 	})
 
@@ -73,7 +139,7 @@ describe('changing an engine setting', () => {
 		const write = vi.fn(async () => {
 			throw new Error('workflow.maxConcurrency must be between 2 and 16')
 		})
-		const settings = new ConfigSettings({ read: async () => view, write })
+		const settings = new ConfigSettings({ read: async () => view, write, validate: async () => {} })
 		await expect(settings.change('w1', { path: 'quiet', value: 9 })).rejects.toThrow(
 			/between 2 and 16/,
 		)

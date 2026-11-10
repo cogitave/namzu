@@ -806,6 +806,10 @@ export class Operator {
 		const client = await this.providerHost()
 		return readConfigSettingsView(await client.request('namzu/config/set', { path, value }))
 	}
+	async validateConfigSetting(path: string, value: unknown): Promise<void> {
+		const client = await this.providerHost()
+		await client.request('namzu/config/set', { path, value, dryRun: true })
+	}
 	async removeProviderKey(provider: unknown): Promise<ProviderConnectionView[]> {
 		if (typeof provider !== 'string' || !provider.trim() || provider.length > 400)
 			throw new Error('Choose a provider.')

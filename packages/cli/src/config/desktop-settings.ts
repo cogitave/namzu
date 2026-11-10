@@ -166,17 +166,33 @@ export function describeChange(path: string): { confirm?: string; section: Setti
 	return { section: entry.section, ...(entry.confirm ? { confirm: entry.confirm } : {}) }
 }
 
-export function writeSetting(change: SettingChange, opts: UserConfigWriteOptions = {}): void {
+/**
+ * Checks a change the way a write would, and touches nothing. Desktop asks this before it shows a
+ * confirmation, so a value that would be refused never costs the person a dialog.
+ */
+export function checkSetting(change: SettingChange, opts: UserConfigWriteOptions = {}): void {
+	prepare(change, opts)
+}
+
+function prepare(
+	change: SettingChange,
+	opts: UserConfigWriteOptions,
+): { path: string[]; value: unknown | undefined } {
 	const entry = descriptorFor(change.path)
 	const path = entry.path.split('.')
 	const file = userConfigPath(opts)
 	if (change.value === undefined || change.value === null) {
 		if (entry.control.kind === 'file-only') throw new Error('Edit this one in the config file.')
 		checkWhole(readUserDocument(opts), path, undefined, file)
-		deleteUserConfigValue(path, opts)
-		return
+		return { path, value: undefined }
 	}
 	const value = coerce(entry, change.value)
 	checkWhole(readUserDocument(opts), path, value, file)
-	setUserConfigValue(path, value, opts)
+	return { path, value }
+}
+
+export function writeSetting(change: SettingChange, opts: UserConfigWriteOptions = {}): void {
+	const { path, value } = prepare(change, opts)
+	if (value === undefined) deleteUserConfigValue(path, opts)
+	else setUserConfigValue(path, value, opts)
 }
