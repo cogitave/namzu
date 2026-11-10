@@ -181,6 +181,15 @@ export interface MenuCommandResult {
 export interface ForegroundMonitor {
 	/** Starts watching. Rejects when real input cannot be observed: the burst is then refused. */
 	start(): Promise<void>
+	/**
+	 * False once a started monitor can no longer answer (the helper process
+	 * ended). The ladder then replaces it before its next use. Optional: a
+	 * monitor that leaves it out is taken to keep running.
+	 *
+	 * A helper that ends in the middle of a burst cannot put the window and
+	 * cursor back: the burst fails with a clear error and is never restarted.
+	 */
+	readonly running?: boolean
 	state(query?: { readonly pid?: number }): Promise<MonitorState>
 	/**
 	 * A burst is about to start. The monitor remembers the window in front, the
@@ -249,6 +258,12 @@ export interface ForegroundBlock {
 	readonly code: ForegroundBlockCode
 	/** In words the model can act on: what is blocking, and what to do next. */
 	readonly detail: string
+	/**
+	 * For `monitor_unavailable`: the bare cause ("the Windows helper stopped
+	 * while starting (exit code 1): ..."), for a caller that words the advice
+	 * itself.
+	 */
+	readonly reason?: string
 }
 
 export type ForegroundOutcome<T> =

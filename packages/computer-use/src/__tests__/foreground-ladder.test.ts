@@ -276,7 +276,9 @@ describe('the foreground ladder', () => {
 			block: { code: 'monitor_unavailable' },
 		})
 		expect(burst).not.toHaveBeenCalled()
-		expect(monitor.disposed).toBe(1)
+		// Started twice, and each failed start is disposed.
+		expect(monitor.started).toBe(2)
+		expect(monitor.disposed).toBe(2)
 	})
 
 	it.each([
@@ -478,5 +480,143 @@ describe('the foreground ladder', () => {
 		const before = clock.time
 		await ladder.run({ subject: SUBJECT }, async () => 1)
 		expect(clock.time - before).toBeLessThan(40_000)
+	})
+})
+
+describe('the helper going away', () => {
+	/** A ladder that gets a new monitor each time it asks, and keeps them all. */
+	function spawning(prepare: (monitor: FakeMonitor, n: number) => void = () => undefined) {
+		const made: FakeMonitor[] = []
+		const createMonitor = () => {
+			const monitor = new FakeMonitor()
+			prepare(monitor, made.length)
+			made.push(monitor)
+			return monitor
+		}
+		return { made, ...makeLadder({ createMonitor }) }
+	}
+
+	it('replaces a cached helper whose process has ended before anything else happens', async () => {
+		const { ladder, made } = spawning()
+		await ladder.run({ subject: SUBJECT }, async () => 1)
+		const first = made[0] as FakeMonitor
+		first.running = false
+		const outcome = await ladder.run({ subject: SUBJECT }, async () => 2)
+		expect(outcome).toMatchObject({ kind: 'ran', value: 2 })
+		expect(made).toHaveLength(2)
+		expect(first.disposed).toBe(1)
+		expect(made[1]?.calls).toEqual(['state', 'begin', 'end'])
+	})
+
+	it('replaces a helper that fails the first look, and goes again with the new one', async () => {
+		const { ladder, made } = spawning((monitor, n) => {
+			if (n === 0) {
+				monitor.state_ = () => {
+					throw new Error('the Windows helper is not running')
+				}
+			}
+		})
+		const burst = vi.fn(async () => 'sent')
+		const outcome = await ladder.run({ subject: SUBJECT }, burst)
+		expect(outcome).toMatchObject({ kind: 'ran', value: 'sent' })
+		expect(burst).toHaveBeenCalledTimes(1)
+		expect(made).toHaveLength(2)
+		expect(made[0]?.disposed).toBe(1)
+	})
+
+	it('replaces a helper that fails begin before anything was sent', async () => {
+		const { ladder, made } = spawning((monitor, n) => {
+			if (n === 0)
+				monitor.begin = async () =>
+					Promise.reject(new Error('the Windows helper stopped (exit code 9)'))
+		})
+		const outcome = await ladder.run({ subject: SUBJECT }, async () => 'sent')
+		expect(outcome).toMatchObject({ kind: 'ran', value: 'sent' })
+		expect(made).toHaveLength(2)
+	})
+
+	it('returns a block with the real reason, not an error, when the new helper fails too', async () => {
+		const { ladder, made, fs } = spawning((monitor, n) => {
+			monitor.state_ = () => {
+				throw new Error(`the Windows helper stopped (exit code ${n + 1})`)
+			}
+		})
+		const burst = vi.fn(async () => 1)
+		const outcome = await ladder.run({ subject: SUBJECT }, burst)
+		expect(outcome).toMatchObject({ kind: 'blocked', block: { code: 'monitor_unavailable' } })
+		expect(outcome.kind === 'blocked' && outcome.block.detail).toContain('exit code 2')
+		expect(outcome.kind === 'blocked' && outcome.block.detail).not.toMatch(/ui_act/)
+		expect(burst).not.toHaveBeenCalled()
+		expect(made).toHaveLength(2)
+		expect(fs.files.size).toBe(0)
+		// The next call starts from nothing.
+		const again = await ladder.run({ subject: SUBJECT }, burst)
+		expect(again.kind).toBe('blocked')
+		expect(made).toHaveLength(4)
+	})
+
+	it('tries a failed start once more before it gives up', async () => {
+		const { ladder, made } = spawning((monitor, n) => {
+			if (n === 0) monitor.startError = new Error('pipe closed')
+		})
+		const outcome = await ladder.run({ subject: SUBJECT }, async () => 'sent')
+		expect(outcome).toMatchObject({ kind: 'ran', value: 'sent' })
+		expect(made).toHaveLength(2)
+		expect(made[0]?.disposed).toBe(1)
+	})
+
+	it('remembers two failed starts until the turn ends, so retries do not each pay a compile', async () => {
+		let fail = true
+		const { ladder, made } = spawning((monitor) => {
+			if (fail)
+				monitor.startError = new Error(
+					'the Windows helper stopped while starting (exit code 1): blocked',
+				)
+		})
+		const first = await ladder.run({ subject: SUBJECT }, async () => 1)
+		expect(first).toMatchObject({ kind: 'blocked', block: { code: 'monitor_unavailable' } })
+		expect(made).toHaveLength(2)
+		const second = await ladder.run({ subject: SUBJECT }, async () => 1)
+		expect(second).toEqual(first)
+		expect(await ladder.lockState()).toBeNull()
+		expect(made).toHaveLength(2)
+		fail = false
+		await ladder.endTurn()
+		const third = await ladder.run({ subject: SUBJECT }, async () => 3)
+		expect(third).toMatchObject({ kind: 'ran', value: 3 })
+		expect(made).toHaveLength(3)
+	})
+
+	it('does not restart in the middle of a burst: it ends with a clear failure and is replaced after', async () => {
+		const { ladder, made } = spawning()
+		const monitor = () => made[0] as FakeMonitor
+		await expect(
+			ladder.run({ subject: SUBJECT }, async (burst) => {
+				await burst.checkpoint()
+				monitor().running = false
+				monitor().state_ = () => {
+					throw new Error('the Windows helper is not running')
+				}
+				await burst.checkpoint()
+				return 'unreachable'
+			}),
+		).rejects.toThrow('the keyboard-and-mouse helper stopped during the action')
+		expect(made).toHaveLength(1)
+		expect(monitor().ends).toEqual([{ restore: true }])
+		const next = await ladder.run({ subject: SUBJECT }, async () => 'ok')
+		expect(next).toMatchObject({ kind: 'ran', value: 'ok' })
+		expect(made).toHaveLength(2)
+	})
+
+	it('words the block without sending the model back to ui_act', async () => {
+		const monitor = new FakeMonitor()
+		monitor.startError = new Error('could not start Windows PowerShell (spawn ENOENT)')
+		const { ladder } = makeLadder({ monitor })
+		const outcome = await ladder.run({ subject: SUBJECT }, async () => 1)
+		if (outcome.kind !== 'blocked') throw new Error('expected a block')
+		expect(outcome.block.detail).toContain('could not start Windows PowerShell (spawn ENOENT)')
+		expect(outcome.block.detail).toContain('nothing was sent')
+		expect(outcome.block.detail).not.toMatch(/ui_act/)
+		expect(outcome.block.reason).toBe('could not start Windows PowerShell (spawn ENOENT)')
 	})
 })

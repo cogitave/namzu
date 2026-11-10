@@ -56,6 +56,8 @@ export const baseState: MonitorState = {
 export class FakeMonitor implements ForegroundMonitor {
 	started = 0
 	disposed = 0
+	/** False once the helper behind this monitor has ended. */
+	running = true
 	calls: string[] = []
 	startError: Error | undefined
 	/** What `state` answers; given how many times it was asked. */
@@ -137,6 +139,8 @@ export class FakeMonitor implements ForegroundMonitor {
 export function makeLadder(
 	options: {
 		monitor?: FakeMonitor
+		/** Replaces the single `monitor`: a new one per start, as the real ladder gets. */
+		createMonitor?: () => FakeMonitor
 		clock?: FakeClock
 		fs?: ReturnType<typeof memoryLeaseFs>
 		approve?: ForegroundApprover
@@ -159,7 +163,7 @@ export function makeLadder(
 		alive: options.alive ?? (() => true),
 	})
 	const ladder = new ForegroundLadder({
-		createMonitor: () => monitor,
+		createMonitor: options.createMonitor ?? (() => monitor),
 		leasePath: lease.path,
 		clock,
 		lease,

@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { WINDOWS_HELPER_SCRIPT } from '../foreground/windows-helper-script.js'
 import {
 	HELPER_BOOTSTRAP,
+	type HelperExit,
 	type HelperProcess,
 	WindowsInputMonitor,
 	encodeHelperCommand,
 	helperScriptLine,
+	stderrCause,
 } from '../foreground/windows-monitor.js'
 import { windowsPathFor } from '../foreground/windows.js'
 
@@ -16,7 +18,7 @@ function fakeHelper(
 ) {
 	const written: Record<string, unknown>[] = []
 	let line: (l: string) => void = () => undefined
-	let exit: () => void = () => undefined
+	let exit: (info?: HelperExit) => void = () => undefined
 	let killed = 0
 	const proc: HelperProcess = {
 		write: (text) => {
@@ -37,7 +39,13 @@ function fakeHelper(
 			killed++
 		},
 	}
-	return { proc, written, exitNow: () => exit(), killed: () => killed }
+	return {
+		proc,
+		written,
+		exitNow: () => exit(),
+		exitWith: (info: HelperExit) => exit(info),
+		killed: () => killed,
+	}
 }
 
 describe('the Windows input monitor', () => {
@@ -287,5 +295,121 @@ describe('the Windows input monitor', () => {
 		// Injected input is not the user's.
 		expect(WINDOWS_HELPER_SCRIPT).toMatch(/flags & 0x10\) == 0/)
 		expect(WINDOWS_HELPER_SCRIPT).toMatch(/flags & 1\) == 0/)
+	})
+})
+
+/** A helper that ends by itself: before or after its greeting, with what it wrote to stderr. */
+function dyingHelper(options: { hello?: Record<string, unknown>; info?: HelperExit | 'none' }) {
+	const proc: HelperProcess = {
+		write: () => undefined,
+		onLine: (h) => {
+			if (options.hello) queueMicrotask(() => h(JSON.stringify(options.hello)))
+		},
+		onExit: (h) => {
+			if (options.info !== undefined)
+				queueMicrotask(() => h(options.info === 'none' ? undefined : options.info))
+		},
+		kill: () => undefined,
+	}
+	return proc
+}
+
+describe('why the Windows helper is not available', () => {
+	it('names the exit code and the last stderr line when it stops before its greeting', async () => {
+		const monitor = new WindowsInputMonitor({
+			powershell: 'ps',
+			spawnHelper: () =>
+				dyingHelper({
+					info: {
+						code: 1,
+						signal: null,
+						stderr: 'first\r\n  Add-Type : blocked by policy  \r\n\r\n',
+					},
+				}),
+		})
+		await expect(monitor.start()).rejects.toThrow(
+			'the Windows helper stopped while starting (exit code 1): Add-Type : blocked by policy',
+		)
+		expect(monitor.running).toBe(false)
+	})
+
+	it('reports a PowerShell that could not be started', async () => {
+		const monitor = new WindowsInputMonitor({
+			powershell: 'ps',
+			spawnHelper: () => dyingHelper({ info: { spawnError: new Error('spawn ps ENOENT') } }),
+		})
+		await expect(monitor.start()).rejects.toThrow(
+			'could not start Windows PowerShell (spawn ps ENOENT)',
+		)
+	})
+
+	it('does not report PowerShell progress noise as the cause', async () => {
+		const clixml =
+			'#< CLIXML\r\n<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><Obj S="progress" RefId="0"><TN RefId="0"><T>System.Management.Automation.PSCustomObject</T></TN><MS><I64 N="SourceId">1</I64><PR N="Record"><AV>Preparing modules for first use.</AV><AI>0</AI><Nil /><PI>-1</PI><PC>-1</PC><T>Completed</T><SR>-1</SR><SD> </SD></PR></MS></Obj></Objs>'
+		expect(stderrCause(clixml)).toBeUndefined()
+		const monitor = new WindowsInputMonitor({
+			powershell: 'ps',
+			spawnHelper: () => dyingHelper({ info: { code: 3, signal: null, stderr: clixml } }),
+		})
+		const error = await monitor.start().then(
+			() => new Error('started'),
+			(e: unknown) => e as Error,
+		)
+		expect(error.message).toBe('the Windows helper stopped while starting (exit code 3)')
+	})
+
+	it('reads an error record out of the CLIXML envelope', () => {
+		const clixml =
+			'#< CLIXML\r\n<Objs Version="1.1.0.1"><S S="Error">Add-Type : Cannot add type._x000D__x000A_</S><S S="Error">Access &lt;denied&gt;_x000D__x000A_</S></Objs>'
+		expect(stderrCause(clixml)).toBe('Access <denied>')
+	})
+
+	it('trims a long cause to about 200 characters', () => {
+		const cause = stderrCause(`${'x'.repeat(500)}\n`)
+		expect(cause?.length).toBeLessThanOrEqual(200)
+	})
+
+	it('says it stopped, with the exit code, when it ends after a good start', async () => {
+		const helper = fakeHelper({ ok: true, hooks: true }, () => undefined)
+		const monitor = new WindowsInputMonitor({ powershell: 'ps', spawnHelper: () => helper.proc })
+		await monitor.start()
+		expect(monitor.running).toBe(true)
+		const pending = monitor.state()
+		helper.exitWith({ code: 5, signal: null, stderr: 'the desktop is gone\n' })
+		await expect(pending).rejects.toThrow(
+			'the Windows helper stopped (exit code 5): the desktop is gone',
+		)
+		expect(monitor.running).toBe(false)
+		await expect(monitor.state()).rejects.toThrow('the Windows helper stopped (exit code 5)')
+	})
+
+	it('hands a blocked compile to the caller as a readable reason, with the language mode', async () => {
+		const helper = fakeHelper(
+			{
+				ok: false,
+				hooks: false,
+				hookError: 'the hook library did not compile: blocked by policy',
+				languageMode: 'ConstrainedLanguage',
+			},
+			() => undefined,
+		)
+		const monitor = new WindowsInputMonitor({ powershell: 'ps', spawnHelper: () => helper.proc })
+		await expect(monitor.start()).rejects.toThrow(
+			'the hook library did not compile: blocked by policy (PowerShell language mode: ConstrainedLanguage)',
+		)
+	})
+
+	it('wraps the compile and the hook start so a failure is greeted, not silent', () => {
+		const compile = WINDOWS_HELPER_SCRIPT.indexOf('Add-Type -TypeDefinition')
+		expect(WINDOWS_HELPER_SCRIPT.lastIndexOf('try {', compile)).toBeGreaterThan(
+			WINDOWS_HELPER_SCRIPT.indexOf('function NzFail'),
+		)
+		expect(WINDOWS_HELPER_SCRIPT).toMatch(
+			/catch \{ NzFail 'the hook library did not compile' \$_ \}/,
+		)
+		expect(WINDOWS_HELPER_SCRIPT).toMatch(
+			/try \{ \$hooks = \[NzG\]::StartHooks\(\) \} catch \{ NzFail 'the hooks did not start' \$_ \}/,
+		)
+		expect(WINDOWS_HELPER_SCRIPT).toMatch(/hooks = \$false; hookError = .*languageMode =/)
 	})
 })
