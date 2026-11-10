@@ -222,3 +222,20 @@ export function jumpHint(columns: number, unseen: boolean): string | null {
 	const ladder = unseen ? HINT_UNSEEN : HINT_IDLE
 	return ladder.find((label) => choiceDisplayWidth(label) <= columns) ?? null
 }
+
+/**
+ * Bring flat row `row` into view. A row already in the window leaves the state
+ * as it is; otherwise the window moves to put the row about in its middle.
+ */
+export function revealRow(
+	state: ViewState,
+	index: RowIndex,
+	row: number,
+	height: number,
+): ViewState {
+	if (index.total === 0) return FOLLOWING
+	const h = Math.max(1, Math.floor(height))
+	const bottom = bottomRow(state, index)
+	if (row <= bottom && row > bottom - h) return state
+	return stateAt(index, row + Math.floor((h - 1) / 2), h)
+}
