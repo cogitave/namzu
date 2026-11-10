@@ -37,7 +37,7 @@ async function run(turns: MockTurn[], completionAudit: boolean) {
 		name: 'bash',
 		description: 'bash',
 		inputSchema: z.object({ command: z.string() }),
-		execute: async (input) => {
+		execute: async (input: { command: string }) => {
 			const failed = input.command.includes('FAIL')
 			return {
 				success: !failed,

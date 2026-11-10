@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-11
+
+- **Update** [Completion audit](sdk/completion-audit.md), [Turn outcome](sdk/turn-outcome.md) and [File tools](sdk/file-tool-limits.md): the audit's one reminder, when on and a write tool changed a file, names a check run with its exit status hidden (`... | tail`: run it again without the pipe), a check that passed before files changed again, or a failing check, read from the turn outcome record on the calls basis; the original message is unchanged and at most one reminder is given per turn. `bash` says to use `read`, `grep` and `glob` instead of shell loops (a shell read earns no read credit) and to run a check on its own; `grep` and `glob` name each other; `edit`'s not-found and not-unique messages say to read again and name the line of a near match; `read` marks a caller-named window as asked, and only a cut the kernel imposed as a partial view. `.changeset/tool-guidance-and-check-reminder.md` (`@namzu/sdk` minor).
+
 ## 2026-11-10
 
 - **Update** [Permission layers](cli/permission-layers.md#the-sandbox-block) and [Tool boundary](cli/tool-boundary.md#which-file-may-set-it): a project file, the local file and a profile declared in either may only tighten `sandbox` (`enabled` on, `allowEscape` and `allowUnattendedEscape` off, `requireIsolation` grows, `workspace` to `ephemeral`; `teardownTimeoutMs` is not theirs); a loosening that would have changed something is named once at launch with its file. The user file merges per key; the managed file replaces the whole block; `namzu exec` prints the notes on stderr; a profile is classed by where its file is, not its name. Before, a repository file replaced the whole block. `.changeset/sandbox-settings-stay-operators.md` (`@namzu/cli` minor).

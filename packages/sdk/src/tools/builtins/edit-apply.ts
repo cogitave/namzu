@@ -197,11 +197,15 @@ function applyOne(
 	if (!content.includes(oldString)) {
 		const resolved = resolveOldString(content, oldString)
 		if (resolved === null) {
+			const near = nearLine(content, oldString)
 			return {
 				success: false,
 				reason: 'text_not_found',
-				error:
-					'old_string/oldStr not found in file. Make sure the string matches exactly, including whitespace and indentation.',
+				error: `old_string/oldStr not found in file. Make sure the string matches exactly, including whitespace and indentation. ${
+					near === undefined
+						? 'Read the lines you mean to change again and copy them as they are.'
+						: `A line that matches its first line apart from spacing is at line ${near}; read around it again and copy it as it is.`
+				}`,
 			}
 		}
 		newString = reconcileNewString(oldString, resolved, newString)
@@ -235,7 +239,7 @@ function applyOne(
 		return {
 			success: false,
 			reason: 'not_unique',
-			error: `old_string/oldStr is not unique — found at lines ${lineNumber} and ${secondLine}. Provide more surrounding context to make it unique, or use replace_all: true.`,
+			error: `old_string/oldStr is not unique — found at lines ${lineNumber} and ${secondLine}. Provide more surrounding context to make it unique, or use replace_all: true. Read around those lines again to choose context that is only in one of them.`,
 		}
 	}
 
@@ -245,6 +249,21 @@ function applyOne(
 			content.slice(0, firstIndex) + newString + content.slice(firstIndex + oldString.length),
 		replacements: 1,
 	}
+}
+
+/** The line of `content` that matches the first non-blank line of `needle` apart from spacing, 1-based. */
+function nearLine(content: string, needle: string): number | undefined {
+	const squash = (text: string) => text.replace(/\s+/g, ' ').trim()
+	const first = needle
+		.split('\n')
+		.map(squash)
+		.find((line) => line !== '')
+	if (first === undefined) return undefined
+	const lines = content.split('\n')
+	for (let i = 0; i < lines.length; i++) {
+		if (squash(lines[i] ?? '') === first) return i + 1
+	}
+	return undefined
 }
 
 function applyLineInsert(
