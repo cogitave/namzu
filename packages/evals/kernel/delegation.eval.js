@@ -1218,6 +1218,7 @@ const widthRefusedCase = {
 			// refused, so all three are asked while two are live: whether the
 			// first finished before the third asked would otherwise decide it.
 			let release = () => {};
+			let launched = 0;
 			const refused = new Promise((resolve) => {
 				release = resolve;
 			});
@@ -1245,7 +1246,12 @@ const widthRefusedCase = {
 								observing(
 									real,
 									() => release(),
-									() => release(),
+									() => {
+										// Only the third launch's outcome releases the hold,
+										// whether it was refused or admitted.
+										launched += 1;
+										if (launched === 3) release();
+									},
 								),
 						},
 					);
