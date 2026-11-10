@@ -2100,6 +2100,7 @@ const CONFIG_READERS: ConfigReaders = {
 			theme?: unknown
 			reducedMotion?: unknown
 			showExpandedTodos?: unknown
+			fullscreen?: unknown
 			recap?: unknown
 			spinnerTips?: unknown
 			workspacesPrefix?: unknown
@@ -2161,6 +2162,9 @@ const CONFIG_READERS: ConfigReaders = {
 		if (raw.showExpandedTodos !== undefined && typeof raw.showExpandedTodos !== 'boolean') {
 			return invalidConfigValue(context, ['showExpandedTodos'], 'must be true or false')
 		}
+		if (raw.fullscreen !== undefined && typeof raw.fullscreen !== 'boolean') {
+			return invalidConfigValue(context, ['fullscreen'], 'must be true or false')
+		}
 		if (raw.recap !== undefined && typeof raw.recap !== 'boolean') {
 			return invalidConfigValue(context, ['recap'], 'must be true or false')
 		}
@@ -2196,6 +2200,7 @@ const CONFIG_READERS: ConfigReaders = {
 			...(themeSetting !== undefined ? { theme: themeSetting } : {}),
 			...(raw.reducedMotion !== undefined ? { reducedMotion: raw.reducedMotion } : {}),
 			...(raw.showExpandedTodos !== undefined ? { showExpandedTodos: raw.showExpandedTodos } : {}),
+			...(raw.fullscreen !== undefined ? { fullscreen: raw.fullscreen } : {}),
 			...(raw.recap !== undefined ? { recap: raw.recap } : {}),
 			...(raw.spinnerTips !== undefined ? { spinnerTips: raw.spinnerTips } : {}),
 			...(raw.sound !== undefined ? { sound: raw.sound } : {}),
@@ -2845,7 +2850,7 @@ export function mergeCodeAnalysisConfig(
 }
 
 /**
- * `tui` from one more layer: later keys win. `theme`, `reducedMotion` and `showExpandedTodos` are the
+ * `tui` from one more layer: later keys win. `theme`, `reducedMotion`, `showExpandedTodos` and `fullscreen` are the
  * operator's own taste, so a project layer's values for them are dropped.
  */
 export function mergeTuiConfig(
@@ -2853,7 +2858,13 @@ export function mergeTuiConfig(
 	layer: TuiConfig,
 	fromProject: boolean,
 ): TuiConfig {
-	const { theme: _theme, reducedMotion: _motion, showExpandedTodos: _todos, ...rest } = layer
+	const {
+		theme: _theme,
+		reducedMotion: _motion,
+		showExpandedTodos: _todos,
+		fullscreen: _fullscreen,
+		...rest
+	} = layer
 	return { ...below, ...(fromProject ? rest : layer) }
 }
 

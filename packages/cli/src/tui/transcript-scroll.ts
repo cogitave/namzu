@@ -46,41 +46,67 @@ export function transcriptScrollRows(
 ): readonly ScrollRow[] {
 	const at = Math.min(Math.max(pendingAt ?? messages.length, 0), messages.length)
 	const ordered = pending ? [...messages.slice(0, at), pending, ...messages.slice(at)] : messages
-	const width = Math.max(4, Math.floor(columns) - GUTTER)
+	const width = scrollTextWidth(columns)
 	const rows: ScrollRow[] = []
 	ordered.forEach((message, index) => {
-		const prev = index > 0 ? ordered[index - 1] : undefined
-		const glyph = message.glyph ?? glyphForRole(message.role)
-		const glyphColor =
-			paint(message.glyphColor) ??
-			(glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
-		const color = paint(message.contentColor) ?? contentColorForRole(message.role)
-		const joined = message.statusRows
-			? message.statusRows.map(([label, value]) => `${label}  ${value}`).join('\n')
-			: `${message.content.length > 0 ? message.content : message.pending ? '…' : ''}${
-					message.meta ? ` · ${terminalDisplayText(message.meta)}` : ''
-				}`
-		const body = wrapChoiceText(joined, width)
-		const detail = message.statusRows
-			? []
-			: renderedDetailLines(message).flatMap((line) =>
-					wrapChoiceText(line.length > 0 ? line : ' ', width + GUTTER).map((part) => part),
-				)
-		const gap = !prev || glyph === '⎿' ? 0 : 1
-		if (rows.length > 0 && gap === 1) rows.push({ glyph: ' ', glyphColor, text: '', color })
-		body.forEach((text, i) => {
-			rows.push({ glyph: i === 0 ? glyph : ' ', glyphColor, text, color })
-		})
-		for (const text of detail) {
-			rows.push({
-				glyph: ' ',
-				glyphColor,
-				text: text.trimStart() ? text : '',
-				color: theme.text.muted,
-			})
-		}
+		const block = messageScrollRows(message, index > 0, width)
+		if (rows.length > 0 && block.gap) rows.push(block.gap)
+		rows.push(...block.rows)
 	})
 	return rows
+}
+
+/** Columns left for text once the glyph gutter is taken. */
+export function scrollTextWidth(columns: number): number {
+	return Math.max(4, Math.floor(columns) - GUTTER)
+}
+
+/** One message's rows, and the blank row that goes above them when something precedes. */
+export interface MessageScrollRows {
+	readonly gap: ScrollRow | null
+	readonly rows: readonly ScrollRow[]
+}
+
+/**
+ * The rows of one message at a text width from `scrollTextWidth`. `hasPrev` is
+ * whether any message precedes it: the blank row above an entry depends on
+ * nothing else, which is what lets a caller keep the result per message.
+ */
+export function messageScrollRows(
+	message: TranscriptMessage,
+	hasPrev: boolean,
+	width: number,
+): MessageScrollRows {
+	const glyph = message.glyph ?? glyphForRole(message.role)
+	const glyphColor =
+		paint(message.glyphColor) ??
+		(glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
+	const color = paint(message.contentColor) ?? contentColorForRole(message.role)
+	const joined = message.statusRows
+		? message.statusRows.map(([label, value]) => `${label}  ${value}`).join('\n')
+		: `${message.content.length > 0 ? message.content : message.pending ? '…' : ''}${
+				message.meta ? ` · ${terminalDisplayText(message.meta)}` : ''
+			}`
+	const body = wrapChoiceText(joined, width)
+	const detail = message.statusRows
+		? []
+		: renderedDetailLines(message).flatMap((line) =>
+				wrapChoiceText(line.length > 0 ? line : ' ', width + GUTTER).map((part) => part),
+			)
+	const rows: ScrollRow[] = []
+	body.forEach((text, i) => {
+		rows.push({ glyph: i === 0 ? glyph : ' ', glyphColor, text, color })
+	})
+	for (const text of detail) {
+		rows.push({
+			glyph: ' ',
+			glyphColor,
+			text: text.trimStart() ? text : '',
+			color: theme.text.muted,
+		})
+	}
+	const wantsGap = hasPrev && glyph !== '⎿'
+	return { gap: wantsGap ? { glyph: ' ', glyphColor, text: '', color } : null, rows }
 }
 
 /** Where the view sits. `top` is the first visible row. */
