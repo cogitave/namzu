@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.33.0",
-  "description": "Namzu \u2014 an agent kernel with a TypeScript SDK, a terminal application, and optional capability packages.",
+  "description": "Namzu — an agent kernel with a TypeScript SDK, a terminal application, and optional capability packages.",
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev",
