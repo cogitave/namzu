@@ -199,10 +199,6 @@ jobs:
         if: steps.revalidation.outputs.skip != 'true'
         run: node scripts/generate-model-prices.mjs --check
 
-      - name: Conformance vectors match the implementation
-        if: steps.revalidation.outputs.skip != 'true'
-        run: node --import tsx scripts/generate-conformance-vectors.mjs --check
-
       # Hermetic tests for the hand-run generator of the bundled Zen snapshot.
       # The roster itself is refreshed at run time by the CLI, so no gate reads
       # upstream here.

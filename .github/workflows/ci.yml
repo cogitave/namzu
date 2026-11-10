@@ -283,9 +283,6 @@ jobs:
       - name: Model price catalogue matches its source
         run: node scripts/generate-model-prices.mjs --check
 
-      - name: Conformance vectors match the implementation
-        run: node --import tsx scripts/generate-conformance-vectors.mjs --check
-
       # The Zen roster is NOT gated against upstream any more: the CLI refreshes
       # it at run time on every launch (`@namzu/zen/catalogue`), so upstream
       # moving is something the product absorbs rather than something that

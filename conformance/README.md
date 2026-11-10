@@ -38,4 +38,4 @@ node --import tsx scripts/generate-conformance-vectors.mjs           # write the
 node --import tsx scripts/generate-conformance-vectors.mjs --check   # fail if they differ from the implementation
 ```
 
-A change to the behaviour of a module with a vector set regenerates its vectors in the same commit, and the diff of the file is the review of what changed. The SDK test `glob-segment-vectors.test.ts` and the `check` step of CI fail when the committed file differs from what the implementation produces. A port that fails a case after a regeneration is told what changed by the diff, not by guessing.
+A change to the behaviour of a module with a vector set regenerates its vectors in the same commit, and the diff of the file is the review of what changed. The SDK test `glob-segment-vectors.test.ts`, which runs with the SDK suite in CI, fails when the committed file differs from what the implementation produces. A port that fails a case after a regeneration is told what changed by the diff, not by guessing.

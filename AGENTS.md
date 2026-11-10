@@ -87,7 +87,6 @@ Each of those jobs installs and builds on its own, and `Record the validated tre
 | Log standard gate | `node --import tsx --test scripts/__tests__/check-log-standard.test.ts && node scripts/check-log-standard.mjs` |
 | Local entry-point check | `node --import tsx --test scripts/__tests__/check-local-entry.test.ts` |
 | Model price catalogue matches its source | `node scripts/generate-model-prices.mjs --check` |
-| Conformance vectors match the implementation | `node --import tsx scripts/generate-conformance-vectors.mjs --check` |
 | Zen snapshot generator tests | `node --import tsx --test scripts/__tests__/generate-zen-models.test.ts` |
 | Startup and resume budget gate | `node --import tsx --test scripts/__tests__/bench-startup-budgets.test.ts && node scripts/bench-startup.mjs --check` |
 | Installer parses as POSIX sh | `sh -n install.sh && dash -n install.sh` |
