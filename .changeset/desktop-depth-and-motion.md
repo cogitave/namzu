@@ -1,5 +1,5 @@
 ---
-'@namzu/desktop': minor
+'@namzu/desktop': patch
 ---
 
 Namzu Desktop's corners, shadows and stacking now follow one scale, and the interface moves with a little more care.
