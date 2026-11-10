@@ -5,8 +5,8 @@ import { CompactionConfigSchema } from '../../../../config/runtime.js'
 import type { Message } from '../../../../types/message/index.js'
 import type { SessionEvent } from '../../../../types/session/index.js'
 import { NOOP_LOGGER } from '../../../../utils/log/create-logger.js'
-import { runStaleResultClear } from './compaction.js'
 import { compactionBreaker } from './compaction-breaker.js'
+import { runStaleResultClear } from './compaction.js'
 import type { IterationContext } from './context.js'
 
 const BIG = `${'line of output '.repeat(2_000)}`
