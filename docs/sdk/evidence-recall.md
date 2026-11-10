@@ -587,3 +587,5 @@ earlier invocations. Each keeps its own query and omissions. The model can pass 
 `search_conversation` without reconstructing the automatic multi-term query.
 Automatic passes still revalidate from the beginning; the explicit read-only
 continuation provides access beyond that bounded pass without an action replay.
+
+The recovery pointer sits after the summary body and before the closing resume paragraph, which always ends the message; see [how the next step picks the work back up](context-limits.md#how-the-next-step-picks-the-work-back-up).
