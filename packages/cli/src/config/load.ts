@@ -25,7 +25,7 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { basename, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
 	RENAMED_PLUGIN_HOOK_EVENTS,
 	SHELL_HOOK_EVENTS,
@@ -186,7 +186,13 @@ export type ConfigSource =
 	 * asks here. "profile" does not say which file to open, and the path does
 	 * not say which of that file's profiles is in force.
 	 */
-	| { readonly kind: 'profile'; readonly name: string; readonly path: string }
+	| {
+			readonly kind: 'profile'
+			readonly name: string
+			readonly path: string
+			/** Set when the declaring file is the repository's (project or local file). */
+			readonly repository?: true
+	  }
 	| { readonly kind: 'env'; readonly variable: string }
 	/** A machine-wide file that wins the cascade; see `MANAGED_CONFIG_PATH`. */
 	| { readonly kind: 'managed'; readonly path: string }
@@ -352,6 +358,7 @@ function resolveConfigWithProvenance(
 			[managedCfg, managedPath],
 		],
 		mode.deferUnknownProfile,
+		new Set([projectPath, localPath]),
 	)
 
 	const merged = mergeConfigs(
@@ -496,6 +503,7 @@ function profileLayers(
 	name: string | undefined,
 	files: readonly (readonly [MutableConfig, string])[],
 	deferUnknown = false,
+	repositoryPaths: ReadonlySet<string> = new Set(),
 ): ConfigLayer[] {
 	if (name === undefined || name === '') return []
 
@@ -513,7 +521,14 @@ function profileLayers(
 		// admits inherited `toString`, `constructor`, and `__proto__` as profiles
 		// a file never declared.
 		if (selected === undefined) continue
-		layers.push(constantLayer(selected as MutableConfig, { kind: 'profile', name, path }))
+		layers.push(
+			constantLayer(selected as MutableConfig, {
+				kind: 'profile',
+				name,
+				path,
+				...(repositoryPaths.has(path) ? { repository: true as const } : {}),
+			}),
+		)
 	}
 
 	if (layers.length === 0) {
@@ -2677,12 +2692,17 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 			if (key === 'sandbox' && layer.config.sandbox) {
 				// Merged per key; a project layer only tightens. See `mergeSandboxConfig`.
 				const source = layer.sourceFor(key)
-				out.sandbox = mergeSandboxConfig(
-					out.sandbox,
-					layer.config.sandbox,
-					isProjectSource(source),
-					describeSource(source),
-				)
+				// The managed file is the policy and says all of it: it replaces the
+				// block, so a key it leaves out is not carried over from a user's file.
+				out.sandbox =
+					source.kind === 'managed'
+						? { ...layer.config.sandbox }
+						: mergeSandboxConfig(
+								out.sandbox,
+								layer.config.sandbox,
+								isProjectSource(source),
+								describeSource(source),
+							)
 				provenance[key] = source
 				continue
 			}
@@ -2953,8 +2973,9 @@ export function mergeUpdatesConfig(
 /**
  * `sandbox` from one more layer, over what the layers below it said.
  *
- * The sandbox is the operator's. A user, managed or environment layer sets
- * each key it names and keeps the rest of what is below (`requireIsolation` is
+ * The sandbox is the operator's. A user or environment layer sets each key it
+ * names and keeps the rest of what is below (the managed file does not come
+ * through here: it replaces the block, so what it leaves out is not inherited) (`requireIsolation` is
  * replaced, as any list is). A project or local file, or a profile declared in
  * one, may only tighten:
  *
@@ -3009,9 +3030,7 @@ function isProjectSource(source: ConfigSource): boolean {
 	return (
 		source.kind === 'project-file' ||
 		source.kind === 'local-file' ||
-		(source.kind === 'profile' &&
-			(basename(source.path) === 'namzu.config.json' ||
-				basename(source.path) === LOCAL_CONFIG_FILE))
+		(source.kind === 'profile' && source.repository === true)
 	)
 }
 

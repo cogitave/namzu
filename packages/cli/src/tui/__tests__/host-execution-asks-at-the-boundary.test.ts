@@ -285,7 +285,10 @@ describe('a sandbox escape', () => {
 
 	it('is not granted unasked by a repository file that says so', async () => {
 		// The real loader, the way a headless run in a cloned repository reads it:
-		// the repository's file cannot loosen the operator's sandbox.
+		// the repository's file cannot loosen the operator's sandbox. This checks
+		// the resolved block handed to the session harness, not a whole `exec` run
+		// (that command's tests stub the session); the exec path's own notice is
+		// covered in `exec-piped-input.test.ts`.
 		const root = mkdtempSync(join(tmpdir(), 'namzu-unattended-escape-'))
 		try {
 			const home = join(root, 'home')

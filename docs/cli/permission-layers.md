@@ -29,7 +29,7 @@ Before this, a layer that wrote a `permissions` table replaced the whole table o
 
 ## The sandbox block
 
-`sandbox` is the operator's, and the layers combine key by key (before, the later file replaced the whole block). The user file, the managed file and the environment keep full control, the managed file last. The project file, the local file and a profile declared in either may only tighten it:
+`sandbox` is the operator's, and the layers combine key by key (before, the later file replaced the whole block). The user file and the environment keep full control and merge per key; the managed file keeps full control and replaces the whole block, so a key it does not name is not carried over from a user's file. The project file, the local file and a profile declared in either may only tighten it:
 
 | Key | A repository file may | A repository file may not |
 |---|---|---|
@@ -40,7 +40,7 @@ Before this, a layer that wrote a `permissions` table replaced the whole table o
 | `workspace` | ask for `ephemeral` (it confines more) | set `working-directory` over a user `ephemeral` |
 | `teardownTimeoutMs` | nothing | set it: a short wait can abandon a sandbox still running, and `0` waits forever |
 
-Each value that was ignored and would have changed something is named once at launch, with the key and the file, and says to set it in `~/.namzu/config.yaml`. A repository that repeats what you already chose is not mentioned. A profile follows the file that declares it: a profile in `~/.namzu/config.yaml` has full control, one in `namzu.config.json` does not. The keys are described in [Tool boundary](tool-boundary.md#leaving-the-sandbox-for-one-command).
+Each value that was ignored and would have changed something is named once at launch, with the key and the file, and says to set it in `~/.namzu/config.yaml`. A repository that repeats what you already chose is not mentioned. The terminal app shows the note at launch and `namzu exec` prints it on stderr. A profile follows the file that declares it, by where the file really is and not by its name: a profile in `~/.namzu/config.yaml` has full control, one in the project or local file does not. The keys are described in [Tool boundary](tool-boundary.md#leaving-the-sandbox-for-one-command).
 
 ## Rules as lists
 

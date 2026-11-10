@@ -220,7 +220,45 @@ describe('sandbox in a profile', () => {
 	})
 })
 
+describe('sandbox in a profile by where its file really is', () => {
+	it("is the operator's when the declaring file is the managed one, whatever it is named", () => {
+		const l = layout({ user: { sandbox: { enabled: true } } })
+		const managedDir = join(l.managedPath, '..', 'managed-dir')
+		mkdirSync(managedDir, { recursive: true })
+		const managedPath = join(managedDir, 'namzu.config.json')
+		writeFileSync(
+			managedPath,
+			JSON.stringify({
+				profiles: { lax: { sandbox: { enabled: false, allowUnattendedEscape: true } } },
+			}),
+			'utf-8',
+		)
+
+		const { config } = loadConfigWithProvenance({
+			home: l.home,
+			cwd: l.cwd,
+			managedPath,
+			env: {},
+			profile: 'lax',
+		})
+
+		expect(config.sandbox).toMatchObject({ enabled: false, allowUnattendedEscape: true })
+		expect(takeConfigWarnings()).toEqual([])
+	})
+})
+
 describe('sandbox in the user and managed files', () => {
+	it('does not let a user loosening survive a managed block that does not name it', () => {
+		const sandbox = sandboxOf({
+			user: { sandbox: { enabled: false, allowEscape: true, allowUnattendedEscape: true } },
+			managed: { sandbox: { enabled: true } },
+		})
+
+		expect(sandbox?.enabled).toBe(true)
+		expect(sandbox?.allowUnattendedEscape).not.toBe(true)
+		expect(sandbox?.allowEscape).not.toBe(true)
+	})
+
 	it('lets the user file loosen anything', () => {
 		const sandbox = sandboxOf({
 			user: {
