@@ -162,6 +162,9 @@ export function stepContext(
 			),
 		},
 		steps: steps(),
+		...(ctx.withheldKeys && ctx.withheldKeys.size > 0
+			? { withheldKeys: [...ctx.withheldKeys] }
+			: {}),
 		prepared,
 	}
 }

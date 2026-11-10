@@ -22,6 +22,14 @@ describe('the words for a model that declined', () => {
 		expect(text).not.toMatch(FORBIDDEN)
 	})
 
+	it('says plainly that the memories a refused request carried were left out', () => {
+		const text = describeModelRefusal({ model: 'claude-sonnet-5-5', outcome: 'withheld' })
+		expect(text).toBe(
+			'Retried without the memories this request carried; they are set aside in /memory.',
+		)
+		expect(text).not.toMatch(FORBIDDEN)
+	})
+
 	it('under Auto does not promise a switch back', () => {
 		const text = describeModelRefusal({
 			model: 'claude-sonnet-5-5',

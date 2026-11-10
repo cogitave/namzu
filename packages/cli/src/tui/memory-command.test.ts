@@ -43,6 +43,16 @@ describe('/memory dispatch', () => {
 		expect(runSlash('  /memory  ', context)).toEqual({ kind: 'manage-memory' })
 	})
 
+	it('tidies on demand, and a note that reads tidy is saved with add', () => {
+		expect(runSlash('/memory tidy', context)).toEqual({ kind: 'tidy-memory' })
+		expect(runSlash('  /memory   TIDY ', context)).toEqual({ kind: 'tidy-memory' })
+		expect(runSlash('/memory add tidy', context)).toEqual({
+			kind: 'remember',
+			text: 'tidy',
+			scope: 'project',
+		})
+	})
+
 	it('deletes by name, or all that turns recorded, after a confirmation', () => {
 		expect(runSlash('/memory delete staging-is-read-only', context)).toEqual({
 			kind: 'manage-memory',

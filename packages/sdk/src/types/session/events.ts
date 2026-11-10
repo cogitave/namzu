@@ -519,7 +519,14 @@ type CoreSessionEvent =
 			/** The model that declined. */
 			model: string
 			providerId: string
-			outcome: 'fallback' | 'retry' | 'declined'
+			outcome: 'fallback' | 'retry' | 'withheld' | 'declined'
+			/**
+			 * Set only with `outcome: 'withheld'`: the recorded-context keys the
+			 * re-run leaves out of the request (see `QueryParams.withholdOnRefusal`).
+			 */
+			withheldKeys?: string[]
+			/** With `'withheld'`: the ids of the recalled memories those entries carried. */
+			withheldMemoryIds?: string[]
 			/** The model the request moves to. Set only with `outcome: 'fallback'`. */
 			fallbackModel?: string
 			/** The provider's own classification, when it gave one. */

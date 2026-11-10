@@ -226,6 +226,10 @@ export interface IterationContext {
 	readonly maxOutputContinuations?: number
 	/** See `QueryParams.refusalFallback`. */
 	readonly refusalFallback?: 'auto' | 'off'
+	/** See `QueryParams.withholdOnRefusal`. */
+	readonly withholdOnRefusal?: readonly string[]
+	/** Recorded-context keys left out of the request; grows when a refusal is retried without them. */
+	readonly withheldKeys?: Set<string>
 
 	/**
 	 * What the driver said this model's context window is, resolved once.

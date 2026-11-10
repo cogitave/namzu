@@ -250,7 +250,8 @@ fresh session in the same project reads the same files.
 ### Seeing and deleting stored memory
 
 `/memory` with no arguments opens a picker titled Memory that lists every
-active stored memory of the project: the ones you or Namzu saved first, then
+stored memory of the project (active ones, then
+[set aside and retired](#memory-that-goes-unused-and-memory-a-refusal-set-aside)): the ones you or Namzu saved first, then
 those turns recorded on their own, newest first within each group. A row shows
 the title, then who wrote it (`you`, `Namzu saved`, `recorded by a turn`), the
 type and the age. The first row is `Delete all N memories`, which removes
@@ -277,6 +278,62 @@ The curated files (`MEMORY.md`, `USER.md`) are not memories in this sense
 and are never listed or deleted here; `/memory show` still prints them with
 their paths. A note that begins with the word `delete` is saved with
 `/memory add delete ...`.
+
+### Memory that goes unused, and memory a refusal set aside
+
+Memory is kept small by use, not by a cap, and nothing is deleted on its own.
+
+**What recall did is counted beside the records.** Each time a memory goes with
+a message, a counter for it (`recalls`, `selected`, `lastRecalledAt`) is written
+to `<NAMZU_HOME>/memory-usage/<project>.json`, never into the memory file:
+rewriting a record would change its `updatedAt` and revision, so recall would offer
+it again as new. Counts are batched and written when a turn releases and when
+idle, through a temporary file and a rename, so a reader sees the old file or the
+new one. A file that is missing or cannot be read means *unknown*, never *unused*:
+nothing is retired for being unused until the file has counted for the whole
+window, and an unreadable file is kept as `<project>.json.corrupt`.
+
+**The idle sweep.** When you are away (no turn running, nothing typed, a pause
+after the last turn, at most once every six hours) a memory a turn recorded on
+its own that recall has not offered for `memory.retireAfterDays` days (default
+21), counted from its last write, its last recall, or from when the counts began,
+is archived with `retiredAt` and `retiredReason: unused`. Of several recorded
+memories with the same type, title and body, the newest stays and the others are
+archived with `retiredReason: duplicate` and `supersededBy`. A memory you or
+Namzu saved is never changed: when it would otherwise be due it is only marked
+`possibly stale` in `/memory`. A quiet row says how many were retired; the log
+carries counts only. `/memory tidy` runs the sweep now and prints what it
+retired, one line each; a note that reads `tidy` is saved with `/memory add tidy`.
+
+```yaml
+# ~/.namzu/config.yaml
+memory:
+  retireAfterDays: 0   # never retire for being unused; exact copies are still archived
+```
+
+`memory.retireAfterDays` is a whole number of days, `0` turns the unused
+retirement off. Only your own config and managed config set it; a project file,
+or a profile in one, cannot.
+
+**A refused request.** When the provider refuses a message and the request
+carried recalled memories, the memories are set aside: recall does not offer them
+again, in this conversation or any other, until you restore them. The step is
+then retried once without the memory entries (the conversation itself is not
+changed), before any model fallback, and the terminal says `Retried without the
+memories this request carried; they are set aside in /memory.` If the retry is
+refused too, the usual fallback runs ([When a model declines](model-refusal.md)).
+The rest of that conversation keeps leaving memory out of its requests; a new
+conversation starts normally.
+
+**In `/memory`.** The picker lists active memories first, then those set aside
+(`set aside: a refused request carried it`), then those the sweep retired
+(`retired: not recalled for a while` or `retired: a newer copy exists`); a
+memory you or Namzu saved that has gone unused for the window reads `possibly
+stale`. Selecting a set-aside or retired memory offers Restore beside Show and
+Delete. Restoring a set-aside memory lets recall offer it again; restoring a
+retired one makes it active again without the marks the sweep left, and its
+window starts over. A memory that changed since the list opened is left as it
+was. Delete removes the file, as before.
 
 ### What turns record on their own
 

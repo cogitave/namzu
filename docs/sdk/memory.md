@@ -477,6 +477,18 @@ The CLI enables this hook by default. Set `memory.recall: false` in CLI
 configuration to disable automatic recall while retaining the explicit tools.
 SDK hosts opt in by supplying the hook.
 
+### Setting records aside
+
+`excluded?: () => Iterable<string> | Promise<Iterable<string>>` on
+`createMemoryRecallStep` is read on every request; ids it returns are never offered.
+A host keeps a set-aside list there (the CLI keeps the records a refused request
+carried) and lifts it when a person restores a record. A throw reads as an empty
+list. The recorded entries themselves can be left out of a request with
+`QueryParams.withholdOnRefusal` / `withheldKeys` ([see the refusal page](model-refusal.md#what-the-turn-does));
+while `PrepareStepContext.withheldKeys` holds `memory`, the step adds nothing.
+`recalledMemoryIds(entries)` lists the ids that `memory` entries carry, from the
+bodies `turnContextEntries` returns.
+
 ### Letting the host choose among the candidates
 
 Words find candidates; they do not judge them. A record that shares one common

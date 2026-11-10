@@ -1,5 +1,26 @@
 # @namzu/desktop
 
+## 0.2.6
+
+### Patch Changes
+
+- b105dab: Namzu Desktop's corners, shadows and stacking now follow one scale, and the interface moves with a little more care.
+
+  - Corners use five sizes, shadows four levels of elevation, and layers a named order, so a toast always shows above an open dialog and a tooltip above the dialog it explains.
+  - A message you send settles in with a short spring; the replies keep their fade, and restored history and reopened tabs do not animate. The actions under a message appear after a short pause on hover and leave at once, and show immediately for the keyboard.
+  - Panels such as the task list, job details and folder access open and close smoothly instead of jumping.
+  - Loading placeholders appear only after half a second and then fade in, so a fast load no longer flashes a skeleton.
+  - With reduced motion (the system setting) none of this moves: things appear at once.
+
+- 909885d: Namzu Desktop catches up with everything merged since 0.2.5, and carries the current engine.
+
+  - A window whose page crashes, hangs or fails to load recovers on its own: it reloads after 0.5, 2 and 10 seconds (at most three times a minute), then shows a card with Reload and Details. A damaged settings, layout or projects file no longer stops the app.
+  - The message box: Up and Down walk the messages you sent in the conversation, Ctrl/Cmd+Enter holds a message for after the reply, Stop shows a Stopping state until the turn ends, a too-long paste says what was left out, and closing an unsent conversation that holds words asks before discarding it.
+  - Each conversation shows one status mark, unread state is kept in one place, and Recents is grouped by day.
+  - Approvals: "Allow for this conversation", Esc answers No, and a standing yes never answers the asks that always need a person.
+  - One keyboard focus ring for every control, shown only when you move with the keyboard, and a dark-mode popover layer that sits between the page and raised surfaces instead of below them.
+  - The bundled engine is the current `@namzu/cli`: memory that keeps only durable preferences and is chosen and curated by a small model, faster provider discovery on Windows, the "where files go" guidance with the always-ask rule for top-level home and root entries, and the decision-model connect flow.
+
 ## 0.2.5
 
 ### Patch Changes

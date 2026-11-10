@@ -100,6 +100,10 @@ export interface QueryAgentConfig extends BaseAgentConfig {
 	maxOutputContinuations?: QueryParams['maxOutputContinuations']
 	/** See {@link QueryParams.refusalFallback}. */
 	refusalFallback?: QueryParams['refusalFallback']
+	/** See {@link QueryParams.withholdOnRefusal}. */
+	withholdOnRefusal?: QueryParams['withholdOnRefusal']
+	/** See {@link QueryParams.withheldKeys}. */
+	withheldKeys?: QueryParams['withheldKeys']
 	maxToolOutputChars?: number
 	maxToolOutputCharsPerMessage?: number
 	retainedToolPreviewChars?: QueryParams['retainedToolPreviewChars']
