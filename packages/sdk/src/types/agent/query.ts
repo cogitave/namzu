@@ -67,6 +67,8 @@ export interface QueryAgentConfig extends BaseAgentConfig {
 	sandboxTeardownTimeoutMs?: number
 	/** See {@link QueryParams.outsideRootAccess}. Default `'refuse'`. */
 	outsideRootAccess?: 'refuse' | 'review'
+	/** See {@link QueryParams.outsideRootRefusal}. */
+	outsideRootRefusal?: string
 	/** See {@link QueryParams.sandboxEscape}. Default `'refuse'`. */
 	sandboxEscape?: 'refuse' | 'review'
 

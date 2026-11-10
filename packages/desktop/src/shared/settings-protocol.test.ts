@@ -48,6 +48,7 @@ it('reads a stored file entry by entry and ignores what it does not know', () =>
 		restoreTerminals: true,
 		voiceInputAccepted: false,
 		hardwareAcceleration: true,
+		attentionSignals: true,
 	})
 })
 
@@ -60,6 +61,7 @@ it('documents the defaults the spec names', () => {
 		restoreTerminals: true,
 		voiceInputAccepted: false,
 		hardwareAcceleration: true,
+		attentionSignals: true,
 	})
 })
 
@@ -75,4 +77,12 @@ it('voice input is not agreed to until the person says so, and only a boolean sa
 	expect(desktopSettingsPatch({ voiceInputAccepted: true })).toEqual({ voiceInputAccepted: true })
 	expect(storedDesktopSettings({ voiceInputAccepted: true }).voiceInputAccepted).toBe(true)
 	expect(storedDesktopSettings({ voiceInputAccepted: 'true' }).voiceInputAccepted).toBe(false)
+})
+
+it('turns the attention signals on by default and round trips the choice', () => {
+	expect(DEFAULT_DESKTOP_SETTINGS.attentionSignals).toBe(true)
+	expect(desktopSettingsPatch({ attentionSignals: false })).toEqual({ attentionSignals: false })
+	expect(() => desktopSettingsPatch({ attentionSignals: 'no' })).toThrow()
+	expect(storedDesktopSettings({ attentionSignals: false }).attentionSignals).toBe(false)
+	expect(storedDesktopSettings({ attentionSignals: 'x' }).attentionSignals).toBe(true)
 })

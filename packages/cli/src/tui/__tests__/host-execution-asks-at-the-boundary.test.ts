@@ -83,6 +83,7 @@ async function turn(input: {
 	readonly sandbox?: SandboxConfig
 	readonly permissionMode?: PermissionMode
 	readonly onPermission?: PermissionFn
+	readonly permissionSettings?: { readonly outsideRoot: 'refuse' }
 }) {
 	const { createAgentSession } = await import('../agent.js')
 	const sessions = await openSessions(workDir, { stateRoot })
@@ -97,6 +98,7 @@ async function turn(input: {
 		},
 		...(input.sandbox ? { sandbox: input.sandbox } : {}),
 		...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+		...(input.permissionSettings ? { permissionSettings: input.permissionSettings } : {}),
 	})
 	try {
 		for await (const _ of session.send([{ role: 'user', content: 'go', timestamp: 0 }], {
@@ -143,6 +145,26 @@ const escapeCall: ToolCallSummary = {
 }
 
 describe('by default the CLI runs tools on the host', () => {
+	it('with permissions.outsideRoot: refuse, refuses outside paths and says which setting', async () => {
+		const { params } = await turn({
+			permissionMode: 'bypass',
+			permissionSettings: { outsideRoot: 'refuse' },
+		})
+
+		expect(params).toMatchObject({ outsideRootAccess: 'refuse', sandboxEscape: 'review' })
+		expect(String(params.outsideRootRefusal)).toMatch(/permissions\.outsideRoot: refuse/)
+		expect(String(params.outsideRootRefusal)).toMatch(/--add-dir/)
+		expect(String(params.systemPrompt)).toMatch(/refused without asking, in every mode/)
+		expect(String(params.systemPrompt)).not.toMatch(/the user is asked to approve that call/)
+	})
+
+	it('with the setting absent, leaves outside paths a question and adds no refusal text', async () => {
+		const { params } = await turn({})
+
+		expect(params.outsideRootAccess).toBe('review')
+		expect(params.outsideRootRefusal).toBeUndefined()
+	})
+
 	it('with no sandbox, and both boundary crossings routed to review', async () => {
 		const { params } = await turn({})
 

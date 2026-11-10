@@ -352,6 +352,18 @@ function GeneralSection({ settings, shells }: SectionProps) {
 					))}
 				</fieldset>
 			</Row>
+			<Row
+				id="attention-signals"
+				label="Show when a conversation needs you"
+				description="While Namzu is in the background and a conversation is waiting for an answer, show a count on its icon and flash the taskbar or dock once. It clears when you come back. No sound and no pop-up."
+			>
+				<Switch
+					label="Show when a conversation needs you"
+					checked={settings.settings?.attentionSignals ?? true}
+					disabled={!settings.settings}
+					onChange={(value) => void settings.change({ attentionSignals: value })}
+				/>
+			</Row>
 			<TerminalSettings settings={settings} shells={shells} />
 		</>
 	)

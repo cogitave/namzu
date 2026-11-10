@@ -173,3 +173,10 @@ describe('projects', () => {
 		expect(removalNotice('App', { state: 'unsupported' })).toContain('stays trusted')
 	})
 })
+
+describe('attention setting search', () => {
+	it('is found by badge, taskbar and flash', () => {
+		for (const word of ['badge', 'taskbar', 'flash'])
+			expect(searchSettings(word).map((entry) => entry.id)).toContain('attention-signals')
+	})
+})

@@ -76,6 +76,7 @@ const configRoutes = {
 	sandboxProvider: 'query',
 	sandboxTeardownTimeoutMs: 'query',
 	outsideRootAccess: 'query',
+	outsideRootRefusal: 'query',
 	sandboxEscape: 'query',
 	compactionConfig: 'query',
 	workingMemoryProvider: 'query',

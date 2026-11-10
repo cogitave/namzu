@@ -620,6 +620,14 @@ export interface QueryParams {
 	 */
 	outsideRootAccess?: 'refuse' | 'review'
 	/**
+	 * The sentence a host wants the model to read when `outsideRootAccess` is
+	 * `'refuse'` and a file tool names a path outside the roots, for example
+	 * which setting made the wall and how to move it. Without it the tool's own
+	 * generic refusal stands. The refusal is made before any review, so no
+	 * permission mode (bypass included) lifts it.
+	 */
+	outsideRootRefusal?: string
+	/**
 	 * Whether a call may ask to run outside the turn's sandbox (the shipped
 	 * `bash` tool's `dangerously_disable_sandbox`).
 	 *
@@ -1599,6 +1607,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					: {}),
 				...(scratchpadDirectory ? { scratchpadDirectory } : {}),
 				...(params.outsideRootAccess ? { outsideRootAccess: params.outsideRootAccess } : {}),
+				...(params.outsideRootRefusal ? { outsideRootRefusal: params.outsideRootRefusal } : {}),
 				...(params.sandboxEscape ? { sandboxEscape: params.sandboxEscape } : {}),
 				permissionMode: () => ctx.permissionMode.current,
 				env: turnConfig.env ?? {},

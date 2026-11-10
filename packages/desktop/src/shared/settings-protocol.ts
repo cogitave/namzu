@@ -24,6 +24,11 @@ export interface DesktopSettings {
 	 * start; it is read once, before the app is ready, so a change applies on the next start.
 	 */
 	hardwareAcceleration: boolean
+	/**
+	 * While Namzu is in the background and a conversation waits for an answer, show a count on its
+	 * icon and flash the taskbar or dock once.
+	 */
+	attentionSignals: boolean
 }
 
 export const DEFAULT_DESKTOP_SETTINGS: Readonly<DesktopSettings> = {
@@ -34,6 +39,7 @@ export const DEFAULT_DESKTOP_SETTINGS: Readonly<DesktopSettings> = {
 	restoreTerminals: true,
 	voiceInputAccepted: false,
 	hardwareAcceleration: true,
+	attentionSignals: true,
 }
 
 const KEYS = Object.keys(DEFAULT_DESKTOP_SETTINGS) as (keyof DesktopSettings)[]

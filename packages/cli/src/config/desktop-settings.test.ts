@@ -70,6 +70,14 @@ describe('Desktop settings descriptors', () => {
 		expect(SETTING_DESCRIPTORS.find((e) => e.path === 'permissionChecks')?.confirm).toBeTruthy()
 	})
 
+	it('lists the outside-the-folder setting as a choice between ask and refuse', () => {
+		const entry = SETTING_DESCRIPTORS.find((e) => e.path === 'permissions.outsideRoot')
+		expect(entry?.control).toMatchObject({ kind: 'select' })
+		expect(entry?.defaultText).toBe('ask')
+		expect(entry?.confirm).toBeTruthy()
+		expect(entry?.confirmValue).toBe('ask')
+	})
+
 	it('keep terminal-only keys in the terminal section', () => {
 		for (const path of [
 			'format',

@@ -93,6 +93,14 @@ export const SETTINGS_ENTRIES: readonly SettingsEntry[] = [
 		keywords: ['terminal', 'restore', 'restart', 'tabs'],
 	},
 	{
+		id: 'attention-signals',
+		section: 'general',
+		label: 'Show when a conversation needs you',
+		description:
+			'A count on the app icon and one taskbar or dock flash while a conversation waits for you.',
+		keywords: ['badge', 'flash', 'taskbar', 'dock', 'attention', 'approval', 'notify', 'icon'],
+	},
+	{
 		id: 'models',
 		section: 'models',
 		label: 'Models and API keys',
