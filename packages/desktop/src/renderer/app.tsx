@@ -71,6 +71,7 @@ import { type ComputerChatLayout, useComputerChatMotion } from './computer-chat-
 import { ComputerInputRetiredError, computerSurfaceOwnsFocus } from './computer-input-focus.js'
 import { ComputerInputQueue, computerInputOwnerMatches } from './computer-input-queue.js'
 import { ComputerKeyboardOwners } from './computer-keyboard-owner.js'
+import { nextComputerReadDelay } from './computer-read-pace.js'
 import { computerWorkspaceIds } from './computer-workspace-toolbar.js'
 import { ConfirmRemovalDialog } from './confirm-removal-dialog.js'
 import { ConversationActionsMenu } from './conversation-actions-menu.js'
@@ -3976,8 +3977,11 @@ export function App({
 		const epoch = computerReadEpoch.current
 		let current = true
 		let timer: ReturnType<typeof setTimeout> | undefined
+		// Reads in a row that threw; a broken computer is asked less and less often.
+		let failures = 0
 		const read = async () => {
 			let ready = false
+			let failed = false
 			try {
 				if (document.hidden) return
 				if (controlPending.current || startingComputers.current.has(id)) return
@@ -4030,6 +4034,7 @@ export function App({
 						setPalScreens((all) => ({ ...all, [id]: { generation, screen } }))
 				} catch (failure) {
 					ready = false
+					failed = true
 					if (current && epoch === computerReadEpoch.current)
 						setPalScreens((all) => ({
 							...all,
@@ -4041,6 +4046,7 @@ export function App({
 						}))
 				}
 			} catch (failure) {
+				failed = true
 				if (current && epoch === computerReadEpoch.current) {
 					setPalComputers((all) => ({
 						...all,
@@ -4052,15 +4058,16 @@ export function App({
 					}))
 				}
 			} finally {
+				failures = failed ? failures + 1 : 0
 				if (current)
 					timer = setTimeout(
 						() => void read(),
-						ready &&
-							!document.hidden &&
-							palScreen?.palId === id &&
-							palScreen.activeTab === 'computer'
-							? 1_000
-							: 5_000,
+						nextComputerReadDelay({
+							ready,
+							watching:
+								!document.hidden && palScreen?.palId === id && palScreen.activeTab === 'computer',
+							failures,
+						}),
 					)
 			}
 		}
