@@ -50,12 +50,12 @@
 }
 .workspace-canvas-drop-preview {
 	position: absolute;
-	z-index: 20;
+	z-index: var(--z-sticky);
 	display: grid;
 	place-items: center;
 	pointer-events: none;
 	border: 2px solid color-mix(in srgb, var(--primary) 72%, transparent);
-	border-radius: 10px;
+	border-radius: var(--radius-control);
 	background: color-mix(in srgb, var(--primary) 12%, transparent);
 	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--background) 80%, transparent);
 	transition: left 120ms var(--motion-ease), top 120ms var(--motion-ease), width 120ms
@@ -64,12 +64,12 @@
 .workspace-canvas-drop-preview > span {
 	padding: 7px 12px;
 	border: 1px solid var(--border);
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	background: var(--popover);
 	color: var(--popover-foreground);
 	font-size: 12px;
 	font-weight: 500;
-	box-shadow: 0 4px 16px rgb(0 0 0 / 15%);
+	box-shadow: var(--shadow-2);
 }
 @media (prefers-reduced-motion: reduce) {
 	.workspace-canvas-divider,

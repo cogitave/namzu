@@ -58,13 +58,13 @@ export function SettingsConfirmDialog({
 			}}
 		>
 			<Dialog.Portal>
-				<Dialog.Backdrop className="fixed inset-0 z-[160] bg-black/50" />
-				<Dialog.Viewport className="fixed inset-0 z-[161] grid place-items-center overflow-y-auto p-4">
+				<Dialog.Backdrop className="fixed inset-0 z-(--z-scrim) bg-black/50" />
+				<Dialog.Viewport className="fixed inset-0 z-(--z-dialog) grid place-items-center overflow-y-auto p-4">
 					<Dialog.Popup
 						data-settings-confirm-dialog="retrust-off"
 						initialFocus={cancel}
 						finalFocus={returnFocus}
-						className="w-full max-w-md rounded-2xl border border-border bg-background p-5 text-foreground shadow-xl outline-none"
+						className="w-full max-w-md rounded-2xl border border-border bg-background p-5 text-foreground shadow-[var(--shadow-dialog)] outline-none"
 					>
 						<Dialog.Title className="text-lg font-semibold">{RETRUST_OFF_COPY.title}</Dialog.Title>
 						<Dialog.Description className="mt-3 text-sm text-muted-foreground">

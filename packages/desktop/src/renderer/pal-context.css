@@ -13,7 +13,7 @@
 .pal-context-card {
 	width: 300px;
 	max-width: 100%;
-	border-radius: 18px;
+	border-radius: var(--radius-panel);
 	background: var(--surface-raised);
 	color: var(--foreground);
 	display: block;
@@ -63,7 +63,7 @@
 	flex: none;
 	gap: 6px;
 	height: 40px;
-	border-radius: 12px;
+	border-radius: var(--radius-card);
 }
 .pal-context-compact-trigger {
 	flex: 1;
@@ -73,7 +73,7 @@
 	justify-content: flex-start;
 	gap: 8px;
 	padding: 0 10px;
-	border-radius: 12px;
+	border-radius: var(--radius-card);
 	font-weight: 400;
 }
 .pal-context-compact-trigger > strong {
@@ -181,7 +181,7 @@
 	margin-bottom: 0;
 }
 .pal-context-tasks .conversation-tasks:focus-visible {
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	outline: 2px solid transparent;
 	outline-offset: 2px;
 	box-shadow: var(--focus-ring);
@@ -193,7 +193,7 @@
 	width: 100%;
 	padding: 6px 0;
 	border: 0;
-	border-radius: 4px;
+	border-radius: var(--radius-chip);
 	background: transparent;
 	color: var(--foreground);
 	font: inherit;
@@ -229,7 +229,7 @@
 	min-height: 24px;
 	padding: 2px 5px;
 	border: 1px solid var(--border);
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	background: var(--surface);
 	box-shadow: 0 1px 0 var(--border);
 	font-family: var(--font-mono);
@@ -309,7 +309,7 @@
 	flex: none;
 	padding: 1px 6px;
 	border: 1px solid var(--border);
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	background: var(--surface);
 	font-size: 11px;
 	line-height: 16px;
@@ -384,7 +384,7 @@
 	flex: none;
 	overflow: hidden;
 	border: 1px solid var(--border);
-	border-radius: 8px;
+	border-radius: var(--radius-control);
 	background: var(--surface);
 	color: var(--muted-foreground);
 	transition: transform 160ms var(--motion-ease);
@@ -550,7 +550,7 @@
 	min-width: 0;
 	overflow: hidden;
 	border: 1px solid var(--border);
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 }
 .pal-recent-action[data-status="failed"] .pal-recent-detail,
 .pal-recent-action[data-status="failed"] > svg {

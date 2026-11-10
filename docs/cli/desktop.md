@@ -1719,6 +1719,12 @@ keyboard focus ring, `--focus-ring` (`--focus-ring-inset` inside clipped rows,
 `--focus-ring-danger` on an invalid field): a two-pixel gap in the page colour and a two-pixel band in
 the accent. It appears for keyboard focus only, never after a click, and in forced-colors mode
 the control keeps a system-coloured outline.
+Every surface draws its corners, elevation and stacking from those tokens instead of its own numbers:
+corners fold onto the five radii (plain circles and 1-3 px corners stay), floating menus and the toast
+use `--shadow-popover`, dialogs, the command palette and the update dialog use `--shadow-dialog`, and
+layers use the named `--z-*` tiers (a dialog sits below menus, a tooltip is above the dialog, and a
+toast is above everything, so a failure shown while a dialog is open is visible). A test fails on a
+radius, elevation shadow or layer number written outside that scale.
 The 32px integrated title bar keeps the operating system’s caption controls and
 resize frame. Back and Forward revisit the window’s admitted project and
 conversation views, with no prompt replay; the adjacent panel control toggles

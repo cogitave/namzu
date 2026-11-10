@@ -106,15 +106,23 @@
 	--radius-card: 12px;
 	--radius-panel: 16px;
 	--radius-pill: 999px;
-	/* Layers: named tiers. */
+	/* Layers: named tiers, lowest to highest. A tooltip and a toast must read over a dialog, so
+	   dialogs sit below the popover tier. Component-local stacking (-1 to 10) stays literal. */
 	--z-local: 1;
 	--z-sticky: 20;
 	--z-panel: 30;
+	--z-panel-raised: 35;
+	--z-scrim-nav: 45;
+	--z-nav: 50;
+	--z-rail: 55;
 	--z-titlebar: 60;
+	--z-overlay-scrim: 110;
+	--z-overlay: 111;
+	--z-scrim: 120;
+	--z-dialog: 121;
+	--z-dialog-top: 122;
 	--z-popover: 130;
 	--z-tooltip: 140;
-	--z-dialog: 150;
-	--z-modal-top: 160;
 	--z-toast: 1000;
 	--sidebar-icon-color: color-mix(
 		in srgb,

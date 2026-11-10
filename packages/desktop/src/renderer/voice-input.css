@@ -21,7 +21,7 @@
 	right: 3px;
 	width: 6px;
 	height: 6px;
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	background: var(--error);
 	box-shadow: 0 0 0 1.5px var(--background);
 	pointer-events: none;
@@ -86,7 +86,7 @@
 	flex: none;
 	width: 6px;
 	height: 6px;
-	border-radius: 999px;
+	border-radius: var(--radius-pill);
 	background: var(--error);
 }
 .voice-notice {
@@ -111,7 +111,7 @@
 	gap: 8px;
 	padding: 12px;
 	border: 1px solid var(--border);
-	border-radius: 10px;
+	border-radius: var(--radius-control);
 	background: var(--card);
 	color: var(--foreground);
 }

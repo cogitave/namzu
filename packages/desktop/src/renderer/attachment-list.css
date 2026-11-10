@@ -14,7 +14,7 @@
 	max-width: 100%;
 	padding: 6px 8px 6px 6px;
 	border: 1px solid var(--border);
-	border-radius: 14px;
+	border-radius: var(--radius-card);
 	background: var(--background);
 	animation: attachment-arrive 160ms var(--motion-ease);
 }
@@ -27,7 +27,7 @@
 	height: 44px;
 	border: 0;
 	padding: 0;
-	border-radius: 9px;
+	border-radius: var(--radius-control);
 	color: var(--muted-foreground);
 	background: var(--accent);
 	overflow: hidden;
@@ -75,7 +75,7 @@
 }
 .attachment-card:not([data-attachment-state="unavailable"]) {
 	padding: 0;
-	border-radius: 14px;
+	border-radius: var(--radius-card);
 	overflow: hidden;
 }
 .attachment-card:not([data-attachment-state="unavailable"]) .attachment-name {
@@ -104,7 +104,7 @@
 .attachment-preview-backdrop {
 	position: fixed;
 	inset: 0;
-	z-index: 150;
+	z-index: var(--z-overlay-scrim);
 	background: rgb(0 0 0 / 65%);
 	transition: opacity 160ms ease;
 }
@@ -112,12 +112,12 @@
 	position: fixed;
 	top: 50%;
 	left: 50%;
-	z-index: 151;
+	z-index: var(--z-overlay);
 	width: min(90vw, 960px);
 	max-height: 90vh;
 	transform: translate(-50%, -50%);
 	border: 1px solid var(--border);
-	border-radius: 20px;
+	border-radius: var(--radius-panel);
 	padding: 12px;
 	background: var(--popover);
 	color: var(--foreground);
@@ -142,7 +142,7 @@
 	width: 100%;
 	max-height: calc(90vh - 72px);
 	object-fit: contain;
-	border-radius: 12px;
+	border-radius: var(--radius-card);
 }
 .attachment-preview[data-starting-style],
 .attachment-preview[data-ending-style],
@@ -153,13 +153,13 @@
 .composer-drop-target {
 	position: absolute;
 	inset: 4px;
-	z-index: 30;
+	z-index: var(--z-panel);
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	gap: 8px;
 	border: 1px dashed var(--primary);
-	border-radius: 18px;
+	border-radius: var(--radius-panel);
 	background: var(--background);
 	color: var(--foreground);
 	font-size: 13px;

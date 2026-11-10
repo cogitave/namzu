@@ -14,7 +14,7 @@
 }
 .restore-skeleton-line {
 	height: 14px;
-	border-radius: 6px;
+	border-radius: var(--radius-chip);
 	background: color-mix(in srgb, currentColor 8%, transparent);
 }
 .restore-skeleton-line-short {
@@ -26,7 +26,7 @@
 .restore-skeleton-composer {
 	margin-top: auto;
 	height: 72px;
-	border-radius: 16px;
+	border-radius: var(--radius-panel);
 	border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
 }
 @media (prefers-reduced-motion: no-preference) {

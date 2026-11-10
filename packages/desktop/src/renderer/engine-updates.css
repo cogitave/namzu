@@ -56,7 +56,7 @@
 }
 .engine-update-command code {
 	padding: 1px 4px;
-	border-radius: 4px;
+	border-radius: var(--radius-chip);
 	background: color-mix(in srgb, var(--foreground) 7%, transparent);
 	font-size: 11px;
 }
