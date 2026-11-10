@@ -5348,6 +5348,9 @@ export async function createAgentSession(
 						...(configuredLimits.maxReasoningTokens !== undefined
 							? { maxReasoningTokens: configuredLimits.maxReasoningTokens }
 							: {}),
+						...(configuredLimits.maxHookRefusals !== undefined
+							? { maxHookRefusals: configuredLimits.maxHookRefusals }
+							: {}),
 						...(configuredLimits.doneGate !== undefined
 							? { doneGate: configuredLimits.doneGate }
 							: {}),
