@@ -105,6 +105,8 @@ export interface IdleCompactorDeps {
 export class IdleCompactor {
 	readonly #deps: IdleCompactorDeps
 	readonly #clock = new CacheClock()
+	/** The conversation the clock's last call belonged to. */
+	#clockKey: string | null = null
 	#timer: unknown = null
 	#armedKey: string | null = null
 	#dueAt = 0
@@ -135,6 +137,7 @@ export class IdleCompactor {
 			cacheTtlMs: cache.ttlMs,
 		}
 		this.#clock.record(usage, this.#deps.now())
+		this.#clockKey = this.#deps.conversationKey()
 	}
 
 	/**
@@ -146,8 +149,9 @@ export class IdleCompactor {
 	 */
 	staleResultsRequest(): StaleResultsRequest | undefined {
 		const state = this.#clock.state
-		if (state === null || !(state.ttlMs > 0)) return undefined
-		if (this.#deps.now() - state.lastActivityAt <= state.ttlMs) return undefined
+		if (state === null || !(state.ttlMs > 0) || state.expiresAt === null) return undefined
+		if (this.#deps.conversationKey() !== this.#clockKey) return undefined
+		if (this.#deps.now() <= state.expiresAt) return undefined
 		return {
 			minSavedTokens: STALE_RESULTS_MIN_SAVED_TOKENS,
 			keepRecentToolResults: STALE_RESULTS_KEEP_RECENT,

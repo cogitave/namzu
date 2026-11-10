@@ -316,4 +316,21 @@ describe('asking for stale tool results to be shed when a turn starts', () => {
 		h.world.now += 10 * HOUR
 		expect(h.compactor.staleResultsRequest()).toBeUndefined()
 	})
+
+	it('does not ask after the person moved to another conversation or model', () => {
+		const h = harness()
+		h.endTurn({ ttlMs: 5 * MINUTE, touched: true })
+		h.world.now += 10 * MINUTE
+		h.world.key = 'conversation-2'
+		expect(h.compactor.staleResultsRequest()).toBeUndefined()
+		h.world.key = 'conversation-1'
+		expect(h.compactor.staleResultsRequest()).toBeDefined()
+	})
+
+	it('does not ask when the last request neither read nor wrote the cache', () => {
+		const h = harness()
+		h.endTurn({ ttlMs: HOUR, touched: false })
+		h.world.now += 10 * HOUR
+		expect(h.compactor.staleResultsRequest()).toBeUndefined()
+	})
 })
