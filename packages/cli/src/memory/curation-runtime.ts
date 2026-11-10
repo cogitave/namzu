@@ -158,15 +158,17 @@ export interface CurationLog {
 
 export function createCurationLog(file: string): CurationLog {
 	// One write at a time, in call order: two appends started together may land in either order.
-	let tail: Promise<void> = mkdir(dirname(file), { recursive: true, mode: 0o700 }).then(
-		() => undefined,
-		() => undefined,
-	)
+	// The folder is made on the first write, never before: a session that logs nothing creates nothing.
+	let tail: Promise<void> | undefined
 	const write = (entry: CurationLogEntry): void => {
 		const line = `${JSON.stringify(entry)}\n`
+		tail ??= mkdir(dirname(file), { recursive: true, mode: 0o700 }).then(
+			() => undefined,
+			() => undefined,
+		)
 		tail = tail.then(() => appendFile(file, line, { mode: 0o600 })).catch(() => {})
 	}
-	return Object.assign(write, { settled: () => tail })
+	return Object.assign(write, { settled: () => tail ?? Promise.resolve() })
 }
 
 /**

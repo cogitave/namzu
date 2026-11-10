@@ -296,6 +296,15 @@ describe('settling a turn', () => {
 })
 
 describe('the curation log file', () => {
+	it('creates nothing until the first line is written', async () => {
+		vi.useRealTimers()
+		const root = mkdtempSync(join(tmpdir(), 'namzu-curation-log-'))
+		roots.push(root)
+		const write = createCurationLog(join(root, 'memory', 'curation.jsonl'))
+		await write.settled()
+		expect(existsSync(join(root, 'memory'))).toBe(false)
+	})
+
 	it('appends one JSON line per entry, in the order they were written', async () => {
 		vi.useRealTimers()
 		const root = mkdtempSync(join(tmpdir(), 'namzu-curation-log-'))
