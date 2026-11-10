@@ -350,6 +350,16 @@ or post-hook-overridden direct results and when its serialized size exceeds
 `maxToolOutputChars`. Presentation failure never changes the mutation result.
 Hosts can fall back to the retained result text when the view is absent.
 
+## A tool's own output cap
+
+A tool can set a tighter model-visible cap for its own results with `maxOutputChars` on its definition
+(`defineTool({ maxOutputChars })`). The turn's `maxToolOutputChars` still applies and the smaller of the two wins,
+including when a host turned the turn cap off with `0`; a value that is not a positive finite number is ignored. A
+result over the tool's cap is saved in the session's `tool-results` folder and shown as a head-and-tail preview that
+names the file, exactly as any other oversized result is. The same cap applies to the tool's result when another tool
+calls it (`dispatchTool`) and to model text that differs from the host text. A tool that declares `selfLimitingOutput` is still
+bound by its own `maxOutputChars`.
+
 `tool_completed.savedPresentation` is the journal-only counterpart for every other
 call: one label line of at most 200 characters (the call's own `presentCall` label,
 or the generic label from its arguments), or, for a command, its first line as a

@@ -1374,6 +1374,17 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 * explicitly still bounds this tool's result by it.
 	 */
 	selfLimitingOutput?: boolean
+	/**
+	 * A tighter model-visible cap, in characters, for THIS tool's result.
+	 *
+	 * The turn's cap (`maxToolOutputChars`, 40,000 by default) still applies;
+	 * the smaller of the two wins, including when a host turned the turn cap
+	 * off with `0`. A result over it is kept in the session's tool-results
+	 * folder and shown as a head-and-tail preview that names the file, the same
+	 * way any other oversized result is. Use it for a tool whose results are
+	 * foreign text that should cost less of the window than a file read does.
+	 */
+	maxOutputChars?: number
 }
 
 /**
