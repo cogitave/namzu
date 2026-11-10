@@ -5,7 +5,7 @@
 // CI re-runs the generator and fails on any difference, so a hand edit here is
 // reverted by the next run at best and reported as drift at worst.
 //
-// 4 vendors, 35 priced models.
+// 4 vendors, 40 priced models.
 
 import type { ModelPricing } from '../utils/cost.js'
 
@@ -44,6 +44,14 @@ export const VENDOR_RATES: readonly VendorRates[] = [
 				},
 			],
 			[
+				'claude-fable-5-2',
+				{
+					inputCostPer1M: 8,
+					outputCostPer1M: 40,
+					cache: { promptIncludesCacheReads: false, readCostPer1M: 0.2, writeCostPer1M: 10 },
+				},
+			],
+			[
 				'claude-haiku-4-5',
 				{
 					inputCostPer1M: 1,
@@ -65,6 +73,22 @@ export const VENDOR_RATES: readonly VendorRates[] = [
 					inputCostPer1M: 10,
 					outputCostPer1M: 50,
 					cache: { promptIncludesCacheReads: false, readCostPer1M: 0.25, writeCostPer1M: 12.5 },
+				},
+			],
+			[
+				'claude-mythos-5-2',
+				{
+					inputCostPer1M: 8,
+					outputCostPer1M: 40,
+					cache: { promptIncludesCacheReads: false, readCostPer1M: 0.2, writeCostPer1M: 10 },
+				},
+			],
+			[
+				'claude-opus-4',
+				{
+					inputCostPer1M: 15,
+					outputCostPer1M: 75,
+					cache: { promptIncludesCacheReads: false, readCostPer1M: 1.5, writeCostPer1M: 18.75 },
 				},
 			],
 			[
@@ -116,6 +140,14 @@ export const VENDOR_RATES: readonly VendorRates[] = [
 				},
 			],
 			[
+				'claude-sonnet-4',
+				{
+					inputCostPer1M: 3,
+					outputCostPer1M: 15,
+					cache: { promptIncludesCacheReads: false, readCostPer1M: 0.3, writeCostPer1M: 3.75 },
+				},
+			],
+			[
 				'claude-sonnet-4-5',
 				{
 					inputCostPer1M: 3,
@@ -137,6 +169,14 @@ export const VENDOR_RATES: readonly VendorRates[] = [
 					inputCostPer1M: 2,
 					outputCostPer1M: 10,
 					cache: { promptIncludesCacheReads: false, readCostPer1M: 0.2, writeCostPer1M: 2.5 },
+				},
+			],
+			[
+				'claude-sonnet-5-5',
+				{
+					inputCostPer1M: 2,
+					outputCostPer1M: 10,
+					cache: { promptIncludesCacheReads: false, readCostPer1M: 0.1, writeCostPer1M: 2.5 },
 				},
 			],
 		]),

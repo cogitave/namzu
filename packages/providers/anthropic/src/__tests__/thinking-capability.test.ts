@@ -38,6 +38,8 @@ const TABLE: readonly [string, boolean, boolean, boolean, string[], string[]][] 
 	// Always-on: thinking cannot be switched off, at any effort level. Two
 	// whole families, and Opus from 5.5 — the vendor's list of models that
 	// answer `thinking: {type: "disabled"}` with a 400.
+	['claude-fable-5-2', true, false, false, ALL, ALL],
+	['claude-mythos-5-2', true, false, false, ALL, ALL],
 	['claude-fable-5-1', true, false, false, ALL, ALL],
 	['claude-mythos-5-1', true, false, false, ALL, ALL],
 	['claude-fable-5', true, false, false, ALL, ALL],
@@ -56,6 +58,11 @@ const TABLE: readonly [string, boolean, boolean, boolean, string[], string[]][] 
 	// 4.7 and later: adaptive only, and it can still be disabled.
 	['claude-opus-5', true, false, true, ALL, CAPPED],
 	['claude-sonnet-5', true, false, true, ALL, ALL],
+	// Sonnet 5.5 answers `disabled` with a 400 at every effort (it offers
+	// `between_tools` instead, which this driver does not send).
+	['claude-sonnet-5-5', true, false, false, ALL, ALL],
+	// Haiku 5.5 takes `disabled`, but only at `high` or below.
+	['claude-haiku-5-5', true, false, true, ALL, BASE],
 	['claude-opus-4-8', true, false, true, ALL, ALL],
 	['claude-opus-4-7', true, false, true, ALL, ALL],
 	// 4.6: both modes, manual deprecated but working — and no `xhigh`.
@@ -91,9 +98,10 @@ describe('what each model accepts', () => {
 			expect(resolveThinkingCapability(model), model).toMatchObject({ canDisable: false })
 		}
 		expect(resolveThinkingCapability('claude-opus-5')).toMatchObject({ canDisable: true })
-		// Only the family that crossed moves: Sonnet has no floor, so a later
-		// Sonnet still resolves through the version fallback.
-		expect(resolveThinkingCapability('claude-sonnet-5-5')).toMatchObject({ canDisable: true })
+		// Only the family that crossed moves: Sonnet crossed at 5.5, and the
+		// Sonnet below it keeps its switch.
+		expect(resolveThinkingCapability('claude-sonnet-5-5')).toMatchObject({ canDisable: false })
+		expect(resolveThinkingCapability('claude-sonnet-5')).toMatchObject({ canDisable: true })
 	})
 
 	it('tolerates a vendor prefix and a date suffix', () => {
