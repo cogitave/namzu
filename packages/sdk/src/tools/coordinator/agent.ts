@@ -5,7 +5,7 @@ import type { CreateTaskOptions, TaskHandle, TaskScheduler } from '../../types/a
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { jsonStringEscapes } from '../builtins/json-string-hint.js'
 import { defineTool } from '../defineTool.js'
-import { wrapUntrusted } from '../untrusted-envelope.js'
+import { KERNEL_RECORD_PREFIX, wrapUntrusted } from '../untrusted-envelope.js'
 import { describeOutcomeRecord } from './outcome-record.js'
 import { failureLabel, taskSucceeded } from './outcome.js'
 
@@ -229,8 +229,11 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 			const recordLine = outcome ? describeOutcomeRecord(outcome) : undefined
 
 			if (!succeeded) {
-				const detail =
-					completed.result?.lastError ?? resultText ?? '(subagent provided no failure detail)'
+				// The child's words are not marked on this path, so a line of them
+				// that opens like the kernel's own would read as the kernel's.
+				const detail = neutraliseKernelLines(
+					completed.result?.lastError ?? resultText ?? '(subagent provided no failure detail)',
+				)
 				return {
 					success: false,
 					output: '',
@@ -346,4 +349,14 @@ async function runBlockingAgentTask(
 		}
 		signal.removeEventListener('abort', onAbort)
 	}
+}
+
+/** `text` with any line that opens with the kernel record prefix quoted, so it cannot pass for the kernel's line. */
+function neutraliseKernelLines(text: string): string {
+	return text
+		.split('\n')
+		.map((line) =>
+			line.trimStart().startsWith(KERNEL_RECORD_PREFIX) ? `> ${line.trimStart()}` : line,
+		)
+		.join('\n')
 }

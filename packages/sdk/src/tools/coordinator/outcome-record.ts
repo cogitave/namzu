@@ -56,6 +56,8 @@ function describe(outcome: TurnOutcome): string | undefined {
 			// Nothing to say, and a line on every delegation that only read would
 			// be noise the parent learns to skip. The record is still in `data`.
 			return undefined
+		case 'unknown':
+			return 'a command ran that may have changed files, and nothing here could tell whether it did.'
 		case 'unchecked':
 			return `${lead}nothing was run to check ${total(outcome) === 1 ? 'it' : 'them'}.`
 		case 'failing': {

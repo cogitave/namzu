@@ -13,13 +13,18 @@ export function outcomeLine(outcome: TurnOutcome | undefined): string | undefine
 	if (outcome === undefined) return undefined
 	const { verdict, changes, checks } = outcome
 	if (verdict === 'unchanged') return undefined
+	if (verdict === 'unknown') return 'A command ran that may have changed files · cannot tell'
 
+	// A failing check is reported whether or not anything changed; the other
+	// verdicts only exist because something did.
 	const lead =
 		changes.total > 0
 			? `Changed ${changes.total} ${changes.total === 1 ? 'file' : 'files'}`
 			: changes.outsideKnownTools
 				? 'Changed files outside the edit tools'
-				: 'No files changed'
+				: verdict === 'failing'
+					? 'No files changed'
+					: 'Changed files'
 
 	const ran = (check: TurnOutcomeCheck | undefined): string =>
 		check === undefined ? 'a check' : shown(check.command)

@@ -30,6 +30,7 @@ The record never blocks or prolongs a turn. The [completion audit](completion-au
 | `failing` | The latest run of some check did not pass. Changed or not. |
 | `inconclusive` | Changed; checks ran, but none established a pass: the status was hidden, handed to a background job, timed out, or it is not known whether the workspace changed after it. |
 | `unchecked` | Changed; no check ran. |
+| `unknown` | No write tool ran, but a command that may have changed files did, and no workspace detector answered: whether anything changed cannot be told. |
 
 **`checked` does not mean the change is correct or that the check covers it.** It says a command the kernel recognises as a check exited 0 and the workspace was the same when the turn ended as when that command finished. A test run that never touches the edited file is `checked`.
 
@@ -37,7 +38,7 @@ The record never blocks or prolongs a turn. The [completion audit](completion-au
 
 ## What counts as a check
 
-A successful or failed `bash` call whose command line runs a test, lint, format-check, typecheck or build target of a project runner, or a checker invoked directly (the same recogniser the completion audit uses, `isVerificationCommand`), and does not merely name one to a command that prints text (`echo "pnpm test"` is not a check). `TurnConfig.outcome.isCheck` names a project's own script. Distinct checks are keyed by the command line with its whitespace normalised; the latest run of each is what counts.
+A successful or failed `bash` call whose command line runs a test, lint, format-check, typecheck or build target of a project runner, or a checker invoked directly (the same recogniser the completion audit uses, `isVerificationCommand`), and does not merely name one: `echo "pnpm test"`, `pnpm add -D lint-staged`, `npm install eslint`, `eslint --help` and `tsc --version` are not checks. A failed check stays failed until the same command passes; a later run that never settled does not clear it. `TurnConfig.outcome.isCheck` names a project's own script. Distinct checks are keyed by the command line with its whitespace normalised; the latest run of each is what counts.
 
 Each check is one of:
 

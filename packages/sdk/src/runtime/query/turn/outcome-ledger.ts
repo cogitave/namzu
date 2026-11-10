@@ -80,6 +80,35 @@ const NOT_A_RUNNER = new Set([
 	':',
 ])
 
+/** Package managers whose `install`-like subcommands name a check word without running it. */
+const PACKAGE_MANAGERS = new Set([
+	'npm',
+	'pnpm',
+	'yarn',
+	'bun',
+	'pip',
+	'pip3',
+	'uv',
+	'poetry',
+	'cargo',
+	'composer',
+	'gem',
+])
+const INSTALLING = new Set([
+	'install',
+	'add',
+	'i',
+	'ci',
+	'remove',
+	'rm',
+	'uninstall',
+	'update',
+	'upgrade',
+])
+const HELP_OR_VERSION = new Set(['--help', '-h', '--version', '-V', '--list', '--listTests'])
+/** `-v` is verbose to these, a version flag to the rest. */
+const VERBOSE_V = new Set(['pytest', 'py.test', 'mocha', 'vitest', 'jest'])
+
 const SNAPSHOT_VERSION = 1
 
 interface CheckState {
@@ -103,6 +132,10 @@ export interface OutcomeLedgerSnapshot {
 	readonly startFingerprint: string | null
 	readonly paths: readonly string[]
 	readonly writes: number
+	/** Absent in a snapshot written before it existed. */
+	readonly unseen?: boolean
+	/** Absent in a snapshot written before it existed. */
+	readonly pathless?: number
 	readonly checks: readonly {
 		readonly key: string
 		readonly command: string
@@ -168,23 +201,65 @@ function exitStatusIsOwn(line: string): boolean {
 	return tail === '' || tail === ';'
 }
 
+/**
+ * Whether a simple command, as its words, only installs, removes, or asks for
+ * help or a version. Such a command names a check word (`lint-staged`,
+ * `eslint --version`) and establishes nothing about the work.
+ */
+function establishesNothing(values: readonly string[]): boolean {
+	const program = (values[0] ?? '').split('/').pop() ?? ''
+	const args = values.slice(1)
+	if (args.some((word) => HELP_OR_VERSION.has(word))) return true
+	if (args.includes('-v') && !VERBOSE_V.has(program)) return true
+	if (PACKAGE_MANAGERS.has(program) && args.slice(0, 3).some((word) => INSTALLING.has(word))) {
+		return true
+	}
+	return false
+}
+
+function isNamedCheck(text: string, hostIsCheck?: (command: string) => boolean): boolean {
+	if (isVerificationCommand(text)) return true
+	try {
+		return hostIsCheck?.(text) === true
+	} catch {
+		return false
+	}
+}
+
+/**
+ * Whether the line holds a command that could change the workspace and is not
+ * itself a check: `pnpm test && sed -i s/a/b/ f`. A line the lexer cannot read
+ * to the end counts, because what it runs is not known.
+ */
+function changesBeyondChecks(line: string, hostIsCheck?: (command: string) => boolean): boolean {
+	const lexed = lexShellCommandLine(line)
+	if (!lexed.complete || lexed.opaque) return true
+	for (const command of lexed.commands) {
+		const values = command.words.slice(command.assignments).map((word) => word.value)
+		const program = (values[0] ?? '').split('/').pop() ?? ''
+		const isCheck =
+			!NOT_A_RUNNER.has(program) &&
+			!establishesNothing(values) &&
+			isNamedCheck(command.text, hostIsCheck)
+		if (isCheck) continue
+		if (isReadOnlyCommandLine(command.text)) continue
+		return true
+	}
+	return false
+}
+
 /** Whether some simple command of the line is a recognised check that is not merely named. */
 function runsRecognisedCheck(line: string, hostIsCheck?: (command: string) => boolean): boolean {
-	const named = (text: string): boolean => {
-		if (isVerificationCommand(text)) return true
-		try {
-			return hostIsCheck?.(text) === true
-		} catch {
-			return false
-		}
-	}
 	const lexed = lexShellCommandLine(line)
-	if (!lexed.complete || lexed.opaque) return named(line)
+	if (!lexed.complete || lexed.opaque) {
+		return !establishesNothing(line.trim().split(/\s+/)) && isNamedCheck(line, hostIsCheck)
+	}
 	for (const command of lexed.commands) {
-		const head = command.words[command.assignments]
-		const program = head === undefined ? '' : (head.value.split('/').pop() ?? head.value)
+		const values = command.words.slice(command.assignments).map((word) => word.value)
+		const program = (values[0] ?? '').split('/').pop() ?? ''
 		if (NOT_A_RUNNER.has(program)) continue
-		if (named(command.text)) return true
+		if (establishesNothing(values)) continue
+		if (isNamedCheck(command.text, hostIsCheck)) return true
 	}
 	return false
 }
@@ -195,6 +270,10 @@ export class OutcomeLedger {
 	private startFingerprint: string | null = null
 	private readonly paths = new Set<string>()
 	private extraPaths = 0
+	/** Successful writes whose path could not be read; each is a change that cannot be named. */
+	private pathless = 0
+	/** A call ran that could change the workspace and is not a write tool: only the detector could say whether it did. */
+	private couldHaveChangedUnseen = false
 	private writes = 0
 	private readonly checks = new Map<string, CheckState>()
 	private unrecorded = false
@@ -229,6 +308,8 @@ export class OutcomeLedger {
 		this.startFingerprint = parsed.startFingerprint
 		for (const path of parsed.paths) this.paths.add(path)
 		this.writes = parsed.writes
+		this.pathless = parsed.pathless ?? 0
+		this.couldHaveChangedUnseen = parsed.unseen === true
 		this.checks.clear()
 		for (const check of parsed.checks) {
 			this.checks.set(check.key, { ...check, fingerprint: check.fingerprint })
@@ -243,6 +324,8 @@ export class OutcomeLedger {
 			startFingerprint: this.startFingerprint,
 			paths: [...this.paths],
 			writes: this.writes,
+			unseen: this.couldHaveChangedUnseen,
+			pathless: this.pathless,
 			checks: [...this.checks.values()].map((check) => ({
 				key: check.key,
 				command: check.command,
@@ -326,10 +409,17 @@ export class OutcomeLedger {
 				this.afterEveryCheck('other')
 				for (const check of pending) check.fingerprint = null
 				pending = []
-				pending.push(this.recordCheck(step, command, call))
+				const state = this.recordCheck(step, command, call)
+				// `pnpm test && sed -i ...`: the line changed something after the check.
+				if (changesBeyondChecks(command, this.config.isCheck)) {
+					state.afterUnknown = true
+					this.couldHaveChangedUnseen = true
+				}
+				pending.push(state)
 				continue
 			}
 			if (this.couldChange(call)) {
+				this.couldHaveChangedUnseen = true
 				this.afterEveryCheck('other')
 				for (const check of pending) check.fingerprint = null
 				pending = []
@@ -351,7 +441,10 @@ export class OutcomeLedger {
 	private recordWrite(call: OutcomeCall): void {
 		this.writes += 1
 		const path = pathOf(call)
-		if (path === undefined) return
+		if (path === undefined) {
+			this.pathless += 1
+			return
+		}
 		const clipped = clip(path, OUTCOME_MAX_PATH_CHARS)
 		if (this.paths.has(clipped)) return
 		if (this.paths.size >= MAX_REMEMBERED_PATHS) {
@@ -375,6 +468,10 @@ export class OutcomeLedger {
 			// Not asked for yet: `undefined` until the step's detector call answers.
 			fingerprint: undefined,
 		}
+		// A failure stands until the same command passes. A later run that never
+		// settled (background, timed out) says nothing about the failure.
+		const earlier = this.checks.get(key)
+		if (earlier?.result === 'failed' && state.result !== 'passed') return earlier
 		// Latest run of each distinct command, ordered by when it last ran.
 		this.checks.delete(key)
 		this.checks.set(key, state)
@@ -439,6 +536,9 @@ export class OutcomeLedger {
 		// A write tool that succeeded changed something, even a file the detector
 		// cannot see (an ignored one). Counting it is the cautious direction.
 		const changed = this.writes > 0 || moved
+		// Without the workspace, a shell command or another tool that may have
+		// changed files cannot be ruled out, so "nothing changed" is not said.
+		const unseen = !workspace && this.couldHaveChangedUnseen
 
 		const all = [...this.checks.values()]
 		const freshOf = (check: CheckState): boolean | undefined => {
@@ -453,13 +553,14 @@ export class OutcomeLedger {
 		let verdict: TurnOutcomeVerdict
 		const passes = rows.filter((row) => row.check.result === 'passed')
 		if (rows.some((row) => row.check.result === 'failed')) verdict = 'failing'
-		else if (!changed) verdict = 'unchanged'
+		else if (!changed) verdict = unseen ? 'unknown' : 'unchanged'
 		else if (rows.length === 0) verdict = 'unchecked'
 		else if (passes.some((row) => row.fresh === true)) verdict = 'checked'
 		else if (passes.length > 0 && passes.every((row) => row.fresh === false)) verdict = 'stale'
 		else verdict = 'inconclusive'
 
-		const total = this.paths.size + this.extraPaths
+		// A write tool whose path could not be read still changed something.
+		const total = this.paths.size + this.extraPaths + this.pathless
 		const kept = rows.slice(-OUTCOME_MAX_CHECKS)
 		const checks: TurnOutcomeCheck[] = kept.map(({ check, fresh }) => ({
 			command: check.command,
@@ -491,6 +592,13 @@ function parseSnapshot(value: unknown): OutcomeLedgerSnapshot | undefined {
 	if (!Array.isArray(snap.paths) || !snap.paths.every((p) => typeof p === 'string'))
 		return undefined
 	if (typeof snap.writes !== 'number' || !Number.isSafeInteger(snap.writes) || snap.writes < 0) {
+		return undefined
+	}
+	if (snap.unseen !== undefined && typeof snap.unseen !== 'boolean') return undefined
+	if (
+		snap.pathless !== undefined &&
+		(typeof snap.pathless !== 'number' || !Number.isSafeInteger(snap.pathless) || snap.pathless < 0)
+	) {
 		return undefined
 	}
 	if (!Array.isArray(snap.checks)) return undefined

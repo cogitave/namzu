@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { TurnOutcomeConfig } from '../../../../types/session/outcome.js'
+import { type TurnOutcomeConfig, TurnOutcomeSchema } from '../../../../types/session/outcome.js'
 import type { ToolFacts } from '../../../../types/tool/index.js'
 import { type OutcomeCall, OutcomeLedger } from '../outcome-ledger.js'
 
@@ -584,5 +584,105 @@ describe('across a checkpoint', () => {
 		const asked = state.asked
 		expect(await ledger.finish()).toBe(first)
 		expect(state.asked).toBe(asked)
+	})
+})
+
+describe('what a turn cannot honestly claim', () => {
+	it('a shell command that may have changed files is never reported as nothing changed', async () => {
+		const outcome = await turn(new OutcomeLedger(), [[bash('sed -i s/a/b/ f')]])
+		expect(outcome?.verdict).toBe('unknown')
+		expect(outcome?.basis).toBe('calls')
+	})
+
+	it('the same when a detector was configured but could not answer at the end', async () => {
+		const { state, config } = workspace('A')
+		const ledger = new OutcomeLedger(config)
+		await ledger.before([bash('sed -i s/a/b/ f')])
+		await ledger.observe(1, [bash('sed -i s/a/b/ f')])
+		state.fingerprint = null
+		await ledger.before([bash('pnpm test')])
+		await ledger.observe(2, [bash('pnpm test')])
+		const outcome = await ledger.finish()
+		expect(outcome?.basis).toBe('calls')
+		expect(outcome?.verdict).toBe('unknown')
+	})
+
+	it('read-only commands and a plain check still leave a turn unchanged', async () => {
+		const outcome = await turn(new OutcomeLedger(), [[bash('git status')], [bash('pnpm test')]])
+		expect(outcome?.verdict).toBe('unchanged')
+	})
+
+	it('survives a checkpoint', async () => {
+		const first = new OutcomeLedger()
+		await first.observe(1, [bash('sed -i s/a/b/ f')])
+		const second = new OutcomeLedger()
+		second.restore(first.snapshot())
+		expect((await second.finish())?.verdict).toBe('unknown')
+	})
+
+	it('a write tool with no readable path still counts as a change', async () => {
+		const outcome = await turn(new OutcomeLedger(), [
+			[{ toolName: 'apply_patch', input: { patch: 'x' } }],
+		])
+		expect(outcome?.verdict).toBe('unchecked')
+		expect(outcome?.changes.total).toBe(1)
+	})
+
+	it('a path longer than the bound still fits the schema', async () => {
+		const outcome = await turn(new OutcomeLedger(), [[edit('p'.repeat(400))]])
+		expect(TurnOutcomeSchema.safeParse(outcome).success).toBe(true)
+	})
+
+	it('a failed check is not cleared by a later run of it that never settled', async () => {
+		const outcome = await turn(new OutcomeLedger(), [
+			[edit('a.ts')],
+			[failedBash('pnpm test')],
+			[bash('pnpm lint')],
+			[bash('pnpm test', { background: true })],
+		])
+		expect(outcome?.verdict).toBe('failing')
+	})
+
+	it('a failed check is cleared when the same command then passes', async () => {
+		const outcome = await turn(new OutcomeLedger(), [
+			[edit('a.ts')],
+			[failedBash('pnpm test')],
+			[bash('pnpm test')],
+		])
+		expect(outcome?.verdict).toBe('checked')
+	})
+
+	it.each([
+		'pnpm add -D lint-staged',
+		'pnpm --filter sdk add lint-staged',
+		'npm install eslint',
+		'npm install test-utils',
+		'tsc --version',
+		'eslint --help',
+		'pnpm test --help',
+		'vitest --listTests',
+	])('%s is not a check', async (command) => {
+		const outcome = await turn(new OutcomeLedger(), [[edit('a.ts')], [bash(command)]])
+		expect(outcome?.checks).toEqual([])
+		expect(outcome?.verdict).toBe('unchecked')
+	})
+
+	it('pytest -v is still a check', async () => {
+		const outcome = await turn(new OutcomeLedger(), [[edit('a.ts')], [bash('pytest -v')]])
+		expect(outcome?.verdict).toBe('checked')
+	})
+
+	it.each(['pnpm test && sed -i s/a/b/ f', 'pnpm test && git checkout .'])(
+		'a check followed by a change in the same line is not fresh: %s',
+		async (command) => {
+			const outcome = await turn(new OutcomeLedger(), [[edit('a.ts')], [bash(command)]])
+			expect(outcome?.verdict).toBe('inconclusive')
+			expect(outcome?.checks[0]?.fresh).toBeUndefined()
+		},
+	)
+
+	it('a check chained after a folder change is still fresh', async () => {
+		const outcome = await turn(new OutcomeLedger(), [[edit('a.ts')], [bash('cd pkg && pnpm test')]])
+		expect(outcome?.verdict).toBe('checked')
 	})
 })

@@ -19,6 +19,11 @@ export type TurnOutcomeVerdict =
 	| 'inconclusive'
 	/** Changed; no check ran. */
 	| 'unchecked'
+	/**
+	 * Whether anything changed cannot be told: no write tool ran, but a command
+	 * that may have changed files did, and no workspace detector answered.
+	 */
+	| 'unknown'
 
 /** What one check established. */
 export type TurnOutcomeCheckResult =
@@ -56,7 +61,7 @@ export interface TurnOutcome {
 	 */
 	readonly basis: 'calls' | 'workspace'
 	readonly changes: {
-		/** Distinct paths the turn's write tools changed. */
+		/** Distinct paths the turn's write tools changed, or the number of write calls when some had no path. */
 		readonly total: number
 		/** The first of them, bounded. */
 		readonly paths: readonly string[]
@@ -92,7 +97,15 @@ export const OUTCOME_MAX_COMMAND_CHARS = 300
 export const OUTCOME_MAX_PATH_CHARS = 300
 export const OUTCOME_DEFAULT_DETECT_TIMEOUT_MS = 3000
 
-const verdict = z.enum(['unchanged', 'checked', 'stale', 'failing', 'inconclusive', 'unchecked'])
+const verdict = z.enum([
+	'unchanged',
+	'checked',
+	'stale',
+	'failing',
+	'inconclusive',
+	'unchecked',
+	'unknown',
+])
 const count = z.number().int().nonnegative().safe()
 
 /** The shape a recorded outcome must have to be written to, or read back from, the session log. */
@@ -103,7 +116,8 @@ export const TurnOutcomeSchema: z.ZodType<TurnOutcome, unknown> = z
 		changes: z
 			.object({
 				total: count,
-				paths: z.array(z.string().max(OUTCOME_MAX_PATH_CHARS)).max(OUTCOME_MAX_PATHS),
+				// One more than the bound: a clipped path ends in an ellipsis.
+				paths: z.array(z.string().max(OUTCOME_MAX_PATH_CHARS + 1)).max(OUTCOME_MAX_PATHS),
 				outsideKnownTools: z.boolean(),
 			})
 			.strict(),

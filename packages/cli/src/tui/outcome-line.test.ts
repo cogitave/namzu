@@ -128,4 +128,16 @@ describe('the line a turn ends with', () => {
 		expect(line?.length).toBeLessThan(140)
 		expect(line).toContain('…')
 	})
+
+	it('says so when it cannot be told whether files changed', () => {
+		expect(outcomeLine(outcome({ verdict: 'unknown', changes: none, checks: [] }))).toBe(
+			'A command ran that may have changed files · cannot tell',
+		)
+	})
+
+	it('never says no files changed for a turn that was only not checked', () => {
+		expect(outcomeLine(outcome({ verdict: 'unchecked', changes: none, checks: [] }))).toBe(
+			'Changed files · not checked',
+		)
+	})
 })
