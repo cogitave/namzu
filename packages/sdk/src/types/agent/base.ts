@@ -234,6 +234,8 @@ export interface BaseAgentConfig {
 	completionAudit?: boolean
 	/** Consecutive end-of-turn hook refusals honoured; see {@link import('../session/config.js').TurnConfig.maxHookRefusals}. */
 	maxHookRefusals?: number
+	/** The outcome record's hooks; see {@link import('../session/config.js').TurnConfig.outcome}. */
+	outcome?: import('../session/config.js').TurnConfig['outcome']
 
 	/**
 	 * Deduplicate a retried invocation instead of running it twice.
@@ -413,6 +415,8 @@ export interface BaseAgentResult {
 	durationMs: number
 	messages: Message[]
 	result?: string
+	/** What the turn changed and what checked it; see {@link import('../session/turn.js').Turn.outcome}. */
+	outcome?: import('../session/outcome.js').TurnOutcome
 	/**
 	 * The schema-validated answer, when the turn was configured to produce one.
 	 *

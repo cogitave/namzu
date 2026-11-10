@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { type TokenUsage, accumulateTokenUsage, mergeTokenUsage } from './index.js'
+import { type TokenUsage, accumulateTokenUsage, mergeTokenUsage, promptSizeOf } from './index.js'
 
 const zero: TokenUsage = {
 	promptTokens: 0,
@@ -70,5 +70,31 @@ describe('reasoning usage survives streamed and ledger snapshots', () => {
 			cacheWriteTokens: 0,
 		}
 		expect(mergeTokenUsage(initial, later)).toMatchObject({ totalTokens: 35, reasoningTokens: 15 })
+	})
+})
+
+describe('promptSizeOf (the whole prompt of one call)', () => {
+	it('falls back to promptTokens when the driver includes cache in it', () => {
+		expect(promptSizeOf({ ...zero, promptTokens: 900, cachedTokens: 800 })).toBe(900)
+	})
+
+	it('reads fullPromptTokens when the driver keeps cache tokens apart', () => {
+		// A warm call on such a driver: 4 uncached input tokens beside 26k of cache.
+		const warm: TokenUsage = {
+			...zero,
+			promptTokens: 4,
+			cachedTokens: 26378,
+			cacheWriteTokens: 163,
+			fullPromptTokens: 26545,
+		}
+		expect(promptSizeOf(warm)).toBe(26545)
+	})
+
+	it('is a per-call fact: merged by max within a call, dropped from a sum across calls', () => {
+		const a: TokenUsage = { ...zero, promptTokens: 4, fullPromptTokens: 100 }
+		const b: TokenUsage = { ...zero, promptTokens: 4, fullPromptTokens: 120 }
+		expect(mergeTokenUsage(a, b).fullPromptTokens).toBe(120)
+		expect(mergeTokenUsage(a, zero).fullPromptTokens).toBe(100)
+		expect(accumulateTokenUsage(a, b).fullPromptTokens).toBeUndefined()
 	})
 })

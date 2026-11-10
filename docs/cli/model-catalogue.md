@@ -67,7 +67,7 @@ precedence over a stale endpoint cell for the exact affected models.
    last-good copy, otherwise the bundled catalogue. It logs one line saying
    which one it kept and why. Being offline, a blocked host or a slow answer is
    a normal state and the line is `debug` (the reason is on it); a source that
-   answered and was wrong (moved, no longer parses) stays a `warn`.
+   answered and was wrong (moved, no longer parses) is a `warn`, once per cache period (six hours): the time of the last warning is kept in `cli/zen-catalogue-failed.json` under the application home, launches inside the period log the same line at `debug`, and a refresh that lands removes the record. The Zen and Zen Go pages are read from `services/site/src/docs/content/console/` in the upstream repository.
 
 The catalogue is used whole or not at all. A half-written, edited or
 wrong-version copy on disk is refused with one `warn` line and ignored, never

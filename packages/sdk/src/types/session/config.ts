@@ -115,6 +115,17 @@ export interface TurnConfig {
 	 * positive integer sets the limit.
 	 */
 	maxHookRefusals?: number
+	/**
+	 * The turn's outcome record: what changed, what was run to check it, and
+	 * whether the last word of each check was said about the workspace as the
+	 * turn left it (`Turn.outcome`).
+	 *
+	 * The record is kept whether or not this is set, from the kernel's own write
+	 * tools alone. A host that names `detectChanges` gets the workspace itself
+	 * compared at the start, after each check and at the end, so a change made
+	 * by a shell command is seen. It never blocks or prolongs a turn.
+	 */
+	outcome?: import('./outcome.js').TurnOutcomeConfig
 	/** Provider-hosted search for this turn. Explicit opt-in; no local network permission. */
 	webSearch?: import('../provider/index.js').ChatCompletionParams['webSearch']
 	/** Cumulative parent-and-descendant tokens; 0 is unlimited with usage accounting. */

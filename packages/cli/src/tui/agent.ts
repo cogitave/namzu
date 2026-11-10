@@ -1,6 +1,7 @@
 import { debugRequested } from '../debug-requested.js'
 import { isDefaultAccountId } from '../integrations/accounts/binding.js'
 import { resolveIdleCompactionMinTokens } from '../integrations/compaction/idle-compaction.js'
+import { changeDetectorFor } from '../integrations/outcome/change-detector.js'
 import { createCurrentCredentialReader } from '../integrations/providers/current-credential.js'
 import { TextOnlyModels } from '../integrations/providers/image-input.js'
 import { promptCacheTtl, setPromptCacheTtl } from '../integrations/providers/prompt-cache-ttl.js'
@@ -155,6 +156,7 @@ import {
 	type Toolset,
 	type TopicId,
 	type TurnId,
+	type TurnOutcome,
 	WebFetchTool,
 	abandonTurn,
 	asTaskId,
@@ -694,6 +696,17 @@ export type AgentEvent =
 			/** The output share of `totalTokens`: what the model has written this turn. */
 			readonly outputTokens?: number
 			/**
+			 * The input share of `totalTokens`, cumulative for the turn. For a
+			 * driver that keeps cache tokens apart this is
+			 * only the uncached remainder: add the two cache figures below for
+			 * what the model was sent.
+			 */
+			readonly inputTokens?: number
+			/** Input tokens served from the prompt cache, cumulative for the turn. */
+			readonly cacheReadTokens?: number
+			/** Input tokens written to the prompt cache, cumulative for the turn. */
+			readonly cacheWriteTokens?: number
+			/**
 			 * The prompt cache after this model call, when the driver reports how
 			 * long it lives. Absent means unknown; nothing may assume a lifetime.
 			 */
@@ -895,6 +908,8 @@ export type AgentEvent =
 			readonly text?: string
 			readonly stopReason?: StopReason
 			readonly budget?: SessionTokenBudgetSummary
+			/** What the turn changed and what checked it, from the kernel's own record of its calls. */
+			readonly outcome?: TurnOutcome
 	  }
 	| {
 			/** A recoverable turn stopped with an addressable checkpoint. */
@@ -4477,6 +4492,8 @@ export async function createAgentSession(
 						void subagentRuntime?.sideLedger.chargeLater({
 							turnId,
 							sessionId,
+							// Already spent: the ledger books `usage` as it is and uses the estimate only to
+							// admit the charge, so the uncached count, not the whole prompt, keeps it admitted.
 							estimatedPromptTokens: usage.promptTokens,
 							usage,
 						})
@@ -5009,6 +5026,8 @@ export async function createAgentSession(
 		void subagentRuntime?.sideLedger.chargeLater({
 			turnId: latestTurn.turnId,
 			sessionId,
+			// Already spent: the ledger books `usage` as it is and uses the estimate only to
+			// admit the charge, so the uncached count, not the whole prompt, keeps it admitted.
 			estimatedPromptTokens: usage.promptTokens,
 			usage,
 		})
@@ -5534,7 +5553,13 @@ export async function createAgentSession(
 						...(route?.effort ? { effort: route.effort } : {}),
 						...(resumeWebSearch ? { webSearch: resumeWebSearch } : {}),
 						...(sandbox.provider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
-						...turnConfigFields(resumedLimits, { completionAudit: true }),
+						...turnConfigFields(resumedLimits, {
+							completionAudit: true,
+							detectChanges: changeDetectorFor(cwd, {
+								active: Boolean(sandbox.provider),
+								workspace: sandboxWorkspace,
+							}),
+						}),
 						maxResponseTokens: resumedLimits.maxResponseTokens ?? 8192,
 						permissionMode: 'auto',
 						pruneKeepLast: CLI_CHECKPOINT_RETENTION,
@@ -8112,7 +8137,13 @@ async function* runTurn({
 				...(opts?.effort !== undefined ? { effort: opts.effort } : {}),
 				...(opts?.speed === 'fast' ? { speed: opts.speed } : {}),
 				...(webSearch ? { webSearch } : {}),
-				...turnConfigFields(resolveTurnGuards(limits), { completionAudit: true }),
+				...turnConfigFields(resolveTurnGuards(limits), {
+					completionAudit: true,
+					detectChanges: changeDetectorFor(workingDirectory, {
+						active: Boolean(sandboxProvider),
+						workspace: sandboxWorkspace,
+					}),
+				}),
 				maxResponseTokens: limits?.maxResponseTokens ?? 8192,
 				permissionMode: 'auto',
 				// The kernel keeps every checkpoint unless told otherwise.
@@ -8860,6 +8891,9 @@ export function toAgentEvent(
 				...(event.turnId ? { turnId: event.turnId } : {}),
 				totalTokens: event.usage.totalTokens,
 				outputTokens: event.usage.completionTokens,
+				inputTokens: event.usage.promptTokens,
+				cacheReadTokens: event.usage.cachedTokens,
+				cacheWriteTokens: event.usage.cacheWriteTokens,
 				...(event.cache ? { cache: event.cache } : {}),
 				...(event.cacheMiss ? { cacheMiss: event.cacheMiss } : {}),
 				...(event.budget ? { budget: event.budget } : {}),
@@ -8991,6 +9025,7 @@ export function toAgentEvent(
 				text: event.result,
 				...(event.budget ? { budget: event.budget } : {}),
 				...(event.stopReason ? { stopReason: event.stopReason } : {}),
+				...(event.settlement?.outcome ? { outcome: event.settlement.outcome } : {}),
 			}
 		case 'turn_failed':
 			// Keep the compatibility string and the structure. Prefixing the

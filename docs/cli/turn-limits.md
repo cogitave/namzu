@@ -102,6 +102,22 @@ A turn that changed files and tries to end without running a test, lint, format 
 
 A `turn_end` or `subagent_stop` hook can refuse to let a turn end ([Hooks](../sdk/hooks.md#a-hook-that-keeps-refusing-to-let-a-turn-end)). After `limits.maxHookRefusals` refusals in a row (default 8; `0` removes the limit and restores the old behaviour, where only `maxIterations` ends such a loop) Namzu ends the turn anyway and records one message naming the hook. A tool call between refusals starts the count over. A hook that refuses fewer times is not affected.
 
+## What a turn says it changed
+
+A turn that changed something, or ran a check that failed, ends with one quiet line in the conversation, in plain words, from the kernel's record of the turn's own tool calls ([Turn outcome](../sdk/turn-outcome.md)). A turn that changed nothing prints nothing. The line works the same in fullscreen mode.
+
+```text
+Changed 4 files · checked: pnpm test passed, nothing changed since
+Changed 4 files · not checked
+Changed 4 files · pnpm test failed
+Changed 4 files · pnpm test passed, then files changed again
+Changed 4 files · ran pnpm test | tail -5, but the pipe hides whether it passed
+```
+
+"Checked" says a recognised check passed and nothing changed after it; it does not say the check covers the change. When the working folder is a git repository and the tools run there, shell commands are seen too. In a folder git cannot read, with a sandbox that works in a copy of its own, or in an isolated child worktree, only the edit tools are, and a change made by a shell command is not.
+
+`namzu exec --output-format json` has the record as `outcome` on its result, and `exec --json` puts it on the `done` line ([exec --json](exec-json.md)). A delegated agent's result names its record in one line after the agent's own words.
+
 ## Spend limit
 
 A turn can be stopped by what it has spent as well as by how long it ran. `limits.costLimitUsd` (a number of dollars, `0` or omitted for none) applies to interactive turns and to `exec` and `drain` (a scheduled run keeps the budget of its job), and `namzu exec --max-budget-usd 2.50` sets it for one run, `exec --json` included. The flag takes a number above zero; the config key takes `0` to lift a limit a lower layer set.

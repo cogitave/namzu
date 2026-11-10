@@ -42,6 +42,7 @@ export type {
 } from './sub-session.js'
 
 export * from './turn.js'
+export * from './outcome.js'
 export * from './config.js'
 export * from './events.js'
 export * from './records.js'

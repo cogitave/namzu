@@ -265,6 +265,11 @@ bytes and hashes and are not reclassified from their text. See
 | `budget_bound` | `rootSessionId`, `rootTurnId`, `accountId` |
 | `account_bound` | `accountId`, `provider`, `reason` (`start`, `user_switch`, `limit_switch`); see [accounts](accounts.md#session-binding) |
 | `log_repaired` | `truncatedBytes`, `lastGoodSeq` |
+| `turn_outcome_recorded` | `ignorable: true`, `outcome` (the turn's [outcome record](turn-outcome.md)); inside the turn, just before its `turn_completed` or `turn_failed` |
+| `child_outcome_recorded` | `ignorable: true`, `childSessionId`, `outcome` (the child's own [outcome record](turn-outcome.md)); in the parent's log just before the child's `child_session_ended`; `turnId` optional, as there |
+| `outcome_progress_written` | `ignorable: true`, `checkpointId`, `progress` (what the outcome record had gathered, so a resume can restore it); inside the turn, just before the `checkpoint_written` of the same `checkpointId` |
+
+The three `*outcome*` records are flagged `ignorable` and are the only place the outcome record is stored: it is not a field of `turn_completed`, `turn_failed`, `child_session_ended` or the checkpoint, because a release that validates those strictly would refuse a log or checkpoint that carried one. A release that has not heard of these types keeps them in the hash chain and skips them (see [records from a newer writer](#records-from-a-newer-writer)), so it reads the log and loses only the outcome. A test pins the key sets of those three shapes so none gains a field.
 
 ### Parks of a per-call review
 
@@ -335,7 +340,7 @@ moves the fold, which only `message`, `message_replaced` and `compaction`
 records do. The flag excuses nothing else: a known type is validated by its own
 schema whatever the flag says, an unknown type without the flag is refused so a
 record that does move the fold fails loudly, and a flagged record cannot be the
-first of a log. This release writes no ignorable records itself.
+first of a log. This release writes three, the [turn outcome](turn-outcome.md) records above; every other record it writes is one older readers know.
 
 ### Children that outlive their turn
 

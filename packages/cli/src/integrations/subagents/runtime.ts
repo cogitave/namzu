@@ -92,6 +92,7 @@ import {
 	createSystemMessage,
 	createUserMessage,
 	defineTool,
+	describeOutcomeRecord,
 	filtered,
 	formatCompletionNotification,
 	generateSummaryId,
@@ -114,6 +115,7 @@ import {
 } from '../../config/turn-guards.js'
 import { NAMZU_CHILD_WORKING_DOCTRINE } from '../../context/doctrine.js'
 import { composeMemoryGuidance } from '../../memory/typed.js'
+import { changeDetectorFor } from '../outcome/change-detector.js'
 import type { SideLedger } from '../small-model/side-model.js'
 import { CLI_CHECKPOINT_RETENTION } from '../state/retention.js'
 import { NamzuCliAgent, type NamzuCliAgentConfig } from './NamzuCliAgent.js'
@@ -1588,7 +1590,20 @@ export async function createSubagentRuntime(
 		const review = childReview(context.turnId, fileAgent?.permissionMode)
 		const resumeHandler = review.resumeHandler
 		const configOverrides = {
-			...turnConfigFields(resolveTurnGuards(opts, opts.resolveLimits?.(context.turnId))),
+			...turnConfigFields(resolveTurnGuards(opts, opts.resolveLimits?.(context.turnId)), {
+				// The child's own record of what it changed, read from the directory it
+				// shares with this session. Siblings share it too, so a child's check
+				// can read as overtaken by a sibling's edit: the cautious direction,
+				// and not something to guess at. An isolated worktree is another
+				// directory, and no detector watches it.
+				detectChanges:
+					workspace === 'worktree'
+						? undefined
+						: changeDetectorFor(opts.cwd, {
+								active: opts.sandboxProvider !== undefined,
+								workspace: opts.sandboxWorkspace ?? 'working-directory',
+							}),
+			}),
 			...(selection ? { model: selection.model, effort: selection.effort } : {}),
 			...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
 			// The parent turn's tool-result screens, so a sub-agent judges a
@@ -2046,6 +2061,7 @@ export async function createSubagentRuntime(
 					tokens,
 					toolCalls,
 					error: `The agent ended as ${status}${turn?.lastError ? `: ${turn.lastError}` : '.'}`,
+					...(turn?.outcome ? { outcome: turn.outcome } : {}),
 				}
 			}
 			return {
@@ -2054,6 +2070,8 @@ export async function createSubagentRuntime(
 				tokens,
 				toolCalls,
 				...(handle.childSessionId ? { sessionId: String(handle.childSessionId) } : {}),
+				// For the journal. The script still receives only the answer.
+				...(turn?.outcome ? { outcome: turn.outcome } : {}),
 			}
 		} catch (error) {
 			if (launch.signal.aborted) throw error
@@ -2994,7 +3012,12 @@ export async function createSubagentRuntime(
 						workspace: { mode: 'shared' },
 						configOverrides: {
 							...owned.config,
-							...turnConfigFields(resolveTurnGuards(opts, opts.resolveLimits?.(turnId))),
+							...turnConfigFields(resolveTurnGuards(opts, opts.resolveLimits?.(turnId)), {
+								detectChanges: changeDetectorFor(opts.cwd, {
+									active: opts.sandboxProvider !== undefined,
+									workspace: opts.sandboxWorkspace ?? 'working-directory',
+								}),
+							}),
 							...(() => {
 								const review = childReview(turnId, owned.declaredMode)
 								return {
@@ -3331,7 +3354,7 @@ function savedDescription(description: string): string {
 }
 
 /** Lifecycle completion is not proof the requested task finished successfully. */
-function completedAgentResult(
+export function completedAgentResult(
 	completed: TaskHandle,
 	shownTaskId: string = completed.taskId,
 ): ToolResult {
@@ -3385,7 +3408,11 @@ function completedAgentResult(
 					? `(sub-agent failed before it answered: ${plainChildFailure(turn.lastError)})`
 					: '(sub-agent failed before it answered)'),
 	)
-	const output = `task_id: ${shownTaskId}\nstatus: ${status}${workspaceLines}\n\nAgent result:\n${framed}${stopNote ? `\n\n${stopNote.trimEnd()}` : ''}`
+	// The kernel's own record of the child's turn, written outside the child's
+	// block with the other facts that are Namzu's. A line the child itself wrote
+	// stays inside the block.
+	const recordLine = turn?.outcome ? describeOutcomeRecord(turn.outcome) : undefined
+	const output = `task_id: ${shownTaskId}\nstatus: ${status}${workspaceLines}\n\nAgent result:\n${framed}${stopNote ? `\n\n${stopNote.trimEnd()}` : ''}${recordLine ? `\n\n${recordLine}` : ''}`
 	return {
 		success: succeeded,
 		output,
@@ -3400,6 +3427,7 @@ function completedAgentResult(
 			status,
 			...workspaceData(completed),
 			...(turn?.stopReason ? { stop_reason: turn.stopReason } : {}),
+			...(turn?.outcome ? { outcome: turn.outcome } : {}),
 		},
 	}
 }

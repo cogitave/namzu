@@ -224,3 +224,13 @@ it('carries the hook refusal limit into the turn, and refuses a bad one', () => 
 	).toMatchObject({ maxHookRefusals: 0 })
 	expect(() => resolveTurnGuards({ maxHookRefusals: -1 })).toThrow('maxHookRefusals')
 })
+
+it('hands the turn a change detector only when the caller has one for the directory its tools change', () => {
+	const guards = resolveTurnGuards({ tokenBudget: 10, maxIterations: 2, timeoutMs: 1000 })
+	const detect = async () => 'fingerprint'
+	expect(turnConfigFields(guards, { detectChanges: detect }).outcome).toEqual({
+		detectChanges: detect,
+	})
+	expect('outcome' in turnConfigFields(guards)).toBe(false)
+	expect('outcome' in turnConfigFields(guards, { detectChanges: undefined })).toBe(false)
+})
