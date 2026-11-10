@@ -318,6 +318,8 @@ export interface CompactionSummary {
 export interface SlashContext {
 	readonly columns?: number
 	readonly webSearchSummary?: string
+	/** The decision model's one-line state, when the terminal offers one. */
+	readonly decisionSummary?: string
 	readonly sessionId?: string
 
 	/** Canonical working directory owned by this TUI session. */
@@ -2308,6 +2310,9 @@ export function statusRows(ctx: SlashContext): [string, string][] {
 		['Permissions', permissionModeLabel(permissions)],
 		['Sandbox', sandboxInWords(ctx.sandbox)],
 		['Web search', ctx.webSearchSummary ?? 'Not set up yet'],
+		...(ctx.decisionSummary !== undefined
+			? [['Decision', ctx.decisionSummary] as [string, string]]
+			: []),
 		['Instructions', ctx.instructionFiles.map((file) => homePath(file)).join(', ') || 'None'],
 	]
 	if (ctx.sandbox?.workspace)

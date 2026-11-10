@@ -209,6 +209,7 @@ export async function launchTui(
 			...(onConfirmExit ? { onConfirmExit } : {}),
 			...(beforeExit ? { beforeExit } : {}),
 			examplePrompts: true,
+			decisionSetup: {},
 			queuedHintCount: fileQueuedHintCount(),
 			tipHistory,
 		}),

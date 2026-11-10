@@ -24,6 +24,65 @@ decision:
 
 `decision` is read only from your user and managed config, never from a project's file.
 
+## Connecting a decision model
+
+You do not have to write that block. After you pick a model (at first start and with `/model`), Namzu
+asks once: "Use a decision model to make Namzu's small decisions more accurate?" with Yes, Not now and
+Don't ask again. Not now asks again after a later model pick, at most once a day; Don't ask again never
+asks again (the answer is kept in `<NAMZU_HOME>/decision-offer.json`). Nothing is asked while a decision
+model is configured, or while `NAMZU_NO_DECISION=1`.
+
+Yes opens a short flow in which you connect whatever you want; Namzu has no decision service of its own
+and sends nothing anywhere until you connect one:
+
+- **OpenRouter** (the first choice): the decision models OpenRouter lists, fetched live
+  (`GET https://openrouter.ai/api/v1/models?output_modalities=decisions`, three seconds to answer), each with
+  its price per million input tokens (`free` when it costs nothing) and its context length, starting on
+  Microsoft Decision 1 when it is listed. If Namzu already has an OpenRouter key (`OPENROUTER_API_KEY`, or the
+  key saved for the OpenRouter provider) it is used without asking and one line says so; otherwise the flow asks
+  for a key (masked) and saves it in the private credential store like any other decision key. When the list
+  cannot be loaded the flow says so and asks you to type a model, offering `microsoft/microsoft-decision-1`
+  and `typesafe/jev-1.14`. The connection is an ordinary `http` block, so nothing about the config changed:
+  `url: https://openrouter.ai/api/v1/systemone`, `model: <id>`, and `apiKeyEnv: OPENROUTER_API_KEY` when the
+  key lives in the environment (the key itself is never written to `config.yaml`). Some models want a
+  differently shaped question (for example one that rejects a yes/no question with no criteria): the test then
+  says the model does not work with Namzu's questions and asks you to pick another, and never falls back
+  to a different one by itself.
+- **Azure AI Foundry**: one field takes the portal's "Keys and Endpoint" text as it copies, or the endpoint
+  and key one at a time. The endpoint (`https://<resource>.services.ai.azure.com` or
+  `https://<resource>.cognitiveservices.azure.com`) and the key are picked out of it; key 1 is used when
+  both are pasted. A target URI that carries `/deployments/<name>/` gives the deployment too. Otherwise Namzu
+  asks the resource which deployments it has, using the key, and asks you for the name only when the
+  resource does not say. Leave the key empty to use your Azure sign-in (see
+  [the SDK page](../sdk/decision.md#signing-in-with-azure-instead-of-a-key)).
+- **My own server (HTTP)**: the address, an optional key (a local server is often keyless) and an optional
+  model name.
+
+Namzu then saves the connection and tests it with one cheap yes/no call that has three seconds to answer,
+and prints `Connected · 180 ms` or the plain reason it could not. When the service reports what the call cost
+(OpenRouter does, as `usage.cost`), the line adds it: `Connected · 310 ms · test cost $0.0000021`. The test runs even if the connection is
+wrong, so a typo is found while you are still looking at it.
+
+Where things go: the address, deployment and model are written to the `decision` block of your user
+`config.yaml` (and kept in `<NAMZU_HOME>/decision-connection.json`). The key goes to the private
+credential store (`api-keys.json`, under the id `decision`, with the same owner-only protection as a provider
+key) and never to a config file or the log. A variable the config names (`apiKeyEnv`, `tokenEnv`) still wins
+over the saved key. `/status` shows one line, `Decision`: `Not connected`, `Off (NAMZU_NO_DECISION)`, or
+`Connected` with the points that are on.
+
+**The points start as** `notify: on`, `skill: on`, `memory: shadow`, `pick: shadow`. A point is `on` at the
+start only where its worst case is small: a missed chime (`notify` never mutes a stop, a failure or an
+approval) or a withdrawn skill proposal (`skill` can only withdraw a proposal the rule already made). `memory`
+can keep a memory out of the store and `pick` can press a control through `ui_do`, so they only record, in
+[the log](#the-log), until you have read it and set them to `on`. Edit `points` in the config to change any of
+them; `off` stops the question.
+
+`decision: true` is the shorthand: it means "use the decision model I connected", with those points. If
+nothing is connected yet, the terminal shows the connect flow once when it starts. It is read only from your
+user config (a project file, the git-ignored local file and the managed file cannot say it), and the full
+`decision` block keeps working unchanged and wins when it is there. A connected model starts working in the
+running session for the points at once; the `decide` tool joins the next conversation.
+
 Each point has a one-word name: `notify` (is a finished reply worth a chime), `memory` (is what a turn learned worth
 remembering), `skill` (is a turn worth proposing as a skill) and `pick` (which control on the screen does an action
 name; a choice among controls, not a yes/no). The names they were released under

@@ -116,9 +116,30 @@ decision:
 ```
 
 Auth is declarative: the config names the environment variable that holds the
-credential (`tokenEnv`, `apiKeyEnv`) and never carries the value. The variable
-is read each time a decision is requested. Resolving a token through `az` or a
-managed identity is a deliberate future seam. A block with an unknown
+credential (`tokenEnv`, `apiKeyEnv`) and never carries the value, and a variable
+it names wins. The variable is read each time a decision is requested. With none
+named, the CLI uses the key saved when the model was connected from the terminal
+(in the private credential store, under the id `decision`; see
+[Decision points](../cli/decision-points.md#connecting-a-decision-model)): sent
+as `api-key` to an Azure resource and as a bearer token to an HTTP server, read
+once per run. An Azure block with no key at all uses an Entra token, as below.
+
+`decision: true` in the user config is shorthand for the model connected from the
+terminal, with the default points; the full block above is read as it was.
+
+### Signing in with Azure instead of a key
+
+An Azure block that names no `apiKeyEnv` and has no saved key sends an Entra
+bearer token. The token is `AZURE_FOUNDRY_TOKEN` (or the variable `tokenEnv`
+names) when it is set. With no `tokenEnv`, and the variable unset, the CLI asks
+the Azure CLI once, asynchronously (`az account get-access-token --resource
+https://cognitiveservices.azure.com`, found on `PATH`), and keeps the answer until
+five minutes before it expires, so a signed-in session renews itself. If `az` is
+not installed or not signed in, the call carries no credential and fails open like
+any other decision failure. A config that names `tokenEnv` means that variable
+only. Managed identity is not resolved.
+
+A block with an unknown
 `provider`, a missing required key or a key from the other provider is refused
 at load, like any other malformed setting. The block is file-only, never set
 from the environment, because it names an endpoint that conversation context is

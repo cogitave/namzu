@@ -31,6 +31,7 @@ import {
 	SHELL_HOOK_EVENTS,
 	resolveAutoCompactWindowSetting,
 } from '@namzu/sdk'
+import { resolveDecisionShorthand } from '../integrations/decision/connection.js'
 import { parsePrefix } from '../workspaces/prefix.js'
 
 import { parse as yamlParse } from 'yaml'
@@ -262,7 +263,20 @@ function resolveConfigWithProvenance(
 
 	const managedPath = opts.managedPath ?? MANAGED_CONFIG_PATH
 
-	const userCfg = readYamlIfExists(userPath)
+	// `decision: true` is the shorthand for the decision model the person connected from the
+	// terminal: it becomes that connection's block, or nothing when none is connected (the
+	// terminal then offers the connect flow). Only the user's own file can say it.
+	const userCfg = readYamlIfExists(userPath, (parsed) => {
+		if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return parsed
+		const mapping = parsed as Record<string, unknown>
+		if (mapping.decision !== true) return parsed
+		const { decision: _shorthand, ...rest } = mapping
+		const resolved = resolveDecisionShorthand(true, {
+			...(opts.home ? { home: opts.home } : {}),
+			env,
+		})
+		return resolved === undefined ? rest : { ...rest, decision: resolved }
+	})
 	// `decision` points the agent at a network endpoint and names the env var
 	// that holds a bearer token. A project's `namzu.config.json` is checked-in,
 	// attacker-reachable config: honouring `decision` from it would let any repo
@@ -575,7 +589,10 @@ export class ConfigValueError extends Error {
 	}
 }
 
-function readYamlIfExists(path: string): MutableConfig {
+function readYamlIfExists(
+	path: string,
+	prepare: (parsed: unknown) => unknown = (parsed) => parsed,
+): MutableConfig {
 	const raw = readIfPresent(path)
 	if (raw === null) return {}
 	let parsed: unknown
@@ -591,7 +608,7 @@ function readYamlIfExists(path: string): MutableConfig {
 			{ cause, complete: true },
 		)
 	}
-	return asConfigObject(path, parsed)
+	return asConfigObject(path, prepare(parsed))
 }
 
 /** How the project's own file is named to a person: it is the one in the folder they are in. */
