@@ -1240,6 +1240,7 @@ export {
 export { isTerminalAgentTaskState } from './types/agent/task.js'
 export {
 	accumulateTokenUsage,
+	promptSizeOf,
 	isTerminalStatus,
 } from './types/common/index.js'
 export {
