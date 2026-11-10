@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { DiskSessionLog } from '../../../store/session-log/index.js'
+import { DiskSessionLog, InMemorySessionLog } from '../../../store/session-log/index.js'
 import { testToolset } from '../../../test-support/toolset.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
 import { defineTool } from '../../../tools/defineTool.js'
@@ -147,5 +147,56 @@ describe("a tool's own output cap", () => {
 		const small = 'a short answer\nsecond line'
 		const { turn } = await run(small)
 		expect(toolText(turn, 'c1')).toBe(small)
+	})
+})
+
+describe("a tool's own output cap on the other result paths", () => {
+	const MID = 'x'.repeat(35_000) // over the tool's cap, under the turn's default
+
+	async function drive(tools: ReturnType<typeof lookup>[], calls: string[]) {
+		const sessionId = generateSessionId()
+		return drainQuery({
+			provider: new MockLLMProvider({
+				turns: [
+					...calls.map((name, i) => ({ toolCalls: [{ id: `c${i}`, name, args: {} }] })),
+					{ text: 'done' },
+				],
+			}),
+			toolsets: [testToolset(...tools)],
+			agentId: 'tool-cap',
+			agentName: 'Tool cap',
+			messages: [{ role: 'user' as const, content: 'go' }],
+			workingDirectory: tmpdir(),
+			projectId: generateProjectId(),
+			sessionId,
+			tenantId: generateTenantId(),
+			topicId: generateTopicId(),
+			turnId: generateTurnId(),
+			sessionLog: new InMemorySessionLog({ sessionId }),
+			turnConfig: { model: 'mock', tokenBudget: 1_000_000, maxIterations: 5, timeoutMs: 0 },
+			toolTimeoutMs: 0,
+			repeatCallAdvisory: false,
+		})
+	}
+
+	it('applies to a call another tool makes', async () => {
+		let nested = ''
+		const caller = defineTool({
+			name: 'caller',
+			description: 'Calls the lookup tool',
+			inputSchema: z.object({}),
+			category: 'custom',
+			permissions: [],
+			readOnly: true,
+			destructive: false,
+			concurrencySafe: true,
+			async execute(_input, context) {
+				nested = (await context.dispatchTool?.('lookup', {}))?.output ?? ''
+				return { success: true, output: 'ok' }
+			},
+		})
+		await drive([lookup(MID), caller as ReturnType<typeof lookup>], ['caller'])
+		expect(nested.length).toBeGreaterThan(0)
+		expect(nested.length).toBeLessThanOrEqual(CAP)
 	})
 })
