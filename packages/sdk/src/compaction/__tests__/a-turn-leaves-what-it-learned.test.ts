@@ -15,6 +15,28 @@ describe('consolidationEntry', () => {
 	const turnId = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId
 	const meta = { sessionId, turnId, at: 1_700_000_000_000 }
 
+	it('quotes only what the host screen lets through', () => {
+		const manager = new WorkingStateManager(CompactionConfigSchema.parse({}))
+		manager.setTask('book me a table, my card is 4111')
+		manager.addDecision('normalise with NFKD')
+		manager.addDecision('secret decision')
+		manager.addFailure('Error: ENOENT /home/me')
+		const entry = consolidationEntry(manager.getState(), meta, {
+			task: () => undefined,
+			keep: (category, text) => category !== 'failures' && !text.includes('secret'),
+		})
+		expect(entry?.title).toBe(`Learned in turn ${turnId}`)
+		expect(entry?.content).toContain('Task: (not stated)')
+		expect(entry?.content).toContain('normalise with NFKD')
+		expect(entry?.content).not.toMatch(/card|secret|ENOENT/)
+	})
+
+	it('is null when the screen drops everything', () => {
+		const manager = new WorkingStateManager(CompactionConfigSchema.parse({}))
+		manager.addFailure('Error: boom')
+		expect(consolidationEntry(manager.getState(), meta, { keep: () => false })).toBeNull()
+	})
+
 	it('is null for a turn that learned nothing', () => {
 		const manager = new WorkingStateManager(CompactionConfigSchema.parse({}))
 		manager.setTask('rename a variable')

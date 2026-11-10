@@ -5,6 +5,7 @@ import type { MemoryStore } from '../../types/memory/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { memoryFieldsSchema } from './fields.js'
+import { refuseSecret } from './secret-guard.js'
 
 export function buildSaveMemoryTool(store: MemoryStore): ToolDefinition {
 	return defineTool({
@@ -13,6 +14,7 @@ export function buildSaveMemoryTool(store: MemoryStore): ToolDefinition {
 			'Save one memory for later sessions in this project: a single fact that the code, the history and the docs do not already hold.',
 			'Choose a type: user (who the person is and how they like to work), feedback (a rule they gave about how to work), project (a fact or decision about the work), reference (where to look for something).',
 			'For feedback and project memories, write the rule or fact first, then a line starting "Why:" and a line starting "How to apply:".',
+			'Never save a secret: an API key, token, password, private key or a URL with credentials in it is refused.',
 			'Link a related memory by writing [[its-name]] in the content.',
 			'The name must be new: a name another memory holds is refused, and the reply points to update_memory.',
 			"Returns the saved memory's id and name.",
@@ -30,6 +32,8 @@ export function buildSaveMemoryTool(store: MemoryStore): ToolDefinition {
 		destructive: false,
 		concurrencySafe: true,
 		async execute({ title, summary, content, tags, name, description, type }, context) {
+			const refused = refuseSecret([title, summary, content, description, ...(tags ?? [])])
+			if (refused) return refused
 			try {
 				const { entry } = await store.create({
 					title,

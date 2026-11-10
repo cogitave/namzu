@@ -37,6 +37,25 @@ export interface ConsolidationMeta {
 
 const MAX_TASK_IN_TITLE = 72
 
+/**
+ * A host's screen over what a consolidation may quote. Without one a
+ * consolidation carries the task, decisions, discoveries and failures
+ * verbatim, which is right for a store the operator reads and wrong for one
+ * that is recalled into later prompts unreviewed.
+ */
+export interface ConsolidationScreen {
+	/**
+	 * The task as it may appear in the title and body, or `undefined` to say
+	 * it is not stated. Absent keeps the task as written.
+	 */
+	readonly task?: (task: string) => string | undefined
+	/** Whether one item may be written down. Absent keeps every item. */
+	readonly keep?: (
+		category: 'decisions' | 'discoveries' | 'failures' | 'files',
+		text: string,
+	) => boolean
+}
+
 function head(text: string, max: number): string {
 	const line = text.split('\n')[0]?.trim() ?? ''
 	return line.length <= max ? line : `${line.slice(0, max - 1)}…`
@@ -72,16 +91,22 @@ export async function isConsolidated(
 export function consolidationEntry(
 	state: WorkingState,
 	meta: ConsolidationMeta,
+	screen?: ConsolidationScreen,
 ): CreateMemoryParams | null {
-	const decisions = state.decisions.filter((d) => d.trim().length > 0)
-	const discoveries = state.discoveries.filter((d) => d.trim().length > 0)
-	const failures = state.failures.filter((f) => f.trim().length > 0)
+	const kept =
+		(category: 'decisions' | 'discoveries' | 'failures' | 'files') =>
+		(item: string): boolean =>
+			item.trim().length > 0 && (screen?.keep?.(category, item) ?? true)
+	const decisions = state.decisions.filter(kept('decisions'))
+	const discoveries = state.discoveries.filter(kept('discoveries'))
+	const failures = state.failures.filter(kept('failures'))
 	if (decisions.length + discoveries.length + failures.length === 0) return null
 
-	const task = state.task.trim()
+	const task = (screen?.task ? (screen.task(state.task.trim()) ?? '') : state.task).trim()
 	const files = [...state.files.values()]
 		.filter((slot) => slot.actions.some((a) => a.type !== 'read'))
 		.map((slot) => slot.path)
+		.filter(kept('files'))
 	const section = (name: string, items: readonly string[]): string[] =>
 		items.length === 0 ? [] : [`## ${name}`, '', ...items.map((item) => `- ${item}`), '']
 	const content = [

@@ -216,6 +216,8 @@ export type {
 	Identifiable,
 	MarkdownMemoryStoreConfig,
 	MemoryContentRejection,
+	SecretScanOptions,
+	SecretShape,
 	MemoryImportOutcome,
 	RenderedMemoryIndex,
 	MemoryOrigin,
