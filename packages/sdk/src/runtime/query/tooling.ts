@@ -32,6 +32,8 @@ export interface ToolingBootstrapConfig {
 	scratchpadDirectory?: string
 	/** See `QueryParams.outsideRootAccess`. */
 	outsideRootAccess?: 'refuse' | 'review'
+	/** See `QueryParams.outsideRootRefusal`. */
+	outsideRootRefusal?: string
 	/** See `QueryParams.sandboxEscape`. */
 	sandboxEscape?: 'refuse' | 'review'
 	/** A resolver, so an approval inside a turn can change it. See the executor. */
@@ -103,6 +105,7 @@ export class ToolingBootstrap {
 					: {}),
 				...(config.scratchpadDirectory ? { scratchpadDirectory: config.scratchpadDirectory } : {}),
 				...(config.outsideRootAccess ? { outsideRootAccess: config.outsideRootAccess } : {}),
+				...(config.outsideRootRefusal ? { outsideRootRefusal: config.outsideRootRefusal } : {}),
 				...(config.sandboxEscape ? { sandboxEscape: config.sandboxEscape } : {}),
 				permissionMode: config.permissionMode,
 				env: config.env,

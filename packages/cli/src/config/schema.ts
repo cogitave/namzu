@@ -393,7 +393,7 @@ export interface NamzuCliConfig {
 	readonly permissionLayers?: readonly PermissionsConfig[]
 	/**
 	 * The mode settings written beside the tool rules in the `permissions`
-	 * table (`defaultMode`, `disableBypassMode`, `disableAutoMode`, `autoMode`),
+	 * table (`defaultMode`, `disableBypassMode`, `disableAutoMode`, `outsideRoot`, `autoMode`),
 	 * lifted out and combined by the loader with each file's authority applied:
 	 * a project file cannot make `bypass` or `auto` the default. Never read from
 	 * a file as a key of its own.
