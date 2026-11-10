@@ -106,6 +106,7 @@ import { setFileSortLocale } from './project-files.js'
 import { ProjectNameStore } from './project-names.js'
 import { recoveryCardPage, recoveryCardUrl } from './recovery-card.js'
 import { selectRendererPage } from './renderer-page.js'
+import { restoreProjects } from './restore-projects.js'
 import { RunningReplyGuard } from './running-reply-guard.js'
 import {
 	desktopCliPrefix,
@@ -114,6 +115,7 @@ import {
 } from './runtime-node-args.js'
 import { readRuntimeVersions } from './runtime-versions.js'
 import { SettingsConfirmation } from './settings-confirmation.js'
+import { runShutdown } from './shutdown-sequence.js'
 import { SidebarSnapshotStore } from './sidebar-snapshot-store.js'
 import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
 import { SupersededConversationSettingsError } from './superseded-settings.js'
@@ -123,6 +125,7 @@ import { engineHost, findProgram, shellEnvironment } from './terminal-env.js'
 import { TerminalHub } from './terminal-hub.js'
 import { TerminalTabStore } from './terminal-tab-store.js'
 import { TrustedFolderStore, createFolderTrustGuard } from './trusted-folders.js'
+import { clearInstalledPending } from './updater-cache.js'
 import {
 	type AutoUpdaterLike,
 	UpdateController,
@@ -162,6 +165,15 @@ Object.assign(
 	}),
 )
 const diagnostics = new DesktopDiagnostics(app.getPath('userData'))
+/** The first time each of these happens, with how long after the process started: the open and quit timeline. */
+const timeline = new Set<string>()
+function recordOnce(
+	event: 'window_shown' | 'engine_ready' | 'conversations_listed' | 'quit_requested',
+): void {
+	if (timeline.has(event)) return
+	timeline.add(event)
+	diagnostics.record(event, { elapsedMs: Math.round(process.uptime() * 1000) })
+}
 diagnostics.record('started', {
 	engine:
 		process.env.NAMZU_PAL_COMPUTER_ENGINE === undefined
@@ -1314,7 +1326,11 @@ function register(): void {
 	handleWindow('trustProject', ({ id: windowId }, id: string, token?: string) =>
 		folderAccess.confirm(windowId, id, token),
 	)
-	handle('conversations', (id: string) => operator.listConversations(id))
+	handle('conversations', async (id: string) => {
+		const listed = await operator.listConversations(id)
+		recordOnce('conversations_listed')
+		return listed
+	})
 	handleWindow('newConversation', async ({ id: windowId }, id: string) => {
 		const before = workspace.view(windowId)
 		const groupId =
@@ -1645,7 +1661,10 @@ async function createWindow(
 			terminals.releaseWindow(windowId)
 		}
 	})
-	window.once('ready-to-show', () => window.show())
+	window.once('ready-to-show', () => {
+		window.show()
+		recordOnce('window_shown')
+	})
 	// Showing, hiding and minimising change which conversations a person can see.
 	window.on('show', reconcileViewed)
 	window.on('hide', reconcileViewed)
@@ -1749,6 +1768,15 @@ const updates = new UpdateController({
 	feed: updateFeed,
 	autoDownload: () => settingsStore.get().autoDownloadUpdates,
 	currentVersion: app.getVersion(),
+	// electron-updater leaves each installed update's installer (about 500 MB) in its cache.
+	onUpToDate: () => {
+		if (process.platform !== 'win32' || !process.env.LOCALAPPDATA) return
+		const removed = clearInstalledPending(
+			join(process.env.LOCALAPPDATA, 'namzu-updater'),
+			app.getVersion(),
+		)
+		if (removed > 0) diagnostics.record('update_cache_cleared', { count: removed })
+	},
 	mainBlockers: () => {
 		// A closed window can no longer be busy.
 		updates.retainWindows(windows.entries().map(([id]) => id))
@@ -1893,22 +1921,26 @@ let shutdownRun: Promise<void> | undefined
 /** Our graceful stop, shared by every way out: a normal quit and an app update. */
 function shutdown(): Promise<void> {
 	if (stopped) return Promise.resolve()
+	recordOnce('quit_requested')
 	if (shutdownRun) return shutdownRun
 	quitting = true
 	sidebarSnapshot.flush()
 	// The terminals' last screens are read from their hosts, so they go before the hosts do.
-	shutdownRun = voiceInput
-		.stopAll('quit')
-		.then(() => terminals.shutdown())
-		.catch((error: unknown) => diagnostics.record('shutdown_failed', { error }))
-		.then(() => Promise.all([operator.close(), localSpeech.dispose(), localListening.dispose()]))
-		.then(() =>
-			palComputerIdle
-				.stopForQuit()
-				.catch((error: unknown) => diagnostics.record('shutdown_failed', { error })),
-		)
-		.then(async () => {
-			await streamProxy.shutdown()
+	shutdownRun = runShutdown({
+		stopListening: () => voiceInput.stopAll('quit'),
+		shutdownTerminals: () => terminals.shutdown(),
+		closeRuntimes: () => operator.close(),
+		disposeSpeech: () => localSpeech.dispose(),
+		disposeListening: () => localListening.dispose(),
+		stopComputer: () => palComputerIdle.stopForQuit(),
+		closeStreams: () => streamProxy.shutdown(),
+		record: (error) => diagnostics.record('shutdown_failed', { error }),
+		after: (ms, run) => {
+			const timer = setTimeout(run, ms)
+			return () => clearTimeout(timer)
+		},
+	})
+		.then(() => {
 			stopped = true
 		})
 		.catch((error: unknown) => {
@@ -2112,22 +2144,23 @@ void app
 		operator.expectProjects(restorePaths)
 		// The list keeps projects.json's order; the restore below may take them in another.
 		operator.setProjectOrder([...priorPaths, ...restorePaths])
-		if (saved.length) {
-			for (const layout of saved) await createWindow(layout.id, layout.bounds)
-		} else await createWindow()
+		// The saved projects start their runtimes while the windows load their page, not after.
+		const restored = restoreProjects({
+			paths: restorePaths,
+			stopped: () => quitting,
+			open: async (path) => {
+				await operator.openProject(path)
+				recordOnce('engine_ready')
+			},
+			settle: (path) => operator.settleExpectedProject(path),
+			failed: (error) => diagnostics.record('project_restore_failed', { error }),
+		})
+		// Every window is made first and they load side by side; each is shown as soon as it paints.
+		if (saved.length)
+			await Promise.all(saved.map((layout) => createWindow(layout.id, layout.bounds)))
+		else await createWindow()
 		if (process.argv.includes(CONTINUE_SETUP_FLAG)) void palComputerSetup.continueAfterRestart()
-		void (async () => {
-			for (const path of restorePaths) {
-				if (quitting) return
-				try {
-					await operator.openProject(path)
-				} catch (error) {
-					diagnostics.record('project_restore_failed', { error })
-				} finally {
-					operator.settleExpectedProject(path)
-				}
-			}
-		})()
+		void restored
 	})
 	.catch((error: unknown) => {
 		diagnostics.record('startup_failed', { error })

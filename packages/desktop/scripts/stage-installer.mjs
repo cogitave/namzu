@@ -52,6 +52,33 @@ function prune(directory, remove) {
 	}
 }
 
+/**
+ * Files in a staged node_modules that a running program never reads: source maps, type
+ * declarations, test files and the README, CHANGELOG and HISTORY notes. Licence and notice
+ * files are never matched. The TypeScript package is left whole, since its compiler reads
+ * its own lib.*.d.ts files at run time. Pure, so it is tested without staging anything.
+ */
+export function isDeadWeight(path) {
+	const parts = path.split(/[\\/]/)
+	const name = parts[parts.length - 1]
+	const index = parts.lastIndexOf('node_modules')
+	if (index >= 0 && parts[index + 1] === 'typescript') return false
+	if (/\.(map|d\.ts|d\.cts|d\.mts)$/.test(name)) return true
+	if (/\.test\.(c|m)?(j|t)s$/.test(name)) return true
+	return /^(readme|changelog|changes|history)(\.(md|markdown|txt))?$/i.test(name)
+}
+
+/** Remove the dead weight under a node_modules folder; returns how many files went. */
+export function pruneDeadWeight(directory) {
+	let removed = 0
+	prune(directory, (entry, path) => {
+		if (!entry.isFile() || !isDeadWeight(path)) return false
+		removed += 1
+		return true
+	})
+	return removed
+}
+
 async function pythonArchive(explicit, scratch) {
 	const file = explicit ?? join(scratch, PYTHON.file)
 	if (!existsSync(file)) {
@@ -218,6 +245,7 @@ async function main() {
 		throw new Error('The staged app has no sherpa-onnx win-x64 addon; local listening would not work.')
 
 	prune(join(out, 'node_modules'), (entry) => entry.name === '.bin')
+	pruneDeadWeight(join(out, 'node_modules'))
 
 	// 2. The CLI runtime: a hoisted, link-free production install of the workspace package.
 	const cli = join(out, 'extra/cli')
@@ -225,6 +253,7 @@ async function main() {
 		cwd: repoRoot,
 	})
 	prune(cli, (entry) => entry.name === '.bin' || entry.isSymbolicLink())
+	pruneDeadWeight(join(cli, 'node_modules'))
 	// Terminals need node-pty, an optional dependency of the CLI that a deploy on a machine without a
 	// compiler can silently omit. The Windows binaries ship inside the package, so check for them here
 	// rather than finding an installer whose terminals are all unavailable.
