@@ -8,7 +8,7 @@
  * Nothing waits on the clock: session start is a number the test chooses.
  */
 
-import { mkdir, mkdtemp, rm, symlink, unlink, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat, symlink, unlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -302,6 +302,19 @@ describe('reading a launched script', () => {
 			startedAt: Date.now() + 3_600_000,
 		})
 		expect(scripts).toEqual([])
+	})
+
+	it('still reads a file stamped just before the session began, since file clocks run behind', async () => {
+		const script = join(dir, 'near.sh')
+		await writeFile(script, 'echo near\n')
+		// The session start is placed relative to the file's own recorded times,
+		// so the test does not depend on how fast the machine is.
+		const info = await stat(script)
+		const stamped = Math.max(info.mtimeMs, info.birthtimeMs)
+		const read = async (startedAt: number) =>
+			(await readLaunchedScripts('bash near.sh', 'bash', { cwd: dir, startedAt })).scripts
+		expect((await read(stamped + 1_000)).map((found) => found.origin)).toEqual(['unknown'])
+		expect(await read(stamped + 10_000)).toEqual([])
 	})
 
 	it('follows a symlink to the file the ledger knows', async () => {

@@ -28,6 +28,9 @@ import type { ShellDialect } from '../../../types/tool/index.js'
 
 /** The most characters of one script shown to the classifier. */
 export const SCRIPT_CAP_CHARS = 16_384
+/** How far behind the ledger's clock a file's own timestamp may be and still count as made in the session. */
+const FILE_TIME_SLACK_MS = 2_000
+
 const HEAD_CHARS = 8_192
 const TAIL_CHARS = 8_192
 /** The most script files read for one call; a launch past it is said to be unread. */
@@ -474,7 +477,13 @@ export async function readLaunchedScripts(
 		}
 		const origin = wrote !== undefined ? 'authored' : 'unknown'
 		if (read !== undefined && wrote === undefined) {
-			const appeared = Math.max(read.mtimeMs, read.birthtimeMs) >= options.startedAt
+			// A file system stamps a file with a coarser clock than the one the
+			// ledger read: a few milliseconds behind on most, up to two seconds on
+			// some. A file written just after the session began can therefore carry
+			// a time just before it. Reading one file too many is the safe mistake
+			// here, so the comparison leans that way.
+			const appeared =
+				Math.max(read.mtimeMs, read.birthtimeMs) >= options.startedAt - FILE_TIME_SLACK_MS
 			if (!appeared) continue
 		}
 		if (failure !== undefined || read === undefined) {
