@@ -346,8 +346,8 @@ operations available to the model.
 | --- | --- |
 | `search_memory` | Searches active records by default; `status: 'archived'` inspects archived records. Returns IDs, titles, names, types, ages and descriptions (summaries where there is no description), with a default result limit of 10 and an allowed range of 1–50. It examines at most 256 recent candidates per call and reports `truncated`, `scannedCount` and `nextScanOffset`; pass the latter as `scan_offset` to search the next candidate page. Results within a page are ranked and limited, so narrow a broad query if `totalCount` exceeds the returned entries. |
 | `read_memory` | Reads a complete record by its ID or its name. For a `text` or `markdown` record, the output is the body followed by `---` and the date it was last updated with its age, the verification notice below when it is not from today, and each `[[name]]` link resolved to an ID and description or reported missing. A `json` record's output is its body exactly, still parseable; `data` carries `updatedAt`, `name`, `type` and resolved `links` for every format. |
-| `save_memory` | Creates a memory with a title, summary and body, and optionally `name`, `type` and `description`. A taken name returns a failed result naming the existing ID and pointing to `update_memory`. |
-| `update_memory` | Corrects supplied fields, including `name`, `type` and `description`, or changes status. Takes the record's ID or its name — what a prompt carrying the index shows. Refuses an empty update, an unknown name and a name another record holds. |
+| `save_memory` | Creates a memory with a title, summary and body, and optionally `name`, `type` and `description`. A taken name returns a failed result naming the existing ID and pointing to `update_memory`. A title, summary, body, description or tag that holds a secret (a provider API key or token, a `-----BEGIN ... PRIVATE KEY-----` block, a JWT, a URL with `user:password@`, a bearer token) is refused with `data.reason: 'secret'` and the shape; the reply never repeats the text. Instructions about untrusted text are not refused. |
+| `update_memory` | Corrects supplied fields, including `name`, `type` and `description`, or changes status. Takes the record's ID or its name — what a prompt carrying the index shows. Refuses an empty update, an unknown name, a name another record holds, and the same secrets `save_memory` refuses. |
 | `delete_memory` | Permanently removes a record; declared destructive for the host's tool policy. |
 
 The `save_memory` description tells the model what belongs in a memory: what is
@@ -575,6 +575,17 @@ The extractor records failed tool results as failures. Reaching a
 running job, so that result alone does not create a failure memory. A later
 job exit remains available to the turn through the normal job notice.
 
+`acceptClaim(category, text)` is an optional screen on each claim, called with
+`userRequirements`, `decisions`, `discoveries`, `failures` or `environment` and
+the trimmed text. A claim it rejects is left out of the record and out of the
+digest, and a record with no claim left is not written. The default accepts
+every claim, so a host that sets nothing sees no change. The compaction
+extractor and `extractFromUserMessage` are not affected. `findSecretShape(text,
+{ entropy? })` returns the first secret shape a text has (`private_key`,
+`provider_token`, `jwt`, `credentialed_url`, and with `entropy: true`
+`high_entropy`) and never the text itself; `save_memory` uses it without the
+entropy test.
+
 Promoted records carry the `session-memory` tag, the `session:<id>` and `turn:<id>` tags, a digest of the selected
 claim sections, `type: 'project'`, and `verification: 'unverified'`. The promoter trims claims and
 removes exact duplicates within a category. If the same ordered claim sections
@@ -596,6 +607,8 @@ In a `MarkdownMemoryStore`, neither writer's records enter the generated
 `metadata.kind: 'consolidation'` mark them): a host that loads the index into
 every prompt keeps the same prompt when a turn writes one. They are reached
 through recall and `search_memory`.
+
+`consolidationScreen` (a `ConsolidationScreen`: `task(task)` returns the text allowed in the title and body or `undefined`, `keep(category, text)` decides each decision, discovery, failure or file) lets a host keep a consolidation from quoting what should not persist; absent keeps today's verbatim record. The CLI sets one that never quotes the task, drops failures and search traces, and applies its content screen.
 
 The CLI uses promotion by default. Its explicit `compaction.consolidate` option
 selects consolidation into the same store instead of running both writers.

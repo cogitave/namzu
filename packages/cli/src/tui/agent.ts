@@ -465,6 +465,8 @@ import {
 	readMemoryBody,
 } from '../memory/manage.js'
 import { formatMemoryDiagnostics } from '../memory/presentation.js'
+import { archiveUnscreenedRecords } from '../memory/screen-archive.js'
+import { consolidationScreen, screenMemoryPromotion } from '../memory/screen.js'
 import { memorySelectionOptions } from '../memory/select.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
 import {
@@ -3396,6 +3398,14 @@ export async function createAgentSession(
 	})
 		.then((report) => describeMemoryMigration(report, memoryDirectory))
 		.catch((error: unknown) => [explainFailure(error, 'Stored memory migration did not run.')])
+	// Records an earlier version derived on its own and the screen would not
+	// write today are archived, once per store, after the session is
+	// underway. It fails open and logs counts only.
+	void archiveUnscreenedRecords({
+		store: memoryStore,
+		directory: memoryDirectory,
+		log: cliLogger(),
+	})
 	/**
 	 * The stored-memory index for this turn's prompt, or null. A store that
 	 * refuses to read (a malformed memory file) costs the turn its index and
@@ -4681,8 +4691,10 @@ export async function createAgentSession(
 	// Candidates without useful claims write nothing.
 	// A decision model may be asked, beside that rule, whether a turn's claims are worth keeping
 	// (`decision.points.memory`); a confident no writes nothing, anything else writes as before.
+	// What a turn may record is screened first: only durable preferences, no
+	// quoted requests, search traces, raw errors, secrets or injected text.
 	const promoteMemory = gateMemoryPromotion(
-		createMemoryPromoter({ store: memoryStore }),
+		screenMemoryPromotion(createMemoryPromoter({ store: memoryStore }), cliLogger()),
 		decisionPoints,
 	)
 	// Plugins are the last fallible startup resource. The ordering is ownership:
@@ -5341,7 +5353,7 @@ export async function createAgentSession(
 						...memoryContextSteps(curatedMemoryPrompt, storedMemory.prompt),
 					],
 					...(options.compaction?.consolidate
-						? { consolidateInto: memoryStore }
+						? { consolidateInto: memoryStore, consolidationScreen }
 						: { promoteMemory }),
 					projectInstructionContext: projectInstructions.createTurnContext(),
 					...(resumePlanPath
@@ -6647,7 +6659,9 @@ export async function createAgentSession(
 								retainedToolPreviewChars: options.conversationSessions
 									? (options.compaction?.retainedToolPreviewChars ?? 4_000)
 									: undefined,
-								...(options.compaction?.consolidate ? { consolidateInto: memoryStore } : {}),
+								...(options.compaction?.consolidate
+									? { consolidateInto: memoryStore, consolidationScreen }
+									: {}),
 								...(jobRegistry
 									? {
 											backgroundJobs: jobRegistry,
@@ -7864,7 +7878,7 @@ async function* runTurn({
 			...(codeAnalysis ? { codeAnalysis } : {}),
 			authorizationGate: gateFor(rules),
 			compactionConfig,
-			...(consolidateInto ? { consolidateInto } : {}),
+			...(consolidateInto ? { consolidateInto, consolidationScreen } : {}),
 			...(backgroundJobs ? { backgroundJobs, backgroundJobOwner } : {}),
 			// A monitor's end is acknowledged through the job-exit callback with its
 			// job id, its events through their own; both also clear the session's

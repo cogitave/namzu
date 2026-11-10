@@ -278,6 +278,36 @@ and are never listed or deleted here; `/memory show` still prints them with
 their paths. A note that begins with the word `delete` is saved with
 `/memory add delete ...`.
 
+### What turns record on their own
+
+A turn no longer records what you asked for. The CLI screens every claim before
+the turn's record is written:
+
+- Your messages are kept only when they state something lasting: a preference or
+  rule (`always`, `never`, `prefer`, `don't`, `must`, `from now on`; `her zaman`,
+  `asla`, `tercih`, `kullanma`, `bundan sonra`), at most 240 characters, not a
+  question and not a request to do something now. Everything else is dropped.
+- The record's title is `Session notes` with the names of the files the turn
+  touched, never the text of your first message. A turn with nothing lasting to
+  record writes no record.
+- Search traces (`Searched: ...`) and raw tool error text are not recorded.
+- A claim that looks like a secret (an API key or token, a private key, a JWT, a
+  URL with a password, a long random string) or like an injected instruction
+  (role markers, "ignore previous instructions", tool-call or system tags) is
+  dropped.
+
+The log carries only how many claims were dropped and why, never their text.
+
+The first session started after this change goes through the records Namzu
+derived itself earlier (`recorded by a turn`) once, in the background. A record
+the screen would not write today is archived, not deleted: it stops being
+recalled and stops appearing in `/memory`. Memories you or Namzu saved are never
+touched. A marker file named `.derived-screen-v1` in the memory directory records
+that the pass is done; a failed pass leaves it out and the next session tries
+again. To restore an archived record, open its file in the memory directory and
+change `status: archived` to `status: active`; to run the pass again, delete the
+marker.
+
 ### Seeing which memories a message used
 
 When stored memory went into a turn, a quiet row appears under the message:
