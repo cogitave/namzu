@@ -7,6 +7,7 @@ import type {
 	AcpSessionPromptResult,
 	AcpSessionUpdateNotification,
 } from '@namzu/sdk'
+import { needsYouIds } from '../shared/attention-state.js'
 import type { BackgroundWorkStatus } from '../shared/background-work-protocol.js'
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
 import {
@@ -21,7 +22,7 @@ import type {
 } from '../shared/pal-communication-protocol.js'
 import { duplicatePalNameMessage, isDuplicatePalName } from '../shared/pal-name.js'
 import { readPermissionCalls, readPermissionResponse } from '../shared/permission-protocol.js'
-import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
+import { type ThreadState, applyEvent, emptyThread, threadPhase } from '../shared/projection.js'
 import type {
 	AttachmentInput,
 	AttachmentView,
@@ -440,6 +441,8 @@ export class Operator {
 			projectNames?: ProjectNameStore
 			/** The conversations some open window is showing right now. */
 			viewedConversations?: () => ReadonlySet<string>
+			/** The conversations that need the person changed; called with every one that does. */
+			attentionChanged?: (ids: string[]) => void
 		} = {},
 	) {
 		this.unreadConversations = new ConversationUnread()
@@ -742,6 +745,27 @@ export class Operator {
 		if (!this.conversations.has(id)) throw new Error('That conversation is not open.')
 		if (this.unreadConversations.set(id, unread)) this.unreadChanged()
 		return this.conversationUnread()
+	}
+	/** The conversations whose turn is waiting on the person (an approval or a question). */
+	needsYou(): string[] {
+		return needsYouIds(
+			[...this.conversations.entries()].map(([id, session]) => ({
+				id,
+				// The sidebar's own rule, so the badge and the row mark cannot disagree.
+				running: session.projection.running,
+				waiting:
+					threadPhase(session.projection) === 'waiting' ? session.projection.permissions.length : 0,
+				pal: Boolean(session.view.palId),
+			})),
+		)
+	}
+	private attentionChanged(): void {
+		if (!this.options.attentionChanged) return
+		try {
+			this.options.attentionChanged(this.needsYou())
+		} catch (error) {
+			this.diagnostics?.record('ipc_failed', { operation: 'attention', error })
+		}
 	}
 	/**
 	 * Windows or their tabs changed: any marker whose conversation is on screen now is read. One
@@ -1090,6 +1114,7 @@ export class Operator {
 				this.conversations.delete(sessionId)
 				this.attachmentPreviews.forget(sessionId)
 			}
+			this.attentionChanged()
 			const retiredOwners = new Set(scope.sessionIds)
 			for (const ownerId of this.projectDrafts.keys()) {
 				const owner = projectDraftOwner(ownerId)
@@ -1612,7 +1637,13 @@ export class Operator {
 					revision: session.projection.revision + 1,
 				}
 				const wasRunning = session.projection.running
+				const wasWaiting = session.projection.permissions.length
 				session.projection = applyEvent(session.projection, versioned)
+				if (
+					wasRunning !== session.projection.running ||
+					wasWaiting !== session.projection.permissions.length
+				)
+					this.attentionChanged()
 				if (wasRunning && !session.projection.running && !session.view.palId) {
 					const viewed = this.options.viewedConversations?.() ?? new Set<string>()
 					if (this.unreadConversations.turnEnded(id, viewed)) this.unreadChanged()
@@ -1775,6 +1806,7 @@ export class Operator {
 			this.conversations.delete(id)
 			this.attachmentPreviews.forget(id)
 		}
+		this.attentionChanged()
 		this.missingProjects.delete(projectId)
 		this.unopenedProjects.delete(projectId)
 		for (const [path, id] of this.relocations) if (id === projectId) this.relocations.delete(path)
@@ -2355,6 +2387,7 @@ export class Operator {
 			this.pendingConversationRemovals.delete(sessionId)
 			this.backgroundWork.invalidate(sessionId)
 			this.conversations.delete(sessionId)
+			this.attentionChanged()
 			this.attachmentPreviews.forget(sessionId)
 			if (this.unreadConversations.forget([sessionId])) this.unreadChanged()
 			for (const [attachmentId, file] of this.attachmentFiles)
@@ -2520,6 +2553,7 @@ export class Operator {
 				this.attachmentPreviews.forget(id)
 				this.backgroundWork.invalidate(id)
 			}
+			this.attentionChanged()
 			const isProjectDraft = (ownerId: string) => {
 				try {
 					return projectDraftOwner(ownerId)?.projectId === projectId

@@ -31,6 +31,21 @@ const view: ConfigSettingsView = {
 			confirmWhen: 'zero',
 		},
 		{
+			path: 'permissions.outsideRoot',
+			label: 'Outside',
+			description: 'x',
+			section: 'projects',
+			control: {
+				kind: 'select',
+				options: [
+					{ value: 'ask', label: 'Ask' },
+					{ value: 'refuse', label: 'Refuse' },
+				],
+			},
+			confirm: 'Namzu will ask again.',
+			confirmValue: 'ask',
+		},
+		{
 			path: 'permissions',
 			label: 'Rules',
 			description: 'x',
@@ -102,6 +117,16 @@ describe('changing an engine setting', () => {
 			'confirm',
 		)
 		expect(write).toHaveBeenCalledTimes(2)
+	})
+
+	it('asks for a select only when it picks the value that widens', async () => {
+		const { settings } = build()
+		expect(
+			(await settings.change('w1', { path: 'permissions.outsideRoot', value: 'refuse' })).status,
+		).toBe('saved')
+		expect(
+			(await settings.change('w1', { path: 'permissions.outsideRoot', value: 'ask' })).status,
+		).toBe('confirm')
 	})
 
 	it('asks before a clear of a setting that has a confirmation', async () => {

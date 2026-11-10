@@ -23,7 +23,9 @@ query({
 })
 ```
 
-Both default to `'refuse'`, and `QueryAgentConfig` carries the same two fields for a child.
+Both default to `'refuse'`, and `QueryAgentConfig` carries the same two fields, and `outsideRootRefusal`, for a child.
+
+With `outsideRootAccess: 'refuse'` a file tool refuses a path outside the roots with its own generic sentence. A host that wants the model to read its own words sets `outsideRootRefusal` (a string): the executor then answers such a call while preparing it, before any review, so no permission mode lifts it, and the text of the refusal is the path followed by that sentence. It applies to tools that declare `pathArgument`, on a turn without a sandbox, and leaves the session's scratch folder and retained output alone. The CLI sets it from `permissions.outsideRoot: refuse`.
 
 ## How a call becomes escalated
 

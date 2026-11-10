@@ -378,6 +378,8 @@ export interface ToolExecutorConfig {
 	outsideRootAccess?: 'refuse' | 'review'
 	/** See `QueryParams.sandboxEscape`. Default `'refuse'`. */
 	sandboxEscape?: 'refuse' | 'review'
+	/** See `QueryParams.outsideRootRefusal`. */
+	outsideRootRefusal?: string
 	/**
 	 * Read LIVE, not frozen at turn start.
 	 *
@@ -1207,17 +1209,61 @@ export class ToolExecutor {
 				toolCall,
 				!hostModifiedCallIds?.has(toolCall.id),
 			)
-			const call = await this.refusedBeforeReview(prepared, earlierPaths)
+			const beforeReview = await this.refusedBeforeReview(prepared, earlierPaths)
 			const path = inputPathOf(prepared)
 			if (path !== undefined) earlierPaths.push(path)
+			this.admitScratchpad(beforeReview)
+			const call = await this.refusedOutsideRoot(beforeReview)
 			calls.set(toolCall.id, call)
-			this.admitScratchpad(call)
 			const escalation = await this.escalationOrUnfinished(call)
 			if (escalation) escalations.set(toolCall.id, escalation)
 			if (await this.writesScratchpad(call, escalation)) scratchpadWrites.add(toolCall.id)
 		}
 		this.config.abortSignal.throwIfAborted()
 		return this.publishPreparedBatch(calls, escalations, scratchpadWrites)
+	}
+
+	/**
+	 * A file tool's path outside the roots, refused with the host's own words
+	 * (`QueryParams.outsideRootRefusal`) instead of the tool's generic one.
+	 *
+	 * It takes the place of the call like any refusal found while preparing it,
+	 * so it holds in every permission mode and reaches no reviewer. Only a turn
+	 * that refuses (`outsideRootAccess: 'refuse'`) and has no sandbox is looked
+	 * at, and only a tool that declares `pathArgument`. The exemptions are the
+	 * review's: the scratch folder is a root, and so is this session's retained
+	 * output for `read`.
+	 */
+	private async refusedOutsideRoot(call: PreparedDirectCall): Promise<PreparedDirectCall> {
+		const note = this.config.outsideRootRefusal
+		if (call.kind !== 'ready' || note === undefined) return call
+		if (this.config.outsideRootAccess !== 'refuse' || this.sandboxed) return call
+		const tool = this.config.tools.get(call.toolName)
+		if (tool?.pathArgument === undefined) return call
+		if (call.input === null || typeof call.input !== 'object') return call
+		const value = (call.input as Record<string, unknown>)[tool.pathArgument]
+		if (typeof value !== 'string') return call
+		try {
+			const retained =
+				tool.name === 'read' && (await resolveRetainedOutput(this.outputDirectory(), value))
+			if (retained) return call
+			const outside = await pathOutsideRoots(this.rootsNow(), value)
+			if (outside === undefined) return call
+			return {
+				kind: 'synthetic',
+				toolCall: call.toolCall,
+				toolName: call.toolName,
+				input: call.input,
+				message: formatFailedToolOutput(
+					undefined,
+					`${outside} is outside the working directory. ${note}`,
+				),
+				isError: true,
+			}
+		} catch {
+			this.config.abortSignal.throwIfAborted()
+			return call
+		}
 	}
 
 	/**
@@ -1461,12 +1507,13 @@ export class ToolExecutor {
 		const earlierPaths: string[] = []
 		for (const toolCall of response.message.toolCalls ?? []) {
 			if (changedCallIds.has(toolCall.id)) {
-				const call = await this.refusedBeforeReview(
+				const beforeReview = await this.refusedBeforeReview(
 					await prepareDirectCall(this.admissionHost(), toolCall, false),
 					earlierPaths,
 				)
+				this.admitScratchpad(beforeReview)
+				const call = await this.refusedOutsideRoot(beforeReview)
 				calls.set(toolCall.id, call)
-				this.admitScratchpad(call)
 				const escalation = await this.escalationOrUnfinished(call)
 				if (escalation) escalations.set(toolCall.id, escalation)
 				else escalations.delete(toolCall.id)

@@ -183,3 +183,61 @@ describe('the settings and the tool rules', () => {
 		)
 	})
 })
+
+describe('permissions.outsideRoot', () => {
+	it('is absent by default, and ask is the same as absent', () => {
+		expect(load(layout({ user: { permissions: { read: 'allow' } } })).permissionSettings).toBe(
+			undefined,
+		)
+		expect(
+			load(layout({ user: { permissions: { outsideRoot: 'ask' } } })).permissionSettings,
+		).toBeUndefined()
+	})
+
+	it.each(['user', 'project', 'local', 'managed'] as const)(
+		'refuse stands from the %s file',
+		(where) => {
+			const config = load(layout({ [where]: { permissions: { outsideRoot: 'refuse' } } }))
+			expect(config.permissionSettings).toEqual({ outsideRoot: 'refuse' })
+			expect(config.permissionSettings?.ignored).toBeUndefined()
+		},
+	)
+
+	it('is not a tool rule', () => {
+		const config = load(layout({ user: { permissions: { outsideRoot: 'refuse', read: 'allow' } } }))
+		expect(config.permissions).toEqual({ read: 'allow' })
+	})
+
+	it('cannot be loosened by a project or local file over a user or managed refuse', () => {
+		const viaUser = load(
+			layout({
+				user: { permissions: { outsideRoot: 'refuse' } },
+				project: { permissions: { outsideRoot: 'ask' } },
+				local: { permissions: { outsideRoot: 'ask' } },
+			}),
+		)
+		expect(viaUser.permissionSettings?.outsideRoot).toBe('refuse')
+		const viaManaged = load(
+			layout({
+				managed: { permissions: { outsideRoot: 'refuse' } },
+				user: { permissions: { outsideRoot: 'ask' } },
+			}),
+		)
+		expect(viaManaged.permissionSettings?.outsideRoot).toBe('refuse')
+	})
+
+	it('can be made stricter by a project file over a user ask', () => {
+		const config = load(
+			layout({
+				user: { permissions: { outsideRoot: 'ask' } },
+				project: { permissions: { outsideRoot: 'refuse' } },
+			}),
+		)
+		expect(config.permissionSettings?.outsideRoot).toBe('refuse')
+	})
+
+	it('refuses a value that is neither ask nor refuse, naming the key', () => {
+		const l = layout({ user: { permissions: { outsideRoot: 'never' } } })
+		expect(() => load(l)).toThrow(/outsideRoot/)
+	})
+})

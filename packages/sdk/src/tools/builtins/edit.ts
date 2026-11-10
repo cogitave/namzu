@@ -22,6 +22,7 @@ import {
 import { withFileMutationLock } from './file-mutation-lock.js'
 import { jsonStringEscapes } from './json-string-hint.js'
 import { lineDiff } from './line-diff.js'
+import { notebookRefusal } from './notebook-guard.js'
 import { staleBeforeReview } from './stale-before-review.js'
 
 /**
@@ -184,7 +185,10 @@ export function dryRunEdit(
 		}
 	}
 	const result = applyEdit(content, normalized.operations)
-	return result.success ? { success: true, content: result.content } : result
+	if (!result.success) return result
+	const notebook = notebookRefusal(parsed.data.path, result.content, content)
+	if (notebook) return { success: false, error: notebook }
+	return { success: true, content: result.content }
 }
 
 /**
@@ -437,7 +441,7 @@ function refusedEdit(result: EditApplyFailure, path: string) {
 export const EditTool = defineTool({
 	name: 'edit',
 	description:
-		'Makes targeted edits to a file using exact string find-and-replace or line insertion. To change an existing file, use `edit`: `write` overwrites the whole body and discards earlier work on partial failure, while `edit` keeps the rest of the file byte-for-byte intact and is recoverable: if a single edit fails (old_string/oldStr ambiguous, broader restructuring needed), follow up with another `edit` instead of re-emitting the entire file via `write`. The old_string/oldStr must be unique in the file unless replace_all is true. For insertions, pass insertLine plus new_string/newStr; use insertLine: "end" to extend a file at the end. Keep new_string/newStr under 12000 characters, because a longer payload can be cut off mid-call and fail; use repeated bounded edits for long sections. Preserves file formatting and indentation. To make several changes to one file that only make sense together, send them as `edits`: a list of {old_string, new_string} applied in order and committed as one write — if any of them does not apply, nothing is written and the reply names which one, so the file is never left half-changed.',
+		'Makes targeted edits to a file using exact string find-and-replace or line insertion. To change an existing file, use `edit`: `write` overwrites the whole body and discards earlier work on partial failure, while `edit` keeps the rest of the file byte-for-byte intact and is recoverable: if a single edit fails (old_string/oldStr ambiguous, broader restructuring needed), follow up with another `edit` instead of re-emitting the entire file via `write`. The old_string/oldStr must be unique in the file unless replace_all is true. For insertions, pass insertLine plus new_string/newStr; use insertLine: "end" to extend a file at the end. Keep new_string/newStr under 12000 characters, because a longer payload can be cut off mid-call and fail; use repeated bounded edits for long sections. Preserves file formatting and indentation. To make several changes to one file that only make sense together, send them as `edits`: a list of {old_string, new_string} applied in order and committed as one write — if any of them does not apply, nothing is written and the reply names which one, so the file is never left half-changed. An edit that would leave a `.ipynb` file as invalid notebook JSON is refused and the file is unchanged.',
 	inputSchema,
 	modelInputSchema,
 	enforceModelInput: true,
@@ -570,6 +574,8 @@ export const EditTool = defineTool({
 				if (!admitted.success) return admitted
 				const result = admitted.result
 				if (!result.success) return refusedEdit(result, parsed.data.path)
+				const notebook = notebookRefusal(parsed.data.path, result.content, content)
+				if (notebook) return { success: false as const, output: '', error: notebook }
 
 				await context.sandbox.writeFile(parsed.data.path, result.content)
 				recordEditedContent(context, parsed.data.path, result.content)
@@ -593,6 +599,8 @@ export const EditTool = defineTool({
 			if (!admitted.success) return admitted
 			const result = admitted.result
 			if (!result.success) return refusedEdit(result, hostPath)
+			const notebook = notebookRefusal(hostPath, result.content, content)
+			if (notebook) return { success: false as const, output: '', error: notebook }
 
 			// Temp file, fsync, rename — a reader sees the old body or the new
 			// one, never a half-written one. A plain `writeFile` that fails

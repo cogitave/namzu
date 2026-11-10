@@ -86,6 +86,11 @@ export interface ExecutionBoundary {
 	 * nothing about the mode: its calls follow the session that started it.
 	 */
 	readonly delegated?: boolean
+	/**
+	 * `permissions.outsideRoot: refuse`: a path outside the working directory
+	 * and the added directories is refused without asking, in every mode.
+	 */
+	readonly outsideRoot?: 'refuse'
 }
 
 /** What the model needs to know about running under WSL. */
@@ -417,11 +422,14 @@ export function permissionSentence(boundary: ExecutionBoundary, stable = false):
 /** The boundary, and the way past it, in the words the model acts on. */
 function boundaryLines(boundary: ExecutionBoundary, stable = false): string[] {
 	if (!boundary.sandbox) {
-		const outside = boundary.delegated
-			? 'A path anywhere else is refused, or decided by the session that started you, and you cannot approve it yourself. If you needed a directory, name it in your summary.'
-			: boundary.interactive
-				? 'A path anywhere else is not refused outright: the user is asked to approve that call first, every time — in plan mode too, for a read; the strict permission mode refuses it. When you need a directory repeatedly, suggest the user add it with `/add-dir <path>`.'
-				: 'A path anywhere else is refused in this session, because it needs a person to approve it and nobody is at the terminal. If you need one, say which directory and why, so the user can add it (`--add-dir <path>`) and run again.'
+		const outside =
+			boundary.outsideRoot === 'refuse'
+				? 'A path anywhere else is refused without asking, in every mode, because the setting permissions.outsideRoot is refuse. If you need one, say which directory and why, so the user can add it (`--add-dir <path>` or `/add-dir <path>`) or change the setting.'
+				: boundary.delegated
+					? 'A path anywhere else is refused, or decided by the session that started you, and you cannot approve it yourself. If you needed a directory, name it in your summary.'
+					: boundary.interactive
+						? 'A path anywhere else is not refused outright: the user is asked to approve that call first, every time — in plan mode too, for a read; the strict permission mode refuses it. When you need a directory repeatedly, suggest the user add it with `/add-dir <path>`.'
+						: 'A path anywhere else is refused in this session, because it needs a person to approve it and nobody is at the terminal. If you need one, say which directory and why, so the user can add it (`--add-dir <path>`) and run again.'
 		return [
 			`Tools run on this machine, not in a sandbox. ${permissionSentence(boundary, stable)}`,
 			`The file tools reach the working directory and any added directories directly. ${outside} A refusal that remains is a decision, not a missing file; say so rather than retrying another spelling.`,
@@ -462,9 +470,11 @@ function wslLines(wsl: WslFacts, boundary: ExecutionBoundary | undefined): strin
 	const fileTools =
 		boundary?.sandbox !== undefined
 			? 'the file tools reach them only once added with `/add-dir`'
-			: boundary?.interactive === false
-				? 'a file tool reaching them is refused in this session, since nobody is here to approve it'
-				: 'a file tool reaching them asks for approval first, like any other outside path'
+			: boundary?.outsideRoot === 'refuse'
+				? 'a file tool reaching them is refused, because the setting permissions.outsideRoot is refuse'
+				: boundary?.interactive === false
+					? 'a file tool reaching them is refused in this session, since nobody is here to approve it'
+					: 'a file tool reaching them asks for approval first, like any other outside path'
 	// The paths below are ones the model will type, so they follow the mount
 	// root; under the default one the text is what it always was.
 	const root = wsl.mountRoot ?? DEFAULT_WSL_MOUNT_ROOT

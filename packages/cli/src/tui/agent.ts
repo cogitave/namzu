@@ -1351,6 +1351,13 @@ export interface SessionWorkflows {
 	readonly reset: () => void
 }
 
+/**
+ * What the model reads when `permissions.outsideRoot` is `refuse` and a file
+ * tool names a path outside the working directory and the added directories.
+ */
+const OUTSIDE_ROOT_REFUSAL =
+	'Your settings (permissions.outsideRoot: refuse) do not allow files outside the working directory and its added directories, so Namzu does not ask. Work inside those folders, or tell the user the folder has to be added (--add-dir or /add-dir) or the setting changed.'
+
 /** Most bytes of a page `web_fetch` reads (ten mebibytes). */
 const WEB_FETCH_MAX_BYTES = 10 * 1024 * 1024
 /** Most tokens of answer the small model gives to a question about a page. */
@@ -3325,7 +3332,20 @@ export async function createAgentSession(
 	// confirmed only by a person, or by `allowUnattendedEscape`.
 	const sandboxEscape: 'refuse' | 'review' =
 		options.sandbox?.allowEscape === false ? 'refuse' : 'review'
-	const escalation = { outsideRootAccess: 'review' as const, sandboxEscape }
+	// `permissions.outsideRoot: refuse` turns the first question into a refusal
+	// that names the setting; no permission mode lifts it.
+	const outsideRootRefused = options.permissionSettings?.outsideRoot === 'refuse'
+	const escalation: {
+		readonly outsideRootAccess: 'refuse' | 'review'
+		readonly outsideRootRefusal?: string
+		readonly sandboxEscape: 'refuse' | 'review'
+	} = outsideRootRefused
+		? {
+				outsideRootAccess: 'refuse',
+				outsideRootRefusal: OUTSIDE_ROOT_REFUSAL,
+				sandboxEscape,
+			}
+		: { outsideRootAccess: 'review', sandboxEscape }
 	const unattendedSandboxEscape: 'refuse' | 'allow' =
 		options.sandbox?.allowUnattendedEscape === true ? 'allow' : 'refuse'
 	// Read once: whether this is WSL does not change inside a session.
@@ -3352,6 +3372,7 @@ export async function createAgentSession(
 						: 'refused',
 		interactive,
 		...(mode ? { mode } : {}),
+		...(outsideRootRefused ? { outsideRoot: 'refuse' as const } : {}),
 	})
 	// Always built: the executor hands it to the tools only where it is
 	// safe — on the host, or inside a sandbox that can start a detached
@@ -7864,6 +7885,8 @@ interface TurnParams {
 	/** See `QueryParams.outsideRootAccess` and `QueryParams.sandboxEscape`. */
 	readonly escalation?: {
 		readonly outsideRootAccess: 'refuse' | 'review'
+		/** See `QueryParams.outsideRootRefusal`. */
+		readonly outsideRootRefusal?: string
 		readonly sandboxEscape: 'refuse' | 'review'
 	}
 	/** See `NamzuCliConfig.limits`. */
