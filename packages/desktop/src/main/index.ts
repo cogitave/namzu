@@ -122,6 +122,7 @@ import { engineHost, findProgram, shellEnvironment } from './terminal-env.js'
 import { TerminalHub } from './terminal-hub.js'
 import { TerminalTabStore } from './terminal-tab-store.js'
 import { TrustedFolderStore, createFolderTrustGuard } from './trusted-folders.js'
+import { clearInstalledPending } from './updater-cache.js'
 import {
 	type AutoUpdaterLike,
 	UpdateController,
@@ -1739,6 +1740,15 @@ const updates = new UpdateController({
 	feed: updateFeed,
 	autoDownload: () => settingsStore.get().autoDownloadUpdates,
 	currentVersion: app.getVersion(),
+	// electron-updater leaves each installed update's installer (about 500 MB) in its cache.
+	onUpToDate: () => {
+		if (process.platform !== 'win32' || !process.env.LOCALAPPDATA) return
+		const removed = clearInstalledPending(
+			join(process.env.LOCALAPPDATA, 'namzu-updater'),
+			app.getVersion(),
+		)
+		if (removed > 0) diagnostics.record('update_cache_cleared', { removed })
+	},
 	mainBlockers: () => {
 		// A closed window can no longer be busy.
 		updates.retainWindows(windows.entries().map(([id]) => id))

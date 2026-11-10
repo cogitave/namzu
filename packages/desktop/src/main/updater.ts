@@ -107,6 +107,8 @@ export interface UpdateControllerOptions {
 	broadcast: (state: UpdateState) => void
 	/** Read each time an update is found; absent means download on its own. */
 	autoDownload?: () => boolean
+	/** Runs when a check finds nothing newer: the place to drop installers left by earlier updates. */
+	onUpToDate?: () => void
 	/** The running version, for the Settings page. */
 	currentVersion?: string
 	now?: () => number
@@ -196,6 +198,11 @@ export class UpdateController {
 		}) as never)
 		updater.on('update-not-available', () => {
 			this.checked()
+			try {
+				this.options.onUpToDate?.()
+			} catch {
+				// Housekeeping never disturbs the update state.
+			}
 			if (this.current.status === 'checking') this.set({ status: 'idle' })
 		})
 		updater.on('download-progress', ((progress: {
