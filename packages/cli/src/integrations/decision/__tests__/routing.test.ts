@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RoutingConfig } from '../../../config/schema.js'
 import {
 	DEFAULT_ROUTING_TIMEOUT_MS,
+	ROUTING_BIG_CRITERIA,
 	ROUTING_BIG_QUESTION,
+	ROUTING_FAST_CRITERIA,
 	ROUTING_FAST_QUESTION,
 	ROUTING_TASK_CHARS,
 	resolveAutoDefault,
@@ -53,6 +55,22 @@ function failingModel(error: unknown): DecisionModel {
 const task = 'rename this variable'
 
 describe('routeModel tier selection (yesno)', () => {
+	it('sends each question with its criteria sentence', async () => {
+		const model = yesnoModel(0.5, 0.5)
+		await routeModel({ task, config }, { model })
+		const calls = (model.yesno as ReturnType<typeof vi.fn>).mock.calls
+		expect(calls).toContainEqual([
+			expect.any(String),
+			ROUTING_FAST_QUESTION,
+			expect.objectContaining({ criteria: ROUTING_FAST_CRITERIA }),
+		])
+		expect(calls).toContainEqual([
+			expect.any(String),
+			ROUTING_BIG_QUESTION,
+			expect.objectContaining({ criteria: ROUTING_BIG_CRITERIA }),
+		])
+	})
+
 	it('sends a simple task to the fast tier', async () => {
 		const r = await routeModel({ task, config }, { model: yesnoModel(0.9, 0.1) })
 		expect(r).toMatchObject({ tier: 'fast', ...FAST, confidence: 0.9, reason: 'simple-task' })

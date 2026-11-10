@@ -43,6 +43,8 @@ export class AzureFoundryDecisionModel implements DecisionModel {
 		instructions: string,
 		opts?: DecisionRequestOptions,
 	): Promise<YesNoDecision> {
+		// `criteria` is not sent here: the field is not verified against this endpoint, so the
+		// request it has always received stays byte for byte the same.
 		return parseYesNo(await this.ask(state, yesnoQuestion(instructions), opts))
 	}
 

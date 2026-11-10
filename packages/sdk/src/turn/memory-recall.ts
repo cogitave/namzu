@@ -28,6 +28,19 @@ export interface MemoryRecallOptions {
 	 * aged memory names before relying on it. Default one day.
 	 */
 	readonly ageNoticeAfterMs?: number
+	/**
+	 * Asked once for each record about to be shown (at most `maxMemories` a
+	 * request), with its id and metadata, never its body. A returned string is
+	 * added to the record's line as `caution` and to the event's entry, so the
+	 * model reads that the record may no longer hold; the record is still
+	 * shown. A host uses it to check what a record names (a file, say) against
+	 * the project as it is now. It runs inside the recall deadline, so it must
+	 * be cheap; a throw, or a deadline passing, means no caution.
+	 */
+	readonly caution?: (record: {
+		readonly id: string
+		readonly metadata?: Readonly<Record<string, unknown>>
+	}) => string | undefined | Promise<string | undefined>
 	/** Clock for ages; defaults to `Date.now`. */
 	readonly now?: () => number
 	/**
@@ -593,6 +606,19 @@ export function createMemoryRecallStep(options: MemoryRecallOptions): PrepareSte
 					)
 				)
 					continue
+				let caution: string | undefined
+				if (options.caution) {
+					try {
+						caution = await options.caution({
+							id: entry.id,
+							...(full.metadata ? { metadata: full.metadata } : {}),
+						})
+					} catch {
+						// A check that failed says nothing about the record.
+					}
+					if (expired) break
+					if (caution !== undefined) caution = clipped(caution, 200)
+				}
 				const aged = now() - entry.updatedAt > ageNoticeAfterMs
 				// The first aged record pays for the notice it brings with it, so
 				// a block of fresh records spends nothing on it.
@@ -614,6 +640,7 @@ export function createMemoryRecallStep(options: MemoryRecallOptions): PrepareSte
 						),
 						updatedAt: entry.updatedAt,
 						...(aged ? { age: describeMemoryAge(entry.updatedAt, now()) } : {}),
+						...(caution ? { caution } : {}),
 						sourceTurn:
 							typeof full.metadata?.turnId === 'string'
 								? clipped(full.metadata.turnId, 80)
@@ -632,6 +659,7 @@ export function createMemoryRecallStep(options: MemoryRecallOptions): PrepareSte
 						title: entry.title,
 						origin: memoryOrigin(full.metadata),
 						updatedAt: entry.updatedAt,
+						...(caution ? { caution } : {}),
 						// Without a selector the words chose it and there is nothing to add;
 						// with one, say so when it did not.
 						...(reasons.has(entry.id) || options.select

@@ -30,7 +30,29 @@ import type { MemoryUsage } from './usage.js'
 export const DEFAULT_RETIRE_AFTER_DAYS = 21
 export const RETIRED_UNUSED = 'unused'
 export const RETIRED_DUPLICATE = 'duplicate'
+export const RETIRED_ANCHORS = 'anchors'
+/** Days a file a memory names must stay gone, by recall's own checks, before the memory is retired. */
+export const ANCHORS_BROKEN_RETIRE_DAYS = 14
 const DAY_MS = 86_400_000
+
+/** Why a memory is likely stale: no recall for a while, or a file it names is gone. */
+export type StaleReason = 'unused' | 'anchors'
+
+/** Whether recall found a file the memory names gone, and it stayed so for the retire time. */
+export function anchorsGoneLongEnough(input: {
+	readonly usage: MemoryUsage
+	readonly id: string
+	readonly at: number
+	readonly retireAfterDays: number
+}): boolean {
+	const since = input.usage.get(input.id)?.brokenSince
+	return (
+		input.retireAfterDays > 0 &&
+		input.usage.state === 'known' &&
+		since !== undefined &&
+		input.at - since >= ANCHORS_BROKEN_RETIRE_DAYS * DAY_MS
+	)
+}
 
 type MemoryId = Parameters<MarkdownMemoryStore['delete']>[0]
 
@@ -47,13 +69,15 @@ export interface SweepDeps {
 export interface SweptMemory {
 	readonly id: string
 	readonly title: string
-	readonly reason: typeof RETIRED_UNUSED | typeof RETIRED_DUPLICATE
+	readonly reason: typeof RETIRED_UNUSED | typeof RETIRED_DUPLICATE | typeof RETIRED_ANCHORS
 }
 
 export interface SweepReport {
 	readonly archived: readonly SweptMemory[]
 	/** Operator and model memories unused for the same time. Not written to. */
 	readonly possiblyStale: readonly string[]
+	/** Why each of `possiblyStale` is: a recall gap or a file that is gone. */
+	readonly staleReasons: Readonly<Record<string, StaleReason>>
 	/** Records that changed while the sweep ran and so stayed. */
 	readonly kept: number
 	/** Why nothing was retired for being unused, when that is so. */
@@ -90,6 +114,7 @@ export async function sweepMemory(deps: SweepDeps): Promise<SweepReport> {
 	const { entries } = await store.list({ status: 'active' })
 	const archived: SweptMemory[] = []
 	const possiblyStale: string[] = []
+	const staleReasons: Record<string, StaleReason> = {}
 	let kept = 0
 	const unusedSkipped: SweepReport['unusedSkipped'] =
 		retireAfterDays <= 0 ? 'off' : usage.state === 'unknown' ? 'unknown' : undefined
@@ -110,12 +135,23 @@ export async function sweepMemory(deps: SweepDeps): Promise<SweepReport> {
 		})
 	}
 
+	// Recall noted when a file a memory names went; with usage unreadable or
+	// retiring switched off, nothing is retired for it either.
+	const anchorsBroken = (id: string): boolean =>
+		anchorsGoneLongEnough({ usage, id, at, retireAfterDays })
+
 	for (const entry of entries) {
 		const record = await store.getVersionedRecord(entry.id)
 		if (!record || record.entry.status !== 'active') continue
 		const row: Row = { id: entry.id, record }
 		if (memoryOrigin(record.content.metadata) === 'derived') derived.push(row)
-		else if (unusedRow(row)) possiblyStale.push(entry.id)
+		else if (unusedRow(row)) {
+			possiblyStale.push(entry.id)
+			staleReasons[entry.id] = 'unused'
+		} else if (anchorsBroken(entry.id)) {
+			possiblyStale.push(entry.id)
+			staleReasons[entry.id] = 'anchors'
+		}
 	}
 
 	const archive = async (
@@ -172,13 +208,15 @@ export async function sweepMemory(deps: SweepDeps): Promise<SweepReport> {
 	}
 
 	for (const row of derived) {
-		if (settled.has(row.id) || !unusedRow(row)) continue
-		await archive(row, RETIRED_UNUSED)
+		if (settled.has(row.id)) continue
+		if (unusedRow(row)) await archive(row, RETIRED_UNUSED)
+		else if (anchorsBroken(row.id)) await archive(row, RETIRED_ANCHORS)
 	}
 
 	return {
 		archived,
 		possiblyStale,
+		staleReasons,
 		kept,
 		...(unusedSkipped ? { unusedSkipped } : {}),
 	}
@@ -197,7 +235,9 @@ export function describeSweep(report: SweepReport, retireAfterDays: number): str
 				`  ${item.title.replace(/\s+/gu, ' ').trim()} · ${
 					item.reason === RETIRED_DUPLICATE
 						? 'a newer copy exists'
-						: `not recalled for ${retireAfterDays} days`
+						: item.reason === RETIRED_ANCHORS
+							? `a file it names has been gone for ${ANCHORS_BROKEN_RETIRE_DAYS} days`
+							: `not recalled for ${retireAfterDays} days`
 				}`,
 			)
 	}
@@ -207,9 +247,17 @@ export function describeSweep(report: SweepReport, retireAfterDays: number): str
 		)
 	if (report.unusedSkipped === 'off')
 		lines.push('memory.retireAfterDays is 0, so no memory is retired for being unused.')
-	if (report.possiblyStale.length > 0)
+	const stale = (reason: StaleReason): number =>
+		report.possiblyStale.filter((id) => report.staleReasons[id] === reason).length
+	const unused = stale('unused')
+	const gone = stale('anchors')
+	if (unused > 0)
 		lines.push(
-			`${report.possiblyStale.length} you or Namzu saved ${report.possiblyStale.length === 1 ? 'has' : 'have'} not been recalled for ${retireAfterDays} days. They stay; /memory marks them.`,
+			`${unused} you or Namzu saved ${unused === 1 ? 'has' : 'have'} not been recalled for ${retireAfterDays} days. They stay; /memory marks them.`,
+		)
+	if (gone > 0)
+		lines.push(
+			`${gone} you or Namzu saved name${gone === 1 ? 's' : ''} a file that has been gone for ${ANCHORS_BROKEN_RETIRE_DAYS} days. They stay; /memory marks them.`,
 		)
 	if (report.kept > 0) lines.push(`${report.kept} changed while tidying and stayed.`)
 	return lines.join('\n')

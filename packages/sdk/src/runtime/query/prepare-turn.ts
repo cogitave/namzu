@@ -430,7 +430,11 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 		]
 		assertCostIsAttributable(chain, params.pricing)
 		assertBudgetIsMeasurable(params)
-		const withRecovery = (provider: LLMProvider): LLMProvider => {
+		// When the caller asks for it (`retry.overloadedFallOverAfter`), a member
+		// with a successor leaves after that many overloaded answers in a row
+		// instead of spending the whole budget on a saturated provider; the last
+		// member has nowhere to go, so it keeps the full budget whatever was asked.
+		const withRecovery = (provider: LLMProvider, hasSuccessor: boolean): LLMProvider => {
 			const withIdleBound = withStreamIdleTimeout(provider, {
 				idleTimeoutMs: streamIdleTimeoutMs,
 				log,
@@ -439,7 +443,12 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 			return params.retry === false
 				? metered
 				: withProviderRetry(metered, {
-						config: params.retry,
+						config: {
+							...params.retry,
+							overloadedFallOverAfter: hasSuccessor
+								? (params.retry?.overloadedFallOverAfter ?? 0)
+								: 0,
+						},
 						log,
 						canRetry: () => budget.remaining > 0,
 					})
@@ -455,9 +464,9 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 			current: { index: 0, providerId: params.provider.id },
 		}
 		const resilientProvider = withProviderFallback(
-			chain.map((member) => ({
+			chain.map((member, position) => ({
 				...member,
-				provider: withRecovery(member.provider),
+				provider: withRecovery(member.provider, position < chain.length - 1),
 			})),
 			{
 				log,
