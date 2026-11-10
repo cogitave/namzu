@@ -141,6 +141,13 @@ describe('the coding-agent doctrine', () => {
 			expect((parent ?? '').toLowerCase()).toContain(rule.toLowerCase())
 			expect((child ?? '').toLowerCase()).not.toContain(rule.toLowerCase())
 		}
+		expect(CODING_AGENT_DELEGATION_DOCTRINE).toContain('any record line shown beside it')
+		expect(CODING_AGENT_DELEGATION_DOCTRINE).toContain('when the checkout is a git repo')
+		expect(CODING_AGENT_DELEGATION_DOCTRINE).not.toContain('the kernel writes beside it')
+		// Hypermode says outright that it overrides the do-it-yourself rule.
+		expect(CODING_AGENT_HYPERMODE_DOCTRINE).toContain(
+			'overrides the advice above to do small work yourself',
+		)
 		// Hypermode stays its own section and an override, not part of the base rules.
 		expect(CODING_AGENT_DELEGATION_DOCTRINE).not.toContain('### Hypermode')
 		expect(codingAgentDoctrineContribution({ hypermode: true }).render({})).toContain(
