@@ -38,9 +38,11 @@ export interface CompiledSegment {
  */
 export class GlobTooComplexError extends Error {
 	readonly segment: string
-	constructor(segment: string) {
+	constructor(segment: string, reason: 'ambiguous' | 'stretch' = 'ambiguous') {
 		super(
-			`The pattern '${segment}' repeats a group that can match the same text more than one way; use ** or {a,b} instead.`,
+			reason === 'stretch'
+				? `The pattern '${segment}' has more than three wildcards that can stretch; split it across folders or use fewer *.`
+				: `The pattern '${segment}' repeats a group that can match the same text more than one way; use ** or {a,b} instead.`,
 		)
 		this.name = 'GlobTooComplexError'
 		this.segment = segment
@@ -54,6 +56,8 @@ interface Parsed {
 	source: string
 	literal: string
 	magic: boolean
+	/** Unbounded runs: each `*` (consecutive ones collapsed), `*( )` and `+( )`. */
+	runs: number
 }
 
 /** Index of the `)` closing the group opened just before `from`, or -1. */
@@ -157,6 +161,7 @@ function parse(text: string, guard = ''): Parsed {
 	let source = ''
 	let literal = ''
 	let magic = false
+	let runs = 0
 	for (let index = 0; index < text.length; index += 1) {
 		const ch = text[index] as string
 		const next = text[index + 1]
@@ -172,6 +177,7 @@ function parse(text: string, guard = ''): Parsed {
 		} else if (ch === '*' && next !== '(') {
 			while (text[index + 1] === '*') index += 1
 			source += '[^/]*?'
+			runs += 1
 			magic = true
 		} else if (ch === '?' && next !== '(') {
 			source += '[^/]'
@@ -216,11 +222,14 @@ function parse(text: string, guard = ''): Parsed {
 				({ a, parsed }) => (index === 0 && !startsWithDot(a) ? guard : '') + parsed.source,
 			)
 			const group = `(?:${alternatives.join('|')})`
+			runs +=
+				parts.reduce((sum, part) => sum + part.parsed.runs, 0) + (ch === '*' || ch === '+' ? 1 : 0)
 			magic = true
 			if (ch === '!') {
-				const rest = parse(text.slice(end + 1)).source
+				const tail = parse(text.slice(end + 1))
+				const rest = tail.source
 				source += `(?:(?!${group}${rest}$)[^/]*?)${rest}`
-				return { source, literal, magic }
+				return { source, literal, magic, runs: runs + 1 + tail.runs }
 			}
 			source += ch === '@' ? group : `${group}${ch === '?' ? '?' : ch === '*' ? '*' : '+'}`
 			index = end
@@ -229,7 +238,7 @@ function parse(text: string, guard = ''): Parsed {
 			literal += ch
 		}
 	}
-	return { source, literal, magic }
+	return { source, literal, magic, runs }
 }
 
 /** Whether the text is exactly one closed `[...]` class. */
@@ -264,8 +273,11 @@ export function compileSegment(segment: string, dot: boolean): CompiledSegment {
 	try {
 		parsed = parse(segment, guard)
 	} catch (error) {
-		throw error instanceof GlobTooComplexError ? new GlobTooComplexError(segment) : error
+		throw error instanceof GlobTooComplexError
+			? new GlobTooComplexError(segment, 'ambiguous')
+			: error
 	}
+	if (parsed.runs > 3) throw new GlobTooComplexError(segment, 'stretch')
 	if (!parsed.magic) return { literal: parsed.literal, source: `^${parsed.source}$` }
 	const grouped = (segment.startsWith('@(') || segment.startsWith('+(')) && !dot
 	const lead = grouped || dot || startsWithDot(segment) || isOneGroup(segment) ? '' : guard

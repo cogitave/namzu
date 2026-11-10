@@ -209,7 +209,7 @@ describe('star height', () => {
 	})
 	const accepted = [
 		...PINNED_PATTERNS,
-		'*a*a*a*a*',
+		'*a*a*a',
 		'+(foo|bar)',
 		'*(ab|cd)',
 		'*(a)*(b)',
@@ -270,5 +270,29 @@ describe('repeated extglob groups that can match the same text more than one way
 	it('runs a near miss through the compiled expression without backtracking', () => {
 		const { source } = compileSegment('*(ab|cd)', false)
 		expect(new RegExp(source, 'u').test(`${'ab'.repeat(5000)}x`)).toBe(false)
+	})
+})
+
+describe('wildcards that can stretch', () => {
+	const stretchy = (pattern: string) =>
+		`The pattern '${pattern}' has more than three wildcards that can stretch; split it across folders or use fewer *.`
+	for (const pattern of ['*a*a*a*b', '*a*a*a*a*', '*(a)*(b)*(c)*', '+(a)*b*c*d', '!(a)*b*c*']) {
+		it(`refuses ${pattern}`, () => {
+			expect(() => compileSegment(pattern, false)).toThrow(GlobTooComplexError)
+			expect(() => compileSegment(pattern, true)).toThrow(stretchy(pattern))
+		})
+	}
+	it('counts consecutive stars as one and accepts three runs', () => {
+		for (const pattern of ['*foo*bar*', '*.test.*', '***a**b*', '*(a)*b*c']) {
+			expect(() => compileSegment(pattern, false)).not.toThrow()
+		}
+		expect(matches('*foo*bar*', 'xfooybarz')).toBe(true)
+		expect(matches('*.test.*', 'a.test.ts')).toBe(true)
+		expect(matches('*.test.*', 'a.ts')).toBe(false)
+	})
+	it('accepts every pinned pattern', () => {
+		for (const pattern of PINNED_PATTERNS) {
+			expect(() => compileSegment(pattern, false)).not.toThrow()
+		}
 	})
 })

@@ -65,7 +65,7 @@ before touching the filesystem or building the guest script: `glob` and `grep` r
 a tool error, "The pattern '<segment>' repeats a group that can match the same text
 more than one way; use ** or {a,b} instead." (`GlobTooComplexError`). `@( )`,
 `?( )` and `!( )` are unchanged, but a repeated group inside them follows the same
-rule. The few forms where the answer differs from minimatch 9 are pinned in
+rule. A segment with more than three wildcards that can stretch (each `*`, `*( )` and `+( )`, consecutive `*` counted once; a whole-segment `**` is a path globstar and is not counted) is refused the same way, with "The pattern '<segment>' has more than three wildcards that can stretch; split it across folders or use fewer *.", because matching a long name against four or more of them takes seconds. The few forms where the answer differs from minimatch 9 are pinned in
 `glob-segment.test.ts`.
 
 ## Content searches
