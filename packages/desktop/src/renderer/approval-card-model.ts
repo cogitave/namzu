@@ -34,6 +34,8 @@ export interface ApprovalCardModel {
 	/** A readable summary of any other tool's arguments. */
 	entries: { label: string; value: string }[]
 	destructive: boolean
+	/** The one-time question that an application needs the keyboard and mouse for a moment. */
+	screenMoment?: { app: string }
 	/** Titles of the other calls of the same batch, which one answer covers. */
 	others: string[]
 }
@@ -44,6 +46,19 @@ const COMMAND_TOOLS = new Set(['bash', 'shell', 'run_command', 'exec'])
 const VALUE_MAX = 240
 /** The name of the tool an ordinary conversation uses to message a Pal. */
 export const PAL_MESSAGE_TOOL = 'send_pal_message'
+/** The request the engine sends when an application needs the real keyboard and mouse for a moment. */
+export const SCREEN_MOMENT_TOOL = 'screen_moment'
+
+/** The application a screen-moment call names, in words a person reads. */
+function screenApp(call: Call): string {
+	const app = record(call.input) && typeof call.input.app === 'string' ? call.input.app.trim() : ''
+	return app || 'an application'
+}
+
+/** What saying yes lets happen, and for how long. */
+export function screenMomentNote(app: string): string {
+	return `Namzu needs your keyboard and mouse for a moment to use ${app}. It cannot do this in the background. Your window and pointer are put back afterwards, and Escape stops it. This is asked every time.`
+}
 
 const record = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -227,6 +242,19 @@ export function buildApprovalCard(
 		}
 	}
 
+	if (name === SCREEN_MOMENT_TOOL) {
+		const app = screenApp(first)
+		return {
+			kind: 'other',
+			title: `Let ${app} use your keyboard and mouse for a moment?`,
+			screenMoment: { app },
+			previewMissing: false,
+			entries: [],
+			destructive: false,
+			others,
+		}
+	}
+
 	if (name === PAL_MESSAGE_TOOL && typeof input?.body === 'string') {
 		const body = input.body
 		return {
@@ -386,6 +414,8 @@ export function offersConversationAllowance(permission: PermissionView): boolean
  */
 export function rejectsFirst(model: ApprovalCardModel, permission: PermissionView): boolean {
 	if (model.kind === 'delete') return true
+	// The person is using the keyboard when this card appears, so a stray Enter must not allow it.
+	if (model.screenMoment) return true
 	return permission.calls.some((call) => {
 		if (DELETE_TOOLS.has(call.name.toLowerCase())) return true
 		const command = record(call.input) ? call.input.command : undefined

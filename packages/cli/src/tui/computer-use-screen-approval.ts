@@ -7,15 +7,34 @@ import type { QuestionFn } from './agent.js'
  * card, so a run with nobody to answer (exec, scheduled) gets `unavailable`
  * and waits for a still moment instead.
  */
+/** The id every screen question carries, so a host can tell it from any other question. */
+export const SCREEN_QUESTION_PREFIX = 'screen-'
+const NO_APP = 'An application'
+
+const screenQuestionText = (name: string): string => `Let ${name} use the screen for a moment?`
+
+/**
+ * The application a screen question is about, or `undefined` when the question is some other one.
+ * A host that draws its own card for it (Desktop) reads the name here rather than parsing text.
+ */
+export function screenQuestionApp(question: {
+	readonly questionId: string
+	readonly question: string
+}): string | undefined {
+	if (!question.questionId.startsWith(SCREEN_QUESTION_PREFIX)) return undefined
+	const match = /^Let (.+) use the screen for a moment\?$/s.exec(question.question)
+	return match?.[1] ?? NO_APP
+}
+
 export function screenApprover(currentAsk: () => QuestionFn | undefined): ForegroundApprover {
 	return async (subject, signal) => {
 		const ask = currentAsk()
 		if (!ask) return 'unavailable'
-		const name = subject.app.trim().length > 0 ? subject.app : 'An application'
+		const name = subject.app.trim().length > 0 ? subject.app : NO_APP
 		const answer = await ask(
 			{
-				questionId: `screen-${subject.exe ?? subject.app}`,
-				question: `Let ${name} use the screen for a moment?`,
+				questionId: `${SCREEN_QUESTION_PREFIX}${subject.exe ?? subject.app}`,
+				question: screenQuestionText(name),
 				header: 'Screen needed',
 				options: [
 					{

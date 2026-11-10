@@ -12,6 +12,7 @@ import {
 	palMessageNote,
 	previewNote,
 	rejectsFirst,
+	screenMomentNote,
 	summarizeInput,
 } from './approval-card-model.js'
 
@@ -426,4 +427,13 @@ describe('the standing yes and where Enter lands', () => {
 			false,
 		)
 	})
+})
+
+it('builds the screen question from the engine call and never offers a standing yes for it', () => {
+	const screen = request([call('screen_moment', { app: 'Editor' }, { alwaysAsk: true })])
+	const model = buildApprovalCard(screen)
+	expect(model.screenMoment).toEqual({ app: 'Editor' })
+	expect(offersConversationAllowance(screen)).toBe(false)
+	expect(rejectsFirst(model, screen)).toBe(true)
+	expect(screenMomentNote('Editor')).toContain('asked every time')
 })
