@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
-import { enableStartupCompileCache } from '../compile-cache.js'
+import { enableStartupCompileCache, flushCompileCacheWhenIdle } from '../compile-cache.js'
 
 let root: string
 
@@ -129,5 +129,58 @@ describe('the startup compile cache', () => {
 		const outcome = enableStartupCompileCache({ env: { NAMZU_HOME: root } })
 
 		expect(outcome.state).toBe('failed')
+	})
+})
+
+describe('the compile cache flush for a long-lived process', () => {
+	// A fake clock: the test decides when the delay has passed.
+	function clock() {
+		const pending: { run: () => void; ms: number; unref: ReturnType<typeof vi.fn> }[] = []
+		return {
+			pending,
+			setTimer: (run: () => void, ms: number) => {
+				const timer = { run, ms, unref: vi.fn() }
+				pending.push(timer)
+				return timer
+			},
+		}
+	}
+
+	it('writes the cache once, after the delay, on a timer that does not hold the process open', () => {
+		const flushCompileCache = vi.fn()
+		const { pending, setTimer } = clock()
+
+		flushCompileCacheWhenIdle({ module: { flushCompileCache }, setTimer, delayMs: 1500 })
+
+		expect(flushCompileCache).not.toHaveBeenCalled()
+		expect(pending).toHaveLength(1)
+		expect(pending[0]?.ms).toBe(1500)
+		expect(pending[0]?.unref).toHaveBeenCalled()
+		pending[0]?.run()
+		expect(flushCompileCache).toHaveBeenCalledTimes(1)
+	})
+
+	it('writes nothing once it was cancelled', () => {
+		const flushCompileCache = vi.fn()
+		const { pending, setTimer } = clock()
+
+		const cancel = flushCompileCacheWhenIdle({ module: { flushCompileCache }, setTimer })
+		cancel()
+		pending[0]?.run()
+
+		expect(flushCompileCache).not.toHaveBeenCalled()
+	})
+
+	it('does nothing on a Node that cannot flush, and never throws when the write fails', () => {
+		const { pending, setTimer } = clock()
+		flushCompileCacheWhenIdle({ module: {}, setTimer })
+		expect(pending).toHaveLength(0)
+
+		const failing = vi.fn(() => {
+			throw new Error('disk full')
+		})
+		flushCompileCacheWhenIdle({ module: { flushCompileCache: failing }, setTimer })
+		expect(() => pending[0]?.run()).not.toThrow()
+		expect(failing).toHaveBeenCalledTimes(1)
 	})
 })
