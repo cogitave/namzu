@@ -148,14 +148,40 @@ async function submit(screen: Screen, text: string) {
 let clock = Date.parse('2030-06-01T12:00:00Z')
 const askedFor: string[] = []
 const fakeServer = (async (url: string, init?: RequestInit) => {
+	if (url.includes('output_modalities=decisions')) {
+		return new Response(
+			JSON.stringify({
+				data: [
+					{
+						id: 'typesafe/jev-1.14',
+						name: 'Typesafe: JEV',
+						pricing: { prompt: '0.000000042' },
+						context_length: 32768,
+					},
+					{
+						id: 'microsoft/microsoft-decision-1',
+						name: 'Microsoft: Decision 1',
+						pricing: { prompt: '0.000000042' },
+						context_length: 1000000,
+					},
+					{
+						id: 'parallel/decisions-fast:free',
+						name: 'Parallel: Fast',
+						pricing: { prompt: '0' },
+						context_length: 8000,
+					},
+				],
+			}),
+		)
+	}
 	askedFor.push(`${url} ${new Headers(init?.headers).get('authorization') ?? 'no key'}`)
 	return new Response(JSON.stringify({ answers: { q: { noul: 0.9 } } }))
 }) as unknown as typeof fetch
-async function open(cols = 100, ready = 'Type a message') {
+async function open(cols = 100, ready = 'Type a message', env: NodeJS.ProcessEnv = {}) {
 	const screen = await renderToScreen(
 		<App
 			ctx={{ cwd: '/workspace/namzu', version: '0.0.0-test' }}
-			decisionSetup={{ home, env: {}, now: () => clock, fetch: fakeServer }}
+			decisionSetup={{ home, env, now: () => clock, fetch: fakeServer }}
 		/>,
 		{ cols, rows: 30 },
 	)
@@ -222,6 +248,7 @@ it('connects my own server in three fields, keeps the key out of the config, and
 	await press(screen, '\r')
 	await shows(screen, 'My own server (HTTP)')
 	await press(screen, '\x1b[B')
+	await press(screen, '\x1b[B')
 	await press(screen, '\r')
 	await shows(screen, 'Server address')
 	await submit(screen, 'http://127.0.0.1:8080/decide')
@@ -241,6 +268,30 @@ it('connects my own server in three fields, keeps the key out of the config, and
 	await pickModel(screen, OLD, 3)
 	await shows(screen, 'Type a message')
 	expect(screen.viewport().join('\n')).not.toContain(OFFER)
+})
+
+it('connects OpenRouter first: reuses the key, lists the models, starts on Microsoft Decision 1, reports Connected', async () => {
+	const screen = await open(100, 'Type a message', {
+		OPENROUTER_API_KEY: 'sk-or-FIXTURE-0123456789',
+	})
+	await pickModel(screen, NEXT, 2)
+	await shows(screen, OFFER)
+	await press(screen, '\r')
+	await shows(screen, 'OpenRouter')
+	await press(screen, '\r')
+	await shows(screen, 'Using your OpenRouter key from OPENROUTER_API_KEY.')
+	await shows(screen, 'Which OpenRouter decision model?')
+	await shows(screen, 'Microsoft: Decision 1')
+	await shows(screen, 'free')
+	await press(screen, '\r')
+	await shows(screen, 'Connected · ')
+	expect(askedFor.at(-1)).toBe(
+		'https://openrouter.ai/api/v1/systemone Bearer sk-or-FIXTURE-0123456789',
+	)
+	const config = readFileSync(join(home, '.namzu', 'config.yaml'), 'utf8')
+	expect(config).toContain('model: microsoft/microsoft-decision-1')
+	expect(config).not.toContain('sk-or-FIXTURE')
+	expect(screen.viewport().join('\n')).not.toContain('sk-or-FIXTURE')
 })
 
 it('shows one line of decision status in /status', async () => {

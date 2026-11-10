@@ -10,22 +10,35 @@ import {
 	writeConnection,
 } from './connection.js'
 import { type DecisionBuildDeps, maybeCreateDecisionModel } from './model.js'
+import { OPENROUTER_DECISION_URL } from './openrouter.js'
 
 /** What the person gave the connect flow; the paste and the form steps fill it in. */
 export interface SetupDraft {
-	readonly kind: 'azure' | 'http'
+	readonly kind: 'azure' | 'http' | 'openrouter'
 	readonly endpoint?: string
 	readonly key?: string
 	readonly deployment?: string
 	readonly url?: string
 	readonly model?: string
+	/** A variable that already holds the key (OpenRouter); the key is then not saved at all. */
+	readonly keyEnv?: string
 }
 
 export const CONNECTION_TEST_TIMEOUT_MS = 3000
 
 export type ConnectionTestResult =
-	| { readonly ok: true; readonly ms: number }
-	| { readonly ok: false; readonly reason: string }
+	| {
+			readonly ok: true
+			readonly ms: number
+			/** What the test cost in USD, when the service said. */
+			readonly costUsd?: number
+	  }
+	| {
+			readonly ok: false
+			readonly reason: string
+			/** The model answered 400 to Namzu's questions: pick another, do not fall back. */
+			readonly unsupportedModel?: true
+	  }
 
 export interface TimeoutHandle {
 	readonly signal: AbortSignal
@@ -44,12 +57,23 @@ function realTimeout(ms: number): TimeoutHandle {
 	return { signal: controller.signal, clear: () => clearTimeout(timer) }
 }
 
+/** A 400 that says the model wants another question shape (missing or null instructions or criteria). */
+export function isQuestionShapeError(error: unknown): boolean {
+	return (
+		error instanceof DecisionError &&
+		error.status === 400 &&
+		/instructions|criteria|question|shape/i.test(error.message)
+	)
+}
+
 /** The plain reason a decision call failed, in words that say what to look at. */
 export function explainConnectionFailure(error: unknown, timedOut: boolean): string {
 	if (timedOut) return `no answer within ${CONNECTION_TEST_TIMEOUT_MS / 1000} s`
 	if (error instanceof DecisionError) {
 		if (error.status === 401 || error.status === 403)
 			return `the service refused the key (${error.status})`
+		if (isQuestionShapeError(error))
+			return `the model does not work with Namzu's questions (${error.message})`
 		if (error.status === 404) return 'nothing answered at that address or deployment (404)'
 		if (error.status !== undefined) return `the service answered ${error.status}: ${error.message}`
 		return error.message
@@ -68,19 +92,44 @@ export async function testDecisionConnection(
 	const now = deps.now ?? Date.now
 	const { points: _points, ...block } = cfg
 	// The kill switch is for the running session, not for the person checking their own connection.
+	// The cost rides in the body (`usage.cost`); the driver does not surface it, so it is read off a copy.
+	const cost: { usd?: number } = {}
+	const baseFetch = deps.fetch ?? ((input, init) => globalThis.fetch(input, init))
 	const model = maybeCreateDecisionModel(
 		block as SavedConnection,
 		{ ...env, NAMZU_NO_DECISION: '' },
-		deps,
+		{
+			...deps,
+			fetch: async (input, init) => {
+				const res = await baseFetch(input, init)
+				try {
+					const body = (await res.clone().json()) as { usage?: { cost?: unknown } }
+					if (typeof body.usage?.cost === 'number') cost.usd = body.usage.cost
+				} catch {
+					// No cost to show.
+				}
+				return res
+			},
+		},
 	)
 	if (!model) return { ok: false, reason: 'nothing is configured' }
 	const timeout = (deps.startTimeout ?? realTimeout)(CONNECTION_TEST_TIMEOUT_MS)
 	const started = now()
 	try {
 		await model.yesno('ok', 'Is this a connection test?', { signal: timeout.signal })
-		return { ok: true, ms: Math.max(0, Math.round(now() - started)) }
+		return {
+			ok: true,
+			ms: Math.max(0, Math.round(now() - started)),
+			...(cost.usd !== undefined ? { costUsd: cost.usd } : {}),
+		}
 	} catch (error) {
-		return { ok: false, reason: explainConnectionFailure(error, timeout.signal.aborted) }
+		return {
+			ok: false,
+			reason: explainConnectionFailure(error, timeout.signal.aborted),
+			...(!timeout.signal.aborted && isQuestionShapeError(error)
+				? { unsupportedModel: true as const }
+				: {}),
+		}
 	} finally {
 		timeout.clear()
 	}
@@ -120,6 +169,16 @@ export function draftToConnection(draft: SetupDraft): SavedConnection | undefine
 			? { provider: 'azure', endpoint: draft.endpoint, deployment: draft.deployment }
 			: undefined
 	}
+	if (draft.kind === 'openrouter') {
+		return draft.model
+			? {
+					provider: 'http',
+					url: OPENROUTER_DECISION_URL,
+					model: draft.model,
+					...(draft.keyEnv ? { apiKeyEnv: draft.keyEnv } : {}),
+				}
+			: undefined
+	}
 	return draft.url
 		? { provider: 'http', url: draft.url, ...(draft.model ? { model: draft.model } : {}) }
 		: undefined
@@ -150,5 +209,13 @@ export function saveConnection(draft: SetupDraft, opts: ConnectionOptions = {}):
 }
 
 export function connectedNotice(result: ConnectionTestResult): string {
-	return result.ok ? `Connected · ${result.ms} ms` : `Saved, but not connected: ${result.reason}`
+	return result.ok
+		? `Connected · ${result.ms} ms${result.costUsd === undefined ? '' : ` · test cost ${formatCost(result.costUsd)}`}`
+		: `Saved, but not connected: ${result.reason}`
+}
+
+/** A USD amount for a fraction-of-a-cent call: `$0.0000021`, or `no charge`. */
+export function formatCost(usd: number): string {
+	if (usd <= 0) return 'no charge'
+	return `$${usd.toFixed(Math.min(10, Math.max(4, 1 - Math.floor(Math.log10(usd)))))}`
 }

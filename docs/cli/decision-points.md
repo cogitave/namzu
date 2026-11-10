@@ -35,6 +35,19 @@ model is configured, or while `NAMZU_NO_DECISION=1`.
 Yes opens a short flow in which you connect whatever you want; Namzu has no decision service of its own
 and sends nothing anywhere until you connect one:
 
+- **OpenRouter** (the first choice): the decision models OpenRouter lists, fetched live
+  (`GET https://openrouter.ai/api/v1/models?output_modalities=decisions`, three seconds to answer), each with
+  its price per million input tokens (`free` when it costs nothing) and its context length, starting on
+  Microsoft Decision 1 when it is listed. If Namzu already has an OpenRouter key (`OPENROUTER_API_KEY`, or the
+  key saved for the OpenRouter provider) it is used without asking and one line says so; otherwise the flow asks
+  for a key (masked) and saves it in the private credential store like any other decision key. When the list
+  cannot be loaded the flow says so and asks you to type a model, offering `microsoft/microsoft-decision-1`
+  and `typesafe/jev-1.14`. The connection is an ordinary `http` block, so nothing about the config changed:
+  `url: https://openrouter.ai/api/v1/systemone`, `model: <id>`, and `apiKeyEnv: OPENROUTER_API_KEY` when the
+  key lives in the environment (the key itself is never written to `config.yaml`). Some models want a
+  differently shaped question (for example one that rejects a yes/no question with no criteria): the test then
+  says the model does not work with Namzu's questions and asks you to pick another, and never falls back
+  to a different one by itself.
 - **Azure AI Foundry**: one field takes the portal's "Keys and Endpoint" text as it copies, or the endpoint
   and key one at a time. The endpoint (`https://<resource>.services.ai.azure.com` or
   `https://<resource>.cognitiveservices.azure.com`) and the key are picked out of it; key 1 is used when
@@ -46,7 +59,8 @@ and sends nothing anywhere until you connect one:
   model name.
 
 Namzu then saves the connection and tests it with one cheap yes/no call that has three seconds to answer,
-and prints `Connected · 180 ms` or the plain reason it could not. The test runs even if the connection is
+and prints `Connected · 180 ms` or the plain reason it could not. When the service reports what the call cost
+(OpenRouter does, as `usage.cost`), the line adds it: `Connected · 310 ms · test cost $0.0000021`. The test runs even if the connection is
 wrong, so a typo is found while you are still looking at it.
 
 Where things go: the address, deployment and model are written to the `decision` block of your user

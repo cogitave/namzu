@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import type { SetupDraft } from '../../integrations/decision/setup.js'
-import { advanceDecisionFlow, decisionPrompt } from '../decision-setup-flow.js'
+import {
+	DECISION_KIND_OPTIONS,
+	DECISION_KIND_VALUES,
+	advanceDecisionFlow,
+	decisionPrompt,
+	startOpenRouter,
+} from '../decision-setup-flow.js'
 
 const KEY = '4f1c9a0b7d3e48a2b6c5d8e9f0a1b2c3'
 
@@ -138,6 +144,53 @@ describe('the fields', () => {
 		expect(decisionPrompt('azure-deployment', { deployments: ['a', 'b'] })).toMatchObject({
 			title: 'Deployment (found: a, b)',
 			initialValue: 'a',
+		})
+	})
+})
+
+describe('the OpenRouter path', () => {
+	it('is the first choice, then Azure, then the own server', () => {
+		expect(DECISION_KIND_VALUES).toEqual(['openrouter', 'azure', 'http'])
+		expect(DECISION_KIND_OPTIONS.map((o) => o.label)).toEqual([
+			'OpenRouter',
+			'Azure AI Foundry',
+			'My own server (HTTP)',
+		])
+	})
+
+	it('reuses a key from the environment or the store without asking', () => {
+		expect(startOpenRouter({ source: 'env', env: 'OPENROUTER_API_KEY' })).toEqual({
+			kind: 'list-models',
+			draft: { kind: 'openrouter', keyEnv: 'OPENROUTER_API_KEY' },
+		})
+		expect(startOpenRouter({ source: 'store', key: 'k-1' })).toEqual({
+			kind: 'list-models',
+			draft: { kind: 'openrouter', key: 'k-1' },
+		})
+	})
+
+	it('asks for a masked key when there is none, then lists the models', () => {
+		const ask = startOpenRouter(undefined)
+		expect(ask).toMatchObject({ kind: 'ask', step: 'openrouter-key' })
+		expect(decisionPrompt('openrouter-key').mask).toBe(true)
+		expect(advanceDecisionFlow({ kind: 'openrouter' }, 'openrouter-key', ' sk-x ')).toEqual({
+			kind: 'list-models',
+			draft: { kind: 'openrouter', key: 'sk-x' },
+		})
+		expect(advanceDecisionFlow({ kind: 'openrouter' }, 'openrouter-key', ' ')).toMatchObject({
+			kind: 'retry',
+		})
+	})
+
+	it('offers the two fallbacks as a typed step starting on the default when the list fails', () => {
+		const spec = decisionPrompt('openrouter-model')
+		expect(spec.initialValue).toBe('microsoft/microsoft-decision-1')
+		expect(spec.placeholder).toContain('typesafe/jev-1.14')
+		expect(
+			advanceDecisionFlow({ kind: 'openrouter' }, 'openrouter-model', 'typesafe/jev-1.14'),
+		).toEqual({
+			kind: 'done',
+			draft: { kind: 'openrouter', model: 'typesafe/jev-1.14' },
 		})
 	})
 })

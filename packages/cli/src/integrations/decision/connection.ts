@@ -59,7 +59,13 @@ export function connectedPointsNotice(
 
 export type SavedConnection =
 	| { readonly provider: 'azure'; readonly endpoint: string; readonly deployment: string }
-	| { readonly provider: 'http'; readonly url: string; readonly model?: string }
+	| {
+			readonly provider: 'http'
+			readonly url: string
+			readonly model?: string
+			/** The variable the key is read from at call time; set when a key already lives in the environment. */
+			readonly apiKeyEnv?: string
+	  }
 
 export interface ConnectionOptions {
 	/** The OS home (testing); the namzu home is resolved under it. */
@@ -93,6 +99,9 @@ export function readConnection(opts: ConnectionOptions = {}): SavedConnection | 
 				provider: 'http',
 				url: parsed.url,
 				...(typeof parsed.model === 'string' && parsed.model ? { model: parsed.model } : {}),
+				...(typeof parsed.apiKeyEnv === 'string' && parsed.apiKeyEnv
+					? { apiKeyEnv: parsed.apiKeyEnv }
+					: {}),
 			}
 		}
 	} catch {

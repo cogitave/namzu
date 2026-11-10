@@ -1,3 +1,8 @@
+import {
+	DEFAULT_OPENROUTER_DECISION_MODEL,
+	FALLBACK_OPENROUTER_DECISION_MODELS,
+	type OpenRouterKey,
+} from '../integrations/decision/openrouter.js'
 import { normalizeAzureEndpoint, parseAzurePaste } from '../integrations/decision/paste.js'
 import type { SetupDraft } from '../integrations/decision/setup.js'
 import type { ChoicePickerOption } from './ChoicePicker.js'
@@ -24,13 +29,19 @@ export const DECISION_OFFER_OPTIONS: readonly ChoicePickerOption[] = [
 	{ label: "Don't ask again", description: 'You can still connect one by hand in the config.' },
 ]
 
-export const DECISION_KIND_VALUES = ['azure', 'http'] as const
+export const DECISION_KIND_VALUES = ['openrouter', 'azure', 'http'] as const
 export const DECISION_KIND_OPTIONS: readonly ChoicePickerOption[] = [
+	{
+		label: 'OpenRouter',
+		description: 'Pick from the decision models it lists, with prices. Uses your OpenRouter key.',
+	},
 	{ label: 'Azure AI Foundry', description: 'Paste the Keys and Endpoint text from the portal.' },
 	{ label: 'My own server (HTTP)', description: 'An address, and a key if it wants one.' },
 ]
 
 export type DecisionStep =
+	| 'openrouter-key'
+	| 'openrouter-model'
 	| 'azure-paste'
 	| 'azure-endpoint'
 	| 'azure-key'
@@ -54,6 +65,23 @@ export function decisionPrompt(
 	hints: { readonly deployments?: readonly string[] } = {},
 ): DecisionPromptSpec {
 	switch (step) {
+		case 'openrouter-key':
+			return {
+				step,
+				title: 'OpenRouter key',
+				placeholder: 'Paste your OpenRouter key · it is saved privately and never shown',
+				emptyNotice: 'A key is required. Press Esc to cancel.',
+				initialValue: '',
+				mask: true,
+			}
+		case 'openrouter-model':
+			return {
+				step,
+				title: 'Decision model (the list could not be loaded)',
+				placeholder: `Type one, for example ${FALLBACK_OPENROUTER_DECISION_MODELS.join(' or ')}`,
+				emptyNotice: 'A model is required. Press Esc to cancel.',
+				initialValue: DEFAULT_OPENROUTER_DECISION_MODEL,
+			}
 		case 'azure-paste':
 			return {
 				step,
@@ -135,6 +163,8 @@ export function isLoopbackHost(hostname: string): boolean {
 
 export type DecisionAdvance =
 	| { readonly kind: 'ask'; readonly draft: SetupDraft; readonly step: DecisionStep }
+	/** OpenRouter: the key is settled, now list the decision models (or ask for one when the list fails). */
+	| { readonly kind: 'list-models'; readonly draft: SetupDraft }
 	/** The deployment is the one thing missing and the resource may list it: look, then ask. */
 	| { readonly kind: 'list-deployments'; readonly draft: SetupDraft }
 	| { readonly kind: 'done'; readonly draft: SetupDraft }
@@ -144,6 +174,16 @@ export type DecisionAdvance =
 			readonly step: DecisionStep
 			readonly notice: string
 	  }
+
+/** Where the OpenRouter path starts: reuse a key Namzu has, else ask for one. */
+export function startOpenRouter(found: OpenRouterKey | undefined): DecisionAdvance {
+	const draft: SetupDraft = { kind: 'openrouter' }
+	if (!found) return { kind: 'ask', draft, step: 'openrouter-key' }
+	return {
+		kind: 'list-models',
+		draft: found.source === 'env' ? { ...draft, keyEnv: found.env } : { ...draft, key: found.key },
+	}
+}
 
 function azureNext(draft: SetupDraft): DecisionAdvance {
 	if (!draft.endpoint) return { kind: 'ask', draft, step: 'azure-endpoint' }
@@ -164,6 +204,14 @@ export function advanceDecisionFlow(
 ): DecisionAdvance {
 	const text = value.trim()
 	switch (step) {
+		case 'openrouter-key':
+			return text
+				? { kind: 'list-models', draft: { ...draft, key: text } }
+				: { kind: 'retry', draft, step, notice: 'A key is required. Press Esc to cancel.' }
+		case 'openrouter-model':
+			return text
+				? { kind: 'done', draft: { ...draft, model: text } }
+				: { kind: 'retry', draft, step, notice: 'A model is required. Press Esc to cancel.' }
 		case 'azure-paste': {
 			const parsed = parseAzurePaste(text)
 			if (!parsed.endpoint && !parsed.key) {

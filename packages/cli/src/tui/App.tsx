@@ -122,6 +122,13 @@ import {
 import { maybeCreateDecisionModel } from '../integrations/decision/model.js'
 import { notifyWorthyQuestion } from '../integrations/decision/notify.js'
 import {
+	type OpenRouterDecisionModel,
+	decisionModelOptions,
+	fetchDecisionModels,
+	findOpenRouterKey,
+	openRouterKeyNotice,
+} from '../integrations/decision/openrouter.js'
+import {
 	type DecisionPoints,
 	createDecisionPoints,
 	verdictOf,
@@ -484,6 +491,7 @@ import {
 	type DecisionStep,
 	advanceDecisionFlow,
 	decisionPrompt,
+	startOpenRouter,
 } from './decision-setup-flow.js'
 import { isSessionPlanPath } from './display-path.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
@@ -996,7 +1004,7 @@ type ChoicePickerState = {
 	| {
 			/** The decision-model offer after a model pick, and the choice of what to connect. */
 			readonly kind: 'decision-setup'
-			readonly step: 'offer' | 'kind'
+			readonly step: 'offer' | 'kind' | 'model'
 			readonly title: string
 			readonly notice?: string
 			readonly values: readonly string[]
@@ -2302,7 +2310,11 @@ function AppBody({
 	const decisionDraftRef = useRef<SetupDraft | null>(null)
 	const decisionOfferPendingRef = useRef(false)
 	const decisionStartCheckedRef = useRef(false)
-	const decisionChooseRef = useRef<((value: string, step: 'offer' | 'kind') => void) | null>(null)
+	const decisionChooseRef = useRef<
+		((value: string, step: 'offer' | 'kind' | 'model') => void) | null
+	>(null)
+	/** The OpenRouter decision models last listed, for picking another after one is refused. */
+	const decisionModelsRef = useRef<readonly OpenRouterDecisionModel[] | null>(null)
 	const decisionSubmitRef = useRef<((step: DecisionStep, value: string) => void) | null>(null)
 	const [connectedDecision, setConnectedDecision] = useState<DecisionConfig | null>(null)
 	const accountLoginRef = useRef<AbortController | null>(null)
@@ -8320,6 +8332,26 @@ function AppBody({
 		},
 		[pushMessage, setChoicePicker, setTextPrompt],
 	)
+	const openOpenRouterModelStep = useCallback(
+		(draft: SetupDraft) => {
+			const models = decisionModelsRef.current
+			if (!models || models.length === 0) {
+				openDecisionPrompt('openrouter-model', draft)
+				return
+			}
+			decisionDraftRef.current = draft
+			const { values, options, defaultIndex } = decisionModelOptions(models)
+			setSelectedChoice(defaultIndex)
+			setChoicePicker({
+				kind: 'decision-setup',
+				step: 'model',
+				title: 'Which OpenRouter decision model?',
+				values,
+				options,
+			})
+		},
+		[openDecisionPrompt, setChoicePicker, setSelectedChoice],
+	)
 	const finishDecisionSetup = useCallback(
 		async (draft: SetupDraft) => {
 			const opts = decisionOptions()
@@ -8339,6 +8371,15 @@ function AppBody({
 			const block = connectionToBlock(saved.connection)
 			const result = await testDecisionConnection(saved.connection, opts.env, deps)
 			if (appLifetime.signal.aborted) return
+			if (!result.ok && result.unsupportedModel && draft.kind === 'openrouter') {
+				// Say so and ask for another; never fall back to a different model quietly.
+				pushMessage(
+					'system',
+					`${draft.model} does not work with Namzu's questions (${result.reason}). Pick another model.`,
+				)
+				openOpenRouterModelStep(draft)
+				return
+			}
 			pushMessage('system', connectedNotice(result))
 			pushMessage('system', connectedPointsNotice(block.points))
 			// The points start now; the decide tool joins the next conversation.
@@ -8348,7 +8389,7 @@ function AppBody({
 			})
 			setConnectedDecision(block)
 		},
-		[decisionOptions, decisionSetup, pushMessage, pushSystem, appLifetime],
+		[decisionOptions, decisionSetup, pushMessage, pushSystem, appLifetime, openOpenRouterModelStep],
 	)
 	const handleDecisionAdvance = useCallback(
 		(next: DecisionAdvance) => {
@@ -8356,6 +8397,25 @@ function AppBody({
 				openDecisionPrompt(next.step, next.draft)
 			} else if (next.kind === 'retry') {
 				openDecisionPrompt(next.step, next.draft, undefined, next.notice)
+			} else if (next.kind === 'list-models') {
+				decisionDraftRef.current = next.draft
+				void fetchDecisionModels({
+					...(decisionSetup?.fetch ? { fetch: decisionSetup.fetch } : {}),
+				}).then((list) => {
+					if (appLifetime.signal.aborted) return
+					if (list.ok) {
+						decisionModelsRef.current = list.models
+						openOpenRouterModelStep(next.draft)
+					} else {
+						decisionModelsRef.current = null
+						openDecisionPrompt(
+							'openrouter-model',
+							next.draft,
+							undefined,
+							'The decision model list could not be loaded. Type a model name.',
+						)
+					}
+				})
 			} else if (next.kind === 'list-deployments') {
 				decisionDraftRef.current = null
 				const { endpoint, key } = next.draft
@@ -8371,11 +8431,15 @@ function AppBody({
 				void finishDecisionSetup(next.draft)
 			}
 		},
-		[appLifetime, decisionSetup, finishDecisionSetup, openDecisionPrompt],
+		[appLifetime, decisionSetup, finishDecisionSetup, openDecisionPrompt, openOpenRouterModelStep],
 	)
 	decisionSubmitRef.current = (step, value) => {
 		const draft: SetupDraft = decisionDraftRef.current ?? {
-			kind: step.startsWith('http') ? 'http' : 'azure',
+			kind: step.startsWith('http')
+				? 'http'
+				: step.startsWith('openrouter')
+					? 'openrouter'
+					: 'azure',
 		}
 		handleDecisionAdvance(advanceDecisionFlow(draft, step, value))
 	}
@@ -8397,6 +8461,19 @@ function AppBody({
 			} catch (error) {
 				pushSystem('error', explainFailure(error, 'Could not remember that answer.'))
 			}
+			return
+		}
+		if (step === 'model') {
+			const draft = decisionDraftRef.current
+			decisionDraftRef.current = null
+			if (draft) void finishDecisionSetup({ ...draft, model: value })
+			return
+		}
+		if (value === 'openrouter') {
+			const opts = decisionOptions()
+			const found = findOpenRouterKey(opts.env, opts.home)
+			if (found) pushMessage('system', openRouterKeyNotice(found))
+			handleDecisionAdvance(startOpenRouter(found))
 			return
 		}
 		openDecisionPrompt(value === 'http' ? 'http-url' : 'azure-paste', {
