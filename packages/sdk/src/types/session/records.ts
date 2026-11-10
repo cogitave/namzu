@@ -25,7 +25,7 @@ import {
 	type SessionEvent,
 	type SessionEventType,
 } from './events.js'
-import { TurnOutcomeSchema } from './outcome.js'
+import type { TurnSettlement } from './turn.js'
 
 /**
  * The session log: one append-only, hash-chained JSONL file per session, the
@@ -271,7 +271,6 @@ export const TurnSettlementSchema = z
 		servingProvider: text.optional(),
 		abandonedTaskIds: z.array(text),
 		abandonedJobIds: z.array(text),
-		outcome: TurnOutcomeSchema.optional(),
 	})
 	.strict()
 
@@ -548,8 +547,6 @@ export const ChildSessionEndedRecordSchema = recordSchema('child_session_ended',
 	resultMessageId: messageId.optional(),
 	usage: TokenUsageSchema,
 	cost: CostInfoSchema,
-	/** The child's own outcome record, copied from its settlement. */
-	outcome: TurnOutcomeSchema.optional(),
 })
 
 // Other record-only types
@@ -598,6 +595,49 @@ export const AccountBoundRecordSchema = recordSchema('account_bound', {
 	reason: z.enum(['start', 'user_switch', 'limit_switch']),
 })
 
+/**
+ * The three records below carry the turn's outcome record
+ * (`docs/sdk/turn-outcome.md`). Each is `ignorable: true`: a release that does
+ * not know the type keeps it in the hash chain and skips it (see
+ * `IgnorableRecordSchema`), so a log written with them still reads there and
+ * loses only the outcome. None of them may become a field of a record that
+ * existed before them, because a release that validates that record strictly
+ * would refuse the whole log. The body is checked only for being an object
+ * here; `TurnOutcomeSchema` judges it where it is read back, so a later
+ * release may widen it without making this one refuse the log.
+ */
+const outcomeBody = z.custom<Readonly<Record<string, unknown>>>(isPlainObject, {
+	message: 'expected an object',
+})
+
+/** A turn's final outcome, written just before its `turn_completed` or `turn_failed`. */
+export const TurnOutcomeRecordedRecordSchema = inTurn('turn_outcome_recorded', {
+	ignorable: z.literal(true),
+	outcome: outcomeBody,
+})
+
+/**
+ * A delegated child's outcome, written in the parent's log just before the
+ * child's `child_session_ended`. Carries the spawning turn's id only while that
+ * turn is open, as `child_session_ended` does.
+ */
+export const ChildOutcomeRecordedRecordSchema = recordSchema('child_outcome_recorded', {
+	ignorable: z.literal(true),
+	childSessionId: sessionId,
+	outcome: outcomeBody,
+})
+
+/**
+ * What the turn's outcome record had gathered when a checkpoint was written,
+ * so a resume can restore it. Written just before the `checkpoint_written`
+ * record of the same `checkpointId`.
+ */
+export const OutcomeProgressWrittenRecordSchema = inTurn('outcome_progress_written', {
+	ignorable: z.literal(true),
+	checkpointId,
+	progress: outcomeBody,
+})
+
 export const LogRepairedRecordSchema = recordSchema('log_repaired', {
 	truncatedBytes: positive,
 	lastGoodSeq: positive,
@@ -636,6 +676,9 @@ const RECORD_ONLY_SCHEMAS = {
 	budget_bound: BudgetBoundRecordSchema,
 	account_bound: AccountBoundRecordSchema,
 	log_repaired: LogRepairedRecordSchema,
+	turn_outcome_recorded: TurnOutcomeRecordedRecordSchema,
+	child_outcome_recorded: ChildOutcomeRecordedRecordSchema,
+	outcome_progress_written: OutcomeProgressWrittenRecordSchema,
 } as const
 
 export type SessionRecordOnlyType = keyof typeof RECORD_ONLY_SCHEMAS
@@ -1010,8 +1053,21 @@ type EventOf<T extends SessionEventType> = Extract<SessionEvent, { type: T }>
  */
 export type SessionEventRecord<T extends PersistedSessionEventType = PersistedSessionEventType> =
 	T extends PersistedSessionEventType
-		? Omit<EventOf<T>, 'sessionId' | 'turnId' | 'lineage' | 'v' | 'seq' | 'generation'> &
+		? Omit<
+				EventOf<T>,
+				| 'sessionId'
+				| 'turnId'
+				| 'lineage'
+				| 'v'
+				| 'seq'
+				| 'generation'
+				// The live settlement carries the outcome record; the log's does not.
+				| (T extends 'turn_completed' | 'turn_failed' ? 'settlement' : never)
+			> &
 				RecordEnvelope &
+				(T extends 'turn_completed' | 'turn_failed'
+					? { readonly settlement: TurnSettlement }
+					: unknown) &
 				(T extends 'tool_completed'
 					? {
 							readonly structuredResultSpill?: z.infer<typeof structuredResultSpill>
@@ -1040,6 +1096,9 @@ export type AuditRecord = z.infer<typeof AuditRecordSchema>
 export type BudgetBoundRecord = z.infer<typeof BudgetBoundRecordSchema>
 export type AccountBoundRecord = z.infer<typeof AccountBoundRecordSchema>
 export type LogRepairedRecord = z.infer<typeof LogRepairedRecordSchema>
+export type TurnOutcomeRecordedRecord = z.infer<typeof TurnOutcomeRecordedRecordSchema>
+export type ChildOutcomeRecordedRecord = z.infer<typeof ChildOutcomeRecordedRecordSchema>
+export type OutcomeProgressWrittenRecord = z.infer<typeof OutcomeProgressWrittenRecordSchema>
 
 export type SessionRecordOnly =
 	| SessionStartedRecord
@@ -1057,6 +1116,9 @@ export type SessionRecordOnly =
 	| BudgetBoundRecord
 	| AccountBoundRecord
 	| LogRepairedRecord
+	| TurnOutcomeRecordedRecord
+	| ChildOutcomeRecordedRecord
+	| OutcomeProgressWrittenRecord
 
 /** One line of a session log. */
 export type SessionRecord = SessionEventRecord | SessionRecordOnly

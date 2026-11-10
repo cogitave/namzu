@@ -53,12 +53,6 @@ export interface Checkpoint {
 	readonly latestUserMessageId?: MessageId
 	/** Compaction's accumulated working state, when compaction is enabled. */
 	readonly workingState?: WorkingStateSnapshot
-	/**
-	 * What the turn's outcome record had gathered, so a resumed turn does not
-	 * start it over. Absent in a checkpoint written before the record existed;
-	 * a turn resumed from one reports no outcome rather than a false `unchanged`.
-	 */
-	readonly outcome?: Readonly<Record<string, unknown>>
 	/** The trace the checkpoint was taken inside, so a resume continues it. */
 	readonly trace?: SerializedSpanContext
 	/** When the turn was attributed (ISO-8601). Identical on every checkpoint of the turn. */
@@ -140,7 +134,6 @@ export const CheckpointSchema = z
 		// Each has its own validator where it is restored; the document only
 		// requires an object.
 		workingState: z.custom<WorkingStateSnapshot>(isPlainObject).optional(),
-		outcome: z.custom<Readonly<Record<string, unknown>>>(isPlainObject).optional(),
 		trace: z.custom<SerializedSpanContext>(isPlainObject).optional(),
 		turnCreatedAt: iso,
 		createdAt: iso,

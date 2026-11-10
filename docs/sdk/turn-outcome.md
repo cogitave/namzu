@@ -64,9 +64,10 @@ At most 50 paths and 20 checks are kept, with `changes.total` and `checksTotal` 
 ## Where it is kept
 
 - `Turn.outcome` and `BaseAgentResult.outcome`. Absent for a turn that never ran the loop.
-- `turn_completed.settlement.outcome` and `turn_failed.settlement.outcome` in the [session log](session-log.md): an optional field on the settlement, not a new record type. A log written before it has none. A reader built before it refuses a settlement that carries it, as it refuses any field it does not know.
-- `child_session_ended.outcome`: the child's own settlement, copied.
-- The [checkpoint](session-log.md#documents-beside-the-log) keeps what the ledger gathered (`outcome`, optional). A turn resumed from a checkpoint that has none, such as one written by an earlier version, reports no outcome at all rather than a false `unchanged`: what came before the resume is unknown. Calls that ran after the last checkpoint of a turn that died are not in the record on the calls basis; on the workspace basis the starting fingerprint is kept, so the change is still seen.
+- The [session log](session-log.md#record-only-types) keeps it in three records of their own, each flagged `ignorable`: `turn_outcome_recorded` just before the turn's `turn_completed` or `turn_failed`, `child_outcome_recorded` in the parent's log just before a child's `child_session_ended`, and `outcome_progress_written` just before the `checkpoint_written` of the checkpoint it belongs to. It is never a field of `turn_completed`, `turn_failed`, `child_session_ended` or the checkpoint document: an earlier release validates those strictly and would refuse the whole log or checkpoint. It skips the three new types instead, so an earlier release reading a newer log loses only the outcome. A log written before these records has none. A test pins the key sets of the three older shapes.
+- Reading back: `readTurnOutcome` and `foldTurnOutcomes` return what a turn recorded, `foldChildOutcomes` what a child recorded, from the log. A body that does not parse as a `TurnOutcome` reads as no outcome.
+- The live `turn_completed` and `turn_failed` events carry the record on `settlement.outcome` in memory (`LiveTurnSettlement`); the persisted settlement does not have it.
+- A resume restores what the ledger gathered from the `outcome_progress_written` record that names the checkpoint. A turn resumed from a checkpoint with no such record, such as one written by an earlier version, reports no outcome at all rather than a false `unchanged`: what came before the resume is unknown. Calls that ran after the last checkpoint of a turn that died are not in the record on the calls basis; on the workspace basis the starting fingerprint is kept, so the change is still seen.
 
 ## Delegation
 
@@ -80,7 +81,7 @@ Record of this run: 4 files changed; `pnpm test | tail -5` ran, but the pipe hid
 
 Nothing is added for a child that changed nothing and failed no check. The command is the child's own text, so it is shown only when it is one short line of printable ASCII with no quotes, backticks, `$`, `\` or `#`; otherwise the line says "a command". A line the child writes inside its answer stays inside the block. Readers of the block (`untrustedEnvelopeBody`) skip one trailing kernel record line.
 
-The workflow journal's `agent_outcome` gains the same optional `outcome`; the value a workflow script receives is unchanged.
+The workflow journal's `agent_outcome` gains the same optional `outcome`; the value a workflow script receives is unchanged. The journal needed no record of its own: it is read as plain JSON lines chained by hash, with no field-by-field validation, so an earlier release ignores a key it does not know.
 
 A child shares the workspace with its siblings, so its check can read `stale` because a sibling wrote. That is the cautious direction and the record does not guess at who wrote what.
 

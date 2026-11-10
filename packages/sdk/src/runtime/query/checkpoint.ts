@@ -3,6 +3,7 @@ import { type TurnRecorder, readFoldedHistory } from '../../manager/session/turn
 import type { CheckpointScope, SessionCheckpointStore } from '../../store/checkpoint/index.js'
 import type { SessionLog } from '../../store/session-log/index.js'
 import { restoreSpilledRequestInputs } from '../../store/session-log/spilled-input.js'
+import { readOutcomeProgress } from '../../store/session-log/turn-outcome.js'
 import type { SerializedSpanContext } from '../../telemetry/attributes.js'
 import { NamzuError } from '../../types/errors/index.js'
 import type {
@@ -84,8 +85,14 @@ type CheckpointState = Pick<
 	| 'review'
 	| 'latestUserMessageId'
 	| 'workingState'
-	| 'outcome'
->
+> & {
+	/**
+	 * What the turn's outcome record had gathered. Not a field of the document:
+	 * it is written as its own `outcome_progress_written` record beside the
+	 * checkpoint, so a release that validates the document strictly reads it.
+	 */
+	readonly outcome?: Readonly<Record<string, unknown>>
+}
 
 /**
  * A checkpoint read back for a resume: the document, the context it
@@ -469,10 +476,22 @@ export class CheckpointManager {
 			review: state.review,
 			...(state.latestUserMessageId ? { latestUserMessageId: state.latestUserMessageId } : {}),
 			...withDefined('workingState', state.workingState),
-			...withDefined('outcome', state.outcome),
 			...withDefined('trace', this.traceSource?.()),
 			turnCreatedAt: this.turnCreatedAt ?? new Date(recorder.getTurn().startedAt).toISOString(),
 			createdAt: new Date().toISOString(),
+		}
+		// What the outcome record had gathered goes in its own record, ahead of the
+		// one that commits the checkpoint, and is read back by the checkpoint's id.
+		// Failing to write it is not failing to checkpoint: a resume without it
+		// reports no outcome, never a false `unchanged`.
+		if (state.outcome !== undefined) {
+			await recorder.appendIgnorableRecord({
+				type: 'outcome_progress_written',
+				turnId: this.scope.turnId,
+				ignorable: true,
+				checkpointId: document.checkpointId,
+				progress: state.outcome,
+			})
 		}
 		const receipt = await this.store.write(this.scope, document)
 		await recorder.appendRecord({
@@ -679,9 +698,13 @@ export class CheckpointManager {
 		this.restoredNativeAttempts = document.review.nativeStructuredAttempts
 		this.restoredToolAttempts = document.review.toolStructuredAttempts ?? 0
 		this.restoredReviewAttempts = document.review.structuredAttempts
+		await this.recorder.flush()
+		const progress = await readOutcomeProgress(this.recorder.log, checkpointId).catch(
+			() => undefined,
+		)
 		this.restoredOutcomeState = {
 			resumed: true,
-			...(document.outcome !== undefined ? { snapshot: document.outcome } : {}),
+			...(progress !== undefined ? { snapshot: progress } : {}),
 		}
 		this.restoredUserMessage = restored.latestUserMessage
 		this.restoredUserMessageId = restored.latestUserMessage

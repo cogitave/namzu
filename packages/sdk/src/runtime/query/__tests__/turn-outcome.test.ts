@@ -6,14 +6,23 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import {
+	InMemorySessionLog,
+	foldTurnOutcomes,
+	readOutcomeProgress,
+	readTurnOutcome,
+} from '../../../store/session-log/index.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { Toolset } from '../../../toolsets/types.js'
 import type { HITLDecisionRequest } from '../../../types/hitl/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
-import type { SessionEvent, TurnOutcomeConfig } from '../../../types/session/index.js'
+import type {
+	SessionEvent,
+	SessionRecord,
+	TurnOutcomeConfig,
+} from '../../../types/session/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -123,7 +132,12 @@ function tools(move: () => void = () => {}): Toolset {
 	)
 }
 
-async function run(turns: MockTurn[], toolset: Toolset, outcome?: TurnOutcomeConfig) {
+async function run(
+	turns: MockTurn[],
+	toolset: Toolset,
+	outcome?: TurnOutcomeConfig,
+	sessionLog?: InMemorySessionLog,
+) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-outcome-'))
 	dirs.push(workingDirectory)
 	const events: SessionEvent[] = []
@@ -136,7 +150,8 @@ async function run(turns: MockTurn[], toolset: Toolset, outcome?: TurnOutcomeCon
 			agentName: 'Outcome',
 			messages: [{ role: 'user', content: 'fix the bug' }],
 			workingDirectory,
-			sessionId: generateSessionId(),
+			sessionId: sessionLog?.sessionId ?? generateSessionId(),
+			...(sessionLog ? { sessionLog } : {}),
 			topicId: generateTopicId(),
 			projectId: generateProjectId(),
 			tenantId: generateTenantId(),
@@ -170,7 +185,7 @@ describe('a turn that changed a file', () => {
 			changes: { total: 1, paths: ['a.ts'], outsideKnownTools: false },
 			checks: [{ command: 'pnpm test', step: 2, result: 'passed', exitCode: 0, fresh: true }],
 		})
-		// The same record is what the session log keeps on the turn's end.
+		// The live end event carries the same record, in memory only.
 		expect(settledOutcome(events)).toEqual(turn.outcome)
 	})
 
@@ -202,6 +217,38 @@ describe('a turn that changed a file', () => {
 		const { turn } = await run([edit(), shell('pnpm test | tail -5'), { text: 'done' }], tools())
 		expect(turn.outcome?.verdict).toBe('inconclusive')
 		expect(turn.outcome?.checks[0]?.result).toBe('masked')
+	})
+})
+
+describe('the outcome in the session log', () => {
+	async function logged(turns: MockTurn[]) {
+		const sessionLog = new InMemorySessionLog({ sessionId: generateSessionId() })
+		const { turn } = await run(turns, tools(), undefined, sessionLog)
+		const records: SessionRecord[] = []
+		for await (const { record } of sessionLog.read()) records.push(record)
+		return { turn, sessionLog, records }
+	}
+
+	it('is recovered by the reader as the turn had it', async () => {
+		const { turn, sessionLog, records } = await logged([
+			edit(),
+			shell('pnpm test'),
+			{ text: 'done' },
+		])
+		expect(turn.outcome?.verdict).toBe('checked')
+		expect(await readTurnOutcome(sessionLog, turn.id)).toEqual(turn.outcome)
+		expect(foldTurnOutcomes(records).get(turn.id)).toEqual(turn.outcome)
+	})
+
+	it('is a record of its own just before the end record, and not a field of it', async () => {
+		const { records } = await logged([edit(), { text: 'done' }])
+		const types = records.map((r) => r.type)
+		const end = types.indexOf('turn_completed')
+		expect(types[end - 1]).toBe('turn_outcome_recorded')
+		expect(records[end - 1]).toMatchObject({ ignorable: true })
+		const closing = records[end]
+		if (closing?.type !== 'turn_completed') throw new Error('no end record')
+		expect(Object.keys(closing.settlement)).not.toContain('outcome')
 	})
 })
 
@@ -330,7 +377,10 @@ describe('a turn resumed from a checkpoint', () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-outcome-resume-'))
 		dirs.push(workingDirectory)
 		const { sessionLog, store, parked } = await pauseAfterTwoSteps(workingDirectory)
-		expect(parked?.outcome).toBeDefined()
+		// What the record had gathered is in the log, named by the checkpoint.
+		const progress = parked ? await readOutcomeProgress(sessionLog, parked.checkpointId) : undefined
+		expect(progress).toBeDefined()
+		expect(parked).not.toHaveProperty('outcome')
 		const doneSoFar = Math.max(1, parked?.iteration ?? 1)
 
 		const resumed = await resumeSession({
@@ -366,17 +416,19 @@ describe('a turn resumed from a checkpoint', () => {
 		dirs.push(workingDirectory)
 		const { sessionLog, store, parked } = await pauseAfterTwoSteps(workingDirectory)
 		if (!parked) throw new Error('no parked checkpoint')
-		// A checkpoint written before the record existed.
-		const stored = store as unknown as {
-			restore: (scope: unknown, id: unknown) => Promise<unknown>
-		}
-		const restore = stored.restore.bind(store)
-		stored.restore = async (scope, id) => {
-			const document = (await restore(scope, id)) as Record<string, unknown> | undefined
-			if (!document || document.checkpointId !== parked.checkpointId) return document
-			const { outcome: _drop, ...rest } = document
-			return rest
-		}
+		// A checkpoint written before the record existed has no progress record
+		// in the log: read the log as if that record were not there.
+		const read = sessionLog.read.bind(sessionLog)
+		sessionLog.read = ((options?: Parameters<typeof read>[0]) =>
+			(async function* () {
+				const walk = read(options)
+				for (;;) {
+					const step = await walk.next()
+					if (step.done) return step.value
+					if (step.value.record.type === 'outcome_progress_written') continue
+					yield step.value
+				}
+			})()) as typeof sessionLog.read
 
 		const resumed = await resumeSession({
 			scope: SCOPE,

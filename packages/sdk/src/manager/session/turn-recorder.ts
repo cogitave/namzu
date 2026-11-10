@@ -42,6 +42,7 @@ import type { SessionRecord } from '../../types/session/records.js'
 import type { StepResult } from '../../types/session/step.js'
 import type { StopReason } from '../../types/session/stop-reason.js'
 import {
+	type LiveTurnSettlement,
 	type Origin,
 	type Turn,
 	type TurnConfigSnapshot,
@@ -57,7 +58,7 @@ import {
 	accumulateUnpricedCost,
 } from '../../utils/cost.js'
 import { asCheckpointId, generateAuditEventId, generateMessageId } from '../../utils/id.js'
-import { childSessionEnded } from '../agent/child-session.js'
+import { childOutcomeRecorded, childSessionEnded } from '../agent/child-session.js'
 import { assertSessionLogAttribution } from './attribution.js'
 import { takeStreamedMessageIdentity } from './streamed-message-identity.js'
 
@@ -592,7 +593,7 @@ export class TurnRecorder {
 	}
 
 	/** The settlement a terminal record carries, from the turn as it stands. */
-	settlement(status: TurnSettlement['status']): TurnSettlement {
+	settlement(status: TurnSettlement['status']): LiveTurnSettlement {
 		const turn = this.getTurn()
 		const resultMessageId = this.#lastAssistantEntry()?.id
 		return {
@@ -901,6 +902,26 @@ export class TurnRecorder {
 	}
 
 	/**
+	 * Append a record a reader can do without (one flagged `ignorable`), in
+	 * order with every other record. A write that is refused resolves
+	 * `undefined` instead of failing the turn: the record is only the outcome's
+	 * account, and a log that really cannot be written fails the next record on
+	 * its own.
+	 */
+	appendIgnorableRecord(
+		draft: Parameters<SessionLog['append']>[1],
+	): Promise<SessionLogEntry | undefined> {
+		this.#syncMessages()
+		return this.#enqueue(async () => {
+			try {
+				return await this.#append(draft)
+			} catch {
+				return undefined
+			}
+		})
+	}
+
+	/**
 	 * Append a live event as its record. Resolves `undefined` for an event
 	 * the log does not hold: an ephemeral one, or one bound to a turn that is
 	 * paused or settled.
@@ -933,6 +954,20 @@ export class TurnRecorder {
 		}
 		const draft = eventDraft(event, this.#turnOpen() ? this.turnId : undefined)
 		this.#syncMessages()
+		// The outcome is a record of its own, just ahead of the one that ends the
+		// turn, never a field of the settlement.
+		if (
+			(event.type === 'turn_completed' || event.type === 'turn_failed') &&
+			event.settlement.outcome !== undefined &&
+			this.#turnOpen()
+		) {
+			await this.appendIgnorableRecord({
+				type: 'turn_outcome_recorded',
+				turnId: this.turnId,
+				ignorable: true,
+				outcome: event.settlement.outcome as unknown as Readonly<Record<string, unknown>>,
+			})
+		}
 		if (
 			event.type === 'turn_paused' ||
 			event.type === 'turn_completed' ||
@@ -989,6 +1024,16 @@ export class TurnRecorder {
 		return this.#enqueue(async () => {
 			const ended = await childSessionEnded(childLog)
 			if (!ended) return undefined
+			// The child's outcome record goes in a record of its own just ahead of
+			// the end record; it is never a field of it.
+			const outcome = await childOutcomeRecorded(childLog)
+			if (outcome) {
+				try {
+					await this.#append(turnId ? { ...outcome, turnId } : outcome)
+				} catch {
+					// Only the outcome's account; the end record below fails on its own if the log is gone.
+				}
+			}
 			return this.#append(turnId ? { ...ended, turnId } : ended)
 		})
 	}
@@ -1365,6 +1410,11 @@ export function eventDraft(
 		...payload
 	} = event as SessionEvent & Record<string, unknown>
 	const draft = JSON.parse(JSON.stringify(payload)) as Record<string, unknown>
+	// The outcome rides the live settlement only; the log keeps it in its own record.
+	if (draft.settlement !== undefined && typeof draft.settlement === 'object') {
+		const { outcome: _outcome, ...settlement } = draft.settlement as Record<string, unknown>
+		draft.settlement = settlement
+	}
 	return { ...draft, ...(turnId ? { turnId } : {}) } as Parameters<SessionLog['append']>[1]
 }
 

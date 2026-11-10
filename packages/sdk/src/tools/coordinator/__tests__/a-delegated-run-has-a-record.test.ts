@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
-import { childSessionEnded } from '../../../manager/agent/child-session.js'
+import { childOutcomeRecorded, childSessionEnded } from '../../../manager/agent/child-session.js'
 import { InMemorySessionLog, type SessionRecordDraft } from '../../../store/session-log/index.js'
 import type { TaskHandle, TaskScheduler } from '../../../types/agent/scheduler.js'
 import type { SessionId, TaskId, TurnId } from '../../../types/ids/index.js'
@@ -349,6 +349,14 @@ describe('the child’s record on its end in the parent’s log', () => {
 			userMessageId: generateMessageId(),
 			config: { model: 'test', tokenBudget: 1_000, timeoutMs: 1_000 },
 		})
+		if (record) {
+			await log.append(lease, {
+				type: 'turn_outcome_recorded',
+				ignorable: true,
+				turnId,
+				outcome: record as unknown as Record<string, unknown>,
+			})
+		}
 		await log.append(lease, {
 			type: 'turn_completed',
 			turnId,
@@ -363,22 +371,29 @@ describe('the child’s record on its end in the parent’s log', () => {
 				resultSource: 'model',
 				abandonedTaskIds: [],
 				abandonedJobIds: [],
-				...(record ? { outcome: record } : {}),
 			},
 		} as unknown as SessionRecordDraft)
 		await log.release(lease)
 		return log
 	}
 
-	it('is copied from the child’s own settlement', async () => {
+	it('is copied from the child’s own outcome record into a record of its own', async () => {
 		const record = outcome()
-		const ended = await childSessionEnded(await settled(record))
-		expect(ended?.outcome).toEqual(record)
+		const log = await settled(record)
+		const draft = await childOutcomeRecorded(log)
+		expect(draft).toMatchObject({
+			type: 'child_outcome_recorded',
+			ignorable: true,
+			childSessionId: log.sessionId,
+			outcome: record,
+		})
+		// The end record is the one it always was: no outcome field.
+		expect(await childSessionEnded(log)).not.toHaveProperty('outcome')
 	})
 
 	it('is absent when the child kept none', async () => {
-		const ended = await childSessionEnded(await settled())
-		expect(ended).not.toBeNull()
-		expect(ended).not.toHaveProperty('outcome')
+		const log = await settled()
+		expect(await childOutcomeRecorded(log)).toBeNull()
+		expect(await childSessionEnded(log)).not.toBeNull()
 	})
 })
