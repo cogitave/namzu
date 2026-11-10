@@ -73,3 +73,5 @@ split a tool call from its result, and `TurnInProgressError` while a turn is
 active. It returns `null`, appending nothing, when the span holds nothing worth a
 summary. `CompactSessionRangeParams` extends `CompactSessionParams` with `from` and
 `until`.
+
+The summary a manual pass writes ends on the same closing resume paragraph as an in-turn one, after the recovery pointer when there is one; an earlier summary handed to a later pass is stripped of those closing notes first, so the message carries each once. See [how the next step picks the work back up](context-limits.md#how-the-next-step-picks-the-work-back-up).

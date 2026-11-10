@@ -249,7 +249,7 @@ missing, because trimming can happen later and a gap cannot be recovered.
 Every summary message ends on one closing paragraph, after the recovery pointer
 when there is one: carry on from where the summary says the work stood without
 asking the person to repeat it, treat steps it marks done as done, read a file
-again before editing it because file contents are no longer in context, and
+again before editing it because files may have changed or may not be shown in full, and
 check first on anything the summary names as still running or waiting. It is
 `COMPACTION_RESUME_NOTE`, appended by `buildCompactionMessage` to the summary
 of an in-turn pass, `compactNow` and `compactRegion` alike. It sits outside

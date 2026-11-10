@@ -42,7 +42,24 @@ export const COMPACTION_RECOVERY_NOTE =
  * constant so the same summary always renders the same message.
  */
 export const COMPACTION_RESUME_NOTE =
-	'Carry on from where this summary says the work stood, without asking the person to repeat it. Treat steps it marks done as done. File contents are no longer in context, so read a file again before editing it. If it names something still running or waiting, check on that first.'
+	'Carry on from where this summary says the work stood, without asking the person to repeat it. Treat steps it marks done as done. Files may have changed or may not be shown in full, so read a file again before editing it. If it names something still running or waiting, check on that first.'
+
+/**
+ * `text` without any closing notes this module adds, however many are stacked.
+ * An earlier summary is handed to the next pass whole, and a model may repeat
+ * its ending; cutting them here keeps each message to one note.
+ */
+export function withoutClosingNotes(text: string): string {
+	let out = text.trimEnd()
+	for (;;) {
+		const next = [COMPACTION_RESUME_NOTE, COMPACTION_RECOVERY_NOTE].reduce(
+			(acc, note) => (acc.endsWith(note) ? acc.slice(0, -note.length).trimEnd() : acc),
+			out,
+		)
+		if (next === out) return out
+		out = next
+	}
+}
 
 /**
  * The summary, as the system message that replaces what it summarises.
@@ -52,7 +69,7 @@ export const COMPACTION_RESUME_NOTE =
 export function buildCompactionMessage(body: string, recoveryNote?: string): Message {
 	return {
 		...createSystemMessage(
-			`${COMPACTION_HEADER}\n\n${body}${recoveryNote ? `\n\n${recoveryNote}` : ''}\n\n${COMPACTION_RESUME_NOTE}`,
+			`${COMPACTION_HEADER}\n\n${withoutClosingNotes(body)}${recoveryNote ? `\n\n${recoveryNote}` : ''}\n\n${COMPACTION_RESUME_NOTE}`,
 		),
 		source: { type: 'compaction-summary' },
 	}
