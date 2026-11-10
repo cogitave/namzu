@@ -401,6 +401,14 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 			confirmWhen: 'off',
 		},
 	),
+	d(
+		'limits.maxHookRefusals',
+		'agent',
+		'Hook refusals before a turn ends',
+		'How many times in a row a hook may refuse to let a turn end before Namzu ends it anyway. 0 means no limit.',
+		num(0),
+		{ defaultText: '8 (0 for no limit)' },
+	),
 	d('limits.maxIterations', 'agent', 'Most steps per task', '0 means no limit.', num(0), {
 		defaultText: 'no limit',
 		confirm: 'With no limit, a task can keep taking steps until it ends on its own.',
@@ -556,6 +564,14 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Shorten a large conversation while you are away.',
 		on,
 		{ defaultText: 'off' },
+	),
+	d(
+		'compaction.clearStaleResultsAfterIdle',
+		'agent',
+		'Shed old results after a long break',
+		'When you return after the provider cache has expired, replace old, large tool results with a short note before the first request. They stay readable through the note.',
+		on,
+		{ defaultText: 'on' },
 	),
 	d(
 		'compaction.idleCompactionMinTokens',

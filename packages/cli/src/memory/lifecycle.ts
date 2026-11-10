@@ -37,6 +37,8 @@ export interface MemoryLifecycleDeps {
 	readonly isDraining?: () => boolean
 	/** Counts only, never titles. */
 	readonly log?: (message: string, fields: LogAttributes) => void
+	/** A turn settled; the curator waits for this before it drains. */
+	readonly onTurnSettled?: () => void
 	/** A sweep that changed something. */
 	readonly onSwept?: (report: SweepReport) => void
 }
@@ -117,6 +119,17 @@ export class MemoryLifecycle {
 		this.#turnRunning = false
 		void this.#deps.usage.flush()
 		this.#arm()
+		this.#deps.onTurnSettled?.()
+	}
+
+	/**
+	 * The turn left by a road that announced no completion (a cancel, a thrown
+	 * error): settle it, so what waited for quiet is not held until the session
+	 * closes. Does nothing when the turn already settled.
+	 */
+	turnEnded(): void {
+		if (this.#disposed || !this.#turnRunning) return
+		this.turnSettled()
 	}
 
 	/** Lift the set-aside of one record and write it. */

@@ -459,6 +459,7 @@ import {
 } from '../integrations/workflows/size.js'
 import type { WorkflowRunView } from '../integrations/workflows/view.js'
 import { cliLogger } from '../logging.js'
+import { createAnchorCaution } from '../memory/anchors.js'
 import {
 	CurationRuntime,
 	composeMemoryPromotion,
@@ -1167,6 +1168,16 @@ export interface SendOptions {
 	 * round), whose user-role message is written by the host, not by the person.
 	 */
 	readonly typedInput?: string
+	/**
+	 * The provider's prompt cache has expired since the last request: shed old,
+	 * large tool results before this turn's first request if that saves at
+	 * least `minSavedTokens` (the kernel's estimate), keeping the newest
+	 * `keepRecentToolResults`. The originals stay in the session log.
+	 */
+	readonly clearStaleToolResults?: {
+		readonly minSavedTokens: number
+		readonly keepRecentToolResults: number
+	}
 	/** Why this turn exists (a prompt, a goal round, a verification step), recorded on `turn_started`. */
 	readonly origin?: Origin
 	/** Exact durable admission that makes goal tools visible for this one turn. */
@@ -1604,6 +1615,8 @@ export interface AgentSession {
 	 * conversation.
 	 */
 	readonly idleCompaction?: { readonly minTokens: number }
+	/** True when `compaction.clearStaleResultsAfterIdle` is on (the default); absent in a host that does not offer it. */
+	readonly clearStaleResultsAfterIdle?: boolean
 	readonly errorHint: string | null
 	/**
 	 * WHY there is no provider, for a caller that has to act differently on the
@@ -4791,6 +4804,7 @@ export async function createAgentSession(
 						store: memoryStore,
 						sideModel: () => sideModel,
 						fallback: screenedPromoter,
+						anchorRoot: cliProjectRoot(cwd),
 						log: createCurationLog(join(paths.home, 'memory', 'curation.jsonl')),
 					}),
 					setTimer: (run, ms) => {
@@ -4822,12 +4836,16 @@ export async function createAgentSession(
 		now: Date.now,
 		log: (message, fields) => cliLogger().debug(message, fields),
 	})
+	// A recalled memory that names files of the project says so when one is
+	// gone or changed, and the usage file notes how long that has been so.
+	const memoryCaution = createAnchorCaution({ root: cliProjectRoot(cwd), usage: memoryUsage })
 	const memoryLifecycle = new MemoryLifecycle({
 		store: memoryStore,
 		usage: memoryUsage,
 		now: Date.now,
 		retireAfterDays: options.memory?.retireAfterDays ?? DEFAULT_RETIRE_AFTER_DAYS,
 		isDraining: () => curation?.draining === true,
+		onTurnSettled: () => curation?.turnSettled(),
 		setTimer: (run, ms) => {
 			const handle = setTimeout(run, ms)
 			handle.unref?.()
@@ -5347,6 +5365,9 @@ export async function createAgentSession(
 						...(configuredLimits.maxReasoningTokens !== undefined
 							? { maxReasoningTokens: configuredLimits.maxReasoningTokens }
 							: {}),
+						...(configuredLimits.maxHookRefusals !== undefined
+							? { maxHookRefusals: configuredLimits.maxHookRefusals }
+							: {}),
 						...(configuredLimits.doneGate !== undefined
 							? { doneGate: configuredLimits.doneGate }
 							: {}),
@@ -5523,6 +5544,7 @@ export async function createAgentSession(
 										identifierGrounding: options.memory?.identifierGrounding,
 										record: true,
 										excluded: memoryLifecycle.excluded,
+										caution: memoryCaution,
 										...memorySelection,
 									}),
 								]),
@@ -5625,6 +5647,7 @@ export async function createAgentSession(
 						: {}),
 				})
 			} finally {
+				memoryLifecycle.turnEnded()
 				liveModeControls.delete(modeControl)
 				recordedModes.set(String(entry.sessionId), modeControl.current())
 				if (delegatedResumeHandlers.get(entry.turnId) === resumeHandler) {
@@ -5798,6 +5821,7 @@ export async function createAgentSession(
 					},
 				}
 			: {}),
+		clearStaleResultsAfterIdle: options.compaction?.clearStaleResultsAfterIdle !== false,
 		compact: (messages, instructions, trigger) =>
 			operations.promise(undefined, async (signal) => {
 				const sessionId = scope.sessionId
@@ -6130,6 +6154,9 @@ export async function createAgentSession(
 							const cleanup = () => {
 								if (cleanupPromise) return cleanupPromise
 								cleanupPromise = (async () => {
+									// Only while this is still the newest turn: a continuation
+									// that outlives it must not settle a later turn.
+									if (latestTurn?.turnId === turnId) memoryLifecycle.turnEnded()
 									liveModeControls.delete(control)
 									delegationScopes.delete(turnId)
 									delegationLimits.delete(turnId)
@@ -6868,7 +6895,12 @@ export async function createAgentSession(
 							for await (const event of runTurn({
 								provider: textOnlyModels.informing(turnProvider),
 								fileReadTracker: await observationsFor(turnScope.sessionId, messages),
-								compactionConfig: compactionConfigFor(options.compaction),
+								compactionConfig: {
+									...compactionConfigFor(options.compaction),
+									...(opts?.clearStaleToolResults
+										? { clearStaleToolResultsAtStart: opts.clearStaleToolResults }
+										: {}),
+								},
 								retainedToolPreviewChars: options.conversationSessions
 									? (options.compaction?.retainedToolPreviewChars ?? 4_000)
 									: undefined,
@@ -6937,6 +6969,7 @@ export async function createAgentSession(
 													identifierGrounding: options.memory?.identifierGrounding,
 													record: true,
 													excluded: memoryLifecycle.excluded,
+													caution: memoryCaution,
 													...memorySelection,
 												}),
 											]),
@@ -8281,6 +8314,8 @@ async function* runTurn({
 			...(isNamzuError(err) ? { failure: toPlatformError(err) } : {}),
 		}
 	} finally {
+		// A turn that ended by a cancel or an error announced no completion.
+		memoryLifecycle?.turnEnded()
 		turnManager.dispose()
 	}
 }
