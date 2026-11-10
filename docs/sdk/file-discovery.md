@@ -55,7 +55,17 @@ extglob forms and `\` escapes, with `**` spanning any number of directories. The
 same expressions run on the host and in the sandbox guest, so both see the same
 files. A wildcard never matches a name starting with `.` unless hidden entries
 are included or the pattern spells the dot out. A range written backwards (`[z-a]`)
-matches nothing. The few forms where the answer differs from minimatch 9 are pinned in
+matches nothing. A repeated group, `*( ... )` or `+( ... )`, is accepted only when
+every alternative is a plain name and none is a prefix of another (`+(foo|bar)`,
+`*(ab|cd)`), or when it holds a single `[...]` class (`+([a-z])`); each repetition
+then reads one way, so matching stays linear. Any other repeated group (`*(*(a))`,
+`*(a|aa)`, `+(*.ts)`, `+(a|)`, `*(?(a))`) can match the same text more than one
+way and backtrack without end on a name that nearly matches, so the walk refuses it
+before touching the filesystem or building the guest script: `glob` and `grep` return
+a tool error, "The pattern '<segment>' repeats a group that can match the same text
+more than one way; use ** or {a,b} instead." (`GlobTooComplexError`). `@( )`,
+`?( )` and `!( )` are unchanged, but a repeated group inside them follows the same
+rule. The few forms where the answer differs from minimatch 9 are pinned in
 `glob-segment.test.ts`.
 
 ## Content searches

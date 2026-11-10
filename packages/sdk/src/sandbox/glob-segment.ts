@@ -31,6 +31,22 @@ export interface CompiledSegment {
 	source: string
 }
 
+/**
+ * Raised for a segment that repeats a group (`*( )` or `+( )`) which could match
+ * the same text more than one way. Such a group backtracks exponentially on a
+ * name that nearly matches, and glob patterns come from untrusted input.
+ */
+export class GlobTooComplexError extends Error {
+	readonly segment: string
+	constructor(segment: string) {
+		super(
+			`The pattern '${segment}' repeats a group that can match the same text more than one way; use ** or {a,b} instead.`,
+		)
+		this.name = 'GlobTooComplexError'
+		this.segment = segment
+	}
+}
+
 const escapeRegex = (text: string) => text.replace(/[\\^$.*+?()[\]{}|/]/g, '\\$&')
 const escapeInClass = (text: string) => text.replace(/[\\^\]\[/-]/g, '\\$&')
 
@@ -177,8 +193,27 @@ function parse(text: string, guard = ''): Parsed {
 				literal += ch
 				continue
 			}
-			const alternatives = splitAlternatives(text.slice(index + 2, end)).map(
-				(a) => (index === 0 && !startsWithDot(a) ? guard : '') + parse(a).source,
+			const parts = splitAlternatives(text.slice(index + 2, end)).map((a) => ({
+				a,
+				parsed: parse(a),
+			}))
+			// A repeated group is linear only when each repetition can be read one way:
+			// plain literal alternatives, none a prefix of another (and none empty).
+			if (ch === '*' || ch === '+') {
+				const literals = parts.map((part) => part.parsed.literal)
+				// A lone class is one character wide, so each repetition has one reading.
+				const lone = parts.length === 1 && isOneClass(parts[0]?.a ?? '')
+				const plain = lone || parts.every((part) => !part.parsed.magic)
+				const prefixFree =
+					lone ||
+					literals.every(
+						(one, i) =>
+							one !== '' && literals.every((other, j) => i === j || !other.startsWith(one)),
+					)
+				if (!plain || !prefixFree) throw new GlobTooComplexError(text)
+			}
+			const alternatives = parts.map(
+				({ a, parsed }) => (index === 0 && !startsWithDot(a) ? guard : '') + parsed.source,
 			)
 			const group = `(?:${alternatives.join('|')})`
 			magic = true
@@ -195,6 +230,11 @@ function parse(text: string, guard = ''): Parsed {
 		}
 	}
 	return { source, literal, magic }
+}
+
+/** Whether the text is exactly one closed `[...]` class. */
+function isOneClass(text: string): boolean {
+	return text.startsWith('[') && classEnd(text, 0) === text.length - 1
 }
 
 /** Whether every name this segment can match begins with a literal `.` the pattern spells out. */
@@ -220,7 +260,12 @@ function isOneGroup(text: string): boolean {
  */
 export function compileSegment(segment: string, dot: boolean): CompiledSegment {
 	const guard = dot ? '' : '(?!\\.)'
-	const parsed = parse(segment, guard)
+	let parsed: Parsed
+	try {
+		parsed = parse(segment, guard)
+	} catch (error) {
+		throw error instanceof GlobTooComplexError ? new GlobTooComplexError(segment) : error
+	}
 	if (!parsed.magic) return { literal: parsed.literal, source: `^${parsed.source}$` }
 	const grouped = (segment.startsWith('@(') || segment.startsWith('+(')) && !dot
 	const lead = grouped || dot || startsWithDot(segment) || isOneGroup(segment) ? '' : guard

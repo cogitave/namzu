@@ -1,6 +1,6 @@
 import { Minimatch } from 'minimatch'
 import { describe, expect, it } from 'vitest'
-import { compileSegment } from '../glob-segment.js'
+import { GlobTooComplexError, compileSegment } from '../glob-segment.js'
 
 const matches = (segment: string, name: string, dot = false) => {
 	const { literal, source } = compileSegment(segment, dot)
@@ -63,26 +63,28 @@ const oracle = (segment: string, name: string, dot: boolean) =>
 		dot,
 	}).match(name)
 
+const PINNED_PATTERNS = [
+	'[z-a]',
+	'[!z-a]',
+	'[a',
+	'[]a]',
+	'[]',
+	'[a-]',
+	'[-a]',
+	'[[:foo:]]',
+	'[[:digit:]]x',
+	'*(a|.b)',
+	'?(a)',
+	'+(a|b)x*',
+	'@(a|b)',
+	'!(a).ts',
+	'!(a)',
+	'*.@(ts|js)',
+	'a@(b|c)d',
+]
+
 describe('compileSegment against Minimatch', () => {
-	const patterns = [
-		'[z-a]',
-		'[!z-a]',
-		'[a',
-		'[]a]',
-		'[]',
-		'[a-]',
-		'[-a]',
-		'[[:foo:]]',
-		'[[:digit:]]x',
-		'*(a|.b)',
-		'?(a)',
-		'+(a|b)x*',
-		'@(a|b)',
-		'!(a).ts',
-		'!(a)',
-		'*.@(ts|js)',
-		'a@(b|c)d',
-	]
+	const patterns = PINNED_PATTERNS
 	const names = [
 		'a',
 		'b',
@@ -146,4 +148,127 @@ describe('compileSegment against Minimatch', () => {
 			expect(matches(segment, name, dot)).toBe(now)
 		})
 	}
+})
+
+// Largest depth of unbounded repetition (`*`, `+`, `{n,}`) in a regex source: a quantifier on an atom counts
+// one, on a group counts one more than the deepest repetition inside it. `?` and `{n,m}` are bounded.
+function starHeight(source: string): number {
+	let index = 0
+	const quantifier = (): boolean => {
+		const ch = source[index]
+		let unbounded = false
+		if (ch === '*' || ch === '+') {
+			index += 1
+			unbounded = true
+		} else if (ch === '?') index += 1
+		else if (ch === '{') {
+			const end = source.indexOf('}', index)
+			unbounded = /,$/.test(source.slice(index + 1, end))
+			index = end + 1
+		} else return false
+		if (source[index] === '?') index += 1
+		return unbounded
+	}
+	const alternation = (): number => {
+		let best = 0
+		let run = 0
+		while (index < source.length && source[index] !== ')') {
+			if (source[index] === '|') {
+				index += 1
+				best = Math.max(best, run)
+				run = 0
+				continue
+			}
+			let inner = 0
+			const ch = source[index]
+			if (ch === '\\') index += 2
+			else if (ch === '[') {
+				index += 1
+				while (source[index] !== ']') index += source[index] === '\\' ? 2 : 1
+				index += 1
+			} else if (ch === '(') {
+				index += 1
+				if (source[index] === '?') index += source[index + 1] === '<' ? 3 : 2
+				inner = alternation()
+				index += 1
+			} else index += 1
+			run = Math.max(run, quantifier() ? inner + 1 : inner)
+		}
+		return Math.max(best, run)
+	}
+	return alternation()
+}
+
+describe('star height', () => {
+	it('measures nesting of unbounded repetition', () => {
+		expect(starHeight('^(?:a)*$')).toBe(1)
+		expect(starHeight('^(?:(?:a)*)*$')).toBe(2)
+		expect(starHeight('^(?:a|aa)+b[^/]*?$')).toBe(1)
+		expect(starHeight('^(?:a*)?$')).toBe(1)
+		expect(starHeight('^(?:[*+]x)?(?:a{2,})$')).toBe(1)
+	})
+	const accepted = [
+		...PINNED_PATTERNS,
+		'*a*a*a*a*',
+		'+(foo|bar)',
+		'*(ab|cd)',
+		'*(a)*(b)',
+		'!(x)*',
+		'?(*(a))',
+		'@(+(a)|b)',
+		'!(*(a)|b)c*',
+		'@(a|aa)',
+		'*.@(ts|js)',
+		'+([a-z])',
+		'*([[:digit:]])',
+	]
+	for (const dot of [false, true]) {
+		for (const pattern of accepted) {
+			it(`${pattern} (dot ${dot}) compiles to star height at most 1`, () => {
+				expect(starHeight(compileSegment(pattern, dot).source)).toBeLessThanOrEqual(1)
+			})
+		}
+	}
+})
+
+describe('repeated extglob groups that can match the same text more than one way', () => {
+	for (const pattern of [
+		'*(*(a))',
+		'*(a|aa)',
+		'+(a|aa)',
+		'+(*.ts)',
+		'+(a|)',
+		'*(?(a))',
+		'*(a|a)',
+		'*(a?)',
+		'+([ab]|[bc])',
+		'*([ab]x)',
+		'*(@(a|b))',
+		'x@(*(a|aa))y',
+		'!(+(a|aa))',
+		'a*(b|bc)',
+	]) {
+		it(`refuses ${pattern}`, () => {
+			expect(() => compileSegment(pattern, false)).toThrow(GlobTooComplexError)
+			expect(() => compileSegment(pattern, true)).toThrow(
+				`The pattern '${pattern}' repeats a group that can match the same text more than one way; use ** or {a,b} instead.`,
+			)
+		})
+	}
+	it('accepts a repeated group of unambiguous literals and matches as before', () => {
+		expect(compileSegment('+(foo|bar)', false).source).toBe('^(?:(?:(?!\\.)foo|(?!\\.)bar)+)$')
+		expect(matches('+(foo|bar)', 'foobarfoo')).toBe(true)
+		expect(matches('+(foo|bar)', 'foobaz')).toBe(false)
+		expect(matches('*(ab|cd)', '')).toBe(true)
+		expect(matches('*(ab|cd)', 'abcdab')).toBe(true)
+		expect(matches('*(ab|cd)', 'abc')).toBe(false)
+		expect(matches('@(a|aa)', 'aa')).toBe(true)
+		expect(matches('!(x)*', 'y')).toBe(true)
+		expect(matches('?(*(a))', 'aaa')).toBe(true)
+		expect(matches('*(a\\*)', 'a*a*')).toBe(true)
+	})
+	it('runs a near miss through the compiled expression without backtracking', () => {
+		const { source } = compileSegment('*(ab|cd)', false)
+		expect(new RegExp(source, 'u').test(`${'ab'.repeat(5000)}x`)).toBe(false)
+	})
 })

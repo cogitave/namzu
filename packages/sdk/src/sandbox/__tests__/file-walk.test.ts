@@ -12,6 +12,7 @@ import type {
 	SandboxFileEntry,
 } from '../../types/sandbox/index.js'
 import { walkFilesLocally, walkFilesViaExec } from '../file-walk.js'
+import { GlobTooComplexError } from '../glob-segment.js'
 
 const io = vi.hoisted(() => ({
 	open: vi.fn(),
@@ -185,6 +186,20 @@ describe('bounded local file enumeration', () => {
 		await expect(
 			collect(walkFilesLocally(root, { pattern: '{../outside,src}/*.ts', maxEntries: 1 })),
 		).rejects.toThrow('escapes')
+	})
+	it('refuses a repeated group that can match the same text more than one way before any IO or guest script', async () => {
+		const root = await fixture()
+		const exec = vi.fn()
+		for (const pattern of ['src/*(*(a))', '*(a|aa).ts', '{ok,+(a|aa)}/x']) {
+			await expect(collect(walkFilesLocally(root, { pattern, maxEntries: 1 }))).rejects.toThrow(
+				'repeats a group that can match the same text more than one way',
+			)
+			await expect(
+				collect(walkFilesViaExec(exec, root, { pattern, maxEntries: 1 })),
+			).rejects.toThrow(GlobTooComplexError)
+		}
+		expect(io.open).not.toHaveBeenCalled()
+		expect(exec).not.toHaveBeenCalled()
 	})
 	it('accepts exactly 256 brace branches without truncating the last alternative', async () => {
 		const root = await fixture()

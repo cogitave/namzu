@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import { walkFilesLocally } from '../../sandbox/file-walk.js'
+import { walkFilesLocally, walkFilesViaExec } from '../../sandbox/file-walk.js'
 import type {
 	Sandbox,
 	SandboxFileEntry,
@@ -47,6 +47,21 @@ function sandboxWith(walk: () => AsyncIterable<SandboxFileEntry>) {
 		readFile: ReturnType<typeof vi.fn>
 	}
 }
+
+describe('grep refuses a pattern that could backtrack without end', () => {
+	it('returns a tool error and never runs a guest script', async () => {
+		const exec = vi.fn()
+		const sandbox = {
+			rootDir: ROOT,
+			walkFiles: (root: string, options: SandboxWalkFilesOptions) =>
+				walkFilesViaExec(exec, root, options),
+		} as unknown as Sandbox
+		const result = await GrepTool.execute(args({ include: '*(a|aa).ts' }), context(sandbox))
+		expect(exec).not.toHaveBeenCalled()
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('repeats a group that can match the same text more than one way')
+	})
+})
 
 describe('grep bounds file discovery before reading', () => {
 	it('searches a named file without opening its parent directory', async () => {
