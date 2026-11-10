@@ -153,7 +153,7 @@ it('draws the screen question as a one-time choice between allow now and not now
 	expect(html).toContain('aria-label="Screen question"')
 	expect(html).toContain('Let Editor use your keyboard and mouse for a moment?')
 	expect(html).toContain('Namzu needs your keyboard and mouse for a moment to use Editor.')
-	expect(html).toMatch(/data-tone="accept"[^>]*>Allow now</)
+	expect(html).toMatch(/data-tone="accept"[^>]*>Allow this app</)
 	expect(html).toMatch(/data-tone="reject"[^>]*>Not now</)
 	expect(html).not.toContain('Allow for this conversation')
 	expect(html).not.toContain('Tell Namzu what to do instead')

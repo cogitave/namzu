@@ -1,5 +1,15 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	readdir,
+	rm,
+	stat,
+	symlink,
+	utimes,
+	writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { deflateRawSync } from 'node:zlib'
@@ -199,8 +209,15 @@ describe('resolving cua-driver', () => {
 	})
 })
 
+/** Makes a folder look untouched for a day, so the cleanup does not take it for a download in progress. */
+const age = (folder: string) => {
+	const old = new Date(Date.now() - 24 * 60 * 60 * 1000)
+	return utimes(folder, old, old)
+}
+
 describe('the cache of cua-driver builds', () => {
 	let root: string
+	const env = () => ({ NAMZU_HOME: root })
 	let cache: string
 	const exe = Buffer.from('MZ pretend windows executable '.repeat(500))
 	const archive = makeZip({ 'cua-driver.exe': exe })
@@ -220,6 +237,7 @@ describe('the cache of cua-driver builds', () => {
 		cache = join(root, 'computer-use', 'cua-driver')
 		await mkdir(join(cache, '0.28.2'), { recursive: true })
 		await writeFile(join(cache, '0.28.2', 'cua-driver.exe'), 'old')
+		await age(join(cache, '0.28.2'))
 	})
 	afterEach(async () => {
 		await rm(root, { recursive: true, force: true })
@@ -230,6 +248,7 @@ describe('the cache of cua-driver builds', () => {
 		const dir = join(cache, CUA_DRIVER_RELEASE.version)
 		const resolved = await resolveCuaDriver({
 			cacheDir: dir,
+			env: env(),
 			asset,
 			fetch: fetcher(),
 			onDownload: (notice) => notices.push(notice),
@@ -251,27 +270,60 @@ describe('the cache of cua-driver builds', () => {
 		expect(notices).toHaveLength(1)
 	})
 
-	it('removes only version folders, never the one in use or anything else', async () => {
+	it('removes only older version folders, never the one in use or anything else', async () => {
 		const keep = join(cache, '0.38.0')
 		await mkdir(keep)
 		await mkdir(join(cache, '0.30.1'))
+		await age(join(cache, '0.30.1'))
+		await mkdir(join(cache, '0.39.0'))
+		await age(join(cache, '0.39.0'))
 		await mkdir(join(cache, 'notes'))
 		await mkdir(join(cache, '0.30'))
 		await writeFile(join(cache, '0.31.0'), 'a file named like a version')
 		const outside = join(root, 'outside')
 		await mkdir(outside)
 		await symlink(outside, join(cache, '0.32.0'), 'dir')
-		const removed = await removeSupersededCuaDrivers(keep)
+		const removed = await removeSupersededCuaDrivers(keep, { env: env() })
 		expect(removed.sort()).toEqual(['0.28.2', '0.30.1'])
-		expect((await readdir(cache)).sort()).toEqual(['0.30', '0.31.0', '0.32.0', '0.38.0', 'notes'])
+		expect((await readdir(cache)).sort()).toEqual([
+			'0.30',
+			'0.31.0',
+			'0.32.0',
+			'0.38.0',
+			'0.39.0',
+			'notes',
+		])
 		expect(await readdir(outside)).toEqual([])
 	})
 
 	it('leaves a folder alone when the build in use is not in a version folder', async () => {
 		const custom = join(cache, 'custom')
 		await mkdir(custom)
-		await expect(removeSupersededCuaDrivers(custom)).resolves.toEqual([])
+		await expect(removeSupersededCuaDrivers(custom, { env: env() })).resolves.toEqual([])
 		expect(await readdir(cache)).toContain('0.28.2')
+	})
+
+	it('never sweeps a cache directory the caller chose, even one named like a version', async () => {
+		const chosen = join(root, 'data', '1.0.0')
+		await mkdir(chosen, { recursive: true })
+		const neighbour = join(root, 'data', '0.5.0')
+		await mkdir(neighbour)
+		await age(neighbour)
+		await expect(removeSupersededCuaDrivers(chosen, { env: env() })).resolves.toEqual([])
+		expect(await readdir(join(root, 'data'))).toContain('0.5.0')
+	})
+
+	it('leaves a folder with a download in progress or touched recently', async () => {
+		const keep = join(cache, '0.38.0')
+		await mkdir(keep)
+		const partial = join(cache, '0.30.1')
+		await mkdir(partial)
+		await writeFile(join(partial, 'cua-driver.exe.1.2.partial'), 'half')
+		await age(partial)
+		await mkdir(join(cache, '0.31.1')) // just created: recent
+		const removed = await removeSupersededCuaDrivers(keep, { env: env() })
+		expect(removed).toEqual(['0.28.2'])
+		expect((await readdir(cache)).sort()).toEqual(['0.30.1', '0.31.1', '0.38.0'])
 	})
 
 	it('does not tell the person anything for a build that is already cached', async () => {

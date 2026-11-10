@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { extractZipEntry } from './zip.js'
 
 /**
@@ -132,7 +132,7 @@ export async function resolveCuaDriver(
 	const exe = join(dir, EXE_NAME)
 
 	if (await isPinnedExecutable(exe, asset.exeSize, asset.exeSha256)) {
-		await removeSupersededCuaDrivers(dir)
+		await removeSupersededCuaDrivers(dir, { env: options.env })
 		return { path: exe, source: 'cache' }
 	}
 	if (options.download === false) {
@@ -172,29 +172,62 @@ export async function resolveCuaDriver(
 	}
 	const written = await stat(exe)
 	verified.set(exe, `${written.size}:${written.mtimeMs}`)
-	await removeSupersededCuaDrivers(dir)
+	await removeSupersededCuaDrivers(dir, { env: options.env })
 	return { path: exe, source: 'download' }
 }
 
 /** A cache folder named like a release: `0.28.2`. Nothing else in the cache is Namzu's to remove. */
 const VERSION_FOLDER = /^\d+\.\d+\.\d+$/
 
+/** A folder touched within this long is not cleaned: someone may be writing into it or about to run it. */
+const RECENT_MS = 60 * 60 * 1000
+
+export interface RemoveSupersededOptions {
+	readonly env?: NodeJS.ProcessEnv | undefined
+	/** The clock, for tests. */
+	readonly now?: number
+}
+
+const versionParts = (name: string): number[] => name.split('.').map(Number)
+
+function isOlder(candidate: string, pinned: string): boolean {
+	const a = versionParts(candidate)
+	const b = versionParts(pinned)
+	for (let i = 0; i < 3; i++) {
+		if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) < (b[i] ?? 0)
+	}
+	return false
+}
+
 /**
- * Removes the older builds beside the one in use. `keep` is the folder of the build now in use;
- * only when it is named like a version (the default layout) are its sibling folders looked at, and
- * only those named like a version are removed. A file, a link, a folder with any other name and
- * the kept folder are left alone, and a build that cannot be removed (still running) is skipped.
+ * Removes the older builds beside the one in use. `keep` is the folder of the build now in use.
+ * Only when it sits in Namzu's own cache (`<NAMZU_HOME>/computer-use/cua-driver/<version>`) are its
+ * sibling folders looked at; a cache directory the caller chose is never swept. Only a folder named
+ * like a version and strictly older than `keep` is removed, so a newer Namzu's build is never
+ * deleted by an older one. A file, a link, a folder with any other name, a folder holding a
+ * `.partial` download or touched within the last hour, and the kept folder are left alone, and a
+ * build that cannot be removed (still running) is skipped.
  */
-export async function removeSupersededCuaDrivers(keep: string): Promise<string[]> {
-	if (!VERSION_FOLDER.test(basename(keep))) return []
+export async function removeSupersededCuaDrivers(
+	keep: string,
+	options: RemoveSupersededOptions = {},
+): Promise<string[]> {
+	const pinned = basename(keep)
+	if (!VERSION_FOLDER.test(pinned)) return []
 	const parent = dirname(keep)
+	if (resolve(parent) !== resolve(dirname(defaultCuaDriverCacheDir(options.env)))) return []
+	const now = options.now ?? Date.now()
 	const entries = await readdir(parent, { withFileTypes: true }).catch(() => [])
 	const removed: string[] = []
 	for (const entry of entries) {
 		if (!entry.isDirectory() || !VERSION_FOLDER.test(entry.name)) continue
-		if (entry.name === basename(keep)) continue
+		if (!isOlder(entry.name, pinned)) continue
+		const folder = join(parent, entry.name)
 		try {
-			await rm(join(parent, entry.name), { recursive: true })
+			const found = await stat(folder)
+			if (now - found.mtimeMs < RECENT_MS) continue
+			if ((await readdir(folder)).some((name) => name.endsWith('.partial'))) continue
+			await rm(folder, { recursive: true })
 			removed.push(entry.name)
 		} catch {
 			// In use or protected: it stays, and the next start tries again.

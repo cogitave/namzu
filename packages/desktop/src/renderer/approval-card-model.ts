@@ -57,7 +57,7 @@ function screenApp(call: Call): string {
 
 /** What saying yes lets happen, and for how long. */
 export function screenMomentNote(app: string): string {
-	return `Namzu needs your keyboard and mouse for a moment to use ${app}. It cannot do this in the background. Your window and pointer are put back afterwards, and Escape stops it. This is asked every time.`
+	return `Namzu needs your keyboard and mouse for a moment to use ${app}. It cannot do this in the background. Your window and pointer are put back afterwards, and Escape stops it. A yes covers ${app} for the rest of this conversation; another application is asked again.`
 }
 
 const record = (value: unknown): value is Record<string, unknown> =>

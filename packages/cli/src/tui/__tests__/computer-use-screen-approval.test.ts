@@ -35,4 +35,10 @@ describe('the screen question names its application', () => {
 			screenQuestionApp({ questionId: 'q1', question: 'Let X use the screen for a moment?' }),
 		).toBe(undefined)
 	})
+
+	it('does not take another question that merely starts like one for the screen question', () => {
+		expect(
+			screenQuestionApp({ questionId: 'screen-x', question: 'Which file should I open?' }),
+		).toBe(undefined)
+	})
 })

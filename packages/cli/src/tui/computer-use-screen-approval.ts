@@ -23,7 +23,7 @@ export function screenQuestionApp(question: {
 }): string | undefined {
 	if (!question.questionId.startsWith(SCREEN_QUESTION_PREFIX)) return undefined
 	const match = /^Let (.+) use the screen for a moment\?$/s.exec(question.question)
-	return match?.[1] ?? NO_APP
+	return match?.[1]
 }
 
 export function screenApprover(currentAsk: () => QuestionFn | undefined): ForegroundApprover {

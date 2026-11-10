@@ -571,7 +571,7 @@ export function ComposerApproval({
 												aria-describedby={unread ? hintId : undefined}
 												onClick={accept}
 											>
-												{screenMoment ? 'Allow now' : 'Accept'}
+												{screenMoment ? 'Allow this app' : 'Accept'}
 											</button>
 										</>
 									)}

@@ -435,5 +435,5 @@ it('builds the screen question from the engine call and never offers a standing 
 	expect(model.screenMoment).toEqual({ app: 'Editor' })
 	expect(offersConversationAllowance(screen)).toBe(false)
 	expect(rejectsFirst(model, screen)).toBe(true)
-	expect(screenMomentNote('Editor')).toContain('asked every time')
+	expect(screenMomentNote('Editor')).toContain('for the rest of this conversation')
 })
