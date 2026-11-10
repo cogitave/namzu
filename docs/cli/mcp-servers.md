@@ -245,19 +245,28 @@ than printing arbitrary remote error bodies.
 
 CLI-mounted MCP tools keep their live definitions, source, approval flags and
 existing deferral behavior. Each carries a 30,000-character cap for what the
-model is shown (`maxOutputChars` on the tool). A result over it is not cut and
-forgotten: the complete text, framed as untrusted server output, is saved in
-the session's own `tool-results` folder (readable by its owner only, counted in
-the session's size cap, removed with the session) after the turn's result
-screens have run, so a value a screen redacts is not in the file. The model is
-shown the first and last parts of the text, within the 30,000 characters, plus
-the file's path, and opens any slice of it with `read` (`offset` and `limit`).
-Both the preview and the file carry the untrusted framing. A session with no
-folder to write to (an in-memory one) shows the head-and-tail preview alone, and
-a failed write says so in the preview instead of naming a file. Secondary
-fields (structured data and rich media) of an oversized result are still omitted
-so they cannot carry the payload through a second channel. Error text is
-separately bounded to 1,000 characters. Success or failure is preserved.
+model is shown (`maxOutputChars` on the tool). The trigger is the length of the
+result's text: a result whose text is 30,000 characters or fewer, with
+structured and rich fields that also fit, is passed on as it is. A result over it
+is not cut and forgotten: the complete text, which the connector has already
+framed once as untrusted server output (and which is framed here only if it was
+not), is saved in the session's own `tool-results` folder (readable by its owner
+only, removed with the session) after the turn's result screens have run. The
+model is shown the first and last parts of the text, within the 30,000
+characters, plus the file's path, and opens any slice of it with `read` (`offset`
+and `limit`). Both the preview and the file carry the untrusted framing. A
+session with no folder to write to (an in-memory one) shows the head-and-tail
+preview alone, and a failed write says so in the preview instead of naming a
+file. Secondary fields (structured data and rich media) of an oversized result
+are still omitted so they cannot carry the payload through a second channel, and
+a line before the text says so. Error text is separately bounded to 1,000
+characters. Success or failure is preserved.
+
+The file holds whatever the result screens leave. A value a screen redacts is not
+in the file; a secret no screen recognises is, in clear, readable by the owner of
+the session folder. There is no per-server setting that keeps a server's output
+out of the file, so a server whose results can carry secrets the screens do not
+cover should not be mounted.
 
 These are bounds at the CLI result/attachment boundary, not transport byte or
 server-memory limits: a response has already been decoded by the SDK when the

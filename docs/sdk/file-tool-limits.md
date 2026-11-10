@@ -71,6 +71,14 @@ A repeat read of lines the model already has, in a file that has not changed, is
 cap (40,000 characters) and the per-message budget below leave its result alone, because these caps are its
 bound. A host that sets `maxToolOutputChars` explicitly still bounds it.
 
+A tool can set a tighter model-visible cap for its own results with `maxOutputChars` on its definition
+(`defineTool({ maxOutputChars })`). The turn's `maxToolOutputChars` still applies and the smaller of the two wins,
+including when a host turned the turn cap off with `0`; a value that is not a positive finite number is ignored. A
+result over the tool's cap is saved in the session's `tool-results` folder and shown as a head-and-tail preview that
+names the file, exactly as any other oversized result is. The same cap applies to the tool's result when another tool
+calls it (`dispatchTool`) and to model text that differs from the host text. A tool that declares `selfLimitingOutput` is still
+bound by its own `maxOutputChars`.
+
 ## edit and write
 
 `edit` refuses a file the session has not read: `<path> had not been read in this session, so this edit was not

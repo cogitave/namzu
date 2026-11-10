@@ -3,6 +3,7 @@
 ## 2026-11-11
 
 - **Update** [MCP servers](cli/mcp-servers.md#bounded-mcp-results): a CLI-mounted MCP result over 30,000 characters is no longer cut; the full text is saved in the session's `tool-results` folder (owner-only, after the result screens, removed with the session) and the model gets a head-and-tail preview within the cap plus the file's path, readable in slices with `read`. New SDK option `ToolDefinition.maxOutputChars` / `defineTool({ maxOutputChars })`: a tighter per-result cap that uses the same save-and-preview path as the turn cap. `.changeset/mcp-large-result-file-sdk.md` (`@namzu/sdk` minor), `.changeset/mcp-large-result-file-cli.md` (`@namzu/cli` patch).
+- **Update** [Tool execution](sdk/tool-execution.md#a-tools-own-output-cap), [File tool limits](sdk/file-tool-limits.md): `ToolDefinition.maxOutputChars` is documented on the SDK pages and applies to nested calls and to model text that differs from the host text as well as the main result. [MCP servers](cli/mcp-servers.md#bounded-mcp-results): the trigger is the text's length (a result with 30,000 characters or fewer is no longer rewrapped or stripped), an already-framed text is not framed twice, an omission of structured and rich fields is stated before the text, and the page says what the file holds when no screen covers a secret; the claim that the files count toward a session size cap is removed because it was not verified.
 
 ## 2026-11-10
 
