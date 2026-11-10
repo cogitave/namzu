@@ -59,6 +59,11 @@ export interface SettingDescriptor {
 	 * returns to is not known to the one asking.
 	 */
 	readonly confirmWhen?: 'on' | 'off' | 'zero'
+	/**
+	 * For a select, the one new value that asks; choosing any other value applies at once. Clearing
+	 * still asks. Absent means every change to a select asks.
+	 */
+	readonly confirmValue?: string
 	/** Search words beyond the label. */
 	readonly keywords?: readonly string[]
 }
@@ -92,7 +97,10 @@ function d(
 	label: string,
 	description: string,
 	control: SettingControl,
-	more: Pick<SettingDescriptor, 'defaultText' | 'confirm' | 'confirmWhen' | 'keywords'> = {},
+	more: Pick<
+		SettingDescriptor,
+		'defaultText' | 'confirm' | 'confirmWhen' | 'confirmValue' | 'keywords'
+	> = {},
 ): SettingDescriptor {
 	return { path, section, label, description, control, ...more }
 }
@@ -232,6 +240,19 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		{
 			confirm: 'Auto mode, where a model approves actions, will be available again.',
 			confirmWhen: 'off',
+		},
+	),
+	d(
+		'permissions.outsideRoot',
+		'projects',
+		'Paths outside the working folder',
+		'Ask before reading or changing a file outside the working folder and the extra folders, or refuse without asking.',
+		pick('ask', 'refuse'),
+		{
+			defaultText: 'ask',
+			confirm: 'Namzu will be able to ask about files outside the working folder again.',
+			confirmValue: 'ask',
+			keywords: ['outside', 'folder', 'directory', 'boundary', 'refuse'],
 		},
 	),
 	d(

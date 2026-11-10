@@ -26,7 +26,9 @@ function changeKey(path: string, value: unknown): string {
  */
 function needsConfirmation(entry: ConfigSettingDescriptor, value: unknown): boolean {
 	if (!entry.confirm) return false
-	if (value === undefined || !entry.confirmWhen) return true
+	if (value === undefined) return true
+	if (entry.confirmValue !== undefined) return value === entry.confirmValue
+	if (!entry.confirmWhen) return true
 	if (entry.confirmWhen === 'zero') return value === 0
 	if (typeof value !== 'boolean') return true
 	return value === (entry.confirmWhen === 'on')
