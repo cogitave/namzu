@@ -182,6 +182,7 @@ const MAPPING: {
 				title: m.title,
 				origin: m.origin,
 				updated_at: m.updatedAt,
+				...(m.reason ? { reason: m.reason } : {}),
 			})),
 		}),
 	},

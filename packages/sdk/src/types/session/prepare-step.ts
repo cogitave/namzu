@@ -272,6 +272,12 @@ export interface RecalledMemory {
 	/** Who wrote it: the operator, the model (`save_memory`), or a turn on its own. */
 	readonly origin: 'operator' | 'model' | 'derived'
 	readonly updatedAt: number
+	/**
+	 * Why this record went with the message: the selector's own short reason,
+	 * or `matched words` when a selector was given and did not choose it.
+	 * Absent when no selector ran; the words of the request chose it.
+	 */
+	readonly reason?: string
 }
 
 /**

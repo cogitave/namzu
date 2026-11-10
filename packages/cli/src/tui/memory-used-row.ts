@@ -15,6 +15,8 @@ export interface UsedMemory {
 	readonly title: string
 	readonly origin: 'operator' | 'model' | 'derived'
 	readonly updatedAt: number
+	/** Why it went with the message: the small model's reason, or `matched words`. */
+	readonly reason?: string
 }
 
 export interface MemoryUsedRow {
@@ -49,9 +51,13 @@ export function memoryUsedRow(
 	return {
 		content: `Used ${count} ${count === 1 ? 'memory' : 'memories'}`,
 		detail: [
-			...memories.map(
-				(memory) =>
-					`${oneLine(memory.title.trim() || memory.name || memory.id)} · ${originLabel(memory.origin)} · ${ageLabel(memory.updatedAt, now)}`,
+			...memories.map((memory) =>
+				[
+					oneLine(memory.title.trim() || memory.name || memory.id),
+					originLabel(memory.origin),
+					ageLabel(memory.updatedAt, now),
+					...(memory.reason ? [oneLine(memory.reason)] : []),
+				].join(' · '),
 			),
 			`/memory delete ${first.name ?? first.id} removes one.`,
 		],
