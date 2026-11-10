@@ -100,6 +100,7 @@ describe('which models take a forced tool choice', () => {
 		// A floor per family, so the next release in each is covered.
 		['claude-opus-6', undefined, false],
 		['claude-fable-5-2', undefined, false],
+		['claude-mythos-5-2', undefined, false],
 		// The releases below the line still take it. Fable 5 cannot stop
 		// thinking and accepts a forced choice all the same, so this is not
 		// the always-on line.

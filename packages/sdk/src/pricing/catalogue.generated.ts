@@ -5,7 +5,7 @@
 // CI re-runs the generator and fails on any difference, so a hand edit here is
 // reverted by the next run at best and reported as drift at worst.
 //
-// 4 vendors, 35 priced models.
+// 4 vendors, 37 priced models.
 
 import type { ModelPricing } from '../utils/cost.js'
 
@@ -44,6 +44,14 @@ export const VENDOR_RATES: readonly VendorRates[] = [
 				},
 			],
 			[
+				'claude-fable-5-2',
+				{
+					inputCostPer1M: 8,
+					outputCostPer1M: 40,
+					cache: { promptIncludesCacheReads: false, readCostPer1M: 0.2, writeCostPer1M: 10 },
+				},
+			],
+			[
 				'claude-haiku-4-5',
 				{
 					inputCostPer1M: 1,
@@ -65,6 +73,14 @@ export const VENDOR_RATES: readonly VendorRates[] = [
 					inputCostPer1M: 10,
 					outputCostPer1M: 50,
 					cache: { promptIncludesCacheReads: false, readCostPer1M: 0.25, writeCostPer1M: 12.5 },
+				},
+			],
+			[
+				'claude-mythos-5-2',
+				{
+					inputCostPer1M: 8,
+					outputCostPer1M: 40,
+					cache: { promptIncludesCacheReads: false, readCostPer1M: 0.2, writeCostPer1M: 10 },
 				},
 			],
 			[

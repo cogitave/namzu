@@ -38,6 +38,8 @@ const TABLE: readonly [string, boolean, boolean, boolean, string[], string[]][] 
 	// Always-on: thinking cannot be switched off, at any effort level. Two
 	// whole families, and Opus from 5.5 — the vendor's list of models that
 	// answer `thinking: {type: "disabled"}` with a 400.
+	['claude-fable-5-2', true, false, false, ALL, ALL],
+	['claude-mythos-5-2', true, false, false, ALL, ALL],
 	['claude-fable-5-1', true, false, false, ALL, ALL],
 	['claude-mythos-5-1', true, false, false, ALL, ALL],
 	['claude-fable-5', true, false, false, ALL, ALL],
