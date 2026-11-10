@@ -205,6 +205,21 @@ describe('the paired Windows home visible from WSL', () => {
 		)
 	})
 
+	it('starts the Windows lookup once per process and answers every later ask from it', () => {
+		const root = home()
+		const command = join(root, 'cmd.exe')
+		writeFileSync(command, '')
+		const run = vi.fn(() => 'C:\\Users\\Arda\r\n')
+		const env = { WSL_DISTRO_NAME: 'test' }
+		for (let i = 0; i < 4; i++) {
+			expect(wslWindowsHome(env, run as never, command, '/mnt/')).toBe('/mnt/c/Users/Arda')
+		}
+		expect(run).toHaveBeenCalledTimes(1)
+		// Another machine description is another answer, not the recorded one.
+		const other = vi.fn(() => 'D:\\People\\Ada\r\n')
+		expect(wslWindowsHome(env, other as never, command, '/mnt/')).toBe('/mnt/d/People/Ada')
+	})
+
 	it('uses the pinned system command only on WSL', () => {
 		const root = home()
 		const command = join(root, 'cmd.exe')

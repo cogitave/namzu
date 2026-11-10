@@ -65,6 +65,13 @@ module loaded after it is covered.
   `NODE_COMPILE_CACHE=<dir>` chooses the directory (Namzu then does nothing,
   because Node has already enabled it). The first launch after an install or
   an upgrade fills the cache and is a little slower; later ones are faster.
+- Node writes the cache when the process exits, so an engine its host ends by
+  killing it would never leave it warm. `namzu acp` therefore writes it once
+  itself (`module.flushCompileCache`, Node 22.10 and later, skipped where it is
+  absent) two seconds after it starts listening, on a timer that does not keep
+  the process alive. Measured with the engine killed after every start: the
+  second start answered `initialize` in about 205 ms where it had taken about
+  305 ms, and the cache holds about 3.7 MB instead of nothing.
 - Windows: the Node documentation for this function names no platform
   exception, and the code does nothing platform-specific. It has been measured
   on Linux only; if a Windows file system refuses the folder, the launch runs

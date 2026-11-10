@@ -99,6 +99,17 @@ export class PreludeSessionLease {
 			}
 			return
 		}
+		// A renewal is two durable replaces and four fsyncs; the prelude asks
+		// three times in a few milliseconds. While the holding has more than
+		// half its time left the heartbeat has nothing to add, and what the
+		// question is really about, whether anyone took the session, is
+		// answered by reading the fence, as it is for a supplied lease.
+		await this.#renewal
+		if (this.#renewalError !== undefined) throw this.#renewalError
+		if (this.#current.expiresAt - Date.now() >= DEFAULT_TURN_LEASE_TTL_MS / 2) {
+			const held = await this.#log.lease()
+			if (held?.fence === this.#current.fence && held.holder === this.#current.holder) return
+		}
 		this.#queueRenewal()
 		await this.#renewal
 		if (this.#renewalError !== undefined) throw this.#renewalError

@@ -77,6 +77,30 @@ export function wslWindowsHome(
 	const cmd = command ?? `${wslSystem32(root)}/cmd.exe`
 	try {
 		if (!statSync(cmd).isFile()) return null
+	} catch {
+		return null
+	}
+	// The answer cannot change while this process runs, and asking costs a
+	// blocking round trip into Windows (about 35 ms measured) that discovery
+	// used to pay once per credential family on every start. The memo is held
+	// per `run`, so a caller that describes a machine with its own `run` is
+	// answered by that description and never by another's.
+	let perRun = windowsHomeMemo.get(run)
+	if (perRun === undefined) {
+		perRun = new Map()
+		windowsHomeMemo.set(run, perRun)
+	}
+	const key = `${root}\0${cmd}`
+	if (perRun.has(key)) return perRun.get(key) ?? null
+	const answer = askWindowsHome(run, cmd, root)
+	perRun.set(key, answer)
+	return answer
+}
+
+const windowsHomeMemo = new WeakMap<typeof execFileSync, Map<string, string | null>>()
+
+function askWindowsHome(run: typeof execFileSync, cmd: string, root: string): string | null {
+	try {
 		const output = run(cmd, ['/d', '/s', '/c', 'echo', '%USERPROFILE%'], {
 			encoding: 'utf8',
 			timeout: 1_000,
