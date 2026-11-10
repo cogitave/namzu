@@ -12,6 +12,7 @@ import {
 	clipboard,
 	dialog,
 	ipcMain,
+	nativeImage,
 	nativeTheme,
 	powerMonitor,
 	screen,
@@ -51,6 +52,8 @@ import {
 	parseWorkspaceLayout,
 	workspaceGroups,
 } from '../shared/workspace-layout.js'
+import { OVERLAY_SIZE, overlayBitmap } from './attention-overlay.js'
+import { AttentionSignals } from './attention-signals.js'
 import { bundledCliEntry } from './bundled-runtime.js'
 import { ClipboardTextWriter } from './clipboard-text.js'
 import { ConfigSettings } from './config-settings.js'
@@ -520,6 +523,7 @@ const operator = new Operator(
 		autoReconnect: true,
 		projectNames: new ProjectNameStore(join(app.getPath('userData'), 'project-names.json')),
 		viewedConversations,
+		attentionChanged: (ids) => attention.update(ids),
 	},
 )
 operatorReady = true
@@ -563,6 +567,7 @@ const settingsStore = new DesktopSettingsStore({
 		windows.fanout({ kind: 'settings', settings }, (error) =>
 			diagnostics.record('renderer_failed', { error }),
 		)
+		if (settings.attentionSignals !== previous.attentionSignals) attention.refresh()
 		if (settings.restoreTerminals !== previous.restoreTerminals) terminals.settingsChanged()
 		if (settings.autoDownloadUpdates !== previous.autoDownloadUpdates) updates.autoDownloadChanged()
 		if (settings.retrustOnConfigChange && !previous.retrustOnConfigChange)
@@ -579,6 +584,21 @@ const settingsStore = new DesktopSettingsStore({
 })
 // Read before the app is ready, the only time Electron lets the graphics card be turned off.
 if (!settingsStore.get().hardwareAcceleration) app.disableHardwareAcceleration()
+const attention = new AttentionSignals({
+	platform: process.platform,
+	windows: () => windows.entries().map(([, window]) => window),
+	setBadgeCount: (count) => {
+		app.setBadgeCount(count)
+	},
+	bounceDock: () => app.dock?.bounce('informational') ?? -1,
+	cancelDockBounce: (id) => app.dock?.cancelBounce(id),
+	overlayImage: (count) =>
+		nativeImage.createFromBitmap(overlayBitmap(count).data, {
+			width: OVERLAY_SIZE,
+			height: OVERLAY_SIZE,
+		}),
+	enabled: () => settingsStore.get().attentionSignals,
+})
 const voiceInput = new VoiceInputManager({
 	conversation: {
 		activity: (sessionId) => operator.voiceActivity(sessionId),
@@ -1670,6 +1690,9 @@ async function createWindow(
 	window.on('hide', reconcileViewed)
 	window.on('minimize', reconcileViewed)
 	window.on('restore', reconcileViewed)
+	// A focused window is the person looking; losing focus with something waiting signals again.
+	window.on('focus', () => attention.refresh())
+	window.on('blur', () => attention.refresh())
 	const saveBounds = () => {
 		if (!window.isDestroyed() && !window.isMinimized() && !window.isMaximized())
 			workspace.setBounds(windowId, window.getBounds())

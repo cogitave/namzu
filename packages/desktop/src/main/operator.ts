@@ -7,6 +7,7 @@ import type {
 	AcpSessionPromptResult,
 	AcpSessionUpdateNotification,
 } from '@namzu/sdk'
+import { needsYouIds } from '../shared/attention-state.js'
 import type { BackgroundWorkStatus } from '../shared/background-work-protocol.js'
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
 import {
@@ -439,6 +440,8 @@ export class Operator {
 			projectNames?: ProjectNameStore
 			/** The conversations some open window is showing right now. */
 			viewedConversations?: () => ReadonlySet<string>
+			/** The conversations that need the person changed; called with every one that does. */
+			attentionChanged?: (ids: string[]) => void
 		} = {},
 	) {
 		this.unreadConversations = new ConversationUnread()
@@ -741,6 +744,25 @@ export class Operator {
 		if (!this.conversations.has(id)) throw new Error('That conversation is not open.')
 		if (this.unreadConversations.set(id, unread)) this.unreadChanged()
 		return this.conversationUnread()
+	}
+	/** The conversations whose turn is waiting on the person (an approval or a question). */
+	needsYou(): string[] {
+		return needsYouIds(
+			[...this.conversations.entries()].map(([id, session]) => ({
+				id,
+				running: session.projection.running,
+				waiting: session.projection.permissions.length,
+				pal: Boolean(session.view.palId),
+			})),
+		)
+	}
+	private attentionChanged(): void {
+		if (!this.options.attentionChanged) return
+		try {
+			this.options.attentionChanged(this.needsYou())
+		} catch (error) {
+			this.diagnostics?.record('ipc_failed', { operation: 'attention', error })
+		}
 	}
 	/**
 	 * Windows or their tabs changed: any marker whose conversation is on screen now is read. One
@@ -1087,6 +1109,7 @@ export class Operator {
 			for (const projectId of scope.projectIds) this.projects.delete(projectId)
 			for (const sessionId of scope.sessionIds) {
 				this.conversations.delete(sessionId)
+				this.attentionChanged()
 				this.attachmentPreviews.forget(sessionId)
 			}
 			const retiredOwners = new Set(scope.sessionIds)
@@ -1611,7 +1634,13 @@ export class Operator {
 					revision: session.projection.revision + 1,
 				}
 				const wasRunning = session.projection.running
+				const wasWaiting = session.projection.permissions.length
 				session.projection = applyEvent(session.projection, versioned)
+				if (
+					wasRunning !== session.projection.running ||
+					wasWaiting !== session.projection.permissions.length
+				)
+					this.attentionChanged()
 				if (wasRunning && !session.projection.running && !session.view.palId) {
 					const viewed = this.options.viewedConversations?.() ?? new Set<string>()
 					if (this.unreadConversations.turnEnded(id, viewed)) this.unreadChanged()
@@ -1772,6 +1801,7 @@ export class Operator {
 			if (retiredOwners.has(file.ownerId)) this.attachmentFiles.delete(attachmentId)
 		for (const id of sessionIds) {
 			this.conversations.delete(id)
+			this.attentionChanged()
 			this.attachmentPreviews.forget(id)
 		}
 		this.missingProjects.delete(projectId)
@@ -2354,6 +2384,7 @@ export class Operator {
 			this.pendingConversationRemovals.delete(sessionId)
 			this.backgroundWork.invalidate(sessionId)
 			this.conversations.delete(sessionId)
+			this.attentionChanged()
 			this.attachmentPreviews.forget(sessionId)
 			if (this.unreadConversations.forget([sessionId])) this.unreadChanged()
 			for (const [attachmentId, file] of this.attachmentFiles)
@@ -2516,6 +2547,7 @@ export class Operator {
 			if (this.unreadConversations.forget(sessionIds)) this.unreadChanged()
 			for (const id of sessionIds) {
 				this.conversations.delete(id)
+				this.attentionChanged()
 				this.attachmentPreviews.forget(id)
 				this.backgroundWork.invalidate(id)
 			}

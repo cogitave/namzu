@@ -26,6 +26,7 @@ it('starts on the documented defaults without writing anything', () => {
 		restoreTerminals: true,
 		voiceInputAccepted: false,
 		hardwareAcceleration: true,
+		attentionSignals: true,
 	})
 	expect(onError).not.toHaveBeenCalled()
 	expect(() => readFileSync(file)).toThrow()
@@ -45,6 +46,7 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		restoreTerminals: true,
 		voiceInputAccepted: false,
 		hardwareAcceleration: true,
+		attentionSignals: true,
 	})
 	expect(changes).toHaveLength(1)
 	expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({
@@ -56,6 +58,7 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		restoreTerminals: true,
 		voiceInputAccepted: false,
 		hardwareAcceleration: true,
+		attentionSignals: true,
 	})
 	expect(new DesktopSettingsStore({ file }).get()).toMatchObject({
 		startup: 'home',
@@ -155,4 +158,11 @@ it('keeps a file with some bad entries: only the bad entries fall back', () => {
 	const store = new DesktopSettingsStore({ file, onDamaged })
 	expect(store.get()).toMatchObject({ startup: 'home', restoreTerminals: true })
 	expect(onDamaged).not.toHaveBeenCalled()
+})
+
+it('saves the attention signals choice and reads it back after a restart', () => {
+	const store = new DesktopSettingsStore({ file })
+	expect(store.set({ attentionSignals: false }).attentionSignals).toBe(false)
+	expect(new DesktopSettingsStore({ file }).get().attentionSignals).toBe(false)
+	expect(() => store.set({ attentionSignals: 'off' })).toThrow()
 })
