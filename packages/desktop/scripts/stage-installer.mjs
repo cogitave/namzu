@@ -231,6 +231,7 @@ async function main() {
 	cpSync(join(pkgRoot, 'build'), join(out, 'build'), { recursive: true })
 	cpSync(join(pkgRoot, 'electron-builder.yml'), join(out, 'electron-builder.yml'))
 	cpSync(join(pkgRoot, 'scripts/installer-after-pack.cjs'), join(out, 'installer-after-pack.cjs'))
+	cpSync(join(pkgRoot, 'scripts/packed-smoke.mjs'), join(out, 'packed-smoke.mjs'))
 	// The installer is for --target (Windows x64 by default) whatever machine stages it, so the
 	// platform-specific optional packages (the speech engine's native addon) are chosen for it, not
 	// for this host.
@@ -310,6 +311,12 @@ async function main() {
 	)
 	if (failures.length > 0)
 		throw new Error(`The staged CLI does not work from its own files:\n  ${failures.join('\n  ')}`)
+	// What the Windows build machine checks on the packed tree (installer-after-pack.cjs): the native
+	// packages this check found and the files it asserted, so the two machines never keep separate lists.
+	writeFileSync(
+		join(out, 'packed-smoke.json'),
+		`${JSON.stringify({ target: targetName, natives: report.natives, requiredFiles: STAGED_CLI_FILES }, null, 2)}\n`,
+	)
 
 	// 3. The Pal computer image, when this build carries one.
 	const palComputer = stagePalComputer(out, palComputerImage, palComputerManifest)

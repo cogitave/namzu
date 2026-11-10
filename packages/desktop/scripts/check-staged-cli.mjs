@@ -24,6 +24,7 @@ import {
 	isPlatformPackage,
 	packageNameOf,
 } from './lean-cli.mjs'
+import { missingFiles } from './packed-smoke.mjs'
 
 // The module-loader words an AMD wrapper lists beside its real dependencies.
 const AMD_PSEUDO = new Set(['exports', 'module', 'require'])
@@ -104,14 +105,8 @@ export const STAGED_CLI_FILES = [
 	'node_modules/@namzu/sandbox/dist/local-virtual-computer/detached-worker.js',
 ]
 
-/** Which of `files` are missing from `cliDir`. */
-export function missingFiles(cliDir, files) {
-	return files.filter((file) => {
-		const path = join(cliDir, file)
-		if (!existsSync(path)) return true
-		return file.endsWith('/') && readdirSync(path).length === 0
-	})
-}
+// One implementation, shared with the check the Windows build machine runs on the packed tree.
+export { missingFiles }
 
 /**
  * Dependencies the staged `@namzu/*` packages import and the tree lacks. Their own emitted files
@@ -226,7 +221,7 @@ console.log(JSON.stringify(out))
  */
 export async function checkStagedCli({ cliDir, externals, target, host = { platform: process.platform, arch: process.arch }, node = process.execPath, requiredFiles = [] }) {
 	const failures = []
-	const report = { version: undefined, timings: {}, specifiers: 0, imported: 0, notImported: [], notShipped: [], keptPackagesScanned: 0 }
+	const report = { version: undefined, natives: [], timings: {}, specifiers: 0, imported: 0, notImported: [], notShipped: [], keptPackagesScanned: 0 }
 	const home = mkdtempSync(join(tmpdir(), 'namzu-staged-check-'))
 	const project = join(home, 'project')
 	mkdirSync(project)
@@ -266,6 +261,7 @@ export async function checkStagedCli({ cliDir, externals, target, host = { platf
 				natives.set(status.name, status)
 			}
 		}
+		report.natives = [...natives.keys()].sort()
 		const crossTarget = host.platform !== target.platform || host.arch !== target.arch
 		const toTry = []
 		for (const specifier of [...specifiers.keys()].sort()) {
