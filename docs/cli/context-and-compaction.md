@@ -122,6 +122,7 @@ In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user):
 | `modelSummary` | Optional boolean, default `true`. Let the small model write the compaction summary; see [Who writes the summary](#who-writes-the-summary). `false` keeps the summary Namzu extracts itself, and the previous behaviour of `/compact` making no model call without text. |
 | `idleCompaction` | Optional boolean, default `false`. Compact a large conversation nobody is using just before its one-hour prompt cache expires; see [Compacting while idle](#compacting-while-idle). |
 | `idleCompactionMinTokens` | Positive integer, default 200,000; a value under 100,000 is raised to 100,000. The smallest context worth compacting while idle. The environment variable `NAMZU_IDLE_COMPACT_MIN_TOKENS` overrides it. |
+| `clearStaleResultsAfterIdle` | Optional boolean, default `true`. When a turn starts after the provider's prompt cache has expired, shed old, large tool results before the first request; see [Shedding old results after the cache expired](#shedding-old-results-after-the-cache-expired). `false` resends them as they were. |
 | `promptCacheTtl` | `5m` (the default, the provider's own) or `1h`. How long the provider is asked to keep the prompt cache. Only a provider that can be asked takes it (the Anthropic driver, and the Bedrock driver for models of the 4.5 generation and later). A one-hour cache costs more for each write than a five-minute one, so the default is unchanged. `/context` shows the lifetime in use under the legend (only with a provider that can be asked), and `namzu doctor` has a `providers.cache-lifetime` row that reports it and, with the default, suggests `1h` for long sessions or frequent pauses of more than five minutes. |
 
 The CLI uses one of these writers per turn, including resumed turns. Retrieval is
@@ -161,6 +162,25 @@ Compacted while idle, before the prompt cache expired · turn off with "idleComp
 ```
 
 A person who comes back while it is running sees the usual compacting state. No usage-limit signal reaches the terminal, so there is no check against one. Like any compaction it hides the footer's context meter until the next reply, and `/context` sizes the conversation from its messages until then. It does not run while the detailed transcript is open. It is a file setting and has no `/config` row: it needs the one-hour cache lifetime chosen when the conversation starts, so a change takes effect from the next start.
+
+# Shedding old results after the cache expired
+
+Idle compaction acts shortly before a one-hour cache lapses, and only then. When the person comes back after the cache is already gone (any lifetime the last reply reported, five minutes included), the whole prefix is read at full price anyway, so that is the cheapest moment to drop old tool output. With `compaction.clearStaleResultsAfterIdle` on (the default), a turn that starts later than the last request plus that cache lifetime asks the kernel to clear stale tool results before its first request, as described in [Clearing stale results at the start of a turn](../sdk/context-limits.md#clearing-stale-results-at-the-start-of-a-turn).
+
+What it does:
+
+- It runs only when the saving is at least 20,000 tokens by the kernel's estimate; below that nothing changes.
+- The newest six tool results, error results, pinned messages and results already cleared are left alone, as are the summary and every message that is not a tool result.
+- A cleared result keeps the tool name, its original size and the route back: the overflow pointer when the output was spilled, otherwise a sentence telling the model to recover it by a read-only call and never to repeat a state-changing one. The full text stays in the conversation log (`compaction_shed`), where [conversation evidence search](conversation-evidence.md) can find it.
+- The transcript and the context meter treat it as a tool-result clear: no row, the meter drops to the new estimate until the next reply.
+
+It acts only when this process has seen a reply that reported a cache lifetime and that reply read or wrote the cache. Nothing is saved to disk, so a conversation resumed in a new process has no shed: coming back after a long gap helps only when the conversation stayed open in the terminal the whole time. A provider that reports no lifetime, a reply that did not touch the cache, another conversation or model than the one that last replied, and a context that was compacted, cleared, rewound or resumed since (each forgets the lifetime) get no shed either. The setting is read when the conversation starts.
+
+Limits worth knowing:
+
+- Only an ordinary prompt asks for it. A paused turn that is resumed and a message sent to a running sub-agent do not, so they send old results as they were.
+- It is not a threshold pass: the `pre_compact` and `post_compact` hooks do not run for it, it does not count toward the circuit breaker, and it needs `recordShedHistory` on (the default) so the originals are always kept; with it off, nothing is shed.
+- Results that conversation evidence recall surfaced are not marked on the history, so they are not protected: only pinned results, errors and the newest six are. Recall can still find the original in the log.
 
 # Automatic historical evidence
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
 	DECIDE_TOOL_NAME,
 	DecisionError,
@@ -37,6 +37,28 @@ describe('createDecisionTool', () => {
 		expect(r.success).toBe(true)
 		expect(r.output).toContain('0.9700')
 		expect(r.data).toEqual({ kind: 'yesno', p: 0.97 })
+	})
+
+	it('yesno hands an optional criteria sentence to the model', async () => {
+		const yesno = vi.fn(async () => ({ p: 0.5 }))
+		const tool = createDecisionTool(stub({ yesno: yesno as DecisionModel['yesno'] }))
+		await tool.execute(
+			{ kind: 'yesno', context: 's', question: 'danger?', criteria: 'Yes when it deletes data.' },
+			ctx,
+		)
+		expect(yesno).toHaveBeenCalledWith(
+			's',
+			'danger?',
+			expect.objectContaining({ criteria: 'Yes when it deletes data.' }),
+		)
+	})
+
+	it('yesno without criteria sends none', async () => {
+		const yesno = vi.fn(async () => ({ p: 0.5 }))
+		const tool = createDecisionTool(stub({ yesno: yesno as DecisionModel['yesno'] }))
+		await tool.execute({ kind: 'yesno', context: 's', question: 'danger?' }, ctx)
+		const opts = (yesno.mock.calls[0] as unknown[])[2] as Record<string, unknown> | undefined
+		expect(opts?.criteria).toBeUndefined()
 	})
 
 	it('choice surfaces the pick and distribution', async () => {

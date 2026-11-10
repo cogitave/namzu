@@ -18,6 +18,12 @@ const inputSchema = z.object({
 		.describe(
 			'What to decide, phrased for the chosen kind (a yes/no claim, a pick instruction, a scoring rubric).',
 		),
+	criteria: z
+		.string()
+		.optional()
+		.describe(
+			'kind="yesno" only: one sentence saying what makes the answer yes, such as "Yes when the command deletes data." Some decision services need it.',
+		),
 	options: z
 		.array(z.string())
 		.optional()
@@ -70,9 +76,10 @@ export function createDecisionTool(model: DecisionModel, options: DecisionToolOp
 
 		async execute(input, context) {
 			const opts = context.abortSignal ? { signal: context.abortSignal } : undefined
+			const yesnoOpts = input.criteria ? { ...opts, criteria: input.criteria } : opts
 			try {
 				if (input.kind === 'yesno') {
-					const { p } = await model.yesno(input.context, input.question, opts)
+					const { p } = await model.yesno(input.context, input.question, yesnoOpts)
 					return {
 						success: true,
 						output: `P(true) = ${round(p)}. ${ADVISORY}`,
