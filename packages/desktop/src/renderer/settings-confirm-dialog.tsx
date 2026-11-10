@@ -20,10 +20,13 @@ export function SettingsConfirmDialog({
 	onConfirm,
 	onCancel,
 	returnFocus,
+	copy = RETRUST_OFF_COPY,
 }: {
 	onConfirm: () => Promise<void>
 	onCancel: () => void
 	returnFocus?: () => HTMLElement | null
+	/** The words of the dialog; the default is the one for turning off project re-trust. */
+	copy?: { title: string; description: string; confirm: string; cancel: string }
 }) {
 	const [pending, setPending] = useState(false)
 	const [error, setError] = useState('')
@@ -61,14 +64,14 @@ export function SettingsConfirmDialog({
 				<Dialog.Backdrop className="fixed inset-0 z-(--z-scrim) bg-black/50" />
 				<Dialog.Viewport className="fixed inset-0 z-(--z-dialog) grid place-items-center overflow-y-auto p-4">
 					<Dialog.Popup
-						data-settings-confirm-dialog="retrust-off"
+						data-settings-confirm-dialog={copy === RETRUST_OFF_COPY ? 'retrust-off' : 'setting'}
 						initialFocus={cancel}
 						finalFocus={returnFocus}
 						className="w-full max-w-md rounded-2xl border border-border bg-background p-5 text-foreground shadow-[var(--shadow-dialog)] outline-none"
 					>
-						<Dialog.Title className="text-lg font-semibold">{RETRUST_OFF_COPY.title}</Dialog.Title>
+						<Dialog.Title className="text-lg font-semibold">{copy.title}</Dialog.Title>
 						<Dialog.Description className="mt-3 text-sm text-muted-foreground">
-							{RETRUST_OFF_COPY.description}
+							{copy.description}
 						</Dialog.Description>
 						{error && (
 							<p role="alert" className="mt-3 text-sm text-destructive-foreground">
@@ -83,7 +86,7 @@ export function SettingsConfirmDialog({
 								disabled={pending}
 								onClick={onCancel}
 							>
-								{RETRUST_OFF_COPY.cancel}
+								{copy.cancel}
 							</Button>
 							<Button
 								variant="destructive"
@@ -91,7 +94,7 @@ export function SettingsConfirmDialog({
 								disabled={pending}
 								onClick={() => void confirm()}
 							>
-								{RETRUST_OFF_COPY.confirm}
+								{copy.confirm}
 							</Button>
 						</div>
 					</Dialog.Popup>

@@ -1,5 +1,5 @@
 import { KeyRound, Volume2 } from 'lucide-react'
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { ProjectView } from '../shared/protocol.js'
 import {
 	type DataFolderKind,
@@ -10,6 +10,8 @@ import {
 	type StartupBehavior,
 } from '../shared/settings-protocol.js'
 import type { UpdateInfo, UpdateState } from '../shared/update-protocol.js'
+import { configSearchEntries } from './config-settings-model.js'
+import { ConfigSettingsGroup } from './config-settings-section.js'
 import { copyPlainText } from './copy-button.js'
 import { EngineUpdateRows, type EngineUpdateTarget } from './engine-updates-section.js'
 import {
@@ -42,8 +44,10 @@ import {
 	searchSettings,
 	updateStatusView,
 } from './settings-model.js'
+import { Row, Switch } from './settings-row.js'
 import type { Appearance } from './sidebar.js'
 import { Button } from './ui/button.js'
+import { type ConfigSettingsControls, useConfigSettings } from './use-config-settings.js'
 import type { DesktopSettingsControls } from './use-desktop-settings.js'
 import { useEngineUpdates } from './use-engine-updates.js'
 import type { LocalListeningControls } from './use-local-listening.js'
@@ -54,8 +58,12 @@ import './settings-page.css'
 const SECTION_ICONS: Record<SettingsSection, IconComponent> = {
 	general: SettingsIcon,
 	models: KeyRound as IconComponent,
+	agent: SettingsIcon,
+	tools: SettingsIcon,
 	projects: FoldersIcon,
 	appearance: SunIcon,
+	terminal: SettingsIcon,
+	telemetry: InfoIcon,
 	updates: DownloadIcon,
 	speech: Volume2 as IconComponent,
 	about: InfoIcon,
@@ -151,12 +159,13 @@ export function SettingsPage(props: SettingsPageProps) {
 	const [query, setQuery] = useState('')
 	const searchId = useId()
 	const shells = useTerminalShells()
+	const config = useConfigSettings(typeof window === 'undefined' ? undefined : window.namzu, true)
 	// A row that does nothing here is neither shown nor found by search.
 	const hasShellChoice = (shells?.length ?? 0) > 1
 	const hasAppUpdater = props.update !== undefined && props.update.state.status !== 'disabled'
 	const results = searchSettings(
 		query,
-		SETTINGS_ENTRIES.filter(
+		[...SETTINGS_ENTRIES, ...configSearchEntries(config.view)].filter(
 			(entry) =>
 				(entry.id !== 'terminal-shell' || hasShellChoice) &&
 				(entry.id !== 'terminal-restore' || shells !== null) &&
@@ -255,7 +264,7 @@ export function SettingsPage(props: SettingsPageProps) {
 						</ul>
 					</section>
 				) : (
-					<SectionBody {...props} shells={shells} hasAppUpdater={hasAppUpdater} />
+					<SectionBody {...props} shells={shells} hasAppUpdater={hasAppUpdater} config={config} />
 				)}
 			</div>
 		</section>
@@ -265,6 +274,7 @@ export function SettingsPage(props: SettingsPageProps) {
 interface SectionProps extends SettingsPageProps {
 	shells: ShellChoice[] | null | undefined
 	hasAppUpdater: boolean
+	config: ConfigSettingsControls
 }
 
 /** The page heading above is the section's name, so the body does not repeat it. */
@@ -276,6 +286,27 @@ function SectionBody(props: SectionProps) {
 			{props.section === 'projects' && <ProjectsSection {...props} />}
 			{props.section === 'appearance' && <AppearanceSection {...props} />}
 			{props.section === 'updates' && <UpdatesSection {...props} />}
+			{(props.section === 'general' ||
+				props.section === 'models' ||
+				props.section === 'agent' ||
+				props.section === 'tools' ||
+				props.section === 'projects' ||
+				props.section === 'terminal' ||
+				props.section === 'telemetry' ||
+				props.section === 'updates') && (
+				<ConfigSettingsGroup
+					section={props.section}
+					config={props.config}
+					heading={
+						props.section === 'general' ||
+						props.section === 'models' ||
+						props.section === 'projects' ||
+						props.section === 'updates'
+							? 'Namzu settings'
+							: undefined
+					}
+				/>
+			)}
 			{props.section === 'speech' && <SpeechSection {...props} />}
 			{props.section === 'about' && <AboutSection {...props} />}
 		</div>
@@ -285,56 +316,6 @@ function SectionBody(props: SectionProps) {
 function ModelsContainer() {
 	const bridge = typeof window === 'undefined' ? undefined : window.namzu
 	return <ModelsSection connections={useProviderConnections(bridge, true)} />
-}
-
-function Row({
-	id,
-	label,
-	description,
-	children,
-	stacked,
-}: {
-	id: string
-	label: string
-	description?: string
-	children?: ReactNode
-	stacked?: boolean
-}) {
-	const labelId = `setting-${id}-label`
-	return (
-		<div id={`setting-${id}`} className="settings-row" data-stacked={stacked || undefined}>
-			<div className="settings-row-copy">
-				<h3 id={labelId}>{label}</h3>
-				{description && <p>{description}</p>}
-			</div>
-			{children && <div className="settings-row-control">{children}</div>}
-		</div>
-	)
-}
-
-function Switch({
-	label,
-	checked,
-	disabled,
-	onChange,
-}: {
-	label: string
-	checked: boolean
-	disabled?: boolean
-	onChange: (value: boolean) => void
-}) {
-	return (
-		<input
-			type="checkbox"
-			role="switch"
-			className="settings-switch"
-			aria-label={label}
-			aria-checked={checked}
-			checked={checked}
-			disabled={disabled}
-			onChange={(event) => onChange(event.target.checked)}
-		/>
-	)
 }
 
 const STARTUP_CHOICES: { value: StartupBehavior; label: string; hint: string }[] = [

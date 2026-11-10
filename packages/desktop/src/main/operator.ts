@@ -9,6 +9,10 @@ import type {
 } from '@namzu/sdk'
 import type { BackgroundWorkStatus } from '../shared/background-work-protocol.js'
 import { resolveComposerSendOptions } from '../shared/composer-send-options.js'
+import {
+	type ConfigSettingsView,
+	readConfigSettingsView,
+} from '../shared/config-settings-protocol.js'
 import { type HistoryWorkSnapshot, restoreHistoryWork } from '../shared/history-work.js'
 import type {
 	PalPermissionChange,
@@ -792,6 +796,15 @@ export class Operator {
 		const client = await this.providerHost()
 		await client.request('namzu/providers/save_key', { provider, apiKey: apiKey.trim() })
 		return this.providersChanged(client)
+	}
+	/** The engine's own list of settings and their saved values. Secrets never come back. */
+	async configSettings(): Promise<ConfigSettingsView> {
+		const client = await this.providerHost()
+		return readConfigSettingsView(await client.request('namzu/config/get'))
+	}
+	async setConfigSetting(path: string, value: unknown): Promise<ConfigSettingsView> {
+		const client = await this.providerHost()
+		return readConfigSettingsView(await client.request('namzu/config/set', { path, value }))
 	}
 	async removeProviderKey(provider: unknown): Promise<ProviderConnectionView[]> {
 		if (typeof provider !== 'string' || !provider.trim() || provider.length > 400)

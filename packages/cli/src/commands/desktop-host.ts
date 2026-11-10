@@ -15,6 +15,7 @@ import {
 	isEntityId,
 	selectAssistantText,
 } from '@namzu/sdk'
+import { readSettings, writeSetting } from '../config/desktop-settings.js'
 import {
 	type CliSessionScope,
 	archiveConversation,
@@ -1674,6 +1675,14 @@ export function createDesktopHostExtensions(
 			if (Object.keys(params).some((key) => !['provider', 'apiKey'].includes(key)))
 				throw new Error('Saving a key accepts only the provider and the key.')
 			return runtime.saveProviderKey(text(params, 'provider'), text(params, 'apiKey', 4096))
+		},
+		'namzu/config/get': () => readSettings(),
+		'namzu/config/set': (params: Record<string, unknown>) => {
+			if (pal()) throw new Error('Pals do not change the host settings.')
+			if (Object.keys(params).some((key) => !['path', 'value'].includes(key)))
+				throw new Error('A setting change names only the setting and its value.')
+			writeSetting({ path: text(params, 'path'), value: params.value })
+			return readSettings()
 		},
 		'namzu/providers/refresh': () => runtime.refreshProviders(),
 		'namzu/providers/remove_key': async (params: Record<string, unknown>) =>
