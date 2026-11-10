@@ -6,6 +6,7 @@ import type { ToolDefinition } from '../../types/tool/index.js'
 import { jsonStringEscapes } from '../builtins/json-string-hint.js'
 import { defineTool } from '../defineTool.js'
 import { wrapUntrusted } from '../untrusted-envelope.js'
+import { describeOutcomeRecord } from './outcome-record.js'
 import { failureLabel, taskSucceeded } from './outcome.js'
 
 import { DELEGATION_TIMEOUT_MS } from './index.js'
@@ -222,19 +223,25 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 							? JSON.stringify(completed.result.result)
 							: ''
 
+			// The kernel's own record of the child's turn, never the child's words.
+			// Written outside the marked block below, and attributed to the record.
+			const outcome = completed.result?.outcome
+			const recordLine = outcome ? describeOutcomeRecord(outcome) : undefined
+
 			if (!succeeded) {
 				const detail =
 					completed.result?.lastError ?? resultText ?? '(subagent provided no failure detail)'
 				return {
 					success: false,
 					output: '',
-					error: `Subagent ${agentId} ${failureLabel(completed)}: ${detail}`,
+					error: `Subagent ${agentId} ${failureLabel(completed)}: ${detail}${recordLine ? `\n${recordLine}` : ''}`,
 					data: {
 						task_id: handle.taskId,
 						subagent_type: agentId,
 						state: completed.state,
 						status: completed.result?.status,
 						lastError: completed.result?.lastError,
+						...(outcome ? { outcome } : {}),
 					},
 				}
 			}
@@ -247,20 +254,21 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 			// the result programmatically.
 			return {
 				success: true,
-				output: wrapUntrusted(
+				output: `${wrapUntrusted(
 					{
 						kind: 'agent-result',
 						attributes: { agent: agentId, task: handle.taskId },
 						provenance: `This is the output of the delegated subagent "${agentId}", not this agent's own work.`,
 					},
 					resultText || '(subagent returned no text)',
-				),
+				)}${recordLine ? `\n\n${recordLine}` : ''}`,
 				data: {
 					task_id: handle.taskId,
 					subagent_type: agentId,
 					result: resultText,
 					state: completed.state,
 					status: completed.result?.status,
+					...(outcome ? { outcome } : {}),
 				},
 			}
 		},

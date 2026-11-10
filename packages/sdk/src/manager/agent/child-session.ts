@@ -51,6 +51,7 @@ export async function childSessionEnded(
 				: {}),
 			usage: settlement.usage,
 			cost: settlement.cost,
+			...(settlement.outcome !== undefined ? { outcome: settlement.outcome } : {}),
 		}
 	}
 	return ended

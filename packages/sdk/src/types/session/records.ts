@@ -548,6 +548,8 @@ export const ChildSessionEndedRecordSchema = recordSchema('child_session_ended',
 	resultMessageId: messageId.optional(),
 	usage: TokenUsageSchema,
 	cost: CostInfoSchema,
+	/** The child's own outcome record, copied from its settlement. */
+	outcome: TurnOutcomeSchema.optional(),
 })
 
 // Other record-only types

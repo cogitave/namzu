@@ -96,7 +96,7 @@ const verdict = z.enum(['unchanged', 'checked', 'stale', 'failing', 'inconclusiv
 const count = z.number().int().nonnegative().safe()
 
 /** The shape a recorded outcome must have to be written to, or read back from, the session log. */
-export const TurnOutcomeSchema = z
+export const TurnOutcomeSchema: z.ZodType<TurnOutcome, unknown> = z
 	.object({
 		verdict,
 		basis: z.enum(['calls', 'workspace']),
