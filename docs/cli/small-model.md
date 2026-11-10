@@ -53,6 +53,7 @@ smallModel: anthropic/claude-haiku-4-5
 | [Conversation title](#conversation-titles) | After the first message of a conversation | No tools, 60 tokens |
 | [The away recap](#the-away-recap) | After a conversation was left alone for a few minutes with the window out of focus, or on `/recap` | No tools, 120 tokens |
 | [Which memories go with a message](memory.md#how-a-memory-is-chosen-for-a-message) | Once per message, when recall found candidates; skipped on the conversation's own model | No tools, 200 tokens, 2 seconds |
+| [Curating what turns learn](memory.md#how-what-turns-learn-is-curated) | After a turn ends (idle), when the next turn starts, and when the session closes, for up to eight claim sets at a time; skipped on the conversation's own model | No tools, 1,200 tokens, 25 seconds |
 | The answer `web_fetch` extracts ([web tools](../sdk/web-tools.md)) | When a page is fetched with a `prompt` | No tools, 8192 tokens |
 
 The live label of a running background agent is a third side request of the same

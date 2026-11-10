@@ -1413,3 +1413,39 @@ describe('memory.select config', () => {
 		).not.toHaveProperty('select')
 	})
 })
+
+describe('memory.curation config', () => {
+	const noHome = () => mkdtempSync(join(tmpdir(), 'namzu-home-'))
+
+	it('reads on and off from the user file, and refuses anything else', () => {
+		expect(
+			loadConfig({ home: userConfig('memory:\n  curation: off\n'), cwd: tmpdir(), env: {} }).memory,
+		).toEqual({ curation: 'off' })
+		expect(() =>
+			loadConfig({ home: userConfig('memory:\n  curation: maybe\n'), cwd: tmpdir(), env: {} }),
+		).toThrow(ConfigValueError)
+	})
+
+	it('ignores it in a project file, keeping the rest of that file', () => {
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({ memory: { curation: 'off', recall: false } }),
+		)
+		expect(loadConfig({ home: noHome(), cwd, env: {} }).memory).toEqual({ recall: false })
+	})
+
+	it('ignores it in a profile of a project or local file, even when that profile is selected', () => {
+		const profiles = { work: { memory: { curation: 'off', recall: false } } }
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ profiles }))
+		expect(loadConfig({ home: noHome(), cwd, env: {}, profile: 'work' }).memory).toEqual({
+			recall: false,
+		})
+		const local = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(join(local, 'namzu.config.local.json'), JSON.stringify({ profiles }))
+		expect(
+			loadConfig({ home: noHome(), cwd: local, env: {}, profile: 'work' }).memory ?? {},
+		).not.toHaveProperty('curation')
+	})
+})

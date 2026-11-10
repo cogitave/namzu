@@ -32,6 +32,8 @@ export interface ManagedMemory {
 	/** The exact version listed; a delete refuses when the file changed since. */
 	readonly revision: string
 	readonly path: string
+	/** The title of the memory this one replaced, when the small model superseded one. */
+	readonly replaces?: string
 }
 
 export type DeleteOutcome = 'deleted' | 'changed' | 'gone'
@@ -46,6 +48,11 @@ export async function loadManagedMemories(
 	for (const entry of entries) {
 		const record = await store.getVersionedRecord(entry.id)
 		if (!record || record.entry.status !== 'active') continue
+		const supersedes = record.content.metadata?.supersedes
+		const replaced =
+			typeof supersedes === 'string'
+				? (await store.getRecord(supersedes as MemoryId))?.entry.title
+				: undefined
 		items.push({
 			id: record.entry.id,
 			name: record.entry.name,
@@ -56,6 +63,7 @@ export async function loadManagedMemories(
 			updatedAt: record.entry.updatedAt,
 			revision: record.revision,
 			path: record.entry.name ? join(directory, `${record.entry.name}.md`) : directory,
+			...(replaced ? { replaces: replaced } : {}),
 		})
 	}
 	return sortManagedMemories(items)
@@ -173,6 +181,7 @@ export function renderMemoryDetail(item: ManagedMemory, body: string): string {
 	return [
 		memoryLabel(item),
 		`Written by: ${originLabel(item.origin)}`,
+		...(item.replaces ? [`Replaced: ${item.replaces.replace(/\s+/g, ' ').trim()}`] : []),
 		...(item.type ? [`Type: ${item.type}`] : []),
 		`Created: ${stamp(item.createdAt)}`,
 		`Updated: ${stamp(item.updatedAt)}`,

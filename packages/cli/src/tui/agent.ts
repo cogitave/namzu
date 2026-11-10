@@ -456,6 +456,13 @@ import {
 import type { WorkflowRunView } from '../integrations/workflows/view.js'
 import { cliLogger } from '../logging.js'
 import {
+	CurationRuntime,
+	composeMemoryPromotion,
+	createCurationLog,
+} from '../memory/curation-runtime.js'
+import { MemoryCurator } from '../memory/curator.js'
+import { MemoryInbox } from '../memory/inbox.js'
+import {
 	type DeleteOutcome,
 	type ManagedMemory,
 	deleteManagedMemory,
@@ -1354,6 +1361,14 @@ export interface AgentSession {
 	 * them, in which case no such request is made.
 	 */
 	readonly sideModel?: SideModel
+	/**
+	 * What the small model curated from a turn's learning, off the turn: one
+	 * line per change (`Remembered: …`, `Updated: …`, `Replaced: … → …`).
+	 * Absent when `memory.curation` is off.
+	 */
+	readonly memoryCuration?: {
+		readonly subscribe: (listener: (lines: readonly string[]) => void) => () => void
+	}
 	/**
 	 * The model built-in learning uses: the small model's route through the
 	 * configured provider, with each call's tokens counted. Absent where the
@@ -4693,10 +4708,59 @@ export async function createAgentSession(
 	// (`decision.points.memory`); a confident no writes nothing, anything else writes as before.
 	// What a turn may record is screened first: only durable preferences, no
 	// quoted requests, search traces, raw errors, secrets or injected text.
-	const promoteMemory = gateMemoryPromotion(
-		screenMemoryPromotion(createMemoryPromoter({ store: memoryStore }), cliLogger()),
-		decisionPoints,
+	const screenedPromoter = screenMemoryPromotion(
+		createMemoryPromoter({ store: memoryStore }),
+		cliLogger(),
 	)
+	// By default a settling turn does not write: it appends its screened claims
+	// to a durable inbox, and the small model curates them off the turn
+	// (`memory.curation`). `off` writes them at settle, as before.
+	const curationListeners = new Set<(lines: readonly string[]) => void>()
+	const memoryInbox = new MemoryInbox({
+		file: join(paths.home, 'memory-inbox', `${paths.slug}.jsonl`),
+		now: Date.now,
+	})
+	const curation =
+		options.memory?.curation === 'off' || options.compaction?.consolidate
+			? undefined
+			: new CurationRuntime({
+					inbox: memoryInbox,
+					curator: new MemoryCurator({
+						store: memoryStore,
+						sideModel: () => sideModel,
+						fallback: screenedPromoter,
+						log: createCurationLog(join(paths.home, 'memory', 'curation.jsonl')),
+					}),
+					setTimer: (run, ms) => {
+						const handle = setTimeout(run, ms)
+						// The process may exit with this pending; closing the session drains.
+						handle.unref?.()
+						return handle
+					},
+					clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+					turn: () => latestTurn,
+					hasSideModel: () => sideModel !== undefined,
+					onChange: (lines) => {
+						for (const listener of curationListeners) listener(lines)
+					},
+					report: (reason, result) =>
+						cliLogger().debug('memory curation drain', {
+							'namzu.memory.curation.reason': reason,
+							'namzu.memory.curation.result':
+								typeof result === 'string'
+									? result
+									: `${result.applied}/${result.kept}/${result.dropped}`,
+						}),
+				})
+	// The screen comes first, so neither the decision model nor the inbox ever
+	// holds a claim the screen refuses.
+	const promoteMemory = composeMemoryPromotion({
+		curation,
+		inbox: memoryInbox,
+		written: screenedPromoter,
+		screen: (promote) => screenMemoryPromotion(promote, cliLogger()),
+		gate: (promote) => gateMemoryPromotion(promote, decisionPoints),
+	})
 	// Plugins are the last fallible startup resource. The ordering is ownership:
 	// a malformed MCP entry cannot strand imported plugin hooks, and a plugin
 	// refusal closes the MCP processes already opened for this candidate before
@@ -4953,6 +5017,9 @@ export async function createAgentSession(
 	cliLogger().info('agent session ready', {
 		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.BOOT_READY,
 	})
+	// What an earlier process left in the inbox is curated now when a turn can
+	// count the model's tokens, otherwise by the first turn of this session.
+	curation?.start()
 	// Owns the background model-listing lookup below, so closing the session ends it.
 	const reasoningLookup = new AbortController()
 	// Keep the same log (and the SDK's log-owned memory checkpoints) across sends and resumes.
@@ -4961,6 +5028,8 @@ export async function createAgentSession(
 		JSON.stringify([value.tenantId, value.projectId, value.topicId, value.sessionId])
 	const operations = new SessionOperationOwner(async () => {
 		reasoningLookup.abort()
+		// What the last turns learned is curated before the runtime closes under it.
+		await curation?.dispose()
 		// Runs stop before the delegation runtime closes under them.
 		workflowHost?.registry.close()
 		const results = await Promise.allSettled([
@@ -5295,6 +5364,7 @@ export async function createAgentSession(
 			delegatedModeControls.set(entry.turnId, modeControl)
 			delegationScopes.set(entry.turnId, turnScope)
 			latestTurn = { sessionId: turnScope.sessionId, turnId: entry.turnId }
+			curation?.turnStarted()
 			delegationLimits.set(entry.turnId, resumedLimits)
 			if (route && pinned)
 				delegationModels.set(entry.turnId, {
@@ -5873,6 +5943,18 @@ export async function createAgentSession(
 		progressNotices: () =>
 			progressNotices.look({ ...outstandingFacts(scope.sessionId), now: Date.now() }),
 		...(sideModel ? { sideModel } : {}),
+		...(curation
+			? {
+					memoryCuration: {
+						subscribe: (listener: (lines: readonly string[]) => void) => {
+							curationListeners.add(listener)
+							return () => {
+								curationListeners.delete(listener)
+							}
+						},
+					},
+				}
+			: {}),
 		...(learning ? { learning } : {}),
 		...(subagentRuntime
 			? {
@@ -5923,6 +6005,7 @@ export async function createAgentSession(
 							liveModeControls.add(control)
 							delegationScopes.set(turnId, turnScope)
 							latestTurn = { sessionId: turnScope.sessionId, turnId }
+							curation?.turnStarted()
 							delegationLimits.set(turnId, resolveTurnGuards(options.limits, opts?.limits))
 							delegatedResumeHandlers.set(turnId, control.handler)
 							delegatedReviewAllowedCalls.set(turnId, control.reviewAllowedCalls)
@@ -6274,6 +6357,7 @@ export async function createAgentSession(
 						if (opts?.waitForInbound) delegatedInputWaiters.set(turnId, opts.waitForInbound)
 						delegationScopes.set(turnId, turnScope)
 						latestTurn = { sessionId: turnScope.sessionId, turnId }
+						curation?.turnStarted()
 						delegationLimits.set(turnId, turnLimits)
 						const typedTarget = parseTokenTarget(opts?.typedInput ?? '')
 						if (typedTarget !== undefined) workflowTokenTargets.set(turnId, typedTarget)

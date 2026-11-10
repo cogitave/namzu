@@ -283,6 +283,8 @@ function resolveConfigWithProvenance(
 				'smallModel',
 				'memory.select',
 				'profiles.*.memory.select',
+				'memory.curation',
+				'profiles.*.memory.curation',
 			])
 		: {}
 	// `.mcp.json`: the project's shared tool servers. Read under the same trust
@@ -311,6 +313,8 @@ function resolveConfigWithProvenance(
 				'routing',
 				'memory.select',
 				'profiles.*.memory.select',
+				'memory.curation',
+				'profiles.*.memory.curation',
 			])
 		: {}
 	const managedCfg = readJsonIfExists(managedPath, shortHomePath(managedPath))
@@ -1005,7 +1009,12 @@ const CONFIG_READERS: ConfigReaders = {
 	memory: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
-			if (key !== 'recall' && key !== 'identifierGrounding' && key !== 'select')
+			if (
+				key !== 'recall' &&
+				key !== 'identifierGrounding' &&
+				key !== 'select' &&
+				key !== 'curation'
+			)
 				return invalidConfigValue(context, [key], 'is not a memory key')
 		}
 		if (v.recall !== undefined && typeof v.recall !== 'boolean') {
@@ -1017,8 +1026,12 @@ const CONFIG_READERS: ConfigReaders = {
 		if (v.select !== undefined && v.select !== 'on' && v.select !== 'off') {
 			return invalidConfigValue(context, ['select'], 'must be "on" or "off"')
 		}
+		if (v.curation !== undefined && v.curation !== 'on' && v.curation !== 'off') {
+			return invalidConfigValue(context, ['curation'], 'must be "on" or "off"')
+		}
 		return {
 			...(v.select === undefined ? {} : { select: v.select as 'on' | 'off' }),
+			...(v.curation === undefined ? {} : { curation: v.curation as 'on' | 'off' }),
 			...(v.recall === undefined ? {} : { recall: v.recall as boolean }),
 			...(v.identifierGrounding === undefined
 				? {}
