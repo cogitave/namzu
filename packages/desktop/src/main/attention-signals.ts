@@ -14,10 +14,12 @@ export interface AttentionHost {
 	/** `app.setBadgeCount`; the controller never calls it on Windows, where it does nothing. */
 	setBadgeCount(count: number): void
 	/** macOS only: bounce the dock icon once; returns an id that can cancel it. */
-	bounceDock?(): number
+	bounceDock?(): number | undefined
 	cancelDockBounce?(id: number): void
 	/** The Windows taskbar overlay for a count. */
 	overlayImage?(count: number): unknown
+	/** Run `run` after the current burst of window events; returns a cancel. Defaults to a short timer. */
+	defer?(run: () => void): () => void
 	/** Read on every change: the setting can change while the app runs. */
 	enabled(): boolean
 }
@@ -33,6 +35,8 @@ export class AttentionSignals {
 	private signalled = false
 	private shownCount = 0
 	private bounce: number | undefined
+	private stamped = new Set<AttentionWindow>()
+	private cancelDefer: (() => void) | undefined
 
 	constructor(private readonly host: AttentionHost) {}
 
@@ -42,7 +46,25 @@ export class AttentionSignals {
 		this.refresh()
 	}
 
-	/** A window gained or lost focus, or the setting changed: apply the held state again. */
+	/**
+	 * A window lost focus. Switching to another Namzu window blurs one before the other focuses, so
+	 * the check waits for the switch to settle and flashes only if no window ended up focused.
+	 */
+	windowBlurred(): void {
+		this.cancelDefer?.()
+		const run = () => {
+			this.cancelDefer = undefined
+			this.refresh()
+		}
+		this.cancelDefer =
+			this.host.defer?.(run) ??
+			(() => {
+				const timer = setTimeout(run, 50)
+				return () => clearTimeout(timer)
+			})()
+	}
+
+	/** A window gained or lost focus, appeared, or the setting changed: apply the held state again. */
 	refresh(): void {
 		const count = this.ids.length
 		const focused = this.host
@@ -52,7 +74,7 @@ export class AttentionSignals {
 			this.clear()
 			return
 		}
-		if (count !== this.shownCount) this.show(count)
+		if (count !== this.shownCount || this.hasUnstampedWindow()) this.show(count)
 		if (!this.signalled) {
 			this.signalled = true
 			this.flash()
@@ -69,11 +91,18 @@ export class AttentionSignals {
 		this.bounce = undefined
 	}
 
+	/** A window opened since the overlay was applied has none yet. */
+	private hasUnstampedWindow(): boolean {
+		return this.host.platform === 'win32' && this.live().some((window) => !this.stamped.has(window))
+	}
+
 	private show(count: number): void {
 		this.shownCount = count
 		if (this.host.platform === 'win32') {
 			const image = count > 0 ? (this.host.overlayImage?.(count) ?? null) : null
-			for (const window of this.live()) window.setOverlayIcon(image, attentionDescription(count))
+			const live = this.live()
+			for (const window of live) window.setOverlayIcon(image, attentionDescription(count))
+			this.stamped = new Set(live)
 		} else this.host.setBadgeCount(count)
 	}
 

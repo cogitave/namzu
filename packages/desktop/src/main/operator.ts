@@ -22,7 +22,7 @@ import type {
 } from '../shared/pal-communication-protocol.js'
 import { duplicatePalNameMessage, isDuplicatePalName } from '../shared/pal-name.js'
 import { readPermissionCalls, readPermissionResponse } from '../shared/permission-protocol.js'
-import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
+import { type ThreadState, applyEvent, emptyThread, threadPhase } from '../shared/projection.js'
 import type {
 	AttachmentInput,
 	AttachmentView,
@@ -750,8 +750,10 @@ export class Operator {
 		return needsYouIds(
 			[...this.conversations.entries()].map(([id, session]) => ({
 				id,
+				// The sidebar's own rule, so the badge and the row mark cannot disagree.
 				running: session.projection.running,
-				waiting: session.projection.permissions.length,
+				waiting:
+					threadPhase(session.projection) === 'waiting' ? session.projection.permissions.length : 0,
 				pal: Boolean(session.view.palId),
 			})),
 		)
@@ -1109,9 +1111,9 @@ export class Operator {
 			for (const projectId of scope.projectIds) this.projects.delete(projectId)
 			for (const sessionId of scope.sessionIds) {
 				this.conversations.delete(sessionId)
-				this.attentionChanged()
 				this.attachmentPreviews.forget(sessionId)
 			}
+			this.attentionChanged()
 			const retiredOwners = new Set(scope.sessionIds)
 			for (const ownerId of this.projectDrafts.keys()) {
 				const owner = projectDraftOwner(ownerId)
@@ -1801,9 +1803,9 @@ export class Operator {
 			if (retiredOwners.has(file.ownerId)) this.attachmentFiles.delete(attachmentId)
 		for (const id of sessionIds) {
 			this.conversations.delete(id)
-			this.attentionChanged()
 			this.attachmentPreviews.forget(id)
 		}
+		this.attentionChanged()
 		this.missingProjects.delete(projectId)
 		this.unopenedProjects.delete(projectId)
 		for (const [path, id] of this.relocations) if (id === projectId) this.relocations.delete(path)
@@ -2547,10 +2549,10 @@ export class Operator {
 			if (this.unreadConversations.forget(sessionIds)) this.unreadChanged()
 			for (const id of sessionIds) {
 				this.conversations.delete(id)
-				this.attentionChanged()
 				this.attachmentPreviews.forget(id)
 				this.backgroundWork.invalidate(id)
 			}
+			this.attentionChanged()
 			const isProjectDraft = (ownerId: string) => {
 				try {
 					return projectDraftOwner(ownerId)?.projectId === projectId

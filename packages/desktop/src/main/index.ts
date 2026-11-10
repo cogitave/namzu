@@ -450,6 +450,22 @@ const palComputerIdle = new IdleStopper({
 		return () => clearTimeout(timer)
 	},
 })
+// Built before the operator that reports to it; `enabled` reads the settings store only when called.
+const attention = new AttentionSignals({
+	platform: process.platform,
+	windows: () => windows.entries().map(([, window]) => window),
+	setBadgeCount: (count) => {
+		app.setBadgeCount(count)
+	},
+	bounceDock: () => app.dock?.bounce('informational'),
+	cancelDockBounce: (id) => app.dock?.cancelBounce(id),
+	overlayImage: (count) =>
+		nativeImage.createFromBitmap(overlayBitmap(count).data, {
+			width: OVERLAY_SIZE,
+			height: OVERLAY_SIZE,
+		}),
+	enabled: () => settingsStore.get().attentionSignals,
+})
 const operator = new Operator(
 	command,
 	(event: DesktopEvent) => {
@@ -584,21 +600,6 @@ const settingsStore = new DesktopSettingsStore({
 })
 // Read before the app is ready, the only time Electron lets the graphics card be turned off.
 if (!settingsStore.get().hardwareAcceleration) app.disableHardwareAcceleration()
-const attention = new AttentionSignals({
-	platform: process.platform,
-	windows: () => windows.entries().map(([, window]) => window),
-	setBadgeCount: (count) => {
-		app.setBadgeCount(count)
-	},
-	bounceDock: () => app.dock?.bounce('informational') ?? -1,
-	cancelDockBounce: (id) => app.dock?.cancelBounce(id),
-	overlayImage: (count) =>
-		nativeImage.createFromBitmap(overlayBitmap(count).data, {
-			width: OVERLAY_SIZE,
-			height: OVERLAY_SIZE,
-		}),
-	enabled: () => settingsStore.get().attentionSignals,
-})
 const voiceInput = new VoiceInputManager({
 	conversation: {
 		activity: (sessionId) => operator.voiceActivity(sessionId),
@@ -1692,7 +1693,10 @@ async function createWindow(
 	window.on('restore', reconcileViewed)
 	// A focused window is the person looking; losing focus with something waiting signals again.
 	window.on('focus', () => attention.refresh())
-	window.on('blur', () => attention.refresh())
+	// Moving between two windows blurs one before the other focuses: look again once it has settled.
+	window.on('blur', () => attention.windowBlurred())
+	window.on('show', () => attention.refresh())
+	window.on('restore', () => attention.refresh())
 	const saveBounds = () => {
 		if (!window.isDestroyed() && !window.isMinimized() && !window.isMaximized())
 			workspace.setBounds(windowId, window.getBounds())
