@@ -1,5 +1,12 @@
 # @namzu/desktop
 
+## 0.2.7
+
+### Patch Changes
+
+- 1a260bd: Desktop conversations can now use this PC's computer (`computer_use`): the engine Desktop starts, `namzu acp --desktop`, offers the tool as the terminal already did. Every approval is unchanged, and `namzu acp` without `--desktop` and Pal conversations behave as before.
+- ebaec69: Namzu Desktop now ships Electron 44.9.1, which drops the eMudhra intermediate certificates the Chromium root store no longer trusts (GHSA-jr5w-w6x2-84p9). Nothing to do on upgrade.
+
 ## 0.2.6
 
 ### Patch Changes
