@@ -426,6 +426,8 @@ export interface SubagentRuntimeOptions {
 	readonly sandboxTeardownTimeoutMs?: number
 	/** The parent's `QueryParams.outsideRootAccess`, so a child asks the same question. */
 	readonly outsideRootAccess?: 'refuse' | 'review'
+	/** The parent's `QueryParams.outsideRootRefusal`. */
+	readonly outsideRootRefusal?: string
 	/** The parent's `QueryParams.sandboxEscape`. */
 	readonly sandboxEscape?: 'refuse' | 'review'
 	/** A fresh drain cursor over the session's shared project-policy state. */
@@ -3532,6 +3534,7 @@ function buildDefinition(
 					? { sandboxTeardownTimeoutMs: opts.sandboxTeardownTimeoutMs }
 					: {}),
 				...(opts.outsideRootAccess ? { outsideRootAccess: opts.outsideRootAccess } : {}),
+				...(opts.outsideRootRefusal ? { outsideRootRefusal: opts.outsideRootRefusal } : {}),
 				...(opts.sandboxEscape ? { sandboxEscape: opts.sandboxEscape } : {}),
 				...(opts.paths ? { paths: opts.paths } : {}),
 			}

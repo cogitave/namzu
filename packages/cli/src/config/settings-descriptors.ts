@@ -235,6 +235,18 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		},
 	),
 	d(
+		'permissions.outsideRoot',
+		'projects',
+		'Paths outside the working folder',
+		'Ask before reading or changing a file outside the working folder and the extra folders, or refuse without asking.',
+		pick('ask', 'refuse'),
+		{
+			defaultText: 'ask',
+			confirm: 'Namzu will be able to ask about files outside the working folder again.',
+			keywords: ['outside', 'folder', 'directory', 'boundary', 'refuse'],
+		},
+	),
+	d(
 		'permissions',
 		'projects',
 		'Permission rules',

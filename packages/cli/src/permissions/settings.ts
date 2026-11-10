@@ -21,6 +21,9 @@ import { PERMISSION_MODE_NAMES } from './mode-names.js'
  *   managed file only. A project may still pick a stricter default.
  * - `disableBypassMode` and `disableAutoMode` can only close a door, so every
  *   file may write them, and a `true` in one file is not undone by another.
+ * - `outsideRoot` of `refuse` only closes a door too (a path outside the working
+ *   directory is refused, not asked about), so every file may write it and a
+ *   `refuse` in one file is not undone by an `ask` in another.
  * - `autoMode` names a model that receives the conversation and the rules that
  *   steer the classifier, so it is the operator's alone, like `routing`.
  */
@@ -33,6 +36,12 @@ export interface PermissionSettings {
 	readonly disableBypassMode?: boolean
 	/** No session may enter auto. */
 	readonly disableAutoMode?: boolean
+	/**
+	 * What a file tool's path outside the working directory and the added
+	 * directories becomes: `ask` (absent) is a question, `refuse` a refusal no
+	 * mode lifts. Only `refuse` is kept; it is the one that narrows.
+	 */
+	readonly outsideRoot?: 'refuse'
 	readonly autoMode?: AutoModeSettings
 	/**
 	 * What was written and not honoured, one plain sentence each, so a person
@@ -59,6 +68,7 @@ export const PERMISSION_SETTING_KEYS: readonly string[] = [
 	'defaultMode',
 	'disableBypassMode',
 	'disableAutoMode',
+	'outsideRoot',
 	'autoMode',
 ]
 
@@ -90,6 +100,13 @@ export function permissionSettingsProblem(
 		if (table[key] !== undefined && typeof table[key] !== 'boolean') {
 			return { path: [key], message: 'must be true or false' }
 		}
+	}
+	if (
+		table.outsideRoot !== undefined &&
+		table.outsideRoot !== 'ask' &&
+		table.outsideRoot !== 'refuse'
+	) {
+		return { path: ['outsideRoot'], message: 'must be ask or refuse' }
 	}
 	const auto = table.autoMode
 	if (auto === undefined) return undefined
@@ -167,6 +184,7 @@ export function splitPermissionsTable<T>(
 			...(defaultMode ? { defaultMode } : {}),
 			...(raw.disableBypassMode === true ? { disableBypassMode: true } : {}),
 			...(raw.disableAutoMode === true ? { disableAutoMode: true } : {}),
+			...(raw.outsideRoot === 'refuse' ? { outsideRoot: 'refuse' as const } : {}),
 			...(autoMode ? { autoMode } : {}),
 			...(ignored.length > 0 ? { ignored } : {}),
 		},
@@ -190,6 +208,7 @@ export function mergePermissionSettings(
 		...(defaultMode ? { defaultMode } : {}),
 		...(base?.disableBypassMode || next.disableBypassMode ? { disableBypassMode: true } : {}),
 		...(base?.disableAutoMode || next.disableAutoMode ? { disableAutoMode: true } : {}),
+		...(base?.outsideRoot || next.outsideRoot ? { outsideRoot: 'refuse' as const } : {}),
 		...(autoMode ? { autoMode } : {}),
 		...(ignored.length > 0 ? { ignored } : {}),
 	}
