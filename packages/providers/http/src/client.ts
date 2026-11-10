@@ -77,6 +77,10 @@ function parseAnthropicUsage(raw?: AnthropicUsage): TokenUsage {
 		totalTokens: input + output,
 		cachedTokens: raw.cache_read_input_tokens ?? 0,
 		cacheWriteTokens: raw.cache_creation_input_tokens ?? 0,
+		// `input_tokens` is only what follows the last cache breakpoint; the
+		// context the model was given is all three counts.
+		fullPromptTokens:
+			input + (raw.cache_read_input_tokens ?? 0) + (raw.cache_creation_input_tokens ?? 0),
 	}
 }
 

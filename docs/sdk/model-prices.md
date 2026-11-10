@@ -99,11 +99,13 @@ so a turn's cost is unaffected by what a menu displays.
 ## Whole prompt size
 
 `TokenUsage.promptTokens` is what the driver counts as input, and drivers
-disagree: some include cached tokens, Anthropic and Bedrock report only what
-follows the last cache breakpoint. `TokenUsage.fullPromptTokens` is the whole
+disagree: some include cached tokens, Anthropic and Bedrock (and the HTTP
+driver's Anthropic dialect) report only what follows the last cache breakpoint. `TokenUsage.fullPromptTokens` is the whole
 prompt of one call, cache reads and writes included, set by a driver that keeps
 cache apart; `promptSizeOf(usage)` returns it, or `promptTokens` when it is
 absent. It is a per-call fact, never summed. The context size the compaction
-trigger and the context meter read, and the input-token attribute on spans, use
-it; cost still reads `promptTokens`, `cachedTokens` and `cacheWriteTokens`
+trigger and the context meter read, and the input-token attribute on each
+model call's span (streamed or not), use it; the turn's root span and the
+budget log line keep the cumulative `promptTokens`, a sum of calls that
+`fullPromptTokens` is deliberately not part of; cost still reads `promptTokens`, `cachedTokens` and `cacheWriteTokens`
 separately through the rate card's `promptIncludesCacheReads`.

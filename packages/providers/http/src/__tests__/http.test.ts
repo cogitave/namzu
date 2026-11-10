@@ -845,3 +845,33 @@ describe('@namzu/http — streaming', () => {
 		).rejects.toThrowError(DialectMismatchError)
 	})
 })
+
+describe('@namzu/http — anthropic dialect usage', () => {
+	it('reports the whole prompt, cache included, beside the uncached remainder', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi
+				.fn()
+				.mockImplementation(async () =>
+					mockSseResponse([
+						'event: message_start\ndata: {"type":"message_start","message":{"id":"m1","usage":{"input_tokens":2,"cache_read_input_tokens":26378,"cache_creation_input_tokens":163,"output_tokens":0}}}',
+						'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":40}}',
+						'event: message_stop\ndata: {"type":"message_stop"}',
+					]),
+				),
+		)
+		const provider = new HttpProvider({
+			baseURL: 'https://api.anthropic.com/v1',
+			apiKey: 'test',
+			dialect: 'anthropic',
+		})
+		const chunks = await collectChatCompletionStream(
+			provider.chatStream({ model: 'm', messages: [{ role: 'user', content: 'hi' }] }),
+		)
+		const first = chunks.flatMap((c) => (c.usage ? [c.usage] : []))[0]
+		expect(first?.promptTokens).toBe(2)
+		expect(first?.cachedTokens).toBe(26378)
+		expect(first?.cacheWriteTokens).toBe(163)
+		expect(first?.fullPromptTokens).toBe(2 + 26378 + 163)
+	})
+})

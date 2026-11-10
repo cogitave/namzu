@@ -4483,6 +4483,8 @@ export async function createAgentSession(
 						void subagentRuntime?.sideLedger.chargeLater({
 							turnId,
 							sessionId,
+							// Already spent: the ledger books `usage` as it is and uses the estimate only to
+							// admit the charge, so the uncached count, not the whole prompt, keeps it admitted.
 							estimatedPromptTokens: usage.promptTokens,
 							usage,
 						})
@@ -5015,6 +5017,8 @@ export async function createAgentSession(
 		void subagentRuntime?.sideLedger.chargeLater({
 			turnId: latestTurn.turnId,
 			sessionId,
+			// Already spent: the ledger books `usage` as it is and uses the estimate only to
+			// admit the charge, so the uncached count, not the whole prompt, keeps it admitted.
 			estimatedPromptTokens: usage.promptTokens,
 			usage,
 		})

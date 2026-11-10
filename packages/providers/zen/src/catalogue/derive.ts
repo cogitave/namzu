@@ -96,8 +96,8 @@ export const ZEN_SERVICES: readonly {
 	readonly provider: string
 }[] = Object.freeze([
 	// The two pages moved out of `packages/web/src/content/docs` when the site
-	// moved under `services/www` and then `services/site`, and Zen's own page was renamed `models.mdx`
-	// inside a `console/` section. The tables the rules read — the route table,
+	// moved under `services/www` and then `services/site`, and Zen's own page
+	// was renamed `models.mdx` inside a `console/` section. The tables the rules read — the route table,
 	// the price tables and the free-model list — are where they always were.
 	{ service: 'zen', page: 'console/models.mdx', provider: 'opencode' },
 	{ service: 'go', page: 'console/go.mdx', provider: 'opencode-go' },

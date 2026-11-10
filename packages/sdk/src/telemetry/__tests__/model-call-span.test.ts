@@ -101,7 +101,7 @@ afterEach(async () => {
  * property of the transform rather than of import order — verified by running,
  * not assumed, since no other file in this package had done it this way.
  */
-async function runOnce(turns: { text?: string }[]): Promise<void> {
+async function runOnce(turns: { text?: string; usage?: Record<string, number> }[]): Promise<void> {
 	const dir = await mkdtemp(join(tmpdir(), 'namzu-chatspan-'))
 	workdirs.push(dir)
 
@@ -167,6 +167,26 @@ describe('the model call has a span of its own', () => {
 		// from the operation that spent the tokens.
 		expect(attrs).toHaveProperty('gen_ai.usage.input_tokens')
 		expect(attrs).toHaveProperty('gen_ai.usage.output_tokens')
+	})
+
+	it('reports the whole prompt as the input, not the uncached remainder', async () => {
+		await runOnce([
+			{
+				text: 'done',
+				usage: {
+					promptTokens: 4,
+					completionTokens: 10,
+					totalTokens: 14,
+					cachedTokens: 0,
+					cacheWriteTokens: 26541,
+					fullPromptTokens: 26545,
+				},
+			},
+		])
+
+		const attrs = chatSpans()[0]?.attributes ?? {}
+		expect(attrs['gen_ai.usage.input_tokens']).toBe(26545)
+		expect(attrs['namzu.cache.write_tokens']).toBe(26541)
 	})
 
 	it('records what the response said it was, not only what was asked for', async () => {

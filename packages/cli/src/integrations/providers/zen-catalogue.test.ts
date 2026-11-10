@@ -565,26 +565,28 @@ describe('startZenCatalogueRefresh', () => {
 
 	it('forgets the failure once a refresh lands, so a later failure warns again', async () => {
 		const dir = home()
+		// The default period and a fake clock: a zero period would make the old
+		// record read as expired whether or not it was removed.
+		let clock = 1_000_000
 		const fail = async (): Promise<ZenCatalogueResult> => {
 			throw new Error('models.dev answered 503.')
 		}
-		const first = capturing()
-		await startZenCatalogueRefresh({ home: dir, log: first.log, fetchCatalogue: fail }).done
-		expect(first.warnings()).toHaveLength(1)
-		const ok = capturing()
-		await startZenCatalogueRefresh({
-			home: dir,
-			log: ok.log,
-			cacheMaxAgeMs: 0,
-			fetchCatalogue: async () => result(catalogue()),
-		}).done
-		const again = capturing()
-		await startZenCatalogueRefresh({
-			home: dir,
-			log: again.log,
-			cacheMaxAgeMs: 0,
-			fetchCatalogue: fail,
-		}).done
-		expect(again.warnings()).toHaveLength(1)
+		const launch = async (fetchCatalogue: () => Promise<ZenCatalogueResult>) => {
+			const { log, warnings, debugs } = capturing()
+			await startZenCatalogueRefresh({ home: dir, log, now: () => clock, fetchCatalogue }).done
+			return { warned: warnings().length, quiet: debugs().length }
+		}
+		expect((await launch(fail)).warned).toBe(1)
+		// Still inside the period: quiet, as without any refresh in between.
+		clock += 60_000
+		expect(await launch(fail)).toMatchObject({ warned: 0, quiet: 1 })
+		// A refresh lands inside the same period, then the source fails again.
+		clock += 60_000
+		await launch(async () => result(catalogue()))
+		clock += 60_000
+		expect((await launch(fail)).warned).toBe(1)
+		// That warning starts a new period of its own.
+		clock += 60_000
+		expect((await launch(fail)).warned).toBe(0)
 	})
 })
