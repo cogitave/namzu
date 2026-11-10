@@ -78,7 +78,7 @@ it('writes only events on stdout and the logs on stderr, with --debug and --verb
 
 /**
  * The same contract through a whole model turn. The provider is a local server
- * speaking the Anthropic wire, so the provider driver, the turn loop and the
+ * speaking the vendor's own wire format, so the provider driver, the turn loop and the
  * debug and verbose logging all run mid-turn, and nothing of theirs may reach
  * stdout. The usage frame carries the cache split a warm call really has: 4
  * uncached input tokens beside 26 378 written to the cache.
