@@ -219,7 +219,7 @@
 			"verified": "2026-08-10",
 			"promptIncludesCacheReads": true,
 			"reportsCacheWrites": false,
-			"note": "Vendor list prices for text models, cached-input rate included. The driver hard-codes cacheWriteTokens to zero, so no write rate is carried. Embedding models are omitted (no output rate, and a chat turn never reaches one), as are models whose cached-input rate was not published alongside the others — an unestablished rate is left out rather than approximated, which is the rule this whole file follows.",
+			"note": "Vendor list prices for text models, cached-input rate included. The driver hard-codes cacheWriteTokens to zero, so no write rate is carried. Embedding models are omitted (no output rate, and a chat turn never reaches one), as are models whose cached-input rate was not published alongside the others — an unestablished rate is left out rather than approximated, which is the rule this whole file follows. gpt-6-astra has no row on purpose: the vendor prices it by input length (read 2026-11-11 on its pricing page, $10 in / $1 cached / $50 out up to 272,000 input tokens, $20 / $2 / $75 above), this table holds one rate per model, and either single rate would be wrong for the other half of requests, so its cost reports unknown.",
 			"models": [
 				{
 					"id": "gpt-5.6-sol",
