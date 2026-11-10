@@ -69,9 +69,15 @@ module loaded after it is covered.
   killing it would never leave it warm. `namzu acp` therefore writes it once
   itself (`module.flushCompileCache`, Node 22.10 and later, skipped where it is
   absent) two seconds after it starts listening, on a timer that does not keep
-  the process alive. Measured with the engine killed after every start: the
-  second start answered `initialize` in about 205 ms where it had taken about
-  305 ms, and the cache holds about 3.7 MB instead of nothing.
+  the process alive. A host that ends the engine within those two seconds
+  still leaves the cache cold; the write is not made earlier because it would
+  compete with the first requests. Measured on one Linux machine with a local
+  script that starts `namzu acp --desktop`, answers `initialize`, waits, kills
+  the process with SIGKILL and starts it again against the same empty home:
+  with a four second wait the later starts answered `initialize` in about
+  210 ms against about 325 ms for the first, and the cache held 3.7 MB; with a
+  half second wait every start took about 310 to 330 ms and the cache stayed
+  empty. These figures are one machine's, not a guarantee.
 - Windows: the Node documentation for this function names no platform
   exception, and the code does nothing platform-specific. It has been measured
   on Linux only; if a Windows file system refuses the folder, the launch runs

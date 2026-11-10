@@ -24,8 +24,8 @@ describe('PreludeSessionLease.assertCurrent', () => {
 			const claim = vi.spyOn(log, 'claim')
 			await holding.assertCurrent()
 			await holding.assertCurrent()
-			const transferred = await holding.transfer()
 			expect(claim).not.toHaveBeenCalled()
+			const transferred = await holding.transfer()
 			expect(transferred.fence).toBe((await log.lease())?.fence)
 			await holding.stop()
 			await log.release(transferred)
@@ -64,6 +64,24 @@ describe('PreludeSessionLease.assertCurrent', () => {
 			expect(renewed?.expiresAt).toBeGreaterThan(first?.expiresAt ?? 0)
 			await holding.stop()
 			if (renewed) await log.release(renewed)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('hands the recorder a full lifetime, not what was left at the last confirmation', async () => {
+		vi.useFakeTimers()
+		try {
+			const { log, holding } = await held()
+			const first = await log.lease()
+			// Just inside the window where a confirmation only reads: the
+			// recorder's heartbeat would not fire until half a lifetime later.
+			vi.setSystemTime(Date.now() + DEFAULT_TURN_LEASE_TTL_MS / 2 - 1000)
+			const transferred = await holding.transfer()
+			expect(transferred.expiresAt - Date.now()).toBe(DEFAULT_TURN_LEASE_TTL_MS)
+			expect(transferred.expiresAt).toBeGreaterThan(first?.expiresAt ?? 0)
+			await holding.stop()
+			await log.release(transferred)
 		} finally {
 			vi.useRealTimers()
 		}

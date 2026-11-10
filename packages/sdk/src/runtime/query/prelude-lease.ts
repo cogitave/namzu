@@ -118,6 +118,14 @@ export class PreludeSessionLease {
 	/** Hand the freshest token to TurnRecorder while this heartbeat covers open(). */
 	async transfer(): Promise<SessionLease> {
 		await this.assertCurrent()
+		// The recorder's own heartbeat first fires half a lifetime after it
+		// opens, so it must be handed a full lifetime, not whatever was left
+		// when the last confirmation read the fence.
+		if (this.ownsLease) {
+			this.#queueRenewal()
+			await this.#renewal
+			if (this.#renewalError !== undefined) throw this.#renewalError
+		}
 		this.#transferred = true
 		return this.#current
 	}

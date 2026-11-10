@@ -185,9 +185,10 @@ Windows home. That home is `%USERPROFILE%` as `cmd.exe` reports it. Both
 (`[automount] root` in `/etc/wsl.conf`, `/mnt/` by default). The home is asked
 for once per process, not once per sign-in family: each ask is a blocking round
 trip into Windows (about 35 ms), and discovery used to pay it four times at
-every start. Discovery records
-the exact file it selected. Subsequent reads
-and a rotating Claude refresh use that same file, preserving its other fields.
+every start. Only an answer is kept; a probe that timed out or failed is asked
+again at the next discovery, so a long-lived engine recovers. Discovery records
+the exact file it selected. Subsequent reads and a rotating Claude refresh use
+that same file, preserving its other fields.
 Namzu does not copy borrowed sessions into its own credential store.
 
 ## Private local storage

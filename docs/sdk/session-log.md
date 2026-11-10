@@ -458,7 +458,8 @@ A turn holds its session's lease while it runs, renewed at half-life (the
 `TurnRecorder` default time-to-live is five minutes). The query prelude confirms the
 lease before each side effect; while more than half of it is left that is a read of
 the fence (a takeover is still found), and only past half-life is it a renewal, a
-durable rewrite of two files. A process that exits
+durable rewrite of two files. The one renewal it always makes is when it hands the
+lease to the turn recorder, which starts its own heartbeat with a full lifetime. A process that exits
 without releasing it leaves the session refusing every other writer until the
 lease expires, although nothing is writing.
 

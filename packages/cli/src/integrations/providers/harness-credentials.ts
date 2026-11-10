@@ -84,20 +84,24 @@ export function wslWindowsHome(
 	// blocking round trip into Windows (about 35 ms measured) that discovery
 	// used to pay once per credential family on every start. The memo is held
 	// per `run`, so a caller that describes a machine with its own `run` is
-	// answered by that description and never by another's.
+	// answered by that description and never by another's. It holds answers
+	// only: a failed or timed-out probe is asked again.
 	let perRun = windowsHomeMemo.get(run)
 	if (perRun === undefined) {
 		perRun = new Map()
 		windowsHomeMemo.set(run, perRun)
 	}
 	const key = `${root}\0${cmd}`
-	if (perRun.has(key)) return perRun.get(key) ?? null
+	const known = perRun.get(key)
+	if (known !== undefined) return known
 	const answer = askWindowsHome(run, cmd, root)
-	perRun.set(key, answer)
+	// Only an answer is kept. A probe that timed out or failed says nothing
+	// about the next one, and a long-lived engine re-runs discovery.
+	if (answer !== null) perRun.set(key, answer)
 	return answer
 }
 
-const windowsHomeMemo = new WeakMap<typeof execFileSync, Map<string, string | null>>()
+const windowsHomeMemo = new WeakMap<typeof execFileSync, Map<string, string>>()
 
 function askWindowsHome(run: typeof execFileSync, cmd: string, root: string): string | null {
 	try {
