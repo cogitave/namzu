@@ -1,5 +1,5 @@
 ---
-'@namzu/desktop': minor
+'@namzu/desktop': patch
 ---
 
 Namzu Desktop catches up with everything merged since 0.2.5, and carries the current engine.
