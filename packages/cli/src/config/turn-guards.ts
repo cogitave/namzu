@@ -14,7 +14,12 @@ export type TurnGuards = { -readonly [K in TurnGuardKey]: number } & {
 	maxReasoningTokens?: number
 	/** `false` turns the check-your-edits reminder off; absent leaves it on. */
 	doneGate?: boolean
+	/** Hook refusals in a row honoured before a turn ends anyway; 0 removes the cap, absent means {@link DEFAULT_MAX_HOOK_REFUSALS}. */
+	maxHookRefusals?: number
 }
+
+/** End-of-turn hook refusals the CLI honours in a row before it ends the turn anyway. The kernel has no such default. */
+export const DEFAULT_MAX_HOOK_REFUSALS = 8
 
 /** The turn-config fields a resolved set of limits stands for; see {@link turnConfigFields}. */
 export interface TurnConfigFields {
@@ -25,6 +30,8 @@ export interface TurnConfigFields {
 	maxResponseTokens?: number
 	reasoning?: { maxTokens: number }
 	completionAudit?: boolean
+	/** Always set: the configured limit, or {@link DEFAULT_MAX_HOOK_REFUSALS}; 0 is no cap. */
+	maxHookRefusals: number
 	/** The outcome record's hooks; see the SDK's `TurnConfig.outcome`. */
 	outcome?: { detectChanges: () => Promise<string | null> }
 }
@@ -62,6 +69,7 @@ export function turnConfigFields(
 		...(guards.maxReasoningTokens !== undefined
 			? { reasoning: { maxTokens: guards.maxReasoningTokens } }
 			: {}),
+		maxHookRefusals: guards.maxHookRefusals ?? DEFAULT_MAX_HOOK_REFUSALS,
 		...(options.completionAudit === true && guards.doneGate !== false
 			? { completionAudit: true }
 			: {}),
@@ -102,6 +110,14 @@ export function resolveTurnGuards(...layers: readonly (LimitsConfig | undefined)
 					'Invalid maxReasoningTokens: use a nonnegative safe integer. 0 removes the cap.',
 				)
 			resolved.maxReasoningTokens = reasoning
+		}
+		const refusals = layer?.maxHookRefusals
+		if (refusals !== undefined) {
+			if (!Number.isSafeInteger(refusals) || refusals < 0)
+				throw new Error(
+					'Invalid maxHookRefusals: use a nonnegative safe integer. 0 removes the limit.',
+				)
+			resolved.maxHookRefusals = refusals
 		}
 		if (layer?.doneGate !== undefined) resolved.doneGate = layer.doneGate
 		const spend = layer?.costLimitUsd

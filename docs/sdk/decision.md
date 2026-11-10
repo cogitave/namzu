@@ -51,6 +51,9 @@ All three question types are verified live:
 | Method | Question | Answer (`answers.q`) |
 |---|---|---|
 | `yesno` | `{ type: 'noul', instructions }` | `{ noul }`, P(true) |
+
+The HTTP driver adds `criteria: <string>` to a `yesno` question when the caller passes `opts.criteria` (a sentence saying what makes the answer yes); some hosted models refuse a yes/no question without it. The Azure driver never sends it, so its request keeps the shape above.
+
 | `choice` | `{ type: 'choice', instructions, criteria: { <option>: null, … } }` (2 to 255 options) | `{ choice, probabilities, confidence }` |
 | `score` | `{ type: 'score', instructions, criteria: [<lowest>, …, <highest>] }` (2 to 10 levels) | `{ score, probabilities, legend, confidence }` |
 
@@ -75,8 +78,8 @@ extra `headers`. A `fetch` can be injected for tests.
 ## The `decide` tool
 
 `createDecisionTool(model)` builds the agent-facing `decide` tool. Its input is
-`{ kind: 'yesno' | 'choice' | 'score', context, question, options?, levels? }`
-and its result is the typed decision. The tool is optional and advisory: the
+`{ kind: 'yesno' | 'choice' | 'score', context, question, criteria?, options?, levels? }`
+and its result is the typed decision. `criteria` is for `yesno` only and is passed on as `opts.criteria`. The tool is optional and advisory: the
 agent chooses whether to call it and may ignore the answer.
 
 It is fail-open. When the model errors, times out or is unreachable, the tool

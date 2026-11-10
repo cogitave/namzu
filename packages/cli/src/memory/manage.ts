@@ -16,7 +16,14 @@ import {
 } from '@namzu/sdk'
 
 import { preview } from './presentation.js'
-import { RETIRED_DUPLICATE, isUnused, retiredReasonOf } from './sweep.js'
+import {
+	RETIRED_ANCHORS,
+	RETIRED_DUPLICATE,
+	type StaleReason,
+	anchorsGoneLongEnough,
+	isUnused,
+	retiredReasonOf,
+} from './sweep.js'
 import type { MemoryUsage } from './usage.js'
 
 const DAY_MS = 86_400_000
@@ -51,6 +58,8 @@ export interface ManagedMemory {
 	readonly alsoSetAside?: true
 	/** You or Namzu saved it and it has not been recalled for a long time. Nothing was changed. */
 	readonly possiblyStale?: true
+	/** Why it is possibly stale; set with `possiblyStale`. */
+	readonly staleReason?: StaleReason
 }
 
 export interface ManagedMemoryLookups {
@@ -92,20 +101,26 @@ export async function loadManagedMemories(
 					: undefined
 			const state: ManagedMemoryState =
 				status === 'archived' ? 'retired' : usage?.isSetAside(entry.id) ? 'set-aside' : 'active'
-			const stale =
+			const retireAfterDays = lookups.retireAfterDays
+			const stale: StaleReason | undefined =
 				status === 'active' &&
 				origin !== 'derived' &&
 				usage !== undefined &&
-				lookups.retireAfterDays !== undefined &&
-				lookups.retireAfterDays > 0 &&
-				usage.state === 'known' &&
-				isUnused({
-					usage,
-					id: entry.id,
-					touchedAt: record.entry.updatedAt,
-					at,
-					retireAfterDays: lookups.retireAfterDays,
-				})
+				retireAfterDays !== undefined &&
+				retireAfterDays > 0 &&
+				usage.state === 'known'
+					? isUnused({
+							usage,
+							id: entry.id,
+							touchedAt: record.entry.updatedAt,
+							at,
+							retireAfterDays,
+						})
+						? 'unused'
+						: anchorsGoneLongEnough({ usage, id: entry.id, at, retireAfterDays })
+							? 'anchors'
+							: undefined
+					: undefined
 			items.push({
 				id: record.entry.id,
 				name: record.entry.name,
@@ -122,7 +137,7 @@ export async function loadManagedMemories(
 				...(state === 'retired' && usage?.isSetAside(entry.id)
 					? { alsoSetAside: true as const }
 					: {}),
-				...(stale ? { possiblyStale: true as const } : {}),
+				...(stale ? { possiblyStale: true as const, staleReason: stale } : {}),
 			})
 		}
 	}
@@ -168,10 +183,17 @@ export function stateLabel(item: ManagedMemory): string | undefined {
 	if (item.state === 'set-aside') return 'set aside: a refused request carried it'
 	if (item.state === 'retired') {
 		const why =
-			item.retiredReason === RETIRED_DUPLICATE ? 'a newer copy exists' : 'not recalled for a while'
+			item.retiredReason === RETIRED_DUPLICATE
+				? 'a newer copy exists'
+				: item.retiredReason === RETIRED_ANCHORS
+					? 'a file it names is gone'
+					: 'not recalled for a while'
 		return item.alsoSetAside ? `retired and set aside: ${why}` : `retired: ${why}`
 	}
-	return item.possiblyStale ? 'possibly stale: not recalled for a while' : undefined
+	if (!item.possiblyStale) return undefined
+	return item.staleReason === 'anchors'
+		? 'possibly stale: a file it names is gone'
+		: 'possibly stale: not recalled for a while'
 }
 
 export function memoryDescription(item: ManagedMemory, now: number = Date.now()): string {

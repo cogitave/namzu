@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IDLE_COMPACTION_NOTICE } from '../../integrations/compaction/idle-compaction.js'
 import type { Preferences } from '../../integrations/providers/index.js'
 import { genericPresenter } from '../__fixtures__/generic-presenter.js'
-import type { AgentEvent, AgentSession } from '../agent.js'
+import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 const ZERO_USAGE = {
@@ -29,6 +29,8 @@ type Reply = { readonly cacheTtlMs?: number; readonly contextTokens: number }
 const replies: Reply[] = []
 const compactCalls: Array<{ messages: readonly Message[]; trigger: string | undefined }> = []
 let idleSetting: { minTokens: number } | undefined
+let staleSetting: boolean | undefined
+const sends: Array<SendOptions | undefined> = []
 
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
@@ -76,7 +78,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 				const summary = createAssistantMessage('SUMMARY OF EARLIER WORK')
 				return { messages: [summary], shed: 2, summary, usage: ZERO_USAGE }
 			},
-			send: async function* (): AsyncIterable<AgentEvent> {
+			...(staleSetting !== undefined ? { clearStaleResultsAfterIdle: staleSetting } : {}),
+			send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
+				sends.push(opts)
 				const reply = replies.shift() ?? { contextTokens: 10 }
 				yield { kind: 'delta', text: 'ANSWER' } as AgentEvent
 				yield actual.toAgentEvent(
@@ -109,6 +113,8 @@ const mounted: { unmount: () => void }[] = []
 beforeEach(() => {
 	replies.length = 0
 	compactCalls.length = 0
+	sends.length = 0
+	staleSetting = true
 	idleSetting = { minTokens: 200_000 }
 	// Only the clock the code under test reads is faked, and only the test moves
 	// it (advanceTimersByTimeAsync). Waiting for the screen yields to the event
@@ -158,6 +164,55 @@ async function mountAndAnswer(reply: Reply) {
 	await frameShows(harness, 'ANSWER')
 	return harness
 }
+
+/** The person types a second prompt; resolves once its reply is on screen. */
+async function sendAgain(harness: ReturnType<typeof render>, text: string, reply: Reply) {
+	replies.push(reply)
+	const before = sends.length
+	harness.stdin.write(text)
+	await vi.advanceTimersByTimeAsync(40)
+	harness.stdin.write('\r')
+	await until(() => sends.length > before, 'the second prompt was never sent')
+}
+
+describe('shedding stale tool results on the first request after the cache expired', () => {
+	it('asks for it when the gap is longer than the cache lifetime', async () => {
+		idleSetting = undefined
+		const harness = await mountAndAnswer({ cacheTtlMs: 300_000, contextTokens: 400_000 })
+		expect(sends[0]?.clearStaleToolResults).toBeUndefined()
+		await vi.advanceTimersByTimeAsync(6 * 60_000)
+		await sendAgain(harness, 'again', { cacheTtlMs: 300_000, contextTokens: 100_000 })
+		expect(sends[1]?.clearStaleToolResults).toEqual({
+			minSavedTokens: 20_000,
+			keepRecentToolResults: 6,
+		})
+	})
+
+	it('does not ask inside the cache lifetime', async () => {
+		idleSetting = undefined
+		const harness = await mountAndAnswer({ cacheTtlMs: 300_000, contextTokens: 400_000 })
+		await vi.advanceTimersByTimeAsync(4 * 60_000)
+		await sendAgain(harness, 'again', { cacheTtlMs: 300_000, contextTokens: 400_000 })
+		expect(sends[1]?.clearStaleToolResults).toBeUndefined()
+	})
+
+	it('does not ask when the driver reports no cache lifetime', async () => {
+		idleSetting = undefined
+		const harness = await mountAndAnswer({ contextTokens: 400_000 })
+		await vi.advanceTimersByTimeAsync(3 * HOUR)
+		await sendAgain(harness, 'again', { contextTokens: 400_000 })
+		expect(sends[1]?.clearStaleToolResults).toBeUndefined()
+	})
+
+	it('does not ask while the setting is off', async () => {
+		idleSetting = undefined
+		staleSetting = false
+		const harness = await mountAndAnswer({ cacheTtlMs: 300_000, contextTokens: 400_000 })
+		await vi.advanceTimersByTimeAsync(6 * 60_000)
+		await sendAgain(harness, 'again', { cacheTtlMs: 300_000, contextTokens: 400_000 })
+		expect(sends[1]?.clearStaleToolResults).toBeUndefined()
+	})
+})
 
 describe('compacting while idle', () => {
 	it('compacts a large conversation before a one-hour cache expires and says so once', async () => {

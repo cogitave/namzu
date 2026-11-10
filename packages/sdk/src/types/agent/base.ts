@@ -161,6 +161,19 @@ export interface BaseAgentConfig {
 	toolResultGuardrails?: readonly import('../guardrail/index.js').ToolResultGuardrailSpec[]
 
 	/**
+	 * The file observation ledger of the turn that delegated to this agent.
+	 *
+	 * A delegated child is a fresh turn with its own executor, which would
+	 * otherwise start a ledger of its own: a script its parent wrote or made
+	 * through the shell, run by the child, would then be older than the child's
+	 * ledger and be treated as a file the session never touched, so the
+	 * auto-mode classifier would not read it. Stamped by `AgentManager` from
+	 * `configOverrides.fileReadTracker`, which the delegation tools fill from
+	 * the turn's own `ToolContext`.
+	 */
+	fileReadTracker?: import('../tool/index.js').FileReadTracker
+
+	/**
 	 * Tools this turn may NOT use, subtracted from whatever it would
 	 * otherwise have.
 	 *
@@ -232,6 +245,8 @@ export interface BaseAgentConfig {
 	reasoning?: import('../session/config.js').TurnConfig['reasoning']
 	/** Ask once for a check of edits before a turn ends; see {@link import('../session/config.js').TurnConfig.completionAudit}. */
 	completionAudit?: boolean
+	/** Consecutive end-of-turn hook refusals honoured; see {@link import('../session/config.js').TurnConfig.maxHookRefusals}. */
+	maxHookRefusals?: number
 	/** The outcome record's hooks; see {@link import('../session/config.js').TurnConfig.outcome}. */
 	outcome?: import('../session/config.js').TurnConfig['outcome']
 

@@ -167,6 +167,12 @@ export interface TurnLimitsConfig {
 	 * `--no-done-gate` turns it off for one launch.
 	 */
 	readonly doneGate?: boolean
+	/**
+	 * How many times in a row a hook may refuse to let a turn end before Namzu
+	 * ends it anyway, with one notice naming the hook. Omitted keeps 8; 0
+	 * removes the limit. A tool call between refusals starts the count over.
+	 */
+	readonly maxHookRefusals?: number
 	/** Main-loop iterations one turn may make. Omitted or 0 means unlimited. */
 	readonly maxIterations?: number
 	/** Aggregate prompt and completion tokens for the turn and descendants. Omitted or 0 means unlimited. */
@@ -249,6 +255,16 @@ export interface CompactionCliConfig {
 	 * variable `NAMZU_IDLE_COMPACT_MIN_TOKENS` overrides it.
 	 */
 	readonly idleCompactionMinTokens?: number
+	/**
+	 * When you come back to a conversation after the provider's prompt cache
+	 * has expired, replace old, large tool results with a short placeholder
+	 * (the call's own summary and how to read it again stay) before the first
+	 * request, if that saves at least 20,000 tokens. The whole prefix is paid
+	 * for at full price at that moment anyway. Default `true`; `false` sends
+	 * the old results as they were. Acts only on a provider that reports the
+	 * cache lifetime, within the process that saw the last request.
+	 */
+	readonly clearStaleResultsAfterIdle?: boolean
 	/**
 	 * How long the provider keeps the prompt cache: `'5m'` (default, the
 	 * provider's own) or `'1h'`. Passed to providers that can be asked

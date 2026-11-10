@@ -23,7 +23,7 @@ import { GENAI } from '../../../constants/telemetry/index.js'
 import { collectChatCompletion } from '../../../provider/collect-chat-completion.js'
 import type { ToolManager } from '../../../toolsets/manager.js'
 import type { TokenUsage } from '../../../types/common/index.js'
-import type { ToolCallSummary } from '../../../types/hitl/index.js'
+import type { LaunchedScript, ToolCallSummary } from '../../../types/hitl/index.js'
 import {
 	type Message,
 	createSystemMessage,
@@ -46,6 +46,7 @@ import {
 	buildSystemPrompt,
 } from './prompt.js'
 import { type AutoReviewRules, resolveAutoReviewRules } from './rules.js'
+import { renderLaunchedScripts } from './script-evidence.js'
 import { projectAction, projectTranscript, renderEntry, renderedLength } from './transcript.js'
 import { parseVerdict } from './verdict.js'
 
@@ -95,6 +96,12 @@ export interface AutoReviewRequest {
 	readonly transcript: readonly Message[]
 	/** Where tool definitions are read for `classifierInput`. */
 	readonly tools?: Pick<ToolManager, 'get'>
+	/**
+	 * Script files the call launches, read at review time (see
+	 * `script-evidence.ts`). They ride on this review only: they are not part of
+	 * the transcript and are not kept for the next one.
+	 */
+	readonly scripts?: readonly LaunchedScript[]
 	readonly signal?: AbortSignal
 }
 
@@ -275,11 +282,17 @@ export function createAutoReviewClassifier(
 		}
 	}
 
-	function record(name: string, decision: AutoReviewDecision, started: number): void {
+	function record(
+		name: string,
+		decision: AutoReviewDecision,
+		started: number,
+		scriptsShown: number,
+	): void {
 		log.info('auto review decision', {
 			[GENAI.TOOL_NAME]: name,
 			'namzu.auto_review.verdict': decision.verdict,
 			'namzu.auto_review.latency_ms': now() - started,
+			'namzu.auto_review.scripts_shown': scriptsShown,
 			...(decision.verdict !== 'too_long' ? { 'namzu.auto_review.stage': decision.stage } : {}),
 			...(decision.verdict === 'block' ? { 'namzu.auto_review.cause': decision.cause } : {}),
 			...(decision.verdict === 'block' && decision.limitReached
@@ -291,7 +304,7 @@ export function createAutoReviewClassifier(
 	async function review(request: AutoReviewRequest): Promise<AutoReviewDecision> {
 		const started = now()
 		const decision = await decide(request, started)
-		record(request.call.name, decision, started)
+		record(request.call.name, decision, started, request.scripts?.length ?? 0)
 		return decision
 	}
 
@@ -323,9 +336,12 @@ export function createAutoReviewClassifier(
 			name: request.call.name,
 			input: projected.text,
 		})
-		if (renderedLength(lines) + action.length > maxChars) return { verdict: 'too_long' }
+		const launched = renderLaunchedScripts(request.scripts ?? [])
+		if (renderedLength(lines) + action.length + launched.length > maxChars) {
+			return { verdict: 'too_long' }
+		}
 
-		const body = `<transcript>\n${lines.join('\n')}\n</transcript>\n\nThe action under review:\n${action}\n\n`
+		const body = `<transcript>\n${lines.join('\n')}\n</transcript>\n\nThe action under review:\n${action}${launched}\n\n`
 		// One system message for both passes, built once: the second pass is
 		// meant to reuse the first pass's cached prefix, and a message rebuilt per
 		// pass carries a fresh timestamp, so "the same prefix" held only when both

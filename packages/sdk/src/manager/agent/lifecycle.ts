@@ -933,6 +933,12 @@ export class AgentManager {
 				childConfig.toolResultGuardrails = inheritedScreens
 			}
 
+			// The parent's file ledger, so what the parent wrote is still "this
+			// session's" to a child that runs it. See `BaseAgentConfig.fileReadTracker`.
+			if (options.configOverrides?.fileReadTracker !== undefined) {
+				childConfig.fileReadTracker = options.configOverrides.fileReadTracker
+			}
+
 			// Stamped after both branches, beside the screens and for the same
 			// reason: a `configBuilder` cannot forward a field it was never told
 			// about, and the bare-config branch builds its config by hand.

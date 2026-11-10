@@ -2,12 +2,13 @@
  * When the inbox is drained, and what a drain tells the screen.
  *
  * A turn appends its screened claims to the inbox as it settles and goes on.
- * Four things empty the inbox, none of them on a turn's critical path:
+ * Four things empty the inbox, none of them while a turn runs:
  *
- * - **Idle.** A while after a turn settles, if no turn has started since.
- * - **A turn starting.** After the turn has been dispatched, on a timer of
- *   zero, so the reply never waits for it. This is also what picks up what an
- *   earlier process left behind: the first turn of a new process drains it.
+ * - **Idle.** A while after a turn settles, if no turn has started since and
+ *   the person is not typing (`isBusy`).
+ * - **A turn settling.** What waited while the turn ran drains after the same
+ *   pause. This is also what picks up what an earlier process left behind:
+ *   the first turn of a new process settles, then drains it.
  * - **The session closing.** So a one-shot run leaves nothing behind.
  * - **The process starting.** If a turn exists to count the model's tokens
  *   on; otherwise it waits for the first turn.
@@ -31,7 +32,7 @@ export const CURATION_IDLE_MS = 15_000
 /** How long a closing session waits for the last drain. */
 export const CURATION_DISPOSE_MS = 8_000
 
-export type DrainReason = 'idle' | 'turn-start' | 'dispose' | 'start'
+export type DrainReason = 'idle' | 'dispose' | 'start'
 
 export interface CurationRuntimeDeps {
 	readonly inbox: MemoryInbox
@@ -56,6 +57,10 @@ export class CurationRuntime {
 	#timer: unknown = null
 	#disposed = false
 	#draining = 0
+	/** A turn is between its start and its settling: no drain begins meanwhile. */
+	#turnRunning = false
+	/** A drain was asked for while a turn ran; it is armed when the turn settles. */
+	#deferred = false
 
 	constructor(deps: CurationRuntimeDeps) {
 		this.#deps = deps
@@ -76,21 +81,55 @@ export class CurationRuntime {
 	appended(): void {
 		if (this.#disposed) return
 		this.#cancel()
+		// Appended while a turn runs (a release can land before the turn's
+		// settling is announced): it waits for the settling.
+		if (this.#turnRunning) {
+			this.#deferred = true
+			return
+		}
+		this.#armIdle()
+	}
+
+	#armIdle(): void {
+		this.#cancel()
 		this.#timer = this.#deps.setTimer(() => {
 			this.#timer = null
-			if (this.#deps.isBusy?.() === true) return this.#deps.report?.('idle', 'skipped')
+			if (this.#turnRunning) {
+				this.#deferred = true
+				return
+			}
+			if (this.#deps.isBusy?.() === true) {
+				// The person is typing: look again after the next pause.
+				this.#deps.report?.('idle', 'skipped')
+				this.#armIdle()
+				return
+			}
 			void this.drain('idle')
 		}, this.#deps.idleMs ?? CURATION_IDLE_MS)
 	}
 
-	/** A turn is starting: the idle drain is off, and a drain is queued behind the dispatch. */
+	/**
+	 * A turn is starting. Nothing is drained while it runs, so curation never
+	 * competes with a streaming reply or a running tool and the turn's first
+	 * request never waits for it. What was waiting drains after the turn
+	 * settles. A drain already in flight is neither waited for nor stopped: it
+	 * is one bounded side-model call (`CURATE_DEADLINE_MS`) that finishes by
+	 * itself, and stopping it would throw its work away. It starts no new one.
+	 */
 	turnStarted(): void {
 		if (this.#disposed) return
+		this.#turnRunning = true
+		this.#deferred = true
 		this.#cancel()
-		this.#timer = this.#deps.setTimer(() => {
-			this.#timer = null
-			void this.drain('turn-start')
-		}, 0)
+	}
+
+	/** The turn settled: the quiet pause begins, and what waited drains at its end. */
+	turnSettled(): void {
+		if (this.#disposed || !this.#turnRunning) return
+		this.#turnRunning = false
+		if (!this.#deferred) return
+		this.#deferred = false
+		this.#armIdle()
 	}
 
 	/** The session opened. Drains now when a turn can carry the cost, else leaves it for the first turn. */
@@ -120,6 +159,12 @@ export class CurationRuntime {
 	/** Empty the inbox once. Never rejects. */
 	async drain(reason: DrainReason, signal?: AbortSignal): Promise<DrainResult | undefined> {
 		const { inbox, curator } = this.#deps
+		// The closing drain is the one that must not wait for a turn.
+		if (this.#turnRunning && reason !== 'dispose') {
+			this.#deferred = true
+			this.#deps.report?.(reason, 'skipped')
+			return undefined
+		}
 		const turn = this.#deps.turn()
 		// A model call is charged to a turn; without one, and with a model that
 		// could be asked, the entries wait for the first turn.

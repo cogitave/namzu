@@ -21,6 +21,7 @@ import {
 	isCompactionMessage,
 } from '../../../../compaction/summary.js'
 import { estimateMessagesTokens } from '../../../../compaction/token-estimate.js'
+import { clearStaleToolResults } from '../../../../compaction/tool-result-editing.js'
 import { buildVerifiedSummaryWithBoundedProvider } from '../../../../compaction/verifier.js'
 import type { CompactionConfig } from '../../../../config/runtime.js'
 import { CHARS_PER_TOKEN } from '../../../../constants/limits.js'
@@ -172,7 +173,7 @@ async function commitToolResultClear(
 	plan: ToolResultClearPlan,
 	contextWindowTokens: number,
 	windowSource: 'config' | 'provider' | 'model-table' | 'default',
-	reason: 'threshold' | 'overflow',
+	reason: 'threshold' | 'overflow' | 'manual',
 ): Promise<void> {
 	// A shorter replacement also removes evidence. Preserve its original
 	// content in the same archive used by whole-message compaction before
@@ -184,7 +185,56 @@ async function commitToolResultClear(
 	ctx.recorder.clearLastPromptTokens?.()
 	await emitToolResultClear(ctx, plan)
 	await emitContextUsageSnapshot(ctx, estimateTokens(ctx), contextWindowTokens, windowSource)
-	compactionBreaker(ctx)?.recordRelief()
+	// A host-requested pass is not the kernel's own relief of a full context,
+	// so it must not reset the breaker's failure streak.
+	if (reason !== 'manual') compactionBreaker(ctx)?.recordRelief()
+}
+
+/**
+ * The first request of a turn, for a host that said the prompt cache is gone:
+ * shed old, large tool results now, since the prefix is re-read at full price
+ * either way. Does nothing unless `clearStaleToolResultsAtStart` is set and the
+ * clear would save at least its floor. Reuses the in-turn clear, so the same
+ * results are protected, the originals are recorded before they are replaced,
+ * and the host gets the same `compaction_tool_results_cleared` event. It is
+ * not a threshold pass: the `pre_compact` / `post_compact` hooks, the
+ * near-limit and busy guards and the circuit breaker's relief count do not
+ * see it.
+ */
+export async function runStaleResultClear(ctx: IterationContext): Promise<void> {
+	const config = ctx.compactionConfig
+	const option = config?.clearStaleToolResultsAtStart
+	if (!config || !option) return
+	if (config.strategy === 'disabled' || config.clearToolResults === false) return
+	// The pass promises the originals stay in the log. With the log switched
+	// off, replacing them would lose them, so the pass does not run.
+	if (config.recordShedHistory === false) return
+
+	const live = ctx.recorder.messages
+	const edit = clearStaleToolResults(live, {
+		keepRecentToolResults: option.keepRecentToolResults ?? config.keepRecentToolResults,
+		minCharsToClear: config.minToolResultCharsToClear,
+		...(config.preserveToolResultsFrom ? { preserveTools: config.preserveToolResultsFrom } : {}),
+	})
+	if (edit.clearedCount === 0) return
+	const reclaimedTokens = estimateMessagesTokens(live) - estimateMessagesTokens(edit.messages)
+	if (reclaimedTokens < option.minSavedTokens) return
+
+	const window = activeContextWindow(ctx)
+	await commitToolResultClear(
+		ctx,
+		{
+			kind: 'cleared',
+			messages: edit.messages,
+			clearedCount: edit.clearedCount,
+			charsReclaimed: edit.charsReclaimed,
+			reclaimedTokens,
+			reliefWasEnough: true,
+		},
+		window.tokens,
+		window.source,
+		'manual',
+	)
 }
 
 /**
@@ -628,7 +678,7 @@ async function recordShed(
 	ctx: IterationContext,
 	before: readonly Message[],
 	after: readonly Message[],
-	reason: 'threshold' | 'overflow',
+	reason: 'threshold' | 'overflow' | 'manual',
 ): Promise<void> {
 	if (ctx.compactionConfig?.recordShedHistory === false) return
 
