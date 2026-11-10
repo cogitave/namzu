@@ -350,3 +350,7 @@ nothing about that. A peer asked for one task and models one task lifecycle: how
 this runtime divided that work internally is not a fact about the peer's task,
 and caption text for an operator's screen is not something a peer has a screen
 to put on. A host that wants the grouping reads the SSE wire.
+
+## When the parent delegates
+
+The coding-agent doctrine (`CODING_AGENT_DELEGATION_DOCTRINE`, present only when delegation is mounted) tells the parent to do small or known-target work itself and to delegate work that is independent, large or whose output would flood its context. It never redoes delegated work, keeps the understanding (it passes paths, lines and what is ruled out, never a conclusion to confirm), reads a child's report as a claim beside the kernel's record line and checks one load-bearing claim before building on it, gives parallel writers separate worktrees or disjoint files, and uses `explore` to locate small answers, not to review or audit whole files. Hypermode keeps its own section and overrides the restraint. The `kernel/delegation` eval is scripted: it measures what the kernel does around a delegation, not whether a model delegates, so it does not measure these rules.

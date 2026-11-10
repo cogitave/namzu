@@ -125,6 +125,29 @@ describe('the coding-agent doctrine', () => {
 		expect(CODING_AGENT_DELEGATION_DOCTRINE).not.toContain('same phase')
 	})
 
+	it('carries the delegation-restraint rules only where delegation is mounted', () => {
+		const parent = codingAgentDoctrineContribution().render({})
+		const child = codingAgentDoctrineContribution({ delegation: false }).render({})
+		const rules = [
+			'do small work, or work whose target you already know, yourself',
+			'never a conclusion for the sub-agent to confirm',
+			'do not do the work again yourself',
+			'report is a claim, not a fact',
+			'check one claim you will build on',
+			'separate worktrees',
+			'not for reviewing or auditing whole files',
+		]
+		for (const rule of rules) {
+			expect((parent ?? '').toLowerCase()).toContain(rule.toLowerCase())
+			expect((child ?? '').toLowerCase()).not.toContain(rule.toLowerCase())
+		}
+		// Hypermode stays its own section and an override, not part of the base rules.
+		expect(CODING_AGENT_DELEGATION_DOCTRINE).not.toContain('### Hypermode')
+		expect(codingAgentDoctrineContribution({ hypermode: true }).render({})).toContain(
+			CODING_AGENT_HYPERMODE_DOCTRINE,
+		)
+	})
+
 	it('never appends the hypermode text to a sub-agent prompt with delegation off', () => {
 		for (const flag of [{ hypermode: true }, { orchestrate: true }]) {
 			const child = codingAgentDoctrineContribution({ delegation: false, ...flag }).render({})

@@ -2,6 +2,7 @@
 
 ## 2026-11-11
 
+- **Update** [Delegation events](sdk/delegation-events.md#when-the-parent-delegates): the delegation doctrine, the `Agent` tool text and the explore prompt now say when to work inline, what to pass a child, to treat its report as a claim and spot-check one claim, how parallel writers are kept apart, and that explore locates small answers. `.changeset/delegation-rules.md`.
 - **Creation** [The delegation suite](../packages/evals/README.md#the-delegation-suite): `kernel/delegation` runs scripted delegation scenarios against the real agent manager and records child sessions, tokens, success and lost edits for each, with the baseline numbers on current main. Two cases pin what the kernel does today when two children write one file. `.changeset/delegation-eval-suite.md`.
 
 ## 2026-11-10
