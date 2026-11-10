@@ -216,7 +216,9 @@ The turn lifecycle events are checked field by field:
 
 `settlement` is `{status, iterations, usage, cost, durationMs,
 resultMessageId?, resultSource, structuredOutput?, servingProvider?,
-abandonedTaskIds, abandonedJobIds}`. `status` is `completed` or `cancelled`
+abandonedTaskIds, abandonedJobIds, outcome?}`. `outcome` is the turn's
+[outcome record](turn-outcome.md): optional, absent from a log written before
+it and from a turn that kept none. `status` is `completed` or `cancelled`
 on `turn_completed` and `failed` on `turn_failed`: the terminal verdict is the
 record's type. `failure.code` on `turn_failed` is `interrupted` or
 `abandoned` when the session log itself closed the turn (see below).
@@ -260,7 +262,7 @@ bytes and hashes and are not reclassified from their text. See
 | `decision_resolved` | `decisionId`, `decision`, `resolvedBy` |
 | `decision_expired` | `decisionId` |
 | `compaction` | `compactionId`, `strategy`, `trigger` (`auto`/`manual`/`idle`; `idle` is a host compacting an unused conversation before its prompt cache lapses), `replacesSeqRange`, `summary` (messages, or a spill), `keptMessageIds`, `pinned?`, `tokensBefore`, `tokensAfter` |
-| `child_session_ended` | `childSessionId`, `status`, `stopReason?`, `resultMessageId?`, `usage`, `cost`; `turnId` optional (below) |
+| `child_session_ended` | `childSessionId`, `status`, `stopReason?`, `resultMessageId?`, `usage`, `cost`, `outcome?` (the child's own [turn outcome](turn-outcome.md)); `turnId` optional (below) |
 | `audit` | `auditId`, `actor`, `persona?`, `action`, `tool?`, `resource?`, `outcome` (`success`, `failure`, `refused` or `approved`), `cost?`, `reason?`, `traceId?` and `spanId?` (together or not at all) |
 | `budget_bound` | `rootSessionId`, `rootTurnId`, `accountId` |
 | `account_bound` | `accountId`, `provider`, `reason` (`start`, `user_switch`, `limit_switch`); see [accounts](accounts.md#session-binding) |
@@ -609,6 +611,8 @@ Each has `v` and `kind`, and an unknown version is refused, never migrated.
   attempts already consumed (`review.structuredAttempts`, `answerAttempts`,
   `nativeStructuredAttempts` and optional `toolStructuredAttempts`; see
   [structured corrections](structured-output-review.md#tool-mode-schema-corrections)),
+  the turn's [outcome record](turn-outcome.md) so far (`outcome`, optional;
+  a resume from a checkpoint without it reports no outcome),
   `latestUserMessageId?`, the compaction working
   state, the trace to continue, `turnCreatedAt` and `createdAt`. It holds no
   messages. A restore refuses it when its hash differs from its

@@ -272,3 +272,5 @@ tests correct and incorrect candidates for quoting, explicit transformations,
 new examples and current-state questions. Its model verdict is separate from
 source authentication and from the test oracle; it does not install a default
 CLI judge or infer a complete acceptance specification for arbitrary tasks.
+
+The [turn outcome](turn-outcome.md) is a different thing: a record of what the turn changed and which recognised checks passed on the state it left, derived from its tool calls. It reviews no answer and never blocks one.
