@@ -18,6 +18,7 @@ One plain row, with no ids and no instruction to start over:
 
 - When another model answered: `<model> declined to answer this message. This sometimes happens with safe, normal requests. <other model> answered instead; /model switches back.` The partial text the first model had written is withdrawn from the transcript.
 - When nothing answered: `<model> declined to answer this message. This sometimes happens with safe, normal requests. Press esc twice to edit your message, or pick another model with /model.` The turn then ends as stopped, not as a finished reply: no "done" closing line, and the notification says stopped.
+- When the request carried recalled memories and was retried without them: `Retried without the memories this request carried; they are set aside in /memory.` This comes before any other model is tried; see [Memory](memory.md#memory-that-goes-unused-and-memory-a-refusal-set-aside).
 - When the model stopped part-way and the same model is tried once more with that noted: `<model> stopped its reply to this message. ... Trying once more with that noted.`
 
 If the provider said why, a `Details:` line under the row carries its category and its sentence. It is shown in place, not behind a separate control; a long sentence (over 240 characters, kept to 600) folds like any long detail, and Ctrl+O shows it whole. A restored conversation that holds a refused turn shows the second wording without the model name. A content-filter error a provider returns instead of a finished reply uses the same words.

@@ -1471,3 +1471,48 @@ describe('memory.curation config', () => {
 		).not.toHaveProperty('curation')
 	})
 })
+
+describe('memory.retireAfterDays config', () => {
+	const noHome = () => mkdtempSync(join(tmpdir(), 'namzu-home-'))
+
+	it('reads a whole number of days from the user file, and refuses anything else', () => {
+		expect(
+			loadConfig({
+				home: userConfig('memory:\n  retireAfterDays: 0\n'),
+				cwd: tmpdir(),
+				env: {},
+			}).memory,
+		).toEqual({ retireAfterDays: 0 })
+		for (const bad of ['-1', '2.5', 'soon'])
+			expect(() =>
+				loadConfig({
+					home: userConfig(`memory:\n  retireAfterDays: ${bad}\n`),
+					cwd: tmpdir(),
+					env: {},
+				}),
+			).toThrow(ConfigValueError)
+	})
+
+	it('ignores it in a project file, keeping the rest of that file', () => {
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({ memory: { retireAfterDays: 1, recall: false } }),
+		)
+		expect(loadConfig({ home: noHome(), cwd, env: {} }).memory).toEqual({ recall: false })
+	})
+
+	it('ignores it in a profile of a project or local file, even when that profile is selected', () => {
+		const profiles = { work: { memory: { retireAfterDays: 1, recall: false } } }
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ profiles }))
+		expect(loadConfig({ home: noHome(), cwd, env: {}, profile: 'work' }).memory).toEqual({
+			recall: false,
+		})
+		const local = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(join(local, 'namzu.config.local.json'), JSON.stringify({ profiles }))
+		expect(
+			loadConfig({ home: noHome(), cwd: local, env: {}, profile: 'work' }).memory ?? {},
+		).not.toHaveProperty('retireAfterDays')
+	})
+})

@@ -80,6 +80,12 @@ export interface MemoryRecallOptions {
 	readonly minCoverage?: number
 	/** Upper bound on the selector, in ms; the signal it is given aborts then. Default 2,500. */
 	readonly selectTimeoutMs?: number
+	/**
+	 * Ids recall must not offer, read afresh on every request. A host keeps a
+	 * set-aside list here (records a refused request carried) and lifts it when
+	 * the person restores a record. A throw reads as an empty list.
+	 */
+	readonly excluded?: () => Iterable<string> | Promise<Iterable<string>>
 }
 
 /** What a selector may know about a record: never its body. */
@@ -126,6 +132,27 @@ const OTHERS_PLURAL = (count: number): string =>
 export const RECALLED_MEMORY_ENTRY_KEY = 'memory'
 
 /** The `id@updatedAt` of every record the entries still in the history carry. */
+/**
+ * The ids of the records the `memory` entries carry, in the order they were
+ * recorded and without repeats. `entries` are bodies as `turnContextEntries`
+ * returns them.
+ */
+export function recalledMemoryIds(entries: readonly string[]): string[] {
+	const ids = new Set<string>()
+	for (const entry of entries) {
+		for (const line of entry.split('\n')) {
+			if (!line.startsWith('{')) continue
+			try {
+				const parsed = JSON.parse(line) as { id?: unknown }
+				if (typeof parsed.id === 'string') ids.add(parsed.id)
+			} catch {
+				// a line of the entry that is not a record
+			}
+		}
+	}
+	return [...ids]
+}
+
 function recordedRecords(entries: readonly string[]): Set<string> {
 	const seen = new Set<string>()
 	for (const entry of entries) {
@@ -377,8 +404,12 @@ export function createMemoryRecallStep(options: MemoryRecallOptions): PrepareSte
 		latestUserMessage,
 		contextBudget,
 		signal,
+		withheldKeys,
 	}) => {
 		signal?.throwIfAborted()
+		// A refused request was re-run without the memories it carried; adding
+		// them again would be refused again.
+		if (withheldKeys?.includes(RECALLED_MEMORY_ENTRY_KEY)) return undefined
 		// Leave room for the current request and response. The kernel supplies
 		// an estimate; using one character per remaining token is deliberately
 		// conservative for this optional text, not a billing/tokenizer claim.
@@ -484,6 +515,14 @@ export function createMemoryRecallStep(options: MemoryRecallOptions): PrepareSte
 		}
 		const recall = async (): Promise<Recalled> => {
 			const shown: RecalledMemory[] = []
+			let excludedIds: ReadonlySet<string> = new Set()
+			if (options.excluded) {
+				try {
+					excludedIds = new Set(await options.excluded())
+				} catch {
+					// An unreadable list excludes nothing.
+				}
+			}
 			const page = await options.store.list({
 				query: terms.join(' '),
 				status: 'active',
@@ -501,6 +540,7 @@ export function createMemoryRecallStep(options: MemoryRecallOptions): PrepareSte
 			let block = lead
 			const fresh = page.entries
 				.filter((entry) => entry.status === 'active')
+				.filter((entry) => !excludedIds.has(entry.id))
 				.filter((entry) => !known.has(`${entry.id}@${entry.updatedAt}`))
 			const candidates = fresh.slice(0, shortlist)
 			const picks = await choose(candidates)

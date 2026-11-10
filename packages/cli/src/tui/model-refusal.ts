@@ -16,7 +16,7 @@ export const REFUSED_NEXT =
 
 export interface ModelRefusalFacts {
 	readonly model: string
-	readonly outcome: 'fallback' | 'retry' | 'declined'
+	readonly outcome: 'fallback' | 'retry' | 'withheld' | 'declined'
 	readonly fallbackModel?: string
 	readonly category?: string
 	readonly explanation?: string
@@ -29,6 +29,10 @@ function oneLine(value: string, max: number): string {
 	return clean.length <= max ? clean : `${clean.slice(0, Math.max(0, max - 1))}…`
 }
 
+/** A refused request that carried recalled memories was re-run without them. */
+export const WITHHELD_MEMORY_LINE =
+	'Retried without the memories this request carried; they are set aside in /memory.'
+
 /** The plain row for a refusal and what the turn did about it. */
 export function describeModelRefusal(facts: ModelRefusalFacts): string {
 	const model = oneLine(facts.model, 120)
@@ -39,6 +43,8 @@ export function describeModelRefusal(facts: ModelRefusalFacts): string {
 			return `${model} ${DECLINED_AND_NORMAL} ${oneLine(facts.fallbackModel ?? 'Another model', 120)} answered instead; /model switches back.`
 		case 'retry':
 			return `${model} stopped its reply to this message. This sometimes happens with safe, normal requests. Trying once more with that noted.`
+		case 'withheld':
+			return WITHHELD_MEMORY_LINE
 		case 'declined':
 			return `${model} ${DECLINED_AND_NORMAL} ${REFUSED_NEXT}`
 	}

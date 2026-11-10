@@ -152,9 +152,11 @@ const MAPPING: {
 					text:
 						e.outcome === 'fallback' && e.fallbackModel
 							? `${e.model} declined to answer; continuing on ${e.fallbackModel}`
-							: e.outcome === 'retry'
-								? `${e.model} stopped its reply; continuing once with that noted`
-								: `${e.model} declined to answer`,
+							: e.outcome === 'withheld'
+								? `${e.model} declined to answer; continuing once without the recorded context it carried`
+								: e.outcome === 'retry'
+									? `${e.model} stopped its reply; continuing once with that noted`
+									: `${e.model} declined to answer`,
 				},
 			],
 		}),

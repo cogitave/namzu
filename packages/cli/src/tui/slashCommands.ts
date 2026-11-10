@@ -168,6 +168,7 @@ export type SlashAction =
 	  }
 	| { kind: 'show-memory' }
 	| { kind: 'manage-memory'; target?: string; recorded?: boolean; all?: boolean }
+	| { kind: 'tidy-memory' }
 	/** Move the project's curated `#note`-shaped bullets into stored memory. */
 	| { kind: 'import-notes' }
 	| { kind: 'list-skills' }
@@ -1253,12 +1254,14 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/memory delete <name>',
 				'/memory delete --recorded',
 				'/memory delete --all',
+				'/memory tidy',
 				'/memory add [--type user|feedback|project|reference] <text>',
 				'/memory --user add <text>',
 				'/memory import-notes',
 			],
 			details: [
 				'/memory opens every stored memory of this project: pick one to read or delete it, delete all those turns recorded on their own, or delete them all. /memory delete <name> asks before deleting one memory; /memory delete --recorded asks before deleting all that turns recorded; /memory delete --all asks before deleting every one. The curated MEMORY.md and USER.md are never deleted here.',
+				'A memory a turn recorded that Namzu has not recalled for 21 days (memory.retireAfterDays) is retired on its own when you are away; one a refused request carried is set aside. Both stay on disk, are marked in the list, and Restore in the memory brings them back. /memory tidy retires what is due now and says what it did; it never deletes. To save a note that reads tidy, use /memory add tidy.',
 				'Show and list print stored and curated memory, with what turns recorded on their own in a section of its own. Add saves a typed memory file for this project (type project unless --type says otherwise); --user appends a note to the curated file for all projects.',
 				'Direct /memory <text> also saves a project note. To save a reserved word as a note, use /memory add show.',
 				'import-notes copies every top-level bullet of the project’s curated MEMORY.md, where #note used to append, into typed memory files, skipping any already stored. The curated file is never changed; delete bullets from it yourself.',
@@ -1271,6 +1274,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			const text = memoryArgs.join(' ').trim()
 			// Reserve standalone inspection words while retaining multiword facts.
 			if (text.length === 0 && !user) return { kind: 'manage-memory' }
+			if (!user && text.toLowerCase() === 'tidy') return { kind: 'tidy-memory' }
 			if (text.length === 0 || ['show', 'list'].includes(text.toLowerCase())) {
 				return { kind: 'show-memory' }
 			}

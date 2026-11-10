@@ -334,6 +334,16 @@ export interface MemoryCliConfig {
 	 * config only; a project file, or a profile in one, cannot set it.
 	 */
 	readonly curation?: 'on' | 'off'
+	/**
+	 * Days a memory a turn recorded (not one you or Namzu saved) may go
+	 * without being recalled before the idle sweep sets it aside as retired.
+	 * Default 21. Retired memories stay on disk and `/memory` restores them;
+	 * `0` never retires one (exact duplicates are still archived). Counted
+	 * from its creation or last recall, and only where recall counts are
+	 * known. Your own config and managed config only; a project file, or a
+	 * profile in one, cannot set it.
+	 */
+	readonly retireAfterDays?: number
 }
 
 /**

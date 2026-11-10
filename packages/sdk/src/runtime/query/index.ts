@@ -394,6 +394,29 @@ export interface QueryParams {
 	refusalFallback?: 'auto' | 'off'
 
 	/**
+	 * Recorded-context keys (see `RecordedContextItem.key`) to leave out of the
+	 * request when the provider refuses it. On a refusal, before any model
+	 * fallback, the loop re-runs the step once with every entry filed under one
+	 * of these keys left out of the request. The history itself is not changed,
+	 * so nothing is lost for a later turn. The refused request is announced by a
+	 * `model_refusal` event with `outcome: 'withheld'`, and the steps that
+	 * follow, in this turn, see the keys in `PrepareStepContext.withheldKeys` so
+	 * a stage can stop adding what was just set aside. When the entries are
+	 * recalled memories the event carries their ids. A refusal of the retry
+	 * falls through to `refusalFallback` unchanged. Nothing happens when the
+	 * request carried no entry under a listed key. Absent means none.
+	 */
+	withholdOnRefusal?: readonly string[]
+
+	/**
+	 * Recorded-context keys to leave out of every request of this turn from the
+	 * first one, for a host that remembers an earlier `outcome: 'withheld'`
+	 * refusal and does not want the next turn refused again. History is not
+	 * changed. Seen by stages as `PrepareStepContext.withheldKeys`.
+	 */
+	withheldKeys?: readonly string[]
+
+	/**
 	 * Model-visible size cap for a single tool result. Over-budget output is
 	 * spilled to the turn directory and replaced with a head+tail preview
 	 * naming the path, so nothing is lost and tokens are paid only if the
@@ -1918,6 +1941,10 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				? { maxOutputContinuations: params.maxOutputContinuations }
 				: {}),
 			...(params.refusalFallback !== undefined ? { refusalFallback: params.refusalFallback } : {}),
+			...(params.withholdOnRefusal && params.withholdOnRefusal.length > 0
+				? { withholdOnRefusal: [...params.withholdOnRefusal] }
+				: {}),
+			withheldKeys: new Set(params.withheldKeys ?? []),
 			...(params.inboundMessages ? { inboundMessages: params.inboundMessages } : {}),
 			...(params.reminders ? { reminders: params.reminders } : {}),
 			...(params.durableInbound ? { durableInbound: params.durableInbound } : {}),

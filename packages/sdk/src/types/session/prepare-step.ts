@@ -98,6 +98,13 @@ export interface PrepareStepContext {
 	}
 	/** Every completed step, in order. */
 	readonly steps: readonly StepResult[]
+	/**
+	 * Recorded-context keys the request leaves out: set aside by a refused
+	 * request (`QueryParams.withholdOnRefusal`) or by the host
+	 * (`QueryParams.withheldKeys`). A stage that records text under one of
+	 * these keys should add nothing now; whatever it records is also left out.
+	 */
+	readonly withheldKeys?: readonly string[]
 
 	/**
 	 * What the stages before this one decided, when several were supplied.

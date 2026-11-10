@@ -84,6 +84,8 @@ const configRoutes = {
 	maxToolConcurrency: 'query',
 	maxOutputContinuations: 'query',
 	refusalFallback: 'query',
+	withholdOnRefusal: 'query',
+	withheldKeys: 'query',
 	maxToolOutputChars: 'query',
 	maxToolOutputCharsPerMessage: 'query',
 	retainedToolPreviewChars: 'query',
