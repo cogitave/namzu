@@ -1168,6 +1168,16 @@ export interface SendOptions {
 	 * round), whose user-role message is written by the host, not by the person.
 	 */
 	readonly typedInput?: string
+	/**
+	 * The provider's prompt cache has expired since the last request: shed old,
+	 * large tool results before this turn's first request if that saves at
+	 * least `minSavedTokens` (the kernel's estimate), keeping the newest
+	 * `keepRecentToolResults`. The originals stay in the session log.
+	 */
+	readonly clearStaleToolResults?: {
+		readonly minSavedTokens: number
+		readonly keepRecentToolResults: number
+	}
 	/** Why this turn exists (a prompt, a goal round, a verification step), recorded on `turn_started`. */
 	readonly origin?: Origin
 	/** Exact durable admission that makes goal tools visible for this one turn. */
@@ -1605,6 +1615,8 @@ export interface AgentSession {
 	 * conversation.
 	 */
 	readonly idleCompaction?: { readonly minTokens: number }
+	/** True when `compaction.clearStaleResultsAfterIdle` is on (the default); absent in a host that does not offer it. */
+	readonly clearStaleResultsAfterIdle?: boolean
 	readonly errorHint: string | null
 	/**
 	 * WHY there is no provider, for a caller that has to act differently on the
@@ -5809,6 +5821,7 @@ export async function createAgentSession(
 					},
 				}
 			: {}),
+		clearStaleResultsAfterIdle: options.compaction?.clearStaleResultsAfterIdle !== false,
 		compact: (messages, instructions, trigger) =>
 			operations.promise(undefined, async (signal) => {
 				const sessionId = scope.sessionId
@@ -6882,7 +6895,12 @@ export async function createAgentSession(
 							for await (const event of runTurn({
 								provider: textOnlyModels.informing(turnProvider),
 								fileReadTracker: await observationsFor(turnScope.sessionId, messages),
-								compactionConfig: compactionConfigFor(options.compaction),
+								compactionConfig: {
+									...compactionConfigFor(options.compaction),
+									...(opts?.clearStaleToolResults
+										? { clearStaleToolResultsAtStart: opts.clearStaleToolResults }
+										: {}),
+								},
 								retainedToolPreviewChars: options.conversationSessions
 									? (options.compaction?.retainedToolPreviewChars ?? 4_000)
 									: undefined,

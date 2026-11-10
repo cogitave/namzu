@@ -3386,6 +3386,7 @@ function AppBody({
 	/** The idle compactor, once it exists, for what a rewrite of the history must tell it. */
 	const idleCompactionRef = useRef<{
 		contextTokens: { current: number | undefined }
+		compactor: { contextChanged(): void }
 	} | null>(null)
 	const contextTokens = usage?.context?.tokens
 	const contextWindow = usage?.context?.windowTokens
@@ -7953,6 +7954,7 @@ function AppBody({
 			resetTranscript()
 			setMessages(restored)
 			modelHistoryRef.current = msgs
+			idleCompactionRef.current?.compactor.contextChanged()
 			setHistory((previous) => [...previous, ...promptHistoryFromConversation(msgs)])
 			// Persisted conversation rows do not carry the live run/message identity
 			// required by feedback validation. Do not leave the answer from the
@@ -8143,6 +8145,7 @@ function AppBody({
 				session?.resetTaskStore?.()
 				activeTurnTokenRef.current = null
 				modelHistoryRef.current = []
+				idleCompactionRef.current?.compactor.contextChanged()
 				lastAssistantMessage.current = null
 				lastCompletedOutputRef.current = null
 				if (sourceScope && targetSessionId) {
@@ -9122,7 +9125,10 @@ function AppBody({
 				modelHistoryRef.current = [...result.messages]
 				// The history is shorter: the meter and the idle compactor wait for the next reply's size.
 				setContextHidden(true)
-				if (idleCompactionRef.current) idleCompactionRef.current.contextTokens.current = undefined
+				if (idleCompactionRef.current) {
+					idleCompactionRef.current.contextTokens.current = undefined
+					idleCompactionRef.current.compactor.contextChanged()
+				}
 				const at = editList.indexOf(target)
 				const readable =
 					option === 'summarize'
@@ -11022,6 +11028,14 @@ function AppBody({
 							},
 							// Only the person's own words can set a token target.
 							...(typedInput !== undefined ? { typedInput } : {}),
+							// A conversation resumed after its prompt cache expired is
+							// re-read at full price anyway: old results can go now.
+							...(() => {
+								const stale = session.clearStaleResultsAfterIdle
+									? idleCompaction.compactor.staleResultsRequest()
+									: undefined
+								return stale ? { clearStaleToolResults: stale } : {}
+							})(),
 							// The TUI never resumes a turn whose process is gone; the next
 							// prompt closes it. A paused turn is never closed this way.
 							abandonInterrupted: true,
@@ -14029,6 +14043,7 @@ function AppBody({
 									sessionsRef.current && scopeRef.current && conversationMaterializedRef.current,
 								)
 								modelHistoryRef.current = [...result.messages]
+								idleCompactionRef.current?.compactor.contextChanged()
 
 								// How many user/assistant turns survived the pass.
 								// `keepRecentRows` explains why the transcript is trimmed
