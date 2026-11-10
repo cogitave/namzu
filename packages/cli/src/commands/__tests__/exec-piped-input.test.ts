@@ -3,6 +3,7 @@ import { PassThrough } from 'node:stream'
 import type { Message } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { mergeSandboxConfig, takeConfigWarnings } from '../../config/load.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import { execCommand } from '../exec.js'
 import type { CommandContext } from '../types.js'
@@ -134,5 +135,33 @@ describe('namzu exec with piped input', () => {
 		expect(await run([])).toBe(0)
 
 		expect(sent[0]?.at(-1)?.content).toBe('the prompt, piped')
+	})
+
+	it('prints a setting that was read but not honoured on stderr', async () => {
+		// A repository file asking to loosen the sandbox is dropped with a note; a
+		// headless run has no launch screen, so the note goes out as a status line.
+		takeConfigWarnings()
+		mergeSandboxConfig(
+			{ enabled: true },
+			{ allowUnattendedEscape: true },
+			true,
+			'namzu.config.json',
+		)
+		const lines: string[] = []
+		const own = {
+			...ctx,
+			formatter: { ...ctx.formatter, info: (line: string) => void lines.push(line) },
+		} as unknown as CommandContext
+		pipe.end()
+
+		expect(
+			await execCommand.handler({
+				rawArgs: ['--cwd', process.cwd(), '--trust', 'hello'],
+				ctx: own,
+			}),
+		).toBe(0)
+
+		expect(lines.join('\n')).toContain('sandbox.allowUnattendedEscape')
+		expect(takeConfigWarnings()).toEqual([])
 	})
 })

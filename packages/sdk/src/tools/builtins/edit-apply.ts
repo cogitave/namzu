@@ -40,7 +40,7 @@ export type NormalizedEditInput =
 export function normalizeEditInput(
 	input: EditInput,
 ): { success: true; operations: NormalizedEditInput[] } | { success: false; error: string } {
-	if (input.edits !== undefined) {
+	if (input.edits !== undefined && input.edits.length > 0) {
 		return {
 			success: true,
 			operations: input.edits.map((edit) => ({
