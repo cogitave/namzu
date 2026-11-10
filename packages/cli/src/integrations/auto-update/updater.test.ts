@@ -67,6 +67,12 @@ function harness(
 	const events: UpdaterEvent[] = []
 	// Progress, not outcomes: an install has started, or ended with nothing to report.
 	const progress: UpdaterEvent[] = []
+	// The first outcome, awaited directly: the backup copy is real, asynchronous file I/O that a
+	// fake clock does not move, so a test waits for the event rather than for a number of ticks.
+	let firstOutcome: (event: UpdaterEvent) => void = () => {}
+	const outcome = new Promise<UpdaterEvent>((resolve) => {
+		firstOutcome = resolve
+	})
 	const fetchRelease = vi.fn(async (_channel: 'latest' | 'stable') => release)
 	const installs: InstallerRequest[] = []
 	const install: InstallKind = {
@@ -84,8 +90,13 @@ function harness(
 		platform: 'linux',
 		fetchRelease,
 		uptimeMs: () => 0,
-		onEvent: (event) =>
-			(event.type === 'installing' || event.type === 'idle' ? progress : events).push(event),
+		onEvent: (event) => {
+			if (event.type === 'installing' || event.type === 'idle') progress.push(event)
+			else {
+				events.push(event)
+				firstOutcome(event)
+			}
+		},
 		applyDeps: {
 			installedVersion: readInstalledVersion,
 			smokeTest: async (at, version) => readInstalledVersion(at) === version,
@@ -108,7 +119,7 @@ function harness(
 		...over,
 	}
 	const updater = createUpdater(deps)
-	return { updater, events, progress, fetchRelease, installs, deps }
+	return { updater, events, progress, fetchRelease, installs, deps, outcome }
 }
 
 const tick = (ms: number) => vi.advanceTimersByTimeAsync(ms)
@@ -224,6 +235,7 @@ describe('installing, or telling', () => {
 		const h = harness()
 		h.updater.start()
 		await tick(FIRST_CHECK_AFTER_MS)
+		await h.outcome
 		expect(h.events).toEqual([{ type: 'installed', from: '1.0.0', to: '2.0.0' }])
 		// The footer is told the install has started before it ends, so it can say "Updating…".
 		expect(h.progress).toEqual([{ type: 'installing', to: '2.0.0' }])

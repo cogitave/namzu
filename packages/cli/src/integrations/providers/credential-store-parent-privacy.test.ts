@@ -60,7 +60,10 @@ import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
 	CredentialStoreError,
 	googleApiKeyPath,
+	readStoredApiKey,
+	readStoredApiKeys,
 	readStoredGeminiApiKey,
+	writeStoredApiKey,
 	writeStoredGeminiApiKey,
 } from './credential-store.js'
 
@@ -115,4 +118,26 @@ it('refuses to read a saved key when its parent cannot be proven private', () =>
 	expect(readStoredGeminiApiKey(home)).toBeNull()
 	expect(acl.events).toContain(`secure:${dirname(path)}`)
 	expect(acl.events).not.toContain(`secure:${path}`)
+})
+
+it('answers a credential file that does not exist without starting a Windows process', () => {
+	const home = mkdtempSync(join(tmpdir(), 'namzu-parent-privacy-'))
+	homes.push(home)
+
+	// Discovery asks about these on every start; usually neither exists.
+	expect(readStoredGeminiApiKey(home)).toBeNull()
+	expect(readStoredApiKey('openai', home)).toBeNull()
+	expect(readStoredApiKeys(home)).toEqual({})
+	expect(acl.events).toEqual([])
+})
+
+it('still proves the directory, then the file, before reading a key that exists', () => {
+	const home = mkdtempSync(join(tmpdir(), 'namzu-parent-privacy-'))
+	homes.push(home)
+	writeStoredApiKey('openai', 'fixture-secret', home)
+	acl.events.length = 0
+
+	expect(readStoredApiKeys(home)).toEqual({ openai: 'fixture-secret' })
+	expect(acl.events[0]).toBe(`secure:${dirname(googleApiKeyPath(home))}`)
+	expect(acl.events.some((event) => event.endsWith('api-keys.json'))).toBe(true)
 })
