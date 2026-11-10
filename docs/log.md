@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-11
+
+- **Update** [MCP servers](cli/mcp-servers.md#bounded-mcp-results): a CLI-mounted MCP result over 30,000 characters is no longer cut; the full text is saved in the session's `tool-results` folder (owner-only, after the result screens, removed with the session) and the model gets a head-and-tail preview within the cap plus the file's path, readable in slices with `read`. New SDK option `ToolDefinition.maxOutputChars` / `defineTool({ maxOutputChars })`: a tighter per-result cap that uses the same save-and-preview path as the turn cap. `.changeset/mcp-large-result-file-sdk.md` (`@namzu/sdk` minor), `.changeset/mcp-large-result-file-cli.md` (`@namzu/cli` patch).
+
 ## 2026-11-10
 
 - **Update** [File discovery](sdk/file-discovery.md): a glob segment longer than 1,024 characters (`MAX_GLOB_SEGMENT_LENGTH`) is refused with `GlobTooComplexError` before any compiling, because compiling took time in proportion to the square of the length (200 KB took 7.8 s); `glob` and `grep` return it as a tool error and start no walk. A POSIX class name that `Object.prototype` has, such as `[[:constructor:]]`, is now an unknown name like any other instead of an expression that matches nothing. The segment compiler's answers are recorded as language-neutral vectors in `conformance/glob-segment/vectors.json` with a generator, `scripts/generate-conformance-vectors.mjs --check`, and a drift test that runs with the SDK suite. `.changeset/glob-segment-edges.md` (`@namzu/sdk` patch).

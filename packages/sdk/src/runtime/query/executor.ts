@@ -2789,9 +2789,17 @@ export class ToolExecutor {
 		}
 		// A tool that bounds its own output is exempt from the DEFAULT per-result
 		// cap only; a host that set the cap explicitly still gets it.
-		const maxToolOutputChars =
+		const turnToolOutputChars =
 			this.config.maxToolOutputChars ??
 			(executedDefinition?.selfLimitingOutput === true ? 0 : DEFAULT_MAX_TOOL_OUTPUT_CHARS)
+		// A tool's own tighter cap wins over a larger or disabled turn cap.
+		const toolOutputChars = executedDefinition?.maxOutputChars
+		const maxToolOutputChars =
+			toolOutputChars !== undefined && Number.isFinite(toolOutputChars) && toolOutputChars > 0
+				? turnToolOutputChars > 0
+					? Math.min(turnToolOutputChars, Math.floor(toolOutputChars))
+					: Math.floor(toolOutputChars)
+				: turnToolOutputChars
 		const sourceOutput = output
 		// This owner-bound channel follows the selected receipt after both result
 		// screening and post-tool replacement. ToolResult.data and raw input can
