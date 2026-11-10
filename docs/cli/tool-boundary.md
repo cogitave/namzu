@@ -44,6 +44,10 @@ When the sandbox is on **and** the machine confines both the file system and the
 
 What does not change: the dangerous-command floor still refuses `sudo`, `curl | sh` and the like; your `ask` and `deny` rules and your remembered answers are consulted first; a command that asks to leave the sandbox (`dangerously_disable_sandbox`) is still asked about every time, in every mode that does not refuse it; `plan` and `strict` still refuse changes. With the sandbox off (the default) nothing changes.
 
+### Which file may set it
+
+These keys are the operator's. `~/.namzu/config.yaml` and the managed file set any of them; `namzu.config.json`, `namzu.config.local.json` and a profile declared in either can only tighten them, so a cloned repository cannot turn the sandbox off or let an unattended run leave it. The table and the launch notice are in [Permission layers](permission-layers.md#the-sandbox-block).
+
 ### Leaving the sandbox for one command
 
 A sandboxed `bash` call can set `dangerously_disable_sandbox: true` to run that one command on the host (it needs the network, a path the sandbox does not mount, or a host tool). The request is:
