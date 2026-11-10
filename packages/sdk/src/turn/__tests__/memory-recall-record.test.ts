@@ -200,3 +200,42 @@ describe('recalled memory recorded in the conversation', () => {
 		)
 	})
 })
+
+describe('recall that a host sets aside', () => {
+	it('never offers an excluded id, and offers it again once the host lifts the exclusion', async () => {
+		const { store, entries } = await seeded()
+		const aside = new Set<string>([entries[0]?.id as string])
+		const step = createMemoryRecallStep({ store, record: true, excluded: () => aside })
+		const history: Message[] = [createUserMessage(QUERY)]
+
+		expect(await step(context(history))).toBeUndefined()
+		aside.clear()
+		const restored = await step(context(history))
+		expect(restored?.recordedContext?.[0]?.recalledMemories?.map((m) => m.id)).toEqual([
+			entries[0]?.id,
+		])
+	})
+
+	it('reads an exclusion list that throws as empty', async () => {
+		const { store } = await seeded()
+		const step = createMemoryRecallStep({
+			store,
+			record: true,
+			excluded: () => {
+				throw new Error('unreadable')
+			},
+		})
+		const result = await step(context([createUserMessage(QUERY)]))
+		expect(result?.recordedContext).toHaveLength(1)
+	})
+
+	it('adds nothing for a request whose memory entries are withheld', async () => {
+		const { store } = await seeded()
+		const step = createMemoryRecallStep({ store, record: true })
+		const result = await step({
+			...context([createUserMessage(QUERY)]),
+			withheldKeys: [RECALLED_MEMORY_ENTRY_KEY],
+		})
+		expect(result).toBeUndefined()
+	})
+})

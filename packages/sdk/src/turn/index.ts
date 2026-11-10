@@ -23,7 +23,7 @@ export type { LimitCheckerState, LimitCheckResult } from './LimitChecker.js'
 
 export { SESSION_MEMORY_TAG, createMemoryPromoter } from './memory-promoter.js'
 export type { MemoryPromoterOptions, SessionMemoryCategory } from './memory-promoter.js'
-export { createMemoryRecallStep } from './memory-recall.js'
+export { createMemoryRecallStep, recalledMemoryIds } from './memory-recall.js'
 export type {
 	MemoryRecallOptions,
 	MemorySelection,

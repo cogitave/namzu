@@ -478,7 +478,7 @@ export type {
 // did nothing.
 export { SESSION_MEMORY_TAG, createMemoryPromoter } from './turn/index.js'
 export type { MemoryPromoterOptions, SessionMemoryCategory } from './turn/index.js'
-export { createMemoryRecallStep } from './turn/memory-recall.js'
+export { createMemoryRecallStep, recalledMemoryIds } from './turn/memory-recall.js'
 export type {
 	MemoryRecallOptions,
 	MemorySelection,

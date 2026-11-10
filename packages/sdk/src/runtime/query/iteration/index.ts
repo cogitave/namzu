@@ -30,6 +30,7 @@ import {
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { STRUCTURED_OUTPUT_TOOL_NAME } from '../../../tools/builtins/structuredOutput.js'
 import type { ToolManager } from '../../../toolsets/manager.js'
+import { RECALLED_MEMORY_ENTRY_KEY, recalledMemoryIds } from '../../../turn/memory-recall.js'
 import type { CostInfo, TokenUsage } from '../../../types/common/index.js'
 import { NamzuError } from '../../../types/errors/index.js'
 import type { MessageId, SessionId, TurnId } from '../../../types/ids/index.js'
@@ -40,6 +41,8 @@ import {
 	createRuntimeContextMessage,
 	createSystemMessage,
 	createToolMessage,
+	turnContextEntries,
+	turnContextKey,
 } from '../../../types/message/index.js'
 import { classifyProviderError, readOutputOverflow } from '../../../types/provider/errors.js'
 import type { ChatCompletionResponse, ReasoningEffort } from '../../../types/provider/index.js'
@@ -332,6 +335,8 @@ export class IterationOrchestrator {
 	private refusalFallbackUsed = false
 	/** The request has already been re-run on the same model once this turn. */
 	private refusalRetryUsed = false
+	/** The request has already been re-run once without its withheld recorded entries. */
+	private refusalWithholdUsed = false
 	/**
 	 * `turn_end` (and, for a child, `subagent_stop`) fired when the model
 	 * finished and no hook asked for more. `finalizeTurn` then does not fire
@@ -898,7 +903,16 @@ export class IterationOrchestrator {
 							turnId: recorder.turnId,
 							memories: recalled,
 						})
-					const baseMessages = recorder.messages
+					const withheld = this.ctx.withheldKeys
+					// A withheld key is left out of the request only: the history keeps
+					// its entries, so a later turn or a restore still has them.
+					const baseMessages =
+						withheld && withheld.size > 0
+							? recorder.messages.filter((message) => {
+									const key = turnContextKey(message)
+									return key === undefined || !withheld.has(key)
+								})
+							: recorder.messages
 
 					// Step guidance is appended to the REQUEST, never pushed onto
 					// the turn's history: it applies to this step only, and pushing
@@ -3178,6 +3192,42 @@ export class IterationOrchestrator {
 			await closeIteration()
 			yield* this.ctx.drainPending()
 			return 'settled'
+		}
+
+		const withholdKeys = this.ctx.withholdOnRefusal
+		if (
+			!input.forceFinalize &&
+			!this.refusalWithholdUsed &&
+			withholdKeys &&
+			this.ctx.withheldKeys
+		) {
+			const carried = withholdKeys.filter(
+				(key) =>
+					!this.ctx.withheldKeys?.has(key) &&
+					recorder.messages.some((message) => turnContextKey(message) === key),
+			)
+			if (carried.length > 0) {
+				this.refusalWithholdUsed = true
+				for (const key of carried) this.ctx.withheldKeys.add(key)
+				const memoryIds = carried.includes(RECALLED_MEMORY_ENTRY_KEY)
+					? recalledMemoryIds(turnContextEntries(recorder.messages, RECALLED_MEMORY_ENTRY_KEY))
+					: []
+				await this.ctx.emitEvent({
+					type: 'model_refusal',
+					turnId: recorder.turnId,
+					iteration: iterationNum,
+					model: servedBy.model,
+					providerId: servedBy.providerId,
+					outcome: 'withheld',
+					withheldKeys: carried,
+					...(memoryIds.length > 0 ? { withheldMemoryIds: memoryIds } : {}),
+					...(refusal.category ? { category: refusal.category } : {}),
+					...(refusal.explanation ? { explanation: refusal.explanation } : {}),
+				})
+				await closeIteration()
+				yield* this.ctx.drainPending()
+				return 'retry'
+			}
 		}
 
 		if (!input.forceFinalize && !this.refusalFallbackUsed && this.ctx.refusalFallback !== 'off') {
