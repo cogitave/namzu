@@ -1,5 +1,30 @@
 # @namzu/cli
 
+## 48.0.0
+
+### Major Changes
+
+- 2f0e360: A session now tells the model where to put what it creates (temporary work in the scratchpad, app data and config in the platform's standard folders, containers in a named project folder, a checklist for anything that keeps running) and ends a setup with a short receipt. The terminal UI shows one quiet line at start when the working folder is your home folder or the filesystem root.
+
+  **Breaking for unattended runs:** bypass mode now asks before a call creates or deletes a top-level entry directly in your home folder or the filesystem root (`mkdir ~/newthing`, `git clone <url> ~/repo`, `rm -rf ~/thing`, a file tool creating `~/new.txt`), like it already does for protected files; where nobody can be asked (`exec`, a scheduled run) the call is refused with a message that says why. If you want such a folder, create it yourself (for example with `!mkdir` in the composer) or answer yes when asked; a rule cannot allow it. Anything inside an existing folder, and changes to a top-level entry that already exists, are not asked about. In the SDK, a query that sets `outsideRootAccess: 'review'` (and runs without a sandbox) reports these paths in `escalation.protectedPaths`; queries that do not set it are unchanged.
+
+### Minor Changes
+
+- d4aeca8: Add `namzu peers list` and `namzu peers send <ref|id|title> <message...>` to message a live terminal in the same project from a command line, with `--json`, `--mode <mode>` and `--file <path>|-`. The message is attributed to a command-line sender, never to the operator, and the receiver still refuses a different permission mode. Exit 0 queued, 1 refused, 69 unreachable, 64 bad arguments or an empty message, 65 input that is not UTF-8 text, 66 an unreadable file. A terminal now also accepts mail from a verified `cli` sender in its own project. The SDK's `PeerSessionKind` gains `cli`, so a consumer that switches exhaustively over it adds a case (shipped as `minor` on purpose: the union only grows in values the SDK hands out, and no existing call changes behaviour); the peer message provenance text differs for that kind.
+- b409773: New opt-in fullscreen screen for the interactive terminal UI. Set `tui.fullscreen: true` in your own config, or start with `NAMZU_FULLSCREEN=1`, and Namzu draws on the alternate screen: the conversation is a window the app scrolls itself (mouse wheel, PgUp and PgDn, Home and End on an empty composer), the composer and footer stay on the bottom rows, a quiet row says how to jump back to the latest, and only the lines that changed are repainted. `NAMZU_FULLSCREEN=0` turns it off whatever the config says. Nothing changes unless you opt in: the default is still the terminal's own scrollback, byte for byte. While it is on, the `←` workspaces screen is not offered, and the terminal's own scrollback and drag-to-select are not available inside the app; the screen shows replies as plain wrapped text rather than rendered Markdown.
+
+### Patch Changes
+
+- 665b9f7: Faster start on Windows, and no frozen terminal while Namzu updates itself.
+
+  Provider discovery no longer proves a credential directory private for a saved-key file that does not exist, and it reads the saved API keys once instead of once per provider. Each of those proofs is two `icacls` processes run synchronously, so on Windows the "discovering providers…" step took about two seconds and held the event loop long enough that a running Ollama could be missed. `namzu providers-json` on Windows went from about 2,050 ms to about 1,030 ms in a measurement on one machine, and now reports a running Ollama. A credential file that exists is still proved private, directory first, before it is opened.
+
+  The automatic update keeps its copy of the installed version, and puts it back when needed, asynchronously, so the terminal keeps answering while those files are copied. `backupPackage` and `restorePackage` in the CLI's update module are now asynchronous; they are internal to the CLI.
+
+- Updated dependencies [d4aeca8]
+- Updated dependencies [2f0e360]
+  - @namzu/sdk@62.4.0
+
 ## 47.0.0
 
 ### Major Changes
