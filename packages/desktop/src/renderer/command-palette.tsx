@@ -2,8 +2,9 @@
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import { Dialog } from '@base-ui/react/dialog'
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
-import { matchesCommandQuery, matchesCommandShortcut } from './command-palette-filter.js'
+import { matchesCommandOrText, matchesCommandShortcut } from './command-palette-filter.js'
 import { foldedIncludes } from './text-fold.js'
+import type { ConversationTextMatches } from './use-conversation-search.js'
 import './command-palette.css'
 
 export interface CommandPaletteItem {
@@ -29,6 +30,10 @@ export interface CommandPaletteProps {
 	loading?: boolean
 	notice?: string
 	onRetry?: () => void
+	/** Called with the text in the box; the host may answer with `textMatches`. */
+	onQueryChange?: (query: string) => void
+	/** Conversations whose own text matched what is in the box, with an excerpt each. */
+	textMatches?: ConversationTextMatches
 }
 
 export function CommandPalette({
@@ -40,6 +45,8 @@ export function CommandPalette({
 	loading,
 	notice,
 	onRetry,
+	onQueryChange,
+	textMatches,
 }: CommandPaletteProps) {
 	const input = useRef<HTMLInputElement>(null)
 	const invoked = useRef(false)
@@ -88,6 +95,8 @@ export function CommandPalette({
 							notice={notice}
 							onRetry={onRetry}
 							onRun={run}
+							onQueryChange={onQueryChange}
+							textMatches={textMatches}
 						/>
 					</Dialog.Popup>
 				</Dialog.Viewport>
@@ -103,6 +112,8 @@ function CommandResults({
 	notice,
 	onRetry,
 	onRun,
+	onQueryChange,
+	textMatches,
 }: {
 	items: readonly CommandPaletteItem[]
 	inputRef: RefObject<HTMLInputElement | null>
@@ -110,8 +121,13 @@ function CommandResults({
 	notice?: string
 	onRetry?: () => void
 	onRun: (item: CommandPaletteItem) => void
+	onQueryChange?: (query: string) => void
+	textMatches?: ConversationTextMatches
 }) {
 	const [query, setQuery] = useState('')
+	// Matches answer one query; once the box holds another they say nothing.
+	const excerpts =
+		textMatches && textMatches.query === query.trim() ? textMatches.excerpts : undefined
 	const groups = new Map<string, CommandPaletteItem[]>()
 	for (const item of items) {
 		const members = groups.get(item.group)
@@ -125,9 +141,14 @@ function CommandResults({
 			open
 			items={grouped}
 			value={query}
-			onValueChange={setQuery}
+			onValueChange={(value) => {
+				setQuery(value)
+				onQueryChange?.(value)
+			}}
 			itemToStringValue={(item: CommandPaletteItem) => item.label}
-			filter={(item: CommandPaletteItem, value) => matchesCommandQuery(item, value, foldedIncludes)}
+			filter={(item: CommandPaletteItem, value) =>
+				matchesCommandOrText(item, value, foldedIncludes, excerpts)
+			}
 			autoHighlight="always"
 			keepHighlight
 			loopFocus={false}
@@ -179,7 +200,14 @@ function CommandResults({
 									<span className="command-palette-icon" aria-hidden="true">
 										{item.icon}
 									</span>
-									<span className="command-palette-label">{item.label}</span>
+									{excerpts?.get(item.id) ? (
+										<span className="command-palette-text">
+											<span className="command-palette-label">{item.label}</span>
+											<span className="command-palette-excerpt">{excerpts.get(item.id)}</span>
+										</span>
+									) : (
+										<span className="command-palette-label">{item.label}</span>
+									)}
 									{item.meta && <span className="command-palette-meta">{item.meta}</span>}
 									{item.shortcut?.length ? (
 										// The whole chord in one keycap, written as the menus write it.

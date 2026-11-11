@@ -129,7 +129,12 @@ function categoryPhrase(category: RunCategory, count: number, live: boolean): st
  * The summary of a run of consecutive actions: counted, in the order each kind first appears.
  * "Edited a file, ran 2 commands"; while the run is live, "Editing a file, running 2 commands".
  */
-export function actionRunLabel(actions: RunAction[], live: boolean, full = false): string {
+export function actionRunLabel(
+	actions: RunAction[],
+	live: boolean,
+	full = false,
+	failedCommands = 0,
+): string {
 	const subjects = new Map<RunCategory, Set<string>>()
 	const counts = new Map<RunCategory, number>()
 	let declined = 0
@@ -154,8 +159,8 @@ export function actionRunLabel(actions: RunAction[], live: boolean, full = false
 		phrases = [...phrases.slice(0, 2), `and ${phrases.length - 2} more`]
 	// A folded run must not read as all done when some of it failed.
 	if (declined) phrases.push(declined === 1 ? 'declined an action' : `declined ${declined} actions`)
-	const failed = actions.filter((action) => action.state === 'failed').length
-	if (failed) phrases.push(`${failed} failed`)
+	// The count is the header's own (`turnAttention`), so a label and a header never disagree.
+	if (failedCommands) phrases.push(`${failedCommands} failed`)
 	const background = actions.filter((action) => action.background).length
 	if (background) phrases.push(`${background} in the background`)
 	const text = phrases.join(', ')
@@ -165,9 +170,12 @@ export function actionRunLabel(actions: RunAction[], live: boolean, full = false
 /** A finished run this long or shorter stays open; a longer one folds to its summary row. */
 export const openRunLimit = 5
 
-/** Whether a run is open before the person chooses: while it works, or while it is short. */
-export function runDefaultOpen(live: boolean, actions: number): boolean {
-	return live || actions <= openRunLimit
+/**
+ * Whether a run is open before the person chooses: while it works, while it is short, or when a
+ * command in it failed or an action was refused, so the output and the reason are in view.
+ */
+export function runDefaultOpen(live: boolean, actions: number, badNews = false): boolean {
+	return live || badNews || actions <= openRunLimit
 }
 
 /** Which kind names the icon of a run's summary row: an edit wins, else the most common kind. */
@@ -307,6 +315,41 @@ export function turnNotice(thread: ThreadState, closedWhileRunning = false): str
 		return `${notice} ${only ? `The ${only}s` : 'The actions'} waiting for your answer were not run.`
 	if (only === 'change') return `${notice} The change waiting for your answer was not made.`
 	return `${notice} The ${only ?? 'action'} waiting for your answer was not run.`
+}
+
+/** What Continue sends after the window was closed on a running reply: a new message, not a resume. */
+export const CONTINUE_STOPPED_PROMPT = 'Please continue from where you stopped.'
+
+/**
+ * One line on what the reply that Namzu's closing cut off did and did not get done, from its own
+ * actions. Absent when it took no action, because then there is nothing to say either way.
+ */
+export function stoppedWorkSummary(thread: ThreadState): string | undefined {
+	let finished = 0
+	let failed = 0
+	let unfinished = 0
+	for (const entry of thread.timeline) {
+		if (entry.kind !== 'tool' || entry.turn !== thread.turn) continue
+		const tool = thread.tools[entry.id]
+		if (!tool) continue
+		if (tool.status === 'pending' || tool.historicalStatus === 'skipped') unfinished++
+		else if (tool.status === 'failed') failed++
+		else finished++
+	}
+	const actions = (count: number) => `${count} ${count === 1 ? 'action' : 'actions'}`
+	const done =
+		finished && failed
+			? `${actions(finished)} finished and ${failed} failed before it stopped`
+			: finished
+				? `${actions(finished)} finished before it stopped`
+				: failed
+					? `${actions(failed)} failed before it stopped`
+					: undefined
+	if (done && unfinished) return `${done}; ${unfinished} did not.`
+	if (done) return `${done}.`
+	if (unfinished)
+		return `${unfinished === 1 ? 'The last action' : actions(unfinished)} did not finish.`
+	return undefined
 }
 
 /**

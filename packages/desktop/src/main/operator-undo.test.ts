@@ -257,3 +257,74 @@ it('re-reads the status when an undo fails, since files may have changed', async
 	const undo = (await setup.owner.openConversation(project.id, session.id)).thread?.undo
 	expect(undo?.['turn-1']?.status).toBe('partially_undone')
 })
+
+/** The project's connection dropped: the next reconnect takes it from error to ready. */
+const loseConnection = (owner: Operator, projectId: string) => {
+	const projects = (owner as unknown as { projects: Map<string, { view: { status: string } }> })
+		.projects
+	const lost = projects.get(projectId)
+	if (lost) lost.view.status = 'error'
+}
+const retryRecords = (owner: Operator) =>
+	(owner as unknown as { undoRetries: { size: number } }).undoRetries.size
+
+it('asks a failed undo status once more when the project reconnects, and keeps nothing afterwards', async () => {
+	let reads = 0
+	const second = deferred<void>()
+	fakeUndo({
+		'namzu/turns/undo-status': () => {
+			reads += 1
+			if (reads === 1) throw new Error('status unavailable')
+			second.resolve()
+			return { turns: [row('applied')] }
+		},
+	})
+	const setup = harness()
+	const { project } = await settledSession(setup)
+	expect(reads).toBe(1)
+	expect(retryRecords(setup.owner)).toBe(1)
+	loseConnection(setup.owner, project.id)
+	await setup.owner.reconnect(project.id)
+	await second.promise
+	await new Promise((done) => setImmediate(done))
+	expect(reads).toBe(2)
+	expect(retryRecords(setup.owner)).toBe(0)
+})
+
+it('does not ask for the undo status of a conversation that was closed before the reconnect', async () => {
+	let reads = 0
+	fakeUndo({
+		'namzu/jobs/list': () => [],
+		'namzu/conversations/archive': (params) => ({
+			sessionId: (params as { sessionId: string }).sessionId,
+			archived: true,
+		}),
+		'namzu/turns/undo-status': () => {
+			reads += 1
+			throw new Error('status unavailable')
+		},
+	})
+	const setup = harness()
+	const { project, session } = await settledSession(setup)
+	expect(reads).toBe(1)
+	expect(retryRecords(setup.owner)).toBe(1)
+	await setup.owner.removeConversation(session.id)
+	expect(retryRecords(setup.owner)).toBe(0)
+	loseConnection(setup.owner, project.id)
+	await setup.owner.reconnect(project.id)
+	await new Promise((done) => setImmediate(done))
+	expect(reads).toBe(1)
+})
+
+it('drops a project’s retry record when the project is removed', async () => {
+	fakeUndo({
+		'namzu/turns/undo-status': () => {
+			throw new Error('status unavailable')
+		},
+	})
+	const setup = harness()
+	const { project } = await settledSession(setup)
+	expect(retryRecords(setup.owner)).toBe(1)
+	await setup.owner.removeProject(project.id)
+	expect(retryRecords(setup.owner)).toBe(0)
+})

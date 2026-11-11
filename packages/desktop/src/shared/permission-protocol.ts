@@ -9,6 +9,9 @@ const MAX_CALLS = 64
 const record = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value)
 
+const lineCount = (value: unknown): number | undefined =>
+	typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
+
 /** The answer a window sent, checked. Throws a sentence a person can read. */
 export function readPermissionResponse(value: unknown): PermissionResponse {
 	if (
@@ -69,6 +72,10 @@ export function readPermissionCalls(value: unknown): PermissionView['calls'] {
 				before: preview.before,
 				after: preview.after,
 				...(preview.truncated === true ? { truncated: true } : {}),
+				...(lineCount(preview.added) !== undefined ? { added: lineCount(preview.added) } : {}),
+				...(lineCount(preview.removed) !== undefined
+					? { removed: lineCount(preview.removed) }
+					: {}),
 			}
 		}
 		calls.push(call)

@@ -577,6 +577,53 @@ installation or a native distribution. The
 [coherence receipt](../../research/runtime-desktop-20260930/artifacts/development-source-consolidation-native-windows-safe-20261005.json)
 records the actual Windows graph and isolated Zen registration check.
 
+### A computer that is not set up, and reads that fail
+
+The Pal screen reads the Pal's computer (`namzu/pals/computer/status`) every second while its page is
+the one being watched and every five seconds otherwise, and slows down after failures (doubling to a
+minute). Whether it asks again depends on what the computer said
+(`packages/desktop/src/renderer/computer-read-pace.ts`):
+
+| What the read found | Next read |
+|---|---|
+| Ready | the ordinary pace |
+| Stopped | the ordinary pace: a Pal's own turn can start it |
+| Unavailable for a reason that can pass (the read threw, or the engine answered but not usefully) | slower each time, to a minute |
+| Unavailable because the PC lacks what the computer runs on (the container engine or its image, a stopped Podman machine, Linux support on Windows) | none: the screen reads once, shows one setup card, and stops |
+
+A stopped read starts again only for a reason the person can see: Start was pressed, setup started or
+finished (the setup state changed), the window came back into focus, or Refresh was used. The same
+test (`computerNotSetUp`) parks the read and decides the card, so a parked Pal always has its card; on a PC
+where Namzu offers to set Windows up, the Pal computer row is the surface instead. The card on the Pal
+computer page is a labelled region that says what the computer is ("A private desktop where the Pal
+can open apps and files, kept apart from yours."), the one action (Get Docker Desktop, a button the
+keyboard reaches and the focus ring marks), and what it costs ("about 1.2 GB of disk for the computer
+image", from one constant, `PAL_COMPUTER_IMAGE_BYTES`, which a test checks against the byte count on
+[Local Pal computers](../sdk/local-pal-computer.md)). When the notice is a stopped Podman machine the card
+(and the line in the Pal panel) says so ("Start your Podman machine") and offers no download. Before
+this, an engine-less PC was read every five seconds for as long as the window stayed open.
+
+Three reads used to be logged with the reason `unclassified` and shown as "That didn't work". They now
+have a named reason and one plain sentence, shared by the log and the screen
+(`packages/desktop/src/shared/named-failures.ts`): `undo-status-invalid` ("Namzu could not tell which files
+this reply changed. Close this and open the conversation again."), `undo-status-unavailable`
+(log only: an undo status that could not be read leaves the card as it was, so this sentence has no
+place on screen and promises no retry), `settings-unavailable` ("Saved message settings could not be loaded. Try again.", in the message row),
+`provider-not-configured` ("This model is not set up yet. Open the model list to set it up, or choose
+another model.") and `provider-setup-unavailable` (in the model row). A read that has a message of its
+own is named by the message; one that failed without saying why is named by the read it was.
+
+A read that fails (the undo status, the message settings, the model settings) is asked once more when
+the connection of the project that read it comes back (`ReconnectRetry`; the undo status in the main
+process for any project, the message and model settings in the window for the project it has open), never on a timer. Other windows and projects
+that are not open read afresh when opened. The undo retry is forgotten when its conversation closes and
+dropped when its project is removed. A second failure is left to the person and their Try again. The repeating
+reads follow the same rule: the activity panel's task list slows from two seconds to a minute and stops after four
+failures in a row (it starts again, and reads at once, on a reconnect, a manual refresh or the window
+being focused), the Pal start question stops asking a Pal whose inbox read failed four times until the
+window is focused again, and the pull request look in the composer footer does the same on focus or
+when the window is visible again.
+
 ### Diagnostic logs
 
 The native host records startup, unhandled main-process failures, renderer
@@ -815,9 +862,21 @@ A model or engine list read that a newer choice overtook is never an error and n
 
 While no Namzu window is focused and a conversation is running with an approval card or a question waiting (a question is a request like any other, carried by the `ask_user_question` call, so it counts through the same rule as the sidebar's "Approval needed" and "Question waiting" marks; a stopped turn does not count), Desktop shows a count on the app icon and flashes the taskbar or dock once; moving from one Namzu window to another does not flash. It uses the platform's own mark: the macOS and Linux icon badge (`app.setBadgeCount`) with one dock bounce (`app.dock.bounce('informational')`) on macOS, and on Windows a small taskbar overlay with the count drawn on it, described to screen readers as "N conversations need you", with one `flashFrame`. `setBadgeCount` is not used on Windows, where it does nothing. A finished reply that nobody has read is the separate unread marker and never counts here, and a Pal's conversation does not count.
 
-The logic has two parts. `src/shared/attention-state.ts` is pure: given each conversation's running flag and number of waiting asks it returns the ids that need the person. The operator in main computes it from the same projection the transcript uses and reports it whenever a conversation starts or stops running, gains or loses a waiting ask, or goes away; `src/main/attention-signals.ts` applies it. It flashes only on the change from nothing needing the person to something, not on every event or every added count, and lets go of the badge, the overlay and the flash as soon as a window gains focus, nothing needs the person, or the setting is turned off. Losing focus with something still waiting signals again. There is no desktop notification, sound or keep-awake.
+The logic has two parts. `src/shared/attention-state.ts` is pure: given each conversation's running flag and number of waiting asks it returns the ids that need the person. The operator in main computes it from the same projection the transcript uses and reports it whenever a conversation starts or stops running, gains or loses a waiting ask, or goes away; `src/main/attention-signals.ts` applies it. It flashes only on the change from nothing needing the person to something, not on every event or every added count, and lets go of the badge, the overlay and the flash as soon as a window gains focus, nothing needs the person, or the setting is turned off. Losing focus with something still waiting signals again. The count and flash are the quiet path; the system notification below is a separate one with its own settings. There is no keep-awake.
 
 **Settings > General > Show when a conversation needs you** turns the badge and flash off (`attentionSignals` in `desktop-settings.json`, default on). Only the pure state, the controller with a fake window and app, the overlay pixels and the settings round trip are covered by tests; no real taskbar or dock was driven.
+
+### A system notification when you are elsewhere
+
+The icon count does not say that a conversation finished or stopped, so while no Namzu window is focused Desktop also shows one system notification (`Notification` from Electron, so the operating system's own do-not-disturb applies) for three events: a conversation needs an answer (an approval or a question), a turn finished, a turn stopped with an error. Nothing is shown while any Namzu window is focused, and a notification still waiting to be shown is dropped if a window is focused first. Where the system cannot show notifications (`Notification.isSupported()` is false) nothing happens and the icon count above is all there is.
+
+A notification holds the project's name as its title and one fixed sentence as its body: "A conversation needs your answer", "Finished" or "Stopped with an error". It never holds conversation text, a file name, a command or anything a model wrote; `src/main/system-notices.ts` builds the payload from the project name and those three sentences only, and a test asserts the payload's fields. There is no sound unless the sound switch is on. A conversation is announced at most once per event until you come back to a window (focusing one clears the memory and closes what is still showing), and events that arrive within three seconds of the first are folded per kind into one notification titled "Namzu" ("3 conversations finished", "2 conversations need your answer"). A second event of the same kind for a conversation that has already been announced is dropped without a word until you focus a window: a conversation that fails, is retried by someone else (a Pal or a scripted run) and fails again while you are away gets one notification, not two. Clicking a notification focuses the window that already has that conversation open (one showing it first, then one with it in a background tab), or else the focused window, or else the first, and opens the conversation (the first of a folded group); the main process sends that window a `show-conversation` event and the renderer opens the tab as a click on the sidebar row would. The renderer waits for the conversation list to load (and for a move in progress to finish) if the click arrives first, and if the conversation is not in the list it opens Home instead of doing nothing.
+
+"Finished" is announced only for a turn that ran 30 seconds or more (`FINISHED_NOTICE_AFTER_MS`, measured by main from the turn starting to its ending; the words in Settings read the same constant); a turn you just watched end needs no banner. Every end that is not an error counts as finished, including a reply cut short by its length limit, a refusal or a forced finish; only a turn the person stopped is never announced. A failure is announced at any length. A Pal's conversation is background work: it follows the same rule only for "needs your answer" (unlike the icon count, which leaves Pals out), never for finished or failed. A conversation that was already waiting when the window lost focus is not announced again.
+
+**Settings > General** has four switches next to the icon setting, each searchable by plain words (notification, banner, alert, chime): "Notify me when a conversation needs my answer" (`notifyNeedsYou`, default on), "Notify me when a conversation stops with an error" (`notifyFailed`, on), "Notify me when a long reply finishes" (`notifyFinished`, on) and "Play a sound with notifications" (`notifySound`, off), all in `desktop-settings.json` and read on every event. The 30-second threshold is fixed, not a setting; its words in Settings come from the same constant as the check.
+
+The logic is pure (`SystemNotices` takes an injected notifier, clock, timer and focus check; its tests use fakes and drive the clock by hand). The operator reports facts only: which conversations wait, a turn starting, a turn ending as finished, failed or other. An end-to-end run sets `NAMZU_E2E_NOTICES=1` (ignored by a packaged app) to have main record each notification into `globalThis.__namzuNotices` instead of showing it, with `globalThis.__namzuNoticeClick(index)` to click one, to count any turn of a millisecond or more as long and to fold events for 50 ms instead of three seconds; `e2e/notices.test.mjs` drives the real app that way. A real notification on Windows, macOS and Linux was not shown by a test. Not verified: on Windows a toast needs an application identity. The packaged installer is expected to carry one (electron-builder sets the shortcut's identity from the `appId`; no installed build was checked), but the code never calls `app.setAppUserModelId`, so an unpackaged or development run on Windows may show no toast, and `Notification.isSupported()` does not detect that.
 
 ## Settings
 
@@ -1853,11 +1912,11 @@ menus. View offers zoom and full screen only: Namzu is an app, not a browser, so
 it carries no Reload, Force Reload or developer-tools item (the tools return in a
 development build). Native caption colours follow the chosen appearance.
 The left icon rail remains available when the conversation sidebar is collapsed.
-The rail contains Home, then Spaces, Scheduled and Plugins, with Settings as the
-last item at the bottom. Home owns the chat and blank composer. Spaces, Scheduled
-and Plugins are shown in progress — each is disabled, with an "— in progress"
-tooltip, and does not open from the rail yet; they return when that work lands.
-When Plugins returns it is a separate Customize destination with the actual
+The rail contains Home at the top and Settings as the last item at the bottom. Home
+owns the chat and blank composer. Spaces, Scheduled and Plugins are not on the rail:
+a destination that cannot open is not drawn (no disabled button, no "coming soon"), and
+each returns when it exists. Plugins is still reached from the composer's + menu. When
+Plugins returns to the rail it is a separate Customize destination with the actual
 installed inventory in its sidebar and a searchable two-column list in the main
 area. Public and Personal are separate tabs: Personal includes installed plugins
 from both project and user locations; Public reads separate catalogue entries,
@@ -1920,8 +1979,7 @@ saved message choices on that first frame; while the start is still deciding whi
 shown as an error (no frame carries the banner, `e2e/sidebar-startup-stability.test.mjs` refuses it once on purpose), and the read is
 made again when the start settles, where a real failure is shown. Rows carry a
 `data-sidebar-key` (`project:`, `conversation:`, `pal:` and `heading:` plus the id) so a test can follow
-them frame by frame (`e2e/sidebar-startup-stability.test.mjs`). Scheduled is currently unavailable in the desktop
-preview; its disabled control never opens a conversation's background shells.
+them frame by frame (`e2e/sidebar-startup-stability.test.mjs`). There is no Scheduled destination on the rail yet.
 The sidebar brand (the wordmark with a small green "Beta" badge after it) opens its
 workspace menu. The labelled New conversation row is the primary
 creation action, rather than duplicating it across icon groups.
@@ -2119,6 +2177,16 @@ click dismiss the palette and restore focus without cancelling a running turn.
 The palette reads conversation indexes from connected, trusted projects when
 opened. A failed or unavailable index produces an explicit partial-results
 notice and Retry. Search does not start model work or resume sessions by itself.
+Search also looks inside conversations: once two or more characters have been typed and
+typing has paused, the palette asks each ready project's engine (`namzu/conversations/search`,
+below) for conversations whose replies or tool output contain the text, and a conversation
+that matches by what it said stays in the list with a one-line excerpt around the match under its
+title. Titles and project names still match at once, without waiting. The search covers what a
+reply said and what a tool returned; text typed by the person is not part of the engine's search
+index. A match inside a tool's output shows only "Found in what “read” returned", never the text,
+because that output can hold anything the tool read (a settings file, a key) and the list is one keystroke
+away; the text of a reply is shown around the match. A search that fails leaves the title matches alone. The result is at most 20 conversations
+per project, and the text typed and the excerpts are never logged.
 Conversation history is also loaded when its project is opened; an unopened
 group's lack of rows does not imply that the project has no saved conversations.
 Other project groups default to collapsed. Opening a project or a conversation
@@ -2640,8 +2708,28 @@ planning and delegated-invocation contracts.
 Each reply that completed file edits carries its own card right under its final
 reply: one file reads "Edited name.css +12 −3" (full path in the tooltip), several
 read "Edited 3 files" with the totals and expand to a list with each file's own
-totals. Totals count a file once, from its first before to its last after; a file
-whose edits cancel out is left out, and a reply with nothing left has no card. The
+totals. A file's numbers are the sum of its edits' own counts, as the engine reported them
+(`added` and `removed` on each edit's and write's facts), so a file edited twice reads what
+`git diff` reads; only a receipt that arrived without counts (a conversation saved before edits
+carried them, or a change still waiting for approval) is compared from its own two sides. A
+batch edit or an insert carries no diff, only the engine's counts: it is counted like any other
+edit (matched to its file by path, whether the engine named it by its full path or the model by a
+short one), and the Changes panel says "No diff is available for this change" for a file made
+only of such edits, or "Some edits to this file have no diff to show" when only some are. Edits
+that undo each other (each starts where the one before ended and the last ends where the first
+began) show no number, as `git diff` shows nothing. The sum still differs from `git diff` when
+separate edits touch the same line without undoing each other, because each edit counts the
+lines it changed itself. The cap of 400 lines the screen names is the kernel's own
+(`MAX_CARRIED_DIFF_LINES`); a test keeps the two equal. One
+function, `changeTotals` in `changes-totals.ts`, is the only source of these numbers: the card,
+the Changes panel and its tree, each edit row, the details popover and the approval card all
+read it. When the engine carried only the first 400 lines of an edit (`hunksTruncated`), the
+number stays the true one and "First 400 lines shown" is said beside it; an approval preview
+the engine cut says "Only part of the file is shown" beside its count, and a preview that
+carries the engine's own `added` and `removed` shows those, so the figure on the approval is the
+one on the card after the edit. With several files, the bar over the Changes panel names a cut
+file only when it is not the one open, since the open file says it beside its own diff. A reply with no counted
+change has no card. The
 card appears when the turn settles, groups by the turn each receipt belongs to, and
 works the same for history restored from the journal. View changes (or a file row)
 opens the Changes pane on the Last reply scope for that reply; the conversation
@@ -2690,8 +2778,10 @@ The Changes tab shows one file's diff beside the tree of changed files. A scope 
 at the top left picks what is reviewed, with the line totals of that scope beside it:
 Last reply (the reply the card opened, or the latest one that changed files), This
 conversation (every completed edit merged per path, so a file edited twice is one
-row, from its first before to its last after; an edit receipt carries only the
-changed fragment, a `write` receipt the whole file) and, in a trusted ordinary project
+row whose numbers are the sum of its edits; an edit receipt carries only the
+changed fragment, a `write` receipt the hunks it changed, and a file edited more than once
+shows one block per edit, "Edit 1 of 2" with that edit's own counts, never one edit's removed
+lines beside another's added ones) and, in a trusted ordinary project
 that is a git repository, Uncommitted changes (the working tree against HEAD, whole
 files, read through [`projectChanges` and `projectDiff`](#working-tree-changes) when
 the scope opens, on the refresh button and when a turn settles). The toolbar has
@@ -2955,6 +3045,16 @@ action is just its row, and the run no longer scrolls inside a box.
 
 `/preview?activity=1` adds saved replies of every shape above and `/preview?live=1`
 plays a running turn (`&hold=edit` stops it while the edit is under way).
+
+### What a finished turn says about itself
+
+A turn's bad news is not left inside the folded "Worked" block. Three things say it, each from a typed field and never from the model's sentences.
+
+- **The header.** After "Worked for 2s" a finished turn names what went wrong, each with a small status mark: a red mark for "1 command failed" (a command that ended with a non-zero exit, a timeout or a signal; "2 commands failed" for more) and an amber one for "1 action was not allowed" (an action the engine refused or blocked; a change the person declined is their own answer and is not counted). Nothing shows when everything went well. The same words are added to the header's accessible name. The "N failed" at the end of a run's own summary ("Ran 6 commands, 1 failed") is the same count, taken from the same function (`turnAttention`), so a failed read or edit is never counted there as a failed command and the two never disagree. A run of actions that holds a failed command or a refused action starts open even when it is longer than five rows, so opening the block shows it.
+- **The rows.** A failed command shows the last ten lines of what it printed under its row, in the open block with no further click (a passing command keeps its first three lines); "+N lines" opens the rest. A refused action shows one fixed plain sentence under its row, chosen by the kind of refusal ("It was stopped before it ran, so nothing changed." for a blocked action; "It needs administrator rights, so it was stopped before it ran." for one that asked for them), whatever the rule said. The rule's or command guard's own wording (the failure's `note` field) is kept only as the line's hover text, never as its words.
+- **The line under the turn.** One muted line, with one status mark, built only from the kernel's [turn outcome](../sdk/turn-outcome.md) record: what changed (the count from the record) and what the record says about checks, in the words the terminal ends a turn with (`outcomeLine`, `packages/cli/src/tui/outcome-line.ts`; the host writes it and Desktop shows it as sent, so the two cannot drift). Examples: "Changed 2 files · not checked", "Changed 2 files · npm test failed", "Changed 2 files · ran npm test | tail, but the pipe hides whether it passed". The mark is green for `checked`, red for `failing` and amber for every other verdict (`stale`, `inconclusive`, `unchecked`, `unknown`). A turn whose verdict is `unchanged` shows nothing, and so does a turn the kernel recorded nothing for. A `failing` turn that changed no file reads "No files changed · npm test failed". The line is not a card and is drawn only once the turn has ended, and it is not drawn once the person has undone that turn's changes (a partly undone turn keeps it), because "Changed 1 file" would no longer be true. It appears when the notice arrives, which can be just after the turn looks finished, so the transcript may grow by one line then; no height is reserved, because most turns have no line and a blank gap under each would cost more than the single shift.
+
+The outcome travels as a `namzu/session/outcome` notification ([Outcome notices](#outcome-notices)); the renderer keeps it on the turn (`ThreadState.turns[n].outcome`, matched by the turn id; a notice for a turn this window does not know, such as a late one, one replayed after a reconnect or one meant for another window, is dropped rather than put on the current turn, and history brings it back). A reopened conversation gets it back from the history snapshot: each entry of `work.turns` carries `outcome` (`verdict`, `line`, `changed`), read by the CLI from the turn's `turn_outcome_recorded` record, so a conversation saved before outcome records existed shows no line.
 
 ### Streaming a long reply
 
@@ -3854,6 +3954,13 @@ Closing the last window on Windows or Linux, or quitting, while a reply runs ask
 still running" with **Keep working** (the default) and **Quit and stop**; replies that were
 running are marked `closedWhileRunning` in the saved conversation, and the next launch ends
 that conversation with "Stopped because Namzu was closed." until a new message is sent.
+Under that line the conversation says in one line what the reply's own actions did (for example "1 action
+finished before it stopped; 1 did not"; an action that failed is counted as failed, never as finished) when it took any, and offers one button, **Ask Namzu to continue**,
+with the line "This sends a new message. The stopped reply cannot be resumed." The engine can retry only a
+turn that paused on a provider error (`namzu/sessions/retry`); a turn cut off by closing the app has no
+checkpoint to resume from, so the button sends "Please continue from where you stopped." as an ordinary new
+message, on the model chosen now. Sending any message, that one included, settles the old stop. The button
+is absent where a message cannot be sent now (an untrusted folder, no provider, a reply running).
 A conversation title comes from the words typed, never from the attached file's text
 (`Attached text file: "name"`): a message with only files is titled with the first file's name.
 
@@ -3963,6 +4070,21 @@ runtime processes it owns to stop, including a connection already terminated
 by a signal. A failed connection offers Reconnect; stopped work is never
 silently replayed.
 
+### Tool servers in Settings
+
+**Settings ▸ Tools** opens with **Tool servers**, read from `namzu/mcp/servers` for the project in front (the
+project's name is in the line under the heading). Each row shows the server's name, where it is defined
+("Your own settings", "This project's settings", ".mcp.json in this project"), the command or address it uses, and its
+state: Connected, Waiting for your approval, Failed (with the engine's reason) or Not connected right now (no open conversation in the project holds it: none
+has started, or the ones that did are closed). The list is read again when the window regains focus, and a list
+read for one project is never shown under another project's name. A failure is remembered with the server's settings
+as they were; once those settings change it is no longer shown. The list is read-only. When servers from `.mcp.json` wait, a box above the list
+says they have not started and that approving lets them run the listed programs, with one button, **Approve this
+server** or **Approve these N servers**. It sends the names and fingerprints it was shown to `namzu/mcp/approve`,
+the same record `namzu mcp approve` writes, and reads the list again. The engine takes a project's servers instead of the
+user's whole table once the project has any approved, so the list shows what would start. A folder nobody
+trusted shows nothing; a `.mcp.json` that cannot be read shows its error. The old "Not set" row for this setting is gone.
+
 ## Optional operator wire methods
 
 These methods exist only under `--desktop`, and initialization advertises them.
@@ -3982,6 +4104,9 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/conversations/rename` | exact `sessionId`, `title` (at most 200 characters) | `{title}`; names the conversation, and an empty title restores the title derived from its first message |
 | `namzu/conversations/fork` | exact `sessionId` | `{id, title}` of a new owned copy; refused while a turn is open, for a Pal workspace, or when the conversation has no messages |
 | `namzu/conversations/markdown` | exact `sessionId` | `{markdown, truncated}`; the strict transcript export, cut at 4 MiB of UTF-8 on a character boundary with `truncated: true` |
+| `namzu/conversations/search` | `query` (2 to 200 characters), optional `limit` (1 to 50, default 20) | `{hits: [{sessionId, excerpt}]}`: the project's recent conversations whose replies or tool output contain the text (case folded, through the session index's evidence search), one hit each, `excerpt` a one-line window of about 120 characters around the match in a reply, or a plain "Found in what “<tool>” returned" for a match in tool output, whose text is withheld. Needs a trusted folder; empty in a Pal workspace; nothing is logged |
+| `namzu/mcp/servers` | `{}` | `{servers: [{name, origin, state, detail?, reason?, fingerprint?}], error?}`: the project's tool servers. `origin` is `your-config`, `this-project` (`namzu.config.json`) or `project-file` (`.mcp.json`); `state` is `connected` (a conversation of this project has it), `waiting` (in `.mcp.json`, not approved), `failed` (`reason` says why; the last conversation start in this folder was refused for it) or `idle` (approved and not started yet). `detail` is a command name or a web origin, never arguments, headers or environment. `fingerprint` is on `waiting` rows only. Reads files; starts nothing; empty for an untrusted folder or a Pal |
+| `namzu/mcp/approve` | `servers: [{name, fingerprint}]` | `{approved: [name]}`: records the approval the way `namzu mcp approve` does, bound to the entry as listed (an entry that changed since stays waiting) |
 | `namzu/project/git` | `{}` | `{branch, subject}` for the host folder, or `null` when untrusted, not a repository, git is missing or slower than 3 s. `branch` is `null` on a detached HEAD, `subject` is the last commit's first line (200 characters). Runs `git -c core.fsmonitor=false --no-optional-locks` with no shell, `GIT_OPTIONAL_LOCKS=0`, a 64 KiB output cap and a 15 s cache per folder |
 | `namzu/project/changes` | `{}` | `{files, truncated}` of the working tree against HEAD, or `null` when untrusted or not a repository (a timeout is an error, never an empty list). Each file is `{path, status, added, removed, oldPath?, binary?}` (a renamed binary file stays `renamed` and carries `binary: true`) with `status` one of `modified`, `added`, `deleted`, `renamed`, `untracked`, `binary`, paths relative to the host folder. At most 2,000 files, then `truncated: true` |
 | `namzu/project/diff` | exact `path` | `{before, after, binary, truncated}`: the file in HEAD and in the working tree, `null` for a side that does not exist, `binary: true` for NUL bytes or invalid UTF-8, `truncated: true` over 2 MiB. Requires folder trust; the path is confined as the file panel's are |
@@ -4047,6 +4172,20 @@ The shared protocol bridge says nothing about how full a conversation is or that
 | `tokensBefore`, `tokensAfter` | the size the pass started from and ended at, when known |
 
 A field the engine did not report is left out, never sent as zero. Usage notices are coalesced to at most one per conversation every 400 ms (the first goes at once, a burst ends with one carrying the latest numbers); compaction notices are never delayed. Compaction that runs while no turn is open (the idle pass) is not announced.
+
+### Outcome notices
+
+Under `--desktop` only, the host also sends one `namzu/session/outcome` notification when a turn ends (`src/commands/desktop-outcome-feed.ts`), without any request. It is read from the final `turn_completed` or `turn_failed` event's settlement, which carries the kernel's turn outcome record, and a turn that recorded none sends none. A client that does not know it ignores it.
+
+| Field | Meaning |
+| --- | --- |
+| `sessionId`, `turnId` | the conversation and the turn |
+| `verdict` | `unchanged`, `checked`, `stale`, `failing`, `inconclusive`, `unchecked` or `unknown`, as in [Turn outcome](../sdk/turn-outcome.md#the-verdict) |
+| `line` | the terminal's end-of-turn wording for the record; absent when it has nothing to say (nothing changed, no check failed) |
+| `changed` | how many files the turn's write tools changed |
+| `outcome` | the record itself, as the kernel bounded it |
+
+Desktop admits `verdict`, `line` (one line of at most 500 characters, control characters turned into spaces) and `changed`, and drops the rest; a notice that does not read, or names a conversation another connection owns, is ignored.
 
 ### Working-tree changes
 

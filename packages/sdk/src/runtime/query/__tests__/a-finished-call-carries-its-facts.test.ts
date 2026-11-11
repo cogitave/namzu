@@ -131,6 +131,7 @@ describe('a finished call', () => {
 			kind: 'failure',
 			reason: 'needs_administrator',
 			subject: 'shell',
+			note: 'Denied by a pattern rule matching the args: sudo',
 		})
 	})
 
@@ -140,6 +141,7 @@ describe('a finished call', () => {
 			kind: 'failure',
 			reason: 'blocked',
 			subject: 'shell',
+			note: 'Denied by a pattern rule matching the args: rm -r',
 		})
 	})
 

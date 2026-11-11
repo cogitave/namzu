@@ -1,6 +1,7 @@
 import { Activity, Bot, KeyRound, SquareTerminal, Volume2, Wrench } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { ProjectView } from '../shared/protocol.js'
+import { FINISHED_NOTICE_AFTER_SECONDS } from '../shared/settings-protocol.js'
 import {
 	type DataFolderKind,
 	type DesktopInfo,
@@ -28,6 +29,7 @@ import {
 } from './icons.js'
 import { LocalListeningSettingsContent } from './local-listening-settings.js'
 import { LocalSpeechSettingsContent } from './local-speech-settings.js'
+import { McpServersRows } from './mcp-servers-section.js'
 import { ModelsSection } from './models-section.js'
 import { middleEllipsis, tildePath } from './path-display.js'
 import { SettingsConfirmDialog } from './settings-confirm-dialog.js'
@@ -52,6 +54,7 @@ import type { DesktopSettingsControls } from './use-desktop-settings.js'
 import { useEngineUpdates } from './use-engine-updates.js'
 import type { LocalListeningControls } from './use-local-listening.js'
 import type { LocalSpeechControls } from './use-local-speech.js'
+import { useMcpServers } from './use-mcp-servers.js'
 import { useProviderConnections } from './use-provider-connections.js'
 import './settings-page.css'
 
@@ -283,6 +286,7 @@ function SectionBody(props: SectionProps) {
 		<div className="settings-section" data-section={props.section}>
 			{props.section === 'general' && <GeneralSection {...props} />}
 			{props.section === 'models' && <ModelsContainer />}
+			{props.section === 'tools' && <McpServersContainer {...props} />}
 			{props.section === 'projects' && <ProjectsSection {...props} />}
 			{props.section === 'appearance' && <AppearanceSection {...props} />}
 			{props.section === 'updates' && <UpdatesSection {...props} />}
@@ -297,6 +301,7 @@ function SectionBody(props: SectionProps) {
 				<ConfigSettingsGroup
 					section={props.section}
 					config={props.config}
+					omit={props.section === 'tools' ? ['mcpServers'] : undefined}
 					heading={
 						props.section === 'general' ||
 						props.section === 'models' ||
@@ -310,6 +315,18 @@ function SectionBody(props: SectionProps) {
 			{props.section === 'speech' && <SpeechSection {...props} />}
 			{props.section === 'about' && <AboutSection {...props} />}
 		</div>
+	)
+}
+
+function McpServersContainer({ engineTarget, projects }: SectionProps) {
+	const bridge = typeof window === 'undefined' ? undefined : window.namzu
+	const projectId = engineTarget?.projectId
+	const servers = useMcpServers(bridge, projectId)
+	return (
+		<McpServersRows
+			servers={servers}
+			projectName={projects.find((project) => project.id === projectId)?.name}
+		/>
 	)
 }
 
@@ -355,13 +372,61 @@ function GeneralSection({ settings, shells }: SectionProps) {
 			<Row
 				id="attention-signals"
 				label="Show when a conversation needs you"
-				description="While Namzu is in the background and a conversation is waiting for an answer, show a count on its icon and flash the taskbar or dock once. It clears when you come back. No sound and no pop-up."
+				description="While Namzu is in the background and a conversation is waiting for an answer, show a count on its icon and flash the taskbar or dock once. It clears when you come back."
 			>
 				<Switch
 					label="Show when a conversation needs you"
 					checked={settings.settings?.attentionSignals ?? true}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ attentionSignals: value })}
+				/>
+			</Row>
+			<Row
+				id="notify-needs-you"
+				label="Notify me when a conversation needs my answer"
+				description="A system notification when an approval or a question is waiting and Namzu is in the background. It shows the project's name and nothing from the conversation."
+			>
+				<Switch
+					label="Notify me when a conversation needs my answer"
+					checked={settings.settings?.notifyNeedsYou ?? true}
+					disabled={!settings.settings}
+					onChange={(value) => void settings.change({ notifyNeedsYou: value })}
+				/>
+			</Row>
+			<Row
+				id="notify-failed"
+				label="Notify me when a conversation stops with an error"
+				description="A system notification when a reply stops with an error and Namzu is in the background."
+			>
+				<Switch
+					label="Notify me when a conversation stops with an error"
+					checked={settings.settings?.notifyFailed ?? true}
+					disabled={!settings.settings}
+					onChange={(value) => void settings.change({ notifyFailed: value })}
+				/>
+			</Row>
+			<Row
+				id="notify-finished"
+				label="Notify me when a long reply finishes"
+				description={`A system notification when a reply that took ${FINISHED_NOTICE_AFTER_SECONDS} seconds or more is done and Namzu is in the background. A reply you watched end needs none.`}
+			>
+				<Switch
+					label="Notify me when a long reply finishes"
+					checked={settings.settings?.notifyFinished ?? true}
+					disabled={!settings.settings}
+					onChange={(value) => void settings.change({ notifyFinished: value })}
+				/>
+			</Row>
+			<Row
+				id="notify-sound"
+				label="Play a sound with notifications"
+				description="Off by default. Your system's do-not-disturb setting still applies."
+			>
+				<Switch
+					label="Play a sound with notifications"
+					checked={settings.settings?.notifySound ?? false}
+					disabled={!settings.settings}
+					onChange={(value) => void settings.change({ notifySound: value })}
 				/>
 			</Row>
 			<TerminalSettings settings={settings} shells={shells} />
