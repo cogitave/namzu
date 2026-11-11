@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { ConversationUnread } from './conversation-unread.js'
-import { viewedTabs } from './viewed-conversations.js'
+import { viewedTabs, windowsHoldingTab } from './viewed-conversations.js'
 
 const none: ReadonlySet<string> = new Set()
 
@@ -98,4 +98,23 @@ it('counts the active tab of every pane of every shown window, and nothing else'
 	expect([...viewedTabs(layout, () => true)].sort()).toEqual(['b', 'c', 'e'])
 	expect([...viewedTabs(layout, (id) => id === 'w2')]).toEqual(['e'])
 	expect([...viewedTabs(layout, () => false)]).toEqual([])
+})
+
+it('lists the windows that hold a tab, the one showing it first', () => {
+	// `a` is a background tab in w1; `e` is the active tab in w2; `zzz` is nowhere.
+	expect(windowsHoldingTab(layout, 'a')).toEqual(['w1'])
+	expect(windowsHoldingTab(layout, 'e')).toEqual(['w2'])
+	expect(windowsHoldingTab(layout, 'zzz')).toEqual([])
+	const both = {
+		...layout,
+		windows: [
+			layout.windows[0] as (typeof layout.windows)[number],
+			{
+				id: 'w4',
+				focusedGroupId: 'g9',
+				root: { kind: 'group' as const, id: 'g9', tabs: ['a'], activeTabId: 'a' },
+			},
+		],
+	}
+	expect(windowsHoldingTab(both, 'a')).toEqual(['w4', 'w1'])
 })

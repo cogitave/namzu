@@ -674,6 +674,8 @@ export type DesktopEvent = (
 	| { kind: 'open-settings'; section?: SettingsSection }
 	/** A File menu tab entry (Close tab, Next tab, Previous tab); only the focused window gets it. */
 	| { kind: 'tab-command'; command: TabCommand }
+	/** A system notification was clicked: show this conversation; only the focused window gets it. */
+	| { kind: 'show-conversation'; sessionId: string }
 	| { kind: 'project-removed'; projectId: string; sessionIds: string[] }
 	/** A stored model list was refreshed and its rows differ; the next read returns the new rows. */
 	| { kind: 'model-catalogue-updated'; engine: string; provider: string }

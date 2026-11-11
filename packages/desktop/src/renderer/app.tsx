@@ -171,6 +171,7 @@ import {
 	terminalUnavailableReason,
 } from './new-tab-menu.js'
 import { normalConversationProject } from './normal-conversation.js'
+import { noticeClickAction } from './notice-target.js'
 import { dismissNotice, notify } from './notify.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
@@ -376,6 +377,8 @@ export function App({
 		})
 	const api = facade.current.api
 	const [projectsLoaded, setProjectsLoaded] = useState(false)
+	// A clicked notification's conversation, until the window can open it.
+	const [noticeConversation, setNoticeConversation] = useState<string | null>(null)
 	const [catalogueReady, setCatalogueReady] = useState(false)
 	// How each project's own conversation list went this session, and the sort keys those lists
 	// delivered. The sidebar draws remembered rows until a project's list arrives, and keeps what
@@ -2005,6 +2008,11 @@ export function App({
 			if (event.kind === 'tab-command') {
 				if (context.current.focused && !context.current.frozen)
 					runTabChordRef.current({ kind: event.command })
+				return
+			}
+			if (event.kind === 'show-conversation') {
+				// Acted on by the effect below, which waits for the list and the window when it must.
+				setNoticeConversation(event.sessionId)
 				return
 			}
 			if (event.kind === 'open-settings') {
@@ -5184,8 +5192,22 @@ export function App({
 				return true
 		}
 	}
+	const openConversationRef = useRef<(view: ConversationView) => void>(() => {})
+	openConversationRef.current = (view) => void act(() => openConversation(view))
 	const runTabChordRef = useRef(runTabChord)
 	runTabChordRef.current = runTabChord
+	useEffect(() => {
+		if (!noticeConversation) return
+		const action = noticeClickAction(noticeConversation, {
+			conversations,
+			loaded: projectsLoaded,
+			frozen,
+		})
+		if (action.kind === 'wait') return
+		setNoticeConversation(null)
+		if (action.kind === 'open') openConversationRef.current(action.view)
+		else if (!loading) void act(newConversation)
+	}, [noticeConversation, conversations, projectsLoaded, frozen, loading, act, newConversation])
 
 	useEffect(() => {
 		const onKey = (event: KeyboardEvent) => {
