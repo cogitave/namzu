@@ -530,6 +530,15 @@ export class OutcomeLedger {
 		return outcome
 	}
 
+	/**
+	 * The record as it stands, on the calls basis, without asking the detector
+	 * and without settling: the turn goes on and `finish` still answers once.
+	 */
+	peek(): TurnOutcome | undefined {
+		if (this.unrecorded) return undefined
+		return this.compute(null)
+	}
+
 	private compute(endFingerprint: string | null): TurnOutcome {
 		const workspace = this.started && this.startFingerprint !== null && endFingerprint !== null
 		const moved = workspace && this.startFingerprint !== endFingerprint

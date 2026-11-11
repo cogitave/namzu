@@ -18,7 +18,7 @@ generated:
 2. What was run to check it, and what did each check establish?
 3. Was the last word of each check said about the workspace as the turn left it?
 
-The record never blocks or prolongs a turn. The [completion audit](completion-audit.md) keeps its own rule and its one reminder.
+The record never blocks or prolongs a turn. The [completion audit](completion-audit.md) keeps its own rule and its one reminder, and, when it is on and a write tool changed a file, words that reminder from the record: `failing`, `stale` and a `masked` check each get their own sentence naming the command. The audit reads the record as it stands (`OutcomeLedger.peek`, the calls basis, no detector call, nothing settled), so the turn's own record is still taken once when it ends.
 
 ## The verdict
 
@@ -91,5 +91,5 @@ A child shares the workspace with its siblings, so its check can read `stale` be
 
 ## Related
 
-* [Completion audit](completion-audit.md): the one reminder, unchanged.
+* [Completion audit](completion-audit.md): the one reminder, worded from this record.
 * [Answer verification](verification.md): command-backed review of the answer.
