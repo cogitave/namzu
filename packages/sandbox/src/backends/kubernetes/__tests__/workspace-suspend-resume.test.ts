@@ -289,8 +289,8 @@ async function openWorkspace(
 /**
  * Resolve once the guest has parsed a request with this `op` AFTER `from`.
  *
- * Polled rather than awaited on a hook, because what a case needs to know is
- * that the agent RECEIVED the request — the point after which breaking the
+ * Awaited on the agent's own arrival signal, never polled against a
+ * deadline, because what a case needs to know is that the agent RECEIVED the request — the point after which breaking the
  * connection breaks a command that is already admitted rather than one that
  * was never sent.
  *
@@ -299,13 +299,9 @@ async function openWorkspace(
  * before the case has sent anything, and every case built on this would flip
  * its switch too early and prove nothing.
  */
-async function waitForRequest(op: string, from: number, timeoutMs = 2_000): Promise<void> {
-	const deadline = Date.now() + timeoutMs
-	while (Date.now() < deadline) {
-		if (agent?.requests.slice(from).some((request) => request.op === op)) return
-		await new Promise((resolve) => setTimeout(resolve, 5))
-	}
-	throw new Error(`the scripted agent never received a ${op} request`)
+async function waitForRequest(op: string, from: number): Promise<void> {
+	if (!agent) throw new Error('fixtures not started')
+	await agent.whenRequest(op, from)
 }
 
 /** Every token the guest has seen in a request envelope, in order. */

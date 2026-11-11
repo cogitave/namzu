@@ -294,6 +294,7 @@ const MAPPING: {
 	// manages its own context. A peer models a task lifecycle and cannot act on
 	// either outcome.
 	compaction_failed: null,
+	compaction_skills_carried: null,
 	// A refusal is the turn's own policy decision; the peer sees it in the
 	// terminal task state, not as a separate signal.
 	guardrail_triggered: null,

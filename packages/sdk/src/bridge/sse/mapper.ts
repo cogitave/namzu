@@ -232,6 +232,16 @@ const MAPPING: {
 		}),
 	},
 
+	compaction_skills_carried: {
+		wire: 'compaction.skills_carried',
+		transform: (e) => ({
+			iteration: e.iteration,
+			skills: e.skills,
+			cut: e.cut,
+			left_out: e.leftOut,
+		}),
+	},
+
 	compaction_failed: {
 		wire: 'compaction.failed',
 		transform: (e) => ({

@@ -108,13 +108,13 @@ const tick = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const DOWN = '\u001b[B'
 const ESC = '\u001b'
 
-async function frameShows(read: () => string | undefined, needle: string, budgetMs = 4000) {
-	const deadline = Date.now() + budgetMs
-	while (Date.now() < deadline) {
-		if ((read() ?? '').includes(needle)) return
-		await tick(20)
-	}
-	throw new Error(`no frame showed ${JSON.stringify(needle)} within ${budgetMs}ms`)
+/**
+ * Poll until a frame shows the needle. There is no deadline of its own: how
+ * long a render takes depends on the machine, so a frame that never shows it
+ * is a hang that the test's timeout reports.
+ */
+async function frameShows(read: () => string | undefined, needle: string) {
+	while (!(read() ?? '').includes(needle)) await tick(20)
 }
 
 async function askedOnScreen() {

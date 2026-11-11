@@ -1,7 +1,18 @@
 import { resolve as resolvePath } from 'node:path'
 
 import { CHARS_PER_TOKEN } from '../constants/limits.js'
+import {
+	CARRY_MAX_SKILLS,
+	CARRY_SKILLS_TOTAL_TOKENS,
+	CARRY_SKILLS_WINDOW_SHARE,
+	CARRY_SKILL_TOKENS,
+	type RenderedSkills,
+	isForkedSkillReport,
+	renderLoadedSkills,
+	skillResultBody,
+} from './loaded-skills.js'
 import type { WorkingStateManager } from './manager.js'
+import { isClearedToolResult } from './tool-result-editing.js'
 import type { WorkingState } from './types.js'
 
 /**
@@ -16,11 +27,11 @@ import type { WorkingState } from './types.js'
  */
 
 /** Skills restored per pass, most recent first. */
-export const RESTORE_MAX_SKILLS = 8
+export const RESTORE_MAX_SKILLS = CARRY_MAX_SKILLS
 /** Tokens of one restored skill. */
-export const RESTORE_SKILL_TOKENS = 5_000
+export const RESTORE_SKILL_TOKENS = CARRY_SKILL_TOKENS
 /** Tokens of all restored skills together. */
-export const RESTORE_SKILLS_TOTAL_TOKENS = 25_000
+export const RESTORE_SKILLS_TOTAL_TOKENS = CARRY_SKILLS_TOTAL_TOKENS
 /** Files restored per pass, most recent first. */
 export const RESTORE_MAX_FILES = 5
 /** Tokens of one restored file. */
@@ -30,10 +41,9 @@ export const RESTORE_FILES_TOTAL_TOKENS = 50_000
 /** The share of the window all restored files may take. */
 export const RESTORE_FILES_WINDOW_SHARE = 0.1
 /** The share of the window all restored skills may take. */
-export const RESTORE_SKILLS_WINDOW_SHARE = 0.05
+export const RESTORE_SKILLS_WINDOW_SHARE = CARRY_SKILLS_WINDOW_SHARE
 
 const CUT_MARKER = '\n… [cut to fit the restore budget]'
-const SKILL_CONTINUATION = /\n\n\[More skill instructions remain\.[^\]]*\]/g
 
 function isInstructionPath(path: string): boolean {
 	const normal = path.replace(/\\/g, '/')
@@ -73,9 +83,13 @@ export function recordRestorable(
 	if (!input) return
 	if (call.toolName === 'skill') {
 		if (!call.success || typeof input.name !== 'string') return
+		// A cleared result is a placeholder, not the instructions.
+		if (isClearedToolResult(call.output)) return
+		// A delegated agent's report is not the skill's instructions.
+		if (isForkedSkillReport(call.output)) return
 		manager.recordSkillBody(
 			input.name,
-			call.output.replace(SKILL_CONTINUATION, ''),
+			skillResultBody(call.output),
 			typeof input.cursor === 'string' && input.cursor.length > 0,
 		)
 		return
@@ -105,6 +119,10 @@ export interface RestoreRenderOptions {
 	readonly contextWindowTokens?: number
 	/** A host's own line to carry across, such as where its plan file is. */
 	readonly hostNote?: string
+	/** Skills whose instructions are already whole in the messages that follow the summary; not shown again. */
+	readonly wholeSkills?: ReadonlySet<string>
+	/** Told which skills were put back, which were cut and which were left out. */
+	readonly onSkills?: (rendered: RenderedSkills) => void
 }
 
 /** The section to append after a summary, or `undefined` when there is nothing to put back. */
@@ -113,10 +131,6 @@ export function renderRestoredContext(
 	options: RestoreRenderOptions = {},
 ): string | undefined {
 	const window = options.contextWindowTokens
-	const skillsTotal =
-		window === undefined
-			? RESTORE_SKILLS_TOTAL_TOKENS
-			: Math.min(RESTORE_SKILLS_TOTAL_TOKENS, Math.floor(window * RESTORE_SKILLS_WINDOW_SHARE))
 	const filesTotal =
 		window === undefined
 			? RESTORE_FILES_TOTAL_TOKENS
@@ -124,14 +138,15 @@ export function renderRestoredContext(
 
 	const sections: string[] = []
 
-	let skillBudget = skillsTotal
-	const skills = [...(state.restorable?.skills ?? [])].reverse()
-	for (const skill of skills) {
-		if (sections.length >= RESTORE_MAX_SKILLS || skillBudget <= 0) break
-		const body = fit(skill.body, Math.min(RESTORE_SKILL_TOKENS, skillBudget))
-		skillBudget -= Math.ceil(body.length / CHARS_PER_TOKEN)
-		sections.push(`### Skill: ${skill.name}\n\n${body}`)
-	}
+	const toShow = (state.restorable?.skills ?? []).filter(
+		(skill) => !options.wholeSkills?.has(skill.name),
+	)
+	const skills = renderLoadedSkills(
+		toShow,
+		window === undefined ? {} : { contextWindowTokens: window },
+	)
+	options.onSkills?.(skills)
+	if (skills.text) sections.push(`### Skills loaded earlier\n\n${skills.text}`)
 
 	let fileBudget = filesTotal
 	let files = 0

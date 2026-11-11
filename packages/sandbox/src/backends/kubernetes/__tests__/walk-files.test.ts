@@ -13,14 +13,12 @@
  * than abandoning it there.
  *
  * That last one is the reason this file uses a 12,000-file fixture where a
- * handful of files would have exercised every other assertion, and the reason
- * the cancellation cases MEASURE. "No walk process afterwards" is true of a
- * walk that was killed and equally true of one that was simply allowed to
- * finish, so a fixture big enough to still be walking at the break buys the
- * positive control (the process is there to kill) and, with the uninterrupted
- * walk timed on this machine, a window a backend that ignored the
- * cancellation could not possibly land in. Both are asserted; neither is
- * assumed.
+ * handful of files would have exercised every other assertion. "No walk
+ * process afterwards" is true of a walk that was killed and equally true of
+ * one that was simply allowed to finish, so the cancellation cases FREEZE the
+ * walk (SIGSTOP) once they have seen it: a stopped walk cannot finish by
+ * itself, so it leaves the process table only if the guest really kills it.
+ * No elapsed time is compared anywhere.
  *
  * Why `/proc` and not a marker file: the walk program is fixed SDK code and
  * cannot be asked to leave evidence behind the way the conformance suite's
@@ -342,7 +340,9 @@ const PROCESS_SCAN = [
 	'  if (!/^[0-9]+$/.test(name)) continue;',
 	'  let cmdline;',
 	"  try { cmdline = fs.readFileSync('/proc/' + name + '/cmdline', 'utf8'); } catch { continue; }",
-	'  if (cmdline.includes(marker)) count += 1;',
+	'  if (!cmdline.includes(marker)) continue;',
+	'  count += 1;',
+	"  if (process.env.NAMZU_WALK_FREEZE === '1') { try { process.kill(Number(name), 'SIGSTOP'); } catch {} }",
 	'}',
 	'process.stdout.write(String(count));',
 ].join('\n')
@@ -354,87 +354,46 @@ describe.skipIf(IS_WINDOWS || process.platform !== 'linux')('walkFiles cancellat
 	} as const
 
 	/**
-	 * How long an UNINTERRUPTED walk of the big fixture takes on this machine.
+	 * Count the walk processes and, when `freeze` is set, SIGSTOP each one it
+	 * finds.
 	 *
-	 * Measured, not hard-coded, and measured once for the whole describe: it is
-	 * the number both cases below subtract their own stop from, so the
-	 * assertion scales with whatever machine runs it instead of encoding this
-	 * one's ~1.7 s.
+	 * "No walk process afterwards" is true of a walk that was killed and
+	 * equally true of one left to finish. Instead of timing the difference,
+	 * the walk is frozen once it has been seen: a stopped process cannot
+	 * finish its tree, so it leaves the process table only if the guest
+	 * really kills it (SIGKILL is the one signal a stopped process still
+	 * takes). The outcome no longer depends on how fast the machine is.
 	 */
-	let naturalWalkMs: number | undefined
-
-	const measureNaturalWalk = async (sandbox: KubernetesSandboxHandle): Promise<number> => {
-		if (naturalWalkMs !== undefined) return naturalWalkMs
-		const started = Date.now()
-		let seen = 0
-		for await (const _entry of sandbox.walkFiles(bigFixture, walkAll)) seen += 1
-		expect(seen).toBe(BIG_FIXTURE_TOTAL)
-		naturalWalkMs = Math.max(1, Date.now() - started)
-		return naturalWalkMs
-	}
-
-	const countWalkProcesses = async (
+	const scanWalkProcesses = async (
 		sandbox: KubernetesSandboxHandle,
 		marker: string,
+		freeze: boolean,
 	): Promise<number> => {
 		const result = await sandbox.exec('node', ['-e', PROCESS_SCAN], {
-			env: { NAMZU_WALK_MARKER: marker },
+			env: { NAMZU_WALK_MARKER: marker, NAMZU_WALK_FREEZE: freeze ? '1' : '' },
 		})
 		expect(result.exitCode).toBe(0)
 		return Number.parseInt(result.stdout.trim(), 10)
 	}
 
-	/** One scan, and what it cost — the unit the budget below is built from. */
-	const timedCount = async (
-		sandbox: KubernetesSandboxHandle,
-		marker: string,
-	): Promise<{ count: number; ms: number }> => {
-		const started = Date.now()
-		const count = await countWalkProcesses(sandbox, marker)
-		return { count, ms: Math.max(1, Date.now() - started) }
-	}
-
 	/**
-	 * The window a real cancellation has to land in, and the check that the
-	 * window means anything.
-	 *
-	 * A backend that accepted the cancellation and did nothing cannot produce a
-	 * process table without the walk in it until the walk FINISHES, which costs
-	 * the rest of `naturalWalkMs`. So the budget is a third of that plus two
-	 * process scans (a real stop pays for one scan, and the slack is the
-	 * second), and `naturalWalkMs` has to be at least 4.5 scans for the two
-	 * outcomes to be separated at all. On a machine fast enough to blur them
-	 * this fails LOUDLY, naming both numbers, rather than passing because the
-	 * walk had already ended.
+	 * Scans until the walk is gone. No deadline of its own: a walk that is
+	 * never killed stays frozen and the case's per-test timeout reports it.
 	 */
-	const cancellationBudgetMs = (probeMs: number): number => {
-		const natural = naturalWalkMs ?? 0
-		if (natural <= probeMs * 4.5) {
-			throw new Error(
-				`the fixture no longer discriminates on this machine: an uninterrupted walk of ${BIG_FIXTURE_TOTAL} files took ${natural} ms against a ${probeMs} ms process scan, so "no walk process afterwards" can no longer tell a killed walk from a finished one. Grow BIG_FIXTURE_DIRS/BIG_FIXTURE_FILES_PER_DIR.`,
-			)
-		}
-		return probeMs * 2 + natural / 3
-	}
-
-	/** Scans until the walk is gone or the budget runs out; answers the last count. */
 	const waitForNoWalkProcess = async (
 		sandbox: KubernetesSandboxHandle,
 		marker: string,
-		budgetMs: number,
 	): Promise<number> => {
-		const deadline = Date.now() + budgetMs
-		let last = await countWalkProcesses(sandbox, marker)
-		while (last !== 0 && Date.now() < deadline) {
+		let last = await scanWalkProcesses(sandbox, marker, false)
+		while (last !== 0) {
 			await new Promise((resolve) => setTimeout(resolve, 25))
-			last = await countWalkProcesses(sandbox, marker)
+			last = await scanWalkProcesses(sandbox, marker, false)
 		}
 		return last
 	}
 
 	it('breaking out of the iterator after 5 entries leaves no walk process in the guest', async () => {
 		const sandbox = await build()
-		const natural = await measureNaturalWalk(sandbox)
 		const iterator = sandbox.walkFiles(bigFixture, walkAll)[Symbol.asyncIterator]()
 
 		const seen: string[] = []
@@ -445,26 +404,17 @@ describe.skipIf(IS_WINDOWS || process.platform !== 'linux')('walkFiles cancellat
 		}
 		expect(seen.length).toBe(5)
 
-		// The positive control, and the reason the fixture is 12,000 files: there
-		// IS a walk process to kill at the moment the consumer stops.
-		const probe = await timedCount(sandbox, bigFixture)
-		expect(probe.count).toBeGreaterThan(0)
+		// The positive control: there IS a walk process at the moment the
+		// consumer stops, and from here it can only leave by being killed.
+		expect(await scanWalkProcesses(sandbox, bigFixture, true)).toBeGreaterThan(0)
 
-		const budget = cancellationBudgetMs(probe.ms)
-		const stopped = Date.now()
 		await iterator.return?.(undefined)
-		expect(await waitForNoWalkProcess(sandbox, bigFixture, budget)).toBe(0)
-		// The negative control: gone because it was KILLED, not because the walk
-		// ran out of tree. A backend that ignored `return()` would still owe most
-		// of `natural` milliseconds here.
-		expect(Date.now() - stopped).toBeLessThan(budget)
-		expect(budget).toBeLessThan(natural)
+		expect(await waitForNoWalkProcess(sandbox, bigFixture)).toBe(0)
 		await sandbox.destroy()
 	})
 
 	it('aborting options.signal stops the walk and leaves no process behind', async () => {
 		const sandbox = await build()
-		const natural = await measureNaturalWalk(sandbox)
 		const controller = new AbortController()
 		const iterator = sandbox
 			.walkFiles(bigFixture, { ...walkAll, signal: controller.signal })
@@ -472,21 +422,15 @@ describe.skipIf(IS_WINDOWS || process.platform !== 'linux')('walkFiles cancellat
 
 		const first = await iterator.next()
 		expect(first.done).toBe(false)
-		const probe = await timedCount(sandbox, bigFixture)
-		expect(probe.count).toBeGreaterThan(0)
+		expect(await scanWalkProcesses(sandbox, bigFixture, true)).toBeGreaterThan(0)
 
-		const budget = cancellationBudgetMs(probe.ms)
-		const stopped = Date.now()
 		controller.abort(new Error('the caller stopped searching'))
 		// Whichever way the abort settles the iteration — a rejection or a
 		// clean stop — is compliant; what is never compliant is a guest
-		// process still walking afterwards, or one that only stops because the
-		// tree ran out.
+		// process still there afterwards.
 		await iterator.next().catch(() => undefined)
 		await iterator.return?.(undefined).catch(() => undefined)
-		expect(await waitForNoWalkProcess(sandbox, bigFixture, budget)).toBe(0)
-		expect(Date.now() - stopped).toBeLessThan(budget)
-		expect(budget).toBeLessThan(natural)
+		expect(await waitForNoWalkProcess(sandbox, bigFixture)).toBe(0)
 		await sandbox.destroy()
 	})
 })

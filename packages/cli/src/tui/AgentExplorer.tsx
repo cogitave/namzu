@@ -25,7 +25,7 @@ import { fitHints } from './key-hints.js'
 import { selectionWindow } from './selection-window.js'
 import { END_WORDS, endWord } from './system-rows.js'
 import { truncateChoiceText } from './terminal-choice-text.js'
-import { terminalDisplayText } from './terminal-display.js'
+import { scriptText, terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 import { formatElapsed } from './units.js'
 import { formatCompactCount } from './units.js'
@@ -2296,7 +2296,7 @@ function expandTabs(line: string): string {
 }
 
 function oneLine(text: string): string {
-	return terminalDisplayText(text).replace(/\r?\n/g, ' ↵ ').replace(/\t/g, ' ⇥ ')
+	return scriptText(text, { newline: ' ↵ ', tab: ' ⇥ ' })
 }
 
 /** `42.1k`, `1.38M`; below 1,000 the exact count is short enough to show plainly. */

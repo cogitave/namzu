@@ -155,13 +155,14 @@ afterEach(() => {
 	removeTempDir(cwd)
 })
 
+/**
+ * Wait until `count` operations have been recorded. There is no deadline of
+ * its own: how late the session starts them depends on the machine, so calls
+ * that never arrive are a hang that the test's timeout reports.
+ */
 async function waitForCalls(count: number): Promise<void> {
-	const deadline = Date.now() + 2_000
-	while (Date.now() < deadline) {
-		if (operations.calls.length >= count) return
+	while (operations.calls.length < count)
 		await new Promise<void>((resolve) => setTimeout(resolve, 5))
-	}
-	throw new Error(`Only ${operations.calls.length}/${count} session operations started.`)
 }
 
 describe('AgentSession close owns its live work', () => {

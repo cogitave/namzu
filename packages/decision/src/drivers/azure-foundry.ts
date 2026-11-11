@@ -12,8 +12,8 @@ import {
 	parseScore,
 	parseYesNo,
 	postDecision,
+	postYesNo,
 	scoreQuestion,
-	yesnoQuestion,
 } from './wire.js'
 
 export interface AzureFoundryConfig {
@@ -43,9 +43,18 @@ export class AzureFoundryDecisionModel implements DecisionModel {
 		instructions: string,
 		opts?: DecisionRequestOptions,
 	): Promise<YesNoDecision> {
-		// `criteria` is not sent here: the field is not verified against this endpoint, so the
-		// request it has always received stays byte for byte the same.
-		return parseYesNo(await this.ask(state, yesnoQuestion(instructions), opts))
+		// `criteria` goes as the optional object with `true` and `false` keys that the vendor's
+		// published page describes (`{ true: <sentence> }`). No live call was made against this
+		// endpoint, so a 400 naming `criteria` is asked again once with the sentence folded into
+		// `instructions`, and that is remembered for this endpoint and deployment.
+		return parseYesNo(
+			await postYesNo({
+				post: (question) => this.ask(state, question, opts),
+				instructions,
+				...(opts?.criteria !== undefined ? { criteria: opts.criteria } : {}),
+				memoryKey: `${this.config.endpoint}\n${this.config.deployment}`,
+			}),
+		)
 	}
 
 	async choice<const T extends string>(

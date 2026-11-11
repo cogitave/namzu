@@ -779,7 +779,7 @@ import {
 import { StatusLineRows } from './status-line/StatusLineRows.js'
 import { useStatusLine } from './status-line/useStatusLine.js'
 import { splitCompleteBlocks, splitSafeCut } from './stream-blocks.js'
-import { terminalDisplayText } from './terminal-display.js'
+import { scriptText, terminalDisplayText } from './terminal-display.js'
 import { terminalFocus, useTerminalFocused } from './terminal-focus.js'
 import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
 import {
@@ -17885,7 +17885,7 @@ function workflowRunsHints(canStop: boolean, canResume: boolean): { text: string
 }
 
 /** One `/workflows` row: the name, then how it stands, how many agents, when it began and how long it took. */
-function workflowRunOption(run: WorkflowRunView): ChoicePickerOption {
+export function workflowRunOption(run: WorkflowRunView): ChoicePickerOption {
 	const counts = countAgents(run)
 	const tokens = runTokens(run)
 	// The word a finished run wears in the transcript, and the duration straight
@@ -17900,7 +17900,7 @@ function workflowRunOption(run: WorkflowRunView): ChoicePickerOption {
 		...(tokens > 0 ? [`${formatCompactCount(tokens)} tokens`] : []),
 		relativeStart(run.startedAt),
 	]
-	return { label: run.name, description: columns.join(' · ') }
+	return { label: scriptText(run.name, { maxCells: 48 }), description: columns.join(' · ') }
 }
 
 /** `just now` / `12m ago` / `3h ago` / `2d ago` — the same buckets a conversation's own resume picker shows. */

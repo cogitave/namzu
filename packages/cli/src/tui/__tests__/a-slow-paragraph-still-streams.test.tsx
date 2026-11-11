@@ -31,8 +31,18 @@ const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagent
  */
 const SENTENCES = ['The first sentence lands early.', 'Then a pause.', 'The third is the tail.']
 const SLOW_PARAGRAPH = SENTENCES.join(' ')
-/** Per-character delay: the whole reply takes ~1.5 s, well past the release interval. */
+/** Per-character delay while the head streams; it only paces the stream, no outcome depends on it. */
 const DELAY_MS = 15
+/** The reply up to the end of the second sentence. The tail is held back until a test releases it. */
+const HEAD = `${SENTENCES[0]} ${SENTENCES[1]}`
+const TAIL = SLOW_PARAGRAPH.slice(HEAD.length)
+
+/**
+ * The tail of the reply waits on this gate, so "the first sentence is on
+ * screen while the paragraph is unfinished" is a state the test holds the
+ * stream in, rather than a window it has to catch before a real clock closes it.
+ */
+const gate = vi.hoisted(() => ({ open: () => {} }))
 
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
@@ -82,7 +92,15 @@ vi.mock('../agent.js', async (importOriginal) => {
 			close: async () => {},
 			promptExemptTools: () => [],
 			send: async function* (): AsyncIterable<AgentEvent> {
-				for (const ch of SLOW_PARAGRAPH) {
+				const tailMayFollow = new Promise<void>((resolve) => {
+					gate.open = resolve
+				})
+				for (const ch of HEAD) {
+					yield { kind: 'delta', text: ch } as AgentEvent
+					await new Promise((r) => setTimeout(r, DELAY_MS))
+				}
+				await tailMayFollow
+				for (const ch of TAIL) {
 					yield { kind: 'delta', text: ch } as AgentEvent
 					await new Promise((r) => setTimeout(r, DELAY_MS))
 				}
@@ -109,15 +127,23 @@ afterEach(() => {
 
 const tick = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-async function frameShows(read: () => string | undefined, needle: string, budgetMs = 4000) {
-	const deadline = Date.now() + budgetMs
-	while (Date.now() < deadline) {
-		if ((read() ?? '').includes(needle)) return
-		await tick(20)
-	}
+/**
+ * Poll until the frame shows the needle. There is no deadline: a frame that
+ * never shows it is a hang, which the test's own timeout reports.
+ */
+async function frameShows(read: () => string | undefined, needle: string) {
+	while (!(read() ?? '').includes(needle)) await tick(20)
 }
 
-async function runTurnCapturing(): Promise<{ frames: string[]; final: string }> {
+/**
+ * Run the turn, releasing the held tail once the first sentence is on screen.
+ * `heldFrame` is the frame the stream was held in at that moment.
+ */
+async function runTurnCapturing(): Promise<{
+	frames: string[]
+	final: string
+	heldFrame: string
+}> {
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
 	await frameShows(harness.lastFrame, 'Type a message')
@@ -127,23 +153,30 @@ async function runTurnCapturing(): Promise<{ frames: string[]; final: string }> 
 	harness.stdin.write('\r')
 
 	const frames: string[] = []
-	const deadline = Date.now() + 8000
-	while (Date.now() < deadline) {
+	let heldFrame = ''
+	let released = false
+	for (;;) {
 		const f = harness.lastFrame() ?? ''
 		if (frames[frames.length - 1] !== f) frames.push(f)
+		if (!released && f.includes(SENTENCES[0] as string)) {
+			released = true
+			heldFrame = f
+			gate.open()
+		}
 		if (f.includes('is the tail.')) break
 		await tick(10)
 	}
-	return { frames, final: harness.lastFrame() ?? '' }
+	return { frames, final: harness.lastFrame() ?? '', heldFrame }
 }
 
 describe('a slow single-paragraph reply', () => {
 	it('shows its first sentence before the paragraph has finished', async () => {
-		const { frames } = await runTurnCapturing()
-		const partway = frames.filter(
-			(f) => f.includes('The first sentence lands early.') && !f.includes('is the tail.'),
+		const { heldFrame } = await runTurnCapturing()
+		// The tail had not been sent when this frame was read, so the paragraph was unfinished.
+		expect(heldFrame, 'the first sentence was never shown on its own').toContain(
+			'The first sentence lands early.',
 		)
-		expect(partway.length, 'the first sentence was never shown on its own').toBeGreaterThan(0)
+		expect(heldFrame).not.toContain('is the tail.')
 	})
 
 	it('still never shows a half-written word', async () => {

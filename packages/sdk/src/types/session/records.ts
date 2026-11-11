@@ -724,6 +724,7 @@ const SESSION_EVENT_TYPE_TABLE: Record<SessionEventType, true> = {
 	compaction_shed: true,
 	compaction_completed: true,
 	compaction_tool_results_cleared: true,
+	compaction_skills_carried: true,
 	compaction_failed: true,
 	tool_executing: true,
 	tool_progress: true,
