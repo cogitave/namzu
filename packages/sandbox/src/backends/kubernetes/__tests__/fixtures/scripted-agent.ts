@@ -163,7 +163,7 @@ export interface ScriptedAgent {
 	 * Resolves once a request with this `op` has been parsed at an index
 	 * `>= from`. Settles on the arrival itself, so a case never guesses how
 	 * long the loopback takes; a request that never comes is left to the
-	 * test's own timeout.
+	 * test's own timeout, or rejects when the agent closes.
 	 */
 	whenRequest(op: string, from: number): Promise<void>
 	/** Every TCP connection accepted, in order. A call that refuses before
@@ -281,17 +281,20 @@ export interface ScriptedAgent {
 	 */
 	setUnauthorizedDelayMs(ms: number): void
 	/**
-	 * Hold every FILE answer — `read-file`, `write-file` — for this long
-	 * before sending it, with the reply built when the request ARRIVED.
+	 * Withhold the NEXT single-shot answer this agent would send, until the
+	 * returned function is called, with the reply built when the request
+	 * ARRIVED. Answers after that one go out as usual.
 	 *
 	 * The mirror image of {@link setUnauthorizedDelayMs}, and the only way a
 	 * case can reach the pod replacement's other interleaving: a call the
 	 * OUTGOING pod accepted and is still working on when the handle follows
-	 * its replacement. Real bodies take real time, a rebind closes no socket,
-	 * and a pod inside its termination grace period goes on answering — so
-	 * that reply lands carrying the identity of the pod the host has left.
+	 * its replacement. A rebind closes no socket, and a pod inside its
+	 * termination grace period goes on answering — so that reply lands
+	 * carrying the identity of the pod the host has left. The case, not a
+	 * clock, decides when it lands. An answer still withheld when the agent
+	 * closes is dropped with its socket.
 	 */
-	setReplyDelayMs(ms: number): void
+	holdNextReply(): () => void
 	close(): Promise<void>
 }
 
@@ -310,7 +313,12 @@ export async function startScriptedAgent(
 	options: ScriptedAgentOptions = {},
 ): Promise<ScriptedAgent> {
 	const requests: Record<string, unknown>[] = []
-	const requestWaiters: { op: string; from: number; resolve: () => void }[] = []
+	const requestWaiters: {
+		op: string
+		from: number
+		resolve: () => void
+		reject: (error: Error) => void
+	}[] = []
 	const settleRequestWaiters = (): void => {
 		for (let i = requestWaiters.length - 1; i >= 0; i -= 1) {
 			const waiter = requestWaiters[i]
@@ -349,11 +357,11 @@ export async function startScriptedAgent(
 	const identity = (): Record<string, string> => (guestBootId === undefined ? {} : { guestBootId })
 	let healthzRefusal: string | undefined
 	let unauthorizedDelayMs = 0
-	let replyDelayMs = 0
+	let holdingNext: { release: () => void } | undefined
 	const open = new Set<Socket>()
 	/**
 	 * Send one single-shot answer and close the connection, after
-	 * {@link ScriptedAgent.setReplyDelayMs}.
+	 * {@link ScriptedAgent.holdNextReply}.
 	 *
 	 * The payload is the caller's, built at ARRIVAL: a delayed answer
 	 * carries the token and the boot id this agent had when the request
@@ -366,8 +374,11 @@ export async function startScriptedAgent(
 			send(socket, value)
 			socket.end()
 		}
-		if (replyDelayMs > 0) setTimeout(flush, replyDelayMs).unref?.()
-		else flush()
+		const hold = holdingNext
+		if (hold) {
+			holdingNext = undefined
+			hold.release = flush
+		} else flush()
 	}
 
 	const server: Server = createServer((socket) => {
@@ -673,8 +684,8 @@ export async function startScriptedAgent(
 		port,
 		requests,
 		whenRequest: (op, from) =>
-			new Promise<void>((resolve) => {
-				requestWaiters.push({ op, from, resolve })
+			new Promise<void>((resolve, reject) => {
+				requestWaiters.push({ op, from, resolve, reject })
 				settleRequestWaiters()
 			}),
 		connections,
@@ -707,8 +718,18 @@ export async function startScriptedAgent(
 		setUnauthorizedDelayMs: (next) => {
 			unauthorizedDelayMs = next
 		},
-		setReplyDelayMs: (next) => {
-			replyDelayMs = next
+		holdNextReply: () => {
+			const hold = { release: () => {} }
+			// Until an answer is withheld, releasing has nothing to send; once
+			// one is, `release` is that answer's flush.
+			holdingNext = hold
+			let released = false
+			return () => {
+				if (released) return
+				released = true
+				if (holdingNext === hold) holdingNext = undefined
+				hold.release()
+			}
 		},
 		setUnreachable: (next) => {
 			unreachable = next
@@ -717,6 +738,12 @@ export async function startScriptedAgent(
 		},
 		close: () =>
 			new Promise<void>((resolve) => {
+				// A request that never came settles its waiter rather than
+				// leaving the promise hanging.
+				for (const waiter of requestWaiters.splice(0)) {
+					waiter.reject(new Error(`agent closed before a '${waiter.op}' request arrived`))
+				}
+				holdingNext = undefined
 				server.close(() => resolve())
 			}),
 	}

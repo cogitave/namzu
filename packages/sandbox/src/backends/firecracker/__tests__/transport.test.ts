@@ -17,7 +17,7 @@
  * loopback, safe in CI.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { type Server, type Socket, createServer, connect as netConnect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -45,6 +45,16 @@ const require_ = createRequire(import.meta.url)
 interface AgentModule {
 	FIRECRACKER_AGENT_PROTOCOL_VERSION: number
 	handleConnection(socket: Socket): void
+}
+
+/** Whether a pid is a live process. A zombie reads as gone. */
+function isRunning(pid: number): boolean {
+	try {
+		const raw = readFileSync(`/proc/${pid}/stat`, 'utf8')
+		return raw.slice(raw.lastIndexOf(')') + 2).split(' ')[0] !== 'Z'
+	} catch {
+		return false
+	}
 }
 
 const EXECUTION_ID = 'exec_00000000-0000-4000-8000-000000000001'
@@ -190,7 +200,10 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback age
 				command: '/bin/sh',
 				args: [
 					'-c',
-					"trap '' TERM; (trap '' TERM; sleep 0.4; printf late > late.txt) & echo ready; wait",
+					// The background job records its own pid BEFORE it says ready, and
+					// would write `late.txt` only after a sleep far longer than this
+					// case, so the file's absence is not a matter of timing.
+					"trap '' TERM; sh -c 'trap \"\" TERM; echo $$ > child.pid; echo ready; sleep 30; printf late > late.txt' & wait",
 				],
 			},
 			{
@@ -210,7 +223,18 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback age
 		// Reservation, data-plane execute and cancellation each own a fresh
 		// connection; cancellation never depends on the stream it interrupts.
 		expect(connections).toBe(3)
-		await new Promise((resolve) => setTimeout(resolve, 500))
+		// Read after the count: the read is a connection of its own. The file was
+		// written before the job said ready.
+		const childPid = Number((await transport.readFile('child.pid')).toString().trim())
+		// The event the old half-second sleep stood in for: the background job
+		// being gone, after which it cannot write. No deadline of its own — a
+		// job the cancellation did not reach is a hang the per-test timeout
+		// reports, and it is killed below so it does not outlive the case.
+		try {
+			while (isRunning(childPid)) await new Promise((resolve) => setTimeout(resolve, 10))
+		} finally {
+			if (isRunning(childPid)) process.kill(childPid, 'SIGKILL')
+		}
 		await expect(transport.readFile('late.txt')).rejects.toThrow()
 	})
 
