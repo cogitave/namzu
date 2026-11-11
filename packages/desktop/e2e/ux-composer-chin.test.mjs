@@ -161,9 +161,9 @@ test("the effort control belongs to the model in use: it is left out beside anot
 		await expect(popup.getByRole("radio").first()).toBeVisible({ timeout: T });
 		await expect(popup.locator(".composer-effort-panel")).toHaveCount(1, { timeout: T });
 		await showProvider(page, "Anthropic (Claude)");
-		await expect(popup.getByRole("radio", { name: /claude-sonnet-5-5/ })).toBeVisible({ timeout: T });
+		await expect(popup.getByRole("radio", { name: "claude-sonnet-5-5" })).toBeVisible({ timeout: T });
 		await expect(popup.locator(".composer-effort-panel")).toHaveCount(0);
-		await showProvider(page, /OpenAI/);
+		await showProvider(page, new RegExp("OpenAI"));
 		await expect(popup.locator(".composer-effort-panel")).toHaveCount(1, { timeout: T });
 		assert.deepEqual(world.faults, [], "the renderer raised no uncaught errors");
 		failed = false;

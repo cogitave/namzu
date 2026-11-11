@@ -3553,7 +3553,7 @@ line with its context window and what a million tokens cost ("128k window · Fre
 per 1M"). Those come from what the model's source published in its list (`contextWindow`, `inputPrice` and
 `outputPrice` on a catalogue row, carried by `namzu/providers/models` and stored with the list); a value the source
 did not publish is left out, a model carried with placeholder limits shows no window, and a row with nothing known has
-no second line (its own note, if it has one, stays). Engines that list only names (Codex, Claude Code) show none.
+no second line (its own note, if it has one, stays). Engines that list only names show none.
 Under the list are the reasoning-effort slider (only where the model offers a choice, and only while the list on screen is the model in use's provider: beside another provider's models it is left out, since it would read as theirs; its fill is a neutral tone, lime stays on Send) and one **More** row, worded
 from what it holds ("More: provider, engine, Desktop or CLI"), which is not drawn when there is nothing behind it.
 **More** holds the engine (its chip opens the engine list, with updates noted there), the **Desktop | CLI** switch
