@@ -24,4 +24,9 @@ describe('named failures', () => {
 			NAMED_FAILURE_SENTENCES['undo-status-unavailable'],
 		)
 	})
+	it('promises no retry in the undo sentence, since a second failure is not retried', () => {
+		expect(NAMED_FAILURE_SENTENCES['undo-status-unavailable']).not.toMatch(
+			/once more|again|comes back/i,
+		)
+	})
 })

@@ -6,6 +6,9 @@
 export const COMPUTER_SETUP_NOTICE =
 	'A Pal’s computer needs Docker Desktop or Podman, installed and running. Once it is, start your Pal again.'
 
+export const PODMAN_STOPPED_NOTICE =
+	'Your Podman machine is not running. Start it, then start your Pal again.'
+
 /** Where to get one of the two; the help offers it as a button, never as text to look up. */
 export const DOCKER_DESKTOP_URL = 'https://www.docker.com/products/docker-desktop/'
 
@@ -26,8 +29,7 @@ export function presentComputerNotice(
 ): string | undefined {
 	const text = raw?.trim()
 	if (!text) return undefined
-	if (PODMAN_STOPPED.test(text))
-		return 'Your Podman machine is not running. Start it, then start your Pal again.'
+	if (PODMAN_STOPPED.test(text)) return PODMAN_STOPPED_NOTICE
 	// Once this PC is set up, pointing back at the setup would send the person round in a circle.
 	if (WINDOWS_SETUP.test(text))
 		return options.setupRan
@@ -51,9 +53,14 @@ export function computerSetupMissing(raw: string | undefined): boolean {
 	return PODMAN_STOPPED.test(text) || SETUP.test(text) || NOT_LOCAL.test(text)
 }
 
+/** Whether the notice says the Podman machine exists but is stopped (starting it is all that is missing). */
+export function computerPodmanStopped(raw: string | undefined): boolean {
+	return Boolean(raw && PODMAN_STOPPED.test(raw))
+}
+
 /** One plain sentence for what is missing, shown beside a Start that is switched off. */
 export function computerMissingSentence(name: string, raw: string | undefined): string {
-	return raw && PODMAN_STOPPED.test(raw)
+	return computerPodmanStopped(raw)
 		? `${name}’s computer cannot start: your Podman machine is not running.`
 		: `${name}’s computer cannot start yet: it needs Docker Desktop or Podman, and neither is ready on this computer.`
 }

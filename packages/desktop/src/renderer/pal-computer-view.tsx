@@ -14,13 +14,13 @@ import type {
 } from '../shared/protocol.js'
 import { ComputerHeldKeyboard } from './computer-held-keyboard.js'
 import { ComputerInputRetiredError, computerSurfaceOwnsFocus } from './computer-input-focus.js'
-import { GetDockerButton } from './get-docker-button.js'
 import { ArrowLeftIcon, LoaderCircleIcon, MonitorIcon, RefreshIcon } from './icons.js'
 import {
 	computerFrameReady,
 	computerKeyboardInput,
 	computerScreenPoint,
 } from './pal-computer-input.js'
+import { PalComputerSetupCard } from './pal-computer-setup-card.js'
 import { PalLiveScreen } from './pal-live-screen.js'
 import { Button } from './ui/button.js'
 import './pal-computer-view.css'
@@ -34,6 +34,8 @@ export interface PalComputerViewProps
 		notice?: string
 		/** This PC lacks what a Pal's computer runs on: one setup card, no repeated reads. */
 		setupMissing?: boolean
+		/** The Podman machine exists and is stopped: starting it is all that is missing. */
+		podmanStopped?: boolean
 	}
 	screen: PalScreenView | null
 	loading: boolean
@@ -427,19 +429,7 @@ export function PalComputerView({
 								}}
 							/>
 						) : computer.setupMissing && computer.status === 'error' && !loading ? (
-							<div className="pal-computer-empty pal-computer-setup-card" data-setup-card>
-								<MonitorIcon />
-								<h3>Set up {palName}’s computer</h3>
-								<p>
-									A private desktop where {palName} can open apps and files, kept apart from yours.
-								</p>
-								<p>
-									It needs Docker Desktop or Podman, and about 1.2 GB of disk for the computer
-									image.
-								</p>
-								<GetDockerButton />
-								<p>Chatting works without it. Namzu checks again when you come back here.</p>
-							</div>
+							<PalComputerSetupCard palName={palName} podmanStopped={computer.podmanStopped} />
 						) : (
 							<div className="pal-computer-empty">
 								{loading || computer.status === 'connecting' ? (

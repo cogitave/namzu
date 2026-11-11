@@ -68,7 +68,7 @@ import type {
 	ProviderView,
 } from '../shared/protocol.js'
 import { readProviderConnections } from '../shared/provider-connections.js'
-import { ReconnectRetry } from '../shared/reconnect-retry.js'
+import { ReconnectRetries } from '../shared/reconnect-retry.js'
 import { isReviewModeId } from '../shared/review-modes.js'
 import {
 	type SidebarSectionId,
@@ -1111,6 +1111,7 @@ export class Operator {
 			this.unreadPals.delete(id)
 			for (const sessionId of scope.sessionIds) this.backgroundWork.invalidate(sessionId)
 			for (const projectId of scope.projectIds) this.projects.delete(projectId)
+			for (const projectId of scope.projectIds) this.undoRetries.drop(projectId)
 			for (const sessionId of scope.sessionIds) {
 				this.conversations.delete(sessionId)
 				this.attachmentPreviews.forget(sessionId)
@@ -1803,6 +1804,7 @@ export class Operator {
 			}
 		for (const [attachmentId, file] of this.attachmentFiles)
 			if (retiredOwners.has(file.ownerId)) this.attachmentFiles.delete(attachmentId)
+		this.undoRetries.drop(projectId)
 		for (const id of sessionIds) {
 			this.conversations.delete(id)
 			this.attachmentPreviews.forget(id)
@@ -2083,7 +2085,7 @@ export class Operator {
 		this.emit({ kind: 'connection', project: { ...view } })
 		if (view.status === 'ready') {
 			this.clearLostErrors(view.id)
-			this.undoRetries.get(view.id)?.reconnected()
+			this.undoRetries.reconnected(view.id)
 		}
 		this.persistDesktop()
 		return { ...view }
@@ -2391,6 +2393,7 @@ export class Operator {
 			this.pendingConversationRemovals.delete(sessionId)
 			this.backgroundWork.invalidate(sessionId)
 			this.conversations.delete(sessionId)
+			this.undoRetries.forget(view.projectId, sessionId)
 			this.attentionChanged()
 			this.attachmentPreviews.forget(sessionId)
 			if (this.unreadConversations.forget([sessionId])) this.unreadChanged()
@@ -2538,6 +2541,7 @@ export class Operator {
 			}
 			// Leave the map first so the connection's own close is not reported as a failure.
 			this.projects.delete(projectId)
+			this.undoRetries.drop(projectId)
 			this.backgroundWork.invalidateProject(projectId)
 			try {
 				await this.closeClient(project.client)
@@ -4745,26 +4749,20 @@ export class Operator {
 		this.emit({ kind: 'undo-status', sessionId: session.view.id, turns })
 	}
 	/** An undo read that failed is asked once more when its project reconnects, never on a timer. */
-	private readonly undoRetries = new Map<string, ReconnectRetry>()
-	private undoRetryFor(projectId: string): ReconnectRetry {
-		let retries = this.undoRetries.get(projectId)
-		if (!retries) {
-			retries = new ReconnectRetry()
-			this.undoRetries.set(projectId, retries)
-		}
-		return retries
-	}
+	private readonly undoRetries = new ReconnectRetries()
 	private async refreshUndoQuietly(session: Conversation): Promise<void> {
 		const key = session.view.id
-		const retries = this.undoRetryFor(session.view.projectId)
+		const projectId = session.view.projectId
 		try {
 			await this.refreshUndo(session)
-			retries.succeeded(key)
+			this.undoRetries.succeeded(projectId, key)
 		} catch (error) {
-			retries.failed(key, () => {
-				const current = this.conversations.get(key)
-				if (current && !this.closing) void this.refreshUndoQuietly(current)
-			})
+			// A conversation that closed while the read was in flight is not asked for again.
+			if (this.conversations.get(key) === session)
+				this.undoRetries.failed(projectId, key, () => {
+					const current = this.conversations.get(key)
+					if (current && !this.closing) void this.refreshUndoQuietly(current)
+				})
 			try {
 				this.diagnostics?.record('cli_notice', {
 					operation: 'namzu/turns/undo-status',

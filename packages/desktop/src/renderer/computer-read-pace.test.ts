@@ -132,4 +132,18 @@ describe('a computer that is not set up', () => {
 			vi.useRealTimers()
 		}
 	})
+
+	it('is no longer parked once it is stopped, so a left Pal holds no wake-up', () => {
+		const scheduler = createComputerReadScheduler({ run: () => {} })
+		scheduler.settle({
+			ready: false,
+			watching: false,
+			failed: false,
+			answered: true,
+			parked: true,
+		})
+		expect(scheduler.parked).toBe(true)
+		scheduler.stop()
+		expect(scheduler.parked).toBe(false)
+	})
 })

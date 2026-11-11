@@ -3,7 +3,10 @@
  * work": the undo status, the message settings and the model and provider setup. Each has one
  * reason the diagnostic log records and one plain sentence the person reads where they are (the
  * undo dialog, the settings row, the model row). Main and the renderer share this table, so a
- * reason in the log and the sentence on screen cannot drift apart.
+ * reason in the log and the sentence on screen cannot drift apart. The undo dialog shows only
+ * `undo-status-invalid`; an undo status that could not be read leaves the card as it was and is
+ * recorded in the log with `undo-status-unavailable`, so that sentence has no place on screen and
+ * promises nothing.
  */
 export type NamedFailureReason =
 	| 'undo-status-invalid'
@@ -15,8 +18,7 @@ export type NamedFailureReason =
 export const NAMED_FAILURE_SENTENCES: Record<NamedFailureReason, string> = {
 	'undo-status-invalid':
 		'Namzu could not tell which files this reply changed. Close this and open the conversation again.',
-	'undo-status-unavailable':
-		'Namzu could not check whether this reply can be undone. It will try once more when the connection comes back.',
+	'undo-status-unavailable': 'Namzu could not check whether this reply can be undone.',
 	'settings-unavailable': 'Saved message settings could not be loaded. Try again.',
 	'provider-not-configured':
 		'This model is not set up yet. Open the model list to set it up, or choose another model.',

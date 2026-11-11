@@ -98,7 +98,7 @@ import { copyPlainText } from './copy-button.js'
 import { holdsDiscardableDraft } from './discard-draft.js'
 import { signInHelpFor } from './engine-setup.js'
 import { setEngineSignedOut } from './engine-sign-in.js'
-import { pollDelay } from './failing-poll.js'
+import { createFailingPoll } from './failing-poll.js'
 import { FilePanelBody } from './file-panel/file-panel.js'
 import {
 	MIN_PANEL_WIDTH,
@@ -178,7 +178,7 @@ import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
 import {
 	computerNotSetUp,
-	computerSetupMissing,
+	computerPodmanStopped,
 	presentComputerNotice,
 } from './pal-computer-notice.js'
 import {
@@ -2335,63 +2335,55 @@ export function App({
 			return
 		}
 		let current = true
-		let pending: Promise<void> | undefined
+		let pending: Promise<boolean> | undefined
 		setJobs([])
 		setJobsSessionId(sessionId)
 		setJobsLoading(true)
 		setJobsError('')
-		// Reads in a row that failed: the poll slows down, then stops until something changes.
-		let failures = 0
-		let timer: ReturnType<typeof setTimeout> | undefined
-		const read = (): Promise<void> => {
+		// The poll slows down after failures and stops after four in a row; a reconnect, a manual
+		// refresh or the window coming back starts it again.
+		const read = (): Promise<boolean> => {
 			if (pending) return pending
 			pending = (async () => {
+				let ok = false
 				try {
 					const rows = await api.jobs(sessionId)
-					failures = 0
+					ok = true
 					if (current) {
 						setJobs(rows)
 						setJobsSessionId(sessionId)
 						setJobsError('')
 					}
 				} catch (failure) {
-					failures += 1
 					if (current) setJobsError(errorText(failure, 'load the scheduled tasks'))
 				} finally {
 					pending = undefined
 					if (current) setJobsLoading(false)
 				}
+				return ok
 			})()
 			return pending
 		}
+		const poll = createFailingPoll({ baseMs: 2000, read })
 		// A stop refresh follows any older in-flight poll, so that an older
 		// running snapshot cannot overwrite the newly confirmed terminal state.
-		const schedule = () => {
-			const delay = pollDelay(2000, failures)
-			if (!current || delay === null || timer !== undefined) return
-			timer = setTimeout(() => {
-				timer = undefined
-				void read().then(schedule)
-			}, delay)
-		}
 		const refresh = async () => {
 			if (pending) await pending
-			if (current) await read()
-			// A refresh the person asked for, or one after a stop, starts the poll again.
-			if (current && failures === 0) schedule()
+			if (current && (await poll.run())) poll.schedule()
 		}
 		refreshJobs.current = refresh
-		// The connection came back: a poll that gave up starts again.
 		resumeJobs.current = () => {
-			failures = 0
-			schedule()
+			if (current && poll.stopped) poll.resume()
 		}
-		void read().then(schedule)
+		const back = () => resumeJobs.current?.()
+		window.addEventListener('focus', back)
+		poll.start()
 		return () => {
 			current = false
 			if (refreshJobs.current === refresh) refreshJobs.current = undefined
 			resumeJobs.current = undefined
-			if (timer !== undefined) clearTimeout(timer)
+			window.removeEventListener('focus', back)
+			poll.stop()
 		}
 	}, [
 		sessionId,
@@ -4018,8 +4010,9 @@ export function App({
 		// After the saving state is released, so the dialog and every control stay usable meanwhile.
 		if (created) void beginOpeningPal(created, blank)
 	}
-	// The Pal whose computer is not set up and is no longer being read; undefined while it is read.
-	const computerReadParked = useRef<string | undefined>(undefined)
+	// The scheduler of the read loop that runs now; its `parked` says the computer is not set up.
+	// Cleared when that loop ends, so a Pal that was left never holds a wake-up for another.
+	const computerReadLoop = useRef<{ readonly parked: boolean } | undefined>(undefined)
 	const setupPhase = palSetup.state?.phase
 	useEffect(() => {
 		if (!pal?.id || palsPage || pageOpen || project?.status !== 'ready') return
@@ -4032,6 +4025,7 @@ export function App({
 		let current = true
 		// Chains the reads: slower after failures, and none at all while the computer is not set up.
 		const scheduler = createComputerReadScheduler({ run: () => void read() })
+		computerReadLoop.current = scheduler
 		const read = async () => {
 			let ready = false
 			let failed = false
@@ -4136,7 +4130,6 @@ export function App({
 						answered,
 						parked,
 					})
-					computerReadParked.current = scheduler.parked ? id : undefined
 				}
 			}
 		}
@@ -4144,6 +4137,7 @@ export function App({
 		return () => {
 			current = false
 			scheduler.stop()
+			if (computerReadLoop.current === scheduler) computerReadLoop.current = undefined
 		}
 	}, [
 		pal?.id,
@@ -4163,7 +4157,7 @@ export function App({
 		// Coming back to the window is when a person has just installed what was missing: a computer
 		// that is not set up is read once then, and only then.
 		const back = () => {
-			if (computerReadParked.current) wake()
+			if (computerReadLoop.current?.parked) wake()
 		}
 		document.addEventListener('visibilitychange', wake)
 		window.addEventListener('focus', back)
@@ -4749,10 +4743,11 @@ export function App({
 							: !palComputer || palComputer.notice === 'Starting the local computer…'
 								? 'connecting'
 								: 'error',
+					// The same test that parks the read loop, so a parked loop always has its card; where
+					// setup is offered, its row is the surface instead.
 					setupMissing:
-						!setupAvailable &&
-						palComputer?.status === 'unavailable' &&
-						computerSetupMissing(palComputer.notice),
+						!setupAvailable && computerNotSetUp(palComputer?.status ?? '', palComputer?.notice),
+					podmanStopped: computerPodmanStopped(palComputer?.notice),
 					setup: setupRow,
 					screen: currentScreen,
 					loading: computerCapture?.loading,

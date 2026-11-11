@@ -72,6 +72,8 @@ export function createComputerReadScheduler(options: {
 		},
 		stop(): void {
 			stopped = true
+			// A scheduler that is over never holds the window's focus wake-up.
+			parked = false
 			if (timer !== undefined) clearTimer(timer)
 			timer = undefined
 		},
