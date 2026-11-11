@@ -48,6 +48,7 @@ const TWO_FILES = {
 	],
 };
 
+// The scripted model sometimes sends its closing sentence twice; a flow looks at the first.
 // A command long enough to overflow the card's command box, with the part that matters on its last line.
 const LONG_COMMAND = `${Array.from({ length: 40 }, (_, i) => `# step ${i + 1}`).join("\n")}\necho done > ran.txt`;
 
@@ -74,7 +75,7 @@ flow(
 		assert.equal(existsSync(join(w.project, "a.txt")), false, "nothing is written before the answer");
 		await standing(w).click();
 		// The second write is the same conversation's next ask: the agent's latch answers it with no card.
-		await expect(w.page.getByText("Wrote both files.")).toBeVisible({ timeout: T });
+		await expect(w.page.getByText("Wrote both files.").first()).toBeVisible({ timeout: T });
 		assert.equal(readFileSync(join(w.project, "a.txt"), "utf8"), "first\n");
 		assert.equal(readFileSync(join(w.project, "b.txt"), "utf8"), "second\n");
 		await expect(card(w)).toHaveCount(0);
@@ -101,7 +102,7 @@ flow(
 		await expect(card(w).getByRole("heading", { name: "Create a.txt?" })).toBeVisible({ timeout: T });
 		await standing(w).click();
 		// b.txt is an ordinary ask: the latch answers it with no card, and the hook is the next card.
-		await expect(card(w).getByRole("heading", { name: "Create pre-commit?" })).toBeVisible({
+		await expect(card(w).getByRole("heading", { name: "Create .husky/pre-commit?" })).toBeVisible({
 			timeout: T,
 		});
 		assert.equal(readFileSync(join(w.project, "b.txt"), "utf8"), "second\n");
@@ -110,7 +111,7 @@ flow(
 		await expect(standing(w)).toHaveCount(0);
 		await shot(w, "always-asked-after-standing-yes");
 		await accept(w).click();
-		await expect(w.page.getByText("Wrote the hook.")).toBeVisible({ timeout: T });
+		await expect(w.page.getByText("Wrote the hook.").first()).toBeVisible({ timeout: T });
 		assert.equal(readFileSync(join(w.project, ".husky", "pre-commit"), "utf8"), "echo hi\n");
 	},
 );
@@ -125,7 +126,7 @@ flow(
 		await expect(card(w).getByRole("heading", { name: "Create b.txt?" })).toBeVisible({ timeout: T });
 		assert.equal(existsSync(join(w.project, "b.txt")), false);
 		await accept(w).click();
-		await expect(w.page.getByText("Wrote both files.")).toBeVisible({ timeout: T });
+		await expect(w.page.getByText("Wrote both files.").first()).toBeVisible({ timeout: T });
 	},
 );
 
@@ -148,7 +149,7 @@ flow(
 		await expect(accept(w)).toBeFocused();
 		await shot(w, "overwrite-no-standing-yes");
 		await accept(w).click();
-		await expect(w.page.getByText("Replaced.")).toBeVisible({ timeout: T });
+		await expect(w.page.getByText("Replaced.").first()).toBeVisible({ timeout: T });
 	},
 );
 
@@ -168,11 +169,17 @@ flow(
 		await expect(card(w)).toBeVisible({ timeout: T });
 		await expect(reject(w)).toBeFocused();
 		await expect(standing(w)).toHaveCount(0);
-		await expect(card(w).getByText("Enter rejects it. Esc rejects it too.", { exact: false })).toBeVisible();
+		// The keys are said on the buttons now, not in a line of text under the card.
+		await expect(reject(w)).toHaveAttribute("title", "Reject · Enter or Esc");
+		await expect(accept(w)).toHaveAttribute("title", /Enter rejects it/);
+		// What the kernel knows is the first thing on the card after the question.
+		await expect(card(w).locator(".approval-flag").first()).toHaveText(
+			"Looks like it deletes or overwrites files.",
+		);
 		await shot(w, "risky-command");
 		// Enter on the focused button is a No.
 		await w.page.keyboard.press("Enter");
-		await expect(w.page.getByText("Left it alone.")).toBeVisible({ timeout: T });
+		await expect(w.page.getByText("Left it alone.").first()).toBeVisible({ timeout: T });
 		assert.equal(existsSync(join(w.project, "build", "keep.txt")), true);
 	},
 );
@@ -194,7 +201,7 @@ flow(
 		await w.page.keyboard.press("Escape");
 		await expect(card(w)).toHaveCount(0, { timeout: T });
 		// The turn was not stopped: the model got its next turn and finished it.
-		await expect(w.page.getByText("Carried on.")).toBeVisible({ timeout: T });
+		await expect(w.page.getByText("Carried on.").first()).toBeVisible({ timeout: T });
 		assert.equal(existsSync(join(w.project, "out.txt")), false, "a No writes nothing");
 		const last = JSON.stringify(w.model.requests.at(-1)?.messages ?? []);
 		assert.match(last, /declined/i, "the model is told the person declined");
@@ -202,7 +209,7 @@ flow(
 );
 
 flow(
-	"a long command holds Allow until its end has been scrolled to",
+	"a long command is four rows and a link, and Accept is not held for scrolling",
 	{
 		rules: [
 			{
@@ -214,26 +221,58 @@ flow(
 	async (w) => {
 		await send(w, "Please run the long one");
 		await expect(card(w)).toBeVisible({ timeout: T });
-		const command = card(w).getByLabel("Command");
-		const hint = card(w).getByText("Scroll through the whole command to allow it.");
-		await expect(hint).toBeVisible({ timeout: T });
-		await expect(accept(w)).toHaveAttribute("aria-disabled", "true");
-		await expect(accept(w)).toHaveAttribute("data-held", "true");
-		await shot(w, "read-gate-held");
-		// A click and the accept chord are both ignored while the end is unseen.
-		await accept(w).click({ force: true });
-		await command.focus();
-		await w.page.keyboard.press("Control+Enter");
-		await expect(card(w)).toBeVisible();
-		assert.equal(existsSync(join(w.project, "ran.txt")), false, "the command did not run unseen");
-		// Reading to the end releases it, with the keyboard the box already takes.
-		await w.page.keyboard.press("End");
-		await expect(hint).toHaveCount(0, { timeout: T });
+		const rows = card(w).locator(".approval-row");
+		await expect(rows).toHaveCount(4);
+		// The link states how much more there is, and nothing asks for the end to be scrolled to.
+		const more = card(w).getByRole("button", { name: "Show all 41 lines" });
+		await expect(more).toBeVisible();
+		await expect(card(w).getByText(/^Scroll /)).toHaveCount(0);
+		await expect(accept(w)).not.toHaveAttribute("data-held", "true", { timeout: T });
 		await expect(accept(w)).not.toHaveAttribute("aria-disabled", "true");
-		await shot(w, "read-gate-released");
+		await shot(w, "long-command-collapsed");
+		// Opening it in place shows the whole command, the line that matters last.
+		await more.click();
+		await expect(card(w).getByLabel("Command")).toContainText("echo done > ran.txt");
+		await expect(card(w).getByRole("button", { name: "Show less" })).toBeVisible();
+		await shot(w, "long-command-open");
 		await accept(w).click();
-		await expect(w.page.getByText("Ran it.")).toBeVisible({ timeout: T });
-		assert.equal(existsSync(join(w.project, "ran.txt")), true, "it ran once the end was seen");
+		await expect(w.page.getByText("Ran it.").first()).toBeVisible({ timeout: T });
+		assert.equal(existsSync(join(w.project, "ran.txt")), true, "it ran once accepted");
+	},
+);
+
+flow(
+	"the box's menu holds the note, wrap and copy, and the note still redirects the model",
+	{
+		rules: [
+			{
+				match: /write the file/i,
+				steps: [{ tool: "write", args: { path: "out.txt", content: "x\n" } }, { text: "Noted." }],
+			},
+		],
+	},
+	async (w) => {
+		await send(w, "Please write the file");
+		await expect(card(w)).toBeVisible({ timeout: T });
+		await card(w).getByRole("button", { name: "More about this request" }).click();
+		const menu = w.page.getByRole("menu", { name: "More about this request" });
+		await expect(menu.getByRole("menuitem", { name: "Tell Namzu what to do instead" })).toBeVisible();
+		await expect(menu.getByRole("menuitemcheckbox", { name: /Wrap lines/ })).toBeVisible();
+		await expect(menu.getByRole("menuitem", { name: "Copy" })).toBeVisible();
+		await shot(w, "box-menu");
+		// Escape closes the menu, not the card: the card is still waiting.
+		await w.page.keyboard.press("Escape");
+		await expect(menu).toHaveCount(0);
+		await expect(card(w)).toBeVisible();
+		await card(w).getByRole("button", { name: "More about this request" }).click();
+		await menu.getByRole("menuitem", { name: "Tell Namzu what to do instead" }).click();
+		await card(w).getByRole("textbox", { name: "Tell Namzu what to do instead" }).fill("use notes.txt");
+		await card(w).getByRole("button", { name: "Send", exact: true }).click();
+		await expect(card(w)).toHaveCount(0, { timeout: T });
+		await expect
+			.poll(() => JSON.stringify(w.model.requests.at(-1)?.messages ?? []), { timeout: T })
+			.toContain("use notes.txt");
+		assert.equal(existsSync(join(w.project, "out.txt")), false);
 	},
 );
 
@@ -254,7 +293,7 @@ flow(
 		await expect(accept(w)).not.toHaveAttribute("aria-disabled", "true", { timeout: T });
 		await expect(card(w).getByText(/^Scroll /)).toHaveCount(0);
 		await accept(w).click();
-		await expect(w.page.getByText("Said hi.")).toBeVisible({ timeout: T });
+		await expect(w.page.getByText("Said hi.").first()).toBeVisible({ timeout: T });
 	},
 );
 
@@ -291,7 +330,7 @@ flow(
 		assert.equal(existsSync(join(w.project, "b.txt")), false, "the second card was not answered by the stray click");
 		await advance(400);
 		await accept(w).click();
-		await expect(w.page.getByText("Wrote both files.")).toBeVisible({ timeout: T });
+		await expect(w.page.getByText("Wrote both files.").first()).toBeVisible({ timeout: T });
 		assert.equal(readFileSync(join(w.project, "a.txt"), "utf8"), "first\n");
 		assert.equal(readFileSync(join(w.project, "b.txt"), "utf8"), "second\n");
 		// Three provider turns: the request, the write result and the reply, never a stray fourth.

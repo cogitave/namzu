@@ -271,23 +271,25 @@ describe('single live transcript status', () => {
 		})
 		expect(phaseLabels(render(thread))).toEqual(['Earlier work', 'Worked for 47s'])
 	})
-	it('keeps a neutral timed work header and no status line while a tool runs', () => {
+	it('keeps one timed line with the step in the kernel\u2019s words while a tool runs', () => {
 		const thread = pendingCommand()
 		const before = structuredClone(thread)
 		const html = render(thread)
-		expect(phaseLabels(html)).toEqual(['Working', 'Working'])
+		expect(phaseLabels(html)).toEqual(['Running pwd', 'Working'])
 		// The running row is the live element, so nothing is announced.
 		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toBeNull()
-		expect(html).toContain('aria-label="Working for 47s"')
-		expect(html).toContain('aria-expanded="true"')
-		expect(html).toContain('class="turn-activity-elapsed">for 47s</span>')
+		expect(html).toContain('aria-label="Running pwd for 47s"')
+		// The work is behind the line, not open under it.
+		expect(html).toContain('aria-expanded="false"')
+		expect(html).toContain('class="live-mark" data-state="running"')
+		expect(html).toContain('class="turn-activity-elapsed">· 47s</span>')
 		expect(html).toContain('transcript-status-only')
 		expect(html).not.toContain('class="working-elapsed"')
 		expect(html).toContain('Running pwd')
 		expect(thread).toEqual(before)
 	})
 
-	it('puts one status line after the newest entry and never repeats what the block shows', () => {
+	it('puts the stage in the one line and keeps the narration behind it', () => {
 		let thread = update(started(), {
 			kind: 'agent_message_chunk',
 			text: 'Inspecting the workspace',
@@ -300,18 +302,17 @@ describe('single live transcript status', () => {
 			blockId: 'thought',
 		})
 		const html = render(thread)
-		expect(phaseLabels(html)).toEqual(['Working', 'Thinking'])
-		// The headline is the status line, after the narration; its own row stands down.
-		expect(html.match(/Comparing the public results/g)).toHaveLength(2) // hidden announcement + visible text
-		expect(html).toContain('stage-text">Comparing the public results<')
+		expect(phaseLabels(html)).toEqual(['Comparing the public results', 'Thinking'])
+		// The headline is the line's own words; its row stands down and there is no second line.
+		expect(html.match(/Comparing the public results/g)).toHaveLength(2) // aria-label + visible text
+		expect(html).not.toContain('stage-line')
 		expect(html).not.toContain('data-reasoning-id')
 		expect(html).not.toContain('The rows differ.')
-		expect(html.indexOf('Inspecting the workspace')).toBeLessThan(html.indexOf('stage-line'))
-		expect(html).toContain('aria-label="Working for 47s"')
+		expect(html).toContain('aria-label="Comparing the public results for 47s"')
 		expect(html).toContain('data-transcript-phase="thinking"')
 		expect(html).toContain('working  transcript-status-only')
 		expect(html).not.toContain('class="working-elapsed"')
-		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toHaveLength(1)
+		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toBeNull()
 	})
 
 	it('draws the reasoning row in place once something newer arrives, with no status line', () => {
@@ -350,20 +351,24 @@ describe('single live transcript status', () => {
 			view: { kind: 'terminal', command: 'pwd', output: '/work' },
 		})
 		const html = render(thread)
-		expect(html).toContain('stage-text">Thinking<')
-		expect(html).toContain('data-stage-source="gap"')
-		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toHaveLength(1)
+		expect(phaseLabels(html)).toEqual(['Thinking', 'Working'])
+		expect(html).not.toContain('stage-line')
+		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toBeNull()
 		expect(html).not.toContain('data-streaming')
 	})
 
 	it('keeps motion off for reduced-motion readers', () => {
 		const css = readFileSync(new URL('./transcript-motion.css', import.meta.url), 'utf8')
 		const reduced = css.slice(
-			css.indexOf('@media (prefers-reduced-motion: reduce) {\n\t.normal-transcript .stage-text'),
+			css.indexOf(
+				'@media (prefers-reduced-motion: reduce) {\n\t.normal-transcript .message.commentary',
+			),
 		)
-		expect(reduced).toContain('.stage-text')
 		expect(reduced).toContain('[data-streaming] .message-text > :last-child')
 		expect(reduced.slice(0, reduced.indexOf('\n}\n') + 3)).toContain('animation: none')
+		// The live mark's pulse stops too.
+		const mark = css.slice(css.indexOf('.normal-transcript .live-mark {\n\t\tanimation: none'))
+		expect(mark).toContain('animation: none')
 	})
 
 	it('shows no stage line once the answer has started', () => {
@@ -390,12 +395,14 @@ describe('single live transcript status', () => {
 			},
 		})
 		const html = render(thread)
-		expect(phaseLabels(html)).toEqual(['Working', 'Waiting for your decision'])
+		// One amber line names what is waited on; the live region keeps the words for assistive technology.
+		expect(phaseLabels(html)).toEqual(['Waiting for your decision', 'Waiting for your decision'])
+		expect(html).toContain('class="live-mark" data-state="waiting"')
 		expect(html).toContain('data-transcript-phase="waiting"')
-		expect(html).toContain('data-stage-source="waiting"')
+		expect(html).not.toContain('stage-line')
 		expect(html).not.toContain('class="working-elapsed"')
 		expect(html).toContain('Running pwd')
-		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toHaveLength(1)
+		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toBeNull()
 	})
 
 	it('retains actual Thinking without an empty disclosure or invented public body for private reasoning', () => {
@@ -463,8 +470,9 @@ describe('single live transcript status', () => {
 					onWorkDisclosureChange: vi.fn(),
 				}),
 			)
-		expect(draw(live)).toContain('aria-expanded="true"')
-		expect(draw(live, false)).toContain('aria-expanded="false"')
+		// The work waits behind the line while it runs; a choice the person made wins either way.
+		expect(draw(live)).toContain('aria-expanded="false"')
+		expect(draw(live, true)).toContain('aria-expanded="true"')
 		let settled = update(live, { kind: 'turn_ended', stopReason: 'end_turn' }, 100000)
 		settled = applyEvent(settled, {
 			kind: 'state',
@@ -502,7 +510,7 @@ describe('single live transcript status', () => {
 		})
 		thread = pendingCommand(thread)
 		const html = render(thread)
-		expect(phaseLabels(html)).toEqual(['Worked for 5s', 'Working', 'Working'])
+		expect(phaseLabels(html)).toEqual(['Worked for 5s', 'Running pwd', 'Working'])
 		expect(html).toContain('data-activity-turn="1"')
 		expect(html).toContain('data-activity-turn="2"')
 		expect(html.match(/<output\b[^>]*aria-live="polite"/g)).toBeNull()

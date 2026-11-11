@@ -188,7 +188,7 @@ it('keeps approval details readable but disables action decisions when guest aut
 	expect(
 		unavailable.match(/<fieldset\b[^>]*aria-label="Action approval controls"[^>]*>/)?.[0],
 	).toMatch(/\bdisabled=/)
-	for (const detail of ['Run this command?', 'pwd', 'Accept', 'Reject', 'Edit'])
+	for (const detail of ['Run', 'pwd', 'Accept', 'Reject', 'More about this request'])
 		expect(unavailable).toContain(detail)
 	expect(button(unavailable, 'Send message')).not.toMatch(/\bdisabled=/)
 	for (const guard of [
@@ -374,7 +374,9 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 	expect(button(html, 'Attach files')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Permissions')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Plugins')).not.toMatch(/\bdisabled=/)
-	expect(button(html, 'Model: space-bunny-free, effort: High')).toMatch(/\bdisabled=/)
+	// The model cannot change while a reply runs, so the waiting bar leaves its picker out; it is back once the card is answered.
+	expect(html).not.toContain('aria-label="Model: space-bunny-free')
+	expect(html).toContain('composer-waiting')
 	expect(button(html, 'Remove notes.txt')).not.toMatch(/\bdisabled=/)
 	expect(html).toContain('aria-label="Tool approval"')
 	expect(html).toContain('Accept')

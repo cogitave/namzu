@@ -2,7 +2,7 @@ import { PERMISSION_FEEDBACK_MAX } from '../shared/permission-protocol.js'
 import type { PermissionPreview, PermissionView } from '../shared/protocol.js'
 import { fullPath } from './activity-actions.js'
 import { changeTotals } from './changes-totals.js'
-import { displayPath } from './path-display.js'
+import { displayPath, projectRelative } from './path-display.js'
 
 type Call = PermissionView['calls'][number]
 
@@ -444,28 +444,18 @@ export function rejectsFirst(model: ApprovalCardModel, permission: PermissionVie
 }
 
 /**
- * One sentence on what saying yes lets happen: where it happens and what it can change.
- * Nothing for an action the card already explains by its own content.
+ * Where a command runs, the one fact the foot of its card states. Nothing for any other card: a
+ * file change already names its target in the question, and a flag says what is risky about it.
  */
 export function approvalConsequence(
 	model: ApprovalCardModel,
 	folder?: string,
 	projectName?: string,
 ): string | undefined {
-	if (model.kind === 'command') {
-		const risky = model.command !== undefined && riskyCommand(model.command)
-		// The project's name when there is one; its folder, shortened, when there is not.
-		const where = projectName?.trim() || (folder?.trim() ? displayPath(folder) : undefined)
-		const base = where ? `Runs in ${where}.` : 'Runs on your computer.'
-		return risky
-			? `${base} This command looks like it deletes or overwrites files, so check it before you accept.`
-			: `${base} It can read and change files there.`
-	}
-	if (model.kind === 'delete') return 'Removes this file from your computer.'
-	if (model.kind === 'create' && model.path)
-		return `Adds a new file, ${displayPath(model.path, folder)}.`
-	if (model.kind === 'edit' && model.path) return `Changes ${displayPath(model.path, folder)}.`
-	return undefined
+	if (model.kind !== 'command') return undefined
+	// The project's name when there is one; its folder, shortened, when there is not.
+	const where = projectName?.trim() || (folder?.trim() ? displayPath(folder) : undefined)
+	return where ? `Runs in ${where}.` : 'Runs on your computer.'
 }
 
 /** The full path the sentence above shortens, for the tooltip. */
@@ -475,6 +465,89 @@ export function approvalConsequenceTitle(
 ): string | undefined {
 	if (model.kind === 'command') return folder?.trim() || undefined
 	return model.path ? fullPath(model.path, folder) : undefined
+}
+
+/**
+ * What a request waiting for an answer is about, as the one line of the turn in flight says it:
+ * "Waiting to edit session.ts", "Waiting to run command". Built from the request's own call, so it
+ * names the action before any row for it exists.
+ */
+export function waitingLabel(permission: PermissionView | undefined): string {
+	const first = permission?.calls[0]
+	if (!permission || !first) return 'Waiting for your decision'
+	const model = buildApprovalCard(permission)
+	if (model.screenMoment) return 'Waiting for your decision'
+	switch (model.kind) {
+		case 'command':
+			return 'Waiting to run command'
+		case 'create':
+			return `Waiting to create ${model.fileName ?? 'a file'}`
+		case 'delete':
+			return `Waiting to delete ${model.fileName ?? 'a file'}`
+		case 'edit':
+			return `Waiting to ${first.name.toLowerCase() === 'write' ? 'write' : 'edit'} ${model.fileName ?? 'a file'}`
+		default:
+			return `Waiting to ${plainName(first.name)}`
+	}
+}
+
+const ELEVATED_COMMAND = /(^|[\s;&|(])sudo\s/i
+
+/** True when a command line asks for elevated rights. */
+export function elevatedCommand(command: string): boolean {
+	return ELEVATED_COMMAND.test(command)
+}
+
+/**
+ * True when a path lies outside the project folder: absolute and not under it, or relative and
+ * stepping out through `..`. Unknown (false) without a folder, so nothing is claimed.
+ */
+export function outsideProject(path: string, folder?: string): boolean {
+	if (!folder?.trim()) return false
+	const text = path.replace(/\\/g, '/')
+	// A home-relative path is not claimed either way: the screen does not know whose home it is.
+	if (text.startsWith('~')) return false
+	const absolute = text.startsWith('/') || /^[A-Za-z]:\//.test(text)
+	if (absolute) return projectRelative(text, folder) === undefined
+	let depth = 0
+	for (const part of text.split('/')) {
+		if (part === '' || part === '.') continue
+		if (part === '..') depth -= 1
+		else depth += 1
+		if (depth < 0) return true
+	}
+	return false
+}
+
+/**
+ * The facts the request carries about what saying yes would do that a person should not miss, in
+ * the order they matter. Each is read from the request itself (the call's own name, path, command
+ * and the agent's marks), never from the model's description of its action. The card draws them
+ * straight after the question with a warning mark; a card with none draws none.
+ */
+export function approvalFlags(
+	model: ApprovalCardModel,
+	permission: PermissionView,
+	folder?: string,
+): string[] {
+	if (model.screenMoment) return []
+	const flags: string[] = []
+	if (permission.calls.some((call) => call.alwaysAsk === true))
+		flags.push('Namzu asks about this every time, whatever you allowed before.')
+	const paths = permission.calls.flatMap((call) => {
+		const path = pathOf(call)
+		return path ? [path] : []
+	})
+	if (paths.some((path) => outsideProject(path, folder))) flags.push('Outside the project folder.')
+	if (model.kind === 'delete') flags.push(approvalWarning(model))
+	else if (model.kind === 'edit' && !model.unchanged && (model.overwrites || model.write))
+		flags.push(approvalWarning(model))
+	else if (model.kind === 'command' && model.command !== undefined) {
+		if (elevatedCommand(model.command)) flags.push('Runs with elevated rights.')
+		if (riskyCommand(model.command)) flags.push('Looks like it deletes or overwrites files.')
+		else if (model.destructive) flags.push(approvalWarning(model))
+	} else if (model.kind === 'other' && model.destructive) flags.push(approvalWarning(model))
+	return flags
 }
 
 /**

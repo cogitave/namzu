@@ -129,7 +129,8 @@ flow(
 		await send(w, "Please write the file");
 		const card = w.page.getByRole("region", { name: "Tool approval" });
 		await expect(card).toBeVisible({ timeout: T });
-		await card.getByRole("button", { name: "Tell Namzu what to do instead", exact: true }).click();
+		await card.getByRole("button", { name: "More about this request" }).click();
+		await w.page.getByRole("menuitem", { name: "Tell Namzu what to do instead" }).click();
 		await card
 			.getByRole("textbox", { name: "Tell Namzu what to do instead" })
 			.fill("use notes.txt instead");

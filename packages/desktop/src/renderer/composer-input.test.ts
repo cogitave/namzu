@@ -110,6 +110,9 @@ describe('the empty box hint', () => {
 	})
 
 	it('still points at a waiting message first', () => {
+		expect(composerPlaceholder({ ...base, running: true, waitingOnPerson: true })).toBe(
+			'Waiting for you. Type to message Namzu.',
+		)
 		expect(composerPlaceholder({ ...base, running: true, editableQueued: true })).toBe(
 			'Press ↑ to edit queued messages',
 		)
