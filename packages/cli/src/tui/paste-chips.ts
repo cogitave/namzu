@@ -136,10 +136,9 @@ export function attachmentMarkers(
 /**
  * The number each attachment of a message goes by. The message text names them
  * in the order they were attached, so the markers of its kind, lowest first,
- * pair with the attachments in order; when the text does not name exactly as
- * many as there are attachments (a message from before markers were kept, or a
- * look-alike typed by hand), the attachments take the numbers after `floor`
- * instead.
+ * pair with the attachments in order (the highest ones, when the text names
+ * more than were attached); when it names fewer (a message from before markers
+ * were kept), the attachments take the numbers after `floor` instead.
  */
 export function numberAttachments(
 	text: string,
@@ -155,10 +154,19 @@ export function numberAttachments(
 			(a, b) => a - b,
 		),
 	}
+	// More markers than attachments: a recalled message or a look-alike left
+	// extra ones in the text, and a new attachment always numbers above every
+	// number the conversation had used, so the attachments are the highest.
 	const matched = (['Image', 'Document'] as const).every(
-		(kind) => queue[kind].length === kinds.filter((k) => k === kind).length,
+		(kind) => queue[kind].length >= kinds.filter((k) => k === kind).length,
 	)
-	if (matched) return kinds.map((kind) => queue[kind].shift() as number)
+	if (matched) {
+		for (const kind of ['Image', 'Document'] as const) {
+			const count = kinds.filter((k) => k === kind).length
+			queue[kind] = queue[kind].slice(queue[kind].length - count)
+		}
+		return kinds.map((kind) => queue[kind].shift() as number)
+	}
 	const start = Math.max(floor, ...markers.map((m) => m.id))
 	return kinds.map((_, index) => start + index + 1)
 }
@@ -168,4 +176,16 @@ export function highestAttachmentNumber(text: string): number {
 	let highest = 0
 	for (const marker of attachmentMarkers(text)) highest = Math.max(highest, marker.id)
 	return highest
+}
+
+const NUMBERS_GIVEN = new WeakMap<object, number>()
+
+/** The composer says which number it gave an attachment, so a sent row never re-derives it from text. */
+export function noteAttachmentNumber(attachment: object, id: number): void {
+	NUMBERS_GIVEN.set(attachment, id)
+}
+
+/** The number the composer gave `attachment`, when it is the same object. */
+export function givenAttachmentNumber(attachment: object): number | undefined {
+	return NUMBERS_GIVEN.get(attachment)
 }

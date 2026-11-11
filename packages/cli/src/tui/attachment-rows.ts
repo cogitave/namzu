@@ -14,8 +14,9 @@ import { extname, join } from 'node:path'
 import type { MessageAttachment, SessionId } from '@namzu/sdk'
 
 import type { CliSessions } from '../integrations/sessions/store.js'
-import { attachmentChip, numberAttachments } from './paste-chips.js'
+import { attachmentChip, givenAttachmentNumber, numberAttachments } from './paste-chips.js'
 import { formatSize } from './person-terms.js'
+import { truncateChoiceText } from './terminal-choice-text.js'
 
 /**
  * Where copies of a conversation's attached files are kept
@@ -122,9 +123,13 @@ export function ensureAttachmentFile(
 	}
 }
 
+/** A longer name is cut so the size after it stays on the row. */
+const NAME_CELLS = 32
+
 /** The row as plain text: marker, name, size. */
 export function attachmentLine(row: AttachmentRow): string {
-	return `${row.marker}${row.name ? ` ${row.name}` : ''}${row.size ? ` · ${row.size}` : ''}`
+	const name = row.name ? ` ${truncateChoiceText(row.name, NAME_CELLS)}` : ''
+	return `${row.marker}${name}${row.size ? ` · ${row.size}` : ''}`
 }
 
 /**
@@ -139,7 +144,11 @@ export function attachmentRows(
 	directory?: string,
 ): readonly AttachmentRow[] {
 	const kinds = attachments.map(attachmentKind)
-	const numbers = numberAttachments(text, kinds, floor)
+	const derived = numberAttachments(text, kinds, floor)
+	// The numbers the composer gave win over anything read back from the text.
+	const numbers = attachments.map((attachment, index) => {
+		return givenAttachmentNumber(attachment) ?? (derived[index] as number)
+	})
 	return attachments.map((attachment, index) => {
 		const name = attachmentName(attachment)
 		const path = directory ? ensureAttachmentFile(directory, attachment) : undefined

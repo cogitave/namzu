@@ -11,6 +11,7 @@ import {
 	attachmentRows,
 	ensureAttachmentFile,
 } from './attachment-rows.js'
+import { noteAttachmentNumber } from './paste-chips.js'
 
 const png: MessageAttachment = {
 	data: Buffer.from('not really a png').toString('base64'),
@@ -56,6 +57,38 @@ describe('attachment rows', () => {
 		expect(attachmentRows('[Image #1]', [pasted], 0)).toEqual([
 			{ marker: '[Image #1]', size: '15 B' },
 		])
+	})
+
+	it('takes the highest numbers when the text names more markers than attachments', () => {
+		// A recalled message left [Image #1]; the new image is #2.
+		expect(
+			attachmentRows('first [Image #1] and [Image #2]', [png], 0).map((r) => r.marker),
+		).toEqual(['[Image #2]'])
+		expect(attachmentRows('look [Image #9] [Image #4]', [png], 0).map((r) => r.marker)).toEqual([
+			'[Image #9]',
+		])
+	})
+
+	it('uses the number the composer gave, whatever the text says', () => {
+		const given = { ...png } as unknown as MessageAttachment
+		noteAttachmentNumber(given, 4)
+		expect(attachmentRows('look [Image #9] [Image #4]', [given], 0).map((r) => r.marker)).toEqual([
+			'[Image #4]',
+		])
+		expect(attachmentRows('first [Image #1] and [Image #2]', [given], 0)[0]?.marker).toBe(
+			'[Image #4]',
+		)
+	})
+
+	it('cuts a long name so the size stays on the row', () => {
+		const long = {
+			...png,
+			filename: `${'very-long-name-'.repeat(8)}.png`,
+		} as unknown as MessageAttachment
+		const line = attachmentLine(attachmentRows('[Image #1]', [long], 0)[0] as never)
+		expect(line.endsWith(' · 16 B')).toBe(true)
+		expect(line.length).toBeLessThan(60)
+		expect(line).toContain('…')
 	})
 
 	it('numbers a message from before markers were kept after the highest so far', () => {

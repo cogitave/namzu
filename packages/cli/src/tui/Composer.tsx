@@ -50,6 +50,7 @@ import {
 	expandChips,
 	isChipPaste,
 	keepChipsWhole,
+	noteAttachmentNumber,
 	numberAttachments,
 	pasteChip,
 	snapOutOfChip,
@@ -1484,6 +1485,8 @@ export function Composer({
 				)
 				if (message.length === 0 && currentAttachments.length === 0) return false
 				const submittedAttachments = currentAttachments.length > 0 ? currentAttachments : undefined
+				for (const attachment of currentAttachments)
+					noteAttachmentNumber(attachment, idFor(attachment))
 				// Read again from what the last key left, not from the last render.
 				const detection = detect(valueRef.current)
 				// The message is the draft trimmed: offsets move by what the trim took.
