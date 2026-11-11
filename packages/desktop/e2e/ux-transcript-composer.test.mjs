@@ -293,7 +293,7 @@ flow(
 );
 
 flow(
-	"the edited-file chip keeps the file name in a narrow window",
+	"the result line stays whole in a narrow window, with its menu reachable",
 	{ rules: [WRITE], files: {} },
 	async (w) => {
 		await openProject(w);
@@ -301,13 +301,20 @@ flow(
 		await send(w, "Please write the file");
 		await expect(approvalCard(w)).toBeVisible({ timeout: T });
 		await approvalCard(w).getByRole("button", { name: "Accept", exact: true }).click();
-		const chip = w.page.getByRole("region", { name: "Files edited in this reply" });
-		await expect(chip).toBeVisible({ timeout: T });
-		const name = chip.locator(".turn-changes-title strong");
-		await expect(name).toHaveText("out.txt");
-		const clipped = await name.evaluate((node) => node.scrollWidth > node.clientWidth);
-		assert.equal(clipped, false, "the file name is whole");
-		await shot(w, "edited-chip-900");
+		const line = w.page.getByRole("region", { name: "Result of this reply" });
+		await expect(line).toBeVisible({ timeout: T });
+		const lead = line.locator(".turn-result-lead");
+		await expect(lead).toContainText("Done");
+		const clipped = await lead.evaluate((node) => node.scrollWidth > node.clientWidth);
+		assert.equal(clipped, false, "the lead is whole");
+		await expect(line.locator(".turn-result-files")).toHaveText("1 file");
+		// The whole row opens the changes; the file itself is one menu item away.
+		const open = line.getByRole("button", { name: /Open changes$/ });
+		await expect(open).toBeVisible();
+		await line.getByRole("button", { name: "More about this reply" }).click();
+		await expect(w.page.getByRole("menuitem", { name: "Copy summary" })).toBeVisible();
+		await w.page.keyboard.press("Escape");
+		await shot(w, "result-line-900");
 	},
 );
 

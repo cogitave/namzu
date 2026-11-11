@@ -31,7 +31,8 @@
 	align-items: center;
 	gap: 12px;
 	min-width: 0;
-	height: 40px;
+	/* 38 inside the 1 px border: the row is 40 px. */
+	height: 38px;
 	margin: 0;
 	padding: 0 6px 0 14px;
 	border-radius: var(--radius-card);
@@ -141,10 +142,30 @@ button.turn-result-main:focus-visible,
 	width: 16px;
 	height: 16px;
 }
-/* A narrow column drops the size words' gap before it drops the check's last letter. */
-@container workspace (max-width: 560px) {
+/*
+ * A narrow column: the sentence about checking takes a line of its own below the size, so the
+ * fact the row exists to say is never cut to a few letters. The row grows to two lines.
+ */
+.turn-result {
+	container: turn-result / inline-size;
+}
+@container turn-result (max-width: 600px) {
 	.turn-result-main {
-		gap: 8px;
-		padding-inline-start: 10px;
+		flex-wrap: wrap;
+		gap: 2px 10px;
+		height: auto;
+		min-height: 38px;
+		padding-block: 8px;
+		padding-inline-start: 12px;
+	}
+	.turn-result-check {
+		flex: 1 1 100%;
+		order: 1;
+		padding-inline-start: 17px;
+		white-space: normal;
+		overflow-wrap: anywhere;
+	}
+	.turn-result-chevron {
+		display: none;
 	}
 }

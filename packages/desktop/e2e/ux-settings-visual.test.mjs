@@ -402,9 +402,9 @@ flow("times read one way, the composer's edge is solid, and the Changes panel do
 	const card = w.page.getByRole("region", { name: "Tool approval" });
 	await expect(card).toBeVisible({ timeout: T });
 	await card.getByRole("button", { name: "Accept", exact: true }).click();
-	await expect(w.page.getByText("Wrote out.txt.")).toBeVisible({ timeout: T });
+	await expect(w.page.getByText("Wrote out.txt.").first()).toBeVisible({ timeout: T });
 	await resize(w, 900, 720);
-	await w.page.getByRole("button", { name: "View changes" }).last().click();
+	await w.page.getByRole("button", { name: /Open changes$/ }).last().click();
 	const panel = w.page.getByRole("complementary", { name: "Changes" });
 	await expect(panel).toBeVisible({ timeout: T });
 	const lane = await box(w.page.locator(".chat-stage").first());
@@ -421,7 +421,7 @@ flow("times read one way, the composer's edge is solid, and the Changes panel do
 	if (covers) {
 		await panel.getByRole("button", { name: "Back to conversation" }).click();
 		await expect(panel).toBeHidden();
-		await expect(w.page.getByText("Wrote out.txt.")).toBeVisible();
+		await expect(w.page.getByText("Wrote out.txt.").first()).toBeVisible();
 		await expect(w.page.getByRole("textbox", { name: "Message Namzu" })).toBeVisible();
 	}
 });

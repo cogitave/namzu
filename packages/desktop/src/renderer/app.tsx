@@ -6653,9 +6653,11 @@ export function App({
 						panelView === 'browse' ||
 						panelView === 'changes'
 							? ({
-									'--panel-width': `clamp(${MIN_PANEL_WIDTH}px, ${
-										panelWidth ?? (panelView === 'changes' ? CHANGES_PANEL_WIDTH : 600)
-									}px, 70%)`,
+									'--panel-width':
+										panelWidth === undefined && panelView === 'changes'
+											? // The diff first, but never more than half of a narrow window.
+												`clamp(${MIN_PANEL_WIDTH}px, ${CHANGES_PANEL_WIDTH}px, 50%)`
+											: `clamp(${MIN_PANEL_WIDTH}px, ${panelWidth ?? 600}px, 70%)`,
 								} as CSSProperties)
 							: undefined
 					}

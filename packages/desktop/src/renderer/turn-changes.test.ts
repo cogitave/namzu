@@ -196,7 +196,10 @@ describe('per-reply edit summary', () => {
 				onClose: () => {},
 			}),
 		)
-		const bar = html.slice(html.indexOf('class="changes-bar"'), html.indexOf('class="changes-body"'))
+		const bar = html.slice(
+			html.indexOf('class="changes-bar"'),
+			html.indexOf('class="changes-body"'),
+		)
 		expect(bar).toContain('>Changes</h2>')
 		expect(bar).toContain('aria-label="View options"')
 		expect(bar).toContain('aria-label="Close changes"')

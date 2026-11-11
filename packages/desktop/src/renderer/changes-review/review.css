@@ -39,7 +39,8 @@
 	height: 24px;
 	padding: 0 10px;
 	border-radius: var(--radius-pill);
-	color: var(--muted-foreground);
+	/* Foreground, softened: the muted grey on this pill is under 4.5:1 in the light theme. */
+	color: color-mix(in srgb, var(--foreground) 78%, var(--accent));
 	font-size: 12px;
 	white-space: nowrap;
 	cursor: pointer;
