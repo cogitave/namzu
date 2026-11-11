@@ -1226,6 +1226,12 @@ export async function* walkSessionLog(
 		}
 	} else {
 		chain = new SessionLogChain({ head: null, sessionId: options.sessionId })
+		// A whole read that asked to reverify is the first of its kind: what it verifies in
+		// full is remembered, so the resumed reads after it can re-check by hash.
+		if (options.reverify && strict) {
+			const key = await medium.identity?.()
+			if (key !== undefined) ledger = verifiedPrefixOf(key) ?? startVerifiedPrefix(key)
+		}
 	}
 
 	const splitter = new LineSplitter(start)

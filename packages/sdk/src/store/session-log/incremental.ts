@@ -114,7 +114,7 @@ export async function foldSessionLog<S, R>(
 				const walk = log.read({
 					mode: fold.mode,
 					...(anchor ? { after: anchor } : {}),
-					...(anchor && fold.reverify && fold.mode === 'strict' ? { reverify: true } : {}),
+					...(fold.reverify && fold.mode === 'strict' ? { reverify: true } : {}),
 				})
 				let summary: Awaited<ReturnType<typeof walk.next>>
 				for (;;) {

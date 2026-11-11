@@ -425,6 +425,24 @@ describe('a resumed strict reduction that re-verifies', () => {
 		expect(parsed[0]).toBeLessThanOrEqual(2)
 	})
 
+	it('remembers what its first whole read verified, so the second one parses nothing old', async () => {
+		const parsed: { first: number; second: number }[] = []
+		for (const n of [30, 120]) {
+			const { open } = await written(n)
+			clearVerifiedPrefixes()
+			const log = open()
+			const counter = { applied: 0 }
+			const before = parses.mock.calls.length
+			await foldSessionLog(log, titles(counter, true))
+			const first = parses.mock.calls.length - before
+			await foldSessionLog(log, titles(counter, true))
+			parsed.push({ first, second: parses.mock.calls.length - before - first })
+		}
+		expect(parsed[1]?.first).toBeGreaterThan((parsed[0]?.first ?? 0) * 3.5)
+		expect(parsed[0]?.second).toBe(parsed[1]?.second)
+		expect(parsed[0]?.second).toBeLessThanOrEqual(2)
+	})
+
 	it('without it, a resumed read trusts the prefix (the documented window)', async () => {
 		const { file, open } = await written(30)
 		const log = open()
