@@ -14,6 +14,7 @@ import {
 	InMemorySessionCheckpointStore,
 	type SessionCheckpointStore,
 } from '../../store/checkpoint/index.js'
+import { foldSessionLog } from '../../store/session-log/incremental.js'
 import {
 	DiskSessionLog,
 	type InMemoryLogMedium,
@@ -313,19 +314,31 @@ export function checkpointLogView(log: SessionLog): CheckpointLogView {
 		},
 		async pruneFacts(scope, checkpointIds) {
 			own(scope)
-			const wanted = new Set<string>(checkpointIds)
-			const written = new Map<CheckpointId, string>()
-			const open = new Map<string, CheckpointId>()
-			for await (const { record } of log.read({ mode: 'tolerant' })) {
-				if (record.type === 'checkpoint_written' && wanted.has(record.checkpointId)) {
-					written.set(record.checkpointId, record.docSha256)
-				}
-				if (record.type === 'decision_requested') open.set(record.decisionId, record.checkpointId)
-				if (record.type === 'decision_resolved' || record.type === 'decision_expired') {
-					open.delete(record.decisionId)
-				}
-			}
-			return { written, open: open.values() }
+			// Every committed checkpoint and every open decision, advanced from the
+			// last record the previous prune folded rather than read from byte 0:
+			// a prune runs every iteration of every turn.
+			return foldSessionLog(log, {
+				name: 'prune-facts',
+				mode: 'tolerant',
+				create: () => ({
+					written: new Map<CheckpointId, string>(),
+					open: new Map<string, CheckpointId>(),
+				}),
+				apply: ({ written, open }, { record }) => {
+					if (record.type === 'checkpoint_written')
+						written.set(record.checkpointId, record.docSha256)
+					if (record.type === 'decision_requested') open.set(record.decisionId, record.checkpointId)
+					if (record.type === 'decision_resolved' || record.type === 'decision_expired') {
+						open.delete(record.decisionId)
+					}
+				},
+				result: ({ written, open }) => ({
+					written: new Map(
+						checkpointIds.flatMap((id) => (written.has(id) ? [[id, written.get(id)!]] : [])),
+					),
+					open: [...open.values()],
+				}),
+			})
 		},
 	}
 }
