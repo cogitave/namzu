@@ -235,7 +235,7 @@ file formats are unchanged. A removal is recorded as `update_cache_cleared` with
 The installed app updates itself with `electron-updater` (`src/main/updater.ts`), driven
 by a state machine of `disabled | idle | checking | available | downloading | ready | installing | error`.
 It downloads on its own unless **Download updates automatically** is off in Settings (then a
-found update is `available`: the rail's update button offers **Download**, and nothing is
+found update is `available`: the update button (in the sidebar foot, or in the rail while the sidebar is collapsed) offers **Download**, and nothing is
 fetched until it is pressed; turning the setting back on takes an offered update at once),
 never installs on quit (`autoInstallOnAppQuit` is off) and never
 downgrades. The first check is 30 seconds after launch and then every four hours; a failed
@@ -456,7 +456,7 @@ they restart, and the row says so.
 **Where it shows.** Settings ▸ Updates lists the three programs under the app's own row (name,
 `installed → latest`, how it was installed as a muted note, "The update runs in a terminal tab you can watch."
 (the command itself only where the person must run it and uses **Copy**), and
-**Update**, **Updating…**, **Up to date** or **Check failed**). The rail's download button appears
+**Update**, **Updating…**, **Up to date** or **Check failed**). The download button (in the sidebar foot, or in the rail while the sidebar is collapsed) appears
 when any program is behind, labelled "Updates available. Open Settings to update" followed by the names of the programs
 that are behind, and opening Settings ▸ Updates; the app's own *ready* state keeps priority over it.
 The engine view of the model popup adds "Update available (0.162.0)" under an engine that is behind

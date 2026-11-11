@@ -183,4 +183,14 @@ describe('the look of a finished turn, as the styles say it', () => {
 		expect(css('theme.css')).toContain('--radius-xl: calc(var(--radius) + 4px)')
 		expect(css('theme.css')).toContain('--radius: 0.625rem')
 	})
+
+	it('the fold sentence is as wide as its words, and the time shows on a screen with no hover', () => {
+		const motion = css('transcript-motion.css')
+		expect(block(motion, '.normal-transcript .activity-trigger[data-sentence]')).toContain(
+			'width: max-content',
+		)
+		expect(motion).toMatch(
+			/@media \(hover: none\) \{\s*\.normal-transcript \.message-time \{\s*opacity: 1;/,
+		)
+	})
 })
