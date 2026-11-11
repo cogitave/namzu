@@ -10,7 +10,7 @@ export const WINDOW_CHROME_HEIGHT = 32
 
 // The menu row and the caption strip are drawn in the sidebar's fill (`--chrome` is `--sidebar` in
 // theme.css); a test keeps these in step with it, so the strip and the row read as one band.
-export const WINDOW_CAPTION_FILL = { dark: '#181818', light: '#fbfbfb' } as const
+export const WINDOW_CAPTION_FILL = { dark: '#121212', light: '#fbfbfb' } as const
 
 export function windowChrome(platform: string): WindowChrome {
 	return {

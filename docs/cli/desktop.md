@@ -2022,7 +2022,7 @@ The sidebar brand (the wordmark with a small green "Beta" badge after it) opens 
 workspace menu. The labelled New conversation row is the primary
 creation action, rather than duplicating it across icon groups.
 The rail has the sidebar's own surface (`--chrome` is `--sidebar`), so the sidebar, the rail and the menu
-row are one fill, and a 1px line (`--sidebar-border`) on the right edge of the sidebar, or of the rail
+row are one fill, one step darker than the conversation page in the dark theme (`#121212` against `#181818`; in the light theme `#fbfbfb` against `#ffffff`), and a 1px line (`--sidebar-border`) on the right edge of the sidebar, or of the rail
 while the sidebar is collapsed, separates them from the conversation. No corner is rounded and nothing
 casts a shadow; the Plugins destination follows the same layout. A smaller sidebar wordmark
 sits over an ordered pixel accent that fades across the full sidebar header
@@ -2805,7 +2805,9 @@ banner); the row only adds how it ended.
 
 The fold above the answer says what the work was, in the words a group of steps uses
 (`actionRunLabel`): "Searched, read a file, and 2 more · 36s". At most three phrases are named, the
-last one counting the kinds left out; the time follows after a middle dot in the muted colour. A
+last one counting the kinds left out; the sentence is drawn in the muted text colour (the reply is the brightest text of a turn) and
+brightens to the primary colour on hover and keyboard focus; the time follows after a middle dot, quieter
+still. A
 refused or failed action stays flagged on the same line. A turn that did not end well, or did nothing
 countable, keeps the plain form ("Stopped · 47s · 2 steps", "Worked for 3s"). The labels while a turn
 is running or waiting are unchanged. A closed fold has no rule under it; an open one has a rule below
@@ -3045,7 +3047,7 @@ and focus in four viewport and motion settings, with the [source-bound receipt](
 
 Desktop receives the host's [usage and compaction notices](#usage-and-compaction-notices) (`shared/usage-protocol.ts` reads them; anything that does not read, or that names a conversation this connection does not own or a Pal conversation, is dropped) and keeps the last picture per conversation in the thread (`ThreadState.usage`, `ThreadState.compaction`). Usage outlives a closed tab, so the ring is right when the conversation is opened again.
 
-- **Context ring.** A small ring at the left of the composer's send controls (`renderer/context-ring-view.tsx`, model in `context-ring.ts`) fills with the share of the window the conversation holds. It is a focusable control named "Context 6% full. 12.4k of 200k tokens." and its tooltip says the same in words, adds "estimated" when the host did not get a count from the provider, adds "Cost so far: $0.42" only when the engine priced every token, and from 75% (amber) and 90% (red) adds that older messages may be summarised to make room. It is **not drawn at all** until the engine has reported both a context size and a window (a custom model with no known window, or an engine that reports nothing); there is no placeholder. A figure the engine stops reporting disappears at the next notice.
+- **Context ring.** A small ring at the right end of the row under the composer box (`renderer/context-ring-view.tsx`, model in `context-ring.ts`) fills with the share of the window the conversation holds. It is a focusable control named "Context 6% full. 12.4k of 200k tokens." and its tooltip says the same in words, adds "estimated" when the host did not get a count from the provider, adds "Cost so far: $0.42" only when the engine priced every token, and from 75% (amber) and 90% (red) adds that older messages may be summarised to make room. It is **not drawn at all** until the engine has reported both a context size and a window (a custom model with no known window, or an engine that reports nothing); there is no placeholder. A figure the engine stops reporting disappears at the next notice.
 - **Compacting line.** From the moment a pass starts the live status line reads "Compacting the conversation…" (shimmering, still under reduced motion), and when it finishes it reads "Conversation compacted · 150k to 40k tokens" without a shimmer until the turn goes on, when the next streamed update replaces it. A pass that changed nothing, the end of the turn and the next prompt clear it at once. A decision wait still takes the line first.
 
 The ring and the line use the design tokens (`--radius-pill`, `--dur-quick`, `--dur-base`, `--focus-ring`, `--warning`, `--error`) and no animation under `prefers-reduced-motion`.

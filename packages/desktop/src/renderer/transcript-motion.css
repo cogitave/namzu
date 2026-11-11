@@ -139,11 +139,18 @@
 	border-bottom: 0;
 	color: var(--muted-foreground);
 }
-/* A finished turn's line is a sentence about the work; only the time after it is muted. */
+/* A finished turn's line is a quiet sentence about the work: the reply is the brightest text of the turn, so
+   the sentence is muted and rises to the primary colour only under the pointer or the keyboard focus. */
 .normal-transcript .activity-trigger[data-sentence],
-.normal-transcript .activity-trigger[data-sentence]:hover,
 .normal-transcript .activity-trigger[data-sentence][data-panel-open] {
-	color: color-mix(in srgb, var(--foreground) 78%, var(--muted-foreground));
+	color: var(--muted-foreground);
+}
+.normal-transcript .activity-trigger[data-sentence]:hover,
+.normal-transcript .activity-trigger[data-sentence]:focus-visible {
+	color: var(--foreground);
+}
+.normal-transcript .activity-trigger[data-sentence] .turn-activity-elapsed {
+	color: color-mix(in srgb, var(--muted-foreground) 70%, transparent);
 }
 /* A closed fold has no rule; an open one separates the work from the answer under it. */
 .normal-transcript
