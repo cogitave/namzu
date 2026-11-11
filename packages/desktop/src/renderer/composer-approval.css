@@ -1,9 +1,20 @@
-/* The edit approval card: a diff box with a right-aligned action row. */
+/* The approval is one card sitting directly above the box: 12px corners, a 1px ring, the panel fill,
+   about 8px of air between them and no surface behind both. The preview inside is a band that runs
+   from edge to edge of the card, so the card's padding (--approval-pad) is what the band cancels. */
+.approval-surface {
+	min-width: 0;
+	margin: 0 0 8px;
+}
 .approval-card {
+	--approval-pad: 12px;
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
 	min-width: 0;
+	padding: var(--approval-pad);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-card);
+	background: var(--card);
 	font-size: 12px;
 	line-height: 1.4;
 }
@@ -146,10 +157,6 @@
 	gap: 8px;
 	margin-left: auto;
 }
-/* The card's lower edge sits clear of the message box, with room for the buttons' focus ring. */
-.approval-card {
-	padding-bottom: 6px;
-}
 .approval-note-field {
 	flex: 1;
 	min-width: 0;
@@ -257,12 +264,14 @@
 	margin-top: 2px;
 }
 
-/* The first rows of the change or the command; the rest is one click away. */
+/* The first rows of the change or the command; the rest is one click away. A band, not a box: it has
+   no border and no corners of its own, only the darker code fill, from one edge of the card to the other. */
 .approval-box {
 	position: relative;
 	overflow: hidden;
-	border: 1px solid var(--border);
-	border-radius: var(--radius-control);
+	margin-inline: calc(-1 * var(--approval-pad));
+	border: 0;
+	border-radius: 0;
 	background: var(--code-background);
 	color: var(--code-foreground);
 	font-family: var(--font-mono);

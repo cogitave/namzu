@@ -622,7 +622,7 @@ dropped when its project is removed. A second failure is left to the person and 
 reads follow the same rule: the activity panel's task list slows from two seconds to a minute and stops after four
 failures in a row (it starts again, and reads at once, on a reconnect, a manual refresh or the window
 being focused), the Pal start question stops asking a Pal whose inbox read failed four times until the
-window is focused again, and the pull request look in the composer footer does the same on focus or
+window is focused again, and the pull request look in the composer's row does the same on focus or
 when the window is visible again.
 
 ### Diagnostic logs
@@ -881,13 +881,13 @@ The logic is pure (`SystemNotices` takes an injected notifier, clock, timer and 
 
 ## The top of a conversation window
 
-A conversation window spends 40 px on one bar, where it spent 52 px on a strip of tabs. The bar holds the conversation's title (14 px, bold, cut with an ellipsis when it does not fit), the project's name (13 px, muted), then on the right how full the conversation is and its buttons. The sidebar is the one list of conversations; a title is shown once. The operating system's menu row (File, Edit, View, Window) is unchanged and sits above the bar.
+A conversation window spends 40 px on one bar, where it spent 52 px on a strip of tabs. The bar holds the conversation's title (14 px, bold, cut with an ellipsis when it does not fit), the project's name (13 px, muted), then on the right its buttons (how full the conversation is lives in the row under the composer, not here). The sidebar is the one list of conversations; a title is shown once. The operating system's menu row (File, Edit, View, Window) is unchanged and sits above the bar.
 
-**The read-out** is a filled pie with the share and the cost beside it ("14% · $0.06"), from the same figures as the context ring (`contextRingModel`, so the two cannot disagree). It is not drawn until the engine has reported both a context size and a window. It turns amber at 75% and red at 90%. Hovering shows the token counts, and below 560 px of bar the words give way and the pie stays. With the bar showing, the composer draws no ring (`ContextHomeContext`); with the tab strip on, the ring stays beside the send controls as before.
+**The read-out** is not in the bar: it sits at the right end of the row under the composer box (see the composer section below), from the same figures (`contextRingModel`, so the two cannot disagree) and with the same rule for when it shows: nothing is drawn until the engine has reported both a context size and a window.
 
-**The buttons** are 28 px, each with a tooltip and an accessible name: **Changes** (opens the Changes panel; with changes it widens to show the lines added and removed, "+35 −3", read from the same `changeTotals` as the result line and the pane, and its accessible name says the file count too, "Changes, 4 changed files, 35 added, 3 removed"), **New terminal** (a menu of the open terminals, the conversation and **New terminal** once one is open), **Project files**, **Conversation details** and **Conversation actions**. Changes and Project files open the panels the details popover and the panel's own tab strip already open; they are a shorter way there, not new panels. At 960 px the title gives way first, the project's name shrinks next and goes only below 300 px of bar, and the words of the read-out go below 560 px; the buttons stay.
+**The buttons** are 28 px, each with a tooltip and an accessible name: **Changes** (opens the Changes panel; with changes it widens to show the lines added and removed, "+35 −3", read from the same `changeTotals` as the result line and the pane, and its accessible name says the file count too, "Changes, 4 changed files, 35 added, 3 removed"), **New terminal** (a menu of the open terminals, the conversation and **New terminal** once one is open), **Project files**, **Conversation details** and **Conversation actions**. Changes and Project files open the panels the details popover and the panel's own tab strip already open; they are a shorter way there, not new panels. At 960 px the title gives way first, the project's name shrinks next and goes only below 300 px of bar; the buttons stay.
 
-**Conversation tabs** are hidden by default. **View > Show conversation tabs** (a checkbox), **Settings > Appearance > Show conversation tabs** and the command palette's **Show conversation tabs** / **Hide conversation tabs** switch them; the choice is `showConversationTabs` in `desktop-settings.json`, shared by the windows and by the menu's checkbox, and the window remembers the last answer for the first paint. With the switch on, the top of the window is as it was: the strip, the 52 px height, the ring in the composer. A Pal's conversation always keeps the strip, because the Pal's computer is a tab in it.
+**Conversation tabs** are hidden by default. **View > Show conversation tabs** (a checkbox), **Settings > Appearance > Show conversation tabs** and the command palette's **Show conversation tabs** / **Hide conversation tabs** switch them; the choice is `showConversationTabs` in `desktop-settings.json`, shared by the windows and by the menu's checkbox, and the window remembers the last answer for the first paint. With the switch on, the top of the window is as it was: the strip and the 52 px height. The context read-out stays in the composer's row either way. A Pal's conversation always keeps the strip, because the Pal's computer is a tab in it.
 
 With the strip hidden, every way of moving still works:
 
@@ -3581,17 +3581,32 @@ before anything is built.
 
 ### The composer, its popups and approval cards
 
-**The lower edge of the box (the chin).** It carries four things: the attach **+**, the permission word, the
-model word and Send. Permission and model are quiet muted text (the chevron's room is always kept and it fades in on hover, focus or while
-the menu is open, so the word never moves; Full access keeps its warning mark and colour), and Send is the only filled control, in the
-one lime the other primary actions use. Its dimmed look with an empty box is the disabled state of that same
-lime. The context ring, the queue button, the background-shell count and the pull request chip are drawn only
-when they have something to say. The **microphone is not drawn until voice input is set up**
-(**Settings ▸ Speech ▸ Voice input**, found by searching "microphone"); once it is, or while a voice session is
-listening, the button is back. Above the box on the home screen is one 13 px muted line, "*project* · This
-computer" (a long project name gives way first, with an ellipsis; the computer stays readable), that opens one menu: the project list (search, start from scratch, an existing folder, no project)
-and, under it, the computer the work runs on. There is one computer to choose, so it is shown as the one checked
-choice. The three starters are quiet 32 px rows; a click puts the idea in the box and focuses it, and never sends.
+**The box and the row under it.** The box is one quiet field, 16 px corners with the same fill and ring as before. It holds
+the text, the attach **+** at the bottom left and Send at the bottom right (with its working states: Stop, and the queue
+button beside it while a reply runs). Send is the only filled control, in the one lime the other primary actions use;
+its dimmed look with an empty box is the disabled state of that same lime. The **microphone is not drawn until voice
+input is set up** (**Settings ▸ Speech ▸ Voice input**, found by searching "microphone"); once it is, or while a voice
+session is listening, the button is back, beside Send inside the box.
+
+Under the box, outside it, as wide as it and about 6 px below, is **one row of the conversation's settings**
+(`data-composer-row`): small quiet buttons, 13 px words, 28 px tall, no fill and no border at rest and the soft hover
+fill. At the left: on the home screen "*project* · This computer" (it opens one menu: the project list, with search,
+start from scratch, an existing folder, no project, and under it the computer the work runs on; there is one computer
+to choose, so it is shown as the one checked choice), then the **permission mode** ("Ask first" and the others, the same
+menu), then the background-shell count and the pull request chip when they have something to say. At the right: the
+**model** (with the effort as before, the same popup) and the **context read-out**, a pie with the share and the cost
+("14% · $0.06", hover for the token counts; amber at 75% and red at 90%). Chevrons are not drawn at rest but their room is
+kept, so nothing in the row moves when the pointer arrives; Full access keeps its warning mark and colour. After the
+first message the project line fades out and the mode keeps its place. While an approval waits, the row stays under the
+box; the model is left out then (it cannot change during a reply) and the permission mode and the read-out stay.
+
+When the row is too narrow, the percentage text goes first (below 520 px of row), then the model's name is cut with an
+ellipsis, then the row wraps to two lines (below 360 px); a long project name is cut with an ellipsis while the computer
+stays readable. The permission mode is never hidden or cut. Popups open upward from their button and stay inside the window.
+Nothing is hidden until hover: every control of the row is drawn at rest, so a keyboard user reaches them in order (the mode,
+the model, the read-out, each with a focus ring) and a touch user sees them all. The context ring is gone from the top bar;
+the Pal composer keeps its own ring beside Send. The three starters are quiet 32 px rows; a click puts the idea in the box and
+focuses it, and never sends.
 
 **The model popup** opens on the model list on every engine: 40 px rows, the model's name and a 12 px muted second
 line with its context window and what a million tokens cost ("128k window · Free", "200k window · $3 in · $15 out
@@ -3608,11 +3623,15 @@ icon filters a long list (as before: more than seven models or more than one pro
 388 px with engines (less than the window minus 16 px in a narrow window), its right edge stays on the trigger, and the
 frame draws no scrollbar of its own. `e2e/composer-popups.test.mjs` measures every step (list, older models, More,
 engine) on the Namzu and Codex engines at four window sizes in both themes; `e2e/ux-composer-chin.test.mjs` covers the
-chin, the context line, the starters and the list.
+row's words, the project line, the starters and the list, and `e2e/ux-composer-row.test.mjs` the row's place, look,
+popups, narrow behaviour and the approval card's shape.
 
-**The approval card and the turn in flight.** One card sits wholly above the composer, with a gap: there is no outer
-"Waiting for your decision" box and no line of key hints. It states what the request itself carries and nothing the model
-said about its action.
+**The approval card and the turn in flight.** One card (12 px corners, a 1 px ring, the panel fill, no shadow) sits
+directly above the box with about 8 px between them: no surface is drawn behind both, there is no outer "Waiting for your
+decision" box and no line of key hints. The preview of the change inside it is a band from edge to edge of the card with the
+darker code fill and no border or corners of its own. While the card waits, the box under it is the ordinary box, one row
+tall, with the waiting text and Stop, and the row of settings stays under it, the model included (disabled while the reply is held, as during any reply). The card states what the request itself carries
+and nothing the model said about its action.
 
 - **The question** is one 14 px sentence with the target as a mono chip: "Edit `src/auth/session.ts`?",
   "Create `a.txt`?", "Delete `old.txt`?", "Run `pnpm test`?" (a command is cut to its first line, with ` …` when more
@@ -4400,7 +4419,7 @@ beside the command, and "(No output)". A command handed to a background job read
 with **See it**, which opens the activity panel. The run's header counts it: "Ran 4 commands, 1 failed, 1 in
 the background".
 
-**Footer.** Beside the mode, a quiet "N shells" (from the background-work status events; it opens the activity
+**Footer.** In the row under the box, beside the mode, a quiet "N shells" (from the background-work status events; it opens the activity
 panel) and "PR #n" for the conversation's branch, coloured by review state: approved green, changes requested
 red, waiting for review amber, merged purple, draft muted. The pull request is read by the CLI host
 (`namzu/project/pr`, the same `lookupPr` the terminal's footer uses) when the project opens, when a reply ends

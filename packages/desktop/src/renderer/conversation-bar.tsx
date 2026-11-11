@@ -1,8 +1,6 @@
 import { Menu } from '@base-ui/react/menu'
 import { Fragment, type ReactNode } from 'react'
-import type { ThreadUsage } from '../shared/projection.js'
 import { formatLineCount } from './changes-totals.js'
-import { ContextReadout } from './context-ring-view.js'
 import { CheckIcon, FileDiffIcon, FileTextIcon, PencilIcon, TerminalIcon } from './icons.js'
 import { Button } from './ui/button.js'
 import './conversation-bar.css'
@@ -50,7 +48,6 @@ export interface ConversationBarProps {
 	onSelectDraft?: (id: string) => void
 	title: string
 	project?: string
-	usage?: ThreadUsage
 	/** The completed edits in the conversation; the same number "N changed files" says elsewhere. */
 	changes: number
 	/** Lines added and removed across those files: the same numbers the result line and the pane show. */
@@ -209,13 +206,12 @@ function TerminalControl({
 }
 
 /**
- * The one 40 px bar above a conversation: its title and project, how full it is, and the buttons
+ * The one 40 px bar above a conversation: its title and project, and the buttons
  * for the panels beside it. It stands where the strip of tabs stood.
  */
 export function ConversationBar({
 	title,
 	project,
-	usage,
 	changes,
 	added = 0,
 	removed = 0,
@@ -238,7 +234,6 @@ export function ConversationBar({
 				</span>
 			)}
 			<div className="conversation-bar-spacer" aria-hidden="true" />
-			<ContextReadout usage={usage} />
 			<div className="conversation-bar-buttons">
 				{onChanges && (
 					<Button

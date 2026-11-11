@@ -46,9 +46,13 @@
 	transform: rotate(180deg);
 }
 
-/* The normal composer has an inset context drawer above the message surface. */
-.normal-composer-shell {
-	--chat-composer-drawer-inset: 13px;
+/* The box is one quiet field: 16px corners, its own fill and ring. */
+.normal-composer-shell::before,
+.normal-composer-shell [data-slot="composer-host"],
+.normal-composer-shell [data-slot="composer-host"]::after,
+.normal-composer-shell [data-chat-composer-main-surface],
+.normal-composer-shell [data-chat-composer-main-surface]::after {
+	border-radius: var(--radius-panel);
 }
 .normal-composer-shell [data-slot="composer-host"] {
 	background: color-mix(
@@ -58,45 +62,77 @@
 	);
 	backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
 }
-.composer-context-above {
-	position: relative;
-	z-index: 0;
+
+/* The row under the box: the settings of the conversation, as wide as the box. Nothing is drawn
+   behind it; its buttons have no fill and no border until the pointer or the keyboard is on them. */
+.composer-row {
+	container: composer-row / inline-size;
+	margin-top: 6px;
+}
+.composer-row-inner {
+	display: flex;
+	flex-wrap: nowrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0 8px;
+	min-width: 0;
+}
+.composer-row-start,
+.composer-row-end {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	/* One flat chip row on the composer's own edges: no box of its own, nothing tucked behind the card. */
-	width: 100%;
-	min-height: 36px;
-	margin: 0 auto 4px;
-	padding: 4px 8px;
-	color: var(--muted-foreground);
+	min-width: 0;
+	gap: 2px;
 }
-/* After the first message the tray fades and collapses so the composer settles instead of jumping. */
-.composer-context-above[data-leaving] {
-	overflow: clip;
-	max-height: 0;
-	min-height: 0;
-	padding-block: 0;
-	margin-bottom: 0;
+/* Left: the project (home only), the permission mode, the chips. The mode is never cut. */
+.composer-row-start {
+	flex: 0 1 auto;
+}
+/* Right: the model, then the context. Under pressure the model's name gives way first (its own ellipsis). */
+.composer-row-end {
+	flex: 0 2 auto;
+	justify-content: flex-end;
+}
+/* Very narrow: the row wraps to two lines, the right half under the left. */
+@container composer-row (max-width: 360px) {
+	.composer-row-inner {
+		flex-wrap: wrap;
+	}
+	.composer-row-end {
+		flex: 1 1 auto;
+		margin-left: auto;
+	}
+}
+.composer-row-project {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	flex: 0 1 auto;
+	min-width: 0;
+}
+.composer-row-project > * {
+	min-width: 0;
+}
+/* After the first message the project line fades out and its room closes with it, so the permission
+   mode slides to its place instead of jumping when the line unmounts. */
+.composer-row-project[data-leaving] {
+	grid-template-columns: minmax(0, 0fr);
 	opacity: 0;
+	overflow: hidden;
 	pointer-events: none;
-	animation: composer-tray-out 150ms var(--motion-ease) both;
+	animation: composer-row-project-out 150ms var(--motion-ease) both;
 }
-@keyframes composer-tray-out {
+@keyframes composer-row-project-out {
 	from {
-		max-height: 36px;
-		min-height: 36px;
-		padding-block: 4px;
-		margin-bottom: 4px;
+		grid-template-columns: minmax(0, 1fr);
 		opacity: 1;
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.composer-context-above[data-leaving] {
+	.composer-row-project[data-leaving] {
 		animation: none;
 	}
 }
-.composer-context-above .composer-project-control {
+.composer-row .composer-project-control {
 	flex: 0 1 auto;
 	min-width: 0;
 	max-width: 100%;
@@ -108,8 +144,7 @@
 	line-height: 18px;
 	color: var(--muted-foreground);
 }
-.composer-context-above
-	.composer-project-control:is(:hover, :focus-visible, [aria-expanded="true"]) {
+.composer-row .composer-project-control:is(:hover, :focus-visible, [aria-expanded="true"]) {
 	color: var(--foreground);
 }
 /* A long project name gives way first (ellipsis); the place it runs on stays readable. */
@@ -170,7 +205,11 @@
 	width: 18px;
 	height: 18px;
 }
-.normal-composer-shell .composer-permission-control {
+.composer-row .composer-footer-chip {
+	height: 28px;
+	font-size: var(--text-ui-caption, 13px);
+}
+.composer-row .composer-permission-control {
 	min-width: 0;
 	gap: 5px;
 	padding-inline: 8px;
@@ -178,10 +217,10 @@
 	font-weight: 400;
 	color: var(--muted-foreground);
 }
-.normal-composer-shell .composer-permission-control[data-composer-permission="auto"] {
+.composer-row .composer-permission-control[data-composer-permission="auto"] {
 	color: var(--warning-foreground);
 }
-.normal-composer-shell .composer-permission-control > svg {
+.composer-row .composer-permission-control > svg {
 	color: currentColor;
 }
 .normal-composer-shell .pal-composer-send-actions {
@@ -191,35 +230,30 @@
 }
 .composer-selected-model {
 	min-width: 0;
-	max-width: min(360px, 100%);
+	max-width: min(300px, 100%);
 }
-.normal-composer-shell .model-picker-trigger {
+.composer-row .model-picker-trigger {
 	max-width: 100%;
 	gap: 5px;
 	padding-inline: 8px;
 	font-size: var(--text-ui-caption, 13px);
 	color: var(--muted-foreground);
 }
-.normal-composer-shell .model-picker-trigger-model {
+.composer-row .model-picker-trigger-model {
 	color: inherit;
 }
-/* The chin is quiet: permission and model are plain muted words, and the chevron fades in on hover or focus.
-   Its room is always reserved on the two chin controls, so the word never moves under the pointer. */
-.normal-composer-shell .composer-permission-control [data-composer-control-chevron],
-.normal-composer-shell .model-picker-trigger [data-composer-control-chevron] {
+/* The row is quiet: the project, the permission mode and the model are plain muted words, and the chevron fades
+   in on hover or focus. Its room is always reserved, so no word in the row moves when the pointer arrives. */
+.composer-row .composer-permission-control [data-composer-control-chevron],
+.composer-row .model-picker-trigger [data-composer-control-chevron],
+.composer-row .composer-project-control [data-composer-control-chevron] {
 	width: 12px;
 	margin-inline: 0;
 	opacity: 0;
 	transition: opacity 140ms var(--motion-ease);
 }
-.composer-context-above .composer-project-control [data-composer-control-chevron] {
-	width: 0;
-	margin-inline: 0;
-	opacity: 0;
-	transition: width 140ms var(--motion-ease), opacity 140ms var(--motion-ease);
-}
-.normal-composer-shell
-	:is(.composer-permission-control, .model-picker-trigger):is(
+.composer-row
+	:is(.composer-permission-control, .model-picker-trigger, .composer-project-control):is(
 		:hover,
 		:focus-visible,
 		[aria-expanded="true"]
@@ -227,26 +261,25 @@
 	[data-composer-control-chevron] {
 	opacity: 0.7;
 }
-.composer-context-above
-	.composer-project-control:is(:hover, :focus-visible, [aria-expanded="true"])
-	[data-composer-control-chevron] {
-	width: 12px;
-	opacity: 0.7;
-}
 @media (prefers-reduced-motion: reduce) {
-	.normal-composer-shell .composer-permission-control [data-composer-control-chevron],
-	.normal-composer-shell .model-picker-trigger [data-composer-control-chevron],
-	.composer-context-above .composer-project-control [data-composer-control-chevron] {
+	.composer-row .composer-permission-control [data-composer-control-chevron],
+	.composer-row .model-picker-trigger [data-composer-control-chevron],
+	.composer-row .composer-project-control [data-composer-control-chevron] {
 		transition: none;
 	}
 }
-@container composer-surface (max-width: 420px) {
-	.composer-context-above {
-		gap: 4px;
+/* Narrow: the context percentage goes first, then the model's name is cut (its own ellipsis), and
+   only then does the row wrap to two lines. The permission mode is never hidden or cut. */
+@container composer-row (max-width: 520px) {
+	.composer-row .context-readout-text {
+		display: none;
 	}
-	.normal-composer-shell .composer-permission-control {
-		max-width: 116px;
-	}
+}
+.composer-row .composer-permission-control {
+	flex: none;
+}
+.composer-row .context-readout {
+	font-size: var(--text-ui-caption, 13px);
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
 	.normal-composer-shell [data-slot="composer-host"] {
@@ -581,22 +614,34 @@
 	color: var(--muted-foreground);
 }
 
-/* While a question waits for the person the composer is one 40px bar: the question is the card above it. */
+/* While a question waits for the person the box is one row: the plus, the waiting words, Stop.
+   The question is the card above it, and the row of settings stays under it. */
 .normal-composer-shell .composer-waiting {
 	display: flex;
 	align-items: center;
 	min-height: 40px;
+	padding-inline: 6px;
+}
+.normal-composer-shell .composer-waiting [data-chat-composer-footer] {
+	display: contents;
+}
+.normal-composer-shell .composer-waiting .composer-footer-options {
+	order: -1;
+}
+.normal-composer-shell .composer-waiting .pal-composer-send-actions {
+	flex: none;
+	order: 1;
 }
 .normal-composer-shell .composer-waiting [data-chat-composer-body] {
 	flex: 1 1 auto;
 	min-width: 0;
-	padding: 0 8px 0 14px;
+	padding: 0 8px 0 6px;
 }
 .normal-composer-shell .composer-waiting [data-chat-composer-body]:has(.composer-input)::before {
 	content: "";
 	position: absolute;
 	top: 50%;
-	left: 14px;
+	left: 6px;
 	width: 8px;
 	height: 8px;
 	border-radius: 50%;
@@ -604,7 +649,7 @@
 	translate: 0 -50%;
 }
 .normal-composer-shell .composer-waiting [data-chat-composer-body] .composer-input {
-	padding-left: 22px;
+	padding-left: 14px;
 }
 .normal-composer-shell .composer-waiting .composer-input textarea {
 	min-height: 24px;
@@ -612,10 +657,6 @@
 	padding: 0;
 	font-size: 13px;
 	line-height: 24px;
-}
-.normal-composer-shell .composer-waiting [data-chat-composer-footer] {
-	flex: none;
-	padding: 0 6px 0 0;
 }
 .normal-composer-shell .composer-waiting [data-chat-composer-body]:has(.composer-input) {
 	position: relative;

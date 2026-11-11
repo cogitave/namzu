@@ -1,5 +1,5 @@
-// The home screen's composer, quiet: the lower edge carries the attach "+", the permission word, the model word
-// and Send; the project and the computer are one line above the box with one menu; the starters fill the box and
+// The home screen's composer, quiet: the box carries the attach "+" and Send; the permission word, the model word
+// and the project and the computer are one row under the box, the project with one menu; the starters fill the box and
 // never send; the model popup opens on the list, a second line from the catalogue, the effort control and one
 // More row. Real Electron app, real CLI host, scripted provider. No paid model.
 // Run: pnpm --filter @namzu/desktop build && cd packages/desktop && xvfb-run -a node --test e2e/ux-composer-chin.test.mjs
@@ -29,8 +29,8 @@ test("the composer chin is quiet, one line holds project and computer, starters 
 		// Voice input is not set up: the composer has no microphone. Settings is where it is turned on.
 		await expect(page.getByRole("button", { name: /voice input/i })).toHaveCount(0);
 
-		// One line above the box: the project and the computer, 13px, one menu.
-		const line = page.locator(".composer-context-above");
+		// In the row under the box: the project and the computer, 13px, one menu.
+		const line = page.locator(".composer-row-project");
 		await expect(line.getByRole("button")).toHaveCount(1);
 		await expect(line).toContainText("This computer");
 		await expect(page.locator(".composer-computer-label")).toHaveCount(0);
@@ -42,7 +42,7 @@ test("the composer chin is quiet, one line holds project and computer, starters 
 		await page.keyboard.press("Escape");
 		await expect(runsOn).toHaveCount(0);
 
-		// The chin: permission and model are quiet words; the chevron is drawn on hover.
+		// The row: permission and model are quiet words; the chevron is drawn on hover.
 		const permission = page.getByRole("button", { name: /^Permissions:/ });
 		const chevron = permission.locator("[data-composer-control-chevron]");
 		const chevronOpacity = () => chevron.evaluate((el) => Number(getComputedStyle(el).opacity));
