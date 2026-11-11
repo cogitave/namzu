@@ -101,3 +101,39 @@ export function expandTabs(source: string): string {
 		})
 		.join('\n')
 }
+
+export interface ScriptTextOptions {
+	/** What stands in for a line break; a space by default. */
+	readonly newline?: string
+	/** What stands in for a tab; a space by default. */
+	readonly tab?: string
+	/** Cut to this many terminal cells and end with an ellipsis. Nothing is cut when absent. */
+	readonly maxCells?: number
+}
+
+/**
+ * Text a workflow script supplies (a name, a phase title, an agent label, a
+ * log line) as one safe row. The script builds these at run time from file
+ * names and from what agents answered, so they are untrusted: control
+ * characters, direction overrides and zero-width characters come out spelled
+ * as `\u{....}` literals (see {@link terminalDisplayText}), and line breaks
+ * and tabs become one-row stand-ins. This is the one place that rule lives;
+ * every row that draws such text goes through it. A view operation: the
+ * journal and the run record keep the source text.
+ */
+export function scriptText(source: string, options: ScriptTextOptions = {}): string {
+	const flat = terminalDisplayText(source)
+		.replace(/\r?\n/g, options.newline ?? ' ')
+		.replace(/\t/g, options.tab ?? ' ')
+	const max = options.maxCells
+	if (max === undefined || stringWidth(flat) <= max) return flat
+	let out = ''
+	let cells = 0
+	for (const char of flat) {
+		const width = stringWidth(char)
+		if (cells + width > max - 1) break
+		out += char
+		cells += width
+	}
+	return `${out.trimEnd()}…`
+}

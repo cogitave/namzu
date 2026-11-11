@@ -10,6 +10,10 @@ name in `~/.agents/skills`, `~/.namzu/skills` or the project shadows it.
 - `browser-automation` — the procedure for the `browser` and `browser_act`
   tools; offered only when they exist.
 - `schedule-task` — proposing a scheduled job with the `schedule` tool.
+- `verify-change` — proving a change works by running it, then running the
+  project's own check plainly so the turn's record can read its status.
+- `review-changes` — reviewing a change for defects, each finding with its
+  failing case and checked before it is reported.
 
 Each is a single `SKILL.md`. A built-in that bundles files (`scripts/`,
 `references/`) must not depend on them under the sandbox: the installed

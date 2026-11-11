@@ -55,6 +55,13 @@ phase('Tarama')`)
 		expect(run).toThrow(message)
 	})
 
+	it('accepts two phase titles that differ only by case, as a script may always declare them', () => {
+		const meta = parseWorkflowMeta(
+			"export const meta = { name: 'a', description: 'd', phases: [{ title: 'Scan' }, { title: 'scan' }] }",
+		)
+		expect(meta.phases.map((p) => p.title)).toEqual(['Scan', 'scan'])
+	})
+
 	it('names the line and column of the offending token', () => {
 		expect(() =>
 			parseWorkflowMeta("export const meta = {\n  name: 'a',\n  description: describe(),\n}"),
