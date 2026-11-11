@@ -61,6 +61,9 @@ function useDocumentDark(): boolean {
 	return dark
 }
 
+/** Longer than this a row no longer fits the box on one line. */
+const CLIPPED_ROW = 80
+
 const lineWord = (count: number) => (count === 1 ? 'line' : 'lines')
 
 /** The whole change, drawn by the diff view. Only mounted once the person asks for all of it. */
@@ -194,8 +197,9 @@ export function ComposerApproval({
 	onRespond: (permission: PermissionView, response: PermissionResponse) => unknown
 }) {
 	const model = useMemo(() => buildApprovalCard(permission, palNames), [permission, palNames])
-	// A command and a message are prose-like lines that read better wrapped; code is not.
-	const [wrap, setWrap] = useState(model.diff === undefined)
+	// Every row wraps until the person turns it off, so a long line is never cut where its end
+	// would go unseen.
+	const [wrap, setWrap] = useState(true)
 	const [expanded, setExpanded] = useState(false)
 	const [editing, setEditing] = useState(false)
 	const [note, setNote] = useState('')
@@ -338,9 +342,16 @@ export function ComposerApproval({
 	const cutCommand =
 		model.command !== undefined && commandChip(model.command) !== model.command.trim()
 	const hiddenLines = preview ? preview.total - preview.rows.length : 0
-	const canExpand = hiddenLines > 0 || (cutCommand && !expanded)
+	// With wrapping turned off a long row is cut at the box's edge: that is hidden text too.
+	const clippedRow =
+		!wrap && !expanded && (preview?.rows.some((row) => row.text.length > CLIPPED_ROW) ?? false)
+	const canExpand = hiddenLines > 0 || (cutCommand && !expanded) || clippedRow
 	const showAllLabel =
-		preview && hiddenLines > 0 ? `Show all ${preview.total} lines` : 'Show the whole command'
+		preview && hiddenLines > 0
+			? `Show all ${preview.total} lines`
+			: clippedRow && !cutCommand
+				? 'Show the whole line'
+				: 'Show the whole command'
 	const boxLabel = hasDiff
 		? `Proposed change to ${model.fileName}`
 		: model.command !== undefined
@@ -522,7 +533,7 @@ export function ComposerApproval({
 															})),
 														total: preview.total,
 													}}
-													wrap={wrap}
+													wrap={true}
 													command={model.command !== undefined}
 													numbered={false}
 												/>

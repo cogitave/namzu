@@ -224,3 +224,47 @@ it('keeps a stray Enter from allowing the keyboard to be taken', () => {
 it('names an application nobody could name', () => {
 	expect(draw(screenMoment(' '))).toContain('Let an application use your keyboard and mouse')
 })
+
+it('wraps a long changed line by default so the end of it is on the card', () => {
+	const tail = 'exec(process.env.PAYLOAD)'
+	const html = draw(
+		{
+			id: 'r6',
+			sessionId: 's',
+			projectId: 'p',
+			calls: [
+				{
+					id: 'c6',
+					name: 'edit',
+					input: { path: '/work/src/index.ts', old_string: 'a', new_string: 'b' },
+					isDestructive: false,
+					preview: {
+						path: '/work/src/index.ts',
+						before: 'const a = 1\n',
+						after: `const a = '${'a'.repeat(190)}'; ${tail}\n`,
+					},
+				},
+			],
+		},
+		'/work',
+	)
+	expect(html).toMatch(/class="approval-rows" data-wrap="true"/)
+	expect(html).toContain(tail)
+})
+
+it('says so when a command in a later call of the request is the risky one', () => {
+	const html = draw(
+		{
+			id: 'r7',
+			sessionId: 's',
+			projectId: 'p',
+			calls: [
+				{ id: 'a', name: 'bash', input: { command: 'ls' }, isDestructive: false },
+				{ id: 'b', name: 'bash', input: { command: 'sudo rm -rf build' }, isDestructive: false },
+			],
+		},
+		'/work',
+	)
+	expect(html).toContain('Runs with elevated rights.')
+	expect(html).toContain('Looks like it deletes or overwrites files.')
+})

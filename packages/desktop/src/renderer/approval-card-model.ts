@@ -498,6 +498,21 @@ export function elevatedCommand(command: string): boolean {
 	return ELEVATED_COMMAND.test(command)
 }
 
+/** An absolute path with its `.` and `..` segments resolved; `undefined` when it climbs above the root. */
+function collapseDots(path: string): string | undefined {
+	const text = path.replace(/\\/g, '/')
+	const drive = /^[A-Za-z]:(?=\/|$)/.exec(text)?.[0] ?? ''
+	const parts: string[] = []
+	for (const part of text.slice(drive.length).split('/')) {
+		if (part === '' || part === '.') continue
+		if (part === '..') {
+			if (parts.length === 0) return undefined
+			parts.pop()
+		} else parts.push(part)
+	}
+	return `${drive}/${parts.join('/')}`
+}
+
 /**
  * True when a path lies outside the project folder: absolute and not under it, or relative and
  * stepping out through `..`. Unknown (false) without a folder, so nothing is claimed.
@@ -508,7 +523,14 @@ export function outsideProject(path: string, folder?: string): boolean {
 	// A home-relative path is not claimed either way: the screen does not know whose home it is.
 	if (text.startsWith('~')) return false
 	const absolute = text.startsWith('/') || /^[A-Za-z]:\//.test(text)
-	if (absolute) return projectRelative(text, folder) === undefined
+	if (absolute) {
+		const resolved = collapseDots(text)
+		// A path that climbs above the root cannot be judged inside anything.
+		return (
+			resolved === undefined ||
+			projectRelative(resolved, collapseDots(folder) ?? folder) === undefined
+		)
+	}
 	let depth = 0
 	for (const part of text.split('/')) {
 		if (part === '' || part === '.') continue
@@ -547,6 +569,20 @@ export function approvalFlags(
 		if (riskyCommand(model.command)) flags.push('Looks like it deletes or overwrites files.')
 		else if (model.destructive) flags.push(approvalWarning(model))
 	} else if (model.kind === 'other' && model.destructive) flags.push(approvalWarning(model))
+	// A command in any other call of the request is judged the same way, so a harmless first call
+	// does not hide the one behind it.
+	for (const call of permission.calls) {
+		const command = record(call.input) ? call.input.command : undefined
+		if (typeof command !== 'string' || command === model.command) continue
+		if (elevatedCommand(command) && !flags.includes('Runs with elevated rights.'))
+			flags.push('Runs with elevated rights.')
+		if (
+			riskyCommand(command) &&
+			!flags.includes('Looks like it deletes or overwrites files.') &&
+			!flags.includes(approvalWarning(model))
+		)
+			flags.push('Looks like it deletes or overwrites files.')
+	}
 	return flags
 }
 

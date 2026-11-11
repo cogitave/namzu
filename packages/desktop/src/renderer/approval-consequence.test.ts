@@ -167,6 +167,12 @@ it('decides outside the project from the path and the folder alone', () => {
 	expect(outsideProject('src/../a.ts', '/w')).toBe(false)
 	expect(outsideProject('../a.ts', '/w')).toBe(true)
 	expect(outsideProject('/etc/hosts', '/w')).toBe(true)
+	// An absolute path that starts inside the folder and climbs out of it is outside.
+	expect(outsideProject('/w/../secret', '/w')).toBe(true)
+	expect(outsideProject('/w/a/../../x', '/w')).toBe(true)
+	expect(outsideProject('/w/a/../b.ts', '/w')).toBe(false)
+	expect(outsideProject('C:\\work\\..\\x', 'C:\\work')).toBe(true)
+	expect(outsideProject('/../x', '/w')).toBe(true)
 	expect(outsideProject('C:\\other\\a.ts', 'C:\\work')).toBe(true)
 	// Nothing is claimed without a folder, or for a home-relative path.
 	expect(outsideProject('/etc/hosts')).toBe(false)

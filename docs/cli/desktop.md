@@ -3572,17 +3572,20 @@ said about its action.
   more requests wait.
 - **What the kernel knows comes first.** Straight after the question, each fact the request carries about the
   consequence is one line with a warning mark: "Namzu asks about this every time, whatever you allowed before." (the
-  call is marked `alwaysAsk`), "Outside the project folder." (the call's path resolved against the project folder),
+  call is marked `alwaysAsk`), "Outside the project folder." (the call's path with its `.` and `..` segments resolved against the project folder, so `/project/../x` is outside; a `~` path is not judged either way),
   "This deletes *file*.", "This replaces *file*, which already exists." / "This writes over *file* if it already
   exists.", "Runs with elevated rights." (a `sudo` command), "Looks like it deletes or overwrites files." (the
-  command check Desktop already used), and, for a call the agent marked destructive with nothing more specific known,
+  command check Desktop already used; a command in any call of the request is checked, not only the first), and, for a call the agent marked destructive with nothing more specific known,
   "This command can change or remove files on your computer." A new file, an ordinary edit and a plain command draw
   none, and where a command runs is the one muted line at the foot ("Runs in *project name*.", the folder as its
   tooltip). `approvalFlags` and `approvalConsequence` in `approval-card-model.ts` build these; a network reach is not
-  claimed, because the request does not carry one.
+  claimed, because the request does not carry one. The flags are the request's own fields plus two text checks over a
+  command (`sudo`, and a command that deletes); nothing is read from the model's description.
 - **The body is four rows** of the change (starting one line before the first changed line, with line numbers and
   the added and removed lines tinted) or of the command (`$` before the first line), with a link that states what is
-  hidden ("Show all 24 lines") and opens the whole change in place; **Show less** closes it. The open diff is the
+  hidden ("Show all 24 lines") and opens the whole change in place; rows wrap by default, so the far end of a long
+  line is on the card, and with **Wrap lines** turned off a row cut at the box's edge brings its own link, "Show the
+  whole line"; **Show less** closes it. The open diff is the
   same diff view the Changes pane uses; a change too large for it opens as a plain patch.
 - **Accept is enabled at once.** Accept no longer waits for the end of a long command, message or diff to be scrolled
   to. What protects the person instead is what is above: the four rows, the size of everything hidden, the kernel's

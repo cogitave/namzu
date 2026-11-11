@@ -94,7 +94,7 @@ flow(
 			"nothing is written before approval",
 		);
 		await card.getByRole("button", { name: "Accept", exact: true }).click();
-		await expect(w.page.getByText("Wrote out.txt.")).toBeVisible({
+		await expect(w.page.getByText("Wrote out.txt.").first()).toBeVisible({
 			timeout: T,
 		});
 		assert.equal(
@@ -151,7 +151,7 @@ flow("undo a reply's file change", { rules: [WRITE] }, async (w) => {
 	const card = w.page.getByRole("region", { name: "Tool approval" });
 	await expect(card).toBeVisible({ timeout: T });
 	await card.getByRole("button", { name: "Accept", exact: true }).click();
-	await expect(w.page.getByText("Wrote out.txt.")).toBeVisible({ timeout: T });
+	await expect(w.page.getByText("Wrote out.txt.").first()).toBeVisible({ timeout: T });
 	await w.page.getByRole("button", { name: "Undo", exact: true }).click();
 	const dialog = w.page.getByRole("dialog");
 	await expect(dialog.getByText("Undo this reply’s file changes?")).toBeVisible(

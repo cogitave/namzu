@@ -241,6 +241,57 @@ flow(
 	},
 );
 
+const LONG_TAIL = "require('child_process').exec(process.env.PAYLOAD)";
+
+flow(
+	"a long changed line wraps, so its far end is on the card",
+	{
+		rules: [
+			{
+				match: /edit the long line/i,
+				steps: [
+					{ tool: "edit", args: { path: "src/index.ts", old_string: "const a = 1", new_string: `const a = '${"a".repeat(190)}'; ${LONG_TAIL}` } },
+					{ text: "Edited." },
+				],
+			},
+		],
+		files: { "src/index.ts": "const a = 1\n" },
+	},
+	async (w) => {
+		await send(w, "Please edit the long line");
+		await expect(card(w)).toBeVisible({ timeout: T });
+		await expect(card(w).locator(".approval-rows")).toHaveAttribute("data-wrap", "true");
+		await expect(card(w).getByText(LONG_TAIL).first()).toBeVisible();
+		// Visible means inside the box: the row is not cut at its edge.
+		const cut = await card(w)
+			.locator(".approval-row[data-kind=add] .approval-row-text")
+			.evaluate((node) => node.scrollWidth > node.clientWidth + 1);
+		assert.equal(cut, false, "the added row is not clipped");
+		await shot(w, "long-line-wrapped");
+		await reject(w).click();
+	},
+);
+
+flow(
+	"an absolute path that climbs out of the project is flagged",
+	{
+		rules: [
+			{
+				match: /write the escape/i,
+				steps: [{ tool: "write", args: { path: "", content: "x\n" } }, { text: "Done." }],
+			},
+		],
+	},
+	async (w) => {
+		// The project's own folder, then a step up and back out of it: the string starts inside.
+		w.model.rules[0].steps[0].args.path = `${w.project}/../escape.txt`;
+		await send(w, "Please write the escape");
+		await expect(card(w)).toBeVisible({ timeout: T });
+		await expect(card(w).getByText("Outside the project folder.")).toBeVisible();
+		await reject(w).click();
+	},
+);
+
 flow(
 	"the box's menu holds the note, wrap and copy, and the note still redirects the model",
 	{
