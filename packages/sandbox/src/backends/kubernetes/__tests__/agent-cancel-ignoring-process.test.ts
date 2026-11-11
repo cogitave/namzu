@@ -28,7 +28,7 @@
  */
 
 import { type ChildProcess, spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -38,40 +38,16 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { localIpcPath } from '../../firecracker/__tests__/fixtures/ipc-path.js'
+import { decodeFrames, encodeFrame } from './fixtures/framed-agent-client.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const AGENT_ENTRY = join(HERE, '../../../../agent/agent.cjs')
-const LENGTH_PREFIX_HEX = 8
-
-/** Encode one request frame exactly as `agent.cjs`'s own `frame()` does. */
-function encodeFrame(payload: string): Buffer {
-	const body = Buffer.from(payload, 'utf8')
-	const header = Buffer.from(
-		`${body.length.toString(16).padStart(LENGTH_PREFIX_HEX, '0')}\n`,
-		'ascii',
-	)
-	return Buffer.concat([header, body])
-}
-
-/** Split a received buffer into whole frames; a zero-length frame is `''`. */
-function decodeFrames(buffer: Buffer): { frames: string[]; rest: Buffer } {
-	const frames: string[] = []
-	let rest = buffer
-	for (;;) {
-		const newline = rest.indexOf(0x0a)
-		if (newline < LENGTH_PREFIX_HEX) break
-		const length = Number.parseInt(rest.subarray(0, newline).toString('ascii'), 16)
-		const start = newline + 1
-		if (rest.length < start + length) break
-		frames.push(rest.subarray(start, start + length).toString('utf8'))
-		rest = rest.subarray(start + length)
-	}
-	return { frames, rest }
-}
 
 /** Retries a connect until the agent's unix listener accepts one. */
-async function waitForListener(sockPath: string, timeoutMs = 5000): Promise<void> {
-	const deadline = Date.now() + timeoutMs
+async function waitForListener(sockPath: string, agent: ChildProcess): Promise<void> {
+	// No wall-clock deadline: the agent either listens or exits. One that
+	// exits before it listens is reported as that; one that does neither is a
+	// hang the case's own Vitest timeout reports.
 	for (;;) {
 		const ok = await new Promise<boolean>((resolve) => {
 			const socket = connect(sockPath)
@@ -82,8 +58,8 @@ async function waitForListener(sockPath: string, timeoutMs = 5000): Promise<void
 			socket.once('error', () => resolve(false))
 		})
 		if (ok) return
-		if (Date.now() > deadline) {
-			throw new Error(`agent never listened on ${sockPath} within ${timeoutMs}ms`)
+		if (agent.exitCode !== null || agent.signalCode !== null) {
+			throw new Error(`the agent exited before it listened on ${sockPath}`)
 		}
 		await delay(25)
 	}
@@ -122,6 +98,21 @@ function request(
 	})
 }
 
+/** Whether a pid is a RUNNING process; a zombie awaiting its reaper is not. */
+function pidRunning(pid: number): boolean {
+	try {
+		process.kill(pid, 0)
+	} catch {
+		return false
+	}
+	try {
+		const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+		return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0] !== 'Z'
+	} catch {
+		return true
+	}
+}
+
 let workDir: string
 let child: ChildProcess | undefined
 
@@ -151,13 +142,22 @@ describe('agent cancel-execution against a SIGTERM-ignoring process', () => {
 			},
 			stdio: ['ignore', 'ignore', 'ignore'],
 		})
-		await waitForListener(sockPath)
+		await waitForListener(sockPath, child)
 
 		const reserved = await request(sockPath, 'reserve-execution', {})
 		const executionId = reserved[0]?.executionId as string
 		expect(executionId).toMatch(/^exec_/)
 
+		// The command's natural end is the TEST's to give, not the clock's:
+		// the backgrounded child finishes (and writes `marker`) only once
+		// `releaseFile` exists, and the case creates that file only after the
+		// cancel has been answered. So the child cannot end on its own, at
+		// any speed of machine, before the kill, and "the process was killed
+		// rather than allowed to finish" is shown by it being dead when the
+		// cancel is confirmed, never by how many milliseconds that took.
 		const marker = 'conformance-abort-marker.txt'
+		const releaseFile = join(workDir, 'release')
+		const childPidFile = join(workDir, 'child.pid')
 		let sawReady: (() => void) | undefined
 		const ready = new Promise<void>((resolve) => {
 			sawReady = resolve
@@ -168,14 +168,14 @@ describe('agent cancel-execution against a SIGTERM-ignoring process', () => {
 			{
 				executionId,
 				command: '/bin/sh',
-				// Identical fixture to
-				// `testing/sandbox-conformance.ts`'s "honours an AbortSignal"
-				// case: both the foreground shell and its backgrounded child
-				// trap and ignore SIGTERM, and the child writes `marker` a
-				// moment after the whole command is observably running.
+				// The shape of `testing/sandbox-conformance.ts`'s "honours an
+				// AbortSignal" case: both the foreground shell and its
+				// backgrounded child trap and ignore SIGTERM, and the child
+				// writes `marker` when it finishes on its own. It records its
+				// pid before the command is observably running.
 				args: [
 					'-c',
-					`trap '' TERM; (trap '' TERM; sleep 0.4; printf late > ${marker}) & echo ready; wait`,
+					`trap '' TERM; (trap '' TERM; while [ ! -f ${releaseFile} ]; do sleep 0.05; done; printf late > ${marker}) & echo $! > ${childPidFile}; echo ready; wait`,
 				],
 			},
 			(frame) => {
@@ -186,17 +186,24 @@ describe('agent cancel-execution against a SIGTERM-ignoring process', () => {
 		)
 		await ready
 
-		const abortedAt = Date.now()
+		const childPid = Number(readFileSync(childPidFile, 'utf8').trim())
+		expect(childPid).toBeGreaterThan(0)
+		expect(pidRunning(childPid)).toBe(true)
+
+		// A cancel that never escalates past the ignored SIGTERM never
+		// answers, because nothing releases the child: that is a hang the
+		// case's own Vitest timeout reports.
 		const cancelled = await request(sockPath, 'cancel-execution', { executionId })
-		const cancelElapsedMs = Date.now() - abortedAt
 
 		const execFrames = await execPromise
 		const resultFrame = execFrames.find((f) => f.type === 'result' || f.type === 'error')
 
-		// The decisive check, straight from the conformance suite's own
-		// comment: if the process was genuinely killed on abort, the write
-		// it schedules a moment later never happens.
-		await delay(900)
+		// The decisive check: the cancel is confirmed only once the process
+		// group is gone, so a child that was genuinely killed is dead now.
+		// Releasing it afterwards writes nothing, because there is nobody
+		// left to write.
+		expect(pidRunning(childPid)).toBe(false)
+		writeFileSync(releaseFile, '')
 		expect(existsSync(join(workDir, marker))).toBe(false)
 
 		// The weaker, second check: cancellation must not settle looking
@@ -208,12 +215,7 @@ describe('agent cancel-execution against a SIGTERM-ignoring process', () => {
 			resultFrame.exitCode === 0 &&
 			resultFrame.signal === undefined
 		expect(cleanUnabortedSuccess).toBe(false)
-
-		// Confirmation must land fast, not merely inside the host's whole
-		// 8s `RemoteExecutionController` budget — the marker's own 400ms
-		// natural-completion window is the real deadline this races.
-		expect(cancelElapsedMs).toBeLessThan(400)
-	}, 10_000)
+	}, 30_000)
 
 	it('still lets a process that exits cleanly well inside the grace window report its real result', async () => {
 		const sockPath = localIpcPath(workDir)
@@ -225,7 +227,7 @@ describe('agent cancel-execution against a SIGTERM-ignoring process', () => {
 			},
 			stdio: ['ignore', 'ignore', 'ignore'],
 		})
-		await waitForListener(sockPath)
+		await waitForListener(sockPath, child)
 
 		const execFrames = await request(sockPath, 'execute', {
 			command: '/bin/sh',
