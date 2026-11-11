@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { TurnOutcome } from '../../types/session/outcome.js'
 import type { Turn } from '../../types/session/turn.js'
 import { evalTurnFromTurn } from '../from-turn.js'
-import { outcomeScorer } from '../scorers.js'
+import { claimMismatchScorer, outcomeScorer } from '../scorers.js'
 import type { EvalCase, EvalTurn } from '../types.js'
 
 const record = (verdict: TurnOutcome['verdict']): TurnOutcome => ({
@@ -64,5 +64,54 @@ describe('projecting a turn for the eval suites', () => {
 
 	it('has no outcome key when the turn has none', () => {
 		expect('outcome' in evalTurnFromTurn(base)).toBe(false)
+	})
+})
+
+describe('the claim mismatch scorer', () => {
+	const mismatch = {
+		claim: 'tests' as const,
+		said: 'the tests pass',
+		quote: 'All tests pass',
+		record: 'check-failed' as const,
+		recordSays: 'pnpm test failed',
+	}
+
+	it('scores 1 when the answer contradicts nothing', async () => {
+		const score = await claimMismatchScorer().score(evalTurn(record('checked')), aCase)
+		expect(score.score).toBe(1)
+	})
+
+	it('scores 0 and says what the record holds when it does', async () => {
+		const score = await claimMismatchScorer().score(
+			{ ...evalTurn(record('failing')), claimMismatch: mismatch },
+			aCase,
+		)
+		expect(score.score).toBe(0)
+		expect(score.reason).toContain('pnpm test failed')
+	})
+
+	it('can expect the mismatch', async () => {
+		const turn = { ...evalTurn(record('failing')), claimMismatch: mismatch }
+		expect((await claimMismatchScorer({ expectMismatch: true }).score(turn, aCase)).score).toBe(1)
+		expect(
+			(
+				await claimMismatchScorer({ expectMismatch: true }).score(
+					evalTurn(record('checked')),
+					aCase,
+				)
+			).score,
+		).toBe(0)
+	})
+
+	it('is found when a turn is projected for the suites', () => {
+		const turn = {
+			tokenUsage: { totalTokens: 0 },
+			costInfo: { totalCost: 0 },
+			startedAt: 0,
+			endedAt: 1,
+			result: 'All tests pass.',
+			outcome: record('unchecked'),
+		} as unknown as Turn
+		expect(evalTurnFromTurn(turn).claimMismatch?.claim).toBe('tests')
 	})
 })

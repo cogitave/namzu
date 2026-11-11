@@ -1401,6 +1401,7 @@ export { anyOf, hasToolCall, stepCountIs } from './types/session/step.js'
 export {
 	compareHarnessTrials,
 	reviewHarnessCandidate,
+	claimMismatchScorer,
 	completionScorer,
 	containsScorer,
 	customScorer,

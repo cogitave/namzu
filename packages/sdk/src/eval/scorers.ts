@@ -183,6 +183,34 @@ export function outcomeScorer(verdicts: readonly TurnOutcomeVerdict[]): Scorer {
 }
 
 /**
+ * Whether the answer's plain check claims agree with the turn's outcome
+ * record: 1 when `compareAnswerToOutcome` found no mismatch, 0 when it found
+ * one, with the claim and what the record holds in the detail.
+ *
+ * Pass `{ expectMismatch: true }` for a case that is built to contradict
+ * itself, so the suite proves the comparison fires as well as that it stays
+ * silent.
+ */
+export function claimMismatchScorer(opts: { expectMismatch?: boolean } = {}): Scorer {
+	const expectMismatch = opts.expectMismatch === true
+	return {
+		name: 'claim-mismatch',
+		severity: 'gate',
+		score(turn: EvalTurn): Score {
+			const found = turn.claimMismatch
+			const ok = expectMismatch ? found !== undefined : found === undefined
+			return {
+				score: ok ? 1 : 0,
+				reason: found
+					? `${found.said}, but the record: ${found.recordSays}`
+					: 'no claim in the answer contradicts the record',
+				details: { claimMismatch: found ?? null, expectMismatch },
+			}
+		},
+	}
+}
+
+/**
  * Judge the turn with a caller-supplied predicate.
  *
  * The escape hatch for anything the built-in scorers do not cover. For

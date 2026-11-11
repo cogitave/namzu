@@ -15,6 +15,7 @@ export type { ExperimentConfig } from './experiment.js'
 export { judgeScorer } from './judge.js'
 export type { JudgeScorerConfig } from './judge.js'
 export {
+	claimMismatchScorer,
 	completionScorer,
 	containsScorer,
 	customScorer,
