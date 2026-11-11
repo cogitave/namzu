@@ -43,6 +43,150 @@ describe('parseMarkdown', () => {
 	})
 })
 
+describe('headings, quotes and rules', () => {
+	it('parses a heading of each of the six levels', () => {
+		for (let level = 1; level <= 6; level++) {
+			expect(parseMarkdown(`${'#'.repeat(level)} T`)).toEqual([
+				{ type: 'heading', level, text: 'T' },
+			])
+		}
+	})
+
+	it('reads a quote as the blocks inside it, with the marks taken off', () => {
+		expect(parseMarkdown('> one\n> two')).toEqual([
+			{ type: 'quote', blocks: [{ type: 'paragraph', text: 'one two' }] },
+		])
+		expect(parseMarkdown('> a long quoted paragraph that wraps\n>\n> second')).toEqual([
+			{
+				type: 'quote',
+				blocks: [
+					{ type: 'paragraph', text: 'a long quoted paragraph that wraps' },
+					{ type: 'paragraph', text: 'second' },
+				],
+			},
+		])
+	})
+
+	it('reads a quote inside a quote', () => {
+		expect(parseMarkdown('> outer\n>\n> > inner')).toEqual([
+			{
+				type: 'quote',
+				blocks: [
+					{ type: 'paragraph', text: 'outer' },
+					{ type: 'quote', blocks: [{ type: 'paragraph', text: 'inner' }] },
+				],
+			},
+		])
+	})
+
+	it('reads a list inside a quote', () => {
+		expect(parseMarkdown('> - a\n> - b')).toEqual([
+			{
+				type: 'quote',
+				blocks: [
+					{ type: 'bullet', ordered: false, marker: '•', text: 'a' },
+					{ type: 'bullet', ordered: false, marker: '•', text: 'b' },
+				],
+			},
+		])
+	})
+
+	it('reads a line that is only ">" as an empty line inside the quote', () => {
+		expect(parseMarkdown('>')).toEqual([{ type: 'quote', blocks: [] }])
+		expect(parseMarkdown('> a\n>\n> b')).toEqual([
+			{
+				type: 'quote',
+				blocks: [
+					{ type: 'paragraph', text: 'a' },
+					{ type: 'paragraph', text: 'b' },
+				],
+			},
+		])
+	})
+
+	it('takes a ">" that is not at the start of a line as text', () => {
+		expect(parseMarkdown('a > b')).toEqual([{ type: 'paragraph', text: 'a > b' }])
+		expect(parseMarkdown('x -> y\n1 > 0')).toEqual([{ type: 'paragraph', text: 'x -> y 1 > 0' }])
+	})
+
+	it('allows spaces before the ">" and ends the quote at a line without one', () => {
+		expect(parseMarkdown('  > a\nplain')).toEqual([
+			{ type: 'quote', blocks: [{ type: 'paragraph', text: 'a' }] },
+			{ type: 'paragraph', text: 'plain' },
+		])
+	})
+
+	it('lets a quote interrupt a paragraph', () => {
+		expect(parseMarkdown('before\n> quoted')).toEqual([
+			{ type: 'paragraph', text: 'before' },
+			{ type: 'quote', blocks: [{ type: 'paragraph', text: 'quoted' }] },
+		])
+	})
+
+	it('reads each spelling of a rule', () => {
+		for (const line of [
+			'---',
+			'***',
+			'___',
+			'- - -',
+			'* * *',
+			'_ _ _',
+			'-----',
+			'  ---',
+			'---  ',
+		]) {
+			expect(parseMarkdown(line), line).toEqual([{ type: 'rule' }])
+		}
+	})
+
+	it('keeps "--" and a mixed run as text, and "- -" as a list item', () => {
+		expect(parseMarkdown('--')).toEqual([{ type: 'paragraph', text: '--' }])
+		expect(parseMarkdown('**')).toEqual([{ type: 'paragraph', text: '**' }])
+		expect(parseMarkdown('-*-')).toEqual([{ type: 'paragraph', text: '-*-' }])
+		expect(parseMarkdown('--- x')).toEqual([{ type: 'paragraph', text: '--- x' }])
+		expect(parseMarkdown('- -')).toEqual([
+			{ type: 'bullet', ordered: false, marker: '•', text: '-' },
+		])
+	})
+
+	it('does not read a rule or a quote inside a code fence', () => {
+		expect(parseMarkdown('```\n---\n> not a quote\n- - -\n```')).toEqual([
+			{ type: 'code', lang: undefined, lines: ['---', '> not a quote', '- - -'] },
+		])
+	})
+
+	it('reads a quoted fence as code inside the quote', () => {
+		expect(parseMarkdown('> ```\n> ---\n> ```')).toEqual([
+			{ type: 'quote', blocks: [{ type: 'code', lang: undefined, lines: ['---'] }] },
+		])
+	})
+
+	it('reads "Title" over "---" as a paragraph and a rule, never an underlined heading', () => {
+		expect(parseMarkdown('Title\n---')).toEqual([
+			{ type: 'paragraph', text: 'Title' },
+			{ type: 'rule' },
+		])
+		expect(parseMarkdown('Title\n===')).toEqual([{ type: 'paragraph', text: 'Title ===' }])
+	})
+
+	it('settles a growing rule and a growing quote once', () => {
+		const kinds = (src: string) => parseMarkdown(src).map((b) => b.type)
+		const rule = ['-', '--', '---', '----'].map(kinds)
+		expect(rule).toEqual([['paragraph'], ['paragraph'], ['rule'], ['rule']])
+		const spaced = ['-', '- -', '- - -', '- - - -'].map(kinds)
+		expect(spaced).toEqual([['paragraph'], ['bullet'], ['rule'], ['rule']])
+		const quote = ['>', '> a', '> a b'].map(kinds)
+		expect(quote).toEqual([['quote'], ['quote'], ['quote']])
+	})
+
+	it('leaves a table, a list and a table next to a quote as they were', () => {
+		expect(parseMarkdown('| a | b |\n| - | - |\n| 1 | 2 |\n> q | r')).toMatchObject([
+			{ type: 'table' },
+			{ type: 'quote' },
+		])
+	})
+})
+
 describe('parseInline', () => {
 	it('splits bold, italic, and inline code', () => {
 		expect(parseInline('a **b** c `d` e *f*')).toEqual([

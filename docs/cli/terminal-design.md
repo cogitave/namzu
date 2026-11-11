@@ -672,6 +672,37 @@ is drawn like any failed call (below).
 
 A fenced block in a reply is drawn as its lines in the accent colour with a blank line above, and nothing beside them: no rule at the start of a line and no language word above the first. What the screen shows is what a mouse selection takes, so a command selected and pasted into a terminal is the command alone. `/copy` still offers each block exactly as it was written.
 
+## Headings, quotes and rules
+
+A reply's headings differ by level with attributes every terminal has, all
+bold: level 1 is underlined in the accent colour, level 2 the accent colour,
+level 3 the body colour, and levels 4 to 6 the muted colour. A heading has a
+blank row above it, wraps to the width as other text does, and keeps its
+`code`, links, bold and italic.
+
+A block whose lines begin with `>` (after any spaces) is a quote: a `│` in the
+border colour and one space on every row it takes, wrapped rows included, with
+its text in the body colour and in italics. The wrap width is the width less
+those two cells. A quote may hold paragraphs, lists, a table, a fence and
+another quote (two bars); a line that is only `>` is an empty row with its bar.
+A `>` that is not at the start of a line is text, and a line without one ends
+the quote. A line of three or more `-`, `*` or `_` alone on a line (spaces
+between them allowed, so `- - -` is a rule, not a list) is a rule: a line of
+`─` in the border colour, as wide as the text up to 40 cells, with a blank row
+above and below. `--` is text. `Title` over `---` is a paragraph and a rule, not
+an underlined heading: reading it as a heading would turn the paragraph into
+one when its third dash arrived on a reply still streaming. Nothing inside a
+fenced block is read as a quote or a rule. The fullscreen window draws the same
+(`markdown-structure.ts` holds what both screens read).
+
+```text
+Level one          (underlined)
+│ A quoted paragraph that wraps, and the bar
+│ is on every row it takes.
+│ │ a quote inside the quote
+────────────────────────────────────────
+```
+
 ## Tables
 
 A markdown table in a reply is drawn as a box of one-cell rule glyphs

@@ -107,6 +107,29 @@ describe('the window draws a reply as the normal transcript does', () => {
 		})
 	}
 
+	const STRUCTURE = [
+		'# One',
+		'## Two',
+		'### Three',
+		'#### Four with `code` and **bold**',
+		'',
+		'> a quote long enough to wrap onto a second row, with *italics* and **bold**',
+		'>',
+		'> - an item',
+		'> > nested',
+		'',
+		'---',
+		'',
+		'after',
+	].join('\n')
+
+	for (const width of [38, 80]) {
+		it(`draws headings, quotes and rules the same at ${width} columns, styling included`, () => {
+			const rows = fullscreenMessageRows(reply(STRUCTURE), false, width).rows
+			expect(same(windowed(rows, width))).toBe(same(normal(STRUCTURE, width)))
+		})
+	}
+
 	it('is compared with its colours', () => {
 		const rows = fullscreenMessageRows(reply('**bold** and `code`'), false, 40).rows
 		// biome-ignore lint/suspicious/noControlCharactersInRegex: the escape byte starts a colour
