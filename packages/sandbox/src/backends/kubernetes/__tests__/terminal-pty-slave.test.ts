@@ -909,9 +909,10 @@ describe.skipIf(IS_WINDOWS)('finding the PTY slave of a terminal', () => {
 			expect(error).toMatch(/script: gone/)
 			// The whole budget spent against a pid the kernel has released is
 			// what this replaces: the walk stops on the observation that said
-			// gone — the eleventh — and not on the two hundredth.
+			// gone — the eleventh — and not on the two hundredth. The count is
+			// the claim; the milliseconds the message also carries are not
+			// asserted, because how long eleven polls take is the machine's.
 			expect(Number(/\((\d+) attempts/.exec(error ?? '')?.[1] ?? '9999')).toBe(11)
-			expect(Number(/, (\d+)ms;/.exec(error ?? '')?.[1] ?? '9999')).toBeLessThan(200)
 
 			// The same teardown contract as the case above, on the path where
 			// the agent knows the LEAST: `script` and its process group. The

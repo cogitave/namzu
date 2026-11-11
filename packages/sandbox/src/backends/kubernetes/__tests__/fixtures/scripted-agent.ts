@@ -129,6 +129,14 @@ export interface ScriptedAgentOptions {
 	 */
 	readonly flushDelayMs?: number
 	/**
+	 * Hold a `flush` open until this promise settles, then reply. The
+	 * deterministic spelling of {@link ScriptedAgentOptions.flushDelayMs}: the
+	 * case observes the request arrive, asserts what must not have happened
+	 * yet, and releases the reply itself, so the assertion does not depend on
+	 * how long the host takes between two lines.
+	 */
+	readonly flushHold?: Promise<void>
+	/**
 	 * The `guestBootId` every authenticated reply and every stream `ready`
 	 * frame carries.
 	 *
@@ -542,7 +550,8 @@ export async function startScriptedAgent(
 						send(socket, options.flushReply)
 						socket.end()
 					}
-					if (options.flushDelayMs) setTimeout(answer, options.flushDelayMs).unref?.()
+					if (options.flushHold) void options.flushHold.then(answer)
+					else if (options.flushDelayMs) setTimeout(answer, options.flushDelayMs).unref?.()
 					else answer()
 					continue
 				}

@@ -23,7 +23,7 @@
  * that implements it must write nothing at all to a host that did not ask.
  */
 
-import { mkdtempSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import net, { type AddressInfo, type Server, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -49,15 +49,17 @@ const require_ = createRequire(import.meta.url)
 const AGENT_PATH = '../../../../agent/agent.cjs'
 
 /**
- * Short enough that a case finishes in a second or two, long enough that
- * neither a GC pause nor a slow CI box reads as three missed intervals.
+ * The heartbeat interval every case asks for. It is measured on the FAKE
+ * liveness clock (see {@link useFakeLivenessClock}), so it is a number of
+ * simulated milliseconds: how fast or loaded the machine is cannot make three
+ * of them pass unseen.
  */
 const INTERVAL_MS = 150
-/** Three misses plus one watchdog tick, plus slack for a loaded machine. */
-const DEATH_BUDGET_MS = INTERVAL_MS * STREAM_HEARTBEAT_MISS_LIMIT + 1_500
+/** Simulated time that covers three misses plus the watchdog's own ticks. */
+const DEATH_BUDGET_MS = INTERVAL_MS * STREAM_HEARTBEAT_MISS_LIMIT + INTERVAL_MS * 3
 /** The same, for a stream whose guest echoed more than the host will honour. */
 const CLAMPED_DEATH_BUDGET_MS =
-	INTERVAL_MS * STREAM_HEARTBEAT_MAX_ECHO_FACTOR * STREAM_HEARTBEAT_MISS_LIMIT + 1_500
+	INTERVAL_MS * STREAM_HEARTBEAT_MAX_ECHO_FACTOR * STREAM_HEARTBEAT_MISS_LIMIT + INTERVAL_MS * 3
 /** Big enough that the frame carrying it is worth dribbling across the wire. */
 const BIG_PAYLOAD = Buffer.alloc(512 * 1024, 0x7a)
 /** Pieces, one interval apart: the last lands well past the death window. */
@@ -269,7 +271,7 @@ async function startEchoingAgent(options: {
 			const size = Math.ceil(frame.byteLength / pieces)
 			for (let offset = 0; offset < frame.byteLength; offset += size) {
 				for (const socket of streams) socket.write(frame.subarray(offset, offset + size))
-				await delay(gapMs)
+				await passTime(gapMs)
 			}
 		},
 	}
@@ -319,7 +321,8 @@ async function openRawTcpStream(
 			}),
 		),
 	)
-	await vi.waitFor(() => expect(ready).toBeDefined(), { timeout: 5_000 })
+	// The fake clock may be running, and `vi.waitFor` would then advance it.
+	await untilTrue(() => ready !== undefined)
 	if (ready === undefined) throw new Error('the agent never answered ready')
 	return {
 		ready,
@@ -327,7 +330,7 @@ async function openRawTcpStream(
 			const size = Math.ceil(frame.byteLength / pieces)
 			for (let offset = 0; offset < frame.byteLength; offset += size) {
 				socket.write(frame.subarray(offset, offset + size))
-				await delay(gapMs)
+				await passTime(gapMs)
 			}
 		},
 		close() {
@@ -400,15 +403,51 @@ async function startUpstream(options: { readonly read?: boolean } = {}): Promise
 	}
 }
 
-/** Resolves to `'settled'` if the promise settles inside `ms`, else `'open'`. */
-async function raceSettled(promise: Promise<unknown>, ms: number): Promise<'settled' | 'open'> {
-	return await Promise.race([
-		promise.then(
-			() => 'settled' as const,
-			() => 'settled' as const,
-		),
-		delay(ms, 'open' as const),
-	])
+/**
+ * Resolve when `check` holds, polling on the REAL clock with no deadline of
+ * its own: the thing waited for is an event (a file written, bytes arrived),
+ * and one that never comes is a hang the case's Vitest timeout reports.
+ *
+ * Not `vi.waitFor`, because while the fake liveness clock is installed
+ * `vi.waitFor` advances it by its polling interval, which would move the
+ * watchdogs' time from under the case.
+ */
+async function untilTrue(check: () => boolean | Promise<boolean>): Promise<void> {
+	while (!(await check())) await delay(10)
+}
+
+/** Whether a pid is a RUNNING process; a zombie awaiting its reaper is not. */
+function pidRunning(pid: number): boolean {
+	try {
+		process.kill(pid, 0)
+	} catch {
+		return false
+	}
+	try {
+		const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+		return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0] !== 'Z'
+	} catch {
+		return true
+	}
+}
+
+/** A pid a case's own child wrote, once it has been written. */
+async function pidFrom(file: string): Promise<number> {
+	let pid = 0
+	await untilTrue(() => {
+		pid = existsSync(file) ? Number(readFileSync(file, 'utf8').trim()) : 0
+		return Number.isSafeInteger(pid) && pid > 0
+	})
+	return pid
+}
+
+/**
+ * Let `ms` of time pass: simulated when the fake liveness clock is
+ * installed, real otherwise (only a case with no watchdog to feed gets here).
+ */
+async function passTime(ms: number): Promise<void> {
+	if (vi.isFakeTimers()) await advanceClock(ms)
+	else await delay(ms)
 }
 
 /**
@@ -509,13 +548,16 @@ describe.skipIf(IS_WINDOWS)('a negotiated heartbeat leaves a healthy quiet strea
 		'keeps a terminal running sleep 3600 open for ten intervals',
 		async () => {
 			const port = await startAgent()
+			useFakeLivenessClock()
 			const terminal = await transportTo(port, INTERVAL_MS).openTerminal({
 				command: '/bin/sh',
 				args: ['-c', 'sleep 3600'],
 				cwd: workDir,
 				size: { cols: 80, rows: 24 },
 			})
-			expect(await raceSettled(terminal.exited, INTERVAL_MS * 10)).toBe('open')
+			const exited = watchSettled(terminal.exited)
+			await advanceClock(INTERVAL_MS * 10)
+			expect(exited.settled).toBe(false)
 			terminal.kill('SIGKILL')
 			await terminal.exited
 		},
@@ -525,10 +567,13 @@ describe.skipIf(IS_WINDOWS)('a negotiated heartbeat leaves a healthy quiet strea
 	it('keeps an idle TCP connection open for ten intervals', async () => {
 		const port = await startAgent()
 		const upstream = await startUpstream()
+		useFakeLivenessClock()
 		const connection = await transportTo(port, INTERVAL_MS).openTcpConnection({
 			port: upstream.port,
 		})
-		expect(await raceSettled(connection.closed, INTERVAL_MS * 10)).toBe('open')
+		const closed = watchSettled(connection.closed)
+		await advanceClock(INTERVAL_MS * 10)
+		expect(closed.settled).toBe(false)
 		expect(upstream.live()).toBe(1)
 		connection.destroy()
 	}, 20_000)
@@ -543,35 +588,35 @@ describe.skipIf(IS_WINDOWS)('a partitioned stream ends on both sides', () => {
 		async () => {
 			const agentPort = await startAgent()
 			const proxy = await startPartitionProxy(agentPort)
-			const ticks = join(workDir, 'ticks')
+			const pidFile = join(workDir, 'shell.pid')
+			useFakeLivenessClock()
 			const terminal = await transportTo(proxy.port, INTERVAL_MS).openTerminal({
-				// Ticks into a FILE, not stdout: a shell that stopped because
-				// its output backpressured would look exactly like one that was
-				// killed, and the file is the only witness that is not the
-				// connection under test.
+				// Its pid goes into a FILE, not stdout: the file is the only
+				// witness of the guest's cleanup that is not the connection
+				// under test, and a pid is something the case can ask the
+				// kernel about directly instead of inferring from silence.
 				command: '/bin/sh',
-				args: ['-c', `while :; do echo tick >> ${ticks}; sleep 0.1; done`],
+				args: ['-c', `echo $$ > ${pidFile}; while :; do sleep 0.1; done`],
 				cwd: workDir,
 				size: { cols: 80, rows: 24 },
 			})
-			await vi.waitFor(() => expect(statSync(ticks).size).toBeGreaterThan(0))
+			const pid = await pidFrom(pidFile)
+			expect(pidRunning(pid)).toBe(true)
+			const exited = watchSettled(terminal.exited)
 
 			proxy.blackhole()
-			const exit = await Promise.race([terminal.exited, delay(DEATH_BUDGET_MS, undefined)])
+			// Simulated time: past the death window, with nothing arriving.
+			await advanceClock(DEATH_BUDGET_MS)
+			expect(exited.settled).toBe(true)
+			const exit = await terminal.exited
 			// What a closed socket already produces, so a caller that already
 			// handles a severed stream needs no new branch.
 			expect(exit).toEqual({ exitCode: -1 })
 
 			// And the guest's own watchdog ran the same cleanup a closed socket
-			// runs: nothing from that terminal's group is still ticking.
-			await vi.waitFor(
-				async () => {
-					const before = statSync(ticks).size
-					await delay(400)
-					expect(statSync(ticks).size).toBe(before)
-				},
-				{ timeout: 10_000, interval: 200 },
-			)
+			// runs: the terminal's shell is gone. The kill is a signal the
+			// kernel delivers on its own time, so this waits for the event.
+			await untilTrue(() => !pidRunning(pid))
 		},
 		30_000,
 	)
@@ -580,14 +625,19 @@ describe.skipIf(IS_WINDOWS)('a partitioned stream ends on both sides', () => {
 		const agentPort = await startAgent()
 		const proxy = await startPartitionProxy(agentPort)
 		const upstream = await startUpstream()
+		useFakeLivenessClock()
 		const connection = await transportTo(proxy.port, INTERVAL_MS).openTcpConnection({
 			port: upstream.port,
 		})
 		expect(upstream.live()).toBe(1)
+		const closed = watchSettled(connection.closed)
 
 		proxy.blackhole()
-		expect(await raceSettled(connection.closed, DEATH_BUDGET_MS)).toBe('settled')
-		await vi.waitFor(() => expect(upstream.live()).toBe(0), { timeout: 10_000 })
+		await advanceClock(DEATH_BUDGET_MS)
+		expect(closed.settled).toBe(true)
+		// The guest drops its loopback connection when its own watchdog
+		// fires; that is a socket close arriving, so wait for the event.
+		await untilTrue(() => upstream.live() === 0)
 	}, 30_000)
 })
 
@@ -641,14 +691,17 @@ describe.skipIf(IS_WINDOWS)('backpressure is not silence', () => {
 describe.skipIf(IS_WINDOWS)('mixed versions end no stream and write no unknown frame', () => {
 	it('arms nothing when the agent does not echo the interval', async () => {
 		const legacy = await startLegacyAgent()
+		useFakeLivenessClock()
 		const connection = await transportTo(legacy.port, INTERVAL_MS).openTcpConnection({ port: 9 })
+		const closed = watchSettled(connection.closed)
 		// The ask went out — it is optional and additive, and an agent that
 		// never heard of it drops it.
 		expect(legacy.received[0]).toMatchObject({
 			op: 'tcp-connect',
 			body: { host: '127.0.0.1', port: 9, heartbeatMs: INTERVAL_MS },
 		})
-		expect(await raceSettled(connection.closed, DEATH_BUDGET_MS)).toBe('open')
+		await advanceClock(DEATH_BUDGET_MS)
+		expect(closed.settled).toBe(false)
 		// And nothing this agent would have treated as a protocol error was
 		// ever written to it.
 		expect(legacy.received.filter((frame) => frame.type === 'heartbeat')).toEqual([])
@@ -658,6 +711,7 @@ describe.skipIf(IS_WINDOWS)('mixed versions end no stream and write no unknown f
 	it('sends the guest nothing extra when the host never asked', async () => {
 		const port = await startAgent()
 		const upstream = await startUpstream()
+		useFakeLivenessClock()
 		const frames = await collectTerminalFrames(port, upstream.port, INTERVAL_MS * 6)
 		expect(frames[0]).toMatchObject({ type: 'ready' })
 		expect(frames[0]).not.toHaveProperty('heartbeatMs')
@@ -681,21 +735,28 @@ describe.skipIf(IS_WINDOWS)('mixed versions end no stream and write no unknown f
 describe.skipIf(IS_WINDOWS)('the host does not take the guest at its word', () => {
 	it('ends a stream whose guest echoed an interval a day long', async () => {
 		const agent = await startEchoingAgent({ echoHeartbeatMs: 86_400_000 })
+		useFakeLivenessClock()
 		const connection = await transportTo(agent.port, INTERVAL_MS).openTcpConnection({ port: 9 })
+		const closed = watchSettled(connection.closed)
 		// Honoured at four times what was ASKED rather than at what came back:
 		// a day would have left this stream with no detection at all, which is
 		// the failure the heartbeat exists to remove.
-		expect(await raceSettled(connection.closed, CLAMPED_DEATH_BUDGET_MS)).toBe('settled')
+		await advanceClock(CLAMPED_DEATH_BUDGET_MS)
+		expect(closed.settled).toBe(true)
 	}, 30_000)
 
 	it('keeps a stream whose guest echoed a fraction of a millisecond', async () => {
+		// Created after the fake clock goes in, so its beat is on it too.
+		useFakeLivenessClock()
 		const agent = await startEchoingAgent({ echoHeartbeatMs: 0.0001, beatEveryMs: INTERVAL_MS })
 		const connection = await transportTo(agent.port, INTERVAL_MS).openTcpConnection({ port: 9 })
+		const closed = watchSettled(connection.closed)
 		// Floored at MIN_STREAM_HEARTBEAT_MS, so the window is 300 ms and a
 		// guest beating every 150 ms is plainly alive. Unclamped the window
 		// would have been 0.0003 ms and the first tick would have killed it.
 		expect(MIN_STREAM_HEARTBEAT_MS * STREAM_HEARTBEAT_MISS_LIMIT).toBeGreaterThan(INTERVAL_MS)
-		expect(await raceSettled(connection.closed, INTERVAL_MS * 6)).toBe('open')
+		await advanceClock(INTERVAL_MS * 6)
+		expect(closed.settled).toBe(false)
 		connection.destroy()
 	}, 30_000)
 })
@@ -703,7 +764,9 @@ describe.skipIf(IS_WINDOWS)('the host does not take the guest at its word', () =
 describe.skipIf(IS_WINDOWS)('bytes are proof of life, not whole frames', () => {
 	it('keeps the HOST stream open while one big frame arrives in pieces', async () => {
 		const agent = await startEchoingAgent({ echoHeartbeatMs: INTERVAL_MS })
+		useFakeLivenessClock()
 		const connection = await transportTo(agent.port, INTERVAL_MS).openTcpConnection({ port: 9 })
+		const closed = watchSettled(connection.closed)
 		const chunks: Uint8Array[] = []
 		connection.onData((chunk) => chunks.push(chunk))
 		const frame = __framing.frame(
@@ -714,16 +777,16 @@ describe.skipIf(IS_WINDOWS)('bytes are proof of life, not whole frames', () => {
 		// and the last one lands long after the three-interval window.
 		expect(INTERVAL_MS * DRIBBLE_PIECES).toBeGreaterThan(INTERVAL_MS * STREAM_HEARTBEAT_MISS_LIMIT)
 		await agent.dribble(frame, DRIBBLE_PIECES, INTERVAL_MS)
-		expect(await raceSettled(connection.closed, INTERVAL_MS)).toBe('open')
-		await vi.waitFor(() => expect(Buffer.concat(chunks).byteLength).toBe(BIG_PAYLOAD.byteLength), {
-			timeout: 5_000,
-		})
+		await advanceClock(INTERVAL_MS)
+		expect(closed.settled).toBe(false)
+		await untilTrue(() => Buffer.concat(chunks).byteLength === BIG_PAYLOAD.byteLength)
 		connection.destroy()
 	}, 30_000)
 
 	it('keeps the GUEST stream open while one big frame arrives in pieces', async () => {
 		const port = await startAgent()
 		const upstream = await startUpstream()
+		useFakeLivenessClock()
 		const client = await openRawTcpStream(port, upstream.port, INTERVAL_MS)
 		expect(client.ready).toMatchObject({ type: 'ready', heartbeatMs: INTERVAL_MS })
 		const frame = encodeFrame(
@@ -733,7 +796,7 @@ describe.skipIf(IS_WINDOWS)('bytes are proof of life, not whole frames', () => {
 		// The guest saw no complete frame for eight intervals and forwarded
 		// every byte anyway; had it counted frames it would have destroyed this
 		// socket, and its loopback connection with it, after three.
-		await vi.waitFor(() => expect(upstream.read()).toBe(BIG_PAYLOAD.byteLength), { timeout: 5_000 })
+		await upstream.whenRead(BIG_PAYLOAD.byteLength)
 		expect(upstream.live()).toBe(1)
 		client.close()
 	}, 30_000)
@@ -770,7 +833,11 @@ async function collectTerminalFrames(
 			}),
 		),
 	)
-	await delay(windowMs)
+	// The agent answers `ready` once it has dialled the service; wait for
+	// that, then let `windowMs` of liveness time pass (simulated, so a heartbeat
+	// the guest wrongly started would be due inside it however slow the host).
+	await untilTrue(() => frames.length > 0)
+	await passTime(windowMs)
 	socket.destroy()
 	return frames
 }
