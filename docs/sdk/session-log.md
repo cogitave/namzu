@@ -515,6 +515,32 @@ in the log for audit only. A checkpoint's context is the fold of the log up to
 its `throughSeq`, which equals the session's fold at that point because no
 other turn can interleave.
 
+## What a turn reads back from a long log
+
+A log only grows, so a turn must not cost more because the session is old. The
+reads a turn makes of the whole log (the folded context, every message ever
+recorded, the turn ids, which checkpoints were committed and which are named by
+an open decision) are kept as reductions in
+`packages/sdk/src/store/session-log/incremental.ts`. A reduction remembers the
+last record it folded. The next ask resumes with `read({ after })`, which checks
+that record against the file byte for byte, and folds only what was appended.
+If the log no longer holds that record (replaced, truncated, rewritten there)
+the reduction starts again from byte 0 and behaves as before: a strict read
+refuses a broken chain, a tolerant one stops at the break. The first ask of a
+process always reads from byte 0 and verifies the whole chain.
+
+What a resumed read does not do is verify the records before the one it resumes
+after again; they were verified when this process first folded them. A byte
+changed in the middle of the log while the process runs, with the last record
+left alone, is noticed by the next process, not by the next turn. The reductions
+are kept for the four most recently used sessions, and what a caller receives
+from them is its own copy. Evidence recall keeps the same kind of memory for its
+check that no turn is open, and the disk checkpoint store remembers which turn
+each checkpoint document belongs to, so listing one turn's checkpoints does not
+read the documents of the others again. A turn's own context is left to the
+turn: its abort listener on the session's signal holds the turn only weakly, so a
+finished turn is released rather than kept for the life of the session.
+
 ## A host's cached messages
 
 Every message `query()` folds from the log, or records fresh, carries
