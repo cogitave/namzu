@@ -208,6 +208,28 @@ function isPermanentSubscriptionFailure(error: unknown, requestId: number): bool
 	)
 }
 
+/**
+ * Tools in a fixed order, by name (code points, not locale), a tie keeping
+ * the order the server sent.
+ *
+ * The tool list is part of the prompt a model is given, and a provider's
+ * prompt cache only holds while the prompt is byte for byte the same. The
+ * 2026-07-28 revision asks servers to list tools deterministically for that
+ * reason (a SHOULD); an older server, or one that lists from a hash map, can
+ * answer in a different order each time. Sorting here makes the order a
+ * property of this client, whatever the server did.
+ */
+function sortedByName(tools: MCPToolDefinition[]): MCPToolDefinition[] {
+	return tools
+		.map((tool, index) => ({ tool, index }))
+		.sort((a, b) => {
+			const x = typeof a.tool?.name === 'string' ? a.tool.name : ''
+			const y = typeof b.tool?.name === 'string' ? b.tool.name : ''
+			return x < y ? -1 : x > y ? 1 : a.index - b.index
+		})
+		.map(({ tool }) => tool)
+}
+
 const NAMZU_CLIENT_INFO = { name: 'namzu-sdk', version: VERSION }
 
 /** Keep server-authored status text safe and small before it reaches a host UI. */
@@ -946,7 +968,7 @@ export class MCPClient {
 	async listTools(options?: MCPRequestOptions): Promise<MCPToolDefinition[]> {
 		this.requireConnected()
 		const listed = await this.listAllPages<MCPToolDefinition>('tools/list', 'tools', options)
-		return this.admitToolHeaderAnnotations(listed)
+		return sortedByName(this.admitToolHeaderAnnotations(listed))
 	}
 
 	/**

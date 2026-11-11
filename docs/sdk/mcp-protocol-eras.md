@@ -349,6 +349,16 @@ result is fresh.
 - `server/discover` carries the hints too; the era probe is not cached beyond
   the era cache it already has.
 
+### Tool lists keep one order
+
+The revision asks servers to return `tools/list` in a deterministic order so a
+model provider's prompt cache keeps hitting; it is a SHOULD on the server.
+**Before this, `listTools()` returned tools in whatever order the server sent**,
+so a server that listed from a hash map, or an older one, could change the
+prompt between two turns. Now `listTools()` returns the tools sorted by name
+(code points, a tie keeping the server's order), in every revision, so the
+order is a property of the client.
+
 ## Mirroring tool parameters into headers: `x-mcp-header`
 
 A server may annotate a tool parameter with `x-mcp-header` to ask that the

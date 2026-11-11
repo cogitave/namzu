@@ -2,6 +2,7 @@
 
 ## 2026-11-12
 
+- **Update** [MCP protocol eras](sdk/mcp-protocol-eras.md): `MCPClient.listTools()` returns tools sorted by name in every revision, so the tool list in a prompt does not change order between turns; before, it kept the server's order.
 - **Update** [MCP protocol eras](sdk/mcp-protocol-eras.md): `MCPClient` keeps tool, prompt, resource and template lists and resource reads for the `ttlMs` a 2026-07-28 server sends, scoped by `cacheScope`, and drops them on a change notification; before, it asked on every call.
 - **Update** [MCP protocol eras](sdk/mcp-protocol-eras.md): `MCPClient.subscribeResource` and `unsubscribeResource` ask for one resource's updates, through the `subscriptions/listen` filter on 2026-07-28 and `resources/subscribe` on older servers; the "Not yet built" bullet for it is gone.
 - **Update** [Session log: leases](sdk/session-log.md): the place also hashes `/etc/machine-id` where readable, so two machines with the same host name in the initial process-id namespace no longer share a place; the page says which setups still do.
