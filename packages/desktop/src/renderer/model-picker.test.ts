@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, expect, it, vi } from 'vitest'
 import type { ModelCatalogueView, ProviderView } from '../shared/protocol.js'
 import { ModelMore } from './model-picker-more.js'
-import { ModelPicker } from './model-picker.js'
+import { ModelPicker, stepBackOnEscape } from './model-picker.js'
 
 const ready = vi.hoisted(() => ({
 	catalogues: {} as Record<string, { loading: false; value: ModelCatalogueView }>,
@@ -526,4 +526,12 @@ it('offers no Auto row when Auto is not offered', () => {
 		selected: { id: 'codex-cli', model: 'native-first' },
 	})
 	expect(html).not.toContain('Picks a model for each task')
+})
+
+it('takes Escape back one step from More and closes the popup from anywhere else', () => {
+	expect(stepBackOnEscape('more', 'escape-key')).toBe(true)
+	expect(stepBackOnEscape('models', 'escape-key')).toBe(false)
+	expect(stepBackOnEscape('engine', 'escape-key')).toBe(false)
+	// Only the Escape key is held back; a click outside still closes from More.
+	expect(stepBackOnEscape('more', 'outside-press')).toBe(false)
 })

@@ -112,6 +112,19 @@
 	.composer-project-control:is(:hover, :focus-visible, [aria-expanded="true"]) {
 	color: var(--foreground);
 }
+/* A long project name gives way first (ellipsis); the place it runs on stays readable. */
+.composer-project-text {
+	display: flex;
+	min-width: 0;
+}
+.composer-project-title {
+	flex: 0 1 auto;
+	min-width: 0;
+}
+.composer-project-place {
+	flex: none;
+	white-space: pre;
+}
 /* The page edge under the composer is solid, so a long reply never shows through the gap below the card. */
 .composer-wrap:not(.items-center)::after {
 	content: "";
@@ -190,9 +203,15 @@
 .normal-composer-shell .model-picker-trigger-model {
 	color: inherit;
 }
-/* The chin is quiet: permission and model are plain muted words, and the chevron is drawn on hover or focus. */
+/* The chin is quiet: permission and model are plain muted words, and the chevron fades in on hover or focus.
+   Its room is always reserved on the two chin controls, so the word never moves under the pointer. */
 .normal-composer-shell .composer-permission-control [data-composer-control-chevron],
-.normal-composer-shell .model-picker-trigger [data-composer-control-chevron],
+.normal-composer-shell .model-picker-trigger [data-composer-control-chevron] {
+	width: 12px;
+	margin-inline: 0;
+	opacity: 0;
+	transition: opacity 140ms var(--motion-ease);
+}
 .composer-context-above .composer-project-control [data-composer-control-chevron] {
 	width: 0;
 	margin-inline: 0;
@@ -205,7 +224,9 @@
 		:focus-visible,
 		[aria-expanded="true"]
 	)
-	[data-composer-control-chevron],
+	[data-composer-control-chevron] {
+	opacity: 0.7;
+}
 .composer-context-above
 	.composer-project-control:is(:hover, :focus-visible, [aria-expanded="true"])
 	[data-composer-control-chevron] {

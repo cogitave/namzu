@@ -56,10 +56,14 @@ export function ComposerProjectPicker({
 	const label = (
 		<>
 			<FolderIcon className="size-3.5" />
-			<span className="truncate">
-				{choices.find((project) => project.id === projectId)?.isChat ? 'No project' : projectName}
-				{' · '}
-				{computerLabel}
+			<span className="composer-project-text">
+				<span className="composer-project-title truncate">
+					{choices.find((project) => project.id === projectId)?.isChat ? 'No project' : projectName}
+				</span>
+				<span className="composer-project-place">
+					{' · '}
+					{computerLabel}
+				</span>
 			</span>
 		</>
 	)

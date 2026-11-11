@@ -287,5 +287,5 @@ export async function openEngineView(page) {
 /** From the open model popup, list the models of another provider: More, then that provider. */
 export async function showProvider(page, name) {
 	await openModelMore(page);
-	await page.getByRole("radio", { name, exact: true }).click();
+	await page.getByRole("radio", { name, exact: typeof name === "string" }).click();
 }

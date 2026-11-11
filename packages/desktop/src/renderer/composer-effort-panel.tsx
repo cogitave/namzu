@@ -1,9 +1,8 @@
 import { Slider } from '@base-ui/react/slider'
 import type { ReasoningEffort } from '@namzu/sdk'
 import { ChevronRight } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import type { HarnessView } from '../shared/protocol.js'
-import { EffortShader } from './effort-shader/effort-shader.js'
 import {
 	EngineChip,
 	type EngineSurfaceControl,
@@ -115,8 +114,6 @@ export function ComposerEffortPanel({
 	}
 }) {
 	const slider = useRef<HTMLDivElement>(null)
-	// The CSS fill stays until the shader's first frame lands, and returns if WebGL is lost.
-	const [shaderReady, setShaderReady] = useState(false)
 	const inline = variant === 'inline'
 	const unavailable = !loading && levels.length < 2
 	useEffect(() => {
@@ -144,7 +141,6 @@ export function ComposerEffortPanel({
 			data-variant={inline ? 'inline' : undefined}
 			data-scope={scope}
 			data-unset={!value || undefined}
-			data-shader={shaderReady ? 'on' : undefined}
 		>
 			<div className="composer-effort-header">
 				{inline ? (
@@ -225,12 +221,6 @@ export function ComposerEffortPanel({
 						>
 							<Slider.Track className="composer-effort-track">
 								<Slider.Indicator className="composer-effort-fill" />
-								<EffortShader
-									progress={index / Math.max(1, levels.length - 1)}
-									level={index / Math.max(1, levels.length - 1)}
-									visible={Boolean(value)}
-									onReady={setShaderReady}
-								/>
 								<span className="composer-effort-stops" aria-hidden="true">
 									{levels.map((level, stop) => (
 										<i

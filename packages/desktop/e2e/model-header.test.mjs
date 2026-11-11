@@ -156,8 +156,11 @@ async function sweep(w, tag) {
 			for (const zoom of ZOOMS) {
 				await resize(w, width, zoom);
 				const label = `${tag} ${theme} ${width}px x${zoom}`;
-				// Re-open at each size so the popup is placed for it.
+				// Re-open at each size so the popup is placed for it. The last step was More: the first
+				// Escape goes back to the list, the second closes the popup.
 				await w.page.keyboard.press("Escape");
+				await w.page.keyboard.press("Escape");
+				await expect(w.page.locator(".model-picker-popup")).toHaveCount(0, { timeout: T });
 				await openModels(w);
 				// The popup's own height animation has finished when nothing animates.
 				await expect

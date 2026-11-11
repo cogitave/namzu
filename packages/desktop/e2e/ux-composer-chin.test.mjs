@@ -5,7 +5,9 @@
 // Run: pnpm --filter @namzu/desktop build && cd packages/desktop && xvfb-run -a node --test e2e/ux-composer-chin.test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createWorld, dispose, expect, launch, openModelMore, openProject } from "./harness.mjs";
+import { renameSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { createWorld, dispose, expect, launch, openModelMore, openProject, showProvider } from "./harness.mjs";
 
 const T = 60000;
 
@@ -43,10 +45,16 @@ test("the composer chin is quiet, one line holds project and computer, starters 
 		// The chin: permission and model are quiet words; the chevron is drawn on hover.
 		const permission = page.getByRole("button", { name: /^Permissions:/ });
 		const chevron = permission.locator("[data-composer-control-chevron]");
-		const chevronWidth = () => chevron.evaluate((el) => el.getBoundingClientRect().width);
-		assert.ok((await chevronWidth()) < 1, "no chevron at rest");
+		const chevronOpacity = () => chevron.evaluate((el) => Number(getComputedStyle(el).opacity));
+		// The chevron's room is reserved, so the word does not move when it appears.
+		const wordLeft = () => permission.locator("span").first().evaluate((el) => el.getBoundingClientRect().left);
+		const rest = { left: await wordLeft(), width: (await permission.boundingBox()).width, chevron: await chevronOpacity() };
+		assert.ok(rest.chevron < 0.05, "the chevron is not drawn at rest");
+		assert.ok((await chevron.boundingBox()).width >= 11, "the chevron's room is kept at rest");
 		await permission.hover();
-		await expect.poll(chevronWidth, { timeout: T }).toBeGreaterThan(8);
+		await expect.poll(chevronOpacity, { timeout: T }).toBeGreaterThan(0.5);
+		assert.equal(await wordLeft(), rest.left, "the word does not move under the pointer");
+		assert.equal((await permission.boundingBox()).width, rest.width, "the control does not grow on hover");
 		await page.mouse.move(5, 5);
 
 		// Starters: three 32px rows; a click fills and focuses the box and sends nothing.
@@ -77,14 +85,86 @@ test("the composer chin is quiet, one line holds project and computer, starters 
 		await expect(popup).toHaveCount(0, { timeout: T });
 		await expect(page.getByRole("button", { name: "Model: gpt-e2e-0" })).toBeVisible({ timeout: T });
 
-		// Escape closes it too, and More holds the engine, where it runs and the provider filter.
-		await page.getByRole("button", { name: /^Model:/ }).click();
+		// More holds the engine, where it runs and the provider filter.
+		const trigger = page.getByRole("button", { name: /^Model:/ });
+		await trigger.click();
 		await openModelMore(page);
 		await expect(page.getByRole("button", { name: /^Engine:/ })).toBeVisible();
 		await expect(page.getByRole("radio", { name: "Desktop", exact: true })).toBeVisible();
 		await expect(page.getByRole("radiogroup", { name: "Show models from" })).toBeVisible();
+		// Escape goes back one step, with focus on the More row; a second Escape closes, focus on the model control.
+		await page.keyboard.press("Escape");
+		await expect(page.getByRole("heading", { name: "More", exact: true })).toHaveCount(0, { timeout: T });
+		await expect(popup).toHaveCount(1);
+		await expect(popup.locator(".model-picker-more")).toBeFocused({ timeout: T });
 		await page.keyboard.press("Escape");
 		await expect(popup).toHaveCount(0, { timeout: T });
+		await expect(trigger).toBeFocused({ timeout: T });
+		// The back button returns to the same place.
+		await trigger.click();
+		await openModelMore(page);
+		await page.getByRole("button", { name: "Models", exact: true }).click();
+		await expect(popup.locator(".model-picker-more")).toBeFocused({ timeout: T });
+		await page.keyboard.press("Escape");
+		await expect(popup).toHaveCount(0, { timeout: T });
+		assert.deepEqual(world.faults, [], "the renderer raised no uncaught errors");
+		failed = false;
+	} finally {
+		await dispose(world, { failed });
+	}
+});
+
+test("the effort control belongs to the model in use: it is left out beside another provider's list, and a long project name gives way before the computer", { timeout: 280000 }, async () => {
+	const world = await createWorld({
+		models: ["gpt-5.6-luna", "gpt-6-luna"],
+		model: "gpt-5.6-luna",
+		providers: [
+			{ id: "openai", model: "gpt-5.6-luna" },
+			{ id: "anthropic", model: "claude-sonnet-5-5" },
+		],
+		messagesRules: [],
+		messagesModels: ["claude-sonnet-5-5", "claude-haiku-5-5"],
+	});
+	const long = "a-very-long-project-name-that-keeps-going-on-and-on-and-on-x";
+	assert.equal(long.length, 60);
+	const named = join(dirname(world.project), long);
+	renameSync(world.project, named);
+	world.project = named;
+	let failed = true;
+	try {
+		await launch(world);
+		await openProject(world);
+		const page = world.page;
+		await expect(page.getByRole("textbox", { name: "Message Namzu" })).toBeVisible({ timeout: T });
+
+		// A narrow, zoomed window: the project name takes the ellipsis, the computer stays whole.
+		await world.app.evaluate(({ BrowserWindow }) => {
+			for (const win of BrowserWindow.getAllWindows()) {
+				win.setSize(960, 700);
+				win.webContents.setZoomFactor(1.6);
+			}
+		});
+		const line = page.locator(".composer-project-control");
+		await expect
+			.poll(() => line.locator(".composer-project-title").evaluate((el) => el.scrollWidth > el.clientWidth), { timeout: T })
+			.toBe(true);
+		const place = line.locator(".composer-project-place");
+		assert.equal(await place.evaluate((el) => el.scrollWidth <= el.clientWidth), true, "the place is not cut");
+		await expect(place).toContainText("This computer");
+		await world.app.evaluate(({ BrowserWindow }) => {
+			for (const win of BrowserWindow.getAllWindows()) win.webContents.setZoomFactor(1);
+		});
+
+		// The list of the model in use carries the effort control; another provider's list does not.
+		const popup = page.locator(".model-picker-popup");
+		await page.getByRole("button", { name: /^Model:/ }).click();
+		await expect(popup.getByRole("radio").first()).toBeVisible({ timeout: T });
+		await expect(popup.locator(".composer-effort-panel")).toHaveCount(1, { timeout: T });
+		await showProvider(page, "Anthropic (Claude)");
+		await expect(popup.getByRole("radio", { name: /claude-sonnet-5-5/ })).toBeVisible({ timeout: T });
+		await expect(popup.locator(".composer-effort-panel")).toHaveCount(0);
+		await showProvider(page, /OpenAI/);
+		await expect(popup.locator(".composer-effort-panel")).toHaveCount(1, { timeout: T });
 		assert.deepEqual(world.faults, [], "the renderer raised no uncaught errors");
 		failed = false;
 	} finally {

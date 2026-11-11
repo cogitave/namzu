@@ -72,6 +72,11 @@ type Catalogue = {
 }
 /** The list comes first; "More" holds the engine, where it runs and the provider filter. */
 type View = 'models' | 'more' | 'engine'
+
+/** Escape inside More goes back to the model list; only from the list does it close the popup. */
+export function stepBackOnEscape(view: View, reason: string): boolean {
+	return view === 'more' && reason === 'escape-key'
+}
 /** The engine choice the popup offers, with the state that gates it. */
 export type EngineControl = {
 	view?: HarnessView
@@ -149,6 +154,17 @@ export function ModelPicker({
 }) {
 	const [open, setOpen] = useState(false)
 	const [view, setView] = useState<View>('models')
+	// Set when the person steps back from More, so focus lands on the "More" row they came from.
+	const returnToMore = useRef(false)
+	const moreRow = useRef<HTMLButtonElement>(null)
+	useEffect(() => {
+		if (view !== 'models' || !returnToMore.current) return
+		returnToMore.current = false
+		const place = () => moreRow.current?.focus({ preventScroll: true })
+		place()
+		const frame = requestAnimationFrame(place)
+		return () => cancelAnimationFrame(frame)
+	}, [view])
 	// Which provider's models the list shows; the filter lives behind "More".
 	const [browseProvider, setBrowseProvider] = useState(choice.provider)
 	const engine = engineControl?.view?.selected ?? engineControl?.selected ?? 'namzu'
@@ -317,7 +333,14 @@ export function ModelPicker({
 	return (
 		<Popover
 			open={open && previousScope.current === scope && !disabled}
-			onOpenChange={(next) => {
+			onOpenChange={(next, details) => {
+				// Escape goes back one step: from More to the list; a second one closes the popup.
+				if (!next && stepBackOnEscape(view, details.reason)) {
+					details.cancel()
+					setView('models')
+					returnToMore.current = true
+					return
+				}
 				if (next) {
 					setView('models')
 					setBrowseProvider(choice.provider)
@@ -418,7 +441,10 @@ export function ModelPicker({
 									setBrowseProvider(id)
 									setView('models')
 								}}
-								onBack={() => setView('models')}
+								onBack={() => {
+									returnToMore.current = true
+									setView('models')
+								}}
 							/>
 						) : (
 							<>
@@ -436,21 +462,25 @@ export function ModelPicker({
 									onChoose={choose}
 									auto={auto && { active: auto.active, onSelect: chooseAuto }}
 								/>
-								{onEffortChange && (settings === null || effortChoices >= 2) && (
-									<ComposerEffortPanel
-										variant="inline"
-										scope={JSON.stringify([projectId, sessionId, choice.provider, modelId])}
-										modelLabel={label}
-										levels={shownEffort?.levels ?? []}
-										value={shownEffort?.value}
-										defaultValue={settings?.effortDefault}
-										loading={settings === null}
-										disabled={disabled}
-										onChange={onEffortChange}
-									/>
-								)}
+								{/* The control belongs to the model in use; beside another provider's list it would read as theirs, so it is left out. */}
+								{onEffortChange &&
+									browseProvider === choice.provider &&
+									(settings === null || effortChoices >= 2) && (
+										<ComposerEffortPanel
+											variant="inline"
+											scope={JSON.stringify([projectId, sessionId, choice.provider, modelId])}
+											modelLabel={label}
+											levels={shownEffort?.levels ?? []}
+											value={shownEffort?.value}
+											defaultValue={settings?.effortDefault}
+											loading={settings === null}
+											disabled={disabled}
+											onChange={onEffortChange}
+										/>
+									)}
 								{hasMore && (
 									<button
+										ref={moreRow}
 										type="button"
 										className="model-picker-more"
 										onClick={() => setView('more')}
@@ -808,6 +838,8 @@ function ModelBrowser({
 			const root = results.current
 			if (!root || root.contains(document.activeElement)) return
 			if (document.activeElement instanceof HTMLInputElement) return
+			// Coming back from More, the keyboard stays on the "More" row it left from.
+			if (document.activeElement?.classList.contains('model-picker-more')) return
 			;(
 				root.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]') ??
 				root.querySelector<HTMLElement>('[role="radio"]')
