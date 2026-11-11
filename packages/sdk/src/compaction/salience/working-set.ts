@@ -73,14 +73,18 @@ export function isStubbedNarration(content: unknown): boolean {
 	return typeof content === 'string' && content.includes(STUB_MARK)
 }
 
-export function planWorkingSet(
+/** What decides whether a message is something the pass may shed at all. */
+interface EvictionRules {
+	readonly minTool: number
+	readonly minNarration: number
+	readonly preserve: ReadonlySet<string>
+	readonly toolNameByCallId: ReadonlyMap<string, string>
+}
+
+function evictionRules(
 	messages: readonly Message[],
-	scored: readonly ScoredMessage[],
-	options: WorkingSetOptions,
-): WorkingSetPlan {
-	const minTool = options.minToolResultChars ?? 1_000
-	const minNarration = options.minNarrationChars ?? 240
-	const preserve = new Set(options.preserveTools ?? [])
+	options: Pick<WorkingSetOptions, 'minToolResultChars' | 'minNarrationChars' | 'preserveTools'>,
+): EvictionRules {
 	const toolNameByCallId = new Map<string, string>()
 	for (const m of messages) {
 		if (m.role !== 'assistant') continue
@@ -88,6 +92,87 @@ export function planWorkingSet(
 			toolNameByCallId.set(call.id, call.function.name)
 		}
 	}
+	return {
+		minTool: options.minToolResultChars ?? 1_000,
+		minNarration: options.minNarrationChars ?? 240,
+		preserve: new Set(options.preserveTools ?? []),
+		toolNameByCallId,
+	}
+}
+
+/**
+ * Whether the pass could clear or stub this message, ignoring only what
+ * protection decides (the floor, the recent turns, retained turns, a pair
+ * with a protected half) and what the score decides. The one place the
+ * eligibility rules live: {@link planWorkingSet} asks it of each unprotected
+ * message, and {@link hasEvictableMessage} asks it of every message.
+ */
+function evictionKind(m: Message, tokens: number, rules: EvictionRules): 'clear' | 'stub' | null {
+	if (tokens === 0) return null
+	if (m.role === 'tool') {
+		const tool = m as ToolMessage
+		if (tool.isError || isClearedToolResult(tool.content)) return null
+		if (rules.preserve.has(rules.toolNameByCallId.get(tool.toolCallId) ?? '')) return null
+		if (tokens * CHARS_PER_TOKEN < rules.minTool) return null
+		return 'clear'
+	}
+	if (m.role === 'assistant' && !Array.isArray((m as AssistantMessage).toolCalls)) {
+		const text = typeof m.content === 'string' ? m.content : ''
+		if (text.length < rules.minNarration || isStubbedNarration(text)) return null
+		return 'stub'
+	}
+	return null
+}
+
+/**
+ * A cheap count of whether anything at all is left for the pass to shed:
+ * false means {@link planWorkingSet} would return no action whatever the
+ * scores are, so scoring can be skipped. It leaves out the two protections
+ * that are only a position (the leading system run and the last
+ * `keepRecentMessages`); retained turns, tool-call pairs and the goal floor
+ * are not looked at. True is therefore only "go and look", and a false is
+ * exact.
+ */
+export function hasEvictableMessage(
+	messages: readonly Message[],
+	options: Pick<WorkingSetOptions, 'minToolResultChars' | 'minNarrationChars' | 'preserveTools'> & {
+		readonly keepRecentMessages: number
+	},
+): boolean {
+	const rules = evictionRules(messages, options)
+	let floorEnd = 0
+	while (floorEnd < messages.length && messages[floorEnd]?.role === 'system') floorEnd += 1
+	const end = Math.max(floorEnd, messages.length - options.keepRecentMessages)
+	for (let i = floorEnd; i < end; i += 1) {
+		const m = messages[i] as Message
+		if (evictionKind(m, estimateMessageTokens(m), rules) !== null) return true
+	}
+	return false
+}
+
+/** The plan of a pass that sheds nothing: every message as it was. */
+export function planNothingToShed(
+	messages: readonly Message[],
+	options: Pick<WorkingSetOptions, 'estimatedTokens' | 'targetTokens'>,
+): WorkingSetPlan {
+	return {
+		messages: [...messages],
+		actions: [],
+		clearedCount: 0,
+		stubbedCount: 0,
+		charsReclaimed: 0,
+		reclaimedTokens: 0,
+		reachedTarget: options.estimatedTokens - options.targetTokens <= 0,
+	}
+}
+
+export function planWorkingSet(
+	messages: readonly Message[],
+	scored: readonly ScoredMessage[],
+	options: WorkingSetOptions,
+): WorkingSetPlan {
+	const rules = evictionRules(messages, options)
+	const { toolNameByCallId } = rules
 
 	// Ordered by salience, not salience per token. Per token was the plan's
 	// first answer and it evicts the wrong thing: a large result the goal
@@ -104,31 +189,17 @@ export function planWorkingSet(
 	}
 	const candidates: Candidate[] = []
 	for (const s of scored) {
-		if (s.protected !== null || s.tokens === 0) continue
+		if (s.protected !== null) continue
 		const m = messages[s.index] as Message
-		if (m.role === 'tool') {
-			const tool = m as ToolMessage
-			if (tool.isError || isClearedToolResult(tool.content)) continue
-			if (preserve.has(toolNameByCallId.get(tool.toolCallId) ?? '')) continue
-			if (s.tokens * CHARS_PER_TOKEN < minTool) continue
-			candidates.push({
-				index: s.index,
-				kind: 'clear',
-				salience: s.salience,
-				tokens: s.tokens,
-				goalBound: s.relevance >= 0.5 || s.utility >= 1,
-			})
-		} else if (m.role === 'assistant' && !Array.isArray((m as AssistantMessage).toolCalls)) {
-			const text = typeof m.content === 'string' ? m.content : ''
-			if (text.length < minNarration || isStubbedNarration(text)) continue
-			candidates.push({
-				index: s.index,
-				kind: 'stub',
-				salience: s.salience,
-				tokens: s.tokens,
-				goalBound: s.relevance >= 0.5 || s.utility >= 1,
-			})
-		}
+		const kind = evictionKind(m, s.tokens, rules)
+		if (kind === null) continue
+		candidates.push({
+			index: s.index,
+			kind,
+			salience: s.salience,
+			tokens: s.tokens,
+			goalBound: s.relevance >= 0.5 || s.utility >= 1,
+		})
 	}
 	candidates.sort((a, b) => a.salience - b.salience || b.tokens - a.tokens || a.index - b.index)
 	const maxSalience = candidates.reduce((m, c) => Math.max(m, c.salience), Number.NEGATIVE_INFINITY)

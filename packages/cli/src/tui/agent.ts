@@ -7912,12 +7912,15 @@ const COMPACTION_CONFIG = {
 }
 
 /** The shipped configuration with the strategy the project chose, if it chose one. */
-function compactionConfigFor(compaction: CompactionCliConfig | undefined): CompactionConfig {
+export function compactionConfigFor(compaction: CompactionCliConfig | undefined): CompactionConfig {
 	return {
 		...COMPACTION_CONFIG,
 		strategy: compaction?.strategy ?? COMPACTION_CONFIG.strategy,
 		...(compaction?.deduplicateObservations !== undefined
 			? { deduplicateObservations: compaction.deduplicateObservations }
+			: {}),
+		...(compaction?.softTargetHeadroom !== undefined
+			? { softTargetHeadroom: compaction.softTargetHeadroom }
 			: {}),
 		...(compaction?.contextWindowTokens !== undefined
 			? { contextWindowTokens: compaction.contextWindowTokens }

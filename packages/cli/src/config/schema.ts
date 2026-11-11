@@ -230,6 +230,16 @@ export interface CompactionCliConfig {
 	 */
 	readonly strategy?: 'structured' | 'salience'
 	/**
+	 * `salience` only: how far below the soft target (half the window), as a
+	 * fraction of the window from 0 to 1, a pass sheds. A pass still starts at
+	 * the soft target and then keeps going until the context is this much
+	 * lower, so the next pass comes only after that room is used rather than
+	 * on the next turn. Fewer passes and a request rewritten once per stretch
+	 * instead of once per turn; the context is held that much lower. Absent
+	 * or `0`, the default: a pass sheds to the soft target and no further.
+	 */
+	readonly softTargetHeadroom?: number
+	/**
 	 * The model's context window, in tokens, when the kernel's table for the
 	 * model is wrong or a project wants compaction to run earlier than the
 	 * real window would make it. Absent means the kernel resolves it from

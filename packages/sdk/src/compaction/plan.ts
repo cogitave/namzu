@@ -4,7 +4,12 @@ import { resolveTriggerThreshold } from './context-window.js'
 import { findSafeTrimIndex } from './dangling.js'
 import { buildGoal } from './salience/goal.js'
 import { scoreMessages } from './salience/score.js'
-import { type WorkingSetPlan, planWorkingSet } from './salience/working-set.js'
+import {
+	type WorkingSetPlan,
+	hasEvictableMessage,
+	planNothingToShed,
+	planWorkingSet,
+} from './salience/working-set.js'
 import { estimateMessageTokens, estimateMessagesTokens } from './token-estimate.js'
 import { clearStaleToolResults } from './tool-result-editing.js'
 
@@ -136,6 +141,33 @@ export function naiveKeepStartByTokens(messages: readonly Message[], budgetToken
 /** Where the salience pass holds the context, as a fraction of the window. */
 export const DEFAULT_SOFT_TARGET = 0.5
 
+/**
+ * The context size, in tokens, a salience pass sheds down to: the soft
+ * target less the configured headroom. With no headroom (the default) this
+ * is the soft target, computed exactly as it always was.
+ */
+export function salienceTargetTokens(config: CompactionConfig, windowTokens: number): number {
+	const soft = config.softTarget ?? DEFAULT_SOFT_TARGET
+	const headroom = config.softTargetHeadroom ?? 0
+	return Math.floor(windowTokens * (headroom > 0 ? Math.max(0, soft - headroom) : soft))
+}
+
+/**
+ * Whether a salience pass could shed anything from `messages` at all: false
+ * is exact (the pass would make no action whatever the scores are), true is
+ * "go and score". See {@link hasEvictableMessage}.
+ */
+export function canShedSalienceWorkingSet(
+	messages: readonly Message[],
+	config: CompactionConfig,
+): boolean {
+	return hasEvictableMessage(messages, {
+		minToolResultChars: config.minToolResultCharsToClear,
+		...(config.preserveToolResultsFrom ? { preserveTools: config.preserveToolResultsFrom } : {}),
+		keepRecentMessages: config.keepRecentMessages,
+	})
+}
+
 export function planSalienceWorkingSet(input: {
 	readonly messages: readonly Message[]
 	readonly config: CompactionConfig
@@ -146,19 +178,29 @@ export function planSalienceWorkingSet(input: {
 	readonly openTasks?: readonly string[]
 }): Extract<CompactionPlan, { kind: 'cleared' }> & { readonly working: WorkingSetPlan } {
 	const { config, estimatedTokens, contextWindowTokens: budget } = input
-	const goal = buildGoal(input.messages, {
-		...(input.openTasks ? { openTasks: input.openTasks } : {}),
-	})
-	const scored = scoreMessages(input.messages, {
-		goal,
-		keepRecentMessages: config.keepRecentMessages,
-	})
-	const working = planWorkingSet(input.messages, scored, {
+	const workingOptions = {
 		estimatedTokens,
-		targetTokens: Math.floor(budget * (config.softTarget ?? DEFAULT_SOFT_TARGET)),
+		targetTokens: salienceTargetTokens(config, budget),
 		minToolResultChars: config.minToolResultCharsToClear,
 		...(config.preserveToolResultsFrom ? { preserveTools: config.preserveToolResultsFrom } : {}),
-	})
+	}
+	// Nothing the pass may shed, whatever the scores say: every tool result
+	// is small, cleared, an error or from a preserved tool, and every
+	// narration is short or already cut. Scoring every message to learn that
+	// is the whole cost of a pass that can do nothing, and it ran on every
+	// turn from the soft target until the summary trigger.
+	const working = canShedSalienceWorkingSet(input.messages, config)
+		? planWorkingSet(
+				input.messages,
+				scoreMessages(input.messages, {
+					goal: buildGoal(input.messages, {
+						...(input.openTasks ? { openTasks: input.openTasks } : {}),
+					}),
+					keepRecentMessages: config.keepRecentMessages,
+				}),
+				workingOptions,
+			)
+		: planNothingToShed(input.messages, workingOptions)
 	return {
 		kind: 'cleared',
 		messages: working.messages,

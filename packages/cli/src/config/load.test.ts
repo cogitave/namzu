@@ -983,6 +983,38 @@ describe('compaction', () => {
 		}
 	})
 
+	it('reads compaction.softTargetHeadroom as a fraction of the window and refuses what is not one', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-compaction-headroom-'))
+		mkdirSync(join(home, '.namzu'), { recursive: true })
+		for (const [text, value] of [
+			['0', 0],
+			['0.1', 0.1],
+			['1', 1],
+		] as const) {
+			writeFileSync(
+				join(home, '.namzu', 'config.yaml'),
+				`compaction:\n  softTargetHeadroom: ${text}\n`,
+			)
+			expect(loadConfig({ home, cwd: tmpdir(), env: {} }).compaction).toEqual({
+				softTargetHeadroom: value,
+			})
+		}
+		// Left out, it is left out: nothing is invented for the default.
+		writeFileSync(join(home, '.namzu', 'config.yaml'), 'compaction:\n  strategy: salience\n')
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).compaction).toEqual({
+			strategy: 'salience',
+		})
+		for (const bad of ['-0.1', '1.5', 'lots', 'true']) {
+			writeFileSync(
+				join(home, '.namzu', 'config.yaml'),
+				`compaction:\n  softTargetHeadroom: ${bad}\n`,
+			)
+			expect(() => loadConfig({ home, cwd: tmpdir(), env: {} }), bad).toThrow(
+				'compaction.softTargetHeadroom',
+			)
+		}
+	})
+
 	it('reads compaction.modelSummary and refuses a value that is not true or false', () => {
 		const home = mkdtempSync(join(tmpdir(), 'namzu-compaction-model-summary-'))
 		mkdirSync(join(home, '.namzu'), { recursive: true })

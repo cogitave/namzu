@@ -107,6 +107,15 @@ The `salience` strategy still starts shortening content at its soft target
 (`softTarget`, default 0.5, never above the trigger) and summarises only at the
 trigger. `resetThreshold` (0.4) is a diagnostic after a pass and is unchanged.
 
+`softTargetHeadroom` (a fraction of the window, default 0) makes a salience
+pass shed to the soft target less that fraction instead of to the soft target.
+A pass still starts when the context reaches the soft target; the next one is
+needed only after the headroom has been used, so with a 0.1 headroom a context
+that grows by a few hundred tokens a turn is shortened every ten or so turns
+instead of every turn. The messages shortened are the same ones the passes
+without it would shorten, in the same order, only earlier, and the context is
+held that much lower in between. At 0 (absent) nothing changes.
+
 ## Recovering from a context overflow
 
 When the provider rejects a prompt as too long, the loop recovers on its own,

@@ -56,6 +56,55 @@ MinHash. Captions participate as text. Rich-content placeholders do not stand
 in for image semantics, and rich messages are not demoted as duplicates based
 on identical captions or repeated tool inputs.
 
+## What a pass costs
+
+A pass costs what is new plus the arithmetic that depends on the whole history.
+What the scorer derives from one message's text (its term frequencies, the
+identifiers a later turn could cite and its MinHash signature) is kept per
+message object and read again on the next pass, so a pass tokenises and hashes
+only the messages it has not seen; a message the pass itself shortens is a new
+object and is read afresh. What still runs on every pass is the corpus
+statistics, the recency and citation lookups, the ordering and the comparison
+of each message with the later messages of its role, which is quadratic in
+the number of messages (it stops early for a pair that cannot reach the
+duplicate floor and for an identical signature). Measured at about 1,600
+messages, a pass that took roughly 40 to 250 ms (depending on message length)
+takes roughly 13 to 22 ms once the messages are cached, about 100 ms down to
+about 20 ms on a real long session; the first pass in a process, with nothing
+cached, is not faster by much (about 140 ms down to about 105 ms there).
+
+Before scoring, the pass counts whether anything outside the leading system
+run and the recent window is a clearable result or a long narration. When none
+is, nothing could be shed whatever the scores are, and scoring is skipped: the
+pass returns the same plan it would have made, with no action.
+
+## When a pass runs
+
+A pass starts when the measured context reaches the soft target, before every
+model call. The measure is the provider's own count of the last request plus an
+estimate of what was appended since, and the character estimate when there is
+no count. The count is not carried from one turn into the next, so the first
+check of a turn reads the estimate, which sits below the provider's count by
+what it cannot see (framing, the system prompt and tool catalogue as sent); a
+context that is held at the target by the provider's count is therefore usually
+first shortened in the second iteration of a turn. Each pass sheds whole
+narrations or results, down to the target and no further, and the turn's own
+messages then use up what was left over, so a pass can run again in the third
+or fourth iteration. With a window held at its soft target, one 80-turn run
+against a scripted model made 62 passes in 40 turns, 22 of them a second pass
+in the same turn. Those passes are not needed to stay under the summary
+trigger. They keep the context at the target. A host that would rather pay
+for fewer, larger passes sets
+[`softTargetHeadroom`](context-limits.md#the-summary-trigger), a fraction of the
+window the pass sheds below the soft target: it starts at the soft target as
+before, takes the messages the pass takes today and goes on down the same
+ordered list, and the next pass is needed only after the headroom is used.
+
+A pass that can shed nothing does not start: below the summary trigger, with no
+reducer and not forced, it is not run, no `pre_compact` or `post_compact` hook
+fires for it and no `compaction_started` event is emitted. At the trigger it
+starts as before, because the summary is what it is for.
+
 These are ranking signals, not a proof that a fact is dispensable. Visual
 understanding does not happen inside the scorer. A host can retain critical
 messages or preserve named tools' results explicitly.
