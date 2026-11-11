@@ -24,13 +24,18 @@ export function ConfigSettingsGroup({
 	section,
 	config,
 	heading,
+	omit,
 }: {
 	section: SettingsSection
 	config: ConfigSettingsControls
 	/** A line above the group, when the section has nothing else on the page. */
 	heading?: string
+	/** Settings the page shows another way. */
+	omit?: readonly string[]
 }) {
-	const rows = configSettingsFor(config.view, section)
+	const rows = configSettingsFor(config.view, section).filter(
+		(descriptor) => !omit?.includes(descriptor.path),
+	)
 	if (config.loadError && section === 'agent')
 		return (
 			<p role="alert" className="settings-error">

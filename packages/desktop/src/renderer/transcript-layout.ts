@@ -317,6 +317,41 @@ export function turnNotice(thread: ThreadState, closedWhileRunning = false): str
 	return `${notice} The ${only ?? 'action'} waiting for your answer was not run.`
 }
 
+/** What Continue sends after the window was closed on a running reply: a new message, not a resume. */
+export const CONTINUE_STOPPED_PROMPT = 'Please continue from where you stopped.'
+
+/**
+ * One line on what the reply that Namzu's closing cut off did and did not get done, from its own
+ * actions. Absent when it took no action, because then there is nothing to say either way.
+ */
+export function stoppedWorkSummary(thread: ThreadState): string | undefined {
+	let finished = 0
+	let failed = 0
+	let unfinished = 0
+	for (const entry of thread.timeline) {
+		if (entry.kind !== 'tool' || entry.turn !== thread.turn) continue
+		const tool = thread.tools[entry.id]
+		if (!tool) continue
+		if (tool.status === 'pending' || tool.historicalStatus === 'skipped') unfinished++
+		else if (tool.status === 'failed') failed++
+		else finished++
+	}
+	const actions = (count: number) => `${count} ${count === 1 ? 'action' : 'actions'}`
+	const done =
+		finished && failed
+			? `${actions(finished)} finished and ${failed} failed before it stopped`
+			: finished
+				? `${actions(finished)} finished before it stopped`
+				: failed
+					? `${actions(failed)} failed before it stopped`
+					: undefined
+	if (done && unfinished) return `${done}; ${unfinished} did not.`
+	if (done) return `${done}.`
+	if (unfinished)
+		return `${unfinished === 1 ? 'The last action' : actions(unfinished)} did not finish.`
+	return undefined
+}
+
 /**
  * The line under a reply that did not simply finish. `explained` says a failure message is already
  * shown for it: that message names the cause, so a second line (a "paused" or a limit the person

@@ -16,6 +16,7 @@ import {
 	selectAssistantText,
 } from '@namzu/sdk'
 import { checkSetting, readSettings, writeSetting } from '../config/desktop-settings.js'
+import { approveListedMcpServers, listMcpServers } from '../integrations/mcp/server-listing.js'
 import {
 	type CliSessionScope,
 	archiveConversation,
@@ -67,6 +68,42 @@ import { createProjectChanges } from './desktop-host-changes.js'
 import { type ProjectGitState, capMarkdown, createProjectGit } from './desktop-host-header.js'
 import { projectPr } from './desktop-host-pr.js'
 import { type SavedTurnOutcome, savedTurnOutcome } from './desktop-outcome-feed.js'
+
+const SEARCH_QUERY_MIN = 2
+const SEARCH_QUERY_MAX = 200
+/** The index returns many parts per conversation; a window this size still finds one hit for each of many. */
+const SEARCH_EVIDENCE_LIMIT = 300
+
+/** A short single-line window of `excerpt` around the first place `query` appears in it. */
+export function searchExcerpt(excerpt: string, query: string): string {
+	const flat = excerpt.replace(/\s+/g, ' ').trim()
+	const at = flat.toLowerCase().indexOf(query.toLowerCase())
+	if (at < 0) return flat.length > 140 ? `${flat.slice(0, 139)}…` : flat
+	let start = Math.max(0, at - 40)
+	// Begin on a whole word when the window opens mid-word.
+	if (start > 0) {
+		const space = flat.indexOf(' ', start)
+		if (space !== -1 && space < at) start = space + 1
+	}
+	const end = Math.min(flat.length, at + query.length + 80)
+	return `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`
+}
+
+/**
+ * What the search list shows for one hit. A reply is shown as its text around the match. What a tool
+ * returned can hold anything it read (a settings file, a key), and the list is always one keystroke
+ * away, so a match inside tool output says only that it was found there.
+ */
+export function searchHitExcerpt(
+	hit: { readonly source: string; readonly toolName?: string; readonly excerpt: string },
+	query: string,
+): string {
+	if (hit.source === 'tool_completed' || hit.source.endsWith(':tool'))
+		return hit.toolName
+			? `Found in what “${hit.toolName}” returned`
+			: 'Found in what a tool returned'
+	return searchExcerpt(hit.excerpt, query)
+}
 
 function text(params: Record<string, unknown>, key: string, max = 400): string {
 	const value = params[key]
@@ -1234,6 +1271,44 @@ export function createDesktopHostExtensions(
 				if (currentPal) return listPalConversations(cwd, currentPal.id)
 				return conversationRows(state, await listRecent(state, 100))
 			}),
+		/**
+		 * Full-text search over what a conversation said and did (replies and tool output), through
+		 * the session index. One hit per conversation, newest index order, a short excerpt each.
+		 * Nothing here is logged: the query and the excerpts are conversation text.
+		 */
+		'namzu/conversations/search': async (params: Record<string, unknown> = {}) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).some((key) => key !== 'query' && key !== 'limit')
+			)
+				throw new Error('Invalid conversation search request.')
+			const query = text(params, 'query', SEARCH_QUERY_MAX).trim()
+			const limit = params.limit === undefined ? 20 : params.limit
+			if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 50)
+				throw new Error('A search returns between 1 and 50 conversations.')
+			if (query.length < SEARCH_QUERY_MIN) return { hits: [] }
+			return withState(async (state) => {
+				if (pal()) return { hits: [] }
+				const known = new Set((await listRecent(state, 100)).map((row) => String(row.id)))
+				const found = await state.index.searchEvidence({
+					query,
+					caseSensitive: false,
+					limit: SEARCH_EVIDENCE_LIMIT,
+				})
+				const hits: { sessionId: string; excerpt: string }[] = []
+				const seen = new Set<string>()
+				for (const hit of found) {
+					const id = String(hit.sessionId)
+					if (seen.has(id) || !known.has(id)) continue
+					seen.add(id)
+					hits.push({ sessionId: id, excerpt: searchHitExcerpt(hit, query) })
+					if (hits.length >= limit) break
+				}
+				return { hits }
+			})
+		},
 		'namzu/conversations/archived': async (params: Record<string, unknown> = {}) => {
 			if (
 				!params ||
@@ -1548,6 +1623,40 @@ export function createDesktopHostExtensions(
 			// Never run git in a folder the person has not trusted: repository config can execute code.
 			if (!isTrusted(cwd)) return null
 			return projectGit(cwd)
+		},
+		/** The tool servers this project knows and where each stands; reads files, starts nothing. */
+		'namzu/mcp/servers': async (params: Record<string, unknown> = {}) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Array.isArray(params) ||
+				Object.keys(params).length > 0
+			)
+				throw new Error('Invalid tool servers request.')
+			// A folder nobody trusted reads none of its own files.
+			if (!isTrusted(cwd) || pal()) return { servers: [] }
+			return listMcpServers({
+				cwd,
+				live: runtime.mcpStatus?.(cwd) ?? { connected: [], failed: [] },
+			})
+		},
+		/** Approves servers `.mcp.json` declared, as they were listed, the way `namzu mcp approve` does. */
+		'namzu/mcp/approve': async (params: Record<string, unknown>) => {
+			if (
+				!params ||
+				typeof params !== 'object' ||
+				Object.keys(params).some((key) => key !== 'servers')
+			)
+				throw new Error('Approving tool servers names only the servers.')
+			if (!isTrusted(cwd) || pal()) throw new Error('Trust this folder first.')
+			const shown = params.servers
+			if (!Array.isArray(shown) || shown.length === 0 || shown.length > 64)
+				throw new Error('Choose the tool servers to approve.')
+			const checked = shown.map((item) => {
+				const row = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>
+				return { name: text(row, 'name', 64), fingerprint: text(row, 'fingerprint', 128) }
+			})
+			return { approved: approveListedMcpServers(cwd, checked) }
 		},
 		'namzu/project/pr': async (params: Record<string, unknown> = {}) => {
 			if (

@@ -1,13 +1,3 @@
-.rail-button[aria-disabled="true"] {
-	cursor: default;
-}
-.rail-button[aria-disabled="true"]:hover {
-	background: transparent;
-	color: var(--muted-foreground);
-}
-.rail-button[aria-disabled="true"]:active {
-	transform: none;
-}
 .rail-button[data-popup-open] {
 	background: var(--sidebar-row-active);
 	color: var(--foreground);

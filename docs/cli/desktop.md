@@ -1912,11 +1912,11 @@ menus. View offers zoom and full screen only: Namzu is an app, not a browser, so
 it carries no Reload, Force Reload or developer-tools item (the tools return in a
 development build). Native caption colours follow the chosen appearance.
 The left icon rail remains available when the conversation sidebar is collapsed.
-The rail contains Home, then Spaces, Scheduled and Plugins, with Settings as the
-last item at the bottom. Home owns the chat and blank composer. Spaces, Scheduled
-and Plugins are shown in progress — each is disabled, with an "— in progress"
-tooltip, and does not open from the rail yet; they return when that work lands.
-When Plugins returns it is a separate Customize destination with the actual
+The rail contains Home at the top and Settings as the last item at the bottom. Home
+owns the chat and blank composer. Spaces, Scheduled and Plugins are not on the rail:
+a destination that cannot open is not drawn (no disabled button, no "coming soon"), and
+each returns when it exists. Plugins is still reached from the composer's + menu. When
+Plugins returns to the rail it is a separate Customize destination with the actual
 installed inventory in its sidebar and a searchable two-column list in the main
 area. Public and Personal are separate tabs: Personal includes installed plugins
 from both project and user locations; Public reads separate catalogue entries,
@@ -1979,8 +1979,7 @@ saved message choices on that first frame; while the start is still deciding whi
 shown as an error (no frame carries the banner, `e2e/sidebar-startup-stability.test.mjs` refuses it once on purpose), and the read is
 made again when the start settles, where a real failure is shown. Rows carry a
 `data-sidebar-key` (`project:`, `conversation:`, `pal:` and `heading:` plus the id) so a test can follow
-them frame by frame (`e2e/sidebar-startup-stability.test.mjs`). Scheduled is currently unavailable in the desktop
-preview; its disabled control never opens a conversation's background shells.
+them frame by frame (`e2e/sidebar-startup-stability.test.mjs`). There is no Scheduled destination on the rail yet.
 The sidebar brand (the wordmark with a small green "Beta" badge after it) opens its
 workspace menu. The labelled New conversation row is the primary
 creation action, rather than duplicating it across icon groups.
@@ -2178,6 +2177,16 @@ click dismiss the palette and restore focus without cancelling a running turn.
 The palette reads conversation indexes from connected, trusted projects when
 opened. A failed or unavailable index produces an explicit partial-results
 notice and Retry. Search does not start model work or resume sessions by itself.
+Search also looks inside conversations: once two or more characters have been typed and
+typing has paused, the palette asks each ready project's engine (`namzu/conversations/search`,
+below) for conversations whose replies or tool output contain the text, and a conversation
+that matches by what it said stays in the list with a one-line excerpt around the match under its
+title. Titles and project names still match at once, without waiting. The search covers what a
+reply said and what a tool returned; text typed by the person is not part of the engine's search
+index. A match inside a tool's output shows only "Found in what “read” returned", never the text,
+because that output can hold anything the tool read (a settings file, a key) and the list is one keystroke
+away; the text of a reply is shown around the match. A search that fails leaves the title matches alone. The result is at most 20 conversations
+per project, and the text typed and the excerpts are never logged.
 Conversation history is also loaded when its project is opened; an unopened
 group's lack of rows does not imply that the project has no saved conversations.
 Other project groups default to collapsed. Opening a project or a conversation
@@ -3945,6 +3954,13 @@ Closing the last window on Windows or Linux, or quitting, while a reply runs ask
 still running" with **Keep working** (the default) and **Quit and stop**; replies that were
 running are marked `closedWhileRunning` in the saved conversation, and the next launch ends
 that conversation with "Stopped because Namzu was closed." until a new message is sent.
+Under that line the conversation says in one line what the reply's own actions did (for example "1 action
+finished before it stopped; 1 did not"; an action that failed is counted as failed, never as finished) when it took any, and offers one button, **Ask Namzu to continue**,
+with the line "This sends a new message. The stopped reply cannot be resumed." The engine can retry only a
+turn that paused on a provider error (`namzu/sessions/retry`); a turn cut off by closing the app has no
+checkpoint to resume from, so the button sends "Please continue from where you stopped." as an ordinary new
+message, on the model chosen now. Sending any message, that one included, settles the old stop. The button
+is absent where a message cannot be sent now (an untrusted folder, no provider, a reply running).
 A conversation title comes from the words typed, never from the attached file's text
 (`Attached text file: "name"`): a message with only files is titled with the first file's name.
 
@@ -4054,6 +4070,21 @@ runtime processes it owns to stop, including a connection already terminated
 by a signal. A failed connection offers Reconnect; stopped work is never
 silently replayed.
 
+### Tool servers in Settings
+
+**Settings ▸ Tools** opens with **Tool servers**, read from `namzu/mcp/servers` for the project in front (the
+project's name is in the line under the heading). Each row shows the server's name, where it is defined
+("Your own settings", "This project's settings", ".mcp.json in this project"), the command or address it uses, and its
+state: Connected, Waiting for your approval, Failed (with the engine's reason) or Not connected right now (no open conversation in the project holds it: none
+has started, or the ones that did are closed). The list is read again when the window regains focus, and a list
+read for one project is never shown under another project's name. A failure is remembered with the server's settings
+as they were; once those settings change it is no longer shown. The list is read-only. When servers from `.mcp.json` wait, a box above the list
+says they have not started and that approving lets them run the listed programs, with one button, **Approve this
+server** or **Approve these N servers**. It sends the names and fingerprints it was shown to `namzu/mcp/approve`,
+the same record `namzu mcp approve` writes, and reads the list again. The engine takes a project's servers instead of the
+user's whole table once the project has any approved, so the list shows what would start. A folder nobody
+trusted shows nothing; a `.mcp.json` that cannot be read shows its error. The old "Not set" row for this setting is gone.
+
 ## Optional operator wire methods
 
 These methods exist only under `--desktop`, and initialization advertises them.
@@ -4073,6 +4104,9 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/conversations/rename` | exact `sessionId`, `title` (at most 200 characters) | `{title}`; names the conversation, and an empty title restores the title derived from its first message |
 | `namzu/conversations/fork` | exact `sessionId` | `{id, title}` of a new owned copy; refused while a turn is open, for a Pal workspace, or when the conversation has no messages |
 | `namzu/conversations/markdown` | exact `sessionId` | `{markdown, truncated}`; the strict transcript export, cut at 4 MiB of UTF-8 on a character boundary with `truncated: true` |
+| `namzu/conversations/search` | `query` (2 to 200 characters), optional `limit` (1 to 50, default 20) | `{hits: [{sessionId, excerpt}]}`: the project's recent conversations whose replies or tool output contain the text (case folded, through the session index's evidence search), one hit each, `excerpt` a one-line window of about 120 characters around the match in a reply, or a plain "Found in what “<tool>” returned" for a match in tool output, whose text is withheld. Needs a trusted folder; empty in a Pal workspace; nothing is logged |
+| `namzu/mcp/servers` | `{}` | `{servers: [{name, origin, state, detail?, reason?, fingerprint?}], error?}`: the project's tool servers. `origin` is `your-config`, `this-project` (`namzu.config.json`) or `project-file` (`.mcp.json`); `state` is `connected` (a conversation of this project has it), `waiting` (in `.mcp.json`, not approved), `failed` (`reason` says why; the last conversation start in this folder was refused for it) or `idle` (approved and not started yet). `detail` is a command name or a web origin, never arguments, headers or environment. `fingerprint` is on `waiting` rows only. Reads files; starts nothing; empty for an untrusted folder or a Pal |
+| `namzu/mcp/approve` | `servers: [{name, fingerprint}]` | `{approved: [name]}`: records the approval the way `namzu mcp approve` does, bound to the entry as listed (an entry that changed since stays waiting) |
 | `namzu/project/git` | `{}` | `{branch, subject}` for the host folder, or `null` when untrusted, not a repository, git is missing or slower than 3 s. `branch` is `null` on a detached HEAD, `subject` is the last commit's first line (200 characters). Runs `git -c core.fsmonitor=false --no-optional-locks` with no shell, `GIT_OPTIONAL_LOCKS=0`, a 64 KiB output cap and a 15 s cache per folder |
 | `namzu/project/changes` | `{}` | `{files, truncated}` of the working tree against HEAD, or `null` when untrusted or not a repository (a timeout is an error, never an empty list). Each file is `{path, status, added, removed, oldPath?, binary?}` (a renamed binary file stays `renamed` and carries `binary: true`) with `status` one of `modified`, `added`, `deleted`, `renamed`, `untracked`, `binary`, paths relative to the host folder. At most 2,000 files, then `truncated: true` |
 | `namzu/project/diff` | exact `path` | `{before, after, binary, truncated}`: the file in HEAD and in the working tree, `null` for a side that does not exist, `binary: true` for NUL bytes or invalid UTF-8, `truncated: true` over 2 MiB. Requires folder trust; the path is confined as the file panel's are |
