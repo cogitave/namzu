@@ -7,6 +7,9 @@ import {
 	asCheckpointId,
 	asSessionId,
 	asTurnId,
+	currentPlace,
+	parseTurnHolder,
+	turnHolder,
 } from '@namzu/sdk'
 import { sessionLogCheckpointView } from '../integrations/sessions/checkpoint-view.js'
 import { type CliSessionScope, readConversationFacts } from '../integrations/sessions/store.js'
@@ -39,22 +42,26 @@ export interface ProviderRetryStatus {
 export const HOST_GONE_REASON = 'The host that was running this reply went away before it finished.'
 
 /**
- * Whether the host named by a writer lease's holder is provably not running on this machine. A
- * turn's lease is held as `namzu:<pid>:<turnId>`; a pid that no process has (and that is not this
- * one) means the host that wrote the lease was stopped hard, before it could give the lease back.
- * Anything else, a holder of another shape, a pid that exists, or one this process may not signal,
- * is not proof and reads as alive. Exported for tests, which inject the probe.
+ * Whether the host named by a writer lease's holder is provably not running. A turn's lease is
+ * held as `namzu:<pid>:<turnId>@<place>`; a process id means something only in the place that
+ * issued it, so the holder is gone only when all of these hold: it parses, it is the active
+ * turn's, it carries a place, that place is this process's own, the pid is not this process, and
+ * no process has that pid. A holder with no place (written by an older version) and a holder from
+ * another place (a container or a second system sharing the folder) are never proof, and read as
+ * alive until the lease lapses. A pid that exists, or one this process may not signal, reads as
+ * alive. Exported for tests, which inject the probe and the place.
  */
 export function holderIsGone(
 	holder: string,
 	turnId: string,
 	probe: (pid: number) => boolean = pidIsAlive,
+	place: string = currentPlace(),
 ): boolean {
-	const match = /^namzu:([0-9]+):(.+)$/.exec(holder)
-	if (!match || match[2] !== turnId) return false
-	const pid = Number(match[1])
-	if (!Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid) return false
-	return !probe(pid)
+	const parsed = parseTurnHolder(holder)
+	if (!parsed || parsed.turnId !== turnId) return false
+	if (parsed.place === undefined || parsed.place !== place) return false
+	if (parsed.pid <= 0 || parsed.pid === process.pid) return false
+	return !probe(parsed.pid)
 }
 
 function pidIsAlive(pid: number): boolean {
@@ -76,7 +83,7 @@ function pidIsAlive(pid: number): boolean {
  *
  * Two proofs that nobody runs the turn. The writer lease is gone (given back, or expired): a live
  * host renews it while it runs and gives it back only when the turn ends or the process is told to
- * stop. Or the lease is still held but by a process on this machine that no longer exists (the
+ * stop. Or the lease is still held but by a process, in this same place, that no longer exists (the
  * host was killed, so it gave nothing back and its lease would otherwise read as live for its whole
  * term). Nothing waits for a lease to run out and nothing is guessed from a clock.
  */
@@ -103,7 +110,7 @@ export async function settleTurnOfGoneHost(
 	try {
 		if (killed) {
 			const lease = await log.claim({
-				holder: `namzu:${process.pid}:${id}`,
+				holder: turnHolder(id),
 				ttlMs: 30_000,
 				now: killed.expiresAt,
 			})

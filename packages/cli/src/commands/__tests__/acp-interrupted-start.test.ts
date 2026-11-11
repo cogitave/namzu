@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asSessionId } from '@namzu/sdk'
+import { asSessionId, currentPlace, turnHolder } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
@@ -146,7 +146,7 @@ describe('a reply whose host went away in its first instant', () => {
 		const pid = await deadPid()
 		const f = await interruptedAtStart(state, {
 			stillHeld: true,
-			holder: (turnId) => `namzu:${pid}:${turnId}`,
+			holder: (turnId) => turnHolder(turnId, { pid }),
 		})
 		// The killed host gave nothing back: its lease reads as live, and so as running.
 		expect((await f.log.activeTurn())?.state).toBe('running')
@@ -171,7 +171,7 @@ describe('a reply whose host went away in its first instant', () => {
 		// This test process stands for a live host on this machine that is not the asker: its parent.
 		const f = await interruptedAtStart(state, {
 			stillHeld: true,
-			holder: (turnId) => `namzu:${process.ppid}:${turnId}`,
+			holder: (turnId) => turnHolder(turnId, { pid: process.ppid }),
 		})
 		const host = runtime()
 		try {
@@ -184,12 +184,60 @@ describe('a reply whose host went away in its first instant', () => {
 		}
 	})
 
-	it('reads a holder as gone only for a turn-shaped name with no process behind it', () => {
+	it('keeps the refusal when the dead process id was issued in another place', async () => {
+		// The hole: a folder shared between two process tables. This host cannot tell a live process
+		// of the other place from one that does not exist, so it must not close the turn.
+		const pid = await deadPid()
+		const f = await interruptedAtStart(state, {
+			stillHeld: true,
+			holder: (turnId) => turnHolder(turnId, { pid, place: 'ffffffffffff' }),
+		})
+		const host = runtime()
+		try {
+			const status = await host.providerRetryStatus?.(f.sessionId, root)
+			expect(status?.notice).toContain('active turn to settle')
+			expect((await f.log.activeTurn())?.state).toBe('running')
+			const records = (await f.log.readAll()).entries.map((entry) => entry.record)
+			expect(records.some((record) => record.type === 'turn_failed')).toBe(false)
+		} finally {
+			await f.log.release(f.lease)
+			await host.close()
+		}
+	})
+
+	it('keeps the refusal when the dead process id carries no place (an older version wrote it)', async () => {
+		const pid = await deadPid()
+		const f = await interruptedAtStart(state, {
+			stillHeld: true,
+			holder: (turnId) => `namzu:${pid}:${turnId}`,
+		})
+		const host = runtime()
+		try {
+			const status = await host.providerRetryStatus?.(f.sessionId, root)
+			expect(status?.notice).toContain('active turn to settle')
+			expect((await f.log.activeTurn())?.state).toBe('running')
+		} finally {
+			await f.log.release(f.lease)
+			await host.close()
+		}
+	})
+
+	it('reads a holder as gone only for a turn-shaped name, in this place, with no process behind it', () => {
+		const here = currentPlace()
 		const dead = () => false
-		expect(holderIsGone('namzu:4242:turn_1', 'turn_1', dead)).toBe(true)
-		expect(holderIsGone('namzu:4242:turn_1', 'turn_2', dead)).toBe(false)
+		const mine = (turnId: string, pid = 4242) => turnHolder(turnId, { pid, place: here })
+		expect(holderIsGone(mine('turn_1'), 'turn_1', dead)).toBe(true)
+		expect(holderIsGone(mine('turn_1'), 'turn_2', dead)).toBe(false)
 		expect(holderIsGone('host-that-is-gone', 'turn_1', dead)).toBe(false)
-		expect(holderIsGone(`namzu:${process.pid}:turn_1`, 'turn_1', dead)).toBe(false)
-		expect(holderIsGone('namzu:4242:turn_1', 'turn_1', () => true)).toBe(false)
+		expect(holderIsGone(mine('turn_1', process.pid), 'turn_1', dead)).toBe(false)
+		expect(holderIsGone(mine('turn_1'), 'turn_1', () => true)).toBe(false)
+		// Another place, or none: a process id proves nothing there.
+		const elsewhere = turnHolder('turn_1', { pid: 4242, place: '000000000000' })
+		expect(holderIsGone(elsewhere, 'turn_1', dead)).toBe(false)
+		expect(holderIsGone('namzu:4242:turn_1', 'turn_1', dead)).toBe(false)
+		// The place is injected: the same name is gone from its own place and not from another.
+		const there = turnHolder('turn_1', { pid: 4242, place: 'abcdefabcdef' })
+		expect(holderIsGone(there, 'turn_1', dead, 'abcdefabcdef')).toBe(true)
+		expect(holderIsGone(there, 'turn_1', dead, 'abcdefabcdee')).toBe(false)
 	})
 })
