@@ -146,6 +146,19 @@ export interface McpServerSpec {
 	/** Per-request deadline after connection. Unset preserves the SDK's 30-second default. */
 	readonly requestTimeoutMs?: number
 	/**
+	 * Let a tool call that reports progress keep going: each progress report
+	 * whose value rose restarts `requestTimeoutMs` for that call, up to
+	 * `maxTotalTimeoutMs`. Default `false` (one fixed deadline).
+	 */
+	readonly resetTimeoutOnProgress?: boolean
+	/**
+	 * The most a progress-extended call may take in total, in milliseconds,
+	 * counted from when it was issued. Not below `requestTimeoutMs`. Only
+	 * read with `resetTimeoutOnProgress`; defaults to ten times the request
+	 * deadline.
+	 */
+	readonly maxTotalTimeoutMs?: number
+	/**
 	 * How long THIS server's era probe — `connect()`'s `server/discover`
 	 * check for a modern peer, sent before the legacy handshake — waits for
 	 * an answer, in milliseconds. Defaults to the SDK's own
@@ -642,6 +655,42 @@ export function requestTimeoutFor(spec: McpServerSpec): number | undefined | str
 }
 
 /**
+ * The progress-extension settings a spec asks for, or a named refusal.
+ *
+ * Unset keys are passed through unset so the SDK applies its own default
+ * (off; a cap of ten request deadlines). `requestTimeout` is the already
+ * validated per-request deadline, when the spec sets one, so a cap below it
+ * is refused here by name rather than as a constructor error.
+ */
+export function progressDeadlineFor(
+	spec: McpServerSpec,
+	requestTimeout: number | undefined,
+): { resetTimeoutOnProgress?: boolean; maxTotalTimeoutMs?: number } | string {
+	const reset = spec.resetTimeoutOnProgress
+	if (reset !== undefined && typeof reset !== 'boolean') {
+		return 'resetTimeoutOnProgress must be true or false'
+	}
+	const cap = spec.maxTotalTimeoutMs
+	if (cap !== undefined) {
+		if (
+			typeof cap !== 'number' ||
+			!Number.isInteger(cap) ||
+			cap <= 0 ||
+			cap > MAX_CONNECT_TIMEOUT_MS
+		) {
+			return `maxTotalTimeoutMs must be a positive whole number of milliseconds at most ${MAX_CONNECT_TIMEOUT_MS}`
+		}
+		if (requestTimeout !== undefined && cap < requestTimeout) {
+			return `maxTotalTimeoutMs must not be below requestTimeoutMs (${requestTimeout})`
+		}
+	}
+	return {
+		...(reset !== undefined ? { resetTimeoutOnProgress: reset } : {}),
+		...(cap !== undefined ? { maxTotalTimeoutMs: cap } : {}),
+	}
+}
+
+/**
  * The era probe deadline a spec asks for, or why it cannot have it.
  *
  * `undefined` when the spec names none — unlike {@link connectDeadlineFor},
@@ -893,6 +942,11 @@ export function startMcpServers(
 			startupFailed.push({ name, reason: requestTimeoutMs })
 			return
 		}
+		const progressDeadline = progressDeadlineFor(spec, requestTimeoutMs)
+		if (typeof progressDeadline === 'string') {
+			startupFailed.push({ name, reason: progressDeadline })
+			return
+		}
 		const eraProbeTimeoutMs = eraProbeTimeoutFor(spec)
 		if (typeof eraProbeTimeoutMs === 'string') {
 			startupFailed.push({ name, reason: eraProbeTimeoutMs })
@@ -918,6 +972,7 @@ export function startMcpServers(
 				transport: connectedTransport,
 				...(eraProbeTimeoutMs !== undefined ? { eraProbeTimeoutMs } : {}),
 				...(requestTimeoutMs !== undefined ? { requestTimeoutMs } : {}),
+				...progressDeadline,
 				...(options.elicit ? { onElicitation: options.elicit } : {}),
 			})
 		} catch (error) {
