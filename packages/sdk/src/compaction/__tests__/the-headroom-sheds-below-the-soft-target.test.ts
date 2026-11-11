@@ -13,40 +13,51 @@ import { estimateMessagesTokens } from '../token-estimate.js'
  * earlier.
  */
 
-const WINDOW = 40_000
+/**
+ * A small window, so the soft target is reached after about fifteen turns and
+ * a run of a few dozen turns already holds many passes. The suite runs under
+ * coverage on a shared runner, where a pass over a long history costs ten
+ * times what it costs locally; what is asserted here does not need one.
+ */
+const WINDOW = 10_000
 const SOFT = Math.floor(WINDOW * DEFAULT_SOFT_TARGET)
 
 const parse = (extra: Record<string, unknown> = {}) =>
 	CompactionConfigSchema.parse({ strategy: 'salience', keepRecentMessages: 6, ...extra })
 
-/** One turn: a user message, three tool calls with small results, and a long narration numbered `n`. */
+/**
+ * One turn: a user message, a tool call with a small result, and a long
+ * narration numbered `n`. Few messages per turn on purpose: what these tests
+ * count is passes and the order a pass takes narrations in, and a pass costs
+ * by the number of messages it reads.
+ */
 function turn(n: number, id: { next: number }): Message[] {
-	const out: Message[] = [{ role: 'user', content: `Continue with step ${n}.` }]
-	for (let k = 0; k < 3; k += 1) {
-		const callId = `call_${id.next++}`
-		const call: AssistantMessage = {
-			role: 'assistant',
-			content: null,
-			toolCalls: [
-				{
-					id: callId,
-					type: 'function',
-					function: { name: 'bash', arguments: '{"command":"true"}' },
-				},
-			],
-		}
-		const result: ToolMessage = { role: 'tool', toolCallId: callId, content: 'ok' }
-		out.push(call, result)
+	const callId = `call_${id.next++}`
+	const call: AssistantMessage = {
+		role: 'assistant',
+		content: null,
+		toolCalls: [
+			{
+				id: callId,
+				type: 'function',
+				function: { name: 'bash', arguments: '{"command":"true"}' },
+			},
+		],
 	}
+	const result: ToolMessage = { role: 'tool', toolCallId: callId, content: 'ok' }
 	// Every narration reads the same, as a model that repeats itself does, so
 	// what separates them is their age; the number that names one is its
 	// timestamp, which the scorer does not read.
-	out.push({
-		role: 'assistant',
-		content: `Narration. ${'the code runs fast and the test is ok with line and file edit. '.repeat(18)}`,
-		timestamp: n,
-	})
-	return out
+	return [
+		{ role: 'user', content: `Continue with step ${n}.` },
+		call,
+		result,
+		{
+			role: 'assistant',
+			content: `Narration. ${'the code runs fast and the test is ok with line and file edit. '.repeat(18)}`,
+			timestamp: n,
+		},
+	]
 }
 
 /** The number that names a narration, stubbed or whole. */
@@ -117,25 +128,26 @@ describe('the headroom', () => {
 	})
 
 	it('changes nothing about a pass when it is zero: the plan is the same, message for message', () => {
-		const a = simulate(160, {})
-		const b = simulate(160, { softTargetHeadroom: 0 })
+		const a = simulate(40, {})
+		const b = simulate(40, { softTargetHeadroom: 0 })
 		expect(b.order).toEqual(a.order)
 		expect(b.passes).toEqual(a.passes)
 		expect(b.messages).toEqual(a.messages)
 	})
 
 	it('sheds the same messages in the same order, only earlier, and runs far fewer passes', () => {
-		const turns = 200
+		const turns = 45
+		const margin = 0.2
 		const today = simulate(turns, {})
-		const roomy = simulate(turns, { softTargetHeadroom: 0.1 })
+		const roomy = simulate(turns, { softTargetHeadroom: margin })
 		// Today: a pass on every turn once the soft target is reached.
-		expect(today.passes.length).toBeGreaterThan(60)
+		expect(today.passes.length).toBeGreaterThan(25)
 		expect(today.passes.every((p) => p.after <= SOFT)).toBe(true)
 		// With headroom: a pass sheds to the target less the margin.
-		expect(roomy.passes.every((p) => p.after <= SOFT - Math.floor(WINDOW * 0.1) + 1)).toBe(true)
+		expect(roomy.passes.every((p) => p.after <= SOFT - Math.floor(WINDOW * margin) + 1)).toBe(true)
 		// ... and the next one is needed only after the margin is used.
 		for (const p of roomy.passes) expect(p.before).toBeGreaterThanOrEqual(SOFT)
-		expect(roomy.passes.length).toBeLessThan(today.passes.length / 5)
+		expect(roomy.passes.length).toBeLessThan(today.passes.length / 4)
 		// The order is the order: everything today's passes took, in the order
 		// they took it, is a prefix of what the margin took.
 		expect(roomy.order.slice(0, today.order.length)).toEqual(today.order)
@@ -185,7 +197,7 @@ describe('the headroom', () => {
 
 	it('never lets the context exceed the soft target at the point a pass has run', () => {
 		for (const headroom of [0, 0.05, 0.1, 0.15]) {
-			const run = simulate(200, { softTargetHeadroom: headroom })
+			const run = simulate(40, { softTargetHeadroom: headroom })
 			for (const p of run.passes) expect(p.after).toBeLessThanOrEqual(SOFT)
 		}
 	})

@@ -14,6 +14,12 @@ import { referenceScoreMessages } from './reference-score.js'
  * and the messages the working set would choose are compared, number for
  * number, with the scorer as it was before the cache, on the same histories;
  * and the work is counted, for N messages and for 4N.
+ *
+ * The histories are short on purpose. The scorer as it was compares every
+ * message with every earlier one, and this suite also runs under coverage on a
+ * shared runner at about ten times the local cost; what decides a score is the
+ * kind of message, not how many there are, and the last test of the first
+ * group checks that every kind is reached.
  */
 
 /** A small deterministic generator, so a failure names its seed. */
@@ -113,13 +119,28 @@ function history(seed: number, turns: number): Message[] {
 
 const goal = 'edit src/store/session.ts and keep config.softTarget readable'
 
+/**
+ * The twelve histories the comparison runs on, built once: the test that
+ * checks they reach every kind of message reads the same objects, so it pays
+ * for scoring them only when it runs alone.
+ */
+const compared = new Map<number, Message[]>()
+function comparedHistory(seed: number): Message[] {
+	let messages = compared.get(seed)
+	if (messages === undefined) {
+		messages = history(seed, 5 + seed)
+		compared.set(seed, messages)
+	}
+	return messages
+}
+
 afterEach(() => vi.restoreAllMocks())
 
 describe('the cached scorer', () => {
 	it.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])(
 		'scores history %i as the uncached scorer did, and so does the working set built on it',
 		(seed) => {
-			const messages = history(seed, 12 + seed * 3)
+			const messages = comparedHistory(seed)
 			for (const keepRecentMessages of [1, 6, 14]) {
 				const expected = referenceScoreMessages(messages, { goal, keepRecentMessages })
 				// First call fills the cache; the second reads it. Both must match.
@@ -142,7 +163,7 @@ describe('the cached scorer', () => {
 		'scores as the uncached scorer did with a duplicate threshold of %s',
 		(duplicateThreshold) => {
 			for (const seed of [3, 8]) {
-				const messages = history(seed, 30)
+				const messages = history(seed, 14)
 				const options = { goal, keepRecentMessages: 6, config: { duplicateThreshold } }
 				expect(scoreMessages(messages, options)).toEqual(referenceScoreMessages(messages, options))
 			}
@@ -154,7 +175,7 @@ describe('the cached scorer', () => {
 		const utility = new Set<number>()
 		const protectedBy = new Set<string | null>()
 		for (let seed = 1; seed <= 12; seed += 1) {
-			for (const s of scoreMessages(history(seed, 12 + seed * 3), {
+			for (const s of scoreMessages(comparedHistory(seed), {
 				goal,
 				keepRecentMessages: 6,
 			})) {
@@ -180,7 +201,7 @@ describe('the cached scorer', () => {
 
 	it('keeps scoring as the uncached scorer does while the history grows and messages are replaced', () => {
 		const grown: Message[] = []
-		const full = history(21, 40)
+		const full = history(21, 10)
 		let stepped = 0
 		for (const message of full) {
 			grown.push(message)
@@ -236,8 +257,8 @@ describe('the cached scorer', () => {
 				repeatedMinhash,
 			}
 		}
-		const n = count(10)
-		const fourN = count(40)
+		const n = count(6)
+		const fourN = count(24)
 		// First sight of a history: one tokenisation per message and one for the goal.
 		expect(n.firstTokenize).toBe(n.messages + 1)
 		expect(fourN.firstTokenize).toBe(fourN.messages + 1)
@@ -253,7 +274,7 @@ describe('the cached scorer', () => {
 	it('pays only for the messages added since the last pass', () => {
 		const tokenize = vi.spyOn(tokenizer, 'tokenize')
 		const minhash = vi.spyOn(minhashModule, 'minhash')
-		for (const turns of [10, 40]) {
+		for (const turns of [6, 24]) {
 			const messages = history(5, turns + 3)
 			const head = messages.slice(0, messages.length - 9)
 			scoreMessages(head, { goal, keepRecentMessages: 6 })

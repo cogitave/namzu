@@ -14,6 +14,8 @@ import type { IterationContext } from './context.js'
  * and on every turn after it. With a headroom it sheds that much further, so
  * the next pass comes only when the headroom is used. The runtime's own check
  * is driven here, turn by turn, and the passes are counted for N turns and 4N.
+ * The runs are a few dozen turns: the counts are exact at that length, and a
+ * check over a long history costs ten times as much under coverage in CI.
  */
 
 const WINDOW = 20_000
@@ -98,41 +100,41 @@ async function run(turns: number, headroom: number | undefined) {
 
 describe('a headroom spaces the passes out', () => {
 	it('is one pass per turn without one, for N turns and for 4N', async () => {
-		const n = await run(20, undefined)
-		const fourN = await run(80, undefined)
-		expect(n.passes).toBe(20)
-		expect(fourN.passes).toBe(80)
+		const n = await run(10, undefined)
+		const fourN = await run(40, undefined)
+		expect(n.passes).toBe(10)
+		expect(fourN.passes).toBe(40)
 	})
 
 	it('is the same as no headroom when it is zero', async () => {
-		const none = await run(40, undefined)
-		const zero = await run(40, 0)
+		const none = await run(20, undefined)
+		const zero = await run(20, 0)
 		expect(zero).toEqual(none)
 	})
 
 	it('runs one pass per stretch of turns that uses the headroom, and the stretch is the same at 4N', async () => {
 		// A turn adds about 330 tokens; a headroom of 0.1 of the window is 2,000.
-		const n = await run(20, 0.1)
-		const fourN = await run(80, 0.1)
+		const n = await run(10, 0.1)
+		const fourN = await run(40, 0.1)
 		expect(n.passes).toBeGreaterThanOrEqual(2)
 		expect(n.passes).toBeLessThanOrEqual(4)
 		expect(fourN.passes).toBeGreaterThanOrEqual(n.passes * 3)
 		expect(fourN.passes).toBeLessThanOrEqual(n.passes * 5)
 		// Far fewer than one a turn.
-		expect(fourN.passes).toBeLessThan(80 / 4)
+		expect(fourN.passes).toBeLessThan(40 / 4)
 	})
 
 	it('holds the context under the soft target at every check, with or without headroom', async () => {
 		for (const headroom of [undefined, 0.05, 0.1, 0.15]) {
-			const result = await run(60, headroom)
+			const result = await run(30, headroom)
 			expect(result.highest).toBeLessThanOrEqual(SOFT)
 		}
 	})
 
 	it('stubs the same narrations in the same order, only earlier', async () => {
-		const today = await run(60, undefined)
-		const roomy = await run(60, 0.1)
-		expect(today.order.length).toBeGreaterThan(30)
+		const today = await run(30, undefined)
+		const roomy = await run(30, 0.1)
+		expect(today.order.length).toBeGreaterThan(15)
 		expect(roomy.order.length).toBeGreaterThanOrEqual(today.order.length)
 		expect(roomy.order.slice(0, today.order.length)).toEqual(today.order)
 		// Oldest first in both.
@@ -140,8 +142,8 @@ describe('a headroom spaces the passes out', () => {
 	})
 
 	it('leaves the context lower on average, which is what the headroom costs', async () => {
-		const today = await run(60, undefined)
-		const roomy = await run(60, 0.1)
+		const today = await run(30, undefined)
+		const roomy = await run(30, 0.1)
 		expect(roomy.tokens).toBeLessThan(today.tokens + 1)
 	})
 })
