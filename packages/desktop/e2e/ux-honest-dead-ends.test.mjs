@@ -49,14 +49,23 @@ createInterface({ input: process.stdin }).on("line", (l) => {
 });
 `;
 
-flow("the navigation rail offers only places that exist", {}, async (w) => {
+flow("the navigation controls offer only places that exist, open and collapsed", {}, async (w) => {
 	await openProject(w);
-	const rail = w.page.getByRole("navigation", { name: "Main navigation" });
-	await expect(rail.getByRole("button", { name: "Home" })).toBeVisible({ timeout: T });
-	await expect(rail.getByRole("button", { name: "Settings" })).toBeVisible();
+	// Open, the rail is not drawn: its controls are the foot of the sidebar, and Home is the New conversation row.
+	const nav = w.page.getByRole("navigation", { name: "Main navigation" });
+	await expect(nav.getByRole("button", { name: "Settings" })).toBeVisible({ timeout: T });
+	assert.equal(await w.page.locator(".navigation-rail").count(), 0, "no rail while the sidebar is open");
+	assert.equal(await nav.getByRole("button").count(), 1, "Settings only: Home is the New conversation row");
+	await expect(w.page.locator("aside.sidebar").getByRole("button", { name: "New conversation" }).first()).toBeVisible();
+	await shot(w, "foot");
+	// Collapsed, the rail is drawn as it always was.
+	await w.page.getByRole("button", { name: "Toggle sidebar" }).click();
+	await expect(w.page.locator(".navigation-rail")).toBeVisible({ timeout: T });
+	await expect(nav.getByRole("button", { name: "Home" })).toBeVisible({ timeout: T });
+	await expect(nav.getByRole("button", { name: "Settings" })).toBeVisible();
 	for (const gone of ["Spaces", "Scheduled", "Plugins"])
-		assert.equal(await rail.getByRole("button", { name: gone }).count(), 0, `${gone} is not offered`);
-	assert.equal(await rail.getByRole("button").count(), 2, "Home and Settings only");
+		assert.equal(await nav.getByRole("button", { name: gone }).count(), 0, `${gone} is not offered`);
+	assert.equal(await nav.getByRole("button").count(), 2, "Home and Settings only");
 	await shot(w, "rail");
 });
 
@@ -125,7 +134,7 @@ flow(
 		await expect(list.getByText("Not connected right now")).toBeVisible({ timeout: T });
 		assert.equal(await w.page.getByRole("button", { name: "Approve this server" }).count(), 0);
 		await shot(w, "servers-approved");
-		await w.page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Home" }).click();
+		await w.page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Home", exact: true }).click();
 		await send(w, "say hi");
 		await expect(w.page.getByText("Hi there.")).toBeVisible({ timeout: T });
 		await open();

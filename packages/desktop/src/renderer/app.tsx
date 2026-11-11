@@ -177,7 +177,7 @@ import {
 	resolveComposerModelChoice,
 	staleEffort,
 } from './model-choice.js'
-import { NavigationRail } from './navigation-rail.js'
+import { NavigationRail, SidebarFoot } from './navigation-rail.js'
 import {
 	type NewTabActionId,
 	type NewTabPlacement,
@@ -4988,6 +4988,45 @@ export function App({
 		setJobsOpen(false)
 		setSideOpen(false)
 	}
+	/** Home, from the rail or from the foot of a sidebar with no "New conversation" row: a new conversation. */
+	const goHome = () => {
+		if (!loading) void act(newConversation)
+	}
+	// While the sidebar is open its foot holds the rail's controls, and the rail is drawn only when the
+	// sidebar is collapsed (or an overlay, in a narrow window). A control with the focus moves with it.
+	const railDrawn = mobile || sideCollapsed
+	const frameFocus = useRef<string | null>(null)
+	useEffect(() => {
+		const track = (event: FocusEvent) => {
+			const control =
+				event.target instanceof Element
+					? event.target.closest<HTMLElement>('[data-frame-control]')
+					: null
+			frameFocus.current = control?.dataset.frameControl ?? null
+		}
+		document.addEventListener('focusin', track)
+		return () => document.removeEventListener('focusin', track)
+	}, [])
+	// biome-ignore lint/correctness/useExhaustiveDependencies: runs when the rail and the foot swap, and reads the focus then
+	useEffect(() => {
+		const key = frameFocus.current
+		if (!key) return
+		const active = document.activeElement
+		const usable = (element: HTMLElement) =>
+			element.getClientRects().length > 0 &&
+			!element.closest('[inert]') &&
+			getComputedStyle(element).visibility !== 'hidden'
+		const candidates = [
+			...document.querySelectorAll<HTMLElement>(`[data-frame-control="${key}"]`),
+			// The sidebar has no second Home: its "New conversation" row leads to the same screen.
+			...(key === 'home'
+				? document.querySelectorAll<HTMLElement>('.sidebar-new-conversation')
+				: []),
+		]
+		// Only a focus that has nowhere to stay moves: the control is gone, hidden or inert.
+		if (active instanceof HTMLElement && active !== document.body && usable(active)) return
+		candidates.find(usable)?.focus({ preventScroll: true })
+	}, [railDrawn])
 	const openSettingsRef = useRef(openSettings)
 	openSettingsRef.current = openSettings
 	// A toast about a program that is behind opens Settings ▸ Updates in the pane that was focused last.
@@ -6449,16 +6488,24 @@ export function App({
 							newConversationDisabled={loading}
 							onError={setError}
 						/>
-						<NavigationRail
-							section={railSection ?? 'home'}
-							onHome={() => {
-								if (!loading) void act(newConversation)
-							}}
-							onSettings={() => openSettings()}
-							update={update}
-							onOpenUpdates={() => openSettings('updates')}
-						/>
+						{railDrawn && (
+							<NavigationRail
+								section={railSection ?? 'home'}
+								onHome={goHome}
+								onSettings={() => openSettings()}
+								update={update}
+								onOpenUpdates={() => openSettings('updates')}
+							/>
+						)}
 						<Sidebar
+							foot={
+								<SidebarFoot
+									section={railSection ?? 'home'}
+									onSettings={() => openSettings()}
+									update={update}
+									onOpenUpdates={() => openSettings('updates')}
+								/>
+							}
 							projectsLoaded={projectsLoaded}
 							activeProject={project}
 							collapsedSections={collapsedSections}
@@ -6592,6 +6639,13 @@ export function App({
 									>
 										<XIcon />
 									</Button>
+									<SidebarFoot
+										section={railSection ?? 'home'}
+										onHome={goHome}
+										onSettings={() => openSettings()}
+										update={update}
+										onOpenUpdates={() => openSettings('updates')}
+									/>
 								</aside>
 							</>
 						)}
@@ -6632,6 +6686,13 @@ export function App({
 									>
 										<XIcon />
 									</Button>
+									<SidebarFoot
+										section={railSection ?? 'home'}
+										onHome={goHome}
+										onSettings={() => openSettings()}
+										update={update}
+										onOpenUpdates={() => openSettings('updates')}
+									/>
 								</aside>
 							</>
 						)}

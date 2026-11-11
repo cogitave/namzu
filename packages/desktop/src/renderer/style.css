@@ -60,10 +60,13 @@ pre {
 	-webkit-app-region: drag;
 }
 .app {
-	--content-corner-radius: var(--radius-panel);
+	/* The sidebar's header and the conversation's top bar end on one line: 40px while the top bar is
+	   the one bar (the default), 52px when the strip of tabs is shown. */
+	--frame-header-height: 52px;
 	position: relative;
 	display: grid;
-	grid-template-columns: 48px 288px minmax(0, 1fr);
+	/* Open, the sidebar is the left region and the rail is not drawn; collapsed, the rail is. */
+	grid-template-columns: 0 288px minmax(0, 1fr);
 	grid-template-rows: 32px minmax(0, 1fr);
 	height: 100%;
 	transition: grid-template-columns var(--dur-base) var(--ease-out);
@@ -81,7 +84,6 @@ pre {
 	min-height: 0;
 	background: var(--sidebar);
 	border-right: 1px solid var(--sidebar-border);
-	border-radius: var(--content-corner-radius) 0 0 var(--content-corner-radius);
 	overflow: hidden;
 	transition: opacity var(--dur-base) var(--ease-out);
 }
@@ -89,8 +91,8 @@ pre {
 	opacity: 0;
 	visibility: hidden;
 }
-.app[data-sidebar-collapsed="true"] .workspace {
-	border-radius: var(--content-corner-radius) 0 0 var(--content-corner-radius);
+.app:has(.workspace[data-conversation-bar]) {
+	--frame-header-height: 40px;
 }
 .app[data-page="plugins"] > .sidebar:not(.plugins-navigation-sidebar),
 .app[data-page="settings"] > .sidebar:not(.settings-navigation-sidebar),
@@ -155,7 +157,7 @@ pre {
 	min-width: 0;
 	align-items: center;
 	gap: 12px;
-	padding: 8px 12px;
+	padding: 4px 12px;
 	border-radius: var(--radius-control);
 	cursor: pointer;
 }
@@ -214,9 +216,6 @@ pre {
 	color: var(--muted-foreground);
 }
 @media (max-width: 767px) {
-	.workspace {
-		border-radius: var(--content-corner-radius) 0 0 var(--content-corner-radius);
-	}
 	.window-titlebar-caption {
 		display: none;
 	}
@@ -245,7 +244,11 @@ pre {
 	align-items: center;
 	gap: 8px;
 	padding: 14px 5px 12px;
-	background: var(--chrome);
+	background: var(--sidebar);
+	/* The collapsed sidebar: the same one line divides it from the conversation. */
+	border-right: 1px solid var(--sidebar-border);
+	min-width: 0;
+	overflow: hidden;
 	z-index: var(--z-rail);
 }
 .rail-button {
@@ -270,6 +273,17 @@ pre {
 }
 .rail-spacer {
 	flex: 1;
+}
+/* The rail's controls while the sidebar is open: Settings, and the update button when there is one. */
+.sidebar-foot {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 4px;
+	padding: 6px var(--sidebar-content-inset) 8px;
+}
+.sidebar-foot .rail-update-button {
+	margin-inline-start: auto;
 }
 .sidebar-chrome {
 	position: relative;
@@ -1221,6 +1235,10 @@ pre {
 		visibility: visible;
 		transform: none;
 		opacity: 1;
+	}
+	/* The overlay opens beside the rail, which stays drawn here, so the foot would repeat it. */
+	.sidebar-foot {
+		display: none;
 	}
 	.sidebar-close,
 	.sidebar-open-control {

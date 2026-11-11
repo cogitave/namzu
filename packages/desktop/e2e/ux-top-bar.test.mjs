@@ -52,7 +52,7 @@ test("hidden by default: one 40 px bar, sidebar and chords still move between co
 		await expect(bar(w).locator(".conversation-bar-project")).toBeVisible();
 		assert.equal(await barHeight(w), 40);
 
-		// Every button is 28 px and has a name; the sidebar header keeps its own height.
+		// Every button is 28 px and has a name.
 		const names = ["Changes", "New terminal", "Project files", "Conversation details", "Conversation actions"];
 		for (const name of names) {
 			const button = bar(w).getByRole("button", { name: new RegExp(`^${name}`) });

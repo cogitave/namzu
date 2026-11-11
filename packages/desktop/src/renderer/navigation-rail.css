@@ -2,7 +2,7 @@
 	background: var(--sidebar-row-active);
 	color: var(--foreground);
 }
-.navigation-rail .rail-update-button {
+.rail-update-button {
 	border-radius: 50%;
 }
 .rail-update-badge {
@@ -14,7 +14,7 @@
 	background: var(--primary);
 	color: var(--primary-foreground);
 }
-.navigation-rail .rail-update-badge svg {
+.rail-update-badge svg {
 	width: 15px;
 	height: 15px;
 }
