@@ -486,6 +486,9 @@ export interface PermissionPreview {
 	before: string | null
 	after: string
 	truncated?: boolean
+	/** The engine's own count of the whole change, when it sends one; a cut preview cannot give it. */
+	added?: number
+	removed?: number
 }
 export interface PermissionView {
 	id: string

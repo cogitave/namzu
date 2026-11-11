@@ -2640,8 +2640,28 @@ planning and delegated-invocation contracts.
 Each reply that completed file edits carries its own card right under its final
 reply: one file reads "Edited name.css +12 −3" (full path in the tooltip), several
 read "Edited 3 files" with the totals and expand to a list with each file's own
-totals. Totals count a file once, from its first before to its last after; a file
-whose edits cancel out is left out, and a reply with nothing left has no card. The
+totals. A file's numbers are the sum of its edits' own counts, as the engine reported them
+(`added` and `removed` on each edit's and write's facts), so a file edited twice reads what
+`git diff` reads; only a receipt that arrived without counts (a conversation saved before edits
+carried them, or a change still waiting for approval) is compared from its own two sides. A
+batch edit or an insert carries no diff, only the engine's counts: it is counted like any other
+edit (matched to its file by path, whether the engine named it by its full path or the model by a
+short one), and the Changes panel says "No diff is available for this change" for a file made
+only of such edits, or "Some edits to this file have no diff to show" when only some are. Edits
+that undo each other (each starts where the one before ended and the last ends where the first
+began) show no number, as `git diff` shows nothing. The sum still differs from `git diff` when
+separate edits touch the same line without undoing each other, because each edit counts the
+lines it changed itself. The cap of 400 lines the screen names is the kernel's own
+(`MAX_CARRIED_DIFF_LINES`); a test keeps the two equal. One
+function, `changeTotals` in `changes-totals.ts`, is the only source of these numbers: the card,
+the Changes panel and its tree, each edit row, the details popover and the approval card all
+read it. When the engine carried only the first 400 lines of an edit (`hunksTruncated`), the
+number stays the true one and "First 400 lines shown" is said beside it; an approval preview
+the engine cut says "Only part of the file is shown" beside its count, and a preview that
+carries the engine's own `added` and `removed` shows those, so the figure on the approval is the
+one on the card after the edit. With several files, the bar over the Changes panel names a cut
+file only when it is not the one open, since the open file says it beside its own diff. A reply with no counted
+change has no card. The
 card appears when the turn settles, groups by the turn each receipt belongs to, and
 works the same for history restored from the journal. View changes (or a file row)
 opens the Changes pane on the Last reply scope for that reply; the conversation
@@ -2690,8 +2710,10 @@ The Changes tab shows one file's diff beside the tree of changed files. A scope 
 at the top left picks what is reviewed, with the line totals of that scope beside it:
 Last reply (the reply the card opened, or the latest one that changed files), This
 conversation (every completed edit merged per path, so a file edited twice is one
-row, from its first before to its last after; an edit receipt carries only the
-changed fragment, a `write` receipt the whole file) and, in a trusted ordinary project
+row whose numbers are the sum of its edits; an edit receipt carries only the
+changed fragment, a `write` receipt the hunks it changed, and a file edited more than once
+shows one block per edit, "Edit 1 of 2" with that edit's own counts, never one edit's removed
+lines beside another's added ones) and, in a trusted ordinary project
 that is a git repository, Uncommitted changes (the working tree against HEAD, whole
 files, read through [`projectChanges` and `projectDiff`](#working-tree-changes) when
 the scope opens, on the refresh button and when a turn settles). The toolbar has

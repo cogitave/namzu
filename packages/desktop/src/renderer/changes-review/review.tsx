@@ -22,6 +22,7 @@ import {
 	type ReviewFile,
 	type ReviewScope,
 	buildTree,
+	cutNoteFor,
 	emptyMessageFor,
 	filterFiles,
 	keyStep,
@@ -171,6 +172,8 @@ export function ChangesReview({
 		selected && visible.some((file) => file.path === selected) ? selected : tree.order[0]
 	const file = visible.find((item) => item.path === current)
 	const totals = totalsOf(files)
+	// The open file says its own cut beside its diff; the bar names only the others.
+	const barCutNote = cutNoteFor(files, file?.path)
 
 	const choose = (path: string | undefined) => {
 		if (!path) return
@@ -345,6 +348,7 @@ export function ChangesReview({
 					</Menu.Root>
 				</div>
 			</div>
+			{!empty && barCutNote && <p className="changes-note changes-cut-note">{barCutNote}</p>}
 			{empty ? (
 				<p
 					className="changes-message changes-empty"
