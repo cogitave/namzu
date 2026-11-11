@@ -332,12 +332,14 @@ export function checkpointLogView(log: SessionLog): CheckpointLogView {
 						open.delete(record.decisionId)
 					}
 				},
-				result: ({ written, open }) => ({
-					written: new Map(
-						checkpointIds.flatMap((id) => (written.has(id) ? [[id, written.get(id)!]] : [])),
-					),
-					open: [...open.values()],
-				}),
+				result: ({ written, open }) => {
+					const wanted = new Map<CheckpointId, string>()
+					for (const id of checkpointIds) {
+						const sha256 = written.get(id)
+						if (sha256 !== undefined) wanted.set(id, sha256)
+					}
+					return { written: wanted, open: [...open.values()] }
+				},
 			})
 		},
 	}
