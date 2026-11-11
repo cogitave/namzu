@@ -177,9 +177,9 @@ describe('MCP legacy session teardown on close()', () => {
 
 		await client.connect()
 
-		const start = Date.now()
+		// If close() waited on the held DELETE this never returns, and Vitest's
+		// own per-test timeout reports it; no wall-clock bound decides anything.
 		await client.disconnect()
-		expect(Date.now() - start).toBeLessThan(500)
 
 		// Clean up the still-pending DELETE so it does not leak into another test.
 		releaseDelete()

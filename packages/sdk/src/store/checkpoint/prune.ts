@@ -79,6 +79,19 @@ export async function selectStoredCheckpointsToPrune(
 	if (!Number.isSafeInteger(keepLast) || keepLast < 0) {
 		throw new RangeError(`keepLast must be a nonnegative integer, got ${String(keepLast)}`)
 	}
+	if (log.pruneFacts) {
+		// One read of the log answers both questions for every stored
+		// checkpoint, instead of one full walk each.
+		const facts = await log.pruneFacts(
+			scope,
+			stored.map((checkpoint) => checkpoint.checkpointId),
+		)
+		return selectSessionCheckpointsToPrune(
+			stored.filter((checkpoint) => facts.written.has(checkpoint.checkpointId)),
+			keepLast,
+			new Set(facts.open),
+		)
+	}
 	const committed: Checkpoint[] = []
 	for (const checkpoint of stored) {
 		if ((await log.writtenDocSha256(scope, checkpoint.checkpointId)) !== null) {
