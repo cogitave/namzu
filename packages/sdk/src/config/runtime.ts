@@ -33,6 +33,20 @@ export const CompactionConfigSchema = z.object({
 	 */
 	softTarget: z.number().min(0).max(1).optional(),
 	/**
+	 * `salience` only: how far below `softTarget`, as a fraction of the
+	 * window, a pass sheds. A pass still starts when the context reaches the
+	 * soft target, but it then keeps shedding until the context is
+	 * `softTargetHeadroom` of the window under it, so the next pass is needed
+	 * only after that headroom has been used instead of on the next turn.
+	 * Fewer passes, and the request is rewritten (a prompt cache's prefix
+	 * broken) once per headroom instead of once per turn; the cost is that
+	 * the context is held that much lower, so that much less history stays
+	 * whole. The messages shed are the same ones in the same order, only
+	 * earlier. Absent or `0`, the default, a pass sheds to the soft target
+	 * and no further, exactly as before.
+	 */
+	softTargetHeadroom: z.number().min(0).max(1).optional(),
+	/**
 	 * Optional model context-window size (tokens) the compaction trigger
 	 * measures the CURRENT window against. NO default: when omitted the
 	 * trigger falls back to the turn-level cumulative `tokenBudget` exactly as

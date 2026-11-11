@@ -1093,6 +1093,7 @@ const CONFIG_READERS: ConfigReaders = {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const raw = v as {
 			strategy?: unknown
+			softTargetHeadroom?: unknown
 			autoCompactWindowTokens?: unknown
 			recallEvidence?: unknown
 			resolveEvidenceQueries?: unknown
@@ -1109,6 +1110,7 @@ const CONFIG_READERS: ConfigReaders = {
 		for (const key of Object.keys(v)) {
 			if (
 				key !== 'strategy' &&
+				key !== 'softTargetHeadroom' &&
 				key !== 'autoCompactWindowTokens' &&
 				key !== 'contextWindowTokens' &&
 				key !== 'consolidate' &&
@@ -1185,6 +1187,19 @@ const CONFIG_READERS: ConfigReaders = {
 			return invalidConfigValue(context, ['strategy'], 'must be `structured` or `salience`')
 		}
 		if (
+			raw.softTargetHeadroom !== undefined &&
+			(typeof raw.softTargetHeadroom !== 'number' ||
+				!Number.isFinite(raw.softTargetHeadroom) ||
+				raw.softTargetHeadroom < 0 ||
+				raw.softTargetHeadroom > 1)
+		) {
+			return invalidConfigValue(
+				context,
+				['softTargetHeadroom'],
+				'must be a fraction of the window from 0 to 1, such as 0.1',
+			)
+		}
+		if (
 			raw.autoCompactWindowTokens !== undefined &&
 			typeof raw.autoCompactWindowTokens !== 'number' &&
 			typeof raw.autoCompactWindowTokens !== 'string'
@@ -1212,6 +1227,9 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		return {
 			...(raw.strategy !== undefined ? { strategy: raw.strategy } : {}),
+			...(raw.softTargetHeadroom !== undefined
+				? { softTargetHeadroom: raw.softTargetHeadroom }
+				: {}),
 			...(autoCompactWindow?.tokens !== undefined
 				? { autoCompactWindowTokens: autoCompactWindow.tokens }
 				: {}),

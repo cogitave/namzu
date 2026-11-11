@@ -93,7 +93,10 @@ against a scripted model made 62 passes in 40 turns, 22 of them a second pass
 in the same turn. Those passes are not needed to stay under the summary
 trigger. They keep the context at the target. A host that would rather pay
 for fewer, larger passes sets
-[`softTargetHeadroom`](context-limits.md#the-summary-trigger).
+[`softTargetHeadroom`](context-limits.md#the-summary-trigger), a fraction of the
+window the pass sheds below the soft target: it starts at the soft target as
+before, takes the messages the pass takes today and goes on down the same
+ordered list, and the next pass is needed only after the headroom is used.
 
 A pass that can shed nothing does not start: below the summary trigger, with no
 reducer and not forced, it is not run, no `pre_compact` or `post_compact` hook

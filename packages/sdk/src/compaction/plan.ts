@@ -142,6 +142,17 @@ export function naiveKeepStartByTokens(messages: readonly Message[], budgetToken
 export const DEFAULT_SOFT_TARGET = 0.5
 
 /**
+ * The context size, in tokens, a salience pass sheds down to: the soft
+ * target less the configured headroom. With no headroom (the default) this
+ * is the soft target, computed exactly as it always was.
+ */
+export function salienceTargetTokens(config: CompactionConfig, windowTokens: number): number {
+	const soft = config.softTarget ?? DEFAULT_SOFT_TARGET
+	const headroom = config.softTargetHeadroom ?? 0
+	return Math.floor(windowTokens * (headroom > 0 ? Math.max(0, soft - headroom) : soft))
+}
+
+/**
  * Whether a salience pass could shed anything from `messages` at all: false
  * is exact (the pass would make no action whatever the scores are), true is
  * "go and score". See {@link hasEvictableMessage}.
@@ -169,7 +180,7 @@ export function planSalienceWorkingSet(input: {
 	const { config, estimatedTokens, contextWindowTokens: budget } = input
 	const workingOptions = {
 		estimatedTokens,
-		targetTokens: Math.floor(budget * (config.softTarget ?? DEFAULT_SOFT_TARGET)),
+		targetTokens: salienceTargetTokens(config, budget),
 		minToolResultChars: config.minToolResultCharsToClear,
 		...(config.preserveToolResultsFrom ? { preserveTools: config.preserveToolResultsFrom } : {}),
 	}
