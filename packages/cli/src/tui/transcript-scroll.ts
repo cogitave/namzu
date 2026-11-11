@@ -15,6 +15,7 @@
 import { renderedDetailLines } from './Transcript.js'
 import { contentColorForRole, glyphColorForRole, glyphForRole } from './Transcript.js'
 import { attachmentLine } from './attachment-rows.js'
+import { commandRows } from './read-search-group.js'
 import { choiceDisplayWidth, truncateChoiceText, wrapChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { paint, theme } from './theme.js'
@@ -30,6 +31,9 @@ export interface ScrollRow {
 
 /** Columns the glyph gutter takes, as in the live transcript. */
 const GUTTER = 2
+
+/** The columns the `⎿` and its two spaces take before a listed command. */
+const COMMAND_HANG = 3
 
 /**
  * The rows the view shows, oldest first.
@@ -112,6 +116,17 @@ export function messageScrollRows(
 	body.forEach((text, i) => {
 		rows.push({ glyph: i === 0 ? glyph : ' ', glyphColor, text, color })
 	})
+	// The commands a group folded, one row each, as the live transcript lists them.
+	if (message.group && message.shell === undefined && !message.detailExpanded) {
+		commandRows(message.group, width - COMMAND_HANG).forEach((line, i) => {
+			rows.push({
+				glyph: ' ',
+				glyphColor,
+				text: `${i === 0 ? '⎿' : ' '}  ${terminalDisplayText(line)}`,
+				color: theme.text.muted,
+			})
+		})
+	}
 	for (const text of detail) {
 		rows.push({
 			glyph: ' ',

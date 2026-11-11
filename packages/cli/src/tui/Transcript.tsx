@@ -328,7 +328,8 @@ function MessageRow({
 	const web = message.activity === 'web'
 	const continuesWeb = web && prev?.activity === 'web'
 	const gap = !prev || message.glyph === '⎿' || continuesWeb ? 0 : 1
-	if (message.group) {
+	// A group of one command is that command's row, drawn below like any other.
+	if (message.group && message.shell === undefined) {
 		return (
 			<Box flexDirection="column" marginTop={gap}>
 				{screen && message.thinking ? <ThinkingBlock text={message.thinking} /> : null}
@@ -566,8 +567,10 @@ export function messageCollapses(
 }
 
 /**
- * Collapsible tool diff / output, aligned under the content gutter.
- * Ctrl+O expands live rows in place or reprints the latest settled body.
+ * Collapsible tool diff / output, aligned under the content gutter. In the
+ * conversation it is always the folded body and its hint: no row expands in
+ * place. `expanded` is true only on the detailed transcript screen (Ctrl+O),
+ * which draws every body whole.
  */
 function DetailBlock({
 	lines,

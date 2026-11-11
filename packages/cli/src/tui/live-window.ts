@@ -43,7 +43,7 @@ import { renderedDetailLines } from './Transcript.js'
 import { attachmentLine } from './attachment-rows.js'
 import { tableHeight } from './markdown-table.js'
 import { parseBlock, scanBlocks } from './markdownParser.js'
-import { hintRows } from './read-search-group.js'
+import { COMMAND_ROW_INDENT, commandRows, hintRows, isOneCommand } from './read-search-group.js'
 import { statusPanelLayout } from './status-panel-layout.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { EXPAND_HINT } from './truncation.js'
@@ -120,16 +120,24 @@ function messageLines(
 		typeof cut === 'string'
 			? cut
 			: `${cut.head}\n${hiddenTextRule(hiddenTextNote(cut), 20)}\n${cut.tail}`
-	// An open group is one line with the hint to expand it, and under it the
-	// latest target, hung from a five-column gutter.
-	const open = message.group !== undefined && message.pending === true
+	// A group of one command is that command's row. Any other open group is one
+	// line with the hint to expand it; under every group, open or settled, the
+	// commands it ran (at most six rows, each cut to the width, so one row each;
+	// the estimate charges a `…` two cells, so it cuts one cell sooner),
+	// and under an open one the latest target, hung from a five-column gutter.
+	const group =
+		message.group !== undefined && !isOneCommand(message.group) ? message.group : undefined
+	const open = group !== undefined && message.pending === true
 	return [
 		...(hasPrev && message.glyph !== '⎿' ? [''] : []),
 		`  ${shown}${meta ? ` · ${meta}` : ''}${open ? ` ${EXPAND_HINT}` : ''}`,
 		...(message.attachments ?? []).map((row) => `  ${terminalDisplayText(attachmentLine(row))}`),
-		...(open && message.group
-			? hintRows(message.group).map((line) => `     ${terminalDisplayText(line)}`)
+		...(group
+			? commandRows(group, (columns ?? 80) - COMMAND_ROW_INDENT - 1).map(
+					(line) => `     ${terminalDisplayText(line)}`,
+				)
 			: []),
+		...(open && group ? hintRows(group).map((line) => `     ${terminalDisplayText(line)}`) : []),
 		...renderedDetailLines(message, columns),
 	]
 }

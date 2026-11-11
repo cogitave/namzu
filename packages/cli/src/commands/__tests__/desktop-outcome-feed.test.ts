@@ -40,6 +40,23 @@ describe('the outcome notification', () => {
 		})
 	})
 
+	it('keeps the full cannot-tell wording and the record for every turn, however often the terminal has said it', () => {
+		const unknown = outcome({
+			verdict: 'unknown',
+			changes: { total: 0, paths: [], outsideKnownTools: false },
+		})
+		for (let i = 0; i < 3; i++) {
+			expect(outcomeNotification('s1', ended('turn_completed', unknown))).toEqual({
+				sessionId: 's1',
+				turnId: 't1',
+				verdict: 'unknown',
+				line: 'A command ran that may have changed files · cannot tell',
+				changed: 0,
+				outcome: unknown,
+			})
+		}
+	})
+
 	it('uses the same words as the terminal for every verdict, including a check the pipe hides', () => {
 		const masked = outcome({
 			verdict: 'inconclusive',
