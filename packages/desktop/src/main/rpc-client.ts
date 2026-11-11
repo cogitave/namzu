@@ -84,6 +84,15 @@ export class RuntimeClient extends EventEmitter {
 	supportsProjectGit(): boolean {
 		return this.projectGit
 	}
+	private mcpServers = false
+	/** A host that predates the tool server list answers neither of its methods. */
+	supportsMcpServers(): boolean {
+		return this.mcpServers
+	}
+	private conversationSearch = false
+	supportsConversationSearch(): boolean {
+		return this.conversationSearch
+	}
 	private projectChanges = false
 	private providerSetup = false
 	supportsProviderSetup(): boolean {
@@ -251,6 +260,10 @@ export class RuntimeClient extends EventEmitter {
 		].every((method) => result.extensions?.includes(method))
 		this.projectGit = result.extensions?.includes('namzu/project/git') === true
 		this.projectPr = result.extensions?.includes('namzu/project/pr') === true
+		this.mcpServers = ['namzu/mcp/servers', 'namzu/mcp/approve'].every((method) =>
+			result.extensions?.includes(method),
+		)
+		this.conversationSearch = result.extensions?.includes('namzu/conversations/search') === true
 		this.projectUntrust = result.extensions?.includes('namzu/project/untrust') === true
 		this.projectChanges = ['namzu/project/changes', 'namzu/project/diff'].every((method) =>
 			result.extensions?.includes(method),

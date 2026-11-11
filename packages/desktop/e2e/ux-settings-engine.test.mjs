@@ -53,22 +53,35 @@ test("engine settings: save a number, confirm a risky switch, never show a secre
 		await shot(w, "agent");
 
 		await openSettings(w, "Tools");
-		await expect(page.getByText("Connected servers", { exact: true })).toBeVisible({ timeout: T });
-		await expect(page.getByText("Not set").first()).toBeVisible();
+		// The tool servers are read from the engine; a fresh project has none.
+		await expect(page.getByText("Tool servers", { exact: true })).toBeVisible({ timeout: T });
+		await expect(page.getByText("No tool servers are set up for this project.")).toBeVisible({
+			timeout: T,
+		});
 		await shot(w, "tools");
 
 		await openSettings(w, "Projects");
-		await page.getByRole("switch", { name: "Allow leaving the sandbox" }).click();
+		const escape = page.getByRole("switch", { name: "Allow leaving the sandbox" });
 		const dialog = w.page.locator("[data-settings-confirm-dialog=setting]");
+		// It is on by default. Turning it off tightens the sandbox, so nothing asks.
+		await escape.click();
+		await expect(
+			page.getByRole("button", { name: "Use the default for Allow leaving the sandbox" }),
+		).toBeVisible({ timeout: T });
+		await expect(dialog).toHaveCount(0);
+		assert.match(readFileSync(join(w.home, "config.yaml"), "utf8"), /allowEscape: false/);
+		// Turning it back on loosens it, and that asks first.
+		await escape.click();
 		await expect(dialog).toBeVisible({ timeout: T });
 		await shot(w, "projects-confirm");
 		await dialog.getByRole("button", { name: "Cancel" }).click();
 		await expect(dialog).toHaveCount(0);
-		assert.doesNotMatch(readFileSync(join(w.home, "config.yaml"), "utf8"), /allowEscape/);
-		await page.getByRole("switch", { name: "Allow leaving the sandbox" }).click();
+		assert.match(readFileSync(join(w.home, "config.yaml"), "utf8"), /allowEscape: false/);
+		await escape.click();
 		await dialog.getByRole("button", { name: "Change it" }).click();
 		await expect(dialog).toHaveCount(0, { timeout: T });
-		assert.match(readFileSync(join(w.home, "config.yaml"), "utf8"), /allowEscape: false/);
+		await expect(escape).toBeChecked({ timeout: T });
+		assert.match(readFileSync(join(w.home, "config.yaml"), "utf8"), /allowEscape: true/);
 		await shot(w, "projects");
 
 		await openSettings(w, "Terminal");

@@ -139,6 +139,24 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+.command-palette-text {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+	gap: 1px;
+}
+.command-palette-text .command-palette-label {
+	flex: none;
+}
+.command-palette-excerpt {
+	overflow: hidden;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	line-height: 17px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
 .command-palette-meta {
 	flex: 0 1 auto;
 	max-width: 28%;
