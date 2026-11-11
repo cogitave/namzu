@@ -576,9 +576,9 @@ flow(
 		const work = w.page.locator(".activity-trigger").first();
 		if ((await work.getAttribute("aria-expanded")) !== "true")
 			await work.click();
+		// A group that would only repeat the fold line's sentence is not drawn: its rows are.
 		const group = w.page.locator(".tool-run-trigger").first();
-		await expect(group).toBeVisible();
-		if ((await group.getAttribute("aria-expanded")) !== "true")
+		if ((await group.count()) > 0 && (await group.getAttribute("aria-expanded")) !== "true")
 			await group.click();
 
 		// Headlines come from fields: no prefix, no wire text, no absolute path.
@@ -622,13 +622,14 @@ flow(
 				`the transcript never shows ${JSON.stringify(forbidden)}`,
 			);
 		}
-		const header = (await group.innerText()).replace(/\s+/g, " ");
+		// The fold line is the header: its one group would only repeat it, so the group is not drawn.
+		const header = (await work.innerText()).replace(/\s+/g, " ");
 		assert.match(
 			header,
 			/^Read \d+ files?, searched \d+ times?/,
 			`the group header counts by kind: ${header}`,
 		);
-		await shootTool(w, "tour-collapsed", group);
+		await shootTool(w, "tour-collapsed", work);
 
 		// Output sits under its row: colour drawn, bytes never dumped, a long one folded, an error in the error tone.
 		const printf = toolRow(w, "Ran printf");

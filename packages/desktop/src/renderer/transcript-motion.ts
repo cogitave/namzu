@@ -4,7 +4,12 @@ import { waitingLabel } from './approval-card-model.js'
 import { COMPACTING_TEXT, compactedText } from './context-ring.js'
 import { isTaskEntry, latestPlanTurn } from './plan-row.js'
 import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
-import { elapsedLabel, transcriptOutcome, turnDurationMs } from './transcript-layout.js'
+import {
+	actionRunLabel,
+	elapsedLabel,
+	transcriptOutcome,
+	turnDurationMs,
+} from './transcript-layout.js'
 
 export const transcriptMotion = {
 	entry: { duration: 120, easing: 'ease-out' },
@@ -220,13 +225,65 @@ export function turnStepCount(thread: ThreadState, turn: number): number {
 	return steps
 }
 
-/** The fold's name for a finished turn: the time it took, then what it hides, "Worked for 3s, 4 steps". */
-export function foldLabel(thread: ThreadState, turn: number): string {
+/**
+ * The fold's name for a finished turn. A turn that ended well and did something is named by what
+ * the work was, in the words a group of steps uses ("Searched, read a file, and 2 more"), with the
+ * time after it ("... · 36s"). Anything else keeps the plain form: the outcome, the time, the count.
+ * `sentence` says which of the two it is; `duration` is drawn apart, in the muted colour.
+ */
+export function foldParts(
+	thread: ThreadState,
+	turn: number,
+): { text: string; duration?: string; sentence: boolean } {
+	const outcomeReason =
+		thread.turns[turn]?.reason ??
+		thread.turns[turn]?.stopReason ??
+		(turn === thread.turn ? (thread.reason ?? thread.stopReason) : undefined)
+	const completed =
+		!(turn === thread.turn && thread.error) && transcriptOutcome(outcomeReason) === 'completed'
+	if (completed) {
+		// A refused action did not happen: the flag on the line says so, the sentence does not count it.
+		const actions = thread.timeline.flatMap((entry) => {
+			if (entry.turn !== turn || entry.kind !== 'tool' || isTaskEntry(thread, entry)) return []
+			const presentation = toolTranscriptPresentation(thread, entry.id)
+			if (!presentation || presentation.state === 'declined') return []
+			return [
+				{
+					kind: presentation.kind,
+					subject: presentation.file?.path,
+					state: presentation.state,
+					created: presentation.operation === 'created',
+					background: presentation.shell?.background === true,
+				},
+			]
+		})
+		const text = actions.length ? actionRunLabel(actions, false) : ''
+		if (text) {
+			const milliseconds = turnDurationMs(thread, turn)
+			return {
+				text,
+				duration:
+					milliseconds === undefined || milliseconds < 1000
+						? undefined
+						: elapsedLabel(milliseconds),
+				sentence: true,
+			}
+		}
+	}
 	const label = turnActivityLabel(thread, turn)
 	const steps = turnStepCount(thread, turn)
-	if (steps === 0) return label
+	if (steps === 0) return { text: label, sentence: false }
 	const count = `${steps} ${steps === 1 ? 'step' : 'steps'}`
-	return label.startsWith('Worked for ') ? `${label}, ${count}` : `${label} · ${count}`
+	return {
+		text: label.startsWith('Worked for ') ? `${label}, ${count}` : `${label} · ${count}`,
+		sentence: false,
+	}
+}
+
+/** The same line as one string: the accessible name of the fold and the text of its label. */
+export function foldLabel(thread: ThreadState, turn: number): string {
+	const { text, duration } = foldParts(thread, turn)
+	return duration ? `${text} · ${duration}` : text
 }
 
 function historyState(node: HTMLElement): string | undefined {

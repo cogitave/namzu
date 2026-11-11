@@ -2759,7 +2759,7 @@ conversations keep their own outputs.
 
 ### The result line at the foot of a reply
 
-One 40 px row ends a finished turn, in place of the old "Changed 4 files" card and the
+One 32 px line of text ends a finished turn (no border, no fill, no rule above it; it starts at the reply's own left edge and sits about 30 px under the reply's last row: the reply's own hover-only action row keeps 16 px there and its last 8 px lie over the line's empty top), in place of the old "Changed 4 files" card and the
 sentence that used to sit under it: a state mark, "Done in 3s" (how long the turn took; just "Done"
 under a second; "Stopped", "Paused", "Incomplete" or "Failed" when it did not end well; "Finished in 3s"
 when the record's verdict is `failing`, because the turn ended but the kernel did not call it done), the size of
@@ -2771,13 +2771,13 @@ else: never from the model's words and never from a guess. It is the record's ow
 | Verdict | What the row shows |
 |---|---|
 | `checked` | the passing check, "Checked: pnpm test passed, nothing changed since", with a green mark |
-| `failing` | the failing check ("pnpm test failed"), in bold red, with a red border and tint; this is drawn even when no file changed ("No files changed" is then the record's lead and the row shows no counts) |
+| `failing` | the failing check ("pnpm test failed"), in bold red, with a red mark and no box; this is drawn even when no file changed ("No files changed" is then the record's lead and the row shows no counts) |
 | `stale`, `inconclusive` | the record's sentence ("pnpm test passed, then files changed again", "Ran npm test | tail, but the pipe hides whether it passed"), amber |
 | `unchecked` | the counts and no check segment at all; it says nothing about checking |
 | `unknown` | no file counted: nothing about changes, and the old quiet foot, which is the record's own sentence. Files counted from the edit tools: only the counts, no check segment, so the counts read as the whole change. The caveat stays reachable and is never dropped: the counts' tooltip, the row's accessible name and **Copy summary** say "These are the edits made with the edit tools." followed by the record's own sentence ("A command ran that may have changed files · cannot tell here …") |
 | `unchanged` | nothing about changes; a turn with no changed files keeps the old quiet foot |
 
-The whole row is one button that opens the changes pane, on All changes and on the file of that
+The chevron sits directly after the text. The row draws nothing round it at rest: on hover and on keyboard focus the whole row takes a soft fill with 8 px corners, and the "..." at its end is drawn only while the pointer is over the row, focus is inside it or its menu is open (always drawn where there is no hover, `@media (hover: none)`). The whole row is one button that opens the changes pane, on All changes and on the file of that
 reply that changed most; its accessible name reads the same facts ("Done in 3s, 4 files changed, 35
 added, 3 removed, Checked: pnpm test passed. Open changes"). A "..." at its end holds what the old card
 offered: **Undo** (see [Undoing a reply](#undoing-a-reply)), **Open file** (one item per changed file,
@@ -2786,13 +2786,19 @@ there is one), and **Copy summary** (the row's words and the changed paths). A t
 shows "Undone at 10:42" in place of the check segment, and its Open items leave out the files that
 reply made, which the undo removed (the files it only edited were restored and are still offered). A
 partly undone one adds "Partly undone, 2 files kept" after the check segment; when the check is
-`failing` it stays where it was, in bold red, and the undo state is said beside it. When the column is under 600 px wide the check segment moves to a line
+`failing` it stays where it was, in bold red, and the undo state is said beside it. When the column is under 480 px wide the check segment moves to a line
 of its own below the size, so the row grows to two lines rather than cutting the sentence. A reply
 that failed or was stopped keeps everything main showed for it (the header flags, the error rows and
 banner); the row only adds how it ended.
 
-The fold above the answer names what it hides: "Worked for 3s, 4 steps" (the count of tool calls
-in the turn, not counting the plan's own bookkeeping), and the same words are its accessible name.
+The fold above the answer says what the work was, in the words a group of steps uses
+(`actionRunLabel`): "Searched, read a file, and 2 more · 36s". At most three phrases are named, the
+last one counting the kinds left out; the time follows after a middle dot in the muted colour. A
+refused or failed action stays flagged on the same line. A turn that did not end well, or did nothing
+countable, keeps the plain form ("Stopped · 47s · 2 steps", "Worked for 3s"). The labels while a turn
+is running or waiting are unchanged. A closed fold has no rule under it; an open one has a rule below
+the work, between it and the answer. When the open fold holds exactly one group and its label would
+say the same sentence, the rows are drawn directly. The accessible name is the sentence and the time.
 
 ### Undoing a reply
 
@@ -2879,7 +2885,7 @@ file is chosen. The limits and the decision are in `changes-review/diff-gate.ts`
 drawn by `@pierre/diffs` 1.5.2 (exact); the worker pool is not used because a worker needs
 `worker-src` in the renderer's content security policy, which has none.
 
-A finished turn reads "Worked for 4m 17s" when its duration is known: the host's
+A finished turn that did nothing countable reads "Worked for 4m 17s" when its duration is known (one that did something is named by [what the work was](#the-result-line-at-the-foot-of-a-reply)): the host's
 start and end, the journal's recorded duration, or the host start and the last time
 seen in the turn, in that order. Otherwise it reads "Worked" with no figure, and so does work that
 took under a second ("Worked for 0s" tells nobody anything).

@@ -1,4 +1,4 @@
-// The foot of a finished turn is one result line, and the Changes pane is the diff first.
+// The foot of a finished turn is one 32 px result line of text, and the Changes pane is the diff first.
 // The check segment is the kernel's outcome record and nothing else; the pane opens 520 px wide on
 // the file that changed most, with the files beside the diff, and the sidebar steps aside in a
 // narrow window and comes back.
@@ -117,12 +117,13 @@ test("the foot says what changed and what the record says about checking, and no
 
 		await converse(w, "Make a change and the check passes", /Passing run finished/);
 		await expect(line(w)).toBeVisible({ timeout: T });
-		assert.equal((await line(w).boundingBox())?.height, 40, "one 40 px row");
+		assert.equal((await line(w).boundingBox())?.height, 32, "one 32 px row");
 		await expect(line(w).locator(".turn-result-files")).toHaveText("4 files");
 		await expect(line(w).locator(".turn-result-check")).toContainText("Checked: node --test passed");
 		await expect(line(w)).toHaveAttribute("data-check", "ok");
 		// The fold names what it hides, and the card, the outcome sentence and "View changes" are gone.
-		await expect(w.page.locator(".activity-trigger").first()).toContainText(/Worked.*, 7 steps/);
+		// The fold says what the work was, in the words a group of steps uses, and the time after it.
+		await expect(w.page.locator(".activity-trigger").first()).toContainText(/^Read 2 files, created 2 files, and 2 more\s*· \d+s/);
 		await expect(w.page.locator(".turn-changes, .turn-outcome-line")).toHaveCount(0);
 		await expect(w.page.getByRole("button", { name: "View changes" })).toHaveCount(0);
 		// The top bar says the same size, from the same source.
@@ -403,6 +404,62 @@ test("two long names that differ at the end stay told apart in the flat list", {
 		const cut = await pane.locator(".changes-flat-name").evaluateAll((els) => els.map((el) => ({ over: el.scrollWidth > el.clientWidth, dir: getComputedStyle(el).direction })));
 		assert.ok(cut.every((c) => c.over && c.dir === "rtl"), JSON.stringify(cut));
 		await snap(w, "flat-list-long-names");
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});
+
+test("a finished turn has no edge but the person's message: the line, the fold and the code are plain until touched", { timeout: 480000 }, async () => {
+	const w = await createWorld({ rules, files, seed, tabs: "hidden" });
+	let failed = true;
+	try {
+		await launch(w);
+		await openProject(w);
+		await size(w, 1280, 820);
+		await converse(w, "Make a change where the check fails", /Failing run finished/);
+		const main = line(w).locator(".turn-result-main");
+		const more = line(w).getByRole("button", { name: "More about this reply" });
+		const look = (locator) => locator.evaluate((el) => {
+			const s = getComputedStyle(el);
+			return { radius: s.borderTopLeftRadius, fill: s.backgroundColor, border: s.borderTopWidth + s.borderBottomWidth + s.borderLeftWidth + s.borderRightWidth, opacity: s.opacity };
+		});
+		await w.page.mouse.move(2, 2);
+		// At rest: no border, no fill, no radius, even when the check failed. The meaning is the dot and the words.
+		const rest = await look(line(w));
+		assert.deepEqual([rest.fill, rest.border, rest.radius], ["rgba(0, 0, 0, 0)", "0px0px0px0px", "0px"], JSON.stringify(rest));
+		assert.equal((await look(main)).fill, "rgba(0, 0, 0, 0)");
+		await expect(line(w).locator(".turn-result-mark")).toHaveCSS("background-color", /^rgb\(/);
+		assert.equal((await look(more)).opacity, "0", "the menu button is not drawn at rest");
+		// The line starts at the reply's own left edge.
+		const textLeft = (await w.page.locator(".message.assistant .message-text").last().boundingBox()).x;
+		const markLeft = (await line(w).locator(".turn-result-mark").boundingBox()).x;
+		assert.ok(Math.abs(markLeft - textLeft) <= 4, `mark ${markLeft} against text ${textLeft}`);
+		// Hover draws the soft fill with 8 px corners and the menu button.
+		await line(w).hover();
+		await expect.poll(async () => (await look(more)).opacity, { timeout: T }).toBe("1");
+		const hover = await look(line(w));
+		assert.equal(hover.radius, "8px");
+		assert.notEqual(hover.fill, "rgba(0, 0, 0, 0)");
+		await w.page.mouse.move(2, 2);
+		// Keyboard focus draws both too, and so does the open menu.
+		await main.focus();
+		await w.page.keyboard.press("Tab");
+		await expect(more).toBeFocused();
+		await expect.poll(async () => (await look(more)).opacity, { timeout: T }).toBe("1");
+		await w.page.keyboard.press("Enter");
+		await expect(w.page.getByRole("menuitem", { name: "Copy summary" })).toBeVisible({ timeout: T });
+		await w.page.keyboard.press("Escape");
+		// The closed fold has no rule under it; the open one has one below the work.
+		const trigger = w.page.locator(".activity-trigger").first();
+		assert.equal((await trigger.evaluate((el) => getComputedStyle(el).borderBottomWidth)), "0px");
+		await trigger.click();
+		const rule = await w.page.locator(".activity-entries").first().evaluate((el) => getComputedStyle(el).borderBottomWidth);
+		assert.equal(rule, "1px");
+		// The person's own message: 14 px corners, up to 85% of the column.
+		const bubble = w.page.locator(".message.user > div").first();
+		assert.equal(await bubble.evaluate((el) => getComputedStyle(el).borderTopLeftRadius), "14px");
+		assert.equal(await bubble.evaluate((el) => getComputedStyle(el).maxWidth.endsWith("%") ? getComputedStyle(el).maxWidth : "px"), "85%");
 		failed = false;
 	} finally {
 		await dispose(w, { failed });
