@@ -9,7 +9,7 @@ import {
 	USE_EXISTING_FOLDER_LABEL,
 } from './add-project-menu.js'
 import { ComposerControl, ComposerControlChevron } from './composer-control.js'
-import { CheckIcon, FolderIcon, FolderPlusIcon, SearchIcon, XIcon } from './icons.js'
+import { CheckIcon, FolderIcon, FolderPlusIcon, MonitorIcon, SearchIcon, XIcon } from './icons.js'
 import { commitsOnKey, committableProject } from './picker-commit.js'
 import { foldedIncludes } from './text-fold.js'
 import { Button } from './ui/button.js'
@@ -18,6 +18,7 @@ import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 
 /** This chooser navigates existing ordinary contexts; it never grants project trust. */
 export function ComposerProjectPicker({
+	computerLabel = 'This computer',
 	projectId,
 	projectName,
 	projectPath,
@@ -27,6 +28,8 @@ export function ComposerProjectPicker({
 	onCreateProject,
 	onLeaveProject,
 }: {
+	/** Where the work runs. There is one computer to choose, so the menu shows it as the one choice. */
+	computerLabel?: string
 	projectId: string
 	projectName: string
 	projectPath: string
@@ -55,6 +58,8 @@ export function ComposerProjectPicker({
 			<FolderIcon className="size-3.5" />
 			<span className="truncate">
 				{choices.find((project) => project.id === projectId)?.isChat ? 'No project' : projectName}
+				{' · '}
+				{computerLabel}
 			</span>
 		</>
 	)
@@ -184,6 +189,14 @@ export function ComposerProjectPicker({
 						{search ? 'No matching projects.' : 'No projects open.'}
 					</p>
 				)}
+				<fieldset className="composer-project-computer">
+					<legend className="composer-project-computer-label">Runs on</legend>
+					<div className="composer-project-computer-row">
+						<MonitorIcon aria-hidden="true" />
+						<span>{computerLabel}</span>
+						<CheckIcon aria-hidden="true" />
+					</div>
+				</fieldset>
 				<div className="composer-project-actions">
 					{onCreateProject && (
 						<Button

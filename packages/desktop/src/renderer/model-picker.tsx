@@ -1,8 +1,7 @@
 import { Radio } from '@base-ui/react/radio'
 import { RadioGroup } from '@base-ui/react/radio-group'
-import { Tabs } from '@base-ui/react/tabs'
 import type { ReasoningEffort } from '@namzu/sdk'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import {
 	type CSSProperties,
 	Fragment,
@@ -27,23 +26,12 @@ import { useSignedOutEngines } from './engine-sign-in.js'
 import { engineStartName, startingLabel, startsAProcess, useElapsed } from './engine-starting.js'
 import { providerName } from './friendly-errors.js'
 import {
-	EngineChip,
 	EnginePanel,
 	type EngineSurfaceControl,
 	HarnessMark,
-	SurfaceCaption,
-	SurfaceSwitch,
 	engineLabel,
 } from './harness-picker.js'
-import {
-	CheckIcon,
-	CloudIcon,
-	LoaderCircleIcon,
-	ProviderIcons,
-	SearchIcon,
-	ServerIcon,
-	XIcon,
-} from './icons.js'
+import { CheckIcon, LoaderCircleIcon, SearchIcon, XIcon } from './icons.js'
 import {
 	ModelCatalogueDisplayCache,
 	modelCatalogueDisplayCacheForApi,
@@ -64,13 +52,14 @@ import {
 	startingRow,
 	triggerLabel,
 } from './model-choice.js'
+import { modelFacts } from './model-facts.js'
 import { isNewModel } from './model-freshness.js'
+import { ModelMore } from './model-picker-more.js'
 import { commitsOnKey } from './picker-commit.js'
 import { foldedIncludes } from './text-fold.js'
 import { Button } from './ui/button.js'
 import { Input } from './ui/input.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
-import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import './model-picker.css'
 
 export type { ModelChoice }
@@ -81,7 +70,8 @@ type Catalogue = {
 	error?: string
 	scopeKey?: string
 }
-type View = 'effort' | 'models' | 'engine'
+/** The list comes first; "More" holds the engine, where it runs and the provider filter. */
+type View = 'models' | 'more' | 'engine'
 /** The engine choice the popup offers, with the state that gates it. */
 export type EngineControl = {
 	view?: HarnessView
@@ -99,22 +89,6 @@ const SEARCH_FROM = 7
 const LOAD_FAILED = 'Couldn’t load the model list. Check your connection, then try again.'
 /** The Auto row's radio value; a model's is a two-item array, so the two never collide. */
 const AUTO_KEY = JSON.stringify(['auto'])
-
-function ProviderMark({ provider }: { provider: Provider }) {
-	const Icon =
-		ProviderIcons.get(
-			provider.id === 'codex' || provider.id === 'codex-cli'
-				? 'openai'
-				: provider.id === 'claude-code'
-					? 'anthropic'
-					: provider.id,
-		) ?? (['ollama', 'lmstudio'].includes(provider.id) ? ServerIcon : CloudIcon)
-	return (
-		<span className="model-provider-mark" aria-hidden="true">
-			<Icon />
-		</span>
-	)
-}
 
 export function ModelPicker({
 	providers,
@@ -175,19 +149,10 @@ export function ModelPicker({
 }) {
 	const [open, setOpen] = useState(false)
 	const [view, setView] = useState<View>('models')
-	// The view the engine view returns to.
-	const [engineFrom, setEngineFrom] = useState<'effort' | 'models'>('models')
+	// Which provider's models the list shows; the filter lives behind "More".
+	const [browseProvider, setBrowseProvider] = useState(choice.provider)
 	const engine = engineControl?.view?.selected ?? engineControl?.selected ?? 'namzu'
 	const engineName = engineLabel(engineControl?.view, engine)
-	const openEngine = (from: 'effort' | 'models') => {
-		setEngineFrom(from)
-		setView('engine')
-	}
-	// The model list opened from the effort panel returns there once a model is chosen.
-	const [fromEffort, setFromEffort] = useState(false)
-	// A model picked from the effort panel is saved asynchronously; the panel waits for it so it
-	// never shows the previous model's name or levels.
-	const [awaiting, setAwaiting] = useState<ModelChoice | null>(null)
 	const localCache = useRef<{
 		loader?: typeof loadCatalogue
 		cache: ModelCatalogueDisplayCache
@@ -325,44 +290,37 @@ export function ModelPicker({
 	const chooseAuto = () => {
 		if (disabled) return
 		auto?.onSelect()
-		setFromEffort(false)
-		setAwaiting(null)
 		setOpen(false)
 	}
 	const choose = (next: ModelChoice) => {
 		if (disabled) return
 		onChange(next, 'person')
-		if (fromEffort) {
-			setFromEffort(false)
-			setAwaiting(next)
-		} else setOpen(false)
+		setOpen(false)
 	}
-	useEffect(() => {
-		if (awaiting && choice.provider === awaiting.provider && choice.model === awaiting.model) {
-			setAwaiting(null)
-			setView('effort')
-		}
-	}, [awaiting, choice.provider, choice.model])
-	const engineOf = (from: 'effort' | 'models') =>
-		engineControl
-			? {
-					id: engine,
-					label: engineName,
-					disabled: engineControl.disabled || engineControl.busy || !engineControl.view,
-					onOpen: () => openEngine(from),
-					surface: engineControl.surface,
-				}
-			: undefined
+	const engineEntry = engineControl
+		? {
+				id: engine,
+				label: engineName,
+				disabled: engineControl.disabled || engineControl.busy || !engineControl.view,
+				onOpen: () => setView('engine'),
+				surface: engineControl.surface,
+			}
+		: undefined
+	const multipleProviders = providers.available.length > 1
+	const hasMore = engineEntry !== undefined || multipleProviders
+	const moreWords = [
+		multipleProviders ? 'provider' : undefined,
+		engineEntry ? 'engine' : undefined,
+		engineEntry?.surface ? 'Desktop or CLI' : undefined,
+	].filter((word): word is string => word !== undefined)
 	const { resize, measured, resizeStyle } = useAnimatedHeight(open)
-	const closeUnavailable = useCallback(() => setOpen(false), [])
 	return (
 		<Popover
 			open={open && previousScope.current === scope && !disabled}
 			onOpenChange={(next) => {
 				if (next) {
-					setFromEffort(false)
-					setAwaiting(null)
-					setView(effortChoices >= 2 ? 'effort' : 'models')
+					setView('models')
+					setBrowseProvider(choice.provider)
 				}
 				setOpen(next)
 			}}
@@ -418,11 +376,10 @@ export function ModelPicker({
 				sideOffset={8}
 				padding="none"
 				aria-label={
-					view === 'effort' ? 'Reasoning effort' : view === 'engine' ? 'Engine' : 'Model picker'
+					view === 'more' ? 'More model options' : view === 'engine' ? 'Engine' : 'Model picker'
 				}
 				className="model-picker-popup"
 				data-view={view}
-				data-wide={providers.available.length > 1 || undefined}
 				positionerClassName={positionerClassName}
 			>
 				<div
@@ -433,7 +390,7 @@ export function ModelPicker({
 						// One width for every step of the popup and for every engine, so the popup never
 						// jumps sideways as a person moves between them. Without an engine choice the width
 						// follows the provider list.
-						width: `min(${engineControl ? 388 : providers.available.length > 1 ? 360 : 300}px, calc(100vw - 16px))`,
+						width: `min(${engineControl ? 388 : 340}px, calc(100vw - 16px))`,
 					}}
 				>
 					<div className="model-picker-body" ref={measured}>
@@ -441,58 +398,71 @@ export function ModelPicker({
 							<EnginePanel
 								view={engineControl.view}
 								selectedEngine={engineControl.selected}
-								backLabel={engineFrom === 'effort' ? 'Effort' : 'Models'}
+								backLabel="More"
 								busy={engineControl.busy}
 								disabled={engineControl.disabled}
 								onRecheck={engineControl.onRecheck}
-								onBack={() =>
-									setView(engineFrom === 'effort' && onEffortChange ? 'effort' : 'models')
-								}
+								onBack={() => setView('more')}
 								onSelect={(next) => {
 									setOpen(false)
 									engineControl.onSelect(next)
 								}}
 							/>
-						) : view === 'effort' && onEffortChange ? (
-							<ComposerEffortPanel
-								scope={JSON.stringify([projectId, sessionId, choice.provider, modelId])}
-								modelLabel={label}
-								levels={shownEffort?.levels ?? []}
-								value={shownEffort?.value}
-								defaultValue={settings?.effortDefault}
-								loading={settings === null}
-								disabled={disabled}
-								onChange={onEffortChange}
-								onShowModels={() => {
-									setFromEffort(true)
+						) : view === 'more' ? (
+							<ModelMore
+								engine={engineEntry}
+								providers={multipleProviders ? providers.available : undefined}
+								shownProvider={browseProvider}
+								inUseProvider={choice.provider}
+								onPickProvider={(id) => {
+									setBrowseProvider(id)
 									setView('models')
 								}}
-								onUnavailable={closeUnavailable}
-								engine={engineOf('effort')}
+								onBack={() => setView('models')}
 							/>
 						) : (
-							<ModelBrowser
-								key={`${projectId}:${sessionId ?? ''}`}
-								providers={providers}
-								choice={choice}
-								projectId={projectId}
-								sessionId={sessionId}
-								loadCatalogue={loadCatalogue}
-								catalogueHarnessScope={catalogueHarnessScope}
-								displayCache={displayCache}
-								settingsNotice={settings?.notice}
-								onBack={
-									fromEffort
-										? () => {
-												setFromEffort(false)
-												setView('effort')
-											}
-										: undefined
-								}
-								onChoose={choose}
-								auto={auto && { active: auto.active, onSelect: chooseAuto }}
-								engine={engineOf('models')}
-							/>
+							<>
+								<ModelBrowser
+									key={`${projectId}:${sessionId ?? ''}`}
+									providers={providers}
+									providerId={browseProvider}
+									choice={choice}
+									projectId={projectId}
+									sessionId={sessionId}
+									loadCatalogue={loadCatalogue}
+									catalogueHarnessScope={catalogueHarnessScope}
+									displayCache={displayCache}
+									settingsNotice={settings?.notice}
+									onChoose={choose}
+									auto={auto && { active: auto.active, onSelect: chooseAuto }}
+								/>
+								{onEffortChange && (settings === null || effortChoices >= 2) && (
+									<ComposerEffortPanel
+										variant="inline"
+										scope={JSON.stringify([projectId, sessionId, choice.provider, modelId])}
+										modelLabel={label}
+										levels={shownEffort?.levels ?? []}
+										value={shownEffort?.value}
+										defaultValue={settings?.effortDefault}
+										loading={settings === null}
+										disabled={disabled}
+										onChange={onEffortChange}
+									/>
+								)}
+								{hasMore && (
+									<button
+										type="button"
+										className="model-picker-more"
+										onClick={() => setView('more')}
+									>
+										<span>
+											More
+											<small>: {moreWords.join(', ')}</small>
+										</span>
+										<ChevronRight aria-hidden="true" />
+									</button>
+								)}
+							</>
 						)}
 					</div>
 				</div>
@@ -601,6 +571,7 @@ function useChoiceCatalogue({
 
 function ModelBrowser({
 	providers,
+	providerId,
 	choice,
 	projectId,
 	sessionId,
@@ -608,12 +579,12 @@ function ModelBrowser({
 	loadCatalogue,
 	catalogueHarnessScope,
 	displayCache,
-	onBack,
 	settingsNotice,
-	engine,
 	auto,
 }: {
 	providers: ProviderView
+	/** The provider whose models are listed; chosen behind "More" when there are several. */
+	providerId: string
 	choice: ModelChoice
 	projectId: string
 	sessionId?: string
@@ -621,21 +592,10 @@ function ModelBrowser({
 	catalogueHarnessScope?: string
 	displayCache: ModelCatalogueDisplayCache
 	onChoose: (choice: ModelChoice) => void
-	/** Present when the list was opened from the effort panel. */
-	onBack?: () => void
 	settingsNotice?: string
 	/** The Auto row, first in the list, when Auto is offered. */
 	auto?: { active: boolean; onSelect: () => void }
-	/** The engine chip for the heading, when engines are offered. */
-	engine?: {
-		id: HarnessView['selected']
-		label: string
-		disabled: boolean
-		onOpen: () => void
-		surface?: EngineSurfaceControl
-	}
 }) {
-	const [providerId, setProviderId] = useState(choice.provider)
 	const [catalogues, setCatalogues] = useState<Record<string, Catalogue>>({})
 	const inFlight = useRef(new Set<string>())
 	const uncachedScopes = useRef(new Map<string, string>())
@@ -902,56 +862,29 @@ function ModelBrowser({
 				) : (
 					<>
 						<div className="model-picker-heading-copy">
-							{onBack && (
-								<button type="button" className="model-picker-back" onClick={onBack}>
-									<ChevronLeft aria-hidden="true" />
-									Effort
-								</button>
-							)}
-							<h2 className="model-picker-title">Choose a model</h2>
-							{multipleProviders && !onBack && !engine?.surface && (
+							<h2 className="model-picker-title">Model</h2>
+							{multipleProviders && (
 								<span className="model-picker-provider-label" title={active?.label}>
 									{active?.label}
 								</span>
 							)}
 						</div>
-						{(showTools || engine) && (
+						{showTools && (
 							<div className="model-picker-heading-actions">
-								{engine && (
-									<span className="engine-controls">
-										<EngineChip
-											engine={engine.id}
-											label={engine.label}
-											disabled={engine.disabled}
-											onClick={engine.onOpen}
-										/>
-										{engine.surface && (
-											<SurfaceSwitch
-												value={engine.surface.value}
-												onChange={engine.surface.onChange}
-												disabled={engine.surface.disabled}
-												reason={engine.surface.reason}
-											/>
-										)}
-									</span>
-								)}
-								{showTools && (
-									<Button
-										variant="ghost-muted"
-										size="icon-xs"
-										aria-label="Search models"
-										title="Search models (/)"
-										onClick={() => setSearching(true)}
-									>
-										<SearchIcon aria-hidden="true" />
-									</Button>
-								)}
+								<Button
+									variant="ghost-muted"
+									size="icon-xs"
+									aria-label="Search models"
+									title="Search models (/)"
+									onClick={() => setSearching(true)}
+								>
+									<SearchIcon aria-hidden="true" />
+								</Button>
 							</div>
 						)}
 					</>
 				)}
 			</header>
-			{!searching && engine?.surface && <SurfaceCaption value={engine.surface.value} />}
 			<div ref={results} className="model-picker-list">
 				<RadioGroup
 					aria-label={searching ? 'Search results' : `${active?.label ?? ''} models`}
@@ -1002,6 +935,13 @@ function ModelBrowser({
 							const recommended =
 								!searching && model.default === true && recommendedIds.has(model.id)
 							const fresh = isNewModel(model.firstSeen, Date.now())
+							const facts = modelFacts(model)
+							// What the source published comes first; its note stays when there are no facts.
+							const note =
+								model.note && sharedNotes.get(model.provider.id) !== model.note.trim()
+									? model.note
+									: undefined
+							const second = facts ?? note
 							return (
 								<Fragment key={modelKey(model.provider.id, model.id)}>
 									{heading && (
@@ -1018,6 +958,7 @@ function ModelBrowser({
 											model.provider.label,
 											section ? SECTION_HEADINGS[section] : undefined,
 											model.label,
+											facts,
 											model.note?.trim(),
 											recommended ? 'Recommended' : undefined,
 											fresh ? 'New' : undefined,
@@ -1037,9 +978,7 @@ function ModelBrowser({
 									>
 										<span className="model-picker-name">
 											<span title={`${model.label} · ${model.id}`}>{model.label}</span>
-											{model.note && sharedNotes.get(model.provider.id) !== model.note.trim() && (
-												<small>{model.note}</small>
-											)}
+											{second && <small>{second}</small>}
 										</span>
 										{recommended && (
 											<span className="model-picker-chip" aria-hidden="true">
@@ -1185,50 +1124,9 @@ function ModelBrowser({
 			setSearching(true)
 		}
 	}
-	if (!multipleProviders)
-		return (
-			<div className="model-provider-single" onKeyDown={searchShortcut}>
-				{lineUp}
-			</div>
-		)
 	return (
-		<Tabs.Root
-			orientation="vertical"
-			value={active?.id ?? null}
-			onValueChange={(value) => {
-				setProviderId(String(value))
-				setQuery('')
-				setSearching(false)
-			}}
-			className="model-provider-tabs"
-			onKeyDown={searchShortcut}
-		>
-			<Tabs.List aria-label="Model providers" className="model-provider-list">
-				{providers.available.map((provider) => (
-					<Tooltip key={provider.id}>
-						<TooltipTrigger
-							render={
-								<Tabs.Tab
-									value={provider.id}
-									aria-label={provider.label}
-									className="model-provider-tab"
-									data-in-use={provider.id === choice.provider ? '' : undefined}
-								/>
-							}
-						>
-							<ProviderMark provider={provider} />
-						</TooltipTrigger>
-						<TooltipPopup side="left">
-							{provider.id === choice.provider ? `${provider.label} (in use)` : provider.label}
-						</TooltipPopup>
-					</Tooltip>
-				))}
-			</Tabs.List>
-			{active && (
-				<Tabs.Panel key={active.id} value={active.id} className="model-provider-panel">
-					{lineUp}
-				</Tabs.Panel>
-			)}
-		</Tabs.Root>
+		<div className="model-provider-single" onKeyDown={searchShortcut}>
+			{lineUp}
+		</div>
 	)
 }

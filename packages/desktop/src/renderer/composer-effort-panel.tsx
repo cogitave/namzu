@@ -72,6 +72,7 @@ export function effortValueText(
  * model's default.
  */
 export function ComposerEffortPanel({
+	variant = 'panel',
 	scope,
 	modelLabel,
 	levels,
@@ -84,6 +85,11 @@ export function ComposerEffortPanel({
 	onUnavailable,
 	engine,
 }: {
+	/**
+	 * `inline` is the control under the model list: a name, the level in force and the slider, with
+	 * no way into the model list or the engine of its own, and it never takes the keyboard.
+	 */
+	variant?: 'panel' | 'inline'
 	/** Identifies the model and conversation the levels belong to. */
 	scope: string
 	modelLabel: string
@@ -96,9 +102,9 @@ export function ComposerEffortPanel({
 	loading: boolean
 	disabled: boolean
 	onChange: (effort: ReasoningEffort | undefined) => void
-	onShowModels: () => void
+	onShowModels?: () => void
 	/** The model turned out to offer no choice of effort. */
-	onUnavailable: () => void
+	onUnavailable?: () => void
 	/** The engine in force and the way into the engine view; absent where engines are not offered. */
 	engine?: {
 		id: HarnessView['selected']
@@ -111,44 +117,61 @@ export function ComposerEffortPanel({
 	const slider = useRef<HTMLDivElement>(null)
 	// The CSS fill stays until the shader's first frame lands, and returns if WebGL is lost.
 	const [shaderReady, setShaderReady] = useState(false)
+	const inline = variant === 'inline'
 	const unavailable = !loading && levels.length < 2
 	useEffect(() => {
-		if (unavailable) onUnavailable()
+		if (unavailable) onUnavailable?.()
 	}, [unavailable, onUnavailable])
 	// The slider takes the keyboard whenever it appears, so arrows work straight away; it is absent
 	// while the levels are still being read. The popup reclaims focus when the control that was
 	// clicked to get here unmounts, so focus is placed again once that has settled.
 	useEffect(() => {
-		if (loading) return
+		if (loading || inline) return
 		const input = slider.current?.querySelector<HTMLElement>('input[type="range"]')
 		input?.focus({ preventScroll: true })
 		const frame = requestAnimationFrame(() => {
 			if (document.activeElement !== input) input?.focus({ preventScroll: true })
 		})
 		return () => cancelAnimationFrame(frame)
-	}, [loading])
+	}, [loading, inline])
 	const index = value ? Math.max(0, levels.indexOf(value)) : 0
 	const label = value ? effortLabel(value) : 'Model default'
 	const defaultIndex = defaultStop(levels, defaultValue)
+	if (inline && unavailable) return null
 	return (
 		<div
 			className="composer-effort-panel"
+			data-variant={inline ? 'inline' : undefined}
 			data-scope={scope}
 			data-unset={!value || undefined}
 			data-shader={shaderReady ? 'on' : undefined}
 		>
 			<div className="composer-effort-header">
-				<div className="composer-effort-title">
-					<output className="composer-effort-value" aria-live="polite">
-						{label}
-					</output>
-					<button type="button" className="composer-effort-model" onClick={onShowModels}>
-						<span>{modelLabel}</span>
-						<ChevronRight aria-hidden="true" />
-						<span className="sr-only">, change model</span>
-					</button>
-				</div>
-				{engine && (
+				{inline ? (
+					<div className="composer-effort-title">
+						<span
+							className="composer-effort-heading"
+							title="Lower is faster. Higher thinks longer."
+						>
+							Reasoning effort
+						</span>
+						<output className="composer-effort-value" aria-live="polite">
+							{label}
+						</output>
+					</div>
+				) : (
+					<div className="composer-effort-title">
+						<output className="composer-effort-value" aria-live="polite">
+							{label}
+						</output>
+						<button type="button" className="composer-effort-model" onClick={onShowModels}>
+							<span>{modelLabel}</span>
+							<ChevronRight aria-hidden="true" />
+							<span className="sr-only">, change model</span>
+						</button>
+					</div>
+				)}
+				{!inline && engine && (
 					<span className="engine-controls">
 						<EngineChip
 							engine={engine.id}
@@ -167,7 +190,7 @@ export function ComposerEffortPanel({
 					</span>
 				)}
 			</div>
-			{engine?.surface && <SurfaceCaption value={engine.surface.value} />}
+			{!inline && engine?.surface && <SurfaceCaption value={engine.surface.value} />}
 			{loading ? (
 				<output className="composer-effort-status">
 					<LoaderCircleIcon className="composer-effort-spinner" aria-hidden="true" />
@@ -242,7 +265,9 @@ export function ComposerEffortPanel({
 							</span>
 						))}
 					</div>
-					<p className="composer-effort-hint">Lower is faster. Higher thinks longer.</p>
+					{!inline && (
+						<p className="composer-effort-hint">Lower is faster. Higher thinks longer.</p>
+					)}
 				</>
 			)}
 		</div>

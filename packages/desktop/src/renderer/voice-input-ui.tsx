@@ -68,7 +68,7 @@ export function micPresentation(input: {
 	return { label: 'Turn on voice input', phase, pressed: false, opensSettings: false }
 }
 
-/** A quiet icon in the composer: off, starting, listening, hearing speech, or writing it down. */
+/** A quiet icon in the composer, shown once voice input is set up: off, starting, listening, hearing speech, or writing it down. */
 export function VoiceMicButton({
 	voice,
 	engine,
@@ -81,6 +81,9 @@ export function VoiceMicButton({
 	onOpenSettings(): void
 }) {
 	if (!voice.supported || !engine.supported) return null
+	// Until voice input has been set up the composer has no microphone: Settings, under Speech, is
+	// where it is turned on, and the button appears once it is. A session already listening keeps it.
+	if (voice.phase === 'off' && engine.state?.installation !== 'ready') return null
 	const view = micPresentation({ voice, engine, hasConversation })
 	const unavailable = view.reason !== undefined
 	const tip = view.reason ?? (view.phase === 'off' ? view.label : PHASE_STATUS[view.phase])

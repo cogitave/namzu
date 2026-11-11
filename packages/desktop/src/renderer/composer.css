@@ -69,7 +69,7 @@
 	min-height: 36px;
 	margin: 0 auto 4px;
 	padding: 4px 8px;
-	color: var(--foreground);
+	color: var(--muted-foreground);
 }
 /* After the first message the tray fades and collapses so the composer settles instead of jumping. */
 .composer-context-above[data-leaving] {
@@ -99,11 +99,17 @@
 .composer-context-above .composer-project-control {
 	flex: 0 1 auto;
 	min-width: 0;
-	max-width: 38%;
+	max-width: 100%;
 	justify-content: flex-start;
 	height: 28px;
 	padding-inline: 5px;
 	border-radius: var(--radius-pill);
+	font-size: 13px;
+	line-height: 18px;
+	color: var(--muted-foreground);
+}
+.composer-context-above
+	.composer-project-control:is(:hover, :focus-visible, [aria-expanded="true"]) {
 	color: var(--foreground);
 }
 /* The page edge under the composer is solid, so a long reply never shows through the gap below the card. */
@@ -115,25 +121,6 @@
 	height: 24px;
 	background: var(--background);
 	pointer-events: none;
-}
-.composer-computer-label {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	min-width: 0;
-	font-size: 12px;
-	line-height: 18px;
-	white-space: nowrap;
-	color: var(--foreground);
-}
-.composer-computer-label > svg {
-	flex: none;
-	width: 14px;
-	height: 14px;
-}
-.composer-computer-label > span {
-	overflow: hidden;
-	text-overflow: ellipsis;
 }
 .composer-harness-mark .namzu-wordmark {
 	font-size: 5px;
@@ -173,10 +160,10 @@
 .normal-composer-shell .composer-permission-control {
 	min-width: 0;
 	gap: 5px;
-	padding-inline: 5px;
+	padding-inline: 8px;
 	font-size: var(--text-ui-caption, 13px);
 	font-weight: 400;
-	color: var(--foreground);
+	color: var(--muted-foreground);
 }
 .normal-composer-shell .composer-permission-control[data-composer-permission="auto"] {
 	color: var(--warning-foreground);
@@ -196,8 +183,41 @@
 .normal-composer-shell .model-picker-trigger {
 	max-width: 100%;
 	gap: 5px;
-	padding-inline: 6px;
+	padding-inline: 8px;
 	font-size: var(--text-ui-caption, 13px);
+	color: var(--muted-foreground);
+}
+.normal-composer-shell .model-picker-trigger-model {
+	color: inherit;
+}
+/* The chin is quiet: permission and model are plain muted words, and the chevron is drawn on hover or focus. */
+.normal-composer-shell .composer-permission-control [data-composer-control-chevron],
+.normal-composer-shell .model-picker-trigger [data-composer-control-chevron],
+.composer-context-above .composer-project-control [data-composer-control-chevron] {
+	width: 0;
+	margin-inline: 0;
+	opacity: 0;
+	transition: width 140ms var(--motion-ease), opacity 140ms var(--motion-ease);
+}
+.normal-composer-shell
+	:is(.composer-permission-control, .model-picker-trigger):is(
+		:hover,
+		:focus-visible,
+		[aria-expanded="true"]
+	)
+	[data-composer-control-chevron],
+.composer-context-above
+	.composer-project-control:is(:hover, :focus-visible, [aria-expanded="true"])
+	[data-composer-control-chevron] {
+	width: 12px;
+	opacity: 0.7;
+}
+@media (prefers-reduced-motion: reduce) {
+	.normal-composer-shell .composer-permission-control [data-composer-control-chevron],
+	.normal-composer-shell .model-picker-trigger [data-composer-control-chevron],
+	.composer-context-above .composer-project-control [data-composer-control-chevron] {
+		transition: none;
+	}
 }
 @container composer-surface (max-width: 420px) {
 	.composer-context-above {
@@ -287,6 +307,46 @@
 	overflow-x: hidden;
 	overflow-y: auto;
 	overscroll-behavior: contain;
+}
+.composer-project-computer {
+	flex: none;
+	min-width: 0;
+	margin: 0;
+	padding: 6px 0 2px;
+	border: 0;
+	border-top: 1px solid var(--border);
+}
+.composer-project-computer-label {
+	float: left;
+	width: 100%;
+	padding: 0 8px 2px;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	line-height: 18px;
+}
+.composer-project-computer-row {
+	clear: both;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 32px;
+	padding: 0 8px;
+	font-size: 13px;
+}
+.composer-project-computer-row > svg:first-child {
+	flex: none;
+	width: 14px;
+	height: 14px;
+	color: var(--muted-foreground);
+}
+.composer-project-computer-row > span {
+	flex: 1;
+	min-width: 0;
+}
+.composer-project-computer-row > svg:last-child {
+	flex: none;
+	width: 14px;
+	height: 14px;
 }
 .composer-project-list {
 	flex: 1 1 auto;

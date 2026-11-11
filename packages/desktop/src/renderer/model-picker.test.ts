@@ -2,6 +2,7 @@ import { type ComponentProps, createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, expect, it, vi } from 'vitest'
 import type { ModelCatalogueView, ProviderView } from '../shared/protocol.js'
+import { ModelMore } from './model-picker-more.js'
 import { ModelPicker } from './model-picker.js'
 
 const ready = vi.hoisted(() => ({
@@ -80,7 +81,7 @@ it('keeps a single native catalogue a plain, checked model list without redundan
 	expect(html).not.toContain('Recommended set of models')
 })
 
-it('retains actual provider navigation and the exact selected provider/model when catalogues share IDs', () => {
+it('lists only the provider in use and keeps the others behind More, with the exact selected model when catalogues share IDs', () => {
 	catalogue('first', [{ id: 'shared', label: 'First model' }])
 	catalogue('second', [{ id: 'shared', label: 'Second model' }])
 	const html = render({
@@ -90,15 +91,72 @@ it('retains actual provider navigation and the exact selected provider/model whe
 		],
 		selected: { id: 'second', model: 'shared' },
 	})
-	expect(html).toContain('role="tablist"')
-	expect(html).toContain('aria-label="Model providers"')
-	expect(html).toContain('aria-label="First provider"')
-	expect(html).toContain('aria-label="Second provider"')
+	// No icon-only provider tabs on the first view: the provider filter is one row away.
+	expect(html).not.toContain('role="tablist"')
+	expect(html).not.toContain('aria-label="Model providers"')
 	expect(html).toContain('aria-label="Second provider Second model"')
 	expect(html).not.toContain('aria-label="First provider First model"')
 	expect(html.match(/<button[^>]*aria-label="Second provider Second model"[^>]*>/)?.[0]).toContain(
 		'aria-checked="true"',
 	)
+	expect(html).toMatch(/class="model-picker-more"[^>]*>.*More.*provider/)
+})
+
+it('puts the model list first, with the effort control and one More row under it and no engine controls', () => {
+	catalogue('codex-cli', [
+		{ id: 'a', label: 'A' },
+		{ id: 'b', label: 'B' },
+	])
+	const html = render(
+		{
+			available: [{ id: 'codex-cli', label: 'Codex', defaultModel: 'a' }],
+			selected: { id: 'codex-cli', model: 'a' },
+		},
+		{
+			settings: { effortLevels: ['low', 'medium', 'high'], effortDefault: 'medium' },
+			effort: 'medium',
+			onEffortChange: vi.fn(),
+			engineControl: { busy: false, disabled: false, onSelect: vi.fn() },
+		},
+	)
+	const list = html.indexOf('model-picker-list')
+	const effort = html.indexOf('composer-effort-panel')
+	const more = html.indexOf('model-picker-more')
+	expect(list).toBeGreaterThan(-1)
+	expect(effort).toBeGreaterThan(list)
+	expect(more).toBeGreaterThan(effort)
+	expect(html.match(/model-picker-more/g)).toHaveLength(1)
+	expect(html).toContain('Reasoning effort')
+	// The engine chip, the Desktop or CLI switch and the Namzu wordmark are not in the first view.
+	expect(html).not.toContain('engine-chip')
+	expect(html).not.toContain('surface-switch')
+	expect(html).not.toContain('composer-harness-mark')
+	expect(html).not.toContain('Choose a model')
+	expect(html).toContain('More<small>: engine</small>')
+})
+
+it('draws no More row when there is one provider and no engine choice', () => {
+	catalogue('zen', [{ id: 'm', label: 'M' }])
+	const html = render({
+		available: [{ id: 'zen', label: 'Zen', defaultModel: 'm' }],
+		selected: { id: 'zen', model: 'm' },
+	})
+	expect(html).not.toContain('model-picker-more')
+})
+
+it('gives a row a second line from what its source published, and none from what it did not', () => {
+	catalogue('zen', [
+		{ id: 'free', label: 'Free one', contextWindow: 128_000, inputPrice: 0, outputPrice: 0 },
+		{ id: 'paid', label: 'Paid one', contextWindow: 200_000, inputPrice: 3, outputPrice: 15 },
+		{ id: 'bare', label: 'Bare one' },
+	])
+	const html = render({
+		available: [{ id: 'zen', label: 'Zen', defaultModel: 'free' }],
+		selected: { id: 'zen', model: 'free' },
+	})
+	expect(html).toContain('<small>128k window · Free</small>')
+	expect(html).toContain('<small>200k window · $3 in · $15 out per 1M</small>')
+	expect(html.match(/<small>/g)).toHaveLength(2)
 })
 
 it('keeps notices and actual model notes in the compact menu, with no Retry button', () => {
@@ -309,18 +367,47 @@ it('shows no separate current-model section when the model is not in the list', 
 	expect(html.match(/role="radio"/g)).toHaveLength(1)
 })
 
-it('marks the provider in use on its tab', () => {
-	catalogue('zen', [{ id: 'listed-model', label: 'Listed model' }])
-	catalogue('codex-cli', [{ id: 'gpt-top', label: 'GPT Top' }])
-	const html = render({
-		available: [
-			{ id: 'zen', label: 'Zen', defaultModel: 'listed-model' },
-			{ id: 'codex-cli', label: 'Codex', defaultModel: 'gpt-top' },
-		],
-		selected: { id: 'codex-cli', model: 'gpt-top' },
-	})
-	expect(html.match(/data-in-use/g)).toHaveLength(1)
-	expect(html).toMatch(/aria-label="Codex"[^>]*data-in-use|data-in-use[^>]*aria-label="Codex"/)
+it('marks the provider in use in the provider filter behind More', () => {
+	const html = renderToStaticMarkup(
+		createElement(ModelMore, {
+			providers: [
+				{ id: 'zen', label: 'Zen', defaultModel: 'listed-model' },
+				{ id: 'codex-cli', label: 'Codex', defaultModel: 'gpt-top' },
+			],
+			shownProvider: 'zen',
+			inUseProvider: 'codex-cli',
+			onPickProvider: vi.fn(),
+			onBack: vi.fn(),
+		}),
+	)
+	expect(html).toContain('Show models from')
+	expect(html).toContain('aria-label="Codex, in use"')
+	expect(html).not.toContain('aria-label="Zen, in use"')
+	expect(html.match(/<button[^>]*aria-label="Zen"[^>]*>/)?.[0]).toContain('aria-checked="true"')
+})
+
+it('holds the engine, where it runs and the way back behind More', () => {
+	const html = renderToStaticMarkup(
+		createElement(ModelMore, {
+			engine: {
+				id: 'namzu',
+				label: 'Namzu',
+				disabled: false,
+				onOpen: vi.fn(),
+				surface: { value: 'desktop', onChange: vi.fn(), disabled: false },
+			},
+			shownProvider: 'zen',
+			inUseProvider: 'zen',
+			onPickProvider: vi.fn(),
+			onBack: vi.fn(),
+		}),
+	)
+	expect(html).toContain('aria-label="Engine: Namzu"')
+	expect(html).toContain('aria-label="Where this engine runs"')
+	expect(html).toContain('Desktop: you chat with this engine in this window.')
+	expect(html).toContain('Models')
+	// With fewer than two providers there is no filter to draw.
+	expect(html).not.toContain('Show models from')
 })
 
 it('keeps capability feedback inside the model list', () => {

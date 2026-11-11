@@ -261,3 +261,35 @@
 .composer-effort-panel .surface-caption {
 	padding: 0;
 }
+
+/* Under the model list the control is a quiet row: its name, the level in force, then the slider. */
+.composer-effort-panel[data-variant="inline"] {
+	gap: 6px;
+	padding: 8px 12px 6px;
+	border-top: 1px solid var(--border);
+}
+.composer-effort-panel[data-variant="inline"] .composer-effort-header {
+	min-height: 0;
+	flex-wrap: nowrap;
+	align-items: center;
+}
+.composer-effort-panel[data-variant="inline"] .composer-effort-title {
+	display: flex;
+	flex: 1 1 auto;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 8px;
+}
+.composer-effort-heading {
+	color: var(--foreground);
+	font-size: 13px;
+	line-height: 18px;
+}
+.composer-effort-panel[data-variant="inline"] .composer-effort-value {
+	color: var(--muted-foreground);
+	font-size: 12px;
+	font-weight: 400;
+}
+.composer-effort-panel[data-variant="inline"] .composer-effort-scale {
+	font-size: 12px;
+}
