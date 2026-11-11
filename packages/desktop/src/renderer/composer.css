@@ -104,18 +104,26 @@
 	}
 }
 .composer-row-project {
-	display: flex;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
 	flex: 0 1 auto;
 	min-width: 0;
 }
-/* After the first message the project line fades out, and the permission mode keeps its place. */
+.composer-row-project > * {
+	min-width: 0;
+}
+/* After the first message the project line fades out and its room closes with it, so the permission
+   mode slides to its place instead of jumping when the line unmounts. */
 .composer-row-project[data-leaving] {
+	grid-template-columns: minmax(0, 0fr);
 	opacity: 0;
+	overflow: hidden;
 	pointer-events: none;
 	animation: composer-row-project-out 150ms var(--motion-ease) both;
 }
 @keyframes composer-row-project-out {
 	from {
+		grid-template-columns: minmax(0, 1fr);
 		opacity: 1;
 	}
 }

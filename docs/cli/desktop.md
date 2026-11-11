@@ -3624,7 +3624,7 @@ popups, narrow behaviour and the approval card's shape.
 directly above the box with about 8 px between them: no surface is drawn behind both, there is no outer "Waiting for your
 decision" box and no line of key hints. The preview of the change inside it is a band from edge to edge of the card with the
 darker code fill and no border or corners of its own. While the card waits, the box under it is the ordinary box, one row
-tall, with the waiting text and Stop, and the row of settings stays under it. The card states what the request itself carries
+tall, with the waiting text and Stop, and the row of settings stays under it, the model included (disabled while the reply is held, as during any reply). The card states what the request itself carries
 and nothing the model said about its action.
 
 - **The question** is one 14 px sentence with the target as a mono chip: "Edit `src/auth/session.ts`?",

@@ -175,6 +175,27 @@ test("after the first message the project line is gone from the row, the context
 	});
 });
 
+test("sending the first message slides the permission mode to its place; it never jumps", { timeout: 280000 }, async () => {
+	await inWorld({}, async (w) => {
+		const page = w.page;
+		await page.evaluate(() => {
+			window.__lefts = [];
+			const sample = () => {
+				const mode = document.querySelector('[data-composer-row] [aria-label^="Permissions"]');
+				if (mode) window.__lefts.push(Math.round(mode.getBoundingClientRect().left));
+				requestAnimationFrame(sample);
+			};
+			sample();
+		});
+		await send(w, "hello there");
+		await expect(page.getByText("Scripted default reply.").first()).toBeVisible({ timeout: T });
+		await expect(page.locator("[data-composer-row] .composer-project-control")).toHaveCount(0, { timeout: T });
+		const lefts = await page.evaluate(() => window.__lefts);
+		const biggest = lefts.slice(1).reduce((most, left, i) => Math.max(most, Math.abs(left - lefts[i])), 0);
+		assert.ok(biggest < 120, `the mode moved ${biggest}px in one frame`);
+	});
+});
+
 test("in a narrow window the percentage goes first, the model name is cut, and the permission mode is never cut", { timeout: 280000 }, async () => {
 	const longModel = "claude-sonnet-5-5-20261105-extended-context-preview-with-a-very-long-name";
 	await inWorld(

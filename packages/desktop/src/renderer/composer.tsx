@@ -956,7 +956,7 @@ export function Composer({
 									)}
 								</div>
 								<div className="composer-row-end">
-									{!waiting && <div className="composer-selected-model">{modelControl}</div>}
+									<div className="composer-selected-model">{modelControl}</div>
 									<ContextReadout usage={usage} />
 								</div>
 							</div>

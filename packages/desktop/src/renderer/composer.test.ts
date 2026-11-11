@@ -402,8 +402,8 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 	expect(button(html, 'Attach files')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Permissions')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Plugins')).not.toMatch(/\bdisabled=/)
-	// The model cannot change while a reply runs, so the row leaves its picker out while the card waits; it is back once the card is answered. The permission mode stays.
-	expect(html).not.toContain('aria-label="Model: space-bunny-free')
+	// The row keeps the model at its right while the card waits; it cannot change while a reply runs, so it is disabled.
+	expect(html).toContain('aria-label="Model: space-bunny-free')
 	expect(html).toContain('composer-waiting')
 	expect(button(html, 'Remove notes.txt')).not.toMatch(/\bdisabled=/)
 	expect(html).toContain('aria-label="Tool approval"')
@@ -701,6 +701,24 @@ it('turns Stop into a "Stopping" state until the reply ends', () => {
 it('shows no Stopping state once the reply is over', () => {
 	const html = render({ running: false, stopping: true, draft: 'next' })
 	expect(html).not.toContain('Stopping reply')
+})
+
+it('keeps the model in the row while an approval waits, and closes the project line\'s room as it leaves', () => {
+	const html = render({ connected: true, empty: false, permissions: [
+			{
+				id: 'approval',
+				sessionId: 'conversation',
+				projectId: 'p',
+				calls: [{ id: 'call', name: 'bash', input: { command: 'pwd' }, isDestructive: false }],
+			},
+		] })
+	const row = html.indexOf('data-composer-row')
+	expect(html.indexOf('aria-label="Model: ', row)).toBeGreaterThan(row)
+	const css = readFileSync(new URL('./composer.css', import.meta.url), 'utf8')
+	// The project line collapses its width while it fades, so the mode slides instead of jumping on unmount.
+	expect(css).toMatch(
+		/@keyframes composer-row-project-out \{\s*from \{\s*grid-template-columns: minmax\(0, 1fr\);/,
+	)
 })
 
 it('keeps the row quiet and in its place: no fill or border at rest, the mode never shrinks, the percentage goes first', () => {
