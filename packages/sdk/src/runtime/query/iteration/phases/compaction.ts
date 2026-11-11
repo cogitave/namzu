@@ -7,8 +7,8 @@ import { replaceableSummaries, summarizeWithModel } from '../../../../compaction
 import {
 	type CompactionPlan,
 	DEFAULT_SOFT_TARGET,
-	planCompaction,
 	canShedSalienceWorkingSet,
+	planCompaction,
 	planSalienceWorkingSet,
 } from '../../../../compaction/plan.js'
 import type { ContextReducer, ContextReduction } from '../../../../compaction/reducer.js'
