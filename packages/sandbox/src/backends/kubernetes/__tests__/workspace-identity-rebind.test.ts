@@ -250,13 +250,9 @@ function watch(workspace: KubernetesWorkspace): KubernetesGuestRestart[] {
 }
 
 /** Resolve once the guest has parsed a request with this `op` AFTER `from`. */
-async function waitForRequest(op: string, from: number, timeoutMs = 5_000): Promise<void> {
-	const deadline = Date.now() + timeoutMs
-	while (Date.now() < deadline) {
-		if (agent?.requests.slice(from).some((request) => request.op === op)) return
-		await new Promise((resolve) => setTimeout(resolve, 5))
-	}
-	throw new Error(`the scripted agent never received a ${op} request`)
+async function waitForRequest(op: string, from: number): Promise<void> {
+	if (!agent) throw new Error('fixtures not started')
+	await agent.whenRequest(op, from)
 }
 
 describe('what a handle reports it is bound to', () => {

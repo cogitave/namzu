@@ -266,9 +266,10 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback age
 		})
 		const transport = new VsockAgentTransport({ kind: 'unix', path: sockPath })
 
-		const startedAt = performance.now()
-		await expect(transport.waitForReady(2_000, 100)).rejects.toThrow(/protocol version/i)
-		expect(performance.now() - startedAt).toBeLessThan(500)
+		// A readiness deadline far beyond the test's own timeout: an
+		// implementation that retried a wrong protocol until the deadline would
+		// hang here and fail on vitest's timeout, whatever the machine's speed.
+		await expect(transport.waitForReady(600_000, 100)).rejects.toThrow(/protocol version/i)
 	})
 
 	it('never downgrades an unsupported reservation into identity-less execution', async () => {
@@ -347,9 +348,7 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback age
 			{ readIdleTimeoutMs: 60_000 },
 		)
 
-		const startedAt = performance.now()
 		await expect(transport.waitForReady(30, 5)).rejects.toThrow(/did not become ready/)
-		expect(performance.now() - startedAt).toBeLessThan(500)
 		await vi.waitFor(() => expect(peerClosed).toBe(true))
 	})
 

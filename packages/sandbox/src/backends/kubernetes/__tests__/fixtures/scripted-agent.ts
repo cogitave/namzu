@@ -159,6 +159,13 @@ export interface ScriptedAgent {
 	readonly port: number
 	/** Every request envelope the server parsed, in order. */
 	readonly requests: readonly Record<string, unknown>[]
+	/**
+	 * Resolves once a request with this `op` has been parsed at an index
+	 * `>= from`. Settles on the arrival itself, so a case never guesses how
+	 * long the loopback takes; a request that never comes is left to the
+	 * test's own timeout.
+	 */
+	whenRequest(op: string, from: number): Promise<void>
 	/** Every TCP connection accepted, in order. A call that refuses before
 	 * dialing leaves this untouched, which is how "no dial" is asserted. */
 	readonly connections: readonly ScriptedAgentConnection[]
@@ -303,6 +310,16 @@ export async function startScriptedAgent(
 	options: ScriptedAgentOptions = {},
 ): Promise<ScriptedAgent> {
 	const requests: Record<string, unknown>[] = []
+	const requestWaiters: { op: string; from: number; resolve: () => void }[] = []
+	const settleRequestWaiters = (): void => {
+		for (let i = requestWaiters.length - 1; i >= 0; i -= 1) {
+			const waiter = requestWaiters[i]
+			if (waiter && requests.slice(waiter.from).some((r) => r.op === waiter.op)) {
+				requestWaiters.splice(i, 1)
+				waiter.resolve()
+			}
+		}
+	}
 	const connections: ScriptedAgentConnection[] = []
 	const dispatched: Record<string, unknown>[] = []
 	let stdout = options.stdout ?? DEPRIVILEGED_PROC_STATUS
@@ -393,6 +410,7 @@ export async function startScriptedAgent(
 					continue
 				}
 				requests.push(request)
+				settleRequestWaiters()
 				let op = request.op
 				if (op === 'healthz' && healthzRefusal !== undefined) {
 					// The gate's answer, not `dispatch`'s: a named reason and
@@ -654,6 +672,11 @@ export async function startScriptedAgent(
 	return {
 		port,
 		requests,
+		whenRequest: (op, from) =>
+			new Promise<void>((resolve) => {
+				requestWaiters.push({ op, from, resolve })
+				settleRequestWaiters()
+			}),
 		connections,
 		dispatched,
 		fence: () => {

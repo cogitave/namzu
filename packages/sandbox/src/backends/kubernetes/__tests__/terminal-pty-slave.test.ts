@@ -268,8 +268,9 @@ function openTerminal(body: Record<string, unknown>): Promise<TerminalStream> {
 		const outcome = new Promise<void>((resolveOutcome) => {
 			arrived = resolveOutcome
 		})
-		const timer = setTimeout(() => reject(new Error('the terminal never answered')), 10_000)
-		timer.unref()
+		// No deadline of its own: a terminal that never answers is a hang the
+		// calling case's per-test timeout reports, rather than a verdict a
+		// slow machine could reach first.
 		socket.on('connect', () => {
 			socket.write(encodeFrame(JSON.stringify({ op: 'terminal', token: POD_UID, body })))
 		})
@@ -301,7 +302,6 @@ function openTerminal(body: Record<string, unknown>): Promise<TerminalStream> {
 		socket.on('close', () => arrived())
 		outcome
 			.then(() => {
-				clearTimeout(timer)
 				resolve({
 					text: () => printed,
 					outcome: () => answered ?? {},
@@ -514,21 +514,20 @@ async function waitsForTreeGone(pids: number[], timeoutMs = 1_000): Promise<numb
  */
 async function provesSessionTeardown(terminal: TerminalStream): Promise<void> {
 	const match = await (async () => {
-		const deadline = Date.now() + 5_000
+		// No deadline: a shell that never reports its job is a hang the case's
+		// per-test timeout names, not a verdict a slow machine could reach first.
 		for (;;) {
 			const found = /JOBPID (\d+)/.exec(terminal.text())
 			if (found) return found
-			if (Date.now() > deadline) {
-				throw new Error(`the shell never reported its job; saw ${JSON.stringify(terminal.text())}`)
-			}
 			await delay(10)
 		}
 	})()
 	const job = Number(match[1])
 	expect(isAlive(job)).toBe(true)
 	terminal.close()
-	const deadline = Date.now() + 5_000
-	while (isAlive(job) && Date.now() < deadline) await delay(25)
+	// Polled with no deadline of its own: the calling case's 20 s per-test
+	// timeout ends a job that never dies, and a slow machine only waits longer.
+	while (isAlive(job)) await delay(25)
 	expect(isAlive(job)).toBe(false)
 }
 
