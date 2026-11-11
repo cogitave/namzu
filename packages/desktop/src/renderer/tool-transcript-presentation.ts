@@ -1,6 +1,6 @@
 import type { ToolCallView, ToolFacts, ToolFailureReason } from '@namzu/sdk'
 import type { ProjectedToolCall, ThreadState } from '../shared/projection.js'
-import { changeTotals } from './changes-totals.js'
+import { receiptCounts, receiptOf } from './changes-totals.js'
 import type { ShellCellData } from './shell-cell.js'
 import { humanBytes } from './tool-output.js'
 import { baseName } from './turn-changes.js'
@@ -73,6 +73,10 @@ export interface ToolTranscriptPresentation {
 	detailView?: ToolCallView
 	/** What the person typed when they declined and said what to do instead; the transcript shows it. */
 	note?: string
+	/** Why the engine would not run this action, in one line the kernel wrote; drawn under the row. */
+	reason?: string
+	/** The rule's own wording behind `reason`, for a person who wants it; never the headline. */
+	reasonDetail?: string
 }
 
 const statusLabels: Record<ToolTranscriptState, string> = {
@@ -448,6 +452,9 @@ export interface FactsRow {
 	body?: ToolBody
 	stats?: { added: number; removed: number }
 	operation?: 'created' | 'edited' | 'deleted'
+	/** Why a refused action did not run; see `ToolTranscriptPresentation.reason`. */
+	reason?: string
+	reasonDetail?: string
 }
 
 /** The headline of a command from the command itself and how its call stands. */
@@ -534,11 +541,19 @@ function failureRow(
 				? `Blocked: ${what} needs administrator rights`
 				: `Blocked: ${what} isn’t allowed`
 		const typed = call?.kind === 'command' ? nonBlank(call.command) : undefined
+		// A fixed plain sentence per kind of refusal; the rule's own wording stays as detail.
+		const reason =
+			facts.reason === 'needs_administrator'
+				? 'It needs administrator rights, so it was stopped before it ran.'
+				: 'It was stopped before it ran, so nothing changed.'
+		const detail = nonBlank(facts.note)?.trim()
 		return {
 			label: main,
 			main,
 			kind: command ? 'command' : 'other',
 			...(typed ? { tooltip: clip(typed.trim(), 1000) } : {}),
+			reason,
+			...(detail ? { reasonDetail: detail } : {}),
 		}
 	}
 	const kind: ActionKind =
@@ -728,21 +743,6 @@ function declinedPresentation(tool: ProjectedToolCall): ToolTranscriptPresentati
 	}
 }
 
-const statsCache = new WeakMap<object, { added: number; removed: number }>()
-
-/** Lines an edit added and removed, worked out once per receipt. */
-function diffStats(view: Extract<ToolCallView, { kind: 'diff' }>): {
-	added: number
-	removed: number
-} {
-	const hit = statsCache.get(view)
-	if (hit) return hit
-	const totals = changeTotals([view])
-	const stats = { added: totals.added, removed: totals.removed }
-	statsCache.set(view, stats)
-	return stats
-}
-
 /** Present only admitted tool metadata; never infer outcomes from result text. */
 export function toolTranscriptPresentation(
 	thread: ThreadState,
@@ -767,6 +767,8 @@ export function toolTranscriptPresentation(
 	let body: ToolBody | undefined
 	let shell: ShellCellData | undefined
 	let stats: { added: number; removed: number } | undefined
+	let reason: string | undefined
+	let reasonDetail: string | undefined
 	const observed = observedActionLabel(tool, state)
 	const explored = exploration(tool)
 	const palName = palMessageName(tool)
@@ -799,14 +801,9 @@ export function toolTranscriptPresentation(
 		if (path) file = { name, path }
 		label = authored ?? `${lead} ${name}`
 		if (state === 'completed') {
-			// One count from one diff: the kernel's own, when it reported it. Only a
-			// conversation saved before edits carried counts is compared here.
-			const reported =
-				tool.facts?.kind === 'write' || tool.facts?.kind === 'edit' ? tool.facts : undefined
-			stats =
-				reported && (reported.added !== undefined || reported.removed !== undefined)
-					? { added: reported.added ?? 0, removed: reported.removed ?? 0 }
-					: diffStats(view)
+			// The same count the reply card and the Changes panel read.
+			const receipt = receiptOf(tool)
+			stats = receipt ? receiptCounts(receipt) : undefined
 		}
 	} else if (typed) {
 		// The words come from typed fields; the model's receipt is not drawn.
@@ -821,6 +818,8 @@ export function toolTranscriptPresentation(
 		shell = typed.shell
 		stats = typed.stats
 		operation = typed.operation
+		reason = typed.reason
+		reasonDetail = typed.reasonDetail
 		detailView = undefined
 	} else if (explored?.kind === 'read') {
 		// A conversation saved before tools reported fields: the call's own label is all there is.
@@ -888,6 +887,8 @@ export function toolTranscriptPresentation(
 		...(stats ? { stats } : {}),
 		...(body ? { body } : {}),
 		...(shell ? { shell } : {}),
+		...(reason ? { reason } : {}),
+		...(reasonDetail ? { reasonDetail } : {}),
 		...(operation ? { operation } : {}),
 		...(tooltip ? { tooltip } : {}),
 		state,

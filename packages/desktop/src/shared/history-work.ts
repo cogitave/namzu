@@ -1,4 +1,5 @@
 import type { ToolCallView, ToolFacts } from '@namzu/sdk'
+import { type TurnOutcomeSummary, readOutcomeSummary } from './outcome-protocol.js'
 import {
 	type ThreadState,
 	type TimelineEntry,
@@ -26,6 +27,8 @@ export interface HistoryTurn {
 	durationMs?: number
 	startedAt?: number
 	endedAt?: number
+	/** What the turn changed and what checked it, from the kernel's record of it. */
+	outcome?: TurnOutcomeSummary
 }
 export interface HistoryTool {
 	turnId: string
@@ -428,9 +431,11 @@ export function restoreHistoryWork(
 							: saved.reason && reasons.has(saved.reason)
 								? saved.reason
 								: undefined
+		const outcome = readOutcomeSummary(saved.outcome)
 		turnStates[turn] = {
 			turnId,
 			...(reason ? { stopReason: reason, reason } : {}),
+			...(outcome ? { outcome } : {}),
 			...(count(saved.durationMs) ? { recordedDurationMs: saved.durationMs } : {}),
 			...(journalTime(saved.startedAt) ? { startedTime: journalTime(saved.startedAt) } : {}),
 			...(journalTime(saved.endedAt) ? { endedTime: journalTime(saved.endedAt) } : {}),

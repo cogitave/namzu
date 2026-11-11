@@ -189,6 +189,7 @@ export function admitToolFacts(value: unknown): ToolFacts | undefined {
 				kind: 'failure',
 				reason,
 				subject: text(value.subject),
+				note: text(value.note),
 			})
 		}
 		default:

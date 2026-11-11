@@ -45,6 +45,8 @@ function streamLines(
 	tone: 'out' | 'err',
 	limit: number,
 	expanded: boolean,
+	/** A command that ended badly shows the end of what it printed: that is where the reason is. */
+	fromEnd = false,
 ): { lines: ShellLine[]; hidden: number } {
 	if (!stream) return { lines: [], hidden: 0 }
 	const head = split(stream.head)
@@ -67,6 +69,11 @@ function streamLines(
 		}
 	}
 	const total = Math.max(stream.total, head.length + tail.length + stream.omitted)
+	if (fromEnd) {
+		// The window keeps the last lines in `tail` when the output was cut, else all of it is in `head`.
+		const last = (tail.length > 0 ? tail : head).slice(-limit)
+		return { lines: last.map((text) => ({ text, tone })), hidden: Math.max(0, total - last.length) }
+	}
 	// One hidden line would cost a row to say so, so it is simply shown.
 	const take = total - limit === 1 && head.length > limit ? limit + 1 : limit
 	const shown = head.slice(0, take)
@@ -75,8 +82,8 @@ function streamLines(
 
 export function shellCellRows(cell: ShellCellData, expanded: boolean): ShellCellRows {
 	const limit = cell.failed ? SHELL_FAILURE_LINES : SHELL_PREVIEW_LINES
-	const out = streamLines(cell.stdout, 'out', limit, expanded)
-	const err = streamLines(cell.stderr, 'err', limit, expanded)
+	const out = streamLines(cell.stdout, 'out', limit, expanded, cell.failed)
+	const err = streamLines(cell.stderr, 'err', limit, expanded, cell.failed)
 	const lines = [...out.lines, ...err.lines]
 	const hidden = out.hidden + err.hidden
 	if (cell.notice) return { lines: [], hidden: 0, note: cell.notice, noteTone: 'dim' }

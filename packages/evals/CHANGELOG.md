@@ -1,5 +1,12 @@
 # @namzu/evals
 
+## 1.0.3
+
+### Patch Changes
+
+- 3563f41: `@namzu/evals` gains the `kernel/delegation` suite: twelve scripted cases that pin what the kernel hands a parent when it delegates (the child's words framed as untrusted, the kernel's own record line after them, a failure that is not an answer), what it does with parallel writers and a finished child that gets a follow-up, and how it refuses past the depth and width caps. It needs an `@namzu/sdk` that carries the turn outcome record on the `Agent` tool; against an older SDK its record-line case fails. Nothing to change on your side.
+- ad65c0c: The `edit` tool no longer refuses a call whose meaning is clear: an empty `edits: []` next to one `old_string`/`new_string`, or (as a precaution) a one-entry `edits` that repeats the top-level edit, now applies as that single edit. A real conflict is still refused, now with both accepted shapes shown. Validation errors from every tool name the field in plain words instead of zod's "Too small" wording. Nothing to change on your side; a host that matched the old message text of these refusals should match on the `invalid_arguments` failure reason instead. `@namzu/evals` gains one scripted case for the empty-batch call.
+
 ## 1.0.2
 
 ### Patch Changes

@@ -78,6 +78,22 @@ describe('looksBinary', () => {
 	})
 })
 
+describe('a refusal carries its reason', () => {
+	it('keeps the one-line note when a saved record is read back, and drops one that is not text', () => {
+		const note = 'It pipes a download into a shell'
+		expect(admitToolFacts({ kind: 'failure', reason: 'blocked', subject: 'bash', note })).toEqual({
+			kind: 'failure',
+			reason: 'blocked',
+			subject: 'bash',
+			note,
+		})
+		expect(admitToolFacts({ kind: 'failure', reason: 'blocked', note: 7 })).toEqual({
+			kind: 'failure',
+			reason: 'blocked',
+		})
+	})
+})
+
 describe('failureFactsFromError', () => {
 	it('reads the kind from the error code and the subject from its path', () => {
 		expect(failureFactsFromError({ code: 'ENOENT', path: '/p/missing.txt' })).toEqual({

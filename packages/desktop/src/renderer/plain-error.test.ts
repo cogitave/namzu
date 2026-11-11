@@ -16,6 +16,23 @@ const RAW = [
 	'undefined',
 ]
 
+describe('plainError named reads', () => {
+	it('says what is wrong with the undo status and the model, in plain words', () => {
+		expect(plainError(new Error('Namzu returned an invalid undo status.')).text).toMatch(
+			/could not tell which files/,
+		)
+		expect(plainError(new Error('Provider zen is not configured')).text).toMatch(/not set up yet/)
+	})
+	it('names a read that failed without a sentence by what it was reading', () => {
+		expect(plainError(new Error('rpc_failed_-32603'), 'load', 'draftSettings').text).toBe(
+			'Saved message settings could not be loaded. Try again.',
+		)
+		expect(plainError(new Error('rpc_failed_-32603'), 'load', 'send').text).toBe(
+			'Couldn’t load. Try again.',
+		)
+	})
+})
+
 describe('plainError', () => {
 	it.each(RAW)('never shows %j', (raw) => {
 		const { text } = plainError(new Error(raw), 'rename the project')
