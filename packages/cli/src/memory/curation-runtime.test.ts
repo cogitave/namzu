@@ -151,7 +151,8 @@ describe('curation runtime', () => {
 		expect(asked).toEqual([])
 		await vi.advanceTimersByTimeAsync(1)
 		await vi.waitFor(() => expect(asked).toHaveLength(1))
-		expect(await inbox.pending()).toEqual([])
+		// The model is asked before the inbox is cleared, so the clearing is awaited too.
+		await vi.waitFor(async () => expect(await inbox.pending()).toEqual([]))
 	})
 
 	it('what an earlier process left drains after the first turn settles, never during it', async () => {

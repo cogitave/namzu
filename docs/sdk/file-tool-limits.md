@@ -27,6 +27,7 @@ runtime applies to the results of one assistant message. Each section names wher
 A window is `readRange` or `limit`. A caller that names one has chosen its size, so the 256 KiB rule
 does not apply; the token rule does.
 
+- A window the caller named (`readRange`, or `limit`) that leaves lines out ends with `[Lines 2-3 of 4, as asked.]`, not a partial-view marker: the model got what it asked for. Only a cut the kernel imposed is marked as a partial view: the 2,000-line default (`[PARTIAL view - lines 1-2000 of N. Continue with read({ offset: 2000, limit: N }) ...]`) and the token cap below. The result is still reported as not whole (`truncated`), so it earns no full-read credit either way.
 - A file over 256 KiB with no window is refused before it is loaded. The error says to use `offset` and
   `limit`, or to search, and names `allow_large`.
 - A result over 25,000 tokens, on the first page of an unwindowed read, is cut to the leading lines that fit.
@@ -71,6 +72,14 @@ A repeat read of lines the model already has, in a file that has not changed, is
 cap (40,000 characters) and the per-message budget below leave its result alone, because these caps are its
 bound. A host that sets `maxToolOutputChars` explicitly still bounds it.
 
+A tool can set a tighter model-visible cap for its own results with `maxOutputChars` on its definition
+(`defineTool({ maxOutputChars })`). The turn's `maxToolOutputChars` still applies and the smaller of the two wins,
+including when a host turned the turn cap off with `0`; a value that is not a positive finite number is ignored. A
+result over the tool's cap is saved in the session's `tool-results` folder and shown as a head-and-tail preview that
+names the file, exactly as any other oversized result is. The same cap applies to the tool's result when another tool
+calls it (`dispatchTool`) and to model text that differs from the host text. A tool that declares `selfLimitingOutput` is still
+bound by its own `maxOutputChars`.
+
 ## edit and write
 
 `edit` refuses a file the session has not read: `<path> had not been read in this session, so this edit was not
@@ -114,6 +123,10 @@ reviewer. A call on a file that changed since the read therefore reaches no appr
 gets the same text with the failure kind `changed_on_disk`. A path that is missing, outside the roots or never read
 is left to the tool, and `execute` repeats the check, because the file can move again between the question and the run.
 
+### When the text is not found or not unique
+
+The reason codes (`text_not_found`, `not_unique`) and the rules behind them are unchanged. The message now ends with a hint: a miss says to read the lines again and copy them as they are and, when one line of the file matches the first line of `old_string` apart from spacing, names its line number; a `not_unique` miss, which already names the first two lines, says to read around them and pick context that is in only one.
+
 ### One shape per call
 
 An `edit` call is a single edit (`old_string` and `new_string`, or `insertLine` and `new_string`) or a batch
@@ -153,6 +166,8 @@ the name typed. Other files are not checked. There is no notebook editing tool; 
 would corrupt one.
 
 ## grep
+
+The `grep` description says to use `glob` for file names and the `glob` description says to use `grep` for contents. The `bash` description sends reading and searching to `read`, `grep` and `glob`, because a file read through the shell earns no read credit and the next edit of it is refused once, and says to run a test, lint or build command on its own: its output is already trimmed with the head and tail kept, and a pipe (`| tail`, `| grep`) hides the exit status, so the [turn outcome](turn-outcome.md) cannot credit the run. The three descriptions together may grow by at most 250 estimated tokens (characters divided by 4) over their size before this guidance; `tool-guidance.test.ts` pins that sum against the recorded baseline, so the figure is checkable there.
 
 `output_mode` is `files_with_matches` (default), `content` or `count`.
 

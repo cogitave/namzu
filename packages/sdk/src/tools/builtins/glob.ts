@@ -68,7 +68,7 @@ function relativePattern(pattern: string, root: string, sandboxed: boolean): str
 export const GlobTool = defineTool({
 	name: 'glob',
 	description:
-		'Finds regular files by glob pattern in a bounded search. "*" searches one directory; use "**" explicitly for recursive discovery. Skips files that .gitignore and .ignore rules exclude unless include_ignored is set, and files the read rules of the session deny. Returns at most 500 paths and says when a result is limited or a search stopped early. Does not follow symlinks.',
+		'Finds regular files by glob pattern in a bounded search. "*" searches one directory; use "**" explicitly for recursive discovery. Skips files that .gitignore and .ignore rules exclude unless include_ignored is set, and files the read rules of the session deny. Returns at most 500 paths and says when a result is limited or a search stopped early. Does not follow symlinks. To search inside files, use grep.',
 	inputSchema,
 	category: 'filesystem',
 	// Declared so a path outside the turn's roots can be reviewed before the

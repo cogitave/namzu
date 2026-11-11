@@ -106,10 +106,12 @@ describe('ReadFileTool', () => {
 
 		expect(result.success).toBe(true)
 		expect(result.output).toContain('2\ttwo\n3\tthree')
-		// A window over a longer file now says so: the model must be able to
-		// tell "these are all the lines" from "these are the lines I asked
-		// for", or it reasons about a fragment as if it were the file.
-		expect(result.output).toContain('PARTIAL view — lines 2-3 of 4')
+		// A window over a longer file still says so, so the model can tell
+		// "these are all the lines" from "these are the lines I asked for". It
+		// is worded as what was asked, not as a cut: only a cut the cap imposed
+		// is a PARTIAL view.
+		expect(result.output).toContain('[Lines 2-3 of 4, as asked.]')
+		expect(result.output).not.toContain('PARTIAL')
 		expect(result.data).toMatchObject({ truncated: true, returnedLines: 2, totalLines: 4 })
 	})
 
@@ -126,7 +128,7 @@ describe('ReadFileTool', () => {
 				makeContext(dir),
 			)
 			expect(window.data).toMatchObject({ totalLines: total, returnedLines: 5 })
-			expect(window.output).toContain(`lines 1491-1495 of ${total}.`)
+			expect(window.output).toContain(`Lines 1491-1495 of ${total}, as asked.`)
 			expect(window.output).not.toContain('of 1503')
 
 			const tail = await ReadFileTool.execute(

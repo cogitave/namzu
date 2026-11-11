@@ -125,7 +125,8 @@ describe('wave-2b server output and request deadline', () => {
 			content: [],
 		})
 		expect(result.success).toBe(true)
-		expect(result.output).toContain('truncated')
+		expect(result.output).toContain('small')
+		expect(result.output).toContain('namzu-untrusted')
 		expect(result).not.toHaveProperty('data')
 		expect(result).not.toHaveProperty('content')
 	})
@@ -147,9 +148,14 @@ describe('wave-2b server output and request deadline', () => {
 		const found = wrapped.tools()[0]
 		expect(found).toBe(wrapped.tools()[0])
 		if (!found) throw new Error('Missing wrapped definition')
-		expect(
-			(await found.execute({}, {} as Parameters<ToolDefinition['execute']>[1])).output.length,
-		).toBeLessThanOrEqual(MCP_OUTPUT_CHARS)
+		// The tool carries its own cap; the turn's budget keeps the full text in a
+		// file and shows a preview within it, so the wrapper no longer cuts.
+		expect(found.maxOutputChars).toBe(MCP_OUTPUT_CHARS)
+		const body = 'x'.repeat(100_000)
+		const result = await found.execute({}, {} as Parameters<ToolDefinition['execute']>[1])
+		expect(result.output).toContain(body)
+		expect(result.output).toContain('namzu-untrusted')
+		expect(result.output).not.toContain('truncated')
 		current = []
 		expect(wrapped.tools()).toEqual([])
 	})

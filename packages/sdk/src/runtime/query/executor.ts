@@ -2389,7 +2389,7 @@ export class ToolExecutor {
 			toolName: name,
 			toolUseId: nestedId,
 			output: rawOutput,
-			maxChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+			maxChars: this.toolOutputCap(this.config.tools.get(name), false),
 			retainedPreviewChars: this.config.retainedToolPreviewChars,
 			spillDir: this.outputDirectory(),
 			recoveryRoutes: this.recoveryRoutes(),
@@ -2854,11 +2854,7 @@ export class ToolExecutor {
 				]
 			}
 		}
-		// A tool that bounds its own output is exempt from the DEFAULT per-result
-		// cap only; a host that set the cap explicitly still gets it.
-		const maxToolOutputChars =
-			this.config.maxToolOutputChars ??
-			(executedDefinition?.selfLimitingOutput === true ? 0 : DEFAULT_MAX_TOOL_OUTPUT_CHARS)
+		const maxToolOutputChars = this.toolOutputCap(executedDefinition, true)
 		const sourceOutput = output
 		// This owner-bound channel follows the selected receipt after both result
 		// screening and post-tool replacement. ToolResult.data and raw input can
@@ -3763,6 +3759,26 @@ export class ToolExecutor {
 	}
 
 	/**
+	 * The per-result character cap for one tool: the turn's cap, tightened by
+	 * the tool's own `maxOutputChars`. A tool that bounds its own output is
+	 * exempt from the DEFAULT cap only (`exemptSelfLimiting`); a host that set
+	 * the cap explicitly still gets it. 0 means no cap.
+	 */
+	private toolOutputCap(
+		definition: ToolDefinition | undefined,
+		exemptSelfLimiting: boolean,
+	): number {
+		const turn =
+			this.config.maxToolOutputChars ??
+			(exemptSelfLimiting && definition?.selfLimitingOutput === true
+				? 0
+				: DEFAULT_MAX_TOOL_OUTPUT_CHARS)
+		const own = definition?.maxOutputChars
+		if (own === undefined || !Number.isFinite(own) || own <= 0) return turn
+		return turn > 0 ? Math.min(turn, Math.floor(own)) : Math.floor(own)
+	}
+
+	/**
 	 * The host preview and model text may differ; each gets its own text
 	 * budget. Rich bytes are measured separately and withheld whole when
 	 * over their cap, with a notice inside the model text's same hard bound.
@@ -3798,7 +3814,7 @@ export class ToolExecutor {
 						toolName,
 						toolUseId,
 						output: text,
-						maxChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+						maxChars: this.toolOutputCap(this.config.tools.get(toolName), false),
 						...(notice ? { notice } : {}),
 						// A tool may return different host and model text. They must
 						// never compete for the same exclusive spill filename.
