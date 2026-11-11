@@ -44,7 +44,7 @@ describe('testDecisionConnection', () => {
 	})
 
 	it('sends a criteria sentence that does not state the answer', async () => {
-		let sent: { questions?: { q?: { criteria?: string } } } = {}
+		let sent: { questions?: { q?: { criteria?: { true?: string } } } } = {}
 		await testDecisionConnection(
 			http,
 			{},
@@ -56,7 +56,7 @@ describe('testDecisionConnection', () => {
 				readStoredKey: () => null,
 			},
 		)
-		const criteria = sent.questions?.q?.criteria ?? ''
+		const criteria = sent.questions?.q?.criteria?.true ?? ''
 		expect(criteria.length).toBeGreaterThan(10)
 		expect(criteria).not.toMatch(/this is one/i)
 	})

@@ -63,6 +63,8 @@ and prints `Connected · 180 ms` or the plain reason it could not. When the serv
 (OpenRouter does, as `usage.cost`), the line adds it: `Connected · 310 ms · test cost $0.0000021`. The test runs even if the connection is
 wrong, so a typo is found while you are still looking at it.
 
+A yes/no question's guidance is sent as the object the services publish (`criteria: { "true": ... }`), so a model that follows that shape shows `Connected` after one request. A model that refuses it (a 400 naming `questions.q.criteria`) is asked again with the guidance folded into the question under "The answer is yes when:", is remembered for the rest of the session, and also shows `Connected`; the line does not say which form was needed. A model that refuses both reads `Saved, but not connected: the model does not work with Namzu's questions (questions.q.instructions: Invalid input)`: the service's issue list is shown as one line of path and message, and the connection is kept so you can pick another model.
+
 Where things go: the address, deployment and model are written to the `decision` block of your user
 `config.yaml` (and kept in `<NAMZU_HOME>/decision-connection.json`). The key goes to the private
 credential store (`api-keys.json`, under the id `decision`, with the same owner-only protection as a provider
