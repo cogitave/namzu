@@ -277,6 +277,18 @@ export class MCPClient {
 	 */
 	private toolParamHeaders: Map<string, readonly McpParamHeaderBinding[]> = new Map()
 
+	/**
+	 * The longest a `tools/call` can legitimately take on this client, or
+	 * `undefined` when it has only the fixed request deadline.
+	 *
+	 * Defined only with `resetTimeoutOnProgress`: the total cap. A layer that
+	 * bounds the call from outside (the executor's per-tool deadline) needs it
+	 * to avoid cutting a call this client would have kept alive.
+	 */
+	getToolCallWindowMs(): number | undefined {
+		return this.resetTimeoutOnProgress ? this.maxTotalTimeoutMs : undefined
+	}
+
 	constructor(config: MCPClientConfig) {
 		this.config = config
 		this.requestTimeoutMs = validateConnectorTimeoutMs(
@@ -1733,6 +1745,8 @@ export class MCPClient {
 		if (typeof progress !== 'number' || !Number.isFinite(progress) || progress < 0) return
 		if (pending.lastProgress !== undefined && progress <= pending.lastProgress) return
 		pending.lastProgress = progress
+		// Re-arms before the callback runs, so a throwing `onProgress` still
+		// counts as progress; the total cap bounds that.
 		pending.onAccepted?.()
 		const total = params?.total
 		const message = progressMessage(params?.message)

@@ -774,6 +774,13 @@ a value that is not an integer, even while the option is off. Left out it is
 ten times `requestTimeoutMs` (`DEFAULT_MCP_TOTAL_TIMEOUT_FACTOR`), 5 minutes at
 the default, capped at Node's maximum timer delay.
 
+The executor bounds every tool with its own deadline (120 seconds unless a
+tool's `timeoutMs` or the host's `toolTimeoutMs` says otherwise). So that it
+does not cut a call the client is keeping alive, `mcpToolToToolDefinition`
+sets the tool's `timeoutMs` to the total cap plus 5 seconds
+(`MCP_TOOL_DEADLINE_SLACK_MS`) when `resetTimeoutOnProgress` is on, read from
+`MCPClient.getToolCallWindowMs()`; with it off no `timeoutMs` is set.
+
 Both outcomes behave as a timeout does without the option: the pending entry
 is settled once, the progress registration removed, the correlated
 `notifications/cancelled` sent, and a caller's abort still wins. The error is a
