@@ -159,6 +159,7 @@ function conversation(input: unknown): SavedDesktopConversation {
 		'palGreeting',
 		'pinned',
 		'closedWhileRunning',
+		'replied',
 	])
 	const greeting =
 		view.palGreeting === undefined ? undefined : record(view.palGreeting, ['id', 'text'])
@@ -188,6 +189,7 @@ function conversation(input: unknown): SavedDesktopConversation {
 				: { harness: view.harness as ConversationView['harness'] }),
 			...(view.pinned === true ? { pinned: true as const } : {}),
 			...(view.closedWhileRunning === true ? { closedWhileRunning: true as const } : {}),
+			...(view.replied === true ? { replied: true as const } : {}),
 		},
 		runtimeSessionId: id(value.runtimeSessionId),
 		hasPrompted: value.hasPrompted,

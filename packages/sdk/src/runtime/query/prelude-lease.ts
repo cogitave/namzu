@@ -1,5 +1,10 @@
 import { DEFAULT_TURN_LEASE_TTL_MS } from '../../manager/session/turn-recorder.js'
-import { type SessionLease, type SessionLog, isLeaseLive } from '../../store/session-log/index.js'
+import {
+	type SessionLease,
+	type SessionLog,
+	isLeaseLive,
+	turnHolder,
+} from '../../store/session-log/index.js'
 import { NamzuError } from '../../types/errors/index.js'
 import type { SessionId, TurnId } from '../../types/ids/index.js'
 import { TurnInProgressError } from '../../types/session/turn.js'
@@ -34,7 +39,7 @@ export class PreludeSessionLease {
 	): Promise<PreludeSessionLease> {
 		if (supplied) return new PreludeSessionLease(log, supplied, false)
 		const lease = await log.claim({
-			holder: `namzu:${process.pid}:${turnId}`,
+			holder: turnHolder(turnId),
 			ttlMs: DEFAULT_TURN_LEASE_TTL_MS,
 			repairTornTail: false,
 		})

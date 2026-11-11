@@ -3,9 +3,13 @@ import {
 	DiskSessionLog,
 	DiskSessionTokenBudgetStore,
 	SessionTokenBudget,
+	abandonTurn,
 	asCheckpointId,
 	asSessionId,
 	asTurnId,
+	currentPlace,
+	parseTurnHolder,
+	turnHolder,
 } from '@namzu/sdk'
 import { sessionLogCheckpointView } from '../integrations/sessions/checkpoint-view.js'
 import { type CliSessionScope, readConversationFacts } from '../integrations/sessions/store.js'
@@ -29,6 +33,101 @@ export interface ProviderRetryStatus {
 	closable?: true
 	/** How many earlier requests have a cost nobody reported; a retry is a new request. */
 	unknownUsage?: number
+}
+
+/**
+ * Why a turn is closed when the host that ran it is gone. It reads in the journal; the person is
+ * told by the transcript ("Stopped because Namzu was closed"), not by this sentence.
+ */
+export const HOST_GONE_REASON = 'The host that was running this reply went away before it finished.'
+
+/**
+ * Whether the host named by a writer lease's holder is provably not running. A turn's lease is
+ * held as `namzu:<pid>:<turnId>@<place>`; a process id means something only in the place that
+ * issued it, so the holder is gone only when all of these hold: it parses, it is the active
+ * turn's, it carries a place, that place is this process's own, the pid is not this process, and
+ * no process has that pid. A holder with no place (written by an older version) and a holder from
+ * another place (a container or a second system sharing the folder) are never proof, and read as
+ * alive until the lease lapses. A pid that exists, or one this process may not signal, reads as
+ * alive. Exported for tests, which inject the probe and the place.
+ */
+export function holderIsGone(
+	holder: string,
+	turnId: string,
+	probe: (pid: number) => boolean = pidIsAlive,
+	place: string = currentPlace(),
+): boolean {
+	const parsed = parseTurnHolder(holder)
+	if (!parsed || parsed.turnId !== turnId) return false
+	if (parsed.place === undefined || parsed.place !== place) return false
+	if (parsed.pid <= 0 || parsed.pid === process.pid) return false
+	return !probe(parsed.pid)
+}
+
+function pidIsAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0)
+		return true
+	} catch (error) {
+		// Only "no such process" is proof. EPERM means it exists and is not ours.
+		return (error as NodeJS.ErrnoException).code !== 'ESRCH'
+	}
+}
+
+/**
+ * Settle the active turn of a host that no longer exists: one that is not paused and never was (a
+ * host that went away after writing the turn's start and the person's message, and before anything
+ * that settles it). Closing it is one durable append, `turn_failed`, and the person's message
+ * stays. A turn another host still runs is left alone, as is a paused one, which waits for a
+ * person. Returns whether a turn was closed.
+ *
+ * Two proofs that nobody runs the turn. The writer lease is gone (given back, or expired): a live
+ * host renews it while it runs and gives it back only when the turn ends or the process is told to
+ * stop. Or the lease is still held but by a process, in this same place, that no longer exists (the
+ * host was killed, so it gave nothing back and its lease would otherwise read as live for its whole
+ * term). Nothing waits for a lease to run out and nothing is guessed from a clock.
+ */
+export async function settleTurnOfGoneHost(
+	state: CliSessionScope,
+	sessionId: string,
+	close?: (turnId: string, reason: string) => Promise<void>,
+	isGone: (holder: string, turnId: string) => boolean = holderIsGone,
+): Promise<boolean> {
+	const id = asSessionId(sessionId)
+	const facts = await readConversationFacts(state, id)
+	const active = facts?.activeTurn
+	if (!active || active.paused) return false
+	// A turn that was paused or resumed once has a checkpoint and a person's choice behind it; it is
+	// closed by that choice, never from here.
+	if (facts.latestPause(active.turnId) || facts.wasResumed(active.turnId)) return false
+	const log = DiskSessionLog.at(state.paths, { sessionId: id })
+	const held = await log.lease()
+	// A lease that still reads as live, held by a process that is gone, is judged as of its expiry.
+	const killed =
+		held !== null && held.holder !== '' && isGone(held.holder, active.turnId) ? held : null
+	const current = await log.activeTurn(killed ? { now: killed.expiresAt } : {})
+	if (!current || current.turnId !== active.turnId || current.state !== 'interrupted') return false
+	try {
+		if (killed) {
+			const lease = await log.claim({
+				holder: turnHolder(id),
+				ttlMs: 30_000,
+				now: killed.expiresAt,
+			})
+			if (!lease) return false
+			try {
+				await log.abandonTurn(lease, asTurnId(active.turnId), HOST_GONE_REASON)
+			} finally {
+				await log.release(lease).catch(() => undefined)
+			}
+		} else if (close) await close(active.turnId, HOST_GONE_REASON)
+		else await abandonTurn(id, asTurnId(active.turnId), HOST_GONE_REASON, { log })
+	} catch {
+		// A host took the conversation between the read and the append: it is running the turn, or
+		// has settled it. The status below says which.
+		return false
+	}
+	return true
 }
 
 /** Strict durable eligibility; no provider call, writer claim or budget mutation. */

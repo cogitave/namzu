@@ -265,6 +265,12 @@ export interface ConversationView {
 	pinned?: true
 	/** Desktop-local: the window was closed while a reply was running, so that reply never finished. */
 	closedWhileRunning?: true
+	/**
+	 * Main knows the conversation holds a reply a person could read: true to the log across a
+	 * restart, and set when a turn ends with one. A window that has not loaded the conversation
+	 * reads this instead of a thread it does not have.
+	 */
+	replied?: true
 }
 /** Repository facts for a trusted project; `branch` is null on a detached head. */
 /** The pull request of a project's branch, when the machine can say; otherwise there is nothing to show. */

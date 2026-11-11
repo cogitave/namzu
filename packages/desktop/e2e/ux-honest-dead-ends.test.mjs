@@ -2,11 +2,13 @@
 // Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test packages/desktop/e2e/ux-honest-dead-ends.test.mjs
 // Screenshots land in $NAMZU_E2E_SHOTS (default: a folder in the temp directory) and are looked at, not asserted.
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { DiskSessionLog, asSessionId, createUserMessage, generateMessageId, generateTurnId } from "@namzu/sdk";
 import {
 	answerDialogs,
 	createWorld,
@@ -106,6 +108,160 @@ flow(
 		assert.equal(await w.page.getByText("Stopped because Namzu was closed.").count(), 0, "the old stop is settled");
 		assert.equal(await carryOn.count(), 0, "nothing left to press");
 		await shot(w, "continued");
+	},
+);
+
+flow(
+	"closing Namzu while the first request of a reply is still parked at the model leaves a reply that can be carried on",
+	{
+		rules: [
+			{ match: /hello first/, steps: [{ text: "Hello back." }] },
+			{ match: /ask the model once/, steps: [{ hold: "first", text: "Never delivered." }] },
+			{ match: /continue from where you stopped/, steps: [{ text: "Carrying on from the stop." }] },
+		],
+	},
+	async (w) => {
+		await openProject(w);
+		await send(w, "hello first");
+		await expect(w.page.getByText("Hello back.")).toBeVisible({ timeout: T });
+		await send(w, "ask the model once");
+		await expect(w.page.getByRole("button", { name: "Stop reply" })).toBeVisible({ timeout: T });
+		// The scripted model has the request and holds it: the turn is begun and nothing else has happened.
+		await expect.poll(() => w.model.requests.filter((r) => JSON.stringify(r).includes("ask the model once")).length, { timeout: T }).toBeGreaterThanOrEqual(1);
+		await answerDialogs(w, 1);
+		await w.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+		const old = w.app.process();
+		if (old.exitCode === null && old.signalCode === null) await once(old, "exit");
+		await relaunch(w);
+		await w.page.getByRole("button", { name: /hello first/ }).first().click();
+		await expect(w.page.getByText("Stopped because Namzu was closed.")).toBeVisible({ timeout: T });
+		const carryOn = w.page.getByRole("button", { name: "Ask Namzu to continue" });
+		await expect(carryOn).toBeVisible();
+		await carryOn.click();
+		await expect(w.page.getByText("Carrying on from the stop.")).toBeVisible({ timeout: T });
+		assert.equal(await w.page.getByText(/still finishing the last reply/).count(), 0, "no refusal to carry on");
+		assert.equal(await w.page.getByText("Stopped because Namzu was closed.").count(), 0, "the old stop is settled");
+	},
+);
+
+/** The pids below `pid`, read from the process table, so each can be stopped by its own number. */
+function descendantsOf(pid) {
+	const rows = execFileSync("ps", ["-eo", "pid=,ppid="], { encoding: "utf8" })
+		.split("\n")
+		.map((line) => line.trim().split(/\s+/).map(Number))
+		.filter(([a, b]) => Number.isInteger(a) && Number.isInteger(b));
+	const found = new Set([pid]);
+	for (let grew = true; grew; ) {
+		grew = false;
+		for (const [child, parent] of rows) if (!found.has(child) && found.has(parent)) found.add(child), (grew = true);
+	}
+	found.delete(pid);
+	return [...found];
+}
+
+flow(
+	"stopping Namzu hard while the first request of a reply is parked at the model leaves a conversation that takes the next message",
+	{
+		rules: [
+			{ match: /hello first/, steps: [{ text: "Hello back." }] },
+			{ match: /ask the model once/, steps: [{ hold: "first", text: "Never delivered." }] },
+			{ match: /carry on please/, steps: [{ text: "Carrying on." }] },
+		],
+	},
+	async (w) => {
+		await openProject(w);
+		await send(w, "hello first");
+		await expect(w.page.getByText("Hello back.")).toBeVisible({ timeout: T });
+		await send(w, "ask the model once");
+		await expect.poll(() => w.model.requests.filter((r) => JSON.stringify(r).includes("ask the model once")).length, { timeout: T }).toBeGreaterThanOrEqual(1);
+		// The host is killed, not asked to stop: it gives nothing back, and its writer lease stays
+		// unexpired in the journal. Every process of the app is ended by its own pid.
+		const app = w.app.process();
+		const [log] = journals(w);
+		assert.equal((await log.activeTurn())?.state, "running", "the lease is still held when the app is stopped");
+		for (const pid of [...descendantsOf(app.pid), app.pid]) {
+			try {
+				process.kill(pid, "SIGKILL");
+			} catch {}
+		}
+		if (app.exitCode === null && app.signalCode === null) await once(app, "exit");
+		assert.equal((await log.activeTurn())?.state, "running", "nothing settled the turn: its lease has minutes left");
+		await relaunch(w);
+		await w.page.getByRole("button", { name: /hello first/ }).first().click();
+		await send(w, "carry on please");
+		await expect(w.page.getByText("Carrying on.")).toBeVisible({ timeout: T });
+		assert.equal(await w.page.getByText(/still finishing the last reply/).count(), 0, "no refusal");
+		assert.equal(await log.activeTurn().then((a) => a?.state), undefined, "nothing is left unsettled");
+	},
+);
+
+/** Every conversation journal of the world's project, as the SDK's own log handle. */
+function journals(w) {
+	const projects = join(w.home, "projects");
+	const found = [];
+	for (const slug of readdirSync(projects))
+		for (const name of readdirSync(join(projects, slug)))
+			if (name.endsWith(".jsonl")) {
+				const sessionId = name.slice(0, -".jsonl".length);
+				found.push(
+					new DiskSessionLog({
+						sessionId: asSessionId(sessionId),
+						file: join(projects, slug, name),
+						sessionDir: join(projects, slug, sessionId),
+					}),
+				);
+			}
+	return found;
+}
+
+flow(
+	"a conversation whose host went away in the first instant of a reply takes the next message at once",
+	{
+		rules: [
+			{ match: /hello first/, steps: [{ text: "Hello back." }] },
+			{ match: /carry on please/, steps: [{ text: "Carrying on." }] },
+		],
+	},
+	async (w) => {
+		await openProject(w);
+		await send(w, "hello first");
+		await expect(w.page.getByText("Hello back.")).toBeVisible({ timeout: T });
+		await answerDialogs(w, 1);
+		await w.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+		const old = w.app.process();
+		if (old.exitCode === null && old.signalCode === null) await once(old, "exit");
+		// What a host leaves when it goes away right after writing a reply's start and the message:
+		// those two records, no pause, no settling, and the writer lease given back.
+		const [log] = journals(w);
+		assert.ok(log, "the first conversation left a journal");
+		const turnId = generateTurnId();
+		const userMessageId = generateMessageId();
+		const lease = await log.claim({ holder: "host-that-is-gone", ttlMs: 60_000 });
+		assert.ok(lease, "the dead host's lease is free");
+		try {
+			await log.beginTurn(lease, {
+				turnId,
+				userMessageId,
+				config: { model: "gpt-e2e-1", tokenBudget: 0, timeoutMs: 0, maxIterations: 0 },
+			});
+			await log.append(lease, {
+				type: "message",
+				turnId,
+				messageId: userMessageId,
+				role: "user",
+				kind: "prompt",
+				content: createUserMessage("look around the project"),
+			});
+		} finally {
+			await log.release(lease);
+		}
+		assert.equal((await log.activeTurn())?.state, "interrupted", "the turn is left with no host");
+		await relaunch(w);
+		await w.page.getByRole("button", { name: /hello first/ }).first().click();
+		await send(w, "carry on please");
+		await expect(w.page.getByText("Carrying on.")).toBeVisible({ timeout: T });
+		assert.equal(await w.page.getByText(/still finishing the last reply/).count(), 0, "no refusal");
+		assert.equal(await log.activeTurn().then((a) => a?.state), undefined, "nothing is left unsettled");
 	},
 );
 

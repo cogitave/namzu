@@ -8,12 +8,17 @@
  * (stop it with Esc) does nothing, because the reply is not this window's.
  */
 
-import type { SessionLease } from '@namzu/sdk'
+import { type SessionLease, currentPlace, parseTurnHolder } from '@namzu/sdk'
 
-/** The process id a turn's lease holder names (`namzu:<pid>:<turn>`), when it names one. */
-function holderProcess(holder: string): number | undefined {
-	const match = /^namzu:(\d+):/.exec(holder)
-	return match ? Number(match[1]) : undefined
+/**
+ * Whether a turn's lease holder (`namzu:<pid>:<turn>@<place>`) names this very process: the same
+ * process id, and, when the holder says where it was issued, the same place. A holder with no
+ * place (an older version) is read by its process id alone, as it always was.
+ */
+function isOwnHolder(holder: string, ownProcess: number, place: string): boolean {
+	const parsed = parseTurnHolder(holder)
+	if (!parsed || parsed.pid !== ownProcess) return false
+	return parsed.place === undefined || parsed.place === place
 }
 
 /**
@@ -24,9 +29,10 @@ export function minutesUntilFree(
 	lease: Pick<SessionLease, 'holder' | 'expiresAt'> | null | undefined,
 	now: number,
 	ownProcess: number = process.pid,
+	place: string = currentPlace(),
 ): number | undefined {
 	if (!lease || lease.expiresAt <= now) return undefined
-	if (holderProcess(lease.holder) === ownProcess) return undefined
+	if (isOwnHolder(lease.holder, ownProcess, place)) return undefined
 	return Math.max(1, Math.ceil((lease.expiresAt - now) / 60_000))
 }
 

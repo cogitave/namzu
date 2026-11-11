@@ -3381,7 +3381,7 @@ what main holds, so two windows never disagree and none clears it for the other.
 reply can arrive before an event main sent earlier, so a window keeps whichever answer has the higher `sequence`
 (`ConversationUnreadStore`). A marker is read when a tab comes to the front (the layout changed) or a window is shown
 or restored; opening the conversation again later sets and clears nothing. The row menu has **Mark as unread** and
-**Mark as read** (`setConversationUnread(id, unread)`); a conversation with no reply yet is not offered **Mark as unread** (a marker already set can always be cleared); main holds at most 1024 markers and drops the oldest rather than fail a turn that ends; archiving a conversation or removing its project forgets its marker, saves and announces that; marking the conversation that is in front keeps the marker
+**Mark as read** (`setConversationUnread(id, unread)`); a conversation with no reply yet is not offered **Mark as unread** (a marker already set can always be cleared). Whether it has a reply is main's fact, `replied` on the conversation's entry in the list: the host reports it from the log (so it holds across a restart), main sets it when a turn ends with a reply and announces it to every window with `conversation-updated`, and a fork inherits it. A window reads `replied` for a conversation it has not loaded and its own thread for one it has. For such an unloaded row **Fork**, **New side chat**, **Copy > Conversation as Markdown** and **Copy > Last reply** say "Open the conversation first." until the window holds the conversation (main refuses the first three while a tab for the row is in another window, and this window cannot see that); main holds at most 1024 markers and drops the oldest rather than fail a turn that ends; archiving a conversation or removing its project forgets its marker, saves and announces that; marking the conversation that is in front keeps the marker
 until it is looked at again. Pal conversations keep their own "New message" dot. Main keeps the set in
 `unread-conversations.json`, a file of its own (`desktop-conversations.json` refuses a key it does not know, which
 would cost an older app its drafts), so a restart brings it back, and a marker whose tab is in front at launch is read. A collapsed Projects heading's dot also names "A conversation has a new reply" after waiting and
@@ -4159,6 +4159,11 @@ turn that paused on a provider error (`namzu/sessions/retry`); a turn cut off by
 checkpoint to resume from, so the button sends "Please continue from where you stopped." as an ordinary new
 message, on the model chosen now. Sending any message, that one included, settles the old stop. The button
 is absent where a message cannot be sent now (an untrusted folder, no provider, a reply running).
+A reply can also be left with only its start and the person's message written (the app went away in
+its first instant). No host runs it, so the next host that is asked whether the conversation can go on
+(`namzu/sessions/retry-status`) closes it as stopped, at once and with one record, and keeps the person's
+message; a turn another host still holds, and one that was ever paused or resumed (it has a checkpoint and a choice behind it), are left alone and keep their notice. A message
+sent to a host that never asked also closes it first, by the same rule. A host that was killed gives its writer lease back to nobody, so the lease would read as live for its five minutes; the lease names its holder as `namzu:<pid>:<turn>@<place>`, and when its place is this process's own (the same host name and process-id namespace) and no process has that pid, the turn is judged as of the lease's expiry and closed at once. A holder of another shape, one with no place (written by an older version), one from another place (a container or a second system sharing the home folder), or a pid that exists, is never judged gone and waits for the lease's five minutes.
 A conversation title comes from the words typed, never from the attached file's text
 (`Attached text file: "name"`): a message with only files is titled with the first file's name.
 

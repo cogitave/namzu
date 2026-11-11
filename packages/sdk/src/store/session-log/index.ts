@@ -70,6 +70,14 @@ export {
 	readTurnOutcome,
 } from './turn-outcome.js'
 export {
+	type ParsedTurnHolder,
+	type PlaceSource,
+	currentPlace,
+	parseTurnHolder,
+	placeOf,
+	turnHolder,
+} from './turn-holder.js'
+export {
 	type ReleaseHeldSessionLeasesOptions,
 	type ReleaseHeldSessionLeasesResult,
 	SessionLeasesReleasedError,
