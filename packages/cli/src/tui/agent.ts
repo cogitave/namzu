@@ -7439,6 +7439,8 @@ export type ListedModel = Pick<ModelInfo, 'id' | 'name' | 'inputModalities'> &
 		 * published price carries neither, so a picker never files an unknown under either heading.
 		 */
 		readonly group?: ModelGroup
+		/** Tokens the context holds, when the driver published a window; absent when it did not. */
+		readonly contextWindow?: number
 	}
 
 /** Which heading a Zen model sits under in a picker. */
@@ -7637,6 +7639,12 @@ export async function describeProviderModels(
 							// entitled to print that as a fact. Collapsing the two at this
 							// projection would put the lie back one layer up.
 							...publishedPrices(m),
+							// A model carried with placeholder limits publishes no window.
+							...((m as { limitsVerified?: unknown }).limitsVerified !== false &&
+							Number.isFinite(m.contextWindow) &&
+							(m.contextWindow ?? 0) > 0
+								? { contextWindow: m.contextWindow }
+								: {}),
 						}),
 					),
 			),

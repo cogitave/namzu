@@ -10,7 +10,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
-import { createWorld, dispose, expect, freezeApp, launch, openProject, repoRoot } from "./harness.mjs";
+import { createWorld, dispose, expect, freezeApp, launch, openProject, repoRoot, openEngineView } from "./harness.mjs";
 
 const T = 60000;
 const SHOTS = resolve(repoRoot, "research/hygiene-20261010/t4-desktop");
@@ -115,7 +115,7 @@ async function pickModel(w, model) {
 }
 async function pickEngine(w, engine) {
 	await chip(w).click();
-	await w.page.getByRole("button", { name: /^Engine:/ }).click();
+	await openEngineView(w.page);
 	await w.page.getByRole("radio", { name: engine }).click();
 	await w.page.keyboard.press("Escape");
 }

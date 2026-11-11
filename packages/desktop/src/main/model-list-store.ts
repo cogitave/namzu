@@ -67,6 +67,14 @@ function plain(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function positive(value: unknown): value is number {
+	return typeof value === 'number' && Number.isFinite(value) && value > 0
+}
+
+function rate(value: unknown): value is number {
+	return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
+
 function validRows(value: unknown): value is StoredModelList['rows'] {
 	if (!plain(value) || !Array.isArray(value.models) || value.models.length > MAX_MODELS)
 		return false
@@ -81,7 +89,10 @@ function validRows(value: unknown): value is StoredModelList['rows'] {
 			(model.note === undefined || typeof model.note === 'string') &&
 			(model.default === undefined || model.default === true) &&
 			(model.current === undefined || model.current === true) &&
-			(model.group === undefined || model.group === 'free' || model.group === 'key'),
+			(model.group === undefined || model.group === 'free' || model.group === 'key') &&
+			(model.contextWindow === undefined || positive(model.contextWindow)) &&
+			(model.inputPrice === undefined || rate(model.inputPrice)) &&
+			(model.outputPrice === undefined || rate(model.outputPrice)),
 	)
 }
 
@@ -106,6 +117,9 @@ function cleanRows(rows: StoredModelList['rows']): StoredModelList['rows'] {
 			...(model.default ? { default: true as const } : {}),
 			...(model.current ? { current: true as const } : {}),
 			...(model.group === undefined ? {} : { group: model.group }),
+			...(positive(model.contextWindow) ? { contextWindow: model.contextWindow } : {}),
+			...(rate(model.inputPrice) ? { inputPrice: model.inputPrice } : {}),
+			...(rate(model.outputPrice) ? { outputPrice: model.outputPrice } : {}),
 		})),
 		notice: rows.notice,
 	}

@@ -49,7 +49,7 @@ export function freezeApp(root) {
 }
 
 /**
- * @param {{ rules?: any[], seed?: (ctx: any) => Promise<void> | void, models?: string[], keepRoot?: string, files?: Record<string,string> }} opts
+ * @param {{ rules?: any[], seed?: (ctx: any) => Promise<void> | void, models?: (string | { id: string, [key: string]: unknown })[], keepRoot?: string, files?: Record<string,string> }} opts
  */
 export async function createWorld(opts = {}) {
 	const root = opts.keepRoot ?? mkdtempSync(join(tmpdir(), "namzu-e2e-"));
@@ -271,4 +271,27 @@ export function historySeenBy(request, text) {
 		copies: messages.filter((message) => flat(message.content).includes(text)).length,
 		roles: messages.map((message) => `${message.role}:${flat(message.content).length}`),
 	};
+}
+
+/**
+ * The model popup keeps the engine, where it runs and the provider filter behind its "More" row.
+ * Opens that view (the popup must already be open on its model list).
+ */
+export async function openModelMore(page) {
+	await page.locator(".model-picker-more").click();
+	await expect(page.getByRole("heading", { name: "More", exact: true })).toBeVisible({
+		timeout: 30000,
+	});
+}
+
+/** From the open model popup, to the engine list: More, then the engine chip. */
+export async function openEngineView(page) {
+	await openModelMore(page);
+	await page.getByRole("button", { name: /^Engine:/ }).click();
+}
+
+/** From the open model popup, list the models of another provider: More, then that provider. */
+export async function showProvider(page, name) {
+	await openModelMore(page);
+	await page.getByRole("radio", { name, exact: typeof name === "string" }).click();
 }

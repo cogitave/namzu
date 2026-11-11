@@ -52,7 +52,6 @@ import {
 	ListPlusIcon,
 	ListTodoIcon,
 	LoaderCircleIcon,
-	MonitorIcon,
 	PaperclipIcon,
 	PlusIcon,
 	SearchIcon,
@@ -558,6 +557,7 @@ export function Composer({
 								onAnimationEnd={trayDone}
 							>
 								<ComposerProjectPicker
+									computerLabel={computerLabel}
 									projectId={projectId}
 									projectName={projectName}
 									projectPath={projectPath}
@@ -567,10 +567,6 @@ export function Composer({
 									onOpenProject={onOpenProject}
 									onCreateProject={onCreateProject}
 								/>
-								<span className="composer-computer-label" title={computerLabel}>
-									<MonitorIcon aria-hidden="true" />
-									<span>{computerLabel}</span>
-								</span>
 							</ComposerSurface.ContextStrip>
 						)}
 						{permissions[0] && (

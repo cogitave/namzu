@@ -397,16 +397,18 @@ pre {
 	right: 0;
 	display: flex;
 	flex-direction: column;
-	gap: 5px;
+	gap: 0;
 	padding: 12px 4px;
 }
+/* A starter is a quiet 32px row. A click fills the box and never sends it. */
 .starter-actions button {
 	display: flex;
 	align-items: center;
-	gap: 12px;
+	gap: 10px;
 	width: fit-content;
 	max-width: 100%;
-	padding: 8px 10px;
+	height: 32px;
+	padding: 0 10px;
 	border-radius: var(--radius-control);
 	color: var(--muted-foreground);
 	font-size: 13px;
@@ -418,9 +420,10 @@ pre {
 	background: var(--accent);
 }
 .starter-actions svg {
-	width: 16px;
-	height: 16px;
+	width: 14px;
+	height: 14px;
 	flex: none;
+	opacity: 0.6;
 }
 .chat-stage[data-empty="true"] {
 	--chat-max-width: 40rem;

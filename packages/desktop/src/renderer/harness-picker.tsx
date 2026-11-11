@@ -181,7 +181,7 @@ export function EnginePanel({
 	view?: HarnessView
 	selectedEngine?: HarnessView['selected']
 	/** Where Back leads: the view the engine view was opened from. */
-	backLabel: 'Effort' | 'Models'
+	backLabel: 'More' | 'Models'
 	busy: boolean
 	disabled: boolean
 	onBack: () => void
