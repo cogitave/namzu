@@ -59,6 +59,16 @@ export class DiskLogMedium implements LogMedium {
 		}
 	}
 
+	async identity(): Promise<string | undefined> {
+		try {
+			const stats = await stat(this.file)
+			return `${stats.dev}:${stats.ino}:${this.file}`
+		} catch (error) {
+			if (isErrno(error, 'ENOENT')) return undefined
+			throw error
+		}
+	}
+
 	async read(offset: number, length: number): Promise<Uint8Array> {
 		let handle: FileHandle
 		try {

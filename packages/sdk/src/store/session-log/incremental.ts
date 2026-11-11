@@ -71,6 +71,14 @@ export interface IncrementalFold<S, R> {
 	/** The reduction's name; one cache slot per name and read mode. */
 	readonly name: string
 	readonly mode: 'strict' | 'tolerant'
+	/**
+	 * Strict reductions only: before resuming, hash every byte before the
+	 * resume point against what this process verified (`read({ reverify })`),
+	 * so a resumed read refuses a log altered anywhere, as a read from byte 0
+	 * does, without parsing the prefix again. Off by default: the window the
+	 * header describes then applies.
+	 */
+	readonly reverify?: boolean
 	/** A fresh, empty state. */
 	create(): S
 	/** Fold one record into the state, in place. */
@@ -103,7 +111,11 @@ export async function foldSessionLog<S, R>(
 			}
 			let moved = false
 			try {
-				const walk = log.read({ mode: fold.mode, ...(anchor ? { after: anchor } : {}) })
+				const walk = log.read({
+					mode: fold.mode,
+					...(anchor ? { after: anchor } : {}),
+					...(anchor && fold.reverify && fold.mode === 'strict' ? { reverify: true } : {}),
+				})
 				let summary: Awaited<ReturnType<typeof walk.next>>
 				for (;;) {
 					summary = await walk.next()
