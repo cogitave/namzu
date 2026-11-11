@@ -26,6 +26,7 @@ import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import {
 	type AccountBoundReason,
+	type AssistantMessage,
 	DiskSessionGoalStore,
 	DiskSessionLog,
 	type Message,
@@ -54,6 +55,7 @@ import {
 	isEntityId,
 	openSessionIndex,
 	readSessionLog,
+	selectAssistantText,
 	slugForCwd,
 } from '@namzu/sdk'
 import { palAtWorkspace } from '../../pals/store.js'
@@ -141,6 +143,8 @@ export interface RecentConversation {
 	readonly folder?: string
 	/** The pull request this conversation made or worked on, when its log links one. */
 	readonly pr?: PullRequestLink
+	/** The log holds at least one reply from the assistant that a person could read. */
+	readonly replied?: true
 }
 
 export interface OpenSessionsOptions {
@@ -999,6 +1003,30 @@ async function listConversations(
 	return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }
 
+/** Preserve only a phase proved by the selected, unchanged public text. */
+export function storedAssistantPhase(
+	message: AssistantMessage,
+): 'commentary' | 'final_answer' | undefined {
+	const parts = message.textParts
+	if (!parts?.length || typeof message.content !== 'string') return undefined
+	if (selectAssistantText(parts) !== message.content) return undefined
+	const finals = parts.filter((part) => part.phase === 'final_answer')
+	const selected = finals.length ? finals : parts
+	const phase = selected[0]?.phase
+	return phase && selected.every((part) => part.phase === phase) ? phase : undefined
+}
+
+/** Whether the conversation holds an answer a person could read: not only commentary. */
+export function hasReply(messages: readonly Message[]): boolean {
+	return messages.some(
+		(message) =>
+			message.role === 'assistant' &&
+			typeof message.content === 'string' &&
+			message.content.trim().length > 0 &&
+			storedAssistantPhase(message) !== 'commentary',
+	)
+}
+
 /** One picker row from a conversation's facts and folded messages. */
 function recentRow(
 	id: SessionId,
@@ -1013,6 +1041,7 @@ function recentRow(
 	return {
 		id,
 		...(pr ? { pr } : {}),
+		...(hasReply(messages) ? { replied: true as const } : {}),
 		title: displayTitleOf(facts),
 		preview: typed.at(-1)?.content.replace(/\s+/g, ' ').trim().slice(0, 240),
 		...(first ? { firstPrompt: first } : {}),

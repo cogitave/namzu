@@ -72,6 +72,7 @@ import type {
 } from '../shared/protocol.js'
 import { readProviderConnections } from '../shared/provider-connections.js'
 import { ReconnectRetries } from '../shared/reconnect-retry.js'
+import { lastReplyText } from '../shared/reply.js'
 import { isReviewModeId } from '../shared/review-modes.js'
 import {
 	type SidebarSectionId,
@@ -1739,6 +1740,14 @@ export class Operator {
 					this.attentionChanged()
 				if (!wasRunning && session.projection.running) this.options.notices?.turnStarted(id)
 				if (wasRunning && !session.projection.running) this.noticeTurnEnded(session)
+				if (
+					wasRunning &&
+					!session.projection.running &&
+					!session.view.replied &&
+					!session.view.palId &&
+					lastReplyText(session.projection.messages) !== undefined
+				)
+					this.markReplied(session)
 				if (wasRunning && !session.projection.running && !session.view.palId) {
 					const viewed = this.options.viewedConversations?.() ?? new Set<string>()
 					if (this.unreadConversations.turnEnded(id, viewed)) this.unreadChanged()
@@ -2300,6 +2309,7 @@ export class Operator {
 			updatedAt: string
 			harness?: ConversationView['harness']
 			palGreeting?: ConversationView['palGreeting']
+			replied?: unknown
 		}[]
 		assertCurrent()
 		if (!Array.isArray(rows)) throw new Error('Namzu returned an invalid conversation list.')
@@ -2322,6 +2332,13 @@ export class Operator {
 						? { harness: this.runtimeSession(project, row.id)?.view.harness }
 						: {}),
 				...(project.view.palId ? { palId: project.view.palId } : {}),
+				// The log's word, or this run's own: a turn that just ended may not be indexed yet.
+				...(row.replied === true ||
+				this.runtimeSession(project, row.id)?.view.replied ||
+				(!this.runtimeSession(project, row.id) &&
+					this.savedDesktop?.conversations.find((item) => item.view.id === row.id)?.view.replied)
+					? { replied: true as const }
+					: {}),
 				...(project.view.palId && row.palGreeting ? { palGreeting: row.palGreeting } : {}),
 				...((
 					this.runtimeSession(project, row.id)?.view ??
@@ -2687,6 +2704,19 @@ export class Operator {
 			this.removingProjects.delete(projectId)
 		}
 	}
+	/** The conversation now has a reply: keep it on the row, save it, and tell every window. */
+	private markReplied(session: Conversation): void {
+		session.view.replied = true
+		const catalogue = this.projects.get(session.view.projectId)?.conversationCatalogue
+		const catalogued = catalogue?.get(session.view.id)
+		if (catalogued) catalogue?.set(session.view.id, { ...catalogued, replied: true })
+		this.persistDesktop(true)
+		this.emit({
+			kind: 'conversation-updated',
+			sessionId: session.view.id,
+			view: { ...session.view },
+		})
+	}
 	/** Re-publishes one conversation's identity after a title, pin or fork change. */
 	private commitConversationView(session: Conversation, project: Project): ConversationView {
 		const view = { ...session.view }
@@ -2823,6 +2853,8 @@ export class Operator {
 			projectId: session.view.projectId,
 			updatedAt: new Date().toISOString(),
 			...(session.view.harness ? { harness: session.view.harness } : {}),
+			// The copy carries the whole history, so it holds whatever reply the source did.
+			...(session.view.replied ? { replied: true as const } : {}),
 		}
 		this.conversations.set(view.id, {
 			view,
@@ -3139,6 +3171,7 @@ export class Operator {
 			id?: unknown
 			title?: unknown
 			updatedAt?: unknown
+			replied?: unknown
 		}
 		if (
 			row?.id !== sessionId ||
@@ -3157,6 +3190,7 @@ export class Operator {
 			title: row.title,
 			projectId,
 			updatedAt: row.updatedAt,
+			...(row.replied === true ? { replied: true as const } : {}),
 		}
 		if (!this.conversations.has(sessionId))
 			this.conversations.set(sessionId, {
