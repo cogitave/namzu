@@ -4129,6 +4129,11 @@ turn that paused on a provider error (`namzu/sessions/retry`); a turn cut off by
 checkpoint to resume from, so the button sends "Please continue from where you stopped." as an ordinary new
 message, on the model chosen now. Sending any message, that one included, settles the old stop. The button
 is absent where a message cannot be sent now (an untrusted folder, no provider, a reply running).
+A reply can also be left with only its start and the person's message written (the app went away in
+its first instant). No host runs it, so the next host that is asked whether the conversation can go on
+(`namzu/sessions/retry-status`) closes it as stopped, at once and with one record, and keeps the person's
+message; a turn another host still holds, and one that was ever paused or resumed (it has a checkpoint and a choice behind it), are left alone and keep their notice. A message
+sent to a host that never asked also closes it (`abandonInterrupted`).
 A conversation title comes from the words typed, never from the attached file's text
 (`Attached text file: "name"`): a message with only files is titled with the first file's name.
 

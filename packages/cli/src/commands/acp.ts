@@ -88,7 +88,11 @@ import {
 	verifyCredential,
 } from '../tui/agent.js'
 import { withCliHarnesses } from './acp-harness.js'
-import { type ProviderRetryStatus, readProviderRetryStatus } from './acp-provider-retry.js'
+import {
+	type ProviderRetryStatus,
+	readProviderRetryStatus,
+	settleTurnOfGoneHost,
+} from './acp-provider-retry.js'
 import { questionsOverPermission } from './acp-screen-question.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
 import { desktopModelCatalogue } from './desktop-model-catalogue.js'
@@ -1146,6 +1150,8 @@ export function createCliAcpRuntime(
 				undoNotes.delete(sessionId)
 				for await (const event of record.session.send(messages, {
 					...settings,
+					// A turn the host before this one left with nobody running it is closed, not waited for.
+					abandonInterrupted: true,
 					// The words the person sent: a target such as +500k is read from these only.
 					typedInput: prompt,
 					currentPermissionMode: () => turnMode,
@@ -1520,6 +1526,16 @@ export function createCliAcpRuntime(
 			try {
 				assertReadTrust(trust.cwd, state)
 				const binding = await deps.palBinding?.(trust.cwd, target.sessionId, state)
+				// This host is the one that is opening the conversation now. A turn the host before it left
+				// with nobody running it is over; the status below must not tell the person to wait for it.
+				await settleTurnOfGoneHost(
+					state,
+					target.sessionId,
+					record?.session.abandonTurn
+						? async (turnId, reason) =>
+								record.session.abandonTurn?.(asTurnId(turnId), reason, { withdrawMessages: false })
+						: undefined,
+				)
 				const status = await (deps.readRetryStatus ?? readProviderRetryStatus)(
 					state,
 					target.sessionId,

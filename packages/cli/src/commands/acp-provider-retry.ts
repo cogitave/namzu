@@ -3,6 +3,7 @@ import {
 	DiskSessionLog,
 	DiskSessionTokenBudgetStore,
 	SessionTokenBudget,
+	abandonTurn,
 	asCheckpointId,
 	asSessionId,
 	asTurnId,
@@ -29,6 +30,49 @@ export interface ProviderRetryStatus {
 	closable?: true
 	/** How many earlier requests have a cost nobody reported; a retry is a new request. */
 	unknownUsage?: number
+}
+
+/**
+ * Why a turn is closed when the host that ran it is gone. It reads in the journal; the person is
+ * told by the transcript ("Stopped because Namzu was closed"), not by this sentence.
+ */
+export const HOST_GONE_REASON = 'The host that was running this reply went away before it finished.'
+
+/**
+ * Settle the active turn of a host that no longer exists: one with no live writer lease that is
+ * not paused and never was (a host that went away after writing the turn's start and the person's message, and
+ * before anything that settles it). Closing it is one durable append, `turn_failed`, and the
+ * person's message stays. A turn another host still holds is a running turn and is left alone,
+ * as is a paused one, which waits for a person. Returns whether a turn was closed.
+ *
+ * The lease is the proof: a live host renews its lease while it runs and gives it back only when
+ * the turn ends or the process is told to stop, so a turn that is not paused and has no live lease
+ * has nobody running it. Nothing waits for a lease to run out and nothing is guessed from a clock.
+ */
+export async function settleTurnOfGoneHost(
+	state: CliSessionScope,
+	sessionId: string,
+	close?: (turnId: string, reason: string) => Promise<void>,
+): Promise<boolean> {
+	const id = asSessionId(sessionId)
+	const facts = await readConversationFacts(state, id)
+	const active = facts?.activeTurn
+	if (!active || active.paused) return false
+	// A turn that was paused or resumed once has a checkpoint and a person's choice behind it; it is
+	// closed by that choice, never from here.
+	if (facts.latestPause(active.turnId) || facts.wasResumed(active.turnId)) return false
+	const log = DiskSessionLog.at(state.paths, { sessionId: id })
+	const current = await log.activeTurn()
+	if (!current || current.turnId !== active.turnId || current.state !== 'interrupted') return false
+	try {
+		if (close) await close(active.turnId, HOST_GONE_REASON)
+		else await abandonTurn(id, asTurnId(active.turnId), HOST_GONE_REASON, { log })
+	} catch {
+		// A host took the conversation between the read and the append: it is running the turn, or
+		// has settled it. The status below says which.
+		return false
+	}
+	return true
 }
 
 /** Strict durable eligibility; no provider call, writer claim or budget mutation. */
