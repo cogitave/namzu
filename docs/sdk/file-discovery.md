@@ -81,7 +81,18 @@ Grep stops itself after 12 seconds, inside a 15-second execution deadline, and
 after reading 50,000 files. It skips symlink entries, binary contents and files
 larger than 5 MiB (5,242,880 bytes). Enumerator size metadata rejects known
 oversized files before a read; the content size is checked again after reading.
-This is a per-file limit, not a total byte budget. Results are paged: the
+This is a per-file limit, not a total byte budget.
+
+On the host file system (not a sandbox, where each read goes through the adapter
+as before) `grep` resolves the real path of each directory once and checks it
+against the real root, then reads a file through one handle: open with links
+refused at the last component, `fstat` for the regular-file check and the size,
+read, close. The size comes from that handle, so the host walk does not stat each
+file first, and a file over the cap, or one deleted after it was listed, is
+skipped (the latter as if never listed), not counted as unreadable. Directory
+listing and reads are batched and yield to the event loop every few
+milliseconds, and the walk runs ahead of the matching so the two overlap; a
+cancellation is seen between files. Results and their order are unchanged. Results are paged: the
 default `head_limit` is 250 entries (`0` for none), and `max_results` is its
 deprecated alias.
 
