@@ -350,6 +350,16 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				})
 				break
 
+			case 'compaction_skills_carried':
+				log.info('Put loaded skills back after a pass cut them', {
+					[NAMZU.TURN_ID]: event.turnId,
+					[NAMZU.ITERATION]: event.iteration,
+					'namzu.compaction.skills': event.skills.join(','),
+					'namzu.compaction.skills_cut': event.cut.join(','),
+					'namzu.compaction.skills_left_out': event.leftOut.join(','),
+				})
+				break
+
 			case 'compaction_failed':
 				// warn rather than info: the turn is now continuing at a context
 				// size it had already decided was too large.
