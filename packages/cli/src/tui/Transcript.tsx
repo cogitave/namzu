@@ -18,6 +18,7 @@ import { ContextGridRow } from './ContextGridRow.js'
 import { ContentWidth, Markdown, WrappedSpans, useContentWidth } from './Markdown.js'
 import { ReadSearchGroup } from './ReadSearchGroup.js'
 import { StatusPanel } from './StatusPanel.js'
+import { type AttachmentRow, attachmentLine } from './attachment-rows.js'
 import { type ShellOutput, shellCollapses, shellResultRows, shellToneColor } from './shell-cell.js'
 import {
 	RECAP_GLYPH,
@@ -26,6 +27,7 @@ import {
 	RESULT_GUTTER_WIDTH,
 } from './system-rows.js'
 import { expandTabs, terminalDisplayText } from './terminal-display.js'
+import { terminalFileHyperlink } from './terminal-hyperlinks.js'
 import { useThemeEpoch } from './theme-store.js'
 import { paint, theme } from './theme.js'
 import { NOT_SHOWN_LINE } from './tidy-tool-output.js'
@@ -406,6 +408,18 @@ function MessageRow({
 					)}
 				</Box>
 			</Box>
+			{message.attachments && message.attachments.length > 0 ? (
+				<Box flexDirection="column" paddingLeft={2}>
+					{message.attachments.map((row, index) => (
+						<AttachmentLineRow
+							// biome-ignore lint/suspicious/noArrayIndexKey: the rows of one message, in order.
+							key={index}
+							row={row}
+							hyperlinks={hyperlinks}
+						/>
+					))}
+				</Box>
+			) : null}
 			{message.checklist && message.checklist.length > 0 ? (
 				<Box paddingLeft={2}>
 					<Checklist items={message.checklist} />
@@ -824,4 +838,24 @@ export function contentColorForRole(role: TranscriptMessage['role']): string {
  */
 export function metaSeparator(meta: string): string {
 	return meta.startsWith('(') ? ' ' : ' · '
+}
+
+/**
+ * One quiet row under a sent message for a file that went with it. Where the
+ * terminal takes links it is a link to the copy on disk, so a click opens it.
+ */
+function AttachmentLineRow({
+	row,
+	hyperlinks,
+}: {
+	readonly row: AttachmentRow
+	readonly hyperlinks: boolean
+}) {
+	const label = terminalDisplayText(attachmentLine(row))
+	const linked = hyperlinks && row.path ? terminalFileHyperlink(label, row.path) : null
+	return (
+		<Text color={theme.text.muted} wrap="truncate-end" underline={linked !== null}>
+			{linked ?? label}
+		</Text>
+	)
 }

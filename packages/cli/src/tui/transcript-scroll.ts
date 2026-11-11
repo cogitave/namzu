@@ -14,6 +14,7 @@
 
 import { renderedDetailLines } from './Transcript.js'
 import { contentColorForRole, glyphColorForRole, glyphForRole } from './Transcript.js'
+import { attachmentLine } from './attachment-rows.js'
 import { choiceDisplayWidth, wrapChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { paint, theme } from './theme.js'
@@ -95,7 +96,10 @@ export function messageScrollRows(
 	const body = wrapChoiceText(joined, width)
 	const detail = message.statusRows
 		? []
-		: renderedDetailLines(message).flatMap((line) =>
+		: [
+				...(message.attachments ?? []).map((row) => terminalDisplayText(attachmentLine(row))),
+				...renderedDetailLines(message),
+			].flatMap((line) =>
 				wrapChoiceText(line.length > 0 ? line : ' ', width + GUTTER).map((part) => part),
 			)
 	const rows: ScrollRow[] = []

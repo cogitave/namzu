@@ -386,6 +386,8 @@ export interface RestoreOptions {
 	readonly trail?: RestoredTrail
 	/** The working folder, so paths read as they did live. */
 	readonly cwd?: string
+	/** Where copies of attached files are kept, so their rows can link to them. */
+	readonly attachmentDir?: string
 }
 
 /**

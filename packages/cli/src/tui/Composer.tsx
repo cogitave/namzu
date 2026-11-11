@@ -44,12 +44,16 @@ import { type MentionExtra, activeFileMention, matchMentionSuggestions } from '.
 import { parseModelSelectionIntent } from './model-selection-intent.js'
 import type { Notice } from './notifications.js'
 import {
+	type ChipRange,
 	attachmentChip,
-	chipBefore,
+	chipRanges,
 	expandChips,
 	isChipPaste,
+	keepChipsWhole,
+	numberAttachments,
 	pasteChip,
-	stripAttachmentChips,
+	snapOutOfChip,
+	widenOverChips,
 } from './paste-chips.js'
 import { explainFailure } from './plain-failure.js'
 import { type SlashCommand, argumentHintFor, matchSlashCommands } from './slashCommands.js'
@@ -91,6 +95,12 @@ export const ESC_CLEAR_NOTICE_MS = 1000
 export const REWIND_DOUBLE_ESC_MS = 800
 
 export interface ComposerProps {
+	/**
+	 * The highest image or document number the conversation has used. A new
+	 * attachment is numbered after it, so a number names one attachment for the
+	 * life of the conversation.
+	 */
+	readonly attachmentFloor?: number
 	readonly disabled?: boolean
 	/** A bounded text editor for a child conversation, without host commands or image attachments. */
 	readonly plainText?: boolean
@@ -351,7 +361,7 @@ interface ComposerDisplay {
 /** A run of the drawn draft, styled when it is a trigger's words. */
 interface DisplaySegment {
 	readonly text: string
-	readonly style?: 'armed' | 'unavailable'
+	readonly style?: 'armed' | 'unavailable' | 'chip'
 }
 
 /**
@@ -367,7 +377,7 @@ function displaySegments(
 	styled: readonly {
 		readonly start: number
 		readonly end: number
-		readonly style: 'armed' | 'unavailable'
+		readonly style: 'armed' | 'unavailable' | 'chip'
 	}[],
 ): DisplaySegment[] {
 	const segments: DisplaySegment[] = []
@@ -390,7 +400,13 @@ function renderSegments(segments: readonly DisplaySegment[]) {
 			<Text
 				// biome-ignore lint/suspicious/noArrayIndexKey: segments of one draft, in order.
 				key={index}
-				color={segment.style === 'armed' ? theme.accent.trigger : theme.status.warn}
+				color={
+					segment.style === 'chip'
+						? theme.accent.system
+						: segment.style === 'armed'
+							? theme.accent.trigger
+							: theme.status.warn
+				}
 				bold={segment.style === 'armed'}
 				underline={segment.style === 'armed'}
 			>
@@ -643,6 +659,7 @@ function deleteNextWordAt(
 }
 
 export function Composer({
+	attachmentFloor = 0,
 	disabled = false,
 	plainText = false,
 	mayReadImage,
@@ -721,20 +738,38 @@ export function Composer({
 	// back in the exact SDK union on submit.
 	const [attachments, setAttachments] = useState<readonly MessageAttachment[]>([])
 	const attachmentsRef = useRef<readonly MessageAttachment[]>([])
-	// A chip's number is the attachment's own id, fixed when it joins: deleting
-	// an earlier chip never renumbers the ones that stay, and a new one never
-	// reuses a label still in the text.
+	// A chip's number is the attachment's own id, fixed when it joins and never
+	// reused: deleting a chip renumbers nothing, and a new one never takes a
+	// number the conversation has already seen.
 	const attachmentIdsRef = useRef<WeakMap<MessageAttachment, number>>(new WeakMap())
-	const nextAttachmentIdRef = useRef(1)
+	// The highest number given out here or named by the conversation so far.
+	const attachmentHighRef = useRef(attachmentFloor)
+	const attachmentFloorRef = useRef(attachmentFloor)
 	const idFor = useCallback((attachment: MessageAttachment): number => {
 		let id = attachmentIdsRef.current.get(attachment)
 		if (id === undefined) {
-			id = nextAttachmentIdRef.current
-			nextAttachmentIdRef.current += 1
+			id = Math.max(attachmentHighRef.current, attachmentFloorRef.current) + 1
+			attachmentHighRef.current = id
 			attachmentIdsRef.current.set(attachment, id)
 		}
 		return id
 	}, [])
+	// A conversation that starts over (cleared, a new one) starts its numbers over;
+	// a draft's own attachments keep theirs.
+	useLayoutEffect(() => {
+		const before = attachmentFloorRef.current
+		attachmentFloorRef.current = attachmentFloor
+		if (attachmentFloor >= before) {
+			attachmentHighRef.current = Math.max(attachmentHighRef.current, attachmentFloor)
+			return
+		}
+		let high = attachmentFloor
+		for (const attachment of attachmentsRef.current) {
+			const id = attachmentIdsRef.current.get(attachment)
+			if (id !== undefined) high = Math.max(high, id)
+		}
+		attachmentHighRef.current = high
+	}, [attachmentFloor])
 	const replaceAttachments = useCallback(
 		(
 			next:
@@ -743,8 +778,6 @@ export function Composer({
 		) => {
 			const resolved = typeof next === 'function' ? next(attachmentsRef.current) : next
 			attachmentsRef.current = resolved
-			// With nothing left attached the numbering starts over.
-			if (resolved.length === 0) nextAttachmentIdRef.current = 1
 			setAttachments(resolved)
 		},
 		[],
@@ -923,13 +956,39 @@ export function Composer({
 		else setOverride(nearest, 'dropped')
 	}
 
+	/** The markers in the draft with something behind them: an attached file or a held paste. */
+	const chipsNow = useCallback(
+		(): readonly ChipRange[] =>
+			chipRanges(valueRef.current, {
+				attachments: new Set(
+					attachmentsRef.current.map((attachment) => chipFor(attachment, idFor(attachment))),
+				),
+				pastes: new Set(pasteStoreRef.current.keys()),
+			}),
+		[idFor],
+	)
+	/** Put the cursor at `position`, never inside a marker; `bias` is the way it was heading. */
+	const placeCursor = (position: number, bias: -1 | 0 | 1): void => {
+		const at = snapOutOfChip(chipsNow(), position, bias)
+		cursorRef.current = at
+		setCursorState(at)
+	}
+	/** The range to delete, grown to take any marker it cuts into whole. */
+	const wholeRange = (start: number, end: number): readonly [number, number] =>
+		widenOverChips(chipsNow(), start, end)
+
 	const undoRef = useRef(createUndoStack())
 	/** The draft set aside with Ctrl+S, brought back by Ctrl+S on an empty draft or after the next message. */
 	const stashRef = useRef<Omit<ComposerDraft, 'token'> | null>(null)
 	/** Save the draft as it is now, ahead of an edit that makes it `after`. */
 	const recordUndo = useCallback((after: string, typed: string | null) => {
 		undoRef.current.record(
-			{ value: valueRef.current, cursor: cursorRef.current, spans: spansRef.current },
+			{
+				value: valueRef.current,
+				cursor: cursorRef.current,
+				spans: spansRef.current,
+				attachments: attachmentsRef.current,
+			},
 			after,
 			typed,
 		)
@@ -941,12 +1000,30 @@ export function Composer({
 	 * and Alt+W decisions move with it.
 	 */
 	const editBuffer = useCallback(
-		(nextValue: string, nextCursor = nextValue.length, origin: EditOrigin = 'typed') => {
+		(initialValue: string, initialCursor = initialValue.length, origin: EditOrigin = 'typed') => {
+			let nextValue = initialValue
+			let nextCursor = initialCursor
 			verticalColumnRef.current = null
 			historyDraftRef.current = null
 			setHistorySearch(null)
 			setHistoryIndex(-1)
-			const edit = diffEdit(valueRef.current, nextValue, cursorRef.current)
+			let edit = diffEdit(valueRef.current, nextValue, cursorRef.current)
+			// A marker is one unit: an edit that reaches into one takes all of it.
+			const chips = chipsNow()
+			if (chips.length > 0) {
+				const whole = keepChipsWhole(
+					valueRef.current,
+					chips,
+					edit,
+					nextValue.slice(edit.start, edit.start + edit.insertLength),
+					nextCursor,
+				)
+				if (whole.value !== nextValue) {
+					nextValue = whole.value
+					nextCursor = whole.cursor
+					edit = diffEdit(valueRef.current, nextValue, cursorRef.current)
+				}
+			}
 			// One typed character is part of a run; anything else is an edit of its own.
 			const inserted = nextValue.slice(edit.start, edit.start + edit.insertLength)
 			recordUndo(
@@ -960,7 +1037,7 @@ export function Composer({
 			setBuffer(nextValue, nextCursor, origin, spans)
 			overridesRef.current = overrides
 		},
-		[recordUndo, setBuffer, setHistoryIndex, setHistorySearch],
+		[chipsNow, recordUndo, setBuffer, setHistoryIndex, setHistorySearch],
 	)
 
 	const reset = useCallback(() => {
@@ -993,13 +1070,26 @@ export function Composer({
 			// A stored image has no chip in text that never showed it: add one.
 			let restoredText = draft.text
 			const restoredAttachments = draft.attachments ? [...draft.attachments] : []
-			nextAttachmentIdRef.current = 1
+			// The text names its attachments by number; they keep those numbers.
 			attachmentIdsRef.current = new WeakMap()
-			for (const attachment of restoredAttachments) {
-				const chip = chipFor(attachment, idFor(attachment))
-				if (!restoredText.includes(chip))
-					restoredText = `${chip}${restoredText ? ' ' : ''}${restoredText}`
-			}
+			const numbers = numberAttachments(
+				draft.text,
+				restoredAttachments.map((attachment) =>
+					isDocumentLike(attachment) ? 'Document' : 'Image',
+				),
+				Math.max(attachmentFloorRef.current, attachmentHighRef.current),
+			)
+			restoredAttachments.forEach((attachment, index) => {
+				const number = numbers[index] as number
+				attachmentIdsRef.current.set(attachment, number)
+				attachmentHighRef.current = Math.max(attachmentHighRef.current, number)
+			})
+			// An attachment the text does not name yet gets its marker in front, in order.
+			const missing = restoredAttachments
+				.map((attachment) => chipFor(attachment, idFor(attachment)))
+				.filter((chip) => !restoredText.includes(chip))
+			if (missing.length > 0)
+				restoredText = `${missing.join(' ')}${restoredText ? ' ' : ''}${restoredText}`
 			clearPastes()
 			setBuffer(restoredText, restoredText.length, 'restored')
 			if (triggers && draft.triggers?.length) {
@@ -1073,8 +1163,10 @@ export function Composer({
 		let value = valueRef.current
 		let position = cursorRef.current
 		for (const image of images) {
-			// A chip set down against the word before it would read as part of it.
-			const chip = `${position > 0 ? ' ' : ''}${chipFor(image, idFor(image))}`
+			// A chip set down against the word before it would read as part of it;
+			// after a space it needs none, so the words around it keep one space.
+			const apart = position > 0 && !/\s/u.test(value.charAt(position - 1))
+			const chip = `${apart ? ' ' : ''}${chipFor(image, idFor(image))}`
 			value = value.slice(0, position) + chip + value.slice(position)
 			position += chip.length
 		}
@@ -1383,8 +1475,8 @@ export function Composer({
 			}
 			const submit = (mode: ComposerSubmitMode): boolean => {
 				const pastes = pasteStoreRef.current
-				// Chips become the words they stand for; image chips go, the image travels beside.
-				const toMessage = (draft: string) => expandChips(stripAttachmentChips(draft), pastes)
+				// A held paste becomes its text; an image's marker stays where it was put.
+				const toMessage = (draft: string) => expandChips(draft, pastes)
 				const message = toMessage(valueRef.current).trim()
 				// An image whose chip was deleted from the text is not sent.
 				const currentAttachments = attachmentsRef.current.filter((attachment) =>
@@ -1441,13 +1533,15 @@ export function Composer({
 				setHistorySearch(null)
 				setHistoryIndex(-1)
 				setSelectedIndex(0)
+				// An image whose marker the edit took out comes back with it.
+				if (previous.attachments) replaceAttachments(previous.attachments)
 				setBuffer(previous.value, previous.cursor, 'typed', previous.spans)
 				return
 			}
 			// A key that opens a chooser keeps what was typed: the draft goes to the
 			// host with the request and comes back when the chooser closes.
 			const typedDraft = (): Omit<ComposerDraft, 'token'> | undefined => {
-				const text = expandChips(stripAttachmentChips(valueRef.current), pasteStoreRef.current)
+				const text = expandChips(valueRef.current, pasteStoreRef.current)
 				if (text.trim().length === 0 && attachmentsRef.current.length === 0) return undefined
 				return {
 					text,
@@ -1476,7 +1570,7 @@ export function Composer({
 					restoreDraft(stashed)
 					return
 				}
-				const draft = expandChips(stripAttachmentChips(valueRef.current), pasteStoreRef.current)
+				const draft = expandChips(valueRef.current, pasteStoreRef.current)
 				// A draft already set aside is not overwritten: the two trade places,
 				// and the same key swaps them back.
 				const earlier = stashRef.current
@@ -1587,7 +1681,7 @@ export function Composer({
 					clearArmRef.current = null
 					onFooterNoticeRemove?.(ESC_CLEAR_KEY)
 					// A cleared draft stays recallable, like a submitted line.
-					const cleared = expandChips(stripAttachmentChips(valueRef.current), pasteStoreRef.current)
+					const cleared = expandChips(valueRef.current, pasteStoreRef.current)
 					if (cleared.trim().length > 0) onClearedDraft?.(cleared)
 					reset()
 					return
@@ -1608,7 +1702,7 @@ export function Composer({
 			if (isAction('edit:deleteWordBack', input, key) && key.backspace) {
 				const source = valueRef.current
 				const position = cursorRef.current
-				const start = previousWordBoundary(source, position)
+				const [start] = wholeRange(previousWordBoundary(source, position), position)
 				if (start < position) killBufferRef.current = source.slice(start, position)
 				const result = deletePreviousWordAt(valueRef.current, cursorRef.current)
 				editBuffer(result.value, result.cursor)
@@ -1616,13 +1710,9 @@ export function Composer({
 			}
 			if (key.backspace) {
 				const position = cursorRef.current
-				// A chip goes whole: half a chip would send its brackets as text.
-				const chip = chipBefore(valueRef.current, position)
+				// A marker goes whole: half of one would send its brackets as text.
+				const chip = chipsNow().find((range) => range.end === position)
 				if (chip) {
-					const gone = attachmentsRef.current.findIndex(
-						(attachment) => chipFor(attachment, idFor(attachment)) === chip.chip,
-					)
-					if (gone >= 0) replaceAttachments((p) => p.filter((_, index) => index !== gone))
 					editBuffer(
 						valueRef.current.slice(0, chip.start) + valueRef.current.slice(position),
 						chip.start,
@@ -1650,16 +1740,12 @@ export function Composer({
 			}
 			if (isAction('edit:wordLeft', input, key)) {
 				verticalColumnRef.current = null
-				const previous = previousWordBoundary(valueRef.current, cursorRef.current)
-				cursorRef.current = previous
-				setCursorState(previous)
+				placeCursor(previousWordBoundary(valueRef.current, cursorRef.current), -1)
 				return
 			}
 			if (isAction('edit:wordRight', input, key)) {
 				verticalColumnRef.current = null
-				const next = nextWordBoundary(valueRef.current, cursorRef.current)
-				cursorRef.current = next
-				setCursorState(next)
+				placeCursor(nextWordBoundary(valueRef.current, cursorRef.current), 1)
 				return
 			}
 			if (key.leftArrow && onOpenWorkspaces) {
@@ -1697,16 +1783,12 @@ export function Composer({
 			}
 			if (isAction('edit:charLeft', input, key)) {
 				verticalColumnRef.current = null
-				const previous = previousGraphemeBoundary(valueRef.current, cursorRef.current)
-				cursorRef.current = previous
-				setCursorState(previous)
+				placeCursor(previousGraphemeBoundary(valueRef.current, cursorRef.current), -1)
 				return
 			}
 			if (isAction('edit:charRight', input, key)) {
 				verticalColumnRef.current = null
-				const next = nextGraphemeBoundary(valueRef.current, cursorRef.current)
-				cursorRef.current = next
-				setCursorState(next)
+				placeCursor(nextGraphemeBoundary(valueRef.current, cursorRef.current), 1)
 				return
 			}
 			if (key.pageUp && !hasLiveSuggestions && onScrollTranscript) {
@@ -1723,16 +1805,12 @@ export function Composer({
 			}
 			if (isAction('edit:lineStart', input, key)) {
 				verticalColumnRef.current = null
-				const start = lineStart(valueRef.current, cursorRef.current)
-				cursorRef.current = start
-				setCursorState(start)
+				placeCursor(lineStart(valueRef.current, cursorRef.current), -1)
 				return
 			}
 			if (isAction('edit:lineEnd', input, key)) {
 				verticalColumnRef.current = null
-				const end = lineEnd(valueRef.current, cursorRef.current)
-				cursorRef.current = end
-				setCursorState(end)
+				placeCursor(lineEnd(valueRef.current, cursorRef.current), 1)
 				return
 			}
 			if (isAction('edit:linePrevious', input, key)) {
@@ -1748,8 +1826,7 @@ export function Composer({
 				)
 				if (vertical) {
 					verticalColumnRef.current = vertical.column
-					cursorRef.current = vertical.cursor
-					setCursorState(vertical.cursor)
+					placeCursor(vertical.cursor, -1)
 					return
 				}
 				verticalColumnRef.current = null
@@ -1779,8 +1856,7 @@ export function Composer({
 				)
 				if (vertical) {
 					verticalColumnRef.current = vertical.column
-					cursorRef.current = vertical.cursor
-					setCursorState(vertical.cursor)
+					placeCursor(vertical.cursor, 1)
 					return
 				}
 				verticalColumnRef.current = null
@@ -1825,7 +1901,7 @@ export function Composer({
 			if (isAction('edit:deleteWordBack', input, key)) {
 				const source = valueRef.current
 				const position = cursorRef.current
-				const start = previousWordBoundary(source, position)
+				const [start] = wholeRange(previousWordBoundary(source, position), position)
 				if (start < position) killBufferRef.current = source.slice(start, position)
 				const result = deletePreviousWordAt(valueRef.current, cursorRef.current)
 				editBuffer(result.value, result.cursor)
@@ -1833,14 +1909,14 @@ export function Composer({
 			}
 			if (isAction('edit:deleteToLineStart', input, key)) {
 				const position = cursorRef.current
-				const start = lineStart(valueRef.current, position)
+				const [start] = wholeRange(lineStart(valueRef.current, position), position)
 				if (start < position) killBufferRef.current = valueRef.current.slice(start, position)
 				editBuffer(valueRef.current.slice(0, start) + valueRef.current.slice(position), start)
 				return
 			}
 			if (isAction('edit:deleteToLineEnd', input, key)) {
 				const position = cursorRef.current
-				const end = lineEnd(valueRef.current, position)
+				const [, end] = wholeRange(position, lineEnd(valueRef.current, position))
 				if (position < end) killBufferRef.current = valueRef.current.slice(position, end)
 				editBuffer(valueRef.current.slice(0, position) + valueRef.current.slice(end), position)
 				return
@@ -1848,7 +1924,7 @@ export function Composer({
 			if (isAction('edit:deleteWordForward', input, key)) {
 				const source = valueRef.current
 				const position = cursorRef.current
-				const end = nextWordBoundary(source, position)
+				const [, end] = wholeRange(position, nextWordBoundary(source, position))
 				if (position < end) killBufferRef.current = source.slice(position, end)
 				const result = deleteNextWordAt(valueRef.current, cursorRef.current)
 				editBuffer(result.value, result.cursor)
@@ -1946,11 +2022,15 @@ export function Composer({
 				standaloneAllowed: attachments.length === 0,
 			})
 		: null
-	const styledSpans = detection.hits.flatMap((hit) =>
-		hit.state === 'armed' || hit.state === 'unavailable'
-			? [{ start: hit.start, end: hit.end, style: hit.state }]
-			: [],
-	)
+	// A marker reads as an object, not as typed words: its own colour, brackets kept.
+	const styledSpans = [
+		...detection.hits.flatMap((hit) =>
+			hit.state === 'armed' || hit.state === 'unavailable'
+				? [{ start: hit.start, end: hit.end, style: hit.state }]
+				: [],
+		),
+		...chipsNow().map((chip) => ({ start: chip.start, end: chip.end, style: 'chip' as const })),
+	].sort((a, b) => a.start - b.start)
 	const beforeSegments = displaySegments(value, displayValue.start, cursor, styledSpans)
 	const afterSegments = displaySegments(value, cursor, displayValue.end, styledSpans)
 	const promptGlyph = disabled && !railFocused ? '…' : '❯'
@@ -2096,7 +2176,11 @@ export function Composer({
 
 /** The chip that stands for the attachment with this stable `id` in the draft text. */
 function chipFor(attachment: MessageAttachment, id: number): string {
-	const isDocument =
+	return attachmentChip(isDocumentLike(attachment) ? 'Document' : 'Image', id)
+}
+
+function isDocumentLike(attachment: MessageAttachment): boolean {
+	return (
 		attachment.type === 'document' || (attachment.type === 'stored' && attachment.kind !== 'image')
-	return attachmentChip(isDocument ? 'Document' : 'Image', id)
+	)
 }

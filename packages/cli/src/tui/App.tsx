@@ -695,6 +695,7 @@ import { ApprovalNotifier } from '../integrations/notifications/approval.js'
 import { IdleNotifier } from '../integrations/notifications/idle.js'
 import { hostSlot } from '../workspaces/signal.js'
 import { agentViewCommandClass } from './agent-view-commands.js'
+import { type AttachmentRow, attachmentDirOf, attachmentRows } from './attachment-rows.js'
 import { AwayRecap } from './away-recap.js'
 import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
 import type { QueuedHintCount } from './composer-hints.js'
@@ -711,6 +712,7 @@ import {
 import { describeModelRefusal, refusalDetail } from './model-refusal.js'
 import { openInBrowser } from './open-browser.js'
 import { outcomeLine } from './outcome-line.js'
+import { highestAttachmentNumber } from './paste-chips.js'
 import { PauseClock } from './pause-clock.js'
 import {
 	type WithheldCall,
@@ -1390,6 +1392,8 @@ export function projectConversation(
 	restore?: Partial<RestoreOptions>,
 ): readonly TranscriptMessage[] {
 	let userOrdinal = 0
+	// The highest image or document number named so far, for a message from before markers were kept.
+	let attachmentFloor = 0
 	const writer = createRestoredTurnWriter(messages, nextId, {
 		presenter: restore?.presenter ?? builtinToolPresenter(),
 		...(restore?.trail ? { trail: restore.trail } : {}),
@@ -1464,11 +1468,22 @@ export function projectConversation(
 			}
 			const readable = readableUserTexts[userOrdinal]
 			userOrdinal += 1
+			const attachments = message.attachments?.length
+				? attachmentRows(
+						message.content,
+						message.attachments,
+						attachmentFloor,
+						restore?.attachmentDir,
+					)
+				: undefined
+			for (const row of attachments ?? [])
+				attachmentFloor = Math.max(attachmentFloor, highestAttachmentNumber(row.marker))
 			return [
 				{
 					id: nextId(),
 					role: 'user',
 					content: readable ?? message.content,
+					...(attachments ? { attachments } : {}),
 				},
 			]
 		}
@@ -3124,6 +3139,36 @@ function AppBody({
 	// turns attribute to the resumed conversation.
 	const sessionsRef = useRef<CliSessions | null>(null)
 	const scopeRef = useRef<SessionScope | null>(null)
+	// The highest image or document number the conversation on screen has used:
+	// a new attachment is numbered after it, so a number names one attachment for
+	// the life of the conversation. Read from the rows, so a resume, a rewind and
+	// a clear each leave it right without anyone resetting it.
+	const attachmentFloor = useMemo(() => {
+		let highest = 0
+		for (const row of messages) {
+			if (!row.attachments) continue
+			for (const attachment of row.attachments)
+				highest = Math.max(highest, highestAttachmentNumber(attachment.marker))
+		}
+		return highest
+	}, [messages])
+	const attachmentFloorRef = useRef(0)
+	attachmentFloorRef.current = attachmentFloor
+	/** The rows a sent message shows for its files, with their copies written under the conversation's folder. */
+	const attachmentRowsFor = (
+		text: string,
+		attachments: readonly MessageAttachment[] | undefined,
+	): readonly AttachmentRow[] | undefined => {
+		if (!attachments || attachments.length === 0) return undefined
+		const sessions = sessionsRef.current
+		const sessionId = scopeRef.current?.sessionId
+		return attachmentRows(
+			text,
+			attachments,
+			attachmentFloorRef.current,
+			sessions && sessionId ? attachmentDirOf(sessions, sessionId) : undefined,
+		)
+	}
 	// What the conversation is called: the name a person gave it, else the title
 	// the small model wrote. They feed the terminal title; `/resume` reads the same
 	// two from the log.
@@ -3701,6 +3746,7 @@ function AppBody({
 			shell?: ShellOutput,
 			diff?: TranscriptMessage['diff'],
 			contentColor?: string,
+			attachments?: readonly AttachmentRow[],
 		) => {
 			// A reply's text belongs after the receipt of the agents its turn
 			// launched, so a receipt still waiting out its settle window is
@@ -3754,6 +3800,7 @@ function AppBody({
 								...(shell ? { shell } : {}),
 								...(diff ? { diff } : {}),
 								...(contentColor ? { contentColor } : {}),
+								...(attachments && attachments.length > 0 ? { attachments } : {}),
 								...(sourceDelivery ? { sourceDelivery } : {}),
 								// Numbered only if this body will actually be COLLAPSED — the
 								// number exists to be read off a hint, and a body that fits
@@ -5915,6 +5962,7 @@ function AppBody({
 				...projectConversation(restored, nextId, [], {
 					trail: trailFromRecords(journalOf(restored)),
 					cwd: ctxRef.current.cwd,
+					attachmentDir: attachmentDirOf(sessions, asSessionId(requestedConversationId)),
 				}),
 				...(resumedTitle
 					? [
@@ -7932,6 +7980,7 @@ function AppBody({
 			const restored = projectConversation(msgs, nextId, [], {
 				trail: trailFromRecords(journalOf(msgs)),
 				cwd: ctxRef.current.cwd,
+				attachmentDir: attachmentDirOf(sessions, conv.id),
 			})
 			// A queue can outlive its turn by one render: the turn has set idle and
 			// cleared `abortRef`, while the passive queue pump is paused behind this
@@ -9040,6 +9089,7 @@ function AppBody({
 				setMessages(
 					projectConversation(forked.messages, nextId, readablePrefix, {
 						cwd: ctxRef.current.cwd,
+						attachmentDir: attachmentDirOf(sessions, forked.id),
 					}),
 				)
 				composerDraftTokenRef.current += 1
@@ -9138,6 +9188,9 @@ function AppBody({
 				setMessages(
 					projectConversation(result.messages, nextId, readable, {
 						cwd: ctxRef.current.cwd,
+						...(sessionsRef.current && scopeRef.current
+							? { attachmentDir: attachmentDirOf(sessionsRef.current, scopeRef.current.sessionId) }
+							: {}),
 					}),
 				)
 				if (option === 'summarize') {
@@ -10645,7 +10698,16 @@ function AppBody({
 					undefined,
 					undefined,
 					undefined,
-					humanPromptMeta(attached.length, attachments),
+					humanPromptMeta(attached.length),
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					attachmentRowsFor(
+						prompt.kind === 'human' ? (prompt.recallText ?? text) : text,
+						attachments,
+					),
 				)
 				const tagLine = transcriptTagLine(turnTriggers, {
 					effort: pinnedEffort,
@@ -10911,7 +10973,16 @@ function AppBody({
 								undefined,
 								undefined,
 								undefined,
-								humanPromptMeta(input.attachedFiles, input.prompt.attachments, true),
+								humanPromptMeta(input.attachedFiles, true),
+								undefined,
+								undefined,
+								undefined,
+								undefined,
+								undefined,
+								attachmentRowsFor(
+									input.prompt.recallText ?? input.prompt.text,
+									input.prompt.attachments,
+								),
 							)
 						}
 						setPendingSteers([])
@@ -17293,6 +17364,7 @@ function AppBody({
 							}
 						>
 							<Composer
+								attachmentFloor={attachmentFloor}
 								{...(viewingAgent
 									? {
 											placeholder: `Message @${[...viewingAgent.agentId].slice(0, 20).join('')}…`,
