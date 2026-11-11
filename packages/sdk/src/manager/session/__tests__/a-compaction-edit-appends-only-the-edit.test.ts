@@ -3,6 +3,7 @@ import { clearToolResult } from '../../../compaction/tool-result-editing.js'
 import { memorySession, records } from '../../../runtime/query/__tests__/support/session.js'
 import { EventTranslator } from '../../../runtime/query/events.js'
 import { foldSessionMessages } from '../../../store/session-log/fold.js'
+import type { SessionLog } from '../../../store/session-log/index.js'
 import type { MessageId } from '../../../types/ids/index.js'
 import {
 	type AssistantMessage,
@@ -77,9 +78,7 @@ const counts = (all: readonly SessionRecord[], from: number) => {
 }
 
 /** What a reader folds from the log, as the context the turn holds. */
-async function folded(session: {
-	sessionLog: { readAll(): Promise<{ entries: { record: SessionRecord }[] }> }
-}) {
+async function folded(session: { sessionLog: SessionLog }) {
 	return foldSessionMessages((await session.sessionLog.readAll()).entries.map((e) => e.record))
 }
 

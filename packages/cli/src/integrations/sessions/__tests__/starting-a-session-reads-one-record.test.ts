@@ -1,7 +1,6 @@
 import {
 	InMemorySessionLog,
 	type SessionLog,
-	type SessionRecord,
 	asProjectId,
 	asSessionId,
 	asTenantId,
@@ -59,7 +58,7 @@ async function sessionWith(records: number) {
 		await memory.append(lease, {
 			type: 'session_updated',
 			title: `t${i}`,
-		} as unknown as Omit<SessionRecord, 'v' | 'id' | 'sessionId' | 'seq' | 'gen' | 'ts' | 'prev'>)
+		} as unknown as Parameters<InMemorySessionLog['append']>[1])
 	}
 	await memory.release(lease)
 	return memory
