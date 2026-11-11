@@ -316,6 +316,39 @@ Both resolve without sending anything, and `subscribeResource` resolves
 `false`, when the server does not advertise `resources.subscribe`. Before this
 the client never subscribed to a resource in either revision.
 
+### `ttlMs` and `cacheScope`: lists and reads are kept as long as the server says
+
+A 2026-07-28 server puts `ttlMs` (how many milliseconds the result may be
+reused) and `cacheScope` (`"public"` or `"private"`) on the results of
+`tools/list`, `prompts/list`, `resources/list`, `resources/templates/list` and
+`resources/read`. **Before this, `MCPClient` ignored both and sent the request
+on every call**; now `listTools()`, `listPrompts()`, `listResources()`,
+`listResourceTemplates()` and `readResource()` answer from memory while the
+result is fresh.
+
+- The result is fresh for `ttlMs` after it arrived, and the client asks again
+  after that, never later. It does not poll in the background.
+- Nothing is kept when `ttlMs` is absent, zero or negative, when the result is
+  not `resultType: "complete"`, or when the connection is not 2026-07-28. A
+  server of an older revision sends no hints, so its lists are fetched on
+  every call exactly as they were.
+- The key is the method and its parameters: each page of a list (its cursor)
+  and each resource (its `uri`) is its own entry, and each page keeps its own
+  clock.
+- A change notification drops what it makes stale at once: `tools`,
+  `prompts` and `resources` list changes drop the matching lists (and the
+  templates), `notifications/resources/updated` drops that resource's read.
+  So does the acknowledgment of a new listen stream, for the kinds it honors.
+- A `private` result, and one that names no scope, is served only to a call
+  with the same `Authorization` (the per-call `bearerToken`, or an
+  `Authorization` entry in `headers`) as the call that fetched it. A `public`
+  result is shared between credentials.
+- A call that gets `-32020` and re-lists tools before its one retry drops the
+  cached tool list first. `disconnect()` and `connect()` empty the cache. At
+  most 256 entries are kept; the oldest goes first.
+- `server/discover` carries the hints too; the era probe is not cached beyond
+  the era cache it already has.
+
 ## Mirroring tool parameters into headers: `x-mcp-header`
 
 A server may annotate a tool parameter with `x-mcp-header` to ask that the

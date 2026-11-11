@@ -2,6 +2,7 @@
 
 ## 2026-11-12
 
+- **Update** [MCP protocol eras](sdk/mcp-protocol-eras.md): `MCPClient` keeps tool, prompt, resource and template lists and resource reads for the `ttlMs` a 2026-07-28 server sends, scoped by `cacheScope`, and drops them on a change notification; before, it asked on every call.
 - **Update** [MCP protocol eras](sdk/mcp-protocol-eras.md): `MCPClient.subscribeResource` and `unsubscribeResource` ask for one resource's updates, through the `subscriptions/listen` filter on 2026-07-28 and `resources/subscribe` on older servers; the "Not yet built" bullet for it is gone.
 - **Update** [Session log: leases](sdk/session-log.md): the place also hashes `/etc/machine-id` where readable, so two machines with the same host name in the initial process-id namespace no longer share a place; the page says which setups still do.
 - **Update** [Session log: leases](sdk/session-log.md) and [Desktop](cli/desktop.md): a turn's writer lease holder is `namzu:<pid>:<turnId>@<place>` (new `turnHolder`, `parseTurnHolder`, `currentPlace` exports); a dead process id counts as proof the holder is gone only for a reader in the same place, so a folder shared between two process tables keeps its refusal until the lease lapses, as does a holder written by an older version. `.changeset/sdk-turn-holder-place.md` (`@namzu/sdk` minor), `.changeset/cli-close-turn-of-gone-host.md`.

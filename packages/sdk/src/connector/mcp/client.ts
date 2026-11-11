@@ -83,6 +83,8 @@ const MAX_LIST_PAGES = 100
 const CANCEL_NOTIFICATION_TIMEOUT_MS = 1_000
 const MAX_PROGRESS_MESSAGE_BYTES = 512
 const ANSI_CSI_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g')
+/** A bound on remembered pages and reads; the oldest goes first. */
+const MAX_CACHE_ENTRIES = 256
 const SUBSCRIPTION_ID_META_KEY = 'io.modelcontextprotocol/subscriptionId'
 const SUBSCRIPTION_RETRY_MAX_MS = 30_000
 /** Auth may refresh; timeouts, conflicts and rate limits can clear without reconnecting. */
@@ -98,6 +100,30 @@ type ListChangeFilter = {
 
 /** The three boolean kinds, which are the ones a list-changed notification maps to. */
 type ListChangeKind = 'toolsListChanged' | 'promptsListChanged' | 'resourcesListChanged'
+
+interface CachedResult {
+	readonly value: unknown
+	readonly expiresAt: number
+	/** Who the result was fetched for; a `private` result is served only to the same one. */
+	readonly scope: 'public' | { readonly authorization: string }
+}
+
+/** Methods whose results carry `ttlMs` and `cacheScope`. */
+const CACHEABLE_METHODS = new Set([
+	'tools/list',
+	'prompts/list',
+	'resources/list',
+	'resources/templates/list',
+	'resources/read',
+])
+
+/** The cached methods a change notification makes stale. */
+const INVALIDATED_BY: Readonly<Record<string, readonly string[]>> = {
+	'notifications/tools/list_changed': ['tools/list'],
+	'notifications/prompts/list_changed': ['prompts/list'],
+	'notifications/resources/list_changed': ['resources/list', 'resources/templates/list'],
+	'notifications/resources/updated': ['resources/read'],
+}
 
 interface ModernSubscription {
 	readonly id: number
@@ -278,6 +304,8 @@ export class MCPClient {
 	private modernSubscription?: ModernSubscription
 	private subscriptionRestartTimer?: ReturnType<typeof setTimeout>
 	private subscriptionFailures = 0
+	/** Results the server said may be reused, by method and parameters. See {@link cachedRequest}. */
+	private resultCache = new Map<string, CachedResult>()
 	/** Resources the host asked to hear about, kept across reconnections. */
 	private subscribedResources = new Set<string>()
 	/** Best-effort protocol cancellations still belong to this connection generation. */
@@ -366,6 +394,7 @@ export class MCPClient {
 		}
 
 		this.stopModernSubscription(false)
+		this.clearResultCache()
 		this.status = 'connecting'
 		// Tool schemas belong to a listing, and a listing belongs to a
 		// connection. Carrying bindings across a reconnect would mirror the
@@ -856,6 +885,7 @@ export class MCPClient {
 
 	async disconnect(): Promise<void> {
 		const reason = new Error('MCPClient disconnecting')
+		this.clearResultCache()
 		this.stopModernSubscription(true)
 		this.abortCancellations(reason)
 		const alreadyDisconnected = this.status === 'disconnected'
@@ -945,6 +975,7 @@ export class MCPClient {
 				'namzu.connector.server': this.config.serverName,
 				'namzu.mcp.tool': name,
 			})
+			this.clearResultCache('tools/list')
 			await this.listTools(options)
 			return (await this.callToolDecoded(name, args ?? {}, options)) as MCPToolResult
 		}
@@ -1068,7 +1099,7 @@ export class MCPClient {
 
 	async readResource(uri: string, options?: MCPRequestOptions): Promise<MCPContentBlock[]> {
 		this.requireConnected()
-		const result = (await this.requestWithSessionRecovery('resources/read', { uri }, options)) as {
+		const result = (await this.cachedRequest('resources/read', { uri }, options)) as {
 			contents: MCPContentBlock[]
 		}
 		return result.contents
@@ -1191,6 +1222,98 @@ export class MCPClient {
 	}
 
 	/**
+	 * `request()`, answered from memory when the server said it may be.
+	 *
+	 * A 2026-07-28 server puts `ttlMs` (milliseconds the result may be reused)
+	 * and `cacheScope` on what `tools/list`, `prompts/list`, `resources/list`,
+	 * `resources/templates/list` and `resources/read` return. Before this the
+	 * client ignored both and asked on every call. Now a result is kept for
+	 * exactly `ttlMs` after it arrived and asked for again after that, never
+	 * longer. Nothing is kept when `ttlMs` is absent, zero or negative (the
+	 * spec reads all three as "stale now"), when the result is not
+	 * `resultType: "complete"`, or on a connection that is not 2026-07-28 —
+	 * an older server sends no hints, so its lists are fetched every time, as
+	 * they always were.
+	 *
+	 * The key is the method plus its parameters, so each page of a list
+	 * (its cursor) and each resource (its uri) is its own entry. A change
+	 * notification drops what it makes stale at once, and a `private` result
+	 * is served only to a call with the same `Authorization` as the one that
+	 * fetched it; a result with no `cacheScope` is treated as `private`.
+	 */
+	private async cachedRequest(
+		method: string,
+		params: Record<string, unknown>,
+		options?: MCPRequestOptions,
+	): Promise<unknown> {
+		if (this.era?.kind !== 'modern' || !CACHEABLE_METHODS.has(method)) {
+			return await this.requestWithSessionRecovery(method, params, options)
+		}
+		const key = `${method}\u0000${JSON.stringify(params)}`
+		const authorization = this.authorizationOf(options)
+		const hit = this.resultCache.get(key)
+		if (hit) {
+			const sameAudience = hit.scope === 'public' || hit.scope.authorization === authorization
+			if (sameAudience && Date.now() < hit.expiresAt) return hit.value
+			this.resultCache.delete(key)
+		}
+		const result = await this.requestWithSessionRecovery(method, params, options)
+		const record = result as Record<string, unknown> | null
+		const ttlMs = record?.ttlMs
+		if (
+			typeof ttlMs === 'number' &&
+			Number.isFinite(ttlMs) &&
+			ttlMs > 0 &&
+			(record?.resultType === undefined || record.resultType === 'complete')
+		) {
+			if (this.resultCache.size >= MAX_CACHE_ENTRIES) {
+				const oldest = this.resultCache.keys().next().value
+				if (oldest !== undefined) this.resultCache.delete(oldest)
+			}
+			this.resultCache.set(key, {
+				value: result,
+				expiresAt: Date.now() + ttlMs,
+				scope: record?.cacheScope === 'public' ? 'public' : { authorization },
+			})
+		}
+		return result
+	}
+
+	/** The credential a call carries, for telling one caller's private results from another's. */
+	private authorizationOf(options: MCPRequestOptions | undefined): string {
+		if (options?.bearerToken !== undefined) return `Bearer ${options.bearerToken}`
+		const headers = options?.headers ?? {}
+		for (const [name, value] of Object.entries(headers)) {
+			if (name.toLowerCase() === 'authorization') return value
+		}
+		return ''
+	}
+
+	/** Forget what a notification says is out of date. */
+	private invalidateCacheFor(notification: string, params?: Record<string, unknown>): void {
+		const methods = INVALIDATED_BY[notification]
+		if (!methods) return
+		const uri = notification === 'notifications/resources/updated' ? params?.uri : undefined
+		for (const key of [...this.resultCache.keys()]) {
+			const method = key.slice(0, key.indexOf('\u0000'))
+			if (!methods.includes(method)) continue
+			if (typeof uri === 'string' && !key.endsWith(`\u0000${JSON.stringify({ uri })}`)) continue
+			this.resultCache.delete(key)
+		}
+	}
+
+	/** Forget every cached method, for a connection that may be a different server instance. */
+	private clearResultCache(method?: string): void {
+		if (method === undefined) {
+			this.resultCache.clear()
+			return
+		}
+		for (const key of [...this.resultCache.keys()]) {
+			if (key.startsWith(`${method}\u0000`)) this.resultCache.delete(key)
+		}
+	}
+
+	/**
 	 * Read a paged list to the end.
 	 *
 	 * The three list calls each sent an empty params object and returned
@@ -1216,7 +1339,7 @@ export class MCPClient {
 		let cursor: string | undefined
 
 		for (let page = 1; ; page++) {
-			const result = (await this.requestWithSessionRecovery(
+			const result = (await this.cachedRequest(
 				method,
 				cursor === undefined ? {} : { cursor },
 				options,
@@ -1723,6 +1846,7 @@ export class MCPClient {
 		}
 
 		if (message.method && message.id === undefined) {
+			this.invalidateCacheFor(message.method, message.params)
 			for (const handler of this.notificationHandlers) {
 				handler(message.method, message.params)
 			}
@@ -1914,6 +2038,10 @@ export class MCPClient {
 			}
 			subscription.acknowledged = acknowledged
 			clearTimeout(subscription.ackTimer)
+			// A change may have landed before the stream went live.
+			for (const [notification, acknowledgedKind] of Object.entries(SUBSCRIPTION_NOTIFICATIONS)) {
+				if (acknowledged[acknowledgedKind]) this.invalidateCacheFor(notification)
+			}
 			for (const handler of [...this.notificationHandlers]) {
 				this.reconcileSubscription(subscription, handler)
 			}
@@ -1933,6 +2061,7 @@ export class MCPClient {
 				typeof uri === 'string' &&
 				subscription.acknowledged.resourceSubscriptions?.includes(uri) === true
 			) {
+				this.invalidateCacheFor(method, message.params)
 				for (const handler of [...this.notificationHandlers]) handler(method, message.params)
 				return true
 			}
@@ -1944,6 +2073,7 @@ export class MCPClient {
 			})
 			return true
 		}
+		this.invalidateCacheFor(method, message.params)
 		for (const handler of [...this.notificationHandlers]) handler(method, message.params)
 		return true
 	}
@@ -1955,7 +2085,10 @@ export class MCPClient {
 	): void {
 		if (this.modernSubscription !== subscription) return
 		for (const [method, kind] of Object.entries(SUBSCRIPTION_NOTIFICATIONS)) {
-			if (subscription.acknowledged?.[kind]) handler(method)
+			if (subscription.acknowledged?.[kind]) {
+				this.invalidateCacheFor(method)
+				handler(method)
+			}
 		}
 	}
 
