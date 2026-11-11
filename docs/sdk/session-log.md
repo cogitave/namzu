@@ -541,8 +541,15 @@ the same ids, before the pass. It reads the log and the next compaction pass
 cuts the text down again. `reason` is free text and the record is not a new
 `reason` of `message_replaced`, whose list an older release validates strictly.
 A host that cached history before a pass and sends it back with its ids is
-accepted: the original text of an edited message counts as a match as well as
-the edited text. After a resume from a checkpoint older than an edit, the
+accepted: any text an edited message held before an edit counts as a match, the
+first text and the text between two edits, as well as the latest. A
+`message_replaced` for the id forgets the texts before it (a guardrail's
+replacement is the settled answer), so a host that resends the text from before
+the replacement is still refused as `stale_cached_history`. The match is
+answered from the reduction of the log a turn already keeps, with no read of the
+log of its own, so it costs the same for one edited message as for a hundred.
+A pass that swaps a message for a copy with the same text records nothing; the
+recorder adopts the copy. After a resume from a checkpoint older than an edit, the
 recorder writes one more `message_edited` for each message whose restored text
 differs from what the log folds to, so the fold shows the context the turn
 runs with.

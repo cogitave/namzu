@@ -267,3 +267,27 @@ it('an earlier release, which skips the flagged record, folds the unedited conve
 		await rec.release()
 	}
 })
+
+it('a same-text copy of a recorded message is adopted and writes nothing; its later edit is one record', async () => {
+	const { rec, session, context } = await recordedContext(4)
+	try {
+		const before = (await records(session.sessionLog)).length
+		const next = [...context]
+		const clone = structuredClone(next[3] as AssistantMessage)
+		next[3] = clone
+		rec.replaceMessages(next)
+		await rec.flush()
+		expect(counts(await records(session.sessionLog), before)).toEqual({})
+		expect(rec.recordedIdOf(clone)).toBe((context[3] as AssistantMessage).id)
+
+		// The clone is now the recorder's object for that message: editing it is one record.
+		const edited = [...next]
+		edited[3] = { ...clone, content: STUB }
+		rec.replaceMessages(edited)
+		await rec.flush()
+		expect(counts(await records(session.sessionLog), before)).toEqual({ message_edited: 1 })
+		expect(await folded(session)).toEqual(edited)
+	} finally {
+		await rec.release()
+	}
+})

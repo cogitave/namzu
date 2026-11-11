@@ -1230,9 +1230,13 @@ export class TurnRecorder {
 			const message = messages[0] as Message
 			const entry = orphans.get(id) as ViewEntry
 			if (messages.length !== 1 || message.role !== entry.message.role) continue
+			const previous = entry.message
 			entry.message = message
 			this.#ids.set(message, id)
 			this.#recorded.set(message, id)
+			// A copy with the same text (a structured clone, a re-parsed message)
+			// is adopted as is: the fold already shows that content.
+			if (sameStoredContent(previous, message)) continue
 			void this.#enqueue(() =>
 				this.#append({
 					type: 'message_edited',
@@ -1622,6 +1626,34 @@ async function recordedMessages(
 	return out
 }
 
+type RecordedContent = { readonly content: Message; readonly spill?: SpillRef }
+
+function recordedContent(record: {
+	readonly content: Message
+	readonly spill?: SpillRef | undefined
+}): RecordedContent {
+	return { content: record.content, ...(record.spill ? { spill: record.spill } : {}) }
+}
+
+/** Every message ever recorded, and the texts an edited one held before each edit. */
+export interface EverRecordedMessages {
+	/** The latest text of each message, by its durable id. */
+	readonly latest: ReadonlyMap<MessageId, Message>
+	/**
+	 * Whether `id` held `message`'s text before a compaction edit. A
+	 * `message_replaced` for the id forgets the texts before it: a guardrail's
+	 * replacement is the settled answer. A spilled earlier text is read only
+	 * when a comparison needs it.
+	 */
+	heldBeforeAnEdit(id: MessageId, message: Message): Promise<boolean>
+}
+
+interface EverRecordedState {
+	readonly latest: Map<MessageId, RecordedContent>
+	/** Only ids that have an edit appear here. */
+	readonly earlier: Map<MessageId, RecordedContent[]>
+}
+
 /**
  * Every message this session's log has ever recorded, keyed by the durable
  * id its `message` record gave it — including one a compaction has since
@@ -1636,25 +1668,37 @@ async function recordedMessages(
 export async function readEverRecordedMessages(
 	log: SessionLog,
 ): Promise<ReadonlyMap<MessageId, Message>> {
+	return (await readEverRecordedMessageIndex(log)).latest
+}
+
+/**
+ * {@link readEverRecordedMessages} plus what a host that cached the history
+ * before a compaction edit still holds, answered from the same reduction with
+ * no read of the log of its own.
+ */
+export async function readEverRecordedMessageIndex(log: SessionLog): Promise<EverRecordedMessages> {
 	return foldSessionLog(log, {
 		name: 'ever-recorded-messages',
 		mode: 'strict',
-		create: () => new Map<MessageId, { readonly content: Message; readonly spill?: SpillRef }>(),
-		apply: (latest, entry) => {
+		create: (): EverRecordedState => ({ latest: new Map(), earlier: new Map() }),
+		apply: ({ latest, earlier }, entry) => {
 			const record = entry.record as SessionRecord
 			if (record.type === 'message') {
-				latest.set(record.messageId, {
-					content: record.content,
-					...(record.spill ? { spill: record.spill } : {}),
-				})
-			} else if (record.type === 'message_replaced' || record.type === 'message_edited') {
-				latest.set(record.targetMessageId, {
-					content: record.content,
-					...(record.spill ? { spill: record.spill } : {}),
-				})
+				latest.set(record.messageId, recordedContent(record))
+			} else if (record.type === 'message_replaced') {
+				earlier.delete(record.targetMessageId)
+				latest.set(record.targetMessageId, recordedContent(record))
+			} else if (record.type === 'message_edited') {
+				const before = latest.get(record.targetMessageId)
+				if (before !== undefined) {
+					const held = earlier.get(record.targetMessageId)
+					if (held) held.push(before)
+					else earlier.set(record.targetMessageId, [before])
+				}
+				latest.set(record.targetMessageId, recordedContent(record))
 			}
 		},
-		result: async (latest) => {
+		result: async ({ latest, earlier }) => {
 			const resolved = new Map<MessageId, Message>()
 			for (const [id, entry] of latest) {
 				// Copied: the map this is read from is shared with the next call.
@@ -1663,37 +1707,24 @@ export async function readEverRecordedMessages(
 					: structuredClone(entry.content)
 				resolved.set(id, withMessageId(content, id))
 			}
-			return resolved
+			// A snapshot: the arrays are advanced in place by the next call. The
+			// entries in them are never changed once made.
+			const held = new Map<MessageId, readonly RecordedContent[]>()
+			for (const [id, list] of earlier) held.set(id, [...list])
+			return {
+				latest: resolved,
+				async heldBeforeAnEdit(id, message) {
+					for (const entry of held.get(id) ?? []) {
+						const content = entry.spill
+							? (JSON.parse(await log.readSpill(entry.spill)) as Message)
+							: entry.content
+						if (sameStoredContent(content, message)) return true
+					}
+					return false
+				},
+			}
 		},
 	})
-}
-
-/**
- * The text a message was first recorded with, when a compaction pass has
- * since edited it (`message_edited`); `undefined` for a message nothing edited
- * or that was never recorded. {@link readEverRecordedMessages} answers with the
- * latest text, so a host that cached the history before the edit is told apart
- * from one that changed a message by comparing against this as well.
- */
-export async function readOriginalOfEditedMessage(
-	log: SessionLog,
-	id: MessageId,
-): Promise<Message | undefined> {
-	let original: { content: Message; spill?: SpillRef } | undefined
-	let edited = false
-	for await (const { record } of log.read()) {
-		const entry = record as SessionRecord
-		if (entry.type === 'message' && entry.messageId === id && original === undefined) {
-			original = { content: entry.content, ...(entry.spill ? { spill: entry.spill } : {}) }
-		} else if (entry.type === 'message_edited' && entry.targetMessageId === id) {
-			edited = true
-		}
-	}
-	if (!edited || original === undefined) return undefined
-	const content = original.spill
-		? (JSON.parse(await log.readSpill(original.spill)) as Message)
-		: structuredClone(original.content)
-	return withMessageId(content, id)
 }
 
 /**
