@@ -191,6 +191,76 @@ describe('a resumed conversation draws its tool calls like the live run', () => 
 		])
 	})
 
+	it('folds finished commands into one line as the live run did, and a failed or background one splits it', () => {
+		const messages = [
+			createUserMessage('build'),
+			createAssistantMessage(null, [
+				call('b1', 'bash', { command: 'npm test' }),
+				call('b2', 'bash', { command: 'tsc' }),
+			]),
+			createToolMessage('tests ok\n', 'b1'),
+			createToolMessage('types ok\n', 'b2'),
+			createAssistantMessage(null, [call('b3', 'bash', { command: 'make' })]),
+			createToolMessage('boom\nError: Command exited with code 3', 'b3'),
+			createAssistantMessage(null, [
+				call('b4', 'bash', { command: 'node a' }),
+				call('b5', 'bash', { command: 'npm run watch', run_in_background: true }),
+				call('b6', 'bash', { command: 'node b' }),
+			]),
+			createToolMessage('a\n', 'b4'),
+			createToolMessage('Started background job job_1. For finite work, await completion.', 'b5'),
+			createToolMessage('b\n', 'b6'),
+			createAssistantMessage('Done.'),
+		]
+		const rows = projectConversation(messages, ids())
+		expect(rows.map((row) => row.content)).toEqual([
+			'build',
+			'Ran 2 commands',
+			'Bash(make)',
+			// A command on its own is its own row, as before.
+			'Bash(node a)',
+			'Bash(npm run watch)',
+			'Bash(node b)',
+			'Done.',
+		])
+		const line = rows[1]
+		expect(line?.group?.commands).toEqual(['npm test', 'tsc'])
+		expect(line?.shell).toBeUndefined()
+		expect(line?.meta).toBe('(ctrl+o to expand)')
+		expect(line?.detailRef).toBe(1)
+		expect(line?.detail).toEqual(['Bash(npm test)', 'tests ok', '', 'Bash(tsc)', 'types ok'])
+		expect(rows[2]?.shell?.failed).toBe(true)
+		expect(rows[3]?.shell?.stdout).toEqual(['a'])
+		expect(rows[4]?.shell?.background).toBe(true)
+	})
+
+	it('draws a command after a read as part of the same line, and a call to a missing tool as an error of its own', () => {
+		const messages = [
+			createUserMessage('look'),
+			createAssistantMessage(null, [
+				call('r', 'read', { path: 'a.ts' }),
+				call('c', 'bash', { command: 'npm test' }),
+				call('l', 'ls', { path: '.' }),
+			]),
+			createToolMessage('     1\tx\n', 'r'),
+			createToolMessage('ok\n', 'c'),
+			{
+				...createToolMessage('Error: Unknown tool "ls". Available: bash, read', 'l'),
+				isError: true,
+			},
+			createAssistantMessage('Done.'),
+		]
+		const rows = projectConversation(messages, ids())
+		expect(rows.map((row) => row.content)).toEqual([
+			'look',
+			'Read 1 file, ran 1 command',
+			'Ls(.)',
+			'The model asked for a tool that does not exist (ls). It will try another way.',
+			'Done.',
+		])
+		expect(rows[2]?.group).toBeUndefined()
+	})
+
 	it('draws a journaled call exactly as the live events drew it, typed facts and all', () => {
 		const messages = withIds([
 			createUserMessage('look'),

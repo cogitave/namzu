@@ -1,8 +1,15 @@
 import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout } from 'ink'
 import { useEffect, useState } from 'react'
 
+import { useContentWidth } from './Markdown.js'
 import { motionAllowed, useReducedMotion } from './motion.js'
-import { HINT_INTERVAL_MS, groupSegments, visibleHint } from './read-search-group.js'
+import {
+	COMMAND_ROW_INDENT,
+	HINT_INTERVAL_MS,
+	commandRows,
+	groupSegments,
+	visibleHint,
+} from './read-search-group.js'
 import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from './system-rows.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -29,6 +36,7 @@ export function ReadSearchGroup({
 	// Redraws when the setting changes, so a blinking dot stops at once.
 	useReducedMotion()
 	const { stdout } = useStdout()
+	const width = useContentWidth()
 	const screenReader = useIsScreenReaderEnabled()
 	const motion = live && stdout.isTTY === true && !screenReader && motionAllowed()
 	const { frame } = useAnimation({ isActive: motion, interval: 300 })
@@ -47,6 +55,14 @@ export function ReadSearchGroup({
 	const segments = groupSegments(state, live)
 	const hint = live ? visibleHint(state, now()) : undefined
 	const hintLines = hint ? hint.split('\n').map(terminalDisplayText) : []
+	// The commands it ran, one row each and cut to the width, then the newest target.
+	const ran = message.detailExpanded
+		? []
+		: commandRows(state, width - COMMAND_ROW_INDENT).map(terminalDisplayText)
+	const under = [
+		...ran.map((text) => ({ text, wrap: 'truncate-end' as const })),
+		...hintLines.map((text) => ({ text, wrap: 'wrap' as const })),
+	]
 	// The detailed transcript is where the hint points: it never points at itself.
 	const shownHint = message.detailExpanded ? undefined : live ? EXPAND_HINT : message.meta
 	const tone = live ? theme.text.secondary : theme.text.muted
@@ -69,16 +85,16 @@ export function ReadSearchGroup({
 					</Text>
 				</Box>
 			</Box>
-			{hintLines.length > 0 ? (
+			{under.length > 0 ? (
 				<Box flexDirection="column" paddingLeft={RESULT_GUTTER_INDENT}>
-					{hintLines.map((line, i) => (
+					{under.map(({ text: line, wrap }, i) => (
 						// biome-ignore lint/suspicious/noArrayIndexKey: these rows hold no state of their own.
 						<Box key={i} flexDirection="row">
 							<Box width={RESULT_GUTTER_WIDTH} flexShrink={0}>
 								<Text color={theme.text.muted}>{i === 0 ? '⎿' : ' '}</Text>
 							</Box>
 							<Box flexGrow={1}>
-								<Text color={theme.text.muted} wrap="wrap">
+								<Text color={theme.text.muted} wrap={wrap}>
 									{line}
 								</Text>
 							</Box>

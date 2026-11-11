@@ -19,6 +19,7 @@ import {
 	settledBeforeStreaming,
 	transcriptLines,
 } from './live-window.js'
+import { EMPTY_GROUP, type GroupState, foldOp, groupText } from './read-search-group.js'
 import type { TranscriptMessage } from './types.js'
 
 const FURNITURE = 10
@@ -278,6 +279,7 @@ describe('an open group of reads and searches', () => {
 			lists: 0,
 			mcpCalls: 0,
 			mcpLabels: [],
+			commands: [],
 			hintShown: hint,
 			hintShownAt: 0,
 		},
@@ -295,5 +297,83 @@ describe('an open group of reads and searches', () => {
 		const bare = height({ ...open(''), group: { ...open('').group!, hintShown: undefined } })
 		expect(height(open('"one line"'))).toBe(bare + 1)
 		expect(height(open('$ first\nsecond\nthird'))).toBe(bare + 3)
+	})
+})
+
+describe('a group that ran commands', () => {
+	const group = (count: number, pending: boolean): TranscriptMessage => {
+		let state: GroupState = EMPTY_GROUP
+		for (let i = 1; i <= count; i += 1) {
+			state = foldOp(state, { kind: 'run', command: `step ${i}` }, 0)
+		}
+		return {
+			id: 'g',
+			role: 'tool',
+			content: groupText(state, pending),
+			pending,
+			glyph: ' ',
+			activity: 'exploration',
+			group: state,
+		}
+	}
+	const height = (message: TranscriptMessage, columns = 80) =>
+		liveWindow({
+			messages: [message],
+			rows: 80,
+			columns,
+			furnitureRows: FURNITURE,
+			settled: 0,
+		}).rows
+
+	it('counts the line and one row per listed command, open or settled', () => {
+		// One more command is one more row; open or settled is the same height.
+		expect(height(group(3, false))).toBe(height(group(2, false)) + 1)
+		expect(height(group(2, false))).toBe(height(group(1, false)) + 1)
+		expect(height(group(2, true))).toBe(height(group(2, false)))
+	})
+
+	it('stops at five listed commands and one row that counts the rest', () => {
+		const five = height(group(5, false))
+		expect(height(group(6, false))).toBe(five + 1)
+		// Six or a hundred: the same height, which is what bounds the row.
+		expect(height(group(100, false))).toBe(height(group(6, false)))
+		expect(height(group(100, true))).toBe(height(group(6, false)))
+	})
+
+	it('counts a long command as one row, since it is cut to the width', () => {
+		const state = foldOp(
+			foldOp(EMPTY_GROUP, { kind: 'run', command: `echo ${'z'.repeat(500)}` }, 0),
+			{ kind: 'run', command: 'b' },
+			0,
+		)
+		const message: TranscriptMessage = { ...group(2, false), group: state }
+		expect(height(message, 40)).toBe(height(group(2, false), 40))
+	})
+
+	it("counts a group of one command as that command's row, with its output", () => {
+		const state = foldOp(
+			EMPTY_GROUP,
+			{
+				kind: 'run',
+				command: 'npm test',
+				cell: {
+					header: 'Bash(npm test)',
+					shell: { stdout: ['a', 'b', 'c'], stderr: [], failed: false },
+				},
+			},
+			0,
+		)
+		const message: TranscriptMessage = {
+			id: 'c',
+			role: 'tool',
+			content: 'Bash(npm test)',
+			glyph: '●',
+			group: state,
+			shell: state.cell?.shell,
+		}
+		const cell: TranscriptMessage = { ...message, group: undefined }
+		expect(height(message)).toBe(height(cell))
+		// Three lines of output: more than a counted line would take.
+		expect(height(message)).toBeGreaterThan(height(group(1, false)))
 	})
 })

@@ -75,7 +75,7 @@ export function tidyTerminalOutput(raw: string): TidyOutput {
 		stdout: background || output.length === 0 ? [] : kept,
 		stderr: [],
 		failed: failure !== undefined,
-		...(background ? { note: BACKGROUND_NOTE } : {}),
+		...(background ? { background: true as const, note: BACKGROUND_NOTE } : {}),
 		...(failure ? { note: code ? `Exit code ${code}` : failure } : {}),
 		...(failure && output.length > 0 && !background
 			? { status: code ? `Exit code ${code}` : failure }
@@ -159,6 +159,7 @@ export function tidyCommandOutput(facts: CommandFacts, raw: string): TidyOutput 
 		stdout,
 		stderr,
 		failed: how !== undefined,
+		...(facts.background ? { background: true as const } : {}),
 		...(status && (stdout.length > 0 || stderr.length > 0) ? { status } : {}),
 		...(status ? { note: status } : note ? { note } : {}),
 	})
