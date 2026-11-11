@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { EMPTY_GROUP, type FoldOp, foldOp, groupText } from '../read-search-group.js'
 import type { TranscriptMessage } from '../types.js'
 import { createLayoutCache, layoutTranscript } from './layout.js'
 
@@ -49,5 +50,40 @@ describe('laying the transcript out for the viewport', () => {
 		expect(same.rows[0]).toBe(wide.rows[0])
 		const narrow = layoutTranscript(messages, null, undefined, 30, cache)
 		expect(narrow.index.total).toBeGreaterThan(wide.index.total)
+	})
+
+	it('lists the commands a group folded under its line, as the live view does', () => {
+		const run = (command: string): FoldOp => ({
+			kind: 'run',
+			command,
+			cell: {
+				header: `Bash(${command})`,
+				shell: { stdout: ['ok'], stderr: [], failed: false },
+			},
+		})
+		const group = ['node --version', 'git --version'].reduce(
+			(state, command) => foldOp(state, run(command), 0),
+			EMPTY_GROUP,
+		)
+		const grouped: TranscriptMessage = {
+			id: 'g',
+			role: 'tool',
+			content: groupText(group, false),
+			group,
+		}
+		const texts = layoutTranscript([grouped], null, undefined, 60, createLayoutCache()).rows.map(
+			(row) => row.text,
+		)
+		expect(texts[0]).toContain('Ran 2 commands')
+		expect(texts.slice(1)).toEqual(['⎿  $ node --version', '   $ git --version'])
+		const one = foldOp(EMPTY_GROUP, run('node --version'), 0)
+		const alone = layoutTranscript(
+			[{ ...grouped, group: one, content: groupText(one, false) }],
+			null,
+			undefined,
+			60,
+			createLayoutCache(),
+		)
+		expect(alone.rows.map((row) => row.text)).toEqual(['Ran 1 command'])
 	})
 })
