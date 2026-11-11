@@ -7439,6 +7439,8 @@ export type ListedModel = Pick<ModelInfo, 'id' | 'name' | 'inputModalities'> &
 		 * published price carries neither, so a picker never files an unknown under either heading.
 		 */
 		readonly group?: ModelGroup
+		/** Tokens the context holds, when the driver published a window; absent when it did not. */
+		readonly contextWindow?: number
 	}
 
 /** Which heading a Zen model sits under in a picker. */
@@ -7637,6 +7639,12 @@ export async function describeProviderModels(
 							// entitled to print that as a fact. Collapsing the two at this
 							// projection would put the lie back one layer up.
 							...publishedPrices(m),
+							// A model carried with placeholder limits publishes no window.
+							...((m as { limitsVerified?: unknown }).limitsVerified !== false &&
+							Number.isFinite(m.contextWindow) &&
+							(m.contextWindow ?? 0) > 0
+								? { contextWindow: m.contextWindow }
+								: {}),
 						}),
 					),
 			),
@@ -7913,17 +7921,34 @@ const COMPACTION_CONFIG = {
 	maxCharsPerTask: 400,
 }
 
-/** The shipped configuration with the strategy the project chose, if it chose one. */
+/**
+ * How far below the soft target a salience pass sheds when the project set
+ * none, as a fraction of the window. The kernel's own default is 0; the
+ * terminal asks for more because a session is long: shedding only to the soft
+ * target ran a pass on every turn and rewrote the request each time, so a
+ * provider that caches the start of a request missed most of it. This is the
+ * one place the default lives; every path that builds the kernel's compaction
+ * configuration goes through {@link compactionConfigFor}.
+ */
+export const DEFAULT_SOFT_TARGET_HEADROOM = 0.05
+
+/**
+ * The shipped configuration with the strategy the project chose, if it chose
+ * one, and the headroom: the project's own (zero included) or, for the
+ * salience strategy only, {@link DEFAULT_SOFT_TARGET_HEADROOM}.
+ */
 export function compactionConfigFor(compaction: CompactionCliConfig | undefined): CompactionConfig {
+	const strategy = compaction?.strategy ?? COMPACTION_CONFIG.strategy
+	const headroom =
+		compaction?.softTargetHeadroom ??
+		(strategy === 'salience' ? DEFAULT_SOFT_TARGET_HEADROOM : undefined)
 	return {
 		...COMPACTION_CONFIG,
-		strategy: compaction?.strategy ?? COMPACTION_CONFIG.strategy,
+		strategy,
 		...(compaction?.deduplicateObservations !== undefined
 			? { deduplicateObservations: compaction.deduplicateObservations }
 			: {}),
-		...(compaction?.softTargetHeadroom !== undefined
-			? { softTargetHeadroom: compaction.softTargetHeadroom }
-			: {}),
+		...(headroom !== undefined ? { softTargetHeadroom: headroom } : {}),
 		...(compaction?.contextWindowTokens !== undefined
 			? { contextWindowTokens: compaction.contextWindowTokens }
 			: {}),

@@ -1,5 +1,8 @@
 /** Conservative OSC 8 admission for terminal-rendered web links. */
 
+import { isAbsolute } from 'node:path'
+import { pathToFileURL } from 'node:url'
+
 const OSC = '\u001b]'
 const ST = '\u001b\\'
 const MAX_TARGET_BYTES = 4_096
@@ -56,6 +59,20 @@ export function terminalWebHyperlink(label: string, rawTarget: string): string |
 	if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
 
 	const target = url.href
+	if (Buffer.byteLength(target, 'utf8') > MAX_TARGET_BYTES) return null
+	return `${OSC}8;;${target}${ST}${label}${OSC}8;;${ST}`
+}
+
+/**
+ * Wrap a visible label in an OSC 8 link to a file on this machine.
+ *
+ * Only an absolute path without control characters is admitted; the URL
+ * serializer percent-encodes spaces and non-ASCII. The caller decides whether
+ * the terminal takes links at all (`terminalSupportsHyperlinks`).
+ */
+export function terminalFileHyperlink(label: string, absolutePath: string): string | null {
+	if (!isAbsolute(absolutePath) || containsTerminalControl(absolutePath)) return null
+	const target = pathToFileURL(absolutePath).href
 	if (Buffer.byteLength(target, 'utf8') > MAX_TARGET_BYTES) return null
 	return `${OSC}8;;${target}${ST}${label}${OSC}8;;${ST}`
 }

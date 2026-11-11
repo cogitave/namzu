@@ -16,11 +16,12 @@ import CLI code or create a second agent execution loop.
 ## Local Turkish speech
 
 **Settings ▸ Speech** (see [Settings](#settings)) offers Turkish playback through EMA Lightning
-1.0.1 on this device; the composer no longer carries a voice control, and **Read aloud**
-on a reply stays where it was. **Speech language** selects the synthesis language; it does
-not change the model's chat language. This engine supplies one Turkish voice and
-runs on CPU. Microphone transcription and automatic voice conversation are not
-implemented by this feature.
+1.0.1 on this device, and **Read aloud** on a reply stays where it was. **Speech language** selects the
+synthesis language; it does not change the model's chat language. This engine supplies one Turkish voice and
+runs on CPU. It only speaks: it does not listen. Listening is a separate feature, **Voice input**
+(**Settings ▸ Speech ▸ Voice input**, [Desktop voice input](desktop-listening.md)): once its on-device
+recognition model is downloaded and consent is given, the composer shows a microphone, and what is said is
+transcribed on the computer and sent as an ordinary message. The microphone is not drawn before that.
 
 Speech is disabled initially. **Remove voice…** deletes the downloaded engine and models
 (the saved preferences stay, and a running playback or download is stopped or refused first);
@@ -2897,30 +2898,27 @@ unknown time never produce or move a separator. Pal friend chat has none.
 
 ### Live phases
 
-The transcript follows admitted runtime events. While the work runs, the content stays in
-order under the **Working for Ns** heading and ONE muted, shimmering status line sits at
-the bottom of the block, after the newest entry. It is drawn only when it adds something
-the block does not already show, and it changes only when the work enters a new stage,
-never on a timer (the same stage derived again on every streamed token changes nothing):
+The transcript follows admitted runtime events. While the work runs, the turn is ONE line: a mark, the
+step it is on, the elapsed time and a chevron ("● Running pwd · 4s ›"). The work, in order, is behind the
+chevron and stays closed unless an action failed or was refused (then it is open, so bad news is never behind a
+click); a choice the person made always wins. The words change only when the work enters a new stage, never on a
+timer (the same stage derived again on every streamed token changes nothing). The step is, in this order:
 
-1. A pending approval: Waiting for your decision (always shown; it holds still, with no
-   shimmer).
-2. The newest entry is a reasoning segment: its headline (a leading bold run, else the
-   first sentence; Thinking while it has none yet) becomes the status line, and that
+1. A pending approval: the step it asks about in the words of its own row ("Waiting to edit session.ts",
+   "Waiting to run command", "Waiting to create a.txt"), with an amber, still mark.
+2. A running action: its row's label ("Running pwd"), with a slowly pulsing mark.
+3. The newest entry is a reasoning segment: its headline (a leading bold run, else the
+   first sentence; Thinking while it has none yet) becomes the line, and that
    reasoning row is not drawn while it is the newest entry. As soon as anything newer
    arrives the row draws in place as usual, and a finished turn shows every reasoning row.
-3. Nothing is running and nothing new arrived since the last finished action or narration:
+4. Nothing is running and nothing new arrived since the last finished action or narration:
    Thinking.
-4. Otherwise no line: the newest entry is itself the live element, whether a running
-   action row, the plan row with a step in progress (both shimmer in place) or narration
-   being written, whose trailing line carries the same soft sweep until the message
-   completes.
+5. Otherwise "Working".
 
 The text is plain (markdown stripped) and at most 80 characters, cut at a word boundary.
-Each new stage fades in and restarts the sweep that shimmers across it; reduced motion swaps
-it instantly and shows every shimmer solid. The line is a polite live region that announces
-each new status once, never the clock, never streaming narration word by word. It goes when the answer starts or the
-turn ends. Before the work block exists the quiet end-of-transcript status stands in. Tool
+Each new stage fades in; reduced motion swaps it instantly and stops the mark's pulse. The line's
+accessible name is the step and the elapsed time, and the hidden live status announces each new stage once, never the
+clock, never streaming narration word by word. The line becomes "Worked for 4s" when the turn ends. Before the work block exists the quiet end-of-transcript status stands in. Tool
 work and answer streaming retain their own phase in the projection. A provider that withholds reasoning can indicate
 an active block without supplying a readable body; the desktop does not expose
 opaque reasoning, signatures or replay material. A provider that withholds reasoning can indicate
@@ -2930,10 +2928,8 @@ opaque reasoning, signatures or replay material.
 In ordinary conversations, work belongs to its admitted runtime turn. Saved
 steering messages with the same recorded turn identity stay in that turn. Its public
 reasoning, tool receipts and explicit commentary stay in admission order inside
-a collapsible work summary. While live, its outer heading says **Working for**
-the host-observed elapsed time when known, or **Working** when no start is known.
-The status line described above sits at the bottom of the live block, without a second
-elapsed counter. With no public work disclosure, the live status alone can show
+a collapsible work summary. While live, its heading is the one line described above, with
+the host-observed elapsed time when known and no second counter. With no public work disclosure, the live status alone can show
 the elapsed time. Steering can create another ordered work segment in the same
 turn; only the latest public segment owns the turn's time and outcome heading,
 and earlier segments say **Earlier work**. Opaque reasoning alone does not
@@ -3579,25 +3575,91 @@ before anything is built.
 
 ### The composer, its popups and approval cards
 
-The model popup has four steps (effort, models with their older models, engine) on every engine.
-All of them share one width, 388 px (less than the window minus 16 px in a narrow window), and
-the popup's right edge stays on the trigger, so it never jumps sideways as a person clicks through;
-the popup's frame no longer draws a scrollbar of its own (the list inside scrolls) so a long list does
-not make it wider. The engine chip names the engine beside its logo (for Codex CLI, its name; the Namzu
-mark is its own name). `e2e/composer-popups.test.mjs` measures every step on the Namzu and Codex
-engines at four window sizes in both themes.
+**The lower edge of the box (the chin).** It carries four things: the attach **+**, the permission word, the
+model word and Send. Permission and model are quiet muted text (the chevron's room is always kept and it fades in on hover, focus or while
+the menu is open, so the word never moves; Full access keeps its warning mark and colour), and Send is the only filled control, in the
+one lime the other primary actions use. Its dimmed look with an empty box is the disabled state of that same
+lime. The context ring, the queue button, the background-shell count and the pull request chip are drawn only
+when they have something to say. The **microphone is not drawn until voice input is set up**
+(**Settings ▸ Speech ▸ Voice input**, found by searching "microphone"); once it is, or while a voice session is
+listening, the button is back. Above the box on the home screen is one 13 px muted line, "*project* · This
+computer" (a long project name gives way first, with an ellipsis; the computer stays readable), that opens one menu: the project list (search, start from scratch, an existing folder, no project)
+and, under it, the computer the work runs on. There is one computer to choose, so it is shown as the one checked
+choice. The three starters are quiet 32 px rows; a click puts the idea in the box and focuses it, and never sends.
 
-An approval card sits wholly above the composer, with a gap, and "Waiting for your decision" is the
-line directly above it. A command's card says "Runs in *project name*." (the full folder is the sentence's tooltip),
-and a file's card gives its path relative to the project ("Adds a new file, new/deep/n.txt.", "Changes a.ts."), or
-`~`-shortened with a middle ellipsis outside it, with the full path as the tooltip (`path-display.ts`). The transcript keeps that wording for assistive technology only, so it no longer
-floats far above the card. The `+3 lines` badge says what it counts, **Wrap lines** is a labelled button,
-and **Stop** is the same red button while a decision is awaited as while a reply runs. The Queue control
-reads **Queue message**. When the file a write would change already holds exactly that text, the CLI's
-permission preview is still sent (with `before` equal to `after`) and the card says "No change to
-`name`." instead of "couldn't show what's in `name`".
+**The model popup** opens on the model list on every engine: 40 px rows, the model's name and a 12 px muted second
+line with its context window and what a million tokens cost ("128k window · Free", "200k window · $3 in · $15 out
+per 1M"). Those come from what the model's source published in its list (`contextWindow`, `inputPrice` and
+`outputPrice` on a catalogue row, carried by `namzu/providers/models` and stored with the list); a value the source
+did not publish is left out, a model carried with placeholder limits shows no window, and a row with nothing known has
+no second line (its own note, if it has one, stays). Engines that list only names show none.
+Under the list are the reasoning-effort slider (only where the model offers a choice, and only while the list on screen is the model in use's provider: beside another provider's models it is left out, since it would read as theirs; its fill is a neutral tone, lime stays on Send) and one **More** row, worded
+from what it holds ("More: provider, engine, Desktop or CLI"), which is not drawn when there is nothing behind it.
+**More** holds the engine (its chip opens the engine list, with updates noted there), the **Desktop | CLI** switch
+and its caption, and "Show models from" (the provider filter, drawn only when there are two or more providers;
+choosing one returns to the list of that provider). Arrow keys move, Enter chooses, Escape inside More goes back one step to the list (focus returns to the **More** row) and Escape on the list closes the popup (focus returns to the model control), **/** or the search
+icon filters a long list (as before: more than seven models or more than one provider). The popup shares one width,
+388 px with engines (less than the window minus 16 px in a narrow window), its right edge stays on the trigger, and the
+frame draws no scrollbar of its own. `e2e/composer-popups.test.mjs` measures every step (list, older models, More,
+engine) on the Namzu and Codex engines at four window sizes in both themes; `e2e/ux-composer-chin.test.mjs` covers the
+chin, the context line, the starters and the list.
 
-**Allow for this conversation.** On the Namzu engine the card offers a quiet **Allow for this conversation**
+**The approval card and the turn in flight.** One card sits wholly above the composer, with a gap: there is no outer
+"Waiting for your decision" box and no line of key hints. It states what the request itself carries and nothing the model
+said about its action.
+
+- **The question** is one 14 px sentence with the target as a mono chip: "Edit `src/auth/session.ts`?",
+  "Create `a.txt`?", "Delete `old.txt`?", "Run `pnpm test`?" (a command is cut to its first line, with ` …` when more
+  follows). A file is named by its path inside the project, or `~`-shortened with a middle ellipsis outside it, with
+  the full path as the tooltip (`path-display.ts`). On the right are the counts (`+1 −1`, each with an accessible
+  "1 line added" label), the engine's "Only part of the file is shown" when the preview was cut, and "1 of N" when
+  more requests wait.
+- **What the kernel knows comes first.** Straight after the question, each fact the request carries about the
+  consequence is one line with a warning mark: "Namzu asks about this every time, whatever you allowed before." (the
+  call is marked `alwaysAsk`), "Outside the project folder." (the call's path with its `.` and `..` segments resolved against the project folder, so `/project/../x` is outside; a `~` path is not judged either way),
+  "This deletes *file*.", "This replaces *file*, which already exists." / "This writes over *file* if it already
+  exists.", "Runs with elevated rights." (a `sudo` command), "Looks like it deletes or overwrites files." (the
+  command check Desktop already used; a command in any call of the request is checked, not only the first), and, for a call the agent marked destructive with nothing more specific known,
+  "This command can change or remove files on your computer." A new file, an ordinary edit and a plain command draw
+  none, and where a command runs is the one muted line at the foot ("Runs in *project name*.", the folder as its
+  tooltip). `approvalFlags` and `approvalConsequence` in `approval-card-model.ts` build these; a network reach is not
+  claimed, because the request does not carry one. The flags are the request's own fields plus two text checks over a
+  command (`sudo`, and a command that deletes); nothing is read from the model's description.
+- **The body is four rows** of the change (starting one line before the first changed line, with line numbers and
+  the added and removed lines tinted) or of the command (`$` before the first line), with a link that states what is
+  hidden ("Show all 24 lines") and opens the whole change in place; rows wrap by default, so the far end of a long
+  line is on the card, and with **Wrap lines** turned off a row cut at the box's edge brings its own link, "Show the
+  whole line"; **Show less** closes it. The open diff is the
+  same diff view the Changes pane uses; a change too large for it opens as a plain patch.
+- **Accept is enabled at once.** Accept no longer waits for the end of a long command, message or diff to be scrolled
+  to. What protects the person instead is what is above: the four rows, the size of everything hidden, the kernel's
+  facts at the top of the card, and the asks that need a person keep every other protection (no standing yes, the
+  keyboard starting on Reject for a delete or a risky command, the 400 ms click guard that keeps a click aimed at the
+  previous card from answering the next).
+- **Actions.** **Accept** is the one lime button. **Reject** is a quiet red text button. **Allow for this
+  conversation** (below) is an outline button, offered exactly when it was before. Enter accepts and Esc rejects as
+  before; the keys are on the buttons' tooltips ("Accept · Enter", "Reject · Esc", and on a risky one "Reject ·
+  Enter or Esc" and "Accept · Ctrl+Enter. This one looks risky, so Enter rejects it.") and on `aria-keyshortcuts`.
+  Esc while a menu is open closes the menu, not the card.
+- **The "..." menu** on the box (on the header when a card has no box) holds **Tell Namzu what to do instead**
+  (which turns the foot into the note field, as before), **Wrap lines** and **Copy** (the change as a patch, the
+  command, or the message).
+- **The composer is a 40 px bar** while a decision waits: an amber dot, "Waiting for you. Type to message Namzu.",
+  the attach **+** and the permission word, and **Stop** as an outlined square that turns red on hover. The model
+  word, the context ring, the microphone, the shell count and the pull request chip are not drawn until the
+  card is answered (the model cannot change while a reply runs). Typing in the bar is what it always was: Enter
+  sends the text to the running reply and Ctrl+Enter or Tab holds it for after it, and neither answers the card.
+- **The turn in flight is one line**: a mark (amber while the turn waits for the person, a slow pulse while it runs),
+  the step in the kernel's words ("Waiting to edit session.ts", "Waiting to run command", "Running pwd", or the
+  stage, "Thinking"), the elapsed time and a chevron. The work, with every action's row, is behind the chevron; if an
+  action failed or was refused the work stays open, so bad news is never behind a click (`workBlockOpen` with the
+  turn's attention flags). The earlier second line under the block (`.stage-line`) is gone; its words are the line.
+
+The `+N` badge says what it counts, and the Queue control reads **Queue message**. When the file a write would
+change already holds exactly that text, the CLI's permission preview is still sent (with `before` equal to `after`)
+and the card says "No change to `name`." instead of "couldn't show what's in `name`".
+
+**Allow for this conversation.** On the Namzu engine the card offers an outline **Allow for this conversation**
 beside Reject and Accept. It sends `approve_all`, which the agent keeps as a latch for the rest of the
 conversation: ordinary asks stop, deletes and commands included. The agent still asks about the few
 things that always need a person (a run outside the sandbox, a path outside the project or a protected
@@ -3608,7 +3670,7 @@ the answer only when no call is marked. It also withholds it, by name, from a de
 like it deletes or overwrites, a destructive tool that is not a new file, and a screen or web action, since
 the mark says nothing about a call it is absent from. Esc is a No that leaves the reply running, the
 keyboard starts on Reject for a delete, a risky command and a destructive tool, and Allow waits 400 ms
-after a card appears and, for a command, message or diff that overflows, until its end has been scrolled to.
+after a card appears.
 
 A note typed when declining ("You asked Namzu to do this instead: ...") is drawn as the person's own
 message, in the right-hand bubble. After a reload, a user message that carries the host's attachment

@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
-import { chipBefore, expandChips, isChipPaste, pasteChip, pasteChipLines } from './paste-chips.js'
+import {
+	chipRanges,
+	expandChips,
+	highestAttachmentNumber,
+	isChipPaste,
+	keepChipsWhole,
+	numberAttachments,
+	pasteChip,
+	pasteChipLines,
+	snapOutOfChip,
+	widenOverChips,
+} from './paste-chips.js'
 
 describe('paste chips', () => {
 	it('names the extra lines, or none when there are none', () => {
@@ -25,13 +36,51 @@ describe('paste chips', () => {
 		)
 	})
 
-	it('finds a chip that ends at the cursor', () => {
-		const value = 'x [Image #1][Pasted text #2 +5 lines]'
-		expect(chipBefore(value, value.length)).toEqual({
-			start: 12,
-			chip: '[Pasted text #2 +5 lines]',
+	const known = { attachments: new Set(['[Image #1]', '[Document #2]']), pastes: new Set([2]) }
+
+	it('finds only the markers with something behind them', () => {
+		const value = 'x [Image #1][Pasted text #2 +5 lines] [Image #7] [Pasted text #9]'
+		expect(chipRanges(value, known)).toEqual([
+			{ start: 2, end: 12, text: '[Image #1]' },
+			{ start: 12, end: 37, text: '[Pasted text #2 +5 lines]' },
+		])
+	})
+
+	it('moves a cursor out of a marker toward the way it was heading', () => {
+		const ranges = chipRanges('ab [Image #1] cd', known)
+		expect(snapOutOfChip(ranges, 6, -1)).toBe(3)
+		expect(snapOutOfChip(ranges, 6, 1)).toBe(13)
+		expect(snapOutOfChip(ranges, 4, 0)).toBe(3)
+		expect(snapOutOfChip(ranges, 11, 0)).toBe(13)
+		expect(snapOutOfChip(ranges, 3, 1)).toBe(3)
+		expect(snapOutOfChip(ranges, 13, -1)).toBe(13)
+	})
+
+	it('grows a deletion to take a whole marker, and puts typing after one', () => {
+		const value = 'ab [Image #1] cd'
+		const ranges = chipRanges(value, known)
+		expect(widenOverChips(ranges, 5, 9)).toEqual([3, 13])
+		expect(widenOverChips(ranges, 0, 2)).toEqual([0, 2])
+		expect(keepChipsWhole(value, ranges, { start: 5, deleteEnd: 6 }, '', 5)).toEqual({
+			value: 'ab  cd',
+			cursor: 3,
 		})
-		expect(chipBefore(value, 12)).toEqual({ start: 2, chip: '[Image #1]' })
-		expect(chipBefore(value, 1)).toBeNull()
+		expect(keepChipsWhole(value, ranges, { start: 6, deleteEnd: 6 }, 'z', 7)).toEqual({
+			value: 'ab [Image #1]z cd',
+			cursor: 14,
+		})
+	})
+
+	it('pairs the markers a message names with its attachments, in order', () => {
+		expect(
+			numberAttachments('look [Image #3] and [Document #4]', ['Image', 'Document'], 0),
+		).toEqual([3, 4])
+		expect(numberAttachments('[Image #5] [Image #3]', ['Image', 'Image'], 0)).toEqual([3, 5])
+	})
+
+	it('numbers after the floor when the text does not name them', () => {
+		expect(numberAttachments('no markers', ['Image', 'Image'], 4)).toEqual([5, 6])
+		expect(numberAttachments('typed [Image #9] by hand', ['Image', 'Image'], 2)).toEqual([10, 11])
+		expect(highestAttachmentNumber('[Image #2] [Document #7] [Pasted text #9]')).toBe(7)
 	})
 })

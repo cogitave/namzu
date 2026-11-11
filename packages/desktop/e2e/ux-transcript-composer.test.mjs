@@ -46,22 +46,35 @@ const size = (w, width, height) =>
 		[width, height],
 	);
 const approvalCard = (w) => w.page.getByRole("region", { name: "Tool approval" });
+/** Enter on the card once its short click guard has ended (the button says so), never on how fast the machine is. */
+const answerYes = async (w) => {
+	await expect(approvalCard(w).getByRole("button", { name: "Accept", exact: true })).not.toHaveAttribute(
+		"aria-disabled",
+		"true",
+		{ timeout: T },
+	);
+	await w.page.keyboard.press("Enter");
+};
 
 /**
- * The card's whole surface ends above the composer, and the line that names the state sits right
- * above the card.
+ * The card's whole surface ends above the composer, which is one 40 px bar that says it is waiting
+ * for the person; there is no caption of its own above the card.
  */
 async function assertCardClear(w, label) {
 	const m = await w.page.evaluate(() => {
 		const box = (el) => (el ? el.getBoundingClientRect() : null);
 		const card = box(document.querySelector('[aria-label="Tool approval"] [data-slot="composer-banner"]'));
-		const caption = box(document.querySelector(".approval-waiting"));
+		const caption = document.querySelector(".approval-waiting");
 		const composer = box(document.querySelector("[data-chat-composer-body]"));
-		return { card, caption, composer };
+		const bar = box(document.querySelector(".composer-waiting"));
+		const field = document.querySelector('textarea[aria-label="Message Namzu"]');
+		return { card, caption, composer, bar, placeholder: field?.getAttribute("placeholder") };
 	});
-	assert.ok(m.card && m.caption && m.composer, `${label}: card, caption and composer are drawn`);
+	assert.ok(m.card && m.composer && m.bar, `${label}: card, bar and composer are drawn`);
+	assert.equal(m.caption, null, `${label}: no caption above the card`);
+	assert.ok(m.bar.height >= 38 && m.bar.height <= 46, `${label}: the waiting bar is ${m.bar.height}px tall`);
+	assert.match(m.placeholder ?? "", /^Waiting for you\./, `${label}: the bar says it is waiting`);
 	assert.ok(m.card.bottom <= m.composer.top - 2, `${label}: the card ends ${m.card.bottom} but the composer starts at ${m.composer.top}`);
-	assert.ok(m.caption.bottom <= m.card.top + 0.5 && m.card.top - m.caption.bottom <= 16, `${label}: "Waiting for your decision" is ${m.card.top - m.caption.bottom}px above the card`);
 	await expect(w.page.locator(".working:not(.transcript-status-only)")).toHaveCount(0);
 }
 
@@ -87,9 +100,8 @@ flow(
 		await openProject(w);
 		await send(w, "Please write the file");
 		await expect(approvalCard(w)).toBeVisible({ timeout: T });
-		await approvalCard(w)
-			.getByRole("button", { name: "Tell Namzu what to do instead", exact: true })
-			.click();
+		await approvalCard(w).getByRole("button", { name: "More about this request" }).click();
+		await w.page.getByRole("menuitem", { name: "Tell Namzu what to do instead" }).click();
 		await approvalCard(w)
 			.getByRole("textbox", { name: "Tell Namzu what to do instead" })
 			.fill("call it home.html");
@@ -126,14 +138,16 @@ flow(
 		const filled = await fill(accept);
 		assert.notEqual(filled, "rgba(0, 0, 0, 0)", "Accept is filled");
 		assert.equal(await fill(reject), "rgba(0, 0, 0, 0)", "Reject is not");
+		// What left the card's surface is one click away on its "..." menu, and the keys are on the buttons.
 		await expect(
-			approvalCard(w).getByRole("button", { name: "Tell Namzu what to do instead" }),
+			approvalCard(w).getByRole("button", { name: "More about this request" }),
 		).toBeVisible();
-		await expect(approvalCard(w).getByText("Enter accepts.", { exact: false })).toBeVisible();
+		await expect(accept).toHaveAttribute("title", "Accept · Enter");
+		await expect(reject).toHaveAttribute("title", "Reject · Esc");
 		await assertCardClear(w, "1280x800");
 		await shot(w, "approval-1280");
-		await w.page.keyboard.press("Enter");
-		await expect(w.page.getByText("Wrote out.txt.")).toBeVisible({ timeout: T });
+		await answerYes(w);
+		await expect(w.page.getByText("Wrote out.txt.").first()).toBeVisible({ timeout: T });
 		assert.equal(existsSync(join(w.project, "out.txt")), true);
 	},
 );
@@ -151,7 +165,7 @@ flow(
 		await expect(approvalCard(w).getByText(w.project, { exact: false })).toHaveCount(0);
 		assert.equal(await approvalCard(w).locator(".approval-consequence").getAttribute("title"), w.project);
 		await expect(approvalCard(w).getByText("deletes or overwrites files", { exact: false })).toBeVisible();
-		await expect(approvalCard(w).getByText("Enter rejects it", { exact: false })).toBeVisible();
+		await expect(approvalCard(w).getByRole("button", { name: "Reject" })).toHaveAttribute("title", "Reject · Enter or Esc");
 		await expect(approvalCard(w).getByRole("button", { name: "Reject" })).toBeFocused();
 		const gap = await w.page.evaluate(() => {
 			const buttons = document.querySelector('[aria-label="Tool approval"] .approval-footer');
@@ -166,15 +180,20 @@ flow(
 );
 
 flow(
-	"stopping while a command waits says it was not run, and Stop looks the same as while it runs",
+	"stopping while a command waits says it was not run, and Stop is an outline while it waits",
 	{ rules: [REMOVE] },
 	async (w) => {
 		await openProject(w);
 		await send(w, "Please clean the build");
 		await expect(approvalCard(w)).toBeVisible({ timeout: T });
 		const stop = w.page.getByRole("button", { name: "Stop reply" });
-		// The same red button as while a reply runs: waiting does not turn Stop into another control.
-		await expect(stop).toHaveClass(/bg-destructive/);
+		// While a question waits, Stop is an outline that turns red on hover: the one filled control is Accept.
+		await expect(stop).toHaveClass(/composer-stop-quiet/);
+		assert.equal(
+			await stop.evaluate((node) => getComputedStyle(node).backgroundColor),
+			"rgba(0, 0, 0, 0)",
+			"Stop is not filled while waiting",
+		);
 		await stop.click();
 		await expect(
 			w.page.getByText("Stopped. The command waiting for your answer was not run."),
@@ -505,23 +524,18 @@ flow(
 		await send(w, "Give me a tour of the tools");
 		// Each change and command asks first; the card names where it runs and which file it touches.
 		await expect(approvalCard(w)).toBeVisible({ timeout: T });
-		await expect(
-			approvalCard(w).getByText("Changes a.ts.", { exact: false }),
-		).toBeVisible();
+		await expect(approvalCard(w).getByRole("heading", { name: "Edit a.ts?" })).toBeVisible();
+		// The full path rides the question's tooltip; the sentence names the file by its place in the project.
 		assert.equal(
-			await approvalCard(w)
-				.locator(".approval-consequence")
-				.getAttribute("title"),
+			await approvalCard(w).locator(".approval-title").getAttribute("title"),
 			join(w.project, "a.ts"),
 		);
 		await w.page.screenshot({
 			path: join(TOOL_SHOTS, "approval-edit-1280-dark.png"),
 		});
-		await w.page.keyboard.press("Enter");
+		await answerYes(w);
 		await expect(
-			approvalCard(w).getByText("Adds a new file, new/deep/n.txt.", {
-				exact: false,
-			}),
+			approvalCard(w).getByRole("heading", { name: "Create new/deep/n.txt?" }),
 		).toBeVisible({ timeout: T });
 		await expect(
 			approvalCard(w).getByText(w.project, { exact: false }),
@@ -529,21 +543,32 @@ flow(
 		await w.page.screenshot({
 			path: join(TOOL_SHOTS, "approval-create-1280-dark.png"),
 		});
-		await w.page.keyboard.press("Enter");
-		for (const command of [ANSI, RANDOM_BYTES, SEQ, FAILING]) {
+		await answerYes(w);
+		// The kernel decides which of the four commands need a person (a read-only one may run unasked), so
+		// each card that does come is answered and named, and the tour is over when its last line shows.
+		await expect(approvalCard(w).getByRole("heading", { name: "Create new/deep/n.txt?" })).toHaveCount(0, { timeout: T });
+		const asked = [];
+		const finished = w.page.getByText("Tour finished.").first();
+		const rowText = approvalCard(w).locator(".approval-row-text").first();
+		for (let step = 0; step < 6; step++) {
+			await expect(rowText.or(finished)).toBeVisible({ timeout: T });
+			if (await finished.isVisible()) break;
+			const command = (await rowText.textContent()) ?? "";
 			await expect(
 				approvalCard(w).getByText("Runs in project.", { exact: false }),
 			).toBeVisible({ timeout: T });
-			await expect(approvalCard(w).locator(".approval-command")).toHaveText(
-				command,
-			);
-			if (command === ANSI)
+			if (asked.length === 0)
 				await w.page.screenshot({
 					path: join(TOOL_SHOTS, "approval-command-1280-dark.png"),
 				});
-			await w.page.keyboard.press("Enter");
+			asked.push(command);
+			await answerYes(w);
+			await expect(approvalCard(w).locator(".approval-row-text").filter({ hasText: command })).toHaveCount(0, { timeout: T });
 		}
-		await expect(w.page.getByText("Tour finished.")).toBeVisible({
+		assert.ok(asked.length >= 1 && asked.every((command) => [ANSI, RANDOM_BYTES, SEQ, FAILING].includes(command)), `asked: ${asked.join(" | ")}`);
+		assert.equal(asked.at(-1), FAILING, "the failing command is the last one asked");
+		// The engine's own check on written files makes the scripted model say its last line twice.
+		await expect(w.page.getByText("Tour finished.").first()).toBeVisible({
 			timeout: T,
 		});
 

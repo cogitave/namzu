@@ -401,7 +401,9 @@ flow("times read one way, the composer's edge is solid, and the Changes panel do
 	await send(w, "Please write the file");
 	const card = w.page.getByRole("region", { name: "Tool approval" });
 	await expect(card).toBeVisible({ timeout: T });
+	await expect(card.getByRole("button", { name: "Accept", exact: true })).not.toHaveAttribute("aria-disabled", "true", { timeout: T });
 	await card.getByRole("button", { name: "Accept", exact: true }).click();
+	// The engine's own check on written files makes the scripted model say its last line twice.
 	await expect(w.page.getByText("Wrote out.txt.").first()).toBeVisible({ timeout: T });
 	await resize(w, 900, 720);
 	await w.page.getByRole("button", { name: /Open changes$/ }).last().click();

@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import { createWorld, dispose, expect, launch, openProject, repoRoot, send } from "./harness.mjs";
+import { createWorld, dispose, expect, launch, openProject, repoRoot, send, showProvider } from "./harness.mjs";
 
 const T = 60000;
 const SHOTS = resolve(repoRoot, "research/model-switch-20261010");
@@ -91,13 +91,11 @@ async function shot(w, name) {
 	await w.page.screenshot({ path: join(SHOTS, `${name}.png`) });
 }
 
-/** Choose a model in the composer's picker: the service's tab, then the model. */
+/** Choose a model in the composer's picker: the provider behind More, then the model. */
 async function chooseModel(w, tab, model) {
 	await w.page.getByRole("button", { name: /^Model:/ }).click();
-	// The popup opens on the effort step when the model has one; the list is one step further.
-	const change = w.page.getByRole("button", { name: /change model/ });
-	if (await change.count()) await change.click();
-	await w.page.getByRole("tab", { name: tab, exact: true }).click();
+	// The popup opens on the list of the provider in use; the other providers are behind More.
+	await showProvider(w.page, tab);
 	await w.page.getByRole("radio", { name: new RegExp(model) }).click();
 	await w.page.keyboard.press("Escape");
 	await expect(w.page.getByRole("button", { name: new RegExp(`^Model: .*${model}`) })).toBeVisible({

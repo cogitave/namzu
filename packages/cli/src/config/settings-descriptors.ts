@@ -500,9 +500,9 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'compaction.softTargetHeadroom',
 		'agent',
 		'Room left after shortening',
-		'How much further below half the window one round of shortening goes, as a fraction of the window. A larger value shortens less often. Advanced.',
+		'How much further below half the window one round of shortening goes, as a fraction of the window. A larger value shortens less often; 0 shortens only to half the window. Advanced.',
 		num(0, 1, 'of the window'),
-		{ defaultText: '0' },
+		{ defaultText: '0.05' },
 	),
 	d(
 		'compaction.autoCompactWindowTokens',

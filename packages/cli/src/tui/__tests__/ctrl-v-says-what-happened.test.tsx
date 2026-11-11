@@ -194,9 +194,9 @@ describe('Ctrl+V with an image', () => {
 		harness.stdin.write('\x16')
 		await frameShows(harness.lastFrame, 'Image #2')
 
-		// Put the cursor right after the first chip and delete it whole. The
-		// second chip sits after a space, which is part of what is stepped over.
-		for (let i = 0; i < ' [Image #2]'.length; i += 1) harness.stdin.write('\x1b[D')
+		// Put the cursor right after the first chip and delete it whole. A marker
+		// is one step, so it takes two: over the second chip, then over the space.
+		for (let i = 0; i < 2; i += 1) harness.stdin.write('\x1b[D')
 		await tick(30)
 		harness.stdin.write('\x7f')
 		await vi.waitFor(() => expect(harness.lastFrame() ?? '').not.toContain('Image #1'))
@@ -296,7 +296,7 @@ describe('Ctrl+V with an image', () => {
 		expect(
 			sentTurns.map((message) => message?.content),
 			'a later prompt bypassed the queue or an older snapshot erased it',
-		).toEqual(['queued first', 'queued second'])
+		).toEqual(['[Image #1]queued first', '[Image #2]queued second'])
 		expect(
 			sentTurns.map((message) => (message?.role === 'user' ? message.attachments : undefined)),
 			'the queue preserved text but discarded the composer attachment',

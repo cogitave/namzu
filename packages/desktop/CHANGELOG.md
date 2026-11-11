@@ -1,5 +1,17 @@
 # @namzu/desktop
 
+## 0.3.0
+
+### Minor Changes
+
+- cea27c2: The home screen's composer is quieter, and the model popup opens on the models. The box's lower edge carries the attach "+", the permission word, the model word and Send; permission and model are plain muted text (the chevron shows on hover) and Send is the only filled control. The microphone button is hidden until voice input is set up: turn it on in Settings ▸ Speech ▸ Voice input (search "microphone"), and the button is back. The project and "This computer" are one line above the box with one menu. The three starters are small rows; clicking one fills the box and never sends it.
+
+  The model popup opens on the model list, each row with its context window and price when the model's source published them (nothing is shown for a value that is not known). Under the list are the reasoning-effort slider and one "More" row; the engine, the Desktop or CLI switch and the provider filter (when you have two or more providers) moved behind it, so they are one click further than before and nothing is removed. There is no setting to restore the old arrangement.
+
+  In the CLI, `namzu acp --desktop` model lists carry the window and the per-million-token rates a provider published (`contextWindow`, `inputPrice`, `outputPrice` on a row); a row without them is unchanged.
+
+- 90fa5a3: The top of a conversation window is one 40 px bar instead of a 52 px strip of tabs. The bar shows the conversation's title and project, how full the conversation is as a pie with the share and cost ("14% · $0.06", no longer drawn beside the send button), and 28 px buttons for changes, terminal, project files, details and actions. The sidebar is now the one list of conversations: opening one from it replaces the conversation in front, and any other tabs you had open are closed the first time you do (a tab with an unsent draft stays out of sight). New conversation does the same, and Ctrl+Tab and Ctrl+1 to 9 step through the conversation in front, your open terminals and any blank conversation kept open for an unsent draft or attachment, which the bar lists under Unsent drafts. Conversations are never deleted by this. To get the strip back, choose View > Show conversation tabs, or Settings > Appearance > Show conversation tabs; the window is then as before. The conversation column is 720 px wide with 24 px gutters.
+
 ## 0.2.10
 
 ### Patch Changes

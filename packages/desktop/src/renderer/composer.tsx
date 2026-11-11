@@ -52,7 +52,6 @@ import {
 	ListPlusIcon,
 	ListTodoIcon,
 	LoaderCircleIcon,
-	MonitorIcon,
 	PaperclipIcon,
 	PlusIcon,
 	SearchIcon,
@@ -378,6 +377,8 @@ export function Composer({
 	)
 	// Namzu is only waiting on the person, so stopping is not an emergency.
 	const waitingOnPerson = permissions.length > 0
+	// While a question waits for the person the composer is a one-line bar: the question is above it.
+	const waiting = waitingOnPerson && !compact
 	const [plusOpen, setPlusOpen] = useState(false)
 	const [trayEditing, setTrayEditing] = useState<string | null>(null)
 	const editableRows = pending.rows.filter((row) => row.editable)
@@ -558,6 +559,7 @@ export function Composer({
 								onAnimationEnd={trayDone}
 							>
 								<ComposerProjectPicker
+									computerLabel={computerLabel}
 									projectId={projectId}
 									projectName={projectName}
 									projectPath={projectPath}
@@ -567,10 +569,6 @@ export function Composer({
 									onOpenProject={onOpenProject}
 									onCreateProject={onCreateProject}
 								/>
-								<span className="composer-computer-label" title={computerLabel}>
-									<MonitorIcon aria-hidden="true" />
-									<span>{computerLabel}</span>
-								</span>
 							</ComposerSurface.ContextStrip>
 						)}
 						{permissions[0] && (
@@ -604,7 +602,7 @@ export function Composer({
 							onEditingChange={setTrayEditing}
 						/>
 						<ComposerSurface.Host>
-							<ComposerSurface.Main>
+							<ComposerSurface.Main className={waiting ? 'composer-waiting' : undefined}>
 								{compact && plusControl}
 								<div
 									data-chat-composer-body
@@ -668,6 +666,7 @@ export function Composer({
 											cliMode,
 											cliLabel,
 											editableQueued: editableRows.length > 0,
+											waitingOnPerson: waiting,
 											hasDraft,
 											running,
 											liveInputSupported,
@@ -779,7 +778,7 @@ export function Composer({
 													onSettingsChange({ ...settings, permissionMode })
 												}
 											/>
-											{shells && shells.count > 0 && (
+											{!waiting && shells && shells.count > 0 && (
 												<Button
 													variant="ghost-muted"
 													size="xs"
@@ -791,7 +790,7 @@ export function Composer({
 													{shells.count} {shells.count === 1 ? 'shell' : 'shells'}
 												</Button>
 											)}
-											{pullRequest && (
+											{!waiting && pullRequest && (
 												<Button
 													variant="ghost-muted"
 													size="xs"
@@ -808,42 +807,51 @@ export function Composer({
 										</div>
 									)}
 									<div className="pal-composer-send-actions flex shrink-0 flex-nowrap items-center justify-end gap-2">
-										<ContextRing usage={usage} />
-										{running && liveInputSupported && onQueue && (
-											<Tooltip>
-												<TooltipTrigger
-													render={
-														<Button
-															variant="ghost-muted"
-															size="icon-xs"
-															aria-label="Queue message for the next reply"
-															disabled={
-																sending ||
-																draftDisabled ||
-																attachmentsStranded ||
-																(!draft.trim() && attachments.length === 0)
-															}
-															onClick={onQueue}
-														/>
-													}
-												>
-													<ListPlusIcon className="size-3.5" aria-hidden="true" />
-												</TooltipTrigger>
-												<TooltipPopup>
-													Hold this message and send it when the current reply is done · Tab
-												</TooltipPopup>
-											</Tooltip>
+										{!waiting && <ContextRing usage={usage} />}
+										{running &&
+											liveInputSupported &&
+											onQueue &&
+											!(waiting && !draft.trim() && attachments.length === 0) && (
+												<Tooltip>
+													<TooltipTrigger
+														render={
+															<Button
+																variant="ghost-muted"
+																size="icon-xs"
+																aria-label="Queue message for the next reply"
+																disabled={
+																	sending ||
+																	draftDisabled ||
+																	attachmentsStranded ||
+																	(!draft.trim() && attachments.length === 0)
+																}
+																onClick={onQueue}
+															/>
+														}
+													>
+														<ListPlusIcon className="size-3.5" aria-hidden="true" />
+													</TooltipTrigger>
+													<TooltipPopup>
+														Hold this message and send it when the current reply is done · Tab
+													</TooltipPopup>
+												</Tooltip>
+											)}
+										{!compact && !waiting && (
+											<div className="composer-selected-model">{modelControl}</div>
 										)}
-										{!compact && <div className="composer-selected-model">{modelControl}</div>}
-										{speechControl}
+										{!waiting && speechControl}
 										{running && (
 											<Tooltip>
 												<TooltipTrigger
 													render={
 														<button
 															type="button"
-															// One look whether the turn is running or waiting for a decision.
-															className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-2xs inset-shadow-white/16 transition-all duration-150 hover:bg-destructive hover:scale-105 active:inset-shadow-black/8 active:shadow-none"
+															// Waiting for a decision, Stop is an outline that turns red on hover: the one filled control is the card's Accept.
+															className={
+																waiting
+																	? 'composer-stop-quiet'
+																	: 'flex size-8 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-2xs inset-shadow-white/16 transition-all duration-150 hover:bg-destructive hover:scale-105 active:inset-shadow-black/8 active:shadow-none'
+															}
 															aria-label={stopping ? 'Stopping reply' : 'Stop reply'}
 															aria-busy={stopping}
 															data-stopping={stopping ? 'true' : undefined}
@@ -858,7 +866,9 @@ export function Composer({
 															aria-hidden="true"
 														/>
 													) : (
-														<SquareIcon className="size-3 fill-current" />
+														<SquareIcon
+															className={waiting ? 'size-2.5 fill-current' : 'size-3 fill-current'}
+														/>
 													)}
 												</TooltipTrigger>
 												<TooltipPopup>

@@ -188,7 +188,7 @@ it('keeps approval details readable but disables action decisions when guest aut
 	expect(
 		unavailable.match(/<fieldset\b[^>]*aria-label="Action approval controls"[^>]*>/)?.[0],
 	).toMatch(/\bdisabled=/)
-	for (const detail of ['Run this command?', 'pwd', 'Accept', 'Reject', 'Edit'])
+	for (const detail of ['Run', 'pwd', 'Accept', 'Reject', 'More about this request'])
 		expect(unavailable).toContain(detail)
 	expect(button(unavailable, 'Send message')).not.toMatch(/\bdisabled=/)
 	for (const guard of [
@@ -318,10 +318,11 @@ it('shows the wordmark once and only offers installed conversation engines', () 
 			],
 		},
 	})
-	// The engine lives in the model popup now; the tray above the box has no chip.
+	// The engine lives behind the model popup's More row now; neither the tray nor the first view has a chip.
 	expect(html).not.toContain('aria-label="Execution engine"')
-	expect(html).toContain('aria-label="Engine: Namzu"')
-	expect(html).toContain('composer-harness-mark')
+	expect(html).not.toContain('aria-label="Engine: Namzu"')
+	expect(html).not.toContain('composer-harness-mark')
+	expect(html).toContain('More<small>: engine</small>')
 	expect(html).not.toContain('Worktree')
 	expect(html).not.toContain('type="checkbox"')
 	const supplied = render({
@@ -334,7 +335,6 @@ it('shows the wordmark once and only offers installed conversation engines', () 
 		attachmentsSupported: false,
 		reviewModes: ['prompt', 'plan'],
 	})
-	expect(supplied).toContain('aria-label="Engine: Claude Code"')
 	expect(button(supplied, 'Attach files')).toMatch(/\bdisabled=/)
 	expect(supplied).not.toContain('composer-harness-mark')
 })
@@ -374,7 +374,9 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 	expect(button(html, 'Attach files')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Permissions')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Plugins')).not.toMatch(/\bdisabled=/)
-	expect(button(html, 'Model: space-bunny-free, effort: High')).toMatch(/\bdisabled=/)
+	// The model cannot change while a reply runs, so the waiting bar leaves its picker out; it is back once the card is answered.
+	expect(html).not.toContain('aria-label="Model: space-bunny-free')
+	expect(html).toContain('composer-waiting')
 	expect(button(html, 'Remove notes.txt')).not.toMatch(/\bdisabled=/)
 	expect(html).toContain('aria-label="Tool approval"')
 	expect(html).toContain('Accept')
@@ -486,8 +488,6 @@ it('retains confirmed native engine and permission semantics without optional en
 		permissionScope: 'native-conversation',
 		settings: { permissionMode: 'auto' },
 	})
-	expect(button(codex, 'Engine: Codex CLI')).toMatch(/\bdisabled=/)
-	expect(codex).toContain('title="Codex CLI"')
 	expect(codex).toContain('Full access')
 	expect(codex).not.toContain('>Allow tools<')
 	const nativeEngine = render({
@@ -495,7 +495,7 @@ it('retains confirmed native engine and permission semantics without optional en
 		permissionEngine: 'claude-code',
 		settings: { permissionMode: 'prompt' },
 	})
-	expect(nativeEngine).toContain('title="Claude Code"')
+	expect(nativeEngine).toContain('aria-label="Permissions: Ask first"')
 })
 
 const file = {

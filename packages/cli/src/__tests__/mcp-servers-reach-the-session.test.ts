@@ -245,11 +245,10 @@ describe('a tool server declared in namzu.config.json', () => {
 			const pid = Number(readFileSync(pidFile, 'utf8'))
 			process.kill(pid, 'SIGTERM')
 
-			const deadline = Date.now() + 5_000
-			while (
-				!session.mcpStatus?.().failed.some((entry) => entry.name === 'tickets') &&
-				Date.now() < deadline
-			) {
+			// Until the transport reports the death. There is no deadline of its own: how
+			// long a real child takes to die and be noticed depends on the machine, so a
+			// death never noticed is a hang that the test's timeout reports.
+			while (!session.mcpStatus?.().failed.some((entry) => entry.name === 'tickets')) {
 				await new Promise((resolve) => setTimeout(resolve, 20))
 			}
 

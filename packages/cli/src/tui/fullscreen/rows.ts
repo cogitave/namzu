@@ -33,6 +33,8 @@ export interface FsRow extends ScrollRow {
 	readonly joins: Joiner | null
 	/** Cells of hanging indent a continuation row starts with: not text, dropped on a join. */
 	readonly lead: number
+	/** A click on this row opens its message in place, or folds it when it is open. */
+	readonly opens?: true
 }
 
 export function plainRow(row: ScrollRow, joins: Joiner | null = null): FsRow {

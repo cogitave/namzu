@@ -232,14 +232,36 @@ class ScreenStdout extends EventEmitter {
 	 *
 	 * The empty write is not recorded — it carries no output, and putting it in
 	 * the log would make `writes()` count flushes as frames.
+	 *
+	 * ## Why the emulator is fed directly, not through `Terminal.write`
+	 *
+	 * `Terminal.write` queues the data and parses it from a `setTimeout`, in
+	 * slices of at most 12 ms measured on the REAL clock (`performance.now`). A
+	 * test that fakes `setTimeout` therefore needs a pump to fire those timers,
+	 * and a pump cannot be correct: when the machine is busy a slice runs out
+	 * after a few chunks and the parser reschedules itself with `setTimeout(fn)`
+	 * from inside a timer callback, where the fake clock files a zero delay as
+	 * 1 ms ahead. Firing it means moving the clock, and moving the clock fires
+	 * the timers the test is measuring (a guard that waits 200 ms fires early).
+	 * Left alone, the pump spun on "due now" forever, the write callback never
+	 * ran, and the settle hung: `composer-split-paste-marker` timed out on a
+	 * loaded runner and on no idle machine, because only a loaded one runs out
+	 * a 12 ms slice.
+	 *
+	 * So there is no timer at all: the chunk goes straight to the parser the
+	 * queue itself calls, synchronously and whole, and only the callback is
+	 * deferred, to a microtask, so the renderer still sees an asynchronous
+	 * write. What the screen holds after `write` returns is exactly what it
+	 * would hold once the queue had run.
 	 */
 	write = (chunk: string, callback?: () => void): boolean => {
 		if (chunk.length > 0) {
 			this.chunks.push(chunk)
 			this.bytes += Buffer.byteLength(chunk, 'utf8')
+			this.parse(chunk)
 		}
 		this.outstanding += 1
-		this.term.write(chunk, () => {
+		queueMicrotask(() => {
 			this.outstanding -= 1
 			if (this.outstanding === 0) for (const done of this.waiters.splice(0)) done()
 			callback?.()
@@ -247,23 +269,31 @@ class ScreenStdout extends EventEmitter {
 		return true
 	}
 
-	/** Resolves once the parser has consumed everything written so far. */
+	/** Resolves once every write's callback has run. */
 	drain(): Promise<void> {
 		if (this.outstanding === 0) return Promise.resolve()
 		return new Promise((resolve) => {
 			this.waiters.push(resolve)
-			void this.pumpFakeTimers()
 		})
 	}
 
-	/**
-	 * The emulator's parser schedules its work with `setTimeout`. A test that fakes
-	 * timers to advance a clock by hand would leave that work, and so every settle,
-	 * waiting forever. Timers due now fire (a zero-length advance); the clock does not
-	 * move, so nothing the test is timing can fire here.
-	 */
-	private async pumpFakeTimers(): Promise<void> {
-		while (this.outstanding > 0 && vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(0)
+	private get parse(): (chunk: string) => void {
+		// The parser `Terminal.write` calls from its queue. It is not public API, so
+		// say so plainly if an upgrade moves it, rather than fail somewhere later.
+		const core = (
+			this.term as unknown as {
+				_core?: { _inputHandler?: { parse?: (chunk: string) => unknown } }
+			}
+		)._core
+		const input = core?._inputHandler
+		if (typeof input?.parse !== 'function') {
+			throw new Error(
+				'@xterm/headless no longer exposes the input parser the Screen harness feeds directly; see ScreenStdout.write',
+			)
+		}
+		return (chunk) => {
+			input.parse?.(chunk)
+		}
 	}
 }
 

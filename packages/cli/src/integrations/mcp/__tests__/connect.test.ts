@@ -17,12 +17,7 @@ import { MCPClient, type MCPJsonRpcMessage, type MCPTransport } from '@namzu/sdk
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 
-import {
-	CONNECT_TIMEOUT_MS,
-	connectMcpServers,
-	expandEnvRefsInRecord,
-	transportFor,
-} from '../servers.js'
+import { connectMcpServers, expandEnvRefsInRecord, transportFor } from '../servers.js'
 
 let dir: string
 const origins: TestOrigin[] = []
@@ -68,14 +63,15 @@ afterEach(async () => {
  * and the test would report that `close()` works while `close()` did nothing.
  *
  * MEASURED, not reasoned about. With `close()` replaced by an early `return`,
- * this test fails with "process N was still alive after 5000ms" — so the child
+ * this test runs into its own timeout, the child still alive — so the child
  * does not go away by itself here, and the pid disappearing is caused by the
  * shutdown path under test. The symptom is the right claim for this package:
  * whether the runtime also REAPS the child is the transport's business, and
  * "no process left behind" is what a user is owed.
  */
-async function waitForExit(pid: number, deadlineMs = 5_000): Promise<void> {
-	const until = Date.now() + deadlineMs
+async function waitForExit(pid: number): Promise<void> {
+	// No deadline of its own: how long a child takes to go away depends on the
+	// machine, so one that never goes is a hang that the test's timeout reports.
 	for (;;) {
 		try {
 			// Signal 0 tests for existence without delivering anything.
@@ -83,7 +79,6 @@ async function waitForExit(pid: number, deadlineMs = 5_000): Promise<void> {
 		} catch {
 			return
 		}
-		if (Date.now() > until) throw new Error(`process ${pid} was still alive after ${deadlineMs}ms`)
 		await new Promise((resolve) => setTimeout(resolve, 50))
 	}
 }
@@ -570,7 +565,9 @@ describe('a server that does not work is named, never merely absent', () => {
 			// pass against a server that answered instantly and would say
 			// nothing about the budget.
 			expect(elapsed, 'the probe timeout is what this measures').toBeGreaterThanOrEqual(1_000)
-			expect(elapsed, 'and it has to fit inside the default').toBeLessThan(CONNECT_TIMEOUT_MS)
+			// That it fits inside the default is `mcp.failed` being empty above: connect
+			// gives up on its own deadline. Comparing wall-clock time to that deadline
+			// here would measure how fast the machine spawns a child, not the product.
 		} finally {
 			await mcp.close()
 		}

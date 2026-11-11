@@ -87,7 +87,15 @@ it('filters credential-required Zen models and an inaccessible saved pin from an
 	)
 	try {
 		expect(await runtime.models('zen')).toEqual({
-			models: [{ id: 'space-bunny-free', label: 'Space Bunny Free', default: true }],
+			models: [
+				{
+					id: 'space-bunny-free',
+					label: 'Space Bunny Free',
+					default: true,
+					inputPrice: 0,
+					outputPrice: 0,
+				},
+			],
 			notice: 'The selected model isn’t offered any more. Choose one from the list.',
 		})
 	} finally {

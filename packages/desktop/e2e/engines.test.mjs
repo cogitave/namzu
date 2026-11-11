@@ -14,7 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { createWorld, dispose, expect, launch, openProject, repoRoot } from "./harness.mjs";
+import { createWorld, dispose, expect, launch, openProject, repoRoot, openEngineView } from "./harness.mjs";
 
 const T = 60000;
 const SHOTS = resolve(repoRoot, "research/engines-20261009");
@@ -109,7 +109,7 @@ const trigger = (w) => w.page.getByRole("button", { name: /^Model[:,]/ }).first(
 
 async function chooseCodex(w) {
 	await w.page.getByRole("button", { name: /gpt-e2e-1|gpt-e2e-0/ }).first().click();
-	await w.page.getByRole("button", { name: /^Engine:/ }).click();
+	await openEngineView(w.page);
 	await w.page.getByRole("radio", { name: /Codex CLI/ }).click();
 }
 
@@ -364,7 +364,7 @@ updateFlow(
 		await w.page.getByRole("button", { name: "Home", exact: true }).click();
 		await expect(w.page.getByRole("textbox", { name: "Message Namzu" })).toBeVisible({ timeout: T });
 		await w.page.getByRole("button", { name: /gpt-e2e-1|gpt-e2e-0/ }).first().click();
-		await w.page.getByRole("button", { name: /^Engine:/ }).click();
+		await openEngineView(w.page);
 		await expect(w.page.getByRole("radio", { name: /Codex CLI/ })).toContainText("Update available (0.162.0)");
 		await expect(w.page.getByRole("radio", { name: "Claude Code" })).toContainText("Update available (2.1.295)");
 		await expect(w.page.getByRole("radio", { name: /^Namzu/ })).not.toContainText("Update available");

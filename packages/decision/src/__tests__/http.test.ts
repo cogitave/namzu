@@ -38,7 +38,7 @@ describe('HttpDecisionModel', () => {
 		expect(withIt.calls[0]?.body.questions.q).toEqual({
 			type: 'noul',
 			instructions: 'is it?',
-			criteria: 'Yes when it is.',
+			criteria: { true: 'Yes when it is.' },
 		})
 		const without = fake(200, { answers: { q: { noul: 0.5, type: 'noul' } } })
 		const model = new HttpDecisionModel({ url: 'http://h/d', fetch: without.f })

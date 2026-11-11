@@ -116,16 +116,9 @@ export function mergeUndeliveredLiveInput<Trigger extends string>(
 	return merged
 }
 
-export function humanPromptMeta(
-	attachedFiles: number,
-	attachments: readonly MessageAttachment[] | undefined,
-	live = false,
-): string | undefined {
+export function humanPromptMeta(attachedFiles: number, live = false): string | undefined {
 	const parts: string[] = []
 	if (attachedFiles > 0) parts.push(`${attachedFiles} file${attachedFiles > 1 ? 's' : ''} attached`)
-	if (attachments && attachments.length > 0) {
-		parts.push(`${attachments.length} attachment${attachments.length > 1 ? 's' : ''}`)
-	}
 	if (live) parts.push('sent while working')
 	return parts.length > 0 ? parts.join(' · ') : undefined
 }

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { terminalSupportsHyperlinks, terminalWebHyperlink } from './terminal-hyperlinks.js'
+import {
+	terminalFileHyperlink,
+	terminalSupportsHyperlinks,
+	terminalWebHyperlink,
+} from './terminal-hyperlinks.js'
 
 const ESC = '\u001b'
 
@@ -40,5 +44,22 @@ describe('terminalWebHyperlink', () => {
 		['oversized', `https://example.test/${'a'.repeat(4_096)}`],
 	])('refuses a %s target', (_case, target) => {
 		expect(terminalWebHyperlink('label', target)).toBeNull()
+	})
+})
+
+describe('terminalFileHyperlink', () => {
+	it('links an absolute path, percent-encoding what a URL cannot carry', () => {
+		expect(terminalFileHyperlink('[Image #1]', '/home/a b/shot.png')).toBe(
+			`${ESC}]8;;file:///home/a%20b/shot.png${ESC}\\[Image #1]${ESC}]8;;${ESC}\\`,
+		)
+	})
+
+	it.each([
+		['relative', 'attachments/shot.png'],
+		['control', `/tmp/${String.fromCodePoint(0x1b)}x.png`],
+		['bidi', `/tmp/${String.fromCodePoint(0x202e)}x.png`],
+		['oversized', `/tmp/${'a'.repeat(4_096)}`],
+	])('refuses a %s path', (_name, target) => {
+		expect(terminalFileHyperlink('x', target)).toBeNull()
 	})
 })

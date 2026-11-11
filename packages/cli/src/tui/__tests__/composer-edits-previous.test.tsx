@@ -153,7 +153,8 @@ describe('restoring a selected prompt', () => {
 		await tick()
 
 		expect(harness.onSubmit).toHaveBeenCalledWith(
-			'original prompt revised',
+			// The markers stay in the words, in the order the files were attached.
+			'[Image #1] [Document #2] [Image #3] original prompt revised',
 			attachments,
 			'submit',
 			expect.objectContaining({ source: 'composer' }),

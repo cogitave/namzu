@@ -147,13 +147,37 @@
 	margin-left: 2px;
 	transition-duration: var(--transcript-frame-duration);
 }
-/* While the work is going the header is a plain status; the chevron shows on hover or focus. */
-.normal-transcript .activity-trigger[data-live] > .disclosure-chevron {
-	opacity: 0;
+/* While the work is going the header is the turn's one line: a mark, the step, the time and a chevron to the work. */
+.normal-transcript .activity-trigger[data-live] {
+	border-bottom-color: transparent;
+	font-size: 13px;
 }
-.normal-transcript .activity-trigger[data-live]:hover > .disclosure-chevron,
-.normal-transcript .activity-trigger[data-live]:focus-visible > .disclosure-chevron {
-	opacity: 1;
+.normal-transcript .activity-trigger[data-live] .turn-activity-elapsed {
+	font-size: 13px;
+}
+.normal-transcript .live-mark {
+	flex: none;
+	align-self: center;
+	width: 8px;
+	height: 8px;
+	margin-right: 4px;
+	border-radius: 50%;
+	background: var(--muted-foreground);
+	animation: live-mark-pulse 1.6s ease-in-out infinite;
+}
+.normal-transcript .live-mark[data-state="waiting"] {
+	background: var(--warning-foreground);
+	animation: none;
+}
+@keyframes live-mark-pulse {
+	50% {
+		opacity: 0.35;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.normal-transcript .live-mark {
+		animation: none;
+	}
 }
 .normal-transcript .activity-text {
 	display: inline-flex;
@@ -310,40 +334,6 @@
 	padding-left: 4px;
 }
 
-/* The status line: one muted line at the bottom of the live block. It shimmers; a decision wait holds still. */
-.normal-transcript .stage-line {
-	display: block;
-	margin: 2px 0 0;
-	min-width: 0;
-	font-size: 14px;
-	line-height: 20px;
-	color: var(--muted-foreground);
-}
-.normal-transcript .stage-line .transcript-phase-label {
-	display: inline-grid;
-	max-width: 100%;
-}
-.normal-transcript .stage-text {
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	background-image: linear-gradient(
-		105deg,
-		var(--muted-foreground) 35%,
-		var(--foreground) 50%,
-		var(--muted-foreground) 65%
-	);
-	background-size: 240% 100%;
-	background-clip: text;
-	color: transparent;
-	animation: working-shine 2.2s linear infinite;
-}
-.normal-transcript .stage-line[data-stage-source="waiting"] .stage-text,
-.normal-transcript .stage-line[data-stage-source="compacted"] .stage-text {
-	background: none;
-	color: var(--muted-foreground);
-	animation: none;
-}
 /* Narration being written: its trailing line carries the same soft sweep, so the newest words fade in. */
 .normal-transcript .message.commentary[data-streaming] .message-text > :last-child:is(p, ul, ol) {
 	background-image: linear-gradient(
@@ -359,10 +349,6 @@
 	animation: working-shine 2.2s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-	.normal-transcript .stage-text {
-		background: none;
-		color: var(--foreground);
-	}
 	.normal-transcript .message.commentary[data-streaming] .message-text > :last-child:is(p, ul, ol) {
 		background: none;
 		color: var(--foreground);
@@ -379,14 +365,4 @@
 	font-size: 12px;
 	line-height: 18px;
 	color: var(--muted-foreground);
-}
-/* While a decision is awaited the card above the composer says so; the transcript keeps the words for assistive technology only. */
-.normal-transcript .stage-line[data-stage-source="waiting"] {
-	position: absolute;
-	width: 1px;
-	height: 1px;
-	margin: -1px;
-	overflow: hidden;
-	clip: rect(0, 0, 0, 0);
-	white-space: nowrap;
 }

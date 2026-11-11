@@ -18,6 +18,7 @@ import { ContextGridRow } from './ContextGridRow.js'
 import { ContentWidth, Markdown, WrappedSpans, useContentWidth } from './Markdown.js'
 import { ReadSearchGroup } from './ReadSearchGroup.js'
 import { StatusPanel } from './StatusPanel.js'
+import { type AttachmentRow, attachmentLine } from './attachment-rows.js'
 import { type ShellOutput, shellCollapses, shellResultRows, shellToneColor } from './shell-cell.js'
 import {
 	RECAP_GLYPH,
@@ -26,6 +27,7 @@ import {
 	RESULT_GUTTER_WIDTH,
 } from './system-rows.js'
 import { expandTabs, terminalDisplayText } from './terminal-display.js'
+import { terminalFileHyperlink } from './terminal-hyperlinks.js'
 import { useThemeEpoch } from './theme-store.js'
 import { paint, theme } from './theme.js'
 import { NOT_SHOWN_LINE } from './tidy-tool-output.js'
@@ -407,6 +409,18 @@ function MessageRow({
 					)}
 				</Box>
 			</Box>
+			{message.attachments && message.attachments.length > 0 ? (
+				<Box flexDirection="column" paddingLeft={2}>
+					{message.attachments.map((row, index) => (
+						<AttachmentLineRow
+							// biome-ignore lint/suspicious/noArrayIndexKey: the rows of one message, in order.
+							key={index}
+							row={row}
+							hyperlinks={hyperlinks}
+						/>
+					))}
+				</Box>
+			) : null}
 			{message.checklist && message.checklist.length > 0 ? (
 				<Box paddingLeft={2}>
 					<Checklist items={message.checklist} />
@@ -661,6 +675,7 @@ function splitDetail(
 	lines: readonly string[],
 	expanded: boolean,
 	detailRef?: number,
+	hint?: string,
 ): readonly string[] {
 	if (expanded) return lines
 	const canExpand = detailRef !== undefined
@@ -680,13 +695,16 @@ function splitDetail(
 	const clipped = selected.some((line) => line.length > PREVIEW_LINE_CHARS)
 	const shown = selected.map(clipLine)
 	if (hidden > 0) {
-		const hint = hiddenLinesHint(hidden, {
+		const hiddenRow = hiddenLinesHint(hidden, {
 			chars: folded.reduce((sum, line) => sum + line.length, 0),
 			canExpand,
+			...(hint !== undefined ? { hint } : {}),
 		})
-		return [...shown.slice(0, fragmentLines), hint, ...shown.slice(fragmentLines)]
+		return [...shown.slice(0, fragmentLines), hiddenRow, ...shown.slice(fragmentLines)]
 	}
-	return clipped ? [...shown, `… line shortened${canExpand ? ` ${EXPAND_HINT}` : ''}`] : shown
+	return clipped
+		? [...shown, `… line shortened${canExpand ? ` ${hint ?? EXPAND_HINT}` : ''}`]
+		: shown
 }
 
 /** A preview row, cut at the preview width without splitting an emoji. */
@@ -707,17 +725,23 @@ function clipLine(line: string): string {
 export function renderedDetailLines(
 	message: TranscriptMessage,
 	columns?: number,
+	hint?: string,
 ): readonly string[] {
 	// Drawn under the two-column content gutter, one row per task before wrapping.
 	const checklist = (message.checklist ?? []).map((item) => `  ${checklistLine(item)}`)
-	return [...checklist, ...renderedBodyLines(message, columns)]
+	return [...checklist, ...renderedBodyLines(message, columns, hint)]
 }
 
-function renderedBodyLines(message: TranscriptMessage, columns?: number): readonly string[] {
+function renderedBodyLines(
+	message: TranscriptMessage,
+	columns?: number,
+	hint?: string,
+): readonly string[] {
 	if (message.shell) {
 		// Hung under the `⎿` prefix: three columns of it plus the two of indent.
 		return shellResultRows(message.shell, {
 			expanded: message.detailExpanded === true,
+			...(hint !== undefined ? { hint } : {}),
 			...(message.shell.byLine === true && columns !== undefined
 				? { width: shellBodyWidth(Math.max(10, columns - 4)) }
 				: {}),
@@ -726,11 +750,12 @@ function renderedBodyLines(message: TranscriptMessage, columns?: number): readon
 	const lines = message.detail
 	if (!lines || lines.length === 0 || (message.activity !== undefined && !message.detailExpanded))
 		return []
-	if (message.diff) return renderedDiffLines(lines, message, columns)
+	if (message.diff) return renderedDiffLines(lines, message, columns, hint)
 	const shown = splitDetail(
 		lines.map(terminalDisplayText),
 		message.detailExpanded === true,
 		message.detailRef,
+		hint,
 	)
 	// Indented by the columns this block actually renders inside: the result's
 	// own indent and its `⎿` column. Those columns are not available to the text,
@@ -754,6 +779,7 @@ function renderedDiffLines(
 	lines: readonly string[],
 	message: TranscriptMessage,
 	columns?: number,
+	hint?: string,
 ): readonly string[] {
 	const indent = ' '.repeat(SHELL_RESULT_INDENT)
 	if (message.diff && columns !== undefined) {
@@ -761,6 +787,7 @@ function renderedDiffLines(
 			width: diffBodyWidth(columns),
 			expanded: message.detailExpanded === true,
 			canExpand: message.detailRef !== undefined,
+			...(hint !== undefined ? { hint } : {}),
 		})
 		return drawn.map((row) => `${indent}${terminalDisplayText(viewRowText(row))}`)
 	}
@@ -769,7 +796,10 @@ function renderedDiffLines(
 	const shown = lines.slice(0, limit).map((line) => `${indent}${terminalDisplayText(line)}..`)
 	if (lines.length > limit) {
 		shown.push(
-			`${indent}${hiddenLinesHint(lines.length - limit, { canExpand: message.detailRef !== undefined })}`,
+			`${indent}${hiddenLinesHint(lines.length - limit, {
+				canExpand: message.detailRef !== undefined,
+				...(hint !== undefined ? { hint } : {}),
+			})}`,
 		)
 	}
 	return shown
@@ -827,4 +857,24 @@ export function contentColorForRole(role: TranscriptMessage['role']): string {
  */
 export function metaSeparator(meta: string): string {
 	return meta.startsWith('(') ? ' ' : ' · '
+}
+
+/**
+ * One quiet row under a sent message for a file that went with it. Where the
+ * terminal takes links it is a link to the copy on disk, so a click opens it.
+ */
+function AttachmentLineRow({
+	row,
+	hyperlinks,
+}: {
+	readonly row: AttachmentRow
+	readonly hyperlinks: boolean
+}) {
+	const label = terminalDisplayText(attachmentLine(row))
+	const linked = hyperlinks && row.path ? terminalFileHyperlink(label, row.path) : null
+	return (
+		<Text color={theme.text.muted} wrap="truncate-end" underline={linked !== null}>
+			{linked ?? label}
+		</Text>
+	)
 }
