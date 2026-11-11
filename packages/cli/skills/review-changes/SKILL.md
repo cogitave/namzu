@@ -38,6 +38,9 @@ how many were refuted. Without the tool, do both passes yourself.
 - Pad the report with preferences, naming or formatting.
 - Report a finding you could not make concrete.
 - Rewrite code that was not asked for: a review reports, it does not fix.
+- Step outside what the person's permissions allow, or do anything that cannot
+  be undone (delete data, push, install, spend money, touch a live service),
+  without asking first; use a scratch copy.
 - Treat a review as proof the change works. That needs it to be run.
 
 ## Not for

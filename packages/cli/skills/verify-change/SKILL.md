@@ -41,8 +41,9 @@ unless that test reaches it.
 - Weaken, skip or delete a test to get a pass.
 - Call a check "passing" when you did not see its output end.
 - Round an unclear result up. If you cannot tell, say so.
-- Run something that deletes data or spends money to prove a point; use a
-  scratch copy or stop and ask.
+- Step outside what the person's permissions allow, or do anything that cannot
+  be undone (delete data, push, install, spend money, touch a live service),
+  without asking first; use a scratch copy.
 
 ## Not for
 

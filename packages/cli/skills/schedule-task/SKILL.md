@@ -1,6 +1,6 @@
 ---
 name: schedule-task
-description: How to choose an open-conversation loop or propose a durable scheduled job, with its workspace, permissions, schedule, time zone and budget. Use when the user asks for something to repeat, happen later, or run while namzu is closed. Not for a job when the repeat lives only while this conversation is open: that is /loop.
+description: How to choose an open-conversation loop or propose a durable scheduled job, with its workspace, permissions, schedule, time zone and budget. Use when the user asks for something to repeat, happen later, or run while namzu is closed. Not for a repeat that only needs to live while this conversation is open; use /loop.
 invocation: both
 metadata:
   namzu-requires-tools: schedule

@@ -122,6 +122,18 @@ describe('the built-in skills', () => {
 			expect(body).toContain(verdict)
 	})
 
+	it.each(['verify-change', 'review-changes'])(
+		'%s tells the model to stay within permissions and ask before anything irreversible',
+		async (dir) => {
+			const body = (await loadSkill(join(SKILLS, dir), 'full')).skill.body ?? ''
+			const never = body.split(/^## Never$/m)[1]?.split(/^## /m)[0] ?? ''
+			expect(never).toMatch(/permissions allow/)
+			expect(never).toMatch(/cannot\s+be undone/)
+			expect(never).toMatch(/without asking first/)
+			for (const word of ['push', 'install', 'live service']) expect(never).toContain(word)
+		},
+	)
+
 	it('review-changes names the delegation tool by the name the kernel registers', async () => {
 		const body = (await loadSkill(join(SKILLS, 'review-changes'), 'full')).skill.body ?? ''
 		const registered = readFileSync(
