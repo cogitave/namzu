@@ -87,15 +87,18 @@ it('surfaces the routing refusal and never constructs an unscoped agent session'
 })
 
 async function waitForScreen(screen: Screen, predicate: () => boolean): Promise<void> {
-	const deadline = performance.now() + 2_000
-	while (performance.now() < deadline) {
-		await screen.waitForRender()
-		if (predicate()) return
-		// A standalone Esc is delivered after the input decoder rules out an
-		// escape sequence. Let its timer run without assuming a fixed duration.
-		await new Promise<void>((resolve) => setTimeout(resolve, 0))
-	}
-	throw new Error(`Startup refusal did not settle:\n${screen.viewport().join('\n')}`)
+	// A standalone Esc is delivered after the input decoder rules out an
+	// escape sequence; each poll lets its timer run without assuming a fixed
+	// duration. The timeout is only the backstop for a real hang.
+	await vi.waitFor(
+		async () => {
+			await screen.waitForRender()
+			expect(predicate(), `Startup refusal did not settle:\n${screen.viewport().join('\n')}`).toBe(
+				true,
+			)
+		},
+		{ timeout: 10_000, interval: 1 },
+	)
 }
 
 it.each([

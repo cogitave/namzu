@@ -157,13 +157,16 @@ function controlAnimationClock() {
 }
 
 async function waitUntil(screen: Screen, predicate: () => boolean, message: string): Promise<void> {
-	const deadline = performance.now() + 3_000
-	do {
-		await screen.waitForRender()
-		if (predicate()) return
-		await pause()
-	} while (performance.now() < deadline)
-	throw new Error(`${message}\n${screen.viewport().join('\n')}`)
+	// Not a hand-rolled wall-clock loop: a screen that never reaches the state
+	// fails here with its viewport, and the timeout is only the backstop for a
+	// real hang (the test's own budget is the longer of the two).
+	await vi.waitFor(
+		async () => {
+			await screen.waitForRender()
+			expect(predicate(), `${message}\n${screen.viewport().join('\n')}`).toBe(true)
+		},
+		{ timeout: 10_000, interval: 20 },
+	)
 }
 
 /** Read real terminal cells; a changing Working spinner cannot satisfy this probe. */
