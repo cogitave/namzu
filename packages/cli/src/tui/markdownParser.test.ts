@@ -135,7 +135,7 @@ describe('headings, quotes and rules', () => {
 			'  ---',
 			'---  ',
 		]) {
-			expect(parseMarkdown(line), line).toEqual([{ type: 'rule' }])
+			expect(parseMarkdown(`${line}\n`), line).toEqual([{ type: 'rule' }])
 		}
 	})
 
@@ -162,19 +162,54 @@ describe('headings, quotes and rules', () => {
 	})
 
 	it('reads "Title" over "---" as a paragraph and a rule, never an underlined heading', () => {
-		expect(parseMarkdown('Title\n---')).toEqual([
+		expect(parseMarkdown('Title\n---\n')).toEqual([
 			{ type: 'paragraph', text: 'Title' },
 			{ type: 'rule' },
 		])
 		expect(parseMarkdown('Title\n===')).toEqual([{ type: 'paragraph', text: 'Title ===' }])
 	})
 
+	it('does not flash a rule for a run of marks that becomes text or bold', () => {
+		const kinds = (src: string) => parseMarkdown(src).map((b) => b.type)
+		for (const full of [
+			'***Note:*** careful\n',
+			'---not a rule\n',
+			'- - -x\n',
+			'___init___ method\n',
+		]) {
+			const seen: string[] = []
+			for (let n = 1; n <= full.length; n++) seen.push(kinds(full.slice(0, n)).join(','))
+			expect(
+				seen.filter((k) => k.includes('rule')),
+				full,
+			).toEqual([])
+		}
+		// A real rule is text until its line ends, then a rule, and stays one.
+		const real = ['*', '**', '***', '***\n', '***\nnext'].map(kinds)
+		expect(real).toEqual([
+			['paragraph'],
+			['paragraph'],
+			['paragraph'],
+			['rule'],
+			['rule', 'paragraph'],
+		])
+	})
+
+	it('reads a front-matter look-alike as rule, text, rule', () => {
+		expect(parseMarkdown('---\ntitle: x\n---\nhello')).toEqual([
+			{ type: 'rule' },
+			{ type: 'paragraph', text: 'title: x' },
+			{ type: 'rule' },
+			{ type: 'paragraph', text: 'hello' },
+		])
+	})
+
 	it('settles a growing rule and a growing quote once', () => {
 		const kinds = (src: string) => parseMarkdown(src).map((b) => b.type)
-		const rule = ['-', '--', '---', '----'].map(kinds)
-		expect(rule).toEqual([['paragraph'], ['paragraph'], ['rule'], ['rule']])
-		const spaced = ['-', '- -', '- - -', '- - - -'].map(kinds)
-		expect(spaced).toEqual([['paragraph'], ['bullet'], ['rule'], ['rule']])
+		const rule = ['-', '--', '---', '----', '----\n'].map(kinds)
+		expect(rule).toEqual([['paragraph'], ['paragraph'], ['paragraph'], ['paragraph'], ['rule']])
+		const spaced = ['-', '- -', '- - -', '- - -\n'].map(kinds)
+		expect(spaced).toEqual([['paragraph'], ['bullet'], ['bullet'], ['rule']])
 		const quote = ['>', '> a', '> a b'].map(kinds)
 		expect(quote).toEqual([['quote'], ['quote'], ['quote']])
 	})

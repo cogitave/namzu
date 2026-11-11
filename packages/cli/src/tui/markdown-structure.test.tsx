@@ -108,7 +108,7 @@ describe('headings, quotes and rules as drawn', () => {
 	})
 
 	it('draws a rule narrower than 40 at the width there is', () => {
-		const rows = draw('---', 20)
+		const rows = draw('---\n', 20)
 		expect(rows[0]).toBe('─'.repeat(20))
 	})
 

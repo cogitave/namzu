@@ -141,13 +141,15 @@ function continuesTable(line: string): boolean {
  */
 type BlockKind = 'code' | 'table' | 'heading' | 'rule' | 'quote' | 'bullet' | 'blank' | 'text'
 
-function classify(line: string, next: string | undefined): BlockKind {
+function classify(line: string, next: string | undefined, terminated: boolean): BlockKind {
 	if (FENCE.test(line)) return 'code'
 	// Table: a `| … |` header row immediately followed by a `|---|` separator.
 	if (TABLE_ROW.test(line) && next !== undefined && TABLE_SEP.test(next)) return 'table'
 	if (HEADING.test(line)) return 'heading'
 	// Before a list item: `- - -` and `* * *` are rules, and would otherwise be items.
-	if (RULE.test(line)) return 'rule'
+	// A rule counts once its line has ended: `***` at the end of what has arrived
+	// may be the start of `***bold***`, and drawing it as a rule would flip it back.
+	if (terminated && RULE.test(line)) return 'rule'
 	if (BLOCKQUOTE.test(line)) return 'quote'
 	if (BULLET.test(line)) return 'bullet'
 	if (line.trim().length === 0) return 'blank'
@@ -168,7 +170,7 @@ export function scanBlocks(src: string): string[] {
 	let i = 0
 	while (i < lines.length) {
 		const line = lines[i] ?? ''
-		switch (classify(line, lines[i + 1])) {
+		switch (classify(line, lines[i + 1], i < lines.length - 1)) {
 			case 'blank':
 				i++
 				break
@@ -200,8 +202,14 @@ export function scanBlocks(src: string): string[] {
 				i = end
 				break
 			}
-			case 'heading':
 			case 'rule':
+				// The trailing newline in the segment is what tells parseBlock the
+				// line was ended, so a rule and the same characters still arriving
+				// are different segments.
+				segments.push(`${line}\n`)
+				i++
+				break
+			case 'heading':
 			case 'bullet':
 				segments.push(line)
 				i++
@@ -209,7 +217,11 @@ export function scanBlocks(src: string): string[] {
 			default: {
 				// A paragraph is every following line that begins nothing else.
 				let end = i
-				while (end < lines.length && classify(lines[end] ?? '', lines[end + 1]) === 'text') end++
+				while (
+					end < lines.length &&
+					classify(lines[end] ?? '', lines[end + 1], end < lines.length - 1) === 'text'
+				)
+					end++
 				segments.push(lines.slice(i, end).join('\n'))
 				i = end
 				break
@@ -223,7 +235,7 @@ export function scanBlocks(src: string): string[] {
 export function parseBlock(raw: string): MdBlock {
 	const lines = raw.split('\n')
 	const first = lines[0] ?? ''
-	switch (classify(first, lines[1])) {
+	switch (classify(first, lines[1], lines.length > 1)) {
 		case 'code': {
 			const lang = FENCE.exec(first)?.[1]
 			// The closing fence is part of the segment when the block is closed and

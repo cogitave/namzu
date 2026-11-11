@@ -689,7 +689,7 @@ A `>` that is not at the start of a line is text, and a line without one ends
 the quote. A line of three or more `-`, `*` or `_` alone on a line (spaces
 between them allowed, so `- - -` is a rule, not a list) is a rule: a line of
 `─` in the border colour, as wide as the text up to 40 cells, with a blank row
-above and below. `--` is text. `Title` over `---` is a paragraph and a rule, not
+above and below. `--` is text, and so is a run of marks until its line ends (`***` may be the start of `***bold***`), so a streaming line never flashes as a rule and back. A reply that ends in a rule with no newline after it shows the marks until one arrives. `---` lines around `title: x` (front matter) are two rules with text between. A list is flat, so a `>` line under an item is a quote of its own, not part of the item. `Title` over `---` is a paragraph and a rule, not
 an underlined heading: reading it as a heading would turn the paragraph into
 one when its third dash arrived on a reply still streaming. Nothing inside a
 fenced block is read as a quote or a rule. The fullscreen window draws the same
