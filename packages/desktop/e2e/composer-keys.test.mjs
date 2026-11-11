@@ -163,7 +163,8 @@ flow("Ctrl+Enter in the message box never answers an approval card", { access: f
 	assert.equal(existsSync(join(w.project, "out.txt")), false, "the file was not written: the card was not answered");
 	assert.equal(startedWith(w, "ucuncu-mesaj"), 0, "the held message did not reach the model");
 	await shot(w, "keys-approval-untouched");
-	// Ctrl+Enter inside the card still accepts it.
+	// Ctrl+Enter inside the card still accepts it, once the card's short click guard has ended (it says so on the button).
+	await expect(card.getByRole("button", { name: "Accept", exact: true })).not.toHaveAttribute("aria-disabled", "true", { timeout: T });
 	await card.getByRole("button", { name: "Accept", exact: true }).focus();
 	await w.page.keyboard.press("Control+Enter");
 	await expect(card).toHaveCount(0, { timeout: T });
