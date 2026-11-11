@@ -170,4 +170,14 @@ describe('type scale', () => {
 		}
 		expect(bad).toEqual([])
 	})
+
+	it('holds the width of the durations and times in the transcript', () => {
+		const tabular = all.filter(
+			(d) => d.prop === 'font-variant-numeric' && d.value === 'tabular-nums',
+		)
+		const selectors = tabular.flatMap((d) => d.selector.split(',').map((s) => s.trim()))
+		for (const name of ['.transcript-phase-text', '.transcript-date-separator', '.message-time']) {
+			expect(selectors).toContain(name)
+		}
+	})
 })

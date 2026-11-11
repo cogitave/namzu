@@ -1890,6 +1890,15 @@ pre {
 .conversation-bar-count,
 .approval-counts,
 .turn-activity-elapsed,
-.working-elapsed {
+.working-elapsed,
+.transcript-phase-text,
+.transcript-date-separator {
 	font-variant-numeric: tabular-nums;
+}
+
+/* A label only a screen reader reads still sits on the scale, so a legend does not fall back to the
+   browser's 16px. */
+.sr-only {
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
