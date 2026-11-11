@@ -63,3 +63,62 @@ it('does not point at the detailed transcript from inside it', () => {
 	expect(harness.lastFrame()).not.toContain('ctrl+o')
 	harness.unmount()
 })
+
+function ran(count: number, extra: Parameters<typeof foldOp>[1][] = []) {
+	let group = EMPTY_GROUP
+	for (const op of extra) group = foldOp(group, op, 0)
+	for (let i = 1; i <= count; i += 1)
+		group = foldOp(group, { kind: 'run', command: `step ${i}` }, 0)
+	return group
+}
+
+it('lists the commands it ran under the line, one per row, and no hint when it is settled', () => {
+	const harness = render(
+		<ReadSearchGroup message={{ ...row(ran(3), false), meta: '(ctrl+o to expand)' }} />,
+	)
+	const lines = (harness.lastFrame() ?? '').split('\n').map((line) => line.trimEnd())
+	expect(lines[0]).toContain('Ran 3 commands (ctrl+o to expand)')
+	expect(lines.slice(1)).toEqual(['  ⎿  $ step 1', '     $ step 2', '     $ step 3'])
+	harness.unmount()
+})
+
+it('says how many earlier commands are not listed, above the last five', () => {
+	const harness = render(<ReadSearchGroup message={{ ...row(ran(8), true) }} now={() => 0} />)
+	const lines = (harness.lastFrame() ?? '').split('\n').map((line) => line.trimEnd())
+	expect(lines[0]).toContain('Running 8 commands…')
+	expect(lines.slice(1)).toEqual([
+		'  ⎿  3 earlier commands not listed',
+		'     $ step 4',
+		'     $ step 5',
+		'     $ step 6',
+		'     $ step 7',
+		'     $ step 8',
+	])
+	harness.unmount()
+})
+
+it('puts the newest target of a live look under the commands, and the commands stay on one row each', () => {
+	const group = foldOp(
+		ran(1, [{ kind: 'read', key: 'a.ts' }]),
+		{ kind: 'read', key: 'b.ts', hint: 'b.ts' },
+		0,
+	)
+	const long = foldOp(group, { kind: 'run', command: `echo ${'y'.repeat(300)}` }, 1)
+	const harness = render(<ReadSearchGroup message={row(long, true)} now={() => 1} />)
+	const lines = (harness.lastFrame() ?? '').split('\n').map((line) => line.trimEnd())
+	expect(lines[1]).toBe('  ⎿  $ step 1')
+	// Cut to the width with an ellipsis, never wrapped.
+	expect(lines[2]).toMatch(/^ {5}\$ echo y+…$/)
+	expect(lines[2]?.length).toBeLessThanOrEqual(100)
+	expect(lines[3]).toBe('     b.ts')
+	expect(lines).toHaveLength(4)
+	harness.unmount()
+})
+
+it('lists nothing on the detailed transcript screen, which shows each command whole', () => {
+	const harness = render(
+		<ReadSearchGroup message={{ ...row(ran(2), false), detailExpanded: true }} />,
+	)
+	expect(harness.lastFrame()).not.toContain('$ step')
+	harness.unmount()
+})

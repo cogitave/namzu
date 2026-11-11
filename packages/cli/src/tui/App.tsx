@@ -710,7 +710,12 @@ import {
 } from './mentions.js'
 import { describeModelRefusal, refusalDetail } from './model-refusal.js'
 import { openInBrowser } from './open-browser.js'
-import { outcomeLine } from './outcome-line.js'
+import {
+	type CannotTellReason,
+	NOTHING_TOLD,
+	type OutcomeTelling,
+	outcomeNotice,
+} from './outcome-line.js'
 import { PauseClock } from './pause-clock.js'
 import {
 	type WithheldCall,
@@ -1394,6 +1399,8 @@ export function projectConversation(
 		presenter: restore?.presenter ?? builtinToolPresenter(),
 		...(restore?.trail ? { trail: restore.trail } : {}),
 		...(restore?.cwd ? { cwd: restore.cwd } : {}),
+		...(restore?.cannotTellReason ? { cannotTellReason: restore.cannotTellReason } : {}),
+		...(restore?.telling ? { telling: restore.telling } : {}),
 	})
 	const out: TranscriptMessage[] = []
 	for (const message of messages) {
@@ -1409,6 +1416,7 @@ export function projectConversation(
 		}
 	}
 	out.push(...writer.finish())
+	restore?.onTold?.(writer.told())
 	return numberDetailRows(mergeGroupRows(out))
 
 	function projectMessage(message: Message): readonly TranscriptMessage[] {
@@ -1959,6 +1967,15 @@ function AppBody({
 	const sandboxShell = sandboxRunsShellUnasked(session?.sandbox)
 	const sandboxShellRef = useRef(sandboxShell)
 	sandboxShellRef.current = sandboxShell
+	// Why no change detector can answer: the tools work in a copy of the folder.
+	const cannotTellReasonRef = useRef<CannotTellReason | undefined>(undefined)
+	cannotTellReasonRef.current = session?.sandbox?.workspace === 'ephemeral' ? 'copy' : undefined
+	// What the outcome lines already said in the conversation on screen; keyed by
+	// the conversation so another one starts with nothing said.
+	const outcomeToldRef = useRef<{ id: string | undefined; telling: OutcomeTelling }>({
+		id: undefined,
+		telling: NOTHING_TOLD,
+	})
 	// The shell commands running in the foreground that Ctrl+B can move to the
 	// background; each is offered once it has run for a couple of seconds.
 	const [offeredCommands, setOfferedCommands] = useState<ReadonlySet<string>>(new Set())
@@ -5915,6 +5932,10 @@ function AppBody({
 				...projectConversation(restored, nextId, [], {
 					trail: trailFromRecords(journalOf(restored)),
 					cwd: ctxRef.current.cwd,
+					...(cannotTellReasonRef.current ? { cannotTellReason: cannotTellReasonRef.current } : {}),
+					onTold: (telling) => {
+						outcomeToldRef.current = { id: requestedConversationId, telling }
+					},
 				}),
 				...(resumedTitle
 					? [
@@ -7932,6 +7953,10 @@ function AppBody({
 			const restored = projectConversation(msgs, nextId, [], {
 				trail: trailFromRecords(journalOf(msgs)),
 				cwd: ctxRef.current.cwd,
+				...(cannotTellReasonRef.current ? { cannotTellReason: cannotTellReasonRef.current } : {}),
+				onTold: (telling) => {
+					outcomeToldRef.current = { id: conv.id, telling }
+				},
 			})
 			// A queue can outlive its turn by one render: the turn has set idle and
 			// cleared `abortRef`, while the passive queue pump is paused behind this
@@ -9037,6 +9062,8 @@ function AppBody({
 					: null
 
 				resetTranscript()
+				// These rows carry no outcome lines, so nothing has been told on screen.
+				outcomeToldRef.current = { id: undefined, telling: NOTHING_TOLD }
 				setMessages(
 					projectConversation(forked.messages, nextId, readablePrefix, {
 						cwd: ctxRef.current.cwd,
@@ -9135,6 +9162,8 @@ function AppBody({
 						? editList.slice(0, Math.max(0, at)).map((prompt) => prompt.displayText)
 						: editList.slice(Math.max(0, at)).map((prompt) => prompt.displayText)
 				resetTranscript()
+				// These rows carry no outcome lines, so nothing has been told on screen.
+				outcomeToldRef.current = { id: undefined, telling: NOTHING_TOLD }
 				setMessages(
 					projectConversation(result.messages, nextId, readable, {
 						cwd: ctxRef.current.cwd,
@@ -9794,10 +9823,13 @@ function AppBody({
 					if (st.pendingFallback) st.pendingFallback.answered = true
 					turnToolCallsRef.current += 1
 					closeAssistant()
-					// A call that only looks joins the open counted line; any other call ends it.
+					// A call that only looks joins the open counted line; any other call ends
+					// it. A shell command does not decide yet: it joins when it ends well, and
+					// one that fails, stops or moves to the background ends the line then.
 					if (event.fold)
 						readSearchGroup.start(`${event.turnId ?? ''}:${event.toolUseId}`, event.fold)
-					else readSearchGroup.close()
+					else if (!(event.toolName === 'bash' && event.command !== undefined))
+						readSearchGroup.close()
 					setThinking(null)
 					setState('tool')
 					const waitingAgent =
@@ -9955,6 +9987,9 @@ function AppBody({
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}
+					// A call to a tool that does not exist counted as a look when it started;
+					// it did no work, so it leaves the line and shows its own error.
+					if (event.unknownTool) readSearchGroup.retract(`${event.turnId ?? ''}:${event.toolUseId}`)
 					const built = toolEndRows(event, done, {
 						...(done ? { elapsedMs: Date.now() - done.startedAt } : {}),
 						hasPlan: tasksRef.current.length > 0,
@@ -9965,12 +10000,25 @@ function AppBody({
 						writeTaskBlock(st, null, tasksRef.current)
 					} else if (built.kind === 'rows') {
 						const only = built.rows.length === 1 ? built.rows[0] : undefined
-						// A look that succeeded is kept in the open counted line; anything
-						// else (a failure, a refusal, a call whose line is already settled)
-						// is a row of its own, which also ends the line.
-						const kept =
-							only?.group !== undefined &&
-							readSearchGroup.finish(`${event.turnId ?? ''}:${event.toolUseId}`, only.detail ?? [])
+						// A look that succeeded, and a shell command that ended well, are kept
+						// in the open counted line; anything else (a failure, a refusal, a
+						// call whose line is already settled) is a row of its own, which
+						// also ends the line.
+						const memberKey = `${event.turnId ?? ''}:${event.toolUseId}`
+						const command = only?.group?.commands[0]
+						let kept = false
+						if (only?.group !== undefined) {
+							if (command !== undefined) {
+								readSearchGroup.start(
+									memberKey,
+									{ kind: 'run', command, ...(only.group.cell ? { cell: only.group.cell } : {}) },
+									only.detail ?? [],
+								)
+								kept = true
+							} else {
+								kept = readSearchGroup.finish(memberKey, only.detail ?? [])
+							}
+						}
 						if (!kept) for (const row of built.rows) pushRow(row)
 					}
 					setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
@@ -10269,8 +10317,18 @@ function AppBody({
 					// What the turn changed and what checked it, from the kernel's own
 					// record of its calls: one quiet line, and none for a turn that
 					// changed nothing.
-					const outcomeText = outcomeLine(event.outcome)
-					if (outcomeText) pushSystem('notice', outcomeText)
+					// A verdict that says only that the folder cannot be watched is
+					// told once per conversation, not under every turn.
+					const conversationId = scopeRef.current?.sessionId
+					if (outcomeToldRef.current.id !== conversationId)
+						outcomeToldRef.current = { id: conversationId, telling: NOTHING_TOLD }
+					const said = outcomeNotice(
+						event.outcome,
+						outcomeToldRef.current.telling,
+						cannotTellReasonRef.current,
+					)
+					outcomeToldRef.current.telling = said.telling
+					if (said.line) pushSystem('notice', said.line)
 					if (st.startedAt !== undefined) {
 						const since = st.startedAt
 						const delegated = subagentsRef.current.filter(
