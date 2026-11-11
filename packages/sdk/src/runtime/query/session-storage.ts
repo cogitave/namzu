@@ -175,7 +175,10 @@ export async function locateSession(
 	const parent = (await findSessionLocator(paths, parentSessionId)) ?? {
 		sessionId: parentSessionId,
 	}
-	return { sessionId, ancestors: [...(parent.ancestors ?? []), parent.sessionId] }
+	return {
+		sessionId,
+		ancestors: [...(parent.ancestors ?? []), parent.sessionId],
+	}
 }
 
 /** Deeper than any delegation tree a project allows; a guard against a cyclic tree on disk. */
@@ -234,7 +237,10 @@ async function listDirectory(
 /** `SessionPaths` for the working directory's project under `resolveNamzuHome()`. */
 export async function defaultSessionPaths(workingDirectory?: string): Promise<SessionPaths> {
 	const home = resolveNamzuHome()
-	const project = await ensureProject({ home, cwd: workingDirectory ?? process.cwd() })
+	const project = await ensureProject({
+		home,
+		cwd: workingDirectory ?? process.cwd(),
+	})
 	return new SessionPaths({ home, slug: project.slug })
 }
 
@@ -242,7 +248,9 @@ function heldState(log: InMemorySessionLog): HeldState {
 	const current = held.get(log.medium)
 	if (current) return current
 	const next: HeldState = {
-		checkpoints: new InMemorySessionCheckpointStore({ log: checkpointLogView(log) }),
+		checkpoints: new InMemorySessionCheckpointStore({
+			log: checkpointLogView(log),
+		}),
 		tokenBudgets: new InMemorySessionTokenBudgetStore(),
 	}
 	held.set(log.medium, next)
@@ -302,6 +310,22 @@ export function checkpointLogView(log: SessionLog): CheckpointLogView {
 				}
 			}
 			return open.values()
+		},
+		async pruneFacts(scope, checkpointIds) {
+			own(scope)
+			const wanted = new Set<string>(checkpointIds)
+			const written = new Map<CheckpointId, string>()
+			const open = new Map<string, CheckpointId>()
+			for await (const { record } of log.read({ mode: 'tolerant' })) {
+				if (record.type === 'checkpoint_written' && wanted.has(record.checkpointId)) {
+					written.set(record.checkpointId, record.docSha256)
+				}
+				if (record.type === 'decision_requested') open.set(record.decisionId, record.checkpointId)
+				if (record.type === 'decision_resolved' || record.type === 'decision_expired') {
+					open.delete(record.decisionId)
+				}
+			}
+			return { written, open: open.values() }
 		},
 	}
 }

@@ -1,4 +1,9 @@
-import type { CheckpointId, CheckpointLogView, CheckpointScope, SessionLog } from '@namzu/sdk'
+import type {
+	CheckpointId,
+	CheckpointLogView,
+	CheckpointScope,
+	SessionLog,
+} from "@namzu/sdk";
 
 /**
  * What a checkpoint store asks of the session log it protects, answered by
@@ -11,36 +16,68 @@ import type { CheckpointId, CheckpointLogView, CheckpointScope, SessionLog } fro
  * the turn appends to.
  */
 export function sessionLogCheckpointView(
-	log: Pick<SessionLog, 'read' | 'sessionId'>,
+	log: Pick<SessionLog, "read" | "sessionId">,
 ): CheckpointLogView {
-	const owns = (scope: CheckpointScope) => scope.sessionId === log.sessionId
+	const owns = (scope: CheckpointScope) => scope.sessionId === log.sessionId;
 	return {
 		async verifyThrough(scope, throughSeq, throughSha256) {
-			if (!owns(scope)) return false
-			for await (const { pointer } of log.read({ mode: 'strict', throughSeq })) {
-				if (pointer.seq === throughSeq) return pointer.sha256 === throughSha256
+			if (!owns(scope)) return false;
+			for await (const { pointer } of log.read({
+				mode: "strict",
+				throughSeq,
+			})) {
+				if (pointer.seq === throughSeq) return pointer.sha256 === throughSha256;
 			}
-			return false
+			return false;
 		},
 		async writtenDocSha256(scope, checkpointId) {
-			if (!owns(scope)) return null
-			let found: string | null = null
-			for await (const { record } of log.read({ mode: 'strict' })) {
-				if (record.type === 'checkpoint_written' && record.checkpointId === checkpointId) {
-					found = record.docSha256
+			if (!owns(scope)) return null;
+			let found: string | null = null;
+			for await (const { record } of log.read({ mode: "strict" })) {
+				if (
+					record.type === "checkpoint_written" &&
+					record.checkpointId === checkpointId
+				) {
+					found = record.docSha256;
 				}
 			}
-			return found
+			return found;
 		},
 		async openDecisionCheckpoints(scope) {
-			const open = new Map<string, CheckpointId>()
-			if (!owns(scope)) return []
-			for await (const { record } of log.read({ mode: 'strict' })) {
-				if (record.type === 'decision_requested') open.set(record.decisionId, record.checkpointId)
-				else if (record.type === 'decision_resolved' || record.type === 'decision_expired')
-					open.delete(record.decisionId)
+			const open = new Map<string, CheckpointId>();
+			if (!owns(scope)) return [];
+			for await (const { record } of log.read({ mode: "strict" })) {
+				if (record.type === "decision_requested")
+					open.set(record.decisionId, record.checkpointId);
+				else if (
+					record.type === "decision_resolved" ||
+					record.type === "decision_expired"
+				)
+					open.delete(record.decisionId);
 			}
-			return [...open.values()]
+			return [...open.values()];
 		},
-	}
+		async pruneFacts(scope, checkpointIds) {
+			const written = new Map<CheckpointId, string>();
+			const open = new Map<string, CheckpointId>();
+			if (!owns(scope)) return { written, open: [] };
+			const wanted = new Set<string>(checkpointIds);
+			for await (const { record } of log.read({ mode: "strict" })) {
+				if (
+					record.type === "checkpoint_written" &&
+					wanted.has(record.checkpointId)
+				) {
+					written.set(record.checkpointId, record.docSha256);
+				}
+				if (record.type === "decision_requested")
+					open.set(record.decisionId, record.checkpointId);
+				else if (
+					record.type === "decision_resolved" ||
+					record.type === "decision_expired"
+				)
+					open.delete(record.decisionId);
+			}
+			return { written, open: [...open.values()] };
+		},
+	};
 }

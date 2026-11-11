@@ -62,6 +62,21 @@ export interface CheckpointLogView {
 	 * `decision_resolved` or `decision_expired` yet. `prune` never deletes one.
 	 */
 	openDecisionCheckpoints(scope: CheckpointScope): Promise<Iterable<CheckpointId>>
+	/**
+	 * Both answers `prune` needs in one read of the log: for each of
+	 * `checkpointIds`, what `writtenDocSha256` would return (absent from
+	 * `written` when there is no record), and what `openDecisionCheckpoints`
+	 * would return. Optional: a view without it is asked the two questions
+	 * separately, one walk of the log each, which costs a walk per stored
+	 * checkpoint on every prune.
+	 */
+	pruneFacts?(
+		scope: CheckpointScope,
+		checkpointIds: readonly CheckpointId[],
+	): Promise<{
+		readonly written: ReadonlyMap<CheckpointId, string>
+		readonly open: Iterable<CheckpointId>
+	}>
 }
 
 /** Why a restore refused a checkpoint. */
