@@ -1,7 +1,9 @@
 import { type RefObject, useLayoutEffect, useRef } from 'react'
 import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/projection.js'
+import { waitingLabel } from './approval-card-model.js'
 import { COMPACTING_TEXT, compactedText } from './context-ring.js'
 import { latestPlanTurn } from './plan-row.js'
+import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import { elapsedLabel, transcriptOutcome, turnDurationMs } from './transcript-layout.js'
 
 export const transcriptMotion = {
@@ -158,6 +160,28 @@ export function narrationBeingWritten(thread: ThreadState): number | undefined {
 	return message?.phase === 'commentary' && message.status !== 'completed'
 		? newest.index
 		: undefined
+}
+
+/**
+ * The step a live turn is on, in the words the action's own row uses ("Waiting to edit session.ts",
+ * "Running command"): the newest action that is waiting for an answer or running. Undefined when no
+ * action is, so the line falls back to the stage.
+ */
+export function liveStep(
+	thread: ThreadState,
+	entries: TimelineEntry[],
+): { label: string; state: 'waiting' | 'running' } | undefined {
+	// A request waiting for the person is the step the turn is on, whether or not its row exists yet.
+	if (threadPhase(thread) === 'waiting')
+		return { label: waitingLabel(thread.permissions[0]), state: 'waiting' }
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index]
+		if (entry?.kind !== 'tool') continue
+		const presentation = toolTranscriptPresentation(thread, entry.id)
+		if (presentation?.state === 'waiting' || presentation?.state === 'running')
+			return { label: presentation.label, state: presentation.state }
+	}
+	return undefined
 }
 
 export function turnActivityLabel(thread: ThreadState, turn: number): string {

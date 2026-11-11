@@ -580,3 +580,70 @@
 .composer-pr[data-review="draft"] {
 	color: var(--muted-foreground);
 }
+
+/* While a question waits for the person the composer is one 40px bar: the question is the card above it. */
+.normal-composer-shell .composer-waiting {
+	display: flex;
+	align-items: center;
+	min-height: 40px;
+}
+.normal-composer-shell .composer-waiting [data-chat-composer-body] {
+	flex: 1 1 auto;
+	min-width: 0;
+	padding: 0 8px 0 14px;
+}
+.normal-composer-shell .composer-waiting [data-chat-composer-body]:has(.composer-input)::before {
+	content: "";
+	position: absolute;
+	top: 50%;
+	left: 14px;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--warning-foreground);
+	translate: 0 -50%;
+}
+.normal-composer-shell .composer-waiting [data-chat-composer-body] .composer-input {
+	padding-left: 22px;
+}
+.normal-composer-shell .composer-waiting .composer-input textarea {
+	min-height: 24px;
+	margin: 0;
+	padding: 0;
+	font-size: 13px;
+	line-height: 24px;
+}
+.normal-composer-shell .composer-waiting [data-chat-composer-footer] {
+	flex: none;
+	padding: 0 6px 0 0;
+}
+.normal-composer-shell .composer-waiting [data-chat-composer-body]:has(.composer-input) {
+	position: relative;
+}
+/* Stop while waiting: an outline that says what it does when the pointer is on it. */
+.composer-stop-quiet {
+	display: grid;
+	width: 28px;
+	height: 28px;
+	place-items: center;
+	padding: 0;
+	border: 1px solid var(--input);
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--muted-foreground);
+	cursor: pointer;
+	transition: color 120ms var(--motion-ease), border-color 120ms var(--motion-ease);
+}
+.composer-stop-quiet:hover:not(:disabled),
+.composer-stop-quiet:focus-visible {
+	border-color: var(--error);
+	color: var(--error-foreground);
+}
+.composer-stop-quiet:focus-visible {
+	outline: 2px solid transparent;
+	box-shadow: var(--focus-ring);
+}
+.composer-stop-quiet:disabled {
+	opacity: 0.5;
+	cursor: default;
+}

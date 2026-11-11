@@ -1,3 +1,4 @@
+import { Menu } from '@base-ui/react/menu'
 import { MultiFileDiff } from '@pierre/diffs/react'
 import {
 	type KeyboardEvent,
@@ -17,7 +18,7 @@ import {
 	approvalConsequence,
 	approvalConsequenceTitle,
 	approvalDetails,
-	approvalWarning,
+	approvalFlags,
 	buildApprovalCard,
 	declineFeedback,
 	offersConversationAllowance,
@@ -26,13 +27,24 @@ import {
 	rejectsFirst,
 	screenMomentNote,
 } from './approval-card-model.js'
-import { createClickGuard, readGateHint, unreadContent } from './approval-gate.js'
-import { gateNotice, richDiffVerdict } from './changes-review/diff-gate.js'
+import { createClickGuard } from './approval-gate.js'
+import { type ApprovalPreview, commandChip, diffPreview, textPreview } from './approval-preview.js'
+import { richDiffVerdict } from './changes-review/diff-gate.js'
 import { unifiedDiff } from './changes-review/model.js'
 import { formatLineCount } from './changes-totals.js'
 import { ComposerBanner } from './composer-banner.js'
+import { copyPlainText } from './copy-button.js'
 import { DIFF_VIEW_UNSAFE_CSS } from './diff-theme.js'
-import { ChevronDownIcon, ShieldAlertIcon, TextWrapIcon } from './icons.js'
+import {
+	CopyIcon,
+	MoreHorizontalIcon,
+	PencilIcon,
+	ShieldAlertIcon,
+	TextWrapIcon,
+	TriangleAlertIcon,
+} from './icons.js'
+import { displayPath } from './path-display.js'
+import './conversation-actions-menu.css'
 import './composer-approval.css'
 
 /** The document's own theme class: the card sits outside the app's appearance state. */
@@ -49,55 +61,26 @@ function useDocumentDark(): boolean {
 	return dark
 }
 
-/**
- * Whether a scrolling box has an end that has not been on screen yet. Allowing is held until it has,
- * so the tail of a long command or diff cannot be accepted unseen. A box that fits is never held.
- */
-function useReadGate(): { attach: (node: HTMLElement | null) => void; unread: boolean } {
-	const [node, setNode] = useState<HTMLElement | null>(null)
-	const [unread, setUnread] = useState(false)
-	useLayoutEffect(() => {
-		if (!node) {
-			setUnread(false)
-			return
-		}
-		const measure = () => setUnread(unreadContent(node))
-		measure()
-		node.addEventListener('scroll', measure, { passive: true })
-		// A diff draws after it mounts and a window resize rewraps text, so the size is watched too.
-		const observer = new ResizeObserver(measure)
-		observer.observe(node)
-		if (node.firstElementChild) observer.observe(node.firstElementChild)
-		return () => {
-			node.removeEventListener('scroll', measure)
-			observer.disconnect()
-		}
-	}, [node])
-	return { attach: setNode, unread }
-}
+/** Longer than this a row no longer fits the box on one line. */
+const CLIPPED_ROW = 80
 
-function DiffBox({
-	model,
+const lineWord = (count: number) => (count === 1 ? 'line' : 'lines')
+
+/** The whole change, drawn by the diff view. Only mounted once the person asks for all of it. */
+function FullDiff({
+	diff,
 	wrap,
-	expanded,
-	onExpand,
-	onUnread,
+	label,
+	rich,
+	patch,
 }: {
-	model: ApprovalCardModel
+	diff: NonNullable<ApprovalCardModel['diff']>
 	wrap: boolean
-	expanded: boolean
-	onExpand: (value: boolean) => void
-	onUnread: (unread: boolean) => void
+	label: string
+	rich: boolean
+	patch: string
 }) {
 	const dark = useDocumentDark()
-	const diff = model.diff
-	const gate = useReadGate()
-	useEffect(() => {
-		onUnread(gate.unread)
-		return () => onUnread(false)
-	}, [gate.unread, onUnread])
-	const content = useRef<HTMLDivElement>(null)
-	const [overflowing, setOverflowing] = useState(false)
 	const options = useMemo(
 		() => ({
 			theme: { light: 'pierre-light', dark: 'pierre-dark' } as const,
@@ -112,79 +95,76 @@ function DiffBox({
 		}),
 		[dark, wrap],
 	)
-	const verdict = useMemo(
-		() =>
-			diff
-				? richDiffVerdict({
-						before: diff.before,
-						after: diff.after,
-						added: model.added ?? 0,
-						removed: model.removed ?? 0,
-					})
-				: ({ rich: true } as const),
-		[diff, model.added, model.removed],
-	)
-	const patch = useMemo(
-		() => (diff && !verdict.rich ? unifiedDiff(diff.path, diff.before, diff.after) : ''),
-		[diff, verdict],
-	)
 	// The diff element draws on the render after it mounts, not on the one that mounts it, and
 	// nothing else re-renders a card that waits for an answer; one extra render makes it draw.
 	const [, redraw] = useState(0)
 	useEffect(() => redraw(1), [])
-	// The body is a custom element, so its height is only known by watching it.
-	useLayoutEffect(() => {
-		const node = content.current
-		if (!node) return
-		const measure = () => setOverflowing(node.scrollHeight > 280 + 1)
-		measure()
-		const observer = new ResizeObserver(measure)
-		observer.observe(node)
-		return () => observer.disconnect()
-	}, [])
-	if (!diff) return null
 	return (
-		<div className="approval-diff">
-			<div
-				ref={gate.attach}
-				className="approval-diff-scroll"
-				data-expanded={expanded || undefined}
-				// A scrolling box has to take focus so the keyboard can scroll it.
-				// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region
-				tabIndex={0}
-				// biome-ignore lint/a11y/useSemanticElements: a section would read as a page landmark
-				role="region"
-				aria-label={`Proposed change to ${model.fileName}`}
-			>
-				<div ref={content}>
-					{verdict.rich ? (
-						<MultiFileDiff
-							className="diff-code-view"
-							oldFile={{ name: diff.path, contents: diff.before }}
-							newFile={{ name: diff.path, contents: diff.after }}
-							options={options}
-						/>
-					) : (
-						<>
-							<p className="approval-note">{gateNotice(verdict)}</p>
-							<pre className="changes-plain-patch" data-wrap={wrap || undefined}>
-								{patch}
-							</pre>
-						</>
-					)}
-				</div>
-			</div>
-			{(overflowing || expanded) && (
-				<button
-					type="button"
-					className="approval-more"
-					aria-expanded={expanded}
-					onClick={() => onExpand(!expanded)}
-				>
-					<ChevronDownIcon aria-hidden="true" data-up={expanded || undefined} />
-					{expanded ? 'Show less' : 'Show more'}
-				</button>
+		<div
+			className="approval-full"
+			// A scrolling box has to take focus so the keyboard can scroll it.
+			// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region
+			tabIndex={0}
+			// biome-ignore lint/a11y/useSemanticElements: a section would read as a page landmark
+			role="region"
+			aria-label={label}
+		>
+			{rich ? (
+				<MultiFileDiff
+					className="diff-code-view"
+					oldFile={{ name: diff.path, contents: diff.before }}
+					newFile={{ name: diff.path, contents: diff.after }}
+					options={options}
+				/>
+			) : (
+				<pre className="changes-plain-patch" data-wrap={wrap || undefined}>
+					{patch}
+				</pre>
 			)}
+		</div>
+	)
+}
+
+/** The first rows of the change or the command, drawn by the card itself. */
+function PreviewRows({
+	preview,
+	wrap,
+	command,
+	numbered,
+}: {
+	preview: ApprovalPreview
+	wrap: boolean
+	command?: boolean
+	numbered: boolean
+}) {
+	return (
+		<div className="approval-rows" data-wrap={wrap || undefined}>
+			{preview.rows.map((row, index) => (
+				<div
+					// biome-ignore lint/suspicious/noArrayIndexKey: the rows are a fixed prefix of one change
+					key={index}
+					className="approval-row"
+					data-kind={row.kind}
+				>
+					{numbered && <span className="approval-row-line">{row.line}</span>}
+					<span className="approval-row-sign" aria-hidden="true">
+						{command
+							? index === 0
+								? '$'
+								: ''
+							: row.kind === 'add'
+								? '+'
+								: row.kind === 'remove'
+									? '−'
+									: ''}
+					</span>
+					<span className="approval-row-text">
+						{row.kind === 'add' && <span className="sr-only">Added: </span>}
+						{row.kind === 'remove' && <span className="sr-only">Removed: </span>}
+						{row.text === '' ? ' ' : row.text}
+					</span>
+				</div>
+			))}
 		</div>
 	)
 }
@@ -217,25 +197,18 @@ export function ComposerApproval({
 	onRespond: (permission: PermissionView, response: PermissionResponse) => unknown
 }) {
 	const model = useMemo(() => buildApprovalCard(permission, palNames), [permission, palNames])
-	const [wrap, setWrap] = useState(false)
+	// Every row wraps until the person turns it off, so a long line is never cut where its end
+	// would go unseen.
+	const [wrap, setWrap] = useState(true)
 	const [expanded, setExpanded] = useState(false)
 	const [editing, setEditing] = useState(false)
 	const [note, setNote] = useState('')
-	const editButton = useRef<HTMLButtonElement>(null)
+	const moreButton = useRef<HTMLButtonElement>(null)
+	const choseEdit = useRef(false)
 	// A delete, or a command that looks like it deletes, never has Enter on yes: a stray Enter must not run it.
 	const risky = rejectsFirst(model, permission)
 	const canAllowConversation =
 		conversationAllowance === true && offersConversationAllowance(permission)
-	const [diffUnread, setDiffUnread] = useState(false)
-	const commandGate = useReadGate()
-	const messageGate = useReadGate()
-	const unread = diffUnread || commandGate.unread || messageGate.unread
-	const readHint = readGateHint({
-		command: commandGate.unread,
-		message: messageGate.unread,
-		diff: diffUnread,
-	})
-	const hintId = useId()
 	const scopeId = useId()
 	// A click that lands just after the card replaced another was aimed at the old one. The guard
 	// restarts for every request, and Accept says it is unavailable (to a screen reader as well) until it ends.
@@ -251,7 +224,6 @@ export function ComposerApproval({
 			if (guard.current === started) guard.current = undefined
 		}
 	}, [permission.id])
-	const allowHeld = guarding || unread
 	const acceptButton = useRef<HTMLButtonElement>(null)
 	const rejectButton = useRef<HTMLButtonElement>(null)
 	const noteField = useRef<HTMLInputElement>(null)
@@ -277,9 +249,9 @@ export function ComposerApproval({
 		},
 		[onRespond, permission],
 	)
-	// Saying yes waits for the guard and for the end of anything long; saying no never does.
+	// Saying yes waits for the guard; saying no never does.
 	const allow = (response: PermissionResponse) => {
-		if ((guard.current?.active() ?? true) || unread) return
+		if (guard.current?.active() ?? true) return
 		respond(response)
 	}
 	const accept = () => allow({ outcome: 'approve' })
@@ -308,11 +280,13 @@ export function ComposerApproval({
 		// Back to where the person was, not to the composer.
 		else if (returning.current) {
 			returning.current = false
-			editButton.current?.focus()
+			moreButton.current?.focus()
 		}
 	}, [editing])
 
 	const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+		// A menu draws in a portal but its events still bubble here; its own keys are its own.
+		if (!event.currentTarget.contains(event.target as Node)) return
 		if (editing) {
 			if (event.key === 'Escape') {
 				event.preventDefault()
@@ -333,13 +307,134 @@ export function ComposerApproval({
 		}
 	}
 
-	const consequence = approvalConsequence(model, folder, projectName)
-	const consequenceTitle = approvalConsequenceTitle(model, folder)
+	const flags = approvalFlags(model, permission, folder)
+	const foot = approvalConsequence(model, folder, projectName)
+	const footTitle = approvalConsequenceTitle(model, folder)
 	const hasDiff = Boolean(model.diff) && !model.unchanged
 	const screenMoment = model.screenMoment
 	const showDetails =
 		(!screenMoment && !(model.diff && !model.diff.fragment)) || permission.calls.length > 1
-	const showWarning = model.destructive && model.kind !== 'create' && !model.unchanged
+	const diff = model.diff
+	const verdict = useMemo(
+		() =>
+			diff
+				? richDiffVerdict({
+						before: diff.before,
+						after: diff.after,
+						added: model.added ?? 0,
+						removed: model.removed ?? 0,
+					})
+				: ({ rich: true } as const),
+		[diff, model.added, model.removed],
+	)
+	const patch = useMemo(
+		() => (diff && !verdict.rich ? unifiedDiff(diff.path, diff.before, diff.after) : ''),
+		[diff, verdict],
+	)
+	// What the box shows before the person opens it all.
+	const preview = useMemo<ApprovalPreview | undefined>(() => {
+		if (diff && !model.unchanged)
+			return verdict.rich ? diffPreview(diff.before, diff.after) : textPreview(patch)
+		if (model.command !== undefined) return textPreview(model.command)
+		if (model.message !== undefined) return textPreview(model.message)
+		return undefined
+	}, [diff, model.unchanged, model.command, model.message, verdict, patch])
+	const cutCommand =
+		model.command !== undefined && commandChip(model.command) !== model.command.trim()
+	const hiddenLines = preview ? preview.total - preview.rows.length : 0
+	// With wrapping turned off a long row is cut at the box's edge: that is hidden text too.
+	const clippedRow =
+		!wrap && !expanded && (preview?.rows.some((row) => row.text.length > CLIPPED_ROW) ?? false)
+	const canExpand = hiddenLines > 0 || (cutCommand && !expanded) || clippedRow
+	const showAllLabel =
+		preview && hiddenLines > 0
+			? `Show all ${preview.total} lines`
+			: clippedRow && !cutCommand
+				? 'Show the whole line'
+				: 'Show the whole command'
+	const boxLabel = hasDiff
+		? `Proposed change to ${model.fileName}`
+		: model.command !== undefined
+			? 'Command'
+			: 'Message'
+	const copyText = () => {
+		const text =
+			diff && hasDiff
+				? unifiedDiff(diff.path, diff.before, diff.after)
+				: (model.command ?? model.message ?? '')
+		copyPlainText(text).catch(() => undefined)
+	}
+	const hasBox = preview !== undefined
+
+	const heading = headingOf(model, folder)
+	const moreMenu = (
+		<Menu.Root
+			onOpenChange={(open) => {
+				if (open) choseEdit.current = false
+			}}
+		>
+			<Menu.Trigger
+				ref={moreButton}
+				className="approval-more-button"
+				aria-label="More about this request"
+				title="More"
+			>
+				<MoreHorizontalIcon aria-hidden="true" />
+			</Menu.Trigger>
+			<Menu.Portal>
+				<Menu.Positioner className="conversation-actions-positioner" sideOffset={4} align="end">
+					<Menu.Popup
+						className="conversation-actions-popup approval-menu"
+						aria-label="More about this request"
+						finalFocus={() => !choseEdit.current}
+					>
+						{!screenMoment && (
+							<Menu.Item
+								className="conversation-actions-item"
+								onClick={() => {
+									choseEdit.current = true
+									setEditing(true)
+								}}
+							>
+								<PencilIcon aria-hidden="true" />
+								<span className="conversation-actions-label">Tell Namzu what to do instead</span>
+							</Menu.Item>
+						)}
+						{hasBox && (
+							<>
+								<Menu.CheckboxItem
+									className="conversation-actions-item"
+									checked={wrap}
+									onCheckedChange={setWrap}
+									closeOnClick={false}
+								>
+									<TextWrapIcon aria-hidden="true" />
+									<span className="conversation-actions-label">Wrap lines</span>
+									<Menu.CheckboxItemIndicator className="approval-menu-check">
+										On
+									</Menu.CheckboxItemIndicator>
+								</Menu.CheckboxItem>
+								<Menu.Item className="conversation-actions-item" onClick={copyText}>
+									<CopyIcon aria-hidden="true" />
+									<span className="conversation-actions-label">Copy</span>
+								</Menu.Item>
+							</>
+						)}
+					</Menu.Popup>
+				</Menu.Positioner>
+			</Menu.Portal>
+		</Menu.Root>
+	)
+	const acceptTip = screenMoment
+		? 'Allow this app · Ctrl+Enter. Enter says not now.'
+		: risky
+			? 'Accept · Ctrl+Enter. This one looks risky, so Enter rejects it.'
+			: 'Accept · Enter'
+	const rejectTip = screenMoment
+		? 'Not now · Enter or Esc'
+		: risky
+			? 'Reject · Enter or Esc'
+			: 'Reject · Esc'
 	return (
 		// The whole card, border and background, sits above the composer with a gap, not tucked under it.
 		<div className="mx-auto flex w-[calc(100%-2*var(--chat-composer-drawer-inset))] items-end pb-2 pt-3">
@@ -349,37 +444,41 @@ export function ComposerApproval({
 						aria-label={screenMoment ? 'Screen question' : 'Tool approval'}
 						onKeyDown={onKeyDown}
 					>
-						{/* The status line the transcript used to draw far above; it belongs next to the card. */}
-						<p className="approval-waiting" aria-hidden="true">
-							Waiting for your decision
-						</p>
 						<ComposerBanner.Root variant="default" density="spacious" placement="floating">
 							<div className="approval-card" data-kind={model.kind}>
 								<header className="approval-head">
 									<ShieldAlertIcon aria-hidden="true" className="approval-head-icon" />
 									<h3 className="approval-title" title={model.path}>
-										{model.title}
+										{heading.lead}
+										{heading.chip !== undefined && (
+											<>
+												{' '}
+												<code className="approval-chip">{heading.chip}</code>
+											</>
+										)}
+										{heading.tail}
 									</h3>
+									<span className="approval-spacer" />
 									{hasDiff && (model.added || model.removed) ? (
 										<span className="approval-counts">
 											{model.added ? (
 												<span
 													className="changes-added"
-													title={`${model.added} ${model.added === 1 ? 'line' : 'lines'} added`}
+													title={`${model.added} ${lineWord(model.added)} added`}
 													role="img"
-													aria-label={`${model.added} ${model.added === 1 ? 'line' : 'lines'} added`}
+													aria-label={`${model.added} ${lineWord(model.added)} added`}
 												>
-													+{formatLineCount(model.added)} {model.added === 1 ? 'line' : 'lines'}
+													+{formatLineCount(model.added)}
 												</span>
 											) : null}
 											{model.removed ? (
 												<span
 													className="changes-removed"
-													title={`${model.removed} ${model.removed === 1 ? 'line' : 'lines'} removed`}
+													title={`${model.removed} ${lineWord(model.removed)} removed`}
 													role="img"
-													aria-label={`${model.removed} ${model.removed === 1 ? 'line' : 'lines'} removed`}
+													aria-label={`${model.removed} ${lineWord(model.removed)} removed`}
 												>
-													−{formatLineCount(model.removed)} {model.removed === 1 ? 'line' : 'lines'}
+													−{formatLineCount(model.removed)}
 												</span>
 											) : null}
 											{model.cut ? (
@@ -388,41 +487,79 @@ export function ComposerApproval({
 										</span>
 									) : null}
 									{count > 1 && <span className="approval-count">1 of {count}</span>}
+									{!hasBox && <span className="approval-head-more">{moreMenu}</span>}
 								</header>
+								{flags.map((flag) => (
+									<p key={flag} className="approval-flag">
+										<TriangleAlertIcon aria-hidden="true" />
+										<span>{flag}</span>
+									</p>
+								))}
 								{(model.previewMissing || model.unchanged) && (
 									<p className="approval-note">{previewNote(model)}</p>
 								)}
-								{!model.unchanged && (
-									<DiffBox
-										model={model}
-										wrap={wrap}
-										expanded={expanded}
-										onExpand={setExpanded}
-										onUnread={setDiffUnread}
-									/>
-								)}
-								{model.command !== undefined && (
-									<pre
-										ref={commandGate.attach}
-										className="approval-command"
-										// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region
-										tabIndex={0}
-										aria-label="Command"
+								{preview && (
+									<div
+										className="approval-box"
+										data-prose={model.message !== undefined || undefined}
+										data-open={expanded || undefined}
 									>
-										{model.command}
-									</pre>
-								)}
-								{model.message !== undefined && (
-									// A message is prose the person wrote, not something that will be run.
-									<blockquote
-										ref={messageGate.attach}
-										className="approval-message"
-										// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region
-										tabIndex={0}
-										aria-label="Message"
-									>
-										{model.message}
-									</blockquote>
+										<span className="approval-box-more">{moreMenu}</span>
+										{expanded && diff && hasDiff ? (
+											<FullDiff
+												diff={diff}
+												wrap={wrap}
+												label={boxLabel}
+												rich={verdict.rich}
+												patch={patch}
+											/>
+										) : expanded ? (
+											<div
+												className="approval-full"
+												// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region
+												tabIndex={0}
+												// biome-ignore lint/a11y/useSemanticElements: a section would read as a page landmark
+												role="region"
+												aria-label={boxLabel}
+											>
+												<PreviewRows
+													preview={{
+														rows: (model.command ?? model.message ?? '')
+															.split(/\r?\n/)
+															.map((text, index) => ({
+																kind: 'context' as const,
+																line: index + 1,
+																text,
+															})),
+														total: preview.total,
+													}}
+													wrap={true}
+													command={model.command !== undefined}
+													numbered={false}
+												/>
+											</div>
+										) : (
+											// biome-ignore lint/a11y/useSemanticElements: a fieldset would draw its own frame and legend
+											<div role="group" aria-label={boxLabel} className="approval-preview">
+												<PreviewRows
+													preview={preview}
+													wrap={wrap}
+													command={model.command !== undefined}
+													numbered={hasDiff}
+												/>
+											</div>
+										)}
+										{(canExpand || expanded) && (
+											<button
+												type="button"
+												className="approval-showall"
+												aria-expanded={expanded}
+												onClick={() => setExpanded((value) => !value)}
+											>
+												{expanded ? 'Show less' : showAllLabel}
+											</button>
+										)}
+									</div>
 								)}
 								{model.message !== undefined && (
 									<p className="approval-note">
@@ -442,11 +579,6 @@ export function ComposerApproval({
 										))}
 									</dl>
 								)}
-								{consequence && !showWarning && !model.unchanged && (
-									<p className="approval-note approval-consequence" title={consequenceTitle}>
-										{consequence}
-									</p>
-								)}
 								{screenMoment && (
 									<p className="approval-note approval-consequence">
 										{screenMomentNote(screenMoment.app)}
@@ -457,7 +589,6 @@ export function ComposerApproval({
 										Also in this request: {model.others.join(', ')}. Your answer covers all of them.
 									</p>
 								)}
-								{showWarning && <p className="approval-warning">{approvalWarning(model)}</p>}
 								{showDetails && (
 									<details className="approval-details">
 										<summary>Details</summary>
@@ -476,11 +607,6 @@ export function ComposerApproval({
 											</div>
 										))}
 									</details>
-								)}
-								{readHint && !editing && (
-									<output id={hintId} className="approval-note approval-read-hint">
-										{readHint}
-									</output>
 								)}
 								<footer className="approval-footer">
 									{editing ? (
@@ -515,79 +641,57 @@ export function ComposerApproval({
 										</>
 									) : (
 										<>
-											{hasDiff && (
+											{foot && (
+												<p className="approval-fact approval-consequence" title={footTitle}>
+													{foot}
+												</p>
+											)}
+											<div className="approval-actions">
 												<button
+													ref={rejectButton}
 													type="button"
-													className="approval-button approval-icon-button"
-													aria-pressed={wrap}
-													title="Wrap long lines so none runs off the edge"
-													onClick={() => setWrap((value) => !value)}
+													className="approval-button"
+													data-tone="reject"
+													title={rejectTip}
+													aria-keyshortcuts="Escape"
+													onClick={reject}
 												>
-													<TextWrapIcon aria-hidden="true" />
-													Wrap lines
+													{screenMoment ? 'Not now' : 'Reject'}
 												</button>
-											)}
-											{!screenMoment && (
+												{canAllowConversation && (
+													<>
+														<button
+															type="button"
+															className="approval-button approval-outline"
+															aria-disabled={guarding || undefined}
+															aria-describedby={scopeId}
+															title={CONVERSATION_ALLOWANCE_SCOPE}
+															onClick={acceptForConversation}
+														>
+															Allow for this conversation
+														</button>
+														<span id={scopeId} className="sr-only">
+															{CONVERSATION_ALLOWANCE_SCOPE}
+														</span>
+													</>
+												)}
 												<button
-													ref={editButton}
+													ref={acceptButton}
 													type="button"
-													className="approval-button approval-instead"
-													onClick={() => setEditing(true)}
+													className="approval-button"
+													data-tone="accept"
+													data-held={guarding || undefined}
+													aria-disabled={guarding || undefined}
+													title={acceptTip}
+													aria-keyshortcuts="Control+Enter"
+													onClick={accept}
 												>
-													Tell Namzu what to do instead
+													{screenMoment ? 'Allow this app' : 'Accept'}
 												</button>
-											)}
-											{canAllowConversation && (
-												<>
-													<button
-														type="button"
-														className="approval-button approval-instead"
-														data-held={unread || undefined}
-														aria-disabled={allowHeld || undefined}
-														aria-describedby={unread ? `${scopeId} ${hintId}` : scopeId}
-														title={CONVERSATION_ALLOWANCE_SCOPE}
-														onClick={acceptForConversation}
-													>
-														Allow for this conversation
-													</button>
-													<span id={scopeId} className="sr-only">
-														{CONVERSATION_ALLOWANCE_SCOPE}
-													</span>
-												</>
-											)}
-											<button
-												ref={rejectButton}
-												type="button"
-												className="approval-button"
-												data-tone="reject"
-												onClick={reject}
-											>
-												{screenMoment ? 'Not now' : 'Reject'}
-											</button>
-											<button
-												ref={acceptButton}
-												type="button"
-												className="approval-button"
-												data-tone="accept"
-												data-held={unread || undefined}
-												aria-disabled={allowHeld || undefined}
-												aria-describedby={unread ? hintId : undefined}
-												onClick={accept}
-											>
-												{screenMoment ? 'Allow this app' : 'Accept'}
-											</button>
+											</div>
 										</>
 									)}
 								</footer>
-								{!editing && (
-									<p className="approval-hint">
-										{screenMoment
-											? 'Enter says not now, in case you are typing. Esc says not now too. Ctrl+Enter allows it.'
-											: risky
-												? 'This one looks risky, so Enter rejects it. Esc rejects it too.'
-												: 'Enter accepts. Esc rejects.'}
-									</p>
-								)}
 							</div>
 						</ComposerBanner.Root>
 					</section>
@@ -595,4 +699,18 @@ export function ComposerApproval({
 			</ComposerBanner.Column>
 		</div>
 	)
+}
+
+/** The question in three pieces: the verb, the target as a chip, and the mark that ends it. */
+export function headingOf(
+	model: ApprovalCardModel,
+	folder?: string,
+): { lead: string; chip?: string; tail: string } {
+	if (model.kind === 'command' && model.command !== undefined)
+		return { lead: 'Run', chip: commandChip(model.command), tail: '?' }
+	if (model.fileName && model.path && model.title.endsWith(`${model.fileName}?`)) {
+		const lead = model.title.slice(0, model.title.length - model.fileName.length - 1).trim()
+		return { lead, chip: displayPath(model.path, folder, 40), tail: '?' }
+	}
+	return { lead: model.title, tail: '' }
 }
