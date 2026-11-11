@@ -127,15 +127,22 @@ describe('memory inbox', () => {
 	it('re-applies a batch a dead drain left in a claim, once the claim is old enough', async () => {
 		const { make, file, inbox } = setup()
 		await inbox.append(candidate('half done'))
-		// The first drain claims the file and dies inside the handler.
+		// The first drain claims the file and dies inside the handler. Wait for
+		// the handler itself: only then has the claim been taken, whatever order
+		// the file system answered in.
 		let release = (): void => {}
+		let entered = (): void => {}
+		const inHandler = new Promise<void>((resolve) => {
+			entered = resolve
+		})
 		const stuck = inbox.drain(
 			() =>
 				new Promise<void>((resolve) => {
 					release = resolve
+					entered()
 				}),
 		)
-		await Promise.resolve()
+		await inHandler
 		const other = make()
 		// Too young: another process's live drain is presumed to own it.
 		expect(await other.drain(async () => {})).toEqual({ applied: 0, kept: 0, dropped: 0 })
@@ -155,7 +162,10 @@ describe('memory inbox', () => {
 		const { make, file, inbox } = setup()
 		await inbox.append(candidate('seed'))
 		const dir = join(file, '..')
-		// A claim a crashed process left behind, older than the stale limit.
+		// A claim a crashed process left behind, older than the stale limit. The
+		// clock moves past the limit here, so the claim's time is a real one
+		// whichever tests ran before this.
+		clock += INBOX_CLAIM_STALE_MS + 1
 		const entry = { id: 'dead0001', at: 1, attempts: 0, candidate: candidate('crashed') }
 		writeFileSync(
 			join(dir, `proj.claim-${clock - INBOX_CLAIM_STALE_MS - 1}-dead.jsonl`),
