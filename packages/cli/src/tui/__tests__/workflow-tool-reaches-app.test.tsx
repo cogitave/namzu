@@ -132,14 +132,21 @@ vi.mock('../../integrations/trust/store.js', () => ({
 	isTrusted: () => true,
 	trustDir: () => {},
 }))
-vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
-vi.mock('../../user-commands/store.js', () => ({ discoverUserCommands: () => [] }))
+vi.mock('../../integrations/updates.js', () => ({
+	checkUpdates: async () => [],
+}))
+vi.mock('../../user-commands/store.js', () => ({
+	discoverUserCommands: () => [],
+}))
 vi.mock('../../integrations/sessions/store.js', () => ({
 	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({
 		tenantId: 'tenant',
 		turnEvidence: {
-			recordTurnStarted: async (input: unknown) => ({ ...(input as object), turnId: 'turn' }),
+			recordTurnStarted: async (input: unknown) => ({
+				...(input as object),
+				turnId: 'turn',
+			}),
 			recordTurnSettled: async (input: unknown) => input,
 		},
 	}),
@@ -154,7 +161,11 @@ vi.mock('../agent.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../agent.js')>()
 	return {
 		...actual,
-		probeAgentSession: async () => ({ preferences: PREFS, needsRepickReason: null, detected: [] }),
+		probeAgentSession: async () => ({
+			preferences: PREFS,
+			needsRepickReason: null,
+			detected: [],
+		}),
 		createAgentSession: async (
 			_preferences: Preferences,
 			_detected: unknown,
@@ -233,7 +244,10 @@ function agentView(
 }
 
 function run(
-	overrides: Partial<WorkflowRunView> & { readonly runId?: string; readonly name?: string } = {},
+	overrides: Partial<WorkflowRunView> & {
+		readonly runId?: string
+		readonly name?: string
+	} = {},
 ): WorkflowRunView {
 	const { runId = 'wrun00001', name = 'audit', ...rest } = overrides
 	return {
@@ -246,7 +260,11 @@ function run(
 		}),
 		agents: [
 			agentView(1, 'done', { phaseIndex: 1, phaseTitle: 'Scan', tokens: 1200 }),
-			agentView(2, 'running', { phaseIndex: 1, phaseTitle: 'Scan', tokens: 300 }),
+			agentView(2, 'running', {
+				phaseIndex: 1,
+				phaseTitle: 'Scan',
+				tokens: 300,
+			}),
 			agentView(3, 'queued', { phaseIndex: 2, phaseTitle: 'Fix' }),
 		],
 		...rest,
@@ -343,6 +361,94 @@ describe('the rail and the detail view of a run', () => {
 		expect(text(screen)).toMatch(/1\s+Scan/)
 		expect(text(screen)).toMatch(/3\s+Report/)
 		expect(text(screen)).toContain('0/0 agents')
+	})
+})
+
+describe('the keyboard on the rail row', () => {
+	it('hands a "/" to the input box, so a command can be typed from the row', async () => {
+		flows.set([run()])
+		const screen = await start()
+		screen.press('\x1b[B')
+		await waitUntil(screen, () => text(screen).includes('enter to view · x to stop'))
+		screen.press('/')
+		await waitUntil(screen, () => /❯ \//.test(text(screen)))
+		// The row gave the keyboard up: its key line is gone and the rest is typed in the box.
+		expect(text(screen)).not.toContain('enter to view · x to stop')
+		screen.press('w')
+		screen.press('o')
+		await waitUntil(screen, () => /❯ \/wo/.test(text(screen)))
+	})
+
+	it('hands any printable character over, and keeps the keys the row owns', async () => {
+		flows.set([run()])
+		const screen = await start()
+		screen.press('\x1b[B')
+		await waitUntil(screen, () => text(screen).includes('x to stop'))
+		screen.press('q')
+		await waitUntil(screen, () => /❯ q/.test(text(screen)))
+		expect(flows.calls.stop).toEqual([])
+		// `x` is the row's own: it stops the run and types nothing.
+		screen.press('\x7f')
+		await waitUntil(screen, () => !/❯ q/.test(text(screen)))
+		screen.press('\x1b[B')
+		await waitUntil(screen, () => text(screen).includes('x to stop'))
+		screen.press('x')
+		await waitUntil(screen, () => flows.calls.stop.length === 1)
+		expect(text(screen)).not.toMatch(/❯ x/)
+	})
+
+	it('leaves the keyboard with the input box when a run ends while the row is not focused', async () => {
+		flows.set([run()])
+		const screen = await start()
+		await waitUntil(screen, () => /◯ audit/.test(text(screen)))
+		flows.set([run({ status: 'completed', endedAt: Date.now() })])
+		await waitUntil(screen, () => /8\/3|1\/3/.test(text(screen)))
+		expect(text(screen)).not.toContain('enter to view')
+		screen.press('/')
+		await waitUntil(screen, () => /❯ \//.test(text(screen)))
+	})
+})
+
+describe('a run that asks for more agents than the guideline', () => {
+	const many = (count: number) =>
+		run({
+			agents: Array.from({ length: count }, (_, i) =>
+				agentView(i + 1, 'running', { phaseIndex: 1, phaseTitle: 'Scan' }),
+			),
+		})
+
+	it('says "Large workflow" on its row and tells the conversation once how to stop it', async () => {
+		flows.set([many(11)])
+		const screen = await start({ cols: 130 })
+		await waitUntil(screen, () => /◯ audit .*Large workflow/.test(text(screen)))
+		await waitUntil(screen, () => everything(screen).includes('has asked for 11 agents'))
+		const told = () => everything(screen).match(/has asked for \d+ agents/g)?.length ?? 0
+		// The line wraps in a terminal of this width: read it with the breaks closed up.
+		const flat = everything(screen).replace(/\s+/g, ' ')
+		expect(flat).toContain(
+			'Workflow audit has asked for 11 agents, more than the 10 this session advises. It keeps running; press ↓ then x on its row, or open /workflows, to stop it.',
+		)
+		// More agents and more renders: still the one notice, and nothing stopped.
+		flows.set([many(14)])
+		await waitUntil(screen, () => /0\/14/.test(text(screen)))
+		expect(told()).toBe(1)
+		expect(flows.calls.stop).toEqual([])
+	})
+
+	it('stays quiet at the guideline itself', async () => {
+		flows.set([many(10)])
+		const screen = await start({ cols: 130 })
+		await waitUntil(screen, () => /◯ audit/.test(text(screen)))
+		expect(text(screen)).not.toContain('Large workflow')
+		expect(everything(screen)).not.toContain('has asked for')
+	})
+
+	it('names the phases that are running now beside the counter when there is room', async () => {
+		flows.set([run()])
+		const screen = await start({ cols: 130 })
+		await waitUntil(screen, () =>
+			/◯ audit .*1\/3 · \d+s · ↓ 1\.5k tokens · Scan/.test(text(screen)),
+		)
 	})
 })
 
@@ -502,7 +608,11 @@ describe('runs a previous session left unfinished', () => {
 
 describe('what the model is told when a run ends', () => {
 	it('wakes an idle session: the model gets a turn that carries it, with no typing', async () => {
-		const turns: { text: string; source: unknown; hostContext: readonly string[] }[] = []
+		const turns: {
+			text: string
+			source: unknown
+			hostContext: readonly string[]
+		}[] = []
 		sendOverride.current = async function* (messages, opts) {
 			const last = messages.at(-1)
 			turns.push({
@@ -519,7 +629,10 @@ describe('what the model is told when a run ends', () => {
 		expect(turns).toHaveLength(1)
 		expect(turns[0]?.text).toContain('Workflow "audit" (wrun00001) completed.')
 		expect(turns[0]?.text).toContain('"fixed": 3')
-		expect(turns[0]?.source).toEqual({ type: 'runtime-context', kind: 'task-completion' })
+		expect(turns[0]?.source).toEqual({
+			type: 'runtime-context',
+			kind: 'task-completion',
+		})
 		// The same message is not also handed over as context.
 		expect(turns[0]?.hostContext.join('\n')).not.toContain('Workflows that ended')
 		// The person typed nothing, and no user row was invented for it.
@@ -544,7 +657,13 @@ describe('what the model is told when a run ends', () => {
 		const screen = await start()
 		flows.end(run({ status: 'completed', endedAt: NOW }))
 		flows.end(
-			run({ runId: 'wrun00002', name: 'build', status: 'failed', endedAt: NOW, error: 'it threw' }),
+			run({
+				runId: 'wrun00002',
+				name: 'build',
+				status: 'failed',
+				endedAt: NOW,
+				error: 'it threw',
+			}),
 		)
 		await waitUntil(screen, () => turns.length >= 1)
 		await waitUntil(screen, () => text(screen).includes('Type a message'))
@@ -594,7 +713,13 @@ describe('/workflows', () => {
 			status: 'completed',
 			startedAt: NOW - 3_600_000,
 			endedAt: NOW - 3_500_000,
-			agents: [agentView(1, 'done', { phaseIndex: 1, phaseTitle: 'Scan', tokens: 900 })],
+			agents: [
+				agentView(1, 'done', {
+					phaseIndex: 1,
+					phaseTitle: 'Scan',
+					tokens: 900,
+				}),
+			],
 		})
 		flows.set([run()])
 		flows.setHistory([run(), old])
@@ -674,7 +799,11 @@ describe('a finished run with a failed agent in the list', () => {
 			endedAt: NOW - 3_500_000,
 			agents: [
 				agentView(1, 'done', { phaseIndex: 1, phaseTitle: 'Scan' }),
-				agentView(2, 'failed', { phaseIndex: 1, phaseTitle: 'Scan', finishedAt: NOW - 3_500_000 }),
+				agentView(2, 'failed', {
+					phaseIndex: 1,
+					phaseTitle: 'Scan',
+					finishedAt: NOW - 3_500_000,
+				}),
 				agentView(3, 'done', { phaseIndex: 1, phaseTitle: 'Scan' }),
 			],
 		})
@@ -734,7 +863,12 @@ describe('a workflow agent that asks after the turn is over', () => {
 		expect(review?.currentPermissionMode()).toBe('prompt')
 		const answer = review?.onPermission?.({
 			toolCalls: [
-				{ id: 'c1', name: 'write', input: { path: 'a.txt', content: 'b' }, isDestructive: true },
+				{
+					id: 'c1',
+					name: 'write',
+					input: { path: 'a.txt', content: 'b' },
+					isDestructive: true,
+				},
 			],
 		} as never)
 		await waitUntil(screen, () => text(screen).includes('Do you want to write this file?'))

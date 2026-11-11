@@ -23,6 +23,7 @@ import {
 	AgentTranscript,
 	agentWorkflows,
 	cockpitEntryFocus,
+	detailLogLineCount,
 	phaseCount,
 	phaseOutcome,
 	railAgents,
@@ -212,7 +213,9 @@ describe('the rail', () => {
 			.join('\n')
 		expect(text).toMatch(/◯ audit\s+▰+▱+\s+1\/3 · 20s · ↓ 1\.5k tokens/)
 		expect(text).not.toContain('main')
-		expect(text).not.toContain('Scan')
+		// The phase that has an agent running is named beside the counter.
+		expect(text).toContain('· Scan')
+		expect(text).not.toContain('Fix')
 	})
 
 	it('turns a finished run into the closing line the conversation keeps', () => {
@@ -249,7 +252,12 @@ describe('the phases of a run', () => {
 		expect(
 			fix &&
 				phaseCount(
-					{ agents: fix.agents.map((a) => ({ ...a, status: 'cancelled' as const })) },
+					{
+						agents: fix.agents.map((a) => ({
+							...a,
+							status: 'cancelled' as const,
+						})),
+					},
 					true,
 				),
 		).toBe('stopped')
@@ -313,6 +321,7 @@ describe('the detail view of a run', () => {
 		phaseIndex: number,
 		selectedId: string,
 		view: WorkflowRunView = run(),
+		rows = 30,
 	) {
 		const agents = withWorkflowRuns(children(), [view])
 		mounted = await renderToScreen(
@@ -323,14 +332,37 @@ describe('the detail view of a run', () => {
 					selectedPhaseId={`wfrun:${view.runId}:p:${phaseIndex}`}
 					selectedId={selectedId}
 					focus={focus}
-					terminalRows={30}
+					terminalRows={rows}
 					terminalColumns={100}
 				/>
 			</Box>,
-			{ cols: 100, rows: 30 },
+			{ cols: 100, rows },
 		)
 		return mounted.viewport().join('\n')
 	}
+
+	describe('the script log lines under the header', () => {
+		const logged = (): WorkflowRunView => ({
+			...run(),
+			logs: ['first line', 'second line', 'third line', 'fourth line', 'fifth line'],
+		})
+		it.each([
+			[40, ['third line', 'fourth line', 'fifth line'], ['second line']],
+			[30, ['third line', 'fourth line', 'fifth line'], ['second line']],
+			[29, ['fifth line'], ['fourth line']],
+			[24, ['fifth line'], ['fourth line']],
+			[23, [], ['first line', 'second line', 'third line', 'fourth line', 'fifth line']],
+			[16, [], ['first line', 'fifth line']],
+		])('at %i rows shows %j and not %j', async (rows, shown, hidden) => {
+			const text = await detail('phases', 1, 'agent-1', logged(), rows)
+			for (const line of shown) expect(text).toContain(line)
+			for (const line of hidden) expect(text).not.toContain(line)
+		})
+
+		it('counts three, one and none by the rows the terminal has', () => {
+			expect([40, 30, 29, 24, 23, 10].map(detailLogLineCount)).toEqual([3, 3, 1, 1, 0, 0])
+		})
+	})
 
 	it('level 1: the header, the phases with counts, and the unstarted one dim without a count', async () => {
 		const text = await detail('phases', 1, 'agent-1')

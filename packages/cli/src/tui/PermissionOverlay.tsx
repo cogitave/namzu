@@ -25,8 +25,8 @@ import { boxedHintWidth, fitHints } from './key-hints.js'
 import {
 	type PermissionReviewSummary,
 	type WithheldCall,
-	permissionReviewPageRows,
 	permissionReviewRows,
+	reviewPageRows,
 	withheldNotice,
 } from './permission-review.js'
 import { terminalDisplayText } from './terminal-display.js'
@@ -420,6 +420,35 @@ function rowColor(text: string, detailsOpen: boolean): string {
 	return theme.text.primary
 }
 
+/**
+ * The text the review pager shows. A workflow whose first part does not fit
+ * the page gets the compact arrangement of the same words, so the name, the
+ * purpose, the phases and the limits come before anything a person can do
+ * without. The pager keys and the box read the text through here, so they
+ * always agree on how many rows there are.
+ */
+export function permissionReviewSource(args: {
+	readonly summary: PermissionReviewSummary
+	readonly review: string
+	readonly detailsOpen: boolean
+	readonly single: boolean
+	readonly columns: number | undefined
+	readonly pageRows: number
+}): string {
+	const { summary, review, detailsOpen, single, columns, pageRows } = args
+	if (detailsOpen)
+		return summary.expandedText !== undefined ? readableBody(summary.expandedText, single) : review
+	if (summary.compactText !== undefined) return summary.compactText
+	if (
+		single &&
+		summary.shortText !== undefined &&
+		summary.headText !== undefined &&
+		permissionReviewRows(readableBody(summary.headText, single), columns).length > pageRows
+	)
+		return readableBody(summary.shortText, single)
+	return readableBody(summary.text, single)
+}
+
 export function PermissionOverlay({
 	toolCalls,
 	review,
@@ -441,23 +470,8 @@ export function PermissionOverlay({
 	withheld = [],
 	endsTurn = false,
 }: PermissionOverlayProps) {
-	const pageRows = Math.max(1, permissionReviewPageRows(terminalRows))
 	const single = toolCalls.length === 1
 	const compact = !detailsOpen && summary.compactText !== undefined
-	const source = detailsOpen
-		? summary.expandedText !== undefined
-			? readableBody(summary.expandedText, single)
-			: review
-		: (summary.compactText ?? readableBody(summary.text, single))
-	const scriptView = summary.expandedText !== undefined
-	const rows = permissionReviewRows(source, columns)
-	const maxOffset = Math.max(0, rows.length - pageRows)
-	const offset = Math.min(Math.max(0, reviewOffset), maxOffset)
-	const visibleRows = rows.slice(offset, offset + pageRows)
-	const paged = rows.length > pageRows
-	const first = rows.length === 0 ? 0 : offset + 1
-	const last = Math.min(rows.length, offset + pageRows)
-	const destructive = toolCalls.some((call) => call.isDestructive)
 	const sharing = screenConsent !== undefined
 	const answerOptions: PermissionAnswerOptions = {
 		batchOnly,
@@ -469,6 +483,25 @@ export function PermissionOverlay({
 		...(rememberWhere ? { rememberWhere } : {}),
 	}
 	const answers = permissionAnswers(toolCalls, answerOptions)
+	const answerCount = answers.length
+	const pageRows = Math.max(1, reviewPageRows(toolCalls, terminalRows, answerCount))
+	const source = permissionReviewSource({
+		summary,
+		review,
+		detailsOpen,
+		single,
+		columns,
+		pageRows,
+	})
+	const scriptView = summary.expandedText !== undefined
+	const rows = permissionReviewRows(source, columns)
+	const maxOffset = Math.max(0, rows.length - pageRows)
+	const offset = Math.min(Math.max(0, reviewOffset), maxOffset)
+	const visibleRows = rows.slice(offset, offset + pageRows)
+	const paged = rows.length > pageRows
+	const first = rows.length === 0 ? 0 : offset + 1
+	const last = Math.min(rows.length, offset + pageRows)
+	const destructive = toolCalls.some((call) => call.isDestructive)
 	const choices = answers.map((answer) => answer.label)
 	const onRefusal = answers[choice]?.kind === 'reject'
 	const offersEdits = answers.some((answer) => answer.kind === 'approve-edits')
@@ -615,7 +648,11 @@ export function PermissionOverlay({
 					    missing hint costs an approval. Then the key that stops the reply,
 					    which is not `esc` (esc cancels and the agent carries on). The
 					    detail toggle says itself short first. The keys still act when
-					    their hint is gone. */}
+					    their hint is gone.
+					    A workflow review loses hints in this order as the width falls:
+					    `↑↓ select`, `ctrl+c stop`, `y / n answer` (said as `y / n` before
+					    it goes), then `d script`, the only key that shows what will run,
+					    then `esc cancel`, and last `enter confirm`. */}
 					{fitHints(
 						typing
 							? [
@@ -626,8 +663,8 @@ export function PermissionOverlay({
 							: [
 									// The arrow keys are the first of the answer keys to go: enter and y / n
 									// still answer, and the list shows which row is selected.
-									{ text: '↑↓ select', rank: 3 },
-									{ text: 'enter confirm', rank: 5 },
+									{ text: '↑↓ select', rank: scriptView ? 2 : 3 },
+									{ text: 'enter confirm', rank: scriptView ? 7 : 5 },
 									{
 										text: 'y / n answer',
 										short: 'y / n',
@@ -635,7 +672,7 @@ export function PermissionOverlay({
 										// width it is the only key that shows what will run.
 										rank: scriptView ? 4 : 5,
 									},
-									{ text: 'esc cancel', rank: 5 },
+									{ text: 'esc cancel', rank: scriptView ? 6 : 5 },
 									...(offersEdits ? [{ text: 'shift+tab accept edits', rank: 3 }] : []),
 									{
 										text: 'ctrl+c stop',

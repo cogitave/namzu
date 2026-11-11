@@ -20,6 +20,7 @@ import {
 	type RailWorkflow,
 	layoutWorkflowRow,
 	railProgressBar,
+	railTypedText,
 	railWorkflowActionFor,
 	railWorkflowBulletColor,
 	railWorkflows,
@@ -218,27 +219,128 @@ describe('the progress bar', () => {
 describe('narrowing a row', () => {
 	const row = workflowOf(sevenAgents())
 
-	it('lists the variants from the full block down to the bar alone', () => {
+	const full = '3/7 · 2m 14s · ↓ 48.2k tokens'
+
+	it('lists the variants from the full block to the short bar with the counter and the clock', () => {
 		expect(workflowRowVariants(row, NOW)).toEqual([
-			{ barWidth: 20, text: '3/7 · 2m 14s · ↓ 48.2k tokens' },
-			{ barWidth: 20, text: '2m 14s · ↓ 48.2k tokens' },
-			{ barWidth: 20, text: '2m 14s · ↓ 48.2k' },
-			{ barWidth: 20, text: '↓ 48.2k' },
-			{ barWidth: 12, text: '↓ 48.2k' },
-			{ barWidth: 8, text: '↓ 48.2k' },
-			{ barWidth: 8, text: '' },
+			{ barWidth: 20, text: full },
+			{ barWidth: 12, text: full },
+			{ barWidth: 8, text: full },
+			{ barWidth: 4, text: full },
+			{ barWidth: 4, text: '3/7 · 2m 14s' },
+			{ barWidth: 0, text: '3/7 · 2m 14s' },
+			{ barWidth: 0, text: '3/7' },
 		])
 	})
 
-	it('puts the large-run warning first, then the short form, and drops it as the row narrows', () => {
+	it('keeps the two-word large mark until the tokens are gone and the name is next', () => {
 		const large: RailWorkflow = { ...row, large: true }
-		const texts = workflowRowVariants(large, NOW).map((variant) => variant.text)
-		expect(texts.slice(0, 3)).toEqual([
-			'3/7 · 2m 14s · ↓ 48.2k tokens · Large workflow · /workflows to stop',
-			'3/7 · 2m 14s · ↓ 48.2k tokens · Large workflow',
-			'2m 14s · ↓ 48.2k · Large workflow',
+		const marked = `${full} · Large workflow`
+		expect(workflowRowVariants(large, NOW)).toEqual([
+			{ barWidth: 20, text: marked },
+			{ barWidth: 12, text: marked },
+			{ barWidth: 8, text: marked },
+			{ barWidth: 4, text: marked },
+			{ barWidth: 4, text: '3/7 · 2m 14s · Large workflow' },
+			{ barWidth: 4, text: '3/7 · 2m 14s' },
+			{ barWidth: 0, text: '3/7 · 2m 14s' },
+			{ barWidth: 0, text: '3/7' },
 		])
-		expect(texts.slice(3)).toEqual(workflowRowVariants(row, NOW).map((variant) => variant.text))
+	})
+
+	it('names the phases running now only in the widest variants: two titles, then how many more', () => {
+		const phases = (...titles: string[]): RailWorkflow => ({
+			...row,
+			runningPhases: titles,
+		})
+		const texts = (flow: RailWorkflow) =>
+			workflowRowVariants(flow, NOW).map((variant) => variant.text)
+		expect(texts(phases('Scan')).slice(0, 2)).toEqual([`${full} · Scan`, full])
+		expect(texts(phases('Scan', 'Check')).slice(0, 3)).toEqual([
+			`${full} · Scan, Check`,
+			`${full} · Scan +1 more`,
+			full,
+		])
+		expect(texts(phases('Scan', 'Check', 'Fix', 'Ship')).slice(0, 2)).toEqual([
+			`${full} · Scan, Check +2 more`,
+			`${full} · Scan +3 more`,
+		])
+		// Only the first variants carry them: the bar has not yet shrunk.
+		expect(
+			workflowRowVariants(phases('Scan', 'Check'), NOW)
+				.filter((variant) => variant.text.includes('Scan'))
+				.map((variant) => variant.barWidth),
+		).toEqual([20, 20])
+	})
+
+	it('cuts a long phase title with an ellipsis', () => {
+		const texts = workflowRowVariants(
+			{
+				...row,
+				runningPhases: ['A very long phase title that goes on and on'],
+			},
+			NOW,
+		).map((variant) => variant.text)
+		expect(texts[0]).toMatch(/· A very long phase…$/u)
+	})
+
+	// The breakpoints: columns at which the row gives something up. The name
+	// is `Release audit` (13 cells) and stays whole until the last step.
+	it.each([
+		[120, 20, full, 13],
+		[72, 20, full, 13],
+		[71, 12, full, 13],
+		[64, 12, full, 13],
+		[63, 8, full, 13],
+		[60, 8, full, 13],
+		[59, 4, full, 13],
+		[56, 4, full, 13],
+		[55, 4, '3/7 · 2m 14s', 13],
+		[39, 4, '3/7 · 2m 14s', 13],
+		[38, 4, '3/7 · 2m 14s', 12],
+		[34, 4, '3/7 · 2m 14s', 8],
+		[33, 0, '3/7 · 2m 14s', 11],
+		[30, 0, '3/7 · 2m 14s', 8],
+		[29, 0, '3/7', 13],
+		[12, 0, '3/7', 1],
+	])('at %i columns: a %i-cell bar, %j, a name of %i cells', (columns, bar, text, name) => {
+		const { variant, nameWidth } = layoutWorkflowRow(row, NOW, columns, 13)
+		expect({
+			bar: variant.barWidth,
+			text: variant.text,
+			name: nameWidth,
+		}).toEqual({
+			bar,
+			text,
+			name,
+		})
+	})
+
+	it('gives up space in the brief order: bar, then tokens, then name, counter and clock last', () => {
+		const withPhases: RailWorkflow = {
+			...row,
+			runningPhases: ['Scan', 'Check'],
+		}
+		const at = (columns: number) => layoutWorkflowRow(withPhases, NOW, columns, 13)
+		expect(at(120).variant.text).toContain('Scan, Check')
+		// 100 columns: no room to spare for the phases; the bar is still whole.
+		expect(at(80).variant.text).toBe(full)
+		expect(at(80).variant.barWidth).toBe(20)
+		expect(at(60).variant.barWidth).toBe(8)
+		expect(at(60).variant.text).toContain('↓ 48.2k tokens')
+		expect(at(55).variant.text).not.toContain('tokens')
+		expect(at(55).variant.text).toContain('3/7 · 2m 14s')
+		expect(at(55).nameWidth).toBe(13)
+		expect(at(36).nameWidth).toBeLessThan(13)
+		expect(at(36).variant.text).toContain('3/7 · 2m 14s')
+	})
+
+	it.each([100, 80, 60, 50, 40])('draws the counter and the clock at %i columns', async (cols) => {
+		const lines = await show([row], { cols })
+		const flow = lines.find((line) => line.includes('◯')) ?? ''
+		expect(flow).toContain('3/7')
+		expect(flow).toContain('2m 14s')
+		expect(flow.length).toBeLessThanOrEqual(cols)
 	})
 
 	it('leaves the failure out of the counter: a failed run reads the same as a clean one', () => {
@@ -249,7 +351,7 @@ describe('narrowing a row', () => {
 
 	it.each([
 		[100, '3/7 · 2m 14s · ↓ 48.2k tokens'],
-		[60, '2m 14s · ↓ 48.2k tokens'],
+		[60, '3/7 · 2m 14s · ↓ 48.2k tokens'],
 	])('draws a failed run with no failure text at %i columns', (columns, text) => {
 		const withFailure: RailWorkflow = { ...row, failed: 1 }
 		const { variant } = layoutWorkflowRow(withFailure, NOW, columns, 4)
@@ -319,5 +421,38 @@ describe('the closing line', () => {
 
 	it('has no escape sequences of its own', () => {
 		expect(workflowNotice(finished('completed')).content).not.toContain(ESC)
+	})
+})
+
+describe('the keys the rail row does not own', () => {
+	it('hands a slash and any printable text to the input box', () => {
+		expect(railTypedText('/', {})).toBe('/')
+		expect(railTypedText('w', {})).toBe('w')
+		expect(railTypedText('é', {})).toBe('é')
+		expect(railTypedText('pasted words', {})).toBe('pasted words')
+	})
+
+	it('keeps control and editing keys to itself', () => {
+		for (const key of [
+			{ escape: true },
+			{ return: true },
+			{ tab: true },
+			{ backspace: true },
+			{ delete: true },
+			{ upArrow: true },
+			{ downArrow: true },
+			{ leftArrow: true },
+			{ rightArrow: true },
+			{ pageUp: true },
+			{ pageDown: true },
+			{ home: true },
+			{ end: true },
+		])
+			expect(railTypedText('x', key)).toBeUndefined()
+		expect(railTypedText('c', { ctrl: true })).toBeUndefined()
+		expect(railTypedText('b', { meta: true })).toBeUndefined()
+		expect(railTypedText('', {})).toBeUndefined()
+		expect(railTypedText('\u0003', {})).toBeUndefined()
+		expect(railTypedText('a\u001bb', {})).toBeUndefined()
 	})
 })

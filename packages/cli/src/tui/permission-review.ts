@@ -52,6 +52,46 @@ export function permissionReviewPageRows(terminalRows: number | undefined): numb
 	return Math.min(24, Math.max(PERMISSION_REVIEW_PAGE_ROWS, rows - 18))
 }
 
+/**
+ * Rows of the review box that are not its body, for a workflow review: the
+ * two border rows, the title, the blank row above the box, the paging line,
+ * the blank row above the question, the question, the key line, and one row
+ * for each answer.
+ */
+const WORKFLOW_REVIEW_FURNITURE_ROWS = 8
+/** Rows left to the conversation above a workflow review: the waiting line and the call's own row. */
+const WORKFLOW_REVIEW_ABOVE_ROWS = 4
+/** The longest page a workflow review draws, however tall the terminal. */
+const WORKFLOW_REVIEW_MAX_PAGE_ROWS = 30
+
+/**
+ * The page of a workflow review: the rows the terminal has, less what the
+ * frame, the question, the answers, the key line and the conversation above
+ * need, and never fewer than the floor a 16-row terminal still reads. The
+ * script is long, so it gets the height there is.
+ */
+export function workflowReviewPageRows(terminalRows: number | undefined, answerCount = 2): number {
+	const rows = terminalRows ?? 24
+	return Math.min(
+		WORKFLOW_REVIEW_MAX_PAGE_ROWS,
+		Math.max(
+			PERMISSION_REVIEW_PAGE_ROWS,
+			rows - WORKFLOW_REVIEW_FURNITURE_ROWS - answerCount - WORKFLOW_REVIEW_ABOVE_ROWS,
+		),
+	)
+}
+
+/** The page of whatever review the calls make: a workflow's own, else the general one. */
+export function reviewPageRows(
+	calls: readonly { readonly name: string }[],
+	terminalRows: number | undefined,
+	answerCount = 2,
+): number {
+	return calls.length === 1 && calls[0]?.name === 'workflow'
+		? workflowReviewPageRows(terminalRows, answerCount)
+		: permissionReviewPageRows(terminalRows)
+}
+
 export interface PermissionReviewCall {
 	readonly id: string
 	readonly name: string
@@ -100,6 +140,17 @@ export interface PermissionReviewSummary {
 	 * away. Shown instead of the raw JSON envelope when details are open.
 	 */
 	readonly expandedText?: string
+	/**
+	 * A workflow review's first part: what decides the answer, up to and
+	 * including the limits line. It is in `text`, in the same words.
+	 */
+	readonly headText?: string
+	/**
+	 * `text` with the phase details and the `Shown as` line moved after the
+	 * limits and the phases on one line, for a page too short for `headText`.
+	 * Every word of `text` is still in it.
+	 */
+	readonly shortText?: string
 	/** True only when the formatter knows every executable input field. */
 	readonly complete: boolean
 }
@@ -108,6 +159,10 @@ interface ReadableCallSummary {
 	readonly lines: readonly string[]
 	/** The same call with nothing collapsed; present when `lines` abridges. */
 	readonly expandedLines?: readonly string[]
+	/** A workflow's first part (see {@link PermissionReviewSummary.headText}), as lines. */
+	readonly headLines?: readonly string[]
+	/** A workflow's compact arrangement (see {@link PermissionReviewSummary.shortText}), as lines. */
+	readonly shortLines?: readonly string[]
 	readonly complete: boolean
 	/** Short batch-row label; the full value remains in `lines`. */
 	readonly label?: string
@@ -625,7 +680,19 @@ export function buildPermissionSummary(
 	}
 
 	const expanded = calls.some((call) => call.readable.expandedLines !== undefined)
+	const only = calls.length === 1 ? calls[0] : undefined
+	const asBatch = (call: NonNullable<typeof only>, lines: readonly string[]): string =>
+		[
+			`1. ${call.name}${call.isDestructive ? ' · destructive' : ''}${withheldMark(context, 0)}`,
+			...lines.map((line) => `   ${line}`),
+		].join('\n')
 	return {
+		...(only?.readable.headLines && only.readable.shortLines
+			? {
+					headText: asBatch(only, only.readable.headLines),
+					shortText: asBatch(only, only.readable.shortLines),
+				}
+			: {}),
 		...(compactText !== undefined ? { compactText } : {}),
 		text: calls
 			.map((call, index) =>
@@ -903,10 +970,20 @@ function summarizeWorkflow(
 				: undefined
 	if (script === undefined) return null
 	if (input.description !== undefined && typeof input.description !== 'string') return null
-	const head: string[] = []
+	// The review reads in the order a person decides in: what it is called,
+	// what it is for, the phases, then what it may start. `head` is that, with
+	// each phase's detail beside its title. `shortHead` is the same words for a
+	// page too short for it: the phases on one line, and the details and the
+	// `Shown as` line after the limits.
+	const lead: string[] = []
+	const named: string[] = []
+	const phaseLines: string[] = []
+	const phaseTitles: string[] = []
+	const phaseDetails: string[] = []
+	const shownAs: string[] = []
 	if (typeof input.resumeFromRunId === 'string') {
 		const review = context.describeWorkflowResume?.(input.resumeFromRunId, script)
-		head.push(
+		lead.push(
 			...(review
 				? resumeReviewLines(review)
 				: [`Resumes run ${oneLine(input.resumeFromRunId)} (its journal could not be read here)`]),
@@ -914,31 +991,48 @@ function summarizeWorkflow(
 	}
 	try {
 		const meta = parseWorkflowMeta(script)
-		head.push(...readableField('Workflow', meta.name))
-		head.push(...readableField('Purpose', meta.description))
+		named.push(...readableField('Workflow', meta.name))
+		named.push(...readableField('Purpose', meta.description))
 		if (meta.phases.length > 0) {
-			head.push('Phases:')
+			phaseLines.push('Phases:')
 			for (const [index, phase] of meta.phases.entries()) {
-				head.push(
-					`  ${index + 1}. ${oneLine(phase.title)}${phase.detail ? ` — ${oneLine(phase.detail)}` : ''}`,
+				const title = oneLine(phase.title)
+				phaseLines.push(
+					`  ${index + 1}. ${title}${phase.detail ? ` — ${oneLine(phase.detail)}` : ''}`,
 				)
+				phaseTitles.push(`${index + 1}. ${title}`)
+				if (phase.detail) phaseDetails.push(`  ${index + 1}. ${title} — ${oneLine(phase.detail)}`)
 			}
 		} else {
-			head.push('Phases: none declared')
+			phaseLines.push('Phases: none declared')
+			phaseTitles.push('')
 		}
 	} catch (error) {
-		head.push(
+		named.push(
 			`Workflow: its name could not be read (${error instanceof WorkflowScriptError ? error.message : 'unreadable'})`,
 		)
 	}
 	if (typeof input.description === 'string' && input.description.length > 0) {
-		head.push(...readableField('Shown as', input.description))
+		shownAs.push(...readableField('Shown as', input.description))
 	}
 	const limits = context.workflowLimits ?? resolveWorkflowLimits()
-	head.push(
+	const limitLines = [
 		`Agents: up to ${limits.maxConcurrency} at a time, ${limits.maxAgents} in all, each with the same tools and approval rules as an Agent call`,
 		'Runs in the background; you can stop it from the rail or /workflows',
-	)
+	]
+	const head = [...lead, ...named, ...phaseLines, ...shownAs, ...limitLines]
+	const shortHead = [
+		...lead,
+		...named,
+		...(phaseTitles[0] === ''
+			? phaseLines
+			: phaseTitles.length > 0
+				? [`Phases: ${phaseTitles.join(' · ')}`]
+				: []),
+		...limitLines,
+		...(phaseDetails.length > 0 ? ['Phase details:', ...phaseDetails] : []),
+		...shownAs,
+	]
 	const argsText = input.args === undefined ? undefined : JSON.stringify(input.args)
 	const argsClipped = argsText !== undefined && argsText.length > WORKFLOW_ARGS_PREVIEW_CHARS
 	const argsFor = (whole: boolean): string[] =>
@@ -960,16 +1054,18 @@ function summarizeWorkflow(
 	const hidden = scriptLines.length - shown.length
 	const body = (lines: readonly string[]): string[] => lines.map((line) => `  ${line}`)
 	const count = `Script · ${scriptLines.length} line${scriptLines.length === 1 ? '' : 's'}`
+	const tail = [
+		...argsFor(false),
+		count,
+		...body(shown),
+		...(hidden > 0
+			? [`  … ${hidden} more line${hidden === 1 ? '' : 's'} (d shows all of it)`]
+			: []),
+	]
 	return {
-		lines: [
-			...head,
-			...argsFor(false),
-			count,
-			...body(shown),
-			...(hidden > 0
-				? [`  … ${hidden} more line${hidden === 1 ? '' : 's'} (d shows all of it)`]
-				: []),
-		],
+		lines: [...head, ...tail],
+		headLines: head,
+		shortLines: [...shortHead, ...tail],
 		// Always present: `d` reads the script itself, line by line, never the
 		// wire envelope, however short the script is.
 		expandedLines: [...head, ...argsFor(true), count, ...body(scriptLines)],

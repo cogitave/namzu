@@ -5,6 +5,8 @@ import {
 	guidelineAgents,
 	isLargeRun,
 	isWorkflowSizeGuideline,
+	largeRunNotice,
+	largeRunReason,
 	parseTokenTarget,
 	sessionWorkflowSizeAdvice,
 	workflowSizeAdvice,
@@ -154,7 +156,7 @@ describe('isLargeRun', () => {
 				...base,
 				scheduledAgents: 6,
 				startedAgents: 6,
-				configuredGuideline: 'small',
+				guideline: 'small',
 			}),
 		).toBe(true)
 		expect(
@@ -162,7 +164,7 @@ describe('isLargeRun', () => {
 				...base,
 				scheduledAgents: 6,
 				startedAgents: 6,
-				configuredGuideline: 'large',
+				guideline: 'large',
 			}),
 		).toBe(false)
 		expect(
@@ -170,7 +172,7 @@ describe('isLargeRun', () => {
 				...base,
 				scheduledAgents: 30,
 				startedAgents: 30,
-				configuredGuideline: 'unrestricted',
+				guideline: 'unrestricted',
 			}),
 		).toBe(true)
 	})
@@ -206,5 +208,52 @@ describe('isLargeRun', () => {
 				env,
 			}),
 		).toBe(false)
+	})
+})
+
+describe('largeRunReason', () => {
+	const base = {
+		scheduledAgents: 11,
+		startedAgents: 11,
+		totalTokens: 10_000,
+		hypermode: false,
+	}
+	it('says an agent count over the session guideline is why, with both numbers', () => {
+		expect(largeRunReason({ ...base, guideline: 'medium' })).toEqual({
+			by: 'agents',
+			asked: 11,
+			limit: 10,
+		})
+		expect(largeRunReason({ ...base, scheduledAgents: 10, guideline: 'medium' })).toBeUndefined()
+	})
+	it('says tokens when the count is within the guideline', () => {
+		expect(
+			largeRunReason({
+				...base,
+				scheduledAgents: 3,
+				startedAgents: 3,
+				totalTokens: 2_000_000,
+				guideline: 'medium',
+			}),
+		).toEqual({ by: 'tokens' })
+	})
+	it('is quiet in hypermode', () => {
+		expect(largeRunReason({ ...base, guideline: 'small', hypermode: true })).toBeUndefined()
+	})
+})
+
+describe('largeRunNotice', () => {
+	it('names the run, the numbers, that nothing stops, and how to stop it', () => {
+		const text = largeRunNotice('big-sweep', {
+			by: 'agents',
+			asked: 14,
+			limit: 10,
+		})
+		expect(text).toBe(
+			'Workflow big-sweep has asked for 14 agents, more than the 10 this session advises. It keeps running; press ↓ then x on its row, or open /workflows, to stop it.',
+		)
+	})
+	it('has its own words for a token cause', () => {
+		expect(largeRunNotice('big-sweep', { by: 'tokens' })).toContain('a lot of tokens')
 	})
 })

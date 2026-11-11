@@ -3,8 +3,8 @@
  * target the person can type, and the large-run warning on the rail. Pure.
  *
  * The guideline is advice, never a limit; the target is a ceiling that
- * `budget.total` carries into the script; the warning fires above 25 agents
- * or 1.5M tokens unless the standing hypermode is on.
+ * `budget.total` carries into the script; the warning fires above the session's guideline (25
+ * agents when it is `unrestricted`) or 1.5M tokens unless the standing hypermode is on.
  */
 
 export const WORKFLOW_SIZE_GUIDELINES = ['unrestricted', 'small', 'medium', 'large'] as const
@@ -100,8 +100,8 @@ export interface LargeRunInput {
 	readonly totalTokens: number
 	/** The standing hypermode is on: the person already asked for scale. */
 	readonly hypermode: boolean
-	/** The guideline only when the person configured one. */
-	readonly configuredGuideline?: WorkflowSizeGuideline
+	/** The session's size guideline: the configured one, else the default. */
+	readonly guideline?: WorkflowSizeGuideline
 	readonly env?: Readonly<Record<string, string | undefined>>
 }
 
@@ -111,20 +111,42 @@ function positive(raw: string | undefined): number | undefined {
 	return Number.isFinite(value) && value > 0 ? value : undefined
 }
 
-/** Whether a running workflow is big enough to warn about. */
-export function isLargeRun(input: LargeRunInput): boolean {
-	if (input.hypermode) return false
+/** Why a run is large: it asked for more agents than the limit, or it spends or is on course to spend too many tokens. */
+export type LargeRunReason =
+	| { readonly by: 'agents'; readonly asked: number; readonly limit: number }
+	| { readonly by: 'tokens' }
+
+/** What makes a running workflow big enough to warn about, or undefined when nothing does. */
+export function largeRunReason(input: LargeRunInput): LargeRunReason | undefined {
+	if (input.hypermode) return undefined
 	const env = input.env ?? {}
-	const guided =
-		input.configuredGuideline === undefined ? undefined : guidelineAgents(input.configuredGuideline)
+	const guided = input.guideline === undefined ? undefined : guidelineAgents(input.guideline)
 	const agentCap = positive(env.NAMZU_WORKFLOW_SIZE_WARNING_AGENTS) ?? guided ?? WARNING_AGENTS
 	const tokenCap = positive(env.NAMZU_WORKFLOW_SIZE_WARNING_TOKENS) ?? WARNING_TOKENS
 	const average =
 		input.startedAgents > 0 ? input.totalTokens / input.startedAgents : AVERAGE_AGENT_TOKENS
 	const projected = Math.max(input.totalTokens, Math.round(average * input.scheduledAgents))
-	return input.scheduledAgents > agentCap || input.totalTokens > tokenCap || projected > tokenCap
+	if (input.scheduledAgents > agentCap)
+		return { by: 'agents', asked: input.scheduledAgents, limit: agentCap }
+	return input.totalTokens > tokenCap || projected > tokenCap ? { by: 'tokens' } : undefined
 }
 
-/** The rail row's warning, long form and short form. */
-export const LARGE_WORKFLOW_WARNING = 'Large workflow · /workflows to stop'
-export const LARGE_WORKFLOW_WARNING_SHORT = 'Large workflow'
+/** Whether a running workflow is big enough to warn about. */
+export function isLargeRun(input: LargeRunInput): boolean {
+	return largeRunReason(input) !== undefined
+}
+
+/** The two words the rail row carries for a large run. */
+export const LARGE_WORKFLOW_WARNING = 'Large workflow'
+
+/**
+ * The one quiet line the conversation gets when a run turns large: why, that
+ * nothing is stopped, and how to stop it.
+ */
+export function largeRunNotice(name: string, reason: LargeRunReason): string {
+	const why =
+		reason.by === 'agents'
+			? `has asked for ${reason.asked} agents, more than the ${reason.limit} this session advises`
+			: 'is on course to spend a lot of tokens'
+	return `Workflow ${name} ${why}. It keeps running; press ↓ then x on its row, or open /workflows, to stop it.`
+}
