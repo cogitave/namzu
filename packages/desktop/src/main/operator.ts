@@ -15,6 +15,7 @@ import {
 	readConfigSettingsView,
 } from '../shared/config-settings-protocol.js'
 import { type HistoryWorkSnapshot, restoreHistoryWork } from '../shared/history-work.js'
+import { OUTCOME_NOTIFICATION, readOutcomeNotice } from '../shared/outcome-protocol.js'
 import type {
 	PalPermissionChange,
 	PalSubscriptionCreate,
@@ -5693,6 +5694,13 @@ export class Operator {
 				(!session.view.harness || session.view.harness === 'namzu')
 			)
 				this.emit({ ...notice, kind: 'usage', sessionId: session.view.id })
+		} else if (frame.method === OUTCOME_NOTIFICATION) {
+			// What a finished turn changed and what checked it. A notice that does not read, or names a
+			// conversation this connection does not own, is dropped.
+			const notice = readOutcomeNotice(frame.params)
+			const session = notice ? this.runtimeSession(project, notice.sessionId) : undefined
+			if (notice && session && (!session.view.harness || session.view.harness === 'namzu'))
+				this.emit({ ...notice, kind: 'outcome', sessionId: session.view.id })
 		} else if (frame.method === 'session/update') {
 			const params = frame.params as AcpSessionUpdateNotification
 			const session = this.runtimeSession(project, params?.sessionId)

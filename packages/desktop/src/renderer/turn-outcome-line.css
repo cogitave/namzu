@@ -1,0 +1,66 @@
+/* Marks beside the words about how a turn came out. Existing status colours; the words say it too. */
+.turn-outcome-mark {
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	flex: none;
+	background: var(--muted-foreground);
+}
+.turn-outcome-mark[data-tone="ok"] {
+	background: var(--primary);
+}
+.turn-outcome-mark[data-tone="error"] {
+	background: var(--error);
+}
+.turn-outcome-mark[data-tone="warn"] {
+	background: var(--warning);
+}
+
+/* One quiet line under a finished turn; not a card. */
+.turn-outcome-line {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	margin: 4px 4px 12px;
+	font-size: 12px;
+	line-height: 18px;
+	color: var(--muted-foreground);
+}
+.turn-outcome-line > .turn-outcome-mark {
+	transform: translateY(-1px);
+}
+.turn-outcome-text {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+/* The work group's header, after "Worked for 2s": what failed or was refused, without unfolding. */
+.activity-flags {
+	display: inline-flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 4px 12px;
+	margin-left: 8px;
+	font-size: 12px;
+}
+.activity-flag {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	white-space: nowrap;
+}
+.activity-flag[data-tone="error"] {
+	color: var(--error-foreground);
+}
+.activity-flag[data-tone="warn"] {
+	color: var(--warning-foreground);
+}
+
+/* Why a refused action did not run, under its row. */
+.tool-reason {
+	margin: 0 0 4px 26px;
+	font-size: 12px;
+	line-height: 18px;
+	color: var(--muted-foreground);
+}

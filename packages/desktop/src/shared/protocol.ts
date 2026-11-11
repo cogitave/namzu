@@ -20,6 +20,7 @@ import type {
 	EngineUpdateResult,
 	EngineUpdatesState,
 } from './engine-update-protocol.js'
+import type { OutcomeNotice } from './outcome-protocol.js'
 import type {
 	PalCommunicationView,
 	PalInboxView,
@@ -621,6 +622,8 @@ export type DesktopEvent = (
 	| { kind: 'task'; sessionId: string; task: AcpTask; deleted?: true }
 	/** How full the conversation is and whether it is being compacted; see `UsageNotice`. */
 	| ({ kind: 'usage' } & UsageNotice)
+	/** What a finished turn changed and what checked it; see `OutcomeNotice`. */
+	| ({ kind: 'outcome' } & OutcomeNotice)
 	| { kind: 'tasks'; sessionId: string; tasks?: AcpTask[]; notice?: string }
 	| { kind: 'permission-cleared'; sessionId: string; requestId?: string }
 	/** Display-only retirement; admitted, queued and retry file bytes are unchanged. */

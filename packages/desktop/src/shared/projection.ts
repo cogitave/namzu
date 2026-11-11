@@ -1,5 +1,6 @@
 import type { AcpSessionUpdate, AcpTask, ToolCallView } from '@namzu/sdk'
 import { splitAttachmentWrapper } from './attachment-wrapper.js'
+import type { TurnOutcomeSummary } from './outcome-protocol.js'
 import type {
 	ChatMessage,
 	DesktopEvent,
@@ -37,6 +38,8 @@ export interface TurnState {
 	stopReason?: string
 	reason?: string
 	result?: string
+	/** What the turn changed and what checked it, as the kernel recorded it; absent until it says. */
+	outcome?: TurnOutcomeSummary
 }
 /**
  * A finished edit reports a sentence for the model; the change itself is what the call carried.
@@ -442,6 +445,7 @@ function settledAnswer(
 }
 export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadState {
 	if (event.kind === 'usage') return applyUsage(previous, event)
+	if (event.kind === 'outcome') return applyOutcome(previous, event)
 	const next = applyEventCore(previous, event)
 	if (!next.compaction) return next
 	// Compaction runs inside a turn: it ends with the turn, and a finished note lasts until the turn goes on.
@@ -450,6 +454,27 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 	if (event.kind === 'update' && next.compaction.state === 'done')
 		return { ...next, compaction: undefined }
 	return next
+}
+/** The turn the notice names, or the current one when the engine has not named it yet. */
+function applyOutcome(
+	thread: ThreadState,
+	event: Extract<DesktopEvent, { kind: 'outcome' }>,
+): ThreadState {
+	const named = Object.entries(thread.turns).find(([, state]) => state.turnId === event.turnId)
+	const turn = named ? Number(named[0]) : thread.turn
+	if (turn < 1) return thread
+	const outcome: TurnOutcomeSummary = {
+		verdict: event.verdict,
+		...(event.line ? { line: event.line } : {}),
+		changed: event.changed,
+	}
+	return {
+		...thread,
+		turns: {
+			...thread.turns,
+			[turn]: { ...thread.turns[turn], turnId: event.turnId, outcome },
+		},
+	}
 }
 function applyUsage(
 	thread: ThreadState,

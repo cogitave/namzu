@@ -73,6 +73,8 @@ export interface ToolTranscriptPresentation {
 	detailView?: ToolCallView
 	/** What the person typed when they declined and said what to do instead; the transcript shows it. */
 	note?: string
+	/** Why the engine would not run this action, in one line the kernel wrote; drawn under the row. */
+	reason?: string
 }
 
 const statusLabels: Record<ToolTranscriptState, string> = {
@@ -448,6 +450,8 @@ export interface FactsRow {
 	body?: ToolBody
 	stats?: { added: number; removed: number }
 	operation?: 'created' | 'edited' | 'deleted'
+	/** Why a refused action did not run; see `ToolTranscriptPresentation.reason`. */
+	reason?: string
 }
 
 /** The headline of a command from the command itself and how its call stands. */
@@ -534,11 +538,13 @@ function failureRow(
 				? `Blocked: ${what} needs administrator rights`
 				: `Blocked: ${what} isn’t allowed`
 		const typed = call?.kind === 'command' ? nonBlank(call.command) : undefined
+		const reason = nonBlank(facts.note)?.trim()
 		return {
 			label: main,
 			main,
 			kind: command ? 'command' : 'other',
 			...(typed ? { tooltip: clip(typed.trim(), 1000) } : {}),
+			...(reason ? { reason } : {}),
 		}
 	}
 	const kind: ActionKind =
@@ -767,6 +773,7 @@ export function toolTranscriptPresentation(
 	let body: ToolBody | undefined
 	let shell: ShellCellData | undefined
 	let stats: { added: number; removed: number } | undefined
+	let reason: string | undefined
 	const observed = observedActionLabel(tool, state)
 	const explored = exploration(tool)
 	const palName = palMessageName(tool)
@@ -821,6 +828,7 @@ export function toolTranscriptPresentation(
 		shell = typed.shell
 		stats = typed.stats
 		operation = typed.operation
+		reason = typed.reason
 		detailView = undefined
 	} else if (explored?.kind === 'read') {
 		// A conversation saved before tools reported fields: the call's own label is all there is.
@@ -888,6 +896,7 @@ export function toolTranscriptPresentation(
 		...(stats ? { stats } : {}),
 		...(body ? { body } : {}),
 		...(shell ? { shell } : {}),
+		...(reason ? { reason } : {}),
 		...(operation ? { operation } : {}),
 		...(tooltip ? { tooltip } : {}),
 		state,

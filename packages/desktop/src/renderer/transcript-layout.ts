@@ -165,9 +165,12 @@ export function actionRunLabel(actions: RunAction[], live: boolean, full = false
 /** A finished run this long or shorter stays open; a longer one folds to its summary row. */
 export const openRunLimit = 5
 
-/** Whether a run is open before the person chooses: while it works, or while it is short. */
-export function runDefaultOpen(live: boolean, actions: number): boolean {
-	return live || actions <= openRunLimit
+/**
+ * Whether a run is open before the person chooses: while it works, while it is short, or when a
+ * command in it failed or an action was refused, so the output and the reason are in view.
+ */
+export function runDefaultOpen(live: boolean, actions: number, badNews = false): boolean {
+	return live || badNews || actions <= openRunLimit
 }
 
 /** Which kind names the icon of a run's summary row: an edit wins, else the most common kind. */

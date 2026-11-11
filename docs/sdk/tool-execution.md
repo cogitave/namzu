@@ -276,7 +276,7 @@ knew:
 | `list` (glob) | `pattern`, `path`, `count`, `truncated` |
 | `edit` | `path`, `replacements`, `added`, `removed`, `hunks`, `hunksTruncated` |
 | `write` | `path`, `operation` (`created`, `updated`, `unchanged`, `wrote` when the earlier state is unknown), `bytes`, `added`, `removed`, `hunks`, `hunksTruncated` |
-| `failure` | `reason` (`not_found`, `permission_denied`, `not_a_file`, `already_exists`, `blocked`, `needs_administrator`, `unknown_tool`, `timed_out`, `invalid_input`, `not_read`, `changed_on_disk`, `text_not_found`, `not_unique`, `invalid_arguments`), `subject` |
+| `failure` | `reason` (`not_found`, `permission_denied`, `not_a_file`, `already_exists`, `blocked`, `needs_administrator`, `unknown_tool`, `timed_out`, `invalid_input`, `not_read`, `changed_on_disk`, `text_not_found`, `not_unique`, `invalid_arguments`), `subject`, `note` (a refused call's reason as one plain line the kernel wrote: the policy's rule, or the command guard's reason; absent when none was recorded) |
 
 #### Exit status as an answer
 
