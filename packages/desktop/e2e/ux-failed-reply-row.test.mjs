@@ -271,6 +271,9 @@ flow(
 		});
 		const work = w.page.locator(".turn-activity").last();
 		await expect(work).toBeVisible();
+		// The reply has stopped: the status line above the stop row folds away and is taken out of the
+		// layout, and only then is the gap between the work and the stop row the one a person sees.
+		await expect(w.page.locator("output.working")).toBeHidden();
 		// The stop row carries the reply's time; the turn draws no second, hover-only clock row above it.
 		await expect(w.page.locator(".turn-clock")).toHaveCount(0);
 		await expect(region.locator("time")).toHaveCount(1);

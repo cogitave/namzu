@@ -221,8 +221,9 @@ test("the sidebar's first frame is its final layout, on a second launch, a reloa
 			"heading:recents",
 		];
 
-		// Second launch: gamma's tab opens first, so the projects connect in the order gamma, alpha,
-		// beta, not in the order they are listed. Every status and every list waits for the test.
+		// Second launch: the projects are let through in the order gamma, alpha, beta, not the order
+		// they are listed (the start connects up to three folders at once, so the test chooses the
+		// order). Every status and every list waits for the test.
 		await w.app.close();
 		w.env = { NAMZU_E2E_GATE_DIR: gates };
 		for (const name of NAMES) {
@@ -238,21 +239,14 @@ test("the sidebar's first frame is its final layout, on a second launch, a reloa
 		assert.equal(quiet.at(-1).settled, false, "nothing has answered, so the start is not settled");
 		for (const key of expectedKeys)
 			assert.ok(key in quiet[0].rows, `second launch: ${key} is on the very first frame`);
-		const connected = [];
-		for (let step = 0; step < NAMES.length; step++) {
-			const held = await untilFiles(gates, (files) =>
-				files.find((file) => file.endsWith(".connect.held") && !connected.includes(file)),
-			);
-			connected.push(held);
-			const name = held.slice(0, held.indexOf("."));
+		// The start connects up to three folders at once, so all three wait on their gates together.
+		// The test lets them answer one at a time, in the order gamma, alpha, beta,
+		// which is not the order they are listed in: the sidebar must not move for it.
+		for (const name of ["gamma", "alpha", "beta"]) {
+			await untilFiles(gates, (files) => files.includes(`${name}.connect.held`));
 			rmSync(join(gates, `${name}.connect.hold`));
 			await untilFiles(gates, (files) => files.includes(`${name}.connect.done`));
 		}
-		assert.deepEqual(
-			connected.map((file) => file.slice(0, file.indexOf("."))),
-			["gamma", "alpha", "beta"],
-			"the projects connected in a different order from the one they are listed in",
-		);
 		for (const name of NAMES) rmSync(join(gates, `${name}.list.hold`));
 		await expect(w.page.locator("#namzu-sidebar")).toHaveAttribute("data-start-settled", "true", {
 			timeout: T,
