@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { type ComponentProps, createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it, vi } from 'vitest'
@@ -118,12 +119,14 @@ it('docks the slim Pal composer with one authored textarea and preserves the sta
 		pal.indexOf('<textarea'),
 	)
 	expect(pal.indexOf('<textarea')).toBeLessThan(pal.indexOf('aria-label="Send message"'))
-	expect(pal).not.toContain('data-slot="composer-context-strip"')
+	expect(pal).not.toContain('composer-row-project')
+	expect(pal).not.toContain('data-composer-row')
 	expect(pal).not.toContain('What would you like to work on?')
 	expect(pal).not.toContain('Ideas to get started')
 	const standard = render({ empty: true })
 	expect(standard).toContain('data-composer-variant="default"')
-	expect(standard).toContain('data-slot="composer-context-strip"')
+	expect(standard).toContain('composer-row-project')
+	expect(standard).toContain('data-composer-row')
 	expect(standard).toContain('What would you like to work on?')
 	expect(standard).toContain('placeholder="Ask Namzu anything"')
 	expect(render({ empty: true, emptyHeading: 'What should we work on in demo?' })).toContain(
@@ -266,7 +269,7 @@ it('keeps restored work readable without admitting queue or turn mutations durin
 	}
 })
 
-it('keeps real context above the normal editor and permissions beside Plus below it', () => {
+it('holds only the text, Plus and Send in the box, and the settings in one row under it', () => {
 	const html = render({
 		connected: true,
 		empty: true,
@@ -278,22 +281,28 @@ it('keeps real context above the normal editor and permissions beside Plus below
 			label: 'Claude Sonnet 4.5',
 		},
 	})
-	const context = html.indexOf('data-slot="composer-context-strip"')
 	const editor = html.indexOf('<textarea')
 	const footer = html.indexOf('data-chat-composer-footer')
 	const plus = html.indexOf('aria-label="Attachments and message settings"', footer)
-	const permission = html.indexOf('aria-label="Permissions: ', footer)
-	const model = html.indexOf('aria-label="Model: Claude Sonnet 4.5"', footer)
 	const submit = html.indexOf('aria-label="Send message"', footer)
-	expect(context).toBeGreaterThan(0)
-	expect(context).toBeLessThan(editor)
-	expect(html.slice(context, editor)).toContain('This computer')
-	expect(html.slice(context, editor)).toContain('Choose project folder')
+	const row = html.indexOf('data-composer-row')
+	const project = html.indexOf('This computer', row)
+	const permission = html.indexOf('aria-label="Permissions: ', row)
+	const model = html.indexOf('aria-label="Model: Claude Sonnet 4.5"', row)
 	expect(editor).toBeLessThan(footer)
 	expect(footer).toBeLessThan(plus)
-	expect(plus).toBeLessThan(permission)
+	expect(plus).toBeLessThan(submit)
+	// The row is outside the box, after it, in this order: project, permission mode, model.
+	expect(submit).toBeLessThan(row)
+	expect(row).toBeLessThan(project)
+	expect(project).toBeLessThan(permission)
 	expect(permission).toBeLessThan(model)
-	expect(model).toBeLessThan(submit)
+	expect(html.slice(row)).toContain('Choose project folder')
+	// Nothing of the settings is left inside the box.
+	const box = html.slice(html.indexOf('data-chat-composer-main-surface'), row)
+	expect(box).not.toContain('Permissions: ')
+	expect(box).not.toContain('aria-label="Model: ')
+	expect(box).not.toContain('Choose project folder')
 	expect(html.match(/aria-label="Permissions: /g)).toHaveLength(1)
 	expect(html.match(/aria-label="Model: /g)).toHaveLength(1)
 	expect(html.match(/<textarea\b/g)).toHaveLength(1)
@@ -303,6 +312,25 @@ it('keeps real context above the normal editor and permissions beside Plus below
 		'<span class="model-picker-trigger-model truncate">Claude Sonnet 4.5</span>',
 	)
 	expect(html).not.toContain('data-selected-model-icon')
+})
+
+it('keeps the project line out of the row once the conversation has begun, and the context at its end', () => {
+	const usage = { contextTokens: 28_000, contextWindowTokens: 200_000, cost: 0.06 }
+	const html = render({ connected: true, empty: false, projectName: 'namzu', usage })
+	const row = html.indexOf('data-composer-row')
+	expect(row).toBeGreaterThan(0)
+	expect(html).not.toContain('Choose project folder')
+	const permission = html.indexOf('aria-label="Permissions: ', row)
+	const model = html.indexOf('aria-label="Model: ', row)
+	const context = html.indexOf('data-context-ring=', row)
+	expect(permission).toBeGreaterThan(row)
+	expect(model).toBeGreaterThan(permission)
+	expect(context).toBeGreaterThan(model)
+	expect(html.slice(context)).toContain('14% · $0.06')
+	// With no measured context nothing takes the ring's place.
+	expect(render({ connected: true, empty: false, projectName: 'namzu' })).not.toContain(
+		'data-context-ring=',
+	)
 })
 
 it('shows the wordmark once and only offers installed conversation engines', () => {
@@ -374,7 +402,7 @@ it('retains functional normal attachment, plugin, effort, queue and approval con
 	expect(button(html, 'Attach files')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Permissions')).not.toMatch(/\bdisabled=/)
 	expect(button(html, 'Plugins')).not.toMatch(/\bdisabled=/)
-	// The model cannot change while a reply runs, so the waiting bar leaves its picker out; it is back once the card is answered.
+	// The model cannot change while a reply runs, so the row leaves its picker out while the card waits; it is back once the card is answered. The permission mode stays.
 	expect(html).not.toContain('aria-label="Model: space-bunny-free')
 	expect(html).toContain('composer-waiting')
 	expect(button(html, 'Remove notes.txt')).not.toMatch(/\bdisabled=/)
@@ -521,8 +549,8 @@ it('keeps attachments removable but blocks Send on an engine without attachments
 })
 
 it('shows the tray only while the conversation is empty', () => {
-	expect(render({ empty: true })).toContain('data-slot="composer-context-strip"')
-	expect(render({ empty: false })).not.toContain('data-slot="composer-context-strip"')
+	expect(render({ empty: true })).toContain('composer-row-project')
+	expect(render({ empty: false })).not.toContain('composer-row-project')
 })
 
 it('draws no model prompt or raw id while the model choice is still resolving', () => {
@@ -673,4 +701,27 @@ it('turns Stop into a "Stopping" state until the reply ends', () => {
 it('shows no Stopping state once the reply is over', () => {
 	const html = render({ running: false, stopping: true, draft: 'next' })
 	expect(html).not.toContain('Stopping reply')
+})
+
+it('keeps the row quiet and in its place: no fill or border at rest, the mode never shrinks, the percentage goes first', () => {
+	const css = readFileSync(new URL('./composer.css', import.meta.url), 'utf8')
+	// The box's corners are 16px, from the panel radius token.
+	expect(css).toMatch(
+		/\.normal-composer-shell \[data-slot="composer-host"\],[\s\S]*?border-radius: var\(--radius-panel\)/,
+	)
+	// The mode is never cut; the model's own name takes the ellipsis; the row wraps only when very narrow.
+	expect(css).toMatch(/\.composer-row \.composer-permission-control \{\s*flex: none;/)
+	expect(css).toMatch(/\.composer-row-end \{\s*flex: 0 2 auto;/)
+	expect(css).toMatch(
+		/@container composer-row \(max-width: 520px\) \{\s*\.composer-row \.context-readout-text \{\s*display: none;/,
+	)
+	expect(css).toMatch(
+		/@container composer-row \(max-width: 360px\) \{\s*\.composer-row-inner \{\s*flex-wrap: wrap;/,
+	)
+	// Every chevron keeps its room at rest, so the row never shifts under the pointer.
+	expect(css).toMatch(
+		/\.composer-project-control \[data-composer-control-chevron\] \{\s*width: 12px;[\s\S]*?opacity: 0;/,
+	)
+	expect(css).not.toContain('composer-context-above')
+	expect(css).not.toMatch(/#[0-9a-f]{3,8}\b/i)
 })

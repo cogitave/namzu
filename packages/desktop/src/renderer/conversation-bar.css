@@ -94,12 +94,7 @@
 	text-align: center;
 	font-variant-numeric: tabular-nums;
 }
-/* Narrow: the read-out keeps its pie and gives up its words, then the project gives way. */
-@container conversation-bar (max-width: 560px) {
-	.context-readout-text {
-		display: none;
-	}
-}
+/* Narrow: the project gives way. */
 @container conversation-bar (max-width: 300px) {
 	.conversation-bar-project {
 		display: none;

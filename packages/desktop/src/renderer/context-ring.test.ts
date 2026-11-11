@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 import { applyEvent, emptyThread } from '../shared/projection.js'
 import { applyClosedTabEvent } from './closed-tab.js'
-import { ContextHomeContext, ContextReadout, ContextRing } from './context-ring-view.js'
+import { ContextReadout, ContextRing } from './context-ring-view.js'
 import {
 	COMPACTING_TEXT,
 	compactedText,
@@ -219,18 +219,14 @@ it('draws the pie from twelve o clock, clockwise, taking the long way past half'
 	expect(piePath(0.75, 5, 8)).toBe('M 8 8 L 8 3 A 5 5 0 1 1 3.000 8.000 Z')
 })
 
-it('shows the read-out in the bar and takes the ring out of the composer when the bar has it', () => {
+it('draws the read-out and the Pal ring from the same measured context, and nothing without one', () => {
 	const usage = { contextTokens: 28_000, contextWindowTokens: 200_000, cost: 0.06 }
-	expect(renderToStaticMarkup(createElement(ContextReadout, { usage }))).toContain('14% · $0.06')
+	const readout = renderToStaticMarkup(createElement(ContextReadout, { usage }))
+	expect(readout).toContain('14% · $0.06')
+	expect(readout).toContain('aria-label="Context 14% full. 28k of 200k tokens. Cost so far $0.06."')
 	expect(renderToStaticMarkup(createElement(ContextReadout, { usage: undefined }))).toBe('')
-	expect(renderToStaticMarkup(createElement(ContextRing, { usage }))).toContain('context-ring')
 	expect(
-		renderToStaticMarkup(
-			createElement(
-				ContextHomeContext.Provider,
-				{ value: 'bar' },
-				createElement(ContextRing, { usage }),
-			),
-		),
+		renderToStaticMarkup(createElement(ContextReadout, { usage: { contextTokens: 10 } })),
 	).toBe('')
+	expect(renderToStaticMarkup(createElement(ContextRing, { usage }))).toContain('context-ring')
 })

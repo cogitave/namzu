@@ -1,4 +1,3 @@
-import { createContext, useContext } from 'react'
 import type { ThreadUsage } from '../shared/projection.js'
 import { contextRingModel, piePath } from './context-ring.js'
 import './context-ring.css'
@@ -8,20 +7,12 @@ const RADIUS = 7
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS
 
 /**
- * Where the context read-out is drawn. With the bar above the conversation showing, it lives
- * there and the composer draws none; with the tab strip on, it stays beside the send controls.
- */
-export type ContextHome = 'composer' | 'bar'
-export const ContextHomeContext = createContext<ContextHome>('composer')
-
-/**
  * How full the conversation is, as a small ring beside the send controls. It is drawn only when the
  * engine has reported both a context size and a window; otherwise nothing takes its place.
  */
 export function ContextRing({ usage }: { usage: ThreadUsage | undefined }) {
-	const home = useContext(ContextHomeContext)
 	const model = contextRingModel(usage)
-	if (!model || home === 'bar') return null
+	if (!model) return null
 	return (
 		<Tooltip>
 			<TooltipTrigger

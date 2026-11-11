@@ -57,13 +57,13 @@ const answerYes = async (w) => {
 };
 
 /**
- * The card's whole surface ends above the composer, which is one 40 px bar that says it is waiting
- * for the person; there is no caption of its own above the card.
+ * The card is one surface that ends just above the composer, which is one 40 px bar that says it is
+ * waiting for the person; there is no caption of its own above the card.
  */
 async function assertCardClear(w, label) {
 	const m = await w.page.evaluate(() => {
 		const box = (el) => (el ? el.getBoundingClientRect() : null);
-		const card = box(document.querySelector('[aria-label="Tool approval"] [data-slot="composer-banner"]'));
+		const card = box(document.querySelector('[aria-label="Tool approval"] .approval-card'));
 		const caption = document.querySelector(".approval-waiting");
 		const composer = box(document.querySelector("[data-chat-composer-body]"));
 		const bar = box(document.querySelector(".composer-waiting"));
@@ -74,7 +74,8 @@ async function assertCardClear(w, label) {
 	assert.equal(m.caption, null, `${label}: no caption above the card`);
 	assert.ok(m.bar.height >= 38 && m.bar.height <= 46, `${label}: the waiting bar is ${m.bar.height}px tall`);
 	assert.match(m.placeholder ?? "", /^Waiting for you\./, `${label}: the bar says it is waiting`);
-	assert.ok(m.card.bottom <= m.composer.top - 2, `${label}: the card ends ${m.card.bottom} but the composer starts at ${m.composer.top}`);
+	const gap = m.bar.top - m.card.bottom;
+	assert.ok(gap >= 6 && gap <= 10, `${label}: the card ends ${m.card.bottom} and the bar starts at ${m.bar.top}: ${gap}px apart, not about 8`);
 	await expect(w.page.locator(".working:not(.transcript-status-only)")).toHaveCount(0);
 }
 

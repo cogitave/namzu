@@ -69,7 +69,7 @@ import { Textarea } from './ui/textarea.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import './composer.css'
 import type { ThreadUsage } from '../shared/projection.js'
-import { ContextRing } from './context-ring-view.js'
+import { ContextReadout, ContextRing } from './context-ring-view.js'
 
 /**
  * The picker's modes are the ones this window offers. The kernel's old `auto`,
@@ -522,9 +522,31 @@ export function Composer({
 						</div>
 					)}
 					{speechStatus}
+					{permissions[0] && (
+						<fieldset
+							className="m-0 min-w-0 border-0 p-0"
+							disabled={approvalDisabled}
+							aria-label="Action approval controls"
+						>
+							<ComposerApproval
+								key={permissions[0].id}
+								permission={permissions[0]}
+								palNames={palNames}
+								palRunning={palRunning}
+								count={permissions.length}
+								folder={projectPath}
+								projectName={projectName}
+								// Only the Namzu engine keeps an "allow for this conversation" answer.
+								conversationAllowance={
+									(permissionEngine ?? harnessView?.selected ?? 'namzu') === 'namzu'
+								}
+								onRespond={(permission, response) =>
+									approvalDisabled ? false : onApproval(permission, response)
+								}
+							/>
+						</fieldset>
+					)}
 					<ComposerSurface.Shell
-						contextStrip={trayPresent}
-						contextPlacement="top"
 						className={cn(
 							compact ? 'pal-composer-shell' : 'normal-composer-shell',
 							pending.rows.length > 0 && 'composer-with-tray',
@@ -552,49 +574,6 @@ export function Composer({
 							if (!importDisabled) onAddFiles(Array.from(event.dataTransfer.files))
 						}}
 					>
-						{trayPresent && (
-							<ComposerSurface.ContextStrip
-								placement="top"
-								data-leaving={!trayWanted || undefined}
-								onAnimationEnd={trayDone}
-							>
-								<ComposerProjectPicker
-									computerLabel={computerLabel}
-									projectId={projectId}
-									projectName={projectName}
-									projectPath={projectPath}
-									projects={projects}
-									onLeaveProject={onLeaveProject}
-									onSelectProject={onSelectProject}
-									onOpenProject={onOpenProject}
-									onCreateProject={onCreateProject}
-								/>
-							</ComposerSurface.ContextStrip>
-						)}
-						{permissions[0] && (
-							<fieldset
-								className="m-0 min-w-0 border-0 p-0"
-								disabled={approvalDisabled}
-								aria-label="Action approval controls"
-							>
-								<ComposerApproval
-									key={permissions[0].id}
-									permission={permissions[0]}
-									palNames={palNames}
-									palRunning={palRunning}
-									count={permissions.length}
-									folder={projectPath}
-									projectName={projectName}
-									// Only the Namzu engine keeps an "allow for this conversation" answer.
-									conversationAllowance={
-										(permissionEngine ?? harnessView?.selected ?? 'namzu') === 'namzu'
-									}
-									onRespond={(permission, response) =>
-										approvalDisabled ? false : onApproval(permission, response)
-									}
-								/>
-							</fieldset>
-						)}
 						<ComposerTray
 							pending={pending}
 							actions={trayActions}
@@ -765,49 +744,9 @@ export function Composer({
 									data-chat-composer-footer
 									className="flex min-w-0 flex-nowrap items-center justify-between gap-2 overflow-visible px-3 pb-3 sm:px-4 sm:pb-4"
 								>
-									{!compact && (
-										<div className="composer-footer-options">
-											{plusControl}
-											<ComposerPermissions
-												engine={permissionEngine ?? harnessView?.selected}
-												permissionScope={permissionScope}
-												permissionMode={composerPermissionMode(settings.permissionMode)}
-												reviewModes={reviewModes}
-												disabled={sending || !connected}
-												onChange={(permissionMode) =>
-													onSettingsChange({ ...settings, permissionMode })
-												}
-											/>
-											{!waiting && shells && shells.count > 0 && (
-												<Button
-													variant="ghost-muted"
-													size="xs"
-													className="composer-footer-chip"
-													data-composer-shells={shells.count}
-													aria-label={`${shells.count} background ${shells.count === 1 ? 'shell' : 'shells'} running. Show`}
-													onClick={shells.onOpen}
-												>
-													{shells.count} {shells.count === 1 ? 'shell' : 'shells'}
-												</Button>
-											)}
-											{!waiting && pullRequest && (
-												<Button
-													variant="ghost-muted"
-													size="xs"
-													className="composer-footer-chip composer-pr"
-													data-composer-pr={pullRequest.pr.number}
-													data-review={pullRequest.pr.review}
-													aria-label={`Pull request ${pullRequest.pr.number}, ${REVIEW_WORDS[pullRequest.pr.review]}. Open in browser`}
-													title={REVIEW_WORDS[pullRequest.pr.review]}
-													onClick={pullRequest.onOpen}
-												>
-													PR #{pullRequest.pr.number}
-												</Button>
-											)}
-										</div>
-									)}
+									{!compact && <div className="composer-footer-options">{plusControl}</div>}
 									<div className="pal-composer-send-actions flex shrink-0 flex-nowrap items-center justify-end gap-2">
-										{!waiting && <ContextRing usage={usage} />}
+										{compact && !waiting && <ContextRing usage={usage} />}
 										{running &&
 											liveInputSupported &&
 											onQueue &&
@@ -836,9 +775,6 @@ export function Composer({
 													</TooltipPopup>
 												</Tooltip>
 											)}
-										{!compact && !waiting && (
-											<div className="composer-selected-model">{modelControl}</div>
-										)}
 										{!waiting && speechControl}
 										{running && (
 											<Tooltip>
@@ -961,6 +897,71 @@ export function Composer({
 							</ComposerSurface.Main>
 						</ComposerSurface.Host>
 					</ComposerSurface.Shell>
+					{!compact && (
+						<div className="composer-row" data-composer-row>
+							<div className="composer-row-inner">
+								<div className="composer-row-start">
+									{trayPresent && (
+										<div
+											className="composer-row-project"
+											data-leaving={!trayWanted || undefined}
+											onAnimationEnd={trayDone}
+										>
+											<ComposerProjectPicker
+												computerLabel={computerLabel}
+												projectId={projectId}
+												projectName={projectName}
+												projectPath={projectPath}
+												projects={projects}
+												onLeaveProject={onLeaveProject}
+												onSelectProject={onSelectProject}
+												onOpenProject={onOpenProject}
+												onCreateProject={onCreateProject}
+											/>
+										</div>
+									)}
+									<ComposerPermissions
+										engine={permissionEngine ?? harnessView?.selected}
+										permissionScope={permissionScope}
+										permissionMode={composerPermissionMode(settings.permissionMode)}
+										reviewModes={reviewModes}
+										disabled={sending || !connected}
+										onChange={(permissionMode) => onSettingsChange({ ...settings, permissionMode })}
+									/>
+									{!waiting && shells && shells.count > 0 && (
+										<Button
+											variant="ghost-muted"
+											size="xs"
+											className="composer-footer-chip"
+											data-composer-shells={shells.count}
+											aria-label={`${shells.count} background ${shells.count === 1 ? 'shell' : 'shells'} running. Show`}
+											onClick={shells.onOpen}
+										>
+											{shells.count} {shells.count === 1 ? 'shell' : 'shells'}
+										</Button>
+									)}
+									{!waiting && pullRequest && (
+										<Button
+											variant="ghost-muted"
+											size="xs"
+											className="composer-footer-chip composer-pr"
+											data-composer-pr={pullRequest.pr.number}
+											data-review={pullRequest.pr.review}
+											aria-label={`Pull request ${pullRequest.pr.number}, ${REVIEW_WORDS[pullRequest.pr.review]}. Open in browser`}
+											title={REVIEW_WORDS[pullRequest.pr.review]}
+											onClick={pullRequest.onOpen}
+										>
+											PR #{pullRequest.pr.number}
+										</Button>
+									)}
+								</div>
+								<div className="composer-row-end">
+									{!waiting && <div className="composer-selected-model">{modelControl}</div>}
+									<ContextReadout usage={usage} />
+								</div>
+							</div>
+						</div>
+					)}
 					{empty &&
 						!compact &&
 						draft.length === 0 &&
