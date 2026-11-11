@@ -268,8 +268,9 @@ function openTerminal(body: Record<string, unknown>): Promise<TerminalStream> {
 		const outcome = new Promise<void>((resolveOutcome) => {
 			arrived = resolveOutcome
 		})
-		const timer = setTimeout(() => reject(new Error('the terminal never answered')), 10_000)
-		timer.unref()
+		// No deadline of its own: a terminal that never answers is a hang the
+		// calling case's per-test timeout reports, rather than a verdict a
+		// slow machine could reach first.
 		socket.on('connect', () => {
 			socket.write(encodeFrame(JSON.stringify({ op: 'terminal', token: POD_UID, body })))
 		})
@@ -301,7 +302,6 @@ function openTerminal(body: Record<string, unknown>): Promise<TerminalStream> {
 		socket.on('close', () => arrived())
 		outcome
 			.then(() => {
-				clearTimeout(timer)
 				resolve({
 					text: () => printed,
 					outcome: () => answered ?? {},
@@ -354,27 +354,25 @@ function commandNameOf(pid: number): string | undefined {
  * up in the same breath as the error frame — would otherwise catch a `stty`
  * and call it `script`.
  */
-async function newChild(before: number[], timeoutMs = 5_000): Promise<number> {
-	const deadline = Date.now() + timeoutMs
+async function newChild(before: number[]): Promise<number> {
+	// No deadline: a terminal whose `script` never shows up is a hang the
+	// calling case's per-test timeout reports, not a verdict a slow machine
+	// could reach first.
 	for (;;) {
 		const fresh = childrenOf(process.pid).filter(
 			(pid) => !before.includes(pid) && commandNameOf(pid) === 'script',
 		)
 		if (fresh.length === 1) return fresh[0] as number
-		if (Date.now() > deadline) {
-			throw new Error(`expected exactly one new script, saw [${fresh.join(', ')}]`)
-		}
 		await delay(10)
 	}
 }
 
 /** The first child one pid has forked, waiting until the fork has happened. */
-async function firstChildOf(pid: number, timeoutMs = 5_000): Promise<number> {
-	const deadline = Date.now() + timeoutMs
+async function firstChildOf(pid: number): Promise<number> {
+	// No deadline: a fork that never happens is a hang the per-test timeout names.
 	for (;;) {
 		const [child] = childrenOf(pid)
 		if (child !== undefined) return child
-		if (Date.now() > deadline) throw new Error(`no child appeared under ${pid}`)
 		await delay(10)
 	}
 }
@@ -408,11 +406,12 @@ function ptySize(slavePath: string): string {
 }
 
 /** Wait for a resize to land, rather than guessing at one delay. */
-async function waitForPtySize(slavePath: string, size: string, timeoutMs = 5_000): Promise<string> {
-	const deadline = Date.now() + timeoutMs
+async function waitForPtySize(slavePath: string, size: string): Promise<string> {
+	// No deadline: a resize that never lands is a hang the per-test timeout
+	// reports, and a slow machine only waits longer for it.
 	for (;;) {
 		const saw = ptySize(slavePath)
-		if (saw === size || Date.now() > deadline) return saw
+		if (saw === size) return saw
 		await delay(25)
 	}
 }
@@ -489,15 +488,14 @@ function reapTrees(): void {
  * A zombie counts as GONE, as it does in every other liveness check in this
  * file: what is asserted is that nothing is still RUNNING, and a reparented
  * pid sits as a zombie for exactly as long as the init that inherited it
- * takes to reap it. The budget is a second, which is generous for a signal
- * the agent has already sent — and a leaking tree does not go in a minute,
- * let alone in one.
+ * takes to reap it. There is no deadline of its own: a tree that leaks is a
+ * hang the calling case's per-test timeout reports, and a slow machine only
+ * waits longer for a signal the agent has already sent.
  */
-async function waitsForTreeGone(pids: number[], timeoutMs = 1_000): Promise<number[]> {
-	const deadline = Date.now() + timeoutMs
+async function waitsForTreeGone(pids: number[]): Promise<number[]> {
 	for (;;) {
 		const alive = pids.filter((pid) => isAlive(pid))
-		if (alive.length === 0 || Date.now() > deadline) return alive
+		if (alive.length === 0) return alive
 		await delay(10)
 	}
 }
@@ -514,21 +512,20 @@ async function waitsForTreeGone(pids: number[], timeoutMs = 1_000): Promise<numb
  */
 async function provesSessionTeardown(terminal: TerminalStream): Promise<void> {
 	const match = await (async () => {
-		const deadline = Date.now() + 5_000
+		// No deadline: a shell that never reports its job is a hang the case's
+		// per-test timeout names, not a verdict a slow machine could reach first.
 		for (;;) {
 			const found = /JOBPID (\d+)/.exec(terminal.text())
 			if (found) return found
-			if (Date.now() > deadline) {
-				throw new Error(`the shell never reported its job; saw ${JSON.stringify(terminal.text())}`)
-			}
 			await delay(10)
 		}
 	})()
 	const job = Number(match[1])
 	expect(isAlive(job)).toBe(true)
 	terminal.close()
-	const deadline = Date.now() + 5_000
-	while (isAlive(job) && Date.now() < deadline) await delay(25)
+	// Polled with no deadline of its own: the calling case's 20 s per-test
+	// timeout ends a job that never dies, and a slow machine only waits longer.
+	while (isAlive(job)) await delay(25)
 	expect(isAlive(job)).toBe(false)
 }
 

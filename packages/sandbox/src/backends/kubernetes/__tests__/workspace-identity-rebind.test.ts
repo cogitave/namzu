@@ -250,13 +250,9 @@ function watch(workspace: KubernetesWorkspace): KubernetesGuestRestart[] {
 }
 
 /** Resolve once the guest has parsed a request with this `op` AFTER `from`. */
-async function waitForRequest(op: string, from: number, timeoutMs = 5_000): Promise<void> {
-	const deadline = Date.now() + timeoutMs
-	while (Date.now() < deadline) {
-		if (agent?.requests.slice(from).some((request) => request.op === op)) return
-		await new Promise((resolve) => setTimeout(resolve, 5))
-	}
-	throw new Error(`the scripted agent never received a ${op} request`)
+async function waitForRequest(op: string, from: number): Promise<void> {
+	if (!agent) throw new Error('fixtures not started')
+	await agent.whenRequest(op, from)
 }
 
 describe('what a handle reports it is bound to', () => {
@@ -463,22 +459,24 @@ describe('following a pod the controller replaced', () => {
 		const settled: string[] = []
 		const before = agent.requests.length
 
-		// Accepted by the FIRST pod, with the FIRST boot id on it, and
-		// answered half a second later — a body that takes real time, or a
-		// pod still inside its termination grace period.
-		agent.setReplyDelayMs(500)
+		// Accepted by the FIRST pod, with the FIRST boot id on it, and not
+		// answered until this case lets it — a body that takes real time, or
+		// a pod still inside its termination grace period.
+		const releaseOldPodReply = agent.holdNextReply()
 		const slow = workspace.writeFile('/workspace/slow.txt', 'bytes').then(() => {
 			settled.push('write')
 		})
 		await waitForRequest('write-file', before)
 		// From here on this is the REPLACEMENT: new uid, new bind token, new
 		// agent process. The write already in flight is not.
-		agent.setReplyDelayMs(0)
 		replacePod()
 		agent.setGuestBootId(SECOND_BOOT_ID)
 
 		expect((await workspace.exec('true')).exitCode).toBe(0)
 		settled.push('exec')
+		// The old pod's answer is still withheld: the write has not settled.
+		expect(settled).toEqual(['exec'])
+		releaseOldPodReply()
 		await slow
 
 		// The interleaving this case is about, asserted rather than hoped
