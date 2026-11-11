@@ -387,7 +387,12 @@ function allRows(info: DiffInfo, width: number): DiffViewRow[] {
 /** What the transcript paints for a change: its rows, then the fold notice if any rows are left out. */
 export function diffViewBody(
 	info: DiffInfo,
-	options: { readonly width: number; readonly expanded: boolean; readonly canExpand: boolean },
+	options: {
+		readonly width: number
+		readonly expanded: boolean
+		readonly canExpand: boolean
+		readonly hint?: string
+	},
 ): DiffViewRow[] {
 	const all = allRows(info, options.width)
 	const limit = options.expanded || info.preview === undefined ? all.length : info.preview
@@ -406,7 +411,10 @@ export function diffViewBody(
 	if (hidden > 0) {
 		shown.push([
 			{
-				text: hiddenLinesHint(hidden, { canExpand: options.canExpand }),
+				text: hiddenLinesHint(hidden, {
+					canExpand: options.canExpand,
+					...(options.hint !== undefined ? { hint: options.hint } : {}),
+				}),
 				dim: true,
 			},
 		])

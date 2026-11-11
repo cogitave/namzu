@@ -10,6 +10,14 @@
 /** The one phrase that tells a person a folded body can be opened. */
 export const EXPAND_HINT = '(ctrl+o to expand)'
 
+/**
+ * What the hint says in the fullscreen view when the pointer is reported in
+ * full: a click opens the row where it stands, and a click on an open row folds
+ * it. Everywhere else the hint stays `EXPAND_HINT`.
+ */
+export const CLICK_EXPAND_HINT = '(click to expand)'
+export const CLICK_FOLD_HINT = '(click to fold)'
+
 /** Hidden text is sized once it reaches this many characters. */
 export const HIDDEN_SIZE_FROM_CHARS = 1000
 
@@ -18,12 +26,14 @@ export interface HiddenHintOptions {
 	readonly chars?: number
 	/** False when nothing can open the body, so the hint does not promise it. Default true. */
 	readonly canExpand?: boolean
+	/** The words that stand for the action when it is not `EXPAND_HINT`. */
+	readonly hint?: string
 }
 
 /** `… +N lines (ctrl+o to expand)`; `line` when exactly one is folded. */
 export function hiddenLinesHint(lines: number, options: HiddenHintOptions = {}): string {
 	const noun = lines === 1 ? 'line' : 'lines'
-	const action = options.canExpand === false ? '' : ` ${EXPAND_HINT}`
+	const action = options.canExpand === false ? '' : ` ${options.hint ?? EXPAND_HINT}`
 	const size =
 		options.chars !== undefined && options.chars >= HIDDEN_SIZE_FROM_CHARS
 			? ` (~${Math.max(1, Math.round(options.chars / 1024)).toLocaleString('en-US')} KB)`

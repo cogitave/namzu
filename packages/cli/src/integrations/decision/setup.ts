@@ -1,4 +1,4 @@
-import { DecisionError } from '@namzu/decision'
+import { DecisionError, readableServiceText, refusesQuestionField } from '@namzu/decision'
 
 import { setUserConfigValue } from '../../config/user-config.js'
 import {
@@ -57,20 +57,17 @@ function realTimeout(ms: number): TimeoutHandle {
 	return { signal: controller.signal, clear: () => clearTimeout(timer) }
 }
 
-/** A 400 that says the model wants another question shape (missing or null instructions or criteria). */
+/**
+ * A 400 that says the model wants another question shape: a missing or null `instructions` or
+ * `criteria`, or a validator's issue naming either field (such as a type error on `criteria`).
+ */
 export function isQuestionShapeError(error: unknown): boolean {
-	return (
-		error instanceof DecisionError &&
-		error.status === 400 &&
-		/(missing|null|required).*(instructions|criteria)|(instructions|criteria).*(missing|null|required)/i.test(
-			error.message,
-		)
-	)
+	return refusesQuestionField(error, ['instructions', 'criteria'])
 }
 
 /** The plain reason a decision call failed, in words that say what to look at. */
 export function explainConnectionFailure(error: unknown, timedOut: boolean): string {
-	const said = (e: DecisionError) => sanitizeServiceText(e.message, 200)
+	const said = (e: DecisionError) => sanitizeServiceText(readableServiceText(e.message), 200)
 	if (timedOut) return `no answer within ${CONNECTION_TEST_TIMEOUT_MS / 1000} s`
 	if (error instanceof DecisionError) {
 		if (error.status === 401 || error.status === 403)

@@ -1,5 +1,36 @@
 # @namzu/cli
 
+## 50.3.0
+
+### Minor Changes
+
+- a545c5f: Image, document and pasted-text markers in the input box (`[Image #1]`) are now one unit and look like objects. The cursor steps over a marker in one key and never rests inside it; Backspace, Delete, Ctrl+W, Ctrl+K, Ctrl+U, word jumps and undo take all of it or none, so an edit can no longer break a marker and silently send the message without its image. A marker is drawn in the theme's system-text colour (its brackets still show it with colour off); text that only looks like one, with no attachment behind it, stays ordinary text.
+
+  Image and document numbers now run through the whole conversation and continue after a resume, where they used to restart whenever the draft was empty. The sent message keeps each marker where you put it, in the row and in the text the model receives (a message that is only an image now reaches the model as its marker, such as `[Image #1]`, beside the image; it used to be empty text), so "compare [Image #1] with [Image #2]" is no longer sent as "compare with ". Under the message, one quiet row per attachment shows its marker, file name and size in place of "N attachments", and where the terminal takes hyperlinks that row opens a copy of the file. A resumed conversation draws the same rows.
+
+  The copies are written to `attachments/` inside the conversation's own folder under your Namzu home, named by a hash of the bytes, so the same image attached twice is one file and deleting the conversation deletes them. Nothing changes for the model's image blocks or for how a long paste is held and sent.
+
+- b045f54: In fullscreen mode (`tui.fullscreen: true` or `NAMZU_FULLSCREEN=1`) you can now click a folded row to open it where it stands, and click it again to fold it. This works on a counted line (`Read 3 files, ran 2 commands`) and the commands listed under it, on a tool or command output that is cut (`… +30 lines`), and on a collapsed agent answer. The hint on those rows reads `(click to expand)` instead of `(ctrl+o to expand)`, and an open row says `(click to fold)`. The row you click stays where it is on the screen; if opening it pushes the newest output off, the view stops following and `↓ Jump to latest` brings you back. Dragging to select still copies, and a click that finds a selection only clears it.
+
+  It needs the pointer reported in full, which is the default: with `tui.mouse: scroll` or `off`, in the normal screen and in the scroll-back nothing changes and the hint stays `(ctrl+o to expand)`. Which rows are open is not saved, so a resumed conversation starts folded. Links in replies are still plain text; Namzu does not open them.
+
+- 1ff7974: An MCP tool call that reports progress can now outlive `requestTimeoutMs`, as an opt-in. New `MCPClientConfig.resetTimeoutOnProgress` (and the same key per server in `namzu.config.json`, `~/.namzu/config.yaml` and `.mcp.json`): when `true`, each progress report whose value rose restarts the request deadline for that call, so a server that works for a minute and reports throughout is no longer cut off at 30 seconds. New `maxTotalTimeoutMs` is the most such a call may take in total, counted from when it was issued and never extended; it defaults to ten times `requestTimeoutMs` (5 minutes at the default 30 seconds) and may not be below `requestTimeoutMs`. A call that stops reporting fails after `requestTimeoutMs` of silence, and one that never stops fails at the cap; the error says which. Nothing changes unless `resetTimeoutOnProgress` is set; with it set, the server's bridged tools carry a `timeoutMs` of the cap plus 5 seconds so the executor's 120-second tool deadline does not cut the call first. `mcp test` now also names a bad `requestTimeoutMs`. `MCPClient` now throws at construction for a `maxTotalTimeoutMs` that is not an integer from 1 to 2,147,483,647 or is below `requestTimeoutMs`, even when the option is off; a CLI server with such a value fails by name.
+- 9e95894: The line under a finished turn that said "A command ran that may have changed files · cannot tell" no longer repeats under every turn in a folder that Namzu cannot watch for changes. The first turn of a conversation that gets it now says "A command ran that may have changed files · cannot tell here · not repeated in this conversation" (naming the reason when the tools work in a separate copy of the folder), and later turns add nothing. Every other line is unchanged. A resumed conversation now shows the outcome lines of its past turns too, which it did not before, with the same once-only rule. `exec` JSON output, the Desktop feed and the delegation line still carry the verdict for every turn. A script that matches the old terminal wording will no longer find it.
+- 795ae98: A turn that runs many shell commands no longer prints a block for each. A command that ends well, and is not one of the look-only commands that already folded, joins the line of what ran around it: `Read 3 files, ran 4 commands` (`running` while it is open), with the commands listed under it one per line as `$ command`, cut to the width, the last five, and a line saying how many earlier ones are not listed. Their whole output is still in the detailed transcript (Ctrl+O). A command that fails, was stopped, timed out, was blocked or declined, or moved to the background keeps its own row, and ends the line so the order on screen is the order things happened. One command on its own is drawn as before, with its output. The same line is drawn when a conversation is resumed.
+
+  Also: a call to a tool that does not exist is no longer counted as a look (`listed 1 directory`); it shows its own row with one sentence saying so, and the kernel's list of tools behind Ctrl+O. Nothing about what the model receives changes.
+
+### Patch Changes
+
+- cea27c2: The home screen's composer is quieter, and the model popup opens on the models. The box's lower edge carries the attach "+", the permission word, the model word and Send; permission and model are plain muted text (the chevron shows on hover) and Send is the only filled control. The microphone button is hidden until voice input is set up: turn it on in Settings ▸ Speech ▸ Voice input (search "microphone"), and the button is back. The project and "This computer" are one line above the box with one menu. The three starters are small rows; clicking one fills the box and never sends it.
+
+  The model popup opens on the model list, each row with its context window and price when the model's source published them (nothing is shown for a value that is not known). Under the list are the reasoning-effort slider and one "More" row; the engine, the Desktop or CLI switch and the provider filter (when you have two or more providers) moved behind it, so they are one click further than before and nothing is removed. There is no setting to restore the old arrangement.
+
+  In the CLI, `namzu acp --desktop` model lists carry the window and the per-million-token rates a provider published (`contextWindow`, `inputPrice`, `outputPrice` on a row); a row without them is unchanged.
+
+- Updated dependencies [1ff7974]
+  - @namzu/sdk@62.10.0
+
 ## 50.2.0
 
 ### Minor Changes

@@ -7,10 +7,12 @@ import {
 	bottomRow,
 	buildRowIndex,
 	hasUnseen,
+	holdRow,
 	jumpHint,
 	minBottom,
 	moveView,
 	pageRows,
+	rowIn,
 	stateAt,
 	syncView,
 	visibleRange,
@@ -171,5 +173,69 @@ describe('the jump hint', () => {
 		expect(jumpHint(1, false)).toBe('↓')
 		expect(jumpHint(0, false)).toBeNull()
 		expect(jumpHint(80, true)).toMatch(/^New activity/)
+	})
+})
+
+describe('holding a row still while its message changes height', () => {
+	const options = { height: HEIGHT, footer: 0, searching: false }
+	/** Messages of five rows, the third grown to `rows`. */
+	const grown = (rows: number) => index([5, 5, rows, 5, 5, 5, 5, 5, 5, 5])
+
+	it('names a row by its message and place, kept inside the message', () => {
+		const idx = grown(2)
+		expect(rowIn(idx, 'm2', 1)).toBe(11)
+		expect(rowIn(idx, 'm2', 9)).toBe(11)
+		expect(rowIn(idx, 'gone', 0)).toBeNull()
+	})
+
+	it('keeps the rows under a row the same when the reader is scrolled up', () => {
+		const before = index()
+		const state = stateAt(before, 30, HEIGHT)
+		const after = grown(12)
+		// Row 10 is the first of m2; it has 20 rows under it down to the edge.
+		const next = holdRow(state, before, after, 'm2', 0, { ...options, footer: 1 })
+		expect(next.follow).toBe(false)
+		expect(bottomRow(next, after) - (rowIn(after, 'm2', 0) ?? 0)).toBe(20)
+	})
+
+	it('stops following when the end is pushed beyond the row held, and counts the hint row', () => {
+		const before = index()
+		const after = grown(30)
+		const next = holdRow(FOLLOWING, before, after, 'm2', 0, options)
+		expect(next.follow).toBe(false)
+		// Following had 39 rows under the row and no hint; now the hint takes one.
+		expect(bottomRow(next, after) - (rowIn(after, 'm2', 0) ?? 0)).toBe(39 - 1)
+	})
+
+	it('keeps following when the end is still where the row held leaves it', () => {
+		const before = index()
+		expect(holdRow(FOLLOWING, before, index(), 'm9', 0, options)).toBe(FOLLOWING)
+	})
+
+	it('falls back to the state it was given when the message is gone', () => {
+		const before = index()
+		const after = index(Array(9).fill(5))
+		expect(holdRow(FOLLOWING, before, after, 'm9', 0, options)).toBe(FOLLOWING)
+	})
+
+	it('holds a row high in a short conversation with blank rows above it', () => {
+		// Three messages of three rows; the window has ten rows, so row 4 sits
+		// at screen row 4 of the ten (bottom row 8, five rows under it).
+		const before = index([3, 3, 3])
+		const after = index([3, 15, 3])
+		const next = holdRow(FOLLOWING, before, after, 'm1', 1, options)
+		expect(next.follow).toBe(false)
+		// The rows under the held row are the same as before, hint row counted.
+		expect(bottomRow(next, after) - (rowIn(after, 'm1', 1) ?? 0)).toBe(4 - 1)
+		// Fewer rows above it than the window is tall: blank rows show above.
+		expect(bottomRow(next, after)).toBeLessThan(minBottom(after, HEIGHT))
+	})
+
+	it('keeps that place through a sync and does not scroll up from it', () => {
+		const before = index([3, 3, 3])
+		const after = index([3, 15, 3])
+		const next = holdRow(FOLLOWING, before, after, 'm1', 1, options)
+		expect(syncView(next, after, HEIGHT)).toBe(next)
+		expect(moveView(next, 'line-up', after, HEIGHT)).toBe(next)
 	})
 })
