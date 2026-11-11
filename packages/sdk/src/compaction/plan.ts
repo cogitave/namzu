@@ -4,7 +4,12 @@ import { resolveTriggerThreshold } from './context-window.js'
 import { findSafeTrimIndex } from './dangling.js'
 import { buildGoal } from './salience/goal.js'
 import { scoreMessages } from './salience/score.js'
-import { type WorkingSetPlan, planWorkingSet } from './salience/working-set.js'
+import {
+	type WorkingSetPlan,
+	hasEvictableMessage,
+	planNothingToShed,
+	planWorkingSet,
+} from './salience/working-set.js'
 import { estimateMessageTokens, estimateMessagesTokens } from './token-estimate.js'
 import { clearStaleToolResults } from './tool-result-editing.js'
 
@@ -146,19 +151,32 @@ export function planSalienceWorkingSet(input: {
 	readonly openTasks?: readonly string[]
 }): Extract<CompactionPlan, { kind: 'cleared' }> & { readonly working: WorkingSetPlan } {
 	const { config, estimatedTokens, contextWindowTokens: budget } = input
-	const goal = buildGoal(input.messages, {
-		...(input.openTasks ? { openTasks: input.openTasks } : {}),
-	})
-	const scored = scoreMessages(input.messages, {
-		goal,
-		keepRecentMessages: config.keepRecentMessages,
-	})
-	const working = planWorkingSet(input.messages, scored, {
+	const workingOptions = {
 		estimatedTokens,
 		targetTokens: Math.floor(budget * (config.softTarget ?? DEFAULT_SOFT_TARGET)),
 		minToolResultChars: config.minToolResultCharsToClear,
 		...(config.preserveToolResultsFrom ? { preserveTools: config.preserveToolResultsFrom } : {}),
+	}
+	// Nothing the pass may shed, whatever the scores say: every tool result
+	// is small, cleared, an error or from a preserved tool, and every
+	// narration is short or already cut. Scoring every message to learn that
+	// is the whole cost of a pass that can do nothing, and it ran on every
+	// turn from the soft target until the summary trigger.
+	const working = hasEvictableMessage(input.messages, {
+		...workingOptions,
+		keepRecentMessages: config.keepRecentMessages,
 	})
+		? planWorkingSet(
+				input.messages,
+				scoreMessages(input.messages, {
+					goal: buildGoal(input.messages, {
+						...(input.openTasks ? { openTasks: input.openTasks } : {}),
+					}),
+					keepRecentMessages: config.keepRecentMessages,
+				}),
+				workingOptions,
+			)
+		: planNothingToShed(input.messages, workingOptions)
 	return {
 		kind: 'cleared',
 		messages: working.messages,

@@ -48,6 +48,26 @@ export function similarity(a: Uint32Array, b: Uint32Array): number {
 	return same / HASHES
 }
 
+/**
+ * {@link similarity}, or 0 when it is below `floor`.
+ *
+ * The scorer reads a similarity below one half as no similarity at all, so
+ * a comparison that has already missed enough slots to land under the floor
+ * can stop there. For a pair that reaches the floor the answer is the same
+ * number `similarity` returns, slot for slot.
+ */
+export function similarityAtLeast(a: Uint32Array, b: Uint32Array, floor: number): number {
+	const allowedMisses = HASHES - Math.ceil(floor * HASHES)
+	let misses = 0
+	for (let slot = 0; slot < HASHES; slot += 1) {
+		if (a[slot] !== b[slot]) {
+			misses += 1
+			if (misses > allowedMisses) return 0
+		}
+	}
+	return (HASHES - misses) / HASHES
+}
+
 export function isEmptySignature(signature: Uint32Array): boolean {
 	return signature.every((h) => h === 0xffffffff)
 }

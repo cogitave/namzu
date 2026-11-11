@@ -56,6 +56,26 @@ MinHash. Captions participate as text. Rich-content placeholders do not stand
 in for image semantics, and rich messages are not demoted as duplicates based
 on identical captions or repeated tool inputs.
 
+## What a pass costs
+
+A pass costs what is new plus the arithmetic that depends on the whole history.
+What the scorer derives from one message's text (its term frequencies, the
+identifiers a later turn could cite and its MinHash signature) is kept per
+message object and read again on the next pass, so a pass tokenises and hashes
+only the messages it has not seen; a message the pass itself shortens is a new
+object and is read afresh. What still runs on every pass is the corpus
+statistics, the recency and citation lookups, the ordering and the comparison
+of each message with the later messages of its role, which is quadratic in
+the number of messages (it stops early for a pair that cannot reach the
+duplicate floor and for an identical signature). With 1,500 messages the pass
+took about 90 ms and now takes about 6 ms when the messages are small and
+about 65 ms when every message is a 4 KB near-duplicate.
+
+Before scoring, the pass counts whether anything outside the leading system
+run and the recent window is a clearable result or a long narration. When none
+is, nothing could be shed whatever the scores are, and scoring is skipped: the
+pass returns the same plan it would have made, with no action.
+
 These are ranking signals, not a proof that a fact is dispensable. Visual
 understanding does not happen inside the scorer. A host can retain critical
 messages or preserve named tools' results explicitly.

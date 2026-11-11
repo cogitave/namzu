@@ -26,7 +26,7 @@ import type { AssistantMessage, Message, ToolMessage } from '../../types/message
 import { findRetainedIndices } from '../retention.js'
 import { estimateMessageTokens } from '../token-estimate.js'
 import { type Bm25Document, bm25Score, buildIndex, indexDocument } from './bm25.js'
-import { isEmptySignature, minhash, similarity } from './minhash.js'
+import { isEmptySignature, minhash, similarityAtLeast } from './minhash.js'
 import { tokenize } from './tokenize.js'
 
 export interface SalienceWeights {
@@ -119,6 +119,54 @@ function citable(tokens: readonly string[]): Set<string> {
 	return out
 }
 
+/**
+ * What the scorer derives from one message's text, and nothing that depends
+ * on the rest of the history: the term frequencies BM25 reads, the
+ * identifiers a later turn could cite, the MinHash signature and a key for
+ * "byte-identical signature".
+ *
+ * A pass scored every message from its raw text every time, and the text of
+ * a message that is already in the history does not change between passes.
+ * The cost of a pass was therefore proportional to every byte in the
+ * history, paid again on each pass, and the largest part of it was hashing
+ * shingles. Held per message OBJECT, a pass pays for the messages it has not
+ * seen and for the arithmetic that does depend on the whole history (the
+ * corpus statistics, recency, the redundancy comparison).
+ *
+ * Keyed by object identity and validated by the text it was computed from: a
+ * message that is replaced (a stub is a copy) is a different object, and one
+ * that is edited in place fails the text comparison, so a stale entry is
+ * never read. Weakly held: an entry goes with its message.
+ */
+interface MessageFeatures {
+	readonly text: string
+	readonly tokenCount: number
+	readonly document: Bm25Document
+	readonly citable: ReadonlySet<string>
+	readonly signature: Uint32Array
+	/** Equal keys mean equal signatures, so a similarity of exactly 1. */
+	readonly signatureKey: string
+}
+
+const FEATURES = new WeakMap<Message, MessageFeatures>()
+
+function featuresOf(message: Message, text: string): MessageFeatures {
+	const cached = FEATURES.get(message)
+	if (cached !== undefined && cached.text === text) return cached
+	const tokens = tokenize(text)
+	const signature = minhash(tokens)
+	const features: MessageFeatures = {
+		text,
+		tokenCount: tokens.length,
+		document: indexDocument(text, tokens),
+		citable: citable(tokens),
+		signature,
+		signatureKey: signature.join(','),
+	}
+	FEATURES.set(message, features)
+	return features
+}
+
 export function scoreMessages(
 	messages: readonly Message[],
 	options: ScoreOptions,
@@ -129,12 +177,9 @@ export function scoreMessages(
 		weights: { ...DEFAULT_SALIENCE_WEIGHTS, ...options.config?.weights },
 	}
 	const n = messages.length
-	const texts = messages.map(messageText)
+	const features = messages.map((message) => featuresOf(message, messageText(message)))
 	const richContent = messages.map(hasRichContent)
-	const tokenLists = texts.map(tokenize)
-	const documents: Bm25Document[] = texts.map((text, i) =>
-		indexDocument(text, tokenLists[i] as string[]),
-	)
+	const documents: Bm25Document[] = features.map((f) => f.document)
 	const index = buildIndex(documents)
 	const goalTokens = tokenize(options.goal)
 
@@ -156,33 +201,64 @@ export function scoreMessages(
 	)
 
 	// Citation index: everything a LATER assistant turn or tool input names.
-	// Built once, suffix-wise, so each message asks "does anything after me
-	// cite my identifiers" in one lookup.
-	const citedAfter: Set<string>[] = new Array(n)
-	let running = new Set<string>()
-	for (let i = n - 1; i >= 0; i -= 1) {
-		citedAfter[i] = running
+	// For each identifier, the last message that names it: a message asks
+	// "does anything after me cite my identifiers" as "is the last citation
+	// of this identifier after me". The same answer as a set of everything
+	// after each message, without building n sets of up to n identifiers.
+	const lastCited = new Map<string, number>()
+	for (let i = 0; i < n; i += 1) {
 		const message = messages[i] as Message
-		if (message.role === 'assistant' || message.role === 'user') {
-			running = new Set([...running, ...citable(tokenLists[i] as string[])])
-		}
+		if (message.role !== 'assistant' && message.role !== 'user') continue
+		for (const token of (features[i] as MessageFeatures).citable) lastCited.set(token, i)
 	}
 
-	// Redundancy: the highest similarity to any later message of the same
-	// role, and a full demotion when a later assistant turn repeats this
-	// message's tool call exactly.
-	const signatures = tokenLists.map(minhash)
+	// A full demotion when a later assistant turn repeats this message's
+	// tool call exactly: for each call, the last message that makes it.
 	const callKeys = messages.map((m) =>
 		isAssistantWithCalls(m)
 			? (m.toolCalls ?? []).map((c) => `${c.function.name}:${c.function.arguments}`)
 			: [],
 	)
-	const laterCallKeys: Set<string>[] = new Array(n)
-	let calls = new Set<string>()
+	const lastCalled = new Map<string, number>()
+	for (let i = 0; i < n; i += 1) {
+		for (const key of callKeys[i] as string[]) lastCalled.set(key, i)
+	}
+
+	// Redundancy: the highest similarity to any later message of the same
+	// role. Walked from the end so the later messages of each role are the
+	// ones already seen; a signature identical to one of them is a
+	// similarity of exactly 1, the most there is, and ends the scan.
+	// Below the lower of one half and the duplicate threshold a similarity
+	// is read as none (see the redundancy step of the score), so the
+	// comparison need not finish it.
+	const floor = Math.min(0.5, config.duplicateThreshold)
+	const redundancyOf: number[] = new Array(n).fill(0)
+	const laterSignatures = new Map<Message['role'], Uint32Array[]>()
+	const laterKeys = new Map<Message['role'], Set<string>>()
 	for (let i = n - 1; i >= 0; i -= 1) {
-		laterCallKeys[i] = calls
-		if ((callKeys[i] as string[]).length > 0)
-			calls = new Set([...calls, ...(callKeys[i] as string[])])
+		const message = messages[i] as Message
+		// A caption or a repeated call cannot prove that two screenshots or
+		// documents contain the same evidence. The lexical scorer has no
+		// access to their meaning, so it must not call those messages duplicates.
+		if (richContent[i]) continue
+		const own = features[i] as MessageFeatures
+		const sameRole = laterSignatures.get(message.role) ?? []
+		const sameRoleKeys = laterKeys.get(message.role) ?? new Set<string>()
+		let redundancy = 0
+		if (!isEmptySignature(own.signature)) {
+			if (sameRoleKeys.has(own.signatureKey)) redundancy = 1
+			else {
+				for (const other of sameRole) {
+					const sim = similarityAtLeast(own.signature, other, floor)
+					if (sim > redundancy) redundancy = sim
+				}
+			}
+		}
+		redundancyOf[i] = redundancy
+		sameRole.push(own.signature)
+		sameRoleKeys.add(own.signatureKey)
+		laterSignatures.set(message.role, sameRole)
+		laterKeys.set(message.role, sameRoleKeys)
 	}
 
 	// Protection.
@@ -239,8 +315,8 @@ export function scoreMessages(
 			// An instruction is used by everything after it; an acknowledgment
 			// ("ok, go on") is not an instruction. The difference is whether it
 			// names anything or says more than a few words.
-			const tokens = tokenLists[i] as string[]
-			utility = citable(tokens).size > 0 || tokens.length >= 6 ? 1 : 0.2
+			const own = features[i] as MessageFeatures
+			utility = own.citable.size > 0 || own.tokenCount >= 6 ? 1 : 0.2
 		} else if (message.role === 'tool') {
 			// Used is used: one identifier from this result named by a later
 			// turn is the evidence, and a count would let the recency of
@@ -248,24 +324,17 @@ export function scoreMessages(
 			// for. The eval that placed the account id deep in an early dump
 			// and cited it later watched the salience pass clear it under a
 			// thirds rule.
-			const mine = citable(tokenLists[i] as string[])
-			let hits = 0
-			for (const token of mine) if ((citedAfter[i] as Set<string>).has(token)) hits += 1
-			utility = hits > 0 ? 1 : 0
+			let cited = false
+			for (const token of (features[i] as MessageFeatures).citable) {
+				if ((lastCited.get(token) ?? -1) > i) {
+					cited = true
+					break
+				}
+			}
+			utility = cited ? 1 : 0
 		} else if (isAssistantWithCalls(message)) utility = 0.5
 
-		let redundancy = 0
-		const signature = signatures[i] as Uint32Array
-		// A caption or a repeated call cannot prove that two screenshots or
-		// documents contain the same evidence. The lexical scorer has no
-		// access to their meaning, so it must not call those messages duplicates.
-		if (!richContent[i] && !isEmptySignature(signature)) {
-			for (let j = i + 1; j < n; j += 1) {
-				if (richContent[j] || (messages[j] as Message).role !== message.role) continue
-				const sim = similarity(signature, signatures[j] as Uint32Array)
-				if (sim > redundancy) redundancy = sim
-			}
-		}
+		let redundancy = redundancyOf[i] as number
 		if (redundancy < config.duplicateThreshold) redundancy = redundancy >= 0.5 ? redundancy : 0
 		else redundancy = 1
 		if (message.role === 'tool' && !richContent[i]) {
@@ -279,7 +348,7 @@ export function scoreMessages(
 				)
 				if (call) {
 					const key = `${call.function.name}:${call.function.arguments}`
-					if ((laterCallKeys[i] as Set<string>).has(key)) redundancy = 1
+					if ((lastCalled.get(key) ?? -1) > i) redundancy = 1
 					break
 				}
 			}
