@@ -30,7 +30,7 @@ import {
 } from '../integrations/subagents/activity.js'
 import { type RailWorkflow, formatCompactCount } from './AgentExplorer.js'
 import { formatElapsed } from './LiveActivity.js'
-import { terminalDisplayText } from './terminal-display.js'
+import { scriptText, terminalDisplayText } from './terminal-display.js'
 import { formatTook } from './units.js'
 
 /**
@@ -281,6 +281,9 @@ export interface WorkflowNotice {
 	readonly glyph: string
 }
 
+/** Widest a workflow's name is drawn in the closing line. */
+const WORKFLOW_NAME_CELLS = 48
+
 /**
  * The one line a workflow leaves in the conversation when its last agent
  * settles: `Workflow Release audit finished · 4m02s · 7 agents · 112k tokens`.
@@ -290,7 +293,7 @@ export function workflowNotice(workflow: RailWorkflow, now = Date.now()): Workfl
 	const word = endWord(workflow.status)
 	const elapsed = formatElapsed(Math.max(0, (workflow.endedAt ?? now) - workflow.startedAt))
 	const parts = [
-		`Workflow ${oneLine(workflow.name)} ${word}`,
+		`Workflow ${scriptText(workflow.name, { maxCells: WORKFLOW_NAME_CELLS })} ${word}`,
 		elapsed,
 		...(workflow.total > 0 ? [workflowAgentTotal(workflow.total)] : []),
 		...(workflow.tokens !== undefined ? [`${formatCompactCount(workflow.tokens)} tokens`] : []),
@@ -361,5 +364,5 @@ function finalAnswer(agent: SubagentActivity): readonly string[] {
 }
 
 function oneLine(text: string): string {
-	return terminalDisplayText(text).replace(/\r?\n/g, ' ').replace(/\t/g, ' ')
+	return scriptText(text)
 }
