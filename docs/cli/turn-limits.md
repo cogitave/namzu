@@ -106,15 +106,22 @@ A `turn_end` or `subagent_stop` hook can refuse to let a turn end ([Hooks](../sd
 
 A turn that changed something, or ran a check that failed, ends with one quiet line in the conversation, in plain words, from the kernel's record of the turn's own tool calls ([Turn outcome](../sdk/turn-outcome.md)). A turn that changed nothing prints nothing. The line works the same in fullscreen mode.
 
-```text
-Changed 4 files · checked: pnpm test passed, nothing changed since
-Changed 4 files · not checked
-Changed 4 files · pnpm test failed
-Changed 4 files · pnpm test passed, then files changed again
-Changed 4 files · ran pnpm test | tail -5, but the pipe hides whether it passed
-```
+| The record says | The line |
+|---|---|
+| Changed, no check ran | `Changed 4 files · not checked` |
+| Changed, a check passed and nothing changed after it | `Changed 4 files · checked: pnpm test passed, nothing changed since` |
+| Changed, a check passed, then files changed again | `Changed 4 files · pnpm test passed, then files changed again` |
+| A check failed | `Changed 4 files · pnpm test failed`, or `No files changed · pnpm test failed` |
+| A check whose result is hidden, not seen, or of unknown freshness | `Changed 4 files · ran pnpm test | tail -5, but the pipe hides whether it passed` |
+| A command ran that may have changed files and nothing could answer | `A command ran that may have changed files · cannot tell here · not repeated in this conversation`, the first time only |
 
 "Checked" says a recognised check passed and nothing changed after it; it does not say the check covers the change. When the working folder is a git repository and the tools run there, shell commands are seen too. In a folder git cannot read, with a sandbox that works in a copy of its own, or in an isolated child worktree, only the edit tools are, and a change made by a shell command is not.
+
+That last wording describes the folder, not the turn: in a folder without change tracking it would be the same sentence under every turn that runs a shell command. So a conversation says it once, on the first turn that gets it, and later turns with that verdict add no line. When the program knows why, it says so in brackets after `cannot tell here`: `(the tools work in a separate copy of the folder)` when the sandbox gives each turn a copy of its own. A folder that is not a repository and a git that did not answer in time are not told apart by the record, so neither is named. Every other line is drawn under every turn it applies to.
+
+The record itself does not change. `exec` JSON output, the Desktop outcome feed and the delegation line carry the verdict for every turn, including `unknown`, in the same words as before.
+
+A conversation that is resumed draws the lines of its past turns from the log (`turn_outcome_recorded`) with the same rule over the whole history, so it reads as it did live. A turn that ended with an error draws no outcome line, live or restored: the error is that turn's account, and its record is not carried to the screen. A turn that was stopped or cancelled does draw it, since it ended normally.
 
 `namzu exec --output-format json` has the record as `outcome` on its result, and `exec --json` puts it on the `done` line ([exec --json](exec-json.md)). A delegated agent's result names its record in one line after the agent's own words.
 

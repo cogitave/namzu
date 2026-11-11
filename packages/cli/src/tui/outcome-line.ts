@@ -59,6 +59,49 @@ export function outcomeLine(outcome: TurnOutcome | undefined): string | undefine
 	}
 }
 
+/**
+ * Why no detector could answer, when the program knows. `copy`: the turn's
+ * tools work in a sandbox's own copy of the folder, so the folder is not the
+ * one they change. Whether the folder is not a repository, or git did not
+ * answer in time, is not told apart by the record, so neither is named.
+ */
+export type CannotTellReason = 'copy'
+
+/** What the terminal has already said about this conversation's outcomes. */
+export interface OutcomeTelling {
+	/** The `cannot tell` verdict was already drawn in this conversation. */
+	readonly toldCannotTell: boolean
+}
+
+export const NOTHING_TOLD: OutcomeTelling = { toldCannotTell: false }
+
+/**
+ * The line the terminal draws under a turn, and what it has now told.
+ *
+ * `cannot tell` is a standing condition of the folder, not something this turn
+ * did, so the first turn of a conversation that gets it says it in full, with
+ * the reason when it is known and that it will not be said again; later turns
+ * with that verdict add nothing. Every other verdict is `outcomeLine`, every
+ * time. The kernel's record, `exec` output, the Desktop feed and the delegation
+ * line are not touched: they keep `outcomeLine` and the verdict for every turn.
+ */
+export function outcomeNotice(
+	outcome: TurnOutcome | undefined,
+	telling: OutcomeTelling,
+	reason?: CannotTellReason,
+): { readonly line?: string; readonly telling: OutcomeTelling } {
+	if (outcome?.verdict !== 'unknown') {
+		const line = outcomeLine(outcome)
+		return { ...(line ? { line } : {}), telling }
+	}
+	if (telling.toldCannotTell) return { telling }
+	const why = reason === 'copy' ? ' (the tools work in a separate copy of the folder)' : ''
+	return {
+		line: `A command ran that may have changed files · cannot tell here${why} · not repeated in this conversation`,
+		telling: { toldCannotTell: true },
+	}
+}
+
 const SHOWN_CHARS = 60
 
 /**

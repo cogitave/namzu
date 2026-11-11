@@ -5,7 +5,9 @@ import type {
 	ToolCall,
 	ToolFacts,
 	ToolPresenter,
+	TurnOutcome,
 } from '@namzu/sdk'
+import { parseTurnOutcome } from '@namzu/sdk'
 
 import {
 	DEFAULT_AGENT_WORKFLOW,
@@ -26,6 +28,12 @@ import {
 } from './agent-transcript-rows.js'
 import { type AgentEvent, toAgentEvent } from './agent.js'
 import { type UsedMemory, memoryUsedRow, mergeUsedMemories } from './memory-used-row.js'
+import {
+	type CannotTellReason,
+	NOTHING_TOLD,
+	type OutcomeTelling,
+	outcomeNotice,
+} from './outcome-line.js'
 import { systemRowStyle } from './system-rows.js'
 import { tokenColor } from './theme.js'
 import { type ToolEndStart, type ToolRow, formatToolCall, toolEndRows } from './tool-end-rows.js'
@@ -62,6 +70,10 @@ interface TurnTrail {
 	budget?: unknown
 	/** Launches of the `Agent` tool in this turn, and whether each failed. */
 	agents: boolean[]
+	/** The turn ended with `turn_completed`; a failed turn draws no outcome line, as live. */
+	completed?: true
+	/** The kernel's outcome record for the turn, when the log holds one that reads. */
+	outcome?: TurnOutcome
 	/** The journal holds this turn's tool starts or approval questions, so a call without a start never ran. */
 	journaled?: true
 }
@@ -148,12 +160,21 @@ export function trailFromRecords(records: readonly SessionRecord[] | undefined):
 						mergeUsedMemories(recalled.get(turnId) ?? [], usedMemoriesOf(record.memories)),
 					)
 				break
+			case 'turn_outcome_recorded':
+				// A body that does not read leaves the turn with no outcome, never a guess.
+				if (turnId) {
+					const outcome = parseTurnOutcome(record.outcome)
+					if (outcome) turn(turnId).outcome = outcome
+					else delete turn(turnId).outcome
+				}
+				break
 			case 'turn_completed':
 			case 'turn_failed':
 				if (turnId) {
 					const t = turn(turnId)
 					t.endedAt = atOf(record)
 					if (record.type === 'turn_completed') {
+						t.completed = true
 						if (typeof record.stopReason === 'string') t.stopReason = record.stopReason
 						if (typeof record.cancelCause === 'string') t.cancelCause = record.cancelCause
 						t.budget = record.budget
@@ -386,6 +407,12 @@ export interface RestoreOptions {
 	readonly trail?: RestoredTrail
 	/** The working folder, so paths read as they did live. */
 	readonly cwd?: string
+	/** Why no change detector answers for this conversation, when known. */
+	readonly cannotTellReason?: CannotTellReason
+	/** What was already said of this conversation's outcomes, to carry on from. */
+	readonly telling?: OutcomeTelling
+	/** Called once the rows are built, with what they told of the outcomes. */
+	readonly onTold?: (telling: OutcomeTelling) => void
 }
 
 /**
@@ -411,6 +438,8 @@ export interface RestoredTurnWriter {
 	enter(message: Message): readonly TranscriptMessage[]
 	/** The closing rows of the last turn. */
 	finish(): readonly TranscriptMessage[]
+	/** What the rows drawn so far have told of the outcomes. */
+	told(): OutcomeTelling
 }
 
 export function createRestoredTurnWriter(
@@ -426,6 +455,22 @@ export function createRestoredTurnWriter(
 	let current: string | undefined
 	const shownMemories = new Set<string>()
 	const atTurn = (turnId: string): number => trail.turns.get(turnId)?.startedAt ?? Date.now()
+	let telling: OutcomeTelling = options.telling ?? NOTHING_TOLD
+	// The line under a finished turn, with the same once-only rule as live.
+	const outcomeRow = (turn: TurnTrail): TranscriptMessage | undefined => {
+		if (turn.completed !== true) return undefined
+		const said = outcomeNotice(turn.outcome, telling, options.cannotTellReason)
+		telling = said.telling
+		if (!said.line) return undefined
+		const style = systemRowStyle('notice')
+		return {
+			id: nextId(),
+			role: 'system',
+			content: said.line,
+			glyph: style.glyph,
+			glyphColor: style.color,
+		}
+	}
 	const closing = (turnId: string | undefined): readonly TranscriptMessage[] => {
 		if (!turnId) return []
 		const turn = trail.turns.get(turnId)
@@ -433,6 +478,8 @@ export function createRestoredTurnWriter(
 		const rows: TranscriptMessage[] = []
 		if (turn.stopReason === 'cancelled' && turn.cancelCause === 'user') {
 			rows.push({ id: nextId(), role: 'system', content: 'Interrupted.' })
+			const said = outcomeRow(turn)
+			if (said) rows.push(said)
 			return rows
 		}
 		const notice = describeTurnStop(
@@ -440,6 +487,8 @@ export function createRestoredTurnWriter(
 			turn.budget as never,
 		)
 		if (notice) rows.push({ id: nextId(), role: 'system', content: notice, glyph: '■' })
+		const said = outcomeRow(turn)
+		if (said) rows.push(said)
 		const completed = turn.stopReason === undefined || turn.stopReason === 'end_turn'
 		if (turn.startedAt !== undefined && turn.endedAt !== undefined) {
 			const stand = turn.agents.map(
@@ -513,6 +562,7 @@ export function createRestoredTurnWriter(
 			current = undefined
 			return rows
 		},
+		told: () => telling,
 	}
 }
 
