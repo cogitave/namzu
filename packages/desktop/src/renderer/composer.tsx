@@ -1005,7 +1005,7 @@ export function Composer({
 							)}
 						</section>
 					)}
-					<div aria-hidden className="h-4 sm:h-5" />
+					<div aria-hidden className="h-3" />
 				</div>
 			</div>
 		</div>

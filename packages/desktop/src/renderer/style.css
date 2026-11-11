@@ -243,7 +243,7 @@ pre {
 	flex-direction: column;
 	align-items: center;
 	gap: 8px;
-	padding: 14px 5px 12px;
+	padding: 14px 5px 8px;
 	background: var(--sidebar);
 	/* The collapsed sidebar: the same one line divides it from the conversation. */
 	border-right: 1px solid var(--sidebar-border);
