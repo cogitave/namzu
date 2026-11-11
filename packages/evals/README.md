@@ -77,7 +77,7 @@ kernel made more or fewer requests, not that a model said more.
 | A lookup comes back framed as untrusted and the parent can use it | 1 | 100 | 0 |
 | A child that changed a file comes back with the kernel's record line after its block | 1 | 100 | 0 |
 | Two parallel children writing different files: both land, each attributed to its child | 2 | 140 | 0 |
-| Baseline: two children replacing one file from the same read, sharing the parent's ledger: the later write is not refused | 2 | 180 | 1 |
+| Baseline: two children replacing one file from the same read | 2 | 180 | 1 |
 | Baseline: two children replacing one file, the later one reading after the first wrote | 2 | 180 | 1 |
 | A child that fails comes back as a failure with no answer | 1 | 80 | 0 |
 | A finished child continued with a follow-up keeps its conversation | 1 (2 delegations) | 40 | 0 |
@@ -88,17 +88,14 @@ kernel made more or fewer requests, not that a model said more.
 | The same with queueing on: the third waits for a slot and finishes | 3 | 120 | 0 |
 
 The two "baseline" rows pin what the kernel does today where nothing says what
-it should do, so a change to them is a decision and not an accident. A child
-runs with its parent's file ledger, so two parallel children share one, and
-whichever writes first records its write there as the newest observation of the
-file. The second child's copy then matches the ledger, so its write is not
-refused as stale: it replaces the first edit, both children report one file
-changed, and nothing the parent reads says an edit was lost. That holds whether
-the second child read before the first wrote (the order is forced by holding its
-write until the first has landed) or after. The case that read first used to be
-refused as stale; it stopped when children began sharing the parent's ledger,
-and it comes back as a refusal if each child gets a ledger of its own. Parallel
-writers to one file lose an edit without the parent being told.
+it should do, so a change to them is a decision and not an accident. When two
+children replace the same file from the same read, the second write is refused
+because its copy of the file is stale, so only the first lands, and the parent
+is told the second child changed nothing, not that an edit was refused. When the
+second child reads after the first has written, nothing is refused: the first
+edit is replaced, both children report one file changed, and nothing the parent
+reads says an edit was lost. Parallel writers to one file lose an edit without
+the parent being told.
 
 ## Documentation
 
