@@ -106,6 +106,8 @@ For one run, `namzu exec --mcp-config <file>` (also with `--json`) adds the serv
 | `connectTimeoutMs` | both | How long this server has to connect, hand shake and list its tools. Default 10,000 ms. Must be a positive number no greater than 2,147,483,647 ms, Node's maximum timer delay; anything else is refused with a reason. |
 | `requestTimeoutMs` | both | Deadline for each MCP round trip, including prompt/resource discovery and reads. Unset preserves the SDK's 30,000 ms default. Must be finite and positive, no greater than 2,147,483,647 ms; invalid values fail this server by name. Independent of the startup `connectTimeoutMs`. |
 | `eraProbeTimeoutMs` | both | How long this server's era probe — see below — waits for an answer, in milliseconds. Defaults to the SDK's own `2000`, clamped to `connectTimeoutMs`. Must be a positive number; anything else is refused with a reason. |
+| `resetTimeoutOnProgress` | both | `true` makes `requestTimeoutMs` an idle deadline for a tool call whose server reports progress: each progress report whose value rose restarts it for that call, so a server that works for a minute and reports throughout is not cut off at `requestTimeoutMs`. Default `false`, which keeps one fixed deadline per request. Only tool calls are extended; every other request keeps the fixed deadline. Anything but `true` or `false` fails this server by name. |
+| `maxTotalTimeoutMs` | both | The most a progress-extended call may take in total, in milliseconds, counted from when the call was issued. Progress never extends it. A positive whole number, no greater than 2,147,483,647 and not below this server's `requestTimeoutMs`; anything else fails this server by name. Read only with `resetTimeoutOnProgress`. Default ten times the request deadline, 300,000 ms (5 minutes) at the default 30,000 ms. A call that stops reporting fails after `requestTimeoutMs` of silence ("timed out after N ms with no progress"); one that never stops fails at the cap ("timed out at its total limit of N ms"). Either way the server is sent a cancellation. |
 | `allow`, `deny` | both | Lists of server-reported tool, prompt or resource names, before the `mcp__` prefix. `deny` wins over `allow`; malformed lists fail that server by name. |
 | `maxRetries` | both | Nonnegative integer retry budget for calls the SDK classifies as safe to repeat. Unset leaves the SDK default. |
 | `requireApproval` | both | `true` asks for approval on every tool this server contributes, including prompts and resources. Default `false`. |
@@ -161,6 +163,12 @@ A server whose first spawn is genuinely slow is a different thing. A Python SDK 
 ### The era probe
 
 Before it offers the legacy `initialize` handshake, `connect()` asks the server `server/discover` to see whether it speaks the modern MCP era instead. First contact with a given origin (HTTP) or resolved command (stdio) pays one extra round trip for this — cached afterward, so it is spent once per server identity, not once per session. Against a server that answers, modern or legacy, that round trip is the only cost. Against a legacy stdio server old enough to stay silent on a method it has never heard of, the probe instead waits out its own timeout once before falling back — `eraProbeTimeoutMs`, above, which is what to lower for a server known to be that old, so the probe gives up sooner and leaves more of `connectTimeoutMs` for the handshake that will actually answer.
+
+## Writing and connecting servers
+
+If you write a server, put what a tool is for in the first sentence of its description: when the tool definitions are large, the model sees each tool's name and the first sentence of its description (see below), and decides from that alone whether to load the rest. Report progress during long work, and set `resetTimeoutOnProgress` for the server so work that is visibly advancing is not cut off by a deadline sized for a silent one.
+
+If you connect a server, its own instructions (for example the order to call its tools in) are read only when `instructions: true` is set for it. They are server-authored text and untrusted, so they are off by default; see `instructions` in the table above.
 
 ## Large servers and tool search
 

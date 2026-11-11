@@ -70,6 +70,15 @@ export const MCP_SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = [
  */
 export const DEFAULT_MCP_REQUEST_TIMEOUT_MS = 30_000
 
+/**
+ * How many request deadlines the total cap is when `resetTimeoutOnProgress`
+ * is on and the caller gave no `maxTotalTimeoutMs`: ten times
+ * `requestTimeoutMs` (5 minutes at the default), never above Node's maximum
+ * timer delay. Long enough for work that reports progress for minutes,
+ * short enough that a server which reports forever is still cut off.
+ */
+export const DEFAULT_MCP_TOTAL_TIMEOUT_FACTOR = 10
+
 /** JSON-RPC 2.0 reserved code for parameters the receiver cannot accept. */
 export const JSON_RPC_INVALID_PARAMS = -32602
 

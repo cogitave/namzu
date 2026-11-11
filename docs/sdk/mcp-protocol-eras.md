@@ -757,6 +757,42 @@ through `ToolContext.report` when the executing host supplies one; the CLI's
 existing `tool_progress` event and live tool row render them. Progress is for
 the operator and does not enter the model conversation.
 
+### Extending the deadline on progress
+
+By default every request has one deadline, `requestTimeoutMs` (30 seconds),
+that is never re-armed, so a call that reports progress for a minute is cut off
+at 30 seconds. Setting `resetTimeoutOnProgress: true` on `MCPClientConfig`
+makes that deadline an idle deadline for a `tools/call` made with `onProgress`:
+each accepted progress notification (a value that rose, as above) re-arms it to
+`requestTimeoutMs`. Requests without a progress token, and every other method,
+keep the fixed deadline.
+
+`maxTotalTimeoutMs` is a second deadline, counted from when the request was
+issued and never extended. It is an integer from 1 to 2,147,483,647 and must
+not be below `requestTimeoutMs`; the constructor throws otherwise, and also for
+a value that is not an integer, even while the option is off. Left out it is
+ten times `requestTimeoutMs` (`DEFAULT_MCP_TOTAL_TIMEOUT_FACTOR`), 5 minutes at
+the default, capped at Node's maximum timer delay.
+
+Both outcomes behave as a timeout does without the option: the pending entry
+is settled once, the progress registration removed, the correlated
+`notifications/cancelled` sent, and a caller's abort still wins. The error is a
+`TimeoutError` whose message names the deadline, either "timed out after N ms
+with no progress" or "timed out at its total limit of N ms", and the warning
+log carries `namzu.connector.deadline` as `idle` or `total_cap` (`request` when
+the option is off). No timer outlives the request. A retry is a new request with
+its own deadlines.
+
+```ts sketch
+const client = new MCPClient({
+  serverName: 'imports',
+  transport,
+  requestTimeoutMs: 30_000,
+  resetTimeoutOnProgress: true,
+  maxTotalTimeoutMs: 600_000,
+})
+```
+
 ## MRTR: `resultType` and a typed `input_required` outcome
 
 Any JSON-RPC result can carry a `resultType`: absent or `"complete"` is an
