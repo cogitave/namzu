@@ -2,15 +2,16 @@
 
 Expose the Namzu kernel to AG-UI clients through a typed event iterator or a
 Fetch-compatible POST/SSE endpoint. This optional package uses the official
-`@ag-ui/core` and `@ag-ui/encoder` packages at `0.0.59`; interoperability tests
-exercise the official `@ag-ui/client` `HttpAgent` at the same version.
+`@ag-ui/core` and `@ag-ui/encoder` packages at `1.0.4` (AG-UI protocol 1.0);
+interoperability tests exercise the official `@ag-ui/client` `HttpAgent` at the
+same version.
 
 ```bash
-pnpm add @namzu/ag-ui @namzu/sdk zod@^3
+pnpm add @namzu/ag-ui @namzu/sdk zod@^4
 ```
 
 `@namzu/ag-ui` 3.0 requires Node.js 20 or later, `@namzu/sdk >=48.0.0`,
-and `zod` 3.
+and `zod` 4.1 or later.
 
 **Compatibility.** Use `@namzu/ag-ui` 2.x with SDK 45.1–47. Version 3.0
 expects `QueryParams.toolsets` from SDK 48; replace a `ToolRegistry` in your

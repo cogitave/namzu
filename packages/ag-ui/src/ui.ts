@@ -1,4 +1,5 @@
-import { type BaseEvent, EventType, type Message, MessageSchema } from '@ag-ui/core'
+import { type BaseEvent, EventType, type Message } from '@ag-ui/core'
+import { MessageSchema } from '@ag-ui/core/schemas'
 import jsonPatch, { type Operation } from 'fast-json-patch'
 
 export interface AGUITurnUIOptions {
@@ -121,7 +122,7 @@ export class AGUITurnUI {
 }
 
 export function positiveLimit(value: number | undefined, fallback: number, name: string): number {
-	const limit = value ?? fallback
+	const limit = value === undefined ? fallback : value
 	if (!Number.isSafeInteger(limit) || limit < 1)
 		throw new RangeError(`${name} must be a positive safe integer`)
 	return limit

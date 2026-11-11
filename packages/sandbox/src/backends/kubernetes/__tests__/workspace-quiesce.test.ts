@@ -41,14 +41,14 @@
 import { execFileSync } from 'node:child_process'
 import { type ChildProcess, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { type AddressInfo, type Server, type Socket, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
 	type KubernetesQuiesceReport,
@@ -148,6 +148,42 @@ let savedPath: string | undefined
 let sandboxExists = false
 /** Every `PATCH` the cluster answered, so ordering can be asserted. */
 let patchedModes: string[] = []
+
+/**
+ * What the host has read of a running command, and a way to wait for it: the
+ * command prints a marker once it is in the state the case needs, and
+ * `reached(text)` resolves when that marker has crossed the real socket. The
+ * case proceeds on that event, never on a guessed pause; a marker that never
+ * arrives is a hang the case's Vitest timeout reports.
+ */
+function watchOutput(): {
+	readonly onOutput: (chunk: { readonly stream: string; readonly data: string }) => void
+	reached(text: string): Promise<void>
+} {
+	let seen = ''
+	const waiters: { text: string; resolve: () => void }[] = []
+	return {
+		onOutput: (chunk) => {
+			seen += chunk.data
+			for (let i = waiters.length - 1; i >= 0; i -= 1) {
+				const waiter = waiters[i]
+				if (waiter && seen.includes(waiter.text)) {
+					waiters.splice(i, 1)
+					waiter.resolve()
+				}
+			}
+		},
+		reached: (text) =>
+			seen.includes(text)
+				? Promise.resolve()
+				: new Promise<void>((resolve) => waiters.push({ text, resolve })),
+	}
+}
+
+/** Resolve when a file a case's own child writes exists. No deadline: see above. */
+async function fileExists(path: string): Promise<void> {
+	while (!existsSync(path)) await delay(10)
+}
 
 function clearEnv(): void {
 	for (const key of AGENT_ENV_KEYS) delete process.env[key]
@@ -294,41 +330,64 @@ describe.skipIf(!CAN_UNSHARE)(
 		 * it every process the case under test was about.
 		 */
 		async function startNamespacedAgent(): Promise<void> {
-			agentPort = await freePort()
-			agent = spawn(
-				'unshare',
-				[
-					'--kill-child',
-					'--user',
-					'--map-root-user',
-					'--pid',
-					'--fork',
-					'--mount-proc',
-					'sh',
-					'-c',
-					`node ${AGENT_FILE} & wait`,
-				],
-				{
-					env: {
-						...process.env,
-						NAMZU_AGENT_TCP_PORT: String(agentPort),
-						NAMZU_AGENT_BIND_TOKEN: POD_UID,
-						NAMZU_SANDBOX_WORKSPACE: workDir,
+			// The port comes from bind-0-and-close, so a parallel test file can
+			// take it first; the agent then exits (address in use) or a probe
+			// reaches something that is not the agent. Both are detected and
+			// the start is retried on a fresh port, a bounded number of TIMES.
+			for (let attempt = 1; ; attempt += 1) {
+				agentPort = await freePort()
+				agent = spawn(
+					'unshare',
+					[
+						'--kill-child',
+						'--user',
+						'--map-root-user',
+						'--pid',
+						'--fork',
+						'--mount-proc',
+						'sh',
+						'-c',
+						`node ${AGENT_FILE} & wait`,
+					],
+					{
+						env: {
+							...process.env,
+							NAMZU_AGENT_TCP_PORT: String(agentPort),
+							NAMZU_AGENT_BIND_TOKEN: POD_UID,
+							NAMZU_SANDBOX_WORKSPACE: workDir,
+						},
+						stdio: ['ignore', 'pipe', 'pipe'],
 					},
-					stdio: ['ignore', 'pipe', 'pipe'],
-				},
-			)
-			for (;;) {
-				try {
-					const health = await sendFramedRequest(agentPort, { op: 'healthz' }, 2_000)
-					if (health.reply.ok === true) {
-						expect(health.reply.features).toContain('quiesce')
-						return
+				)
+				const launched = agent
+				let exitedEarly = false
+				launched.once('exit', () => {
+					exitedEarly = true
+				})
+				let foreign = false
+				// No deadline: the agent answers or exits; a hang is the case's
+				// own Vitest timeout.
+				for (;;) {
+					try {
+						const health = await sendFramedRequest(agentPort, { op: 'healthz' }, 2_000)
+						if (health.reply.ok === true && !exitedEarly) {
+							expect(health.reply.features).toContain('quiesce')
+							return
+						}
+					} catch (error) {
+						if (String((error as Error).message).includes('not speaking the agent protocol')) {
+							foreign = true
+						}
 					}
-				} catch {
-					// Not listening yet.
+					if (exitedEarly || foreign) break
+					await delay(50)
 				}
-				await delay(50)
+				if (launched.exitCode === null && launched.signalCode === null) launched.kill('SIGKILL')
+				if (attempt >= 5) {
+					throw new Error(
+						'the namespaced agent could not be started on a free port, 5 times running',
+					)
+				}
 			}
 		}
 
@@ -379,8 +438,12 @@ describe.skipIf(!CAN_UNSHARE)(
 			await workspace.killSession('shell-1')
 			// The writer outlives the terminal that started it: this is the gap.
 			const beforeKill = statSync(marker).size
-			await delay(2_500)
-			expect(statSync(marker).size).toBeGreaterThan(beforeKill)
+			// Waits for the writer's next write, an event, rather than for a
+			// guessed number of seconds in which it must have made one.
+			await vi.waitFor(() => expect(statSync(marker).size).toBeGreaterThan(beforeKill), {
+				timeout: 30_000,
+				interval: 100,
+			})
 
 			const report = await workspace.quiesce()
 			expect(report.scope).toBe('pid-namespace')
@@ -411,18 +474,28 @@ describe.skipIf(!CAN_UNSHARE)(
 			await startNamespacedAgent()
 			const workspace = await openWorkspace(agentPort)
 
-			// Ignores SIGTERM, so only the escalation can end it.
+			// Ignores SIGTERM, so only the escalation can end it. It says so
+			// once the trap is installed: a TERM that landed before the trap
+			// would end it the ordinary way and the case would prove nothing.
+			const stubbornUp = join(workDir, 'stubborn.up')
 			await workspace.startDetached({
 				sessionId: 'stubborn',
 				command: '/bin/sh',
-				args: ['-c', "trap '' TERM; while :; do sleep 1; done"],
+				args: ['-c', `trap '' TERM; touch ${stubbornUp}; while :; do sleep 1; done`],
 			})
 			// And a command in flight whose GROUP LEADER dies before the rest of
 			// its group — the shape that makes an unmarked execution's close
 			// handler fence the agent, after which the capture the quiesce was
-			// performed for could no longer run.
-			const running = workspace.exec('/bin/sh', ['-c', "(trap '' TERM; exec sleep 60) & wait"])
-			await delay(500)
+			// performed for could no longer run. Its background half prints
+			// once ITS trap is in.
+			const output = watchOutput()
+			const running = workspace.exec(
+				'/bin/sh',
+				['-c', "(trap '' TERM; echo up; exec sleep 60) & wait"],
+				{ onOutput: output.onOutput },
+			)
+			await fileExists(stubbornUp)
+			await output.reached('up\n')
 
 			const report = await workspace.quiesce({ graceMs: 1_000 })
 			expect(report.stopped.some((row) => row.signal === 'SIGKILL')).toBe(true)
@@ -455,8 +528,16 @@ describe.skipIf(!CAN_UNSHARE)(
 
 			// Held open by the SIGTERM-ignoring program for at least one grace
 			// window, which is what makes the window observable at all.
-			const quiescing = workspace.quiesce({ graceMs: 1_500 })
-			await delay(300)
+			//
+			// The grace is long enough that the requests below all land inside
+			// it on a slow machine, and the window is entered on an EVENT: the
+			// first probe the guest refuses is the proof the gate is up.
+			const quiescing = workspace.quiesce({ graceMs: 4_000 })
+			for (;;) {
+				const probe = await ask('reserve-execution')
+				if (probe.ok === false) break
+				await delay(10)
+			}
 
 			expect(await ask('reserve-execution')).toEqual({ ok: false, error: 'quiesce_in_progress' })
 			expect(await ask('start-detached', { sessionId: 'later', command: '/bin/sh' })).toEqual({
@@ -489,8 +570,12 @@ describe.skipIf(!CAN_UNSHARE)(
 			// awaiting. Neither is told about the quiesce; each finds out the
 			// way it would find out about any other ending.
 			const terminal = await workspace.openTerminal({ size: { cols: 80, rows: 24 } })
-			const running = workspace.exec('/bin/sleep', ['60'])
-			await delay(750)
+			const output = watchOutput()
+			// `exec` leaves `sleep` as the process, and the marker says it is up.
+			const running = workspace.exec('/bin/sh', ['-c', 'echo up; exec sleep 60'], {
+				onOutput: output.onOutput,
+			})
+			await output.reached('up\n')
 
 			const report = await workspace.quiesce({ graceMs: 1_000 })
 			expect(report.scope).toBe('pid-namespace')
@@ -506,8 +591,9 @@ describe.skipIf(!CAN_UNSHARE)(
 			// (An interactive shell ignores SIGTERM, so this one is always the
 			// escalation — which is also why a quiesce with a terminal open
 			// spends a full grace window before it finishes.)
-			const exit = await Promise.race([terminal.exited, delay(20_000).then(() => 'never' as const)])
-			expect(exit).not.toBe('never')
+			// Awaited outright: an exit that never comes is a hang the case's
+			// own Vitest timeout reports.
+			const exit = await terminal.exited
 			expect(typeof (exit as { exitCode: number }).exitCode).toBe('number')
 		}, 60_000)
 
@@ -734,11 +820,9 @@ describe.skipIf(IS_WINDOWS)('a guest whose image cannot quiesce, and one that re
 		// A plain suspend, patched and now waiting for a pod this fixture
 		// never stops — so it is genuinely in flight for the rest of the case.
 		const plain = workspace.suspend().catch(() => undefined)
-		const deadline = Date.now() + 5_000
-		while (patchedModes.length === 0) {
-			if (Date.now() > deadline) throw new Error('the plain suspend never patched')
-			await delay(10)
-		}
+		// The patch is an event over a real socket; how long it takes is the
+		// machine's, so this waits for it instead of racing a deadline.
+		await vi.waitFor(() => expect(patchedModes.length).toBeGreaterThan(0), { timeout: 30_000 })
 
 		// Joining THAT would hand this caller a resolved suspend over a guest
 		// nothing stopped, which is the one silent failure this feature must
@@ -763,11 +847,10 @@ describe.skipIf(IS_WINDOWS)('a guest whose image cannot quiesce, and one that re
 		})
 		const workspace = await openWorkspace(scripted.port)
 		const quiescing = workspace.suspend({ quiesce: true }).catch((err: unknown) => err)
-		const deadline = Date.now() + 5_000
-		while (!scripted.requests.some((request) => request.op === 'quiesce')) {
-			if (Date.now() > deadline) throw new Error('the quiesce request never arrived')
-			await delay(10)
-		}
+		await vi.waitFor(
+			() => expect(scripted?.requests.some((request) => request.op === 'quiesce')).toBe(true),
+			{ timeout: 30_000 },
+		)
 
 		// One asks for less than the flight is doing, one asks for exactly it.
 		// Both are satisfied by the transition in flight, so both join it —
@@ -825,11 +908,10 @@ describe.skipIf(IS_WINDOWS)('a guest whose image cannot quiesce, and one that re
 		})
 		const suspending = workspace.suspend({ quiesce: true }).catch(() => undefined)
 		// The guest has the request and has not answered it yet.
-		const deadline = Date.now() + 5_000
-		while (!scripted.requests.some((request) => request.op === 'quiesce')) {
-			if (Date.now() > deadline) throw new Error('the quiesce request never arrived')
-			await delay(10)
-		}
+		await vi.waitFor(
+			() => expect(scripted?.requests.some((request) => request.op === 'quiesce')).toBe(true),
+			{ timeout: 30_000 },
+		)
 		expect(patchedModes).toEqual([])
 		await suspending
 		expect(patchedModes).toEqual(['Suspended'])

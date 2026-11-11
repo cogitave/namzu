@@ -1,4 +1,5 @@
-import { EventType, type Message, MessageSchema } from '@ag-ui/core'
+import { EventType, type Message } from '@ag-ui/core'
+import { MessageSchema } from '@ag-ui/core/schemas'
 import {
 	InMemorySessionLog,
 	type SessionRecordDraft,
@@ -198,7 +199,7 @@ describe('toNamzuMessages', () => {
 				{ type: 'image', source: { type: 'data', value: 'aW1hZ2U=', mimeType: 'image/png' } },
 				{ type: 'text', text: 'Second' },
 				{ type: 'document', source: { type: 'data', value: 'cGRm', mimeType: 'application/pdf' } },
-				{ type: 'binary', data: 'dGV4dA==', mimeType: 'text/plain', filename: 'notes.txt' },
+				{ type: 'document', source: { type: 'data', value: 'dGV4dA==', mimeType: 'text/plain' } },
 			],
 		})
 		expect(toNamzuMessages([message])).toEqual([
@@ -208,7 +209,7 @@ describe('toNamzuMessages', () => {
 				attachments: [
 					{ type: 'image', data: 'aW1hZ2U=', mediaType: 'image/png' },
 					{ type: 'document', data: 'cGRm', mediaType: 'application/pdf' },
-					{ type: 'document', data: 'dGV4dA==', mediaType: 'text/plain', name: 'notes.txt' },
+					{ type: 'document', data: 'dGV4dA==', mediaType: 'text/plain' },
 				],
 			},
 		])
@@ -217,14 +218,7 @@ describe('toNamzuMessages', () => {
 	it.each([
 		{ type: 'image', source: { type: 'url', value: 'https://example.com/image.png' } },
 		{ type: 'document', source: { type: 'url', value: 'file:///private.pdf' } },
-		{ type: 'binary', mimeType: 'image/png', id: 'remote-attachment' },
-		{
-			type: 'binary',
-			mimeType: 'image/png',
-			data: 'aW1hZ2U=',
-			url: 'https://example.com/image.png',
-		},
-		{ type: 'binary', mimeType: 'audio/wav', data: 'YXVkaW8=' },
+		{ type: 'image', source: { type: 'file', value: 'file-abc123', provider: 'openai' } },
 		{ type: 'audio', source: { type: 'data', value: 'YXVkaW8=', mimeType: 'audio/wav' } },
 		{ type: 'video', source: { type: 'data', value: 'dmlkZW8=', mimeType: 'video/mp4' } },
 		{ type: 'image', source: { type: 'data', value: '!!!', mimeType: 'image/png' } },
@@ -232,6 +226,61 @@ describe('toNamzuMessages', () => {
 	])('refuses unsupported rich content instead of dropping it: %j', (part) => {
 		const message = parse({ id: 'rich', role: 'user', content: [part] })
 		expect(() => toNamzuMessages([message])).toThrow('Cannot convert AG-UI history')
+	})
+
+	it('keeps a text-only tool result a string and maps media parts to result blocks in order', () => {
+		const withParts = (content: unknown) =>
+			toNamzuMessages([
+				assistant(),
+				parse({ id: 'result', role: 'tool', toolCallId: 'call:1', content }),
+			])[1]
+		expect(
+			withParts([
+				{ type: 'text', text: 'Sun' },
+				{ type: 'text', text: 'ny' },
+			]),
+		).toEqual({ role: 'tool', toolCallId: 'call:1', content: 'Sunny' })
+		expect(
+			withParts([
+				{ type: 'text', text: 'Chart:' },
+				{ type: 'image', source: { type: 'data', value: 'aW1hZ2U=', mimeType: 'image/png' } },
+				{ type: 'document', source: { type: 'data', value: 'cGRm', mimeType: 'application/pdf' } },
+			]),
+		).toEqual({
+			role: 'tool',
+			toolCallId: 'call:1',
+			content: [
+				{ type: 'text', text: 'Chart:' },
+				{ type: 'image', data: 'aW1hZ2U=', mediaType: 'image/png' },
+				{ type: 'document', data: 'cGRm', mediaType: 'application/pdf' },
+			],
+		})
+	})
+
+	it.each([
+		{ type: 'image', source: { type: 'url', value: 'https://example.com/a.png' } },
+		{ type: 'image', source: { type: 'file', value: 'file-abc' } },
+		{ type: 'audio', source: { type: 'data', value: 'YXVkaW8=', mimeType: 'audio/wav' } },
+		{ type: 'video', source: { type: 'data', value: 'dmlkZW8=', mimeType: 'video/mp4' } },
+		{ type: 'image', source: { type: 'data', value: '!!!', mimeType: 'image/png' } },
+	])('refuses a tool result part it cannot carry: %j', (part) => {
+		const message = parse({ id: 'result', role: 'tool', toolCallId: 'call:1', content: [part] })
+		expect(() => toNamzuMessages([assistant(), message])).toThrow(
+			expect.objectContaining({ status: 422, code: 'INVALID_MESSAGE_HISTORY' }),
+		)
+	})
+
+	it.each([
+		{ type: 'binary', mimeType: 'image/png', data: 'aW1hZ2U=' },
+		{ type: 'binary', mimeType: 'application/pdf', id: 'remote-attachment' },
+	])('answers a 0.x binary part with a 422 that names the replacement: %j', (part) => {
+		const old = { id: 'old', role: 'user', content: [part] }
+		const convert = () => toNamzuMessages([old as unknown as Message])
+		expect(convert).toThrow(
+			expect.objectContaining({ status: 422, code: 'INVALID_MESSAGE_HISTORY' }),
+		)
+		expect(convert).toThrow('binary content at message index 0 is not part of AG-UI 1.0')
+		expect(() => MessageSchema.parse(old)).toThrow()
 	})
 
 	it('validates JavaScript callers against the official message schema', () => {

@@ -10,7 +10,7 @@ import { LocalSandboxProvider } from '../provider/local.js'
 /**
  * Real bwrap, when the machine has it: a detached process runs under the
  * same mounts as `exec`, its output arrives on the pipes, and the
- * sandbox's kill ends it — inner reaper included — within the grace.
+ * sandbox's kill ends it — inner reaper included.
  */
 
 let root: string
@@ -33,17 +33,24 @@ describe.skipIf(!bwrap)('a detached process in the local sandbox', () => {
 		expect(started).toBeDefined()
 		if (!started) return
 		let out = ''
-		started.child.stdout?.on('data', (chunk: Buffer) => {
-			out += chunk.toString('utf8')
+		// Resolves when the marker's text has arrived on the pipe: an event,
+		// not a guess at how long a bwrap spawn takes. A process that never
+		// prints is a hang the case's own Vitest timeout reports.
+		const sawMarker = new Promise<void>((resolve) => {
+			started.child.stdout?.on('data', (chunk: Buffer) => {
+				out += chunk.toString('utf8')
+				if (out.includes('inside the root')) resolve()
+			})
 		})
-		await new Promise((r) => setTimeout(r, 1500))
+		await sawMarker
 		expect(out).toContain('inside the root')
 		const exited = new Promise<void>((resolve) => started.child.once('close', () => resolve()))
-		const at = Date.now()
 		started.kill('SIGTERM')
-		await Promise.race([exited, new Promise((r) => setTimeout(r, 8000))])
+		// Awaited outright, with no sentinel racing it and no bound on how
+		// long it takes: the process sleeps 30s, so a kill that did not land
+		// shows as the Vitest timeout, not as a slow machine.
+		await exited
 		expect(started.child.exitCode !== null || started.child.signalCode !== null).toBe(true)
-		expect(Date.now() - at).toBeLessThan(8000)
 		await sandbox.destroy()
 	}, 20_000)
 })

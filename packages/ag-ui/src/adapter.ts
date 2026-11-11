@@ -4,7 +4,8 @@ import {
 	EventType,
 	type Interrupt,
 	type RunAgentInput,
-	RunAgentInputSchema,
+	contentHasMedia,
+	contentToText,
 } from '@ag-ui/core'
 import { EventEncoder } from '@ag-ui/encoder'
 import {
@@ -59,6 +60,12 @@ import {
 	questionInterrupt,
 	readResume,
 } from './interrupts.js'
+import {
+	type AGUIRequestLimits,
+	type ResolvedRequestLimits,
+	parseRunInput,
+	resolveRequestLimits,
+} from './request.js'
 import { LiveTurn, type Park, fromListener } from './turn.js'
 import { AGUITurnUI, type AGUITurnUIOptions, positiveLimit } from './ui.js'
 
@@ -159,7 +166,7 @@ export interface AGUIInterruptOptions {
 	readonly ttlMs?: number
 }
 
-export interface AGUIAdapterOptions extends AGUITurnUIOptions {
+export interface AGUIAdapterOptions extends AGUITurnUIOptions, AGUIRequestLimits {
 	/** Resolve authorized scope, tools and admitted history on the host. */
 	readonly createQuery: AGUIQueryFactory
 	/** Request JSON byte limit, including streamed/chunked bodies. Defaults to 4 MiB. */
@@ -268,6 +275,7 @@ const DEADLINE_MARGIN_MS = 5_000
 export class AGUIAdapter {
 	private readonly maxRequestBytes: number
 	private readonly maxEventBytes: number
+	private readonly requestLimits: ResolvedRequestLimits
 	private readonly store: AGUIInterruptStore
 	private readonly ttlMs: number | undefined
 	/** Turns waiting inside a tool for the client, by native turn id. */
@@ -275,6 +283,7 @@ export class AGUIAdapter {
 
 	constructor(private readonly options: AGUIAdapterOptions) {
 		this.maxRequestBytes = positiveLimit(options.maxRequestBytes, 4_194_304, 'maxRequestBytes')
+		this.requestLimits = resolveRequestLimits(options)
 		this.maxEventBytes = positiveLimit(options.maxEventBytes, 1_048_576, 'maxEventBytes')
 		if (this.maxEventBytes < 256) throw new RangeError('maxEventBytes must be at least 256')
 		positiveLimit(options.maxPendingEvents, 128, 'maxPendingEvents')
@@ -349,9 +358,7 @@ export class AGUIAdapter {
 		request?: Request,
 	): Promise<PreparedRequest> {
 		externalSignal?.throwIfAborted()
-		const parsed = RunAgentInputSchema.safeParse(value)
-		if (!parsed.success) throw new AGUIRequestError('Invalid AG-UI RunAgentInput.', 422)
-		const input = parsed.data
+		const input = parseRunInput(value, this.requestLimits)
 		if (!input.threadId.trim() || !input.runId.trim())
 			throw new AGUIRequestError('threadId and runId must be non-empty strings.')
 		if (
@@ -629,8 +636,17 @@ export class AGUIAdapter {
 		const results = new Map<string, FrontendToolResult>()
 		for (const message of input.messages) {
 			if (message.role !== 'tool') continue
+			if (typeof message.content !== 'string' && contentHasMedia(message.content)) {
+				return {
+					kind: 'refuse',
+					error: new AGUIResumeError(
+						'AGUI_RESUME_INVALID',
+						'A frontend tool result must be text; media parts are not supported.',
+					),
+				}
+			}
 			results.set(message.toolCallId, {
-				content: message.content,
+				content: contentToText(message.content),
 				isError: message.error !== undefined || hasErrorMetadata(message.metadata),
 			})
 		}
