@@ -8,7 +8,7 @@ import {
 import { assertSessionLogAttribution } from '../../manager/session/attribution.js'
 import {
 	type RecordedMessage,
-	readEverRecordedMessages,
+	readEverRecordedMessageIndex,
 	readFoldedHistory,
 } from '../../manager/session/turn-recorder.js'
 import { resolveModelPricing } from '../../pricing/index.js'
@@ -1164,7 +1164,8 @@ async function reconcileCallerMessages(
 	continuationMode: boolean,
 ): Promise<Message[]> {
 	const hasId = messages.some((message) => message.id !== undefined)
-	const recordedById = hasId ? await readEverRecordedMessages(log) : undefined
+	const everRecorded = hasId ? await readEverRecordedMessageIndex(log) : undefined
+	const recordedById = everRecorded?.latest
 	// Ids a caller message already claimed by direct lookup above: a fold
 	// entry that gave one of THESE out must not also be offered to the no-id
 	// alignment below, or a message that already reconciled by id could be
@@ -1182,7 +1183,13 @@ async function reconcileCallerMessages(
 		if (id !== undefined) {
 			const recorded = recordedById?.get(id)
 			if (recorded === undefined) throw staleCachedHistoryError('foreign', message)
-			if (!sameMessageContent(recorded, message)) throw staleCachedHistoryError('edited', message)
+			if (!sameMessageContent(recorded, message)) {
+				// A compaction pass edits a message under its own id; a host that
+				// cached the history before the pass still holds the first text.
+				// Answered from the reduction already read: no read of the log.
+				if (!(await everRecorded?.heldBeforeAnEdit(id, message)))
+					throw staleCachedHistoryError('edited', message)
+			}
 			claimedIds.add(id)
 			continue // already durable: the fold supplies it
 		}

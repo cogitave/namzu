@@ -86,7 +86,7 @@ export async function* settlePreStartCancellation(
 
 	const push = (message: Message, ids: ReadonlyMap<Message, MessageId>): void => {
 		const messageId = ids.get(message)
-		ctx.recorder.pushMessage(message, messageId ? { messageId } : {})
+		ctx.recorder.pushMessage(message, { ...(messageId ? { messageId } : {}), restored: true })
 	}
 	try {
 		if (selectedResumeState) {

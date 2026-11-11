@@ -822,7 +822,8 @@ async function readRecordedMessage(
 		}
 		if (
 			(entry.type === 'message' && entry.messageId === messageId) ||
-			(entry.type === 'message_replaced' && entry.targetMessageId === messageId)
+			((entry.type === 'message_replaced' || entry.type === 'message_edited') &&
+				entry.targetMessageId === messageId)
 		) {
 			found = { content: entry.content, ...(entry.spill ? { spill: entry.spill } : {}) }
 		}

@@ -27,7 +27,8 @@ import type { SessionLog } from './core.js'
  *
  * Cost that remains: the state of the "every message ever recorded" reduction
  * holds each message the log ever recorded, superseded and compacted ones
- * included, so it grows with the log and not with the live context, and it
+ * included, and the earlier texts of an edited message (one per edit, until a
+ * replacement clears them), so it grows with the log and not with the live context, and it
  * lives for the life of the process (for the sessions kept). Reading it
  * returns a copy of all of them, which is O(history) per turn. Both are small
  * next to the whole-log walks this file removes, and are left as they are.
