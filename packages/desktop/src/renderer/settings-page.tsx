@@ -1,6 +1,7 @@
 import { Activity, Bot, KeyRound, SquareTerminal, Volume2, Wrench } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { ProjectView } from '../shared/protocol.js'
+import { FINISHED_NOTICE_AFTER_SECONDS } from '../shared/settings-protocol.js'
 import {
 	type DataFolderKind,
 	type DesktopInfo,
@@ -391,7 +392,7 @@ function GeneralSection({ settings, shells }: SectionProps) {
 			<Row
 				id="notify-finished"
 				label="Notify me when a long reply finishes"
-				description="A system notification when a reply that took more than 30 seconds is done and Namzu is in the background. A reply you watched end needs none."
+				description={`A system notification when a reply that took ${FINISHED_NOTICE_AFTER_SECONDS} seconds or more is done and Namzu is in the background. A reply you watched end needs none.`}
 			>
 				<Switch
 					label="Notify me when a long reply finishes"

@@ -17,3 +17,19 @@ export function viewedTabs(
 	}
 	return viewed
 }
+
+/**
+ * The windows that hold this conversation as a tab, those showing it as the active tab of a pane
+ * first, then those with it in a background tab, each in layout order. A notification click uses
+ * it to open the conversation where it already is.
+ */
+export function windowsHoldingTab(layout: WorkspaceLayoutSnapshot, tabId: string): string[] {
+	const showing: string[] = []
+	const holding: string[] = []
+	for (const window of layout.windows) {
+		const groups = workspaceGroups(window.root)
+		if (groups.some((group) => group.activeTabId === tabId)) showing.push(window.id)
+		else if (groups.some((group) => group.tabs.includes(tabId))) holding.push(window.id)
+	}
+	return [...showing, ...holding]
+}

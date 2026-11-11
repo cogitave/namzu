@@ -23,9 +23,17 @@ const REFUSED = {
 
 async function shot(w, name) {
 	if (!SHOTS) return;
-	// Only a picture waits for the tab and card transitions; no assertion depends on it.
+	// Only a picture waits for the tab and card transitions, by their own completion, not a sleep.
 	await w.page.mouse.move(700, 300);
-	await w.page.waitForTimeout(700);
+	// An animation that never ends (a spinner) has no `finished`; only the finite ones are awaited.
+	await w.page.evaluate(() =>
+		Promise.all(
+			document
+				.getAnimations()
+				.filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+				.map((a) => a.finished.catch(() => {})),
+		),
+	);
 	mkdirSync(SHOTS, { recursive: true });
 	await w.page.screenshot({ path: join(SHOTS, `${name}.png`) });
 }

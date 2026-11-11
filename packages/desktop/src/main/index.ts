@@ -137,7 +137,7 @@ import {
 	bakedFeedDeclared,
 	updateFeedFromEnv,
 } from './updater.js'
-import { viewedTabs } from './viewed-conversations.js'
+import { viewedTabs, windowsHoldingTab } from './viewed-conversations.js'
 import { VoiceInputManager } from './voice-input.js'
 import {
 	readWindowMenu,
@@ -470,7 +470,14 @@ const attention = new AttentionSignals({
 })
 /** A notification was clicked: bring a window forward and show that conversation. */
 function showConversationFromNotice(sessionId: string): void {
+	const open = new Map(windows.entries())
+	// A click normally arrives with no window focused, so prefer a window that already has the
+	// conversation as a tab, then the focused one, then any.
+	const holder = windowsHoldingTab(workspace.snapshot(), sessionId)
+		.map((windowId) => open.get(windowId))
+		.find((window) => window && !window.isDestroyed())
 	const target =
+		holder ??
 		BrowserWindow.getFocusedWindow() ??
 		windows
 			.entries()
@@ -513,8 +520,9 @@ const notices = new SystemNotices({
 		return { close: () => notice.close() }
 	},
 	now: () => Date.now(),
-	// A run that records instead of showing cannot wait half a minute for a turn to count as long.
-	...(noticeHook ? { finishedAfterMs: () => 1 } : {}),
+	// A run that records instead of showing cannot wait half a minute for a turn to count as long,
+	// nor three seconds for events to fold.
+	...(noticeHook ? { finishedAfterMs: () => 1, foldMs: () => 50 } : {}),
 	schedule: (ms, run) => {
 		const timer = setTimeout(run, ms)
 		timer.unref()

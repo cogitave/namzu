@@ -758,14 +758,18 @@ export class Operator {
 	}
 	/** The conversations whose turn is waiting on the person (an approval or a question). */
 	needsYou(): string[] {
+		// The sidebar's own rule, so the badge and the row mark cannot disagree.
+		return this.needsYouRows(false)
+	}
+	/** One rule for "waiting on the person"; a Pal's conversation counts only when `includePals`. */
+	private needsYouRows(includePals: boolean): string[] {
 		return needsYouIds(
 			[...this.conversations.entries()].map(([id, session]) => ({
 				id,
-				// The sidebar's own rule, so the badge and the row mark cannot disagree.
 				running: session.projection.running,
 				waiting:
 					threadPhase(session.projection) === 'waiting' ? session.projection.permissions.length : 0,
-				pal: Boolean(session.view.palId),
+				...(includePals ? {} : { pal: Boolean(session.view.palId) }),
 			})),
 		)
 	}
@@ -773,22 +777,12 @@ export class Operator {
 		if (this.options.attentionChanged || this.options.notices) {
 			try {
 				this.options.attentionChanged?.(this.needsYou())
-				this.options.notices?.needsYou(this.waitingForYou())
+				// A Pal that asks is still blocked on the person, so the notice counts it; the badge does not.
+				this.options.notices?.needsYou(this.needsYouRows(true))
 			} catch (error) {
 				this.diagnostics?.record('ipc_failed', { operation: 'attention', error })
 			}
 		}
-	}
-	/** Like `needsYou`, but a Pal's conversation counts: a Pal that asks is still blocked on the person. */
-	private waitingForYou(): string[] {
-		return needsYouIds(
-			[...this.conversations.entries()].map(([id, session]) => ({
-				id,
-				running: session.projection.running,
-				waiting:
-					threadPhase(session.projection) === 'waiting' ? session.projection.permissions.length : 0,
-			})),
-		)
 	}
 	/** The name of the project a conversation belongs to, for a notification title. */
 	projectNameOf(conversationId: string): string | undefined {
@@ -797,8 +791,10 @@ export class Operator {
 	}
 	private noticeTurnEnded(session: Conversation): void {
 		const { error, stopReason } = session.projection
+		// Only a stop the person asked for is `other`. A reply that ended on its length limit, a
+		// refusal or a forced finish is still a long turn the person is waiting to hear about.
 		const outcome =
-			error || stopReason === 'error' ? 'failed' : stopReason === 'end_turn' ? 'finished' : 'other'
+			error || stopReason === 'error' ? 'failed' : stopReason === 'cancelled' ? 'other' : 'finished'
 		try {
 			this.options.notices?.turnEnded(session.view.id, outcome, Boolean(session.view.palId))
 		} catch (error) {

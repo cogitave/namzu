@@ -8,7 +8,7 @@ import {
 	SystemNotices,
 } from './system-notices.js'
 
-function setup(initial: Partial<NoticeSettings> = {}, finishedAfterMs?: number) {
+function setup(initial: Partial<NoticeSettings> = {}, finishedAfterMs?: number, foldMs?: number) {
 	let clock = 1_000_000
 	let focused = false
 	let supported = true
@@ -37,6 +37,7 @@ function setup(initial: Partial<NoticeSettings> = {}, finishedAfterMs?: number) 
 		},
 		now: () => clock,
 		...(finishedAfterMs === undefined ? {} : { finishedAfterMs: () => finishedAfterMs }),
+		...(foldMs === undefined ? {} : { foldMs: () => foldMs }),
 		schedule: (ms, run) => {
 			const timer = { at: clock + ms, run, live: true }
 			timers.push(timer)
@@ -100,6 +101,41 @@ describe('system notices', () => {
 		t.notices.turnEnded('b', 'finished', false)
 		t.advance(FOLD_MS)
 		expect(t.shown).toHaveLength(1)
+	})
+
+	it('notifies a turn that ran exactly the threshold, and not one a millisecond short of it', () => {
+		const t = setup()
+		t.notices.turnStarted('a')
+		t.advance(FINISHED_NOTICE_AFTER_MS)
+		t.notices.turnEnded('a', 'finished', false)
+		t.advance(FOLD_MS)
+		expect(t.shown).toHaveLength(1)
+	})
+
+	it('folds for the time the host names, not the default', () => {
+		const t = setup({}, undefined, 50)
+		t.notices.needsYou(['a'])
+		t.advance(49)
+		expect(t.shown).toHaveLength(0)
+		t.advance(1)
+		expect(t.shown).toHaveLength(1)
+	})
+
+	it('drops a second event of the same kind for a conversation until a window is focused', () => {
+		const t = setup()
+		t.notices.turnStarted('a')
+		t.notices.turnEnded('a', 'failed', false)
+		t.advance(FOLD_MS)
+		t.notices.turnStarted('a')
+		t.notices.turnEnded('a', 'failed', false)
+		t.advance(FOLD_MS)
+		expect(t.shown).toHaveLength(1)
+		t.focus(true)
+		t.focus(false)
+		t.notices.turnStarted('a')
+		t.notices.turnEnded('a', 'failed', false)
+		t.advance(FOLD_MS)
+		expect(t.shown).toHaveLength(2)
 	})
 
 	it('reads the threshold from the host when it names one', () => {

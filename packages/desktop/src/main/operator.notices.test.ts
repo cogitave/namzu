@@ -62,6 +62,28 @@ it('reports a turn starting and a normal end as finished', async () => {
 	])
 })
 
+it('reports a reply that ended on its length limit as finished, not as something else', async () => {
+	const h = harness()
+	const project = await h.owner.openProject(process.cwd())
+	const a = await h.owner.newConversation(project.id)
+	const ended = h.wait((e) => e.kind === 'state' && e.sessionId === a.id && !e.running)
+	h.owner.send(a.id, 'Max tokens turn with fixture')
+	await ended
+	expect(h.calls.filter((call) => call[0] === 'ended')).toEqual([
+		['ended', a.id, 'finished', false],
+	])
+})
+
+it('reports a stop the person asked for as other', async () => {
+	const h = harness()
+	const project = await h.owner.openProject(process.cwd())
+	const a = await h.owner.newConversation(project.id)
+	const ended = h.wait((e) => e.kind === 'state' && e.sessionId === a.id && !e.running)
+	h.owner.send(a.id, 'Pause turn with fixture')
+	await ended
+	expect(h.calls.filter((call) => call[0] === 'ended')).toEqual([['ended', a.id, 'other', false]])
+})
+
 it('reports a turn that stopped with an error as failed, and a Pal turn as a Pal turn', async () => {
 	const h = harness()
 	const project = await h.owner.openProject(process.cwd())

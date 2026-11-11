@@ -1,4 +1,5 @@
 import type { ProjectView } from '../shared/protocol.js'
+import { FINISHED_NOTICE_AFTER_SECONDS } from '../shared/settings-protocol.js'
 import {
 	type DataFolderKind,
 	type SettingsSection,
@@ -120,8 +121,7 @@ export const SETTINGS_ENTRIES: readonly SettingsEntry[] = [
 		id: 'notify-finished',
 		section: 'general',
 		label: 'Notify me when a long reply finishes',
-		description:
-			'A system notification when a reply that took more than 30 seconds is done and Namzu is in the background.',
+		description: `A system notification when a reply that took ${FINISHED_NOTICE_AFTER_SECONDS} seconds or more is done and Namzu is in the background.`,
 		keywords: [
 			'notification',
 			'notify',

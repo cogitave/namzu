@@ -28,7 +28,9 @@ export interface NoticeHost {
 	now(): number
 	/** Runs `run` after `ms`; returns a cancel. */
 	schedule(ms: number, run: () => void): () => void
-	/** A turn must run at least this long to be worth a "finished" notification; defaults to 30 seconds. */
+	/** How long events fold into one notification; defaults to `FOLD_MS`. */
+	foldMs?(): number
+	/** A turn must run at least this long to be worth a "finished" notification; defaults to `FINISHED_NOTICE_AFTER_MS` (a turn that ran exactly that long counts). */
 	finishedAfterMs?(): number
 	/** Read on every event: the settings can change while the app runs. */
 	settings(): NoticeSettings
@@ -144,7 +146,8 @@ export class SystemNotices {
 		if (ids.includes(id)) return
 		ids.push(id)
 		this.batch.set(kind, ids)
-		if (!this.cancelFold) this.cancelFold = this.host.schedule(FOLD_MS, () => this.flush())
+		if (!this.cancelFold)
+			this.cancelFold = this.host.schedule(this.host.foldMs?.() ?? FOLD_MS, () => this.flush())
 	}
 
 	private flush(): void {

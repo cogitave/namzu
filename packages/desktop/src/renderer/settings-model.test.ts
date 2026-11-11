@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectView } from '../shared/protocol.js'
-import { SETTINGS_SECTIONS } from '../shared/settings-protocol.js'
+import { FINISHED_NOTICE_AFTER_MS, SETTINGS_SECTIONS } from '../shared/settings-protocol.js'
 import {
 	ENGINE_ONLY_SECTIONS,
 	SETTINGS_ENTRIES,
@@ -195,5 +195,12 @@ describe('notification setting search', () => {
 		expect(find('banner')).toContain('notify-needs-you')
 		expect(find('chime')).toContain('notify-sound')
 		expect(find('done')).toContain('notify-finished')
+	})
+})
+
+describe('finished notification wording', () => {
+	it('names the same threshold the main process uses, and says "or more"', () => {
+		const entry = searchSettings('done').find((item) => item.id === 'notify-finished')
+		expect(entry?.description).toContain(`${FINISHED_NOTICE_AFTER_MS / 1000} seconds or more`)
 	})
 })
