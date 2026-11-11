@@ -4,8 +4,10 @@ import {
 	EventType,
 	type Interrupt,
 	type RunAgentInput,
-	RunAgentInputSchema,
+	contentHasMedia,
+	contentToText,
 } from '@ag-ui/core'
+import { RunAgentInputSchema } from '@ag-ui/core/schemas'
 import { EventEncoder } from '@ag-ui/encoder'
 import {
 	type HITLDecisionRequest,
@@ -629,8 +631,17 @@ export class AGUIAdapter {
 		const results = new Map<string, FrontendToolResult>()
 		for (const message of input.messages) {
 			if (message.role !== 'tool') continue
+			if (typeof message.content !== 'string' && contentHasMedia(message.content)) {
+				return {
+					kind: 'refuse',
+					error: new AGUIResumeError(
+						'AGUI_RESUME_INVALID',
+						'A frontend tool result must be text; media parts are not supported.',
+					),
+				}
+			}
 			results.set(message.toolCallId, {
-				content: message.content,
+				content: contentToText(message.content),
 				isError: message.error !== undefined || hasErrorMetadata(message.metadata),
 			})
 		}

@@ -19,10 +19,25 @@ Install `@namzu/ag-ui` 3.x, `@namzu/sdk >=48.0.0`, and the SDK's Zod v4 peer in 
 Node.js 20+ ESM application. Use `@namzu/ag-ui` 2.x with SDK 45.1–47; version 3
 requires `QueryParams.toolsets` in each host `createQuery` result. `zod` is a
 peer of `@namzu/ag-ui` too, because the frontend tools it builds carry a Zod
-input schema. The adapter pins
-`@ag-ui/core` and `@ag-ui/encoder` to `0.0.59`. Tests use the official
-`@ag-ui/client` at `0.0.59` to parse SSE, verify event order, and rebuild
-messages and state.
+input schema. The adapter speaks AG-UI protocol 1.0 and pins
+`@ag-ui/core` and `@ag-ui/encoder` to `1.0.4`. Tests use the official
+`@ag-ui/client` at `1.0.4` to parse SSE, verify event order, and rebuild
+messages and state. Since 1.0 `@ag-ui/core` keeps its validators on the
+`@ag-ui/core/schemas` subpath and takes the application's own `zod` (3.25.18 or
+later, or 4) as a peer; the adapter validates every inbound request and message
+with those validators, so the `zod` you install for the adapter is the one they use.
+
+**What changed from protocol 0.0.59.** A user or tool message's content is a
+list of typed parts: `text`, `image`, `audio`, `video` and `document`, each media
+part carrying a `source` that is `data` (inline base64 with a media type), `url`
+or `file` (a provider's file handle). The 0.x `binary` part is gone from the
+protocol: a request that carries one is refused with 422, and
+`toNamzuMessages` throws `INVALID_MESSAGE_HISTORY` naming the replacement (an
+`image` or `document` part with a `data` source). A `tool` message's content may
+now be parts as well as a string. The 0.x `THINKING_*` events are gone in favor
+of the `REASONING_*` events the adapter already used, and `SUBAGENT_ERROR` is new.
+A request may omit `tools` and `context`, and objects keep fields they do not
+know, as the protocol's extension rule asks.
 
 ## Resolve scope and admit history
 
@@ -122,12 +137,12 @@ not echo the submitted history.
 | --- | --- |
 | User text | Strings remain strings; multiple text parts join with newlines |
 | Assistant text and calls | Content and original tool IDs/JSON argument strings are retained |
-| Tool results | Matching call ID and content are retained; `error` or `metadata.namzu.isError === true` preserves a failure verdict |
+| Tool results | Matching call ID and content are retained; `error` or `metadata.namzu.isError === true` preserves a failure verdict. Text-only parts join into a string; inline image/document parts become result blocks in order |
 | System/developer roles | Rejected by default; `allowSystemMessages: true` admits them as Namzu system messages |
 | Inline image/document parts | Base64 data becomes an SDK attachment; attachment order is retained separately from text |
-| Legacy `binary` parts | Inline image, PDF, or plain-text bytes are supported |
+| Legacy `binary` parts | Rejected (protocol 1.0 removed them); the error says to send an `image` or `document` part with a `data` source |
 | Activity/reasoning messages | Display-only content is omitted |
-| URL/file-ID references, audio/video | Rejected; the helper performs no downloads or reference resolution |
+| URL and file-handle sources, audio/video | Rejected, in user messages and tool results alike; the helper performs no downloads or reference resolution |
 | Encrypted conversational content | Rejected; provider replay state is not reconstructed from client claims |
 
 Tool rounds must be complete and unambiguous. Each call needs a unique ID
@@ -641,8 +656,9 @@ This release supports backend tools, text, steps, shared-state events,
 custom events, final outcomes, usage, interrupts and resume, and frontend
 tools. It does not implement protobuf transport, SSE replay, an AG-UI
 connect/reconnect endpoint, subagent-tree projection, or the
-`pendingToolCallIds` and `cancelled` outcomes newer than `@ag-ui/core`
-`0.0.59`.
+`pendingToolCallIds` and `cancelled` outcomes that protocol 1.0 added.
+A frontend tool's result must be text (a string or text parts): a result with
+media parts is refused with `AGUI_RESUME_INVALID`.
 
 ## Source comparison and validation
 

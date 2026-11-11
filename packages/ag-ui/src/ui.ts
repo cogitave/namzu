@@ -1,4 +1,5 @@
-import { type BaseEvent, EventType, type Message, MessageSchema } from '@ag-ui/core'
+import { type BaseEvent, EventType, type Message } from '@ag-ui/core'
+import { MessageSchema } from '@ag-ui/core/schemas'
 import jsonPatch, { type Operation } from 'fast-json-patch'
 
 export interface AGUITurnUIOptions {
