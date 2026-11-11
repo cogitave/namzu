@@ -259,13 +259,10 @@ function toMeta(literal: Literal): WorkflowMeta {
 			onlyKeys(entry, ['title', 'detail', 'model'], `meta.phases[${i}]`)
 			const raw = text(entry.title, `phases[${i}].title`, 120, true) as string
 			const title = normalizePhaseTitle(raw)
-			const key = title.toLowerCase()
-			if (seen.has(key)) {
-				throw new WorkflowScriptError(
-					`\`meta.phases\` repeats the title "${title}" (titles that differ only by case are the same title).`,
-				)
+			if (seen.has(title)) {
+				throw new WorkflowScriptError(`\`meta.phases\` repeats the title "${title}".`)
 			}
-			seen.add(key)
+			seen.add(title)
 			const detail = text(entry.detail, `phases[${i}].detail`, 300, false)
 			const model = text(entry.model, `phases[${i}].model`, 120, false)
 			phases.push({

@@ -405,12 +405,16 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 				const path = editableCopyPath(runs, meta.name, runId)
 				editable = (await writeEditableCopy(path, script)) ? path : scriptFile
 			}
-			const phaseDetail = (title: string | undefined): string | undefined =>
-				title === undefined
-					? undefined
-					: meta.phases.find(
-							(phase) => phase.title.trim().toLowerCase() === title.trim().toLowerCase(),
-						)?.detail
+			// Exact title first; only without one, the first declared title that
+			// matches ignoring case (the same rule the SDK's phase registry uses).
+			const phaseDetail = (title: string | undefined): string | undefined => {
+				if (title === undefined) return undefined
+				const wanted = title.trim()
+				const exact = meta.phases.find((phase) => phase.title.trim() === wanted)
+				if (exact) return exact.detail
+				const lower = wanted.toLowerCase()
+				return meta.phases.find((phase) => phase.title.trim().toLowerCase() === lower)?.detail
+			}
 			// The call answers once the run has reached its first agent(), or ended
 			// without one. Both are events of the run itself; nothing here races a
 			// clock. Until then the run's end is the tool's to report, not a

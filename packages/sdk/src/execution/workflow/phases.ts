@@ -13,30 +13,50 @@ export interface PhaseRecord {
 }
 
 /**
+ * The entry of `entries` a title belongs to: one with exactly that title
+ * first; only when there is none, the first one whose title matches ignoring
+ * case. Two entries that differ only by case therefore stay two, because each
+ * matches itself exactly.
+ */
+function matchTitle<T extends { readonly title: string }>(
+	entries: Iterable<T>,
+	title: string,
+): T | undefined {
+	const lower = title.toLowerCase()
+	let loose: T | undefined
+	for (const entry of entries) {
+		if (entry.title === title) return entry
+		if (loose === undefined && entry.title.toLowerCase() === lower) loose = entry
+	}
+	return loose
+}
+
+/**
  * Phase titles of one run. A title is the only grouping key: the same title
- * is the same group, and two titles that differ only by case are the same
- * title. The first spelling seen (a declared one comes first) is the one kept.
- * Indexes are 1-based first-seen order, declared titles
+ * is the same group. A title matches a registered one exactly first; only when
+ * none matches exactly does it match one ignoring case (the first registered
+ * wins, and its spelling is kept). Two declared titles that differ only by
+ * case stay two phases. Indexes are 1-based first-seen order, declared titles
  * first. `register` reports whether the title was announced just now.
  */
 export class PhaseRegistry {
-	private readonly byTitle = new Map<string, PhaseRecord>()
-
-	private static key(title: string): string {
-		return title.toLowerCase()
-	}
+	private readonly records: PhaseRecord[] = []
 
 	register(rawTitle: string, declared = false): { phase: PhaseRecord; isNew: boolean } {
 		const title = normalizePhaseTitle(rawTitle)
-		const existing = this.byTitle.get(PhaseRegistry.key(title))
+		// A declared title is matched exactly only, so two declared titles that
+		// differ only by case each get their own phase.
+		const existing = declared
+			? this.records.find((record) => record.title === title)
+			: matchTitle(this.records, title)
 		if (existing) return { phase: existing, isNew: false }
-		const phase = { index: this.byTitle.size + 1, title, declared }
-		this.byTitle.set(PhaseRegistry.key(title), phase)
+		const phase = { index: this.records.length + 1, title, declared }
+		this.records.push(phase)
 		return { phase, isNew: true }
 	}
 
 	all(): PhaseRecord[] {
-		return [...this.byTitle.values()]
+		return [...this.records]
 	}
 }
 
@@ -63,9 +83,7 @@ export function summarizeWorkflowPhases(
 	phases: readonly PhaseRecord[],
 	agents: readonly PhaseAgentView[],
 ): WorkflowPhaseSummary[] {
-	const detail = new Map(
-		declared.map((p) => [normalizePhaseTitle(p.title).toLowerCase(), p.detail]),
-	)
+	const named = declared.map((p) => ({ title: normalizePhaseTitle(p.title), detail: p.detail }))
 	const summarize = (
 		index: number,
 		title: string,
@@ -90,7 +108,7 @@ export function summarizeWorkflowPhases(
 			p.index,
 			p.title,
 			agents.filter((a) => a.phaseIndex === p.index),
-			detail.get(p.title.toLowerCase()),
+			matchTitle(named, p.title)?.detail,
 		),
 	)
 	const ungrouped = agents.filter((a) => a.phaseIndex === undefined)

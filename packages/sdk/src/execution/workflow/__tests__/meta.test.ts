@@ -42,7 +42,6 @@ phase('Tarama')`)
 		["name: 'a', name: 'b'", 'repeats'],
 		["name: 'a', extra: 1", 'unknown key'],
 		["name: 'a', phases: [{ title: 'x' }, { title: ' x ' }]", 'repeats the title'],
-		["name: 'a', phases: [{ title: 'Scan' }, { title: 'SCAN' }]", 'differ only by case'],
 		["name: 'a', phases: 'x'", 'array'],
 		["name: 'a', phases: [{ nope: 1 }]", 'unknown key'],
 		["name: 'a\nb'", 'Unterminated'],
@@ -54,6 +53,13 @@ phase('Tarama')`)
 			)
 		expect(run).toThrow(WorkflowScriptError)
 		expect(run).toThrow(message)
+	})
+
+	it('accepts two phase titles that differ only by case, as a script may always declare them', () => {
+		const meta = parseWorkflowMeta(
+			"export const meta = { name: 'a', description: 'd', phases: [{ title: 'Scan' }, { title: 'scan' }] }",
+		)
+		expect(meta.phases.map((p) => p.title)).toEqual(['Scan', 'scan'])
 	})
 
 	it('names the line and column of the offending token', () => {

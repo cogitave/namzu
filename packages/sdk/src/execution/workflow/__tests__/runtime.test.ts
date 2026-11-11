@@ -413,6 +413,43 @@ describe('phases', () => {
 		])
 	})
 
+	it('keeps two declared titles that differ only by case as two phases, each matched exactly', async () => {
+		const twins =
+			"export const meta = { name: 'p', description: 'd', phases: [{ title: 'Scan', detail: 'upper' }, { title: 'scan', detail: 'lower' }] }\n"
+		const { result, events } = await runScript(
+			`${twins}
+			await agent('a', { phase: 'scan' })
+			await agent('b', { phase: 'Scan' })
+			await agent('c', { phase: 'SCAN' })
+			await agent('d', { phase: 'sCAN' })`,
+			{ host: makeHost() },
+		)
+		expect(phaseEvents(events).map((p) => [p.index, p.title, p.declared])).toEqual([
+			[1, 'Scan', true],
+			[2, 'scan', true],
+		])
+		// 'SCAN' and 'sCAN' match neither exactly, so they join the first declared.
+		expect(result.phases.map((p) => [p.title, p.agents, p.detail])).toEqual([
+			['Scan', 3, 'upper'],
+			['scan', 1, 'lower'],
+		])
+	})
+
+	it('joins an undeclared title to an earlier one that differs only by case', async () => {
+		const { result } = await runScript(
+			`${declared}
+			await agent('a', { phase: 'Extra' })
+			await agent('b', { phase: 'EXTRA' })
+			await agent('c', { phase: 'sCAN' })`,
+			{ host: makeHost() },
+		)
+		expect(result.phases.map((p) => [p.title, p.agents])).toEqual([
+			['Scan', 1],
+			['Fix', 0],
+			['Extra', 2],
+		])
+	})
+
 	it('shows a declared phase with no agents as not started', async () => {
 		const { result } = await runScript(`${declared}phase('Scan'); await agent('x')`)
 		expect(result.phases.map((p) => [p.title, p.status])).toEqual([

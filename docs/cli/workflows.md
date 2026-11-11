@@ -119,14 +119,16 @@ runtime does not enforce; the limits it does enforce are in brackets.
 | `name` | Short, lower-case words joined by hyphens, a verb first, saying what the run does: `check-stale-settings`. | 1 to 80 characters |
 | `description` | One plain line for the person who must approve it: what will happen and to what, no method words. | up to 500 |
 | `phases` | One entry per stage of the script. | up to 50 |
-| a phase `title` | One or two capitalised words, used letter for letter in `phase()` and `opts.phase`. Matching ignores case and shows the declared spelling; `meta.phases` refuses two titles that differ only by case. | up to 120 |
+| a phase `title` | One or two capitalised words, used letter for letter in `phase()` and `opts.phase`. A title matches a declared one exactly first; only without an exact match does it match ignoring case (the first declared one wins and its spelling is shown). Two declared titles that differ only by case are two phases. | up to 120 |
 | a phase `detail` | What the stage does and how it fans out: `one read-only agent per package, side by side`. | up to 300 |
 | an agent's `label` | Always given, as `kind:target`, under 40 characters, never the prompt: `scan:core`. Without one the row shows the first 60 characters of the prompt. | up to 120 |
 | `log()` lines | Short facts with counts; when the script capped something, say what was left out. | up to 2000 |
 
-A run resumed from a journal written before matching ignored case is read by
-index and keeps its groups; the resumed script runs again and groups by the new
-rule.
+A title from `phase()` or `opts.phase` that matches nothing declared is an
+undeclared phase, and a later undeclared title that differs from an earlier one
+only by case joins it. A run resumed from a journal written before matching
+ignored case is read by index and keeps its groups; the resumed script runs
+again and groups by this rule.
 
 `meta.whenToUse` and `meta.phases[].model` are accepted and not applied: the
 review, the rail and the detail screen say nothing about either, and an agent's
@@ -136,9 +138,15 @@ otherwise, so nothing that runs changed.)
 Text a script builds at run time, such as a file name or what an agent
 returned, can reach a name, a title, a label or a log line. Wherever one is
 drawn (the review, the rail, the detail screen, the `/workflows` list, the
-closing line and the agent view) control characters, direction overrides and
-zero-width characters are shown as `\u{....}` literals, line breaks and tabs
-become one row, and a long name or label is cut with an ellipsis at the width
+closing line and the agent view) control characters (including the escape
+character and DEL), the Unicode line and paragraph separators, the
+right-to-left and left-to-right marks and overrides and isolates, the zero-width
+space, the word joiner and the invisible operators, and the byte-order mark are
+shown as `\u{....}` literals. The two joiners U+200D (zero-width joiner) and
+U+200C (zero-width non-joiner) are kept as they are, on purpose: emoji
+sequences such as a person-and-laptop emoji, and some scripts such as Persian,
+need them to be written correctly, and neither reorders or hides text. Line
+breaks and tabs become one row, and a long name or label is cut with an ellipsis at the width
 of its row. The journal keeps the source text, uncut. The review shows the
 whole text of a name, purpose and phase so that what is approved is what is
 read; it spells out the same characters but does not cut.

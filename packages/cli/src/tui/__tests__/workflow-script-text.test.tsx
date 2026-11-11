@@ -151,6 +151,26 @@ describe('a script that builds text from data', () => {
 		expect(workflowRunOption({ ...run, name: 'n'.repeat(200) }).label).toHaveLength(48)
 	})
 
+	it('keeps the two joiners U+200D and U+200C and spells out everything else', () => {
+		const label = `👩${cp(0x200d)}💻 فار${cp(0x200c)}سی ${cp(0x200b)}${cp(0x1b)}`
+		const line = workflowNotice(
+			{ ...runRailWorkflow(run, []), name: label, status: 'completed', endedAt: NOW },
+			NOW,
+		).content
+		expect(line).toContain(`👩${cp(0x200d)}💻`)
+		expect(line).toContain(`فار${cp(0x200c)}سی`)
+		expect(line).toContain('\\u{200b}')
+		expect(line).toContain('\\u{001b}')
+		expect(line.replaceAll(cp(0x200d), '').replaceAll(cp(0x200c), '')).not.toMatch(RAW)
+		const option = workflowRunOption({
+			...run,
+			name: `a${cp(0x200d)}b${cp(0x200b)}`,
+			status: 'completed',
+			endedAt: NOW,
+		})
+		expect(option.label).toContain(`a${cp(0x200d)}b\\u{200b}`)
+	})
+
 	it('is spelled out in an agent transcript header', async () => {
 		const rows = await draw(
 			<AgentTranscript agent={agent} tailOffset={0} terminalRows={30} terminalColumns={110} />,
