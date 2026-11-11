@@ -232,6 +232,15 @@ export const SESSION_EVENT_FIXTURES: Record<SessionEvent['type'], () => SessionE
 		reclaimedTokens: 1,
 		reliefWasEnough: true,
 	}),
+	compaction_skills_carried: () => ({
+		type: 'compaction_skills_carried',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		skills: ['pdf-forms'],
+		cut: [],
+		leftOut: [],
+	}),
 	compaction_failed: () => ({
 		type: 'compaction_failed',
 		sessionId: FIXTURE_SESSION_ID,

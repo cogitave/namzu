@@ -9155,6 +9155,15 @@ export function toAgentEvent(
 				stubbed: event.stubbedCount ?? 0,
 				reclaimedTokens: event.reclaimedTokens,
 			}
+		case 'compaction_skills_carried':
+			// One plain line, only when a pass cut a loaded skill's instructions and
+			// they were put back. A skill still whole is never put back, so this is
+			// rare: once per skill a pass reaches, not once per turn.
+			return {
+				kind: 'context',
+				text: skillsKeptText(event),
+				shed: false,
+			}
 		case 'compaction_failed':
 			// Silent for the person: three failed passes
 			// only stop proactive compaction, and a real overflow still gets relief.
@@ -9168,6 +9177,18 @@ export function toAgentEvent(
 		default:
 			return null
 	}
+}
+
+/** What the person reads when loaded skills were put back after a pass cut them. */
+export function skillsKeptText(event: {
+	readonly skills: readonly string[]
+	readonly cut: readonly string[]
+	readonly leftOut: readonly string[]
+}): string {
+	const parts = [`Kept skill instructions in view: ${event.skills.join(', ')}`]
+	if (event.cut.length > 0) parts.push(`cut short: ${event.cut.join(', ')}`)
+	if (event.leftOut.length > 0) parts.push(`no room for: ${event.leftOut.join(', ')}`)
+	return parts.join(' · ')
 }
 
 /**
