@@ -2652,8 +2652,28 @@ planning and delegated-invocation contracts.
 Each reply that completed file edits carries its own card right under its final
 reply: one file reads "Edited name.css +12 −3" (full path in the tooltip), several
 read "Edited 3 files" with the totals and expand to a list with each file's own
-totals. Totals count a file once, from its first before to its last after; a file
-whose edits cancel out is left out, and a reply with nothing left has no card. The
+totals. A file's numbers are the sum of its edits' own counts, as the engine reported them
+(`added` and `removed` on each edit's and write's facts), so a file edited twice reads what
+`git diff` reads; only a receipt that arrived without counts (a conversation saved before edits
+carried them, or a change still waiting for approval) is compared from its own two sides. A
+batch edit or an insert carries no diff, only the engine's counts: it is counted like any other
+edit (matched to its file by path, whether the engine named it by its full path or the model by a
+short one), and the Changes panel says "No diff is available for this change" for a file made
+only of such edits, or "Some edits to this file have no diff to show" when only some are. Edits
+that undo each other (each starts where the one before ended and the last ends where the first
+began) show no number, as `git diff` shows nothing. The sum still differs from `git diff` when
+separate edits touch the same line without undoing each other, because each edit counts the
+lines it changed itself. The cap of 400 lines the screen names is the kernel's own
+(`MAX_CARRIED_DIFF_LINES`); a test keeps the two equal. One
+function, `changeTotals` in `changes-totals.ts`, is the only source of these numbers: the card,
+the Changes panel and its tree, each edit row, the details popover and the approval card all
+read it. When the engine carried only the first 400 lines of an edit (`hunksTruncated`), the
+number stays the true one and "First 400 lines shown" is said beside it; an approval preview
+the engine cut says "Only part of the file is shown" beside its count, and a preview that
+carries the engine's own `added` and `removed` shows those, so the figure on the approval is the
+one on the card after the edit. With several files, the bar over the Changes panel names a cut
+file only when it is not the one open, since the open file says it beside its own diff. A reply with no counted
+change has no card. The
 card appears when the turn settles, groups by the turn each receipt belongs to, and
 works the same for history restored from the journal. View changes (or a file row)
 opens the Changes pane on the Last reply scope for that reply; the conversation
@@ -2702,8 +2722,10 @@ The Changes tab shows one file's diff beside the tree of changed files. A scope 
 at the top left picks what is reviewed, with the line totals of that scope beside it:
 Last reply (the reply the card opened, or the latest one that changed files), This
 conversation (every completed edit merged per path, so a file edited twice is one
-row, from its first before to its last after; an edit receipt carries only the
-changed fragment, a `write` receipt the whole file) and, in a trusted ordinary project
+row whose numbers are the sum of its edits; an edit receipt carries only the
+changed fragment, a `write` receipt the hunks it changed, and a file edited more than once
+shows one block per edit, "Edit 1 of 2" with that edit's own counts, never one edit's removed
+lines beside another's added ones) and, in a trusted ordinary project
 that is a git repository, Uncommitted changes (the working tree against HEAD, whole
 files, read through [`projectChanges` and `projectDiff`](#working-tree-changes) when
 the scope opens, on the refresh button and when a turn settles). The toolbar has
@@ -2967,6 +2989,16 @@ action is just its row, and the run no longer scrolls inside a box.
 
 `/preview?activity=1` adds saved replies of every shape above and `/preview?live=1`
 plays a running turn (`&hold=edit` stops it while the edit is under way).
+
+### What a finished turn says about itself
+
+A turn's bad news is not left inside the folded "Worked" block. Three things say it, each from a typed field and never from the model's sentences.
+
+- **The header.** After "Worked for 2s" a finished turn names what went wrong, each with a small status mark: a red mark for "1 command failed" (a command that ended with a non-zero exit, a timeout or a signal; "2 commands failed" for more) and an amber one for "1 action was not allowed" (an action the engine refused or blocked; a change the person declined is their own answer and is not counted). Nothing shows when everything went well. The same words are added to the header's accessible name. The "N failed" at the end of a run's own summary ("Ran 6 commands, 1 failed") is the same count, taken from the same function (`turnAttention`), so a failed read or edit is never counted there as a failed command and the two never disagree. A run of actions that holds a failed command or a refused action starts open even when it is longer than five rows, so opening the block shows it.
+- **The rows.** A failed command shows the last ten lines of what it printed under its row, in the open block with no further click (a passing command keeps its first three lines); "+N lines" opens the rest. A refused action shows one fixed plain sentence under its row, chosen by the kind of refusal ("It was stopped before it ran, so nothing changed." for a blocked action; "It needs administrator rights, so it was stopped before it ran." for one that asked for them), whatever the rule said. The rule's or command guard's own wording (the failure's `note` field) is kept only as the line's hover text, never as its words.
+- **The line under the turn.** One muted line, with one status mark, built only from the kernel's [turn outcome](../sdk/turn-outcome.md) record: what changed (the count from the record) and what the record says about checks, in the words the terminal ends a turn with (`outcomeLine`, `packages/cli/src/tui/outcome-line.ts`; the host writes it and Desktop shows it as sent, so the two cannot drift). Examples: "Changed 2 files · not checked", "Changed 2 files · npm test failed", "Changed 2 files · ran npm test | tail, but the pipe hides whether it passed". The mark is green for `checked`, red for `failing` and amber for every other verdict (`stale`, `inconclusive`, `unchecked`, `unknown`). A turn whose verdict is `unchanged` shows nothing, and so does a turn the kernel recorded nothing for. A `failing` turn that changed no file reads "No files changed · npm test failed". The line is not a card and is drawn only once the turn has ended, and it is not drawn once the person has undone that turn's changes (a partly undone turn keeps it), because "Changed 1 file" would no longer be true. It appears when the notice arrives, which can be just after the turn looks finished, so the transcript may grow by one line then; no height is reserved, because most turns have no line and a blank gap under each would cost more than the single shift.
+
+The outcome travels as a `namzu/session/outcome` notification ([Outcome notices](#outcome-notices)); the renderer keeps it on the turn (`ThreadState.turns[n].outcome`, matched by the turn id; a notice for a turn this window does not know, such as a late one, one replayed after a reconnect or one meant for another window, is dropped rather than put on the current turn, and history brings it back). A reopened conversation gets it back from the history snapshot: each entry of `work.turns` carries `outcome` (`verdict`, `line`, `changed`), read by the CLI from the turn's `turn_outcome_recorded` record, so a conversation saved before outcome records existed shows no line.
 
 ### Streaming a long reply
 
@@ -4059,6 +4091,20 @@ The shared protocol bridge says nothing about how full a conversation is or that
 | `tokensBefore`, `tokensAfter` | the size the pass started from and ended at, when known |
 
 A field the engine did not report is left out, never sent as zero. Usage notices are coalesced to at most one per conversation every 400 ms (the first goes at once, a burst ends with one carrying the latest numbers); compaction notices are never delayed. Compaction that runs while no turn is open (the idle pass) is not announced.
+
+### Outcome notices
+
+Under `--desktop` only, the host also sends one `namzu/session/outcome` notification when a turn ends (`src/commands/desktop-outcome-feed.ts`), without any request. It is read from the final `turn_completed` or `turn_failed` event's settlement, which carries the kernel's turn outcome record, and a turn that recorded none sends none. A client that does not know it ignores it.
+
+| Field | Meaning |
+| --- | --- |
+| `sessionId`, `turnId` | the conversation and the turn |
+| `verdict` | `unchanged`, `checked`, `stale`, `failing`, `inconclusive`, `unchecked` or `unknown`, as in [Turn outcome](../sdk/turn-outcome.md#the-verdict) |
+| `line` | the terminal's end-of-turn wording for the record; absent when it has nothing to say (nothing changed, no check failed) |
+| `changed` | how many files the turn's write tools changed |
+| `outcome` | the record itself, as the kernel bounded it |
+
+Desktop admits `verdict`, `line` (one line of at most 500 characters, control characters turned into spaces) and `changed`, and drops the rest; a notice that does not read, or names a conversation another connection owns, is ignored.
 
 ### Working-tree changes
 

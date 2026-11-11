@@ -1,6 +1,6 @@
 import { Undo2 } from 'lucide-react'
 import { useState } from 'react'
-import { formatLineCount } from './changes-totals.js'
+import { CUT_NOTE, formatLineCount } from './changes-totals.js'
 import { ChevronDownIcon, ChevronRightIcon, FileDiffIcon } from './icons.js'
 import { clockLabel } from './time-format.js'
 import type { TurnChanges } from './turn-changes.js'
@@ -51,7 +51,7 @@ function UndoControl({ view, onUndo }: { view: UndoCardView; onUndo: () => void 
 	)
 }
 
-function Totals({ added, removed }: { added: number; removed: number }) {
+function Totals({ added, removed, cut }: { added: number; removed: number; cut?: boolean }) {
 	return (
 		<span className="turn-changes-totals">
 			<span className="turn-changes-added">
@@ -64,6 +64,7 @@ function Totals({ added, removed }: { added: number; removed: number }) {
 				<span className="sr-only">Removed </span>
 				{formatLineCount(removed)}
 			</span>
+			{cut && <span className="turn-changes-cut">{CUT_NOTE}</span>}
 		</span>
 	)
 }
@@ -122,7 +123,7 @@ export function TurnChangesCard({
 						)}
 					</button>
 				)}
-				<Totals added={changes.added} removed={changes.removed} />
+				<Totals added={changes.added} removed={changes.removed} cut={changes.cut} />
 				{only && onOpenFile && (
 					<Button
 						type="button"
@@ -156,7 +157,7 @@ export function TurnChangesCard({
 								onClick={() => onOpen(changes.receiptIds, file.path)}
 							>
 								<span className="turn-changes-file-name">{file.name}</span>
-								<Totals added={file.added} removed={file.removed} />
+								<Totals added={file.added} removed={file.removed} cut={file.cut} />
 							</button>
 							{onOpenFile && (
 								<Button
