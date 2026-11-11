@@ -58,6 +58,8 @@ export interface ShellOutput {
 	readonly byLine?: true
 	/** Shown in place of `stderr` until the body is expanded. */
 	readonly folded?: readonly string[]
+	/** The command was handed to a background job, or moved to one: it is not finished. */
+	readonly background?: true
 }
 
 export type ShellTone = 'out' | 'err' | 'dim'

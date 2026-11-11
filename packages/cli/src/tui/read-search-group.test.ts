@@ -9,9 +9,11 @@ import {
 	HINT_MAX_CHARS,
 	classifyCall,
 	classifyShell,
+	commandRows,
 	displayPath,
 	foldOp,
 	groupText,
+	isOneCommand,
 	mergeGroups,
 	visibleHint,
 } from './read-search-group.js'
@@ -262,5 +264,82 @@ describe('resumed rows', () => {
 			'Read 1 file',
 		])
 		expect(out[1]?.detail).toEqual(['Read a', 'text a', '', 'Searched', 'hit'])
+	})
+})
+
+describe('shell commands that ended well', () => {
+	const run = (command: string, withCell = true): FoldOp => ({
+		kind: 'run',
+		command,
+		...(withCell
+			? {
+					cell: {
+						header: `Bash(${command})`,
+						shell: { stdout: ['ok'], stderr: [], failed: false },
+					},
+				}
+			: {}),
+	})
+
+	it('are counted in the line, worded like the other parts, after the listings', () => {
+		const state = fold([
+			{ kind: 'read', key: 'a' },
+			{ kind: 'list' },
+			run('npm test', false),
+			run('tsc', false),
+		])
+		expect(groupText(state, false)).toBe('Read 1 file, listed 1 directory, ran 2 commands')
+		expect(groupText(state, true)).toBe('Reading 1 file, listing 1 directory, running 2 commands…')
+		expect(groupText(fold([run('npm test', false)]), false)).toBe('Ran 1 command')
+	})
+
+	it("are the group's own row while they are the whole group, and a counted line once anything else joins", () => {
+		const one = fold([run('npm test')])
+		expect(isOneCommand(one)).toBe(true)
+		expect(isOneCommand(fold([run('npm test'), run('tsc')]))).toBe(false)
+		expect(isOneCommand(fold([run('npm test'), { kind: 'read', key: 'a' }]))).toBe(false)
+		expect(isOneCommand(fold([{ kind: 'read', key: 'a' }, run('npm test')]))).toBe(false)
+		// The row of the first command is not kept once there is a second.
+		expect(fold([run('npm test'), run('tsc')]).cell).toBeUndefined()
+	})
+
+	it('are listed oldest first, one per line, the last five, with a count of the earlier ones', () => {
+		const names = ['one', 'two', 'three', 'four', 'five', 'six', 'seven']
+		const state = fold(names.map((name) => run(name, false)))
+		expect(commandRows(state, 40)).toEqual([
+			'2 earlier commands not listed',
+			'$ three',
+			'$ four',
+			'$ five',
+			'$ six',
+			'$ seven',
+		])
+		expect(commandRows(fold(names.slice(0, 5).map((name) => run(name, false))), 40)).toEqual(
+			names.slice(0, 5).map((name) => `$ ${name}`),
+		)
+		expect(commandRows(fold(names.slice(0, 6).map((name) => run(name, false))), 40)[0]).toBe(
+			'1 earlier command not listed',
+		)
+	})
+
+	it('are cut to the width, a multi-line command reads as its first line, and nothing is listed for none or one', () => {
+		const long = `echo ${'x'.repeat(100)}`
+		const [row] = commandRows(fold([run(long, false), run('b', false)]), 30)
+		expect(row?.length).toBe(30)
+		expect(row?.endsWith('…')).toBe(true)
+		expect(commandRows(fold([run('cat <<EOF\nhello\nEOF', false), run('b', false)]), 40)[0]).toBe(
+			'$ cat <<EOF …',
+		)
+		expect(commandRows(fold([{ kind: 'read', key: 'a' }]), 40)).toEqual([])
+		expect(commandRows(fold([run('npm test')]), 40)).toEqual([])
+	})
+
+	it('merge with their neighbours in order, and the row of one goes when it is no longer alone', () => {
+		const merged = mergeGroups(fold([run('npm test')]), fold([run('tsc')]))
+		expect(merged.commands).toEqual(['npm test', 'tsc'])
+		expect(merged.cell).toBeUndefined()
+		const withRead = mergeGroups(fold([{ kind: 'read', key: 'a' }]), fold([run('tsc')]))
+		expect(groupText(withRead, false)).toBe('Read 1 file, ran 1 command')
+		expect(withRead.cell).toBeUndefined()
 	})
 })

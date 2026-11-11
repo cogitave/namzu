@@ -9823,10 +9823,13 @@ function AppBody({
 					if (st.pendingFallback) st.pendingFallback.answered = true
 					turnToolCallsRef.current += 1
 					closeAssistant()
-					// A call that only looks joins the open counted line; any other call ends it.
+					// A call that only looks joins the open counted line; any other call ends
+					// it. A shell command does not decide yet: it joins when it ends well, and
+					// one that fails, stops or moves to the background ends the line then.
 					if (event.fold)
 						readSearchGroup.start(`${event.turnId ?? ''}:${event.toolUseId}`, event.fold)
-					else readSearchGroup.close()
+					else if (!(event.toolName === 'bash' && event.command !== undefined))
+						readSearchGroup.close()
 					setThinking(null)
 					setState('tool')
 					const waitingAgent =
@@ -9984,6 +9987,9 @@ function AppBody({
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}
+					// A call to a tool that does not exist counted as a look when it started;
+					// it did no work, so it leaves the line and shows its own error.
+					if (event.unknownTool) readSearchGroup.retract(`${event.turnId ?? ''}:${event.toolUseId}`)
 					const built = toolEndRows(event, done, {
 						...(done ? { elapsedMs: Date.now() - done.startedAt } : {}),
 						hasPlan: tasksRef.current.length > 0,
@@ -9994,12 +10000,25 @@ function AppBody({
 						writeTaskBlock(st, null, tasksRef.current)
 					} else if (built.kind === 'rows') {
 						const only = built.rows.length === 1 ? built.rows[0] : undefined
-						// A look that succeeded is kept in the open counted line; anything
-						// else (a failure, a refusal, a call whose line is already settled)
-						// is a row of its own, which also ends the line.
-						const kept =
-							only?.group !== undefined &&
-							readSearchGroup.finish(`${event.turnId ?? ''}:${event.toolUseId}`, only.detail ?? [])
+						// A look that succeeded, and a shell command that ended well, are kept
+						// in the open counted line; anything else (a failure, a refusal, a
+						// call whose line is already settled) is a row of its own, which
+						// also ends the line.
+						const memberKey = `${event.turnId ?? ''}:${event.toolUseId}`
+						const command = only?.group?.commands[0]
+						let kept = false
+						if (only?.group !== undefined) {
+							if (command !== undefined) {
+								readSearchGroup.start(
+									memberKey,
+									{ kind: 'run', command, ...(only.group.cell ? { cell: only.group.cell } : {}) },
+									only.detail ?? [],
+								)
+								kept = true
+							} else {
+								kept = readSearchGroup.finish(memberKey, only.detail ?? [])
+							}
+						}
 						if (!kept) for (const row of built.rows) pushRow(row)
 					}
 					setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')

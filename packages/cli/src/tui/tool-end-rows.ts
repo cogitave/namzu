@@ -5,6 +5,7 @@ import { connectorToolLabel, plainConnectorSummary } from './connector-label.js'
 import { conversationEvidenceView } from './conversation-evidence-view.js'
 import { type ProposedChange, proposedBody } from './diff-rows.js'
 import { spansText } from './diff-view.js'
+import { commandSection } from './group-rows.js'
 import { modelCatalogueView } from './model-catalogue-view.js'
 import { EMPTY_GROUP, type FoldOp, foldOp, groupText } from './read-search-group.js'
 import { type ShellOutput, shellCommandFull, shellCommandHeader } from './shell-cell.js'
@@ -178,7 +179,8 @@ export function toolEndRows(
 	ctx: ToolEndContext,
 ): ToolEndRows {
 	const rows = (list: readonly ToolRow[]): ToolEndRows => ({ kind: 'rows', rows: list })
-	const fold = foldOf(start)
+	// A call to a tool that does not exist did no work: it is not counted with the looks.
+	const fold = event.unknownTool ? undefined : foldOf(start)
 	if (!event.isError && !event.declined && fold) {
 		// Preserve the result, including the summary removed from detail by the adapter.
 		const raw =
@@ -422,6 +424,33 @@ export function toolEndRows(
 			event.isError && event.shell.stderr.length === 0
 				? { ...event.shell, stdout: [], stderr: event.shell.stdout, failed: true }
 				: { ...event.shell, failed }
+		const shell: ShellOutput =
+			full !== undefined && full !== header ? { ...settled, fullHeader: full } : settled
+		// A command that ended well folds into the line of what ran around it. Not
+		// one that failed (its own row, in red, ends the line), was stopped, timed
+		// out, was blocked or declined (all of those are errors or `failed`), or
+		// moved to the background (it has not finished).
+		if (
+			!failed &&
+			event.toolName === 'bash' &&
+			shell.background !== true &&
+			command.trim().length > 0
+		) {
+			const cell = { header, shell }
+			const state = foldOp(EMPTY_GROUP, { kind: 'run', command, cell }, 0)
+			return rows([
+				{
+					// The row a group of this one command is drawn as; see `groupFields`.
+					role: 'tool',
+					content: header,
+					glyph: '●',
+					glyphColor: tokenColor('status.ok'),
+					shell,
+					group: state,
+					detail: [...commandSection(cell)],
+				},
+			])
+		}
 		return rows([
 			{
 				role: 'tool',
@@ -429,7 +458,7 @@ export function toolEndRows(
 				glyph: '●',
 				detail: [...settled.stdout, ...settled.stderr],
 				glyphColor: failed ? tokenColor('status.error') : tokenColor('status.ok'),
-				shell: full !== undefined && full !== header ? { ...settled, fullHeader: full } : settled,
+				shell,
 			},
 		])
 	}
