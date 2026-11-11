@@ -161,7 +161,7 @@ function featuresOf(message: Message, text: string): MessageFeatures {
 		document: indexDocument(text, tokens),
 		citable: citable(tokens),
 		signature,
-		signatureKey: signature.join(','),
+		signatureKey: String.fromCharCode(...new Uint16Array(signature.buffer)),
 	}
 	FEATURES.set(message, features)
 	return features
