@@ -14,8 +14,8 @@ import {
 import { describe, expect, it } from 'vitest'
 
 import { projectConversation } from '../App.js'
-import { NOTHING_TOLD, outcomeNotice } from '../outcome-line.js'
-import { trailFromRecords } from '../restored-rows.js'
+import { NOTHING_TOLD, type OutcomeTelling, outcomeNotice } from '../outcome-line.js'
+import { type RestoreOptions, trailFromRecords } from '../restored-rows.js'
 
 const SESSION = '00000000-0000-4000-8000-0000000000aa'
 const turnId = (n: number) => `00000000-0000-4000-8000-00000000010${n}`
@@ -41,7 +41,7 @@ interface Turn {
 	readonly end?: 'turn_completed' | 'turn_failed'
 }
 
-function conversation(turns: readonly Turn[]) {
+function conversation(turns: readonly Turn[], extra: Partial<RestoreOptions> = {}) {
 	const messages: Message[] = []
 	const records: SessionRecord[] = []
 	let seq = 0
@@ -69,6 +69,7 @@ function conversation(turns: readonly Turn[]) {
 	let n = 0
 	const rows = projectConversation(messages, () => `row-${++n}`, [], {
 		trail: trailFromRecords(records),
+		...extra,
 	})
 	return rows.map((row) => row.content)
 }
@@ -97,6 +98,42 @@ describe('the cannot-tell line, live', () => {
 		}
 		expect(telling).toBe(NOTHING_TOLD)
 		expect(outcomeNotice(UNKNOWN, telling).line).toBe(FULL)
+	})
+})
+
+describe('a resumed conversation carries what it told into the next live turn', () => {
+	it('reports what the restored rows told, so the next unknown turn stays silent', () => {
+		let told: OutcomeTelling | undefined
+		conversation([{ outcome: UNKNOWN }], {
+			onTold: (t) => {
+				told = t
+			},
+		})
+		expect(told?.toldCannotTell).toBe(true)
+		expect(outcomeNotice(UNKNOWN, told as OutcomeTelling).line).toBeUndefined()
+	})
+
+	it('reports nothing told when the history had no such turn', () => {
+		let told: OutcomeTelling | undefined
+		conversation([{ outcome: UNCHECKED }], {
+			onTold: (t) => {
+				told = t
+			},
+		})
+		expect(told?.toldCannotTell).toBeFalsy()
+		expect(outcomeNotice(UNKNOWN, told as OutcomeTelling).line).toBe(FULL)
+	})
+
+	it('draws the reason of a separate copy in the restored line', () => {
+		expect(conversation([{ outcome: UNKNOWN }], { cannotTellReason: 'copy' })).toContain(
+			'A command ran that may have changed files · cannot tell here (the tools work in a separate copy of the folder) · not repeated in this conversation',
+		)
+	})
+
+	it('carries on from a telling given in', () => {
+		expect(
+			conversation([{ outcome: UNKNOWN }], { telling: { toldCannotTell: true } as OutcomeTelling }),
+		).toEqual(['ask 0', 'reply 0'])
 	})
 })
 

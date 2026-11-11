@@ -1399,6 +1399,8 @@ export function projectConversation(
 		presenter: restore?.presenter ?? builtinToolPresenter(),
 		...(restore?.trail ? { trail: restore.trail } : {}),
 		...(restore?.cwd ? { cwd: restore.cwd } : {}),
+		...(restore?.cannotTellReason ? { cannotTellReason: restore.cannotTellReason } : {}),
+		...(restore?.telling ? { telling: restore.telling } : {}),
 	})
 	const out: TranscriptMessage[] = []
 	for (const message of messages) {
@@ -1414,6 +1416,7 @@ export function projectConversation(
 		}
 	}
 	out.push(...writer.finish())
+	restore?.onTold?.(writer.told())
 	return numberDetailRows(mergeGroupRows(out))
 
 	function projectMessage(message: Message): readonly TranscriptMessage[] {
@@ -9059,6 +9062,8 @@ function AppBody({
 					: null
 
 				resetTranscript()
+				// These rows carry no outcome lines, so nothing has been told on screen.
+				outcomeToldRef.current = { id: undefined, telling: NOTHING_TOLD }
 				setMessages(
 					projectConversation(forked.messages, nextId, readablePrefix, {
 						cwd: ctxRef.current.cwd,
@@ -9157,6 +9162,8 @@ function AppBody({
 						? editList.slice(0, Math.max(0, at)).map((prompt) => prompt.displayText)
 						: editList.slice(Math.max(0, at)).map((prompt) => prompt.displayText)
 				resetTranscript()
+				// These rows carry no outcome lines, so nothing has been told on screen.
+				outcomeToldRef.current = { id: undefined, telling: NOTHING_TOLD }
 				setMessages(
 					projectConversation(result.messages, nextId, readable, {
 						cwd: ctxRef.current.cwd,
