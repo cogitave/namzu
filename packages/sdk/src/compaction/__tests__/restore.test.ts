@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { CompactionConfigSchema } from '../../config/runtime.js'
+import { forkedSkillReportNote } from '../loaded-skills.js'
 import { WorkingStateManager } from '../manager.js'
 import {
 	RESTORE_FILE_TOKENS,
@@ -18,6 +19,19 @@ function manager(): WorkingStateManager {
 
 const read = (m: WorkingStateManager, path: string, output = `body of ${path}`) =>
 	recordRestorable(m, { toolName: 'read', input: { path }, output, success: true })
+
+describe('a delegated skill', () => {
+	it('records nothing, since its result is a report and not instructions', () => {
+		const m = manager()
+		recordRestorable(m, {
+			toolName: 'skill',
+			input: { name: 'survey' },
+			output: `${forkedSkillReportNote('survey')}\n\nthree files found`,
+			success: true,
+		})
+		expect(renderRestoredContext(m.getState())).toBeUndefined()
+	})
+})
 
 describe('which bodies come back', () => {
 	it('brings back the most recent reads, five at most, newest first', () => {

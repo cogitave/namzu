@@ -141,6 +141,17 @@ exports[`every SessionEvent has a decided place on the SSE wire > pins the wire 
     "wire": "compaction.failed",
   },
   "compaction_shed": null,
+  "compaction_skills_carried": {
+    "keys": [
+      "cut",
+      "iteration",
+      "left_out",
+      "session_id",
+      "skills",
+      "turn_id",
+    ],
+    "wire": "compaction.skills_carried",
+  },
   "compaction_started": {
     "keys": [
       "context_window_tokens",

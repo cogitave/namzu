@@ -3,6 +3,13 @@ import {
 	resolveTriggerThreshold,
 } from '../../../../compaction/context-window.js'
 import { findDanglingMessages } from '../../../../compaction/dangling.js'
+import {
+	LOADED_SKILLS_ENTRY_KEY,
+	type RenderedSkills,
+	adoptableSkills,
+	handledSkillNames,
+	renderLoadedSkills,
+} from '../../../../compaction/loaded-skills.js'
 import { replaceableSummaries, summarizeWithModel } from '../../../../compaction/model-summary.js'
 import {
 	type CompactionPlan,
@@ -29,7 +36,11 @@ import { CHARS_PER_TOKEN } from '../../../../constants/limits.js'
 import { NAMZU } from '../../../../constants/telemetry/index.js'
 import { invariants } from '../../../../invariants/index.js'
 import { resolveTaskModel } from '../../../../model-router/task-router.js'
-import type { Message } from '../../../../types/message/index.js'
+import {
+	type Message,
+	createTurnContextEntry,
+	turnContextEntries,
+} from '../../../../types/message/index.js'
 import { applyLifecycleHookResults } from '../../plugin-hooks.js'
 import {
 	COMPACTION_REFILL_MESSAGE,
@@ -168,6 +179,65 @@ async function emitToolResultClear(
 	})
 }
 
+/**
+ * Keep the skills this conversation loaded where the pass cannot cut them.
+ * Called before a pass edits the history: whatever the messages show of a
+ * skill now goes into the working state, which outlives the messages.
+ */
+function adoptLoadedSkills(ctx: IterationContext): void {
+	ctx.workingStateManager?.adoptSkillBodies(adoptableSkills(ctx.recorder.messages))
+}
+
+/**
+ * After a pass that cut or cleared history: if a loaded skill's instructions
+ * are no longer in it, say them again, as reference.
+ *
+ * The entry goes at the END of the history, after everything the pass left.
+ * A clear already rewrites the request from the first result it cut, so the
+ * cached start of the request ends no earlier than it did; putting the skills
+ * anywhere before that point would move it further forward. At the end it
+ * also reads as the latest guidance, and the entry is never edited after, so
+ * later requests start with it unchanged.
+ */
+async function carryLoadedSkills(
+	ctx: IterationContext,
+	contextWindowTokens: number,
+): Promise<void> {
+	const manager = ctx.workingStateManager
+	const loaded = manager?.getState().restorable?.skills
+	if (!loaded || loaded.length === 0) return
+	const handled = handledSkillNames(ctx.recorder.messages)
+	const missing = loaded.filter((skill) => !handled.has(skill.name))
+	if (missing.length === 0) return
+	const rendered = renderLoadedSkills(missing, { contextWindowTokens })
+	if (!rendered.text) return
+	const earlier = turnContextEntries(ctx.recorder.messages, LOADED_SKILLS_ENTRY_KEY)
+	ctx.recorder.pushMessage(
+		createTurnContextEntry(LOADED_SKILLS_ENTRY_KEY, rendered.text, new Date(), {
+			later: earlier.length > 0,
+		}),
+	)
+	await emitSkillsCarried(ctx, rendered)
+}
+
+async function emitSkillsCarried(
+	ctx: IterationContext,
+	rendered: {
+		carried: readonly string[]
+		cut: readonly string[]
+		left: readonly string[]
+	},
+): Promise<void> {
+	await ctx.emitEvent?.({
+		type: 'compaction_skills_carried',
+		turnId: ctx.recorder.turnId,
+		iteration: ctx.recorder.currentIteration,
+		skills: [...rendered.carried],
+		cut: [...rendered.cut],
+		leftOut: [...rendered.left],
+	})
+}
+
 /** Install a clear-only pass and publish the state it established. */
 async function commitToolResultClear(
 	ctx: IterationContext,
@@ -180,11 +250,13 @@ async function commitToolResultClear(
 	// content in the same archive used by whole-message compaction before
 	// changing the live history or publishing the clear.
 	await recordShed(ctx, [...ctx.recorder.messages], plan.messages, reason)
+	adoptLoadedSkills(ctx)
 	installMessages(ctx.recorder.messages, plan.messages)
 	// The provider counted the pre-edit prompt. Leaving that measurement live
 	// makes the next trigger compare the old prompt against the new history.
 	ctx.recorder.clearLastPromptTokens?.()
 	await emitToolResultClear(ctx, plan)
+	await carryLoadedSkills(ctx, contextWindowTokens)
 	await emitContextUsageSnapshot(ctx, estimateTokens(ctx), contextWindowTokens, windowSource)
 	// A host-requested pass is not the kernel's own relief of a full context,
 	// so it must not reset the breaker's failure streak.
@@ -1136,6 +1208,9 @@ async function runCompactionCheckInner(
 
 	// Skills the model loaded and files it read go back verbatim after the
 	// summary, with whatever the host wants carried across (its plan file).
+	// The skills come from the conversation as it stands, so a skill loaded in
+	// an earlier turn, or before a resume, is put back too.
+	adoptLoadedSkills(ctx)
 	let hostNote: string | undefined
 	try {
 		hostNote = await ctx.postCompactionContext?.()
@@ -1146,21 +1221,6 @@ async function runCompactionCheckInner(
 			'exception.message': error instanceof Error ? error.message : String(error),
 		})
 	}
-	const restored = renderRestoredContext(manager.getState(), {
-		contextWindowTokens: budget,
-		...(hostNote ? { hostNote } : {}),
-	})
-	if (restored) compactedContent = `${compactedContent}\n\n${restored}`
-
-	// The pointer is only worth a line when both tools it names are mounted.
-	const mounted = new Set(ctx.tools?.listNames?.() ?? [])
-	const compactionMessage = buildCompactionMessage(
-		compactedContent,
-		mounted.has('search_conversation') && mounted.has('read_conversation')
-			? COMPACTION_RECOVERY_NOTE
-			: undefined,
-	)
-
 	// Drop a replaceable PRIOR `[COMPACTED CONTEXT]` summary from this turn's
 	// leading floor — `serializeState` is cumulative, so the new summary
 	// supersedes it. A retained summary came from outside this manager's state
@@ -1182,6 +1242,29 @@ async function runCompactionCheckInner(
 			: messages
 					.slice(systemMessages.length, keepStart)
 					.filter((_, offset) => retained.has(systemMessages.length + offset))
+
+	// A skill whose instructions are in what the pass keeps as it is, whole or
+	// shown by an earlier pass, is not put back a second time.
+	const wholeSkills = handledSkillNames([...preservedSystem, ...retainedOlder, ...recentMessages])
+	const putBack: { rendered?: RenderedSkills } = {}
+	const restored = renderRestoredContext(manager.getState(), {
+		contextWindowTokens: budget,
+		wholeSkills,
+		onSkills: (rendered) => {
+			putBack.rendered = rendered
+		},
+		...(hostNote ? { hostNote } : {}),
+	})
+	if (restored) compactedContent = `${compactedContent}\n\n${restored}`
+
+	// The pointer is only worth a line when both tools it names are mounted.
+	const mounted = new Set(ctx.tools?.listNames?.() ?? [])
+	const compactionMessage = buildCompactionMessage(
+		compactedContent,
+		mounted.has('search_conversation') && mounted.has('read_conversation')
+			? COMPACTION_RECOVERY_NOTE
+			: undefined,
+	)
 
 	const newMessages = [...preservedSystem, compactionMessage, ...retainedOlder, ...recentMessages]
 
@@ -1282,6 +1365,9 @@ async function runCompactionCheckInner(
 		reachedResetThreshold: reachedReset,
 	})
 	await emitContextUsageSnapshot(ctx, newEstimate, budget, window.source)
+	if (putBack.rendered && putBack.rendered.carried.length > 0) {
+		await emitSkillsCarried(ctx, putBack.rendered)
+	}
 	compactionBreaker(ctx)?.recordCompaction(
 		ctx.recorder.currentIteration,
 		beforeTokens,

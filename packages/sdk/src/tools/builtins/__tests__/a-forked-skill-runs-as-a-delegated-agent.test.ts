@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { isForkedSkillReport } from '../../../compaction/loaded-skills.js'
 
 import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { SkillRegistryRef, ToolContext } from '../../../types/tool/index.js'
@@ -74,7 +75,8 @@ describe('a forked skill runs as a delegated agent', () => {
 		)
 
 		expect(result.success).toBe(true)
-		expect(result.output).toBe('the report')
+		expect(result.output).toContain('the report')
+		expect(isForkedSkillReport(result.output)).toBe(true)
 		expect(result.data).toMatchObject({ skill: 'survey', forked: true })
 		expect(dispatches).toEqual([
 			{

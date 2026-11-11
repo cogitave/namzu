@@ -64,6 +64,7 @@ export type SessionStreamEventType =
 	| 'compaction.completed'
 	/** Oversized tool results were emptied instead of the history summarized. */
 	| 'compaction.tool_results_cleared'
+	| 'compaction.skills_carried'
 	| 'memory.consolidated'
 	| 'memory.recalled'
 	| 'background_job.exited'

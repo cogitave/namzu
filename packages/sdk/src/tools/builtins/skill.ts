@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
 import { parseAllowedTools } from '../../authorization/skill-grant.js'
+import { forkedSkillReportNote } from '../../compaction/loaded-skills.js'
 import type { Sandbox } from '../../types/sandbox/index.js'
 import { isInvocableBy, skillInvocation } from '../../types/skills/index.js'
 import type { ToolContext } from '../../types/tool/index.js'
@@ -701,6 +702,10 @@ async function runForkedSkill(input: {
 	})
 	return {
 		...result,
+		// Says what the text is, so a later pass never carries a report as the skill's steps.
+		output: result.success
+			? `${forkedSkillReportNote(input.name)}\n\n${result.output}`
+			: result.output,
 		data: {
 			...(typeof result.data === 'object' && result.data !== null ? result.data : {}),
 			skill: input.name,
