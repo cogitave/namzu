@@ -54,14 +54,16 @@ describe('mergeUndeliveredLiveInput', () => {
 
 describe('humanPromptMeta', () => {
 	it('says nothing when there is nothing to say', () => {
-		expect(humanPromptMeta(0, undefined)).toBeUndefined()
+		expect(humanPromptMeta(0)).toBeUndefined()
 	})
 
-	it('counts files and attachments and says when a message was sent while working', () => {
-		expect(humanPromptMeta(1, [{}, {}] as never, true)).toBe(
-			'1 file attached · 2 attachments · sent while working',
-		)
-		expect(humanPromptMeta(2, undefined)).toBe('2 files attached')
+	it('counts @files and says when a message was sent while working', () => {
+		expect(humanPromptMeta(1, true)).toBe('1 file attached · sent while working')
+		expect(humanPromptMeta(2)).toBe('2 files attached')
+	})
+
+	it('does not count attachments: each has a row of its own under the message', () => {
+		expect(humanPromptMeta(0)).toBeUndefined()
 	})
 })
 

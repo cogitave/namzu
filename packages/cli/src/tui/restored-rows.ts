@@ -407,6 +407,8 @@ export interface RestoreOptions {
 	readonly trail?: RestoredTrail
 	/** The working folder, so paths read as they did live. */
 	readonly cwd?: string
+	/** Where copies of attached files are kept, so their rows can link to them. */
+	readonly attachmentDir?: string
 	/** Why no change detector answers for this conversation, when known. */
 	readonly cannotTellReason?: CannotTellReason
 	/** What was already said of this conversation's outcomes, to carry on from. */

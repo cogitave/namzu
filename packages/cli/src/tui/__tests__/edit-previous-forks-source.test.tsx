@@ -278,7 +278,7 @@ it('forks before the selection, restores every attachment, and never mutates the
 	expect(sent[0]?.map((message) => message.content)).toEqual([
 		'first prompt',
 		'first answer',
-		'selected prompt revised',
+		'[Image #1] [Document #2] [Image #3] selected prompt revised',
 	])
 	const edited = sent[0]?.at(-1)
 	expect(edited?.role).toBe('user')
@@ -286,7 +286,7 @@ it('forks before the selection, restores every attachment, and never mutates the
 	expect(durable.get(FORK)?.map((message) => message.content)).toEqual([
 		'first prompt',
 		'first answer',
-		'selected prompt revised',
+		'[Image #1] [Document #2] [Image #3] selected prompt revised',
 		'BRANCHED ANSWER',
 	])
 	expect(durable.get(SOURCE)).toEqual(sourceBefore)

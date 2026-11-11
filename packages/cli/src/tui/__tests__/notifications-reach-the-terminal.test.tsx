@@ -510,12 +510,12 @@ it('pauses a pre-event throw, keeps its attachment in the history, and resumes F
 	await submit(harness, 'continue explicitly')
 	await waitUntil(() => sendCalls === 3)
 	expect(sent.map(latestUserText)).toEqual([
-		'attached premise',
+		'[Image #1]attached premise',
 		'queued before throw',
 		'continue explicitly',
 	])
 	const priorInDependentTurn = sent[1]?.find(
-		(message) => message.role === 'user' && message.content === 'attached premise',
+		(message) => message.role === 'user' && message.content === '[Image #1]attached premise',
 	)
 	expect(
 		priorInDependentTurn?.role === 'user' ? priorInDependentTurn.attachments : undefined,

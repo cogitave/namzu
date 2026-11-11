@@ -40,6 +40,7 @@
 
 import { checklistBlockRows, checklistLine } from './Checklist.js'
 import { renderedDetailLines } from './Transcript.js'
+import { attachmentLine } from './attachment-rows.js'
 import { tableHeight } from './markdown-table.js'
 import { parseBlock, scanBlocks } from './markdownParser.js'
 import { COMMAND_ROW_INDENT, commandRows, hintRows, isOneCommand } from './read-search-group.js'
@@ -106,6 +107,7 @@ function messageLines(
 		return [
 			...(hasPrev ? [''] : []),
 			`${content}${meta ? ` · ${meta}` : ''}`,
+			...(message.attachments ?? []).map((row) => terminalDisplayText(attachmentLine(row))),
 			...(message.checklist ?? []).map(checklistLine),
 			...(message.detail && message.detail.length > 0
 				? ['', ...message.detail.map(terminalDisplayText)]
@@ -129,6 +131,7 @@ function messageLines(
 	return [
 		...(hasPrev && message.glyph !== '⎿' ? [''] : []),
 		`  ${shown}${meta ? ` · ${meta}` : ''}${open ? ` ${EXPAND_HINT}` : ''}`,
+		...(message.attachments ?? []).map((row) => `  ${terminalDisplayText(attachmentLine(row))}`),
 		...(group
 			? commandRows(group, (columns ?? 80) - COMMAND_ROW_INDENT - 1).map(
 					(line) => `     ${terminalDisplayText(line)}`,

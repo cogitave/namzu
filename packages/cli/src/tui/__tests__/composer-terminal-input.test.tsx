@@ -146,7 +146,7 @@ describe('the composer on a production-shaped terminal', () => {
 			screen.press('\r')
 			await screen.waitForRender()
 			expect(submit).toHaveBeenCalledWith(
-				'',
+				'[Image #1]',
 				[clipboardImage],
 				'submit',
 				expect.objectContaining({ source: 'composer' }),

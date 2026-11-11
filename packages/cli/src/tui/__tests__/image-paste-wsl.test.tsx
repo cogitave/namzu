@@ -275,6 +275,21 @@ describe('the chip against the text before it', () => {
 		}
 	})
 
+	it('keeps one space when the draft already ends in one', async () => {
+		reset()
+		state.next = png
+		const { screen } = await open()
+		try {
+			screen.press('look at ')
+			await screen.waitForRender()
+			await pressAndSettle(screen, '\x16')
+			expect(frame(screen)).toContain('look at [Image #1]')
+			expect(frame(screen)).not.toContain('look at  [Image #1]')
+		} finally {
+			await screen.unmount()
+		}
+	})
+
 	it('adds no space at the start of an empty draft', async () => {
 		reset()
 		state.next = png
