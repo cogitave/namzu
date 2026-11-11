@@ -421,3 +421,19 @@
 	font-size: 12px;
 	border-bottom: 1px solid var(--border);
 }
+
+/* A narrow pane (half of a small window): the file count gives way so the close button stays in view. */
+@container changes (max-width: 480px) {
+	.changes-count-files {
+		display: none;
+	}
+	.changes-bar {
+		gap: 8px;
+	}
+}
+.changes-bar > * {
+	min-width: 0;
+}
+.changes-close {
+	flex: none;
+}
