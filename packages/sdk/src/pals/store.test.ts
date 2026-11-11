@@ -87,7 +87,7 @@ describe('persistent Pal identity and revision ownership', () => {
 		expect(readFileSync(join(store.root, first.id, 'revisions', '1.json'), 'utf8')).toBe(firstBytes)
 		restarted.delete(first.id, 2)
 		expect(readFileSync(tombstone, 'utf8')).toBe(deletedBytes)
-		expect(readdirSync(join(store.root, first.id, 'revisions'))).toEqual([
+		expect(readdirSync(join(store.root, first.id, 'revisions')).sort()).toEqual([
 			'1.json',
 			'2.json',
 			'3.json',

@@ -38,6 +38,16 @@ class FakeProcess extends EventEmitter implements TerminationProcess {
 	readonly platform: NodeJS.Platform = 'linux'
 	readonly kills: [number, TerminationSignal][] = []
 	readonly exits: number[] = []
+	private onKill!: () => void
+	private onExit!: () => void
+	/** Resolves when kill() is called, so a test awaits the event instead of sampling for it. */
+	readonly killed = new Promise<void>((resolve) => {
+		this.onKill = resolve
+	})
+	/** Resolves when exit() is called. */
+	readonly exited = new Promise<void>((resolve) => {
+		this.onExit = resolve
+	})
 	override on(signal: TerminationSignal, listener: () => void): this {
 		return super.on(signal, listener)
 	}
@@ -46,16 +56,14 @@ class FakeProcess extends EventEmitter implements TerminationProcess {
 	}
 	kill(pid: number, signal: TerminationSignal): boolean {
 		this.kills.push([pid, signal])
+		this.onKill()
 		return true
 	}
 	exit(code: number): never {
 		this.exits.push(code)
+		this.onExit()
 		return undefined as never
 	}
-}
-
-function settle(): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, 20))
 }
 
 describe('handleTerminationSignals', () => {
@@ -92,11 +100,17 @@ describe('handleTerminationSignals', () => {
 
 		const proc = new FakeProcess()
 		const order: string[] = []
+		let onFinishedResolve: () => void = () => undefined
 		let finished: TerminationSignal | undefined
+		// Resolved by the code under test; a hang is left to the test's own timeout.
+		const finishedEvent = new Promise<void>((resolve) => {
+			onFinishedResolve = resolve
+		})
 		const handling = handleTerminationSignals({
 			process: proc,
 			onFinished: (signal) => {
 				finished = signal
+				onFinishedResolve()
 			},
 		})
 		handling.onTerminate(async (signal) => {
@@ -116,7 +130,7 @@ describe('handleTerminationSignals', () => {
 		expect(terminationInProgress()).toBe('SIGTERM')
 		// The command returning meanwhile does not take the exit from the handler.
 		handling.dispose()
-		for (let i = 0; i < 100 && finished === undefined; i++) await settle()
+		await finishedEvent
 
 		expect(order).toEqual(['cleanup SIGTERM, lease live: false', 'second cleanup', 'third cleanup'])
 		expect(finished).toBe('SIGTERM')
@@ -129,9 +143,11 @@ describe('handleTerminationSignals', () => {
 		const proc = new FakeProcess()
 		handleTerminationSignals({ process: proc, leaseReleaseMs: 10 })
 		proc.emit('SIGHUP')
-		for (let i = 0; i < 100 && proc.kills.length === 0; i++) await settle()
+		// Both are awaited as events. The exit follows the kill after the code's own
+		// grace timer, so nothing here guesses how long that takes.
+		await proc.killed
 		expect(proc.kills).toEqual([[4242, 'SIGHUP']])
-		await new Promise((resolve) => setTimeout(resolve, 1_100))
+		await proc.exited
 		expect(proc.exits).toEqual([signalExitCode('SIGHUP')])
 		expect(signalExitCode('SIGHUP')).toBe(129)
 		expect(signalExitCode('SIGTERM')).toBe(143)
@@ -142,19 +158,24 @@ describe('handleTerminationSignals', () => {
 		resetTerminationForTests()
 		const proc = new FakeProcess()
 		let finished = false
+		let onFinishedResolve: () => void = () => undefined
+		const finishedEvent = new Promise<void>((resolve) => {
+			onFinishedResolve = resolve
+		})
 		const handling = handleTerminationSignals({
 			process: proc,
 			cleanupMs: 200,
 			onFinished: () => {
 				finished = true
+				onFinishedResolve()
 			},
 		})
 		handling.onTerminate(() => new Promise<void>(() => undefined))
 		proc.emit('SIGINT')
-		await settle()
+		// The first signal marks the termination synchronously, so the second is a second.
 		proc.emit('SIGINT')
 		expect(proc.exits).toEqual([130])
-		for (let i = 0; i < 50 && !finished; i++) await settle()
+		await finishedEvent
 		expect(finished).toBe(true)
 	})
 })

@@ -235,8 +235,9 @@ export interface CompactionCliConfig {
 	 * the soft target and then keeps going until the context is this much
 	 * lower, so the next pass comes only after that room is used rather than
 	 * on the next turn. Fewer passes and a request rewritten once per stretch
-	 * instead of once per turn; the context is held that much lower. Absent
-	 * or `0`, the default: a pass sheds to the soft target and no further.
+	 * instead of once per turn; the context is held that much lower. Absent,
+	 * the terminal uses `0.05` with the `salience` strategy; `0` restores a
+	 * pass that sheds to the soft target and no further.
 	 */
 	readonly softTargetHeadroom?: number
 	/**

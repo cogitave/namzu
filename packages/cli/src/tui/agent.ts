@@ -7921,17 +7921,34 @@ const COMPACTION_CONFIG = {
 	maxCharsPerTask: 400,
 }
 
-/** The shipped configuration with the strategy the project chose, if it chose one. */
+/**
+ * How far below the soft target a salience pass sheds when the project set
+ * none, as a fraction of the window. The kernel's own default is 0; the
+ * terminal asks for more because a session is long: shedding only to the soft
+ * target ran a pass on every turn and rewrote the request each time, so a
+ * provider that caches the start of a request missed most of it. This is the
+ * one place the default lives; every path that builds the kernel's compaction
+ * configuration goes through {@link compactionConfigFor}.
+ */
+export const DEFAULT_SOFT_TARGET_HEADROOM = 0.05
+
+/**
+ * The shipped configuration with the strategy the project chose, if it chose
+ * one, and the headroom: the project's own (zero included) or, for the
+ * salience strategy only, {@link DEFAULT_SOFT_TARGET_HEADROOM}.
+ */
 export function compactionConfigFor(compaction: CompactionCliConfig | undefined): CompactionConfig {
+	const strategy = compaction?.strategy ?? COMPACTION_CONFIG.strategy
+	const headroom =
+		compaction?.softTargetHeadroom ??
+		(strategy === 'salience' ? DEFAULT_SOFT_TARGET_HEADROOM : undefined)
 	return {
 		...COMPACTION_CONFIG,
-		strategy: compaction?.strategy ?? COMPACTION_CONFIG.strategy,
+		strategy,
 		...(compaction?.deduplicateObservations !== undefined
 			? { deduplicateObservations: compaction.deduplicateObservations }
 			: {}),
-		...(compaction?.softTargetHeadroom !== undefined
-			? { softTargetHeadroom: compaction.softTargetHeadroom }
-			: {}),
+		...(headroom !== undefined ? { softTargetHeadroom: headroom } : {}),
 		...(compaction?.contextWindowTokens !== undefined
 			? { contextWindowTokens: compaction.contextWindowTokens }
 			: {}),

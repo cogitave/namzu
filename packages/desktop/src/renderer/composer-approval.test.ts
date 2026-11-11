@@ -27,46 +27,100 @@ const draw = (
 		}),
 	)
 
-it('makes Accept the one filled answer and says what the edit button does', () => {
+it('makes Accept the one filled answer and keeps what the edit button does behind the menu', () => {
 	const html = draw(bash('ls'), '/work/site')
 	expect(html).toMatch(/data-tone="accept"[^>]*>Accept</)
 	expect(html).toMatch(/data-tone="reject"[^>]*>Reject</)
-	expect(html).toContain('Tell Namzu what to do instead')
+	// The note field and the other choices are one click away, on the box's "..." menu.
+	expect(html).toContain('aria-label="More about this request"')
 	expect(html).not.toMatch(/>Edit</)
 })
 
-it('names the folder a command runs in and what it can change', () => {
+it('is one card with the question, its target and where a command runs', () => {
 	const html = draw(bash('ls'), '/work/site')
+	expect(html).toContain('Run <code class="approval-chip">ls</code>?')
+	expect(html).not.toContain('Waiting for your decision')
+	expect(html.match(/class="approval-card"/g)).toHaveLength(1)
 	expect(html).toContain('Runs in /work/site.')
 	// With the project's name, the name stands in for the folder and the folder is the tooltip.
 	const named = draw(bash('ls'), '/work/site', 'Site')
 	expect(named).toContain('Runs in Site.')
 	expect(named).toContain('title="/work/site"')
-	expect(draw(bash('rm -rf build'), '/work/site')).toContain('deletes or overwrites files')
 })
 
-it('tells the person which keys answer the card', () => {
-	expect(draw(bash('ls'))).toContain('Enter accepts. Esc rejects.')
-	expect(draw(bash('ls'))).not.toContain('stops this reply')
+it('puts the kernel flag right after the question, with a warning mark', () => {
+	const html = draw(bash('rm -rf build'), '/work/site')
+	expect(html).toContain('class="approval-flag"')
+	expect(html).toContain('Looks like it deletes or overwrites files.')
+	expect(html.indexOf('approval-flag')).toBeLessThan(html.indexOf('approval-box'))
+	expect(draw(bash('ls'), '/work/site')).not.toContain('approval-flag')
+})
+
+it('never holds Accept for scrolling: a long command is four rows and a link that states the rest', () => {
+	const long = Array.from({ length: 24 }, (_, i) => `# step ${i + 1}`).join('\n')
+	const html = draw(bash(`${long}\necho done`), '/work/site')
+	expect(html.match(/class="approval-row"/g)).toHaveLength(4)
+	expect(html).toContain('Show all 25 lines')
+	expect(html).not.toMatch(/Scroll (through|to)/)
+	// The only hold is the click guard, which every card starts under.
+	expect(html).toMatch(/data-held="true"[^>]*>Accept</)
+})
+
+it('draws the first rows of an edit from the change itself', () => {
+	const before = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join('\n')
+	const after = before.replace('line 12', 'LINE 12')
+	const html = draw(
+		{
+			id: 'r5',
+			sessionId: 's',
+			projectId: 'p',
+			calls: [
+				{
+					id: 'c5',
+					name: 'edit',
+					input: { path: '/work/src/a.ts', old_string: 'line 12', new_string: 'LINE 12' },
+					isDestructive: false,
+					preview: { path: '/work/src/a.ts', before, after },
+				},
+			],
+		},
+		'/work',
+	)
+	expect(html).toContain('Edit <code class="approval-chip">src/a.ts</code>?')
+	expect(html).toContain('data-kind="remove"')
+	expect(html).toContain('data-kind="add"')
+	expect(html).toContain('LINE 12')
+	expect(html).toMatch(/Show all \d+ lines/)
+})
+
+it('tells the person which keys answer the card from the buttons, not from a line of text', () => {
+	const html = draw(bash('ls'))
+	expect(html).not.toContain('Enter accepts. Esc rejects.')
+	expect(html).toMatch(/title="Accept · Enter"/)
+	expect(html).toMatch(/title="Reject · Esc"/)
+	expect(html).not.toContain('stops this reply')
 })
 
 it('does not leave Enter on yes for a command or a file that deletes', () => {
-	expect(draw(bash('rm -rf build'))).toContain('Enter rejects it. Esc rejects it too.')
-	expect(draw(bash('rm -rf build'))).not.toContain('Enter accepts')
+	const risky = draw(bash('rm -rf build'))
+	expect(risky).toMatch(/title="Reject · Enter or Esc"/)
+	expect(risky).toMatch(
+		/title="Accept · Ctrl\+Enter\. This one looks risky, so Enter rejects it\."/,
+	)
 	const removal = draw({
 		id: 'r3',
 		sessionId: 's',
 		projectId: 'p',
 		calls: [{ id: 'c3', name: 'delete_file', input: { path: 'a.ts' }, isDestructive: true }],
 	})
-	expect(removal).toContain('Enter rejects it')
+	expect(removal).toMatch(/title="Reject · Enter or Esc"/)
 })
 
 it('offers the quiet conversation-wide yes only when the engine keeps it and the call is safe', () => {
 	expect(draw(bash('ls'), undefined, undefined, true)).toMatch(
-		/class="approval-button approval-instead"[^>]*>Allow for this conversation</,
+		/class="approval-button approval-outline"[^>]*>Allow for this conversation</,
 	)
-	// It is a quiet action beside Reject and Accept, never the filled one.
+	// It is an outline beside Reject and Accept, never the filled one.
 	expect(draw(bash('ls'), undefined, undefined, true)).not.toMatch(
 		/data-tone="[a-z]*"[^>]*>Allow for this conversation</,
 	)
@@ -162,11 +216,55 @@ it('draws the screen question as a one-time choice between allow now and not now
 
 it('keeps a stray Enter from allowing the keyboard to be taken', () => {
 	const html = draw(screenMoment())
-	expect(html).toContain('Enter says not now')
-	expect(html).toContain('Esc says not now too')
+	expect(html).toMatch(/title="Not now · Enter or Esc"/)
+	expect(html).toMatch(/title="Allow this app · Ctrl\+Enter\. Enter says not now\."/)
 	expect(html).not.toContain('Enter accepts')
 })
 
 it('names an application nobody could name', () => {
 	expect(draw(screenMoment(' '))).toContain('Let an application use your keyboard and mouse')
+})
+
+it('wraps a long changed line by default so the end of it is on the card', () => {
+	const tail = 'exec(process.env.PAYLOAD)'
+	const html = draw(
+		{
+			id: 'r6',
+			sessionId: 's',
+			projectId: 'p',
+			calls: [
+				{
+					id: 'c6',
+					name: 'edit',
+					input: { path: '/work/src/index.ts', old_string: 'a', new_string: 'b' },
+					isDestructive: false,
+					preview: {
+						path: '/work/src/index.ts',
+						before: 'const a = 1\n',
+						after: `const a = '${'a'.repeat(190)}'; ${tail}\n`,
+					},
+				},
+			],
+		},
+		'/work',
+	)
+	expect(html).toMatch(/class="approval-rows" data-wrap="true"/)
+	expect(html).toContain(tail)
+})
+
+it('says so when a command in a later call of the request is the risky one', () => {
+	const html = draw(
+		{
+			id: 'r7',
+			sessionId: 's',
+			projectId: 'p',
+			calls: [
+				{ id: 'a', name: 'bash', input: { command: 'ls' }, isDestructive: false },
+				{ id: 'b', name: 'bash', input: { command: 'sudo rm -rf build' }, isDestructive: false },
+			],
+		},
+		'/work',
+	)
+	expect(html).toContain('Runs with elevated rights.')
+	expect(html).toContain('Looks like it deletes or overwrites files.')
 })
