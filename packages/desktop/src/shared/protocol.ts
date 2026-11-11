@@ -407,6 +407,11 @@ export interface ModelCatalogueView {
 		current?: true
 		/** Zen only: `free` is a stated 0/0 price, `key` a stated non-zero one; absent when no price is published. */
 		group?: 'free' | 'key'
+		/** Tokens the model's context holds, when its source published a window; absent when unknown. */
+		contextWindow?: number
+		/** USD per million input and output tokens, when its source published them; 0 and 0 is free, absent is unknown. */
+		inputPrice?: number
+		outputPrice?: number
 		/** ISO time main first saw this id in a list it had already stored; absent when unknown. */
 		firstSeen?: string
 	}[]

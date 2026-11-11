@@ -1,5 +1,5 @@
 // The header of the model popup against the real Electron app: the back link, the title, the engine
-// chip, the Desktop | CLI switch and the search button must never overlap, at the window widths and
+// chip, the Desktop | CLI switch (now behind the More row) and the search button must never overlap, at the window widths and
 // zoom levels a person has. Measured with getBoundingClientRect, in both themes, on the Namzu engine
 // (whose chip is the wordmark) and on Codex.
 // Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test --test-concurrency=1 e2e/model-header.test.mjs
@@ -8,7 +8,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
-import { createWorld, dispose, expect, launch, openProject, repoRoot } from "./harness.mjs";
+import { createWorld, dispose, expect, launch, openEngineView, openProject, repoRoot } from "./harness.mjs";
 
 const T = 60000;
 const SHOTS = resolve(repoRoot, "research/model-header-20261009");
@@ -81,21 +81,22 @@ async function resize(w, width, zoom) {
 		.toBeGreaterThan(0);
 }
 
-/** Boxes of the header's parts, in CSS pixels. */
+/** Boxes of the popup's header parts and, on the More step, its engine row, in CSS pixels. */
 function measure() {
-	const header = document.querySelector(".model-picker-heading");
-	if (!header) return null;
+	const header = document.querySelector(".model-picker-body");
+	if (!header || !header.querySelector(".model-picker-heading")) return null;
 	const box = (el) => {
 		if (!el) return null;
 		const r = el.getBoundingClientRect();
 		return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height };
 	};
-	const title = header.querySelector(".model-picker-title");
+	const title = header.querySelector(".model-picker-heading .model-picker-title");
 	return {
 		header: box(header),
 		parts: {
 			back: box(header.querySelector(".model-picker-back")),
 			title: box(title),
+			provider: box(header.querySelector(".model-picker-provider-label")),
 			chip: box(header.querySelector(".engine-chip")),
 			mark: box(header.querySelector(".engine-chip .namzu-wordmark, .engine-chip svg")),
 			switch: box(header.querySelector(".surface-switch")),
@@ -103,7 +104,7 @@ function measure() {
 		},
 		titleText: title?.textContent ?? "",
 		titleClipped: title ? title.scrollWidth > title.clientWidth : false,
-		rows: header.getBoundingClientRect().height,
+		rows: header.querySelector(".model-picker-heading").getBoundingClientRect().height,
 	};
 }
 
@@ -142,9 +143,6 @@ function assertNoOverlap(m, label) {
 
 async function openModels(w) {
 	await w.page.getByRole("button", { name: /^Model[:,]|gpt-|Fake|GPT/ }).first().click();
-	const change = w.page.getByRole("button", { name: /change model/ });
-	await expect(change.or(w.page.locator(".model-picker-heading"))).toBeVisible({ timeout: T });
-	if (await change.count()) await change.click();
 	await expect(w.page.locator(".model-picker-heading .model-picker-title")).toBeVisible({
 		timeout: T,
 	});
@@ -158,8 +156,11 @@ async function sweep(w, tag) {
 			for (const zoom of ZOOMS) {
 				await resize(w, width, zoom);
 				const label = `${tag} ${theme} ${width}px x${zoom}`;
-				// Re-open at each size so the popup is placed for it.
+				// Re-open at each size so the popup is placed for it. The last step was More: the first
+				// Escape goes back to the list, the second closes the popup.
 				await w.page.keyboard.press("Escape");
+				await w.page.keyboard.press("Escape");
+				await expect(w.page.locator(".model-picker-popup")).toHaveCount(0, { timeout: T });
 				await openModels(w);
 				// The popup's own height animation has finished when nothing animates.
 				await expect
@@ -171,7 +172,22 @@ async function sweep(w, tag) {
 				if (zoom === 1 || (zoom === 1.5 && width === 900))
 					await shot(w, `${process.env.SHOT_PREFIX ?? ""}${tag}-${theme}-${width}-x${zoom}`);
 				assertNoOverlap(m, label);
-				seen.push({ label, m });
+				// The engine chip and the Desktop | CLI switch are one row away, behind More.
+				assert.equal(m.parts.chip, null, `${label}: the engine chip is not in the first view`);
+				assert.equal(m.parts.switch, null, `${label}: the switch is not in the first view`);
+				await w.page.locator(".model-picker-more").click();
+				await expect(w.page.getByRole("heading", { name: "More", exact: true })).toBeVisible({
+					timeout: T,
+				});
+				await expect
+					.poll(() => w.page.evaluate(() => document.getAnimations().length), { timeout: T })
+					.toBe(0);
+				const more = await w.page.evaluate(measure);
+				assert.ok(more, `${label}: no More header`);
+				if (zoom === 1 || (zoom === 1.5 && width === 900))
+					await shot(w, `${process.env.SHOT_PREFIX ?? ""}${tag}-more-${theme}-${width}-x${zoom}`);
+				assertNoOverlap(more, `${label} (More)`);
+				seen.push({ label, m: { ...more, parts: { ...more.parts, search: m.parts.search } } });
 			}
 		}
 	}
@@ -202,7 +218,7 @@ flow(
 flow("the model popup header never overlaps on Codex", {}, async (w) => {
 	await openProject(w);
 	await w.page.getByRole("button", { name: /gpt-e2e-1|gpt-e2e-0/ }).first().click();
-	await w.page.getByRole("button", { name: /^Engine:/ }).click();
+	await openEngineView(w.page);
 	await w.page.getByRole("radio", { name: /Codex CLI/ }).click();
 	await expect(w.page.getByRole("button", { name: /Fake sol/i }).first()).toBeVisible({
 		timeout: T,

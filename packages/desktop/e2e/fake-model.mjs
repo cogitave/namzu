@@ -30,8 +30,10 @@ export async function startFakeModel(rules = [], options = {}) {
 				res.end(
 					JSON.stringify({
 						object: "list",
-						data: (options.models ?? ["gpt-e2e-1", "gpt-e2e-0"]).map((id) => ({
-							id,
+						// A row is an id, or an object that also carries what a gateway publishes
+						// (`context_window`, `pricing`), so the picker's second line can be exercised.
+						data: (options.models ?? ["gpt-e2e-1", "gpt-e2e-0"]).map((row) => ({
+							...(typeof row === "string" ? { id: row } : row),
 							object: "model",
 							created: 1,
 							owned_by: "e2e",

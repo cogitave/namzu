@@ -133,20 +133,24 @@ function assertInside(m, label) {
 /** How to open each popup from the composer, and how to know it is open. */
 const POPUPS = [
 	{
-		name: "effort",
-		trigger: (p) => p.getByRole("button", { name: /^Model[:,]|gpt-|Select model/ }).first(),
-		open: (p) => p.getByRole("dialog", { name: "Reasoning effort" }),
-	},
-	{
+		// The list, with the effort control and the More row under it.
 		name: "model",
 		trigger: (p) => p.getByRole("button", { name: /^Model[:,]|gpt-|Select model/ }).first(),
-		before: (p) => p.getByRole("button", { name: /change model/ }).click(),
 		open: (p) => p.getByRole("dialog", { name: "Model picker" }),
+	},
+	{
+		name: "more",
+		trigger: (p) => p.getByRole("button", { name: /^Model[:,]|gpt-|Select model/ }).first(),
+		before: (p) => p.locator(".model-picker-more").click(),
+		open: (p) => p.getByRole("dialog", { name: "More model options" }),
 	},
 	{
 		name: "engine",
 		trigger: (p) => p.getByRole("button", { name: /^Model[:,]|gpt-|Select model/ }).first(),
-		before: (p) => p.getByRole("button", { name: /^Engine:/ }).click(),
+		before: async (p) => {
+			await p.locator(".model-picker-more").click();
+			await p.getByRole("button", { name: /^Engine:/ }).click();
+		},
 		open: (p) => p.getByRole("dialog", { name: "Engine" }),
 	},
 	{
@@ -181,7 +185,7 @@ const PAL_POPUPS = [
 				.getByRole("button", { name: /^Model[:,]|gpt-|Select model/ })
 				.first()
 				.click(),
-		open: (p) => p.getByRole("dialog", { name: /Reasoning effort|Model picker/ }),
+		open: (p) => p.getByRole("dialog", { name: "Model picker" }),
 	},
 ];
 
@@ -343,14 +347,16 @@ async function openStep(w, step) {
 		await expect(w.page.locator('[data-slot="popover-popup"]')).toHaveCount(0, { timeout: 1000 });
 	}).toPass({ timeout: T });
 	await MODEL_TRIGGER(w.page).click();
-	// A model with a choice of effort opens on that step; one without opens on the model list.
-	const open = w.page.getByRole("dialog", { name: /Reasoning effort|Model picker/ });
-	await expect(open).toBeVisible({ timeout: T });
-	const onEffort = (await open.getAttribute("aria-label")) === "Reasoning effort";
-	if (step === "effort") return onEffort;
-	if (onEffort) await w.page.getByRole("button", { name: /change model/ }).click();
+	// The popup always opens on the model list, with the effort control under it.
 	await expect(w.page.getByRole("dialog", { name: "Model picker" })).toBeVisible({ timeout: T });
+	if (step === "effort") return (await w.page.locator(".composer-effort-panel").count()) > 0;
 	if (step === "older") await w.page.locator(".model-picker-fold").first().click();
+	if (step === "more" || step === "engine") {
+		await w.page.locator(".model-picker-more").click();
+		await expect(w.page.getByRole("dialog", { name: "More model options" })).toBeVisible({
+			timeout: T,
+		});
+	}
 	if (step === "engine") {
 		await w.page.getByRole("button", { name: /^Engine:/ }).click();
 		await expect(w.page.getByRole("dialog", { name: "Engine" })).toBeVisible({ timeout: T });
@@ -378,7 +384,7 @@ flow(
 				]) {
 					await resize(w, width, zoom);
 					const boxes = [];
-					for (const step of ["effort", "models", "older", "engine"]) {
+					for (const step of ["effort", "models", "older", "more", "engine"]) {
 						const label = `${engine} ${step} ${theme} ${width}px x${zoom}`;
 						if (!(await openStep(w, step))) continue;
 						await expect(w.page.locator('[data-slot="popover-popup"]').last()).not.toContainText(

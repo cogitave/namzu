@@ -25,8 +25,7 @@ import {
 	historySeenBy,
 	launch,
 	openProject,
-	repoRoot,
-} from "./harness.mjs";
+	repoRoot, openEngineView } from "./harness.mjs";
 
 const T = 60000;
 const SHOTS = resolve(repoRoot, "research/ux-20261009/providers-errors");
@@ -471,7 +470,7 @@ process.exit(1);
 			await openProject(w);
 			await expect(box(w)).toBeVisible({ timeout: T });
 			await w.page.getByRole("button", { name: /gpt-e2e-1|gpt-e2e-0/ }).first().click();
-			await w.page.getByRole("button", { name: /^Engine:/ }).click();
+			await openEngineView(w.page);
 			await w.page.getByRole("radio", { name: new RegExp(ENGINE) }).click();
 			await expect(
 				w.page.getByText(`${ENGINE} could not start.`),

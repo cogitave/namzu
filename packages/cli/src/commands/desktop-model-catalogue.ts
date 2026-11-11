@@ -25,6 +25,10 @@ export interface DesktopModelRow {
 	current?: true
 	/** Zen only; the picker draws a heading where it changes. Absent when no price is published. */
 	group?: ModelGroup
+	/** Tokens the context holds and USD per million tokens, only where the source published them. */
+	contextWindow?: number
+	inputPrice?: number
+	outputPrice?: number
 }
 
 /** A desktop catalogue reports provider rows, never invented defaults or saved pins. */
@@ -76,6 +80,9 @@ export function desktopModelCatalogue(
 			label: modelListLabel(model.name || model.id, model.id).slice(0, 400),
 			...(notes.length ? { note: `(${notes.join(' · ')})` } : {}),
 			...(model.group ? { group: model.group } : {}),
+			...(model.contextWindow !== undefined ? { contextWindow: model.contextWindow } : {}),
+			...(model.inputPrice !== undefined ? { inputPrice: model.inputPrice } : {}),
+			...(model.outputPrice !== undefined ? { outputPrice: model.outputPrice } : {}),
 			...(model.id === defaultModel ? { default: true as const } : {}),
 		})
 	}

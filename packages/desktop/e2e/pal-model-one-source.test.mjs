@@ -48,8 +48,6 @@ function flow(name, body, options = {}) {
 async function pick(scope, page, model) {
 	const chip = scope.getByRole("button", { name: /^Model/ });
 	await chip.click();
-	const change = page.getByRole("button", { name: /change model/ });
-	if (await change.count()) await change.click();
 	await page.getByRole("radio", { name: escape(model) }).click();
 	await expect(chip).toHaveAttribute("aria-label", escape(model), { timeout: T });
 	if ((await chip.getAttribute("aria-expanded")) === "true") await chip.click();

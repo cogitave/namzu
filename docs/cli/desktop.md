@@ -16,11 +16,12 @@ import CLI code or create a second agent execution loop.
 ## Local Turkish speech
 
 **Settings ▸ Speech** (see [Settings](#settings)) offers Turkish playback through EMA Lightning
-1.0.1 on this device; the composer no longer carries a voice control, and **Read aloud**
-on a reply stays where it was. **Speech language** selects the synthesis language; it does
-not change the model's chat language. This engine supplies one Turkish voice and
-runs on CPU. Microphone transcription and automatic voice conversation are not
-implemented by this feature.
+1.0.1 on this device, and **Read aloud** on a reply stays where it was. **Speech language** selects the
+synthesis language; it does not change the model's chat language. This engine supplies one Turkish voice and
+runs on CPU. It only speaks: it does not listen. Listening is a separate feature, **Voice input**
+(**Settings ▸ Speech ▸ Voice input**, [Desktop voice input](desktop-listening.md)): once its on-device
+recognition model is downloaded and consent is given, the composer shows a microphone, and what is said is
+transcribed on the computer and sent as an ordinary message. The microphone is not drawn before that.
 
 Speech is disabled initially. **Remove voice…** deletes the downloaded engine and models
 (the saved preferences stay, and a running playback or download is stopped or refused first);
@@ -3535,13 +3536,34 @@ before anything is built.
 
 ### The composer, its popups and approval cards
 
-The model popup has four steps (effort, models with their older models, engine) on every engine.
-All of them share one width, 388 px (less than the window minus 16 px in a narrow window), and
-the popup's right edge stays on the trigger, so it never jumps sideways as a person clicks through;
-the popup's frame no longer draws a scrollbar of its own (the list inside scrolls) so a long list does
-not make it wider. The engine chip names the engine beside its logo (for Codex CLI, its name; the Namzu
-mark is its own name). `e2e/composer-popups.test.mjs` measures every step on the Namzu and Codex
-engines at four window sizes in both themes.
+**The lower edge of the box (the chin).** It carries four things: the attach **+**, the permission word, the
+model word and Send. Permission and model are quiet muted text (the chevron's room is always kept and it fades in on hover, focus or while
+the menu is open, so the word never moves; Full access keeps its warning mark and colour), and Send is the only filled control, in the
+one lime the other primary actions use. Its dimmed look with an empty box is the disabled state of that same
+lime. The context ring, the queue button, the background-shell count and the pull request chip are drawn only
+when they have something to say. The **microphone is not drawn until voice input is set up**
+(**Settings ▸ Speech ▸ Voice input**, found by searching "microphone"); once it is, or while a voice session is
+listening, the button is back. Above the box on the home screen is one 13 px muted line, "*project* · This
+computer" (a long project name gives way first, with an ellipsis; the computer stays readable), that opens one menu: the project list (search, start from scratch, an existing folder, no project)
+and, under it, the computer the work runs on. There is one computer to choose, so it is shown as the one checked
+choice. The three starters are quiet 32 px rows; a click puts the idea in the box and focuses it, and never sends.
+
+**The model popup** opens on the model list on every engine: 40 px rows, the model's name and a 12 px muted second
+line with its context window and what a million tokens cost ("128k window · Free", "200k window · $3 in · $15 out
+per 1M"). Those come from what the model's source published in its list (`contextWindow`, `inputPrice` and
+`outputPrice` on a catalogue row, carried by `namzu/providers/models` and stored with the list); a value the source
+did not publish is left out, a model carried with placeholder limits shows no window, and a row with nothing known has
+no second line (its own note, if it has one, stays). Engines that list only names show none.
+Under the list are the reasoning-effort slider (only where the model offers a choice, and only while the list on screen is the model in use's provider: beside another provider's models it is left out, since it would read as theirs; its fill is a neutral tone, lime stays on Send) and one **More** row, worded
+from what it holds ("More: provider, engine, Desktop or CLI"), which is not drawn when there is nothing behind it.
+**More** holds the engine (its chip opens the engine list, with updates noted there), the **Desktop | CLI** switch
+and its caption, and "Show models from" (the provider filter, drawn only when there are two or more providers;
+choosing one returns to the list of that provider). Arrow keys move, Enter chooses, Escape inside More goes back one step to the list (focus returns to the **More** row) and Escape on the list closes the popup (focus returns to the model control), **/** or the search
+icon filters a long list (as before: more than seven models or more than one provider). The popup shares one width,
+388 px with engines (less than the window minus 16 px in a narrow window), its right edge stays on the trigger, and the
+frame draws no scrollbar of its own. `e2e/composer-popups.test.mjs` measures every step (list, older models, More,
+engine) on the Namzu and Codex engines at four window sizes in both themes; `e2e/ux-composer-chin.test.mjs` covers the
+chin, the context line, the starters and the list.
 
 An approval card sits wholly above the composer, with a gap, and "Waiting for your decision" is the
 line directly above it. A command's card says "Runs in *project name*." (the full folder is the sentence's tooltip),

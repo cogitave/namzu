@@ -63,7 +63,7 @@ describe('engineLabel', () => {
 })
 
 describe('EnginePanel', () => {
-	const render = (engineView: HarnessView, backLabel: 'Effort' | 'Models' = 'Effort') =>
+	const render = (engineView: HarnessView, backLabel: 'More' | 'Models' = 'More') =>
 		renderToStaticMarkup(
 			createElement(EnginePanel, {
 				view: engineView,

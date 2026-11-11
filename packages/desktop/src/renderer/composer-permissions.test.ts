@@ -43,7 +43,10 @@ vi.mock('./ui/popover.js', () => ({
 	PopoverPopup: 'popup',
 	PopoverTitle: 'poptitle',
 }))
-vi.mock('./composer-control.js', () => ({ ComposerControl: 'button' }))
+vi.mock('./composer-control.js', () => ({
+	ComposerControl: 'button',
+	ComposerControlChevron: 'chevron',
+}))
 vi.mock('./ui/button.js', () => ({ Button: 'button' }))
 vi.mock('@base-ui/react/alert-dialog', () => ({
 	AlertDialog: {
