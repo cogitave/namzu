@@ -194,21 +194,26 @@ describe('grep reads local files through one handle each', () => {
 
 	it('treats a file deleted after it was listed as absent', async () => {
 		const root = tree()
-		for (const name of ['a.txt', 'b.txt', 'c.txt']) writeFileSync(join(root, name), 'needle\n')
+		const names = ['a.txt', 'b.txt', 'c.txt']
+		for (const name of names) writeFileSync(join(root, name), 'needle\n')
+		// A directory is listed in no promised order. Whichever file is reached
+		// first deletes one of the two that are still waiting.
 		let deleted = false
 		const result = await grep(
 			root,
 			{ output_mode: 'count', head_limit: 0 },
 			{
 				readDenied: (path) => {
-					if (path.endsWith('a.txt') && !deleted) {
+					if (!deleted) {
 						deleted = true
-						unlinkSync(join(root, 'c.txt'))
+						const waiting = names.filter((name) => !path.endsWith(name))
+						unlinkSync(join(root, waiting[0] as string))
 					}
 					return false
 				},
 			},
 		)
+		expect(deleted).toBe(true)
 		expect(result.success).toBe(true)
 		expect(String(result.output)).toContain('2 files searched')
 		expect(String(result.output)).not.toContain('could not be read')
@@ -287,27 +292,30 @@ describe('a file over the synchronous size threshold is read without holding the
 		async () => {
 			const root = tree()
 			const outside = tree()
-			writeFileSync(join(root, 'a.txt'), 'hay\n')
-			writeFileSync(join(root, 'swapped.txt'), body(over))
+			const names = ['one.txt', 'two.txt']
+			for (const name of names) writeFileSync(join(root, name), body(over))
 			writeFileSync(join(outside, 'secret.txt'), body(over))
-			let swapped = false
+			// A directory is listed in no promised order. Whichever large file
+			// is reached first swaps the one still waiting for a link, so the
+			// swap always lands after the listing and before that file's open.
+			let victim: string | undefined
 			const result = await grep(
 				root,
 				{ output_mode: 'content', head_limit: 0 },
 				{
 					readDenied: (path) => {
-						if (path.endsWith('a.txt') && !swapped) {
-							swapped = true
-							unlinkSync(join(root, 'swapped.txt'))
-							symlinkSync(join(outside, 'secret.txt'), join(root, 'swapped.txt'))
+						if (victim === undefined) {
+							victim = names.find((name) => !path.endsWith(name)) as string
+							unlinkSync(join(root, victim))
+							symlinkSync(join(outside, 'secret.txt'), join(root, victim))
 						}
 						return false
 					},
 				},
 			)
-			expect(swapped).toBe(true)
-			expect(String(result.output)).not.toContain('swapped.txt')
-			expect(result.data).toMatchObject({ filesMatched: 0 })
+			expect(victim).toBeDefined()
+			expect(String(result.output)).not.toContain(victim as string)
+			expect(result.data).toMatchObject({ filesMatched: 1 })
 			expect(String(result.output)).toContain('1 file could not be read')
 		},
 	)
