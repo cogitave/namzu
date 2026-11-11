@@ -76,6 +76,30 @@ run and the recent window is a clearable result or a long narration. When none
 is, nothing could be shed whatever the scores are, and scoring is skipped: the
 pass returns the same plan it would have made, with no action.
 
+## When a pass runs
+
+A pass starts when the measured context reaches the soft target, before every
+model call. The measure is the provider's own count of the last request plus an
+estimate of what was appended since, and the character estimate when there is
+no count. The count is not carried from one turn into the next, so the first
+check of a turn reads the estimate, which sits below the provider's count by
+what it cannot see (framing, the system prompt and tool catalogue as sent); a
+context that is held at the target by the provider's count is therefore usually
+first shortened in the second iteration of a turn. Each pass sheds whole
+narrations or results, down to the target and no further, and the turn's own
+messages then use up what was left over, so a pass can run again in the third
+or fourth iteration. With a window held at its soft target, one 80-turn run
+against a scripted model made 62 passes in 40 turns, 22 of them a second pass
+in the same turn. Those passes are not needed to stay under the summary
+trigger. They keep the context at the target. A host that would rather pay
+for fewer, larger passes sets
+[`softTargetHeadroom`](context-limits.md#the-summary-trigger).
+
+A pass that can shed nothing does not start: below the summary trigger, with no
+reducer and not forced, it is not run, no `pre_compact` or `post_compact` hook
+fires for it and no `compaction_started` event is emitted. At the trigger it
+starts as before, because the summary is what it is for.
+
 These are ranking signals, not a proof that a fact is dispensable. Visual
 understanding does not happen inside the scorer. A host can retain critical
 messages or preserve named tools' results explicitly.

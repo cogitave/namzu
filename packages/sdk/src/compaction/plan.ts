@@ -141,6 +141,22 @@ export function naiveKeepStartByTokens(messages: readonly Message[], budgetToken
 /** Where the salience pass holds the context, as a fraction of the window. */
 export const DEFAULT_SOFT_TARGET = 0.5
 
+/**
+ * Whether a salience pass could shed anything from `messages` at all: false
+ * is exact (the pass would make no action whatever the scores are), true is
+ * "go and score". See {@link hasEvictableMessage}.
+ */
+export function canShedSalienceWorkingSet(
+	messages: readonly Message[],
+	config: CompactionConfig,
+): boolean {
+	return hasEvictableMessage(messages, {
+		minToolResultChars: config.minToolResultCharsToClear,
+		...(config.preserveToolResultsFrom ? { preserveTools: config.preserveToolResultsFrom } : {}),
+		keepRecentMessages: config.keepRecentMessages,
+	})
+}
+
 export function planSalienceWorkingSet(input: {
 	readonly messages: readonly Message[]
 	readonly config: CompactionConfig
@@ -162,10 +178,7 @@ export function planSalienceWorkingSet(input: {
 	// narration is short or already cut. Scoring every message to learn that
 	// is the whole cost of a pass that can do nothing, and it ran on every
 	// turn from the soft target until the summary trigger.
-	const working = hasEvictableMessage(input.messages, {
-		...workingOptions,
-		keepRecentMessages: config.keepRecentMessages,
-	})
+	const working = canShedSalienceWorkingSet(input.messages, config)
 		? planWorkingSet(
 				input.messages,
 				scoreMessages(input.messages, {

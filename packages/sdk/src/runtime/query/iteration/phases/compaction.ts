@@ -8,6 +8,7 @@ import {
 	type CompactionPlan,
 	DEFAULT_SOFT_TARGET,
 	planCompaction,
+	canShedSalienceWorkingSet,
 	planSalienceWorkingSet,
 } from '../../../../compaction/plan.js'
 import type { ContextReducer, ContextReduction } from '../../../../compaction/reducer.js'
@@ -786,6 +787,23 @@ async function runCompactionCheckInner(
 	)
 	const startAt = salience ? Math.min(config.softTarget ?? DEFAULT_SOFT_TARGET, trigger) : trigger
 	if (!options?.force && usage < startAt) return
+
+	// A pass that can shed nothing and has not reached the summary trigger
+	// does nothing but announce itself: two hooks, a started event and a log
+	// line around a plan with no action. From the soft target until the
+	// trigger it ran on every iteration of every turn once every narration
+	// was cut and every large result cleared. Not asked of a forced pass, of
+	// a turn with a reducer (it owns the reduction), or at the trigger, where
+	// the summary path is what the pass is for.
+	if (
+		salience &&
+		!options?.force &&
+		!ctx.contextReducer &&
+		usage < trigger &&
+		!canShedSalienceWorkingSet(ctx.recorder.messages, config)
+	) {
+		return
+	}
 
 	// Three failed passes in a row: stop proactive compaction for the rest of
 	// the turn. A pass the provider forced is never gated.
