@@ -35,7 +35,8 @@
 	border-radius: var(--radius-control);
 	background: var(--popover);
 	color: var(--popover-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .workspace-window-error-actions {
 	display: flex;

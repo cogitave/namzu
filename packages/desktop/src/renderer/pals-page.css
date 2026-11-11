@@ -15,8 +15,9 @@
 	min-height: var(--workspace-topbar-height);
 	padding: 0 20px;
 	border-bottom: 1px solid var(--border);
-	font-size: 13px;
-	font-weight: 500;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-control);
 }
 .pal-onboarding-transcript {
 	flex: 1;
@@ -41,7 +42,8 @@
 .pal-onboarding-footer p {
 	margin: 0;
 	color: var(--muted-foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .pal-welcome {
 	display: flex;
@@ -71,8 +73,9 @@
 	border-radius: var(--radius-panel);
 	padding: 3px 10px;
 	color: var(--foreground);
-	font-size: 14px;
-	font-weight: 600;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+	font-weight: var(--weight-strong);
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
@@ -82,8 +85,8 @@
 	border-radius: var(--radius-panel);
 	background: var(--message-surface);
 	color: var(--message-foreground);
-	font-size: 14px;
-	line-height: 22px;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 }
@@ -93,8 +96,9 @@
 	border-radius: var(--radius-panel);
 	background: color-mix(in srgb, var(--primary) 10%, var(--background));
 	color: var(--primary);
-	font-size: 13px;
-	font-weight: 400;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-text);
 }
 .pal-welcome .pal-welcome-customize:hover {
 	background: color-mix(in srgb, var(--primary) 17%, var(--background));
@@ -106,7 +110,8 @@
 	gap: 10px 14px;
 	padding: 5px 0;
 	color: var(--muted-foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .pal-model-choice {
 	display: flex;
@@ -124,7 +129,8 @@
 }
 .pal-model-placeholder {
 	color: var(--muted-foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .pal-model-skeleton {
 	display: inline-block;
@@ -140,8 +146,8 @@
 	align-items: center;
 	gap: 8px;
 	width: 100%;
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }
 .pal-customize-backdrop {
@@ -205,16 +211,16 @@
 }
 .pal-customize-controls h2 {
 	margin: 0;
-	font-size: 23px;
-	line-height: 30px;
+	font-size: var(--text-title);
+	line-height: var(--leading-title);
 	letter-spacing: -.025em;
-	font-weight: 600;
+	font-weight: var(--weight-strong);
 }
 .pal-customize-controls header p {
 	margin: 5px 0 0;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .pal-customize-controls fieldset {
 	min-width: 0;
@@ -227,9 +233,9 @@
 	display: block;
 	margin-bottom: 12px;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 20px;
-	font-weight: 400;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-text);
 }
 .pal-choice-row {
 	display: flex;
@@ -298,7 +304,8 @@
 }
 .pal-character-choice-option > span:last-child {
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .pal-customize-preview {
 	position: relative;
@@ -327,16 +334,17 @@
 	border-radius: var(--radius-chip);
 	text-align: center;
 	color: var(--foreground);
-	font-size: 40px;
+	font-size: var(--text-display);
 	line-height: 64px;
-	font-weight: 600;
+	font-weight: var(--weight-strong);
 	letter-spacing: -.03em;
 }
 .pal-name-preview input::placeholder {
-	font-size: 24px;
+	font-size: var(--text-title);
+	line-height: var(--leading-title);
 	letter-spacing: -.02em;
 	color: var(--muted-foreground);
-	font-weight: 500;
+	font-weight: var(--weight-control);
 }
 .pal-name-hint {
 	width: 100%;
@@ -345,8 +353,8 @@
 	text-wrap: balance;
 	text-align: center;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .pal-name-hint[data-tone="duplicate"] {
 	color: var(--error-foreground);
@@ -390,13 +398,14 @@
 .pal-customize-model p {
 	margin: 7px 0 0;
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .pal-error {
 	margin: 14px 0 0;
 	color: var(--error-foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	overflow-wrap: anywhere;
 }
 .pal-loading {
@@ -409,8 +418,9 @@
 .sidebar-pals .sidebar-pals-heading {
 	margin: 0 0 4px;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	font-weight: 500;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-control);
 }
 .sidebar-pals .sidebar-section-toggle {
 	width: 100%;
@@ -433,8 +443,9 @@
 	padding: 3px 8px;
 	border-radius: var(--radius-control);
 	color: var(--sidebar-foreground);
-	font-size: 13px;
-	font-weight: 400;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-text);
 	transition: background-color var(--dur-quick) var(--ease-out);
 }
 .sidebar-pals .sidebar-pal-row[aria-current="page"] {
@@ -451,7 +462,8 @@
 .sidebar-pal-row > small,
 .sidebar-pals-loading {
 	color: var(--sidebar-muted-foreground);
-	font-size: 11px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .sidebar-pals .sidebar-pal-create {
 	color: var(--sidebar-muted-foreground);
@@ -505,9 +517,9 @@
 		display: block;
 		order: 1;
 		padding: 20px 48px 16px 24px;
-		font-size: 20px;
-		line-height: 28px;
-		font-weight: 600;
+		font-size: var(--text-title);
+		line-height: var(--leading-title);
+		font-weight: var(--weight-strong);
 		letter-spacing: -.02em;
 	}
 	.pal-customize-preview {
@@ -534,7 +546,7 @@
 	}
 	.pal-name-preview input {
 		height: 48px;
-		font-size: 32px;
+		font-size: var(--text-display);
 		line-height: 48px;
 	}
 	.pal-customize-controls {
@@ -595,7 +607,8 @@
 	border-radius: var(--radius-card);
 	background: var(--surface);
 	color: var(--muted-foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .pal-opening > span {
 	flex: 1;
@@ -610,7 +623,8 @@
 	flex-basis: 100%;
 	margin: 0;
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	overflow-wrap: anywhere;
 }
 .sidebar-pal-unread {
@@ -627,7 +641,8 @@
 	gap: 4px 8px;
 	margin: 6px 8px;
 	color: var(--sidebar-muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 
 .sidebar-pal-unread[data-state="failed"] {

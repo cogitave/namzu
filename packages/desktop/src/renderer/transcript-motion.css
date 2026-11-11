@@ -15,8 +15,8 @@
 }
 .message-time {
 	display: inline-block;
-	font-size: 11px;
-	line-height: 1.5;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	font-variant-numeric: tabular-nums;
 	color: var(--muted-foreground);
 }
@@ -111,7 +111,7 @@
 	background: none;
 	padding: 0;
 	font: inherit;
-	font-size: 11px;
+	font-size: var(--text-caption);
 	color: var(--muted-foreground);
 	cursor: help;
 }
@@ -181,10 +181,12 @@
 }
 /* While the work is going the header is the turn's one line: a mark, the step, the time and a chevron to the work. */
 .normal-transcript .activity-trigger[data-live] {
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .normal-transcript .activity-trigger[data-live] .turn-activity-elapsed {
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .normal-transcript .live-mark {
 	flex: none;
@@ -255,7 +257,8 @@
 	min-width: 0;
 }
 .normal-transcript .turn-activity-elapsed {
-	font-size: 14px;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 	font-variant-numeric: tabular-nums;
 	color: var(--muted-foreground);
 }
@@ -344,7 +347,8 @@
 	margin: 40px 0 20px;
 	text-align: center;
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .transcript-date-separator:first-child {
 	margin-top: 24px;
@@ -393,7 +397,7 @@
 	margin: 4px 0 0;
 }
 .normal-transcript .redirect-note-lead {
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }

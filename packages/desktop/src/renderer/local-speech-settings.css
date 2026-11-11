@@ -8,8 +8,8 @@
 	flex-direction: column;
 	gap: 10px;
 	padding: 12px;
-	font-size: 12px;
-	line-height: 1.5;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .local-speech-heading,
 .local-speech-field,
@@ -26,15 +26,16 @@
 }
 .local-speech-heading :is(h2, h3) {
 	margin: 0;
-	font-size: 14px;
-	font-weight: 500;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+	font-weight: var(--weight-control);
 }
 .local-speech-help,
 .local-speech-notice {
 	margin: 0;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 1.5;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .local-speech-help {
 	margin-top: -6px;
@@ -45,8 +46,8 @@
 	border-radius: var(--radius-chip);
 	background: color-mix(in srgb, var(--foreground) 6%, transparent);
 	color: var(--muted-foreground);
-	font-size: 10px;
-	line-height: 16px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	white-space: nowrap;
 }
 .local-speech-toggle {
@@ -83,12 +84,14 @@
 	gap: 1px;
 }
 .local-speech-engine strong {
-	font-size: 12px;
-	font-weight: 500;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-control);
 }
 .local-speech-engine > div > span {
 	color: var(--muted-foreground);
-	font-size: 11px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .local-speech-resources {
 	padding: 10px;
@@ -101,7 +104,7 @@
 	align-items: center;
 	gap: 6px;
 	margin-bottom: 8px;
-	font-weight: 500;
+	font-weight: var(--weight-control);
 }
 .local-speech-resources header svg {
 	width: 13px;
@@ -122,19 +125,21 @@
 }
 .local-speech-resources dt {
 	color: var(--muted-foreground);
-	font-size: 11px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .local-speech-resources dd {
 	flex: none;
 	margin: 0;
-	font-size: 11px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	font-variant-numeric: tabular-nums;
 }
 .local-speech-resources p {
 	margin: 8px 0 0;
 	color: var(--muted-foreground);
-	font-size: 10px;
-	line-height: 1.5;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .local-speech-resource-details {
 	margin-top: 6px;
@@ -148,7 +153,7 @@
 	background: transparent;
 	color: var(--muted-foreground);
 	font: inherit;
-	font-size: 10px;
+	font-size: var(--text-caption);
 }
 .local-speech-details-trigger svg {
 	width: 11px;
@@ -174,7 +179,8 @@
 }
 .local-speech-toggle small {
 	color: var(--muted-foreground);
-	font-size: 10px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .local-speech-actions {
 	display: flex;

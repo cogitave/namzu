@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-11-12
+
+- **Update** [Desktop: the type scale](cli/desktop.md#the-type-scale): one scale of seven sizes (caption 12/16, small 13/18, interface 14/20, reading 15/22, heading 17/24, title 20/28, display 28/36) and three weights (400, 500, 600) as tokens in `theme.css`, used by every stylesheet; a reply and the message box read at 15/22, a reply's headings are 20, 17 and 15 with bold at 600, a reply's table is 14/20 with tabular numbers, quiet rows and the sidebar are 13/18, and the numbers that change while you watch hold their width. A test fails on an off-scale size or a weight above 600. `.changeset/desktop-type-scale.md` (`@namzu/desktop` minor).
+
 ## 2026-11-11
 
 - **Update** [Desktop: the update button](cli/desktop.md) is described as in the sidebar foot (the rail only while the sidebar is collapsed) in the two places that still said the rail's; the fold sentence's focus ring is as wide as its words, and the time under a message is always drawn on a screen with no hover.

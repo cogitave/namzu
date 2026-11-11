@@ -92,9 +92,9 @@
 	margin: 0;
 	padding: 4px 8px 4px 2px;
 	gap: 8px;
-	font-size: 12.5px;
-	line-height: 18px;
-	font-weight: 400;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-text);
 	background: transparent;
 	transition: color var(--dur-quick) var(--ease-out);
 }
@@ -182,12 +182,12 @@
 
 .sidebar-project-list .conversation-row-title,
 .sidebar-recent-list .conversation-row-title {
-	font-size: 12.5px;
-	line-height: 18px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 /*
  * The title's line box is centred on the row, but its letters are not: Segoe UI puts the x-height
- * band about 1.75px below the line box's middle (measured on Windows at 100%, 12.5px), so the dot
+ * band about 1.75px below the line box's middle (measured on Windows at 100%, at the old 12.5px), so the dot
  * and the hover glyph, which are centred on the row, read as sitting high. Trimming the box to the
  * x-height line and the baseline makes the box, and so the row's centring, follow the letters
  * whatever the font's metrics. The padding keeps ascenders and descenders inside the box that
@@ -322,7 +322,8 @@
 	padding: 4px 8px;
 	border-radius: var(--radius-chip);
 	color: var(--sidebar-muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	text-align: left;
 	cursor: pointer;
 	transition: background-color var(--dur-quick) var(--ease-out), color var(--dur-quick)
@@ -381,7 +382,7 @@
 
 /*
  * Same grid as an ordinary project row: the folder glyph in the toggle's 28px column, then the name
- * at 12.5px. The warning and the buttons sit under the name, in the muted style, aligned to its start.
+ * at 13px. The warning and the buttons sit under the name, in the muted style, aligned to its start.
  */
 .sidebar-project-missing {
 	--missing-name-start: 30px;
@@ -401,8 +402,8 @@
 	min-height: 30px;
 	/* The glyph is centred in the toggle's 28px column, so the name starts where an ordinary row's does. */
 	padding: 4px 8px 4px 6px;
-	font-size: 12.5px;
-	line-height: 18px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	color: var(--sidebar-muted-foreground);
 }
 .sidebar-project-missing-name svg {
@@ -414,8 +415,8 @@
 	flex: 1 1 100%;
 	margin: 0;
 	padding-left: var(--missing-name-start);
-	font-size: 12px;
-	line-height: 16px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--sidebar-muted-foreground);
 }
 .sidebar-project-missing-actions {
@@ -443,7 +444,8 @@
 	margin: 0;
 	padding: 4px 16px 8px;
 	color: var(--sidebar-muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 /* A note under the Recents heading starts where the row titles do: a row's own padding is 8px. */
 .sidebar-recents-body .sidebar-empty-note {
@@ -456,7 +458,8 @@
 	max-width: 38%;
 	overflow: hidden;
 	color: var(--sidebar-muted-foreground);
-	font-size: 11px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
@@ -471,7 +474,8 @@
 	height: 28px;
 	padding: 0 12px;
 	color: var(--sidebar-muted-foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .sidebar-add-project-row svg {
 	width: 14px;
@@ -491,8 +495,8 @@
 }
 .sidebar-day-heading > h3 {
 	margin: 0;
-	font-size: 11px;
-	font-weight: 500;
-	line-height: 16px;
+	font-size: var(--text-caption);
+	font-weight: var(--weight-control);
+	line-height: var(--leading-caption);
 	color: var(--sidebar-muted-foreground);
 }

@@ -832,7 +832,7 @@ A project leaves Namzu through [Removing a project](#removing-a-project).
 If a saved project's folder no longer exists at launch (moved, renamed, deleted or on a drive
 that is not mounted), the project stays in the sidebar instead of vanishing: it shows its name,
 "Folder not found", **Locate folder** and **Remove**; the row shares the other rows' grid and
-12.5 px type, with the warning and the buttons under the name. Main keeps it as a `missing`
+13 px type (the small size of [the type scale](#the-type-scale)), with the warning and the buttons under the name. Main keeps it as a `missing`
 project (no connection, listed in `projects.json` so it survives the next launch). **Locate folder** opens the
 folder picker, and the folder it finds takes over the project's id, so its saved conversations
 come along; the new folder goes through the normal pick checks and asks for trust like any other.
@@ -882,7 +882,7 @@ The logic is pure (`SystemNotices` takes an injected notifier, clock, timer and 
 
 ## The top of a conversation window
 
-A conversation window spends 40 px on one bar, where it spent 52 px on a strip of tabs. The bar holds the conversation's title (14 px, bold, cut with an ellipsis when it does not fit), the project's name (13 px, muted), then on the right its buttons (how full the conversation is lives in the row under the composer, not here). The sidebar is the one list of conversations; a title is shown once. The operating system's menu row (File, Edit, View, Window) is unchanged and sits above the bar.
+A conversation window spends 40 px on one bar, where it spent 52 px on a strip of tabs. The bar holds the conversation's title (14 px, strong, cut with an ellipsis when it does not fit), the project's name (13 px, muted), then on the right its buttons (how full the conversation is lives in the row under the composer, not here). The sidebar is the one list of conversations; a title is shown once. The operating system's menu row (File, Edit, View, Window) is unchanged and sits above the bar.
 
 **The read-out** is not in the bar: it sits at the right end of the row under the composer box (see the composer section below), from the same figures (`contextRingModel`, so the two cannot disagree) and with the same rule for when it shows: nothing is drawn until the engine has reported both a context size and a window.
 
@@ -2272,8 +2272,9 @@ horizontal scrolling, instead of being clipped by the transcript's outer frame.
 Messages and tool rows retain their admitted event order. Repeated provider call
 IDs in later turns have separate receipts; progress updates do not move a row.
 Interface and composer text use the platform sans stack; code uses the platform
-monospace stack. The interface root is 16px, conversation/composer text is 14px
-and fenced code/diff text is 13px. The application uses the platform's font face,
+monospace stack. The interface root is 16px (the base the rem lengths count from),
+reply, message and composer text is 15px and fenced code/diff text is 13px (see
+[the type scale](#the-type-scale)). The application uses the platform's font face,
 so the same stack can resolve to different faces on different operating systems.
 The project and conversation breadcrumb uses 14px medium labels with native
 text-box trimming where supported; narrow windows retain the conversation title.
@@ -2296,6 +2297,35 @@ details control remains mounted during the transition. Closing the panel or
 pressing Escape returns focus to the Conversation details button; automatic
 navigation does not move focus back to an old panel. Reduced motion disables
 these transitions. The composer and navigation remain inside the available width.
+
+## The type scale
+
+Every size, weight and line-height the renderer draws is one of the tokens in
+`renderer/theme.css`: seven sizes, each with its line-height on a 2 px grid, and three weights. Nothing
+is heavier than the strong weight (600), so bold in a reply is no heavier than the reply's own headings.
+`renderer/type-scale.test.ts` reads every stylesheet and component and fails on a font size that is
+neither a token nor a value of the scale, on a weight above 600, and on a size inside the `font`
+shorthand. The pixel wordmark's sizes and the 16 px root (the rem base) are the only listed exceptions.
+The font stacks are not part of the scale.
+
+| Token | Size / line | Where it is used |
+| --- | --- | --- |
+| `--text-caption` | 12 / 16 | tooltips, times, counts, badges, the sidebar's group headings (control weight), the counts on the result line |
+| `--text-small` | 13 / 18 | quiet rows (the fold line, the result line, the row under the message box, the waiting bar), sidebar rows, buttons, menus and popups |
+| `--text-interface` | 14 / 20 | the top bar's title (strong), a reply's table (header row in the control weight), tool rows |
+| `--text-reading` | 15 / 22 | a reply's paragraphs and lists, the person's message, the text in the message box, a reply's `h3` and below |
+| `--text-heading` | 17 / 24 | a reply's `h2` |
+| `--text-title` | 20 / 28 | a reply's `h1` |
+| `--text-display` | 28 / 36 | the home heading (text weight) |
+| `--font-size-code` | 13 / 20 (`--leading-code`) | code blocks, tool output and diffs; `--diffs-font-size` follows it |
+
+Weights: `--weight-text` 400, `--weight-control` 500, `--weight-strong` 600. Tailwind's `text-xs`,
+`text-sm`, `text-base`, `text-lg`, `text-xl`, `text-2xl` and `text-3xl` and its weight utilities are
+mapped onto these tokens in `theme.css`, so a component class and a stylesheet rule agree. Blocks in a
+reply are 0.75em apart. Inline code is 0.9em of its sentence with line-height 1, padding 1 px 4 px and
+4 px corners (`--radius-code`). Times, durations, the added and removed counts, percentages and the
+cost beside the context percentage use tabular numbers so they keep their width as they change, and so
+does every cell of a reply's table.
 
 ## Conversation panes and windows
 

@@ -17,7 +17,8 @@
 .undo-status {
 	display: block;
 	margin-top: 14px;
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	color: var(--muted-foreground);
 }
 .undo-error {
@@ -30,7 +31,8 @@
 	border-radius: var(--radius-control);
 	background: var(--warning-surface);
 	color: var(--warning-foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .undo-rows {
 	display: flex;
@@ -40,7 +42,8 @@
 	border-radius: var(--radius-control);
 	background: var(--secondary);
 	list-style: none;
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .dark .undo-rows {
 	background: var(--accent);
@@ -58,8 +61,9 @@
 }
 .undo-row-action {
 	min-width: 88px;
-	font-size: 12px;
-	font-weight: 600;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-strong);
 	color: var(--undo-added);
 }
 .undo-row-action[data-kind="delete"],
@@ -77,7 +81,7 @@
 }
 .undo-row-action[data-kind="noop"] {
 	color: var(--muted-foreground);
-	font-weight: 500;
+	font-weight: var(--weight-control);
 }
 .undo-row-path {
 	min-width: 0;
@@ -85,7 +89,8 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	font-family: var(--font-mono, ui-monospace, monospace);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .undo-row-conflict {
 	grid-column: 2;
@@ -95,7 +100,8 @@
 }
 .undo-row-reason,
 .undo-row-skipped {
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }
 .undo-row[data-action="skipped"] .undo-row-reason {
@@ -108,7 +114,8 @@
 	margin: 0;
 	padding: 0;
 	border: 0;
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .undo-choices label,
 .undo-later {
@@ -119,7 +126,8 @@
 }
 .undo-later {
 	align-items: flex-start;
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .undo-later input {
 	margin-top: 3px;
@@ -129,8 +137,9 @@
 }
 .undo-heading {
 	margin: 4px 0 -4px;
-	font-size: 12px;
-	font-weight: 600;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-strong);
 	color: var(--muted-foreground);
 }
 .undo-warning {
@@ -139,7 +148,8 @@
 	border-radius: var(--radius-control);
 	background: var(--warning-surface);
 	color: var(--warning-foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .dark .undo-warning,
 .dark .undo-notice {
@@ -148,11 +158,13 @@
 }
 .undo-fine {
 	margin: 0;
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }
 .undo-result-line {
 	margin: 0;
-	font-size: 13px;
-	font-weight: 600;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-strong);
 }

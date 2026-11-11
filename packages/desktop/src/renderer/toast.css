@@ -36,8 +36,8 @@
 	border-radius: var(--radius-card);
 	background: var(--popover);
 	color: var(--popover-foreground);
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	box-shadow: var(--shadow-popover);
 	transform: translateY(var(--stacked-y)) scale(var(--scale));
 	transform-origin: bottom center;
@@ -107,8 +107,9 @@
 	flex: 1;
 	min-width: 0;
 	margin: 0;
-	font-size: 13px;
-	font-weight: 500;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-control);
 	overflow-wrap: anywhere;
 }
 /* A small dot says the tone without relying on colour alone: the text always carries the meaning. */
@@ -130,8 +131,8 @@
 	background: transparent;
 	color: inherit;
 	font: inherit;
-	font-size: 12px;
-	font-weight: 600;
+	font-size: var(--text-caption);
+	font-weight: var(--weight-strong);
 	cursor: pointer;
 }
 .toast-action:hover {

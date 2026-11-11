@@ -7,15 +7,16 @@
 	border-bottom: 0;
 	border-radius: var(--radius-panel) var(--radius-panel) 0 0;
 	padding: 6px 4px 2px;
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .composer-tray-head {
 	display: flex;
 	gap: 10px;
 	margin: 0;
 	padding: 2px 12px 4px;
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }
 .composer-tray-hold {
@@ -49,7 +50,8 @@
 .composer-tray-order {
 	padding-top: 1px;
 	text-align: right;
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 	font-variant-numeric: tabular-nums;
 }
@@ -69,8 +71,8 @@
 	color: color-mix(in srgb, var(--foreground) 72%, transparent);
 }
 .composer-tray-note {
-	font-size: 11px;
-	line-height: 16px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }
 .composer-tray-actions {
