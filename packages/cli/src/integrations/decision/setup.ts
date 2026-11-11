@@ -103,9 +103,7 @@ export async function testDecisionConnection(
 			fetch: async (input, init) => {
 				const res = await baseFetch(input, init)
 				try {
-					const body = (await res.clone().json()) as {
-						usage?: { cost?: unknown }
-					}
+					const body = (await res.clone().json()) as { usage?: { cost?: unknown } }
 					if (typeof body.usage?.cost === 'number') cost.usd = body.usage.cost
 				} catch {
 					// No cost to show.
@@ -171,11 +169,7 @@ export async function listAzureDeployments(
 export function draftToConnection(draft: SetupDraft): SavedConnection | undefined {
 	if (draft.kind === 'azure') {
 		return draft.endpoint && draft.deployment
-			? {
-					provider: 'azure',
-					endpoint: draft.endpoint,
-					deployment: draft.deployment,
-				}
+			? { provider: 'azure', endpoint: draft.endpoint, deployment: draft.deployment }
 			: undefined
 	}
 	if (draft.kind === 'openrouter') {
@@ -189,11 +183,7 @@ export function draftToConnection(draft: SetupDraft): SavedConnection | undefine
 			: undefined
 	}
 	return draft.url
-		? {
-				provider: 'http',
-				url: draft.url,
-				...(draft.model ? { model: draft.model } : {}),
-			}
+		? { provider: 'http', url: draft.url, ...(draft.model ? { model: draft.model } : {}) }
 		: undefined
 }
 
