@@ -166,13 +166,20 @@ describe('every failure refuses', () => {
 			},
 			{ signal: caller.signal, timeoutMs: 0 },
 		)
-		const stillPending = Symbol('still pending')
-		const beforeAbort = await Promise.race([
-			pending,
-			new Promise<typeof stillPending>((resolve) => setTimeout(() => resolve(stillPending), 20)),
-		])
+		let settled = false
+		void pending.then(
+			() => {
+				settled = true
+			},
+			() => {
+				settled = true
+			},
+		)
+		// A macrotask turn, not a timer: an unbounded wait has nothing to expire,
+		// and a bounded one would have settled by now.
+		await new Promise<void>((resolve) => setImmediate(resolve))
 
-		expect(beforeAbort).toBe(stillPending)
+		expect(settled).toBe(false)
 		expect(storeSignal).toBe(caller.signal)
 		caller.abort(reason)
 		await expect(pending).rejects.toBe(reason)

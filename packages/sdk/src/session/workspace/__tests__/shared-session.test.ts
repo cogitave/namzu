@@ -189,14 +189,14 @@ describe('SharedSessionWorkspace', () => {
 		// at this length. A linear trim finishes well inside the timeout.
 		const pathological = `/mnt/user-data/${'/'.repeat(200_000)}x`
 
-		const started = Date.now()
 		const workspace = await SharedSessionWorkspace.create({
 			hostRoot,
 			runtimeRoot: pathological,
 		})
-		const elapsedMs = Date.now() - started
 
+		// No elapsed-ms assertion: a quadratic trim runs for seconds, which the
+		// per-test timeout below already fails, and a wall-clock bound only
+		// measures how busy the machine is.
 		expect(workspace.runtimeRoot).toBe(pathological)
-		expect(elapsedMs).toBeLessThan(1000)
 	}, 5000)
 })

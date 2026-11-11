@@ -105,10 +105,18 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 	it('runs concurrency-safe tools in parallel', async () => {
 		let active = 0
 		let maxActive = 0
+		// A barrier, not a timer: each call holds until the other has started,
+		// so overlap is forced rather than hoped for. A serialising executor
+		// never releases the first call, and Vitest's own timeout reports it.
+		let bothStarted: () => void = () => {}
+		const overlapped = new Promise<void>((resolve) => {
+			bothStarted = resolve
+		})
 		const execute = vi.fn(async () => {
 			active++
 			maxActive = Math.max(maxActive, active)
-			await delay(10)
+			if (active === 2) bothStarted()
+			await overlapped
 			active--
 			return { success: true, output: 'ok' }
 		})
