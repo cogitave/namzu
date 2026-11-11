@@ -244,3 +244,44 @@ describe('reply and sources', () => {
 		expect(conversationSources([{ role: 'user', text: 'x' }])).toEqual([])
 	})
 })
+
+describe('a conversation this window has not loaded', () => {
+	const withMarkers = { ...can, unread: true }
+	const unloaded = (overrides: Partial<ConversationActionInput> = {}) =>
+		input({
+			can: withMarkers,
+			loaded: false,
+			hasMessages: false,
+			hasReply: false,
+			replyReadable: false,
+			...overrides,
+		})
+	it('offers Mark as unread when main says it has a reply, and not when it has none', () => {
+		expect(find(unloaded({ hasMessages: true, hasReply: true }), 'mark-unread')).toMatchObject({
+			label: 'Mark as unread',
+		})
+		expect(find(unloaded(), 'mark-unread')).toBeUndefined()
+		// A marker already set can always be cleared.
+		expect(find(unloaded({ unread: true }), 'mark-unread')).toMatchObject({ label: 'Mark as read' })
+	})
+	it('lets a replied row fork, since main forks from the log', () => {
+		const replied = unloaded({ hasMessages: true, hasReply: true })
+		expect(find(replied, 'fork')?.reason).toBeUndefined()
+		expect(find(replied, 'side-chat')?.reason).toBeUndefined()
+		expect(find(replied, 'copy-markdown')?.reason).toBeUndefined()
+	})
+	it('asks for the conversation to be opened, never says there is nothing, when it cannot know', () => {
+		expect(find(unloaded(), 'fork')?.reason).toBe('Open the conversation first.')
+		expect(find(unloaded(), 'copy-markdown')?.reason).toBe('Open the conversation first.')
+		// The same row, loaded and empty, is honestly empty.
+		expect(find(input({ hasMessages: false, hasReply: false }), 'fork')?.reason).toBe(
+			'There is nothing to fork yet.',
+		)
+	})
+	it('keeps Copy last reply unavailable until the text is here, with a true reason', () => {
+		const replied = unloaded({ hasMessages: true, hasReply: true })
+		expect(find(replied, 'copy-reply')?.reason).toBe('Open the conversation first.')
+		expect(find({ ...replied, replyReadable: true }, 'copy-reply')?.reason).toBeUndefined()
+		expect(find(unloaded(), 'copy-reply')?.reason).toBe('There is no reply to copy yet.')
+	})
+})
