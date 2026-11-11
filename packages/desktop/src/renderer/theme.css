@@ -146,7 +146,7 @@
 :root {
 	color-scheme: light;
 	--background: #ffffff;
-	--chrome: #f5f5f5;
+	--chrome: var(--sidebar);
 	--toolbar: #ffffff;
 	--toolbar-foreground: #27272a;
 	--toolbar-border: #e4e4e7;
@@ -208,7 +208,7 @@
 .dark {
 	color-scheme: dark;
 	--background: #181818;
-	--chrome: #141414;
+	--chrome: var(--sidebar);
 	--toolbar: #181818;
 	--toolbar-foreground: #f5f5f5;
 	--toolbar-border: #191919;

@@ -117,7 +117,10 @@ export function Sidebar({
 	quietMotion,
 	startSettled,
 	unread,
+	foot,
 }: {
+	/** The controls the rail holds while the sidebar is collapsed: Settings and the update button. */
+	foot?: ReactNode
 	/** False until the first list of projects has arrived; the empty hint waits for it. */
 	projectsLoaded?: boolean
 	activeProject?: ProjectView
@@ -274,7 +277,7 @@ export function Sidebar({
 				aria-hidden={collapsed && !open}
 				aria-label="Projects and conversations"
 			>
-				<div className="sidebar-chrome relative flex h-(--workspace-topbar-height) shrink-0 items-center gap-2 px-3 md:px-0">
+				<div className="sidebar-chrome relative flex h-(--frame-header-height) shrink-0 items-center gap-2 px-3 md:px-0">
 					<BrandDither />
 					<Menu.Root>
 						<Menu.Trigger
@@ -594,6 +597,7 @@ export function Sidebar({
 						</section>
 					)}
 				</div>
+				{foot}
 			</aside>
 		</>
 	)

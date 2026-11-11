@@ -280,7 +280,8 @@ shutdown fails the update stays `ready` and nothing is installed; if the install
 to start after the runtime stopped, the app relaunches itself. Tabs, drafts and settings
 come back from the profile after the restart.
 
-When an update is ready a small download button appears directly above Settings in the rail (tooltip
+When an update is ready a small download button appears in the foot of the open sidebar, at the far end of
+the row after Settings (and directly above Settings in the rail while the sidebar is collapsed; tooltip
 "Update ready — restart to install"; one polite announcement when it first appears).
 Clicking it opens a dialog with **Restart now** and **Later**; while installing it reads
 "Installing update / Namzu will restart when installation finishes." with a bar that is
@@ -904,7 +905,7 @@ With the strip hidden, every way of moving still works:
 
 ## Settings
 
-**Settings** is a page of its own in the main area, like Plugins: the rail's gear, the
+**Settings** is a page of its own in the main area, like Plugins: the gear (in the foot of the sidebar, or in the rail while it is collapsed), the
 command palette's **Settings**, the File menu's **Settings…**
 (`Ctrl+,` or `⌘,`) all open it. The left column lists the sections and the right side shows
 one, under one heading, the section's name (the column's "Settings" is the only other one). A section is addressed as `settings/<section>` (`general`, `models`, `projects`, `appearance`,
@@ -1935,8 +1936,21 @@ the sidebar. File provides project and conversation actions; Edit and Window ope
 menus. View offers zoom and full screen only: Namzu is an app, not a browser, so
 it carries no Reload, Force Reload or developer-tools item (the tools return in a
 development build). Native caption colours follow the chosen appearance.
-The left icon rail remains available when the conversation sidebar is collapsed.
-The rail contains Home at the top and Settings as the last item at the bottom. Home
+The window is two flat regions divided by one 1px line: the sidebar and the conversation. Neither has a
+rounded corner or a shadow, and the frame uses at most two fills (the sidebar side, which includes the
+rail and the menu row, and the conversation). The icon rail is the collapsed sidebar: while the sidebar
+is open the rail is not drawn and its controls are the foot of the sidebar, a row at the bottom with
+Settings (same name, same tooltip with its shortcut) and, when there is something to install, the update
+button with its badge and its announcement. Home is not repeated there, because it leads to the same
+screen as the New conversation row; on the Settings and Plugins pages, whose own sidebars have no such
+row, the foot also carries Home, so the way back is never lost. While the sidebar is collapsed
+(by the title bar's panel control, Ctrl/Cmd+B, a narrow window, or the Changes pane at 1280 px and
+below) the 48 px rail is drawn with Home at the top and Settings at the bottom; a control that had the
+focus when the rail and the foot swap keeps it. Opening or closing the sidebar moves the conversation by
+exactly the width that changes (288 px open, 48 px collapsed). In a window of 767 px or less the sidebar is an
+overlay beside the rail, and the foot is not drawn. The sidebar's header and the top bar's hairline end on
+one line: both are 40 px while the strip of tabs is hidden (the default), and 52 px with the strip.
+The wordmark keeps its size, and the menu button around it is 4 px shorter. Home
 owns the chat and blank composer. Spaces, Scheduled and Plugins are not on the rail:
 a destination that cannot open is not drawn (no disabled button, no "coming soon"), and
 each returns when it exists. Plugins is still reached from the composer's + menu. When
@@ -1967,7 +1981,7 @@ until a desktop uninstall API exists. The page shares its mutation and ownership
 the composer menu, including the restrictions on live changes. The rail has no
 overflow menu: **Add new project** lives in the sidebar and the title bar, and the
 sidebar toggles from the title bar's panel control or Ctrl/Cmd+B. The rail has no
-profile control and claims no signed-in account. Settings is the last item; the update icon sits directly above it and appears
+profile control and claims no signed-in account. Settings is the last item; the update icon sits beside it (above it in the rail) and appears
 only while there is something to install: an installable update, an offered one when
 automatic download is off, or a program that is behind. The manual **Check for updates** is
 in Settings ▸ Updates. The sidebar list keeps a scrollbar lane (`scrollbar-gutter: stable`)
@@ -2007,12 +2021,10 @@ them frame by frame (`e2e/sidebar-startup-stability.test.mjs`). There is no Sche
 The sidebar brand (the wordmark with a small green "Beta" badge after it) opens its
 workspace menu. The labelled New conversation row is the primary
 creation action, rather than duplicating it across icon groups.
-The dark icon rail has a slightly deeper surface than the conversation sidebar.
-Surface contrast separates the rail from the sidebar without a divider. A
-subtle 1px line separates the sidebar's right edge from the main canvas.
-The sidebar's corners facing the rail are rounded. When that sidebar closes,
-the conversation canvas inherits the same top and bottom corners and clips its
-content inside them; the Plugins destination follows the same layout. A smaller sidebar wordmark
+The rail has the sidebar's own surface (`--chrome` is `--sidebar`), so the sidebar, the rail and the menu
+row are one fill, and a 1px line (`--sidebar-border`) on the right edge of the sidebar, or of the rail
+while the sidebar is collapsed, separates them from the conversation. No corner is rounded and nothing
+casts a shadow; the Plugins destination follows the same layout. A smaller sidebar wordmark
 sits over an ordered pixel accent that fades across the full sidebar header
 width. The accent stays inside that header and does not receive pointer input.
 The selected destination uses a filled icon and a neutral rounded background.
