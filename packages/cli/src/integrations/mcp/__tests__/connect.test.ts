@@ -582,26 +582,43 @@ describe('a server that does not work is named, never merely absent', () => {
 		// This one proves a spec can shorten that wait for a server known to
 		// be that old, without touching `connectTimeoutMs` at all.
 		const server = writeServer('mute-probe-short.js', SILENT_ON_UNKNOWN_SERVER)
-		const started = Date.now()
+		// What the probe is armed with is observable without timing a real
+		// subprocess: record every delay the client schedules while it connects.
+		const delays: unknown[] = []
+		const realSetTimeout = globalThis.setTimeout
+		const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+			handler: never,
+			ms?: number,
+			...rest: never[]
+		) => {
+			delays.push(ms)
+			return realSetTimeout(handler, ms, ...rest)
+		}) as typeof setTimeout)
 
-		const mcp = await connectMcpServers(
-			{
-				tickets: {
-					command: process.execPath,
-					args: [server],
-					eraProbeTimeoutMs: 100,
+		let mcp: Awaited<ReturnType<typeof connectMcpServers>>
+		try {
+			mcp = await connectMcpServers(
+				{
+					tickets: {
+						command: process.execPath,
+						args: [server],
+						eraProbeTimeoutMs: 100,
+					},
 				},
-			},
-			{ cwd: dir },
-		)
-		const elapsed = Date.now() - started
+				{ cwd: dir },
+			)
+		} finally {
+			spy.mockRestore()
+		}
 
 		try {
 			expect(mcp.failed).toEqual([])
 			expect(mcp.connected[0]?.toolCount).toBe(2)
-			// Well under the SDK's ~2s default: the override is what shortened
-			// this, not the connect deadline (still the 10s default here).
-			expect(elapsed, 'the shorter probe timeout is what this measures').toBeLessThan(1_000)
+			// The override is what armed the probe: its 100ms was scheduled and
+			// the SDK's 2_000ms default (DEFAULT_MCP_ERA_PROBE_TIMEOUT_MS) was
+			// not. Not the connect deadline either (still the 10s default here).
+			expect(delays, 'the spec override is what arms the probe').toContain(100)
+			expect(delays, 'the SDK default probe timeout is not used').not.toContain(2_000)
 		} finally {
 			await mcp.close()
 		}

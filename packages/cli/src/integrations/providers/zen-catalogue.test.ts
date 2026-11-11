@@ -98,20 +98,20 @@ const result = (value: ZenCatalogue): ZenCatalogueResult => ({
 /** A derivation that never settles until its signal aborts — an unreachable network. */
 function hanging() {
 	const seen: AbortSignal[] = []
+	// Settles when the derivation is first called, so a test awaits "the fetch
+	// began" instead of guessing how long the disk read before it takes.
+	let began: () => void = () => {}
+	const fetchBegan = new Promise<void>((resolve) => {
+		began = resolve
+	})
 	const fetchCatalogue = (options: { signal: AbortSignal }) => {
 		seen.push(options.signal)
+		began()
 		return new Promise<ZenCatalogueResult>((_resolve, reject) => {
 			options.signal.addEventListener('abort', () => reject(options.signal.reason))
 		})
 	}
-	return { fetchCatalogue, seen }
-}
-
-async function isPending(promise: Promise<unknown>): Promise<boolean> {
-	const marker = Symbol('pending')
-	return (
-		(await Promise.race([promise, new Promise((r) => setTimeout(() => r(marker), 20))])) === marker
-	)
+	return { fetchCatalogue, seen, fetchBegan }
 }
 
 describe('startZenCatalogueRefresh', () => {
@@ -123,15 +123,23 @@ describe('startZenCatalogueRefresh', () => {
 	 */
 	it('returns before it reads or fetches anything, and leaves the refresh outstanding', async () => {
 		const { log } = capturing()
-		const { fetchCatalogue, seen } = hanging()
+		const { fetchCatalogue, seen, fetchBegan } = hanging()
 		const refresh = startZenCatalogueRefresh({
 			home: home(),
 			log,
 			fetchCatalogue,
 		})
+		let settled = false
+		void refresh.done.then(() => {
+			settled = true
+		})
 		expect(seen).toHaveLength(0)
-		expect(await isPending(refresh.done)).toBe(true)
+		// The fetch does begin, after the disk read, and the refresh is still
+		// outstanding once it has: nothing here ends it but the cancel below.
+		await fetchBegan
 		expect(seen).toHaveLength(1)
+		await Promise.resolve()
+		expect(settled).toBe(false)
 		refresh.cancel()
 		await expect(refresh.done).resolves.toEqual({ kind: 'cancelled' })
 		expect(seen[0]?.aborted).toBe(true)
@@ -482,6 +490,10 @@ describe('startZenCatalogueRefresh', () => {
 		const before: LogRecord[] = []
 		const after: LogRecord[] = []
 		let fail: (error: Error) => void = () => {}
+		let began: () => void = () => {}
+		const fetchBegan = new Promise<void>((resolve) => {
+			began = resolve
+		})
 		try {
 			installCliLogging({ emit: (record) => before.push(record) }, 'debug')
 			const refresh = startZenCatalogueRefresh({
@@ -490,9 +502,10 @@ describe('startZenCatalogueRefresh', () => {
 				fetchCatalogue: () =>
 					new Promise<ZenCatalogueResult>((_resolve, reject) => {
 						fail = reject
+						began()
 					}),
 			})
-			await isPending(refresh.done)
+			await fetchBegan
 			installCliLogging({ emit: (record) => after.push(record) }, 'debug')
 			fail(new Error('offline'))
 			await expect(refresh.done).resolves.toMatchObject({
