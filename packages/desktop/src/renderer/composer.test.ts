@@ -703,15 +703,19 @@ it('shows no Stopping state once the reply is over', () => {
 	expect(html).not.toContain('Stopping reply')
 })
 
-it('keeps the model in the row while an approval waits, and closes the project line\'s room as it leaves', () => {
-	const html = render({ connected: true, empty: false, permissions: [
+it("keeps the model in the row while an approval waits, and closes the project line's room as it leaves", () => {
+	const html = render({
+		connected: true,
+		empty: false,
+		permissions: [
 			{
 				id: 'approval',
 				sessionId: 'conversation',
 				projectId: 'p',
 				calls: [{ id: 'call', name: 'bash', input: { command: 'pwd' }, isDestructive: false }],
 			},
-		] })
+		],
+	})
 	const row = html.indexOf('data-composer-row')
 	expect(html.indexOf('aria-label="Model: ', row)).toBeGreaterThan(row)
 	const css = readFileSync(new URL('./composer.css', import.meta.url), 'utf8')
