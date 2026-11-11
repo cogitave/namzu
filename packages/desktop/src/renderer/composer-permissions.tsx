@@ -1,6 +1,6 @@
 import { AlertDialog } from '@base-ui/react/alert-dialog'
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
-import { ComposerControl } from './composer-control.js'
+import { ComposerControl, ComposerControlChevron } from './composer-control.js'
 import {
 	CheckIcon,
 	FilePenIcon,
@@ -278,8 +278,10 @@ export function ComposerPermissions({
 					className="composer-permission-control"
 					title={selected?.description}
 				>
-					<SelectedIcon className="size-4" />
+					{/* The mark is kept where it warns; an ordinary mode is a plain word. */}
+					{selected?.warning && <SelectedIcon className="size-4" />}
 					<span className="truncate">{selected?.label}</span>
+					<ComposerControlChevron />
 				</PopoverTrigger>
 				<PopoverPopup
 					side="top"

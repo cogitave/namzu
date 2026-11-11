@@ -318,10 +318,11 @@ it('shows the wordmark once and only offers installed conversation engines', () 
 			],
 		},
 	})
-	// The engine lives in the model popup now; the tray above the box has no chip.
+	// The engine lives behind the model popup's More row now; neither the tray nor the first view has a chip.
 	expect(html).not.toContain('aria-label="Execution engine"')
-	expect(html).toContain('aria-label="Engine: Namzu"')
-	expect(html).toContain('composer-harness-mark')
+	expect(html).not.toContain('aria-label="Engine: Namzu"')
+	expect(html).not.toContain('composer-harness-mark')
+	expect(html).toContain('More<small>: engine</small>')
 	expect(html).not.toContain('Worktree')
 	expect(html).not.toContain('type="checkbox"')
 	const supplied = render({
@@ -334,7 +335,6 @@ it('shows the wordmark once and only offers installed conversation engines', () 
 		attachmentsSupported: false,
 		reviewModes: ['prompt', 'plan'],
 	})
-	expect(supplied).toContain('aria-label="Engine: Claude Code"')
 	expect(button(supplied, 'Attach files')).toMatch(/\bdisabled=/)
 	expect(supplied).not.toContain('composer-harness-mark')
 })
@@ -486,8 +486,6 @@ it('retains confirmed native engine and permission semantics without optional en
 		permissionScope: 'native-conversation',
 		settings: { permissionMode: 'auto' },
 	})
-	expect(button(codex, 'Engine: Codex CLI')).toMatch(/\bdisabled=/)
-	expect(codex).toContain('title="Codex CLI"')
 	expect(codex).toContain('Full access')
 	expect(codex).not.toContain('>Allow tools<')
 	const nativeEngine = render({
@@ -495,7 +493,7 @@ it('retains confirmed native engine and permission semantics without optional en
 		permissionEngine: 'claude-code',
 		settings: { permissionMode: 'prompt' },
 	})
-	expect(nativeEngine).toContain('title="Claude Code"')
+	expect(nativeEngine).toContain('aria-label="Permissions: Ask first"')
 })
 
 const file = {

@@ -78,6 +78,8 @@ it('filters inaccessible and malformed identities, retaining honest free and ima
 				label: 'Free model',
 				note: '(image input)',
 				default: true,
+				inputPrice: 0,
+				outputPrice: 0,
 			},
 		],
 		notice: null,
@@ -166,8 +168,14 @@ it('notes a model whose limits are not published yet', () => {
 		() => true,
 	)
 	expect(result.models).toEqual([
-		{ id: 'new-free', label: 'New Free', note: '(Limits not published yet)' },
-		{ id: 'known', label: 'Known', default: true },
+		{
+			id: 'new-free',
+			label: 'New Free',
+			note: '(Limits not published yet)',
+			inputPrice: 0,
+			outputPrice: 0,
+		},
+		{ id: 'known', label: 'Known', default: true, inputPrice: 1, outputPrice: 2 },
 	])
 })
 
@@ -191,7 +199,9 @@ it('marks a model the listing flags as needing an API key', () => {
 		() => true,
 	)
 	// Alone it has no heading to sit under, so the row keeps its note.
-	expect(result.models).toEqual([{ id: 'paid', label: 'Paid', note: '(API key)', group: 'key' }])
+	expect(result.models).toEqual([
+		{ id: 'paid', label: 'Paid', note: '(API key)', group: 'key', inputPrice: 1, outputPrice: 2 },
+	])
 })
 
 describe('Zen groups on the wire', () => {
@@ -211,15 +221,15 @@ describe('Zen groups on the wire', () => {
 				{ id: 'u', name: 'U' },
 			]),
 		).toEqual([
-			{ id: 'f', label: 'F', note: '(free)', group: 'free' },
-			{ id: 'k', label: 'K', group: 'key' },
+			{ id: 'f', label: 'F', note: '(free)', group: 'free', inputPrice: 0, outputPrice: 0 },
+			{ id: 'k', label: 'K', group: 'key', inputPrice: 1, outputPrice: 1 },
 			{ id: 'u', label: 'U' },
 		])
 	})
 
 	it('leaves a provider without groups exactly as it was', () => {
 		expect(rows([{ id: 'a', name: 'A', inputPrice: 0, outputPrice: 0 }])).toEqual([
-			{ id: 'a', label: 'A', note: '(free)' },
+			{ id: 'a', label: 'A', note: '(free)', inputPrice: 0, outputPrice: 0 },
 		])
 	})
 
@@ -236,6 +246,33 @@ describe('Zen groups on the wire', () => {
 			undefined,
 			(id) => id === 'k',
 		)
-		expect(result.models).toEqual([{ id: 'k', label: 'K', note: '(API key)', group: 'key' }])
+		expect(result.models).toEqual([
+			{ id: 'k', label: 'K', note: '(API key)', group: 'key', inputPrice: 1, outputPrice: 1 },
+		])
 	})
+})
+
+it('carries the window and rates a source published, and nothing it did not', () => {
+	const { models } = desktopModelCatalogue(
+		{
+			kind: 'ok',
+			models: [
+				{ id: 'known', name: 'Known', contextWindow: 200_000, inputPrice: 3, outputPrice: 15 },
+				{ id: 'free', name: 'Free one', contextWindow: 32_000, inputPrice: 0, outputPrice: 0 },
+				{ id: 'bare', name: 'Bare' },
+			],
+		},
+		'known',
+		'known',
+		() => true,
+	)
+	expect(models.find((row) => row.id === 'known')).toMatchObject({
+		contextWindow: 200_000,
+		inputPrice: 3,
+		outputPrice: 15,
+	})
+	expect(models.find((row) => row.id === 'free')).toMatchObject({ inputPrice: 0, outputPrice: 0 })
+	const bare = models.find((row) => row.id === 'bare')
+	expect(bare).not.toHaveProperty('contextWindow')
+	expect(bare).not.toHaveProperty('inputPrice')
 })

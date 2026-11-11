@@ -73,11 +73,15 @@ describe('the microphone button', () => {
 		},
 	)
 
-	it('not downloaded: disabled with the reason, and offers Settings', () => {
-		const markup = mic(voice(), engine('missing'))
-		expect(markup).toContain('aria-disabled="true"')
-		expect(markup).toContain(MIC_NEEDS_DOWNLOAD)
-		expect(markup).not.toContain(' disabled=""')
+	it('not set up: there is no microphone in the composer until voice input is downloaded', () => {
+		for (const state of ['missing', 'installing', 'failed'] as const) {
+			expect(mic(voice(), engine(state))).toBe('')
+		}
+		// Still being checked is not set up either.
+		expect(mic(voice(), engine(null))).toBe('')
+	})
+
+	it('what the button would say before set-up is still worded, for the Settings row that shares it', () => {
 		const view = micPresentation({
 			voice: voice(),
 			engine: engine('missing'),
@@ -89,6 +93,13 @@ describe('the microphone button', () => {
 				micPresentation({ voice: voice(), engine: engine(installation), hasConversation: true })
 					.opensSettings,
 			).toBe(true)
+	})
+
+	it('set up: the button is back, and a listening session keeps it whatever the state', () => {
+		expect(mic(voice(), engine('ready'))).toContain('aria-label="Turn on voice input"')
+		expect(mic(voice({ phase: 'listening' }), engine('missing'))).toContain(
+			'data-phase="listening"',
+		)
 	})
 
 	it('no conversation yet: disabled with the reason, nothing to open', () => {

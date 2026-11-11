@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { createWorld, dispose, expect, launch, openProject, repoRoot } from "./harness.mjs";
+import { createWorld, dispose, expect, launch, openProject, repoRoot, openEngineView, openModelMore } from "./harness.mjs";
 
 const T = 60000;
 const SHOTS = resolve(repoRoot, "research/ux-20261009/engines-setup");
@@ -89,7 +89,7 @@ flow(
 	async (w) => {
 		await openProject(w);
 		await picker(w).click();
-		await w.page.getByRole("button", { name: /^Engine:/ }).click();
+		await openEngineView(w.page);
 		const second = w.page.getByRole("button", { name: "Claude Code Not installed" });
 		await expect(second).toBeVisible({ timeout: T });
 		await expect(second).toHaveAttribute("aria-expanded", "false");
@@ -119,7 +119,7 @@ flow(
 	async (w) => {
 		await openProject(w);
 		await picker(w).click();
-		await w.page.getByRole("button", { name: /^Engine:/ }).click();
+		await openEngineView(w.page);
 		await w.page.getByRole("radio", { name: /Codex CLI/ }).click();
 		const banner = w.page.getByRole("alert").filter({ hasText: "sign in with its own account" });
 		await expect(banner).toBeVisible({ timeout: T });
@@ -147,44 +147,44 @@ flow(
 );
 
 flow(
-	"the popup keeps one width across its steps, explains Desktop | CLI, and the effort slider names its levels",
+	"the popup keeps one width across its steps, opens on the list with the effort slider naming its levels, and More explains Desktop | CLI",
 	(bin) => install(bin, "codex", fakeCodex(false)),
 	async (w) => {
 		await openProject(w);
 		await picker(w).click();
-		await w.page.getByRole("button", { name: /^Engine:/ }).click();
+		await openEngineView(w.page);
 		await w.page.getByRole("radio", { name: /Codex CLI/ }).click();
 		await w.page.getByRole("button", { name: /^Model: Fake Sol/ }).click({ timeout: T });
-		// The effort step: every stop is named, the one in force is marked, the switch is explained.
+		// The list comes first, with the effort control under it: every stop is named, the one in force is marked.
+		await expect(w.page.getByRole("radio", { name: /Fake Sol/ })).toBeVisible({ timeout: T });
 		const scale = w.page.locator(".composer-effort-scale");
 		await expect(scale).toBeVisible({ timeout: T });
 		for (const level of ["Low", "Medium", "High"]) await expect(scale).toContainText(level);
 		await expect(scale.locator("[data-current]")).toHaveText("Medium");
+		// Neither the engine chip nor the Desktop | CLI switch is in the first view.
+		await expect(w.page.locator(".engine-chip")).toHaveCount(0);
+		await expect(w.page.locator(".surface-switch")).toHaveCount(0);
+		const listWidth = await width(w);
+		await shot(w, "06-models-first");
+		// More holds the engine and the switch, and explains it. The popup is as wide as the list.
+		await openModelMore(w.page);
 		await expect(w.page.locator(".surface-caption")).toHaveText(
 			"Desktop: you chat with this engine in this window.",
 		);
-		const effortWidth = await width(w);
-		await shot(w, "06-effort-step");
-		// The models step is as wide, its heading is whole, and the engine mark is clear of it.
-		await w.page.getByRole("button", { name: /change model/ }).click();
-		await expect(w.page.getByRole("radio", { name: /Fake Sol/ })).toBeVisible({ timeout: T });
-		const title = w.page.getByRole("heading", { name: "Choose a model" });
-		await expect(title).toBeVisible();
-		await expect(w.page.locator(".surface-caption")).toBeVisible();
-		assert.ok(Math.abs((await width(w)) - effortWidth) <= 4, "the models step is as wide as the effort step");
-		const heading = await title.boundingBox();
+		assert.ok(Math.abs((await width(w)) - listWidth) <= 4, "the More step is as wide as the list");
+		const heading = await w.page.getByRole("heading", { name: "More", exact: true }).boundingBox();
 		const chip = await w.page.getByRole("button", { name: /^Engine:/ }).boundingBox();
 		const clear =
 			heading.x + heading.width <= chip.x + 0.5 || heading.y + heading.height <= chip.y + 0.5;
 		assert.ok(clear, "the engine mark does not sit over the heading");
 		await w.page.getByRole("radio", { name: "CLI", exact: true }).click();
 		await expect(w.page.locator(".surface-caption")).toContainText("terminal tab");
-		await shot(w, "07-models-step-cli");
+		await shot(w, "07-more-step-cli");
 		await w.page.getByRole("radio", { name: "Desktop", exact: true }).click();
-		// The engine step is as wide too.
+		// The engine step is as wide too (the popup is still on More).
 		await w.page.getByRole("button", { name: /^Engine:/ }).click();
 		await expect(w.page.getByRole("radiogroup", { name: "Available engines" })).toBeVisible();
-		assert.ok(Math.abs((await width(w)) - effortWidth) <= 4, "the engine step is as wide as the effort step");
+		assert.ok(Math.abs((await width(w)) - listWidth) <= 4, "the engine step is as wide as the list");
 		await shot(w, "08-engine-step");
 	},
 );

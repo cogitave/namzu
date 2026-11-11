@@ -24,8 +24,10 @@ import {
 	FOLLOWING,
 	type ViewMove,
 	type ViewState,
+	anchorAt,
 	bottomRow,
 	hasUnseen,
+	holdRow,
 	jumpHint,
 	moveView,
 	revealRow,
@@ -108,6 +110,10 @@ interface Dragging {
 	readonly moved: boolean
 	readonly pressing: boolean
 	readonly copied: boolean
+	/** The cell the button went down on. */
+	readonly at: { readonly x: number; readonly y: number }
+	/** A selection was held when the button went down: that click only lets go of it. */
+	readonly replaced: boolean
 }
 
 function spanElement(span: StyledSpan, key: number) {
@@ -136,7 +142,9 @@ function spanElement(span: StyledSpan, key: number) {
  * get back; the view holds still while output arrives.
  *
  * Replies are rendered Markdown. A drag selects text and a release copies it;
- * a search field takes the footer row and highlights what it finds.
+ * a search field takes the footer row and highlights what it finds. Where the
+ * pointer is reported in full, a click on a folded row opens it in place and a
+ * click on it again folds it.
  */
 export function FullscreenTranscript({
 	messages,
@@ -158,11 +166,26 @@ export function FullscreenTranscript({
 }: FullscreenTranscriptProps) {
 	const cache = useRef(createLayoutCache()).current
 	const epoch = useThemeEpoch()
+	// A click is a way to open a row only where the pointer is reported in full.
+	const click = subscribePointer !== undefined
+	// Which rows are open belongs to this view: it is not saved, and a resume starts folded.
+	const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set())
+	const openRef = useRef(open)
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new theme lays the rows out again.
 	const { rows, index } = useMemo(
-		() => layoutTranscript(messages, pending, pendingAt, columns, cache),
-		[messages, pending, pendingAt, columns, cache, epoch],
+		() => layoutTranscript(messages, pending, pendingAt, columns, cache, { click, open }),
+		[messages, pending, pendingAt, columns, cache, epoch, click, open],
 	)
+	// A row that left the conversation (a compaction, a new session) is not open any more.
+	useEffect(() => {
+		if (open.size === 0) return
+		const present = new Set(index.ids)
+		const kept = [...open].filter((id) => present.has(id))
+		if (kept.length === open.size) return
+		const next = new Set(kept)
+		openRef.current = next
+		setOpen(next)
+	}, [open, index])
 	const [view, setView] = useState<ViewState>(FOLLOWING)
 	const boxRef = useRef<DOMElement>(null)
 	// Pages and the top clamp want the room actually on screen. It is only read
@@ -183,8 +206,8 @@ export function FullscreenTranscript({
 		if (synced !== view) setView(synced)
 	}, [synced, view])
 
-	const latest = useRef({ synced, index, rows })
-	latest.current = { synced, index, rows }
+	const latest = useRef({ synced, index, rows, messages, pending, pendingAt, columns })
+	latest.current = { synced, index, rows, messages, pending, pendingAt, columns }
 	const scroll = useCallback(
 		(move: ViewMove) => {
 			const { synced: state, index: now } = latest.current
@@ -261,6 +284,34 @@ export function FullscreenTranscript({
 		cols: textWidth,
 	})
 
+	/**
+	 * Open the message that owns `line`, or fold it, keeping that row where it is
+	 * on the screen. The rows are laid out again here, for that one message, so
+	 * the window can be placed against them before the next frame draws.
+	 */
+	const toggleAt = useCallback(
+		(line: number) => {
+			const now = latest.current
+			const { id, offset } = anchorAt(now.index, line)
+			const next = new Set(openRef.current)
+			if (!next.delete(id)) next.add(id)
+			const after = layoutTranscript(now.messages, now.pending, now.pendingAt, now.columns, cache, {
+				click,
+				open: next,
+			})
+			setView(
+				holdRow(now.synced, now.index, after.index, id, offset, {
+					height: room(),
+					footer: geometryRef.current.footer,
+					searching: searchRef.current !== null,
+				}),
+			)
+			openRef.current = next
+			setOpen(next)
+		},
+		[cache, click, room],
+	)
+
 	const pointer = useCallback(
 		(report: PointerReport) => {
 			const node = boxRef.current
@@ -282,6 +333,8 @@ export function FullscreenTranscript({
 					moved: mode !== 'char',
 					pressing: true,
 					copied: false,
+					at: { x: report.x, y: report.y },
+					replaced: current?.moved === true,
 				})
 				return
 			}
@@ -307,15 +360,27 @@ export function FullscreenTranscript({
 				!current.moved ||
 				(current.selection.mode === 'char' && a.line === f.line && a.col === f.col)
 			) {
-				// A click that did not move selects nothing.
+				// A click that did not move selects nothing. On a row that opens it opens
+				// the row, unless it only let go of a selection.
 				updateSelection(null)
+				const row = landing.kind === 'on' ? latest.current.rows[landing.point.line] : undefined
+				if (
+					click &&
+					!current.moved &&
+					!current.replaced &&
+					row?.opens === true &&
+					landing.kind === 'on' &&
+					report.x === current.at.x &&
+					report.y === current.at.y
+				)
+					toggleAt(landing.point.line)
 				return
 			}
 			updateSelection(finished)
 			if (copyOnSelect) copySelection(finished)
 			else showNote({ text: 'Selected. Press ctrl+c to copy it, or esc to let go.', ok: true })
 		},
-		[clicks, copyOnSelect, copySelection, scroll, showNote, updateSelection],
+		[clicks, click, copyOnSelect, copySelection, scroll, showNote, toggleAt, updateSelection],
 	)
 	useEffect(
 		() => (subscribePointer ? subscribePointer(pointer) : undefined),
