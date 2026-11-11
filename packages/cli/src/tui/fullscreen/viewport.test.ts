@@ -217,4 +217,25 @@ describe('holding a row still while its message changes height', () => {
 		const after = index(Array(9).fill(5))
 		expect(holdRow(FOLLOWING, before, after, 'm9', 0, options)).toBe(FOLLOWING)
 	})
+
+	it('holds a row high in a short conversation with blank rows above it', () => {
+		// Three messages of three rows; the window has ten rows, so row 4 sits
+		// at screen row 4 of the ten (bottom row 8, five rows under it).
+		const before = index([3, 3, 3])
+		const after = index([3, 15, 3])
+		const next = holdRow(FOLLOWING, before, after, 'm1', 1, options)
+		expect(next.follow).toBe(false)
+		// The rows under the held row are the same as before, hint row counted.
+		expect(bottomRow(next, after) - (rowIn(after, 'm1', 1) ?? 0)).toBe(4 - 1)
+		// Fewer rows above it than the window is tall: blank rows show above.
+		expect(bottomRow(next, after)).toBeLessThan(minBottom(after, HEIGHT))
+	})
+
+	it('keeps that place through a sync and does not scroll up from it', () => {
+		const before = index([3, 3, 3])
+		const after = index([3, 15, 3])
+		const next = holdRow(FOLLOWING, before, after, 'm1', 1, options)
+		expect(syncView(next, after, HEIGHT)).toBe(next)
+		expect(moveView(next, 'line-up', after, HEIGHT)).toBe(next)
+	})
 })

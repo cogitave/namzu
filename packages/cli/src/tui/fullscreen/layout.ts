@@ -67,8 +67,8 @@ const PLAIN: RowMode = { click: false, open: false }
 /** The message as an open row shows it: what the detailed transcript shows, and how to fold it. */
 function openedMessage(message: TranscriptMessage): TranscriptMessage {
 	const shown = screenMessage(message)
-	const kept = (message.meta ?? '')
-		.replaceAll(EXPAND_HINT, '')
+	const meta = message.meta ?? ''
+	const kept = (meta.endsWith(EXPAND_HINT) ? meta.slice(0, -EXPAND_HINT.length) : meta)
 		.replace(/[\s·]+$/u, '')
 		.trim()
 	const fullHeader = message.shell?.fullHeader
@@ -94,14 +94,7 @@ function clickableRows(
 ): FsMessageRows | null {
 	if (message.role !== 'tool' && message.role !== 'system') return null
 	const closed = messageScrollRows(message, hasPrev, width, { hint: CLICK_EXPAND_HINT })
-	// Joined, so a hint the wrap broke between two rows is still found.
-	if (
-		!closed.rows
-			.map((row) => row.text)
-			.join(' ')
-			.includes(CLICK_EXPAND_HINT)
-	)
-		return null
+	if (!closed.hinted) return null
 	const shown = open ? openedMessage(message) : message
 	const hint = open ? undefined : CLICK_EXPAND_HINT
 	const plain = open ? messageScrollRows(shown, hasPrev, width) : closed
@@ -115,8 +108,7 @@ function clickableRows(
 		gap: plain.gap ? plainRow(plain.gap) : null,
 		rows: plain.rows.map((row, i) => {
 			const own = plainRow(row, i < body ? (joins[i] ?? null) : null)
-			const answers =
-				i < body || (!open && (row.command === true || row.text.includes(CLICK_EXPAND_HINT)))
+			const answers = i < body || (!open && (row.command === true || row.hint === true))
 			return answers ? { ...own, opens: true as const } : own
 		}),
 	}

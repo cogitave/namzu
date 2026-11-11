@@ -968,14 +968,17 @@ lets go of the selection.
 
 With the pointer at `full`, a click (the left button pressed and released on
 the same cell, no drag) opens a folded row in place, and a click on it again
-folds it. The rows that answer are the ones that carry the expand hint, and
+folds it. An open body taller than the window can push its first line off the
+screen; the click that folds it goes on that line, so scroll up to it. The rows that answer are the ones that carry the expand hint, and
 the lines that belong to them: a counted line (reads, searches, listings,
 folded commands) and the `$ command` rows listed under it open to each call of
 the line with its result, as the [detailed transcript](#the-detailed-transcript-ctrlo)
 shows that line; a tool or command row whose output is cut, and a collapsed
 agent answer or memory row, open to the whole body, on the row itself or on the
-`… +N lines` row under it. Nothing else reacts: not a reply, not a row with
-nothing folded, not the text a row opened to (so a double click on a word in
+`… +N lines` row under it, and anywhere along those rows, blank cells to the
+right of their text included. Nothing else reacts: not a reply, not a row with
+nothing folded (whatever text it shows, a command's own output that quotes the
+hint included, which is drawn as the command printed it), not the text a row opened to (so a double click on a word in
 opened output selects it and does not fold the row). A command listed under a
 counted line opens the whole line, not that command alone, because the line
 keeps the commands' output together.
@@ -990,10 +993,12 @@ terminal keeps the mouse.
 The row you clicked stays on the same row of the screen. A view that was
 following the newest output and is pushed off it by the row it opened stops
 following, as it does when you scroll up: the `↓ Jump to latest` row appears,
-and `PgDn`, `End` or typing take you back. Two things the window cannot hold:
-a conversation shorter than the window grows upward, as new output does, and a
-fold that shortens the conversation while the window shows its end brings the
-rest down, because the window never shows blank rows under the newest one.
+and `PgDn`, `End` or typing take you back. In a conversation shorter than the
+window the rows above the clicked one stay as few as they were, so blank rows
+show above them, as they do for a short conversation, until you scroll or the
+conversation grows past the window. One thing the window cannot hold: a fold
+that shortens the conversation while the window shows its end brings the rest
+down, because the window never shows blank rows under the newest one.
 
 A click while a selection is held only lets go of it. A double click opens or
 folds the row once and then selects the word, and a triple click the line; the

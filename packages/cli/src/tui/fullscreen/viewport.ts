@@ -44,7 +44,13 @@ export interface Anchor {
  */
 export type ViewState =
 	| { readonly follow: true }
-	| { readonly follow: false; readonly anchor: Anchor; readonly seenTail: string }
+	| {
+			readonly follow: false
+			readonly anchor: Anchor
+			readonly seenTail: string
+			/** Placed by `holdRow` with blank rows above the first row, which a sync leaves be. */
+			readonly held?: true
+	  }
 
 export const FOLLOWING: ViewState = { follow: true }
 
@@ -126,6 +132,17 @@ export function stateAt(index: RowIndex, row: number, height: number): ViewState
 	return { follow: false, anchor: anchorAt(index, bounded), seenTail: index.tail }
 }
 
+/** The state for a window whose bottom edge is `row`, with no floor: blank rows may show above the first row. */
+function heldState(index: RowIndex, row: number): ViewState {
+	if (row >= lastRow(index)) return FOLLOWING
+	return {
+		follow: false,
+		anchor: anchorAt(index, Math.max(0, row)),
+		seenTail: index.tail,
+		held: true,
+	}
+}
+
 /**
  * Apply a movement. Reaching the end resumes following on its own; there is no
  * separate "stay at the bottom". A move that changes nothing returns the same
@@ -160,6 +177,10 @@ export function moveView(
 		case 'bottom':
 			return FOLLOWING
 	}
+	// A window held with blank rows above its first row (see `holdRow`) has
+	// nothing above to scroll to: a move up leaves it.
+	if (next < bottom && !state.follow && state.held === true && bottom < minBottom(index, height))
+		return state
 	const result = stateAt(index, next, height)
 	if (result.follow && state.follow) return state
 	if (!result.follow && !state.follow && bottomRow(result, index) === bottom) return state
@@ -174,7 +195,9 @@ export function moveView(
 export function syncView(state: ViewState, index: RowIndex, height: number): ViewState {
 	if (state.follow) return state
 	const bottom = bottomRow(state, index)
-	const next = stateAt(index, bottom, height)
+	// Blank rows above the first row were asked for by `holdRow`: they stay until the reader moves.
+	const held = state.held === true && bottom < minBottom(index, height)
+	const next = held ? heldState(index, bottom) : stateAt(index, bottom, height)
 	if (next.follow) return next
 	if (
 		next.follow === false &&
@@ -268,6 +291,9 @@ export interface HoldOptions {
  * A window that was following keeps following only if the end is still within
  * reach of that edge; otherwise it stops, as it does when the reader scrolls up,
  * and the jump hint's row is counted, because it takes a row of the window.
+ * When the rows above the row are fewer than the window has room for, the
+ * window shows blank rows above them, as it does for a short conversation,
+ * rather than move the row.
  */
 export function holdRow(
 	state: ViewState,
@@ -284,5 +310,7 @@ export function holdRow(
 	const below = bottomRow(state, before) - was + options.footer
 	const pinned = options.searching ? 1 : 0
 	if (now + below - pinned >= lastRow(after)) return FOLLOWING
-	return stateAt(after, now + below - 1, options.height)
+	// No floor: a short conversation is drawn against the bottom with blank rows
+	// above, and the row stays where it was in them.
+	return heldState(after, now + below - 1)
 }

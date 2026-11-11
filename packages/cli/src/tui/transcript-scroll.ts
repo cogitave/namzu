@@ -30,6 +30,8 @@ export interface ScrollRow {
 	readonly color: string
 	/** A command a group folded and lists under its line. */
 	readonly command?: true
+	/** The row the expand hint stands in, built as the hint and not read from text. */
+	readonly hint?: true
 }
 
 /** Columns the glyph gutter takes, as in the live transcript. */
@@ -78,9 +80,13 @@ export function scrollBodyText(message: TranscriptMessage, hint?: string): strin
 			}`
 }
 
-/** `text` with the expand hint worded as `hint` says; the text itself when there is none. */
-function saying(text: string, hint: string | undefined): string {
-	return hint === undefined ? text : text.replaceAll(EXPAND_HINT, hint)
+/**
+ * A meta with the expand hint worded as `hint` says. The hint is the end of a
+ * meta; the same words inside it are text and stay as they are.
+ */
+function saying(meta: string, hint: string | undefined): string {
+	if (hint === undefined || !meta.endsWith(EXPAND_HINT)) return meta
+	return `${meta.slice(0, -EXPAND_HINT.length)}${hint}`
 }
 
 export interface ScrollRowsOptions {
@@ -90,6 +96,8 @@ export interface ScrollRowsOptions {
 
 /** One message's rows, and the blank row that goes above them when something precedes. */
 export interface MessageScrollRows {
+	/** The message carries the expand hint: a folded body is behind it. */
+	readonly hinted: boolean
 	readonly gap: ScrollRow | null
 	readonly rows: readonly ScrollRow[]
 }
@@ -118,14 +126,25 @@ export function messageScrollRows(
 		: (message.attachments ?? []).map((row) =>
 				truncateChoiceText(terminalDisplayText(attachmentLine(row)), width + GUTTER),
 			)
-	const detail = message.statusRows
+	// The lines worded as asked, beside the same lines worded as always: the
+	// ones that differ are the hint's own rows, whatever text a body quotes.
+	const plainLines = message.statusRows ? [] : renderedDetailLines(message)
+	const wordedLines =
+		message.statusRows || options.hint === undefined
+			? plainLines
+			: renderedDetailLines(message, undefined, options.hint)
+	const detail: { text: string; hint: boolean }[] = message.statusRows
 		? []
 		: [
-				...attachmentRows,
-				...renderedDetailLines(message).flatMap((line) =>
-					wrapChoiceText(line.length > 0 ? saying(line, options.hint) : ' ', width + GUTTER),
+				...attachmentRows.map((text) => ({ text, hint: false })),
+				...wordedLines.flatMap((line, i) =>
+					wrapChoiceText(line.length > 0 ? line : ' ', width + GUTTER).map((text) => ({
+						text,
+						hint: line !== plainLines[i],
+					})),
 				),
 			]
+	const hinted = (message.meta?.endsWith(EXPAND_HINT) ?? false) || detail.some((line) => line.hint)
 	const rows: ScrollRow[] = []
 	body.forEach((text, i) => {
 		rows.push({ glyph: i === 0 ? glyph : ' ', glyphColor, text, color })
@@ -142,16 +161,17 @@ export function messageScrollRows(
 			})
 		})
 	}
-	for (const text of detail) {
+	for (const { text, hint } of detail) {
 		rows.push({
 			glyph: ' ',
 			glyphColor,
 			text: text.trimStart() ? text : '',
 			color: theme.text.muted,
+			...(hint ? { hint: true as const } : {}),
 		})
 	}
 	const wantsGap = hasPrev && glyph !== '⎿'
-	return { gap: wantsGap ? { glyph: ' ', glyphColor, text: '', color } : null, rows }
+	return { hinted, gap: wantsGap ? { glyph: ' ', glyphColor, text: '', color } : null, rows }
 }
 
 /** Where the view sits. `top` is the first visible row. */

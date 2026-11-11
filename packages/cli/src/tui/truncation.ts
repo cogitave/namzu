@@ -26,12 +26,14 @@ export interface HiddenHintOptions {
 	readonly chars?: number
 	/** False when nothing can open the body, so the hint does not promise it. Default true. */
 	readonly canExpand?: boolean
+	/** The words that stand for the action when it is not `EXPAND_HINT`. */
+	readonly hint?: string
 }
 
 /** `… +N lines (ctrl+o to expand)`; `line` when exactly one is folded. */
 export function hiddenLinesHint(lines: number, options: HiddenHintOptions = {}): string {
 	const noun = lines === 1 ? 'line' : 'lines'
-	const action = options.canExpand === false ? '' : ` ${EXPAND_HINT}`
+	const action = options.canExpand === false ? '' : ` ${options.hint ?? EXPAND_HINT}`
 	const size =
 		options.chars !== undefined && options.chars >= HIDDEN_SIZE_FROM_CHARS
 			? ` (~${Math.max(1, Math.round(options.chars / 1024)).toLocaleString('en-US')} KB)`

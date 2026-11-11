@@ -175,12 +175,20 @@ it('opens a group where it stands and folds it on the next click', async () => {
 	expect(view(h.screen)).toContain('Done.')
 })
 
-it('lets an open row grow upward when the whole conversation fits, as new output does', async () => {
+it('keeps the clicked row on its screen row in a conversation shorter than the window', async () => {
 	const h = await mount([user('u', 'look around'), reads('g'), note('s', 'Done.')])
-	await h.click(TEXT_LEFT + 2, rowOf(h.screen, 'Read 2 files'))
-	for (const text of ['alpha text', 'beta text', '(click to fold)', 'Done.'])
-		expect(view(h.screen)).toContain(text)
-	expect(view(h.screen)).not.toContain('Jump to latest')
+	const y = rowOf(h.screen, 'Read 2 files')
+	// Short: the row sits low, with blank rows above it.
+	expect(y).toBeGreaterThan(5)
+	await h.click(TEXT_LEFT + 2, y)
+	expect(rowOf(h.screen, 'Read 2 files')).toBe(y)
+	expect(view(h.screen)).toContain('(click to fold)')
+	expect(view(h.screen)).toContain('Read a.ts')
+	// And it holds when it folds again.
+	clock += 1_000
+	await h.click(TEXT_LEFT + 2, y)
+	expect(rowOf(h.screen, 'Read 2 files')).toBe(y)
+	expect(view(h.screen)).toContain('(click to expand)')
 })
 
 it('opens a cut output from its hint row and keeps the clicked row on its screen row', async () => {
@@ -253,10 +261,10 @@ it('lets a click that finds a selection only let go of it', async () => {
 	clock += 1_000
 	await h.click(TEXT_LEFT + 1, y)
 	expect(view(h.screen)).toContain('(click to expand)')
-	expect(view(h.screen)).not.toContain('alpha text')
+	expect(view(h.screen)).not.toContain('Read a.ts')
 	clock += 1_000
 	await h.click(TEXT_LEFT + 1, y)
-	expect(view(h.screen)).toContain('alpha text')
+	expect(view(h.screen)).toContain('Read a.ts')
 })
 
 it('does not open on a drag that ends on the cell it began on, nor on a release elsewhere', async () => {
@@ -267,11 +275,11 @@ it('does not open on a drag that ends on the cell it began on, nor on a release 
 	h.pointer('drag', TEXT_LEFT + 1, y)
 	h.pointer('release', TEXT_LEFT + 1, y)
 	await h.screen.waitForRender()
-	expect(view(h.screen)).not.toContain('alpha text')
+	expect(view(h.screen)).not.toContain('Read a.ts')
 	h.pointer('press', TEXT_LEFT + 1, y)
 	h.pointer('release', TEXT_LEFT + 3, y)
 	await h.screen.waitForRender()
-	expect(view(h.screen)).not.toContain('alpha text')
+	expect(view(h.screen)).not.toContain('Read a.ts')
 })
 
 it('leaves a row open or folded, never between, after a double click', async () => {
@@ -286,7 +294,7 @@ it('leaves a row open or folded, never between, after a double click', async () 
 	await h.click(x, y)
 	// The second press of a double click selects a word; it does not toggle again.
 	const after = view(h.screen)
-	expect(after.includes('alpha text')).toBe(true)
+	expect(after.includes('Read a.ts')).toBe(true)
 	expect(after.includes('(click to fold)')).toBe(true)
 	expect(after.includes('(click to expand)')).toBe(false)
 })
@@ -295,7 +303,7 @@ it('keeps what was open through a resize', async () => {
 	const h = await mount([user('u', 'hello there'), reads('g'), note('s', 'Done.')])
 	await h.click(TEXT_LEFT + 2, rowOf(h.screen, 'Read 2 files'))
 	await h.resize(COLS - 8)
-	expect(view(h.screen)).toContain('alpha text')
+	expect(view(h.screen)).toContain('Read a.ts')
 	expect(view(h.screen)).toContain('(click to fold)')
 })
 

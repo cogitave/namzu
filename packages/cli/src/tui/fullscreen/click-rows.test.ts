@@ -44,6 +44,7 @@ function longOutput(id: string, lines = 20): TranscriptMessage {
 	}
 }
 
+const rows0 = (rows: readonly FsRow[]) => rows.map((row) => row.text).join('\n')
 const texts = (rows: readonly FsRow[]) => rows.map((row) => row.text)
 const layout = (
 	messages: readonly TranscriptMessage[],
@@ -189,5 +190,39 @@ describe('what opening a row costs', () => {
 		const narrow = layout([longOutput('t')], openOf('t'), cache, 30)
 		expect(texts(narrow.rows).slice(0, 2).join(' ')).toContain('(click to fold)')
 		expect(narrow.rows.filter((row) => row.opens).length).toBeGreaterThan(0)
+	})
+
+	it("shows a command's own output as it printed it, quoted hint included", () => {
+		const quote = 'tip: press (ctrl+o to expand) for more'
+		const m: TranscriptMessage = {
+			...longOutput('q'),
+			detail: [quote, ...Array.from({ length: 19 }, (_, i) => `line ${i + 2}`)],
+		}
+		const { rows } = layout([m])
+		expect(texts(rows).some((t) => t.includes(quote))).toBe(true)
+		// Only the hint's own row says "click".
+		expect(texts(rows).filter((t) => t.includes('(click to expand)'))).toHaveLength(1)
+	})
+
+	it('does not answer a click on a row with nothing folded, whatever its text says', () => {
+		const m: TranscriptMessage = {
+			id: 'n',
+			role: 'tool',
+			content: 'Bash(echo)',
+			glyph: '●',
+			detailRef: 3,
+			detail: ['or (click to expand)', 'tip: (ctrl+o to expand)'],
+		}
+		const { rows } = layout([m])
+		expect(texts(rows).join('\n')).toContain('tip: (ctrl+o to expand)')
+		expect(rows.some((row) => row.opens)).toBe(false)
+	})
+
+	it('keeps a quoted hint in a meta that does not end in the hint', () => {
+		const m: TranscriptMessage = {
+			...longOutput('m'),
+			meta: `says ${EXPAND_HINT} twice`,
+		}
+		expect(rows0(layout([m]).rows)).toContain(`says ${EXPAND_HINT} twice`)
 	})
 })
