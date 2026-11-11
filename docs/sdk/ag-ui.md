@@ -644,7 +644,7 @@ has authenticated anyone. Three things bound what that can cost:
    kept, a `__proto__` key dropped).
 
 Parsing the JSON itself costs memory proportional to the number of values in
-it (a body of `{},{},...` costs roughly 50 bytes per 3 bytes of body); that is
+it: about 40 to 65 bytes of live heap per `{}` or `[]` element (2 to 3 bytes of body), and about 90 to 145 bytes of process memory while it is parsed. That is
 the one cost of a request inside the byte cap that no limit here changes.
 
 ## Connect CopilotKit

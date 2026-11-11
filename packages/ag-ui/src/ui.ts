@@ -122,7 +122,7 @@ export class AGUITurnUI {
 }
 
 export function positiveLimit(value: number | undefined, fallback: number, name: string): number {
-	const limit = value ?? fallback
+	const limit = value === undefined ? fallback : value
 	if (!Number.isSafeInteger(limit) || limit < 1)
 		throw new RangeError(`${name} must be a positive safe integer`)
 	return limit

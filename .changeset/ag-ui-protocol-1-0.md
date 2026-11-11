@@ -25,4 +25,4 @@ New request limits, and one new refusal. A request inside `maxRequestBytes` used
 | `maxContextEntries` | 1,000 |
 | `maxResumeEntries` | 1,000 |
 
-A client that legitimately sends more than a default (for example a history of over 20,000 messages) now gets 422 where it got through before; pass a higher value for that option to accept it. A request within the limits reaches your `createQuery` with exactly the same `input` as before.
+A client that legitimately sends more than a default (for example a history of over 20,000 messages) now gets 422 where it got through before; pass a higher value for that option to accept it. A limit option passed as `null` (a JavaScript caller; the types already forbid it) used to be read as unset and is now refused at construction with a `RangeError`, for the new options and for `maxRequestBytes`, `maxEventBytes`, `maxPendingEvents` and `interrupts.ttlMs` alike. A request within the limits reaches your `createQuery` with exactly the same `input` as before.

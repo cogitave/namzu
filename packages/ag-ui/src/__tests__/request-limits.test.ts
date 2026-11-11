@@ -160,6 +160,24 @@ describe('what a rejected request can make validation do', () => {
 		expect(() => parseRunInput(calls(3), parts)).toThrow(/tool calls/)
 	})
 
+	it('refuses null, like any other invalid limit, for the new and the older options', () => {
+		const cq = () => {
+			throw new Error('unused')
+		}
+		for (const key of [
+			...Object.keys(DEFAULT_REQUEST_LIMITS),
+			'maxRequestBytes',
+			'maxEventBytes',
+			'maxPendingEvents',
+		]) {
+			expect(() => new AGUIAdapter({ createQuery: cq, [key]: null } as never)).toThrow(RangeError)
+		}
+		expect(
+			() => new AGUIAdapter({ createQuery: cq, interrupts: { ttlMs: null } } as never),
+		).toThrow(RangeError)
+		expect(() => new AGUIAdapter({ createQuery: cq, maxMessages: undefined })).not.toThrow()
+	})
+
 	it('rejects invalid limit options', () => {
 		for (const key of Object.keys(DEFAULT_REQUEST_LIMITS)) {
 			expect(() => resolveRequestLimits({ [key]: 0 })).toThrow(RangeError)
@@ -254,6 +272,54 @@ describe('what the host receives for a valid request', () => {
 			expect(parseRunInput(structuredClone(value), resolved)).toStrictEqual(whole.data)
 		},
 	)
+
+	it('leaves the object the caller handed in as it was, after a parse that succeeds and one that fails', () => {
+		const make = () => ({
+			...base,
+			extra: { a: [1] },
+			messages: [{ id: 'u', role: 'user', content: 'hi' }],
+		})
+		const snapshot = (o: Record<string, unknown>) => ({
+			keys: Object.keys(o),
+			messages: o.messages,
+			json: JSON.stringify(o),
+		})
+		const ok = make()
+		const before = snapshot(ok)
+		const out = parseRunInput(ok, resolved)
+		expect(snapshot(ok)).toEqual(before)
+		expect(ok.messages).toBe(before.messages)
+		expect(out).not.toBe(ok)
+		expect(out.messages).not.toBe(ok.messages)
+		const bad = { ...make(), tools: 'wrong' }
+		const badBefore = snapshot(bad)
+		expect(() => parseRunInput(bad, resolved)).toThrow('Invalid AG-UI RunAgentInput.')
+		expect(snapshot(bad)).toEqual(badBefore)
+		expect(bad.messages).toBe(badBefore.messages)
+		const badMessage = { ...make(), messages: [{ role: 'tool' }] }
+		const badMessageBefore = snapshot(badMessage)
+		expect(() => parseRunInput(badMessage, resolved)).toThrow()
+		expect(snapshot(badMessage)).toEqual(badMessageBefore)
+	})
+
+	it('validates a frozen input and one whose messages is an accessor, leaving both untouched', () => {
+		const frozen = Object.freeze({
+			...base,
+			messages: Object.freeze([{ id: 'u', role: 'user', content: 'hi' }]),
+		})
+		expect(parseRunInput(frozen, resolved)).toStrictEqual(RunAgentInputSchema.parse(frozen))
+		let reads = 0
+		const accessor = {
+			...base,
+			get messages() {
+				reads++
+				return [{ id: 'u', role: 'user', content: 'hi' }]
+			},
+		}
+		expect(parseRunInput(accessor, resolved).messages).toHaveLength(1)
+		expect(Object.getOwnPropertyDescriptor(accessor, 'messages')?.get).toBeTypeOf('function')
+		expect(reads).toBeGreaterThan(0)
+	})
 
 	it('reaches the host through the HTTP path with the same value', async () => {
 		const { resume: _resume, ...value } = valid[

@@ -123,7 +123,32 @@ export function parseRunInput(value: unknown, limits: ResolvedRequestLimits): Ru
 		if (!parsed.success) throw invalid()
 		messages.push(parsed.data)
 	}
-	const rest = RunAgentInputSchema.safeParse({ ...value, messages: [] })
+	const rest = parseWithoutMessages(value)
 	if (!rest.success) throw invalid()
-	return { ...rest.data, messages } as RunAgentInput
+	// The parse result is a fresh object, so the messages go back in place.
+	const data = rest.data as RunAgentInput
+	data.messages = messages
+	return data
+}
+
+/**
+ * `RunAgentInputSchema` over `value` with `messages` swapped for an empty list,
+ * so the messages are not validated twice. When `messages` is a plain writable
+ * data property (every parsed JSON body) it is swapped on the caller's own
+ * object and restored in `finally`, which copies no key; the whole call is
+ * synchronous, so nothing else observes the swap. Anything else (a frozen
+ * object, an accessor) is validated through a shallow copy instead.
+ */
+function parseWithoutMessages(value: Record<string, unknown>) {
+	const own = Object.getOwnPropertyDescriptor(value, 'messages')
+	if (own && 'value' in own && own.writable === true && !Object.isFrozen(value)) {
+		const original = own.value
+		value.messages = []
+		try {
+			return RunAgentInputSchema.safeParse(value)
+		} finally {
+			value.messages = original
+		}
+	}
+	return RunAgentInputSchema.safeParse({ ...value, messages: [] })
 }
