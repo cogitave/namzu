@@ -549,10 +549,22 @@ the replacement is still refused as `stale_cached_history`. The match is
 answered from the reduction of the log a turn already keeps, with no read of the
 log of its own, so it costs the same for one edited message as for a hundred.
 A pass that swaps a message for a copy with the same text records nothing; the
-recorder adopts the copy. After a resume from a checkpoint older than an edit, the
-recorder writes one more `message_edited` for each message whose restored text
+recorder adopts the copy (a message mutated in place and then replaced by a copy
+of itself is adopted too, and the fold keeps the text it recorded).
+
+A resumed turn restores a context in which some messages have no id: a compaction
+summary, the working-memory slot, a message the host added. The runtime marks the
+restored history (`pushMessage(message, { restored: true })`), and while the
+resume's re-base is pending a restored message with no id is held and nothing is
+written. The first message that is not restored, any record, or the turn pausing
+or settling, then re-bases once on the whole restored context: one `compaction`
+that keeps the recorded ids, so the recorded messages after an id-less one stay
+in the fold. After a resume from a checkpoint older than an edit, the recorder
+writes one more `message_edited` for each kept message whose restored text
 differs from what the log folds to, so the fold shows the context the turn
-runs with.
+runs with; this holds when the fold also holds a summary. A message whose edited
+text was spilled is not compared and is not put back, and a `message_replaced` is
+never undone.
 
 ## What a turn reads back from a long log
 

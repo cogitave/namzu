@@ -60,7 +60,8 @@ async function secondProcess(
 	const rec = recorderFor(session, turnId)
 	await rec.open({ session: { cwd: '/tmp' } })
 	await rec.resume(generateCheckpointId())
-	for (const message of restored) rec.pushMessage(message, { messageId: message.id as MessageId })
+	for (const message of restored)
+		rec.pushMessage(message, { messageId: message.id as MessageId, restored: true })
 	return rec
 }
 

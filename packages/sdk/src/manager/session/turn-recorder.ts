@@ -896,16 +896,23 @@ export class TurnRecorder {
 				latestChange.set(record.targetMessageId, 'replaced')
 			fold.apply(record)
 		}
-		if (fold.spilledSummary) return undefined
 		const ids: MessageId[] = []
+		let allRecorded = !fold.spilledSummary
 		this.#foldEditedAtResume.clear()
+		// Filled for every fold entry with an id, whether or not the fold also
+		// holds id-less entries (a summary): a restored context older than an edit
+		// is put right either way. An entry whose text is spilled is not
+		// compared, so a message edited to a spilled text is not put back.
 		for (const entry of fold.entries()) {
-			if (!entry.messageId) return undefined
+			if (!entry.messageId) {
+				allRecorded = false
+				continue
+			}
 			ids.push(entry.messageId)
 			if (latestChange.get(entry.messageId) === 'edited' && entry.spill === undefined)
 				this.#foldEditedAtResume.set(entry.messageId, entry.message)
 		}
-		return ids
+		return allRecorded ? ids : undefined
 	}
 
 	/** The recorded context is exactly what the log folds to: a resume changed nothing. */
@@ -1116,6 +1123,13 @@ export class TurnRecorder {
 		options: {
 			readonly messageId?: MessageId
 			readonly transient?: boolean
+			/**
+			 * The message is part of the history a resume restores, not a new
+			 * one. While the resume's re-base is pending, a restored message with no
+			 * id is held and nothing is reconciled; the first message that is not
+			 * restored (or any other reconcile) re-bases once on the whole context.
+			 */
+			readonly restored?: boolean
 		} = {},
 	): void {
 		if (options.messageId) {
@@ -1133,18 +1147,13 @@ export class TurnRecorder {
 			})
 			return
 		}
-		if (
-			this.#rebasePending &&
-			this.#phase === 'active' &&
-			message.role === 'system' &&
-			message.source?.type === 'compaction-summary'
-		) {
-			// A restored compaction summary has no id (the log folds
-			// to) and arrives before the rest of the restored context. Reconciling
-			// now would re-base the fold on a context holding only this message
-			// and drop the recorded ones that follow; hold it as an id-less view
-			// entry and let the first reconciliation after the whole context is
-			// in place write one `compaction` that keeps the recorded ids after it.
+		if (options.restored && this.#rebasePending && this.#phase === 'active') {
+			// A restored message with no id (a compaction summary, the working-memory
+			// slot, a message the host added) can arrive before the recorded ones.
+			// Reconciling now would re-base the fold on a context holding only it and
+			// drop the recorded messages that follow; hold it as an id-less view entry
+			// and let the first reconciliation after the whole context is in place
+			// write one `compaction` that keeps the recorded ids after it.
 			this.#view.push({ message })
 			return
 		}
@@ -1230,6 +1239,9 @@ export class TurnRecorder {
 			const message = messages[0] as Message
 			const entry = orphans.get(id) as ViewEntry
 			if (messages.length !== 1 || message.role !== entry.message.role) continue
+			// `previous` is the live object the view holds: a message mutated in place
+			// and then replaced by a copy of itself is adopted without a record, and
+			// the fold keeps the text it recorded.
 			const previous = entry.message
 			entry.message = message
 			this.#ids.set(message, id)
@@ -1292,8 +1304,11 @@ export class TurnRecorder {
 			const unchanged = this.#viewMatchesFold()
 			this.#foldIdsAtResume = undefined
 			if (!unchanged) {
-				this.#foldEditedAtResume.clear()
 				this.#recordCompaction()
+				// Kept ids whose restored text differs from the edited text the fold
+				// holds get their record; entries re-recorded under fresh ids are not
+				// in the map and are skipped.
+				this.#recordDriftFromFold()
 				return
 			}
 			this.#recordDriftFromFold()
