@@ -305,6 +305,27 @@ type CoreSessionEvent =
 			reliefWasEnough: boolean
 	  }
 	/**
+	 * A pass cut or summarised history and the instructions of skills the
+	 * conversation had loaded were put back in front of the model, as reference.
+	 *
+	 * Emitted only when something was put back: a skill whose instructions are
+	 * still whole in the context is never repeated, so most passes say nothing.
+	 * Live only (ephemeral): it is not written to the session log, because the
+	 * put-back text is a message of its own and is in the log as one.
+	 */
+	| {
+			type: 'compaction_skills_carried'
+			sessionId: SessionId
+			turnId?: TurnId
+			iteration: number
+			/** Skills put back, oldest load first. */
+			skills: string[]
+			/** The ones among them cut to their per-skill cap, each with a line saying how to load it in full. */
+			cut: string[]
+			/** Skills left out for room, newest first; each is named in the text the model reads. */
+			leftOut: string[]
+	  }
+	/**
 	 * A compaction pass ran and shed nothing, so the history is unchanged.
 	 *
 	 * A shed that did not happen is exactly as consequential as one that did,
@@ -1443,7 +1464,9 @@ export type SessionEventListener = (event: SessionEvent) => void | Promise<void>
  * log is what cannot be written while they matter.
  * `compaction_started` is ephemeral too: it only says a pass is about to run,
  * and the `compaction` record or `compaction_failed` that ends it is the
- * durable fact.
+ * durable fact. `compaction_skills_carried` is ephemeral for the same kind of
+ * reason: the text it announces is a message of its own and is in the log as
+ * one, so a log carries no record an older reader would have to skip.
  */
 export const EPHEMERAL_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set<SessionEventType>([
 	'text_delta',
@@ -1452,6 +1475,7 @@ export const EPHEMERAL_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set<Sess
 	'tool_progress',
 	'monitor_event',
 	'compaction_started',
+	'compaction_skills_carried',
 	'session_log_degraded',
 	'session_log_recovered',
 ])
@@ -1460,7 +1484,7 @@ export function isEphemeralEvent(event: { readonly type: string }): boolean {
 	return EPHEMERAL_EVENT_TYPES.has(event.type as SessionEventType)
 }
 
-/** The event types a session log records: every literal except the ephemeral eight. */
+/** The event types a session log records: every literal except the ephemeral nine. */
 export type PersistedSessionEventType = Exclude<
 	SessionEventType,
 	| 'text_delta'
@@ -1469,6 +1493,7 @@ export type PersistedSessionEventType = Exclude<
 	| 'tool_progress'
 	| 'monitor_event'
 	| 'compaction_started'
+	| 'compaction_skills_carried'
 	| 'session_log_degraded'
 	| 'session_log_recovered'
 >

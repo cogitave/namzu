@@ -206,6 +206,37 @@ describe('toAgentEvent', () => {
 			expect(enough).not.toHaveProperty('compacting')
 		})
 
+		it('says in one plain line which loaded skills were kept in view', () => {
+			const kept = toAgentEvent(
+				event({
+					type: 'compaction_skills_carried',
+					iteration: 3,
+					skills: ['pdf-forms', 'release-notes'],
+					cut: [],
+					leftOut: [],
+				}),
+				presenter,
+			)
+			expect(kept).toEqual({
+				kind: 'context',
+				text: 'Kept skill instructions in view: pdf-forms, release-notes',
+				shed: false,
+			})
+			const partly = toAgentEvent(
+				event({
+					type: 'compaction_skills_carried',
+					iteration: 3,
+					skills: ['pdf-forms'],
+					cut: ['pdf-forms'],
+					leftOut: ['older-skill'],
+				}),
+				presenter,
+			) as { text: string }
+			expect(partly.text).toBe(
+				'Kept skill instructions in view: pdf-forms · cut short: pdf-forms · no room for: older-skill',
+			)
+		})
+
 		it('words a failed compaction without the reducer or the raw error', () => {
 			const failed = toAgentEvent(
 				event({

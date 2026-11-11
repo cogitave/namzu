@@ -123,6 +123,30 @@ export class WorkingStateManager {
 		while (restorable.skills.length > MAX_RESTORABLE_SKILLS) restorable.skills.shift()
 	}
 
+	/**
+	 * Take in skills the conversation shows that this manager did not see load
+	 * (a turn that began from a history, or a resumed one). They count as older
+	 * than anything this manager recorded itself, and never replace it.
+	 * `skills` is oldest first.
+	 */
+	adoptSkillBodies(skills: readonly { readonly name: string; readonly body: string }[]): void {
+		const missing = skills.filter(
+			(skill) =>
+				skill.name.trim().length > 0 &&
+				skill.body.trim().length > 0 &&
+				!this.state.restorable?.skills.some((held) => held.name === skill.name),
+		)
+		if (missing.length === 0) return
+		const restorable = this.restorableState()
+		restorable.skills.unshift(
+			...missing.map((skill) => ({
+				name: skill.name,
+				body: skill.body.slice(0, MAX_RESTORABLE_CHARS),
+			})),
+		)
+		while (restorable.skills.length > MAX_RESTORABLE_SKILLS) restorable.skills.shift()
+	}
+
 	/** Remember what a read returned so a compaction can put it back. */
 	recordFileText(path: string, text: string): void {
 		const key = normalizeRestorablePath(path)

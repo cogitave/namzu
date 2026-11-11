@@ -94,10 +94,12 @@ unless `/compact` was given text.
 
 A summary says that a skill was loaded and a file was read; it cannot give the next step the skill's instructions or the file's lines. So each pass puts the most recent of both back, verbatim, under `## Restored after compaction` at the end of the summary:
 
-- the skills the conversation loaded, newest first, up to 8, at most 5,000 tokens each and 25,000 together;
+- the skills the conversation loaded, newest first, up to 8, at most 5,000 tokens each and 25,000 together, under a short note that they were loaded earlier, still apply and are not a new message from you (a skill that is still whole in the messages the pass keeps is not repeated);
 - the files it read, newest first, up to 5, at most 5,000 tokens each and 50,000 together. Instruction files (`AGENTS.md`, `AGENTS.local.md`, rule files) and the plan file are not repeated, a file that was changed after it was read is left out because its text is behind the disk, and a read that failed has nothing to restore;
 - the plan from plan mode, when there is one: where the file is and what it says now (cut at about 5,000 tokens);
 - the session goal, when one is active, paused or blocked: its state, how many automatic replies it has used, and its objective cut at 600 characters, stamped "as of this compaction" so a later change is not read as live (`integrations/compaction/carried.ts`). A goal reaches the model once, in the message that began a round, and a summary can fold that message away.
+
+A pass that only clears old tool results can cut a skill's instructions too. When it does, the next request carries those skills again, once, as a note after the newest message; a skill that is still whole is left alone, so most passes add nothing. The terminal then says so in one plain line, for example `Kept skill instructions in view: pdf-forms`, with `· cut short: …` for a skill over its cap and `· no room for: …` for one left out (the model is told how to load it again). The line is drawn only when skills were put back: once for each skill a pass reaches, not once per turn, and not on a resumed conversation, which already holds the note.
 
 Running background work is not restored: the CLI already tells the model what is still going, rebuilt from the job registry on every request (`integrations/outstanding/note.ts`), so it is present after a compaction and a copy in the summary would only go stale.
 
