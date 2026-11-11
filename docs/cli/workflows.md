@@ -110,8 +110,9 @@ of the longer arrangement is still there, only moved.
 
 The key line loses hints in this order as the box narrows: `↑↓ select`, then
 `ctrl+c stop` (the key still stops the reply), then `y / n answer` (said as
-`y / n` before it goes), then `d script`, then `esc cancel`; `enter confirm` is
-the last to go.
+`y / n` before it goes), then `esc cancel` (Escape still cancels without its
+hint), then `d script`, the only key that shows the whole script; `enter
+confirm` is the last to go.
 The script may be as large as the runtime accepts (256 KiB, with `args` up to
 64 KiB): the 200 thousand character limit that withholds a large value of an
 ordinary tool call does not apply to a workflow review, because the script is
@@ -207,8 +208,23 @@ than 18 cells is cut with `…`). As the terminal narrows the row gives up space
 this order: the phase names, then the bar (20 cells, then 12, 8 and 4), then the
 token count, then `Large workflow`, then the name, which is cut with `…`. The
 `done/total` count and the elapsed time stay for as long as any of the bar does.
-At 100 columns the row above reads in full; at 60 the bar is 8 cells and the
-count is still there. On a terminal so narrow that even the shortest bar leaves
+The bar's width at a given terminal width depends on the length of the name,
+because the name keeps its cells first. For a workflow named `Release audit`
+(13 cells), with 3 of 7 agents done, 2m 14s in and 48.2k tokens, the row is
+whole at 100 columns, with a 20-cell bar:
+
+```text
+  ◯ Release audit  ▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱  3/7 · 2m 14s · ↓ 48.2k tokens
+```
+
+and at 60 columns the bar is 8 cells and the count, the clock and the tokens are
+all still there:
+
+```text
+  ◯ Release audit  ▰▰▰▱▱▱▱▱  3/7 · 2m 14s · ↓ 48.2k tokens
+```
+
+A shorter name leaves more room, a longer one less. On a terminal so narrow that even the shortest bar leaves
 the name under 8 cells (below about 35 columns) the bar goes too, then the clock,
 and the count is the last thing left. The row leaves 30 seconds after the run ends; a run that ended without ever asking for an agent has no bar to show and leaves at once. A workflow's agents
 are never subagent rows, are not counted in the turn's `✻ Worked for …` line,

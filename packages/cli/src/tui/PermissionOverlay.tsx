@@ -651,8 +651,9 @@ export function PermissionOverlay({
 					    their hint is gone.
 					    A workflow review loses hints in this order as the width falls:
 					    `↑↓ select`, `ctrl+c stop`, `y / n answer` (said as `y / n` before
-					    it goes), then `d script`, the only key that shows what will run,
-					    then `esc cancel`, and last `enter confirm`. */}
+					    it goes), then `esc cancel` (the key still cancels, and Escape is
+					    a convention people know), then `d script`, the only key that
+					    shows the whole script, and last `enter confirm`. */}
 					{fitHints(
 						typing
 							? [
@@ -672,7 +673,7 @@ export function PermissionOverlay({
 										// width it is the only key that shows what will run.
 										rank: scriptView ? 4 : 5,
 									},
-									{ text: 'esc cancel', rank: scriptView ? 6 : 5 },
+									{ text: 'esc cancel', rank: 5 },
 									...(offersEdits ? [{ text: 'shift+tab accept edits', rank: 3 }] : []),
 									{
 										text: 'ctrl+c stop',
@@ -692,8 +693,10 @@ export function PermissionOverlay({
 										}`,
 										short: `d ${scriptView ? (detailsOpen ? 'collapse' : 'script') : detailsOpen ? 'readable' : compact ? 'full' : 'input'}`,
 										// The only way to the exact input: it outranks the stop hint,
-										// whose key works without being shown.
-										rank: 5,
+										// whose key works without being shown. On a workflow review it
+										// also outlasts `esc cancel`: nothing else shows the whole
+										// script, and Escape cancels without its hint.
+										rank: scriptView ? 6 : 5,
 									},
 									// On the No row the way to give a reason is the one hint that cannot be
 									// guessed, so it outlasts the arrows and the stop key. Last of its rank,

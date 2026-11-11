@@ -427,7 +427,7 @@ describe('the key line of a workflow review', () => {
 	const keyLine = (text: string) =>
 		text.split('\n').find((line) => line.includes('enter confirm')) ?? ''
 
-	it('loses hints in order: select, stop, y / n, d script, esc, and enter last', async () => {
+	it('loses hints in order: select, stop, y / n, esc, d script, and enter last', async () => {
 		const wide = keyLine(await showReview(100, 30))
 		expect(wide).toContain('↑↓ select')
 		expect(wide).toContain('ctrl+c stop')
@@ -450,11 +450,17 @@ describe('the key line of a workflow review', () => {
 			esc: true,
 			enter: true,
 		})
+		// `esc cancel` goes before `d script`: Escape cancels without its hint, and
+		// nothing else shows the whole script.
+		const tight = keyLine(await showReview(50, 30))
+		expect(kept(50, tight)).toMatchObject({ yn: false, esc: true, script: true, enter: true })
 		const narrow = keyLine(await showReview(40, 30))
 		expect(kept(40, narrow)).toMatchObject({
 			select: false,
 			stop: false,
 			yn: false,
+			esc: false,
+			script: true,
 			enter: true,
 		})
 	})
