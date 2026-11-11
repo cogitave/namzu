@@ -6,6 +6,8 @@
  * failed, and the original (cleaned) text stays behind Details. The mapping reads only text.
  */
 
+import { NAMED_FAILURE_SENTENCES, namedFailureSentence } from '../shared/named-failures.js'
+
 export interface PlainError {
 	/** One sentence a person can act on. */
 	text: string
@@ -31,6 +33,11 @@ export function cleanErrorMessage(raw: string): string {
 const NEXT_STEP = 'Try again.'
 
 const KNOWN: { match: RegExp; text: string }[] = [
+	{ match: /invalid undo status/i, text: NAMED_FAILURE_SENTENCES['undo-status-invalid'] },
+	{
+		match: /provider.*not configured/i,
+		text: NAMED_FAILURE_SENTENCES['provider-not-configured'],
+	},
 	{
 		match: /\bENOENT\b|no such file or directory|file not found|ERR_FILE_NOT_FOUND/i,
 		text: 'That file or folder no longer exists. Choose another one.',
@@ -96,12 +103,15 @@ function fallback(context: string | undefined): string {
  * `context` completes "Couldn’t …": the action that failed, in the person's words ("rename the
  * project", "load your Pals").
  */
-export function plainError(error: unknown, context?: string): PlainError {
+export function plainError(error: unknown, context?: string, operation?: string): PlainError {
 	const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
 	const cleaned = cleanErrorMessage(raw)
 	const known = KNOWN.find((item) => item.match.test(cleaned))
 	if (known) return { text: known.text, ...(cleaned ? { details: cleaned } : {}) }
 	if (isPlainMessage(cleaned)) return { text: cleaned }
+	// A read that failed without a sentence of its own is named by what it was reading.
+	const named = namedFailureSentence(cleaned, operation)
+	if (named) return { text: named, ...(cleaned ? { details: cleaned.slice(0, 500) } : {}) }
 	return { text: fallback(context), ...(cleaned ? { details: cleaned.slice(0, 500) } : {}) }
 }
 
@@ -118,6 +128,6 @@ export function ensurePlain(text: string, context?: string): PlainError {
 }
 
 /** `plainError(...).text`, for the places that carry only a sentence. */
-export function plainErrorText(error: unknown, context?: string): string {
-	return plainError(error, context).text
+export function plainErrorText(error: unknown, context?: string, operation?: string): string {
+	return plainError(error, context, operation).text
 }

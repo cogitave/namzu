@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import { FAILING_READ_MS, nextComputerReadDelay } from './computer-read-pace.js'
+import { describe, expect, it, vi } from 'vitest'
+import {
+	FAILING_READ_MS,
+	createComputerReadScheduler,
+	nextComputerReadDelay,
+} from './computer-read-pace.js'
 
 describe('nextComputerReadDelay', () => {
 	it('keeps the pace the page had: 1 s while watching a ready computer, otherwise 5 s', () => {
@@ -32,8 +36,100 @@ describe('nextComputerReadDelay', () => {
 		let reads = 0
 		for (let failures = 0; seconds < 3_600; failures += 1) {
 			reads += 1
-			seconds += nextComputerReadDelay({ ready: false, watching: false, failures }) / 1000
+			seconds += (nextComputerReadDelay({ ready: false, watching: false, failures }) ?? 0) / 1000
 		}
 		expect(reads).toBeLessThan(70)
+	})
+})
+
+describe('a computer that is not set up', () => {
+	it('has no next read at all', () => {
+		expect(nextComputerReadDelay({ ready: false, watching: true, failures: 0, parked: true })).toBe(
+			null,
+		)
+	})
+
+	it('is read once, then never again however long the window stays open', async () => {
+		vi.useFakeTimers()
+		try {
+			const reads = vi.fn()
+			const scheduler = createComputerReadScheduler({
+				run: () => {
+					reads()
+					scheduler.settle({
+						ready: false,
+						watching: true,
+						failed: false,
+						answered: true,
+						parked: true,
+					})
+				},
+			})
+			scheduler.settle({
+				ready: false,
+				watching: true,
+				failed: false,
+				answered: false,
+				parked: false,
+			})
+			await vi.advanceTimersByTimeAsync(10 * 60_000)
+			expect(reads).toHaveBeenCalledTimes(1)
+			expect(scheduler.parked).toBe(true)
+			await vi.advanceTimersByTimeAsync(60 * 60_000)
+			expect(reads).toHaveBeenCalledTimes(1)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('keeps reading a computer that is only stopped, at the ordinary pace', async () => {
+		vi.useFakeTimers()
+		try {
+			const reads = vi.fn()
+			const scheduler = createComputerReadScheduler({
+				run: () => {
+					reads()
+					scheduler.settle({
+						ready: false,
+						watching: false,
+						failed: false,
+						answered: true,
+						parked: false,
+					})
+				},
+			})
+			scheduler.settle({
+				ready: false,
+				watching: false,
+				failed: false,
+				answered: true,
+				parked: false,
+			})
+			await vi.advanceTimersByTimeAsync(60_000)
+			expect(reads).toHaveBeenCalledTimes(12)
+			expect(scheduler.parked).toBe(false)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('a stopped scheduler schedules nothing more', async () => {
+		vi.useFakeTimers()
+		try {
+			const run = vi.fn()
+			const scheduler = createComputerReadScheduler({ run })
+			scheduler.stop()
+			scheduler.settle({
+				ready: true,
+				watching: true,
+				failed: false,
+				answered: true,
+				parked: false,
+			})
+			await vi.advanceTimersByTimeAsync(60_000)
+			expect(run).not.toHaveBeenCalled()
+		} finally {
+			vi.useRealTimers()
+		}
 	})
 })

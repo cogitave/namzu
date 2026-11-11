@@ -577,6 +577,44 @@ installation or a native distribution. The
 [coherence receipt](../../research/runtime-desktop-20260930/artifacts/development-source-consolidation-native-windows-safe-20261005.json)
 records the actual Windows graph and isolated Zen registration check.
 
+### A computer that is not set up, and reads that fail
+
+The Pal screen reads the Pal's computer (`namzu/pals/computer/status`) every second while its page is
+the one being watched and every five seconds otherwise, and slows down after failures (doubling to a
+minute). Whether it asks again depends on what the computer said
+(`packages/desktop/src/renderer/computer-read-pace.ts`):
+
+| What the read found | Next read |
+|---|---|
+| Ready | the ordinary pace |
+| Stopped | the ordinary pace: a Pal's own turn can start it |
+| Unavailable for a reason that can pass (the read threw, or the engine answered but not usefully) | slower each time, to a minute |
+| Unavailable because the PC lacks what the computer runs on (the container engine or its image, a stopped Podman machine, Linux support on Windows) | none: the screen reads once, shows one setup card, and stops |
+
+A stopped read starts again only for a reason the person can see: Start was pressed, setup started or
+finished (the setup state changed), the window came back into focus, or Refresh was used. The card on
+the Pal computer page says what the computer is ("A private desktop where the Pal can open apps and
+files, kept apart from yours."), the one action (Get Docker Desktop; on Windows the Pal computer row
+carries the setup action), and what it costs ("about 1.2 GB of disk for the computer image", the base
+image of [Local Pal computers](../sdk/local-pal-computer.md)). Before this, an engine-less PC was read
+every five seconds for as long as the window stayed open.
+
+Three reads used to be logged with the reason `unclassified` and shown as "That didn't work". They now
+have a named reason and one plain sentence, shared by the log and the screen
+(`packages/desktop/src/shared/named-failures.ts`): `undo-status-invalid` ("Namzu could not tell which files
+this reply changed. Close this and open the conversation again."), `undo-status-unavailable`,
+`settings-unavailable` ("Saved message settings could not be loaded. Try again.", in the message row),
+`provider-not-configured` ("This model is not set up yet. Open the model list to set it up, or choose
+another model.") and `provider-setup-unavailable` (in the model row). A read that has a message of its
+own is named by the message; one that failed without saying why is named by the read it was.
+
+A read that fails (the undo status, the message settings, the model settings) is asked once more when the
+project's connection comes back (`ReconnectRetry`), never on a timer. A second failure is left to the
+person and their Try again. The repeating reads follow the same rule: the activity panel's task list
+slows from two seconds to a minute and stops after four failures in a row (it starts again on a reconnect or
+a manual refresh), the Pal start question stops asking a Pal whose inbox read failed four times until the
+window is focused again, and the pull request look in the composer footer does the same.
+
 ### Diagnostic logs
 
 The native host records startup, unhandled main-process failures, renderer

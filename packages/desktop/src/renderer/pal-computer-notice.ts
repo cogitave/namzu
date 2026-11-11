@@ -57,3 +57,15 @@ export function computerMissingSentence(name: string, raw: string | undefined): 
 		? `${name}’s computer cannot start: your Podman machine is not running.`
 		: `${name}’s computer cannot start yet: it needs Docker Desktop or Podman, and neither is ready on this computer.`
 }
+
+const NOT_SET_UP = /\bnot set up\b|namzu computer setup|linux container support/i
+
+/**
+ * Whether a computer that answered "unavailable" is missing what it runs on (the container engine,
+ * its image or Linux support), which no amount of waiting fixes. A computer that is only stopped,
+ * or unavailable for some other reason, can come back by itself and keeps being read.
+ */
+export function computerNotSetUp(status: string, raw: string | undefined): boolean {
+	if (status !== 'unavailable') return false
+	return computerSetupMissing(raw) || NOT_SET_UP.test(raw ?? '')
+}

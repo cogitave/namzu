@@ -68,6 +68,7 @@ import type {
 	ProviderView,
 } from '../shared/protocol.js'
 import { readProviderConnections } from '../shared/provider-connections.js'
+import { ReconnectRetry } from '../shared/reconnect-retry.js'
 import { isReviewModeId } from '../shared/review-modes.js'
 import {
 	type SidebarSectionId,
@@ -2080,7 +2081,10 @@ export class Operator {
 			if (this.closing) throw error
 		}
 		this.emit({ kind: 'connection', project: { ...view } })
-		if (view.status === 'ready') this.clearLostErrors(view.id)
+		if (view.status === 'ready') {
+			this.clearLostErrors(view.id)
+			this.undoRetries.get(view.id)?.reconnected()
+		}
 		this.persistDesktop()
 		return { ...view }
 	}
@@ -4740,10 +4744,27 @@ export class Operator {
 		if (!turns) throw new Error('Namzu returned an invalid undo status.')
 		this.emit({ kind: 'undo-status', sessionId: session.view.id, turns })
 	}
+	/** An undo read that failed is asked once more when its project reconnects, never on a timer. */
+	private readonly undoRetries = new Map<string, ReconnectRetry>()
+	private undoRetryFor(projectId: string): ReconnectRetry {
+		let retries = this.undoRetries.get(projectId)
+		if (!retries) {
+			retries = new ReconnectRetry()
+			this.undoRetries.set(projectId, retries)
+		}
+		return retries
+	}
 	private async refreshUndoQuietly(session: Conversation): Promise<void> {
+		const key = session.view.id
+		const retries = this.undoRetryFor(session.view.projectId)
 		try {
 			await this.refreshUndo(session)
+			retries.succeeded(key)
 		} catch (error) {
+			retries.failed(key, () => {
+				const current = this.conversations.get(key)
+				if (current && !this.closing) void this.refreshUndoQuietly(current)
+			})
 			try {
 				this.diagnostics?.record('cli_notice', {
 					operation: 'namzu/turns/undo-status',

@@ -257,3 +257,9 @@
 		transition: none;
 	}
 }
+.pal-computer-setup-card {
+	border: 1px solid var(--border);
+	border-radius: var(--radius-card);
+	background: var(--card);
+	box-shadow: var(--shadow-1);
+}
