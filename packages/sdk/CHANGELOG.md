@@ -1,5 +1,18 @@
 # Changelog
 
+## 62.8.0
+
+### Minor Changes
+
+- c44e10c: Desktop no longer hides a turn's bad news inside the folded "Worked" block. The header now says "1 command failed" or "1 action was not allowed" with a status mark, a failed command shows its last output lines under its row, a refused action shows its one-line reason, and a finished turn that changed files ends with one muted line built from the kernel's turn outcome record (what changed, and whether a check passed, failed, was not run, or had its exit status hidden by a pipe), in the same words the terminal uses. Nothing is shown for a turn that changed nothing. The CLI's desktop host sends the record as a new `namzu/session/outcome` notification and keeps it in the history snapshot (`outcome` on each turn); the SDK's `failure` tool fact gains an optional `note` (the refusal's reason). Additive only: a host that ignores the notification or the field is unchanged. A refused action shows a plain fixed sentence (the rule's own wording is hover text), and the line under a turn disappears once that turn's changes are undone.
+- f0c8119: A long session costs less per turn, though it still grows with the log. In a 100-turn session against an instant model, CPU per turn at turns 91-100 fell from about 2.5 s to about 0.7 s; past about turn 120 per-turn CPU still rises (measured at 200 turns, see docs/sdk/session-log.md), and so does the heap, more slowly than before. Before, each turn re-read and re-verified the whole session log many times (once per stored checkpoint when choosing what to prune, several times when starting the turn, and on every evidence recall page), and every finished turn stayed in memory because it left a listener on the session's abort signal. Now those reads resume after the last record they folded and check that record against the file, so they read only what was appended; a log that no longer holds that record is read again from the start, with the same strict or tolerant behaviour as before. What is not fixed: the writer still reads and verifies the whole chain each time a turn takes the log, and compaction scoring grows with the history, so a very long session is still slower per turn than a short one.
+
+  Nothing to change for a caller: persisted records, resume, compaction and the content the model receives are the same, and aborting a session still aborts its running turn with the same reason. One behaviour is narrower: a byte altered in the middle of the log during a turn, with the newest record left alone, is now refused when the next turn takes the log rather than by the reads inside the turn that follows. Additive: `CheckpointLogView` has an optional `pruneFacts(scope, checkpointIds)` that answers both retention questions in one read; a view without it is still asked the two separate questions.
+
+### Patch Changes
+
+- f68f63b: `grep` over a large local tree is about ten times faster (a 5,700-file tree: about 3.5 s down to about 0.4 s), with the same results in the same order. It no longer resolves the real path of every file or stats each one before opening it: each directory is resolved once, each file is opened once with links refused, and the walk overlaps with the matching while yielding to the event loop every few milliseconds. A file over 64 KiB is read asynchronously in bounded chunks, so one large file cannot freeze the event loop for its whole read (the longest block on a tree with ten 4.9 MB files fell from about 24 ms to about 6 ms). Nothing to change in a caller; a sandbox's search still reads through the sandbox as before. One behaviour differs in a race only: a file deleted after the walk listed it is now treated as absent rather than counted as unreadable.
+
 ## 62.7.0
 
 ### Minor Changes

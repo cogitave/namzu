@@ -1,5 +1,0 @@
----
-'@namzu/cli': patch
----
-
-A paste no longer shows the end of its start or end marker as typed text (`[200~`, `[201~` in the message box) when the terminal delivers the marker in two pieces with a pause between them, which a slow or lossy remote connection can do. The unfinished marker is now held until the rest arrives (at most 200 ms when it could still be Alt+[ or the start of Insert, F9, F10 or another function key; at most 2 s for the prefixes `ESC [ 2 0`, which F9 shares, and `ESC [ 2 0 0` / `ESC [ 2 0 1`, which only a marker starts), then the paste is assembled as before, as one chip or as inline text, without submitting its newlines. The Escape key, arrow keys, Alt combinations and function keys that arrive whole are recognised on the same schedule as before. Two keys can arrive later than before: Alt+[, whose two bytes are also how a marker begins, by up to 200 ms; and an F9 that the connection itself splits, by up to 2 s. A function key split by the connection used to be typed as text and is now joined. A pause right after the first byte of the marker cannot be told from pressing Escape and is not repaired. Nothing to change on your side.
