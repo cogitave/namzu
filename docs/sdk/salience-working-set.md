@@ -67,9 +67,11 @@ object and is read afresh. What still runs on every pass is the corpus
 statistics, the recency and citation lookups, the ordering and the comparison
 of each message with the later messages of its role, which is quadratic in
 the number of messages (it stops early for a pair that cannot reach the
-duplicate floor and for an identical signature). With 1,500 messages the pass
-took about 90 ms and now takes about 6 ms when the messages are small and
-about 65 ms when every message is a 4 KB near-duplicate.
+duplicate floor and for an identical signature). Measured at about 1,600
+messages, a pass that took roughly 40 to 250 ms (depending on message length)
+takes roughly 13 to 22 ms once the messages are cached, about 100 ms down to
+about 20 ms on a real long session; the first pass in a process, with nothing
+cached, is not faster by much (about 140 ms down to about 105 ms there).
 
 Before scoring, the pass counts whether anything outside the leading system
 run and the recent window is a clearable result or a long narration. When none
