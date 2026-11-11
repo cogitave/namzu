@@ -1,4 +1,4 @@
-import { link, mkdir, open, readFile, readdir, unlink } from 'node:fs/promises'
+import { link, mkdir, open, readFile, readdir, stat, unlink } from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { SessionLocator, SessionPaths } from '../../session/paths.js'
@@ -37,6 +37,17 @@ export interface DiskSessionCheckpointStoreOptions {
 }
 
 const DOCUMENT = /^(.+)\.json$/
+
+/**
+ * Which turn a checkpoint document on disk belongs to, as last read, with the
+ * size and mtime it had then. A session keeps its checkpoints for every turn
+ * in one directory, so listing one turn's used to read and parse every
+ * document of the session, and the directory only grows. A document is not
+ * read again while a `stat` says it is the one that was; one that belonged to
+ * another turn is skipped on that evidence alone.
+ */
+const documentTurns = new Map<string, { turnId: string; size: number; mtimeMs: number }>()
+const DOCUMENT_TURNS_KEPT = 20_000
 
 /**
  * {@link SessionCheckpointStore} at `<session-dir>/checkpoints/<id>.json`.
@@ -145,10 +156,31 @@ export class DiskSessionCheckpointStore implements SessionCheckpointStore {
 			// Sidecars (`<id>.json.<pid>.<n>.<hex>.tmp`) and strangers are not documents.
 			const id = DOCUMENT.exec(name)?.[1]
 			if (id === undefined || !isEntityId(id, 'checkpoint')) continue
-			const text = await readIfPresent(this.#paths.checkpointFile(locator, id))
+			const path = this.#paths.checkpointFile(locator, id)
+			const seen = await stat(path).catch((error: NodeJS.ErrnoException) => {
+				if (error.code === 'ENOENT') return null
+				throw error
+			})
 			// Deleted between the listing and the read: a concurrent prune, not damage.
+			if (seen === null) continue
+			const known = documentTurns.get(path)
+			if (
+				known !== undefined &&
+				known.turnId !== checked.turnId &&
+				known.size === seen.size &&
+				known.mtimeMs === seen.mtimeMs
+			) {
+				continue
+			}
+			const text = await readIfPresent(path)
 			if (text === null) continue
 			const checkpoint = parseStoredCheckpoint(text, checked, id)
+			if (documentTurns.size >= DOCUMENT_TURNS_KEPT) documentTurns.clear()
+			documentTurns.set(path, {
+				turnId: checkpoint.turnId,
+				size: seen.size,
+				mtimeMs: seen.mtimeMs,
+			})
 			if (checkpoint.turnId === checked.turnId) checkpoints.push(checkpoint)
 		}
 		return checkpoints.sort(compareCheckpoints)
