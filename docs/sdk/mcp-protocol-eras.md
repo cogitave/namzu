@@ -667,6 +667,11 @@ instead), so `StreamableHttpTransport` never captures a `Mcp-Session-Id` in
 the first place, and each behavior below is conditioned on a session id
 being present.
 
+**A server's `ping` is answered.** A server of 2025-11-25 or older may send
+`ping` and wait for an empty result, and `MCPClient` now sends one. Before
+this it answered `-32601`, which a server may read as a dead connection. The
+newest revision removed `ping`, so on a modern connection it is still declined.
+
 **A session `404` triggers exactly one re-initialize.** A legacy server that
 has forgotten a session — expired it, restarted, whatever the reason —
 answers a request carrying its stale `Mcp-Session-Id` with a bare `404`. On

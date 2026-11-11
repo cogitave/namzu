@@ -2,6 +2,7 @@
 
 ## 2026-11-12
 
+- **Update** [MCP protocol eras](sdk/mcp-protocol-eras.md): a `ping` from a server of 2025-11-25 or older is answered with an empty result instead of method-not-found.
 - **Update** [MCP protocol eras](sdk/mcp-protocol-eras.md): `MCPClient` takes part in the tasks extension (`io.modelcontextprotocol/tasks`) on a 2026-07-28 server that advertises it: a `tools/call` answered with a task is polled to its result inside the per-call deadline rules, reports progress, and is cancelled with `tasks/cancel`; new `MCPClientConfig.tasks`, `extensions` on the client and server capabilities types, `MCP_TASKS_EXTENSION` export.
 - **Update** [MCP protocol eras](sdk/mcp-protocol-eras.md): requests on a 2026-07-28 connection carry `traceparent` (and `tracestate`) in `_meta` when a span is active, and nothing when telemetry is off.
 - **Update** [MCP protocol eras](sdk/mcp-protocol-eras.md): `MCPClient.listTools()` returns tools sorted by name in every revision, so the tool list in a prompt does not change order between turns; before, it kept the server's order.

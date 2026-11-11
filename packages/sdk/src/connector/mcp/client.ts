@@ -2082,6 +2082,15 @@ export class MCPClient {
 			void this.answerElicitation(message.id, message.params)
 			return
 		}
+		// `ping` is part of every revision before 2026-07-28 and must be answered
+		// with an empty result; a server that gets an error back may decide the
+		// connection is dead. The newest revision removed it.
+		if (message.method === 'ping' && message.id !== undefined && this.era?.kind === 'legacy') {
+			void this.transport.send({ jsonrpc: '2.0', id: message.id, result: {} }).catch((err) => {
+				this.log.debug('Failed to send ping reply', { 'exception.message': toErrorMessage(err) })
+			})
+			return
+		}
 		if (message.method && message.id !== undefined) {
 			this.log.warn('Declining unsupported server-initiated MCP request', {
 				'namzu.connector.server': this.config.serverName,
