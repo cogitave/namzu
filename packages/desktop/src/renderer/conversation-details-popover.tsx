@@ -1,7 +1,7 @@
 import { Menu } from '@base-ui/react/menu'
 import { type Ref, useEffect, useRef, useState } from 'react'
 import type { ProjectGitView, ProjectView } from '../shared/protocol.js'
-import { type ChangeTotals, formatLineCount } from './changes-totals.js'
+import { CUT_NOTE, type ChangeTotals, formatLineCount } from './changes-totals.js'
 import type { ConversationSource } from './conversation-actions.js'
 import { copyPlainText } from './copy-button.js'
 import {
@@ -201,6 +201,7 @@ export function ConversationDetailsPopover({
 									<span className="sr-only">Removed </span>
 									{formatLineCount(totals.removed)}
 								</span>
+								{totals.cut && <span className="conversation-details-value">{CUT_NOTE}</span>}
 							</span>
 						) : (
 							<span className="conversation-details-value">No file changes yet</span>

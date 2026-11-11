@@ -284,12 +284,14 @@ describe('full path and open target', () => {
 				path: 'src/app.css',
 				added: 1,
 				removed: 0,
+				cut: false,
 				receiptIds: ['r1'],
 				created: false,
 			},
 		],
 		added: 1,
 		removed: 0,
+		cut: false,
 		receiptIds: ['r1', 'r2'],
 	}
 	it('opens the Changes panel for a file the turn has a receipt for, else the file', () => {

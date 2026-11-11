@@ -332,3 +332,22 @@
 .changes-empty {
 	padding: 24px 16px;
 }
+
+.changes-cut-note {
+	color: var(--muted-foreground);
+	font-size: 12px;
+	font-weight: 400;
+}
+.changes-edit + .changes-edit {
+	margin-top: 12px;
+}
+.changes-edit-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 0;
+	padding: 6px 12px;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	border-bottom: 1px solid var(--border);
+}

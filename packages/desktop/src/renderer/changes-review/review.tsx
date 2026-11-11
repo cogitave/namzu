@@ -3,7 +3,7 @@ import type { AcpSessionUpdate } from '@namzu/sdk'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ThreadState } from '../../shared/projection.js'
 import type { ProjectChangesView, ProjectDiffView } from '../../shared/protocol.js'
-import { formatLineCount } from '../changes-totals.js'
+import { CUT_NOTE, formatLineCount } from '../changes-totals.js'
 import {
 	CheckIcon,
 	ChevronDownIcon,
@@ -345,6 +345,9 @@ export function ChangesReview({
 					</Menu.Root>
 				</div>
 			</div>
+			{!empty && totals.cut && files.length > 1 && (
+				<p className="changes-note changes-cut-note">{CUT_NOTE}</p>
+			)}
 			{empty ? (
 				<p
 					className="changes-message changes-empty"

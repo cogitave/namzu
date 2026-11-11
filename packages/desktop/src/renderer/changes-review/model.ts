@@ -2,7 +2,7 @@ import type { AcpSessionUpdate } from '@namzu/sdk'
 import { parseDiffFromFile } from '@pierre/diffs'
 import type { ThreadState } from '../../shared/projection.js'
 import type { ProjectChangeFile } from '../../shared/protocol.js'
-import { changeTotals } from '../changes-totals.js'
+import { changeTotals, receiptCounts, receiptOf } from '../changes-totals.js'
 import { prepareIndex, searchFiles } from '../file-panel/file-search.js'
 import { baseNameOf } from '../file-panel/project-refs.js'
 import { turnChanges } from '../turn-changes.js'
@@ -23,6 +23,21 @@ export interface ReviewFile {
 	binary?: true
 	/** Receipts carry their text; a working-tree file is read when it is selected. */
 	content?: { before: string; after: string }
+	/** The diff carries only part of the file's lines; the counts are still the whole. */
+	cut?: true
+	/**
+	 * A file edited more than once in the scope: each edit's own sides and counts, so the view shows
+	 * each edit's hunk and never one edit's removed lines beside another's added ones.
+	 */
+	edits?: ReviewEdit[]
+}
+
+export interface ReviewEdit {
+	before: string
+	after: string
+	added: number
+	removed: number
+	cut?: true
 }
 
 export interface Receipt {
@@ -30,6 +45,10 @@ export interface Receipt {
 	path: string
 	before?: string
 	after?: string
+	/** What the engine counted for this edit; see `DiffReceipt`. */
+	added?: number
+	removed?: number
+	cut?: boolean
 }
 
 /** Completed diff receipts in the order the work happened, optionally only some of them. */
@@ -45,21 +64,25 @@ export function receiptsOf(
 	const receipts: Receipt[] = []
 	for (const id of ids) {
 		if (wanted && !wanted.has(id)) continue
-		const view = tools[id]?.status === 'completed' ? tools[id]?.view : undefined
-		if (view?.kind !== 'diff') continue
+		const tool = tools[id]
+		const receipt = tool?.status === 'completed' ? receiptOf(tool) : undefined
+		if (!receipt) continue
 		receipts.push({
 			id,
-			path: view.path || view.label || '',
-			before: view.before,
-			after: view.after,
+			path: receipt.path || receipt.label || '',
+			before: receipt.before,
+			after: receipt.after,
+			...(receipt.added !== undefined ? { added: receipt.added } : {}),
+			...(receipt.removed !== undefined ? { removed: receipt.removed } : {}),
+			...(receipt.cut ? { cut: true } : {}),
 		})
 	}
 	return receipts
 }
 
 /**
- * One entry per path, from the first `before` to the last `after`, so a file edited twice is one
- * row. A path whose edits cancel out is left out.
+ * One entry per path, so a file edited twice is one row. Its numbers are the sum of its edits'
+ * own counts; a file edited more than once also keeps each edit's own sides for the diff view.
  */
 export function mergeReceipts(receipts: readonly Receipt[]): ReviewFile[] {
 	const byPath = new Map<string, Receipt[]>()
@@ -90,6 +113,17 @@ export function mergeReceipts(receipts: readonly Receipt[]): ReviewFile[] {
 			added: totals.added,
 			removed: totals.removed,
 			content: { before, after },
+			...(totals.cut ? { cut: true as const } : {}),
+			...(list.length > 1
+				? {
+						edits: list.map((receipt) => ({
+							before: receipt.before ?? '',
+							after: receipt.after ?? '',
+							...receiptCounts(receipt),
+							...(receipt.cut ? { cut: true as const } : {}),
+						})),
+					}
+				: {}),
 		})
 	}
 	return files
@@ -124,10 +158,12 @@ export function scopeFiles(
 export function totalsOf(files: readonly ReviewFile[]): {
 	added: number
 	removed: number
+	cut: boolean
 } {
 	return {
 		added: files.reduce((sum, file) => sum + file.added, 0),
 		removed: files.reduce((sum, file) => sum + file.removed, 0),
+		cut: files.some((file) => file.cut),
 	}
 }
 

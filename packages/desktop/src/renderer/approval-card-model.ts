@@ -18,6 +18,8 @@ export interface ApprovalCardModel {
 	diff?: { path: string; before: string; after: string; fragment: boolean }
 	added?: number
 	removed?: number
+	/** The engine cut the preview to a bounded size; the counts cover only what is shown. */
+	cut?: true
 	/** A file change from an engine that sent no preview: the card says so. */
 	previewMissing: boolean
 	/** The call writes a whole file rather than editing part of one. */
@@ -140,9 +142,13 @@ function pathOf(call: Call): string | undefined {
 	return typeof path === 'string' && path.trim() ? path : undefined
 }
 
-function counts(before: string, after: string, path: string) {
-	const totals = changeTotals([{ path, before, after }])
-	return { added: totals.added, removed: totals.removed }
+function counts(before: string, after: string, path: string, cut = false) {
+	const totals = changeTotals([{ path, before, after, ...(cut ? { cut } : {}) }])
+	return {
+		added: totals.added,
+		removed: totals.removed,
+		...(totals.cut ? { cut: true as const } : {}),
+	}
 }
 
 function fromPreview(preview: PermissionPreview) {
@@ -200,7 +206,7 @@ export function buildApprovalCard(
 				fileName,
 				path,
 				diff,
-				...counts(diff.before, diff.after, path),
+				...counts(diff.before, diff.after, path, first.preview.truncated === true),
 				previewMissing: false,
 				...(!created && diff.before === diff.after ? { unchanged: true } : {}),
 				...(write ? { write, overwrites: !created } : {}),

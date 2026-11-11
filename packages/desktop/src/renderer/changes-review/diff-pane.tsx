@@ -1,7 +1,7 @@
 import { Menu } from '@base-ui/react/menu'
 import { MultiFileDiff } from '@pierre/diffs/react'
 import { type ComponentProps, useMemo, useState } from 'react'
-import { formatLineCount } from '../changes-totals.js'
+import { CUT_NOTE, formatLineCount } from '../changes-totals.js'
 import { DIFF_VIEW_UNSAFE_CSS } from '../diff-theme.js'
 import { CodeIcon, ExternalLinkIcon, FileIcon } from '../file-panel/file-icons.js'
 import { isMarkdownPath } from '../file-panel/project-refs.js'
@@ -27,6 +27,13 @@ export interface DiffActions {
 	onCopy: (text: string, done: string) => void
 }
 
+/** The patch text of a file: one block per edit when it was edited more than once. */
+function patchOf(file: ReviewFile, before: string, after: string): string {
+	if (file.edits && file.edits.length > 1)
+		return file.edits.map((edit) => unifiedDiff(file.path, edit.before, edit.after)).join('')
+	return unifiedDiff(file.path, before, after, file.oldPath)
+}
+
 function PaneMessage({ children }: { children: string }) {
 	return <p className="changes-message">{children}</p>
 }
@@ -38,10 +45,7 @@ function DiffHeader({
 }: { file: ReviewFile; body: DiffBody; actions: DiffActions }) {
 	const copyDiff = () => {
 		if (body.state !== 'ready') return
-		actions.onCopy(
-			unifiedDiff(file.path, body.before ?? '', body.after ?? '', file.oldPath),
-			'Diff copied.',
-		)
+		actions.onCopy(patchOf(file, body.before ?? '', body.after ?? ''), 'Diff copied.')
 	}
 	return (
 		<div className="changes-diff-head">
@@ -176,10 +180,8 @@ export function DiffPane({
 	// Only built once the gate trips: parsing a huge file is the cost the gate avoids.
 	const patch = useMemo(
 		() =>
-			gated && body.state === 'ready'
-				? unifiedDiff(file.path, body.before ?? '', body.after ?? '', file.oldPath)
-				: '',
-		[gated, body, file.path, file.oldPath],
+			gated && body.state === 'ready' ? patchOf(file, body.before ?? '', body.after ?? '') : '',
+		[gated, body, file],
 	)
 	return (
 		<section className="changes-diff" aria-label={`Changes to ${file.path}`}>
@@ -200,6 +202,7 @@ export function DiffPane({
 								This file is too large to show in full; only part of it is compared.
 							</PaneMessage>
 						)}
+						{file.cut && <p className="changes-note changes-cut-note">{CUT_NOTE}</p>}
 						{gated && !verdict.rich ? (
 							<>
 								<p className="changes-note changes-gate-note">
@@ -216,6 +219,26 @@ export function DiffPane({
 									{patch}
 								</pre>
 							</>
+						) : file.edits && file.edits.length > 1 ? (
+							file.edits.map((edit, index) => (
+								// biome-ignore lint/suspicious/noArrayIndexKey: edits have no id and keep their order
+								<section key={index} className="changes-edit" data-edit={index + 1}>
+									<p className="changes-edit-head">
+										<span>
+											Edit {index + 1} of {file.edits?.length}
+										</span>
+										<span className="changes-added">+{formatLineCount(edit.added)}</span>
+										<span className="changes-removed">−{formatLineCount(edit.removed)}</span>
+										{edit.cut && <span className="changes-cut-note">{CUT_NOTE}</span>}
+									</p>
+									<MultiFileDiff
+										className="diff-code-view"
+										oldFile={{ name: file.path, contents: edit.before }}
+										newFile={{ name: file.path, contents: edit.after }}
+										options={options}
+									/>
+								</section>
+							))
 						) : (
 							<MultiFileDiff
 								key={file.path}
