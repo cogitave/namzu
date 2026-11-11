@@ -332,6 +332,25 @@ export interface FileReadTracker {
 	 */
 	recordEdit?(key: string, content: string, callId: string): void
 	/**
+	 * Optional: the fingerprint of the content the agent itself last put in
+	 * the file at `key` through a full write or an edit, if it did. A file the
+	 * agent only read, or never touched, has none. Shell redirection is not
+	 * seen here: such a file is of unknown authorship. Used by the auto-mode
+	 * classifier to tell a script the agent wrote from one it did not.
+	 */
+	authoredFingerprint?(key: string): string | undefined
+	/** Optional: when this ledger began, in milliseconds since the epoch. */
+	readonly startedAt?: number
+	/**
+	 * Optional: the ledger a delegated child starts with. Its own read record,
+	 * empty, because what a child has read is not what its parent or a sibling
+	 * has, and the stale-write refusal compares the disk to the reader's own
+	 * reads. What the family authored ({@link authoredFingerprint},
+	 * {@link startedAt}) is shared with it. A tracker without this is not
+	 * handed to a child.
+	 */
+	forChild?(): FileReadTracker
+	/**
 	 * Optional witness of a read that returned the file WHOLE, with the
 	 * fingerprint of the rendering it returned.
 	 *
@@ -1364,6 +1383,17 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 * explicitly still bounds this tool's result by it.
 	 */
 	selfLimitingOutput?: boolean
+	/**
+	 * A tighter model-visible cap, in characters, for THIS tool's result.
+	 *
+	 * The turn's cap (`maxToolOutputChars`, 40,000 by default) still applies;
+	 * the smaller of the two wins, including when a host turned the turn cap
+	 * off with `0`. A result over it is kept in the session's tool-results
+	 * folder and shown as a head-and-tail preview that names the file, the same
+	 * way any other oversized result is. Use it for a tool whose results are
+	 * foreign text that should cost less of the window than a file read does.
+	 */
+	maxOutputChars?: number
 }
 
 /**

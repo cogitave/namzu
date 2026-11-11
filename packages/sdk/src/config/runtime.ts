@@ -138,6 +138,21 @@ export const CompactionConfigSchema = z.object({
 	minToolResultCharsToClear: z.number().min(0).default(1_000),
 	/** Tools whose output is never cleared, by name. */
 	preserveToolResultsFrom: z.array(z.string()).optional(),
+	/**
+	 * Before the first request of a turn, clear the old, large tool results
+	 * when that saves at least `minSavedTokens` by the kernel's own estimate.
+	 * Meant for a host that knows the provider's prompt cache has expired since
+	 * the last request, when the whole prefix is paid for at full price anyway.
+	 * Off when absent. Keeps the newest `keepRecentToolResults` results, errors,
+	 * pinned (`retain`) messages and already cleared results, exactly as the
+	 * in-turn clear does, and records the originals as a `compaction_shed` event.
+	 */
+	clearStaleToolResultsAtStart: z
+		.object({
+			minSavedTokens: z.number().int().positive(),
+			keepRecentToolResults: z.number().int().min(0).optional(),
+		})
+		.optional(),
 
 	maxToolResults: z.number().int().positive().default(30),
 	maxListSize: z.number().int().positive().default(25),

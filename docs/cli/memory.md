@@ -279,6 +279,46 @@ and are never listed or deleted here; `/memory show` still prints them with
 their paths. A note that begins with the word `delete` is saved with
 `/memory add delete ...`.
 
+### Memory that names files
+
+A memory such as "the cache lives in `src/cache.ts`" goes stale silently when the
+file moves. So when the curator stores a memory whose text names files of the
+current project (a path in the text, or a file the turn touched whose path or
+name the text mentions), it records an **anchor** for each, at most five, in
+the record's `anchors` metadata: the path relative to the project, the file's
+size and modification time, and a SHA-256 of its bytes. No file content is kept,
+only the digest, and a file over 1 MiB is anchored by size and time alone. A path
+that resolves outside the project (a `..`, an absolute path elsewhere, or a link
+that leaves it) is never anchored and never checked. A file that commonly holds
+a secret (`.env` and `.env.*`, `.npmrc`, `.netrc`, keys and certificates such as
+`*.pem` and `*.key`, `id_rsa`, `credentials`, anything under `.ssh`, `.aws`,
+`.gnupg`, `.kube` or `.docker`) is never anchored, so no digest of one is kept.
+Commands are not anchored.
+
+When recall is about to show a memory with anchors (the one to three chosen for
+the message, never more), it checks each anchor with one `stat`: the same size
+and time pass without reading the file; otherwise the bytes are hashed and
+compared; a verdict is remembered per file, size and time for the session, so a
+file that stays changed is read once, not on every request. A file that is gone,
+or whose bytes differ, adds
+`caution: "may be out of date: <path> no longer exists since this was saved"` (or
+`has changed`) to that memory's line, so the model reads that it may no longer
+hold. The memory is still shown, never dropped, and no model is asked. The check
+runs inside the recall deadline; a failing check says nothing.
+
+A file that only **changed** adds the caution and nothing more: "the entry is
+`src/bin.ts`" is still true after the file is edited, so a changed file never
+starts the retirement clock. The usage file keeps `brokenSince` for a memory
+whose file is **gone** (the first time is kept; it is lifted when the file is
+there again). The idle sweep archives a memory a turn recorded on its own once a
+file it names has stayed gone for 14 days, with `retiredReason: anchors`; a
+memory you or Namzu saved is only marked `possibly stale`, and `/memory` says why:
+`possibly stale: a file it names is gone` here, `possibly stale: not recalled for
+a while` for one that went unused. `/memory tidy` counts the two apart. Nothing
+is retired for this when `memory.retireAfterDays` is `0` or the usage counts are
+unknown, and restoring a retired memory starts its clock over. `/memory` shows
+such a retired one as `retired: a file it names is gone`.
+
 ### Memory that goes unused, and memory a refusal set aside
 
 Memory is kept small by use, not by a cap, and nothing is deleted on its own.
@@ -375,11 +415,23 @@ and a crash after the append loses nothing: the next process finds the line.
 
 Off the turn, the small model curates the inbox. It runs:
 
-- a quarter of a minute after a turn ends, when no other turn has started;
-- when the next turn starts, after that turn has been dispatched, so it never
-  delays the reply (this is also how a new process picks up what an earlier one
-  left, including a one-shot `exec` run that ended before its own drain);
-- when the session closes, for at most eight seconds.
+- a quarter of a minute after a turn ends, when no other turn has started and
+  you are not typing; if you are, it looks again after the next pause;
+- after a turn settles, for what waited while that turn ran, after the same
+  pause (this is also how a new process picks up what an earlier one left);
+- when the session closes, for at most eight seconds, whether or not a turn is
+  running.
+
+**Never during a turn.** While a turn is streaming or a tool is running nothing
+is drained, curation never starts, and the turn's first request never waits for
+it. One exception, said plainly: a drain already in flight when a turn starts is
+not stopped. It is a single side-model call bounded by its own deadline, and
+stopping it would throw its work away, so it can overlap the start of the turn;
+it does not wait for the turn and the turn does not wait for it, and no new drain
+starts until the turn has settled. A turn that ends by a cancel or an error
+settles the same way as one that completes, so what waited is drained after it. A
+one-shot `exec` run that ends before its own pause is drained by the closing
+drain.
 
 At most eight claim sets go to the model in one call. For each, Namzu first
 finds the five to eight active memories that share the most words with it, of
@@ -400,7 +452,9 @@ The model proposes and Namzu decides. A target must be one of that claim set's
 related memories. A memory you wrote, or the assistant saved, is never changed:
 when it already says the same thing the claim is dropped, so a preference the
 assistant just saved is not written a second time by the turn's record. A claim
-the model marks `ephemeral` is dropped. Every field has a length limit, and the
+the model marks `ephemeral` is dropped. When a stored memory's text names files
+that exist in the project, the record also carries an anchor for each (see
+[Memory that names files](#memory-that-names-files)). Every field has a length limit, and the
 secret and injected-instruction screen runs again over everything the model
 wrote. An update that finds the record changed since it was read (you edited it,
 or deleted it) is dropped; the record you changed wins. Nothing is ever deleted

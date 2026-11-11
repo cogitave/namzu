@@ -29,7 +29,11 @@ import { resolveRetainedOutput } from '../../tools/retained-output.js'
 import type { ToolManager } from '../../toolsets/manager.js'
 import type { ToolSourceRef } from '../../toolsets/types.js'
 import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
-import type { ToolCallDeclined, ToolCallEscalation } from '../../types/hitl/index.js'
+import type {
+	LaunchedScript,
+	ToolCallDeclined,
+	ToolCallEscalation,
+} from '../../types/hitl/index.js'
 import type { SessionId, ToolUseId, TurnId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import {
@@ -72,6 +76,12 @@ import { compressShellOutput } from '../../utils/shell-compress.js'
 import { parseStructuredResultJson } from '../../utils/structured-result-json.js'
 import { ensureScratchpadDirectory } from '../../utils/temp.js'
 import { type BackgroundJobRegistry, type JobProcess, bindOwner } from '../jobs/registry.js'
+import {
+	type ScriptEvidence,
+	analyzeLaunches,
+	changedSinceRead,
+	readLaunchedScripts,
+} from './auto-review/script-evidence.js'
 import { type BatchDetach, stillRunningResult } from './detached-calls.js'
 import {
 	type ToolAdmissionHost,
@@ -740,6 +750,9 @@ export class ToolExecutor {
 	private readonly toolCallBudget?: ToolCallBudget
 	private readonly preparedBatches = new WeakSet<PreparedToolBatch>()
 	private readonly preparedBashDirectories = new WeakMap<PreparedSafetyCall, string>()
+	/** Script files a classifier read for a call, by call id, to be checked again when it runs. */
+	private readonly reviewedScripts = new Map<string, ScriptEvidence['watch']>()
+	private readonly startedAt = Date.now()
 	/** Ephemeral proof of actual execution; restored messages do not acquire it. */
 	private readonly recordedObservations = new Map<
 		string,
@@ -988,6 +1001,47 @@ export class ToolExecutor {
 			this.config.workingDirectory,
 			this.sandboxed,
 		)
+	}
+
+	/**
+	 * The script files a shell line launches that the agent wrote or that
+	 * appeared during the session, read now for the auto-mode classifier.
+	 * Remembers what was read for `callId`, so the file can be checked again
+	 * just before the call runs.
+	 */
+	async launchedScripts(
+		callId: string,
+		line: string,
+		dialect: ShellDialect,
+	): Promise<readonly LaunchedScript[]> {
+		if (this.sandboxed) {
+			// A sandbox's files are not on this host's disk. Say so rather than
+			// letting a launch inside one look like a launch of nothing.
+			const analysis = analyzeLaunches(line, dialect)
+			const named = analysis.launches.map((l) => l.path)
+			return named.length === 0 && analysis.unresolved.length === 0
+				? []
+				: [
+						{
+							path: named[0] ?? '(launch form not resolved)',
+							origin: 'unknown',
+							state: 'unreadable',
+							note: 'the command runs in a sandbox whose files are not read for this review, so what the script does is not known',
+						},
+					]
+		}
+		const evidence = await readLaunchedScripts(line, dialect, {
+			cwd: effectiveBashWorkingDirectory(this.config.sessionId, this.config.workingDirectory, {
+				sandboxed: false,
+			}),
+			startedAt: this.fileReadTracker.startedAt ?? this.startedAt,
+			...(this.fileReadTracker.authoredFingerprint
+				? { authoredFingerprint: (key: string) => this.fileReadTracker.authoredFingerprint?.(key) }
+				: {}),
+		})
+		if (evidence.watch.length > 0) this.reviewedScripts.set(callId, evidence.watch)
+		else this.reviewedScripts.delete(callId)
+		return evidence.scripts
 	}
 
 	/** The whole of the evidence as one text, from the same ledger. No filesystem I/O. */
@@ -1783,13 +1837,25 @@ export class ToolExecutor {
 					let outcome: ToolCallOutcome
 					started.add(toolCall.id)
 					try {
-						outcome = await this.executeSingle(
-							toolCall,
-							ctx,
-							recordObservation,
-							() => progress.close(),
-							preparedCall,
-						)
+						const reviewedScripts = this.reviewedScripts.get(toolCall.id)
+						this.reviewedScripts.delete(toolCall.id)
+						const moved =
+							reviewedScripts === undefined ? undefined : await changedSinceRead(reviewedScripts)
+						outcome =
+							moved !== undefined
+								? {
+										toolCallId: toolCall.id,
+										toolName: toolCall.function.name,
+										output: `Error: ${moved} changed after the safety check read it, so the command was not run. Run it again and it will be checked against the new text.`,
+										isError: true,
+									}
+								: await this.executeSingle(
+										toolCall,
+										ctx,
+										recordObservation,
+										() => progress.close(),
+										preparedCall,
+									)
 					} catch (error) {
 						// A call already answered with the placeholder has no batch
 						// left to fail; its failure is its outcome.
@@ -1985,6 +2051,7 @@ export class ToolExecutor {
 					} catch (error) {
 						failure ??= { error }
 					} finally {
+						this.reviewedScripts.delete(unit.toolCall.id)
 						settledUnit()
 						inFlight.delete(unit)
 						pump()
@@ -2322,7 +2389,7 @@ export class ToolExecutor {
 			toolName: name,
 			toolUseId: nestedId,
 			output: rawOutput,
-			maxChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+			maxChars: this.toolOutputCap(this.config.tools.get(name), false),
 			retainedPreviewChars: this.config.retainedToolPreviewChars,
 			spillDir: this.outputDirectory(),
 			recoveryRoutes: this.recoveryRoutes(),
@@ -2787,11 +2854,7 @@ export class ToolExecutor {
 				]
 			}
 		}
-		// A tool that bounds its own output is exempt from the DEFAULT per-result
-		// cap only; a host that set the cap explicitly still gets it.
-		const maxToolOutputChars =
-			this.config.maxToolOutputChars ??
-			(executedDefinition?.selfLimitingOutput === true ? 0 : DEFAULT_MAX_TOOL_OUTPUT_CHARS)
+		const maxToolOutputChars = this.toolOutputCap(executedDefinition, true)
 		const sourceOutput = output
 		// This owner-bound channel follows the selected receipt after both result
 		// screening and post-tool replacement. ToolResult.data and raw input can
@@ -3519,6 +3582,8 @@ export class ToolExecutor {
 		preparedCall?: PreparedDirectCall,
 		declined?: ToolCallDeclined,
 	): Promise<ToolCallOutcome> {
+		// A call that does not run has no use for what a review read of its scripts.
+		this.reviewedScripts.delete(toolCall.id)
 		const toolName = preparedCall?.toolName ?? toolCall.function.name
 		let input: unknown = preparedCall?.input ?? {}
 		if (!preparedCall) {
@@ -3694,6 +3759,26 @@ export class ToolExecutor {
 	}
 
 	/**
+	 * The per-result character cap for one tool: the turn's cap, tightened by
+	 * the tool's own `maxOutputChars`. A tool that bounds its own output is
+	 * exempt from the DEFAULT cap only (`exemptSelfLimiting`); a host that set
+	 * the cap explicitly still gets it. 0 means no cap.
+	 */
+	private toolOutputCap(
+		definition: ToolDefinition | undefined,
+		exemptSelfLimiting: boolean,
+	): number {
+		const turn =
+			this.config.maxToolOutputChars ??
+			(exemptSelfLimiting && definition?.selfLimitingOutput === true
+				? 0
+				: DEFAULT_MAX_TOOL_OUTPUT_CHARS)
+		const own = definition?.maxOutputChars
+		if (own === undefined || !Number.isFinite(own) || own <= 0) return turn
+		return turn > 0 ? Math.min(turn, Math.floor(own)) : Math.floor(own)
+	}
+
+	/**
 	 * The host preview and model text may differ; each gets its own text
 	 * budget. Rich bytes are measured separately and withheld whole when
 	 * over their cap, with a notice inside the model text's same hard bound.
@@ -3729,7 +3814,7 @@ export class ToolExecutor {
 						toolName,
 						toolUseId,
 						output: text,
-						maxChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+						maxChars: this.toolOutputCap(this.config.tools.get(toolName), false),
 						...(notice ? { notice } : {}),
 						// A tool may return different host and model text. They must
 						// never compete for the same exclusive spill filename.

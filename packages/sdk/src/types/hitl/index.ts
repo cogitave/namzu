@@ -1,6 +1,7 @@
 import type { CostInfo, TokenUsage } from '../common/index.js'
 import type { CheckpointId, PlanId, SessionId, TurnId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
+import type { ShellDialect } from '../tool/index.js'
 
 export type { CheckpointId }
 
@@ -179,6 +180,32 @@ export interface ResumeContext {
 	readonly transcript: () => readonly Message[]
 	/** The turn's cancellation signal, when it has one. */
 	readonly signal?: AbortSignal
+	/**
+	 * The script files a shell line launches that the agent wrote, or that came
+	 * into being during the session, read now. Absent when the host keeps no
+	 * file ledger. `callId` names the call under review, so a change to a file
+	 * between this read and the run can be noticed when it runs.
+	 */
+	readonly launchedScripts?: (
+		callId: string,
+		line: string,
+		dialect: ShellDialect,
+	) => Promise<readonly LaunchedScript[]>
+}
+
+/** A script file a reviewed shell line launches, as read for its reviewer. */
+export interface LaunchedScript {
+	readonly path: string
+	/** `authored`: written through the write or edit tools. `unknown`: it appeared during the session some other way. */
+	readonly origin: 'authored' | 'unknown'
+	/** `ok`: shown as read. `changed`: no longer what the agent wrote. `unreadable`: the file could not be read. */
+	readonly state: 'ok' | 'changed' | 'unreadable'
+	/** One plain sentence saying what the reviewer is looking at. */
+	readonly note: string
+	/** The text shown: the whole file, or its head and tail with the cut marked. */
+	readonly content?: string
+	/** Characters of the file left out of `content`. */
+	readonly cut?: number
 }
 
 /**

@@ -1102,6 +1102,7 @@ const CONFIG_READERS: ConfigReaders = {
 			consolidate?: unknown
 			idleCompaction?: unknown
 			idleCompactionMinTokens?: unknown
+			clearStaleResultsAfterIdle?: unknown
 			promptCacheTtl?: unknown
 			modelSummary?: unknown
 		}
@@ -1117,6 +1118,7 @@ const CONFIG_READERS: ConfigReaders = {
 				key !== 'deduplicateObservations' &&
 				key !== 'idleCompaction' &&
 				key !== 'idleCompactionMinTokens' &&
+				key !== 'clearStaleResultsAfterIdle' &&
 				key !== 'promptCacheTtl' &&
 				key !== 'modelSummary'
 			) {
@@ -1138,6 +1140,12 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		if (raw.consolidate !== undefined && typeof raw.consolidate !== 'boolean') {
 			return invalidConfigValue(context, ['consolidate'], 'must be true or false')
+		}
+		if (
+			raw.clearStaleResultsAfterIdle !== undefined &&
+			typeof raw.clearStaleResultsAfterIdle !== 'boolean'
+		) {
+			return invalidConfigValue(context, ['clearStaleResultsAfterIdle'], 'must be true or false')
 		}
 		if (raw.idleCompaction !== undefined && typeof raw.idleCompaction !== 'boolean') {
 			return invalidConfigValue(context, ['idleCompaction'], 'must be true or false')
@@ -1222,6 +1230,9 @@ const CONFIG_READERS: ConfigReaders = {
 				? { deduplicateObservations: raw.deduplicateObservations }
 				: {}),
 			...(raw.idleCompaction !== undefined ? { idleCompaction: raw.idleCompaction } : {}),
+			...(raw.clearStaleResultsAfterIdle !== undefined
+				? { clearStaleResultsAfterIdle: raw.clearStaleResultsAfterIdle }
+				: {}),
 			...(raw.idleCompactionMinTokens !== undefined
 				? { idleCompactionMinTokens: raw.idleCompactionMinTokens }
 				: {}),
@@ -1579,6 +1590,7 @@ const CONFIG_READERS: ConfigReaders = {
 					'maxResponseTokens',
 					'maxReasoningTokens',
 					'doneGate',
+					'maxHookRefusals',
 					'tokenBudget',
 					'timeoutMs',
 					'waitForProviderMs',
@@ -1588,7 +1600,7 @@ const CONFIG_READERS: ConfigReaders = {
 				return invalidConfigValue(
 					context,
 					[key],
-					'is not a limit (maxIterations, maxResponseTokens, maxReasoningTokens, doneGate, tokenBudget, timeoutMs, waitForProviderMs, costLimitUsd)',
+					'is not a limit (maxIterations, maxResponseTokens, maxReasoningTokens, doneGate, maxHookRefusals, tokenBudget, timeoutMs, waitForProviderMs, costLimitUsd)',
 				)
 			const value = (v as Record<string, unknown>)[key]
 			if (key === 'doneGate') {

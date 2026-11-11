@@ -284,6 +284,7 @@ import { createRepositorySnapshotStep, readTurnSnapshot } from '../context/turn-
 import { openCliAccounts } from '../integrations/accounts/open.js'
 import { accountProductName } from '../integrations/accounts/rows.js'
 import { createLazyCodeAnalysis } from '../integrations/analysis/provider.js'
+import { carriedAcrossCompaction } from '../integrations/compaction/carried.js'
 import { gateMemoryPromotion } from '../integrations/decision/memory.js'
 import {
 	maybeCreateDecisionModel,
@@ -459,6 +460,7 @@ import {
 } from '../integrations/workflows/size.js'
 import type { WorkflowRunView } from '../integrations/workflows/view.js'
 import { cliLogger } from '../logging.js'
+import { createAnchorCaution } from '../memory/anchors.js'
 import {
 	CurationRuntime,
 	composeMemoryPromotion,
@@ -515,7 +517,7 @@ import type { PermissionSettings } from '../permissions/settings.js'
 import { EXIT_PLAN_MODE_TOOL_NAME, type PlanApprovalFn } from '../plan/approval.js'
 import { buildEnterPlanModeTool } from '../plan/enter-plan-mode-tool.js'
 import { buildExitPlanModeTool } from '../plan/exit-plan-mode-tool.js'
-import { isPlanFileWrite, planCarriedAcrossCompaction } from '../plan/plan-file.js'
+import { isPlanFileWrite } from '../plan/plan-file.js'
 import { terminalProviderRetry } from '../provider-retry.js'
 import { createCliReminderSource, hypermodeExitOwed } from '../reminders/index.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
@@ -1167,6 +1169,16 @@ export interface SendOptions {
 	 * round), whose user-role message is written by the host, not by the person.
 	 */
 	readonly typedInput?: string
+	/**
+	 * The provider's prompt cache has expired since the last request: shed old,
+	 * large tool results before this turn's first request if that saves at
+	 * least `minSavedTokens` (the kernel's estimate), keeping the newest
+	 * `keepRecentToolResults`. The originals stay in the session log.
+	 */
+	readonly clearStaleToolResults?: {
+		readonly minSavedTokens: number
+		readonly keepRecentToolResults: number
+	}
 	/** Why this turn exists (a prompt, a goal round, a verification step), recorded on `turn_started`. */
 	readonly origin?: Origin
 	/** Exact durable admission that makes goal tools visible for this one turn. */
@@ -1604,6 +1616,8 @@ export interface AgentSession {
 	 * conversation.
 	 */
 	readonly idleCompaction?: { readonly minTokens: number }
+	/** True when `compaction.clearStaleResultsAfterIdle` is on (the default); absent in a host that does not offer it. */
+	readonly clearStaleResultsAfterIdle?: boolean
 	readonly errorHint: string | null
 	/**
 	 * WHY there is no provider, for a caller that has to act differently on the
@@ -4791,6 +4805,7 @@ export async function createAgentSession(
 						store: memoryStore,
 						sideModel: () => sideModel,
 						fallback: screenedPromoter,
+						anchorRoot: cliProjectRoot(cwd),
 						log: createCurationLog(join(paths.home, 'memory', 'curation.jsonl')),
 					}),
 					setTimer: (run, ms) => {
@@ -4822,12 +4837,16 @@ export async function createAgentSession(
 		now: Date.now,
 		log: (message, fields) => cliLogger().debug(message, fields),
 	})
+	// A recalled memory that names files of the project says so when one is
+	// gone or changed, and the usage file notes how long that has been so.
+	const memoryCaution = createAnchorCaution({ root: cliProjectRoot(cwd), usage: memoryUsage })
 	const memoryLifecycle = new MemoryLifecycle({
 		store: memoryStore,
 		usage: memoryUsage,
 		now: Date.now,
 		retireAfterDays: options.memory?.retireAfterDays ?? DEFAULT_RETIRE_AFTER_DAYS,
 		isDraining: () => curation?.draining === true,
+		onTurnSettled: () => curation?.turnSettled(),
 		setTimer: (run, ms) => {
 			const handle = setTimeout(run, ms)
 			handle.unref?.()
@@ -5347,6 +5366,9 @@ export async function createAgentSession(
 						...(configuredLimits.maxReasoningTokens !== undefined
 							? { maxReasoningTokens: configuredLimits.maxReasoningTokens }
 							: {}),
+						...(configuredLimits.maxHookRefusals !== undefined
+							? { maxHookRefusals: configuredLimits.maxHookRefusals }
+							: {}),
 						...(configuredLimits.doneGate !== undefined
 							? { doneGate: configuredLimits.doneGate }
 							: {}),
@@ -5523,6 +5545,7 @@ export async function createAgentSession(
 										identifierGrounding: options.memory?.identifierGrounding,
 										record: true,
 										excluded: memoryLifecycle.excluded,
+										caution: memoryCaution,
 										...memorySelection,
 									}),
 								]),
@@ -5534,9 +5557,13 @@ export async function createAgentSession(
 						? { consolidateInto: memoryStore, consolidationScreen }
 						: { promoteMemory }),
 					projectInstructionContext: projectInstructions.createTurnContext(),
-					...(resumePlanPath
-						? { postCompactionContext: () => planCarriedAcrossCompaction(resumePlanPath) }
-						: {}),
+					postCompactionContext: () =>
+						carriedAcrossCompaction({
+							planPath: resumePlanPath,
+							goals: options.sessionGoals,
+							sessionId: entry.sessionId,
+							tenantId: entry.tenantId,
+						}),
 					...(summaryRouteFor(entry.sessionId)
 						? { compactionSummaryRoute: summaryRouteFor(entry.sessionId) }
 						: {}),
@@ -5625,6 +5652,7 @@ export async function createAgentSession(
 						: {}),
 				})
 			} finally {
+				memoryLifecycle.turnEnded()
 				liveModeControls.delete(modeControl)
 				recordedModes.set(String(entry.sessionId), modeControl.current())
 				if (delegatedResumeHandlers.get(entry.turnId) === resumeHandler) {
@@ -5798,15 +5826,19 @@ export async function createAgentSession(
 					},
 				}
 			: {}),
+		clearStaleResultsAfterIdle: options.compaction?.clearStaleResultsAfterIdle !== false,
 		compact: (messages, instructions, trigger) =>
 			operations.promise(undefined, async (signal) => {
 				const sessionId = scope.sessionId
 				const sessions = options.conversationSessions
 				await prepareProviderCredential(signal)
-				const planNote =
-					options.planApproval && !options.ephemeral
-						? await planCarriedAcrossCompaction(paths.planFile({ sessionId }))
-						: undefined
+				const planNote = await carriedAcrossCompaction({
+					planPath:
+						options.planApproval && !options.ephemeral ? paths.planFile({ sessionId }) : undefined,
+					goals: options.sessionGoals,
+					sessionId,
+					tenantId: scope.tenantId,
+				})
 				const common = {
 					config: compactionConfigFor(options.compaction),
 					...(planNote ? { restoreNote: planNote } : {}),
@@ -6130,6 +6162,9 @@ export async function createAgentSession(
 							const cleanup = () => {
 								if (cleanupPromise) return cleanupPromise
 								cleanupPromise = (async () => {
+									// Only while this is still the newest turn: a continuation
+									// that outlives it must not settle a later turn.
+									if (latestTurn?.turnId === turnId) memoryLifecycle.turnEnded()
 									liveModeControls.delete(control)
 									delegationScopes.delete(turnId)
 									delegationLimits.delete(turnId)
@@ -6868,7 +6903,12 @@ export async function createAgentSession(
 							for await (const event of runTurn({
 								provider: textOnlyModels.informing(turnProvider),
 								fileReadTracker: await observationsFor(turnScope.sessionId, messages),
-								compactionConfig: compactionConfigFor(options.compaction),
+								compactionConfig: {
+									...compactionConfigFor(options.compaction),
+									...(opts?.clearStaleToolResults
+										? { clearStaleToolResultsAtStart: opts.clearStaleToolResults }
+										: {}),
+								},
 								retainedToolPreviewChars: options.conversationSessions
 									? (options.compaction?.retainedToolPreviewChars ?? 4_000)
 									: undefined,
@@ -6937,6 +6977,7 @@ export async function createAgentSession(
 													identifierGrounding: options.memory?.identifierGrounding,
 													record: true,
 													excluded: memoryLifecycle.excluded,
+													caution: memoryCaution,
 													...memorySelection,
 												}),
 											]),
@@ -6955,9 +6996,13 @@ export async function createAgentSession(
 								systemPrompt,
 								messages,
 								projectInstructionContext: projectInstructions.createTurnContext(),
-								...(planPath
-									? { postCompactionContext: () => planCarriedAcrossCompaction(planPath) }
-									: {}),
+								postCompactionContext: () =>
+									carriedAcrossCompaction({
+										planPath,
+										goals: options.sessionGoals,
+										sessionId: turnScope.sessionId,
+										tenantId: turnScope.tenantId,
+									}),
 								...(summaryRouteFor(turnScope.sessionId)
 									? { compactionSummaryRoute: summaryRouteFor(turnScope.sessionId) }
 									: {}),
@@ -7969,6 +8014,8 @@ interface TurnParams {
 	readonly fileReadTracker?: ReturnType<typeof createFileReadTracker>
 	readonly messages: readonly Message[]
 	readonly projectInstructionContext: ProjectInstructionContext
+	/** What the host carries across a compaction: the plan file and the session goal. */
+	readonly postCompactionContext?: () => Promise<string | undefined>
 	readonly opts: SendOptions | undefined
 	readonly taskGateway: TaskScheduler | undefined
 	readonly completionInbox?: CompletionInbox
@@ -8042,6 +8089,7 @@ async function* runTurn({
 	systemPrompt,
 	messages,
 	projectInstructionContext,
+	postCompactionContext,
 	opts,
 	taskGateway,
 	completionInbox,
@@ -8158,6 +8206,7 @@ async function* runTurn({
 			agentName: 'namzu',
 			...(systemPrompt ? { systemPrompt } : {}),
 			projectInstructionContext,
+			...(postCompactionContext ? { postCompactionContext } : {}),
 			messages: [...messages],
 			...(reminders ? { reminders } : {}),
 			...(announceApprovalPolicyChange === false ? { announceApprovalPolicyChange } : {}),
@@ -8281,6 +8330,8 @@ async function* runTurn({
 			...(isNamzuError(err) ? { failure: toPlatformError(err) } : {}),
 		}
 	} finally {
+		// A turn that ended by a cancel or an error announced no completion.
+		memoryLifecycle?.turnEnded()
 		turnManager.dispose()
 	}
 }

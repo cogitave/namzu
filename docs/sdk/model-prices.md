@@ -37,7 +37,7 @@ A driver that knows a rate writes it. A driver that does not, omits the field.
 | Driver | Rates it publishes |
 | --- | --- |
 | `anthropic` | The bundled offline catalogue carries its published prices. The live `models.list` listing carries none, so it omits them. |
-| `openai`, `codex` | The vendor's listing endpoint publishes no rates; both are omitted. |
+| `openai`, `codex` | The vendor's listing endpoint publishes no rates; both are omitted. In the SDK's table, `gpt-6-astra` has no row on purpose: the vendor prices it by input length (a higher rate above 272,000 input tokens), and one rate per model would be wrong for part of its requests, so its cost reports unknown. |
 | `deepseek` | Omitted. |
 | `google` | A two-row table prices `gemini-2.5-flash` and `gemini-2.5-pro`. Every other model the API returns is unpriced. |
 | `openrouter` | The vendor's own `pricing` block. A model priced `"0"` is free and still reports `0`; a model with no pricing block is unpriced. |

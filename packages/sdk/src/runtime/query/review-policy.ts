@@ -37,6 +37,7 @@ import { isTrustedReadOnly } from '../../tools/trusted-read-only.js'
 import type { ToolManager } from '../../toolsets/manager.js'
 import type {
 	HITLResumeDecision,
+	LaunchedScript,
 	ResumeContext,
 	ResumeHandler,
 	ToolCallDeclined,
@@ -933,6 +934,36 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 	/** Set once the classifier has said the conversation is too long, until it judges something. */
 	let transcriptTooLong = false
 	const toolOf = (name: string) => registry?.get(name) ?? registry?.get(name.toLowerCase())
+	/** The script files a shell call launches that the agent wrote, read now; none for any other call. */
+	const launchedScriptsOf = async (
+		tc: ToolCallSummary,
+		context: ResumeContext | undefined,
+	): Promise<readonly LaunchedScript[]> => {
+		if (context?.launchedScripts === undefined) return []
+		const tool = toolOf(tc.name)
+		const argument = tool?.commandArgument
+		if (tool === undefined || argument === undefined) return []
+		const line = (tc.input as Record<string, unknown> | null)?.[argument]
+		if (typeof line !== 'string') return []
+		try {
+			return await context.launchedScripts(
+				tc.id,
+				line,
+				tool.commandDialect?.({ sandboxed: false }) ?? 'sh',
+			)
+		} catch {
+			// Reading a script is an addition to the review. A failure to do it is
+			// said to the reviewer rather than hidden.
+			return [
+				{
+					path: '(unknown)',
+					origin: 'unknown',
+					state: 'unreadable',
+					note: 'reading the script files this line launches failed, so what they run is not known',
+				},
+			]
+		}
+	}
 	const rootsNow = (): readonly string[] =>
 		typeof options.roots === 'function' ? options.roots() : (options.roots ?? [])
 	const exempt: ReviewExemption =
@@ -1215,9 +1246,11 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 				for (const tc of live) {
 					// The questions a person must answer are asked of a person, never of a model.
 					if (isBypassImmune(tc) || (await neverSent(tc, request.sessionId))) continue
+					const scripts = await launchedScriptsOf(tc, context)
 					const decision = await classifier.review({
 						call: tc,
 						transcript,
+						...(scripts.length > 0 ? { scripts } : {}),
 						...(registry ? { tools: registry } : {}),
 						...(context?.signal ? { signal: context.signal } : {}),
 					})

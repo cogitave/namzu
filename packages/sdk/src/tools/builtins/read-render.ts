@@ -80,8 +80,12 @@ export function renderNumberedRead(content: string, input: ReadWindowRequest): R
 	}
 	const selected = lines.slice(start, Math.min(end, lineCount))
 	const numbered = selected.map((line, i) => `${start + i + 1}\t${line}`).join('\n')
+	// Only a cut the cap imposed is the model's to be warned about: a window it
+	// asked for is what it got.
+	const asked = (input.readRange?.length ?? 0) >= 2 || Boolean(input.limit)
+	const capCut = !asked
 	return {
-		output: numbered + partialViewNotice(start, selected.length, lineCount),
+		output: numbered + partialViewNotice(start, selected.length, lineCount, capCut),
 		totalLines: lineCount,
 		returnedLines: selected.length,
 		partial: selected.length < lineCount,
@@ -97,9 +101,15 @@ export function renderNumberedRead(content: string, input: ReadWindowRequest): R
  * most expensive silent failure a read tool can have. The notice names the
  * exact next call rather than describing it.
  */
-function partialViewNotice(start: number, returned: number, total: number): string {
+function partialViewNotice(
+	start: number,
+	returned: number,
+	total: number,
+	capCut: boolean,
+): string {
 	if (returned >= total) return ''
 	const shownTo = start + returned
+	if (!capCut) return `\n\n[Lines ${start + 1}-${shownTo} of ${total}, as asked.]`
 	return [
 		'',
 		'',
