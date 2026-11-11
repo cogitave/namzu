@@ -32,10 +32,11 @@ async function within<T>(promise: Promise<T>, _timeoutMs = 2_000): Promise<T> {
 	return promise
 }
 
-async function waitUntil(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
-	const deadline = Date.now() + timeoutMs
+// No wall-clock deadline: a condition that never holds is a hang, which the
+// per-test timeout reports. A deadline here would only measure how fast the
+// host starts a real stdio child.
+async function waitUntil(predicate: () => boolean): Promise<void> {
 	while (!predicate()) {
-		if (Date.now() >= deadline) throw new Error(`condition not met within ${timeoutMs}ms`)
 		await new Promise((resolve) => setTimeout(resolve, 10))
 	}
 }
