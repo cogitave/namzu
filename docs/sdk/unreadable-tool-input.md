@@ -196,7 +196,7 @@ budget and a `truncatedInputHint`: for `write`, extend a short opening with
 `edit` calls; for `edit`, several smaller edits; for the `Agent` tools, name a
 file instead of pasting its content. `bash` declares no budget, and its
 `truncatedInputHint` says to build a long file with `write` and `edit`
-instead of a heredoc, as its description already does.
+instead of a heredoc, as its `command` parameter description already does.
 
 The same tools, `bash` included, carry raw text inside a JSON string, and a
 raw newline, tab, double quote or backslash there is what usually makes their

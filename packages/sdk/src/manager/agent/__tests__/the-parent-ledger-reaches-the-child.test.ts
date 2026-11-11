@@ -181,17 +181,33 @@ async function spawnWith(options: {
 	return seen.config
 }
 
+/** The child has its own reader record over the parent's authored ledger. */
+function expectSharesWhatWasAuthored(
+	child: FileReadTracker | undefined,
+	parent: FileReadTracker,
+): void {
+	expect(child).toBeDefined()
+	expect(child).not.toBe(parent)
+	expect(child?.startedAt).toBe(parent.startedAt)
+	parent.recordRead('/w/script.sh', 'echo hi\n', 'call-1')
+	expect(child?.authoredFingerprint?.('/w/script.sh')).toBe(
+		parent.authoredFingerprint?.('/w/script.sh'),
+	)
+	expect(child?.authoredFingerprint?.('/w/script.sh')).toBeDefined()
+	expect(child?.hasRead('/w/script.sh')).toBe(false)
+}
+
 describe('the file ledger of the turn that delegated', () => {
 	it('reaches a child whose configBuilder never heard of it', async () => {
 		const parent = createFileReadTracker()
 		const config = await spawnWith({ override: parent })
-		expect(config?.fileReadTracker).toBe(parent)
+		expectSharesWhatWasAuthored(config?.fileReadTracker, parent)
 	})
 
 	it('reaches a child built on the manager\u2019s other branch too', async () => {
 		const parent = createFileReadTracker()
 		const config = await spawnWith({ override: parent, withBuilder: false })
-		expect(config?.fileReadTracker).toBe(parent)
+		expectSharesWhatWasAuthored(config?.fileReadTracker, parent)
 	})
 
 	it('is absent when the spawn did not carry one', async () => {

@@ -6,8 +6,46 @@ const MAX_BODY_CHARS = 512 * 1024
 const MAX_BODIES = 128
 const MAX_AUTHORED = 1024
 
-/** Host-owned observation ledger. Share only across turns of the same conversation and filesystem. */
-export function createFileReadTracker(): FileReadTracker {
+/**
+ * What a family of agents (a parent and every descendant) wrote through the
+ * write and edit tools: path to the fingerprint of the content last put there,
+ * and when the ledger began. Shared by the whole family, because the approval
+ * classifier asks "did one of us write this script?". It carries no read
+ * state, so sharing it can never stand in for one agent's read of a file.
+ */
+export interface AuthoredLedger {
+	readonly startedAt: number
+	record(key: string, content: string): void
+	fingerprint(key: string): string | undefined
+}
+
+export function createAuthoredLedger(): AuthoredLedger {
+	const authored = new Map<string, string>()
+	return {
+		startedAt: Date.now(),
+		record(key, content) {
+			authored.delete(key)
+			authored.set(key, fingerprintContent(content))
+			while (authored.size > MAX_AUTHORED) {
+				const oldest = authored.keys().next().value
+				if (oldest === undefined) break
+				authored.delete(oldest)
+			}
+		},
+		fingerprint: (key) => authored.get(key),
+	}
+}
+
+/**
+ * Host-owned observation ledger. Share only across turns of the same
+ * conversation and filesystem, never between agents: what a ledger holds is
+ * what ITS reader has read, and the stale-write refusal compares the disk to
+ * that. A child gets `tracker.forChild()`: its own reader record, the family's
+ * authored ledger.
+ */
+export function createFileReadTracker(options?: {
+	readonly authored?: AuthoredLedger
+}): FileReadTracker {
 	const paths = new Set<string>()
 	const fingerprints = new Map<string, string>()
 	const writes = new Map<string, string>()
@@ -37,20 +75,11 @@ export function createFileReadTracker(): FileReadTracker {
 	// than the cap keeps no body (its change is still detectable by
 	// fingerprint), and the oldest bodies go first.
 	const bodies = new Map<string, string>()
-	// What the agent itself last wrote or edited into each file, by
-	// fingerprint. Not a body: a classifier reads the file as it is, and uses
-	// this only to say whether it is still what the agent wrote.
-	const authored = new Map<string, string>()
-	const startedAt = Date.now()
-	function keepAuthored(key: string, content: string): void {
-		authored.delete(key)
-		authored.set(key, fingerprintContent(content))
-		while (authored.size > MAX_AUTHORED) {
-			const oldest = authored.keys().next().value
-			if (oldest === undefined) break
-			authored.delete(oldest)
-		}
-	}
+	// What the agent family wrote, by fingerprint. Not a body: a classifier
+	// reads the file as it is, and uses this only to say whether it is still
+	// what an agent wrote. Shared with children; everything else here is not.
+	const authored = options?.authored ?? createAuthoredLedger()
+	const keepAuthored = (key: string, content: string): void => authored.record(key, content)
 	function keepBody(key: string, content: string | undefined): void {
 		bodies.delete(key)
 		if (content === undefined || content.length > MAX_BODY_CHARS) return
@@ -92,8 +121,9 @@ export function createFileReadTracker(): FileReadTracker {
 	const MAX_WINDOWS_PER_FILE = 6
 	const MAX_WINDOWED_FILES = 512
 	return {
-		startedAt,
-		authoredFingerprint: (key) => authored.get(key),
+		startedAt: authored.startedAt,
+		authoredFingerprint: (key) => authored.fingerprint(key),
+		forChild: () => createFileReadTracker({ authored }),
 		recordReadWindow(key, window, entry) {
 			let forFile = windows.get(key)
 			if (forFile) windows.delete(key)
