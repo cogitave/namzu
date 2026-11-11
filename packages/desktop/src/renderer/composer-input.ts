@@ -99,6 +99,8 @@ export function composerPlaceholder(input: {
 	/** A waiting message can be taken back with the up arrow. */
 	editableQueued: boolean
 	hasDraft: boolean
+	/** A question waits for the person; the bar says so. */
+	waitingOnPerson?: boolean
 	running: boolean
 	/** Enter reaches the running reply instead of waiting behind it. */
 	liveInputSupported: boolean
@@ -106,6 +108,7 @@ export function composerPlaceholder(input: {
 }): string {
 	if (input.cliMode) return `Optional first message for ${input.cliLabel} in a terminal`
 	if (input.editableQueued && !input.hasDraft) return 'Press ↑ to edit queued messages'
+	if (input.waitingOnPerson && !input.hasDraft) return 'Waiting for you. Type to message Namzu.'
 	if (input.running)
 		return input.liveInputSupported
 			? `Enter sends now · ${queueModifierName(input.mac)}+Enter or Tab sends after this reply`

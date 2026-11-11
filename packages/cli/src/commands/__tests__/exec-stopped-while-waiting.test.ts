@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { TerminationHandling, TerminationSignal } from '../../termination.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
@@ -64,15 +64,32 @@ const PAUSE = {
 	},
 }
 
+afterEach(() => {
+	vi.useRealTimers()
+})
+
 describe('a run stopped while it waits for the provider', () => {
 	it('says the turn is paused at its checkpoint, and does not resume it', async () => {
 		const errors: string[] = []
 		const infos: string[] = []
+		let startedWaiting: () => void = () => {}
+		const waiting = new Promise<void>((resolve) => {
+			startedWaiting = resolve
+		})
 		const ctx = {
 			formatter: {
 				name: 'text' as const,
 				print: () => {},
-				info: (m: unknown) => infos.push(String(m)),
+				info: (m: unknown) => {
+					infos.push(String(m))
+					if (String(m).includes('provider paused the turn: waiting')) {
+						// The wait's timer is created right after this line is printed. Faking the
+						// clock here, not earlier, leaves everything before the wait on real timers,
+						// and the wait ends only when the test advances it, not after a real second.
+						vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+						startedWaiting()
+					}
+				},
 				error: (e: unknown) => errors.push(String((e as { message?: string })?.message ?? e)),
 			},
 			config: {},
@@ -88,13 +105,11 @@ describe('a run stopped while it waits for the provider', () => {
 			rawArgs: ['--wait-for-provider', '30s', 'hello'],
 			ctx,
 		} as never) as Promise<number>
-		const deadline = Date.now() + 5_000
-		while (!infos.some((line) => line.includes('provider paused the turn: waiting'))) {
-			if (Date.now() > deadline) throw new Error('the run never started waiting')
-			await new Promise((resolve) => setTimeout(resolve, 10))
-		}
+		await waiting
 		expect(cleanups).toHaveLength(1)
 		await cleanups[0]?.('SIGTERM')
+		// Let the wait end: the run was stopped meanwhile, so it must not resume.
+		await vi.advanceTimersByTimeAsync(1_000)
 		await done
 
 		const said = errors.join('\n')

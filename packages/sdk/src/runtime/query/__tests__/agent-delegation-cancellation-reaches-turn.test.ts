@@ -42,6 +42,7 @@ class HeldScheduler implements TaskScheduler {
 	readonly wait = deferred<TaskHandle>()
 	readonly createStarted = deferred<void>()
 	readonly waitStarted = deferred<void>()
+	readonly cancelled = deferred<void>()
 	readonly cancellations: Array<{ taskId: TaskId; cause?: CancelCause }> = []
 
 	constructor(private readonly holdCreation: boolean) {}
@@ -60,6 +61,7 @@ class HeldScheduler implements TaskScheduler {
 
 	cancelTask(cancelledTaskId: TaskId, cause?: CancelCause): void {
 		this.cancellations.push({ taskId: cancelledTaskId, cause })
+		this.cancelled.resolve(undefined)
 	}
 
 	getTask(): TaskHandle | undefined {
@@ -153,16 +155,8 @@ describe('blocking Agent delegation cancellation reaches the child', () => {
 		expect(run.status).toBe('cancelled')
 		expect(provider.requests).toHaveLength(1)
 		if (holdCreation) gateway.creation.resolve(launched)
-		await waitFor(() => gateway.cancellations.length === 1)
+		// Resolved by the gateway's own cancelTask: no polling, no deadline.
+		await gateway.cancelled.promise
 		expect(gateway.cancellations).toEqual([{ taskId, cause: 'parent' }])
 	})
 })
-
-async function waitFor(predicate: () => boolean): Promise<void> {
-	const deadline = Date.now() + 1_000
-	while (Date.now() < deadline) {
-		if (predicate()) return
-		await new Promise<void>((resolve) => setTimeout(resolve, 5))
-	}
-	throw new Error('delegated task was not cancelled')
-}

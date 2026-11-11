@@ -18,6 +18,12 @@ export {
 } from './create.js'
 export { type AzureFoundryConfig, AzureFoundryDecisionModel } from './drivers/azure-foundry.js'
 export { type HttpDecisionConfig, HttpDecisionModel } from './drivers/http.js'
+export {
+	forgetCriteriaForms,
+	readableServiceText,
+	refusesQuestionField,
+	schemaIssues,
+} from './drivers/wire.js'
 
 // The agent-facing behaviour.
 export { createDecisionTool, DECIDE_TOOL_NAME, type DecisionToolOptions } from './tool.js'

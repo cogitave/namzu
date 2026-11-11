@@ -12,8 +12,8 @@ import {
 	parseScore,
 	parseYesNo,
 	postDecision,
+	postYesNo,
 	scoreQuestion,
-	yesnoQuestion,
 } from './wire.js'
 
 export interface HttpDecisionConfig {
@@ -46,7 +46,14 @@ export class HttpDecisionModel implements DecisionModel {
 		instructions: string,
 		opts?: DecisionRequestOptions,
 	): Promise<YesNoDecision> {
-		return parseYesNo(await this.ask(state, yesnoQuestion(instructions, opts?.criteria), opts))
+		return parseYesNo(
+			await postYesNo({
+				post: (question) => this.ask(state, question, opts),
+				instructions,
+				...(opts?.criteria !== undefined ? { criteria: opts.criteria } : {}),
+				memoryKey: `${this.config.url}\n${this.config.model ?? ''}`,
+			}),
+		)
 	}
 
 	async choice<const T extends string>(
