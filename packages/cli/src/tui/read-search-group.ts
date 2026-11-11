@@ -10,8 +10,22 @@
 import { homedir } from 'node:os'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 
+import stringWidth from 'string-width'
+
+import type { ShellOutput } from './shell-cell.js'
+
 /** What a call is, for the fold. */
-export type FoldKind = 'read' | 'search' | 'list' | 'mcp'
+export type FoldKind = 'read' | 'search' | 'list' | 'mcp' | 'run'
+
+/**
+ * A command that ended well, as its own row would draw it: the header and the
+ * output hung under it. A group that holds this one command and nothing else is
+ * drawn as that row.
+ */
+export interface CommandCell {
+	readonly header: string
+	readonly shell: ShellOutput
+}
 
 /** One call, as the fold sees it. */
 export interface FoldOp {
@@ -22,6 +36,10 @@ export interface FoldOp {
 	readonly label?: string
 	/** What to show under the line while the call runs. */
 	readonly hint?: string
+	/** A command that ended well: the command line. */
+	readonly command?: string
+	/** A command that ended well: its row, for the group that holds only it. */
+	readonly cell?: CommandCell
 }
 
 /** The running tally of one group. Immutable: every step returns a new one. */
@@ -34,6 +52,10 @@ export interface GroupState {
 	readonly mcpCalls: number
 	/** Connectors, in the order they were first called. */
 	readonly mcpLabels: readonly string[]
+	/** Shell commands that ended well and are not look-only, oldest first. */
+	readonly commands: readonly string[]
+	/** The row of the one command, while the group holds that and nothing else. */
+	readonly cell?: CommandCell
 	/** The hint on screen, and the newest one held back until the interval ends. */
 	readonly hintShown?: string
 	readonly hintShownAt?: number
@@ -47,6 +69,7 @@ export const EMPTY_GROUP: GroupState = {
 	lists: 0,
 	mcpCalls: 0,
 	mcpLabels: [],
+	commands: [],
 }
 
 /** The shown hint changes at most this often; the first one is immediate. */
@@ -86,8 +109,39 @@ export function foldOp(state: GroupState, op: FoldOp, now: number): GroupState {
 						: [...state.mcpLabels, op.label],
 			}
 			break
+		case 'run':
+			next = {
+				...state,
+				commands: [...state.commands, op.command ?? ''],
+				...(op.cell ? { cell: op.cell } : {}),
+			}
+			break
 	}
+	next = aloneOrNot(next)
 	return op.hint === undefined ? next : withHint(next, cap(op.hint), now)
+}
+
+/** Whether the group holds exactly one command and no other call. */
+function holdsOnlyOneCommand(state: GroupState): boolean {
+	return (
+		state.commands.length === 1 &&
+		state.readKeys.length + state.anonymousReads + state.searches + state.lists + state.mcpCalls ===
+			0
+	)
+}
+
+/** The command's own row is kept only while it is the whole group. */
+function aloneOrNot(state: GroupState): GroupState {
+	if (state.cell === undefined || holdsOnlyOneCommand(state)) return state
+	const { cell: _cell, ...rest } = state
+	return rest
+}
+
+/** A group that is one command and nothing else: drawn as that command's row. */
+export function isOneCommand(state: GroupState | undefined): state is GroupState & {
+	readonly cell: CommandCell
+} {
+	return state?.cell !== undefined && holdsOnlyOneCommand(state)
 }
 
 function withHint(state: GroupState, hint: string, now: number): GroupState {
@@ -124,14 +178,17 @@ export function hintRows(state: GroupState): readonly string[] {
 
 /** Two groups that sat next to each other, as one. Hints belong to a live run and are dropped. */
 export function mergeGroups(a: GroupState, b: GroupState): GroupState {
-	return {
+	const cell = a.cell ?? b.cell
+	return aloneOrNot({
 		readKeys: [...a.readKeys, ...b.readKeys.filter((key) => !a.readKeys.includes(key))],
 		anonymousReads: a.anonymousReads + b.anonymousReads,
 		searches: a.searches + b.searches,
 		lists: a.lists + b.lists,
 		mcpCalls: a.mcpCalls + b.mcpCalls,
 		mcpLabels: [...a.mcpLabels, ...b.mcpLabels.filter((label) => !a.mcpLabels.includes(label))],
-	}
+		commands: [...a.commands, ...b.commands],
+		...(cell ? { cell } : {}),
+	})
 }
 
 /** One clause of the line; `count` is drawn bold. */
@@ -148,6 +205,7 @@ const WORDS = {
 	search: { live: 'searching for', done: 'searched for', one: 'pattern', many: 'patterns' },
 	read: { live: 'reading', done: 'read', one: 'file', many: 'files' },
 	list: { live: 'listing', done: 'listed', one: 'directory', many: 'directories' },
+	run: { live: 'running', done: 'ran', one: 'command', many: 'commands' },
 	mcp: { live: 'calling', done: 'called' },
 } as const
 
@@ -175,6 +233,14 @@ export function groupParts(state: GroupState, live: boolean): readonly GroupPart
 			noun: state.lists === 1 ? w.one : w.many,
 		})
 	}
+	if (state.commands.length > 0) {
+		const w = WORDS.run
+		parts.push({
+			verb: live ? w.live : w.done,
+			count: state.commands.length,
+			noun: state.commands.length === 1 ? w.one : w.many,
+		})
+	}
 	if (state.mcpCalls > 0) {
 		const w = WORDS.mcp
 		const names = state.mcpLabels.length > 0 ? state.mcpLabels.join(', ') : 'MCP'
@@ -185,6 +251,58 @@ export function groupParts(state: GroupState, live: boolean): readonly GroupPart
 		})
 	}
 	return parts
+}
+
+/** The commands listed under a line, newest last; the ones before are counted, not listed. */
+export const COMMAND_ROWS_MAX = 5
+
+/** The columns a listed command hangs in: the gutter and the `$ `. */
+export const COMMAND_ROW_INDENT = 5
+
+/** One command as one row of text: its first line, `…` when more follows. */
+function commandLine(command: string): string {
+	const lines = command
+		.replace(/\r\n/g, '\n')
+		.split('\n')
+		.map((line) => line.replace(/\s+/g, ' ').trim())
+		.filter((line) => line.length > 0)
+	const first = lines[0] ?? ''
+	return lines.length > 1 ? `${first} …` : first
+}
+
+/** Cut to at most `width` cells, a `…` in the last when something was cut. */
+function cutToWidth(text: string, width: number): string {
+	const limit = Math.max(1, width)
+	if (stringWidth(text) <= limit) return text
+	let out = ''
+	let used = 0
+	for (const { segment } of new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(
+		text,
+	)) {
+		const cells = stringWidth(segment)
+		if (used + cells > limit - 1) break
+		out += segment
+		used += cells
+	}
+	return `${out.trimEnd()}…`
+}
+
+/**
+ * The rows under a group's line that list the commands it ran: a note counting
+ * the earlier ones when there are more than are listed, then the last few as
+ * `$ command`, each cut to `width` cells so it is one row. None for a group
+ * that holds no command or only the one that is drawn as its own row.
+ */
+export function commandRows(state: GroupState, width: number): readonly string[] {
+	if (state.commands.length === 0 || isOneCommand(state)) return []
+	const shown = state.commands.slice(-COMMAND_ROWS_MAX)
+	const hidden = state.commands.length - shown.length
+	return [
+		...(hidden > 0
+			? [cutToWidth(`${hidden} earlier ${hidden === 1 ? 'command' : 'commands'} not listed`, width)]
+			: []),
+		...shown.map((command) => cutToWidth(`$ ${commandLine(command)}`, width)),
+	]
 }
 
 /** A run of text and whether it is a figure. */

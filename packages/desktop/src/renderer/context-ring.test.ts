@@ -4,13 +4,15 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 import { applyEvent, emptyThread } from '../shared/projection.js'
 import { applyClosedTabEvent } from './closed-tab.js'
-import { ContextRing } from './context-ring-view.js'
+import { ContextHomeContext, ContextReadout, ContextRing } from './context-ring-view.js'
 import {
 	COMPACTING_TEXT,
 	compactedText,
 	contextRingModel,
 	formatCost,
+	formatCostShort,
 	formatTokens,
+	piePath,
 } from './context-ring.js'
 import { livePhaseLabel, liveStatus } from './transcript-motion.js'
 
@@ -196,4 +198,39 @@ it('does not reopen a closed tab on a stale compaction note', () => {
 	})
 	expect(thread.running).toBe(false)
 	expect(thread.compaction).toBeUndefined()
+})
+
+it('writes the bar read-out as the share and the cost, short enough to sit beside a title', () => {
+	const model = contextRingModel({
+		contextTokens: 28_000,
+		contextWindowTokens: 200_000,
+		cost: 0.06,
+	})
+	expect(model?.readout).toBe('14% · $0.06')
+	expect(contextRingModel({ contextTokens: 28_000, contextWindowTokens: 200_000 })?.readout).toBe(
+		'14%',
+	)
+	expect(formatCostShort(0.002)).toBe('<$0.01')
+	expect(formatCostShort(0.4213)).toBe('$0.42')
+})
+
+it('draws the pie from twelve o clock, clockwise, taking the long way past half', () => {
+	expect(piePath(0.25, 5, 8)).toBe('M 8 8 L 8 3 A 5 5 0 0 1 13.000 8.000 Z')
+	expect(piePath(0.75, 5, 8)).toBe('M 8 8 L 8 3 A 5 5 0 1 1 3.000 8.000 Z')
+})
+
+it('shows the read-out in the bar and takes the ring out of the composer when the bar has it', () => {
+	const usage = { contextTokens: 28_000, contextWindowTokens: 200_000, cost: 0.06 }
+	expect(renderToStaticMarkup(createElement(ContextReadout, { usage }))).toContain('14% · $0.06')
+	expect(renderToStaticMarkup(createElement(ContextReadout, { usage: undefined }))).toBe('')
+	expect(renderToStaticMarkup(createElement(ContextRing, { usage }))).toContain('context-ring')
+	expect(
+		renderToStaticMarkup(
+			createElement(
+				ContextHomeContext.Provider,
+				{ value: 'bar' },
+				createElement(ContextRing, { usage }),
+			),
+		),
+	).toBe('')
 })

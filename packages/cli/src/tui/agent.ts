@@ -674,6 +674,8 @@ export type AgentEvent =
 			readonly web?: WebActivity
 			/** A shell call's output split into streams, for the command cell. */
 			readonly shell?: import('./shell-cell.js').ShellOutput
+			/** The model named a tool that does not exist; nothing was done. */
+			readonly unknownTool?: true
 	  }
 	/**
 	 * The model thinking, for the live region only. `text` is a delta;
@@ -8890,7 +8892,9 @@ export function toAgentEvent(
 					: undefined
 			// Only a short label the tool family earns, or a command's own line, replaces
 			// the tool's message; every other failure shows that message.
-			const plainFailure = stopped ?? short?.text ?? tidy?.failure
+			// A call to a tool that does not exist reads as one sentence, the kernel's list of
+			// tools behind Ctrl+O.
+			const plainFailure = stopped ?? short?.text ?? unknownTool ?? tidy?.failure
 			// A read, search, write or edit the kernel described in fields is headlined
 			// from them. A conversation saved before facts existed has none and keeps
 			// the receipt's own first line.
@@ -8914,6 +8918,11 @@ export function toAgentEvent(
 				...(plainFailure ? { plainFailure } : {}),
 				...(short?.tone === 'muted' && plainFailure ? { plainFailureTone: 'muted' as const } : {}),
 				...(tidy?.shell ? { shell: tidy.shell } : {}),
+				...(event.isError &&
+				(unknownTool !== undefined ||
+					(event.facts?.kind === 'failure' && event.facts.reason === 'unknown_tool'))
+					? { unknownTool: true as const }
+					: {}),
 				...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
 				...(view.kind === 'generic' && view.visibility === 'hidden' ? { hidden: true } : {}),
 				...(event.isError && view.kind === 'generic' && view.outcome === 'cancelled'

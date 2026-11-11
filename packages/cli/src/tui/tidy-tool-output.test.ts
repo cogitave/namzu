@@ -241,6 +241,7 @@ describe('the shell cell data', () => {
 			stdout: [],
 			stderr: [],
 			failed: false,
+			background: true,
 			note: 'Running in the background (↓ to manage)',
 		})
 	})
@@ -254,6 +255,7 @@ describe('the shell cell data', () => {
 			stdout: [],
 			stderr: [],
 			failed: false,
+			background: true,
 			note: 'Continues in the background (↓ to manage)',
 		})
 	})

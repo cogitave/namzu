@@ -198,17 +198,19 @@ it('counts a run of looks live, settles it on the reply text, and starts a new l
 		everything(screen).includes('Searching for 1 pattern, reading 2 files, listing 1 directory…'),
 	)
 	gate('two').open()
-	await waitUntil(screen, () => everything(screen).includes('Bash(npm test)'))
+	await waitUntil(screen, () => everything(screen).includes('$ npm test'))
 	const text = screen.scrollback().join('\n')
 	expect(text.match(/Searched for 1 pattern, read 2 files, listed 1 directory/g)).toHaveLength(1)
-	expect(text.match(/Read 1 file/g)).toHaveLength(1)
+	// The command that ended well joined the line that read around it.
+	expect(text.match(/Read 1 file, ran 1 command/g)).toHaveLength(1)
+	expect(text).not.toContain('Bash(npm test)')
 	expect(text).not.toContain('Explored')
 	expect(text).not.toContain('FIRST evidence')
 	const order = [
 		'Searched for 1 pattern, read 2 files, listed 1 directory',
 		'That explains it.',
-		'Read 1 file',
-		'Bash(npm test)',
+		'Read 1 file, ran 1 command',
+		'$ npm test',
 	].map((line) => text.indexOf(line))
 	expect(order.every((at) => at >= 0)).toBe(true)
 	expect([...order].sort((a, b) => a - b)).toEqual(order)

@@ -124,7 +124,7 @@ import { SidebarSnapshotStore } from './sidebar-snapshot-store.js'
 import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
 import { SupersededConversationSettingsError } from './superseded-settings.js'
 import { SystemNotices } from './system-notices.js'
-import { tabMenuItems } from './tab-menu.js'
+import { SHOW_TABS_MENU_ID, showTabsMenuItem, tabMenuItems } from './tab-menu.js'
 import { TerminalHostClient } from './terminal-client.js'
 import { engineHost, findProgram, shellEnvironment } from './terminal-env.js'
 import { TerminalHub } from './terminal-hub.js'
@@ -659,6 +659,11 @@ const settingsStore = new DesktopSettingsStore({
 			diagnostics.record('renderer_failed', { error }),
 		)
 		if (settings.attentionSignals !== previous.attentionSignals) attention.refresh()
+		// Settings can change the tab strip's switch; the View menu's checkbox follows it.
+		if (settings.showConversationTabs !== previous.showConversationTabs) {
+			const item = Menu.getApplicationMenu()?.getMenuItemById(SHOW_TABS_MENU_ID)
+			if (item) item.checked = settings.showConversationTabs
+		}
 		if (settings.restoreTerminals !== previous.restoreTerminals) terminals.settingsChanged()
 		if (settings.autoDownloadUpdates !== previous.autoDownloadUpdates) updates.autoDownloadChanged()
 		if (settings.retrustOnConfigChange && !previous.retrustOnConfigChange)
@@ -2173,6 +2178,16 @@ void app
 						{ role: 'resetZoom' as const },
 						{ role: 'zoomIn' as const },
 						{ role: 'zoomOut' as const },
+						{ type: 'separator' as const },
+						showTabsMenuItem(settingsStore.get().showConversationTabs, (show) => {
+							try {
+								settingsStore.set({ showConversationTabs: show })
+							} catch (error) {
+								diagnostics.record('ipc_failed', { operation: 'setSettings', error })
+								const item = Menu.getApplicationMenu()?.getMenuItemById(SHOW_TABS_MENU_ID)
+								if (item) item.checked = settingsStore.get().showConversationTabs
+							}
+						}),
 						{ type: 'separator' as const },
 						{ role: 'togglefullscreen' as const },
 						...(app.isPackaged

@@ -42,8 +42,10 @@ const toolsets=[sdk.toolset('effects',names.map(name=>({name,description:'Synthe
 }})))];
 const paths=new sdk.SessionPaths({home:join(root,'home'),slug:'effects'});
 const log=sdk.DiskSessionLog.at(paths,{sessionId:scope.sessionId});
-// A short lease, so the resuming process can take the session the killed one left.
-const lease=await log.claim({holder:mode+':'+process.pid,ttlMs:400});
+// The seed's lease is long, so a slow machine cannot let it lapse while the turn is still being prepared.
+// The resuming process reads the clock past it: that is how a later process finds a killed holder's lease
+// expired, without this test waiting for real time to pass.
+const lease=await log.claim({holder:mode+':'+process.pid,ttlMs:600000,...(seed?{}:{now:Date.now()+700000})});
 const params={...scope,toolsets,paths,lease,workingDirectory:root,agentId:'effect-probe',agentName:'Effect probe',turnConfig:{model:'mock',maxIterations:3,tokenBudget:20000,timeoutMs:15000},resumeHandler:async req=>({action:req.type==='tool_review'?'approve_tools':'continue'})};
 if(seed)await sdk.drainQuery({...params,provider:new sdk.MockLLMProvider({turns:[{toolCalls:names.map(name=>({id:name,name,args:{}}))}]}),messages:[sdk.createUserMessage('Do each effect once.')]});
 else{const {turnId:_t,...session}=scope;
@@ -62,20 +64,12 @@ else{const {turnId:_t,...session}=scope;
 			const exited = new Promise((resolve) =>
 				child!.once('exit', (code, signal) => resolve({ code, signal })),
 			)
+			// The seed says when it is inside the effect. A seed that never does is
+			// caught by this test's own timeout, not by a shorter clock of ours.
 			await new Promise<void>((resolve, reject) => {
-				const timer = setTimeout(() => reject(new Error(`Seed timed out: ${stderr}`)), 15_000)
-				child!.once('message', () => {
-					clearTimeout(timer)
-					resolve()
-				})
-				child!.once('error', (error) => {
-					clearTimeout(timer)
-					reject(error)
-				})
-				child!.once('exit', () => {
-					clearTimeout(timer)
-					reject(new Error(`Seed exited: ${stderr}`))
-				})
+				child!.once('message', () => resolve())
+				child!.once('error', reject)
+				child!.once('exit', () => reject(new Error(`Seed exited: ${stderr}`)))
 			})
 			child.kill('SIGKILL')
 			expect(await exited).toMatchObject({ signal: 'SIGKILL' })
@@ -95,8 +89,6 @@ else{const {turnId:_t,...session}=scope;
 			expect(events.some((e) => e.type === 'tool_completed' && e.toolUseId === 'uncertain')).toBe(
 				false,
 			)
-			// Past the killed process's lease.
-			await new Promise((resolve) => setTimeout(resolve, 500))
 			const { stdout } = await promisify(execFile)(
 				process.execPath,
 				[script, 'resume', root, JSON.stringify(scope), shape],

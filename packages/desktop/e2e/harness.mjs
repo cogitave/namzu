@@ -100,6 +100,7 @@ export async function createWorld(opts = {}) {
 		env: opts.env,
 		noKey: opts.noKey === true,
 		electronArgs: opts.electronArgs,
+		tabs: opts.tabs,
 	};
 	await opts.seed?.(world);
 	return world;
@@ -107,6 +108,11 @@ export async function createWorld(opts = {}) {
 
 export async function launch(world) {
 	const appDir = freezeApp(world.root);
+	// The strip of conversation tabs is off by default now. The flows written for the strip keep it
+	// on unless the world says `tabs: "hidden"`, which is the default a new person gets.
+	const settingsFile = join(world.userData, "desktop-settings.json");
+	if (world.tabs !== "hidden" && !existsSync(settingsFile))
+		writeFileSync(settingsFile, JSON.stringify({ version: 1, showConversationTabs: true }));
 	const env = {};
 	for (const [k, v] of Object.entries(process.env))
 		if (INHERIT.test(k) && v !== undefined) env[k] = v;
