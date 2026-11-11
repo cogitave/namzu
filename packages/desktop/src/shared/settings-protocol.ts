@@ -37,6 +37,11 @@ export interface DesktopSettings {
 	notifyFinished: boolean
 	/** Let a notification make the system's sound. Off by default. */
 	notifySound: boolean
+	/**
+	 * Show the strip of conversation tabs above the conversation. Off by default: the sidebar is
+	 * the one list of conversations, and the bar above the conversation carries its title.
+	 */
+	showConversationTabs: boolean
 }
 
 export const DEFAULT_DESKTOP_SETTINGS: Readonly<DesktopSettings> = {
@@ -52,6 +57,7 @@ export const DEFAULT_DESKTOP_SETTINGS: Readonly<DesktopSettings> = {
 	notifyFailed: true,
 	notifyFinished: true,
 	notifySound: false,
+	showConversationTabs: false,
 }
 
 /** A turn you just watched end does not need a notification: only one that ran this long or longer does. */

@@ -76,6 +76,7 @@ import { ComputerKeyboardOwners } from './computer-keyboard-owner.js'
 import { createComputerReadScheduler } from './computer-read-pace.js'
 import { computerWorkspaceIds } from './computer-workspace-toolbar.js'
 import { ConfirmRemovalDialog } from './confirm-removal-dialog.js'
+import { ContextHomeContext } from './context-ring-view.js'
 import { ConversationActionsMenu } from './conversation-actions-menu.js'
 import {
 	type ConversationActionId,
@@ -85,8 +86,14 @@ import {
 	conversationSources,
 	lastReplyText,
 } from './conversation-actions.js'
+import { ConversationBar } from './conversation-bar.js'
 import { ConversationDetailsPopover, type DetailsWork } from './conversation-details-popover.js'
 import { compareConversationRecency } from './conversation-order.js'
+import {
+	readShowTabsHint,
+	tabsReplacedOnOpen,
+	writeShowTabsHint,
+} from './conversation-tabs-visibility.js'
 import {
 	type ConversationPalWorkspace,
 	type ConversationTabActions,
@@ -854,7 +861,15 @@ export function App({
 	/** Plugins and Settings replace the conversation with a page of their own. */
 	const pageOpen = railSection === 'plugins' || railSection === 'settings'
 	const settingsOpen = railSection === 'settings'
-	const desktopSettings = useDesktopSettings(api, settingsOpen)
+	// Read at all times: it decides whether the strip of tabs or the bar stands above the conversation.
+	const desktopSettings = useDesktopSettings(api, true)
+	const tabsHint = useMemo(() => readShowTabsHint(localStorage), [])
+	const showTabs = desktopSettings.settings?.showConversationTabs ?? tabsHint
+	const showTabsRef = useRef(showTabs)
+	showTabsRef.current = showTabs
+	useEffect(() => {
+		if (desktopSettings.settings) writeShowTabsHint(localStorage, showTabs)
+	}, [desktopSettings.settings, showTabs])
 	const desktopInfo = useDesktopInfo(
 		api,
 		settingsOpen && (settingsSection === 'about' || settingsSection === 'speech'),
@@ -2920,11 +2935,17 @@ export function App({
 						return
 					abandonTabRestore()
 					// A Pal has one tab: opening its newest conversation replaces an older one.
-					const stale = stalePalTabs(
-						view,
-						context.current.group.tabs,
-						catalogueRows.current.conversations,
-					)
+					// With the strip hidden the conversation just opened takes the place of the one before.
+					const stale = [
+						...stalePalTabs(view, context.current.group.tabs, catalogueRows.current.conversations),
+						...(showTabsRef.current
+							? []
+							: tabsReplacedOnOpen(
+									view,
+									context.current.group.tabs,
+									catalogueRows.current.conversations,
+								)),
+					]
 					// An older tab that holds an unsent draft or attachments stays open.
 					const groupId = context.current.group.id
 					void closableStaleTabs(stale, api).then((closable) => {
@@ -5545,6 +5566,14 @@ export function App({
 			onAction: () => void runTabChord({ kind: 'close' }),
 		},
 		{
+			id: 'toggle-conversation-tabs',
+			label: showTabs ? 'Hide conversation tabs' : 'Show conversation tabs',
+			group: 'Tabs',
+			keywords: ['tabs', 'strip', 'bar', 'view'],
+			disabled: !desktopSettings.settings,
+			onAction: () => void desktopSettings.change({ showConversationTabs: !showTabs }),
+		},
+		{
 			id: 'next-tab',
 			label: 'Next tab',
 			group: 'Tabs',
@@ -5758,6 +5787,79 @@ export function App({
 			}
 		/>
 	)
+	// The strip of tabs stays for a Pal (its computer is a tab) and wherever the person turned it on;
+	// otherwise one bar carries the conversation's title, how full it is, and its panel buttons.
+	const stripVisible = showTabs || palConversation || Boolean(pal) || computerPage
+	const barVisible =
+		!stripVisible &&
+		!pageOpen &&
+		!palsPage &&
+		(normalTabs.length > 0 || stripTerminals.length > 0) &&
+		Boolean(activeTerminal || conversation)
+	const barTitle = activeTerminal?.title ?? conversation?.title ?? ''
+	const headerActionsVisible =
+		!palConversation && Boolean(sessionId && conversation && !activeTerminal)
+	const headerActions =
+		headerActionsVisible && conversation ? (
+			<div className="conversation-header-actions">
+				<ConversationActionsMenu
+					input={conversationActionInput(conversation)}
+					mac={macPlatform}
+					busy={loading || harnessBusy || frozen}
+					label="Conversation actions"
+					trigger={
+						<Button
+							type="button"
+							variant="ghost-muted"
+							size="icon-sm"
+							className="conversation-header-button"
+							aria-label="Conversation actions"
+							title="Conversation actions"
+						>
+							<MoreHorizontalIcon className="size-4" aria-hidden="true" />
+						</Button>
+					}
+					onAction={(id, trigger) => runConversationAction(id, conversation, trigger)}
+				/>
+				<ConversationDetailsPopover
+					open={detailsPopoverOpen}
+					onOpenChange={setDetailsPopoverOpen}
+					triggerRef={detailsTrigger}
+					project={project && !project.isChat ? project : undefined}
+					totals={totals}
+					git={git && git.projectId === gitProjectId ? git.value : null}
+					work={detailsWork}
+					sources={sources}
+					attachReason={
+						externalHarness
+							? 'This engine does not take attachments.'
+							: loading || restoringTabs || frozen
+								? 'Wait for the conversation to finish loading.'
+								: undefined
+					}
+					onOpenChanges={() => {
+						setDetailsPopoverOpen(false)
+						setChangesFilter(undefined)
+						showPanelTab('changes')
+						setJobsOpen(true)
+					}}
+					onOpenWork={() => {
+						setDetailsPopoverOpen(false)
+						showPanelTab('activity')
+						setJobsOpen(true)
+					}}
+					onOpenArchived={
+						project && !project.isChat && api.archivedConversations
+							? showArchivedConversations
+							: undefined
+					}
+					onAttach={() => {
+						setDetailsPopoverOpen(false)
+						void act(attached.pick)
+					}}
+				/>
+			</div>
+		) : null
 	// An engine that says it needs an account is remembered as signed out, so Settings > Updates can
 	// say so. It is forgotten only on proof: a finished reply from a conversation on that engine.
 	const signInEngine = signInHelpFor(
@@ -6453,979 +6555,915 @@ export function App({
 					</>,
 					shell,
 				)}
-			<main
-				ref={paneRoot}
-				inert={frozen}
-				data-pane-id={group.id}
-				data-moving={frozen}
-				className={`workspace ${detailsOpen ? 'jobs-open' : ''}`}
-				data-panel-resizing={panelResizing || undefined}
-				data-panel-expanded={(detailsOpen && panelExpanded) || undefined}
-				style={
-					panelWidth !== undefined || panelView === 'file' || panelView === 'browse'
-						? ({
-								'--panel-width': `clamp(${MIN_PANEL_WIDTH}px, ${panelWidth ?? 600}px, 70%)`,
-							} as CSSProperties)
-						: undefined
-				}
-				data-pal-workspace={palWorkspace}
-				data-computer-chat={computerPage ? chatMotion.renderedLayout : undefined}
-				data-chat-minimized={computerPage && floatingChatMinimized}
-				data-page={
-					railSection === 'plugins' || railSection === 'settings'
-						? railSection
-						: palsPage
-							? 'pals'
-							: computerPage
-								? 'computer'
-								: 'chat'
-				}
-			>
-				<WorkspacePageHeader
-					className="topbar workspace-conversation-header"
-					aria-label="Conversation workspace"
+			<ContextHomeContext.Provider value={barVisible ? 'bar' : 'composer'}>
+				<main
+					ref={paneRoot}
+					inert={frozen}
+					data-pane-id={group.id}
+					data-moving={frozen}
+					className={`workspace ${detailsOpen ? 'jobs-open' : ''}`}
+					data-panel-resizing={panelResizing || undefined}
+					data-panel-expanded={(detailsOpen && panelExpanded) || undefined}
+					style={
+						panelWidth !== undefined || panelView === 'file' || panelView === 'browse'
+							? ({
+									'--panel-width': `clamp(${MIN_PANEL_WIDTH}px, ${panelWidth ?? 600}px, 70%)`,
+								} as CSSProperties)
+							: undefined
+					}
+					data-conversation-bar={!stripVisible || undefined}
+					data-pal-workspace={palWorkspace}
+					data-computer-chat={computerPage ? chatMotion.renderedLayout : undefined}
+					data-chat-minimized={computerPage && floatingChatMinimized}
+					data-page={
+						railSection === 'plugins' || railSection === 'settings'
+							? railSection
+							: palsPage
+								? 'pals'
+								: computerPage
+									? 'computer'
+									: 'chat'
+					}
 				>
-					{normalTabs.length > 0 || stripTerminals.length > 0 ? (
-						groupTabs
-					) : !pal && !project && !conversation ? (
-						// The welcome page already says what to do; a breadcrumb of "Workspace" would repeat it.
-						<div className="flex-1" aria-hidden="true" />
-					) : (
-						<WorkspaceBreadcrumb ariaLabel="Conversation breadcrumb" className="breadcrumb flex-1">
-							<WorkspaceBreadcrumbItem className="breadcrumb-project shrink">
-								<WorkspaceBreadcrumbText className="max-w-40" data-project-label>
-									{pal?.name ?? project?.name ?? 'Workspace'}
-								</WorkspaceBreadcrumbText>
-							</WorkspaceBreadcrumbItem>
-							<WorkspaceBreadcrumbSeparator className="breadcrumb-separator">
-								<WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
-							</WorkspaceBreadcrumbSeparator>
-							<WorkspaceBreadcrumbItem current className="min-w-10 flex-1">
-								<h2 className="min-w-0 flex-1">
-									<WorkspaceBreadcrumbText data-conversation-title>
-										{conversation?.title ?? 'Start a conversation'}
+					<WorkspacePageHeader
+						className="topbar workspace-conversation-header"
+						aria-label="Conversation workspace"
+					>
+						{stripVisible && (normalTabs.length > 0 || stripTerminals.length > 0) ? (
+							groupTabs
+						) : barVisible ? (
+							<ConversationBar
+								title={barTitle}
+								project={project?.isChat ? undefined : project?.name}
+								usage={activeTerminal ? undefined : thread.usage}
+								changes={changes}
+								disabled={loading || harnessBusy || frozen}
+								onChanges={
+									activeTerminal
+										? undefined
+										: () => {
+												setChangesFilter(undefined)
+												showPanelTab('changes')
+												setJobsOpen(true)
+											}
+								}
+								onFiles={
+									filesEnabled && !activeTerminal
+										? () => {
+												updatePanelTabs(browsePanelTabs)
+												setJobsOpen(true)
+											}
+										: undefined
+								}
+								terminals={{
+									open: stripTerminals.map((tab) => ({
+										id: tab.id,
+										title: tab.title,
+										active: tab.id === activeTerminal?.id,
+									})),
+									conversation:
+										conversation && stripTerminals.length > 0
+											? {
+													title: conversation.title,
+													active: !activeTerminal,
+													onSelect: () => showTab(conversation.id),
+												}
+											: undefined,
+									reason: terminalUnavailableReason({ bridge: Boolean(terminalBridge), project }),
+									onNew: terminalReady ? () => void act(() => openShellTerminal()) : undefined,
+									onSelect: showTab,
+								}}
+							>
+								{headerActions}
+							</ConversationBar>
+						) : !stripVisible && (pageOpen || palsPage) ? (
+							<div className="flex-1" aria-hidden="true" />
+						) : !pal && !project && !conversation ? (
+							// The welcome page already says what to do; a breadcrumb of "Workspace" would repeat it.
+							<div className="flex-1" aria-hidden="true" />
+						) : (
+							<WorkspaceBreadcrumb
+								ariaLabel="Conversation breadcrumb"
+								className="breadcrumb flex-1"
+							>
+								<WorkspaceBreadcrumbItem className="breadcrumb-project shrink">
+									<WorkspaceBreadcrumbText className="max-w-40" data-project-label>
+										{pal?.name ?? project?.name ?? 'Workspace'}
 									</WorkspaceBreadcrumbText>
-								</h2>
-							</WorkspaceBreadcrumbItem>
-						</WorkspaceBreadcrumb>
+								</WorkspaceBreadcrumbItem>
+								<WorkspaceBreadcrumbSeparator className="breadcrumb-separator">
+									<WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
+								</WorkspaceBreadcrumbSeparator>
+								<WorkspaceBreadcrumbItem current className="min-w-10 flex-1">
+									<h2 className="min-w-0 flex-1">
+										<WorkspaceBreadcrumbText data-conversation-title>
+											{conversation?.title ?? 'Start a conversation'}
+										</WorkspaceBreadcrumbText>
+									</h2>
+								</WorkspaceBreadcrumbItem>
+							</WorkspaceBreadcrumb>
+						)}
+						{headerActionsVisible && !barVisible && headerActions}
+					</WorkspacePageHeader>
+					{computerPage && pal && palContextProps && (
+						<PalComputerView
+							id={computerIds.computerPanel}
+							aria-labelledby={computerIds.computerTab}
+							role="tabpanel"
+							key={`${pal.id}:${palComputer?.generation ?? 'offline'}`}
+							palName={pal.name}
+							computer={{
+								...palContextProps.computer,
+								notice:
+									presentComputerNotice(liveStream?.error, {
+										setupRan: palSetup.state?.phase === 'ready',
+									}) ?? palContextProps.computer.notice,
+							}}
+							screen={null}
+							stream={activeStream}
+							hideHeader
+							loading={liveStream?.loading ?? false}
+							onStreamReady={(id) => {
+								if (computerOwner.current.streamId === id) computerInputReadyStream.current = id
+							}}
+							onStreamDisconnected={(id) => {
+								if (computerOwner.current.streamId === id) invalidateComputerInput()
+								void api
+									.closePalComputerStream?.(id)
+									.catch((failure) => showError(failure, 'close the live view'))
+							}}
+							control={palComputer?.control}
+							controlBusy={controlBusy}
+							inputBusy={inputBusy}
+							inputEnabled={focused && !frozen}
+							onBack={showPalChat}
+							onRefresh={() => {
+								invalidateComputerInput()
+								setStreamRefresh((value) => value + 1)
+							}}
+							onStart={palContextProps.onStartComputer}
+							onTakeOver={
+								api.takeOverPalComputer
+									? () => void act(() => changeComputerControl(true))
+									: undefined
+							}
+							onRelease={
+								api.returnPalComputerControl
+									? () => void act(() => changeComputerControl(false))
+									: undefined
+							}
+							onInput={api.palComputerInput ? sendComputerInput : undefined}
+							onReleaseKeyboard={api.palComputerInput ? releaseComputerKeyboard : undefined}
+							onKeyboardFocus={onComputerFocus}
+						/>
 					)}
-					{!palConversation && sessionId && conversation && !activeTerminal && (
-						<div className="conversation-header-actions">
-							<ConversationActionsMenu
-								input={conversationActionInput(conversation)}
-								mac={macPlatform}
-								busy={loading || harnessBusy || frozen}
-								label="Conversation actions"
+					{computerPage &&
+						(computerChat === 'hidden' ||
+							(computerChat === 'floating' && floatingChatMinimized)) && (
+							<Button
+								variant="glass"
+								size="icon-sm"
+								className="computer-chat-launcher"
+								aria-label={floatingChatMinimized ? 'Restore chat' : 'Open floating chat'}
+								onClick={() => {
+									setComputerChat('floating')
+									setFloatingChatMinimized(false)
+								}}
+							>
+								<MessageSquare aria-hidden="true" />
+							</Button>
+						)}
+					{computerPage && computerChat === 'hidden' && computerProfileOpen && palContextProps && (
+						<div className="computer-profile-overlay">
+							<PalContextCard {...palContextProps} />
+						</div>
+					)}
+					{railSection === 'settings' && (
+						<SettingsPage
+							section={settingsSection}
+							onSection={(section, focusId) => {
+								setSettingsSection(section)
+								setSettingsFocus(focusId)
+							}}
+							focusId={settingsFocus}
+							engineTarget={{
+								groupId: group.id,
+								...(projectId ? { projectId } : {}),
+								...(terminalReady
+									? {
+											onOpenTerminal: () => {
+												setRailSection(null)
+												void act(() => openShellTerminal())
+											},
+										}
+									: {}),
+								onShowOutput: (tabId) => {
+									setRailSection(null)
+									void onAction({ kind: 'activate', groupId: group.id, tabId }).catch((failure) =>
+										showError(failure, 'switch tabs'),
+									)
+								},
+							}}
+							settings={desktopSettings}
+							appearance={appearance}
+							onAppearanceChange={setAppearance}
+							projects={projects.filter((item) => !item.palId && !item.isChat)}
+							onRemoveProject={api.removeProject ? requestProjectRemoval : undefined}
+							onLocateProject={
+								api.locateProject ? (value) => void act(() => locateProject(value)) : undefined
+							}
+							update={
+								update
+									? {
+											...update,
+											info: updateInfo,
+											onDownload: api.downloadUpdate
+												? () =>
+														void api
+															.downloadUpdate?.()
+															.catch((failure) => showError(failure, 'download the update'))
+												: undefined,
+										}
+									: undefined
+							}
+							speech={speech}
+							listening={listening}
+							info={desktopInfo.info}
+							infoError={desktopInfo.error}
+							onOpenFolder={
+								api.openDataFolder
+									? (kind: DataFolderKind) =>
+											void api
+												.openDataFolder?.(kind)
+												.catch((failure) => showError(failure, 'open the folder'))
+									: undefined
+							}
+							now={Date.now()}
+						/>
+					)}
+					{railSection === 'plugins' && (
+						<PluginsPage
+							scope={pluginsKey}
+							view={pluginStates[pluginsKey]?.value}
+							loading={pluginStates[pluginsKey]?.loading ?? false}
+							disabled={!project?.trusted || project.status !== 'ready'}
+							contextLabel={project?.name}
+							onLoad={loadPlugins}
+							onSetEnabled={setPluginEnabled}
+							onChooseSpace={showSpaces}
+							collection={pluginCollection}
+							onCollectionChange={(collection) => {
+								setPluginSelection(undefined)
+								setPluginCollection(collection)
+							}}
+							selected={selectedPlugin}
+							onOpenPlugin={openPluginDetails}
+							onTryPlugin={tryPlugin}
+							onBack={backToPlugins}
+						/>
+					)}
+					{palsPage && (
+						<PalsPage
+							model={draftPalModel}
+							onModelChange={setDraftPalModel}
+							onCustomize={() => showPalEditor()}
+							opening={palOpening}
+							onRetryOpening={() => {
+								const target = pals.find((item) => item.id === palOpening?.palId)
+								if (target) void act(() => beginOpeningPal(target))
+							}}
+							onCancelOpening={cancelOpeningPal}
+							loadProviders={api.palProviders}
+							loadModels={api.palModels}
+							preferredModel={composerModel}
+						/>
+					)}
+
+					{/* A trust dialog for the folder is the explanation; the banner behind it would repeat it. */}
+					{!folderAccess &&
+						!project?.missing &&
+						(error || (project?.error && !openErrorStage) || savedSettings.error) && (
+							<div className="connection-error">
+								<ChatErrorBanner
+									details={
+										errorDetails && errorDetails.text === error ? errorDetails.details : undefined
+									}
+									message={
+										project?.lost
+											? lostConnectionText(project)
+											: (externalHarness &&
+													describeEngineFailure(
+														savedSettings.error || rawError || project?.error || '',
+														engineLabel(harnessView, permissionEngine),
+													)) ||
+												savedSettings.error ||
+												error ||
+												project?.error ||
+												''
+									}
+									signIn={signInHelpFor(savedSettings.error || rawError || project?.error || '')}
+									onOpenTerminal={
+										terminalReady ? () => void act(() => openShellTerminal()) : undefined
+									}
+									onRetry={
+										project?.lost && project.reconnecting
+											? undefined
+											: restoringTabs
+												? () =>
+														void act(async () => {
+															const generation = navigation.current
+															if (project?.status === 'error')
+																updateProject(await api.reconnectProject(project.id))
+															if (generation === navigation.current) {
+																activation.current = null
+																missingActivation.current = null
+																setCatalogueReady(false)
+																setError('')
+																setTabRestoreAttempt((attempt) => attempt + 1)
+															}
+														})
+												: project?.status === 'error'
+													? () =>
+															void act(async () =>
+																updateProject(await api.reconnectProject(project.id)),
+															)
+													: savedSettings.error ||
+															(project?.trusted &&
+																(!providerReady || (!pal && api.harnesses && !harnessView)))
+														? () => void act(retryConversationSetup)
+														: undefined
+									}
+									retryLabel={project?.status === 'error' ? 'Reconnect' : 'Retry setup'}
+									onDismiss={
+										!restoringTabs && project?.status !== 'error' && !savedSettings.error
+											? () => setError('')
+											: undefined
+									}
+								/>
+							</div>
+						)}
+					{activeTerminal && terminalSessionsHere && !pageOpen && !palsPage ? (
+						<TerminalPane
+							key={activeTerminal.id}
+							tab={activeTerminal}
+							session={terminalSessionsHere.get(activeTerminal.id)}
+							focused={focused && !frozen}
+							onClose={() =>
+								void onAction({ kind: 'close', groupId: group.id, tabId: activeTerminal.id }).catch(
+									(failure) => showError(failure, 'close the terminal'),
+								)
+							}
+							onRestart={
+								activeTerminal.kind === 'shell' && terminalReady && window.namzu.openTerminal
+									? () =>
+											// Not through `act`: closing a tab waits for every pending operation, this one too.
+											void (async () => {
+												// The same shell starts again in this pane, then the ended tab, which holds
+												// nothing but its last screen, goes.
+												await openShellTerminal()
+												await onAction({
+													kind: 'close',
+													groupId: group.id,
+													tabId: activeTerminal.id,
+												})
+											})().catch((failure) => showError(failure, 'restart the terminal'))
+									: undefined
+							}
+						/>
+					) : restoreHold ? (
+						<RestoreSkeleton />
+					) : !project && !projectsLoaded ? (
+						// The list has not been read yet: not knowing is not the same as having none.
+						<div className="welcome" aria-busy="true" />
+					) : !project ? (
+						<Empty className="welcome">
+							<EmptyHeader className="max-w-lg px-8">
+								<EmptyTitle>
+									<h1>What would you like to work on?</h1>
+								</EmptyTitle>
+								<EmptyDescription>
+									Open a project to pick up where you left off,
+									<br />
+									or start a new conversation.
+								</EmptyDescription>
+							</EmptyHeader>
+							<AddProjectMenu
+								disabled={loading}
+								onCreate={() => void act(createProject)}
+								onOpen={() => void act(openProject)}
 								trigger={
-									<Button
-										type="button"
-										variant="ghost-muted"
-										size="icon-sm"
-										className="conversation-header-button"
-										aria-label="Conversation actions"
-										title="Conversation actions"
-									>
-										<MoreHorizontalIcon className="size-4" aria-hidden="true" />
+									<Button type="button" className="primary" size="default">
+										<Icon name="folder" />
+										{ADD_PROJECT_LABEL}
 									</Button>
 								}
-								onAction={(id, trigger) => runConversationAction(id, conversation, trigger)}
 							/>
-							<ConversationDetailsPopover
-								open={detailsPopoverOpen}
-								onOpenChange={setDetailsPopoverOpen}
-								triggerRef={detailsTrigger}
-								project={project && !project.isChat ? project : undefined}
-								totals={totals}
-								git={git && git.projectId === gitProjectId ? git.value : null}
-								work={detailsWork}
-								sources={sources}
-								attachReason={
-									externalHarness
-										? 'This engine does not take attachments.'
-										: loading || restoringTabs || frozen
-											? 'Wait for the conversation to finish loading.'
-											: undefined
-								}
-								onOpenChanges={() => {
-									setDetailsPopoverOpen(false)
-									setChangesFilter(undefined)
-									showPanelTab('changes')
-									setJobsOpen(true)
-								}}
-								onOpenWork={() => {
-									setDetailsPopoverOpen(false)
-									showPanelTab('activity')
-									setJobsOpen(true)
-								}}
-								onOpenArchived={
-									project && !project.isChat && api.archivedConversations
-										? showArchivedConversations
-										: undefined
-								}
-								onAttach={() => {
-									setDetailsPopoverOpen(false)
-									void act(attached.pick)
-								}}
-							/>
-						</div>
-					)}
-				</WorkspacePageHeader>
-				{computerPage && pal && palContextProps && (
-					<PalComputerView
-						id={computerIds.computerPanel}
-						aria-labelledby={computerIds.computerTab}
-						role="tabpanel"
-						key={`${pal.id}:${palComputer?.generation ?? 'offline'}`}
-						palName={pal.name}
-						computer={{
-							...palContextProps.computer,
-							notice:
-								presentComputerNotice(liveStream?.error, {
-									setupRan: palSetup.state?.phase === 'ready',
-								}) ?? palContextProps.computer.notice,
-						}}
-						screen={null}
-						stream={activeStream}
-						hideHeader
-						loading={liveStream?.loading ?? false}
-						onStreamReady={(id) => {
-							if (computerOwner.current.streamId === id) computerInputReadyStream.current = id
-						}}
-						onStreamDisconnected={(id) => {
-							if (computerOwner.current.streamId === id) invalidateComputerInput()
-							void api
-								.closePalComputerStream?.(id)
-								.catch((failure) => showError(failure, 'close the live view'))
-						}}
-						control={palComputer?.control}
-						controlBusy={controlBusy}
-						inputBusy={inputBusy}
-						inputEnabled={focused && !frozen}
-						onBack={showPalChat}
-						onRefresh={() => {
-							invalidateComputerInput()
-							setStreamRefresh((value) => value + 1)
-						}}
-						onStart={palContextProps.onStartComputer}
-						onTakeOver={
-							api.takeOverPalComputer
-								? () => void act(() => changeComputerControl(true))
-								: undefined
-						}
-						onRelease={
-							api.returnPalComputerControl
-								? () => void act(() => changeComputerControl(false))
-								: undefined
-						}
-						onInput={api.palComputerInput ? sendComputerInput : undefined}
-						onReleaseKeyboard={api.palComputerInput ? releaseComputerKeyboard : undefined}
-						onKeyboardFocus={onComputerFocus}
-					/>
-				)}
-				{computerPage &&
-					(computerChat === 'hidden' || (computerChat === 'floating' && floatingChatMinimized)) && (
-						<Button
-							variant="glass"
-							size="icon-sm"
-							className="computer-chat-launcher"
-							aria-label={floatingChatMinimized ? 'Restore chat' : 'Open floating chat'}
-							onClick={() => {
-								setComputerChat('floating')
-								setFloatingChatMinimized(false)
-							}}
-						>
-							<MessageSquare aria-hidden="true" />
-						</Button>
-					)}
-				{computerPage && computerChat === 'hidden' && computerProfileOpen && palContextProps && (
-					<div className="computer-profile-overlay">
-						<PalContextCard {...palContextProps} />
-					</div>
-				)}
-				{railSection === 'settings' && (
-					<SettingsPage
-						section={settingsSection}
-						onSection={(section, focusId) => {
-							setSettingsSection(section)
-							setSettingsFocus(focusId)
-						}}
-						focusId={settingsFocus}
-						engineTarget={{
-							groupId: group.id,
-							...(projectId ? { projectId } : {}),
-							...(terminalReady
-								? {
-										onOpenTerminal: () => {
-											setRailSection(null)
-											void act(() => openShellTerminal())
-										},
+						</Empty>
+					) : stage === 'connecting' ? (
+						<ProjectConnecting key={project.id} name={project.name} />
+					) : stage === 'error' && project.missing ? (
+						<ProjectFolderMissing
+							name={project.name}
+							path={project.path}
+							onLocate={
+								api.locateProject
+									? () => void act(() => locateProject(project))
+									: () => void act(openProject)
+							}
+							onRemove={
+								api.removeProject ? (trigger) => requestProjectRemoval(project, trigger) : undefined
+							}
+							removeDisabled={frozen}
+						/>
+					) : stage === 'error' ? (
+						<ProjectOpenError
+							message={project.error || 'Namzu could not connect to this folder.'}
+							onRetry={() =>
+								void act(async () => {
+									// Show connecting at once; the answer replaces it.
+									updateProject({ ...project, status: 'connecting', error: undefined })
+									try {
+										updateProject(await api.reconnectProject(project.id))
+									} catch (failure) {
+										updateProject(project)
+										throw failure
 									}
-								: {}),
-							onShowOutput: (tabId) => {
-								setRailSection(null)
-								void onAction({ kind: 'activate', groupId: group.id, tabId }).catch((failure) =>
-									showError(failure, 'switch tabs'),
-								)
-							},
-						}}
-						settings={desktopSettings}
-						appearance={appearance}
-						onAppearanceChange={setAppearance}
-						projects={projects.filter((item) => !item.palId && !item.isChat)}
-						onRemoveProject={api.removeProject ? requestProjectRemoval : undefined}
-						onLocateProject={
-							api.locateProject ? (value) => void act(() => locateProject(value)) : undefined
-						}
-						update={
-							update
-								? {
-										...update,
-										info: updateInfo,
-										onDownload: api.downloadUpdate
-											? () =>
-													void api
-														.downloadUpdate?.()
-														.catch((failure) => showError(failure, 'download the update'))
-											: undefined,
-									}
-								: undefined
-						}
-						speech={speech}
-						listening={listening}
-						info={desktopInfo.info}
-						infoError={desktopInfo.error}
-						onOpenFolder={
-							api.openDataFolder
-								? (kind: DataFolderKind) =>
-										void api
-											.openDataFolder?.(kind)
-											.catch((failure) => showError(failure, 'open the folder'))
-								: undefined
-						}
-						now={Date.now()}
-					/>
-				)}
-				{railSection === 'plugins' && (
-					<PluginsPage
-						scope={pluginsKey}
-						view={pluginStates[pluginsKey]?.value}
-						loading={pluginStates[pluginsKey]?.loading ?? false}
-						disabled={!project?.trusted || project.status !== 'ready'}
-						contextLabel={project?.name}
-						onLoad={loadPlugins}
-						onSetEnabled={setPluginEnabled}
-						onChooseSpace={showSpaces}
-						collection={pluginCollection}
-						onCollectionChange={(collection) => {
-							setPluginSelection(undefined)
-							setPluginCollection(collection)
-						}}
-						selected={selectedPlugin}
-						onOpenPlugin={openPluginDetails}
-						onTryPlugin={tryPlugin}
-						onBack={backToPlugins}
-					/>
-				)}
-				{palsPage && (
-					<PalsPage
-						model={draftPalModel}
-						onModelChange={setDraftPalModel}
-						onCustomize={() => showPalEditor()}
-						opening={palOpening}
-						onRetryOpening={() => {
-							const target = pals.find((item) => item.id === palOpening?.palId)
-							if (target) void act(() => beginOpeningPal(target))
-						}}
-						onCancelOpening={cancelOpeningPal}
-						loadProviders={api.palProviders}
-						loadModels={api.palModels}
-						preferredModel={composerModel}
-					/>
-				)}
-
-				{/* A trust dialog for the folder is the explanation; the banner behind it would repeat it. */}
-				{!folderAccess &&
-					!project?.missing &&
-					(error || (project?.error && !openErrorStage) || savedSettings.error) && (
-						<div className="connection-error">
-							<ChatErrorBanner
-								details={
-									errorDetails && errorDetails.text === error ? errorDetails.details : undefined
-								}
-								message={
-									project?.lost
-										? lostConnectionText(project)
-										: (externalHarness &&
-												describeEngineFailure(
-													savedSettings.error || rawError || project?.error || '',
-													engineLabel(harnessView, permissionEngine),
-												)) ||
-											savedSettings.error ||
-											error ||
-											project?.error ||
-											''
-								}
-								signIn={signInHelpFor(savedSettings.error || rawError || project?.error || '')}
-								onOpenTerminal={
-									terminalReady ? () => void act(() => openShellTerminal()) : undefined
-								}
-								onRetry={
-									project?.lost && project.reconnecting
-										? undefined
-										: restoringTabs
-											? () =>
-													void act(async () => {
-														const generation = navigation.current
-														if (project?.status === 'error')
-															updateProject(await api.reconnectProject(project.id))
-														if (generation === navigation.current) {
-															activation.current = null
-															missingActivation.current = null
-															setCatalogueReady(false)
-															setError('')
-															setTabRestoreAttempt((attempt) => attempt + 1)
-														}
-													})
-											: project?.status === 'error'
-												? () =>
-														void act(async () =>
-															updateProject(await api.reconnectProject(project.id)),
-														)
-												: savedSettings.error ||
-														(project?.trusted &&
-															(!providerReady || (!pal && api.harnesses && !harnessView)))
-													? () => void act(retryConversationSetup)
-													: undefined
-								}
-								retryLabel={project?.status === 'error' ? 'Reconnect' : 'Retry setup'}
-								onDismiss={
-									!restoringTabs && project?.status !== 'error' && !savedSettings.error
-										? () => setError('')
-										: undefined
-								}
-							/>
-						</div>
-					)}
-				{activeTerminal && terminalSessionsHere && !pageOpen && !palsPage ? (
-					<TerminalPane
-						key={activeTerminal.id}
-						tab={activeTerminal}
-						session={terminalSessionsHere.get(activeTerminal.id)}
-						focused={focused && !frozen}
-						onClose={() =>
-							void onAction({ kind: 'close', groupId: group.id, tabId: activeTerminal.id }).catch(
-								(failure) => showError(failure, 'close the terminal'),
-							)
-						}
-						onRestart={
-							activeTerminal.kind === 'shell' && terminalReady && window.namzu.openTerminal
-								? () =>
-										// Not through `act`: closing a tab waits for every pending operation, this one too.
-										void (async () => {
-											// The same shell starts again in this pane, then the ended tab, which holds
-											// nothing but its last screen, goes.
-											await openShellTerminal()
-											await onAction({ kind: 'close', groupId: group.id, tabId: activeTerminal.id })
-										})().catch((failure) => showError(failure, 'restart the terminal'))
-								: undefined
-						}
-					/>
-				) : restoreHold ? (
-					<RestoreSkeleton />
-				) : !project && !projectsLoaded ? (
-					// The list has not been read yet: not knowing is not the same as having none.
-					<div className="welcome" aria-busy="true" />
-				) : !project ? (
-					<Empty className="welcome">
-						<EmptyHeader className="max-w-lg px-8">
-							<EmptyTitle>
-								<h1>What would you like to work on?</h1>
-							</EmptyTitle>
-							<EmptyDescription>
-								Open a project to pick up where you left off,
-								<br />
-								or start a new conversation.
-							</EmptyDescription>
-						</EmptyHeader>
-						<AddProjectMenu
-							disabled={loading}
-							onCreate={() => void act(createProject)}
-							onOpen={() => void act(openProject)}
-							trigger={
-								<Button type="button" className="primary" size="default">
-									<Icon name="folder" />
-									{ADD_PROJECT_LABEL}
-								</Button>
+								})
 							}
 						/>
-					</Empty>
-				) : stage === 'connecting' ? (
-					<ProjectConnecting key={project.id} name={project.name} />
-				) : stage === 'error' && project.missing ? (
-					<ProjectFolderMissing
-						name={project.name}
-						path={project.path}
-						onLocate={
-							api.locateProject
-								? () => void act(() => locateProject(project))
-								: () => void act(openProject)
-						}
-						onRemove={
-							api.removeProject ? (trigger) => requestProjectRemoval(project, trigger) : undefined
-						}
-						removeDisabled={frozen}
-					/>
-				) : stage === 'error' ? (
-					<ProjectOpenError
-						message={project.error || 'Namzu could not connect to this folder.'}
-						onRetry={() =>
-							void act(async () => {
-								// Show connecting at once; the answer replaces it.
-								updateProject({ ...project, status: 'connecting', error: undefined })
-								try {
-									updateProject(await api.reconnectProject(project.id))
-								} catch (failure) {
-									updateProject(project)
-									throw failure
-								}
-							})
-						}
-					/>
-				) : stage === 'gate' ? (
-					<Empty className="welcome">
-						<EmptyHeader className="max-w-lg px-8">
-							<EmptyTitle>
-								<h1>Make this your workspace</h1>
-							</EmptyTitle>
-							<EmptyDescription className="project-path">{project.path}</EmptyDescription>
-							<EmptyDescription>
-								Namzu will work with the files in this folder.
-								<br />
-								{project.settingsChanged?.length
-									? 'Its automatic settings changed since you last trusted it.'
-									: 'Review the folder before allowing access.'}
-							</EmptyDescription>
-						</EmptyHeader>
-						<Button
-							type="button"
-							className="primary"
-							size="default"
-							disabled={project.status !== 'ready'}
-							onClick={() => setFolderAccess({ projectId: project.id })}
-						>
-							Review folder access
-						</Button>
-					</Empty>
-				) : (
-					<div
-						className="chat-stage"
-						ref={chatMotion.stageRef}
-						inert={computerPage && !chatMotion.interactive}
-						aria-hidden={computerPage && !chatMotion.interactive ? true : undefined}
-						id={palWorkspace ? computerIds.chatPanel : undefined}
-						role={palWorkspace ? 'tabpanel' : undefined}
-						aria-labelledby={palWorkspace ? computerIds.chatTab : undefined}
-						data-empty={!pal && !historyPending && thread.messages.length === 0}
-						data-pal-context={Boolean(palContextProps) && !computerPage && palProfileOpen}
-					>
-						{palContextProps && !computerPage && palProfileOpen && (
-							<PalContextCard {...palContextProps} />
-						)}
-						{palContextProps &&
-							computerPage &&
-							computerChat !== 'hidden' &&
-							computerProfileOpen && (
-								<div className="computer-profile-overlay">
-									<PalContextCard {...palContextProps} />
-								</div>
-							)}
-						{computerPage && (
-							<header className="computer-floating-chat-heading">
-								<Button
-									variant="ghost-muted"
-									size="icon-xs"
-									aria-label="Minimize chat"
-									onClick={() => setFloatingChatMinimized(true)}
-								>
-									<Minus aria-hidden="true" />
-								</Button>
-								<span>Chat</span>
-								<Button
-									variant="ghost-muted"
-									size="icon-xs"
-									aria-label="Dock chat panel"
-									onClick={() => {
-										setComputerChat('split')
-										setFloatingChatMinimized(false)
-									}}
-								>
-									<PanelLeftIcon />
-								</Button>
-							</header>
-						)}
-						<div className="conversation-lane">
-							{historyPending && (
-								<output className="notice conversation-refresh" aria-live="polite">
-									{historyDisplay?.refreshing
-										? 'Opening conversation…'
-										: 'Conversation could not be loaded.'}
-								</output>
-							)}
-							{historyDisplay?.sessionId === sessionId && historyDisplay.saved && (
-								<output className="notice conversation-refresh">
-									{historyDisplay.refreshing ? 'Updating conversation…' : 'Saved messages'}
-								</output>
-							)}
-							<div
-								className="transcript"
-								data-history-state={
-									historyPending
-										? 'loading'
-										: historyDisplay?.sessionId === sessionId && historyDisplay.saved
-											? 'saved'
-											: 'authoritative'
-								}
-								role={pal ? 'region' : undefined}
-								aria-label={pal ? `${pal.name} conversation` : undefined}
-								tabIndex={pal ? 0 : undefined}
-								ref={transcriptScroll.ref}
+					) : stage === 'gate' ? (
+						<Empty className="welcome">
+							<EmptyHeader className="max-w-lg px-8">
+								<EmptyTitle>
+									<h1>Make this your workspace</h1>
+								</EmptyTitle>
+								<EmptyDescription className="project-path">{project.path}</EmptyDescription>
+								<EmptyDescription>
+									Namzu will work with the files in this folder.
+									<br />
+									{project.settingsChanged?.length
+										? 'Its automatic settings changed since you last trusted it.'
+										: 'Review the folder before allowing access.'}
+								</EmptyDescription>
+							</EmptyHeader>
+							<Button
+								type="button"
+								className="primary"
+								size="default"
+								disabled={project.status !== 'ready'}
+								onClick={() => setFolderAccess({ projectId: project.id })}
 							>
-								<div className="conversation-body" aria-busy={historyPending}>
-									{thread.partial && (
-										<p className="notice">
-											Showing the latest part of this conversation. The full record remains on this
-											device.
-										</p>
-									)}
-									{pal ? (
-										<PalChatTranscript
-											key={sessionId}
-											thread={thread}
-											name={pal.name}
-											providerName={providerName(choice.provider, failedProviderLabel)}
-											intro={conversation?.palGreeting}
-											received={palOperatorMessages}
-											renderMessageAction={(message, key) => (
-												<MessageActions text={message.text}>
-													<LocalSpeechReadAloud
-														speech={speech}
-														messageId={key}
-														text={message.text}
-													/>
-												</MessageActions>
-											)}
-										/>
-									) : (
-										<ProviderNameContext.Provider
-											value={providerName(choice.provider, failedProviderLabel)}
-										>
-											<ProjectFilesContext.Provider value={projectFiles}>
-												<BackgroundWorkContext.Provider value={openBackgroundWork}>
-													<PalStartContext.Provider value={palStartControls}>
-														<Transcript
-															key={sessionId || 'blank'}
-															thread={thread}
-															animate={!historyPending && !restoringTabs}
-															workDisclosures={
-																workDisclosureView.sessionId === sessionId
-																	? workDisclosureView.choices
-																	: undefined
-															}
-															onWorkDisclosureChange={(key, open) =>
-																onWorkDisclosureChange(sessionId, key, open)
-															}
-															onOpenTurnChanges={(receiptIds, path) => {
-																setChangesFilter(receiptIds, path)
-																showPanelTab('changes')
-																setJobsOpen(true)
-															}}
-															onOpenChangedFile={projectFiles ? openChangedFile : undefined}
-															onOpenPalInbox={openPalInbox}
-															onOpenTasks={() => {
-																showPanelTab('activity')
-																setJobsOpen(true)
-															}}
-															onUndoTurn={
-																api.undoPreview && api.undoTurn
-																	? (turnId) => setUndoingTurn({ sessionId, turnId })
-																	: undefined
-															}
-															undoKept={undoKept}
-															projectRoot={project?.path}
-															closedWhileRunning={conversation?.closedWhileRunning === true}
-															onContinueStopped={
-																conversation?.closedWhileRunning === true &&
-																!thread.running &&
-																!loading &&
-																!restoringTabs &&
-																!frozen &&
-																project?.trusted &&
-																project.status === 'ready' &&
-																choice.provider &&
-																providerReady
-																	? () => void act(() => retryReply(CONTINUE_STOPPED_PROMPT))
-																	: undefined
-															}
-															stopShownBelow={stopShownBelow}
-															renderMessageAction={(message, key) => (
-																<MessageActions
-																	text={message.text}
-																	onRetry={
-																		retryable && retryable.reply === message
-																			? () => void act(() => retryReply(retryable.prompt))
-																			: undefined
-																	}
-																>
-																	<LocalSpeechReadAloud
-																		speech={speech}
-																		messageId={key}
-																		text={message.text}
-																	/>
-																</MessageActions>
-															)}
-														/>
-													</PalStartContext.Provider>
-												</BackgroundWorkContext.Provider>
-											</ProjectFilesContext.Provider>
-										</ProviderNameContext.Provider>
-									)}
-									<TurnRecovery
-										key={recoveryKey(sessionId, replyFailures)}
-										retry={thread.retry}
-										model={retryModel}
-										failures={replyFailures}
-										time={stopTime}
-										onAction={(action) => {
-											if (action === 'settings') openSettings('models', 'models')
-											else if (action === 'continue') void act(continueWithoutReply)
-										}}
-										disabled={
-											thread.running ||
-											loading ||
-											restoringTabs ||
-											frozen ||
-											project.status !== 'ready'
-										}
-										onRetry={
-											api.retryTurn && thread.retry
-												? () => {
-														const retry = thread.retry
-														const retryTurn = api.retryTurn
-														// Retry runs on the model chosen now. The choice is applied the way a
-														// send applies it, so a switch made after the stop is not lost.
-														const route = { ...choice }
-														const autoNow = autoRouting.active
-														if (retry && retryTurn)
-															void act(async () => {
-																if (route.provider) await applyRoute(sessionId, route, autoNow)
-																await retryTurn(sessionId, retry.turnId, retry.checkpointId)
-															})
-													}
-												: undefined
-										}
-									/>
-								</div>
-							</div>
-							{transcriptScroll.showLatest && !historyPending && (
-								<Button
-									className="transcript-latest"
-									variant="glass"
-									size="icon"
-									aria-label="Jump to latest messages"
-									title="Jump to latest messages"
-									onClick={transcriptScroll.jumpToLatest}
-								>
-									<ArrowDown aria-hidden="true" />
-								</Button>
-							)}
-							<Composer
-								variant={pal ? 'pal' : 'default'}
-								surface={surfaceControl}
-								pluginsSupported={!pal}
-								toolsAvailable={palCanWork}
-								blockedNotice={
-									pal?.paused ? `${pal.name} is paused. Resume ${pal.name} to chat.` : undefined
-								}
-								draftDisabled={
-									loading ||
-									restoringTabs ||
-									frozen ||
-									Boolean(group.activeTabId && group.activeTabId !== sessionId)
-								}
-								inputRef={input}
-								permissions={thread.permissions}
-								palNames={palNames}
-								palRunning={palRunning}
-								onApproval={async (permission, response) => {
-									// The card stays usable when the answer did not get through.
-									let delivered = false
-									await act(async () => {
-										await api.respondPermission(permission.sessionId, permission.id, response)
-										delivered = true
-									})
-									return delivered
-								}}
-								projectName={project.name}
-								starters={homeStarters(project)}
-								emptyHeading={projectHomeHeading(project)}
-								projectId={project.id}
-								sessionId={sessionId || undefined}
-								projectPath={project.path}
-								harnessView={harnessView}
-								permissionEngine={permissionEngine}
-								harnessBusy={harnessBusy || loading || restoringTabs || frozen}
-								onHarnessChange={(engine) => void act(() => selectHarness(engine))}
-								onRecheckEngines={() => act(retryConversationSetup)}
-								attachmentsSupported={!externalHarness}
-								reviewModes={permissionEngine === 'claude-code' ? ['prompt', 'plan'] : undefined}
-								permissionScope={draftOwner}
-								onLeaveProject={() => void act(leaveProject)}
-								projects={projects.filter((item) => !item.palId)}
-								onSelectProject={(item) => selectProject(item.id)}
-								onOpenProject={() => void act(openProject)}
-								onCreateProject={() => void act(createProject)}
-								empty={!pal && !historyPending && thread.messages.length === 0}
-								draft={draft}
-								onDraftChange={(value) => changeDraft(draftOwner, value)}
-								providers={activeProviders}
-								modelSelectionReady={
-									project.status === 'ready' &&
-									providerReady &&
-									attached.loaded &&
-									project.trusted &&
-									!savedSettings.loading &&
-									!harnessBusy &&
-									!loading &&
-									!restoringTabs
-								}
-								connected={
-									project.status === 'ready' &&
-									// A reply that stopped on a provider failure does not hold the conversation: sending
-									// closes it and runs on the model selected now.
-									(thread.retryClosable ||
-										(!thread.retry && !thread.retryNotice && thread.reason !== 'paused')) &&
-									palCanChat &&
-									providerReady &&
-									attached.loaded &&
-									project.trusted &&
-									!savedSettings.loading &&
-									!harnessBusy &&
-									!loading &&
-									!restoringTabs
-								}
-								providersLoading={!providerReady}
-								onOpenModelSettings={() => openSettings('models', 'models')}
-								catalogueReady={
-									project.status === 'ready' && providerReady && project.trusted && !harnessBusy
-								}
-								startingEngine={harnessBusy ? startingEngine : undefined}
-								startFailed={Boolean(error)}
-								modelPending={
-									project.status === 'ready' &&
-									project.trusted &&
-									(!providerReady ||
-										!attached.loaded ||
-										savedSettings.loading ||
-										harnessBusy ||
-										loading ||
-										restoringTabs)
-								}
-								choice={choice}
-								choiceUnchosen={choiceUnchosen}
-								onChoiceChange={(value, source) => {
-									// A Pal has one model, the Pal's own: choosing here changes the Pal (the same
-									// thing its settings change), never a copy pinned to the conversation.
-									if (pal) {
-										if (source === 'person' && !followsPalModel(pal.model, value))
-											void act(async () => {
-												upsertPal(
-													await api.updatePal(pal.id, pal.revision, {
-														model: { provider: value.provider, model: value.model },
-													}),
-												)
-											})
-										return
-									}
-									void act(() =>
-										savedSettings.save(draftOwner, {
-											choice: value,
-											// The saved effort stays while the new model offers it; the effect below
-											// clears it once that model's levels are known and it does not.
-											options: settings,
-											// A model picked by hand ends Auto; the picker settling or refreshing a label does not.
-											...(source === 'person' && autoRouting.available
-												? { autoRouting: false }
-												: savedSettings.value.autoRouting !== undefined
-													? { autoRouting: savedSettings.value.autoRouting }
-													: {}),
-										}),
-									)
-								}}
-								auto={
-									autoRouting.available
-										? {
-												active: autoRouting.active,
-												onSelect: () =>
-													void act(() =>
-														savedSettings.save(draftOwner, {
-															choice,
-															options: settings,
-															autoRouting: true,
-														}),
-													),
-											}
-										: undefined
-								}
-								attachments={attached.files}
-								attachmentsBusy={attached.busy}
-								onAttach={() => void act(attached.pick)}
-								onAddFiles={(files) => void act(() => attached.add(files))}
-								onRemoveAttachment={(id) => void act(() => attached.remove(id))}
-								settings={settings}
-								capabilities={capabilities}
-								onSettingsChange={(value) =>
-									void act(() =>
-										savedSettings.save(draftOwner, keepAuto({ choice, options: value })),
-									)
-								}
-								plugins={pluginStates[pluginsKey]?.value}
-								pluginsLoading={pluginStates[pluginsKey]?.loading ?? false}
-								onOpenPlugins={() => void loadPlugins()}
-								onSetPluginEnabled={setPluginEnabled}
-								speechControl={
-									<VoiceMicButton
-										voice={voice}
-										engine={listening}
-										hasConversation={Boolean(sessionId)}
-										onOpenSettings={() => openSettings('speech', 'voice-input')}
-									/>
-								}
-								speechStatus={<VoiceInputStatus voice={voice} />}
-								running={thread.running}
-								stopping={isStopping(stopRequests, sessionId, thread)}
-								history={composerHistory}
-								liveInputSupported={thread.liveInputSupported && !palConversation}
-								sending={sending[draftOwner] ?? false}
-								usage={palConversation ? undefined : thread.usage}
-								shells={
-									// The open Activity panel's own list is the freshest count; otherwise the observer's.
-									detailsWork.state === 'known' && detailsWork.running > 0
-										? { count: detailsWork.running, onOpen: openBackgroundWork }
-										: undefined
-								}
-								pullRequest={
-									pullRequest
-										? {
-												pr: pullRequest,
-												onOpen: () =>
-													void act(() => api.openExternal?.(pullRequest.url) ?? Promise.resolve()),
-											}
-										: undefined
-								}
-								pending={pendingMessages(thread)}
-								trayActions={{
-									canSendNow: Boolean(api.sendNow),
-									disabled: loading || restoringTabs || frozen,
-									onSendNow: (id) =>
-										void act(() => api.sendNow?.(sessionId, id) ?? Promise.resolve()),
-									onSave: (id, text) =>
-										act(() => api.updateQueued?.(sessionId, id, text) ?? Promise.resolve()),
-									onRemove: (id) => void act(() => api.removeQueued(sessionId, id)),
-								}}
-								onSend={() => void act(send)}
-								onQueue={() => void act(() => send('queue'))}
-								onStop={() => {
-									const target = sessionId
-									setStopRequests((all) => requestStop(all, target, thread))
-									void act(async () => {
-										try {
-											await api.cancel(target)
-										} catch (failure) {
-											setStopRequests((all) => clearStop(all, target))
-											throw failure
-										}
-									})
-								}}
-							/>
-							{speech.error && (
-								<p className="inline-error" role="alert">
-									{speech.error}
-								</p>
-							)}
-						</div>
-					</div>
-				)}
-				{!palConversation && (
-					<aside
-						ref={panelAside}
-						className="jobs-panel"
-						data-open={jobsOpen}
-						inert={!jobsOpen}
-						aria-hidden={!jobsOpen}
-						aria-label={
-							panelView === 'activity'
-								? 'Activity'
-								: panelView === 'changes'
-									? 'Changes'
-									: panelView === 'empty'
-										? 'Side panel'
-										: 'Project files'
-						}
-					>
-						<PanelResizeHandle
-							now={panelPx || panelWidth || MIN_PANEL_WIDTH}
-							min={MIN_PANEL_WIDTH}
-							max={() => (paneRoot.current?.getBoundingClientRect().width ?? 0) * 0.7}
-							width={() => panelAside.current?.getBoundingClientRect().width ?? MIN_PANEL_WIDTH}
-							onDragging={setPanelResizing}
-							onResize={(width) =>
-								setPanelWidth(
-									clampPanelWidth(width, paneRoot.current?.getBoundingClientRect().width ?? 0),
-								)
-							}
-							onCommit={(width) =>
-								writePanelWidth(
-									localStorage,
-									group.id,
-									clampPanelWidth(width, paneRoot.current?.getBoundingClientRect().width ?? 0),
-								)
-							}
-						/>
-						{/* Shown only when the panel covers the pane (see style.css): the way back is a word. */}
-						<div className="panel-back-row">
-							<Button type="button" size="sm" variant="ghost-muted" onClick={closeDetails}>
-								<ArrowLeftIcon aria-hidden="true" />
-								Back to conversation
+								Review folder access
 							</Button>
-						</div>
-						<div className="section-heading panel-heading">
-							<PanelTabStrip
-								panelId="side-panel-body"
-								tabs={listedTabs}
-								active={shownPanelTab}
-								browsing={panelView === 'browse'}
-								canBrowse={filesEnabled}
-								running={detailsWork.state === 'known' ? detailsWork.running : 0}
-								attention={needsAttention}
-								expanded={panelExpanded}
-								onActivate={(tab) => {
-									if (tab.kind === 'changes') setChangesFilter(undefined)
-									updatePanelTabs((state) => activatePanelTab(state, tab))
-								}}
-								onClose={(tab) => updatePanelTabs((state) => closePanelTab(state, tab))}
-								onOpenTab={(tab) => {
-									if (tab.kind === 'changes') setChangesFilter(undefined)
-									showPanelTab(tab.kind === 'changes' ? 'changes' : 'activity')
-								}}
-								onBrowse={() => updatePanelTabs(browsePanelTabs)}
-								onToggleExpanded={() => setPanelExpanded((value) => !value)}
-								onHide={closeDetails}
-							/>
-						</div>
-						{/* The body is a tab panel; contents keeps the aside's own layout. */}
+						</Empty>
+					) : (
 						<div
-							id="side-panel-body"
-							role="tabpanel"
+							className="chat-stage"
+							ref={chatMotion.stageRef}
+							inert={computerPage && !chatMotion.interactive}
+							aria-hidden={computerPage && !chatMotion.interactive ? true : undefined}
+							id={palWorkspace ? computerIds.chatPanel : undefined}
+							role={palWorkspace ? 'tabpanel' : undefined}
+							aria-labelledby={palWorkspace ? computerIds.chatTab : undefined}
+							data-empty={!pal && !historyPending && thread.messages.length === 0}
+							data-pal-context={Boolean(palContextProps) && !computerPage && palProfileOpen}
+						>
+							{palContextProps && !computerPage && palProfileOpen && (
+								<PalContextCard {...palContextProps} />
+							)}
+							{palContextProps &&
+								computerPage &&
+								computerChat !== 'hidden' &&
+								computerProfileOpen && (
+									<div className="computer-profile-overlay">
+										<PalContextCard {...palContextProps} />
+									</div>
+								)}
+							{computerPage && (
+								<header className="computer-floating-chat-heading">
+									<Button
+										variant="ghost-muted"
+										size="icon-xs"
+										aria-label="Minimize chat"
+										onClick={() => setFloatingChatMinimized(true)}
+									>
+										<Minus aria-hidden="true" />
+									</Button>
+									<span>Chat</span>
+									<Button
+										variant="ghost-muted"
+										size="icon-xs"
+										aria-label="Dock chat panel"
+										onClick={() => {
+											setComputerChat('split')
+											setFloatingChatMinimized(false)
+										}}
+									>
+										<PanelLeftIcon />
+									</Button>
+								</header>
+							)}
+							<div className="conversation-lane">
+								{historyPending && (
+									<output className="notice conversation-refresh" aria-live="polite">
+										{historyDisplay?.refreshing
+											? 'Opening conversation…'
+											: 'Conversation could not be loaded.'}
+									</output>
+								)}
+								{historyDisplay?.sessionId === sessionId && historyDisplay.saved && (
+									<output className="notice conversation-refresh">
+										{historyDisplay.refreshing ? 'Updating conversation…' : 'Saved messages'}
+									</output>
+								)}
+								<div
+									className="transcript"
+									data-history-state={
+										historyPending
+											? 'loading'
+											: historyDisplay?.sessionId === sessionId && historyDisplay.saved
+												? 'saved'
+												: 'authoritative'
+									}
+									role={pal ? 'region' : undefined}
+									aria-label={pal ? `${pal.name} conversation` : undefined}
+									tabIndex={pal ? 0 : undefined}
+									ref={transcriptScroll.ref}
+								>
+									<div className="conversation-body" aria-busy={historyPending}>
+										{thread.partial && (
+											<p className="notice">
+												Showing the latest part of this conversation. The full record remains on
+												this device.
+											</p>
+										)}
+										{pal ? (
+											<PalChatTranscript
+												key={sessionId}
+												thread={thread}
+												name={pal.name}
+												providerName={providerName(choice.provider, failedProviderLabel)}
+												intro={conversation?.palGreeting}
+												received={palOperatorMessages}
+												renderMessageAction={(message, key) => (
+													<MessageActions text={message.text}>
+														<LocalSpeechReadAloud
+															speech={speech}
+															messageId={key}
+															text={message.text}
+														/>
+													</MessageActions>
+												)}
+											/>
+										) : (
+											<ProviderNameContext.Provider
+												value={providerName(choice.provider, failedProviderLabel)}
+											>
+												<ProjectFilesContext.Provider value={projectFiles}>
+													<BackgroundWorkContext.Provider value={openBackgroundWork}>
+														<PalStartContext.Provider value={palStartControls}>
+															<Transcript
+																key={sessionId || 'blank'}
+																thread={thread}
+																animate={!historyPending && !restoringTabs}
+																workDisclosures={
+																	workDisclosureView.sessionId === sessionId
+																		? workDisclosureView.choices
+																		: undefined
+																}
+																onWorkDisclosureChange={(key, open) =>
+																	onWorkDisclosureChange(sessionId, key, open)
+																}
+																onOpenTurnChanges={(receiptIds, path) => {
+																	setChangesFilter(receiptIds, path)
+																	showPanelTab('changes')
+																	setJobsOpen(true)
+																}}
+																onOpenChangedFile={projectFiles ? openChangedFile : undefined}
+																onOpenPalInbox={openPalInbox}
+																onOpenTasks={() => {
+																	showPanelTab('activity')
+																	setJobsOpen(true)
+																}}
+																onUndoTurn={
+																	api.undoPreview && api.undoTurn
+																		? (turnId) => setUndoingTurn({ sessionId, turnId })
+																		: undefined
+																}
+																undoKept={undoKept}
+																projectRoot={project?.path}
+																closedWhileRunning={conversation?.closedWhileRunning === true}
+																onContinueStopped={
+																	conversation?.closedWhileRunning === true &&
+																	!thread.running &&
+																	!loading &&
+																	!restoringTabs &&
+																	!frozen &&
+																	project?.trusted &&
+																	project.status === 'ready' &&
+																	choice.provider &&
+																	providerReady
+																		? () => void act(() => retryReply(CONTINUE_STOPPED_PROMPT))
+																		: undefined
+																}
+																stopShownBelow={stopShownBelow}
+																renderMessageAction={(message, key) => (
+																	<MessageActions
+																		text={message.text}
+																		onRetry={
+																			retryable && retryable.reply === message
+																				? () => void act(() => retryReply(retryable.prompt))
+																				: undefined
+																		}
+																	>
+																		<LocalSpeechReadAloud
+																			speech={speech}
+																			messageId={key}
+																			text={message.text}
+																		/>
+																	</MessageActions>
+																)}
+															/>
+														</PalStartContext.Provider>
+													</BackgroundWorkContext.Provider>
+												</ProjectFilesContext.Provider>
+											</ProviderNameContext.Provider>
+										)}
+										<TurnRecovery
+											key={recoveryKey(sessionId, replyFailures)}
+											retry={thread.retry}
+											model={retryModel}
+											failures={replyFailures}
+											time={stopTime}
+											onAction={(action) => {
+												if (action === 'settings') openSettings('models', 'models')
+												else if (action === 'continue') void act(continueWithoutReply)
+											}}
+											disabled={
+												thread.running ||
+												loading ||
+												restoringTabs ||
+												frozen ||
+												project.status !== 'ready'
+											}
+											onRetry={
+												api.retryTurn && thread.retry
+													? () => {
+															const retry = thread.retry
+															const retryTurn = api.retryTurn
+															// Retry runs on the model chosen now. The choice is applied the way a
+															// send applies it, so a switch made after the stop is not lost.
+															const route = { ...choice }
+															const autoNow = autoRouting.active
+															if (retry && retryTurn)
+																void act(async () => {
+																	if (route.provider) await applyRoute(sessionId, route, autoNow)
+																	await retryTurn(sessionId, retry.turnId, retry.checkpointId)
+																})
+														}
+													: undefined
+											}
+										/>
+									</div>
+								</div>
+								{transcriptScroll.showLatest && !historyPending && (
+									<Button
+										className="transcript-latest"
+										variant="glass"
+										size="icon"
+										aria-label="Jump to latest messages"
+										title="Jump to latest messages"
+										onClick={transcriptScroll.jumpToLatest}
+									>
+										<ArrowDown aria-hidden="true" />
+									</Button>
+								)}
+								<Composer
+									variant={pal ? 'pal' : 'default'}
+									surface={surfaceControl}
+									pluginsSupported={!pal}
+									toolsAvailable={palCanWork}
+									blockedNotice={
+										pal?.paused ? `${pal.name} is paused. Resume ${pal.name} to chat.` : undefined
+									}
+									draftDisabled={
+										loading ||
+										restoringTabs ||
+										frozen ||
+										Boolean(group.activeTabId && group.activeTabId !== sessionId)
+									}
+									inputRef={input}
+									permissions={thread.permissions}
+									palNames={palNames}
+									palRunning={palRunning}
+									onApproval={async (permission, response) => {
+										// The card stays usable when the answer did not get through.
+										let delivered = false
+										await act(async () => {
+											await api.respondPermission(permission.sessionId, permission.id, response)
+											delivered = true
+										})
+										return delivered
+									}}
+									projectName={project.name}
+									starters={homeStarters(project)}
+									emptyHeading={projectHomeHeading(project)}
+									projectId={project.id}
+									sessionId={sessionId || undefined}
+									projectPath={project.path}
+									harnessView={harnessView}
+									permissionEngine={permissionEngine}
+									harnessBusy={harnessBusy || loading || restoringTabs || frozen}
+									onHarnessChange={(engine) => void act(() => selectHarness(engine))}
+									onRecheckEngines={() => act(retryConversationSetup)}
+									attachmentsSupported={!externalHarness}
+									reviewModes={permissionEngine === 'claude-code' ? ['prompt', 'plan'] : undefined}
+									permissionScope={draftOwner}
+									onLeaveProject={() => void act(leaveProject)}
+									projects={projects.filter((item) => !item.palId)}
+									onSelectProject={(item) => selectProject(item.id)}
+									onOpenProject={() => void act(openProject)}
+									onCreateProject={() => void act(createProject)}
+									empty={!pal && !historyPending && thread.messages.length === 0}
+									draft={draft}
+									onDraftChange={(value) => changeDraft(draftOwner, value)}
+									providers={activeProviders}
+									modelSelectionReady={
+										project.status === 'ready' &&
+										providerReady &&
+										attached.loaded &&
+										project.trusted &&
+										!savedSettings.loading &&
+										!harnessBusy &&
+										!loading &&
+										!restoringTabs
+									}
+									connected={
+										project.status === 'ready' &&
+										// A reply that stopped on a provider failure does not hold the conversation: sending
+										// closes it and runs on the model selected now.
+										(thread.retryClosable ||
+											(!thread.retry && !thread.retryNotice && thread.reason !== 'paused')) &&
+										palCanChat &&
+										providerReady &&
+										attached.loaded &&
+										project.trusted &&
+										!savedSettings.loading &&
+										!harnessBusy &&
+										!loading &&
+										!restoringTabs
+									}
+									providersLoading={!providerReady}
+									onOpenModelSettings={() => openSettings('models', 'models')}
+									catalogueReady={
+										project.status === 'ready' && providerReady && project.trusted && !harnessBusy
+									}
+									startingEngine={harnessBusy ? startingEngine : undefined}
+									startFailed={Boolean(error)}
+									modelPending={
+										project.status === 'ready' &&
+										project.trusted &&
+										(!providerReady ||
+											!attached.loaded ||
+											savedSettings.loading ||
+											harnessBusy ||
+											loading ||
+											restoringTabs)
+									}
+									choice={choice}
+									choiceUnchosen={choiceUnchosen}
+									onChoiceChange={(value, source) => {
+										// A Pal has one model, the Pal's own: choosing here changes the Pal (the same
+										// thing its settings change), never a copy pinned to the conversation.
+										if (pal) {
+											if (source === 'person' && !followsPalModel(pal.model, value))
+												void act(async () => {
+													upsertPal(
+														await api.updatePal(pal.id, pal.revision, {
+															model: { provider: value.provider, model: value.model },
+														}),
+													)
+												})
+											return
+										}
+										void act(() =>
+											savedSettings.save(draftOwner, {
+												choice: value,
+												// The saved effort stays while the new model offers it; the effect below
+												// clears it once that model's levels are known and it does not.
+												options: settings,
+												// A model picked by hand ends Auto; the picker settling or refreshing a label does not.
+												...(source === 'person' && autoRouting.available
+													? { autoRouting: false }
+													: savedSettings.value.autoRouting !== undefined
+														? { autoRouting: savedSettings.value.autoRouting }
+														: {}),
+											}),
+										)
+									}}
+									auto={
+										autoRouting.available
+											? {
+													active: autoRouting.active,
+													onSelect: () =>
+														void act(() =>
+															savedSettings.save(draftOwner, {
+																choice,
+																options: settings,
+																autoRouting: true,
+															}),
+														),
+												}
+											: undefined
+									}
+									attachments={attached.files}
+									attachmentsBusy={attached.busy}
+									onAttach={() => void act(attached.pick)}
+									onAddFiles={(files) => void act(() => attached.add(files))}
+									onRemoveAttachment={(id) => void act(() => attached.remove(id))}
+									settings={settings}
+									capabilities={capabilities}
+									onSettingsChange={(value) =>
+										void act(() =>
+											savedSettings.save(draftOwner, keepAuto({ choice, options: value })),
+										)
+									}
+									plugins={pluginStates[pluginsKey]?.value}
+									pluginsLoading={pluginStates[pluginsKey]?.loading ?? false}
+									onOpenPlugins={() => void loadPlugins()}
+									onSetPluginEnabled={setPluginEnabled}
+									speechControl={
+										<VoiceMicButton
+											voice={voice}
+											engine={listening}
+											hasConversation={Boolean(sessionId)}
+											onOpenSettings={() => openSettings('speech', 'voice-input')}
+										/>
+									}
+									speechStatus={<VoiceInputStatus voice={voice} />}
+									running={thread.running}
+									stopping={isStopping(stopRequests, sessionId, thread)}
+									history={composerHistory}
+									liveInputSupported={thread.liveInputSupported && !palConversation}
+									sending={sending[draftOwner] ?? false}
+									usage={palConversation ? undefined : thread.usage}
+									shells={
+										// The open Activity panel's own list is the freshest count; otherwise the observer's.
+										detailsWork.state === 'known' && detailsWork.running > 0
+											? { count: detailsWork.running, onOpen: openBackgroundWork }
+											: undefined
+									}
+									pullRequest={
+										pullRequest
+											? {
+													pr: pullRequest,
+													onOpen: () =>
+														void act(
+															() => api.openExternal?.(pullRequest.url) ?? Promise.resolve(),
+														),
+												}
+											: undefined
+									}
+									pending={pendingMessages(thread)}
+									trayActions={{
+										canSendNow: Boolean(api.sendNow),
+										disabled: loading || restoringTabs || frozen,
+										onSendNow: (id) =>
+											void act(() => api.sendNow?.(sessionId, id) ?? Promise.resolve()),
+										onSave: (id, text) =>
+											act(() => api.updateQueued?.(sessionId, id, text) ?? Promise.resolve()),
+										onRemove: (id) => void act(() => api.removeQueued(sessionId, id)),
+									}}
+									onSend={() => void act(send)}
+									onQueue={() => void act(() => send('queue'))}
+									onStop={() => {
+										const target = sessionId
+										setStopRequests((all) => requestStop(all, target, thread))
+										void act(async () => {
+											try {
+												await api.cancel(target)
+											} catch (failure) {
+												setStopRequests((all) => clearStop(all, target))
+												throw failure
+											}
+										})
+									}}
+								/>
+								{speech.error && (
+									<p className="inline-error" role="alert">
+										{speech.error}
+									</p>
+								)}
+							</div>
+						</div>
+					)}
+					{!palConversation && (
+						<aside
+							ref={panelAside}
+							className="jobs-panel"
+							data-open={jobsOpen}
+							inert={!jobsOpen}
+							aria-hidden={!jobsOpen}
 							aria-label={
 								panelView === 'activity'
 									? 'Activity'
@@ -7435,146 +7473,212 @@ export function App({
 											? 'Side panel'
 											: 'Project files'
 							}
-							style={{ display: 'contents' }}
 						>
-							{(panelView === 'file' || panelView === 'browse') && project ? (
-								<FilePanelBody
-									api={api}
-									projectId={project.id}
-									projectName={project.name}
-									activePath={activePath}
-									line={panelTabs.line}
-									editors={editors}
-									dark={
-										appearance === 'dark' ||
-										(appearance === 'system' &&
-											window.matchMedia('(prefers-color-scheme: dark)').matches)
-									}
-									wide={panelPx >= 560}
+							<PanelResizeHandle
+								now={panelPx || panelWidth || MIN_PANEL_WIDTH}
+								min={MIN_PANEL_WIDTH}
+								max={() => (paneRoot.current?.getBoundingClientRect().width ?? 0) * 0.7}
+								width={() => panelAside.current?.getBoundingClientRect().width ?? MIN_PANEL_WIDTH}
+								onDragging={setPanelResizing}
+								onResize={(width) =>
+									setPanelWidth(
+										clampPanelWidth(width, paneRoot.current?.getBoundingClientRect().width ?? 0),
+									)
+								}
+								onCommit={(width) =>
+									writePanelWidth(
+										localStorage,
+										group.id,
+										clampPanelWidth(width, paneRoot.current?.getBoundingClientRect().width ?? 0),
+									)
+								}
+							/>
+							{/* Shown only when the panel covers the pane (see style.css): the way back is a word. */}
+							<div className="panel-back-row">
+								<Button type="button" size="sm" variant="ghost-muted" onClick={closeDetails}>
+									<ArrowLeftIcon aria-hidden="true" />
+									Back to conversation
+								</Button>
+							</div>
+							<div className="section-heading panel-heading">
+								<PanelTabStrip
+									panelId="side-panel-body"
+									tabs={listedTabs}
+									active={shownPanelTab}
 									browsing={panelView === 'browse'}
-									onOpenPath={openProjectFile}
-									onNotice={announce}
-									refreshToken={filesRefresh}
+									canBrowse={filesEnabled}
+									running={detailsWork.state === 'known' ? detailsWork.running : 0}
+									attention={needsAttention}
+									expanded={panelExpanded}
+									onActivate={(tab) => {
+										if (tab.kind === 'changes') setChangesFilter(undefined)
+										updatePanelTabs((state) => activatePanelTab(state, tab))
+									}}
+									onClose={(tab) => updatePanelTabs((state) => closePanelTab(state, tab))}
+									onOpenTab={(tab) => {
+										if (tab.kind === 'changes') setChangesFilter(undefined)
+										showPanelTab(tab.kind === 'changes' ? 'changes' : 'activity')
+									}}
+									onBrowse={() => updatePanelTabs(browsePanelTabs)}
+									onToggleExpanded={() => setPanelExpanded((value) => !value)}
+									onHide={closeDetails}
 								/>
-							) : panelView === 'empty' ? (
-								<div className="panel-empty">
-									<p>Nothing is open in this panel.</p>
-									<div className="panel-empty-actions">
-										<Button
-											type="button"
-											size="xs"
-											variant="ghost-muted"
-											onClick={() => {
-												setChangesFilter(undefined)
-												showPanelTab('changes')
-											}}
-										>
-											Changes
-										</Button>
-										<Button
-											type="button"
-											size="xs"
-											variant="ghost-muted"
-											onClick={() => showPanelTab('activity')}
-										>
-											Activity
-										</Button>
-										{filesEnabled && (
+							</div>
+							{/* The body is a tab panel; contents keeps the aside's own layout. */}
+							<div
+								id="side-panel-body"
+								role="tabpanel"
+								aria-label={
+									panelView === 'activity'
+										? 'Activity'
+										: panelView === 'changes'
+											? 'Changes'
+											: panelView === 'empty'
+												? 'Side panel'
+												: 'Project files'
+								}
+								style={{ display: 'contents' }}
+							>
+								{(panelView === 'file' || panelView === 'browse') && project ? (
+									<FilePanelBody
+										api={api}
+										projectId={project.id}
+										projectName={project.name}
+										activePath={activePath}
+										line={panelTabs.line}
+										editors={editors}
+										dark={
+											appearance === 'dark' ||
+											(appearance === 'system' &&
+												window.matchMedia('(prefers-color-scheme: dark)').matches)
+										}
+										wide={panelPx >= 560}
+										browsing={panelView === 'browse'}
+										onOpenPath={openProjectFile}
+										onNotice={announce}
+										refreshToken={filesRefresh}
+									/>
+								) : panelView === 'empty' ? (
+									<div className="panel-empty">
+										<p>Nothing is open in this panel.</p>
+										<div className="panel-empty-actions">
 											<Button
 												type="button"
 												size="xs"
 												variant="ghost-muted"
-												onClick={() => updatePanelTabs(browsePanelTabs)}
+												onClick={() => {
+													setChangesFilter(undefined)
+													showPanelTab('changes')
+												}}
 											>
-												Open a file
+												Changes
 											</Button>
-										)}
-									</div>
-								</div>
-							) : panelView === 'changes' ? (
-								<ChangesPanel
-									tools={thread.tools}
-									timeline={thread.timeline}
-									receiptIds={changesFilter}
-									focus={changesFocus}
-									onShowAll={() => setChangesFilter(undefined)}
-									source={workingTree}
-									refreshToken={filesRefresh}
-									onOpenFile={projectFiles ? openChangedFile : undefined}
-									onOpenInEditor={
-										projectFiles && api.openProjectPath ? openChangedFileInEditor : undefined
-									}
-									onOpenWorkingFile={projectFiles ? openWorkingTreeFile : undefined}
-									onOpenWorkingInEditor={
-										projectFiles && api.openProjectPath ? openWorkingTreeFileInEditor : undefined
-									}
-									onCopy={(text, done) =>
-										void copyToClipboard(text, done).catch(() =>
-											notify('Copy is unavailable.', { tone: 'error' }),
-										)
-									}
-									dark={
-										appearance === 'dark' ||
-										(appearance === 'system' &&
-											window.matchMedia('(prefers-color-scheme: dark)').matches)
-									}
-								/>
-							) : (
-								<div className="panel-scroll">
-									<ConversationTasks thread={thread} />
-									<section className="background-processes" aria-label="Background processes">
-										<div className="background-processes-heading">
-											<h3>Background processes</h3>
-											{!jobsError && !jobsLoading && jobsSessionId === sessionId && (
-												<kbd
-													aria-label={`${visibleJobs.filter((job) => job.status === 'running').length} running`}
+											<Button
+												type="button"
+												size="xs"
+												variant="ghost-muted"
+												onClick={() => showPanelTab('activity')}
+											>
+												Activity
+											</Button>
+											{filesEnabled && (
+												<Button
+													type="button"
+													size="xs"
+													variant="ghost-muted"
+													onClick={() => updatePanelTabs(browsePanelTabs)}
 												>
-													{visibleJobs.filter((job) => job.status === 'running').length}
-												</kbd>
+													Open a file
+												</Button>
 											)}
 										</div>
-										{jobsError ? (
-											<p role="alert" className="jobs-error">
-												{jobsError}
-											</p>
-										) : jobsLoading || jobsSessionId !== sessionId ? (
-											<p className="quiet">Loading background work…</p>
-										) : visibleJobs.length === 0 ? (
-											<p className="quiet">No background processes in this conversation.</p>
-										) : (
-											[...visibleJobs]
-												.sort(
-													(a, b) => Number(b.status === 'running') - Number(a.status === 'running'),
-												)
-												.map((job) => {
-													const owner = sessionId
-													const generation = navigation.current
-													const refresh = refreshJobs.current
-													return (
-														<JobRow
-															key={`${owner}:${generation}:${job.id}:${job.startedAt}`}
-															job={job}
-															disabled={frozen}
-															onRead={() =>
-																runJobAction(owner, generation, () => api.readJob(owner, job.id))
-															}
-															onStop={() =>
-																runJobAction(owner, generation, async () => {
-																	await api.stopJob(owner, job.id)
-																	await refresh?.()
-																})
-															}
-														/>
+									</div>
+								) : panelView === 'changes' ? (
+									<ChangesPanel
+										tools={thread.tools}
+										timeline={thread.timeline}
+										receiptIds={changesFilter}
+										focus={changesFocus}
+										onShowAll={() => setChangesFilter(undefined)}
+										source={workingTree}
+										refreshToken={filesRefresh}
+										onOpenFile={projectFiles ? openChangedFile : undefined}
+										onOpenInEditor={
+											projectFiles && api.openProjectPath ? openChangedFileInEditor : undefined
+										}
+										onOpenWorkingFile={projectFiles ? openWorkingTreeFile : undefined}
+										onOpenWorkingInEditor={
+											projectFiles && api.openProjectPath ? openWorkingTreeFileInEditor : undefined
+										}
+										onCopy={(text, done) =>
+											void copyToClipboard(text, done).catch(() =>
+												notify('Copy is unavailable.', { tone: 'error' }),
+											)
+										}
+										dark={
+											appearance === 'dark' ||
+											(appearance === 'system' &&
+												window.matchMedia('(prefers-color-scheme: dark)').matches)
+										}
+									/>
+								) : (
+									<div className="panel-scroll">
+										<ConversationTasks thread={thread} />
+										<section className="background-processes" aria-label="Background processes">
+											<div className="background-processes-heading">
+												<h3>Background processes</h3>
+												{!jobsError && !jobsLoading && jobsSessionId === sessionId && (
+													<kbd
+														aria-label={`${visibleJobs.filter((job) => job.status === 'running').length} running`}
+													>
+														{visibleJobs.filter((job) => job.status === 'running').length}
+													</kbd>
+												)}
+											</div>
+											{jobsError ? (
+												<p role="alert" className="jobs-error">
+													{jobsError}
+												</p>
+											) : jobsLoading || jobsSessionId !== sessionId ? (
+												<p className="quiet">Loading background work…</p>
+											) : visibleJobs.length === 0 ? (
+												<p className="quiet">No background processes in this conversation.</p>
+											) : (
+												[...visibleJobs]
+													.sort(
+														(a, b) =>
+															Number(b.status === 'running') - Number(a.status === 'running'),
 													)
-												})
-										)}
-									</section>
-								</div>
-							)}
-						</div>
-					</aside>
-				)}
-			</main>
+													.map((job) => {
+														const owner = sessionId
+														const generation = navigation.current
+														const refresh = refreshJobs.current
+														return (
+															<JobRow
+																key={`${owner}:${generation}:${job.id}:${job.startedAt}`}
+																job={job}
+																disabled={frozen}
+																onRead={() =>
+																	runJobAction(owner, generation, () => api.readJob(owner, job.id))
+																}
+																onStop={() =>
+																	runJobAction(owner, generation, async () => {
+																		await api.stopJob(owner, job.id)
+																		await refresh?.()
+																	})
+																}
+															/>
+														)
+													})
+											)}
+										</section>
+									</div>
+								)}
+							</div>
+						</aside>
+					)}
+				</main>
+			</ContextHomeContext.Provider>
 		</PaneToasts>
 	)
 }

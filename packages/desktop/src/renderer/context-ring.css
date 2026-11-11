@@ -50,3 +50,50 @@
 		transition: none;
 	}
 }
+
+/* The read-out in the conversation bar: a filled pie and "14% · $0.06" beside it. */
+.context-readout {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 6px;
+	height: 28px;
+	padding: 0 8px;
+	border: 0;
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--muted-foreground);
+	font: inherit;
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	cursor: default;
+	transition: background-color var(--dur-quick) ease-out;
+	-webkit-app-region: no-drag;
+}
+.context-readout:hover {
+	background: var(--accent);
+}
+.context-readout:focus-visible {
+	outline: none;
+	box-shadow: var(--focus-ring);
+}
+.context-readout[data-context-ring="high"] {
+	color: var(--warning);
+}
+.context-readout[data-context-ring="full"] {
+	color: var(--error);
+}
+.context-readout-track {
+	fill: none;
+	stroke: color-mix(in srgb, currentColor 45%, transparent);
+	stroke-width: 1.25;
+}
+.context-readout-fill {
+	fill: currentColor;
+}
+@media (prefers-reduced-motion: reduce) {
+	.context-readout {
+		transition: none;
+	}
+}

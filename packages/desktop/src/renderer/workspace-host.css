@@ -65,3 +65,21 @@
 .workspace-host[data-sidebar-collapsed="true"] .workspace-canvas-pane > .workspace {
 	border-radius: 0;
 }
+
+/*
+ * With the strip of tabs hidden (the default) the top of the pane is one 40px bar. The token is
+ * set on the pane only, so the sidebar's own header keeps its height, and the conversation
+ * column is 720px with 24px gutters. With the strip on, none of this applies.
+ */
+.workspace[data-conversation-bar] {
+	--workspace-topbar-height: 40px;
+}
+.workspace[data-conversation-bar] .chat-stage {
+	--chat-max-width: 45rem;
+}
+@media (min-width: 640px) {
+	.workspace[data-conversation-bar] .chat-stage {
+		--workspace-gutter-start: 24px;
+		--workspace-gutter-end: 24px;
+	}
+}

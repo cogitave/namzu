@@ -878,6 +878,29 @@ A notification holds the project's name as its title and one fixed sentence as i
 
 The logic is pure (`SystemNotices` takes an injected notifier, clock, timer and focus check; its tests use fakes and drive the clock by hand). The operator reports facts only: which conversations wait, a turn starting, a turn ending as finished, failed or other. An end-to-end run sets `NAMZU_E2E_NOTICES=1` (ignored by a packaged app) to have main record each notification into `globalThis.__namzuNotices` instead of showing it, with `globalThis.__namzuNoticeClick(index)` to click one, to count any turn of a millisecond or more as long and to fold events for 50 ms instead of three seconds; `e2e/notices.test.mjs` drives the real app that way. A real notification on Windows, macOS and Linux was not shown by a test. Not verified: on Windows a toast needs an application identity. The packaged installer is expected to carry one (electron-builder sets the shortcut's identity from the `appId`; no installed build was checked), but the code never calls `app.setAppUserModelId`, so an unpackaged or development run on Windows may show no toast, and `Notification.isSupported()` does not detect that.
 
+## The top of a conversation window
+
+A conversation window spends 40 px on one bar, where it spent 52 px on a strip of tabs. The bar holds the conversation's title (14 px, bold, cut with an ellipsis when it does not fit), the project's name (13 px, muted), then on the right how full the conversation is and its buttons. The sidebar is the one list of conversations; a title is shown once. The operating system's menu row (File, Edit, View, Window) is unchanged and sits above the bar.
+
+**The read-out** is a filled pie with the share and the cost beside it ("14% · $0.06"), from the same figures as the context ring (`contextRingModel`, so the two cannot disagree). It is not drawn until the engine has reported both a context size and a window. It turns amber at 75% and red at 90%. Hovering shows the token counts, and below 560 px of bar the words give way and the pie stays. With the bar showing, the composer draws no ring (`ContextHomeContext`); with the tab strip on, the ring stays beside the send controls as before.
+
+**The buttons** are 28 px, each with a tooltip and an accessible name: **Changes** (opens the Changes panel; the number on it is the count of changed files that "N changed files" says elsewhere), **New terminal** (a menu of the open terminals, the conversation and **New terminal** once one is open), **Project files**, **Conversation details** and **Conversation actions**. Changes and Project files open the panels the details popover and the panel's own tab strip already open; they are a shorter way there, not new panels. At 960 px the title gives way first, then the project's name and the words of the read-out; the buttons stay.
+
+**Conversation tabs** are hidden by default. **View > Show conversation tabs** (a checkbox), **Settings > Appearance > Show conversation tabs** and the command palette's **Show conversation tabs** / **Hide conversation tabs** switch them; the choice is `showConversationTabs` in `desktop-settings.json`, shared by the windows and by the menu's checkbox, and the window remembers the last answer for the first paint. With the switch on, the top of the window is as it was: the strip, the 52 px height, the ring in the composer. A Pal's conversation always keeps the strip, because the Pal's computer is a tab in it.
+
+With the strip hidden, every way of moving still works:
+
+- A sidebar row opens its conversation in place of the one in front. The tabs behind it are closed (closing a tab never stops or deletes its conversation), except a tab holding an unsent draft or attachments, which stays in the pane and is reachable from the keyboard and the palette. `tabsReplacedOnOpen` names what is closed; terminals and a Pal's tab are never closed this way.
+- Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+1 to 9, Ctrl+W (and Ctrl+F4 in a terminal), the File menu's Close tab, Next tab and Previous tab, and the palette's tab commands act on the pane's tabs as before.
+- A terminal opened from the bar stays a tab of the pane; the bar's terminal button lists the open terminals and the conversation, and the bar names the terminal while one is in front.
+- New conversation is the sidebar's button, Ctrl+N and the palette. The strip's "+" menu entries (conversation or terminal to the right or below, new window) remain in the palette and in the conversation's actions.
+
+**A user of the previous version** starts with the strip hidden: the tabs they had open are still in the saved layout, the one that was in front is shown, and the others disappear the first time they open another conversation from the sidebar. Their conversations are all still in the sidebar; turn the switch on to see the tabs again.
+
+**The column** is at most 720 px, centred, with 24 px gutters (the strip on keeps 768 px and the old gutters). The date between messages is a 12 px muted label.
+
+`e2e/ux-top-bar.test.mjs` drives the real app for the hidden bar, the 960 px fit and the switch. The other end-to-end flows are written for the strip, so the harness turns it on for them unless a world says `tabs: "hidden"`.
+
 ## Settings
 
 **Settings** is a page of its own in the main area, like Plugins: the rail's gear, the

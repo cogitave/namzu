@@ -1,0 +1,84 @@
+/* The bar above a conversation: 40px, title and project on the left, read-out and buttons on the right. */
+.conversation-bar {
+	display: flex;
+	align-items: center;
+	flex: 1;
+	min-width: 0;
+	height: 100%;
+	gap: 8px;
+	container: conversation-bar / inline-size;
+}
+.conversation-bar-title {
+	flex: 0 1 auto;
+	min-width: 0;
+	margin: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 20px;
+	color: var(--foreground);
+}
+.conversation-bar-project {
+	flex: 0 100 auto;
+	min-width: 0;
+	max-width: 180px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 13px;
+	color: var(--muted-foreground);
+}
+.conversation-bar-spacer {
+	flex: 1 1 0;
+	min-width: 0;
+}
+.conversation-bar-buttons {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 2px;
+	-webkit-app-region: no-drag;
+}
+/* Every button in the bar is 28px, whatever size class its own component asks for. */
+.conversation-bar-buttons > button,
+.conversation-bar-buttons .conversation-header-actions > button,
+.conversation-bar-buttons .conversation-header-actions > [data-slot="button"] {
+	width: 28px;
+	height: 28px;
+}
+.conversation-bar-buttons .conversation-header-actions {
+	gap: 2px;
+}
+.conversation-bar-button {
+	position: relative;
+	-webkit-app-region: no-drag;
+}
+/* A small figure on the corner of a button: how many changes, how many terminals. */
+.conversation-bar-count {
+	position: absolute;
+	top: 1px;
+	right: 0;
+	min-width: 13px;
+	padding: 0 3px;
+	border-radius: var(--radius-pill);
+	background: var(--accent);
+	color: var(--foreground);
+	font-size: 10px;
+	font-weight: 600;
+	line-height: 13px;
+	text-align: center;
+	font-variant-numeric: tabular-nums;
+}
+/* Narrow: the read-out keeps its pie and gives up its words, then the project gives way. */
+@container conversation-bar (max-width: 560px) {
+	.context-readout-text {
+		display: none;
+	}
+}
+@container conversation-bar (max-width: 440px) {
+	.conversation-bar-project {
+		display: none;
+	}
+}

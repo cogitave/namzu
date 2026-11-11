@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { tabMenuItems } from './tab-menu.js'
+import { showTabsMenuItem, tabMenuItems } from './tab-menu.js'
 
 it('lists Close tab, Next tab and Previous tab with their shortcuts', () => {
 	const items = tabMenuItems('linux', () => {})
@@ -23,4 +23,12 @@ it('only shows the shortcut on Windows and Linux, so a terminal can hand the key
 	for (const platform of ['win32', 'linux'] as const)
 		expect(tabMenuItems(platform, () => {}).every((item) => !item.registerAccelerator)).toBe(true)
 	expect(tabMenuItems('darwin', () => {}).every((item) => item.registerAccelerator)).toBe(true)
+})
+
+it('offers a checkbox for the tab strip that reports the new state', () => {
+	const change = vi.fn()
+	const item = showTabsMenuItem(false, change)
+	expect(item).toMatchObject({ label: 'Show conversation tabs', type: 'checkbox', checked: false })
+	item.click({ checked: true })
+	expect(change).toHaveBeenCalledWith(true)
 })

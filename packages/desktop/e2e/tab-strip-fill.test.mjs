@@ -66,7 +66,7 @@ const measure = (w) =>
 			const card = w.page.getByRole("region", { name: "Tool approval" });
 			await expect(card).toBeVisible({ timeout: T });
 			await card.getByRole("button", { name: "Accept", exact: true }).click();
-			await expect(w.page.getByText("Wrote out.txt.")).toBeVisible({ timeout: T });
+			await expect(w.page.getByText("Wrote out.txt.").first()).toBeVisible({ timeout: T });
 			await w.page.getByRole("button", { name: "View changes" }).last().click();
 			await expect(w.page.getByRole("complementary", { name: "Changes" })).toBeVisible({ timeout: T });
 			const count = 7;

@@ -188,6 +188,13 @@ export const SETTINGS_ENTRIES: readonly SettingsEntry[] = [
 		keywords: ['dark', 'light', 'system', 'color', 'colour', 'mode'],
 	},
 	{
+		id: 'conversation-tabs',
+		section: 'appearance',
+		label: 'Show conversation tabs',
+		description: 'A strip of tabs above the conversation. Off, the sidebar is the one list.',
+		keywords: ['tabs', 'strip', 'bar', 'conversations', 'window', 'layout'],
+	},
+	{
 		id: 'version',
 		section: 'updates',
 		label: 'Check for updates',
