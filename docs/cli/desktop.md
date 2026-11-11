@@ -2759,7 +2759,7 @@ conversations keep their own outputs.
 
 ### The result line at the foot of a reply
 
-One 32 px line of text ends a finished turn (no border, no fill, no rule above it; it starts at the reply's own left edge and sits 22 px under the reply's last row), in place of the old "Changed 4 files" card and the
+One 32 px line of text ends a finished turn (no border, no fill, no rule above it; it starts at the reply's own left edge and sits about 30 px under the reply's last row: the reply's own hover-only action row keeps 16 px there and its last 8 px lie over the line's empty top), in place of the old "Changed 4 files" card and the
 sentence that used to sit under it: a state mark, "Done in 3s" (how long the turn took; just "Done"
 under a second; "Stopped", "Paused", "Incomplete" or "Failed" when it did not end well; "Finished in 3s"
 when the record's verdict is `failing`, because the turn ended but the kernel did not call it done), the size of

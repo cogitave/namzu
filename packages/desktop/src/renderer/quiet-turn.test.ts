@@ -32,6 +32,18 @@ function command(thread: ThreadState, id: string, at: number): ThreadState {
 		at,
 	)
 }
+function failedCommand(thread: ThreadState, id: string, at: number): ThreadState {
+	const view = { kind: 'terminal' as const, command: id, output: 'no' }
+	return update(
+		update(
+			thread,
+			{ kind: 'tool_call', toolCallId: id, title: 'bash', status: 'pending', view },
+			at,
+		),
+		{ kind: 'tool_call', toolCallId: id, title: 'bash', status: 'failed', view },
+		at,
+	)
+}
 function finished(thread: ThreadState): ThreadState {
 	const answered = update(
 		thread,
@@ -64,6 +76,13 @@ describe('the fold line of a finished turn', () => {
 		expect(html).not.toContain('tool-run-trigger')
 		expect(html).toContain('data-sole="true"')
 		expect(html.match(/data-tool-call-id=/g)).toHaveLength(2)
+	})
+
+	it('does not draw the sentence twice when its one group only adds "1 failed"', () => {
+		const html = render(finished(failedCommand(command(begin(), 'a', 3000), 'b', 4000)))
+		expect(html).toContain('data-sole="true"')
+		expect(html).not.toContain('tool-run-trigger')
+		expect(html).not.toContain('1 failed')
 	})
 
 	it('keeps the group when narration splits the work into more than one', () => {
@@ -105,6 +124,19 @@ describe('the look of a finished turn, as the styles say it', () => {
 		expect(rest).toContain('min-height: 32px')
 		expect(rest).not.toMatch(/border|background:|box-shadow/)
 		expect(line).not.toContain('data-check="error"')
+	})
+
+	it('the row ends at the column edge, so the hover fill stays inside it', () => {
+		expect(block(line, '.turn-result')).toContain('margin: 0 0 16px -4px')
+	})
+
+	it('the reply action row gives the line room without moving when it shows', () => {
+		const row = block(
+			line,
+			'.normal-transcript .message.is-assistant:has(+ .turn-result) > .message-footer',
+		)
+		expect(row).toContain('height: 16px')
+		expect(row).toContain('z-index: 1')
 	})
 
 	it('the whole row takes a soft fill with 8 px corners on hover and on keyboard focus', () => {

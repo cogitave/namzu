@@ -1,13 +1,14 @@
 /*
  * The foot of a finished turn: one 32 px line of text, no box. A state mark, how it ended, the size
- * of the change, the check. It starts at the reply's own left edge (the row reaches 8 px past it
- * so the hover fill has room), and only hover or keyboard focus draws anything round it.
+ * of the change, the check. Its text starts where the reply's text does (4 px in from the column);
+ * the row reaches 4 px past that on the left so the hover fill has room, and ends at the column's
+ * right edge. Only hover or keyboard focus draws anything round it.
  */
 .turn-result {
 	display: flex;
 	align-items: center;
 	min-height: 32px;
-	margin: 0 -8px 16px;
+	margin: 0 0 16px -4px;
 	padding-inline: 8px 4px;
 	color: var(--foreground);
 	font-size: 13px;
@@ -26,9 +27,20 @@
 	border-radius: var(--radius-control);
 	background: var(--turn-result-fill);
 }
-/* The reply's own action row is already 24 px of room above; the line follows it directly. */
+/*
+ * The reply's own action row (copy and the rest) is drawn only on hover, so it takes 16 px of room
+ * here and lets its last 8 px lie over the line's empty top, above it. Nothing moves when it shows,
+ * and the line's text sits about 30 px under the reply's last row.
+ */
 .normal-transcript .message.is-assistant:has(+ .turn-result) {
 	padding-bottom: 0;
+}
+.normal-transcript .message.is-assistant:has(+ .turn-result) > .message-footer {
+	position: relative;
+	z-index: 1;
+	align-items: flex-start;
+	height: 16px;
+	min-height: 16px;
 }
 .turn-result-main {
 	display: flex;

@@ -271,7 +271,9 @@ function ToolRun({
 	const defaultOpen = watched.current || runDefaultOpen(live, entries.length, badNews)
 	const controlled = !!disclosureKey && !!onWorkDisclosureChange
 	const saved = disclosureKey ? workDisclosures?.[disclosureKey] : undefined
-	if (soleOf !== undefined && !live && label === soleOf)
+	// The fold line carries the failure flag itself, so a group that only adds "1 failed" says the same.
+	const sameSentence = lookups ? label : actionRunLabel(actions, live, false, 0)
+	if (soleOf !== undefined && !live && sameSentence === soleOf)
 		return (
 			<div className="tool-group-entries" data-sole>
 				{entries.map((entry) => (
