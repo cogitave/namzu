@@ -2,7 +2,7 @@ import { Menu } from '@base-ui/react/menu'
 import { Fragment, type ReactNode } from 'react'
 import type { ThreadUsage } from '../shared/projection.js'
 import { ContextReadout } from './context-ring-view.js'
-import { CheckIcon, FileDiffIcon, FileTextIcon, TerminalIcon } from './icons.js'
+import { CheckIcon, FileDiffIcon, FileTextIcon, PencilIcon, TerminalIcon } from './icons.js'
 import { Button } from './ui/button.js'
 import './conversation-bar.css'
 
@@ -32,7 +32,17 @@ export function changesButtonLabel(count: number): string {
 	return `Changes, ${count} changed ${count === 1 ? 'file' : 'files'}`
 }
 
+/** A blank conversation kept open for unsent work: it has no sidebar row, so the bar names it. */
+export interface ConversationBarDraft {
+	id: string
+	/** What the person left in it: words, attachments, or a bare "New conversation". */
+	title: string
+}
+
 export interface ConversationBarProps {
+	/** Blank conversations kept open out of sight; the bar lists them so they can be reached. */
+	drafts?: readonly ConversationBarDraft[]
+	onSelectDraft?: (id: string) => void
 	title: string
 	project?: string
 	usage?: ThreadUsage
@@ -44,6 +54,57 @@ export interface ConversationBarProps {
 	disabled?: boolean
 	/** The details and overflow buttons, which keep their own menus. */
 	children?: ReactNode
+}
+
+function DraftsControl({
+	drafts,
+	onSelect,
+	disabled,
+}: {
+	drafts: readonly ConversationBarDraft[]
+	onSelect: (id: string) => void
+	disabled?: boolean
+}) {
+	return (
+		<Menu.Root>
+			<Menu.Trigger
+				render={
+					<Button
+						variant="ghost-muted"
+						size="icon-sm"
+						className="conversation-bar-button"
+						data-kept-drafts
+						aria-label={`Unsent drafts, ${drafts.length} kept open`}
+						title={`Unsent drafts (${drafts.length})`}
+						disabled={disabled}
+					/>
+				}
+			>
+				<PencilIcon aria-hidden="true" />
+				<span className="conversation-bar-count" aria-hidden="true">
+					{drafts.length}
+				</span>
+			</Menu.Trigger>
+			<Menu.Portal>
+				<Menu.Positioner className="conversation-actions-positioner" align="end" sideOffset={6}>
+					<Menu.Popup className="conversation-actions-popup" aria-label="Unsent drafts">
+						{drafts.map((draft) => (
+							<Menu.Item
+								key={draft.id}
+								className="conversation-actions-item"
+								data-kept-draft={draft.id}
+								onClick={() => onSelect(draft.id)}
+							>
+								<span className="conversation-actions-label" title={draft.title}>
+									{draft.title}
+								</span>
+							</Menu.Item>
+						))}
+					</Menu.Popup>
+				</Menu.Positioner>
+			</Menu.Portal>
+		</Menu.Root>
+	)
 }
 
 function TerminalControl({
@@ -151,6 +212,8 @@ export function ConversationBar({
 	onChanges,
 	onFiles,
 	terminals,
+	drafts,
+	onSelectDraft,
 	disabled,
 	children,
 }: ConversationBarProps) {
@@ -184,6 +247,9 @@ export function ConversationBar({
 							</span>
 						)}
 					</Button>
+				)}
+				{drafts && drafts.length > 0 && onSelectDraft && (
+					<DraftsControl drafts={drafts} onSelect={onSelectDraft} disabled={disabled} />
 				)}
 				{terminals && <TerminalControl terminals={terminals} disabled={disabled} />}
 				{onFiles && (

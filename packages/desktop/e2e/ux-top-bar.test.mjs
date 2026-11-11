@@ -78,7 +78,10 @@ test("hidden by default: one 40 px bar, sidebar and chords still move between co
 		}
 		await rowFor(w, "second thing").click();
 		await expect(frontTitle(w)).toContainText("Explain the second thing");
+		// The chord is dropped while a conversation loads: wait for its reply to be on the page.
+		await expect(w.page.getByText("Second answer.")).toBeVisible({ timeout: T });
 		await w.page.keyboard.press("Control+w");
+		await expect(w.page.getByText("Second answer.")).toHaveCount(0, { timeout: T });
 		await expect(w.page.getByRole("textbox", { name: "Message Namzu" })).toBeVisible({ timeout: T });
 
 		// The palette offers the switch, and the other conversations by name.
@@ -151,6 +154,69 @@ test("Show conversation tabs brings the strip back as it was, and the choice is 
 		await w.app.close();
 		await launch(w);
 		await expect(w.page.locator(".conversation-tab-list")).toBeVisible({ timeout: T });
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});
+
+test("a draft kept in a blank conversation stays reachable: the bar lists it and the chords step to it", { timeout: 280000 }, async () => {
+	const w = await createWorld({ rules, tabs: "hidden" });
+	let failed = true;
+	try {
+		await launch(w);
+		await openProject(w);
+		await converse(w, ONE);
+		const box = w.page.getByRole("textbox", { name: "Message Namzu" });
+		await w.page.keyboard.press("Control+n");
+		await expect(box).toBeVisible({ timeout: T });
+		await expect(w.page.getByText("First answer.")).toHaveCount(0, { timeout: T });
+		await box.fill("keep this draft");
+		await w.page.keyboard.press("Control+n");
+		await expect(box).toHaveValue("", { timeout: T });
+		// The draft's tab is kept, has no sidebar row, and the bar says it exists.
+		const drafts = bar(w).locator("[data-kept-drafts]");
+		await expect(drafts).toBeVisible({ timeout: T });
+		await expect(drafts).toHaveAccessibleName(/1 kept open/);
+		// A chord goes to it, and the words are still there.
+		await w.page.keyboard.press("Control+Tab");
+		await expect(box).toHaveValue("keep this draft", { timeout: T });
+		// Landing on it closed the empty one, so nothing else is kept; a new conversation keeps it again.
+		await expect(drafts).toHaveCount(0, { timeout: T });
+		await w.page.keyboard.press("Control+n");
+		await expect(box).toHaveValue("", { timeout: T });
+		await expect(drafts).toBeVisible({ timeout: T });
+		// The bar menu opens it too, and the words are still there.
+		await drafts.click();
+		await w.page.locator("[data-kept-draft]").click();
+		await expect(box).toHaveValue("keep this draft", { timeout: T });
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});
+
+test("with a terminal in front the chords can return to the conversation", { timeout: 280000 }, async () => {
+	const w = await createWorld({ rules, tabs: "hidden" });
+	let failed = true;
+	try {
+		await launch(w);
+		await openProject(w);
+		await converse(w, ONE);
+		await bar(w).getByRole("button", { name: "New terminal" }).click();
+		await expect(frontTitle(w)).not.toContainText("Explain the first thing", { timeout: T });
+		await w.page.keyboard.press("Control+Shift+`");
+		await expect(bar(w).getByRole("button", { name: "Terminals, 2 open" })).toBeVisible({ timeout: T });
+		const second = await frontTitle(w).innerText();
+		// Order is conversation, terminal, terminal: next from the last one wraps to the conversation.
+		await w.page.keyboard.press("Control+Tab");
+		await expect(frontTitle(w)).toContainText("Explain the first thing", { timeout: T });
+		// Ctrl+1 from a terminal reaches the conversation as well.
+		await w.page.keyboard.press("Control+Tab");
+		await expect(frontTitle(w)).not.toContainText("Explain the first thing", { timeout: T });
+		await w.page.keyboard.press("Control+1");
+		await expect(frontTitle(w)).toContainText("Explain the first thing", { timeout: T });
+		assert.ok(second.length > 0);
 		failed = false;
 	} finally {
 		await dispose(w, { failed });

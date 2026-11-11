@@ -1,8 +1,10 @@
 import { expect, it } from 'vitest'
 import {
 	SHOW_TABS_HINT_KEY,
+	blankConversationTabs,
 	readShowTabsHint,
 	tabsReplacedOnOpen,
+	visibleChordTabs,
 	writeShowTabsHint,
 } from './conversation-tabs-visibility.js'
 
@@ -43,4 +45,35 @@ it('replaces the other ordinary conversations when one is opened, and nothing el
 	])
 	expect(tabsReplacedOnOpen({ id: 'p', palId: 'pal-1' }, ['a', 'p'], rows)).toEqual([])
 	expect(tabsReplacedOnOpen({ id: 'a' }, ['a'], rows)).toEqual([])
+})
+
+it('steps through the conversation behind a terminal and through kept blank tabs', () => {
+	const rows = [
+		{ id: 'a', title: 'alpha chat' },
+		{ id: 'b', title: 'New conversation' },
+		{ id: 'c', title: 'other chat' },
+		{ id: 'p', title: 'New conversation', palId: 'pal-1' },
+	]
+	const terminals = new Set(['t1', 't2'])
+	// A terminal in front: the conversation behind it is still in the ring.
+	expect(
+		visibleChordTabs({
+			tabs: ['a', 't1', 't2'],
+			front: 't2',
+			behind: 'a',
+			terminals,
+			conversations: rows,
+		}),
+	).toEqual(['a', 't1', 't2'])
+	// A kept blank tab is reachable; a tab with a sidebar row, and a Pal's, are not.
+	expect(
+		visibleChordTabs({
+			tabs: ['a', 'b', 'c', 'p'],
+			front: 'a',
+			behind: 'a',
+			terminals,
+			conversations: rows,
+		}),
+	).toEqual(['a', 'b'])
+	expect(blankConversationTabs(['a', 'b', 'p', 'late'], rows)).toEqual(['b'])
 })

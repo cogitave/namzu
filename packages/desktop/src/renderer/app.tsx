@@ -90,8 +90,10 @@ import { ConversationBar } from './conversation-bar.js'
 import { ConversationDetailsPopover, type DetailsWork } from './conversation-details-popover.js'
 import { compareConversationRecency } from './conversation-order.js'
 import {
+	blankConversationTabs,
 	readShowTabsHint,
 	tabsReplacedOnOpen,
+	visibleChordTabs,
 	writeShowTabsHint,
 } from './conversation-tabs-visibility.js'
 import {
@@ -5253,13 +5255,19 @@ export function App({
 		}
 		return onAction({ kind: 'close', groupId: group.id, tabId })
 	}
-	// With the strip hidden the chords step through what the person can see: the conversation in
-	// front and the terminals. Tabs kept open out of sight (a draft, an upgrader's saved tabs) are
-	// never landed on.
+	// With the strip hidden the chords step through the conversation in front (and the one behind a
+	// terminal), the terminals, and blank conversations kept for unsent work, which have no sidebar
+	// row. Tabs that a sidebar row opens (an upgrader's saved tabs) are not stepped through.
 	const chordIds = (): readonly string[] =>
 		showTabsRef.current || palConversation || pal || computerPage
 			? stripIds
-			: stripIds.filter((id) => id === frontTabId || terminalById.has(id))
+			: visibleChordTabs({
+					tabs: stripIds,
+					front: frontTabId,
+					behind: group.activeTabId || sessionId,
+					terminals: new Set(terminalById.keys()),
+					conversations,
+				})
 	const runTabChord = (chord: TabChord): boolean => {
 		if (context.current.frozen || loading) return false
 		const stripIds = chordIds()
@@ -5819,6 +5827,22 @@ export function App({
 		(normalTabs.length > 0 || stripTerminals.length > 0) &&
 		Boolean(activeTerminal || conversation)
 	const barTitle = activeTerminal?.title ?? conversation?.title ?? ''
+	// Blank conversations kept open for unsent work have no sidebar row; the bar lists them. The
+	// words in each one name it, so "New conversation" is never the only label.
+	const keptDrafts = blankConversationTabs(group.tabs, conversations)
+		.filter((id) => id !== conversation?.id)
+		.map((id) => {
+			const text = (drafts[id] ?? '').trim().replace(/\s+/g, ' ')
+			const files = attached.get(id).length
+			const held = text
+				? text.length > 40
+					? `${text.slice(0, 40)}…`
+					: text
+				: files > 0
+					? `${files} ${files === 1 ? 'attachment' : 'attachments'}`
+					: ''
+			return { id, title: held ? `New conversation · ${held}` : 'New conversation' }
+		})
 	const headerActionsVisible =
 		!palConversation && Boolean(sessionId && conversation && !activeTerminal)
 	const headerActions =
@@ -6637,6 +6661,8 @@ export function App({
 											}
 										: undefined
 								}
+								drafts={keptDrafts}
+								onSelectDraft={showTab}
 								terminals={{
 									open: stripTerminals.map((tab) => ({
 										id: tab.id,
