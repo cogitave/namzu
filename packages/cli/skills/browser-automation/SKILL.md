@@ -1,6 +1,6 @@
 ---
 name: browser-automation
-description: Procedure for driving the web browser with the browser and browser_act tools. Use whenever a task means opening a website, reading a page, clicking, typing or filling a form in the browser, or checking something on a site the user is signed in to.
+description: Procedure for driving the web browser with the browser and browser_act tools. Use whenever a task means opening a website, reading a page, clicking, typing or filling a form in the browser, or checking something on a site the user is signed in to. Not for just reading a public page's text, which needs no browser.
 invocation: model
 metadata:
   namzu-requires-tools: browser
