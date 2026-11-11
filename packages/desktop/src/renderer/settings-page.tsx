@@ -600,32 +600,46 @@ const APPEARANCE_CHOICES = [
 	{ value: 'system', label: 'System', Icon: MonitorIcon },
 ] as const
 
-function AppearanceSection({ appearance, onAppearanceChange }: SettingsPageProps) {
+function AppearanceSection({ appearance, onAppearanceChange, settings }: SettingsPageProps) {
 	const group = useId()
 	return (
-		<Row
-			id="theme"
-			label="Theme"
-			description="System follows your device’s light or dark setting."
-			stacked
-		>
-			<fieldset className="settings-choices settings-choices-inline">
-				<legend className="sr-only">Theme</legend>
-				{APPEARANCE_CHOICES.map(({ value, label, Icon }) => (
-					<label key={value} className="settings-choice settings-choice-tile">
-						<input
-							type="radio"
-							name={group}
-							value={value}
-							checked={appearance === value}
-							onChange={() => onAppearanceChange(value)}
-						/>
-						<Icon aria-hidden="true" />
-						<span className="settings-choice-label">{label}</span>
-					</label>
-				))}
-			</fieldset>
-		</Row>
+		<>
+			<Row
+				id="theme"
+				label="Theme"
+				description="System follows your device’s light or dark setting."
+				stacked
+			>
+				<fieldset className="settings-choices settings-choices-inline">
+					<legend className="sr-only">Theme</legend>
+					{APPEARANCE_CHOICES.map(({ value, label, Icon }) => (
+						<label key={value} className="settings-choice settings-choice-tile">
+							<input
+								type="radio"
+								name={group}
+								value={value}
+								checked={appearance === value}
+								onChange={() => onAppearanceChange(value)}
+							/>
+							<Icon aria-hidden="true" />
+							<span className="settings-choice-label">{label}</span>
+						</label>
+					))}
+				</fieldset>
+			</Row>
+			<Row
+				id="conversation-tabs"
+				label="Show conversation tabs"
+				description="A strip of tabs above the conversation, one for each open conversation. Off, the sidebar lists your conversations and the bar above shows the one you are in. Also in the View menu."
+			>
+				<Switch
+					label="Show conversation tabs"
+					checked={settings.settings?.showConversationTabs ?? false}
+					disabled={!settings.settings}
+					onChange={(value) => void settings.change({ showConversationTabs: value })}
+				/>
+			</Row>
+		</>
 	)
 }
 

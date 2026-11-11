@@ -29,3 +29,26 @@ export function tabMenuItems(
 		click: () => send(command),
 	}))
 }
+
+/** The id of the View menu's tab-strip switch, so a change made in Settings can find it. */
+export const SHOW_TABS_MENU_ID = 'show-conversation-tabs'
+
+/** The View menu's switch for the strip of conversation tabs. It keeps what Settings keeps. */
+export function showTabsMenuItem(
+	checked: boolean,
+	change: (show: boolean) => void,
+): {
+	id: string
+	label: string
+	type: 'checkbox'
+	checked: boolean
+	click: (item: { checked: boolean }) => void
+} {
+	return {
+		id: SHOW_TABS_MENU_ID,
+		label: 'Show conversation tabs',
+		type: 'checkbox',
+		checked,
+		click: (item) => change(item.checked),
+	}
+}

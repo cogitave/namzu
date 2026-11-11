@@ -30,6 +30,23 @@ export interface ContextRingModel {
 	label: string
 	/** The tooltip's lines, in order. */
 	lines: string[]
+	/** The short text beside the pie in the conversation bar: "14% · $0.06", or just the share. */
+	readout: string
+}
+
+/** Dollars for the bar, where "under $0.01" would not fit: "$0.06", "<$0.01". */
+export function formatCostShort(dollars: number): string {
+	if (!Number.isFinite(dollars) || dollars <= 0) return '$0.00'
+	if (dollars < 0.01) return '<$0.01'
+	return `$${dollars.toFixed(2)}`
+}
+
+/** The path of a filled pie of `fraction` of a circle, from twelve o'clock clockwise. */
+export function piePath(fraction: number, radius: number, centre: number): string {
+	const angle = Math.min(1, Math.max(0, fraction)) * 2 * Math.PI
+	const x = centre + radius * Math.sin(angle)
+	const y = centre - radius * Math.cos(angle)
+	return `M ${centre} ${centre} L ${centre} ${centre - radius} A ${radius} ${radius} 0 ${angle > Math.PI ? 1 : 0} 1 ${x.toFixed(3)} ${y.toFixed(3)} Z`
 }
 
 /** The ring turns amber at this share of the window, and red at the next. */
@@ -60,6 +77,7 @@ export function contextRingModel(usage: ThreadUsage | undefined): ContextRingMod
 		tone,
 		label: `Context ${percent}% full. ${size}.${usage?.cost !== undefined ? ` Cost so far ${formatCost(usage.cost)}.` : ''}`,
 		lines,
+		readout: `${percent}%${usage?.cost !== undefined ? ` · ${formatCostShort(usage.cost)}` : ''}`,
 	}
 }
 
