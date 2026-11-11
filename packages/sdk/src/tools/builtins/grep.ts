@@ -17,6 +17,7 @@ import {
 import { relativePosix, resolveWithinPosix } from '../posix-path.js'
 import {
 	CAN_REFUSE_LINKS,
+	REFUSE_LINK_FLAG,
 	readBoundedChunks,
 	readBoundedFile,
 	readBoundedFileSync,
@@ -58,6 +59,15 @@ async function readWithSignal(read: () => Promise<Buffer>, signal?: AbortSignal)
 
 /** Longest the local read loop holds the event loop before it yields. */
 const READ_SLICE_MS = 8
+
+/**
+ * Largest file the local reader reads synchronously, by the size on the open
+ * handle. One synchronous read of a file is one uninterrupted block, which on a
+ * slow mount can last tens of milliseconds; a larger file is read through the
+ * asynchronous bounded read instead, which lets the event loop run between
+ * chunks.
+ */
+export const LOCAL_SYNC_READ_MAX_BYTES = 64 * 1024
 
 /**
  * Reads files of a local search root. Each directory is resolved to its real
@@ -105,7 +115,24 @@ function createLocalReader(root: string, signal: AbortSignal | undefined) {
 			}
 			signal?.throwIfAborted()
 			try {
-				return { buffer: readBoundedFileSync(contained, MAX_FILE_SIZE, scratch), contained }
+				const read = readBoundedFileSync(
+					contained,
+					MAX_FILE_SIZE,
+					scratch,
+					LOCAL_SYNC_READ_MAX_BYTES,
+				)
+				if (read !== 'large') return { buffer: read, contained }
+				// The handle that measured the file is closed; the asynchronous read opens it
+				// again with the same flags (links refused) and repeats every check.
+				const large = await readBoundedFile(
+					contained,
+					MAX_FILE_SIZE,
+					signal,
+					undefined,
+					REFUSE_LINK_FLAG,
+				)
+				sliceStart = performance.now()
+				return { buffer: large, contained }
 			} catch (error) {
 				// Gone since the walk listed it: absent, as a walk that ran later would find it.
 				const code = (error as NodeJS.ErrnoException).code

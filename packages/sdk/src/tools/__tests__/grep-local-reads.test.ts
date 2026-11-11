@@ -14,7 +14,7 @@ import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { walkFilesLocally } from '../../sandbox/file-walk.js'
 import type { ToolContext } from '../../types/tool/index.js'
 import { CAN_REFUSE_LINKS, readBoundedFileSync } from '../builtins/bounded-file-read.js'
-import { GrepTool } from '../builtins/grep.js'
+import { GrepTool, LOCAL_SYNC_READ_MAX_BYTES } from '../builtins/grep.js'
 import { readAhead } from '../builtins/search-support.js'
 
 // What the local search costs is counted in file-system calls, never in time.
@@ -24,6 +24,7 @@ const calls = vi.hoisted(() => ({
 	open: 0,
 	openSync: 0,
 	closeSync: 0,
+	readSync: 0,
 }))
 vi.mock('node:fs/promises', async (original) => {
 	const fs = await original<typeof import('node:fs/promises')>()
@@ -54,6 +55,10 @@ vi.mock('node:fs', async (original) => {
 		closeSync: (...args: Parameters<typeof fs.closeSync>) => {
 			calls.closeSync++
 			return fs.closeSync(...args)
+		},
+		readSync: (...args: Parameters<typeof fs.readSync>) => {
+			calls.readSync++
+			return fs.readSync(...args)
 		},
 	}
 })
@@ -229,6 +234,83 @@ describe('grep reads local files through one handle each', () => {
 		expect(seen).toBeLessThan(30)
 		expect(result.data).toMatchObject({ filesMatched: 4 })
 	})
+})
+
+describe('a file over the synchronous size threshold is read without holding the event loop', () => {
+	const over = LOCAL_SYNC_READ_MAX_BYTES + 1
+	const body = (size: number) => `needle\n${'x'.repeat(size - 7)}\n`.slice(0, size)
+
+	it.skipIf(!CAN_REFUSE_LINKS)(
+		'reads it through the asynchronous path, with no synchronous read',
+		async () => {
+			const root = tree()
+			writeFileSync(join(root, 'large.txt'), body(over))
+			const result = await grep(root, { output_mode: 'count', head_limit: 0 })
+			expect(String(result.output)).toContain('large.txt:1')
+			expect(calls.readSync).toBe(0)
+			// The synchronous open measured it; the asynchronous read opened it once more.
+			expect(calls.open).toBe(1)
+			expect(calls.openSync).toBe(1)
+			expect(calls.closeSync).toBe(1)
+		},
+	)
+
+	it.skipIf(!CAN_REFUSE_LINKS)(
+		'reads files up to the threshold synchronously, with no asynchronous open',
+		async () => {
+			const root = tree()
+			writeFileSync(join(root, 'under.txt'), body(LOCAL_SYNC_READ_MAX_BYTES - 1))
+			writeFileSync(join(root, 'at.txt'), body(LOCAL_SYNC_READ_MAX_BYTES))
+			const result = await grep(root, { output_mode: 'count', head_limit: 0 })
+			expect(String(result.output)).toContain('under.txt:1')
+			expect(String(result.output)).toContain('at.txt:1')
+			expect(calls.open).toBe(0)
+			expect(calls.readSync).toBeGreaterThan(0)
+		},
+	)
+
+	it.skipIf(!CAN_REFUSE_LINKS)('answers large from the handle without reading', () => {
+		const root = tree()
+		writeFileSync(join(root, 'large.txt'), body(over))
+		writeFileSync(join(root, 'at.txt'), body(LOCAL_SYNC_READ_MAX_BYTES))
+		const limit = LOCAL_SYNC_READ_MAX_BYTES
+		expect(readBoundedFileSync(join(root, 'large.txt'), 1024 * 1024, undefined, limit)).toBe(
+			'large',
+		)
+		expect(calls.readSync).toBe(0)
+		const fits = readBoundedFileSync(join(root, 'at.txt'), 1024 * 1024, undefined, limit)
+		expect((fits as Buffer).length).toBe(limit)
+	})
+
+	it.skipIf(!CAN_REFUSE_LINKS)(
+		'still refuses a large file swapped for a link after it was listed',
+		async () => {
+			const root = tree()
+			const outside = tree()
+			writeFileSync(join(root, 'a.txt'), 'hay\n')
+			writeFileSync(join(root, 'swapped.txt'), body(over))
+			writeFileSync(join(outside, 'secret.txt'), body(over))
+			let swapped = false
+			const result = await grep(
+				root,
+				{ output_mode: 'content', head_limit: 0 },
+				{
+					readDenied: (path) => {
+						if (path.endsWith('a.txt') && !swapped) {
+							swapped = true
+							unlinkSync(join(root, 'swapped.txt'))
+							symlinkSync(join(outside, 'secret.txt'), join(root, 'swapped.txt'))
+						}
+						return false
+					},
+				},
+			)
+			expect(swapped).toBe(true)
+			expect(String(result.output)).not.toContain('swapped.txt')
+			expect(result.data).toMatchObject({ filesMatched: 0 })
+			expect(String(result.output)).toContain('1 file could not be read')
+		},
+	)
 })
 
 describe('the walk without sizes', () => {

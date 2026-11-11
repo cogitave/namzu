@@ -40,10 +40,13 @@ export async function readBoundedFile(
 	maximum: number,
 	signal?: AbortSignal,
 	selectLimit?: (prefix: Buffer) => number,
+	extraFlags = 0,
 ): Promise<Buffer> {
 	// O_NONBLOCK prevents a substituted FIFO from blocking open before fstat.
+	// `extraFlags` adds to it, for a caller that also needs the last component
+	// refused when it is a link.
 	signal?.throwIfAborted()
-	const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK)
+	const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | extraFlags)
 	try {
 		const info = await file.stat()
 		if (!info.isFile()) throw new Error('Read requires a regular file.')
@@ -82,6 +85,9 @@ function inputTooLarge(limit: number): Error {
 /** True where the platform can refuse a final-component link at open time. */
 export const CAN_REFUSE_LINKS = typeof constants.O_NOFOLLOW === 'number' && constants.O_NOFOLLOW > 0
 
+/** The flag a caller passes to {@link readBoundedFile} to refuse a final-component link. */
+export const REFUSE_LINK_FLAG: number = CAN_REFUSE_LINKS ? constants.O_NOFOLLOW : 0
+
 /**
  * The same bounded read as {@link readBoundedFile} through one synchronous
  * handle: open, fstat, read, close. A link in the last path component is
@@ -90,17 +96,23 @@ export const CAN_REFUSE_LINKS = typeof constants.O_NOFOLLOW === 'number' && cons
  * `maximum` bytes; a file whose size is over it answers `'too-large'`. With a
  * `scratch` buffer, a file that fits one chunk comes back as a view of it, valid
  * until the next call. Requires {@link CAN_REFUSE_LINKS}.
+ *
+ * With `syncMaximum`, a file whose size is over it (and within `maximum`) is not
+ * read here: the answer is `'large'`, so the caller reads it through
+ * {@link readBoundedFile}, which does not hold the event loop for the whole file.
  */
 export function readBoundedFileSync(
 	path: string,
 	maximum: number,
 	scratch?: Buffer,
-): Buffer | 'too-large' {
+	syncMaximum = maximum,
+): Buffer | 'too-large' | 'large' {
 	const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW)
 	try {
 		const info = fstatSync(fd)
 		if (!info.isFile()) throw new Error('Read requires a regular file.')
 		if (info.size > maximum) return 'too-large'
+		if (info.size > syncMaximum) return 'large'
 		const chunks: Buffer[] = []
 		let offset = 0
 		for (;;) {
