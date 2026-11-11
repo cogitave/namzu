@@ -223,6 +223,9 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	/* Cut at the start so the end of a long name stays readable, as the diff header does. */
+	direction: rtl;
+	text-align: left;
 }
 .changes-filter {
 	display: flex;

@@ -2,7 +2,7 @@ import type { TurnOutcomeSummary } from '../shared/outcome-protocol.js'
 import { formatLineCount } from './changes-totals.js'
 import { clockLabel } from './time-format.js'
 import { elapsedLabel, transcriptOutcome } from './transcript-layout.js'
-import type { TurnChanges } from './turn-changes.js'
+import type { TurnChangeFile, TurnChanges } from './turn-changes.js'
 import { type UndoCardView, partialLabel } from './undo-model.js'
 
 export type ResultTone = 'ok' | 'warn' | 'error' | 'neutral'
@@ -25,6 +25,10 @@ export interface ResultLineModel {
 	removed?: number
 	cut?: boolean
 	check?: ResultCheck
+	/** Said beside a failing check that a partial undo must not hide. */
+	undo?: string
+	/** Only for an `unknown` record: the counts are the edit tools' alone, and this is why. */
+	caveat?: string
 	/** The accessible name of the row, which reads the same facts as the sight does. */
 	label: string
 	/** The same facts as plain text, for Copy summary. */
@@ -70,6 +74,11 @@ function leadFor(reason: string | undefined, failed: boolean): { lead: string; t
 	}
 }
 
+/** Said before the record's sentence when the counts are the edit tools' alone. */
+const CAVEAT_LEAD = 'These are the edits made with the edit tools.'
+/** The record's meaning for `unknown`, used only when its line is missing. */
+const UNKNOWN_SENTENCE = 'A command ran that may have changed files'
+
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
 
 /**
@@ -92,16 +101,31 @@ export function turnResultModel(input: {
 		outcome && !['unknown', 'unchanged'].includes(outcome.verdict) ? outcome.changed : 0
 	const files = changes?.files.length ?? recorded
 	const failing = outcome?.verdict === 'failing'
+	// A command that may have changed files, with edits counted from the edit tools: the counts
+	// stand alone, and the record's own sentence stays reachable.
+	const caveat =
+		outcome?.verdict === 'unknown' && (changes?.files.length ?? 0) > 0
+			? (outcome.line ?? UNKNOWN_SENTENCE)
+			: undefined
 	if (files === 0 && !failing) return undefined
 	const ended = leadFor(input.reason, input.failed === true)
+	// A failing record never reads as "Done": the turn finished, the kernel did not call it done.
+	if (failing && ended.lead === 'Done') ended.lead = 'Finished'
 	const duration =
 		input.durationMs !== undefined && input.durationMs >= 1000
 			? elapsedLabel(input.durationMs)
 			: undefined
 	let check = checkSegment(outcome)
 	if (undo?.kind === 'undone')
-		check = { text: undo.at ? `Undone at ${clockLabel(undo.at)}` : 'Undone', tone: 'plain' }
-	else if (undo?.kind === 'partial') check = { text: partialLabel(undo.kept), tone: 'plain' }
+		check = {
+			text: undo.at ? `Undone at ${clockLabel(undo.at)}` : 'Undone',
+			tone: 'plain',
+		}
+	let undone: string | undefined
+	if (undo?.kind === 'partial') {
+		if (check?.tone === 'error') undone = partialLabel(undo.kept)
+		else check = { text: partialLabel(undo.kept), tone: 'plain' }
+	}
 	const tone: ResultTone =
 		ended.tone === 'error' || check?.tone === 'error'
 			? 'error'
@@ -119,6 +143,8 @@ export function turnResultModel(input: {
 		counted ? `${formatLineCount(changes.added)} added` : undefined,
 		counted ? `${formatLineCount(changes.removed)} removed` : undefined,
 		check?.text,
+		undone,
+		caveat ? `${CAVEAT_LEAD} ${caveat}` : undefined,
 	]
 		.filter(Boolean)
 		.join(', ')
@@ -130,6 +156,8 @@ export function turnResultModel(input: {
 				: plural(files, 'file')
 			: undefined,
 		check?.text,
+		undone,
+		caveat ? `${CAVEAT_LEAD} ${caveat}` : undefined,
 	]
 		.filter(Boolean)
 		.join(' · ')
@@ -141,10 +169,27 @@ export function turnResultModel(input: {
 		...(counted ? { added: changes.added, removed: changes.removed } : {}),
 		...(changes?.cut ? { cut: true } : {}),
 		...(check ? { check } : {}),
+		...(undone ? { undo: undone } : {}),
+		...(caveat ? { caveat: `${CAVEAT_LEAD} ${caveat}` } : {}),
 		label,
 		summary:
 			changes && changes.files.length > 0
 				? `${summary}\n${changes.files.map((file) => file.path).join('\n')}`
 				: summary,
 	}
+}
+
+/** The most files the "..." menu lists by name; the rest are one click away in the changes pane. */
+export const MENU_FILES = 8
+
+/**
+ * The files the "..." menu offers to open, largest change first (the order the pane picks what to
+ * open, equals in change order). A reply fully put back removed the files it made, so those are
+ * left out; the files it only edited were restored and still exist.
+ */
+export function menuFiles(changes: TurnChanges | undefined, undo?: UndoCardView): TurnChangeFile[] {
+	const present = (changes?.files ?? []).filter(
+		(file) => !(undo?.kind === 'undone' && file.created),
+	)
+	return [...present].sort((a, b) => b.added + b.removed - (a.added + a.removed))
 }

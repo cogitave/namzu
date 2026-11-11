@@ -2760,7 +2760,8 @@ conversations keep their own outputs.
 
 One 40 px row ends a finished turn, in place of the old "Changed 4 files" card and the
 sentence that used to sit under it: a state mark, "Done in 3s" (how long the turn took; just "Done"
-under a second; "Stopped", "Paused", "Incomplete" or "Failed" when it did not end well), the size of
+under a second; "Stopped", "Paused", "Incomplete" or "Failed" when it did not end well; "Finished in 3s"
+when the record's verdict is `failing`, because the turn ended but the kernel did not call it done), the size of
 the change ("4 files +32 −1", the same number the top bar and the pane show) and a segment about
 checking. The segment comes from the kernel's [turn outcome](../sdk/turn-outcome.md) record and from nothing
 else: never from the model's words and never from a guess. It is the record's own sentence after
@@ -2772,15 +2773,19 @@ else: never from the model's words and never from a guess. It is the record's ow
 | `failing` | the failing check ("pnpm test failed"), in bold red, with a red border and tint; this is drawn even when no file changed ("No files changed" is then the record's lead and the row shows no counts) |
 | `stale`, `inconclusive` | the record's sentence ("pnpm test passed, then files changed again", "Ran npm test | tail, but the pipe hides whether it passed"), amber |
 | `unchecked` | the counts and no check segment at all; it says nothing about checking |
-| `unknown`, `unchanged` | nothing about changes; a turn with no changed files keeps the old quiet foot, which for `unknown` is the record's own sentence |
+| `unknown` | no file counted: nothing about changes, and the old quiet foot, which is the record's own sentence. Files counted from the edit tools: only the counts, no check segment, so the counts read as the whole change. The caveat stays reachable and is never dropped: the counts' tooltip, the row's accessible name and **Copy summary** say "These are the edits made with the edit tools." followed by the record's own sentence ("A command ran that may have changed files · cannot tell here …") |
+| `unchanged` | nothing about changes; a turn with no changed files keeps the old quiet foot |
 
 The whole row is one button that opens the changes pane, on All changes and on the file of that
 reply that changed most; its accessible name reads the same facts ("Done in 3s, 4 files changed, 35
 added, 3 removed, Checked: pnpm test passed. Open changes"). A "..." at its end holds what the old card
-offered: **Undo** (see [Undoing a reply](#undoing-a-reply)), **Open file** (one item per changed file, at most
-eight, "Open file" when there is one), and **Copy summary** (the row's words and the changed paths). A
-turn that is undone shows "Undone at 10:42" in place of the check segment, a partly undone one
-"Partly undone, 2 files kept". When the column is under 600 px wide the check segment moves to a line
+offered: **Undo** (see [Undoing a reply](#undoing-a-reply)), **Open file** (one item per changed file,
+largest change first, the order the pane uses to choose what to open, at most eight, "Open file" when
+there is one), and **Copy summary** (the row's words and the changed paths). A turn that is undone
+shows "Undone at 10:42" in place of the check segment, and its Open items leave out the files that
+reply made, which the undo removed (the files it only edited were restored and are still offered). A
+partly undone one adds "Partly undone, 2 files kept" after the check segment; when the check is
+`failing` it stays where it was, in bold red, and the undo state is said beside it. When the column is under 600 px wide the check segment moves to a line
 of its own below the size, so the row grows to two lines rather than cutting the sentence. A reply
 that failed or was stopped keeps everything main showed for it (the header flags, the error rows and
 banner); the row only adds how it ended.

@@ -5,7 +5,7 @@
 // Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test e2e/ux-result-line.test.mjs
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { rmSync } from "node:fs";
+import { appendFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { createWorld, dispose, expect, launch, send } from "./harness.mjs";
@@ -82,6 +82,29 @@ async function converse(w, text, done) {
 		await accept.click({ timeout: 5000 }).catch(() => {});
 	}
 }
+// Set NAMZU_RESULT_SHOTS to a folder to keep dark and light pictures at 1280x820 of each state.
+const SHOTS = process.env.NAMZU_RESULT_SHOTS;
+async function snap(w, name) {
+	if (!SHOTS) return;
+	mkdirSync(SHOTS, { recursive: true });
+	await size(w, 1280, 820);
+	for (const mode of ["dark", "light"]) {
+		await w.page.evaluate((value) => {
+			localStorage.setItem("namzu.appearance", value);
+			window.dispatchEvent(new StorageEvent("storage", { key: "namzu.appearance", newValue: value }));
+		}, mode);
+		await expect(w.page.locator("html")).toHaveClass(mode === "dark" ? /dark/ : /^((?!dark).)*$/);
+		await w.page.screenshot({ path: join(SHOTS, `${name}-${mode}.png`) });
+	}
+}
+const undoFully = async (w, expectText) => {
+	await line(w).getByRole("button", { name: "More about this reply" }).click();
+	await w.page.getByRole("menuitem", { name: "Undo", exact: true }).click();
+	const dialog = w.page.getByRole("dialog");
+	await dialog.getByRole("button", { name: /^Undo/ }).last().click();
+	await expect(dialog.getByText(expectText)).toBeVisible({ timeout: T });
+	await w.page.keyboard.press("Escape");
+};
 const line = (w) => w.page.getByRole("region", { name: "Result of this reply" });
 const host = (w) => w.page.locator(".workspace-host");
 
@@ -122,6 +145,10 @@ test("the foot says what changed and what the record says about checking, and no
 		await converse(w, "Make a change where the check fails", /Failing run finished/);
 		await expect(line(w)).toHaveAttribute("data-check", "error");
 		await expect(line(w).locator(".turn-result-check")).toContainText("node --test failed");
+		// The turn finished; the record did not call it done.
+		await expect(line(w).locator(".turn-result-lead")).toHaveText(/^Finished/);
+		await expect(line(w).locator(".turn-result-lead")).not.toContainText("Done");
+		await snap(w, "failing-check");
 		failed = false;
 	} finally {
 		await dispose(w, { failed });
@@ -172,9 +199,21 @@ test("the pane opens 520 px wide on the largest file, files beside the diff, one
 
 		// The file that changed most is open, and the list sits to the left of the diff.
 		await expect(pane.locator(".changes-flat-row[data-active]")).toContainText("big.js");
-		const list = await pane.locator(".changes-files").boundingBox();
-		const diff = await pane.locator(".changes-diff").boundingBox();
-		assert.ok(list && diff && list.x + list.width <= diff.x + 1, "files beside the diff");
+		// The pane may still be settling when it first shows: both boxes are read together until the
+		// list sits left of the diff, and the geometry below uses that same reading.
+		let list;
+		let diff;
+		await expect.poll(async () => {
+			const both = await pane.evaluate((el) => {
+				const box = (selector) => {
+					const r = el.querySelector(selector)?.getBoundingClientRect();
+					return r && { x: r.x, width: r.width, height: r.height };
+				};
+				return { list: box(".changes-files"), diff: box(".changes-diff") };
+			});
+			({ list, diff } = both);
+			return Boolean(list && diff && list.x + list.width <= diff.x + 1 && Math.abs(list.width - 168) <= 6 && diff.height > 400);
+		}, { timeout: T }).toBe(true);
 		assert.ok(Math.abs(list.width - 168) <= 6, `list is ${list.width} wide`);
 		assert.ok(diff.height > 400, `the diff has the height: ${diff.height}`);
 
@@ -231,6 +270,139 @@ test("in a narrow window the sidebar steps aside for the pane and comes back, un
 		await open();
 		await pane.getByRole("button", { name: "Close changes" }).click();
 		await expect(host(w)).toHaveAttribute("data-sidebar-collapsed", "true");
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});
+
+const more = [
+	{ match: /fail and part undo/i, steps: [
+		{ tool: "write", args: { path: "src/keep.js", content: "export const keep = 1;\n" } },
+		{ tool: "write", args: { path: "test/bad2.test.js", content: "import test from 'node:test';\nimport assert from 'node:assert/strict';\n\ntest('bad', () => {\n  assert.equal(1, 2);\n});\n" } },
+		{ tool: "bash", args: { command: "node --test" } },
+		{ text: "Partly run finished." },
+	] },
+	{ match: /unknown command/i, steps: [
+		{ tool: "write", args: { path: "notes.txt", content: "one\ntwo\n" } },
+		{ text: "Unknown run finished." },
+	] },
+	{ match: /undo everything/i, steps: [
+		{ tool: "read", args: { path: "src/login.js" } },
+		{ tool: "write", args: { path: "src/fresh.js", content: "export const fresh = 1;\n" } },
+		{ tool: "edit", args: { path: "src/login.js", old_string: "ok: true", new_string: "ok: true, again: true" } },
+		{ text: "Undo run finished." },
+	] },
+	{ match: /long names/i, steps: [
+		{ tool: "write", args: { path: "src/components/settings-panel-for-the-whole-workspace-a.ts", content: "export const a = 1;\n" } },
+		{ tool: "write", args: { path: "src/components/settings-panel-for-the-whole-workspace-b.ts", content: "export const b = 2;\nexport const c = 3;\n" } },
+		{ text: "Names run finished." },
+	] },
+];
+
+test("a failing check stays on the row through a partial undo, and the undo is said beside it", { timeout: 480000 }, async () => {
+	const w = await createWorld({ rules: more, files, seed, tabs: "hidden" });
+	let failed = true;
+	try {
+		await launch(w);
+		await openProject(w);
+		await converse(w, "Make it fail and part undo", /Partly run finished/);
+		await expect(line(w).locator(".turn-result-check")).toContainText("node --test failed");
+		// A file edited by hand since the reply is left alone by the undo, so the undo is partial.
+		appendFileSync(join(w.project, "test/bad2.test.js"), "// mine\n");
+		await undoFully(w, /Partly undone/);
+		await expect(line(w)).toHaveAttribute("data-undo", "partial", { timeout: T });
+		await expect(line(w).locator(".turn-result-check")).toContainText("node --test failed");
+		await expect(line(w)).toHaveAttribute("data-check", "error");
+		await expect(line(w).locator(".turn-result-undo")).toHaveText(/^Partly undone, 1 file kept$/);
+		await expect(line(w).locator(".turn-result-lead")).toHaveText(/^Finished/);
+		await snap(w, "failing-partly-undone");
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});
+
+test("an unknown record with counted edits shows the counts alone, and the caveat is reachable", { timeout: 480000 }, async () => {
+	const w = await createWorld({ rules: more, files, seed, tabs: "hidden" });
+	let failed = true;
+	try {
+		await launch(w);
+		await openProject(w);
+		// The kernel never says "unknown" after a counted edit, so this one state is shaped at the
+		// boundary: the host's outcome event for the turn is rewritten on its way to the renderer, and
+		// everything after it (the model, the row, the menu) is the real app.
+		await w.app.evaluate(({ BrowserWindow }) => {
+			const record = { verdict: "unknown", line: "A command ran that may have changed files · cannot tell here · not repeated in this conversation", changed: 0 };
+			const rewrite = (value) => Array.isArray(value) ? value.map(rewrite) : value && typeof value === "object" && value.kind === "outcome" ? { ...value, ...record } : value;
+			for (const win of BrowserWindow.getAllWindows()) {
+				const send = win.webContents.send.bind(win.webContents);
+				win.webContents.send = (channel, ...args) => send(channel, ...args.map(rewrite));
+			}
+		});
+		await converse(w, "Run an unknown command", /Unknown run finished/);
+		await expect(line(w).locator(".turn-result-files")).toHaveText("1 file");
+		await expect(line(w).locator(".turn-result-check")).toHaveCount(0);
+		const tip = await line(w).locator(".turn-result-size").getAttribute("title");
+		const said = await line(w).getByRole("button", { name: /Open changes$/ }).getAttribute("aria-label");
+		assert.match(tip ?? "", /^These are the edits made with the edit tools\. A command ran that may have changed files/, said ?? "");
+		const name = (await line(w).getByRole("button", { name: /Open changes$/ }).getAttribute("aria-label")) ?? "";
+		assert.ok(name.includes("A command ran that may have changed files"), name);
+		await line(w).locator(".turn-result-size").hover();
+		await snap(w, "unknown-with-counts");
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});
+
+test("after a full undo the menu offers Open only for files that still exist, largest first", { timeout: 480000 }, async () => {
+	const w = await createWorld({ rules: more, files, seed, tabs: "hidden" });
+	let failed = true;
+	try {
+		await launch(w);
+		await openProject(w);
+		await converse(w, "Please undo everything after", /Undo run finished/);
+		const items = async () => {
+			await line(w).getByRole("button", { name: "More about this reply" }).click();
+			await expect(w.page.getByRole("menuitem", { name: "Copy summary" })).toBeVisible({ timeout: T });
+			const names = (await w.page.getByRole("menuitem").allInnerTexts()).map((t) => t.trim());
+			await w.page.keyboard.press("Escape");
+			return names;
+		};
+		const before = await items();
+		assert.ok(before.indexOf("Open fresh.js") >= 0 && before.indexOf("Open login.js") >= 0, before.join("|"));
+		assert.ok(before.indexOf("Open login.js") < before.indexOf("Open fresh.js"), `largest first: ${before.join("|")}`);
+		await undoFully(w, /Undo finished/);
+		await expect(line(w)).toHaveAttribute("data-undo", "undone", { timeout: T });
+		const after = await items();
+		// One file is left, so the item reads "Open file" and names login.js in its tooltip.
+		assert.deepEqual(after, ["Open file", "Copy summary"]);
+		await line(w).getByRole("button", { name: "More about this reply" }).click();
+		await expect(w.page.getByRole("menuitem", { name: "Open file" })).toHaveAttribute("title", "src/login.js");
+		await w.page.keyboard.press("Escape");
+		await line(w).getByRole("button", { name: "More about this reply" }).click();
+		await snap(w, "menu-after-full-undo");
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});
+
+test("two long names that differ at the end stay told apart in the flat list", { timeout: 480000 }, async () => {
+	const w = await createWorld({ rules: more, files, seed, tabs: "hidden" });
+	let failed = true;
+	try {
+		await launch(w);
+		await openProject(w);
+		await size(w, 1280, 820);
+		await converse(w, "Write the long names", /Names run finished/);
+		await line(w).getByRole("button", { name: /Open changes$/ }).click();
+		const pane = w.page.getByRole("complementary", { name: "Changes" });
+		await expect(pane.locator(".changes-flat-name")).toHaveCount(2, { timeout: T });
+		const cut = await pane.locator(".changes-flat-name").evaluateAll((els) => els.map((el) => ({ over: el.scrollWidth > el.clientWidth, dir: getComputedStyle(el).direction })));
+		assert.ok(cut.every((c) => c.over && c.dir === "rtl"), JSON.stringify(cut));
+		await snap(w, "flat-list-long-names");
 		failed = false;
 	} finally {
 		await dispose(w, { failed });

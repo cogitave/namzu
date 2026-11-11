@@ -114,6 +114,12 @@ button.turn-result-main:focus-visible,
 	color: var(--error-foreground);
 	font-weight: 600;
 }
+.turn-result-undo {
+	flex: none;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	white-space: nowrap;
+}
 .turn-result-chevron {
 	flex: none;
 	width: 14px;
@@ -164,6 +170,11 @@ button.turn-result-main:focus-visible,
 		padding-inline-start: 17px;
 		white-space: normal;
 		overflow-wrap: anywhere;
+	}
+	.turn-result-undo {
+		flex: 1 1 100%;
+		order: 1;
+		padding-inline-start: 17px;
 	}
 	.turn-result-chevron {
 		display: none;

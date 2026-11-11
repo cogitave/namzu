@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
@@ -38,5 +39,18 @@ describe('the narrow file list', () => {
 		expect(html).toContain('−1')
 		expect(html.match(/aria-current="true"/g)).toHaveLength(1)
 		expect(FLAT_LIST_LIMIT).toBeGreaterThan(4)
+	})
+})
+
+describe('a long name in the flat list', () => {
+	it('is cut at its start so its end stays readable, as the diff header is', () => {
+		const css = readFileSync(new URL('./review.css', import.meta.url), 'utf8')
+		const rule = (selector: string) => {
+			const start = css.indexOf(`\n${selector} {`)
+			return css.slice(start, css.indexOf('}', start))
+		}
+		expect(rule('.changes-flat-name')).toMatch(/direction:\s*rtl/)
+		expect(rule('.changes-flat-name')).toMatch(/text-overflow:\s*ellipsis/)
+		expect(rule('.changes-diff-path')).toMatch(/direction:\s*rtl/)
 	})
 })

@@ -4,13 +4,10 @@ import { largestFile } from './changes-review/model.js'
 import { CUT_NOTE, formatLineCount } from './changes-totals.js'
 import { ChevronRightIcon, CopyIcon, MoreHorizontalIcon } from './icons.js'
 import type { TurnChanges } from './turn-changes.js'
-import type { ResultLineModel } from './turn-result-model.js'
+import { MENU_FILES, type ResultLineModel, menuFiles } from './turn-result-model.js'
 import { type UndoCardView, partialLabel } from './undo-model.js'
 import './conversation-actions-menu.css'
 import './turn-result-line.css'
-
-/** The most files the "..." menu lists by name; the rest are one click away in the changes pane. */
-const MENU_FILES = 8
 
 function UndoItem({ view, onUndo }: { view: UndoCardView; onUndo: () => void }) {
 	if (view.kind === 'undone') return null
@@ -65,7 +62,7 @@ export function TurnResultLine({
 				{model.duration ? ` in ${model.duration}` : ''}
 			</span>
 			{model.files > 0 && (
-				<span className="turn-result-size" aria-hidden="true">
+				<span className="turn-result-size" title={model.caveat} aria-hidden="true">
 					<span className="turn-result-files">
 						{model.files} {model.files === 1 ? 'file' : 'files'}
 					</span>
@@ -92,11 +89,17 @@ export function TurnResultLine({
 					{model.check.text}
 				</span>
 			)}
+			{model.undo && (
+				<span className="turn-result-undo" title={model.undo} aria-hidden="true">
+					{model.undo}
+				</span>
+			)}
 			{opens && <ChevronRightIcon className="turn-result-chevron" aria-hidden="true" />}
 		</>
 	)
-	const listed = changes?.files.slice(0, MENU_FILES) ?? []
-	const only = changes?.files.length === 1 ? changes.files[0] : undefined
+	const present = menuFiles(changes, undo)
+	const listed = present.slice(0, MENU_FILES)
+	const only = present.length === 1 ? present[0] : undefined
 	return (
 		<section
 			className="turn-result"
