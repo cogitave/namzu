@@ -370,6 +370,49 @@ turn's span. When telemetry is off, or the active span context is not valid
 W3C, nothing is added. A connection to an older server is sent exactly what it
 always was. `baggage` is not sent.
 
+### Tasks: a call the server turns into a task is awaited
+
+The tasks extension (`io.modelcontextprotocol/tasks`) lets a server answer a
+`tools/call` with a handle (`resultType: "task"`, a `taskId`, a status, a
+`pollIntervalMs`) instead of a result. **Before this, such an answer was
+refused as an unknown `resultType`**, and the client never declared the
+extension, so a conforming server never sent one.
+
+Now, on a 2026-07-28 connection whose `server/discover` lists the extension
+under `capabilities.extensions`, the client declares it in
+`io.modelcontextprotocol/clientCapabilities` on each request
+(`extensions: { "io.modelcontextprotocol/tasks": {} }`), and `callTool()`
+waits for a task to end and resolves with the task's `result`, exactly as if
+the server had answered at once. Nothing changes for the caller. Set
+`MCPClientConfig.tasks` to `false` to declare nothing, so a server never
+returns a task to that client.
+
+- **Polling.** `tasks/get` at the interval the server last suggested, kept
+  between 100 ms and 30 s (one second when it names none). `Mcp-Method` and
+  `Mcp-Name` (the task id) are set on `tasks/get`, `tasks/update` and
+  `tasks/cancel`.
+- **Deadlines.** The wait keeps the rules of a blocking call. With no
+  `onProgress`, the whole wait is bounded by `requestTimeoutMs`. With
+  `onProgress` on a client built with `resetTimeoutOnProgress`, each change of
+  the task's status, message or `lastUpdatedAt` renews that timeout, up to
+  `maxTotalTimeoutMs`.
+- **Progress.** Each change is passed to `onProgress` as an update whose
+  `progress` rises by one and whose `message` is the task's `statusMessage`
+  (control characters removed, 512 bytes), the shape of a progress notification.
+- **Cancellation.** When the call's `signal` fires or a deadline passes, the
+  client sends `tasks/cancel` (never `notifications/cancelled`, which the
+  extension forbids for tasks) and rejects with the signal's reason or a
+  `TimeoutError`. The cancel is best effort and not awaited.
+- **Outcomes.** `completed` resolves; `failed` rejects with the JSON-RPC error
+  as an `MCPProtocolError`; `cancelled` rejects; `input_required` cancels the
+  task and rejects with `MCPInputRequiredError`, the same typed outcome as an
+  unmet multi round-trip request, because a modern connection has nobody to ask.
+- **Against an older server.** Nothing is declared and no task is awaited.
+
+Not built: `tasks/update` (answering a task's input requests),
+`notifications/tasks` through the listen stream (polling is the default and is
+what runs), and persisting task ids so polling can resume after a restart.
+
 ## Mirroring tool parameters into headers: `x-mcp-header`
 
 A server may annotate a tool parameter with `x-mcp-header` to ask that the

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 import { getTraceContextHeaders } from '../../telemetry/runtime-accessors.js'
 import type {
+	MCPClientCapabilities,
 	MCPClientConfig,
 	MCPClientState,
 	MCPConnectionStatus,
@@ -59,6 +60,13 @@ import {
 import { HttpSseTransport } from './http-sse.js'
 import { StdioTransport } from './stdio.js'
 import { MCPSubscriptionResponseError, StreamableHttpTransport } from './streamable-http.js'
+import {
+	type MCPTaskState,
+	MCP_TASKS_EXTENSION,
+	decodeTaskState,
+	isCreateTaskResult,
+	taskPollDelayMs,
+} from './tasks.js'
 import { type McpParamHeaderBinding, validateMcpHeaderAnnotations } from './x-mcp-header.js'
 
 import {
@@ -778,7 +786,7 @@ export class MCPClient {
 			method: 'subscriptions/listen',
 			params: { notifications: requested },
 			clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
-			capabilities: this.config.capabilities ?? {},
+			capabilities: this.clientCapabilities(),
 		})
 		const subscription: ModernSubscription = {
 			id,
@@ -1084,6 +1092,7 @@ export class MCPClient {
 			{ name, arguments: args },
 			options,
 		)
+		if (this.declaresTasks() && isCreateTaskResult(raw)) return await this.awaitTask(raw, options)
 		const decoded = decodeResult(raw)
 		if (decoded.kind === 'complete') return decoded.result
 
@@ -1098,6 +1107,9 @@ export class MCPClient {
 				{ name, arguments: args, requestState: decoded.requestState },
 				options,
 			)
+			if (this.declaresTasks() && isCreateTaskResult(retryRaw)) {
+				return await this.awaitTask(retryRaw, options)
+			}
 			const retried = decodeResult(retryRaw)
 			if (retried.kind === 'complete') return retried.result
 			this.log.warn('MCP tool call required input again after the one automatic retry', {
@@ -1113,6 +1125,179 @@ export class MCPClient {
 			'namzu.connector.requested': (decoded.inputRequests ?? []).map((r) => r.method).join(', '),
 		})
 		throw new MCPInputRequiredError(decoded.inputRequests ?? [])
+	}
+
+	/**
+	 * The capabilities a modern request declares: the host's own, plus the
+	 * tasks extension when this client will handle a task.
+	 */
+	private clientCapabilities(): MCPClientCapabilities {
+		const base = this.config.capabilities ?? {}
+		if (!this.declaresTasks()) return base
+		return { ...base, extensions: { ...base.extensions, [MCP_TASKS_EXTENSION]: {} } }
+	}
+
+	/**
+	 * Does this connection take part in the tasks extension?
+	 *
+	 * Only on a 2026-07-28 connection whose server advertised the extension in
+	 * `server/discover`, and only unless the host turned it off. A server must
+	 * never return a task to a client that did not declare it, so declaring is
+	 * also what makes a task arrive.
+	 */
+	private declaresTasks(): boolean {
+		return (
+			this.config.tasks !== false &&
+			this.era?.kind === 'modern' &&
+			this.serverCapabilities?.extensions?.[MCP_TASKS_EXTENSION] !== undefined
+		)
+	}
+
+	/**
+	 * Wait for a task the server made out of a `tools/call`, and return what
+	 * the call would have returned.
+	 *
+	 * Polls `tasks/get` at the interval the server last suggested (bounded to
+	 * 100 ms to 30 s). The wait keeps the deadline rules of a blocking call: a
+	 * call that gave no `onProgress` is bounded by the request timeout in all;
+	 * one that did, on a client built with `resetTimeoutOnProgress`, has that
+	 * timeout renewed by every change of the task's status or message, up to the
+	 * total cap. A change is also reported to `onProgress`, as a progress
+	 * notification would be: a count that rises by one per change, with the
+	 * task's `statusMessage` as the message.
+	 *
+	 * When the caller's signal fires or a deadline passes, the task is cancelled
+	 * with `tasks/cancel` (never `notifications/cancelled`, which the extension
+	 * forbids for tasks) before the call rejects. A task that asks for input
+	 * is cancelled too: this client has no one to ask on a modern connection,
+	 * and the call ends with the same typed error as any other unmet request.
+	 */
+	private async awaitTask(raw: unknown, options?: MCPRequestOptions): Promise<unknown> {
+		const created = decodeTaskState(raw)
+		if (!created) {
+			throw new Error(
+				`MCP server "${this.config.serverName}" answered with a task that has no usable taskId or status`,
+			)
+		}
+		const taskId = created.taskId
+		const extendable = this.resetTimeoutOnProgress && options?.onProgress !== undefined
+		const started = Date.now()
+		const totalDeadline = started + (extendable ? this.maxTotalTimeoutMs : this.requestTimeoutMs)
+		let lastChange = started
+		let reports = 0
+		let seen: string | undefined
+		let state: MCPTaskState = created
+		const pollOptions: MCPRequestOptions = {
+			...(options?.signal ? { signal: options.signal } : {}),
+			...(options?.headers ? { headers: options.headers } : {}),
+			...(options?.bearerToken !== undefined ? { bearerToken: options.bearerToken } : {}),
+		}
+		const note = (): void => {
+			const fingerprint = `${state.status}\u0000${state.statusMessage ?? ''}\u0000${state.lastUpdatedAt ?? ''}`
+			if (fingerprint === seen) return
+			seen = fingerprint
+			lastChange = Date.now()
+			const message = progressMessage(state.statusMessage)
+			options?.onProgress?.({ progress: ++reports, ...(message ? { message } : {}) })
+		}
+		try {
+			for (;;) {
+				note()
+				switch (state.status) {
+					case 'completed':
+						return state.result
+					case 'failed':
+						throw protocolErrorFromReply({
+							code: state.error?.code as number,
+							message:
+								typeof state.error?.message === 'string' ? state.error.message : 'MCP task failed',
+							...(state.error?.data !== undefined ? { data: state.error.data } : {}),
+						})
+					case 'cancelled':
+						throw new Error(
+							`MCP task "${taskId}" on "${this.config.serverName}" was cancelled by the server`,
+						)
+					case 'input_required':
+						this.log.warn('MCP task requires input this client cannot supply', {
+							'namzu.connector.server': this.config.serverName,
+						})
+						this.cancelTask(taskId, pollOptions)
+						throw new MCPInputRequiredError(state.inputRequests ?? [])
+					default:
+						break
+				}
+				const now = Date.now()
+				const idleDeadline = extendable ? lastChange + this.requestTimeoutMs : totalDeadline
+				const deadline = Math.min(totalDeadline, idleDeadline)
+				if (now >= deadline) {
+					const error = new Error(
+						`MCP task "${taskId}" on "${this.config.serverName}" timed out after ${now - started}ms`,
+					)
+					error.name = 'TimeoutError'
+					this.log.warn('MCP task timed out', {
+						'namzu.connector.server': this.config.serverName,
+						'namzu.connector.timeout_ms': now - started,
+					})
+					throw error
+				}
+				await this.pause(
+					Math.min(taskPollDelayMs(state.pollIntervalMs), deadline - now),
+					options?.signal,
+				)
+				const polled = decodeTaskState(await this.request('tasks/get', { taskId }, pollOptions))
+				if (!polled || polled.taskId !== taskId) {
+					throw new Error(
+						`MCP server "${this.config.serverName}" answered tasks/get with something that is not task "${taskId}"`,
+					)
+				}
+				state = polled
+			}
+		} catch (err) {
+			// A wait that ended because this side stopped (the caller's signal or a
+			// deadline) leaves the work running on the server unless told. A server's
+			// own answer (failed, unknown task) has nothing left to cancel.
+			const stoppedHere =
+				options?.signal?.aborted === true || (err instanceof Error && err.name === 'TimeoutError')
+			if (stoppedHere) this.cancelTask(taskId, pollOptions)
+			throw err
+		}
+	}
+
+	/** Sleep, ending early with the signal's reason if it fires. */
+	private pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
+		return new Promise<void>((resolve, reject) => {
+			if (signal?.aborted) {
+				reject(signal.reason)
+				return
+			}
+			const onAbort = (): void => {
+				clearTimeout(timer)
+				reject(signal?.reason)
+			}
+			const timer = setTimeout(() => {
+				signal?.removeEventListener('abort', onAbort)
+				resolve()
+			}, ms)
+			signal?.addEventListener('abort', onAbort, { once: true })
+		})
+	}
+
+	/** `tasks/cancel`, best effort and never awaited: the caller is already leaving. */
+	private cancelTask(taskId: string, authority: MCPRequestOptions): void {
+		if (!this.isConnected()) return
+		const { signal: _callerSignal, ...rest } = authority
+		void this.request(
+			'tasks/cancel',
+			{ taskId },
+			{
+				...rest,
+				signal: AbortSignal.timeout(CANCEL_NOTIFICATION_TIMEOUT_MS),
+			},
+		).catch((err: unknown) => {
+			this.log.debug('MCP task cancellation was not acknowledged', {
+				'exception.message': toErrorMessage(err),
+			})
+		})
 	}
 
 	async listResources(options?: MCPRequestOptions): Promise<MCPResource[]> {
@@ -1506,7 +1691,7 @@ export class MCPClient {
 			method,
 			params: requestParams,
 			clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
-			capabilities: this.config.capabilities ?? {},
+			capabilities: this.clientCapabilities(),
 			...this.paramHeaderBindings(method, params),
 		})
 		const message: MCPJsonRpcMessage = {
@@ -1769,7 +1954,7 @@ export class MCPClient {
 			method: 'notifications/cancelled',
 			params: { requestId: id, reason },
 			clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
-			capabilities: this.config.capabilities ?? {},
+			capabilities: this.clientCapabilities(),
 		})
 		const controller = new AbortController()
 		this.cancellationControllers.add(controller)
@@ -1840,7 +2025,7 @@ export class MCPClient {
 			method,
 			params,
 			clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
-			capabilities: this.config.capabilities ?? {},
+			capabilities: this.clientCapabilities(),
 		})
 		const message: MCPJsonRpcMessage = {
 			jsonrpc: '2.0',
