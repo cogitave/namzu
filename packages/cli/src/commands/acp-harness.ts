@@ -270,19 +270,7 @@ export function withCliHarnesses(
 			const pending = selections.get(id)
 			if (pending && pending.engine !== engine)
 				throw new Error('The conversation engine cannot change.')
-			const latest = [...saved.records]
-				.reverse()
-				.find(
-					(record) =>
-						record.type === 'session_updated' &&
-						record.harness?.kind === 'dispatch-prepared' &&
-						record.harness.model,
-				)
-			const model =
-				latest?.type === 'session_updated' && latest.harness?.kind === 'dispatch-prepared'
-					? latest.harness.model
-					: undefined
-			return pending ?? { engine, model: model ?? binding.initialModel }
+			return pending ?? { engine, model: saved.latestDispatchModel ?? binding.initialModel }
 		}
 		if (saved) {
 			if (selections.has(id))

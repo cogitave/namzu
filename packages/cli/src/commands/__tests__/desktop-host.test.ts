@@ -1739,7 +1739,7 @@ it('archives owned settled history idempotently while preserving strict messages
 		])
 		expect(await loadConversation(state, sessionId)).toEqual(original)
 		expect(readFileSync(file, 'utf8').startsWith(before)).toBe(true)
-		const facts = await sessionStorage.readConversationFacts(state, sessionId)
+		const facts = await sessionStorage.readConversationRecords(state, sessionId)
 		expect(facts?.archived).toBe(true)
 		expect(
 			facts?.records.filter((record) => record.type === 'session_updated' && record.archived),
@@ -1920,7 +1920,7 @@ it('archives settled native history by releasing only its owning SDK harness wri
 		})
 		expect(close).toHaveBeenCalledOnce()
 		expect(readFileSync(file, 'utf8').startsWith(before)).toBe(true)
-		expect((await sessionStorage.readConversationFacts(state, sessionId))?.archived).toBe(true)
+		expect((await sessionStorage.readConversationRecords(state, sessionId))?.archived).toBe(true)
 		expect(
 			withoutJournalMetadata((await host['namzu/conversations/history']({ sessionId })).messages),
 		).toEqual([
@@ -1962,7 +1962,7 @@ it('archives a claimed Pal through its original strict path without invoking nat
 			sessionId,
 			archived: true,
 		})
-		expect((await sessionStorage.readConversationFacts(state, sessionId))?.archived).toBe(true)
+		expect((await sessionStorage.readConversationRecords(state, sessionId))?.archived).toBe(true)
 		expect(readFileSync(file, 'utf8').startsWith(before)).toBe(true)
 		expect(
 			withoutJournalMetadata((await host['namzu/conversations/history']({ sessionId })).messages),
@@ -2081,7 +2081,7 @@ it('refuses corrupt archive history and open parked turns without mutating eithe
 			await expect(host['namzu/conversations/archive']({ sessionId })).rejects.toThrow()
 			expect(readFileSync(state.paths.sessionLog({ sessionId }), 'utf8')).toBe(before)
 		}
-		expect((await sessionStorage.readConversationFacts(state, parkedId))?.archived).toBe(false)
+		expect((await sessionStorage.readConversationRecords(state, parkedId))?.archived).toBe(false)
 	} finally {
 		closeSessions(state)
 		await owner.close()
@@ -2109,7 +2109,7 @@ it('requires idle known background jobs for both durable archive and missing rec
 				'background work',
 			)
 		}
-		expect((await sessionStorage.readConversationFacts(state, sessionId))?.archived).toBe(false)
+		expect((await sessionStorage.readConversationRecords(state, sessionId))?.archived).toBe(false)
 		expect(existsSync(state.paths.sessionLog({ sessionId: missingId }))).toBe(false)
 	} finally {
 		closeSessions(state)
@@ -2135,7 +2135,7 @@ it('archives only the captured trusted home when indexed opening yields to an am
 			sessionId,
 			archived: true,
 		})
-		expect((await sessionStorage.readConversationFacts(state, sessionId))?.archived).toBe(true)
+		expect((await sessionStorage.readConversationRecords(state, sessionId))?.archived).toBe(true)
 	} finally {
 		vi.stubEnv('NAMZU_HOME', state.root)
 		closeSessions(state)
@@ -2173,7 +2173,7 @@ it('keeps idempotent archive retries behind an existing writer lease', async () 
 		await blocked
 		await vi.advanceTimersByTimeAsync(5_000)
 		await rejected
-		expect((await sessionStorage.readConversationFacts(state, sessionId))?.archived).toBe(true)
+		expect((await sessionStorage.readConversationRecords(state, sessionId))?.archived).toBe(true)
 	} finally {
 		vi.useRealTimers()
 		await log.release(held!)

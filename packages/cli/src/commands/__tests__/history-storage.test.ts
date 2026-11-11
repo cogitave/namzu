@@ -8,7 +8,7 @@ import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
 	openConversationLog,
 	openSessions,
-	readConversationFacts,
+	readConversationRecords,
 	refreshIndex,
 	resolveConversation,
 	startConversation,
@@ -73,7 +73,7 @@ it('shows an answer the runtime replaced, never the raw one', async () => {
 		createUserMessage('what is the key'),
 		{ role: 'assistant', content: 'the key is SECRET' } as never,
 	])
-	const answer = (await readConversationFacts(sessions, id))?.records.find(
+	const answer = (await readConversationRecords(sessions, id))?.records.find(
 		(record) => record.type === 'message' && record.role === 'assistant',
 	)
 	if (answer?.type !== 'message') throw new Error('fixture expected the assistant record')

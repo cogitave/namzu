@@ -227,7 +227,7 @@ import {
 	loadConversation,
 	loadResumableConversation,
 	openSessions,
-	readConversationFacts,
+	readConversationRecords,
 	recordGeneratedTitle,
 	requireWritableConversation,
 	setTitle,
@@ -5883,7 +5883,7 @@ function AppBody({
 			// The account this conversation last ran under. One that has since been
 			// removed falls back to the usual sign-in, and the person is told.
 			try {
-				const facts = await readConversationFacts(sessions, sessionId, 'tolerant')
+				const facts = await readConversationRecords(sessions, sessionId, 'tolerant')
 				const lastBinding = facts?.records
 					.filter((record) => record.type === 'account_bound')
 					.at(-1)

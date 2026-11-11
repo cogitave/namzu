@@ -29,6 +29,7 @@ import {
 	openSessionScope,
 	openSessions,
 	readConversationFacts,
+	readConversationRecords,
 	setTitle,
 	unarchiveConversation,
 } from '../integrations/sessions/store.js'
@@ -1576,7 +1577,7 @@ export function createDesktopHostExtensions(
 			return withState(async (state) => {
 				const id = asSessionId(await ownedSessionIn(params, state))
 				await setTitle(state, id, title)
-				const facts = await readConversationFacts(state, id)
+				const facts = await readConversationRecords(state, id)
 				// An empty name restores the title derived from the first message.
 				return { title: facts ? displayTitleOf(facts) : title.trim() }
 			})

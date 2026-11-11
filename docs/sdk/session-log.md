@@ -523,9 +523,10 @@ Measured against an instant model, 3 `bash` calls and a 300-token reply per
 prompt: CPU per turn was about 0.4 s at turns 1-10, 0.7 s at 91-100, 1.7 s at
 121-150 and 2.6 s at 151-200 (3 s worst turn), and the heap after a full
 collection rose from 45 to 57 MB over the first 100 turns. Before this change
-turns 91-100 cost about 2.5 s. What still grows is the writer, which verifies
-the whole chain each time a turn takes the log, and compaction scoring once the
-history is long. The reads a turn makes of the whole log (the folded context, every message ever
+turns 91-100 cost about 2.5 s. What still grows is the writer, which reads and
+hashes the whole log each time a turn takes the log (now without parsing what
+it already verified, see below), and compaction scoring once the history is
+long. The reads a turn makes of the whole log (the folded context, every message ever
 recorded, the turn ids, which checkpoints were committed and which are named by
 an open decision) are kept as reductions in
 `packages/sdk/src/store/session-log/incremental.ts`. A reduction remembers the
@@ -552,6 +553,60 @@ keeps superseded and compacted messages too, so it grows with the log rather
 than with the live context, and a read copies all of them. A turn's own context is left to the
 turn: its abort listener on the session's signal holds the turn only weakly, so a
 finished turn is released rather than kept for the life of the session.
+
+### What a later claim re-checks
+
+The writer's claim (and every other first read of a log by a fresh
+`DiskSessionLog`) used to parse, schema-check and hash every record of the log
+each time. A process now remembers what it has verified of each log it has
+read or written (`packages/sdk/src/store/session-log/verified-prefix.ts`,
+the sixteen most recently used logs): for each record, the byte length of its
+line and the SHA-256 of those bytes, plus the head pointer, the `gen`, the
+session id and the turn state at the head, 36 bytes per record. Only a record
+that passed `SessionLogChain.accept` in full is remembered, and only when it
+continues what is remembered (the next seq, its `prev` the remembered head).
+
+A later claim in the same process still reads every byte of the log. It splits
+the prefix into lines and hashes each one; a line is accepted as already
+verified when its length and SHA-256 equal the remembered ones, which makes it
+byte-identical to a line that passed every rule (schema, hash chain, seq,
+`gen`, text links), so none of them is run again and nothing is parsed or
+kept. The bytes after the remembered head, such as records another writer
+appended, are verified in full as before. A byte changed anywhere before them
+is refused at that claim: the changed line no longer hashes to what was
+remembered, the log is verified in full from byte 0, and the break is reported
+with the same `SessionLogIntegrityError` (`prev-mismatch` at the next record,
+or `not-a-record`) a process that had never read the log gets.
+
+Nothing is skipped on trust. The file's identity (device, inode and path,
+`LogMedium.identity`) only decides whether a remembered prefix is worth
+comparing; the comparison is of content. A shorter file, a replaced file, a
+line that splits differently or a log of another session discards what is
+remembered and verifies from byte 0. The first claim of a log in a process
+verifies everything, as before. A last record altered in place with every
+other byte kept is accepted by a claim as it is by a process that never read
+the log, because no later record names its hash; a checkpoint's anchor or an
+index row is what covers the tail. An in-memory log has no identity and is
+verified in full each time.
+
+`ReadSessionLogOptions.reverify`, with `after`, in `strict` mode, gives a
+resumed read the same re-check: it hashes the bytes before its cursor against
+what was remembered (or verifies from byte 0 when nothing matches), then
+reads on from the cursor. `foldSessionLog` and its `IncrementalFold` are
+exported from the SDK; a reduction that sets `reverify` refuses a log altered
+anywhere, as a read from byte 0 does, and parses only what it has not folded.
+
+The terminal and the desktop host read a conversation's facts (first record,
+latest title, archive flag, open turn, last timestamp, and the few records the
+desktop host searches for: a turn's model, its latest pause, its open decisions,
+the latest dispatch model, an account binding, a linked pull request) with one
+streaming reduction that keeps those answers and no record
+(`packages/cli/src/integrations/sessions/conversation-facts.ts`). A strict read
+of a log this process has read before resumes through `foldSessionLog` with
+`reverify`, so a log altered anywhere is still refused at every read, not only
+the first; a tolerant read makes one pass and remembers nothing. A caller that
+folds messages or a transcript from the records asks `readConversationRecords`,
+which keeps the whole log as before.
 
 ## A host's cached messages
 
