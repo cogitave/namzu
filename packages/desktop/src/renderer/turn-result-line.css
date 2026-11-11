@@ -1,29 +1,34 @@
-/* The foot of a finished turn: one 40 px row, a state mark, the size of the change, the check. */
+/*
+ * The foot of a finished turn: one 32 px line of text, no box. A state mark, how it ended, the size
+ * of the change, the check. It starts at the reply's own left edge (the row reaches 8 px past it
+ * so the hover fill has room), and only hover or keyboard focus draws anything round it.
+ */
 .turn-result {
 	display: flex;
 	align-items: center;
-	min-height: 40px;
-	margin: 4px 0 16px;
-	border: 1px solid var(--border);
-	border-radius: var(--radius-card);
-	background: var(--secondary);
+	min-height: 32px;
+	margin: 0 -8px 16px;
+	padding-inline: 8px 4px;
 	color: var(--foreground);
 	font-size: 13px;
 	--changes-added: #15803d;
 	--changes-removed: var(--error-foreground);
+	--turn-result-fill: color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 .dark .turn-result {
-	background: var(--accent);
 	--changes-added: #4ade80;
 	--changes-removed: #ff8a8a;
 }
-/* A failed check cannot be missed: the whole row takes the error colour. */
-.turn-result[data-check="error"] {
-	border-color: var(--error);
-	background: color-mix(in srgb, var(--error) 10%, var(--secondary));
+/* The whole row opens the changes; it takes the soft fill the quiet rows take. */
+.turn-result[data-opens]:hover,
+.turn-result:has(.turn-result-main:focus-visible),
+.turn-result:has(.turn-result-more[data-popup-open]) {
+	border-radius: var(--radius-control);
+	background: var(--turn-result-fill);
 }
-.dark .turn-result[data-check="error"] {
-	background: color-mix(in srgb, var(--error) 16%, var(--accent));
+/* The reply's own action row is already 24 px of room above; the line follows it directly. */
+.normal-transcript .message.is-assistant:has(+ .turn-result) {
+	padding-bottom: 0;
 }
 .turn-result-main {
 	display: flex;
@@ -31,11 +36,9 @@
 	align-items: center;
 	gap: 12px;
 	min-width: 0;
-	/* 38 inside the 1 px border: the row is 40 px. */
-	height: 38px;
+	height: 32px;
 	margin: 0;
-	padding: 0 6px 0 14px;
-	border-radius: var(--radius-card);
+	padding: 0;
 	text-align: left;
 	font: inherit;
 	color: inherit;
@@ -43,8 +46,8 @@
 button.turn-result-main {
 	cursor: pointer;
 }
-button.turn-result-main:hover {
-	background: color-mix(in srgb, var(--foreground) 5%, transparent);
+button.turn-result-main:focus-visible {
+	border-radius: var(--radius-control);
 }
 button.turn-result-main:focus-visible,
 .turn-result-more:focus-visible {
@@ -124,20 +127,38 @@ button.turn-result-main:focus-visible,
 	flex: none;
 	width: 14px;
 	height: 14px;
-	margin-inline-start: auto;
+	margin-inline-start: -6px;
 	color: var(--muted-foreground);
 }
+/* The "..." is the end of the row; it is drawn while the pointer is over the row, focus is inside it, or its menu is open. */
 .turn-result-more {
 	display: inline-flex;
 	flex: none;
 	align-items: center;
 	justify-content: center;
-	width: 32px;
-	height: 32px;
-	margin-inline: 2px 4px;
-	border-radius: var(--radius-control);
+	width: 28px;
+	height: 28px;
+	margin-inline: 4px 0;
+	border-radius: var(--radius-chip);
 	color: var(--muted-foreground);
 	cursor: pointer;
+	opacity: 0;
+	transition: opacity var(--dur-quick) var(--ease-out);
+}
+.turn-result:hover .turn-result-more,
+.turn-result:focus-within .turn-result-more,
+.turn-result-more[data-popup-open] {
+	opacity: 1;
+}
+@media (hover: none) {
+	.turn-result-more {
+		opacity: 1;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.turn-result-more {
+		transition: none;
+	}
 }
 .turn-result-more:hover,
 .turn-result-more[data-popup-open] {
@@ -149,20 +170,19 @@ button.turn-result-main:focus-visible,
 	height: 16px;
 }
 /*
- * A narrow column: the sentence about checking takes a line of its own below the size, so the
- * fact the row exists to say is never cut to a few letters. The row grows to two lines.
+ * A column too narrow for one line: the sentence about checking takes a line of its own below the
+ * size, so the fact the row exists to say is never cut to a few letters. The row grows to two lines.
  */
 .turn-result {
 	container: turn-result / inline-size;
 }
-@container turn-result (max-width: 600px) {
+@container turn-result (max-width: 480px) {
 	.turn-result-main {
 		flex-wrap: wrap;
 		gap: 2px 10px;
 		height: auto;
-		min-height: 38px;
-		padding-block: 8px;
-		padding-inline-start: 12px;
+		min-height: 32px;
+		padding-block: 6px;
 	}
 	.turn-result-check {
 		flex: 1 1 100%;

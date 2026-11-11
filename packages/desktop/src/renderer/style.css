@@ -1423,12 +1423,16 @@ pre {
 }
 
 .chat-markdown :not(pre) > code {
-	border: 1px solid var(--border);
 	border-radius: var(--radius-chip);
 	background: var(--muted);
 	padding: 0.1rem 0.35rem;
 	color: var(--contrast-foreground);
 	font-size: 0.75rem;
+}
+/* A chip that opens a file has no border to say so: it keeps its underline on hover and takes a deeper fill. */
+.chat-markdown :not(pre) > code:has(.message-file-link:hover),
+.chat-markdown :not(pre) > code:has(.message-file-link:focus-visible) {
+	background: color-mix(in srgb, var(--foreground) 10%, var(--muted));
 }
 
 .chat-markdown pre {

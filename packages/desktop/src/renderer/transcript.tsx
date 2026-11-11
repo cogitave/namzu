@@ -41,7 +41,7 @@ import {
 } from './transcript-layout.js'
 import { turnInputsUnchanged } from './transcript-memo.js'
 import {
-	foldLabel,
+	foldParts,
 	livePhaseLabel,
 	liveStatus,
 	liveStep,
@@ -221,12 +221,15 @@ function ToolRun({
 	disclosureKey,
 	workDisclosures,
 	onWorkDisclosureChange,
+	soleOf,
 }: {
 	entries: TimelineEntry[]
 	thread: ThreadState
 	/** Nothing but this run follows it in the work, so more actions may still join it. */
 	last: boolean
 	turnLive: boolean
+	/** The sentence on the fold line, when this run is all the fold holds: a label that says the same is not drawn twice. */
+	soleOf?: string
 	disclosureKey?: string
 	workDisclosures?: WorkDisclosureChoices
 	onWorkDisclosureChange?: (key: string, open: boolean) => void
@@ -268,6 +271,14 @@ function ToolRun({
 	const defaultOpen = watched.current || runDefaultOpen(live, entries.length, badNews)
 	const controlled = !!disclosureKey && !!onWorkDisclosureChange
 	const saved = disclosureKey ? workDisclosures?.[disclosureKey] : undefined
+	if (soleOf !== undefined && !live && label === soleOf)
+		return (
+			<div className="tool-group-entries" data-sole>
+				{entries.map((entry) => (
+					<Entry key={entryKey(entry)} entry={entry} thread={thread} quiet />
+				))}
+			</div>
+		)
 	return (
 		<Collapsible
 			className={`tool tool-group${active ? ' active' : ''}${states.includes('waiting') ? ' waiting' : ''}`}
@@ -304,11 +315,14 @@ function ActivityEntries({
 	onWorkDisclosureChange,
 	hiddenReasoningId,
 	streamingMessage,
+	foldSentence,
 }: {
 	entries: TimelineEntry[]
 	thread: ThreadState
 	turn: number
 	turnLive: boolean
+	/** What the fold line says when it is a sentence about the work. */
+	foldSentence?: string
 	/** The reasoning row the status line stands in for. */
 	hiddenReasoningId?: string
 	/** The narration message being written. */
@@ -346,6 +360,7 @@ function ActivityEntries({
 				thread={thread}
 				last={index === parts.length - 1}
 				turnLive={turnLive}
+				soleOf={parts.length === 1 ? foldSentence : undefined}
 				disclosureKey={workDisclosureKey(turn, `run:${entryKey(first)}`)}
 				workDisclosures={workDisclosures}
 				onWorkDisclosureChange={onWorkDisclosureChange}
@@ -408,12 +423,14 @@ function TurnActivity({
 	// While the turn is live the header is its one line: the step it is on in the kernel's words,
 	// or what the stage says when no action is running yet.
 	const step = liveLine ? liveStep(thread, entries) : undefined
+	// A finished turn's line says what the work was, then the time apart from it.
+	const fold = ownsTurnSummary && !live && !liveLine ? foldParts(thread, turn) : undefined
 	const label = liveLine
 		? (step?.label ?? stage?.text ?? 'Working')
 		: ownsTurnSummary
 			? live
 				? turnActivityLabel(thread, turn)
-				: foldLabel(thread, turn)
+				: (fold?.text ?? '')
 			: 'Earlier work'
 	const attentionNow = attentionFlags(turnAttention(thread, entries))
 	// A failed, refused or skipped action of this turn is bad news that stays in view even while the line is the whole display.
@@ -460,7 +477,11 @@ function TurnActivity({
 				<CollapsibleTrigger
 					className="activity-trigger"
 					aria-label={[
-						elapsed ? `${label} for ${elapsed}` : label,
+						elapsed
+							? `${label} for ${elapsed}`
+							: fold?.duration
+								? `${label} · ${fold.duration}`
+								: label,
 						...flags.map((flag) => flag.text),
 					].join('. ')}
 					title={
@@ -472,6 +493,7 @@ function TurnActivity({
 					}
 					data-duration-source={savedDuration ? 'recorded-runtime' : undefined}
 					data-live={live ? '' : undefined}
+					data-sentence={fold?.sentence ? '' : undefined}
 				>
 					<span className="activity-text">
 						{liveLine && (
@@ -487,6 +509,11 @@ function TurnActivity({
 								{liveLine ? `· ${elapsed}` : `for ${elapsed}`}
 							</span>
 						)}
+						{fold?.duration && (
+							<span className="turn-activity-elapsed" aria-hidden="true">
+								· {fold.duration}
+							</span>
+						)}
 						<AttentionFlags flags={flags} />
 					</span>
 					<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
@@ -495,6 +522,7 @@ function TurnActivity({
 					<div className="activity-entries">
 						{planAt < 0 ? (
 							<ActivityEntries
+								foldSentence={fold?.sentence ? fold.text : undefined}
 								entries={entries}
 								thread={thread}
 								turn={turn}

@@ -136,8 +136,22 @@
 	line-height: 20px;
 	gap: 4px;
 	padding-block: 4px;
-	border-bottom: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
+	border-bottom: 0;
 	color: var(--muted-foreground);
+}
+/* A finished turn's line is a sentence about the work; only the time after it is muted. */
+.normal-transcript .activity-trigger[data-sentence],
+.normal-transcript .activity-trigger[data-sentence]:hover,
+.normal-transcript .activity-trigger[data-sentence][data-panel-open] {
+	color: color-mix(in srgb, var(--foreground) 78%, var(--muted-foreground));
+}
+/* A closed fold has no rule; an open one separates the work from the answer under it. */
+.normal-transcript
+	.activity-trigger:not([data-live])
+	+ [data-slot="collapsible-panel"]
+	.activity-entries {
+	padding-bottom: 12px;
+	border-bottom: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
 }
 .normal-transcript .activity-trigger:hover,
 .normal-transcript .activity-trigger[data-panel-open] {
@@ -149,7 +163,6 @@
 }
 /* While the work is going the header is the turn's one line: a mark, the step, the time and a chevron to the work. */
 .normal-transcript .activity-trigger[data-live] {
-	border-bottom-color: transparent;
 	font-size: 13px;
 }
 .normal-transcript .activity-trigger[data-live] .turn-activity-elapsed {
