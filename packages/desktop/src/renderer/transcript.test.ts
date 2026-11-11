@@ -101,7 +101,7 @@ describe('single live transcript status', () => {
 			running: false,
 			queued: [],
 		})
-		expect(phaseLabels(render(thread))).toEqual(['Worked for 47s, 3 steps'])
+		expect(phaseLabels(render(thread))).toEqual(['Checked earlier messages, searched the web'])
 	})
 
 	it('offers message actions for settled assistant rows only', () => {
@@ -530,7 +530,7 @@ describe('single live transcript status', () => {
 	})
 
 	it.each([
-		['end_turn', undefined, 'Worked for 47s, 1 step'],
+		['end_turn', undefined, 'Ran a command'],
 		['cancelled', undefined, 'Stopped · 47s · 1 step'],
 		['cancelled', 'paused', 'Paused · 47s · 1 step'],
 		['cancelled', 'structured_output_failed', 'Work incomplete · 47s · 1 step'],

@@ -235,7 +235,7 @@ file formats are unchanged. A removal is recorded as `update_cache_cleared` with
 The installed app updates itself with `electron-updater` (`src/main/updater.ts`), driven
 by a state machine of `disabled | idle | checking | available | downloading | ready | installing | error`.
 It downloads on its own unless **Download updates automatically** is off in Settings (then a
-found update is `available`: the rail's update button offers **Download**, and nothing is
+found update is `available`: the update button (in the sidebar foot, or in the rail while the sidebar is collapsed) offers **Download**, and nothing is
 fetched until it is pressed; turning the setting back on takes an offered update at once),
 never installs on quit (`autoInstallOnAppQuit` is off) and never
 downgrades. The first check is 30 seconds after launch and then every four hours; a failed
@@ -280,7 +280,8 @@ shutdown fails the update stays `ready` and nothing is installed; if the install
 to start after the runtime stopped, the app relaunches itself. Tabs, drafts and settings
 come back from the profile after the restart.
 
-When an update is ready a small download button appears directly above Settings in the rail (tooltip
+When an update is ready a small download button appears in the foot of the open sidebar, at the far end of
+the row after Settings (and directly above Settings in the rail while the sidebar is collapsed; tooltip
 "Update ready — restart to install"; one polite announcement when it first appears).
 Clicking it opens a dialog with **Restart now** and **Later**; while installing it reads
 "Installing update / Namzu will restart when installation finishes." with a bar that is
@@ -455,7 +456,7 @@ they restart, and the row says so.
 **Where it shows.** Settings ▸ Updates lists the three programs under the app's own row (name,
 `installed → latest`, how it was installed as a muted note, "The update runs in a terminal tab you can watch."
 (the command itself only where the person must run it and uses **Copy**), and
-**Update**, **Updating…**, **Up to date** or **Check failed**). The rail's download button appears
+**Update**, **Updating…**, **Up to date** or **Check failed**). The download button (in the sidebar foot, or in the rail while the sidebar is collapsed) appears
 when any program is behind, labelled "Updates available. Open Settings to update" followed by the names of the programs
 that are behind, and opening Settings ▸ Updates; the app's own *ready* state keeps priority over it.
 The engine view of the model popup adds "Update available (0.162.0)" under an engine that is behind
@@ -622,7 +623,7 @@ dropped when its project is removed. A second failure is left to the person and 
 reads follow the same rule: the activity panel's task list slows from two seconds to a minute and stops after four
 failures in a row (it starts again, and reads at once, on a reconnect, a manual refresh or the window
 being focused), the Pal start question stops asking a Pal whose inbox read failed four times until the
-window is focused again, and the pull request look in the composer footer does the same on focus or
+window is focused again, and the pull request look in the composer's row does the same on focus or
 when the window is visible again.
 
 ### Diagnostic logs
@@ -881,13 +882,13 @@ The logic is pure (`SystemNotices` takes an injected notifier, clock, timer and 
 
 ## The top of a conversation window
 
-A conversation window spends 40 px on one bar, where it spent 52 px on a strip of tabs. The bar holds the conversation's title (14 px, bold, cut with an ellipsis when it does not fit), the project's name (13 px, muted), then on the right how full the conversation is and its buttons. The sidebar is the one list of conversations; a title is shown once. The operating system's menu row (File, Edit, View, Window) is unchanged and sits above the bar.
+A conversation window spends 40 px on one bar, where it spent 52 px on a strip of tabs. The bar holds the conversation's title (14 px, bold, cut with an ellipsis when it does not fit), the project's name (13 px, muted), then on the right its buttons (how full the conversation is lives in the row under the composer, not here). The sidebar is the one list of conversations; a title is shown once. The operating system's menu row (File, Edit, View, Window) is unchanged and sits above the bar.
 
-**The read-out** is a filled pie with the share and the cost beside it ("14% · $0.06"), from the same figures as the context ring (`contextRingModel`, so the two cannot disagree). It is not drawn until the engine has reported both a context size and a window. It turns amber at 75% and red at 90%. Hovering shows the token counts, and below 560 px of bar the words give way and the pie stays. With the bar showing, the composer draws no ring (`ContextHomeContext`); with the tab strip on, the ring stays beside the send controls as before.
+**The read-out** is not in the bar: it sits at the right end of the row under the composer box (see the composer section below), from the same figures (`contextRingModel`, so the two cannot disagree) and with the same rule for when it shows: nothing is drawn until the engine has reported both a context size and a window.
 
-**The buttons** are 28 px, each with a tooltip and an accessible name: **Changes** (opens the Changes panel; with changes it widens to show the lines added and removed, "+35 −3", read from the same `changeTotals` as the result line and the pane, and its accessible name says the file count too, "Changes, 4 changed files, 35 added, 3 removed"), **New terminal** (a menu of the open terminals, the conversation and **New terminal** once one is open), **Project files**, **Conversation details** and **Conversation actions**. Changes and Project files open the panels the details popover and the panel's own tab strip already open; they are a shorter way there, not new panels. At 960 px the title gives way first, the project's name shrinks next and goes only below 300 px of bar, and the words of the read-out go below 560 px; the buttons stay.
+**The buttons** are 28 px, each with a tooltip and an accessible name: **Changes** (opens the Changes panel; with changes it widens to show the lines added and removed, "+35 −3", read from the same `changeTotals` as the result line and the pane, and its accessible name says the file count too, "Changes, 4 changed files, 35 added, 3 removed"), **New terminal** (a menu of the open terminals, the conversation and **New terminal** once one is open), **Project files**, **Conversation details** and **Conversation actions**. Changes and Project files open the panels the details popover and the panel's own tab strip already open; they are a shorter way there, not new panels. At 960 px the title gives way first, the project's name shrinks next and goes only below 300 px of bar; the buttons stay.
 
-**Conversation tabs** are hidden by default. **View > Show conversation tabs** (a checkbox), **Settings > Appearance > Show conversation tabs** and the command palette's **Show conversation tabs** / **Hide conversation tabs** switch them; the choice is `showConversationTabs` in `desktop-settings.json`, shared by the windows and by the menu's checkbox, and the window remembers the last answer for the first paint. With the switch on, the top of the window is as it was: the strip, the 52 px height, the ring in the composer. A Pal's conversation always keeps the strip, because the Pal's computer is a tab in it.
+**Conversation tabs** are hidden by default. **View > Show conversation tabs** (a checkbox), **Settings > Appearance > Show conversation tabs** and the command palette's **Show conversation tabs** / **Hide conversation tabs** switch them; the choice is `showConversationTabs` in `desktop-settings.json`, shared by the windows and by the menu's checkbox, and the window remembers the last answer for the first paint. With the switch on, the top of the window is as it was: the strip and the 52 px height. The context read-out stays in the composer's row either way. A Pal's conversation always keeps the strip, because the Pal's computer is a tab in it.
 
 With the strip hidden, every way of moving still works:
 
@@ -904,7 +905,7 @@ With the strip hidden, every way of moving still works:
 
 ## Settings
 
-**Settings** is a page of its own in the main area, like Plugins: the rail's gear, the
+**Settings** is a page of its own in the main area, like Plugins: the gear (in the foot of the sidebar, or in the rail while it is collapsed), the
 command palette's **Settings**, the File menu's **Settings…**
 (`Ctrl+,` or `⌘,`) all open it. The left column lists the sections and the right side shows
 one, under one heading, the section's name (the column's "Settings" is the only other one). A section is addressed as `settings/<section>` (`general`, `models`, `projects`, `appearance`,
@@ -1935,8 +1936,21 @@ the sidebar. File provides project and conversation actions; Edit and Window ope
 menus. View offers zoom and full screen only: Namzu is an app, not a browser, so
 it carries no Reload, Force Reload or developer-tools item (the tools return in a
 development build). Native caption colours follow the chosen appearance.
-The left icon rail remains available when the conversation sidebar is collapsed.
-The rail contains Home at the top and Settings as the last item at the bottom. Home
+The window is two flat regions divided by one 1px line: the sidebar and the conversation. Neither has a
+rounded corner or a shadow, and the frame uses at most two fills (the sidebar side, which includes the
+rail and the menu row, and the conversation). The icon rail is the collapsed sidebar: while the sidebar
+is open the rail is not drawn and its controls are the foot of the sidebar, a row at the bottom with
+Settings (same name, same tooltip with its shortcut) and, when there is something to install, the update
+button with its badge and its announcement. Home is not repeated there, because it leads to the same
+screen as the New conversation row; on the Settings and Plugins pages, whose own sidebars have no such
+row, the foot also carries Home, so the way back is never lost. While the sidebar is collapsed
+(by the title bar's panel control, Ctrl/Cmd+B, a narrow window, or the Changes pane at 1280 px and
+below) the 48 px rail is drawn with Home at the top and Settings at the bottom; a control that had the
+focus when the rail and the foot swap keeps it. Opening or closing the sidebar moves the conversation by
+exactly the width that changes (288 px open, 48 px collapsed). In a window of 767 px or less the sidebar is an
+overlay beside the rail, and the foot is not drawn. The sidebar's header and the top bar's hairline end on
+one line: both are 40 px while the strip of tabs is hidden (the default), and 52 px with the strip.
+The wordmark keeps its size, and the menu button around it is 4 px shorter. Home
 owns the chat and blank composer. Spaces, Scheduled and Plugins are not on the rail:
 a destination that cannot open is not drawn (no disabled button, no "coming soon"), and
 each returns when it exists. Plugins is still reached from the composer's + menu. When
@@ -1967,7 +1981,7 @@ until a desktop uninstall API exists. The page shares its mutation and ownership
 the composer menu, including the restrictions on live changes. The rail has no
 overflow menu: **Add new project** lives in the sidebar and the title bar, and the
 sidebar toggles from the title bar's panel control or Ctrl/Cmd+B. The rail has no
-profile control and claims no signed-in account. Settings is the last item; the update icon sits directly above it and appears
+profile control and claims no signed-in account. Settings is the last item; the update icon sits beside it (above it in the rail) and appears
 only while there is something to install: an installable update, an offered one when
 automatic download is off, or a program that is behind. The manual **Check for updates** is
 in Settings ▸ Updates. The sidebar list keeps a scrollbar lane (`scrollbar-gutter: stable`)
@@ -2007,12 +2021,10 @@ them frame by frame (`e2e/sidebar-startup-stability.test.mjs`). There is no Sche
 The sidebar brand (the wordmark with a small green "Beta" badge after it) opens its
 workspace menu. The labelled New conversation row is the primary
 creation action, rather than duplicating it across icon groups.
-The dark icon rail has a slightly deeper surface than the conversation sidebar.
-Surface contrast separates the rail from the sidebar without a divider. A
-subtle 1px line separates the sidebar's right edge from the main canvas.
-The sidebar's corners facing the rail are rounded. When that sidebar closes,
-the conversation canvas inherits the same top and bottom corners and clips its
-content inside them; the Plugins destination follows the same layout. A smaller sidebar wordmark
+The rail has the sidebar's own surface (`--chrome` is `--sidebar`), so the sidebar, the rail and the menu
+row are one fill, one step darker than the conversation page in the dark theme (`#121212` against `#181818`; in the light theme `#fbfbfb` against `#ffffff`), and a 1px line (`--sidebar-border`) on the right edge of the sidebar, or of the rail
+while the sidebar is collapsed, separates them from the conversation. No corner is rounded and nothing
+casts a shadow; the Plugins destination follows the same layout. A smaller sidebar wordmark
 sits over an ordered pixel accent that fades across the full sidebar header
 width. The accent stays inside that header and does not receive pointer input.
 The selected destination uses a filled icon and a neutral rounded background.
@@ -2759,7 +2771,7 @@ conversations keep their own outputs.
 
 ### The result line at the foot of a reply
 
-One 40 px row ends a finished turn, in place of the old "Changed 4 files" card and the
+One 32 px line of text ends a finished turn (no border, no fill, no rule above it; it starts at the reply's own left edge and sits about 30 px under the reply's last row: the reply's own hover-only action row keeps 16 px there and its last 8 px lie over the line's empty top), in place of the old "Changed 4 files" card and the
 sentence that used to sit under it: a state mark, "Done in 3s" (how long the turn took; just "Done"
 under a second; "Stopped", "Paused", "Incomplete" or "Failed" when it did not end well; "Finished in 3s"
 when the record's verdict is `failing`, because the turn ended but the kernel did not call it done), the size of
@@ -2771,13 +2783,13 @@ else: never from the model's words and never from a guess. It is the record's ow
 | Verdict | What the row shows |
 |---|---|
 | `checked` | the passing check, "Checked: pnpm test passed, nothing changed since", with a green mark |
-| `failing` | the failing check ("pnpm test failed"), in bold red, with a red border and tint; this is drawn even when no file changed ("No files changed" is then the record's lead and the row shows no counts) |
+| `failing` | the failing check ("pnpm test failed"), in bold red, with a red mark and no box; this is drawn even when no file changed ("No files changed" is then the record's lead and the row shows no counts) |
 | `stale`, `inconclusive` | the record's sentence ("pnpm test passed, then files changed again", "Ran npm test | tail, but the pipe hides whether it passed"), amber |
 | `unchecked` | the counts and no check segment at all; it says nothing about checking |
 | `unknown` | no file counted: nothing about changes, and the old quiet foot, which is the record's own sentence. Files counted from the edit tools: only the counts, no check segment, so the counts read as the whole change. The caveat stays reachable and is never dropped: the counts' tooltip, the row's accessible name and **Copy summary** say "These are the edits made with the edit tools." followed by the record's own sentence ("A command ran that may have changed files · cannot tell here …") |
 | `unchanged` | nothing about changes; a turn with no changed files keeps the old quiet foot |
 
-The whole row is one button that opens the changes pane, on All changes and on the file of that
+The chevron sits directly after the text. The row draws nothing round it at rest: on hover and on keyboard focus the whole row takes a soft fill with 8 px corners, and the "..." at its end is drawn only while the pointer is over the row, focus is inside it or its menu is open (always drawn where there is no hover, `@media (hover: none)`). The whole row is one button that opens the changes pane, on All changes and on the file of that
 reply that changed most; its accessible name reads the same facts ("Done in 3s, 4 files changed, 35
 added, 3 removed, Checked: pnpm test passed. Open changes"). A "..." at its end holds what the old card
 offered: **Undo** (see [Undoing a reply](#undoing-a-reply)), **Open file** (one item per changed file,
@@ -2786,13 +2798,21 @@ there is one), and **Copy summary** (the row's words and the changed paths). A t
 shows "Undone at 10:42" in place of the check segment, and its Open items leave out the files that
 reply made, which the undo removed (the files it only edited were restored and are still offered). A
 partly undone one adds "Partly undone, 2 files kept" after the check segment; when the check is
-`failing` it stays where it was, in bold red, and the undo state is said beside it. When the column is under 600 px wide the check segment moves to a line
+`failing` it stays where it was, in bold red, and the undo state is said beside it. When the column is under 480 px wide the check segment moves to a line
 of its own below the size, so the row grows to two lines rather than cutting the sentence. A reply
 that failed or was stopped keeps everything main showed for it (the header flags, the error rows and
 banner); the row only adds how it ended.
 
-The fold above the answer names what it hides: "Worked for 3s, 4 steps" (the count of tool calls
-in the turn, not counting the plan's own bookkeeping), and the same words are its accessible name.
+The fold above the answer says what the work was, in the words a group of steps uses
+(`actionRunLabel`): "Searched, read a file, and 2 more · 36s". At most three phrases are named, the
+last one counting the kinds left out; the sentence is drawn in the muted text colour (the reply is the brightest text of a turn) and
+brightens to the primary colour on hover and keyboard focus; the time follows after a middle dot, quieter
+still. A
+refused or failed action stays flagged on the same line. A turn that did not end well, or did nothing
+countable, keeps the plain form ("Stopped · 47s · 2 steps", "Worked for 3s"). The labels while a turn
+is running or waiting are unchanged. A closed fold has no rule under it; an open one has a rule below
+the work, between it and the answer. When the open fold holds exactly one group and its label would
+say the same sentence, the rows are drawn directly. The accessible name is the sentence and the time.
 
 ### Undoing a reply
 
@@ -2879,7 +2899,7 @@ file is chosen. The limits and the decision are in `changes-review/diff-gate.ts`
 drawn by `@pierre/diffs` 1.5.2 (exact); the worker pool is not used because a worker needs
 `worker-src` in the renderer's content security policy, which has none.
 
-A finished turn reads "Worked for 4m 17s" when its duration is known: the host's
+A finished turn that did nothing countable reads "Worked for 4m 17s" when its duration is known (one that did something is named by [what the work was](#the-result-line-at-the-foot-of-a-reply)): the host's
 start and end, the journal's recorded duration, or the host start and the last time
 seen in the turn, in that order. Otherwise it reads "Worked" with no figure, and so does work that
 took under a second ("Worked for 0s" tells nobody anything).
@@ -3027,7 +3047,7 @@ and focus in four viewport and motion settings, with the [source-bound receipt](
 
 Desktop receives the host's [usage and compaction notices](#usage-and-compaction-notices) (`shared/usage-protocol.ts` reads them; anything that does not read, or that names a conversation this connection does not own or a Pal conversation, is dropped) and keeps the last picture per conversation in the thread (`ThreadState.usage`, `ThreadState.compaction`). Usage outlives a closed tab, so the ring is right when the conversation is opened again.
 
-- **Context ring.** A small ring at the left of the composer's send controls (`renderer/context-ring-view.tsx`, model in `context-ring.ts`) fills with the share of the window the conversation holds. It is a focusable control named "Context 6% full. 12.4k of 200k tokens." and its tooltip says the same in words, adds "estimated" when the host did not get a count from the provider, adds "Cost so far: $0.42" only when the engine priced every token, and from 75% (amber) and 90% (red) adds that older messages may be summarised to make room. It is **not drawn at all** until the engine has reported both a context size and a window (a custom model with no known window, or an engine that reports nothing); there is no placeholder. A figure the engine stops reporting disappears at the next notice.
+- **Context ring.** A small ring at the right end of the row under the composer box (`renderer/context-ring-view.tsx`, model in `context-ring.ts`) fills with the share of the window the conversation holds. It is a focusable control named "Context 6% full. 12.4k of 200k tokens." and its tooltip says the same in words, adds "estimated" when the host did not get a count from the provider, adds "Cost so far: $0.42" only when the engine priced every token, and from 75% (amber) and 90% (red) adds that older messages may be summarised to make room. It is **not drawn at all** until the engine has reported both a context size and a window (a custom model with no known window, or an engine that reports nothing); there is no placeholder. A figure the engine stops reporting disappears at the next notice.
 - **Compacting line.** From the moment a pass starts the live status line reads "Compacting the conversation…" (shimmering, still under reduced motion), and when it finishes it reads "Conversation compacted · 150k to 40k tokens" without a shimmer until the turn goes on, when the next streamed update replaces it. A pass that changed nothing, the end of the turn and the next prompt clear it at once. A decision wait still takes the line first.
 
 The ring and the line use the design tokens (`--radius-pill`, `--dur-quick`, `--dur-base`, `--focus-ring`, `--warning`, `--error`) and no animation under `prefers-reduced-motion`.
@@ -3575,17 +3595,32 @@ before anything is built.
 
 ### The composer, its popups and approval cards
 
-**The lower edge of the box (the chin).** It carries four things: the attach **+**, the permission word, the
-model word and Send. Permission and model are quiet muted text (the chevron's room is always kept and it fades in on hover, focus or while
-the menu is open, so the word never moves; Full access keeps its warning mark and colour), and Send is the only filled control, in the
-one lime the other primary actions use. Its dimmed look with an empty box is the disabled state of that same
-lime. The context ring, the queue button, the background-shell count and the pull request chip are drawn only
-when they have something to say. The **microphone is not drawn until voice input is set up**
-(**Settings ▸ Speech ▸ Voice input**, found by searching "microphone"); once it is, or while a voice session is
-listening, the button is back. Above the box on the home screen is one 13 px muted line, "*project* · This
-computer" (a long project name gives way first, with an ellipsis; the computer stays readable), that opens one menu: the project list (search, start from scratch, an existing folder, no project)
-and, under it, the computer the work runs on. There is one computer to choose, so it is shown as the one checked
-choice. The three starters are quiet 32 px rows; a click puts the idea in the box and focuses it, and never sends.
+**The box and the row under it.** The box is one quiet field, 16 px corners with the same fill and ring as before. It holds
+the text, the attach **+** at the bottom left and Send at the bottom right (with its working states: Stop, and the queue
+button beside it while a reply runs). Send is the only filled control, in the one lime the other primary actions use;
+its dimmed look with an empty box is the disabled state of that same lime. The **microphone is not drawn until voice
+input is set up** (**Settings ▸ Speech ▸ Voice input**, found by searching "microphone"); once it is, or while a voice
+session is listening, the button is back, beside Send inside the box.
+
+Under the box, outside it, as wide as it and about 6 px below, is **one row of the conversation's settings**
+(`data-composer-row`): small quiet buttons, 13 px words, 28 px tall, no fill and no border at rest and the soft hover
+fill. At the left: on the home screen "*project* · This computer" (it opens one menu: the project list, with search,
+start from scratch, an existing folder, no project, and under it the computer the work runs on; there is one computer
+to choose, so it is shown as the one checked choice), then the **permission mode** ("Ask first" and the others, the same
+menu), then the background-shell count and the pull request chip when they have something to say. At the right: the
+**model** (with the effort as before, the same popup) and the **context read-out**, a pie with the share and the cost
+("14% · $0.06", hover for the token counts; amber at 75% and red at 90%). Chevrons are not drawn at rest but their room is
+kept, so nothing in the row moves when the pointer arrives; Full access keeps its warning mark and colour. After the
+first message the project line fades out and the mode keeps its place. While an approval waits, the row stays under the
+box; the model is left out then (it cannot change during a reply) and the permission mode and the read-out stay.
+
+When the row is too narrow, the percentage text goes first (below 520 px of row), then the model's name is cut with an
+ellipsis, then the row wraps to two lines (below 360 px); a long project name is cut with an ellipsis while the computer
+stays readable. The permission mode is never hidden or cut. Popups open upward from their button and stay inside the window.
+Nothing is hidden until hover: every control of the row is drawn at rest, so a keyboard user reaches them in order (the mode,
+the model, the read-out, each with a focus ring) and a touch user sees them all. The context ring is gone from the top bar;
+the Pal composer keeps its own ring beside Send. The three starters are quiet 32 px rows; a click puts the idea in the box and
+focuses it, and never sends.
 
 **The model popup** opens on the model list on every engine: 40 px rows, the model's name and a 12 px muted second
 line with its context window and what a million tokens cost ("128k window · Free", "200k window · $3 in · $15 out
@@ -3602,11 +3637,15 @@ icon filters a long list (as before: more than seven models or more than one pro
 388 px with engines (less than the window minus 16 px in a narrow window), its right edge stays on the trigger, and the
 frame draws no scrollbar of its own. `e2e/composer-popups.test.mjs` measures every step (list, older models, More,
 engine) on the Namzu and Codex engines at four window sizes in both themes; `e2e/ux-composer-chin.test.mjs` covers the
-chin, the context line, the starters and the list.
+row's words, the project line, the starters and the list, and `e2e/ux-composer-row.test.mjs` the row's place, look,
+popups, narrow behaviour and the approval card's shape.
 
-**The approval card and the turn in flight.** One card sits wholly above the composer, with a gap: there is no outer
-"Waiting for your decision" box and no line of key hints. It states what the request itself carries and nothing the model
-said about its action.
+**The approval card and the turn in flight.** One card (12 px corners, a 1 px ring, the panel fill, no shadow) sits
+directly above the box with about 8 px between them: no surface is drawn behind both, there is no outer "Waiting for your
+decision" box and no line of key hints. The preview of the change inside it is a band from edge to edge of the card with the
+darker code fill and no border or corners of its own. While the card waits, the box under it is the ordinary box, one row
+tall, with the waiting text and Stop, and the row of settings stays under it, the model included (disabled while the reply is held, as during any reply). The card states what the request itself carries
+and nothing the model said about its action.
 
 - **The question** is one 14 px sentence with the target as a mono chip: "Edit `src/auth/session.ts`?",
   "Create `a.txt`?", "Delete `old.txt`?", "Run `pnpm test`?" (a command is cut to its first line, with ` …` when more
@@ -4394,7 +4433,7 @@ beside the command, and "(No output)". A command handed to a background job read
 with **See it**, which opens the activity panel. The run's header counts it: "Ran 4 commands, 1 failed, 1 in
 the background".
 
-**Footer.** Beside the mode, a quiet "N shells" (from the background-work status events; it opens the activity
+**Footer.** In the row under the box, beside the mode, a quiet "N shells" (from the background-work status events; it opens the activity
 panel) and "PR #n" for the conversation's branch, coloured by review state: approved green, changes requested
 red, waiting for review amber, merged purple, draft muted. The pull request is read by the CLI host
 (`namzu/project/pr`, the same `lookupPr` the terminal's footer uses) when the project opens, when a reply ends

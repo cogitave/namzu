@@ -8,6 +8,10 @@ import type {
 
 export const WINDOW_CHROME_HEIGHT = 32
 
+// The menu row and the caption strip are drawn in the sidebar's fill (`--chrome` is `--sidebar` in
+// theme.css); a test keeps these in step with it, so the strip and the row read as one band.
+export const WINDOW_CAPTION_FILL = { dark: '#121212', light: '#fbfbfb' } as const
+
 export function windowChrome(platform: string): WindowChrome {
 	return {
 		platform:
@@ -19,7 +23,7 @@ export function windowChrome(platform: string): WindowChrome {
 export function windowCaptionColors(appearance: unknown): TitleBarOverlayOptions {
 	if (appearance !== 'light' && appearance !== 'dark') throw new Error('Unknown window appearance.')
 	return {
-		color: appearance === 'dark' ? '#121212' : '#f4f4f4',
+		color: WINDOW_CAPTION_FILL[appearance],
 		symbolColor: appearance === 'dark' ? '#d4d4d4' : '#262626',
 		height: WINDOW_CHROME_HEIGHT,
 	}

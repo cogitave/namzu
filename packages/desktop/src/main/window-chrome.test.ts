@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
+	WINDOW_CAPTION_FILL,
 	readWindowMenu,
 	readWindowMenuAnchor,
 	windowCaptionColors,
@@ -7,6 +9,17 @@ import {
 } from './window-chrome.js'
 
 describe('native window chrome', () => {
+	it('draws the caption strip in the sidebar fill the menu row uses, in both themes', () => {
+		const css = readFileSync(new URL('../renderer/theme.css', import.meta.url), 'utf8')
+		const fill = (block: RegExp) => css.match(block)?.[1]?.toLowerCase()
+		// `--chrome` must stay the sidebar's fill, and the strip must match that fill.
+		expect(css.match(/--chrome:\s*var\(--sidebar\)/g)).toHaveLength(2)
+		expect(fill(/:root \{[\s\S]*?--sidebar:\s*(#[0-9a-f]{6})/i)).toBe(WINDOW_CAPTION_FILL.light)
+		expect(fill(/\.dark \{[\s\S]*?--sidebar:\s*(#[0-9a-f]{6})/i)).toBe(WINDOW_CAPTION_FILL.dark)
+		expect(windowCaptionColors('dark').color).toBe(WINDOW_CAPTION_FILL.dark)
+		expect(windowCaptionColors('light').color).toBe(WINDOW_CAPTION_FILL.light)
+	})
+
 	it('keeps native system controls instead of removing the operating system frame', () => {
 		for (const platform of ['win32', 'linux', 'darwin']) {
 			const options = windowChromeOptions(platform)

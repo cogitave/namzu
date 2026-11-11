@@ -29,9 +29,10 @@ function UndoItem({ view, onUndo }: { view: UndoCardView; onUndo: () => void }) 
 }
 
 /**
- * The foot of a finished turn: one 40 px row that says how it ended, how big the change is and
- * what the kernel's record says about checking it. The row opens the changes pane; Undo, Open
- * file and Copy summary are in the "..." at its end.
+ * The foot of a finished turn: one 32 px line of text that says how it ended, how big the change
+ * is and what the kernel's record says about checking it. The line opens the changes pane; Undo,
+ * Open file and Copy summary are in the "..." at its end, drawn while the pointer is over the line,
+ * focus is in it or the menu is open (always drawn where there is no hover).
  */
 export function TurnResultLine({
 	model,
@@ -105,6 +106,7 @@ export function TurnResultLine({
 			className="turn-result"
 			aria-label="Result of this reply"
 			data-turn-result={changes?.turn}
+			data-opens={opens ? '' : undefined}
 			data-tone={model.tone}
 			data-check={model.check?.tone}
 			data-undo={undo?.kind}

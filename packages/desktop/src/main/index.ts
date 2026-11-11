@@ -140,6 +140,7 @@ import {
 import { viewedTabs, windowsHoldingTab } from './viewed-conversations.js'
 import { VoiceInputManager } from './voice-input.js'
 import {
+	WINDOW_CAPTION_FILL,
 	readWindowMenu,
 	readWindowMenuAnchor,
 	windowCaptionColors,
@@ -1664,7 +1665,7 @@ async function createWindow(
 		...bounds,
 		minWidth: 560,
 		minHeight: 460,
-		backgroundColor: '#121212',
+		backgroundColor: WINDOW_CAPTION_FILL.dark,
 		show: false,
 		...windowChromeOptions(process.platform),
 		webPreferences: {

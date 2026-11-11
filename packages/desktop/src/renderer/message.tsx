@@ -414,7 +414,7 @@ export function MessageContent({
 	return (
 		<div
 			className={cn(
-				'relative min-w-0 group-[.is-user]:max-w-[80%] group-[.is-user]:rounded-2xl group-[.is-user]:bg-message group-[.is-user]:p-3 group-[.is-user]:text-message-foreground',
+				'relative min-w-0 group-[.is-user]:max-w-[85%] group-[.is-user]:rounded-xl group-[.is-user]:bg-message group-[.is-user]:p-3 group-[.is-user]:text-message-foreground',
 				'group-[.is-assistant]:px-1 group-[.is-assistant]:py-0.5',
 				className,
 			)}

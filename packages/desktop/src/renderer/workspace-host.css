@@ -11,7 +11,6 @@
 	min-width: 0;
 	min-height: 0;
 	overflow: clip;
-	border-radius: var(--content-corner-radius) 0 0 var(--content-corner-radius);
 }
 .workspace-host[data-page="plugins"] .workspace-shell > .sidebar:not(.plugins-navigation-sidebar),
 .workspace-host[data-page="settings"]
@@ -62,13 +61,10 @@
 	}
 }
 
-.workspace-host[data-sidebar-collapsed="true"] .workspace-canvas-pane > .workspace {
-	border-radius: 0;
-}
-
 /*
  * With the strip of tabs hidden (the default) the top of the pane is one 40px bar. The token is
- * set on the pane only, so the sidebar's own header keeps its height, and the conversation
+ * set on the pane only; the sidebar's header takes the same height through --frame-header-height
+ * (style.css) so the two end on one line. The conversation
  * column is 720px with 24px gutters. With the strip on, none of this applies.
  */
 .workspace[data-conversation-bar] {

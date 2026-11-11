@@ -32,7 +32,6 @@ import { type ApprovalPreview, commandChip, diffPreview, textPreview } from './a
 import { richDiffVerdict } from './changes-review/diff-gate.js'
 import { unifiedDiff } from './changes-review/model.js'
 import { formatLineCount } from './changes-totals.js'
-import { ComposerBanner } from './composer-banner.js'
 import { copyPlainText } from './copy-button.js'
 import { DIFF_VIEW_UNSAFE_CSS } from './diff-theme.js'
 import {
@@ -55,7 +54,10 @@ function useDocumentDark(): boolean {
 	const [dark, setDark] = useState(readDark)
 	useEffect(() => {
 		const observer = new MutationObserver(() => setDark(readDark()))
-		observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+		observer.observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: ['class'],
+		})
 		return () => observer.disconnect()
 	}, [])
 	return dark
@@ -436,268 +438,259 @@ export function ComposerApproval({
 			? 'Reject · Enter or Esc'
 			: 'Reject · Esc'
 	return (
-		// The whole card, border and background, sits above the composer with a gap, not tucked under it.
-		<div className="mx-auto flex w-[calc(100%-2*var(--chat-composer-drawer-inset))] items-end pb-2 pt-3">
-			<ComposerBanner.Column>
-				<ComposerBanner.Attachment>
-					<section
-						aria-label={screenMoment ? 'Screen question' : 'Tool approval'}
-						onKeyDown={onKeyDown}
+		// One card: its own ring and fill, directly above the box, with nothing drawn behind both.
+		<section
+			className="approval-surface"
+			aria-label={screenMoment ? 'Screen question' : 'Tool approval'}
+			onKeyDown={onKeyDown}
+		>
+			<div className="approval-card" data-kind={model.kind}>
+				<header className="approval-head">
+					<ShieldAlertIcon aria-hidden="true" className="approval-head-icon" />
+					<h3 className="approval-title" title={model.path}>
+						{heading.lead}
+						{heading.chip !== undefined && (
+							<>
+								{' '}
+								<code className="approval-chip">{heading.chip}</code>
+							</>
+						)}
+						{heading.tail}
+					</h3>
+					<span className="approval-spacer" />
+					{hasDiff && (model.added || model.removed) ? (
+						<span className="approval-counts">
+							{model.added ? (
+								<span
+									className="changes-added"
+									title={`${model.added} ${lineWord(model.added)} added`}
+									role="img"
+									aria-label={`${model.added} ${lineWord(model.added)} added`}
+								>
+									+{formatLineCount(model.added)}
+								</span>
+							) : null}
+							{model.removed ? (
+								<span
+									className="changes-removed"
+									title={`${model.removed} ${lineWord(model.removed)} removed`}
+									role="img"
+									aria-label={`${model.removed} ${lineWord(model.removed)} removed`}
+								>
+									−{formatLineCount(model.removed)}
+								</span>
+							) : null}
+							{model.cut ? (
+								<span className="approval-cut-note">Only part of the file is shown</span>
+							) : null}
+						</span>
+					) : null}
+					{count > 1 && <span className="approval-count">1 of {count}</span>}
+					{!hasBox && <span className="approval-head-more">{moreMenu}</span>}
+				</header>
+				{flags.map((flag) => (
+					<p key={flag} className="approval-flag">
+						<TriangleAlertIcon aria-hidden="true" />
+						<span>{flag}</span>
+					</p>
+				))}
+				{(model.previewMissing || model.unchanged) && (
+					<p className="approval-note">{previewNote(model)}</p>
+				)}
+				{preview && (
+					<div
+						className="approval-box"
+						data-prose={model.message !== undefined || undefined}
+						data-open={expanded || undefined}
 					>
-						<ComposerBanner.Root variant="default" density="spacious" placement="floating">
-							<div className="approval-card" data-kind={model.kind}>
-								<header className="approval-head">
-									<ShieldAlertIcon aria-hidden="true" className="approval-head-icon" />
-									<h3 className="approval-title" title={model.path}>
-										{heading.lead}
-										{heading.chip !== undefined && (
-											<>
-												{' '}
-												<code className="approval-chip">{heading.chip}</code>
-											</>
-										)}
-										{heading.tail}
-									</h3>
-									<span className="approval-spacer" />
-									{hasDiff && (model.added || model.removed) ? (
-										<span className="approval-counts">
-											{model.added ? (
-												<span
-													className="changes-added"
-													title={`${model.added} ${lineWord(model.added)} added`}
-													role="img"
-													aria-label={`${model.added} ${lineWord(model.added)} added`}
-												>
-													+{formatLineCount(model.added)}
-												</span>
-											) : null}
-											{model.removed ? (
-												<span
-													className="changes-removed"
-													title={`${model.removed} ${lineWord(model.removed)} removed`}
-													role="img"
-													aria-label={`${model.removed} ${lineWord(model.removed)} removed`}
-												>
-													−{formatLineCount(model.removed)}
-												</span>
-											) : null}
-											{model.cut ? (
-												<span className="approval-cut-note">Only part of the file is shown</span>
-											) : null}
-										</span>
-									) : null}
-									{count > 1 && <span className="approval-count">1 of {count}</span>}
-									{!hasBox && <span className="approval-head-more">{moreMenu}</span>}
-								</header>
-								{flags.map((flag) => (
-									<p key={flag} className="approval-flag">
-										<TriangleAlertIcon aria-hidden="true" />
-										<span>{flag}</span>
-									</p>
-								))}
-								{(model.previewMissing || model.unchanged) && (
-									<p className="approval-note">{previewNote(model)}</p>
-								)}
-								{preview && (
-									<div
-										className="approval-box"
-										data-prose={model.message !== undefined || undefined}
-										data-open={expanded || undefined}
-									>
-										<span className="approval-box-more">{moreMenu}</span>
-										{expanded && diff && hasDiff ? (
-											<FullDiff
-												diff={diff}
-												wrap={wrap}
-												label={boxLabel}
-												rich={verdict.rich}
-												patch={patch}
-											/>
-										) : expanded ? (
-											<div
-												className="approval-full"
-												// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region
-												tabIndex={0}
-												// biome-ignore lint/a11y/useSemanticElements: a section would read as a page landmark
-												role="region"
-												aria-label={boxLabel}
-											>
-												<PreviewRows
-													preview={{
-														rows: (model.command ?? model.message ?? '')
-															.split(/\r?\n/)
-															.map((text, index) => ({
-																kind: 'context' as const,
-																line: index + 1,
-																text,
-															})),
-														total: preview.total,
-													}}
-													wrap={true}
-													command={model.command !== undefined}
-													numbered={false}
-												/>
-											</div>
-										) : (
-											// biome-ignore lint/a11y/useSemanticElements: a fieldset would draw its own frame and legend
-											<div role="group" aria-label={boxLabel} className="approval-preview">
-												<PreviewRows
-													preview={preview}
-													wrap={wrap}
-													command={model.command !== undefined}
-													numbered={hasDiff}
-												/>
-											</div>
-										)}
-										{(canExpand || expanded) && (
-											<button
-												type="button"
-												className="approval-showall"
-												aria-expanded={expanded}
-												onClick={() => setExpanded((value) => !value)}
-											>
-												{expanded ? 'Show less' : showAllLabel}
-											</button>
-										)}
-									</div>
-								)}
-								{model.message !== undefined && (
-									<p className="approval-note">
-										{palMessageNote(
-											model.palName,
-											model.palName ? (palRunning?.has(model.palName) ?? false) : false,
-										)}
-									</p>
-								)}
-								{model.kind === 'other' && model.entries.length > 0 && (
-									<dl className="approval-entries">
-										{model.entries.map((entry) => (
-											<div key={entry.label} className="approval-entry">
-												<dt>{entry.label}</dt>
-												<dd>{entry.value}</dd>
-											</div>
-										))}
-									</dl>
-								)}
-								{screenMoment && (
-									<p className="approval-note approval-consequence">
-										{screenMomentNote(screenMoment.app)}
-									</p>
-								)}
-								{model.others.length > 0 && (
-									<p className="approval-note">
-										Also in this request: {model.others.join(', ')}. Your answer covers all of them.
-									</p>
-								)}
-								{showDetails && (
-									<details className="approval-details">
-										<summary>Details</summary>
-										{approvalDetails(permission.calls, palNames).map((group, index) => (
-											// biome-ignore lint/suspicious/noArrayIndexKey: the groups follow the request's calls and never reorder
-											<div key={index} className="approval-detail-group">
-												{group.title && <p className="approval-detail-title">{group.title}</p>}
-												<dl className="approval-entries">
-													{group.entries.map((entry) => (
-														<div key={entry.label} className="approval-entry">
-															<dt>{entry.label}</dt>
-															<dd>{entry.value}</dd>
-														</div>
-													))}
-												</dl>
-											</div>
-										))}
-									</details>
-								)}
-								<footer className="approval-footer">
-									{editing ? (
-										<>
-											<input
-												ref={noteField}
-												className="approval-note-field"
-												type="text"
-												value={note}
-												maxLength={FEEDBACK_NOTE_MAX}
-												placeholder="Tell Namzu what to do instead"
-												aria-label="Tell Namzu what to do instead"
-												onChange={(event) => setNote(event.target.value)}
-												onKeyDown={(event) => {
-													if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-														event.preventDefault()
-														send()
-													}
-												}}
-											/>
-											<button
-												type="button"
-												className="approval-button"
-												onClick={send}
-												disabled={!note.trim()}
-											>
-												Send
-											</button>
-											<button type="button" className="approval-button" onClick={cancelEdit}>
-												Cancel
-											</button>
-										</>
-									) : (
-										<>
-											{foot && (
-												<p className="approval-fact approval-consequence" title={footTitle}>
-													{foot}
-												</p>
-											)}
-											<div className="approval-actions">
-												<button
-													ref={rejectButton}
-													type="button"
-													className="approval-button"
-													data-tone="reject"
-													title={rejectTip}
-													aria-keyshortcuts="Escape"
-													onClick={reject}
-												>
-													{screenMoment ? 'Not now' : 'Reject'}
-												</button>
-												{canAllowConversation && (
-													<>
-														<button
-															type="button"
-															className="approval-button approval-outline"
-															aria-disabled={guarding || undefined}
-															aria-describedby={scopeId}
-															title={CONVERSATION_ALLOWANCE_SCOPE}
-															onClick={acceptForConversation}
-														>
-															Allow for this conversation
-														</button>
-														<span id={scopeId} className="sr-only">
-															{CONVERSATION_ALLOWANCE_SCOPE}
-														</span>
-													</>
-												)}
-												<button
-													ref={acceptButton}
-													type="button"
-													className="approval-button"
-													data-tone="accept"
-													data-held={guarding || undefined}
-													aria-disabled={guarding || undefined}
-													title={acceptTip}
-													aria-keyshortcuts="Control+Enter"
-													onClick={accept}
-												>
-													{screenMoment ? 'Allow this app' : 'Accept'}
-												</button>
-											</div>
-										</>
-									)}
-								</footer>
+						<span className="approval-box-more">{moreMenu}</span>
+						{expanded && diff && hasDiff ? (
+							<FullDiff
+								diff={diff}
+								wrap={wrap}
+								label={boxLabel}
+								rich={verdict.rich}
+								patch={patch}
+							/>
+						) : expanded ? (
+							<div
+								className="approval-full"
+								// biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable region
+								tabIndex={0}
+								// biome-ignore lint/a11y/useSemanticElements: a section would read as a page landmark
+								role="region"
+								aria-label={boxLabel}
+							>
+								<PreviewRows
+									preview={{
+										rows: (model.command ?? model.message ?? '')
+											.split(/\r?\n/)
+											.map((text, index) => ({
+												kind: 'context' as const,
+												line: index + 1,
+												text,
+											})),
+										total: preview.total,
+									}}
+									wrap={true}
+									command={model.command !== undefined}
+									numbered={false}
+								/>
 							</div>
-						</ComposerBanner.Root>
-					</section>
-				</ComposerBanner.Attachment>
-			</ComposerBanner.Column>
-		</div>
+						) : (
+							// biome-ignore lint/a11y/useSemanticElements: a fieldset would draw its own frame and legend
+							<div role="group" aria-label={boxLabel} className="approval-preview">
+								<PreviewRows
+									preview={preview}
+									wrap={wrap}
+									command={model.command !== undefined}
+									numbered={hasDiff}
+								/>
+							</div>
+						)}
+						{(canExpand || expanded) && (
+							<button
+								type="button"
+								className="approval-showall"
+								aria-expanded={expanded}
+								onClick={() => setExpanded((value) => !value)}
+							>
+								{expanded ? 'Show less' : showAllLabel}
+							</button>
+						)}
+					</div>
+				)}
+				{model.message !== undefined && (
+					<p className="approval-note">
+						{palMessageNote(
+							model.palName,
+							model.palName ? (palRunning?.has(model.palName) ?? false) : false,
+						)}
+					</p>
+				)}
+				{model.kind === 'other' && model.entries.length > 0 && (
+					<dl className="approval-entries">
+						{model.entries.map((entry) => (
+							<div key={entry.label} className="approval-entry">
+								<dt>{entry.label}</dt>
+								<dd>{entry.value}</dd>
+							</div>
+						))}
+					</dl>
+				)}
+				{screenMoment && (
+					<p className="approval-note approval-consequence">{screenMomentNote(screenMoment.app)}</p>
+				)}
+				{model.others.length > 0 && (
+					<p className="approval-note">
+						Also in this request: {model.others.join(', ')}. Your answer covers all of them.
+					</p>
+				)}
+				{showDetails && (
+					<details className="approval-details">
+						<summary>Details</summary>
+						{approvalDetails(permission.calls, palNames).map((group, index) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: the groups follow the request's calls and never reorder
+							<div key={index} className="approval-detail-group">
+								{group.title && <p className="approval-detail-title">{group.title}</p>}
+								<dl className="approval-entries">
+									{group.entries.map((entry) => (
+										<div key={entry.label} className="approval-entry">
+											<dt>{entry.label}</dt>
+											<dd>{entry.value}</dd>
+										</div>
+									))}
+								</dl>
+							</div>
+						))}
+					</details>
+				)}
+				<footer className="approval-footer">
+					{editing ? (
+						<>
+							<input
+								ref={noteField}
+								className="approval-note-field"
+								type="text"
+								value={note}
+								maxLength={FEEDBACK_NOTE_MAX}
+								placeholder="Tell Namzu what to do instead"
+								aria-label="Tell Namzu what to do instead"
+								onChange={(event) => setNote(event.target.value)}
+								onKeyDown={(event) => {
+									if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+										event.preventDefault()
+										send()
+									}
+								}}
+							/>
+							<button
+								type="button"
+								className="approval-button"
+								onClick={send}
+								disabled={!note.trim()}
+							>
+								Send
+							</button>
+							<button type="button" className="approval-button" onClick={cancelEdit}>
+								Cancel
+							</button>
+						</>
+					) : (
+						<>
+							{foot && (
+								<p className="approval-fact approval-consequence" title={footTitle}>
+									{foot}
+								</p>
+							)}
+							<div className="approval-actions">
+								<button
+									ref={rejectButton}
+									type="button"
+									className="approval-button"
+									data-tone="reject"
+									title={rejectTip}
+									aria-keyshortcuts="Escape"
+									onClick={reject}
+								>
+									{screenMoment ? 'Not now' : 'Reject'}
+								</button>
+								{canAllowConversation && (
+									<>
+										<button
+											type="button"
+											className="approval-button approval-outline"
+											aria-disabled={guarding || undefined}
+											aria-describedby={scopeId}
+											title={CONVERSATION_ALLOWANCE_SCOPE}
+											onClick={acceptForConversation}
+										>
+											Allow for this conversation
+										</button>
+										<span id={scopeId} className="sr-only">
+											{CONVERSATION_ALLOWANCE_SCOPE}
+										</span>
+									</>
+								)}
+								<button
+									ref={acceptButton}
+									type="button"
+									className="approval-button"
+									data-tone="accept"
+									data-held={guarding || undefined}
+									aria-disabled={guarding || undefined}
+									title={acceptTip}
+									aria-keyshortcuts="Control+Enter"
+									onClick={accept}
+								>
+									{screenMoment ? 'Allow this app' : 'Accept'}
+								</button>
+							</div>
+						</>
+					)}
+				</footer>
+			</div>
+		</section>
 	)
 }
 

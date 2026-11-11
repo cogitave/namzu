@@ -136,8 +136,40 @@
 	line-height: 20px;
 	gap: 4px;
 	padding-block: 4px;
-	border-bottom: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
+	border-bottom: 0;
 	color: var(--muted-foreground);
+}
+/* A finished turn's line is a quiet sentence about the work: the reply is the brightest text of the turn, so
+   the sentence is muted and rises to the primary colour only under the pointer or the keyboard focus. */
+.normal-transcript .activity-trigger[data-sentence],
+.normal-transcript .activity-trigger[data-sentence][data-panel-open] {
+	color: var(--muted-foreground);
+}
+.normal-transcript .activity-trigger[data-sentence]:hover,
+.normal-transcript .activity-trigger[data-sentence]:focus-visible {
+	color: var(--foreground);
+}
+.normal-transcript .activity-trigger[data-sentence] .turn-activity-elapsed {
+	color: color-mix(in srgb, var(--muted-foreground) 70%, transparent);
+}
+/* The sentence is a short label: its focus ring hugs the words, not the whole column. */
+.normal-transcript .activity-trigger[data-sentence] {
+	width: max-content;
+	max-width: 100%;
+}
+/* On a screen with no pointer there is no hover to show the time, so it is always drawn. */
+@media (hover: none) {
+	.normal-transcript .message-time {
+		opacity: 1;
+	}
+}
+/* A closed fold has no rule; an open one separates the work from the answer under it. */
+.normal-transcript
+	.activity-trigger:not([data-live])
+	+ [data-slot="collapsible-panel"]
+	.activity-entries {
+	padding-bottom: 12px;
+	border-bottom: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
 }
 .normal-transcript .activity-trigger:hover,
 .normal-transcript .activity-trigger[data-panel-open] {
@@ -149,7 +181,6 @@
 }
 /* While the work is going the header is the turn's one line: a mark, the step, the time and a chevron to the work. */
 .normal-transcript .activity-trigger[data-live] {
-	border-bottom-color: transparent;
 	font-size: 13px;
 }
 .normal-transcript .activity-trigger[data-live] .turn-activity-elapsed {

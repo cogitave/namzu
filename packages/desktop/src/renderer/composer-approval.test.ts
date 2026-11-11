@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
@@ -267,4 +268,27 @@ it('says so when a command in a later call of the request is the risky one', () 
 	)
 	expect(html).toContain('Runs with elevated rights.')
 	expect(html).toContain('Looks like it deletes or overwrites files.')
+})
+
+it('draws one card with no surface of its own behind it and the preview as a plain band', () => {
+	const html = draw(bash('pnpm test'))
+	expect(html).toContain('class="approval-surface"')
+	expect(html).toContain('class="approval-card"')
+	expect(html).not.toContain('composer-banner')
+	const css = readFileSync(new URL('./composer-approval.css', import.meta.url), 'utf8')
+	const rule = (selector: string) => {
+		const start = css.indexOf(`\n${selector} {`)
+		return css.slice(start, css.indexOf('}', start))
+	}
+	const card = rule('.approval-card')
+	expect(card).toContain('border: 1px solid var(--border)')
+	expect(card).toContain('border-radius: var(--radius-card)')
+	expect(card).toContain('background: var(--card)')
+	expect(card).not.toContain('box-shadow')
+	const band = rule('.approval-box')
+	expect(band).toContain('border: 0')
+	expect(band).toContain('border-radius: 0')
+	expect(band).toContain('margin-inline: calc(-1 * var(--approval-pad))')
+	expect(band).toContain('background: var(--code-background)')
+	expect(css).not.toMatch(/#[0-9a-f]{3,8}\b/i)
 })

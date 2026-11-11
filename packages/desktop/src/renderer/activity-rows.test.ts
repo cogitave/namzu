@@ -398,7 +398,10 @@ describe('rendered activity', () => {
 		for (let i = 0; i < 5; i++) thread = tool(thread, `c${i}`, 'bash', command(`echo ${i}`))
 		thread = tool(thread, 'bad', 'bash', command('false'), 'failed')
 		const html = render(finish(thread))
-		expect(html).toContain('Ran 6 commands, 1 failed')
+		// The fold line says what was done and carries the flag; its one group is not a second copy.
+		expect(html).toContain('Ran 6 commands')
+		expect(html).toContain('1 command failed')
+		expect(html).not.toContain('Ran 6 commands, 1 failed')
 		expect(html).toContain('Ran false · failed')
 		expect(html).toContain('aria-description="false. Received at')
 	})

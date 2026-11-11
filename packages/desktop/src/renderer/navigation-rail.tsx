@@ -27,7 +27,7 @@ export function NavigationRail({
 	const engines = useEngineUpdates()
 	return (
 		<nav className="navigation-rail" aria-label="Main navigation">
-			<RailButton label="Home" active={section === 'home'} onClick={onHome}>
+			<RailButton control="home" label="Home" active={section === 'home'} onClick={onHome}>
 				{section === 'home' ? <HomeFilledIcon /> : <HomeIcon />}
 			</RailButton>
 			<div className="rail-spacer" />
@@ -40,13 +40,68 @@ export function NavigationRail({
 				/>
 			)}
 			<RailButton
+				control="settings"
 				label="Settings"
-				tooltip={`Settings (${typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? '⌘,' : 'Ctrl+,'})`}
+				tooltip={settingsTooltip()}
 				active={section === 'settings'}
 				onClick={onSettings}
 			>
 				<SettingsIcon />
 			</RailButton>
+		</nav>
+	)
+}
+
+function settingsTooltip(): string {
+	return `Settings (${typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? '⌘,' : 'Ctrl+,'})`
+}
+
+/**
+ * The same controls at the bottom of an open sidebar. The rail is the collapsed sidebar: while the
+ * sidebar is open the rail is not drawn and its controls live here, with the same names, tooltips,
+ * badge and announcement. Home is only here where the sidebar has no "New conversation" row of its
+ * own to lead to the same place (the Settings and Plugins sidebars).
+ */
+export function SidebarFoot({
+	section,
+	onHome,
+	onSettings,
+	update,
+	onOpenUpdates,
+}: {
+	section: 'home' | 'spaces' | 'plugins' | 'settings'
+	onHome?: () => void
+	onSettings: () => void
+	update?: { state: UpdateState; onOpen: () => void; onCheck: () => void }
+	onOpenUpdates?: () => void
+}) {
+	const engines = useEngineUpdates()
+	return (
+		<nav className="sidebar-foot" aria-label="Main navigation">
+			{onHome && (
+				<RailButton control="home" label="Home" side="top" onClick={onHome}>
+					<HomeIcon />
+				</RailButton>
+			)}
+			<RailButton
+				control="settings"
+				label="Settings"
+				tooltip={settingsTooltip()}
+				side="top"
+				active={section === 'settings'}
+				onClick={onSettings}
+			>
+				<SettingsIcon />
+			</RailButton>
+			{(update || (engines && onOpenUpdates)) && (
+				<UpdateRailButton
+					state={update?.state ?? { status: 'disabled' }}
+					onOpen={update?.onOpen ?? (() => {})}
+					engines={engines?.state}
+					onOpenEngines={onOpenUpdates}
+					side="top"
+				/>
+			)}
 		</nav>
 	)
 }
@@ -60,11 +115,13 @@ function UpdateRailButton({
 	onOpen,
 	engines,
 	onOpenEngines,
+	side = 'right',
 }: {
 	state: UpdateState
 	onOpen: () => void
 	engines?: EngineUpdatesState
 	onOpenEngines?: () => void
+	side?: 'right' | 'top'
 }) {
 	const appBadge = updateBadge(state)
 	const programBadge = onOpenEngines ? engineBadge(engines) : ({ visible: false } as const)
@@ -94,6 +151,7 @@ function UpdateRailButton({
 								variant="ghost-muted"
 								size="icon"
 								className="rail-button rail-update-button"
+								data-frame-control="update"
 								aria-label={badge.label}
 								onClick={click}
 							/>
@@ -103,7 +161,7 @@ function UpdateRailButton({
 							<DownloadIcon />
 						</span>
 					</TooltipTrigger>
-					<TooltipPopup side="right">{badge.tooltip}</TooltipPopup>
+					<TooltipPopup side={side}>{badge.tooltip}</TooltipPopup>
 				</Tooltip>
 			)}
 		</>
@@ -111,14 +169,19 @@ function UpdateRailButton({
 }
 
 function RailButton({
+	control,
 	label,
 	tooltip = label,
+	side = 'right',
 	active,
 	onClick,
 	children,
 }: {
+	/** Names the control for the hand-over of focus when the rail and the foot swap places. */
+	control: 'home' | 'settings'
 	label: string
 	tooltip?: string
+	side?: 'right' | 'top'
 	active?: boolean
 	onClick?: () => void
 	children: ReactNode
@@ -131,6 +194,7 @@ function RailButton({
 						variant="ghost-muted"
 						size="icon"
 						className="rail-button"
+						data-frame-control={control}
 						aria-label={label}
 						aria-current={active ? 'page' : undefined}
 						data-active={active || undefined}
@@ -140,7 +204,7 @@ function RailButton({
 			>
 				{children}
 			</TooltipTrigger>
-			<TooltipPopup side="right">{tooltip}</TooltipPopup>
+			<TooltipPopup side={side}>{tooltip}</TooltipPopup>
 		</Tooltip>
 	)
 }
