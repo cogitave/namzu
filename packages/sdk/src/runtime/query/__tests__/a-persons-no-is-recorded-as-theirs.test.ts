@@ -240,7 +240,12 @@ describe('a call a policy refused', () => {
 			result: 'Error: Tool "edit" was not executed. Refused: strict mode does not run edits.',
 			isError: true,
 			// The kind of refusal, as a field; the wording above is the model's.
-			facts: { kind: 'failure', reason: 'blocked', subject: 'edit' },
+			facts: {
+				kind: 'failure',
+				reason: 'blocked',
+				subject: 'edit',
+				note: 'Refused: strict mode does not run edits.',
+			},
 		})
 		expect(event).not.toHaveProperty('presentation')
 	})

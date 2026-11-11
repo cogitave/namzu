@@ -145,6 +145,7 @@ lines.on('line', (line) => {
 	else if (method === 'session/prompt') {
 		if (process.env.FIXTURE_LIVE_INPUT) liveScopes.set(params.sessionId, { scopeId: randomUUID(), available: true, inputs: new Map() })
 		if (params.prompt === 'Fail turn with fixture') { reply(id, { stopReason: 'error', history: { messages: ['PRIVATE_TURN_HISTORY_FIXTURE'] } }); return }
+		if (params.prompt === 'Max tokens turn with fixture') { reply(id, { stopReason: 'max_tokens' }); return }
 		if (params.prompt === 'Reject turn with fixture') { send({ id, error: { code: -32603, message: 'The isolated fixture rejected this prompt.' } }); return }
 		if (params.prompt === 'Pause turn with fixture') { reply(id, { stopReason: 'cancelled', reason: 'paused' }); return }
 		if (params.prompt === 'Provider pause with fixture') {

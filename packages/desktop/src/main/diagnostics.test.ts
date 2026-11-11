@@ -98,7 +98,10 @@ it('records only typed superseded settings reads as informational without hiding
 		{
 			eventName: 'namzu.desktop.ipc_failed',
 			severityText: 'error',
-			attributes: { 'namzu.desktop.request': 118, 'namzu.desktop.failure.reason': 'unclassified' },
+			attributes: {
+				'namzu.desktop.request': 118,
+				'namzu.desktop.failure.reason': 'settings-unavailable',
+			},
 		},
 	])
 	expect(readFileSync(sink.path, 'utf8')).not.toContain(superseded.message)
@@ -166,6 +169,29 @@ it('keeps genuine structured and pretty INFO stderr informational without failur
 	})
 	expect(desktopFailure('Unexpected token in response; not valid JSON')).toMatchObject({
 		reason: 'protocol-invalid',
+	})
+})
+
+it('names the undo, settings and provider reads that used to be unclassified', () => {
+	expect(desktopFailure(new Error('Namzu returned an invalid undo status.'))).toMatchObject({
+		reason: 'undo-status-invalid',
+	})
+	expect(desktopFailure(new Error('request failed'), 'namzu/turns/undo-status')).toMatchObject({
+		reason: 'undo-status-unavailable',
+	})
+	expect(desktopFailure(new Error('request failed'), 'draftSettings')).toMatchObject({
+		reason: 'settings-unavailable',
+	})
+	expect(desktopFailure(new Error('request failed'), 'namzu/providers/settings')).toMatchObject({
+		reason: 'provider-setup-unavailable',
+	})
+	expect(
+		desktopFailure(new Error('The provider is not configured.'), 'modelSettings'),
+	).toMatchObject({
+		reason: 'provider-not-configured',
+	})
+	expect(desktopFailure(new Error('request failed'), 'send')).toMatchObject({
+		reason: 'unclassified',
 	})
 })
 

@@ -49,6 +49,10 @@ it('reads a stored file entry by entry and ignores what it does not know', () =>
 		voiceInputAccepted: false,
 		hardwareAcceleration: true,
 		attentionSignals: true,
+		notifyNeedsYou: true,
+		notifyFailed: true,
+		notifyFinished: true,
+		notifySound: false,
 	})
 })
 
@@ -62,6 +66,10 @@ it('documents the defaults the spec names', () => {
 		voiceInputAccepted: false,
 		hardwareAcceleration: true,
 		attentionSignals: true,
+		notifyNeedsYou: true,
+		notifyFailed: true,
+		notifyFinished: true,
+		notifySound: false,
 	})
 })
 
@@ -85,4 +93,19 @@ it('turns the attention signals on by default and round trips the choice', () =>
 	expect(() => desktopSettingsPatch({ attentionSignals: 'no' })).toThrow()
 	expect(storedDesktopSettings({ attentionSignals: false }).attentionSignals).toBe(false)
 	expect(storedDesktopSettings({ attentionSignals: 'x' }).attentionSignals).toBe(true)
+})
+
+it('names the notification defaults: needs you, failed and finished on, sound off', () => {
+	expect(DEFAULT_DESKTOP_SETTINGS).toMatchObject({
+		notifyNeedsYou: true,
+		notifyFailed: true,
+		notifyFinished: true,
+		notifySound: false,
+	})
+	expect(desktopSettingsPatch({ notifySound: true })).toEqual({ notifySound: true })
+	expect(() => desktopSettingsPatch({ notifyFinished: 'yes' })).toThrow()
+	expect(storedDesktopSettings({ notifySound: 'x', notifyFailed: false })).toMatchObject({
+		notifySound: false,
+		notifyFailed: false,
+	})
 })

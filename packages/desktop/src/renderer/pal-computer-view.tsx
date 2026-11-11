@@ -20,6 +20,7 @@ import {
 	computerKeyboardInput,
 	computerScreenPoint,
 } from './pal-computer-input.js'
+import { PalComputerSetupCard } from './pal-computer-setup-card.js'
 import { PalLiveScreen } from './pal-live-screen.js'
 import { Button } from './ui/button.js'
 import './pal-computer-view.css'
@@ -31,6 +32,10 @@ export interface PalComputerViewProps
 		name: string
 		status: 'ready' | 'connecting' | 'error'
 		notice?: string
+		/** This PC lacks what a Pal's computer runs on: one setup card, no repeated reads. */
+		setupMissing?: boolean
+		/** The Podman machine exists and is stopped: starting it is all that is missing. */
+		podmanStopped?: boolean
 	}
 	screen: PalScreenView | null
 	loading: boolean
@@ -423,6 +428,8 @@ export function PalComputerView({
 									)
 								}}
 							/>
+						) : computer.setupMissing && computer.status === 'error' && !loading ? (
+							<PalComputerSetupCard palName={palName} podmanStopped={computer.podmanStopped} />
 						) : (
 							<div className="pal-computer-empty">
 								{loading || computer.status === 'connecting' ? (

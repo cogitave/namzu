@@ -8,6 +8,8 @@ export function useDraftSettings(
 	enabled: boolean,
 	onError: (error: unknown) => void,
 	api: DesktopApi = window.namzu,
+	/** Counts the times the connection came back; a change asks every failed read once more. */
+	reconnects = 0,
 ) {
 	const [snapshots, setSnapshots] = useState<{
 		store: DraftSettingsStore | null
@@ -67,6 +69,12 @@ export function useDraftSettings(
 		if (!enabled) return
 		void state.load(owner)
 	}, [enabled, owner, state])
+	const seenReconnects = useRef(reconnects)
+	useEffect(() => {
+		if (seenReconnects.current === reconnects) return
+		seenReconnects.current = reconnects
+		state.reconnected()
+	}, [reconnects, state])
 	const get = useCallback((target: string) => state.get(target), [state])
 	const save = useCallback(
 		(target: string, value: DraftSettings) => state.save(target, value),

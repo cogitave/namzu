@@ -705,7 +705,7 @@ export type PriorToolResults = ReadonlyMap<string, PriorToolResult>
  * for administrator rights is named as that; everything else is a plain block.
  * Read from the call's own argument, never from the refusal's wording.
  */
-function refusalFacts(toolName: string, input: unknown): ToolFacts {
+function refusalFacts(toolName: string, input: unknown, reason?: string): ToolFacts {
 	const command =
 		input && typeof input === 'object' ? (input as { command?: unknown }).command : undefined
 	const elevated = typeof command === 'string' && /(^|[\s;&|(])(sudo|doas)\b/.test(command)
@@ -713,7 +713,29 @@ function refusalFacts(toolName: string, input: unknown): ToolFacts {
 		kind: 'failure',
 		reason: elevated ? 'needs_administrator' : 'blocked',
 		subject: toolName,
+		...(refusalNote(reason) ? { note: refusalNote(reason) } : {}),
 	}
+}
+
+const REFUSAL_NOTE_MAX = 200
+
+/**
+ * The refusal's own reason as one line for the person's view: the first
+ * non-empty line, the leading "Blocked:" label dropped, first letter up, bounded. The policy
+ * wrote it; nothing here reads the model's text.
+ */
+function refusalNote(reason: string | undefined): string | undefined {
+	const line = reason
+		?.split(/\r?\n/)
+		.map((part) => part.trim())
+		.find(Boolean)
+	if (!line) return undefined
+	const plain = line.replace(/^Blocked(?: by [^:]{1,60})?:\s*/i, '').trim()
+	if (!plain) return undefined
+	const sentence = `${plain.charAt(0).toUpperCase()}${plain.slice(1)}`
+	return sentence.length > REFUSAL_NOTE_MAX
+		? `${sentence.slice(0, REFUSAL_NOTE_MAX - 1)}…`
+		: sentence
 }
 
 export function deniedToolOutput(toolName: string, reason: string): string {
@@ -3633,7 +3655,7 @@ export class ToolExecutor {
 			...(declined ? { presentation: this.declinedPresentation(toolName, input, declined) } : {}),
 			// A refusal by policy says what kind it was; the person's own No is
 			// already carried by the presentation above.
-			...(declined ? {} : { facts: refusalFacts(toolName, input) }),
+			...(declined ? {} : { facts: refusalFacts(toolName, input, reason) }),
 			isError: true,
 		})
 

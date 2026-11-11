@@ -1,6 +1,7 @@
 import { Activity, Bot, KeyRound, SquareTerminal, Volume2, Wrench } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { ProjectView } from '../shared/protocol.js'
+import { FINISHED_NOTICE_AFTER_SECONDS } from '../shared/settings-protocol.js'
 import {
 	type DataFolderKind,
 	type DesktopInfo,
@@ -371,13 +372,61 @@ function GeneralSection({ settings, shells }: SectionProps) {
 			<Row
 				id="attention-signals"
 				label="Show when a conversation needs you"
-				description="While Namzu is in the background and a conversation is waiting for an answer, show a count on its icon and flash the taskbar or dock once. It clears when you come back. No sound and no pop-up."
+				description="While Namzu is in the background and a conversation is waiting for an answer, show a count on its icon and flash the taskbar or dock once. It clears when you come back."
 			>
 				<Switch
 					label="Show when a conversation needs you"
 					checked={settings.settings?.attentionSignals ?? true}
 					disabled={!settings.settings}
 					onChange={(value) => void settings.change({ attentionSignals: value })}
+				/>
+			</Row>
+			<Row
+				id="notify-needs-you"
+				label="Notify me when a conversation needs my answer"
+				description="A system notification when an approval or a question is waiting and Namzu is in the background. It shows the project's name and nothing from the conversation."
+			>
+				<Switch
+					label="Notify me when a conversation needs my answer"
+					checked={settings.settings?.notifyNeedsYou ?? true}
+					disabled={!settings.settings}
+					onChange={(value) => void settings.change({ notifyNeedsYou: value })}
+				/>
+			</Row>
+			<Row
+				id="notify-failed"
+				label="Notify me when a conversation stops with an error"
+				description="A system notification when a reply stops with an error and Namzu is in the background."
+			>
+				<Switch
+					label="Notify me when a conversation stops with an error"
+					checked={settings.settings?.notifyFailed ?? true}
+					disabled={!settings.settings}
+					onChange={(value) => void settings.change({ notifyFailed: value })}
+				/>
+			</Row>
+			<Row
+				id="notify-finished"
+				label="Notify me when a long reply finishes"
+				description={`A system notification when a reply that took ${FINISHED_NOTICE_AFTER_SECONDS} seconds or more is done and Namzu is in the background. A reply you watched end needs none.`}
+			>
+				<Switch
+					label="Notify me when a long reply finishes"
+					checked={settings.settings?.notifyFinished ?? true}
+					disabled={!settings.settings}
+					onChange={(value) => void settings.change({ notifyFinished: value })}
+				/>
+			</Row>
+			<Row
+				id="notify-sound"
+				label="Play a sound with notifications"
+				description="Off by default. Your system's do-not-disturb setting still applies."
+			>
+				<Switch
+					label="Play a sound with notifications"
+					checked={settings.settings?.notifySound ?? false}
+					disabled={!settings.settings}
+					onChange={(value) => void settings.change({ notifySound: value })}
 				/>
 			</Row>
 			<TerminalSettings settings={settings} shells={shells} />

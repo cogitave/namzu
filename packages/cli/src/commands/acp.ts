@@ -92,6 +92,7 @@ import { type ProviderRetryStatus, readProviderRetryStatus } from './acp-provide
 import { questionsOverPermission } from './acp-screen-question.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
 import { desktopModelCatalogue } from './desktop-model-catalogue.js'
+import { announceOutcome } from './desktop-outcome-feed.js'
 import { type UsageFeed, createUsageFeed } from './desktop-usage-feed.js'
 import { withPreviews } from './permission-preview.js'
 import type { CommandContext, CommandDef } from './types.js'
@@ -1989,11 +1990,12 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	// Desktop only: how full each conversation is, and when it is being compacted.
 	// The shared bridge carries neither, so the host announces them itself.
 	let announcingUsage = true
+	const announce = (method: string, params: Record<string, unknown>) => {
+		if (announcingUsage) void transport.send({ jsonrpc: '2.0', method, params })
+	}
 	const usageFeed: UsageFeed | undefined = desktop
 		? createUsageFeed({
-				notify: (method, params) => {
-					if (announcingUsage) void transport.send({ jsonrpc: '2.0', method, params })
-				},
+				notify: announce,
 				now: () => Date.now(),
 				schedule: (run, ms) => {
 					const timer = setTimeout(run, ms)
@@ -2005,7 +2007,14 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	const runtime = withCliHarnesses(
 		createCliAcpRuntime(ctx, DEFAULT_RUNTIME_DEPS, {
 			computerUse: desktop,
-			...(usageFeed ? { observeEvent: (id, event) => usageFeed.observe(id, event) } : {}),
+			...(usageFeed
+				? {
+						observeEvent: (id, event) => {
+							usageFeed.observe(id, event)
+							announceOutcome(id, event, announce)
+						},
+					}
+				: {}),
 		}),
 		process.cwd(),
 	)

@@ -49,8 +49,10 @@ import {
 	useTranscriptEntryMotion,
 	useTranscriptPhaseMotion,
 } from './transcript-motion.js'
+import { attentionFlags, turnAttention } from './turn-attention.js'
 import { TurnChangesCard } from './turn-changes-card.js'
 import { turnChanges, turnUndo } from './turn-changes.js'
+import { AttentionFlags, TurnOutcomeLine, visibleOutcome } from './turn-outcome-line.js'
 import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 import { type WorkDisclosureChoices, workDisclosureKey } from './workspace-presentation.js'
@@ -241,6 +243,7 @@ function ToolRun({
 		created: item.operation === 'created',
 		background: item.shell?.background === true,
 	}))
+	const attention = turnAttention(thread, entries)
 	const lookups = presentations.length > 0 && presentations.every((item) => item.kind === 'lookup')
 	const label = lookups
 		? toolGroupLabel(
@@ -250,14 +253,15 @@ function ToolRun({
 				active,
 				states,
 			)
-		: actionRunLabel(actions, live)
+		: actionRunLabel(actions, live, false, attention.failedCommands)
 	// The short line hides some kinds; the tooltip lists them all.
-	const fullLabel = lookups ? label : actionRunLabel(actions, live, true)
+	const fullLabel = lookups ? label : actionRunLabel(actions, live, true, attention.failedCommands)
 	const Icon = actionIcon(actionRunKind(actions))
 	// A run the person watched work stays open when it ends, however long it grew.
 	const watched = useRef(false)
 	if (live) watched.current = true
-	const defaultOpen = watched.current || runDefaultOpen(live, entries.length)
+	const badNews = attentionFlags(attention).length > 0
+	const defaultOpen = watched.current || runDefaultOpen(live, entries.length, badNews)
 	const controlled = !!disclosureKey && !!onWorkDisclosureChange
 	const saved = disclosureKey ? workDisclosures?.[disclosureKey] : undefined
 	return (
@@ -397,6 +401,8 @@ function TurnActivity({
 	const controlled = !!disclosureKey && !!onWorkDisclosureChange
 	const savedOpen = disclosureKey ? workDisclosures?.[disclosureKey] : undefined
 	const label = ownsTurnSummary ? turnActivityLabel(thread, turn) : 'Earlier work'
+	// Bad news is said in the header, so a finished turn never looks fine while a command failed.
+	const flags = live ? [] : attentionFlags(turnAttention(thread, entries))
 	const start = live && ownsTurnSummary ? thread.turns[turn]?.startedAt : undefined
 	const elapsed = start === undefined ? undefined : elapsedLabel(now - start)
 	const savedTime = ownsTurnSummary
@@ -426,7 +432,10 @@ function TurnActivity({
 			>
 				<CollapsibleTrigger
 					className="activity-trigger"
-					aria-label={elapsed ? `${label} for ${elapsed}` : label}
+					aria-label={[
+						elapsed ? `${label} for ${elapsed}` : label,
+						...flags.map((flag) => flag.text),
+					].join('. ')}
 					title={
 						savedDuration
 							? 'Time reported for this saved work'
@@ -440,6 +449,7 @@ function TurnActivity({
 					<span className="activity-text">
 						<PhaseLabel label={label} animate={animate} />
 						{elapsed && <span className="turn-activity-elapsed">for {elapsed}</span>}
+						<AttentionFlags flags={flags} />
 					</span>
 					<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
 				</CollapsibleTrigger>
@@ -765,6 +775,7 @@ const TurnGroupView = memo(function TurnGroupView({
 						{...turnUndo(thread, group.turn, onUndoTurn, undoKept)}
 					/>
 				)}
+				{!live && <TurnOutcomeLine outcome={visibleOutcome(thread, group.turn)} />}
 				{abandoned && <p className="notice">{terminalNotice('abandoned')}</p>}
 			</div>
 		</ActivityActionsContext.Provider>
