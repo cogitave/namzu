@@ -710,7 +710,12 @@ import {
 } from './mentions.js'
 import { describeModelRefusal, refusalDetail } from './model-refusal.js'
 import { openInBrowser } from './open-browser.js'
-import { outcomeLine } from './outcome-line.js'
+import {
+	type CannotTellReason,
+	NOTHING_TOLD,
+	type OutcomeTelling,
+	outcomeNotice,
+} from './outcome-line.js'
 import { PauseClock } from './pause-clock.js'
 import {
 	type WithheldCall,
@@ -1959,6 +1964,15 @@ function AppBody({
 	const sandboxShell = sandboxRunsShellUnasked(session?.sandbox)
 	const sandboxShellRef = useRef(sandboxShell)
 	sandboxShellRef.current = sandboxShell
+	// Why no change detector can answer: the tools work in a copy of the folder.
+	const cannotTellReasonRef = useRef<CannotTellReason | undefined>(undefined)
+	cannotTellReasonRef.current = session?.sandbox?.workspace === 'ephemeral' ? 'copy' : undefined
+	// What the outcome lines already said in the conversation on screen; keyed by
+	// the conversation so another one starts with nothing said.
+	const outcomeToldRef = useRef<{ id: string | undefined; telling: OutcomeTelling }>({
+		id: undefined,
+		telling: NOTHING_TOLD,
+	})
 	// The shell commands running in the foreground that Ctrl+B can move to the
 	// background; each is offered once it has run for a couple of seconds.
 	const [offeredCommands, setOfferedCommands] = useState<ReadonlySet<string>>(new Set())
@@ -5915,6 +5929,10 @@ function AppBody({
 				...projectConversation(restored, nextId, [], {
 					trail: trailFromRecords(journalOf(restored)),
 					cwd: ctxRef.current.cwd,
+					...(cannotTellReasonRef.current ? { cannotTellReason: cannotTellReasonRef.current } : {}),
+					onTold: (telling) => {
+						outcomeToldRef.current = { id: requestedConversationId, telling }
+					},
 				}),
 				...(resumedTitle
 					? [
@@ -7932,6 +7950,10 @@ function AppBody({
 			const restored = projectConversation(msgs, nextId, [], {
 				trail: trailFromRecords(journalOf(msgs)),
 				cwd: ctxRef.current.cwd,
+				...(cannotTellReasonRef.current ? { cannotTellReason: cannotTellReasonRef.current } : {}),
+				onTold: (telling) => {
+					outcomeToldRef.current = { id: conv.id, telling }
+				},
 			})
 			// A queue can outlive its turn by one render: the turn has set idle and
 			// cleared `abortRef`, while the passive queue pump is paused behind this
@@ -10269,8 +10291,18 @@ function AppBody({
 					// What the turn changed and what checked it, from the kernel's own
 					// record of its calls: one quiet line, and none for a turn that
 					// changed nothing.
-					const outcomeText = outcomeLine(event.outcome)
-					if (outcomeText) pushSystem('notice', outcomeText)
+					// A verdict that says only that the folder cannot be watched is
+					// told once per conversation, not under every turn.
+					const conversationId = scopeRef.current?.sessionId
+					if (outcomeToldRef.current.id !== conversationId)
+						outcomeToldRef.current = { id: conversationId, telling: NOTHING_TOLD }
+					const said = outcomeNotice(
+						event.outcome,
+						outcomeToldRef.current.telling,
+						cannotTellReasonRef.current,
+					)
+					outcomeToldRef.current.telling = said.telling
+					if (said.line) pushSystem('notice', said.line)
 					if (st.startedAt !== undefined) {
 						const since = st.startedAt
 						const delegated = subagentsRef.current.filter(
