@@ -1,6 +1,6 @@
 import type { ToolCallView, ToolFacts, ToolFailureReason } from '@namzu/sdk'
 import type { ProjectedToolCall, ThreadState } from '../shared/projection.js'
-import { changeTotals } from './changes-totals.js'
+import { receiptCounts, receiptOf } from './changes-totals.js'
 import type { ShellCellData } from './shell-cell.js'
 import { humanBytes } from './tool-output.js'
 import { baseName } from './turn-changes.js'
@@ -743,21 +743,6 @@ function declinedPresentation(tool: ProjectedToolCall): ToolTranscriptPresentati
 	}
 }
 
-const statsCache = new WeakMap<object, { added: number; removed: number }>()
-
-/** Lines an edit added and removed, worked out once per receipt. */
-function diffStats(view: Extract<ToolCallView, { kind: 'diff' }>): {
-	added: number
-	removed: number
-} {
-	const hit = statsCache.get(view)
-	if (hit) return hit
-	const totals = changeTotals([view])
-	const stats = { added: totals.added, removed: totals.removed }
-	statsCache.set(view, stats)
-	return stats
-}
-
 /** Present only admitted tool metadata; never infer outcomes from result text. */
 export function toolTranscriptPresentation(
 	thread: ThreadState,
@@ -816,14 +801,9 @@ export function toolTranscriptPresentation(
 		if (path) file = { name, path }
 		label = authored ?? `${lead} ${name}`
 		if (state === 'completed') {
-			// One count from one diff: the kernel's own, when it reported it. Only a
-			// conversation saved before edits carried counts is compared here.
-			const reported =
-				tool.facts?.kind === 'write' || tool.facts?.kind === 'edit' ? tool.facts : undefined
-			stats =
-				reported && (reported.added !== undefined || reported.removed !== undefined)
-					? { added: reported.added ?? 0, removed: reported.removed ?? 0 }
-					: diffStats(view)
+			// The same count the reply card and the Changes panel read.
+			const receipt = receiptOf(tool)
+			stats = receipt ? receiptCounts(receipt) : undefined
 		}
 	} else if (typed) {
 		// The words come from typed fields; the model's receipt is not drawn.

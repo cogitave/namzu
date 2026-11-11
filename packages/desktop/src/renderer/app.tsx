@@ -54,7 +54,7 @@ import {
 } from './archive-notice.js'
 import { applyCachedAttachmentPreviewEviction } from './attachment-preview-events.js'
 import { ChangesPanel } from './changes-panel.js'
-import { type ChangeTotals, changeTotals } from './changes-totals.js'
+import { type ChangeTotals, changeTotals, receiptOf } from './changes-totals.js'
 import { ChatErrorBanner } from './chat-error-banner.js'
 import { applyClosedTabEvent } from './closed-tab.js'
 import { CommandPalette, type CommandPaletteItem } from './command-palette.js'
@@ -1346,10 +1346,12 @@ export function App({
 	const detailsActive = detailsPopoverOpen && !palConversation
 	// Line totals compare whole files, so they are read only while someone is looking.
 	const totals = useMemo<ChangeTotals>(() => {
-		if (!detailsActive) return { added: 0, removed: 0, files: 0 }
+		if (!detailsActive) return { added: 0, removed: 0, files: 0, cut: false }
 		const receipts = []
-		for (const tool of Object.values(thread.tools))
-			if (tool.status === 'completed' && tool.view.kind === 'diff') receipts.push(tool.view)
+		for (const tool of Object.values(thread.tools)) {
+			const receipt = tool.status === 'completed' ? receiptOf(tool) : undefined
+			if (receipt) receipts.push(receipt)
+		}
 		return changeTotals(receipts)
 	}, [detailsActive, thread.tools])
 	const sources = useMemo(
