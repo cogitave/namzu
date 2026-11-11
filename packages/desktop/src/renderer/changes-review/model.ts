@@ -2,7 +2,13 @@ import type { AcpSessionUpdate } from '@namzu/sdk'
 import { parseDiffFromFile } from '@pierre/diffs'
 import type { ThreadState } from '../../shared/projection.js'
 import type { ProjectChangeFile } from '../../shared/protocol.js'
-import { changeTotals, receiptCounts, receiptOf } from '../changes-totals.js'
+import {
+	CUT_NOTE,
+	canonicalPaths,
+	changeTotals,
+	receiptCounts,
+	receiptOf,
+} from '../changes-totals.js'
 import { prepareIndex, searchFiles } from '../file-panel/file-search.js'
 import { baseNameOf } from '../file-panel/project-refs.js'
 import { turnChanges } from '../turn-changes.js'
@@ -30,6 +36,10 @@ export interface ReviewFile {
 	 * each edit's hunk and never one edit's removed lines beside another's added ones.
 	 */
 	edits?: ReviewEdit[]
+	/** Only the engine's counts are known for this file: no edit of it carried a diff to show. */
+	noDiff?: true
+	/** Some edits of this file carried a diff and some did not; the shown diff is not all of them. */
+	partial?: true
 }
 
 export interface ReviewEdit {
@@ -92,8 +102,9 @@ export function mergeReceipts(receipts: readonly Receipt[]): ReviewFile[] {
 		const n = Number(key.slice('receipt:'.length)) + 1
 		return n === 1 ? 'File' : `File (${n})`
 	}
+	const canonical = canonicalPaths(receipts.map((receipt) => receipt.path))
 	for (const receipt of receipts) {
-		const key = receipt.path || `receipt:${anonymous++}`
+		const key = canonical(receipt.path) || `receipt:${anonymous++}`
 		const list = byPath.get(key)
 		if (list) list.push(receipt)
 		else byPath.set(key, [receipt])
@@ -105,8 +116,12 @@ export function mergeReceipts(receipts: readonly Receipt[]): ReviewFile[] {
 		if (!first || !last) continue
 		const totals = changeTotals(list)
 		if (totals.files === 0) continue
-		const before = first.before ?? ''
-		const after = last.after ?? ''
+		// Only edits that carried a diff can draw one; the rest still count.
+		const sided = list.filter(
+			(receipt) => receipt.before !== undefined || receipt.after !== undefined,
+		)
+		const before = sided[0]?.before ?? ''
+		const after = sided[sided.length - 1]?.after ?? ''
 		files.push({
 			path: key.startsWith('receipt:') ? anonymousName(key) : key,
 			status: !before && after ? 'added' : before && !after ? 'deleted' : 'modified',
@@ -114,9 +129,11 @@ export function mergeReceipts(receipts: readonly Receipt[]): ReviewFile[] {
 			removed: totals.removed,
 			content: { before, after },
 			...(totals.cut ? { cut: true as const } : {}),
-			...(list.length > 1
+			...(sided.length === 0 ? { noDiff: true as const } : {}),
+			...(sided.length > 0 && sided.length < list.length ? { partial: true as const } : {}),
+			...(sided.length > 1
 				? {
-						edits: list.map((receipt) => ({
+						edits: sided.map((receipt) => ({
 							before: receipt.before ?? '',
 							after: receipt.after ?? '',
 							...receiptCounts(receipt),
@@ -153,6 +170,20 @@ export function scopeFiles(
 			? latestReplyReceiptIds({ timeline: input.timeline, tools: input.tools })
 			: undefined)
 	return ids ? mergeReceipts(receiptsOf(input.tools, input.timeline, ids)) : []
+}
+
+/** Beside the bar: which cut files the open one does not already explain. Absent when none. */
+export function cutNoteFor(
+	files: readonly ReviewFile[],
+	openPath: string | undefined,
+): string | undefined {
+	if (files.length < 2) return undefined
+	const names = files
+		.filter((file) => file.cut && file.path !== openPath)
+		.map((file) => file.path.split('/').pop() || file.path)
+	if (names.length === 0) return undefined
+	const shown = names.slice(0, 2).join(', ')
+	return `${CUT_NOTE} for ${names.length > 2 ? `${shown} and ${names.length - 2} more` : shown}`
 }
 
 export function totalsOf(files: readonly ReviewFile[]): {

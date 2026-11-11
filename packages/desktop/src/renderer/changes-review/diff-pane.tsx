@@ -203,7 +203,12 @@ export function DiffPane({
 							</PaneMessage>
 						)}
 						{file.cut && <p className="changes-note changes-cut-note">{CUT_NOTE}</p>}
-						{gated && !verdict.rich ? (
+						{file.partial && (
+							<p className="changes-note">Some edits to this file have no diff to show.</p>
+						)}
+						{file.noDiff ? (
+							<PaneMessage>No diff is available for this change.</PaneMessage>
+						) : gated && !verdict.rich ? (
 							<>
 								<p className="changes-note changes-gate-note">
 									<span>{gateNotice(verdict)}</span>

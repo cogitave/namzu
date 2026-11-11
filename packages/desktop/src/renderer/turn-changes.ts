@@ -1,5 +1,5 @@
 import type { ThreadState } from '../shared/projection.js'
-import { type DiffReceipt, changeTotals, receiptOf } from './changes-totals.js'
+import { type DiffReceipt, canonicalPaths, changeTotals, receiptOf } from './changes-totals.js'
 import { type UndoCardView, undoCardView } from './undo-model.js'
 
 export interface TurnChangeFile {
@@ -41,17 +41,25 @@ export function turnChanges(
 ): Map<number, TurnChanges> {
 	const byTurn = new Map<number, Map<string, { path: string; ids: string[]; created: boolean }>>()
 	let anonymous = 0
+	const canonical = canonicalPaths(
+		thread.timeline.flatMap((entry) => {
+			const tool = entry.kind === 'tool' ? thread.tools[entry.id] : undefined
+			const receipt = tool?.status === 'completed' ? receiptOf(tool) : undefined
+			return receipt?.path ? [receipt.path] : []
+		}),
+	)
 	for (const entry of thread.timeline) {
 		if (entry.kind !== 'tool') continue
 		const tool = thread.tools[entry.id]
-		if (!tool || tool.status !== 'completed' || tool.view.kind !== 'diff') continue
-		const path = tool.view.path || tool.view.label || ''
+		const receipt = tool?.status === 'completed' ? receiptOf(tool) : undefined
+		if (!tool || !receipt) continue
+		const path = canonical(receipt.path ?? '') || receipt.label || ''
 		const key = path || `receipt:${anonymous++}`
 		const files = byTurn.get(entry.turn) ?? new Map()
 		const file = files.get(key) ?? {
 			path,
 			ids: [],
-			created: !tool.view.before && Boolean(tool.view.after),
+			created: !receipt.before && Boolean(receipt.after),
 		}
 		file.ids.push(entry.id)
 		files.set(key, file)

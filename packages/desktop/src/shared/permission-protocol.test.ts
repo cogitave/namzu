@@ -99,3 +99,22 @@ it('keeps the typed note apart from the wrapper the model reads, and bounds both
 		readPermissionResponse({ outcome: 'reject', note: 'x'.repeat(PERMISSION_FEEDBACK_MAX + 1) }),
 	).toThrow('under 4,000')
 })
+
+it('keeps the engine counts of a preview and drops ones that are not whole numbers', () => {
+	const call = (extra: object) => [
+		{
+			id: 'c',
+			name: 'write',
+			input: {},
+			isDestructive: false,
+			preview: { path: 'a.ts', before: '', after: 'x', ...extra },
+		},
+	]
+	expect(readPermissionCalls(call({ added: 477, removed: 0 }))[0]?.preview).toMatchObject({
+		added: 477,
+		removed: 0,
+	})
+	const bad = readPermissionCalls(call({ added: -1, removed: 1.5 }))[0]?.preview
+	expect(bad).not.toHaveProperty('added')
+	expect(bad).not.toHaveProperty('removed')
+})

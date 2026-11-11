@@ -142,7 +142,20 @@ function pathOf(call: Call): string | undefined {
 	return typeof path === 'string' && path.trim() ? path : undefined
 }
 
-function counts(before: string, after: string, path: string, cut = false) {
+function counts(
+	before: string,
+	after: string,
+	path: string,
+	cut = false,
+	reported?: { added?: number; removed?: number },
+) {
+	// The engine's own count of the whole change wins over counting what a cut preview holds.
+	if (reported && (reported.added !== undefined || reported.removed !== undefined))
+		return {
+			added: reported.added ?? 0,
+			removed: reported.removed ?? 0,
+			...(cut ? { cut: true as const } : {}),
+		}
 	const totals = changeTotals([{ path, before, after, ...(cut ? { cut } : {}) }])
 	return {
 		added: totals.added,
@@ -206,7 +219,7 @@ export function buildApprovalCard(
 				fileName,
 				path,
 				diff,
-				...counts(diff.before, diff.after, path, first.preview.truncated === true),
+				...counts(diff.before, diff.after, path, first.preview.truncated === true, first.preview),
 				previewMissing: false,
 				...(!created && diff.before === diff.after ? { unchanged: true } : {}),
 				...(write ? { write, overwrites: !created } : {}),
