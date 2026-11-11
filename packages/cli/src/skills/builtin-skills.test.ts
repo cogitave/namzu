@@ -13,8 +13,10 @@ import { loadSkill } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { runCli } from '../cli.js'
+import { SKILL_LISTING_DESCRIPTION_MAX_CHARS } from '../reminders/skills.js'
 import { ADD_FLAGS } from '../schedule/commands/add.js'
 import { CLI_LOCAL_COMMANDS } from '../tui/slashCommands.js'
+import { manifestEntryChars, skillManifestBudget } from './catalog.js'
 import { SKILL_BODY_MAX_BYTES, SKILL_DESCRIPTION_MAX_CHARS, SKILL_NAME_MAX_CHARS } from './save.js'
 import { systemSkillsDir } from './store.js'
 
@@ -59,10 +61,14 @@ function topLevelCommandExists(name: string): boolean {
 }
 
 describe('the built-in skills', () => {
-	it('ships skill-creator, browser-automation and schedule-task', () => {
-		expect(builtinSkillDirs()).toEqual(
-			expect.arrayContaining(['browser-automation', 'schedule-task', 'skill-creator']),
-		)
+	it('ships the five built-in skills', () => {
+		expect(builtinSkillDirs()).toEqual([
+			'browser-automation',
+			'review-changes',
+			'schedule-task',
+			'skill-creator',
+			'verify-change',
+		])
 	})
 
 	it.each(builtinSkillDirs())('%s loads with the kernel loader within its limits', async (dir) => {
@@ -72,9 +78,99 @@ describe('the built-in skills', () => {
 		expect(skill.metadata.description.length).toBeGreaterThan(40)
 		expect(skill.metadata.description.length).toBeLessThanOrEqual(SKILL_DESCRIPTION_MAX_CHARS)
 		// Trigger-oriented: the description says when to use it.
-		expect(skill.metadata.description).toMatch(/\bUse (when|whenever)\b/)
+		expect(skill.metadata.description).toMatch(/\bUse (when|whenever|before)\b/)
 		expect(Buffer.byteLength(skill.body ?? '', 'utf8')).toBeLessThanOrEqual(SKILL_BODY_MAX_BYTES)
 		expect((skill.body ?? '').length).toBeGreaterThan(200)
+	})
+
+	it.each(builtinSkillDirs())('%s says when not to use it, and fits its own rules', async (dir) => {
+		const { skill } = await loadSkill(join(SKILLS, dir), 'full')
+		// A description that says when NOT to use the skill, where a neighbour is easily confused with it.
+		expect(skill.metadata.description).toMatch(/\bNot (for|a)\b/)
+		// The rules `skill-creator` gives: one file, a short body, a summary, numbered steps, a "Never" list.
+		const body = skill.body ?? ''
+		expect(body.split('\n').length).toBeLessThanOrEqual(150 + (dir === 'schedule-task' ? 200 : 0))
+		if (dir === 'verify-change' || dir === 'review-changes') {
+			expect(body).toMatch(/^# .+\n\n\S/m)
+			expect(body).toMatch(/^1\. \*\*/m)
+			expect(body).toMatch(/^## Never$/m)
+			expect(body).toMatch(/^## Example report$/m)
+			expect(readdirSync(join(SKILLS, dir))).toEqual(['SKILL.md'])
+		}
+	})
+
+	it('verify-change and review-changes trigger on what the model is about to do, with quoted examples', async () => {
+		const meta = async (dir: string) =>
+			(await loadSkill(join(SKILLS, dir), 'metadata')).skill.metadata
+		const verify = await meta('verify-change')
+		expect(verify.description).toMatch(/before you tell the person a change works/)
+		expect(verify.description.match(/"[^"]+"/g)?.length).toBeGreaterThanOrEqual(2)
+		const review = await meta('review-changes')
+		expect(review.description).toMatch(/before you hand over a change you made/)
+		expect(review.description.match(/"[^"]+"/g)?.length).toBeGreaterThanOrEqual(2)
+		expect(verify.invocation).toBe('both')
+		expect(review.invocation).toBe('both')
+		expect(verify.metadata?.['namzu-requires-tools']).toBeUndefined()
+		expect(review.metadata?.['namzu-requires-tools']).toBeUndefined()
+	})
+
+	it('verify-change tells the model to run the check plainly, as the turn record reads it', async () => {
+		const body = (await loadSkill(join(SKILLS, 'verify-change'), 'full')).skill.body ?? ''
+		expect(body).toMatch(/no pipe/)
+		expect(body).toMatch(/inconclusive/)
+		for (const verdict of ['It works', 'It does not', 'It could not be exercised'])
+			expect(body).toContain(verdict)
+	})
+
+	it.each(['verify-change', 'review-changes'])(
+		'%s tells the model to stay within permissions and ask before anything irreversible',
+		async (dir) => {
+			const body = (await loadSkill(join(SKILLS, dir), 'full')).skill.body ?? ''
+			const never = body.split(/^## Never$/m)[1]?.split(/^## /m)[0] ?? ''
+			expect(never).toMatch(/permissions allow/)
+			expect(never).toMatch(/cannot\s+be undone/)
+			expect(never).toMatch(/without asking first/)
+			for (const word of ['push', 'install', 'live service']) expect(never).toContain(word)
+		},
+	)
+
+	it('review-changes names the delegation tool by the name the kernel registers', async () => {
+		const body = (await loadSkill(join(SKILLS, 'review-changes'), 'full')).skill.body ?? ''
+		const registered = readFileSync(
+			fileURLToPath(new URL('../../../sdk/src/tools/coordinator/agent.ts', import.meta.url)),
+			'utf8',
+		)
+		const tool = /\bthe `([A-Za-z_]+)` tool is available/.exec(body)?.[1]
+		expect(tool).toBeDefined()
+		expect(registered).toContain(`name: '${tool}'`)
+	})
+
+	it('every `name` tool a built-in points at by "the `x` tool" is one this CLI or the kernel registers', () => {
+		const known = new Set(['Agent', 'schedule', 'browser', 'browser_act', 'save_skill', 'skill'])
+		const problems: string[] = []
+		for (const dir of builtinSkillDirs()) {
+			const markdown = readFileSync(join(SKILLS, dir, 'SKILL.md'), 'utf8')
+			for (const m of markdown.matchAll(/`([A-Za-z_]+)` tool\b/g))
+				if (!known.has(m[1] as string)) problems.push(`${dir}: ${m[1]}`)
+		}
+		expect(problems).toEqual([])
+	})
+
+	it('all five descriptions fit in full on the smallest window the model table lists for open weights', async () => {
+		// 32,768 tokens is the smallest window the table gives a current family
+		// (the 8k and 16k rows are older chat models). A real install sits under
+		// a path of this length, which every entry also pays for.
+		const installedPath = `/usr/local/lib/node_modules/@namzu/cli/skills/${'x'.repeat(20)}`
+		const budget = skillManifestBudget(32_768)
+		let spent = 0
+		for (const dir of builtinSkillDirs()) {
+			const { skill } = await loadSkill(join(SKILLS, dir), 'metadata')
+			expect(skill.metadata.description.length).toBeLessThanOrEqual(
+				SKILL_LISTING_DESCRIPTION_MAX_CHARS,
+			)
+			spent += manifestEntryChars({ ...skill, dirPath: installedPath })
+		}
+		expect(spent).toBeLessThanOrEqual(budget)
 	})
 
 	it('declares the invocation and gating the design gives each', async () => {

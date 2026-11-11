@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { type Skill, SkillRegistry, SkillTool, assembleSystemPrompt } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
+import { systemSkillsDir } from './store.js'
 
 import {
 	SKILL_MANIFEST_MAX_CHARS,
@@ -160,6 +161,43 @@ describe('the session skill catalog', () => {
 		// A small window describes fewer.
 		const small = await cat.forTurn({ toolNames: [], contextWindowTokens: 10_000 })
 		expect((small.manifest ?? []).length).toBeLessThan(described.length)
+	})
+
+	it('offers the shipped built-ins, the two review skills included, in full on a 32k window', async () => {
+		const real = await createSessionSkillCatalog({
+			cwd,
+			home,
+			systemDir: systemSkillsDir(),
+		})
+		const withTools = await real.forTurn({
+			toolNames: ['browser', 'schedule'],
+			contextWindowTokens: 32_768,
+		})
+		expect(withTools.manifest?.map((s) => s.metadata.name)).toEqual([
+			'browser-automation',
+			'review-changes',
+			'schedule-task',
+			'skill-creator',
+			'verify-change',
+		])
+		expect(withTools.overflow).toEqual([])
+		expect(withTools.overflowNote).toBeNull()
+
+		// Without the browser and schedule tools those two are hidden; the rest stay.
+		const bare = await real.forTurn({
+			toolNames: [],
+			contextWindowTokens: 32_768,
+		})
+		expect(bare.manifest?.map((s) => s.metadata.name)).toEqual([
+			'review-changes',
+			'skill-creator',
+			'verify-change',
+		])
+		const loaded = await callSkillTool(bare.registry!, {
+			name: 'verify-change',
+		})
+		expect(loaded.success).toBe(true)
+		expect(loaded.output).toContain('Proving a change works')
 	})
 
 	it('describes the highest-precedence tiers first when the budget runs out', async () => {
