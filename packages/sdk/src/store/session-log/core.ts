@@ -888,6 +888,7 @@ export class SessionLogCore implements SessionLog {
 		if (
 			type !== 'message' &&
 			type !== 'message_replaced' &&
+			type !== 'message_edited' &&
 			type !== 'compaction' &&
 			type !== 'turn_completed'
 		)
@@ -926,7 +927,7 @@ export class SessionLogCore implements SessionLog {
 		const key =
 			content.role === 'tool' && typeof content.toolCallId === 'string'
 				? content.toolCallId
-				: type === 'message_replaced'
+				: type === 'message_replaced' || type === 'message_edited'
 					? `record:${String(candidate.id)}`
 					: `message:${String(candidate.messageId)}`
 		const ref = await this.#spillOrLose(key, 'message', JSON.stringify(content))

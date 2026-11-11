@@ -1775,6 +1775,7 @@ export {
 	ExternalRefSchema,
 	IgnorableRecordSchema,
 	MessageRecordSchema,
+	MessageEditedRecordSchema,
 	MessageReplacedRecordSchema,
 	OriginSchema,
 	OutcomeProgressWrittenRecordSchema,

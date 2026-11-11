@@ -10,6 +10,7 @@ import {
 	type RecordedMessage,
 	readEverRecordedMessages,
 	readFoldedHistory,
+	readOriginalOfEditedMessage,
 } from '../../manager/session/turn-recorder.js'
 import { resolveModelPricing } from '../../pricing/index.js'
 import { isCallerAbortError } from '../../provider/errors.js'
@@ -1182,7 +1183,13 @@ async function reconcileCallerMessages(
 		if (id !== undefined) {
 			const recorded = recordedById?.get(id)
 			if (recorded === undefined) throw staleCachedHistoryError('foreign', message)
-			if (!sameMessageContent(recorded, message)) throw staleCachedHistoryError('edited', message)
+			if (!sameMessageContent(recorded, message)) {
+				// A compaction pass edits a message under its own id; a host that
+				// cached the history before the pass still holds the first text.
+				const original = await readOriginalOfEditedMessage(log, id)
+				if (original === undefined || !sameMessageContent(original, message))
+					throw staleCachedHistoryError('edited', message)
+			}
 			claimedIds.add(id)
 			continue // already durable: the fold supplies it
 		}

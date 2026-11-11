@@ -22,7 +22,10 @@ import type { SpillRef } from './spill.js'
  * override or a structured-output answer is what every reader of the fold
  * sees; the model's raw text stays in the log for audit only.
  *
- * Only `message`, `message_replaced` and `compaction` records move the fold.
+ * `message_edited` is applied the same way as `message_replaced`: a compaction
+ * pass's edit of one message, written under the message's own id.
+ *
+ * Only `message`, `message_replaced`, `message_edited` and `compaction` records move the fold.
  * The live compaction events (`compaction_completed` and the rest) are
  * reports, not instructions.
  */
@@ -118,7 +121,8 @@ export class SessionMessageFold {
 			case 'message':
 				this.#message(record as MessageRecord)
 				return
-			case 'message_replaced': {
+			case 'message_replaced':
+			case 'message_edited': {
 				const spill = (record as { spill?: SpillRef }).spill
 				this.#replacements.set(record.targetMessageId, {
 					message: record.content,
@@ -412,5 +416,6 @@ const CLOSES_OR_DECIDES: ReadonlySet<string> = new Set([
 	'audit',
 	'log_repaired',
 	'message_replaced',
+	'message_edited',
 	'session_updated',
 ])
