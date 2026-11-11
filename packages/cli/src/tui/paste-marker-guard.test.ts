@@ -161,17 +161,26 @@ describe('keys that must not wait', () => {
 })
 
 describe('on a stream', () => {
+	// Raises `readable` for new bytes only after a read has answered null, the rule a
+	// reader that stops at the first null depends on (as Ink's does).
 	class FakeStdin extends EventEmitter {
 		private queue: string[] = []
+		private armed = true
 		read(): string | null {
-			return this.queue.shift() ?? null
+			const next = this.queue.shift()
+			if (next !== undefined) return next
+			this.armed = true
+			return null
 		}
 		push(chunk: string): void {
 			this.queue.push(chunk)
+			if (!this.armed) return
+			this.armed = false
 			this.emit('readable')
 		}
 	}
 
+	/** What a reader like Ink's takes on one `readable`: reads until the first null. */
 	function drain(stdin: FakeStdin): string[] {
 		const got: string[] = []
 		for (let chunk = stdin.read(); chunk !== null; chunk = stdin.read()) got.push(chunk as string)
@@ -189,6 +198,19 @@ describe('on a stream', () => {
 		await vi.advanceTimersByTimeAsync(MARKER_ONLY_PREFIX_MS)
 		expect(readable).toHaveBeenCalledTimes(2)
 		expect(drain(stdin)).toEqual([`${ESC}[20`])
+		stop()
+	})
+
+	it('keeps the stream raising readable after it held a read back, so the rest of the marker arrives', () => {
+		const stdin = new FakeStdin()
+		const stop = installPasteMarkerGuard(stdin)
+		const readable = vi.fn()
+		stdin.on('readable', readable)
+		stdin.push(`${ESC}[20`)
+		expect(drain(stdin)).toEqual([])
+		stdin.push('0~body')
+		expect(readable).toHaveBeenCalledTimes(2)
+		expect(drain(stdin)).toEqual([`${START}body`])
 		stop()
 	})
 

@@ -121,9 +121,14 @@ export function installPasteMarkerGuard(stdin: GuardedInput): () => void {
 	const originalRead = stdin.read
 	const guard = createPasteMarkerGuard(() => stdin.emit('readable'))
 	stdin.read = function patchedRead(this: unknown, ...args: never[]): unknown {
-		const chunk = originalRead.apply(this, args)
-		if (chunk !== null && typeof chunk !== 'string') return chunk
-		return guard.read(chunk)
+		for (;;) {
+			const chunk = originalRead.apply(this, args)
+			if (chunk !== null && typeof chunk !== 'string') return chunk
+			const passed = guard.read(chunk)
+			// A chunk held back is skipped by reading on: only a read that returns null
+			// tells the stream to raise 'readable' again for the next bytes.
+			if (passed !== null || chunk === null) return passed
+		}
 	}
 	let removed = false
 	return () => {
