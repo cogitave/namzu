@@ -92,6 +92,34 @@ export interface TurnContext {
 	trackingConfig: ActivityTrackingConfig
 }
 
+/**
+ * Forward `signal`'s abort to `controller` without keeping the controller, or
+ * anything the turn built around it, alive for the life of `signal`.
+ *
+ * The session's signal outlives every turn, and a listener on it is strongly
+ * held for as long as the signal is. A listener that closed over the turn's
+ * controller (and the configuration it was built from) kept each finished
+ * turn's whole object graph in memory, one more per turn. This one holds the
+ * controller through a `WeakRef`, lives in its own scope so the closure
+ * captures nothing else, and is removed once the controller is collected.
+ */
+function relayAbort(signal: AbortSignal, controller: AbortController): void {
+	const controllerRef = new WeakRef(controller)
+	const signalRef = new WeakRef(signal)
+	const relay = (): void => {
+		controllerRef.deref()?.abort(signalRef.deref()?.reason)
+	}
+	signal.addEventListener('abort', relay, { once: true })
+	relayCleanup.register(controller, { signalRef, relay })
+}
+
+const relayCleanup = new FinalizationRegistry<{
+	signalRef: WeakRef<AbortSignal>
+	relay: () => void
+}>(({ signalRef, relay }) => {
+	signalRef.deref()?.removeEventListener('abort', relay)
+})
+
 export class TurnContextFactory {
 	/**
 	 * The turn's one correlated logger, built once and handed to every
@@ -136,11 +164,7 @@ export class TurnContextFactory {
 			if (config.signal.aborted) {
 				abortController.abort(config.signal.reason)
 			} else {
-				config.signal.addEventListener(
-					'abort',
-					() => abortController.abort(config.signal?.reason),
-					{ once: true },
-				)
+				relayAbort(config.signal, abortController)
 			}
 		}
 
@@ -178,7 +202,10 @@ export class TurnContextFactory {
 			config.enableActivityTracking,
 		)
 		const activityStore = new ActivityStore(config.turnId, trackingConfig)
-		const planManager = new PlanManager({ sessionId: config.sessionId, turnId: config.turnId })
+		const planManager = new PlanManager({
+			sessionId: config.sessionId,
+			turnId: config.turnId,
+		})
 		const toolResultsDir =
 			config.storage.sessionDir === undefined
 				? undefined
