@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { WorkingStatePin } from '../../compaction/types.js'
+import { MCP_TOOL_DEADLINE_SLACK_MS } from '../../constants/mcp/index.js'
 import { zodToJsonSchema } from '../../registry/tool/json-schema.js'
 import { type UntrustedEnvelope, wrapUntrusted } from '../../tools/untrusted-envelope.js'
 import type {
@@ -9,6 +10,7 @@ import type {
 } from '../../types/connector/index.js'
 import type { ToolResultBlock, ToolResultContent } from '../../types/message/index.js'
 import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
+import { MAX_TIMER_DELAY_MS as MAX_MCP_TIMER_DELAY_MS } from '../http-operation.js'
 import { admitMcpAudioBatch } from './audio-admission.js'
 import type { MCPClient } from './client.js'
 import { MCPInputRequiredError, isMissingRequiredClientCapabilityError } from './errors.js'
@@ -503,6 +505,12 @@ export function mcpToolToToolDefinition(
 	maxRetries?: number,
 ): ToolDefinition {
 	const inputSchema = mcpJsonSchemaToZod(tool.inputSchema)
+	// A call the client keeps alive on progress must not be cut by the
+	// executor's own per-tool deadline (120 s unless the host says otherwise)
+	// first. Only with `resetTimeoutOnProgress`; otherwise no `timeoutMs`, so
+	// every existing host keeps the executor's default.
+	const callWindowMs =
+		typeof client.getToolCallWindowMs === 'function' ? client.getToolCallWindowMs() : undefined
 	const toolName = `mcp_${serverName}_${tool.name}`
 
 	// Everything the server's own annotations carry that `isReadOnly`/
@@ -544,6 +552,9 @@ export function mcpToolToToolDefinition(
 		category: 'network',
 		permissions: ['network_access'],
 		...(maxRetries === undefined ? {} : { maxRetries }),
+		...(callWindowMs === undefined
+			? {}
+			: { timeoutMs: Math.min(callWindowMs + MCP_TOOL_DEADLINE_SLACK_MS, MAX_MCP_TIMER_DELAY_MS) }),
 		// Reports what the SERVER said, faithfully. The outbound re-export
 		// and the destructive label a human is shown both need the server's
 		// own answer; whether a gate may act on it is decided separately,

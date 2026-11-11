@@ -34,7 +34,10 @@ import { generateMCPClientId } from '../../utils/id.js'
 import type { LogAttributes } from '../../utils/log/index.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
-import { validateConnectorTimeoutMs } from '../http-operation.js'
+import {
+	MAX_TIMER_DELAY_MS as MAX_MCP_TIMER_DELAY_MS,
+	validateConnectorTimeoutMs,
+} from '../http-operation.js'
 import { buildEnvelope, decodeResult } from './envelope.js'
 import {
 	type McpEraProbeAnswer,
@@ -60,6 +63,7 @@ import { type McpParamHeaderBinding, validateMcpHeaderAnnotations } from './x-mc
 import {
 	DEFAULT_MCP_ERA_PROBE_TIMEOUT_MS,
 	DEFAULT_MCP_REQUEST_TIMEOUT_MS,
+	DEFAULT_MCP_TOTAL_TIMEOUT_FACTOR,
 	JSON_RPC_INVALID_PARAMS,
 	JSON_RPC_METHOD_NOT_FOUND,
 	MCP_DISCOVER_METHOD,
@@ -236,7 +240,12 @@ export class MCPClient {
 	private nextRequestId = 1
 	private progressRequests = new Map<
 		string,
-		{ onProgress: (update: MCPProgressUpdate) => void; lastProgress?: number }
+		{
+			onProgress: (update: MCPProgressUpdate) => void
+			/** Called when a progress value is accepted; re-arms the idle deadline. */
+			onAccepted?: () => void
+			lastProgress?: number
+		}
 	>()
 	private notificationHandlers: Array<(method: string, params?: Record<string, unknown>) => void> =
 		[]
@@ -251,6 +260,9 @@ export class MCPClient {
 	private log: Logger
 	private readonly config: MCPClientConfig
 	private readonly requestTimeoutMs: number
+	private readonly resetTimeoutOnProgress: boolean
+	/** Total cap for a progress-extended call; meaningful only when `resetTimeoutOnProgress`. */
+	private readonly maxTotalTimeoutMs: number
 	private readonly eraCache: MCPEraCache
 	private readonly eraCacheKey: string
 	private readonly eraProbeTimeoutMs: number
@@ -265,12 +277,36 @@ export class MCPClient {
 	 */
 	private toolParamHeaders: Map<string, readonly McpParamHeaderBinding[]> = new Map()
 
+	/**
+	 * The longest a `tools/call` can legitimately take on this client, or
+	 * `undefined` when it has only the fixed request deadline.
+	 *
+	 * Defined only with `resetTimeoutOnProgress`: the total cap. A layer that
+	 * bounds the call from outside (the executor's per-tool deadline) needs it
+	 * to avoid cutting a call this client would have kept alive.
+	 */
+	getToolCallWindowMs(): number | undefined {
+		return this.resetTimeoutOnProgress ? this.maxTotalTimeoutMs : undefined
+	}
+
 	constructor(config: MCPClientConfig) {
 		this.config = config
 		this.requestTimeoutMs = validateConnectorTimeoutMs(
 			config.requestTimeoutMs ?? DEFAULT_MCP_REQUEST_TIMEOUT_MS,
 			'MCPClient requestTimeoutMs',
 		)
+		this.resetTimeoutOnProgress = config.resetTimeoutOnProgress === true
+		const maxTotal = validateConnectorTimeoutMs(
+			config.maxTotalTimeoutMs ??
+				Math.min(this.requestTimeoutMs * DEFAULT_MCP_TOTAL_TIMEOUT_FACTOR, MAX_MCP_TIMER_DELAY_MS),
+			'MCPClient maxTotalTimeoutMs',
+		)
+		if (maxTotal < this.requestTimeoutMs) {
+			throw new Error(
+				`MCPClient maxTotalTimeoutMs must not be below requestTimeoutMs (${this.requestTimeoutMs}); received ${maxTotal}`,
+			)
+		}
+		this.maxTotalTimeoutMs = maxTotal
 		// Never longer than one round trip's deadline: a probe IS a request,
 		// and one that outlived the bound every other request is held to
 		// would be a connect that hangs past its own timeout.
@@ -1209,6 +1245,8 @@ export class MCPClient {
 		options?.signal?.throwIfAborted()
 		const id = this.nextRequestId++
 		const progressToken = method === 'tools/call' && options?.onProgress ? randomUUID() : undefined
+		// Only a call that can receive progress can have its deadline extended.
+		const extendable = this.resetTimeoutOnProgress && progressToken !== undefined
 		const requestParams =
 			progressToken === undefined
 				? params
@@ -1252,8 +1290,11 @@ export class MCPClient {
 		const onCallerAbort = (): void => {
 			settle('caller', options?.signal?.reason)
 		}
+		let idleTimer: ReturnType<typeof setTimeout> | undefined
+		let capTimer: ReturnType<typeof setTimeout> | undefined
 		const cleanup = (): void => {
-			clearTimeout(timer)
+			clearTimeout(idleTimer)
+			clearTimeout(capTimer)
 			options?.signal?.removeEventListener('abort', onCallerAbort)
 			if (this.pendingRequests.get(id) === entry) this.pendingRequests.delete(id)
 			if (progressToken !== undefined) this.progressRequests.delete(progressToken)
@@ -1304,21 +1345,40 @@ export class MCPClient {
 		}
 
 		this.pendingRequests.set(id, entry)
-		if (progressToken !== undefined && options?.onProgress) {
-			this.progressRequests.set(progressToken, { onProgress: options.onProgress })
-		}
-		const timer = setTimeout(() => {
-			const error = new Error(
-				`MCP request "${method}" to "${this.config.serverName}" timed out after ${this.requestTimeoutMs}ms`,
-			)
+		const expire = (deadline: 'request' | 'idle' | 'total_cap'): void => {
+			const limit = deadline === 'total_cap' ? this.maxTotalTimeoutMs : this.requestTimeoutMs
+			const what =
+				deadline === 'request'
+					? `timed out after ${limit}ms`
+					: deadline === 'idle'
+						? `timed out after ${limit}ms with no progress`
+						: `timed out at its total limit of ${limit}ms`
+			const error = new Error(`MCP request "${method}" to "${this.config.serverName}" ${what}`)
 			error.name = 'TimeoutError'
 			this.log.warn('MCP request timed out', {
 				'namzu.connector.server': this.config.serverName,
 				'namzu.connector.method': method,
-				'namzu.connector.timeout_ms': this.requestTimeoutMs,
+				'namzu.connector.timeout_ms': limit,
+				'namzu.connector.deadline': deadline,
 			})
 			settle('timeout', error)
-		}, this.requestTimeoutMs)
+		}
+		const armIdle = (): void => {
+			clearTimeout(idleTimer)
+			idleTimer = setTimeout(() => expire(extendable ? 'idle' : 'request'), this.requestTimeoutMs)
+		}
+		if (progressToken !== undefined && options?.onProgress) {
+			this.progressRequests.set(progressToken, {
+				onProgress: options.onProgress,
+				// A settled request has already cleared both timers and its
+				// registration, so a late notification cannot re-arm anything.
+				...(extendable ? { onAccepted: () => !settled && armIdle() } : {}),
+			})
+		}
+		armIdle()
+		if (extendable) {
+			capTimer = setTimeout(() => expire('total_cap'), this.maxTotalTimeoutMs)
+		}
 		options?.signal?.addEventListener('abort', onCallerAbort, { once: true })
 		// AbortSignal events are not replayed. This closes the listener-install
 		// race before the request is issued.
@@ -1685,6 +1745,9 @@ export class MCPClient {
 		if (typeof progress !== 'number' || !Number.isFinite(progress) || progress < 0) return
 		if (pending.lastProgress !== undefined && progress <= pending.lastProgress) return
 		pending.lastProgress = progress
+		// Re-arms before the callback runs, so a throwing `onProgress` still
+		// counts as progress; the total cap bounds that.
+		pending.onAccepted?.()
 		const total = params?.total
 		const message = progressMessage(params?.message)
 		const update: MCPProgressUpdate = {

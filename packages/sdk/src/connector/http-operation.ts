@@ -1,4 +1,4 @@
-const MAX_TIMER_DELAY_MS = 2_147_483_647
+export const MAX_TIMER_DELAY_MS = 2_147_483_647
 const MAX_RESPONSE_BYTES = 2_147_483_647
 
 // These headers can change where an already-validated URL is routed. Connector
