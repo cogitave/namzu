@@ -4,6 +4,7 @@ import {
 	DiskSessionLog,
 	type SessionLease,
 	type SessionLog,
+	turnHolder,
 } from '../../store/session-log/index.js'
 import { NamzuError } from '../../types/errors/index.js'
 import type { SessionId, TurnId } from '../../types/ids/index.js'
@@ -86,7 +87,7 @@ export async function withSessionLease<T>(
 ): Promise<T> {
 	if (lease) return operation(lease)
 	const claimed = await log.claim({
-		holder: `namzu:${process.pid}:${log.sessionId}`,
+		holder: turnHolder(log.sessionId),
 		ttlMs: OPERATION_LEASE_TTL_MS,
 	})
 	if (!claimed) {
