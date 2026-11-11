@@ -16,6 +16,7 @@ import {
 	type SessionLogHead,
 	type SessionLogWriteHealth,
 	SessionMessageFold,
+	turnHolder,
 	withMessageId,
 } from '../../store/session-log/index.js'
 import type { SpillRef } from '../../store/session-log/spill.js'
@@ -636,8 +637,7 @@ export class TurnRecorder {
 	async open(options: TurnRecorderOpenOptions): Promise<RecordedMessage[]> {
 		if (this.#phase !== 'new') throw new Error('TurnRecorder.open was already called.')
 		this.#leaseTtlMs = options.leaseTtlMs ?? DEFAULT_TURN_LEASE_TTL_MS
-		this.#leaseHolder =
-			options.holder ?? options.lease?.holder ?? `namzu:${process.pid}:${this.turnId}`
+		this.#leaseHolder = options.holder ?? options.lease?.holder ?? turnHolder(this.turnId)
 		try {
 			if (options.lease) {
 				this.#lease = options.lease
