@@ -70,6 +70,75 @@ describe('AG-UI HTTP admission', () => {
 		if (status === 405) expect(response.headers.get('allow')).toBe('POST')
 	})
 
+	it.each([
+		[
+			'a 0.x binary content part',
+			{ id: 'u', role: 'user', content: [{ type: 'binary', mimeType: 'image/png', data: 'aQ==' }] },
+		],
+		['an unknown content part', { id: 'u', role: 'user', content: [{ type: 'hologram' }] }],
+		['an image part with no source', { id: 'u', role: 'user', content: [{ type: 'image' }] }],
+		[
+			'a data source with no media type',
+			{
+				id: 'u',
+				role: 'user',
+				content: [{ type: 'image', source: { type: 'data', value: 'aQ==' } }],
+			},
+		],
+		[
+			'a tool message with a non-array, non-string content',
+			{ id: 't', role: 'tool', toolCallId: 'c', content: 7 },
+		],
+		['a message with no id', { role: 'user', content: 'hi' }],
+	])('answers 422 for %s without invoking the host', async (_name, message) => {
+		const createQuery = vi.fn(() => {
+			throw new Error('must not run')
+		})
+		const onError = vi.fn()
+		const response = await new AGUIAdapter({ createQuery, onError }).handle(
+			request({ ...input, messages: [message] }),
+		)
+		expect(response.status).toBe(422)
+		expect(createQuery).not.toHaveBeenCalled()
+		expect(onError).not.toHaveBeenCalled()
+	})
+
+	it('refuses an oversized collection of messages by bytes before validating it', async () => {
+		const createQuery = vi.fn(() => {
+			throw new Error('must not run')
+		})
+		const messages = Array.from({ length: 2000 }, (_, index) => ({
+			id: `m${index}`,
+			role: 'user',
+			content: 'x'.repeat(32),
+		}))
+		const response = await new AGUIAdapter({ createQuery, maxRequestBytes: 4096 }).handle(
+			request({ ...input, messages }),
+		)
+		expect(response.status).toBe(413)
+		expect(createQuery).not.toHaveBeenCalled()
+	})
+
+	it('accepts every 1.0 content part kind in a request and leaves their use to the host', async () => {
+		const parts = [
+			{ type: 'text', text: 'hi' },
+			{ type: 'image', source: { type: 'data', value: 'aQ==', mimeType: 'image/png' } },
+			{ type: 'image', source: { type: 'url', value: 'https://example.com/a.png' } },
+			{ type: 'audio', source: { type: 'file', value: 'file-1', provider: 'openai' } },
+			{ type: 'video', source: { type: 'url', value: 'https://example.com/v.mp4' } },
+			{ type: 'document', source: { type: 'data', value: 'aQ==', mimeType: 'application/pdf' } },
+		]
+		const createQuery = vi.fn(({ input: received }: AGUITurnContext) => {
+			expect(received.messages[0]?.content).toEqual(parts)
+			throw new AGUIRequestError('stop here', 418, 'STOP')
+		})
+		const response = await new AGUIAdapter({ createQuery }).handle(
+			request({ ...input, messages: [{ id: 'u1', role: 'user', content: parts }] }),
+		)
+		expect(createQuery).toHaveBeenCalledOnce()
+		expect(response.status).toBe(418)
+	})
+
 	it('bounds actual UTF-8 body bytes when content-length is absent or false', async () => {
 		const createQuery = vi.fn(() => {
 			throw new Error('must not run')
