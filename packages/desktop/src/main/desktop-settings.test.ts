@@ -27,6 +27,10 @@ it('starts on the documented defaults without writing anything', () => {
 		voiceInputAccepted: false,
 		hardwareAcceleration: true,
 		attentionSignals: true,
+		notifyNeedsYou: true,
+		notifyFailed: true,
+		notifyFinished: true,
+		notifySound: false,
 	})
 	expect(onError).not.toHaveBeenCalled()
 	expect(() => readFileSync(file)).toThrow()
@@ -47,6 +51,10 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		voiceInputAccepted: false,
 		hardwareAcceleration: true,
 		attentionSignals: true,
+		notifyNeedsYou: true,
+		notifyFailed: true,
+		notifyFinished: true,
+		notifySound: false,
 	})
 	expect(changes).toHaveLength(1)
 	expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({
@@ -59,6 +67,10 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		voiceInputAccepted: false,
 		hardwareAcceleration: true,
 		attentionSignals: true,
+		notifyNeedsYou: true,
+		notifyFailed: true,
+		notifyFinished: true,
+		notifySound: false,
 	})
 	expect(new DesktopSettingsStore({ file }).get()).toMatchObject({
 		startup: 'home',

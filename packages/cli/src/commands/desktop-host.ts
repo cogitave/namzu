@@ -66,6 +66,7 @@ import type { CliAcpRuntime } from './acp.js'
 import { createProjectChanges } from './desktop-host-changes.js'
 import { type ProjectGitState, capMarkdown, createProjectGit } from './desktop-host-header.js'
 import { projectPr } from './desktop-host-pr.js'
+import { type SavedTurnOutcome, savedTurnOutcome } from './desktop-outcome-feed.js'
 
 function text(params: Record<string, unknown>, key: string, max = 400): string {
 	const value = params[key]
@@ -347,6 +348,8 @@ interface HistoryTurnView {
 	durationMs?: number
 	startedAt?: number
 	endedAt?: number
+	/** What the turn changed and what checked it, from the kernel's record of it. */
+	outcome?: SavedTurnOutcome | undefined
 }
 interface HistoryToolView {
 	turnId: string
@@ -552,7 +555,10 @@ function historyWork(
 		} else if ('turnId' in record && typeof record.turnId === 'string') {
 			const turn = turns.get(record.turnId)
 			if (!turn) continue
-			if (record.type === 'turn_paused') {
+			if (record.type === 'turn_outcome_recorded') {
+				// A body that does not read leaves the turn with no outcome, never a guess.
+				turn.outcome = savedTurnOutcome(record.outcome)
+			} else if (record.type === 'turn_paused') {
 				turn.status = 'paused'
 				turn.reason = 'paused'
 			} else if (record.type === 'turn_resuming') {

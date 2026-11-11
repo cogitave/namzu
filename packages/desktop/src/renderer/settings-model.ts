@@ -1,4 +1,5 @@
 import type { ProjectView } from '../shared/protocol.js'
+import { FINISHED_NOTICE_AFTER_SECONDS } from '../shared/settings-protocol.js'
 import {
 	type DataFolderKind,
 	type SettingsSection,
@@ -99,6 +100,46 @@ export const SETTINGS_ENTRIES: readonly SettingsEntry[] = [
 		description:
 			'A count on the app icon and one taskbar or dock flash while a conversation waits for you.',
 		keywords: ['badge', 'flash', 'taskbar', 'dock', 'attention', 'approval', 'notify', 'icon'],
+	},
+	{
+		id: 'notify-needs-you',
+		section: 'general',
+		label: 'Notify me when a conversation needs my answer',
+		description:
+			'A system notification when an approval or a question is waiting and Namzu is in the background.',
+		keywords: ['notification', 'notify', 'banner', 'alert', 'approval', 'question', 'background'],
+	},
+	{
+		id: 'notify-failed',
+		section: 'general',
+		label: 'Notify me when a conversation stops with an error',
+		description:
+			'A system notification when a reply stops with an error and Namzu is in the background.',
+		keywords: ['notification', 'notify', 'banner', 'alert', 'error', 'failed', 'background'],
+	},
+	{
+		id: 'notify-finished',
+		section: 'general',
+		label: 'Notify me when a long reply finishes',
+		description: `A system notification when a reply that took ${FINISHED_NOTICE_AFTER_SECONDS} seconds or more is done and Namzu is in the background.`,
+		keywords: [
+			'notification',
+			'notify',
+			'banner',
+			'alert',
+			'finished',
+			'done',
+			'complete',
+			'background',
+		],
+	},
+	{
+		id: 'notify-sound',
+		section: 'general',
+		label: 'Play a sound with notifications',
+		description:
+			'Off by default. The system decides the sound, and its do-not-disturb setting still applies.',
+		keywords: ['notification', 'sound', 'chime', 'audio', 'silent'],
 	},
 	{
 		id: 'models',

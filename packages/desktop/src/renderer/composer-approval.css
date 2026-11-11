@@ -310,3 +310,8 @@
 .approval-read-hint {
 	text-align: right;
 }
+
+.approval-cut-note {
+	color: var(--muted-foreground);
+	font-size: 12px;
+}

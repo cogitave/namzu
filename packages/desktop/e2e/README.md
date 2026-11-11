@@ -140,3 +140,11 @@ risky command (the keyboard starts on Reject), Esc as a No that leaves the reply
 accept chord ignored until the box is scrolled to its end, a short command never held), and the 400 ms click guard. The guard flow holds
 the page's `Date.now` still and moves it from the test, so it never depends on how fast the machine is. Pictures go to
 `$NAMZU_E2E_SHOTS` when set.
+
+## System notifications
+
+`notices.test.mjs` runs with `NAMZU_E2E_NOTICES=1`, which makes main record each system notification it would show into
+`globalThis.__namzuNotices` (and lets the test click one through `globalThis.__namzuNoticeClick(index)`) instead of asking the
+platform. It blurs and focuses the window with `BrowserWindow`, then asserts the payload fields for "needs your answer", "stopped with
+an error" and "finished", that nothing is recorded while the window is focused, that a click opens the conversation, and that no payload
+holds anything from the conversation. The fold window is the real three seconds; the test waits on the recorded state, not a timer.

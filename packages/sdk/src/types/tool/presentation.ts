@@ -220,6 +220,12 @@ export type ToolFacts =
 			readonly reason: ToolFailureReason
 			/** What it was about: a path, or the tool's name for `unknown_tool`. */
 			readonly subject?: string
+			/**
+			 * Why a refused call did not run, as one plain line the kernel wrote
+			 * (a policy rule, the command guard). Absent when no reason was
+			 * recorded; a host shows nothing for it rather than a guess.
+			 */
+			readonly note?: string
 	  }
 
 /** The same shapes, for what a call produced. */

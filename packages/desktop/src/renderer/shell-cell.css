@@ -1,6 +1,6 @@
 /* The shell cell: what a command printed, under its row. Quiet by default; only an error is coloured. */
 .shell-cell {
-	margin: 0 0 4px 26px;
+	margin: 0 0 4px var(--tool-indent, 20px);
 	font-size: 12px;
 	line-height: 18px;
 }
