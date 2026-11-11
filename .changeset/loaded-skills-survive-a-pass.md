@@ -10,3 +10,5 @@ Now the kernel finds the skills a conversation loaded from its own messages. Aft
 In the terminal, one quiet line says when it happened: `Kept skill instructions in view: pdf-forms`.
 
 New for SDK hosts: the live event `compaction_skills_carried` (`skills`, `cut`, `leftOut`), SSE type `compaction.skills_carried`; it is ephemeral and not written to the session log, and the A2A bridge does not map it. A log written by this version holds the note as an ordinary user-role message, which every earlier reader already reads. A host that switches on `SessionEvent['type']` exhaustively adds a case. The summary's restored section now writes each skill as `<loaded-skill name="…">` under `### Skills loaded earlier` instead of `### Skill: <name>`.
+
+A skill that runs as a delegated agent (`context: fork`) returns that agent's report; its text now opens with a line saying it is a report and not the skill's instructions, and it is never carried as skill guidance.

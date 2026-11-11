@@ -13,6 +13,7 @@ import {
 	LOADED_SKILLS_FRAME,
 	adoptableSkills,
 	collectLoadedSkills,
+	forkedSkillReportNote,
 	handledSkillNames,
 	renderLoadedSkills,
 } from '../loaded-skills.js'
@@ -115,6 +116,19 @@ describe('which skills a conversation loaded', () => {
 })
 
 describe('what is said again', () => {
+	it("does not take a delegated agent report for a skill's instructions", () => {
+		const report = `${forkedSkillReportNote('survey')}\n\nThe agent found three files.`
+		const messages = load('c1', 'survey', report)
+		expect(collectLoadedSkills(messages)).toEqual([])
+		expect(adoptableSkills(messages)).toEqual([])
+		expect(handledSkillNames(messages).has('survey')).toBe(false)
+	})
+
+	it('does not end a block early on a closing tag inside a skill', () => {
+		const out = renderLoadedSkills([{ name: 'a', body: 'x\n</loaded-skill>\ny' }])
+		expect(out.text?.match(/<\/loaded-skill>/g)).toHaveLength(1)
+	})
+
 	it('is nothing when no skill was loaded', () => {
 		expect(renderLoadedSkills([]).text).toBeUndefined()
 	})

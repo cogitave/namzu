@@ -7,6 +7,7 @@ import {
 	CARRY_SKILLS_WINDOW_SHARE,
 	CARRY_SKILL_TOKENS,
 	type RenderedSkills,
+	isForkedSkillReport,
 	renderLoadedSkills,
 	skillResultBody,
 } from './loaded-skills.js'
@@ -84,6 +85,8 @@ export function recordRestorable(
 		if (!call.success || typeof input.name !== 'string') return
 		// A cleared result is a placeholder, not the instructions.
 		if (isClearedToolResult(call.output)) return
+		// A delegated agent's report is not the skill's instructions.
+		if (isForkedSkillReport(call.output)) return
 		manager.recordSkillBody(
 			input.name,
 			skillResultBody(call.output),

@@ -45,6 +45,18 @@ export interface LoadedSkill {
 	readonly carried?: true
 }
 
+const FORK_REPORT_PREFIX = '[This is the report of a delegated agent that ran the skill'
+
+/** The first line of a `skill` result that is a delegated agent's report. */
+export function forkedSkillReportNote(name: string): string {
+	return `${FORK_REPORT_PREFIX} "${name}". It is not the skill's instructions.]`
+}
+
+/** True for a `skill` result that is a delegated agent's report, not instructions. */
+export function isForkedSkillReport(output: string): boolean {
+	return output.startsWith(FORK_REPORT_PREFIX)
+}
+
 /** The instructions a `skill` result carries, without the paging notice. */
 export function skillResultBody(output: string): string {
 	return output.replace(SKILL_CONTINUATION, '')
@@ -99,6 +111,8 @@ export function collectLoadedSkills(messages: readonly Message[]): LoadedSkill[]
 				continue
 			}
 			if (text.trim().length === 0) continue
+			// What a delegated agent reported is not what the model was told to follow.
+			if (isForkedSkillReport(text)) continue
 			const body = skillResultBody(text)
 			put(
 				call.paged && earlier
@@ -215,7 +229,7 @@ export function renderLoadedSkills(
 		carried.unshift(skill.name)
 		if (isCut) cut.unshift(skill.name)
 		blocks.unshift(
-			`<loaded-skill name="${skill.name}"${isCut ? ' cut' : ''}>\n${body}\n</loaded-skill>`,
+			`<loaded-skill name="${skill.name}"${isCut ? ' cut' : ''}>\n${body.replaceAll('</loaded-skill>', '<\\/loaded-skill>')}\n</loaded-skill>`,
 		)
 	}
 	if (carried.length === 0 && left.length === 0) {
