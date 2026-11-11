@@ -77,4 +77,20 @@ describe('the place of a process', () => {
 		expect(placeOf({ hostName: 'alpha', pidNamespace: 'pid:[1]' })).not.toBe(alone)
 		expect(placeOf({ hostName: 'beta' })).not.toBe(alone)
 	})
+
+	it('differs for two machines that share a host name and the initial namespace, when each has an identity', () => {
+		const ns = 'pid:[4026531836]'
+		const one = placeOf({ hostName: 'ubuntu', pidNamespace: ns, machineId: 'a'.repeat(32) })
+		const two = placeOf({ hostName: 'ubuntu', pidNamespace: ns, machineId: 'b'.repeat(32) })
+		expect(one).not.toBe(two)
+		expect(placeOf({ hostName: 'ubuntu', pidNamespace: ns, machineId: 'a'.repeat(32) })).toBe(one)
+		// A machine whose identity cannot be read keeps the old material.
+		expect(placeOf({ hostName: 'ubuntu', pidNamespace: ns })).not.toBe(one)
+	})
+
+	it('does not carry the host name or the machine identity in the token', () => {
+		const token = placeOf({ hostName: 'ubuntu', machineId: 'c'.repeat(32) })
+		expect(token).not.toContain('ubuntu')
+		expect(token).not.toContain('cccc')
+	})
 })

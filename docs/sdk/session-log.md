@@ -489,8 +489,13 @@ its lease is freed by expiry unless a reader can prove the holder is gone. A
 turn names its holder `namzu:<pid>:<turnId>@<place>` (built by `turnHolder`,
 read by `parseTurnHolder`; `currentPlace()` is this process's place). The place
 is the first 12 hex characters of a SHA-256 over the machine's host name and,
-on Linux, the target of `/proc/self/ns/pid`; where that link cannot be read the
-host name alone is used. It is computed once per process.
+on Linux, the target of `/proc/self/ns/pid` and the machine's own identity
+(`/etc/machine-id`, else `/var/lib/dbus/machine-id`); each part that cannot be
+read is left out, so where neither can be read the host name alone is used. The
+token is a hash, so it shows neither the host name nor the identity. It is
+computed once per process. Two machines that share a host name and cannot read a
+machine identity (no `/etc/machine-id`, as in some minimal images) share a
+place, as do two sandboxes that read nothing but the same host name.
 
 A process id is valid only where it was issued, so "the holder's pid is gone"
 is proof only for a reader in the same place: the holder carries a place, it
@@ -498,7 +503,7 @@ equals the reader's, the pid is not the reader's own, and no process has the
 pid. A holder with no place (written before the place existed), and a holder
 from another place (a container or a second system mounting the same home
 folder, a folder on a network share), are never proof: their lease is freed by
-expiry, as before. The place does not separate a cloned VM or a restored
+expiry, as before. The place does not separate a cloned VM (it copies the machine identity too) or a restored
 container checkpoint that keeps the host name and the namespace; the fence
 would still refuse that writer's appends, but its turn would be broken while it
 ran. The CLI applies this rule when it is asked whether a conversation can go
