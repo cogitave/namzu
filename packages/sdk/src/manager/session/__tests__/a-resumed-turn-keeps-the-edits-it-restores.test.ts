@@ -124,3 +124,60 @@ it('puts the edit back when the checkpoint predates it and the context keeps the
 		await resumed.release()
 	}
 })
+
+/**
+ * A summary the log folds to has no id of its own. Restored first, it must not
+ * re-base the fold on a context holding only itself: the recorded messages
+ * after it stay in the fold, through the resume, a later edit pass, and a
+ * second resume.
+ */
+it('keeps the recorded messages after a restored summary through an edit pass and a second resume', async () => {
+	const { session, turnId, rec, context } = await firstProcess()
+	const summary: Message = {
+		role: 'system',
+		content: 'Summary of the earlier work.',
+		source: { type: 'compaction-summary' },
+		timestamp: 2,
+	} as Message
+	rec.replaceMessages([summary, ...context.slice(-3)])
+	await rec.flush()
+	await rec.release()
+
+	const foldNow = async () =>
+		foldSessionMessages((await session.sessionLog.readAll()).entries.map((e) => e.record))
+	const text = (messages: readonly Message[]) => messages.map((m) => String(m.content))
+	const restoredFold = async () => (await foldNow()).map((m) => ({ ...m }))
+
+	// First resume: the summary comes first, with no id.
+	let live = await restoredFold()
+	let resumed = await secondProcess(session, turnId, live)
+	// The summary has no id, so secondProcess passes `id: undefined`.
+	live = live.map((m) => m)
+	const tail = createAssistantMessage('a new step')
+	live.push(tail)
+	resumed.pushMessage(tail)
+	await resumed.flush()
+	expect(text(await foldNow())).toEqual(text(live))
+
+	// An edit pass after the resume: one narration becomes a stub, by id.
+	const at = live.findIndex(
+		(m) => m.role === 'assistant' && String(m.content).startsWith('The step'),
+	)
+	live = live.map((m, i) => (i === at ? ({ ...m, content: STUB } as Message) : m))
+	resumed.replaceMessages(live)
+	await resumed.flush()
+	await resumed.release()
+	expect(text(await foldNow())).toEqual(text(live))
+
+	// Second resume loads the folded context, and a further turn keeps all of it.
+	live = await restoredFold()
+	resumed = await secondProcess(session, turnId, live)
+	try {
+		const next = createAssistantMessage('one more')
+		resumed.pushMessage(next)
+		await resumed.flush()
+		expect(text(await foldNow())).toEqual([...text(live), 'one more'])
+	} finally {
+		await resumed.release()
+	}
+})

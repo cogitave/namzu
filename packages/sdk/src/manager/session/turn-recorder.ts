@@ -1133,6 +1133,21 @@ export class TurnRecorder {
 			})
 			return
 		}
+		if (
+			this.#rebasePending &&
+			this.#phase === 'active' &&
+			message.role === 'system' &&
+			message.source?.type === 'compaction-summary'
+		) {
+			// A restored compaction summary has no id (the log folds
+			// to) and arrives before the rest of the restored context. Reconciling
+			// now would re-base the fold on a context holding only this message
+			// and drop the recorded ones that follow; hold it as an id-less view
+			// entry and let the first reconciliation after the whole context is
+			// in place write one `compaction` that keeps the recorded ids after it.
+			this.#view.push({ message })
+			return
+		}
 		this.#syncMessages()
 	}
 
