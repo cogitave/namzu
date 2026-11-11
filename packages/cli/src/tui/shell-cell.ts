@@ -175,6 +175,8 @@ export interface ShellRowOptions {
 	readonly width?: number
 	/** The `(ctrl+o to expand)` suffix is true: the row can be expanded. */
 	readonly canExpand?: boolean
+	/** The words that stand for the action when it is not `(ctrl+o to expand)`. */
+	readonly hint?: string
 	/** Lines are counted as the text has them; see {@link ShellOutput.byLine}. */
 	readonly byLine?: boolean
 }
@@ -202,7 +204,13 @@ function lineStream(
 	if (hidden <= 0) return rows
 	return [
 		...rows,
-		{ text: hiddenLinesHint(hidden, { canExpand: options.canExpand !== false }), tone: 'dim' },
+		{
+			text: hiddenLinesHint(hidden, {
+				canExpand: options.canExpand !== false,
+				...(options.hint !== undefined ? { hint: options.hint } : {}),
+			}),
+			tone: 'dim',
+		},
 	]
 }
 
@@ -226,6 +234,7 @@ function stream(
 					? {}
 					: { chars: rows.slice(limit).reduce((sum, row) => sum + row.text.length, 0) }),
 				canExpand: options.canExpand !== false,
+				...(options.hint !== undefined ? { hint: options.hint } : {}),
 			}),
 			tone: 'dim',
 		},
