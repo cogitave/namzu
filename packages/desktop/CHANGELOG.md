@@ -1,5 +1,21 @@
 # @namzu/desktop
 
+## 0.4.0
+
+### Minor Changes
+
+- 3a5f681: An approval is now one card instead of three boxes. The question is one sentence with the file or command as a chip and the size of the change at the right ("Edit `src/auth/session.ts`?", "+1 −1"). What the request itself says about the consequence comes first, with a warning mark: that Namzu asks about it every time, that the path is outside the project folder, a delete, a replaced file, elevated rights, a command that looks like it deletes. Nothing the model wrote about its own action is shown. The change or command is four rows with a link that says how much more there is ("Show all 24 lines") and opens it in place.
+
+  **Accept is no longer held until a long command or diff has been scrolled to its end**; it works at once. The 400 ms guard after a card appears, Reject-first keys on risky commands and deletes, and the withheld "allow for this conversation" are unchanged. Enter still accepts and Esc still rejects; the keys now read on the buttons' tooltips instead of in a line of text. "Wrap lines", "Copy" and "Tell Namzu what to do instead" moved to a "..." menu on the box. "Allow for this conversation" is an outline button.
+
+  While a decision waits, the composer is a 40 px bar saying so, with an outlined Stop that turns red on hover; the model word, context ring and microphone come back once you answer. The turn in flight is one line (a mark, the step it is on, the time, a chevron) with its actions behind the chevron; a failed or refused action keeps the work open.
+
+  Long changed lines wrap on the card, so the end of a line is never hidden. A path that starts in the project folder and climbs out of it (`/project/../x`) is flagged as outside it, and every command in a request is checked for the elevated-rights and delete flags.
+
+- 9c415f2: A finished turn now ends in one row that says how it went: "Done in 3s", how many files changed and by how much ("4 files +35 −3"), and what the turn's record says about checking, such as "Checked: pnpm test passed". A check that failed shows in red and cannot be missed, stays on the row when the reply is partly undone (with "Partly undone, 1 file kept" beside it), and the row then reads "Finished in 3s" rather than "Done in 3s"; a turn that was not checked shows only the counts. When a command ran that may have changed other files, the row still shows only the counts of the edits made with the edit tools, and the row's tooltip, its accessible name and Copy summary say so. Click the row to open the changes. It replaces the "Changed 4 files" card and the sentence under it: Undo, Open file and Copy summary are in the "..." at the end of the row, and "View changes" is the row itself. The menu lists the largest changes first, and after a full undo no longer offers the files that reply made. The fold above an answer now reads "Worked for 3s, 4 steps".
+
+  The Changes pane opens wider (520 px, at most half of a small window) on the file that changed most, with a narrow list of files beside the diff instead of above it; a long file name is cut at its start so its end stays readable. Its header is one row: the title, a switch between This reply and All changes (All changes first), the counts, a View menu (split or unified, wrap lines, collapse folders, uncommitted changes, copy paths, expand) and close. The Activity tab is no longer drawn above Changes: open it from Conversation details, then Background work. The top bar's changes button shows the lines added and removed. In a window narrower than 1281 px the sidebar folds to its rail while the pane is open and comes back when you close it, unless you opened or closed it yourself in between.
+
 ## 0.3.0
 
 ### Minor Changes

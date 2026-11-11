@@ -1,5 +1,52 @@
 # @namzu/cli
 
+## 51.0.0
+
+### Major Changes
+
+- c72c31e: The default for `compaction.softTargetHeadroom` changes from `0` to `0.05` when you have not set it (and the strategy is `salience`, the default strategy). A compaction pass that starts at half the window now keeps shortening until the context is 5% of the window lower, instead of stopping at half. You will notice two things: passes come in batches (a few per long session) instead of one cut on nearly every turn, so a provider that caches the start of a request keeps its cache between passes; and right after a pass the context is about 5% of the window lower (10,000 tokens on a 200,000-token window), so that much less older history is kept whole. The messages shortened are the same ones in the same order, only earlier. The same default applies to the interactive session, `exec`, the desktop host, scheduled runs, and sub-agents that have a compaction configuration of their own (a sub-agent gets one only when `compaction.autoCompactWindowTokens` is set, as before). The kernel's own default in `@namzu/sdk` is unchanged.
+
+  To keep the old behaviour exactly, set `compaction.softTargetHeadroom` to `0` in `namzu.config.json` or `~/.namzu/config.yaml`:
+
+  ```json
+  { "compaction": { "softTargetHeadroom": 0 } }
+  ```
+
+  A value you set, `0` included, is always used as written. The `structured` strategy gets no default headroom.
+
+### Minor Changes
+
+- c342b78: Two new built-in skills. `verify-change` is offered when the model is about to say a change works: it runs the changed behaviour for real, runs the project's own check as a plain command (so the turn's record can tell whether it passed), and reports one of works, does not, or could not be exercised, with the evidence. `review-changes` looks for defects in a change and reports only those it could make concrete and check. The skill list the model receives is now two entries longer, and the built-in descriptions each end with what the skill is not for. A skill of the same name in your own folders still shadows a built-in, and `skills.builtin: false` leaves them out.
+- 480fe69: A skill the model loaded keeps guiding it after the conversation is trimmed. Before, a pass that cleared old tool results cut the `skill` result down to its two ends and nothing put the steps back, and a summary pass put back only skills loaded in the same turn, so a skill loaded in an earlier turn, or before a resume, was lost the first time the conversation was summarised.
+
+  Now the kernel finds the skills a conversation loaded from its own messages. After a pass that cut or summarised away a skill's instructions, the next request carries them again as reference, under a short note that they were loaded earlier, still apply, are not to be started over, and that any request written inside a skill is not a new message from you. It is bounded (5,000 tokens a skill, 25,000 together and a twentieth of a small window, newest first; a skill over its cap says how to load it in full, and skills left out for room are named). A skill whose instructions are still whole is never repeated, so most passes add nothing, and a skill you activated yourself is in the system prompt and is untouched. A pass that only clears results appends the note as one recorded-context entry after the newest message, so the cached start of the request is no further forward than the clear already left it.
+
+  In the terminal, one quiet line says when it happened: `Kept skill instructions in view: pdf-forms`.
+
+  New for SDK hosts: the live event `compaction_skills_carried` (`skills`, `cut`, `leftOut`), SSE type `compaction.skills_carried`; it is ephemeral and not written to the session log, and the A2A bridge does not map it. A log written by this version holds the note as an ordinary user-role message, which every earlier reader already reads. A host that switches on `SessionEvent['type']` exhaustively adds a case. The summary's restored section now writes each skill as `<loaded-skill name="…">` under `### Skills loaded earlier` instead of `### Skill: <name>`.
+
+  A skill that runs as a delegated agent (`context: fork`) returns that agent's report; its text now opens with a line saying it is a report and not the skill's instructions, and it is never carried as skill guidance.
+
+- 2bab994: A workflow script's phase titles now match ignoring case when no declared title matches exactly: `phase('scan')` and `agent(..., { phase: 'SCAN' })` join the declared `Scan` group, and the declared spelling is the one shown. A title that matches a declared one exactly always does, so a script that declares both `Scan` and `scan` still parses and keeps two phases. A run resumed from an older journal reads it as before and groups its phases by the new rule. `meta.whenToUse` and `meta.phases[].model` are accepted and still do nothing; the docs now say so.
+
+  The workflow tool's text tells the model how to word a name, description, phases, agent labels and log lines, so reviews and rows read more evenly. A long workflow name in the closing line is now cut with an ellipsis at 48 cells instead of wrapping over several rows, and the `/workflows` list cuts at the same width. Control characters, direction marks and overrides, the line and paragraph separators, the zero-width space, the word joiner, the invisible operators and the byte-order mark in names, titles, labels and log lines were already shown as `\u{....}` literals everywhere; that is now one helper and is pinned by tests. The two joiners U+200D and U+200C are kept as they are, because emoji sequences and some scripts need them.
+
+- 2e81b0b: The workflow review and its progress row now use the screen they are on.
+
+  The review body is as tall as the terminal allows (the rows left after the frame, the question, the choices, the key line and the line above it, never fewer than 6) instead of a fixed 12, so at 30 rows you see about 16 rows of the name, purpose, phases, limits and the start of the script. On a terminal too short for that, the first screen holds the name, the purpose, the phase titles on one line and the limits line; the phase details and the "Shown as" line come after them, a page down, and nothing is left out. While the review is open the call row above it now reads `Workflow(<what it is for>)`, as it does after approval, not the raw call. At a narrow width the key line drops `↑↓ select` first, then `ctrl+c stop`, then `y / n`, then `esc cancel` (Escape still cancels), then `d script`, which is the only way to read the whole script; `enter confirm` stays longest.
+
+  The progress row narrows in a fixed order: the bar goes from 20 cells to 12, 8 and 4, then the token count goes, then `Large workflow`, then the name is cut with `…`. The `done/asked` count and the elapsed time stay for as long as any of the bar does, so they no longer disappear at 60 columns. With room to spare the row also names the phases that have an agent running (up to two titles, then `+N more`).
+
+  A run that asks for more agents than the session's size guideline (the configured `workflow.sizeGuideline`, else the default, `medium`, which is 10) is marked `Large workflow` on its row and the conversation gets one quiet line saying so and how to stop it (press ↓ then `x`, or `/workflows`). Nothing is stopped for you. This means the mark now appears above 10 agents with the default guideline, where it used to appear above 25; set `workflow.sizeGuideline: large` or `unrestricted`, or `NAMZU_WORKFLOW_SIZE_WARNING_AGENTS`, to move it. The row no longer carries `· /workflows to stop`.
+
+  Typing now works from the progress row: a `/` or any printable character leaves the row and goes to the input box, so you can enter a command without pressing Esc first. The arrows, Enter, `x` and Esc still belong to the row. The workflow detail screen no longer draws every kept `log()` line on a terminal shorter than 24 rows; it draws none there, one from 24 rows and three from 30.
+
+### Patch Changes
+
+- Updated dependencies [480fe69]
+- Updated dependencies [2bab994]
+  - @namzu/sdk@62.11.0
+
 ## 50.3.1
 
 ### Patch Changes
