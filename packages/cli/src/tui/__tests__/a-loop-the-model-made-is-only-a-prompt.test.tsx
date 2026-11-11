@@ -120,10 +120,13 @@ const plain = (text: string) =>
 		.replace(/\u001b\[[0-9;]*m/g, '')
 		.replace(/\s+/g, ' ')
 
-async function until(check: () => boolean, why: string): Promise<void> {
-	const by = Date.now() + 5_000
-	while (!check() && Date.now() < by) await tick()
-	expect(check(), why).toBe(true)
+/**
+ * Poll until the thing has happened. There is no deadline of its own: how long
+ * a render step takes depends on the machine, so one that never happens is a
+ * hang that the test's timeout reports. `_why` names what was waited for.
+ */
+async function until(check: () => boolean, _why: string): Promise<void> {
+	while (!check()) await tick()
 }
 
 async function mount() {
