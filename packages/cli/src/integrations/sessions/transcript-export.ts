@@ -21,9 +21,9 @@ import {
 } from '../../tui/capability-notice.js'
 import {
 	type ConversationContext,
-	type ConversationFacts,
+	type ConversationRecords,
 	openConversationLog,
-	readConversationFacts,
+	readConversationRecords,
 } from './store.js'
 
 export type ConversationTranscriptUnavailableReason =
@@ -63,9 +63,9 @@ export async function conversationMarkdown(
 	sessions: ConversationContext,
 	sessionId: SessionId,
 ): Promise<ConversationMarkdownExport> {
-	let facts: ConversationFacts | null
+	let facts: ConversationRecords | null
 	try {
-		facts = await readConversationFacts(sessions, sessionId)
+		facts = await readConversationRecords(sessions, sessionId)
 	} catch (error) {
 		throw unavailable(
 			'log-unreadable',

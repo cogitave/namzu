@@ -14,7 +14,7 @@ import {
 	nextForkName,
 	openConversationLog,
 	openSessions,
-	readConversationFacts,
+	readConversationRecords,
 	refreshIndex,
 	setTitle,
 	startConversation,
@@ -58,7 +58,7 @@ describe('naming a conversation', () => {
 		await setTitle(s, id, 'the auth refactor')
 
 		expect(await titleOf(s, id)).toBe('the auth refactor')
-		const facts = await readConversationFacts(s, id)
+		const facts = await readConversationRecords(s, id)
 		expect(facts?.records.at(-1)).toMatchObject({
 			type: 'session_updated',
 			title: 'the auth refactor',
@@ -181,7 +181,7 @@ describe('forking a conversation', () => {
 
 		const forked = await forkConversation(s, id)
 
-		const facts = await readConversationFacts(s, forked.id)
+		const facts = await readConversationRecords(s, forked.id)
 		const seed = facts?.records.find((record) => record.type === 'compaction')
 		expect(seed).toMatchObject({ type: 'compaction', strategy: 'fork', trigger: 'manual' })
 		expect(seed?.turnId).toBeUndefined()

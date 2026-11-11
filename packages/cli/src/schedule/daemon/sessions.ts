@@ -14,7 +14,10 @@ import {
 	isLeaseLive,
 	readSessionLease,
 } from '@namzu/sdk'
-import { type ConversationFacts, readConversationFacts } from '../../integrations/sessions/store.js'
+import {
+	type ConversationRecords,
+	readConversationRecords,
+} from '../../integrations/sessions/store.js'
 
 export interface RunSessionRef {
 	readonly home: string
@@ -36,9 +39,9 @@ export async function sessionLeaseLive(ref: RunSessionRef, now = Date.now()): Pr
 	}
 }
 
-export async function sessionFacts(ref: RunSessionRef): Promise<ConversationFacts | null> {
+export async function sessionFacts(ref: RunSessionRef): Promise<ConversationRecords | null> {
 	try {
-		return await readConversationFacts(
+		return await readConversationRecords(
 			{ paths: pathsOf(ref) },
 			asSessionId(ref.sessionId),
 			'tolerant',
@@ -50,7 +53,7 @@ export async function sessionFacts(ref: RunSessionRef): Promise<ConversationFact
 
 /** How a settled turn ended: `completed`, `failed`, or `undefined` if the log does not say. */
 export function turnOutcome(
-	facts: ConversationFacts,
+	facts: ConversationRecords,
 	turnId: string | undefined,
 ): { status: 'completed' | 'failed'; reason?: string } | undefined {
 	for (let i = facts.records.length - 1; i >= 0; i--) {
