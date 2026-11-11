@@ -12,28 +12,53 @@ import type { ZenCatalogueResult } from '@namzu/zen/catalogue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { TuiContext } from '../tui/types.js'
 
-/** Every derivation the launch started: its signal, and whether it has settled. */
-const started = vi.hoisted(() => [] as { signal: AbortSignal; settled: boolean }[])
+/**
+ * Every refresh the launch started, and whether it has settled. `fetchBegan`
+ * resolves when a refresh reaches its network call, which happens only after
+ * its read of the last-good copy on disk; the tests wait for that event
+ * rather than guess how long the read takes.
+ */
+const state = vi.hoisted(() => {
+	const state = {
+		refreshes: [] as { done: Promise<{ readonly kind: string }>; settled: boolean }[],
+		fetchBegan: Promise.resolve(),
+		noteFetchBegan: (): void => {},
+		reset(): void {
+			state.refreshes.length = 0
+			state.fetchBegan = new Promise<void>((resolve) => {
+				state.noteFetchBegan = resolve
+			})
+		},
+	}
+	state.reset()
+	return state
+})
 
 /** An unreachable network: the derivation settles only when its signal aborts. */
 vi.mock('../integrations/providers/zen-catalogue.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../integrations/providers/zen-catalogue.js')>()
 	return {
 		...actual,
-		startZenCatalogueRefresh: (options: Parameters<typeof actual.startZenCatalogueRefresh>[0]) =>
-			actual.startZenCatalogueRefresh({
+		startZenCatalogueRefresh: (options: Parameters<typeof actual.startZenCatalogueRefresh>[0]) => {
+			const handle = actual.startZenCatalogueRefresh({
 				...options,
 				fetchCatalogue: ({ signal }) => {
-					const entry = { signal, settled: false }
-					started.push(entry)
+					state.noteFetchBegan()
 					return new Promise<ZenCatalogueResult>((_resolve, reject) => {
-						signal.addEventListener('abort', () => {
-							entry.settled = true
-							reject(signal.reason)
-						})
+						// A launch that ended during the disk read hands over a signal
+						// that is already aborted; that never fires the event.
+						if (signal.aborted) reject(signal.reason)
+						else signal.addEventListener('abort', () => reject(signal.reason), { once: true })
 					})
 				},
-			}),
+			})
+			const entry = { done: handle.done, settled: false }
+			void handle.done.then(() => {
+				entry.settled = true
+			})
+			state.refreshes.push(entry)
+			return handle
+		},
 	}
 })
 
@@ -41,10 +66,12 @@ vi.mock('../integrations/providers/zen-catalogue.js', async (importOriginal) => 
 const atLaunch = vi.hoisted(() => ({ started: 0, settled: 0 }))
 const launchTui = vi.hoisted(() =>
 	vi.fn(async (_ctx: TuiContext) => {
-		// Let the refresh's first microtasks run, as they would while Ink renders.
-		await new Promise((resolve) => setTimeout(resolve, 10))
-		atLaunch.started = started.length
-		atLaunch.settled = started.filter((entry) => entry.settled).length
+		// The TUI is up. Let the refresh get as far as its network call, as it
+		// would while Ink renders, so "still outstanding" is read with the
+		// request in flight.
+		if (state.refreshes.length > 0) await state.fetchBegan
+		atLaunch.started = state.refreshes.length
+		atLaunch.settled = state.refreshes.filter((entry) => entry.settled).length
 	}),
 )
 vi.mock('../tui/index.js', () => ({ launchTui }))
@@ -56,7 +83,7 @@ describe('the launch starts a background Zen catalogue refresh', () => {
 	const originalRefresh = process.env.NAMZU_MODEL_CATALOGUE_REFRESH
 
 	beforeEach(() => {
-		started.length = 0
+		state.reset()
 		atLaunch.started = 0
 		atLaunch.settled = 0
 		vi.spyOn(process, 'cwd').mockReturnValue(mkdtempSync(join(tmpdir(), 'namzu-zen-launch-')))
@@ -84,9 +111,8 @@ describe('the launch starts a background Zen catalogue refresh', () => {
 		expect(atLaunch).toEqual({ started: 1, settled: 0 })
 		// The command returned, so the refresh was cancelled rather than left
 		// holding the process open.
-		expect(started).toHaveLength(1)
-		expect(started[0]?.signal.aborted).toBe(true)
-		expect(started[0]?.settled).toBe(true)
+		expect(state.refreshes).toHaveLength(1)
+		await expect(state.refreshes[0]?.done).resolves.toEqual({ kind: 'cancelled' })
 	})
 
 	// `drain` opens agent sessions too: a turn parked on a
@@ -106,9 +132,10 @@ describe('the launch starts a background Zen catalogue refresh', () => {
 				else process.env.NAMZU_HOME = originalHome
 			}
 			expect(launchTui).not.toHaveBeenCalled()
-			expect(started).toHaveLength(1)
-			expect(started[0]?.signal.aborted).toBe(true)
-			expect(started[0]?.settled).toBe(true)
+			// One refresh, and it ends as cancelled whether the command returned
+			// before or after the refresh reached the network.
+			expect(state.refreshes).toHaveLength(1)
+			await expect(state.refreshes[0]?.done).resolves.toEqual({ kind: 'cancelled' })
 		},
 	)
 
@@ -126,6 +153,6 @@ describe('the launch starts a background Zen catalogue refresh', () => {
 		process.env.NAMZU_MODEL_CATALOGUE_REFRESH = '0'
 		await expect(runCli({ argv: ['node', 'namzu'] })).resolves.toBe(0)
 		expect(launchTui).toHaveBeenCalledOnce()
-		expect(started).toHaveLength(0)
+		expect(state.refreshes).toHaveLength(0)
 	})
 })
