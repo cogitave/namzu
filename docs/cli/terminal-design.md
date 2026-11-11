@@ -1348,6 +1348,27 @@ the message is sent, so history recall and draft restore see the full text. The 
 pastes insert at the cursor as typed text. There is no separate chip row. Terminals without bracketed-paste support retain chunk-based fallback
 handling, which cannot reconstruct a paste boundary the terminal does not send.
 
+A paste marker (`ESC [ 2 0 0 ~` before the paste, `ESC [ 2 0 1 ~` after it) that
+the terminal's bytes split across two reads is kept whole even when the second
+read comes late (`tui/paste-marker-guard.ts`). The input library flushes an
+unfinished escape sequence as typed text after 20 ms, which on a slow or lossy
+link put the rest of the marker (`[200~`, `[201~`) into the message box. The
+stream the library reads is wrapped, and a read that ends with a proper prefix
+of a marker, `ESC [` or longer, is held back until the next read joins it or a
+bound passes. The bound depends on what the prefix can still be. `ESC [` and
+`ESC [ 2` also begin an arrow key and Insert (`ESC [ 2 ~`), which a terminal
+writes whole, so a pause inside one is a slow link; they wait up to 200 ms.
+`ESC [ 2 0`, `ESC [ 2 0 0` and `ESC [ 2 0 1` begin nothing but a marker, so no
+key waits behind them, and they wait up to 2 s, so that a terminal that died
+mid-marker cannot hold keys back for good. After the bound the bytes go on
+unchanged and the library treats them as it always did. A complete key (an
+arrow, Alt with a letter, Insert, a function key, a focus or mouse report) is
+not a prefix of anything and passes at once. A lone `ESC` is never held: it is
+the Escape key and is recognised on the library's own 20 ms schedule. A link
+that splits a marker right after its `ESC` and then pauses sends the same
+bytes as a person pressing Escape and typing `[200~`, so that one split is not
+repaired.
+
 Separate provider message IDs create separate assistant transcript entries,
 including completion follow-ups inside one parent turn. Pending text is flushed
 at that boundary so the last status sentence cannot merge with the next answer.
