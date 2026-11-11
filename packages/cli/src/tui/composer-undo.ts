@@ -8,6 +8,7 @@
  *
  * Pure: the composer owns the state and calls `record` before each edit.
  */
+import type { MessageAttachment } from '@namzu/sdk'
 import type { Span } from './triggers/provenance.js'
 
 export const UNDO_LIMIT = 50
@@ -16,6 +17,8 @@ export interface DraftSnapshot {
 	readonly value: string
 	readonly cursor: number
 	readonly spans: readonly Span[]
+	/** What was attached, so an undone delete brings its image back with its marker. */
+	readonly attachments?: readonly MessageAttachment[]
 }
 
 export interface UndoStack {

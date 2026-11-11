@@ -14,8 +14,9 @@
 
 import { renderedDetailLines } from './Transcript.js'
 import { contentColorForRole, glyphColorForRole, glyphForRole } from './Transcript.js'
+import { attachmentLine } from './attachment-rows.js'
 import { commandRows } from './read-search-group.js'
-import { choiceDisplayWidth, wrapChoiceText } from './terminal-choice-text.js'
+import { choiceDisplayWidth, truncateChoiceText, wrapChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { paint, theme } from './theme.js'
 import type { TranscriptMessage } from './types.js'
@@ -97,11 +98,20 @@ export function messageScrollRows(
 	const color = paint(message.contentColor) ?? contentColorForRole(message.role)
 	const joined = scrollBodyText(message)
 	const body = wrapChoiceText(joined, width)
+	// An attachment is one quiet row, cut to the width rather than wrapped.
+	const attachmentRows = message.statusRows
+		? []
+		: (message.attachments ?? []).map((row) =>
+				truncateChoiceText(terminalDisplayText(attachmentLine(row)), width + GUTTER),
+			)
 	const detail = message.statusRows
 		? []
-		: renderedDetailLines(message).flatMap((line) =>
-				wrapChoiceText(line.length > 0 ? line : ' ', width + GUTTER).map((part) => part),
-			)
+		: [
+				...attachmentRows,
+				...renderedDetailLines(message).flatMap((line) =>
+					wrapChoiceText(line.length > 0 ? line : ' ', width + GUTTER),
+				),
+			]
 	const rows: ScrollRow[] = []
 	body.forEach((text, i) => {
 		rows.push({ glyph: i === 0 ? glyph : ' ', glyphColor, text, color })

@@ -536,18 +536,18 @@ describe('the two composer destinations', () => {
 
 			expect(sentOptions[0]?.inboundMessages).toBeTypeOf('function')
 			expect(delivered[0]).toMatchObject([
-				{ role: 'user', content: 'also inspect this', attachments: [image] },
+				{ role: 'user', content: '[Image #1]also inspect this', attachments: [image] },
 			])
 			expect(sent[1]?.map((message) => [message.role, message.content])).toEqual([
 				['user', 'start here'],
 				['assistant', 'first answer'],
-				['user', 'also inspect this'],
+				['user', '[Image #1]also inspect this'],
 				['assistant', 'steered answer'],
 				['user', 'then do this'],
 			])
 			expect(
 				sent[1]?.find(
-					(message) => message.role === 'user' && message.content === 'also inspect this',
+					(message) => message.role === 'user' && message.content === '[Image #1]also inspect this',
 				),
 			).toMatchObject({ attachments: [image] })
 			// The steered message is recorded by the kernel's turn recorder; what
@@ -717,7 +717,13 @@ describe('the two composer destinations', () => {
 			screen.press('\x1b[1;3A')
 			await screen.waitForRender()
 			expect(screen.viewport().join('\n')).toContain('newer queued')
-			expect(screen.viewport().join('\n')).not.toContain('Image #1')
+			// The queued message names its image in the queue; the composer holds none.
+			expect(
+				screen
+					.viewport()
+					.join('\n')
+					.match(/Image #1/g),
+			).toHaveLength(1)
 			screen.press('\x15')
 			await screen.waitForRender()
 
@@ -765,7 +771,7 @@ describe('the two composer destinations', () => {
 			expect(sent[1]?.at(-1)).toMatchObject({ role: 'user', content: 'older queued' })
 			expect(sent[2]?.at(-1)).toMatchObject({
 				role: 'user',
-				content: 'newer queued',
+				content: '[Image #1]newer queued',
 				attachments: [image],
 			})
 		} finally {
@@ -803,7 +809,7 @@ describe('the two composer destinations', () => {
 			)
 			expect(delivered[0]?.[0]).toMatchObject({
 				role: 'user',
-				content: 'queued text suffix',
+				content: '[Image #1]queued text suffix',
 				attachments: [image],
 			})
 		} finally {
@@ -908,7 +914,7 @@ describe('the two composer destinations', () => {
 
 			expect(delivered[0]).toEqual([])
 			expect(sent.slice(1).map((messages) => messages.at(-1)?.content)).toEqual([
-				'interrupt with image',
+				'[Image #1]interrupt with image',
 				'after interruption',
 			])
 			expect(sent[1]?.at(-1)).toMatchObject({ attachments: [image] })
@@ -1231,7 +1237,7 @@ describe('the external draft editor', () => {
 			await waitUntil(screen, () => sent.length === 1, 'the edited draft was not submitted')
 			expect(sent[0]?.at(-1)).toMatchObject({
 				role: 'user',
-				content: 'edited\nfrom host',
+				content: 'edited\nfrom host [Image #1]',
 				attachments: [image],
 			})
 			expect(sent[0]?.at(-1)?.content).not.toContain('must not enter')

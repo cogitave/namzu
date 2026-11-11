@@ -10,7 +10,19 @@ generated: { by: human:bahadirarda, at: 2026-11-02T00:00:00Z }
 
 # Pasting images into the composer
 
-An image in the composer is a chip, `[Image #1]`, in the text of the draft. It travels beside the message when you send it. Deleting the chip drops the image.
+An image in the composer is a marker, `[Image #1]`, in the text of the draft. It travels beside the message when you send it. Deleting the marker drops the image.
+
+A marker is one unit. The cursor never rests inside it: Left and Right step over it in one key, word jumps do not stop in it, and Backspace, Delete, Ctrl+W, Ctrl+K, Ctrl+U and Alt+D take all of it or none. Typing next to it never lands inside it, and undo brings a deleted marker back with its image. It is drawn in the colour the theme uses for system text (with colour off, the brackets still set it apart). Text that only looks like a marker, typed by hand or left over from an earlier message, has no image behind it and is ordinary text.
+
+The number is the image's for the whole conversation. A new image takes the next number, a deleted marker's number is not reused, and after a resume numbering continues past the highest number the conversation already used. A document is `[Document #2]` and shares the count.
+
+## What the sent message shows
+
+The marker stays in the words, where you put it, both in the message row and in the text the model receives, so "compare [Image #1] with [Image #2]" means what it says. A message that is only an image is sent as its marker.
+
+Under the message, one quiet row per attachment replaces a bare count: the marker, the file name when there is one (a clipboard image has none), and the size, as `[Image #1] shot.png · 48 KB`. Where the terminal takes hyperlinks (the check `terminalSupportsHyperlinks` makes for links in replies: not in tmux, screen or over SSH) the row is a link to a copy of the file, so a click opens it; elsewhere it is plain text. A conversation resumed with `/resume` or `-c` draws the same rows from its log with the same numbers.
+
+The copy lives in `<NAMZU_HOME>/projects/<project>/<session-id>/attachments/`, inside the conversation's own folder, named by a hash of the bytes and a short extension. The same image attached twice is one file. Removing the conversation removes its folder and so the copies; nothing is written anywhere else. A conversation from before this change gets its copies the first time it is resumed. An attachment a store holds (`type: 'stored'`) has no bytes in the message, so its row has no size and no link.
 
 ## Keys
 
@@ -39,7 +51,7 @@ The script is fixed text. No part of the clipboard or of anything you type is pl
 
 ## Pasting file paths
 
-A paste made only of paths to `.png`, `.jpg`, `.jpeg`, `.gif` or `.webp` files, such as a file dragged onto the terminal, attaches the files instead of inserting text. Quoted and backslash-escaped paths work, and several paths make several chips. On Windows and WSL, `C:\...` paths and paths on this distribution's own share (`\\wsl$\<distro>\...`, `\\wsl.localhost\<distro>\...`) are converted. Each file must start with image bytes and be under 64 MiB.
+A paste made only of paths to `.png`, `.jpg`, `.jpeg`, `.gif` or `.webp` files, such as a file dragged onto the terminal, attaches the files instead of inserting text. Quoted and backslash-escaped paths work, and several paths make several markers. On Windows and WSL, `C:\...` paths and paths on this distribution's own share (`\\wsl$\<distro>\...`, `\\wsl.localhost\<distro>\...`) are converted. Each file must start with image bytes and be under 64 MiB.
 
 A path is read wherever it lives, because you pasted it yourself: a screenshot on the Windows desktop (`C:\Users\...\Desktop\shot.png`, reached as `/mnt/c/...`) attaches like one in the project, and the folders added with `/add-dir` do not matter. One thing refuses it: a `read` permission rule that denies the path, or the file a link at that path leads to. Any deny wins, even when an allow rule for a narrower path sits beside it, and the rules are asked before the file is looked at, so a denied path is refused even if it does not exist. A rule that only asks does not refuse it. A refused path is not read, and is left in the draft as text with a message. A path no deny rule names that does not exist or cannot be read is not an image to refuse; it stays in the draft as text.
 

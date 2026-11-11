@@ -32,6 +32,7 @@ import type { LearningGeneratorConfig } from '../integrations/learning/generator
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { ResolvedLogging } from '../logging.js'
 import type { ChecklistItem } from './Checklist.js'
+import type { AttachmentRow } from './attachment-rows.js'
 import type { ContextView } from './context-grid.js'
 import type { DiffInfo } from './diff-view.js'
 import type { GroupState } from './read-search-group.js'
@@ -78,6 +79,8 @@ export interface TranscriptMessage {
 	readonly glyphColor?: string
 	/** Overrides the colour of the row's text (the glyph keeps `glyphColor`). */
 	readonly contentColor?: string
+	/** On a message the person sent: the files that went with it, one quiet row each under it. */
+	readonly attachments?: readonly AttachmentRow[]
 	/** Dim suffix after the content (e.g. a tool's elapsed time). */
 	readonly meta?: string
 	/** Collapsible body under the line (tool diff / output). */
