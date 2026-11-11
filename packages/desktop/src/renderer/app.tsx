@@ -110,9 +110,11 @@ import { setEngineSignedOut } from './engine-sign-in.js'
 import { createFailingPoll } from './failing-poll.js'
 import { FilePanelBody } from './file-panel/file-panel.js'
 import {
+	CHANGES_PANEL_WIDTH,
 	MIN_PANEL_WIDTH,
 	type PanelTab,
 	type PanelTabsState,
+	SIDEBAR_FOLD_BELOW,
 	activatePanelTab,
 	activeFilePath,
 	activityTab,
@@ -821,7 +823,12 @@ export function App({
 				?.focus({ preventScroll: true })
 	}, [sideOpen, mobile])
 	const setSideCollapsed = onSideCollapsedChange
+	// The sidebar folds to its rail while the Changes pane is open in a narrow window, and comes
+	// back when the pane closes; a choice the person makes meanwhile is theirs and is kept.
+	const foldedByPane = useRef(false)
+	const quietFold = useRef(false)
 	const toggleSidebar = useCallback(() => {
+		foldedByPane.current = false
 		if (window.matchMedia('(max-width: 767px)').matches) setSideOpen((value) => !value)
 		else
 			setSideCollapsed((value) => {
@@ -833,6 +840,11 @@ export function App({
 	useEffect(() => {
 		if (previousCollapsed.current === sideCollapsed) return
 		previousCollapsed.current = sideCollapsed
+		// A fold the pane made is not the person reaching for the sidebar: the focus stays where it is.
+		if (quietFold.current) {
+			quietFold.current = false
+			return
+		}
 		if (window.matchMedia('(max-width: 767px)').matches) return
 		const control = document.querySelector<HTMLButtonElement>('button[aria-label="Toggle sidebar"]')
 		control?.focus({ preventScroll: true })
@@ -1179,6 +1191,27 @@ export function App({
 	const shownPanelTab = shownTab(panelTabs, panelAllows)
 	const panelView: PanelView =
 		filesEnabled && panelTabs.browsing ? 'browse' : (shownPanelTab?.kind ?? 'empty')
+	const changesPaneOpen = detailsOpen && panelView === 'changes'
+	const sideCollapsedNow = useRef(sideCollapsed)
+	sideCollapsedNow.current = sideCollapsed
+	// biome-ignore lint/correctness/useExhaustiveDependencies: only the pane opening or closing decides.
+	useEffect(() => {
+		if (changesPaneOpen) {
+			if (
+				window.innerWidth < SIDEBAR_FOLD_BELOW &&
+				!window.matchMedia('(max-width: 767px)').matches &&
+				!sideCollapsedNow.current
+			) {
+				foldedByPane.current = true
+				quietFold.current = true
+				setSideCollapsed(true)
+			}
+		} else if (foldedByPane.current) {
+			foldedByPane.current = false
+			quietFold.current = true
+			setSideCollapsed(false)
+		}
+	}, [changesPaneOpen])
 	const activePath =
 		panelView === 'file' ? activeFilePath({ ...panelTabs, active: shownPanelTab }) : undefined
 	/** Makes sure Changes or Activity is a tab, and shows it. */
@@ -1373,15 +1406,18 @@ export function App({
 	).length
 	const detailsActive = detailsPopoverOpen && !palConversation
 	// Line totals compare whole files, so they are read only while someone is looking.
+	// Also read for the top bar's changes button, so it follows the count of finished edits (a
+	// finished edit is never revised) and not every streamed update.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `changes` stands for the finished edits in thread.tools.
 	const totals = useMemo<ChangeTotals>(() => {
-		if (!detailsActive) return { added: 0, removed: 0, files: 0, cut: false }
+		if (changes === 0) return { added: 0, removed: 0, files: 0, cut: false }
 		const receipts = []
 		for (const tool of Object.values(thread.tools)) {
 			const receipt = tool.status === 'completed' ? receiptOf(tool) : undefined
 			if (receipt) receipts.push(receipt)
 		}
 		return changeTotals(receipts)
-	}, [detailsActive, thread.tools])
+	}, [sessionId, changes])
 	const sources = useMemo(
 		() => (detailsActive ? conversationSources(thread.messages) : []),
 		[detailsActive, thread.messages],
@@ -4923,6 +4959,7 @@ export function App({
 		revealSidebar('[data-archive-list]')
 	}
 	const revealSidebar = (selector: string) => {
+		foldedByPane.current = false
 		setSideOpen(window.matchMedia('(max-width: 767px)').matches)
 		setSideCollapsed(false)
 		localStorage.setItem('namzu.sidebar-collapsed', 'false')
@@ -6611,9 +6648,14 @@ export function App({
 					data-panel-resizing={panelResizing || undefined}
 					data-panel-expanded={(detailsOpen && panelExpanded) || undefined}
 					style={
-						panelWidth !== undefined || panelView === 'file' || panelView === 'browse'
+						panelWidth !== undefined ||
+						panelView === 'file' ||
+						panelView === 'browse' ||
+						panelView === 'changes'
 							? ({
-									'--panel-width': `clamp(${MIN_PANEL_WIDTH}px, ${panelWidth ?? 600}px, 70%)`,
+									'--panel-width': `clamp(${MIN_PANEL_WIDTH}px, ${
+										panelWidth ?? (panelView === 'changes' ? CHANGES_PANEL_WIDTH : 600)
+									}px, 70%)`,
 								} as CSSProperties)
 							: undefined
 					}
@@ -6642,7 +6684,9 @@ export function App({
 								title={barTitle}
 								project={project?.isChat ? undefined : project?.name}
 								usage={activeTerminal ? undefined : thread.usage}
-								changes={changes}
+								changes={totals.files}
+								added={totals.added}
+								removed={totals.removed}
 								disabled={loading || harnessBusy || frozen}
 								onChanges={
 									activeTerminal
@@ -7189,6 +7233,11 @@ export function App({
 																}}
 																onOpenChangedFile={projectFiles ? openChangedFile : undefined}
 																onOpenPalInbox={openPalInbox}
+																onCopySummary={(text) =>
+																	void copyToClipboard(text, 'Summary copied.').catch(() =>
+																		notify('Copy is unavailable.', { tone: 'error' }),
+																	)
+																}
 																onOpenTasks={() => {
 																	showPanelTab('activity')
 																	setJobsOpen(true)
@@ -7548,30 +7597,33 @@ export function App({
 									Back to conversation
 								</Button>
 							</div>
-							<div className="section-heading panel-heading">
-								<PanelTabStrip
-									panelId="side-panel-body"
-									tabs={listedTabs}
-									active={shownPanelTab}
-									browsing={panelView === 'browse'}
-									canBrowse={filesEnabled}
-									running={detailsWork.state === 'known' ? detailsWork.running : 0}
-									attention={needsAttention}
-									expanded={panelExpanded}
-									onActivate={(tab) => {
-										if (tab.kind === 'changes') setChangesFilter(undefined)
-										updatePanelTabs((state) => activatePanelTab(state, tab))
-									}}
-									onClose={(tab) => updatePanelTabs((state) => closePanelTab(state, tab))}
-									onOpenTab={(tab) => {
-										if (tab.kind === 'changes') setChangesFilter(undefined)
-										showPanelTab(tab.kind === 'changes' ? 'changes' : 'activity')
-									}}
-									onBrowse={() => updatePanelTabs(browsePanelTabs)}
-									onToggleExpanded={() => setPanelExpanded((value) => !value)}
-									onHide={closeDetails}
-								/>
-							</div>
+							{/* Changes draws its own one-row header: title, scope, counts, View and close. */}
+							{panelView !== 'changes' && (
+								<div className="section-heading panel-heading">
+									<PanelTabStrip
+										panelId="side-panel-body"
+										tabs={listedTabs}
+										active={shownPanelTab}
+										browsing={panelView === 'browse'}
+										canBrowse={filesEnabled}
+										running={detailsWork.state === 'known' ? detailsWork.running : 0}
+										attention={needsAttention}
+										expanded={panelExpanded}
+										onActivate={(tab) => {
+											if (tab.kind === 'changes') setChangesFilter(undefined)
+											updatePanelTabs((state) => activatePanelTab(state, tab))
+										}}
+										onClose={(tab) => updatePanelTabs((state) => closePanelTab(state, tab))}
+										onOpenTab={(tab) => {
+											if (tab.kind === 'changes') setChangesFilter(undefined)
+											showPanelTab(tab.kind === 'changes' ? 'changes' : 'activity')
+										}}
+										onBrowse={() => updatePanelTabs(browsePanelTabs)}
+										onToggleExpanded={() => setPanelExpanded((value) => !value)}
+										onHide={closeDetails}
+									/>
+								</div>
+							)}
 							{/* The body is a tab panel; contents keeps the aside's own layout. */}
 							<div
 								id="side-panel-body"
@@ -7648,6 +7700,9 @@ export function App({
 										receiptIds={changesFilter}
 										focus={changesFocus}
 										onShowAll={() => setChangesFilter(undefined)}
+										onClose={closeDetails}
+										expanded={panelExpanded}
+										onToggleExpanded={() => setPanelExpanded((value) => !value)}
 										source={workingTree}
 										refreshToken={filesRefresh}
 										onOpenFile={projectFiles ? openChangedFile : undefined}

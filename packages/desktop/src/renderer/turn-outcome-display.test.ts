@@ -293,30 +293,64 @@ describe('the line under a finished turn', () => {
 			...(line ? { line } : {}),
 			changed,
 		})
-	const cases: [OutcomeVerdict, string, 'ok' | 'error' | 'warn'][] = [
-		['checked', 'Changed 2 files · checked: npm test passed, nothing changed since', 'ok'],
-		['failing', 'Changed 2 files · npm test failed', 'error'],
-		['stale', 'Changed 2 files · npm test passed, then files changed again', 'warn'],
-		['unchecked', 'Changed 2 files · not checked', 'warn'],
+	// What the foot says about checking: the kernel's sentence after "Changed N files", as sent.
+	const cases: [OutcomeVerdict, string, string | undefined, 'ok' | 'error' | 'warn'][] = [
+		[
+			'checked',
+			'Changed 2 files · checked: npm test passed, nothing changed since',
+			'Checked: npm test passed, nothing changed since',
+			'ok',
+		],
+		['failing', 'Changed 2 files · npm test failed', 'npm test failed', 'error'],
+		[
+			'stale',
+			'Changed 2 files · npm test passed, then files changed again',
+			'npm test passed, then files changed again',
+			'warn',
+		],
+		['unchecked', 'Changed 2 files · not checked', undefined, 'warn'],
 		[
 			'inconclusive',
 			'Changed 2 files · ran npm test | tail, but the pipe hides whether it passed',
+			'Ran npm test | tail, but the pipe hides whether it passed',
 			'warn',
 		],
-		['unknown', 'A command ran that may have changed files · cannot tell', 'warn'],
 	]
-	for (const [verdict, line, tone] of cases)
-		it(`says the kernel's words for ${verdict}`, () => {
+	for (const [verdict, line, segment, tone] of cases)
+		it(`says the kernel's words for ${verdict}, as one result line`, () => {
 			const html = render(lineFor(verdict, line, 2))
-			expect(html).toContain('turn-outcome-line')
-			expect(html).toContain(`data-outcome-verdict="${verdict}"`)
-			expect(html).toContain(line.replace(/\|/g, '|'))
-			expect(html).toContain(`data-tone="${tone}"`)
+			expect(html).toContain('class="turn-result"')
+			expect(html).not.toContain('turn-outcome-line')
+			expect(html).toContain('2 files')
+			if (segment) {
+				expect(html).toContain(`data-check="${verdict === 'checked' ? 'ok' : tone}"`)
+				expect(html).toContain(`title="${segment}"`)
+			} else {
+				// Not checked is no fact about a check, so the line has no check segment at all.
+				expect(html).not.toContain('turn-result-check')
+				expect(html).not.toContain('not checked')
+				expect(html).not.toContain('data-check=')
+			}
 			expect(outcomeTone(verdict)).toBe(tone)
 		})
+	it('makes a failing check the loudest thing on the line', () => {
+		const html = render(lineFor('failing', 'Changed 2 files · npm test failed', 2))
+		expect(html).toContain('data-tone="error" data-check="error"')
+	})
+	it('adds nothing about changes when the record could not tell, and keeps its own sentence', () => {
+		const html = render(
+			lineFor('unknown', 'A command ran that may have changed files · cannot tell', 2),
+		)
+		expect(html).not.toContain('turn-result')
+		expect(html).toContain('turn-outcome-line')
+		expect(html).toContain('A command ran that may have changed files · cannot tell')
+		expect(outcomeTone('unknown')).toBe('warn')
+	})
 	it('says nothing for an unchanged turn, and nothing before the kernel has said', () => {
+		expect(render(lineFor('unchanged', undefined, 0))).not.toContain('turn-result')
 		expect(render(lineFor('unchanged', undefined, 0))).not.toContain('turn-outcome-line')
 		expect(render(finish(begin()))).not.toContain('turn-outcome-line')
+		expect(render(finish(begin()))).not.toContain('turn-result')
 	})
 	it('is not drawn while the turn is still running', () => {
 		const running = applyEvent(
@@ -331,6 +365,7 @@ describe('the line under a finished turn', () => {
 			},
 		)
 		expect(render(running)).not.toContain('turn-outcome-line')
+		expect(render(running)).not.toContain('turn-result')
 	})
 })
 
@@ -352,10 +387,11 @@ describe('the line once the changes are undone', () => {
 		})
 	it('is hidden when the turn was undone, because it is no longer true', () => {
 		const thread = withLine()
-		expect(render(thread)).toContain('Changed 1 file · not checked')
+		expect(render(thread)).toContain('1 file')
 		const undone = undoStatus('undone')(thread)
 		expect(visibleOutcome(undone, 1)).toBeUndefined()
 		expect(render(undone)).not.toContain('turn-outcome-line')
+		expect(render(undone)).not.toContain('1 file')
 	})
 	it('stays for a turn that is applied or only partly undone', () => {
 		expect(visibleOutcome(undoStatus('applied')(withLine()), 1)?.verdict).toBe('unchecked')
@@ -438,6 +474,8 @@ describe('keeping the outcome', () => {
 			line: 'Changed 1 file · npm test failed',
 			changed: 1,
 		})
-		expect(render(restored)).toContain('Changed 1 file · npm test failed')
+		const html = render(restored)
+		expect(html).toContain('turn-result')
+		expect(html).toContain('title="npm test failed"')
 	})
 })

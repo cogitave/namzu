@@ -11,14 +11,18 @@ import {
 	Columns2Icon,
 	CopyIcon,
 	FilterIcon,
-	MoreHorizontalIcon,
+	Maximize2Icon,
+	Minimize2Icon,
 	RefreshIcon,
 	Rows3Icon,
 	SearchIcon,
 	TextWrapIcon,
+	XIcon,
 } from '../icons.js'
 import { type DiffBody, DiffPane } from './diff-pane.js'
+import { FlatFileList } from './flat-list.js'
 import {
+	FLAT_LIST_LIMIT,
 	type ReviewFile,
 	type ReviewScope,
 	buildTree,
@@ -26,12 +30,12 @@ import {
 	emptyMessageFor,
 	filterFiles,
 	keyStep,
+	largestFile,
 	receiptsOf,
 	scopeFiles,
 	stepFile,
 	totalsOf,
 } from './model.js'
-import { ToolButton } from './tool-button.js'
 import { ReviewTreeView } from './tree.js'
 import '../conversation-actions-menu.css'
 import './review.css'
@@ -47,8 +51,8 @@ export interface WorkingTreeSource {
 }
 
 const SCOPE_LABEL: Record<ReviewScope, string> = {
-	reply: 'Last reply',
-	conversation: 'This conversation',
+	reply: 'This reply',
+	conversation: 'All changes',
 	uncommitted: 'Uncommitted changes',
 }
 const MAX_FILES_NOTE = 'Only the first files are listed.'
@@ -74,6 +78,9 @@ export function ChangesReview({
 	onOpenWorkingFile,
 	onOpenWorkingInEditor,
 	onCopy,
+	onClose,
+	expanded: paneExpanded,
+	onToggleExpanded,
 }: {
 	tools: Record<string, Tool>
 	timeline?: ThreadState['timeline']
@@ -92,15 +99,15 @@ export function ChangesReview({
 	onOpenWorkingFile?: (path: string) => void
 	onOpenWorkingInEditor?: (path: string) => void
 	onCopy?: (text: string, done: string) => void
+	/** Closes the pane; the header's one close button. */
+	onClose?: () => void
+	/** The pane covers more of the window; the View menu offers the way back. */
+	expanded?: boolean
+	onToggleExpanded?: () => void
 }) {
 	const replyKey = receiptIds?.join('|')
-	const [scope, setScope] = useState<ReviewScope>(receiptIds ? 'reply' : 'conversation')
-	// Coming from a reply's View changes shows that reply, whatever was open before.
-	const [seenReply, setSeenReply] = useState(replyKey)
-	if (seenReply !== replyKey) {
-		setSeenReply(replyKey)
-		if (replyKey) setScope('reply')
-	}
+	// All changes is where the pane opens; "This reply" is one click away, and a choice stays.
+	const [scope, setScope] = useState<ReviewScope>('conversation')
 	const [selected, setSelected] = useState<string | undefined>(focus?.path)
 	const [seenFocus, setSeenFocus] = useState(focus)
 	if (seenFocus !== focus) {
@@ -168,8 +175,13 @@ export function ChangesReview({
 		() => (filtering ? tree.folders : tree.folders.filter((id) => !collapsed.has(id))),
 		[filtering, tree, collapsed],
 	)
+	const flat = !filtering && visible.length <= FLAT_LIST_LIMIT
+	const order = flat ? visible.map((item) => item.path) : tree.order
+	// With nothing chosen the pane opens on the file that changed most, not the first one.
 	const current =
-		selected && visible.some((file) => file.path === selected) ? selected : tree.order[0]
+		selected && visible.some((file) => file.path === selected)
+			? selected
+			: largestFile(visible)?.path
 	const file = visible.find((item) => item.path === current)
 	const totals = totalsOf(files)
 	// The open file says its own cut beside its diff; the bar names only the others.
@@ -243,7 +255,7 @@ export function ChangesReview({
 		const step = keyStep(event)
 		if (!step) return
 		event.preventDefault()
-		choose(stepFile(tree.order, current, step))
+		choose(stepFile(order, current, step))
 	}
 
 	const empty = files.length === 0
@@ -257,96 +269,151 @@ export function ChangesReview({
 	return (
 		<div className="changes-review" onKeyDown={onKeyDown} data-scope={activeScope}>
 			<div className="changes-bar">
+				<h2 className="changes-title">Changes</h2>
+				{/* biome-ignore lint/a11y/useSemanticElements: a fieldset would bring its own box and legend. */}
+				<div className="changes-switch" role="group" aria-label="Which changes to show">
+					{(['reply', 'conversation'] as const)
+						.filter((item) => scopes.includes(item))
+						.map((item) => (
+							<button
+								key={item}
+								type="button"
+								className="changes-switch-button"
+								aria-pressed={activeScope === item}
+								onClick={() => {
+									setScope(item)
+									if (item !== 'reply') onShowAll?.()
+								}}
+							>
+								{SCOPE_LABEL[item]}
+							</button>
+						))}
+				</div>
+				<span className="changes-totals">
+					<span className="changes-count-files">
+						{formatLineCount(files.length)} {files.length === 1 ? 'file' : 'files'}
+					</span>
+					<span className="changes-added">
+						<span className="sr-only">Added </span>+{formatLineCount(totals.added)}
+					</span>
+					<span className="changes-removed">
+						<span className="sr-only">Removed </span>−{formatLineCount(totals.removed)}
+					</span>
+				</span>
 				<Menu.Root>
-					<Menu.Trigger className="changes-scope" aria-label="Which changes to show">
-						<span>{SCOPE_LABEL[activeScope]}</span>
+					<Menu.Trigger className="changes-view" aria-label="View options">
+						<span>View</span>
 						<ChevronDownIcon aria-hidden="true" />
 					</Menu.Trigger>
 					<Menu.Portal>
-						<Menu.Positioner
-							className="conversation-actions-positioner"
-							align="start"
-							sideOffset={6}
-						>
-							<Menu.Popup className="conversation-actions-popup" aria-label="Changes scope">
+						<Menu.Positioner className="conversation-actions-positioner" align="end" sideOffset={6}>
+							<Menu.Popup className="conversation-actions-popup" aria-label="View">
 								<Menu.RadioGroup
-									value={activeScope}
-									onValueChange={(value) => {
-										setScope(value as ReviewScope)
-										if (value !== 'reply') onShowAll?.()
-									}}
+									value={split ? 'split' : 'unified'}
+									onValueChange={(value) => setSplit(value === 'split')}
 								>
-									{scopes.map((item) => (
-										<Menu.RadioItem
-											key={item}
-											value={item}
-											closeOnClick
-											className="conversation-actions-item"
-										>
-											<span className="conversation-actions-label">{SCOPE_LABEL[item]}</span>
-											<Menu.RadioItemIndicator>
-												<CheckIcon aria-hidden="true" />
-											</Menu.RadioItemIndicator>
-										</Menu.RadioItem>
-									))}
+									<Menu.RadioItem
+										value="unified"
+										className="conversation-actions-item"
+										closeOnClick
+									>
+										<Rows3Icon aria-hidden="true" />
+										<span className="conversation-actions-label">Unified diff</span>
+										<Menu.RadioItemIndicator>
+											<CheckIcon aria-hidden="true" />
+										</Menu.RadioItemIndicator>
+									</Menu.RadioItem>
+									<Menu.RadioItem value="split" className="conversation-actions-item" closeOnClick>
+										<Columns2Icon aria-hidden="true" />
+										<span className="conversation-actions-label">Split diff</span>
+										<Menu.RadioItemIndicator>
+											<CheckIcon aria-hidden="true" />
+										</Menu.RadioItemIndicator>
+									</Menu.RadioItem>
 								</Menu.RadioGroup>
+								<Menu.CheckboxItem
+									className="conversation-actions-item"
+									checked={wrap}
+									onCheckedChange={setWrap}
+									closeOnClick
+								>
+									<TextWrapIcon aria-hidden="true" />
+									<span className="conversation-actions-label">Wrap diff lines</span>
+									<Menu.CheckboxItemIndicator>
+										<CheckIcon aria-hidden="true" />
+									</Menu.CheckboxItemIndicator>
+								</Menu.CheckboxItem>
+								<Menu.Item
+									className="conversation-actions-item"
+									disabled={tree.folders.length === 0}
+									onClick={() => setCollapsed(new Set(tree.folders))}
+								>
+									<CollapseAllIcon aria-hidden="true" />
+									<span className="conversation-actions-label">Collapse folders</span>
+								</Menu.Item>
+								<Menu.Separator className="conversation-actions-separator" />
+								{scopes.includes('uncommitted') && (
+									<Menu.CheckboxItem
+										className="conversation-actions-item"
+										checked={activeScope === 'uncommitted'}
+										onCheckedChange={(on) => {
+											setScope(on ? 'uncommitted' : 'conversation')
+											onShowAll?.()
+										}}
+										closeOnClick
+									>
+										<span className="conversation-actions-label">Uncommitted changes (git)</span>
+										<Menu.CheckboxItemIndicator>
+											<CheckIcon aria-hidden="true" />
+										</Menu.CheckboxItemIndicator>
+									</Menu.CheckboxItem>
+								)}
+								{activeScope === 'uncommitted' && (
+									<Menu.Item
+										className="conversation-actions-item"
+										onClick={() => setVersion(version + 1)}
+									>
+										<RefreshIcon aria-hidden="true" />
+										<span className="conversation-actions-label">Refresh changes</span>
+									</Menu.Item>
+								)}
+								<Menu.Item
+									className="conversation-actions-item"
+									disabled={empty}
+									onClick={() =>
+										copy(files.map((item) => item.path).join('\n'), 'Changed paths copied.')
+									}
+								>
+									<CopyIcon aria-hidden="true" />
+									<span className="conversation-actions-label">Copy changed paths</span>
+								</Menu.Item>
+								{onToggleExpanded && (
+									<Menu.Item className="conversation-actions-item" onClick={onToggleExpanded}>
+										{paneExpanded ? (
+											<Minimize2Icon aria-hidden="true" />
+										) : (
+											<Maximize2Icon aria-hidden="true" />
+										)}
+										<span className="conversation-actions-label">
+											{paneExpanded ? 'Restore pane size' : 'Expand pane'}
+										</span>
+									</Menu.Item>
+								)}
 							</Menu.Popup>
 						</Menu.Positioner>
 					</Menu.Portal>
 				</Menu.Root>
-				<span className="changes-totals" aria-label="Total lines changed">
-					<span className="changes-added">+{formatLineCount(totals.added)}</span>
-					<span className="changes-removed">−{formatLineCount(totals.removed)}</span>
-				</span>
-				<div className="changes-toolbar" role="toolbar" aria-label="Changes view">
-					<ToolButton
-						label={split ? 'Use unified diff' : 'Use split diff'}
-						pressed={split}
-						onClick={() => setSplit(!split)}
+				{onClose && (
+					<button
+						type="button"
+						className="changes-icon-button changes-close"
+						aria-label="Close changes"
+						title="Close changes"
+						onClick={onClose}
 					>
-						{split ? <Columns2Icon /> : <Rows3Icon />}
-					</ToolButton>
-					<ToolButton label="Wrap diff lines" pressed={wrap} onClick={() => setWrap(!wrap)}>
-						<TextWrapIcon />
-					</ToolButton>
-					{activeScope === 'uncommitted' && (
-						<ToolButton label="Refresh changes" onClick={() => setVersion(version + 1)}>
-							<RefreshIcon />
-						</ToolButton>
-					)}
-					<ToolButton
-						label="Collapse folders"
-						disabled={tree.folders.length === 0}
-						onClick={() => setCollapsed(new Set(tree.folders))}
-					>
-						<CollapseAllIcon />
-					</ToolButton>
-					<Menu.Root>
-						<Menu.Trigger className="changes-icon-button" aria-label="More changes actions">
-							<MoreHorizontalIcon aria-hidden="true" />
-						</Menu.Trigger>
-						<Menu.Portal>
-							<Menu.Positioner
-								className="conversation-actions-positioner"
-								align="end"
-								sideOffset={6}
-							>
-								<Menu.Popup className="conversation-actions-popup" aria-label="Changes actions">
-									<Menu.Item
-										className="conversation-actions-item"
-										disabled={empty}
-										onClick={() =>
-											copy(files.map((item) => item.path).join('\n'), 'Changed paths copied.')
-										}
-									>
-										<CopyIcon aria-hidden="true" />
-										<span className="conversation-actions-label">Copy changed paths</span>
-									</Menu.Item>
-								</Menu.Popup>
-							</Menu.Positioner>
-						</Menu.Portal>
-					</Menu.Root>
-				</div>
+						<XIcon aria-hidden="true" />
+					</button>
+				)}
 			</div>
 			{!empty && barCutNote && <p className="changes-note changes-cut-note">{barCutNote}</p>}
 			{empty ? (
@@ -359,33 +426,39 @@ export function ChangesReview({
 			) : (
 				<div className="changes-body" data-files-open={filesOpen}>
 					<aside className="changes-files" aria-label="Changed files">
-						<label className="changes-filter">
-							<SearchIcon aria-hidden="true" />
-							<input
-								type="text"
-								value={query}
-								placeholder="Filter files…"
-								aria-label="Filter changed files"
-								spellCheck={false}
-								autoComplete="off"
-								onChange={(event) => setQuery(event.target.value)}
-								onKeyDown={(event) => event.key === 'Escape' && setQuery('')}
-							/>
-							<FilterIcon aria-hidden="true" className="changes-filter-icon" />
-						</label>
-						{visible.length === 0 ? (
-							<p className="changes-message">No changed files match.</p>
+						{flat ? (
+							<FlatFileList files={visible} selected={current} onSelect={choose} />
 						) : (
-							<ReviewTreeView
-								tree={tree}
-								expanded={expanded}
-								onExpandedChange={(next) => {
-									if (filtering) return
-									setCollapsed(new Set(tree.folders.filter((id) => !next.includes(id))))
-								}}
-								selected={current}
-								onSelect={choose}
-							/>
+							<>
+								<label className="changes-filter">
+									<SearchIcon aria-hidden="true" />
+									<input
+										type="text"
+										value={query}
+										placeholder="Filter files…"
+										aria-label="Filter changed files"
+										spellCheck={false}
+										autoComplete="off"
+										onChange={(event) => setQuery(event.target.value)}
+										onKeyDown={(event) => event.key === 'Escape' && setQuery('')}
+									/>
+									<FilterIcon aria-hidden="true" className="changes-filter-icon" />
+								</label>
+								{visible.length === 0 ? (
+									<p className="changes-message">No changed files match.</p>
+								) : (
+									<ReviewTreeView
+										tree={tree}
+										expanded={expanded}
+										onExpandedChange={(next) => {
+											if (filtering) return
+											setCollapsed(new Set(tree.folders.filter((id) => !next.includes(id))))
+										}}
+										selected={current}
+										onSelect={choose}
+									/>
+								)}
+							</>
 						)}
 						{activeScope === 'uncommitted' &&
 							remote.state === 'ready' &&

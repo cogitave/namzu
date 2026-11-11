@@ -1,6 +1,7 @@
 import { Menu } from '@base-ui/react/menu'
 import { Fragment, type ReactNode } from 'react'
 import type { ThreadUsage } from '../shared/projection.js'
+import { formatLineCount } from './changes-totals.js'
 import { ContextReadout } from './context-ring-view.js'
 import { CheckIcon, FileDiffIcon, FileTextIcon, PencilIcon, TerminalIcon } from './icons.js'
 import { Button } from './ui/button.js'
@@ -27,9 +28,13 @@ export interface ConversationBarTerminals {
 export const NEW_TERMINAL_TITLE = 'New terminal (Ctrl+Shift+`)'
 
 /** The name of the changes button: it says the count, so a number is never the only signal. */
-export function changesButtonLabel(count: number): string {
+export function changesButtonLabel(count: number, added = 0, removed = 0): string {
 	if (count <= 0) return 'Changes'
-	return `Changes, ${count} changed ${count === 1 ? 'file' : 'files'}`
+	const lines =
+		added + removed > 0
+			? `, ${formatLineCount(added)} added, ${formatLineCount(removed)} removed`
+			: ''
+	return `Changes, ${count} changed ${count === 1 ? 'file' : 'files'}${lines}`
 }
 
 /** A blank conversation kept open for unsent work: it has no sidebar row, so the bar names it. */
@@ -48,6 +53,9 @@ export interface ConversationBarProps {
 	usage?: ThreadUsage
 	/** The completed edits in the conversation; the same number "N changed files" says elsewhere. */
 	changes: number
+	/** Lines added and removed across those files: the same numbers the result line and the pane show. */
+	added?: number
+	removed?: number
 	onChanges?: () => void
 	onFiles?: () => void
 	terminals?: ConversationBarTerminals
@@ -209,6 +217,8 @@ export function ConversationBar({
 	project,
 	usage,
 	changes,
+	added = 0,
+	removed = 0,
 	onChanges,
 	onFiles,
 	terminals,
@@ -235,15 +245,17 @@ export function ConversationBar({
 						type="button"
 						variant="ghost-muted"
 						size="icon-sm"
-						className="conversation-bar-button"
-						aria-label={changesButtonLabel(changes)}
-						title={changesButtonLabel(changes)}
+						className="conversation-bar-button conversation-bar-changes"
+						aria-label={changesButtonLabel(changes, added, removed)}
+						title={changesButtonLabel(changes, added, removed)}
+						data-has-changes={changes > 0 || undefined}
 						onClick={onChanges}
 					>
 						<FileDiffIcon aria-hidden="true" />
 						{changes > 0 && (
-							<span className="conversation-bar-count" aria-hidden="true">
-								{changes > 99 ? '99+' : changes}
+							<span className="conversation-bar-lines" aria-hidden="true">
+								<span className="conversation-bar-added">+{formatLineCount(added)}</span>
+								<span className="conversation-bar-removed">−{formatLineCount(removed)}</span>
 							</span>
 						)}
 					</Button>

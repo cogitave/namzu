@@ -55,6 +55,29 @@
 	position: relative;
 	-webkit-app-region: no-drag;
 }
+/* With changes the button grows to show the lines added and removed beside its icon. */
+.conversation-bar-buttons > .conversation-bar-changes[data-has-changes] {
+	width: auto;
+	gap: 6px;
+	padding-inline: 8px;
+}
+.conversation-bar-lines {
+	display: inline-flex;
+	gap: 5px;
+	font-size: 12px;
+	font-weight: 500;
+	font-variant-numeric: tabular-nums;
+}
+.conversation-bar-added {
+	color: var(--bar-added, #15803d);
+}
+.conversation-bar-removed {
+	color: var(--bar-removed, var(--error-foreground));
+}
+.dark .conversation-bar {
+	--bar-added: #4ade80;
+	--bar-removed: #ff8a8a;
+}
 /* A small figure on the corner of a button: how many changes, how many terminals. */
 .conversation-bar-count {
 	position: absolute;

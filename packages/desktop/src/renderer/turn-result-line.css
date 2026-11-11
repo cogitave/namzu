@@ -1,0 +1,150 @@
+/* The foot of a finished turn: one 40 px row, a state mark, the size of the change, the check. */
+.turn-result {
+	display: flex;
+	align-items: center;
+	min-height: 40px;
+	margin: 4px 0 16px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-card);
+	background: var(--secondary);
+	color: var(--foreground);
+	font-size: 13px;
+	--changes-added: #15803d;
+	--changes-removed: var(--error-foreground);
+}
+.dark .turn-result {
+	background: var(--accent);
+	--changes-added: #4ade80;
+	--changes-removed: #ff8a8a;
+}
+/* A failed check cannot be missed: the whole row takes the error colour. */
+.turn-result[data-check="error"] {
+	border-color: var(--error);
+	background: color-mix(in srgb, var(--error) 10%, var(--secondary));
+}
+.dark .turn-result[data-check="error"] {
+	background: color-mix(in srgb, var(--error) 16%, var(--accent));
+}
+.turn-result-main {
+	display: flex;
+	flex: 1;
+	align-items: center;
+	gap: 12px;
+	min-width: 0;
+	height: 40px;
+	margin: 0;
+	padding: 0 6px 0 14px;
+	border-radius: var(--radius-card);
+	text-align: left;
+	font: inherit;
+	color: inherit;
+}
+button.turn-result-main {
+	cursor: pointer;
+}
+button.turn-result-main:hover {
+	background: color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+button.turn-result-main:focus-visible,
+.turn-result-more:focus-visible {
+	outline: 2px solid transparent;
+	outline-offset: -2px;
+	box-shadow: var(--focus-ring);
+}
+.turn-result-mark {
+	flex: none;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--muted-foreground);
+}
+.turn-result-mark[data-tone="ok"] {
+	background: var(--primary);
+}
+.turn-result-mark[data-tone="warn"] {
+	background: var(--warning);
+}
+.turn-result-mark[data-tone="error"] {
+	background: var(--error);
+}
+.turn-result-lead {
+	flex: none;
+	font-weight: 600;
+	white-space: nowrap;
+}
+.turn-result-size {
+	display: inline-flex;
+	flex: none;
+	align-items: baseline;
+	gap: 8px;
+	white-space: nowrap;
+}
+.turn-result-counts {
+	display: inline-flex;
+	gap: 6px;
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+.turn-result-added {
+	color: var(--changes-added);
+}
+.turn-result-removed {
+	color: var(--changes-removed);
+}
+.turn-result-cut {
+	flex: none;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	white-space: nowrap;
+}
+.turn-result-check {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.turn-result-check[data-tone="warn"] {
+	color: var(--warning-foreground);
+}
+.turn-result-check[data-tone="error"] {
+	color: var(--error-foreground);
+	font-weight: 600;
+}
+.turn-result-chevron {
+	flex: none;
+	width: 14px;
+	height: 14px;
+	margin-inline-start: auto;
+	color: var(--muted-foreground);
+}
+.turn-result-more {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	margin-inline: 2px 4px;
+	border-radius: var(--radius-control);
+	color: var(--muted-foreground);
+	cursor: pointer;
+}
+.turn-result-more:hover,
+.turn-result-more[data-popup-open] {
+	background: var(--accent);
+	color: var(--foreground);
+}
+.turn-result-more svg {
+	width: 16px;
+	height: 16px;
+}
+/* A narrow column drops the size words' gap before it drops the check's last letter. */
+@container workspace (max-width: 560px) {
+	.turn-result-main {
+		gap: 8px;
+		padding-inline-start: 10px;
+	}
+}

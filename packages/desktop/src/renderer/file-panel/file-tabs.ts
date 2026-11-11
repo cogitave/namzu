@@ -1,6 +1,16 @@
 /** The side panel's tabs and the panel width: view state only, kept per conversation in this window. */
 export const MAX_FILE_TABS = 12
 export const MIN_PANEL_WIDTH = 320
+
+/** The width the Changes pane opens at when the person has not dragged it: the diff first. */
+export const CHANGES_PANEL_WIDTH = 520
+
+/**
+ * Below this window width the sidebar folds to its rail while the Changes pane is open: at 520 px
+ * the pane leaves the conversation about 450 px otherwise. Chosen at 1280, the largest width of
+ * the two reference windows, where the column would otherwise be 448 px.
+ */
+export const SIDEBAR_FOLD_BELOW = 1281
 const MAX_PATH = 1024
 const MAX_STORED = 8192
 

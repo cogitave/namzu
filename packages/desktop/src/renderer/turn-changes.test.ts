@@ -6,8 +6,9 @@ import { emptyThread } from '../shared/projection.js'
 import type { ChatMessage } from '../shared/protocol.js'
 import { ChangesPanel } from './changes-panel.js'
 import { Transcript } from './transcript.js'
-import { TurnChangesCard } from './turn-changes-card.js'
 import { turnChanges } from './turn-changes.js'
+import { TurnResultLine } from './turn-result-line.js'
+import { turnResultModel } from './turn-result-model.js'
 
 const diff = (path: string, before: string, after: string) => ({
 	kind: 'diff' as const,
@@ -123,47 +124,48 @@ describe('per-reply edit summary', () => {
 		])
 	})
 
-	it('names one file by its basename with the full path in the tooltip', () => {
-		const html = renderToStaticMarkup(
-			createElement(TurnChangesCard, {
-				changes: turnChanges(thread).get(1) as never,
-				onOpen: () => {},
-			}),
+	const line = (turn: number) => {
+		const changes = turnChanges(thread).get(turn)
+		const model = turnResultModel({ reason: 'end_turn', durationMs: 3000, changes })
+		if (!changes || !model) throw new Error('no result line')
+		return renderToStaticMarkup(
+			createElement(TurnResultLine, { model, changes, onOpen: () => {}, onOpenFile: () => {} }),
 		)
-		expect(html).toContain('Edited ')
-		expect(html).toContain('<strong>one.css</strong>')
-		expect(html).toContain('title="src/one.css"')
-		expect(html).toContain('View changes')
-		expect(html).not.toContain('Undo')
+	}
+
+	it('says how the turn ended, its size, and opens the changes from the whole row', () => {
+		const html = line(1)
+		expect(html).toContain('Done in 3s')
+		expect(html).toContain('1 file')
+		expect(html).toContain('aria-label="Done in 3s, 1 file changed, ')
+		expect(html).toContain('. Open changes"')
+		expect(html).toContain('aria-label="More about this reply"')
+		expect(html).not.toContain('View changes')
+		expect(html).not.toContain('data-undo=')
 	})
 
-	it('summarises several files as a count that expands to per-file totals', () => {
-		const html = renderToStaticMarkup(
-			createElement(TurnChangesCard, {
-				changes: turnChanges(thread).get(2) as never,
-				onOpen: () => {},
-			}),
-		)
-		expect(html).toContain('<strong>2 files</strong>')
-		expect(html).toContain('aria-expanded="false"')
+	it('counts several files in one line instead of a list to expand', () => {
+		const html = line(2)
+		expect(html).toContain('2 files')
+		expect(html).not.toContain('aria-expanded')
 		expect(html).not.toContain('turn-changes-files')
 	})
 
-	it('places the card after its own reply and never in a turn without edits', () => {
+	it('places the line after its own reply and never in a turn without edits', () => {
 		const html = renderToStaticMarkup(
 			createElement(Transcript, { thread, onOpenTurnChanges: () => {} }),
 		)
-		expect(html.match(/data-turn-changes="/g)).toHaveLength(2)
-		expect(html.indexOf('first reply')).toBeLessThan(html.indexOf('data-turn-changes="1"'))
-		expect(html.indexOf('data-turn-changes="1"')).toBeLessThan(html.indexOf('second reply'))
-		expect(html.indexOf('second reply')).toBeLessThan(html.indexOf('data-turn-changes="2"'))
-		expect(html.indexOf('data-turn-changes="2"')).toBeLessThan(html.indexOf('third reply'))
+		expect(html.match(/data-turn-result="/g)).toHaveLength(2)
+		expect(html.indexOf('first reply')).toBeLessThan(html.indexOf('data-turn-result="1"'))
+		expect(html.indexOf('data-turn-result="1"')).toBeLessThan(html.indexOf('second reply'))
+		expect(html.indexOf('second reply')).toBeLessThan(html.indexOf('data-turn-result="2"'))
+		expect(html.indexOf('data-turn-result="2"')).toBeLessThan(html.indexOf('third reply'))
 		expect(renderToStaticMarkup(createElement(Transcript, { thread }))).not.toContain(
-			'data-turn-changes',
+			'data-turn-result',
 		)
 	})
 
-	it('shows one reply when opened from it and the whole conversation otherwise', () => {
+	it('opens on all changes, with this reply one click away, whichever reply it came from', () => {
 		const render = (receiptIds?: string[]) =>
 			renderToStaticMarkup(
 				createElement(ChangesPanel, {
@@ -172,14 +174,36 @@ describe('per-reply edit summary', () => {
 					dark: false,
 					receiptIds,
 					onShowAll: () => {},
+					onClose: () => {},
 				}),
 			)
-		const filtered = render(['2:c', '2:d'])
-		expect(filtered).toContain('Last reply')
-		expect(filtered).toContain('+3')
-		expect(filtered).toContain('−1')
+		const fromReply = render(['2:c', '2:d'])
 		const all = render(undefined)
-		expect(all).toContain('This conversation')
-		expect(all).toContain('+6')
+		for (const html of [fromReply, all]) {
+			expect(html).toMatch(/aria-pressed="true"[^>]*>All changes</)
+			expect(html).toMatch(/aria-pressed="false"[^>]*>This reply</)
+			// The whole conversation's total, not the reply's.
+			expect(html).toContain('+6')
+		}
+	})
+
+	it('has one header row: title, scope, counts, View, close, and nothing else', () => {
+		const html = renderToStaticMarkup(
+			createElement(ChangesPanel, {
+				tools: thread.tools,
+				timeline: thread.timeline,
+				dark: false,
+				onClose: () => {},
+			}),
+		)
+		const bar = html.slice(html.indexOf('class="changes-bar"'), html.indexOf('class="changes-body"'))
+		expect(bar).toContain('>Changes</h2>')
+		expect(bar).toContain('aria-label="View options"')
+		expect(bar).toContain('aria-label="Close changes"')
+		expect(bar).not.toContain('Activity')
+		expect(bar).not.toContain('Add a tab')
+		expect(bar).not.toContain('Wrap diff lines')
+		// The files sit beside the diff, not above it.
+		expect(html).toContain('class="changes-flat"')
 	})
 })
