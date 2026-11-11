@@ -126,7 +126,7 @@ flow("About names the engine plainly and lists data folders with a way to copy t
 flow("Speech says one thing about the voice and its size in plain megabytes", {}, async (w) => {
 	await openProject(w);
 	await openSettings(w, "Speech");
-	await expect(w.page.locator(".settings-page-header p")).toHaveText(/Read replies aloud/);
+	await expect(w.page.locator(".settings-page-header p")).toHaveText(/replies read aloud/);
 	await expect(content(w)).not.toContainText("MiB");
 	await shootAll(w, "settings-speech");
 });

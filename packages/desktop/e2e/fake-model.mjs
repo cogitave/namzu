@@ -3,6 +3,7 @@
 // of tool results already present after that message, so replay is a pure
 // function of the request and never depends on timing.
 import { createServer } from "node:http";
+import { failureHeaders } from "./fake-failure.mjs";
 
 /** @typedef {{ text: string } | { tool: string, args: object }} Step */
 
@@ -129,6 +130,10 @@ function pick(rules, messages) {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		if (messages[i].role !== "user") continue;
 		const prompt = textOf(messages[i].content);
+		// The host's own reminders (model, environment) are user messages too. The environment one
+		// names the scratch folder, which carries the project's name, so a rule on that name would
+		// claim it instead of the person's prompt.
+		if (prompt.startsWith("<system-reminder")) continue;
 		const toolResults = messages
 			.slice(i + 1)
 			.filter((m) => m.role === "tool").length;
@@ -145,7 +150,7 @@ function respond(res, request, step) {
 	if (step.status) {
 		res.writeHead(step.status, {
 			"content-type": step.contentType ?? "application/json",
-			...(step.headers ?? {}),
+			...failureHeaders(step),
 		});
 		res.end(step.body ?? "");
 		return;

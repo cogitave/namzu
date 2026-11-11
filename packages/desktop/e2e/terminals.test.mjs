@@ -18,6 +18,7 @@ import {
 	enableTerminalDebug,
 	expect,
 	launch,
+	openModelMore,
 	openProject,
 	relaunch,
 	repoRoot,
@@ -230,9 +231,16 @@ flow("closing the tab ends the shell and everything it started", {}, async (w) =
 /** Open the model popup of the composer in front. */
 async function openPicker(w) {
 	await w.page.getByRole("button", { name: /gpt-e2e-1|gpt-e2e-0/ }).first().click();
+	await expect(w.page.getByRole("dialog", { name: "Model picker" })).toBeVisible({ timeout: T });
+}
+
+/** The Desktop | CLI switch sits behind More since the popup opens on the models. */
+async function pickCli(w) {
+	await openModelMore(w.page);
 	await expect(w.page.getByRole("radiogroup", { name: "Where this engine runs" })).toBeVisible({
 		timeout: T,
 	});
+	await w.page.getByRole("radio", { name: "CLI", exact: true }).click();
 }
 
 flow(
@@ -246,9 +254,11 @@ flow(
 		await openPicker(w);
 		await w.page.getByRole("radio", { name: "OpenAI gpt-e2e-0" }).click();
 		await openPicker(w).catch(() => undefined);
-		await w.page.getByRole("radio", { name: "CLI", exact: true }).click();
+		await pickCli(w);
 		await settled(w);
 		await shot(w, "cli-surface-popup-dark");
+		await w.page.keyboard.press("Escape");
+		// The first Escape goes back from More to the list, the second closes the popup.
 		await w.page.keyboard.press("Escape");
 		const send = w.page.getByRole("button", { name: "Open Namzu in a terminal" });
 		await expect(send).toBeEnabled({ timeout: T });
@@ -273,7 +283,9 @@ flow(
 		await openPicker(w);
 		await w.page.getByRole("radio", { name: "OpenAI gpt-e2e-0" }).click();
 		await openPicker(w).catch(() => undefined);
-		await w.page.getByRole("radio", { name: "CLI", exact: true }).click();
+		await pickCli(w);
+		await w.page.keyboard.press("Escape");
+		// The first Escape goes back from More to the list, the second closes the popup.
 		await w.page.keyboard.press("Escape");
 		const send = w.page.getByRole("button", { name: "Open Namzu in a terminal" });
 		await expect(send).toBeEnabled({ timeout: T });
@@ -305,7 +317,9 @@ flow(
 		await openPicker(w);
 		await w.page.getByRole("radio", { name: "OpenAI gpt-e2e-0" }).click();
 		await openPicker(w).catch(() => undefined);
-		await w.page.getByRole("radio", { name: "CLI", exact: true }).click();
+		await pickCli(w);
+		await w.page.keyboard.press("Escape");
+		// The first Escape goes back from More to the list, the second closes the popup.
 		await w.page.keyboard.press("Escape");
 		const composer = w.page.getByRole("textbox", { name: "Message Namzu" });
 		await composer.fill("test message");
@@ -500,7 +514,7 @@ flow(
 			timeout: T,
 		});
 		await openPicker(w);
-		await w.page.getByRole("radio", { name: "CLI", exact: true }).click();
+		await pickCli(w);
 		for (const mode of ["light", "dark"]) {
 			await setAppearance(w, mode);
 			await settled(w);

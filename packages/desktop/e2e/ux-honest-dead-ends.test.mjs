@@ -85,6 +85,10 @@ flow(
 		await expect(w.page.getByText("Hello back.")).toBeVisible({ timeout: T });
 		await send(w, "look around the project");
 		await expect(w.page.getByRole("button", { name: "Stop reply" })).toBeVisible({ timeout: T });
+		// Close only once the reply is parked at the model: the first message, the tool call and the
+		// request that carries its result have all been asked. A close in the first instant of a
+		// turn, before the host has written anything to stop it with, is not the case under test.
+		await expect.poll(() => w.model.requests.length, { timeout: T }).toBeGreaterThanOrEqual(3);
 		await answerDialogs(w, 1);
 		await w.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
 		// The next start reads what the old one left, so wait for the old one to be gone.
@@ -124,7 +128,7 @@ flow(
 			await w.page.getByRole("button", { name: "Tools", exact: true }).click();
 		};
 		await open();
-		const list = w.page.getByRole("list", { name: "Tool servers" });
+		const list = w.page.getByRole("list", { name: "Tool server list" });
 		await expect(list.getByText("tickets")).toBeVisible({ timeout: T });
 		await expect(list.getByText("Waiting for your approval")).toBeVisible();
 		await expect(list.getByText(".mcp.json in this project")).toBeVisible();
@@ -138,7 +142,7 @@ flow(
 		await send(w, "say hi");
 		await expect(w.page.getByText("Hi there.")).toBeVisible({ timeout: T });
 		await open();
-		await expect(w.page.getByRole("list", { name: "Tool servers" }).getByText("Connected")).toBeVisible({ timeout: T });
+		await expect(w.page.getByRole("list", { name: "Tool server list" }).getByText("Connected")).toBeVisible({ timeout: T });
 		await shot(w, "servers-connected");
 	},
 );

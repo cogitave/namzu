@@ -461,8 +461,11 @@ flow(
 		).toBeVisible({ timeout: T });
 		const search = w.page.getByRole("searchbox", { name: "Search settings" });
 		await search.fill("theme");
-		await expect(w.page.getByText("1 result")).toBeVisible({ timeout: T });
-		await w.page.getByRole("button", { name: /^Theme/ }).click();
+		// The terminal app's own colour theme is a setting here too, so "theme" finds two rows:
+		// the app's theme and the terminal's.
+		await expect(w.page.getByText("2 results")).toBeVisible({ timeout: T });
+		await expect(w.page.getByRole("button", { name: /^Terminal theme/ })).toBeVisible();
+		await w.page.getByRole("button", { name: /^Theme/, exact: false }).first().click();
 		await expect(
 			w.page.getByRole("heading", { level: 1, name: "Appearance" }),
 		).toBeVisible({ timeout: T });
@@ -501,14 +504,27 @@ flow(
 		await openSettings(w, "General");
 		await w.page.getByRole("switch", { name: "Bring terminal tabs back" }).uncheck();
 		const file = join(w.userData, "desktop-settings.json");
+		// The file holds every setting with its default, and settings are added over time; this
+		// flow pins the ones it changed and the ones it names, not the whole set.
+		const pinned = [
+			"version",
+			"startup",
+			"retrustOnConfigChange",
+			"autoDownloadUpdates",
+			"restoreTerminals",
+			"terminalShell",
+		];
 		await expect
-			.poll(() => (existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null))
+			.poll(() => {
+				if (!existsSync(file)) return null;
+				const saved = JSON.parse(readFileSync(file, "utf8"));
+				return Object.fromEntries(pinned.map((key) => [key, saved[key]]));
+			})
 			.toEqual({
 				version: 1,
 				startup: "home",
 				retrustOnConfigChange: false,
 				autoDownloadUpdates: true,
-				// The terminal settings are saved with their defaults beside the ones changed here.
 				restoreTerminals: false,
 				terminalShell: "auto",
 			});

@@ -6,6 +6,7 @@
 // tool_result in the very next message, a tool_result for a call that was never made, and a thinking
 // block without a signature. A conversation carried over from another provider is tested against that.
 import { createServer } from "node:http";
+import { failureHeaders } from "./fake-failure.mjs";
 
 /** @typedef {{ text?: string, thinking?: string, tool?: string, args?: object } | { status: number, body?: string, headers?: object, contentType?: string }} Step */
 
@@ -100,7 +101,8 @@ function pick(rules, messages) {
 			.filter((b) => b.type === "text")
 			.map((b) => b.text)
 			.join("");
-		if (!prompt) continue;
+		// The host's own reminders ride along as user messages and are not the person's prompt.
+		if (!prompt || prompt.startsWith("<system-reminder")) continue;
 		const toolResults = messages
 			.slice(i + 1)
 			.flatMap((m) => blocks(m.content))
@@ -117,7 +119,7 @@ function respond(res, request, step) {
 	if (step.status) {
 		res.writeHead(step.status, {
 			"content-type": step.contentType ?? "application/json",
-			...(step.headers ?? {}),
+			...failureHeaders(step),
 		});
 		res.end(step.body ?? "");
 		return;
