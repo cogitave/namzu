@@ -25,22 +25,23 @@
 }
 .update-dialog-title {
 	margin: 0;
-	font-size: 18px;
-	font-weight: 600;
-	line-height: 1.3;
+	font-size: var(--text-heading);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-heading);
 }
 .update-dialog-body {
 	margin: 6px 0 0;
 	color: var(--muted-foreground);
-	font-size: 14px;
-	line-height: 1.45;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 }
 .update-dialog-reasons {
 	margin: 10px 0 0;
 	padding-left: 18px;
 	list-style: disc;
 	color: var(--muted-foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .update-dialog-progress {
 	display: flex;
@@ -83,8 +84,9 @@
 .update-dialog-status {
 	min-width: 84px;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	font-weight: 600;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-strong);
 	text-align: right;
 }
 .update-dialog-actions {

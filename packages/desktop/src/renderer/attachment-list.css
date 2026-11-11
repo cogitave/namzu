@@ -55,11 +55,13 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .attachment-name small {
 	color: var(--muted-foreground);
-	font-size: 10px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 /* Sent images sit above the bubble, right-aligned; the pending box and the loaded image share one size. */
 .attachment-groups {
@@ -130,7 +132,8 @@
 	justify-content: space-between;
 	gap: 8px;
 	padding: 0 4px 8px;
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .attachment-preview header h2 {
 	overflow: hidden;
@@ -162,7 +165,8 @@
 	border-radius: var(--radius-panel);
 	background: var(--background);
 	color: var(--foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	pointer-events: none;
 }
 .composer-drop-target svg {

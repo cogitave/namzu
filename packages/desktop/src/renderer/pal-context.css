@@ -74,14 +74,15 @@
 	gap: 8px;
 	padding: 0 10px;
 	border-radius: var(--radius-card);
-	font-weight: 400;
+	font-weight: var(--weight-text);
 }
 .pal-context-compact-trigger > strong {
 	min-width: 0;
 	overflow: hidden;
 	color: var(--foreground);
-	font-size: 13px;
-	font-weight: 600;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-strong);
 	text-overflow: ellipsis;
 }
 .pal-context-compact-status {
@@ -96,7 +97,8 @@
 	align-items: center;
 	gap: 5px;
 	flex: none;
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .pal-context-compact-computer > svg {
 	width: 14px;
@@ -149,9 +151,9 @@
 .pal-context-identity h2 {
 	overflow: hidden;
 	margin: 0 0 4px;
-	font-size: 15px;
-	line-height: 20px;
-	font-weight: 600;
+	font-size: var(--text-reading);
+	line-height: var(--leading-reading);
+	font-weight: var(--weight-strong);
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
@@ -160,8 +162,8 @@
 	align-items: center;
 	gap: 5px;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .pal-context-status svg {
 	width: 13px;
@@ -173,9 +175,9 @@
 .pal-context-section h3 {
 	margin: 0 0 8px;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 20px;
-	font-weight: 400;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-text);
 }
 .pal-context-tasks .conversation-tasks {
 	margin-bottom: 0;
@@ -197,8 +199,8 @@
 	background: transparent;
 	color: var(--foreground);
 	font: inherit;
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	text-align: left;
 }
 .pal-plan-toggle:focus-visible {
@@ -218,8 +220,8 @@
 	display: inline-flex;
 	align-items: center;
 	gap: 5px;
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .pal-plan-number {
 	display: inline-flex;
@@ -233,8 +235,8 @@
 	background: var(--surface);
 	box-shadow: 0 1px 0 var(--border);
 	font-family: var(--font-mono);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	font-variant-numeric: tabular-nums;
 }
 .pal-plan-toggle > svg {
@@ -303,7 +305,7 @@
 .pal-step-subject {
 	flex: 1;
 	min-width: 0;
-	line-height: 20px;
+	line-height: var(--leading-interface);
 }
 .pal-step-row .pal-step-state {
 	flex: none;
@@ -311,8 +313,8 @@
 	border: 1px solid var(--border);
 	border-radius: var(--radius-pill);
 	background: var(--surface);
-	font-size: 11px;
-	line-height: 16px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	white-space: nowrap;
 }
 .pal-plan-steps [data-status="failed"] .pal-step-state {
@@ -323,8 +325,8 @@
 	color: var(--foreground);
 }
 .pal-step-copy .quiet {
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .pal-plan-steps .pal-step-copy p {
 	margin: 2px 0 0;
@@ -346,7 +348,7 @@
 	width: 100%;
 	height: auto;
 	padding: 5px 6px;
-	font-weight: 400;
+	font-weight: var(--weight-text);
 	white-space: normal;
 	transition: background-color 150ms var(--motion-ease);
 }
@@ -405,15 +407,15 @@
 .pal-context-copy {
 	min-width: 0;
 	flex: 1;
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .pal-context-copy strong {
 	display: block;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-weight: 400;
+	font-weight: var(--weight-text);
 }
 .pal-computer-status {
 	display: block;
@@ -435,9 +437,9 @@
 	background: transparent;
 	color: var(--muted-foreground);
 	text-align: left;
-	font-size: 13px;
-	line-height: 20px;
-	font-weight: 400;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-text);
 }
 .pal-status-action:hover,
 .pal-status-action:active {
@@ -487,15 +489,15 @@
 .pal-context-note {
 	margin: 10px 0 0;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	overflow-wrap: anywhere;
 }
 .pal-context-empty {
 	margin: 0;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .pal-context-list {
 	margin: 0 -6px;
@@ -511,9 +513,9 @@
 	min-height: 32px;
 	padding: 6px;
 	text-align: left;
-	font-size: 13px;
-	line-height: 18px;
-	font-weight: 400;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-text);
 	transition: background-color 150ms var(--motion-ease);
 }
 .pal-context-row > span {
@@ -543,8 +545,8 @@
 }
 .pal-recent-detail {
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .pal-output-details {
 	min-width: 0;
@@ -599,16 +601,16 @@
 }
 .pal-waiting-line {
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 
 .pal-setup-help {
 	flex-basis: 100%;
 	margin: 6px 0 0;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .pal-setup-help summary {
 	cursor: pointer;
@@ -632,9 +634,9 @@
 	border: 0;
 	background: transparent;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
-	font-weight: 400;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-text);
 }
 .pal-setup-text-action:hover,
 .pal-setup-text-action:focus-visible {

@@ -49,8 +49,8 @@
 	min-height: 34px;
 	padding: 6px 8px;
 	border-radius: var(--radius-control);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	cursor: default;
 	outline: none;
 	transition: background-color 150ms var(--motion-ease), color 150ms var(--motion-ease);
@@ -79,8 +79,8 @@
 .rail-menu-label {
 	padding: 6px 8px;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 @media (prefers-reduced-motion: reduce) {
 	.rail-menu,

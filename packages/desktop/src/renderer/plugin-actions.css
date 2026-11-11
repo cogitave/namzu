@@ -36,8 +36,8 @@
 	min-height: 28px;
 	padding: 4px 6px;
 	border-radius: var(--radius-chip);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	cursor: default;
 	user-select: none;
 	outline: none;

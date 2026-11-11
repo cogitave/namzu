@@ -47,9 +47,9 @@
 .pal-computer-view-title h2 {
 	margin: 0;
 	overflow: hidden;
-	font-size: 13px;
-	font-weight: 500;
-	line-height: 20px;
+	font-size: var(--text-small);
+	font-weight: var(--weight-control);
+	line-height: var(--leading-small);
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
@@ -132,15 +132,15 @@
 }
 .pal-computer-empty h3 {
 	margin: 0;
-	font-size: 15px;
-	font-weight: 500;
-	line-height: 22px;
+	font-size: var(--text-reading);
+	font-weight: var(--weight-control);
+	line-height: var(--leading-reading);
 }
 .pal-computer-empty p {
 	margin: 0;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	overflow-wrap: anywhere;
 }
 .pal-computer-setup-card {
@@ -161,7 +161,8 @@
 	border-radius: var(--radius-panel);
 	background: var(--popover);
 	color: var(--foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	transform: translateX(-50%);
 	pointer-events: none;
 }
@@ -187,9 +188,9 @@
 .pal-computer-control-bar output {
 	min-width: 0;
 	overflow: hidden;
-	font-size: 13px;
-	font-weight: 500;
-	line-height: 20px;
+	font-size: var(--text-small);
+	font-weight: var(--weight-control);
+	line-height: var(--leading-small);
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
@@ -203,7 +204,8 @@
 	border-radius: var(--radius-panel);
 	background: var(--foreground);
 	color: var(--background);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	transition: background-color 150ms var(--motion-ease);
 }
 .pal-computer-control-bar .pal-computer-control-button:not(:disabled):hover {
@@ -212,8 +214,8 @@
 .pal-computer-view-notice {
 	margin: 10px 0 0;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	text-align: center;
 	overflow-wrap: anywhere;
 }

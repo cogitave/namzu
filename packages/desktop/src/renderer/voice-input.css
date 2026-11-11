@@ -70,8 +70,8 @@
 	gap: 6px;
 	/* Inside the composer stack, above the box: the agreement card takes the box's own width. */
 	padding: 0 0 8px;
-	font-size: 12px;
-	line-height: 1.5;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }
 .voice-listening {
@@ -117,8 +117,9 @@
 }
 .voice-consent h3 {
 	margin: 0;
-	font-size: 13px;
-	font-weight: 500;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-control);
 }
 .voice-consent ul {
 	margin: 0;

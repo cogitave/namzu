@@ -173,9 +173,9 @@ pre {
 	border-radius: var(--radius-pill);
 	background: color-mix(in srgb, var(--primary) 12%, transparent);
 	color: var(--primary);
-	font-size: 10px;
-	font-weight: 600;
-	line-height: 15px;
+	font-size: var(--text-caption);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-caption);
 	letter-spacing: 0.02em;
 }
 .workspace-menu-popup .window-titlebar-item {
@@ -212,7 +212,8 @@ pre {
 	opacity: 0.4;
 }
 .window-titlebar-item kbd {
-	font-size: 11px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }
 @media (max-width: 767px) {
@@ -226,14 +227,16 @@ pre {
 .window-titlebar-menu {
 	height: 26px;
 	padding: 0 9px;
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	border-radius: var(--radius-chip);
 }
 .window-titlebar-caption {
 	position: absolute;
 	left: 50%;
 	transform: translateX(-50%);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	pointer-events: none;
 }
 .navigation-rail {
@@ -317,9 +320,10 @@ pre {
 .sidebar-section-title {
 	margin: 14px 16px 6px;
 	color: var(--muted-foreground);
-	font-size: 11px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	letter-spacing: 0.01em;
-	font-weight: 600;
+	font-weight: var(--weight-control);
 }
 .sidebar-projects {
 	padding-bottom: 8px;
@@ -335,7 +339,8 @@ pre {
 	padding: 7px 10px;
 	border-radius: var(--radius-chip);
 	text-align: left;
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	color: var(--sidebar-foreground);
 	cursor: pointer;
 }
@@ -385,8 +390,9 @@ pre {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-size: 13px;
-	font-weight: 400;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-text);
 }
 .conversation-row-state {
 	display: flex;
@@ -394,7 +400,8 @@ pre {
 	gap: 6px;
 	flex: none;
 	color: var(--muted-foreground);
-	font-size: 11px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .conversation-age {
 	opacity: 0;
@@ -425,7 +432,8 @@ pre {
 	padding: 0 10px;
 	border-radius: var(--radius-control);
 	color: var(--muted-foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	text-align: left;
 	cursor: pointer;
 }
@@ -450,7 +458,8 @@ pre {
 		gap: 0;
 	}
 	.starter-actions button {
-		font-size: 12px;
+		font-size: var(--text-caption);
+		line-height: var(--leading-caption);
 		padding: 6px;
 	}
 }
@@ -646,8 +655,8 @@ pre {
 	resize: none;
 	background: transparent;
 	color: var(--foreground);
-	font-size: 14px;
-	line-height: 1.625;
+	font-size: var(--text-reading);
+	line-height: var(--leading-reading);
 	border-radius: 0;
 }
 .composer-input textarea::placeholder {
@@ -681,8 +690,8 @@ pre {
 .quiet,
 .notice {
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 1.625;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .notice {
 	margin: 12px 0;
@@ -713,7 +722,8 @@ pre {
 }
 .eyebrow {
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .activity {
 	width: 6px;
@@ -729,7 +739,8 @@ pre {
 	gap: 8px;
 	padding: 12px 4px 20px;
 	color: var(--muted-foreground);
-	font-size: 14px;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 }
 .working-label,
 .tool.active > .tool-trigger .tool-label {
@@ -750,7 +761,8 @@ pre {
 	animation: none;
 }
 .working-elapsed {
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	font-variant-numeric: tabular-nums;
 }
 .turn-activity {
@@ -766,7 +778,8 @@ pre {
 	border-bottom: 1px solid var(--border);
 	color: var(--muted-foreground);
 	text-align: left;
-	font-size: 14px;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 }
 .activity-trigger:hover,
 .activity-trigger[data-panel-open] {
@@ -793,7 +806,8 @@ pre {
 }
 .reasoning {
 	color: var(--muted-foreground);
-	font-size: 14px;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 	padding: 0 0 16px;
 }
 .reasoning .message-text {
@@ -803,9 +817,9 @@ pre {
 	display: block;
 	margin-bottom: 4px;
 	color: var(--muted-foreground);
-	font-size: 11px;
-	font-weight: 500;
-	line-height: 1.5;
+	font-size: var(--text-caption);
+	font-weight: var(--weight-control);
+	line-height: var(--leading-caption);
 }
 .message.commentary {
 	margin-bottom: 16px;
@@ -830,7 +844,8 @@ pre {
 	--tool-gap: 6px;
 	--tool-indent: calc(var(--tool-icon-size) + var(--tool-gap));
 	border-radius: var(--radius-md);
-	font-size: 14px;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 	color: var(--muted-foreground);
 }
 .tool-trigger {
@@ -843,7 +858,7 @@ pre {
 	padding: 2px 0;
 	cursor: pointer;
 	text-align: left;
-	line-height: 1.625;
+	line-height: var(--leading-interface);
 	transition: background-color var(--dur-quick);
 }
 .tool-trigger:hover {
@@ -877,12 +892,14 @@ pre {
 .tool-status {
 	margin-left: auto;
 	flex-shrink: 0;
-	font-size: 11px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }
 .tool-content {
 	padding: 8px 16px;
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }
 .tool-content pre,
@@ -890,8 +907,8 @@ pre {
 	padding: 10px 12px;
 	background: var(--surface);
 	border-radius: var(--radius-control);
-	font-size: 12px;
-	line-height: 1.65;
+	font-size: var(--font-size-code);
+	line-height: var(--leading-code);
 }
 .tool-command {
 	color: var(--foreground);
@@ -913,18 +930,21 @@ pre {
 	background: var(--surface-raised);
 }
 .approval h3 {
-	font-weight: 500;
+	font-weight: var(--weight-control);
 	margin: 4px 0 12px;
-	font-size: 14px;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 }
 .approval strong {
-	font-size: 12px;
-	font-weight: 500;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-control);
 }
 .approval pre {
 	margin: 8px 0;
 	padding: 8px;
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	max-height: 240px;
 }
 .approval-actions {
@@ -936,7 +956,8 @@ pre {
 .inline-error,
 .jobs-error {
 	color: var(--error-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .inline-error-retry {
 	padding: 0 2px;
@@ -990,8 +1011,9 @@ pre {
 	border-bottom: 1px solid var(--border);
 }
 .section-heading h2 {
-	font-size: 12px;
-	font-weight: 500;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-control);
 }
 .panel-scroll {
 	min-height: 0;
@@ -1006,15 +1028,17 @@ pre {
 	margin: 12px 4px 6px;
 }
 .background-processes-heading h3 {
-	font-size: 12px;
-	font-weight: 500;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-control);
 	color: var(--muted-foreground);
 }
 .background-processes-heading kbd {
 	padding: 1px 5px;
 	border: 1px solid var(--border);
 	border-radius: var(--radius-chip);
-	font-size: 10px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	font-family: var(--font-sans);
 	font-variant-numeric: tabular-nums;
 	color: var(--muted-foreground);
@@ -1024,7 +1048,8 @@ pre {
 	padding: 8px 4px;
 }
 .job {
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	border-radius: var(--radius-chip);
 }
 .job-heading {
@@ -1054,7 +1079,8 @@ pre {
 .job-command {
 	min-width: 0;
 	font-family: var(--font-sans);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--foreground);
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -1069,8 +1095,8 @@ pre {
 }
 .job-status {
 	flex: none;
-	font-size: 10px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	padding: 0 6px;
 	border-radius: var(--radius-chip);
 	background: var(--surface);
@@ -1107,8 +1133,8 @@ pre {
 .job-error {
 	display: block;
 	margin: 2px 4px 8px;
-	font-size: 11px;
-	line-height: 1.5;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	overflow-wrap: anywhere;
 }
 .job-recovery {
@@ -1126,7 +1152,8 @@ pre {
 	align-items: center;
 	gap: 8px;
 	color: var(--muted-foreground);
-	font-size: 11px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	margin-bottom: 4px;
 }
 .job-output {
@@ -1134,13 +1161,14 @@ pre {
 	overflow: auto;
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
-	font-size: 11px;
-	line-height: 1.6;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	margin: 0;
 }
 .job-output-note {
 	color: var(--muted-foreground);
-	font-size: 11px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	margin: 4px 0;
 }
 @media (hover: none) {
@@ -1170,7 +1198,8 @@ pre {
 	min-width: 0;
 }
 .diff h4 {
-	font-size: 11px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .diff-code-view {
 	--diffs-font-family: var(--font-mono);
@@ -1292,7 +1321,7 @@ pre {
 .chat-markdown blockquote,
 .chat-markdown pre,
 .chat-markdown .table-scroll {
-	margin: 0.65rem 0;
+	margin: 0.75em 0;
 }
 
 .chat-markdown h1,
@@ -1302,27 +1331,33 @@ pre {
 .chat-markdown h5,
 .chat-markdown h6 {
 	margin: 1.25rem 0 0.5rem;
-	font-weight: 600;
-	line-height: 1.3;
+	font-weight: var(--weight-strong);
 	color: var(--contrast-foreground);
 }
 
 .chat-markdown h1 {
-	font-size: 1.25rem;
+	font-size: var(--text-title);
+	line-height: var(--leading-title);
 }
 
 .chat-markdown h2 {
-	font-size: 1.125rem;
+	font-size: var(--text-heading);
+	line-height: var(--leading-heading);
 }
 
-.chat-markdown h3 {
-	font-size: 1rem;
-}
-
+/* h3 and below read at the size of the text around them and stand out by weight alone. */
+.chat-markdown h3,
 .chat-markdown h4,
 .chat-markdown h5,
 .chat-markdown h6 {
-	font-size: 0.875rem;
+	font-size: var(--text-reading);
+	line-height: var(--leading-reading);
+}
+
+/* Bold in running text is the strong weight, not the browser's bolder step. */
+.chat-markdown strong,
+.chat-markdown b {
+	font-weight: var(--weight-strong);
 }
 
 .chat-markdown h6 {
@@ -1417,7 +1452,8 @@ pre {
 	border-top: 1px solid var(--border);
 	padding-top: 0.75rem;
 	color: var(--contrast-muted-foreground);
-	font-size: 0.75rem;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 
 .chat-markdown section[data-footnotes] ol {
@@ -1436,16 +1472,18 @@ pre {
 	justify-content: center;
 	border-radius: var(--radius-chip);
 	text-decoration: none;
-	font-size: 0.6875rem;
-	font-weight: 600;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-strong);
 }
 
 .chat-markdown :not(pre) > code {
-	border-radius: var(--radius-chip);
+	border-radius: var(--radius-code);
 	background: var(--muted);
-	padding: 0.1rem 0.35rem;
+	padding: 1px 4px;
 	color: var(--contrast-foreground);
-	font-size: 0.75rem;
+	font-size: 0.9em;
+	line-height: 1;
 }
 /* A chip that opens a file has no border to say so: it keeps its underline on hover and takes a deeper fill. */
 .chat-markdown :not(pre) > code:has(.message-file-link:hover),
@@ -1466,6 +1504,7 @@ pre {
 
 .chat-markdown pre code {
 	font-size: var(--font-size-code);
+	line-height: var(--leading-code);
 	border: none;
 	background: transparent;
 	padding: 0;
@@ -1504,8 +1543,8 @@ pre {
 	min-width: 0;
 	overflow: hidden;
 	font-family: var(--font-mono);
-	font-size: 11px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
@@ -1568,7 +1607,8 @@ pre {
 	border-collapse: collapse;
 	overflow-wrap: normal;
 	word-break: normal;
-	font-size: 0.75rem;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 }
 
 .chat-markdown th,
@@ -1580,8 +1620,13 @@ pre {
 .chat-markdown thead th {
 	border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
 	padding-block: 0.55rem;
-	font-weight: 600;
+	font-weight: var(--weight-control);
 	white-space: nowrap;
+}
+
+.chat-markdown th,
+.chat-markdown td {
+	font-variant-numeric: tabular-nums;
 }
 
 .chat-markdown tbody td {
@@ -1753,7 +1798,8 @@ pre {
 	min-height: 44px;
 	padding: 6px 12px;
 	background: var(--surface);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 	overflow: hidden;
 }
@@ -1816,4 +1862,43 @@ pre {
 	from {
 		opacity: 0;
 	}
+}
+
+/* The reading size: a reply, the person's message and the message box all draw at it. */
+.type-reading {
+	font-size: var(--text-reading);
+	line-height: var(--leading-reading);
+}
+
+/* Numbers that change while you watch hold their width: a time, a duration, a count, a percentage
+   and the cost beside it. */
+.message-time,
+.normal-transcript button.message-time,
+.message-time time,
+.shell-cell-more,
+.turn-result-lead,
+.turn-result-counts,
+.turn-result-size,
+.changes-added,
+.changes-removed,
+.tool-stats,
+.tool-stats-added,
+.tool-stats-removed,
+.context-readout,
+.context-readout-text,
+.conversation-bar-lines,
+.conversation-bar-count,
+.approval-counts,
+.turn-activity-elapsed,
+.working-elapsed,
+.transcript-phase-text,
+.transcript-date-separator {
+	font-variant-numeric: tabular-nums;
+}
+
+/* A label only a screen reader reads still sits on the scale, so a legend does not fall back to the
+   browser's 16px. */
+.sr-only {
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }

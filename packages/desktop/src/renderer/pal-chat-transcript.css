@@ -47,9 +47,6 @@
 	outline-offset: 2px;
 	box-shadow: var(--focus-ring);
 }
-.pal-chat-bubble .message-text {
-	line-height: 1.5;
-}
 .pal-chat-bubble .chat-markdown > :first-child {
 	margin-top: 0;
 }
@@ -66,8 +63,8 @@
 	min-height: 28px;
 	padding-inline: 14px;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .pal-chat-typing {
 	display: flex;
@@ -91,8 +88,8 @@
 	margin: 0;
 	padding: 6px 14px;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 @keyframes pal-chat-typing {
 	0%,
@@ -135,6 +132,6 @@
 	margin: 0;
 	padding-inline: 14px;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }

@@ -47,14 +47,16 @@
 }
 .pal-communication-heading h2 {
 	margin: 0;
-	font-size: 19px;
-	font-weight: 600;
+	font-size: var(--text-title);
+	line-height: var(--leading-title);
+	font-weight: var(--weight-strong);
 	overflow-wrap: anywhere;
 }
 .pal-communication-heading p {
 	margin: 5px 0 0;
 	color: var(--muted-foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .pal-communication-tabs {
 	min-height: 0;
@@ -74,7 +76,8 @@
 	border-radius: var(--radius-control);
 	background: transparent;
 	color: var(--muted-foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	cursor: pointer;
 }
 .pal-communication-tab-list button[data-active] {
@@ -83,12 +86,13 @@
 }
 .pal-communication-panel {
 	padding: 0 22px 24px;
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .pal-communication-help {
 	margin: 16px 0;
 	color: var(--muted-foreground);
-	line-height: 1.6;
+	line-height: var(--leading-small);
 }
 .pal-communication-notice {
 	padding: 10px 12px;
@@ -96,8 +100,8 @@
 	border: 1px solid var(--border);
 	border-radius: var(--radius-control);
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 1.5;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .pal-communication-panel .pal-communication-notice {
 	margin-inline: 0;
@@ -108,7 +112,8 @@
 	align-items: center;
 	padding: 10px 22px;
 	color: var(--muted-foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .pal-communication-loading svg {
 	width: 14px;
@@ -138,31 +143,34 @@
 	margin-bottom: 10px;
 }
 .pal-communication-row strong {
-	font-size: 14px;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 	overflow-wrap: anywhere;
 }
 .pal-communication-badge {
 	flex: none;
 	color: var(--muted-foreground);
-	font-size: 11px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .pal-communication-row p {
 	color: var(--muted-foreground);
 	margin: 7px 0;
-	line-height: 1.6;
+	line-height: var(--leading-small);
 	overflow-wrap: anywhere;
 }
 .pal-communication-row footer {
 	margin-top: 10px;
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .pal-communication-check {
 	display: flex;
 	align-items: center;
 	gap: 9px;
 	padding: 6px 0;
-	line-height: 1.5;
+	line-height: var(--leading-small);
 }
 .pal-communication-check .settings-switch {
 	flex: none;
@@ -172,7 +180,8 @@
 }
 .pal-communication-row .pal-communication-incoming {
 	margin: 7px 0 0 24px;
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .pal-communication-form {
 	padding: 14px;
@@ -192,7 +201,8 @@
 	flex-direction: column;
 	gap: 7px;
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .pal-communication-field button {
 	width: 100%;
@@ -206,14 +216,15 @@
 	border-radius: var(--radius-chip);
 	background: var(--background);
 	color: var(--foreground);
-	font-size: 13px;
-	line-height: 1.6;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 }
 .pal-communication-row .pal-communication-sent {
 	margin: 0;
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .pal-communication-badge[data-status="pending"] {
 	color: var(--foreground);
