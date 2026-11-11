@@ -54,6 +54,14 @@ All three question types are verified live:
 
 The HTTP driver adds `criteria: <string>` to a `yesno` question when the caller passes `opts.criteria` (a sentence saying what makes the answer yes); some hosted models refuse a yes/no question without it. The Azure driver never sends it, so its request keeps the shape above.
 
+When a service answers 400 and names the question's `criteria` as what it refused (a validator's issue list with the path `questions.q.criteria`, such as `expected object, received string`, or a message saying criteria is missing, null or required), the HTTP driver asks the same question again in the next form and keeps the first form that works:
+
+1. `criteria: "<sentence>"`, the form it has always sent;
+2. `criteria: { "true": "<sentence>" }`, the object form the service's published schema describes (its `true` and `false` keys are each optional, so the sentence that says what makes the answer yes is enough);
+3. no `criteria` at all, the sentence appended to `instructions` after a blank line.
+
+Which form a service took is remembered for that address and model for the life of the process, so later calls go straight to it and pay no extra request. A service that takes the sentence is asked once, as before. Any other 400, a 401, a 404 and a timeout are never retried. A 400 that still names `criteria` after the folded form, or that names `instructions`, is thrown unchanged. Choice and score questions are never altered, and the Azure driver, which sends no `criteria`, is unchanged.
+
 | `choice` | `{ type: 'choice', instructions, criteria: { <option>: null, … } }` (2 to 255 options) | `{ choice, probabilities, confidence }` |
 | `score` | `{ type: 'score', instructions, criteria: [<lowest>, …, <highest>] }` (2 to 10 levels) | `{ score, probabilities, legend, confidence }` |
 

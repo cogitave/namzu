@@ -58,8 +58,14 @@ export async function postDecision(post: DecisionPost): Promise<unknown> {
 	}
 	if (!res.ok) {
 		const err = isRecord(json) && isRecord(json.error) ? json.error : {}
+		// A validator may answer with its issue list as the whole body instead of an `error` object.
+		const issueBody = Array.isArray(json) || (isRecord(json) && Array.isArray(json.issues))
 		throw new DecisionError(
-			typeof err.message === 'string' ? err.message : `Decision request failed (${res.status})`,
+			typeof err.message === 'string'
+				? err.message
+				: issueBody
+					? JSON.stringify(json)
+					: `Decision request failed (${res.status})`,
 			res.status,
 			typeof err.code === 'string' ? err.code : undefined,
 		)
@@ -74,6 +80,118 @@ export function yesnoQuestion(instructions: string, criteria?: string): Question
 		type: 'noul',
 		instructions,
 		...(criteria !== undefined && criteria.length > 0 ? { criteria } : {}),
+	}
+}
+
+/** The forms a yes/no question's `criteria` can take on the wire, in the order they are tried. */
+export type YesNoCriteriaForm = 'text' | 'object' | 'folded'
+
+const CRITERIA_FORMS: readonly YesNoCriteriaForm[] = ['text', 'object', 'folded']
+
+/**
+ * What a service was last found to take for a yes/no `criteria`, per address and model, for the
+ * life of the process. Only a form other than plain text is stored, so a service that takes text
+ * is never touched.
+ */
+const rememberedForms = new Map<string, YesNoCriteriaForm>()
+
+/** Test seam: forget what was learnt about services. */
+export function forgetCriteriaForms(): void {
+	rememberedForms.clear()
+}
+
+/**
+ * A yes/no question in one of the criteria forms:
+ * - `text`: `criteria` is the sentence (what the drivers have always sent);
+ * - `object`: `criteria` is `{ true: <sentence> }`, the object form the service's published schema
+ *   describes (its `true` and `false` keys are each optional);
+ * - `folded`: no `criteria` field at all, the sentence appended to `instructions`.
+ */
+export function yesnoQuestionAs(
+	form: YesNoCriteriaForm,
+	instructions: string,
+	criteria: string,
+): Question {
+	if (form === 'text') return yesnoQuestion(instructions, criteria)
+	if (form === 'object') return { type: 'noul', instructions, criteria: { true: criteria } }
+	return { type: 'noul', instructions: `${instructions}\n\n${criteria}` }
+}
+
+export interface SchemaIssue {
+	path: string[]
+	message: string
+}
+
+/** The issue list a validator put in an error message or body, or none when the text is not one. */
+export function schemaIssues(text: string): SchemaIssue[] {
+	const trimmed = text.trim()
+	if (!trimmed.startsWith('[') && !trimmed.startsWith('{')) return []
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(trimmed)
+	} catch {
+		return []
+	}
+	const list = Array.isArray(parsed)
+		? parsed
+		: isRecord(parsed) && Array.isArray(parsed.issues)
+			? parsed.issues
+			: []
+	const out: SchemaIssue[] = []
+	for (const item of list) {
+		if (!isRecord(item) || !Array.isArray(item.path) || typeof item.message !== 'string') continue
+		out.push({ path: item.path.map(String), message: item.message })
+	}
+	return out
+}
+
+/** A validator's issue list as one line (`questions.q.criteria: <message>`); other text comes back unchanged. */
+export function readableServiceText(text: string): string {
+	const issues = schemaIssues(text)
+	if (issues.length === 0) return text
+	return issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+}
+
+/** True when a 400 names the question's `instructions` or `criteria` as what it refused. */
+export function refusesQuestionField(error: unknown, fields: readonly string[]): boolean {
+	if (!(error instanceof DecisionError) || error.status !== 400) return false
+	const named = fields.join('|')
+	if (schemaIssues(error.message).some((i) => i.path.some((part) => fields.includes(part)))) {
+		return true
+	}
+	return new RegExp(
+		`(missing|null|required).*(${named})|(${named}).*(missing|null|required)`,
+		'i',
+	).test(error.message)
+}
+
+/**
+ * Post a yes/no question. With `criteria`, it goes in the form the service last took; when the
+ * service answers 400 naming `criteria`, it is asked again in the next form (text, then the
+ * published object, then folded into `instructions`), and the form that worked is remembered for
+ * this address and model. Any other failure, and a refusal of the last form, is thrown as is.
+ */
+export async function postYesNo(opts: {
+	post: (question: Question) => Promise<unknown>
+	instructions: string
+	criteria?: string
+	/** Names the service and model the learnt form belongs to. */
+	memoryKey: string
+}): Promise<unknown> {
+	const criteria = opts.criteria
+	if (criteria === undefined || criteria.length === 0) {
+		return opts.post(yesnoQuestion(opts.instructions))
+	}
+	const start = Math.max(0, CRITERIA_FORMS.indexOf(rememberedForms.get(opts.memoryKey) ?? 'text'))
+	for (let i = start; ; i++) {
+		const form = CRITERIA_FORMS[i] as YesNoCriteriaForm
+		try {
+			const answer = await opts.post(yesnoQuestionAs(form, opts.instructions, criteria))
+			if (form !== 'text') rememberedForms.set(opts.memoryKey, form)
+			return answer
+		} catch (error) {
+			if (i === CRITERIA_FORMS.length - 1 || !refusesQuestionField(error, ['criteria'])) throw error
+		}
 	}
 }
 
