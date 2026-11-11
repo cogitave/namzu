@@ -129,7 +129,12 @@ function categoryPhrase(category: RunCategory, count: number, live: boolean): st
  * The summary of a run of consecutive actions: counted, in the order each kind first appears.
  * "Edited a file, ran 2 commands"; while the run is live, "Editing a file, running 2 commands".
  */
-export function actionRunLabel(actions: RunAction[], live: boolean, full = false): string {
+export function actionRunLabel(
+	actions: RunAction[],
+	live: boolean,
+	full = false,
+	failedCommands = 0,
+): string {
 	const subjects = new Map<RunCategory, Set<string>>()
 	const counts = new Map<RunCategory, number>()
 	let declined = 0
@@ -154,8 +159,8 @@ export function actionRunLabel(actions: RunAction[], live: boolean, full = false
 		phrases = [...phrases.slice(0, 2), `and ${phrases.length - 2} more`]
 	// A folded run must not read as all done when some of it failed.
 	if (declined) phrases.push(declined === 1 ? 'declined an action' : `declined ${declined} actions`)
-	const failed = actions.filter((action) => action.state === 'failed').length
-	if (failed) phrases.push(`${failed} failed`)
+	// The count is the header's own (`turnAttention`), so a label and a header never disagree.
+	if (failedCommands) phrases.push(`${failedCommands} failed`)
 	const background = actions.filter((action) => action.background).length
 	if (background) phrases.push(`${background} in the background`)
 	const text = phrases.join(', ')

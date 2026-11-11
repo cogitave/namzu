@@ -455,14 +455,18 @@ export function applyEvent(previous: ThreadState, event: DesktopEvent): ThreadSt
 		return { ...next, compaction: undefined }
 	return next
 }
-/** The turn the notice names, or the current one when the engine has not named it yet. */
+/**
+ * The turn the notice names. A notice for a turn this thread does not know (late, replayed after
+ * a reconnect, or from another window) is dropped rather than put on whichever turn is current;
+ * a restored conversation brings the outcome back from its history.
+ */
 function applyOutcome(
 	thread: ThreadState,
 	event: Extract<DesktopEvent, { kind: 'outcome' }>,
 ): ThreadState {
 	const named = Object.entries(thread.turns).find(([, state]) => state.turnId === event.turnId)
-	const turn = named ? Number(named[0]) : thread.turn
-	if (turn < 1) return thread
+	if (!named) return thread
+	const turn = Number(named[0])
 	const outcome: TurnOutcomeSummary = {
 		verdict: event.verdict,
 		...(event.line ? { line: event.line } : {}),

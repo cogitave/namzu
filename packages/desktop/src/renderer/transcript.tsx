@@ -51,7 +51,7 @@ import {
 import { attentionFlags, turnAttention } from './turn-attention.js'
 import { TurnChangesCard } from './turn-changes-card.js'
 import { turnChanges, turnUndo } from './turn-changes.js'
-import { AttentionFlags, TurnOutcomeLine } from './turn-outcome-line.js'
+import { AttentionFlags, TurnOutcomeLine, visibleOutcome } from './turn-outcome-line.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 import { type WorkDisclosureChoices, workDisclosureKey } from './workspace-presentation.js'
 import './transcript-motion.css'
@@ -241,6 +241,7 @@ function ToolRun({
 		created: item.operation === 'created',
 		background: item.shell?.background === true,
 	}))
+	const attention = turnAttention(thread, entries)
 	const lookups = presentations.length > 0 && presentations.every((item) => item.kind === 'lookup')
 	const label = lookups
 		? toolGroupLabel(
@@ -250,14 +251,14 @@ function ToolRun({
 				active,
 				states,
 			)
-		: actionRunLabel(actions, live)
+		: actionRunLabel(actions, live, false, attention.failedCommands)
 	// The short line hides some kinds; the tooltip lists them all.
-	const fullLabel = lookups ? label : actionRunLabel(actions, live, true)
+	const fullLabel = lookups ? label : actionRunLabel(actions, live, true, attention.failedCommands)
 	const Icon = actionIcon(actionRunKind(actions))
 	// A run the person watched work stays open when it ends, however long it grew.
 	const watched = useRef(false)
 	if (live) watched.current = true
-	const badNews = attentionFlags(turnAttention(thread, entries)).length > 0
+	const badNews = attentionFlags(attention).length > 0
 	const defaultOpen = watched.current || runDefaultOpen(live, entries.length, badNews)
 	const controlled = !!disclosureKey && !!onWorkDisclosureChange
 	const saved = disclosureKey ? workDisclosures?.[disclosureKey] : undefined
@@ -772,7 +773,7 @@ const TurnGroupView = memo(function TurnGroupView({
 						{...turnUndo(thread, group.turn, onUndoTurn, undoKept)}
 					/>
 				)}
-				{!live && <TurnOutcomeLine outcome={thread.turns[group.turn]?.outcome} />}
+				{!live && <TurnOutcomeLine outcome={visibleOutcome(thread, group.turn)} />}
 				{abandoned && <p className="notice">{terminalNotice('abandoned')}</p>}
 			</div>
 		</ActivityActionsContext.Provider>

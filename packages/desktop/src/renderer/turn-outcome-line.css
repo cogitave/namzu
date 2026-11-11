@@ -48,7 +48,8 @@
 	display: inline-flex;
 	align-items: center;
 	gap: 6px;
-	white-space: nowrap;
+	min-width: 0;
+	overflow-wrap: anywhere;
 }
 .activity-flag[data-tone="error"] {
 	color: var(--error-foreground);
@@ -59,7 +60,7 @@
 
 /* Why a refused action did not run, under its row. */
 .tool-reason {
-	margin: 0 0 4px 26px;
+	margin: 0 0 4px var(--tool-indent, 20px);
 	font-size: 12px;
 	line-height: 18px;
 	color: var(--muted-foreground);

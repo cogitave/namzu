@@ -1,4 +1,5 @@
 import type { OutcomeVerdict, TurnOutcomeSummary } from '../shared/outcome-protocol.js'
+import type { ThreadState } from '../shared/projection.js'
 import type { AttentionFlag } from './turn-attention.js'
 import './turn-outcome-line.css'
 
@@ -9,6 +10,20 @@ import './turn-outcome-line.css'
  */
 export function outcomeTone(verdict: OutcomeVerdict): 'ok' | 'error' | 'warn' {
 	return verdict === 'checked' ? 'ok' : verdict === 'failing' ? 'error' : 'warn'
+}
+
+/**
+ * The outcome to draw under a turn. Once the person has undone the turn's changes the line ("Changed
+ * 1 file ...") is no longer true, so it is not drawn; a partly undone turn still changed files.
+ */
+export function visibleOutcome(
+	thread: Pick<ThreadState, 'turns' | 'undo'>,
+	turn: number,
+): TurnOutcomeSummary | undefined {
+	const state = thread.turns[turn]
+	if (!state?.outcome) return undefined
+	if (state.turnId && thread.undo?.[state.turnId]?.status === 'undone') return undefined
+	return state.outcome
 }
 
 /** The line under a finished turn: what changed and what the kernel's record says about checking it. */

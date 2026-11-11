@@ -75,6 +75,8 @@ export interface ToolTranscriptPresentation {
 	note?: string
 	/** Why the engine would not run this action, in one line the kernel wrote; drawn under the row. */
 	reason?: string
+	/** The rule's own wording behind `reason`, for a person who wants it; never the headline. */
+	reasonDetail?: string
 }
 
 const statusLabels: Record<ToolTranscriptState, string> = {
@@ -452,6 +454,7 @@ export interface FactsRow {
 	operation?: 'created' | 'edited' | 'deleted'
 	/** Why a refused action did not run; see `ToolTranscriptPresentation.reason`. */
 	reason?: string
+	reasonDetail?: string
 }
 
 /** The headline of a command from the command itself and how its call stands. */
@@ -538,13 +541,19 @@ function failureRow(
 				? `Blocked: ${what} needs administrator rights`
 				: `Blocked: ${what} isn’t allowed`
 		const typed = call?.kind === 'command' ? nonBlank(call.command) : undefined
-		const reason = nonBlank(facts.note)?.trim()
+		// A fixed plain sentence per kind of refusal; the rule's own wording stays as detail.
+		const reason =
+			facts.reason === 'needs_administrator'
+				? 'It needs administrator rights, so it was stopped before it ran.'
+				: 'It was stopped before it ran, so nothing changed.'
+		const detail = nonBlank(facts.note)?.trim()
 		return {
 			label: main,
 			main,
 			kind: command ? 'command' : 'other',
 			...(typed ? { tooltip: clip(typed.trim(), 1000) } : {}),
-			...(reason ? { reason } : {}),
+			reason,
+			...(detail ? { reasonDetail: detail } : {}),
 		}
 	}
 	const kind: ActionKind =
@@ -774,6 +783,7 @@ export function toolTranscriptPresentation(
 	let shell: ShellCellData | undefined
 	let stats: { added: number; removed: number } | undefined
 	let reason: string | undefined
+	let reasonDetail: string | undefined
 	const observed = observedActionLabel(tool, state)
 	const explored = exploration(tool)
 	const palName = palMessageName(tool)
@@ -829,6 +839,7 @@ export function toolTranscriptPresentation(
 		stats = typed.stats
 		operation = typed.operation
 		reason = typed.reason
+		reasonDetail = typed.reasonDetail
 		detailView = undefined
 	} else if (explored?.kind === 'read') {
 		// A conversation saved before tools reported fields: the call's own label is all there is.
@@ -897,6 +908,7 @@ export function toolTranscriptPresentation(
 		...(body ? { body } : {}),
 		...(shell ? { shell } : {}),
 		...(reason ? { reason } : {}),
+		...(reasonDetail ? { reasonDetail } : {}),
 		...(operation ? { operation } : {}),
 		...(tooltip ? { tooltip } : {}),
 		state,

@@ -7,9 +7,10 @@ import type { OutcomeVerdict } from '../shared/outcome-protocol.js'
 import { type ThreadState, applyEvent, emptyThread } from '../shared/projection.js'
 import { shellCellRows } from './shell-cell.js'
 import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
+import { actionRunLabel } from './transcript-layout.js'
 import { Transcript } from './transcript.js'
 import { attentionFlags, turnAttention } from './turn-attention.js'
-import { outcomeTone } from './turn-outcome-line.js'
+import { outcomeTone, visibleOutcome } from './turn-outcome-line.js'
 
 /** What a finished turn says about itself: counts in the header, output and reasons on rows, one line under it. */
 
@@ -140,6 +141,48 @@ describe('counts in the collapsed header', () => {
 	})
 })
 
+describe('one count of failures', () => {
+	const failedRead = (): ThreadState =>
+		finish(
+			send(
+				send(begin(), 'r1', 'pending', {
+					kind: 'generic',
+					label: 'read missing.ts',
+					facts: { kind: 'read', path: 'missing.ts' },
+				}),
+				'r1',
+				'failed',
+				{ kind: 'generic', label: 'read missing.ts', facts: { kind: 'read', path: 'missing.ts' } },
+			),
+		)
+	it('does not call a failed read a failed command in a run label', () => {
+		const thread = failedRead()
+		const attention = turnAttention(thread, thread.timeline)
+		expect(attention.failedCommands).toBe(0)
+		const label = actionRunLabel(
+			[{ kind: 'read', subject: 'missing.ts', state: 'failed' }],
+			false,
+			false,
+			attention.failedCommands,
+		)
+		expect(label).not.toContain('failed')
+		expect(render(thread)).not.toMatch(/, \d+ failed/)
+	})
+	it('says the same number in a run label as in the header', () => {
+		const thread = failingRun()
+		const attention = turnAttention(thread, thread.timeline)
+		expect(
+			actionRunLabel(
+				[{ kind: 'command', state: 'failed' }],
+				false,
+				false,
+				attention.failedCommands,
+			),
+		).toBe('Ran a command, 1 failed')
+		expect(attentionFlags(attention)[0]?.text).toBe('1 command failed')
+	})
+})
+
 describe('a failed command', () => {
 	it('shows the end of what it printed under its row, in the open group, with no click', () => {
 		const html = render(failingRun())
@@ -190,12 +233,38 @@ describe('a refused action', () => {
 		const thread = blockedRun()
 		const presentation = toolTranscriptPresentation(thread, '1:c1')
 		expect(presentation?.label).toBe('Blocked: this command isn’t allowed')
-		expect(presentation?.reason).toBe('It pipes a download into a shell')
+		expect(presentation?.reason).toBe('It was stopped before it ran, so nothing changed.')
+		expect(presentation?.reasonDetail).toBe('It pipes a download into a shell')
 		const html = render(thread)
 		expect(html).toContain('tool-reason')
-		expect(html).toContain('It pipes a download into a shell')
+		expect(html).toContain('It was stopped before it ran, so nothing changed.')
+		// The rule's own wording is detail on the line, not its words.
+		expect(html).toContain('title="It pipes a download into a shell"')
+		expect(html).not.toContain('>It pipes a download into a shell<')
 	})
-	it('draws no reason line when none was recorded', () => {
+	it('says a fixed plain sentence for each kind of refusal, whatever the rule said', () => {
+		const thread = finish(
+			ran(
+				begin(),
+				'c1',
+				'sudo ls',
+				{
+					kind: 'failure',
+					reason: 'needs_administrator',
+					subject: 'bash',
+					note: 'Denied by a pattern rule matching the args: sudo',
+				},
+				false,
+			),
+		)
+		const presentation = toolTranscriptPresentation(thread, '1:c1')
+		expect(presentation?.reason).toBe(
+			'It needs administrator rights, so it was stopped before it ran.',
+		)
+		expect(presentation?.reasonDetail).toBe('Denied by a pattern rule matching the args: sudo')
+		expect(render(thread)).not.toContain('>Denied by a pattern rule')
+	})
+	it('still gives the plain sentence, with no detail, when no rule text was recorded', () => {
 		const thread = finish(
 			ran(
 				begin(),
@@ -205,8 +274,12 @@ describe('a refused action', () => {
 				false,
 			),
 		)
-		expect(toolTranscriptPresentation(thread, '1:c1')?.reason).toBeUndefined()
-		expect(render(thread)).not.toContain('tool-reason')
+		const presentation = toolTranscriptPresentation(thread, '1:c1')
+		expect(presentation?.reason).toBe(
+			'It needs administrator rights, so it was stopped before it ran.',
+		)
+		expect(presentation?.reasonDetail).toBeUndefined()
+		expect(render(thread)).not.toContain('title=""')
 	})
 })
 
@@ -261,6 +334,35 @@ describe('the line under a finished turn', () => {
 	})
 })
 
+describe('the line once the changes are undone', () => {
+	const undoStatus = (status: 'undone' | 'partially_undone' | 'applied') => (thread: ThreadState) =>
+		applyEvent(thread, {
+			kind: 'undo-status',
+			sessionId: 's',
+			turns: [{ turnId: 't1', status, files: 1, created: 0, deleted: 0, shell: false } as never],
+		})
+	const withLine = () =>
+		applyEvent(finish(ran(begin(), 'c1', 'ls', { kind: 'command', command: 'ls', exitCode: 0 })), {
+			kind: 'outcome',
+			sessionId: 's',
+			turnId: 't1',
+			verdict: 'unchecked',
+			line: 'Changed 1 file · not checked',
+			changed: 1,
+		})
+	it('is hidden when the turn was undone, because it is no longer true', () => {
+		const thread = withLine()
+		expect(render(thread)).toContain('Changed 1 file · not checked')
+		const undone = undoStatus('undone')(thread)
+		expect(visibleOutcome(undone, 1)).toBeUndefined()
+		expect(render(undone)).not.toContain('turn-outcome-line')
+	})
+	it('stays for a turn that is applied or only partly undone', () => {
+		expect(visibleOutcome(undoStatus('applied')(withLine()), 1)?.verdict).toBe('unchecked')
+		expect(visibleOutcome(undoStatus('partially_undone')(withLine()), 1)?.verdict).toBe('unchecked')
+	})
+})
+
 describe('keeping the outcome', () => {
 	it('stores it on the turn it names, and a later turn does not take it', () => {
 		let thread = finish(ran(begin(), 'c1', 'ls', { kind: 'command', command: 'ls', exitCode: 0 }))
@@ -291,6 +393,19 @@ describe('keeping the outcome', () => {
 				changed: 1,
 			}),
 		).toEqual(emptyThread())
+	})
+	it('drops a notice for a turn this conversation does not know, instead of giving it to the current one', () => {
+		const thread = finish(ran(begin(), 'c1', 'ls', { kind: 'command', command: 'ls', exitCode: 0 }))
+		const next = applyEvent(thread, {
+			kind: 'outcome',
+			sessionId: 's',
+			turnId: 'other-window-turn',
+			verdict: 'failing',
+			line: 'Changed 1 file · npm test failed',
+			changed: 1,
+		})
+		expect(next).toBe(thread)
+		expect(next.turns[1]?.outcome).toBeUndefined()
 	})
 	it('comes back from a saved conversation', () => {
 		const restored = restoreHistoryWork(
