@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
-	MARKER_ONLY_PREFIX_MS,
+	MARKER_PREFIX_MS,
 	SHARED_PREFIX_MS,
 	createPasteMarkerGuard,
 	installPasteMarkerGuard,
@@ -49,7 +49,7 @@ const splits = [START, END].flatMap((marker) =>
 		first: marker.slice(0, at),
 		second: marker.slice(at),
 		// A prefix that is also Insert or an arrow waits briefly; one that is only a marker, long.
-		longest: at >= 4 ? MARKER_ONLY_PREFIX_MS - 1 : SHARED_PREFIX_MS - 1,
+		longest: at >= 4 ? MARKER_PREFIX_MS - 1 : SHARED_PREFIX_MS - 1,
 	})),
 )
 
@@ -160,6 +160,86 @@ describe('keys that must not wait', () => {
 	})
 })
 
+describe('keys that share a prefix with a marker', () => {
+	const whole = [
+		['Insert', `${ESC}[2~`],
+		['F9', `${ESC}[20~`],
+		['F10', `${ESC}[21~`],
+		['Ctrl+F9', `${ESC}[20;5~`],
+	] as const
+
+	it.each(whole)('%s arriving whole passes at once with nothing held', (_name, bytes) => {
+		const r = reader()
+		r.send(bytes)
+		expect(r.out).toEqual([bytes])
+		expect(vi.getTimerCount()).toBe(0)
+	})
+
+	const split = [
+		['F9 after ESC[20', `${ESC}[20`, '~'],
+		['F10 after ESC[2', `${ESC}[2`, '1~'],
+		['Insert after ESC[2', `${ESC}[2`, '~'],
+		['Ctrl+F9 after ESC[20', `${ESC}[20`, ';5~'],
+		['Ctrl+F9 after ESC[20;', `${ESC}[20;`, '5~'],
+	] as const
+
+	it.each(split)('%s is delivered whole once the rest arrives', async (_name, first, second) => {
+		const r = reader()
+		r.send(first)
+		await vi.advanceTimersByTimeAsync(25)
+		await vi.advanceTimersByTimeAsync(100)
+		r.send(second)
+		expect(r.text).toBe(first + second)
+		expect(vi.getTimerCount()).toBe(0)
+	})
+
+	it('releases a held prefix and the byte after it, in order, when that byte continues nothing', () => {
+		for (const [held, next] of [
+			[`${ESC}[20`, 'x'],
+			[`${ESC}[2`, 'x'],
+			[`${ESC}[`, 'x'],
+			[`${ESC}[200`, 'x'],
+			[`${ESC}[20`, `${ESC}[A`],
+			[`${ESC}[20`, ' '],
+		] as const) {
+			const r = reader()
+			r.send(held)
+			expect(r.out).toEqual([])
+			r.send(next)
+			expect(r.text).toBe(held + next)
+		}
+	})
+
+	it('releases a held prefix with what follows it in a later read, in order, across several reads', () => {
+		const r = reader()
+		r.send(`a${ESC}[20`)
+		r.send('b')
+		r.send(`${ESC}[2`)
+		r.send(`${ESC}[2`)
+		r.send('~c')
+		expect(r.text).toBe(`a${ESC}[20b${ESC}[2${ESC}[2~c`)
+	})
+
+	it('delivers Alt+[ (ESC [) intact once its bound passes, never before', async () => {
+		const r = reader()
+		r.send(`${ESC}[`)
+		await vi.advanceTimersByTimeAsync(SHARED_PREFIX_MS - 1)
+		expect(r.out).toEqual([])
+		await vi.advanceTimersByTimeAsync(1)
+		expect(r.out).toEqual([`${ESC}[`])
+		expect(vi.getTimerCount()).toBe(0)
+	})
+
+	it('delivers a split F9 at the marker-prefix bound if nothing more comes', async () => {
+		const r = reader()
+		r.send(`${ESC}[20`)
+		await vi.advanceTimersByTimeAsync(MARKER_PREFIX_MS - 1)
+		expect(r.out).toEqual([])
+		await vi.advanceTimersByTimeAsync(1)
+		expect(r.out).toEqual([`${ESC}[20`])
+	})
+})
+
 describe('on a stream', () => {
 	// Raises `readable` for new bytes only after a read has answered null, the rule a
 	// reader that stops at the first null depends on (as Ink's does).
@@ -195,7 +275,7 @@ describe('on a stream', () => {
 		stdin.push(`${ESC}[20`)
 		expect(drain(stdin)).toEqual([])
 		expect(readable).toHaveBeenCalledTimes(1)
-		await vi.advanceTimersByTimeAsync(MARKER_ONLY_PREFIX_MS)
+		await vi.advanceTimersByTimeAsync(MARKER_PREFIX_MS)
 		expect(readable).toHaveBeenCalledTimes(2)
 		expect(drain(stdin)).toEqual([`${ESC}[20`])
 		stop()

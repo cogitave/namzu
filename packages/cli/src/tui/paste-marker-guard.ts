@@ -21,12 +21,23 @@
  *
  * The bound depends on what the prefix can still be:
  *
- *  - `ESC [` and `ESC [ 2` are also the start of an arrow key and of Insert (`ESC [ 2 ~`).
- *    The terminal writes those whole, so a pause inside one is only a slow link, but
- *    they are the keys a person is watching, so they wait briefly (SHARED_PREFIX_MS).
- *  - `ESC [ 2 0`, `ESC [ 2 0 0` and `ESC [ 2 0 1` start nothing but a paste marker.
- *    No key produces them, so waiting costs no keypress and they wait much longer
- *    (MARKER_ONLY_PREFIX_MS).
+ *  - `ESC [` and `ESC [ 2` are shared with real keys: `ESC [` alone is Alt+[, and `ESC [ 2`
+ *    starts Insert (`ESC [ 2 ~`), F9 (`ESC [ 2 0 ~`), F10 (`ESC [ 2 1 ~`) and the other
+ *    `2x~` function keys, with their modified forms (`ESC [ 2 0 ; 5 ~`). The terminal writes
+ *    each of those whole, so a pause inside one is only a slow link, but they are keys a
+ *    person is watching, so they wait briefly (SHARED_PREFIX_MS). Alt+[ is bound to nothing
+ *    by default; held for that long it still arrives intact.
+ *  - `ESC [ 2 0` is shared with F9 (`ESC [ 2 0 ~`) and Ctrl+F9 and the like, but it is also the
+ *    split of the reported failure (`ESC [ 2 0` then `0 ~`), so it waits as long as a
+ *    marker-only prefix (MARKER_PREFIX_MS). The cost is that a split F9 can arrive up to
+ *    2 s late; a whole F9 is not a prefix of anything and is not delayed. A person does not
+ *    often press F9 over a link slow enough to split it, and a late F9 costs one key, where
+ *    a short bound would put marker text in the message box.
+ *  - `ESC [ 2 0 0` and `ESC [ 2 0 1` start nothing but a paste marker, so no key waits
+ *    behind them (MARKER_PREFIX_MS).
+ *
+ * Every wait ends at its bound, so a terminal that died mid-marker cannot hold keys back
+ * for good.
  *
  * A lone `ESC` is never held: it is the Escape key, and it is recognised on Ink's own
  * schedule. The same bytes arrive when a link splits a marker right after its `ESC`
@@ -40,8 +51,8 @@ const MARKERS = [`${ESC}[200~`, `${ESC}[201~`] as const
 
 /** How long `ESC [` or `ESC [ 2` waits for its next byte before going on to Ink. */
 export const SHARED_PREFIX_MS = 200
-/** How long a prefix that can only be a paste marker waits for its next byte. */
-export const MARKER_ONLY_PREFIX_MS = 2000
+/** How long `ESC [ 2 0`, `ESC [ 2 0 0` and `ESC [ 2 0 1` wait for their next byte. */
+export const MARKER_PREFIX_MS = 2000
 
 /** The length of the tail of `text` that is a proper prefix of a marker and at least `ESC [`. */
 function heldTailLength(text: string): number {
@@ -90,7 +101,7 @@ export function createPasteMarkerGuard(onRelease: () => void): PasteMarkerGuard 
 			const keep = heldTailLength(input)
 			if (keep > 0) {
 				held = input.slice(input.length - keep)
-				const bound = keep >= 4 ? MARKER_ONLY_PREFIX_MS : SHARED_PREFIX_MS
+				const bound = keep >= 4 ? MARKER_PREFIX_MS : SHARED_PREFIX_MS
 				timer = setTimeout(() => {
 					timer = undefined
 					ready = held

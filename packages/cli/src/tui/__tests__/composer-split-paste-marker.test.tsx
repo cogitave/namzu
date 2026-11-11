@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { Composer } from '../Composer.js'
-import { MARKER_ONLY_PREFIX_MS, SHARED_PREFIX_MS } from '../paste-marker-guard.js'
+import { MARKER_PREFIX_MS, SHARED_PREFIX_MS } from '../paste-marker-guard.js'
 import { renderToScreen } from './support/screen.js'
 
 // Only the two timer calls are faked: the screen's own settling runs on setImmediate.
@@ -32,7 +32,7 @@ it.each(cases)(
 		})
 		const body = 'first line\r\nsecond line\r\nthird\r\nfourth'
 		const marker = which === 'start' ? START : END
-		const pause = at >= 4 ? MARKER_ONLY_PREFIX_MS - 1 : SHARED_PREFIX_MS - 1
+		const pause = at >= 4 ? MARKER_PREFIX_MS - 1 : SHARED_PREFIX_MS - 1
 		const step = async (chunk: string, wait = 0) => {
 			screen.press(chunk)
 			await screen.waitForRender()
