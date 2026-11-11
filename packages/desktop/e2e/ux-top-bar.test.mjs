@@ -69,8 +69,13 @@ test("hidden by default: one 40 px bar, sidebar and chords still move between co
 
 		// The keyboard still switches and closes: next goes to the other conversation or stays put,
 		// never to a blank page, and closing leaves the person on a page with a way forward.
-		await w.page.keyboard.press("Control+Tab");
-		await expect(frontTitle(w)).toBeVisible();
+		// Each chord leaves the title of a real conversation in front, never the blank draft.
+		for (const chord of ["Control+1", "Control+2", "Control+3", "Control+Tab", "Control+Shift+Tab"]) {
+			await w.page.keyboard.press(chord);
+			await w.page.waitForTimeout(300);
+			await expect(frontTitle(w)).toContainText("Explain the first thing");
+			await expect(w.page.getByText("What should we work on")).toHaveCount(0);
+		}
 		await rowFor(w, "second thing").click();
 		await expect(frontTitle(w)).toContainText("Explain the second thing");
 		await w.page.keyboard.press("Control+w");
@@ -78,7 +83,8 @@ test("hidden by default: one 40 px bar, sidebar and chords still move between co
 
 		// The palette offers the switch, and the other conversations by name.
 		await w.page.keyboard.press("Control+k");
-		await expect(w.page.getByRole("option", { name: /Show conversation tabs/ })).toBeVisible({ timeout: T });
+		await w.page.keyboard.type("conversation tabs");
+		await expect(w.page.locator(".command-palette-popup .command-palette-label", { hasText: "Show conversation tabs" })).toBeVisible({ timeout: T });
 		await w.page.keyboard.press("Escape");
 		failed = false;
 	} finally {

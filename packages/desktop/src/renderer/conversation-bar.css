@@ -9,7 +9,7 @@
 	container: conversation-bar / inline-size;
 }
 .conversation-bar-title {
-	flex: 0 1 auto;
+	flex: 0 4 auto;
 	min-width: 0;
 	margin: 0;
 	overflow: hidden;
@@ -21,8 +21,8 @@
 	color: var(--foreground);
 }
 .conversation-bar-project {
-	flex: 0 100 auto;
-	min-width: 0;
+	flex: 0 1 auto;
+	min-width: 56px;
 	max-width: 180px;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -77,7 +77,7 @@
 		display: none;
 	}
 }
-@container conversation-bar (max-width: 440px) {
+@container conversation-bar (max-width: 300px) {
 	.conversation-bar-project {
 		display: none;
 	}

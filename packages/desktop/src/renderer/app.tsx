@@ -2532,6 +2532,20 @@ export function App({
 				setThreads((all) => ({ ...all, [view.id]: emptyThread() }))
 				setOpenTabIds((all) => [...all, view.id])
 				if (generation !== navigation.current) return
+				// With the strip hidden a new conversation takes the place of the one before, as a
+				// sidebar row does; otherwise the old tabs would stay open where nobody can see them.
+				if (!showTabsRef.current && !destination.palId) {
+					const groupId = context.current.group.id
+					const stale = tabsReplacedOnOpen(
+						view,
+						context.current.group.tabs,
+						catalogueRows.current.conversations,
+					)
+					void closableStaleTabs(stale, api).then((closable) => {
+						for (const tabId of closable)
+							void onAction({ kind: 'close', groupId, tabId }).catch(() => undefined)
+					})
+				}
 				setSessionId(view.id)
 			} else setSessionId('')
 			setConversationSelection(null)
@@ -2545,7 +2559,7 @@ export function App({
 		} finally {
 			if (generation === navigation.current) setLoading(false)
 		}
-	}, [projects, projectId, updateProject, abandonTabRestore, api])
+	}, [projects, projectId, updateProject, abandonTabRestore, api, onAction])
 
 	const selectHarness = async (engine: HarnessView['selected']) => {
 		if (
@@ -5239,8 +5253,16 @@ export function App({
 		}
 		return onAction({ kind: 'close', groupId: group.id, tabId })
 	}
+	// With the strip hidden the chords step through what the person can see: the conversation in
+	// front and the terminals. Tabs kept open out of sight (a draft, an upgrader's saved tabs) are
+	// never landed on.
+	const chordIds = (): readonly string[] =>
+		showTabsRef.current || palConversation || pal || computerPage
+			? stripIds
+			: stripIds.filter((id) => id === frontTabId || terminalById.has(id))
 	const runTabChord = (chord: TabChord): boolean => {
 		if (context.current.frozen || loading) return false
+		const stripIds = chordIds()
 		const at = stripIds.indexOf(frontTabId)
 		switch (chord.kind) {
 			case 'close':
