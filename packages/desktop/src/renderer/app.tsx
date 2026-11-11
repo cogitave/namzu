@@ -35,6 +35,7 @@ import type {
 	ProviderView,
 } from '../shared/protocol.js'
 import { usableProviders } from '../shared/provider-connections.js'
+import { ReconnectRetry } from '../shared/reconnect-retry.js'
 import type { DataFolderKind, SettingsSection } from '../shared/settings-protocol.js'
 import type { SidebarSnapshot } from '../shared/sidebar-snapshot.js'
 import { PROMPT_NOT_PASSED, TERMINAL_ENGINE_LABELS } from '../shared/terminal-tabs.js'
@@ -72,7 +73,7 @@ import { type ComputerChatLayout, useComputerChatMotion } from './computer-chat-
 import { ComputerInputRetiredError, computerSurfaceOwnsFocus } from './computer-input-focus.js'
 import { ComputerInputQueue, computerInputOwnerMatches } from './computer-input-queue.js'
 import { ComputerKeyboardOwners } from './computer-keyboard-owner.js'
-import { nextComputerReadDelay } from './computer-read-pace.js'
+import { createComputerReadScheduler } from './computer-read-pace.js'
 import { computerWorkspaceIds } from './computer-workspace-toolbar.js'
 import { ConfirmRemovalDialog } from './confirm-removal-dialog.js'
 import { ConversationActionsMenu } from './conversation-actions-menu.js'
@@ -97,6 +98,7 @@ import { copyPlainText } from './copy-button.js'
 import { holdsDiscardableDraft } from './discard-draft.js'
 import { signInHelpFor } from './engine-setup.js'
 import { setEngineSignedOut } from './engine-sign-in.js'
+import { createFailingPoll } from './failing-poll.js'
 import { FilePanelBody } from './file-panel/file-panel.js'
 import {
 	MIN_PANEL_WIDTH,
@@ -175,7 +177,11 @@ import { noticeClickAction } from './notice-target.js'
 import { dismissNotice, notify } from './notify.js'
 import { PalChatTranscript } from './pal-chat-transcript.js'
 import { PalCommunicationDialog, type PalSettingsTab } from './pal-communication-dialog.js'
-import { computerSetupMissing, presentComputerNotice } from './pal-computer-notice.js'
+import {
+	computerNotSetUp,
+	computerPodmanStopped,
+	presentComputerNotice,
+} from './pal-computer-notice.js'
 import {
 	type PalComputerRowAction,
 	palComputerRowView,
@@ -1446,11 +1452,21 @@ export function App({
 		(failure) => showError(failure, 'attach the file'),
 		api,
 	)
+	// Counts the times this project's connection came back after it was down, so a read that failed
+	// once is asked once more then (and not on a timer).
+	const [reconnects, setReconnects] = useState(0)
+	const lastStatus = useRef(project?.status)
+	useEffect(() => {
+		const before = lastStatus.current
+		lastStatus.current = project?.status
+		if (before && before !== 'ready' && project?.status === 'ready') setReconnects((n) => n + 1)
+	}, [project?.status])
 	const savedSettings = useDraftSettings(
 		draftOwner,
 		draftReadable && !historyPending,
 		(failure) => showError(failure, 'save your message settings'),
 		api,
+		reconnects,
 	)
 	const settings = resolveComposerSendOptions(savedSettings.value.options, pal?.id)
 	const choice = resolveComposerModelChoice({
@@ -1501,6 +1517,14 @@ export function App({
 		savedSettings.loading ||
 		Boolean(sending[draftOwner]) ||
 		thread.running
+	const modelSettingsRetry = useRef(new ReconnectRetry())
+	const resumeJobs = useRef<(() => void) | undefined>(undefined)
+	useEffect(() => {
+		if (reconnects > 0) {
+			modelSettingsRetry.current.reconnected()
+			resumeJobs.current?.()
+		}
+	}, [reconnects])
 	const capabilities = modelSettings?.key === modelSettingsKey ? modelSettings.value : null
 	const warmSession = warmSessions.current.read(sessionId, projectId)
 	if (warmSession) {
@@ -1764,14 +1788,17 @@ export function App({
 		void api
 			.modelSettings(projectId, choice.provider, modelId, sessionId || undefined)
 			.then((value) => {
+				modelSettingsRetry.current.succeeded(modelSettingsKey)
 				if (current) setModelSettings({ key: modelSettingsKey, value })
 			})
-			.catch(() => {
+			.catch((failure) => {
+				// Once more when the connection comes back; the sentence names what is wrong.
+				modelSettingsRetry.current.failed(modelSettingsKey, () => setModelSettings(null))
 				if (current)
 					setModelSettings({
 						key: modelSettingsKey,
 						value: {
-							notice: 'Model settings could not be loaded. Try selecting the model again.',
+							notice: plainError(failure, 'load the model settings', 'modelSettings').text,
 						},
 					})
 			})
@@ -2318,16 +2345,20 @@ export function App({
 			return
 		}
 		let current = true
-		let pending: Promise<void> | undefined
+		let pending: Promise<boolean> | undefined
 		setJobs([])
 		setJobsSessionId(sessionId)
 		setJobsLoading(true)
 		setJobsError('')
-		const read = (): Promise<void> => {
+		// The poll slows down after failures and stops after four in a row; a reconnect, a manual
+		// refresh or the window coming back starts it again.
+		const read = (): Promise<boolean> => {
 			if (pending) return pending
 			pending = (async () => {
+				let ok = false
 				try {
 					const rows = await api.jobs(sessionId)
+					ok = true
 					if (current) {
 						setJobs(rows)
 						setJobsSessionId(sessionId)
@@ -2339,22 +2370,30 @@ export function App({
 					pending = undefined
 					if (current) setJobsLoading(false)
 				}
+				return ok
 			})()
 			return pending
 		}
+		const poll = createFailingPoll({ baseMs: 2000, read })
 		// A stop refresh follows any older in-flight poll, so that an older
 		// running snapshot cannot overwrite the newly confirmed terminal state.
 		const refresh = async () => {
 			if (pending) await pending
-			if (current) await read()
+			if (current && (await poll.run())) poll.schedule()
 		}
 		refreshJobs.current = refresh
-		void read()
-		const timer = setInterval(() => void read(), 2000)
+		resumeJobs.current = () => {
+			if (current && poll.stopped) poll.resume()
+		}
+		const back = () => resumeJobs.current?.()
+		window.addEventListener('focus', back)
+		poll.start()
 		return () => {
 			current = false
 			if (refreshJobs.current === refresh) refreshJobs.current = undefined
-			clearInterval(timer)
+			resumeJobs.current = undefined
+			window.removeEventListener('focus', back)
+			poll.stop()
 		}
 	}, [
 		sessionId,
@@ -3981,19 +4020,27 @@ export function App({
 		// After the saving state is released, so the dialog and every control stay usable meanwhile.
 		if (created) void beginOpeningPal(created, blank)
 	}
+	// The scheduler of the read loop that runs now; its `parked` says the computer is not set up.
+	// Cleared when that loop ends, so a Pal that was left never holds a wake-up for another.
+	const computerReadLoop = useRef<{ readonly parked: boolean } | undefined>(undefined)
+	const setupPhase = palSetup.state?.phase
 	useEffect(() => {
 		if (!pal?.id || palsPage || pageOpen || project?.status !== 'ready') return
 		// Explicit refresh invalidates a pending capture and starts a new read.
 		void screenRefresh
+		// A change in what setup says (started, finished, blocked) is a known reason to read again.
+		void setupPhase
 		const id = pal.id
 		const epoch = computerReadEpoch.current
 		let current = true
-		let timer: ReturnType<typeof setTimeout> | undefined
-		// Reads in a row that threw; a broken computer is asked less and less often.
-		let failures = 0
+		// Chains the reads: slower after failures, and none at all while the computer is not set up.
+		const scheduler = createComputerReadScheduler({ run: () => void read() })
+		computerReadLoop.current = scheduler
 		const read = async () => {
 			let ready = false
 			let failed = false
+			// The computer said it is not set up: nothing here changes that, so the loop ends.
+			let parked = false
 			// Only a read that answered ends the back-off; a skipped read (hidden, pending) keeps it.
 			let answered = false
 			try {
@@ -4010,6 +4057,10 @@ export function App({
 					return
 				setPalComputers((all) => ({ ...all, [id]: computer }))
 				if (computer.status !== 'ready' || !computer.generation) {
+					if (computer.status === 'unavailable') {
+						if (computerNotSetUp(computer.status, computer.notice)) parked = true
+						else failed = true
+					}
 					setPalScreens((all) => ({
 						...all,
 						[id]: { generation: computer.generation },
@@ -4061,7 +4112,14 @@ export function App({
 						}))
 				}
 			} catch (failure) {
-				failed = true
+				if (
+					computerNotSetUp(
+						'unavailable',
+						failure instanceof Error ? failure.message : String(failure),
+					)
+				)
+					parked = true
+				else failed = true
 				if (current && epoch === computerReadEpoch.current) {
 					setPalComputers((all) => ({
 						...all,
@@ -4073,23 +4131,23 @@ export function App({
 					}))
 				}
 			} finally {
-				failures = failed ? failures + 1 : answered ? 0 : failures
-				if (current)
-					timer = setTimeout(
-						() => void read(),
-						nextComputerReadDelay({
-							ready,
-							watching:
-								!document.hidden && palScreen?.palId === id && palScreen.activeTab === 'computer',
-							failures,
-						}),
-					)
+				if (current) {
+					scheduler.settle({
+						ready,
+						watching:
+							!document.hidden && palScreen?.palId === id && palScreen.activeTab === 'computer',
+						failed,
+						answered,
+						parked,
+					})
+				}
 			}
 		}
 		void read()
 		return () => {
 			current = false
-			if (timer) clearTimeout(timer)
+			scheduler.stop()
+			if (computerReadLoop.current === scheduler) computerReadLoop.current = undefined
 		}
 	}, [
 		pal?.id,
@@ -4099,14 +4157,24 @@ export function App({
 		palScreen?.palId,
 		palScreen?.activeTab,
 		screenRefresh,
+		setupPhase,
 		api,
 	])
 	useEffect(() => {
 		const wake = () => {
 			if (!document.hidden) setScreenRefresh((value) => value + 1)
 		}
+		// Coming back to the window is when a person has just installed what was missing: a computer
+		// that is not set up is read once then, and only then.
+		const back = () => {
+			if (computerReadLoop.current?.parked) wake()
+		}
 		document.addEventListener('visibilitychange', wake)
-		return () => document.removeEventListener('visibilitychange', wake)
+		window.addEventListener('focus', back)
+		return () => {
+			document.removeEventListener('visibilitychange', wake)
+			window.removeEventListener('focus', back)
+		}
 	}, [])
 
 	/** A Start on a set-up Windows PC ended without a running computer: say so once, plainly. */
@@ -4685,10 +4753,11 @@ export function App({
 							: !palComputer || palComputer.notice === 'Starting the local computer…'
 								? 'connecting'
 								: 'error',
+					// The same test that parks the read loop, so a parked loop always has its card; where
+					// setup is offered, its row is the surface instead.
 					setupMissing:
-						!setupAvailable &&
-						palComputer?.status === 'unavailable' &&
-						computerSetupMissing(palComputer.notice),
+						!setupAvailable && computerNotSetUp(palComputer?.status ?? '', palComputer?.notice),
+					podmanStopped: computerPodmanStopped(palComputer?.notice),
 					setup: setupRow,
 					screen: currentScreen,
 					loading: computerCapture?.loading,

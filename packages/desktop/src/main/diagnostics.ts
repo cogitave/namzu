@@ -9,6 +9,7 @@ import {
 	writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
+import { namedFailure } from '../shared/named-failures.js'
 import type { DesktopDiagnosticsView } from '../shared/protocol.js'
 import { ExpectedRuntimeCloseError } from './expected-close.js'
 import { SupersededConversationSettingsError } from './superseded-settings.js'
@@ -303,7 +304,10 @@ const WSLC_SETUP_REASONS: Record<string, string | undefined> = {
 }
 
 /** Arbitrary errors can contain prompts, headers and paths. Only fixed reasons survive. */
-export function desktopFailure(error: unknown): {
+export function desktopFailure(
+	error: unknown,
+	operation?: string,
+): {
 	reason: string
 	code?: string
 	type: string
@@ -393,6 +397,8 @@ export function desktopFailure(error: unknown): {
 		)
 			reason = 'ownership-or-trust-refused'
 		else if (code) reason = 'os-error'
+		// Last: a read that failed without a message of its own is named by what it was reading.
+		if (reason === 'unclassified') reason = namedFailure(message, operation) ?? reason
 		return { reason, ...(code ? { code } : {}), type }
 	} catch {
 		return { reason: 'unclassified', type: 'Unknown' }
@@ -569,7 +575,7 @@ export class DesktopDiagnostics implements DesktopDiagnosticSink {
 				if (context.timings.reused === true) attributes['namzu.desktop.engine.reused'] = 1
 			}
 			if (context.error !== undefined) {
-				const failure = desktopFailure(context.error)
+				const failure = desktopFailure(context.error, context.operation)
 				attributes['namzu.desktop.failure.reason'] = failure.reason
 				attributes['exception.type'] = failure.type
 				if (failure.code) attributes['namzu.desktop.failure.code'] = failure.code

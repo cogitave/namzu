@@ -1,4 +1,6 @@
+import { NAMED_FAILURE_SENTENCES } from '../shared/named-failures.js'
 import type { DraftSettings } from '../shared/protocol.js'
+import { ReconnectRetry } from '../shared/reconnect-retry.js'
 
 export interface DraftSettingsSnapshot {
 	readonly value?: DraftSettings
@@ -21,6 +23,8 @@ type OwnerState = {
 /** Keeps a failed read distinct from an empty, successfully read draft. */
 export class DraftSettingsStore {
 	private readonly owners = new Map<string, OwnerState>()
+	/** A failed read is asked once more when the connection comes back, never on a timer. */
+	private readonly retries = new ReconnectRetry()
 	constructor(
 		private readonly read: (owner: string) => Promise<DraftSettings>,
 		private readonly write: (owner: string, value: DraftSettings) => Promise<void>,
@@ -72,11 +76,13 @@ export class DraftSettingsStore {
 					state.known = true
 					state.error = undefined
 					state.reading = undefined
+					this.retries.succeeded(owner)
 					this.publish(owner)
 				},
 				(error) => {
 					if (!current()) return
-					state.error = 'Saved message settings could not be loaded. Try again.'
+					this.retries.failed(owner, () => void this.load(owner))
+					state.error = NAMED_FAILURE_SENTENCES['settings-unavailable']
 					state.reading = undefined
 					this.publish(owner)
 					this.failed(owner, error)
@@ -84,6 +90,10 @@ export class DraftSettingsStore {
 			)
 		state.reading = pending
 		return pending
+	}
+	/** The connection came back: every read that failed once is asked once more. */
+	reconnected(): void {
+		this.retries.reconnected()
 	}
 	/** Reacquiring a pane reloads main's choices, preserving any unconfirmed local write. */
 	reload(owner: string): Promise<void> {
