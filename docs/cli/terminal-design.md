@@ -1348,6 +1348,34 @@ the message is sent, so history recall and draft restore see the full text. The 
 pastes insert at the cursor as typed text. There is no separate chip row. Terminals without bracketed-paste support retain chunk-based fallback
 handling, which cannot reconstruct a paste boundary the terminal does not send.
 
+A paste marker (`ESC [ 2 0 0 ~` before the paste, `ESC [ 2 0 1 ~` after it) that
+the terminal's bytes split across two reads is kept whole even when the second
+read comes late (`tui/paste-marker-guard.ts`). The input library flushes an
+unfinished escape sequence as typed text after 20 ms, which on a slow or lossy
+link put the rest of the marker (`[200~`, `[201~`) into the message box. The
+stream the library reads is wrapped, and a read that ends with a proper prefix
+of a marker, `ESC [` or longer, is held back until the next read joins it or a
+bound passes. The bound depends on what the prefix can still be.
+`ESC [` is the Alt+[ key on its own (nothing is bound to it by default), and `ESC [ 2`
+begins Insert (`ESC [ 2 ~`), F9 (`ESC [ 2 0 ~`), F10 (`ESC [ 2 1 ~`) and the other
+`2x~` function keys, with their modified forms (`ESC [ 2 0 ; 5 ~` is Ctrl+F9). A
+terminal writes each of those whole, so a pause inside one is a slow link; these two
+prefixes wait up to 200 ms. `ESC [ 2 0` is shared with F9, but it is also the split
+the marker suffers, so it waits up to 2 s, as do `ESC [ 2 0 0` and `ESC [ 2 0 1`,
+which begin nothing but a marker. The price is that a split F9 can arrive up to 2 s
+late; a whole F9 is not a prefix of anything and is not delayed. Every wait ends at
+its bound, so a terminal that died mid-marker cannot hold keys back for good: the
+bytes then go on unchanged and the library treats them as it always did. What this
+changes for a key: Alt+[ (`ESC [` alone) now reaches the library up to 200 ms later than it used
+to (its own 20 ms follows), and a function key split by the link is joined
+instead of being typed as text. A complete key (an arrow, Alt with a letter, Insert,
+a function key, a focus or mouse report) is not a prefix of anything and passes at
+once. A lone `ESC` is never held: it is
+the Escape key and is recognised on the library's own 20 ms schedule. A link
+that splits a marker right after its `ESC` and then pauses sends the same
+bytes as a person pressing Escape and typing `[200~`, so that one split is not
+repaired.
+
 Separate provider message IDs create separate assistant transcript entries,
 including completion follow-ups inside one parent turn. Pending text is flushed
 at that boundary so the last status sentence cannot merge with the next answer.

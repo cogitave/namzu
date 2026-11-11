@@ -55,6 +55,9 @@ import { EventEmitter } from 'node:events'
 import { Terminal } from '@xterm/headless'
 import { type Instance, render } from 'ink'
 import type { ReactElement } from 'react'
+import { vi } from 'vitest'
+
+import { installPasteMarkerGuard } from '../../paste-marker-guard.js'
 
 /** Geometry and timing the emulated terminal is built with. */
 export interface ScreenOptions {
@@ -247,7 +250,20 @@ class ScreenStdout extends EventEmitter {
 	/** Resolves once the parser has consumed everything written so far. */
 	drain(): Promise<void> {
 		if (this.outstanding === 0) return Promise.resolve()
-		return new Promise((resolve) => this.waiters.push(resolve))
+		return new Promise((resolve) => {
+			this.waiters.push(resolve)
+			void this.pumpFakeTimers()
+		})
+	}
+
+	/**
+	 * The emulator's parser schedules its work with `setTimeout`. A test that fakes
+	 * timers to advance a clock by hand would leave that work, and so every settle,
+	 * waiting forever. Timers due now fire (a zero-length advance); the clock does not
+	 * move, so nothing the test is timing can fire here.
+	 */
+	private async pumpFakeTimers(): Promise<void> {
+		while (this.outstanding > 0 && vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(0)
 	}
 }
 
@@ -282,6 +298,8 @@ export async function renderToScreen(
 	})
 	const stdout = new ScreenStdout(term, cols, rows)
 	const stdin = new ScreenStdin()
+	// The shipped launcher wraps the stream Ink reads with this; so does the fixture.
+	const stopPasteMarkerGuard = installPasteMarkerGuard(stdin)
 
 	const instance: Instance = render(node, {
 		stdout: stdout as unknown as NodeJS.WriteStream,
@@ -389,9 +407,13 @@ export async function renderToScreen(
 			teardown ??= (async () => {
 				try {
 					instance.unmount()
+					// Leaving waits on a timer. Under fake timers it would never fire, so the
+					// clock is moved on: the test is over and nothing is being timed.
+					if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(1_000)
 					await exitPromise
 					await stdout.drain()
 				} finally {
+					stopPasteMarkerGuard()
 					term.dispose()
 				}
 			})()

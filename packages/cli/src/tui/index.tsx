@@ -29,6 +29,7 @@ import {
 import { fileQueuedHintCount } from './hint-counts.js'
 import { installTuiLogSink } from './log-pane.js'
 import { watchOutputSize } from './output-size-watch.js'
+import { installPasteMarkerGuard } from './paste-marker-guard.js'
 import { liveRenderOption } from './render-mode.js'
 import { terminalFocus } from './terminal-focus.js'
 import { applyLaunchTheme } from './theme-launch.js'
@@ -100,6 +101,9 @@ export async function launchTui(
 	// Focus reports (`ESC [ I` / `ESC [ O`) are taken off the stream before Ink reads it, and
 	// switched on only while raw mode is held (see `focus-reporting.ts`).
 	const inputStream = consoleInput?.stream ?? process.stdin
+	// A paste marker split across two reads is held until it is whole, innermost so every
+	// later filter and Ink see it as the terminal sent it (see `paste-marker-guard.ts`).
+	const stopPasteMarkerGuard = installPasteMarkerGuard(inputStream)
 	const stopFocusReporting = installFocusReporting(inputStream, process.stdout, (focused) =>
 		terminalFocus.set(focused),
 	)
@@ -288,6 +292,7 @@ export async function launchTui(
 		stopSizeWatch?.()
 		stopFocusReporting()
 		stopWheel?.()
+		stopPasteMarkerGuard()
 		if (panicReset) process.off('exit', panicReset)
 		consoleInput?.release()
 		logs.close()
