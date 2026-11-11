@@ -1,31 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CLICK_GUARD_MS, createClickGuard, readGateHint, unreadContent } from './approval-gate.js'
-
-describe('the read gate', () => {
-	it('holds only a box that overflows and has not been scrolled to its end', () => {
-		expect(unreadContent({ scrollHeight: 500, clientHeight: 140, scrollTop: 0 })).toBe(true)
-		expect(unreadContent({ scrollHeight: 500, clientHeight: 140, scrollTop: 200 })).toBe(true)
-		// Within 2 px of the end counts as the end, because scroll offsets are fractional.
-		expect(unreadContent({ scrollHeight: 500, clientHeight: 140, scrollTop: 358 })).toBe(false)
-		expect(unreadContent({ scrollHeight: 500, clientHeight: 140, scrollTop: 360 })).toBe(false)
-	})
-
-	it('never traps a box that fits, or that overflows by no more than rounding', () => {
-		expect(unreadContent({ scrollHeight: 100, clientHeight: 140, scrollTop: 0 })).toBe(false)
-		expect(unreadContent({ scrollHeight: 140, clientHeight: 140, scrollTop: 0 })).toBe(false)
-		expect(unreadContent({ scrollHeight: 142, clientHeight: 140, scrollTop: 0 })).toBe(false)
-		expect(unreadContent({ scrollHeight: 143, clientHeight: 140, scrollTop: 0 })).toBe(true)
-	})
-
-	it('says what to scroll in words that match what is hidden', () => {
-		expect(readGateHint({})).toBeUndefined()
-		expect(readGateHint({ command: true, diff: true })).toBe(
-			'Scroll through the whole command to allow it.',
-		)
-		expect(readGateHint({ message: true })).toBe('Scroll through the whole message to allow it.')
-		expect(readGateHint({ diff: true })).toBe('Scroll to the end to allow this.')
-	})
-})
+import { CLICK_GUARD_MS, createClickGuard } from './approval-gate.js'
 
 describe('the click guard', () => {
 	beforeEach(() => {

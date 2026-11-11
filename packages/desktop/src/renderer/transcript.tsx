@@ -40,9 +40,9 @@ import {
 } from './transcript-layout.js'
 import { turnInputsUnchanged } from './transcript-memo.js'
 import {
-	type LiveStage,
 	livePhaseLabel,
 	liveStatus,
+	liveStep,
 	narrationBeingWritten,
 	transcriptEntryKey,
 	turnActivityLabel,
@@ -393,16 +393,33 @@ function TurnActivity({
 	const planAt = entries.findIndex((entry) => isTaskEntry(thread, entry))
 	const planKey = workDisclosureKey(turn, 'plan')
 	// Only the block that owns the clock names the stage, and only until the answer starts.
-	const status = live && ownsTurnSummary && !answered ? liveStatus(thread) : undefined
+	const liveLine = live && ownsTurnSummary && !answered
+	const status = liveLine ? liveStatus(thread) : undefined
 	const stage = status?.stage
 	const streamingMessage = status ? narrationBeingWritten(thread) : undefined
 	// Open while the reply is written, folded once it ends; a choice the person made always wins.
 	const [chosenOpen, setChosenOpen] = useState<boolean>()
 	const controlled = !!disclosureKey && !!onWorkDisclosureChange
 	const savedOpen = disclosureKey ? workDisclosures?.[disclosureKey] : undefined
-	const label = ownsTurnSummary ? turnActivityLabel(thread, turn) : 'Earlier work'
+	// While the turn is live the header is its one line: the step it is on in the kernel's words,
+	// or what the stage says when no action is running yet.
+	const step = liveLine ? liveStep(thread, entries) : undefined
+	const label = liveLine
+		? (step?.label ?? stage?.text ?? 'Working')
+		: ownsTurnSummary
+			? turnActivityLabel(thread, turn)
+			: 'Earlier work'
+	const attentionNow = attentionFlags(turnAttention(thread, entries))
+	// A failed, refused or skipped action of this turn is bad news that stays in view even while the line is the whole display.
+	const badStep =
+		liveLine &&
+		entries.some((entry) => {
+			if (entry.kind !== 'tool') return false
+			const state = toolTranscriptPresentation(thread, entry.id)?.state
+			return state === 'failed' || state === 'declined' || state === 'skipped'
+		})
 	// Bad news is said in the header, so a finished turn never looks fine while a command failed.
-	const flags = live ? [] : attentionFlags(turnAttention(thread, entries))
+	const flags = live ? [] : attentionNow
 	const start = live && ownsTurnSummary ? thread.turns[turn]?.startedAt : undefined
 	const elapsed = start === undefined ? undefined : elapsedLabel(now - start)
 	const savedTime = ownsTurnSummary
@@ -421,7 +438,11 @@ function TurnActivity({
 			<Collapsible
 				className="turn-activity"
 				// Fold when the answer arrives, not after it: folding later shrinks the page under a reader at the end.
-				open={workBlockOpen(controlled ? savedOpen : chosenOpen, live && !answered)}
+				// The work stays behind the line unless something failed or was refused: that stays in view.
+				open={workBlockOpen(
+					controlled ? savedOpen : chosenOpen,
+					live && !answered && (attentionNow.length > 0 || badStep),
+				)}
 				onOpenChange={(open) => {
 					if (disclosureKey && onWorkDisclosureChange) onWorkDisclosureChange(disclosureKey, open)
 					else setChosenOpen(open)
@@ -447,8 +468,19 @@ function TurnActivity({
 					data-live={live ? '' : undefined}
 				>
 					<span className="activity-text">
+						{liveLine && (
+							<span
+								className="live-mark"
+								data-state={step?.state ?? (stage?.source === 'waiting' ? 'waiting' : 'running')}
+								aria-hidden="true"
+							/>
+						)}
 						<PhaseLabel label={label} animate={animate} />
-						{elapsed && <span className="turn-activity-elapsed">for {elapsed}</span>}
+						{elapsed && (
+							<span className="turn-activity-elapsed">
+								{liveLine ? `· ${elapsed}` : `for ${elapsed}`}
+							</span>
+						)}
 						<AttentionFlags flags={flags} />
 					</span>
 					<ChevronRightIcon className="disclosure-chevron" aria-hidden="true" />
@@ -507,7 +539,6 @@ function TurnActivity({
 						)}
 					</div>
 				</CollapsiblePanel>
-				{stage && <StageLine stage={stage} animate={animate} />}
 			</Collapsible>
 			{redirectNotes(thread, entries).map((note) => (
 				// What the person typed when they declined, so it is drawn as their own message.
@@ -530,27 +561,6 @@ export function redirectNotes(
 		const note = toolTranscriptPresentation(thread, entry.id)?.note
 		return note ? [{ id: entry.id, text: note }] : []
 	})
-}
-
-/**
- * The stage the work is in, one muted line at the bottom of the live block. It keeps its words for the whole stage; a new
- * stage fades in and starts a new sweep, and the same stage re-derived never does.
- */
-function StageLine({ stage, animate }: { stage: LiveStage; animate: boolean }) {
-	const ref = useRef<HTMLOutputElement>(null)
-	const shown = stage
-	useTranscriptPhaseMotion(ref, shown.text, animate)
-	return (
-		<output ref={ref} className="stage-line" data-stage-source={shown.source} aria-live="polite">
-			{/* Live regions announce changed text, not a changed label, so the words live in the region. */}
-			<span className="transcript-visually-hidden">{shown.text}</span>
-			<span className="transcript-phase-label" aria-hidden="true">
-				<span key={shown.text} className="transcript-phase-text stage-text">
-					{shown.text}
-				</span>
-			</span>
-		</output>
-	)
 }
 
 function LiveStatus({
