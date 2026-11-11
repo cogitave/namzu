@@ -517,8 +517,15 @@ other turn can interleave.
 
 ## What a turn reads back from a long log
 
-A log only grows, so a turn must not cost more because the session is old. The
-reads a turn makes of the whole log (the folded context, every message ever
+A log only grows, and a turn should not cost more because the session is old.
+This removes the repeated whole-log reads; it does not make a turn's cost flat.
+Measured against an instant model, 3 `bash` calls and a 300-token reply per
+prompt: CPU per turn was about 0.4 s at turns 1-10, 0.7 s at 91-100, 1.7 s at
+121-150 and 2.6 s at 151-200 (3 s worst turn), and the heap after a full
+collection rose from 45 to 57 MB over the first 100 turns. Before this change
+turns 91-100 cost about 2.5 s. What still grows is the writer, which verifies
+the whole chain each time a turn takes the log, and compaction scoring once the
+history is long. The reads a turn makes of the whole log (the folded context, every message ever
 recorded, the turn ids, which checkpoints were committed and which are named by
 an open decision) are kept as reductions in
 `packages/sdk/src/store/session-log/incremental.ts`. A reduction remembers the
@@ -540,7 +547,9 @@ are kept for the four most recently used sessions, and what a caller receives
 from them is its own copy. Evidence recall keeps the same kind of memory for its
 check that no turn is open, and the disk checkpoint store remembers which turn
 each checkpoint document belongs to, so listing one turn's checkpoints does not
-read the documents of the others again. A turn's own context is left to the
+read the documents of the others again. The reduction of every message ever recorded
+keeps superseded and compacted messages too, so it grows with the log rather
+than with the live context, and a read copies all of them. A turn's own context is left to the
 turn: its abort listener on the session's signal holds the turn only weakly, so a
 finished turn is released rather than kept for the life of the session.
 

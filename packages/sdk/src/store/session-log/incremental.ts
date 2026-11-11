@@ -24,6 +24,15 @@ import type { SessionLog } from './core.js'
  * The cache is keyed by session id and the reduction's own name and mode,
  * holds a few sessions, and is anchored by content, so two logs that share a
  * session id never share a result.
+ *
+ * Cost that remains: the state of the "every message ever recorded" reduction
+ * holds each message the log ever recorded, superseded and compacted ones
+ * included, so it grows with the log and not with the live context, and it
+ * lives for the life of the process (for the sessions kept). Reading it
+ * returns a copy of all of them, which is O(history) per turn. Both are small
+ * next to the whole-log walks this file removes, and are left as they are.
+ * More than SESSIONS_KEPT sessions in use at once evict one another, and each
+ * eviction restarts from byte 0, the cost before this file existed.
  */
 
 const SESSIONS_KEPT = 4
