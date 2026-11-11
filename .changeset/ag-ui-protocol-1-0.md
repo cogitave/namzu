@@ -13,3 +13,16 @@ What breaks:
 - If your application also depends on `@ag-ui/client` or `@ag-ui/core` directly, move them to 1.0.4 as well; 0.x and 1.x should not be mixed in one application. The `zod` peer range of this package (`^4.1.0`) is unchanged.
 
 `toNamzuMessages` also now carries a tool message's inline image and document parts into the SDK's tool result blocks (it refused every parts-shaped tool message before); URL and file-handle sources and audio/video are still refused. Nothing else in the exported API changed.
+
+New request limits, and one new refusal. A request inside `maxRequestBytes` used to be able to make validation allocate over 1 GB (one issue object per element of a body like `[1,1,1,...]`) before your `createQuery` ran. The adapter now counts each collection first and answers 422 with code `REQUEST_LIMIT_EXCEEDED` (message names the collection and the option, no request data) when one is over its limit, and validates messages one at a time. New `AGUIAdapterOptions`, all positive integers:
+
+| Option | Default |
+| --- | --- |
+| `maxMessages` | 20,000 |
+| `maxPartsPerMessage` | 1,000 |
+| `maxToolCallsPerMessage` | 1,000 |
+| `maxTools` | 2,000 |
+| `maxContextEntries` | 1,000 |
+| `maxResumeEntries` | 1,000 |
+
+A client that legitimately sends more than a default (for example a history of over 20,000 messages) now gets 422 where it got through before; pass a higher value for that option to accept it. A request within the limits reaches your `createQuery` with exactly the same `input` as before.

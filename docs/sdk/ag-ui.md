@@ -541,6 +541,12 @@ owns routing, authentication, CORS, and persistence.
 | `maxRequestBytes` | 4,194,304 (4 MiB) | HTTP body, including chunked input |
 | `maxEventBytes` | 1,048,576 (1 MiB) | JSON event/state size; adapter minimum is 256 |
 | `maxPendingEvents` | 128 | Queued application state/custom events per request |
+| `maxMessages` | 20,000 | Messages in `messages` |
+| `maxPartsPerMessage` | 1,000 | Content parts in one message |
+| `maxToolCallsPerMessage` | 1,000 | Tool calls on one assistant message |
+| `maxTools` | 2,000 | Tools in `tools` |
+| `maxContextEntries` | 1,000 | Entries in `context` |
+| `maxResumeEntries` | 1,000 | Entries in `resume` |
 | `interrupts.ttlMs` | 10 minutes for a turn waiting in a tool; none for a paused turn | How long an interrupt can be answered |
 
 All limits must be positive safe integers. Native events are consumed with
@@ -610,6 +616,36 @@ are omitted.
 `MESSAGES_SNAPSHOT` built from the session comes from `foldSessionMessages`,
 so it shows the answer after any guardrail, review or structured-output
 rewrite, never the raw model text the log keeps for audit.
+
+### What a request can cost
+
+A request is validated before the host's `createQuery` runs, so before the host
+has authenticated anyone. Three things bound what that can cost:
+
+1. **The byte cap.** `maxRequestBytes` is checked while the body streams in,
+   before anything is parsed. A body over it is a 413 and is never parsed.
+2. **Count limits.** The validation library builds one issue object per
+   failing element, so the memory a rejected request costs grows with its
+   element count, not its byte count: a body of `1,1,1,...` under 4 MiB has
+   about two million elements. Before any schema runs, the adapter reads the
+   length of `messages`, `tools`, `context`, `resume`, each message's `content`
+   parts and each assistant message's `toolCalls`, and answers 422 with code
+   `REQUEST_LIMIT_EXCEEDED` at the first one over its limit. The answer names
+   the collection and the option to raise, never request data. An element is
+   at least about 30 bytes, so the byte cap alone would admit 100,000 or more
+   messages; the defaults sit far above any real conversation and far below
+   that. Raise a limit on the adapter when a real request reaches it.
+3. **One message at a time.** Messages are validated one by one and the first
+   failure ends it with the generic 422 `INVALID_REQUEST`, so at most one
+   message's issues exist at once, and its parts and tool calls are already
+   counted. The rest of the request is then validated with the messages
+   emptied and the validated messages put back, which yields the same value as
+   validating the whole request at once (same defaults, same unknown fields
+   kept, a `__proto__` key dropped).
+
+Parsing the JSON itself costs memory proportional to the number of values in
+it (a body of `{},{},...` costs roughly 50 bytes per 3 bytes of body); that is
+the one cost of a request inside the byte cap that no limit here changes.
 
 ## Connect CopilotKit
 
