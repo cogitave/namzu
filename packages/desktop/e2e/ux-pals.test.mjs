@@ -107,9 +107,12 @@ test(
 			await shot(world, "04-computer-notice-1440");
 			// The computer page says what is missing in the same words and why Take over waits.
 			await page.getByRole("button", { name: /Open Işık’s computer/ }).click();
-			await expect(page.getByText("Computer is offline")).toBeVisible();
+			// With nothing to run it on, the page shows the setup card where the live screen would be,
+			// and offers no Start: a start would fail.
+			await expect(page.getByRole("heading", { name: "Set up Işık’s computer" })).toBeVisible();
+			await expect(page.getByRole("button", { name: "Get Docker Desktop" })).toBeVisible();
 			await expect(page.getByText("Offline. Start the computer to take over.")).toBeVisible();
-			await expect(page.getByRole("button", { name: "Start Işık" })).toBeVisible();
+			await expect(page.getByRole("button", { name: "Start Işık" })).toHaveCount(0);
 			assert.doesNotMatch(
 				await page.locator(".pal-computer-view").innerText(),
 				/Dockerfile|packages\//,
@@ -177,7 +180,11 @@ test(
 			await approval.getByRole("button", { name: /Accept/ }).click();
 			// The sent line stays in the transcript even though the work folds away.
 			const receipt = page.getByRole("list", { name: "Messages sent to Pals" });
-			await expect(receipt).toContainText("Sent to Işık’s inbox.", { timeout: 60000 });
+			// With nothing here to run Işık's computer on, the line says that and why instead of the plain
+			// "Sent to ... inbox": Start is there but cannot be pressed, and the message stays one click away.
+			await expect(receipt).toContainText("Işık’s computer cannot start yet", { timeout: 60000 });
+			await expect(receipt.getByRole("button", { name: "Start Işık" })).toBeDisabled();
+			await expect(receipt.getByRole("button", { name: "See it in Işık’s messages" })).toBeVisible();
 			// Once the reply has finished nothing under it is cut off: no element in the transcript hides
 			// part of its own text behind an overflow clip.
 			await expect(page.getByText("I sent your Pal the request.")).toBeVisible({ timeout: 60000 });
