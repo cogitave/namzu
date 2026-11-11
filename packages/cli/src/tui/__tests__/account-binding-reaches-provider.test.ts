@@ -133,7 +133,7 @@ it('refuses an account whose credential is gone, before a session exists, in pla
 it('records the binding in the conversation once, however often the session is rebuilt', async () => {
 	const { cwd, home } = workspace()
 	const accounts = openCliAccounts({ home })
-	const { openSessions, recordAccountBound, readConversationFacts } = await import(
+	const { openSessions, recordAccountBound, readConversationRecords } = await import(
 		'../../integrations/sessions/store.js'
 	)
 	const sessions = await openSessions(cwd)
@@ -155,7 +155,7 @@ it('records the binding in the conversation once, however often the session is r
 				reason: 'start',
 			}),
 		).toBe(false)
-		const facts = await readConversationFacts(sessions, sessionId, 'strict')
+		const facts = await readConversationRecords(sessions, sessionId, 'strict')
 		expect(
 			facts?.records.filter((record) => record.type === 'account_bound').map((r) => r.accountId),
 		).toEqual(['openai:work'])
@@ -180,7 +180,7 @@ it('records a switch back to the usual sign-in, so a resume does not return to t
 		closeSessions,
 		startConversation,
 		recordAccountBound,
-		readConversationFacts,
+		readConversationRecords,
 	} = await import('../../integrations/sessions/store.js')
 	const sessions = await openSessions(cwd)
 	try {
@@ -205,7 +205,7 @@ it('records a switch back to the usual sign-in, so a resume does not return to t
 				reason: 'user_switch',
 			}),
 		).toBe(true)
-		const facts = await readConversationFacts(sessions, sessionId, 'strict')
+		const facts = await readConversationRecords(sessions, sessionId, 'strict')
 		expect(resolveBoundAccount(facts?.records ?? [], 'openai', accounts.registry).accountId).toBe(
 			'openai:default',
 		)

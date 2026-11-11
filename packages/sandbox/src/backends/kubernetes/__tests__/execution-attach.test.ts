@@ -179,6 +179,40 @@ async function severAgentPort(forMs: number): Promise<void> {
 	listener = await listen(agentPort)
 }
 
+/**
+ * What the HOST has read of a running command, and a way to wait for it.
+ *
+ * Every case below that must act "once the command is running" waits on
+ * this instead of sleeping for a guessed time: the command prints a marker
+ * the moment it is admitted, and `reached(text)` resolves when that marker
+ * has crossed the real socket into the host's `onOutput`. How long that
+ * takes is the machine's business; the case only proceeds on the event.
+ * A marker that never arrives is a hang the case's Vitest timeout reports.
+ */
+function watchOutput(): {
+	readonly onOutput: (chunk: { readonly stream: string; readonly data: string }) => void
+	reached(text: string): Promise<void>
+} {
+	let seen = ''
+	const waiters: { text: string; resolve: () => void }[] = []
+	return {
+		onOutput: (chunk) => {
+			seen += chunk.data
+			for (let i = waiters.length - 1; i >= 0; i -= 1) {
+				const waiter = waiters[i]
+				if (waiter && seen.includes(waiter.text)) {
+					waiters.splice(i, 1)
+					waiter.resolve()
+				}
+			}
+		},
+		reached: (text) =>
+			seen.includes(text)
+				? Promise.resolve()
+				: new Promise<void>((resolve) => waiters.push({ text, resolve })),
+	}
+}
+
 function transport(): KubernetesAgentTransport {
 	return new KubernetesAgentTransport({
 		kind: 'tcp',
@@ -496,6 +530,7 @@ describe.skipIf(IS_WINDOWS)('a detached command', () => {
 	it('loses nothing when a multi-byte character straddles the chunk the outage cut', async () => {
 		await startAgent()
 		const wire = transport()
+		const output = watchOutput()
 		// The split character first, then a line every 200ms, so the
 		// reattach lands well after the boundary that would have drifted
 		// the cursor.
@@ -505,9 +540,17 @@ describe.skipIf(IS_WINDOWS)('a detached command', () => {
 				'-c',
 				`${SPLIT_CHARACTER}; echo; i=0; while [ $i -lt 12 ]; do echo "L$i"; i=$((i+1)); sleep 0.2; done`,
 			],
-			{ executionId: EXECUTION_X, detach: true, reattachWindowMs: 10_000 },
+			{
+				executionId: EXECUTION_X,
+				detach: true,
+				reattachWindowMs: 10_000,
+				onOutput: output.onOutput,
+			},
 		)
-		await delay(700)
+		// Sever once the host has read past the split character and the
+		// first line, so the outage really does cut a chunk the cursor
+		// has already moved through.
+		await output.reached('L1\n')
 		await severAgentPort(600)
 
 		const result = await running
@@ -538,12 +581,20 @@ describe.skipIf(IS_WINDOWS)('a detached command', () => {
 		// while a drifted cursor is already past its end: the offset then
 		// names bytes that will never exist, and the guest refuses it
 		// outright rather than merely skipping ahead.
+		const output = watchOutput()
 		const running = wire.execDetached(
 			'sh',
 			['-c', `${SPLIT_CHARACTER}; printf " mid\\n"; sleep 2; printf "tail\\n"`],
-			{ executionId: EXECUTION_X, detach: true, reattachWindowMs: 10_000 },
+			{
+				executionId: EXECUTION_X,
+				detach: true,
+				reattachWindowMs: 10_000,
+				onOutput: output.onOutput,
+			},
 		)
-		await delay(700)
+		// Sever once the host has read the output that ends mid-character,
+		// while the command is quiet.
+		await output.reached(' mid\n')
 		await severAgentPort(600)
 
 		const result = await running
@@ -578,13 +629,14 @@ describe.skipIf(IS_WINDOWS)('a detached command', () => {
 		await startAgent()
 		const marker = join(workDir, 'survived.txt')
 		const wire = transport()
+		const output = watchOutput()
 		const running = wire.execDetached(
 			'sh',
-			['-c', `sleep 0.6; echo done > ${JSON.stringify(marker)}; echo finished`],
-			{ executionId: EXECUTION_X, detach: true },
+			['-c', `echo started; sleep 0.6; echo done > ${JSON.stringify(marker)}; echo finished`],
+			{ executionId: EXECUTION_X, detach: true, onOutput: output.onOutput },
 		)
-		// Give the command time to be admitted, then attach and walk away.
-		await delay(150)
+		// Attach and walk away once the command has been admitted and said so.
+		await output.reached('started\n')
 		const observer = connect({ host: '127.0.0.1', port: agentPort })
 		extraSockets.push(observer)
 		await once(observer, 'connect')
@@ -610,11 +662,15 @@ describe.skipIf(IS_WINDOWS)('a detached command', () => {
 	it('reports cancelled to a later reader when another process ends it by id', async () => {
 		await startAgent()
 		const wire = transport()
+		const output = watchOutput()
 		const running = wire.execDetached('sh', ['-c', 'echo starting; sleep 30'], {
 			executionId: EXECUTION_X,
 			detach: true,
+			onOutput: output.onOutput,
 		})
-		await delay(250)
+		// Cancel only once the command is admitted and running: a cancel
+		// that beat the start would name an execution the guest has not got.
+		await output.reached('starting\n')
 
 		// A different transport — a different host process, as far as the
 		// guest is concerned — ends it by id.
@@ -663,11 +719,14 @@ describe.skipIf(IS_WINDOWS)('a detached command', () => {
 	it("refuses a new detached command rather than drop a running one's output", async () => {
 		await startAgent({ NAMZU_AGENT_MAX_RETAINED_OUTPUT_LOGS: '1' })
 		const other = 'exec_2a3b4c5d-6e7f-4a8b-9c0d-223344556677'
+		const output = watchOutput()
 		const holding = transport().execDetached('sh', ['-c', 'echo holding; sleep 30'], {
 			executionId: EXECUTION_X,
 			detach: true,
+			onOutput: output.onOutput,
 		})
-		await delay(250)
+		// The slot is taken once the command is admitted and has said so.
+		await output.reached('holding\n')
 
 		// The only retained slot belongs to a LIVE command, whose output has
 		// nowhere else to go, so the refusal happens before a second process
@@ -715,7 +774,10 @@ describe.skipIf(IS_WINDOWS)('a detached command', () => {
 			token: POD_UID,
 			body: { command: 'sh', args: ['-c', 'sleep 1 >/dev/null 2>&1 & exit 0'] },
 		}).catch(() => undefined)
-		for (let attempt = 0; attempt < 100; attempt += 1) {
+		// No attempt bound: the agent fences itself when the command's leader
+		// closes, an event, and one that never comes is a hang the case's
+		// own Vitest timeout reports.
+		for (;;) {
 			const health = await sendFramedRequest(agentPort, { op: 'healthz' })
 			if (health.reply.retiring === true) break
 			await delay(25)
@@ -875,12 +937,13 @@ describe.skipIf(IS_WINDOWS)('a workspace whose agent port goes away', () => {
 		const workspace = await openWorkspace()
 		const patchesBefore = patchesSent().length
 
+		const output = watchOutput()
 		const running = workspace.exec(
 			'sh',
 			['-c', 'i=0; while [ $i -lt 9 ]; do echo $i; i=$((i+1)); sleep 2; done'],
-			{ executionId: EXECUTION_X, detach: true },
+			{ executionId: EXECUTION_X, detach: true, onOutput: output.onOutput },
 		)
-		await delay(1_000)
+		await output.reached('0\n')
 		// Longer than the eight-second window a cancel would be retried
 		// for: the behaviour being replaced here would have reported the
 		// cancel unconfirmed and suspended the workspace.
@@ -901,12 +964,18 @@ describe.skipIf(IS_WINDOWS)('a workspace whose agent port goes away', () => {
 		const workspace = await openWorkspace()
 		const patchesBefore = patchesSent().length
 
+		const output = watchOutput()
 		const running = workspace.exec(
 			'sh',
 			['-c', 'i=0; while [ $i -lt 9 ]; do echo $i; i=$((i+1)); sleep 2; done'],
-			{ executionId: EXECUTION_X, detach: true, reattachWindowMs: 2_000 },
+			{
+				executionId: EXECUTION_X,
+				detach: true,
+				reattachWindowMs: 2_000,
+				onOutput: output.onOutput,
+			},
 		)
-		await delay(1_000)
+		await output.reached('0\n')
 		const restored = severAgentPort(15_000)
 
 		const failure = await running.catch((error: unknown) => error)

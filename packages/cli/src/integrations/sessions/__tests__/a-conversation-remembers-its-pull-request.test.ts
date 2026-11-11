@@ -9,7 +9,7 @@ import {
 	linkConversationToPullRequest,
 	listRecent,
 	openSessions,
-	readConversationFacts,
+	readConversationRecords,
 	startConversation,
 } from '../store.js'
 
@@ -49,11 +49,11 @@ describe('a conversation linked to a pull request', () => {
 		const id = await startConversation(s)
 		await recordTurn(s, id, [said('user', 'fix the login bug')])
 		await linkConversationToPullRequest(s, id, link)
-		const before = (await readConversationFacts(s, id))?.records.length
+		const before = (await readConversationRecords(s, id))?.records.length
 
 		expect(await linkConversationToPullRequest(s, id, link)).toBe(false)
 
-		expect((await readConversationFacts(s, id))?.records.length).toBe(before)
+		expect((await readConversationRecords(s, id))?.records.length).toBe(before)
 	})
 
 	it('follows the latest request when the conversation moves to another', async () => {

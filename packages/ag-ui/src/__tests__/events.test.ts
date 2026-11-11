@@ -1,5 +1,6 @@
 import { HttpAgent } from '@ag-ui/client'
-import { type BaseEvent, EventSchemas, EventType } from '@ag-ui/core'
+import { type BaseEvent, EventType } from '@ag-ui/core'
+import { EventSchema as EventSchemas } from '@ag-ui/core/schemas'
 import { EventEncoder } from '@ag-ui/encoder'
 import type {
 	MessageId,

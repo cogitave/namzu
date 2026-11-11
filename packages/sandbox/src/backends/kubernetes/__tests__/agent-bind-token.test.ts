@@ -29,7 +29,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AGENT_ENV_KEYS } from './fixtures/agent-env.js'
 import { decodeFrames, encodeFrame, sendFramedRequest } from './fixtures/framed-agent-client.js'
@@ -138,10 +138,9 @@ async function dial(): Promise<Socket> {
 	// land a turn AHEAD of the listener's `connection` event — so a case
 	// that reads `accepted.at(-1)` straight after a dial is reading a race
 	// it usually wins. Wait for the agent's own side to exist instead.
-	for (let waited = 0; accepted.length === before; waited += 1) {
-		if (waited > 1_000) throw new Error('the listener never accepted the dialled connection')
-		await delay(1)
-	}
+	// No bound of its own: the accept is an event, and one that never comes
+	// is a hang the case's Vitest timeout reports.
+	while (accepted.length === before) await delay(1)
 	return socket
 }
 
@@ -173,17 +172,15 @@ async function trickle(everyMs = 10): Promise<Socket> {
 async function firstFrame(socket: Socket): Promise<Record<string, unknown>> {
 	return await new Promise<Record<string, unknown>>((resolve, reject) => {
 		let buffered = Buffer.alloc(0)
-		const timer = setTimeout(() => reject(new Error('no frame within 10s')), 10_000)
-		timer.unref()
+		// No timer: a frame that never comes is a hang the case's Vitest
+		// timeout reports, and a close before one is rejected below.
 		socket.on('data', (chunk: Buffer) => {
 			buffered = Buffer.concat([buffered, chunk])
 			const { frames } = decodeFrames(buffered)
 			if (frames.length === 0) return
-			clearTimeout(timer)
 			resolve(JSON.parse(frames[0] as string) as Record<string, unknown>)
 		})
 		socket.once('close', () => {
-			clearTimeout(timer)
 			reject(new Error('closed before any frame arrived'))
 		})
 	})
@@ -196,23 +193,15 @@ function flood(socket: Socket, mib: number): void {
 }
 
 /**
- * Wait for the agent to take a connection down, and say what went wrong
- * if it never does — a bare await here fails as "test timed out", which
- * names the symptom and not the defect.
+ * Wait for the agent to take a connection down. The close is an event the
+ * agent's own code raises, with no deadline of this test's making: an agent
+ * that leaves the connection open instead of destroying it is a hang, and
+ * the case's own Vitest timeout reports it. No sentinel races it, because
+ * how long a loaded machine takes to deliver the close is not what is under
+ * test.
  */
 async function expectAgentClosed(connection: AcceptedConnection): Promise<void> {
-	let timer: ReturnType<typeof setTimeout> | undefined
-	const expired = new Promise<never>((_resolve, reject) => {
-		timer = setTimeout(
-			() => reject(new Error('the agent left the connection open instead of destroying it')),
-			5_000,
-		)
-	})
-	try {
-		await Promise.race([connection.closed, expired])
-	} finally {
-		clearTimeout(timer)
-	}
+	await connection.closed
 }
 
 /** A request the gate must refuse or admit — a real op, not a probe. */
@@ -845,7 +834,13 @@ describe('bounds on an unauthenticated connection', () => {
 		const holding = await dial()
 		holding.write(Buffer.from('00010000\n', 'ascii'))
 		holding.write(Buffer.alloc(60 * 1024, 0x61))
-		await delay(100)
+		// Wait until the agent has actually read what is being held, which is
+		// what the second connection's refusal is measured against.
+		const holdingConnection = accepted.at(-1) as AcceptedConnection
+		await vi.waitFor(
+			() => expect(holdingConnection.socket.bytesRead).toBeGreaterThanOrEqual(60 * 1024),
+			{ timeout: 30_000 },
+		)
 		const second = await dial()
 		second.write(Buffer.from('00010000\n', 'ascii'))
 		second.write(Buffer.alloc(60 * 1024, 0x61))

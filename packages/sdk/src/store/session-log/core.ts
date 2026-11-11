@@ -52,6 +52,12 @@ import {
 } from './lease.js'
 import type { SpillReadOptions, SpillRef, SpillStore } from './spill.js'
 import { TOOL_INPUT_RECORD_TYPES, spilledInput, toolInputSlots } from './spilled-input.js'
+import {
+	type VerifiedPrefix,
+	rehashPrefix,
+	startVerifiedPrefix,
+	verifiedPrefixOf,
+} from './verified-prefix.js'
 
 // ─── public types ─────────────────────────────────────────────────────────
 
@@ -91,6 +97,17 @@ export interface ReadSessionLogOptions {
 	readonly mode?: 'strict' | 'tolerant'
 	/** Resume after this record: its bytes are checked, then the walk continues from it. */
 	readonly after?: RecordPointer
+	/**
+	 * With `after`, and in `strict` mode only: also confirm that every byte
+	 * before the cursor is what this process verified. The prefix is read and
+	 * hashed line by line against what was remembered (no parsing, nothing
+	 * kept); when this process remembers nothing of the log, or any byte
+	 * differs, it is verified in full from byte 0, which refuses a broken chain
+	 * as a read from byte 0 does. Without it a resumed read trusts the records
+	 * before the cursor, as a reduction that is advanced rather than recomputed
+	 * does. Ignored when the medium has no `identity`.
+	 */
+	readonly reverify?: boolean
 	/**
 	 * The record the log must hold at `expectHead.seq`, byte for byte. Anchors
 	 * the tail, which no later record vouches for.
@@ -288,6 +305,25 @@ export interface LogMedium extends LogBytes {
 	truncate(size: number, expectedSize: number): Promise<void>
 	/** The bytes from `offset` to the end, in chunks. */
 	stream(offset: number): AsyncIterable<Uint8Array>
+	/**
+	 * A string that names this log's bytes for as long as the same file stands
+	 * (the disk medium: device, inode and path), or `undefined` when the log
+	 * has none yet or the medium cannot say. A log that has one lets a later
+	 * claim in the same process re-check the bytes it already verified without
+	 * parsing them again; the content is still compared, so a wrong or reused
+	 * identity can only cost a full verification, never skip one.
+	 */
+	identity?(): Promise<string | undefined>
+	/**
+	 * Hand the bytes from `offset` to `visit`, chunk by chunk, until `visit`
+	 * answers `true` or the log ends. The chunk is only valid for the call: the
+	 * medium may fill the same buffer again for the next one, so a visitor keeps
+	 * no slice of it. It lets a re-check of a long log read through one buffer
+	 * instead of allocating a fresh native buffer for every megabyte, which
+	 * otherwise makes the collector run on every few walks. Optional; `stream`
+	 * is used when a medium has no `scan`.
+	 */
+	scan?(offset: number, visit: (chunk: Uint8Array) => boolean): Promise<void>
 }
 
 export interface SessionLogCoreOptions {
@@ -397,6 +433,8 @@ export class SessionLogCore implements SessionLog {
 	readonly #holding: HeldSessionLease = { release: () => this.#releaseHeld() }
 	/** Bytes of the log this instance has verified and applied. */
 	#synced = 0
+	/** What this process remembers of the log's verified prefix (see `verified-prefix.ts`). */
+	#ledgerKey: string | undefined
 	#torn = 0
 	readonly #degradedBufferBytes: number
 	/** Records accepted into the chain that the medium has not taken yet, oldest first. */
@@ -462,13 +500,48 @@ export class SessionLogCore implements SessionLog {
 
 	// ── state ──
 
-	/** Catch up with the medium: verify and apply whatever was appended since the last sync. */
+	/**
+	 * Catch up with the medium: verify and apply whatever was appended since the last sync.
+	 *
+	 * An instance that has nothing yet (a fresh one) first asks whether this
+	 * process already verified a prefix of this very log: it then re-reads and
+	 * hashes every byte of that prefix, and takes it as verified only when
+	 * every line's length and SHA-256 equal what was verified (no parsing, no
+	 * schema check). The bytes after it, and every byte when nothing matches,
+	 * are verified in full.
+	 */
 	async #catchUp(): Promise<void> {
 		// Records waiting for the disk are ahead of it; the lease keeps others out.
 		if (this.#pending.length > 0) return
 		const size = await this.#medium.size()
 		if (size === this.#synced + this.#torn && size >= this.#synced) return
 		if (size < this.#synced) this.#reset()
+		let ledger: VerifiedPrefix | undefined
+		const key = await this.#medium.identity?.()
+		this.#ledgerKey = key
+		if (key !== undefined) {
+			ledger = verifiedPrefixOf(key)
+			if (this.#synced === 0 && this.#chain.head === null) {
+				const remembered = ledger
+				if (
+					remembered !== undefined &&
+					remembered.count > 0 &&
+					remembered.sessionId === this.sessionId &&
+					remembered.end <= size &&
+					(await rehashPrefix(this.#medium, remembered, remembered.count))
+				) {
+					this.#chain = new SessionLogChain({
+						head: remembered.head,
+						sessionId: remembered.sessionId,
+						gen: remembered.gen,
+					})
+					this.#turns = remembered.turns()
+					this.#synced = remembered.end
+				} else {
+					ledger = startVerifiedPrefix(key)
+				}
+			}
+		}
 		const splitter = new LineSplitter(this.#synced)
 		for await (const chunk of this.#medium.stream(this.#synced)) {
 			for (const { line, offset } of splitter.push(chunk)) {
@@ -483,6 +556,7 @@ export class SessionLogCore implements SessionLog {
 				}
 				this.#turns.apply(entry.record)
 				this.#synced = offset + line.byteLength
+				ledger?.append(entry)
 			}
 		}
 		this.#torn = splitter.pendingBytes
@@ -761,7 +835,19 @@ export class SessionLogCore implements SessionLog {
 		const entry = this.#chain.accept(bytes, this.#synced)
 		this.#turns.apply(entry.record)
 		this.#synced += bytes.byteLength
+		// On the disk and fully verified: a later claim need not parse it again.
+		if (this.#pending.length === 0) await this.#rememberWritten(entry)
 		return entry
+	}
+
+	/** Let this process remember a record this instance just wrote and verified. */
+	async #rememberWritten(entry: SessionLogEntry): Promise<void> {
+		if (this.#ledgerKey === undefined) this.#ledgerKey = await this.#medium.identity?.()
+		if (this.#ledgerKey === undefined) return
+		const ledger =
+			verifiedPrefixOf(this.#ledgerKey) ??
+			(entry.pointer.seq === 1 ? startVerifiedPrefix(this.#ledgerKey) : undefined)
+		ledger?.append(entry)
 	}
 
 	/**
@@ -1094,7 +1180,7 @@ export async function collect(
  * both backends and by `readSessionLog`.
  */
 export async function* walkSessionLog(
-	medium: Pick<LogMedium, 'size' | 'read' | 'stream'>,
+	medium: Pick<LogMedium, 'size' | 'read' | 'stream' | 'identity' | 'scan'>,
 	options: ReadSessionLogOptions & { readonly sessionId?: SessionId },
 ): AsyncGenerator<SessionLogEntry, SessionLogReadSummary> {
 	const strict = (options.mode ?? 'strict') === 'strict'
@@ -1106,6 +1192,9 @@ export async function* walkSessionLog(
 		brokeAt = error
 	}
 
+	// A resumed read that must also vouch for the bytes before its cursor.
+	let covered = 0
+	let ledger: VerifiedPrefix | undefined
 	if (options.after !== undefined) {
 		const after = options.after
 		if (!(await verifyPointer(medium, after))) {
@@ -1118,15 +1207,42 @@ export async function* walkSessionLog(
 			fail(error)
 			return { intact: false, throughSeq: 0, head: null, tornBytes: 0, break: error }
 		}
-		const parsed = parseSessionLogLine(await medium.read(after.offset, after.length))
-		chain = new SessionLogChain({
-			head: after,
-			sessionId: options.sessionId ?? parsed.record.sessionId,
-			gen: parsed.record.gen,
-		})
-		start = after.offset + after.length
+		const key = options.reverify && strict ? await medium.identity?.() : undefined
+		if (key !== undefined) {
+			const remembered = verifiedPrefixOf(key)
+			if (
+				remembered !== undefined &&
+				remembered.sessionId === options.sessionId &&
+				remembered.holds(after) &&
+				(await rehashPrefix(medium, remembered, after.seq))
+			) {
+				ledger = remembered
+			} else {
+				// Nothing remembered, or it no longer matches: verify from byte 0 and
+				// remember it, handing the caller only what follows the cursor.
+				ledger = startVerifiedPrefix(key)
+				covered = after.seq
+			}
+		}
+		if (covered > 0) {
+			chain = new SessionLogChain({ head: null, sessionId: options.sessionId })
+		} else {
+			const parsed = parseSessionLogLine(await medium.read(after.offset, after.length))
+			chain = new SessionLogChain({
+				head: after,
+				sessionId: options.sessionId ?? parsed.record.sessionId,
+				gen: parsed.record.gen,
+			})
+			start = after.offset + after.length
+		}
 	} else {
 		chain = new SessionLogChain({ head: null, sessionId: options.sessionId })
+		// A whole read that asked to reverify is the first of its kind: what it verifies in
+		// full is remembered, so the resumed reads after it can re-check by hash.
+		if (options.reverify && strict) {
+			const key = await medium.identity?.()
+			if (key !== undefined) ledger = verifiedPrefixOf(key) ?? startVerifiedPrefix(key)
+		}
 	}
 
 	const splitter = new LineSplitter(start)
@@ -1166,6 +1282,8 @@ export async function* walkSessionLog(
 						break outer
 					}
 				}
+				ledger?.append(entry)
+				if (entry.pointer.seq <= covered) continue
 				yield entry
 				if (options.throughSeq !== undefined && entry.pointer.seq >= options.throughSeq) {
 					stopped = true

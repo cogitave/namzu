@@ -1231,18 +1231,9 @@ export function createCliAcpRuntime(
 			)
 			assertModeAllowed(record, settings.permissionMode)
 			const facts = await readConversationFacts(record.conversations, target.sessionId)
-			const started = facts?.records.find(
-				(row) => row.type === 'turn_started' && row.turnId === turnId,
-			)
-			const pause = [...(facts?.records ?? [])]
-				.reverse()
-				.find((row) => row.type === 'turn_paused' && row.turnId === turnId)
-			if (
-				started?.type !== 'turn_started' ||
-				!started.config.model ||
-				pause?.type !== 'turn_paused' ||
-				!pause.providerError
-			)
+			const started = facts?.startedTurn(turnId)
+			const pause = facts?.latestPause(turnId)
+			if (!started?.model || !pause?.providerError)
 				throw new Error('The original provider and model cannot be verified for this retry.')
 			if (!record.model) throw new Error('The selected model cannot be verified for this retry.')
 			const routedEvent = (event: SessionEvent): void => {
@@ -1560,10 +1551,8 @@ export function createCliAcpRuntime(
 						'The original approval settings are unavailable after reconnection. An explicit permission mode is required to retry this retained turn.',
 					)
 				const facts = await readConversationFacts(state, target.sessionId)
-				const pause = [...(facts?.records ?? [])]
-					.reverse()
-					.find((row) => row.type === 'turn_paused' && row.turnId === status.retry?.turnId)
-				if (pause?.type !== 'turn_paused' || !pause.providerError)
+				const pause = status.retry?.turnId ? facts?.latestPause(status.retry.turnId) : undefined
+				if (!pause?.providerError)
 					return blocked('The original provider cannot be verified for this retry.')
 				// A turn already retried stopped again on the model it was retried on.
 				const lastRun = retriedOn.get(status.retry.turnId)
@@ -1587,19 +1576,11 @@ export function createCliAcpRuntime(
 			if (!active?.paused || (turnId !== undefined && active.turnId !== turnId))
 				throw new Error('This conversation has no paused turn to close. Open it again.')
 			const pausedTurn = active.turnId
-			const pause = [...(facts?.records ?? [])]
-				.reverse()
-				.find((row) => row.type === 'turn_paused' && row.turnId === pausedTurn)
-			if (pause?.type !== 'turn_paused' || pause.handoff || !pause.providerError)
+			const pause = facts?.latestPause(pausedTurn)
+			if (!pause || pause.handoff || !pause.providerError)
 				throw new Error('Only a turn that stopped on a provider error can be closed this way.')
-			const waiting = new Set<string>()
-			for (const row of facts?.records ?? []) {
-				if (row.type === 'decision_requested' && row.turnId === pausedTurn)
-					waiting.add(row.decisionId)
-				if (row.type === 'decision_resolved' || row.type === 'decision_expired')
-					waiting.delete(row.decisionId)
-			}
-			if (waiting.size) throw new Error('This turn is waiting for a decision; answer it first.')
+			if (facts?.pendingDecisions(pausedTurn).size)
+				throw new Error('This turn is waiting for a decision; answer it first.')
 			const reason = 'The person continued without the reply that stopped on a provider error.'
 			// Unless the person goes on with a different message, theirs goes back to the message
 			// box: the closed turn must not also reach the provider with it when they send it again.

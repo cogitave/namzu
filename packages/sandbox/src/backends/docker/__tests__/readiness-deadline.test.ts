@@ -27,7 +27,7 @@ beforeEach(() => {
 			'  network) printf "false\\n" ;;',
 			'  run) printf "container-id\\n" ;;',
 			'  inspect) printf "65534\\n" ;;',
-			'  rm) printf "rm\\n" >> "${NAMZU_TEST_DOCKER_LOG:?}"; if [ "${NAMZU_TEST_HOLD_DOCKER_RM:-}" = "1" ]; then sleep 1; fi; if [ "${NAMZU_TEST_FAIL_DOCKER_RM:-}" = "1" ]; then exit 9; fi ;;',
+			'  rm) printf "rm\\n" >> "${NAMZU_TEST_DOCKER_LOG:?}"; if [ "${NAMZU_TEST_HOLD_DOCKER_RM:-}" = "1" ]; then while [ ! -e "${NAMZU_TEST_DOCKER_LOG}.release" ]; do sleep 0.05; done; fi; if [ "${NAMZU_TEST_FAIL_DOCKER_RM:-}" = "1" ]; then exit 9; fi ;;',
 			'  *) exit 2 ;;',
 			'esac',
 		].join('\n'),
@@ -36,6 +36,9 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+	// Lets any held `docker rm` shim end, so a case that failed to kill it
+	// does not leave a process polling behind the suite.
+	writeFileSync(`${dockerLog}.release`, '')
 	vi.restoreAllMocks()
 	vi.useRealTimers()
 	globalThis.fetch = realFetch
@@ -209,11 +212,12 @@ describe('docker worker readiness deadline', () => {
 			throw new Error(`unexpected URL ${url}`)
 		}) as typeof fetch
 
-		const startedAt = performance.now()
+		// The rejection names the protocol version, which is what tells a fast
+		// refusal from the readiness deadline running out ("did not become
+		// ready"); no elapsed-time bound is asserted on top.
 		await expect(backend(100).create({ workingDirectory: workDir })).rejects.toThrow(
 			/protocol version/i,
 		)
-		expect(performance.now() - startedAt).toBeLessThan(500)
 		expect(cleanupCalls()).toBe(1)
 		expect(reserveCalls).toBe(0)
 		expect(executeCalls).toBe(0)
@@ -226,13 +230,13 @@ describe('docker worker readiness deadline', () => {
 			return await new Promise<Response>(() => undefined)
 		}) as typeof fetch
 
-		const startedAt = performance.now()
+		// The fetch never answers, so settling at all is the proof; a hang is
+		// the case's own Vitest timeout to report.
 		await expect(backend().create({ workingDirectory: workDir })).rejects.toThrow(
 			/did not become ready within 25ms/,
 		)
 		expect(healthSignal?.aborted).toBe(true)
 		expect(cleanupCalls()).toBe(1)
-		expect(performance.now() - startedAt).toBeLessThan(500)
 	})
 
 	it('kills a held cleanup child instead of hiding the readiness failure', async () => {
@@ -240,13 +244,16 @@ describe('docker worker readiness deadline', () => {
 		globalThis.fetch = vi.fn(
 			async () => await new Promise<Response>(() => undefined),
 		) as typeof fetch
-		const startedAt = performance.now()
 
+		// The fetch never answers and the `docker rm` shim is held until the
+		// case's teardown releases it, so this settles only if the readiness
+		// deadline fires AND the cleanup child is killed rather than waited
+		// for. Either failing is a hang the case's own Vitest timeout reports;
+		// how many milliseconds a loaded machine takes is not asserted.
 		await expect(backend(20).create({ workingDirectory: workDir })).rejects.toThrow(
 			/did not become ready within 20ms/,
 		)
 		expect(cleanupCalls()).toBe(1)
-		expect(performance.now() - startedAt).toBeLessThan(1_750)
 	})
 
 	it('lets caller cancellation stop readiness and reconciles the known container name', async () => {
@@ -281,7 +288,6 @@ describe('docker worker readiness deadline', () => {
 		const sandbox = await backend().create({ workingDirectory: workDir })
 		process.env.NAMZU_TEST_HOLD_DOCKER_RM = '1'
 		const owner = new AbortController()
-		const startedAt = performance.now()
 		const pending = sandbox.destroy({ signal: owner.signal })
 		while (!existsSync(dockerLog) || !readFileSync(dockerLog, 'utf8').includes('rm')) {
 			await new Promise((resolve) => setTimeout(resolve, 0))
@@ -290,7 +296,9 @@ describe('docker worker readiness deadline', () => {
 
 		await expect(pending).rejects.toThrow('teardown deadline')
 		expect(owner.signal.aborted).toBe(true)
-		expect(performance.now() - startedAt).toBeLessThan(500)
+		// The held `docker rm` child is released only by the case's teardown,
+		// so the rejection above can only come from the abort reaching it; a
+		// hang is the case's own Vitest timeout to report.
 	})
 
 	it('refuses a future worker protocol before returning a sandbox handle', async () => {

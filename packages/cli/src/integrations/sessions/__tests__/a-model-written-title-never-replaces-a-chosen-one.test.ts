@@ -7,7 +7,7 @@ import { recordTurn } from '../../../__fixtures__/session-log.js'
 import {
 	listRecent,
 	openSessions,
-	readConversationFacts,
+	readConversationRecords,
 	recordGeneratedTitle,
 	setTitle,
 	startConversation,
@@ -50,7 +50,7 @@ describe('a title the model wrote', () => {
 
 		await recordGeneratedTitle(s, id, 'Auth refactor')
 
-		const facts = await readConversationFacts(s, id)
+		const facts = await readConversationRecords(s, id)
 		expect(facts?.records.at(-1)).toMatchObject({
 			type: 'session_updated',
 			title: 'Auth refactor',

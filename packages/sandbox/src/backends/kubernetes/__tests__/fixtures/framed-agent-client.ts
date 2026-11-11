@@ -37,12 +37,32 @@ export function decodeFrames(buffer: Buffer): { frames: string[]; rest: Buffer }
 	let rest = buffer
 	for (;;) {
 		const newline = rest.indexOf(0x0a)
-		if (newline < LENGTH_PREFIX_HEX) break
+		if (newline < 0) break
+		// A header is exactly eight hex digits. Anything else is not this
+		// protocol (a different server answered, or the stream is corrupt),
+		// and it is an error here rather than a value to parse: `parseInt`
+		// turns text like "HTTP/1.1 400" into NaN, and a NaN length consumes
+		// nothing, so the loop used to push empty frames until the array hit
+		// the engine's limit.
+		if (
+			newline !== LENGTH_PREFIX_HEX ||
+			!/^[0-9a-fA-F]{8}$/.test(rest.subarray(0, newline).toString('ascii'))
+		) {
+			throw new Error(
+				`framed client: not a frame header; the peer is not speaking the agent protocol. First bytes: ${JSON.stringify(rest.subarray(0, 40).toString('latin1'))}`,
+			)
+		}
 		const length = Number.parseInt(rest.subarray(0, newline).toString('ascii'), 16)
 		const start = newline + 1
 		if (rest.length < start + length) break
 		frames.push(rest.subarray(start, start + length).toString('utf8'))
 		rest = rest.subarray(start + length)
+	}
+	// No newline yet but already longer than a header can be: also not ours.
+	if (rest.length > LENGTH_PREFIX_HEX && rest.indexOf(0x0a) < 0) {
+		throw new Error(
+			`framed client: no frame header in the first ${rest.length} bytes; the peer is not speaking the agent protocol. First bytes: ${JSON.stringify(rest.subarray(0, 40).toString('latin1'))}`,
+		)
 	}
 	return { frames, rest }
 }
@@ -88,9 +108,18 @@ export async function sendFramedRequest(
 		timer?.unref()
 		socket.on('connect', () => socket.write(encodeFrame(JSON.stringify(request))))
 		socket.on('data', (chunk) => {
-			const decoded = decodeFrames(rest.length === 0 ? chunk : Buffer.concat([rest, chunk]))
-			frames.push(...decoded.frames)
-			rest = decoded.rest
+			try {
+				const decoded = decodeFrames(rest.length === 0 ? chunk : Buffer.concat([rest, chunk]))
+				frames.push(...decoded.frames)
+				rest = decoded.rest
+			} catch (error) {
+				// A peer that is not the agent fails THIS exchange with the
+				// reason, instead of throwing out of the socket handler as an
+				// error no test owns.
+				clearTimeout(timer)
+				socket.destroy()
+				reject(error)
+			}
 		})
 		socket.on('end', () => {
 			closedByAgent = true

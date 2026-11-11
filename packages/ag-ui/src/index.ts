@@ -10,6 +10,7 @@ export type {
 	AGUISessionResolution,
 } from './adapter.js'
 export { AGUIRequestError } from './errors.js'
+export type { AGUIRequestLimits } from './request.js'
 export { AGUIEventMapper } from './events.js'
 export type { AGUIEventMapperOptions, AGUIPause } from './events.js'
 export { FRONTEND_RESULT_PAUSE } from './frontend-tools.js'

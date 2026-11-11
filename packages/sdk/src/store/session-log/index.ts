@@ -61,6 +61,7 @@ export {
 	withMessageId,
 } from './fold.js'
 export { type TornTailRepair, repairRecordDraft } from './heal.js'
+export { type IncrementalFold, foldSessionLog } from './incremental.js'
 export {
 	foldChildOutcomes,
 	foldTurnOutcomes,

@@ -49,19 +49,10 @@ export async function readProviderRetryStatus(
 	const active = facts.activeTurn
 	if (!active) return {}
 	if (!active.paused) return { notice: 'Wait for this conversation’s active turn to settle.' }
-	const pause = [...facts.records]
-		.reverse()
-		.find((record) => record.type === 'turn_paused' && record.turnId === active.turnId)
-	if (!pause || pause.type !== 'turn_paused')
-		throw new Error('This paused turn has no durable pause record.')
+	const pause = facts.latestPause(active.turnId)
+	if (!pause) throw new Error('This paused turn has no durable pause record.')
 	// Human decisions are not provider retries, even if another failure was recorded later.
-	const pending = new Set<string>()
-	for (const record of facts.records) {
-		if (record.type === 'decision_requested' && record.turnId === active.turnId)
-			pending.add(record.decisionId)
-		if (record.type === 'decision_resolved' || record.type === 'decision_expired')
-			pending.delete(record.decisionId)
-	}
+	const pending = facts.pendingDecisions(active.turnId)
 	const closable: Pick<ProviderRetryStatus, 'closable'> =
 		!pause.handoff && pause.providerError && pending.size === 0 ? { closable: true } : {}
 	const blocked = (notice: string): ProviderRetryStatus => ({ notice, ...closable })
@@ -117,17 +108,13 @@ export async function readProviderRetryStatus(
 		return blocked(
 			'This turn’s original token allowance is exhausted. Retry cannot change that allowance.',
 		)
-	const started = facts.records.find(
-		(record) => record.type === 'turn_started' && record.turnId === active.turnId,
-	)
+	const started = facts.startedTurn(active.turnId)
 	// `turn_started` names the model of the first attempt only. Once the turn was resumed, the pause
 	// that stopped it belongs to a later attempt whose model no record carries, so none is claimed.
-	const resumed = facts.records.some(
-		(record) => record.type === 'turn_resuming' && record.turnId === active.turnId,
-	)
+	const resumed = facts.wasResumed(active.turnId)
 	const original =
-		!resumed && started?.type === 'turn_started' && started.config.model && pause.providerError
-			? { provider: pause.providerError.providerId, model: started.config.model }
+		!resumed && started?.model && pause.providerError
+			? { provider: pause.providerError.providerId, model: started.model }
 			: undefined
 	return {
 		retry: {
