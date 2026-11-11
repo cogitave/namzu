@@ -151,6 +151,28 @@ describe('what Namzu closing leaves in the conversation', () => {
 		).toBeUndefined()
 	})
 
+	it('does not call an action that failed finished', () => {
+		const failedCall = (thread: ReturnType<typeof started>, id: string) =>
+			applyEvent(thread, {
+				kind: 'update',
+				sessionId: 's',
+				projectId: 'p',
+				update: {
+					kind: 'tool_call',
+					toolCallId: id,
+					title: 'bash',
+					status: 'failed',
+					view: { kind: 'terminal', command: 'x', output: 'denied' },
+				},
+			})
+		expect(stoppedWorkSummary(ended(failedCall(started(), 'c1')))).toBe(
+			'1 action failed before it stopped.',
+		)
+		expect(stoppedWorkSummary(ended(failedCall(finishedCall(started(), 'c1'), 'c2')))).toBe(
+			'1 action finished and 1 failed before it stopped.',
+		)
+	})
+
 	it('offers one honest way forward: a new message, since the stopped reply cannot be resumed', () => {
 		const out = html(ended(started()), () => {})
 		expect(out).toContain('Stopped because Namzu was closed.')

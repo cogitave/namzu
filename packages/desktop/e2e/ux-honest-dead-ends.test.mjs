@@ -122,7 +122,7 @@ flow(
 		assert.equal(await w.page.locator("#setting-mcpServers").getByText("Not set").count(), 0, "no false 'Not set'");
 		await shot(w, "servers-waiting");
 		await w.page.getByRole("button", { name: "Approve this server" }).click();
-		await expect(list.getByText("Not started yet")).toBeVisible({ timeout: T });
+		await expect(list.getByText("Not connected right now")).toBeVisible({ timeout: T });
 		assert.equal(await w.page.getByRole("button", { name: "Approve this server" }).count(), 0);
 		await shot(w, "servers-approved");
 		await w.page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Home" }).click();

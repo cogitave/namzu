@@ -51,7 +51,7 @@ it('names where each server is defined and its state in plain words', () => {
 		stateLabel: 'Failed',
 		reason: 'It did not answer.',
 	})
-	expect(mcpServerRowView(view.servers[3] as never).stateLabel).toBe('Not started yet')
+	expect(mcpServerRowView(view.servers[3] as never).stateLabel).toBe('Not connected right now')
 })
 
 it('lists every server read-only, with the failure reason and the approval for waiting ones', () => {

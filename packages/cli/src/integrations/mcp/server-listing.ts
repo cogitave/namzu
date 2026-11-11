@@ -33,7 +33,11 @@ export interface McpServerListing {
 
 export interface LiveMcpStatus {
 	readonly connected: readonly string[]
-	readonly failed: readonly FailedMcpServer[]
+	/**
+	 * `config` is the server's settings as they were when it failed. A failure whose settings have
+	 * since changed is not shown: it says nothing about the new settings.
+	 */
+	readonly failed: readonly (FailedMcpServer & { readonly config?: string })[]
 }
 
 const ONE_LINE = /[\r\n\t]+/g
@@ -71,7 +75,12 @@ export function listMcpServers(options: {
 			error: clip(error instanceof Error ? error.message : 'The settings could not be read.', 300),
 		}
 	}
-	const failures = new Map(live.failed.map((item) => [item.name, item.reason]))
+	const failures = new Map<string, string>()
+	for (const item of live.failed) {
+		const now = effective[item.name]
+		if (item.config !== undefined && item.config !== JSON.stringify(now ?? null)) continue
+		failures.set(item.name, item.reason)
+	}
 	const connected = new Set(live.connected)
 	const rows: McpServerRow[] = []
 	const origin = (name: string): McpServerOrigin =>

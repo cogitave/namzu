@@ -2124,7 +2124,9 @@ below) for conversations whose replies or tool output contain the text, and a co
 that matches by what it said stays in the list with a one-line excerpt around the match under its
 title. Titles and project names still match at once, without waiting. The search covers what a
 reply said and what a tool returned; text typed by the person is not part of the engine's search
-index. A search that fails leaves the title matches alone. The result is at most 20 conversations
+index. A match inside a tool's output shows only "Found in what “read” returned", never the text,
+because that output can hold anything the tool read (a settings file, a key) and the list is one keystroke
+away; the text of a reply is shown around the match. A search that fails leaves the title matches alone. The result is at most 20 conversations
 per project, and the text typed and the excerpts are never logged.
 Conversation history is also loaded when its project is opened; an unopened
 group's lack of rows does not imply that the project has no saved conversations.
@@ -3862,7 +3864,7 @@ still running" with **Keep working** (the default) and **Quit and stop**; replie
 running are marked `closedWhileRunning` in the saved conversation, and the next launch ends
 that conversation with "Stopped because Namzu was closed." until a new message is sent.
 Under that line the conversation says in one line what the reply's own actions did (for example "1 action
-finished before it stopped; 1 did not") when it took any, and offers one button, **Ask Namzu to continue**,
+finished before it stopped; 1 did not"; an action that failed is counted as failed, never as finished) when it took any, and offers one button, **Ask Namzu to continue**,
 with the line "This sends a new message. The stopped reply cannot be resumed." The engine can retry only a
 turn that paused on a provider error (`namzu/sessions/retry`); a turn cut off by closing the app has no
 checkpoint to resume from, so the button sends "Please continue from where you stopped." as an ordinary new
@@ -3979,11 +3981,13 @@ silently replayed.
 
 ### Tool servers in Settings
 
-**Settings ▸ Tools** opens with **Connected servers**, read from `namzu/mcp/servers` for the project in front (the
+**Settings ▸ Tools** opens with **Tool servers**, read from `namzu/mcp/servers` for the project in front (the
 project's name is in the line under the heading). Each row shows the server's name, where it is defined
 ("Your own settings", "This project's settings", ".mcp.json in this project"), the command or address it uses, and its
-state: Connected, Waiting for your approval, Failed (with the engine's reason) or Not started yet (Namzu starts a project's
-servers with its first conversation). The list is read-only. When servers from `.mcp.json` wait, a box above the list
+state: Connected, Waiting for your approval, Failed (with the engine's reason) or Not connected right now (no open conversation in the project holds it: none
+has started, or the ones that did are closed). The list is read again when the window regains focus, and a list
+read for one project is never shown under another project's name. A failure is remembered with the server's settings
+as they were; once those settings change it is no longer shown. The list is read-only. When servers from `.mcp.json` wait, a box above the list
 says they have not started and that approving lets them run the listed programs, with one button, **Approve this
 server** or **Approve these N servers**. It sends the names and fingerprints it was shown to `namzu/mcp/approve`,
 the same record `namzu mcp approve` writes, and reads the list again. The engine takes a project's servers instead of the
@@ -4009,7 +4013,7 @@ ACP methods and are not automatically installed in embedded SDK servers.
 | `namzu/conversations/rename` | exact `sessionId`, `title` (at most 200 characters) | `{title}`; names the conversation, and an empty title restores the title derived from its first message |
 | `namzu/conversations/fork` | exact `sessionId` | `{id, title}` of a new owned copy; refused while a turn is open, for a Pal workspace, or when the conversation has no messages |
 | `namzu/conversations/markdown` | exact `sessionId` | `{markdown, truncated}`; the strict transcript export, cut at 4 MiB of UTF-8 on a character boundary with `truncated: true` |
-| `namzu/conversations/search` | `query` (2 to 200 characters), optional `limit` (1 to 50, default 20) | `{hits: [{sessionId, excerpt}]}`: the project's recent conversations whose replies or tool output contain the text (case folded, through the session index's evidence search), one hit each, `excerpt` a one-line window of about 120 characters around the match. Needs a trusted folder; empty in a Pal workspace; nothing is logged |
+| `namzu/conversations/search` | `query` (2 to 200 characters), optional `limit` (1 to 50, default 20) | `{hits: [{sessionId, excerpt}]}`: the project's recent conversations whose replies or tool output contain the text (case folded, through the session index's evidence search), one hit each, `excerpt` a one-line window of about 120 characters around the match in a reply, or a plain "Found in what “<tool>” returned" for a match in tool output, whose text is withheld. Needs a trusted folder; empty in a Pal workspace; nothing is logged |
 | `namzu/mcp/servers` | `{}` | `{servers: [{name, origin, state, detail?, reason?, fingerprint?}], error?}`: the project's tool servers. `origin` is `your-config`, `this-project` (`namzu.config.json`) or `project-file` (`.mcp.json`); `state` is `connected` (a conversation of this project has it), `waiting` (in `.mcp.json`, not approved), `failed` (`reason` says why; the last conversation start in this folder was refused for it) or `idle` (approved and not started yet). `detail` is a command name or a web origin, never arguments, headers or environment. `fingerprint` is on `waiting` rows only. Reads files; starts nothing; empty for an untrusted folder or a Pal |
 | `namzu/mcp/approve` | `servers: [{name, fingerprint}]` | `{approved: [name]}`: records the approval the way `namzu mcp approve` does, bound to the entry as listed (an entry that changed since stays waiting) |
 | `namzu/project/git` | `{}` | `{branch, subject}` for the host folder, or `null` when untrusted, not a repository, git is missing or slower than 3 s. `branch` is `null` on a detached HEAD, `subject` is the last commit's first line (200 characters). Runs `git -c core.fsmonitor=false --no-optional-locks` with no shell, `GIT_OPTIONAL_LOCKS=0`, a 64 KiB output cap and a 15 s cache per folder |

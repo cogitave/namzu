@@ -434,7 +434,12 @@ export interface CliAcpRuntime {
 	 */
 	mcpStatus?(cwd: string): {
 		readonly connected: readonly string[]
-		readonly failed: readonly { readonly name: string; readonly reason: string }[]
+		readonly failed: readonly {
+			readonly name: string
+			readonly reason: string
+			/** The server's settings when it failed; a failure of settings since changed is not shown. */
+			readonly config?: string
+		}[]
 	}
 	setPluginEnabled(
 		sessionId: string,
@@ -631,7 +636,7 @@ export function createCliAcpRuntime(
 	const records = new Map<string, AcpRuntimeRecord>()
 	// The tool servers that stopped the last conversation from starting in a folder. A session whose
 	// server failed never exists, so this is the only place the reason survives for a settings page.
-	const mcpFailures = new Map<string, readonly { name: string; reason: string }[]>()
+	const mcpFailures = new Map<string, readonly { name: string; reason: string; config: string }[]>()
 	const mcpKey = (dir: string): string => {
 		try {
 			return canonicalProjectPath(dir)
@@ -924,7 +929,11 @@ export function createCliAcpRuntime(
 				if (candidate.mcpFailed.length > 0) {
 					mcpFailures.set(
 						mcpKey(cwd),
-						candidate.mcpFailed.map(({ name, reason }) => ({ name, reason })),
+						candidate.mcpFailed.map(({ name, reason }) => ({
+							name,
+							reason,
+							config: JSON.stringify(projectCtx.config.mcpServers?.[name] ?? null),
+						})),
 					)
 					const failure = candidate.mcpFailed
 						.map((entry) => `tool server "${entry.name}" is not available: ${entry.reason}`)

@@ -10,7 +10,7 @@ import {
 } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import { addUserMcpServer } from '../../integrations/mcp/user-config.js'
+import { addUserMcpServer, removeUserMcpServer } from '../../integrations/mcp/user-config.js'
 import {
 	closeSessions,
 	openSessions,
@@ -18,7 +18,7 @@ import {
 } from '../../integrations/sessions/store.js'
 import { decideHeadlessTrust } from '../../permissions/headless-trust.js'
 import { type AcpRuntimeDependencies, createCliAcpRuntime } from '../acp.js'
-import { createDesktopHostExtensions, searchExcerpt } from '../desktop-host.js'
+import { createDesktopHostExtensions, searchExcerpt, searchHitExcerpt } from '../desktop-host.js'
 
 let root: string
 let cwd: string
@@ -231,4 +231,46 @@ it('lists nothing for a folder nobody trusted, and says when the settings cannot
 	expect(broken.servers).toEqual([])
 	expect(broken.error).toBeTruthy()
 	await owner.close()
+})
+
+it('shows reply text around a match but never what a tool returned', () => {
+	const secret = 'API_KEY=sk-secret-value'
+	for (const source of ['tool_completed', 'compaction_shed:tool']) {
+		const shown = searchHitExcerpt({ source, toolName: 'read', excerpt: secret }, 'api_key')
+		expect(shown).toBe('Found in what “read” returned')
+		expect(shown).not.toContain('secret')
+	}
+	expect(searchHitExcerpt({ source: 'tool_completed', excerpt: secret }, 'api_key')).toBe(
+		'Found in what a tool returned',
+	)
+	expect(
+		searchHitExcerpt({ source: 'message_completed', excerpt: 'The api_key rotated.' }, 'api_key'),
+	).toBe('The api_key rotated.')
+})
+
+it('does not show a failure from before the server’s settings changed', async () => {
+	const owner = runtime()
+	vi.spyOn(owner, 'mcpStatus').mockReturnValue({
+		connected: [],
+		failed: [
+			{
+				name: 'broken',
+				reason: 'The server did not answer.',
+				config: JSON.stringify({ command: 'broken-server' }),
+			},
+		],
+	})
+	const host = createDesktopHostExtensions(owner, cwd)
+	host['namzu/project/trust']({ confirmed: true, cwd })
+	addUserMcpServer('broken', { command: 'broken-server' })
+	try {
+		const before = await host['namzu/mcp/servers']({})
+		expect(before.servers.map((row) => row.state)).toEqual(['failed'])
+		removeUserMcpServer('broken')
+		addUserMcpServer('broken', { command: 'fixed-server' })
+		const after = await host['namzu/mcp/servers']({})
+		expect(after.servers.map((row) => row.state)).toEqual(['idle'])
+	} finally {
+		await owner.close()
+	}
 })

@@ -88,6 +88,22 @@ export function searchExcerpt(excerpt: string, query: string): string {
 	return `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`
 }
 
+/**
+ * What the search list shows for one hit. A reply is shown as its text around the match. What a tool
+ * returned can hold anything it read (a settings file, a key), and the list is always one keystroke
+ * away, so a match inside tool output says only that it was found there.
+ */
+export function searchHitExcerpt(
+	hit: { readonly source: string; readonly toolName?: string; readonly excerpt: string },
+	query: string,
+): string {
+	if (hit.source === 'tool_completed' || hit.source.endsWith(':tool'))
+		return hit.toolName
+			? `Found in what “${hit.toolName}” returned`
+			: 'Found in what a tool returned'
+	return searchExcerpt(hit.excerpt, query)
+}
+
 function text(params: Record<string, unknown>, key: string, max = 400): string {
 	const value = params[key]
 	if (typeof value !== 'string' || !value.trim() || value.length > max)
@@ -1281,7 +1297,7 @@ export function createDesktopHostExtensions(
 					const id = String(hit.sessionId)
 					if (seen.has(id) || !known.has(id)) continue
 					seen.add(id)
-					hits.push({ sessionId: id, excerpt: searchExcerpt(hit.excerpt, query) })
+					hits.push({ sessionId: id, excerpt: searchHitExcerpt(hit, query) })
 					if (hits.length >= limit) break
 				}
 				return { hits }

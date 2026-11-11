@@ -318,18 +318,27 @@ export const CONTINUE_STOPPED_PROMPT = 'Please continue from where you stopped.'
  */
 export function stoppedWorkSummary(thread: ThreadState): string | undefined {
 	let finished = 0
+	let failed = 0
 	let unfinished = 0
 	for (const entry of thread.timeline) {
 		if (entry.kind !== 'tool' || entry.turn !== thread.turn) continue
 		const tool = thread.tools[entry.id]
 		if (!tool) continue
 		if (tool.status === 'pending' || tool.historicalStatus === 'skipped') unfinished++
+		else if (tool.status === 'failed') failed++
 		else finished++
 	}
 	const actions = (count: number) => `${count} ${count === 1 ? 'action' : 'actions'}`
-	if (finished && unfinished)
-		return `${actions(finished)} finished before it stopped; ${unfinished} did not.`
-	if (finished) return `${actions(finished)} finished before it stopped.`
+	const done =
+		finished && failed
+			? `${actions(finished)} finished and ${failed} failed before it stopped`
+			: finished
+				? `${actions(finished)} finished before it stopped`
+				: failed
+					? `${actions(failed)} failed before it stopped`
+					: undefined
+	if (done && unfinished) return `${done}; ${unfinished} did not.`
+	if (done) return `${done}.`
 	if (unfinished)
 		return `${unfinished === 1 ? 'The last action' : actions(unfinished)} did not finish.`
 	return undefined

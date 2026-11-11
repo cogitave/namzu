@@ -23,12 +23,7 @@ export function McpServersRows({
 	const waiting = waitingServers(servers.view)
 	const rows = (servers.view?.servers ?? []).map(mcpServerRowView)
 	return (
-		<Row
-			id="mcpServers"
-			label="Connected servers"
-			description={mcpServersNote(projectName)}
-			stacked
-		>
+		<Row id="mcpServers" label="Tool servers" description={mcpServersNote(projectName)} stacked>
 			<div className="mcp-servers">
 				{servers.loading && !servers.view && (
 					<p className="settings-note">Reading the tool servers…</p>
@@ -65,7 +60,7 @@ export function McpServersRows({
 					<p className="settings-note">No tool servers are set up for this project.</p>
 				)}
 				{rows.length > 0 && (
-					<ul className="mcp-server-list" aria-label="Tool servers">
+					<ul className="mcp-server-list" aria-label="Tool server list">
 						{rows.map((row) => (
 							<li key={row.name} className="mcp-server" data-state={row.state}>
 								<div className="mcp-server-main">

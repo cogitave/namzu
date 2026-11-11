@@ -10,7 +10,7 @@ const STATE: Record<McpServerView['state'], string> = {
 	connected: 'Connected',
 	waiting: 'Waiting for your approval',
 	failed: 'Failed',
-	idle: 'Not started yet',
+	idle: 'Not connected right now',
 }
 
 export interface McpServerRowView {
