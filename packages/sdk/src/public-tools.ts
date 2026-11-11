@@ -258,7 +258,8 @@ export {
 	createConnectorTools,
 } from './connector/tools/index.js'
 
-export { createFileReadTracker } from './tools/file-read-tracker.js'
+export { createAuthoredLedger, createFileReadTracker } from './tools/file-read-tracker.js'
+export type { AuthoredLedger } from './tools/file-read-tracker.js'
 export type { LedgerReplayReport } from './runtime/query/file-evidence-replay.js'
 /**
  * Rebuild a tracker from a conversation's own history, for a host that keeps
