@@ -157,22 +157,64 @@ export function createSessionEvidenceSource(
 	})
 }
 
+/** What a scan of a session log's complete records, from byte 0 up to `consumed`, found. */
+interface SessionScan {
+	readonly identity: string
+	/** Offset just past the last complete record scanned. */
+	readonly consumed: number
+	readonly first: Buffer
+	readonly active: string | undefined
+	readonly turnClosed: boolean
+}
+
+/**
+ * Scans already done, by log file and scope, so that an access reads only the
+ * records appended since the last one instead of parsing the whole log again.
+ * A session log only grows, and every search page makes several accesses.
+ */
+const SCAN_CACHE_LIMIT = 64
+const scanCache = new Map<string, SessionScan>()
+
+function remember(key: string, scan: SessionScan): void {
+	scanCache.delete(key)
+	scanCache.set(key, scan)
+	if (scanCache.size > SCAN_CACHE_LIMIT) {
+		const oldest = scanCache.keys().next().value
+		if (oldest !== undefined) scanCache.delete(oldest)
+	}
+}
+
 /**
  * The first record of a session log (its `session_started`) and whether the
  * scope is closed: no turn of the session active, or — for a scope narrowed
  * to one turn — that turn settled.
+ *
+ * The scan resumes from the one a previous access left in `scanCache` when it
+ * is of the same file (same identity, first record unchanged on disk) and
+ * ended at or before `size`; otherwise it starts again from byte 0.
  */
 async function sessionState(
 	handle: FileHandle,
 	size: number,
 	scope: z.infer<typeof scopeSchema>,
+	cacheKey: string,
+	identity: string,
 ): Promise<{ first: Buffer; closed: boolean }> {
 	const unmetered: EvidenceBudget = { bytes: 0, limit: Number.MAX_SAFE_INTEGER }
 	let first: Buffer | undefined
 	let active: string | undefined
 	let turnClosed = false
-	let buffered = Buffer.alloc(0)
 	let offset = 0
+	const cached = scanCache.get(cacheKey)
+	if (cached && cached.identity === identity && cached.consumed <= size) {
+		const head = await readBytes(handle, 0, cached.first.length, unmetered)
+		if (head.equals(cached.first)) {
+			;({ first, active, turnClosed } = cached)
+			offset = cached.consumed
+		}
+	}
+	let consumed = offset
+	let buffered = Buffer.alloc(0)
 	while (offset < size || buffered.length > 0) {
 		let newline = buffered.indexOf(10)
 		if (newline < 0) {
@@ -186,6 +228,7 @@ async function sessionState(
 		const raw = buffered.subarray(0, newline + 1)
 		buffered = buffered.subarray(newline + 1)
 		newline = -1
+		consumed += raw.length
 		const record = JSON.parse(decode(raw)) as Record<string, unknown>
 		if (!first) {
 			if (
@@ -206,6 +249,12 @@ async function sessionState(
 		}
 	}
 	if (!first) throw new Error('The session log is empty; evidence is incomplete.')
+	// A source anchored earlier in the log scans less than another access has;
+	// keep the longer scan for the next one.
+	const kept = scanCache.get(cacheKey)
+	if (!kept || kept.identity !== identity || kept.consumed <= consumed) {
+		remember(cacheKey, { identity, consumed, first, active, turnClosed })
+	}
 	return { first, closed: scope.turnId !== undefined ? turnClosed : active === undefined }
 }
 
@@ -258,7 +307,13 @@ function createSource(
 						? await completePrefix(handle, before.size, budget)
 						: before.size
 			}
-			const state = await sessionState(handle, size, scope)
+			const state = await sessionState(
+				handle,
+				size,
+				scope,
+				`${logPath}\0${scopeKey}`,
+				fileIdentity(before),
+			)
 			if (!state.closed && consistency === 'closed') {
 				throw new Error('Evidence scope has an active turn; it is not closed.')
 			}

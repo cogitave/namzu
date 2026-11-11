@@ -29,6 +29,7 @@ import {
 } from './icons.js'
 import { LocalListeningSettingsContent } from './local-listening-settings.js'
 import { LocalSpeechSettingsContent } from './local-speech-settings.js'
+import { McpServersRows } from './mcp-servers-section.js'
 import { ModelsSection } from './models-section.js'
 import { middleEllipsis, tildePath } from './path-display.js'
 import { SettingsConfirmDialog } from './settings-confirm-dialog.js'
@@ -53,6 +54,7 @@ import type { DesktopSettingsControls } from './use-desktop-settings.js'
 import { useEngineUpdates } from './use-engine-updates.js'
 import type { LocalListeningControls } from './use-local-listening.js'
 import type { LocalSpeechControls } from './use-local-speech.js'
+import { useMcpServers } from './use-mcp-servers.js'
 import { useProviderConnections } from './use-provider-connections.js'
 import './settings-page.css'
 
@@ -284,6 +286,7 @@ function SectionBody(props: SectionProps) {
 		<div className="settings-section" data-section={props.section}>
 			{props.section === 'general' && <GeneralSection {...props} />}
 			{props.section === 'models' && <ModelsContainer />}
+			{props.section === 'tools' && <McpServersContainer {...props} />}
 			{props.section === 'projects' && <ProjectsSection {...props} />}
 			{props.section === 'appearance' && <AppearanceSection {...props} />}
 			{props.section === 'updates' && <UpdatesSection {...props} />}
@@ -298,6 +301,7 @@ function SectionBody(props: SectionProps) {
 				<ConfigSettingsGroup
 					section={props.section}
 					config={props.config}
+					omit={props.section === 'tools' ? ['mcpServers'] : undefined}
 					heading={
 						props.section === 'general' ||
 						props.section === 'models' ||
@@ -311,6 +315,18 @@ function SectionBody(props: SectionProps) {
 			{props.section === 'speech' && <SpeechSection {...props} />}
 			{props.section === 'about' && <AboutSection {...props} />}
 		</div>
+	)
+}
+
+function McpServersContainer({ engineTarget, projects }: SectionProps) {
+	const bridge = typeof window === 'undefined' ? undefined : window.namzu
+	const projectId = engineTarget?.projectId
+	const servers = useMcpServers(bridge, projectId)
+	return (
+		<McpServersRows
+			servers={servers}
+			projectName={projects.find((project) => project.id === projectId)?.name}
+		/>
 	)
 }
 

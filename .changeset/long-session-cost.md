@@ -1,0 +1,8 @@
+---
+'@namzu/sdk': minor
+'@namzu/cli': patch
+---
+
+A long session costs less per turn, though it still grows with the log. In a 100-turn session against an instant model, CPU per turn at turns 91-100 fell from about 2.5 s to about 0.7 s; past about turn 120 per-turn CPU still rises (measured at 200 turns, see docs/sdk/session-log.md), and so does the heap, more slowly than before. Before, each turn re-read and re-verified the whole session log many times (once per stored checkpoint when choosing what to prune, several times when starting the turn, and on every evidence recall page), and every finished turn stayed in memory because it left a listener on the session's abort signal. Now those reads resume after the last record they folded and check that record against the file, so they read only what was appended; a log that no longer holds that record is read again from the start, with the same strict or tolerant behaviour as before. What is not fixed: the writer still reads and verifies the whole chain each time a turn takes the log, and compaction scoring grows with the history, so a very long session is still slower per turn than a short one.
+
+Nothing to change for a caller: persisted records, resume, compaction and the content the model receives are the same, and aborting a session still aborts its running turn with the same reason. One behaviour is narrower: a byte altered in the middle of the log during a turn, with the newest record left alone, is now refused when the next turn takes the log rather than by the reads inside the turn that follows. Additive: `CheckpointLogView` has an optional `pruneFacts(scope, checkpointIds)` that answers both retention questions in one read; a view without it is still asked the two separate questions.

@@ -60,6 +60,9 @@ export function createWorkspacePaneApi(
 		forkConversation,
 		conversationMarkdown,
 		projectGit,
+		mcpServers,
+		approveMcpServers,
+		searchConversations,
 		projectPr,
 		projectChanges,
 		projectDiff,
@@ -440,6 +443,13 @@ export function createWorkspacePaneApi(
 				}
 			: {}),
 		...(projectGit ? { projectGit: (id) => invoke(() => projectGit(id), []) } : {}),
+		...(mcpServers ? { mcpServers: (id) => invoke(() => mcpServers(id), []) } : {}),
+		...(approveMcpServers
+			? { approveMcpServers: (id, servers) => invoke(() => approveMcpServers(id, servers), []) }
+			: {}),
+		...(searchConversations
+			? { searchConversations: (query) => invoke(() => searchConversations(query), []) }
+			: {}),
 		...(projectPr ? { projectPr: (id) => invoke(() => projectPr(id), []) } : {}),
 		...(projectChanges ? { projectChanges: (id) => invoke(() => projectChanges(id), []) } : {}),
 		...(projectDiff ? { projectDiff: (id, path) => invoke(() => projectDiff(id, path), []) } : {}),

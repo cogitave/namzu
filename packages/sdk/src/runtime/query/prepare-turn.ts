@@ -23,6 +23,7 @@ import { withProviderRetry } from '../../provider/retry.js'
 import { withTokenBudget } from '../../provider/token-budget.js'
 import { resolveAttachments } from '../../store/attachment/index.js'
 import type { SessionTokenBudget } from '../../store/budget/index.js'
+import { foldSessionLog } from '../../store/session-log/incremental.js'
 import type { SessionLog } from '../../store/session-log/index.js'
 import { NAMZU } from '../../telemetry/attributes.js'
 import type { SerializedSpanContext } from '../../telemetry/attributes.js'
@@ -1232,14 +1233,21 @@ async function assertTurnIdIsNew(
 	storage: SessionStorage,
 ): Promise<void> {
 	if (params.turnId === undefined) return
-	for await (const { record } of storage.log.read({ mode: 'tolerant' })) {
-		if (record.type === 'turn_started' && record.turnId === turnId) {
-			throw new NamzuError({
-				code: 'invalid_config',
-				message: `Turn ${turnId} already exists in session ${params.sessionId}. A new turn needs a new id; to continue that turn, pass resumeFromCheckpoint.`,
-				details: { sessionId: params.sessionId, turnId },
-			})
-		}
+	const exists = await foldSessionLog(storage.log, {
+		name: 'turn-ids',
+		mode: 'tolerant',
+		create: () => new Set<string>(),
+		apply: (ids, { record }) => {
+			if (record.type === 'turn_started') ids.add(record.turnId)
+		},
+		result: (ids) => ids.has(turnId),
+	})
+	if (exists) {
+		throw new NamzuError({
+			code: 'invalid_config',
+			message: `Turn ${turnId} already exists in session ${params.sessionId}. A new turn needs a new id; to continue that turn, pass resumeFromCheckpoint.`,
+			details: { sessionId: params.sessionId, turnId },
+		})
 	}
 }
 

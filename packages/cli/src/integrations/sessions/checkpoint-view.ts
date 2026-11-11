@@ -17,7 +17,10 @@ export function sessionLogCheckpointView(
 	return {
 		async verifyThrough(scope, throughSeq, throughSha256) {
 			if (!owns(scope)) return false
-			for await (const { pointer } of log.read({ mode: 'strict', throughSeq })) {
+			for await (const { pointer } of log.read({
+				mode: 'strict',
+				throughSeq,
+			})) {
 				if (pointer.seq === throughSeq) return pointer.sha256 === throughSha256
 			}
 			return false
@@ -41,6 +44,21 @@ export function sessionLogCheckpointView(
 					open.delete(record.decisionId)
 			}
 			return [...open.values()]
+		},
+		async pruneFacts(scope, checkpointIds) {
+			const written = new Map<CheckpointId, string>()
+			const open = new Map<string, CheckpointId>()
+			if (!owns(scope)) return { written, open: [] }
+			const wanted = new Set<string>(checkpointIds)
+			for await (const { record } of log.read({ mode: 'strict' })) {
+				if (record.type === 'checkpoint_written' && wanted.has(record.checkpointId)) {
+					written.set(record.checkpointId, record.docSha256)
+				}
+				if (record.type === 'decision_requested') open.set(record.decisionId, record.checkpointId)
+				else if (record.type === 'decision_resolved' || record.type === 'decision_expired')
+					open.delete(record.decisionId)
+			}
+			return { written, open: [...open.values()] }
 		},
 	}
 }

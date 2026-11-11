@@ -2,15 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type { EngineUpdatesState } from '../shared/engine-update-protocol.js'
 import type { UpdateState } from '../shared/update-protocol.js'
 import { engineAnnouncement, engineBadge } from './engine-updates-model.js'
-import {
-	DownloadIcon,
-	FoldersIcon,
-	HistoryIcon,
-	HomeFilledIcon,
-	HomeIcon,
-	PuzzleIcon,
-	SettingsIcon,
-} from './icons.js'
+import { DownloadIcon, HomeFilledIcon, HomeIcon, SettingsIcon } from './icons.js'
 import { Button } from './ui/button.js'
 import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import { updateAnnouncement, updateBadge } from './update-model.js'
@@ -37,15 +29,6 @@ export function NavigationRail({
 		<nav className="navigation-rail" aria-label="Main navigation">
 			<RailButton label="Home" active={section === 'home'} onClick={onHome}>
 				{section === 'home' ? <HomeFilledIcon /> : <HomeIcon />}
-			</RailButton>
-			<RailButton label="Spaces" unavailable tooltip="Spaces — in progress">
-				<FoldersIcon />
-			</RailButton>
-			<RailButton label="Scheduled" unavailable tooltip="Scheduled — in progress">
-				<HistoryIcon />
-			</RailButton>
-			<RailButton label="Plugins" unavailable tooltip="Plugins — in progress">
-				<PuzzleIcon />
 			</RailButton>
 			<div className="rail-spacer" />
 			{(update || (engines && onOpenUpdates)) && (
@@ -131,14 +114,12 @@ function RailButton({
 	label,
 	tooltip = label,
 	active,
-	unavailable,
 	onClick,
 	children,
 }: {
 	label: string
 	tooltip?: string
 	active?: boolean
-	unavailable?: boolean
 	onClick?: () => void
 	children: ReactNode
 }) {
@@ -152,7 +133,6 @@ function RailButton({
 						className="rail-button"
 						aria-label={label}
 						aria-current={active ? 'page' : undefined}
-						aria-disabled={unavailable || undefined}
 						data-active={active || undefined}
 						onClick={onClick}
 					/>
