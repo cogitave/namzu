@@ -11,12 +11,15 @@ import {
 	permissionAnswers,
 	permissionChoices,
 	permissionQuestion,
+	permissionReviewSource,
 	permissionTitle,
 } from '../PermissionOverlay.js'
 import {
 	MAX_WORKFLOW_REVIEW_BYTES,
 	buildPermissionReview,
 	buildPermissionSummary,
+	reviewPageRows,
+	workflowReviewPageRows,
 } from '../permission-review.js'
 import { renderToScreen } from './support/screen.js'
 
@@ -48,7 +51,10 @@ function summaryOf(
 ) {
 	const review = buildPermissionReview(call(input))
 	if (!review.ok) throw new Error('fixture must fit the approval envelope')
-	return { review: review.text, summary: buildPermissionSummary(review.text, context) }
+	return {
+		review: review.text,
+		summary: buildPermissionSummary(review.text, context),
+	}
 }
 
 describe('the review of a workflow start', () => {
@@ -97,7 +103,9 @@ describe('the review of a workflow start', () => {
 	})
 
 	it('still reviews a script whose meta cannot be read, and says so', () => {
-		const { summary } = summaryOf({ script: "const n = 'x'\nexport const meta = { name: n }" })
+		const { summary } = summaryOf({
+			script: "const n = 'x'\nexport const meta = { name: n }",
+		})
 		expect(summary.complete).toBe(true)
 		expect(summary.text).toContain('its name could not be read')
 		expect(summary.text).toContain('const n')
@@ -204,7 +212,12 @@ describe('a large script', () => {
 
 	it('no longer refuses a large batch of ordinary calls: it is shown bounded and withheld', () => {
 		const result = buildPermissionReview([
-			{ id: 'b', name: 'bash', input: { command: 'x'.repeat(9000) }, isDestructive: true },
+			{
+				id: 'b',
+				name: 'bash',
+				input: { command: 'x'.repeat(9000) },
+				isDestructive: true,
+			},
 		])
 		expect(result).toMatchObject({ ok: true, withheld: [] })
 	})
@@ -218,7 +231,10 @@ describe('a large script', () => {
 				isDestructive: false,
 			},
 		])
-		expect(result).toMatchObject({ ok: true, withheld: [{ index: 0, name: 'workflow' }] })
+		expect(result).toMatchObject({
+			ok: true,
+			withheld: [{ index: 0, name: 'workflow' }],
+		})
 	})
 
 	it('pages the whole script in the expanded view', async () => {
@@ -281,5 +297,171 @@ describe('the review at a narrow width', () => {
 		} finally {
 			await screen.unmount()
 		}
+	})
+})
+
+const PHASED = [
+	"export const meta = { name: 'package-audit', description: 'Scan three packages, run four checks on them, then write one summary', phases: [",
+	"{ title: 'Scan', detail: 'read each package and note what it exports' },",
+	"{ title: 'Check', detail: 'four independent checks, run side by side' },",
+	"{ title: 'Report' } ] }",
+]
+	.join('\n')
+	.concat(`\n${Array.from({ length: 16 }, (_, i) => `// step ${i}`).join('\n')}\nreturn 1`)
+
+async function showReview(columns: number, rows: number, detailsOpen = false, reviewOffset = 0) {
+	const toolCalls = call({
+		script: PHASED,
+		args: { packages: ['core', 'web'] },
+	})
+	const { review, summary } = summaryOf({
+		script: PHASED,
+		args: { packages: ['core', 'web'] },
+	})
+	const screen = await renderToScreen(
+		<PermissionOverlay
+			toolCalls={toolCalls}
+			review={review}
+			summary={summary}
+			detailsOpen={detailsOpen}
+			reviewOffset={reviewOffset}
+			columns={columns}
+			rows={rows}
+		/>,
+		{ cols: columns, rows: Math.max(rows, 60) },
+	)
+	await screen.waitForRender()
+	const text = screen.viewport().join('\n')
+	await screen.unmount()
+	return text
+}
+
+describe('the page of a workflow review', () => {
+	it('is the terminal rows less the frame, the question, the answers and the line above', () => {
+		// 8 rows of frame and key line, 2 answers, 4 rows left to the conversation.
+		expect(workflowReviewPageRows(30, 2)).toBe(16)
+		expect(workflowReviewPageRows(40, 2)).toBe(26)
+		expect(workflowReviewPageRows(30, 3)).toBe(15)
+	})
+
+	it('keeps a floor on a short terminal and a ceiling on a tall one', () => {
+		expect(workflowReviewPageRows(16, 2)).toBe(6)
+		expect(workflowReviewPageRows(10, 2)).toBe(6)
+		expect(workflowReviewPageRows(200, 2)).toBe(30)
+	})
+
+	it('is only the workflow review that takes it; other reviews keep theirs', () => {
+		const other = [{ name: 'bash' }]
+		expect(reviewPageRows([{ name: 'workflow' }], 30)).toBe(16)
+		expect(reviewPageRows(other, 30)).toBe(12)
+	})
+})
+
+describe('what the first screen holds', () => {
+	it('shows the name, the purpose, the phases with their details, the limits and the start of the script at 100x30', async () => {
+		const text = await showReview(100, 30)
+		expect(text).toContain('Workflow: package-audit')
+		expect(text).toContain('2. Check — four independent checks, run side by side')
+		expect(text).toContain('Agents: up to')
+		expect(text).toContain('Script · 21 lines')
+		// More of the script than the old 12-row pager reached.
+		expect(text).toContain("{ title: 'Report' } ] }")
+		expect(text).toMatch(/rows 1-16\/\d+/)
+		expect(text).not.toContain('Phase details')
+	})
+
+	it('puts the name, purpose, phase titles and limits first on a 16-row terminal, details after', async () => {
+		const text = await showReview(100, 16)
+		const at = (needle: string) => text.indexOf(needle)
+		expect(at('Workflow: package-audit')).toBeGreaterThan(-1)
+		expect(at('Purpose:')).toBeGreaterThan(at('Workflow:'))
+		expect(at('Phases: 1. Scan · 2. Check · 3. Report')).toBeGreaterThan(at('Purpose:'))
+		expect(at('Agents: up to')).toBeGreaterThan(at('Phases:'))
+		// Details are the first thing to go: they are on a later page.
+		expect(text).not.toContain('read each package')
+		expect(text).not.toContain('Script ·')
+		expect(text).toMatch(/rows 1-6\/\d+/)
+	})
+
+	it('has every word of the full text in the short arrangement, and the details on the next page', async () => {
+		const { review, summary } = summaryOf({ script: PHASED })
+		const short = permissionReviewSource({
+			summary,
+			review,
+			detailsOpen: false,
+			single: true,
+			columns: 100,
+			pageRows: 6,
+		})
+		for (const line of [
+			'Workflow: package-audit',
+			'1. Scan — read each package and note what it exports',
+			'2. Check — four independent checks, run side by side',
+			'Runs in the background; you can stop it from the rail or /workflows',
+			'Script · 21 lines',
+		]) {
+			expect(short).toContain(line)
+		}
+		const page2 = await showReview(100, 16, false, 6)
+		expect(page2).toContain('read each package')
+	})
+
+	it('uses the ordinary text when the head fits the page', () => {
+		const { review, summary } = summaryOf({ script: PHASED })
+		const source = (pageRows: number) =>
+			permissionReviewSource({
+				summary,
+				review,
+				detailsOpen: false,
+				single: true,
+				columns: 100,
+				pageRows,
+			})
+		expect(source(16)).not.toContain('Phase details')
+		expect(source(16)).toContain('1. Scan — read each package')
+		expect(source(6)).toContain('Phase details:')
+	})
+})
+
+describe('the key line of a workflow review', () => {
+	const keyLine = (text: string) =>
+		text.split('\n').find((line) => line.includes('enter confirm')) ?? ''
+
+	it('loses hints in order: select, stop, y / n, esc, d script, and enter last', async () => {
+		const wide = keyLine(await showReview(100, 30))
+		expect(wide).toContain('↑↓ select')
+		expect(wide).toContain('ctrl+c stop')
+		expect(wide).toContain('y / n answer')
+		expect(wide).toContain('d script')
+		const kept = (columns: number, line: string) => ({
+			select: line.includes('↑↓ select'),
+			stop: line.includes('ctrl+c stop'),
+			yn: /y \/ n/.test(line),
+			script: line.includes('d script'),
+			esc: line.includes('esc cancel'),
+			enter: line.includes('enter confirm'),
+			columns,
+		})
+		const mid = keyLine(await showReview(60, 30))
+		expect(kept(60, mid)).toMatchObject({
+			select: false,
+			stop: false,
+			script: true,
+			esc: true,
+			enter: true,
+		})
+		// `esc cancel` goes before `d script`: Escape cancels without its hint, and
+		// nothing else shows the whole script.
+		const tight = keyLine(await showReview(50, 30))
+		expect(kept(50, tight)).toMatchObject({ yn: false, esc: true, script: true, enter: true })
+		const narrow = keyLine(await showReview(40, 30))
+		expect(kept(40, narrow)).toMatchObject({
+			select: false,
+			stop: false,
+			yn: false,
+			esc: false,
+			script: true,
+			enter: true,
+		})
 	})
 })

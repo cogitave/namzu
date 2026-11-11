@@ -11,9 +11,9 @@ import {
 } from '../integrations/subagents/activity.js'
 import {
 	LARGE_WORKFLOW_WARNING,
-	LARGE_WORKFLOW_WARNING_SHORT,
+	type LargeRunReason,
 	type WorkflowSizeGuideline,
-	isLargeRun,
+	largeRunReason,
 } from '../integrations/workflows/size.js'
 import {
 	type WorkflowRunStatus,
@@ -276,12 +276,17 @@ export interface RailWorkflow {
 	readonly runId?: string
 	/** The run is big enough to warn about (see `isLargeRun`); only set while it runs. */
 	readonly large?: true
+	/** Why it is large; set with `large`. */
+	readonly largeWhy?: LargeRunReason
+	/** Titles of the phases that have an agent running now, in phase order. */
+	readonly runningPhases?: readonly string[]
 }
 
 /** What the rail needs to decide whether a running workflow is a large one. */
 export interface LargeRunSettings {
 	readonly hypermode: boolean
-	readonly configuredGuideline?: WorkflowSizeGuideline
+	/** The session's size guideline: the configured one, else the default. */
+	readonly guideline?: WorkflowSizeGuideline
 	readonly env?: Readonly<Record<string, string | undefined>>
 }
 
@@ -321,21 +326,30 @@ export function runRailWorkflow(
 ): RailWorkflow {
 	const facts = runRailFacts(run)
 	const counts = countAgents(run)
-	const isLarge =
-		large !== undefined &&
-		run.status === 'running' &&
-		isLargeRun({
-			scheduledAgents: counts.total,
-			startedAgents: counts.total - counts.queued,
-			totalTokens: facts.tokens ?? 0,
-			hypermode: large.hypermode,
-			...(large.configuredGuideline !== undefined
-				? { configuredGuideline: large.configuredGuideline }
-				: {}),
-			...(large.env !== undefined ? { env: large.env } : {}),
-		})
+	const largeWhy =
+		large !== undefined && run.status === 'running'
+			? largeRunReason({
+					scheduledAgents: counts.total,
+					startedAgents: counts.total - counts.queued,
+					totalTokens: facts.tokens ?? 0,
+					hypermode: large.hypermode,
+					...(large.guideline !== undefined ? { guideline: large.guideline } : {}),
+					...(large.env !== undefined ? { env: large.env } : {}),
+				})
+			: undefined
+	const runningPhases =
+		run.status === 'running'
+			? run.phases
+					.filter((phase) =>
+						run.agents.some(
+							(agent) => agent.phaseIndex === phase.index && agent.status === 'running',
+						),
+					)
+					.map((phase) => phase.title)
+			: []
 	return {
-		...(isLarge ? { large: true as const } : {}),
+		...(largeWhy ? { large: true as const, largeWhy } : {}),
+		...(runningPhases.length > 0 ? { runningPhases } : {}),
 		id: run.groupId,
 		focusId: `${WORKFLOW_FOCUS_PREFIX}${run.groupId}`,
 		name: run.name,
@@ -434,7 +448,7 @@ export function railWorkflowBulletColor(workflow: RailWorkflow): string | undefi
 }
 
 /** Widths the progress bar tries, widest first. */
-const WORKFLOW_BAR_WIDTHS = [20, 12, 8] as const
+const WORKFLOW_BAR_WIDTHS = [20, 12, 8, 4] as const
 
 /** `▰▰▰▱▱▱`: filled cells are the share of agents settled, rounded down. */
 export function railProgressBar(done: number, total: number, width: number): [string, string] {
@@ -448,11 +462,40 @@ export interface WorkflowRowVariant {
 	readonly text: string
 }
 
+/** Widest a phase title grows in the row before it is cut with `…`. */
+const RAIL_PHASE_TITLE_WIDTH = 18
+
 /**
- * The right-hand block of a workflow row, widest first. Words go before
- * numbers as the row narrows: the counter, then the elapsed time, then the
- * word `tokens`, then the bar shrinks from 20 to 12 to 8 cells and finally
- * stands alone. The caller takes the first one that fits.
+ * The words that name the phases running now: at most two titles, then how
+ * many more (`Scan, Check +1 more`). Longest first; empty when no phase is
+ * running.
+ */
+export function railPhaseTexts(titles: readonly string[] | undefined): readonly string[] {
+	const shown = (titles ?? [])
+		.map((title) => truncateChoiceText(terminalDisplayText(oneLine(title)), RAIL_PHASE_TITLE_WIDTH))
+		.filter((title) => title.length > 0)
+	if (shown.length === 0) return []
+	const more = (count: number): string => (count > 0 ? ` +${count} more` : '')
+	const [first = '', second] = shown
+	if (second === undefined) return [first]
+	return [`${first}, ${second}${more(shown.length - 2)}`, `${first}${more(shown.length - 1)}`]
+}
+
+/**
+ * The right-hand block of a workflow row, widest first. The row gives up
+ * space in this order as the terminal narrows:
+ *
+ * 1. the names of the phases running now, which only show when there is room
+ *    to spare;
+ * 2. the bar, from 20 cells to 12, 8 and 4;
+ * 3. the token count;
+ * 4. the `Large workflow` mark;
+ * 5. the name, cut with `…` (see {@link layoutWorkflowRow}).
+ *
+ * The `done/asked` counter and the elapsed time stay as long as any of the
+ * bar does. When even the shortest bar leaves the name too little, the bar
+ * goes too, then the clock, and the count is the last thing left. The caller
+ * takes the first variant that fits.
  */
 export function workflowRowVariants(
 	workflow: RailWorkflow,
@@ -463,37 +506,26 @@ export function workflowRowVariants(
 	// the row's dot red and is counted in the detail, not beside the counter.
 	const elapsed = formatElapsed(Math.max(0, (workflow.endedAt ?? now) - workflow.startedAt))
 	const spent = workflow.tokens === undefined ? undefined : formatCompactCount(workflow.tokens)
+	const tokens = spent && `↓ ${spent} tokens`
+	const warning = workflow.large ? LARGE_WORKFLOW_WARNING : undefined
 	const join = (parts: readonly (string | undefined)[]): string =>
 		parts.filter((part): part is string => part !== undefined).join(' · ')
-	const [wide, mid, narrow] = WORKFLOW_BAR_WIDTHS
-	const warned: WorkflowRowVariant[] = workflow.large
-		? [
-				{
-					barWidth: wide,
-					text: join([count, elapsed, spent && `↓ ${spent} tokens`, LARGE_WORKFLOW_WARNING]),
-				},
-				{
-					barWidth: wide,
-					text: join([count, elapsed, spent && `↓ ${spent} tokens`, LARGE_WORKFLOW_WARNING_SHORT]),
-				},
-				{
-					barWidth: wide,
-					text: join([elapsed, spent && `↓ ${spent}`, LARGE_WORKFLOW_WARNING_SHORT]),
-				},
-			]
-		: []
+	const [wide, ...narrower] = WORKFLOW_BAR_WIDTHS
+	const few = WORKFLOW_BAR_WIDTHS[WORKFLOW_BAR_WIDTHS.length - 1]
 	const variants: WorkflowRowVariant[] = [
-		...warned,
-		{
+		...railPhaseTexts(workflow.runningPhases).map((phases) => ({
 			barWidth: wide,
-			text: join([count, elapsed, spent && `↓ ${spent} tokens`]),
-		},
-		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent} tokens`]) },
-		{ barWidth: wide, text: join([elapsed, spent && `↓ ${spent}`]) },
-		{ barWidth: wide, text: join([spent && `↓ ${spent}`]) },
-		{ barWidth: mid, text: join([spent && `↓ ${spent}`]) },
-		{ barWidth: narrow, text: join([spent && `↓ ${spent}`]) },
-		{ barWidth: narrow, text: '' },
+			text: join([count, elapsed, tokens, warning, phases]),
+		})),
+		{ barWidth: wide, text: join([count, elapsed, tokens, warning]) },
+		...narrower.map((barWidth) => ({
+			barWidth,
+			text: join([count, elapsed, tokens, warning]),
+		})),
+		{ barWidth: few, text: join([count, elapsed, warning]) },
+		{ barWidth: few, text: join([count, elapsed]) },
+		{ barWidth: 0, text: join([count, elapsed]) },
+		{ barWidth: 0, text: count },
 	]
 	return variants.filter(
 		(variant, index) =>
@@ -510,8 +542,10 @@ const WORKFLOW_ROW_GAP = 2
 
 /**
  * Picks how a workflow row is laid out in `columns` cells: the first variant
- * of {@link workflowRowVariants} that leaves the name at least
- * `min(8, nameWidth)` cells, with the name squeezed into whatever is left.
+ * of {@link workflowRowVariants} that leaves the whole name its width. When
+ * none does, the name is cut with `…`, but never below `min(8, nameWidth)`
+ * cells while a variant can give it that, so the row gives up its bar and its
+ * clock before the name becomes unreadable.
  */
 export function layoutWorkflowRow(
 	workflow: RailWorkflow,
@@ -521,16 +555,22 @@ export function layoutWorkflowRow(
 ): { readonly variant: WorkflowRowVariant; readonly nameWidth: number } {
 	const variants = workflowRowVariants(workflow, now)
 	const room = Math.max(1, columns - RAIL_PREFIX_CELLS - 2)
-	const wanted = Math.min(8, nameWidth)
 	const widthOf = (variant: WorkflowRowVariant): number =>
 		WORKFLOW_ROW_GAP + variant.barWidth + (variant.text ? 2 + stringWidth(variant.text) : 0)
-	for (const variant of variants) {
-		if (room - widthOf(variant) >= wanted) {
-			return { variant, nameWidth: Math.min(nameWidth, room - widthOf(variant)) }
-		}
-	}
+	const barred = variants.filter((variant) => variant.barWidth > 0)
+	const whole = barred.find((variant) => room - widthOf(variant) >= nameWidth)
+	if (whole) return { variant: whole, nameWidth }
+	const wanted = Math.min(8, nameWidth)
+	const cutAt = (variant: WorkflowRowVariant) => Math.min(nameWidth, room - widthOf(variant))
+	// The shortest bar, with the name cut to what is left, while that is readable.
+	const shortest = barred[barred.length - 1]
+	if (shortest && cutAt(shortest) >= wanted)
+		return { variant: shortest, nameWidth: cutAt(shortest) }
+	// Then the bar goes: the count and the clock, then the count alone.
+	const bare = variants.find((variant) => variant.barWidth === 0 && cutAt(variant) >= wanted)
+	if (bare) return { variant: bare, nameWidth: cutAt(bare) }
 	const last = variants[variants.length - 1] as WorkflowRowVariant
-	return { variant: last, nameWidth: Math.max(1, room - widthOf(last)) }
+	return { variant: last, nameWidth: Math.max(1, cutAt(last)) }
 }
 
 export interface AgentTaskPanelProps {
@@ -832,6 +872,59 @@ export function railShowsMain(
 	compact = false,
 ): boolean {
 	return compact || agentCount > 0 || (viewingId !== undefined && viewingId !== null)
+}
+
+/** The parts of a key press that decide whether the rail owns it. */
+interface RailKeyShape {
+	readonly ctrl?: boolean
+	readonly meta?: boolean
+	readonly escape?: boolean
+	readonly return?: boolean
+	readonly tab?: boolean
+	readonly backspace?: boolean
+	readonly delete?: boolean
+	readonly upArrow?: boolean
+	readonly downArrow?: boolean
+	readonly leftArrow?: boolean
+	readonly rightArrow?: boolean
+	readonly pageUp?: boolean
+	readonly pageDown?: boolean
+	readonly home?: boolean
+	readonly end?: boolean
+}
+
+/**
+ * The text a key press hands to the input box when it is not one the rail
+ * owns, or `undefined` when the press is a control or editing key. The rail
+ * owns the arrows, Enter, `x` and Esc; a `/` or any other printable
+ * character leaves the rail and is typed in the box, so a command can be
+ * entered without pressing Esc first.
+ */
+export function railTypedText(input: string, key: RailKeyShape): string | undefined {
+	if (input.length === 0 || key.ctrl || key.meta) return undefined
+	if (
+		key.escape ||
+		key.return ||
+		key.tab ||
+		key.backspace ||
+		key.delete ||
+		key.upArrow ||
+		key.downArrow ||
+		key.leftArrow ||
+		key.rightArrow ||
+		key.pageUp ||
+		key.pageDown ||
+		key.home ||
+		key.end
+	)
+		return undefined
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: this is the test for a control character.
+	return /[\u0000-\u001f\u007f]/.test(input) ? undefined : input
+}
+
+/** How many `log()` lines the detail header shows: three from 30 rows, one from 24, none below. */
+export function detailLogLineCount(terminalRows: number): number {
+	return terminalRows >= 30 ? 3 : terminalRows >= 24 ? 1 : 0
 }
 
 /** The chord that stops every running agent from the rail. */
@@ -1335,9 +1428,12 @@ export function WorkflowDetail({
 	const sideBySide = columns >= DETAIL_WIDE_COLUMNS && rightInner >= 24
 
 	// The script's last log() line sits under the header, the two before it dim.
-	const recentLogs = (workflow.logs ?? [])
-		.slice(-(terminalRows >= 30 ? 3 : terminalRows >= 24 ? 1 : 0))
-		.map((line) => terminalDisplayText(oneLine(line)))
+	// `slice(-0)` is the whole array, so a terminal too short for any line must
+	// ask for none instead of for a count of zero.
+	const logLines = detailLogLineCount(terminalRows)
+	const recentLogs = (logLines === 0 ? [] : (workflow.logs ?? []).slice(-logLines)).map((line) =>
+		terminalDisplayText(oneLine(line)),
+	)
 
 	const header = (
 		<>

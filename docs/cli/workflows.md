@@ -91,6 +91,28 @@ without running anything. The review shows the script's first lines, however
 short the script is; `d` ("d read the whole script") shows every line of it
 verbatim under the heading "Workflow script", never the raw prepared input;
 `d` again collapses it; the full view scrolls with PgUp, PgDn, Home and End.
+
+The body of the review is as tall as the terminal allows: its rows are the
+terminal's rows less the frame (8 rows, the question and the key line among
+them), one row for each choice and 4 rows left to the conversation above it,
+never fewer than 6 and never more than 30. At 30 rows that is 16 rows, enough
+for the name, the purpose, the phases with their details, the limits, the
+arguments and the first lines of the script. While the review is open the call
+row above it reads `Workflow(<what the workflow is for>)`, as it does after
+approval, never the raw call.
+
+When the first part of the review (name, purpose, phases, limits) does not fit
+in that many rows, as on a 16-row terminal, the first screen holds what decides
+the answer, in this order: the name, the purpose, the phase titles on one line
+(`Phases: 1. Scan · 2. Check · 3. Report`) and the limits. The phase details,
+the `Shown as` line, the arguments and the script follow a page down; every word
+of the longer arrangement is still there, only moved.
+
+The key line loses hints in this order as the box narrows: `↑↓ select`, then
+`ctrl+c stop` (the key still stops the reply), then `y / n answer` (said as
+`y / n` before it goes), then `esc cancel` (Escape still cancels without its
+hint), then `d script`, the only key that shows the whole script; `enter
+confirm` is the last to go.
 The script may be as large as the runtime accepts (256 KiB, with `args` up to
 64 KiB): the 200 thousand character limit that withholds a large value of an
 ordinary tool call does not apply to a workflow review, because the script is
@@ -220,12 +242,38 @@ The agents rail gets **one row** for the run, after any subagent rows:
 The count is the agents that **completed** over every agent the script has asked
 for so far, queued ones included; a skipped, failed or stopped agent does not
 fill the bar. A stopped run's bar stays where it was, and only the bullet and the
-detail header (`· stopped`) say how it ended. Phases are not on the row. The bullet is coloured only
-by outcome. The row leaves 30 seconds after the run ends; a run that ended without ever asking for an agent has no bar to show and leaves at once. A workflow's agents
+detail header (`· stopped`) say how it ended. The bullet is coloured only
+by outcome.
+
+With room to spare the row also names the phases that have an agent running now:
+at most two titles, then how many more (`· Scan, Check +1 more`; a title longer
+than 18 cells is cut with `…`). As the terminal narrows the row gives up space in
+this order: the phase names, then the bar (20 cells, then 12, 8 and 4), then the
+token count, then `Large workflow`, then the name, which is cut with `…`. The
+`done/total` count and the elapsed time stay for as long as any of the bar does.
+The bar's width at a given terminal width depends on the length of the name,
+because the name keeps its cells first. For a workflow named `Release audit`
+(13 cells), with 3 of 7 agents done, 2m 14s in and 48.2k tokens, the row is
+whole at 100 columns, with a 20-cell bar:
+
+```text
+  ◯ Release audit  ▰▰▰▰▰▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱  3/7 · 2m 14s · ↓ 48.2k tokens
+```
+
+and at 60 columns the bar is 8 cells and the count, the clock and the tokens are
+all still there:
+
+```text
+  ◯ Release audit  ▰▰▰▱▱▱▱▱  3/7 · 2m 14s · ↓ 48.2k tokens
+```
+
+A shorter name leaves more room, a longer one less. On a terminal so narrow that even the shortest bar leaves
+the name under 8 cells (below about 35 columns) the bar goes too, then the clock,
+and the count is the last thing left. The row leaves 30 seconds after the run ends; a run that ended without ever asking for an agent has no bar to show and leaves at once. A workflow's agents
 are never subagent rows, are not counted in the turn's `✻ Worked for …` line,
 and write no launch or completion rows of their own.
 
-↓ from the composer reaches the row (`Enter to view · x to stop`, shown in place of the footer's mode line). Enter opens
+↓ from the composer reaches the row (`Enter to view · x to stop`, shown in place of the footer's mode line). The row owns the arrows, Enter, `x` and Esc; any other printable key, a `/` among them, leaves the row and is typed in the input box, so `/workflows` can be entered from the row without pressing Esc first. A run that ends while the row is not focused leaves the keyboard with the input box. Enter opens
 the detail, a frameless dialog (side by side from 64 columns, one list at a time below):
 
 1. **Phases**: the number (turning `✔` or `✘`), the title, and `done/total`.
@@ -236,8 +284,9 @@ the detail, a frameless dialog (side by side from 64 columns, one list at a time
    A phase whose agents were all skipped shows `✘`, not the tick: the tick is
    for a phase where something finished. The phase's detail text (from
    `meta.phases`) sits right under its title in the right-hand pane. The last
-   `log()` line the script wrote shows under the header, the two before it dim;
-   the rail row never shows them.
+   `log()` line the script wrote shows under the header, the two before it dim
+   (three lines from 30 terminal rows, one from 24, none below 24); the rail
+   row never shows them.
 2. **`<phase> · N agents · D done`**: each agent as `✔` done, `✘` failed or skipped, `●`
    running or `◌` queued, with its label, type, model, tokens and time. A phase
    nothing has started in says `Not started yet`. `x` skips the selected agent:
@@ -442,11 +491,19 @@ it adds one paragraph to the system prompt, right after the workflow rules, sayi
 so (the `workflow` tool's description does not carry it, so changing the setting never
 rewrites the tool definitions); it is advice, never a limit, and the paragraph is fixed
 when the session starts. A
-running workflow that schedules more than 25 agents (or the guideline's count,
-when you set one), spends more than 1.5 million tokens, or is on course to (the
+running workflow that schedules more agents than the session's guideline (the
+count above for the configured `sizeGuideline`, 10 when none is set; 25 for
+`unrestricted`), spends more than 1.5 million tokens, or is on course to (the
 average of the agents that started, or 70 000 each before any has, times the
-agents scheduled) gets `Large workflow · /workflows to stop` on its rail row,
-shortened to `Large workflow` when the row is narrow. It does not appear while
+agents scheduled) gets `Large workflow` on its rail row, and the conversation
+gets one quiet line, once per run, saying why and how to stop it:
+
+```text
+● Workflow big-sweep has asked for 14 agents, more than the 10 this session
+  advises. It keeps running; press ↓ then x on its row, or open /workflows, to stop it.
+```
+
+Nothing is stopped for it. Neither the mark nor the line appears while
 hypermode is on. `NAMZU_WORKFLOW_SIZE_WARNING_AGENTS` and
 `NAMZU_WORKFLOW_SIZE_WARNING_TOKENS` override the two thresholds.
 

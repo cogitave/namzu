@@ -1676,7 +1676,9 @@ describe('the agents cockpit', () => {
 		expect(frame).toContain('Type a message')
 		expect(frame).toContain('model')
 		// A labelled agent is only inside its workflow: one workflow row, no main.
-		expect(frame).toContain('◯ A deliberat')
+		// The fixture's start time is the epoch, so the clock is long and the row drops its bar
+		// to keep eight cells of the name.
+		expect(frame).toContain('◯ A deliber')
 		expect(frame).not.toContain('main')
 		expect(frame).not.toContain('public preview')
 		expect(screen.viewport()).toHaveLength(14)

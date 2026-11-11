@@ -253,6 +253,7 @@ import { readFolderGrants } from '../integrations/trust/folder-grants.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { completionNotice } from '../integrations/workflows/notice.js'
 import { resumeCallText } from '../integrations/workflows/resume.js'
+import { DEFAULT_WORKFLOW_SIZE_GUIDELINE, largeRunNotice } from '../integrations/workflows/size.js'
 import {
 	type WorkflowRunView,
 	countAgents,
@@ -365,6 +366,7 @@ import {
 	railHint,
 	railNextEviction,
 	railShowsMain,
+	railTypedText,
 	railWorkflowActionFor,
 	railWorkflows,
 	runRailWorkflow,
@@ -386,7 +388,12 @@ import { CopyPicker } from './CopyPicker.js'
 import { EffortSlider, effortSliderLayout } from './EffortSlider.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { PendingInputPanel, pendingInputPanelRows } from './PendingInputPanel.js'
-import { type PermissionChoice, PermissionOverlay, permissionAnswers } from './PermissionOverlay.js'
+import {
+	type PermissionChoice,
+	PermissionOverlay,
+	permissionAnswers,
+	permissionReviewSource,
+} from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
 import { PlanApprovalOverlay } from './PlanApprovalOverlay.js'
 import { QuestionDialog } from './QuestionDialog.js'
@@ -723,10 +730,10 @@ import {
 	type WithheldCall,
 	buildPermissionReview,
 	buildPermissionSummary,
-	permissionReviewPageRows,
 	permissionReviewRefusal,
 	permissionReviewRows,
 	readReviewedFile,
+	reviewPageRows,
 } from './permission-review.js'
 import { examplePlaceholder, frequentlyModifiedFile } from './placeholder-examples.js'
 import type { FoldOp } from './read-search-group.js'
@@ -5718,7 +5725,10 @@ function AppBody({
 				// change and send, like any `!` line they typed.
 				setCopyPicker(null)
 				composerDraftTokenRef.current += 1
-				setComposerDraft({ token: composerDraftTokenRef.current, text: `!${target.text}` })
+				setComposerDraft({
+					token: composerDraftTokenRef.current,
+					text: `!${target.text}`,
+				})
 				pushMessage(
 					'system',
 					'The command is in the prompt: press Enter to run it, or edit it first.',
@@ -15788,11 +15798,25 @@ function AppBody({
 					return
 				}
 				if (permission && (key.pageUp || key.pageDown || key.home || key.end)) {
-					const source = permissionDetailsOpenRef.current
-						? permission.review
-						: (permission.summary.compactText ?? permission.summary.text)
-					const count = permissionReviewRows(source, terminal.columns).length
-					const pageRows = Math.max(1, permissionReviewPageRows(terminal.rows))
+					const answerCount = permissionAnswers(
+						permission.toolCalls,
+						permissionAnswerOptions(permission),
+					).length
+					const pageRows = Math.max(
+						1,
+						reviewPageRows(permission.toolCalls, terminal.rows, answerCount),
+					)
+					const count = permissionReviewRows(
+						permissionReviewSource({
+							summary: permission.summary,
+							review: permission.review,
+							detailsOpen: permissionDetailsOpenRef.current,
+							single: permission.toolCalls.length === 1,
+							columns: terminal.columns,
+							pageRows,
+						}),
+						terminal.columns,
+					).length
 					const maxOffset = Math.max(0, count - pageRows)
 					const current = Math.min(permissionReviewOffsetRef.current, maxOffset)
 					const next = key.home
@@ -16136,6 +16160,19 @@ function AppBody({
 					return
 				} else {
 					setRailFocus(null)
+					// The key that leaves the rail is not lost: a character goes to the
+					// input box, so a command can be typed without pressing Esc first.
+					const typed = railTypedText(input, key)
+					if (typed !== undefined) {
+						if (!composerHasDraftRef.current) {
+							composerDraftTokenRef.current += 1
+							setComposerDraft({
+								token: composerDraftTokenRef.current,
+								text: typed,
+							})
+						}
+						return
+					}
 				}
 			}
 			if (isAction('app:toggleTodos', input, key)) {
@@ -16720,11 +16757,25 @@ function AppBody({
 	railRowsRef.current = liveSubagents
 	const liveWorkflows = railWorkflows(subagents, railNow, dismissedAgents, workflowRuns, {
 		hypermode,
-		...(ctxRef.current.workflow?.sizeGuideline !== undefined
-			? { configuredGuideline: ctxRef.current.workflow.sizeGuideline }
-			: {}),
+		guideline: ctxRef.current.workflow?.sizeGuideline ?? DEFAULT_WORKFLOW_SIZE_GUIDELINE,
 		env: process.env,
 	})
+	// A run that turns large gets one quiet line, once, saying how to stop it.
+	// Nothing is stopped for it.
+	const largeRunsToldRef = useRef<Set<string>>(new Set())
+	const largeRunKey = liveWorkflows
+		.filter((flow) => flow.large && flow.runId !== undefined)
+		.map((flow) => flow.runId)
+		.join(',')
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `largeRunKey` names the runs that are large now; the rows are read when it moves.
+	useEffect(() => {
+		for (const flow of railWorkflowsRef.current) {
+			if (!flow.large || !flow.largeWhy || flow.runId === undefined) continue
+			if (largeRunsToldRef.current.has(flow.runId)) continue
+			largeRunsToldRef.current.add(flow.runId)
+			pushSystem('notice', largeRunNotice(flow.name, flow.largeWhy))
+		}
+	}, [largeRunKey, pushSystem])
 	const backgroundGroups = liveGroups(subagents, isWorkflowRunAgent)
 	const closingWait = closingWaitRef.current
 	const backgroundWaitText =

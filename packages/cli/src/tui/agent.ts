@@ -438,7 +438,7 @@ import {
 } from '../integrations/subagents/saved-agents.js'
 import { listWorkflowRuns } from '../integrations/workflows/history.js'
 import { type WorkflowHost, createWorkflowHost } from '../integrations/workflows/host.js'
-import { workflowRefusal } from '../integrations/workflows/offering.js'
+import { WORKFLOW_TOOL_NAME, workflowRefusal } from '../integrations/workflows/offering.js'
 import {
 	type OrphanNotice,
 	markOrphanNoticesDelivered,
@@ -5066,8 +5066,12 @@ export async function createAgentSession(
 	// than left implicit inside `runTurn`'s own per-turn presenter. Reads
 	// through `liveManager()` so a plugin enabled or disabled after boot is
 	// reflected here too, not only in `/tools`.
+	// The `workflow` tool joins a turn's tools only when the turn offers it, so it
+	// is not in the live roster: its presentation is read from the workflow host,
+	// or the review's call row would show the raw call, not what it is for.
 	const sessionPresenter = createCliToolPresenter({
-		get: (name) => liveManager().get(name),
+		get: (name) =>
+			liveManager().get(name) ?? (name === WORKFLOW_TOOL_NAME ? workflowHost?.tool : undefined),
 	})
 	// What one turn's prompt manifest and `skill` tool see: the file skills
 	// gated against the tools registered now, merged with the plugins' own.
