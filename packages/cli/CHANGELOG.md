@@ -1,5 +1,14 @@
 # @namzu/cli
 
+## 51.0.1
+
+### Patch Changes
+
+- ec1d5e0: A conversation no longer refuses every message after the app was closed or killed in the first instant of a reply. When a host went away after writing only a reply's start and your message, the next host treated that reply as still running and the Desktop answered "Namzu is still finishing the last reply. Give it a moment." to everything you sent. The host now closes a reply that has no host running it, with one record and your message kept, when it is asked whether the conversation can go on, and a message sent to a host that never asked closes it as well. When the host was killed and never gave its writer lease back, the reply is closed at once, but only when its lease says it was written in the same place as the host asking (the same host name, process-id namespace and machine identity) and no process has that process id. Two things still wait for the lease's five minutes, as before: a reply whose lease was written by an older version (it names no place), and a reply held by a host in another place, such as a container or a second system that shares the same home folder, where a process id says nothing about whether that host is alive. Two machines with the same host name that both cannot read a machine identity still share a place. A reply another host still runs, and a paused one, are left alone. The terminal's "in use by another window" sentence no longer takes a process of another place for itself.
+- 5c5a3d8: In a second Desktop window, right-clicking a conversation that window had not opened showed no "Mark as unread", and Fork and Copy gave the wrong answer, because the menu looked at a thread that window never loaded. Main now keeps whether a conversation has a reply on its entry in the list, read from the saved log so it survives a restart, and every window follows it. A conversation with a reply offers Mark as unread in any window; Fork, New side chat, Copy as Markdown and Copy last reply say "Open the conversation first." until that window holds the conversation. A conversation with no reply is still not offered Mark as unread. The host's conversation list gains an optional `replied` field.
+- Updated dependencies [ec1d5e0]
+  - @namzu/sdk@62.12.0
+
 ## 51.0.0
 
 ### Major Changes
