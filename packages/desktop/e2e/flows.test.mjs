@@ -689,7 +689,7 @@ flow(
 		await w.app.close();
 		writeFileSync(
 			join(w.userData, "desktop-settings.json"),
-			JSON.stringify({ version: 1, startup: "home" }),
+			JSON.stringify({ version: 1, startup: "home", showConversationTabs: true }),
 		);
 		await launch(w);
 		await expect(

@@ -53,6 +53,7 @@ it('reads a stored file entry by entry and ignores what it does not know', () =>
 		notifyFailed: true,
 		notifyFinished: true,
 		notifySound: false,
+		showConversationTabs: false,
 	})
 })
 
@@ -70,6 +71,7 @@ it('documents the defaults the spec names', () => {
 		notifyFailed: true,
 		notifyFinished: true,
 		notifySound: false,
+		showConversationTabs: false,
 	})
 })
 
@@ -101,11 +103,13 @@ it('names the notification defaults: needs you, failed and finished on, sound of
 		notifyFailed: true,
 		notifyFinished: true,
 		notifySound: false,
+		showConversationTabs: false,
 	})
 	expect(desktopSettingsPatch({ notifySound: true })).toEqual({ notifySound: true })
 	expect(() => desktopSettingsPatch({ notifyFinished: 'yes' })).toThrow()
 	expect(storedDesktopSettings({ notifySound: 'x', notifyFailed: false })).toMatchObject({
 		notifySound: false,
+		showConversationTabs: false,
 		notifyFailed: false,
 	})
 })
