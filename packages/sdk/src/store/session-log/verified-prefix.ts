@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import * as crypto from 'node:crypto'
 import type { SessionId } from '../../types/ids/index.js'
 import type { RecordPointer } from '../../types/session/records.js'
 import { LineSplitter, type LogBytes, type SessionLogEntry } from './chain.js'
@@ -32,6 +32,29 @@ const DIGEST_BYTES = 32
 const LEDGERS_KEPT = 16
 /** A log with more records than this is not remembered (about 72 MB of digests). */
 const MAX_RECORDS = 1 << 21
+
+/**
+ * The digest of one line as lowercase hex. A string, not a Buffer: a Buffer per
+ * line (82,000 of them in a long log) is native memory the collector has to
+ * chase, and measured about twice the CPU. The one-shot form where Node has it.
+ */
+const hexDigestOf: (line: Uint8Array) => string =
+	typeof crypto.hash === 'function'
+		? (line) => crypto.hash('sha256', line, 'hex')
+		: (line) => crypto.createHash('sha256').update(line).digest('hex')
+
+/** Whether `hex` (64 lowercase hex characters) spells the 32 bytes at `at` in `bytes`. */
+function hexEqualsBytes(hex: string, bytes: Uint8Array, at: number): boolean {
+	if (hex.length !== DIGEST_BYTES * 2) return false
+	for (let i = 0; i < DIGEST_BYTES; i++) {
+		const high = hex.charCodeAt(i * 2)
+		const low = hex.charCodeAt(i * 2 + 1)
+		const value =
+			((high <= 0x39 ? high - 0x30 : high - 0x57) << 4) | (low <= 0x39 ? low - 0x30 : low - 0x57)
+		if (value !== bytes[at + i]) return false
+	}
+	return true
+}
 
 export class VerifiedPrefix {
 	#count = 0
@@ -185,10 +208,7 @@ export async function rehashPrefix(
 		for await (const chunk of bytes.stream(0)) {
 			for (const { line } of splitter.push(chunk)) {
 				if (line.byteLength !== lengths[index]) return false
-				const digest = createHash('sha256').update(line).digest()
-				if (digest.compare(digests, index * DIGEST_BYTES, (index + 1) * DIGEST_BYTES) !== 0) {
-					return false
-				}
+				if (!hexEqualsBytes(hexDigestOf(line), digests, index * DIGEST_BYTES)) return false
 				index += 1
 				if (index === count) return true
 			}
