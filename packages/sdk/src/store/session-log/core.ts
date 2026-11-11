@@ -314,6 +314,16 @@ export interface LogMedium extends LogBytes {
 	 * identity can only cost a full verification, never skip one.
 	 */
 	identity?(): Promise<string | undefined>
+	/**
+	 * Hand the bytes from `offset` to `visit`, chunk by chunk, until `visit`
+	 * answers `true` or the log ends. The chunk is only valid for the call: the
+	 * medium may fill the same buffer again for the next one, so a visitor keeps
+	 * no slice of it. It lets a re-check of a long log read through one buffer
+	 * instead of allocating a fresh native buffer for every megabyte, which
+	 * otherwise makes the collector run on every few walks. Optional; `stream`
+	 * is used when a medium has no `scan`.
+	 */
+	scan?(offset: number, visit: (chunk: Uint8Array) => boolean): Promise<void>
 }
 
 export interface SessionLogCoreOptions {
@@ -1169,7 +1179,7 @@ export async function collect(
  * both backends and by `readSessionLog`.
  */
 export async function* walkSessionLog(
-	medium: Pick<LogMedium, 'size' | 'read' | 'stream' | 'identity'>,
+	medium: Pick<LogMedium, 'size' | 'read' | 'stream' | 'identity' | 'scan'>,
 	options: ReadSessionLogOptions & { readonly sessionId?: SessionId },
 ): AsyncGenerator<SessionLogEntry, SessionLogReadSummary> {
 	const strict = (options.mode ?? 'strict') === 'strict'

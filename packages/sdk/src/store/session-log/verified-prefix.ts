@@ -193,7 +193,10 @@ export function verifiedPrefixCount(): number {
  * in full, which says what is wrong.
  */
 export async function rehashPrefix(
-	bytes: Pick<LogBytes, 'size'> & { stream(offset: number): AsyncIterable<Uint8Array> },
+	bytes: Pick<LogBytes, 'size'> & {
+		stream(offset: number): AsyncIterable<Uint8Array>
+		scan?(offset: number, visit: (chunk: Uint8Array) => boolean): Promise<void>
+	},
 	ledger: VerifiedPrefix,
 	count: number,
 ): Promise<boolean> {
@@ -204,21 +207,33 @@ export async function rehashPrefix(
 	if ((await bytes.size()) < endOfLine(lengths, count)) return false
 	const splitter = new LineSplitter(0)
 	let index = 0
-	try {
-		for await (const chunk of bytes.stream(0)) {
-			for (const { line } of splitter.push(chunk)) {
-				if (line.byteLength !== lengths[index]) return false
-				if (!hexEqualsBytes(hexDigestOf(line), digests, index * DIGEST_BYTES)) return false
-				index += 1
-				if (index === count) return true
+	let matched = false
+	// True once the answer is known. A chunk is read from a buffer the caller of `visit`
+	// may reuse, so nothing here keeps a slice of it: a line is hashed where it stands.
+	const visit = (chunk: Uint8Array): boolean => {
+		for (const { line } of splitter.push(chunk)) {
+			if (line.byteLength !== lengths[index]) return true
+			if (!hexEqualsBytes(hexDigestOf(line), digests, index * DIGEST_BYTES)) return true
+			index += 1
+			if (index === count) {
+				matched = true
+				return true
 			}
+		}
+		return false
+	}
+	try {
+		if (bytes.scan !== undefined) {
+			await bytes.scan(0, visit)
+		} else {
+			for await (const chunk of bytes.stream(0)) if (visit(chunk)) break
 		}
 	} catch (error) {
 		// A fragment longer than any record can be: not the log that was verified.
 		if ((error as { name?: string }).name === 'SessionLogIntegrityError') return false
 		throw error
 	}
-	return false
+	return matched
 }
 
 function endOfLine(lengths: Uint32Array, count: number): number {

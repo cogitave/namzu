@@ -86,6 +86,28 @@ export class DiskLogMedium implements LogMedium {
 		}
 	}
 
+	async scan(offset: number, visit: (chunk: Uint8Array) => boolean): Promise<void> {
+		let handle: FileHandle
+		try {
+			handle = await open(this.file, 'r')
+		} catch (error) {
+			if (isErrno(error, 'ENOENT')) return
+			throw error
+		}
+		try {
+			const buffer = Buffer.allocUnsafe(1 << 20)
+			let position = offset
+			for (;;) {
+				const { bytesRead } = await handle.read(buffer, 0, buffer.length, position)
+				if (bytesRead === 0) return
+				position += bytesRead
+				if (visit(buffer.subarray(0, bytesRead))) return
+			}
+		} finally {
+			await handle.close()
+		}
+	}
+
 	async *stream(offset: number): AsyncIterable<Uint8Array> {
 		if ((await this.size()) <= offset) return
 		const stream = createReadStream(this.file, { start: offset, highWaterMark: 1 << 20 })

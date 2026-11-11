@@ -25,7 +25,7 @@ import {
 } from '../../../utils/id.js'
 import { SessionLogIntegrityError } from '../chain.js'
 import type { SessionRecordDraft } from '../core.js'
-import { DiskSessionLog, readSessionLog } from '../disk.js'
+import { DiskLogMedium, DiskSessionLog, readSessionLog } from '../disk.js'
 import { foldSessionLog } from '../incremental.js'
 import { clearVerifiedPrefixes } from '../verified-prefix.js'
 
@@ -369,6 +369,46 @@ describe('a claim in a process that already verified the log', () => {
 			)
 			await writeFile(file, original)
 			expect(await claimAndRelease(open(), 'again')).toBeLessThanOrEqual(30)
+		}
+	})
+
+	it('re-checks a log longer than one read chunk, records spanning chunk boundaries included', async () => {
+		// About 5 MiB in lines of about 2.5 KiB: several 1 MiB reads, lines straddling each boundary.
+		const body = 'x'.repeat(2400)
+		const { file, open } = await written(2000, `${body}-`)
+		expect((await stat(file)).size).toBeGreaterThan(4 * 1024 * 1024)
+		await claimAndRelease(open())
+		expect(await claimAndRelease(open())).toBeLessThanOrEqual(2)
+		const text = await readFile(file, 'utf8')
+		for (const index of [1, 420, 421, 1000, 1700]) {
+			const marker = `"title":"${body}-${index}"`
+			expect(text.includes(marker)).toBe(true)
+			await writeFile(file, text.replace(marker, `"title":"${body}_${index}"`))
+			await expect(open().claim({ holder: 'x', ttlMs: 10 })).rejects.toBeInstanceOf(
+				SessionLogIntegrityError,
+			)
+			await writeFile(file, text)
+			expect(await claimAndRelease(open(), 'ok')).toBeLessThanOrEqual(2000)
+		}
+	})
+
+	it('re-checks through a medium that cannot scan, with the same answers', async () => {
+		const { file, open } = await written(60)
+		const scan = DiskLogMedium.prototype.scan
+		try {
+			// biome-ignore lint/performance/noDelete: removes the optional member for this test
+			delete (DiskLogMedium.prototype as { scan?: unknown }).scan
+			await claimAndRelease(open())
+			expect(await claimAndRelease(open())).toBeLessThanOrEqual(2)
+			await writeFile(
+				file,
+				(await readFile(file, 'utf8')).replace('"title":"t30"', '"title":"t_0"'),
+			)
+			await expect(open().claim({ holder: 'x', ttlMs: 10 })).rejects.toBeInstanceOf(
+				SessionLogIntegrityError,
+			)
+		} finally {
+			DiskLogMedium.prototype.scan = scan
 		}
 	})
 
