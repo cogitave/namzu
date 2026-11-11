@@ -523,6 +523,25 @@ export interface MCPClientConfig {
 	 */
 	requestTimeoutMs?: number
 	/**
+	 * Treat the deadline as an idle deadline for a tool call that reports
+	 * progress: each accepted `notifications/progress` (one whose value rose)
+	 * re-arms `requestTimeoutMs` for that call. Off by default, which keeps
+	 * the single fixed deadline.
+	 *
+	 * Only a `tools/call` made with `onProgress` carries a progress token, so
+	 * only such a call can be extended. The call is still bounded in total by
+	 * `maxTotalTimeoutMs`, which progress never extends.
+	 */
+	resetTimeoutOnProgress?: boolean
+	/**
+	 * The most a progress-extended call may take in total, counted from when
+	 * the request was issued, in milliseconds. An integer no smaller than
+	 * `requestTimeoutMs`. Defaults to ten times `requestTimeoutMs`
+	 * (`DEFAULT_MCP_TOTAL_TIMEOUT_FACTOR`). Applies only with
+	 * `resetTimeoutOnProgress`.
+	 */
+	maxTotalTimeoutMs?: number
+	/**
 	 * How long `connect()`'s era probe waits for an answer before deciding
 	 * the peer speaks a legacy revision. Defaults to
 	 * `DEFAULT_MCP_ERA_PROBE_TIMEOUT_MS`.

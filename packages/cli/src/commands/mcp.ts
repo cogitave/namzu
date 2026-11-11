@@ -373,6 +373,9 @@ export function safeTestReason(reason: string, spec: McpServerSpec): string {
 	for (const field of [
 		'connectTimeoutMs',
 		'eraProbeTimeoutMs',
+		'requestTimeoutMs',
+		'resetTimeoutOnProgress',
+		'maxTotalTimeoutMs',
 		'allow',
 		'deny',
 		'maxRetries',
