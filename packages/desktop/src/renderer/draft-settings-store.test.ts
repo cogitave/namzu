@@ -180,6 +180,37 @@ describe('saved draft settings admission', () => {
 		expect(store.snapshot('session')).toEqual({ value: choice, loading: false, error: undefined })
 		expect(read).toHaveBeenCalledTimes(2)
 	})
+	it('asks a read that failed once again on the next reconnect, and then leaves it to the person', async () => {
+		const read = vi
+			.fn<() => Promise<DraftSettings>>()
+			.mockRejectedValueOnce(new Error('IPC read failed'))
+			.mockRejectedValueOnce(new Error('IPC read failed again'))
+			.mockResolvedValue(choice)
+		const store = new DraftSettingsStore(read, vi.fn(), vi.fn(), vi.fn())
+		await store.load('session')
+		expect(read).toHaveBeenCalledTimes(1)
+		store.reconnected()
+		await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2))
+		await vi.waitFor(() => expect(store.snapshot('session').error).toBeDefined())
+		// The retry failed too: later connection events do not ask again.
+		store.reconnected()
+		store.reconnected()
+		expect(read).toHaveBeenCalledTimes(2)
+		// The explicit Try again still works.
+		await store.retry('session')
+		expect(store.snapshot('session').value).toEqual(choice)
+	})
+	it('a read that failed once and recovers on reconnect shows its settings', async () => {
+		const read = vi
+			.fn<() => Promise<DraftSettings>>()
+			.mockRejectedValueOnce(new Error('IPC read failed'))
+			.mockResolvedValue(choice)
+		const store = new DraftSettingsStore(read, vi.fn(), vi.fn(), vi.fn())
+		await store.load('session')
+		store.reconnected()
+		await vi.waitFor(() => expect(store.snapshot('session').value).toEqual(choice))
+		expect(store.snapshot('session').error).toBeUndefined()
+	})
 	it('accepts a successful empty draft without treating it as a read failure', async () => {
 		const read = vi.fn(async () => ({}))
 		const store = new DraftSettingsStore(

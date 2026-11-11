@@ -798,6 +798,10 @@ pre {
 	padding: 0;
 }
 .tool {
+	/* Where the lines under a row start: under its words, past the icon and the gap after it. */
+	--tool-icon-size: 14px;
+	--tool-gap: 6px;
+	--tool-indent: calc(var(--tool-icon-size) + var(--tool-gap));
 	border-radius: var(--radius-md);
 	font-size: 14px;
 	color: var(--muted-foreground);
@@ -805,7 +809,7 @@ pre {
 .tool-trigger {
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	gap: var(--tool-gap, 6px);
 	width: 100%;
 	min-width: 0;
 	min-height: 24px;
@@ -832,8 +836,8 @@ pre {
 }
 .tool-icon {
 	color: var(--icon-muted);
-	width: 14px;
-	height: 14px;
+	width: var(--tool-icon-size, 14px);
+	height: var(--tool-icon-size, 14px);
 	flex-shrink: 0;
 }
 .tool.failed .tool-icon {

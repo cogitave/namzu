@@ -520,6 +520,11 @@ export function execHostShell(
 
 export { dangerousCommandReason }
 
+/** A reason as a sentence a person reads under a row: first letter up. */
+function sentence(reason: string): string {
+	return reason ? `${reason.charAt(0).toUpperCase()}${reason.slice(1)}` : reason
+}
+
 /** The dangerous-pattern check `bash` applies, shared so the `monitor` tool refuses the same lines. */
 export function isDangerousCommand(command: string): boolean {
 	return DANGEROUS_PATTERNS.some((pattern) => pattern.test(command))
@@ -596,7 +601,12 @@ const BashToolBase = defineTool({
 				success: false,
 				output: '',
 				error: `Dangerous command blocked: "${input.command}". Why: ${dangerousCommandReason(input.command)}. Nothing ran. Use a narrower command that avoids it, or ask the user to run this one.`,
-				facts: { kind: 'failure', reason: 'blocked', subject: 'bash' },
+				facts: {
+					kind: 'failure',
+					reason: 'blocked',
+					subject: 'bash',
+					note: sentence(dangerousCommandReason(input.command)),
+				},
 			}
 		}
 

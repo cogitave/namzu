@@ -382,6 +382,9 @@ export function ComposerApproval({
 													−{formatLineCount(model.removed)} {model.removed === 1 ? 'line' : 'lines'}
 												</span>
 											) : null}
+											{model.cut ? (
+												<span className="approval-cut-note">Only part of the file is shown</span>
+											) : null}
 										</span>
 									) : null}
 									{count > 1 && <span className="approval-count">1 of {count}</span>}

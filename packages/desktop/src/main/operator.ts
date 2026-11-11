@@ -15,6 +15,7 @@ import {
 	readConfigSettingsView,
 } from '../shared/config-settings-protocol.js'
 import { type HistoryWorkSnapshot, restoreHistoryWork } from '../shared/history-work.js'
+import { OUTCOME_NOTIFICATION, readOutcomeNotice } from '../shared/outcome-protocol.js'
 import type {
 	PalPermissionChange,
 	PalSubscriptionCreate,
@@ -68,6 +69,7 @@ import type {
 	ProviderView,
 } from '../shared/protocol.js'
 import { readProviderConnections } from '../shared/provider-connections.js'
+import { ReconnectRetries } from '../shared/reconnect-retry.js'
 import { isReviewModeId } from '../shared/review-modes.js'
 import {
 	type SidebarSectionId,
@@ -443,6 +445,16 @@ export class Operator {
 			viewedConversations?: () => ReadonlySet<string>
 			/** The conversations that need the person changed; called with every one that does. */
 			attentionChanged?: (ids: string[]) => void
+			/**
+			 * What the system notifications need to know. Facts only (a conversation id, how a turn
+			 * ended); never a message, a file or a command.
+			 */
+			notices?: {
+				/** Every conversation waiting on the person, Pals included. */
+				needsYou(ids: string[]): void
+				turnStarted(id: string): void
+				turnEnded(id: string, outcome: 'finished' | 'failed' | 'other', pal: boolean): void
+			}
 		} = {},
 	) {
 		this.unreadConversations = new ConversationUnread()
@@ -748,23 +760,47 @@ export class Operator {
 	}
 	/** The conversations whose turn is waiting on the person (an approval or a question). */
 	needsYou(): string[] {
+		// The sidebar's own rule, so the badge and the row mark cannot disagree.
+		return this.needsYouRows(false)
+	}
+	/** One rule for "waiting on the person"; a Pal's conversation counts only when `includePals`. */
+	private needsYouRows(includePals: boolean): string[] {
 		return needsYouIds(
 			[...this.conversations.entries()].map(([id, session]) => ({
 				id,
-				// The sidebar's own rule, so the badge and the row mark cannot disagree.
 				running: session.projection.running,
 				waiting:
 					threadPhase(session.projection) === 'waiting' ? session.projection.permissions.length : 0,
-				pal: Boolean(session.view.palId),
+				...(includePals ? {} : { pal: Boolean(session.view.palId) }),
 			})),
 		)
 	}
 	private attentionChanged(): void {
-		if (!this.options.attentionChanged) return
+		if (this.options.attentionChanged || this.options.notices) {
+			try {
+				this.options.attentionChanged?.(this.needsYou())
+				// A Pal that asks is still blocked on the person, so the notice counts it; the badge does not.
+				this.options.notices?.needsYou(this.needsYouRows(true))
+			} catch (error) {
+				this.diagnostics?.record('ipc_failed', { operation: 'attention', error })
+			}
+		}
+	}
+	/** The name of the project a conversation belongs to, for a notification title. */
+	projectNameOf(conversationId: string): string | undefined {
+		const projectId = this.conversations.get(conversationId)?.view.projectId
+		return projectId ? this.projects.get(projectId)?.view.name : undefined
+	}
+	private noticeTurnEnded(session: Conversation): void {
+		const { error, stopReason } = session.projection
+		// Only a stop the person asked for is `other`. A reply that ended on its length limit, a
+		// refusal or a forced finish is still a long turn the person is waiting to hear about.
+		const outcome =
+			error || stopReason === 'error' ? 'failed' : stopReason === 'cancelled' ? 'other' : 'finished'
 		try {
-			this.options.attentionChanged(this.needsYou())
+			this.options.notices?.turnEnded(session.view.id, outcome, Boolean(session.view.palId))
 		} catch (error) {
-			this.diagnostics?.record('ipc_failed', { operation: 'attention', error })
+			this.diagnostics?.record('ipc_failed', { operation: 'notice', error })
 		}
 	}
 	/**
@@ -1110,6 +1146,7 @@ export class Operator {
 			this.unreadPals.delete(id)
 			for (const sessionId of scope.sessionIds) this.backgroundWork.invalidate(sessionId)
 			for (const projectId of scope.projectIds) this.projects.delete(projectId)
+			for (const projectId of scope.projectIds) this.undoRetries.drop(projectId)
 			for (const sessionId of scope.sessionIds) {
 				this.conversations.delete(sessionId)
 				this.attachmentPreviews.forget(sessionId)
@@ -1622,6 +1659,7 @@ export class Operator {
 			event.kind !== 'settings' &&
 			event.kind !== 'open-settings' &&
 			event.kind !== 'tab-command' &&
+			event.kind !== 'show-conversation' &&
 			event.kind !== 'model-catalogue-updated' &&
 			event.kind !== 'providers-changed' &&
 			event.kind !== 'unread'
@@ -1644,6 +1682,8 @@ export class Operator {
 					wasWaiting !== session.projection.permissions.length
 				)
 					this.attentionChanged()
+				if (!wasRunning && session.projection.running) this.options.notices?.turnStarted(id)
+				if (wasRunning && !session.projection.running) this.noticeTurnEnded(session)
 				if (wasRunning && !session.projection.running && !session.view.palId) {
 					const viewed = this.options.viewedConversations?.() ?? new Set<string>()
 					if (this.unreadConversations.turnEnded(id, viewed)) this.unreadChanged()
@@ -1802,6 +1842,7 @@ export class Operator {
 			}
 		for (const [attachmentId, file] of this.attachmentFiles)
 			if (retiredOwners.has(file.ownerId)) this.attachmentFiles.delete(attachmentId)
+		this.undoRetries.drop(projectId)
 		for (const id of sessionIds) {
 			this.conversations.delete(id)
 			this.attachmentPreviews.forget(id)
@@ -2080,7 +2121,10 @@ export class Operator {
 			if (this.closing) throw error
 		}
 		this.emit({ kind: 'connection', project: { ...view } })
-		if (view.status === 'ready') this.clearLostErrors(view.id)
+		if (view.status === 'ready') {
+			this.clearLostErrors(view.id)
+			this.undoRetries.reconnected(view.id)
+		}
 		this.persistDesktop()
 		return { ...view }
 	}
@@ -2387,6 +2431,7 @@ export class Operator {
 			this.pendingConversationRemovals.delete(sessionId)
 			this.backgroundWork.invalidate(sessionId)
 			this.conversations.delete(sessionId)
+			this.undoRetries.forget(view.projectId, sessionId)
 			this.attentionChanged()
 			this.attachmentPreviews.forget(sessionId)
 			if (this.unreadConversations.forget([sessionId])) this.unreadChanged()
@@ -2534,6 +2579,7 @@ export class Operator {
 			}
 			// Leave the map first so the connection's own close is not reported as a failure.
 			this.projects.delete(projectId)
+			this.undoRetries.drop(projectId)
 			this.backgroundWork.invalidateProject(projectId)
 			try {
 				await this.closeClient(project.client)
@@ -4740,10 +4786,21 @@ export class Operator {
 		if (!turns) throw new Error('Namzu returned an invalid undo status.')
 		this.emit({ kind: 'undo-status', sessionId: session.view.id, turns })
 	}
+	/** An undo read that failed is asked once more when its project reconnects, never on a timer. */
+	private readonly undoRetries = new ReconnectRetries()
 	private async refreshUndoQuietly(session: Conversation): Promise<void> {
+		const key = session.view.id
+		const projectId = session.view.projectId
 		try {
 			await this.refreshUndo(session)
+			this.undoRetries.succeeded(projectId, key)
 		} catch (error) {
+			// A conversation that closed while the read was in flight is not asked for again.
+			if (this.conversations.get(key) === session)
+				this.undoRetries.failed(projectId, key, () => {
+					const current = this.conversations.get(key)
+					if (current && !this.closing) void this.refreshUndoQuietly(current)
+				})
 			try {
 				this.diagnostics?.record('cli_notice', {
 					operation: 'namzu/turns/undo-status',
@@ -5693,6 +5750,13 @@ export class Operator {
 				(!session.view.harness || session.view.harness === 'namzu')
 			)
 				this.emit({ ...notice, kind: 'usage', sessionId: session.view.id })
+		} else if (frame.method === OUTCOME_NOTIFICATION) {
+			// What a finished turn changed and what checked it. A notice that does not read, or names a
+			// conversation this connection does not own, is dropped.
+			const notice = readOutcomeNotice(frame.params)
+			const session = notice ? this.runtimeSession(project, notice.sessionId) : undefined
+			if (notice && session && (!session.view.harness || session.view.harness === 'namzu'))
+				this.emit({ ...notice, kind: 'outcome', sessionId: session.view.id })
 		} else if (frame.method === 'session/update') {
 			const params = frame.params as AcpSessionUpdateNotification
 			const session = this.runtimeSession(project, params?.sessionId)

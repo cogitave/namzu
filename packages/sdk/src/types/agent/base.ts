@@ -161,13 +161,14 @@ export interface BaseAgentConfig {
 	toolResultGuardrails?: readonly import('../guardrail/index.js').ToolResultGuardrailSpec[]
 
 	/**
-	 * The file observation ledger of the turn that delegated to this agent.
+	 * This agent's own file observation ledger.
 	 *
-	 * A delegated child is a fresh turn with its own executor, which would
-	 * otherwise start a ledger of its own: a script its parent wrote or made
-	 * through the shell, run by the child, would then be older than the child's
-	 * ledger and be treated as a file the session never touched, so the
-	 * auto-mode classifier would not read it. Stamped by `AgentManager` from
+	 * A delegated child is a fresh turn with its own executor. It starts with
+	 * its own read record (`FileReadTracker.forChild`), so a write by its
+	 * parent or a sibling still makes what it read stale, but it shares the
+	 * delegating turn's record of what the agents wrote: a script its parent
+	 * wrote, run by the child, is the session's own, so the auto-mode
+	 * classifier reads it. Stamped by `AgentManager` from
 	 * `configOverrides.fileReadTracker`, which the delegation tools fill from
 	 * the turn's own `ToolContext`.
 	 */

@@ -17,7 +17,7 @@ import {
 } from './icons.js'
 import { PalCharacter3D } from './pal-character-3d.js'
 import { PalCharacter, type PalCharacterAppearance } from './pal-character.js'
-import { COMPUTER_SETUP_NOTICE } from './pal-computer-notice.js'
+import { COMPUTER_SETUP_NOTICE, PODMAN_STOPPED_NOTICE } from './pal-computer-notice.js'
 import type { PalComputerRowAction, PalComputerRowView } from './pal-computer-row-model.js'
 import type { PalRecentAction } from './pal-recent-activity.js'
 import { Button } from './ui/button.js'
@@ -35,6 +35,8 @@ export interface PalContextProps {
 		notice?: string
 		/** The computer cannot start until Docker or Podman is set up, so Start is switched off. */
 		setupMissing?: boolean
+		/** The Podman machine exists and is stopped: starting it is all that is missing. */
+		podmanStopped?: boolean
 		screen?: PalScreenView | null
 		loading?: boolean
 		/** What this PC needs before the computer can start (Windows); absent when nothing does. */
@@ -106,7 +108,18 @@ function computerStatusLabel(status: PalContextProps['computer']['status']) {
 }
 
 /** What is missing, and a way to read how to set it up without leaving the page. */
-function SetupHelp({ text, help, windows }: { text?: string; help: string; windows?: boolean }) {
+function SetupHelp({
+	text,
+	help,
+	windows,
+	downloads = true,
+}: {
+	text?: string
+	help: string
+	windows?: boolean
+	/** Offer Docker Desktop's page; not when the missing piece is a Podman machine that only needs starting. */
+	downloads?: boolean
+}) {
 	// On Windows the Pal computer row carries the one "How to set up" fold; Docker has no part in it.
 	if (windows) return text ? <p className="pal-context-note">{text}</p> : null
 	return (
@@ -115,7 +128,7 @@ function SetupHelp({ text, help, windows }: { text?: string; help: string; windo
 			<details className="pal-setup-help">
 				<summary>How to set up</summary>
 				<p>{help}</p>
-				<GetDockerButton />
+				{downloads && <GetDockerButton />}
 			</details>
 		</>
 	)
@@ -372,10 +385,13 @@ function PalContextBody({
 					<SetupHelp
 						text={
 							computer.notice
-								? `${computer.name} cannot start yet: it needs Docker Desktop or Podman, and neither is ready on this computer.`
+								? computer.podmanStopped
+									? `${computer.name} cannot start: your Podman machine is not running.`
+									: `${computer.name} cannot start yet: it needs Docker Desktop or Podman, and neither is ready on this computer.`
 								: undefined
 						}
-						help={COMPUTER_SETUP_NOTICE}
+						help={computer.podmanStopped ? PODMAN_STOPPED_NOTICE : COMPUTER_SETUP_NOTICE}
+						downloads={!computer.podmanStopped}
 					/>
 				)}
 				{computer.status !== 'ready' && (

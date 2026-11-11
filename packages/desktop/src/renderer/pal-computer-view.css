@@ -143,6 +143,12 @@
 	line-height: 20px;
 	overflow-wrap: anywhere;
 }
+.pal-computer-setup-card {
+	border: 1px solid var(--border);
+	border-radius: var(--radius-card);
+	background: var(--card);
+	box-shadow: var(--shadow-1);
+}
 .pal-computer-screen-loading {
 	position: absolute;
 	bottom: 16px;

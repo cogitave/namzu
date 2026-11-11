@@ -28,7 +28,8 @@ export interface AttentionHost {
  * Tells the person, from outside the window, that a conversation is waiting for them: a count on
  * the app icon and one flash of the taskbar or dock. It signals only while no window is focused,
  * flashes only on the change from nothing needing the person to something, and lets go as soon as a
- * window is focused, nothing needs the person, or the setting is turned off. No banner, no sound.
+ * window is focused, nothing needs the person, or the setting is turned off. A system notification
+ * is a separate path (`system-notices.ts`), with its own settings.
  */
 export class AttentionSignals {
 	private ids: readonly string[] = []
