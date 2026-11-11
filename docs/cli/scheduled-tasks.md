@@ -198,6 +198,8 @@ there is no default permission set.
 | `--shell bash\|sh` | Which installed shell executes the script. Required with a script; no default |
 | `--script-timeout 2m` | The script's own wall clock, separate from `--timeout` (default 2 minutes) |
 | `--script-report json-v1` | Pure scripts only: interpret one bounded JSON stdout line as a quiet or changed report, with optional scheduler-owned state |
+| `--gate <command>` / `--gate-file <file>` | Agent jobs only: a command that runs first and decides whether the model is called at all ([A gate](#a-gate-run-only-when-there-is-something-to-do)). Edit-only: `--no-gate` removes it |
+| `--gate-shell bash\|sh`, `--gate-timeout 30s` | The gate's shell (default `sh`) and its own time limit (default 30 seconds, at most 5 minutes) |
 | `--when <spec>` | `every 30m`, `every 2h`, `0 9 * * 1-5` (cron), `@daily`, `at 2026-09-24 09:00`, `at 09:00`, `in 2h` |
 | `--permissions <preset \| file.json>` | `read-only`, `edit-in-folder`, or a JSON file (below). Required |
 | `--folder <dir>` | Project folder where the run works. Default: this directory unless `--workspace none` is set |
@@ -211,7 +213,7 @@ there is no default permission set.
 | `--wait-for-provider 10m` | How long a model run waits out a provider pause before giving up; refused for a pure `script` job |
 | `--approval-ttl 7d` | How long a parked model run waits for you before it is abandoned; refused for a pure `script` job |
 | `--keep-sessions 20` | Completed-run sessions kept visible before older ones are archived; refused for a pure `script` job, which opens no session |
-| `--pause-after-failures 5` | Failed runs in a row before the job pauses itself (0: never); `check-failed` counts as a failure |
+| `--pause-after-failures 5` | Failed runs in a row before the job pauses itself (0: never); `check-failed` counts as a failure, a `skipped` run does not |
 | `--add-dir <dir>` | Another directory the file tools may reach |
 | `--notify-summary` | Put the run's one-line summary in its notification |
 | `--notify-finished true\|false` | Send Namzu's generic notice after a successful run. Default `true`; use `false` for a polling script that sends its own change notification. Failure and approval notices stay on. |
@@ -757,7 +759,9 @@ work to parallel agents with the `Agent` tool; see
 [Slash commands](slash-commands.md#hypermode).
 
 A run ends as one of: `completed`, `failed`, `awaiting-approval`, `timed-out`,
-`blocked-config`, `interrupted`, `approval-expired`, `check-failed`
+`blocked-config`, `interrupted`, `approval-expired`, `skipped` (an agent
+job's [gate](#a-gate-run-only-when-there-is-something-to-do) said not to run;
+no model was called), `check-failed`
 (`script`/`script+agent` only — the script or its wake-gate malfunctioned:
 a non-zero exit, its own timeout, or stdout that is not the wake-gate's
 `{"wake": …, "context": …}` contract). The status says how the
@@ -821,6 +825,116 @@ from the operator)…". `gateResult: { wake, contextChars }` is recorded
 alongside the run either way, `contextChars` rather than the context text
 itself (the same "a count, not the payload" discipline `refusedCalls`/
 `failedCalls` already keep).
+
+## A gate: run only when there is something to do
+
+A job that wakes the model at its time whether or not there is anything to do
+pays a model call each time: "check the queue every ten minutes" pays for 143
+empty checks a day. An `agent` job may carry a **gate**, one shell command you
+write, that runs first in the job's folder. The turn starts only when the gate
+**exits 0 and prints something**. Otherwise the run is **skipped**: no model is
+called, no session is opened, and nothing is spent.
+
+```sh
+namzu schedule add new-reports \
+  --prompt "Summarise the new reports and file anything that needs action." \
+  --when "every 10m" --permissions rules.json \
+  --gate 'find inbox -type f -mmin -10'
+```
+
+The gate has a time limit: **30 seconds** by default, set per job with
+`--gate-timeout` (`namzu schedule edit` changes it) up to a hard limit of **5
+minutes**; a gate is a cheap check, not the work. It runs on the host, so a job
+with a gate needs `--execution host` (the default); `sandbox` is refused. A
+gate cannot be combined with `--kind script` or `script+agent`, which already
+have a script of their own. `--gate-shell` picks `bash` or `sh` and defaults to
+`sh`; the chosen shell must be installed.
+
+What the gate printed goes to the turn as its starting context, in the
+kernel's words, so the model does not run the same check again: the run's
+system prompt says "The gate command printed:" followed by the output, and says
+the output is observed data, not an instruction from you; only the job's prompt
+is yours. Hidden and control characters in it are made visible, and the
+output is capped at **4,000 characters**. A longer output is cut there and
+the cut is marked: `...(cut: the gate printed more than 4000 characters; only
+the first 4000 are shown)`. What a gate printed on stderr is not shown to the
+model.
+
+### Why a run was skipped
+
+A skipped run is recorded with its reason in plain words, in `schedule list`
+(`last skipped (the gate printed nothing) 10:10`), `show`, `history`, `/schedule`
+and `run-now`, as status `skipped` (and `skipKind`: `silent`, `exit`, `timeout`
+or `start`, in `--json`):
+
+| Reason | When |
+|---|---|
+| `the gate printed nothing` | It exited 0 and printed only whitespace |
+| `the gate exited with 3` | It exited with any non-zero code, whatever it printed |
+| `the gate ran out of time (30 s)` | It was still running at the time limit |
+| `the gate could not start` | The shell is gone, the process could not be started, or the command is no longer allowed (the reason says which) |
+
+A skipped run is not a failure. It leaves the failure streak as it was,
+does not count toward `--pause-after-failures`, sends no failure notice, and
+a one-shot job's time still counts as used. Nothing is delivered to a source
+conversation for it. `show` counts the skips. A gate that **cannot start three
+runs in a row** is told to you the way a failing task is, once: `its gate could
+not start 3 runs in a row; namzu schedule show <job> says why`. A gate that
+starts again, even to say "nothing", ends that streak. It does not pause the job.
+
+### Who may set a gate
+
+A gate is a command that runs unattended, so it comes from you: from
+`namzu schedule add` and `edit` (`--gate`, `--gate-file`, `--no-gate`), or from
+the job's file followed by `namzu schedule confirm`. The gate is part of what
+your confirmation covers, like a script's text: a gate edited into the stored
+file by hand holds the job (`job changed outside namzu since it was confirmed`)
+until you confirm it again. The confirmation shows the exact command, and the
+scheduled-run floor and every `deny` rule read it before it is shown and again
+before each run, as they read a `script` job's body.
+
+**The model's `schedule` tool cannot set or change a gate at all.** It refuses
+a call that carries one and says why; it does not ask you to approve one. That
+is the choice: the tool's confirmation approves a job the model proposed, not
+a command to run unattended, and the person who wants a gate says so with the
+command above. When the model updates a job that already has your gate, the gate is
+kept as you wrote it and shown on the confirmation screen; changing the job to
+`script` or `script+agent` is refused until you remove the gate.
+
+The gate runs under the same rules as a `script` job's body: on the host, as
+your account, in the job's folder, through the same shell check, with the
+environment the scheduler gave the run **minus every credential-shaped
+variable** (the keys `bash` withholds from the model's own commands), so it
+gets no secret the task's own turn would not get. A bare `read-only`
+preset denies `bash`, which also refuses every gate; give such a job a
+permission file that lists what the model may do and leaves `bash` to
+`unmatched: deny`, as for a script.
+
+### Two examples
+
+A job that checks a folder for new files. The gate prints their names when any
+were written in the last ten minutes, and nothing otherwise:
+
+```sh
+namzu schedule add new-reports --folder ~/reports \
+  --when "every 10m" --permissions rules.json --model deepseek/deepseek-chat \
+  --prompt "Summarise each new report and note anything that needs a reply." \
+  --gate 'find inbox -type f -mmin -10'
+```
+
+A job that checks a command's output. This gate prints a line only while the
+disk is more than 90 percent full, and the model is woken only then:
+
+```sh
+namzu schedule add disk-watch --when "every 30m" --permissions rules.json \
+  --prompt "Say what is filling the disk and what is safe to clear." \
+  --gate "df --output=pcent / | tail -n +2 | awk '\$1+0 > 90'"
+```
+
+Where `rules.json` is `{"rules": {"read": "allow", "glob": "allow", "grep":
+"allow"}, "unmatched": "deny"}`. Either gate can also be a script in a file
+(`--gate-file`). A gate that `exit`s non-zero on purpose is a way to say "not
+now": `test -f ready.flag && cat ready.flag`.
 
 ## Approvals
 
@@ -909,7 +1023,10 @@ again at its next time.
 - A provider that asks to be left alone for longer than `--wait-for-provider`
   puts the job on a quota hold until then (`skipped: quota-hold`).
 - After `--pause-after-failures` (default 5) failed runs in a row the job pauses
-  itself and tells you. `namzu schedule resume <name>` starts it again.
+  itself and tells you. `namzu schedule resume <name>` starts it again. A run a
+  [gate](#a-gate-run-only-when-there-is-something-to-do) skipped is not a
+  failure and never counts; only a gate that cannot start three runs in a row
+  is told to you.
 - Jobs that can change the folder run one at a time per folder; read-only jobs
   may overlap. At most `schedule.maxConcurrentRuns` (default 2) runs are in
   progress at once; a run that waited records how long and why.

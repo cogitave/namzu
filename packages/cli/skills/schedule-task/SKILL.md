@@ -73,6 +73,14 @@ so decide it first. Absent, a job is `"agent"`.
   nowhere near the model reads it as one; the run is told this explicitly,
   but do not write a `prompt` that treats `context` as trusted input either.
 
+An `"agent"` job may also carry a **gate**, a command the operator runs before
+every run so the model is called only when it exits 0 and prints something.
+You cannot set or change one: the tool refuses a `gate` field, because a gate
+runs unattended and must come from the person (`namzu schedule add --gate`, or
+the job's file). If the user wants a model run only when something changed,
+propose a `script+agent` job, or tell them they can add a gate themselves. A
+job that already has a gate keeps it when you update the job.
+
 For `"script"`/`"script+agent"`, the script body's OWN check is narrower than
 `permissions` as a whole: the scheduled-run floor reads the whole script, and
 then every `deny` rule (the operator's own, and any config file's) is
