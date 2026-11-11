@@ -8,6 +8,7 @@ import {
 	net,
 	BrowserWindow,
 	Menu,
+	Notification,
 	app,
 	clipboard,
 	dialog,
@@ -122,6 +123,7 @@ import { runShutdown } from './shutdown-sequence.js'
 import { SidebarSnapshotStore } from './sidebar-snapshot-store.js'
 import { installStreamRendererPolicy, withStreamRendererPort } from './stream-renderer-policy.js'
 import { SupersededConversationSettingsError } from './superseded-settings.js'
+import { SystemNotices } from './system-notices.js'
 import { tabMenuItems } from './tab-menu.js'
 import { TerminalHostClient } from './terminal-client.js'
 import { engineHost, findProgram, shellEnvironment } from './terminal-env.js'
@@ -135,7 +137,7 @@ import {
 	bakedFeedDeclared,
 	updateFeedFromEnv,
 } from './updater.js'
-import { viewedTabs } from './viewed-conversations.js'
+import { viewedTabs, windowsHoldingTab } from './viewed-conversations.js'
 import { VoiceInputManager } from './voice-input.js'
 import {
 	readWindowMenu,
@@ -466,6 +468,78 @@ const attention = new AttentionSignals({
 		}),
 	enabled: () => settingsStore.get().attentionSignals,
 })
+/** A notification was clicked: bring a window forward and show that conversation. */
+function showConversationFromNotice(sessionId: string): void {
+	const open = new Map(windows.entries())
+	// A click normally arrives with no window focused, so prefer a window that already has the
+	// conversation as a tab, then the focused one, then any.
+	const holder = windowsHoldingTab(workspace.snapshot(), sessionId)
+		.map((windowId) => open.get(windowId))
+		.find((window) => window && !window.isDestroyed())
+	const target =
+		holder ??
+		BrowserWindow.getFocusedWindow() ??
+		windows
+			.entries()
+			.map(([, window]) => window)
+			.find((window) => !window.isDestroyed())
+	if (!target || target.isDestroyed()) return
+	if (target.isMinimized()) target.restore()
+	target.show()
+	target.focus()
+	try {
+		target.webContents.send('namzu:event', { kind: 'show-conversation', sessionId })
+	} catch (error) {
+		diagnostics.record('renderer_failed', { error })
+	}
+}
+// An end-to-end run (never a packaged app) records each notification instead of showing it, so a
+// test can read what would have been shown and click it without a notification service.
+const noticeHook = !app.isPackaged && process.env.NAMZU_E2E_NOTICES === '1'
+const noticeLog: { title: string; body: string; silent: boolean }[] = []
+const noticeClicks: (() => void)[] = []
+if (noticeHook) {
+	const hooks = globalThis as unknown as Record<string, unknown>
+	hooks.__namzuNotices = noticeLog
+	hooks.__namzuNoticeClick = (index: number) => noticeClicks[index]?.()
+}
+// Built before the operator that reports to it; every callback reads its state only when called.
+const notices = new SystemNotices({
+	supported: () => noticeHook || Notification.isSupported(),
+	windowFocused: () =>
+		windows.entries().some(([, window]) => !window.isDestroyed() && window.isFocused()),
+	show: (payload, onClick) => {
+		if (noticeHook) {
+			noticeLog.push({ ...payload })
+			noticeClicks.push(onClick)
+			return undefined
+		}
+		const notice = new Notification({ ...payload })
+		notice.on('click', onClick)
+		notice.show()
+		return { close: () => notice.close() }
+	},
+	now: () => Date.now(),
+	// A run that records instead of showing cannot wait half a minute for a turn to count as long,
+	// nor three seconds for events to fold.
+	...(noticeHook ? { finishedAfterMs: () => 1, foldMs: () => 50 } : {}),
+	schedule: (ms, run) => {
+		const timer = setTimeout(run, ms)
+		timer.unref()
+		return () => clearTimeout(timer)
+	},
+	settings: () => {
+		const settings = settingsStore.get()
+		return {
+			needsYou: settings.notifyNeedsYou,
+			failed: settings.notifyFailed,
+			finished: settings.notifyFinished,
+			sound: settings.notifySound,
+		}
+	},
+	projectName: (id): string | undefined => operator.projectNameOf(id),
+	open: (id) => showConversationFromNotice(id),
+})
 const operator = new Operator(
 	command,
 	(event: DesktopEvent) => {
@@ -540,6 +614,7 @@ const operator = new Operator(
 		projectNames: new ProjectNameStore(join(app.getPath('userData'), 'project-names.json')),
 		viewedConversations,
 		attentionChanged: (ids) => attention.update(ids),
+		notices,
 	},
 )
 operatorReady = true
@@ -1218,6 +1293,11 @@ function register(): void {
 	handle('forkConversation', (id: string) => operator.forkConversation(id))
 	handle('conversationMarkdown', (id: string) => operator.conversationMarkdown(id))
 	handle('projectGit', (id: string) => operator.projectGit(id))
+	handle('mcpServers', (id: string) => operator.mcpServers(id))
+	handle('approveMcpServers', (id: string, servers: unknown) =>
+		operator.approveMcpServers(id, servers),
+	)
+	handle('searchConversations', (query: unknown) => operator.searchConversations(query))
 	handle('projectPr', (id: string) => operator.projectPr(id))
 	handle('projectChanges', (id: string) => operator.projectChanges(id))
 	handle('projectDiff', (id: string, path: string) => operator.projectDiff(id, path))
@@ -1692,7 +1772,10 @@ async function createWindow(
 	window.on('minimize', reconcileViewed)
 	window.on('restore', reconcileViewed)
 	// A focused window is the person looking; losing focus with something waiting signals again.
-	window.on('focus', () => attention.refresh())
+	window.on('focus', () => {
+		attention.refresh()
+		notices.focused()
+	})
 	// Moving between two windows blurs one before the other focuses: look again once it has settled.
 	window.on('blur', () => attention.windowBlurred())
 	window.on('show', () => attention.refresh())

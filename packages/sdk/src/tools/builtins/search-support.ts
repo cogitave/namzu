@@ -105,3 +105,65 @@ export function isReadDenied(
 	if (relative === '..' || relative.startsWith('../') || posix.isAbsolute(relative)) return true
 	return context.readDenied(joinPath(context.workingDirectory, relative))
 }
+
+/**
+ * Pulls from `source` ahead of the consumer, up to `ahead` items, so a walk's
+ * directory reads overlap with the matching of files already listed. Order is
+ * unchanged. An error from the source is thrown to the consumer after the
+ * items listed before it; when the consumer stops, the source is closed (its
+ * own cleanup runs) before this returns.
+ */
+export async function* readAhead<T>(source: AsyncIterable<T>, ahead = 256): AsyncGenerator<T> {
+	const iterator = source[Symbol.asyncIterator]()
+	const buffer: T[] = []
+	let finished = false
+	let failure: { error: unknown } | undefined
+	let stop = false
+	let wakeConsumer: (() => void) | undefined
+	let wakeProducer: (() => void) | undefined
+	const notifyConsumer = () => {
+		const wake = wakeConsumer
+		wakeConsumer = undefined
+		wake?.()
+	}
+	const producer = (async () => {
+		try {
+			while (!stop) {
+				if (buffer.length >= ahead) {
+					await new Promise<void>((resolve) => {
+						wakeProducer = resolve
+					})
+					continue
+				}
+				const next = await iterator.next()
+				if (next.done) break
+				buffer.push(next.value)
+				notifyConsumer()
+			}
+		} catch (error) {
+			failure = { error }
+		}
+		finished = true
+		notifyConsumer()
+	})()
+	try {
+		for (;;) {
+			if (buffer.length > 0) {
+				const item = buffer.shift() as T
+				wakeProducer?.()
+				yield item
+				continue
+			}
+			if (failure) throw failure.error
+			if (finished) return
+			await new Promise<void>((resolve) => {
+				wakeConsumer = resolve
+			})
+		}
+	} finally {
+		stop = true
+		wakeProducer?.()
+		await producer
+		await iterator.return?.()
+	}
+}

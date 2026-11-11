@@ -15,6 +15,9 @@ import { VCS_NAMES, createIgnoreStack } from './ignore-matcher.js'
 /** Entries a walk examines before it stops with what it has: a safety valve, not a budget. */
 export const DEFAULT_MAX_VISITED_ENTRIES = 500_000
 
+/** Longest the walk holds the event loop between yields. */
+const WALK_SLICE_MS = 8
+
 const GLOBSTAR = Symbol('globstar')
 type Segment = string | { source: string; flags: string } | typeof GLOBSTAR
 
@@ -185,6 +188,7 @@ async function* executeWalk(
 	plan: WalkPlan,
 	signal?: AbortSignal,
 	onSummary?: (summary: SandboxWalkSummary) => void,
+	withoutSizes = false,
 ): AsyncGenerator<SandboxFileEntry> {
 	const fs = await import('node:fs/promises')
 	const path = await import('node:path')
@@ -196,6 +200,7 @@ async function* executeWalk(
 		/** Whether leaving this directory also drops its ignore layer. */
 		layered: boolean
 	}[] = []
+	let sliceStart = performance.now()
 	let visited = 0
 	let emitted = 0
 	let ignoredDirectories = 0
@@ -327,8 +332,22 @@ async function* executeWalk(
 		while (open.length > 0) {
 			check()
 			const frame = open[open.length - 1] as (typeof open)[number]
-			const entry = await wait(frame.dir.read())
-			check()
+			let entry: import('node:fs').Dirent | null
+			if (withoutSizes) {
+				// A local search consumer reads a directory's buffered entries
+				// synchronously: one promise per entry costs more than the listing.
+				// The loop yields on a time slice, and a blocked read cannot be
+				// raced, which only the default path promises.
+				if (performance.now() - sliceStart > WALK_SLICE_MS) {
+					await new Promise<void>((done) => setImmediate(done))
+					sliceStart = performance.now()
+				}
+				check()
+				entry = frame.dir.readSync()
+			} else {
+				entry = await wait(frame.dir.read())
+				check()
+			}
 			if (!entry) {
 				open.pop()
 				if (frame.layered) ignore?.leave()
@@ -351,6 +370,13 @@ async function* executeWalk(
 			}
 			if (!entry.isFile() || !matchers.some((matcher) => matcher.test(relative))) continue
 			if (ignore?.isIgnored(absolute, false)) continue
+			if (withoutSizes) {
+				// The caller opens the file anyway and reads its size from the handle.
+				emitted += 1
+				yield { path: absolute, size: 0 }
+				if (emitted >= plan.maxEntries) return
+				continue
+			}
 			let info: import('node:fs').Stats
 			try {
 				info = await wait(fs.lstat(absolute))
@@ -384,10 +410,21 @@ function globalIgnoreFiles(): string[] {
 /** Internal host path; the caller first resolves its authorized filesystem root. */
 export async function* walkFilesLocally(
 	rootPath: string,
-	options: SandboxWalkFilesOptions,
+	options: SandboxWalkFilesOptions & {
+		/**
+		 * Skip the per-file size read: entries carry `size: 0`. For a caller that
+		 * opens every file itself and takes the size from the handle.
+		 */
+		readonly withoutSizes?: boolean
+	},
 ): AsyncGenerator<SandboxFileEntry> {
 	options.signal?.throwIfAborted()
-	yield* executeWalk(planWalk(rootPath, options), options.signal, options.onSummary)
+	yield* executeWalk(
+		planWalk(rootPath, options),
+		options.signal,
+		options.onSummary,
+		options.withoutSizes === true,
+	)
 }
 
 /** The existing sandbox execution seam; no separate worker protocol is needed. */

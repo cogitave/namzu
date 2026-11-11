@@ -104,6 +104,7 @@ export function publicFacts(value: unknown): ToolFacts | undefined {
 				replacements: count(value.replacements),
 				added: count(value.added),
 				removed: count(value.removed),
+				hunksTruncated: flag(value.hunksTruncated),
 			})
 		case 'write': {
 			const path = text(value.path)
@@ -116,6 +117,7 @@ export function publicFacts(value: unknown): ToolFacts | undefined {
 				bytes: count(value.bytes),
 				added: count(value.added),
 				removed: count(value.removed),
+				hunksTruncated: flag(value.hunksTruncated),
 			})
 		}
 		case 'failure': {
@@ -125,6 +127,7 @@ export function publicFacts(value: unknown): ToolFacts | undefined {
 				kind: 'failure',
 				reason,
 				subject: text(value.subject),
+				note: text(value.note),
 			})
 		}
 		default:

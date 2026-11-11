@@ -92,6 +92,7 @@ import { type ProviderRetryStatus, readProviderRetryStatus } from './acp-provide
 import { questionsOverPermission } from './acp-screen-question.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
 import { desktopModelCatalogue } from './desktop-model-catalogue.js'
+import { announceOutcome } from './desktop-outcome-feed.js'
 import { type UsageFeed, createUsageFeed } from './desktop-usage-feed.js'
 import { withPreviews } from './permission-preview.js'
 import type { CommandContext, CommandDef } from './types.js'
@@ -219,6 +220,7 @@ type AcpLiveSession = Pick<
 	| 'hasProvider'
 	| 'errorHint'
 	| 'mcpFailed'
+	| 'mcpStatus'
 	| 'send'
 	| 'close'
 	| 'presenter'
@@ -427,6 +429,19 @@ export interface CliAcpRuntime {
 	): Promise<{ closed: true }>
 	modelSettings(provider: string, model: string, sessionId?: string): Promise<ComposerModelSettings>
 	plugins(cwd: string, sessionId?: string): Promise<PluginInventoryView>
+	/**
+	 * Which tool servers the conversations open in this project have connected, and which one
+	 * failed the last time one started. Empty when nothing has started yet.
+	 */
+	mcpStatus?(cwd: string): {
+		readonly connected: readonly string[]
+		readonly failed: readonly {
+			readonly name: string
+			readonly reason: string
+			/** The server's settings when it failed; a failure of settings since changed is not shown. */
+			readonly config?: string
+		}[]
+	}
 	setPluginEnabled(
 		sessionId: string,
 		name: string,
@@ -620,6 +635,16 @@ export function createCliAcpRuntime(
 	runtimeOptions: CliAcpRuntimeOptions = {},
 ): CliAcpRuntime {
 	const records = new Map<string, AcpRuntimeRecord>()
+	// The tool servers that stopped the last conversation from starting in a folder. A session whose
+	// server failed never exists, so this is the only place the reason survives for a settings page.
+	const mcpFailures = new Map<string, readonly { name: string; reason: string; config: string }[]>()
+	const mcpKey = (dir: string): string => {
+		try {
+			return canonicalProjectPath(dir)
+		} catch {
+			return dir
+		}
+	}
 	const liveInputs = new Map<string, LivePromptInbox>()
 	const constructing = new Map<string, string>()
 	const selections = new Map<string, Preferences>()
@@ -903,12 +928,21 @@ export function createCliAcpRuntime(
 					throw new Error(hint)
 				}
 				if (candidate.mcpFailed.length > 0) {
+					mcpFailures.set(
+						mcpKey(cwd),
+						candidate.mcpFailed.map(({ name, reason }) => ({
+							name,
+							reason,
+							config: JSON.stringify(projectCtx.config.mcpServers?.[name] ?? null),
+						})),
+					)
 					const failure = candidate.mcpFailed
 						.map((entry) => `tool server "${entry.name}" is not available: ${entry.reason}`)
 						.join('\n')
 					await closeCandidate()
 					throw new Error(failure)
 				}
+				mcpFailures.delete(mcpKey(cwd))
 				for (const [name, enabled] of pluginOverrides.get(sessionId) ?? []) {
 					if (!candidate.plugins?.list().some((plugin) => plugin.name === name)) {
 						throw new Error(
@@ -1648,6 +1682,16 @@ export function createCliAcpRuntime(
 				),
 			})
 		},
+		mcpStatus: (requestedCwd) => {
+			const connected = new Set<string>()
+			const key = mcpKey(requestedCwd)
+			for (const record of records.values()) {
+				if (mcpKey(record.cwd) !== key) continue
+				for (const server of record.session.mcpStatus?.().connected ?? [])
+					connected.add(server.name)
+			}
+			return { connected: [...connected], failed: mcpFailures.get(key) ?? [] }
+		},
 		setPluginEnabled: async (sessionId, name, enabled, cwd) => {
 			if (
 				!isEntityId(sessionId, 'session') ||
@@ -1946,11 +1990,12 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	// Desktop only: how full each conversation is, and when it is being compacted.
 	// The shared bridge carries neither, so the host announces them itself.
 	let announcingUsage = true
+	const announce = (method: string, params: Record<string, unknown>) => {
+		if (announcingUsage) void transport.send({ jsonrpc: '2.0', method, params })
+	}
 	const usageFeed: UsageFeed | undefined = desktop
 		? createUsageFeed({
-				notify: (method, params) => {
-					if (announcingUsage) void transport.send({ jsonrpc: '2.0', method, params })
-				},
+				notify: announce,
 				now: () => Date.now(),
 				schedule: (run, ms) => {
 					const timer = setTimeout(run, ms)
@@ -1962,7 +2007,14 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	const runtime = withCliHarnesses(
 		createCliAcpRuntime(ctx, DEFAULT_RUNTIME_DEPS, {
 			computerUse: desktop,
-			...(usageFeed ? { observeEvent: (id, event) => usageFeed.observe(id, event) } : {}),
+			...(usageFeed
+				? {
+						observeEvent: (id, event) => {
+							usageFeed.observe(id, event)
+							announceOutcome(id, event, announce)
+						},
+					}
+				: {}),
 		}),
 		process.cwd(),
 	)

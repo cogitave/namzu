@@ -32,6 +32,8 @@
     ],
     "overrides": {
       "js-yaml@3": "^3.15.2",
+      "app-builder-lib>minimatch": "^11.0.1",
+      "@electron/universal>minimatch": "^11.0.1",
       "js-yaml@4": "^4.3.2",
       "undici@<7": "^6.29.1",
       "fast-uri": "^3.1.9",

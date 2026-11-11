@@ -528,3 +528,79 @@ input.settings-config-input[type="number"] {
 .settings-config-error {
 	margin: 0;
 }
+
+.settings-note {
+	margin: 0;
+	color: var(--muted-foreground);
+	font-size: 12px;
+	line-height: 18px;
+}
+.mcp-waiting {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 10px;
+	padding: 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-panel);
+	background: color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+.mcp-waiting p {
+	margin: 0;
+	font-size: 12px;
+	line-height: 18px;
+}
+.mcp-server-list {
+	display: flex;
+	flex-direction: column;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.mcp-server {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 8px 0;
+	border-top: 1px solid var(--border);
+}
+.mcp-server:first-child {
+	border-top: 0;
+}
+.mcp-server-main {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	gap: 2px;
+}
+.mcp-server-name {
+	font-size: 13px;
+	line-height: 20px;
+	overflow-wrap: anywhere;
+}
+.mcp-server-where,
+.mcp-server-reason {
+	color: var(--muted-foreground);
+	font-size: 12px;
+	line-height: 18px;
+	overflow-wrap: anywhere;
+}
+.mcp-server-reason {
+	color: var(--foreground);
+}
+.settings-badge[data-tone="connected"] {
+	color: var(--foreground);
+}
+.settings-badge[data-tone="waiting"],
+.settings-badge[data-tone="failed"] {
+	color: var(--foreground);
+	background: color-mix(in srgb, var(--foreground) 14%, transparent);
+}
+.mcp-servers {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	width: 100%;
+	min-width: 0;
+}

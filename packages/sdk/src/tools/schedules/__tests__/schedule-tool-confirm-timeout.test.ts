@@ -157,6 +157,10 @@ describe('schedule tool — a person answering the confirmation is not the execu
 
 	it('turn abort reaches the pending confirm instead of leaving it to hang until the deadline', async () => {
 		let confirmSignal: AbortSignal | undefined
+		let confirmCalled: () => void = () => {}
+		const confirmStarted = new Promise<void>((resolve) => {
+			confirmCalled = resolve
+		})
 		const job: ScheduleJobSummary = {
 			name: 'nightly',
 			folder: '/f',
@@ -167,6 +171,7 @@ describe('schedule tool — a person answering the confirmation is not the execu
 			preview: async () => PREVIEW,
 			confirm: (_req: ScheduleConfirmRequest, signal?: AbortSignal) => {
 				confirmSignal = signal
+				confirmCalled()
 				// A screen with nobody answering it: only the turn's own abort
 				// (or the tool's deadline) should ever settle this.
 				return new Promise<ScheduleConfirmAnswer>(() => {})
@@ -184,7 +189,9 @@ describe('schedule tool — a person answering the confirmation is not the execu
 		const controller = new AbortController()
 		const exec = harness({ tool, toolTimeoutMs: 60_000, abortSignal: controller.signal })
 		const pending = exec.executeBatch(response('schedule', CREATE_ARGS))
-		await sleep(20)
+		// Abort only once the confirm is actually on screen, not after a guess
+		// at how long reaching it takes.
+		await confirmStarted
 		controller.abort(new Error('operator stopped the turn'))
 		// No real 1000ms safety race: it competed with the same clock as the
 		// cancellation work it waited on, so a starved CI runner could make

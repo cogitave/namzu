@@ -1,5 +1,5 @@
 import type { ThreadState } from '../shared/projection.js'
-import { changeTotals } from './changes-totals.js'
+import { type DiffReceipt, canonicalPaths, changeTotals, receiptOf } from './changes-totals.js'
 import { type UndoCardView, undoCardView } from './undo-model.js'
 
 export interface TurnChangeFile {
@@ -8,6 +8,8 @@ export interface TurnChangeFile {
 	path: string
 	added: number
 	removed: number
+	/** The diff carries only part of the file's lines; the counts are still the whole. */
+	cut: boolean
 	receiptIds: string[]
 	/** The turn made this file: its first receipt had nothing before it. */
 	created: boolean
@@ -17,27 +19,11 @@ export interface TurnChanges {
 	files: TurnChangeFile[]
 	added: number
 	removed: number
+	cut: boolean
 	/** Every completed diff receipt of the turn, in the order the work happened. */
 	receiptIds: string[]
 	/** What the turn did to its files, for the card's title. */
 	verb: 'Created' | 'Edited' | 'Changed'
-}
-
-// Streaming rebuilds `tools` on every update, but finished receipts keep their view objects, so
-// a file's totals are reused while its receipts are the same objects.
-const totalsCache = new WeakMap<
-	object,
-	{ views: object[]; totals: ReturnType<typeof changeTotals> }
->()
-function cachedTotals(views: object[]): ReturnType<typeof changeTotals> {
-	const first = views[0]
-	if (!first) return changeTotals([])
-	const hit = totalsCache.get(first)
-	if (hit && hit.views.length === views.length && hit.views.every((v, i) => v === views[i]))
-		return hit.totals
-	const totals = changeTotals(views)
-	totalsCache.set(first, { views, totals })
-	return totals
 }
 
 export function baseName(path: string): string {
@@ -55,17 +41,25 @@ export function turnChanges(
 ): Map<number, TurnChanges> {
 	const byTurn = new Map<number, Map<string, { path: string; ids: string[]; created: boolean }>>()
 	let anonymous = 0
+	const canonical = canonicalPaths(
+		thread.timeline.flatMap((entry) => {
+			const tool = entry.kind === 'tool' ? thread.tools[entry.id] : undefined
+			const receipt = tool?.status === 'completed' ? receiptOf(tool) : undefined
+			return receipt?.path ? [receipt.path] : []
+		}),
+	)
 	for (const entry of thread.timeline) {
 		if (entry.kind !== 'tool') continue
 		const tool = thread.tools[entry.id]
-		if (!tool || tool.status !== 'completed' || tool.view.kind !== 'diff') continue
-		const path = tool.view.path || tool.view.label || ''
+		const receipt = tool?.status === 'completed' ? receiptOf(tool) : undefined
+		if (!tool || !receipt) continue
+		const path = canonical(receipt.path ?? '') || receipt.label || ''
 		const key = path || `receipt:${anonymous++}`
 		const files = byTurn.get(entry.turn) ?? new Map()
 		const file = files.get(key) ?? {
 			path,
 			ids: [],
-			created: !tool.view.before && Boolean(tool.view.after),
+			created: !receipt.before && Boolean(receipt.after),
 		}
 		file.ids.push(entry.id)
 		files.set(key, file)
@@ -75,10 +69,11 @@ export function turnChanges(
 	for (const [turn, grouped] of byTurn) {
 		const files: TurnChangeFile[] = []
 		for (const { path, ids, created } of grouped.values()) {
-			const totals = cachedTotals(
-				ids.map((id) => {
-					const view = thread.tools[id]?.view
-					return view?.kind === 'diff' ? view : {}
+			const tools = ids.map((id) => thread.tools[id])
+			const totals = changeTotals(
+				tools.flatMap((tool): DiffReceipt[] => {
+					const receipt = tool && receiptOf(tool)
+					return receipt ? [receipt] : []
 				}),
 			)
 			if (totals.files === 0) continue
@@ -87,6 +82,7 @@ export function turnChanges(
 				path: path || 'File',
 				added: totals.added,
 				removed: totals.removed,
+				cut: totals.cut,
 				receiptIds: ids,
 				created,
 			})
@@ -99,6 +95,7 @@ export function turnChanges(
 			files,
 			added: files.reduce((sum, file) => sum + file.added, 0),
 			removed: files.reduce((sum, file) => sum + file.removed, 0),
+			cut: files.some((file) => file.cut),
 			receiptIds: files.flatMap((file) => file.receiptIds),
 		})
 	}

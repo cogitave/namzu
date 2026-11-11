@@ -29,6 +29,14 @@ export interface DesktopSettings {
 	 * icon and flash the taskbar or dock once.
 	 */
 	attentionSignals: boolean
+	/** A system notification while no Namzu window is focused and a conversation needs an answer. */
+	notifyNeedsYou: boolean
+	/** The same when a turn stops with an error. */
+	notifyFailed: boolean
+	/** The same when a turn finishes, but only a turn that ran `FINISHED_NOTICE_AFTER_MS` or longer. */
+	notifyFinished: boolean
+	/** Let a notification make the system's sound. Off by default. */
+	notifySound: boolean
 }
 
 export const DEFAULT_DESKTOP_SETTINGS: Readonly<DesktopSettings> = {
@@ -40,7 +48,16 @@ export const DEFAULT_DESKTOP_SETTINGS: Readonly<DesktopSettings> = {
 	voiceInputAccepted: false,
 	hardwareAcceleration: true,
 	attentionSignals: true,
+	notifyNeedsYou: true,
+	notifyFailed: true,
+	notifyFinished: true,
+	notifySound: false,
 }
+
+/** A turn you just watched end does not need a notification: only one that ran this long or longer does. */
+export const FINISHED_NOTICE_AFTER_MS = 30_000
+/** The same, in whole seconds, for the words in Settings. */
+export const FINISHED_NOTICE_AFTER_SECONDS = FINISHED_NOTICE_AFTER_MS / 1000
 
 const KEYS = Object.keys(DEFAULT_DESKTOP_SETTINGS) as (keyof DesktopSettings)[]
 

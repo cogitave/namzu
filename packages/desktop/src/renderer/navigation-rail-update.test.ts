@@ -52,7 +52,7 @@ describe('the rail update badge', () => {
 			expect(markup).not.toContain('rail-profile')
 			expect(labels(markup).at(-1)).toBe('Settings')
 		}
-		expect(labels(rail())).toEqual(['Home', 'Spaces', 'Scheduled', 'Plugins', 'Settings'])
+		expect(labels(rail())).toEqual(['Home', 'Settings'])
 	})
 
 	it('keeps a polite live region for the one announcement', () => {

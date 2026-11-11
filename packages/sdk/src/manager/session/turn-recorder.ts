@@ -7,6 +7,7 @@ import { NAMZU } from '../../constants/telemetry/index.js'
 import { resolveModelPricing } from '../../pricing/index.js'
 import type { SessionTokenBudget } from '../../store/budget/index.js'
 import type { SessionCheckpointStore } from '../../store/checkpoint/index.js'
+import { foldSessionLog } from '../../store/session-log/incremental.js'
 import {
 	type SessionLease,
 	type SessionLog,
@@ -1441,12 +1442,29 @@ export async function readFoldedHistory(
 	log: SessionLog,
 	options: { readonly throughSeq?: number } = {},
 ): Promise<RecordedMessage[]> {
+	// Folding the whole log is advanced from the last record the previous call
+	// folded, not redone from byte 0 on every turn. A fold to a seq is a
+	// different question and is read in full.
+	if (options.throughSeq === undefined) {
+		return foldSessionLog(log, {
+			name: 'folded-history',
+			mode: 'strict',
+			create: () => new SessionMessageFold(),
+			apply: (fold, entry) => fold.apply(entry.record as SessionRecord),
+			result: (fold) => recordedMessages(log, fold),
+		})
+	}
 	const fold = new SessionMessageFold()
-	for await (const entry of log.read(
-		options.throughSeq !== undefined ? { throughSeq: options.throughSeq } : {},
-	)) {
+	for await (const entry of log.read({ throughSeq: options.throughSeq })) {
 		fold.apply(entry.record as SessionRecord)
 	}
+	return recordedMessages(log, fold)
+}
+
+async function recordedMessages(
+	log: SessionLog,
+	fold: SessionMessageFold,
+): Promise<RecordedMessage[]> {
 	const out: RecordedMessage[] = []
 	const spilled = fold.spilledSummary
 	if (spilled) {
@@ -1463,9 +1481,10 @@ export async function readFoldedHistory(
 		}
 	}
 	for (const entry of fold.entries()) {
+		// A message from a shared fold is copied: the caller owns what it gets.
 		const message = entry.spill
 			? (JSON.parse(await log.readSpill(entry.spill as SpillRef)) as Message)
-			: entry.message
+			: structuredClone(entry.message)
 		out.push({
 			message: withMessageId(message, entry.messageId),
 			...(entry.messageId ? { messageId: entry.messageId } : {}),
@@ -1488,29 +1507,36 @@ export async function readFoldedHistory(
 export async function readEverRecordedMessages(
 	log: SessionLog,
 ): Promise<ReadonlyMap<MessageId, Message>> {
-	const latest = new Map<MessageId, { readonly content: Message; readonly spill?: SpillRef }>()
-	for await (const entry of log.read()) {
-		const record = entry.record as SessionRecord
-		if (record.type === 'message') {
-			latest.set(record.messageId, {
-				content: record.content,
-				...(record.spill ? { spill: record.spill } : {}),
-			})
-		} else if (record.type === 'message_replaced') {
-			latest.set(record.targetMessageId, {
-				content: record.content,
-				...(record.spill ? { spill: record.spill } : {}),
-			})
-		}
-	}
-	const resolved = new Map<MessageId, Message>()
-	for (const [id, entry] of latest) {
-		const content = entry.spill
-			? (JSON.parse(await log.readSpill(entry.spill)) as Message)
-			: entry.content
-		resolved.set(id, withMessageId(content, id))
-	}
-	return resolved
+	return foldSessionLog(log, {
+		name: 'ever-recorded-messages',
+		mode: 'strict',
+		create: () => new Map<MessageId, { readonly content: Message; readonly spill?: SpillRef }>(),
+		apply: (latest, entry) => {
+			const record = entry.record as SessionRecord
+			if (record.type === 'message') {
+				latest.set(record.messageId, {
+					content: record.content,
+					...(record.spill ? { spill: record.spill } : {}),
+				})
+			} else if (record.type === 'message_replaced') {
+				latest.set(record.targetMessageId, {
+					content: record.content,
+					...(record.spill ? { spill: record.spill } : {}),
+				})
+			}
+		},
+		result: async (latest) => {
+			const resolved = new Map<MessageId, Message>()
+			for (const [id, entry] of latest) {
+				// Copied: the map this is read from is shared with the next call.
+				const content = entry.spill
+					? (JSON.parse(await log.readSpill(entry.spill)) as Message)
+					: structuredClone(entry.content)
+				resolved.set(id, withMessageId(content, id))
+			}
+			return resolved
+		},
+	})
 }
 
 /**

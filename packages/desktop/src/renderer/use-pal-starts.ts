@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ThreadState } from '../shared/projection.js'
 import type { DesktopApi } from '../shared/protocol.js'
+import { POLL_FAILURE_LIMIT } from './failing-poll.js'
 import { computerSetupMissing } from './pal-computer-notice.js'
 import { type PalStartEntry, afterRead, emptyPalStart } from './pal-start-model.js'
 import { newPalSendTargets } from './pal-unread.js'
@@ -34,6 +35,8 @@ export function usePalStarts(
 		if (!mounted.current) return
 		setEntries((all) => ({ ...all, [palId]: change(all[palId] ?? emptyPalStart) }))
 	}, [])
+	// Reads of a Pal's inbox that failed in a row; the repeating read leaves a Pal alone after a few.
+	const failedReads = useRef(new Map<string, number>())
 	const refresh = useCallback(
 		async (palId: string) => {
 			if (!api.palInboxStart) return
@@ -48,9 +51,11 @@ export function usePalStarts(
 					computer?.status === 'unavailable' && computerSetupMissing(computer.notice)
 						? { raw: computer.notice }
 						: undefined
+				failedReads.current.delete(palId)
 				update(palId, (entry) => ({ ...afterRead(entry, view), setupMissing: missing }))
 			} catch {
 				// An older runtime or a Pal that cannot be read simply shows no question.
+				failedReads.current.set(palId, (failedReads.current.get(palId) ?? 0) + 1)
 			}
 		},
 		[api, update],
@@ -85,9 +90,16 @@ export function usePalStarts(
 		if (!reading) return
 		const ids = reading.split('\n')
 		const timer = setInterval(() => {
-			for (const palId of ids) void refresh(palId)
+			for (const palId of ids)
+				if ((failedReads.current.get(palId) ?? 0) < POLL_FAILURE_LIMIT) void refresh(palId)
 		}, READING_POLL_MS)
-		return () => clearInterval(timer)
+		// Coming back to the window is a reason to ask again.
+		const back = () => failedReads.current.clear()
+		window.addEventListener('focus', back)
+		return () => {
+			clearInterval(timer)
+			window.removeEventListener('focus', back)
+		}
 	}, [reading, refresh])
 	const start = useCallback(
 		async (palId: string) => {

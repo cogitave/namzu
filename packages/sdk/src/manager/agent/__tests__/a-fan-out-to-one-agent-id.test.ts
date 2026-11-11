@@ -88,12 +88,14 @@ describe('an agent can hand out a shell a single turn has to itself', () => {
 			{ ...config, sessionId: '0199a7c0-5b1e-7c2d-8e3f-4a5b6c7d8e9f' } as never,
 		)
 
-		await expect(
-			Promise.race([
-				Promise.all([a, b]).then(() => 'settled'),
-				new Promise((r) => setTimeout(() => r('still running'), 50)),
-			]),
-		).resolves.toBe('still running')
+		// A shared shell refuses synchronously, so a refusal has settled by the
+		// next macrotask turn; no timer decides this.
+		let settled = false
+		void Promise.allSettled([a, b]).then(() => {
+			settled = true
+		})
+		await new Promise<void>((resolve) => setImmediate(resolve))
+		expect(settled).toBe(false)
 
 		void a.catch(() => {})
 		void b.catch(() => {})

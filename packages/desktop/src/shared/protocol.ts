@@ -20,6 +20,7 @@ import type {
 	EngineUpdateResult,
 	EngineUpdatesState,
 } from './engine-update-protocol.js'
+import type { OutcomeNotice } from './outcome-protocol.js'
 import type {
 	PalCommunicationView,
 	PalInboxView,
@@ -272,6 +273,31 @@ export interface ProjectPrView {
 	url: string
 	review: 'approved' | 'changes' | 'pending' | 'merged' | 'draft'
 }
+/** Where a tool server is defined. */
+export type McpServerOrigin = 'your-config' | 'this-project' | 'project-file'
+/** `idle`: set up and approved, and no conversation has started it yet. */
+export type McpServerState = 'connected' | 'waiting' | 'failed' | 'idle'
+export interface McpServerView {
+	name: string
+	origin: McpServerOrigin
+	state: McpServerState
+	/** Why it failed; only on `failed`. */
+	reason?: string
+	/** The command name or web address it uses; never its arguments or secrets. */
+	detail?: string
+	/** Only on `waiting`: what an approval is bound to, handed back with the approval. */
+	fingerprint?: string
+}
+export interface McpServersView {
+	servers: McpServerView[]
+	/** Set when the project's settings could not be read. */
+	error?: string
+}
+/** A conversation whose replies or tool output contain the search text. */
+export interface ConversationSearchHit {
+	conversationId: string
+	excerpt: string
+}
 export interface ProjectGitView {
 	branch: string | null
 	subject: string | null
@@ -486,6 +512,9 @@ export interface PermissionPreview {
 	before: string | null
 	after: string
 	truncated?: boolean
+	/** The engine's own count of the whole change, when it sends one; a cut preview cannot give it. */
+	added?: number
+	removed?: number
 }
 export interface PermissionView {
 	id: string
@@ -621,6 +650,8 @@ export type DesktopEvent = (
 	| { kind: 'task'; sessionId: string; task: AcpTask; deleted?: true }
 	/** How full the conversation is and whether it is being compacted; see `UsageNotice`. */
 	| ({ kind: 'usage' } & UsageNotice)
+	/** What a finished turn changed and what checked it; see `OutcomeNotice`. */
+	| ({ kind: 'outcome' } & OutcomeNotice)
 	| { kind: 'tasks'; sessionId: string; tasks?: AcpTask[]; notice?: string }
 	| { kind: 'permission-cleared'; sessionId: string; requestId?: string }
 	/** Display-only retirement; admitted, queued and retry file bytes are unchanged. */
@@ -668,6 +699,8 @@ export type DesktopEvent = (
 	| { kind: 'open-settings'; section?: SettingsSection }
 	/** A File menu tab entry (Close tab, Next tab, Previous tab); only the focused window gets it. */
 	| { kind: 'tab-command'; command: TabCommand }
+	/** A system notification was clicked: show this conversation; only the focused window gets it. */
+	| { kind: 'show-conversation'; sessionId: string }
 	| { kind: 'project-removed'; projectId: string; sessionIds: string[] }
 	/** A stored model list was refreshed and its rows differ; the next read returns the new rows. */
 	| { kind: 'model-catalogue-updated'; engine: string; provider: string }
@@ -994,6 +1027,15 @@ export interface DesktopApi {
 	conversationMarkdown?(sessionId: string): Promise<{ markdown: string; truncated: boolean }>
 	/** Branch and last commit subject, or null when not a repository, untrusted or unavailable. */
 	projectGit?(projectId: string): Promise<ProjectGitView | null>
+	/** The project's tool servers and where each stands; null where the engine cannot say. */
+	mcpServers?(projectId: string): Promise<McpServersView | null>
+	/** Approves the project's waiting tool servers, as listed; returns the list afterwards. */
+	approveMcpServers?(
+		projectId: string,
+		servers: { name: string; fingerprint: string }[],
+	): Promise<McpServersView | null>
+	/** Conversations whose text matches, from every ready project, with a short excerpt each. */
+	searchConversations?(query: string): Promise<ConversationSearchHit[]>
 	/** The pull request of the project's branch through `gh`; null without one, or without `gh`. */
 	projectPr?(projectId: string): Promise<ProjectPrView | null>
 	/** Remove a conversation from active lists; its durable journal remains readable. */

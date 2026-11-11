@@ -1,5 +1,11 @@
 import { expect, it } from 'vitest'
-import { COMPUTER_SETUP_NOTICE, presentComputerNotice } from './pal-computer-notice.js'
+import {
+	COMPUTER_SETUP_NOTICE,
+	computerNotSetUp,
+	computerPodmanStopped,
+	computerSetupMissing,
+	presentComputerNotice,
+} from './pal-computer-notice.js'
 
 const developerWording = [
 	'A local Docker engine running Linux containers and the namzu-local-computer:1 image are required. Build packages/sandbox/local-computer/Dockerfile explicitly; Namzu does not install or pull it automatically.',
@@ -65,4 +71,28 @@ it('does not send the person back to the setup once this PC has been set up', ()
 		'The Pal computer did not start on this PC. Use Try again in the Pal computer row, or open Details there.',
 	)
 	expect(shown).not.toMatch(/sets it up|namzu computer|wslc/i)
+})
+
+it('parks the read loop and shows the setup card on one test, so a parked loop always has its card', () => {
+	for (const notice of [
+		'Local Docker or Podman is required for the Pal computer.',
+		'The Pal computer is not set up on this machine.',
+		'Podman machine is stopped.',
+	]) {
+		const parked = computerNotSetUp('unavailable', notice)
+		expect(parked, notice).toBe(true)
+	}
+	expect(computerNotSetUp('stopped', 'Podman machine is stopped.')).toBe(false)
+	expect(computerNotSetUp('unavailable', 'The socket timed out.')).toBe(false)
+	// A notice only the wider test knows is still parked; the card follows the same test.
+	expect(computerSetupMissing('The Pal computer is not set up on this machine.')).toBe(false)
+	expect(computerNotSetUp('unavailable', 'The Pal computer is not set up on this machine.')).toBe(
+		true,
+	)
+})
+
+it('tells a stopped Podman machine from a missing engine', () => {
+	expect(computerPodmanStopped('Podman machine is stopped.')).toBe(true)
+	expect(computerPodmanStopped('Local Docker or Podman is required.')).toBe(false)
+	expect(computerPodmanStopped(undefined)).toBe(false)
 })

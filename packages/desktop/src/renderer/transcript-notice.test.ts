@@ -1,8 +1,10 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { applyEvent, emptyThread } from '../shared/projection.js'
-import { turnNotice } from './transcript-layout.js'
+import { CONTINUE_STOPPED_PROMPT, stoppedWorkSummary, turnNotice } from './transcript-layout.js'
 import { livePhaseLabel } from './transcript-motion.js'
-import { redirectNotes } from './transcript.js'
+import { Transcript, redirectNotes } from './transcript.js'
 
 const started = () => {
 	const thread = applyEvent(emptyThread(), {
@@ -97,5 +99,94 @@ describe('the live line before the first action', () => {
 				applyEvent(started(), { kind: 'state', sessionId: 's', running: true, queued: [] }),
 			),
 		).toBe('Working')
+	})
+})
+
+describe('what Namzu closing leaves in the conversation', () => {
+	const finishedCall = (thread: ReturnType<typeof started>, id: string) =>
+		applyEvent(thread, {
+			kind: 'update',
+			sessionId: 's',
+			projectId: 'p',
+			update: {
+				kind: 'tool_call',
+				toolCallId: id,
+				title: 'bash',
+				status: 'completed',
+				view: { kind: 'terminal', command: 'ls', output: 'a' },
+			},
+		})
+	const html = (thread: ReturnType<typeof started>, onContinueStopped?: () => void) =>
+		renderToStaticMarkup(
+			createElement(Transcript, { thread, closedWhileRunning: true, onContinueStopped }),
+		)
+
+	it('says what finished and what did not, from the reply’s own actions', () => {
+		expect(stoppedWorkSummary(ended(started()))).toBe('The last action did not finish.')
+		expect(stoppedWorkSummary(ended(finishedCall(started(), 'c1')))).toBe(
+			'1 action finished before it stopped.',
+		)
+		const mixed = finishedCall(
+			applyEvent(finishedCall(started(), 'c1'), {
+				kind: 'update',
+				sessionId: 's',
+				projectId: 'p',
+				update: {
+					kind: 'tool_call',
+					toolCallId: 'c2',
+					title: 'bash',
+					status: 'pending',
+					view: { kind: 'terminal', command: 'x', output: '' },
+				},
+			}),
+			'c3',
+		)
+		expect(stoppedWorkSummary(ended(mixed))).toBe(
+			'2 actions finished before it stopped; 1 did not.',
+		)
+		expect(
+			stoppedWorkSummary(
+				ended(applyEvent(emptyThread(), { kind: 'prompt', sessionId: 's', prompt: 'Hi' })),
+			),
+		).toBeUndefined()
+	})
+
+	it('does not call an action that failed finished', () => {
+		const failedCall = (thread: ReturnType<typeof started>, id: string) =>
+			applyEvent(thread, {
+				kind: 'update',
+				sessionId: 's',
+				projectId: 'p',
+				update: {
+					kind: 'tool_call',
+					toolCallId: id,
+					title: 'bash',
+					status: 'failed',
+					view: { kind: 'terminal', command: 'x', output: 'denied' },
+				},
+			})
+		expect(stoppedWorkSummary(ended(failedCall(started(), 'c1')))).toBe(
+			'1 action failed before it stopped.',
+		)
+		expect(stoppedWorkSummary(ended(failedCall(finishedCall(started(), 'c1'), 'c2')))).toBe(
+			'1 action finished and 1 failed before it stopped.',
+		)
+	})
+
+	it('offers one honest way forward: a new message, since the stopped reply cannot be resumed', () => {
+		const out = html(ended(started()), () => {})
+		expect(out).toContain('Stopped because Namzu was closed.')
+		expect(out).toContain('Ask Namzu to continue')
+		expect(out).toContain('This sends a new message. The stopped reply cannot be resumed.')
+		expect(out).toContain('The last action did not finish.')
+		expect(CONTINUE_STOPPED_PROMPT).toBe('Please continue from where you stopped.')
+	})
+
+	it('offers nothing to press where a message cannot be sent now, and nothing after an ordinary stop', () => {
+		expect(html(ended(started()))).not.toContain('Ask Namzu to continue')
+		const ordinary = renderToStaticMarkup(
+			createElement(Transcript, { thread: ended(started()), onContinueStopped: () => {} }),
+		)
+		expect(ordinary).not.toContain('Ask Namzu to continue')
 	})
 })

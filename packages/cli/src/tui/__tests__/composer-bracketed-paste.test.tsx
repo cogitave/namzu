@@ -14,7 +14,16 @@ it('assembles a fragmented terminal paste once, shows it as an inline chip and n
 	const normalized = text.replace(/\r\n?/g, '\n')
 	try {
 		await screen.waitForRender()
-		for (const chunk of ['\x1b[20', '0~', prefix, text.slice(prefix.length), '\x1b[201', '~']) {
+		// The input parser holds an incomplete escape sequence for only 20 ms
+		// of real time before it gives up and types it. Only the first half of
+		// the start marker (`ESC [ 2 0`) is exposed to that, so both halves are
+		// delivered with nothing awaited between them: still two reads, but no
+		// render can come between them to outlast the timer on a busy runner.
+		// Once the paste has started the parser holds it open without a timer.
+		screen.press('\x1b[20')
+		screen.press('0~')
+		await screen.waitForRender()
+		for (const chunk of [prefix, text.slice(prefix.length), '\x1b[201', '~']) {
 			screen.press(chunk)
 			await screen.waitForRender()
 		}

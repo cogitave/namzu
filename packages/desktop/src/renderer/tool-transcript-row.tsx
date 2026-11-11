@@ -99,6 +99,8 @@ export function ToolTranscriptRow({
 		stats,
 		body,
 		shell,
+		reason,
+		reasonDetail,
 	} = presentation
 	const Icon = actionIcon(kind)
 	const active = state === 'running' || state === 'waiting'
@@ -230,6 +232,11 @@ export function ToolTranscriptRow({
 					{trailing}
 				</div>
 				{shell && <ShellCell cell={shell} />}
+				{reason && (
+					<p className="tool-reason" title={reasonDetail}>
+						{reason}
+					</p>
+				)}
 			</div>
 		)
 	return (
