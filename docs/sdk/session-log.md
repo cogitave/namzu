@@ -530,9 +530,12 @@ refuses a broken chain, a tolerant one stops at the break. The first ask of a
 process always reads from byte 0 and verifies the whole chain.
 
 What a resumed read does not do is verify the records before the one it resumes
-after again; they were verified when this process first folded them. A byte
-changed in the middle of the log while the process runs, with the last record
-left alone, is noticed by the next process, not by the next turn. The reductions
+after again; they were verified when this process first folded them. The writer
+still reads and verifies the whole chain each time a turn takes the log
+(`claim`), so a log altered between turns is refused at the start of the next
+turn as before. A byte changed in the middle of the log during a turn, with the
+last record left alone, is noticed at that next start rather than by the turn's
+own reads. A fresh process always starts from byte 0. The reductions
 are kept for the four most recently used sessions, and what a caller receives
 from them is its own copy. Evidence recall keeps the same kind of memory for its
 check that no turn is open, and the disk checkpoint store remembers which turn
