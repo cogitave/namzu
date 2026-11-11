@@ -1,5 +1,15 @@
 # @namzu/desktop
 
+## 0.2.9
+
+### Patch Changes
+
+- 5add6b3: Namzu Desktop now tells you from outside the window when a conversation is waiting for an approval or an answer: while no Namzu window is focused it shows a count on the app icon and flashes the taskbar or dock once, and clears both when you come back. There is no pop-up and no sound. To turn it off, use Settings > General > Show when a conversation needs you. Nothing to change on your side.
+- 00bc048: The Windows installer ships a smaller engine: only the packages the bundled CLI can load, and only the native binaries for Windows x64, so the install is much smaller and has far fewer files. Nothing to change on your side; the engine starts and answers exactly as before.
+- 00bc048: The Windows installer is built with the Windows bindings for image shrinking and code analysis, and the build now fails when they are missing, or when the packed engine does not start, answer or load them on the Windows build machine, instead of shipping a broken installer. Nothing to change on your side.
+- f06792b: Namzu Desktop shows how full a conversation is with a small ring beside the send controls (hover it for the size, the window and, when known, the cost so far), and says "Compacting the conversation…" while older messages are being summarised. The ring is hidden when the engine does not report usage or a window. Needs a Namzu engine that sends the new usage notice; with an older one nothing is drawn. Nothing to change on your side.
+- 525e50a: New setting `permissions.outsideRoot: ask | refuse` for the file tools (`read`, `write`, `edit`, `glob`, `grep`, `ls`, and any tool that declares a path argument, such as `view_image`, `lsp`, `code_analysis` and `browser`). The default, `ask`, is unchanged: a path outside the working directory and the added directories is put to you. With `refuse` it is refused without asking, in every mode including bypass and auto, and the message names the setting and `--add-dir`. Any config file may set it, and a `refuse` in one file is not undone by another, so a project file can only make it stricter. It is also a choice in Desktop Settings, which asks only when you choose `ask`. Sub-agents get the same refusal and the same sentence. Shell command operands and redirections are still asked about; that is a later change. SDK: `QueryParams.outsideRootRefusal` lets a host choose the sentence the model reads when `outsideRootAccess` is `'refuse'`; without it nothing changes.
+
 ## 0.2.8
 
 ### Patch Changes
