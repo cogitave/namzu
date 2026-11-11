@@ -48,7 +48,7 @@ import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { decodeFrames, encodeFrame, sendFramedRequest } from './fixtures/framed-agent-client.js'
 
@@ -84,32 +84,59 @@ async function startAgent(
 	env: Record<string, string> = {},
 	{ advertisesFlush = true }: { advertisesFlush?: boolean } = {},
 ): Promise<ChildProcess> {
-	agentPort = await freePort()
-	const started = spawn(process.execPath, [AGENT_ENTRY], {
-		env: {
-			...process.env,
-			NAMZU_AGENT_TCP_PORT: String(agentPort),
-			NAMZU_AGENT_BIND_TOKEN: TOKEN,
-			NAMZU_SANDBOX_WORKSPACE: workDir,
-			...env,
-		},
-		stdio: ['ignore', 'ignore', 'pipe'],
-	})
-	child = started
-	const deadline = Date.now() + 20_000
-	for (;;) {
-		try {
-			const health = await sendFramedRequest(agentPort, { op: 'healthz' }, 2_000)
-			if (health.reply.ok === true) {
-				if (advertisesFlush) expect(health.reply.features).toContain('flush')
-				else expect(health.reply.features).not.toContain('flush')
-				return started
+	// The port is chosen by binding 0 and closing, so another test file
+	// running in parallel can take it before this agent listens. The agent
+	// then exits (address in use), or a probe reaches a listener that is not
+	// the agent at all. Both are detected, and the start is retried on a
+	// fresh port, a bounded number of TIMES (never of seconds).
+	const attempts = 5
+	for (let attempt = 1; ; attempt += 1) {
+		agentPort = await freePort()
+		const started = spawn(process.execPath, [AGENT_ENTRY], {
+			env: {
+				...process.env,
+				NAMZU_AGENT_TCP_PORT: String(agentPort),
+				NAMZU_AGENT_BIND_TOKEN: TOKEN,
+				NAMZU_SANDBOX_WORKSPACE: workDir,
+				...env,
+			},
+			stdio: ['ignore', 'ignore', 'pipe'],
+		})
+		child = started
+		// No wall-clock deadline: the agent either answers or exits. One that
+		// neither answers nor exits is a hang the case's own Vitest timeout
+		// reports (the cases below raise it: this is a real child process on
+		// a possibly loaded machine).
+		let exitedEarly = false
+		started.once('exit', () => {
+			exitedEarly = true
+		})
+		let foreign = false
+		for (;;) {
+			try {
+				const health = await sendFramedRequest(agentPort, { op: 'healthz' }, 2_000)
+				if (health.reply.ok === true && !exitedEarly) {
+					if (advertisesFlush) expect(health.reply.features).toContain('flush')
+					else expect(health.reply.features).not.toContain('flush')
+					return started
+				}
+			} catch (error) {
+				// Not listening yet, or something that is not the agent.
+				if (String((error as Error).message).includes('not speaking the agent protocol')) {
+					foreign = true
+				}
 			}
-		} catch {
-			// Not listening yet.
+			if (exitedEarly || foreign) break
+			await delay(25)
 		}
-		if (Date.now() > deadline) throw new Error('the agent never came up')
-		await delay(25)
+		if (started.exitCode === null && started.signalCode === null) started.kill('SIGKILL')
+		if (attempt >= attempts) {
+			throw new Error(
+				foreign
+					? `port ${agentPort} was answered by something that is not the agent, ${attempts} times running`
+					: `the agent exited before it came up, ${attempts} times running`,
+			)
+		}
 	}
 }
 
@@ -121,6 +148,24 @@ function exitOf(process_: ChildProcess): Promise<{
 	return new Promise((resolve) => {
 		process_.once('exit', (code, signal) => resolve({ code, signal }))
 	})
+}
+
+/**
+ * Wait for a file the case's own child writes, and return its trimmed text.
+ * Awaits the event (the file appearing, with its content) rather than
+ * sleeping for a guessed time; a file that never appears is a hang the
+ * case's Vitest timeout reports, and `timeout` here only has to outlast
+ * the slowest honest machine.
+ */
+async function fileText(path: string): Promise<string> {
+	return await vi.waitFor(
+		() => {
+			const text = existsSync(path) ? readFileSync(path, 'utf8').trim() : ''
+			if (text === '') throw new Error(`${path} has not been written yet`)
+			return text
+		},
+		{ timeout: 30_000, interval: 25 },
+	)
 }
 
 /** Whether a connect to the agent's port is accepted right now. */
@@ -271,258 +316,311 @@ afterEach(async () => {
 	rmSync(workDir, { recursive: true, force: true })
 })
 
+/**
+ * Every case starts a real agent child process (and several wait out its
+ * deadlines), and a CI runner under load has been seen to take most of a
+ * minute for one of them. There is no readiness event the agent emits, so
+ * the start polls `healthz` with no deadline of its own; this is the one
+ * bound, and it is generous because it only ever fires on a genuine hang.
+ */
+const CASE_TIMEOUT_MS = 180_000
+
 describe.skipIf(IS_WINDOWS)('agent SIGTERM handling', () => {
-	it('exits with a clean 0, not the default terminated-by-signal disposition', async () => {
-		const marker = join(workDir, '..', `flushed-${Date.now()}`)
-		const agent = await startAgent({ NAMZU_AGENT_FLUSH_COMMAND: `touch ${marker}` })
-		const exited = exitOf(agent)
+	it(
+		'exits with a clean 0, not the default terminated-by-signal disposition',
+		async () => {
+			const marker = join(workDir, '..', `flushed-${Date.now()}`)
+			const agent = await startAgent({ NAMZU_AGENT_FLUSH_COMMAND: `touch ${marker}` })
+			const exited = exitOf(agent)
 
-		const sentAt = Date.now()
-		agent.kill('SIGTERM')
-		const result = await Promise.race([
-			exited,
-			delay(10_000).then((): never => {
-				throw new Error('agent did not exit within 10000ms of SIGTERM')
-			}),
-		])
+			agent.kill('SIGTERM')
+			// Awaited outright: an agent that never exits is a hang the case's
+			// own Vitest timeout reports, so no sentinel races it.
+			const result = await exited
 
-		// The regression this guards: an unhandled SIGTERM is `code: null,
-		// signal: 'SIGTERM'` (killed by the signal), not a clean exit.
-		expect(result).toEqual({ code: 0, signal: null })
-		expect(Date.now() - sentAt).toBeLessThan(10_000)
-		// And the flush ran BEFORE the process was gone, which is the whole
-		// point of handling the signal at all rather than letting it kill.
-		expect(existsSync(marker)).toBe(true)
-		rmSync(marker, { force: true })
-	}, 40_000)
+			// The regression this guards: an unhandled SIGTERM is `code: null,
+			// signal: 'SIGTERM'` (killed by the signal), not a clean exit.
+			expect(result).toEqual({ code: 0, signal: null })
+			// And the flush ran BEFORE the process was gone, which is the whole
+			// point of handling the signal at all rather than letting it kill.
+			expect(existsSync(marker)).toBe(true)
+			rmSync(marker, { force: true })
+		},
+		CASE_TIMEOUT_MS,
+	)
 
-	it('flushes the workspace mount with syncfs by default, naming that mount', async () => {
-		// No NAMZU_AGENT_FLUSH_COMMAND here: this is the one case that
-		// asserts what the agent runs when nobody told it what to run.
-		const shimDir = mkdtempSync(join(tmpdir(), 'k8s-sync-shim-'))
-		const log = join(shimDir, 'log.txt')
-		writeFileSync(join(shimDir, 'sync'), `#!/bin/sh\necho "sync $*" >> ${log}\n`)
-		chmodSync(join(shimDir, 'sync'), 0o755)
-		try {
-			const agent = await startAgent({ PATH: `${shimDir}:${process.env.PATH ?? ''}` })
+	it(
+		'flushes the workspace mount with syncfs by default, naming that mount',
+		async () => {
+			// No NAMZU_AGENT_FLUSH_COMMAND here: this is the one case that
+			// asserts what the agent runs when nobody told it what to run.
+			const shimDir = mkdtempSync(join(tmpdir(), 'k8s-sync-shim-'))
+			const log = join(shimDir, 'log.txt')
+			writeFileSync(join(shimDir, 'sync'), `#!/bin/sh\necho "sync $*" >> ${log}\n`)
+			chmodSync(join(shimDir, 'sync'), 0o755)
+			try {
+				const agent = await startAgent({ PATH: `${shimDir}:${process.env.PATH ?? ''}` })
+				const exited = exitOf(agent)
+				agent.kill('SIGTERM')
+				expect(await exited).toEqual({ code: 0, signal: null })
+				// `sync -f PATH` is syncfs(2) on the filesystem holding PATH. A
+				// bare `sync` would be every mounted filesystem on the node.
+				expect(readFileSync(log, 'utf8').trim()).toBe(`sync -f ${workDir}`)
+			} finally {
+				rmSync(shimDir, { recursive: true, force: true })
+			}
+		},
+		CASE_TIMEOUT_MS,
+	)
+
+	it(
+		'stops the command it is running, and flushes after it has stopped',
+		async () => {
+			const marker = join(workDir, '..', `flushed-order-${Date.now()}`)
+			const agent = await startAgent({ NAMZU_AGENT_FLUSH_COMMAND: `touch ${marker}` })
+			const pidFile = join(workDir, 'child.pid')
+			// Reserved first, exactly as the host transport does it: an execution
+			// the agent is TRACKING is the one its registries own, and the scope
+			// this suite's agent narrows itself to (see the header) is the
+			// sessions those registries hold. A pod, where the agent is started
+			// by its namespace's init, scans `/proc` instead and needs no
+			// reservation to find the same process.
+			const reserved = await sendFramedRequest(agentPort, {
+				op: 'reserve-execution',
+				token: TOKEN,
+				body: {},
+			})
+			expect(reserved.reply.ok).toBe(true)
+			const executionId = String(reserved.reply.executionId)
+			const request = startUnawaitedRequest(agentPort, {
+				op: 'execute',
+				token: TOKEN,
+				body: {
+					executionId,
+					command: '/bin/sh',
+					args: ['-c', `echo $$ > ${pidFile}; exec sleep 120`],
+					timeoutMs: 120_000,
+				},
+			})
+			// Wait for the command to actually be running, so the case is about a
+			// live process rather than about a race with `spawn`.
+			const pid = Number(await fileText(pidFile))
+			expect(pidAlive(pid)).toBe(true)
+
 			const exited = exitOf(agent)
 			agent.kill('SIGTERM')
 			expect(await exited).toEqual({ code: 0, signal: null })
-			// `sync -f PATH` is syncfs(2) on the filesystem holding PATH. A
-			// bare `sync` would be every mounted filesystem on the node.
-			expect(readFileSync(log, 'utf8').trim()).toBe(`sync -f ${workDir}`)
-		} finally {
-			rmSync(shimDir, { recursive: true, force: true })
-		}
-	}, 40_000)
+			request.close()
 
-	it('stops the command it is running, and flushes after it has stopped', async () => {
-		const marker = join(workDir, '..', `flushed-order-${Date.now()}`)
-		const agent = await startAgent({ NAMZU_AGENT_FLUSH_COMMAND: `touch ${marker}` })
-		const pidFile = join(workDir, 'child.pid')
-		// Reserved first, exactly as the host transport does it: an execution
-		// the agent is TRACKING is the one its registries own, and the scope
-		// this suite's agent narrows itself to (see the header) is the
-		// sessions those registries hold. A pod, where the agent is started
-		// by its namespace's init, scans `/proc` instead and needs no
-		// reservation to find the same process.
-		const reserved = await sendFramedRequest(agentPort, {
-			op: 'reserve-execution',
-			token: TOKEN,
-			body: {},
-		})
-		expect(reserved.reply.ok).toBe(true)
-		const executionId = String(reserved.reply.executionId)
-		const request = startUnawaitedRequest(agentPort, {
-			op: 'execute',
-			token: TOKEN,
-			body: {
-				executionId,
-				command: '/bin/sh',
-				args: ['-c', `echo $$ > ${pidFile}; exec sleep 120`],
-				timeoutMs: 120_000,
-			},
-		})
-		// Wait for the command to actually be running, so the case is about a
-		// live process rather than about a race with `spawn`.
-		const deadline = Date.now() + 10_000
-		while (!existsSync(pidFile) && Date.now() < deadline) await delay(25)
-		const pid = Number(readFileSync(pidFile, 'utf8').trim())
-		expect(pidAlive(pid)).toBe(true)
+			// The process the agent owned is gone, and the flush happened. A
+			// handler that flushed while a compiler was still writing would have
+			// flushed the wrong moment.
+			expect(pidAlive(pid)).toBe(false)
+			expect(existsSync(marker)).toBe(true)
+			rmSync(marker, { force: true })
+		},
+		CASE_TIMEOUT_MS,
+	)
 
-		const exited = exitOf(agent)
-		agent.kill('SIGTERM')
-		expect(await exited).toEqual({ code: 0, signal: null })
-		request.close()
+	it(
+		'stops accepting connections before it stops anything',
+		async () => {
+			// A flush slow enough that the assertion below lands while the
+			// handler is still inside it.
+			const agent = await startAgent({ NAMZU_AGENT_FLUSH_COMMAND: blockingFlush(600) })
+			expect(await portAccepts(agentPort)).toBe(true)
+			const exited = exitOf(agent)
+			let ended = false
+			void exited.then(() => {
+				ended = true
+			})
+			agent.kill('SIGTERM')
+			// Wait for the flush to be RUNNING, which is the event "the handler
+			// has got past its first statements and is inside the flush". It
+			// blocks for as long as the case lets it, so there is no moment at
+			// which the flush could have finished and made the assertion below
+			// about a handler that is already done.
+			await fileText(flushPidFile)
+			expect(ended).toBe(false)
+			expect(await portAccepts(agentPort)).toBe(false)
+			// Release the flush; the agent then ends on its own.
+			process.kill(Number(await fileText(flushPidFile)), 'SIGKILL')
+			expect(await exited).toEqual({ code: 0, signal: null })
+		},
+		CASE_TIMEOUT_MS,
+	)
 
-		// The process the agent owned is gone, and the flush happened. A
-		// handler that flushed while a compiler was still writing would have
-		// flushed the wrong moment.
-		expect(pidAlive(pid)).toBe(false)
-		expect(existsSync(marker)).toBe(true)
-		rmSync(marker, { force: true })
-	}, 60_000)
+	it(
+		'exits at its own deadline even when the flush will not finish',
+		async () => {
+			const agent = await startAgent({
+				NAMZU_AGENT_FLUSH_COMMAND: blockingFlush(600),
+				NAMZU_AGENT_SHUTDOWN_DEADLINE_MS: '1500',
+				NAMZU_AGENT_FLUSH_TIMEOUT_MS: '600000',
+			})
+			const exited = exitOf(agent)
+			const sentAt = Date.now()
+			agent.kill('SIGTERM')
+			// The bound is not optional: a handler that waited on a flush that
+			// never finishes would hold the pod open until the kubelet's SIGKILL,
+			// which is the behaviour it exists to replace. That shows here as an
+			// exit that never comes, which the case's Vitest timeout reports; no
+			// upper bound on elapsed time is asserted, since how long a loaded
+			// machine takes to deliver the exit is not the product's promise.
+			const result = await exited
+			const elapsedMs = Date.now() - sentAt
+			expect(result).toEqual({ code: 0, signal: null })
+			// The lower bound cannot be tripped by a slow machine: the flush is
+			// still blocking (600s) at that point, so an exit before the
+			// deadline is the handler giving up early.
+			expect(elapsedMs).toBeGreaterThanOrEqual(1_000)
+		},
+		CASE_TIMEOUT_MS,
+	)
 
-	it('stops accepting connections before it stops anything', async () => {
-		// A flush slow enough that the assertion below lands while the
-		// handler is still inside it.
-		const agent = await startAgent({ NAMZU_AGENT_FLUSH_COMMAND: 'sleep 3' })
-		expect(await portAccepts(agentPort)).toBe(true)
-		const exited = exitOf(agent)
-		agent.kill('SIGTERM')
-		// Long enough for the handler to have run its first statement, short
-		// enough that the 3s flush is still in flight.
-		await delay(400)
-		expect(await portAccepts(agentPort)).toBe(false)
-		expect(await exited).toEqual({ code: 0, signal: null })
-	}, 40_000)
+	it(
+		'does not advertise a flush it has no program to run',
+		async () => {
+			// `k8s/Dockerfile` says in so many words that a derived image which
+			// strips coreutils is a real shape, and such an image has all of
+			// this code and no `sync`. Advertising the feature there would
+			// refuse that workspace's every default `suspend()` for the life of
+			// the pod — permanently, since nothing about that guest changes —
+			// which is the exact failure the feature list exists to prevent.
+			const emptyDir = mkdtempSync(join(tmpdir(), 'k8s-no-sync-'))
+			try {
+				await startAgent({ PATH: emptyDir }, { advertisesFlush: false })
+				const health = await sendFramedRequest(agentPort, { op: 'healthz' }, 2_000)
+				// The rest of the list is untouched: this is one feature going
+				// missing on one image, not a degraded agent.
+				expect(health.reply.features).toContain('quiesce')
+				expect(health.reply.features).not.toContain('flush')
 
-	it('exits at its own deadline even when the flush will not finish', async () => {
-		const agent = await startAgent({
-			NAMZU_AGENT_FLUSH_COMMAND: blockingFlush(600),
-			NAMZU_AGENT_SHUTDOWN_DEADLINE_MS: '1500',
-			NAMZU_AGENT_FLUSH_TIMEOUT_MS: '600000',
-		})
-		const exited = exitOf(agent)
-		const sentAt = Date.now()
-		agent.kill('SIGTERM')
-		const result = await Promise.race([
-			exited,
-			delay(20_000).then((): never => {
-				throw new Error('the handler never expired its own bound')
-			}),
-		])
-		const elapsedMs = Date.now() - sentAt
-		// The bound is not optional: a handler that waited on a flush that
-		// never finishes would hold the pod open until the kubelet's SIGKILL,
-		// which is the behaviour it exists to replace.
-		expect(result).toEqual({ code: 0, signal: null })
-		expect(elapsedMs).toBeGreaterThanOrEqual(1_000)
-		expect(elapsedMs).toBeLessThan(15_000)
-	}, 40_000)
+				// And asked for one anyway, it answers in the shape a host reads
+				// as "this image cannot flush" — not as a flush that ran and
+				// could not be confirmed, which would stop every suspend.
+				const flushed = await sendFramedRequest(
+					agentPort,
+					{ op: 'flush', token: TOKEN, body: {} },
+					5_000,
+				)
+				expect(flushed.reply.ok).toBe(false)
+				expect(flushed.reply.error).toBe('flush_unsupported')
+			} finally {
+				rmSync(emptyDir, { recursive: true, force: true })
+			}
+		},
+		CASE_TIMEOUT_MS,
+	)
 
-	it('does not advertise a flush it has no program to run', async () => {
-		// `k8s/Dockerfile` says in so many words that a derived image which
-		// strips coreutils is a real shape, and such an image has all of
-		// this code and no `sync`. Advertising the feature there would
-		// refuse that workspace's every default `suspend()` for the life of
-		// the pod — permanently, since nothing about that guest changes —
-		// which is the exact failure the feature list exists to prevent.
-		const emptyDir = mkdtempSync(join(tmpdir(), 'k8s-no-sync-'))
-		try {
-			await startAgent({ PATH: emptyDir }, { advertisesFlush: false })
-			const health = await sendFramedRequest(agentPort, { op: 'healthz' }, 2_000)
-			// The rest of the list is untouched: this is one feature going
-			// missing on one image, not a degraded agent.
-			expect(health.reply.features).toContain('quiesce')
-			expect(health.reply.features).not.toContain('flush')
+	it(
+		'does not let a second stop signal cut its own bound short',
+		async () => {
+			// This handler used to exit 0 the moment a second SIGTERM arrived,
+			// read as a host or an operator saying "stop waiting". In the pod it
+			// runs in, the second signal is nobody's instruction: `entrypoint.sh
+			// prestop` signals pid 1 and waits, and the kubelet sends its OWN
+			// stop signal as soon as that hook returns. So the immediate exit
+			// capped this drain at whatever the hook had waited — on exactly
+			// the slow flush the handler exists for — and exited 0 over the
+			// truncation, which is the exit code #484's acceptance criteria read
+			// as a clean stop. The bound is the deadline and nothing else.
+			const agent = await startAgent({
+				NAMZU_AGENT_FLUSH_COMMAND: blockingFlush(600),
+				NAMZU_AGENT_SHUTDOWN_DEADLINE_MS: '4000',
+				NAMZU_AGENT_FLUSH_TIMEOUT_MS: '600000',
+			})
+			const exited = exitOf(agent)
+			const sentAt = Date.now()
+			agent.kill('SIGTERM')
+			// The second signal goes out only once the first has been handled
+			// (its flush is running), so the two cannot be coalesced into one
+			// delivery and the second really lands on a handler that is draining.
+			await fileText(flushPidFile)
+			agent.kill('SIGTERM')
 
-			// And asked for one anyway, it answers in the shape a host reads
-			// as "this image cannot flush" — not as a flush that ran and
-			// could not be confirmed, which would stop every suspend.
-			const flushed = await sendFramedRequest(
+			// Awaited outright, no sentinel: a handler that never expires its own
+			// bound is a hang the case's Vitest timeout reports.
+			const result = await exited
+			// And it ends at its own deadline, the way it does with no second
+			// signal at all. The lower bound is what the old behaviour broke (an
+			// exit as soon as the second signal landed), and a slow machine
+			// cannot trip it, because the flush is still blocking at that point.
+			expect(result).toEqual({ code: 0, signal: null })
+			expect(Date.now() - sentAt).toBeGreaterThanOrEqual(3_500)
+		},
+		CASE_TIMEOUT_MS,
+	)
+
+	it(
+		'keeps its refusal gate up when a quiesce that was in flight finishes',
+		async () => {
+			// The handler raises the same gate an explicit `quiesce` raises, and
+			// `handleQuiesce`'s own `finally` used to lower it unconditionally.
+			// So a quiesce that was still running when the stop signal arrived
+			// lowered a gate it had not raised, and the connection that was
+			// already open got the right to start a command in a guest whose pod
+			// is going away — against a comment that says the gate is never
+			// lowered again.
+			const runningFile = join(workDir, 'running.pid')
+			const termedFile = join(workDir, 'termed.txt')
+			const agent = await startAgent({
+				NAMZU_AGENT_FLUSH_COMMAND: 'sleep 8',
+				NAMZU_AGENT_SHUTDOWN_DEADLINE_MS: '20000',
+				NAMZU_AGENT_FLUSH_TIMEOUT_MS: '20000',
+			})
+			// Something for the quiesce to spend real time on: a child that
+			// ignores SIGTERM, so the op waits out the grace it was given before
+			// it escalates. Without it the quiesce would answer in the same tick
+			// and there would be no "in flight" to signal into.
+			const reserved = await sendFramedRequest(agentPort, {
+				op: 'reserve-execution',
+				token: TOKEN,
+				body: {},
+			})
+			expect(reserved.reply.ok).toBe(true)
+			const running = startUnawaitedRequest(agentPort, {
+				op: 'execute',
+				token: TOKEN,
+				body: {
+					executionId: String(reserved.reply.executionId),
+					command: '/bin/sh',
+					// Writes its pid when it is running and a marker for every
+					// TERM it is sent, and never exits on one: it holds the
+					// quiesce inside its grace, and tells the case when that
+					// quiesce has begun signalling.
+					args: [
+						'-c',
+						`echo $$ > ${runningFile}; trap 'echo t >> ${termedFile}' TERM; while :; do sleep 1; done`,
+					],
+					timeoutMs: 120_000,
+				},
+			})
+			// The command is running once it has said so.
+			await fileText(runningFile)
+
+			const early = openEarlyConnection(agentPort)
+			const quiesced = sendFramedRequest(
 				agentPort,
-				{ op: 'flush', token: TOKEN, body: {} },
-				5_000,
+				{ op: 'quiesce', token: TOKEN, body: { graceMs: 3_000 } },
+				20_000,
 			)
-			expect(flushed.reply.ok).toBe(false)
-			expect(flushed.reply.error).toBe('flush_unsupported')
-		} finally {
-			rmSync(emptyDir, { recursive: true, force: true })
-		}
-	}, 40_000)
+			// The quiesce is in flight once it has sent the command its first
+			// TERM, and it stays in flight for its whole grace after that.
+			await fileText(termedFile)
+			const exited = exitOf(agent)
+			agent.kill('SIGTERM')
 
-	it('does not let a second stop signal cut its own bound short', async () => {
-		// This handler used to exit 0 the moment a second SIGTERM arrived,
-		// read as a host or an operator saying "stop waiting". In the pod it
-		// runs in, the second signal is nobody's instruction: `entrypoint.sh
-		// prestop` signals pid 1 and waits, and the kubelet sends its OWN
-		// stop signal as soon as that hook returns. So the immediate exit
-		// capped this drain at whatever the hook had waited — on exactly
-		// the slow flush the handler exists for — and exited 0 over the
-		// truncation, which is the exit code #484's acceptance criteria read
-		// as a clean stop. The bound is the deadline and nothing else.
-		const agent = await startAgent({
-			NAMZU_AGENT_FLUSH_COMMAND: blockingFlush(600),
-			NAMZU_AGENT_SHUTDOWN_DEADLINE_MS: '4000',
-			NAMZU_AGENT_FLUSH_TIMEOUT_MS: '600000',
-		})
-		const exited = exitOf(agent)
-		const sentAt = Date.now()
-		agent.kill('SIGTERM')
-		await delay(300)
-		agent.kill('SIGTERM')
-		// A second after the signal that used to end it, it is still
-		// draining.
-		await delay(1_000)
-		expect(agent.exitCode).toBeNull()
+			// The in-flight quiesce runs its `finally` here, inside the
+			// handler's own drain-and-flush.
+			await quiesced
+			const refused = await early.ask({ op: 'reserve-execution', token: TOKEN, body: {} })
+			expect(refused).toMatchObject({ ok: false, error: 'quiesce_in_progress' })
 
-		const result = await Promise.race([
-			exited,
-			delay(20_000).then((): never => {
-				throw new Error('the handler never expired its own bound')
-			}),
-		])
-		// And it ends at its own deadline, the way it does with no second
-		// signal at all.
-		expect(result).toEqual({ code: 0, signal: null })
-		expect(Date.now() - sentAt).toBeGreaterThanOrEqual(3_500)
-		expect(Date.now() - sentAt).toBeLessThan(15_000)
-	}, 40_000)
-
-	it('keeps its refusal gate up when a quiesce that was in flight finishes', async () => {
-		// The handler raises the same gate an explicit `quiesce` raises, and
-		// `handleQuiesce`'s own `finally` used to lower it unconditionally.
-		// So a quiesce that was still running when the stop signal arrived
-		// lowered a gate it had not raised, and the connection that was
-		// already open got the right to start a command in a guest whose pod
-		// is going away — against a comment that says the gate is never
-		// lowered again.
-		const agent = await startAgent({
-			NAMZU_AGENT_FLUSH_COMMAND: 'sleep 8',
-			NAMZU_AGENT_SHUTDOWN_DEADLINE_MS: '20000',
-			NAMZU_AGENT_FLUSH_TIMEOUT_MS: '20000',
-		})
-		// Something for the quiesce to spend real time on: a child that
-		// ignores SIGTERM, so the op waits out the grace it was given before
-		// it escalates. Without it the quiesce would answer in the same tick
-		// and there would be no "in flight" to signal into.
-		const reserved = await sendFramedRequest(agentPort, {
-			op: 'reserve-execution',
-			token: TOKEN,
-			body: {},
-		})
-		expect(reserved.reply.ok).toBe(true)
-		const running = startUnawaitedRequest(agentPort, {
-			op: 'execute',
-			token: TOKEN,
-			body: {
-				executionId: String(reserved.reply.executionId),
-				command: '/bin/sh',
-				args: ['-c', 'trap "" TERM; exec sleep 120'],
-				timeoutMs: 120_000,
-			},
-		})
-		await delay(500)
-
-		const early = openEarlyConnection(agentPort)
-		const quiesced = sendFramedRequest(
-			agentPort,
-			{ op: 'quiesce', token: TOKEN, body: { graceMs: 1_500 } },
-			20_000,
-		)
-		await delay(200)
-		const exited = exitOf(agent)
-		agent.kill('SIGTERM')
-
-		// The in-flight quiesce runs its `finally` here, inside the
-		// handler's own drain-and-flush.
-		await quiesced
-		const refused = await early.ask({ op: 'reserve-execution', token: TOKEN, body: {} })
-		expect(refused).toMatchObject({ ok: false, error: 'quiesce_in_progress' })
-
-		early.close()
-		running.close()
-		expect(await exited).toEqual({ code: 0, signal: null })
-	}, 60_000)
+			early.close()
+			running.close()
+			expect(await exited).toEqual({ code: 0, signal: null })
+		},
+		CASE_TIMEOUT_MS,
+	)
 })

@@ -1,8 +1,11 @@
-import { type Message as AGUIMessage, type InputContent, MessageSchema } from '@ag-ui/core'
+import type { Message as AGUIMessage, ContentPart } from '@ag-ui/core'
+import { MessageSchema } from '@ag-ui/core/schemas'
 import {
 	type Message,
 	type MessageAttachment,
 	type ToolCall,
+	type ToolResultBlock,
+	type ToolResultContent,
 	type UserMessage,
 	toolResultToText,
 } from '@namzu/sdk'
@@ -83,30 +86,45 @@ function inlineAttachment(
 	}
 }
 
-function attachment(part: Exclude<InputContent, { type: 'text' }>): MessageAttachment {
+function attachment(part: Exclude<ContentPart, { type: 'text' }>): MessageAttachment {
 	switch (part.type) {
 		case 'image':
 		case 'document':
 			if (part.source.type !== 'data') {
-				return fail('URL content is unsupported; supply inline base64 data')
+				return fail('URL and file-handle content is unsupported; supply inline base64 data')
 			}
 			return inlineAttachment(part.type, part.source.value, part.source.mimeType)
-		case 'binary': {
-			if (part.data === undefined || part.url !== undefined || part.id !== undefined) {
-				return fail('binary content requires inline data without URL or ID references')
-			}
-			const kind = part.mimeType.startsWith('image/')
-				? 'image'
-				: part.mimeType === 'application/pdf' || part.mimeType === 'text/plain'
-					? 'document'
-					: undefined
-			if (!kind) return fail('unsupported binary media type')
-			return inlineAttachment(kind, part.data, part.mimeType, part.filename)
-		}
 		case 'audio':
 		case 'video':
 			return fail(`${part.type} content is unsupported by Namzu messages`)
 	}
+}
+
+/**
+ * A tool message's content: plain text stays a string; parts become the SDK's
+ * result blocks (text, inline image, inline document), in order. Anything that
+ * cannot be carried (a URL or file handle, audio, video) is refused, never dropped.
+ */
+function toolContent(content: string | readonly ContentPart[]): ToolResultContent {
+	if (typeof content === 'string') return content
+	if (content.every((part) => part.type === 'text')) {
+		return content.map((part) => (part.type === 'text' ? part.text : '')).join('')
+	}
+	return content.map((part): ToolResultBlock => {
+		if (part.type === 'text') return { type: 'text', text: part.text }
+		const attached = attachment(part)
+		if (attached.type === 'image') {
+			return { type: 'image', data: attached.data, mediaType: attached.mediaType }
+		}
+		if (attached.type === 'document') return attached
+		return fail('unsupported tool result content')
+	})
+}
+
+/** A part the 0.x protocol allowed (`binary`) and 1.0 removed: say so rather than "invalid". */
+function hasLegacyBinaryPart(raw: unknown): boolean {
+	if (!isObject(raw) || !Array.isArray(raw.content)) return false
+	return raw.content.some((part) => isObject(part) && part.type === 'binary')
 }
 
 function userMessage(content: Extract<AGUIMessage, { role: 'user' }>['content']): UserMessage {
@@ -150,7 +168,14 @@ export function toNamzuMessages(
 	const answered = new Set<string>()
 	for (const [index, raw] of messages.entries()) {
 		const parsed = MessageSchema.safeParse(raw)
-		if (!parsed.success) return fail(`invalid message at index ${index}`)
+		if (!parsed.success) {
+			if (hasLegacyBinaryPart(raw)) {
+				return fail(
+					`binary content at message index ${index} is not part of AG-UI 1.0; send an image or document part with an inline data source`,
+				)
+			}
+			return fail(`invalid message at index ${index}`)
+		}
 		const message = parsed.data
 		if (!message.id) return fail(`empty message ID at index ${index}`)
 		if (messageIds.has(message.id)) return fail(`duplicate message ID at index ${index}`)
@@ -210,7 +235,7 @@ export function toNamzuMessages(
 				result.push({
 					role: 'tool',
 					toolCallId: message.toolCallId,
-					content: message.content,
+					content: toolContent(message.content),
 					...(message.error !== undefined || hasToolErrorMetadata(message.metadata)
 						? { isError: true }
 						: {}),

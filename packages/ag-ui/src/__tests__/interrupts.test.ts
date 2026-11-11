@@ -1367,6 +1367,46 @@ describe('a tool the client declares', () => {
 		expect(sent).toMatchObject({ isError: true })
 	})
 
+	it('reads a result sent as text parts, the 1.0 shape of a tool message, as its text', async () => {
+		const h = frontendHarness([pickTurn, { text: 'Teal it is.' }])
+		const client = h.client()
+		await runClient(client, { tools: [pickColor] })
+		client.addMessage({
+			id: 'tool-result-1',
+			role: 'tool',
+			toolCallId: 'call_pick',
+			content: [
+				{ type: 'text', text: 'te' },
+				{ type: 'text', text: 'al' },
+			],
+		})
+		const second = await runClient(client, { tools: [pickColor] })
+		expect(second.failed).toBeUndefined()
+		const sent = h.provider.requests[1]?.messages.find((message) => message.role === 'tool')
+		expect(sent).toMatchObject({ content: 'teal' })
+	})
+
+	it('refuses a result that carries media parts instead of dropping them', async () => {
+		const h = frontendHarness([pickTurn, { text: 'unreachable' }])
+		const client = h.client()
+		await runClient(client, { tools: [pickColor] })
+		client.addMessage({
+			id: 'tool-result-1',
+			role: 'tool',
+			toolCallId: 'call_pick',
+			content: [
+				{ type: 'text', text: 'teal' },
+				{ type: 'image', source: { type: 'data', value: 'aW1hZ2U=', mimeType: 'image/png' } },
+			],
+		})
+		const second = await runClient(client, { tools: [pickColor] })
+		expect(second.events.at(-1)).toMatchObject({
+			type: EventType.RUN_ERROR,
+			code: 'AGUI_RESUME_INVALID',
+		})
+		expect(h.provider.requests).toHaveLength(1)
+	})
+
 	it('frees the thread when a pending call lapses, even before its timer runs', async () => {
 		const h = frontendHarness([pickTurn, { text: 'Moved on.' }], { interrupts: { ttlMs: 50 } })
 		await runClient(h.client(), { tools: [pickColor] })

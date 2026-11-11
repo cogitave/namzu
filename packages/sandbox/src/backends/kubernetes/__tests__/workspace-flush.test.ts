@@ -41,7 +41,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
 	KubernetesFlushUnconfirmedError,
@@ -343,22 +343,32 @@ describe.skipIf(IS_WINDOWS)('the flush a suspend performs', () => {
 	})
 
 	it('orders the patch after the flush reply, never beside it', async () => {
+		let release: () => void = () => undefined
+		const held = new Promise<void>((resolve) => {
+			release = resolve
+		})
 		scripted = await startScriptedAgent({
 			token: FIRST_POD_UID,
 			features: ['flush'],
 			flushReply: FLUSH_OK,
-			// Held open, so "the patch waited" is observable at all: an
-			// instant reply would land in the same tick as the patch.
-			flushDelayMs: 300,
+			// Held open until the case releases it, so "the patch waited"
+			// is observable at all: an instant reply would land in the
+			// same tick as the patch.
+			flushHold: held,
 		})
 		const workspace = await openWorkspace(scripted.port)
 		expect(patchedModes).toEqual([])
 
 		const suspend = workspace.suspend().catch(() => undefined)
-		await delay(120)
-		// The flush is in flight and the cluster has been asked for nothing.
-		expect(scripted.requests.some((request) => request.op === 'flush')).toBe(true)
+		// Await the request itself: it travels a real socket, so how long
+		// it takes is the machine's business, not the case's.
+		const flushRequested = (): boolean =>
+			scripted?.requests.some((request) => request.op === 'flush') === true
+		await vi.waitFor(() => expect(flushRequested()).toBe(true), { timeout: 20_000 })
+		// The flush is in flight, its reply is held, and the cluster has
+		// been asked for nothing.
 		expect(patchedModes).toEqual([])
+		release()
 		await suspend
 		expect(patchedModes).toEqual(['Suspended'])
 	}, 30_000)
@@ -559,7 +569,9 @@ describe.skipIf(IS_WINDOWS)('the flush a suspend performs', () => {
 		const workspace = await openWorkspace(scripted.port)
 
 		const first = workspace.suspend({ flush: false }).catch(() => undefined)
-		await delay(20)
+		// No wait before the joining call: the single-flight slot is taken
+		// synchronously by the first call, and the first suspend then sits
+		// in the stuck cluster's wait for the pod to stop.
 		// The transition in flight is patching over writes nobody flushed,
 		// and a flush cannot be added to it afterwards — once its state
 		// leaves `running` no call is admitted to ask the guest for
