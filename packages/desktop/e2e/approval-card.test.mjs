@@ -333,7 +333,9 @@ flow(
 		await expect(w.page.getByText("Wrote both files.").first()).toBeVisible({ timeout: T });
 		assert.equal(readFileSync(join(w.project, "a.txt"), "utf8"), "first\n");
 		assert.equal(readFileSync(join(w.project, "b.txt"), "utf8"), "second\n");
-		// Three provider turns: the request, the write result and the reply, never a stray fourth.
-		assert.equal(w.model.requests.length, 3);
+		// The request, each write's result and the reply, then the engine's own check on files written and never run:
+		// nothing a stray click sent.
+		assert.equal(w.model.requests.length, 4);
+		assert.match(JSON.stringify(w.model.requests[3].messages.at(-1)), /nothing was run afterwards/);
 	},
 );

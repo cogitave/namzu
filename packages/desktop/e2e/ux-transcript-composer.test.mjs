@@ -147,7 +147,7 @@ flow(
 		await assertCardClear(w, "1280x800");
 		await shot(w, "approval-1280");
 		await answerYes(w);
-		await expect(w.page.getByText("Wrote out.txt.")).toBeVisible({ timeout: T });
+		await expect(w.page.getByText("Wrote out.txt.").first()).toBeVisible({ timeout: T });
 		assert.equal(existsSync(join(w.project, "out.txt")), true);
 	},
 );
@@ -537,20 +537,31 @@ flow(
 			path: join(TOOL_SHOTS, "approval-create-1280-dark.png"),
 		});
 		await answerYes(w);
-		for (const command of [ANSI, RANDOM_BYTES, SEQ, FAILING]) {
+		// The kernel decides which of the four commands need a person (a read-only one may run unasked), so
+		// each card that does come is answered and named, and the tour is over when its last line shows.
+		await expect(approvalCard(w).getByRole("heading", { name: "Create new/deep/n.txt?" })).toHaveCount(0, { timeout: T });
+		const asked = [];
+		const finished = w.page.getByText("Tour finished.").first();
+		const rowText = approvalCard(w).locator(".approval-row-text").first();
+		for (let step = 0; step < 6; step++) {
+			await expect(rowText.or(finished)).toBeVisible({ timeout: T });
+			if (await finished.isVisible()) break;
+			const command = (await rowText.textContent()) ?? "";
 			await expect(
 				approvalCard(w).getByText("Runs in project.", { exact: false }),
 			).toBeVisible({ timeout: T });
-			await expect(approvalCard(w).locator(".approval-row-text").first()).toHaveText(
-				command,
-			);
-			if (command === ANSI)
+			if (asked.length === 0)
 				await w.page.screenshot({
 					path: join(TOOL_SHOTS, "approval-command-1280-dark.png"),
 				});
+			asked.push(command);
 			await answerYes(w);
+			await expect(approvalCard(w).locator(".approval-row-text").filter({ hasText: command })).toHaveCount(0, { timeout: T });
 		}
-		await expect(w.page.getByText("Tour finished.")).toBeVisible({
+		assert.ok(asked.length >= 1 && asked.every((command) => [ANSI, RANDOM_BYTES, SEQ, FAILING].includes(command)), `asked: ${asked.join(" | ")}`);
+		assert.equal(asked.at(-1), FAILING, "the failing command is the last one asked");
+		// The engine's own check on written files makes the scripted model say its last line twice.
+		await expect(w.page.getByText("Tour finished.").first()).toBeVisible({
 			timeout: T,
 		});
 

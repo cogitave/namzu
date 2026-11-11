@@ -401,8 +401,10 @@ flow("times read one way, the composer's edge is solid, and the Changes panel do
 	await send(w, "Please write the file");
 	const card = w.page.getByRole("region", { name: "Tool approval" });
 	await expect(card).toBeVisible({ timeout: T });
+	await expect(card.getByRole("button", { name: "Accept", exact: true })).not.toHaveAttribute("aria-disabled", "true", { timeout: T });
 	await card.getByRole("button", { name: "Accept", exact: true }).click();
-	await expect(w.page.getByText("Wrote out.txt.")).toBeVisible({ timeout: T });
+	// The engine's own check on written files makes the scripted model say its last line twice.
+	await expect(w.page.getByText("Wrote out.txt.").first()).toBeVisible({ timeout: T });
 	await resize(w, 900, 720);
 	await w.page.getByRole("button", { name: "View changes" }).last().click();
 	const panel = w.page.getByRole("complementary", { name: "Changes" });
@@ -421,7 +423,7 @@ flow("times read one way, the composer's edge is solid, and the Changes panel do
 	if (covers) {
 		await panel.getByRole("button", { name: "Back to conversation" }).click();
 		await expect(panel).toBeHidden();
-		await expect(w.page.getByText("Wrote out.txt.")).toBeVisible();
+		await expect(w.page.getByText("Wrote out.txt.").first()).toBeVisible();
 		await expect(w.page.getByRole("textbox", { name: "Message Namzu" })).toBeVisible();
 	}
 });

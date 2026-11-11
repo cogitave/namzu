@@ -289,6 +289,19 @@ describe('single live transcript status', () => {
 		expect(thread).toEqual(before)
 	})
 
+	it('keeps a failed action in view while the line is running, and nothing else open', () => {
+		const failed = update(pendingCommand(), {
+			kind: 'tool_call',
+			toolCallId: 'command',
+			title: 'Read working directory',
+			status: 'failed',
+			view: { kind: 'terminal', command: 'pwd', output: 'no such directory' },
+		})
+		expect(render(failed)).toContain('aria-expanded="true"')
+		// While it runs and nothing has gone wrong, the work stays behind the line.
+		expect(render(pendingCommand())).toContain('aria-expanded="false"')
+	})
+
 	it('puts the stage in the one line and keeps the narration behind it', () => {
 		let thread = update(started(), {
 			kind: 'agent_message_chunk',

@@ -410,6 +410,14 @@ function TurnActivity({
 			? turnActivityLabel(thread, turn)
 			: 'Earlier work'
 	const attentionNow = attentionFlags(turnAttention(thread, entries))
+	// A failed, refused or skipped action of this turn is bad news that stays in view even while the line is the whole display.
+	const badStep =
+		liveLine &&
+		entries.some((entry) => {
+			if (entry.kind !== 'tool') return false
+			const state = toolTranscriptPresentation(thread, entry.id)?.state
+			return state === 'failed' || state === 'declined' || state === 'skipped'
+		})
 	// Bad news is said in the header, so a finished turn never looks fine while a command failed.
 	const flags = live ? [] : attentionNow
 	const start = live && ownsTurnSummary ? thread.turns[turn]?.startedAt : undefined
@@ -433,7 +441,7 @@ function TurnActivity({
 				// The work stays behind the line unless something failed or was refused: that stays in view.
 				open={workBlockOpen(
 					controlled ? savedOpen : chosenOpen,
-					live && !answered && attentionNow.length > 0,
+					live && !answered && (attentionNow.length > 0 || badStep),
 				)}
 				onOpenChange={(open) => {
 					if (disclosureKey && onWorkDisclosureChange) onWorkDisclosureChange(disclosureKey, open)
