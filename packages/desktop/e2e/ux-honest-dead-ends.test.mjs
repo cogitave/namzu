@@ -2,6 +2,7 @@
 // Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test packages/desktop/e2e/ux-honest-dead-ends.test.mjs
 // Screenshots land in $NAMZU_E2E_SHOTS (default: a folder in the temp directory) and are looked at, not asserted.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
@@ -140,6 +141,57 @@ flow(
 		await expect(w.page.getByText("Carrying on from the stop.")).toBeVisible({ timeout: T });
 		assert.equal(await w.page.getByText(/still finishing the last reply/).count(), 0, "no refusal to carry on");
 		assert.equal(await w.page.getByText("Stopped because Namzu was closed.").count(), 0, "the old stop is settled");
+	},
+);
+
+/** The pids below `pid`, read from the process table, so each can be stopped by its own number. */
+function descendantsOf(pid) {
+	const rows = execFileSync("ps", ["-eo", "pid=,ppid="], { encoding: "utf8" })
+		.split("\n")
+		.map((line) => line.trim().split(/\s+/).map(Number))
+		.filter(([a, b]) => Number.isInteger(a) && Number.isInteger(b));
+	const found = new Set([pid]);
+	for (let grew = true; grew; ) {
+		grew = false;
+		for (const [child, parent] of rows) if (!found.has(child) && found.has(parent)) found.add(child), (grew = true);
+	}
+	found.delete(pid);
+	return [...found];
+}
+
+flow(
+	"stopping Namzu hard while the first request of a reply is parked at the model leaves a conversation that takes the next message",
+	{
+		rules: [
+			{ match: /hello first/, steps: [{ text: "Hello back." }] },
+			{ match: /ask the model once/, steps: [{ hold: "first", text: "Never delivered." }] },
+			{ match: /carry on please/, steps: [{ text: "Carrying on." }] },
+		],
+	},
+	async (w) => {
+		await openProject(w);
+		await send(w, "hello first");
+		await expect(w.page.getByText("Hello back.")).toBeVisible({ timeout: T });
+		await send(w, "ask the model once");
+		await expect.poll(() => w.model.requests.filter((r) => JSON.stringify(r).includes("ask the model once")).length, { timeout: T }).toBeGreaterThanOrEqual(1);
+		// The host is killed, not asked to stop: it gives nothing back, and its writer lease stays
+		// unexpired in the journal. Every process of the app is ended by its own pid.
+		const app = w.app.process();
+		const [log] = journals(w);
+		assert.equal((await log.activeTurn())?.state, "running", "the lease is still held when the app is stopped");
+		for (const pid of [...descendantsOf(app.pid), app.pid]) {
+			try {
+				process.kill(pid, "SIGKILL");
+			} catch {}
+		}
+		if (app.exitCode === null && app.signalCode === null) await once(app, "exit");
+		assert.equal((await log.activeTurn())?.state, "running", "nothing settled the turn: its lease has minutes left");
+		await relaunch(w);
+		await w.page.getByRole("button", { name: /hello first/ }).first().click();
+		await send(w, "carry on please");
+		await expect(w.page.getByText("Carrying on.")).toBeVisible({ timeout: T });
+		assert.equal(await w.page.getByText(/still finishing the last reply/).count(), 0, "no refusal");
+		assert.equal(await log.activeTurn().then((a) => a?.state), undefined, "nothing is left unsettled");
 	},
 );
 

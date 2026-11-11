@@ -1146,12 +1146,14 @@ export function createCliAcpRuntime(
 				// was prompting waits here and rides with this prompt; what the kernel
 				// delivered during an earlier turn was acknowledged and is not here.
 				const monitorSnapshot = record.session.monitors?.peek() ?? { ids: [] }
+				// A turn the host before this one left with nobody running it is closed, not waited for;
+				// the same rule the status applies, so a message and the status never disagree.
+				if (record.conversations)
+					await settleTurnOfGoneHost(record.conversations, sessionId).catch(() => false)
 				const undoNote = undoNotes.get(sessionId)?.join('\n\n')
 				undoNotes.delete(sessionId)
 				for await (const event of record.session.send(messages, {
 					...settings,
-					// A turn the host before this one left with nobody running it is closed, not waited for.
-					abandonInterrupted: true,
 					// The words the person sent: a target such as +500k is read from these only.
 					typedInput: prompt,
 					currentPermissionMode: () => turnMode,

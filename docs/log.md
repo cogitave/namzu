@@ -2,7 +2,7 @@
 
 ## 2026-11-12
 
-- **Update** [Desktop](cli/desktop.md) and [Agent Client Protocol](sdk/agent-client-protocol.md): a reply left with only its start and the person's message (the app went away in its first instant) is closed as stopped by the next host that is asked whether the conversation can go on, instead of refusing every message with "Namzu is still finishing the last reply" for as long as the dead host's turn read as running; a message sent to a host that never asked closes it too. A turn another host still holds, or a paused one, keeps its notice. `.changeset/cli-close-turn-of-gone-host.md` (`@namzu/cli` patch).
+- **Update** [Desktop](cli/desktop.md) and [Agent Client Protocol](sdk/agent-client-protocol.md): a reply left with only its start and the person's message (the app went away in its first instant) is closed as stopped by the next host that is asked whether the conversation can go on, instead of refusing every message with "Namzu is still finishing the last reply" for as long as the dead host's turn read as running; a message sent to a host that never asked closes it too, and so is a reply whose host was killed and left an unexpired lease naming a process that no longer exists. A turn another host still holds, or a paused one, keeps its notice. `.changeset/cli-close-turn-of-gone-host.md` (`@namzu/cli` patch).
 
 ## 2026-11-11
 

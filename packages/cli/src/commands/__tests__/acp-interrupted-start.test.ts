@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,7 +10,7 @@ import {
 	openSessions,
 	readConversationFacts,
 } from '../../integrations/sessions/store.js'
-import { readProviderRetryStatus } from '../acp-provider-retry.js'
+import { holderIsGone, readProviderRetryStatus } from '../acp-provider-retry.js'
 import { type AcpRuntimeDependencies, createCliAcpRuntime } from '../acp.js'
 import { interruptedAtStart } from './support/interrupted-at-start.js'
 
@@ -48,14 +49,21 @@ function runtime(createSession?: unknown) {
 	)
 }
 
+/** A process id that belonged to a process that has exited: awaited, not slept for. */
+async function deadPid(): Promise<number> {
+	const child = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' })
+	const pid = child.pid
+	if (pid === undefined) throw new Error('could not start a child')
+	await new Promise<void>((resolve) => child.once('exit', () => resolve()))
+	return pid
+}
+
 describe('a reply whose host went away in its first instant', () => {
-	it('is a turn no live host owns, which the durable status alone cannot tell from one that is running', async () => {
+	it('is read, not changed, by the durable status alone', async () => {
 		const f = await interruptedAtStart(state)
 		expect((await f.log.activeTurn())?.state).toBe('interrupted')
-		// The status is a read: it names the wait and changes nothing.
-		expect(await readProviderRetryStatus(state, f.sessionId)).toEqual({
-			notice: 'Wait for this conversation’s active turn to settle.',
-		})
+		// The status is a read: whatever it says, it closes nothing. Closing is the host's act.
+		await readProviderRetryStatus(state, f.sessionId)
 		expect((await f.log.activeTurn())?.state).toBe('interrupted')
 	})
 
@@ -113,8 +121,9 @@ describe('a reply whose host went away in its first instant', () => {
 				filesystem: undefined,
 				prompt: 'Carry on',
 			})
-			// The kernel closes it when it begins the turn; the host's part is to ask for that.
-			expect(send.mock.calls[0]?.[1]).toMatchObject({ abandonInterrupted: true })
+			// The host closes it before the message goes to the kernel, so the turn is over by then.
+			expect(send).toHaveBeenCalledTimes(1)
+			expect(await f.log.activeTurn()).toBeNull()
 		} finally {
 			await host.close()
 		}
@@ -131,5 +140,56 @@ describe('a reply whose host went away in its first instant', () => {
 			await f.log.release(f.lease)
 			await host.close()
 		}
+	})
+
+	it('is settled when the host was killed and its lease is still unexpired', async () => {
+		const pid = await deadPid()
+		const f = await interruptedAtStart(state, {
+			stillHeld: true,
+			holder: (turnId) => `namzu:${pid}:${turnId}`,
+		})
+		// The killed host gave nothing back: its lease reads as live, and so as running.
+		expect((await f.log.activeTurn())?.state).toBe('running')
+		const host = runtime()
+		try {
+			expect(await host.providerRetryStatus?.(f.sessionId, root)).toEqual({})
+			expect(await f.log.activeTurn()).toBeNull()
+			const records = (await f.log.readAll()).entries.map((entry) => entry.record)
+			expect(records.some((record) => record.type === 'turn_failed')).toBe(true)
+			expect(records.some((record) => record.type === 'message' && record.role === 'user')).toBe(
+				true,
+			)
+			// The conversation takes a new turn at once.
+			const lease = await f.log.claim({ holder: 'next-host', ttlMs: 60_000 })
+			expect(lease).not.toBeNull()
+		} finally {
+			await host.close()
+		}
+	})
+
+	it('keeps the refusal when the host named in the lease is still alive', async () => {
+		// This test process stands for a live host on this machine that is not the asker: its parent.
+		const f = await interruptedAtStart(state, {
+			stillHeld: true,
+			holder: (turnId) => `namzu:${process.ppid}:${turnId}`,
+		})
+		const host = runtime()
+		try {
+			const status = await host.providerRetryStatus?.(f.sessionId, root)
+			expect(status?.notice).toContain('active turn to settle')
+			expect((await f.log.activeTurn())?.state).toBe('running')
+		} finally {
+			await f.log.release(f.lease)
+			await host.close()
+		}
+	})
+
+	it('reads a holder as gone only for a turn-shaped name with no process behind it', () => {
+		const dead = () => false
+		expect(holderIsGone('namzu:4242:turn_1', 'turn_1', dead)).toBe(true)
+		expect(holderIsGone('namzu:4242:turn_1', 'turn_2', dead)).toBe(false)
+		expect(holderIsGone('host-that-is-gone', 'turn_1', dead)).toBe(false)
+		expect(holderIsGone(`namzu:${process.pid}:turn_1`, 'turn_1', dead)).toBe(false)
+		expect(holderIsGone('namzu:4242:turn_1', 'turn_1', () => true)).toBe(false)
 	})
 })
