@@ -15,6 +15,7 @@ import {
 	extractFromToolResult,
 	extractFromUserMessage,
 } from './extractor.js'
+import { adoptableSkills, handledSkillNames } from './loaded-skills.js'
 import { WorkingStateManager } from './manager.js'
 import {
 	type CompactionSummaryRouter,
@@ -156,6 +157,7 @@ function withRestoredContext(
 	body: string,
 	manager: WorkingStateManager,
 	input: CompactNowInput,
+	kept: readonly Message[],
 ): string {
 	const window = resolveContextWindow(
 		input.contextWindowTokens ?? input.config.contextWindowTokens,
@@ -163,6 +165,8 @@ function withRestoredContext(
 	)
 	const restored = renderRestoredContext(manager.getState(), {
 		contextWindowTokens: window.tokens,
+		// Instructions already whole in what the pass keeps are not put back twice.
+		wholeSkills: handledSkillNames(kept),
 		...(input.restoreNote ? { hostNote: input.restoreNote } : {}),
 	})
 	return restored ? `${body}\n\n${restored}` : body
@@ -175,6 +179,9 @@ function populateWorkingState(
 	config: CompactionConfig,
 ): void {
 	let firstUser = true
+	// Skills an earlier pass put back (an entry, or a summary's restored
+	// section) are not tool results, so they are read from the messages whole.
+	manager.adoptSkillBodies(adoptableSkills(messages))
 	const toolNames = new Map<string, string>()
 	const toolInputs = new Map<string, unknown>()
 
@@ -283,7 +290,11 @@ export async function compactNow(input: CompactNowInput): Promise<CompactionResu
 
 	const { messages, summary } = splice(
 		preservedSystem,
-		withRestoredContext(body, manager, input),
+		withRestoredContext(body, manager, input, [
+			...preservedSystem,
+			...retainedOlder,
+			...plan.recentMessages,
+		]),
 		retainedOlder,
 		plan.recentMessages,
 		input.recoveryNote,
@@ -379,7 +390,14 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 	// Same cross-run ownership as compactNow: a selected region has been
 	// replaced outside a turn, so its only surviving account is pinned.
 	const summary = {
-		...buildCompactionMessage(withRestoredContext(body, manager, input), input.recoveryNote),
+		...buildCompactionMessage(
+			withRestoredContext(body, manager, input, [
+				...messages.slice(0, start),
+				...retainedSelected,
+				...messages.slice(end),
+			]),
+			input.recoveryNote,
+		),
 		retain: true,
 	}
 	const out = [...messages.slice(0, start), summary, ...retainedSelected, ...messages.slice(end)]

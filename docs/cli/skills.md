@@ -127,6 +127,17 @@ begins with the skill's folder, so files it names relative to itself resolve.
 `namzu exec "/<name> ..."` runs a skill you wrote (user or project folders);
 the skills that ship with Namzu stay ordinary prompt text there.
 
+A loaded skill keeps guiding the work after the conversation is trimmed. The
+`skill` tool's result is ordinary history, so a pass that clears old tool
+results or summarises history can cut it. When that happens the next request
+carries the skill's instructions again as reference, under a note saying they
+were loaded earlier, still apply, and are not a new message from you
+([Context and compaction](context-and-compaction.md#after-a-compaction)). It
+is bounded (5,000 tokens a skill, 25,000 in all, newest first), never repeated
+while the instructions are whole, and the terminal draws one line when it
+happens. A skill you activated yourself is part of the system prompt and is
+never affected.
+
 ## Built-in skills
 
 The CLI ships five, in `packages/cli/skills/`:
