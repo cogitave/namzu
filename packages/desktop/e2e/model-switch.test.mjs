@@ -18,12 +18,10 @@ const SHOTS = resolve(repoRoot, "research/model-switch-20261010");
 
 const THROTTLED = {
 	status: 429,
-	headers: { "retry-after": "0" },
 	body: JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "slow down" } }),
 };
 const THROTTLED_CHAT = {
 	status: 429,
-	headers: { "retry-after": "0" },
 	body: JSON.stringify({ error: { message: "slow down", type: "rate_limit_error" } }),
 };
 const PLAN_ARGS = { subject: "Write the parser", activeForm: "Writing the parser" };
@@ -112,7 +110,9 @@ const typed = (request) =>
 				? m.content
 				: (m.content ?? []).map((part) => part.text ?? "").join(""),
 		)
-		.filter((text) => text && !text.startsWith("Current step context"));
+		.filter(
+			(text) => text && !text.startsWith("Current step context") && !text.startsWith("<system-reminder"),
+		);
 const lastUser = (request) => typed(request).at(-1);
 const history = (request) =>
 	request.messages.map((m) => `${m.role}${m.tool_calls ? "+calls" : ""}`).join(",");
