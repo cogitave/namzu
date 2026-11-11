@@ -109,6 +109,14 @@ when its `old_string` still matches uniquely, because the match can land somewhe
 model read `a = 1`, the file now says `a = 100`, and replacing `a = 1` with `a = 2` would write `a = 200`. The
 ledger keeps a fingerprint of what was read, not the text, so there is nothing to show where the text belongs.
 
+What was read belongs to one agent. A sub-agent starts with a read record of its own (`FileReadTracker.forChild()`),
+empty, and never shares it with its parent or a sibling: when one agent writes a file, every other agent that read it
+before is refused as stale on its next `edit` or `write`, and only the writer's own record moves on. Two sub-agents
+that read one file and both replace it therefore land the first write only, and the second is told to read again.
+The one thing a family does share is the record of what its agents wrote, which the approval classifier uses; see
+[the auto-review classifier](auto-review.md#a-script-the-agent-wrote-and-then-runs). Sharing that never counts as a
+read.
+
 The same refusal is also given before anyone is asked. `edit` and `write` declare `ToolDefinition.refuseBeforeReview`,
 which the executor asks while it prepares a batch, once the arguments are valid and before the call is put to a
 reviewer. A call on a file that changed since the read therefore reaches no approval box and runs nothing; the model
