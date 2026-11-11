@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
+import { getTraceContextHeaders } from '../../telemetry/runtime-accessors.js'
 import type {
 	MCPClientConfig,
 	MCPClientState,
@@ -1484,14 +1485,20 @@ export class MCPClient {
 		const progressToken = method === 'tools/call' && options?.onProgress ? randomUUID() : undefined
 		// Only a call that can receive progress can have its deadline extended.
 		const extendable = this.resetTimeoutOnProgress && progressToken !== undefined
+		// The 2026-07-28 convention for carrying a trace across a request: the
+		// W3C keys in `_meta`. Only on that revision, and only when a span is
+		// active; an older server is sent exactly what it always was.
+		const trace = this.era?.kind === 'modern' ? getTraceContextHeaders() : {}
+		const hasTrace = trace.traceparent !== undefined
 		const requestParams =
-			progressToken === undefined
+			progressToken === undefined && !hasTrace
 				? params
 				: {
 						...params,
 						_meta: {
+							...trace,
 							...(params._meta as Record<string, unknown> | undefined),
-							progressToken,
+							...(progressToken === undefined ? {} : { progressToken }),
 						},
 					}
 		const envelope = buildEnvelope({

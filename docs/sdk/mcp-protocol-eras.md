@@ -359,6 +359,17 @@ prompt between two turns. Now `listTools()` returns the tools sorted by name
 (code points, a tie keeping the server's order), in every revision, so the
 order is a property of the client.
 
+### Trace context in `_meta`
+
+When telemetry is on (a span is active, which is what registering
+`@namzu/telemetry` does), a request on a 2026-07-28 connection carries the
+W3C trace context in `_meta`, the convention the revision documents:
+`traceparent` (`00-<trace id>-<span id>-<flags>`) and, when the span has one,
+`tracestate`. A server that continues the trace shows the tool call under the
+turn's span. When telemetry is off, or the active span context is not valid
+W3C, nothing is added. A connection to an older server is sent exactly what it
+always was. `baggage` is not sent.
+
 ## Mirroring tool parameters into headers: `x-mcp-header`
 
 A server may annotate a tool parameter with `x-mcp-header` to ask that the
