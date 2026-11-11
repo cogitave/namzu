@@ -12,6 +12,7 @@ import {
 	enableTerminalDebug,
 	expect,
 	launch,
+	openModelMore,
 	openProject,
 	repoRoot,
 } from "./harness.mjs";
@@ -50,25 +51,27 @@ async function resize(w, width, height) {
 	await expect.poll(() => w.page.evaluate(() => window.innerWidth)).toBeLessThanOrEqual(width);
 }
 
-/** Was the frame drawn for this width: closed on the right, and the footer names the model? */
+const isRule = (line) => /^\s*─+\s*$/.test(line);
+
+/**
+ * The message box is a line of its own between two rules, and the footer names the model at the
+ * right edge. Was that drawn for this width: both rules reach across the pane, and the footer's
+ * model sits at its right end?
+ */
 function drawnFor({ cols, lines }) {
 	if (cols === 0) return false;
-	const bottom = lines.findLast((line) => line.trimStart().startsWith("└"));
+	const rules = lines.filter(isRule);
 	const footer = lines.findLast((line) => line.includes("shift+tab"));
-	const top = lines.findLast((line) => line.trimStart().startsWith("┌"));
 	// The transcript is on screen once, whole: neither a stale copy of it nor half of it.
 	const once = (needle) => lines.filter((line) => line.includes(needle)).length === 1;
 	return (
 		once("› hello from") &&
 		once("SCRIPTED-ANTHROPIC-OK") &&
-		bottom !== undefined &&
-		top !== undefined &&
-		top.endsWith("┐") &&
-		bottom.endsWith("┘") &&
-		[...top].length === [...bottom].length &&
-		[...bottom].length >= cols - 4 &&
+		rules.length >= 2 &&
+		rules.slice(-2).every((rule) => [...rule.trimEnd()].length >= cols - 4) &&
 		footer !== undefined &&
-		footer.includes("gpt-e2e-0")
+		footer.trimEnd().endsWith("gpt-e2e-0") &&
+		[...footer.trimEnd()].length >= cols - 4
 	);
 }
 
@@ -95,7 +98,10 @@ test(
 			await w.page.getByRole("button", { name: /gpt-e2e-1|gpt-e2e-0/ }).first().click();
 			await w.page.getByRole("radio", { name: "OpenAI gpt-e2e-0" }).click();
 			await w.page.getByRole("button", { name: /gpt-e2e-1|gpt-e2e-0/ }).first().click().catch(() => undefined);
+			await openModelMore(w.page);
 			await w.page.getByRole("radio", { name: "CLI", exact: true }).click();
+			await w.page.keyboard.press("Escape");
+			// The first Escape goes back from More to the list, the second closes the popup.
 			await w.page.keyboard.press("Escape");
 			await w.page
 				.getByRole("textbox", { name: "Message Namzu" })
@@ -128,10 +134,12 @@ test(
 				const { cols, lines } = snapshot;
 				const longest = Math.max(...lines.map((line) => [...line].length));
 				assert.ok(longest <= cols, `${width}px window, ${cols} columns: a line is ${longest} wide`);
-				const top = lines.findLast((line) => line.trimStart().startsWith("┌"));
-				const bottom = lines.findLast((line) => line.trimStart().startsWith("└"));
-				assert.ok(top?.endsWith("┐"), `${cols} columns: the top-right corner is in place\n${lines.join("\n")}`);
-				assert.equal([...top].length, [...bottom].length, `${cols} columns: the box is a rectangle`);
+				const rules = lines.filter(isRule).slice(-2);
+				assert.equal(
+					[...rules[0]].length,
+					[...rules[1]].length,
+					`${cols} columns: the two rules around the message box are as long as each other\n${lines.join("\n")}`,
+				);
 				// A reply is one block however narrow the pane: its words are wrapped, never cut.
 				const joined = lines.join(" ").replace(/\s+/g, " ");
 				assert.ok(joined.includes("hello from the first message"), `${cols} columns: the reply reads whole`);
