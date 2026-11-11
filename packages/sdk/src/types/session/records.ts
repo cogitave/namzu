@@ -457,6 +457,28 @@ export const MessageReplacedRecordSchema = recordSchema('message_replaced', {
 	]),
 })
 
+/**
+ * A compaction pass changed one message's text in place (a long narration cut
+ * to its first sentence, a large tool result cleared) and the message kept its
+ * id. The fold shows `content` for `targetMessageId` from this record on, in
+ * the message's own position, exactly as it does for `message_replaced`; the
+ * `message` record it targets still holds the original text.
+ *
+ * A record of its own, flagged `ignorable`, and not another `message_replaced`
+ * reason: that record's `reason` is a closed list an earlier release validates
+ * strictly, so a new value would make it refuse the whole log. An earlier
+ * release skips this one and folds the unedited text of the message.
+ * `reason` is free text for the same reason: a later release may name more
+ * kinds of edit without this one refusing its log.
+ */
+export const MessageEditedRecordSchema = inTurn('message_edited', {
+	ignorable: z.literal(true),
+	targetMessageId: messageId,
+	content: messageBody,
+	spill: spill.optional(),
+	reason: text.min(1),
+})
+
 // Checkpoints and human decisions (record-only)
 
 /** `SessionRecordSchema` also holds `throughSeq` below the record's own `seq`. */
@@ -665,6 +687,7 @@ const RECORD_ONLY_SCHEMAS = {
 	session_updated: SessionUpdatedRecordSchema,
 	message: MessageRecordSchema,
 	message_replaced: MessageReplacedRecordSchema,
+	message_edited: MessageEditedRecordSchema,
 	checkpoint_written: CheckpointWrittenRecordSchema,
 	checkpoint_pruned: CheckpointPrunedRecordSchema,
 	decision_requested: DecisionRequestedRecordSchema,
@@ -1085,6 +1108,7 @@ export type SessionStartedRecord = z.infer<typeof SessionStartedRecordSchema>
 export type SessionUpdatedRecord = z.infer<typeof SessionUpdatedRecordSchema>
 export type MessageRecord = z.infer<typeof MessageRecordSchema>
 export type MessageReplacedRecord = z.infer<typeof MessageReplacedRecordSchema>
+export type MessageEditedRecord = z.infer<typeof MessageEditedRecordSchema>
 export type CheckpointWrittenRecord = z.infer<typeof CheckpointWrittenRecordSchema>
 export type CheckpointPrunedRecord = z.infer<typeof CheckpointPrunedRecordSchema>
 export type DecisionRequestedRecord = z.infer<typeof DecisionRequestedRecordSchema>
@@ -1105,6 +1129,7 @@ export type SessionRecordOnly =
 	| SessionUpdatedRecord
 	| MessageRecord
 	| MessageReplacedRecord
+	| MessageEditedRecord
 	| CheckpointWrittenRecord
 	| CheckpointPrunedRecord
 	| DecisionRequestedRecord

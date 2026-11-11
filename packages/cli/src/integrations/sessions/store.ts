@@ -538,6 +538,20 @@ export async function discardConversation(
 }
 
 /**
+ * Whether a log holds any record. Reads the first record only: `head()` brings
+ * the log's whole chain up to date, which walks every record of a session of
+ * any length, and a caller that only needs to know the log has started pays
+ * for that on every turn. A first record that cannot be read as one is not an
+ * answer; that case asks `head()`, which reports what is wrong with the log.
+ */
+export async function logHasStarted(log: SessionLog): Promise<boolean> {
+	const first = await log.readAll({ throughSeq: 1 })
+	if (first.entries.length > 0) return true
+	if (first.intact && first.head === null && first.tornBytes === 0) return false
+	return (await log.head()) !== null
+}
+
+/**
  * Give a session log its `session_started` if it has none yet, so a turn can
  * begin in it. A log that already starts is left alone. Used where a session
  * is brought into existence by its first turn rather than by
@@ -554,10 +568,10 @@ export async function ensureSessionStarted(
 		readonly origin?: SessionStartedRecord['origin']
 	},
 ): Promise<void> {
-	if ((await log.head()) !== null) return
+	if (await logHasStarted(log)) return
 	const lease = await claimLease(log, 'start session')
 	try {
-		if ((await log.head()) !== null) return
+		if (await logHasStarted(log)) return
 		await log.append(lease, {
 			type: 'session_started',
 			projectId: session.projectId,

@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import {
 	AUTO_CONTINUATION_USER_MESSAGE,
 	REASONING_CUT_USER_MESSAGE,
@@ -92,6 +93,16 @@ export interface RecordedMessage {
 function stampMessageId(message: Message, id: MessageId | undefined): void {
 	if (id === undefined) delete (message as { id?: MessageId }).id
 	else (message as { id?: MessageId }).id = id
+}
+
+/** Two messages that differ only in their id and time are the same text. */
+function sameStoredContent(a: Message, b: Message): boolean {
+	const { id: _a, timestamp: _ta, ...restA } = a
+	const { id: _b, timestamp: _tb, ...restB } = b
+	return isDeepStrictEqual(
+		JSON.parse(JSON.stringify(restA)) as unknown,
+		JSON.parse(JSON.stringify(restB)) as unknown,
+	)
 }
 
 /** How {@link TurnRecorder.open} takes the session's writer lease and starts an empty log. */
@@ -255,6 +266,8 @@ export class TurnRecorder {
 	 * these needs no re-basing, so no `compaction` record is written for it.
 	 */
 	#foldIdsAtResume: readonly MessageId[] | undefined
+	/** What the log folds to for a message a replacement or an edit changed, as of the resume. */
+	#foldEditedAtResume = new Map<MessageId, Message>()
 	/** When a resumed turn began: its `turn_started` record, not this process's start. */
 	#resumedTurnStartedAt: number | undefined
 
@@ -868,21 +881,38 @@ export class TurnRecorder {
 	async #readResumedLog(): Promise<readonly MessageId[] | undefined> {
 		await this.flush()
 		const fold = new SessionMessageFold()
+		// Whether the latest change to a message was a compaction edit: only
+		// that one is the recorder's to put back (a guardrail's replacement is
+		// the settled answer and the restored context is not allowed to undo it).
+		const latestChange = new Map<MessageId, 'edited' | 'replaced'>()
 		for await (const entry of this.log.read()) {
 			const record = entry.record as SessionRecord
 			if (record.type === 'turn_started' && record.turnId === this.turnId) {
 				const at = Date.parse(record.ts)
 				if (Number.isFinite(at)) this.#resumedTurnStartedAt = at
 			}
+			if (record.type === 'message_edited') latestChange.set(record.targetMessageId, 'edited')
+			else if (record.type === 'message_replaced')
+				latestChange.set(record.targetMessageId, 'replaced')
 			fold.apply(record)
 		}
-		if (fold.spilledSummary) return undefined
 		const ids: MessageId[] = []
+		let allRecorded = !fold.spilledSummary
+		this.#foldEditedAtResume.clear()
+		// Filled for every fold entry with an id, whether or not the fold also
+		// holds id-less entries (a summary): a restored context older than an edit
+		// is put right either way. An entry whose text is spilled is not
+		// compared, so a message edited to a spilled text is not put back.
 		for (const entry of fold.entries()) {
-			if (!entry.messageId) return undefined
+			if (!entry.messageId) {
+				allRecorded = false
+				continue
+			}
 			ids.push(entry.messageId)
+			if (latestChange.get(entry.messageId) === 'edited' && entry.spill === undefined)
+				this.#foldEditedAtResume.set(entry.messageId, entry.message)
 		}
-		return ids
+		return allRecorded ? ids : undefined
 	}
 
 	/** The recorded context is exactly what the log folds to: a resume changed nothing. */
@@ -1093,6 +1123,13 @@ export class TurnRecorder {
 		options: {
 			readonly messageId?: MessageId
 			readonly transient?: boolean
+			/**
+			 * The message is part of the history a resume restores, not a new
+			 * one. While the resume's re-base is pending, a restored message with no
+			 * id is held and nothing is reconciled; the first message that is not
+			 * restored (or any other reconcile) re-bases once on the whole context.
+			 */
+			readonly restored?: boolean
 		} = {},
 	): void {
 		if (options.messageId) {
@@ -1108,6 +1145,16 @@ export class TurnRecorder {
 				...(options.messageId ? { id: options.messageId } : {}),
 				...(options.transient ? { transient: true } : {}),
 			})
+			return
+		}
+		if (options.restored && this.#rebasePending && this.#phase === 'active') {
+			// A restored message with no id (a compaction summary, the working-memory
+			// slot, a message the host added) can arrive before the recorded ones.
+			// Reconciling now would re-base the fold on a context holding only it and
+			// drop the recorded messages that follow; hold it as an id-less view entry
+			// and let the first reconciliation after the whole context is in place
+			// write one `compaction` that keeps the recorded ids after it.
+			this.#view.push({ message })
 			return
 		}
 		this.#syncMessages()
@@ -1153,6 +1200,100 @@ export class TurnRecorder {
 	}
 
 	/**
+	 * A compaction pass edits one message by replacing its object with a copy
+	 * that has other content (`{ ...message, content }`). The copy still carries
+	 * the id the original was stamped with, but the recorder's own indexes are
+	 * keyed by object identity, so without this it would see an unknown message
+	 * and record every message after it again. A live object that is not in the
+	 * view, whose `id` is that of a recorded view entry whose own object has left
+	 * the context, is that same message edited: one `message_edited` record
+	 * carries its new content and the view entry follows the new object.
+	 *
+	 * Only an id claimed by exactly one live object is taken, so two copies of
+	 * one message are never both treated as its edit. Anything else is left to
+	 * the callers, which record it as a new message.
+	 */
+	#absorbEdits(): void {
+		if (this.#phase !== 'active') return
+		const live = this.#turn.messages
+		const inContext = new Set<Message>(live)
+		let orphans: Map<MessageId, ViewEntry> | undefined
+		for (const entry of this.#view) {
+			if (entry.id === undefined || entry.transient || inContext.has(entry.message)) continue
+			orphans ??= new Map()
+			orphans.set(entry.id, entry)
+		}
+		if (orphans === undefined) return
+		const known = new Set<Message>(this.#view.map((entry) => entry.message))
+		const claimed = new Map<MessageId, Message[]>()
+		for (const message of live) {
+			if (known.has(message) || this.#transient.has(message)) continue
+			const id = message.id
+			if (id === undefined || !orphans.has(id)) continue
+			const list = claimed.get(id)
+			if (list) list.push(message)
+			else claimed.set(id, [message])
+		}
+		const turnId = this.turnId
+		for (const [id, messages] of claimed) {
+			const message = messages[0] as Message
+			const entry = orphans.get(id) as ViewEntry
+			if (messages.length !== 1 || message.role !== entry.message.role) continue
+			// `previous` is the live object the view holds: a message mutated in place
+			// and then replaced by a copy of itself is adopted without a record, and
+			// the fold keeps the text it recorded.
+			const previous = entry.message
+			entry.message = message
+			this.#ids.set(message, id)
+			this.#recorded.set(message, id)
+			// A copy with the same text (a structured clone, a re-parsed message)
+			// is adopted as is: the fold already shows that content.
+			if (sameStoredContent(previous, message)) continue
+			void this.#enqueue(() =>
+				this.#append({
+					type: 'message_edited',
+					turnId,
+					targetMessageId: id,
+					content: message,
+					ignorable: true,
+					reason: 'compaction',
+				}),
+			).catch(() => undefined)
+		}
+	}
+
+	/**
+	 * A resume restores the context a checkpoint holds, which can predate a
+	 * compaction edit written after it. The ids still match, so the log is not
+	 * re-based; but the fold then shows the edited text of a message the context
+	 * holds as it was. One `message_edited` per such message makes the fold show
+	 * the context the resume actually runs with.
+	 */
+	#recordDriftFromFold(): void {
+		const edited = this.#foldEditedAtResume
+		if (edited.size === 0) return
+		const turnId = this.turnId
+		for (const entry of this.#view) {
+			if (entry.id === undefined || entry.transient) continue
+			const folded = edited.get(entry.id)
+			if (folded === undefined || sameStoredContent(folded, entry.message)) continue
+			const message = entry.message
+			const id = entry.id
+			void this.#enqueue(() =>
+				this.#append({
+					type: 'message_edited',
+					turnId,
+					targetMessageId: id,
+					content: message,
+					ignorable: true,
+					reason: 'resume',
+				}),
+			).catch(() => undefined)
+		}
+		edited.clear()
+	}
+
+	/**
 	 * Reconcile the context with the log. Nothing is written before the turn
 	 * begins or after it pauses or settles.
 	 */
@@ -1164,9 +1305,15 @@ export class TurnRecorder {
 			this.#foldIdsAtResume = undefined
 			if (!unchanged) {
 				this.#recordCompaction()
+				// Kept ids whose restored text differs from the edited text the fold
+				// holds get their record; entries re-recorded under fresh ids are not
+				// in the map and are skipped.
+				this.#recordDriftFromFold()
 				return
 			}
+			this.#recordDriftFromFold()
 		}
+		this.#absorbEdits()
 		const live = this.#turn.messages
 		const view = this.#view
 		let prefix = 0
@@ -1205,6 +1352,7 @@ export class TurnRecorder {
 	 * log order, the whole context becomes the summary.
 	 */
 	#recordCompaction(): void {
+		this.#absorbEdits()
 		const live = this.#turn.messages
 		const byMessage = new Map(this.#view.map((entry) => [entry.message, entry]))
 		const next: ViewEntry[] = live.map((message) => {
@@ -1493,6 +1641,34 @@ async function recordedMessages(
 	return out
 }
 
+type RecordedContent = { readonly content: Message; readonly spill?: SpillRef }
+
+function recordedContent(record: {
+	readonly content: Message
+	readonly spill?: SpillRef | undefined
+}): RecordedContent {
+	return { content: record.content, ...(record.spill ? { spill: record.spill } : {}) }
+}
+
+/** Every message ever recorded, and the texts an edited one held before each edit. */
+export interface EverRecordedMessages {
+	/** The latest text of each message, by its durable id. */
+	readonly latest: ReadonlyMap<MessageId, Message>
+	/**
+	 * Whether `id` held `message`'s text before a compaction edit. A
+	 * `message_replaced` for the id forgets the texts before it: a guardrail's
+	 * replacement is the settled answer. A spilled earlier text is read only
+	 * when a comparison needs it.
+	 */
+	heldBeforeAnEdit(id: MessageId, message: Message): Promise<boolean>
+}
+
+interface EverRecordedState {
+	readonly latest: Map<MessageId, RecordedContent>
+	/** Only ids that have an edit appear here. */
+	readonly earlier: Map<MessageId, RecordedContent[]>
+}
+
 /**
  * Every message this session's log has ever recorded, keyed by the durable
  * id its `message` record gave it — including one a compaction has since
@@ -1507,25 +1683,37 @@ async function recordedMessages(
 export async function readEverRecordedMessages(
 	log: SessionLog,
 ): Promise<ReadonlyMap<MessageId, Message>> {
+	return (await readEverRecordedMessageIndex(log)).latest
+}
+
+/**
+ * {@link readEverRecordedMessages} plus what a host that cached the history
+ * before a compaction edit still holds, answered from the same reduction with
+ * no read of the log of its own.
+ */
+export async function readEverRecordedMessageIndex(log: SessionLog): Promise<EverRecordedMessages> {
 	return foldSessionLog(log, {
 		name: 'ever-recorded-messages',
 		mode: 'strict',
-		create: () => new Map<MessageId, { readonly content: Message; readonly spill?: SpillRef }>(),
-		apply: (latest, entry) => {
+		create: (): EverRecordedState => ({ latest: new Map(), earlier: new Map() }),
+		apply: ({ latest, earlier }, entry) => {
 			const record = entry.record as SessionRecord
 			if (record.type === 'message') {
-				latest.set(record.messageId, {
-					content: record.content,
-					...(record.spill ? { spill: record.spill } : {}),
-				})
+				latest.set(record.messageId, recordedContent(record))
 			} else if (record.type === 'message_replaced') {
-				latest.set(record.targetMessageId, {
-					content: record.content,
-					...(record.spill ? { spill: record.spill } : {}),
-				})
+				earlier.delete(record.targetMessageId)
+				latest.set(record.targetMessageId, recordedContent(record))
+			} else if (record.type === 'message_edited') {
+				const before = latest.get(record.targetMessageId)
+				if (before !== undefined) {
+					const held = earlier.get(record.targetMessageId)
+					if (held) held.push(before)
+					else earlier.set(record.targetMessageId, [before])
+				}
+				latest.set(record.targetMessageId, recordedContent(record))
 			}
 		},
-		result: async (latest) => {
+		result: async ({ latest, earlier }) => {
 			const resolved = new Map<MessageId, Message>()
 			for (const [id, entry] of latest) {
 				// Copied: the map this is read from is shared with the next call.
@@ -1534,7 +1722,22 @@ export async function readEverRecordedMessages(
 					: structuredClone(entry.content)
 				resolved.set(id, withMessageId(content, id))
 			}
-			return resolved
+			// A snapshot: the arrays are advanced in place by the next call. The
+			// entries in them are never changed once made.
+			const held = new Map<MessageId, readonly RecordedContent[]>()
+			for (const [id, list] of earlier) held.set(id, [...list])
+			return {
+				latest: resolved,
+				async heldBeforeAnEdit(id, message) {
+					for (const entry of held.get(id) ?? []) {
+						const content = entry.spill
+							? (JSON.parse(await log.readSpill(entry.spill)) as Message)
+							: entry.content
+						if (sameStoredContent(content, message)) return true
+					}
+					return false
+				},
+			}
 		},
 	})
 }

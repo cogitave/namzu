@@ -2248,7 +2248,10 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				}
 				const pushRestored = (message: Message, ids: ReadonlyMap<Message, MessageId>): void => {
 					const messageId = ids.get(message)
-					ctx.recorder.pushMessage(message, messageId ? { messageId } : {})
+					ctx.recorder.pushMessage(message, {
+						...(messageId ? { messageId } : {}),
+						restored: true,
+					})
 				}
 
 				if (params.resumeFromCheckpoint) {
