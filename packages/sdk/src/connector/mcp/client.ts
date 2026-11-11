@@ -92,7 +92,12 @@ type ListChangeFilter = {
 	toolsListChanged?: true
 	promptsListChanged?: true
 	resourcesListChanged?: true
+	/** The resources whose `notifications/resources/updated` this stream asks for. */
+	resourceSubscriptions?: string[]
 }
+
+/** The three boolean kinds, which are the ones a list-changed notification maps to. */
+type ListChangeKind = 'toolsListChanged' | 'promptsListChanged' | 'resourcesListChanged'
 
 interface ModernSubscription {
 	readonly id: number
@@ -108,8 +113,14 @@ const SUBSCRIPTION_NOTIFICATIONS = {
 	'notifications/resources/list_changed': 'resourcesListChanged',
 } as const
 
-function subscriptionFilter(capabilities: MCPServerCapabilities | undefined): ListChangeFilter {
+function subscriptionFilter(
+	capabilities: MCPServerCapabilities | undefined,
+	resources: ReadonlySet<string> = new Set(),
+): ListChangeFilter {
 	return {
+		...(capabilities?.resources?.subscribe === true && resources.size > 0
+			? { resourceSubscriptions: [...resources] }
+			: {}),
 		...(capabilities?.tools?.listChanged === true ? { toolsListChanged: true as const } : {}),
 		...(capabilities?.prompts?.listChanged === true ? { promptsListChanged: true as const } : {}),
 		...(capabilities?.resources?.listChanged === true
@@ -126,7 +137,21 @@ function acknowledgedFilter(
 	const record = value as Record<string, unknown>
 	const acknowledged: ListChangeFilter = {}
 	for (const [key, entry] of Object.entries(record)) {
-		if (!Object.hasOwn(requested, key) || (entry !== true && entry !== false)) return undefined
+		if (!Object.hasOwn(requested, key)) return undefined
+		if (key === 'resourceSubscriptions') {
+			// The honored subset of the URIs asked for; anything else is a
+			// server claiming a subscription nobody opened.
+			const asked = requested.resourceSubscriptions ?? []
+			if (
+				!Array.isArray(entry) ||
+				entry.some((uri) => typeof uri !== 'string' || !asked.includes(uri))
+			) {
+				return undefined
+			}
+			acknowledged.resourceSubscriptions = [...(entry as string[])]
+			continue
+		}
+		if (entry !== true && entry !== false) return undefined
 		if (entry === true) (acknowledged as Record<string, true>)[key] = true
 	}
 	return acknowledged
@@ -253,6 +278,8 @@ export class MCPClient {
 	private modernSubscription?: ModernSubscription
 	private subscriptionRestartTimer?: ReturnType<typeof setTimeout>
 	private subscriptionFailures = 0
+	/** Resources the host asked to hear about, kept across reconnections. */
+	private subscribedResources = new Set<string>()
 	/** Best-effort protocol cancellations still belong to this connection generation. */
 	private cancellationControllers = new Set<AbortController>()
 	/** Elicitations waiting on the person, by the server's request id. */
@@ -472,6 +499,7 @@ export class MCPClient {
 		this.serverInstructions = result.instructions
 
 		await this.notify('notifications/initialized', {})
+		await this.resubscribeLegacyResources()
 
 		return result
 	}
@@ -689,7 +717,7 @@ export class MCPClient {
 		if (this.status !== 'connected' || this.era?.kind !== 'modern' || this.modernSubscription) {
 			return
 		}
-		const requested = subscriptionFilter(this.serverCapabilities)
+		const requested = subscriptionFilter(this.serverCapabilities, this.subscribedResources)
 		if (Object.keys(requested).length === 0) return
 		const id = this.nextRequestId++
 		const controller = new AbortController()
@@ -1090,6 +1118,70 @@ export class MCPClient {
 		return {
 			...(result.description !== undefined ? { description: result.description } : {}),
 			messages: result.messages ?? [],
+		}
+	}
+
+	/**
+	 * Ask the server to tell this client when one resource changes.
+	 *
+	 * The update arrives through {@link onNotification} as
+	 * `notifications/resources/updated` with the resource's `uri`; it says the
+	 * resource changed, not what it now holds, so a host reads it again.
+	 *
+	 * On a 2026-07-28 connection the URI joins the filter of the one
+	 * `subscriptions/listen` stream, which is reopened with the new filter. On
+	 * an older connection it is `resources/subscribe`, sent again after a
+	 * reconnection because those servers keep the subscription in the session.
+	 * Resolves `false` and sends nothing when the server does not advertise
+	 * `resources.subscribe`.
+	 */
+	async subscribeResource(uri: string, options?: MCPRequestOptions): Promise<boolean> {
+		this.requireConnected()
+		if (this.serverCapabilities?.resources?.subscribe !== true) return false
+		if (this.era?.kind === 'legacy') {
+			await this.requestWithSessionRecovery('resources/subscribe', { uri }, options)
+			this.subscribedResources.add(uri)
+			return true
+		}
+		if (!this.subscribedResources.has(uri)) {
+			this.subscribedResources.add(uri)
+			this.reopenModernSubscription()
+		}
+		return true
+	}
+
+	/** Stop hearing about one resource. The mirror of {@link subscribeResource}. */
+	async unsubscribeResource(uri: string, options?: MCPRequestOptions): Promise<void> {
+		this.requireConnected()
+		if (!this.subscribedResources.delete(uri)) return
+		if (this.era?.kind === 'legacy') {
+			await this.requestWithSessionRecovery('resources/unsubscribe', { uri }, options)
+			return
+		}
+		this.reopenModernSubscription()
+	}
+
+	/** The filter changed: close the stream and open one that asks for the new set. */
+	private reopenModernSubscription(): void {
+		if (this.subscriptionRestartTimer) clearTimeout(this.subscriptionRestartTimer)
+		this.subscriptionRestartTimer = undefined
+		const current = this.modernSubscription
+		if (current) this.finishModernSubscription(current, 'filter changed', true, false)
+		this.startModernSubscription()
+	}
+
+	/** A new legacy session holds no subscriptions; ask again for the ones the host wanted. */
+	private async resubscribeLegacyResources(): Promise<void> {
+		if (this.serverCapabilities?.resources?.subscribe !== true) return
+		for (const uri of this.subscribedResources) {
+			try {
+				await this.request('resources/subscribe', { uri })
+			} catch (err) {
+				this.log.warn('MCP resource subscription was not restored after reconnecting', {
+					'namzu.connector.server': this.config.serverName,
+					'exception.message': toErrorMessage(err),
+				})
+			}
 		}
 	}
 
@@ -1792,7 +1884,7 @@ export class MCPClient {
 		const method = message.method
 		if (!method) return false
 		const isAck = method === 'notifications/subscriptions/acknowledged'
-		const kind = Object.hasOwn(SUBSCRIPTION_NOTIFICATIONS, method)
+		const kind: ListChangeKind | undefined = Object.hasOwn(SUBSCRIPTION_NOTIFICATIONS, method)
 			? SUBSCRIPTION_NOTIFICATIONS[method as keyof typeof SUBSCRIPTION_NOTIFICATIONS]
 			: undefined
 		const isSubscribedEvent =
@@ -1835,6 +1927,16 @@ export class MCPClient {
 			)
 			return true
 		}
+		if (method === 'notifications/resources/updated') {
+			const uri = message.params?.uri
+			if (
+				typeof uri === 'string' &&
+				subscription.acknowledged.resourceSubscriptions?.includes(uri) === true
+			) {
+				for (const handler of [...this.notificationHandlers]) handler(method, message.params)
+				return true
+			}
+		}
 		if (!kind || subscription.acknowledged[kind] !== true) {
 			this.log.warn('Ignoring unrequested MCP subscription notification', {
 				'namzu.connector.server': this.config.serverName,
@@ -1853,7 +1955,7 @@ export class MCPClient {
 	): void {
 		if (this.modernSubscription !== subscription) return
 		for (const [method, kind] of Object.entries(SUBSCRIPTION_NOTIFICATIONS)) {
-			if (subscription.acknowledged?.[kind as keyof ListChangeFilter]) handler(method)
+			if (subscription.acknowledged?.[kind]) handler(method)
 		}
 	}
 

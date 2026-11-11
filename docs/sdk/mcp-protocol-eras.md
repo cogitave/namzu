@@ -300,6 +300,22 @@ An incomplete response is cancelled on timeout or disconnect, so a server-held
 body cannot accumulate across retries. Neither the response body nor its
 server-authored message is written to the subscription warning.
 
+### One resource's updates
+
+`MCPClient.subscribeResource(uri)` asks the server to say when one resource
+changes, and `unsubscribeResource(uri)` stops it. The update reaches
+`onNotification` as `notifications/resources/updated` with the `uri`; it says
+the resource changed, not what it holds now, so the host reads it again.
+
+| the server speaks | what is sent |
+|---|---|
+| 2026-07-28 | the URI joins `resourceSubscriptions` in the filter of the one `subscriptions/listen` request, which is cancelled and reopened with a new request ID when the set changes. An update is delivered only for a URI the acknowledgment honored. |
+| 2025-11-25 and older | `resources/subscribe` and `resources/unsubscribe`, as those revisions define them, and again for every wanted URI after a reconnection or a re-initialize, because those servers keep the subscription in the session. |
+
+Both resolve without sending anything, and `subscribeResource` resolves
+`false`, when the server does not advertise `resources.subscribe`. Before this
+the client never subscribed to a resource in either revision.
+
 ## Mirroring tool parameters into headers: `x-mcp-header`
 
 A server may annotate a tool parameter with `x-mcp-header` to ask that the
@@ -964,9 +980,3 @@ longer surfaces as a bare rejection: it comes back as a `ToolResult` with
 reading `ToolResult.data` today sees a new code it previously never could.
 
 ## Not yet built
-
-- **Individual resource updates.** The modern listen filter supports
-  `resourceSubscriptions` for `notifications/resources/updated`; Namzu
-  currently requests only the three catalogue `list_changed` kinds. It does
-  not send legacy `resources/subscribe` either. Resource catalogues still
-  refresh on `notifications/resources/list_changed` when advertised.
