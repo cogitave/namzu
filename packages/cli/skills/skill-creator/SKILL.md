@@ -1,6 +1,6 @@
 ---
 name: skill-creator
-description: Create or update a reusable skill (a SKILL.md of instructions) with the user. Use when the user asks to make, write, save or improve a skill, or to turn what was just done in this conversation into a skill.
+description: Create or update a reusable skill (a SKILL.md of instructions) with the user. Use when the user asks to make, write, save or improve a skill, or to turn what was just done in this conversation into a skill. Not for a one-off instruction; a skill is for something you will repeat.
 invocation: both
 ---
 
