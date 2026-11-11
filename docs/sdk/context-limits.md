@@ -107,7 +107,7 @@ The `salience` strategy still starts shortening content at its soft target
 (`softTarget`, default 0.5, never above the trigger) and summarises only at the
 trigger. `resetThreshold` (0.4) is a diagnostic after a pass and is unchanged.
 
-`softTargetHeadroom` (a fraction of the window, default 0) makes a salience
+`softTargetHeadroom` (a fraction of the window, default 0 in the kernel; the terminal's default is 0.05, see [the `compaction` key](../cli/context-and-compaction.md#the-compaction-key)) makes a salience
 pass shed to the soft target less that fraction instead of to the soft target.
 A pass still starts when the context reaches the soft target; the next one is
 needed only after the headroom has been used, so with a 0.1 headroom a context
