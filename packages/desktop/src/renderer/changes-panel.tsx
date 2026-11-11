@@ -22,6 +22,9 @@ export function ChangesPanel({
 	onOpenWorkingFile,
 	onOpenWorkingInEditor,
 	onCopy,
+	onClose,
+	expanded,
+	onToggleExpanded,
 }: {
 	tools: Record<string, Tool>
 	/** Gives "Last reply" its meaning; without it only a chosen reply can be shown. */
@@ -39,6 +42,9 @@ export function ChangesPanel({
 	onOpenWorkingFile?: (path: string) => void
 	onOpenWorkingInEditor?: (path: string) => void
 	onCopy?: (text: string, done: string) => void
+	onClose?: () => void
+	expanded?: boolean
+	onToggleExpanded?: () => void
 }) {
 	return (
 		<ChangesReview
@@ -55,6 +61,9 @@ export function ChangesPanel({
 			onOpenWorkingFile={onOpenWorkingFile}
 			onOpenWorkingInEditor={onOpenWorkingInEditor}
 			onCopy={onCopy}
+			onClose={onClose}
+			expanded={expanded}
+			onToggleExpanded={onToggleExpanded}
 		/>
 	)
 }

@@ -406,7 +406,7 @@ flow("times read one way, the composer's edge is solid, and the Changes panel do
 	// The engine's own check on written files makes the scripted model say its last line twice.
 	await expect(w.page.getByText("Wrote out.txt.").first()).toBeVisible({ timeout: T });
 	await resize(w, 900, 720);
-	await w.page.getByRole("button", { name: "View changes" }).last().click();
+	await w.page.getByRole("button", { name: /Open changes$/ }).last().click();
 	const panel = w.page.getByRole("complementary", { name: "Changes" });
 	await expect(panel).toBeVisible({ timeout: T });
 	const lane = await box(w.page.locator(".chat-stage").first());

@@ -101,7 +101,7 @@ describe('single live transcript status', () => {
 			running: false,
 			queued: [],
 		})
-		expect(phaseLabels(render(thread))).toEqual(['Worked for 47s'])
+		expect(phaseLabels(render(thread))).toEqual(['Worked for 47s, 3 steps'])
 	})
 
 	it('offers message actions for settled assistant rows only', () => {
@@ -530,10 +530,10 @@ describe('single live transcript status', () => {
 	})
 
 	it.each([
-		['end_turn', undefined, 'Worked for 47s'],
-		['cancelled', undefined, 'Stopped · 47s'],
-		['cancelled', 'paused', 'Paused · 47s'],
-		['cancelled', 'structured_output_failed', 'Work incomplete · 47s'],
+		['end_turn', undefined, 'Worked for 47s, 1 step'],
+		['cancelled', undefined, 'Stopped · 47s · 1 step'],
+		['cancelled', 'paused', 'Paused · 47s · 1 step'],
+		['cancelled', 'structured_output_failed', 'Work incomplete · 47s · 1 step'],
 	] as const)('keeps truthful settled work labels for %s/%s', (stopReason, reason, label) => {
 		let thread = update(pendingCommand(), { kind: 'turn_ended', stopReason, reason }, 100000)
 		thread = applyEvent(thread, {

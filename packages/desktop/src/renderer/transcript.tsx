@@ -35,11 +35,13 @@ import {
 	terminalNotice,
 	toolGroupLabel,
 	transcriptTurns,
+	turnDurationMs,
 	turnNotice,
 	workBlockOpen,
 } from './transcript-layout.js'
 import { turnInputsUnchanged } from './transcript-memo.js'
 import {
+	foldLabel,
 	livePhaseLabel,
 	liveStatus,
 	liveStep,
@@ -50,11 +52,13 @@ import {
 	useTranscriptPhaseMotion,
 } from './transcript-motion.js'
 import { attentionFlags, turnAttention } from './turn-attention.js'
-import { TurnChangesCard } from './turn-changes-card.js'
-import { turnChanges, turnUndo } from './turn-changes.js'
+import { type TurnChanges, turnChanges, turnUndo } from './turn-changes.js'
 import { AttentionFlags, TurnOutcomeLine, visibleOutcome } from './turn-outcome-line.js'
+import { TurnResultLine } from './turn-result-line.js'
+import { turnResultModel } from './turn-result-model.js'
 import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
+import type { UndoCardView } from './undo-model.js'
 import { type WorkDisclosureChoices, workDisclosureKey } from './workspace-presentation.js'
 import './transcript-motion.css'
 
@@ -407,7 +411,9 @@ function TurnActivity({
 	const label = liveLine
 		? (step?.label ?? stage?.text ?? 'Working')
 		: ownsTurnSummary
-			? turnActivityLabel(thread, turn)
+			? live
+				? turnActivityLabel(thread, turn)
+				: foldLabel(thread, turn)
 			: 'Earlier work'
 	const attentionNow = attentionFlags(turnAttention(thread, entries))
 	// A failed, refused or skipped action of this turn is bad news that stays in view even while the line is the whole display.
@@ -647,6 +653,8 @@ interface TurnGroupProps {
 	/** Leads from a "sent to a Pal" line to that Pal's messages; the same function for the life of the transcript. */
 	onOpenPalInbox?: (palName: string) => void
 	onUndoTurn?: (turnId: string) => void
+	/** Copies the result line's summary; the same function for the life of the transcript. */
+	onCopySummary?: (text: string) => void
 	projectRoot?: string
 	/** The latest turn that touched the plan. */
 	planTurn?: number
@@ -665,6 +673,56 @@ function shallowEqual(a: object | undefined, b: object | undefined): boolean {
 	return (
 		keys.length === Object.keys(right).length &&
 		keys.every((key) => Object.is(left[key], right[key]))
+	)
+}
+
+/**
+ * What a finished turn ends with: the result line when it changed files or its record names a
+ * failing check, otherwise the record's own sentence if it has one, otherwise nothing.
+ */
+function TurnFoot({
+	thread,
+	turn,
+	changes,
+	onOpen,
+	onOpenFile,
+	onCopy,
+	undo,
+	onUndo,
+}: {
+	thread: ThreadState
+	turn: number
+	changes?: TurnChanges
+	onOpen?: (receiptIds: string[], path?: string) => void
+	onOpenFile?: (path: string) => void
+	onCopy?: (text: string) => void
+	undo?: UndoCardView
+	onUndo?: () => void
+}) {
+	const outcome = visibleOutcome(thread, turn)
+	const timing = thread.turns[turn]
+	const model = turnResultModel({
+		reason:
+			timing?.reason ??
+			timing?.stopReason ??
+			(turn === thread.turn ? thread.stopReason : undefined),
+		failed: turn === thread.turn && Boolean(thread.error),
+		durationMs: turnDurationMs(thread, turn),
+		changes,
+		outcome,
+		undo,
+	})
+	if (!model) return <TurnOutcomeLine outcome={outcome} />
+	return (
+		<TurnResultLine
+			model={model}
+			changes={changes}
+			onOpen={onOpen}
+			onOpenFile={onOpenFile}
+			undo={undo}
+			onUndo={onUndo}
+			onCopy={onCopy}
+		/>
 	)
 }
 
@@ -690,6 +748,7 @@ const TurnGroupView = memo(function TurnGroupView({
 	onOpenChangedFile,
 	onOpenPalInbox,
 	onUndoTurn,
+	onCopySummary,
 	projectRoot,
 	planTurn,
 	onOpenTasks,
@@ -777,15 +836,17 @@ const TurnGroupView = memo(function TurnGroupView({
 						<MessageFooter time={clock.time} focusable />
 					</Message>
 				)}
-				{onOpenTurnChanges && changes && !live && (
-					<TurnChangesCard
-						changes={changes}
+				{!live && (
+					<TurnFoot
+						thread={thread}
+						turn={group.turn}
+						changes={onOpenTurnChanges ? changes : undefined}
 						onOpen={onOpenTurnChanges}
 						onOpenFile={onOpenChangedFile}
+						onCopy={onCopySummary}
 						{...turnUndo(thread, group.turn, onUndoTurn, undoKept)}
 					/>
 				)}
-				{!live && <TurnOutcomeLine outcome={visibleOutcome(thread, group.turn)} />}
 				{abandoned && <p className="notice">{terminalNotice('abandoned')}</p>}
 			</div>
 		</ActivityActionsContext.Provider>
@@ -809,6 +870,7 @@ function turnGroupPropsEqual(previous: TurnGroupProps, next: TurnGroupProps): bo
 		previous.onOpenChangedFile !== next.onOpenChangedFile ||
 		previous.onOpenPalInbox !== next.onOpenPalInbox ||
 		previous.onUndoTurn !== next.onUndoTurn ||
+		previous.onCopySummary !== next.onCopySummary ||
 		previous.planTurn !== next.planTurn ||
 		previous.onOpenTasks !== next.onOpenTasks ||
 		previous.clockShownBelow !== next.clockShownBelow ||
@@ -834,6 +896,7 @@ export function Transcript({
 	onOpenChangedFile,
 	onOpenPalInbox,
 	onUndoTurn,
+	onCopySummary,
 	onOpenTasks,
 	undoKept,
 	projectRoot,
@@ -855,6 +918,8 @@ export function Transcript({
 	onOpenPalInbox?: (palName: string) => void
 	/** Opens the undo dialog for a reply by its journal turn id; absent where the CLI cannot undo. */
 	onUndoTurn?: (turnId: string) => void
+	/** Copies a reply's result summary to the clipboard; absent hides "Copy summary". */
+	onCopySummary?: (text: string) => void
 	/** Opens the full task list, for the plan row's "+N more". */
 	onOpenTasks?: () => void
 	/** Files a partly undone reply still has to finish, by turn id. */
@@ -885,6 +950,7 @@ export function Transcript({
 		onOpenChangedFile,
 		onOpenPalInbox,
 		onUndoTurn,
+		onCopySummary,
 		onOpenTasks,
 	})
 	handlers.current = {
@@ -893,6 +959,7 @@ export function Transcript({
 		onOpenChangedFile,
 		onOpenPalInbox,
 		onUndoTurn,
+		onCopySummary,
 		onOpenTasks,
 	}
 	const stable = useMemo(
@@ -904,6 +971,7 @@ export function Transcript({
 			onOpenChangedFile: (path: string) => handlers.current.onOpenChangedFile?.(path),
 			onOpenPalInbox: (palName: string) => handlers.current.onOpenPalInbox?.(palName),
 			onUndoTurn: (turnId: string) => handlers.current.onUndoTurn?.(turnId),
+			onCopySummary: (text: string) => handlers.current.onCopySummary?.(text),
 			onOpenTasks: () => handlers.current.onOpenTasks?.(),
 		}),
 		[],
@@ -990,6 +1058,7 @@ export function Transcript({
 						onOpenChangedFile={onOpenChangedFile ? stable.onOpenChangedFile : undefined}
 						onOpenPalInbox={onOpenPalInbox ? stable.onOpenPalInbox : undefined}
 						onUndoTurn={onUndoTurn ? stable.onUndoTurn : undefined}
+						onCopySummary={onCopySummary ? stable.onCopySummary : undefined}
 						planTurn={planTurn}
 						onOpenTasks={onOpenTasks ? stable.onOpenTasks : undefined}
 						clockShownBelow={stopShownBelow && !live && group.turn === thread.turn}

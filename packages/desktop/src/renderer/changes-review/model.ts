@@ -346,3 +346,16 @@ export function keyStep(event: {
 	if (event.key === '[' || (event.altKey && event.key === 'ArrowUp')) return -1
 	return 0
 }
+
+/** At most this many files are listed flat, by name; more are a tree with a filter. */
+export const FLAT_LIST_LIMIT = 12
+
+/** The file that changed most (lines added plus removed); the first of equals. Undefined for no files. */
+export function largestFile<T extends { added: number; removed: number }>(
+	files: readonly T[],
+): T | undefined {
+	let best: T | undefined
+	for (const file of files)
+		if (!best || file.added + file.removed > best.added + best.removed) best = file
+	return best
+}

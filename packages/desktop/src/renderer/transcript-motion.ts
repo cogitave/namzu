@@ -2,7 +2,7 @@ import { type RefObject, useLayoutEffect, useRef } from 'react'
 import { type ThreadState, type TimelineEntry, threadPhase } from '../shared/projection.js'
 import { waitingLabel } from './approval-card-model.js'
 import { COMPACTING_TEXT, compactedText } from './context-ring.js'
-import { latestPlanTurn } from './plan-row.js'
+import { isTaskEntry, latestPlanTurn } from './plan-row.js'
 import { toolTranscriptPresentation } from './tool-transcript-presentation.js'
 import { elapsedLabel, transcriptOutcome, turnDurationMs } from './transcript-layout.js'
 
@@ -210,6 +210,23 @@ export function turnActivityLabel(thread: ThreadState, turn: number): string {
 							? 'Worked'
 							: 'Work details'
 	return duration ? `${label}${label === 'Worked' ? ' for ' : ' · '}${duration}` : label
+}
+
+/** How many actions a turn took: its tool calls, not the plan's own bookkeeping. */
+export function turnStepCount(thread: ThreadState, turn: number): number {
+	let steps = 0
+	for (const entry of thread.timeline)
+		if (entry.turn === turn && entry.kind === 'tool' && !isTaskEntry(thread, entry)) steps++
+	return steps
+}
+
+/** The fold's name for a finished turn: the time it took, then what it hides, "Worked for 3s, 4 steps". */
+export function foldLabel(thread: ThreadState, turn: number): string {
+	const label = turnActivityLabel(thread, turn)
+	const steps = turnStepCount(thread, turn)
+	if (steps === 0) return label
+	const count = `${steps} ${steps === 1 ? 'step' : 'steps'}`
+	return label.startsWith('Worked for ') ? `${label}, ${count}` : `${label} · ${count}`
 }
 
 function historyState(node: HTMLElement): string | undefined {

@@ -152,7 +152,9 @@ flow("undo a reply's file change", { rules: [WRITE] }, async (w) => {
 	await expect(card).toBeVisible({ timeout: T });
 	await card.getByRole("button", { name: "Accept", exact: true }).click();
 	await expect(w.page.getByText("Wrote out.txt.").first()).toBeVisible({ timeout: T });
-	await w.page.getByRole("button", { name: "Undo", exact: true }).click();
+	// Undo is in the "..." at the end of the reply's result line.
+	await w.page.getByRole("button", { name: "More about this reply" }).click();
+	await w.page.getByRole("menuitem", { name: "Undo", exact: true }).click();
 	const dialog = w.page.getByRole("dialog");
 	await expect(dialog.getByText("Undo this reply’s file changes?")).toBeVisible(
 		{ timeout: T },
