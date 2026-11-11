@@ -180,3 +180,20 @@ describe('attention setting search', () => {
 			expect(searchSettings(word).map((entry) => entry.id)).toContain('attention-signals')
 	})
 })
+
+describe('notification setting search', () => {
+	it('finds each notification switch by plain words', () => {
+		const find = (word: string) => searchSettings(word).map((entry) => entry.id)
+		expect(find('notification')).toEqual(
+			expect.arrayContaining([
+				'notify-needs-you',
+				'notify-failed',
+				'notify-finished',
+				'notify-sound',
+			]),
+		)
+		expect(find('banner')).toContain('notify-needs-you')
+		expect(find('chime')).toContain('notify-sound')
+		expect(find('done')).toContain('notify-finished')
+	})
+})

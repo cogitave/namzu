@@ -2005,6 +2005,11 @@ export function App({
 					runTabChordRef.current({ kind: event.command })
 				return
 			}
+			if (event.kind === 'show-conversation') {
+				const view = catalogueRows.current.conversations.find((item) => item.id === event.sessionId)
+				if (view?.projectId && !context.current.frozen) openConversationRef.current(view)
+				return
+			}
 			if (event.kind === 'open-settings') {
 				if (context.current.focused && !context.current.frozen)
 					openSettingsRef.current(event.section)
@@ -5182,6 +5187,8 @@ export function App({
 				return true
 		}
 	}
+	const openConversationRef = useRef<(view: ConversationView) => void>(() => {})
+	openConversationRef.current = (view) => void act(() => openConversation(view))
 	const runTabChordRef = useRef(runTabChord)
 	runTabChordRef.current = runTabChord
 

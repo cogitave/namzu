@@ -443,6 +443,16 @@ export class Operator {
 			viewedConversations?: () => ReadonlySet<string>
 			/** The conversations that need the person changed; called with every one that does. */
 			attentionChanged?: (ids: string[]) => void
+			/**
+			 * What the system notifications need to know. Facts only (a conversation id, how a turn
+			 * ended); never a message, a file or a command.
+			 */
+			notices?: {
+				/** Every conversation waiting on the person, Pals included. */
+				needsYou(ids: string[]): void
+				turnStarted(id: string): void
+				turnEnded(id: string, outcome: 'finished' | 'failed' | 'other', pal: boolean): void
+			}
 		} = {},
 	) {
 		this.unreadConversations = new ConversationUnread()
@@ -760,11 +770,39 @@ export class Operator {
 		)
 	}
 	private attentionChanged(): void {
-		if (!this.options.attentionChanged) return
+		if (this.options.attentionChanged || this.options.notices) {
+			try {
+				this.options.attentionChanged?.(this.needsYou())
+				this.options.notices?.needsYou(this.waitingForYou())
+			} catch (error) {
+				this.diagnostics?.record('ipc_failed', { operation: 'attention', error })
+			}
+		}
+	}
+	/** Like `needsYou`, but a Pal's conversation counts: a Pal that asks is still blocked on the person. */
+	private waitingForYou(): string[] {
+		return needsYouIds(
+			[...this.conversations.entries()].map(([id, session]) => ({
+				id,
+				running: session.projection.running,
+				waiting:
+					threadPhase(session.projection) === 'waiting' ? session.projection.permissions.length : 0,
+			})),
+		)
+	}
+	/** The name of the project a conversation belongs to, for a notification title. */
+	projectNameOf(conversationId: string): string | undefined {
+		const projectId = this.conversations.get(conversationId)?.view.projectId
+		return projectId ? this.projects.get(projectId)?.view.name : undefined
+	}
+	private noticeTurnEnded(session: Conversation): void {
+		const { error, stopReason } = session.projection
+		const outcome =
+			error || stopReason === 'error' ? 'failed' : stopReason === 'end_turn' ? 'finished' : 'other'
 		try {
-			this.options.attentionChanged(this.needsYou())
+			this.options.notices?.turnEnded(session.view.id, outcome, Boolean(session.view.palId))
 		} catch (error) {
-			this.diagnostics?.record('ipc_failed', { operation: 'attention', error })
+			this.diagnostics?.record('ipc_failed', { operation: 'notice', error })
 		}
 	}
 	/**
@@ -1622,6 +1660,7 @@ export class Operator {
 			event.kind !== 'settings' &&
 			event.kind !== 'open-settings' &&
 			event.kind !== 'tab-command' &&
+			event.kind !== 'show-conversation' &&
 			event.kind !== 'model-catalogue-updated' &&
 			event.kind !== 'providers-changed' &&
 			event.kind !== 'unread'
@@ -1644,6 +1683,8 @@ export class Operator {
 					wasWaiting !== session.projection.permissions.length
 				)
 					this.attentionChanged()
+				if (!wasRunning && session.projection.running) this.options.notices?.turnStarted(id)
+				if (wasRunning && !session.projection.running) this.noticeTurnEnded(session)
 				if (wasRunning && !session.projection.running && !session.view.palId) {
 					const viewed = this.options.viewedConversations?.() ?? new Set<string>()
 					if (this.unreadConversations.turnEnded(id, viewed)) this.unreadChanged()
