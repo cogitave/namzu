@@ -933,10 +933,13 @@ export class AgentManager {
 				childConfig.toolResultGuardrails = inheritedScreens
 			}
 
-			// The parent's file ledger, so what the parent wrote is still "this
-			// session's" to a child that runs it. See `BaseAgentConfig.fileReadTracker`.
-			if (options.configOverrides?.fileReadTracker !== undefined) {
-				childConfig.fileReadTracker = options.configOverrides.fileReadTracker
+			// A child of its own reader record over the family's authored ledger, so
+			// what the parent wrote is still "this session's" to a child that runs
+			// it, while what the child has read stays its own and a write by a
+			// sibling still makes its stale. See `BaseAgentConfig.fileReadTracker`.
+			const childTracker = options.configOverrides?.fileReadTracker?.forChild?.()
+			if (childTracker !== undefined) {
+				childConfig.fileReadTracker = childTracker
 			}
 
 			// Stamped after both branches, beside the screens and for the same

@@ -342,6 +342,15 @@ export interface FileReadTracker {
 	/** Optional: when this ledger began, in milliseconds since the epoch. */
 	readonly startedAt?: number
 	/**
+	 * Optional: the ledger a delegated child starts with. Its own read record,
+	 * empty, because what a child has read is not what its parent or a sibling
+	 * has, and the stale-write refusal compares the disk to the reader's own
+	 * reads. What the family authored ({@link authoredFingerprint},
+	 * {@link startedAt}) is shared with it. A tracker without this is not
+	 * handed to a child.
+	 */
+	forChild?(): FileReadTracker
+	/**
 	 * Optional witness of a read that returned the file WHOLE, with the
 	 * fingerprint of the rendering it returned.
 	 *
