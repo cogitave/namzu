@@ -46,3 +46,16 @@ export function matchesCommandShortcut(
 		event.shiftKey === modifiers.has('shift')
 	)
 }
+
+/**
+ * Title and context matches, plus conversations whose own text matched what was typed (the host
+ * found those; `excerpts` is keyed by item id).
+ */
+export function matchesCommandOrText(
+	item: CommandSearchEntry & { id: string },
+	query: string,
+	contains: (text: string, term: string) => boolean,
+	excerpts: ReadonlyMap<string, string> | undefined,
+): boolean {
+	return matchesCommandQuery(item, query, contains) || Boolean(excerpts?.has(item.id))
+}

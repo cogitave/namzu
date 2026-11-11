@@ -28,6 +28,7 @@ import type {
 	AttachmentView,
 	ChatMessage,
 	ComposerModelSettings,
+	ConversationSearchHit,
 	ConversationView,
 	DesktopEvent,
 	DesktopRetryStatus,
@@ -39,6 +40,7 @@ import type {
 	EngineTimingReport,
 	HarnessView,
 	JobView,
+	McpServersView,
 	ModelCatalogueView,
 	PalChanges,
 	PalComputerInput,
@@ -307,6 +309,59 @@ function withoutPin(view: ConversationView): ConversationView {
 	const { pinned: _pinned, ...rest } = view
 	return rest
 }
+/** Each project returns at most this many conversations for one search. */
+const CONVERSATION_SEARCH_LIMIT = 20
+
+const MCP_ORIGINS = ['your-config', 'this-project', 'project-file']
+const MCP_STATES = ['connected', 'waiting', 'failed', 'idle']
+
+function readSearchHits(value: unknown): ConversationSearchHit[] {
+	const hits = (value as { hits?: unknown } | null)?.hits
+	if (!Array.isArray(hits)) return []
+	const out: ConversationSearchHit[] = []
+	for (const hit of hits.slice(0, CONVERSATION_SEARCH_LIMIT)) {
+		const { sessionId, excerpt } = (hit ?? {}) as Record<string, unknown>
+		if (typeof sessionId !== 'string' || !sessionId || sessionId.length > 200) continue
+		if (typeof excerpt !== 'string') continue
+		out.push({ conversationId: sessionId, excerpt: withoutControls(excerpt).slice(0, 240) })
+	}
+	return out
+}
+
+function readMcpServers(value: unknown): McpServersView | null {
+	if (!value || typeof value !== 'object') return null
+	const { servers, error } = value as { servers?: unknown; error?: unknown }
+	if (!Array.isArray(servers)) return null
+	const rows: McpServersView['servers'] = []
+	for (const item of servers.slice(0, 200)) {
+		const row = (item ?? {}) as Record<string, unknown>
+		if (
+			typeof row.name !== 'string' ||
+			!row.name ||
+			row.name.length > 64 ||
+			!MCP_ORIGINS.includes(row.origin as string) ||
+			!MCP_STATES.includes(row.state as string)
+		)
+			continue
+		const text = (field: unknown, max: number) =>
+			typeof field === 'string' && field ? withoutControls(field).slice(0, max) : undefined
+		const reason = text(row.reason, 300)
+		const detail = text(row.detail, 200)
+		const fingerprint = text(row.fingerprint, 128)
+		rows.push({
+			name: row.name,
+			origin: row.origin as McpServersView['servers'][number]['origin'],
+			state: row.state as McpServersView['servers'][number]['state'],
+			...(reason ? { reason } : {}),
+			...(detail ? { detail } : {}),
+			...(fingerprint && row.state === 'waiting' ? { fingerprint } : {}),
+		})
+	}
+	const failed =
+		typeof error === 'string' && error ? withoutControls(error).slice(0, 300) : undefined
+	return { servers: rows, ...(failed ? { error: failed } : {}) }
+}
+
 export class Operator {
 	private readonly communication: PalCommunicationManager
 	private communicationScope(sessionId: string, palId: string) {
@@ -2789,6 +2844,77 @@ export class Operator {
 		return { branch: checkedBranch, subject: checkedSubject }
 	}
 	/** The branch's pull request through `gh`; every failure is silence, never an error to show. */
+	/** The tool servers this project's engine knows, read-only; null where it cannot say. */
+	async mcpServers(projectId: string): Promise<McpServersView | null> {
+		const project = this.project(projectId)
+		if (!project.view.trusted || project.view.palId || !project.client.supportsMcpServers())
+			return null
+		const client = project.client
+		let result: unknown
+		try {
+			result = await client.request('namzu/mcp/servers', {})
+		} catch {
+			return null
+		}
+		if (this.projects.get(projectId) !== project || project.client !== client) return null
+		return readMcpServers(result)
+	}
+	/**
+	 * Approves waiting servers exactly as they were listed (name and fingerprint travel together, so
+	 * an entry that changed since stays waiting), then returns the list as it stands.
+	 */
+	async approveMcpServers(projectId: string, servers: unknown): Promise<McpServersView | null> {
+		const project = this.project(projectId)
+		if (!project.view.trusted || project.view.palId || !project.client.supportsMcpServers())
+			throw new Error('This project’s tool servers cannot be approved from here.')
+		if (!Array.isArray(servers) || servers.length === 0 || servers.length > 64)
+			throw new Error('Choose the tool servers to approve.')
+		const shown = servers.map((item) => {
+			const { name, fingerprint } = (item ?? {}) as Record<string, unknown>
+			if (
+				typeof name !== 'string' ||
+				!name ||
+				name.length > 64 ||
+				typeof fingerprint !== 'string' ||
+				!fingerprint ||
+				fingerprint.length > 128
+			)
+				throw new Error('Choose the tool servers to approve.')
+			return { name, fingerprint }
+		})
+		const client = project.client
+		await client.request('namzu/mcp/approve', { servers: shown })
+		return this.mcpServers(projectId)
+	}
+	/**
+	 * Conversations whose replies or tool output contain `query`, from every ready project the engine
+	 * can search. The text and the excerpts only pass through; nothing here records them.
+	 */
+	async searchConversations(query: unknown): Promise<ConversationSearchHit[]> {
+		if (typeof query !== 'string') throw new Error('Search for some text.')
+		const text = query.trim()
+		if (text.length < 2 || text.length > 200) return []
+		const found = await Promise.allSettled(
+			[...this.projects.values()]
+				.filter(
+					(project) =>
+						project.view.trusted &&
+						project.view.status === 'ready' &&
+						!project.view.palId &&
+						project.client.supportsConversationSearch(),
+				)
+				.map(async (project) => {
+					const result = await project.client.request('namzu/conversations/search', {
+						query: text,
+						limit: CONVERSATION_SEARCH_LIMIT,
+					})
+					return readSearchHits(result)
+				}),
+		)
+		return found
+			.flatMap((outcome) => (outcome.status === 'fulfilled' ? outcome.value : []))
+			.slice(0, CONVERSATION_SEARCH_LIMIT * 2)
+	}
 	async projectPr(projectId: string): Promise<ProjectPrView | null> {
 		const project = this.project(projectId)
 		if (!project.view.trusted || project.view.palId || !project.client.supportsProjectPr())

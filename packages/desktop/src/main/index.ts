@@ -1218,6 +1218,11 @@ function register(): void {
 	handle('forkConversation', (id: string) => operator.forkConversation(id))
 	handle('conversationMarkdown', (id: string) => operator.conversationMarkdown(id))
 	handle('projectGit', (id: string) => operator.projectGit(id))
+	handle('mcpServers', (id: string) => operator.mcpServers(id))
+	handle('approveMcpServers', (id: string, servers: unknown) =>
+		operator.approveMcpServers(id, servers),
+	)
+	handle('searchConversations', (query: unknown) => operator.searchConversations(query))
 	handle('projectPr', (id: string) => operator.projectPr(id))
 	handle('projectChanges', (id: string) => operator.projectChanges(id))
 	handle('projectDiff', (id: string, path: string) => operator.projectDiff(id, path))

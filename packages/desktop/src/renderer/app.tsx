@@ -247,7 +247,7 @@ import { openTerminalFind, terminalApi, terminalSessions } from './terminal-regi
 import { engineTerminalRequest, shellTerminalRequest } from './terminal-request.js'
 import type { ThreadRowActions } from './thread-card.js'
 import { PaneToasts } from './toast.js'
-import { turnEndTime } from './transcript-layout.js'
+import { CONTINUE_STOPPED_PROMPT, turnEndTime } from './transcript-layout.js'
 import { Transcript } from './transcript.js'
 import { TurnRecovery, recoveryKey } from './turn-recovery.js'
 import { Button } from './ui/button.js'
@@ -256,6 +256,7 @@ import { UndoDialog } from './undo-dialog.js'
 import { undoNotice } from './undo-model.js'
 import { useArchivedConversations } from './use-archived-conversations.js'
 import { useAttachments } from './use-attachments.js'
+import { useConversationSearch } from './use-conversation-search.js'
 import { useDesktopInfo, useDesktopSettings, useUpdateInfo } from './use-desktop-settings.js'
 import { useDraftSettings } from './use-draft-settings.js'
 import { useEngineUpdates } from './use-engine-updates.js'
@@ -727,6 +728,7 @@ export function App({
 	>({})
 	const [sideOpen, setSideOpen] = useState(false)
 	const [commandOpen, setCommandOpen] = useState(false)
+	const conversationSearch = useConversationSearch(api, commandOpen)
 	const commandTrigger = useRef<HTMLElement | null>(null)
 	const commandRead = useRef(0)
 	const [commandListing, setCommandListing] = useState({
@@ -6150,6 +6152,8 @@ export function App({
 							loading={commandListing.loading}
 							notice={commandListing.notice}
 							onRetry={refreshCommands}
+							onQueryChange={conversationSearch.onQueryChange}
+							textMatches={conversationSearch.matches}
 						/>
 						<WindowTitlebar
 							appearance={appearance}
@@ -6956,6 +6960,19 @@ export function App({
 															undoKept={undoKept}
 															projectRoot={project?.path}
 															closedWhileRunning={conversation?.closedWhileRunning === true}
+															onContinueStopped={
+																conversation?.closedWhileRunning === true &&
+																!thread.running &&
+																!loading &&
+																!restoringTabs &&
+																!frozen &&
+																project?.trusted &&
+																project.status === 'ready' &&
+																choice.provider &&
+																providerReady
+																	? () => void act(() => retryReply(CONTINUE_STOPPED_PROMPT))
+																	: undefined
+															}
 															stopShownBelow={stopShownBelow}
 															renderMessageAction={(message, key) => (
 																<MessageActions

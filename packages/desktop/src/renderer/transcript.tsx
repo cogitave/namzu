@@ -31,6 +31,7 @@ import {
 	replyClock,
 	runDefaultOpen,
 	splitActivity,
+	stoppedWorkSummary,
 	terminalNotice,
 	toolGroupLabel,
 	transcriptTurns,
@@ -50,6 +51,7 @@ import {
 } from './transcript-motion.js'
 import { TurnChangesCard } from './turn-changes-card.js'
 import { turnChanges, turnUndo } from './turn-changes.js'
+import { Button } from './ui/button.js'
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from './ui/collapsible.js'
 import { type WorkDisclosureChoices, workDisclosureKey } from './workspace-presentation.js'
 import './transcript-motion.css'
@@ -815,6 +817,7 @@ export function Transcript({
 	undoKept,
 	projectRoot,
 	closedWhileRunning = false,
+	onContinueStopped,
 	stopShownBelow = false,
 	dateSeparators = true,
 }: {
@@ -839,6 +842,11 @@ export function Transcript({
 	projectRoot?: string
 	/** The window was closed while the latest reply ran, which is why it stopped. */
 	closedWhileRunning?: boolean
+	/**
+	 * Asks Namzu to carry on after such a stop. It sends a new message: the stopped reply cannot be
+	 * resumed. Absent where a message cannot be sent now.
+	 */
+	onContinueStopped?: () => void
 	/**
 	 * The latest reply's stop is drawn under the transcript with its own time and actions. Its turn
 	 * then draws no clock of its own: a second time row would only open a gap above the stop.
@@ -975,6 +983,21 @@ export function Transcript({
 				showElapsed={!hasLiveActivity}
 			/>
 			{notice && <p className="notice">{notice}</p>}
+			{notice && closedWhileRunning && (
+				<div className="stopped-continue">
+					{stoppedWorkSummary(thread) && <p className="notice">{stoppedWorkSummary(thread)}</p>}
+					{onContinueStopped && (
+						<>
+							<Button variant="outline" size="sm" onClick={onContinueStopped}>
+								Ask Namzu to continue
+							</Button>
+							<p className="notice">
+								This sends a new message. The stopped reply cannot be resumed.
+							</p>
+						</>
+					)}
+				</div>
+			)}
 		</div>
 	)
 }
