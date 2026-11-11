@@ -88,10 +88,15 @@ substitution, so an operator can review it before anything runs.
 | `agent(prompt, opts?)` | Start a subagent. Options: `label` (default: the first 60 characters of the prompt, whitespace squeezed), `phase`, `schema` (JSON Schema), `agentType`, `model`, `effort`. Resolves to the text, the schema-validated value, or `null` when the agent failed, was skipped, was refused by a budget, or answered outside the schema. |
 | `parallel(thunks)` | Start every thunk now; resolves when all are done (a barrier). It does not reject for a thunk's own failure: a thunk that throws, or whose agent failed, resolves to `null` in its place, and the reason goes through `log()`. A misused hook is different and fails the run: an `agent()` call with a bad prompt, a non-object `schema` or an oversized request, a non-function item, or a bad `phase()` title is re-thrown out of `parallel()` and `pipeline()` (the run ends `failed` with the error naming the call), because it is a mistake in the script, not a failed child (`Step 2 stopped: …`, shown in the workflow's detail). Filter with `.filter(Boolean)`. |
 | `pipeline(items, ...stages)` | One chain per item, no barrier between stages. A stage gets `(prevResult, originalItem, index)`; the first stage gets the item as `prevResult`; an item whose stage resolves `null` or `undefined` stops there and yields `null`. A stage that throws drops its item to `null` the same way (the reason goes through `log()`) and the other items go on; a misused hook in a stage is re-thrown and fails the run, as in `parallel()`. |
-| `phase(title)` | Move the global phase cursor. |
+| `phase(title)` | Move the global phase cursor. A title matches a declared one ignoring case; an empty title throws. |
 | `log(message)` | A progress line (at most 2000 characters). |
 | `args` | The JSON you passed to `run()`. |
 | `budget` | `{ total, spent(), remaining() }`. `total` is `limits.tokenBudget` or `null`; `spent()` is the tokens this run's agents have used, refreshed on each `agent()` result; `remaining()` is `max(0, total - spent())`, or `Infinity` with no target. It is a hard ceiling: once `spent()` reaches `total`, `agent()` throws a `WorkflowBudgetExceededError` (agents already running finish), `pipeline()` throws at its start, and inside `parallel()` / `pipeline()` the throw drops the slot to `null` with one summary line. `tokensUsed` and `tokenLimit` remain as deprecated aliases. Guard loops on `budget.total` and give them a hard iteration cap. |
+
+`meta.whenToUse` and `meta.phases[].model` are accepted (and limited to 500 and
+120 characters) and are not applied: nothing reads `whenToUse`, and a phase's
+`model` does not choose the model of its agents. An agent's model is the
+`model` option of its own `agent()` call, else the host's default.
 
 `return` supplies the result. There is no `require`, `process`, `fetch`, timer
 or `import()`. This version leaves out nested `workflow()`, worktree isolation and
@@ -184,8 +189,13 @@ A phase is a title the script chooses. Titles in `meta.phases` are announced
 first, in declared order. `phase(title)` moves the global cursor;
 `agent(..., { phase })` assigns explicitly, which avoids races on the cursor
 inside `parallel()` or `pipeline()`. The same title (after trimming and
-collapsing whitespace) is the same group, and the index is first-seen order
-starting at 1. An agent with neither a cursor nor an explicit phase has no
+collapsing whitespace, and ignoring case) is the same group, and the index is
+first-seen order starting at 1. The spelling kept is the first one seen, which
+is the declared one when the title is in `meta.phases`; `meta.phases` refuses
+two titles that differ only by case. A journal written before titles were
+matched ignoring case is read by index and is unaffected; resuming one runs the
+script again, so its `phase()` calls group by the new rule, and a script whose
+`meta.phases` has two case-only twins is refused until one is removed. An agent with neither a cursor nor an explicit phase has no
 phase index; `result.phases` and `summarizeWorkflowPhases()` list those under a
 derived group `Agents` (index 0). A phase is `not-started` until it has an
 agent, `running` while any agent is queued or running, then `failed` if any

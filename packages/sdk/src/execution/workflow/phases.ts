@@ -14,18 +14,24 @@ export interface PhaseRecord {
 
 /**
  * Phase titles of one run. A title is the only grouping key: the same title
- * is the same group. Indexes are 1-based first-seen order, declared titles
+ * is the same group, and two titles that differ only by case are the same
+ * title. The first spelling seen (a declared one comes first) is the one kept.
+ * Indexes are 1-based first-seen order, declared titles
  * first. `register` reports whether the title was announced just now.
  */
 export class PhaseRegistry {
 	private readonly byTitle = new Map<string, PhaseRecord>()
 
+	private static key(title: string): string {
+		return title.toLowerCase()
+	}
+
 	register(rawTitle: string, declared = false): { phase: PhaseRecord; isNew: boolean } {
 		const title = normalizePhaseTitle(rawTitle)
-		const existing = this.byTitle.get(title)
+		const existing = this.byTitle.get(PhaseRegistry.key(title))
 		if (existing) return { phase: existing, isNew: false }
 		const phase = { index: this.byTitle.size + 1, title, declared }
-		this.byTitle.set(title, phase)
+		this.byTitle.set(PhaseRegistry.key(title), phase)
 		return { phase, isNew: true }
 	}
 
@@ -57,7 +63,9 @@ export function summarizeWorkflowPhases(
 	phases: readonly PhaseRecord[],
 	agents: readonly PhaseAgentView[],
 ): WorkflowPhaseSummary[] {
-	const detail = new Map(declared.map((p) => [normalizePhaseTitle(p.title), p.detail]))
+	const detail = new Map(
+		declared.map((p) => [normalizePhaseTitle(p.title).toLowerCase(), p.detail]),
+	)
 	const summarize = (
 		index: number,
 		title: string,
@@ -82,7 +90,7 @@ export function summarizeWorkflowPhases(
 			p.index,
 			p.title,
 			agents.filter((a) => a.phaseIndex === p.index),
-			detail.get(p.title),
+			detail.get(p.title.toLowerCase()),
 		),
 	)
 	const ungrouped = agents.filter((a) => a.phaseIndex === undefined)

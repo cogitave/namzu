@@ -1,3 +1,4 @@
+import { parseWorkflowMeta } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import { WORKFLOW_DOCTRINE } from '../doctrine.js'
@@ -98,5 +99,53 @@ describe('the description carries a sample call', () => {
 		expect(call.script.startsWith('export const meta = {')).toBe(true)
 		expect(call.script).toContain('parallel(')
 		expect(call.args).toEqual({ packages: ['core', 'web'] })
+	})
+})
+
+describe('the wording rules the model reads', () => {
+	const lines = WORKFLOW_TOOL_DESCRIPTION.split('\n')
+	const metaLine = lines.find((line) => line.startsWith('export const meta')) ?? ''
+	const exampleCall = lines.find((line) => line.startsWith('Example call')) ?? ''
+	const exampleScript = JSON.parse(
+		exampleCall.slice(exampleCall.indexOf('{"script"')).replace(/\.$/, ''),
+	).script as string
+
+	it('states each convention and the limits that go with it, in a short paragraph', () => {
+		const rules = lines.find((line) => line.startsWith('The operator reads these words')) ?? ''
+		for (const needle of [
+			'lower-case words joined by hyphens, a verb first',
+			'at most 80 characters',
+			'one plain line',
+			'no method words',
+			'at most 500',
+			'one entry per stage',
+			'one or two capitalised words',
+			'letter for letter in phase() and opts.phase',
+			'case is ignored when matching',
+			'at most 300',
+			'kind:target under 40 characters',
+			'first 60 characters of the prompt',
+			'short facts with counts',
+			'left out whenever the script capped something',
+		]) {
+			expect(rules).toContain(needle)
+		}
+		expect(rules.length).toBeLessThan(900)
+	})
+
+	it('follows its own rules in both examples', () => {
+		for (const source of [metaLine, exampleScript]) {
+			const meta = parseWorkflowMeta(source)
+			expect(meta.name).toMatch(/^[a-z]+(-[a-z]+)*$/)
+			expect(meta.description.length).toBeLessThan(120)
+			expect(meta.phases.length).toBeGreaterThan(0)
+			for (const phase of meta.phases) {
+				expect(phase.title).toMatch(/^[A-Z][a-z]*( [A-Z]?[a-z]+)?$/)
+				expect(phase.detail).toBeDefined()
+			}
+		}
+		const used = exampleScript.match(/label: "([^"]*)"/)
+		expect(used?.[1]).toMatch(/^[a-z]+:$/)
+		expect(exampleScript).toContain('phase: "Scan"')
 	})
 })

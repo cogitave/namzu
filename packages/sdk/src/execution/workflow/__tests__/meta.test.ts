@@ -42,6 +42,7 @@ phase('Tarama')`)
 		["name: 'a', name: 'b'", 'repeats'],
 		["name: 'a', extra: 1", 'unknown key'],
 		["name: 'a', phases: [{ title: 'x' }, { title: ' x ' }]", 'repeats the title'],
+		["name: 'a', phases: [{ title: 'Scan' }, { title: 'SCAN' }]", 'differ only by case'],
 		["name: 'a', phases: 'x'", 'array'],
 		["name: 'a', phases: [{ nope: 1 }]", 'unknown key'],
 		["name: 'a\nb'", 'Unterminated'],

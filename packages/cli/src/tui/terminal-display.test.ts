@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { expandTabs, terminalDisplayText } from './terminal-display.js'
+import { expandTabs, scriptText, terminalDisplayText } from './terminal-display.js'
 
 const cp = (value: number): string => String.fromCodePoint(value)
 
@@ -61,5 +61,30 @@ describe('expandTabs', () => {
 
 	it('leaves a line without a tab as it is', () => {
 		expect(expandTabs('plain\ntext')).toBe('plain\ntext')
+	})
+})
+
+describe('scriptText', () => {
+	it('spells out controls, direction overrides and zero-width characters', () => {
+		const hostile = `a${cp(0x1b)}[31mb${cp(0x202e)}c${cp(0x200b)}d${cp(0x2066)}e${cp(0x7)}f`
+		const shown = scriptText(hostile)
+		expect(shown).toBe('a\\u{001b}[31mb\\u{202e}c\\u{200b}d\\u{2066}e\\u{0007}f')
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: this is the point of the test
+		expect(shown).not.toMatch(/[\u0000-\u001f\u007f\u200b\u202a-\u202e\u2066-\u2069]/u)
+	})
+
+	it('puts a line break and a tab on one row', () => {
+		expect(scriptText('a\r\nb\tc')).toBe('a b c')
+		expect(scriptText('a\nb\tc', { newline: ' ↵ ', tab: ' ⇥ ' })).toBe('a ↵ b ⇥ c')
+	})
+
+	it('cuts at the width with an ellipsis and leaves a short text alone', () => {
+		expect(scriptText('abcdefghij', { maxCells: 6 })).toBe('abcde…')
+		expect(scriptText('abcdef', { maxCells: 6 })).toBe('abcdef')
+		expect(scriptText('日本語日本語', { maxCells: 7 })).toBe('日本語…')
+	})
+
+	it('cuts after the controls are spelled out, so a cut never splits an escape literal in a way that hides it', () => {
+		expect(scriptText(`${cp(0x1b)}${cp(0x1b)}`, { maxCells: 9 })).toBe('\\u{001b}…')
 	})
 })

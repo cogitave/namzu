@@ -408,7 +408,9 @@ export function createWorkflowHost(options: WorkflowHostOptions): WorkflowHost {
 			const phaseDetail = (title: string | undefined): string | undefined =>
 				title === undefined
 					? undefined
-					: meta.phases.find((phase) => phase.title.trim() === title.trim())?.detail
+					: meta.phases.find(
+							(phase) => phase.title.trim().toLowerCase() === title.trim().toLowerCase(),
+						)?.detail
 			// The call answers once the run has reached its first agent(), or ended
 			// without one. Both are events of the run itself; nothing here races a
 			// clock. Until then the run's end is the tool's to report, not a
