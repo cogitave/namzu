@@ -1,7 +1,7 @@
 import type { TurnOutcome } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
-import { outcomeLine } from './outcome-line.js'
+import { claimMismatchLine, outcomeLine } from './outcome-line.js'
 
 function outcome(over: Partial<TurnOutcome> = {}): TurnOutcome {
 	return {
@@ -139,5 +139,30 @@ describe('the line a turn ends with', () => {
 		expect(outcomeLine(outcome({ verdict: 'unchecked', changes: none, checks: [] }))).toBe(
 			'Changed files · not checked',
 		)
+	})
+})
+
+describe('the line under it when the answer contradicts the record', () => {
+	const mismatch = {
+		claim: 'tests' as const,
+		said: 'the tests pass',
+		quote: 'All tests pass',
+		record: 'check-failed' as const,
+		recordSays: 'pnpm test failed',
+	}
+
+	it('is one sentence of the kernel, naming the claim and the record', () => {
+		expect(claimMismatchLine(mismatch)).toBe(
+			'The answer says the tests pass. The record: pnpm test failed.',
+		)
+	})
+
+	it('is nothing when there is no mismatch', () => {
+		expect(claimMismatchLine(undefined)).toBeUndefined()
+	})
+
+	it('makes a command from the model printable', () => {
+		const line = claimMismatchLine({ ...mismatch, recordSays: 'pnpm\u009b31m test\nfailed' })
+		expect(line).toBe('The answer says the tests pass. The record: pnpm 31m test failed.')
 	})
 })

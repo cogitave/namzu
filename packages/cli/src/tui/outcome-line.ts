@@ -1,4 +1,9 @@
-import type { TurnOutcome, TurnOutcomeCheck } from '@namzu/sdk'
+import {
+	type AnswerClaimMismatch,
+	type TurnOutcome,
+	type TurnOutcomeCheck,
+	describeAnswerClaimMismatch,
+} from '@namzu/sdk'
 
 /**
  * The one quiet line a turn ends with when it changed something or a check
@@ -102,6 +107,21 @@ export function outcomeNotice(
 	}
 }
 
+/**
+ * The line under the outcome line when the answer said a check passed and the
+ * turn's record says otherwise, in the kernel's words: `The answer says the
+ * tests pass. The record: pnpm test failed.` Nothing when there is no
+ * mismatch. Shown for the turn it belongs to and not repeated; the mismatch is
+ * not kept in the session log, so a restored conversation does not draw it.
+ *
+ * The record's command came from the model, so the line is made printable the
+ * way a command in the outcome line is.
+ */
+export function claimMismatchLine(mismatch: AnswerClaimMismatch | undefined): string | undefined {
+	if (mismatch === undefined) return undefined
+	return plain(describeAnswerClaimMismatch(mismatch))
+}
+
 const SHOWN_CHARS = 60
 
 /**
@@ -109,10 +129,16 @@ const SHOWN_CHARS = 60
  * characters (an escape sequence would be run by the terminal) become spaces.
  */
 function shown(command: string): string {
-	const plain = command
-		// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this removes
-		.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
-		.replace(/\s+/g, ' ')
-		.trim()
-	return plain.length > SHOWN_CHARS ? `${plain.slice(0, SHOWN_CHARS - 1)}…` : plain
+	const flat = plain(command)
+	return flat.length > SHOWN_CHARS ? `${flat.slice(0, SHOWN_CHARS - 1)}…` : flat
+}
+
+function plain(text: string): string {
+	return (
+		text
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this removes
+			.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+			.replace(/\s+/g, ' ')
+			.trim()
+	)
 }
