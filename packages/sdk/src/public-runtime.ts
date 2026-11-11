@@ -1404,6 +1404,7 @@ export {
 	completionScorer,
 	containsScorer,
 	customScorer,
+	outcomeScorer,
 	evalTurnFromQuery,
 	evalTurnFromTurn,
 	formatReport,

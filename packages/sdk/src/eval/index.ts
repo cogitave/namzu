@@ -18,6 +18,7 @@ export {
 	completionScorer,
 	containsScorer,
 	customScorer,
+	outcomeScorer,
 	stepBudgetScorer,
 	trajectoryScorer,
 } from './scorers.js'

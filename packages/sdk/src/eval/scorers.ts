@@ -1,3 +1,4 @@
+import type { TurnOutcomeVerdict } from '../types/session/outcome.js'
 import type { EvalCase, EvalTurn, Score, Scorer } from './types.js'
 
 /**
@@ -147,6 +148,35 @@ export function containsScorer(...required: string[]): Scorer {
 						? `found all ${required.length} required fragments`
 						: `missing: ${missing.join(', ')}`,
 				details: { missing },
+			}
+		},
+	}
+}
+
+/**
+ * The turn's outcome record has one of the given verdicts.
+ *
+ * Reads the record the kernel settled from what actually ran, not the answer's
+ * words. A turn with no record scores unavailable: there is nothing to read,
+ * which is not the same as a wrong verdict.
+ */
+export function outcomeScorer(verdicts: readonly TurnOutcomeVerdict[]): Scorer {
+	return {
+		name: 'outcome',
+		// The record either says one of the verdicts or it does not.
+		severity: 'gate',
+		score(turn: EvalTurn): Score {
+			const outcome = turn.outcome
+			if (!outcome) {
+				return { score: 0, unavailable: true, reason: 'the turn has no outcome record' }
+			}
+			const ok = verdicts.includes(outcome.verdict)
+			return {
+				score: ok ? 1 : 0,
+				reason: ok
+					? `verdict ${outcome.verdict}`
+					: `verdict ${outcome.verdict}, expected one of ${verdicts.join(', ')}`,
+				details: { verdict: outcome.verdict, expected: verdicts },
 			}
 		},
 	}

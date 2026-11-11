@@ -23,6 +23,7 @@ export function evalTurnFromTurn(turn: Turn, opts: { durationMs?: number } = {})
 		totalCostUsd: turn.costInfo.totalCost,
 		durationMs: opts.durationMs ?? (turn.endedAt ?? Date.now()) - turn.startedAt,
 		...(turn.lastError ? { error: turn.lastError } : {}),
+		...(turn.outcome ? { outcome: turn.outcome } : {}),
 	}
 }
 
