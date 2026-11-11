@@ -268,6 +268,7 @@ bytes and hashes and are not reclassified from their text. See
 | `turn_outcome_recorded` | `ignorable: true`, `outcome` (the turn's [outcome record](turn-outcome.md)); inside the turn, just before its `turn_completed` or `turn_failed` |
 | `child_outcome_recorded` | `ignorable: true`, `childSessionId`, `outcome` (the child's own [outcome record](turn-outcome.md)); in the parent's log just before the child's `child_session_ended`; `turnId` optional, as there |
 | `outcome_progress_written` | `ignorable: true`, `checkpointId`, `progress` (what the outcome record had gathered, so a resume can restore it); inside the turn, just before the `checkpoint_written` of the same `checkpointId` |
+| `message_edited` | `ignorable: true`, `targetMessageId`, `content`, `reason` (free text: `compaction` for a pass, `resume` for a restored context that differs), `spill?`; one per message a compaction pass edited in place (a narration cut to its first sentence, a large tool result cleared), inside the turn |
 
 The three `*outcome*` records are flagged `ignorable` and are the only place the outcome record is stored: it is not a field of `turn_completed`, `turn_failed`, `child_session_ended` or the checkpoint, because a release that validates those strictly would refuse a log or checkpoint that carried one. A release that has not heard of these types keeps them in the hash chain and skips them (see [records from a newer writer](#records-from-a-newer-writer)), so it reads the log and loses only the outcome. A test pins the key sets of those three shapes so none gains a field.
 
@@ -336,11 +337,11 @@ the conversation. A flagged record of an unknown type (`IgnorableRecordSchema`:
 the envelope, a `type` outside `SESSION_RECORD_TYPES`, and `ignorable: true`,
 any other fields kept) is read like any other: it holds its seq, its bytes are
 hashed into the next record's `prev`, and altering it breaks the chain. It never
-moves the fold, which only `message`, `message_replaced` and `compaction`
-records do. The flag excuses nothing else: a known type is validated by its own
+moves the fold, which only `message`, `message_replaced`, `message_edited` and
+`compaction` records do. The flag excuses nothing else: a known type is validated by its own
 schema whatever the flag says, an unknown type without the flag is refused so a
 record that does move the fold fails loudly, and a flagged record cannot be the
-first of a log. This release writes three, the [turn outcome](turn-outcome.md) records above; every other record it writes is one older readers know.
+first of a log. This release writes four: the three [turn outcome](turn-outcome.md) records above and `message_edited`; every other record it writes is one older readers know. An older release skips `message_edited` and so folds the message with the text it was first recorded with (see [a compaction edit](#a-compaction-edit)).
 
 ### Children that outlive their turn
 
@@ -508,12 +509,43 @@ or a protocol snapshot shows — is the **fold** of its log:
 1. the latest `compaction` record's summary;
 2. then its kept messages;
 3. then every `message` after its `replacesSeqRange`;
-4. with every `message_replaced` applied.
+4. with every `message_replaced` and `message_edited` applied.
 
 So every reader sees the redacted or rewritten answer, and the raw text stays
 in the log for audit only. A checkpoint's context is the fold of the log up to
 its `throughSeq`, which equals the session's fold at that point because no
 other turn can interleave.
+
+### A compaction edit
+
+A compaction pass that keeps a message but changes its text (the salience
+pass cuts a long narration to its first sentence; it and the stale-result
+pass clear a large tool result) writes one `message_edited` record for it: its
+own id as `targetMessageId`, the new text as `content`. The fold applies it in
+place, as it does `message_replaced`, so a reader folds the same context it
+did when the pass recorded the whole tail again. It appends O(edited messages)
+small records; it used to append a `compaction` record and a `message` record
+for every message after the first edited one, which in a 200-turn session held
+at its soft target was about 930 `message` records, about 800 KB, per turn
+(73% of a 75 MB log). The original text stays where it was written, in the
+`message` record, and `compaction_shed` still holds what a pass removed.
+
+The recorder takes a live message that is not one it recorded, carries the id
+of a recorded message that has left the context, and is the only claimant of
+that id, to be that message edited. Anything else (a summary, a message with no
+id, two copies of one id) is recorded as before.
+
+An older release skips the record (it is flagged `ignorable`) and so folds the
+message with its original text: the same conversation in the same order under
+the same ids, before the pass. It reads the log and the next compaction pass
+cuts the text down again. `reason` is free text and the record is not a new
+`reason` of `message_replaced`, whose list an older release validates strictly.
+A host that cached history before a pass and sends it back with its ids is
+accepted: the original text of an edited message counts as a match as well as
+the edited text. After a resume from a checkpoint older than an edit, the
+recorder writes one more `message_edited` for each message whose restored text
+differs from what the log folds to, so the fold shows the context the turn
+runs with.
 
 ## What a turn reads back from a long log
 
