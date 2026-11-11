@@ -2,7 +2,7 @@
 
 ## 2026-11-12
 
-- **Update** [Desktop: unread](cli/desktop.md): the row menu of a conversation a window has not loaded (a second window's sidebar) offers **Mark as unread** when the conversation has a reply, as it does in the window that holds it. Main carries that fact as `replied` on the conversation's entry (reported by the host from the log, set when a turn ends with a reply, saved with the conversation list, inherited by a fork); Fork, New side chat and Copy as Markdown work from it, and an action that needs text this window lacks says "Open the conversation first." `.changeset/desktop-actions-for-unloaded-conversation.md` (`@namzu/desktop` patch, `@namzu/cli` patch).
+- **Update** [Desktop: unread](cli/desktop.md): the row menu of a conversation a window has not loaded (a second window's sidebar) offers **Mark as unread** when the conversation has a reply, as it does in the window that holds it. Main carries that fact as `replied` on the conversation's entry (reported by the host from the log, set when a turn ends with a reply, saved with the conversation list, inherited by a fork); Fork, New side chat and Copy as Markdown, which need the conversation itself, and Copy last reply say "Open the conversation first." `.changeset/desktop-actions-for-unloaded-conversation.md` (`@namzu/desktop` patch, `@namzu/cli` patch).
 
 ## 2026-11-11
 

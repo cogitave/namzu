@@ -264,19 +264,19 @@ describe('a conversation this window has not loaded', () => {
 		// A marker already set can always be cleared.
 		expect(find(unloaded({ unread: true }), 'mark-unread')).toMatchObject({ label: 'Mark as read' })
 	})
-	it('lets a replied row fork, since main forks from the log', () => {
-		const replied = unloaded({ hasMessages: true, hasReply: true })
-		expect(find(replied, 'fork')?.reason).toBeUndefined()
-		expect(find(replied, 'side-chat')?.reason).toBeUndefined()
-		expect(find(replied, 'copy-markdown')?.reason).toBeUndefined()
-	})
-	it('asks for the conversation to be opened, never says there is nothing, when it cannot know', () => {
-		expect(find(unloaded(), 'fork')?.reason).toBe('Open the conversation first.')
-		expect(find(unloaded(), 'copy-markdown')?.reason).toBe('Open the conversation first.')
-		// The same row, loaded and empty, is honestly empty.
+	it('asks for the conversation to be opened for Fork, side chat and Markdown, replied or not', () => {
+		// Main refuses these while another window holds a tab for the row, so an unloaded row
+		// never offers them as if they would run; the reason is true whether or not it has a reply.
+		for (const row of [unloaded({ hasMessages: true, hasReply: true }), unloaded()]) {
+			expect(find(row, 'fork')?.reason).toBe('Open the conversation first.')
+			expect(find(row, 'side-chat')?.reason).toBe('Open the conversation first.')
+			expect(find(row, 'copy-markdown')?.reason).toBe('Open the conversation first.')
+		}
+		// The same row, loaded and empty, is honestly empty; loaded with a reply it can fork.
 		expect(find(input({ hasMessages: false, hasReply: false }), 'fork')?.reason).toBe(
 			'There is nothing to fork yet.',
 		)
+		expect(find(input({ hasMessages: true, hasReply: true }), 'fork')?.reason).toBeUndefined()
 	})
 	it('keeps Copy last reply unavailable until the text is here, with a true reason', () => {
 		const replied = unloaded({ hasMessages: true, hasReply: true })

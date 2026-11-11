@@ -107,8 +107,10 @@ export function archiveBlockedReason(
 
 function forkBlockedReason(input: ConversationActionInput): string | undefined {
 	if (input.running) return 'Wait for the reply to finish.'
-	if (!input.hasMessages)
-		return input.loaded === false ? OPEN_FIRST : 'There is nothing to fork yet.'
+	// Main refuses these for a row that has a tab in another window, and this window cannot see
+	// that, so a row it has not loaded asks to be opened first, which is true either way.
+	if (input.loaded === false) return OPEN_FIRST
+	if (!input.hasMessages) return 'There is nothing to fork yet.'
 	return undefined
 }
 
@@ -176,11 +178,12 @@ export function conversationActionGroups(
 					id: 'copy-markdown',
 					label: 'Conversation as Markdown',
 					icon: 'markdown',
-					reason: input.hasMessages
-						? undefined
-						: input.loaded === false
+					reason:
+						input.loaded === false
 							? OPEN_FIRST
-							: 'There is nothing to copy yet.',
+							: input.hasMessages
+								? undefined
+								: 'There is nothing to copy yet.',
 				})
 			children.push({ id: 'copy-id', label: 'Conversation ID', icon: 'id' })
 			if (input.hasProjectPath)
