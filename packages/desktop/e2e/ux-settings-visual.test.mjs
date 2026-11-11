@@ -342,21 +342,21 @@ const box = (locator) => locator.evaluate((el) => {
 	return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width };
 });
 
-flow("the project strip shares the composer's edges, and the empty-state heading balances", {}, async (w) => {
+flow("the row under the composer shares the box's edges, and the empty-state heading balances", {}, async (w) => {
 	await openProject(w);
 	for (const [width, height] of [[1440, 900], [900, 720]]) {
 		await resize(w, width, height);
 		await expect(w.page.getByRole("textbox", { name: "Message Namzu" })).toBeVisible();
-		const strip = w.page.locator('[data-slot="composer-context-strip"]').first();
+		const strip = w.page.locator("[data-composer-row]").first();
 		await expect(strip).toBeVisible();
 		const host = w.page.locator('[data-slot="composer-host"]').first();
 		await expect.poll(async () => {
 			const [s, h] = [await box(strip), await box(host)];
 			return Math.max(Math.abs(s.left - h.left), Math.abs(s.right - h.right));
 		}, { timeout: T }).toBeLessThanOrEqual(1);
-		// The strip is not a box behind the composer: nothing of it hides under the card.
+		// The row is not a box behind the composer: it starts under the card and nothing of it hides under it.
 		const [s, h] = [await box(strip), await box(host)];
-		assert.ok(s.bottom <= h.top + 1, `the strip (${s.bottom}) ends above the composer card (${h.top})`);
+		assert.ok(s.top >= h.bottom - 1, `the row (${s.top}) starts under the composer card (${h.bottom})`);
 		const heading = w.page.getByRole("heading", { level: 1 }).first();
 		assert.equal(await heading.evaluate((el) => getComputedStyle(el).textWrap), "balance");
 		await shootBoth(w, `composer-strip-${width}`);
