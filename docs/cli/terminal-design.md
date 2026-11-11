@@ -770,7 +770,7 @@ them. This keeps final diagnostics visible without joining nonadjacent lines
 silently. Each visible line is shortened to 240 characters (never through an emoji), and Ctrl+O is
 advertised whenever text is hidden, in one wording everywhere (tool output, the shell cell, an agent's
 answer): `… +N lines (ctrl+o to expand)`, with `(~N KB)` after it once at least 1,000 characters are
-hidden, and `line` for exactly one. Ctrl+O opens the detailed transcript, which shows the retained body whole; `/raw` also
+hidden, and `line` for exactly one. In the [fullscreen view](#opening-a-row-with-a-click) with the pointer at `full` the same hint reads `(click to expand)`. Ctrl+O opens the detailed transcript, which shows the retained body whole; `/raw` also
 includes it. Runtime output limits still apply: a retained artifact path
 identifies output beyond those limits. Neither action re-executes the tool.
 
@@ -926,6 +926,7 @@ incremental repainting, so only changed lines are written.
 | Typing or Enter | back to the latest |
 | Drag | select text, shown inverted; on release it is copied |
 | Double click, triple click | select a word, select a line |
+| Click on a folded row | open it where it stands; click again to fold it ([below](#opening-a-row-with-a-click)) |
 | Esc | let go of the selection, or close the search |
 | Alt+S | search the conversation |
 
@@ -963,6 +964,58 @@ never cut in half. The text goes to the machine's clipboard tool and, as an OSC
 was copied replaces the last row for two seconds without moving any row. `Esc`
 lets go of the selection.
 
+#### Opening a row with a click
+
+With the pointer at `full`, a click (the left button pressed and released on
+the same cell, no drag) opens a folded row in place, and a click on it again
+folds it. The rows that answer are the ones that carry the expand hint, and
+the lines that belong to them: a counted line (reads, searches, listings,
+folded commands) and the `$ command` rows listed under it open to each call of
+the line with its result, as the [detailed transcript](#the-detailed-transcript-ctrlo)
+shows that line; a tool or command row whose output is cut, and a collapsed
+agent answer or memory row, open to the whole body, on the row itself or on the
+`… +N lines` row under it. Nothing else reacts: not a reply, not a row with
+nothing folded, not the text a row opened to (so a double click on a word in
+opened output selects it and does not fold the row). A command listed under a
+counted line opens the whole line, not that command alone, because the line
+keeps the commands' output together.
+
+The hint says what is true. With the pointer at `full` it reads `(click to
+expand)`, and an open row says `(click to fold)` after its first line. In the
+normal screen, in the scroll-back, with `tui.mouse: scroll` or `off`, and on
+the detailed transcript it stays `(ctrl+o to expand)` and a click does nothing.
+With the pointer at `scroll` or `off` the wheel is still reported and the
+terminal keeps the mouse.
+
+The row you clicked stays on the same row of the screen. A view that was
+following the newest output and is pushed off it by the row it opened stops
+following, as it does when you scroll up: the `↓ Jump to latest` row appears,
+and `PgDn`, `End` or typing take you back. Two things the window cannot hold:
+a conversation shorter than the window grows upward, as new output does, and a
+fold that shortens the conversation while the window shows its end brings the
+rest down, because the window never shows blank rows under the newest one.
+
+A click while a selection is held only lets go of it. A double click opens or
+folds the row once and then selects the word, and a triple click the line; the
+press that starts a drag never opens anything, and neither does a release on
+another cell. Which rows are open is kept by the view only: it is not saved,
+a resumed conversation starts folded, a resize keeps what was open, a row that
+changes while open (more of its output arrives) is drawn again in place, and
+the detailed transcript is unchanged. Laying a conversation out is kept per
+message and per open state, so opening a row lays out that one message however
+long the conversation is (`layout.ts` counts the messages it laid out; the test
+pins one for 40 messages and for 160).
+
+Links are not opened by the app. A link in a reply is drawn as plain text with
+its address (a Markdown link as `the guide (https://…)`), and the fullscreen
+rows carry no terminal hyperlink sequence (checked in the program's output). With the pointer
+at `full` the terminal passes the click to the app, and Namzu does nothing with
+it on text; the note after a copy already says to hold Shift to use the
+terminal's own selection. What a given terminal does with a modifier click on
+an address, with or without mouse reporting, was not tried here and is the
+terminal's own: select the address and copy it if the terminal does not follow
+it.
+
 #### Searching
 
 `Alt+S` opens a one-line search field in the last row of the window and the
@@ -978,16 +1031,16 @@ following.
 
 While it is on, the `←` workspaces screen is not offered, the terminal's own
 scrollback is not available inside the app, and the detailed transcript and
-agent views draw in the live area as before. Clickable rows are not part of
-this mode yet, and it is not the default. Code:
+agent views draw in the live area as before. It is not the default. Code:
 `packages/cli/src/tui/fullscreen/` (`viewport.ts` the scroll arithmetic,
 `layout.ts` the rows, `markdown-rows.ts` the Markdown, `selection.ts` and
 `cells.ts` the selection, `search.ts` the search, `paint.ts` the highlights,
 `mouse-wheel.ts` the pointer, `mode.ts` the switch, `FullscreenTranscript.tsx`
 the window); the launcher wires it in `index.tsx`. Covered by `viewport.test.ts`,
-`mode.test.ts`, `mouse-wheel.test.ts`, `layout.test.ts`, `markdown-rows.test.tsx`,
+`mode.test.ts`, `mouse-wheel.test.ts`, `layout.test.ts`, `click-rows.test.ts`, `markdown-rows.test.tsx`,
 `selection.test.ts`, `search.test.ts`,
 `a-fullscreen-view-draws-only-its-window.test.tsx`,
+`a-click-opens-a-folded-row-in-place-in-the-fullscreen-view.test.tsx`,
 `a-fullscreen-window-selects-copies-and-searches.test.tsx` and
 `a-fullscreen-app-draws-a-window-and-follows.test.tsx`.
 

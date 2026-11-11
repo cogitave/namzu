@@ -239,3 +239,50 @@ export function revealRow(
 	if (row <= bottom && row > bottom - h) return state
 	return stateAt(index, row + Math.floor((h - 1) / 2), h)
 }
+
+/** The flat row `offset` rows into message `id`, kept inside the message; null when it is gone. */
+export function rowIn(index: RowIndex, id: string, offset: number): number | null {
+	const at = index.ids.indexOf(id)
+	if (at < 0) return null
+	const start = index.starts[at] ?? 0
+	const end = (index.starts[at + 1] ?? index.total) - 1
+	return Math.min(start + Math.max(0, offset), Math.max(start, end))
+}
+
+export interface HoldOptions {
+	/** The room the window has, for the clamp at the top. */
+	readonly height: number
+	/** Rows under the last row of text now: the jump hint or the search line. */
+	readonly footer: number
+	/** The search line stays whatever the window does. */
+	readonly searching: boolean
+}
+
+/**
+ * The state that keeps one row where the reader sees it when the message it
+ * belongs to changes height. `before` and `after` are the rows before and
+ * after, and the row is named by its message and its place in it. Rows above
+ * the message did not change, so the rows between the row and the window's
+ * bottom edge are what is held.
+ *
+ * A window that was following keeps following only if the end is still within
+ * reach of that edge; otherwise it stops, as it does when the reader scrolls up,
+ * and the jump hint's row is counted, because it takes a row of the window.
+ */
+export function holdRow(
+	state: ViewState,
+	before: RowIndex,
+	after: RowIndex,
+	id: string,
+	offset: number,
+	options: HoldOptions,
+): ViewState {
+	const was = rowIn(before, id, offset)
+	const now = rowIn(after, id, offset)
+	if (was === null || now === null) return syncView(state, after, options.height)
+	// Screen rows under the row, the footer included.
+	const below = bottomRow(state, before) - was + options.footer
+	const pinned = options.searching ? 1 : 0
+	if (now + below - pinned >= lastRow(after)) return FOLLOWING
+	return stateAt(after, now + below - 1, options.height)
+}

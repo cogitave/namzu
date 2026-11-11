@@ -19,6 +19,7 @@ import { commandRows } from './read-search-group.js'
 import { choiceDisplayWidth, truncateChoiceText, wrapChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { paint, theme } from './theme.js'
+import { EXPAND_HINT } from './truncation.js'
 import type { TranscriptMessage } from './types.js'
 
 /** One physical row of the scroll view. */
@@ -27,6 +28,8 @@ export interface ScrollRow {
 	readonly glyphColor: string
 	readonly text: string
 	readonly color: string
+	/** A command a group folded and lists under its line. */
+	readonly command?: true
 }
 
 /** Columns the glyph gutter takes, as in the live transcript. */
@@ -67,12 +70,22 @@ export function scrollTextWidth(columns: number): number {
 }
 
 /** The text a message's first rows show, before it is wrapped. */
-export function scrollBodyText(message: TranscriptMessage): string {
+export function scrollBodyText(message: TranscriptMessage, hint?: string): string {
 	return message.statusRows
 		? message.statusRows.map(([label, value]) => `${label}  ${value}`).join('\n')
 		: `${message.content.length > 0 ? message.content : message.pending ? '…' : ''}${
-				message.meta ? ` · ${terminalDisplayText(message.meta)}` : ''
+				message.meta ? ` · ${saying(terminalDisplayText(message.meta), hint)}` : ''
 			}`
+}
+
+/** `text` with the expand hint worded as `hint` says; the text itself when there is none. */
+function saying(text: string, hint: string | undefined): string {
+	return hint === undefined ? text : text.replaceAll(EXPAND_HINT, hint)
+}
+
+export interface ScrollRowsOptions {
+	/** The wording of the expand hint, when it is not the default. */
+	readonly hint?: string
 }
 
 /** One message's rows, and the blank row that goes above them when something precedes. */
@@ -90,13 +103,14 @@ export function messageScrollRows(
 	message: TranscriptMessage,
 	hasPrev: boolean,
 	width: number,
+	options: ScrollRowsOptions = {},
 ): MessageScrollRows {
 	const glyph = message.glyph ?? glyphForRole(message.role)
 	const glyphColor =
 		paint(message.glyphColor) ??
 		(glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
 	const color = paint(message.contentColor) ?? contentColorForRole(message.role)
-	const joined = scrollBodyText(message)
+	const joined = scrollBodyText(message, options.hint)
 	const body = wrapChoiceText(joined, width)
 	// An attachment is one quiet row, cut to the width rather than wrapped.
 	const attachmentRows = message.statusRows
@@ -109,7 +123,7 @@ export function messageScrollRows(
 		: [
 				...attachmentRows,
 				...renderedDetailLines(message).flatMap((line) =>
-					wrapChoiceText(line.length > 0 ? line : ' ', width + GUTTER),
+					wrapChoiceText(line.length > 0 ? saying(line, options.hint) : ' ', width + GUTTER),
 				),
 			]
 	const rows: ScrollRow[] = []
@@ -124,6 +138,7 @@ export function messageScrollRows(
 				glyphColor,
 				text: `${i === 0 ? '⎿' : ' '}  ${terminalDisplayText(line)}`,
 				color: theme.text.muted,
+				command: true,
 			})
 		})
 	}

@@ -3,15 +3,17 @@
  *
  * Rows are the scroll view's (`transcript-scroll.ts`): a glyph gutter, wrapped
  * text, a blank row between entries. Each message's rows are kept for as long as
- * the message object and the width stay the same. The transcript holds
+ * the message object, the width and its own open state stay the same, so opening
+ * one row lays out that one message and nothing else. The transcript holds
  * immutable rows, so a streaming reply is the only message that is laid out
  * again as it grows; the rest of a long history costs a lookup.
  */
 
-import { contentColorForRole } from '../Transcript.js'
+import { contentColorForRole, screenMessage } from '../Transcript.js'
 import { wrapChoiceText } from '../terminal-choice-text.js'
 import { shownTheme } from '../theme-store.js'
 import { messageScrollRows, scrollBodyText, scrollTextWidth } from '../transcript-scroll.js'
+import { CLICK_EXPAND_HINT, CLICK_FOLD_HINT, EXPAND_HINT } from '../truncation.js'
 import type { TranscriptMessage } from '../types.js'
 import { wrapJoiners } from './joiners.js'
 import { markdownRows } from './markdown-rows.js'
@@ -29,6 +31,8 @@ interface Cached {
 	readonly hasPrev: boolean
 	/** Colours are baked into rows, so a new theme lays them out again. */
 	readonly theme: string
+	readonly click: boolean
+	readonly open: boolean
 	readonly block: FsMessageRows
 }
 
@@ -52,16 +56,89 @@ function rendersMarkdown(message: TranscriptMessage): boolean {
 	)
 }
 
+/** How a message is drawn: whether a click is the way to open it, and whether it is open. */
+export interface RowMode {
+	readonly click: boolean
+	readonly open: boolean
+}
+
+const PLAIN: RowMode = { click: false, open: false }
+
+/** The message as an open row shows it: what the detailed transcript shows, and how to fold it. */
+function openedMessage(message: TranscriptMessage): TranscriptMessage {
+	const shown = screenMessage(message)
+	const kept = (message.meta ?? '')
+		.replaceAll(EXPAND_HINT, '')
+		.replace(/[\s·]+$/u, '')
+		.trim()
+	const fullHeader = message.shell?.fullHeader
+	return {
+		...shown,
+		...(fullHeader !== undefined ? { content: fullHeader } : {}),
+		meta: kept.length > 0 ? `${kept} · ${CLICK_FOLD_HINT}` : CLICK_FOLD_HINT,
+	}
+}
+
+/**
+ * The rows of a message that carries the expand hint, worded as a click, or
+ * null when it carries none. Only what the hint stands for answers a click: the
+ * line the message opens from, the commands a group lists under it, and the
+ * hint's own row. An open message answers on its line alone, so a click in the
+ * text it opened to selects it instead of folding it.
+ */
+function clickableRows(
+	message: TranscriptMessage,
+	hasPrev: boolean,
+	width: number,
+	open: boolean,
+): FsMessageRows | null {
+	if (message.role !== 'tool' && message.role !== 'system') return null
+	const closed = messageScrollRows(message, hasPrev, width, { hint: CLICK_EXPAND_HINT })
+	// Joined, so a hint the wrap broke between two rows is still found.
+	if (
+		!closed.rows
+			.map((row) => row.text)
+			.join(' ')
+			.includes(CLICK_EXPAND_HINT)
+	)
+		return null
+	const shown = open ? openedMessage(message) : message
+	const hint = open ? undefined : CLICK_EXPAND_HINT
+	const plain = open ? messageScrollRows(shown, hasPrev, width) : closed
+	const text = scrollBodyText(shown, hint)
+	const body = wrapChoiceText(text, width).length
+	const joins = wrapJoiners(
+		text,
+		plain.rows.slice(0, body).map((r) => r.text),
+	)
+	return {
+		gap: plain.gap ? plainRow(plain.gap) : null,
+		rows: plain.rows.map((row, i) => {
+			const own = plainRow(row, i < body ? (joins[i] ?? null) : null)
+			const answers =
+				i < body || (!open && (row.command === true || row.text.includes(CLICK_EXPAND_HINT)))
+			return answers ? { ...own, opens: true as const } : own
+		}),
+	}
+}
+
 /**
  * The rows of one message at a text width from `scrollTextWidth`. Replies are
  * rendered Markdown; every other message is the scroll view's plain rows, with
  * what the wrap took out of each line recorded so a copy can put it back.
+ * With `mode.click` a message that carries the expand hint says "click" and
+ * marks the rows a click answers; `mode.open` draws it open.
  */
 export function fullscreenMessageRows(
 	message: TranscriptMessage,
 	hasPrev: boolean,
 	width: number,
+	mode: RowMode = PLAIN,
 ): FsMessageRows {
+	if (mode.click) {
+		const clickable = clickableRows(message, hasPrev, width, mode.open)
+		if (clickable) return clickable
+	}
 	const plain = messageScrollRows(message, hasPrev, width)
 	const gap = plain.gap ? plainRow(plain.gap) : null
 	const first = plain.rows[0]
@@ -94,10 +171,20 @@ export function fullscreenMessageRows(
 }
 
 /** A cache for `layoutTranscript`; hold one per view. */
-export type LayoutCache = WeakMap<TranscriptMessage, Cached>
+export interface LayoutCache {
+	readonly kept: WeakMap<TranscriptMessage, Cached>
+	/** Messages laid out so far: the cost a change to one message is measured by. */
+	laid: number
+}
 
 export function createLayoutCache(): LayoutCache {
-	return new WeakMap()
+	return { kept: new WeakMap(), laid: 0 }
+}
+
+/** What the view does with a click: which messages are open, by id. */
+export interface ClickView {
+	readonly click: boolean
+	readonly open: ReadonlySet<string>
 }
 
 /**
@@ -110,6 +197,7 @@ export function layoutTranscript(
 	pendingAt: number | undefined,
 	columns: number,
 	cache: LayoutCache,
+	view: ClickView = { click: false, open: new Set() },
 ): FullscreenLayout {
 	const at = Math.min(Math.max(pendingAt ?? messages.length, 0), messages.length)
 	const ordered = pending ? [...messages.slice(0, at), pending, ...messages.slice(at)] : messages
@@ -119,10 +207,26 @@ export function layoutTranscript(
 	const blocks: { id: string; rows: number; tail: string }[] = []
 	ordered.forEach((message, i) => {
 		const hasPrev = i > 0
-		let hit = cache.get(message)
-		if (!hit || hit.width !== width || hit.hasPrev !== hasPrev || hit.theme !== theme) {
-			hit = { width, hasPrev, theme, block: fullscreenMessageRows(message, hasPrev, width) }
-			cache.set(message, hit)
+		const mode: RowMode = { click: view.click, open: view.click && view.open.has(message.id) }
+		let hit = cache.kept.get(message)
+		if (
+			!hit ||
+			hit.width !== width ||
+			hit.hasPrev !== hasPrev ||
+			hit.theme !== theme ||
+			hit.click !== mode.click ||
+			hit.open !== mode.open
+		) {
+			hit = {
+				width,
+				hasPrev,
+				theme,
+				click: mode.click,
+				open: mode.open,
+				block: fullscreenMessageRows(message, hasPrev, width, mode),
+			}
+			cache.kept.set(message, hit)
+			cache.laid += 1
 		}
 		const { gap, rows: own } = hit.block
 		if (gap) rows.push(gap)
