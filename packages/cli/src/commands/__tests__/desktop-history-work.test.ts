@@ -818,3 +818,39 @@ it('keeps the saved label of a call whose output was truncated', async () => {
 		await f.close()
 	}
 })
+
+it('hands back what the turn changed and what checked it, in the terminal wording, from its outcome record', async () => {
+	const f = await fixture()
+	try {
+		const failing = await begin(f.log, f.lease, 'Fix it.')
+		await answer(f.log, f.lease, failing.turnId, 'Fixed.')
+		await f.log.append(f.lease, {
+			type: 'turn_outcome_recorded',
+			ignorable: true,
+			turnId: failing.turnId,
+			outcome: {
+				verdict: 'failing',
+				basis: 'calls',
+				changes: { total: 1, paths: ['slug.js'], outsideKnownTools: false },
+				checks: [{ command: 'npm test', step: 1, result: 'failed', exitCode: 1 }],
+			},
+		} as never)
+		await finish(f.log, f.lease, failing.turnId)
+		const unread = await begin(f.log, f.lease, 'And this?')
+		await answer(f.log, f.lease, unread.turnId, 'Done.')
+		await f.log.append(f.lease, {
+			type: 'turn_outcome_recorded',
+			ignorable: true,
+			turnId: unread.turnId,
+			outcome: { verdict: 'checked', checks: 'not a record' },
+		} as never)
+		await finish(f.log, f.lease, unread.turnId)
+		const result = await f.history()
+		expect(result.work?.turns.map((turn) => turn.outcome)).toEqual([
+			{ verdict: 'failing', line: 'Changed 1 file · npm test failed', changed: 1 },
+			undefined,
+		])
+	} finally {
+		await f.close()
+	}
+})

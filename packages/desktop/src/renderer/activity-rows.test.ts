@@ -100,6 +100,8 @@ describe('run summary labels', () => {
 					{ ...a('command'), state: 'failed' },
 				],
 				false,
+				false,
+				2,
 			),
 		).toBe('Edited a file, ran 2 commands, 2 failed')
 	})
@@ -132,8 +134,10 @@ describe('run summary labels', () => {
 			a('web'),
 			{ ...a('command'), state: 'failed' as const },
 		]
-		expect(actionRunLabel(run, false)).toBe('Edited a file, ran 2 commands, and 3 more, 1 failed')
-		expect(actionRunLabel(run, false, true)).toBe(
+		expect(actionRunLabel(run, false, false, 1)).toBe(
+			'Edited a file, ran 2 commands, and 3 more, 1 failed',
+		)
+		expect(actionRunLabel(run, false, true, 1)).toBe(
 			'Edited a file, ran 2 commands, read a file, searched, searched the web, 1 failed',
 		)
 	})

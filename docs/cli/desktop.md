@@ -2978,6 +2978,16 @@ action is just its row, and the run no longer scrolls inside a box.
 `/preview?activity=1` adds saved replies of every shape above and `/preview?live=1`
 plays a running turn (`&hold=edit` stops it while the edit is under way).
 
+### What a finished turn says about itself
+
+A turn's bad news is not left inside the folded "Worked" block. Three things say it, each from a typed field and never from the model's sentences.
+
+- **The header.** After "Worked for 2s" a finished turn names what went wrong, each with a small status mark: a red mark for "1 command failed" (a command that ended with a non-zero exit, a timeout or a signal; "2 commands failed" for more) and an amber one for "1 action was not allowed" (an action the engine refused or blocked; a change the person declined is their own answer and is not counted). Nothing shows when everything went well. The same words are added to the header's accessible name. The "N failed" at the end of a run's own summary ("Ran 6 commands, 1 failed") is the same count, taken from the same function (`turnAttention`), so a failed read or edit is never counted there as a failed command and the two never disagree. A run of actions that holds a failed command or a refused action starts open even when it is longer than five rows, so opening the block shows it.
+- **The rows.** A failed command shows the last ten lines of what it printed under its row, in the open block with no further click (a passing command keeps its first three lines); "+N lines" opens the rest. A refused action shows one fixed plain sentence under its row, chosen by the kind of refusal ("It was stopped before it ran, so nothing changed." for a blocked action; "It needs administrator rights, so it was stopped before it ran." for one that asked for them), whatever the rule said. The rule's or command guard's own wording (the failure's `note` field) is kept only as the line's hover text, never as its words.
+- **The line under the turn.** One muted line, with one status mark, built only from the kernel's [turn outcome](../sdk/turn-outcome.md) record: what changed (the count from the record) and what the record says about checks, in the words the terminal ends a turn with (`outcomeLine`, `packages/cli/src/tui/outcome-line.ts`; the host writes it and Desktop shows it as sent, so the two cannot drift). Examples: "Changed 2 files · not checked", "Changed 2 files · npm test failed", "Changed 2 files · ran npm test | tail, but the pipe hides whether it passed". The mark is green for `checked`, red for `failing` and amber for every other verdict (`stale`, `inconclusive`, `unchecked`, `unknown`). A turn whose verdict is `unchanged` shows nothing, and so does a turn the kernel recorded nothing for. A `failing` turn that changed no file reads "No files changed · npm test failed". The line is not a card and is drawn only once the turn has ended, and it is not drawn once the person has undone that turn's changes (a partly undone turn keeps it), because "Changed 1 file" would no longer be true. It appears when the notice arrives, which can be just after the turn looks finished, so the transcript may grow by one line then; no height is reserved, because most turns have no line and a blank gap under each would cost more than the single shift.
+
+The outcome travels as a `namzu/session/outcome` notification ([Outcome notices](#outcome-notices)); the renderer keeps it on the turn (`ThreadState.turns[n].outcome`, matched by the turn id; a notice for a turn this window does not know, such as a late one, one replayed after a reconnect or one meant for another window, is dropped rather than put on the current turn, and history brings it back). A reopened conversation gets it back from the history snapshot: each entry of `work.turns` carries `outcome` (`verdict`, `line`, `changed`), read by the CLI from the turn's `turn_outcome_recorded` record, so a conversation saved before outcome records existed shows no line.
+
 ### Streaming a long reply
 
 A streamed reply is drawn in pieces. Its text is cut at blank lines outside code, and each
@@ -4069,6 +4079,20 @@ The shared protocol bridge says nothing about how full a conversation is or that
 | `tokensBefore`, `tokensAfter` | the size the pass started from and ended at, when known |
 
 A field the engine did not report is left out, never sent as zero. Usage notices are coalesced to at most one per conversation every 400 ms (the first goes at once, a burst ends with one carrying the latest numbers); compaction notices are never delayed. Compaction that runs while no turn is open (the idle pass) is not announced.
+
+### Outcome notices
+
+Under `--desktop` only, the host also sends one `namzu/session/outcome` notification when a turn ends (`src/commands/desktop-outcome-feed.ts`), without any request. It is read from the final `turn_completed` or `turn_failed` event's settlement, which carries the kernel's turn outcome record, and a turn that recorded none sends none. A client that does not know it ignores it.
+
+| Field | Meaning |
+| --- | --- |
+| `sessionId`, `turnId` | the conversation and the turn |
+| `verdict` | `unchanged`, `checked`, `stale`, `failing`, `inconclusive`, `unchecked` or `unknown`, as in [Turn outcome](../sdk/turn-outcome.md#the-verdict) |
+| `line` | the terminal's end-of-turn wording for the record; absent when it has nothing to say (nothing changed, no check failed) |
+| `changed` | how many files the turn's write tools changed |
+| `outcome` | the record itself, as the kernel bounded it |
+
+Desktop admits `verdict`, `line` (one line of at most 500 characters, control characters turned into spaces) and `changed`, and drops the rest; a notice that does not read, or names a conversation another connection owns, is ignored.
 
 ### Working-tree changes
 
