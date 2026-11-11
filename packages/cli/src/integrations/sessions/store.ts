@@ -67,6 +67,12 @@ import { resolveNamzuHome } from '../state/home.js'
 import { loadIdentity, readIdentity } from '../state/identity.js'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 import { cliProjectRoot } from '../state/project.js'
+import {
+	type ConversationFacts,
+	type ConversationRecords,
+	conversationFactsOf,
+	foldConversationFacts,
+} from './conversation-facts.js'
 import { typedTextOf } from './display-title.js'
 import { rememberJournal } from './journal-trail.js'
 
@@ -317,12 +323,7 @@ export async function recordAccountBound(
 	},
 ): Promise<boolean> {
 	const facts = await readConversationFacts(s, sessionId, 'tolerant')
-	let last: string | undefined
-	for (const record of facts?.records ?? []) {
-		if (record.type === 'account_bound' && record.provider === binding.provider) {
-			last = record.accountId
-		}
-	}
+	const last = facts?.accountBinding(binding.provider)
 	if (last === binding.accountId) return false
 	// Nothing to undo: a conversation that never left the usual sign-in writes nothing.
 	if (last === undefined && isDefaultAccountId(binding.accountId)) return false
@@ -395,23 +396,14 @@ export async function refreshIndex(
 	await s.index.refresh({ slug: s.slug, logPath: conversationLogPath(s, sessionId), sessionId })
 }
 
-/** What one conversation's log says about it, outside its messages. */
-export interface ConversationFacts {
-	readonly sessionId: SessionId
-	readonly started: SessionStartedRecord
-	/** The latest `session_updated.title`; empty or absent means derived. */
-	readonly title?: string
-	readonly named: boolean
-	readonly archived: boolean
-	readonly createdAt: string
-	readonly updatedAt: string
-	/** The session's open turn, if any, and whether it is parked. */
-	readonly activeTurn?: { readonly turnId: string; readonly paused: boolean }
-	readonly records: readonly SessionRecord[]
-}
+export type { ConversationFacts, ConversationRecords } from './conversation-facts.js'
 
 /**
  * Read one conversation's log, or `null` when there is none.
+ *
+ * Answers the facts a caller asks about, from a reduction that keeps nothing
+ * else of the log (see `conversation-facts.ts`); callers that fold messages
+ * from the records read them with {@link readConversationRecords}.
  *
  * Strict by default: a log whose chain is broken is not something to resume
  * or fork. A list passes `tolerant` and reads what precedes the break.
@@ -421,49 +413,29 @@ export async function readConversationFacts(
 	sessionId: SessionId,
 	mode: 'strict' | 'tolerant' = 'strict',
 ): Promise<ConversationFacts | null> {
+	return await foldConversationFacts(
+		openConversationLog(s, sessionId),
+		conversationLogPath(s, sessionId),
+		sessionId,
+		mode,
+	)
+}
+
+/**
+ * One conversation's facts together with every record of its log, for the
+ * callers that fold messages, titles or a transcript from them. It keeps the
+ * whole log in memory; a caller that only asks about the conversation uses
+ * {@link readConversationFacts}.
+ */
+export async function readConversationRecords(
+	s: Pick<CliSessions, 'paths'>,
+	sessionId: SessionId,
+	mode: 'strict' | 'tolerant' = 'strict',
+): Promise<ConversationRecords | null> {
 	const read = await readSessionLog(conversationLogPath(s, sessionId), { mode, sessionId })
 	const records = read.entries.map((entry) => entry.record)
-	const first = records[0]
-	if (first === undefined || first.type !== 'session_started') return null
-	let title: string | undefined
-	let named = false
-	let archived = false
-	let active: { turnId: string; paused: boolean } | undefined
-	for (const record of records) {
-		switch (record.type) {
-			case 'session_updated':
-				if (record.title !== undefined) {
-					title = record.title
-					named = record.titleSource === 'named' && record.title.length > 0
-				}
-				if (record.archived !== undefined) archived = record.archived
-				break
-			case 'turn_started':
-				active = { turnId: record.turnId, paused: false }
-				break
-			case 'turn_paused':
-				if (active?.turnId === record.turnId) active = { ...active, paused: true }
-				break
-			case 'turn_resuming':
-				if (active?.turnId === record.turnId) active = { ...active, paused: false }
-				break
-			case 'turn_completed':
-			case 'turn_failed':
-				if (active?.turnId === record.turnId) active = undefined
-				break
-		}
-	}
-	return {
-		sessionId,
-		started: first,
-		...(title !== undefined ? { title } : {}),
-		named,
-		archived,
-		createdAt: first.ts,
-		updatedAt: records.at(-1)?.ts ?? first.ts,
-		...(active ? { activeTurn: active } : {}),
-		records,
-	}
+	const facts = conversationFactsOf(sessionId, records)
+	return facts === null ? null : { ...facts, records }
 }
 
 /** The folded conversation a log's records describe, spills read back. */
@@ -697,7 +669,24 @@ async function requireConversationInScope(
 	sessionId: SessionId,
 	op: string,
 ): Promise<ConversationFacts> {
-	const facts = await readConversationFacts(s, sessionId)
+	return assertInScope(s, sessionId, op, await readConversationFacts(s, sessionId))
+}
+
+/** As {@link requireConversationInScope}, for a caller that folds messages from the records. */
+async function requireConversationRecordsInScope(
+	s: ConversationReadContext,
+	sessionId: SessionId,
+	op: string,
+): Promise<ConversationRecords> {
+	return assertInScope(s, sessionId, op, await readConversationRecords(s, sessionId))
+}
+
+function assertInScope<F extends ConversationFacts>(
+	s: ConversationReadContext,
+	sessionId: SessionId,
+	op: string,
+	facts: F | null,
+): F {
 	if (!facts) {
 		throw new Error(`Conversation ${sessionId} was not found — ${op} rejected`)
 	}
@@ -823,7 +812,7 @@ export async function loadConversationSnapshot(
 	s: ConversationReadContext,
 	sessionId: SessionId,
 ): Promise<{ messages: Message[]; records: readonly SessionRecord[] }> {
-	const facts = await requireConversationInScope(s, sessionId, 'load conversation history')
+	const facts = await requireConversationRecordsInScope(s, sessionId, 'load conversation history')
 	const messages = await foldConversation(s, sessionId, facts.records)
 	rememberJournal(messages, facts.records)
 	return { messages, records: facts.records }
@@ -841,7 +830,7 @@ export async function loadResumableConversation(
 	sessionId: string,
 ): Promise<Message[]> {
 	const checked = asSessionId(sessionId)
-	const facts = await requireConversationInScope(s, checked, 'resume conversation')
+	const facts = await requireConversationRecordsInScope(s, checked, 'resume conversation')
 	assertWritableConversation(facts, checked, 'resume conversation')
 	const messages = await foldConversation(s, checked, facts.records)
 	rememberJournal(messages, facts.records)
@@ -870,19 +859,9 @@ export async function closableProviderPause(
 	const facts = await requireConversationInScope(s, sessionId, 'inspect conversation')
 	const active = facts.activeTurn
 	if (!active?.paused) return undefined
-	const pause = [...facts.records]
-		.reverse()
-		.find((record) => record.type === 'turn_paused' && record.turnId === active.turnId)
-	if (!pause || pause.type !== 'turn_paused' || pause.handoff || !pause.providerError)
-		return undefined
-	const pending = new Set<string>()
-	for (const record of facts.records) {
-		if (record.type === 'decision_requested' && record.turnId === active.turnId)
-			pending.add(record.decisionId)
-		if (record.type === 'decision_resolved' || record.type === 'decision_expired')
-			pending.delete(record.decisionId)
-	}
-	return pending.size === 0 ? { turnId: active.turnId } : undefined
+	const pause = facts.latestPause(active.turnId)
+	if (!pause || pause.handoff || !pause.providerError) return undefined
+	return facts.pendingDecisions(active.turnId).size === 0 ? { turnId: active.turnId } : undefined
 }
 
 /**
@@ -902,15 +881,8 @@ export async function unansweredReviewPark(
 	// A turn another process is still running owns its questions.
 	const state = await DiskSessionLog.at(s.paths, { sessionId }).activeTurn()
 	if (!state || state.turnId !== active.turnId || state.state === 'running') return undefined
-	const pending = new Map<string, string>()
-	for (const record of facts.records) {
-		if (record.type === 'turn_paused' && record.turnId === active.turnId && record.handoff)
-			return undefined
-		if (record.type === 'decision_requested' && record.turnId === active.turnId)
-			pending.set(record.decisionId, record.request.type)
-		if (record.type === 'decision_resolved' || record.type === 'decision_expired')
-			pending.delete(record.decisionId)
-	}
+	if (facts.pausedForHandoff(active.turnId)) return undefined
+	const pending = facts.pendingDecisions(active.turnId)
 	if (pending.size === 0) return undefined
 	for (const type of pending.values()) if (type !== 'tool_review') return undefined
 	return { turnId: active.turnId }
@@ -990,10 +962,10 @@ async function listConversations(
 		.slice(boundedOffset, boundedOffset + Math.max(100, boundedLimit * 5))
 	const out: RecentConversation[] = []
 	for (const row of rows) {
-		let facts: ConversationFacts | null
+		let facts: ConversationRecords | null
 		let messages: Message[]
 		try {
-			facts = await readConversationFacts(s, row.id, 'tolerant')
+			facts = await readConversationRecords(s, row.id, 'tolerant')
 			if (
 				!facts ||
 				facts.archived !== archived ||
@@ -1016,7 +988,7 @@ async function listConversations(
 /** One picker row from a conversation's facts and folded messages. */
 function recentRow(
 	id: SessionId,
-	facts: ConversationFacts,
+	facts: ConversationRecords,
 	messages: readonly Message[],
 ): RecentConversation {
 	const typed = recordedMessages(facts.records).filter(
@@ -1083,7 +1055,7 @@ export async function listOtherFolders(
 		const folder = await folderOf(row.slug)
 		if (!folder) continue
 		try {
-			const facts = await readConversationFacts(folder, row.id, 'tolerant')
+			const facts = await readConversationRecords(folder, row.id, 'tolerant')
 			if (
 				!facts ||
 				facts.archived ||
@@ -1191,7 +1163,7 @@ export async function linkConversationToPullRequest(
 	let written = false
 	try {
 		const facts = await readConversationFacts(s, sessionId, 'tolerant')
-		if (facts && pullRequestOfRecords(facts.records)?.url !== link.url) {
+		if (facts && facts.pullRequest?.url !== link.url) {
 			await log.append(lease, {
 				type: 'session_updated',
 				externalRefs: { add: [pullRequestRef(link)] },
@@ -1396,7 +1368,7 @@ async function writeFork(
 	sourceMessages: readonly Message[],
 	copiedMessages: readonly Message[],
 ): Promise<{ id: SessionId; title: string; messages: Message[] }> {
-	const sourceFacts = await readConversationFacts(sourceStore, sourceId, 'tolerant')
+	const sourceFacts = await readConversationRecords(sourceStore, sourceId, 'tolerant')
 	const source =
 		sourceFacts?.title !== undefined && sourceFacts.title.length > 0
 			? sourceFacts.title
@@ -1461,7 +1433,7 @@ export function nextForkName(taken: Record<string, string>, source: string): str
 }
 
 /** The title a list row shows for these facts: the stored one, else derived from the first message. */
-export function displayTitleOf(facts: ConversationFacts): string {
+export function displayTitleOf(facts: ConversationRecords): string {
 	return facts.title !== undefined &&
 		facts.title.length > 0 &&
 		(facts.named || facts.title !== 'Conversation')

@@ -20,7 +20,7 @@ import {
 	forkConversation,
 	openConversationLog,
 	openSessions,
-	readConversationFacts,
+	readConversationRecords,
 	refreshIndex,
 	startConversation,
 } from './store.js'
@@ -133,7 +133,7 @@ describe('exporting a conversation from its session log', () => {
 		const s = await project()
 		const id = await startConversation(s)
 		await recordTurn(s, id, [createUserMessage('what is the key'), assistant('the key is SECRET')])
-		const facts = await readConversationFacts(s, id)
+		const facts = await readConversationRecords(s, id)
 		const answer = facts?.records.find(
 			(record) => record.type === 'message' && record.role === 'assistant',
 		)

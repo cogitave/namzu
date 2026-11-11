@@ -8,7 +8,7 @@ import { PROVIDER_REGISTRY } from '../../integrations/providers/index.js'
 import {
 	closeSessions,
 	openSessions,
-	readConversationFacts,
+	readConversationRecords,
 } from '../../integrations/sessions/store.js'
 import { createAgentSession } from '../../tui/agent.js'
 import { type AcpRuntimeDependencies, createCliAcpRuntime } from '../acp.js'
@@ -70,7 +70,7 @@ it('resumes a measured durable provider pause through the actual SDK kernel with
 		)
 		expect(provider.requests.length).toBeGreaterThan(0)
 		expect(provider.requests.every((request) => request.model === 'original-model')).toBe(true)
-		const facts = await readConversationFacts(state, f.sessionId)
+		const facts = await readConversationRecords(state, f.sessionId)
 		expect(facts?.activeTurn).toBeUndefined()
 		expect(facts?.records.filter((row) => row.type === 'turn_started')).toHaveLength(1)
 		expect(

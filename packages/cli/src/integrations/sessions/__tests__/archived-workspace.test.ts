@@ -26,7 +26,7 @@ import {
 	loadResumableConversation,
 	openConversationLog,
 	openSessions,
-	readConversationFacts,
+	readConversationRecords,
 	refreshIndex,
 	requireWritableConversation,
 	resolveConversation,
@@ -68,7 +68,7 @@ describe('an archived conversation', () => {
 		)
 		await expect(forkConversation(sessions, id)).rejects.toThrow(/archived and read-only/i)
 		await expect(archiveConversation(sessions, id)).rejects.toThrow(/already archived/i)
-		expect((await readConversationFacts(sessions, id))?.records.at(-1)).toMatchObject({
+		expect((await readConversationRecords(sessions, id))?.records.at(-1)).toMatchObject({
 			type: 'session_updated',
 			archived: true,
 		})
@@ -102,7 +102,7 @@ describe('an archived conversation', () => {
 			content: 'work to continue',
 		})
 		expect((await listRecent(sessions)).map((row) => row.id)).toEqual([id])
-		expect((await readConversationFacts(sessions, id))?.records.at(-1)).toMatchObject({
+		expect((await readConversationRecords(sessions, id))?.records.at(-1)).toMatchObject({
 			type: 'session_updated',
 			archived: false,
 		})
@@ -165,7 +165,7 @@ describe('an archived conversation', () => {
 		expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1)
 		expect(outcomes.filter((outcome) => outcome.status === 'rejected')).toHaveLength(1)
 		expect(
-			(await readConversationFacts(sessions, id))?.records.filter(
+			(await readConversationRecords(sessions, id))?.records.filter(
 				(record) => record.type === 'session_updated' && record.archived === false,
 			),
 		).toHaveLength(1)
@@ -197,7 +197,7 @@ describe('an archived conversation', () => {
 			name: ConversationIndexRefreshError.name,
 			message: expect.stringContaining('was restored in its durable log'),
 		})
-		expect((await readConversationFacts(sessions, id))?.archived).toBe(false)
+		expect((await readConversationRecords(sessions, id))?.archived).toBe(false)
 		closeSessions(sessions)
 		const reopened = await openSessions(cwd, { stateRoot })
 		expect((await reopened.index.getSession(id))?.archived).toBe(false)
@@ -211,7 +211,7 @@ describe('an archived conversation', () => {
 			status: 'paused',
 		})
 		await expect(archiveConversation(sessions, id)).rejects.toThrow(/open turn/i)
-		expect((await readConversationFacts(sessions, id))?.archived).toBe(false)
+		expect((await readConversationRecords(sessions, id))?.archived).toBe(false)
 	})
 
 	it('restores a historical archived conversation with a parked turn for explicit resolution', async () => {
@@ -233,7 +233,7 @@ describe('an archived conversation', () => {
 		await refreshIndex(sessions, id)
 		await expect(loadResumableConversation(sessions, id)).rejects.toThrow(/archived/i)
 		await unarchiveConversation(sessions, id)
-		expect((await readConversationFacts(sessions, id))?.activeTurn?.paused).toBe(true)
+		expect((await readConversationRecords(sessions, id))?.activeTurn?.paused).toBe(true)
 		expect((await loadResumableConversation(sessions, id))[0]).toMatchObject({
 			content: 'waiting for a person',
 		})
@@ -272,6 +272,6 @@ describe('an archived conversation', () => {
 		}
 		expect(await listArchived(wrongTenant)).toEqual([])
 		await expect(unarchiveConversation(wrongTenant, id)).rejects.toThrow(/does not belong/i)
-		expect((await readConversationFacts(sessions, id))?.archived).toBe(true)
+		expect((await readConversationRecords(sessions, id))?.archived).toBe(true)
 	})
 })

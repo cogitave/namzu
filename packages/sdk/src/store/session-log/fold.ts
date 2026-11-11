@@ -311,6 +311,18 @@ export class SessionTurnState {
 		return this.#active
 	}
 
+	/**
+	 * An independent copy at the records applied so far. `apply` replaces the
+	 * active turn's object rather than editing it, so the copy may share it.
+	 */
+	clone(): SessionTurnState {
+		const copy = new SessionTurnState()
+		copy.#active = this.#active
+		copy.#lastTurnId = this.#lastTurnId
+		copy.#started = this.#started
+		return copy
+	}
+
 	/** The last turn that started, active or not. */
 	get lastTurnId(): TurnId | undefined {
 		return this.#lastTurnId

@@ -59,6 +59,16 @@ export class DiskLogMedium implements LogMedium {
 		}
 	}
 
+	async identity(): Promise<string | undefined> {
+		try {
+			const stats = await stat(this.file)
+			return `${stats.dev}:${stats.ino}:${this.file}`
+		} catch (error) {
+			if (isErrno(error, 'ENOENT')) return undefined
+			throw error
+		}
+	}
+
 	async read(offset: number, length: number): Promise<Uint8Array> {
 		let handle: FileHandle
 		try {
@@ -71,6 +81,28 @@ export class DiskLogMedium implements LogMedium {
 			const buffer = Buffer.alloc(length)
 			const { bytesRead } = await handle.read(buffer, 0, length, offset)
 			return buffer.subarray(0, bytesRead)
+		} finally {
+			await handle.close()
+		}
+	}
+
+	async scan(offset: number, visit: (chunk: Uint8Array) => boolean): Promise<void> {
+		let handle: FileHandle
+		try {
+			handle = await open(this.file, 'r')
+		} catch (error) {
+			if (isErrno(error, 'ENOENT')) return
+			throw error
+		}
+		try {
+			const buffer = Buffer.allocUnsafe(1 << 20)
+			let position = offset
+			for (;;) {
+				const { bytesRead } = await handle.read(buffer, 0, buffer.length, position)
+				if (bytesRead === 0) return
+				position += bytesRead
+				if (visit(buffer.subarray(0, bytesRead))) return
+			}
 		} finally {
 			await handle.close()
 		}
