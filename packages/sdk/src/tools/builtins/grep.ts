@@ -1,5 +1,5 @@
 import { stat } from 'node:fs/promises'
-import { isAbsolute, join, relative, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { z } from 'zod'
 import { walkFilesLocally } from '../../sandbox/file-walk.js'
 import type { SandboxWalkFilesOptions, SandboxWalkSummary } from '../../types/sandbox/index.js'
@@ -7,6 +7,7 @@ import type { ToolContext } from '../../types/tool/index.js'
 import { subscribeToAbort } from '../../utils/abort.js'
 import { defineTool } from '../defineTool.js'
 import {
+	canonicalize,
 	resolveWithin,
 	resolveWithinAny,
 	resolveWithinAnyReal,
@@ -14,7 +15,12 @@ import {
 	toolRoots,
 } from '../paths.js'
 import { relativePosix, resolveWithinPosix } from '../posix-path.js'
-import { readBoundedChunks, readBoundedFile } from './bounded-file-read.js'
+import {
+	CAN_REFUSE_LINKS,
+	readBoundedChunks,
+	readBoundedFile,
+	readBoundedFileSync,
+} from './bounded-file-read.js'
 import {
 	MAX_FILES_SEARCHED,
 	SEARCH_BUDGET_MS,
@@ -24,6 +30,7 @@ import {
 	isReadDenied,
 	openSearchBudget,
 	plural,
+	readAhead,
 	stoppedNotice,
 } from './search-support.js'
 
@@ -46,6 +53,99 @@ async function readWithSignal(read: () => Promise<Buffer>, signal?: AbortSignal)
 		])
 	} finally {
 		dispose?.()
+	}
+}
+
+/** Longest the local read loop holds the event loop before it yields. */
+const READ_SLICE_MS = 8
+
+/**
+ * Reads files of a local search root. Each directory is resolved to its real
+ * path once and checked against the real root once; a file is then one open
+ * (links refused at the last component), fstat, read and close, all
+ * synchronous, with a yield to the event loop every few milliseconds. That is
+ * the same containment decision as resolving every file, because the walk
+ * lists only regular files in real directories and the open refuses a file
+ * that has become a link. Not used for a sandbox, nor where the platform cannot
+ * refuse links.
+ */
+function createLocalReader(root: string, signal: AbortSignal | undefined) {
+	const scratch = Buffer.allocUnsafe(64 * 1024)
+	const rootRealPromise = canonicalize(resolve(root))
+	const directories = new Map<string, Promise<string>>()
+	let sliceStart = performance.now()
+	const realDirectory = (directory: string): Promise<string> => {
+		let known = directories.get(directory)
+		if (!known) {
+			known = canonicalize(directory)
+			directories.set(directory, known)
+		}
+		return known
+	}
+	let rootReal: string | undefined
+	return {
+		async read(
+			filePath: string,
+		): Promise<{ buffer: Buffer | 'too-large' | 'gone'; contained: string }> {
+			if (performance.now() - sliceStart > READ_SLICE_MS) {
+				await new Promise<void>((done) => setImmediate(done))
+				sliceStart = performance.now()
+			}
+			signal?.throwIfAborted()
+			const directory = dirname(filePath)
+			const real = await realDirectory(directory)
+			rootReal ??= await rootRealPromise
+			const contained =
+				real === directory ? filePath : join(real, filePath.slice(directory.length + 1))
+			if (!(contained.startsWith(rootReal + sep) || contained === rootReal)) {
+				const rel = relative(rootReal, contained)
+				if (rel.startsWith('..') || isAbsolute(rel)) {
+					throw new Error('Path escapes the working directory through a link.')
+				}
+			}
+			signal?.throwIfAborted()
+			try {
+				return { buffer: readBoundedFileSync(contained, MAX_FILE_SIZE, scratch), contained }
+			} catch (error) {
+				// Gone since the walk listed it: absent, as a walk that ran later would find it.
+				const code = (error as NodeJS.ErrnoException).code
+				if (code === 'ENOENT' || code === 'ENOTDIR') return { buffer: 'gone', contained }
+				throw error
+			}
+		},
+	}
+}
+
+/** A walked path that is already inside `root` in normal form, or null when it needs the full check. */
+const PLAIN_TAIL = /(^|\/)\.{1,2}(\/|$)|\/\/|\/$/
+
+/**
+ * The fast form of what `resolveWithin` and the display path compute for the
+ * walk's own entries on a POSIX host: a path the walk built under `root` is
+ * already normal, so it is returned as it is and its display name is a
+ * prefix plus the tail. Anything else, and every other platform, takes the
+ * full computation.
+ */
+function createWalkedPaths(root: string, lexicalRoot: string, workingDirectory: string) {
+	if (sep !== '/') return undefined
+	const prefix = root === '/' ? '/' : `${root}/`
+	const rootRel = relative(workingDirectory, lexicalRoot)
+	const display = rootRel.startsWith('..') || isAbsolute(rootRel) ? undefined : rootRel
+	return {
+		within(path: string): string {
+			if (path.startsWith(prefix) && path.length > prefix.length) {
+				if (!PLAIN_TAIL.test(path.slice(prefix.length))) return path
+			}
+			return resolveWithin(root, path)
+		},
+		displayName(path: string): string | undefined {
+			if (display === undefined || !path.startsWith(prefix) || path.length === prefix.length) {
+				return undefined
+			}
+			const tail = path.slice(prefix.length)
+			if (PLAIN_TAIL.test(tail)) return undefined
+			return display === '' ? tail : `${display}/${tail}`
+		},
 	}
 }
 
@@ -201,11 +301,7 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5 MB — skip binaries/large files
 const BINARY_CHECK_BYTES = 512
 
 function isBinaryContent(buffer: Buffer): boolean {
-	const check = buffer.subarray(0, BINARY_CHECK_BYTES)
-	for (const byte of check) {
-		if (byte === 0) return true
-	}
-	return false
+	return buffer.subarray(0, BINARY_CHECK_BYTES).includes(0)
 }
 
 export const GrepTool = defineTool({
@@ -291,7 +387,11 @@ export const GrepTool = defineTool({
 				walkEnd = value
 			},
 		}
-		const entries = walkSandbox ? walkSandbox(root, options) : walkFilesLocally(root, options)
+		// A local walk is read ahead so its directory reads overlap with matching; a
+		// sandbox's walk is left as the adapter produces it.
+		const entries = walkSandbox
+			? walkSandbox(root, options)
+			: readAhead(walkFilesLocally(root, { ...options, withoutSizes: CAN_REFUSE_LINKS }))
 
 		// `execute` is reachable without the schema's defaults.
 		const mode = input.output_mode ?? 'files_with_matches'
@@ -321,12 +421,16 @@ export const GrepTool = defineTool({
 		const filesToCollect =
 			headLimit > 0 ? offset + Math.max(headLimit * 4, 1000) : Number.POSITIVE_INFINITY
 		let enough = false
+		const walked = sandbox
+			? undefined
+			: createWalkedPaths(root, lexicalRoot, context.workingDirectory)
+		const localReader = !sandbox && CAN_REFUSE_LINKS ? createLocalReader(root, signal) : undefined
 		try {
 			for await (const entry of entries) {
 				signal?.throwIfAborted()
 				const filePath = sandbox
 					? resolveWithinPosix(root, entry.path)
-					: resolveWithin(root, entry.path)
+					: (walked?.within(entry.path) ?? resolveWithin(root, entry.path))
 				if (filesSearched >= MAX_FILES_SEARCHED) {
 					fileLimit = true
 					break
@@ -339,21 +443,34 @@ export const GrepTool = defineTool({
 				let content: string
 				let contained: string | undefined
 				try {
-					const buffer = await readWithSignal(
-						() =>
-							sandbox
-								? readBoundedChunks(
-										(offset, length) =>
-											sandbox.readFile(filePath, { offset, length, signal: signal }),
-										MAX_FILE_SIZE,
-										signal,
-									)
-								: resolveWithinReal(root, filePath).then((path) => {
-										contained = path
-										return readBoundedFile(path, MAX_FILE_SIZE, signal)
-									}),
-						signal,
-					)
+					let buffer: Buffer
+					if (localReader) {
+						const read = await localReader.read(filePath)
+						contained = read.contained
+						// Over the cap by the size on the open handle: skipped, not unreadable.
+						if (read.buffer === 'too-large') continue
+						// Gone since the walk listed it: as if the walk had not listed it.
+						if (read.buffer === 'gone') {
+							filesSearched--
+							continue
+						}
+						buffer = read.buffer
+					} else
+						buffer = await readWithSignal(
+							() =>
+								sandbox
+									? readBoundedChunks(
+											(offset, length) =>
+												sandbox.readFile(filePath, { offset, length, signal: signal }),
+											MAX_FILE_SIZE,
+											signal,
+										)
+									: resolveWithinReal(root, filePath).then((path) => {
+											contained = path
+											return readBoundedFile(path, MAX_FILE_SIZE, signal)
+										}),
+							signal,
+						)
 					signal?.throwIfAborted()
 					if (buffer.length > MAX_FILE_SIZE || isBinaryContent(buffer)) continue
 					content = buffer.toString('utf-8')
@@ -367,7 +484,8 @@ export const GrepTool = defineTool({
 				let fileMatches = 0
 				const relPath = sandbox
 					? relativePosix(sandbox.rootDir, filePath)
-					: hostDisplayPath(context.workingDirectory, join(lexicalRoot, relative(root, filePath)))
+					: (walked?.displayName(filePath) ??
+						hostDisplayPath(context.workingDirectory, join(lexicalRoot, relative(root, filePath))))
 
 				if (mode === 'content' && input.only_matching) {
 					for (const fragment of matchingFragments(content, regex, multiline)) {
@@ -580,7 +698,8 @@ function lineHits(
 ): [number, number][] {
 	const hits: [number, number][] = []
 	for (let i = 0; i < lines.length; i++) {
-		context.abortSignal?.throwIfAborted()
+		// A cancellation is seen within a few hundred lines; per line it cost more than the match.
+		if ((i & 255) === 0) context.abortSignal?.throwIfAborted()
 		regex.lastIndex = 0
 		if (regex.test(lines[i] ?? '')) hits.push([i, i])
 	}
