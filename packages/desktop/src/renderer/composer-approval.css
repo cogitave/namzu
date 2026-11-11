@@ -20,15 +20,31 @@
 	color: var(--warning-foreground);
 }
 .approval-title {
+	/* Inline text, not a flex row: a flex row reads to a screen reader as "Create a.txt ?". */
+	display: block;
+	flex: 0 1 auto;
 	min-width: 0;
 	margin: 0;
 	overflow: hidden;
 	color: var(--foreground);
-	font-size: 13px;
+	font-size: 14px;
 	font-weight: 600;
+	line-height: 24px;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+/* The target of the question: a file or a command, in mono, cut to one line. */
+.approval-chip {
+	margin-inline: 0 -3px;
+	padding: 2px 6px;
+	border-radius: var(--radius-chip);
+	background: color-mix(in srgb, var(--foreground) 8%, transparent);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 16px;
+}
+
 .approval-counts {
 	display: inline-flex;
 	flex: none;
@@ -44,7 +60,6 @@
 	color: var(--error-foreground);
 }
 .approval-count {
-	margin-left: auto;
 	flex: none;
 	color: var(--muted-foreground);
 	font-variant-numeric: tabular-nums;
@@ -52,94 +67,6 @@
 .approval-note {
 	margin: 0;
 	color: var(--muted-foreground);
-}
-.approval-warning {
-	margin: 0;
-	color: var(--warning-foreground);
-}
-.approval-diff {
-	overflow: hidden;
-	border: 1px solid var(--border);
-	border-radius: var(--radius-control);
-	background: var(--code-background);
-}
-.approval-diff-scroll {
-	max-height: 280px;
-	overflow: auto;
-	scrollbar-width: thin;
-}
-.approval-diff-scroll[data-expanded] {
-	max-height: 60vh;
-}
-.approval-diff-scroll:focus-visible,
-.approval-command:focus-visible {
-	outline: 2px solid transparent;
-	outline-offset: -2px;
-	box-shadow: var(--focus-ring-inset);
-}
-.approval-more {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	gap: 4px;
-	width: 100%;
-	padding: 4px 8px;
-	border: 0;
-	border-top: 1px solid var(--border);
-	background: transparent;
-	color: var(--muted-foreground);
-	font: inherit;
-	cursor: pointer;
-}
-.approval-more:hover {
-	background: var(--accent);
-	color: var(--foreground);
-}
-.approval-more:focus-visible {
-	outline: 2px solid transparent;
-	outline-offset: -2px;
-	box-shadow: var(--focus-ring-inset);
-}
-.approval-more svg {
-	width: 14px;
-	height: 14px;
-}
-.approval-more svg[data-up] {
-	rotate: 180deg;
-}
-.approval-command {
-	max-height: 140px;
-	margin: 0;
-	padding: 8px 10px;
-	overflow: auto;
-	border: 1px solid var(--border);
-	border-radius: var(--radius-control);
-	background: var(--code-background);
-	color: var(--code-foreground);
-	font-family: var(--font-mono);
-	font-size: 12px;
-	white-space: pre-wrap;
-	overflow-wrap: anywhere;
-}
-.approval-message {
-	max-height: 140px;
-	margin: 0;
-	padding: 8px 12px;
-	overflow: auto;
-	border: 1px solid var(--border);
-	border-left: 3px solid var(--border-strong, var(--muted-foreground));
-	border-radius: var(--radius-control);
-	background: var(--surface);
-	color: var(--foreground);
-	font-size: 13px;
-	line-height: 20px;
-	white-space: pre-wrap;
-	overflow-wrap: anywhere;
-}
-.approval-message:focus-visible {
-	outline: 2px solid transparent;
-	outline-offset: -2px;
-	box-shadow: var(--focus-ring-inset);
 }
 .approval-entries {
 	display: grid;
@@ -197,13 +124,27 @@
 	align-items: center;
 	justify-content: flex-end;
 	gap: 8px;
-	padding-top: 2px;
+	min-height: 32px;
+	padding-top: 4px;
 }
-.approval-hint {
+/* What the kernel knows about where this runs; the buttons sit to its right. */
+.approval-fact {
+	flex: 1 1 140px;
+	min-width: 0;
 	margin: 0;
+	overflow: hidden;
 	color: var(--muted-foreground);
-	font-size: 11px;
-	text-align: right;
+	font-size: 12px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.approval-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-left: auto;
 }
 /* The card's lower edge sits clear of the message box, with room for the buttons' focus ring. */
 .approval-card {
@@ -232,7 +173,7 @@
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	height: 28px;
+	height: 32px;
 	padding: 0 12px;
 	border: 1px solid var(--border);
 	border-radius: var(--radius-control);
@@ -269,14 +210,19 @@
 }
 /* Red and green text on the card surface, both themes at 4.5:1 or better. */
 .approval-button[data-tone="reject"] {
+	border-color: transparent;
 	color: var(--error-foreground);
 }
-.approval-instead {
-	border-color: transparent;
-	color: var(--muted-foreground);
+/* "Allow for this conversation": an outline, never the filled answer. */
+.approval-outline {
+	border-color: var(--input);
 }
-.approval-instead:hover:not(:disabled) {
-	color: var(--foreground);
+.approval-button[aria-disabled="true"] {
+	opacity: 0.5;
+	cursor: default;
+}
+.approval-button[data-tone="accept"][aria-disabled="true"]:hover {
+	background: var(--message-action);
 }
 /* Accept is the one filled button: the answer that lets the action go ahead. */
 .approval-button[data-tone="accept"] {
@@ -289,29 +235,185 @@
 	background: var(--message-action-hover);
 }
 
-/* The state the person is being asked about, directly above the card that asks it. */
-.approval-waiting {
-	position: relative;
-	z-index: 1;
-	margin: 0 0 6px 8px;
-	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
-}
-
-/* An Allow that is held (a long command or diff not yet scrolled to its end) reads as unavailable but still explains itself. */
-.approval-button[data-held] {
-	opacity: 0.5;
-	cursor: default;
-}
-.approval-button[data-tone="accept"][data-held]:hover {
-	background: var(--message-action);
-}
-.approval-read-hint {
-	text-align: right;
-}
-
 .approval-cut-note {
 	color: var(--muted-foreground);
 	font-size: 12px;
+}
+
+/* A fact the request carries about what saying yes would do, straight after the question. */
+.approval-flag {
+	display: flex;
+	align-items: flex-start;
+	gap: 6px;
+	margin: 0;
+	color: var(--warning-foreground);
+	font-size: 13px;
+	line-height: 20px;
+}
+.approval-flag svg {
+	flex: none;
+	width: 16px;
+	height: 16px;
+	margin-top: 2px;
+}
+
+/* The first rows of the change or the command; the rest is one click away. */
+.approval-box {
+	position: relative;
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
+	background: var(--code-background);
+	color: var(--code-foreground);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 20px;
+}
+.approval-box[data-prose] {
+	font-family: inherit;
+	font-size: 13px;
+}
+.approval-box-more {
+	position: absolute;
+	top: 2px;
+	right: 4px;
+	z-index: 2;
+}
+.approval-more-button {
+	display: grid;
+	width: 24px;
+	height: 24px;
+	place-items: center;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-chip);
+	background: transparent;
+	color: var(--muted-foreground);
+	cursor: pointer;
+}
+.approval-more-button:hover,
+.approval-more-button[data-popup-open] {
+	background: var(--accent);
+	color: var(--foreground);
+}
+.approval-more-button:focus-visible {
+	outline: 2px solid transparent;
+	box-shadow: var(--focus-ring);
+}
+.approval-more-button svg {
+	width: 16px;
+	height: 16px;
+}
+.approval-spacer {
+	flex: 1 1 0;
+	min-width: 0;
+}
+.approval-head-more {
+	flex: none;
+}
+
+.approval-menu .approval-menu-check {
+	color: var(--muted-foreground);
+	font-size: 12px;
+}
+.approval-preview,
+.approval-full {
+	min-width: 0;
+}
+.approval-full {
+	max-height: min(60vh, 420px);
+	overflow: auto;
+	scrollbar-width: thin;
+}
+.approval-full:focus-visible {
+	outline: 2px solid transparent;
+	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
+}
+.approval-rows {
+	padding: 2px 0;
+}
+.approval-row {
+	display: flex;
+	min-height: 20px;
+	white-space: pre;
+}
+.approval-rows[data-wrap] .approval-row {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.approval-row-line {
+	flex: none;
+	width: 44px;
+	padding-right: 10px;
+	color: var(--muted-foreground);
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+}
+.approval-row-sign {
+	flex: none;
+	width: 14px;
+	padding-left: 2px;
+	color: var(--muted-foreground);
+	text-align: center;
+}
+.approval-row:not(:has(.approval-row-line)) .approval-row-sign {
+	width: 22px;
+	padding-left: 10px;
+}
+.approval-row-text {
+	min-width: 0;
+	flex: 1;
+	padding-right: 36px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.approval-rows[data-wrap] .approval-row-text {
+	overflow: visible;
+}
+.approval-row[data-kind="add"] {
+	background: var(
+		--diff-add-background,
+		color-mix(in srgb, var(--update-foreground) 10%, transparent)
+	);
+}
+.approval-row[data-kind="remove"] {
+	background: var(
+		--diff-remove-background,
+		color-mix(in srgb, var(--error-foreground) 10%, transparent)
+	);
+}
+/* Muted text on a tinted row would fall under 4.5:1 in the light theme, so its numbers read in the full text colour. */
+.approval-row:is([data-kind="add"], [data-kind="remove"]) .approval-row-line {
+	color: var(--foreground);
+}
+.approval-row[data-kind="add"] .approval-row-sign {
+	color: var(--update-foreground);
+}
+.approval-row[data-kind="remove"] .approval-row-sign {
+	color: var(--error-foreground);
+}
+.approval-showall {
+	display: block;
+	width: 100%;
+	height: 24px;
+	padding: 0 10px;
+	border: 0;
+	border-top: 1px solid var(--border);
+	background: transparent;
+	color: var(--foreground);
+	font: 12px / 24px var(--font-sans, inherit);
+	text-align: right;
+	text-decoration: underline;
+	text-decoration-color: var(--muted-foreground);
+	text-underline-offset: 2px;
+	cursor: pointer;
+}
+.approval-showall:hover {
+	background: var(--accent);
+}
+.approval-showall:focus-visible {
+	outline: 2px solid transparent;
+	outline-offset: -2px;
+	box-shadow: var(--focus-ring-inset);
 }
