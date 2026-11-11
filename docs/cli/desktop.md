@@ -885,7 +885,7 @@ A conversation window spends 40 px on one bar, where it spent 52 px on a strip o
 
 **The read-out** is a filled pie with the share and the cost beside it ("14% · $0.06"), from the same figures as the context ring (`contextRingModel`, so the two cannot disagree). It is not drawn until the engine has reported both a context size and a window. It turns amber at 75% and red at 90%. Hovering shows the token counts, and below 560 px of bar the words give way and the pie stays. With the bar showing, the composer draws no ring (`ContextHomeContext`); with the tab strip on, the ring stays beside the send controls as before.
 
-**The buttons** are 28 px, each with a tooltip and an accessible name: **Changes** (opens the Changes panel; the number on it is the count of changed files that "N changed files" says elsewhere), **New terminal** (a menu of the open terminals, the conversation and **New terminal** once one is open), **Project files**, **Conversation details** and **Conversation actions**. Changes and Project files open the panels the details popover and the panel's own tab strip already open; they are a shorter way there, not new panels. At 960 px the title gives way first, the project's name shrinks next and goes only below 300 px of bar, and the words of the read-out go below 560 px; the buttons stay.
+**The buttons** are 28 px, each with a tooltip and an accessible name: **Changes** (opens the Changes panel; with changes it widens to show the lines added and removed, "+35 −3", read from the same `changeTotals` as the result line and the pane, and its accessible name says the file count too, "Changes, 4 changed files, 35 added, 3 removed"), **New terminal** (a menu of the open terminals, the conversation and **New terminal** once one is open), **Project files**, **Conversation details** and **Conversation actions**. Changes and Project files open the panels the details popover and the panel's own tab strip already open; they are a shorter way there, not new panels. At 960 px the title gives way first, the project's name shrinks next and goes only below 300 px of bar, and the words of the read-out go below 560 px; the buttons stay.
 
 **Conversation tabs** are hidden by default. **View > Show conversation tabs** (a checkbox), **Settings > Appearance > Show conversation tabs** and the command palette's **Show conversation tabs** / **Hide conversation tabs** switch them; the choice is `showConversationTabs` in `desktop-settings.json`, shared by the windows and by the menu's checkbox, and the window remembers the last answer for the first paint. With the switch on, the top of the window is as it was: the strip, the 52 px height, the ring in the composer. A Pal's conversation always keeps the strip, because the Pal's computer is a tab in it.
 
@@ -2729,10 +2729,9 @@ planning and delegated-invocation contracts.
 
 ### Reply summary, attachments and dates
 
-Each reply that completed file edits carries its own card right under its final
-reply: one file reads "Edited name.css +12 −3" (full path in the tooltip), several
-read "Edited 3 files" with the totals and expand to a list with each file's own
-totals. A file's numbers are the sum of its edits' own counts, as the engine reported them
+Each reply that completed file edits ends with its own [result line](#the-result-line-at-the-foot-of-a-reply)
+right under its final reply: "Done in 3s", "4 files +32 −1" and what the kernel's record says
+about checking. The pane behind it lists each file with its own totals. A file's numbers are the sum of its edits' own counts, as the engine reported them
 (`added` and `removed` on each edit's and write's facts), so a file edited twice reads what
 `git diff` reads; only a receipt that arrived without counts (a conversation saved before edits
 carried them, or a change still waiting for approval) is compared from its own two sides. A
@@ -2746,33 +2745,67 @@ separate edits touch the same line without undoing each other, because each edit
 lines it changed itself. The cap of 400 lines the screen names is the kernel's own
 (`MAX_CARRIED_DIFF_LINES`); a test keeps the two equal. One
 function, `changeTotals` in `changes-totals.ts`, is the only source of these numbers: the card,
-the Changes panel and its tree, each edit row, the details popover and the approval card all
+the Changes pane and its list, each edit row, the top bar's changes button, the details popover and the approval card all
 read it. When the engine carried only the first 400 lines of an edit (`hunksTruncated`), the
 number stays the true one and "First 400 lines shown" is said beside it; an approval preview
 the engine cut says "Only part of the file is shown" beside its count, and a preview that
 carries the engine's own `added` and `removed` shows those, so the figure on the approval is the
 one on the card after the edit. With several files, the bar over the Changes panel names a cut
 file only when it is not the one open, since the open file says it beside its own diff. A reply with no counted
-change has no card. The
-card appears when the turn settles, groups by the turn each receipt belongs to, and
-works the same for history restored from the journal. View changes (or a file row)
-opens the Changes pane on the Last reply scope for that reply; the conversation
-header's Changes button and the Changes tab open on This conversation. Pal
-conversations keep their own outputs. The card also carries
-[Undo](#undoing-a-reply).
+change and no failing check has no result line. The
+line appears when the turn settles, groups by the turn each receipt belongs to, and
+works the same for history restored from the journal. Pal
+conversations keep their own outputs.
+
+### The result line at the foot of a reply
+
+One 40 px row ends a finished turn, in place of the old "Changed 4 files" card and the
+sentence that used to sit under it: a state mark, "Done in 3s" (how long the turn took; just "Done"
+under a second; "Stopped", "Paused", "Incomplete" or "Failed" when it did not end well; "Finished in 3s"
+when the record's verdict is `failing`, because the turn ended but the kernel did not call it done), the size of
+the change ("4 files +32 −1", the same number the top bar and the pane show) and a segment about
+checking. The segment comes from the kernel's [turn outcome](../sdk/turn-outcome.md) record and from nothing
+else: never from the model's words and never from a guess. It is the record's own sentence after
+"Changed N files ·".
+
+| Verdict | What the row shows |
+|---|---|
+| `checked` | the passing check, "Checked: pnpm test passed, nothing changed since", with a green mark |
+| `failing` | the failing check ("pnpm test failed"), in bold red, with a red border and tint; this is drawn even when no file changed ("No files changed" is then the record's lead and the row shows no counts) |
+| `stale`, `inconclusive` | the record's sentence ("pnpm test passed, then files changed again", "Ran npm test | tail, but the pipe hides whether it passed"), amber |
+| `unchecked` | the counts and no check segment at all; it says nothing about checking |
+| `unknown` | no file counted: nothing about changes, and the old quiet foot, which is the record's own sentence. Files counted from the edit tools: only the counts, no check segment, so the counts read as the whole change. The caveat stays reachable and is never dropped: the counts' tooltip, the row's accessible name and **Copy summary** say "These are the edits made with the edit tools." followed by the record's own sentence ("A command ran that may have changed files · cannot tell here …") |
+| `unchanged` | nothing about changes; a turn with no changed files keeps the old quiet foot |
+
+The whole row is one button that opens the changes pane, on All changes and on the file of that
+reply that changed most; its accessible name reads the same facts ("Done in 3s, 4 files changed, 35
+added, 3 removed, Checked: pnpm test passed. Open changes"). A "..." at its end holds what the old card
+offered: **Undo** (see [Undoing a reply](#undoing-a-reply)), **Open file** (one item per changed file,
+largest change first, the order the pane uses to choose what to open, at most eight, "Open file" when
+there is one), and **Copy summary** (the row's words and the changed paths). A turn that is undone
+shows "Undone at 10:42" in place of the check segment, and its Open items leave out the files that
+reply made, which the undo removed (the files it only edited were restored and are still offered). A
+partly undone one adds "Partly undone, 2 files kept" after the check segment; when the check is
+`failing` it stays where it was, in bold red, and the undo state is said beside it. When the column is under 600 px wide the check segment moves to a line
+of its own below the size, so the row grows to two lines rather than cutting the sentence. A reply
+that failed or was stopped keeps everything main showed for it (the header flags, the error rows and
+banner); the row only adds how it ended.
+
+The fold above the answer names what it hides: "Worked for 3s, 4 steps" (the count of tool calls
+in the turn, not counting the plan's own bookkeeping), and the same words are its accessible name.
 
 ### Undoing a reply
 
-Beside View changes the card offers Undo when the connected CLI advertises
+The "..." menu of the [result line](#the-result-line-at-the-foot-of-a-reply) offers Undo when the connected CLI advertises
 `namzu/turns/undo-status`, `namzu/turns/undo-preview` and `namzu/turns/undo` (an older CLI
-shows no button) and the reply has a journal turn id. What the card shows is only ever the
+shows no button) and the reply has a journal turn id. What the line and its menu show is only ever the
 CLI's `undo-status`, read after a conversation's history loads and after every settled reply
 and every undo; it is never kept in component state, so a reopened conversation shows the same
-card. Five states: hidden (still streaming, no turn id, nothing covered), enabled, disabled with
-the reason ("Wait for the current reply", "Undo expired"), undone (a muted chip, "Undone at 10:42"
-when this window saw it happen and plain "Undone" after a reopen, with the line totals dimmed) and
-partial ("Partly undone, 2 files kept", the count read from a fresh plan, which opens the plan again
-to finish the rest).
+line. Five states: hidden (still streaming, no turn id, nothing covered), enabled, disabled with
+the reason ("Wait for the current reply", "Undo expired", a disabled menu item), undone (the check
+segment reads "Undone at 10:42" when this window saw it happen and plain "Undone" after a reopen, and the
+menu has no Undo) and partial ("Partly undone, 2 files kept", the count read from a fresh plan; the menu
+item opens the plan again to finish the rest).
 
 Undo opens a confirmation dialog built from `namzu/turns/undo-preview`. Each file is a row:
 Restore, Delete (the reply created it) or Conflict with its reason (changed since this reply, a
@@ -2787,7 +2820,7 @@ primary button states the count ("Undo 3 files") and is disabled when nothing wo
 starts on Cancel, Esc cancels, and nothing is written until the button is pressed. If the files or
 the history moved since the preview, the CLI answers `plan-changed` and the dialog shows the new plan
 in place with a notice; it never applies a plan the person did not see. After an undo the dialog
-lists what happened to each file, the open file and the Changes view read the disk again, and the card
+lists what happened to each file, the open file and the Changes view read the disk again, and the line
 updates from a new status read.
 
 In the main process `undoTurn` mirrors a retry's admission: it refuses while the conversation is
@@ -2798,31 +2831,42 @@ under the writes, validates its arguments and the CLI's answer, and releases the
 
 ### Changes review view
 
-The Changes tab shows one file's diff beside the tree of changed files. A scope menu
-at the top left picks what is reviewed, with the line totals of that scope beside it:
-Last reply (the reply the card opened, or the latest one that changed files), This
-conversation (every completed edit merged per path, so a file edited twice is one
+The Changes pane is the diff first. It opens 520 px wide (never more than half of a narrow
+window; a width the person dragged is kept) on the file that changed most, and a narrow file
+list (168 px) sits beside the diff, on its left, so the diff has the full height. The header is one
+40 px row: the title "Changes", a two-way switch **This reply | All changes** (All changes is the default
+whichever reply opened the pane; This reply is that reply, or the latest one that changed files, when the
+pane was opened from the top bar), the counts ("4 files +35 −3"), one **View** menu and a close button.
+All changes merges every completed edit per path, so a file edited twice is one
 row whose numbers are the sum of its edits; an edit receipt carries only the
 changed fragment, a `write` receipt the hunks it changed, and a file edited more than once
 shows one block per edit, "Edit 1 of 2" with that edit's own counts, never one edit's removed
-lines beside another's added ones) and, in a trusted ordinary project
-that is a git repository, Uncommitted changes (the working tree against HEAD, whole
+lines beside another's added ones. The **View** menu holds Unified or Split diff, Wrap diff lines, Collapse
+folders, **Uncommitted changes (git)** (in a trusted ordinary project
+that is a git repository: the working tree against HEAD, whole
 files, read through [`projectChanges` and `projectDiff`](#working-tree-changes) when
-the scope opens, on the refresh button and when a turn settles). The toolbar has
-split or unified, wrap lines, refresh (uncommitted only), collapse folders and a menu
-that copies the changed paths. Empty scopes say so: "No changes in the last reply.",
+the scope opens, on Refresh changes and when a turn settles), Copy changed paths and Expand pane / Restore
+pane size. The tab strip is not drawn above the Changes pane: Activity is reached from the conversation
+details popover (Background work), files from the bar's Project files button, and both bring the strip back.
+Empty scopes say so: "No changes in the last reply.",
 "This conversation hasn’t changed files yet.", "No uncommitted changes." and "This
 project is not a git repository."
 
-At 640 px or wider the panel has two columns, the diff on the left and a 260 px file
-tree on the right; narrower, the tree sits above the diff and folds away behind a
-"Files" button. The tree compresses chains of single-child folders (`.work/sessions`),
-lists folders first, marks Markdown files, shows `+N −M` per file ("new" for an
-untracked file, "binary" for a binary one, a struck-through name for a deleted one,
-and "old → new" in the tooltip of a renamed one) and has a fuzzy "Filter files…"
-box. Arrow keys, Home and End move, Right and Left open and close folders, and Enter
+Up to 12 files are listed flat, by name (the folder is added only where two share a name), each with
+`+N −M` ("binary" for a binary one, a struck-through name for a deleted one, and "old → new" in the tooltip of a
+renamed one). More files, or a filter, show the tree: it compresses chains of single-child folders
+(`.work/sessions`), lists folders first, marks Markdown files and has a fuzzy "Filter files…" box. Arrow
+keys, Home and End move, Right and Left open and close folders, and Enter
 or a click shows the file. `[` and `]`, or Alt+Up and Alt+Down, step to the previous
-and next file. The diff header shows the path truncated from the left (the full path
+and next file. Where the pane is under 440 px wide the list sits above the diff and folds away behind a
+"Files" button.
+
+With the pane open in a window narrower than 1281 px the sidebar folds to its rail, and comes back when the pane
+closes (the fold is not saved, so another window and the next launch see the person's own state). If the person opens
+or closes the sidebar while the pane is open that choice stays when the pane closes, and a sidebar they had already
+folded is left folded. Wider windows keep the sidebar as it is.
+
+The diff header shows the path truncated from the left (the full path
 in a tooltip), its `+N −M`, Open file (a file tab), Open in editor and a menu with
 Copy path and Copy diff. A binary or oversized file shows a plain message instead of
 a diff.
@@ -3071,7 +3115,7 @@ A turn's bad news is not left inside the folded "Worked" block. Three things say
 
 - **The header.** After "Worked for 2s" a finished turn names what went wrong, each with a small status mark: a red mark for "1 command failed" (a command that ended with a non-zero exit, a timeout or a signal; "2 commands failed" for more) and an amber one for "1 action was not allowed" (an action the engine refused or blocked; a change the person declined is their own answer and is not counted). Nothing shows when everything went well. The same words are added to the header's accessible name. The "N failed" at the end of a run's own summary ("Ran 6 commands, 1 failed") is the same count, taken from the same function (`turnAttention`), so a failed read or edit is never counted there as a failed command and the two never disagree. A run of actions that holds a failed command or a refused action starts open even when it is longer than five rows, so opening the block shows it.
 - **The rows.** A failed command shows the last ten lines of what it printed under its row, in the open block with no further click (a passing command keeps its first three lines); "+N lines" opens the rest. A refused action shows one fixed plain sentence under its row, chosen by the kind of refusal ("It was stopped before it ran, so nothing changed." for a blocked action; "It needs administrator rights, so it was stopped before it ran." for one that asked for them), whatever the rule said. The rule's or command guard's own wording (the failure's `note` field) is kept only as the line's hover text, never as its words.
-- **The line under the turn.** One muted line, with one status mark, built only from the kernel's [turn outcome](../sdk/turn-outcome.md) record: what changed (the count from the record) and what the record says about checks, in the words the terminal ends a turn with (`outcomeLine`, `packages/cli/src/tui/outcome-line.ts`; the host writes it and Desktop shows it as sent, so the two cannot drift). Examples: "Changed 2 files · not checked", "Changed 2 files · npm test failed", "Changed 2 files · ran npm test | tail, but the pipe hides whether it passed". The mark is green for `checked`, red for `failing` and amber for every other verdict (`stale`, `inconclusive`, `unchecked`, `unknown`). A turn whose verdict is `unchanged` shows nothing, and so does a turn the kernel recorded nothing for. A `failing` turn that changed no file reads "No files changed · npm test failed". The line is not a card and is drawn only once the turn has ended, and it is not drawn once the person has undone that turn's changes (a partly undone turn keeps it), because "Changed 1 file" would no longer be true. It appears when the notice arrives, which can be just after the turn looks finished, so the transcript may grow by one line then; no height is reserved, because most turns have no line and a blank gap under each would cost more than the single shift.
+- **The foot of the turn.** What changed and what the kernel's [turn outcome](../sdk/turn-outcome.md) record says about checking it is the [result line](#the-result-line-at-the-foot-of-a-reply). Where there is no result line (nothing changed and no check failed) the record's own sentence still draws as one muted line with one status mark, in the words the terminal ends a turn with (`outcomeLine`, `packages/cli/src/tui/outcome-line.ts`; the host writes it and Desktop shows it as sent, so the two cannot drift): this is how a `unknown` verdict is told ("A command ran that may have changed files · cannot tell"). The mark is green for `checked`, red for `failing` and amber for every other verdict. A turn whose verdict is `unchanged` shows nothing, and so does a turn the kernel recorded nothing for. Neither is drawn once the person has undone that turn's changes (a partly undone turn keeps the result line), because "4 files" would no longer be true. It appears when the notice arrives, which can be just after the turn looks finished, so the transcript may grow by one row then; no height is reserved, because most turns have no result and a blank gap under each would cost more than the single shift.
 
 The outcome travels as a `namzu/session/outcome` notification ([Outcome notices](#outcome-notices)); the renderer keeps it on the turn (`ThreadState.turns[n].outcome`, matched by the turn id; a notice for a turn this window does not know, such as a late one, one replayed after a reconnect or one meant for another window, is dropped rather than put on the current turn, and history brings it back). A reopened conversation gets it back from the history snapshot: each entry of `work.turns` carries `outcome` (`verdict`, `line`, `changed`), read by the CLI from the turn's `turn_outcome_recorded` record, so a conversation saved before outcome records existed shows no line.
 
@@ -3229,9 +3273,9 @@ the separate Pal chat, without model requests or computer actions.
 
 ## Files beside a conversation
 
-The conversation's right panel is resizable (320 px up to 70% of the pane, width kept per pane) and holds one ordered list of tabs: Changes, Activity and one tab per open file. All of them are ordinary closable tabs drawn by the same component (an icon, a label that truncates, a close button that shows on the active tab and on hover or focus, a middle click that closes); the active tab sits in a bordered, raised box and the others are plain muted text. Activity carries a small count while background work is running, in the warning colour when something needs attention. Arrow keys, Home and End move between tabs; Delete or Ctrl+W (Cmd+W) closes the focused one. The list and the active tab persist per conversation; a conversation saved before tabs existed gains Changes and Activity in front of its files and keeps the tab it was showing.
+The conversation's right panel is resizable (320 px up to 70% of the pane; the Changes tab opens at 520 px, at most half of the pane, until a width is dragged, width kept per pane) and holds one ordered list of tabs: Changes, Activity and one tab per open file. All of them are ordinary closable tabs drawn by the same component (an icon, a label that truncates, a close button that shows on the active tab and on hover or focus, a middle click that closes); the active tab sits in a bordered, raised box and the others are plain muted text. Activity carries a small count while background work is running, in the warning colour when something needs attention. Arrow keys, Home and End move between tabs; Delete or Ctrl+W (Cmd+W) closes the focused one. The list and the active tab persist per conversation; a conversation saved before tabs existed gains Changes and Activity in front of its files and keeps the tab it was showing.
 
-The "+" opens a menu: Changes and Activity (each only while closed) and, after a separator, "Open file…", which opens quick open with the filter ready. "View changes", an edit card's rows and the details popover's Changes add the Changes tab at the front if it was closed and show it with the requested scope; the popover's Background work does the same for Activity. Closing the last tab leaves an empty panel with three quiet buttons (Changes, Activity, Open a file); the panel stays open until it is hidden. At the right of the strip, "Expand panel" / "Restore panel" makes the panel fill the pane and hides the conversation (Escape does not undo it, and the state is kept per conversation with the rest of the view state), and "Hide panel" closes the panel as the old close button did.  A file opens as a Markdown document (its YAML front matter as a Metadata table, "View source" for the raw text), as highlighted source, as an image, or as a plain note with "Open in" when it is binary or larger than 2 MiB (images: 4 MiB). A filter box searches the project by fuzzy match; below it a lazy folder tree shows the project. When a turn settles, the open file and the tree read the disk again.
+The "+" opens a menu: Changes and Activity (each only while closed) and, after a separator, "Open file…", which opens quick open with the filter ready. The result line, the top bar's changes button and the details popover's Changes add the Changes tab at the front if it was closed and show it with the requested scope; the popover's Background work does the same for Activity. Closing the last tab leaves an empty panel with three quiet buttons (Changes, Activity, Open a file); the panel stays open until it is hidden. At the right of the strip, "Expand panel" / "Restore panel" makes the panel fill the pane and hides the conversation (Escape does not undo it, and the state is kept per conversation with the rest of the view state), and "Hide panel" closes the panel as the old close button did.  A file opens as a Markdown document (its YAML front matter as a Metadata table, "View source" for the raw text), as highlighted source, as an image, or as a plain note with "Open in" when it is binary or larger than 2 MiB (images: 4 MiB). A filter box searches the project by fuzzy match; below it a lazy folder tree shows the project. When a turn settles, the open file and the tree read the disk again.
 
 Replies turn paths and `code` spans that name a real project file into links that open the file at its line. Nothing becomes a link in a chat without a project or in a Pal conversation, and a reference that does not resolve stays plain text.
 

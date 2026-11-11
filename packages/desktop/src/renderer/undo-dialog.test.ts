@@ -4,8 +4,9 @@ import { describe, expect, it } from 'vitest'
 import { restoreHistoryWork } from '../shared/history-work.js'
 import { applyEvent, emptyThread } from '../shared/projection.js'
 import type { DesktopTurnUndo, DesktopUndoFile, DesktopUndoPreview } from '../shared/protocol.js'
-import { TurnChangesCard } from './turn-changes-card.js'
 import { turnChanges, turnUndo } from './turn-changes.js'
+import { TurnResultLine } from './turn-result-line.js'
+import { turnResultModel } from './turn-result-model.js'
 import { UndoPlanBody, UndoResultBody } from './undo-dialog.js'
 import {
 	SHELL_WARNING,
@@ -142,25 +143,28 @@ describe('undo card join', () => {
 		const thread = { ...emptyThread(), turns: { 1: {} }, undo: { x: row('applied') } }
 		expect(turnUndo(thread, 1, () => undefined)).toEqual({})
 	})
-	it('draws the Undo button, the undone chip and the partial button from that state', () => {
+	it('says the undo state in the result line from that state, and offers Undo only in its menu', () => {
 		const cold = restoreHistoryWork(emptyThread(), rows, work)
 		const changes = turnChanges(cold).get(1)
 		if (!changes) throw new Error('no changes')
-		const render = (undo: ReturnType<typeof undoCardView>) =>
-			renderToStaticMarkup(
-				createElement(TurnChangesCard, {
+		const render = (undo: ReturnType<typeof undoCardView>) => {
+			const model = turnResultModel({ reason: 'end_turn', changes, undo })
+			if (!model) throw new Error('no line')
+			return renderToStaticMarkup(
+				createElement(TurnResultLine, {
+					model,
 					changes,
 					onOpen: () => undefined,
 					undo,
 					onUndo: () => undefined,
 				}),
 			)
-		expect(render({ kind: 'enabled' })).toContain('data-undo-state="enabled"')
-		expect(render({ kind: 'disabled', reason: 'Undo expired' })).toContain('aria-disabled="true"')
+		}
+		expect(render({ kind: 'enabled' })).toContain('data-undo="enabled"')
 		expect(render({ kind: 'undone', at: Date.UTC(2026, 9, 7, 10, 42) })).toMatch(/Undone at /)
 		expect(render({ kind: 'undone' })).toContain('data-undo="undone"')
 		expect(render({ kind: 'partial', kept: 2 })).toContain('Partly undone, 2 files kept')
-		expect(render(undefined)).not.toContain('Undo')
+		expect(render(undefined)).not.toContain('data-undo=')
 	})
 })
 

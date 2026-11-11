@@ -117,7 +117,7 @@ describe('the Worked block draws no clocks of its own', () => {
 		// Narration, the thought row and the Worked trigger carry it as a tooltip, the tool row as its description.
 		expect(block).toMatch(new RegExp(`aria-label="Progress update" title="${observed}`))
 		expect(block).toMatch(new RegExp(`class="reasoning"[^>]*title="${observed}`))
-		expect(block).toMatch(new RegExp(`aria-label="Worked for 8s" title="${observed}`))
+		expect(block).toMatch(new RegExp(`aria-label="Worked for 8s, 1 step" title="${observed}`))
 		expect(block).toMatch(new RegExp(`aria-description="a\\. ${observed}`))
 	})
 	it('keeps the whole process in one block, in order', () => {
@@ -166,7 +166,7 @@ describe('the Worked block draws no clocks of its own', () => {
 	})
 	it('folds the block when the reply ends', () => {
 		const html = render(finish(answer(worked(), 'All done.', 8000)))
-		expect(html).toMatch(/aria-expanded="false"[^>]*aria-label="Worked for 8s"/)
+		expect(html).toMatch(/aria-expanded="false"[^>]*aria-label="Worked for 8s, 3 steps"/)
 	})
 })
 

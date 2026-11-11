@@ -67,7 +67,7 @@ const measure = (w) =>
 			await expect(card).toBeVisible({ timeout: T });
 			await card.getByRole("button", { name: "Accept", exact: true }).click();
 			await expect(w.page.getByText("Wrote out.txt.").first()).toBeVisible({ timeout: T });
-			await w.page.getByRole("button", { name: "View changes" }).last().click();
+			await w.page.getByRole("button", { name: /Open changes$/ }).last().click();
 			await expect(w.page.getByRole("complementary", { name: "Changes" })).toBeVisible({ timeout: T });
 			const count = 7;
 			for (let index = 0; index < count; index++) {
@@ -101,11 +101,11 @@ const measure = (w) =>
 			const setPanel = async (wanted) => {
 				if (wanted && !(await side.isVisible())) {
 					await w.page.keyboard.press("Control+1");
-					await w.page.getByRole("button", { name: "View changes" }).last().click();
+					await w.page.getByRole("button", { name: /Open changes$/ }).last().click();
 					await expect(side).toBeVisible({ timeout: T });
 				}
 				if (!wanted && (await side.isVisible())) {
-					await side.getByRole("button", { name: /^(Hide panel|Back to conversation)/ }).first().click();
+					await side.getByRole("button", { name: /^(Hide panel|Close changes|Back to conversation)/ }).first().click();
 					await expect(side).toBeHidden({ timeout: T });
 				}
 			};
