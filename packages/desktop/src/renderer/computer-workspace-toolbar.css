@@ -54,9 +54,9 @@
 	border: 0;
 	background: transparent;
 	color: inherit;
-	font-size: 13px;
-	line-height: 20px;
-	font-weight: 400;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-text);
 }
 .computer-workspace-tab-label:active {
 	scale: 1;
@@ -182,8 +182,8 @@
 	min-height: 32px;
 	padding: 5px 7px;
 	border-radius: var(--radius-chip);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	cursor: default;
 	user-select: none;
 	outline: none;

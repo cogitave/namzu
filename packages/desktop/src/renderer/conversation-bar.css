@@ -15,9 +15,9 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-size: 14px;
-	font-weight: 600;
-	line-height: 20px;
+	font-size: var(--text-interface);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-interface);
 	color: var(--foreground);
 }
 .conversation-bar-project {
@@ -27,7 +27,8 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	color: var(--muted-foreground);
 }
 .conversation-bar-spacer {
@@ -64,8 +65,9 @@
 .conversation-bar-lines {
 	display: inline-flex;
 	gap: 5px;
-	font-size: 12px;
-	font-weight: 500;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-control);
 	font-variant-numeric: tabular-nums;
 }
 .conversation-bar-added {
@@ -88,9 +90,9 @@
 	border-radius: var(--radius-pill);
 	background: var(--accent);
 	color: var(--foreground);
-	font-size: 10px;
-	font-weight: 600;
-	line-height: 13px;
+	font-size: var(--text-caption);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-caption);
 	text-align: center;
 	font-variant-numeric: tabular-nums;
 }

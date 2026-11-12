@@ -67,8 +67,9 @@
 	border-radius: var(--radius-control);
 	background: var(--popover);
 	color: var(--popover-foreground);
-	font-size: 12px;
-	font-weight: 500;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-control);
 	box-shadow: var(--shadow-2);
 }
 @media (prefers-reduced-motion: reduce) {
