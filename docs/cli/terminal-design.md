@@ -926,9 +926,14 @@ accent color.
 
 When the full previews would crowd the input area, activity shows the current
 tool and total tool count, and the full list returns when space allows. The
-plan's live row is always one line: the current step and the completion count,
-and on a narrow screen the step alone. These panels also reserve
-space before the transcript keeps any older messages in its redrawable tail.
+plan is the list under the working line described in
+[The model's plan](#the-models-plan); only on a terminal too short for it is it
+one line, the current step and the completion count (on a narrow screen the step
+alone). The plan list, the running calls and a queued message are counted into
+the room the unfinished part of a reply may take
+([A reply as it is written](#a-reply-as-it-is-written)), and these panels also
+reserve space before the transcript keeps any older messages in its redrawable
+tail.
 
 ### A resumed conversation
 
@@ -1462,7 +1467,13 @@ writer of Namzu's own (`packages/cli/src/tui/paint/`) that sits between the rend
   show a frame whole (`?2026`) are kept, and the screen is right on a terminal that ignores them.
 - **At most twelve paints a second.** The first change after a quiet moment is painted at once; changes that
   follow within 83 ms are folded into the next paint, so a flood of shell output or reasoning text is one paint
-  per interval, the last state is never dropped, and rows meant for scrollback are kept in order. The clock on
+  per interval, the last state is never dropped, and rows meant for scrollback are kept in order. A reply that is
+  written (see [A reply as it is written](#a-reply-as-it-is-written)) hands the writer the blocks it has finished
+  many times in one turn; each paint carries those that finished since the last one, once and in order, and the
+  region under them keeps the same shape. The reply's own release of new words (about every 80 ms) and this budget
+  are one rhythm, not two in a row: from the model sending a piece of text to its words standing on screen takes
+  0.13 s at the median and 0.2 s at the 90th percentile, and the last words of a reply are on screen within 0.1 s
+  of arriving. The clock on
   the working line still moves every second.
 - **Starting never erases what was there.** The terminal UI begins at the start of a line under what was on
   screen (if a program left the cursor in the middle of a line, a reversed `%` ends that line, as shells do).
@@ -1474,8 +1485,14 @@ writer of Namzu's own (`packages/cli/src/tui/paint/`) that sits between the rend
   is one redraw), tells the renderer once, waits 100 ms for the frame at the new width, erases only the live
   region (as many rows as the terminal made of it at the new width) and draws one frame. No frame is drawn at the
   old width. Printed rows keep the line breaks the terminal gave them, so after a narrowing a long printed row
-  can look wrapped mid-word; it is the terminal's reflow, and widening again does not undo it. A region taller than the terminal's new height can leave its top rows in scrollback; the terminal
-  pushed them there before Namzu could erase them.
+  can look wrapped mid-word; it is the terminal's reflow, and widening again does not undo it. A region taller than the terminal's new height (a long reply being written, with its plan under it, in a window that
+  became shorter) has its top rows pushed into scrollback by the terminal before Namzu could erase them; those rows
+  stay where they are, and when they are exactly the rows about to be written again (the part of the reply that was
+  live, and the rows printed from it since) they are not written a second time.
+- **A conversation replaced in place is passed through, then drawn under.** A compaction, like `/resume` and `/clear`,
+  has the renderer clear the terminal and write the conversation again. That block is written as it came, the height
+  of the frame it ends with is taken from the next frame's erase, and painting by what changed goes on from there.
+  (Before this, a compaction under the writer left the screen empty.)
 - **Leaving gives the terminal back.** The last frame is painted, the cursor is shown and left at the start of a
   line under the last frame, also after a signal (Ctrl+C twice, `SIGTERM`, `SIGHUP`) and when the process ends
   without unmounting (an uncaught error). A process continued after a stop draws a fresh frame on a new line
