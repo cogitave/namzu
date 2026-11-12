@@ -38,7 +38,27 @@ export interface AcpInitializeParams extends AcpClientCapabilities {
 	readonly clientInfo?: { readonly name?: string; readonly version?: string }
 }
 
+/**
+ * What a host says about the engine it runs, in `initialize`. A reader that
+ * does not know this object ignores it.
+ */
+export interface AcpKernelFacts {
+	/** The engine's own version (this package's). */
+	readonly engine: string
+	/** The data epoch of the on-disk formats this engine writes. */
+	readonly dataEpoch: number
+	/** The version of the application that hosts the engine, when that application says one. */
+	readonly commandLine?: string
+	/** The contract number an installed client application checks, when the host was started for one. */
+	readonly desktopContract?: number
+}
+
+/** The two facts a host application adds to `AcpKernelFacts`; the engine states the rest itself. */
+export type AcpHostKernelFacts = Pick<AcpKernelFacts, 'commandLine' | 'desktopContract'>
+
 export interface AcpInitializeResult {
+	/** The engine and data facts a client may use to decide whether this host is safe for it. */
+	readonly kernel?: AcpKernelFacts
 	/** True only when the host gateway opts into inline user attachment delivery. */
 	readonly promptAttachments?: boolean
 	/** True only when this host applies captured effort and review settings per prompt. */
