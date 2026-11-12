@@ -74,6 +74,12 @@ installation, corrected UTF-8 inference, and observed device resource use.
 
 ## Installing and updating
 
+A host started for the app states two numbers in `initialize` (`kernel.desktopContract` and
+`kernel.dataEpoch`) so that an app can tell whether an engine newer than the one in its installer is safe for it.
+The inventory of what the app relies on, the tests that guard it and when to raise each number are in
+[Kernel facts](../sdk/kernel-facts.md). The command line's own updater never replaces a copy the app keeps in its
+data folder.
+
 The installer is a per-user NSIS setup built by `electron-builder`
 (`packages/desktop/electron-builder.yml`): no administrator prompt, installed to
 `%LOCALAPPDATA%\Programs\Namzu`, with a Start-menu entry and an uninstaller. The app is

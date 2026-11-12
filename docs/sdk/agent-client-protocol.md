@@ -220,6 +220,13 @@ saved global preferences or change a currently running turn.
 
 Of the review modes, `bypass` and `classify` are accepted in prompt options only when the host lists them in `AcpServerOptions.promptPermissionModes`, advertised at initialization as `promptPermissionModes`. Without that, a prompt that asks for either fails with `INVALID_PARAMS` (`This agent does not accept the "bypass" permission mode in prompt settings.`) before a turn starts. The CLI declares both and then applies `permissions.disableBypassMode`, the root guard and the auto-mode model check to the turn.
 
+## What the host says about its engine
+
+`initialize` answers with an optional `kernel` object: `engine` (the SDK's version) and `dataEpoch` always,
+`commandLine` and `desktopContract` when the host application gives them through
+`AcpServerOptions.kernelFacts`. A client that does not know the object ignores it. What the two numbers mean,
+the inventories behind them and when to raise each are in [Kernel facts](kernel-facts.md).
+
 ## Explicit host extensions
 
 `AcpServerOptions.extensions` optionally installs a table of handlers whose names

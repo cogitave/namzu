@@ -4,6 +4,8 @@
  * visible. The standalone CLI binary lives at ./bin.ts.
  */
 
+export { DESKTOP_CONTRACT } from './desktop-contract.js'
+
 // Doctor library API (pre-M0; preserved for embedded consumers).
 export {
 	createDoctorRegistry,
