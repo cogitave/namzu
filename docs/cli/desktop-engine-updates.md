@@ -19,14 +19,27 @@ description of the newest engine, fetches one archive for this computer, checks 
 runs, starts it the next time a project opens, keeps two versions, and falls back to the engine
 inside the installer, which always works.
 
-**A build with no signing key does none of this.** The list of compiled public keys
+**Which runs do this.** Only a packaged, installed app. "Packaged" is Electron's `app.isPackaged`: true
+for an installed build, false for a development run, every end-to-end run and a preview. An app that is not
+packaged builds no engine delivery at all (no object, no timer, no request, no folder, no screen) unless
+`NAMZU_KERNEL_FEED_URL` names an allowed address (https, or http on this machine); with that address it
+asks that feed and never the compiled one (`engineDeliveryAllowed` in `src/main/engine-delivery.ts`). A build
+whose key list is empty does none of it either. The list of compiled public keys
 (`KERNEL_PUBLIC_KEYS` in `src/main/kernel/keys.ts`) is generated from
 `packages/desktop/kernel-keys.json` (`node scripts/kernel/write-keys.mjs`, which `pnpm build` runs first and
 which writes `src/main/kernel/keys-compiled.ts`), the one file the publisher's verify step and the release
-workflow read too; a unit test fails when the two can differ. The list is empty in the repository until the
-real key exists. With an empty list the app makes no request, creates no folder, and Settings and About read
-exactly as they did before. Tests and the end-to-end run name a test key in the environment, which
+workflow read too; a unit test fails when the two can differ. The first key (`k1`) is listed, so a packaged
+app keeps its engine current. Its private half lives only in the secret of the release environment
+`kernel-release`, which allows only the `main` branch; nobody holds a copy, so a lost key is replaced by
+listing a new one in an app release (see "Keys over time" in [Desktop engine bundles](desktop-engine-bundles.md)).
+With an empty list (a test injects one) the app makes no request, creates no folder, and Settings and About
+read exactly as they did before. Tests and the end-to-end run name a test key in the environment, which
 only an app that is not packaged accepts.
+
+**Before the first description is published** the feed answers "not found". The app treats that as nothing to
+say: the engine row reads "Not checked yet." with no alert, About reads as before, and the row says it could
+not check only once a description has been read and three days pass without a fresh answer. The first engine
+arrives after the first signed description is published.
 
 ## What a person gets
 
@@ -175,8 +188,9 @@ dropped.
 
 ## Where the feed is
 
-The default is `https://github.com/cogitave/namzu/releases/download/kernel-latest/`. For development
-`NAMZU_KERNEL_FEED_URL` replaces it: any https (or loopback http) address when the app is not
+The default is `https://github.com/cogitave/namzu/releases/download/kernel-latest/`, used only by a packaged
+app. For development `NAMZU_KERNEL_FEED_URL` replaces it, and an app that is not packaged does nothing
+without it: any https (or loopback http) address when the app is not
 packaged, loopback only when it is packaged; a refused value falls back to the default. A packaged
 app never takes a key from the environment. A developer override of the engine (`NAMZU_DESKTOP_CLI`)
 wins over everything and turns the check off. `NAMZU_KERNEL_TEST_PUBLIC_KEY` (`<id>:<base64>`),
@@ -239,8 +253,10 @@ that passes the self-check but cannot serve a project (the app goes back in the 
 tries it again); **Use this app's own engine**; the setting off (no request); an engine with another data
 epoch (nothing installed, "needs a newer version of this app"); a description that withdraws the engine in
 use; a changed byte, a deleted signed pair and an older signed pair after the install; the app killed in
-the middle of the download and of the unpacking; and no signing key (no request, no engine folder, and the
-Updates and About screens byte for byte equal to the build before this feature, in both themes).
+the middle of the download and of the unpacking; and an app with no test key and no stand-in engine (no request, no engine folder, and the
+Updates and About screens byte for byte equal to the build before this feature, in both themes). A short file,
+`ux-engine-delivery.test.mjs`, also runs an app that is not packaged and has a test key and a stand-in engine
+but no feed address: no request and no engine folder.
 
 It is slow: staging and packing take about 90 seconds before the first test, and each test is a real app
 start with real engines of 95 MB (3 to 65 seconds each; the whole file took 224 seconds cold). `NAMZU_E2E_REAL_ENGINE_DIR=<dir>` keeps the staged engines and the feed

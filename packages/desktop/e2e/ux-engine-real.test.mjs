@@ -774,7 +774,7 @@ function countFiles(dir) {
 	return n;
 }
 
-test("10: with no key in the app the feed is never asked", { timeout: 900000 }, async () => {
+test("10: with no test key and no stand-in engine the feed is never asked", { timeout: 900000 }, async () => {
 	const feed = await startFeed("MB");
 	const w = await realWorld(feed, { noKey: true });
 	let failed = true;
@@ -788,7 +788,7 @@ test("10: with no key in the app the feed is never asked", { timeout: 900000 }, 
 		await goHome(w);
 		await openProject(w);
 		await conversation(w);
-		assert.equal(feed.requests.length, 0, "zero requests");
+		assert.equal(feed.requests.length, 0, "zero requests (the feed address is given, but there is no stand-in for the engine in the installer)");
 		assert.equal(existsSync(kernelDir(w)), false, "no engine folder is made");
 		failed = false;
 	} finally {

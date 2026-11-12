@@ -7,6 +7,7 @@
 //     that runs, because a running host is never swapped);
 //   - a feed signed with another key changes nothing and says nothing alarming;
 //   - with the setting off the feed is asked nothing, and turning it on asks;
+//   - an app that is not packaged and has no feed address asks nothing and makes no engine folder;
 //   - a feed that redirects every request is followed one hop at a time, with no cookie sent.
 // Pictures go to ENGINE_SHOTS when it is set.
 // Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test e2e/ux-engine-delivery.test.mjs
@@ -149,7 +150,7 @@ async function openSettings(w, section) {
 	});
 }
 
-async function engineWorld(feed, { settings } = {}) {
+async function engineWorld(feed, { settings, noFeedAddress } = {}) {
 	const key = makeKey("e2e1");
 	const root = mkdtempSync(join(tmpdir(), "namzu-e2e-"));
 	const world = await createWorld({
@@ -162,7 +163,7 @@ async function engineWorld(feed, { settings } = {}) {
 		},
 		env: {
 			NAMZU_KERNEL_TEST_PUBLIC_KEY: `${key.id}:${key.publicKey}`,
-			NAMZU_KERNEL_FEED_URL: feed?.url ?? "http://127.0.0.1:9/",
+			...(noFeedAddress ? {} : { NAMZU_KERNEL_FEED_URL: feed?.url ?? "http://127.0.0.1:9/" }),
 			NAMZU_KERNEL_FIRST_CHECK_MS: "300",
 			NAMZU_E2E_ENGINE_LOG: join(root, "engine-hosts.log"),
 		},
@@ -232,6 +233,29 @@ test("the app finds a newer engine by itself, checks it, and says it is ready", 
 		await expect(about.getByText("51.1.0", { exact: true }).first()).toBeVisible();
 		await shot(world, "about-own");
 		console.log("hosts started:", existsSync(join(world.root, "engine-hosts.log")) ? readFileSync(join(world.root, "engine-hosts.log"), "utf8") : "none");
+		assert.deepEqual(world.faults, []);
+		failed = false;
+	} finally {
+		await feed.close();
+		await dispose(world, { failed });
+	}
+});
+
+test("an app that is not packaged and was given no feed address never starts the engine delivery", { timeout: 240000 }, async () => {
+	// The compiled key list is not empty, and a test key and a stand-in engine are there; what is
+	// missing is the explicit feed address, which is the only thing that lets an unpackaged run look.
+	const feed = await startFeed(new Map());
+	const world = await engineWorld(feed, { noFeedAddress: true });
+	feed.served = release(world.key);
+	let failed = true;
+	try {
+		await launch(world);
+		await openSettings(world, "Updates");
+		await expect(world.page.getByText("Keep the engine up to date", { exact: true })).toHaveCount(0);
+		// The first look would be 300 ms after the start; give it room to show itself.
+		await new Promise((resolve) => setTimeout(resolve, 4000));
+		assert.equal(feed.requests.length, 0, "no request");
+		assert.equal(existsSync(kernelDir(world)), false, "no engine folder is made");
 		assert.deepEqual(world.faults, []);
 		failed = false;
 	} finally {

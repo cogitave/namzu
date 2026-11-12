@@ -3,9 +3,10 @@
  *
  * `KERNEL_PUBLIC_KEYS` is the only place a compiled key lives, and it is generated from
  * `packages/desktop/kernel-keys.json` (specification 7.8) by `scripts/kernel/write-keys.mjs`, so the
- * app, the publisher's verify step and the release workflow read one file. The list is EMPTY in the
- * repository until the real key exists; with an empty list the whole feature is off: no request is
- * made and nothing on screen changes.
+ * app, the publisher's verify step and the release workflow read one file. The first public key is
+ * listed. The private half lives only in the secret of the `kernel-release` environment. With an
+ * empty list (an injected one in a test) the whole feature is off: no request is made and nothing on
+ * screen changes. Whether an unpackaged run may use the list at all is decided in engine-delivery.ts.
  */
 import { COMPILED_KERNEL_KEYS } from './keys-compiled.js'
 

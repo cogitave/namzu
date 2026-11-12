@@ -107,12 +107,14 @@ test('the public key list is a JSON array of { id, publicKey } with 32-byte keys
 	assert.throws(() => parseKeyList(JSON.stringify([a.entry, a.entry])), /twice/)
 })
 
-test('the committed key list is a valid empty list', () => {
+test('the committed key list is valid and lists the first public key', () => {
+	const text = readFileSync(
+		fileURLToPath(new URL('../../kernel-keys.json', import.meta.url)),
+		'utf8',
+	)
 	assert.deepEqual(
-		JSON.parse(
-			readFileSync(fileURLToPath(new URL('../../kernel-keys.json', import.meta.url)), 'utf8'),
-		),
-		[],
+		parseKeyList(text).map(({ id }) => id),
+		['k1'],
 	)
 })
 

@@ -14,18 +14,19 @@ const test = makeKey('test1')
 const testKey = `${test.id}:${test.publicKey}`
 
 describe('which keys the app trusts', () => {
-	it('compiles in no key in the repository, so the whole feature is off', () => {
-		expect(KERNEL_PUBLIC_KEYS).toEqual([])
-		expect(trustedKeys({ isPackaged: true, env: {} })).toEqual([])
-		expect(trustedKeys({ isPackaged: false, env: {} })).toEqual([])
+	it('trusts the listed keys, and an injected empty list trusts none', () => {
+		expect(KERNEL_PUBLIC_KEYS.map((entry) => entry.id)).toEqual(['k1'])
+		expect(trustedKeys({ isPackaged: true, env: {} })).toEqual([...KERNEL_PUBLIC_KEYS])
+		expect(trustedKeys({ isPackaged: true, env: {}, compiled: [] })).toEqual([])
+		expect(trustedKeys({ isPackaged: false, env: {}, compiled: [] })).toEqual([])
 	})
 
 	it('takes one test key from the environment only when the app is not packaged', () => {
 		const env = { NAMZU_KERNEL_TEST_PUBLIC_KEY: testKey }
-		expect(trustedKeys({ isPackaged: false, env })).toEqual([
+		expect(trustedKeys({ isPackaged: false, env, compiled: [] })).toEqual([
 			{ id: 'test1', publicKey: test.publicKey },
 		])
-		expect(trustedKeys({ isPackaged: true, env })).toEqual([])
+		expect(trustedKeys({ isPackaged: true, env, compiled: [] })).toEqual([])
 	})
 
 	it('never lets the environment add to a compiled key in a packaged app', () => {

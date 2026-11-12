@@ -7,7 +7,14 @@ import { type DeliveryClock, EngineDelivery } from './kernel/delivery.js'
 import { bundledFactsReader, kernelFromInitialize } from './kernel/facts.js'
 import { type FetchLike, createFeedFetch } from './kernel/feed-fetch.js'
 import { nodeFs } from './kernel/fs.js'
-import { KERNEL_CHANNEL, KERNEL_CONTRACT_RANGE, feedBase, trustedKeys } from './kernel/keys.js'
+import {
+	KERNEL_CHANNEL,
+	KERNEL_CONTRACT_RANGE,
+	feedBase,
+	isAllowedFeedUrl,
+	parseTestKey,
+	trustedKeys,
+} from './kernel/keys.js'
 import { createKernelLog } from './kernel/log.js'
 import { KernelManager } from './kernel/manager.js'
 import { type ProbeResult, createProbe, createSelfCheck } from './kernel/self-check.js'
@@ -18,9 +25,10 @@ import { readRuntimeVersions } from './runtime-versions.js'
 
 /**
  * Builds the engine delivery from what the app knows (section 5). Returns undefined when the
- * feature is off for this build: no signing key is compiled in (and no test key was allowed), or
- * there is no bundled engine to compare with. With nothing returned the app does exactly what it did
- * before engines could be fetched: no request, no folder, no screen.
+ * feature is off: no signing key is trusted, there is no bundled engine to compare with, or the app
+ * is not packaged and was not handed a feed address (`engineDeliveryAllowed`). With nothing returned
+ * the app does exactly what it did before engines could be fetched: no request, no folder, no
+ * screen, no timer.
  */
 
 export interface EngineDeliveryOptions {
@@ -75,6 +83,21 @@ export async function askBundledEngine(
 	return { ...kernel, commandLine }
 }
 
+/**
+ * Whether this run may talk to a feed at all. "Packaged" is `app.isPackaged` (Electron: true only
+ * for an installed build, false for a development run, an end-to-end run and a preview). A packaged
+ * app uses the compiled feed address. An unpackaged run never reaches the compiled address: it
+ * contacts a feed only when `NAMZU_KERNEL_FEED_URL` names an allowed address (HTTPS, or HTTP to this
+ * machine), which is the input the engine end-to-end files give.
+ */
+export function engineDeliveryAllowed(
+	options: Pick<EngineDeliveryOptions, 'isPackaged' | 'env'>,
+): boolean {
+	if (options.isPackaged) return true
+	const override = options.env.NAMZU_KERNEL_FEED_URL
+	return Boolean(override) && isAllowedFeedUrl(override as string)
+}
+
 export function createEngineDelivery(options: EngineDeliveryOptions): EngineDelivery | undefined {
 	try {
 		return buildEngineDelivery(options)
@@ -86,6 +109,7 @@ export function createEngineDelivery(options: EngineDeliveryOptions): EngineDeli
 }
 
 function buildEngineDelivery(options: EngineDeliveryOptions): EngineDelivery | undefined {
+	if (!engineDeliveryAllowed(options)) return undefined
 	const keys = trustedKeys({
 		isPackaged: options.isPackaged,
 		env: options.env,
@@ -94,7 +118,10 @@ function buildEngineDelivery(options: EngineDeliveryOptions): EngineDelivery | u
 	if (keys.length === 0) return undefined
 	const bundledEntry =
 		bundledCliEntry({ isPackaged: options.isPackaged, resourcesPath: options.resourcesPath }) ??
-		developmentBundledEntry(options, keys.length > 0)
+		developmentBundledEntry(
+			options,
+			parseTestKey(options.env.NAMZU_KERNEL_TEST_PUBLIC_KEY) !== undefined,
+		)
 	if (!bundledEntry) return undefined
 
 	const log = createKernelLog({

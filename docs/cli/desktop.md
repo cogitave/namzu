@@ -422,8 +422,10 @@ The engine inside the installer is not the only one the app can run: in a build 
 app fetches a newer one by itself, checks it, and starts it the next time a project opens, with the one
 inside the installer as the fallback. What it checks, where the files are, the setting **Keep the engine up
 to date** and what a managed computer may block are on [Desktop engine updates](desktop-engine-updates.md).
-A build with no signing key (the repository has none) does none of it, and Settings and About read as they
-always did.
+The first signing key is listed, so a packaged, installed app does it; an app that is not packaged (a
+development run, a preview) does none of it unless it is handed a feed address, and a build with an empty
+key list does none of it, so Settings and About read as they always did there. The first engine arrives after
+the first signed description is published; until then both screens stay quiet.
 
 ### Updates to the programs Namzu works with
 
