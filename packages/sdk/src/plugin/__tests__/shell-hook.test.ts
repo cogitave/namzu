@@ -35,7 +35,7 @@ describe('shellHookMatches', () => {
 
 	it('takes a name, a list, or a prefix', () => {
 		expect(shellHookMatches('bash', 'bash')).toBe(true)
-		expect(shellHookMatches('bash', 'Bash')).toBe(false)
+		expect(shellHookMatches('bash', 'Bash')).toBe(true)
 		expect(shellHookMatches('edit|write', 'write')).toBe(true)
 		expect(shellHookMatches('edit|write', 'read')).toBe(false)
 		expect(shellHookMatches('mcp_*', 'mcp_tickets_create')).toBe(true)

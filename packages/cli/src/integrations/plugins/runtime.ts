@@ -15,6 +15,23 @@ import { listMarkdownNames, resolvePluginFileDirs } from './files.js'
 import { createHookPathFilter } from './hook-path-filter.js'
 import { PluginSettingsStore } from './settings.js'
 
+/**
+ * How long a `session_end` hook may run when its entry sets no `timeoutMs`.
+ * Closing a session waits for these hooks, so one that hangs would hold
+ * `/exit` and the end of `namzu exec` for the ordinary ten minutes.
+ */
+export const SESSION_END_HOOK_TIMEOUT_MS = 5_000
+
+/** The one plain line that says a hook was ended at its deadline. */
+export function hookTimeoutLine(info: {
+	readonly event: string
+	readonly hook: string
+	readonly timeoutMs: number
+}): string {
+	const seconds = info.timeoutMs / 1000
+	return `The ${info.event} hook \`${info.hook}\` did not finish within ${seconds} second${seconds === 1 ? '' : 's'} and was ended.`
+}
+
 export interface CliPluginRuntime {
 	readonly manager: PluginLifecycleManager
 	readonly skills: SkillRegistry
@@ -102,6 +119,12 @@ export async function createCliPluginRuntime(
 			projectDir: cwd,
 			pathFilter: createHookPathFilter(cwd),
 			log,
+			defaultTimeoutMs: { session_end: SESSION_END_HOOK_TIMEOUT_MS },
+			// Only the close of a session says so out loud: it is the one place
+			// a person is left waiting with nothing on screen to explain it.
+			onTimeout: (info) => {
+				if (info.event === 'session_end') process.stderr.write(`${hookTimeoutLine(info)}\n`)
+			},
 			...hookHost,
 		})
 	}

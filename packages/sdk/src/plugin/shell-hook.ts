@@ -187,8 +187,10 @@ interface ShellHookEntryBase {
 	 * What this applies to. On a tool event (and `permission_request`) the tool
 	 * name; on `notification` the notification type. `*` or absent matches
 	 * everything; a list of names (`a|b`, `a,b`, each optionally ending in `*`
-	 * as a prefix) matches those; anything else is a regular expression tested
-	 * against the name.
+	 * as a prefix) matches those without regard to case, and on a tool event
+	 * also by the names skills write (`Bash`, `Edit`); anything else is a
+	 * regular expression tested against the name (and, on a tool event, the
+	 * names skills write for that tool).
 	 */
 	readonly matcher?: string
 	/** Deadline in milliseconds; default `DEFAULT_SHELL_HOOK_TIMEOUT_MS`, capped at `MAX_SHELL_HOOK_TIMEOUT_MS`. */
@@ -285,31 +287,106 @@ export const MAX_SHELL_HOOK_TIMEOUT_MS = 10 * 60_000
 const MAX_CAPTURE_BYTES = 64 * 1024
 
 /**
+ * How a skill writes each name in `SKILL_TOOL_NAME_ALIASES` (the alias table
+ * is keyed lower-case). A regular-expression matcher is also tested against
+ * these, so `^(Edit|Write)$` written for those names still fires.
+ */
+const WRITTEN_TOOL_NAMES: Readonly<Record<string, string>> = Object.freeze({
+	read: 'Read',
+	write: 'Write',
+	edit: 'Edit',
+	multiedit: 'MultiEdit',
+	bash: 'Bash',
+	grep: 'Grep',
+	glob: 'Glob',
+	ls: 'LS',
+	webfetch: 'WebFetch',
+	websearch: 'WebSearch',
+	skill: 'Skill',
+	askuserquestion: 'AskUserQuestion',
+	task: 'Task',
+	agent: 'Agent',
+	lsp: 'LSP',
+	toolsearch: 'ToolSearch',
+	bashoutput: 'BashOutput',
+	taskoutput: 'TaskOutput',
+	killshell: 'KillShell',
+	killbash: 'KillBash',
+	taskstop: 'TaskStop',
+	taskcreate: 'TaskCreate',
+	taskupdate: 'TaskUpdate',
+	tasklist: 'TaskList',
+})
+
+/** The names a skill writes for the tool called `toolName` here. */
+function writtenNamesFor(toolName: string): string[] {
+	const lower = toolName.toLowerCase()
+	const names: string[] = []
+	for (const [written, tool] of Object.entries(SKILL_TOOL_NAME_ALIASES)) {
+		if (tool !== lower) continue
+		names.push(written)
+		const spelled = WRITTEN_TOOL_NAMES[written]
+		if (spelled !== undefined) names.push(spelled)
+	}
+	return names
+}
+
+/**
  * `matcher` against a name (a tool's, or a notification's type).
  *
  * Empty or `*` matches everything. A list of names separated by `|` or `,`
  * matches exactly, each part optionally ending in `*` as a prefix (the
  * spelling this adapter has always taken). Anything else is a regular
  * expression, tested unanchored against the name; one that does not compile
- * matches nothing. Case-sensitive, because tool names are. A matcher on an
- * event that has no name (`turn_start`) matches nothing unless it is `*`.
+ * matches nothing. A matcher on an event that has no name (`turn_start`)
+ * matches nothing unless it is `*`.
+ *
+ * Names in a list compare without regard to case. With `tool: true` (the
+ * event's name is a tool: the tool events and `permission_request`) they also
+ * take the names skills write, the way an entry's `if` does: `Bash` matches
+ * the tool `bash`, `MultiEdit` matches `edit`, and a prefix such as `Web*`
+ * matches `web_fetch` by its written name too. Where the name is not a tool
+ * (a notification's type, an agent's name, a session's `source` or `reason`)
+ * no tool alias applies, since those words are not tool names; case is still
+ * ignored there, because a guard that silently never runs over a capital
+ * letter is worse than one that also runs for a name differing only in case.
+ *
+ * A list part ending in `.*` is also tried as a regular expression.
+ *
+ * A regular expression is tested, case-sensitively as written, against the
+ * real name and, with `tool: true`, against each name skills write for that
+ * tool, so one written for those names still fires. It never matches less
+ * than it did against the real name alone.
  */
 export function shellHookMatches(
 	matcher: string | undefined,
 	toolName: string | undefined,
+	options: { readonly tool?: boolean } = {},
 ): boolean {
 	if (matcher === undefined || matcher.trim() === '' || matcher.trim() === '*') return true
 	if (toolName === undefined) return false
+	const tool = options.tool === true
 	const parts = matcher.split(/[|,]/).map((part) => part.trim())
 	if (parts.every((part) => /^[A-Za-z0-9_.:-]+\*?$/.test(part))) {
-		return parts.some((candidate) =>
-			candidate.endsWith('*')
-				? toolName.startsWith(candidate.slice(0, -1))
-				: toolName === candidate,
-		)
+		const subject = toolName.toLowerCase()
+		const listed = parts.some((candidate) => {
+			const prefix = candidate.endsWith('*')
+			const written = (prefix ? candidate.slice(0, -1) : candidate).toLowerCase()
+			const spellings = [written]
+			if (tool) {
+				const alias = SKILL_TOOL_NAME_ALIASES[written]
+				if (alias !== undefined) spellings.push(alias)
+			}
+			return spellings.some((name) => (prefix ? subject.startsWith(name) : subject === name))
+		})
+		// `Bash.*` reads as the prefix `bash.` above, which no tool has. A part
+		// ending in `.*` is also a regular expression, so it is tried as one.
+		if (listed || !matcher.includes('.*')) return listed
 	}
 	try {
-		return new RegExp(matcher).test(toolName)
+		const expression = new RegExp(matcher)
+		if (expression.test(toolName)) return true
+		return tool && writtenNamesFor(toolName).some((name) => expression.test(name))
 	} catch {
 		return false
 	}
@@ -1114,6 +1191,21 @@ export interface ShellHookOptions {
 	readonly projectDir?: string
 	/** How a path pattern in an entry's `if` is read. Absent, such a filter runs the hook. */
 	readonly pathFilter?: ShellHookPathFilter
+	/**
+	 * A deadline, in milliseconds, for entries of an event that set no
+	 * `timeoutMs` of their own (an entry's own is honoured as written, up to
+	 * the cap). Absent, or an event not listed, the ordinary default applies.
+	 */
+	readonly defaultTimeoutMs?: { readonly [event in ShellHookEvent]?: number }
+	/**
+	 * Called when a hook of this adapter ran out its deadline and was ended.
+	 * `hook` is the command, URL or prompt text the entry names.
+	 */
+	readonly onTimeout?: (info: {
+		readonly event: ShellHookEvent
+		readonly hook: string
+		readonly timeoutMs: number
+	}) => void
 }
 
 /** The deadline for `prompt` hooks when they name none. */
@@ -1215,10 +1307,19 @@ function readJudgement(reply: string): { ok: boolean; reason: string } | undefin
 /** One entry as a hook definition the lifecycle manager accepts. */
 export function createShellHook(
 	event: ShellHookEvent,
-	entry: ShellHookHandler,
+	configured: ShellHookHandler,
 	options: ShellHookOptions,
 ): PluginHookDefinition {
 	const log = options.log ?? NOOP_LOGGER
+	const eventDefault = options.defaultTimeoutMs?.[event]
+	const entry: ShellHookHandler =
+		configured.timeoutMs === undefined && eventDefault !== undefined
+			? { ...configured, timeoutMs: eventDefault }
+			: configured
+	const reportTimeout = (timedOut: boolean): void => {
+		if (!timedOut) return
+		options.onTimeout?.({ event, hook: describeShellHook(entry), timeoutMs: hookTimeout(entry) })
+	}
 	// `once` is per definition, and a definition is per session: the manager
 	// is built for one session and its hooks are attached to it.
 	let spent = false
@@ -1230,6 +1331,13 @@ export function createShellHook(
 		handler: async (context: PluginHookContext) => {
 			if (spent) return { action: 'continue' }
 			// A notification is matched on its type; every other event on the tool.
+			const namesATool = !(
+				event === 'notification' ||
+				event === 'subagent_start' ||
+				event === 'subagent_stop' ||
+				event === 'session_start' ||
+				event === 'session_end'
+			)
 			const subject =
 				event === 'notification'
 					? context.notification?.type
@@ -1240,7 +1348,8 @@ export function createShellHook(
 							: event === 'session_end'
 								? context.endReason
 								: context.toolName
-			if (!shellHookMatches(entry.matcher, subject)) return { action: 'continue' }
+			if (!shellHookMatches(entry.matcher, subject, { tool: namesATool }))
+				return { action: 'continue' }
 			if (!shellHookIfMatches(entry.if, context.toolName, context.toolInput, options.pathFilter)) {
 				return { action: 'continue' }
 			}
@@ -1294,6 +1403,7 @@ export function createShellHook(
 					timeoutMs: hookTimeout(entry),
 					...(context.signal !== undefined ? { signal: context.signal } : {}),
 				})
+				reportTimeout(response.timedOut)
 				const ok = response.status !== null && response.status >= 200 && response.status < 300
 				return shellHookVerdict(
 					event,
@@ -1322,6 +1432,7 @@ export function createShellHook(
 				return { action: 'continue' }
 			}
 			const outcome = await runShellHook(entry, hookInput, context.signal)
+			reportTimeout(outcome.timedOut)
 			return shellHookVerdict(event, entry, outcome, log)
 		},
 	} as PluginHookDefinition
