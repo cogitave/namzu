@@ -1,5 +1,13 @@
 # Changelog
 
+## 62.14.0
+
+### Minor Changes
+
+- 335c305: The turn, model-call and tool-call spans now also carry attribute names from the OpenTelemetry semantic conventions for generative AI, pinned to version 1.41.1 (the schema URL is on the `namzu` instrumentation scope): `gen_ai.operation.name` on turns and tool calls, `gen_ai.provider.name` (a value the convention lists when the provider is that vendor's own API, otherwise the kernel's own provider id, lower case, as the custom value the convention allows), `gen_ai.request.stream`, `gen_ai.usage.cache_read.input_tokens`, `gen_ai.usage.cache_creation.input_tokens`, `gen_ai.usage.reasoning.output_tokens` and `error.type`, at most 5 added to a model call, 2 to a tool call and 3 to a turn. Nothing is renamed or removed, and no prompt, reply or tool content is recorded under them. Backends that bill per attribute can call the new `setGenAiConventions(false)` before the first turn to leave them out; the default is on. New exports: `GENAI_SEMCONV_VERSION`, `GENAI_SEMCONV_SCHEMA_URL`, `GENAI_SEMCONV_ATTRIBUTES`, `GENAI_NON_CONVENTION_NAMES`, `setGenAiConventions`, `genAiConventionsEnabled`; the `GENAI` constant gains `PROVIDER_NAME`, `REQUEST_STREAM` and three `USAGE_*` keys.
+- b79f7ae: A host's answer to `initialize` now carries an optional `kernel` object: `engine` (this package's version) and `dataEpoch` (a new exported integer constant, `DATA_EPOCH`, starting at 1) always, plus `commandLine` and `desktopContract` when the application that embeds the bridge gives them through the new `AcpServerOptions.kernelFacts`. A client that does not know the object ignores it, so nothing breaks for an existing reader. A program that keeps several copies of the engine side by side can compare `dataEpoch` to decide whether two copies can share one person's files: raise it only when an older copy can no longer safely read or write what a newer one writes. New exported types `AcpKernelFacts` and `AcpHostKernelFacts`. A test now lists every stamped on-disk format with its version, so changing one is a deliberate step.
+- 6988750: The rules the plugin loader applies to a manifest, a skill and an agent file can now be called on text, so a host can check a plugin without loading it. New exports: `parsePluginManifestText` (the parse and schema steps of `loadPluginManifest`), `assertEnableable` (the enablement check it then makes), `parseSkillMarkdown` (what `loadSkill` applies to a `SKILL.md`) and `AGENT_FILE_KEYS` (the frontmatter keys an agent file reads). `loadPluginManifest` and `loadSkill` now call them and behave as before; nothing is renamed or removed.
+
 ## 62.13.0
 
 ### Minor Changes
