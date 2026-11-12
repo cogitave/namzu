@@ -373,6 +373,8 @@ about every launch. See [Delegated work](delegated-work.md#which-launches-are-as
 `/goal edit <objective>` supply the text directly. `/goal status` only reads
 the goal. `/goal pause`, `/goal resume` and `/goal clear` control automatic
 continuation. Direct `/goal <objective>` input also remains supported.
+`/goal set --confirmed-by record <objective>` makes this goal end only as the
+record of the work allows; see [Goals](goals.md).
 
 Creating or resuming a goal enables automatic work. The menu and objective
 editor show the automatic-turn allowance before submission. Pausing or

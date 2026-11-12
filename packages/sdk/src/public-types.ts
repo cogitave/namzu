@@ -406,6 +406,14 @@ export type {
 	SessionGoalStore,
 } from './store/goal/index.js'
 export type { ResolveGoalRoundAuthority } from './tools/goal/index.js'
+export type {
+	GoalConfirmationOptions,
+	GoalDecision,
+	GoalDecisionInput,
+	GoalEnding,
+	GoalEndingReport,
+	GoalStatement,
+} from './tools/goal/confirmation.js'
 export type { ActiveSessionGoal } from './manager/goal/activation.js'
 
 export type {

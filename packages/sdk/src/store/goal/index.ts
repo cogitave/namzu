@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { TenantIsolationError } from '../../session/errors.js'
 import type {
 	GoalBlockReason,
+	GoalConfirmedBy,
 	GoalPhase,
 	GoalRef,
 	GoalRoundAuthority,
@@ -29,6 +30,8 @@ export interface CreateSessionGoalParams {
 	readonly sessionId: SessionId
 	readonly objective: string
 	readonly maxGoalRounds?: number
+	/** Set only when this goal chooses; absent leaves the choice to the host's setting. */
+	readonly confirmedBy?: GoalConfirmedBy
 }
 
 export interface EditSessionGoalParams {
@@ -273,6 +276,13 @@ abstract class SessionGoalStoreBase implements SessionGoalStore {
 		const sessionId = await this.requireSession(params.sessionId, tenantId)
 		const text = objective(params.objective)
 		const maxRounds = maxGoalRounds(params.maxGoalRounds)
+		if (
+			params.confirmedBy !== undefined &&
+			params.confirmedBy !== 'model' &&
+			params.confirmedBy !== 'record'
+		) {
+			throw new TypeError('goal confirmedBy must be "model" or "record".')
+		}
 		return await backendFor(this).transact(sessionId, (existing) => {
 			if (existing) {
 				assertTenant(existing, tenantId)
@@ -290,6 +300,7 @@ abstract class SessionGoalStoreBase implements SessionGoalStore {
 				phase: 'active',
 				maxGoalRounds: maxRounds,
 				roundsAdmitted: 0,
+				...(params.confirmedBy !== undefined ? { confirmedBy: params.confirmedBy } : {}),
 				createdAt: now,
 				updatedAt: now,
 			}

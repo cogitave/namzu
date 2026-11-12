@@ -29,6 +29,7 @@ import {
 } from '../../../telemetry/attributes.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { STRUCTURED_OUTPUT_TOOL_NAME } from '../../../tools/builtins/structuredOutput.js'
+import { SESSION_GOAL_TOOL_NAMES } from '../../../tools/goal/index.js'
 import type { ToolManager } from '../../../toolsets/manager.js'
 import { RECALLED_MEMORY_ENTRY_KEY, recalledMemoryIds } from '../../../turn/memory-recall.js'
 import { type CostInfo, type TokenUsage, promptSizeOf } from '../../../types/common/index.js'
@@ -135,6 +136,9 @@ import {
 	workContext,
 } from './step-shaping.js'
 import { streamProviderTurn } from './stream-turn.js'
+
+/** Notes a host may add before a turn ends (`TurnConfig.outcome.beforeEnd`) in one turn. */
+const MAX_BEFORE_END_NOTES = 16
 
 /** Capped steps in a row after which the per-step cap stops applying for the turn's next step. */
 const MAX_CAPPED_STREAK = 3
@@ -339,6 +343,7 @@ export class IterationOrchestrator {
 	private readonly completionAudit?: CompletionAudit
 	/** What the turn changed and what checked it; see {@link OutcomeLedger}. Kept whether or not the host asked. */
 	private readonly outcomeLedger: OutcomeLedger
+	private beforeEndNotes = 0
 	private outcomeHydrated = false
 	/** The next step must call a tool, at low effort: set by the stall monitor or a capped step. */
 	private forceActionNextStep = false
@@ -2016,6 +2021,14 @@ export class IterationOrchestrator {
 							recorder.pushMessage(createRuntimeContextMessage(auditReminder, 'progress-nudge'))
 							continue
 						}
+						const endNote =
+							!forceFinalize && closingStopReason === undefined
+								? await this.askBeforeEnd()
+								: undefined
+						if (endNote !== undefined) {
+							recorder.pushMessage(createRuntimeContextMessage(endNote, 'progress-nudge'))
+							continue
+						}
 						if (!forceFinalize && closingStopReason === undefined) {
 							const feedback = yield* this.askStopHooks()
 							const stoppedByHook = this.ctx.toolExecutor.takeHalt?.()
@@ -3406,8 +3419,14 @@ export class IterationOrchestrator {
 		else this.outcomeLedger.restore(restored.snapshot)
 	}
 
-	/** Whether a call is one the outcome record may treat as only looking. */
+	/**
+	 * Whether a call is one the outcome record may treat as only looking. The
+	 * goal tools write the goal's own record, never the workspace; counting a
+	 * report of completion as a possible change would make every check before it
+	 * read as not known to be fresh.
+	 */
 	private lookedOnly(toolName: string, input: unknown): boolean {
+		if ((SESSION_GOAL_TOOL_NAMES as readonly string[]).includes(toolName)) return true
 		try {
 			return !callChangedState(toolName, this.ctx.tools.get(toolName)?.isReadOnly?.(input), false)
 		} catch {
@@ -3471,6 +3490,30 @@ export class IterationOrchestrator {
 			this.ctx.log.warn('The outcome record could not read a step', {
 				'exception.message': toErrorMessage(err),
 			})
+		}
+	}
+
+	/**
+	 * The host's say before the turn ends (`TurnConfig.outcome.beforeEnd`): a note
+	 * for the model, or `undefined` to let the turn end. Bounded, and a hook that
+	 * fails never fails the turn.
+	 */
+	async askBeforeEnd(): Promise<string | undefined> {
+		const hook = this.ctx.turnConfig.outcome?.beforeEnd
+		if (hook === undefined || this.beforeEndNotes >= MAX_BEFORE_END_NOTES) return undefined
+		try {
+			const note = await hook(async () => {
+				this.hydrateOutcome()
+				return await this.outcomeLedger.preview()
+			})
+			if (typeof note !== 'string' || note.trim() === '') return undefined
+			this.beforeEndNotes += 1
+			return note
+		} catch (err) {
+			this.ctx.log.warn('The host hook before the turn ends failed; the turn ends', {
+				'exception.message': toErrorMessage(err),
+			})
+			return undefined
 		}
 	}
 

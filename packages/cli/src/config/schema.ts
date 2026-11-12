@@ -195,6 +195,19 @@ export interface TurnLimitsConfig {
 	readonly waitForProviderMs?: number
 }
 
+/** See `NamzuCliConfig.goal`. */
+export interface GoalCliConfig {
+	/**
+	 * What ends a goal. `model` (the default today): the model's report that the
+	 * goal is met ends it. `record`: the kernel reads the record of the work done
+	 * for the goal first, and the goal ends as that record allows (confirmed,
+	 * stated and not checked, or not confirmed). A goal set with
+	 * `--confirmed-by` keeps its own choice. The default is intended to become
+	 * `record` in a later major release.
+	 */
+	readonly confirmedBy?: 'model' | 'record'
+}
+
 /** See `NamzuCliConfig.workflow`. */
 export interface WorkflowCliConfig {
 	/** Agents one workflow runs at once. Default `min(16, CPUs - 2)`, at least 2; at most 16. */
@@ -477,6 +490,8 @@ export interface NamzuCliConfig {
 	 * shows the values in force.
 	 */
 	readonly workflow?: WorkflowCliConfig
+	/** What ends a goal set with `/goal`; see {@link GoalCliConfig}. */
+	readonly goal?: GoalCliConfig
 	/**
 	 * Isolation for the commands this CLI runs.
 	 *

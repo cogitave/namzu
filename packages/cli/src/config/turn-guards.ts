@@ -1,4 +1,4 @@
-import type { SessionLog, TurnId } from '@namzu/sdk'
+import type { SessionLog, TurnId, TurnOutcomeConfig } from '@namzu/sdk'
 import type { NamzuCliConfig } from './schema.js'
 
 /** The `limits` block of a CLI config: what one turn may spend. */
@@ -33,7 +33,10 @@ export interface TurnConfigFields {
 	/** Always set: the configured limit, or {@link DEFAULT_MAX_HOOK_REFUSALS}; 0 is no cap. */
 	maxHookRefusals: number
 	/** The outcome record's hooks; see the SDK's `TurnConfig.outcome`. */
-	outcome?: { detectChanges: () => Promise<string | null> }
+	outcome?: {
+		detectChanges?: () => Promise<string | null>
+		beforeEnd?: NonNullable<TurnOutcomeConfig['beforeEnd']>
+	}
 }
 
 /**
@@ -56,6 +59,8 @@ export function turnConfigFields(
 		 * rests on the kernel's own write tools alone.
 		 */
 		readonly detectChanges?: () => Promise<string | null>
+		/** The host's say before a turn ends; see the SDK's `TurnConfig.outcome.beforeEnd`. */
+		readonly beforeEnd?: NonNullable<TurnOutcomeConfig['beforeEnd']>
 	} = {},
 ): TurnConfigFields {
 	return {
@@ -73,7 +78,14 @@ export function turnConfigFields(
 		...(options.completionAudit === true && guards.doneGate !== false
 			? { completionAudit: true }
 			: {}),
-		...(options.detectChanges ? { outcome: { detectChanges: options.detectChanges } } : {}),
+		...(options.detectChanges || options.beforeEnd
+			? {
+					outcome: {
+						...(options.detectChanges ? { detectChanges: options.detectChanges } : {}),
+						...(options.beforeEnd ? { beforeEnd: options.beforeEnd } : {}),
+					},
+				}
+			: {}),
 	}
 }
 

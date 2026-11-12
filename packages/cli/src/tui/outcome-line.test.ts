@@ -1,7 +1,7 @@
 import type { TurnOutcome } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
-import { claimMismatchLine, outcomeLine } from './outcome-line.js'
+import { claimMismatchLine, goalEndingLine, outcomeLine } from './outcome-line.js'
 
 function outcome(over: Partial<TurnOutcome> = {}): TurnOutcome {
 	return {
@@ -164,5 +164,51 @@ describe('the line under it when the answer contradicts the record', () => {
 	it('makes a command from the model printable', () => {
 		const line = claimMismatchLine({ ...mismatch, recordSays: 'pnpm\u009b31m test\nfailed' })
 		expect(line).toBe('The answer says the tests pass. The record: pnpm 31m test failed.')
+	})
+})
+
+describe('goalEndingLine', () => {
+	it('says which of the three endings it was, with what the record held', () => {
+		expect(
+			goalEndingLine({
+				goalId: 'g',
+				ending: 'confirmed',
+				sentence: '`pnpm test` passed and nothing changed after it',
+				refusals: 1,
+			}),
+		).toBe('Goal confirmed by the record: `pnpm test` passed and nothing changed after it.')
+		expect(
+			goalEndingLine({
+				goalId: 'g',
+				ending: 'stated-not-checked',
+				sentence: 'nothing changed and no check ran',
+				refusals: 0,
+			}),
+		).toBe(
+			'Goal stated, not checked: the record cannot confirm it (nothing changed and no check ran).',
+		)
+		expect(
+			goalEndingLine({
+				goalId: 'g',
+				ending: 'not-confirmed',
+				sentence: '`pnpm test` failed',
+				refusals: 3,
+			}),
+		).toBe('Goal not confirmed: the record says `pnpm test` failed.')
+	})
+
+	it('says nothing when no goal ended', () => {
+		expect(goalEndingLine(undefined)).toBeUndefined()
+	})
+
+	it('makes a command from the record printable', () => {
+		expect(
+			goalEndingLine({
+				goalId: 'g',
+				ending: 'not-confirmed',
+				sentence: 'a\u001b[31m failed',
+				refusals: 3,
+			}),
+		).not.toContain('\u001b')
 	})
 })

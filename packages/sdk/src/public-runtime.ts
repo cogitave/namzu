@@ -283,6 +283,14 @@ export {
 	SESSION_GOAL_TOOL_NAMES,
 	buildSessionGoalTools,
 } from './tools/goal/index.js'
+export {
+	DEFAULT_GOAL_REFUSALS,
+	GoalConfirmation,
+	NO_CHECK_REASON_CODE,
+	decideGoalConfirmation,
+	describeGoalEnding,
+	recordSentence,
+} from './tools/goal/confirmation.js'
 export { SessionGoalActivation } from './manager/goal/activation.js'
 export { buildToolResultHashes, hashToolResult } from './utils/hash.js'
 export {

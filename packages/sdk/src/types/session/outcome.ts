@@ -117,6 +117,19 @@ export interface TurnOutcomeConfig {
 	readonly isCheck?: (command: string) => boolean
 	/** Deadline per detector call. A detector that is late is `null`. Default 3000. */
 	readonly detectTimeoutMs?: number
+	/**
+	 * Asked when the model has finished its answer with no tool call left and
+	 * the turn would end. `read` gives the turn's record as it stands, with the
+	 * workspace compared once; it is not computed unless called. A returned
+	 * sentence goes to the model as a runtime note and the turn goes on; nothing
+	 * returned lets the turn end. A turn that is being stopped by a limit, a
+	 * cancellation or a forced final answer is not asked, so a limit always wins
+	 * over this hook. At most 16 notes are honoured in one turn. A hook that
+	 * throws is read as nothing returned.
+	 */
+	readonly beforeEnd?: (
+		read: () => Promise<TurnOutcome | undefined>,
+	) => string | undefined | Promise<string | undefined>
 }
 
 /** Bounds on a recorded outcome. */
