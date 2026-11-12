@@ -27,6 +27,7 @@ export const theme: SemanticColors = {
 	live: { ...initial.live },
 	context: { ...initial.context },
 	glow: [...initial.glow],
+	tint: { ...initial.tint },
 	diff: { truecolor: initial.diff.truecolor, basic: initial.diff.basic },
 }
 
@@ -44,6 +45,7 @@ export function applyPalette(name: ThemeName): void {
 	target.live = { ...palette.live }
 	target.context = { ...palette.context }
 	target.glow = [...palette.glow]
+	target.tint = { ...palette.tint }
 	target.diff = { truecolor: palette.diff.truecolor, basic: palette.diff.basic }
 	activeName = name
 }
@@ -68,6 +70,27 @@ export function reportsTruecolor(env: NodeJS.ProcessEnv = process.env): boolean 
 	if (env.WT_SESSION !== undefined) return true
 	if (env.TERM_PROGRAM !== undefined && TRUECOLOR_PROGRAMS.has(env.TERM_PROGRAM)) return true
 	return /direct|truecolor|24bit/i.test(env.TERM ?? '')
+}
+
+/**
+ * Whether the terminal draws a background tint at all: 256 colours or more, and
+ * not asked to go without (`NO_COLOR`, `FORCE_COLOR=0`, a dumb terminal, a CI run
+ * that did not force colour). Where it does not, a row looks as it always did.
+ */
+export function drawsTint(env: NodeJS.ProcessEnv = process.env): boolean {
+	if ((env.NO_COLOR ?? '') !== '' || env.FORCE_COLOR === '0' || env.TERM === 'dumb') return false
+	const forced = env.FORCE_COLOR !== undefined && env.FORCE_COLOR !== ''
+	if (!forced && (env.CI ?? '') !== '') return false
+	if (env.FORCE_COLOR === '1') return false
+	return forced || reportsTruecolor(env) || /256color/i.test(env.TERM ?? '')
+}
+
+/** The backgrounds behind the person's message and a queued one; null where none is drawn. */
+export function rowTints(
+	env: NodeJS.ProcessEnv = process.env,
+): { readonly user: string; readonly queued: string } | null {
+	if (theme.tint.user === '' || !drawsTint(env)) return null
+	return theme.tint
 }
 
 /** The diff colours the active theme draws on this terminal. */

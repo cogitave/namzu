@@ -13,7 +13,7 @@ import {
 	choiceDisplayWidth,
 	truncateChoiceText,
 } from './terminal-choice-text.js'
-import { theme } from './theme.js'
+import { rowTints, theme } from './theme.js'
 
 export interface PendingInputItem {
 	readonly text: string
@@ -176,8 +176,11 @@ export function PendingInputPanel({
 				)
 				const shownTail = tail
 				const colour = chosen ? theme.accent.system : theme.text.muted
+				// Greyer than a sent message: it has not been sent yet.
+				const tint = rowTints()
+				const ground = tint === null ? {} : { backgroundColor: chosen ? tint.user : tint.queued }
 				return (
-					<Text key={row.key} color={colour} wrap="truncate-end">
+					<Text key={row.key} color={colour} wrap="truncate-end" {...ground}>
 						{lead}
 						{shownText}
 						{shownFiles}

@@ -173,6 +173,29 @@ function headOf(event: ToolEndEvent, start: ToolEndStart | undefined) {
 	return start?.label ?? formatToolCall(event.toolName, event.summary)
 }
 
+/**
+ * The header rows of the calls an interrupt cuts off, in start order: the same
+ * `● Bash(…)` a finished call leaves, so the interruption line is a result under
+ * its call. A call that is only a question, a fold member or a wait has no row here.
+ */
+export function interruptedCallHeads(
+	tools: readonly {
+		readonly label: string
+		readonly queued?: true
+		readonly fold?: unknown
+		readonly waitingOn?: string
+	}[],
+): readonly ToolRow[] {
+	return tools
+		.filter((tool) => tool.queued === undefined && tool.fold === undefined && !tool.waitingOn)
+		.map((tool) => ({
+			role: 'tool' as const,
+			content: tool.label,
+			glyph: '●',
+			glyphColor: tokenColor('text.muted'),
+		}))
+}
+
 /** Rows for a finished call, from the branches that need nothing but the call and its result. */
 export function toolEndRows(
 	event: ToolEndEvent,
@@ -193,7 +216,7 @@ export function toolEndRows(
 		const answer = event.shell?.note
 		const output =
 			answer !== undefined && raw.join('').trim().toLowerCase() === '(no output)' ? [answer] : raw
-		const state = foldOp(EMPTY_GROUP, { ...fold, hint: undefined }, 0)
+		const state = foldOp(EMPTY_GROUP, { ...fold, hint: undefined })
 		const headline = event.headline ?? start?.label ?? headOf(event, start)
 		return rows([
 			{
@@ -212,7 +235,7 @@ export function toolEndRows(
 		// A look that failed stays in its counted line with the others; the line
 		// shows no error, and the detailed transcript shows the call with its error.
 		const said = event.output ?? (event.summary.length > 0 ? event.summary : undefined)
-		const state = foldOp(EMPTY_GROUP, { ...fold, hint: undefined }, 0)
+		const state = foldOp(EMPTY_GROUP, { ...fold, hint: undefined })
 		return rows([
 			{
 				role: 'tool',
@@ -438,7 +461,7 @@ export function toolEndRows(
 			command.trim().length > 0
 		) {
 			const cell = { header, shell }
-			const state = foldOp(EMPTY_GROUP, { kind: 'run', command, cell }, 0)
+			const state = foldOp(EMPTY_GROUP, { kind: 'run', command, cell })
 			return rows([
 				{
 					// The row a group of this one command is drawn as; see `groupFields`.

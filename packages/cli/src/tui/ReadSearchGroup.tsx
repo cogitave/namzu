@@ -1,15 +1,8 @@
 import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout } from 'ink'
-import { useEffect, useState } from 'react'
 
 import { useContentWidth } from './Markdown.js'
 import { motionAllowed, useReducedMotion } from './motion.js'
-import {
-	COMMAND_ROW_INDENT,
-	HINT_INTERVAL_MS,
-	commandRows,
-	groupSegments,
-	visibleHint,
-} from './read-search-group.js'
+import { COMMAND_ROW_INDENT, commandRows, groupSegments, visibleHint } from './read-search-group.js'
 import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from './system-rows.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -23,14 +16,7 @@ import type { TranscriptMessage } from './types.js'
  *
  * Settled it is one quiet line with a blank two-column slot where the dot was.
  */
-export function ReadSearchGroup({
-	message,
-	now = Date.now,
-}: {
-	readonly message: TranscriptMessage
-	/** The clock the hint's interval is read from; tests pass their own. */
-	readonly now?: () => number
-}) {
+export function ReadSearchGroup({ message }: { readonly message: TranscriptMessage }) {
 	const state = message.group
 	const live = message.pending === true
 	// Redraws when the setting changes, so a blinking dot stops at once.
@@ -40,20 +26,9 @@ export function ReadSearchGroup({
 	const screenReader = useIsScreenReaderEnabled()
 	const motion = live && stdout.isTTY === true && !screenReader && motionAllowed()
 	const { frame } = useAnimation({ isActive: motion, interval: 300 })
-	const [, setTick] = useState(0)
-	const queued = live && state?.hintQueued !== undefined ? state.hintShownAt : undefined
-	// Wake once when a held hint comes due, whether or not anything animates.
-	useEffect(() => {
-		if (queued === undefined) return
-		const timer = setTimeout(
-			() => setTick((n) => n + 1),
-			Math.max(0, queued + HINT_INTERVAL_MS - now()),
-		)
-		return () => clearTimeout(timer)
-	}, [queued, now])
 	if (!state) return null
 	const segments = groupSegments(state, live)
-	const hint = live ? visibleHint(state, now()) : undefined
+	const hint = live ? visibleHint(state) : undefined
 	const hintLines = hint ? hint.split('\n').map(terminalDisplayText) : []
 	// The commands it ran, one row each and cut to the width, then the newest target.
 	const ran = message.detailExpanded

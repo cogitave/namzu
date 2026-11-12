@@ -108,6 +108,12 @@ export interface SemanticColors {
 	}
 	/** The hypermode glow on the composer's rule: three steps, light to deep. */
 	readonly glow: readonly [string, string, string]
+	/**
+	 * The quiet background behind the person's own message, and behind one that is
+	 * queued and not yet sent (greyer). Empty means no tint: the named-colour
+	 * palettes follow the terminal's own scheme and paint no background of theirs.
+	 */
+	readonly tint: { readonly user: string; readonly queued: string }
 	/** Diff row backgrounds: for a terminal with 24-bit colour, and for every other one. */
 	readonly diff: { readonly truecolor: DiffColors; readonly basic: DiffColors }
 }
@@ -169,6 +175,7 @@ const DARK: SemanticColors = {
 		free: 'ansi256(239)',
 	},
 	glow: ['ansi256(183)', 'ansi256(141)', 'ansi256(97)'],
+	tint: { user: 'rgb(30,40,34)', queued: 'rgb(38,38,38)' },
 	diff: {
 		truecolor: {
 			added: 'rgb(34,92,43)',
@@ -221,6 +228,7 @@ const LIGHT: SemanticColors = {
 		free: 'ansi256(250)',
 	},
 	glow: ['ansi256(97)', 'ansi256(91)', 'ansi256(55)'],
+	tint: { user: 'rgb(226,238,229)', queued: 'rgb(236,236,236)' },
 	diff: {
 		truecolor: {
 			added: 'rgb(200,238,208)',
@@ -236,6 +244,7 @@ const LIGHT: SemanticColors = {
 
 const DARK_DALTONIZED: SemanticColors = {
 	...DARK,
+	tint: { user: 'rgb(28,36,48)', queued: 'rgb(38,38,38)' },
 	accent: { ...DARK.accent, user: 'ansi256(81)', assistant: 'ansi256(81)' },
 	status: {
 		ok: 'ansi256(75)',
@@ -277,6 +286,7 @@ const DARK_DALTONIZED: SemanticColors = {
 
 const LIGHT_DALTONIZED: SemanticColors = {
 	...LIGHT,
+	tint: { user: 'rgb(226,235,248)', queued: 'rgb(236,236,236)' },
 	accent: {
 		...LIGHT.accent,
 		user: 'ansi256(25)',
@@ -345,6 +355,7 @@ const DARK_ANSI: SemanticColors = {
 		free: 'blackBright',
 	},
 	glow: ['magentaBright', 'magenta', 'blackBright'],
+	tint: { user: '', queued: '' },
 	diff: { truecolor: NAMED_DIFF, basic: NAMED_DIFF },
 }
 
@@ -377,6 +388,7 @@ const LIGHT_ANSI: SemanticColors = {
 		free: 'blackBright',
 	},
 	glow: ['magentaBright', 'magenta', 'blackBright'],
+	tint: { user: '', queued: '' },
 	diff: { truecolor: NAMED_DIFF, basic: NAMED_DIFF },
 }
 

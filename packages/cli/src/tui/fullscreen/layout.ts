@@ -10,9 +10,15 @@
  */
 
 import { contentColorForRole, screenMessage } from '../Transcript.js'
+import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from '../system-rows.js'
 import { wrapChoiceText } from '../terminal-choice-text.js'
 import { shownTheme } from '../theme-store.js'
-import { messageScrollRows, scrollBodyText, scrollTextWidth } from '../transcript-scroll.js'
+import {
+	messageScrollRows,
+	scrollBodyText,
+	scrollTextWidth,
+	withLiveHint,
+} from '../transcript-scroll.js'
 import { CLICK_EXPAND_HINT, CLICK_FOLD_HINT, EXPAND_HINT } from '../truncation.js'
 import type { TranscriptMessage } from '../types.js'
 import { wrapJoiners } from './joiners.js'
@@ -79,6 +85,45 @@ function openedMessage(message: TranscriptMessage): TranscriptMessage {
 	}
 }
 
+/** Cells a result row's `⎿` and the gap after it take before its words, as the normal transcript draws it. */
+const RESULT_HANG = RESULT_GUTTER_INDENT + RESULT_GUTTER_WIDTH - 2
+
+/** A `⎿` result line has its words hung after the mark, in the column the normal transcript uses. */
+function hangsResult(message: TranscriptMessage): boolean {
+	return (
+		(message.glyph ?? '') === '⎿' &&
+		message.statusRows === undefined &&
+		!(message.group && message.shell === undefined)
+	)
+}
+
+/**
+ * A result line's body rows with the `⎿` set into the text: the gutter is two
+ * cells, and the mark stands one column further in than that, so it is part of
+ * the first row (in its own colour) and the rows after it hang under the words.
+ */
+function hungRows(
+	rows: readonly FsRow[],
+	body: number,
+	mark: string,
+	markColor: string,
+): readonly FsRow[] {
+	return rows.map((row, i) => {
+		if (i >= body) return row
+		const prefix = i === 0 ? `⎿${' '.repeat(RESULT_HANG - 1)}` : ' '.repeat(RESULT_HANG)
+		return {
+			...row,
+			glyph: ' ',
+			text: `${prefix}${row.text}`,
+			lead: i === 0 ? 0 : RESULT_HANG,
+			spans: [
+				{ text: prefix, color: i === 0 ? markColor : row.color },
+				{ text: row.text, color: row.color },
+			],
+		}
+	})
+}
+
 /**
  * The rows of a message that carries the expand hint, worded as a click, or
  * null when it carries none. Only what the hint stands for answers a click: the
@@ -93,22 +138,27 @@ function clickableRows(
 	open: boolean,
 ): FsMessageRows | null {
 	if (message.role !== 'tool' && message.role !== 'system') return null
-	const closed = messageScrollRows(message, hasPrev, width, { hint: CLICK_EXPAND_HINT })
+	const fit = hangsResult(message) ? Math.max(4, width - RESULT_HANG) : width
+	const closed = messageScrollRows(message, hasPrev, fit, { hint: CLICK_EXPAND_HINT })
 	if (!closed.hinted) return null
 	const shown = open ? openedMessage(message) : message
 	const hint = open ? undefined : CLICK_EXPAND_HINT
-	const plain = open ? messageScrollRows(shown, hasPrev, width) : closed
+	const plain = open ? messageScrollRows(shown, hasPrev, fit) : closed
 	const text = scrollBodyText(shown, hint)
-	const body = wrapChoiceText(text, width).length
+	const body = wrapChoiceText(text, fit).length
 	const joins = wrapJoiners(
 		text,
 		plain.rows.slice(0, body).map((r) => r.text),
 	)
+	const own = plain.rows.map((row, i) => plainRow(row, i < body ? (joins[i] ?? null) : null))
+	const laid = hangsResult(message)
+		? hungRows(own, body, '⎿', plain.rows[0]?.glyphColor ?? '')
+		: own
 	return {
 		gap: plain.gap ? plainRow(plain.gap) : null,
-		rows: plain.rows.map((row, i) => {
-			const own = plainRow(row, i < body ? (joins[i] ?? null) : null)
-			const answers = i < body || (!open && (row.command === true || row.hint === true))
+		rows: laid.map((own, i) => {
+			const answers =
+				i < body || (!open && (plain.rows[i]?.command === true || plain.rows[i]?.hint === true))
 			return answers ? { ...own, opens: true as const } : own
 		}),
 	}
@@ -122,19 +172,22 @@ function clickableRows(
  * marks the rows a click answers; `mode.open` draws it open.
  */
 export function fullscreenMessageRows(
-	message: TranscriptMessage,
+	asked: TranscriptMessage,
 	hasPrev: boolean,
 	width: number,
 	mode: RowMode = PLAIN,
 ): FsMessageRows {
+	const message = withLiveHint(asked)
 	if (mode.click) {
 		const clickable = clickableRows(message, hasPrev, width, mode.open)
 		if (clickable) return clickable
 	}
-	const plain = messageScrollRows(message, hasPrev, width)
+	const hung = hangsResult(message)
+	const fit = hung ? Math.max(4, width - RESULT_HANG) : width
+	const plain = messageScrollRows(message, hasPrev, fit)
 	const gap = plain.gap ? plainRow(plain.gap) : null
 	const first = plain.rows[0]
-	const body = wrapChoiceText(scrollBodyText(message), width).length
+	const body = wrapChoiceText(scrollBodyText(message), fit).length
 	if (rendersMarkdown(message) && first) {
 		const rows: FsRow[] = markdownRows(
 			message.content,
@@ -156,9 +209,10 @@ export function fullscreenMessageRows(
 		scrollBodyText(message),
 		plain.rows.slice(0, body).map((r) => r.text),
 	)
+	const own = plain.rows.map((row, i) => plainRow(row, i < body ? (joins[i] ?? null) : null))
 	return {
 		gap,
-		rows: plain.rows.map((row, i) => plainRow(row, i < body ? (joins[i] ?? null) : null)),
+		rows: hung ? hungRows(own, body, '⎿', first?.glyphColor ?? '') : own,
 	}
 }
 

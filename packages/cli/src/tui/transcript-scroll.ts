@@ -15,10 +15,10 @@
 import { renderedDetailLines } from './Transcript.js'
 import { contentColorForRole, glyphColorForRole, glyphForRole } from './Transcript.js'
 import { attachmentLine } from './attachment-rows.js'
-import { commandRows } from './read-search-group.js'
+import { commandRows, hintRows } from './read-search-group.js'
 import { choiceDisplayWidth, truncateChoiceText, wrapChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
-import { paint, theme } from './theme.js'
+import { paint, rowTints, theme } from './theme.js'
 import { EXPAND_HINT } from './truncation.js'
 import type { TranscriptMessage } from './types.js'
 
@@ -28,6 +28,8 @@ export interface ScrollRow {
 	readonly glyphColor: string
 	readonly text: string
 	readonly color: string
+	/** The quiet background behind the row: the person's own message. Never part of `text`. */
+	readonly tint?: string
 	/** A command a group folded and lists under its line. */
 	readonly command?: true
 	/** The row the expand hint stands in, built as the hint and not read from text. */
@@ -71,6 +73,17 @@ export function scrollTextWidth(columns: number): number {
 	return Math.max(4, Math.floor(columns) - GUTTER)
 }
 
+/**
+ * A group still open is drawn with its expand hint, as the normal transcript
+ * draws it: the settled row carries the hint as its meta, the open one does not
+ * yet, so the hint is given to it here.
+ */
+export function withLiveHint(message: TranscriptMessage): TranscriptMessage {
+	if (!message.group || message.shell !== undefined || message.pending !== true) return message
+	if (message.meta !== undefined || message.detailExpanded) return message
+	return { ...message, meta: EXPAND_HINT }
+}
+
 /** The text a message's first rows show, before it is wrapped. */
 export function scrollBodyText(message: TranscriptMessage, hint?: string): string {
 	return message.statusRows
@@ -108,11 +121,12 @@ export interface MessageScrollRows {
  * nothing else, which is what lets a caller keep the result per message.
  */
 export function messageScrollRows(
-	message: TranscriptMessage,
+	asked: TranscriptMessage,
 	hasPrev: boolean,
 	width: number,
 	options: ScrollRowsOptions = {},
 ): MessageScrollRows {
+	const message = withLiveHint(asked)
 	const glyph = message.glyph ?? glyphForRole(message.role)
 	const glyphColor =
 		paint(message.glyphColor) ??
@@ -146,12 +160,26 @@ export function messageScrollRows(
 			]
 	const hinted = (message.meta?.endsWith(EXPAND_HINT) ?? false) || detail.some((line) => line.hint)
 	const rows: ScrollRow[] = []
+	const tint = message.role === 'user' && glyph === '›' ? rowTints()?.user : undefined
 	body.forEach((text, i) => {
-		rows.push({ glyph: i === 0 ? glyph : ' ', glyphColor, text, color })
+		rows.push({
+			glyph: i === 0 ? glyph : ' ',
+			glyphColor,
+			text,
+			color,
+			...(tint !== undefined ? { tint } : {}),
+		})
 	})
 	// The commands a group folded, one row each, as the live transcript lists them.
 	if (message.group && message.shell === undefined && !message.detailExpanded) {
-		commandRows(message.group, width - COMMAND_HANG).forEach((line, i) => {
+		// While the group is open, the newest item it started goes under them.
+		const newest = message.pending
+			? hintRows(message.group).flatMap((line) =>
+					wrapChoiceText(terminalDisplayText(line), Math.max(4, width - COMMAND_HANG)),
+				)
+			: []
+		const listed = [...commandRows(message.group, width - COMMAND_HANG), ...newest]
+		listed.forEach((line, i) => {
 			rows.push({
 				glyph: ' ',
 				glyphColor,

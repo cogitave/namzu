@@ -795,7 +795,7 @@ import {
 } from './terminal-title.js'
 import { theme, tokenColor } from './theme.js'
 import { useTitleFrame } from './title-frame.js'
-import { type ToolRow, formatToolCall, toolEndRows } from './tool-end-rows.js'
+import { type ToolRow, formatToolCall, interruptedCallHeads, toolEndRows } from './tool-end-rows.js'
 import { toolServerRow } from './tool-server-rows.js'
 import {
 	PAUSED_TURN_LINES,
@@ -7917,6 +7917,9 @@ function AppBody({
 			options?: { readonly steered?: boolean; readonly always?: boolean },
 		) => {
 			const callRunning = activeToolsRef.current.length > 0
+			// The calls the interrupt cuts off have no row of their own yet (a row is
+			// written when a call ends); the line under them must not stand alone.
+			const cutOff = interruptedCallHeads(activeToolsRef.current)
 			// An interrupt moves a running command to a job instead of stopping
 			// it, and does so before this returns: a job that was not there
 			// before is the command that carries on.
@@ -7936,11 +7939,12 @@ function AppBody({
 					...(options?.steered ? { steered: true } : {}),
 					...(movedToBackground ? { movedToBackground: true } : {}),
 				})
+				for (const head of cutOff) pushRow(head)
 				pushMessage('system', row.content, false, row.glyph, undefined, row.color)
 			}
 			return interrupted
 		},
-		[interruptTurn, pushMessage, session],
+		[interruptTurn, pushMessage, pushRow, session],
 	)
 	/**
 	 * ctrl+x ctrl+s: send what is waiting now. Same effect as Esc with a
