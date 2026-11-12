@@ -11,11 +11,14 @@ import {
 	RESIZE_SETTLE_MS,
 	createLivePaint,
 	reflowedRows,
+	startOnFreshLine,
 } from './live-paint.js'
 
 const ESC = '\u001b'
 const BSU = `${ESC}[?2026h`
 const ESU = `${ESC}[?2026l`
+/** A write cut after each line break and each escape sequence. */
+const PIECES = new RegExp(`[^\\n${ESC}]*(?:\\n|${ESC}\\[[0-9;?]*[A-Za-z])|[^\\n${ESC}]+`, 'g')
 
 /** A clock the test moves, and the timers on it. */
 function fakeClock() {
@@ -196,6 +199,79 @@ describe('a frame writes only what changed', () => {
 	})
 })
 
+describe('a paint that carries printed rows never shows a blank bottom', () => {
+	/** Every state a second emulator passes through while it parses `data`, cut after each line break and each escape. */
+	async function steps(earlier: string, data: string): Promise<string[][]> {
+		const replay = new Tty(40, 12)
+		replay.write(earlier)
+		const pieces = data.match(PIECES) ?? []
+		const seen: string[][] = []
+		for (const piece of pieces) {
+			replay.write(piece)
+			seen.push(await replay.screen())
+		}
+		return seen
+	}
+
+	it('the status row is always there and no row is blank while the new rows are written over the old', async () => {
+		const { tty, clock, out } = rig(40, 12)
+		const frame = (tag: string) => `${'-'.repeat(10)}\ncomposer ${tag}\nstatus ${tag}\n`
+		inkFrame(out, frame('a'), 0)
+		await tty.drain()
+		const before = tty.writes.length
+		inkFrame(out, frame('b'), 4, 'printed one\nprinted two\n')
+		clock.advance(FRAME_MS)
+		const earlier = tty.writes.slice(0, before).join('')
+		const data = tty.writes.slice(before).join('')
+		for (const screen of await steps(earlier, data)) {
+			// Old rows give way to new ones in place: a composer row and a status row are always there, and no row is left blank.
+			expect(
+				screen.some((r) => r.startsWith('composer')),
+				screen.join('|'),
+			).toBe(true)
+			expect(
+				screen.some((r) => r.startsWith('status')),
+				screen.join('|'),
+			).toBe(true)
+			expect(screen.includes(''), screen.join('|')).toBe(false)
+		}
+		expect(await tty.screen()).toEqual([
+			'printed one',
+			'printed two',
+			'----------',
+			'composer b',
+			'status b',
+		])
+	})
+})
+
+describe('a paint that carries printed rows into a region that shrinks', () => {
+	it('keeps a composer and a status row at every step and ends with exactly the new rows', async () => {
+		const { tty, clock, out } = rig(40, 12)
+		inkFrame(out, 'tip\nmore\n----------\ncomposer a\nstatus a\n', 0)
+		await tty.drain()
+		const before = tty.writes.length
+		inkFrame(out, 'composer b\nstatus b\n', 6, 'printed\n')
+		clock.advance(FRAME_MS)
+		const replay = new Tty(40, 12)
+		replay.write(tty.writes.slice(0, before).join(''))
+		const pieces = tty.writes.slice(before).join('').match(PIECES) ?? []
+		for (const piece of pieces) {
+			replay.write(piece)
+			const screen = await replay.screen()
+			expect(
+				screen.some((r) => r.startsWith('composer')),
+				screen.join('|'),
+			).toBe(true)
+			expect(
+				screen.some((r) => r.startsWith('status')),
+				screen.join('|'),
+			).toBe(true)
+		}
+		expect(await tty.screen()).toEqual(['printed', 'composer b', 'status b'])
+	})
+})
+
 describe('the frame budget', () => {
 	it('a hundred updates in a second paint at most twelve frames, and the last state is never lost', async () => {
 		const { tty, clock, out } = rig()
@@ -291,6 +367,28 @@ describe('launch and exit', () => {
 		proc.emit('SIGCONT')
 		const screen = await tty.screen()
 		expect(screen).toEqual(['frame', '[1]+ Stopped', '$ fg', '', 'frame'])
+	})
+})
+
+describe('starting on a fresh line', () => {
+	it('leaves a cursor at the start of a line where it is, and ends a half-written line otherwise', async () => {
+		const clean = new Tty(20, 6)
+		clean.write('$ namzu\r\n')
+		clean.write(startOnFreshLine(20))
+		await clean.drain()
+		expect(clean.term.buffer.active.cursorX).toBe(0)
+		expect(clean.term.buffer.active.cursorY).toBe(1)
+		expect(await clean.screen()).toEqual(['$ namzu'])
+
+		const half = new Tty(20, 6)
+		half.write('left mid-line')
+		half.write(startOnFreshLine(20))
+		await half.drain()
+		expect(half.term.buffer.active.cursorX).toBe(0)
+		expect(half.term.buffer.active.cursorY).toBe(1)
+		expect((await half.screen())[0]?.startsWith('left mid-line%')).toBe(true)
+		expect(startOnFreshLine(20)).not.toContain(`${ESC}[2J`)
+		expect(startOnFreshLine(20)).not.toContain(`${ESC}[3J`)
 	})
 })
 

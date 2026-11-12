@@ -29,7 +29,7 @@ import {
 import { fileQueuedHintCount } from './hint-counts.js'
 import { installTuiLogSink } from './log-pane.js'
 import { watchOutputSize } from './output-size-watch.js'
-import { type LivePaint, createLivePaint } from './paint/live-paint.js'
+import { type LivePaint, createLivePaint, startOnFreshLine } from './paint/live-paint.js'
 import { installPasteMarkerGuard } from './paste-marker-guard.js'
 import { liveRenderOption } from './render-mode.js'
 import { terminalFocus } from './terminal-focus.js'
@@ -77,7 +77,8 @@ export async function launchTui(
 		interactive: process.stdout.isTTY === true && process.stdin.isTTY === true,
 		hosted: hostedByHost(process.env, process.ppid),
 	})
-	if (process.stdout.isTTY && !fullscreen) process.stdout.write('\r')
+	if (process.stdout.isTTY && !fullscreen)
+		process.stdout.write(startOnFreshLine(process.stdout.columns ?? 80))
 	// SIGTERM, SIGHUP and SIGINT give the conversation back and leave cleanly
 	// (`termination.ts`): the turn's lease is released first, so the next
 	// process can /resume or /abandon at once, then the App leaves as `/exit`

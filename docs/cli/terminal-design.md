@@ -1384,13 +1384,17 @@ writer of Namzu's own (`packages/cli/src/tui/paint/`) that sits between the rend
 - **Only what changed is written.** A frame is compared with what is on screen row by row, and inside a changed
   row cell by cell, so a label whose colour moves one letter along costs a cursor move and that letter. A frame
   equal to the one on screen writes nothing, not even the synchronized-output marks. Rows that finish and go to
-  scrollback are printed above the region and the region is drawn once under them. The marks that let a terminal
+  scrollback are printed above the region and the region is drawn once under them. A paint that carries such
+  rows writes over the old rows from the top, each line clearing only its own row's remainder, and when it has
+  more lines than the region had rows it writes the extra ones first, under the region, so a terminal that
+  ignores synchronized output never shows a blank bottom, only old and new rows mixed for a moment. The marks that let a terminal
   show a frame whole (`?2026`) are kept, and the screen is right on a terminal that ignores them.
 - **At most twelve paints a second.** The first change after a quiet moment is painted at once; changes that
   follow within 83 ms are folded into the next paint, so a flood of shell output or reasoning text is one paint
   per interval, the last state is never dropped, and rows meant for scrollback are kept in order. The clock on
   the working line still moves every second.
-- **Starting never erases what was there.** The terminal UI begins on the line the shell left the cursor on.
+- **Starting never erases what was there.** The terminal UI begins at the start of a line under what was on
+  screen (if a program left the cursor in the middle of a line, a reversed `%` ends that line, as shells do).
   What was on screen and everything in the scrollback stay, and the banner is drawn under them. (Before, launch
   cleared the screen and the scrollback.) A conversation reopened with `/resume`, `/clear` and a theme change
   still clear the screen and print the conversation again, because the person asked for a new screen.
@@ -1398,12 +1402,15 @@ writer of Namzu's own (`packages/cli/src/tui/paint/`) that sits between the rend
   printed again. The terminal UI waits until the size has stopped changing (150 ms without a new event, so a drag
   is one redraw), tells the renderer once, waits 100 ms for the frame at the new width, erases only the live
   region (as many rows as the terminal made of it at the new width) and draws one frame. No frame is drawn at the
-  old width. A region taller than the terminal's new height can leave its top rows in scrollback; the terminal
+  old width. Printed rows keep the line breaks the terminal gave them, so after a narrowing a long printed row
+  can look wrapped mid-word; it is the terminal's reflow, and widening again does not undo it. A region taller than the terminal's new height can leave its top rows in scrollback; the terminal
   pushed them there before Namzu could erase them.
 - **Leaving gives the terminal back.** The last frame is painted, the cursor is shown and left at the start of a
   line under the last frame, also after a signal (Ctrl+C twice, `SIGTERM`, `SIGHUP`) and when the process ends
   without unmounting (an uncaught error). A process continued after a stop draws a fresh frame on a new line
-  below whatever the shell printed.
+  below whatever the shell printed; the earlier frame stays where it was above the shell's lines, so the last
+  rows of the live region can appear twice in the scrollback (erasing it would erase the shell's lines). `/clear`
+  still clears the scrollback, as it asks to.
 
 `NAMZU_LEGACY_PAINT=1` hands the writing back to the renderer, which erases and writes the whole live region on
 every frame and clears the terminal on a resize as before. It is a way back for a terminal the writer does not
@@ -1423,9 +1430,15 @@ region (`ESC[2K`, `ESC[J`); there is no full clear of the screen or scrollback i
 | A shell command flooding output | 80x24 | 259 KB, 57, 3743 | 10 KB, 12, 0 |
 | A silent wait (the label's animation only) | 120x40 | 60 KB, 8.5, 762 | 5 KB, 8.5, 0 |
 | A silent wait (the label's animation only) | 80x24 | 50 KB, 8.5, 762 | 6 KB, 8.9, 0 |
+| A fast reply (three seconds, gathered into few paints) | 120x40 | 156 KB, 20, 2071 | 45 KB, 6.7, 2 |
+| A fast reply (three seconds, gathered into few paints) | 80x24 | 97 KB, 20, 1294 | 31 KB, 6.7, 2 |
+| A silent wait, thirty seconds | 120x40 | 135 KB, 6.3, 1695 | 14 KB, 6.3, 0 |
+| A silent wait, thirty seconds | 80x24 | 113 KB, 6.3, 1695 | 14 KB, 6.3, 0 |
 | Idle | both | 0 | 0 |
 
-A silent wait still paints about eight times a second because the label's colour moves every 120 ms, but each paint is
+When one paint prints more rows than the terminal is tall (a reply that arrives all at once), the bottom of the
+screen is a mix of old and new rows until that paint ends; a terminal that supports synchronized output shows
+none of it. A silent wait still paints about eight times a second because the label's colour moves every 120 ms, but each paint is
 a few dozen bytes (median 33). A resize from 120x40 to 80x24 mid-reply wrote 65 KB with one clear of screen and
 scrollback and 973 erased rows before, and 6 KB with no clear and one erase after; a burst of three more resizes
 gave two clears (85 KB) before and one erase (6 KB) after.

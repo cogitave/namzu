@@ -145,12 +145,76 @@ export function paintChange(shown: readonly string[], next: readonly string[]): 
 	return out
 }
 
-/** The same rows from scratch: `up` rows above the cursor are erased first, then `statics`, then `rows`. */
-function paintWhole(up: number, statics: string, rows: readonly string[]): string {
-	let out = up > 0 ? `${ESC}[${up}A\r${ESC}[J` : ''
-	if (statics !== '') out += crlf(statics)
-	for (const row of rows) out += `${row}${row.includes(ESC) ? RESET : ''}\r\n`
-	return out
+/**
+ * One line written over what is there: its text, then the rest of the physical row cleared, so
+ * the old line shows until this one is on it and no row is ever blank in between. A line that
+ * fills its last row to the edge needs no clearing (and the cursor waits at the edge, where a
+ * clear would take the last cell).
+ */
+function overLine(line: string, columns: number): string {
+	const width = rowWidth(line)
+	const colours = line.includes(ESC)
+	const filled = width > 0 && width % Math.max(1, columns) === 0
+	return `${line}${colours ? RESET : ''}${filled ? '' : `${ESC}[K`}\r\n`
+}
+
+/**
+ * The same rows from scratch: the cursor goes `up` rows to the top of what is on screen, and
+ * `statics` and then `rows` are written over it line by line (each clears only its own row's
+ * remainder), and whatever of the old region is left under them is erased at the end. Nothing
+ * is erased before it is drawn over, so without synchronized output the bottom of the screen
+ * is never blank, only a mix of old and new rows for a moment.
+ *
+ * When there are more new lines than old rows and every line fits one row, the lines past the
+ * old rows are written first, under the old region (the screen scrolls for them), and then the
+ * old rows are written over from the bottom up. The composer and status rows are so never
+ * overwritten before their new rows stand under them: without synchronized output a row of each
+ * is on screen at every step.
+ */
+function paintWhole(
+	up: number,
+	statics: string,
+	rows: readonly string[],
+	columns: number,
+	screenRows: number,
+	oneRowEach: boolean,
+): string {
+	const all: string[] = []
+	if (statics !== '') {
+		for (const line of lines(statics.endsWith('\n') ? statics : `${statics}\n`))
+			all.push(line.replace(/\r$/, ''))
+	}
+	all.push(...rows)
+	const write = (from: number, to: number): string => {
+		let data = ''
+		for (let i = from; i < to; i++) data += overLine(all[i] as string, columns)
+		return data
+	}
+	const total = all.length
+	const fits = oneRowEach && all.every((line) => rowWidth(line) <= columns)
+	if (up > 0 && fits && total > up && total <= screenRows) {
+		// The lines past the old rows first (under the region), then the old rows from the bottom up:
+		// the new composer and status rows stand under the old ones before the old ones are overwritten.
+		let data = write(up, total)
+		let at = total
+		for (let row = up - 1; row >= 0; row--) {
+			data += `${ESC}[${at - row}A${overLine(all[row] as string, columns)}`
+			at = row + 1
+		}
+		return `${data}${ESC}[${total - at}B`
+	}
+	return `${up > 0 ? `${ESC}[${up}A\r` : ''}${write(0, total)}${up > 0 ? `${ESC}[J` : ''}`
+}
+
+/**
+ * What starts the terminal UI on a fresh line without erasing anything: nothing shows when the cursor
+ * is already at the start of a line; when a program left it mid-line, a mark ends that line (as shells
+ * do) and the cursor lands at the start of the next one. Never a newline written blindly, which
+ * would leave a blank line under every normal launch.
+ */
+export function startOnFreshLine(columns: number): string {
+	const width = Math.max(1, columns)
+	return `${ESC}[7m%${ESC}[27m${' '.repeat(width - 1)}\r${ESC}[K`
 }
 
 /** How many rows `rows` take on a terminal `columns` wide that has reflowed them. */
@@ -210,7 +274,9 @@ export function createLivePaint(
 		let data: string
 		if (reflow !== null || fresh || statics !== '') {
 			const up = reflow !== null ? reflow.rows : fresh ? 0 : shown.length
-			data = (fresh ? '\r\n' : '') + paintWhole(up, statics, rows)
+			data =
+				(fresh ? '\r\n' : '') +
+				paintWhole(up, statics, rows, target.columns ?? 80, target.rows ?? 0, reflow === null)
 		} else data = paintChange(shown, rows)
 		reflow = null
 		fresh = false

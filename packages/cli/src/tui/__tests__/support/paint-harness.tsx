@@ -38,14 +38,6 @@ function Screen() {
 	)
 }
 
-const instance = render(<Screen />, {
-	stdout: paint.stream,
-	stdin: process.stdin,
-	interactive: true,
-	patchConsole: false,
-	exitOnCtrlC: false,
-})
-
 const printed: string[] = []
 let typed = ''
 process.stdin.setRawMode(true)
@@ -73,4 +65,14 @@ process.stdin.on('data', (chunk: string) => {
 			})
 		}
 	}
+})
+
+// Raw mode and the reader are in place before the first frame, so the screen showing the first frame
+// means typed lines are no longer echoed by the line discipline under the region.
+const instance = render(<Screen />, {
+	stdout: paint.stream,
+	stdin: process.stdin,
+	interactive: true,
+	patchConsole: false,
+	exitOnCtrlC: false,
 })
