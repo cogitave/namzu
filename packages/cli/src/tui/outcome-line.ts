@@ -1,8 +1,10 @@
 import {
 	type AnswerClaimMismatch,
+	type GoalEndingReport,
 	type TurnOutcome,
 	type TurnOutcomeCheck,
 	describeAnswerClaimMismatch,
+	describeGoalEnding,
 } from '@namzu/sdk'
 
 /**
@@ -121,6 +123,16 @@ export function outcomeNotice(
 export function claimMismatchLine(mismatch: AnswerClaimMismatch | undefined): string | undefined {
 	if (mismatch === undefined) return undefined
 	return plain(describeAnswerClaimMismatch(mismatch))
+}
+
+/**
+ * The closing line of a goal confirmed by the record: which of the three
+ * endings it was, and what the record held. Nothing when the goal did not end
+ * in this turn, or is not confirmed by the record.
+ */
+export function goalEndingLine(ending: GoalEndingReport | undefined): string | undefined {
+	if (ending === undefined) return undefined
+	return plain(describeGoalEnding(ending))
 }
 
 const SHOWN_CHARS = 60

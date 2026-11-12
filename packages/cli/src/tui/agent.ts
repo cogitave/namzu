@@ -90,6 +90,8 @@ import {
 	EVENT_NAME_ATTRIBUTE,
 	type ForegroundCommand,
 	type ForegroundHandoffReason,
+	GoalConfirmation,
+	type GoalEndingReport,
 	type GoalRoundAuthority,
 	GuardedFetchProvider,
 	type HITLResumeDecision,
@@ -917,6 +919,8 @@ export type AgentEvent =
 			readonly outcome?: TurnOutcome
 			/** A plain claim in the answer that the record contradicts. Shown, never acted on. */
 			readonly claimMismatch?: AnswerClaimMismatch
+			/** How a goal confirmed by the record ended in this turn, if it did. */
+			readonly goalEnding?: GoalEndingReport
 	  }
 	| {
 			/** A recoverable turn stopped with an addressable checkpoint. */
@@ -2664,6 +2668,8 @@ export interface AgentSessionOptions {
 	readonly onSessionEvent?: (event: SessionEvent) => void
 	/** Durable goal authority for the main TUI session; omitted on headless surfaces. */
 	readonly sessionGoals?: SessionGoalStore
+	/** See `NamzuCliConfig.goal`: what ends a goal that did not choose. Absent is the model's report. */
+	readonly goalConfirmedBy?: 'model' | 'record'
 	/**
 	 * Mount host desktop control for a surface that owns an interactive
 	 * permission callback. False by default: `exec`, `exec --json` and `drain`
@@ -3768,12 +3774,26 @@ export async function createAgentSession(
 	const outstandingWorkStep = createOutstandingWorkStep(outstandingFacts)
 	const progressNotices = createProgressNotices()
 	const goalToolNames = new Set<string>(SESSION_GOAL_TOOL_NAMES)
+	// What ends a goal: the model's report, as before, unless the setting or the
+	// goal itself says the record of the work does. The controller is built for
+	// every session with goals so a goal set with `--confirmed-by record` works
+	// whatever the setting; with the setting `model` and no such goal it does
+	// nothing, and the tools answer exactly as they did.
+	const goalConfirmation = options.sessionGoals
+		? new GoalConfirmation({
+				store: options.sessionGoals,
+				resolveAuthority: (turnId) => goalAuthorities.get(turnId as TurnId),
+				...(options.goalConfirmedBy ? { defaultConfirmedBy: options.goalConfirmedBy } : {}),
+			})
+		: undefined
 	if (options.sessionGoals) {
 		toolsets.push(
 			toolset(
 				'session-goals',
-				buildSessionGoalTools(options.sessionGoals, (turnId) =>
-					goalAuthorities.get(turnId as TurnId),
+				buildSessionGoalTools(
+					options.sessionGoals,
+					(turnId) => goalAuthorities.get(turnId as TurnId),
+					goalConfirmation ? { confirmation: goalConfirmation } : {},
 				),
 			),
 		)
@@ -6961,6 +6981,7 @@ export async function createAgentSession(
 								paths,
 								...(ephemeralLog ? { sessionLog: ephemeralLog } : {}),
 								claimTurn,
+								...(goalConfirmation ? { goalConfirmation } : {}),
 								workingDirectory: cwd,
 								...(directories.length > 0 ? { additionalDirectories: [...directories] } : {}),
 								escalation,
@@ -7082,6 +7103,8 @@ export async function createAgentSession(
 							for (const turnId of claimed) {
 								if (capturedAuthority && goalAuthorities.get(turnId) === capturedAuthority) {
 									goalAuthorities.delete(turnId)
+									// A report the turn never answered for is not carried into the next round.
+									goalConfirmation?.forget(capturedAuthority.id)
 								}
 							}
 						}
@@ -8005,6 +8028,8 @@ interface TurnParams {
 	readonly sessionLog?: SessionLog
 	/** Register the turn's authority under an id the kernel reports, if it is not the reserved one. */
 	readonly claimTurn: (turnId: TurnId) => void
+	/** Reads the record before a goal round ends; see {@link GoalConfirmation}. */
+	readonly goalConfirmation?: GoalConfirmation
 	/** Directory every filesystem tool in this turn resolves against. */
 	readonly workingDirectory: string
 	/** See `QueryParams.additionalDirectories`. */
@@ -8103,6 +8128,7 @@ async function* runTurn({
 	paths,
 	sessionLog,
 	claimTurn,
+	goalConfirmation,
 	workingDirectory,
 	limits,
 	additionalDirectories,
@@ -8225,6 +8251,11 @@ async function* runTurn({
 						active: Boolean(sandboxProvider),
 						workspace: sandboxWorkspace,
 					}),
+					// Only a round of a goal is asked; the hook leaves a goal that the
+					// model's report ends alone.
+					...(goalConfirmation && opts?.goalRound
+						? { beforeEnd: goalConfirmation.beforeEnd(String(turnId)) }
+						: {}),
 				}),
 				maxResponseTokens: limits?.maxResponseTokens ?? 8192,
 				permissionMode: 'auto',
@@ -8318,6 +8349,11 @@ async function* runTurn({
 				}
 				const mapped = toAgentEvent(event, presenter, readsOnly, workingDirectory)
 				if (!mapped) continue
+				if (mapped.kind === 'done') {
+					const goalEnding = goalConfirmation?.takeEnding(String(turnId))
+					yield goalEnding ? { ...mapped, goalEnding } : mapped
+					continue
+				}
 				yield mapped
 			}
 		} finally {

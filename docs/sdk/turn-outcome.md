@@ -105,9 +105,13 @@ A child shares the workspace with its siblings, so its check can read `stale` be
 
 **Measuring it.** `evalTurnFromTurn` carries `Turn.outcome` onto `EvalTurn.outcome` and the mismatch onto `EvalTurn.claimMismatch`. `outcomeScorer(verdicts)` scores 1 when the record's verdict is one of the given set and 0 otherwise, naming the verdict, and is unavailable (not zero) for a turn with no record; `claimMismatchScorer({ expectMismatch? })` scores whether the comparison fired. Both are gate scorers, so a scripted suite with no provider can pin the kernel's record and the comparison. `@namzu/evals` has the suite `kernel/answer-claims`, and the SDK's unit test holds a table of answers (claims, negations, hedges, quotations, code, mixed sentences, long answers) with the expected result of each.
 
+## Ending a goal by the record
+
+A goal can end only as this record allows (`GoalConfirmation`, the `TurnConfig.outcome.beforeEnd` hook, `OutcomeLedger.preview`): see [Goal confirmation](goal-confirmation.md). The goal tools (`get_goal`, `update_goal`) count as calls that only look, so a report of completion after a passing check leaves the check fresh.
+
 ## Settings
 
-`TurnConfig.outcome?: { detectChanges?, isCheck?, detectTimeoutMs? }`. The record is kept whether or not it is set; it is additive and cheap on the calls basis. The CLI binds `detectChanges` to the working directory when its tools run there, see [Turn limits](../cli/turn-limits.md#what-a-turn-says-it-changed).
+`TurnConfig.outcome?: { detectChanges?, isCheck?, detectTimeoutMs?, beforeEnd? }`. The record is kept whether or not it is set; it is additive and cheap on the calls basis. The CLI binds `detectChanges` to the working directory when its tools run there, see [Turn limits](../cli/turn-limits.md#what-a-turn-says-it-changed).
 
 ## Related
 

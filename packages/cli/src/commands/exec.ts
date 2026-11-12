@@ -592,6 +592,8 @@ async function execPrint(
 		outcome?: Extract<AgentEvent, { kind: 'done' }>['outcome']
 		/** The claim in that same turn's answer that its record contradicts. */
 		claimMismatch?: Extract<AgentEvent, { kind: 'done' }>['claimMismatch']
+		/** How a goal confirmed by the record ended in the command's turns, when one did. */
+		goalEnding?: Extract<AgentEvent, { kind: 'done' }>['goalEnding']
 	} = {}
 	// The budgets of the turns before the last one: a workflow the model started
 	// is reported on in a turn of its own, and the command spent both.
@@ -615,6 +617,7 @@ async function execPrint(
 		...(spend() ? { budget: spend() } : {}),
 		...(measured.outcome ? { outcome: measured.outcome } : {}),
 		...(measured.claimMismatch ? { claimMismatch: measured.claimMismatch } : {}),
+		...(measured.goalEnding ? { goalEnding: measured.goalEnding } : {}),
 	})
 	let stopReason: StopReason | undefined
 	// Written from inside `consume`, so held on an object: a `let` assigned
@@ -694,6 +697,7 @@ async function execPrint(
 				if (event.text !== undefined) text = event.text
 				stopReason = event.stopReason
 				if (event.budget) measured.budget = event.budget
+				if (event.goalEnding) measured.goalEnding = event.goalEnding
 				if (event.outcome && (event.outcome.verdict !== 'unchanged' || !measured.outcome)) {
 					measured.outcome = event.outcome
 					if (event.claimMismatch) measured.claimMismatch = event.claimMismatch

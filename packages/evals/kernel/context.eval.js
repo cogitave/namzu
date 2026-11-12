@@ -123,8 +123,14 @@ async function runCase(input) {
 			topicId: generateTopicId(),
 			projectId: generateProjectId(),
 			tenantId: generateTenantId(),
-			messages: input.history?.() ??
-				input.messages ?? [{ role: "user", content: "go", timestamp: 1 }],
+			// A copy: the kernel gives the messages ids, so a case that is run
+			// twice (`namzu eval --repeat`) must not hand the second run the
+			// first run's ids, which its session log never recorded.
+			messages:
+				input.history?.() ??
+				(input.messages
+					? structuredClone(input.messages)
+					: [{ role: "user", content: "go", timestamp: 1 }]),
 			resumeHandler: autoApproveHandler,
 			...(input.compactionConfig
 				? { compactionConfig: input.compactionConfig }
@@ -237,6 +243,14 @@ const summaryTellsHowToResume = customScorer(
 export default async function context() {
 	return runExperiment({
 		name: "kernel/context",
+		// What this run is, written into the report: a scripted provider, so no
+		// vendor, route or reasoning effort is involved.
+		disclosure: {
+			mode: "scripted",
+			roles: { agent: { provider: "MockLLMProvider", model: "scripted" } },
+			routing: "off",
+			reasoningEffort: "not applicable",
+		},
 		scorers: [
 			noOrphanedResults,
 			keepsTheSystemFloor,

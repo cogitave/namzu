@@ -89,6 +89,7 @@ import type {
 	DecisionPointId,
 	DecisionPointMode,
 	DecisionPointsConfig,
+	GoalCliConfig,
 	OtlpExportConfig,
 	PluginConfig,
 	ProfileConfig,
@@ -1643,6 +1644,17 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		return v as TurnLimitsConfig
 	},
+	goal: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		for (const key of Object.keys(v)) {
+			if (key !== 'confirmedBy')
+				return invalidConfigValue(context, [key], 'is not a goal setting (confirmedBy)')
+			const value = (v as Record<string, unknown>)[key]
+			if (value !== 'model' && value !== 'record')
+				return invalidConfigValue(context, [key], 'must be model or record')
+		}
+		return v as GoalCliConfig
+	},
 	workflow: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const caps = { maxConcurrency: 16, maxAgents: 1000 } as const
@@ -2332,6 +2344,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	limits: 'NAMZU_MAX_OUTPUT_TOKENS',
 	// The cost of a run is decided in the file, not by a variable in a shell profile.
 	workflow: undefined,
+	// How a goal ends is a decision in the file, not a shell's.
+	goal: undefined,
 	// Outbound reach is opted into in the file, never from the environment.
 	web: undefined,
 	// A browser signed in to the operator's sites, and which of them it may

@@ -5,6 +5,7 @@ import type { GoalRoundAuthority, SessionGoal } from '../../types/goal/index.js'
 import type { TurnId } from '../../types/ids/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
+import { type GoalConfirmation, NO_CHECK_REASON_CODE } from './confirmation.js'
 
 export const SESSION_GOAL_TOOL_NAMES = ['get_goal', 'update_goal'] as const
 export const MIN_GOAL_BLOCK_ROUND = 3
@@ -58,6 +59,7 @@ function authorityFor(
 export function buildSessionGoalTools(
 	store: SessionGoalStore,
 	resolveAuthority: ResolveGoalRoundAuthority,
+	options: { readonly confirmation?: GoalConfirmation } = {},
 ): ToolDefinition[] {
 	const getGoal = defineTool({
 		name: 'get_goal',
@@ -106,8 +108,42 @@ export function buildSessionGoalTools(
 		concurrencySafe: false,
 		async execute({ status, reasonCode, reason }, context) {
 			const authority = authorityFor(resolveAuthority, context.turnId)
-			await currentGoal(store, authority)
+			const current = await currentGoal(store, authority)
 			const ref = { id: authority.id, revision: authority.revision }
+			const confirmation = options.confirmation
+			if (confirmation && confirmation.confirmedByFor(current) === 'record') {
+				// The report is held until the model finishes its answer; the kernel then
+				// reads the record of the work and the goal ends as the record allows.
+				if (status === 'complete') {
+					confirmation.claim(
+						authority.id,
+						reasonCode === NO_CHECK_REASON_CODE ? 'no-check' : 'met',
+						reason,
+					)
+					return {
+						success: true,
+						output:
+							'Completion reported. This goal is confirmed by the record: when you finish your answer the kernel reads the record of the work done, and the goal ends as that record allows. Give your final answer now.',
+					}
+				}
+				if (
+					authority.round < MIN_GOAL_BLOCK_ROUND &&
+					confirmation.refusalsFor(authority.id) === 0
+				) {
+					throw new Error(
+						`A goal cannot be marked blocked before admitted round ${MIN_GOAL_BLOCK_ROUND}, unless the record has already sent it back once; this is round ${authority.round}.`,
+					)
+				}
+				if (!reasonCode || !reason) {
+					throw new TypeError('Blocked goal updates require reasonCode and reason.')
+				}
+				confirmation.claim(authority.id, 'could-not', reason)
+				return {
+					success: true,
+					output:
+						'Reported as not met. The goal ends as not confirmed when you finish your answer, and the record of the work is shown with your reason. Give your final answer now.',
+				}
+			}
 			if (status === 'complete') {
 				const goal = await store.completeGoal(authority.sessionId, authority.tenantId, ref)
 				return { success: true, output: 'Goal marked complete.', data: goal }

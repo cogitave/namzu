@@ -36,6 +36,7 @@ The operator application.
 * [GitHub workflows and pull request links](github.md) - namzu github install writes Actions workflows that answer @namzu mentions and review new pull requests; conversations that open a pull request are linked to it and --from-pr lists them.
 * [Managed Git worktrees](worktrees.md) - Create separate checkouts, fork a settled conversation into one, and reopen its project.
 * [Session storage](session-storage.md) - Every file the CLI keeps under NAMZU_HOME, the one log per session, the rebuildable index, and which files are safe to delete.
+* [Watching a session from another terminal](watching-a-session.md) - `namzu watch`: follow a running or finished session read-only from a second terminal, what it can and cannot show, its states and exit statuses.
 * [Messages between live terminals](peer-messaging.md) - Discover independent terminals in the same project and send attributed context at safe request boundaries, from a terminal or with `namzu peers`.
 * [Accounts in the terminal](accounts.md) - `/auth` and `--account`: choose the account a conversation uses, add a Codex sign-in or labelled API key, and what happens when an account runs out of allowance.
 * [Provider credentials and private state](credentials.md) - Existing subscription profiles, credential discovery, the provider list and its credential entry, and Windows and POSIX storage privacy checks.
@@ -53,6 +54,7 @@ The operator application.
 * [File checkpoints](file-checkpoints.md) - How the session records every file before a tool changes it, per turn, and how /restore puts the tree back to before a turn.
 * [Turn undo](turn-undo.md) - The durable, turn-keyed file history behind undo and /restore, and the plan that decides what undoing a turn may write.
 * [Memory](memory.md) - The curated files injected into every turn, per project and per user, and typed stored memory — one Markdown file per memory, its index in every turn; where each lives and what writes to it.
+* [namzu eval](eval.md) - Run eval suites with repeats and a seed, read a report's intervals and disclosure, and compare two reports paired by case.
 * [Turn limits](turn-limits.md) - Limits for interactive and headless turns, headless override flags and honest closing stop reasons.
 * [Slash commands](slash-commands.md) - Every builtin slash command the interactive session answers to, one line each, with the composer keys that are not commands.
 * [Plugins](plugins.md) - Trusted extension loading, live contributions and session enable/disable controls.
@@ -84,3 +86,4 @@ The operator application.
 * [CLI ACP live input](acp.md) - Owned live operator messages, bounded receipt reconciliation and safe delegation wait release.
 * [namzu workspaces (preview)](workspaces.md) - Workspaces (project folders) with tabs and tiled panes of live sessions in one terminal, opened with `←` from a conversation or by the command: status dots, panes and tabs, keys, mouse, the tab bar, theme colours, starting a session on an account, the remembered layout, the navigate-key setting, a session that stops, and the plain fallback.
 * [Pasting images into the composer](clipboard-and-images.md) - Which key pastes an image on each platform, how WSL reaches the Windows clipboard, what a paste of file paths does, and what each message means.
+* [Goals](goals.md) - `/goal`: how a goal continues, how it ends, and ending it by the record of the work (confirmed, stated and not checked, not confirmed), with the `goal.confirmedBy` setting, `--confirmed-by`, the refusal bound and whose record counts.

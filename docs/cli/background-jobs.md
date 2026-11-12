@@ -52,6 +52,10 @@ An exit that arrives while no model turn is open appears in the transcript and i
 
 `bash` with `run_in_background` and `wait_for_job` answers "tell me when it finishes". To be told about each line a command prints while it runs, the model uses the `monitor` tool; see [Monitors in the CLI](monitor.md). A monitor is a job of the session, so `/tasks` lists it and the job tool can read or stop it, but the footer counts it apart from shells.
 
+# Watching the session itself
+
+The jobs above belong to a session that runs in one terminal. To look at that session from a second terminal, while a turn runs or after it ended, use `namzu watch`: it follows the session's log read-only and never sends or answers anything. See [Watching a session from another terminal](watching-a-session.md). A job's own output is not in the log; it is read with the `job` tool or `/tasks` in the terminal that owns the session.
+
 # Waiting for one
 
 By default, `wait_for_job` blocks inside one tool call until a job ends, and returns its bounded output — the shell-job counterpart to the coordinator's `wait_for_task`. It costs one call and no waiting turns, instead of a `job read` (or `job list`) sent on every turn until the job happens to be done.

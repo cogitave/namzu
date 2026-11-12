@@ -8,7 +8,7 @@ import {
 	StaleGoalError,
 } from '../../store/goal/index.js'
 import type { HostCommandDescriptor } from '../../types/command/index.js'
-import type { GoalRef, SessionGoal } from '../../types/goal/index.js'
+import type { GoalConfirmedBy, GoalRef, SessionGoal } from '../../types/goal/index.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import type { Skill } from '../../types/skills/index.js'
 import { isInvocableBy, skillInvocation } from '../../types/skills/index.js'
@@ -48,9 +48,12 @@ export interface GoalCommandScope {
 	readonly tenantId: TenantId
 	/** Process-local permission for automatic continuation. */
 	readonly activation?: SessionGoalActivation
+	/** What a goal that does not choose is confirmed by; shown by `/goal status`. Default `model`. */
+	readonly defaultConfirmedBy?: GoalConfirmedBy
 }
 
-const GOAL_ARGUMENTS = '[status|set <objective>|<objective>|edit <objective>|pause|resume|clear]'
+const GOAL_ARGUMENTS =
+	'[status|set [--confirmed-by record|model] <objective>|<objective>|edit <objective>|pause|resume|clear]'
 const GOAL_USAGE = `Usage: /goal ${GOAL_ARGUMENTS}`
 
 type ParsedGoalCommand =
@@ -78,6 +81,60 @@ function parseGoalCommand(args: readonly string[]): ParsedGoalCommand {
 	return { kind: 'create', objective: input }
 }
 
+type ConfirmedByFlag =
+	| {
+			readonly kind: 'ok'
+			readonly args: readonly string[]
+			readonly confirmedBy?: GoalConfirmedBy
+	  }
+	| { readonly kind: 'invalid' }
+
+/**
+ * Takes `--confirmed-by <model|record>` (or `=`) out of the arguments, but only
+ * where a flag stands: at the front, right after `set`, or closing the command. In the middle the words
+ * belong to the objective, so a goal about the flag itself keeps its text.
+ */
+function takeConfirmedBy(args: readonly string[]): ConfirmedByFlag {
+	const head: string[] = []
+	let i = 0
+	if ((args[0] ?? '').toLowerCase() === 'set') {
+		head.push(args[0] ?? '')
+		i = 1
+	}
+	let found: GoalConfirmedBy | undefined
+	for (; i < args.length; i++) {
+		const arg = args[i] ?? ''
+		let value: string
+		if (arg === '--confirmed-by') {
+			value = args[i + 1] ?? ''
+			i++
+		} else if (arg.startsWith('--confirmed-by=')) {
+			value = arg.slice('--confirmed-by='.length)
+		} else {
+			break
+		}
+		if (value !== 'model' && value !== 'record') return { kind: 'invalid' }
+		found = value
+	}
+	let tail = args.slice(i)
+	// A flag may also close the command; in the middle its words are the objective's.
+	const last = tail[tail.length - 1] ?? ''
+	const beforeLast = tail[tail.length - 2] ?? ''
+	let closing: string | undefined
+	if (last.startsWith('--confirmed-by=')) {
+		closing = last.slice('--confirmed-by='.length)
+		tail = tail.slice(0, -1)
+	} else if (beforeLast === '--confirmed-by') {
+		closing = last
+		tail = tail.slice(0, -2)
+	}
+	if (closing !== undefined) {
+		if (closing !== 'model' && closing !== 'record') return { kind: 'invalid' }
+		found = closing
+	}
+	return { kind: 'ok', args: [...head, ...tail], ...(found ? { confirmedBy: found } : {}) }
+}
+
 function goalRef(goal: SessionGoal): GoalRef {
 	return { id: goal.id, revision: goal.revision }
 }
@@ -92,10 +149,19 @@ function goalCommands(goal: SessionGoal, armed: boolean): string {
 	return '/goal set <objective>, /goal clear'
 }
 
-function renderGoal(title: string, goal: SessionGoal, armed: boolean): string {
+function renderGoal(
+	title: string,
+	goal: SessionGoal,
+	armed: boolean,
+	defaultConfirmedBy: GoalConfirmedBy = 'model',
+): string {
 	return [
 		title,
 		`Status: ${goal.phase}`,
+		...(goal.confirmedBy === 'record' ||
+		(goal.confirmedBy === undefined && defaultConfirmedBy === 'record')
+			? ['Confirmed by: the record of the work']
+			: []),
 		`Automatic continuation: ${armed ? 'enabled' : 'paused'}`,
 		`Automatic turns: ${goal.roundsAdmitted} / ${goal.maxGoalRounds}`,
 		...(goal.blockedReason
@@ -108,7 +174,12 @@ function renderGoal(title: string, goal: SessionGoal, armed: boolean): string {
 }
 
 function renderScopedGoal(title: string, goal: SessionGoal, scope: GoalCommandScope): string {
-	return renderGoal(title, goal, scope.activation?.isArmed(scope.sessionId, goal) ?? false)
+	return renderGoal(
+		title,
+		goal,
+		scope.activation?.isArmed(scope.sessionId, goal) ?? false,
+		scope.defaultConfirmedBy,
+	)
 }
 
 function missingGoal(action: string) {
@@ -125,7 +196,20 @@ async function runGoalCommand(scope: GoalCommandScope | undefined, args: readonl
 			reason: 'Goals need a durable session. This host did not supply one for the current command.',
 		}
 	}
-	const command = parseGoalCommand(args)
+	const flag = takeConfirmedBy(args)
+	if (flag.kind === 'invalid') {
+		return {
+			kind: 'refused' as const,
+			reason: `--confirmed-by takes record or model.\n${GOAL_USAGE}`,
+		}
+	}
+	const command = parseGoalCommand(flag.args)
+	if (flag.confirmedBy !== undefined && command.kind !== 'create') {
+		return {
+			kind: 'refused' as const,
+			reason: `--confirmed-by is chosen when a goal is set.\n${GOAL_USAGE}`,
+		}
+	}
 	try {
 		const current = await scope.store.getGoal(scope.sessionId, scope.tenantId)
 		switch (command.kind) {
@@ -154,7 +238,11 @@ async function runGoalCommand(scope: GoalCommandScope | undefined, args: readonl
 					}
 				}
 				const created = await scope.store.createGoal(
-					{ sessionId: scope.sessionId, objective: command.objective },
+					{
+						sessionId: scope.sessionId,
+						objective: command.objective,
+						...(flag.confirmedBy !== undefined ? { confirmedBy: flag.confirmedBy } : {}),
+					},
 					scope.tenantId,
 				)
 				scope.activation?.arm(created)

@@ -149,6 +149,7 @@ describe('the command manifest', () => {
 				'workspaces',
 				'state',
 				'upgrade',
+				'watch',
 				'worktree',
 			].sort(),
 		)
