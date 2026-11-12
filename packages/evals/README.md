@@ -63,6 +63,10 @@ and the silence on the same words after a passing check, after nothing changed,
 as a negation, and as an honest "I did not run it". The comparison is shadow only
 and reads English claims only.
 
+## The hand-back suite
+
+`kernel/hand-back` measures what the kernel does when a model may hand a task back to a person, not whether a real model would: every model in it is scripted. Each case scores whether the turn was handed back and as which kind (`handedBackScorer`), the outcome record's verdict, the model calls, how many scripted edits actually ran (a call in the same step as the hand-back, or after it, must not), the kernel's closing sentence, whether the tool and its guidance were offered at all (with the setting off they must not be) and how a goal round ended. The exit status of `namzu exec` and the status of a scheduled run belong to the command line and are pinned by its tests.
+
 ## The delegation suite
 
 `kernel/delegation` measures what the kernel does around a delegation, not what

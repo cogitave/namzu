@@ -22,6 +22,12 @@
  *                             checks registered", and giving one number two
  *                             meanings inside one command is worse than giving
  *                             one meaning two numbers across two.
+ *   3   EXIT_HANDED_BACK    — `namzu exec --hand-back` (or `handBack.enabled`): the
+ *                             model could not do the task as specified and handed
+ *                             it back to a person. Distinct from 0 (the task was
+ *                             done) and from 1 (the turn failed): the turn ended
+ *                             as asked and the remedy is a decision or an input
+ *                             from a person, not a retry.
  *   64  EXIT_USAGE          — sysexits EX_USAGE; the caller's arguments are
  *                             wrong. Distinct from 70 on purpose: 70 says the
  *                             CLI is broken and is worth a bug report, 64 says
@@ -61,6 +67,8 @@
 export const EXIT_OK = 0
 export const EXIT_FAIL = 1
 export const EXIT_NO_CONFIG = 2
+/** The model handed the task back to a person; see `namzu exec --hand-back`. */
+export const EXIT_HANDED_BACK = 3
 export const EXIT_USAGE = 64
 /** sysexits EX_DATAERR: the input was read but is not usable (not UTF-8 text). */
 export const EXIT_DATAERR = 65
@@ -76,6 +84,7 @@ export type CliExitCode =
 	| typeof EXIT_OK
 	| typeof EXIT_FAIL
 	| typeof EXIT_NO_CONFIG
+	| typeof EXIT_HANDED_BACK
 	| typeof EXIT_USAGE
 	| typeof EXIT_UNAVAILABLE
 	| typeof EXIT_INTERNAL_ERROR

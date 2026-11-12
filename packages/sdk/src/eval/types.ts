@@ -47,6 +47,8 @@ export interface EvalTurn {
 	 * `compareAnswerToOutcome`. Absent when there is none.
 	 */
 	claimMismatch?: AnswerClaimMismatch
+	/** The model handed the task back to a person and the turn ended there. Absent otherwise. */
+	handedBack?: import('../types/session/hand-back.js').HandBack
 }
 
 /**

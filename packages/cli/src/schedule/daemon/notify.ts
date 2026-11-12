@@ -24,6 +24,8 @@ export type NoticeKind =
 	| 'auto-paused'
 	/** `runKind: 'script'`/`'script+agent'`: the script (or wake-gate) itself malfunctioned. */
 	| 'check-failed'
+	/** The model handed the task back to a person. Told like a failure, once per cause. */
+	| 'needs-a-person'
 
 function clock(at: Date): string {
 	return new Intl.DateTimeFormat('en-GB', {
@@ -60,7 +62,8 @@ export function noticeText(
 		 */
 		readonly refused?: ScheduleCallTally
 		/**
-		 * For `check-failed`: why the script or wake-gate malfunctioned. May
+		 * For `needs-a-person`: what the model said blocks it, as one line. For
+		 * `check-failed`: why the script or wake-gate malfunctioned. May
 		 * quote the script's own output, so — like `refused` — it is said only
 		 * where the job asked for its summary; otherwise `show` says why.
 		 */
@@ -112,6 +115,21 @@ export function noticeText(
 			const said =
 				reason.length <= room ? safeReason : `${reason.slice(0, Math.max(room - 1, 0)).join('')}…`
 			return { title, body: fit(`${head}${said}`, `check failed at ${when}`) }
+		}
+		case 'needs-a-person': {
+			// The model's own blocker is said only where the job asked for its summary.
+			if (!job.notify.includeSummary || !extra.reason)
+				return {
+					title,
+					body: `needs a person at ${when}; namzu schedule show ${job.name} says what`,
+				}
+			const head = `needs a person at ${when}: `
+			const room = NOTICE_BODY_MAX - [...head].length
+			const safeReason = sanitizeLine(extra.reason, 1_000)
+			const reason = [...safeReason]
+			const said =
+				reason.length <= room ? safeReason : `${reason.slice(0, Math.max(room - 1, 0)).join('')}…`
+			return { title, body: fit(`${head}${said}`, `needs a person at ${when}`) }
 		}
 		case 'timed-out':
 			return { title, body: `stopped at its time limit at ${when}` }

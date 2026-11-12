@@ -208,6 +208,16 @@ export interface GoalCliConfig {
 	readonly confirmedBy?: 'model' | 'record'
 }
 
+/** See `NamzuCliConfig.handBack`. */
+export interface HandBackCliConfig {
+	/**
+	 * Offer the model a way to hand a task back to a person when it cannot be
+	 * done as specified (`hand_back_task`). Off by default: with it off the tool
+	 * is absent and the system prompt is unchanged.
+	 */
+	readonly enabled?: boolean
+}
+
 /** See `NamzuCliConfig.workflow`. */
 export interface WorkflowCliConfig {
 	/** Agents one workflow runs at once. Default `min(16, CPUs - 2)`, at least 2; at most 16. */
@@ -492,6 +502,8 @@ export interface NamzuCliConfig {
 	readonly workflow?: WorkflowCliConfig
 	/** What ends a goal set with `/goal`; see {@link GoalCliConfig}. */
 	readonly goal?: GoalCliConfig
+	/** Whether the model may hand a task back to a person; see {@link HandBackCliConfig}. */
+	readonly handBack?: HandBackCliConfig
 	/**
 	 * Isolation for the commands this CLI runs.
 	 *

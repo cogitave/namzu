@@ -41,6 +41,7 @@ import {
 	type SessionEventType,
 	isEphemeralEvent,
 } from '../../types/session/events.js'
+import type { HandBack } from '../../types/session/hand-back.js'
 import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import type { TurnOutcome } from '../../types/session/outcome.js'
 import type { SessionRecord } from '../../types/session/records.js'
@@ -517,6 +518,12 @@ export class TurnRecorder {
 		else this.#turn.outcome = outcome
 	}
 
+	/** The model handed the task back; set once, as the turn ends. */
+	setHandedBack(handBack: HandBack | undefined): void {
+		if (handBack === undefined) delete this.#turn.handedBack
+		else this.#turn.handedBack = handBack
+	}
+
 	setSteps(steps: readonly StepResult[]): void {
 		this.#turn.steps = steps
 	}
@@ -613,7 +620,11 @@ export class TurnRecorder {
 	settlement(status: TurnSettlement['status']): LiveTurnSettlement {
 		const turn = this.getTurn()
 		const resultMessageId = this.#lastAssistantEntry()?.id
-		const claimMismatch = compareAnswerToOutcome(turn.result, turn.outcome)
+		// A task handed back says what blocks it in the model's words; those are not
+		// an answer to read claims out of.
+		const claimMismatch = turn.handedBack
+			? undefined
+			: compareAnswerToOutcome(turn.result, turn.outcome)
 		return {
 			status,
 			iterations: turn.currentIteration,
@@ -628,6 +639,7 @@ export class TurnRecorder {
 			abandonedJobIds: [...(turn.abandonedJobIds ?? [])],
 			...(turn.outcome ? { outcome: turn.outcome } : {}),
 			...(claimMismatch ? { claimMismatch } : {}),
+			...(turn.handedBack ? { handedBack: turn.handedBack } : {}),
 		}
 	}
 
@@ -1563,12 +1575,13 @@ export function eventDraft(
 		...payload
 	} = event as SessionEvent & Record<string, unknown>
 	const draft = JSON.parse(JSON.stringify(payload)) as Record<string, unknown>
-	// The outcome and the claim mismatch ride the live settlement only; the log
-	// keeps the outcome in its own record and the mismatch nowhere.
+	// The outcome, the claim mismatch and the hand-back ride the live settlement
+	// only; the log keeps the outcome in its own record, the other two nowhere.
 	if (draft.settlement !== undefined && typeof draft.settlement === 'object') {
 		const {
 			outcome: _outcome,
 			claimMismatch: _claimMismatch,
+			handedBack: _handedBack,
 			...settlement
 		} = draft.settlement as Record<string, unknown>
 		draft.settlement = settlement

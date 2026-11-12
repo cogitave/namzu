@@ -1,4 +1,5 @@
 import type {
+	HandBack,
 	Message,
 	SessionEvent,
 	SessionRecord,
@@ -7,7 +8,13 @@ import type {
 	ToolPresenter,
 	TurnOutcome,
 } from '@namzu/sdk'
-import { compareAnswerToOutcome, parseTurnOutcome } from '@namzu/sdk'
+import {
+	HAND_BACK_RECEIPT,
+	HAND_BACK_TOOL_NAME,
+	compareAnswerToOutcome,
+	parseHandBack,
+	parseTurnOutcome,
+} from '@namzu/sdk'
 
 import {
 	DEFAULT_AGENT_WORKFLOW,
@@ -33,6 +40,7 @@ import {
 	NOTHING_TOLD,
 	type OutcomeTelling,
 	claimMismatchLine,
+	handedBackLines,
 	outcomeNotice,
 } from './outcome-line.js'
 import { systemRowStyle } from './system-rows.js'
@@ -461,6 +469,8 @@ export function createRestoredTurnWriter(
 	let telling: OutcomeTelling = options.telling ?? NOTHING_TOLD
 	// The final answer of each turn: the assistant text after its last tool result.
 	const answers = new Map<string, string>()
+	// The turns the model handed back: the saved call and its words are the record.
+	const handedBack = new Map<string, HandBack>()
 	let chain: { turnId: string; text: string } | undefined
 	const noteAnswer = (message: Message, turnId: string | undefined): void => {
 		if (message.role !== 'assistant' || !turnId) {
@@ -490,10 +500,26 @@ export function createRestoredTurnWriter(
 		// The same comparison as live, from the answer and the record the log
 		// holds: it is pure, so a reopened conversation draws the same line.
 		const answer = answers.get(turnId)
+		const handBack = handedBack.get(turnId)
 		const claim = claimMismatchLine(
-			answer !== undefined ? compareAnswerToOutcome(answer, turn.outcome) : undefined,
+			answer !== undefined && handBack === undefined
+				? compareAnswerToOutcome(answer, turn.outcome)
+				: undefined,
 		)
 		if (claim) rows.push(notice(claim))
+		// The model handed the task back: read from the saved call, as the live line is.
+		const handed = handedBackLines(handBack)
+		if (handed) {
+			const warning = systemRowStyle('warning')
+			rows.push({
+				id: nextId(),
+				role: 'system',
+				content: handed.line,
+				glyph: warning.glyph,
+				glyphColor: warning.color,
+			})
+			for (const line of handed.model) rows.push(notice(line))
+		}
 		return rows
 	}
 	const closing = (turnId: string | undefined): readonly TranscriptMessage[] => {
@@ -540,6 +566,18 @@ export function createRestoredTurnWriter(
 			let launched = false
 			for (const call of message.toolCalls) {
 				if (call.function.name.toLowerCase() === 'agent') launched = true
+				if (turnId && call.function.name === HAND_BACK_TOOL_NAME) {
+					const said = results.get(call.id)
+					const read = parseHandBack(call.function.arguments)
+					// Only a call the kernel accepted ended the turn; a refused one is answered
+					// with an error, not this receipt.
+					if (
+						read &&
+						typeof said?.content === 'string' &&
+						said.content.startsWith(HAND_BACK_RECEIPT)
+					)
+						handedBack.set(turnId, read)
+				}
 				for (const row of restoredToolRows(
 					turnId,
 					call,

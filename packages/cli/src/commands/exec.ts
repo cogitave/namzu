@@ -37,7 +37,7 @@ import type { AgentEvent } from '../tui/agent.js'
 
 import { pendingProjectMcpServers, takeConfigWarnings } from '../config/load.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
-import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
+import { EXIT_HANDED_BACK, EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import { pendingServersMessage } from '../integrations/mcp/project-approval.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import {
@@ -68,6 +68,7 @@ import {
 	withTerminationHandling,
 } from '../termination.js'
 import { REFUSED_HEADLESS_NOTICE, describeModelRefusal } from '../tui/model-refusal.js'
+import { handedBackLines } from '../tui/outcome-line.js'
 import { hostCommandNames } from '../tui/slashCommands.js'
 import { describeTurnInterruption, retryAfterMs } from '../tui/turn-interruption.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
@@ -490,6 +491,7 @@ async function execPrint(
 			? { limits: { ...ctx.config.limits, ...limitsFromFlags } }
 			: {}),
 		...(ctx.config.workflow ? { workflow: ctx.config.workflow } : {}),
+		...(flags.handBack || ctx.config.handBack?.enabled === true ? { handBack: true } : {}),
 		...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
 		...(ctx.config.decision ? { decision: ctx.config.decision } : {}),
 		// `!== undefined`, not truthiness: an empty list is the operator
@@ -594,6 +596,8 @@ async function execPrint(
 		claimMismatch?: Extract<AgentEvent, { kind: 'done' }>['claimMismatch']
 		/** How a goal confirmed by the record ended in the command's turns, when one did. */
 		goalEnding?: Extract<AgentEvent, { kind: 'done' }>['goalEnding']
+		/** The model handed the task back to a person in the command's turns. */
+		handedBack?: Extract<AgentEvent, { kind: 'done' }>['handedBack']
 	} = {}
 	// The budgets of the turns before the last one: a workflow the model started
 	// is reported on in a turn of its own, and the command spent both.
@@ -618,6 +622,7 @@ async function execPrint(
 		...(measured.outcome ? { outcome: measured.outcome } : {}),
 		...(measured.claimMismatch ? { claimMismatch: measured.claimMismatch } : {}),
 		...(measured.goalEnding ? { goalEnding: measured.goalEnding } : {}),
+		...(measured.handedBack ? { handedBack: measured.handedBack } : {}),
 	})
 	let stopReason: StopReason | undefined
 	// Written from inside `consume`, so held on an object: a `let` assigned
@@ -698,6 +703,7 @@ async function execPrint(
 				stopReason = event.stopReason
 				if (event.budget) measured.budget = event.budget
 				if (event.goalEnding) measured.goalEnding = event.goalEnding
+				if (event.handedBack) measured.handedBack = event.handedBack
 				if (event.outcome && (event.outcome.verdict !== 'unchanged' || !measured.outcome)) {
 					measured.outcome = event.outcome
 					if (event.claimMismatch) measured.claimMismatch = event.claimMismatch
@@ -901,6 +907,16 @@ async function execPrint(
 	// the guardrail — a REFUSED answer exited 0 with empty text, so
 	// `namzu exec … > out.txt && deploy` proceeded on the empty file.
 	ctx.formatter.print(ctx.formatter.name === 'json' ? jsonResult(text.trim()) : text.trim())
+	// The model handed the task back: what it says and what it needs go to stderr
+	// in the kernel's words and the model's, and the exit status says so (3).
+	if (measured.handedBack) {
+		const handed = handedBackLines(measured.handedBack)
+		if (handed) {
+			ctx.formatter.info(handed.line)
+			for (const line of handed.model) ctx.formatter.info(line)
+		}
+		return EXIT_HANDED_BACK
+	}
 	if (stopReason && stopReason !== 'end_turn') {
 		const partial = text.trim() ? ' — the output above is partial' : ''
 		ctx.formatter.error({
@@ -955,6 +971,9 @@ export const execCommand: CommandDef = {
 		'  --resume <id>         Resume that conversation, and no other',
 		'  --fork-session        With --continue or --resume: carry on in a copy, leaving',
 		'                        the original as it was',
+		'  --hand-back           Let the model hand the task back to a person when it cannot be',
+		'                        done as specified (config: handBack.enabled). The command then',
+		'                        exits 3, and the result carries a handedBack key with --output-format json',
 		'  --no-session-persistence',
 		'                        Keep no record of this run; a resumed conversation is',
 		'                        worked on in memory and the original is not written to.',

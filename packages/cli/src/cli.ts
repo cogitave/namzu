@@ -919,6 +919,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 						: {}),
 					...(resolvedCtx.config.workflow ? { workflow: resolvedCtx.config.workflow } : {}),
 					...(resolvedCtx.config.goal ? { goal: resolvedCtx.config.goal } : {}),
+					...(resolvedCtx.config.handBack ? { handBack: resolvedCtx.config.handBack } : {}),
 					...(resolvedCtx.config.sandbox ? { sandbox: resolvedCtx.config.sandbox } : {}),
 					...(resolvedCtx.config.decision ? { decision: resolvedCtx.config.decision } : {}),
 					...(resolvedCtx.config.codeAnalysis

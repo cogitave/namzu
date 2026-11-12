@@ -95,6 +95,7 @@ import {
 	type GoalRoundAuthority,
 	GuardedFetchProvider,
 	type HITLResumeDecision,
+	type HandBack,
 	InMemorySessionLog,
 	type LLMProvider,
 	type LogAttributes,
@@ -921,6 +922,8 @@ export type AgentEvent =
 			readonly claimMismatch?: AnswerClaimMismatch
 			/** How a goal confirmed by the record ended in this turn, if it did. */
 			readonly goalEnding?: GoalEndingReport
+			/** The model handed the task back to a person; the turn ended there. */
+			readonly handedBack?: HandBack
 	  }
 	| {
 			/** A recoverable turn stopped with an addressable checkpoint. */
@@ -2670,6 +2673,11 @@ export interface AgentSessionOptions {
 	readonly sessionGoals?: SessionGoalStore
 	/** See `NamzuCliConfig.goal`: what ends a goal that did not choose. Absent is the model's report. */
 	readonly goalConfirmedBy?: 'model' | 'record'
+	/**
+	 * See `NamzuCliConfig.handBack`: offer the model the way to hand a task back to
+	 * a person. Off when absent: the tool is not offered and the prompt is unchanged.
+	 */
+	readonly handBack?: boolean
 	/**
 	 * Mount host desktop control for a surface that owns an interactive
 	 * permission callback. False by default: `exec`, `exec --json` and `drain`
@@ -6982,6 +6990,7 @@ export async function createAgentSession(
 								...(ephemeralLog ? { sessionLog: ephemeralLog } : {}),
 								claimTurn,
 								...(goalConfirmation ? { goalConfirmation } : {}),
+								...(options.handBack === true ? { handBack: true } : {}),
 								workingDirectory: cwd,
 								...(directories.length > 0 ? { additionalDirectories: [...directories] } : {}),
 								escalation,
@@ -8030,6 +8039,8 @@ interface TurnParams {
 	readonly claimTurn: (turnId: TurnId) => void
 	/** Reads the record before a goal round ends; see {@link GoalConfirmation}. */
 	readonly goalConfirmation?: GoalConfirmation
+	/** Offer the hand-back tool and its guidance; see `TurnConfig.handBack`. */
+	readonly handBack?: boolean
 	/** Directory every filesystem tool in this turn resolves against. */
 	readonly workingDirectory: string
 	/** See `QueryParams.additionalDirectories`. */
@@ -8129,6 +8140,7 @@ async function* runTurn({
 	sessionLog,
 	claimTurn,
 	goalConfirmation,
+	handBack,
 	workingDirectory,
 	limits,
 	additionalDirectories,
@@ -8258,6 +8270,7 @@ async function* runTurn({
 						: {}),
 				}),
 				maxResponseTokens: limits?.maxResponseTokens ?? 8192,
+				...(handBack === true ? { handBack: true } : {}),
 				permissionMode: 'auto',
 				// The kernel keeps every checkpoint unless told otherwise.
 				pruneKeepLast: CLI_CHECKPOINT_RETENTION,
@@ -8350,7 +8363,11 @@ async function* runTurn({
 				const mapped = toAgentEvent(event, presenter, readsOnly, workingDirectory)
 				if (!mapped) continue
 				if (mapped.kind === 'done') {
-					const goalEnding = goalConfirmation?.takeEnding(String(turnId))
+					// A goal round the model handed back ends the goal as not confirmed.
+					const goalEnding =
+						mapped.handedBack && opts?.goalRound
+							? await goalConfirmation?.handBack(String(turnId), mapped.handedBack)
+							: goalConfirmation?.takeEnding(String(turnId))
 					yield goalEnding ? { ...mapped, goalEnding } : mapped
 					continue
 				}
@@ -9157,6 +9174,7 @@ export function toAgentEvent(
 				...(event.settlement?.claimMismatch
 					? { claimMismatch: event.settlement.claimMismatch }
 					: {}),
+				...(event.settlement?.handedBack ? { handedBack: event.settlement.handedBack } : {}),
 			}
 		case 'turn_failed':
 			// Keep the compatibility string and the structure. Prefixing the

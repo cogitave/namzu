@@ -487,6 +487,14 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		{ defaultText: 'model (intended to become record in a later major release)' },
 	),
 	d(
+		'handBack.enabled',
+		'agent',
+		'Let the model hand a task back',
+		'The model may stop and hand the task back to a person when it cannot be done as specified, instead of forcing a result. Adds one tool and a short paragraph to the prompt.',
+		on,
+		{ defaultText: 'off' },
+	),
+	d(
 		'toolResultScreens',
 		'agent',
 		'Screens on tool results',

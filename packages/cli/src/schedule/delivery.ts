@@ -85,6 +85,7 @@ const FINAL_STATUSES: ReadonlySet<string> = new Set([
 	'blocked-config',
 	'cancelled',
 	'check-failed',
+	'needs-a-person',
 ])
 
 function id(value: string): boolean {

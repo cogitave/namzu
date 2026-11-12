@@ -107,6 +107,14 @@ export interface TurnConfig {
 	 */
 	completionAudit?: boolean
 	/**
+	 * Let the model hand the task back to a person (`hand_back_task`) instead of
+	 * forcing a result it cannot honestly reach. On: the tool is offered, a short
+	 * paragraph of guidance joins the static system prompt, and a call to the tool
+	 * ends the turn with nothing else run (`Turn.handedBack`). Off or absent: the
+	 * tool is absent and the prompt is byte for byte what it was.
+	 */
+	handBack?: boolean
+	/**
 	 * How many times in a row `turn_end` / `subagent_stop` hooks may refuse to
 	 * let the turn end (answer `skip`) before the turn stops honouring them. At
 	 * the limit the turn ends, one notice naming the hook is recorded, and the

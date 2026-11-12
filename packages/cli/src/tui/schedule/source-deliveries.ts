@@ -57,6 +57,7 @@ const DELIVERY_OUTCOME: Readonly<Record<SourceDelivery['status'], EndOutcome>> =
 	'timed-out': 'failed',
 	'blocked-config': 'failed',
 	'check-failed': 'failed',
+	'needs-a-person': 'failed',
 	'awaiting-approval': 'stopped',
 	'approval-expired': 'stopped',
 	interrupted: 'stopped',
@@ -74,6 +75,7 @@ const RUN_ENDINGS: Readonly<Record<SourceDelivery['status'], string>> = {
 	'blocked-config': 'could not start because its settings need attention',
 	cancelled: `was ${END_WORDS.stopped}`,
 	'check-failed': 'failed its check',
+	'needs-a-person': 'needs a person: the model handed the task back',
 }
 
 /** How loudly a delivered run is drawn: a clean finish is quiet, a failure is red, the rest is yellow. */

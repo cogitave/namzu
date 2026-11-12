@@ -105,6 +105,10 @@ A child shares the workspace with its siblings, so its check can read `stale` be
 
 **Measuring it.** `evalTurnFromTurn` carries `Turn.outcome` onto `EvalTurn.outcome` and the mismatch onto `EvalTurn.claimMismatch`. `outcomeScorer(verdicts)` scores 1 when the record's verdict is one of the given set and 0 otherwise, naming the verdict, and is unavailable (not zero) for a turn with no record; `claimMismatchScorer({ expectMismatch? })` scores whether the comparison fired. Both are gate scorers, so a scripted suite with no provider can pin the kernel's record and the comparison. `@namzu/evals` has the suite `kernel/answer-claims`, and the SDK's unit test holds a table of answers (claims, negations, hedges, quotations, code, mixed sentences, long answers) with the expected result of each.
 
+## Handed back
+
+A turn the model [handed back to a person](hand-back.md) keeps its record unchanged: `Turn.handedBack` is a separate fact beside the verdict, in memory and on the live settlement, and is read back from the saved `hand_back_task` call, so the persisted outcome record gains no field.
+
 ## Ending a goal by the record
 
 A goal can end only as this record allows (`GoalConfirmation`, the `TurnConfig.outcome.beforeEnd` hook, `OutcomeLedger.preview`): see [Goal confirmation](goal-confirmation.md). The goal tools (`get_goal`, `update_goal`) count as calls that only look, so a report of completion after a passing check leaves the check fresh.

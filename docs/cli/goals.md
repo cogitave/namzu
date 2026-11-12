@@ -19,7 +19,7 @@ A goal is an objective saved with a conversation. `/goal <objective>` (or `/goal
 | Ending | How |
 |---|---|
 | Complete | The model calls `update_goal` with `complete`. |
-| Blocked | The model calls it with `blocked` and a reason, allowed from the third round on. Or the round limit is reached (256 admitted rounds by default). |
+| Blocked | The model calls it with `blocked` and a reason, allowed from the third round on, or hands the round back to a person (see [a goal handed back](#a-goal-handed-back); only with `handBack.enabled`). Or the round limit is reached (256 admitted rounds by default). |
 | Paused or cleared | You run `/goal pause` or `/goal clear`. |
 | Stopped | A turn that is cancelled, fails or hits a turn limit disarms automatic work; `/goal resume` starts again. |
 
@@ -71,6 +71,10 @@ The default is `model` because ending by the record changes how an existing comm
 The closing line above is shown under the turn's outcome line, once, in the turn that ended the goal. It is not saved in the conversation, so a reopened conversation shows the goal's phase (`complete` or `blocked` with the record's sentence) and not which of the first two endings it was.
 
 `namzu exec --output-format json` and the `done` line of `exec --json` carry the same facts as an optional `goalEnding` key: `goalId`, `ending` (`confirmed`, `stated-not-checked` or `not-confirmed`), `sentence` and `refusals`. It is absent unless a goal ended in the command. `exec` does not set goals today and scheduled tasks do not run them, so the key is never present there yet, and no exit status is defined for a not-confirmed goal in those runs: when they do run goals, that exit status will be documented with them.
+
+## A goal handed back
+
+When the model is allowed to [hand a task back to a person](../sdk/hand-back.md) (`handBack.enabled`) and does so in a goal round, the round ends there and the goal ends as **not confirmed**, whatever it was confirmed by: it is left blocked with the code `handed-back-to-a-person` and the reason, so `/goal status` shows it. The closing line is `Goal not confirmed: the model handed the task back to a person (<the kind's sentence>).`, with the model's three sentences under it, labelled as the model's. `goalEnding` carries `handedBack` as well. With the setting off (the default) nothing here changes.
 
 ## Measured on the scripted suite
 

@@ -1,10 +1,13 @@
 import {
 	type AnswerClaimMismatch,
 	type GoalEndingReport,
+	type HandBack,
 	type TurnOutcome,
 	type TurnOutcomeCheck,
 	describeAnswerClaimMismatch,
 	describeGoalEnding,
+	describeHandBack,
+	handBackModelLines,
 } from '@namzu/sdk'
 
 /**
@@ -133,6 +136,19 @@ export function claimMismatchLine(mismatch: AnswerClaimMismatch | undefined): st
 export function goalEndingLine(ending: GoalEndingReport | undefined): string | undefined {
 	if (ending === undefined) return undefined
 	return plain(describeGoalEnding(ending))
+}
+
+/**
+ * What a turn the model handed back to a person shows: the kernel's own line
+ * saying so and why (a kind of block, never the model's words), then the model's
+ * three sentences, each under a label that says they are the model's. The model's
+ * text is made printable the way a command is. Nothing when the turn was not handed back.
+ */
+export function handedBackLines(
+	handBack: HandBack | undefined,
+): { readonly line: string; readonly model: readonly string[] } | undefined {
+	if (handBack === undefined) return undefined
+	return { line: plain(describeHandBack(handBack)), model: handBackModelLines(handBack).map(plain) }
 }
 
 const SHOWN_CHARS = 60

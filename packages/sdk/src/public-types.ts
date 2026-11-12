@@ -415,6 +415,7 @@ export type {
 	GoalStatement,
 } from './tools/goal/confirmation.js'
 export type { ActiveSessionGoal } from './manager/goal/activation.js'
+export type { HandBack, HandBackKind } from './types/session/hand-back.js'
 
 export type {
 	AgentHandle,

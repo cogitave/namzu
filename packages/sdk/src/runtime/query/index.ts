@@ -40,6 +40,11 @@ import { getTracer } from '../../telemetry/runtime-accessors.js'
 import { buildAdvisoryTools } from '../../tools/advisory/index.js'
 import { SearchToolsTool } from '../../tools/builtins/search-tools.js'
 import { createStructuredOutputTool } from '../../tools/builtins/structuredOutput.js'
+import {
+	HAND_BACK_GUIDANCE,
+	HAND_BACK_GUIDANCE_CONTRIBUTION_ID,
+	buildHandBackTool,
+} from '../../tools/hand-back/index.js'
 import { buildTaskTools } from '../../tools/task/index.js'
 import { ToolManager } from '../../toolsets/manager.js'
 import { toolset } from '../../toolsets/toolset.js'
@@ -1283,6 +1288,10 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			for (const tool of taskTools) addRuntimeTool(tool, 'deferred')
 		}
 
+		// The way out of a task that cannot be done as specified. Only when the host
+		// turned it on; with it off the tool is absent and the prompt is as before.
+		if (turnConfig.handBack === true) addRuntimeTool(buildHandBackTool(), 'active')
+
 		// `search_tools` is added only when something could actually be
 		// deferred — one of the runtime tools above, or a caller toolset that
 		// declared itself `deferred(...)`. Nothing deferred means nothing for
@@ -1789,6 +1798,15 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// The turn's own registry when the host passed none, so a hook's
 		// annotation has somewhere to land.
 		const promptContributions = params.promptContributions ?? new PromptContributionRegistry()
+		if (turnConfig.handBack === true) {
+			promptContributions.replace({
+				id: HAND_BACK_GUIDANCE_CONTRIBUTION_ID,
+				placement: 'static',
+				render: () => HAND_BACK_GUIDANCE,
+			})
+		} else {
+			promptContributions.unregister(HAND_BACK_GUIDANCE_CONTRIBUTION_ID)
+		}
 
 		const promptBuilder = new PromptBuilder({
 			systemPrompt: params.systemPrompt,

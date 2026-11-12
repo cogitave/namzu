@@ -1410,6 +1410,7 @@ export {
 	compareHarnessTrials,
 	reviewHarnessCandidate,
 	claimMismatchScorer,
+	handedBackScorer,
 	completionScorer,
 	containsScorer,
 	customScorer,
@@ -1431,6 +1432,24 @@ export {
 	compareAnswerToOutcome,
 	describeAnswerClaimMismatch,
 } from './runtime/query/turn/answer-claims.js'
+
+// ─── handing the task back ───────────────────────────────────────────────
+
+export {
+	HAND_BACK_GUIDANCE,
+	HAND_BACK_GUIDANCE_CONTRIBUTION_ID,
+	HAND_BACK_MAX_CHARS,
+	HAND_BACK_RECEIPT,
+	HAND_BACK_SIBLING_REFUSAL,
+	HAND_BACK_TOOL_NAME,
+	HandBackInputSchema,
+	buildHandBackTool,
+	describeHandBack,
+	handBackKindSentence,
+	handBackModelLines,
+	handBackReason,
+	parseHandBack,
+} from './tools/hand-back/index.js'
 
 // ─── metrics ─────────────────────────────────────────────────────────────
 //

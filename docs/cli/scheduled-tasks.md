@@ -757,7 +757,7 @@ work to parallel agents with the `Agent` tool; see
 [Slash commands](slash-commands.md#hypermode).
 
 A run ends as one of: `completed`, `failed`, `awaiting-approval`, `timed-out`,
-`blocked-config`, `interrupted`, `approval-expired`, `check-failed`
+`blocked-config`, `interrupted`, `approval-expired`, `needs-a-person` (see [a run that needs a person](#a-run-that-needs-a-person)), `check-failed`
 (`script`/`script+agent` only — the script or its wake-gate malfunctioned:
 a non-zero exit, its own timeout, or stdout that is not the wake-gate's
 `{"wake": …, "context": …}` contract). The status says how the
@@ -821,6 +821,12 @@ from the operator)…". `gateResult: { wake, contextChars }` is recorded
 alongside the run either way, `contextChars` rather than the context text
 itself (the same "a count, not the payload" discipline `refusedCalls`/
 `failedCalls` already keep).
+
+### A run that needs a person
+
+With `handBack.enabled: true` in the config the model of a run may [hand the task back to a person](../sdk/hand-back.md): the task cannot be done as specified, something it needs is missing, or a decision is a person's. Nobody is there to ask, so the run ends there with one model call for that step and nothing else run, and is recorded as **`needs-a-person`** (the process exits 1, as for a failure). The run record and `lastRun` carry the status; the run's result and history carry `handedBack` (`kind`, `blocker`, `tried`, `needed`, the model's words made printable and clipped) and a `reason` of the form `The model handed the task back to a person: <the kind's sentence>. The model said: <its blocker>`; `show` and `history` print the reason under the run. A `needs-a-person` result is written as format version 2, the version `check-failed` uses.
+
+It is surfaced as a failing run is, because the same prompt will be handed back again until a person decides: it counts toward the failure streak (so it can pause the job after `--pause-after-failures` runs), the same cause is notified once (`needs a person at <when>; namzu schedule show <job> says what`, with the model's blocker only for a job that asked for `--notify-summary`) and a later run that completes clears it. A run handed back in a conversation that proposed the job is delivered there as a failed run is (`needs a person: the model handed the task back`). With the setting off (the default) a run never ends this way.
 
 ## Approvals
 

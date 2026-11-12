@@ -1134,7 +1134,8 @@ export class ScheduleDaemon {
 			status === 'timed-out' ||
 			status === 'interrupted' ||
 			status === 'approval-expired' ||
-			status === 'check-failed'
+			status === 'check-failed' ||
+			status === 'needs-a-person'
 		const counters = {
 			runs: current.counters.runs + (status === 'awaiting-approval' ? 0 : 1),
 			failures: current.counters.failures + (failed ? 1 : 0),
@@ -1216,7 +1217,9 @@ export class ScheduleDaemon {
 								? 'interrupted'
 								: status === 'check-failed'
 									? 'check-failed'
-									: 'failed'
+									: status === 'needs-a-person'
+										? 'needs-a-person'
+										: 'failed'
 				incident = { signature, at }
 			}
 		}
@@ -1262,7 +1265,9 @@ export class ScheduleDaemon {
 					at: new Date(now),
 					...(summary ? { summary } : {}),
 					...(result.refusedCalls ? { refused: result.refusedCalls } : {}),
-					...(tell === 'check-failed' && result.reason ? { reason: result.reason } : {}),
+					...((tell === 'check-failed' || tell === 'needs-a-person') && result.reason
+						? { reason: result.reason }
+						: {}),
 					...(tell === 'awaiting-approval' && next.activeRun?.sessionId
 						? { resumeCommand: resumeCommand(job, next.activeRun.sessionId) }
 						: {}),
@@ -1548,6 +1553,7 @@ export function appendRunRecord(
 		...(result.warnings ? { warnings: result.warnings } : {}),
 		...(result.refusedCalls ? { refusedCalls: result.refusedCalls } : {}),
 		...(result.failedCalls ? { failedCalls: result.failedCalls } : {}),
+		...(result.handedBack ? { handedBack: result.handedBack } : {}),
 		...(result.gateResult ? { gateResult: result.gateResult } : {}),
 		...(result.scriptOutput ? { scriptOutput: result.scriptOutput } : {}),
 	})

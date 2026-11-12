@@ -11,6 +11,7 @@ import type {
 import type { Message } from '../message/index.js'
 import type { ProviderErrorInfo } from '../provider/index.js'
 import type { TurnConfig } from './config.js'
+import type { HandBack } from './hand-back.js'
 import type { AnswerClaimMismatch, TurnOutcome } from './outcome.js'
 import type { StepResult } from './step.js'
 import type { StopReason } from './stop-reason.js'
@@ -173,6 +174,14 @@ export interface LiveTurnSettlement extends TurnSettlement {
 	 * Absent when the answer made no such claim, which is the usual case.
 	 */
 	readonly claimMismatch?: AnswerClaimMismatch
+	/**
+	 * The model handed the task back to a person (`hand_back_task`) and the turn
+	 * ended there. A fact beside {@link LiveTurnSettlement.outcome}, not a field of
+	 * it: a turn can have changed files and been handed back. In memory only; the
+	 * session log keeps no record of it, since the call and its words are already in
+	 * the saved conversation and a reopened one reads them from there.
+	 */
+	readonly handedBack?: HandBack
 }
 
 /** Metadata of one turn: who ran it, with what, and where it sits in the session tree. */
@@ -242,6 +251,8 @@ export interface Turn {
 	abandonedJobIds?: readonly string[]
 	/** What the turn changed and what checked it; see {@link LiveTurnSettlement.outcome}. */
 	outcome?: TurnOutcome
+	/** Set when the model handed the task back; see {@link LiveTurnSettlement.handedBack}. */
+	handedBack?: HandBack
 	/** Present on a child session's turn. */
 	parentSessionId?: SessionId
 	/** Present on a child session's turn. */

@@ -1,3 +1,4 @@
+import type { HandBackKind } from '../types/session/hand-back.js'
 import type { TurnOutcomeVerdict } from '../types/session/outcome.js'
 import type { EvalCase, EvalTurn, Score, Scorer } from './types.js'
 
@@ -205,6 +206,30 @@ export function claimMismatchScorer(opts: { expectMismatch?: boolean } = {}): Sc
 					? `${found.said}, but the record: ${found.recordSays}`
 					: 'no claim in the answer contradicts the record',
 				details: { claimMismatch: found ?? null, expectMismatch },
+			}
+		},
+	}
+}
+
+/**
+ * Score whether the turn was handed back to a person.
+ *
+ * Pass `{ expectKind }` for a case built so the model hands the task back, and
+ * the scorer checks it did, and for that kind; with nothing it checks the turn
+ * was not handed back. A gate: a scripted suite pins the kernel's side of it.
+ */
+export function handedBackScorer(opts: { expectKind?: HandBackKind } = {}): Scorer {
+	return {
+		name: 'handed-back',
+		severity: 'gate',
+		score(turn: EvalTurn): Score {
+			const found = turn.handedBack
+			const ok =
+				opts.expectKind === undefined ? found === undefined : found?.kind === opts.expectKind
+			return {
+				score: ok ? 1 : 0,
+				reason: found ? `handed back (${found.kind}): ${found.blocker}` : 'not handed back',
+				details: { handedBack: found ?? null, expectKind: opts.expectKind ?? null },
 			}
 		},
 	}

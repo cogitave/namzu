@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { TurnOutcome } from '../../types/session/outcome.js'
 import type { Turn } from '../../types/session/turn.js'
 import { evalTurnFromTurn } from '../from-turn.js'
-import { claimMismatchScorer, outcomeScorer } from '../scorers.js'
+import { claimMismatchScorer, handedBackScorer, outcomeScorer } from '../scorers.js'
 import type { EvalCase, EvalTurn } from '../types.js'
 
 const record = (verdict: TurnOutcome['verdict']): TurnOutcome => ({
@@ -113,5 +113,42 @@ describe('the claim mismatch scorer', () => {
 			outcome: record('unchecked'),
 		} as unknown as Turn
 		expect(evalTurnFromTurn(turn).claimMismatch?.claim).toBe('tests')
+	})
+})
+
+describe('handedBackScorer', () => {
+	const base = {
+		output: '',
+		steps: [],
+		toolCalls: [],
+		totalTokens: 0,
+		totalCostUsd: 0,
+		durationMs: 0,
+	}
+	const handedBack = {
+		kind: 'conflict',
+		blocker: 'the test and the request disagree',
+		tried: 'read both',
+		needed: 'say which one is right',
+	} as const
+
+	it('scores a turn that was handed back against the kind that was expected', () => {
+		const turn = { ...base, handedBack }
+		expect(handedBackScorer({ expectKind: 'conflict' }).score(turn, {} as never)).toMatchObject({
+			score: 1,
+		})
+		expect(handedBackScorer({ expectKind: 'missing' }).score(turn, {} as never)).toMatchObject({
+			score: 0,
+		})
+	})
+
+	it('scores a turn that was not handed back, and fails one that was when none was expected', () => {
+		expect(handedBackScorer().score(base, {} as never)).toMatchObject({ score: 1 })
+		expect(handedBackScorer().score({ ...base, handedBack }, {} as never)).toMatchObject({
+			score: 0,
+		})
+		expect(handedBackScorer({ expectKind: 'decision' }).score(base, {} as never)).toMatchObject({
+			score: 0,
+		})
 	})
 })
