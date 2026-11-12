@@ -19,15 +19,18 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
-	readdirSync,
 	rmSync,
 	statSync,
 	writeFileSync,
 } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { STAGED_CLI_FILES, checkStagedCli } from './check-staged-cli.mjs'
-import { leanCli, loadExternals, measure, parseTarget, pruneForeignPrebuilds } from './lean-cli.mjs'
+import { STAGED_CLI_FILES } from './check-staged-cli.mjs'
+import { kernelJsonText, readKernelFacts } from './kernel/facts.mjs'
+import { isDeadWeight, prune, pruneDeadWeight, stageCliFolder } from './kernel/stage-cli.mjs'
+import { parseTarget, pruneForeignPrebuilds } from './lean-cli.mjs'
+
+export { isDeadWeight, pruneDeadWeight }
 
 const pkgRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repoRoot = resolve(pkgRoot, '../..')
@@ -46,41 +49,6 @@ const RUNTIME_DEPENDENCIES = ['electron-updater', 'ignore', 'sherpa-onnx-node', 
 const run = (program, args, options = {}) =>
 	execFileSync(program, args, { stdio: 'inherit', ...options })
 const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex')
-
-function prune(directory, remove) {
-	for (const entry of readdirSync(directory, { withFileTypes: true })) {
-		const path = join(directory, entry.name)
-		if (remove(entry, path)) rmSync(path, { recursive: true, force: true })
-		else if (entry.isDirectory()) prune(path, remove)
-	}
-}
-
-/**
- * Files in a staged node_modules that a running program never reads: source maps, type
- * declarations, test files and the README, CHANGELOG and HISTORY notes. Licence and notice
- * files are never matched. The TypeScript package is left whole, since its compiler reads
- * its own lib.*.d.ts files at run time. Pure, so it is tested without staging anything.
- */
-export function isDeadWeight(path) {
-	const parts = path.split(/[\\/]/)
-	const name = parts[parts.length - 1]
-	const index = parts.lastIndexOf('node_modules')
-	if (index >= 0 && parts[index + 1] === 'typescript') return false
-	if (/\.(map|d\.ts|d\.cts|d\.mts)$/.test(name)) return true
-	if (/\.test\.(c|m)?(j|t)s$/.test(name)) return true
-	return /^(readme|changelog|changes|history)(\.(md|markdown|txt))?$/i.test(name)
-}
-
-/** Remove the dead weight under a node_modules folder; returns how many files went. */
-export function pruneDeadWeight(directory) {
-	let removed = 0
-	prune(directory, (entry, path) => {
-		if (!entry.isFile() || !isDeadWeight(path)) return false
-		removed += 1
-		return true
-	})
-	return removed
-}
 
 async function pythonArchive(explicit, scratch) {
 	const file = explicit ?? join(scratch, PYTHON.file)
@@ -257,60 +225,12 @@ async function main() {
 	pruneDeadWeight(join(out, 'node_modules'))
 	pruneForeignPrebuilds(out, target)
 
-	// 2. The CLI runtime: a hoisted, link-free production install of the workspace package.
+	// 2. The CLI runtime: the shared staging steps (scripts/kernel/stage-cli.mjs), the same ones the
+	// kernel staging uses, then the facts the staged engine states about itself.
 	const cli = join(out, 'extra/cli')
-	// Deployed for the target, not for this machine: without --os, --cpu and --libc pnpm fetches the
-	// optional packages of the staging machine (Linux on a runner), and a Windows installer would
-	// carry no sharp, oxc-parser or node-pty binding.
-	run(
-		'pnpm',
-		[
-			'--filter',
-			'@namzu/cli',
-			'deploy',
-			'--prod',
-			'--legacy',
-			'--config.node-linker=hoisted',
-			`--os=${target.platform}`,
-			`--cpu=${target.arch}`,
-			...(target.libc ? [`--libc=${target.libc}`] : []),
-			cli,
-		],
-		{ cwd: repoRoot },
-	)
-	prune(cli, (entry) => entry.name === '.bin' || entry.isSymbolicLink())
-	// The bundle inlines most of what the deploy installed. Keep the packages it leaves external, what
-	// they depend on and the target's native binaries; the rest is never loaded.
-	const before = measure(cli)
-	const externals = await loadExternals(join(repoRoot, 'packages/cli'))
-	const lean = leanCli({ root: cli, externals, target })
-	pruneDeadWeight(join(cli, 'node_modules'))
-	pruneDeadWeight(join(cli, 'dist'))
-	const after = measure(cli)
-	console.log(
-		`CLI runtime: ${(before.bytes / 1e6).toFixed(1)} MB in ${before.files} files -> ${(after.bytes / 1e6).toFixed(1)} MB in ${after.files} files; ${lean.keep.size} packages kept, ${lean.removedPackages} removed (${lean.foreignPrebuilds} foreign prebuild folders), skipped for ${target.platform}-${target.arch}: ${lean.skippedForTarget.join(', ') || 'none'}`,
-	)
-	// Terminals need node-pty, an optional dependency of the CLI that a deploy on a machine without a
-	// compiler can silently omit. The target's binaries ship inside the package, so check for them here
-	// rather than finding an installer whose terminals are all unavailable.
-	const targetName = `${target.platform}-${target.arch}${target.libc === 'musl' ? '-musl' : ''}`
-	if (
-		target.platform === 'win32' &&
-		!existsSync(join(cli, `node_modules/node-pty/prebuilds/${targetName}/pty.node`))
-	)
-		throw new Error(`The staged CLI runtime has no node-pty ${targetName} binary; terminals would not work.`)
-	// The staged CLI must work from its own files: version, the Desktop's first call, every import.
-	const { failures, report } = await checkStagedCli({
-		cliDir: cli,
-		externals,
-		target,
-		requiredFiles: STAGED_CLI_FILES,
-	})
-	console.log(
-		`Staged CLI check: --version ${report.version} in ${report.timings.versionMs?.toFixed(0)} ms, initialize in ${report.timings.initializeMs?.toFixed(0)} ms, ${report.specifiers} specifiers resolved, ${report.imported} imported${report.notImported.length ? `, not imported on this host (assert files for ${targetName}): ${report.notImported.join(', ')}` : ''}${report.notShipped.length ? `; deliberately not shipped: ${report.notShipped.join(', ')}` : ''}`,
-	)
-	if (failures.length > 0)
-		throw new Error(`The staged CLI does not work from its own files:\n  ${failures.join('\n  ')}`)
+	const staged = await stageCliFolder({ repoRoot, cli, target })
+	const { report, targetName } = staged
+	writeFileSync(join(cli, 'kernel.json'), kernelJsonText(await readKernelFacts({ cliDir: cli, target })))
 	// What the Windows build machine checks on the packed tree (installer-after-pack.cjs): the native
 	// packages this check found and the files it asserted, so the two machines never keep separate lists.
 	writeFileSync(
