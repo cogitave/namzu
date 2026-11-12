@@ -52,9 +52,18 @@
 		}
 	},
 	"files": {
-		"include": ["src/**/*.ts", "src/**/*.mts", "src/**/*.tsx", "src/**/*.cts", "src/**/*.css"]
+		"include": ["src/**/*.ts", "src/**/*.mts", "src/**/*.tsx", "src/**/*.cts", "src/**/*.css", "scripts/kernel/**/*.mjs", "scripts/__tests__/kernel-*.mjs"]
 	},
 	"overrides": [
+		{
+			"include": ["scripts/kernel/**/*.mjs", "scripts/__tests__/kernel-*.mjs"],
+			"linter": {
+				"rules": {
+					"suspicious": { "noConsole": "off" },
+					"performance": { "noDelete": "off" }
+				}
+			}
+		},
 		{
 			"include": ["src/**/*.test.ts"],
 			"linter": {
