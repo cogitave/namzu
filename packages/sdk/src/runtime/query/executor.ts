@@ -63,6 +63,7 @@ import type {
 	ToolDispatchOptions,
 	ToolFacts,
 	ToolHandoff,
+	ToolProgressDetails,
 	ToolResult,
 } from '../../types/tool/index.js'
 import type { RepairToolCall } from '../../types/tool/repair.js'
@@ -272,7 +273,9 @@ function boundedToolProgress(message: string): string {
  * complete useful working set; intermediate states may be replaced.
  */
 class ToolProgressPublisher {
-	private pending: { readonly message: string; readonly fraction?: number } | undefined
+	private pending:
+		| { readonly message: string; readonly fraction?: number; readonly outputLines?: number }
+		| undefined
 	private draining: Promise<void> | null = null
 	private accepting = true
 
@@ -280,15 +283,18 @@ class ToolProgressPublisher {
 		private readonly emitEvent: EmitEvent,
 		private readonly base: Omit<
 			Extract<SessionEventDraft, { type: 'tool_progress' }>,
-			'message' | 'fraction'
+			'message' | 'fraction' | 'outputLines'
 		>,
 	) {}
 
-	report(message: string, fraction?: number): void {
+	report(message: string, fraction?: number, details?: ToolProgressDetails): void {
 		if (!this.accepting) return
 		this.pending = {
 			message,
 			...(fraction !== undefined ? { fraction: Math.min(1, Math.max(0, fraction)) } : {}),
+			...(details?.outputLines !== undefined && Number.isFinite(details.outputLines)
+				? { outputLines: Math.max(0, Math.floor(details.outputLines)) }
+				: {}),
 		}
 		this.startDrain()
 	}
@@ -323,6 +329,7 @@ class ToolProgressPublisher {
 				...this.base,
 				message: boundedToolProgress(update.message),
 				...(update.fraction !== undefined ? { fraction: update.fraction } : {}),
+				...(update.outputLines !== undefined ? { outputLines: update.outputLines } : {}),
 			}).catch(() => {})
 		}
 	}
@@ -1856,7 +1863,8 @@ export class ToolExecutor {
 				// Per-call for the same reason: a pause has to be routed back
 				// to the call that raised it, and a batch can raise several.
 				...(this.config.toolPause ? { requestPause: this.config.toolPause(toolCall.id) } : {}),
-				report: (message: string, fraction?: number) => progress.report(message, fraction),
+				report: (message: string, fraction?: number, details?: ToolProgressDetails) =>
+					progress.report(message, fraction, details),
 			}
 			if (preparedCall) {
 				const cwd = this.preparedBashDirectories.get(preparedCall)
@@ -2349,7 +2357,8 @@ export class ToolExecutor {
 			// ephemeral child id; minting a pause route for `nestedId` makes the
 			// answer impossible to match after process restart. `...context`
 			// intentionally preserves the ancestor route here.
-			report: (message: string, fraction?: number) => progress.report(message, fraction),
+			report: (message: string, fraction?: number, details?: ToolProgressDetails) =>
+				progress.report(message, fraction, details),
 		}
 
 		const nestedCwd = this.preparedBashDirectories.get(preparedCall)

@@ -251,3 +251,22 @@ describe('what the command inherits from the host', () => {
 		}
 	})
 })
+
+describe('progress while a command runs', () => {
+	it('counts the lines of output itself, so a viewer need not count the messages it received', async () => {
+		const reports: { message: string; outputLines: number | undefined }[] = []
+		const context = {
+			...ctx(),
+			report: (message: string, _fraction?: number, details?: { outputLines?: number }) => {
+				reports.push({ message, outputLines: details?.outputLines })
+			},
+		} as ToolContext
+		const result = await run({ command: 'echo one && echo two && echo three' }, context)
+		expect(result.success).toBe(true)
+		// Reports may be coalesced by the executor, never by the tool: the last one
+		// carries every line feed of the run.
+		expect(reports.at(-1)?.outputLines).toBe(3)
+		expect(reports.at(-1)?.message).toBe('three')
+		for (const report of reports) expect(report.outputLines).toBeGreaterThan(0)
+	})
+})

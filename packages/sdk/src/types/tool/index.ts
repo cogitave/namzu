@@ -940,7 +940,13 @@ export interface ToolContext {
 	 *
 	 * Absent when the executing surface has no event stream to write to.
 	 */
-	report?: (message: string, fraction?: number) => void
+	report?: (message: string, fraction?: number, details?: ToolProgressDetails) => void
+}
+
+/** Facts a tool can attach to a progress report besides its words. */
+export interface ToolProgressDetails {
+	/** Lines of output the call has produced so far, counted by the tool itself (never by a renderer from what it was shown). */
+	readonly outputLines?: number
 }
 
 export interface ToolResult {

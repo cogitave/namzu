@@ -435,6 +435,8 @@ type CoreSessionEvent =
 			message: string
 			/** Optional completion in [0,1] when the tool genuinely knows it. */
 			fraction?: number
+			/** Lines of output the call has produced so far, when the tool counts them (a shell command). Cumulative: the newest report wins. */
+			outputLines?: number
 	  }
 	/** Provider-executed activity, retained as evidence rather than a local tool request. */
 	| {
