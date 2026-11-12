@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createEngineDelivery, webFetch } from './engine-delivery.js'
+import { createEngineDelivery, engineDeliveryAllowed, webFetch } from './engine-delivery.js'
 import type { FetchLike } from './kernel/feed-fetch.js'
 import {
 	buildArchive,
@@ -12,6 +12,7 @@ import {
 	manifestObject,
 	signPair,
 } from './kernel/kernel-test-support.js'
+import { KERNEL_FEED_URL, KERNEL_PUBLIC_KEYS } from './kernel/keys.js'
 import { REQUIRED_EXTENSIONS } from './required-extensions.js'
 
 const folders: string[] = []
@@ -77,6 +78,8 @@ function options(root: string, over: Partial<Parameters<typeof createEngineDeliv
 		options: {
 			isPackaged: false,
 			resourcesPath: undefined,
+			// These tests say what they mean: the repository's own list is not what they rely on.
+			compiledKeys: [],
 			userData: join(root, 'userdata'),
 			env: {},
 			platform: 'win32',
@@ -134,13 +137,19 @@ describe('building the engine delivery', () => {
 		const withKey = {
 			NAMZU_KERNEL_TEST_PUBLIC_KEY: KEY_ENV,
 			NAMZU_KERNEL_TEST_BUNDLED_DIR: bundled,
+			NAMZU_KERNEL_FEED_URL: 'http://127.0.0.1:9/feed/',
 		}
 		const built = createEngineDelivery(options(root, { env: withKey }).options)
 		expect(built).toBeDefined()
 		await built?.ready
 		expect(
 			createEngineDelivery(
-				options(root, { env: { NAMZU_KERNEL_TEST_BUNDLED_DIR: bundled } }).options,
+				options(root, {
+					env: {
+						NAMZU_KERNEL_TEST_BUNDLED_DIR: bundled,
+						NAMZU_KERNEL_FEED_URL: 'http://127.0.0.1:9/feed/',
+					},
+				}).options,
 			),
 		).toBeUndefined()
 	})
@@ -225,13 +234,133 @@ describe('building the engine delivery', () => {
 		const bundled = await bundledFolder(root)
 		const { options: o, requests } = options(root, {
 			enabled: () => false,
-			env: { NAMZU_KERNEL_TEST_PUBLIC_KEY: KEY_ENV, NAMZU_KERNEL_TEST_BUNDLED_DIR: bundled },
+			env: {
+				NAMZU_KERNEL_TEST_PUBLIC_KEY: KEY_ENV,
+				NAMZU_KERNEL_TEST_BUNDLED_DIR: bundled,
+				NAMZU_KERNEL_FEED_URL: 'http://127.0.0.1:9/feed/',
+			},
 		})
 		const delivery = createEngineDelivery(o)
 		await delivery?.ready
 		expect(await delivery?.check()).toEqual({ kind: 'skipped', reason: 'disabled' })
 		expect(requests).toEqual([])
 		expect(delivery?.view().status).toEqual({ kind: 'off' })
+	})
+})
+
+describe('which runs may contact a feed', () => {
+	/** A packaged-style resources folder holding the bundled engine. */
+	async function packagedRoot() {
+		const root = await scratch()
+		const bundled = await bundledFolder(root)
+		await mkdir(join(root, 'res', 'cli', 'dist'), { recursive: true })
+		await writeFile(join(root, 'res', 'cli', 'dist', 'bin.js'), engineStub('51.1.0'))
+		await writeFile(
+			join(root, 'res', 'cli', 'kernel.json'),
+			await readFile(join(bundled, 'kernel.json')),
+		)
+		await writeFile(join(root, 'res', 'cli', 'package.json'), JSON.stringify({ version: '51.1.0' }))
+		return { root, bundled, resources: join(root, 'res') }
+	}
+	function countingClock() {
+		const timers: string[] = []
+		return {
+			timers,
+			clock: {
+				now: clock.now,
+				after: () => {
+					timers.push('after')
+					return () => undefined
+				},
+				every: () => {
+					timers.push('every')
+					return () => undefined
+				},
+			},
+		}
+	}
+
+	it('lists the first public key in the repository', () => {
+		expect(KERNEL_PUBLIC_KEYS.map((entry) => entry.id)).toEqual(['k1'])
+	})
+
+	it('decides by isPackaged and an explicit feed address, nothing else', () => {
+		expect(engineDeliveryAllowed({ isPackaged: true, env: {} })).toBe(true)
+		expect(engineDeliveryAllowed({ isPackaged: false, env: {} })).toBe(false)
+		expect(engineDeliveryAllowed({ isPackaged: false, env: { NAMZU_KERNEL_FEED_URL: '' } })).toBe(
+			false,
+		)
+		expect(
+			engineDeliveryAllowed({
+				isPackaged: false,
+				env: { NAMZU_KERNEL_FEED_URL: 'http://example.test/' },
+			}),
+		).toBe(false)
+		expect(
+			engineDeliveryAllowed({
+				isPackaged: false,
+				env: { NAMZU_KERNEL_FEED_URL: 'http://127.0.0.1:9/' },
+			}),
+		).toBe(true)
+	})
+
+	it('packaged with a key: active, and the first look goes to the compiled feed', async () => {
+		const { root, resources } = await packagedRoot()
+		const { timers, clock: counting } = countingClock()
+		const { options: o, requests } = options(root, {
+			isPackaged: true,
+			resourcesPath: resources,
+			compiledKeys: [key],
+			compiledFeed: 'https://feed.example.test/kernel/',
+			clock: counting,
+		})
+		const delivery = createEngineDelivery(o)
+		expect(delivery).toBeDefined()
+		await delivery?.ready
+		delivery?.start()
+		expect(timers.length).toBeGreaterThan(0)
+		await delivery?.check()
+		expect(requests[0]).toBe('https://feed.example.test/kernel/kernel-latest.json')
+		delivery?.stop()
+	})
+
+	it('unpackaged with a key and no feed address: no object, no timer, no request, no folder', async () => {
+		const root = await scratch()
+		const bundled = await bundledFolder(root)
+		const { timers, clock: counting } = countingClock()
+		const { options: o, requests } = options(root, {
+			compiledKeys: [key],
+			clock: counting,
+			// A stand-in bundled engine and a test key are there, as in an end-to-end run.
+			env: { NAMZU_KERNEL_TEST_PUBLIC_KEY: KEY_ENV, NAMZU_KERNEL_TEST_BUNDLED_DIR: bundled },
+		})
+		const delivery = createEngineDelivery(o)
+		expect(delivery).toBeUndefined()
+		delivery?.start()
+		expect(timers).toEqual([])
+		expect(requests).toEqual([])
+		expect(await readdir(root)).toEqual(['bundled'])
+		// The compiled address is never what an unpackaged run asks.
+		expect(KERNEL_FEED_URL).toContain('https://')
+	})
+
+	it('unpackaged with an explicit feed address: active with that feed', async () => {
+		const root = await scratch()
+		const bundled = await bundledFolder(root)
+		const { options: o, requests } = options(root, {
+			compiledKeys: [key],
+			compiledFeed: 'https://feed.example.test/kernel/',
+			env: {
+				NAMZU_KERNEL_TEST_BUNDLED_DIR: bundled,
+				NAMZU_KERNEL_TEST_PUBLIC_KEY: KEY_ENV,
+				NAMZU_KERNEL_FEED_URL: 'http://127.0.0.1:9/mine/',
+			},
+		})
+		const delivery = createEngineDelivery(o)
+		expect(delivery).toBeDefined()
+		await delivery?.ready
+		await delivery?.check()
+		expect(requests[0]).toBe('http://127.0.0.1:9/mine/kernel-latest.json')
 	})
 })
 

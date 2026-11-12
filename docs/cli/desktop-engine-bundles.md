@@ -209,10 +209,13 @@ is started to check it; both get an environment without `NAMZU_KERNEL_SIGNING_KE
 ## The public key list
 
 `packages/desktop/kernel-keys.json` is a JSON array of `{ "id": "k1", "publicKey": "<base64 of the 32 raw bytes>" }`.
-It is **empty** until the real key exists. The publisher scripts read it, and the app is built from the same
+It lists the first key (`k1`). Its private half lives only in the secret of the release environment
+`kernel-release`, which allows only the `main` branch; nobody holds a copy. The publisher scripts read the
+list, and the app is built from the same
 file: `node scripts/kernel/write-keys.mjs` (run first by `pnpm build`) writes `src/main/kernel/keys-compiled.ts`
 from it, `KERNEL_PUBLIC_KEYS` reads that, and a unit test fails when the two differ. An app built with an empty
-list never asks for an engine; a packaged app takes no key from the environment. After editing the file, run
+list never asks for an engine; a packaged app takes no key from the environment, and an app that is not
+packaged never asks the compiled feed (see "Which runs do this" on the updates page). After editing the file, run
 the command and commit both.
 
 ## The release workflow
@@ -225,7 +228,7 @@ the command and commit both.
   manifest lives 14 days).
 
 It builds only when the command line version at the commit is **newer** than the one in the current manifest
-**and** is on the npm registry; otherwise the run ends quietly with a notice that says why. With no key in the
+**and** is on the npm registry; otherwise the run ends quietly with a notice that says why. With an empty key
 list it also ends quietly. Three jobs:
 
 - `plan` (read-only token, no secret) decides: build, re-issue, or nothing.

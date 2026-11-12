@@ -30,16 +30,19 @@ function codeOf(run: () => unknown): string | undefined {
 }
 
 describe('compiled keys', () => {
-	it('are empty in the repository', () => {
-		expect(KERNEL_PUBLIC_KEYS).toEqual([])
-		expect(trustedKeys({ isPackaged: true, env: {} })).toEqual([])
+	it('are the listed keys, and an injected empty list gives none', () => {
+		expect(KERNEL_PUBLIC_KEYS.map((entry) => entry.id)).toEqual(['k1'])
+		expect(trustedKeys({ isPackaged: true, env: {} }).map((entry) => entry.id)).toEqual(['k1'])
+		expect(trustedKeys({ isPackaged: true, env: {}, compiled: [] })).toEqual([])
 	})
 
 	it('take a test key only from an unpackaged app', () => {
 		const key = makeKey('t1')
 		const env = { NAMZU_KERNEL_TEST_PUBLIC_KEY: `${key.id}:${key.publicKey}` }
-		expect(trustedKeys({ isPackaged: false, env }).map((entry) => entry.id)).toEqual(['t1'])
-		expect(trustedKeys({ isPackaged: true, env })).toEqual([])
+		expect(trustedKeys({ isPackaged: false, env, compiled: [] }).map((entry) => entry.id)).toEqual([
+			't1',
+		])
+		expect(trustedKeys({ isPackaged: true, env, compiled: [] })).toEqual([])
 		expect(parseTestKey('t1:AAAA')).toBeUndefined()
 		expect(parseTestKey('nocolon')).toBeUndefined()
 	})

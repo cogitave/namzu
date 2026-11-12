@@ -336,6 +336,29 @@ describe('what the screen is told', () => {
 		expect(d.engine.view().status).toEqual({ kind: 'needs-newer-app' })
 	})
 
+	it('stays quiet when nothing has been published yet, and speaks only after three days from a fresh answer', async () => {
+		const h = await harness()
+		const feed = makeFeed()
+		// No description is published: the feed answers "not found" to every request.
+		const d = delivery(h, feed)
+		const result = await d.engine.check()
+		expect(result).toMatchObject({ kind: 'failed', stage: 'fetch' })
+		expect(feed.requests.length).toBeGreaterThan(0)
+		expect(d.engine.view().status).toEqual({ kind: 'unknown' })
+		// Days later, with still nothing ever answered, it is still not an alarm.
+		h.clock.value += 10 * 24 * 60 * 60 * 1000
+		expect(d.engine.view().status).toEqual({ kind: 'unknown' })
+		// Once a description has been seen, losing it is said only after the three days.
+		release(h, feed, '51.1.0')
+		await d.engine.check()
+		const at = h.clock.now()
+		feed.files.clear()
+		await d.engine.check()
+		expect(d.engine.view().status).toEqual({ kind: 'current', checkedAt: at })
+		h.clock.value += 3 * 24 * 60 * 60 * 1000 + 1000
+		expect(d.engine.view().status).toEqual({ kind: 'cannot-check', since: at })
+	})
+
 	it('says the check has not worked once three days have passed since a fresh answer', async () => {
 		const h = await harness()
 		const feed = makeFeed()
