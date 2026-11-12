@@ -9,6 +9,9 @@ import './compile-cache-enable.js'
 // `node:sqlite`.
 import './warning-filter.js'
 
+// NO_COLOR as the renderer's colour library understands it; before anything that loads that library.
+import './no-color-env.js'
+
 // Loaded here and not imported above: a static import is read with the file that holds it, before
 // the cache is on, and in the bundled build would be merged into this very file.
 const { main } = await import('./bin-main.js')
