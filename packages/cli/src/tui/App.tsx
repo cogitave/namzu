@@ -657,7 +657,9 @@ import {
 import {
 	type TaskOperation,
 	applyTaskOperation,
+	isTaskTool,
 	removeTask,
+	taskCallLabel,
 	taskOperationFor,
 	upsertTask,
 } from './task-activity.js'
@@ -801,7 +803,7 @@ import {
 } from './terminal-title.js'
 import { theme, tokenColor } from './theme.js'
 import { useTitleFrame } from './title-frame.js'
-import { type ToolRow, formatToolCall, toolEndRows } from './tool-end-rows.js'
+import { type ToolRow, formatToolCall, interruptedCallHeads, toolEndRows } from './tool-end-rows.js'
 import { toolServerRow } from './tool-server-rows.js'
 import {
 	PAUSED_TURN_LINES,
@@ -1327,6 +1329,8 @@ type StreamState = {
 	notification: TerminalNotification | null
 	/** Names this stream's task blocks, so one turn never extends another's. */
 	taskBlockKey?: string
+	/** The plan changed during this turn: its final state is printed once when the turn ends. */
+	planChanged?: true
 	/** What the person asked this turn, for the skill decision point; set for a human turn only. */
 	request?: string
 	/** When this turn began, for the closing line of a turn that delegated. */
@@ -7125,18 +7129,26 @@ function AppBody({
 		furnitureRows: LIVE_FURNITURE_ROWS + fullToolFurniture + pendingInputFurniture,
 		raw: rawOutput,
 	})
+	// While a turn runs the plan is part of the live region, under the working
+	// line, and the transcript holds no copy of it: it is printed once, when the
+	// turn ends. Between turns the older rules apply.
+	const planLive = (state === 'thinking' || state === 'tool') && tasks.length > 0
 	const checklistOpen =
-		checklistExpanded && tasks.length > 0 && (checklistPinned || !checklistShown)
+		checklistExpanded && tasks.length > 0 && (planLive || checklistPinned || !checklistShown)
 	checklistOpenRef.current = checklistOpen
-	const liveTasks = checklistOpen || !checklistShown ? tasks : []
+	const liveTasks = planLive || checklistOpen || !checklistShown ? tasks : []
 	const fullTaskFurniture = taskListRows(liveTasks, checklistOpen)
 	// The plan's next task, drawn under the working row; never from a sub-agent's plan.
 	const nextPlanned = nextTask(tasks)
-	// The working row names the step in progress, in the model's own words.
-	const workingStepLabel = workingLabel(tasks, terminal.columns ?? 80)
 	const compactWork =
 		LIVE_FURNITURE_ROWS + fullTaskFurniture + fullToolFurniture + pendingInputFurniture >=
 		terminal.rows
+	// The list is drawn by the working region itself, except on a short terminal
+	// (which keeps the one current-step row below it).
+	const planInRegion = planLive && !compactWork
+	// The working row names the step in progress, in the model's own words,
+	// only where the list is not on screen to say it.
+	const workingStepLabel = planInRegion ? undefined : workingLabel(tasks, terminal.columns ?? 80)
 	const taskFurniture = fullTaskFurniture
 	const toolFurniture = compactWork && fullToolFurniture > 0 ? 2 : fullToolFurniture
 	// How much of the transcript is still redrawable. The rest belongs to native
@@ -7924,6 +7936,9 @@ function AppBody({
 			options?: { readonly steered?: boolean; readonly always?: boolean },
 		) => {
 			const callRunning = activeToolsRef.current.length > 0
+			// The calls the interrupt cuts off have no row of their own yet (a row is
+			// written when a call ends); the line under them must not stand alone.
+			const cutOff = interruptedCallHeads(activeToolsRef.current)
 			// An interrupt moves a running command to a job instead of stopping
 			// it, and does so before this returns: a job that was not there
 			// before is the command that carries on.
@@ -7943,11 +7958,12 @@ function AppBody({
 					...(options?.steered ? { steered: true } : {}),
 					...(movedToBackground ? { movedToBackground: true } : {}),
 				})
+				for (const head of cutOff) pushRow(head)
 				pushMessage('system', row.content, false, row.glyph, undefined, row.color)
 			}
 			return interrupted
 		},
-		[interruptTurn, pushMessage, session],
+		[interruptTurn, pushMessage, pushRow, session],
 	)
 	/**
 	 * ctrl+x ctrl+s: send what is waiting now. Same effect as Esc with a
@@ -9960,10 +9976,13 @@ function AppBody({
 							? `Waiting · ${waitingAgent.description}`
 							: event.web
 								? webCallTitle(event.web)
-								: formatToolCall(event.toolName, event.summary, event.standalone),
+								: isTaskTool(event.toolName)
+									? taskCallLabel(event.toolName)
+									: formatToolCall(event.toolName, event.summary, event.standalone),
 						startedAt: Date.now(),
 						detail: event.detail,
 						...(event.command ? { command: event.command } : {}),
+						...(event.timeoutMs !== undefined ? { timeoutMs: event.timeoutMs } : {}),
 						...(event.proposed ? { proposed: event.proposed } : {}),
 						...(event.web ? { web: event.web, progress: webLiveStatus(event.web) } : {}),
 					}
@@ -9994,6 +10013,7 @@ function AppBody({
 								}
 							: {}),
 						...(event.fraction !== undefined ? { fraction: event.fraction } : {}),
+						...(event.outputLines !== undefined ? { outputLines: event.outputLines } : {}),
 					}
 					activeToolsRef.current = [
 						...running.slice(0, index),
@@ -10101,7 +10121,8 @@ function AppBody({
 						stoppedByPerson: stoppedAtPromptRef.current.delete(event.toolUseId),
 					})
 					if (built.kind === 'task-block') {
-						writeTaskBlock(st, null, tasksRef.current)
+						// The list lives under the working line and updates there; it is
+						// printed once, when the turn ends.
 					} else if (built.kind === 'rows') {
 						const only = built.rows.length === 1 ? built.rows[0] : undefined
 						// A look that succeeded, and a shell command that ended well, are kept
@@ -10174,9 +10195,8 @@ function AppBody({
 					break
 				}
 				case 'task': {
-					// The transcript owns the checklist: consecutive operations fold
-					// into one block there (task-activity.ts). The live row above the
-					// composer only names the current step.
+					// The live region owns the checklist while the turn runs; the
+					// transcript gets it once, when the turn ends (task-activity.ts).
 					const item: TaskListItem = {
 						id: event.taskId,
 						subject: event.subject,
@@ -10214,7 +10234,9 @@ function AppBody({
 					const checklist = tasksRef.current
 					setTasks(checklist)
 					if (operation && !event.removed) setChecklistExpanded(true)
-					if (operation) writeTaskBlock(st, operation, checklist)
+					// No block per update: the list is drawn under the working line while
+					// the turn runs, and printed once, as it ended, when the turn ends.
+					if (operation) st.planChanged = true
 					break
 				}
 				case 'job':
@@ -10483,6 +10505,11 @@ function AppBody({
 						// The workflows this turn ran are over: each says how it ended once.
 						for (const agent of delegated) endedWorkflowTurnsRef.current.add(agent.workflowId)
 						flushWorkflowNotices()
+						// The plan as the turn left it, before the closing line, once.
+						if (st.planChanged && tasksRef.current.length > 0) {
+							writeTaskBlock(st, null, tasksRef.current)
+							st.planChanged = undefined
+						}
 						if (closing)
 							pushMessage(
 								'system',
@@ -11523,6 +11550,11 @@ function AppBody({
 						kind: 'reject',
 						feedback: 'The owning turn ended.',
 					})
+					// The plan as the turn left it, printed once; a turn that did not touch it prints nothing.
+					if (st.planChanged && tasksRef.current.length > 0) {
+						writeTaskBlock(st, null, tasksRef.current)
+						st.planChanged = undefined
+					}
 					clearActiveTools()
 					setState('idle')
 					// The turn is over whether or not it is announced: from here a minute of
@@ -17297,7 +17329,9 @@ function AppBody({
 								}
 								thinking={thinking}
 								{...(spinnerTip ? { tip: spinnerTip } : {})}
-								{...(nextPlanned ? { nextTask: nextTaskLine(nextPlanned) } : {})}
+								{...(nextPlanned && !planInRegion ? { nextTask: nextTaskLine(nextPlanned) } : {})}
+								{...(planInRegion ? { plan: liveTasks, planOpen: checklistOpen } : {})}
+								{...(permission !== null ? { waitingFor: 'approval' as const } : {})}
 								waitNotice={providerWaitNotice}
 								tokens={turnTokens}
 								waitingForYou={
@@ -17332,7 +17366,7 @@ function AppBody({
 						jobSurface === null &&
 						permission === null &&
 						scheduleReviewPrompt === null ? (
-							<TaskList tasks={liveTasks} expanded={checklistOpen} />
+							<TaskList tasks={planInRegion ? [] : liveTasks} expanded={checklistOpen} />
 						) : null}
 						{/* Siblings, not a ternary. The overlay used to REPLACE the
 						    composer, which unmounted it and destroyed whatever the

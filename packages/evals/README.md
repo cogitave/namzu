@@ -63,6 +63,10 @@ and the silence on the same words after a passing check, after nothing changed,
 as a negation, and as an honest "I did not run it". The comparison is shadow only
 and reads English claims only.
 
+## The did-not-run suite
+
+`kernel/call-did-not-run` measures what the outcome record says of a call that did not run, not whether a real model would make it: every model in it is scripted. A command that ran still makes the verdict `unknown`; a command the person declined, one a rule refused, a call to a tool that is not there and a mere launch of a background sub-agent leave it `unchanged`, and a launch followed by a command that ran says `unknown` again. Each case also scores how many times the scripted command really ran, read from the tool.
+
 ## The hand-back suite
 
 `kernel/hand-back` measures what the kernel does when a model may hand a task back to a person, not whether a real model would: every model in it is scripted. Each case scores whether the turn was handed back and as which kind (`handedBackScorer`), the outcome record's verdict, the model calls, how many scripted edits actually ran (a call in the same step as the hand-back, or after it, must not), the kernel's closing sentence, whether the tool and its guidance were offered at all (with the setting off they must not be) and how a goal round ended. The exit status of `namzu exec` and the status of a scheduled run belong to the command line and are pinned by its tests.

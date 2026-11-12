@@ -380,7 +380,7 @@ describe('the permission prompt', () => {
 		await tick(100)
 
 		const frame = lastFrame() ?? ''
-		expect(frame).toContain('Working')
+		expect(frame).toMatch(/Working|Writing|Thinking/u)
 		expect(frame).not.toContain('enter confirm')
 		expect(frame).not.toContain('y approve')
 	})
@@ -420,7 +420,7 @@ describe('the permission prompt', () => {
 		expect(decisions).toEqual([{ kind: 'approve' }])
 
 		const working = lastFrame() ?? ''
-		expect(working).toContain('Working')
+		expect(working).toMatch(/Working|Writing|Thinking/u)
 		expect(working).not.toContain('Do you want to start')
 		expect(working).not.toContain('y approve')
 	})

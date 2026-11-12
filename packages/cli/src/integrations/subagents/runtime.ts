@@ -1972,6 +1972,8 @@ export async function createSubagentRuntime(
 						...workspaceData(outcome.handle),
 						wait_released: run_in_background ? 'background' : 'operator_input',
 					},
+					// Only started: what the agent goes on to do is its own record.
+					launched: true,
 				}
 			}
 			return completedAgentResult(outcome.handle, publicTaskId(outcome.handle.taskId))

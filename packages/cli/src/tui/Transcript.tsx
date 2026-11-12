@@ -30,7 +30,7 @@ import {
 import { expandTabs, terminalDisplayText } from './terminal-display.js'
 import { terminalFileHyperlink } from './terminal-hyperlinks.js'
 import { useThemeEpoch } from './theme-store.js'
-import { paint, theme } from './theme.js'
+import { paint, rowTints, theme } from './theme.js'
 import { NOT_SHOWN_LINE } from './tidy-tool-output.js'
 import type { TranscriptMessage } from './types.js'
 
@@ -430,6 +430,10 @@ export function MessageRow({
 	const userCut = message.role === 'user' ? cutUserText(content) : content
 	const glyph = message.glyph ?? glyphForRole(message.role)
 	const textColor = paint(message.contentColor) ?? contentColorForRole(message.role)
+	// The person's own message sits on a quiet tint, so it is easy to find again
+	// when scrolling back; where the terminal draws no tint it looks as it always did.
+	const tint = message.role === 'user' && glyph === '›' ? rowTints()?.user : undefined
+	const tinted = tint === undefined ? {} : { backgroundColor: tint }
 	// The `⎿` tool-result gutter is rendered dim so the call line leads.
 	const glyphColor =
 		paint(message.glyphColor) ??
@@ -463,10 +467,16 @@ export function MessageRow({
 		<Box flexDirection="column" marginTop={gap}>
 			{screen && message.thinking ? <ThinkingBlock text={message.thinking} /> : null}
 			<Box flexDirection="row" paddingLeft={glyph === '⎿' ? RESULT_GUTTER_INDENT : 0}>
-				<Box width={glyph === '⎿' ? RESULT_GUTTER_WIDTH : 2} flexShrink={0}>
-					<Text color={glyphColor} bold>
-						{glyph}
-					</Text>
+				<Box width={glyph === '⎿' ? RESULT_GUTTER_WIDTH : 2} flexShrink={0} {...tinted}>
+					{tint === undefined ? (
+						<Text color={glyphColor} bold>
+							{glyph}
+						</Text>
+					) : (
+						<Text color={glyphColor} dimColor>
+							{glyph}
+						</Text>
+					)}
 				</Box>
 				<Box flexGrow={1}>
 					{message.role === 'assistant' && content.length > 0 ? (
@@ -477,18 +487,20 @@ export function MessageRow({
 						/>
 					) : message.role === 'user' && typeof userCut === 'object' ? (
 						<Box flexDirection="column">
-							<Text color={contentColorForRole(message.role)} wrap="wrap">
+							<Text color={contentColorForRole(message.role)} wrap="wrap" {...tinted}>
 								{terminalDisplayText(userCut.head)}
 							</Text>
-							<Text color={theme.text.muted}>{hiddenTextRule(hiddenTextNote(userCut), width)}</Text>
-							<Text color={contentColorForRole(message.role)} wrap="wrap">
+							<Text color={theme.text.muted} {...tinted}>
+								{hiddenTextRule(hiddenTextNote(userCut), width)}
+							</Text>
+							<Text color={contentColorForRole(message.role)} wrap="wrap" {...tinted}>
 								{terminalDisplayText(userCut.tail)}
 							</Text>
 						</Box>
 					) : !web && content.length > 0 ? (
 						// Every other row wraps the way a reply does, each row in the
 						// same column (see `markdown-wrap.ts`); a web row is cut instead.
-						<Text color={textColor} wrap="wrap">
+						<Text color={textColor} wrap="wrap" {...tinted}>
 							<WrappedSpans
 								spans={[
 									...(message.diff?.summary ?? [{ text: content }]),

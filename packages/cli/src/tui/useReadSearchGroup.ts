@@ -39,19 +39,17 @@ export interface ReadSearchGroupControls {
 
 /** Without the hint bookkeeping, which belongs to a live run. */
 function settled(state: GroupState): GroupState {
-	const { hintShown: _a, hintShownAt: _b, hintQueued: _c, ...rest } = state
+	const { hintShown: _hint, ...rest } = state
 	return rest
 }
 
 /** The state of these calls with no hint of their own; the hint a live run holds is carried over. */
 function rebuilt(ops: OpenGroup['ops'], from: GroupState): GroupState {
 	let state = EMPTY_GROUP
-	for (const { op } of ops) state = foldOp(state, { ...op, hint: undefined }, 0)
+	for (const { op } of ops) state = foldOp(state, { ...op, hint: undefined })
 	return {
 		...state,
 		...(from.hintShown !== undefined ? { hintShown: from.hintShown } : {}),
-		...(from.hintShownAt !== undefined ? { hintShownAt: from.hintShownAt } : {}),
-		...(from.hintQueued !== undefined ? { hintQueued: from.hintQueued } : {}),
 	}
 }
 
@@ -93,10 +91,9 @@ export function useReadSearchGroup(
 
 	const start = useCallback(
 		(memberKey: string, op: FoldOp, section?: readonly string[]) => {
-			const now = Date.now()
 			const open = openRef.current
 			if (open) {
-				open.state = foldOp(open.state, op, now)
+				open.state = foldOp(open.state, op)
 				open.ops.push({ key: memberKey, op })
 				open.members.add(memberKey)
 				if (section) open.detail = joinSections(open.detail, section)
@@ -116,7 +113,7 @@ export function useReadSearchGroup(
 				return
 			}
 			const id = nextId()
-			const state = foldOp(EMPTY_GROUP, op, now)
+			const state = foldOp(EMPTY_GROUP, op)
 			const detail = section ? joinSections([], section) : []
 			openRef.current = {
 				id,

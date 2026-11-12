@@ -32,6 +32,8 @@ The record never blocks or prolongs a turn. The [completion audit](completion-au
 | `unchecked` | Changed; no check ran. |
 | `unknown` | No write tool ran, but a command that may have changed files did, and no workspace detector answered: whether anything changed cannot be told. |
 
+A call that did not run is not a call that ran. A call the person declined, one a rule refused, one whose input was refused before it started (a tool that is not there, arguments that do not fit), one the turn ended before it started, and one that only launched work to go on after it returned (`ToolResult.launched`: a sub-agent in the background, or whose wait was released) do not make a turn `unknown`; they change nothing in this turn. What the launched work does is its own record (see [Delegation](#delegation)). A sub-agent that was waited for still counts as work that may have changed files, since the wait is where its changes happen. `ToolResult.launched` is a new optional field a tool sets; `ToolCallOutcome` carries `notRun` and `launched` for the loop.
+
 **`checked` does not mean the change is correct or that the check covers it.** It says a command the kernel recognises as a check exited 0 and the workspace was the same when the turn ended as when that command finished. A test run that never touches the edited file is `checked`.
 
 `failing` wins: if the latest run of any distinct command failed, the verdict is `failing` whatever else passed. A command that failed and was run again and passed is no longer failing.

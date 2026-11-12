@@ -15,7 +15,15 @@ export interface Mark {
 
 /** The row's spans, the way it is drawn when it has none of its own. */
 export function rowSpans(row: FsRow): readonly StyledSpan[] {
-	return row.spans ?? [{ text: row.text, color: row.color }]
+	return (
+		row.spans ?? [
+			{
+				text: row.text,
+				color: row.color,
+				...(row.tint !== undefined ? { background: row.tint } : {}),
+			},
+		]
+	)
 }
 
 /**

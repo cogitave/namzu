@@ -231,8 +231,9 @@ function borderProbe(screen: Screen, initialCols: number, initialRows: number) {
 			const buffer = terminal.buffer.active
 			for (let y = rows - 1; y >= 0; y--) {
 				const line = buffer.getLine(buffer.baseY + y)
-				if (line?.translateToString(true).startsWith('Working')) {
-					return Array.from({ length: 7 }, (_, x) => line.getCell(x)?.getFgColor())
+				if (/^[●•·] Working/u.test(line?.translateToString(true) ?? '')) {
+					// The letters: the mark and its space come first.
+					return Array.from({ length: 7 }, (_, x) => line?.getCell(x + 2)?.getFgColor())
 				}
 			}
 			return []

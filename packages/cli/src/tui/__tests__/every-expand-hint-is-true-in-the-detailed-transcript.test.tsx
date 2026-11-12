@@ -125,7 +125,7 @@ describe('a collapsed group of looks', () => {
 	})
 
 	it('an open group shows the calls that have finished', () => {
-		const state = foldOp(EMPTY_GROUP, { kind: 'search', hint: '"needle"' }, 0)
+		const state = foldOp(EMPTY_GROUP, { kind: 'search', hint: '"needle"' })
 		const open: TranscriptMessage = {
 			id: 'g',
 			role: 'tool',

@@ -47,14 +47,10 @@ function bus<T>() {
 }
 
 function reads(id: string): TranscriptMessage {
-	const state = foldOp(
-		foldOp(EMPTY_GROUP, { kind: 'read', key: 'a.ts' }, 0),
-		{
-			kind: 'read',
-			key: 'b.ts',
-		},
-		0,
-	)
+	const state = foldOp(foldOp(EMPTY_GROUP, { kind: 'read', key: 'a.ts' }), {
+		kind: 'read',
+		key: 'b.ts',
+	})
 	return {
 		id,
 		role: 'tool',

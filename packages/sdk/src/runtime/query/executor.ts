@@ -63,6 +63,7 @@ import type {
 	ToolDispatchOptions,
 	ToolFacts,
 	ToolHandoff,
+	ToolProgressDetails,
 	ToolResult,
 } from '../../types/tool/index.js'
 import type { RepairToolCall } from '../../types/tool/repair.js'
@@ -272,7 +273,9 @@ function boundedToolProgress(message: string): string {
  * complete useful working set; intermediate states may be replaced.
  */
 class ToolProgressPublisher {
-	private pending: { readonly message: string; readonly fraction?: number } | undefined
+	private pending:
+		| { readonly message: string; readonly fraction?: number; readonly outputLines?: number }
+		| undefined
 	private draining: Promise<void> | null = null
 	private accepting = true
 
@@ -280,15 +283,18 @@ class ToolProgressPublisher {
 		private readonly emitEvent: EmitEvent,
 		private readonly base: Omit<
 			Extract<SessionEventDraft, { type: 'tool_progress' }>,
-			'message' | 'fraction'
+			'message' | 'fraction' | 'outputLines'
 		>,
 	) {}
 
-	report(message: string, fraction?: number): void {
+	report(message: string, fraction?: number, details?: ToolProgressDetails): void {
 		if (!this.accepting) return
 		this.pending = {
 			message,
 			...(fraction !== undefined ? { fraction: Math.min(1, Math.max(0, fraction)) } : {}),
+			...(details?.outputLines !== undefined && Number.isFinite(details.outputLines)
+				? { outputLines: Math.max(0, Math.floor(details.outputLines)) }
+				: {}),
 		}
 		this.startDrain()
 	}
@@ -323,6 +329,7 @@ class ToolProgressPublisher {
 				...this.base,
 				message: boundedToolProgress(update.message),
 				...(update.fraction !== undefined ? { fraction: update.fraction } : {}),
+				...(update.outputLines !== undefined ? { outputLines: update.outputLines } : {}),
 			}).catch(() => {})
 		}
 	}
@@ -599,6 +606,14 @@ export interface ToolCallOutcome {
 	inputFailure?: CompletedToolRecord['inputFailure']
 	/** A pre-tool hook deliberately skipped execution; its receipt is not an output candidate. */
 	skipped?: true
+	/**
+	 * The call never ran: the person declined it, a rule refused it, its input
+	 * was refused before it started, or the turn ended first. The outcome record
+	 * does not count it as a call that may have changed files.
+	 */
+	notRun?: true
+	/** The call only started work that goes on after it returned; see `ToolResult.launched`. */
+	launched?: true
 	/** Opt-in execution evidence, never provider content or accepted output. */
 	structuredResultJson?: string
 	/** The tool asked for a person; see `ToolResult.handoff`. */
@@ -1848,7 +1863,8 @@ export class ToolExecutor {
 				// Per-call for the same reason: a pause has to be routed back
 				// to the call that raised it, and a batch can raise several.
 				...(this.config.toolPause ? { requestPause: this.config.toolPause(toolCall.id) } : {}),
-				report: (message: string, fraction?: number) => progress.report(message, fraction),
+				report: (message: string, fraction?: number, details?: ToolProgressDetails) =>
+					progress.report(message, fraction, details),
 			}
 			if (preparedCall) {
 				const cwd = this.preparedBashDirectories.get(preparedCall)
@@ -2341,7 +2357,8 @@ export class ToolExecutor {
 			// ephemeral child id; minting a pause route for `nestedId` makes the
 			// answer impossible to match after process restart. `...context`
 			// intentionally preserves the ancestor route here.
-			report: (message: string, fraction?: number) => progress.report(message, fraction),
+			report: (message: string, fraction?: number, details?: ToolProgressDetails) =>
+				progress.report(message, fraction, details),
 		}
 
 		const nestedCwd = this.preparedBashDirectories.get(preparedCall)
@@ -3104,6 +3121,7 @@ export class ToolExecutor {
 			...(result.handoff !== undefined && !this.config.abortSignal.aborted
 				? { handoff: result.handoff }
 				: {}),
+			...(result.launched === true && !effectiveIsError ? { launched: true as const } : {}),
 			...(revealedTools !== undefined ? { revealedTools } : {}),
 			...(result.facts !== undefined && !postOverride ? { facts: result.facts } : {}),
 		}
@@ -3659,7 +3677,7 @@ export class ToolExecutor {
 			isError: true,
 		})
 
-		return { toolCallId: toolCall.id, toolName, output, isError: true }
+		return { toolCallId: toolCall.id, toolName, output, isError: true, notRun: true }
 	}
 
 	/**
@@ -3710,6 +3728,7 @@ export class ToolExecutor {
 		const reason = abortReasonText(this.config.abortSignal.reason)
 		return this.recordSyntheticHookOutcome(toolCallId, toolName, input, {
 			kind: 'error',
+			notRun: true,
 			output: `Tool "${toolName}" was not started because the turn was cancelled${reason ? `: ${reason}` : '.'}`,
 		})
 	}
@@ -3723,6 +3742,7 @@ export class ToolExecutor {
 			output: string
 			inputFailure?: ToolCallOutcome['inputFailure']
 			skipped?: true
+			notRun?: true
 			facts?: ToolFacts
 		},
 	): Promise<ToolCallOutcome> {
@@ -3767,12 +3787,14 @@ export class ToolExecutor {
 			...(outcome.facts ? { facts: outcome.facts } : {}),
 			...(outcome.inputFailure ? { inputFailure: outcome.inputFailure } : {}),
 			...(outcome.skipped ? { skipped: true as const } : {}),
+			...(outcome.notRun ? { notRun: true as const } : {}),
 		}
 	}
 
 	private recordSyntheticPreparation(call: Extract<PreparedDirectCall, { kind: 'synthetic' }>) {
 		return this.recordSyntheticHookOutcome(call.toolCall.id, call.toolName, call.input, {
 			kind: call.isError ? 'error' : 'skip',
+			...(call.isError ? { notRun: true as const } : {}),
 			output: call.message,
 			...(call.facts ? { facts: call.facts } : {}),
 			...(call.inputFailure ? { inputFailure: call.inputFailure } : {}),

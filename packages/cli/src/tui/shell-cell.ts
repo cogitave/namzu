@@ -291,6 +291,50 @@ export function shellRunningRows(
 	]
 }
 
+/** A time limit as a person says it: `30s`, `2m`, `1m 30s`. */
+export function formatLimit(ms: number): string {
+	const total = Math.max(1, Math.round(ms / 1000))
+	if (total < 60) return `${total}s`
+	const minutes = Math.floor(total / 60)
+	const seconds = total % 60
+	return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`
+}
+
+export interface ShellFooterInput {
+	readonly elapsed: string
+	/** The limit the call asked for, in ms; absent when it asked for none. */
+	readonly timeoutMs?: number | undefined
+	/** Lines of output so far, as the tool counted them; absent when it does not count. */
+	readonly outputLines?: number | undefined
+	/** Output rows the live view shows. */
+	readonly shownRows: number
+	/** The words for moving the command to the background, when that is possible now. */
+	readonly backgroundHint?: string | undefined
+	/** Say `Running…` first: there is no output row above to say the command is alive. */
+	readonly leadRunning?: boolean | undefined
+}
+
+/**
+ * The one dim line under a running command's output. It is there from the
+ * first moment and keeps its place, so nothing under it moves: the clock, the
+ * limit when one is set, how many lines the command has printed and how many of
+ * them are above the rows shown, and the background hint on the same line when
+ * it applies.
+ */
+export function shellFooter(input: ShellFooterInput): string {
+	const parts: string[] = []
+	if (input.leadRunning) parts.push('Running…')
+	parts.push(input.elapsed)
+	if (input.timeoutMs !== undefined) parts.push(`limit ${formatLimit(input.timeoutMs)}`)
+	if (input.outputLines !== undefined && input.outputLines > 0) {
+		const hidden = Math.max(0, input.outputLines - input.shownRows)
+		const lines = `${input.outputLines.toLocaleString('en-US')} line${input.outputLines === 1 ? '' : 's'}`
+		parts.push(hidden > 0 ? `${lines}, ${hidden.toLocaleString('en-US')} above` : lines)
+	}
+	if (input.backgroundHint) parts.push(input.backgroundHint)
+	return parts.join(' · ')
+}
+
 /** Colour of one shell result row. */
 export function shellToneColor(tone: ShellTone): string {
 	switch (tone) {

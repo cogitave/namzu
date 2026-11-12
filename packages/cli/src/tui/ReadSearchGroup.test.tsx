@@ -13,31 +13,29 @@ function row(group: TranscriptMessage['group'], pending: boolean): TranscriptMes
 }
 
 it('a live line carries the expand hint', () => {
-	const group = foldOp(EMPTY_GROUP, { kind: 'search', hint: '"a"' }, 0)
-	const harness = render(<ReadSearchGroup message={row(group, true)} now={() => 0} />)
+	const group = foldOp(EMPTY_GROUP, { kind: 'search', hint: '"a"' })
+	const harness = render(<ReadSearchGroup message={row(group, true)} />)
 	expect(harness.lastFrame()).toContain('Searching for 1 pattern… (ctrl+o to expand)')
 	harness.unmount()
 })
 
-it('a held hint appears once its interval passes, with nothing else re-rendering', async () => {
-	let clock = 0
-	let group = foldOp(EMPTY_GROUP, { kind: 'search', hint: '"first"' }, 0)
-	clock = 100
-	group = foldOp(group, { kind: 'search', hint: '"second"' }, clock)
-	const harness = render(<ReadSearchGroup message={row(group, true)} now={() => clock} />)
-	expect(harness.lastFrame()).toContain('"first"')
-	expect(harness.lastFrame()).not.toContain('"second"')
-	clock = 700
-	await vi.advanceTimersByTimeAsync(600)
-	await vi.advanceTimersByTimeAsync(100)
+it('shows the newest item as soon as it starts, and holds still until another starts', async () => {
+	let group = foldOp(EMPTY_GROUP, { kind: 'search', hint: '"first"' })
+	group = foldOp(group, { kind: 'search', hint: '"second"' })
+	const harness = render(<ReadSearchGroup message={row(group, true)} />)
 	expect(harness.lastFrame()).toContain('"second"')
+	expect(harness.lastFrame()).not.toContain('"first"')
+	// Time alone never changes the line.
+	await vi.advanceTimersByTimeAsync(5000)
+	expect(harness.lastFrame()).toContain('"second"')
+	expect(harness.lastFrame()).not.toContain('"first"')
 	harness.unmount()
 })
 
 it('wraps a long hint under the line instead of cutting it at the terminal width', () => {
 	const words = Array.from({ length: 45 }, (_, i) => `w${i}`).join(' ')
-	const group = foldOp(EMPTY_GROUP, { kind: 'search', hint: `"${words}"` }, 0)
-	const harness = render(<ReadSearchGroup message={row(group, true)} now={() => 0} />)
+	const group = foldOp(EMPTY_GROUP, { kind: 'search', hint: `"${words}"` })
+	const harness = render(<ReadSearchGroup message={row(group, true)} />)
 	const frame = harness.lastFrame() ?? ''
 	// The default test terminal is 100 columns: the hint is longer, and all of it is still there.
 	expect(frame).toContain('w0 ')
@@ -47,8 +45,8 @@ it('wraps a long hint under the line instead of cutting it at the terminal width
 })
 
 it('cuts a hint at 300 characters with an ellipsis', () => {
-	const group = foldOp(EMPTY_GROUP, { kind: 'search', hint: `"${'x'.repeat(400)}"` }, 0)
-	const harness = render(<ReadSearchGroup message={row(group, true)} now={() => 0} />)
+	const group = foldOp(EMPTY_GROUP, { kind: 'search', hint: `"${'x'.repeat(400)}"` })
+	const harness = render(<ReadSearchGroup message={row(group, true)} />)
 	const shown = (harness.lastFrame() ?? '').replace(/\s+/g, '')
 	expect(shown).toContain(`${'x'.repeat(299 - 1)}…`)
 	expect(shown).not.toContain('x'.repeat(300))
@@ -56,9 +54,9 @@ it('cuts a hint at 300 characters with an ellipsis', () => {
 })
 
 it('does not point at the detailed transcript from inside it', () => {
-	const group = foldOp(EMPTY_GROUP, { kind: 'search', hint: '"a"' }, 0)
+	const group = foldOp(EMPTY_GROUP, { kind: 'search', hint: '"a"' })
 	const harness = render(
-		<ReadSearchGroup message={{ ...row(group, true), detailExpanded: true }} now={() => 0} />,
+		<ReadSearchGroup message={{ ...row(group, true), detailExpanded: true }} />,
 	)
 	expect(harness.lastFrame()).not.toContain('ctrl+o')
 	harness.unmount()
@@ -66,9 +64,8 @@ it('does not point at the detailed transcript from inside it', () => {
 
 function ran(count: number, extra: Parameters<typeof foldOp>[1][] = []) {
 	let group = EMPTY_GROUP
-	for (const op of extra) group = foldOp(group, op, 0)
-	for (let i = 1; i <= count; i += 1)
-		group = foldOp(group, { kind: 'run', command: `step ${i}` }, 0)
+	for (const op of extra) group = foldOp(group, op)
+	for (let i = 1; i <= count; i += 1) group = foldOp(group, { kind: 'run', command: `step ${i}` })
 	return group
 }
 
@@ -83,7 +80,7 @@ it('lists the commands it ran under the line, one per row, and no hint when it i
 })
 
 it('says how many earlier commands are not listed, above the last five', () => {
-	const harness = render(<ReadSearchGroup message={{ ...row(ran(8), true) }} now={() => 0} />)
+	const harness = render(<ReadSearchGroup message={{ ...row(ran(8), true) }} />)
 	const lines = (harness.lastFrame() ?? '').split('\n').map((line) => line.trimEnd())
 	expect(lines[0]).toContain('Running 8 commands…')
 	expect(lines.slice(1)).toEqual([
@@ -98,13 +95,13 @@ it('says how many earlier commands are not listed, above the last five', () => {
 })
 
 it('puts the newest target of a live look under the commands, and the commands stay on one row each', () => {
-	const group = foldOp(
-		ran(1, [{ kind: 'read', key: 'a.ts' }]),
-		{ kind: 'read', key: 'b.ts', hint: 'b.ts' },
-		0,
-	)
-	const long = foldOp(group, { kind: 'run', command: `echo ${'y'.repeat(300)}` }, 1)
-	const harness = render(<ReadSearchGroup message={row(long, true)} now={() => 1} />)
+	const group = foldOp(ran(1, [{ kind: 'read', key: 'a.ts' }]), {
+		kind: 'read',
+		key: 'b.ts',
+		hint: 'b.ts',
+	})
+	const long = foldOp(group, { kind: 'run', command: `echo ${'y'.repeat(300)}` })
+	const harness = render(<ReadSearchGroup message={row(long, true)} />)
 	const lines = (harness.lastFrame() ?? '').split('\n').map((line) => line.trimEnd())
 	expect(lines[1]).toBe('  ⎿  $ step 1')
 	// Cut to the width with an ellipsis, never wrapped.

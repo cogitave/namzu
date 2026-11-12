@@ -13,6 +13,11 @@ export function backgroundHint(env: NodeJS.ProcessEnv = process.env): string {
 	return inTmux ? '(ctrl+b ctrl+b (twice) to run in background)' : '(ctrl+b to run in background)'
 }
 
+/** The same words without the parentheses, for a line that carries other figures. */
+export function backgroundHintText(env: NodeJS.ProcessEnv = process.env): string {
+	return backgroundHint(env).slice(1, -1)
+}
+
 /** Whether a key press is the chord that moves a running command to the background. */
 export function isBackgroundChord(input: string, key: { readonly ctrl: boolean }): boolean {
 	return key.ctrl && input === 'b'

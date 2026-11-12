@@ -125,6 +125,7 @@ function spanElement(span: StyledSpan, key: number) {
 			italic={span.italic}
 			underline={span.underline}
 			inverse={span.inverse}
+			{...(span.background !== undefined ? { backgroundColor: span.background } : {})}
 		>
 			{span.text}
 		</Text>
@@ -593,13 +594,27 @@ export function FullscreenTranscript({
 						return (
 							// biome-ignore lint/suspicious/noArrayIndexKey: a window of rows has no identity beyond its position.
 							<Box key={from + i} flexDirection="row">
-								<Box width={2} flexShrink={0}>
-									<Text color={row.glyphColor} bold>
-										{row.glyph}
-									</Text>
+								<Box
+									width={2}
+									flexShrink={0}
+									{...(row.tint !== undefined ? { backgroundColor: row.tint } : {})}
+								>
+									{row.tint !== undefined ? (
+										<Text color={row.glyphColor} dimColor>
+											{row.glyph}
+										</Text>
+									) : (
+										<Text color={row.glyphColor} bold>
+											{row.glyph}
+										</Text>
+									)}
 								</Box>
 								{row.spans === undefined && marks.length === 0 ? (
-									<Text color={row.color} wrap="truncate-end">
+									<Text
+										color={row.color}
+										wrap="truncate-end"
+										{...(row.tint !== undefined ? { backgroundColor: row.tint } : {})}
+									>
 										{row.text.length > 0 ? row.text : ' '}
 									</Text>
 								) : (

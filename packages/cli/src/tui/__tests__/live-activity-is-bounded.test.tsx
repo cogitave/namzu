@@ -25,7 +25,7 @@ describe('the redrawable Working region', () => {
 		}
 	})
 
-	it('hides the figures group until tokens, thinking, compaction, agents or 16 s', () => {
+	it('shows only the figures it has: no clock before the second second, no count of nothing', () => {
 		const frame = (props: Partial<React.ComponentProps<typeof LiveActivity>>) => {
 			const harness = render(<LiveActivity activeTools={[]} working animate={false} {...props} />)
 			try {
@@ -36,26 +36,27 @@ describe('the redrawable Working region', () => {
 		}
 		expect(frame({})).not.toContain('(')
 		expect(frame({ tokens: 0 })).not.toContain('(')
-		expect(frame({ tokens: 1_100 })).toMatch(/Working \(0s · ↓ 1\.1k tokens\)/u)
-		expect(frame({ thinking: '' })).toContain('Working (0s)')
-		expect(frame({ compacting: true })).toContain('Working (0s)')
+		expect(frame({ tokens: 1_100 })).toMatch(/Writing \(↓ 1\.1k tokens\)/u)
+		expect(frame({ thinking: '' })).toContain('Thinking')
+		expect(frame({ thinking: '' })).not.toContain('(')
+		expect(frame({ agentCount: 2 })).toContain('(2 agents · ↓ to view)')
 	})
 
-	it('opens the figures group after 16 s and reads the time as 17s, then 1m 23s', () => {
+	it('puts the clock on from the second second and keeps it there: 1s, then 17s, then 1m 23s', () => {
 		vi.useFakeTimers({ toFake: ['Date'] })
 		try {
 			const harness = render(<LiveActivity activeTools={[]} working animate={false} />)
 			try {
 				expect(harness.lastFrame()).not.toContain('(')
+				vi.setSystemTime(Date.now() + 1_200)
+				harness.rerender(<LiveActivity activeTools={[]} working animate={false} />)
+				expect(harness.lastFrame()).toContain('(1s)')
 				vi.setSystemTime(Date.now() + 16_000)
 				harness.rerender(<LiveActivity activeTools={[]} working animate={false} />)
-				expect(harness.lastFrame()).not.toContain('(')
-				vi.setSystemTime(Date.now() + 1_500)
-				harness.rerender(<LiveActivity activeTools={[]} working animate={false} />)
-				expect(harness.lastFrame()).toContain('Working (17s)')
+				expect(harness.lastFrame()).toContain('(17s · no reply yet)')
 				vi.setSystemTime(Date.now() + 66_000)
 				harness.rerender(<LiveActivity activeTools={[]} working animate={false} />)
-				expect(harness.lastFrame()).toContain('Working (1m 23s)')
+				expect(harness.lastFrame()).toContain('(1m 23s · no reply yet)')
 			} finally {
 				harness.unmount()
 			}
@@ -78,7 +79,7 @@ describe('the redrawable Working region', () => {
 	it('counts the turn’s output tokens beside its time', () => {
 		const harness = render(<LiveActivity activeTools={[]} working animate={false} tokens={1_100} />)
 		try {
-			expect(harness.lastFrame()).toMatch(/Working \(\d+s · ↓ 1\.1k tokens\)/u)
+			expect(harness.lastFrame()).toMatch(/Writing \(↓ 1\.1k tokens\)/u)
 		} finally {
 			harness.unmount()
 		}

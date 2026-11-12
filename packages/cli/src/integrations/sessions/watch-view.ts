@@ -17,6 +17,7 @@ import { projectConversation } from '../../tui/App.js'
 import { glyphForRole } from '../../tui/Transcript.js'
 import { trailFromRecords } from '../../tui/restored-rows.js'
 import { terminalDisplayText } from '../../tui/terminal-display.js'
+import { rowTints, tintEscape } from '../../tui/theme.js'
 import type { TranscriptMessage } from '../../tui/types.js'
 import type { SessionFollower, WatchSnapshot, WatchState, WatchStatus } from './session-watch.js'
 
@@ -62,6 +63,14 @@ export function transcriptLines(
 	rows: readonly TranscriptMessage[],
 	options: { readonly holdOpenTail: boolean },
 ): string[] {
+	return layoutLines(rows, options).lines
+}
+
+/** The printed lines, and which of them belong to the person's own message. */
+function layoutLines(
+	rows: readonly TranscriptMessage[],
+	options: { readonly holdOpenTail: boolean },
+): { lines: string[]; mine: boolean[] } {
 	// A call still in flight is held back with everything after it, so a later
 	// call that settled first does not print ahead of it and reorder the rows.
 	const inFlight = options.holdOpenTail ? rows.findIndex((row) => row.pending === true) : -1
@@ -74,11 +83,26 @@ export function transcriptLines(
 			? rows.slice(0, -1)
 			: settled
 	const lines: string[] = []
+	const mine: boolean[] = []
 	shown.forEach((row, index) => {
-		if (index > 0 && row.glyph !== '⎿') lines.push('')
-		lines.push(...rowLines(row))
+		if (index > 0 && row.glyph !== '⎿') {
+			lines.push('')
+			mine.push(false)
+		}
+		const own = row.role === 'user' && (row.glyph ?? glyphForRole(row.role)) === '›'
+		for (const line of rowLines(row)) {
+			lines.push(line)
+			mine.push(own)
+		}
 	})
-	return lines
+	return { lines, mine }
+}
+
+/** A line of the person's own message on its quiet tint, its pointer dimmer than the text. No trailing cells are written. */
+function tintedLine(line: string, background: string): string {
+	const pointer = line.startsWith('› ') ? '\x1b[2m›\x1b[22m' : null
+	const rest = pointer ? line.slice(1) : line
+	return `${background}${pointer ?? ''}${rest}\x1b[49m`
 }
 
 function isOpenRow(row: TranscriptMessage): boolean {
@@ -132,7 +156,8 @@ export class WatchPrinter {
 
 	update(snapshot: WatchSnapshot, rows: readonly TranscriptMessage[]): void {
 		const open = snapshot.status.state === 'running' || snapshot.status.state === 'waiting'
-		const lines = transcriptLines(rows, { holdOpenTail: open })
+		const { lines, mine } = layoutLines(rows, { holdOpenTail: open })
+		const tints = this.#o.plain ? null : rowTints()
 		const out: string[] = []
 		const prefixHolds = this.#printed.every((line, index) => lines[index] === line)
 		if (this.#printed.length > 0 && !prefixHolds) {
@@ -143,7 +168,11 @@ export class WatchPrinter {
 			)
 			this.#printed = []
 		}
-		out.push(...lines.slice(this.#printed.length))
+		lines.slice(this.#printed.length).forEach((line, offset) => {
+			const at = this.#printed.length + offset
+			const background = tints && mine[at] ? tintEscape(tints.user) : ''
+			out.push(background !== '' ? tintedLine(line, background) : line)
+		})
 		this.#printed = lines
 		if (snapshot.brokenAt !== undefined && snapshot.changed) {
 			out.push(

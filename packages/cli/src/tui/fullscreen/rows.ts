@@ -17,6 +17,8 @@ export interface StyledSpan {
 	readonly italic?: boolean
 	readonly underline?: boolean
 	readonly inverse?: boolean
+	/** The quiet background behind the text; a selection's inverse is drawn over it. */
+	readonly background?: string
 }
 
 /** How a row joins the row above it when the two were one line before wrapping. */

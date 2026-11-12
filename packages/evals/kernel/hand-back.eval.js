@@ -286,7 +286,7 @@ export default async function handBackSuite() {
 			{
 				name: "setting off: a call to the absent tool hands nothing back",
 				input: { handBack: false, script: [{ toolCalls: [handBack("conflict")] }, say("I could not do it.")] },
-				expected: { verdict: "unknown", steps: 2, edits: 0, closing: "none", offered: false, guided: false, goalEnding: "none" },
+				expected: { verdict: "unchanged", steps: 2, edits: 0, closing: "none", offered: false, guided: false, goalEnding: "none" },
 			},
 		],
 	});
