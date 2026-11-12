@@ -92,6 +92,33 @@ describe('asking for the export', () => {
 	})
 })
 
+describe('the GenAI convention names', () => {
+	beforeEach(() => resetOtlpExportForTests())
+
+	it('are left to the default (on) unless NAMZU_TELEMETRY_GENAI says off', () => {
+		expect(resolveOtlpExport({}, {})).not.toHaveProperty('genAiAttributes')
+		expect(resolveOtlpExport({}, { NAMZU_TELEMETRY_GENAI: '1' })).not.toHaveProperty(
+			'genAiAttributes',
+		)
+		for (const off of ['0', 'false', 'No', 'OFF']) {
+			expect(resolveOtlpExport({}, { NAMZU_TELEMETRY_GENAI: off })?.genAiAttributes).toBe(false)
+		}
+	})
+
+	it('are switched off in the registration only when asked', async () => {
+		const registerTelemetry = vi.fn(async () => ({ shutdown: async () => {} }))
+		await startOtlpExport({
+			config: {},
+			env: { NAMZU_TELEMETRY_GENAI: 'off' },
+			loader: async () => ({ registerTelemetry }),
+			warn: vi.fn(),
+		})
+		expect(registerTelemetry).toHaveBeenCalledWith(
+			expect.objectContaining({ genAiAttributes: false }),
+		)
+	})
+})
+
 describe('starting it', () => {
 	beforeEach(() => resetOtlpExportForTests())
 

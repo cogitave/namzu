@@ -1,6 +1,7 @@
 import { EvalUsageError, validateSeed } from './bootstrap.js'
 import { type SuiteFacts, buildDisclosure, describeDisclosure } from './disclosure.js'
 import {
+	clarifyDeclared,
 	describeIntervals,
 	describeSplits,
 	duplicateMessage,
@@ -9,6 +10,15 @@ import {
 	statsOver,
 } from './report-stats.js'
 import { currentEvalRunOptions } from './run-options.js'
+import { defaultSettingsSnapshot } from './settings.js'
+import {
+	HELD_OUT_FRACTION,
+	TASK_SPLIT_SEED,
+	assignSplit,
+	taskId,
+	validateSplitFilter,
+} from './split.js'
+import type { ReportTaskSplit } from './split.js'
 import type {
 	CaseResult,
 	CaseStatus,
@@ -106,8 +116,28 @@ export async function runExperiment<TInput>(
 	const alike = duplicateName(config.cases.map((c) => c.name))
 	if (alike !== undefined) throw new Error(duplicateMessage(config.name, alike))
 
+	// Which tasks run: every one, or the half assigned to one split. The
+	// assignment is a function of the task's identity, so it does not move.
+	const requested = validateSplitFilter(options.split)
+	const assigned = config.cases.map((c) => ({
+		evalCase: c,
+		...assignSplit(config.name, c.name, c.split),
+	}))
+	const chosen = assigned.filter((t) => requested === 'all' || t.split === requested)
+	const cases = chosen.map((t) => t.evalCase)
+	const taskSplit: ReportTaskSplit = {
+		requested,
+		seed: TASK_SPLIT_SEED,
+		heldOutFraction: HELD_OUT_FRACTION,
+		tasks: chosen.map((t) => ({
+			id: taskId(config.name, t.evalCase.name),
+			split: t.split,
+			declared: t.declared,
+		})),
+	}
+
 	// Case-major, so a case's repeats sit together in the report.
-	const total = config.cases.length * repeats
+	const total = cases.length * repeats
 	const results: CaseResult[] = new Array(total)
 	let cursor = 0
 
@@ -115,7 +145,7 @@ export async function runExperiment<TInput>(
 		for (;;) {
 			const index = cursor++
 			if (index >= total) return
-			const evalCase = config.cases[Math.floor(index / repeats)] as EvalCase<TInput>
+			const evalCase = cases[Math.floor(index / repeats)] as EvalCase<TInput>
 
 			const result = await evaluateCase(config, evalCase, threshold, timeoutMs)
 			result.repeat = (index % repeats) + 1
@@ -159,10 +189,16 @@ export async function runExperiment<TInput>(
 		splits: stats.splits,
 		disclosure: buildDisclosure(
 			config.disclosure,
-			{ cases: config.cases.length, repeats, seed },
+			{ cases: cases.length, repeats, seed },
 			options,
 			new Date().toISOString(),
 		),
+		settings: {
+			...(options.settings ?? defaultSettingsSnapshot()),
+			read: options.settingsUse?.read ?? false,
+			readKeys: [...(options.settingsUse?.keys ?? [])].sort(),
+		},
+		taskSplit,
 	}
 }
 
@@ -468,9 +504,27 @@ export function formatReport(report: ExperimentReport): string {
 		}
 	}
 	if (report.splits) {
-		for (const line of describeSplits(report.splits)) lines.push(`  ${line}`)
+		for (const line of describeSplits(report.splits)) {
+			// The task split is the held-out one: the line about cases a suite
+			// declared as developed against would contradict the run's own header.
+			if (report.taskSplit?.requested === 'held-out' && line.startsWith('no held-out cases'))
+				continue
+			lines.push(`  ${report.taskSplit ? clarifyDeclared(line) : line}`)
+		}
 	}
 	if (report.disclosure) lines.push(`  ${describeDisclosure(report.disclosure)}`)
+	if (report.settings) {
+		const r = report.settings
+		lines.push(
+			`  settings: "${r.name}", sha256 ${r.digest.slice(0, 12)}${r.read || Object.keys(r.values).length === 0 ? '' : ' (this suite does not read them)'}`,
+		)
+	}
+	if (report.taskSplit) {
+		const t = report.taskSplit
+		lines.push(
+			`  split: ${t.requested}, ${t.tasks.length} task${t.tasks.length === 1 ? '' : 's'} ran`,
+		)
+	}
 	lines.push('')
 
 	// Surfaced above the failures, because an inconclusive case means the

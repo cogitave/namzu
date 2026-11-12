@@ -4,6 +4,7 @@ import {
 	type ApiKeyLogoutTarget,
 	apiKeyLogoutTarget,
 } from '../integrations/providers/connections.js'
+import { DEFAULT_SPEND_DAYS, MAX_SPEND_DAYS } from '../integrations/spend/day.js'
 import {
 	type DenialRow,
 	addLocalRule,
@@ -102,6 +103,8 @@ export type SlashAction =
 	| { kind: 'tasks' }
 	/** `/doctor`: run the health checks and show the result in plain words. */
 	| { kind: 'doctor' }
+	/** `/cost days [n]`: spend across conversations by local day and model, read from the session logs. */
+	| { kind: 'spend'; days: number }
 	| { kind: 'settings-picker' }
 	| TurnLimitsAction
 	| { kind: 'provider-setup' }
@@ -1494,10 +1497,23 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'cost',
 		immediate: true,
-		help: { usage: ['/cost [details]'] },
+		help: { usage: ['/cost [details]', '/cost days [n]'] },
 		description: 'Show usage and cost for the current or latest reply.',
-		action: (ctx, args) =>
-			reportCommand('cost', args, (details) => renderCost(ctx.usage, ctx.compaction, details)),
+		action: (ctx, args) => {
+			if (args[0]?.toLowerCase() === 'days') {
+				const days = parseSpendDays(args.slice(1))
+				return days === undefined
+					? {
+							kind: 'message',
+							role: 'system',
+							content: `Usage: /cost days [n]  (n is 1 to ${MAX_SPEND_DAYS}, default ${DEFAULT_SPEND_DAYS})`,
+						}
+					: { kind: 'spend', days }
+			}
+			return reportCommand('cost', args, (details) =>
+				renderCost(ctx.usage, ctx.compaction, details),
+			)
+		},
 	},
 	{
 		name: 'doctor',
@@ -2011,6 +2027,14 @@ export function renderBackgroundTasks(jobs: ReturnType<SlashContext['jobs']>): s
 		'',
 		'Use /tasks to inspect output or stop a running command; /exit stops them all.',
 	].join('\n')
+}
+
+/** The days of `/cost days [n]`, or `undefined` when the argument is not a whole number in range. */
+function parseSpendDays(args: readonly string[]): number | undefined {
+	if (args.length === 0) return DEFAULT_SPEND_DAYS
+	const value = args[0] as string
+	if (args.length !== 1 || !/^[1-9]\d{0,3}$/.test(value)) return undefined
+	return Number(value) <= MAX_SPEND_DAYS ? Number(value) : undefined
 }
 
 /** Reports validate their subcommand instead of silently ignoring mistyped arguments. */

@@ -73,6 +73,27 @@ const EFFORT_LEVELS: ReadonlySet<string> = new Set<ReasoningEffort>([
 
 const NAME_PATTERN = /^[a-z][a-z0-9-]{0,63}$/
 
+/**
+ * The frontmatter keys {@link parseAgentMarkdown} reads. Any other key is
+ * ignored without a word, which is how a misspelt `tool:` leaves an agent
+ * with the parent's whole tool set; a host that checks agent files names
+ * them from this list.
+ */
+export const AGENT_FILE_KEYS: readonly string[] = Object.freeze([
+	'name',
+	'description',
+	'tools',
+	'disallowedTools',
+	'model',
+	'effort',
+	'maxTurns',
+	'background',
+	'isolation',
+	'skills',
+	'permissionMode',
+	'readOnly',
+])
+
 export interface AgentFileDefinition {
 	readonly name: string
 	readonly description: string

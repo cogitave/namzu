@@ -1,5 +1,6 @@
 import type { TurnRecorder } from '../../manager/session/turn-recorder.js'
 import { GENAI, NAMZU, agentTurnSpanName, parentContext } from '../../telemetry/attributes.js'
+import { agentRunAttributes } from '../../telemetry/genai.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
 import type { MessageId } from '../../types/ids/index.js'
 import { type Message, createSystemMessage } from '../../types/message/index.js'
@@ -82,6 +83,7 @@ export async function* settlePreStartCancellation(
 		[GENAI.AGENT_ID]: params.agentId,
 		[GENAI.REQUEST_MODEL]: turnConfig.model,
 		[GENAI.SYSTEM]: params.provider.id,
+		...agentRunAttributes(params.provider.id),
 	})
 
 	const push = (message: Message, ids: ReadonlyMap<Message, MessageId>): void => {

@@ -206,7 +206,10 @@ describe('namzu eval statistics', () => {
 			const text = (printed[0] as { text: string }).text
 			expect(text).toContain('6 paired')
 			expect(text).toContain('Flips: 1 case passed on B and not on A')
-			expect(text).toContain('no difference can be claimed at this size.')
+			// Two runs of the same suite under the same default settings, on every
+			// task: no winner is named, and it says why.
+			expect(text).toContain('no winner is named')
+			expect(text).toContain('identical settings')
 			expect(text).toContain('no stated difference')
 		})
 

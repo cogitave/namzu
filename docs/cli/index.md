@@ -58,6 +58,7 @@ The operator application.
 * [Turn limits](turn-limits.md) - Limits for interactive and headless turns, headless override flags and honest closing stop reasons.
 * [Slash commands](slash-commands.md) - Every builtin slash command the interactive session answers to, one line each, with the composer keys that are not commands.
 * [Plugins](plugins.md) - Trusted extension loading, live contributions and session enable/disable controls.
+* [namzu plugin validate](plugin-validate.md) - Check a plugin folder and every part it carries without running anything from it: problems with file and line, the codes, the JSON shape and the exit statuses.
 * [Skills](skills.md) - Where SKILL.md skills come from and which tier wins a name, how the model is offered them and loads one with the skill tool, which directory it is told a skill's files are in, the manifest budget, tool gating, and the skills config keys.
 * [Where files go](where-files-go.md) - The standing guidance on where a session puts what it creates, the checklist for long-running installs, and the home-folder startup line.
 * [The composer prefixes](composer-prefixes.md) - What a line starting with `!` or `#` does in the composer: a command run on the host without the model, or a note remembered, and what the model learns of either.
@@ -69,6 +70,7 @@ The operator application.
 * [Tool servers](mcp-servers.md) - The mcpServers config key: a server by command or by URL, the environment its child gets, how long each has to connect, and what happens when one does not.
 * [Exit codes of namzu exec](exec-exit-codes.md) - What $? says after namzu exec, including 75 for a turn the provider paused with a checkpoint kept or a session whose turn is still active, and what a wrapper should do with each code.
 * [namzu exec --json](exec-json.md) - The headless one-shot as a stream for host UIs: NDJSON events, the session and turn ids they carry, --session history and exit codes.
+* [Spend by day and model](cost.md) - What conversations on this machine cost by local day, model, project and kind of work, from the session logs: /cost days, namzu cost and its JSON shape, how unknown prices are shown, and the rebuildable summary it reads through.
 * [namzu drain](drain.md) - One bounded pass that continues parked turns another process left behind, through the session index and each session's lease.
 * [Session task context](task-context.md) - Bounded reminders of a session's open tasks and those closed in the current turn, scope and research boundaries.
 * [Google accounts and model access](google.md) - Existing Gemini CLI Google sign-in, explicit API-key routing and read-only credential refresh.

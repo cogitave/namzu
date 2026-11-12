@@ -52,7 +52,33 @@ export type {
 	SuiteFacts,
 } from './disclosure.js'
 export { sdkVersion } from './disclosure.js'
-export { currentEvalRunOptions, withEvalRunOptions } from './run-options.js'
+export {
+	currentEvalRunOptions,
+	currentEvalSettings,
+	evalSetting,
+	withEvalRunOptions,
+} from './run-options.js'
+export {
+	DEFAULT_SETTINGS_NAME,
+	SETTINGS_DIGEST_ALGORITHM,
+	buildSettingsSnapshot,
+	canonicalJson,
+	defaultSettingsSnapshot,
+	diffSettings,
+	findSecretIn,
+	validateSettingsName,
+} from './settings.js'
+export type { ReportSettings, SettingDifference, SettingsSnapshot } from './settings.js'
+export {
+	HELD_OUT_FRACTION,
+	SPLIT_FILTERS,
+	TASK_SPLIT_SEED,
+	assignSplit,
+	hashedSplit,
+	taskId,
+	validateSplitFilter,
+} from './split.js'
+export type { ReportTaskSplit, SplitFilter, TaskSplit } from './split.js'
 export type { EvalRunOptions } from './run-options.js'
 export { formatRunSummary, summarizeRun } from './run-summary.js'
 export type { RunDisclosure, RunSummary } from './run-summary.js'
@@ -67,7 +93,12 @@ export type {
 	EvalComparison,
 	Flips,
 	LoadedReportFile,
+	LoadedSettings,
 	LoadedSuite,
+	SettingsComparison,
+	SideSplit,
+	SnapshotRef,
+	WithheldReason,
 	SideNumbers,
 } from './compare.js'
 export { describeUncertainty, uncertaintyOf } from './uncertainty.js'

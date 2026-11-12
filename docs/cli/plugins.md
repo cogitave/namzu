@@ -147,6 +147,19 @@ shutdown before rollback completes. The shipped stdio transport escalates to
 process termination if its child does not exit. Namzu does not install another
 application's plugin format or download a marketplace through this menu.
 
+## Check a plugin before you share it
+
+`namzu plugin validate [path] [--json]` checks a plugin folder and every part it
+carries (manifest, skills, tool and hook modules, MCP server entries, commands
+and agents) with the loader's own rules, and prints each problem with its file,
+line, a sentence about what is wrong and what the loader would do. It runs
+nothing from the plugin and reads only inside the folder. Exit status is `0`
+for no problems, `10` for warnings only, `1` for errors and `66` when the
+folder cannot be read. See [namzu plugin validate](plugin-validate.md).
+
+When a plugin is refused at startup, or a command or agent folder or file of
+one is skipped, the message ends with a line pointing at that command.
+
 ## Inspect and control the session
 
 - `/plugins` opens a searchable list of discovered plugins. Select one to view

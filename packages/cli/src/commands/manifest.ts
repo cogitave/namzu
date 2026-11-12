@@ -46,6 +46,15 @@ export const archiveCommand = lazyCommand(
 	async () => (await import('./archive.js')).archiveCommand,
 )
 
+export const costCommand = lazyCommand(
+	{
+		name: 'cost',
+		description: 'Show spend across conversations by day and model, from the session logs',
+		passThrough: true,
+	},
+	async () => (await import('./cost.js')).costCommand,
+)
+
 export const peersCommand = lazyCommand(
 	{
 		name: 'peers',
@@ -145,6 +154,15 @@ export const historyCommand = lazyCommand(
 		passThrough: true,
 	},
 	async () => (await import('./host-queries.js')).historyCommand,
+)
+
+export const pluginCommand = lazyCommand(
+	{
+		name: 'plugin',
+		description: 'Check a plugin folder without running anything from it',
+		passThrough: true,
+	},
+	async () => (await import('./plugin.js')).pluginCommand,
 )
 
 export const skillsCommand = lazyCommand(

@@ -1,4 +1,10 @@
-export { discoverPlugins, loadPluginManifest, discoverAllPluginDirs } from './loader.js'
+export {
+	assertEnableable,
+	discoverPlugins,
+	loadPluginManifest,
+	discoverAllPluginDirs,
+	parsePluginManifestText,
+} from './loader.js'
 export { definePlugin } from './define.js'
 export type { DefinedPlugin, DefinePluginOptions } from './define.js'
 export type { PluginDiscoveryOptions, PluginEnablementCapabilities } from './loader.js'

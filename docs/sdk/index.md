@@ -143,6 +143,7 @@ The kernel.
 * [The web tools](web-tools.md) - web_fetch (url, prompt, offset), pages as markdown, the content extractor seam, the fifteen-minute page cache, redirects to another host handed back, and web_search's missing backend.
 
 * [Agent client protocol](agent-client-protocol.md) - Stdio prompt, permission, cancellation, scoped history and explicit host extensions.
+* [Span attributes from the OpenTelemetry GenAI convention](telemetry-genai.md) - The convention names the kernel's spans carry beside its own, the version they are pinned to (1.41.1), where each value comes from, what is left out, the setting that turns them off and what to do when the convention moves.
 * [Kernel facts](kernel-facts.md) - The data epoch and the desktop contract a host states in initialize, the inventory of on-disk formats and of what an installed desktop app relies on, the guard tests, and when to raise each number.
 * [Decision models](decision.md) - Provider-agnostic System-1 decision models (yes/no, choice, score) and the Azure AI Foundry driver.
 * [Text-only models and images](text-only-models-and-images.md) - How a conversation that holds an image keeps working on a model that cannot read one.

@@ -257,6 +257,24 @@ function estimateTokens(text: string): number {
 	return Math.ceil(text.length / CHARS_PER_TOKEN)
 }
 
+/**
+ * A `SKILL.md`'s text to its metadata and body, or a thrown reason.
+ *
+ * The one place the skill rules are applied to text. `loadSkill` reads the
+ * file and calls this; a host that checks a skill without loading it (the
+ * plugin validator) reads the file its own way and calls the same function,
+ * so the two cannot disagree about what a valid skill is.
+ *
+ * @param dirPath The skill's folder: the name must match its last segment.
+ */
+export function parseSkillMarkdown(
+	raw: string,
+	dirPath: string,
+): { readonly metadata: SkillMetadata; readonly body: string } {
+	const parsed = parseFrontmatter(raw, sourceLabel(dirPath), SKILL_FRONTMATTER_OPTIONS)
+	return { metadata: toSkillMetadata(parsed, dirPath), body: parsed.body }
+}
+
 export async function loadSkill(
 	dirPath: string,
 	level: SkillDisclosureLevel = 'metadata',
@@ -264,8 +282,8 @@ export async function loadSkill(
 ): Promise<SkillLoadResult> {
 	const skillMdPath = join(dirPath, SKILL_FILENAME)
 	const raw = await readFile(skillMdPath, 'utf-8')
-	const parsed = parseFrontmatter(raw, sourceLabel(dirPath), SKILL_FRONTMATTER_OPTIONS)
-	const metadata = toSkillMetadata(parsed, dirPath)
+	const parsedSkill = parseSkillMarkdown(raw, dirPath)
+	const metadata = parsedSkill.metadata
 
 	const skill: Skill = {
 		metadata,
@@ -273,7 +291,7 @@ export async function loadSkill(
 	}
 
 	if (level === 'full' || level === 'assets') {
-		skill.body = parsed.body
+		skill.body = parsedSkill.body
 	}
 
 	const metadataTokens = estimateTokens(`${metadata.name}: ${metadata.description}`)

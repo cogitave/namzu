@@ -1,6 +1,16 @@
 export const GENAI = {
 	OPERATION_NAME: 'gen_ai.operation.name',
+	/**
+	 * Namzu's own provider id. Not in the pinned
+	 * GenAI convention, which names the provider with {@link GENAI.PROVIDER_NAME}.
+	 * Kept because it is existing output.
+	 */
 	SYSTEM: 'gen_ai.system',
+
+	/** Convention `gen_ai.provider.name`: set only when our provider id maps to a value the convention lists. */
+	PROVIDER_NAME: 'gen_ai.provider.name',
+	/** `true` on a model call made in streaming mode. */
+	REQUEST_STREAM: 'gen_ai.request.stream',
 
 	REQUEST_MODEL: 'gen_ai.request.model',
 	REQUEST_TEMPERATURE: 'gen_ai.request.temperature',
@@ -12,6 +22,9 @@ export const GENAI = {
 
 	USAGE_INPUT_TOKENS: 'gen_ai.usage.input_tokens',
 	USAGE_OUTPUT_TOKENS: 'gen_ai.usage.output_tokens',
+	USAGE_CACHE_READ_INPUT_TOKENS: 'gen_ai.usage.cache_read.input_tokens',
+	USAGE_CACHE_CREATION_INPUT_TOKENS: 'gen_ai.usage.cache_creation.input_tokens',
+	USAGE_REASONING_OUTPUT_TOKENS: 'gen_ai.usage.reasoning.output_tokens',
 
 	/**
 	 * Which kind of token a usage measurement counts. The convention keys

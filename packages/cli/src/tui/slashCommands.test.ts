@@ -497,6 +497,21 @@ describe('runSlash', () => {
 	})
 })
 
+describe('/cost days', () => {
+	it('asks for the spend view, 30 days by default', () => {
+		expect(runSlash('/cost days', context({ usage: null }))).toEqual({ kind: 'spend', days: 30 })
+		expect(runSlash('/cost days 7', context({ usage: null }))).toEqual({ kind: 'spend', days: 7 })
+	})
+
+	it('refuses a count that is not a number of days, and names the usage', () => {
+		for (const line of ['/cost days 0', '/cost days x', '/cost days 7 8', '/cost days 99999']) {
+			const r = runSlash(line, context({ usage: null }))
+			expect(r?.kind).toBe('message')
+			if (r?.kind === 'message') expect(r.content).toContain('Usage: /cost days [n]')
+		}
+	})
+})
+
 describe('/cost', () => {
 	it('says so plainly before any turn has reported usage', () => {
 		const r = runSlash('/cost', context({ usage: null }))
