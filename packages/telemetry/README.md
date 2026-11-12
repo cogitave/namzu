@@ -66,6 +66,16 @@ override the general one. Unsupported active OTLP protocols are rejected before
 either global provider is registered. Shutdown attempts both pipelines even if
 one fails.
 
+## GenAI convention names
+
+Spans also carry the OpenTelemetry semantic convention names for generative
+AI (operation, provider, token counts including cache reads and writes, tool
+call, agent), pinned to convention version 1.41.1 with its schema URL on the
+instrumentation scope. They are added beside the kernel's own names, and no
+prompt or reply is recorded under them. A backend that bills by attribute can
+turn them off with `genAiAttributes: false` in `registerTelemetry`. See
+[span attributes](https://github.com/cogitave/namzu/blob/main/docs/sdk/telemetry-genai.md).
+
 ## Documentation
 
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)

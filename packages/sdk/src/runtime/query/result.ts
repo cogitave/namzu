@@ -5,6 +5,7 @@ import { isCallerAbortError, isProviderRequestError } from '../../provider/error
 import { TokenBudgetAdmissionError } from '../../provider/token-budget.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import { GENAI, NAMZU } from '../../telemetry/attributes.js'
+import { errorTypeAttributes, genAiErrorType } from '../../telemetry/genai.js'
 import { explainError } from '../../types/errors/catalog.js'
 import { toPlatformError } from '../../types/errors/index.js'
 import type { CheckpointId } from '../../types/hitl/index.js'
@@ -211,6 +212,7 @@ export class ResultAssembler {
 		rootSpan.setAttributes({
 			[NAMZU.TURN_STATUS]: 'error',
 			[NAMZU.ITERATION]: recorder.currentIteration,
+			...errorTypeAttributes(genAiErrorType(err)),
 		})
 		rootSpan.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage })
 		rootSpan.recordException(err instanceof Error ? err : new Error(errorMessage))

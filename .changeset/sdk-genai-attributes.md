@@ -1,0 +1,5 @@
+---
+'@namzu/sdk': minor
+---
+
+The turn, model-call and tool-call spans now also carry attribute names from the OpenTelemetry semantic conventions for generative AI, pinned to version 1.41.1 (the schema URL is on the `namzu` instrumentation scope): `gen_ai.operation.name` on turns and tool calls, `gen_ai.provider.name` (only for providers the convention lists), `gen_ai.request.stream`, `gen_ai.usage.cache_read.input_tokens`, `gen_ai.usage.cache_creation.input_tokens`, `gen_ai.usage.reasoning.output_tokens` and `error.type`, at most 5 added to a model call, 2 to a tool call and 3 to a turn. Nothing is renamed or removed, and no prompt, reply or tool content is recorded under them. Backends that bill per attribute can call the new `setGenAiConventions(false)` before the first turn to leave them out; the default is on. New exports: `GENAI_SEMCONV_VERSION`, `GENAI_SEMCONV_SCHEMA_URL`, `GENAI_SEMCONV_ATTRIBUTES`, `GENAI_NON_CONVENTION_NAMES`, `setGenAiConventions`, `genAiConventionsEnabled`; the `GENAI` constant gains `PROVIDER_NAME`, `REQUEST_STREAM` and three `USAGE_*` keys.
