@@ -57,3 +57,32 @@ export function getActiveSpanContext(): SpanContext | undefined {
 		return undefined
 	}
 }
+
+/**
+ * The active span as the W3C trace context an outgoing request can carry:
+ * `{ traceparent, tracestate? }`, or `{}` when no span is active.
+ *
+ * `{}` is what a host that never registered telemetry gets, for the same
+ * reason {@link getActiveSpanContext} returns `undefined` there: nothing is
+ * special-cased, the api's default context has no span. A span context that
+ * is not valid W3C (an all-zero id, a wrong length) also yields `{}`, since a
+ * malformed `traceparent` is worse than none.
+ */
+export function getTraceContextHeaders(): { traceparent?: string; tracestate?: string } {
+	const span = getActiveSpanContext()
+	if (!span) return {}
+	const { traceId, spanId } = span
+	if (!/^[0-9a-f]{32}$/.test(traceId) || /^0+$/.test(traceId)) return {}
+	if (!/^[0-9a-f]{16}$/.test(spanId) || /^0+$/.test(spanId)) return {}
+	const flags = (span.traceFlags & 0xff).toString(16).padStart(2, '0')
+	let tracestate: string | undefined
+	try {
+		tracestate = span.traceState?.serialize() || undefined
+	} catch {
+		tracestate = undefined
+	}
+	return {
+		traceparent: `00-${traceId}-${spanId}-${flags}`,
+		...(tracestate ? { tracestate } : {}),
+	}
+}
