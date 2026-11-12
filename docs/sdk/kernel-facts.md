@@ -62,7 +62,8 @@ version that changes, appears or disappears fails with the rule: raise `DATA_EPO
 longer safely read or write what this one writes; otherwise record the new value in the table and say why in the
 same commit. The SDK test also records `DATA_EPOCH` itself, so raising it is a visible edit in two places.
 
-What the scan cannot see: a format stamped some other way than the three above, and a format with no stamp.
+The command line's test also lists the stamps of the capability packages it ships with (browser profiles,
+the analysis cache). What the scan cannot see: a format stamped some other way than the three above, and a format with no stamp.
 The first is added to the literal list when found. The second is the next section.
 
 ### Formats with no stamp
@@ -88,6 +89,7 @@ than read, because reading it would drop the fields this build does not know and
 | Format | Where | Written by | Stamp | An older engine meets a newer one |
 |---|---|---|---|---|
 | Session log | `projects/<slug>/<session-id>.jsonl`, and `<id>/subagents/<child>.jsonl` | engine, one writer at a time under the lease | `v` on every record (`SESSION_RECORD_SCHEMA_VERSION` = 1), hash-chained | refuses a record with another `v`; an unknown record type is kept only when the writer marked it `ignorable`, otherwise refused |
+| Child session meta record | `<id>/subagents/<child-id>.meta.json` | engine, when a delegated run starts and ends | `v: 1`, `kind: 'child-session'` (strict) | refuses the file when it is parsed (`ChildSessionMetaSchema`); the child's own log wins, so the record is a convenience copy |
 | Session lease | `<id>/lease.json` (a view) and `lease.<fence>.json` | engine | `v: 1`, `kind: 'lease'` | not checked beyond the shape check |
 | Spill manifest and body | `<id>/tool-results/` | engine | `v: 1`, `kind: 'spill'` (log spills); `version: 1` (tool result spills) | not checked beyond the shape check |
 | Checkpoint | `<id>/checkpoints/<id>.json` | engine | `v` (`CHECKPOINT_DOCUMENT_VERSION` = 1) | refuses: "Unsupported checkpoint version" |
@@ -157,6 +159,21 @@ than read, because reading it would drop the fields this build does not know and
 | Session loops | loops file of a session | `v: 1`, `kind: 'session-loops'` | not checked |
 | Notification throttle | schedule notify file | `v: 1` | not checked |
 
+#### Capability packages
+
+The optional packages write a few things of their own. The command line ships with three of them, so the guard
+for their stamps sits in `packages/cli/src/data-epoch-guard.test.ts` (`CAPABILITY_STAMPS`).
+
+| Format | Where | Written by | Stamp | An older package meets a newer one |
+|---|---|---|---|---|
+| Browser profile descriptor | `browser/profiles/<name>.json` (mode 0600; the directories 0700) | `@namzu/browser` | `v: 1` | refuses: "The descriptor of browser profile is not readable"; the browser's own user data directory next to it is the browser's format |
+| Browser profile lease | `browser/leases/<name>/<pid>-<session>.json` | `@namzu/browser` | `v: 1` | not read for its version; a lease whose process is gone is swept |
+| Analysis index cache | a cache directory, one SQLite file per project root | `@namzu/analysis` | the version is in the file name (`SCHEMA_VERSION` = 3) and in a `schema` row | a file of another version is simply a different file; an older package builds its own and never reads the newer one |
+| Computer-use helper | `computer-use/cua-driver/<version>/`, a downloaded program, checked before use | `@namzu/computer-use` | the pinned version is the directory name | a newer package downloads its own version beside it; only the cache directory is pruned of older ones, never a newer one |
+| Computer setup state | `setup/` under the home (or `%LOCALAPPDATA%\Namzu\setup` on Windows): `image.json` (the image the computer was built from) and a restart marker | `@namzu/sandbox` | none; read by shape | a record that does not parse, or lacks a known field, reads as nothing recorded and the setup step runs again. This is the unstamped risk in plain words: a newer kernel that adds a step name an older one does not know makes the older one drop the marker |
+| Remote sandbox backends (Docker, Kubernetes, Firecracker, container instances) | inside the sandbox, never under the home | `@namzu/sandbox` | none | not on the person's disk; a seed marker lives in the sandbox's own `.namzu/seed/` |
+| Local file store | a folder chosen by the caller, one file per key | `@namzu/files` | none | plain bytes, no format of its own; the caller owns the layout |
+
 #### Inside a project folder
 
 | Format | Where | Written by | Stamp | Older kernel |
@@ -219,8 +236,9 @@ builds it (`desktopServerExtensions` is the one place the table is assembled) an
 - every recorded method, in every group, is offered by the host; a removal or a rename fails;
 - every recorded notification name equals the constant the host sends it under;
 - the terminal methods the application probes as one group are exactly the host's terminal methods;
-- `acp --desktop` is accepted and any other argument refused; the terminal UI flags are documented by the
-  program's own help; every permission word the application passes is one `--permission-mode` takes; the
+- `acp --desktop` is accepted by the host's own argument parser (`parseAcpArgs`, which the command's handler
+  uses) and any other argument refused; each terminal UI flag is an option line of the program's generated help,
+  and `--permission-mode` refuses a word it does not know; every permission word the application passes is one `--permission-mode` takes; the
   `computer` verbs and flags are documented;
 - the files exist where the application reads them; the Pal computer folder is read as the application
   provides it; the engine names are still the ones the host accepts;

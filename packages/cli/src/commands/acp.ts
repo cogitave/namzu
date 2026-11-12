@@ -2138,14 +2138,23 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	return 0
 }
 
+/**
+ * The arguments `namzu acp` takes: `--desktop` and nothing else. The desktop
+ * application starts the host as `acp --desktop`, so this is the parser that
+ * flag lives in, and a test of the desktop contract calls it.
+ */
+export function parseAcpArgs(rawArgs: readonly string[]): { desktop: boolean } {
+	if (rawArgs.some((arg) => arg !== '--desktop'))
+		throw new Error('Unknown ACP argument. Use namzu acp --help.')
+	return { desktop: rawArgs.includes('--desktop') }
+}
+
 export const acpCommand: CommandDef = {
 	name: 'acp',
 	description: 'Speak the agent-client protocol over this process’s stdio',
 	passThrough: true,
 	help: 'Usage: namzu acp [--desktop]\nSpeak ACP over stdio. --desktop enables scoped operator methods for the Namzu desktop application.',
 	handler: async ({ ctx, rawArgs }) => {
-		if (rawArgs.some((arg) => arg !== '--desktop'))
-			throw new Error('Unknown ACP argument. Use namzu acp --help.')
-		return runAcpCommand(ctx, rawArgs.includes('--desktop'))
+		return runAcpCommand(ctx, parseAcpArgs(rawArgs).desktop)
 	},
 }

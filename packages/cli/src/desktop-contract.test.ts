@@ -21,7 +21,12 @@ import ts from 'typescript'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { removeTempDir } from './__fixtures__/temp-dir.js'
 import { runCli } from './cli.js'
-import { acpCommand, createCliAcpRuntime, desktopServerExtensions } from './commands/acp.js'
+import {
+	acpCommand,
+	createCliAcpRuntime,
+	desktopServerExtensions,
+	parseAcpArgs,
+} from './commands/acp.js'
 import { OUTCOME_NOTIFICATION } from './commands/desktop-outcome-feed.js'
 import { USAGE_NOTIFICATION } from './commands/desktop-usage-feed.js'
 import { readPalComputerBundle } from './computer/bundle.js'
@@ -289,6 +294,12 @@ describe('the flags the application passes', () => {
 	it('starts a desktop host with `acp --desktop` and refuses anything else', async () => {
 		expect(acpCommand.name).toBe(inventory.flags.host.command)
 		for (const flag of inventory.flags.host.flags) expect(acpCommand.help).toContain(flag)
+		for (const flag of inventory.flags.host.flags) {
+			expect(parseAcpArgs([flag]), `namzu acp no longer accepts ${flag}\n${RULE}`).toEqual({
+				desktop: flag === '--desktop',
+			})
+		}
+		expect(() => parseAcpArgs(['--not-a-flag'])).toThrow('Unknown ACP argument')
 		await expect(
 			acpCommand.handler({
 				ctx: {} as never,
@@ -309,12 +320,38 @@ describe('the flags the application passes', () => {
 		} finally {
 			process.stdout.write = write
 		}
-		const missing = inventory.flags.terminalUi.flags.filter((flag) => !out.includes(`${flag} `))
+		// An option line of the generated help: it starts with the flag (or its short form), so prose
+		// that merely mentions the flag does not count.
+		const missing = inventory.flags.terminalUi.flags.filter(
+			(flag) => !new RegExp(`^\\s+(?:-\\w, )?${flag}(?:[ ,]|$)`, 'm').test(out),
+		)
 		expect(missing, `The terminal UI no longer takes: ${missing.join(', ')}\n${RULE}`).toEqual([])
 		const words = inventory.flags.terminalUi.permissionModeValues.filter(
 			(word) => !(PERMISSION_MODE_NAMES as readonly string[]).includes(word),
 		)
 		expect(words, `--permission-mode no longer takes: ${words.join(', ')}\n${RULE}`).toEqual([])
+	})
+
+	it('parses --effort and --permission-mode, which refuse a value they do not know', async () => {
+		// Nothing starts: the parser refuses the value before any command runs. A flag the parser no
+		// longer declares would be reported as unknown, which is also a refusal, so the value that is
+		// accepted is checked against the words the application passes.
+		const stderr = process.stderr.write.bind(process.stderr)
+		let err = ''
+		process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+			err += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8')
+			return true
+		}) as typeof process.stderr.write
+		try {
+			const code = await runCli({
+				argv: ['node', 'namzu', '--permission-mode', 'no-such-mode'],
+			})
+			expect(code).not.toBe(0)
+		} finally {
+			process.stderr.write = stderr
+		}
+		expect(err).toContain('--permission-mode')
+		expect(err).toContain('is not a valid value')
 	})
 
 	it('keeps the short `computer` commands', () => {

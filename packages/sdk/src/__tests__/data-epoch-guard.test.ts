@@ -79,6 +79,12 @@ const LITERAL_STAMPS: { format: string; file: string; pattern: RegExp; version: 
 		version: 1,
 	},
 	{
+		format: 'child session meta record (subagents/<child-id>.meta.json)',
+		file: 'types/session/records.ts',
+		pattern: /v: z\.literal\((\d+)\),\s*kind: z\.literal\('child-session'\)/,
+		version: 1,
+	},
+	{
 		format: 'session lease document (lease.json)',
 		file: 'store/session-log/lease.ts',
 		pattern: /v: (\d+),\s*kind: 'lease'/,

@@ -42,6 +42,35 @@ const CONSTANTS: Record<string, { version: number; onDisk: boolean }> = {
 	'schedule/types.ts#SCHEDULE_FORMAT_VERSION_SCRIPT': { version: 2, onDisk: true },
 }
 
+/** `packages/`, where the capability packages the command line ships with keep their sources. */
+const PACKAGES = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
+
+/**
+ * Stamps that a capability package writes under the person's home or in a cache. The packages are
+ * leaves, so the guard for them sits here, in the composition root that ships them. `file` is
+ * relative to `packages/`.
+ */
+const CAPABILITY_STAMPS: { format: string; file: string; pattern: RegExp; version: number }[] = [
+	{
+		format: 'browser profile descriptor (browser/profiles/<name>.json)',
+		file: 'browser/src/profiles.ts',
+		pattern: /export interface BrowserProfileDescriptor \{\s*readonly v: (\d+)/,
+		version: 1,
+	},
+	{
+		format: 'browser profile lease (browser/leases/<name>/<pid>-<session>.json)',
+		file: 'browser/src/profiles.ts',
+		pattern: /export interface BrowserLeaseRecord \{\s*readonly v: (\d+)/,
+		version: 1,
+	},
+	{
+		format: 'analysis index cache (the version is part of the file name)',
+		file: 'analysis/src/store.ts',
+		pattern: /export const SCHEMA_VERSION = (\d+)/,
+		version: 3,
+	},
+]
+
 /** Stamps written as a literal in a type. `pattern` has one capture group: the version. */
 const LITERAL_STAMPS: { format: string; file: string; pattern: RegExp; version: number }[] = [
 	{
@@ -171,6 +200,27 @@ describe('data epoch guard (command line)', () => {
 			}
 		}
 		expect(diff, `A literal stamp changed or moved.\n${diff.join('\n')}\n${RULE}`).toEqual([])
+	})
+
+	it('knows the stamps of the capability packages this program ships with', () => {
+		const diff: string[] = []
+		for (const stamp of CAPABILITY_STAMPS) {
+			let text = ''
+			try {
+				text = readFileSync(join(PACKAGES, stamp.file), 'utf8')
+			} catch {
+				// reported below as not found
+			}
+			const match = stamp.pattern.exec(text)
+			if (!match) diff.push(`not found: ${stamp.format} in packages/${stamp.file}`)
+			else if (Number(match[1]) !== stamp.version) {
+				diff.push(`changed: ${stamp.format} ${stamp.version} -> ${match[1]}`)
+			}
+		}
+		expect(
+			diff,
+			`A capability package stamp changed or moved.\n${diff.join('\n')}\n${RULE}`,
+		).toEqual([])
 	})
 
 	it('names no stamp twice', () => {
