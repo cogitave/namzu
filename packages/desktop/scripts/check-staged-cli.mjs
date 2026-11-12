@@ -134,13 +134,13 @@ export function checkKeptPackageImports(cliDir) {
 	return { scanned, problems }
 }
 
-function childEnv(home) {
+export function childEnv(home) {
 	const env = { ...process.env, HOME: home, USERPROFILE: home, NAMZU_HOME: join(home, 'namzu'), CI: 'true' }
 	for (const key of Object.keys(env)) if (key === 'NODE_PATH' || key.startsWith('WSL')) delete env[key]
 	return env
 }
 
-function runToEnd(program, args, options) {
+export function runToEnd(program, args, options) {
 	return new Promise((resolve, reject) => {
 		const child = spawn(program, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] })
 		let stdout = ''
@@ -167,7 +167,7 @@ const INITIALIZE = {
 	},
 }
 
-function initializeReply(program, args, options) {
+export function initializeReply(program, args, options) {
 	return new Promise((resolve, reject) => {
 		const child = spawn(program, args, { ...options, stdio: ['pipe', 'pipe', 'pipe'] })
 		let buffer = ''

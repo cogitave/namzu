@@ -78,7 +78,10 @@ A host started for the app states two numbers in `initialize` (`kernel.desktopCo
 `kernel.dataEpoch`) so that an app can tell whether an engine newer than the one in its installer is safe for it.
 The inventory of what the app relies on, the tests that guard it and when to raise each number are in
 [Kernel facts](../sdk/kernel-facts.md). The command line's own updater never replaces a copy the app keeps in its
-data folder.
+data folder. The installer's copy also carries a `kernel.json` at its root (the command line and engine versions,
+the two numbers and the platform, written from what the staged command line answers). How a newer engine is staged,
+packed, signed and published for the app to fetch is in
+[Desktop engine bundles](desktop-engine-bundles.md).
 
 The installer is a per-user NSIS setup built by `electron-builder`
 (`packages/desktop/electron-builder.yml`): no administrator prompt, installed to

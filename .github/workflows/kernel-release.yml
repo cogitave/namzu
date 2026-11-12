@@ -1,0 +1,317 @@
+# Publishes the engine that Namzu Desktop keeps itself up to date with: a per-platform archive of the
+# command line and the engine it carries, and a signed description of the newest one, both on the rolling
+# GitHub release `kernel-latest` (the feed URL compiled into the app, KERNEL_FEED_URL). Formats and the
+# reasons for every step are in docs/cli/desktop-engine-bundles.md.
+#
+# It starts three ways:
+#   - the "Release" workflow (the one that publishes the npm packages, .github/workflows/release.yml) finished
+#     successfully on main for a push (workflow_run);
+#   - by hand (workflow_dispatch), with an optional new floor and a version to withdraw or bring back;
+#   - weekly (schedule), to re-issue the current manifest so it never expires while nothing changed.
+#
+# It builds only when the command line version at the commit is NEWER than the one in the current manifest
+# AND is on the npm registry; otherwise the plan job ends the run quietly. With no public key listed in
+# packages/desktop/kernel-keys.json there is nothing to sign for, and it also ends quietly.
+#
+# Jobs:
+#   plan     (read-only token, no secret)  decides what this run does
+#   build    (read-only token, no secret)  installs, builds, stages for win32-x64, packs, checks the archive
+#   publish  (the only job with the signing key and the only one that writes releases; environment
+#            kernel-release)  checks out main and installs NOTHING: it re-reads the archive, assembles the
+#            manifest from the previous one, signs, verifies against the key list in the repository, and
+#            uploads the archive first and the signed pair last.
+# Third-party install scripts run only in `build`, which has neither the key nor a write token.
+# No value from the triggering run or from an input is interpolated into a shell line: values reach the
+# shell through env only. This workflow is not part of ci.yml or release.yml and not of their gate parity
+# (.github/scripts/check-workflow-gate-parity.mjs reads those two files only).
+# Actions are pinned to full commit SHAs (the same ones desktop-release.yml uses).
+name: Kernel release
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      floor:
+        description: Raise the lowest engine version the app may run (x.y.z). Empty keeps the current floor. It can only go up.
+        required: false
+        default: ''
+        type: string
+      withdraw:
+        description: An engine version the app must stop using (x.y.z). Empty withdraws nothing.
+        required: false
+        default: ''
+        type: string
+      unwithdraw:
+        description: An engine version to take off the withdrawn list (x.y.z). Empty changes nothing.
+        required: false
+        default: ''
+        type: string
+  schedule:
+    # Mondays, 05:17 UTC. The manifest lives 14 days, so a missed run or two still leaves it valid.
+    - cron: '17 5 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-release
+  cancel-in-progress: false
+
+env:
+  FEED_TAG: kernel-latest
+  KEYS_FILE: packages/desktop/kernel-keys.json
+  KERNEL_SCRIPTS: packages/desktop/scripts/kernel
+
+jobs:
+  plan:
+    name: Decide what to do
+    # A workflow_run starts for every finish of "Release": only a successful one for a push on main counts.
+    # A hand start must be on main, or it would sign another branch's code.
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository)
+      || (github.event_name != 'workflow_run' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      mode: ${{ steps.decide.outputs.mode }}
+      version: ${{ steps.version.outputs.version }}
+      ref: ${{ steps.ref.outputs.ref }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: The commit this run is about
+        id: ref
+        env:
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          OWN_SHA: ${{ github.sha }}
+        run: |
+          ref="${RUN_SHA:-$OWN_SHA}"
+          case "$ref" in *[!0-9a-f]* | '') echo "not a commit id" >&2; exit 1 ;; esac
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24
+
+      - name: The command line version at this commit
+        id: version
+        run: |
+          version="$(node -p "require('./packages/cli/package.json').version")"
+          case "$version" in *[!0-9.]* | '') echo "unexpected version" >&2; exit 1 ;; esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: The current manifest, if there is one
+        run: |
+          names="$(gh release view "$FEED_TAG" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+          mkdir -p prev
+          if grep -Fxq kernel-latest.json <<<"$names"; then
+            gh release download "$FEED_TAG" --pattern kernel-latest.json --dir prev
+          fi
+
+      - name: Is that version on the registry
+        id: registry
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          found="$(npm view "@namzu/cli@$VERSION" version 2>/dev/null || true)"
+          if [ "$found" = "$VERSION" ]; then echo "on=true" >> "$GITHUB_OUTPUT"; else echo "on=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Decide
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ON_REGISTRY: ${{ steps.registry.outputs.on }}
+          FLOOR: ${{ inputs.floor }}
+          WITHDRAW: ${{ inputs.withdraw }}
+          UNWITHDRAW: ${{ inputs.unwithdraw }}
+        run: |
+          args=(decide --event "$EVENT" --local-version "$VERSION" --on-registry "$ON_REGISTRY" --keys "$KEYS_FILE")
+          if [ -f prev/kernel-latest.json ]; then args+=(--previous prev/kernel-latest.json); fi
+          if [ -n "$FLOOR" ]; then args+=(--floor "$FLOOR"); fi
+          if [ -n "$WITHDRAW" ]; then args+=(--withdraw "$WITHDRAW"); fi
+          if [ -n "$UNWITHDRAW" ]; then args+=(--unwithdraw "$UNWITHDRAW"); fi
+          node "$KERNEL_SCRIPTS/release-plan.mjs" "${args[@]}" | tee decision.txt
+          cat decision.txt >> "$GITHUB_OUTPUT"
+          mode="$(sed -n 's/^mode=//p' decision.txt)"
+          reason="$(sed -n 's/^reason=//p' decision.txt)"
+          echo "::notice title=Kernel release::$mode: $reason"
+
+  build:
+    name: Build the archive (win32-x64)
+    needs: plan
+    if: needs.plan.outputs.mode == 'build'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # Read-only token and no secret: install scripts of third-party packages run here.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ needs.plan.outputs.ref }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm -r build
+
+      - name: Stage the kernel for win32-x64
+        run: node "$KERNEL_SCRIPTS/stage.mjs" "$RUNNER_TEMP/kernel" --target win32-x64
+
+      - name: Pack it
+        run: node "$KERNEL_SCRIPTS/pack.mjs" "$RUNNER_TEMP/kernel" --out "$RUNNER_TEMP/out"
+
+      # The archive is read back with the independent reader, and must carry the version this run is for.
+      - name: The archive is the version this run is for
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          node "$KERNEL_SCRIPTS/describe.mjs" "$RUNNER_TEMP/out/namzu-kernel-$VERSION-win32-x64.tar.gz" --expect-version "$VERSION"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kernel-archive
+          path: |
+            ${{ runner.temp }}/out/namzu-kernel-*.tar.gz
+            ${{ runner.temp }}/out/namzu-kernel-*.tar.gz.bundle.json
+          retention-days: 1
+          if-no-files-found: error
+          # The archive is already gzip-compressed.
+          compression-level: 0
+
+  publish:
+    name: Sign and publish
+    needs: [plan, build]
+    # build is skipped for a re-issue; a failed build never publishes.
+    if: >-
+      !cancelled() && needs.plan.result == 'success'
+      && (needs.plan.outputs.mode == 'reissue' || (needs.plan.outputs.mode == 'build' && needs.build.result == 'success'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The protected environment holds the signing key; its reviewers and branch rule are the second lock.
+    environment: kernel-release
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      MODE: ${{ needs.plan.outputs.mode }}
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      # main, not the triggering commit: the scripts that sign and the key list come from main.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+
+      # Node only. The publisher scripts use nothing but node's own modules: no install runs in this job.
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 24
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        if: env.MODE == 'build'
+        with:
+          name: kernel-archive
+          path: incoming
+
+      - name: The previous manifest, checked against the key list
+        run: |
+          mkdir -p prev out
+          names="$(gh release view "$FEED_TAG" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+          if grep -Fxq kernel-latest.json <<<"$names" && grep -Fxq kernel-latest.json.sig <<<"$names"; then
+            gh release download "$FEED_TAG" --pattern kernel-latest.json --pattern kernel-latest.json.sig --dir prev
+            # An expired previous manifest is fine to renew; one that does not verify is not.
+            node "$KERNEL_SCRIPTS/verify.mjs" --manifest prev/kernel-latest.json --sig prev/kernel-latest.json.sig --keys "$KEYS_FILE" --allow-expired
+          elif [ "$MODE" = reissue ]; then
+            echo "There is no current manifest to re-issue." >&2
+            exit 1
+          fi
+
+      # Nothing the build job wrote beside the archive is trusted: the entry is rebuilt from the archive.
+      - name: Read the archive (build only)
+        if: env.MODE == 'build'
+        run: |
+          node "$KERNEL_SCRIPTS/describe.mjs" "incoming/namzu-kernel-$VERSION-win32-x64.tar.gz" --expect-version "$VERSION" --out out/entry.json
+
+      - name: Assemble the manifest
+        env:
+          FLOOR: ${{ inputs.floor }}
+          WITHDRAW: ${{ inputs.withdraw }}
+          UNWITHDRAW: ${{ inputs.unwithdraw }}
+        run: |
+          args=(--out out/kernel-latest.json)
+          if [ "$MODE" = build ]; then args+=(--bundle out/entry.json); else args+=(--reissue prev/kernel-latest.json); fi
+          if [ "$MODE" = build ] && [ -f prev/kernel-latest.json ]; then args+=(--previous prev/kernel-latest.json); fi
+          if [ -n "$FLOOR" ]; then args+=(--floor "$FLOOR"); fi
+          if [ -n "$WITHDRAW" ]; then args+=(--withdraw "$WITHDRAW"); fi
+          if [ -n "$UNWITHDRAW" ]; then args+=(--unwithdraw "$UNWITHDRAW"); fi
+          node "$KERNEL_SCRIPTS/assemble-manifest.mjs" "${args[@]}"
+
+      # The only step that sees the key. sign.mjs refuses a key whose public half is not in the list.
+      - name: Sign
+        env:
+          NAMZU_KERNEL_SIGNING_KEY: ${{ secrets.NAMZU_KERNEL_SIGNING_KEY }}
+        run: node "$KERNEL_SCRIPTS/sign.mjs" out/kernel-latest.json --keys "$KEYS_FILE"
+
+      # The last check before anything is uploaded: the signature against the key list in the repository
+      # (an empty list refuses), the manifest's rules, and for a build the archive against the manifest.
+      - name: Verify what is about to be uploaded
+        run: |
+          args=(--manifest out/kernel-latest.json --sig out/kernel-latest.json.sig --keys "$KEYS_FILE")
+          if [ "$MODE" = build ]; then args+=(--archive "incoming/namzu-kernel-$VERSION-win32-x64.tar.gz"); fi
+          node "$KERNEL_SCRIPTS/verify.mjs" "${args[@]}"
+
+      - name: Create the rolling release once
+        run: |
+          gh release view "$FEED_TAG" >/dev/null 2>&1 || gh release create "$FEED_TAG" \
+            --prerelease --latest=false \
+            --title "Namzu engine" \
+            --notes "Update feed read by the installed Namzu Desktop app: the newest engine archive and the one before it, and the signed description of the newest. Do not edit or delete this release by hand."
+
+      # A version is never replaced: bytes under a name people may already have downloaded stay as they were.
+      - name: Upload the archive first (build only)
+        if: env.MODE == 'build'
+        run: |
+          name="namzu-kernel-$VERSION-win32-x64.tar.gz"
+          if gh release view "$FEED_TAG" --json assets --jq '.assets[].name' | grep -Fxq "$name"; then
+            echo "$name is already on $FEED_TAG; bump the version instead." >&2
+            exit 1
+          fi
+          gh release upload "$FEED_TAG" "incoming/$name"
+
+      # The signed pair goes last, so the feed never names an archive that is not there yet.
+      - name: Upload the signed manifest
+        run: gh release upload "$FEED_TAG" --clobber out/kernel-latest.json out/kernel-latest.json.sig
+
+      # Keep the newest archive and the one before it; remove older ones so the release does not grow.
+      - name: Remove archives older than the previous one
+        run: |
+          current="$(node -p "JSON.parse(require('fs').readFileSync('out/kernel-latest.json','utf8')).kernel.commandLine")"
+          gh release view "$FEED_TAG" --json assets --jq '[.assets[].name]' \
+            | node "$KERNEL_SCRIPTS/release-plan.mjs" prune --keep "$current" > remove.txt
+          while read -r name; do
+            [ -n "$name" ] || continue
+            echo "Removing $name"
+            gh release delete-asset "$FEED_TAG" "$name" --yes
+          done < remove.txt
