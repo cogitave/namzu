@@ -53,6 +53,7 @@ The operator application.
 * [File checkpoints](file-checkpoints.md) - How the session records every file before a tool changes it, per turn, and how /restore puts the tree back to before a turn.
 * [Turn undo](turn-undo.md) - The durable, turn-keyed file history behind undo and /restore, and the plan that decides what undoing a turn may write.
 * [Memory](memory.md) - The curated files injected into every turn, per project and per user, and typed stored memory — one Markdown file per memory, its index in every turn; where each lives and what writes to it.
+* [namzu eval](eval.md) - Run eval suites with repeats and a seed, read a report's intervals and disclosure, and compare two reports paired by case.
 * [Turn limits](turn-limits.md) - Limits for interactive and headless turns, headless override flags and honest closing stop reasons.
 * [Slash commands](slash-commands.md) - Every builtin slash command the interactive session answers to, one line each, with the composer keys that are not commands.
 * [Plugins](plugins.md) - Trusted extension loading, live contributions and session enable/disable controls.
