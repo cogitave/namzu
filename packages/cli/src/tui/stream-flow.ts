@@ -61,6 +61,15 @@ export interface FlowContext {
 	readonly hyperlinks: boolean
 }
 
+/**
+ * The height a reply's live part reckons with: the terminal's, less the rows the live region
+ * holds besides it (the plan under the working line, the running calls, a queued message).
+ * Without that the part kept live plus these rows could be as tall as the terminal.
+ */
+export function flowRows(terminalRows: number, otherRows: number): number {
+	return Math.max(1, terminalRows - Math.max(0, otherRows))
+}
+
 /** Where the tail begins: how it joins what was printed before it. */
 export interface TailState {
 	readonly join: 'block' | 'text' | 'code'

@@ -787,6 +787,7 @@ import {
 	DROPPED_REPLY_NOTICE,
 	type FlowContext,
 	appendReply,
+	flowRows,
 	paceDecision,
 	voidReply,
 } from './stream-flow.js'
@@ -7151,6 +7152,13 @@ function AppBody({
 	const workingStepLabel = planInRegion ? undefined : workingLabel(tasks, terminal.columns ?? 80)
 	const taskFurniture = fullTaskFurniture
 	const toolFurniture = compactWork && fullToolFurniture > 0 ? 2 : fullToolFurniture
+	// The reply being written keeps its unfinished part short enough that it, the plan under the
+	// working line, the running calls and a queued message still fit the window.
+	if (flowRef.current)
+		flowRef.current = {
+			...flowRef.current,
+			rows: flowRows(terminal.rows, taskFurniture + toolFurniture + pendingInputFurniture),
+		}
 	// How much of the transcript is still redrawable. The rest belongs to native
 	// terminal scrollback; the live tail stays deliberately small so an activity
 	// tick never repaints the whole conversation.

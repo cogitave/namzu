@@ -20,6 +20,7 @@ import {
 	type FlowContext,
 	PACE_MS,
 	appendReply,
+	flowRows,
 	freezeMore,
 	paceDecision,
 	printedPieces,
@@ -385,5 +386,32 @@ describe('appendReply', () => {
 		expect(appendReply(m, text, { ...CTX, freeze: false }).printed).toBeUndefined()
 		expect(appendReply(m, text, undefined).printed).toBeUndefined()
 		expect(appendReply({ ...m, meta: 'x' }, text, CTX).printed).toBeUndefined()
+	})
+})
+
+describe('the window a reply reckons with', () => {
+	it('is the terminal less what else the live region holds, and never less than one row', () => {
+		expect(flowRows(24, 0)).toBe(24)
+		expect(flowRows(24, 7)).toBe(17)
+		expect(flowRows(24, -3)).toBe(24)
+		expect(flowRows(6, 30)).toBe(1)
+	})
+
+	it('a plan and a running call make the unfinished part freeze sooner', () => {
+		const lines = ['```ts', ...Array.from({ length: 40 }, (_, i) => `const v${i} = ${i}`)]
+		// The most rows of the unfinished part that were ever held live while the code arrived line by line.
+		const tallest = (rowsForFlow: number) => {
+			const ctx: FlowContext = { freeze: true, width: 38, rows: rowsForFlow, hyperlinks: false }
+			let printed: readonly PrintedChunk[] = []
+			let most = 0
+			for (let n = 1; n <= lines.length; n++) {
+				const content = `${lines.slice(0, n).join('\n')}\n`
+				printed = freezeMore(content, printed, ctx) ?? printed
+				const done = printed.reduce((sum, c) => sum + c.text.length, 0)
+				most = Math.max(most, content.slice(done).split('\n').length - 1)
+			}
+			return most
+		}
+		expect(tallest(flowRows(24, 8))).toBeLessThan(tallest(flowRows(24, 0)))
 	})
 })
