@@ -9,6 +9,12 @@
 .composer-wrap[data-heading-fits="false"] [data-composer-heading] {
 	visibility: hidden;
 }
+/* The one place the display face is used on the home screen: the project's name in the heading, at
+   the display size. A name the face cannot draw whole keeps the interface face (data-face="interface"). */
+[data-composer-heading] .home-heading-name[data-face="display"] {
+	font-family: var(--font-display);
+	letter-spacing: 0;
+}
 
 /* One control treatment for project, permission, model and engine selectors. */
 .composer-control {

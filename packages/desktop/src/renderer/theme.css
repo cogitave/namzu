@@ -92,6 +92,11 @@
 	--font-sans: var(--font-sans-app);
 	--font-mono: var(--font-mono-app);
 	--font-terminal: var(--font-mono-app);
+	/* The display voice: the pixel face, for a few large words only (see renderer/display-face.ts).
+	   The interface face is its fallback, and "Your device's" points it at the platform stack, so
+	   no pixel letter is drawn then. */
+	--font-display-app: "Geist Pixel", var(--font-sans-app);
+	--font-display: var(--font-display-app);
 	--radius: 0.625rem;
 	--radius-control: 0.5rem;
 	--control-radius: var(--radius-control);
@@ -406,7 +411,18 @@
 	font-display: block;
 	src: url("/fonts/GeistMono-wght.woff2") format("woff2");
 }
+/* The display face: pixel letters, shape Square, one static weight. Its vertical metrics are the
+   sans face's (same ascent, descent and a 532 against 530 x-height), so a line that mixes the two
+   keeps its baseline and its height. */
+@font-face {
+	font-family: "Geist Pixel";
+	font-style: normal;
+	font-weight: 400;
+	font-display: block;
+	src: url("/fonts/GeistPixel-Square.woff2") format("woff2");
+}
 :root[data-interface-font="system"] {
 	--font-sans: var(--font-sans-system);
 	--font-mono: var(--font-mono-system);
+	--font-display: var(--font-sans-system);
 }
