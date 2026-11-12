@@ -88,6 +88,55 @@ export function projectCommandsDir(cwd: string = process.cwd()): string {
 	return join(cwd, '.namzu', 'commands')
 }
 
+/**
+ * One command file's text to a command: usable, or carrying the `problem`
+ * that makes it unusable. The one place the command-file rules live; the
+ * plugin validator calls it on the text it read, so it cannot disagree with
+ * what a session does with the same file.
+ *
+ * Same fence-decides rule as the skill reader: a file with no `---` is all
+ * body, which is the common case for a command, and a file that opens one
+ * must parse. The absence test mirrors the kernel reader's own so the two
+ * cannot disagree about what counts as having frontmatter.
+ */
+export function parseCommandText(
+	raw: string,
+	path: string,
+	name: string,
+	source: UserCommandSource,
+): UserCommand {
+	try {
+		if (!raw.trimStart().startsWith('---')) {
+			return { name, description: '(no description)', template: raw.trim(), path, source }
+		}
+		const { values, body } = parseFrontmatter(raw, path, { lists: ['argument-hint'] })
+		const description =
+			values.description?.kind === 'scalar' ? values.description.value : '(no description)'
+		const hint =
+			values['argument-hint']?.kind === 'scalar' ? values['argument-hint'].value.trim() : ''
+		return {
+			name,
+			description,
+			template: body,
+			path,
+			source,
+			...(hint ? { argumentHint: displayHint(hint) } : {}),
+		}
+	} catch (err) {
+		return {
+			name,
+			description: '(could not be read)',
+			template: '',
+			path,
+			source,
+			problem: err instanceof Error ? err.message : String(err),
+		}
+	}
+}
+
+/** The frontmatter keys a command file reads. Any other is ignored. */
+export const COMMAND_FILE_KEYS: readonly string[] = ['description', 'argument-hint']
+
 function readCommandsFrom(
 	dir: string,
 	source: UserCommandSource,
@@ -115,38 +164,7 @@ function readCommandsFrom(
 			continue
 		}
 
-		// Same fence-decides rule as the skill reader: a file with no `---` is
-		// all body, which is the common case for a command, and a file that
-		// opens one must parse. The absence test mirrors the kernel reader's own
-		// so the two cannot disagree about what counts as having frontmatter.
-		try {
-			if (!raw.trimStart().startsWith('---')) {
-				out.push({ name, description: '(no description)', template: raw.trim(), path, source })
-				continue
-			}
-			const { values, body } = parseFrontmatter(raw, path, { lists: ['argument-hint'] })
-			const description =
-				values.description?.kind === 'scalar' ? values.description.value : '(no description)'
-			const hint =
-				values['argument-hint']?.kind === 'scalar' ? values['argument-hint'].value.trim() : ''
-			out.push({
-				name,
-				description,
-				template: body,
-				path,
-				source,
-				...(hint ? { argumentHint: displayHint(hint) } : {}),
-			})
-		} catch (err) {
-			out.push({
-				name,
-				description: '(could not be read)',
-				template: '',
-				path,
-				source,
-				problem: err instanceof Error ? err.message : String(err),
-			})
-		}
+		out.push(parseCommandText(raw, path, name, source))
 	}
 	return out
 }

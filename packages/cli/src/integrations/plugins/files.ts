@@ -6,6 +6,9 @@ import type { PluginConfig, PluginScope } from '../../config/schema.js'
 import { resolveNamzuHome } from '../state/home.js'
 import { PluginSettingsStore } from './settings.js'
 
+/** The one line a skipped plugin part adds to its message. */
+export const CHECK_HINT = 'Run `namzu plugin validate <plugin folder>` to see every problem.'
+
 /** A folder of markdown files one plugin contributes. */
 export interface PluginFileDir {
 	readonly plugin: string
@@ -27,6 +30,30 @@ export const EMPTY_PLUGIN_FILE_SOURCES: PluginFileSources = Object.freeze({
 	problems: [],
 })
 
+/** What one declared folder resolves to: inside the plugin, outside it, or not there. */
+export type PluginFileDirResolution =
+	| { readonly kind: 'inside'; readonly dir: string }
+	| { readonly kind: 'outside' }
+	| { readonly kind: 'missing' }
+
+/**
+ * One declared folder, resolved inside its plugin's folder. The rule the
+ * session and `namzu plugin validate` share: a link that leads out of the
+ * plugin folder is refused, not followed.
+ */
+export function resolvePluginFileDir(rootDir: string, rel: string): PluginFileDirResolution {
+	try {
+		const real = realpathSync(join(rootDir, rel))
+		const within = relative(realpathSync(rootDir), real)
+		if (within === '..' || within.startsWith(`..${sep}`) || isAbsolute(within)) {
+			return { kind: 'outside' }
+		}
+		return { kind: 'inside', dir: real }
+	} catch {
+		return { kind: 'missing' }
+	}
+}
+
 /**
  * The folders a plugin declared, resolved inside its own folder.
  *
@@ -41,18 +68,14 @@ export function resolvePluginFileDirs(
 	const dirs: PluginFileDir[] = []
 	const problems: string[] = []
 	for (const rel of declared ?? []) {
-		try {
-			const real = realpathSync(join(rootDir, rel))
-			const within = relative(realpathSync(rootDir), real)
-			if (within === '..' || within.startsWith(`..${sep}`) || isAbsolute(within)) {
-				problems.push(
-					`Plugin "${plugin}": "${rel}" leads outside the plugin folder, so it is not used.`,
-				)
-				continue
-			}
-			dirs.push({ plugin, dir: real })
-		} catch {
-			problems.push(`Plugin "${plugin}": the folder "${rel}" was not found.`)
+		const found = resolvePluginFileDir(rootDir, rel)
+		if (found.kind === 'inside') dirs.push({ plugin, dir: found.dir })
+		else if (found.kind === 'outside') {
+			problems.push(
+				`Plugin "${plugin}": "${rel}" leads outside the plugin folder, so it is not used. ${CHECK_HINT}`,
+			)
+		} else {
+			problems.push(`Plugin "${plugin}": the folder "${rel}" was not found. ${CHECK_HINT}`)
 		}
 	}
 	return { dirs, problems }
@@ -125,7 +148,7 @@ export async function readPluginFileSources(options: {
 			// The runtime reports a broken plugin when it starts. Here it only
 			// means this plugin adds no files.
 			problems.push(
-				`A plugin in ${dir} was skipped: ${error instanceof Error ? error.message : String(error)}`,
+				`A plugin in ${dir} was skipped: ${error instanceof Error ? error.message : String(error)} ${CHECK_HINT}`,
 			)
 		}
 	}

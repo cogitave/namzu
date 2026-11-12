@@ -224,7 +224,7 @@ import { SubprocessComputerUseHost } from '@namzu/computer-use'
 import { screenApprover } from './computer-use-screen-approval.js'
 
 import { realpath, stat } from 'node:fs/promises'
-import { join, parse, resolve } from 'node:path'
+import { join, parse, resolve, sep } from 'node:path'
 import {
 	type BrowserControl,
 	type BrowserSessionOptions,
@@ -344,7 +344,10 @@ import {
 	createProgressNotices,
 } from '../integrations/outstanding/progress-notices.js'
 import { readWorkStatus } from '../integrations/outstanding/status.js'
-import { readPluginFileSources } from '../integrations/plugins/files.js'
+import {
+	CHECK_HINT as PLUGIN_CHECK_HINT,
+	readPluginFileSources,
+} from '../integrations/plugins/files.js'
 import { hookSessionMode } from '../integrations/plugins/hook-host.js'
 import { type CliPluginRuntime, createCliPluginRuntime } from '../integrations/plugins/runtime.js'
 import { hasApiCredential, requiresCredentialForModel } from '../integrations/providers/access.js'
@@ -4087,9 +4090,12 @@ export async function createAgentSession(
 			})
 		}
 		for (const skipped of discovered.skipped) {
+			const inPlugin = pluginFiles.agents.some(({ dir }) => skipped.path.startsWith(`${dir}${sep}`))
 			cliLogger().warn('agent definition skipped', {
 				'namzu.agent.definition.path': skipped.path,
-				'namzu.agent.definition.reason': skipped.reason,
+				'namzu.agent.definition.reason': inPlugin
+					? `${skipped.reason}. ${PLUGIN_CHECK_HINT}`
+					: skipped.reason,
 			})
 		}
 		const sub = await createSubagentRuntime({
@@ -4952,7 +4958,7 @@ export async function createAgentSession(
 	} catch (error) {
 		await Promise.allSettled([mcp.close(), computerUseHost?.dispose(), browserControl?.dispose()])
 		return emptySession(
-			explainFailure(error, 'Namzu could not load your plugins.'),
+			`${explainFailure(error, 'Namzu could not load your plugins.')} ${PLUGIN_CHECK_HINT}`,
 			'environment',
 			describeError(error),
 		)

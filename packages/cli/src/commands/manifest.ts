@@ -147,6 +147,15 @@ export const historyCommand = lazyCommand(
 	async () => (await import('./host-queries.js')).historyCommand,
 )
 
+export const pluginCommand = lazyCommand(
+	{
+		name: 'plugin',
+		description: 'Check a plugin folder without running anything from it',
+		passThrough: true,
+	},
+	async () => (await import('./plugin.js')).pluginCommand,
+)
+
 export const skillsCommand = lazyCommand(
 	{
 		name: 'skills',
