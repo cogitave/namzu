@@ -2760,6 +2760,15 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 					continue
 				}
 			}
+			if (key === 'disableHooks' && isProjectSource(layer.sourceFor(key))) {
+				// A repository's file cannot switch off the hooks the person set up.
+				if (layer.config.disableHooks === true) {
+					configWarnings.add(
+						`disableHooks in ${describeSource(layer.sourceFor(key))} is ignored: only your own config file, the environment or the managed file can turn hooks off.`,
+					)
+				}
+				continue
+			}
 			if (key === 'disableHooks' && out.disableHooks === true) {
 				// Once on, no later layer turns it off.
 				continue

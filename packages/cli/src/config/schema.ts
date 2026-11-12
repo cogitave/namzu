@@ -608,8 +608,10 @@ export interface NamzuCliConfig {
 	 * `true` turns off every hook that comes from the user file, the project
 	 * file and the project's local file (profiles in them included). Hooks from
 	 * the organisation-managed file keep running, and so do the JavaScript
-	 * hooks of plugins, which have their own switch (`plugins.enabled`). Once
-	 * any layer or `NAMZU_DISABLE_HOOKS=1` says `true`, no later layer undoes it.
+	 * hooks of plugins, which have their own switch (`plugins.enabled`). Only the
+	 * user file, the managed file and `NAMZU_DISABLE_HOOKS=1` can set it: in a
+	 * project or local file it is ignored, with a note at launch. Once one of
+	 * those says `true`, no later layer undoes it.
 	 */
 	readonly disableHooks?: boolean
 	/**

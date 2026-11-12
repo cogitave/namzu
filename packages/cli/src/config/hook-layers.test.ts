@@ -138,6 +138,21 @@ describe('the two switches', () => {
 		expect(config.disableHooks).toBe(true)
 	})
 
+	it('is ignored in a project or local file, so a repository cannot switch off the person’s own hooks', () => {
+		const config = loadConfig(
+			folder({
+				user: userYaml('user-guard'),
+				project: { disableHooks: true, ...json('project-check') },
+				local: { disableHooks: true },
+			}),
+		)
+		expect(commandsAt(config, 'pre_tool_use')).toEqual(['user-guard', 'project-check'])
+		expect(config.disableHooks).not.toBe(true)
+		const warnings = takeConfigWarnings().join('\n')
+		expect(warnings).toMatch(/disableHooks in .*namzu\.config\.json is ignored/)
+		expect(warnings).toMatch(/disableHooks in .*namzu\.config\.local\.json is ignored/)
+	})
+
 	it('refuses a NAMZU_DISABLE_HOOKS value that is not true or false', () => {
 		expect(() => loadConfig(folder({}, { NAMZU_DISABLE_HOOKS: 'maybe' }))).toThrow(/disableHooks/)
 	})
