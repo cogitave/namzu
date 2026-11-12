@@ -1081,4 +1081,40 @@ longer surfaces as a bare rejection: it comes back as a `ToolResult` with
 [MRTR](#mrtr-resulttype-and-a-typed-input_required-outcome)) — a host
 reading `ToolResult.data` today sees a new code it previously never could.
 
+## What is supported per revision
+
+"New" is 2026-07-28; "previous" is 2025-11-25 and older (the exact versions
+are in [the supported set](#the-supported-set)).
+
+| feature | previous | new |
+|---|---|---|
+| Version choice | `initialize` handshake, cached per origin | `server/discover` probe, version and capabilities in every request's `_meta` |
+| Sessions, `Mcp-Session-Id`, `Last-Event-ID` | yes | none, by design |
+| `Mcp-Method`, `Mcp-Name`, `x-mcp-header` mirroring | no | yes |
+| `resultType`, multi round-trip retry with `requestState` | a missing `resultType` reads as complete | yes; a request for input the client cannot give is a typed error |
+| List change notifications | the server's own stream | one `subscriptions/listen` stream, ID-checked |
+| One resource's updates | `resources/subscribe`, restored after a reconnection | `resourceSubscriptions` in the listen filter |
+| `ttlMs` and `cacheScope` | not sent by servers; nothing cached | lists and reads kept for `ttlMs`, scoped, dropped on a change |
+| Tasks extension | not applicable | polled to the result, progress, `tasks/cancel` |
+| Trace context in `_meta` | not sent | `traceparent`, `tracestate` when a span is active |
+| Tool list order | sorted by name | sorted by name |
+| `ping` from the server | answered | removed from the protocol |
+| Roots, sampling, logging | untouched and not added to; deprecated by the new revision | not declared, not used |
+| Elicitation | form mode answered through `onElicitation` | not fulfilled: arrives as `input_required` |
+| Authorization (CLI) | issuer-keyed credentials, `iss` checked, `application_type` set | the same |
+
 ## Not yet built
+
+- **Answering a task's input requests.** `tasks/update` is not sent: a task that
+  reaches `input_required` is cancelled and the call ends with
+  `MCPInputRequiredError`. Neither mode of elicitation is fulfilled on a modern
+  connection, and a multi round-trip request that asks for input is refused for
+  the same reason.
+- **Task notifications and durable task ids.** `notifications/tasks` through
+  the listen stream (polling runs instead), and saving task ids so a restarted
+  process can resume waiting. Today a task is awaited only by the call that
+  started it.
+- **`baggage` in `_meta`.** Only `traceparent` and `tracestate` are sent.
+- **Per-request log level.** `io.modelcontextprotocol/logLevel` is never sent,
+  so a 2026-07-28 server emits no log messages; logging is deprecated and
+  nothing new is built on it.

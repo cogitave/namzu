@@ -17,7 +17,7 @@ const created = { resultType: 'task', status: 'working', ...TASK }
 const toolResult = { resultType: 'complete', content: [{ type: 'text', text: 'done' }] }
 
 /** `tasks/get` answers from a script, the last one repeating. */
-function script(...states: Array<Record<string, unknown>>): FakeHandler {
+function script(...states: Record<string, unknown>[]): FakeHandler {
 	let i = 0
 	return () => ({
 		result: {
