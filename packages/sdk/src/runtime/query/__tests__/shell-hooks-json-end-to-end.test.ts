@@ -1147,3 +1147,98 @@ describe('matching hooks run in parallel and their answers combine', () => {
 		expect(shown).toContain('from the audit log')
 	})
 })
+
+describe('a redaction hook that fails', () => {
+	const SECRET = 'sk-live-0123456789'
+	const leaky = (): Harness => {
+		const executions: Harness['executions'] = []
+		return {
+			executions,
+			tools: [
+				defineTool({
+					name: 'leak',
+					description: 'prints a secret',
+					inputSchema: z.object({ text: z.string() }),
+					category: 'custom',
+					permissions: [],
+					readOnly: false,
+					destructive: false,
+					concurrencySafe: false,
+					execute: async (input) => {
+						executions.push({ tool: 'leak', input })
+						return { success: true, output: `token=${SECRET}` }
+					},
+				}),
+			],
+		}
+	}
+	// Prints an answer far past the 64 KiB that is read.
+	const tooLarge = (onFailure: 'block' | 'continue') => ({
+		command: script(
+			`printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":"'\nhead -c 100000 /dev/zero | tr '\\0' y\nprintf '"}}'\n`,
+		),
+		onFailure,
+	})
+	const failures: Record<string, string> = {
+		'exits with a code that is not 0 or 2': 'exit 3\n',
+		'prints an answer that does not read': 'echo \'{"hookSpecificOutput": \'\n',
+	}
+
+	it('with onFailure block withholds the result when the answer is too large', async () => {
+		const harness = leaky()
+		const { provider, executions, events } = await run({
+			harness,
+			hooks: { post_tool_use: [tooLarge('block')] },
+			turns: [toolCall('leak', { text: 'x' }), { text: 'done' }],
+		})
+		expect(executions).toHaveLength(1)
+		const shown = seenBy(provider.requests, 1)
+		expect(shown).not.toContain(SECRET)
+		expect(shown).toContain('A hook guarding this result failed, so the result is not shown')
+		expect(shown).toContain('answer is too large')
+		expect(shown).toContain('A hook replaced this tool result')
+		const recorded = JSON.stringify(events.filter((e) => e.type === 'tool_completed'))
+		expect(recorded).not.toContain(SECRET)
+		expect(recorded).toContain('A hook replaced this tool result')
+	})
+
+	it('with onFailure continue shows the original result and says why it was set aside', async () => {
+		const harness = leaky()
+		const { provider } = await run({
+			harness,
+			hooks: { post_tool_use: [tooLarge('continue')] },
+			turns: [toolCall('leak', { text: 'x' }), { text: 'done' }],
+		})
+		const shown = seenBy(provider.requests, 1)
+		expect(shown).toContain(SECRET)
+		expect(shown).not.toContain('guarding this result failed')
+	})
+
+	for (const [name, body] of Object.entries(failures)) {
+		it(`withholds the result when the hook ${name}, only with block`, async () => {
+			const blocked = await run({
+				harness: leaky(),
+				hooks: { post_tool_use: [{ command: script(body), onFailure: 'block' }] },
+				turns: [toolCall('leak', { text: 'x' }), { text: 'done' }],
+			})
+			expect(seenBy(blocked.provider.requests, 1)).not.toContain(SECRET)
+			expect(seenBy(blocked.provider.requests, 1)).toContain('guarding this result failed')
+			const open = await run({
+				harness: leaky(),
+				hooks: { post_tool_use: [{ command: script(body) }] },
+				turns: [toolCall('leak', { text: 'x' }), { text: 'done' }],
+			})
+			expect(seenBy(open.provider.requests, 1)).toContain(SECRET)
+		})
+	}
+
+	it('also guards the result of a call that failed', async () => {
+		const { provider } = await run({
+			hooks: { post_tool_use_failure: [{ command: script('exit 3\n'), onFailure: 'block' }] },
+			turns: [toolCall('flaky', { text: 'x' }), { text: 'done' }],
+		})
+		const shown = seenBy(provider.requests, 1)
+		expect(shown).not.toContain('it broke')
+		expect(shown).toContain('guarding this result failed')
+	})
+})

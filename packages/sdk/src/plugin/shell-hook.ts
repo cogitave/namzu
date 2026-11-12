@@ -208,7 +208,10 @@ interface ShellHookEntryBase {
 	 * What the hook's own failure does: it could not start, it timed out, it
 	 * exited with a code other than `0` or `2`, or it printed JSON that is not
 	 * valid. `continue` (the default) reports it and lets the action go ahead;
-	 * `block` counts it as exit `2`, so the action the event guards is refused.
+	 * `block` counts it as exit `2`, so the action the event guards is refused;
+	 * on `post_tool_use` and `post_tool_use_failure`, where the call has already
+	 * run, it withholds the result from the model instead (set it on a hook that
+	 * redacts).
 	 * Not read on a `prompt` hook or an `async` command.
 	 */
 	readonly onFailure?: ShellHookOnFailure
@@ -385,6 +388,8 @@ export interface ShellHookOutcome {
 	readonly timedOut: boolean
 	readonly stdout: string
 	readonly stderr: string
+	/** Set when the hook printed more on stdout than is kept (`MAX_CAPTURE_BYTES`). */
+	readonly stdoutTruncated?: boolean
 	/** Set when the process could not be started at all. */
 	readonly spawnError?: string
 }
@@ -553,17 +558,24 @@ export function runShellHook(
 		}
 		let stdout = ''
 		let stderr = ''
+		let stdoutTruncated = false
 		let timedOut = false
 		let settled = false
-		const capture = (current: string, chunk: Buffer): string =>
-			current.length >= MAX_CAPTURE_BYTES
-				? current
-				: (current + chunk.toString('utf8')).slice(0, MAX_CAPTURE_BYTES)
+		const capture = (current: string, chunk: Buffer): { text: string; cut: boolean } => {
+			if (current.length >= MAX_CAPTURE_BYTES) return { text: current, cut: chunk.length > 0 }
+			const joined = current + chunk.toString('utf8')
+			return {
+				text: joined.slice(0, MAX_CAPTURE_BYTES),
+				cut: joined.length > MAX_CAPTURE_BYTES,
+			}
+		}
 		child.stdout?.on('data', (chunk: Buffer) => {
-			stdout = capture(stdout, chunk)
+			const next = capture(stdout, chunk)
+			stdout = next.text
+			if (next.cut) stdoutTruncated = true
 		})
 		child.stderr?.on('data', (chunk: Buffer) => {
-			stderr = capture(stderr, chunk)
+			stderr = capture(stderr, chunk).text
 		})
 		const finish = (outcome: ShellHookOutcome) => {
 			if (settled) return
@@ -596,11 +608,18 @@ export function runShellHook(
 				timedOut,
 				stdout,
 				stderr,
+				...(stdoutTruncated ? { stdoutTruncated } : {}),
 				spawnError: error.message,
 			})
 		})
 		child.on('close', (code) => {
-			finish({ exitCode: code, timedOut, stdout, stderr })
+			finish({
+				exitCode: code,
+				timedOut,
+				stdout,
+				stderr,
+				...(stdoutTruncated ? { stdoutTruncated } : {}),
+			})
 		})
 		child.on('exit', () => {
 			// After a kill, a survivor that still holds the pipes must not hold
@@ -819,15 +838,30 @@ export function shellHookVerdict(
 	}
 	// A failure of the hook itself is "carry on" unless the entry asked for
 	// it to count as a refusal, which is exit 2 with the failure as the reason.
-	const failed = (reason: string): PluginHookResult =>
-		entry.onFailure === 'block' && entry.type !== 'prompt' && !isAsyncShellHook(entry)
-			? shellHookVerdict(
-					event,
-					{ ...entry, onFailure: 'continue' },
-					{ exitCode: 2, timedOut: false, stdout: '', stderr: `hook failed: ${reason}` },
-					log,
-				)
-			: { action: 'continue' }
+	const failed = (reason: string, shown: string = reason): PluginHookResult => {
+		if (entry.onFailure !== 'block' || entry.type === 'prompt' || isAsyncShellHook(entry)) {
+			return { action: 'continue' }
+		}
+		// The call has run and a refusal cannot undo it, but the hook may have
+		// been the one thing keeping something out of the result (a redaction),
+		// so a failed guard withholds the result instead of passing it on. The
+		// kernel marks the record as it does for any replaced result.
+		if (event === 'post_tool_use' || event === 'post_tool_use_failure') {
+			const line = `A hook guarding this result failed, so the result is not shown (${shown}). The tool call itself has already run.`
+			return {
+				action: 'replace',
+				output: line,
+				content: [{ type: 'text', text: line }],
+				disclose: true,
+			}
+		}
+		return shellHookVerdict(
+			event,
+			{ ...entry, onFailure: 'continue' },
+			{ exitCode: 2, timedOut: false, stdout: '', stderr: `hook failed: ${reason}` },
+			log,
+		)
+	}
 	if (outcome.spawnError !== undefined) {
 		log.warn('hook could not start', {
 			...attrs,
@@ -876,7 +910,12 @@ export function shellHookVerdict(
 
 	// Exit 0.
 	const text = outcome.stdout.trim()
-	const reading = readShellHookJson(event, outcome.stdout)
+	const reading: ShellHookReading | undefined =
+		outcome.stdoutTruncated === true && text.startsWith('{')
+			? {
+					invalid: `answer is too large: the hook printed more than the ${MAX_CAPTURE_BYTES} characters of stdout that are read`,
+				}
+			: readShellHookJson(event, outcome.stdout)
 	if (reading === undefined) {
 		// On the prompt event, what the hook printed is context for the
 		// model — the branch, the time, a ticket. Everywhere else stdout is
@@ -893,7 +932,9 @@ export function shellHookVerdict(
 			...attrs,
 			'namzu.hook.problem': reading.invalid,
 		})
-		return failed(reading.invalid)
+		// The parser's own detail can quote a piece of the answer; the line the
+		// model reads keeps only the lead.
+		return failed(reading.invalid, reading.invalid.split(' (')[0])
 	}
 	if (!reading.suppressOutput) {
 		log.debug('hook output', {

@@ -5,7 +5,7 @@
  * tool.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { PluginHookContext, PluginHookDefinition } from '../../types/plugin/index.js'
 import { asSessionId } from '../../utils/id.js'
@@ -221,7 +221,7 @@ describe('a shell hook replaces a tool result', () => {
 		}
 	})
 
-	it('reads an answer of 64 KiB at most: a larger one is set aside and the original result stands', async () => {
+	it('reads an answer of 64 KiB at most: a larger one is set aside (and, with onFailure block, the result is withheld)', async () => {
 		const answering = (chars: number) =>
 			runShellHook(
 				{
@@ -290,5 +290,82 @@ describe('if on a file tool', () => {
 
 	it('runs the hook for a file tool when the host reads no paths, so a typo never switches a guard off', () => {
 		expect(shellHookIfMatches('Edit(src)', 'edit', { path: 'docs/a.md' })).toBe(true)
+	})
+})
+
+describe('a post_tool_use hook that fails', () => {
+	const tooLarge = () =>
+		runShellHook(
+			{
+				command: `printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":"'; head -c 100000 /dev/zero | tr '\\0' y; printf '"}}'`,
+			},
+			{ event: 'post_tool_use', sessionId: SESSION, cwd: process.cwd() },
+		)
+	const run = (spec: object) =>
+		runShellHook(spec as never, { event: 'post_tool_use', sessionId: SESSION, cwd: process.cwd() })
+	const cases: [string, () => ReturnType<typeof runShellHook>, string][] = [
+		['printed an answer over the limit', tooLarge, 'answer is too large'],
+		['timed out', () => run({ command: 'sleep 30', timeoutMs: 50 }), 'timed out'],
+		[
+			'could not start',
+			() => run({ command: '/nonexistent/namzu-hook-binary', args: [] }),
+			'could not start',
+		],
+		['exited with a code other than 0 or 2', () => run({ command: 'exit 3' }), 'exited with 3'],
+	]
+
+	for (const [what, outcome, reason] of cases) {
+		for (const event of ['post_tool_use', 'post_tool_use_failure'] as const) {
+			it(`${event}: onFailure block withholds the result when it ${what}`, async () => {
+				const verdict = shellHookVerdict(
+					event,
+					{ command: 'x', onFailure: 'block' },
+					await outcome(),
+				)
+				expect(verdict.action).toBe('replace')
+				if (verdict.action !== 'replace') return
+				expect(verdict.disclose).toBe(true)
+				expect(verdict.output).toContain('A hook guarding this result failed')
+				expect(verdict.output).toContain('the result is not shown')
+				expect(verdict.output).toContain(reason)
+				expect(verdict.content).toEqual([{ type: 'text', text: verdict.output }])
+			})
+
+			it(`${event}: onFailure continue leaves the result alone when it ${what}`, async () => {
+				expect(shellHookVerdict(event, { command: 'x' }, await outcome())).toEqual({
+					action: 'continue',
+				})
+				expect(
+					shellHookVerdict(event, { command: 'x', onFailure: 'continue' }, await outcome()),
+				).toEqual({ action: 'continue' })
+			})
+		}
+	}
+
+	it('names the limit when the answer is too large, not generic unreadable JSON', async () => {
+		const warn = vi.fn()
+		const log = { warn, info: vi.fn(), error: vi.fn(), debug: vi.fn(), child: () => log } as never
+		shellHookVerdict('post_tool_use', entry, await tooLarge(), log)
+		expect(JSON.stringify(warn.mock.calls)).toContain('65536')
+		expect(JSON.stringify(warn.mock.calls)).not.toContain('not valid JSON')
+	})
+
+	it('keeps the parser detail out of the line the model reads', () => {
+		const verdict = shellHookVerdict(
+			'post_tool_use',
+			{ command: 'x', onFailure: 'block' },
+			out('{"updatedToolOutput": "hunter2" oops'),
+		)
+		expect(verdict.action).toBe('replace')
+		if (verdict.action === 'replace') expect(verdict.output).not.toContain('hunter2')
+	})
+
+	it('does not change a pre_tool_use hook: block still refuses the call', async () => {
+		const verdict = shellHookVerdict(
+			'pre_tool_use',
+			{ command: 'x', onFailure: 'block' },
+			await run({ command: 'exit 3' }),
+		)
+		expect(verdict.action).toBe('skip')
 	})
 })
