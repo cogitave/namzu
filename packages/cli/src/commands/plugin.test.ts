@@ -71,10 +71,22 @@ describe('exit status', () => {
 		expect(stdout).toContain('The loader refuses the whole plugin')
 	})
 
-	it('is 66 when the folder cannot be read', async () => {
-		const { code, stdout } = await run(['validate', join(set.base, 'nowhere')])
+	it('is 66 when the folder cannot be read, with the reason on standard error only', async () => {
+		const { code, stdout, stderr } = await run(['validate', join(set.base, 'nowhere')])
 		expect(code).toBe(66)
-		expect(stdout).toMatch(/^Could not read /)
+		expect(stdout).toBe('')
+		expect(stderr).toHaveLength(1)
+		expect(stderr[0]).toMatch(/^Could not read /)
+	})
+
+	it('reads what follows -- as a folder, even one that starts with a dash', async () => {
+		const dir = goodPlugin(set, 'cmd-dash')
+		const spy = vi.spyOn(process, 'cwd').mockReturnValue(set.base)
+		const { code, stderr } = await run(['validate', '--', '-nowhere'])
+		spy.mockRestore()
+		expect(code).toBe(66)
+		expect(stderr[0]).toContain('-nowhere')
+		expect((await run(['validate', '--json', '--', dir])).code).toBe(0)
 	})
 
 	it('is 64 for a wrong command line, with the reason on standard error only', async () => {

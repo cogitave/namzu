@@ -397,14 +397,22 @@ async function checkManifest(root: string, c: Collector): Promise<Manifest | und
 	if (!read.ok) {
 		const reason =
 			read.kind === 'too-large'
-				? `${MANIFEST_FILE} is ${read.detail ?? 'very large'}, over the ${MAX_CHECKED_FILE_BYTES} bytes this check reads, and a manifest is a few kilobytes.`
+				? `${MANIFEST_FILE} is ${read.detail ?? 'very large'}, over the ${MAX_CHECKED_FILE_BYTES} bytes this check reads.`
 				: read.kind === 'binary'
 					? `${MANIFEST_FILE} is not a text file.`
 					: `${MANIFEST_FILE} could not be read${read.detail ? `: ${read.detail}` : '.'}`
-		problem(
-			`manifest-${read.kind === 'too-large' ? 'too-large' : read.kind === 'binary' ? 'binary' : 'unreadable'}`,
-			reason,
-		)
+		if (read.kind === 'too-large') {
+			// Too large to read here, but the loader reads any size: not read is not refused.
+			problem(
+				'manifest-too-large',
+				`${reason} It was not read, so nothing else in this plugin was checked.`,
+				'The loader reads a manifest of any size; whether it accepts this one is not known here.',
+				undefined,
+				'warning',
+			)
+			return undefined
+		}
+		problem(`manifest-${read.kind === 'binary' ? 'binary' : 'unreadable'}`, reason)
 		return undefined
 	}
 
@@ -593,7 +601,7 @@ async function checkParts(root: string, manifest: Manifest, c: Collector): Promi
 					file: rel2,
 					line: lineForReason(text, command.problem),
 					code: 'command-invalid',
-					message: plainReason(command.problem, abs),
+					message: `The command file ${plainReason(command.problem, abs)}.`,
 					consequence: 'The command is listed with this reason and cannot be used.',
 				})
 				return
@@ -713,6 +721,9 @@ function readProblem(
 	}
 }
 
+/** Names that read as markdown to a person, whatever the loader makes of them. */
+const MARKDOWN_LOOKALIKE = /\.(md|markdown|mdown|mkd|mdx)$/i
+
 const MODULE_EXTENSIONS = ['.js', '.mjs', '.cjs']
 
 async function checkModule(
@@ -765,7 +776,9 @@ async function checkModule(
 	}
 	if (kind === 'hook') {
 		const seen = new Set<string>()
-		for (const match of read.text.matchAll(/\bevent\s*:\s*(['"`])([A-Za-z0-9_]+)\1/g)) {
+		for (const match of withoutComments(read.text).matchAll(
+			/\bevent\s*:\s*(['"`])([A-Za-z0-9_]+)\1/g,
+		)) {
 			const event = match[2] as string
 			if (seen.has(event)) continue
 			seen.add(event)
@@ -780,13 +793,20 @@ async function checkModule(
 					line: read.text.slice(0, match.index).split('\n').length,
 					code: 'hook-event-unknown',
 					message: renamed
-						? `The hook event "${event}" was renamed to "${renamed}", so this hook never fires under the old name.`
-						: `"${event}" is not a hook event Namzu has, so a hook written for it never fires.`,
-					consequence: `Found by reading the text, not by running it. If the module really registers it, the loader refuses the plugin (${plainReason(message(error))}).`,
+						? `The hook event "${event}" was renamed to "${renamed}", so a hook written under the old name cannot be registered.`
+						: `"${event}" is not a hook event Namzu has, so a hook written for it cannot be registered.`,
+					consequence: `Found by reading the text, not by running it. If the module really registers it, the loader refuses the whole plugin (${plainReason(message(error))}).`,
 				})
 			}
 		}
 	}
+}
+
+/** The text with its comments blanked, keeping every line where it was. */
+function withoutComments(text: string): string {
+	return text
+		.replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ' '))
+		.replace(/(^|[^:'"`\\])\/\/[^\n]*/gm, (_m, lead: string) => lead)
 }
 
 async function checkSkill(
@@ -865,7 +885,7 @@ async function checkSkill(
 			file: skillFile,
 			line: lineForReason(read.text, reason),
 			code: 'skill-invalid',
-			message: plainReason(reason, `SKILL.md at "${dir}": `, `SKILL.md at "${dir}"`),
+			message: `The skill file ${plainReason(reason, `SKILL.md at "${dir}": `, `SKILL.md at "${dir}"`)}.`,
 			consequence: REFUSED,
 		})
 		return
@@ -994,9 +1014,13 @@ async function checkFolder(
 		return
 	}
 	let entries: import('node:fs').Dirent[]
+	let passedOver: import('node:fs').Dirent[] = []
 	try {
-		entries = (await readdir(resolved.dir, { withFileTypes: true })).filter((e) =>
-			e.name.endsWith('.md'),
+		const all = await readdir(resolved.dir, { withFileTypes: true })
+		entries = all.filter((e) => e.name.endsWith('.md'))
+		// The loader lists names that end in lowercase ".md" and nothing else.
+		passedOver = all.filter(
+			(e) => !e.isDirectory() && !e.name.endsWith('.md') && MARKDOWN_LOOKALIKE.test(e.name),
 		)
 	} catch (error) {
 		c.add({
@@ -1010,6 +1034,18 @@ async function checkFolder(
 		return
 	}
 	entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+	passedOver.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+	for (const entry of passedOver.slice(0, MAX_CHECKED_FILES_PER_FOLDER)) {
+		const rel2 = posix(relative(root, join(resolved.dir, entry.name)))
+		c.add({
+			level: 'warning',
+			part,
+			file: rel2,
+			code: 'file-ignored',
+			message: `"${entry.name}" looks like a markdown file, but only names ending in lowercase ".md" are read, so it is not.`,
+			consequence: `The loader passes it over without a word; rename it to end in ".md" to use it as ${field === 'commands' ? 'a command' : 'an agent'}.`,
+		})
+	}
 	if (entries.length > MAX_CHECKED_FILES_PER_FOLDER) {
 		c.add({
 			level: 'warning',

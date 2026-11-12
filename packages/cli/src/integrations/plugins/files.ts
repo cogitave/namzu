@@ -4,10 +4,10 @@ import { discoverAllPluginDirs, loadPluginManifest, resolveWithinReal } from '@n
 
 import type { PluginConfig, PluginScope } from '../../config/schema.js'
 import { resolveNamzuHome } from '../state/home.js'
+import { CHECK_HINT, checkHint } from './check-hint.js'
 import { PluginSettingsStore } from './settings.js'
 
-/** The one line a skipped plugin part adds to its message. */
-export const CHECK_HINT = 'Run `namzu plugin validate <plugin folder>` to see every problem.'
+export { CHECK_HINT, checkHint }
 
 /** A folder of markdown files one plugin contributes. */
 export interface PluginFileDir {
@@ -72,10 +72,10 @@ export function resolvePluginFileDirs(
 		if (found.kind === 'inside') dirs.push({ plugin, dir: found.dir })
 		else if (found.kind === 'outside') {
 			problems.push(
-				`Plugin "${plugin}": "${rel}" leads outside the plugin folder, so it is not used. ${CHECK_HINT}`,
+				`Plugin "${plugin}": "${rel}" leads outside the plugin folder, so it is not used. ${checkHint(rootDir)}`,
 			)
 		} else {
-			problems.push(`Plugin "${plugin}": the folder "${rel}" was not found. ${CHECK_HINT}`)
+			problems.push(`Plugin "${plugin}": the folder "${rel}" was not found. ${checkHint(rootDir)}`)
 		}
 	}
 	return { dirs, problems }
@@ -148,7 +148,7 @@ export async function readPluginFileSources(options: {
 			// The runtime reports a broken plugin when it starts. Here it only
 			// means this plugin adds no files.
 			problems.push(
-				`A plugin in ${dir} was skipped: ${error instanceof Error ? error.message : String(error)} ${CHECK_HINT}`,
+				`A plugin in ${dir} was skipped: ${error instanceof Error ? error.message : String(error)} ${checkHint(dir)}`,
 			)
 		}
 	}

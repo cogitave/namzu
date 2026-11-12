@@ -52,12 +52,11 @@ afterAll(() => removeTempDir(set.base))
 async function loaderAccepts(dir: string): Promise<Set<string>> {
 	const accepted = new Set<string>()
 	const refused = new Set<string>()
-	let manifestOk = true
 	try {
 		await loadPluginManifest(dir, { skillsSupported: true })
 		accepted.add('manifest')
 	} catch {
-		manifestOk = false
+		// Refused: the manifest is not accepted.
 	}
 	let manifest: ReturnType<typeof parsePluginManifestText>
 	try {
@@ -65,7 +64,6 @@ async function loaderAccepts(dir: string): Promise<Set<string>> {
 	} catch {
 		return accepted
 	}
-	void manifestOk
 
 	for (const [kind, list] of [
 		['tool', manifest.tools],
@@ -127,9 +125,9 @@ async function checkAccepts(dir: string): Promise<Set<string>> {
 	return new Set(ids)
 }
 
-// A module's contents and an over-size manifest are the two places the check
-// cannot reproduce the loader; see the header.
-const NOT_COMPARABLE = new Set(['tool-binary', 'tool-huge', 'manifest-huge'])
+// A module's contents are the one place the check cannot reproduce the loader;
+// see the header.
+const NOT_COMPARABLE = new Set(['tool-binary', 'tool-huge'])
 
 describe('the loader and the check agree on which parts are accepted', () => {
 	for (const fixture of FIXTURE_CASES) {

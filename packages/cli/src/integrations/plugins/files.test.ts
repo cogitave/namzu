@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { discoverUserCommands } from '../../user-commands/store.js'
 import { discoverAgentDefinitions } from '../subagents/definitions.js'
-import { readPluginFileSources, resolvePluginFileDirs } from './files.js'
+import { checkHint, readPluginFileSources, resolvePluginFileDirs } from './files.js'
 
 let root: string
 let cwd: string
@@ -125,5 +125,32 @@ describe('what a plugin contributes as files', () => {
 		expect(resolved.problems).toHaveLength(2)
 		expect(resolved.problems[0]).toMatch(/outside the plugin folder/)
 		expect(resolved.problems[1]).toMatch(/not found/)
+		// The line names this command and the folder, never a placeholder.
+		for (const problem of resolved.problems) {
+			expect(problem).toContain(`namzu plugin validate ${dir}`)
+			expect(problem).not.toContain('<')
+		}
+	})
+
+	it('ends the reason of a plugin command that cannot be used with the line naming the command', () => {
+		const dir = plugin(join(root, 'q'), 'q')
+		writeFileSync(join(dir, 'commands', 'broken.md'), '---\ndescription: x\nno end\n')
+		const broken = discoverUserCommands({
+			home,
+			cwd,
+			pluginCommandDirs: [{ plugin: 'q', dir: join(dir, 'commands') }],
+		}).find((c) => c.name === 'q__broken')
+		expect(broken?.problem).toContain('namzu plugin validate')
+		expect(broken?.problem).not.toContain('<')
+		// A project's own command carries no such line.
+		mkdirSync(join(cwd, '.namzu', 'commands'), { recursive: true })
+		writeFileSync(join(cwd, '.namzu', 'commands', 'own.md'), '---\ndescription: x\nno end\n')
+		const own = discoverUserCommands({ home, cwd }).find((c) => c.name === 'own')
+		expect(own?.problem).toBeDefined()
+		expect(own?.problem).not.toContain('namzu plugin validate')
+	})
+
+	it('quotes a folder with a space in the hint', () => {
+		expect(checkHint('/a b/c')).toBe('Run `namzu plugin validate "/a b/c"` to see every problem.')
 	})
 })

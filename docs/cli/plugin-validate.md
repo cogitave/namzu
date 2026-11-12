@@ -9,7 +9,7 @@ tags: [cli, plugins, validation, json]
 # namzu plugin validate
 
 ```bash
-namzu plugin validate [path] [--json]
+namzu plugin validate [--json] [--] [path]
 ```
 
 Checks the plugin in `path` (the current folder when none is given) and says
@@ -31,9 +31,13 @@ that leaves the folder (`..`, an absolute path, a link whose target is outside)
 is reported and never followed: the target is not opened and nothing from it
 appears in the report.
 
-Reading is bounded. A file larger than 4 MiB is not read, and a file with a zero
+Reading is bounded. A file larger than 4 MiB is not read (the loader reads any
+size, so for a skill, a command, a tool or hook module and the manifest this is
+a warning, "not read", not a claim that the loader refuses it; a manifest that
+is not read leaves the rest of the plugin unchecked), and a file with a zero
 byte in it is reported as not text. A declared folder of commands or agents is
-checked for its first 500 markdown files.
+checked for its first 500 markdown files; a folder with more gets a warning
+saying so, and exit status 10 then does not vouch for the files after the 500th.
 
 What this costs: a tool or hook module's exports are only known by running it,
 so a module is checked for being a readable file inside the folder and, as a
@@ -50,8 +54,8 @@ reader; a command file through the command file reader; a declared folder and a
 path through the containment rules the session uses. A test loads each fixture
 plugin with the loader and with this command and requires the parts the loader
 accepts to be exactly the parts this command reports no error for. The two
-places the loader's answer cannot be reproduced without running code (a module's
-exports; a manifest over 4 MiB) are named in that test.
+place the loader's answer cannot be reproduced without running code (a module's
+exports) is named in that test.
 
 ## Levels
 
@@ -129,16 +133,17 @@ same exit status. Messages about a wrong command line go to standard error.
 
 | Code | Level | Meaning |
 |---|---|---|
-| `manifest-missing`, `manifest-not-regular`, `manifest-unreadable`, `manifest-too-large`, `manifest-binary`, `manifest-json` | error | `plugin.json` is absent, is a link or folder, cannot be read, is over 4 MiB, is not text, or is not JSON. |
+| `manifest-missing`, `manifest-not-regular`, `manifest-unreadable`, `manifest-too-large`, `manifest-binary`, `manifest-json` | error | `plugin.json` is absent, is a link or folder, cannot be read, is not text, or is not JSON. |
 | `manifest-schema` | error | A field is missing, the wrong type, out of range, or not accepted (an MCP server with `url`). |
 | `manifest-incompatible` | error | The plugin cannot be enabled here: `platforms`, `engines.namzu`, or `connectors` / `personas`. |
+| `manifest-too-large` | warning | `plugin.json` is over 4 MiB and was not read, so nothing else was checked; the loader reads any size. |
 | `manifest-unknown-key`, `manifest-version-format`, `manifest-empty` | warning | An ignored field, a version that is not `1.2.3`, a plugin that declares nothing. |
 | `path-missing`, `path-outside`, `path-not-file`, `file-unreadable`, `file-binary` | error | A declared path does not exist, leaves the folder, is not a regular file, cannot be read, or is not text. (`path-outside` is a warning for a `SKILL.md` that is a link to a file outside: the loader reads through it, this command does not.) |
 | `file-too-large` | warning, error for an agent file | A file over 4 MiB was not read; the loader refuses a larger agent file and reads the others. |
 | `skill-invalid`, `skill-duplicate` | error | The skill reader refuses `SKILL.md` (name, description, `invocation`, frontmatter), or two skills share a name. |
 | `skill-unknown-key`, `skill-description-large`, `skill-body-empty` | warning | An ignored frontmatter key, a description that uses more than a quarter of the model's skill list, no instructions. |
 | `command-invalid` | error | The command file does not parse. |
-| `command-unknown-key`, `command-empty`, `command-name`, `command-duplicate`, `file-ignored` | warning | An ignored key (`allowed-tools`, for one), an empty prompt, a name with a space, a name written in two folders, a link or folder named `.md` that is passed over. |
+| `command-unknown-key`, `command-empty`, `command-name`, `command-duplicate`, `file-ignored` | warning | An ignored key (`allowed-tools`, for one), an empty prompt, a name with a space, a name written in two folders, a link or folder named `.md`, or a file named `.MD`, `.markdown`, `.mdown`, `.mkd` or `.mdx`, that is passed over (only names ending in lowercase `.md` are read). |
 | `agent-invalid` | error | The agent file is skipped (no name, a reserved name, no description, a bad list or mode, an empty body). |
 | `agent-unknown-key`, `agent-duplicate` | warning | An ignored key (a misspelt `tools:` leaves the agent with every tool), a name written twice. |
 | `module-extension`, `module-export`, `hook-event-unknown`, `part-duplicate` | warning | A tool or hook module that does not end in `.js`, `.mjs` or `.cjs`, whose text never mentions its export, a hook event Namzu does not have (or one that was renamed), a module listed twice. Found by reading the text. |
@@ -150,8 +155,10 @@ New codes may be added within version 1.
 ## When a plugin part is skipped at startup
 
 A plugin folder or file that the session skips, or a plugin that is refused at
-startup, says in one line to run `namzu plugin validate <plugin folder>`: on the
-error shown when plugins could not load, and on the warning line in the log for
-a declared command or agent folder that was refused or missing, a plugin that was
-skipped, and a plugin agent file that was skipped. Messages that have no such
-place (the quiet passes over a link named `.md`) are unchanged.
+startup, says in one line to run `namzu plugin validate`, with the plugin's folder
+when the message knows it: on the error shown when plugins could not load, on the
+warning line in the log for a declared command or agent folder that was refused
+or missing, a plugin that was skipped, and a plugin agent file that was skipped,
+and after the reason a plugin command shows when it cannot be used (in the
+command list and when it is run). Messages that have no such place (the quiet
+passes over a link named `.md`) are unchanged.

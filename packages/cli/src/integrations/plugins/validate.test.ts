@@ -64,6 +64,66 @@ describe('each mistake', () => {
 	}
 })
 
+describe('what a person reads', () => {
+	it('says a manifest over the read limit was not read, and does not say the loader refuses it', async () => {
+		const fixture = FIXTURE_CASES.find((f) => f.name === 'manifest-huge')
+		if (!fixture) throw new Error('manifest-huge')
+		const dir = set.plugin('words-huge', fixture.files(set))
+		const report = await validatePluginFolder(dir)
+		const [problem] = report.problems
+		expect(report.status).toBe('warnings')
+		expect(problem?.level).toBe('warning')
+		expect(problem?.consequence).not.toMatch(/refuses/)
+		expect(problem?.message).toMatch(/not read/)
+	})
+
+	it('names the subject in the sentence for a skill or a command file that does not parse', async () => {
+		const skill = set.plugin('words-skill', {
+			'plugin.json': manifest({ skills: ['skills/reconcile'] }),
+			'skills/reconcile/SKILL.md': '',
+		})
+		const command = set.plugin('words-command', {
+			'plugin.json': manifest({ commands: ['commands'] }),
+			'commands/audit.md': '---\ndescription: x\nno end\n',
+		})
+		for (const [dir, code, start] of [
+			[skill, 'skill-invalid', 'The skill file '],
+			[command, 'command-invalid', 'The command file '],
+		] as const) {
+			const found = (await validatePluginFolder(dir)).problems.find((p) => p.code === code)
+			expect(found?.message.startsWith(start)).toBe(true)
+			expect(found?.message.endsWith('.')).toBe(true)
+		}
+	})
+
+	it('reports markdown-looking files the loader passes over, and not other files', async () => {
+		const dir = set.plugin('words-ext', {
+			'plugin.json': manifest({ commands: ['commands'] }),
+			'commands/ok.md': COMMAND_OK,
+			'commands/Up.MD': COMMAND_OK,
+			'commands/other.markdown': COMMAND_OK,
+			'commands/notes.txt': 'hello',
+		})
+		const ignored = (await validatePluginFolder(dir)).problems.filter(
+			(p) => p.code === 'file-ignored',
+		)
+		expect(ignored.map((p) => p.file)).toEqual(['commands/Up.MD', 'commands/other.markdown'])
+	})
+
+	it('does not report a hook event that sits in a comment', async () => {
+		const dir = set.plugin('words-comment', {
+			'plugin.json': manifest({ hooks: ['hooks/index.js'] }),
+			'hooks/index.js':
+				"// event: 'bogus'\n/* event: 'bogus2' */\nexport const hooks = [{ event: 'bogus3' }]\n",
+		})
+		const events = (await validatePluginFolder(dir)).problems.filter(
+			(p) => p.code === 'hook-event-unknown',
+		)
+		expect(events.map((p) => p.line)).toEqual([3])
+		expect(events[0]?.message).toContain('bogus3')
+	})
+})
+
 describe('where in the file', () => {
 	it('gives the line of a JSON syntax error', async () => {
 		const dir = set.plugin('line-json', { 'plugin.json': '{\n  "name": "x",\n  oops\n}' })

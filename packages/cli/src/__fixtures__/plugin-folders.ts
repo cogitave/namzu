@@ -198,11 +198,10 @@ export const FIXTURE_CASES: readonly FixtureCase[] = [
 	{
 		name: 'manifest-huge',
 		files: () => ({
-			'plugin.json':
-				big(`${manifest({ instructions: 'x' }).slice(0, -1)},"pad":"`, FIVE_MIB) + '"}',
+			'plugin.json': manifest({ instructions: 'x'.repeat(FIVE_MIB) }),
 		}),
-		errors: ['manifest-too-large'],
-		warnings: [],
+		errors: [],
+		warnings: ['manifest-too-large'],
 	},
 	{
 		name: 'manifest-binary',
@@ -558,6 +557,27 @@ export const FIXTURE_CASES: readonly FixtureCase[] = [
 			'plugin.json': manifest({ commands: ['commands'] }),
 			'commands/audit.md': { link: set.outsideFile },
 			'commands/ok.md': COMMAND_OK,
+		}),
+		errors: [],
+		warnings: ['file-ignored'],
+	},
+	{
+		name: 'command-other-extension',
+		files: () => ({
+			'plugin.json': manifest({ commands: ['commands'] }),
+			'commands/Up.MD': COMMAND_OK,
+			'commands/other.markdown': COMMAND_OK,
+			'commands/ok.md': COMMAND_OK,
+		}),
+		errors: [],
+		warnings: ['file-ignored'],
+	},
+	{
+		name: 'agent-other-extension',
+		files: () => ({
+			'plugin.json': manifest({ agents: ['agents'] }),
+			'agents/Up.MD': AGENT_OK,
+			'agents/ok.md': AGENT_OK,
 		}),
 		errors: [],
 		warnings: ['file-ignored'],

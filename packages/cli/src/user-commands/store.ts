@@ -42,6 +42,7 @@ import { platform } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { parseFrontmatter } from '@namzu/sdk'
 import type { SkillsConfig } from '../config/schema.js'
+import { CHECK_HINT } from '../integrations/plugins/check-hint.js'
 import { namzuHomePath } from '../integrations/state/home.js'
 import { type SkillInfo, discoverSkills, loadSkillBody } from '../skills/store.js'
 
@@ -164,7 +165,13 @@ function readCommandsFrom(
 			continue
 		}
 
-		out.push(parseCommandText(raw, path, name, source))
+		const command = parseCommandText(raw, path, name, source)
+		// A plugin's command that cannot be used says where its author can see why.
+		out.push(
+			plugin !== undefined && command.problem
+				? { ...command, problem: `${command.problem} ${CHECK_HINT}` }
+				: command,
+		)
 	}
 	return out
 }

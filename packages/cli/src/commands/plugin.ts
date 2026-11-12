@@ -23,7 +23,7 @@ export const PLUGIN_VALIDATE_EXIT = {
 } as const
 
 const HELP = [
-	'Usage: namzu plugin validate [path] [--json]',
+	'Usage: namzu plugin validate [--json] [--] [path]',
 	'',
 	'Check a plugin folder (default: the current folder) and every part it carries,',
 	'without running anything from it: no hook, MCP server, command or script is',
@@ -37,6 +37,7 @@ const HELP = [
 	'',
 	'Options:',
 	'  --json  Print one JSON report (version 1) on standard output and nothing else',
+	'  --      End of options, for a folder whose name starts with a dash',
 	'',
 	'Exit status:',
 	'  0   no problems',
@@ -66,8 +67,11 @@ function parseArgs(rawArgs: readonly string[]): ParsedArgs {
 	}
 	let json = false
 	const paths: string[] = []
+	let literal = false
 	for (const arg of rest) {
-		if (arg === '--json') json = true
+		if (literal) paths.push(arg)
+		else if (arg === '--') literal = true
+		else if (arg === '--json') json = true
 		else if (arg.startsWith('-') && arg !== '-') {
 			return { path: '.', json, error: `unknown plugin validate option: ${arg}` }
 		} else paths.push(arg)
@@ -141,6 +145,9 @@ export const pluginCommand: CommandDef = {
 			createFormatter('json', { quiet: true }).print(report)
 		} else if (ctx.formatter.name === 'yaml') {
 			ctx.formatter.print(report)
+		} else if (report.status === 'unreadable') {
+			// An error sentence, not output: a script that captures stdout gets none of it.
+			ctx.formatter.error({ message: renderPluginReport(report) })
 		} else {
 			ctx.formatter.print({ text: renderPluginReport(report) })
 		}
