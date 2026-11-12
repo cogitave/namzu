@@ -43,6 +43,25 @@ import type { TaskOperation } from './task-activity.js'
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
+/**
+ * A part of a streaming reply that has been frozen and printed into the
+ * transcript. It is never drawn again, and never differently.
+ */
+export interface PrintedChunk {
+	/** The reply's own source text, as received. */
+	readonly text: string
+	/** How this chunk joins the text before it: a new block, or the rest of an open paragraph or code fence. */
+	readonly join: 'block' | 'text' | 'code'
+	/** The language of the open fence a `code` chunk continues. */
+	readonly lang?: string
+	/** What the last block of this chunk is: the next chunk's first block is spaced by it. */
+	readonly last: MdBlockType | null
+	/** What the chunk leaves open for the next one. */
+	readonly open: 'none' | 'text' | 'code'
+}
+
+export type MdBlockType = 'paragraph' | 'heading' | 'bullet' | 'quote' | 'rule' | 'code' | 'table'
+
 export interface TranscriptMessage {
 	readonly id: string
 	readonly role: MessageRole
@@ -61,6 +80,8 @@ export interface TranscriptMessage {
 	/** The `/context` grid and lists; `content` carries the same as plain text. */
 	readonly contextView?: ContextView
 	readonly pending?: boolean
+	/** A streaming reply's frozen part: printed into the transcript already, in order. */
+	readonly printed?: readonly PrintedChunk[]
 	/**
 	 * Compact successful observation, with full output available on expansion.
 	 * `web` rows (a search or fetch and its `⎿` line) also sit together without

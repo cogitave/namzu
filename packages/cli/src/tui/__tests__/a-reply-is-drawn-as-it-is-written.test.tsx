@@ -1,17 +1,13 @@
 /**
- * A reply lands in whole blocks, and none of it is lost.
+ * A reply is drawn as it is written, and none of it is lost.
  *
- * Deltas used to be appended the moment they arrived, so a reply typed itself
- * onto the screen a few characters at a time. Nothing animated it — there is
- * no timer anywhere in this package — but the effect is the same, and an
- * operator ends up watching a line grow instead of reading it.
- *
- * Holding output back is cheap to get wrong in the one direction that matters.
- * The tail of a reply is almost always an incomplete block, so a close path
- * that forgets to flush drops the last paragraph of nearly every answer — and
- * it drops it *silently*, on the exit path, where the turn otherwise looks
- * successful. `splitCompleteBlocks` is unit-tested next door and cannot catch
- * that: it is a pure function that never sees a turn end.
+ * The tail of a reply is drawn word by word as it arrives, and a finished
+ * block is printed into the transcript at once. Both must hold the one thing
+ * that matters: the last words of a reply are on screen when the turn ends. A
+ * close path that forgets to flush drops the last paragraph of nearly every
+ * answer, silently, on a turn that otherwise looks successful. The pure rules
+ * are tested in `stream-flow.test.tsx` and cannot catch that: they never see a
+ * turn end.
  *
  * So these drive a rendered `<App>` through a real turn. The claim is about
  * what is on the screen, which is the only thing that can establish it.
@@ -40,6 +36,13 @@ const TWO_BLOCKS = 'First paragraph here.\n\nSecond paragraph, the tail.'
 const ONE_BLOCK = 'A short answer with no blank line anywhere in it.'
 let reply = TWO_BLOCKS
 let separateMessages = false
+/**
+ * The reply waits on this gate after its first block, so "the first block is
+ * on screen while the rest has not arrived" is a state the test holds the
+ * stream in rather than a window it has to catch on a real clock.
+ */
+const gate = vi.hoisted(() => ({ open: () => {} }))
+let holdAfter: string | null = null
 
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
@@ -98,9 +101,15 @@ vi.mock('../agent.js', async (importOriginal) => {
 				// One character per event: the shape that produced the typing
 				// effect, and the shape that catches a splitter that releases a
 				// partial word.
+				const waiting = new Promise<void>((resolve) => {
+					gate.open = resolve
+				})
+				let sent = ''
 				for (const ch of reply) {
 					yield { kind: 'delta', text: ch } as AgentEvent
+					sent += ch
 					await new Promise((r) => setTimeout(r, 0))
+					if (holdAfter !== null && sent === holdAfter) await waiting
 				}
 				yield { kind: 'done' } as AgentEvent
 			},
@@ -124,6 +133,7 @@ afterEach(() => {
 	for (const m of mounted.splice(0)) m.unmount()
 	reply = TWO_BLOCKS
 	separateMessages = false
+	holdAfter = null
 	vi.clearAllMocks()
 })
 
@@ -138,7 +148,10 @@ async function frameShows(read: () => string | undefined, needle: string, budget
 }
 
 /** Every frame drawn while the turn ran. `until` marks the end of the reply. */
-async function runTurnCapturing(until = 'the tail.'): Promise<{ frames: string[]; final: string }> {
+async function runTurnCapturing(
+	until = 'the tail.',
+	releaseWhen?: string,
+): Promise<{ frames: string[]; final: string }> {
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
 	await frameShows(harness.lastFrame, 'Type a message')
@@ -149,9 +162,14 @@ async function runTurnCapturing(until = 'the tail.'): Promise<{ frames: string[]
 
 	const frames: string[] = []
 	const deadline = Date.now() + 4000
+	let released = releaseWhen === undefined
 	while (Date.now() < deadline) {
 		const f = harness.lastFrame() ?? ''
 		if (frames[frames.length - 1] !== f) frames.push(f)
+		if (!released && releaseWhen !== undefined && f.includes(releaseWhen)) {
+			released = true
+			gate.open()
+		}
 		if (f.includes(until)) break
 		await tick(10)
 	}
@@ -161,26 +179,25 @@ async function runTurnCapturing(until = 'the tail.'): Promise<{ frames: string[]
 describe('a streamed reply', () => {
 	it('never shows a half-written word', async () => {
 		const { frames } = await runTurnCapturing()
-		// The prefixes a per-token append would have put on screen. If any frame
-		// carries one WITHOUT the rest of its word, the reveal is still
-		// character-by-character.
+		// The prefixes a per-token append would have put on screen. A frame that
+		// carries one WITHOUT the rest of its word shows the word as it is typed.
 		for (const frame of frames) {
 			if (frame.includes('First parag')) {
-				expect(frame, 'a partial word was rendered').toContain('First paragraph here.')
+				expect(frame, 'a partial word was rendered').toContain('First paragraph')
 			}
 			if (frame.includes('the tai')) {
-				expect(frame, 'a partial word was rendered').toContain('the tail.')
+				expect(frame, 'a partial word was rendered').toContain('the tail')
 			}
 		}
 	})
 
-	it('shows the first paragraph before the reply has finished', async () => {
-		// The other direction. Holding EVERYTHING back until the turn ends is a
-		// different product decision, and this pins the one that was chosen: a
-		// completed block is released while the rest is still arriving.
-		const { frames } = await runTurnCapturing()
+	it('shows the first paragraph, printed, before the reply has finished', async () => {
+		// A finished block is printed at once: it is on screen while the rest of
+		// the reply has not arrived.
+		holdAfter = 'First paragraph here.\n\n'
+		const { frames } = await runTurnCapturing('the tail.', 'First paragraph here.')
 		const partway = frames.filter(
-			(f) => f.includes('First paragraph here.') && !f.includes('the tail.'),
+			(f) => f.includes('First paragraph here.') && !f.includes('Second'),
 		)
 		expect(partway.length, 'the first block was never shown on its own').toBeGreaterThan(0)
 	})

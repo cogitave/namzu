@@ -10,6 +10,7 @@
  */
 
 import { contentColorForRole, screenMessage } from '../Transcript.js'
+import { tailView } from '../stream-flow.js'
 import { wrapChoiceText } from '../terminal-choice-text.js'
 import { shownTheme } from '../theme-store.js'
 import { messageScrollRows, scrollBodyText, scrollTextWidth } from '../transcript-scroll.js'
@@ -136,19 +137,22 @@ export function fullscreenMessageRows(
 	const first = plain.rows[0]
 	const body = wrapChoiceText(scrollBodyText(message), width).length
 	if (rendersMarkdown(message) && first) {
-		const rows: FsRow[] = markdownRows(
-			message.content,
-			width,
-			contentColorForRole(message.role),
-		).map((row, i) => ({
-			glyph: i === 0 ? first.glyph : ' ',
-			glyphColor: first.glyphColor,
-			text: row.text,
-			color: first.color,
-			spans: row.spans,
-			joins: row.joins,
-			lead: row.lead,
-		}))
+		// A reply still being written is drawn as far as it is decided: the fullscreen
+		// view redraws freely, so it only needs the tail rules, not the printing.
+		const shown = message.pending
+			? tailView(message.content, { join: 'block', lead: null })
+			: message.content
+		const rows: FsRow[] = markdownRows(shown, width, contentColorForRole(message.role)).map(
+			(row, i) => ({
+				glyph: i === 0 ? first.glyph : ' ',
+				glyphColor: first.glyphColor,
+				text: row.text,
+				color: first.color,
+				spans: row.spans,
+				joins: row.joins,
+				lead: row.lead,
+			}),
+		)
 		for (const row of plain.rows.slice(body)) rows.push(plainRow(row))
 		return { gap, rows }
 	}

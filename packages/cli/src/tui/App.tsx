@@ -781,7 +781,13 @@ import {
 } from './slashCommands.js'
 import { StatusLineRows } from './status-line/StatusLineRows.js'
 import { useStatusLine } from './status-line/useStatusLine.js'
-import { splitCompleteBlocks, splitSafeCut } from './stream-blocks.js'
+import {
+	DROPPED_REPLY_NOTICE,
+	type FlowContext,
+	appendReply,
+	paceDecision,
+	voidReply,
+} from './stream-flow.js'
 import { scriptText, terminalDisplayText } from './terminal-display.js'
 import { terminalFocus, useTerminalFocused } from './terminal-focus.js'
 import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
@@ -1251,25 +1257,12 @@ type ChoicePickerState = {
  * The streaming assistant bubble, carried across events within one turn.
  *
  * `text` is everything the model has said and is what gets persisted;
- * `pending` is the part not yet on screen, held until it forms a whole block.
+ * `pending` is the part that arrived since the last redraw, which is at most
+ * a twelfth of a second ago.
  * The two are separate because they answer different questions — what was
  * said, and what has been shown — and conflating them is how a reply gets
  * saved with a paragraph the operator never saw, or shown twice.
  */
-/**
- * How long held reply text may wait before a sentence of it is shown.
- *
- * Blocks are released as they complete (`splitCompleteBlocks`), which keeps a
- * fast reply landing a paragraph at a time. A slow one — a long paragraph
- * arriving over twenty seconds — completes no block until its last character
- * and was invisible for its whole length. Past this interval the pending
- * text is released to its last safe cut instead (`splitSafeCut`): a sentence
- * or a line, never a half-word, never inside a fence. Long enough that a
- * fast stream never reaches it; short enough that a slow one reads as
- * writing rather than as silence.
- */
-const STREAM_RELEASE_MS = 250
-
 /**
  * How long a batch of delegated agents stays still before its launch receipt
  * is written. Agents of one response are begun within a few milliseconds of
@@ -1293,8 +1286,8 @@ type StreamState = {
 	conversationMessages?: readonly Message[]
 	pending?: string
 	/**
-	 * When held text was last released to the screen, and the timer that
-	 * releases it if the stream goes quiet. See `STREAM_RELEASE_MS`.
+	 * When arrived text was last put on the screen, and the one timer that puts
+	 * it there when it arrived too soon after. See `paceDecision`.
 	 */
 	releasedAt?: number
 	releaseTimer?: ReturnType<typeof setTimeout>
@@ -5864,8 +5857,25 @@ function AppBody({
 	const announceApproval = useCallback(() => approvalNotifierRef.current?.dialogOpened(), [])
 	useEffect(() => () => approvalNotifierRef.current?.dispose(), [])
 
+	// What the reply being written needs to know of the screen: how wide its text
+	// is, how tall the window, and whether finished parts are printed as it goes.
+	const flowRef = useRef<FlowContext | undefined>(undefined)
+	flowRef.current = {
+		freeze: !fullscreenOn && !rawOutput && stdout.isTTY === true && terminal.rows !== undefined,
+		width: Math.max(10, terminal.columns - 4),
+		rows: terminal.rows,
+		hyperlinks,
+	}
 	const appendToMessage = useCallback((id: string, delta: string) => {
-		setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: m.content + delta } : m)))
+		const flow = flowRef.current
+		setMessages((prev) => {
+			// Parts are printed only for the first message still being written: rows
+			// ahead of one that is not finished cannot be printed past.
+			const first = prev.findIndex((m) => m.pending)
+			return prev.map((m, i) =>
+				m.id === id ? appendReply(m, delta, i === first ? flow : undefined) : m,
+			)
+		})
 	}, [])
 
 	/**
@@ -5888,26 +5898,6 @@ function AppBody({
 			st.assistantId = id
 			appendToMessage(id, st.pending)
 			st.pending = ''
-			st.releasedAt = Date.now()
-		},
-		[appendToMessage, pushMessage],
-	)
-
-	/**
-	 * Release held text to its last safe cut — a sentence or a line — when it
-	 * has waited longer than `STREAM_RELEASE_MS`. Called from the delta path
-	 * with the clock, and from the timer the delta path arms so a stream that
-	 * goes quiet mid-paragraph still shows what it has.
-	 */
-	const releaseStalled = useCallback(
-		(st: StreamState) => {
-			if (!st.pending || st.pending.length === 0) return
-			const { ready, rest } = splitSafeCut(st.pending)
-			if (ready.length === 0) return
-			const id = st.assistantId ?? pushMessage('assistant', '', true)
-			st.assistantId = id
-			st.pending = rest
-			appendToMessage(id, ready)
 			st.releasedAt = Date.now()
 		},
 		[appendToMessage, pushMessage],
@@ -7169,7 +7159,12 @@ function AppBody({
 	// Freeze the parent's Static floor while it is open; otherwise a parent turn
 	// settling in the background prints through the child screen. Returning
 	// advances the floor once and emits those finalized rows exactly once.
-	const nextSettled = settledBeforeStreaming(messages, window.settled, settledRef.current)
+	const nextSettled = settledBeforeStreaming(
+		messages,
+		window.settled,
+		settledRef.current,
+		flowRef.current?.freeze === true,
+	)
 	if (
 		agentSurface === null &&
 		!transcriptScreen &&
@@ -9775,7 +9770,18 @@ function AppBody({
 				setTurnTokens(st.reportedOutputTokens ?? 0)
 				const abandoned = st.assistantId
 				st.assistantId = null
-				if (abandoned) setMessages((prev) => prev.filter((m) => m.id !== abandoned))
+				// Parts of it already printed cannot be taken back: that reply stays as
+				// it was written and the new attempt follows it.
+				if (abandoned)
+					setMessages((prev) =>
+						voidReply(prev, abandoned, () => ({
+							id: nextId(),
+							role: 'system',
+							content: DROPPED_REPLY_NOTICE,
+							glyph: systemRowStyle('notice').glyph,
+							glyphColor: systemRowStyle('notice').color,
+						})),
+					)
 			}
 			if (event.kind === 'provider-fallback' && event.restart) voidStreamedReply()
 			// The refused attempt's partial reply is void once another model answers.
@@ -9806,10 +9812,6 @@ function AppBody({
 			})
 			if (event.kind === 'tool-start' && event.toolName === SKILL_TOOL_NAME) {
 				conversationLearning().skillUsed = true
-			}
-			const ensureAssistant = () => {
-				if (!st.assistantId) st.assistantId = pushMessage('assistant', '', true)
-				return st.assistantId
 			}
 			const closeAssistant = () => {
 				// Before finalising, never after: the tail of a reply is almost
@@ -9889,38 +9891,24 @@ function AppBody({
 							sessionId: st.sessionId,
 						}
 					}
-					// The release clock starts with the first character, not with the
-					// turn: the wait before the first token is the model's, and
-					// counting it would release the opening sentence on arrival.
-					st.releasedAt ??= Date.now()
 					setThinking(null)
 					if (st.messageTextStart === undefined || (st.assistantId === null && !st.pending)) {
 						st.messageTextStart = st.text.length
 					}
 					st.text += event.text
-					// Held, not appended. Appending each delta is what produced text
-					// that types itself out — nothing animates it, but a few
-					// characters at a time reads the same way, and an operator ends
-					// up watching a line grow instead of reading it.
+					// Arrived text is drawn at once when the last redraw was long enough ago,
+					// and otherwise with the next one: at most about twelve a second however
+					// fast it arrives, one timer while something waits, nothing when nothing
+					// arrives.
 					st.pending = (st.pending ?? '') + event.text
-					const { ready, rest } = splitCompleteBlocks(st.pending)
-					if (ready.length > 0) {
-						st.pending = rest
-						appendToMessage(ensureAssistant(), ready)
-						st.releasedAt = Date.now()
+					const pace = paceDecision(Date.now(), st.releasedAt, st.releaseTimer !== undefined)
+					if (pace.action === 'flush') flushStream(st)
+					else if (pace.action === 'arm') {
+						st.releaseTimer = setTimeout(() => {
+							st.releaseTimer = undefined
+							flushStream(st)
+						}, pace.delay)
 					}
-					// A block is the preferred unit; a sentence is the fallback for
-					// a paragraph that is taking longer than an operator will wait
-					// for it. The timer covers the stream going quiet between two
-					// deltas, which the clock check alone cannot see.
-					if (st.releaseTimer) clearTimeout(st.releaseTimer)
-					if (Date.now() - (st.releasedAt ?? 0) >= STREAM_RELEASE_MS) {
-						releaseStalled(st)
-					}
-					st.releaseTimer = setTimeout(() => {
-						st.releaseTimer = undefined
-						releaseStalled(st)
-					}, STREAM_RELEASE_MS)
 					break
 				}
 				case 'tool-start': {

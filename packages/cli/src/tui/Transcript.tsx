@@ -20,6 +20,7 @@ import { ReadSearchGroup } from './ReadSearchGroup.js'
 import { StatusPanel } from './StatusPanel.js'
 import { type AttachmentRow, attachmentLine } from './attachment-rows.js'
 import { type ShellOutput, shellCollapses, shellResultRows, shellToneColor } from './shell-cell.js'
+import { type ReplyPiece, isPlainReply, printedPieces, tailPiece } from './stream-flow.js'
 import {
 	RECAP_GLYPH,
 	RECAP_LABEL,
@@ -111,6 +112,37 @@ type StaticRow =
 			readonly message: TranscriptMessage
 			readonly prev: TranscriptMessage | undefined
 	  }
+	| {
+			/** A part of a reply that was printed while it streamed. */
+			readonly kind: 'piece'
+			readonly key: string
+			readonly message: TranscriptMessage
+			readonly piece: ReplyPiece
+			readonly prev: TranscriptMessage | undefined
+	  }
+
+/**
+ * The rows a message is printed as. A reply that was cut into printed parts
+ * while it streamed is its parts, then what was left when it ended; any other
+ * message is one row.
+ */
+function printedRows(
+	message: TranscriptMessage,
+	prev: TranscriptMessage | undefined,
+	raw: boolean,
+): StaticRow[] {
+	if (raw || !message.printed?.length || !isPlainReply(message))
+		return [{ kind: 'message', message, prev }]
+	const pieces = printedPieces(message.printed)
+	const rest = tailPiece({ ...message, pending: false })
+	return [...pieces, ...(rest ? [rest] : [])].map((piece, i) => ({
+		kind: 'piece' as const,
+		key: `${message.id}#${i}`,
+		message,
+		piece,
+		prev,
+	}))
+}
 
 export function Transcript({
 	messages,
@@ -132,11 +164,9 @@ export function Transcript({
 	// memory on long sessions.
 	const rows: StaticRow[] = [
 		...(header ? [{ kind: 'header' as const }] : []),
-		...messages.slice(0, inScrollback).map((message, i) => ({
-			kind: 'message' as const,
-			message,
-			prev: messages[i - 1],
-		})),
+		...messages
+			.slice(0, inScrollback)
+			.flatMap((message, i) => printedRows(message, messages[i - 1], raw)),
 	]
 	// The live window is memoised per row so streamed output does not reparse
 	// Markdown in unchanged history. The row that changed is the one that renders.
@@ -148,6 +178,22 @@ export function Transcript({
 	const drawn: readonly TranscriptMessage[] = pending
 		? [...live.slice(0, at), pending, ...live.slice(at)]
 		: live
+	// A reply being written has printed its finished parts already: they are the
+	// last rows of the log, and only what is left of it is drawn below.
+	const flowing = !raw && drawn[0]?.printed?.length && isPlainReply(drawn[0]) ? drawn[0] : undefined
+	if (flowing) {
+		const before = inScrollback > 0 ? messages[inScrollback - 1] : undefined
+		const pieces = printedPieces(flowing.printed ?? [])
+		rows.push(
+			...pieces.map((piece, i) => ({
+				kind: 'piece' as const,
+				key: `${flowing.id}#${i}`,
+				message: flowing,
+				piece,
+				prev: before,
+			})),
+		)
+	}
 	// The text beside the two-column glyph gutter: the terminal less the
 	// caller's padding on both sides, which settled rows draw themselves.
 	const { columns } = useWindowSize()
@@ -157,7 +203,9 @@ export function Transcript({
 				<Static key={resetKey} items={rows}>
 					{(row) => (
 						<Box
-							key={row.kind === 'header' ? 'header' : row.message.id}
+							key={
+								row.kind === 'header' ? 'header' : row.kind === 'piece' ? row.key : row.message.id
+							}
 							flexDirection="column"
 							width={columns}
 							paddingLeft={staticIndent}
@@ -165,6 +213,13 @@ export function Transcript({
 						>
 							{row.kind === 'header' ? (
 								<Box>{header}</Box>
+							) : row.kind === 'piece' ? (
+								<ReplyPieceRow
+									message={row.message}
+									prev={row.prev}
+									piece={row.piece}
+									hyperlinks={hyperlinks}
+								/>
 							) : raw ? (
 								<RawMessageRow message={row.message} prev={row.prev} />
 							) : (
@@ -176,6 +231,23 @@ export function Transcript({
 				{showLive
 					? drawn.map((message, i) => {
 							const prev = i > 0 ? drawn[i - 1] : messages[inScrollback - 1]
+							const piece =
+								!raw && message.role === 'assistant' && isPlainReply(message)
+									? (tailPiece(message) ?? null)
+									: undefined
+							// A reply streaming: its tail as far as it is decided, and no row at all
+							// until some of it is.
+							if (piece !== undefined && (message.pending || message.printed?.length)) {
+								return piece === null ? null : (
+									<LiveReplyRow
+										key={message.id}
+										message={message}
+										prev={i > 0 ? drawn[i - 1] : messages[inScrollback - 1]}
+										piece={piece}
+										hyperlinks={hyperlinks}
+									/>
+								)
+							}
 							return raw ? (
 								<RawMessageRow key={message.id} message={message} prev={prev} />
 							) : (
@@ -204,6 +276,48 @@ export function Transcript({
  * would be a prop that drives nothing.
  */
 const LiveRow = memo(MessageRow)
+
+/**
+ * One part of a reply, in the gutter the reply has. Only the first part of a
+ * reply carries the mark and the blank row above; the others continue under it.
+ */
+export function ReplyPieceRow({
+	message,
+	prev,
+	piece,
+	hyperlinks,
+}: {
+	readonly message: TranscriptMessage
+	readonly prev: TranscriptMessage | undefined
+	readonly piece: ReplyPiece
+	readonly hyperlinks: boolean
+}) {
+	useThemeEpoch()
+	const glyph = glyphForRole(message.role)
+	return (
+		<Box flexDirection="column" marginTop={piece.first && prev ? 1 : 0}>
+			<Box flexDirection="row">
+				<Box width={2} flexShrink={0}>
+					<Text color={glyphColorForRole(message.role)} bold>
+						{piece.first ? glyph : ' '}
+					</Text>
+				</Box>
+				<Box flexGrow={1}>
+					<Markdown
+						text={piece.text}
+						color={contentColorForRole(message.role)}
+						hyperlinks={hyperlinks}
+						join={piece.join}
+						lead={piece.lead}
+						{...(piece.lang !== undefined ? { lang: piece.lang } : {})}
+					/>
+				</Box>
+			</Box>
+		</Box>
+	)
+}
+
+const LiveReplyRow = memo(ReplyPieceRow)
 
 /**
  * Selection-friendly transcript source.
@@ -275,7 +389,7 @@ function RecapRow({
 	)
 }
 
-function MessageRow({
+export function MessageRow({
 	message,
 	prev,
 	hyperlinks,
