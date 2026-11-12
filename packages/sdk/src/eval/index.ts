@@ -23,10 +23,43 @@ export {
 	stepBudgetScorer,
 	trajectoryScorer,
 } from './scorers.js'
+export {
+	BOOTSTRAP_RESAMPLES,
+	DEFAULT_EVAL_SEED,
+	INTERVAL_LEVEL,
+	MIN_CASES_FOR_INTERVAL,
+	bootstrapCases,
+	bootstrapPairedDifference,
+	createSeededRandom,
+	exactSignTestP,
+} from './bootstrap.js'
+export type {
+	BootstrapMethod,
+	CaseIntervals,
+	CaseTally,
+	DifferenceIntervals,
+	Interval,
+	PairedTally,
+} from './bootstrap.js'
+export type {
+	ReportDisclosure,
+	RoleDisclosure,
+	RoutingDisclosure,
+	RunMode,
+	SuiteFacts,
+} from './disclosure.js'
+export { sdkVersion } from './disclosure.js'
+export { currentEvalRunOptions, withEvalRunOptions } from './run-options.js'
+export type { EvalRunOptions } from './run-options.js'
+export { formatRunSummary, summarizeRun } from './run-summary.js'
+export type { RunDisclosure, RunSummary } from './run-summary.js'
+export type { RepeatReliability, SplitSummary } from './report-stats.js'
 export { describeUncertainty, uncertaintyOf } from './uncertainty.js'
 export type { ScoreUncertainty } from './uncertainty.js'
 export type {
+	CaseRepeatSummary,
 	CaseResult,
+	EvalSplit,
 	CaseStatus,
 	EvalCase,
 	EvalTurn,
