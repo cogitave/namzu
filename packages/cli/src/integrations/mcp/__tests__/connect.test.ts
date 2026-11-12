@@ -259,15 +259,14 @@ describe('a declared server', () => {
 				{
 					name: 'tickets',
 					toolCount: 2,
-					// Listed by name: the client orders a server's tools so the prompt does not change between turns.
-					tools: ['mcp__tickets__close', 'mcp__tickets__create'],
+					tools: ['mcp__tickets__create', 'mcp__tickets__close'],
 					drift: { added: [], removed: [], changed: [] },
 					refused: [],
 				},
 			])
 			// Prefixed with the server name so two servers offering `create` do
 			// not collide and the transcript says where a call went.
-			expect(mcp.tools.map((t) => t.name)).toEqual(['mcp__tickets__close', 'mcp__tickets__create'])
+			expect(mcp.tools.map((t) => t.name)).toEqual(['mcp__tickets__create', 'mcp__tickets__close'])
 		} finally {
 			await mcp.close()
 		}

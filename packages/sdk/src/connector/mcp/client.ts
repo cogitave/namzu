@@ -94,6 +94,8 @@ const MAX_PROGRESS_MESSAGE_BYTES = 512
 const ANSI_CSI_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g')
 /** A bound on remembered pages and reads; the oldest goes first. */
 const MAX_CACHE_ENTRIES = 256
+/** The longest a result is kept whatever `ttlMs` says: the hint is the server's, but a server with no change notifications must not pin an entry for the life of the connection. */
+const MAX_CACHE_TTL_MS = 60 * 60 * 1_000
 const SUBSCRIPTION_ID_META_KEY = 'io.modelcontextprotocol/subscriptionId'
 const SUBSCRIPTION_RETRY_MAX_MS = 30_000
 /** Auth may refresh; timeouts, conflicts and rate limits can clear without reconnecting. */
@@ -335,6 +337,12 @@ export class MCPClient {
 	private modernSubscription?: ModernSubscription
 	private subscriptionRestartTimer?: ReturnType<typeof setTimeout>
 	private subscriptionFailures = 0
+	/** Pending coalesced reopen of the listen stream after the resource set changed. */
+	private subscriptionFilterTimer?: ReturnType<typeof setTimeout>
+	/** Task waits in progress, so a disconnect can end them. */
+	private taskWaits = new Set<AbortController>()
+	/** Bumped when a notification or reconnection makes cached results stale; a fetch that started earlier is not stored. */
+	private cacheEpoch = 0
 	/** Results the server said may be reused, by method and parameters. See {@link cachedRequest}. */
 	private resultCache = new Map<string, CachedResult>()
 	/** Resources the host asked to hear about, kept across reconnections. */
@@ -901,6 +909,8 @@ export class MCPClient {
 	}
 
 	private stopModernSubscription(cancelPeer: boolean): void {
+		if (this.subscriptionFilterTimer) clearTimeout(this.subscriptionFilterTimer)
+		this.subscriptionFilterTimer = undefined
 		if (this.subscriptionRestartTimer) clearTimeout(this.subscriptionRestartTimer)
 		this.subscriptionRestartTimer = undefined
 		const subscription = this.modernSubscription
@@ -919,6 +929,7 @@ export class MCPClient {
 		this.clearResultCache()
 		this.stopModernSubscription(true)
 		this.abortCancellations(reason)
+		for (const wait of [...this.taskWaits]) wait.abort(reason)
 		const alreadyDisconnected = this.status === 'disconnected'
 
 		this.rejectAllPending('MCPClient disconnecting')
@@ -977,7 +988,9 @@ export class MCPClient {
 	async listTools(options?: MCPRequestOptions): Promise<MCPToolDefinition[]> {
 		this.requireConnected()
 		const listed = await this.listAllPages<MCPToolDefinition>('tools/list', 'tools', options)
-		return sortedByName(this.admitToolHeaderAnnotations(listed))
+		const admitted = this.admitToolHeaderAnnotations(listed)
+		// Only a 2026-07-28 connection is sorted: an older server's callers keep the order it sent.
+		return this.era?.kind === 'modern' ? sortedByName(admitted) : admitted
 	}
 
 	/**
@@ -1180,6 +1193,8 @@ export class MCPClient {
 			)
 		}
 		const taskId = created.taskId
+		const wait = new AbortController()
+		this.taskWaits.add(wait)
 		const extendable = this.resetTimeoutOnProgress && options?.onProgress !== undefined
 		const started = Date.now()
 		const totalDeadline = started + (extendable ? this.maxTotalTimeoutMs : this.requestTimeoutMs)
@@ -1204,15 +1219,34 @@ export class MCPClient {
 			for (;;) {
 				note()
 				switch (state.status) {
-					case 'completed':
-						return state.result
-					case 'failed':
+					case 'completed': {
+						if (state.result === undefined) {
+							throw new Error(
+								`MCP task "${taskId}" on "${this.config.serverName}" completed without a result`,
+							)
+						}
+						const decoded = decodeResult(state.result)
+						if (decoded.kind !== 'complete') {
+							throw new MCPInputRequiredError(decoded.inputRequests ?? [])
+						}
+						return decoded.result
+					}
+					case 'failed': {
+						const message =
+							typeof state.error?.message === 'string' ? state.error.message : 'MCP task failed'
+						const code = state.error?.code
+						if (typeof code !== 'number' || !Number.isInteger(code)) {
+							// No usable code: say what the server said, not that its reply was malformed.
+							throw new Error(
+								`MCP task "${taskId}" on "${this.config.serverName}" failed: ${message}`,
+							)
+						}
 						throw protocolErrorFromReply({
-							code: state.error?.code as number,
-							message:
-								typeof state.error?.message === 'string' ? state.error.message : 'MCP task failed',
+							code,
+							message,
 							...(state.error?.data !== undefined ? { data: state.error.data } : {}),
 						})
+					}
 					case 'cancelled':
 						throw new Error(
 							`MCP task "${taskId}" on "${this.config.serverName}" was cancelled by the server`,
@@ -1242,7 +1276,7 @@ export class MCPClient {
 				}
 				await this.pause(
 					Math.min(taskPollDelayMs(state.pollIntervalMs), deadline - now),
-					options?.signal,
+					options?.signal ? AbortSignal.any([options.signal, wait.signal]) : wait.signal,
 				)
 				const polled = decodeTaskState(await this.request('tasks/get', { taskId }, pollOptions))
 				if (!polled || polled.taskId !== taskId) {
@@ -1260,25 +1294,27 @@ export class MCPClient {
 				options?.signal?.aborted === true || (err instanceof Error && err.name === 'TimeoutError')
 			if (stoppedHere) this.cancelTask(taskId, pollOptions)
 			throw err
+		} finally {
+			this.taskWaits.delete(wait)
 		}
 	}
 
 	/** Sleep, ending early with the signal's reason if it fires. */
-	private pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
+	private pause(ms: number, signal: AbortSignal): Promise<void> {
 		return new Promise<void>((resolve, reject) => {
-			if (signal?.aborted) {
+			if (signal.aborted) {
 				reject(signal.reason)
 				return
 			}
 			const onAbort = (): void => {
 				clearTimeout(timer)
-				reject(signal?.reason)
+				reject(signal.reason)
 			}
 			const timer = setTimeout(() => {
-				signal?.removeEventListener('abort', onAbort)
+				signal.removeEventListener('abort', onAbort)
 				resolve()
 			}, ms)
-			signal?.addEventListener('abort', onAbort, { once: true })
+			signal.addEventListener('abort', onAbort, { once: true })
 		})
 	}
 
@@ -1402,11 +1438,29 @@ export class MCPClient {
 
 	/** The filter changed: close the stream and open one that asks for the new set. */
 	private reopenModernSubscription(): void {
-		if (this.subscriptionRestartTimer) clearTimeout(this.subscriptionRestartTimer)
-		this.subscriptionRestartTimer = undefined
-		const current = this.modernSubscription
-		if (current) this.finishModernSubscription(current, 'filter changed', true, false)
-		this.startModernSubscription()
+		if (this.subscriptionFilterTimer) return
+		if (!this.modernSubscription) {
+			// Nothing open to disturb: open now.
+			if (this.subscriptionRestartTimer) clearTimeout(this.subscriptionRestartTimer)
+			this.subscriptionRestartTimer = undefined
+			this.startModernSubscription()
+			return
+		}
+		// Coalesced: a host that subscribes and unsubscribes in a burst reopens the
+		// stream once, and not at all when the set ends where it began, so there
+		// is no gap in which a change can be missed.
+		this.subscriptionFilterTimer = setTimeout(() => {
+			this.subscriptionFilterTimer = undefined
+			if (this.status !== 'connected' || this.era?.kind !== 'modern') return
+			const wanted = subscriptionFilter(this.serverCapabilities, this.subscribedResources)
+			const current = this.modernSubscription
+			if (current && JSON.stringify(current.requested) === JSON.stringify(wanted)) return
+			if (this.subscriptionRestartTimer) clearTimeout(this.subscriptionRestartTimer)
+			this.subscriptionRestartTimer = undefined
+			if (current) this.finishModernSubscription(current, 'filter changed', true, false)
+			this.startModernSubscription()
+		}, 0)
+		this.subscriptionFilterTimer.unref?.()
 	}
 
 	/** A new legacy session holds no subscriptions; ask again for the ones the host wanted. */
@@ -1462,9 +1516,10 @@ export class MCPClient {
 		const hit = this.resultCache.get(key)
 		if (hit) {
 			const sameAudience = hit.scope === 'public' || hit.scope.authorization === authorization
-			if (sameAudience && Date.now() < hit.expiresAt) return hit.value
+			if (sameAudience && Date.now() < hit.expiresAt) return structuredClone(hit.value)
 			this.resultCache.delete(key)
 		}
+		const epoch = this.cacheEpoch
 		const result = await this.requestWithSessionRecovery(method, params, options)
 		const record = result as Record<string, unknown> | null
 		const ttlMs = record?.ttlMs
@@ -1472,6 +1527,7 @@ export class MCPClient {
 			typeof ttlMs === 'number' &&
 			Number.isFinite(ttlMs) &&
 			ttlMs > 0 &&
+			epoch === this.cacheEpoch &&
 			(record?.resultType === undefined || record.resultType === 'complete')
 		) {
 			if (this.resultCache.size >= MAX_CACHE_ENTRIES) {
@@ -1479,8 +1535,9 @@ export class MCPClient {
 				if (oldest !== undefined) this.resultCache.delete(oldest)
 			}
 			this.resultCache.set(key, {
-				value: result,
-				expiresAt: Date.now() + ttlMs,
+				// A copy, so a caller who edits what it was given does not edit what is kept.
+				value: structuredClone(result),
+				expiresAt: Date.now() + Math.min(ttlMs, MAX_CACHE_TTL_MS),
 				scope: record?.cacheScope === 'public' ? 'public' : { authorization },
 			})
 		}
@@ -1501,6 +1558,7 @@ export class MCPClient {
 	private invalidateCacheFor(notification: string, params?: Record<string, unknown>): void {
 		const methods = INVALIDATED_BY[notification]
 		if (!methods) return
+		this.cacheEpoch++
 		const uri = notification === 'notifications/resources/updated' ? params?.uri : undefined
 		for (const key of [...this.resultCache.keys()]) {
 			const method = key.slice(0, key.indexOf('\u0000'))
@@ -1512,6 +1570,7 @@ export class MCPClient {
 
 	/** Forget every cached method, for a connection that may be a different server instance. */
 	private clearResultCache(method?: string): void {
+		this.cacheEpoch++
 		if (method === undefined) {
 			this.resultCache.clear()
 			return

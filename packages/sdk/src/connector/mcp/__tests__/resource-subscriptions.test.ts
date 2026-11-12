@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clientFor, fakeMcpServer } from '../__fixtures__/fake-mcp-server.js'
 
 const SUBSCRIPTION_ID = 'io.modelcontextprotocol/subscriptionId'
@@ -6,6 +6,13 @@ const URI = 'file:///project/config.json'
 const never = () => new Promise<never>(() => {})
 
 describe('subscribing to one resource', () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+	})
+	afterEach(() => {
+		vi.useRealTimers()
+	})
+
 	it('on the newest revision asks the one listen stream for it, and delivers the update', async () => {
 		const server = fakeMcpServer({
 			revision: 'newest',
@@ -61,6 +68,7 @@ describe('subscribing to one resource', () => {
 		await client.connect()
 		await client.subscribeResource(URI)
 		await client.subscribeResource('file:///two')
+		await vi.advanceTimersByTimeAsync(0)
 		const listens = server.requestsFor('subscriptions/listen')
 		expect(listens).toHaveLength(2)
 		expect(listens[1]?.params?.notifications).toEqual({
@@ -71,7 +79,8 @@ describe('subscribing to one resource', () => {
 		expect(server.sent.filter((m) => m.method === 'notifications/cancelled')).toHaveLength(1)
 		await client.unsubscribeResource(URI)
 		await client.unsubscribeResource('file:///two')
-		expect(server.requestsFor('subscriptions/listen')).toHaveLength(3)
+		await vi.advanceTimersByTimeAsync(0)
+		expect(server.requestsFor('subscriptions/listen')).toHaveLength(2)
 		await client.disconnect()
 	})
 

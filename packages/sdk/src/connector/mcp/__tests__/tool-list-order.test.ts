@@ -4,7 +4,7 @@ import { clientFor, fakeMcpServer } from '../__fixtures__/fake-mcp-server.js'
 const tool = (name: string) => ({ name, inputSchema: { type: 'object' } })
 
 describe('the order of a tool list', () => {
-	for (const revision of ['newest', 'previous'] as const) {
+	for (const revision of ['newest'] as const) {
 		it(`is the same on every request whatever order a ${revision} server sends`, async () => {
 			const orders = [
 				['zeta', 'alpha', 'Mid', 'beta'],

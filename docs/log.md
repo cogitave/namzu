@@ -2,6 +2,7 @@
 
 ## 2026-11-12
 
+- **Update** [MCP protocol eras](sdk/mcp-protocol-eras.md): after review, `listTools()` sorts only on a 2026-07-28 connection (an older server keeps its own order, so the change needs no major), a task wait ends on `disconnect()`, a completed task without a result is an error, cached results are copies kept at most an hour and not stored when overtaken by a change notification, a burst of resource subscriptions reopens the listen stream once, and the notes say that `input_required` on a task still cancels it.
 - **Update** [MCP protocol eras](sdk/mcp-protocol-eras.md): a table of what the client supports per revision, and a rewritten "Not yet built" (task input answers, task notifications and durable ids, `baggage`, per-request log level). `.changeset/sdk-mcp-current-revision.md` (`@namzu/sdk` minor).
 - **Update** [MCP protocol eras](sdk/mcp-protocol-eras.md): a `ping` from a server of 2025-11-25 or older is answered with an empty result instead of method-not-found.
 - **Update** [MCP protocol eras](sdk/mcp-protocol-eras.md): `MCPClient` takes part in the tasks extension (`io.modelcontextprotocol/tasks`) on a 2026-07-28 server that advertises it: a `tools/call` answered with a task is polled to its result inside the per-call deadline rules, reports progress, and is cancelled with `tasks/cancel`; new `MCPClientConfig.tasks`, `extensions` on the client and server capabilities types, `MCP_TASKS_EXTENSION` export.

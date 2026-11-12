@@ -309,7 +309,7 @@ the resource changed, not what it holds now, so the host reads it again.
 
 | the server speaks | what is sent |
 |---|---|
-| 2026-07-28 | the URI joins `resourceSubscriptions` in the filter of the one `subscriptions/listen` request, which is cancelled and reopened with a new request ID when the set changes. An update is delivered only for a URI the acknowledgment honored. |
+| 2026-07-28 | the URI joins `resourceSubscriptions` in the filter of the one `subscriptions/listen` request, which is cancelled and reopened with a new request ID when the set changes (one reopen for a burst of changes, none when the set ends where it began; the first subscription opens at once). `subscribeResource` resolving `true` means the request was made, not that the acknowledgment honored the URI. An update is delivered only for a URI the acknowledgment honored. |
 | 2025-11-25 and older | `resources/subscribe` and `resources/unsubscribe`, as those revisions define them, and again for every wanted URI after a reconnection or a re-initialize, because those servers keep the subscription in the session. |
 
 Both resolve without sending anything, and `subscribeResource` resolves
@@ -328,6 +328,7 @@ result is fresh.
 
 - The result is fresh for `ttlMs` after it arrived, and the client asks again
   after that, never later. It does not poll in the background.
+- A result is kept for at most one hour whatever `ttlMs` says, and a result fetched while a change notification arrived is not kept. Callers get copies, so editing a returned tool or content block does not change what is kept.
 - Nothing is kept when `ttlMs` is absent, zero or negative, when the result is
   not `resultType: "complete"`, or when the connection is not 2026-07-28. A
   server of an older revision sends no hints, so its lists are fetched on
@@ -355,9 +356,10 @@ The revision asks servers to return `tools/list` in a deterministic order so a
 model provider's prompt cache keeps hitting; it is a SHOULD on the server.
 **Before this, `listTools()` returned tools in whatever order the server sent**,
 so a server that listed from a hash map, or an older one, could change the
-prompt between two turns. Now `listTools()` returns the tools sorted by name
-(code points, a tie keeping the server's order), in every revision, so the
-order is a property of the client.
+prompt between two turns. Now, on a 2026-07-28 connection, `listTools()`
+returns the tools sorted by name (code points, a tie keeping the server's
+order), so the order is a property of the client. A server of an older revision
+is left as it was: its tools come back in the order it sent.
 
 ### Trace context in `_meta`
 
@@ -400,11 +402,16 @@ returns a task to that client.
   `progress` rises by one and whose `message` is the task's `statusMessage`
   (control characters removed, 512 bytes), the shape of a progress notification.
 - **Cancellation.** When the call's `signal` fires or a deadline passes, the
-  client sends `tasks/cancel` (never `notifications/cancelled`, which the
-  extension forbids for tasks) and rejects with the signal's reason or a
-  `TimeoutError`. The cancel is best effort and not awaited.
+  client sends `tasks/cancel` (never `notifications/cancelled` to cancel the
+  task, which the extension forbids; a `tasks/get` in flight at that moment is
+  abandoned with its own `notifications/cancelled`, as any request is) and
+  rejects with the signal's reason or a `TimeoutError`. The cancel is best
+  effort and not awaited. `disconnect()` ends the wait at once with a
+  disconnect error and sends nothing.
 - **Outcomes.** `completed` resolves; `failed` rejects with the JSON-RPC error
-  as an `MCPProtocolError`; `cancelled` rejects; `input_required` cancels the
+  as an `MCPProtocolError` (a failure with no code is an ordinary error naming the
+  server's message); a `completed` task with no result is an error, and a
+  completed result is checked like any tool result; `cancelled` rejects; `input_required` cancels the
   task and rejects with `MCPInputRequiredError`, the same typed outcome as an
   unmet multi round-trip request, because a modern connection has nobody to ask.
 - **Against an older server.** Nothing is declared and no task is awaited.
@@ -1097,7 +1104,7 @@ are in [the supported set](#the-supported-set)).
 | `ttlMs` and `cacheScope` | not sent by servers; nothing cached | lists and reads kept for `ttlMs`, scoped, dropped on a change |
 | Tasks extension | not applicable | polled to the result, progress, `tasks/cancel` |
 | Trace context in `_meta` | not sent | `traceparent`, `tracestate` when a span is active |
-| Tool list order | sorted by name | sorted by name |
+| Tool list order | the order the server sent | sorted by name |
 | `ping` from the server | answered | removed from the protocol |
 | Roots, sampling, logging | untouched and not added to; deprecated by the new revision | not declared, not used |
 | Elicitation | form mode answered through `onElicitation` | not fulfilled: arrives as `input_required` |
@@ -1105,8 +1112,10 @@ are in [the supported set](#the-supported-set)).
 
 ## Not yet built
 
-- **Answering a task's input requests.** `tasks/update` is not sent: a task that
-  reaches `input_required` is cancelled and the call ends with
+- **Answering a task's input requests.** `tasks/update` is not sent, and the
+  specification asks a client to answer a task's input requests, so a server
+  whose task asks for input loses the work: a task that reaches `input_required`
+  is cancelled and the call ends with
   `MCPInputRequiredError`. Neither mode of elicitation is fulfilled on a modern
   connection, and a multi round-trip request that asks for input is refused for
   the same reason.
