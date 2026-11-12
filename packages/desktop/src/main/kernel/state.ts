@@ -16,6 +16,13 @@ export interface LastCheck {
 	problem?: string
 	/** The result kind, for the screen. */
 	kind: string
+	/** For a failed check: the step it stopped at (a fixed word). */
+	stage?: string
+}
+
+/** Stages after a trusted manifest showed a newer engine and before it was stored. */
+export function leftEngineUnfetched(stage: string | undefined): boolean {
+	return stage === 'download' || stage === 'install'
 }
 
 export interface KernelState {
@@ -138,12 +145,13 @@ export function readState(value: unknown): KernelState {
 	const previousUpdated = counter(raw.previousUpdatedAt)
 	if (previousUpdated !== undefined) state.previousUpdatedAt = previousUpdated
 	if (raw.lastCheck && typeof raw.lastCheck === 'object' && !Array.isArray(raw.lastCheck)) {
-		const { at, kind, problem } = raw.lastCheck as Record<string, unknown>
+		const { at, kind, problem, stage } = raw.lastCheck as Record<string, unknown>
 		if (counter(at) !== undefined && typeof kind === 'string')
 			state.lastCheck = {
 				at: at as number,
 				kind: kind.slice(0, 40),
 				...(typeof problem === 'string' ? { problem: problem.slice(0, 300) } : {}),
+				...(typeof stage === 'string' ? { stage: stage.slice(0, 40) } : {}),
 			}
 	}
 	state.starts = counterMap(raw.starts)

@@ -104,6 +104,12 @@ export class KernelManager {
 		return this.options.keys.length > 0 && this.options.enabled()
 	}
 
+	/** Versions whose download or storing failed in this run: version -> when, where, what. Not stored. */
+	readonly fetchFailures = new Map<
+		string,
+		{ at: number; stage: 'download' | 'install'; message: string }
+	>()
+
 	/** How many times the person has chosen this app's own engine in this run. */
 	get ownEngineChoices(): number {
 		return this.ownChoices

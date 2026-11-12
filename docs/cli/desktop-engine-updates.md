@@ -34,6 +34,10 @@ only an app that is not packaged accepts.
   nothing and shows no dialog.
 - A newer engine takes effect the next time a project opens (a host starts). A running host is never
   swapped, and the engine in use is whichever one the latest host was started from.
+- A newer engine that could not be fetched or stored (a full disk, a connection that cuts the download)
+  is never shown as "up to date": the row says it could not check for a newer engine since the last
+  successful check. That version is not fetched again at every check: it waits 24 hours, and a restart of
+  the app tries once more.
 - **Settings > Updates** has the row **Namzu engine**: what runs and where it came from, one
   sentence about the check (up to date and when it last succeeded; a newer engine is ready; could not
   use engine X and went back to the one in use; a newer engine needs a newer version of this app;
@@ -58,7 +62,8 @@ and a chain of hashes: signed description, archive, file list, files.
 1. **The signature.** `kernel-latest.json` is verified with Ed25519 over the exact bytes served, with
    a key picked by id from the compiled list, before a single field is read. A field the reader does
    not know is refused, and so is a manifest that is not in the exact bytes the publisher writes
-   (two-space JSON, fields in the order of the text, bundle names sorted, one newline, no repeated key),
+   (two-space JSON, fields in the order of the text, bundle names sorted, one newline, no repeated key,
+   no byte-order mark: the same goes for the signature file, `files.json` and `kernel.json`),
    a signature file that is not compact JSON with its fields in order and one newline, a version that is
    not plain `x.y.z`, a sequence below 1, a repeated withdrawn version, a floor above the engine
    offered and a bundle name other than `win32`, `darwin` or `linux` with `x64`, `arm64` or `ia32`.

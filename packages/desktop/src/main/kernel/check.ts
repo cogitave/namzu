@@ -14,7 +14,7 @@ import {
 	bundleKey,
 	verifyManifest,
 } from './manifest.js'
-import { type KernelState, versionFolder } from './state.js'
+import { type KernelState, leftEngineUnfetched, versionFolder } from './state.js'
 import { markBadIn, messageOf } from './store.js'
 import { compareKernelVersions } from './version.js'
 
@@ -79,10 +79,15 @@ export interface CheckDeps {
 
 const USER_AGENT = 'namzu-desktop'
 
+/** After a failed download or store of one engine version, the same version waits this long (per run). */
+export const RETRY_AFTER_MS = 24 * 60 * 60 * 1000
+
 /** What the self-check says when the engine did not answer in time; not a verdict on the engine. */
 export const SELF_CHECK_TIMEOUT_TEXT = 'did not answer in time'
 
 class Stop extends Error {
+	/** The engine version the stop is about, once known. */
+	version?: string
 	constructor(
 		readonly stage: FailureStage,
 		message: string,
@@ -90,6 +95,14 @@ class Stop extends Error {
 		readonly markBad: boolean | 'own' = false,
 	) {
 		super(message)
+	}
+}
+
+/** A version that failed to download or store a short while ago: waiting, not a new failure. */
+class Waiting extends Stop {
+	constructor(stage: FailureStage, message: string, version: string) {
+		super(stage, message)
+		this.version = version
 	}
 }
 
@@ -179,23 +192,45 @@ export async function runCheck(deps: CheckDeps): Promise<CheckResult> {
 	const skipped = await skipReason(deps)
 	if (skipped) return { kind: 'skipped', reason: skipped }
 	const { store } = deps.manager
-	const result = await attempt(deps).catch(
-		(error): CheckResult =>
-			error instanceof Stop
-				? { kind: 'failed', stage: error.stage, message: error.message }
-				: { kind: 'failed', stage: 'install', message: messageOf(error) },
-	)
+	const freshBefore = store.snapshot().lastFreshCheckAt
+	let waiting = false
+	const result = await attempt(deps).catch((error): CheckResult => {
+		if (error instanceof Waiting) waiting = true
+		return error instanceof Stop
+			? {
+					kind: 'failed',
+					stage: error.stage,
+					message: error.message,
+					...(error.version ? { version: error.version } : {}),
+				}
+			: { kind: 'failed', stage: 'install', message: messageOf(error) }
+	})
 	await store
 		.update((state) => {
+			// Waiting out an earlier failure changes nothing: the earlier record, with its time, stands.
+			if (waiting) {
+				state.lastFreshCheckAt = freshBefore
+				return
+			}
 			state.lastCheck = {
 				at: deps.now(),
 				kind: result.kind,
-				...(result.kind === 'failed' ? { problem: scrub(result.message) } : {}),
+				...(result.kind === 'failed'
+					? {
+							problem: scrub(result.message),
+							stage: result.stage,
+						}
+					: {}),
 			}
+			// A newer engine is known to exist and could not be fetched or stored: that is not a fresh,
+			// successful check, so the screen must not read "up to date" because of it (a full disk or a
+			// proxy that cuts the download would otherwise look current until the staleness window ends).
+			if (result.kind === 'failed' && leftEngineUnfetched(result.stage))
+				state.lastFreshCheckAt = freshBefore
 		})
 		.catch(() => undefined)
 	store.log('check', {
-		result: result.kind,
+		result: waiting ? 'waiting' : result.kind,
 		...(result.kind === 'failed' ? { stage: result.stage, message: result.message } : {}),
 	})
 	await emptyTmp(deps).catch(() => undefined)
@@ -291,7 +326,25 @@ async function attempt(deps: CheckDeps): Promise<CheckResult> {
 	}
 
 	// 7 to 9. fetch, unpack, check, make pending
-	await install(deps, manifest, bundle, version, { manifestBytes, signatureBytes }, ownChoices)
+	// A version whose download or storing failed is not fetched again at every check: a full disk or a
+	// connection that cuts a 27 MB download would otherwise repeat it every four hours.
+	// The memory is per run of the app: a restart tries once again.
+	const failed = manager.fetchFailures.get(version)
+	if (failed && deps.now() - failed.at < RETRY_AFTER_MS)
+		throw new Waiting(failed.stage, failed.message, version)
+	try {
+		await install(deps, manifest, bundle, version, { manifestBytes, signatureBytes }, ownChoices)
+	} catch (error) {
+		const stop = error instanceof Stop ? error : new Stop('install', messageOf(error))
+		stop.version ??= version
+		if (stop.stage === 'download' || stop.stage === 'install')
+			manager.fetchFailures.set(version, {
+				at: deps.now(),
+				stage: stop.stage,
+				message: stop.message,
+			})
+		throw stop
+	}
 	return { kind: 'ready', version, engine: manifest.kernel.engine }
 }
 

@@ -106,6 +106,15 @@ describe('the engine status', () => {
 		expect(
 			buildEngineView({ ...base, running: { source: 'managed', commandLine: '52.0.0' } }).canUseOwn,
 		).toBe(true)
+		// Setting off: the app runs its own engine already, so there is nothing to go back from.
+		expect(
+			buildEngineView({
+				...withState((s) => {
+					s.current = '52.0.0'
+				}),
+				enabled: false,
+			}).canUseOwn,
+		).toBe(false)
 		// A waiting engine alone: the app's own engine runs, so there is nothing to go back from.
 		expect(
 			buildEngineView(
@@ -114,5 +123,19 @@ describe('the engine status', () => {
 				}),
 			).canUseOwn,
 		).toBe(false)
+	})
+
+	it('does not read "up to date" when a newer engine could not be fetched', () => {
+		const failed = (stage: string) =>
+			engineStatus(
+				withState((s) => {
+					s.lastFreshCheckAt = NOW - 60_000
+					s.lastCheck = { at: NOW, kind: 'failed', stage, problem: 'x' }
+				}),
+			)
+		expect(failed('download')).toEqual({ kind: 'cannot-check', since: NOW - 60_000 })
+		expect(failed('install')).toEqual({ kind: 'cannot-check', since: NOW - 60_000 })
+		// A feed that could not be reached says nothing about a newer engine: the three-day rule applies.
+		expect(failed('fetch')).toEqual({ kind: 'current', checkedAt: NOW - 60_000 })
 	})
 })

@@ -96,8 +96,12 @@ export class KernelStore {
 
 	/** Marks a version bad for good and drops it from every slot; a bad `current` gives way to `previous`. */
 	markBad(version: string, reason: string): Promise<boolean> {
-		this.log('marked-bad', { version, reason })
-		return this.update((state) => markBadIn(state, version, reason, this.now()))
+		return this.update((state) => {
+			// One line per version: a later symptom of the same give-up is not logged as a second reason,
+			// because the state keeps the first (see `markBadIn`).
+			if (!state.bad[version]) this.log('marked-bad', { version, reason })
+			markBadIn(state, version, reason, this.now())
+		})
 	}
 
 	/** Versions this store keeps: the three slots. */

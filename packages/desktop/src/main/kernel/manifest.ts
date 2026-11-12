@@ -110,7 +110,7 @@ function time(value: unknown, where: string): number {
 
 function parseJson(bytes: Uint8Array, code: ManifestErrorCode, what: string): unknown {
 	try {
-		return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+		return JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes))
 	} catch {
 		return fail(code, `${what} is not valid JSON.`)
 	}
@@ -205,7 +205,7 @@ export function parseManifest(bytes: Uint8Array): KernelManifest {
 	// One reading only (specification 7.6): the exact bytes the publisher writes, so a repeated key
 	// or another layout cannot be read two ways by two readers of the same signed bytes.
 	const wanted = canonicalManifestText(top as unknown as WireManifest)
-	if (new TextDecoder().decode(bytes) !== wanted)
+	if (new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes) !== wanted)
 		fail(
 			'manifest-format',
 			'The manifest is not in the exact form of the text (fields in order, two-space JSON, one newline, bundle keys sorted, no repeated key).',
@@ -287,7 +287,7 @@ export function parseSignatureFile(bytes: Uint8Array): SignatureFile {
 		signature: record.signature,
 	}
 	// Compact JSON and one newline, keys in the order of the text (specification 7.6).
-	if (new TextDecoder().decode(bytes) !== `${JSON.stringify(parsed)}\n`)
+	if (new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes) !== `${JSON.stringify(parsed)}\n`)
 		fail(
 			'signature-format',
 			'The signature file is not in the exact form of the text (compact JSON, fields in order, one newline).',

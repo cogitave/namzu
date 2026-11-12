@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { FactsError, parseKernelFacts } from './facts.js'
 import {
 	FilesListError,
 	findCollision,
@@ -6,7 +7,7 @@ import {
 	parseFilesList,
 	refuseName,
 } from './files-list.js'
-import { filesJsonOf } from './kernel-test-support.js'
+import { filesJsonOf, kernelFactsText } from './kernel-test-support.js'
 
 describe('names in a file list', () => {
 	it('says which rule a drive letter broke, not only that it was refused', () => {
@@ -55,5 +56,22 @@ describe('names in a file list', () => {
 		expect(findCollision(['FILES.JSON'])).toMatch(/case folding/u)
 		const bytes = filesJsonOf({ 'FILES.JSON': 'x' })
 		expect(() => parseFilesList(bytes)).toThrow(FilesListError)
+	})
+})
+
+describe('byte-order mark', () => {
+	it('is refused in files.json, as the publisher refuses it', () => {
+		const bom = Buffer.from([0xef, 0xbb, 0xbf])
+		const bytes = filesJsonOf({ 'a.js': 'x' })
+		expect(() => parseFilesList(bytes)).not.toThrow()
+		expect(() => parseFilesList(Buffer.concat([bom, bytes]))).toThrow(FilesListError)
+	})
+
+	it('is refused in kernel.json too', () => {
+		const text = Buffer.from(kernelFactsText({ commandLine: '51.3.0', engine: '62.14.0' }))
+		expect(() => parseKernelFacts(text)).not.toThrow()
+		expect(() => parseKernelFacts(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), text]))).toThrow(
+			FactsError,
+		)
 	})
 })

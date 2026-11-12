@@ -2,6 +2,7 @@ import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type CheckDeps, type CheckResult, runCheck, singleFlight } from './check.js'
+import { RETRY_AFTER_MS } from './check.js'
 import { nodeFs } from './fs.js'
 import {
 	FEED,
@@ -20,6 +21,7 @@ import {
 	manifestObject,
 	signPair,
 } from './kernel-test-support.js'
+import { engineStatus } from './view.js'
 
 const open: Harness[] = []
 afterEach(async () => {
@@ -474,6 +476,45 @@ describe('the download', () => {
 		feed.serve.set(built.file, () => ({ body: chunks(wrong) }))
 		failed(await runCheck(deps(h, feed)), 'download')
 		expect(stateOf(h).pending).toBeUndefined()
+	})
+
+	it('a newer engine that could not be fetched never reads as up to date, and is not fetched at every check', async () => {
+		const h = await harness()
+		const feed = makeFeed()
+		const { built } = publish(h, feed, { commandLine: '51.3.0' })
+		const wrong = Buffer.from(built.gz)
+		wrong[wrong.length - 20] = (wrong[wrong.length - 20] as number) ^ 0xff
+		feed.serve.set(built.file, () => ({ body: chunks(wrong) }))
+		const view = () => ({
+			available: true,
+			enabled: true,
+			override: false,
+			state: stateOf(h),
+			running: { source: 'bundled' as const },
+			bundled: {},
+			checking: false,
+			now: h.clock.now(),
+		})
+		failed(await runCheck(deps(h, feed)), 'download')
+		// No fresh, successful answer was recorded, and the screen says it could not check.
+		expect(stateOf(h).lastFreshCheckAt).toBeUndefined()
+		expect(engineStatus(view()).kind).toBe('cannot-check')
+		// Four hours later: the manifest is asked again, the archive is not.
+		const archiveRequests = () => feed.requests.filter((url) => url.endsWith('.tar.gz')).length
+		expect(archiveRequests()).toBe(1)
+		const at = stateOf(h).lastCheck?.at
+		h.clock.value += 4 * 60 * 60 * 1000
+		failed(await runCheck(deps(h, feed)), 'download')
+		expect(archiveRequests()).toBe(1)
+		expect(stateOf(h).lastCheck?.at).toBe(at)
+		expect(engineStatus(view()).kind).toBe('cannot-check')
+		// After the wait, and after a restart, it tries again.
+		h.clock.value += RETRY_AFTER_MS
+		failed(await runCheck(deps(h, feed)), 'download')
+		expect(archiveRequests()).toBe(2)
+		const again = await h.restart()
+		failed(await runCheck({ ...deps(h, feed), manager: again.manager }), 'download')
+		expect(archiveRequests()).toBe(3)
 	})
 
 	it('refuses an answer that is not 200, a redirect to a place that is not allowed, and a plain http address', async () => {

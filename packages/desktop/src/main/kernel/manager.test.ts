@@ -422,6 +422,16 @@ describe('the first reason for giving a version up stays', () => {
 		await h.manager.markBad('51.3.0', 'dist/chunks/chunk-1.js vanished')
 		expect(h.store.snapshot().bad['51.3.0']?.reason).toBe('withdrawn')
 	})
+
+	it('is logged once, with that first reason', async () => {
+		const h = await harness()
+		const feed = makeFeed()
+		await activate(h, feed, '51.3.0', 1)
+		await h.manager.markBad('51.3.0', 'dist/bin.js has the wrong size')
+		await h.manager.markBad('51.3.0', 'dist/bin.js vanished')
+		const lines = h.logs.filter((line) => line.event === 'marked-bad')
+		expect(lines.map((line) => line.detail?.reason)).toEqual(['dist/bin.js has the wrong size'])
+	})
 })
 
 describe('deleting', () => {

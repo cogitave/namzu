@@ -34,7 +34,7 @@ const PLATFORM_WORD = /^[a-z0-9]{1,16}$/u
 export function parseKernelFacts(bytes: Uint8Array): KernelFacts {
 	let value: unknown
 	try {
-		value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+		value = JSON.parse(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes))
 	} catch {
 		throw new FactsError('kernel.json is not valid JSON.')
 	}

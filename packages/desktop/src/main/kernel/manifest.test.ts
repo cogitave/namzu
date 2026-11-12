@@ -430,4 +430,18 @@ describe('manifest', () => {
 			),
 		).toBe('signature-format')
 	})
+
+	it('refuses a byte-order mark in the manifest and in the signature file, even when signed', () => {
+		const key = makeKey()
+		const bom = Buffer.from([0xef, 0xbb, 0xbf])
+		const good = signPair(manifestObject(input), key)
+		const signedBom = signPair(Buffer.concat([bom, good.manifest]), key)
+		expect(codeOf(() => verifyManifest(signedBom.manifest, signedBom.signature, [key]))).toBe(
+			'manifest-format',
+		)
+		expect(codeOf(() => parseManifest(Buffer.concat([bom, good.manifest])))).toBe('manifest-format')
+		expect(
+			codeOf(() => verifyManifest(good.manifest, Buffer.concat([bom, good.signature]), [key])),
+		).toBe('signature-format')
+	})
 })

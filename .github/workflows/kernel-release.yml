@@ -112,7 +112,7 @@ jobs:
 
       - name: The current manifest, if there is one
         run: |
-          names="$(gh release view "$FEED_TAG" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+          names="$(node "$KERNEL_SCRIPTS/release-assets.mjs" "$FEED_TAG")"
           mkdir -p prev
           if grep -Fxq kernel-latest.json <<<"$names"; then
             gh release download "$FEED_TAG" --pattern kernel-latest.json --dir prev
@@ -256,7 +256,7 @@ jobs:
       - name: The previous manifest, checked against the key list
         run: |
           mkdir -p prev out backup
-          names="$(gh release view "$FEED_TAG" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+          names="$(node "$KERNEL_SCRIPTS/release-assets.mjs" "$FEED_TAG")"
           has() { grep -Fxq "$1" <<<"$names"; }
           check() { node "$KERNEL_SCRIPTS/verify.mjs" --manifest "$1.json" --sig "$1.json.sig" --keys "$KEYS_FILE" --allow-expired; }
           current=false

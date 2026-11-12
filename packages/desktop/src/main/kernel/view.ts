@@ -5,7 +5,7 @@ import type {
 	EngineStatus,
 	EngineVersions,
 } from '../../shared/engine-delivery-protocol.js'
-import type { KernelState } from './state.js'
+import { type KernelState, leftEngineUnfetched } from './state.js'
 import { isKernelVersion } from './version.js'
 
 /**
@@ -62,6 +62,9 @@ export function engineStatus(input: ViewInput): EngineStatus {
 	}
 	if (state.lastCheck?.kind === 'needs-newer-app') return { kind: 'needs-newer-app' }
 	const fresh = state.lastFreshCheckAt
+	// A newer engine exists and the last attempt could not fetch or store it: not "up to date".
+	if (state.lastCheck?.kind === 'failed' && leftEngineUnfetched(state.lastCheck.stage))
+		return { kind: 'cannot-check', since: fresh ?? state.lastCheck.at }
 	if (fresh !== undefined && input.now - fresh > STALE_AFTER_MS)
 		return { kind: 'cannot-check', since: fresh }
 	if (fresh !== undefined) return { kind: 'current', checkedAt: fresh }
@@ -76,7 +79,8 @@ export function buildEngineView(input: ViewInput): EngineDeliveryView {
 		runs: input.running,
 		bundled: input.bundled,
 		status: engineStatus(input),
-		// Offered only while a fetched engine runs or is the one the next start would use.
-		canUseOwn: input.running.source === 'managed' || Boolean(state.current),
+		// Offered only while a fetched engine runs or is the one the next start would use (not with the
+		// setting off: the app already runs its own engine then).
+		canUseOwn: input.running.source === 'managed' || (input.enabled && Boolean(state.current)),
 	}
 }

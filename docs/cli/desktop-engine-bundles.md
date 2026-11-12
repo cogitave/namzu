@@ -156,6 +156,7 @@ the repository.
 | `key.mjs [--id k1] [--private]` | Makes a key pair. |
 | `unpack.mjs <archive> <out-dir> [--manifest file]` | Unpacks with the reader's rules (for inspection; the folder is removed if the archive is refused). |
 | `release-local.mjs --out <dir> [--target t]... [--keys file] [--previous file] [--floor v] ...` | The whole release into a folder, without publishing: stage, pack, manifest, sign when a key is in the environment, verify. |
+| `release-assets.mjs <tag>` | The asset names on the rolling release, one per line. A release that does not exist yet lists nothing; any other failure (a rate limit, a server error) exits non-zero instead of reading as "no assets", which would let the workflow take a published archive for a leftover and replace it, and start the manifest chain over. |
 | `release-plan.mjs decide ...` / `prune ...` / `upload-plan ...` | The decisions of the workflow (what a run does; which archives to remove; whether the archive about to be uploaded is new, replaces a leftover or is refused), as code that is tested. |
 | `write-keys.mjs [--check]` | Writes the app's compiled key list from `kernel-keys.json`, or checks it is current. |
 

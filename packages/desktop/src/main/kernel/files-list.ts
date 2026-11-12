@@ -89,7 +89,7 @@ export function parseFilesList(bytes: Uint8Array): FilesList {
 	let value: unknown
 	let text: string
 	try {
-		text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+		text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
 		value = JSON.parse(text)
 	} catch {
 		throw new FilesListError('format', 'files.json is not valid JSON.')
