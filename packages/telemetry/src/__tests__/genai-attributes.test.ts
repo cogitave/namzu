@@ -173,27 +173,48 @@ describe('a model call', () => {
 		expect(a).not.toHaveProperty('error.type')
 	})
 
-	it('leaves the provider name out when no listed value fits, and keeps our own id', async () => {
+	it('states our own id as a custom value when no listed value fits, and keeps gen_ai.system', async () => {
 		await run([{ text: REPLY }], { providerId: 'ollama' })
 		const a = one('chat ').attributes
-		expect(a).not.toHaveProperty('gen_ai.provider.name')
+		expect(a['gen_ai.provider.name']).toBe('ollama')
 		expect(a['gen_ai.system']).toBeUndefined() // the model call span never carried it
 		expect(one('namzu.agent.turn ').attributes['gen_ai.system']).toBe('ollama')
+		expect(one('namzu.agent.turn ').attributes['gen_ai.provider.name']).toBe('ollama')
 	})
 
-	it('maps the ids that have a listed value', async () => {
-		for (const [id, name] of [
-			['bedrock', 'aws.bedrock'],
-			['google', 'gcp.gen_ai'],
-			['openai', 'openai'],
-			['codex', 'openai'],
-			['deepseek', 'deepseek'],
-		] as const) {
-			exporter.reset()
-			await run([{ text: REPLY }], { providerId: id })
-			expect(one('chat ').attributes['gen_ai.provider.name']).toBe(name)
-		}
+	it('the scripted provider, with no id set by the test, states its own id', async () => {
+		await run([{ text: REPLY }])
+		expect(one('chat ').attributes['gen_ai.provider.name']).toBe('mock')
+		expect(one('namzu.agent.turn ').attributes['gen_ai.provider.name']).toBe('mock')
 	})
+
+	// One provider per kind: a vendor's own API (listed value), a gateway, a
+	// local runner, a custom HTTP endpoint, the scripted provider. A gateway
+	// and a local runner are never mapped to a vendor they are not.
+	it.each([
+		['anthropic', 'anthropic'],
+		['bedrock', 'aws.bedrock'],
+		['google', 'gcp.gen_ai'],
+		['openai', 'openai'],
+		['codex', 'openai'],
+		['deepseek', 'deepseek'],
+		['openrouter', 'openrouter'],
+		['zen', 'zen'],
+		['zen-go', 'zen-go'],
+		['ollama', 'ollama'],
+		['lmstudio', 'lmstudio'],
+		['http', 'http'],
+		['mock', 'mock'],
+	] as const)(
+		'provider %s gets %s on the model call and on the turn, none lacking it',
+		async (id, name) => {
+			await run(TOOL_TURNS, { providerId: id })
+			const calls = [...named('chat '), ...named('namzu.agent.turn ')]
+			expect(named('chat ').length).toBeGreaterThanOrEqual(2)
+			expect(named('namzu.agent.turn ')).toHaveLength(1)
+			for (const s of calls) expect(s.attributes['gen_ai.provider.name'], s.name).toBe(name)
+		},
+	)
 
 	it('carries cache reads, cache writes and reasoning, and the input includes them', async () => {
 		await run(
@@ -363,49 +384,52 @@ describe('content', () => {
 })
 
 describe('the setting', () => {
-	it('off: no new name, no schema URL, and every existing name stays', async () => {
-		const withNames = async () => {
-			exporter.reset()
-			await run(TOOL_TURNS, { providerId: 'anthropic' })
-			return finished()
-		}
-		const on = await withNames()
-		await getTelemetry()?.shutdown()
-		trace.disable()
-		await register(false)
-		const off = await withNames()
+	it.each(['anthropic', 'ollama', 'mock'])(
+		'off: no new name, no schema URL, and every existing name stays (%s)',
+		async (providerId) => {
+			const withNames = async () => {
+				exporter.reset()
+				await run(TOOL_TURNS, { providerId })
+				return finished()
+			}
+			const on = await withNames()
+			await getTelemetry()?.shutdown()
+			trace.disable()
+			await register(false)
+			const off = await withNames()
 
-		const added = [
-			'gen_ai.provider.name',
-			'gen_ai.request.stream',
-			'gen_ai.usage.cache_read.input_tokens',
-			'gen_ai.usage.cache_creation.input_tokens',
-			'gen_ai.usage.reasoning.output_tokens',
-			'error.type',
-		]
-		for (const s of off) {
-			expect(s.instrumentationScope.schemaUrl).toBeUndefined()
-			for (const name of added) expect(s.attributes).not.toHaveProperty(name)
-		}
-		expect(off.some((s) => s.attributes['gen_ai.operation.name'] === 'invoke_agent')).toBe(false)
-		expect(off.some((s) => s.attributes['gen_ai.operation.name'] === 'execute_tool')).toBe(false)
+			const added = [
+				'gen_ai.provider.name',
+				'gen_ai.request.stream',
+				'gen_ai.usage.cache_read.input_tokens',
+				'gen_ai.usage.cache_creation.input_tokens',
+				'gen_ai.usage.reasoning.output_tokens',
+				'error.type',
+			]
+			for (const s of off) {
+				expect(s.instrumentationScope.schemaUrl).toBeUndefined()
+				for (const name of added) expect(s.attributes).not.toHaveProperty(name)
+			}
+			expect(off.some((s) => s.attributes['gen_ai.operation.name'] === 'invoke_agent')).toBe(false)
+			expect(off.some((s) => s.attributes['gen_ai.operation.name'] === 'execute_tool')).toBe(false)
 
-		// Off is on minus the additions: nothing else moved.
-		const strip = (spans: ReadableSpan[]) =>
-			spans
-				.map((s) => ({
-					name: s.name,
-					keys: Object.keys(s.attributes)
-						.filter(
-							(k) =>
-								!added.includes(k) &&
-								!(k === 'gen_ai.operation.name' && s.attributes[k] !== 'chat'),
-						)
-						.sort(),
-				}))
-				.sort((x, y) => x.name.localeCompare(y.name))
-		expect(strip(off)).toEqual(strip(on))
-	})
+			// Off is on minus the additions: nothing else moved.
+			const strip = (spans: ReadableSpan[]) =>
+				spans
+					.map((s) => ({
+						name: s.name,
+						keys: Object.keys(s.attributes)
+							.filter(
+								(k) =>
+									!added.includes(k) &&
+									!(k === 'gen_ai.operation.name' && s.attributes[k] !== 'chat'),
+							)
+							.sort(),
+					}))
+					.sort((x, y) => x.name.localeCompare(y.name))
+			expect(strip(off)).toEqual(strip(on))
+		},
+	)
 
 	it('is on by default and adds at most a handful of attributes per span', async () => {
 		await run(

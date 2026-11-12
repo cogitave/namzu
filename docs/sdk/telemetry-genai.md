@@ -49,7 +49,7 @@ added attributes is the number a backend that bills by attribute will see.
 | Span (name, unchanged) | Attribute | Type | Value and our source | Convention level | |
 | --- | --- | --- | --- | --- | --- |
 | `chat <model>` | `gen_ai.operation.name` | string | `chat` | Required | existing |
-| | `gen_ai.provider.name` | string | the provider's id mapped to a value the convention lists (below); left out when none fits | Required | added |
+| | `gen_ai.provider.name` | string | a value the convention lists when our provider is that vendor's own API, otherwise our own provider id as a custom value (below); always present | Required | added |
 | | `gen_ai.request.stream` | boolean | `true`: the kernel always streams a model call | Conditionally required | added |
 | | `gen_ai.request.model` | string | the model the turn asked for | Conditionally required | existing |
 | | `gen_ai.conversation.id` | string | the session id | Conditionally required | existing |
@@ -87,6 +87,18 @@ The iteration span carries none.
 
 ### Provider names
 
+`gen_ai.provider.name` is Required. The convention's registry at 1.41.1
+(`docs/registry/attributes/gen-ai.md`, the list of well-known values) says:
+"If one of them applies, then the respective value MUST be used; otherwise, a
+custom value MAY be used." It states no rule on the form of a custom value.
+The kernel therefore writes a listed value only when its provider is that
+vendor's own API, and otherwise its own provider id, lower case, so the
+attribute is on every span that carries it. A gateway that forwards to several
+vendors, a local runner and a custom HTTP endpoint are never given a vendor's
+value they are not. `gen_ai.system` is a separate, deprecated attribute; the
+convention does not tie the two together, and the kernel keeps writing it
+unchanged.
+
 | Kernel provider id | `gen_ai.provider.name` |
 | --- | --- |
 | `anthropic` | `anthropic` |
@@ -94,7 +106,7 @@ The iteration span carries none.
 | `deepseek` | `deepseek` |
 | `google` | `gcp.gen_ai` (the convention's value for any Google generative AI endpoint; the id does not say which) |
 | `openai`, `codex` | `openai` |
-| `ollama`, `lmstudio`, `openrouter`, `http`, `zen`, `zen-go`, test providers | none: the convention lists no value for them, and a made-up one would be a claim about someone else's product. `gen_ai.provider.name` is Required by the convention, so these spans are incomplete by its terms. `gen_ai.system` (the kernel's own id) is still on the span. |
+| any other id: `ollama`, `lmstudio`, `openrouter`, `http`, `zen`, `zen-go`, the scripted test provider (`mock`) | the id itself, lower case, as a custom value |
 
 ## Where the kernel does not follow the convention
 

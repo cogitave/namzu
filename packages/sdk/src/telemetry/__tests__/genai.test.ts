@@ -54,20 +54,16 @@ describe('provider names', () => {
 		expect(genAiProviderName('deepseek')).toBe('deepseek')
 	})
 
-	it('leaves out the ones it has no value for, and never invents one', () => {
-		for (const id of [
-			'ollama',
-			'lmstudio',
-			'openrouter',
-			'http',
-			'zen',
-			'zen-go',
-			'mock',
-			'',
-			undefined,
-		]) {
-			expect(genAiProviderName(id)).toBeUndefined()
+	it('states our own id, lower case, as the custom value when no listed value fits', () => {
+		for (const id of ['ollama', 'lmstudio', 'openrouter', 'http', 'zen', 'zen-go', 'mock']) {
+			expect(genAiProviderName(id)).toBe(id)
 		}
+		expect(genAiProviderName('  MyRunner ')).toBe('myrunner')
+	})
+
+	it('has nothing to state only when there is no id at all', () => {
+		expect(genAiProviderName('')).toBeUndefined()
+		expect(genAiProviderName(undefined)).toBeUndefined()
 	})
 })
 
@@ -90,20 +86,26 @@ describe('error.type', () => {
 })
 
 describe('the attribute builders', () => {
-	it('an agent run states the operation, and the provider only when it maps', () => {
+	it('an agent run states the operation and the provider', () => {
 		expect(agentRunAttributes('openai')).toEqual({
 			'gen_ai.operation.name': GENAI_OPERATION.INVOKE_AGENT,
 			'gen_ai.provider.name': 'openai',
 		})
-		expect(agentRunAttributes('ollama')).toEqual({ 'gen_ai.operation.name': 'invoke_agent' })
+		expect(agentRunAttributes('ollama')).toEqual({
+			'gen_ai.operation.name': 'invoke_agent',
+			'gen_ai.provider.name': 'ollama',
+		})
 	})
 
-	it('a model call states streaming, and the provider only when it maps', () => {
+	it('a model call states streaming and the provider', () => {
 		expect(chatStartAttributes('anthropic')).toEqual({
 			'gen_ai.provider.name': 'anthropic',
 			'gen_ai.request.stream': true,
 		})
-		expect(chatStartAttributes('mock')).toEqual({ 'gen_ai.request.stream': true })
+		expect(chatStartAttributes('mock')).toEqual({
+			'gen_ai.provider.name': 'mock',
+			'gen_ai.request.stream': true,
+		})
 	})
 
 	it('usage states only counts the driver reported', () => {

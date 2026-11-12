@@ -95,12 +95,21 @@ export function genAiConventionsEnabled(): boolean {
 }
 
 /**
- * The convention's provider name for a kernel provider id, or `undefined`
- * when the convention lists no value that fits. A custom value is allowed by
- * the convention, but inventing one here would be a claim about someone
- * else's product, so the attribute is left out instead (`gen_ai.system` still
- * carries our own id). `google` is `gcp.gen_ai`: the convention's value for
- * "any Google generative AI endpoint", since our id does not say which one.
+ * The value for `gen_ai.provider.name`, which the convention requires on every
+ * span that carries it.
+ *
+ * The convention (1.41.1) says: "If one of them applies, then the respective
+ * value MUST be used; otherwise, a custom value MAY be used." and states no
+ * further rule on the form of a custom value. So:
+ *
+ * - a listed value only when our provider IS that vendor's own API (the
+ *   cases below; `google` is `gcp.gen_ai`, "Any Google generative AI
+ *   endpoint", since our id does not say which one);
+ * - otherwise our own provider id, lower case, as the custom value. A gateway
+ *   that forwards to several vendors, a local runner and a custom HTTP
+ *   endpoint are never mapped to a vendor they are not.
+ *
+ * `undefined` only when there is no provider id at all.
  */
 export function genAiProviderName(providerId: string | undefined): string | undefined {
 	switch (providerId) {
@@ -115,8 +124,10 @@ export function genAiProviderName(providerId: string | undefined): string | unde
 		case 'openai':
 		case 'codex':
 			return 'openai'
-		default:
-			return undefined
+		default: {
+			const own = providerId?.trim().toLowerCase()
+			return own ? own : undefined
+		}
 	}
 }
 
