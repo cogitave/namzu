@@ -194,7 +194,7 @@ it('shows a hint only once the command is offered, and Ctrl+B moves it', async (
 
 	offer()
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).toContain('(ctrl+b to run in background)')
+	expect(screen.viewport().join('\n')).toContain('ctrl+b to run in background')
 
 	screen.press('\x02')
 	await screen.waitForRender()
@@ -212,7 +212,7 @@ it('says to press the key twice inside tmux', async () => {
 	await turnStarted
 	offer()
 	await screen.waitForRender()
-	expect(screen.viewport().join('\n')).toContain('(ctrl+b ctrl+b (twice) to run in background)')
+	expect(screen.viewport().join('\n')).toContain('ctrl+b ctrl+b (twice) to run in background')
 	releaseTurn()
 	await screen.waitForRender()
 })

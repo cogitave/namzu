@@ -1,14 +1,11 @@
 /**
- * The model's plan reaches the screen as a checklist in the transcript, once.
+ * The model's plan reaches the screen as ONE checklist.
  *
- * Task calls used to reach the operator as their protocol: `☐subject` rows,
- * `Task created: <uuid> — "…" [owner: namzu]`, `1 tasks: 0 completed…`, and
- * a live list above the composer repeating the same tasks a second time.
- * Now consecutive task operations fold into one transcript block — a header
- * in words and the checklist as it stood afterwards — and the row above the
- * composer names the current step only while that block is out of view.
- * These drive a rendered `<App>` and read the frames, which is the only
- * thing that can establish what an operator sees.
+ * While the turn runs it lives under the working line and updates in place;
+ * the transcript gets no block per update. When the turn ends, its final state
+ * is printed once, if it changed during the turn. These drive a rendered
+ * `<App>` and read the frames, which is the only thing that can establish what
+ * an operator sees.
  */
 
 import { mkdtempSync } from 'node:fs'
@@ -192,34 +189,57 @@ async function submit(harness: ReturnType<typeof render>, text: string) {
 const count = (frame: string, needle: string) => frame.split(needle).length - 1
 
 describe('the task checklist', () => {
-	it('folds consecutive additions into one block, with one space after each mark', async () => {
+	it('draws the plan under the working line with one space after each mark', async () => {
 		const harness = await open()
 		await submit(harness, 'go')
 
-		await frameShows(harness.lastFrame, 'Added 2 tasks')
+		await frameShows(harness.lastFrame, '□ Cover it with tests')
 		const frame = harness.lastFrame() ?? ''
 		expect(frame).toContain('□ Çalışma alanını incele')
-		expect(frame).toContain('□ Cover it with tests')
 		expect(frame, 'no mark runs into its text').not.toMatch(/[□■✓✗][^ \n]/)
 		expect(frame, 'no emoji-presentation marks').not.toMatch(/[☐☑☒◐⏸]/)
+		const rows = frame.split('\n')
+		const working = rows.findIndex((row) => /Working|Writing|Thinking/u.test(row))
+		const list = rows.findIndex((row) => row.includes('□ Çalışma alanını incele'))
+		expect(working, 'the working line is on screen').toBeGreaterThanOrEqual(0)
+		expect(list, 'the list is right under it').toBeGreaterThan(working)
+		expect(list - working).toBeLessThanOrEqual(2)
 	})
 
-	it('names each later operation in words and redraws the checklist under it', async () => {
+	it('updates the list in place and writes no block per update', async () => {
 		const harness = await open()
 		await submit(harness, 'go')
 
-		await frameShows(harness.lastFrame, 'Started · Çalışma alanını incele')
-		expect(harness.lastFrame() ?? '').toContain('■ Çalışma alanını incele')
+		await frameShows(harness.lastFrame, '■ Çalışma alanını incele')
+		await frameShows(harness.lastFrame, '✓ Çalışma alanını incele')
+		await frameShows(harness.lastFrame, '■ Cover it with tests')
+		// Each step is on screen once: in the live list, never again as a row.
+		const frame = harness.lastFrame() ?? ''
+		expect(count(frame, 'Çalışma alanını incele')).toBe(1)
+		expect(count(frame, 'Cover it with tests')).toBe(1)
+		await frameShows(harness.lastFrame, 'All done, first turn.')
+		const everything = harness.frames.join('\n')
+		for (const block of ['Added 2 tasks', 'Started ·', 'Completed ·', 'Renamed']) {
+			expect(everything, `no "${block}" row`).not.toContain(block)
+		}
+	})
 
-		// A completion and the next start in one step are one block.
-		await frameShows(harness.lastFrame, 'Tasks · 1/2 done')
-		let frame = harness.lastFrame() ?? ''
+	it('prints the list once, as it ended, when the turn is over', async () => {
+		const harness = await open()
+		await submit(harness, 'go')
+		await frameShows(harness.lastFrame, 'All done, first turn.')
+		await frameShows(harness.lastFrame, 'Tasks · 2/2 done')
+		await tick(80)
+		const frame = harness.lastFrame() ?? ''
+		expect(count(frame, 'Tasks · 2/2 done')).toBe(1)
+		expect(count(frame, '✓ Cover it with tests')).toBe(1)
 		expect(frame).toContain('✓ Çalışma alanını incele')
-		expect(frame).toContain('■ Cover it with tests')
+		expect(frame, 'the live list is gone with the turn').not.toContain('■')
 
-		await frameShows(harness.lastFrame, 'Completed · Cover it with tests')
-		frame = harness.lastFrame() ?? ''
-		expect(frame).toContain('✓ Cover it with tests')
+		// A turn that does not touch the plan prints nothing new.
+		await submit(harness, 'again')
+		await frameShows(harness.lastFrame, 'Second turn reply.')
+		expect(count(harness.lastFrame() ?? '', 'Tasks · 2/2 done')).toBe(1)
 	})
 
 	it('never shows an id, an owner or a tool receipt', async () => {
@@ -233,28 +253,9 @@ describe('the task checklist', () => {
 		expect(everything).not.toMatch(/\d+ tasks:/)
 	})
 
-	it('shows the plan once: a reply under the checklist leaves it in view, and no row repeats it', async () => {
+	it('folds the list to the step it is on with Ctrl+T, and does not draw a second checklist', async () => {
 		vi.stubEnv('COLUMNS', '100')
-		vi.stubEnv('LINES', '60')
-		const harness = await open()
-		await submit(harness, 'go')
-
-		// Right after the additions, the block is the newest row: one copy.
-		await frameShows(harness.lastFrame, 'Added 2 tasks')
-		expect(count(harness.lastFrame() ?? '', 'Cover it with tests')).toBe(1)
-
-		// Text after the block on a tall screen: the block is still on screen,
-		// so nothing above the composer says one of its lines again.
-		await frameShows(harness.lastFrame, 'Looked around.')
-		const frame = harness.lastFrame() ?? ''
-		expect(frame).toContain('■ Çalışma alanını incele')
-		expect(frame, 'no current-step row while the block is visible').not.toContain('· 0/2 done')
-		expect(count(frame, '■ Çalışma alanını incele'), 'the current step is drawn once').toBe(1)
-	})
-
-	it('names the current step above the composer once the checklist is folded and out of view', async () => {
-		vi.stubEnv('COLUMNS', '100')
-		vi.stubEnv('LINES', '18')
+		vi.stubEnv('LINES', '40')
 		// Ctrl+T saves its choice; keep that out of the real user file.
 		vi.stubEnv('NAMZU_HOME', mkdtempSync(join(tmpdir(), 'namzu-todos-')))
 		holdAfterSecondReply = true
@@ -264,44 +265,27 @@ describe('the task checklist', () => {
 		const harness = await open()
 		await submit(harness, 'go')
 
-		// On a short screen the reply pushes the block's head off, and the model's
-		// own tasks have opened the list; Ctrl+T folds it to the step it is on,
-		// which is not a second checklist. The turn waits here until the test has
-		// read the folded row, so no timing decides whether `0/2 done` is still true.
+		// The turn waits here until the test has read the folded row, so no timing
+		// decides whether `0/2 done` is still true.
 		await frameShows(harness.lastFrame, 'Looked around.')
+		await frameShows(harness.lastFrame, '□ Cover it with tests')
 		harness.stdin.write('\x14')
 		await frameShows(harness.lastFrame, '■ Çalışma alanını incele · 0/2 done')
-		expect(harness.lastFrame() ?? '', 'not a second checklist').not.toContain('Tasks · 0/2 done')
+		expect(harness.lastFrame() ?? '', 'folded to one step').not.toContain('□ Cover it with tests')
 		releaseHeld()
 	})
 
-	it('leaves the finished plan in the transcript and clears the row when the plan is done', async () => {
-		const harness = await open()
-		await submit(harness, 'go')
-		await frameShows(harness.lastFrame, 'All done, first turn.')
-		await tick(80)
-		const frame = harness.lastFrame() ?? ''
-		expect(frame).not.toContain('· 2/2 done')
-		expect(frame).toContain('Completed · Cover it with tests')
-
-		await submit(harness, 'again')
-		await frameShows(harness.lastFrame, 'Second turn reply.')
-		expect(count(harness.lastFrame() ?? '', 'Completed · Cover it with tests')).toBe(1)
-	})
-
-	it('drops a removed task from the checklist and says so in words', async () => {
+	it('drops a removed task from the list and from the printed final state', async () => {
 		vi.stubEnv('COLUMNS', '100')
 		vi.stubEnv('LINES', '60')
 		removal = true
 		const harness = await open()
 		await submit(harness, 'go')
+		await frameShows(harness.lastFrame, '□ Eski adımı sil')
 		await frameShows(harness.lastFrame, 'Removal done.')
+		await frameShows(harness.lastFrame, 'Tasks · 0/1 done')
 		const frame = harness.lastFrame() ?? ''
-		expect(frame).toContain('Removed task · Eski adımı sil')
-		// The first block, drawn before the removal, still lists it; the block
-		// the removal wrote does not draw it as a step.
-		const after = frame.slice(frame.indexOf('Removed task · Eski adımı sil'))
-		expect(after).toContain('□ Çalışma alanını incele')
-		expect(after).not.toContain('□ Eski adımı sil')
+		expect(frame).toContain('□ Çalışma alanını incele')
+		expect(frame).not.toContain('□ Eski adımı sil')
 	})
 })

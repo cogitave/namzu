@@ -30,9 +30,10 @@ it('says it waits for you instead of counting, and leaves the wait out of the ti
 		vi.setSystemTime(new Date('2026-09-23T19:01:57Z'))
 		view.rerender(<LiveActivity activeTools={[]} working animate={false} />)
 		const after = view.lastFrame() ?? ''
-		expect(after).toContain('Working')
-		// 117 s since the turn began, 90 of them at the question.
-		expect(after).toContain('(27s')
+		// 117 s since the turn began, 90 of them at the question; the reply has
+		// been quiet for the 22 s since the answer, and the line says so.
+		expect(after).toContain('Waiting for the model')
+		expect(after).toContain('(27s · no reply for 22s)')
 	} finally {
 		view.unmount()
 	}

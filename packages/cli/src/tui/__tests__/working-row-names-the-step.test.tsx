@@ -1,8 +1,8 @@
 /**
- * While a plan step is in progress the working row names it, in the words the
- * model gave for it ("Running the tests"), instead of the default word. The
- * row falls back to the step's subject when the model gave no such form.
- * Drives a rendered `<App>`, since only the frame shows what the person sees.
+ * While a plan step is in progress it is in the list under the working line,
+ * once; the line keeps its phase word. (A short terminal, which has no room for
+ * the list, still names the step on the line: working-label.test.ts.) Drives a
+ * rendered `<App>`, since only the frame shows what the person sees.
  */
 
 import { render } from 'ink-testing-library'
@@ -123,26 +123,28 @@ async function submit(harness: ReturnType<typeof render>, text: string) {
 	harness.stdin.write('\r')
 }
 
-describe('the working row', () => {
-	it('names the step in progress in the words the model gave', async () => {
+describe('the working region with a step in progress', () => {
+	it('keeps the phase word on the line and shows the step in the list under it', async () => {
 		const harness = await open()
 		await submit(harness, 'go')
-		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('Running the tests'), {
+		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('■ Run the tests'), {
 			timeout: 30_000,
 		})
-		expect(harness.lastFrame() ?? '', 'the default word gives way').not.toContain('Working')
+		const frame = harness.lastFrame() ?? ''
+		expect(frame, 'the word says the phase; the step is in the list').toMatch(
+			/Working|Writing|Thinking/u,
+		)
+		expect(frame, 'the step is drawn once').toContain('■ Run the tests')
+		expect(frame.split('Run the tests').length - 1).toBe(1)
 	})
 
-	it('names the step by its subject when the model gave no other form', async () => {
+	it('does not need the model to give a present-tense form of the step', async () => {
 		withActiveForm = false
 		const harness = await open()
 		await submit(harness, 'go')
-		// The subject is already in the checklist block (its header and its line);
-		// a third copy, on a line of its own, is the working row.
-		await vi.waitFor(
-			() => expect((harness.lastFrame() ?? '').split('Run the tests').length - 1).toBe(3),
-			{ timeout: 30_000 },
-		)
-		expect(harness.lastFrame() ?? '').not.toContain('Working')
+		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('■ Run the tests'), {
+			timeout: 30_000,
+		})
+		expect((harness.lastFrame() ?? '').split('Run the tests').length - 1).toBe(1)
 	})
 })

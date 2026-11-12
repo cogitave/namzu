@@ -271,7 +271,7 @@ it.each([160, 120, 80, 40])(
 		await new Promise((resolve) => setTimeout(resolve, 250))
 		await waitUntil(screen, () => painted().includes('↓ 1.1k tokens'))
 		const row = screen.viewport().find((line) => line.includes('↓ 1.1k tokens')) ?? ''
-		expect(row).toContain('Working')
+		expect(row).toMatch(/Working|Writing|Thinking/u)
 		expect([...row].length).toBeLessThanOrEqual(cols)
 		release?.()
 	},

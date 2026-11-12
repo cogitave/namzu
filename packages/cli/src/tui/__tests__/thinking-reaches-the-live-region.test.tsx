@@ -108,7 +108,7 @@ async function frameShows(read: () => string | undefined, needle: string, budget
 }
 
 describe('the model thinking', () => {
-	it('shows its current line under Working, then leaves no trace once the reply starts', async () => {
+	it('shows its current line under the working line, then leaves no trace once the reply starts', async () => {
 		const harness = render(<App ctx={ctx} />)
 		mounted.push(harness)
 		await frameShows(harness.lastFrame, 'Type a message')
@@ -118,7 +118,7 @@ describe('the model thinking', () => {
 		harness.stdin.write('\r')
 
 		await frameShows(harness.lastFrame, 'thinking · first, weigh the REASONING-SENTINEL options')
-		expect(harness.lastFrame() ?? '').toContain('Working')
+		expect(harness.lastFrame() ?? '').toContain('Thinking')
 
 		releaseReply()
 		await frameShows(harness.lastFrame, 'The reply, after thinking.')

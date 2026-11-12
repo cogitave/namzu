@@ -751,17 +751,20 @@ heading or a fence does: `- a | b` directly under a table is a list item.
 
 ## The model's plan
 
-`task_create`, `task_update` and `task_list` leave one block in the transcript
-per run of consecutive task calls: a header in words and the checklist as it
-stood afterwards. A single operation is named with its subject (`Added task ·
-…`, `Started · …`, `Completed · …`, `Failed · …`, `Reopened · …`, `Removed
-task · …`, after which the checklist no longer draws the task), repeats of
-one operation are counted (`Added 2 tasks`), and a mix or a listing shows where
-the plan stands (`Tasks · 1/2 done`). The block keeps growing while nothing else
-is written after it in the same turn; the model's text or another tool closes
-it, and the next task call opens a new one. No task id, owner or JSON appears
-on any surface: the model still receives the ids in its tool results, which the
-screen does not show.
+`task_create`, `task_update` and `task_list` draw one checklist, and it lives
+in the working region while the turn runs: under the working line, updated in
+place as the model changes the plan, so each task is on screen once and the
+transcript gets no block per update. The default screen cannot redraw a row it
+has printed, so the list is part of the live region there (the same component
+draws it in fullscreen). While a planning call runs, the working line says so in
+plain words (`Updating the plan`, `Adding to the plan`, `Reading the plan`),
+never the call's own text. When the turn ends, the list as it ended is printed
+once into the transcript, with a `Tasks · 2/3 done` header, if the plan changed
+during the turn; a turn that did not touch it prints nothing. A short terminal,
+which has no room for the list, keeps the one-row current step below the
+working line instead. No task id, owner or JSON appears on any surface: the
+model still receives the ids in its tool results, which the screen does not
+show.
 
 The `Tasks · …` header is the CLI transcript group's checklist progress.
 The SDK's generic presentation of an individual `task_list` result instead
@@ -769,17 +772,17 @@ qualifies its scope as `Current-turn task view · …`. The model-facing result
 also reports how many earlier terminal records remain stored outside that
 view; see [Task context](task-context.md).
 
-The live checklist above the message box is folded to the one current step by default; Ctrl+T opens it (every task, at most five rows, the rest counted as `… +N more`) and the footer names the key (`ctrl+t to hide tasks` / `ctrl+t to show tasks`). The choice is saved as `tui.showExpandedTodos` in your own config files; a project file cannot set it.
+While a turn runs the live checklist shows every task (at most five rows, the rest counted as `… +N more`); Ctrl+T folds it to the one current step, and the footer names the key (`ctrl+t to hide tasks` / `ctrl+t to show tasks`). Between turns, with the plan not in view, the folded one-row step is the default and Ctrl+T opens it. The choice is saved as `tui.showExpandedTodos` in your own config files; a project file cannot set it.
 
-One renderer draws every checklist, the transcript block and the live checklist alike:
+One renderer draws every checklist, the printed block and the live checklist alike:
 `□` pending, `■` in progress (bold), `✓` completed (dimmed and struck
 through), `✗` failed, each followed by exactly one space, with a wrapped subject
-hanging under its first letter. The block shows
-its plan inline in the conversation, once, rather than a second copy above the
-input. Above the composer, a single row names the current step and the count
-(`■ Write the parser · 1/3 done`) only while that block is out of view — pushed
-up by later output, or taller than the space left on a short screen. It leaves
-when no step is open.
+hanging under its first letter. The printed block shows
+its plan inline in the conversation, once, after the turn that changed it.
+Outside a running turn, a single row above the composer names the current step
+and the count (`■ Write the parser · 1/3 done`) only while that block is out of
+view — pushed up by later output, or taller than the space left on a short
+screen. It leaves when no step is open.
 
 ## Reading the conversation
 
@@ -827,16 +830,32 @@ listener attached while the composer is hidden; its input guard ignores keys
 until the prompt closes, so the first key typed when the writing area returns is
 accepted.
 
-The Working label itself has a repeating green fill and pale leading edge,
-alongside elapsed time and the turn's output so far, `Working (46s · ↓ 1.1k
-tokens)`. The parenthesised figures stay hidden until the reply has produced
-tokens, the model is thinking, a compaction runs, agents are running, or the
-turn has lasted more than 16 s; elapsed time reads `12s`, `1m 23s`, `2h 3m 4s`
-(seconds floored, the same format on every duration in the transcript). While a plan step is in progress the word `Working` gives way to that step, in the words the model gave for it (`Running the tests`) or, when it gave none, the step's subject on one line, cut to fit beside the clock; with no step in progress the row says `Working`. The model is also told to say in a line what it is about to do before its first tool call and to add a one-line update when it finds something, changes direction or hits a blocker, so a long turn reads as a few plain lines and not as silence. A blank
-row separates the last transcript row from the Working row. With no token for
-more than 10 s the label blends toward `rgb(171,43,63)`, fully at 20 s, easing in
-and out; it never tints while a tool runs, the model is thinking, a compaction
-runs or a question waits for you, and it resets on the next token. The reasoning row under it names how long one stretch has run: `thinking`, `still thinking` from 10 s, `thinking more` from 20 s, `thinking some more` from 30 s, `deep in thought` from 45 s, followed by the model's own summary when it gave one; when the stretch ends the row reads `thought for 12s` (whole seconds, at least 1) for two seconds. The count is the provider's reported output
+The working line is a small mark, a word and figures: `● Working (46s · ↓ 1.1k tokens)`.
+The mark is our own, a disc that shrinks to a point and swells back in four
+shapes about every two seconds (`● • · •`); it holds still, as `●`, under
+reduced motion, with `NO_COLOR`, `FORCE_COLOR=0`, `TERM=dumb` and for a screen
+reader. The word has a repeating green fill and pale leading edge, and says the
+phase in plain words where the kernel knows it: `Thinking` (reasoning is
+streaming), `Writing` (reply tokens are arriving), `Running a command`,
+`Running grep` (a tool by its plain name), `Running 3 tools`, `Waiting for an
+agent`, `Updating the plan`, `Waiting for your approval`, `Retrying` (with its
+own countdown row below), `Compacting conversation…`, and `Working` when no
+phase is known; with nothing arriving for 3 s it reads `Waiting for the model`.
+The clock is on the line from the second second of the turn and never leaves, so
+nothing pops in later; the output tokens, agents and a note about silence join
+it in the same parentheses. Elapsed time reads `12s`, `1m 23s`, `2h 3m 4s`
+(seconds floored, the same format on every duration in the transcript). The
+clock moves once a second even under reduced motion (not for a screen reader).
+With no plan list on screen (a short terminal), a plan step in progress still
+gives the word its place: the step, in the words the model gave for it (`Running
+the tests`) or its subject. The model is also told to say in a line what it is about to do before its first tool call and to add a one-line update when it finds something, changes direction or hits a blocker, so a long turn reads as a few plain lines and not as silence. A blank
+row separates the last transcript row from the Working row. When nothing has
+arrived for 10 s the figures say so in words, `(32s · no reply for 22s)`, and the
+label blends toward `rgb(171,43,63)`, fully at 20 s, easing in and out; colour
+only backs the words up, and neither shows while a tool runs, the model is
+thinking, a compaction runs, a retry is being waited out or a question waits for
+you. Both reset on the next token. The line never says "network" or blames a
+cause the kernel does not know. The reasoning row under it names how long one stretch has run: `thinking`, `still thinking` from 10 s, `thinking more` from 20 s, `thinking some more` from 30 s, `deep in thought` from 45 s, followed by the model's own summary when it gave one; when the stretch ends the row reads `thought for 12s` (whole seconds, at least 1) for two seconds. The count is the provider's reported output
 tokens for the turn plus an estimate (characters over four) of the reply and
 reasoning streamed since that report, redrawn at most five times a second; it
 is absent until the model has written something. On a narrow terminal the
@@ -1254,7 +1273,7 @@ The terminal app speaks in the person's terms. `--json`, `namzu exec`, scheduled
        … +37 lines (ctrl+o to expand)
   ```
 
-  The header keeps the command's real line breaks, at most 2 lines and 160 characters, then a single `…`; Ctrl+O shows the whole command. stdout comes first, then stderr in the error colour; each stream shows its first 3 visual lines (10 when the command failed) and then a dim `… +N lines (ctrl+o to expand)`; a stream with exactly one line to hide shows it instead. A failed command that printed something leads with `Exit code N`; one that printed nothing is only `Exit code N` (a timeout reads `Timed out`, a signal `Stopped before it finished`); a command that printed nothing and succeeded reads `(No output)`; a command whose non-zero exit is its answer (a `grep`/`rg`/`find` with no match, `diff` with a difference, `test` false, `git diff`, `git grep`; see [Tool execution](../sdk/tool-execution.md)) is drawn as a success, with the dot in the success colour, and when it printed nothing its note (`No matches found`, `Files differ`, `Condition is false`, `Some directories were inaccessible`) stands in dim where `(No output)` would be; one handed to a background job reads `Running in the background (↓ to manage)`, never the model-facing instructions. Binary output is named with its size. While the command runs the live region shows the same header with `⎿  Running… (12s)`, and, once it reports output, the last 5 lines it reported (the kernel coalesces progress to the latest line, so these are the lines seen, not all of them) above the elapsed time. A stream longer than the kernel's window shows its gap as "… +80 lines", counted into the `+N`. Ctrl+O opens everything the host holds, which for a long stream is the kernel's first 80 and last 40 lines. A conversation saved before facts existed keeps the older reading, which strips ANSI, drops the credential note and the exit trailer and reads the status from the text. The retained raw output is untouched. A call the person answered No to reads "You declined this, so it did not run." with their words when they gave any, never the refusal text the model was given; a call to a tool that does not exist reads as one sentence. This cell is the row of a command that failed, was stopped, timed out, was declined or moved to the background, and of one that ran on its own; a command that ended well among others folds into the counted line under [Compact tool activity](#compact-tool-activity).
+  The header keeps the command's real line breaks, at most 2 lines and 160 characters, then a single `…`; Ctrl+O shows the whole command. stdout comes first, then stderr in the error colour; each stream shows its first 3 visual lines (10 when the command failed) and then a dim `… +N lines (ctrl+o to expand)`; a stream with exactly one line to hide shows it instead. A failed command that printed something leads with `Exit code N`; one that printed nothing is only `Exit code N` (a timeout reads `Timed out`, a signal `Stopped before it finished`); a command that printed nothing and succeeded reads `(No output)`; a command whose non-zero exit is its answer (a `grep`/`rg`/`find` with no match, `diff` with a difference, `test` false, `git diff`, `git grep`; see [Tool execution](../sdk/tool-execution.md)) is drawn as a success, with the dot in the success colour, and when it printed nothing its note (`No matches found`, `Files differ`, `Condition is false`, `Some directories were inaccessible`) stands in dim where `(No output)` would be; one handed to a background job reads `Running in the background (↓ to manage)`, never the model-facing instructions. Binary output is named with its size. While the command runs the live region shows the same header and, once it reports output, the last 5 lines it reported (the kernel coalesces progress to the latest line, so these are the lines seen, not all of them), and under them one dim footer line that is there from the first moment, so no row appears later and nothing under it moves: `Running… · 3s` before any output, then the elapsed time, `limit 1m 30s` when the call set a `timeout`, `214 lines, 209 above` (the lines the command has printed, counted by the `bash` tool and sent as `outputLines` on `tool_progress`, and how many are not among the rows shown), and `ctrl+b to run in background` on the same line once the command can be moved (`ctrl+b ctrl+b (twice)` inside tmux). A stream longer than the kernel's window shows its gap as "… +80 lines", counted into the `+N`. Ctrl+O opens everything the host holds, which for a long stream is the kernel's first 80 and last 40 lines. A conversation saved before facts existed keeps the older reading, which strips ANSI, drops the credential note and the exit trailer and reads the status from the text. The retained raw output is untouched. A call the person answered No to reads "You declined this, so it did not run." with their words when they gave any, never the refusal text the model was given; a call to a tool that does not exist reads as one sentence. This cell is the row of a command that failed, was stopped, timed out, was declined or moved to the background, and of one that ran on its own; a command that ended well among others folds into the counted line under [Compact tool activity](#compact-tool-activity).
 - **The permission, question and plan dialogs share one verb set.** `enter confirm`, `esc cancel` (it declines the batch and the agent carries on; in the plan dialog it keeps planning), `ctrl+c stop` (it also ends the reply), `y / n answer`, `d input` / `d script` / `d instructions` for the details toggle, and `←→ questions`, `space toggle` in the question dialog. The earlier `esc decline`, `esc skip`, `esc keep planning`, `enter choose`, `enter ok` and `ctrl+c stop the reply` are gone, so one key reads the same on every dialog. A duration under a second that a row does show (the workflow, web and agent lines) reads `420ms` rather than `0s`; a tool row says nothing for a call under a second; live counters keep whole seconds.
 - **Key hints appear once per screen.** A picker or prompt draws its hint line inside its own box ("↑↓ select · enter apply · esc back"), and no footer is drawn while a box is open. The words are the same everywhere: `↑↓ select`, `enter apply`, `esc back` where the key returns to the previous screen, `esc cancel` where it drops what was being done, `esc close` for a viewer. A line wider than its room is one row at every width: each hint has a rank and, where it helps, a short form (`↑↓ or 1–9 select` becomes `↑↓ select`, `esc or ctrl+c exit` becomes `esc exit`, `k enter an API key` becomes `k API key`); the lowest-ranked hint is said short and then dropped (`PgUp/PgDn jump`, `Home/End`, `s provider setup`, `l create a Namzu sign-in` go first), a hint is never cut in the middle, and `↑↓ select`, `enter apply` and the key that leaves are the last to go. Every picker and dialog key line (the provider list and its sub-screens, the sign-in and key screens, the model, resume, copy and edit pickers, the text prompt, the effort slider, the permission prompt, the schedule and save-skill reviews, the agent cockpit, the slash and file menus) is built this way, and the provider list counts that one row in its height budget (a bordered box in the app's padded root has `columns - 6` columns of text, which `boxedHintWidth` in `key-hints.ts` gives; the slash menu's descriptions are held to two lines ending in `…`); the footer's own hint (for example "enter steer · tab queue · esc interrupt" while a reply runs) writes `enter` as `↵` before it drops a hint, and keeps the key that leaves. The folder trust screen has no footer at all: it names the folder and its keys once. `key-hints.ts` holds the vocabulary and the fitting.
 - **A list that does not fit says so.** When the provider list is cut to the terminal's height it draws a quiet `↓ 3 more` under the last row it shows and `↑ 2 more` above the first, counted in rows; the lines come out of the height budget, so the box is still no taller than the screen, and the row under the cursor stays in view as it moves.
