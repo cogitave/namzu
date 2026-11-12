@@ -1,5 +1,0 @@
----
-"@namzu/desktop": minor
----
-
-Namzu Desktop now says honestly which command line and engine it runs. The command line and engine inside the app are the ones it was built with, and they only change with a new installer. When the npm registry holds a newer version of either, Settings > About says so under the version ("A newer one exists (51.0.1). It arrives with an update of this app."), and the command line's row in Settings > Updates, which used to read "Up to date", names the bundled version, the newest known one and that it arrives with an app update. Nothing is downloaded or installed by this, and the row has no button and names no command to run. Nothing is said when the check has not succeeded, when you are offline, when the bundled version is the newest, or when this copy of the app cannot update itself. The app also now tells the command line it starts its real version instead of a fixed 0.1.0. The registry is asked for one more package, `@namzu/sdk`, on the same schedule as before. No setting moved.
