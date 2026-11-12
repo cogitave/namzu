@@ -68,13 +68,22 @@ describe('the person’s own message sits on a quiet tint', () => {
 		const mine = rows.filter((row) => row.glyph === '›' || (row.tint !== undefined && row.text))
 		expect(mine.length).toBeGreaterThan(1)
 		for (const row of mine) {
-			expect(row.tint).toBe(PALETTES.dark.tint.user)
+			expect(row.tint).toBe('ansi256(235)')
 			// Exactly the words: no padding out to the edge.
 			expect(row.text).toBe(row.text.trimEnd())
 		}
 		expect(mine.map((row) => row.text).join(' ')).toBe('fix the build please')
 		// The reply under it carries none.
 		expect(rows.at(-1)?.tint).toBeUndefined()
+	})
+
+	it('gives a 256-colour terminal a step of the grey ramp, not a mid grey of the cube', () => {
+		const env = { TERM: 'xterm-256color' }
+		expect(rowTints(env)).toEqual({ user: 'ansi256(235)', queued: 'ansi256(236)' })
+		applyPalette('light')
+		expect(rowTints(env)).toEqual({ user: 'ansi256(255)', queued: 'ansi256(254)' })
+		// 24-bit colour keeps the exact values.
+		expect(rowTints({ COLORTERM: 'truecolor' })).toEqual(PALETTES.light.tint)
 	})
 
 	it('looks as it always did with no colour', () => {

@@ -65,6 +65,7 @@ const TRUECOLOR_PROGRAMS = new Set(['iTerm.app', 'vscode', 'WezTerm', 'ghostty',
 
 /** Whether the terminal says it draws 24-bit colour. */
 export function reportsTruecolor(env: NodeJS.ProcessEnv = process.env): boolean {
+	if (env.FORCE_COLOR === '3') return true
 	const colorterm = env.COLORTERM?.toLowerCase()
 	if (colorterm === 'truecolor' || colorterm === '24bit') return true
 	if (env.WT_SESSION !== undefined) return true
@@ -90,7 +91,22 @@ export function rowTints(
 	env: NodeJS.ProcessEnv = process.env,
 ): { readonly user: string; readonly queued: string } | null {
 	if (theme.tint.user === '' || !drawsTint(env)) return null
-	return theme.tint
+	if (reportsTruecolor(env)) return theme.tint
+	return { user: tintOn256(theme.tint.user, false), queued: tintOn256(theme.tint.queued, true) }
+}
+
+/**
+ * A tint for a 256-colour terminal. Rounding a near-black rgb to the colour cube
+ * lands on a mid grey (palette 59), far louder than the quiet tint meant; the
+ * grey ramp (232-255) has the right steps, so one is chosen by how light the
+ * tint is: 235 or 236 on a dark theme, 255 or 254 on a light one.
+ */
+function tintOn256(rgb: string, queued: boolean): string {
+	const channels = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/u.exec(rgb)
+	if (!channels) return rgb
+	const light = (Number(channels[1]) + Number(channels[2]) + Number(channels[3])) / 3 >= 128
+	const step = light ? (queued ? 254 : 255) : queued ? 236 : 235
+	return `ansi256(${step})`
 }
 
 /** The diff colours the active theme draws on this terminal. */
@@ -125,4 +141,12 @@ export function paint(color: string | undefined): string | undefined {
 	const [group, name] = color.slice(TOKEN_MARK.length).split('.') as [RowTokenGroup, string]
 	const value = (theme[group] as Record<string, string> | undefined)?.[name]
 	return value ?? theme.text.muted
+}
+
+/** A tint (`rgb(r,g,b)` or `ansi256(n)`) as the escape that sets it as the background; '' for any other. */
+export function tintEscape(tint: string): string {
+	const rgb = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/u.exec(tint)
+	if (rgb) return `\x1b[48;2;${rgb[1]};${rgb[2]};${rgb[3]}m`
+	const grey = /^ansi256\((\d+)\)$/u.exec(tint)
+	return grey ? `\x1b[48;5;${grey[1]}m` : ''
 }

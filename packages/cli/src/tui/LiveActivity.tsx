@@ -188,6 +188,11 @@ export function LiveActivity({
 		progressRef.current = { key: progressKey, at: Date.now(), stall: 0, eased: Date.now() }
 	// Waiting on the person is not the model being slow: count again from their answer.
 	else if (waitingForYou || resumedFromWait) progressRef.current.at = Date.now()
+	// The last token, apart from other progress: a call finishing is not the model writing.
+	const tokenRef = useRef<{ tokens: number; at: number }>({ tokens: 0, at: 0 })
+	if (!active) tokenRef.current = { tokens: 0, at: 0 }
+	else if ((tokens ?? 0) !== tokenRef.current.tokens)
+		tokenRef.current = { tokens: tokens ?? 0, at: Date.now() }
 	const thinkingRow = useThinkingRow(thinking !== null && activeTools.length === 0, active)
 	const { frame: tick } = useAnimation({
 		isActive: active && motion && !waitingForYou,
@@ -229,7 +234,11 @@ export function LiveActivity({
 	// each has its own words, and none of them is the model being quiet.
 	const stallExempt = running > 0 || thinking !== null || compacting || waitNotice !== null
 	// A tool, reasoning or a compaction is not silence: measure the gap from when it ends.
-	if (stallExempt) progress.at = now
+	if (stallExempt) {
+		progress.at = now
+		// A call that runs ends the stretch of writing; only a new token starts it again.
+		tokenRef.current.at = 0
+	}
 	progress.stall = easeStall(
 		progress.stall,
 		stallTarget({ sinceLastTokenMs: now - progress.at, exempt: stallExempt }),
@@ -254,6 +263,7 @@ export function LiveActivity({
 		thinking: thinking !== null,
 		tokens: tokens !== undefined && tokens > 0,
 		sinceProgressMs,
+		sinceTokenMs: tokenRef.current.at === 0 ? Number.POSITIVE_INFINITY : now - tokenRef.current.at,
 	})
 	const edge = tick % (label.length + 1)
 	const markColor = !motion
@@ -289,6 +299,7 @@ export function LiveActivity({
 		tokens,
 		agents: agentCount,
 		quietMs: stallExempt ? undefined : sinceProgressMs,
+		replied: tokens !== undefined && tokens > 0,
 	})
 	const hasFigures = figures !== ''
 	const planRows =

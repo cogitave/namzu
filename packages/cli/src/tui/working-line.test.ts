@@ -76,6 +76,15 @@ describe('the word', () => {
 
 	it('says it is waiting for the model once a few seconds pass with nothing, and not while a call runs or the model thinks', () => {
 		expect(workingWord({ ...base, sinceProgressMs: 4_000 })).toBe('Waiting for the model')
+		// A call ended a moment ago: no token has come since, so it is not `Writing`.
+		expect(
+			workingWord({
+				...base,
+				tokens: true,
+				sinceProgressMs: 500,
+				sinceTokenMs: Number.POSITIVE_INFINITY,
+			}),
+		).toBe('Working')
 		expect(workingWord({ ...base, sinceProgressMs: 40_000, thinking: true })).toBe('Thinking')
 		expect(workingWord({ ...base, sinceProgressMs: 40_000, running: 1 })).not.toContain(
 			'Waiting for the model',
@@ -107,6 +116,10 @@ describe('the figures', () => {
 		)
 		// Colour never carries it alone: with no quiet figure there is nothing to colour.
 		expect(workingFigures({ elapsedMs: 30_000, agents: 0 })).not.toContain('no reply')
+		// Tokens did arrive in the first second, then silence: it is `for`, not `yet`.
+		expect(
+			workingFigures({ elapsedMs: 25_000, agents: 0, quietMs: 24_000, tokens: 11, replied: true }),
+		).toBe('(25s · no reply for 24s · ↓ 11 tokens)')
 	})
 })
 

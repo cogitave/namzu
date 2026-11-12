@@ -59,6 +59,11 @@ export interface PhaseInput {
 	readonly tokens: boolean
 	/** Milliseconds since the reply last moved (a token, a reasoning line). */
 	readonly sinceProgressMs: number
+	/**
+	 * Milliseconds since the last token, or Infinity when a call has run since.
+	 * Absent means the same as `sinceProgressMs`.
+	 */
+	readonly sinceTokenMs?: number | undefined
 }
 
 /** The tool's own name, lower case, for `Running grep`. */
@@ -86,7 +91,8 @@ export function workingWord(input: PhaseInput): string {
 		return `Running ${input.running} tools`
 	}
 	if (input.thinking) return 'Thinking'
-	if (input.tokens && input.sinceProgressMs < WRITING_WINDOW_MS) return 'Writing'
+	if (input.tokens && (input.sinceTokenMs ?? input.sinceProgressMs) < WRITING_WINDOW_MS)
+		return 'Writing'
 	if (input.sinceProgressMs >= WRITING_WINDOW_MS) return 'Waiting for the model'
 	return WORKING_WORD
 }
@@ -101,6 +107,8 @@ export interface FiguresInput {
 	 * provider is being retried (each of those has its own words).
 	 */
 	readonly quietMs?: number | undefined
+	/** Tokens have arrived this turn, so a quiet that began near the start is not `no reply yet`. */
+	readonly replied?: boolean | undefined
 }
 
 /**
@@ -114,7 +122,7 @@ export function workingFigures(input: FiguresInput): string {
 	if (input.elapsedMs >= CLOCK_FROM_MS) parts.push(formatElapsed(input.elapsedMs))
 	if (input.quietMs !== undefined && input.quietMs >= QUIET_FROM_MS && parts.length > 0) {
 		// Nothing has come since the turn began: the clock already says for how long.
-		const sinceStart = input.quietMs >= input.elapsedMs - 1_500
+		const sinceStart = input.replied !== true && input.quietMs >= input.elapsedMs - 1_500
 		parts.push(sinceStart ? 'no reply yet' : `no reply for ${formatElapsed(input.quietMs)}`)
 	}
 	if (input.tokens !== undefined && input.tokens > 0)
