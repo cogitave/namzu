@@ -39,6 +39,12 @@ export interface TarEntry {
 	pax?: Record<string, string>
 	paxPath?: boolean
 	prefix?: string
+	/** Explicit pax records in front of the entry, in order (a key may repeat). */
+	paxRecords?: [string, string][]
+	/** Write only the pax header (from `paxRecords`) and no file header after it. */
+	paxOnly?: boolean
+	/** The magic field of the header; `ustar\0` when absent. */
+	magic?: string
 	/** Written as the size field instead of the real length. */
 	sizeField?: number
 	badChecksum?: boolean
@@ -60,6 +66,7 @@ function headerBlock(entry: {
 	type: string
 	linkname?: string
 	prefix?: string
+	magic?: string
 	badChecksum?: boolean
 }): Buffer {
 	const block = Buffer.alloc(512)
@@ -73,8 +80,10 @@ function headerBlock(entry: {
 	block.fill(0x20, 148, 156)
 	block.write(entry.type, 156, 'latin1')
 	block.write(entry.linkname ?? '', 157, 'utf8')
-	block.write('ustar\0', 257, 'latin1')
+	block.write(entry.magic ?? 'ustar\0', 257, 'latin1')
 	block.write('00', 263, 'latin1')
+	octalField(0, 8).copy(block, 329) // device major and minor, written as the publisher writes them
+	octalField(0, 8).copy(block, 337)
 	block.write(entry.prefix ?? '', 345, 'utf8')
 	let sum = 0
 	for (const byte of block) sum += byte
@@ -107,10 +116,12 @@ export function tarBytes(
 		const tooLong = Buffer.byteLength(entry.name, 'utf8') > 100
 		if (tooLong || entry.paxPath) records.push(paxRecord('path', entry.name))
 		for (const [key, value] of Object.entries(entry.pax ?? {})) records.push(paxRecord(key, value))
+		for (const [key, value] of entry.paxRecords ?? []) records.push(paxRecord(key, value))
 		if (records.length > 0) {
 			const body = Buffer.concat(records)
 			parts.push(headerBlock({ name: 'PaxHeader', size: body.length, type: 'x' }), padded(body))
 		}
+		if (entry.paxOnly) continue
 		parts.push(
 			headerBlock({
 				name: entry.name,
@@ -118,6 +129,7 @@ export function tarBytes(
 				type: entry.type ?? '0',
 				...(entry.linkname !== undefined ? { linkname: entry.linkname } : {}),
 				...(entry.prefix !== undefined ? { prefix: entry.prefix } : {}),
+				...(entry.magic !== undefined ? { magic: entry.magic } : {}),
 				...(entry.badChecksum ? { badChecksum: true } : {}),
 			}),
 			padded(data),
@@ -200,6 +212,14 @@ export function filesJsonOf(files: Record<string, string | Buffer>): Buffer {
 	return Buffer.from(`${JSON.stringify({ schema: 1, files: list })}\n`)
 }
 
+/** The same gzip settings the publisher's writer pins, so one folder gives one set of bytes. */
+function pinnedGzip(tar: Buffer): Buffer {
+	const gz = gzipSync(tar, { level: 9, memLevel: 8, windowBits: 15 })
+	gz.fill(0, 4, 8) // no time
+	gz[9] = 3 // the operating-system byte of Unix
+	return gz
+}
+
 export function buildArchive(
 	commandLine: string,
 	files: Record<string, string | Buffer>,
@@ -225,7 +245,7 @@ export function buildArchive(
 		...(options.endBlocks !== undefined ? { endBlocks: options.endBlocks } : {}),
 		...(options.trailing ? { trailing: options.trailing } : {}),
 	})
-	const gz = options.gzip ? options.gzip(tar) : gzipSync(tar)
+	const gz = options.gzip ? options.gzip(tar) : pinnedGzip(tar)
 	const file = `namzu-kernel-${commandLine}-${options.platform ?? 'win32'}-${options.arch ?? 'x64'}.tar.gz`
 	let unpacked = 0
 	for (const data of Object.values(files)) unpacked += Buffer.from(data).length
@@ -284,23 +304,38 @@ export interface SignedPair {
 	signature: Buffer
 }
 
-/** Signs the exact bytes of `manifest` (an object is serialised once, here). */
+/** The exact bytes of a manifest (specification 7.6): two-space JSON, bundle keys sorted, one newline. */
+export function manifestBytesOf(manifest: Record<string, unknown>): Buffer {
+	const kernel = manifest.kernel as Record<string, unknown> | undefined
+	const bundles = kernel?.bundles as Record<string, unknown> | undefined
+	if (!kernel || !bundles) return Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`)
+	const sorted = Object.fromEntries(
+		Object.keys(bundles)
+			.sort()
+			.map((name) => [name, bundles[name]]),
+	)
+	return Buffer.from(
+		`${JSON.stringify({ ...manifest, kernel: { ...kernel, bundles: sorted } }, null, 2)}\n`,
+	)
+}
+
+/** Signs the exact bytes of `manifest` (an object is serialised once, here, in the exact form). */
 export function signPair(
 	manifest: Record<string, unknown> | Buffer,
 	key: TestKey,
 	options: { keyId?: string; algorithm?: string } = {},
 ): SignedPair {
-	const bytes = Buffer.isBuffer(manifest) ? manifest : Buffer.from(JSON.stringify(manifest))
+	const bytes = Buffer.isBuffer(manifest) ? manifest : manifestBytesOf(manifest)
 	const signature = sign(null, bytes, key.privateKey).toString('base64')
 	return {
 		manifest: bytes,
 		signature: Buffer.from(
-			JSON.stringify({
+			`${JSON.stringify({
 				schema: 1,
 				keyId: options.keyId ?? key.id,
 				algorithm: options.algorithm ?? 'ed25519',
 				signature,
-			}),
+			})}\n`,
 		),
 	}
 }

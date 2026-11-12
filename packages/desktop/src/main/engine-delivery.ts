@@ -1,4 +1,5 @@
 import { dirname, join } from 'node:path'
+import type { AcpKernelFacts } from '@namzu/sdk'
 import type { EngineVersions } from '../shared/engine-delivery-protocol.js'
 import { bundledCliEntry } from './bundled-runtime.js'
 import type { SpawnSpec } from './host-launcher.js'
@@ -9,7 +10,7 @@ import { nodeFs } from './kernel/fs.js'
 import { KERNEL_CHANNEL, KERNEL_CONTRACT_RANGE, feedBase, trustedKeys } from './kernel/keys.js'
 import { createKernelLog } from './kernel/log.js'
 import { KernelManager } from './kernel/manager.js'
-import { createProbe, createSelfCheck } from './kernel/self-check.js'
+import { type ProbeResult, createProbe, createSelfCheck } from './kernel/self-check.js'
 import { KernelStore } from './kernel/store.js'
 import { isKernelVersion } from './kernel/version.js'
 import { REQUIRED_EXTENSIONS } from './required-extensions.js'
@@ -57,6 +58,23 @@ export function developmentBundledEntry(
 	return folder ? join(folder, 'dist', 'bin.js') : undefined
 }
 
+/**
+ * Asks an engine what it is, once: its `--version` and the `kernel` object of its `initialize`
+ * answer. The fallback for a bundled folder that has no kernel.json (an older installer).
+ */
+export async function askBundledEngine(
+	probe: (entry: string) => Promise<ProbeResult>,
+	entry: string,
+): Promise<AcpKernelFacts & { commandLine: string }> {
+	const seen = await probe(entry)
+	if (!seen.ok) throw new Error(seen.problem)
+	const kernel = kernelFromInitialize(seen.initialize)
+	const word = seen.versionOutput.trim().split(/\s+/u).at(-1)
+	const commandLine = kernel?.commandLine ?? (isKernelVersion(word) ? word : undefined)
+	if (!kernel || !commandLine) throw new Error('the engine did not say what it is')
+	return { ...kernel, commandLine }
+}
+
 export function createEngineDelivery(options: EngineDeliveryOptions): EngineDelivery | undefined {
 	const keys = trustedKeys({
 		isPackaged: options.isPackaged,
@@ -96,15 +114,7 @@ export function createEngineDelivery(options: EngineDeliveryOptions): EngineDeli
 			fs: nodeFs,
 			cliFolder: dirname(dirname(bundledEntry)),
 			// An engine folder without kernel.json says what it is when it is asked once.
-			ask: async () => {
-				const seen = await probe(bundledEntry)
-				if (!seen.ok) throw new Error(seen.problem)
-				const kernel = kernelFromInitialize(seen.initialize)
-				const word = seen.versionOutput.trim().split(/\s+/u).at(-1)
-				const commandLine = kernel?.commandLine ?? (isKernelVersion(word) ? word : undefined)
-				if (!kernel || !commandLine) throw new Error('the engine did not say what it is')
-				return { ...kernel, commandLine }
-			},
+			ask: () => askBundledEngine(probe, bundledEntry),
 		}),
 		platform: options.platform,
 		arch: options.arch,

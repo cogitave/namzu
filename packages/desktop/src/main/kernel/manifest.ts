@@ -1,6 +1,6 @@
 import { createPublicKey, verify } from 'node:crypto'
 import { type KernelPublicKey, isKeyId } from './keys.js'
-import { isKernelVersion } from './version.js'
+import { compareKernelVersions, isKernelVersion } from './version.js'
 
 /** The signed description of the newest engine (kernel-<channel>.json) and its signature. */
 
@@ -63,7 +63,8 @@ export interface SignatureFile {
 const HEX_128 = /^[0-9a-f]{128}$/u
 const BARE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u
 const CHANNEL = /^[a-z][a-z0-9-]{0,31}$/u
-const BUNDLE_KEY = /^[a-z0-9]+-[a-z0-9]+$/u
+const BUNDLE_KEY = /^(?:win32|darwin|linux)-(?:x64|arm64|ia32)$/u
+const PLAIN_VERSION = /^(?:0|[1-9]\d{0,8})\.(?:0|[1-9]\d{0,8})\.(?:0|[1-9]\d{0,8})$/u
 const ISO_SECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u
 
 function fail(code: ManifestErrorCode, message: string): never {
@@ -92,8 +93,10 @@ function integer(
 	return value
 }
 
+/** Versions in a manifest are plain x.y.z (specification 7.7); a prerelease is refused. */
 function version(value: unknown, where: string): string {
-	if (!isKernelVersion(value)) fail('manifest-format', `${where} is not a version.`)
+	if (typeof value !== 'string' || !PLAIN_VERSION.test(value) || !isKernelVersion(value))
+		fail('manifest-format', `${where} is not a plain x.y.z version.`)
 	return value
 }
 
@@ -135,6 +138,8 @@ export function parseManifest(bytes: Uint8Array): KernelManifest {
 	if (!Array.isArray(top.withdrawn) || top.withdrawn.length > MAX_WITHDRAWN)
 		fail('manifest-format', 'withdrawn is not a short list.')
 	const withdrawn = top.withdrawn.map((entry, index) => version(entry, `withdrawn[${index}]`))
+	if (new Set(withdrawn).size !== withdrawn.length)
+		fail('manifest-format', 'withdrawn lists a version twice.')
 	const kernel = object(top.kernel, 'kernel', [
 		'commandLine',
 		'engine',
@@ -179,10 +184,10 @@ export function parseManifest(bytes: Uint8Array): KernelManifest {
 			),
 		}
 	}
-	return {
+	const manifest: KernelManifest = {
 		schema: 1,
 		channel: top.channel,
-		sequence: integer(top.sequence, 'sequence', 0),
+		sequence: integer(top.sequence, 'sequence', 1),
 		issuedAt,
 		expiresAt,
 		minimumKernel: version(top.minimumKernel, 'minimumKernel'),
@@ -195,6 +200,70 @@ export function parseManifest(bytes: Uint8Array): KernelManifest {
 			bundles,
 		},
 	}
+	if (compareKernelVersions(manifest.minimumKernel, manifest.kernel.commandLine) > 0)
+		fail('manifest-format', 'minimumKernel is above the engine the manifest offers.')
+	// One reading only (specification 7.6): the exact bytes the publisher writes, so a repeated key
+	// or another layout cannot be read two ways by two readers of the same signed bytes.
+	const wanted = canonicalManifestText(top as unknown as WireManifest)
+	if (new TextDecoder().decode(bytes) !== wanted)
+		fail(
+			'manifest-format',
+			'The manifest is not in the exact form of the text (fields in order, two-space JSON, one newline, bundle keys sorted, no repeated key).',
+		)
+	return manifest
+}
+
+interface WireManifest {
+	schema: number
+	channel: string
+	sequence: number
+	issuedAt: string
+	expiresAt: string
+	minimumKernel: string
+	withdrawn: string[]
+	kernel: {
+		commandLine: string
+		engine: string
+		desktopContract: number
+		dataEpoch: number
+		bundles: Record<string, BundleEntry>
+	}
+}
+
+/** The manifest as the publisher writes it: fixed field order, two-space JSON, bundle keys sorted, one newline. */
+function canonicalManifestText(m: WireManifest): string {
+	const bundles: Record<string, unknown> = {}
+	for (const name of Object.keys(m.kernel.bundles).sort()) {
+		const b = m.kernel.bundles[name] as BundleEntry
+		bundles[name] = {
+			file: b.file,
+			size: b.size,
+			sha512: b.sha512,
+			filesSha512: b.filesSha512,
+			fileCount: b.fileCount,
+			unpackedSize: b.unpackedSize,
+		}
+	}
+	return `${JSON.stringify(
+		{
+			schema: m.schema,
+			channel: m.channel,
+			sequence: m.sequence,
+			issuedAt: m.issuedAt,
+			expiresAt: m.expiresAt,
+			minimumKernel: m.minimumKernel,
+			withdrawn: m.withdrawn,
+			kernel: {
+				commandLine: m.kernel.commandLine,
+				engine: m.kernel.engine,
+				desktopContract: m.kernel.desktopContract,
+				dataEpoch: m.kernel.dataEpoch,
+				bundles,
+			},
+		},
+		null,
+		2,
+	)}\n`
 }
 
 export function parseSignatureFile(bytes: Uint8Array): SignatureFile {
@@ -211,12 +280,19 @@ export function parseSignatureFile(bytes: Uint8Array): SignatureFile {
 	if (record.algorithm !== 'ed25519') fail('signature-format', 'Unknown signature algorithm.')
 	if (!isKeyId(record.keyId)) fail('signature-format', 'keyId is not a key id.')
 	if (typeof record.signature !== 'string') fail('signature-format', 'signature is not text.')
-	return {
+	const parsed: SignatureFile = {
 		schema: 1,
 		keyId: record.keyId,
 		algorithm: 'ed25519',
 		signature: record.signature,
 	}
+	// Compact JSON and one newline, keys in the order of the text (specification 7.6).
+	if (new TextDecoder().decode(bytes) !== `${JSON.stringify(parsed)}\n`)
+		fail(
+			'signature-format',
+			'The signature file is not in the exact form of the text (compact JSON, fields in order, one newline).',
+		)
+	return parsed
 }
 
 const SPKI_ED25519_PREFIX = Buffer.from('302a300506032b6570032100', 'hex')

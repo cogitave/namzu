@@ -7,6 +7,14 @@ import { gzipSync } from 'node:zlib'
 import { ArchiveRefusal, readArchive, refusalForName } from '../kernel/archive-reader.mjs'
 import { buildFilesList, filesJsonBytes, writeArchive } from '../kernel/archive-writer.mjs'
 import {
+	BAD_NAMES,
+	ENTRY_TYPES,
+	GOOD_NAMES,
+	archiveCases,
+	limitsOf,
+	renderWithPublisherBuilder,
+} from './kernel-cases.mjs'
+import {
 	END,
 	archive,
 	goodParts,
@@ -126,16 +134,7 @@ test('the good archive built by the test builder is read (so the refusals below 
 	assert.equal(read.files.size, 2)
 })
 
-for (const [label, type] of [
-	['a symbolic link', '2'],
-	['a hard link', '1'],
-	['a directory', '5'],
-	['a character device', '3'],
-	['a global pax header', 'g'],
-	['a GNU long name', 'L'],
-	['a sparse entry', 'S'],
-	['an old-style regular file (type NUL)', '\0'],
-]) {
+for (const [label, type] of ENTRY_TYPES) {
 	test(`refused: ${label}`, async () => {
 		const parts = goodParts(FILES)
 		parts.splice(2, 0, tarEntry({ name: 'extra', type }))
@@ -162,39 +161,19 @@ test('refused: a pax header beside a path (any extra key)', async () => {
 	await refused(parts, /pax key "uid"/)
 })
 
-const BAD_NAMES = [
-	['/etc/passwd', 'an absolute path'],
-	['C:/win/x', 'a drive letter'],
-	['C:x', 'a drive letter'],
-	['a\\b', 'a backslash'],
-	['dir/file:stream', 'a colon'],
-	['a//b', 'an empty segment'],
-	['./a', 'a dot segment'],
-	['a/./b', 'a dot segment'],
-	['a/../b', 'a dot-dot segment'],
-	['../b', 'a dot-dot segment'],
-	['CON', 'a reserved name'],
-	['con.txt', 'a reserved name with an extension'],
-	['dir/NUL.x.y', 'a reserved name in a folder'],
-	['Aux', 'a reserved name'],
-	['COM1', 'a reserved name'],
-	['lpt9.log', 'a reserved name'],
-	['dir./file', 'a segment ending in a dot'],
-	['trailing-space /file', 'a segment ending in a space'],
-	['file.', 'a name ending in a dot'],
-	['con .txt', 'a device name followed by a space before the extension'],
-	['CONIN$', 'a console input device name'],
-	['conout$.log', 'a console output device name with an extension'],
-	['CLOCK$', 'a clock device name'],
-	['COM\u00b9', 'a superscript device name'],
-	['dir/LPT\u00b2.txt', 'a superscript printer name in a folder'],
-]
 for (const [name, label] of BAD_NAMES) {
-	test(`refused name (${label}): ${JSON.stringify(name)}`, async () => {
+	test(`refused name (${label}): ${JSON.stringify(name).slice(0, 60)}`, async () => {
 		assert.ok(refusalForName(name), 'the reader names a reason')
 		// In the tar stream (files.json lists only fine names).
 		const parts = goodParts(FILES)
-		parts.splice(2, 0, tarEntry({ name: name.slice(0, 100), data: 'x' }))
+		// A name over 100 bytes travels in a pax header, as the text says.
+		const long = Buffer.byteLength(name) > 100
+		parts.splice(
+			2,
+			0,
+			...(long ? [paxEntry([['path', name]])] : []),
+			tarEntry({ name: long ? 'short' : name, data: 'x' }),
+		)
 		await refused(parts, /entry named/)
 		// In files.json.
 		const files = { 'ok.txt': 'ok' }
@@ -219,18 +198,7 @@ for (const [name, label] of BAD_NAMES) {
 }
 
 test('names the reader accepts', () => {
-	for (const name of [
-		'a',
-		'dir/file.js',
-		'.hidden',
-		'a/.b',
-		'node_modules/@scope/pkg/x.node',
-		'console.js',
-		'aux-file',
-		'comm1',
-		'a b/c',
-	])
-		assert.equal(refusalForName(name), undefined, name)
+	for (const name of GOOD_NAMES) assert.equal(refusalForName(name), undefined, name)
 })
 
 test('refused: a name given in a pax header is checked like any other', async () => {
@@ -422,3 +390,18 @@ test('refused: a pax header that carries path twice', async () => {
 	)
 	await refused(parts, /"path" twice/)
 })
+
+test('every case of the shared list (also run against the app) is refused, and a good one is not', async () => {
+	const dir = tempDir('kernel-cases')
+	const cases = archiveCases()
+	assert.ok(cases.length > 100)
+	await writeFileAndRead(dir, { label: 'good' }, true)
+	for (const testCase of cases) await writeFileAndRead(dir, testCase, false)
+})
+
+async function writeFileAndRead(dir, testCase, accepted) {
+	writeFileSync(join(dir, 'case.tar.gz'), renderWithPublisherBuilder(testCase))
+	const attempt = readArchive(join(dir, 'case.tar.gz'), { limits: limitsOf(testCase) })
+	if (accepted) await attempt
+	else await assert.rejects(attempt, ArchiveRefusal, testCase.label)
+}

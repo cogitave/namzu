@@ -87,8 +87,10 @@ function compareUnits(a: string, b: string): number {
 /** Strict: fields, name rules, unique names, sorted by code unit order. */
 export function parseFilesList(bytes: Uint8Array): FilesList {
 	let value: unknown
+	let text: string
 	try {
-		value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+		text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+		value = JSON.parse(text)
 	} catch {
 		throw new FilesListError('format', 'files.json is not valid JSON.')
 	}
@@ -125,6 +127,13 @@ export function parseFilesList(bytes: Uint8Array): FilesList {
 	}
 	const collision = findCollision(files.map((file) => file.path))
 	if (collision) throw new FilesListError('collision', `files.json lists ${collision}.`)
+	// One reading only (specification 3.2): JSON.stringify(value) and one newline, so a repeated key
+	// or another layout cannot be read two ways.
+	if (`${JSON.stringify({ schema: 1, files })}\n` !== text)
+		throw new FilesListError(
+			'format',
+			'files.json is not serialised as JSON.stringify(value) and one newline.',
+		)
 	return { schema: 1, files }
 }
 

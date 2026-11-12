@@ -211,10 +211,22 @@ describe('every refusal', () => {
 	})
 
 	it('refuses a listed file that is missing', async () => {
+		// the last listed file is the one that goes missing: the entries before it are in order
 		const built = buildArchive('51.3.0', files, {
-			entries: (e) => e.filter((x) => x.name !== 'dist/chunk-one.js'),
+			entries: (e) => e.filter((x) => x.name !== 'package.json'),
 		})
 		expect(await codeOf(extract(built))).toBe('missing')
+	})
+
+	it('refuses entries that are not in the order of files.json, and a listed file missing in the middle', async () => {
+		const swapped = buildArchive('51.3.0', files, {
+			entries: (e) => [e[0] as TarEntry, e[2] as TarEntry, e[1] as TarEntry, ...e.slice(3)],
+		})
+		expect(await codeOf(extract(swapped))).toBe('order')
+		const gap = buildArchive('51.3.0', files, {
+			entries: (e) => e.filter((x) => x.name !== 'dist/chunk-one.js'),
+		})
+		expect(await codeOf(extract(gap))).toBe('order')
 	})
 
 	it('refuses the same file twice', async () => {

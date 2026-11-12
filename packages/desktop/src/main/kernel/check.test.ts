@@ -367,10 +367,15 @@ describe('candidate rules', () => {
 
 	it('does not take a version below the floor', async () => {
 		const h = await harness()
+		// A manifest cannot offer an engine below its own floor (the reader refuses it), so the floor is
+		// raised by one that offers something this machine has no bundle for, and a later one is below it.
+		const feed = makeFeed()
+		publish(h, feed, { commandLine: '51.4.0', minimumKernel: '51.4.0', platform: 'darwin' })
+		await runCheck(deps(h, feed))
 		await noDownload(
 			h,
-			makeFeed(),
-			{ commandLine: '51.3.0', minimumKernel: '51.4.0' },
+			feed,
+			{ commandLine: '51.3.0', minimumKernel: '51.0.0', sequence: 1794480001 },
 			{ kind: 'current' },
 		)
 	})

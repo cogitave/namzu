@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { desktopInitializeParams } from '../required-extensions.js'
 import { type CheckDeps, SELF_CHECK_TIMEOUT_TEXT } from './check.js'
 import { checkHostAnswer } from './facts.js'
 import { messageOf } from './store.js'
@@ -90,11 +91,7 @@ const INITIALIZE = (clientVersion: string) =>
 		jsonrpc: '2.0',
 		id: 1,
 		method: 'initialize',
-		params: {
-			protocolVersion: 1,
-			capabilities: ['permission', 'namzu/tasks'],
-			clientInfo: { name: 'namzu-desktop', version: clientVersion },
-		},
+		params: desktopInitializeParams(clientVersion),
 	})}\n`
 
 type Outcome<T> = { ok: true; value: T } | { ok: false; problem: string }

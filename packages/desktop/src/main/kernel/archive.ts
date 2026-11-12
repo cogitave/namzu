@@ -30,6 +30,7 @@ export type ArchiveErrorCode =
 	| 'collision'
 	| 'files-list'
 	| 'unlisted'
+	| 'order'
 	| 'duplicate'
 	| 'missing'
 	| 'size'
@@ -177,6 +178,8 @@ function readHeader(block: Buffer): Header {
 		sum += index >= 148 && index < 156 ? 0x20 : (block[index] as number)
 	if (octal(block, 148, 156, 'checksum') !== sum)
 		throw new ArchiveError('header', 'An entry header has a bad checksum.')
+	if (block.subarray(257, 263).toString('latin1') !== 'ustar\0')
+		throw new ArchiveError('header', 'An entry header is not ustar.')
 	if (cString(block, 345, 500) !== '')
 		throw new ArchiveError('header', 'An entry uses a path prefix; long names go in a pax header.')
 	if (cString(block, 157, 257) !== '')
@@ -262,6 +265,7 @@ async function readEntries(
 	let filesBytes: Buffer = Buffer.alloc(0)
 	const listed = new Map<string, ListedFile>()
 	const seen = new Set<string>()
+	let nextIndex = 0
 	const madeFolders = new Set<string>()
 	let unpackedBytes = 0
 	let pendingPath: string | undefined
@@ -346,6 +350,13 @@ async function readEntries(
 			)
 		if (seen.has(name)) throw new ArchiveError('duplicate', `The archive holds ${name} twice.`)
 		seen.add(name)
+		// The entries follow files.json in its order: the next path of the list is the only one allowed.
+		if (list.files[nextIndex]?.path !== name)
+			throw new ArchiveError(
+				'order',
+				`The archive holds ${name} where files.json has ${list.files[nextIndex]?.path ?? 'nothing more'}: the entries are not in the order of files.json.`,
+			)
+		nextIndex += 1
 		if (header.size !== entry.size)
 			throw new ArchiveError('size', `${name} has a different size than files.json says.`)
 		unpackedBytes += header.size

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { makeKey } from './kernel-test-support.js'
 import {
@@ -87,5 +88,47 @@ describe('where the feed is', () => {
 		expect(isAllowedFeedUrl('http://x.test/a')).toBe(false)
 		expect(isAllowedFeedUrl('https://u:p@x.test/a')).toBe(false)
 		expect(isAllowedFeedUrl('file:///etc/passwd')).toBe(false)
+	})
+})
+
+describe('the compiled key list and kernel-keys.json', () => {
+	const listFile = new URL('../../../kernel-keys.json', import.meta.url)
+	const generatedFile = new URL('./keys-compiled.ts', import.meta.url)
+	const writeKeys = async () =>
+		(await import(
+			/* @vite-ignore */ new URL('../../../scripts/kernel/write-keys.mjs', import.meta.url).href
+		)) as {
+			renderCompiledKeys: (text: string) => string
+		}
+
+	it('are the same list: what the app trusts is exactly what the file says (specification 7.8)', () => {
+		const fromFile = JSON.parse(readFileSync(listFile, 'utf8')) as {
+			id: string
+			publicKey: string
+		}[]
+		expect(KERNEL_PUBLIC_KEYS.map(({ id, publicKey }) => ({ id, publicKey }))).toEqual(fromFile)
+	})
+
+	it('are generated from the file: the committed source is what the generator writes for it', async () => {
+		const { renderCompiledKeys } = await writeKeys()
+		expect(readFileSync(generatedFile, 'utf8')).toBe(
+			renderCompiledKeys(readFileSync(listFile, 'utf8')),
+		)
+	})
+
+	it('cannot be made to differ: a list with keys in it is rendered with every key, in order', async () => {
+		const { renderCompiledKeys } = await writeKeys()
+		const a = makeKey('k1')
+		const b = makeKey('k2')
+		const text = renderCompiledKeys(
+			JSON.stringify([
+				{ id: a.id, publicKey: a.publicKey },
+				{ id: b.id, publicKey: b.publicKey },
+			]),
+		)
+		expect(text.indexOf(a.publicKey)).toBeGreaterThan(-1)
+		expect(text.indexOf(b.publicKey)).toBeGreaterThan(text.indexOf(a.publicKey))
+		expect(() => renderCompiledKeys('{"not":"a list"}')).toThrow()
+		expect(() => renderCompiledKeys('[{"id":"k1","publicKey":"short"}]')).toThrow()
 	})
 })

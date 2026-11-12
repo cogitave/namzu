@@ -1,10 +1,13 @@
 /**
  * What the app trusts to sign an engine, and where it looks.
  *
- * `KERNEL_PUBLIC_KEYS` is the only place a compiled key lives. It is EMPTY in the repository
- * until the real key exists; with an empty list the whole feature is off: no request is made
- * and nothing on screen changes.
+ * `KERNEL_PUBLIC_KEYS` is the only place a compiled key lives, and it is generated from
+ * `packages/desktop/kernel-keys.json` (specification 7.8) by `scripts/kernel/write-keys.mjs`, so the
+ * app, the publisher's verify step and the release workflow read one file. The list is EMPTY in the
+ * repository until the real key exists; with an empty list the whole feature is off: no request is
+ * made and nothing on screen changes.
  */
+import { COMPILED_KERNEL_KEYS } from './keys-compiled.js'
 
 export interface KernelPublicKey {
 	id: string
@@ -12,7 +15,7 @@ export interface KernelPublicKey {
 	publicKey: string
 }
 
-export const KERNEL_PUBLIC_KEYS: readonly KernelPublicKey[] = []
+export const KERNEL_PUBLIC_KEYS: readonly KernelPublicKey[] = COMPILED_KERNEL_KEYS
 
 /** The range of `desktopContract` this app accepts, both ends included. */
 export const KERNEL_CONTRACT_RANGE: readonly [number, number] = [1, 1]

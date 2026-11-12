@@ -1,3 +1,4 @@
+import type { AcpKernelFacts } from '@namzu/sdk'
 import { inFolder } from './files-list.js'
 import type { KernelFs } from './fs.js'
 import { isKernelVersion } from './version.js'
@@ -14,14 +15,6 @@ export interface KernelFacts {
 	dataEpoch: number
 	platform: string
 	arch: string
-}
-
-/** Written locally on purpose: the SDK type for the answer of `initialize` may not carry it yet. */
-export interface InitializeKernel {
-	engine: string
-	dataEpoch: number
-	commandLine?: string
-	desktopContract?: number
 }
 
 export class FactsError extends Error {
@@ -82,8 +75,8 @@ export function parseKernelFacts(bytes: Uint8Array): KernelFacts {
 	}
 }
 
-/** The `kernel` object of an `initialize` answer, read leniently; undefined when it has no usable one. */
-export function kernelFromInitialize(result: unknown): InitializeKernel | undefined {
+/** The `kernel` object of an `initialize` answer (the SDK's own type), read leniently; undefined when it has no usable one. */
+export function kernelFromInitialize(result: unknown): AcpKernelFacts | undefined {
 	if (!result || typeof result !== 'object') return undefined
 	const kernel = (result as { kernel?: unknown }).kernel
 	if (!kernel || typeof kernel !== 'object' || Array.isArray(kernel)) return undefined
@@ -157,7 +150,7 @@ export function bundledFactsReader(options: {
 	fs: KernelFs
 	/** The folder that holds the bundled `dist/bin.js`. */
 	cliFolder: string
-	ask?: () => Promise<InitializeKernel & { commandLine: string }>
+	ask?: () => Promise<AcpKernelFacts & { commandLine: string }>
 }): () => Promise<BundledFacts | undefined> {
 	let memo: Promise<BundledFacts | undefined> | undefined
 	return () => {

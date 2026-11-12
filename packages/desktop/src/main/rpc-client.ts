@@ -6,7 +6,6 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import type { AcpInitializeResult } from '@namzu/sdk'
-import { TERMINAL_METHODS } from '../shared/terminal-protocol.js'
 import {
 	type DesktopDiagnosticContext,
 	type DesktopDiagnosticEvent,
@@ -14,9 +13,9 @@ import {
 	desktopStderrDetails,
 } from './diagnostics.js'
 import { ExpectedRuntimeCloseError } from './expected-close.js'
+import { OPTIONAL_EXTENSION_GROUPS, type OptionalExtensionGroup } from './extension-groups.js'
 import type { HostLauncher, HostRun } from './host-launcher.js'
-import { PAL_COMMUNICATION_METHODS } from './pal-communication.js'
-import { REQUIRED_EXTENSIONS } from './required-extensions.js'
+import { REQUIRED_EXTENSIONS, desktopInitializeParams } from './required-extensions.js'
 
 const MAX_FRAME = 8 * 1024 * 1024
 export interface RuntimeCommand {
@@ -304,83 +303,32 @@ export class RuntimeClient extends EventEmitter {
 		})
 		const result = (await this.request(
 			'initialize',
-			{
-				protocolVersion: 1,
-				capabilities: ['permission', 'namzu/tasks'],
-				clientInfo: {
-					name: 'namzu-desktop',
-					...(command.clientVersion ? { version: command.clientVersion } : {}),
-				},
-			},
+			desktopInitializeParams(command.clientVersion),
 			30_000,
 		)) as AcpInitializeResult
 		this.promptAttachments = result.promptAttachments === true
 		this.promptOptions = result.promptOptions === true
-		this.tasks = result.extensions?.includes('namzu/tasks/list') === true
-		this.palCommunication = PAL_COMMUNICATION_METHODS.every((method) =>
-			result.extensions?.includes(method),
-		)
-		this.conversationActions = [
-			'namzu/conversations/rename',
-			'namzu/conversations/fork',
-			'namzu/conversations/markdown',
-		].every((method) => result.extensions?.includes(method))
-		this.archivedConversations = [
-			'namzu/conversations/archived',
-			'namzu/conversations/unarchive',
-		].every((method) => result.extensions?.includes(method))
-		this.terminals = Object.values(TERMINAL_METHODS).every((method) =>
-			result.extensions?.includes(method),
-		)
-		this.providerSetup = [
-			'namzu/providers/connections',
-			'namzu/providers/save_key',
-			'namzu/providers/remove_key',
-			'namzu/providers/test',
-			'namzu/providers/refresh',
-		].every((method) => result.extensions?.includes(method))
-		this.projectGit = result.extensions?.includes('namzu/project/git') === true
-		this.projectPr = result.extensions?.includes('namzu/project/pr') === true
-		this.mcpServers = ['namzu/mcp/servers', 'namzu/mcp/approve'].every((method) =>
-			result.extensions?.includes(method),
-		)
-		this.conversationSearch = result.extensions?.includes('namzu/conversations/search') === true
-		this.projectUntrust = result.extensions?.includes('namzu/project/untrust') === true
-		this.projectChanges = ['namzu/project/changes', 'namzu/project/diff'].every((method) =>
-			result.extensions?.includes(method),
-		)
-		this.turnRetry = ['namzu/sessions/retry-status', 'namzu/sessions/retry'].every((method) =>
-			result.extensions?.includes(method),
-		)
-		this.abandonPaused = result.extensions?.includes('namzu/sessions/abandon-paused') === true
-		this.turnUndo = [
-			'namzu/turns/undo-status',
-			'namzu/turns/undo-preview',
-			'namzu/turns/undo',
-		].every((method) => result.extensions?.includes(method))
-		this.liveInput = ['namzu/conversations/input/status', 'namzu/conversations/input'].every(
-			(method) => result.extensions?.includes(method),
-		)
-		this.pals = [
-			'namzu/pals/list',
-			'namzu/pals/get',
-			'namzu/pals/create',
-			'namzu/pals/update',
-			'namzu/pals/conversations/list',
-			'namzu/pals/conversations/claim',
-			'namzu/pals/computer/status',
-			'namzu/pals/computer/start',
-			'namzu/pals/computer/stop',
-			'namzu/pals/computer/screen',
-		].every((method) => result.extensions?.includes(method))
-		this.palInboxStart = ['namzu/pals/inbox/status', 'namzu/pals/inbox/start'].every((method) =>
-			result.extensions?.includes(method),
-		)
-		this.palComputerControl = [
-			'namzu/pals/computer/take_over',
-			'namzu/pals/computer/return_control',
-			'namzu/pals/computer/input',
-		].every((method) => result.extensions?.includes(method))
+		const offers = (group: OptionalExtensionGroup): boolean =>
+			OPTIONAL_EXTENSION_GROUPS[group].every((method) => result.extensions?.includes(method))
+		this.tasks = offers('tasks')
+		this.palCommunication = offers('palCommunication')
+		this.conversationActions = offers('conversationActions')
+		this.archivedConversations = offers('archivedConversations')
+		this.terminals = offers('terminals')
+		this.providerSetup = offers('providerSetup')
+		this.projectGit = offers('projectGit')
+		this.projectPr = offers('projectPr')
+		this.mcpServers = offers('mcpServers')
+		this.conversationSearch = offers('conversationSearch')
+		this.projectUntrust = offers('projectUntrust')
+		this.projectChanges = offers('projectChanges')
+		this.turnRetry = offers('turnRetry')
+		this.abandonPaused = offers('abandonPaused')
+		this.turnUndo = offers('turnUndo')
+		this.liveInput = offers('liveInput')
+		this.pals = offers('pals')
+		this.palInboxStart = offers('palInboxStart')
+		this.palComputerControl = offers('palComputerControl')
 		if (
 			result.agentInfo?.name !== 'namzu' ||
 			!REQUIRED_EXTENSIONS.every((method) => result.extensions?.includes(method))

@@ -3,6 +3,7 @@ import {
 	buildArchive,
 	kernelFiles,
 	makeKey,
+	manifestBytesOf,
 	manifestObject,
 	signPair,
 } from './kernel-test-support.js'
@@ -295,7 +296,138 @@ describe('manifest', () => {
 	})
 
 	it('reads times as milliseconds', () => {
-		const parsed = parseManifest(Buffer.from(JSON.stringify(manifestObject(input))))
+		const parsed = parseManifest(manifestBytesOf(manifestObject(input)))
 		expect(parsed.issuedAt).toBe(Date.parse('2026-11-12T10:00:00Z'))
+	})
+
+	it('accepts only the exact bytes of the text (specification 7.6)', () => {
+		const object = manifestObject(input) as Record<string, any>
+		const exact = manifestBytesOf(object)
+		expect(() => parseManifest(exact)).not.toThrow()
+		const refused = (bytes: Buffer | string) => {
+			try {
+				parseManifest(Buffer.from(bytes))
+			} catch (error) {
+				return error instanceof ManifestError ? error.code : 'other'
+			}
+			return 'accepted'
+		}
+		// compact, no newline, a second newline, CRLF, tabs, a repeated key, a reordered field
+		expect(refused(JSON.stringify(object))).toBe('manifest-format')
+		expect(refused(exact.toString().trimEnd())).toBe('manifest-format')
+		expect(refused(`${exact.toString()}\n`)).toBe('manifest-format')
+		expect(refused(exact.toString().replace(/\n/g, '\r\n'))).toBe('manifest-format')
+		expect(refused(exact.toString().replace(/ {2}/g, '\t'))).toBe('manifest-format')
+		expect(
+			refused(
+				exact.toString().replace('"channel": "latest",', '"channel": "x",\n  "channel": "latest",'),
+			),
+		).toBe('manifest-format')
+		const reordered = { channel: object.channel, schema: 1, ...object }
+		expect(refused(`${JSON.stringify(reordered, null, 2)}\n`)).toBe('manifest-format')
+		// bundle keys unsorted
+		const two = structuredClone(object)
+		const bundle = two.kernel.bundles['win32-x64']
+		two.kernel.bundles = { 'win32-x64': bundle, 'linux-x64': bundle }
+		expect(refused(`${JSON.stringify(two, null, 2)}\n`)).toBe('manifest-format')
+		expect(refused(manifestBytesOf(two))).toBe('accepted')
+	})
+
+	it('accepts only plain x.y.z versions, a sequence of 1 or more, and a floor not above the engine', () => {
+		const withChange = (change: (value: Record<string, any>) => void) => {
+			const value = structuredClone(manifestObject(input)) as Record<string, any>
+			change(value)
+			try {
+				parseManifest(manifestBytesOf(value))
+			} catch (error) {
+				return error instanceof ManifestError ? error.code : 'other'
+			}
+			return 'accepted'
+		}
+		expect(
+			withChange((v) => {
+				v.kernel.commandLine = '51.3.0-rc.1'
+			}),
+		).toBe('manifest-format')
+		expect(
+			withChange((v) => {
+				v.kernel.engine = '62.14.0-beta'
+			}),
+		).toBe('manifest-format')
+		expect(
+			withChange((v) => {
+				v.withdrawn = ['51.0.0-rc.1']
+			}),
+		).toBe('manifest-format')
+		expect(
+			withChange((v) => {
+				v.minimumKernel = '51.0.0+build'
+			}),
+		).toBe('manifest-format')
+		expect(
+			withChange((v) => {
+				v.kernel.commandLine = '051.3.0'
+			}),
+		).toBe('manifest-format')
+		expect(
+			withChange((v) => {
+				v.sequence = 0
+			}),
+		).toBe('manifest-format')
+		expect(
+			withChange((v) => {
+				v.withdrawn = ['50.0.0', '50.0.0']
+			}),
+		).toBe('manifest-format')
+		expect(
+			withChange((v) => {
+				v.minimumKernel = '99.0.0'
+			}),
+		).toBe('manifest-format')
+		expect(
+			withChange((v) => {
+				v.kernel.bundles['win32-x64'].fileCount = 0
+			}),
+		).toBe('manifest-format')
+		expect(withChange(() => undefined)).toBe('accepted')
+	})
+
+	it('accepts only the bundle names the publisher writes', () => {
+		const withKey = (name: string) => {
+			const value = structuredClone(manifestObject(input)) as Record<string, any>
+			value.kernel.bundles = { [name]: Object.values(value.kernel.bundles)[0] }
+			try {
+				parseManifest(manifestBytesOf(value))
+			} catch {
+				return 'refused'
+			}
+			return 'accepted'
+		}
+		expect(withKey('win32-x64')).toBe('accepted')
+		expect(withKey('plan9-x64')).toBe('refused')
+		expect(withKey('win32-mips')).toBe('refused')
+	})
+
+	it('reads a signature file only in its exact bytes (compact JSON, fields in order, one newline)', () => {
+		const key = makeKey()
+		const pair = signPair(manifestObject(input), key)
+		const value = JSON.parse(pair.signature.toString())
+		const run = (bytes: string) => {
+			try {
+				verifyManifest(pair.manifest, Buffer.from(bytes), [key])
+			} catch (error) {
+				return error instanceof ManifestError ? error.code : 'other'
+			}
+			return 'accepted'
+		}
+		expect(run(pair.signature.toString())).toBe('accepted')
+		expect(run(pair.signature.toString().trimEnd())).toBe('signature-format')
+		expect(run(`${pair.signature.toString()}\n`)).toBe('signature-format')
+		expect(run(`${JSON.stringify(value, null, 2)}\n`)).toBe('signature-format')
+		expect(
+			run(
+				`${JSON.stringify({ keyId: value.keyId, schema: 1, algorithm: 'ed25519', signature: value.signature })}\n`,
+			),
+		).toBe('signature-format')
 	})
 })
