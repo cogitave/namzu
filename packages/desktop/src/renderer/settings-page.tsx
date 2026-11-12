@@ -27,6 +27,7 @@ import {
 	SunIcon,
 	XIcon,
 } from './icons.js'
+import { INTERFACE_FONT_CHOICES, useInterfaceFont } from './interface-font.js'
 import { LocalListeningSettingsContent } from './local-listening-settings.js'
 import { LocalSpeechSettingsContent } from './local-speech-settings.js'
 import { McpServersRows } from './mcp-servers-section.js'
@@ -602,6 +603,8 @@ const APPEARANCE_CHOICES = [
 
 function AppearanceSection({ appearance, onAppearanceChange, settings }: SettingsPageProps) {
 	const group = useId()
+	const fontGroup = useId()
+	const [interfaceFont, setInterfaceFont] = useInterfaceFont()
 	return (
 		<>
 			<Row
@@ -623,6 +626,31 @@ function AppearanceSection({ appearance, onAppearanceChange, settings }: Setting
 							/>
 							<Icon aria-hidden="true" />
 							<span className="settings-choice-label">{label}</span>
+						</label>
+					))}
+				</fieldset>
+			</Row>
+			<Row
+				id="interface-font"
+				label="Interface font"
+				description="The typeface for text and code in Namzu. The terminal keeps its own font. A change applies at once."
+				stacked
+			>
+				<fieldset className="settings-choices">
+					<legend className="sr-only">Interface font</legend>
+					{INTERFACE_FONT_CHOICES.map((choice) => (
+						<label key={choice.value} className="settings-choice">
+							<input
+								type="radio"
+								name={fontGroup}
+								value={choice.value}
+								checked={interfaceFont === choice.value}
+								onChange={() => setInterfaceFont(choice.value)}
+							/>
+							<span>
+								<span className="settings-choice-label">{choice.label}</span>
+								<span className="settings-choice-hint">{choice.hint}</span>
+							</span>
 						</label>
 					))}
 				</fieldset>

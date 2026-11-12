@@ -936,8 +936,10 @@ What it holds, and where each value lives (one source of truth per value):
 - **Projects** — every project (name, path shortened with `~` and the whole path on hover, trusted state) with **Remove…**; a project whose folder is gone reads "Folder not found" and also offers **Locate folder**, and *Ask again when a
   project's automatic settings change* (default on). See
   [Trust again when automatic settings change](#trust-again-when-automatic-settings-change).
-- **Appearance** — the theme (light, dark, system). It stays in the renderer's own storage
-  (`namzu.appearance`) because only the renderer paints it; it moved out of the profile menu.
+- **Appearance** — the theme (light, dark, system) and the interface font (Namzu's own, the default,
+  or your device's; see [Typefaces](#typefaces)). Both stay in the renderer's own storage
+  (`namzu.appearance`, `namzu.interface-font`) because only the renderer paints them; the theme moved
+  out of the profile menu.
 - Every section opens with the same header, a title and one subtitle line, so the search box and
   the content start at the same height on every page (search results get the subtitle "Matches from
   every section.").
@@ -1888,7 +1890,7 @@ does not yet run an autonomous background loop, Pal Team or external channel ada
 ## Appearance and message display
 
 The app opens in its dark appearance. **Settings ▸ Appearance** offers light,
-system and dark; the local choice survives window reload. The
+system and dark, and the interface font; the local choices survive window reload. The
 two-row wordmark and phosphor-green accents match the operator CLI. Menu,
 panel and message transitions respect the system reduced-motion preference.
 In the project and engine pickers the arrow keys only move the highlight; Enter,
@@ -2271,11 +2273,10 @@ Wide tables scroll within a focusable message region, including keyboard
 horizontal scrolling, instead of being clipped by the transcript's outer frame.
 Messages and tool rows retain their admitted event order. Repeated provider call
 IDs in later turns have separate receipts; progress updates do not move a row.
-Interface and composer text use the platform sans stack; code uses the platform
-monospace stack. The interface root is 16px (the base the rem lengths count from),
+Interface and composer text use Geist and code uses Geist Mono, both shipped with the
+app (see [Typefaces](#typefaces)). The interface root is 16px (the base the rem lengths count from),
 reply, message and composer text is 15px and fenced code/diff text is 13px (see
-[the type scale](#the-type-scale)). The application uses the platform's font face,
-so the same stack can resolve to different faces on different operating systems.
+[the type scale](#the-type-scale)).
 The project and conversation breadcrumb uses 14px medium labels with native
 text-box trimming where supported; narrow windows retain the conversation title.
 Completed file actions expose their bounded before/after previews in Changes.
@@ -2306,7 +2307,7 @@ is heavier than the strong weight (600), so bold in a reply is no heavier than t
 `renderer/type-scale.test.ts` reads every stylesheet and component and fails on a font size that is
 neither a token nor a value of the scale, on a weight above 600, and on a size inside the `font`
 shorthand. The pixel wordmark's sizes and the 16 px root (the rem base) are the only listed exceptions.
-The font stacks are not part of the scale.
+The font stacks are not part of the scale; they are described under [Typefaces](#typefaces).
 
 | Token | Size / line | Where it is used |
 | --- | --- | --- |
@@ -2325,7 +2326,59 @@ mapped onto these tokens in `theme.css`, so a component class and a stylesheet r
 reply are 0.75em apart. Inline code is 0.9em of its sentence with line-height 1, padding 1 px 4 px and
 4 px corners (`--radius-code`). Times, durations, the added and removed counts, percentages and the
 cost beside the context percentage use tabular numbers so they keep their width as they change, and so
-does every cell of a reply's table.
+does every cell of a reply's table. Geist draws its figures proportional by default and has a
+tabular set, so the places listed here really do draw every digit at one width.
+
+## Typefaces
+
+The app draws with its own typefaces, so every platform shows the same letters at the same weights.
+Three variable files ship in `packages/desktop/public/fonts/` (built to `dist/renderer/fonts/`, inside
+the application's own files):
+
+| File | Face | Used for |
+| --- | --- | --- |
+| `Geist-wght.woff2` | Geist, upright, weight 100 to 900 | text of the interface and of replies |
+| `Geist-Italic-wght.woff2` | Geist italic, weight 100 to 900 | emphasis in replies |
+| `GeistMono-wght.woff2` | Geist Mono, weight 100 to 900 | code, tool output, diffs and the terminal |
+
+They are release v1.9.2 of the type project's own files, unmodified. `theme.css` loads them with
+`@font-face` and `font-display: block`, so text is held back for the few milliseconds a local file takes
+(measured: the faces are ready 10 to 30 ms after the window's first text is laid out) rather than drawn in
+the platform's face and then changed. A `<link rel="preload">` was tried and dropped: on `file:` addresses
+the browser does not match it to the font request, warns and fetches twice. `index.html` instead holds
+three hidden letters, one in each face, which start the three files loading while the bundle is still being
+read, so the italic and the mono are ready before the first italic word or code block. The content security policy
+needed no change: `default-src 'self'` covers files of the app's own folder. Weights 400, 500 and 600 are
+exact on every platform because the files are variable. Mono italic is not shipped: italic code
+(rare in a reply) is the upright mono slanted by the engine, which reads acceptably as a light slant.
+Code ligatures stay off: Geist Mono keeps them in a stylistic set that is off unless asked for, and
+nothing in the renderer asks.
+
+The stacks are tokens in `theme.css`. `--font-sans-app` is `"Geist"` followed by `--font-sans-system`
+(`-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`), and `--font-mono-app` is
+`"Geist Mono"` followed by `--font-mono-system` (`ui-monospace, "SF Mono", SFMono-Regular, Menlo,
+Consolas, "Liberation Mono", monospace`). `--font-sans` and `--font-mono` point at the first two, so a
+machine where a file cannot load falls back to its own fonts.
+
+**Settings > Appearance > Interface font** chooses *Namzu's own* (the default) or *Your device's*. With
+the device's, the root carries `data-interface-font="system"`, `--font-sans` and `--font-mono` point at
+the platform stacks alone, and the shipped files are not used for text or code. It applies at once in
+every window with no restart. It is kept in the renderer's own storage (`namzu.interface-font`) and
+`public/theme-boot.js` sets the attribute before the first paint, like the theme. The terminal reads
+its own token, `--font-terminal` (the shipped mono), so this setting leaves the terminal as it is.
+
+Text that is measured once waits for the faces. A terminal opens its emulator after the mono face is
+ready (the emulator measures a character cell when it opens and keeps that size), and the tab and
+sidebar title fitter measures again when the document's fonts finish loading and when the interface font
+changes. `renderer/typeface.test.ts` checks the `@font-face` rules, the stacks and the licence files;
+`renderer/terminal-font-wait.test.ts` checks the terminal waits; `e2e/typeface.test.mjs` asks the real
+app which font was used for a reply paragraph, a code block and a sidebar row, and that the setting
+changes it.
+
+Licence: Geist and Geist Mono are under the SIL Open Font License 1.1 (Copyright 2026 The Geist Project
+Authors). The copyright notice and the licence text travel with the files in `fonts/OFL.txt`, in
+`licenses/fonts-geist-OFL.txt` (copied to `dist/licenses/` by `scripts/retain-notices.mjs`) and in item 15
+of `THIRD-PARTY-NOTICES.txt`.
 
 ## Conversation panes and windows
 
