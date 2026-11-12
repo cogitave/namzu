@@ -1,3 +1,4 @@
+import * as sdk from '@namzu/sdk'
 import { type Meter, type Tracer, metrics, trace } from '@opentelemetry/api'
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
@@ -79,6 +80,11 @@ export class TelemetryProvider {
 				throw new Error(`Unsupported OTLP ${signal} protocol: ${protocol}; use http/json.`)
 			}
 		}
+		// Through the namespace, not a named import: an older `@namzu/sdk`
+		// inside the peer range has no switch, and it does not emit the names
+		// either, so skipping is the right answer there.
+		const setGenAi = (sdk as { setGenAiConventions?: (on: boolean) => void }).setGenAiConventions
+		setGenAi?.(this.config.genAiAttributes ?? true)
 		const resource = resourceFromAttributes({
 			'service.name': this.config.serviceName,
 			'service.version': this.config.serviceVersion ?? VERSION,

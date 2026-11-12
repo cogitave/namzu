@@ -31,8 +31,11 @@ export interface ResolvedOtlpExport {
 	readonly metricOtlpProtocol?: 'http/json'
 	readonly endpoint?: string
 	readonly headers?: Readonly<Record<string, string>>
+	/** Present, and `false`, only when `NAMZU_TELEMETRY_GENAI` turns the GenAI convention names off. */
+	readonly genAiAttributes?: false
 }
 
+const FALSE = new Set(['0', 'false', 'no', 'off'])
 const TRUE = new Set(['1', 'true', 'yes', 'on'])
 
 /** `k=v,k2=v2`, values percent-decoded, as the OpenTelemetry environment defines. */
@@ -95,6 +98,9 @@ export function resolveOtlpExport(
 		...(metrics === 'otlp' ? { metricOtlpProtocol: protocol('METRICS') } : {}),
 		...(endpoint ? { endpoint } : {}),
 		...(Object.keys(headers).length > 0 ? { headers } : {}),
+		...(FALSE.has((env.NAMZU_TELEMETRY_GENAI ?? '').trim().toLowerCase())
+			? { genAiAttributes: false as const }
+			: {}),
 	}
 }
 
@@ -109,6 +115,7 @@ interface TelemetryRegistrar {
 		metricOtlpProtocol?: 'http/json'
 		otlpEndpoint?: string
 		otlpHeaders?: Record<string, string>
+		genAiAttributes?: boolean
 	}): Promise<{ shutdown(): Promise<void> }>
 }
 
@@ -151,6 +158,7 @@ export function startOtlpExport(
 				...(resolved.metricOtlpProtocol ? { metricOtlpProtocol: resolved.metricOtlpProtocol } : {}),
 				...(resolved.endpoint ? { otlpEndpoint: resolved.endpoint } : {}),
 				...(resolved.headers ? { otlpHeaders: { ...resolved.headers } } : {}),
+				...(resolved.genAiAttributes === false ? { genAiAttributes: false } : {}),
 			})
 			return { shutdown: () => provider.shutdown() }
 		} catch (error) {
