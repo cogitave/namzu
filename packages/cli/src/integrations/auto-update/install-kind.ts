@@ -78,13 +78,21 @@ export function pnpmGlobalDirFor(packageRoot: string): string | null {
 	return PNPM_GLOBAL_STORE.exec(packageRoot)?.[1] ?? PNPM_GLOBAL_LINK.exec(packageRoot)?.[1] ?? null
 }
 
+/**
+ * The two places the Desktop app keeps a copy it owns: the one inside the installer
+ * (`…/resources/cli`) and one it fetched into its own data folder
+ * (`…/kernel/versions/<version>`). Both move only when the app moves them; this program
+ * never replaces either, whether or not it is running under the app's own program.
+ */
+const DESKTOP_KERNEL_ROOT = /[\\/](?:resources[\\/]cli|kernel[\\/]versions[\\/][^\\/]+)[\\/]?$/i
+
 export function classifyInstall(input: ClassifyInstallInput): InstallKind {
 	const exists = input.exists ?? existsSync
 	const canWrite = input.writable ?? writableDir
 	const root = input.packageRoot
 	const platform = input.platform
 
-	if (input.isElectron || /[\\/]resources[\\/]cli$/i.test(root)) return { kind: 'desktop', root }
+	if (input.isElectron || DESKTOP_KERNEL_ROOT.test(root)) return { kind: 'desktop', root }
 	if (/[\\/](_npx|dlx-[^\\/]*|\.bun[\\/]install[\\/]cache|bunx-[^\\/]*)[\\/]/i.test(root)) {
 		return { kind: 'ephemeral', root }
 	}

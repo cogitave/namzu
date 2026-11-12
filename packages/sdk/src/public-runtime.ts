@@ -1031,6 +1031,8 @@ export type {
 	AcpClientCapabilities,
 	AcpInitializeParams,
 	AcpInitializeResult,
+	AcpKernelFacts,
+	AcpHostKernelFacts,
 	AcpSessionCancelParams,
 	AcpSessionNewParams,
 	AcpSessionNewResult,

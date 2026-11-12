@@ -1,0 +1,331 @@
+{
+  "schema": 1,
+  "desktopContract": 1,
+  "about": "What an installed Namzu Desktop application relies on from this command line, read from packages/desktop/src. Guarded by src/desktop-contract.test.ts; explained in docs/sdk/kernel-facts.md. A change that removes or renames a name below, or changes a recorded shape in a way an installed application rejects, raises DESKTOP_CONTRACT. An addition an older application ignores only needs the new value recorded here.",
+  "rule": "Breaking for an already installed application: raise DESKTOP_CONTRACT (packages/cli/src/desktop-contract.ts) and record the new number here. Additive: record the new value here and say why in the same commit.",
+  "initialize": {
+    "client": {
+      "protocolVersion": 1,
+      "capabilities": [
+        "permission",
+        "namzu/tasks"
+      ],
+      "clientInfoName": "namzu-desktop"
+    },
+    "answerFieldsRead": [
+      "agentInfo.name",
+      "extensions",
+      "promptAttachments",
+      "promptOptions"
+    ],
+    "agentName": "namzu"
+  },
+  "coreMethods": [
+    "initialize",
+    "session/new",
+    "session/prompt",
+    "session/cancel",
+    "session/load"
+  ],
+  "requiredMethods": [
+    "namzu/project/status",
+    "namzu/project/trust",
+    "namzu/conversations/list",
+    "namzu/conversations/history",
+    "namzu/providers/status",
+    "namzu/providers/select",
+    "namzu/jobs/list",
+    "namzu/jobs/read",
+    "namzu/jobs/stop"
+  ],
+  "optionalGroups": {
+    "tasks": [
+      "namzu/tasks/list"
+    ],
+    "palCommunication": [
+      "namzu/pals/communication/peers",
+      "namzu/pals/communication/inbox",
+      "namzu/pals/communication/permissions/update",
+      "namzu/pals/communication/subscriptions/list",
+      "namzu/pals/communication/subscriptions/create",
+      "namzu/pals/communication/subscriptions/disable"
+    ],
+    "conversationActions": [
+      "namzu/conversations/rename",
+      "namzu/conversations/fork",
+      "namzu/conversations/markdown"
+    ],
+    "archivedConversations": [
+      "namzu/conversations/archived",
+      "namzu/conversations/unarchive"
+    ],
+    "terminals": [
+      "namzu/terminal/status",
+      "namzu/terminal/create",
+      "namzu/terminal/list",
+      "namzu/terminal/attach",
+      "namzu/terminal/detach",
+      "namzu/terminal/write",
+      "namzu/terminal/resize",
+      "namzu/terminal/ack",
+      "namzu/terminal/kill",
+      "namzu/terminal/close"
+    ],
+    "providerSetup": [
+      "namzu/providers/connections",
+      "namzu/providers/save_key",
+      "namzu/providers/remove_key",
+      "namzu/providers/test",
+      "namzu/providers/refresh"
+    ],
+    "projectGit": [
+      "namzu/project/git"
+    ],
+    "projectPr": [
+      "namzu/project/pr"
+    ],
+    "mcpServers": [
+      "namzu/mcp/servers",
+      "namzu/mcp/approve"
+    ],
+    "conversationSearch": [
+      "namzu/conversations/search"
+    ],
+    "projectUntrust": [
+      "namzu/project/untrust"
+    ],
+    "projectChanges": [
+      "namzu/project/changes",
+      "namzu/project/diff"
+    ],
+    "turnRetry": [
+      "namzu/sessions/retry-status",
+      "namzu/sessions/retry"
+    ],
+    "abandonPaused": [
+      "namzu/sessions/abandon-paused"
+    ],
+    "turnUndo": [
+      "namzu/turns/undo-status",
+      "namzu/turns/undo-preview",
+      "namzu/turns/undo"
+    ],
+    "liveInput": [
+      "namzu/conversations/input/status",
+      "namzu/conversations/input"
+    ],
+    "pals": [
+      "namzu/pals/list",
+      "namzu/pals/get",
+      "namzu/pals/create",
+      "namzu/pals/update",
+      "namzu/pals/conversations/list",
+      "namzu/pals/conversations/claim",
+      "namzu/pals/computer/status",
+      "namzu/pals/computer/start",
+      "namzu/pals/computer/stop",
+      "namzu/pals/computer/screen"
+    ],
+    "palInboxStart": [
+      "namzu/pals/inbox/status",
+      "namzu/pals/inbox/start"
+    ],
+    "palComputerControl": [
+      "namzu/pals/computer/take_over",
+      "namzu/pals/computer/return_control",
+      "namzu/pals/computer/input"
+    ]
+  },
+  "otherMethods": {
+    "about": "Methods the application calls without probing for them first; a host that lacks one answers an error to that one call.",
+    "methods": [
+      "namzu/config/get",
+      "namzu/config/set",
+      "namzu/conversations/archive",
+      "namzu/harnesses/list",
+      "namzu/harnesses/select",
+      "namzu/harnesses/release",
+      "namzu/pals/delete",
+      "namzu/pals/computer/stream",
+      "namzu/plugins/list",
+      "namzu/plugins/set_enabled",
+      "namzu/providers/models",
+      "namzu/providers/settings",
+      "namzu/providers/select_auto"
+    ]
+  },
+  "notifications": {
+    "about": "Notifications the application consumes, and where the host takes each name from.",
+    "consumed": [
+      {
+        "name": "session/update",
+        "from": "sdk ACP_CLIENT_NOTIFICATIONS.SESSION_UPDATE"
+      },
+      {
+        "name": "namzu/tasks/update",
+        "from": "sdk ACP_CLIENT_NOTIFICATIONS.TASK_UPDATE"
+      },
+      {
+        "name": "namzu/session/usage",
+        "from": "cli USAGE_NOTIFICATION"
+      },
+      {
+        "name": "namzu/session/outcome",
+        "from": "cli OUTCOME_NOTIFICATION"
+      },
+      {
+        "name": "namzu/terminal/data",
+        "from": "cli TERMINAL_NOTIFICATIONS.data"
+      },
+      {
+        "name": "namzu/terminal/exit",
+        "from": "cli TERMINAL_NOTIFICATIONS.exit"
+      }
+    ],
+    "requestsFromHost": [
+      {
+        "name": "session/request_permission",
+        "from": "sdk ACP_CLIENT_REQUESTS.REQUEST_PERMISSION"
+      }
+    ]
+  },
+  "flags": {
+    "host": {
+      "command": "acp",
+      "flags": [
+        "--desktop"
+      ],
+      "about": "Started as `<entry> acp --desktop`; any other argument is refused."
+    },
+    "terminalUi": {
+      "flags": [
+        "--provider",
+        "--model",
+        "--effort",
+        "--permission-mode",
+        "--message"
+      ],
+      "about": "Passed to the terminal UI of a project view; --message is passed as one argument, `--message=<text>`.",
+      "permissionModeValues": [
+        "prompt",
+        "accept-edits",
+        "plan",
+        "bypass",
+        "auto",
+        "strict"
+      ]
+    },
+    "shortCommands": {
+      "command": "computer",
+      "verbs": [
+        "status",
+        "setup",
+        "stop-idle"
+      ],
+      "flags": [
+        "--json",
+        "--yes",
+        "--plan",
+        "--resume-command",
+        "--bundle"
+      ]
+    }
+  },
+  "kernelFolder": {
+    "about": "Files the application reads from the folder that holds the command line (`<folder>/dist/bin.js`).",
+    "files": [
+      {
+        "path": "dist/bin.js",
+        "use": "the entry the application starts"
+      },
+      {
+        "path": "package.json",
+        "use": "the command line's version, field `version`"
+      },
+      {
+        "path": "node_modules/@namzu/sdk/package.json",
+        "use": "the engine's version, field `version`"
+      }
+    ]
+  },
+  "environment": {
+    "handsToKernel": [
+      {
+        "name": "ELECTRON_RUN_AS_NODE",
+        "value": "1",
+        "about": "the application's own program runs the command line as plain node"
+      },
+      {
+        "name": "NAMZU_PAL_COMPUTER_ENGINE",
+        "values": [
+          "docker",
+          "podman",
+          "wslc"
+        ],
+        "about": "the engine for the Pal computer; the application sets wslc on Windows unless the person chose one"
+      },
+      {
+        "name": "NAMZU_PAL_COMPUTER_BUNDLE",
+        "about": "a folder with a manifest.json whose imageRef names the image; the installer carries it"
+      }
+    ],
+    "sharedWithKernel": [
+      {
+        "name": "NAMZU_HOME",
+        "about": "where conversations and the trust list live; the application and the command line read the same one"
+      }
+    ]
+  },
+  "shapes": {
+    "about": "One digest per named exported shape of the small files the application mirrors by hand. The digest is taken over the printed declaration with comments and formatting removed, so only a change of meaning moves it. When one differs, the failure of src/desktop-contract.test.ts prints the new value.",
+    "files": {
+      "src/terminal/protocol.ts": {
+        "mirroredBy": "packages/desktop/src/shared/terminal-protocol.ts",
+        "digests": {
+          "TERMINAL_METHODS": "475add162d5c8410",
+          "TERMINAL_NOTIFICATIONS": "9836bed66c160b0d",
+          "TERMINAL_LIMITS": "44fa9d36adbc5913",
+          "TerminalInfo": "f09fb3c42e06bbc9",
+          "TerminalStatus": "03f71bc1be5de044",
+          "TerminalAttachResult": "d7bbd04544f8b987",
+          "TerminalDataNotification": "2712f0b4b7e48682",
+          "TerminalExitNotification": "d8f19db5a8d1095e",
+          "CreateRequest": "7c8602fa2f739f1e"
+        },
+        "names": [
+          "TERMINAL_METHODS",
+          "TERMINAL_NOTIFICATIONS",
+          "TERMINAL_LIMITS",
+          "TerminalInfo",
+          "TerminalStatus",
+          "TerminalAttachResult",
+          "TerminalDataNotification",
+          "TerminalExitNotification",
+          "CreateRequest"
+        ]
+      },
+      "src/commands/desktop-usage-feed.ts": {
+        "mirroredBy": "packages/desktop/src/shared/usage-protocol.ts",
+        "digests": {
+          "USAGE_NOTIFICATION": "c1e4e536e59f9e2e",
+          "UsageNotification": "9c513db414593c7c"
+        },
+        "names": [
+          "USAGE_NOTIFICATION",
+          "UsageNotification"
+        ]
+      },
+      "src/commands/desktop-outcome-feed.ts": {
+        "mirroredBy": "packages/desktop/src/shared/outcome-protocol.ts",
+        "digests": {
+          "OUTCOME_NOTIFICATION": "653c298da2bf6577",
+          "OutcomeNotification": "a98c5c4a05f73e15"
+        },
+        "names": [
+          "OUTCOME_NOTIFICATION",
+          "OutcomeNotification"
+        ]
+      }
+    }
+  }
+}
