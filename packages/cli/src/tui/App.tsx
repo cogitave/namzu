@@ -723,6 +723,7 @@ import {
 	NOTHING_TOLD,
 	type OutcomeTelling,
 	claimMismatchLine,
+	goalEndingLine,
 	outcomeNotice,
 } from './outcome-line.js'
 import { highestAttachmentNumber } from './paste-chips.js'
@@ -6244,6 +6245,9 @@ function AppBody({
 							...(sessionsRef.current
 								? {
 										sessionGoals: sessionsRef.current.goals,
+										...(activeCtx.goal?.confirmedBy
+											? { goalConfirmedBy: activeCtx.goal.confirmedBy }
+											: {}),
 										conversationSessions: sessionsRef.current,
 									}
 								: {}),
@@ -10397,6 +10401,13 @@ function AppBody({
 					// disagrees. Shown only; the model is not told and nothing blocks.
 					const claimLine = claimMismatchLine(event.claimMismatch)
 					if (claimLine) pushSystem('notice', claimLine)
+					// A goal confirmed by the record says which of the three ways it ended.
+					const goalLine = goalEndingLine(event.goalEnding)
+					if (goalLine)
+						pushSystem(
+							event.goalEnding?.ending === 'not-confirmed' ? 'warning' : 'notice',
+							goalLine,
+						)
 					if (st.startedAt !== undefined) {
 						const since = st.startedAt
 						const delegated = subagentsRef.current.filter(
@@ -13982,6 +13993,9 @@ function AppBody({
 														sessionId: sessionScope.sessionId,
 														tenantId: durableSessions.tenantId,
 														activation: goalActivation,
+														...(ctxRef.current.goal?.confirmedBy
+															? { defaultConfirmedBy: ctxRef.current.goal.confirmedBy }
+															: {}),
 													},
 												}
 											: {}),

@@ -33,7 +33,9 @@ function declarations(file: string): Declaration[] {
 		if (colon > 0 && stack.length > 0) {
 			out.push({
 				file: file.slice(dir.length),
-				selector: [...stack].reverse().find((s) => !s.startsWith('@')) ?? '',
+				selector: stack.includes('@font-face')
+					? '@font-face'
+					: ([...stack].reverse().find((s) => !s.startsWith('@')) ?? ''),
 				prop: buffer.slice(0, colon).trim(),
 				value: buffer.slice(colon + 1).trim(),
 			})
@@ -150,7 +152,8 @@ describe('type scale', () => {
 
 	it('has no weight above strong (600)', () => {
 		const bad = all
-			.filter((d) => d.prop === 'font-weight')
+			// A shipped face declares the range of weights its file can draw, not a weight the app uses.
+			.filter((d) => d.prop === 'font-weight' && d.selector !== '@font-face')
 			.filter((d) => {
 				if (/^var\(--weight-(text|control|strong)\)$|^inherit$/.test(d.value)) return false
 				const n = Number(d.value)

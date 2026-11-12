@@ -82,10 +82,14 @@ export function terminalTheme(read: (name: string) => string, dark: boolean): IT
 	return theme as ITheme
 }
 
-/** The font stack the app uses for code, read from its token. */
+/**
+ * The font stack of the terminal. `--font-terminal` is the terminal's own token: it starts with the
+ * shipped mono and does not follow "Interface font", so that setting leaves the terminal as it was.
+ */
 export function terminalFontFamily(read: (name: string) => string): string {
 	return (
+		read('--font-terminal') ||
 		read('--font-mono') ||
-		'ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace'
+		'"Geist Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace'
 	)
 }

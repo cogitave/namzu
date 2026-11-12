@@ -230,6 +230,14 @@ const betterThanStructured = customScorer("keeps-more-for-no-more", (turn) => {
 export default async function salience() {
 	return runExperiment({
 		name: "kernel/salience",
+		// What this run is, written into the report: a scripted provider, so no
+		// vendor, route or reasoning effort is involved.
+		disclosure: {
+			mode: "scripted",
+			roles: { agent: { provider: "MockLLMProvider", model: "scripted" } },
+			routing: "off",
+			reasoningEffort: "not applicable",
+		},
 		scorers: [
 			settled,
 			noOrphanedResults,

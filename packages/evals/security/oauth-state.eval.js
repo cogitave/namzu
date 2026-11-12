@@ -160,6 +160,8 @@ const insufficiencyScorer = customScorer('difference-check-is-insufficient', () 
 export default async function oauthState() {
 	return runExperiment({
 		name: 'security/oauth-state',
+		// No model is involved: the suite drives the state check directly.
+		disclosure: { mode: 'no-model', roles: {}, routing: 'off', reasoningEffort: 'not applicable' },
 		scorers: [verdictScorer, insufficiencyScorer],
 		run: async (input) => runFor(input.attempt()),
 		cases: [

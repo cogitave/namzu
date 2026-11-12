@@ -1,6 +1,19 @@
 import type { AnswerClaimMismatch, TurnOutcome } from '../types/session/outcome.js'
 import type { StepResult } from '../types/session/step.js'
+import type { CaseIntervals } from './bootstrap.js'
+import type { ReportDisclosure } from './disclosure.js'
+import type { RepeatReliability, SplitSummary } from './report-stats.js'
 import type { ScoreUncertainty } from './uncertainty.js'
+
+/**
+ * Which part of a suite a case belongs to.
+ *
+ * `development` cases are the ones the harness was shaped against; a number
+ * measured on them says how well it fits them. `held-out` cases were not
+ * looked at while it was shaped, and only they say how it does on cases it
+ * has not seen.
+ */
+export type EvalSplit = 'development' | 'held-out'
 
 /**
  * One case in a dataset: an input, and what a good run looks like.
@@ -20,6 +33,11 @@ export interface EvalCase<TInput = unknown> {
 	expectedTools?: readonly string[]
 	/** Per-case scorer overrides; falls back to the dataset's scorers. */
 	scorers?: readonly Scorer[]
+	/**
+	 * `development` or `held-out`. Left out, the case is reported as
+	 * unassigned. See {@link EvalSplit}.
+	 */
+	split?: EvalSplit
 }
 
 /** What actually happened, handed to every scorer. */
@@ -154,6 +172,10 @@ export interface CaseResult {
 	 * mattered. Absent when no gate missed.
 	 */
 	failedGates?: readonly string[]
+	/** Which run of this case this is, from 1. Set on every run of a report that has `repeats`. */
+	repeat?: number
+	/** The case's declared split, copied here so a report can be cut by it. */
+	split?: EvalSplit
 }
 
 export interface ExperimentReport {
@@ -188,4 +210,45 @@ export interface ExperimentReport {
 	 */
 	byScorer: Record<string, number>
 	durationMs: number
+	/**
+	 * Times each case ran. When it is above 1, `cases` holds every run of
+	 * every case, in case order, each marked with its `repeat`, and `passed`,
+	 * `failed` and `inconclusive` count runs. Absent in a report written before
+	 * repeats existed, which is read as 1.
+	 */
+	repeats?: number
+	/** Seed of the bootstrap behind {@link intervals}. */
+	seed?: number
+	/**
+	 * Passed runs over judged runs. An inconclusive run is in neither number,
+	 * so it cannot pull the rate either way.
+	 */
+	passRate?: number
+	/**
+	 * 95% intervals for {@link mean} and {@link passRate}, by a bootstrap over
+	 * cases. Absent from a report that predates it.
+	 */
+	intervals?: CaseIntervals
+	/** Per case: how many of its repeats passed. Present when `repeats` is above 1. */
+	caseSummaries?: readonly CaseRepeatSummary[]
+	/** Reliability across repeats. Present when `repeats` is above 1. */
+	reliability?: RepeatReliability
+	/** Numbers per split. Keys appear only for splits that have cases. */
+	splits?: Partial<Record<EvalSplit | 'unassigned', SplitSummary>>
+	/** What produced this report. */
+	disclosure?: ReportDisclosure
+}
+
+/** How the repeats of one case went. */
+export interface CaseRepeatSummary {
+	case: string
+	split?: EvalSplit
+	repeats: number
+	passed: number
+	failed: number
+	inconclusive: number
+	/** Mean score over the judged repeats; null when none was judged. */
+	mean: number | null
+	/** Every repeat passed. An inconclusive repeat means this is false. */
+	passedEveryRepeat: boolean
 }
