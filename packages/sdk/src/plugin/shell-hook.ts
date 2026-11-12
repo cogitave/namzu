@@ -106,6 +106,7 @@ import {
 	SKILL_TOOL_NAME_ALIASES,
 	permissionPatternToRegExpSource,
 } from '../authorization/skill-grant.js'
+import { withSessionChildMarker } from '../process/session-child.js'
 import { spawnHostShell } from '../tools/command-shell.js'
 import type { PluginId } from '../types/ids/index.js'
 import type {
@@ -478,7 +479,7 @@ export function runShellHook(
 					? // The exec form: no shell reads `command` or any argument.
 						spawn(entry.command, [...entry.args], {
 							cwd: input.cwd,
-							env,
+							env: withSessionChildMarker(env),
 							stdio: ['pipe', 'pipe', 'pipe'],
 							detached,
 						})

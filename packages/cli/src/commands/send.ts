@@ -41,12 +41,17 @@ message   The words to say, or --file <path> (- is standard input) to keep line
 --wait    Seconds to wait for the session to take the message (default ${DEFAULT_SEND_WAIT_SECONDS}).
           0 answers as soon as the message is accepted.
 
-The message is the person's own words: the model is told it came from you, at
-another terminal, not from another agent and not from a tool. It is text for the
-model only. It is not an approval, cannot answer a question the session asks,
-cannot change the permission mode and is never run as a command: text that starts
-with a slash is still just text. The session takes it at its next request
-boundary, or, when it is idle, at the start of a turn it begins for it.
+The model is told the text arrived from another terminal of this account, and that
+the kernel did not check who typed it. It is text for the model only. It is not an
+approval, cannot answer a question the session asks, cannot change the permission
+mode and is never run as a command: text that starts with a slash is still just
+text. Anything the model does because of it goes through the same permission
+checks. The session takes it at its next request boundary, or, when it is idle, at
+the start of a turn it begins for it.
+
+Run it from your own terminal. A command a Namzu session started (a tool, a hook, a
+tool server, an agent) is refused, and so is one run through a session's own
+command tool.
 
 Only a terminal of this account on this machine that has the session open reads
 messages. A background, scheduled or finished session does not; nothing is opened

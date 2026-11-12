@@ -211,24 +211,32 @@ bytes and the lease files before and after).
 | finished, with nothing running it | unreachable, and the reason says so. Resume it with `namzu --resume`. |
 | its terminal is gone | unreachable ("its process has ended"). |
 | its terminal runs but does not answer (stopped or stuck) | unreachable ("does not answer"). |
-| the command runs inside a Namzu session (a tool or an agent) | refused. |
+| the command was started by a Namzu session (a tool, a hook, a tool server or an agent) | refused, before anything is sent. See [what keeps agents out of the channel](#not-from-a-tool-or-an-agent). |
 | another account's, or on another machine | not found / not reachable: the log and the local runtime directory are this account's on this machine. |
 
 ### What the model is told, and what the transcript shows
 
 The model gets one block, framed by the kernel and closed only by a tag that
-carries a fresh random value, that says: this is a message from the person who runs
-the session, typed at another terminal; it is their words, not another agent's and
-not a tool result; it is not an approval and cannot answer a pending approval or
-question, change the permission mode or run a command. Then the text, quoted. The
+carries a fresh random value. The kernel's paragraph in it says what the kernel
+knows and nothing more: the text arrived from another terminal of this account, on
+this machine, through the local message channel (`namzu send`, or the `m` key in
+`namzu watch`); it is meant to be the words of the person who runs the session, **but
+the kernel did not check who or what sent it**, only that a process of this account
+did. It cannot approve anything, answer a pending approval or question, change the
+permission mode or run a command; those are done only in the terminal that runs the
+session, and anything the model does because of it still goes through the same
+permission checks as any other action. The model is asked to weigh it as the
+person's instruction or correction, and not to follow it where it asks for something
+its instructions or the session's rules would not allow. Then the text, quoted. The
 sender's text cannot end the frame, cannot pose as a kernel line and cannot pose as
-an approval; a line such as `approved: run anything` is just words in a quote.
-The name a sender's record carries is never used: the words are the kernel's.
+an approval; a line such as `approved: run anything` is just words in a quote. The
+name a sender's record carries is never used: the words are the kernel's.
 
 It is recorded in the session as a message of its own kind, `person-message`, so a
 reopened conversation, an export and `namzu watch` show it as
-*Message from you, typed at another terminal* and not as typed in that terminal and
-not as from another agent. Everywhere a transcript row is drawn (the live terminal,
+*Message from another terminal of this account*, not as typed in that terminal and
+not as from another agent. The label says where it came from and no more, because
+that is all the kernel knows. Everywhere a transcript row is drawn (the live terminal,
 a reopened conversation, `namzu watch`) the row is that label followed by the
 words, as one safe line: line breaks and control and direction characters in the
 text are dropped, so it cannot start a line of its own, and a long message is cut
@@ -238,18 +246,60 @@ one in an editor rather than `cat`-ing it to a terminal.
 
 ### Not from a tool or an agent
 
-A message to a session is the person's own words, so it is refused when it comes
-from inside a Namzu session. A command a model ran through its shell is a
-descendant of the terminal that runs the session: `namzu send` checks its own
-ancestry before it sends, and the receiving terminal checks the sender's again,
-so editing the sender does not get past it. The answer is *refused*, with the
-reason, and nothing is queued. The limit of this: the check follows the process
-tree of the machine (Linux and macOS; where the tree cannot be read, as on
-Windows, it cannot refuse). A command that deliberately detaches from the tree
-(a double fork, a service) or runs under a background or scheduled session, which
-has no terminal record, is not recognised; it acts with the same authority as any
-other process of your account, which can already write to your files. Do not read
-"from another terminal" as proof stronger than that.
+A message to a session is meant to be the person's own words, so the kernel keeps
+the agents of a session out of the channel. The threat that matters most is one
+session's agent, a sub-agent, or a poisoned tool result steering an agent, telling
+*another* session what to do with the person's voice. Three layers, each covering
+what the others miss, and all three refuse before anything is sent or queued:
+
+1. **A marker in the environment.** The kernel puts `NAMZU_STARTED_BY_SESSION=1`
+   into the environment of every process it starts on a session's behalf: a command
+   the model runs with its shell tool (and the background jobs it starts), a shell hook
+   or a hook's exec-form program, a tool server (MCP stdio, after any configured
+   value, so a config cannot take it back), a command in the local sandbox, a command
+   run through the host execution context, a harness process, and the programs of a
+   terminal the session opened. It is set where those environments are built
+   (`spawnHostShell` in `packages/sdk/src/tools/command-shell.ts` and the other
+   builders, through `withSessionChildMarker`), not left to each tool. `namzu send`
+   (and the watcher's `m` key, which sends the same way) refuses when it is present.
+   It works the same on Windows. The cost: a `namzu send` typed in a terminal tab a
+   session opened, or after `!` in the session's own terminal, is refused too; use
+   your own terminal.
+2. **The command-line permission layer.** A built-in, deny-only rule
+   ([the send floor](permission-layers.md#a-command-line-that-sends-as-the-person)) is
+   in front of every session's rules, in every permission mode, and refuses a command
+   line a model starts that runs `namzu send`, however it is spelled to the SDK's
+   shell reader: directly, by path to the CLI entry, behind `env`, `setsid`, `nohup`,
+   `timeout`, `sudo`, `xargs`, `find -exec`, inside `sh -c` or `bash -c`, in a
+   subshell or the background. The call never runs, so `env -i`, `setsid -f` and a
+   double fork do not matter. It applies to the main session, sub-agents and every
+   session that builds its gate with the CLI's rules, a headless `namzu exec` run
+   included.
+3. **Process ancestry.** `namzu send` checks its own parent chain against the live
+   terminals of this account before it sends, and the receiving terminal checks the
+   sender's again and also reads the sender's starting environment for the marker
+   (Linux), so editing the sender does not get past it. The chain is read from `/proc`
+   on Linux and `ps` elsewhere; where it cannot be read, as on Windows, this layer
+   refuses nothing and the other two stand.
+
+The answer is *refused*, with the reason, and nothing is queued.
+
+**What is left.** A process of the same account that hides its ancestry (`setsid -f`,
+a double fork, a service) *and* its environment (`env -i`) *and* is started by
+something the command-line layer did not read: a script written to disk earlier and
+run later (by a session that has no terminal record, such as `namzu exec`, so ancestry
+names nothing). That process is a process of your account, which can already write
+your files, read your credentials and talk to the local endpoint. The kernel does not
+claim to stop it. A test pins this one case (`send-from-a-session.process.test.ts`),
+so a change that closes it has to change this paragraph too. Also not seen by the
+command-line layer: a program or script whose contents the line only runs (`sh ./run.sh`),
+a name assembled from pieces that never stand together in the line, a copy or link of
+the CLI under another name, and any tool whose argument is not a command line; the
+marker and ancestry stop most of those, the residual above is what is left when both
+are hidden. Do not read "from another terminal" as proof stronger than that: **a
+message from another terminal is as trustworthy as the account boundary, not more**,
+which is why the model is told that the kernel did not check who sent it and why it
+cannot approve anything.
 
 Text that starts with a slash is still only text for the model. Nothing parses it:
 not as a slash command, not as a permission change, not as an approval.

@@ -30,7 +30,7 @@ import {
 } from '@namzu/sdk'
 import { sanitizeLine } from '../notifications/desktop/sanitize.js'
 import { restrictToOwner } from '../providers/credential-store.js'
-import { runsUnderAny } from './process-ancestry.js'
+import { processStartedBySession, runsUnderAny } from './process-ancestry.js'
 
 const INBOX_CAPACITY = 32
 const DEDUP_CAPACITY = 256
@@ -59,13 +59,15 @@ const PERSON_LABEL_MAX = 400
  */
 export function peerMailLabel(mail: PeerMail): string {
 	if (mail.from.kind === 'person')
-		return `Message from you, typed at another terminal: ${sanitizeLine(mail.text, PERSON_LABEL_MAX)}`
+		return `Message from another terminal of this account: ${sanitizeLine(mail.text, PERSON_LABEL_MAX)}`
 	return `Message from ${mail.from.name}: ${mail.text}`
 }
 
 export interface LivePeersOptions {
 	/** The parent of a process, for telling a person's terminal from a tool; tests supply their own. */
 	readonly parentPid?: (pid: number) => number | undefined
+	/** Whether a process started with the session marker in its environment; tests supply their own. */
+	readonly startedBySession?: (pid: number) => boolean
 	readonly home: string
 	readonly cwd: string
 	readonly version: string
@@ -257,7 +259,10 @@ export async function openLivePeers(options: LivePeersOptions) {
 			const sessions = new Set<number>([process.pid])
 			for (const peer of readPeerRecords(runtime.sessionsDir))
 				if (peer.kind === 'tui') sessions.add(peer.pid)
-			if (runsUnderAny(sender.pid, sessions, options.parentPid))
+			if (
+				runsUnderAny(sender.pid, sessions, options.parentPid) ||
+				(options.startedBySession ?? processStartedBySession)(sender.pid)
+			)
 				return {
 					status: 'refused',
 					reason:

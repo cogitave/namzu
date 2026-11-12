@@ -329,12 +329,14 @@ it('wakes an idle App for a person’s message from another terminal and records
 		expect(sent[0]?.at(-1)).toMatchObject({
 			source: { type: 'runtime-context', kind: 'person-message' },
 		})
-		expect(String(sent[0]?.at(-1)?.content)).toContain('from the person who runs this session')
+		expect(String(sent[0]?.at(-1)?.content)).toContain(
+			'arrived from another terminal of this account',
+		)
 		releaseFirstTurn()
 		await turnFinished.promise
 		await screen.waitForRender()
 		expect(screen.scrollback().join('\n')).toContain(
-			'Message from you, typed at another terminal: stop after this step',
+			'Message from another terminal of this account: stop after this step',
 		)
 	} finally {
 		await screen.unmount()

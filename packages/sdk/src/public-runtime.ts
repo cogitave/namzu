@@ -1976,6 +1976,11 @@ export {
 	writePeerRecord,
 } from './peers/index.js'
 export {
+	SESSION_CHILD_ENV,
+	startedBySession,
+	withSessionChildMarker,
+} from './process/session-child.js'
+export {
 	ACCOUNTS_FILE_NAME,
 	ACCOUNTS_FILE_VERSION,
 	AccountLockError,

@@ -227,19 +227,36 @@ later change.
 
 ### A person's message
 
-`PeerSessionKind` has a `person` member: the operator's own words from another
-terminal (`namzu send`, the watcher's message key). `formatPeerMessage` renders a
-message whose sender is `person` with `formatPersonMessage` instead of the system-event
-envelope, because that envelope's fixed sentence says the event is not the operator.
-The frame is `<person-message-<nonce> origin="another-terminal" id="…">`, a fixed
-kernel paragraph (the person's words, not another agent's, not a tool result, not an
-approval, cannot answer a question, change the mode or run a command), the nonce-bound
-closing statement, a blank line, the text, and the closing tag. The sender's chosen
-name is never used. The runtime-context kind is `person-message`, a new member of
-`RUNTIME_CONTEXT_MESSAGE_KINDS`; `isOperatorUserMessage` is `false` for it like the
-others. A build that predates the kind reads the recorded message as an ordinary user
-message whose text still carries the kernel's paragraph; nothing else about the log
-changes, so `DATA_EPOCH` is not raised.
+`PeerSessionKind` has a `person` member: words from another terminal of the same
+account (`namzu send`, the watcher's message key), meant to be the operator's.
+`formatPeerMessage` renders a message whose sender is `person` with
+`formatPersonMessage` instead of the system-event envelope, because that envelope's
+fixed sentence says the event is not the operator. The frame is
+`<person-message-<nonce> origin="another-terminal" id="…">`, a fixed kernel paragraph
+(`PERSON_MESSAGE_HEADER`), the nonce-bound closing statement, a blank line, the text,
+and the closing tag. The paragraph says only what the kernel knows: the text arrived
+over the account's local channel and is meant to be the person's, **the kernel did not
+check who or what sent it**; it cannot approve anything, answer a pending approval or
+question, change the permission mode or run a command, and what the model does
+because of it passes the same permission checks. It does not say a person typed it.
+The sender's chosen name is never used. The runtime-context kind is `person-message`,
+a new member of `RUNTIME_CONTEXT_MESSAGE_KINDS`; `isOperatorUserMessage` is `false`
+for it like the others. A build that predates the kind reads the recorded message as
+an ordinary user message whose text still carries the kernel's paragraph; nothing else
+about the log changes, so `DATA_EPOCH` is not raised.
+
+### Keeping a session's own processes out of the channel
+
+Every process the kernel starts on a session's behalf carries
+`NAMZU_STARTED_BY_SESSION=1` (`SESSION_CHILD_ENV`): the shell tool and the jobs it
+starts (`spawnHostShell`), shell hooks, MCP stdio servers, local-sandbox commands,
+`LocalExecutionContext` commands, sandbox terminals. `withSessionChildMarker(env)`
+returns a copy of an environment with it (last, so nothing the caller supplied takes it
+back, and one spelling on Windows), and `startedBySession(env)` reads it. A host that
+builds a child's environment itself for a process an agent can drive should pass it
+through `withSessionChildMarker`. It is a marker, not a lock: a process that clears its
+environment drops it, which is why the CLI also refuses the command line and reads
+process ancestry. See [Watching a session](../cli/watching-a-session.md#not-from-a-tool-or-an-agent).
 
 `deliver` takes an optional `conversation`: the conversation the sender meant, so a
 host that has since moved to another one can refuse. A `delivery` notice's `outcome`

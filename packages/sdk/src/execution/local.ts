@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { killTree } from '../process/kill-tree.js'
+import { withSessionChildMarker } from '../process/session-child.js'
 import type { LocalExecutionContextConfig } from '../types/connector/index.js'
 import type {
 	CommandExecutor,
@@ -161,7 +162,7 @@ export class LocalExecutionContext extends BaseExecutionContext implements Comma
 		}
 
 		const cwd = options?.cwd ? resolve(this.cwd, options.cwd) : this.cwd
-		const env = { ...process.env, ...this.envVars, ...options?.env }
+		const env = withSessionChildMarker({ ...process.env, ...this.envVars, ...options?.env })
 		const timeoutMs = options?.timeoutMs ?? LOCAL_COMMAND_DEFAULT_TIMEOUT_MS
 		if (!Number.isInteger(timeoutMs) || timeoutMs < 0) {
 			throw new RangeError(

@@ -4,6 +4,7 @@ import {
 	isPeerRecordLive,
 	readPeerRecords,
 	removePeerRecord,
+	startedBySession,
 } from '@namzu/sdk'
 import type { PeerRecord, TenantId } from '@namzu/sdk'
 import {
@@ -70,6 +71,10 @@ export interface SessionSendOptions {
 	readonly exitOnSignal?: (signal: NodeJS.Signals) => void
 }
 
+/** Why a command that a session started is refused, wherever the refusal is made. */
+export const SENT_FROM_A_SESSION_REASON =
+	'This command was started by a Namzu session, as a tool, a hook, a tool server or an agent. A message to a session comes from a person at their own terminal; run it from your own terminal. Nothing was sent.'
+
 const receipt = (
 	status: SessionSendStatus,
 	reason: string,
@@ -123,6 +128,12 @@ function whyNobody(
 /** Send `message` to the session and say, honestly, how far it got. */
 export async function sendToSession(options: SessionSendOptions): Promise<SessionSendReceipt> {
 	const { message } = options
+	// First, before any session is looked at: a process a session started (a command the model ran, a
+	// hook, a tool server) is never the person. The kernel puts this variable into every environment it
+	// builds for one. It is a marker, not a lock: the command-line permission layer refuses the same
+	// command before it runs, and the checks below and in the receiving terminal read process ancestry.
+	if (startedBySession(options.env ?? process.env))
+		return receipt('refused', SENT_FROM_A_SESSION_REASON)
 	if (!message.trim()) return receipt('refused', 'Message must contain text. Nothing was sent.')
 	if (Buffer.byteLength(message, 'utf8') > MAX_PEER_MESSAGE_TEXT_BYTES)
 		return receipt(
@@ -192,11 +203,7 @@ export async function sendToSession(options: SessionSendOptions): Promise<Sessio
 			.map((peer) => peer.pid),
 	)
 	if (runsUnderAny(process.pid, sessionPids, options.parentPid))
-		return receipt(
-			'refused',
-			'This command is running inside a Namzu session, as a tool or an agent. A message to a session is from a person at another terminal; run it from your own terminal. Nothing was sent.',
-			{ sessionId },
-		)
+		return receipt('refused', SENT_FROM_A_SESSION_REASON, { sessionId })
 	if (live.length > 1)
 		return receipt(
 			'refused',

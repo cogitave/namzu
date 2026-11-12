@@ -21,7 +21,7 @@ export function runtimeContextLabel(kind: RuntimeContextMessageKind): string {
 		case 'peer-message':
 			return 'Message from another Namzu window'
 		case 'person-message':
-			return 'Message from you, typed at another terminal'
+			return 'Message from another terminal of this account'
 		case 'host-observation':
 			return 'Pal activity'
 		case 'channel-message':
