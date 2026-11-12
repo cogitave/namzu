@@ -40,6 +40,7 @@ import {
 	skillsJSONCommand,
 	stateCommand,
 	upgradeCommand,
+	watchCommand,
 	workspacesCommand,
 } from './commands/manifest.js'
 import { registerCommandOrLazy } from './commands/registry.js'
@@ -581,6 +582,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		computerCommand,
 		archiveCommand,
 		peersCommand,
+		watchCommand,
 		doctorCommand,
 		execCommand,
 		learnCommand,

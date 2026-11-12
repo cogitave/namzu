@@ -55,6 +55,15 @@ export const peersCommand = lazyCommand(
 	async () => (await import('./peers.js')).peersCommand,
 )
 
+export const watchCommand = lazyCommand(
+	{
+		name: 'watch',
+		description: 'Follow a running or finished session from another terminal, read-only',
+		passThrough: true,
+	},
+	async () => (await import('./watch.js')).watchCommand,
+)
+
 export const doctorCommand = lazyCommand(
 	{
 		name: 'doctor',
