@@ -44,7 +44,12 @@ line telling you how to resume). So:
   under, and installs with the checks described below. Each process that runs a turn
   (the terminal, `namzu exec`, the scheduler's runs) leaves one small file under
   `updates/running/` in the install's `.namzu-update` folder while it runs; a file whose
-  process is gone is ignored. Short commands (`--version`, `doctor`, `upgrade`) and `namzu acp` leave
+  process is gone is ignored and removed when the next window starts. With updates switched
+off (`updates.check` false or `NAMZU_UPDATE_CHECK=0`) a window writes nothing into the
+install. When the terminal window itself goes away (hang-up) or the process is asked to stop
+(terminate), the installer is started and the file removed before the process ends; a process
+that is killed outright (`SIGKILL`, power loss) starts nothing, and the next window that
+ends starts it. Short commands (`--version`, `doctor`, `upgrade`) and `namzu acp` leave
   none. The background process gives up after six hours and leaves the update for the
   next window to close. The cost: the update lands when you stop, not ten seconds after
   you start.
@@ -55,7 +60,8 @@ line telling you how to resume). So:
   `Namzu 41.3.0 was installed while this window was open, so part of Namzu 41.2.0 is no
   longer on disk and this could not be done. Your conversation is saved; start Namzu
   again to continue it.` It says that only when the version on disk really differs from
-  the one running and the missing file is Namzu's own. Closing such a window works: the
+  the one running and the missing file is Namzu's own, whether a file or a whole package is
+  gone. Closing such a window works: the
   way out loads nothing from disk. The conversation is written as it goes, so nothing is
   lost, and `namzu resume` continues it with the new version.
 - **The Desktop app's engines** live in one folder per version and are never replaced in

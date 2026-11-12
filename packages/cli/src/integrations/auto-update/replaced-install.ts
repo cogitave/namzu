@@ -62,7 +62,10 @@ function missingFile(error: unknown): string | undefined {
 		}
 	}
 	if (code === 'ERR_MODULE_NOT_FOUND' && typeof message === 'string') {
-		return /Cannot find module '([^']+)'/.exec(message)?.[1]
+		const file = /Cannot find module '([^']+)'/.exec(message)?.[1]
+		if (file !== undefined) return file
+		// A package that is gone names the file that asked for it: "Cannot find package 'x' imported from <file>".
+		return /^Cannot find package '[^']+' imported from (.+?)\.?$/m.exec(message)?.[1]
 	}
 	if (code === 'ENOENT' && typeof path === 'string') return path
 	return undefined

@@ -154,6 +154,28 @@ describe('handleTerminationSignals', () => {
 		expect(signalExitCode('SIGINT')).toBe(130)
 	})
 
+	it('starts the deferred installer before it re-raises the signal: a re-raised signal never emits exit', async () => {
+		resetTerminationForTests()
+		const proc = new FakeProcess()
+		const order: string[] = []
+		let started: () => void = () => undefined
+		const done = new Promise<void>((resolve) => {
+			started = resolve
+		})
+		handleTerminationSignals({
+			process: proc,
+			leaseReleaseMs: 10,
+			launchPendingUpdate: () => order.push('installer'),
+			onFinished: (signal) => {
+				order.push(`finished ${signal}`)
+				started()
+			},
+		})
+		proc.emit('SIGHUP')
+		await done
+		expect(order).toEqual(['installer', 'finished SIGHUP'])
+	})
+
 	it('exits at once on a second signal, and bounds a cleanup that hangs', async () => {
 		resetTerminationForTests()
 		const proc = new FakeProcess()

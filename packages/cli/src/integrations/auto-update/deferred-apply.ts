@@ -16,13 +16,25 @@ export const APPLY_AT_EXIT_FLAG = '--apply-at-exit'
 
 let pendingChannel: string | undefined
 let armed = false
+let launched = false
 
 /** The update loop found a version to install; start the installer when this process ends. */
 export function noteUpdatePending(channel: string): void {
 	pendingChannel = channel
 	if (armed) return
 	armed = true
-	process.once('exit', () => launchApplyAtExit())
+	process.once('exit', () => launchPendingApply())
+}
+
+/**
+ * Start the installer if an update is due and it was not started yet. Called when the process
+ * exits, and by the signal handler too: a process that ends by re-raising SIGHUP or SIGTERM
+ * (the terminal window going away) never emits `exit`.
+ */
+export function launchPendingApply(spawnProcess?: typeof spawn, entry?: string): boolean {
+	if (!armed || launched) return false
+	launched = true
+	return launchApplyAtExit(spawnProcess, entry)
 }
 
 /** Whether this process will start the installer when it ends (tests). */

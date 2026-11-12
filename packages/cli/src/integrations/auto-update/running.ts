@@ -13,9 +13,11 @@
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import type { UpdatesConfig } from '../../config/schema.js'
 import { CLI_VERSION } from '../../version.js'
 import { currentInstall } from './current-install.js'
 import type { InstallKind } from './install-kind.js'
+import { resolveUpdatePolicy } from './policy.js'
 import { scopeOf, sharedStateHome } from './shared-state.js'
 import { processIsRunning, updatesDir } from './state.js'
 
@@ -93,11 +95,20 @@ export function otherRunning(
 
 /**
  * Register this process when it runs from an install that an update replaces in place.
- * A copy that is never updated (a checkout, the Desktop app's engine, `npx`) writes nothing.
+ * A copy that is never updated (a checkout, the Desktop app's engine, `npx`) writes nothing,
+ * and neither does a process with updates switched off: nothing is added to the package
+ * manager's folder for a person who turned them off.
  */
-export function registerRunningSession(env: NodeJS.ProcessEnv = process.env): () => void {
+export function registerRunningSession(
+	env: NodeJS.ProcessEnv = process.env,
+	updates?: UpdatesConfig,
+	find: typeof currentInstall = currentInstall,
+): () => void {
 	try {
-		const found = currentInstall(env)
+		if (!resolveUpdatePolicy({ config: updates, env, interactive: true }).check) {
+			return () => undefined
+		}
+		const found = find(env)
 		if (!found) return () => undefined
 		const { install } = found
 		if ((install.kind !== 'npm-global' && install.kind !== 'pnpm-global') || !install.writable) {
@@ -105,6 +116,8 @@ export function registerRunningSession(env: NodeJS.ProcessEnv = process.env): ()
 		}
 		const stop = registerRunning(install)
 		process.once('exit', stop)
+		// Records of windows that were killed (a closed terminal, a crash) are removed as the next one starts.
+		otherRunning(install, { except: process.pid })
 		return stop
 	} catch {
 		return () => undefined

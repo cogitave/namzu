@@ -97,6 +97,33 @@ describe('recognising an install that was replaced while this process ran', () =
 	})
 })
 
+describe('a package that is gone', () => {
+	it('is recognised from the file that asked for it, which carries no url', () => {
+		const error = Object.assign(
+			new Error(`Cannot find package 'node-pty' imported from ${root}/dist/chunks/pty-OLD.js`),
+			{ code: 'ERR_MODULE_NOT_FOUND' },
+		)
+		expect(
+			installWasReplaced({ error, running: '51.3.0', packageRoot: root, onDisk: '51.3.1' }),
+		).toBe(true)
+		expect(
+			installWasReplaced({ error, running: '51.3.0', packageRoot: root, onDisk: '51.3.0' }),
+		).toBe(false)
+	})
+
+	it('is not claimed when the asking file is not this install', () => {
+		const error = Object.assign(
+			new Error("Cannot find package 'x' imported from /elsewhere/a.js"),
+			{
+				code: 'ERR_MODULE_NOT_FOUND',
+			},
+		)
+		expect(
+			installWasReplaced({ error, running: '51.3.0', packageRoot: root, onDisk: '51.3.1' }),
+		).toBe(false)
+	})
+})
+
 describe('the line a person reads', () => {
 	it('names both versions, says the conversation is saved and what to do, with no path and no stack', () => {
 		const line = replacedInstallLine('51.3.0', '51.3.1')

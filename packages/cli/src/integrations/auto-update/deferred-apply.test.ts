@@ -1,7 +1,12 @@
 import type { ChildProcess, spawn } from 'node:child_process'
 import { describe, expect, it, vi } from 'vitest'
 
-import { APPLY_AT_EXIT_FLAG, launchApplyAtExit } from './deferred-apply.js'
+import {
+	APPLY_AT_EXIT_FLAG,
+	launchApplyAtExit,
+	launchPendingApply,
+	noteUpdatePending,
+} from './deferred-apply.js'
 
 describe('handing an update over to the process that outlives the session', () => {
 	it('starts the installer detached, with no terminal, naming the flag and the entry', () => {
@@ -23,5 +28,15 @@ describe('handing an update over to the process that outlives the session', () =
 			throw new Error('EAGAIN')
 		}) as unknown as typeof spawn
 		expect(launchApplyAtExit(fake, '/x/bin.js')).toBe(false)
+	})
+
+	it('starts only when an update is due, and only once, so a signal and the exit hook do not both start one', () => {
+		const child = { on: vi.fn(), unref: vi.fn() } as unknown as ChildProcess
+		const fake = vi.fn(() => child) as unknown as typeof spawn
+		expect(launchPendingApply(fake, '/x/bin.js')).toBe(false)
+		noteUpdatePending('latest')
+		expect(launchPendingApply(fake, '/x/bin.js')).toBe(true)
+		expect(launchPendingApply(fake, '/x/bin.js')).toBe(false)
+		expect(fake).toHaveBeenCalledTimes(1)
 	})
 })
