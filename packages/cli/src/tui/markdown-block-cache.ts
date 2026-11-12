@@ -53,7 +53,7 @@ import { type MdBlock, parseBlock, scanBlocks } from './markdownParser.js'
 
 export interface BlockCache {
 	/** Blocks of `src`, reusing the block objects of unchanged segments. */
-	parse(src: string): MdBlock[]
+	parse(src: string, startsAs?: 'text'): MdBlock[]
 	/** How many segments are being held. One per completed block. */
 	readonly size: number
 }
@@ -61,8 +61,8 @@ export interface BlockCache {
 export function createBlockCache(): BlockCache {
 	const blocks = new Map<string, MdBlock>()
 	return {
-		parse(src: string): MdBlock[] {
-			const segments = scanBlocks(src)
+		parse(src: string, startsAs?: 'text'): MdBlock[] {
+			const segments = scanBlocks(src, startsAs)
 			const settled = segments.length - 2
 			return segments.map((segment, i) => {
 				// The tail is where the text is still being written, so it is parsed

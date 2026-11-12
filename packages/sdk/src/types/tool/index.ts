@@ -940,7 +940,13 @@ export interface ToolContext {
 	 *
 	 * Absent when the executing surface has no event stream to write to.
 	 */
-	report?: (message: string, fraction?: number) => void
+	report?: (message: string, fraction?: number, details?: ToolProgressDetails) => void
+}
+
+/** Facts a tool can attach to a progress report besides its words. */
+export interface ToolProgressDetails {
+	/** Lines of output the call has produced so far, counted by the tool itself (never by a renderer from what it was shown). */
+	readonly outputLines?: number
 }
 
 export interface ToolResult {
@@ -1009,6 +1015,13 @@ export interface ToolResult {
 	 * the child's turn fails with {@link ToolHandoff.reason} instead.
 	 */
 	handoff?: ToolHandoff
+	/**
+	 * This call only started work that goes on after it returned (a sub-agent
+	 * launched in the background, or one whose wait was released): the call itself
+	 * changed nothing. The turn's outcome record does not count it as a call that
+	 * may have changed files; what the started work does is its own record.
+	 */
+	launched?: true
 	/**
 	 * What this call did, as typed fields for the PERSON's view: the exit code
 	 * and the two streams of a command, the path and size of a read, whether a

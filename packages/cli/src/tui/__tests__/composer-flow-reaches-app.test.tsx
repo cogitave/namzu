@@ -523,7 +523,10 @@ describe('the two composer destinations', () => {
 
 			// Pending rows, then their hint, then the working row, then the input frame.
 			const rows = screen.viewport()
-			const rowOf = (needle: string) => rows.findIndex((line) => line.includes(needle))
+			const rowOf = (needle: string) =>
+				rows.findIndex((line) =>
+					needle === 'Working' ? /Working|Writing|Thinking/u.test(line) : line.includes(needle),
+				)
 			expect(rowOf('also inspect this')).toBeGreaterThanOrEqual(0)
 			expect(rowOf('also inspect this')).toBeLessThan(rowOf('then do this'))
 			expect(rowOf('then do this')).toBeLessThan(rowOf('ctrl+x ctrl+s to send now'))

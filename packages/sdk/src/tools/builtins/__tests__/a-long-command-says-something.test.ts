@@ -107,8 +107,8 @@ describe('a command running in a sandbox', () => {
 		await Promise.resolve()
 
 		// The assertion that matters. The command has NOT finished here.
-		expect(report).toHaveBeenCalledWith('compiling module one')
-		expect(report).toHaveBeenCalledWith('compiling module two')
+		expect(report).toHaveBeenCalledWith('compiling module one', undefined, { outputLines: 1 })
+		expect(report).toHaveBeenCalledWith('compiling module two', undefined, { outputLines: 2 })
 
 		settle()
 		await pending
@@ -129,7 +129,7 @@ describe('a command running in a sandbox', () => {
 		await Promise.resolve()
 
 		expect(report).toHaveBeenCalledTimes(1)
-		expect(report).toHaveBeenCalledWith('third')
+		expect(report).toHaveBeenCalledWith('third', undefined, { outputLines: 3 })
 
 		settle()
 		await pending

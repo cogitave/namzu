@@ -28,6 +28,18 @@ export function isTaskTool(toolName: string): boolean {
 	return TASK_TOOLS.has(toolName)
 }
 
+/** What the working detail says while a planning call runs: plain words, never the call's own text. */
+export function taskCallLabel(toolName: string): string {
+	switch (toolName) {
+		case 'task_create':
+			return 'Adding to the plan'
+		case 'task_update':
+			return 'Updating the plan'
+		default:
+			return 'Reading the plan'
+	}
+}
+
 export type TaskOperationKind =
 	| 'added'
 	| 'started'

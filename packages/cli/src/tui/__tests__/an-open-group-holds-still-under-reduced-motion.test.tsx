@@ -33,12 +33,9 @@ afterEach(() => {
 })
 
 async function dots(): Promise<string[]> {
-	const group = foldOp(EMPTY_GROUP, { kind: 'search', hint: '"a"' }, 0)
+	const group = foldOp(EMPTY_GROUP, { kind: 'search', hint: '"a"' })
 	const view = render(
-		<ReadSearchGroup
-			message={{ id: 'g', role: 'tool', content: '', pending: true, group }}
-			now={() => 0}
-		/>,
+		<ReadSearchGroup message={{ id: 'g', role: 'tool', content: '', pending: true, group }} />,
 	)
 	const marks: string[] = []
 	for (let i = 0; i < 8; i += 1) {

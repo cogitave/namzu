@@ -475,6 +475,7 @@ import { keepRecentRows } from './compact-transcript.js'
 import {
 	COMPACTED_HINT,
 	COMPACTING_LABEL,
+	COMPACT_ABOVE_TEXT,
 	COMPACT_NOT_SAVED_TEXT,
 	COMPACT_RESULT_HINT,
 	NOTHING_TO_COMPACT_TEXT,
@@ -657,7 +658,9 @@ import {
 import {
 	type TaskOperation,
 	applyTaskOperation,
+	isTaskTool,
 	removeTask,
+	taskCallLabel,
 	taskOperationFor,
 	upsertTask,
 } from './task-activity.js'
@@ -781,7 +784,15 @@ import {
 } from './slashCommands.js'
 import { StatusLineRows } from './status-line/StatusLineRows.js'
 import { useStatusLine } from './status-line/useStatusLine.js'
-import { splitCompleteBlocks, splitSafeCut } from './stream-blocks.js'
+import {
+	DROPPED_REPLY_NOTICE,
+	type FlowContext,
+	appendReply,
+	endTableAtWholeRow,
+	flowRows,
+	paceDecision,
+	voidReply,
+} from './stream-flow.js'
 import { scriptText, terminalDisplayText } from './terminal-display.js'
 import { terminalFocus, useTerminalFocused } from './terminal-focus.js'
 import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
@@ -795,7 +806,7 @@ import {
 } from './terminal-title.js'
 import { theme, tokenColor } from './theme.js'
 import { useTitleFrame } from './title-frame.js'
-import { type ToolRow, formatToolCall, toolEndRows } from './tool-end-rows.js'
+import { type ToolRow, formatToolCall, interruptedCallHeads, toolEndRows } from './tool-end-rows.js'
 import { toolServerRow } from './tool-server-rows.js'
 import {
 	PAUSED_TURN_LINES,
@@ -845,6 +856,12 @@ export interface AppProps {
 	 * width does not change and the App's own resize reset would not run.
 	 */
 	readonly repaint?: { current: (() => void) | null }
+	/**
+	 * True when the default screen's writer (`paint/live-paint.ts`) is on the terminal: a resize
+	 * redraws only the live region at the new width, and the rows already printed stay as the
+	 * terminal reflowed them, so the transcript is not cleared and printed again.
+	 */
+	readonly paintsLiveRegion?: boolean
 	/**
 	 * Present when the screen is drawn fullscreen: on the alternate screen, with
 	 * the conversation scrolled by the app itself (see `fullscreen/`) instead of
@@ -1251,25 +1268,12 @@ type ChoicePickerState = {
  * The streaming assistant bubble, carried across events within one turn.
  *
  * `text` is everything the model has said and is what gets persisted;
- * `pending` is the part not yet on screen, held until it forms a whole block.
+ * `pending` is the part that arrived since the last redraw, which is at most
+ * a twelfth of a second ago.
  * The two are separate because they answer different questions — what was
  * said, and what has been shown — and conflating them is how a reply gets
  * saved with a paragraph the operator never saw, or shown twice.
  */
-/**
- * How long held reply text may wait before a sentence of it is shown.
- *
- * Blocks are released as they complete (`splitCompleteBlocks`), which keeps a
- * fast reply landing a paragraph at a time. A slow one — a long paragraph
- * arriving over twenty seconds — completes no block until its last character
- * and was invisible for its whole length. Past this interval the pending
- * text is released to its last safe cut instead (`splitSafeCut`): a sentence
- * or a line, never a half-word, never inside a fence. Long enough that a
- * fast stream never reaches it; short enough that a slow one reads as
- * writing rather than as silence.
- */
-const STREAM_RELEASE_MS = 250
-
 /**
  * How long a batch of delegated agents stays still before its launch receipt
  * is written. Agents of one response are begun within a few milliseconds of
@@ -1293,8 +1297,8 @@ type StreamState = {
 	conversationMessages?: readonly Message[]
 	pending?: string
 	/**
-	 * When held text was last released to the screen, and the timer that
-	 * releases it if the stream goes quiet. See `STREAM_RELEASE_MS`.
+	 * When arrived text was last put on the screen, and the one timer that puts
+	 * it there when it arrived too soon after. See `paceDecision`.
 	 */
 	releasedAt?: number
 	releaseTimer?: ReturnType<typeof setTimeout>
@@ -1328,6 +1332,8 @@ type StreamState = {
 	notification: TerminalNotification | null
 	/** Names this stream's task blocks, so one turn never extends another's. */
 	taskBlockKey?: string
+	/** The plan changed during this turn: its final state is printed once when the turn ends. */
+	planChanged?: true
 	/** What the person asked this turn, for the skill decision point; set for a human turn only. */
 	request?: string
 	/** When this turn began, for the closing line of a turn that delegated. */
@@ -1626,6 +1632,7 @@ function AppBody({
 	externalEditor = defaultExternalEditor,
 	terminationExit,
 	repaint,
+	paintsLiveRegion = false,
 	fullscreen,
 	onOpenWorkspaces,
 	onConfirmExit,
@@ -3650,12 +3657,17 @@ function AppBody({
 		if (wasOpen !== open) resetTranscript({ preserveTranscriptScreen: true })
 	}, [scrollOpen, transcriptScreen, resetTranscript])
 
+	// With the default screen's own writer on the terminal a resize needs no rebuild: it erases
+	// and redraws the live region at the new width, and printed rows stay as the terminal
+	// reflowed them. Without it (fullscreen, a test renderer) the rebuild below is what keeps
+	// the screen right.
 	const previousTerminalRef = useRef(terminal)
 	useEffect(() => {
 		const previous = previousTerminalRef.current
 		previousTerminalRef.current = terminal
 		if (
 			externalEditorRequestRef.current === null &&
+			!(paintsLiveRegion && !fullscreenOn) &&
 			(terminal.columns !== previous.columns ||
 				terminal.rows < previous.rows ||
 				((scrollOpen || transcriptScreen) && terminal.rows !== previous.rows))
@@ -3670,7 +3682,7 @@ function AppBody({
 			// frames remain incremental.
 			resetTranscript({ preserveTranscriptScreen: true })
 		}
-	}, [terminal, resetTranscript, scrollOpen, transcriptScreen])
+	}, [terminal, resetTranscript, scrollOpen, transcriptScreen, paintsLiveRegion, fullscreenOn])
 
 	const requestExternalEditor = useCallback(
 		(seed: string, pressed?: string): Promise<string> => {
@@ -5871,8 +5883,23 @@ function AppBody({
 	const announceApproval = useCallback(() => approvalNotifierRef.current?.dialogOpened(), [])
 	useEffect(() => () => approvalNotifierRef.current?.dispose(), [])
 
+	// What the reply being written needs to know of the screen: how wide its text
+	// is, how tall the window, and whether finished parts are printed as it goes.
+	// The context is worked out in render (below, once the live furniture is known) and handed to this
+	// ref when the render is committed, before any reply event can read it.
+	const flowRef = useRef<FlowContext | undefined>(undefined)
+	const flowFreeze =
+		!fullscreenOn && !rawOutput && stdout.isTTY === true && terminal.rows !== undefined
 	const appendToMessage = useCallback((id: string, delta: string) => {
-		setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: m.content + delta } : m)))
+		const flow = flowRef.current
+		setMessages((prev) => {
+			// Parts are printed only for the first message still being written: rows
+			// ahead of one that is not finished cannot be printed past.
+			const first = prev.findIndex((m) => m.pending)
+			return prev.map((m, i) =>
+				m.id === id ? appendReply(m, delta, i === first ? flow : undefined) : m,
+			)
+		})
 	}, [])
 
 	/**
@@ -5900,30 +5927,19 @@ function AppBody({
 		[appendToMessage, pushMessage],
 	)
 
-	/**
-	 * Release held text to its last safe cut — a sentence or a line — when it
-	 * has waited longer than `STREAM_RELEASE_MS`. Called from the delta path
-	 * with the clock, and from the timer the delta path arms so a stream that
-	 * goes quiet mid-paragraph still shows what it has.
-	 */
-	const releaseStalled = useCallback(
-		(st: StreamState) => {
-			if (!st.pending || st.pending.length === 0) return
-			const { ready, rest } = splitSafeCut(st.pending)
-			if (ready.length === 0) return
-			const id = st.assistantId ?? pushMessage('assistant', '', true)
-			st.assistantId = id
-			st.pending = rest
-			appendToMessage(id, ready)
-			st.releasedAt = Date.now()
-		},
-		[appendToMessage, pushMessage],
-	)
-
+	/** The running reply was cut off by the person (Esc, Ctrl+C): what it had written is not a finished text. */
+	const replyCutOffRef = useRef(false)
 	const finalizeMessage = useCallback((id: string, finalContent?: string) => {
+		const cutOff = replyCutOffRef.current
 		setMessages((prev) =>
 			prev.map((m) =>
-				m.id === id ? { ...m, content: finalContent ?? m.content, pending: false } : m,
+				m.id === id
+					? {
+							...m,
+							content: finalContent ?? (cutOff ? endTableAtWholeRow(m.content) : m.content),
+							pending: false,
+						}
+					: m,
 			),
 		)
 	}, [])
@@ -7130,20 +7146,46 @@ function AppBody({
 		furnitureRows: LIVE_FURNITURE_ROWS + fullToolFurniture + pendingInputFurniture,
 		raw: rawOutput,
 	})
+	// While a turn runs the plan is part of the live region, under the working
+	// line, and the transcript holds no copy of it: it is printed once, when the
+	// turn ends. Between turns the older rules apply.
+	const planLive = (state === 'thinking' || state === 'tool') && tasks.length > 0
 	const checklistOpen =
-		checklistExpanded && tasks.length > 0 && (checklistPinned || !checklistShown)
+		checklistExpanded && tasks.length > 0 && (planLive || checklistPinned || !checklistShown)
 	checklistOpenRef.current = checklistOpen
-	const liveTasks = checklistOpen || !checklistShown ? tasks : []
+	const liveTasks = planLive || checklistOpen || !checklistShown ? tasks : []
 	const fullTaskFurniture = taskListRows(liveTasks, checklistOpen)
 	// The plan's next task, drawn under the working row; never from a sub-agent's plan.
 	const nextPlanned = nextTask(tasks)
-	// The working row names the step in progress, in the model's own words.
-	const workingStepLabel = workingLabel(tasks, terminal.columns ?? 80)
 	const compactWork =
 		LIVE_FURNITURE_ROWS + fullTaskFurniture + fullToolFurniture + pendingInputFurniture >=
 		terminal.rows
+	// The list is drawn by the working region itself, except on a short terminal
+	// (which keeps the one current-step row below it).
+	const planInRegion = planLive && !compactWork
+	// The working row names the step in progress, in the model's own words,
+	// only where the list is not on screen to say it.
+	const workingStepLabel = planInRegion ? undefined : workingLabel(tasks, terminal.columns ?? 80)
 	const taskFurniture = fullTaskFurniture
 	const toolFurniture = compactWork && fullToolFurniture > 0 ? 2 : fullToolFurniture
+	// The reply being written keeps its unfinished part short enough that it, the plan under the
+	// working line, the running calls and a queued message still fit the window.
+	const flowContext: FlowContext = {
+		freeze: flowFreeze,
+		width: Math.max(10, terminal.columns - 4),
+		rows: flowRows(terminal.rows, taskFurniture + toolFurniture + pendingInputFurniture),
+		hyperlinks,
+	}
+	const flowWidth = flowContext.width
+	const flowHeight = flowContext.rows
+	useLayoutEffect(() => {
+		flowRef.current = {
+			freeze: flowFreeze,
+			width: flowWidth,
+			rows: flowHeight,
+			hyperlinks,
+		}
+	}, [flowFreeze, flowWidth, flowHeight, hyperlinks])
 	// How much of the transcript is still redrawable. The rest belongs to native
 	// terminal scrollback; the live tail stays deliberately small so an activity
 	// tick never repaints the whole conversation.
@@ -7176,7 +7218,12 @@ function AppBody({
 	// Freeze the parent's Static floor while it is open; otherwise a parent turn
 	// settling in the background prints through the child screen. Returning
 	// advances the floor once and emits those finalized rows exactly once.
-	const nextSettled = settledBeforeStreaming(messages, window.settled, settledRef.current)
+	const nextSettled = settledBeforeStreaming(
+		messages,
+		window.settled,
+		settledRef.current,
+		flowContext.freeze,
+	)
 	if (
 		agentSurface === null &&
 		!transcriptScreen &&
@@ -7374,6 +7421,7 @@ function AppBody({
 			setHandoffPark(null)
 			const ac = new AbortController()
 			abortRef.current = ac
+			replyCutOffRef.current = false
 			setState('thinking')
 			thinkingForNextRowRef.current = ''
 			const st: StreamState = {
@@ -7875,6 +7923,7 @@ function AppBody({
 				}
 				return cancelledSwitch
 			}
+			replyCutOffRef.current = true
 			ac.abort(new TurnCancelled('user'))
 			// Esc with a pending steer means "let this instruction interrupt the
 			// answer". The kernel has not drained these inputs yet, so reclaim them
@@ -7928,6 +7977,9 @@ function AppBody({
 			options?: { readonly steered?: boolean; readonly always?: boolean },
 		) => {
 			const callRunning = activeToolsRef.current.length > 0
+			// The calls the interrupt cuts off have no row of their own yet (a row is
+			// written when a call ends); the line under them must not stand alone.
+			const cutOff = interruptedCallHeads(activeToolsRef.current)
 			// An interrupt moves a running command to a job instead of stopping
 			// it, and does so before this returns: a job that was not there
 			// before is the command that carries on.
@@ -7947,11 +7999,12 @@ function AppBody({
 					...(options?.steered ? { steered: true } : {}),
 					...(movedToBackground ? { movedToBackground: true } : {}),
 				})
+				for (const head of cutOff) pushRow(head)
 				pushMessage('system', row.content, false, row.glyph, undefined, row.color)
 			}
 			return interrupted
 		},
-		[interruptTurn, pushMessage, session],
+		[interruptTurn, pushMessage, pushRow, session],
 	)
 	/**
 	 * ctrl+x ctrl+s: send what is waiting now. Same effect as Esc with a
@@ -9786,7 +9839,18 @@ function AppBody({
 				setTurnTokens(st.reportedOutputTokens ?? 0)
 				const abandoned = st.assistantId
 				st.assistantId = null
-				if (abandoned) setMessages((prev) => prev.filter((m) => m.id !== abandoned))
+				// Parts of it already printed cannot be taken back: that reply stays as
+				// it was written and the new attempt follows it.
+				if (abandoned)
+					setMessages((prev) =>
+						voidReply(prev, abandoned, () => ({
+							id: nextId(),
+							role: 'system',
+							content: DROPPED_REPLY_NOTICE,
+							glyph: systemRowStyle('notice').glyph,
+							glyphColor: systemRowStyle('notice').color,
+						})),
+					)
 			}
 			if (event.kind === 'provider-fallback' && event.restart) voidStreamedReply()
 			// The refused attempt's partial reply is void once another model answers.
@@ -9817,10 +9881,6 @@ function AppBody({
 			})
 			if (event.kind === 'tool-start' && event.toolName === SKILL_TOOL_NAME) {
 				conversationLearning().skillUsed = true
-			}
-			const ensureAssistant = () => {
-				if (!st.assistantId) st.assistantId = pushMessage('assistant', '', true)
-				return st.assistantId
 			}
 			const closeAssistant = () => {
 				// Before finalising, never after: the tail of a reply is almost
@@ -9900,38 +9960,24 @@ function AppBody({
 							sessionId: st.sessionId,
 						}
 					}
-					// The release clock starts with the first character, not with the
-					// turn: the wait before the first token is the model's, and
-					// counting it would release the opening sentence on arrival.
-					st.releasedAt ??= Date.now()
 					setThinking(null)
 					if (st.messageTextStart === undefined || (st.assistantId === null && !st.pending)) {
 						st.messageTextStart = st.text.length
 					}
 					st.text += event.text
-					// Held, not appended. Appending each delta is what produced text
-					// that types itself out — nothing animates it, but a few
-					// characters at a time reads the same way, and an operator ends
-					// up watching a line grow instead of reading it.
+					// Arrived text is drawn at once when the last redraw was long enough ago,
+					// and otherwise with the next one: at most about twelve a second however
+					// fast it arrives, one timer while something waits, nothing when nothing
+					// arrives.
 					st.pending = (st.pending ?? '') + event.text
-					const { ready, rest } = splitCompleteBlocks(st.pending)
-					if (ready.length > 0) {
-						st.pending = rest
-						appendToMessage(ensureAssistant(), ready)
-						st.releasedAt = Date.now()
+					const pace = paceDecision(Date.now(), st.releasedAt, st.releaseTimer !== undefined)
+					if (pace.action === 'flush') flushStream(st)
+					else if (pace.action === 'arm') {
+						st.releaseTimer = setTimeout(() => {
+							st.releaseTimer = undefined
+							flushStream(st)
+						}, pace.delay)
 					}
-					// A block is the preferred unit; a sentence is the fallback for
-					// a paragraph that is taking longer than an operator will wait
-					// for it. The timer covers the stream going quiet between two
-					// deltas, which the clock check alone cannot see.
-					if (st.releaseTimer) clearTimeout(st.releaseTimer)
-					if (Date.now() - (st.releasedAt ?? 0) >= STREAM_RELEASE_MS) {
-						releaseStalled(st)
-					}
-					st.releaseTimer = setTimeout(() => {
-						st.releaseTimer = undefined
-						releaseStalled(st)
-					}, STREAM_RELEASE_MS)
 					break
 				}
 				case 'tool-start': {
@@ -9971,10 +10017,13 @@ function AppBody({
 							? `Waiting · ${waitingAgent.description}`
 							: event.web
 								? webCallTitle(event.web)
-								: formatToolCall(event.toolName, event.summary, event.standalone),
+								: isTaskTool(event.toolName)
+									? taskCallLabel(event.toolName)
+									: formatToolCall(event.toolName, event.summary, event.standalone),
 						startedAt: Date.now(),
 						detail: event.detail,
 						...(event.command ? { command: event.command } : {}),
+						...(event.timeoutMs !== undefined ? { timeoutMs: event.timeoutMs } : {}),
 						...(event.proposed ? { proposed: event.proposed } : {}),
 						...(event.web ? { web: event.web, progress: webLiveStatus(event.web) } : {}),
 					}
@@ -10005,6 +10054,7 @@ function AppBody({
 								}
 							: {}),
 						...(event.fraction !== undefined ? { fraction: event.fraction } : {}),
+						...(event.outputLines !== undefined ? { outputLines: event.outputLines } : {}),
 					}
 					activeToolsRef.current = [
 						...running.slice(0, index),
@@ -10112,7 +10162,8 @@ function AppBody({
 						stoppedByPerson: stoppedAtPromptRef.current.delete(event.toolUseId),
 					})
 					if (built.kind === 'task-block') {
-						writeTaskBlock(st, null, tasksRef.current)
+						// The list lives under the working line and updates there; it is
+						// printed once, when the turn ends.
 					} else if (built.kind === 'rows') {
 						const only = built.rows.length === 1 ? built.rows[0] : undefined
 						// A look that succeeded, and a shell command that ended well, are kept
@@ -10185,9 +10236,8 @@ function AppBody({
 					break
 				}
 				case 'task': {
-					// The transcript owns the checklist: consecutive operations fold
-					// into one block there (task-activity.ts). The live row above the
-					// composer only names the current step.
+					// The live region owns the checklist while the turn runs; the
+					// transcript gets it once, when the turn ends (task-activity.ts).
 					const item: TaskListItem = {
 						id: event.taskId,
 						subject: event.subject,
@@ -10225,7 +10275,9 @@ function AppBody({
 					const checklist = tasksRef.current
 					setTasks(checklist)
 					if (operation && !event.removed) setChecklistExpanded(true)
-					if (operation) writeTaskBlock(st, operation, checklist)
+					// No block per update: the list is drawn under the working line while
+					// the turn runs, and printed once, as it ended, when the turn ends.
+					if (operation) st.planChanged = true
 					break
 				}
 				case 'job':
@@ -10494,6 +10546,11 @@ function AppBody({
 						// The workflows this turn ran are over: each says how it ended once.
 						for (const agent of delegated) endedWorkflowTurnsRef.current.add(agent.workflowId)
 						flushWorkflowNotices()
+						// The plan as the turn left it, before the closing line, once.
+						if (st.planChanged && tasksRef.current.length > 0) {
+							writeTaskBlock(st, null, tasksRef.current)
+							st.planChanged = undefined
+						}
 						if (closing)
 							pushMessage(
 								'system',
@@ -10922,6 +10979,7 @@ function AppBody({
 				}
 			}
 			abortRef.current = ac
+			replyCutOffRef.current = false
 			refusalEndedTurnRef.current = false
 			activeTurnTokenRef.current = turnToken
 			// Where this turn will be saved, and which transcript its rows belong
@@ -11534,6 +11592,11 @@ function AppBody({
 						kind: 'reject',
 						feedback: 'The owning turn ended.',
 					})
+					// The plan as the turn left it, printed once; a turn that did not touch it prints nothing.
+					if (st.planChanged && tasksRef.current.length > 0) {
+						writeTaskBlock(st, null, tasksRef.current)
+						st.planChanged = undefined
+					}
 					clearActiveTools()
 					setState('idle')
 					// The turn is over whether or not it is announced: from here a minute of
@@ -14280,13 +14343,23 @@ function AppBody({
 									tokensBefore: estimateHistoryTokens(historyBefore),
 									tokensAfter: estimateHistoryTokens(result.messages),
 								})
-								resetTranscript()
+								// The default screen keeps every row already printed (they are the record
+								// of what was said, and the terminal's scrollback is the person's): the row
+								// below says they are summarised for the model, and the conversation goes on
+								// under it. Fullscreen owns its screen and redraws the trimmed list.
+								if (fullscreenOn) resetTranscript()
 								setMessages((prev) => {
-									const kept = keepRecentRows(prev, keptTurns)
+									const kept = fullscreenOn ? keepRecentRows(prev, keptTurns) : prev
 									const summaryRow: TranscriptMessage = {
 										id: `compact-${Date.now()}`,
 										role: 'system',
-										content: durable ? resultLine : `${resultLine}. ${COMPACT_NOT_SAVED_TEXT}`,
+										content: [
+											resultLine,
+											fullscreenOn ? '' : COMPACT_ABOVE_TEXT,
+											durable ? '' : COMPACT_NOT_SAVED_TEXT,
+										]
+											.filter(Boolean)
+											.join('. '),
 										glyph: CLOSING_GLYPH,
 										glyphColor: tokenColor('text.muted'),
 										meta: COMPACT_RESULT_HINT,
@@ -14638,6 +14711,7 @@ function AppBody({
 			removeStoredCredential,
 			replaceQueued,
 			resetTranscript,
+			fullscreenOn,
 			runConversationExport,
 			session,
 			selectModelIntent,
@@ -14814,8 +14888,11 @@ function AppBody({
 				const keptTurns = result.messages.filter(
 					(m) => m.role === 'user' || m.role === 'assistant',
 				).length
-				resetTranscript()
-				setMessages((prev) => keepRecentRows(prev, keptTurns))
+				// Default screen: the printed rows stay (see `/compact`); fullscreen redraws the trimmed list.
+				if (fullscreenOn) {
+					resetTranscript()
+					setMessages((prev) => keepRecentRows(prev, keptTurns))
+				}
 				pushSystem('notice', IDLE_COMPACTION_NOTICE)
 				setCompactionTally((tally) => ({
 					...tally,
@@ -17308,7 +17385,9 @@ function AppBody({
 								}
 								thinking={thinking}
 								{...(spinnerTip ? { tip: spinnerTip } : {})}
-								{...(nextPlanned ? { nextTask: nextTaskLine(nextPlanned) } : {})}
+								{...(nextPlanned && !planInRegion ? { nextTask: nextTaskLine(nextPlanned) } : {})}
+								{...(planInRegion ? { plan: liveTasks, planOpen: checklistOpen } : {})}
+								{...(permission !== null ? { waitingFor: 'approval' as const } : {})}
 								waitNotice={providerWaitNotice}
 								tokens={turnTokens}
 								waitingForYou={
@@ -17343,7 +17422,7 @@ function AppBody({
 						jobSurface === null &&
 						permission === null &&
 						scheduleReviewPrompt === null ? (
-							<TaskList tasks={liveTasks} expanded={checklistOpen} />
+							<TaskList tasks={planInRegion ? [] : liveTasks} expanded={checklistOpen} />
 						) : null}
 						{/* Siblings, not a ternary. The overlay used to REPLACE the
 						    composer, which unmounted it and destroyed whatever the

@@ -281,7 +281,6 @@ describe('an open group of reads and searches', () => {
 			mcpLabels: [],
 			commands: [],
 			hintShown: hint,
-			hintShownAt: 0,
 		},
 	})
 
@@ -304,7 +303,7 @@ describe('a group that ran commands', () => {
 	const group = (count: number, pending: boolean): TranscriptMessage => {
 		let state: GroupState = EMPTY_GROUP
 		for (let i = 1; i <= count; i += 1) {
-			state = foldOp(state, { kind: 'run', command: `step ${i}` }, 0)
+			state = foldOp(state, { kind: 'run', command: `step ${i}` })
 		}
 		return {
 			id: 'g',
@@ -341,28 +340,23 @@ describe('a group that ran commands', () => {
 	})
 
 	it('counts a long command as one row, since it is cut to the width', () => {
-		const state = foldOp(
-			foldOp(EMPTY_GROUP, { kind: 'run', command: `echo ${'z'.repeat(500)}` }, 0),
-			{ kind: 'run', command: 'b' },
-			0,
-		)
+		const state = foldOp(foldOp(EMPTY_GROUP, { kind: 'run', command: `echo ${'z'.repeat(500)}` }), {
+			kind: 'run',
+			command: 'b',
+		})
 		const message: TranscriptMessage = { ...group(2, false), group: state }
 		expect(height(message, 40)).toBe(height(group(2, false), 40))
 	})
 
 	it("counts a group of one command as that command's row, with its output", () => {
-		const state = foldOp(
-			EMPTY_GROUP,
-			{
-				kind: 'run',
-				command: 'npm test',
-				cell: {
-					header: 'Bash(npm test)',
-					shell: { stdout: ['a', 'b', 'c'], stderr: [], failed: false },
-				},
+		const state = foldOp(EMPTY_GROUP, {
+			kind: 'run',
+			command: 'npm test',
+			cell: {
+				header: 'Bash(npm test)',
+				shell: { stdout: ['a', 'b', 'c'], stderr: [], failed: false },
 			},
-			0,
-		)
+		})
 		const message: TranscriptMessage = {
 			id: 'c',
 			role: 'tool',

@@ -156,24 +156,55 @@ function classify(line: string, next: string | undefined, terminated: boolean): 
 	return 'text'
 }
 
+/** Where one top-level block sits in its source, and what it is. */
+export interface BlockRange {
+	/** Offset of the block's first character. */
+	readonly start: number
+	/** Offset just past its last character, newline excluded. */
+	readonly end: number
+	readonly kind: 'code' | 'table' | 'heading' | 'rule' | 'quote' | 'bullet' | 'text'
+	/** A code block: its closing fence is present. */
+	readonly closed?: boolean
+}
+
 /**
- * Split markdown source into the raw text of each top-level block, in order.
- *
- * Blank lines separate blocks and belong to none, so they appear in no segment.
- * Every other line lands in exactly one, which is what lets a segment be used
- * as a cache key: two turns that produce the same segment produce the same
- * block, because {@link parseBlock} reads nothing else.
+ * Where each top-level block starts and ends. `startsAs: 'text'` reads the
+ * first line as prose whatever it looks like: the rest of a paragraph whose
+ * earlier rows were printed already begins mid-sentence, and `2. Then` there
+ * is not a list item.
  */
-export function scanBlocks(src: string): string[] {
+export function scanBlockRanges(src: string, startsAs?: 'text'): BlockRange[] {
 	const lines = src.split('\n')
-	const segments: string[] = []
+	const starts: number[] = []
+	let at = 0
+	for (const line of lines) {
+		starts.push(at)
+		at += line.length + 1
+	}
+	const endOf = (i: number): number => (starts[i] ?? 0) + (lines[i] ?? '').length
+	const ranges: BlockRange[] = []
+	let forced = startsAs === 'text'
 	let i = 0
 	while (i < lines.length) {
 		const line = lines[i] ?? ''
-		switch (classify(line, lines[i + 1], i < lines.length - 1)) {
-			case 'blank':
-				i++
-				break
+		const kind = classify(line, lines[i + 1], i < lines.length - 1)
+		if (kind === 'blank') {
+			i++
+			continue
+		}
+		if (forced) {
+			forced = false
+			let end = i
+			while (
+				end < lines.length &&
+				(end === i || classify(lines[end] ?? '', lines[end + 1], end < lines.length - 1) === 'text')
+			)
+				end++
+			ranges.push({ start: starts[i] ?? 0, end: endOf(end - 1), kind: 'text' })
+			i = end
+			continue
+		}
+		switch (kind) {
 			case 'code': {
 				// Run to the closing fence, or to the end of the text — a reply
 				// still streaming in has an open fence for as long as it is inside
@@ -181,14 +212,19 @@ export function scanBlocks(src: string): string[] {
 				let end = i + 1
 				while (end < lines.length && !FENCE.test(lines[end] ?? '')) end++
 				const last = Math.min(end, lines.length - 1)
-				segments.push(lines.slice(i, last + 1).join('\n'))
+				ranges.push({
+					start: starts[i] ?? 0,
+					end: endOf(last),
+					kind: 'code',
+					closed: end < lines.length,
+				})
 				i = end + 1
 				break
 			}
 			case 'table': {
 				let end = i + 2 // header + separator
 				while (end < lines.length && continuesTable(lines[end] ?? '')) end++
-				segments.push(lines.slice(i, end).join('\n'))
+				ranges.push({ start: starts[i] ?? 0, end: endOf(end - 1), kind: 'table' })
 				i = end
 				break
 			}
@@ -198,20 +234,14 @@ export function scanBlocks(src: string): string[] {
 				// a reply is still arriving.
 				let end = i
 				while (end < lines.length && BLOCKQUOTE.test(lines[end] ?? '')) end++
-				segments.push(lines.slice(i, end).join('\n'))
+				ranges.push({ start: starts[i] ?? 0, end: endOf(end - 1), kind: 'quote' })
 				i = end
 				break
 			}
 			case 'rule':
-				// The trailing newline in the segment is what tells parseBlock the
-				// line was ended, so a rule and the same characters still arriving
-				// are different segments.
-				segments.push(`${line}\n`)
-				i++
-				break
 			case 'heading':
 			case 'bullet':
-				segments.push(line)
+				ranges.push({ start: starts[i] ?? 0, end: endOf(i), kind })
 				i++
 				break
 			default: {
@@ -222,20 +252,37 @@ export function scanBlocks(src: string): string[] {
 					classify(lines[end] ?? '', lines[end + 1], end < lines.length - 1) === 'text'
 				)
 					end++
-				segments.push(lines.slice(i, end).join('\n'))
+				ranges.push({ start: starts[i] ?? 0, end: endOf(end - 1), kind: 'text' })
 				i = end
 				break
 			}
 		}
 	}
-	return segments
+	return ranges
+}
+
+/**
+ * Split markdown source into the raw text of each top-level block, in order.
+ *
+ * Blank lines separate blocks and belong to none, so they appear in no segment.
+ * Every other line lands in exactly one, which is what lets a segment be used
+ * as a cache key: two turns that produce the same segment produce the same
+ * block, because {@link parseBlock} reads nothing else.
+ */
+export function scanBlocks(src: string, startsAs?: 'text'): string[] {
+	// The trailing newline in a rule's segment is what tells parseBlock the
+	// line was ended, so a rule and the same characters still arriving are
+	// different segments.
+	return scanBlockRanges(src, startsAs).map((r) =>
+		r.kind === 'rule' ? `${src.slice(r.start, r.end)}\n` : src.slice(r.start, r.end),
+	)
 }
 
 /** Parse one block's raw text — a segment from {@link scanBlocks} — into a block. */
-export function parseBlock(raw: string): MdBlock {
+export function parseBlock(raw: string, as?: 'text'): MdBlock {
 	const lines = raw.split('\n')
 	const first = lines[0] ?? ''
-	switch (classify(first, lines[1], lines.length > 1)) {
+	switch (as === 'text' ? 'text' : classify(first, lines[1], lines.length > 1)) {
 		case 'code': {
 			const lang = FENCE.exec(first)?.[1]
 			// The closing fence is part of the segment when the block is closed and
@@ -290,13 +337,40 @@ export function parseBlock(raw: string): MdBlock {
 
 /** Parse markdown source into a flat list of block elements. */
 export function parseMarkdown(src: string): MdBlock[] {
-	return scanBlocks(src).map(parseBlock)
+	return scanBlocks(src).map((segment) => parseBlock(segment))
 }
 
 // Underscores inside identifiers are literal, including non-ASCII names.
 const INLINE =
 	/(`[^`]+`)|(\[[^\]]+\]\([^)]+\))|(\*\*[^*]+\*\*)|((?<![\p{L}\p{N}\p{M}_])__[^_]+__(?![\p{L}\p{N}\p{M}_]))|(\*[^*]+\*)|((?<![\p{L}\p{N}\p{M}_])_[^_]+_(?![\p{L}\p{N}\p{M}_]))/u
 const LINK = /^\[([^\]]+)\]\(([^)]+)\)$/
+
+/**
+ * Where each inline marker that has not closed begins.
+ *
+ * A marker left over after every complete span is read is one a later
+ * character can still pair with, and pairing it changes how the text before
+ * it is drawn. Text that holds one is not final.
+ */
+export function openMarkersIn(text: string): number[] {
+	const found: number[] = []
+	let base = 0
+	let rest = text
+	while (rest.length > 0) {
+		const match = INLINE.exec(rest)
+		const plain = match ? rest.slice(0, match.index) : rest
+		for (let k = 0; k < plain.length; k++) {
+			const ch = plain[k]
+			if (ch === '`' || ch === '[' || ch === '*') found.push(base + k)
+			else if (ch === '_' && !/[\p{L}\p{N}\p{M}_]/u.test(text[base + k - 1] ?? ''))
+				found.push(base + k)
+		}
+		if (!match) break
+		base += match.index + match[0].length
+		rest = rest.slice(match.index + match[0].length)
+	}
+	return found
+}
 
 /** Parse a single line of text into styled inline spans. */
 export function parseInline(text: string): InlineSpan[] {
@@ -328,3 +402,13 @@ export function parseInline(text: string): InlineSpan[] {
 	}
 	return spans.length > 0 ? spans : [{ text: '' }]
 }
+
+/** The line shapes the streaming view reads: the same expressions the parser classifies with. */
+export const LINE_SHAPES = {
+	fence: FENCE,
+	heading: HEADING,
+	bullet: BULLET,
+	quoteMark: QUOTE_MARK,
+	tableSep: TABLE_SEP,
+	tableRow: TABLE_ROW,
+} as const

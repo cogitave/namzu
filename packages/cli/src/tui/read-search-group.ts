@@ -56,10 +56,8 @@ export interface GroupState {
 	readonly commands: readonly string[]
 	/** The row of the one command, while the group holds that and nothing else. */
 	readonly cell?: CommandCell
-	/** The hint on screen, and the newest one held back until the interval ends. */
+	/** The newest call's hint, drawn under the line while the group is open. */
 	readonly hintShown?: string
-	readonly hintShownAt?: number
-	readonly hintQueued?: string
 }
 
 export const EMPTY_GROUP: GroupState = {
@@ -72,8 +70,6 @@ export const EMPTY_GROUP: GroupState = {
 	commands: [],
 }
 
-/** The shown hint changes at most this often; the first one is immediate. */
-export const HINT_INTERVAL_MS = 700
 /** A hint is cut at this many characters. */
 export const HINT_MAX_CHARS = 300
 
@@ -82,7 +78,7 @@ function cap(text: string): string {
 }
 
 /** Add one call. Counts only ever go up, so a failed call never makes a number drop. */
-export function foldOp(state: GroupState, op: FoldOp, now: number): GroupState {
+export function foldOp(state: GroupState, op: FoldOp): GroupState {
 	let next: GroupState = state
 	switch (op.kind) {
 		case 'read':
@@ -118,7 +114,7 @@ export function foldOp(state: GroupState, op: FoldOp, now: number): GroupState {
 			break
 	}
 	next = aloneOrNot(next)
-	return op.hint === undefined ? next : withHint(next, cap(op.hint), now)
+	return op.hint === undefined ? next : withHint(next, cap(op.hint))
 }
 
 /** Whether the group holds exactly one command and no other call. */
@@ -144,36 +140,19 @@ export function isOneCommand(state: GroupState | undefined): state is GroupState
 	return state?.cell !== undefined && holdsOnlyOneCommand(state)
 }
 
-function withHint(state: GroupState, hint: string, now: number): GroupState {
-	if (state.hintShownAt === undefined || now - state.hintShownAt >= HINT_INTERVAL_MS) {
-		const { hintQueued: _queued, ...rest } = state
-		return { ...rest, hintShown: hint, hintShownAt: now }
-	}
-	return { ...state, hintQueued: hint }
+/** The hint is the newest call's, shown as that call starts and kept until the next one starts. */
+function withHint(state: GroupState, hint: string): GroupState {
+	return { ...state, hintShown: hint }
 }
 
-/** The hint to draw at `now`: the shown one, or the held one once its interval has passed. */
-export function visibleHint(state: GroupState, now: number): string | undefined {
-	if (
-		state.hintQueued !== undefined &&
-		state.hintShownAt !== undefined &&
-		now - state.hintShownAt >= HINT_INTERVAL_MS
-	) {
-		return state.hintQueued
-	}
+/** The hint to draw: the latest item the open group has started. */
+export function visibleHint(state: GroupState): string | undefined {
 	return state.hintShown
 }
 
-/**
- * The rows of the hint under a live group, for the height estimate: the longest
- * of the hint on screen and the one held for its interval, so the estimate is
- * right whichever shows.
- */
+/** The rows of the hint under a live group, for the height estimate. */
 export function hintRows(state: GroupState): readonly string[] {
-	const lines = (text: string | undefined) => (text === undefined ? [] : text.split('\n'))
-	const shown = lines(state.hintShown)
-	const held = lines(state.hintQueued)
-	return held.join('\n').length > shown.join('\n').length ? held : shown
+	return state.hintShown === undefined ? [] : state.hintShown.split('\n')
 }
 
 /** Two groups that sat next to each other, as one. Hints belong to a live run and are dropped. */

@@ -91,6 +91,17 @@ describe('the outcome of a turn, by its own calls', () => {
 		expect(outcome?.verdict).toBe('unchanged')
 	})
 
+	it('a command that never ran, or only launched work elsewhere, is not one that may have changed files', async () => {
+		const sed = bash('sed -i s/a/b/ a.ts')
+		expect((await turn(new OutcomeLedger(), [[sed]]))?.verdict).toBe('unknown')
+		expect(
+			(await turn(new OutcomeLedger(), [[{ ...sed, isError: true, notRun: true }]]))?.verdict,
+		).toBe('unchanged')
+		expect((await turn(new OutcomeLedger(), [[{ ...sed, launched: true }]]))?.verdict).toBe(
+			'unchanged',
+		)
+	})
+
 	it('a check that passed after the last change makes it checked', async () => {
 		const outcome = await turn(new OutcomeLedger(), [[edit('a.ts')], [bash('pnpm test')]])
 		expect(outcome?.verdict).toBe('checked')

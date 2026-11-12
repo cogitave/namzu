@@ -3505,6 +3505,8 @@ export class IterationOrchestrator {
 					input,
 					isError: result.isError,
 					...(result.skipped ? { skipped: true } : {}),
+					...(result.notRun ? { notRun: true } : {}),
+					...(result.launched ? { launched: true } : {}),
 					readOnly: this.lookedOnly(result.toolName, input),
 					...(result.facts ? { facts: result.facts } : {}),
 				}

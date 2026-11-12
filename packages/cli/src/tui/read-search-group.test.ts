@@ -5,7 +5,6 @@ import {
 	EMPTY_GROUP,
 	type FoldOp,
 	type GroupState,
-	HINT_INTERVAL_MS,
 	HINT_MAX_CHARS,
 	classifyCall,
 	classifyShell,
@@ -20,7 +19,7 @@ import {
 import type { TranscriptMessage } from './types.js'
 
 const fold = (ops: readonly FoldOp[], now = 0): GroupState =>
-	ops.reduce((state, op) => foldOp(state, op, now), EMPTY_GROUP)
+	ops.reduce((state, op) => foldOp(state, op), EMPTY_GROUP)
 
 describe('the counted line', () => {
 	it('uses the progressive form with an ellipsis while open, and the past form once settled', () => {
@@ -84,7 +83,7 @@ describe('the counted line', () => {
 			{ kind: 'read', key: 'a' },
 			{ kind: 'list' },
 		] as const) {
-			state = foldOp(state, op, 0)
+			state = foldOp(state, op)
 			const total =
 				state.readKeys.length + state.anonymousReads + state.searches + state.lists + state.mcpCalls
 			expect(total).toBeGreaterThanOrEqual(previous)
@@ -106,24 +105,44 @@ describe('the counted line', () => {
 })
 
 describe('the hint under a live line', () => {
-	it('shows the first hint at once, holds a quicker one back, and shows it after the interval', () => {
-		let state = foldOp(EMPTY_GROUP, { kind: 'read', key: 'a', hint: 'a.ts' }, 1000)
-		expect(visibleHint(state, 1000)).toBe('a.ts')
-		state = foldOp(state, { kind: 'read', key: 'b', hint: 'b.ts' }, 1100)
-		expect(visibleHint(state, 1100)).toBe('a.ts')
-		expect(visibleHint(state, 1000 + HINT_INTERVAL_MS - 1)).toBe('a.ts')
-		expect(visibleHint(state, 1000 + HINT_INTERVAL_MS)).toBe('b.ts')
+	it('is the newest call, shown as it starts and kept until the next one starts', () => {
+		let state = foldOp(EMPTY_GROUP, { kind: 'read', key: 'a', hint: 'a.ts' })
+		expect(visibleHint(state)).toBe('a.ts')
+		state = foldOp(state, { kind: 'read', key: 'b', hint: 'b.ts' })
+		expect(visibleHint(state)).toBe('b.ts')
+		// Nothing about a clock decides it: the same state reads the same.
+		expect(visibleHint(state)).toBe('b.ts')
+	})
+
+	it('only ever adds to the counts, whatever order calls and hints come in', () => {
+		const ops: FoldOp[] = [
+			{ kind: 'read', key: 'a', hint: 'a' },
+			{ kind: 'search', hint: '"x"' },
+			{ kind: 'read', key: 'a', hint: 'a' },
+			{ kind: 'list', hint: 'dir' },
+			{ kind: 'mcp', label: 'm' },
+			{ kind: 'read', key: 'b' },
+		]
+		let state = EMPTY_GROUP
+		let last = 0
+		for (const op of ops) {
+			state = foldOp(state, op)
+			const total =
+				state.readKeys.length + state.anonymousReads + state.searches + state.lists + state.mcpCalls
+			expect(total).toBeGreaterThanOrEqual(last)
+			last = total
+		}
 	})
 
 	it('keeps the previous hint when a call brings none', () => {
-		let state = foldOp(EMPTY_GROUP, { kind: 'read', key: 'a', hint: 'a.ts' }, 0)
-		state = foldOp(state, { kind: 'mcp', label: 'x' }, 5000)
-		expect(visibleHint(state, 5000)).toBe('a.ts')
+		let state = foldOp(EMPTY_GROUP, { kind: 'read', key: 'a', hint: 'a.ts' })
+		state = foldOp(state, { kind: 'mcp', label: 'x' })
+		expect(visibleHint(state)).toBe('a.ts')
 	})
 
 	it('cuts a long hint', () => {
-		const state = foldOp(EMPTY_GROUP, { kind: 'search', hint: 'x'.repeat(1000) }, 0)
-		const shown = visibleHint(state, 0) ?? ''
+		const state = foldOp(EMPTY_GROUP, { kind: 'search', hint: 'x'.repeat(1000) })
+		const shown = visibleHint(state) ?? ''
 		expect(shown).toHaveLength(HINT_MAX_CHARS)
 		expect(shown.endsWith('…')).toBe(true)
 	})
@@ -219,7 +238,7 @@ describe('which calls fold', () => {
 	})
 
 	it('names a connector call with no known server MCP', () => {
-		expect(groupText(foldOp(EMPTY_GROUP, { kind: 'mcp' }, 0), false)).toBe('Called MCP')
+		expect(groupText(foldOp(EMPTY_GROUP, { kind: 'mcp' }), false)).toBe('Called MCP')
 	})
 
 	it('uses the server name as it is configured', () => {

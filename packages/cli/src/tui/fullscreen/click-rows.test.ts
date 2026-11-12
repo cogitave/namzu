@@ -18,7 +18,7 @@ const run = (command: string): FoldOp => ({
 
 /** A settled group the way the log keeps it: the line, the hint, every call under it. */
 function group(id: string, ops: readonly FoldOp[]): TranscriptMessage {
-	const state = ops.reduce((acc, op) => foldOp(acc, op, 0), EMPTY_GROUP)
+	const state = ops.reduce((acc, op) => foldOp(acc, op), EMPTY_GROUP)
 	return {
 		id,
 		role: 'tool',

@@ -29,6 +29,7 @@ import {
 import { fileQueuedHintCount } from './hint-counts.js'
 import { installTuiLogSink } from './log-pane.js'
 import { watchOutputSize } from './output-size-watch.js'
+import { type LivePaint, createLivePaint, startOnFreshLine } from './paint/live-paint.js'
 import { installPasteMarkerGuard } from './paste-marker-guard.js'
 import { liveRenderOption } from './render-mode.js'
 import { terminalFocus } from './terminal-focus.js'
@@ -63,10 +64,9 @@ export async function launchTui(
 	const tipHistory = fileTipHistory()
 	tipHistory.recordLaunch()
 	let exitSummary: TuiExitSummary | null = null
-	// Take over the terminal: clear the screen + scrollback and home the
-	// cursor so namzu opens on a clean canvas
-	// rather than below leftover shell output. Stays in the normal buffer so
-	// native scrollback still works as the transcript grows.
+	// The default screen starts where the shell left the cursor: what the person had on screen
+	// and in the scrollback stays, and the banner and the first frame begin under it. Nothing
+	// here clears either (`paint/live-paint.ts` paints only what changed from then on).
 	// A killed earlier run may have left the pointer captured; clear that before the first frame.
 	writeLaunchMouseReset(process.stdout, hostedByHost(process.env, process.ppid))
 	// Fullscreen draws on the alternate screen, so the terminal's own screen and
@@ -77,9 +77,8 @@ export async function launchTui(
 		interactive: process.stdout.isTTY === true && process.stdin.isTTY === true,
 		hosted: hostedByHost(process.env, process.ppid),
 	})
-	if (process.stdout.isTTY && !fullscreen) {
-		process.stdout.write('\x1b[2J\x1b[3J\x1b[H')
-	}
+	if (process.stdout.isTTY && !fullscreen)
+		process.stdout.write(startOnFreshLine(process.stdout.columns ?? 80))
 	// SIGTERM, SIGHUP and SIGINT give the conversation back and leave cleanly
 	// (`termination.ts`): the turn's lease is released first, so the next
 	// process can /resume or /abandon at once, then the App leaves as `/exit`
@@ -216,6 +215,17 @@ export async function launchTui(
 				},
 			}
 		: undefined
+	// The default screen's writer: paints only what changed, at most twelve times a second, and
+	// handles a resize without clearing the scrollback. `NAMZU_LEGACY_PAINT=1` hands the writing
+	// back to Ink, whole region every frame, as before.
+	const inkOut = proxy?.stdout ?? process.stdout
+	const paint: LivePaint | null =
+		!fullscreen &&
+		process.stdout.isTTY === true &&
+		process.env.NAMZU_LEGACY_PAINT !== '1' &&
+		liveRenderOption(process.stdout, inputStream, consoleInput !== undefined).interactive === true
+			? createLivePaint(inkOut, { bypass: () => proxy?.mode === 'zoomed' })
+			: null
 	const instance = render(
 		React.createElement(App, {
 			ctx,
@@ -225,6 +235,7 @@ export async function launchTui(
 			terminationExit,
 			repaint,
 			...(fullscreenHost ? { fullscreen: fullscreenHost } : {}),
+			...(paint ? { paintsLiveRegion: true } : {}),
 			...(onOpenWorkspaces ? { onOpenWorkspaces } : {}),
 			...(onConfirmExit ? { onConfirmExit } : {}),
 			...(beforeExit ? { beforeExit } : {}),
@@ -234,7 +245,7 @@ export async function launchTui(
 			tipHistory,
 		}),
 		{
-			stdout: proxy?.stdout ?? process.stdout,
+			stdout: paint?.stream ?? inkOut,
 			stderr: process.stderr,
 			stdin: proxy?.stdin ?? inputStream,
 			exitOnCtrlC: false,
@@ -289,6 +300,8 @@ export async function launchTui(
 		// Leaving with the workspaces screen up hangs up the other sessions and hands the terminal back first.
 		if (workspaces.current !== null) await (await workspaces.current).shutdown()
 		termination.dispose()
+		// The last frame is painted and the cursor shown before anything else is written.
+		paint?.dispose()
 		stopSizeWatch?.()
 		stopFocusReporting()
 		stopWheel?.()

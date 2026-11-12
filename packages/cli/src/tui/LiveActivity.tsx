@@ -8,17 +8,20 @@
 import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout } from 'ink'
 import { useEffect, useRef, useState } from 'react'
 
-import { backgroundHint } from './foreground-handoff.js'
+import { TaskList, type TaskListItem } from './TaskList.js'
+import { backgroundHintText } from './foreground-handoff.js'
 import { motionAllowed, useReducedMotion } from './motion.js'
 import { type ProviderWaitNotice, describeProviderWaitClock } from './plain-interruption.js'
-import { shellRunningRows, shellToneColor } from './shell-cell.js'
+import { SHELL_LIVE_LINES, shellFooter, shellToneColor } from './shell-cell.js'
 import { blendTowardStall, easeStall, stallTarget } from './stall-colour.js'
 import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from './system-rows.js'
+import { isTaskTool } from './task-activity.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 import { useThinkingRow } from './thinking-label.js'
-import { formatCompactCount, formatElapsed } from './units.js'
+import { formatElapsed } from './units.js'
 import type { WebActivity } from './web-activity.js'
+import { workingFigures, workingMark, workingWord } from './working-line.js'
 
 export interface ActiveTool {
 	readonly id: string
@@ -42,6 +45,12 @@ export interface ActiveTool {
 	readonly canBackground?: true
 	/** The last few output lines the shell call has reported, oldest first. */
 	readonly tail?: readonly string[]
+	/** The kernel's name for the tool (`bash`, `grep`), for the working line's word. */
+	readonly toolName?: string
+	/** The time limit a shell call asked for, in milliseconds; absent when it asked for none. */
+	readonly timeoutMs?: number
+	/** Lines of output a shell call has produced so far, as the tool counted them. */
+	readonly outputLines?: number
 	/** Asked about or waiting behind another question: drawn quiet, with a static dim dot. */
 	readonly queued?: true
 }
@@ -96,6 +105,17 @@ export interface LiveActivityProps {
 	readonly tip?: string
 	/** The plan's next task, as the whole `Next: …` line. Wins over `tip`. */
 	readonly nextTask?: string
+	/**
+	 * The plan, drawn under the working line and updated in place while the turn
+	 * runs. Absent where the host draws it elsewhere (a short terminal).
+	 */
+	readonly plan?: readonly TaskListItem[]
+	/** The plan shows every task (up to five rows); otherwise only the current step. */
+	readonly planOpen?: boolean
+	/** Calls running in all, including those folded into a counted line the host draws itself. */
+	readonly runningCount?: number
+	/** What the person is being asked, when the line is the waiting one. */
+	readonly waitingFor?: 'approval'
 }
 
 /** Redraws once a second while a retry is being waited out, so its countdown moves. */
@@ -109,9 +129,6 @@ function useSecondTick(active: boolean): void {
 }
 
 const MAX_VISIBLE_TOOLS = 3
-
-/** The figures in parentheses stay hidden until there is something to say, or the wait gets long. */
-const FIGURES_AFTER_MS = 16_000
 
 export function LiveActivity({
 	compact = false,
@@ -127,6 +144,10 @@ export function LiveActivity({
 	activityLabel,
 	tip,
 	nextTask,
+	plan,
+	planOpen = false,
+	runningCount,
+	waitingFor,
 }: LiveActivityProps) {
 	const { stdout } = useStdout()
 	const screenReader = useIsScreenReaderEnabled()
@@ -147,7 +168,13 @@ export function LiveActivity({
 		pausedRef.current.total += Date.now() - pausedRef.current.since
 		pausedRef.current.since = null
 	}
-	useSecondTick(waitNotice?.retryAt !== undefined)
+	// The clock moves each second even where nothing else does (reduced motion):
+	// a number that stood still while the turn ran on would read as a hang. Not
+	// for a screen reader, which would be read the line again every second.
+	useSecondTick(
+		(active && !motion && animate && stdout.isTTY === true && !screenReader && !waitingForYou) ||
+			waitNotice?.retryAt !== undefined,
+	)
 	// The last moment the reply made progress: a token count or a reasoning line that moved.
 	const progressRef = useRef<{ key: string; at: number; stall: number; eased: number }>({
 		key: '',
@@ -161,6 +188,11 @@ export function LiveActivity({
 		progressRef.current = { key: progressKey, at: Date.now(), stall: 0, eased: Date.now() }
 	// Waiting on the person is not the model being slow: count again from their answer.
 	else if (waitingForYou || resumedFromWait) progressRef.current.at = Date.now()
+	// The last token, apart from other progress: a call finishing is not the model writing.
+	const tokenRef = useRef<{ tokens: number; at: number }>({ tokens: 0, at: 0 })
+	if (!active) tokenRef.current = { tokens: 0, at: 0 }
+	else if ((tokens ?? 0) !== tokenRef.current.tokens)
+		tokenRef.current = { tokens: tokens ?? 0, at: Date.now() }
 	const thinkingRow = useThinkingRow(thinking !== null && activeTools.length === 0, active)
 	const { frame: tick } = useAnimation({
 		isActive: active && motion && !waitingForYou,
@@ -175,7 +207,10 @@ export function LiveActivity({
 		return (
 			<Box flexDirection="column" marginTop={1}>
 				<Box>
-					<Text color={theme.text.secondary}>Waiting for you</Text>
+					<Text color={theme.text.secondary}>{workingMark(0, false)} </Text>
+					<Text color={theme.text.secondary}>
+						{waitingFor === 'approval' ? 'Waiting for your approval' : 'Waiting for you'}
+					</Text>
 					<Text color={theme.text.muted}> · the question below</Text>
 				</Box>
 				{shownQueued.map((tool) => (
@@ -186,17 +221,24 @@ export function LiveActivity({
 						<Text color={theme.text.muted}>+{queued.length - shownQueued.length} more waiting</Text>
 					</Box>
 				) : null}
+				{plan && plan.length > 0 && !compact ? <TaskList tasks={plan} expanded={planOpen} /> : null}
 			</Box>
 		)
 	}
 	const now = Date.now()
 	const elapsedMs = now - (startedAtRef.current ?? now) - pausedRef.current.total
-	const elapsed = formatElapsed(elapsedMs)
 	// The stall tint: eased toward its target, and never while the wait is not the model's.
 	const progress = progressRef.current
-	const stallExempt = activeTools.length > 0 || thinking !== null || compacting
+	const running = Math.max(runningCount ?? 0, activeTools.length)
+	// A call, reasoning, a compaction or a retry being waited out is not silence:
+	// each has its own words, and none of them is the model being quiet.
+	const stallExempt = running > 0 || thinking !== null || compacting || waitNotice !== null
 	// A tool, reasoning or a compaction is not silence: measure the gap from when it ends.
-	if (stallExempt) progress.at = now
+	if (stallExempt) {
+		progress.at = now
+		// A call that runs ends the stretch of writing; only a new token starts it again.
+		tokenRef.current.at = 0
+	}
 	progress.stall = easeStall(
 		progress.stall,
 		stallTarget({ sinceLastTokenMs: now - progress.at, exempt: stallExempt }),
@@ -207,10 +249,29 @@ export function LiveActivity({
 	// A palette limited to named colours has no rgb to blend from, so it never tints.
 	const labelColor = (rgb: readonly [number, number, number] | undefined, plain: string): string =>
 		tint > 0 && rgb ? blendTowardStall(rgb, tint) : plain
-	const label = activityLabel ?? 'Working'
+	const sinceProgressMs = now - progress.at
+	const label = workingWord({
+		activityLabel,
+		waitingFor,
+		retrying: waitNotice?.retryAt !== undefined,
+		tools: activeTools.map((tool) => ({
+			toolName: tool.toolName,
+			shell: tool.command !== undefined,
+			waitsOnAgent: tool.waitingOn !== undefined,
+		})),
+		running,
+		thinking: thinking !== null,
+		tokens: tokens !== undefined && tokens > 0,
+		sinceProgressMs,
+		sinceTokenMs: tokenRef.current.at === 0 ? Number.POSITIVE_INFINITY : now - tokenRef.current.at,
+	})
 	const edge = tick % (label.length + 1)
+	const markColor = !motion
+		? theme.text.secondary
+		: labelColor(theme.live.rgb?.done, theme.live.done)
 	const mark = (
 		<Text>
+			<Text color={markColor}>{workingMark(tick, motion)} </Text>
 			{Array.from(label, (char, column) => (
 				<Text
 					// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
@@ -230,27 +291,29 @@ export function LiveActivity({
 			))}
 		</Text>
 	)
-	const spent =
-		tokens !== undefined && tokens > 0 ? ` · ↓ ${formatCompactCount(tokens)} tokens` : ''
 	const waiting = waitingLine(activeTools)
-	const hasFigures =
-		(tokens !== undefined && tokens > 0) ||
-		thinking !== null ||
-		compacting ||
-		agentCount > 0 ||
-		elapsedMs > FIGURES_AFTER_MS
-	const figures = hasFigures
-		? `${elapsed}${spent}${
-				agentCount > 0 ? ` · ${agentCount} agent${agentCount === 1 ? '' : 's'} · ↓ to view` : ''
-			}`
-		: ''
+	// The clock is on from the second second and never leaves; what is added
+	// later (a count of tokens, a quiet note) joins it without moving it.
+	const figures = workingFigures({
+		elapsedMs,
+		tokens,
+		agents: agentCount,
+		quietMs: stallExempt ? undefined : sinceProgressMs,
+		replied: tokens !== undefined && tokens > 0,
+	})
+	const hasFigures = figures !== ''
+	const planRows =
+		plan && plan.length > 0 && !compact ? <TaskList tasks={plan} expanded={planOpen} /> : null
 	// While reasoning: the patient label and the summary; afterwards, how long it took.
 	const thinkingText =
 		thinking !== null
 			? `${thinkingRow.live ?? 'thinking'}${thinking ? ` · ${terminalDisplayText(thinking)}` : '…'}`
 			: (thinkingRow.settled ?? '')
-	const visibleTools = waiting ? [] : activeTools.slice(0, MAX_VISIBLE_TOOLS)
-	const hiddenTools = waiting ? 0 : activeTools.length - visibleTools.length
+	// A planning call is over in a moment: the working line names it in words and the
+	// list under it changes, so it gets no row of its own to flash in and out.
+	const listed = activeTools.filter((tool) => !(tool.toolName && isTaskTool(tool.toolName)))
+	const visibleTools = waiting ? [] : listed.slice(0, MAX_VISIBLE_TOOLS)
+	const hiddenTools = waiting ? 0 : listed.length - visibleTools.length
 	const noticeRow = waitNotice ? (
 		<Box paddingLeft={2}>
 			<Text wrap="truncate-end">
@@ -290,7 +353,7 @@ export function LiveActivity({
 					{mark}
 					{(() => {
 						const parts = [
-							...(hasFigures ? [`${elapsed}${spent}`] : []),
+							...(hasFigures ? [figures.slice(1, -1)] : []),
 							...(activeTools.length > 0
 								? [`${activeTools.length} tool${activeTools.length === 1 ? '' : 's'}`]
 								: []),
@@ -331,19 +394,34 @@ export function LiveActivity({
 				<Box flexShrink={0}>{mark}</Box>
 				{hasFigures ? (
 					<Text color={theme.text.muted} wrap="truncate-end">
-						{` (${figures})`}
+						{` ${figures}`}
 					</Text>
 				) : null}
 			</Box>
 			{hintRow}
+			{planRows}
 			{waitingRow}
 			{noticeRow}
 			{visibleTools.map((t, index) => {
 				if (t.command !== undefined && !t.queued) {
 					// A shell call reads like its settled row: a dim dot that blinks while
-					// it runs, and `⎿ Running… (12s)` until it prints something.
+					// it runs, the last few lines it printed, and one dim footer under
+					// them that is there from the start (clock, limit, line counts and
+					// the background hint), so no row appears later and nothing moves.
 					const blink = motion ? Math.floor(tick / 5) % 2 === 0 : true
-					const rows = shellRunningRows(t.tail ?? [], formatElapsed(now - t.startedAt))
+					const tailRows = (t.tail ?? []).slice(-SHELL_LIVE_LINES)
+					const footer = shellFooter({
+						elapsed: formatElapsed(now - t.startedAt),
+						timeoutMs: t.timeoutMs,
+						outputLines: t.outputLines,
+						shownRows: tailRows.length,
+						backgroundHint: t.canBackground ? backgroundHintText() : undefined,
+						leadRunning: tailRows.length === 0,
+					})
+					const rows = [
+						...tailRows.map((text) => ({ text, tone: 'dim' as const })),
+						{ text: footer, tone: 'dim' as const },
+					]
 					return (
 						<Box key={t.id} flexDirection="column">
 							<Box flexDirection="row">
@@ -366,13 +444,6 @@ export function LiveActivity({
 										</Text>
 									</Box>
 								))}
-								{t.canBackground ? (
-									<Box paddingLeft={RESULT_GUTTER_WIDTH}>
-										<Text color={theme.text.muted} wrap="truncate-end">
-											{backgroundHint()}
-										</Text>
-									</Box>
-								) : null}
 							</Box>
 						</Box>
 					)

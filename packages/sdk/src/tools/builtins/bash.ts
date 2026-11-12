@@ -205,14 +205,26 @@ function progressLine(value: string): string {
  * Reports stay synchronous: the executor owns coalescing and backpressure.
  * This projection adds neither an output log nor a queue of pending reports.
  */
-function shellProgress(report?: (message: string) => void) {
+function shellProgress(
+	report?: (
+		message: string,
+		fraction?: number,
+		details?: { readonly outputLines?: number },
+	) => void,
+) {
 	if (!report) return undefined
 	const partial = { stdout: '', stderr: '' }
 	let lastMessage = ''
+	// Lines of output so far, both streams: every line feed seen. Counted here, on
+	// every chunk, because the reports below are coalesced and a viewer counting
+	// the messages it received would undercount a fast command.
+	let outputLines = 0
+	let lastLines = 0
 	return ({ stream, data }: { stream: 'stdout' | 'stderr'; data: string }): void => {
 		let line = partial[stream]
 		let latest = ''
 		let start = 0
+		for (let at = data.indexOf('\n'); at >= 0; at = data.indexOf('\n', at + 1)) outputLines++
 		// Scan delimiters without allocating an array for arbitrarily chatty output.
 		for (const match of data.matchAll(/[\r\n]/g)) {
 			line = appendProgressTail(line, data, start, match.index)
@@ -223,10 +235,11 @@ function shellProgress(report?: (message: string) => void) {
 		line = appendProgressTail(line, data, start, data.length)
 		partial[stream] = line
 		const message = progressLine(line) || latest
-		if (!message || message === lastMessage) return
+		if (!message || (message === lastMessage && outputLines === lastLines)) return
 		lastMessage = message
+		lastLines = outputLines
 		try {
-			report(message)
+			report(message, undefined, { outputLines })
 		} catch {
 			// A diagnostic observer cannot break the process output reader.
 		}

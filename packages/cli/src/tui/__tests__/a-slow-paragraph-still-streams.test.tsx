@@ -1,17 +1,10 @@
 /**
- * A paragraph that takes a while is shown a sentence at a time.
+ * A paragraph that takes a while is shown as it is written.
  *
- * `a-reply-arrives-in-whole-blocks` pins the block rule: text is released a
- * paragraph at a time, never mid-word. The rule has a hole that file cannot
- * see because its reply streams in a few milliseconds: a model's paragraph
- * is ONE line, so nothing of it is released until its final character, and
- * a long paragraph arriving over twenty seconds is a blank row for twenty
- * seconds. The operator reads that as "it stopped".
- *
- * These stream a single long paragraph slowly enough to cross
- * `STREAM_RELEASE_MS` and assert that a sentence of it is on screen before
- * the reply ends — while still never showing a half-written word, which is
- * the block rule's actual promise and the one this must keep.
+ * A model's paragraph is ONE line, and a long one arriving over twenty seconds
+ * must not be a blank row for twenty seconds: the operator reads that as "it
+ * stopped". These stream a single paragraph and assert that its first sentence
+ * is on screen before the reply ends, while never showing a half-written word.
  */
 
 import { render } from 'ink-testing-library'
@@ -183,10 +176,10 @@ describe('a slow single-paragraph reply', () => {
 		const { frames } = await runTurnCapturing()
 		for (const frame of frames) {
 			if (frame.includes('The first sen')) {
-				expect(frame, 'a partial word was rendered').toContain('The first sentence lands early.')
+				expect(frame, 'a partial word was rendered').toContain('The first sentence')
 			}
 			if (frame.includes('Then a pau')) {
-				expect(frame, 'a partial word was rendered').toContain('Then a pause.')
+				expect(frame, 'a partial word was rendered').toContain('Then a pause')
 			}
 		}
 	})

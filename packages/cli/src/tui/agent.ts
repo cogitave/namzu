@@ -75,6 +75,7 @@ import {
 	type BackgroundJob,
 	type BackgroundJobOutput,
 	BackgroundJobRegistry,
+	BashTool,
 	COMPACTION_RECOVERY_NOTE,
 	COMPUTER_USE_TOOL_NAME,
 	type CheckpointId,
@@ -579,6 +580,8 @@ export type AgentEvent =
 			readonly web?: WebActivity
 			/** A shell call's full command line, kept with its line breaks for the cell header. */
 			readonly command?: string
+			/** The time limit the call itself asked for (a shell call's `timeout`), in milliseconds. Absent when it asked for none. */
+			readonly timeoutMs?: number
 			/** What an edit or write asked for, kept to draw if the person refuses it. */
 			readonly proposed?: ProposedChange
 			/**
@@ -638,6 +641,8 @@ export type AgentEvent =
 			/** Bounded latest-state text from the executing tool. */
 			readonly message: string
 			readonly fraction?: number
+			/** Lines of output the call has produced so far, counted by the tool (a shell command). */
+			readonly outputLines?: number
 	  }
 	| {
 			readonly kind: 'tool-end'
@@ -8938,6 +8943,13 @@ export function toAgentEvent(
 					return fold ? { fold } : {}
 				})(),
 				...(readsOnly?.(event.toolName, event.input) ? { readOnly: true as const } : {}),
+				...(() => {
+					const asked = (event.input as { timeout?: unknown } | null)?.timeout
+					if (event.toolName !== 'bash' || typeof asked !== 'number' || !(asked > 0)) return {}
+					// The tool clamps a request to its ceiling: say the limit that will apply.
+					const applied = BashTool.inputSchema.safeParse({ command: 'true', timeout: asked })
+					return { timeoutMs: applied.success ? applied.data.timeout : asked }
+				})(),
 			}
 		case 'tool_input_completed':
 			return event.inputTruncated
@@ -8970,6 +8982,7 @@ export function toAgentEvent(
 				toolName: event.toolName,
 				message: event.message,
 				...(event.fraction !== undefined ? { fraction: event.fraction } : {}),
+				...(event.outputLines !== undefined ? { outputLines: event.outputLines } : {}),
 			}
 		case 'tool_completed': {
 			// A connector's answer reaches the model inside a frame that marks where it

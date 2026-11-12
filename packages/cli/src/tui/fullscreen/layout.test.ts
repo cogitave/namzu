@@ -62,7 +62,7 @@ describe('laying the transcript out for the viewport', () => {
 			},
 		})
 		const group = ['node --version', 'git --version'].reduce(
-			(state, command) => foldOp(state, run(command), 0),
+			(state, command) => foldOp(state, run(command)),
 			EMPTY_GROUP,
 		)
 		const grouped: TranscriptMessage = {
@@ -76,7 +76,7 @@ describe('laying the transcript out for the viewport', () => {
 		)
 		expect(texts[0]).toContain('Ran 2 commands')
 		expect(texts.slice(1)).toEqual(['⎿  $ node --version', '   $ git --version'])
-		const one = foldOp(EMPTY_GROUP, run('node --version'), 0)
+		const one = foldOp(EMPTY_GROUP, run('node --version'))
 		const alone = layoutTranscript(
 			[{ ...grouped, group: one, content: groupText(one, false) }],
 			null,

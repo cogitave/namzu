@@ -206,11 +206,17 @@ function said(harness: { readonly frames: readonly string[] }): string {
  */
 async function frameShows(
 	read: () => string | undefined,
-	text: string,
+	text: string | RegExp,
 	why: string,
 	timeoutMs?: number,
 ): Promise<void> {
-	await vi.waitFor(() => expect(read(), why).toContain(text), timeoutMs)
+	await vi.waitFor(
+		() =>
+			typeof text === 'string'
+				? expect(read(), why).toContain(text)
+				: expect(read(), why).toMatch(text),
+		timeoutMs,
+	)
 }
 
 /**
@@ -285,19 +291,17 @@ async function turnRunningWithDraft(draft: string) {
 	//
 	// This used to poll for the delta's own text, `'working'`, on the premise
 	// that it would reach the screen and mark the submit processed. It cannot:
-	// the renderer releases whole blocks (`splitCompleteBlocks`) and, when a
-	// paragraph drags, whole sentences (`splitSafeCut`) — neither will cut a
-	// bare word with no blank line after it loose, so the pending buffer held
-	// it for the life of the turn and the poll spent its entire budget on every
-	// test that came through here. A wait whose condition can never become true
-	// is the same defect as a wall clock, with a longer fuse.
+	// the reply is drawn word by word, and a lone word with no space after it
+	// is held until its end is known, so the poll could spend its entire budget.
+	// A wait whose condition can never become true is the same defect as a wall
+	// clock, with a longer fuse.
 	//
 	// `Working` is the live activity row, drawn while a turn is in flight —
 	// `App.tsx` passes `state === 'thinking' || state === 'tool'`, and a running
 	// tool lights the row too, though nothing here runs one before the draft.
 	// That the submit was processed and the composer is live and free again is
 	// exactly what this wait needs and what the row states.
-	await frameShows(harness.lastFrame, 'Working', 'the turn never started')
+	await frameShows(harness.lastFrame, /Working|Writing|Thinking/u, 'the turn never started')
 	harness.stdin.write(draft)
 	// The draft reaching the composer is an event, so it is read from history.
 	await frameShows(() => said(harness), draft, 'the draft never reached the composer')
@@ -334,7 +338,7 @@ describe('a draft while a permission prompt comes and goes', () => {
 		harness.stdin.write('go')
 		harness.stdin.write('\r')
 		// The turn is running and the composer is free again, read off the screen.
-		await frameShows(harness.lastFrame, 'Working', 'the turn never started')
+		await frameShows(harness.lastFrame, /Working|Writing|Thinking/u, 'the turn never started')
 		// A newline in one keypress is held as a paste chip.
 		harness.stdin.write('first line\nsecond line\nthird\nfourth')
 		// The chip appearing is an event — the keystrokes landed as a chip rather

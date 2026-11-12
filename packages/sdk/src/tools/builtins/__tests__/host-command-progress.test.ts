@@ -86,7 +86,8 @@ describe('a foreground command on the host', () => {
 			const unicode = Buffer.from('completed 😀')
 			child.stdout.write(unicode.subarray(0, unicode.length - 2))
 			child.stdout.write(unicode.subarray(unicode.length - 2))
-			expect(report).toHaveBeenLastCalledWith('completed 😀')
+			// One line feed so far; the line being written is not counted until it ends.
+			expect(report).toHaveBeenLastCalledWith('completed 😀', undefined, { outputLines: 1 })
 			expect(report.mock.calls.every(([message]) => !message.includes('�'))).toBe(true)
 		} finally {
 			child.finish()

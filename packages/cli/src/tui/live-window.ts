@@ -45,6 +45,7 @@ import { tableHeight } from './markdown-table.js'
 import { parseBlock, scanBlocks } from './markdownParser.js'
 import { COMMAND_ROW_INDENT, commandRows, hintRows, isOneCommand } from './read-search-group.js'
 import { statusPanelLayout } from './status-panel-layout.js'
+import { isPlainReply } from './stream-flow.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { EXPAND_HINT } from './truncation.js'
 import type { TranscriptMessage } from './types.js'
@@ -318,11 +319,27 @@ export function settledBeforeStreaming(
 	messages: readonly TranscriptMessage[],
 	windowSettled: number,
 	previous: number,
+	/**
+	 * A reply that is being written prints its finished parts as it goes, so
+	 * everything before it is printed first, whole, and the live region holds
+	 * only the reply's tail. (Rows that could still be expanded in place stop
+	 * being redrawable at that point; the reply is what the person is reading.)
+	 */
+	printsWhileStreaming = false,
 ): number {
+	// A reply with parts printed already is reachable only if every row before
+	// it is printed too: its parts follow them in the log. Whether it is still
+	// being written or has ended by the time the rows are laid out.
+	const flowing = messages.reduce((last, m, i) => (m.printed?.length ? i : last), -1)
+	const flowFloor =
+		flowing < 0 ? 0 : messages.slice(0, flowing).filter((message) => !message.pending).length
 	const streaming = messages.findIndex((message) => message.pending)
-	if (streaming < 0) return Math.max(previous, windowSettled)
+	if (streaming < 0) return Math.max(previous, windowSettled, flowFloor)
 	const before = messages.slice(0, streaming).filter((message) => !message.pending).length
-	return Math.max(previous, Math.min(windowSettled, before))
+	const reply = messages[streaming]
+	if (printsWhileStreaming && reply && isPlainReply(reply) && reply.content.length > 0)
+		return Math.max(previous, before, flowFloor)
+	return Math.max(previous, Math.min(windowSettled, before), flowFloor)
 }
 
 export interface ChecklistViewInput {

@@ -57,6 +57,7 @@ import { type Instance, render } from 'ink'
 import type { ReactElement } from 'react'
 import { vi } from 'vitest'
 
+import { type LivePaint, createLivePaint } from '../../paint/live-paint.js'
 import { installPasteMarkerGuard } from '../../paste-marker-guard.js'
 
 /** Geometry and timing the emulated terminal is built with. */
@@ -87,6 +88,13 @@ export interface ScreenOptions {
 	readonly alternateScreen?: boolean
 	/** Hand the renderer its line-diff mode, as the fullscreen launcher does. */
 	readonly incrementalRendering?: boolean
+	/**
+	 * Put the default screen's writer between the renderer and the terminal, as the launcher does
+	 * (the caller also passes `paintsLiveRegion` to the app). {@link Screen.waitForRender} flushes it.
+	 */
+	readonly paint?: boolean
+	/** Lines already in the terminal when the program starts (what the shell printed before it). */
+	readonly before?: readonly string[]
 }
 
 /** What one cell of the screen looks like. */
@@ -269,6 +277,11 @@ class ScreenStdout extends EventEmitter {
 		return true
 	}
 
+	/** Text the terminal held before the program started: parsed, not counted as the program's. */
+	printedBefore(text: string): void {
+		this.parse(text)
+	}
+
 	/** Resolves once every write's callback has run. */
 	drain(): Promise<void> {
 		if (this.outstanding === 0) return Promise.resolve()
@@ -327,12 +340,17 @@ export async function renderToScreen(
 		allowProposedApi: true,
 	})
 	const stdout = new ScreenStdout(term, cols, rows)
+	// Through the same parser as the program's own writes, so the order is the order of a terminal.
+	for (const line of options.before ?? []) stdout.printedBefore(`${line}\r\n`)
 	const stdin = new ScreenStdin()
+	const paint: LivePaint | null = options.paint
+		? createLivePaint(stdout as unknown as NodeJS.WriteStream, { process: null })
+		: null
 	// The shipped launcher wraps the stream Ink reads with this; so does the fixture.
 	const stopPasteMarkerGuard = installPasteMarkerGuard(stdin)
 
 	const instance: Instance = render(node, {
-		stdout: stdout as unknown as NodeJS.WriteStream,
+		stdout: (paint?.stream ?? stdout) as unknown as NodeJS.WriteStream,
 		stdin: stdin as unknown as NodeJS.ReadStream,
 		stderr: stdout as unknown as NodeJS.WriteStream,
 		// The two that make this the shipped renderer rather than the test one:
@@ -374,6 +392,7 @@ export async function renderToScreen(
 		await immediate()
 		await instance.waitUntilRenderFlush()
 		await immediate()
+		paint?.flush()
 		await stdout.drain()
 	}
 
@@ -437,6 +456,7 @@ export async function renderToScreen(
 			teardown ??= (async () => {
 				try {
 					instance.unmount()
+					paint?.dispose()
 					// Leaving waits on a timer. Under fake timers it would never fire, so the
 					// clock is moved on: the test is over and nothing is being timed.
 					if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(1_000)

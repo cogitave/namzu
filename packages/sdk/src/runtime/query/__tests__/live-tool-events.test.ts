@@ -142,6 +142,41 @@ it('delivers a real tool start and progress to the query consumer before the too
 	expect(types.indexOf('tool_progress')).toBeLessThan(types.indexOf('tool_completed'))
 })
 
+it('carries the line count a tool reports with its progress, and drops one that is not a number', async () => {
+	const release = held()
+	const entered = deferred<ToolContext>()
+	const f = fixture([
+		tool('counting_tool', async (_input, context) => {
+			entered.resolve(context)
+			await release.promise
+			return { success: true, output: 'DONE' }
+		}),
+	])
+	const events: SessionEvent[] = []
+	const counted = deferred<void>()
+	const uncounted = deferred<void>()
+	const pending = drainQuery(f.params, (event) => {
+		events.push(event)
+		if (event.type === 'tool_progress' && event.outputLines === 42) counted.resolve()
+		if (event.type === 'tool_progress' && event.message === 'no count') uncounted.resolve()
+	})
+	try {
+		const context = await entered.promise
+		context.report?.('line 42', undefined, { outputLines: 42.9 })
+		await counted.promise
+		const progress = events.filter((event) => event.type === 'tool_progress')
+		expect(progress.at(-1)).toMatchObject({ message: 'line 42', outputLines: 42 })
+		context.report?.('no count', undefined, { outputLines: Number.NaN })
+		await uncounted.promise
+		expect(events.filter((event) => event.type === 'tool_progress').at(-1)).not.toHaveProperty(
+			'outputLines',
+		)
+	} finally {
+		release.resolve()
+		await pending
+	}
+})
+
 it('streams one parallel completion while its sibling is held and preserves provider call order', async () => {
 	const firstRelease = held()
 	const secondRelease = held()

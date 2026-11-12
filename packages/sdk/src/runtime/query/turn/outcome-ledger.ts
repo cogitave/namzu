@@ -36,6 +36,10 @@ export interface OutcomeCall {
 	readonly isError?: boolean
 	/** A hook stopped it before it ran. */
 	readonly skipped?: boolean
+	/** It never ran: declined by the person, refused by a rule or by its own input, or the turn ended first. */
+	readonly notRun?: boolean
+	/** It only started work that goes on after it returned; the call itself changed nothing. */
+	readonly launched?: boolean
 	/** The tool declared this call read-only (or it only keeps the task list). */
 	readonly readOnly?: boolean
 	/** What the call did, as typed fields. Absent when a hook replaced the output. */
@@ -393,7 +397,8 @@ export class OutcomeLedger {
 		// answers for exactly the state they left.
 		let pending: CheckState[] = []
 		for (const call of calls) {
-			if (call.skipped === true) continue
+			// A call that did not run, or only started work elsewhere, changed nothing here.
+			if (call.skipped === true || call.notRun === true || call.launched === true) continue
 			const written = WRITING_TOOLS.has(call.toolName)
 			if (written && call.isError !== true) {
 				if (call.facts?.kind === 'write' && call.facts.operation === 'unchanged') continue
