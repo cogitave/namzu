@@ -1568,7 +1568,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'hooks',
 		immediate: true,
-		description: 'List every hook this conversation runs, by event, with the file it came from.',
+		description: 'List every hook this conversation runs, and where it came from.',
 		action: (ctx) => ({
 			kind: 'message',
 			role: 'system',
