@@ -56,6 +56,16 @@ export function useContentWidth(): number {
 
 export interface MarkdownProps {
 	readonly text: string
+	/**
+	 * How this text joins what was printed before it, for a reply drawn in parts:
+	 * a new block (the default), the rest of an open paragraph, or the rest of an
+	 * open code fence (whose language is `lang`). The parts drawn one under another
+	 * are the rows the whole reply has.
+	 */
+	readonly join?: 'block' | 'text' | 'code'
+	readonly lang?: string
+	/** The type of the block printed before this text, for the blank row between them. */
+	readonly lead?: MdBlock['type'] | null
 	readonly color?: string
 	/** Emit admitted HTTP(S) labels as OSC 8 links on a known-capable terminal. */
 	readonly hyperlinks?: boolean
@@ -75,12 +85,30 @@ export interface MarkdownProps {
  * `markdown-block-cache.ts` for why the key is the block's raw text and why
  * the tail of the document is never stored.
  */
-export function Markdown({ text, color = theme.text.primary, hyperlinks = false }: MarkdownProps) {
+export function Markdown({
+	text,
+	color = theme.text.primary,
+	hyperlinks = false,
+	join = 'block',
+	lang,
+	lead = null,
+}: MarkdownProps) {
 	const cache = useRef<BlockCache>(undefined)
 	cache.current ??= createBlockCache()
-	const blocks = cache.current.parse(terminalDisplayText(text))
+	const shown = terminalDisplayText(text)
+	// The rest of an open code fence is read with the opener it lost.
+	const source = join === 'code' ? `\`\`\`${lang ?? ''}\n${shown}` : shown
+	const blocks = cache.current.parse(source, join === 'text' ? 'text' : undefined)
 	const width = useContentWidth()
-	return <BlockList blocks={blocks} color={color} hyperlinks={hyperlinks} width={width} />
+	return (
+		<BlockList
+			blocks={blocks}
+			color={color}
+			hyperlinks={hyperlinks}
+			width={width}
+			lead={join === 'block' ? lead : 'join'}
+		/>
+	)
 }
 
 /** Blocks one under another with the blank row between them; a quote holds one of these. */
@@ -90,12 +118,15 @@ function BlockList({
 	hyperlinks,
 	width,
 	italic = false,
+	lead = null,
 }: {
 	readonly blocks: readonly MdBlock[]
 	readonly color: string
 	readonly hyperlinks: boolean
 	readonly width: number
 	readonly italic?: boolean
+	/** What stands before the first block: nothing, a block, or the text this continues. */
+	readonly lead?: MdBlock['type'] | 'join' | null
 }) {
 	return (
 		<Box flexDirection="column">
@@ -104,7 +135,7 @@ function BlockList({
 					// biome-ignore lint/suspicious/noArrayIndexKey: these rows have no identity of their own and hold no state, so the index is the key.
 					key={`b-${i}`}
 					block={block}
-					prev={blocks[i - 1]}
+					prev={blocks[i - 1]?.type ?? (i === 0 ? lead : null)}
 					color={color}
 					hyperlinks={hyperlinks}
 					width={width}
@@ -133,7 +164,7 @@ const BlockView = memo(function BlockView({
 	italic,
 }: {
 	readonly block: MdBlock
-	readonly prev: MdBlock | undefined
+	readonly prev: MdBlock['type'] | 'join' | null
 	readonly color: string
 	readonly hyperlinks: boolean
 	/** Cells this block has; a resize re-renders every block at the new width. */
@@ -145,7 +176,7 @@ const BlockView = memo(function BlockView({
 	useThemeEpoch()
 	// One blank line between blocks, except: nothing before the first block,
 	// and consecutive list items stay tight (no gap between bullets).
-	const gap = !prev || (block.type === 'bullet' && prev.type === 'bullet') ? 0 : 1
+	const gap = !prev || prev === 'join' || (block.type === 'bullet' && prev === 'bullet') ? 0 : 1
 	switch (block.type) {
 		case 'heading': {
 			const style = headingStyle(block.level)

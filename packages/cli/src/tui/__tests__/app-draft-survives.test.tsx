@@ -285,12 +285,10 @@ async function turnRunningWithDraft(draft: string) {
 	//
 	// This used to poll for the delta's own text, `'working'`, on the premise
 	// that it would reach the screen and mark the submit processed. It cannot:
-	// the renderer releases whole blocks (`splitCompleteBlocks`) and, when a
-	// paragraph drags, whole sentences (`splitSafeCut`) — neither will cut a
-	// bare word with no blank line after it loose, so the pending buffer held
-	// it for the life of the turn and the poll spent its entire budget on every
-	// test that came through here. A wait whose condition can never become true
-	// is the same defect as a wall clock, with a longer fuse.
+	// the reply is drawn word by word, and a lone word with no space after it
+	// is held until its end is known, so the poll could spend its entire budget.
+	// A wait whose condition can never become true is the same defect as a wall
+	// clock, with a longer fuse.
 	//
 	// `Working` is the live activity row, drawn while a turn is in flight —
 	// `App.tsx` passes `state === 'thinking' || state === 'tool'`, and a running

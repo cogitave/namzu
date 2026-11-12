@@ -742,12 +742,59 @@ Kullanılan yapı: src/agents/runtime/, @openclaw/runtime
 
 Widths are terminal cells as `string-width` measures them, so CJK text and
 emoji keep the box straight. A table streaming in is drawn as a table from the
-moment its separator row arrives: a lone `| a | b |` line is held back until
-the line after it shows whether it is a header, a row is released only once
+moment its separator line has ended: a lone `| a | b |` line is held back until
+the line after it shows whether it is a header, a row is drawn only once
 it is complete, and a line with a pipe after the separator stays a row of the
-table rather than falling out below it as a paragraph. A list item or a
+table rather than falling out below it as a paragraph. A column is as wide as
+its widest cell in the header and the complete rows, so it widens only when a
+complete row needs it, never word by word, and a table is printed into the
+transcript once complete exactly as it was last drawn. A table too wide for a
+box is drawn as records, and which it is cannot be known before its widest row
+has arrived. A list item or a
 blockquote ends the table even when it carries a pipe, as a blank line, a
 heading or a fence does: `- a | b` directly under a table is a list item.
+
+## A reply as it is written
+
+The text of a reply is drawn as it arrives, at most about twelve times a second
+however fast it comes, the first words at once and nothing at all while nothing
+arrives. What is drawn of the part still being written is only what is decided,
+and what could still become something else is held rather than drawn as the
+source it will stop being:
+
+- prose (a paragraph, a list item, a heading, a quote) is drawn in whole words;
+  the word still arriving waits for its space;
+- an opening `` ` ``, `[`, `**`, `*`, `__` or `_` that has not closed holds the
+  text from it on until its closer arrives (a lone `*` pairs with a later one
+  wherever it stands, so it waits too; a wait is let go after 300 characters and
+  the text drawn as it is);
+- a line of only `-`, `*`, `_`, `+`, `=`, digits (with `.` or `)`) or `#`, still
+  arriving, is not drawn until its line ends or text follows: it may be a rule, a
+  list marker, a heading or an underline;
+- a line that opens a code fence is not drawn until it ends (it may be inline
+  code); inside an open fence the code is drawn as code, a line at a time;
+- a table is drawn as above.
+
+When the turn ends nothing is held: the rows in the transcript, in a reopened
+conversation, in `namzu watch` and in an export are the rows the whole reply has.
+
+In the default screen a block that is finished is printed into the transcript
+at once and is never drawn again, so it moves into the terminal's scrollback
+like any finished row and the live part holds only the unfinished tail. A heading,
+a list item and a rule are finished when their line ends; a paragraph, a quote,
+a table and a fenced block when a blank line has ended after them or the next block
+has begun on a line that has ended. Everything before the reply, the person's
+message included, is printed when the reply starts, so nothing is ever missing
+from both the screen and the scrollback, at any window size. A long tail with no
+break in it is cut: the earlier lines of a code block, and the earlier whole rows
+of a paragraph (at a point where no emphasis, code or link is left open), are
+printed once the live part would pass ten rows at a short window (up to fourteen at
+a tall one), and the live part keeps its last three. A table, a long list item and a quote are not cut, so
+one taller than the window is still clipped at its top until it is complete. A
+reply that a retry voids after parts of it were printed stays above the new
+attempt, since printed rows cannot be taken back, and rows printed before a
+resize keep the width they had. The fullscreen view draws the same tail and
+prints nothing, since it redraws freely.
 
 ## The model's plan
 
