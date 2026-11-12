@@ -1400,6 +1400,20 @@ export { anyOf, hasToolCall, stepCountIs } from './types/session/step.js'
 // ─── evaluation harness ──────────────────────────────────────────────────
 
 export {
+	BOOTSTRAP_RESAMPLES,
+	DEFAULT_EVAL_SEED,
+	EvalUsageError,
+	MIN_CASES_FOR_INTERVAL,
+	bootstrapCases,
+	bootstrapPairedDifference,
+	compareEvalReports,
+	exactSignTestP,
+	formatEvalComparison,
+	formatRunSummary,
+	isEvalUsageError,
+	loadEvalReportFile,
+	summarizeRun,
+	withEvalRunOptions,
 	compareHarnessTrials,
 	reviewHarnessCandidate,
 	claimMismatchScorer,
