@@ -1448,6 +1448,14 @@ const scorers = [
 export default async function delegation() {
 	return runExperiment({
 		name: "kernel/delegation",
+		// What this run is, written into the report: a scripted provider, so no
+		// vendor, route or reasoning effort is involved.
+		disclosure: {
+			mode: "scripted",
+			roles: { parent: { provider: "MockLLMProvider", model: "scripted" }, child: { provider: "MockLLMProvider", model: "scripted" } },
+			routing: "off",
+			reasoningEffort: "not applicable",
+		},
 		scorers,
 		run: (i) => i.run(),
 		cases: CASES,

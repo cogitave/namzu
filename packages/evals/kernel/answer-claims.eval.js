@@ -156,6 +156,14 @@ const mismatchScorer = customScorer("mismatch", (turn, evalCase) =>
 export default async function answerClaims() {
 	return runExperiment({
 		name: "kernel/answer-claims",
+		// What this run is, written into the report: a scripted provider, so no
+		// vendor, route or reasoning effort is involved.
+		disclosure: {
+			mode: "scripted",
+			roles: { agent: { provider: "MockLLMProvider", model: "scripted" } },
+			routing: "off",
+			reasoningEffort: "not applicable",
+		},
 		scorers: [verdictScorer, mismatchScorer, completionScorer()],
 		run: (input) => runCase(input),
 		cases: [

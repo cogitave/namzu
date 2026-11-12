@@ -13,17 +13,28 @@
  * serialization, and a documented exit contract.
  */
 
+import { execFile } from 'node:child_process'
 import type { Dirent } from 'node:fs'
-import { mkdir, readdir, writeFile } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { promisify } from 'node:util'
 
 import { Command, CommanderError } from 'commander'
 
 import type { ExperimentReport } from '@namzu/sdk'
-import { formatReport } from '@namzu/sdk'
+import {
+	DEFAULT_EVAL_SEED,
+	formatReport,
+	formatRunSummary,
+	summarizeRun,
+	withEvalRunOptions,
+} from '@namzu/sdk'
 
+import { CLI_VERSION } from '../version.js'
 import type { CommandContext, CommandDef } from './types.js'
+
+const run = promisify(execFile)
 
 /**
  * Exit codes, documented because CI branches on them.
@@ -173,6 +184,50 @@ interface EvalOptions {
 	readonly tag?: string
 	readonly out?: string
 	readonly timeoutMs?: number
+	readonly repeat?: number
+	readonly seed?: number
+}
+
+/** A whole number written in digits and nothing else, or undefined. */
+function wholeNumber(text: string): number | undefined {
+	return /^\d+$/.test(text.trim()) ? Number.parseInt(text, 10) : undefined
+}
+
+/**
+ * The version of the nearest package that holds the suite, or `unknown`. A
+ * suite that ships in a package says which release of its tests ran.
+ */
+async function suiteVersionOf(file: string): Promise<string | undefined> {
+	let dir = dirname(file)
+	for (;;) {
+		try {
+			const manifest = JSON.parse(await readFile(join(dir, 'package.json'), 'utf-8')) as {
+				version?: unknown
+			}
+			if (typeof manifest.version === 'string') return manifest.version
+		} catch {
+			// No readable manifest here; look one level up.
+		}
+		const parent = dirname(dir)
+		if (parent === dir) return undefined
+		dir = parent
+	}
+}
+
+/**
+ * The source revision the suites were read from, when they sit in a git
+ * checkout. Not read for suites installed under `node_modules`: the checkout
+ * around an installed package is the consumer's project, not the suites'.
+ */
+async function commitOf(root: string): Promise<string | undefined> {
+	if (root.split(sep).includes('node_modules')) return undefined
+	try {
+		const { stdout } = await run('git', ['rev-parse', 'HEAD'], { cwd: root, timeout: 5_000 })
+		const commit = stdout.trim()
+		return /^[0-9a-f]{7,64}$/.test(commit) ? commit : undefined
+	} catch {
+		return undefined
+	}
 }
 
 async function runEval(ctx: CommandContext, options: EvalOptions): Promise<number> {
@@ -195,6 +250,7 @@ async function runEval(ctx: CommandContext, options: EvalOptions): Promise<numbe
 
 	const reports: Array<{ suite: string; report: ExperimentReport }> = []
 	let skipped = 0
+	const commit = await commitOf(root)
 
 	for (const suite of suites) {
 		let mod: SuiteModule
@@ -210,10 +266,33 @@ async function runEval(ctx: CommandContext, options: EvalOptions): Promise<numbe
 			continue
 		}
 
-		const report = await withDeadline(
-			(mod.default as () => Promise<ExperimentReport>)(),
-			options.timeoutMs ?? DEFAULT_SUITE_TIMEOUT_MS,
-		)
+		// The suite calls `runExperiment` itself, so what the operator asked for
+		// reaches it through a scope rather than an argument: a suite written
+		// before `--repeat` existed repeats like any other.
+		const suiteVersion = await suiteVersionOf(suite.file)
+		const scope = {
+			...(options.repeat !== undefined ? { repeats: options.repeat } : {}),
+			...(options.seed !== undefined ? { seed: options.seed } : {}),
+			harnessVersion: CLI_VERSION,
+			...(commit !== undefined ? { commit } : {}),
+			...(suiteVersion !== undefined ? { suiteVersion } : {}),
+		}
+		let report: ExperimentReport | typeof TIMED_OUT
+		try {
+			report = await withDeadline(
+				withEvalRunOptions(scope, () =>
+					Promise.resolve((mod.default as () => Promise<ExperimentReport>)()),
+				),
+				options.timeoutMs ?? DEFAULT_SUITE_TIMEOUT_MS,
+			)
+		} catch (err) {
+			// A bad `--repeat` or seed reaches here from inside the suite.
+			if (err instanceof RangeError) {
+				ctx.formatter.error({ message: err.message })
+				return EVAL_EXIT.usage
+			}
+			throw err
+		}
 
 		// A suite that never settles was the worst failure this command
 		// had, because it did not look like a failure at all: the promise
@@ -247,8 +326,18 @@ async function runEval(ctx: CommandContext, options: EvalOptions): Promise<numbe
 		return EVAL_EXIT.usage
 	}
 
+	const summary = summarizeRun(reports, {
+		seed: options.seed ?? DEFAULT_EVAL_SEED,
+		harnessVersion: CLI_VERSION,
+		sdkVersion:
+			reports.find((r) => r.report.disclosure)?.report.disclosure?.sdkVersion ?? 'unknown',
+		commit: commit ?? 'unknown',
+		generatedAt: new Date().toISOString(),
+	})
+	ctx.formatter.print({ run: summary, text: formatRunSummary(summary) })
+
 	if (options.out) {
-		await writeArtifact(options.out, reports)
+		await writeArtifact(options.out, reports, summary)
 		ctx.formatter.info(`Wrote ${options.out}`)
 	}
 
@@ -267,12 +356,17 @@ async function runEval(ctx: CommandContext, options: EvalOptions): Promise<numbe
 async function writeArtifact(
 	out: string,
 	reports: Array<{ suite: string; report: ExperimentReport }>,
+	summary: ReturnType<typeof summarizeRun>,
 ): Promise<void> {
 	const path = isAbsolute(out) ? out : resolve(process.cwd(), out)
 	await mkdir(join(path, '..'), { recursive: true })
 	// The whole report, not a summary: two commits' artifacts are meant to
 	// be diffable, and a summary cannot say which scorer moved.
-	await writeFile(path, `${JSON.stringify({ suites: reports }, null, 2)}\n`, 'utf-8')
+	await writeFile(
+		path,
+		`${JSON.stringify({ schemaVersion: 2, run: summary, suites: reports }, null, 2)}\n`,
+		'utf-8',
+	)
 }
 
 export const evalCommand: CommandDef = {
@@ -291,6 +385,11 @@ export const evalCommand: CommandDef = {
 				'How long one suite may run before it is called inconclusive',
 				(v) => Number.parseInt(v, 10),
 			)
+			.option('--repeat <n>', 'Run every case n times, from 1 to 100 (default 1)')
+			.option(
+				'--seed <n>',
+				`Seed for the 95% intervals, an integer from 0 to 4294967295 (default ${DEFAULT_EVAL_SEED})`,
+			)
 
 		try {
 			program.parse(rawArgs, { from: 'user' })
@@ -303,6 +402,24 @@ export const evalCommand: CommandDef = {
 			throw err
 		}
 
-		return runEval(ctx, program.opts<EvalOptions>())
+		// Kept as text by the parser and read here: a parser that returned
+		// nothing for a bad value would leave the option looking unset.
+		const raw = program.opts<{ repeat?: string; seed?: string }>()
+		const repeat = raw.repeat === undefined ? undefined : wholeNumber(raw.repeat)
+		const seed = raw.seed === undefined ? undefined : wholeNumber(raw.seed)
+		if (raw.repeat !== undefined && (repeat === undefined || repeat < 1 || repeat > 100)) {
+			ctx.formatter.error({ message: '--repeat takes a whole number from 1 to 100.' })
+			return EVAL_EXIT.usage
+		}
+		if (raw.seed !== undefined && (seed === undefined || seed > 4294967295)) {
+			ctx.formatter.error({ message: '--seed takes a whole number from 0 to 4294967295.' })
+			return EVAL_EXIT.usage
+		}
+		const { repeat: _repeat, seed: _seed, ...rest } = program.opts<EvalOptions>()
+		return runEval(ctx, {
+			...rest,
+			...(repeat !== undefined ? { repeat } : {}),
+			...(seed !== undefined ? { seed } : {}),
+		})
 	},
 }
