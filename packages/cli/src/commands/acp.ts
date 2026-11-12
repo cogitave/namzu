@@ -1,6 +1,7 @@
 import {
 	ACPServer,
 	type AcpAgentGateway,
+	type AcpHostKernelFacts,
 	DiskSessionLog,
 	type ExternalRefTarget,
 	HostCommandRegistry,
@@ -30,6 +31,7 @@ import { fileURLToPath } from 'node:url'
 import { FileCheckpointStore, type TurnUndoStatus, type UndoPreview } from '../checkpoints/store.js'
 import { flushCompileCacheWhenIdle } from '../compile-cache.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
+import { DESKTOP_CONTRACT } from '../desktop-contract.js'
 import { type PluginInventoryView, readPluginInventory } from '../integrations/plugins/inventory.js'
 import { canSelectModel } from '../integrations/providers/access.js'
 import {
@@ -66,7 +68,7 @@ import { cliLogger } from '../logging.js'
 import { palSessionEnvironment } from '../pals/agent-session.js'
 import { palConversationBinding } from '../pals/conversations.js'
 import { closeCliPalRuntime, getCliPalRuntime } from '../pals/environment.js'
-import { createPalInboxStarter } from '../pals/inbox-start.js'
+import { type CliPalInboxStarter, createPalInboxStarter } from '../pals/inbox-start.js'
 import { palAtWorkspace } from '../pals/store.js'
 import { canonicalProjectPath } from '../permissions/canonical-project.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
@@ -1984,6 +1986,41 @@ export async function closeAcpResources(
 	if (failures.length) throw new AggregateError(failures, 'ACP cleanup failed.')
 }
 
+/** What this application says about itself in `initialize`: its version, and the desktop contract for a desktop host. */
+export function acpKernelFacts(desktop: boolean): AcpHostKernelFacts {
+	return {
+		commandLine: readPackageVersion(),
+		...(desktop ? { desktopContract: DESKTOP_CONTRACT } : {}),
+	}
+}
+
+/**
+ * Every extension method a host started for the desktop application serves: the
+ * project, conversation, provider and Pal methods, plus the terminal methods when
+ * the host owns terminals. One place builds the table, so the guard of the desktop
+ * contract starts the same host the real one does.
+ */
+export function desktopServerExtensions(
+	runtime: CliAcpRuntime,
+	cwd: string,
+	server: Pick<ACPServer, 'getSessionCwd' | 'retrySession'>,
+	palInboxStart?: CliPalInboxStarter,
+	terminals?: Pick<TerminalHost, 'extensions'>,
+): Readonly<Record<string, (params: Record<string, unknown>) => unknown>> {
+	return {
+		...createDesktopHostExtensions(
+			runtime,
+			cwd,
+			(id) => server.getSessionCwd(id),
+			(id, turnId, checkpointId, options) => server.retrySession(id, turnId, checkpointId, options),
+			undefined,
+			undefined,
+			palInboxStart,
+		),
+		...terminals?.extensions,
+	}
+}
+
 export async function runAcpCommand(ctx: CommandContext, desktop = false): Promise<number> {
 	const transport = new ServerStdioTransport()
 	// Desktop only: how full each conversation is, and when it is being compacted.
@@ -2043,21 +2080,21 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 		commands: new HostCommandRegistry(),
 		presenter: runtime.presenter,
 		agentInfo: { name: 'namzu', version: readPackageVersion() },
+		// The two facts this application adds to what the engine says about itself.
+		kernelFacts: acpKernelFacts(desktop),
 		...(desktop
 			? {
-					extensions: {
-						...createDesktopHostExtensions(
-							runtime,
-							process.cwd(),
-							(id) => server.getSessionCwd(id),
-							(id, turnId, checkpointId, options) =>
+					extensions: desktopServerExtensions(
+						runtime,
+						process.cwd(),
+						{
+							getSessionCwd: (id) => server.getSessionCwd(id),
+							retrySession: (id, turnId, checkpointId, options) =>
 								server.retrySession(id, turnId, checkpointId, options),
-							undefined,
-							undefined,
-							palInboxStart,
-						),
-						...terminals?.extensions,
-					},
+						},
+						palInboxStart,
+						terminals,
+					),
 				}
 			: {}),
 	})
@@ -2101,14 +2138,23 @@ export async function runAcpCommand(ctx: CommandContext, desktop = false): Promi
 	return 0
 }
 
+/**
+ * The arguments `namzu acp` takes: `--desktop` and nothing else. The desktop
+ * application starts the host as `acp --desktop`, so this is the parser that
+ * flag lives in, and a test of the desktop contract calls it.
+ */
+export function parseAcpArgs(rawArgs: readonly string[]): { desktop: boolean } {
+	if (rawArgs.some((arg) => arg !== '--desktop'))
+		throw new Error('Unknown ACP argument. Use namzu acp --help.')
+	return { desktop: rawArgs.includes('--desktop') }
+}
+
 export const acpCommand: CommandDef = {
 	name: 'acp',
 	description: 'Speak the agent-client protocol over this process’s stdio',
 	passThrough: true,
 	help: 'Usage: namzu acp [--desktop]\nSpeak ACP over stdio. --desktop enables scoped operator methods for the Namzu desktop application.',
 	handler: async ({ ctx, rawArgs }) => {
-		if (rawArgs.some((arg) => arg !== '--desktop'))
-			throw new Error('Unknown ACP argument. Use namzu acp --help.')
-		return runAcpCommand(ctx, rawArgs.includes('--desktop'))
+		return runAcpCommand(ctx, parseAcpArgs(rawArgs).desktop)
 	},
 }

@@ -10,11 +10,13 @@ import {
 	ACP_PROTOCOL_VERSION,
 	ACP_TASK_CAPABILITY,
 } from '../../constants/acp/index.js'
+import { DATA_EPOCH } from '../../constants/data-epoch.js'
 import type { HostCommandRegistry } from '../../registry/command/index.js'
 import type { ToolPresenter } from '../../registry/tool/presentation.js'
 import { isReviewMode } from '../../runtime/query/review-policy.js'
 import type {
 	AcpFsReadResult,
+	AcpHostKernelFacts,
 	AcpInitializeParams,
 	AcpInitializeResult,
 	AcpRequestPermissionResult,
@@ -32,6 +34,7 @@ import type { SessionEvent } from '../../types/session/events.js'
 import { isTurnInProgressError } from '../../types/session/turn.js'
 import { generateSessionId } from '../../utils/id.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
+import { VERSION } from '../../version.js'
 import type { AcpClientFilesystem } from './filesystem.js'
 import type {
 	AcpPermissionAsker,
@@ -175,6 +178,13 @@ export interface AcpServerOptions {
 	readonly extensions?: Readonly<
 		Record<string, (params: Record<string, unknown>) => unknown | Promise<unknown>>
 	>
+	/**
+	 * Facts the host application adds to the `kernel` object it answers
+	 * `initialize` with. The engine states its own version and data epoch; the
+	 * application states anything else it wants a client to see. Only the
+	 * fields given appear.
+	 */
+	readonly kernelFacts?: AcpHostKernelFacts
 	readonly log?: Logger
 }
 
@@ -471,6 +481,16 @@ export class ACPServer {
 		this.clientCapabilities = params.capabilities ?? []
 		return {
 			protocolVersion: ACP_PROTOCOL_VERSION,
+			kernel: {
+				engine: VERSION,
+				dataEpoch: DATA_EPOCH,
+				...(this.options.kernelFacts?.commandLine !== undefined
+					? { commandLine: this.options.kernelFacts.commandLine }
+					: {}),
+				...(this.options.kernelFacts?.desktopContract !== undefined
+					? { desktopContract: this.options.kernelFacts.desktopContract }
+					: {}),
+			},
 			...(this.options.supportsPromptAttachments ? { promptAttachments: true } : {}),
 			...(this.options.supportsPromptOptions ? { promptOptions: true } : {}),
 			...(this.options.supportsPromptOptions && this.options.promptPermissionModes?.length

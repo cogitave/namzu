@@ -229,6 +229,7 @@ import {
 	homeStarters,
 	newProjectFailure,
 	projectHomeHeading,
+	projectHomeHeadingParts,
 } from './project-home.js'
 import { projectStage } from './project-stage.js'
 import { ProjectConnecting, ProjectFolderMissing, ProjectOpenError } from './project-views.js'
@@ -7431,6 +7432,7 @@ export function App({
 								projectName={project.name}
 								starters={homeStarters(project)}
 								emptyHeading={projectHomeHeading(project)}
+								emptyHeadingParts={projectHomeHeadingParts(project)}
 								projectId={project.id}
 								sessionId={sessionId || undefined}
 								projectPath={project.path}

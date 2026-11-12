@@ -23,7 +23,7 @@ function token(name: string): string {
 const faces = [...theme.matchAll(/@font-face\s*{([^}]*)}/g)].map((m) => m[1] as string)
 
 describe('the @font-face rules', () => {
-	it('declare exactly the sans, its italic and the mono, each a variable weight range', () => {
+	it('declare the sans, its italic and the mono as variable weight ranges, and the display face as one static weight', () => {
 		const summary = faces.map((body) => ({
 			family: /font-family:\s*"([^"]+)"/.exec(body)?.[1],
 			style: /font-style:\s*(\w+)/.exec(body)?.[1],
@@ -34,6 +34,7 @@ describe('the @font-face rules', () => {
 			{ family: 'Geist', style: 'normal', weight: '100 900', display: 'block' },
 			{ family: 'Geist', style: 'italic', weight: '100 900', display: 'block' },
 			{ family: 'Geist Mono', style: 'normal', weight: '100 900', display: 'block' },
+			{ family: 'Geist Pixel', style: 'normal', weight: '400', display: 'block' },
 		])
 	})
 
@@ -45,10 +46,13 @@ describe('the @font-face rules', () => {
 			expect(existsSync(file), file).toBe(true)
 			// A woff2 file starts with its signature.
 			expect(readFileSync(file).subarray(0, 4).toString('latin1')).toBe('wOF2')
-			expect(statSync(file).size).toBeGreaterThan(30_000)
+			// The display face is the smallest file (pixel outlines); the three variable files are larger.
+			expect(statSync(file).size).toBeGreaterThan(20_000)
 		}
 		const licence = readFileSync(join(desktop, 'public/fonts/OFL.txt'), 'utf8')
 		expect(licence).toContain('Copyright 2026 The Geist Project Authors')
+		// The display face carries its own copyright line inside the file; it travels with it.
+		expect(licence).toContain('Copyright 2026 The Geist Pixel Project Authors')
 		expect(licence).toContain('SIL OPEN FONT LICENSE Version 1.1')
 		expect(readFileSync(join(desktop, 'licenses/fonts-geist-OFL.txt'), 'utf8')).toBe(licence)
 	})
@@ -61,6 +65,7 @@ describe('the @font-face rules', () => {
 		expect(prime).toContain('<span>a</span>')
 		expect(prime).toContain('<span style="font-style:italic">a</span>')
 		expect(prime).toContain('<span style="font-family:var(--font-mono)">a</span>')
+		expect(prime).toContain('<span style="font-family:var(--font-display)">a</span>')
 		expect(html.indexOf('aria-hidden="true"')).toBeLessThan(html.indexOf('id="root"'))
 		const policy = /Content-Security-Policy" content="([^"]+)"/.exec(html)?.[1] ?? ''
 		expect(policy).toContain("default-src 'self'")
@@ -71,7 +76,9 @@ describe('the @font-face rules', () => {
 		const script = readFileSync(join(desktop, 'scripts/retain-notices.mjs'), 'utf8')
 		expect(script).toContain('licenses/fonts-geist-OFL.txt')
 		const notices = readFileSync(join(desktop, 'THIRD-PARTY-NOTICES.txt'), 'utf8')
-		expect(notices).toContain('Geist and Geist Mono')
+		expect(notices).toContain('Geist, Geist Mono and Geist Pixel (Square)')
+		expect(notices).toContain('Geist Pixel')
+		expect(notices).toContain('fonts/GeistPixel-Square.woff2')
 		expect(notices).toContain('Copyright 2026 The Geist Project Authors')
 	})
 })
@@ -90,10 +97,16 @@ describe('the font stacks', () => {
 		expect(token('--font-mono')).toBe('var(--font-mono-app)')
 	})
 
+	it('give the display face the interface face as its fallback', () => {
+		expect(token('--font-display-app')).toBe('"Geist Pixel", var(--font-sans-app)')
+		expect(token('--font-display')).toBe('var(--font-display-app)')
+	})
+
 	it('switch to the platform stacks alone when the interface font is the system’s', () => {
 		const rule = /:root\[data-interface-font="system"\]\s*{([^}]*)}/.exec(theme)?.[1] ?? ''
+		// The display token goes with them: no pixel letter is drawn with the device's fonts.
 		expect(rule.replace(/\s+/g, ' ').trim()).toBe(
-			'--font-sans: var(--font-sans-system); --font-mono: var(--font-mono-system);',
+			'--font-sans: var(--font-sans-system); --font-mono: var(--font-mono-system); --font-display: var(--font-sans-system);',
 		)
 		expect(rule).not.toMatch(/Geist/)
 	})

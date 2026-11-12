@@ -142,6 +142,26 @@ describe('install classification', () => {
 		})
 	})
 
+	it('never touches a kernel the Desktop app fetched into its own data folder', () => {
+		const posixRoot = '/home/a/.config/Namzu/kernel/versions/51.2.0'
+		const winRoot = 'C:\\Users\\A\\AppData\\Roaming\\Namzu\\kernel\\versions\\51.2.0'
+		// Run by the app's own program: the Electron flag is set.
+		expect(classify(posixRoot, { isElectron: true })).toMatchObject({ kind: 'desktop' })
+		expect(classify(winRoot, { platform: 'win32', isElectron: true })).toMatchObject({
+			kind: 'desktop',
+		})
+		// Run by a plain node (a self-check, a developer): the layout alone says so.
+		expect(classify(posixRoot)).toMatchObject({ kind: 'desktop', root: posixRoot })
+		expect(classify(`${posixRoot}/`)).toMatchObject({ kind: 'desktop' })
+		expect(classify(winRoot, { platform: 'win32' })).toMatchObject({ kind: 'desktop' })
+		// Even when a project-looking folder sits above it.
+		expect(classify(posixRoot, { exists: (p) => p.endsWith('pnpm-workspace.yaml') })).toMatchObject(
+			{ kind: 'desktop' },
+		)
+		// A path that only resembles it is not claimed.
+		expect(classify('/srv/kernel/versions/51.2.0/extra')).toMatchObject({ kind: 'unknown' })
+	})
+
 	it('calls any other layout unknown instead of guessing', () => {
 		expect(classify('/srv/vendored/namzu')).toEqual({
 			kind: 'unknown',

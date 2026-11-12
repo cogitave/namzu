@@ -74,6 +74,15 @@ installation, corrected UTF-8 inference, and observed device resource use.
 
 ## Installing and updating
 
+A host started for the app states two numbers in `initialize` (`kernel.desktopContract` and
+`kernel.dataEpoch`) so that an app can tell whether an engine newer than the one in its installer is safe for it.
+The inventory of what the app relies on, the tests that guard it and when to raise each number are in
+[Kernel facts](../sdk/kernel-facts.md). The command line's own updater never replaces a copy the app keeps in its
+data folder. The installer's copy also carries a `kernel.json` at its root (the command line and engine versions,
+the two numbers and the platform, written from what the staged command line answers). How a newer engine is staged,
+packed, signed and published for the app to fetch is in
+[Desktop engine bundles](desktop-engine-bundles.md).
+
 The installer is a per-user NSIS setup built by `electron-builder`
 (`packages/desktop/electron-builder.yml`): no administrator prompt, installed to
 `%LOCALAPPDATA%\Programs\Namzu`, with a Start-menu entry and an uninstaller. The app is
@@ -2348,7 +2357,7 @@ The font stacks are not part of the scale; they are described under [Typefaces](
 | `--text-reading` | 15 / 22 | a reply's paragraphs and lists, the person's message, the text in the message box, a reply's `h3` and below |
 | `--text-heading` | 17 / 24 | a reply's `h2` |
 | `--text-title` | 20 / 28 | a reply's `h1` |
-| `--text-display` | 28 / 36 | the home heading (text weight) |
+| `--text-display` | 28 / 36 | the home heading (text weight), with the project's name in the display face |
 | `--font-size-code` | 13 / 20 (`--leading-code`) | code blocks, tool output and diffs; `--diffs-font-size` follows it |
 
 Weights: `--weight-text` 400, `--weight-control` 500, `--weight-strong` 600. Tailwind's `text-xs`,
@@ -2363,22 +2372,23 @@ tabular set, so the places listed here really do draw every digit at one width.
 ## Typefaces
 
 The app draws with its own typefaces, so every platform shows the same letters at the same weights.
-Three variable files ship in `packages/desktop/public/fonts/` (built to `dist/renderer/fonts/`, inside
-the application's own files):
+Three variable files and one static file ship in `packages/desktop/public/fonts/` (built to
+`dist/renderer/fonts/`, inside the application's own files):
 
 | File | Face | Used for |
 | --- | --- | --- |
 | `Geist-wght.woff2` | Geist, upright, weight 100 to 900 | text of the interface and of replies |
 | `Geist-Italic-wght.woff2` | Geist italic, weight 100 to 900 | emphasis in replies |
 | `GeistMono-wght.woff2` | Geist Mono, weight 100 to 900 | code, tool output, diffs and the terminal |
+| `GeistPixel-Square.woff2` | Geist Pixel, shape Square, weight 400 | the display voice: the project's name in the home heading (see [The display face](#the-display-face)) |
 
 They are release v1.9.2 of the type project's own files, unmodified. `theme.css` loads them with
 `@font-face` and `font-display: block`, so text is held back for the few milliseconds a local file takes
 (measured: the faces are ready 10 to 30 ms after the window's first text is laid out) rather than drawn in
 the platform's face and then changed. A `<link rel="preload">` was tried and dropped: on `file:` addresses
 the browser does not match it to the font request, warns and fetches twice. `index.html` instead holds
-three hidden letters, one in each face, which start the three files loading while the bundle is still being
-read, so the italic and the mono are ready before the first italic word or code block. The content security policy
+four hidden letters, one in each face (upright, italic, mono and display), which start the four files loading while the bundle is still being
+read, so the italic, the mono and the display face are ready before the first italic word, code block or project name. The content security policy
 needed no change: `default-src 'self'` covers files of the app's own folder. Weights 400, 500 and 600 are
 exact on every platform because the files are variable. Mono italic is not shipped: italic code
 (rare in a reply) is the upright mono slanted by the engine, which reads acceptably as a light slant.
@@ -2403,11 +2413,56 @@ ready (the emulator measures a character cell when it opens and keeps that size)
 sidebar title fitter measures again when the document's fonts finish loading and when the interface font
 changes. `renderer/typeface.test.ts` checks the `@font-face` rules, the stacks and the licence files;
 `renderer/terminal-font-wait.test.ts` checks the terminal waits; `e2e/typeface.test.mjs` asks the real
-app which font was used for a reply paragraph, a code block and a sidebar row, and that the setting
-changes it.
+app which font was used for a reply paragraph, a code block and a sidebar row, that the setting
+changes it, that the home heading's
+project name is drawn in the display face and nowhere else, that the setting turns it off, and that a
+name the face cannot draw whole stays in Geist.
 
-Licence: Geist and Geist Mono are under the SIL Open Font License 1.1 (Copyright 2026 The Geist Project
-Authors). The copyright notice and the licence text travel with the files in `fonts/OFL.txt`, in
+### The display face
+
+The family has a face made of pixels, in five shapes. The app ships one, **Square**, as the display
+voice for a few large words. It is never used for a sentence, for text a person or a model wrote, or at
+a size below the title size. The serif face is not used. The app's own pixel wordmark is its own
+artwork and is unchanged.
+
+Where it is used: the **project's name inside the home heading** ("What should we work on in
+*harbor-api*?"). The rest of the sentence stays in Geist. The app's own name is not written as large
+text anywhere (About shows it at the size of a fact label), so nothing else carries the face. A project
+folder can be named with any characters, so the name is drawn in the display face only when **every**
+character of it is in that face; otherwise the whole name stays in Geist, never a mix inside one name.
+The name is judged in composed (NFC) form, so a letter that arrives as a base letter plus a combining
+mark counts as the composed letter. The face covers Latin letters (including Turkish ç ğ ı İ ş ö ü), digits
+and common punctuation; Cyrillic, Greek beyond a few letters, CJK, emoji and control characters are
+not covered. An empty name is not drawn in it.
+
+The covered code points come from the font file itself. `scripts/woff2-cmap.mjs` reads its character
+map (a woff2 file is one brotli stream, and only `glyf` and `loca` are transformed, so `cmap` is read
+as stored); `scripts/generate-display-coverage.mjs` writes the ranges into
+`renderer/display-face-coverage.ts`, and `scripts/__tests__/display-coverage.test.mjs` re-reads the file
+and fails when that module is stale. After the font file changes, run the generator and format its
+output with Biome. `renderer/display-face.ts` answers `displayFaceText(name)` from the ranges;
+`renderer/home-heading-name.tsx` draws the name with `data-face="display"` or `"interface"`.
+
+The token is `--font-display`, which is `--font-display-app` (`"Geist Pixel"` followed by
+`--font-sans-app`, so a machine where the file cannot load draws the name in Geist). With
+**Interface font** set to *Your device's* it is `--font-sans-system`, so no pixel letter is drawn. The
+face is declared with `@font-face` (weight 400, `font-display: block`) and started loading by a fourth
+hidden letter in `index.html`, like the others. Its ascent, descent and x-height match Geist's (1005,
+295, 532 against 530 per 1000), so a line that mixes the two keeps its baseline and its height without a
+size correction; the heading is 36 px high with the face or without it. `renderer/type-scale.test.ts`
+allows the token in `theme.css` and in one rule of `composer.css` only, refuses it in any component
+file, on a selector that styles replies, messages, inputs or code, and at a size under the title size.
+
+The file is the type project's release v1.9.2, unmodified. It was fetched twice, from the tagged tree
+(`raw.githubusercontent.com/vercel/geist-font/v1.9.2/fonts/GeistPixel/webfonts/GeistPixel-Square.woff2`)
+and from the release archive `geist-font-v1.9.2.zip`, and both gave 28 540 bytes with SHA-256
+`80887afede26bc861e92dbfbb17a775d769e46e7c84f336b1c9f17959f60606d`. The file's own copyright line reads
+"Copyright 2026 The Geist Pixel Project Authors", which differs from the release's licence file, so
+both lines are in `fonts/OFL.txt` and the notices.
+
+Licence: Geist, Geist Mono and Geist Pixel are under the SIL Open Font License 1.1 (Copyright 2026 The
+Geist Project Authors; Geist Pixel's file also names The Geist Pixel Project Authors). The copyright
+notice and the licence text travel with the files in `fonts/OFL.txt`, in
 `licenses/fonts-geist-OFL.txt` (copied to `dist/licenses/` by `scripts/retain-notices.mjs`) and in item 15
 of `THIRD-PARTY-NOTICES.txt`.
 

@@ -5,6 +5,7 @@ import {
 	homeStarters,
 	newProjectFailure,
 	projectHomeHeading,
+	projectHomeHeadingParts,
 } from './project-home.js'
 
 describe('projectHomeHeading', () => {
@@ -17,6 +18,24 @@ describe('projectHomeHeading', () => {
 		expect(projectHomeHeading({ name: 'x', isChat: true })).toBe(DEFAULT_HOME_HEADING)
 		expect(projectHomeHeading({ name: 'x', palId: 'p' })).toBe(DEFAULT_HOME_HEADING)
 		expect(projectHomeHeading(undefined)).toBe(DEFAULT_HOME_HEADING)
+	})
+})
+
+describe('projectHomeHeadingParts', () => {
+	it('splits the project heading around the name and says the same sentence', () => {
+		const project = { name: 'çağrı-işleme' }
+		const parts = projectHomeHeadingParts(project)
+		expect(parts).toEqual({
+			before: 'What should we work on in ',
+			name: 'çağrı-işleme',
+			after: '?',
+		})
+		expect(`${parts?.before}${parts?.name}${parts?.after}`).toBe(projectHomeHeading(project))
+	})
+	it('has no parts where the heading names no project', () => {
+		expect(projectHomeHeadingParts({ name: 'x', isChat: true })).toBeUndefined()
+		expect(projectHomeHeadingParts({ name: 'x', palId: 'p' })).toBeUndefined()
+		expect(projectHomeHeadingParts(undefined)).toBeUndefined()
 	})
 })
 
