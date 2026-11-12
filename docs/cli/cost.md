@@ -97,6 +97,11 @@ are the paused turn's own earlier figures. The view therefore measures every
 turn from zero and never compares a turn with an earlier one: the total of a
 conversation is the sum of what its turns settled, whatever their sizes and in
 whatever order, and a turn that uses more than all before it is counted in full.
+This holds for `exec`, `exec --continue`, `exec --continue --fork-session`, the
+ACP host and the desktop host alike. A turn that has history also makes one small
+model request at its start to resolve what the person refers to; its tokens are
+part of that turn's figures (under your replies), not usage carried from an
+earlier turn.
 
 ## Reconciliation
 

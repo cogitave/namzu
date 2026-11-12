@@ -29,6 +29,12 @@ import { afterEach, describe, expect, it } from 'vitest'
  * that read a turn as a running total because its first figure was at least the settled figure
  * of the turn before would count the second and the fourth turn short here.
  *
+ * A second test does the same through `namzu exec`, then `exec --continue` in a new process,
+ * then `exec --continue --fork-session`. The model request the kernel makes at the start of a
+ * turn that has history (it resolves what the person is referring to) is billed to that turn;
+ * the service reports a distinct usage for it, so it cannot be mistaken for usage carried from
+ * an earlier turn: no path carries any.
+ *
  * Nothing waits on a clock: the test awaits the frames the process writes, and the runner's
  * own timeout catches a real hang.
  */
@@ -40,7 +46,10 @@ const USAGE: Record<string, readonly [number, number]> = {
 	T2: [3000, 500],
 	T3: [400, 50],
 	T4: [600, 80],
+	T5: [5000, 600],
 }
+/** The history-resolving request every turn with history makes first. */
+const RESOLVER: readonly [number, number] = [11, 2]
 /** Any request the kernel makes for itself, with no marker in sight. */
 const OTHER: readonly [number, number] = [7, 3]
 
@@ -65,10 +74,13 @@ async function usageService(): Promise<{
 				res.writeHead(404).end('{}')
 				return
 			}
-			const request = JSON.parse(body) as { model?: string; messages?: unknown }
+			const request = JSON.parse(body) as { model?: string; messages?: unknown; system?: unknown }
 			const marks = [...JSON.stringify(request.messages ?? []).matchAll(/MARK(T\d)/g)]
 			const tag = marks.at(-1)?.[1]
-			const [input, output] = (tag === undefined ? undefined : USAGE[tag]) ?? OTHER
+			const resolving = JSON.stringify(request.system ?? '').includes('conversation-history')
+			const [input, output] = resolving
+				? RESOLVER
+				: ((tag === undefined ? undefined : USAGE[tag]) ?? OTHER)
 			reported.push({ input, output })
 			res.writeHead(200, { 'content-type': 'text/event-stream' })
 			const send = (type: string, data: object) =>
@@ -184,42 +196,44 @@ afterEach(async () => {
 	rmSync(dir, { recursive: true, force: true })
 })
 
+async function setup() {
+	dir = realpathSync(mkdtempSync(join(tmpdir(), 'namzu-spend-kernel-')))
+	const home = join(dir, 'home')
+	const project = join(dir, 'project')
+	mkdirSync(home)
+	mkdirSync(join(project, '.git'), { recursive: true })
+	writeFileSync(join(project, 'namzu.config.json'), JSON.stringify({ sandbox: { enabled: false } }))
+	writeFileSync(join(home, 'trust.json'), JSON.stringify({ version: 1, trusted: [project] }))
+	writeFileSync(
+		join(home, 'preferences.json'),
+		JSON.stringify({
+			version: 3,
+			providers: [{ id: 'anthropic', model: 'claude-sonnet-5-5' }],
+			subagents: { active: [] },
+		}),
+	)
+	service = await usageService()
+	const env: Record<string, string> = {}
+	for (const [key, value] of Object.entries(process.env))
+		if (value !== undefined && !/^(WSL_|ANTHROPIC_|OPENAI_|OPENCODE_|NAMZU_)/.test(key))
+			env[key] = value
+	const hostEnv = {
+		...env,
+		HOME: join(dir, 'os-home'),
+		USERPROFILE: join(dir, 'os-home'),
+		NAMZU_HOME: home,
+		NAMZU_MODEL_CATALOGUE_REFRESH: '0',
+		ANTHROPIC_API_KEY: 'not-a-secret-anthropic',
+		ANTHROPIC_BASE_URL: service.url,
+	}
+	return { home, project, hostEnv }
+}
+
 describe.skipIf(!existsSync(BIN) || process.platform === 'win32')(
 	'the spend view on a conversation the real kernel recorded over several turns and processes',
 	() => {
 		it('adds up to what the provider reported, to the token', async () => {
-			dir = realpathSync(mkdtempSync(join(tmpdir(), 'namzu-spend-kernel-')))
-			const home = join(dir, 'home')
-			const project = join(dir, 'project')
-			mkdirSync(home)
-			mkdirSync(join(project, '.git'), { recursive: true })
-			writeFileSync(
-				join(project, 'namzu.config.json'),
-				JSON.stringify({ sandbox: { enabled: false } }),
-			)
-			writeFileSync(join(home, 'trust.json'), JSON.stringify({ version: 1, trusted: [project] }))
-			writeFileSync(
-				join(home, 'preferences.json'),
-				JSON.stringify({
-					version: 3,
-					providers: [{ id: 'anthropic', model: 'claude-sonnet-5-5' }],
-					subagents: { active: [] },
-				}),
-			)
-			service = await usageService()
-			const env: Record<string, string> = {}
-			for (const [key, value] of Object.entries(process.env))
-				if (value !== undefined && !/^(WSL_|ANTHROPIC_|OPENAI_|OPENCODE_|NAMZU_)/.test(key))
-					env[key] = value
-			const hostEnv = {
-				...env,
-				HOME: join(dir, 'os-home'),
-				USERPROFILE: join(dir, 'os-home'),
-				NAMZU_HOME: home,
-				NAMZU_MODEL_CATALOGUE_REFRESH: '0',
-				ANTHROPIC_API_KEY: 'not-a-secret-anthropic',
-				ANTHROPIC_BASE_URL: service.url,
-			}
+			const { home, project, hostEnv } = await setup()
 			const start = async () => {
 				const host = new Host(
 					spawn(process.execPath, [BIN, 'acp', '--desktop'], {
@@ -255,10 +269,7 @@ describe.skipIf(!existsSync(BIN) || process.platform === 'win32')(
 			// What the kernel wrote.
 			const logs = findLogs(home)
 			expect(logs).toHaveLength(1)
-			const settled = readFileSync(logs[0] as string, 'utf8')
-				.split('\n')
-				.filter((line) => line.includes('"type":"turn_completed"'))
-				.map((line) => (JSON.parse(line) as { settlement: { usage: Usage } }).settlement.usage)
+			const settled = settledUsage(logs[0] as string)
 			expect(settled).toHaveLength(4)
 			// The shape the guard is about: a later turn that spent more than everything before it
 			// in every count, one that spent less, and the first turn of the new process.
@@ -269,22 +280,59 @@ describe.skipIf(!existsSync(BIN) || process.platform === 'win32')(
 			expect(at(2).totalTokens).toBeLessThan(at(1).totalTokens)
 			expect(at(3).totalTokens).toBeGreaterThan(at(2).totalTokens)
 
-			const providerTotal = service.reported.reduce((n, r) => n + r.input + r.output, 0)
+			const providerTotal = (service?.reported ?? []).reduce((n, r) => n + r.input + r.output, 0)
 			const settledTotal = settled.reduce((n, u) => n + u.totalTokens, 0)
 			// Every request fell inside a turn, so the log holds exactly what the provider reported.
 			expect(settledTotal).toBe(providerTotal)
 
-			const printed = execFileSync(process.execPath, [BIN, 'cost', '--json', '--days', '30'], {
-				cwd: project,
-				env: hostEnv,
-				encoding: 'utf8',
-			})
-			const report = JSON.parse(printed) as {
-				totals: { tokens: number; conversations: number; outputTokens: number }
-			}
+			const report = viewOf(project, hostEnv)
 			expect(report.totals.conversations).toBe(1)
 			expect(report.totals.tokens).toBe(providerTotal)
-			expect(report.totals.outputTokens).toBe(service.reported.reduce((n, r) => n + r.output, 0))
+			expect(report.totals.outputTokens).toBe(
+				(service?.reported ?? []).reduce((n, r) => n + r.output, 0),
+			)
+		}, 120_000)
+
+		it('adds up the same for exec, exec --continue in a new process and exec --continue --fork-session', async () => {
+			const { home, project, hostEnv } = await setup()
+			const run = async (...args: string[]) => {
+				const child = spawn(process.execPath, [BIN, 'exec', ...args], {
+					cwd: project,
+					stdio: ['ignore', 'pipe', 'pipe'],
+					env: hostEnv,
+				})
+				let out = ''
+				child.stdout.on('data', (chunk) => {
+					out += chunk
+				})
+				child.stderr.on('data', (chunk) => {
+					out += chunk
+				})
+				const code = await new Promise<number | null>((resolve) =>
+					child.once('exit', (c) => resolve(c)),
+				)
+				expect(code, out).toBe(0)
+				return out
+			}
+			await run('hello MARKT1')
+			await run('--continue', 'hello MARKT2')
+			await run('--continue', '--fork-session', 'hello MARKT5')
+
+			// The original conversation and its fork: two logs.
+			const logs = findLogs(home)
+			expect(logs).toHaveLength(2)
+			const settled = logs.flatMap((log) => settledUsage(log))
+			expect(settled).toHaveLength(3)
+			// A continued turn that spent more than the whole turn before it, and a fork turn that
+			// spent more than the turn it was forked from, each in every count.
+			const totals = settled.map((u) => u.totalTokens).sort((a, b) => a - b)
+			expect(totals).toEqual([1200, 3513, 5613])
+
+			const providerTotal = service?.reported.reduce((n, r) => n + r.input + r.output, 0)
+			expect(settled.reduce((n, u) => n + u.totalTokens, 0)).toBe(providerTotal)
+			const report = viewOf(project, hostEnv)
+			expect(report.totals.conversations).toBe(2)
+			expect(report.totals.tokens).toBe(providerTotal)
 		}, 120_000)
 	},
 )
@@ -293,6 +341,25 @@ interface Usage {
 	totalTokens: number
 	promptTokens: number
 	completionTokens: number
+}
+
+function settledUsage(log: string): Usage[] {
+	return readFileSync(log, 'utf8')
+		.split('\n')
+		.filter((line) => line.includes('"type":"turn_completed"'))
+		.map((line) => (JSON.parse(line) as { settlement: { usage: Usage } }).settlement.usage)
+}
+
+/** What `namzu cost --json` prints for the home the kernel wrote to. */
+function viewOf(project: string, env: Record<string, string>) {
+	const printed = execFileSync(process.execPath, [BIN, 'cost', '--json', '--days', '30'], {
+		cwd: project,
+		env,
+		encoding: 'utf8',
+	})
+	return JSON.parse(printed) as {
+		totals: { tokens: number; conversations: number; outputTokens: number }
+	}
 }
 
 function findLogs(home: string): string[] {
