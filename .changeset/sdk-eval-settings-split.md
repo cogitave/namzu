@@ -1,7 +1,0 @@
----
-'@namzu/sdk': minor
----
-
-Eval reports now say which settings they ran under and which split of the tasks they ran, and `compareEvalReports` no longer names a winner it cannot support. Every `ExperimentReport` gains `settings` (a name, a SHA-256 digest of the canonical values, the values, and whether the suite read them) and `taskSplit` (the split asked for, the seed and share, and the id and split of each task that ran); `RunSummary.disclosure` gains `settings` and `split`. Each task is in `tune` or `held-out` by a seeded hash of its suite and case name, or by the `split` the case states (`development` is `tune`); `EvalRunOptions` takes `split` and `settings`, and a suite reads the settings with the new `evalSetting` and `currentEvalSettings`. A settings snapshot refuses any key that names a credential and any value shaped like one.
-
-What to check: `EvalComparison.verdict` gains `withheld`, and `verdict.claim` is now `none` with a sentence starting `no winner is named` whenever either report was run on the tune split or on all tasks, has no settings snapshot (every report written before this version), ran the same settings as the other, or ran different tasks. A script that read `claim === 'better'` from a comparison of two older reports now gets `none`; to get a claim, run both with `namzu eval --split held-out` under different settings. Every number in a report is unchanged. `EvalComparison` also gains `settings` and `split`.
