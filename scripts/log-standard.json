@@ -132,6 +132,18 @@
 			"reason": "the one JSON value `namzu peers list --json` and `namzu peers send --json` print for a script to parse: the result, or `{error, exit}` on failure; stderr carries NDJSON log records, so no log line lands on this channel."
 		},
 		{
+			"file": "packages/cli/src/commands/watch.ts",
+			"symbol": "process.stdout.write",
+			"count": 1,
+			"reason": "the conversation rows and status line `namzu watch` prints for a person or a pipe; it is the command's output, not a log, and stderr carries the log records."
+		},
+		{
+			"file": "packages/cli/src/commands/watch.ts",
+			"symbol": "process.stderr.write",
+			"count": 2,
+			"reason": "the refusals and the list of running sessions `namzu watch` prints when it cannot start (no such session, several running and none named), and the prompt for choosing among them; user-facing text for a person at a terminal, not a log record."
+		},
+		{
 			"file": "packages/cli/src/tui/index.tsx",
 			"symbol": "process.stdout.write",
 			"count": 4,
