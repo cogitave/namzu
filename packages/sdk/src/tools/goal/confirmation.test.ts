@@ -90,7 +90,7 @@ const ROWS: readonly Row[] = [
 		expect: 'refuse',
 	},
 	{
-		name: 'whether anything changed cannot be told',
+		name: 'whether anything changed cannot be told (a later check could not clear it, so no refusal)',
 		statement: 'met',
 		record: record('unknown'),
 		expect: 'stated-not-checked',

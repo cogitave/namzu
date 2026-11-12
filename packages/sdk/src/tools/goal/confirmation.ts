@@ -133,10 +133,12 @@ function refusalNote(record: TurnOutcome | undefined, earlierChanged: boolean): 
  *   (`confirmed`).
  * - The model says it is met: a passing check with nothing changed after it is
  *   `confirmed`; a failing check, files changed after the last pass, files
- *   changed and no check, or a check whose result could not be read are
- *   refused while refusals remain and `not-confirmed` once they do not; nothing
- *   changed, or whether anything changed cannot be told, or no record at all,
- *   is `stated-not-checked`.
+ *   changed and no check, or a check whose result could not be read are refused
+ *   while refusals remain and `not-confirmed` once they do not; nothing
+ *   changed, a command that may have changed files (`unknown`) or no record at
+ *   all is `stated-not-checked`. `unknown` is not refused on purpose: the
+ *   record keeps it for the whole turn, so no later check could clear it and a
+ *   refusal would only cost calls until the bound.
  */
 export function decideGoalConfirmation(input: GoalDecisionInput): GoalDecision {
 	const { statement, record, refusals, maxRefusals } = input

@@ -236,6 +236,16 @@ describe('a goal confirmed by the record', () => {
 		expect(run.notes.join('\n')).toContain('files changed after the last passing check')
 	})
 
+	it('ends as stated, not checked, when a command that may have changed files ran past a passing check', async () => {
+		const run = await runGoal({
+			confirmedBy: 'record',
+			script: [shell(0), shell(0, 'sed -i s/a/b/ a.ts'), complete(), say('Done.')],
+		})
+		expect(run.goal.phase).toBe('complete')
+		expect(run.ending).toMatchObject({ ending: 'stated-not-checked', refusals: 0 })
+		expect(run.ending?.sentence).toContain('may have changed files')
+	})
+
 	it('ends as stated, not checked, when the model says no check exists', async () => {
 		const run = await runGoal({
 			confirmedBy: 'record',

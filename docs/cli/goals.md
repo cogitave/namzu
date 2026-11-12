@@ -60,7 +60,7 @@ What `checked` means is as narrow as it is in the record: a command Namzu recogn
 - **Per person:** `goal.confirmedBy` in `~/.namzu/config.yaml` or `namzu.config.json`, `model` (the default) or `record`.
 - **Per goal:** `/goal set --confirmed-by record <objective>` (also `--confirmed-by=record`, and on a direct `/goal <objective>`). A goal that chose keeps its choice against the setting; one that did not follows the setting. The choice is saved with the goal. `/goal status` shows `Confirmed by: the record of the work` when it applies.
 
-With `model`, and no goal that chose `record`, nothing in a round differs from before: the tools, their descriptions and the turn are unchanged.
+With `model`, and no goal that chose `record`, the goal tools, their descriptions and how a goal ends are unchanged. One thing differs for every goal: a call to `get_goal` or `update_goal` is counted as a call that only looks, so it no longer makes a turn's outcome record read as changed files. The flag is read only at the front of the command or right after `set`; later words belong to the objective.
 
 ### The default
 
@@ -70,7 +70,7 @@ The default is `model` because ending by the record changes how an existing comm
 
 The closing line above is shown under the turn's outcome line, once, in the turn that ended the goal. It is not saved in the conversation, so a reopened conversation shows the goal's phase (`complete` or `blocked` with the record's sentence) and not which of the first two endings it was.
 
-`namzu exec --output-format json` and the `done` line of `exec --json` carry the same facts as an optional `goalEnding` key: `goalId`, `ending` (`confirmed`, `stated-not-checked` or `not-confirmed`), `sentence` and `refusals`. It is absent unless a goal ended in the command. `exec` does not set goals today and scheduled tasks do not run them, so the key is never present there yet; it is there so a script written now keeps working when they do.
+`namzu exec --output-format json` and the `done` line of `exec --json` carry the same facts as an optional `goalEnding` key: `goalId`, `ending` (`confirmed`, `stated-not-checked` or `not-confirmed`), `sentence` and `refusals`. It is absent unless a goal ended in the command. `exec` does not set goals today and scheduled tasks do not run them, so the key is never present there yet, and no exit status is defined for a not-confirmed goal in those runs: when they do run goals, that exit status will be documented with them.
 
 ## Measured on the scripted suite
 

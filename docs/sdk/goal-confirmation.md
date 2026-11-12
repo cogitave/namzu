@@ -22,12 +22,14 @@ How a goal ends is a choice per goal, `SessionGoal.confirmedBy` (`'model' | 'rec
 |---|---|---|
 | any but `could-not` | `checked` | ends `confirmed` |
 | any but `could-not` | `unchanged`, with a passing check | ends `confirmed` |
-| `met` | `failing`, `stale`, `unchecked`, `inconclusive` | refuse while `refusals < maxRefusals`, else ends `not-confirmed` |
+| `met` | `failing`, `stale`, `unchecked`, `inconclusive`, `unknown` | refuse while `refusals < maxRefusals`, else ends `not-confirmed` |
 | `met` | `unchanged` after an earlier round that changed files | refuse, as above |
 | `met` | `unchanged`, `unknown`, none | ends `stated-not-checked` |
 | `no-check` | `failing`, `stale` | ends `not-confirmed` |
 | `no-check` | `unchanged`, `unchecked`, `unknown`, `inconclusive`, none | ends `stated-not-checked` |
 | `could-not` | any | ends `not-confirmed` |
+
+`unknown` (a command ran that may have changed files and nothing could tell whether it did) ends as stated, not checked and is never refused: the record keeps `unknown` for the rest of the turn, so a later passing check could not clear it and a refusal would only spend calls until the bound. The closing line says so in the record's own sentence.
 
 A refusal carries a note in the kernel's own words naming what the record holds. `recordSentence(record)` writes that sentence and `describeGoalEnding({ ending, sentence })` the closing line. `DEFAULT_GOAL_REFUSALS` is 3.
 

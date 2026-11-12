@@ -89,26 +89,50 @@ type ConfirmedByFlag =
 	  }
 	| { readonly kind: 'invalid' }
 
-/** Takes `--confirmed-by <model|record>` (or `=`) out of the arguments, wherever it stands. */
+/**
+ * Takes `--confirmed-by <model|record>` (or `=`) out of the arguments, but only
+ * where a flag stands: at the front, right after `set`, or closing the command. In the middle the words
+ * belong to the objective, so a goal about the flag itself keeps its text.
+ */
 function takeConfirmedBy(args: readonly string[]): ConfirmedByFlag {
-	const rest: string[] = []
+	const head: string[] = []
+	let i = 0
+	if ((args[0] ?? '').toLowerCase() === 'set') {
+		head.push(args[0] ?? '')
+		i = 1
+	}
 	let found: GoalConfirmedBy | undefined
-	for (let i = 0; i < args.length; i++) {
+	for (; i < args.length; i++) {
 		const arg = args[i] ?? ''
-		let value: string | undefined
+		let value: string
 		if (arg === '--confirmed-by') {
 			value = args[i + 1] ?? ''
 			i++
 		} else if (arg.startsWith('--confirmed-by=')) {
 			value = arg.slice('--confirmed-by='.length)
 		} else {
-			rest.push(arg)
-			continue
+			break
 		}
 		if (value !== 'model' && value !== 'record') return { kind: 'invalid' }
 		found = value
 	}
-	return { kind: 'ok', args: rest, ...(found ? { confirmedBy: found } : {}) }
+	let tail = args.slice(i)
+	// A flag may also close the command; in the middle its words are the objective's.
+	const last = tail[tail.length - 1] ?? ''
+	const beforeLast = tail[tail.length - 2] ?? ''
+	let closing: string | undefined
+	if (last.startsWith('--confirmed-by=')) {
+		closing = last.slice('--confirmed-by='.length)
+		tail = tail.slice(0, -1)
+	} else if (beforeLast === '--confirmed-by') {
+		closing = last
+		tail = tail.slice(0, -2)
+	}
+	if (closing !== undefined) {
+		if (closing !== 'model' && closing !== 'record') return { kind: 'invalid' }
+		found = closing
+	}
+	return { kind: 'ok', args: [...head, ...tail], ...(found ? { confirmedBy: found } : {}) }
 }
 
 function goalRef(goal: SessionGoal): GoalRef {

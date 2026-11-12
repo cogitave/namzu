@@ -54,6 +54,18 @@ describe('/goal --confirmed-by', () => {
 		).toBeUndefined()
 	})
 
+	it('leaves the words of an objective alone when they only mention the flag', async () => {
+		const { store, registry, sessionId, tenantId } = await setup()
+		await registry.dispatch('/goal document the --confirmed-by flag in the readme')
+		let goal = await store.getGoal(sessionId, tenantId)
+		expect(goal?.objective).toBe('document the --confirmed-by flag in the readme')
+		expect(goal?.confirmedBy).toBeUndefined()
+		await registry.dispatch('/goal clear')
+		await registry.dispatch('/goal explain --confirmed-by')
+		goal = await store.getGoal(sessionId, tenantId)
+		expect(goal?.objective).toBe('explain --confirmed-by')
+	})
+
 	it('says when the host setting is what confirms a goal', async () => {
 		const { registry } = await setup('record')
 		await registry.dispatch('/goal fix it')
