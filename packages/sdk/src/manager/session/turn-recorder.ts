@@ -6,6 +6,7 @@ import {
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
 import { NAMZU } from '../../constants/telemetry/index.js'
 import { resolveModelPricing } from '../../pricing/index.js'
+import { compareAnswerToOutcome } from '../../runtime/query/turn/answer-claims.js'
 import type { SessionTokenBudget } from '../../store/budget/index.js'
 import type { SessionCheckpointStore } from '../../store/checkpoint/index.js'
 import { foldSessionLog } from '../../store/session-log/incremental.js'
@@ -16,6 +17,7 @@ import {
 	type SessionLogHead,
 	type SessionLogWriteHealth,
 	SessionMessageFold,
+	turnHolder,
 	withMessageId,
 } from '../../store/session-log/index.js'
 import type { SpillRef } from '../../store/session-log/spill.js'
@@ -611,6 +613,7 @@ export class TurnRecorder {
 	settlement(status: TurnSettlement['status']): LiveTurnSettlement {
 		const turn = this.getTurn()
 		const resultMessageId = this.#lastAssistantEntry()?.id
+		const claimMismatch = compareAnswerToOutcome(turn.result, turn.outcome)
 		return {
 			status,
 			iterations: turn.currentIteration,
@@ -624,6 +627,7 @@ export class TurnRecorder {
 			abandonedTaskIds: [...(turn.abandonedTaskIds ?? [])],
 			abandonedJobIds: [...(turn.abandonedJobIds ?? [])],
 			...(turn.outcome ? { outcome: turn.outcome } : {}),
+			...(claimMismatch ? { claimMismatch } : {}),
 		}
 	}
 
@@ -636,8 +640,7 @@ export class TurnRecorder {
 	async open(options: TurnRecorderOpenOptions): Promise<RecordedMessage[]> {
 		if (this.#phase !== 'new') throw new Error('TurnRecorder.open was already called.')
 		this.#leaseTtlMs = options.leaseTtlMs ?? DEFAULT_TURN_LEASE_TTL_MS
-		this.#leaseHolder =
-			options.holder ?? options.lease?.holder ?? `namzu:${process.pid}:${this.turnId}`
+		this.#leaseHolder = options.holder ?? options.lease?.holder ?? turnHolder(this.turnId)
 		try {
 			if (options.lease) {
 				this.#lease = options.lease
@@ -1560,9 +1563,14 @@ export function eventDraft(
 		...payload
 	} = event as SessionEvent & Record<string, unknown>
 	const draft = JSON.parse(JSON.stringify(payload)) as Record<string, unknown>
-	// The outcome rides the live settlement only; the log keeps it in its own record.
+	// The outcome and the claim mismatch ride the live settlement only; the log
+	// keeps the outcome in its own record and the mismatch nowhere.
 	if (draft.settlement !== undefined && typeof draft.settlement === 'object') {
-		const { outcome: _outcome, ...settlement } = draft.settlement as Record<string, unknown>
+		const {
+			outcome: _outcome,
+			claimMismatch: _claimMismatch,
+			...settlement
+		} = draft.settlement as Record<string, unknown>
 		draft.settlement = settlement
 	}
 	return { ...draft, ...(turnId ? { turnId } : {}) } as Parameters<SessionLog['append']>[1]

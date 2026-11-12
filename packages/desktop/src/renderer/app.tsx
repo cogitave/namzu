@@ -3692,6 +3692,14 @@ export function App({
 		const owner = projects.find((item) => item.id === view.projectId)
 		const isPal = Boolean(view.palId || owner?.palId)
 		const state = view.id === sessionId ? thread : (threads[view.id] ?? emptyThread())
+		// A thread read from the journal (or the one on screen) is this window's own record. For any
+		// other row this window holds at most the events it happened to see, so what main says about
+		// the row stands in: a conversation can have a reply this window never loaded.
+		const loaded = view.id === sessionId ? !historyPending : loadedHistory.current.has(view.id)
+		const threadReply = lastReplyText(state.messages)
+		const hasReply = loaded
+			? threadReply !== undefined
+			: threadReply !== undefined || !!view.replied
 		const work =
 			isPal || (view.harness && view.harness !== 'namzu')
 				? ({ state: 'unavailable' } as const)
@@ -3703,8 +3711,10 @@ export function App({
 			queued: state.queued.length,
 			permissions: state.permissions.length,
 			backgroundRunning: work.state === 'known' ? work.runningCount : 0,
-			hasMessages: state.messages.length > 0,
-			hasReply: lastReplyText(state.messages) !== undefined,
+			hasMessages: state.messages.length > 0 || (!loaded && hasReply),
+			hasReply,
+			loaded,
+			replyReadable: threadReply !== undefined,
 			hasProjectPath: Boolean(owner && !owner.isChat && !owner.palId && owner.path),
 			unread: unreadConversations.has(view.id),
 			editorLabel: editors[0]?.label,

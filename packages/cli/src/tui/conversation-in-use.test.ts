@@ -1,3 +1,4 @@
+import { turnHolder } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import { conversationInUseSentence, minutesUntilFree } from './conversation-in-use.js'
@@ -21,6 +22,15 @@ describe('the minutes until another process gives a conversation back', () => {
 
 	it('treats a holder that is not a process of ours as another window', () => {
 		expect(minutesUntilFree({ holder: 'desktop-main', expiresAt: NOW + 60_000 }, NOW, 7)).toBe(1)
+	})
+
+	it('reads this process by its place too: the same id in another place is another window', () => {
+		const lease = (place: string) => ({
+			holder: turnHolder('t', { pid: 7, place }),
+			expiresAt: NOW + 60_000,
+		})
+		expect(minutesUntilFree(lease('aaaaaaaaaaaa'), NOW, 7, 'aaaaaaaaaaaa')).toBeUndefined()
+		expect(minutesUntilFree(lease('bbbbbbbbbbbb'), NOW, 7, 'aaaaaaaaaaaa')).toBe(1)
 	})
 
 	it('speaks in minutes', () => {

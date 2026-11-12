@@ -51,6 +51,18 @@ pnpm exec namzu eval --dir node_modules/@namzu/evals --out eval-report.json
 The kernel suites drive a scripted provider and the security suites touch no
 provider at all, so both are deterministic and cost nothing to run.
 
+## The answer-claims suite
+
+`kernel/answer-claims` measures what the kernel records when an answer says a
+check passed, not whether a model would say so: the tool calls and the closing
+words of every case are scripted. Each case scores the verdict of the turn's
+outcome record and whether the comparison of the answer with that record fired
+(`outcomeScorer`, `claimMismatchScorer`). It pins a pass claimed after a failing
+check, after changes nobody checked and after a check whose result was hidden,
+and the silence on the same words after a passing check, after nothing changed,
+as a negation, and as an honest "I did not run it". The comparison is shadow only
+and reads English claims only.
+
 ## The delegation suite
 
 `kernel/delegation` measures what the kernel does around a delegation, not what

@@ -67,6 +67,7 @@ import {
  */
 
 import {
+	type AnswerClaimMismatch,
 	AuthorizationGate,
 	type AuthorizationRule,
 	type AutoReviewClassifier,
@@ -914,6 +915,8 @@ export type AgentEvent =
 			readonly budget?: SessionTokenBudgetSummary
 			/** What the turn changed and what checked it, from the kernel's own record of its calls. */
 			readonly outcome?: TurnOutcome
+			/** A plain claim in the answer that the record contradicts. Shown, never acted on. */
+			readonly claimMismatch?: AnswerClaimMismatch
 	  }
 	| {
 			/** A recoverable turn stopped with an addressable checkpoint. */
@@ -9115,6 +9118,9 @@ export function toAgentEvent(
 				...(event.budget ? { budget: event.budget } : {}),
 				...(event.stopReason ? { stopReason: event.stopReason } : {}),
 				...(event.settlement?.outcome ? { outcome: event.settlement.outcome } : {}),
+				...(event.settlement?.claimMismatch
+					? { claimMismatch: event.settlement.claimMismatch }
+					: {}),
 			}
 		case 'turn_failed':
 			// Keep the compatibility string and the structure. Prefixing the

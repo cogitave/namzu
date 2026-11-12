@@ -123,7 +123,9 @@ The record itself does not change. `exec` JSON output, the Desktop outcome feed 
 
 A conversation that is resumed draws the lines of its past turns from the log (`turn_outcome_recorded`) with the same rule over the whole history, so it reads as it did live. A turn that ended with an error draws no outcome line, live or restored: the error is that turn's account, and its record is not carried to the screen. A turn that was stopped or cancelled does draw it, since it ended normally.
 
-`namzu exec --output-format json` has the record as `outcome` on its result, and `exec --json` puts it on the `done` line ([exec --json](exec-json.md)). A delegated agent's result names its record in one line after the agent's own words.
+When the answer says a check passed and the same turn's record says otherwise, one more line follows the outcome line, in the kernel's words and once for that turn: `The answer says the tests pass. The record: pnpm test failed.`, or `The record: files changed and no check ran.` It is shown only for a turn whose record says a check failed, or that changed files and ran no check or none whose result could be read; never when nothing changed. It only shows: the model is not told and nothing is blocked. It is not kept in the session log; a reopened conversation works it out again from the saved answer and record and draws the same line. It reads English claims only. See [the answer against the record](../sdk/turn-outcome.md#the-answer-against-the-record).
+
+`namzu exec --output-format json` has the record as `outcome` on its result, and `exec --json` puts it on the `done` line ([exec --json](exec-json.md)). A mismatch of the kind above is a `claimMismatch` key beside it, absent when there is none. A delegated agent's result names its record in one line after the agent's own words.
 
 ## Spend limit
 

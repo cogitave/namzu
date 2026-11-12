@@ -1,3 +1,4 @@
+import type { AnswerClaimMismatch, TurnOutcome } from '../types/session/outcome.js'
 import type { StepResult } from '../types/session/step.js'
 import type { ScoreUncertainty } from './uncertainty.js'
 
@@ -36,6 +37,16 @@ export interface EvalTurn {
 	durationMs: number
 	/** Set when the turn threw rather than settling. */
 	error?: string
+	/**
+	 * What the turn changed and what checked it, from the kernel's own record of
+	 * its tool calls. Absent for a turn that never ran the loop.
+	 */
+	outcome?: TurnOutcome
+	/**
+	 * A plain claim in the answer that the outcome record contradicts, found by
+	 * `compareAnswerToOutcome`. Absent when there is none.
+	 */
+	claimMismatch?: AnswerClaimMismatch
 }
 
 /**

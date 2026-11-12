@@ -1,4 +1,5 @@
 import type { AttachmentView, ChatMessage, ConversationView } from '../shared/protocol.js'
+import { lastReplyText } from '../shared/reply.js'
 
 export type ConversationActionId =
 	| 'rename'
@@ -76,6 +77,14 @@ export interface ConversationActionInput {
 	backgroundRunning: number
 	hasMessages: boolean
 	hasReply: boolean
+	/**
+	 * This window holds the conversation's own messages. When false, `hasMessages` and `hasReply`
+	 * come from what main says about the row, and an action that needs the content asks the person
+	 * to open the conversation first. Absent means loaded.
+	 */
+	loaded?: boolean
+	/** The reply's text is in this window, so Copy can use it. Absent means it is when there is a reply. */
+	replyReadable?: boolean
 	hasProjectPath: boolean
 	/** A finished turn here has not been looked at. */
 	unread?: boolean
@@ -98,9 +107,14 @@ export function archiveBlockedReason(
 
 function forkBlockedReason(input: ConversationActionInput): string | undefined {
 	if (input.running) return 'Wait for the reply to finish.'
+	// Main refuses these for a row that has a tab in another window, and this window cannot see
+	// that, so a row it has not loaded asks to be opened first, which is true either way.
+	if (input.loaded === false) return OPEN_FIRST
 	if (!input.hasMessages) return 'There is nothing to fork yet.'
 	return undefined
 }
+
+const OPEN_FIRST = 'Open the conversation first.'
 
 /** The menu as groups; a separator sits between groups. Empty groups are dropped. */
 export function conversationActionGroups(
@@ -152,7 +166,11 @@ export function conversationActionGroups(
 					id: 'copy-reply',
 					label: 'Last reply',
 					icon: 'reply',
-					reason: input.hasReply ? undefined : 'There is no reply to copy yet.',
+					reason: !input.hasReply
+						? 'There is no reply to copy yet.'
+						: input.replyReadable === false
+							? OPEN_FIRST
+							: undefined,
 				},
 			]
 			if (namzu && input.can.markdown)
@@ -160,7 +178,12 @@ export function conversationActionGroups(
 					id: 'copy-markdown',
 					label: 'Conversation as Markdown',
 					icon: 'markdown',
-					reason: input.hasMessages ? undefined : 'There is nothing to copy yet.',
+					reason:
+						input.loaded === false
+							? OPEN_FIRST
+							: input.hasMessages
+								? undefined
+								: 'There is nothing to copy yet.',
 				})
 			children.push({ id: 'copy-id', label: 'Conversation ID', icon: 'id' })
 			if (input.hasProjectPath)
@@ -257,16 +280,7 @@ export function conversationShortcut(
 	return null
 }
 
-/** The last completed final answer, which is the text the reply copy control would copy. */
-export function lastReplyText(messages: readonly ChatMessage[]): string | undefined {
-	for (let index = messages.length - 1; index >= 0; index--) {
-		const message = messages[index]
-		if (!message || message.role !== 'assistant' || message.status === 'pending') continue
-		if (message.phase === 'commentary' || !message.text) continue
-		return message.text
-	}
-	return undefined
-}
+export { lastReplyText }
 
 export interface ConversationSource {
 	key: string

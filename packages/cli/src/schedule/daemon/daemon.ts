@@ -61,6 +61,7 @@ import { admitNotification } from '../../integrations/notifications/desktop/thro
 import { deliverRunToSource } from '../delivery.js'
 import { childEnvironment } from '../env.js'
 import { isFinal, readRunResult } from '../fire/result.js'
+import { GATE_START_FAILURES_BEFORE_NOTICE } from '../gate.js'
 import type { SchedulePaths } from '../paths.js'
 import { allowsWrites } from '../policy.js'
 import { resumeCommand } from '../resume-command.js'
@@ -1135,6 +1136,16 @@ export class ScheduleDaemon {
 			status === 'interrupted' ||
 			status === 'approval-expired' ||
 			status === 'check-failed'
+		// A gate that said not to run is neither a failure nor a success: the
+		// streak is left as it was, and only a gate that cannot start is counted.
+		const skipped = status === 'skipped'
+		const gateStartFailures =
+			skipped && result.skipKind === 'start'
+				? (current.counters.gateStartFailures ?? 0) + 1
+				: status === 'awaiting-approval'
+					? (current.counters.gateStartFailures ?? 0)
+					: 0
+		const skips = (current.counters.skips ?? 0) + (skipped ? 1 : 0)
 		const counters = {
 			runs: current.counters.runs + (status === 'awaiting-approval' ? 0 : 1),
 			failures: current.counters.failures + (failed ? 1 : 0),
@@ -1143,6 +1154,8 @@ export class ScheduleDaemon {
 				: status === 'completed'
 					? 0
 					: current.counters.failureStreak,
+			...(skips > 0 ? { skips } : {}),
+			...(gateStartFailures > 0 ? { gateStartFailures } : {}),
 		}
 		const quotaHold =
 			status === 'failed' &&
@@ -1179,10 +1192,12 @@ export class ScheduleDaemon {
 					sessionId: result.sessionId,
 					refusedCalls: result.refusedCalls?.count,
 					failedCalls: result.failedCalls?.count,
+					reason: skipped ? result.reason : undefined,
 				}),
 			})
 		}
-		if (run.delivery || result.scriptReport?.nextState !== undefined) {
+		// A skipped run has nothing to deliver to a source conversation.
+		if ((run.delivery && !skipped) || result.scriptReport?.nextState !== undefined) {
 			const snapshot: ScheduleRunResult = {
 				...result,
 				status,
@@ -1204,6 +1219,20 @@ export class ScheduleDaemon {
 			if (result.scriptReport?.state !== 'quiet') tell = 'finished'
 		} else if (status === 'awaiting-approval') {
 			tell = 'awaiting-approval'
+		} else if (skipped) {
+			// Told once, when the gate has failed to start enough runs in a row;
+			// any other skip means the gate started and ends that incident.
+			if (result.skipKind === 'start') {
+				if (gateStartFailures >= GATE_START_FAILURES_BEFORE_NOTICE) {
+					const signature = failureSignature('skipped', result.reason)
+					if (incident?.signature !== signature) {
+						tell = 'gate-cannot-start'
+						incident = { signature, at }
+					}
+				}
+			} else if (incident?.signature.startsWith('skipped:')) {
+				incident = undefined
+			}
 		} else if (failed && status !== 'approval-expired') {
 			const signature = failureSignature(status, result.reason)
 			if (incident?.signature !== signature) {
@@ -1263,6 +1292,7 @@ export class ScheduleDaemon {
 					...(summary ? { summary } : {}),
 					...(result.refusedCalls ? { refused: result.refusedCalls } : {}),
 					...(tell === 'check-failed' && result.reason ? { reason: result.reason } : {}),
+					...(tell === 'gate-cannot-start' ? { failures: gateStartFailures } : {}),
 					...(tell === 'awaiting-approval' && next.activeRun?.sessionId
 						? { resumeCommand: resumeCommand(job, next.activeRun.sessionId) }
 						: {}),
@@ -1549,6 +1579,7 @@ export function appendRunRecord(
 		...(result.refusedCalls ? { refusedCalls: result.refusedCalls } : {}),
 		...(result.failedCalls ? { failedCalls: result.failedCalls } : {}),
 		...(result.gateResult ? { gateResult: result.gateResult } : {}),
+		...(result.skipKind ? { skipKind: result.skipKind } : {}),
 		...(result.scriptOutput ? { scriptOutput: result.scriptOutput } : {}),
 	})
 }

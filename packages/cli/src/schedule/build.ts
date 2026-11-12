@@ -37,6 +37,12 @@ import {
 	readPreferences,
 } from '../integrations/providers/index.js'
 import { checkJobFolder, ensureScratchFolder, plannedScratchFolder } from './folder.js'
+import {
+	DEFAULT_GATE_TIMEOUT_MS,
+	MAX_GATE_TIMEOUT_MS,
+	gateLines,
+	validGateTimeout,
+} from './gate.js'
 import type { SchedulePaths } from './paths.js'
 import {
 	type CompiledJobPolicy,
@@ -105,6 +111,18 @@ export interface JobRequest {
 	}
 	/** `runKind: 'script+agent'` only. */
 	readonly wakeGate?: { readonly maxContextChars?: number }
+	/**
+	 * An `agent` job's gate: a command the operator wrote, run before every
+	 * scheduled run. Only the CLI and the job file set it; the model's tool
+	 * never passes one (it refuses the field).
+	 */
+	readonly gate?: {
+		readonly command: string
+		/** Absent: `sh`. */
+		readonly shell?: 'bash' | 'sh'
+		/** Absent: {@link DEFAULT_GATE_TIMEOUT_MS}; at most {@link MAX_GATE_TIMEOUT_MS}. */
+		readonly timeoutMs?: number
+	}
 }
 
 export class JobRequestError extends Error {
@@ -225,6 +243,28 @@ export function buildJob(
 	if (request.wakeGate !== undefined && runKind !== 'script+agent') {
 		throw new JobRequestError('a wake-gate only applies to a script+agent job')
 	}
+	if (request.gate !== undefined) {
+		if (runKind !== 'agent') {
+			throw new JobRequestError(
+				'a gate only applies to an agent job; a script+agent job already has its wake-gate script',
+			)
+		}
+		if (!request.gate.command.trim()) throw new JobRequestError('the gate command is empty')
+		if (process.platform === 'win32') {
+			throw new JobRequestError(
+				'a gate is not supported on native Windows yet: its command would run through cmd.exe, read only as a loose approximation the floor cannot fully verify. Use WSL, where the gate runs on the Linux side.',
+			)
+		}
+		const gateShell = request.gate.shell ?? 'sh'
+		if (!installedCommandShellForDialect(gateShell)) {
+			throw new JobRequestError(scriptShellUnavailableReason(gateShell))
+		}
+		if (request.gate.timeoutMs !== undefined && !validGateTimeout(request.gate.timeoutMs)) {
+			throw new JobRequestError(
+				`the gate timeout must be a whole number of milliseconds above zero and at most ${MAX_GATE_TIMEOUT_MS / 1000} s`,
+			)
+		}
+	}
 	// Native (non-WSL) Windows resolves the `bash` tool's shell to `cmd.exe`,
 	// read only as a loose `sh`-dialect approximation — an acceptable bar for
 	// a human watching a live turn, not for a whole script body confirmed
@@ -261,6 +301,11 @@ export function buildJob(
 	if (runKind === 'script' && permissions.unmatched === 'park') {
 		throw new JobRequestError(
 			'a pure script job cannot use unmatched: park; nothing can wait for the operator while a script runs. Use unmatched: deny or allow (the floor and the job’s own rules still decide everything the script tries), or make this a script+agent job if a person should review something first',
+		)
+	}
+	if (request.gate !== undefined && permissions.execution === 'sandbox') {
+		throw new JobRequestError(
+			'execution: sandbox is not yet supported for a gate; use execution: host (a follow-up may add sandboxed gates)',
 		)
 	}
 	if (runKind !== 'agent' && permissions.execution === 'sandbox') {
@@ -341,6 +386,7 @@ export function buildJob(
 			runKind,
 			script: request.script,
 			workspace: request.workspace,
+			...(request.gate ? { gate: request.gate as NonNullable<ScheduleJob['gate']> } : {}),
 			delivery: request.delivery,
 			deliveryWaiverRunIds: request.deliveryWaiverRunIds,
 		}),
@@ -369,6 +415,15 @@ export function buildJob(
 			? {
 					wakeGate: {
 						maxContextChars: request.wakeGate?.maxContextChars ?? DEFAULT_WAKE_GATE_CONTEXT_CHARS,
+					},
+				}
+			: {}),
+		...(request.gate
+			? {
+					gate: {
+						command: request.gate.command,
+						shell: request.gate.shell ?? ('sh' as const),
+						timeoutMs: request.gate.timeoutMs ?? DEFAULT_GATE_TIMEOUT_MS,
 					},
 				}
 			: {}),
@@ -480,6 +535,7 @@ export function editedJob(current: ScheduleJob, rebuilt: ScheduleJob): ScheduleJ
 		runKind: rebuilt.runKind,
 		script: rebuilt.script,
 		wakeGate: rebuilt.wakeGate,
+		gate: rebuilt.gate,
 		workspace: rebuilt.workspace,
 		delivery: rebuilt.delivery,
 		deliveryWaiverRunIds: rebuilt.deliveryWaiverRunIds,
@@ -538,7 +594,8 @@ export function previewLines(job: ScheduleJob, policy: CompiledJobPolicy, now: D
 	const hasScriptPhase = job.runKind === 'script' || job.runKind === 'script+agent'
 	const networkCapable =
 		policy.network ||
-		(job.permissions.execution === 'host' && (hasScriptPhase || allowsCommands(job.permissions)))
+		(job.permissions.execution === 'host' &&
+			(hasScriptPhase || job.gate !== undefined || allowsCommands(job.permissions)))
 	return [
 		`Job         ${job.name}`,
 		...(job.workspace === 'none'
@@ -593,6 +650,7 @@ export function previewLines(job: ScheduleJob, policy: CompiledJobPolicy, now: D
 						`Ceiling     up to ${perDay} run${perDay === 1 ? '' : 's'} a day × ${job.budget.tokenBudget.toLocaleString('en-US')} tokens = ${(perDay * job.budget.tokenBudget).toLocaleString('en-US')} tokens a day`,
 					]),
 		`Runs on     ${job.permissions.execution === 'host' ? 'this machine (host)' : 'the sandbox'}`,
+		...(job.gate ? gateLines(job.gate) : []),
 		...(networkCapable ? ['Network     THIS RUN CAN REACH THE NETWORK'] : []),
 		...(job.permissions.browser && job.runKind !== 'script'
 			? [

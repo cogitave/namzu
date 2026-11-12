@@ -300,6 +300,126 @@ An incomplete response is cancelled on timeout or disconnect, so a server-held
 body cannot accumulate across retries. Neither the response body nor its
 server-authored message is written to the subscription warning.
 
+### One resource's updates
+
+`MCPClient.subscribeResource(uri)` asks the server to say when one resource
+changes, and `unsubscribeResource(uri)` stops it. The update reaches
+`onNotification` as `notifications/resources/updated` with the `uri`; it says
+the resource changed, not what it holds now, so the host reads it again.
+
+| the server speaks | what is sent |
+|---|---|
+| 2026-07-28 | the URI joins `resourceSubscriptions` in the filter of the one `subscriptions/listen` request, which is cancelled and reopened with a new request ID when the set changes (one reopen for a burst of changes, none when the set ends where it began; the first subscription opens at once). `subscribeResource` resolving `true` means the request was made, not that the acknowledgment honored the URI. An update is delivered only for a URI the acknowledgment honored. |
+| 2025-11-25 and older | `resources/subscribe` and `resources/unsubscribe`, as those revisions define them, and again for every wanted URI after a reconnection or a re-initialize, because those servers keep the subscription in the session. |
+
+Both resolve without sending anything, and `subscribeResource` resolves
+`false`, when the server does not advertise `resources.subscribe`. Before this
+the client never subscribed to a resource in either revision.
+
+### `ttlMs` and `cacheScope`: lists and reads are kept as long as the server says
+
+A 2026-07-28 server puts `ttlMs` (how many milliseconds the result may be
+reused) and `cacheScope` (`"public"` or `"private"`) on the results of
+`tools/list`, `prompts/list`, `resources/list`, `resources/templates/list` and
+`resources/read`. **Before this, `MCPClient` ignored both and sent the request
+on every call**; now `listTools()`, `listPrompts()`, `listResources()`,
+`listResourceTemplates()` and `readResource()` answer from memory while the
+result is fresh.
+
+- The result is fresh for `ttlMs` after it arrived, and the client asks again
+  after that, never later. It does not poll in the background.
+- A result is kept for at most one hour whatever `ttlMs` says, and a result fetched while a change notification arrived is not kept. Callers get copies, so editing a returned tool or content block does not change what is kept.
+- Nothing is kept when `ttlMs` is absent, zero or negative, when the result is
+  not `resultType: "complete"`, or when the connection is not 2026-07-28. A
+  server of an older revision sends no hints, so its lists are fetched on
+  every call exactly as they were.
+- The key is the method and its parameters: each page of a list (its cursor)
+  and each resource (its `uri`) is its own entry, and each page keeps its own
+  clock.
+- A change notification drops what it makes stale at once: `tools`,
+  `prompts` and `resources` list changes drop the matching lists (and the
+  templates), `notifications/resources/updated` drops that resource's read.
+  So does the acknowledgment of a new listen stream, for the kinds it honors.
+- A `private` result, and one that names no scope, is served only to a call
+  with the same `Authorization` (the per-call `bearerToken`, or an
+  `Authorization` entry in `headers`) as the call that fetched it. A `public`
+  result is shared between credentials.
+- A call that gets `-32020` and re-lists tools before its one retry drops the
+  cached tool list first. `disconnect()` and `connect()` empty the cache. At
+  most 256 entries are kept; the oldest goes first.
+- `server/discover` carries the hints too; the era probe is not cached beyond
+  the era cache it already has.
+
+### Tool lists keep one order
+
+The revision asks servers to return `tools/list` in a deterministic order so a
+model provider's prompt cache keeps hitting; it is a SHOULD on the server.
+**Before this, `listTools()` returned tools in whatever order the server sent**,
+so a server that listed from a hash map, or an older one, could change the
+prompt between two turns. Now, on a 2026-07-28 connection, `listTools()`
+returns the tools sorted by name (code points, a tie keeping the server's
+order), so the order is a property of the client. A server of an older revision
+is left as it was: its tools come back in the order it sent.
+
+### Trace context in `_meta`
+
+When telemetry is on (a span is active, which is what registering
+`@namzu/telemetry` does), a request on a 2026-07-28 connection carries the
+W3C trace context in `_meta`, the convention the revision documents:
+`traceparent` (`00-<trace id>-<span id>-<flags>`) and, when the span has one,
+`tracestate`. A server that continues the trace shows the tool call under the
+turn's span. When telemetry is off, or the active span context is not valid
+W3C, nothing is added. A connection to an older server is sent exactly what it
+always was. `baggage` is not sent.
+
+### Tasks: a call the server turns into a task is awaited
+
+The tasks extension (`io.modelcontextprotocol/tasks`) lets a server answer a
+`tools/call` with a handle (`resultType: "task"`, a `taskId`, a status, a
+`pollIntervalMs`) instead of a result. **Before this, such an answer was
+refused as an unknown `resultType`**, and the client never declared the
+extension, so a conforming server never sent one.
+
+Now, on a 2026-07-28 connection whose `server/discover` lists the extension
+under `capabilities.extensions`, the client declares it in
+`io.modelcontextprotocol/clientCapabilities` on each request
+(`extensions: { "io.modelcontextprotocol/tasks": {} }`), and `callTool()`
+waits for a task to end and resolves with the task's `result`, exactly as if
+the server had answered at once. Nothing changes for the caller. Set
+`MCPClientConfig.tasks` to `false` to declare nothing, so a server never
+returns a task to that client.
+
+- **Polling.** `tasks/get` at the interval the server last suggested, kept
+  between 100 ms and 30 s (one second when it names none). `Mcp-Method` and
+  `Mcp-Name` (the task id) are set on `tasks/get`, `tasks/update` and
+  `tasks/cancel`.
+- **Deadlines.** The wait keeps the rules of a blocking call. With no
+  `onProgress`, the whole wait is bounded by `requestTimeoutMs`. With
+  `onProgress` on a client built with `resetTimeoutOnProgress`, each change of
+  the task's status, message or `lastUpdatedAt` renews that timeout, up to
+  `maxTotalTimeoutMs`.
+- **Progress.** Each change is passed to `onProgress` as an update whose
+  `progress` rises by one and whose `message` is the task's `statusMessage`
+  (control characters removed, 512 bytes), the shape of a progress notification.
+- **Cancellation.** When the call's `signal` fires or a deadline passes, the
+  client sends `tasks/cancel` (never `notifications/cancelled` to cancel the
+  task, which the extension forbids; a `tasks/get` in flight at that moment is
+  abandoned with its own `notifications/cancelled`, as any request is) and
+  rejects with the signal's reason or a `TimeoutError`. The cancel is best
+  effort and not awaited. `disconnect()` ends the wait at once with a
+  disconnect error and sends nothing.
+- **Outcomes.** `completed` resolves; `failed` rejects with the JSON-RPC error
+  as an `MCPProtocolError` (a failure with no code is an ordinary error naming the
+  server's message); a `completed` task with no result is an error, and a
+  completed result is checked like any tool result; `cancelled` rejects; `input_required` cancels the
+  task and rejects with `MCPInputRequiredError`, the same typed outcome as an
+  unmet multi round-trip request, because a modern connection has nobody to ask.
+- **Against an older server.** Nothing is declared and no task is awaited.
+
+Not built: `tasks/update` (answering a task's input requests),
+`notifications/tasks` through the listen stream (polling is the default and is
+what runs), and persisting task ids so polling can resume after a restart.
+
 ## Mirroring tool parameters into headers: `x-mcp-header`
 
 A server may annotate a tool parameter with `x-mcp-header` to ask that the
@@ -553,6 +673,11 @@ modern connection never sends `initialize` (it probes with `server/discover`
 instead), so `StreamableHttpTransport` never captures a `Mcp-Session-Id` in
 the first place, and each behavior below is conditioned on a session id
 being present.
+
+**A server's `ping` is answered.** A server of 2025-11-25 or older may send
+`ping` and wait for an empty result, and `MCPClient` now sends one. Before
+this it answered `-32601`, which a server may read as a dead connection. The
+newest revision removed `ping`, so on a modern connection it is still declined.
 
 **A session `404` triggers exactly one re-initialize.** A legacy server that
 has forgotten a session — expired it, restarted, whatever the reason —
@@ -963,10 +1088,42 @@ longer surfaces as a bare rejection: it comes back as a `ToolResult` with
 [MRTR](#mrtr-resulttype-and-a-typed-input_required-outcome)) — a host
 reading `ToolResult.data` today sees a new code it previously never could.
 
+## What is supported per revision
+
+"New" is 2026-07-28; "previous" is 2025-11-25 and older (the exact versions
+are in [the supported set](#the-supported-set)).
+
+| feature | previous | new |
+|---|---|---|
+| Version choice | `initialize` handshake, cached per origin | `server/discover` probe, version and capabilities in every request's `_meta` |
+| Sessions, `Mcp-Session-Id`, `Last-Event-ID` | yes | none, by design |
+| `Mcp-Method`, `Mcp-Name`, `x-mcp-header` mirroring | no | yes |
+| `resultType`, multi round-trip retry with `requestState` | a missing `resultType` reads as complete | yes; a request for input the client cannot give is a typed error |
+| List change notifications | the server's own stream | one `subscriptions/listen` stream, ID-checked |
+| One resource's updates | `resources/subscribe`, restored after a reconnection | `resourceSubscriptions` in the listen filter |
+| `ttlMs` and `cacheScope` | not sent by servers; nothing cached | lists and reads kept for `ttlMs`, scoped, dropped on a change |
+| Tasks extension | not applicable | polled to the result, progress, `tasks/cancel` |
+| Trace context in `_meta` | not sent | `traceparent`, `tracestate` when a span is active |
+| Tool list order | the order the server sent | sorted by name |
+| `ping` from the server | answered | removed from the protocol |
+| Roots, sampling, logging | untouched and not added to; deprecated by the new revision | not declared, not used |
+| Elicitation | form mode answered through `onElicitation` | not fulfilled: arrives as `input_required` |
+| Authorization (CLI) | issuer-keyed credentials, `iss` checked, `application_type` set | the same |
+
 ## Not yet built
 
-- **Individual resource updates.** The modern listen filter supports
-  `resourceSubscriptions` for `notifications/resources/updated`; Namzu
-  currently requests only the three catalogue `list_changed` kinds. It does
-  not send legacy `resources/subscribe` either. Resource catalogues still
-  refresh on `notifications/resources/list_changed` when advertised.
+- **Answering a task's input requests.** `tasks/update` is not sent, and the
+  specification asks a client to answer a task's input requests, so a server
+  whose task asks for input loses the work: a task that reaches `input_required`
+  is cancelled and the call ends with
+  `MCPInputRequiredError`. Neither mode of elicitation is fulfilled on a modern
+  connection, and a multi round-trip request that asks for input is refused for
+  the same reason.
+- **Task notifications and durable task ids.** `notifications/tasks` through
+  the listen stream (polling runs instead), and saving task ids so a restarted
+  process can resume waiting. Today a task is awaited only by the call that
+  started it.
+- **`baggage` in `_meta`.** Only `traceparent` and `tracestate` are sent.
+- **Per-request log level.** `io.modelcontextprotocol/logLevel` is never sent,
+  so a 2026-07-28 server emits no log messages; logging is deprecated and
+  nothing new is built on it.

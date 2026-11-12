@@ -88,7 +88,11 @@ import {
 	verifyCredential,
 } from '../tui/agent.js'
 import { withCliHarnesses } from './acp-harness.js'
-import { type ProviderRetryStatus, readProviderRetryStatus } from './acp-provider-retry.js'
+import {
+	type ProviderRetryStatus,
+	readProviderRetryStatus,
+	settleTurnOfGoneHost,
+} from './acp-provider-retry.js'
 import { questionsOverPermission } from './acp-screen-question.js'
 import { createDesktopHostExtensions } from './desktop-host.js'
 import { desktopModelCatalogue } from './desktop-model-catalogue.js'
@@ -1142,6 +1146,10 @@ export function createCliAcpRuntime(
 				// was prompting waits here and rides with this prompt; what the kernel
 				// delivered during an earlier turn was acknowledged and is not here.
 				const monitorSnapshot = record.session.monitors?.peek() ?? { ids: [] }
+				// A turn the host before this one left with nobody running it is closed, not waited for;
+				// the same rule the status applies, so a message and the status never disagree.
+				if (record.conversations)
+					await settleTurnOfGoneHost(record.conversations, sessionId).catch(() => false)
 				const undoNote = undoNotes.get(sessionId)?.join('\n\n')
 				undoNotes.delete(sessionId)
 				for await (const event of record.session.send(messages, {
@@ -1520,6 +1528,16 @@ export function createCliAcpRuntime(
 			try {
 				assertReadTrust(trust.cwd, state)
 				const binding = await deps.palBinding?.(trust.cwd, target.sessionId, state)
+				// This host is the one that is opening the conversation now. A turn the host before it left
+				// with nobody running it is over; the status below must not tell the person to wait for it.
+				await settleTurnOfGoneHost(
+					state,
+					target.sessionId,
+					record?.session.abandonTurn
+						? async (turnId, reason) =>
+								record.session.abandonTurn?.(asTurnId(turnId), reason, { withdrawMessages: false })
+						: undefined,
+				)
 				const status = await (deps.readRetryStatus ?? readProviderRetryStatus)(
 					state,
 					target.sessionId,

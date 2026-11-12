@@ -1,3 +1,4 @@
+import { compareAnswerToOutcome } from '../runtime/query/turn/answer-claims.js'
 import type { Turn } from '../types/session/turn.js'
 import type { EvalTurn } from './types.js'
 
@@ -12,6 +13,7 @@ import type { EvalTurn } from './types.js'
  */
 export function evalTurnFromTurn(turn: Turn, opts: { durationMs?: number } = {}): EvalTurn {
 	const steps = turn.steps ?? []
+	const claimMismatch = compareAnswerToOutcome(turn.result, turn.outcome)
 	return {
 		output: turn.result ?? null,
 		...(turn.structuredOutput !== undefined ? { structuredOutput: turn.structuredOutput } : {}),
@@ -23,6 +25,8 @@ export function evalTurnFromTurn(turn: Turn, opts: { durationMs?: number } = {})
 		totalCostUsd: turn.costInfo.totalCost,
 		durationMs: opts.durationMs ?? (turn.endedAt ?? Date.now()) - turn.startedAt,
 		...(turn.lastError ? { error: turn.lastError } : {}),
+		...(turn.outcome ? { outcome: turn.outcome } : {}),
+		...(claimMismatch ? { claimMismatch } : {}),
 	}
 }
 

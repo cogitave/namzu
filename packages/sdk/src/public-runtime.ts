@@ -902,6 +902,7 @@ export {
 	isRecognizedModernError,
 	isResourceNotFoundError,
 	isUnsupportedProtocolVersionError,
+	MCP_TASKS_EXTENSION,
 	LocalExecutionContext,
 	mcpEraCacheKey,
 	MCPHttpStatusError,
@@ -1401,9 +1402,11 @@ export { anyOf, hasToolCall, stepCountIs } from './types/session/step.js'
 export {
 	compareHarnessTrials,
 	reviewHarnessCandidate,
+	claimMismatchScorer,
 	completionScorer,
 	containsScorer,
 	customScorer,
+	outcomeScorer,
 	evalTurnFromQuery,
 	evalTurnFromTurn,
 	formatReport,
@@ -1412,6 +1415,15 @@ export {
 	stepBudgetScorer,
 	trajectoryScorer,
 } from './eval/index.js'
+
+// ─── answer against record ───────────────────────────────────────────────
+
+export {
+	ANSWER_CLAIM_MAX_CHARS,
+	ANSWER_CLAIM_MAX_QUOTE_CHARS,
+	compareAnswerToOutcome,
+	describeAnswerClaimMismatch,
+} from './runtime/query/turn/answer-claims.js'
 
 // ─── metrics ─────────────────────────────────────────────────────────────
 //

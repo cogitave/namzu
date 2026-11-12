@@ -46,6 +46,10 @@ export interface ScriptRunResult {
 	readonly dialectMismatch?: { readonly expected: 'bash' | 'sh'; readonly actual: ShellDialect }
 	/** The requested interpreter is no longer executable on this host. */
 	readonly shellUnavailable?: 'bash' | 'sh'
+	/** The process printed more than the output limit and was ended. */
+	readonly outputOverflow?: boolean
+	/** The process was ended by this signal (not by the timeout). */
+	readonly signal?: string
 }
 
 /**
@@ -95,6 +99,7 @@ export async function runScript(
 			stdout?: string
 			stderr?: string
 			code?: string | number
+			signal?: string | null
 			timedOut?: boolean
 			killed?: boolean
 			message?: string
@@ -117,6 +122,10 @@ export async function runScript(
 			stderr: failure.stderr ?? (failure.message ? `${failure.message}\n` : ''),
 			exitCode: typeof failure.code === 'number' ? failure.code : null,
 			timedOut: failure.timedOut === true,
+			...(failure.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' ? { outputOverflow: true } : {}),
+			...(typeof failure.signal === 'string' && failure.signal !== ''
+				? { signal: failure.signal }
+				: {}),
 		}
 	}
 }

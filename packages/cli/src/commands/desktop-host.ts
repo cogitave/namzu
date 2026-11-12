@@ -3,7 +3,6 @@ import { lstat } from 'node:fs/promises'
 import {
 	type AcpSessionPromptParams,
 	type AcpSessionPromptResult,
-	type AssistantMessage,
 	DiskTaskStore,
 	MESSAGES_WITHDRAWN_DETAIL,
 	type PalComputerInput,
@@ -13,7 +12,6 @@ import {
 	admitToolFacts,
 	asSessionId,
 	isEntityId,
-	selectAssistantText,
 } from '@namzu/sdk'
 import { checkSetting, readSettings, writeSetting } from '../config/desktop-settings.js'
 import { approveListedMcpServers, listMcpServers } from '../integrations/mcp/server-listing.js'
@@ -31,6 +29,7 @@ import {
 	readConversationFacts,
 	readConversationRecords,
 	setTitle,
+	storedAssistantPhase,
 	unarchiveConversation,
 } from '../integrations/sessions/store.js'
 import { conversationMarkdown } from '../integrations/sessions/transcript-export.js'
@@ -148,19 +147,6 @@ function undoResolutions(value: unknown): Record<string, 'skip' | 'keep_copy'> {
 		out[path] = choice
 	}
 	return out
-}
-
-/** Preserve only a phase proved by the selected, unchanged public text. */
-function storedAssistantPhase(
-	message: AssistantMessage,
-): 'commentary' | 'final_answer' | undefined {
-	const parts = message.textParts
-	if (!parts?.length || typeof message.content !== 'string') return undefined
-	if (selectAssistantText(parts) !== message.content) return undefined
-	const finals = parts.filter((part) => part.phase === 'final_answer')
-	const selected = finals.length ? finals : parts
-	const phase = selected[0]?.phase
-	return phase && selected.every((part) => part.phase === phase) ? phase : undefined
 }
 
 /** First recorded public-message boundary, bound to the folded message identity. */
