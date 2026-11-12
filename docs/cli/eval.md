@@ -92,7 +92,7 @@ Whole run: 120/120 runs passed across 6 suites, 40 cases x 3 repeats
   intervals: percentile bootstrap over cases, repeats kept together (40 cases, 2000 resamples), seed 7
   reliability across repeats: 40 of 40 cases passed in every one of 3 repeats (100.0%)
   no held-out cases: every number here is measured on cases the suite was developed against
-  produced by: namzu eval 51.0.1, sdk 62.12.0, commit 909b73c7c62a1a8b95968eaf1ce91a49e8c5a9ea, 2026-11-12T00:48:32.020Z, mixed
+  produced by: namzu eval 51.0.1, sdk 62.12.0, commit 45967c405ec5be7e1cd2e4be7a83bf22a5fc6857, 2026-11-12T01:04:43.368Z, scripted
 ```
 
 and the comparison prints:
