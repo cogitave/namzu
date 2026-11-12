@@ -7,6 +7,7 @@
 import type { AuthorizationRule } from '@namzu/sdk'
 
 import type { ConfigDebugSnapshot } from '../config/debug.js'
+import type { HooksSwitch } from '../config/hook-layers.js'
 import type {
 	BrowserConfig,
 	CodeAnalysisConfig,
@@ -255,6 +256,8 @@ export interface TuiContext {
 	readonly codeAnalysis?: CodeAnalysisConfig
 	/** See `NamzuCliConfig.hooks`. */
 	readonly hooks?: HooksConfig
+	/** Set when a switch left hooks out of `hooks`; `/hooks` says so. See `hookSwitch`. */
+	readonly hooksSwitch?: HooksSwitch
 	/** See `NamzuCliConfig.statusLine`. Only the interactive terminal runs it. */
 	readonly statusLine?: StatusLineConfig
 	readonly compaction?: CompactionCliConfig

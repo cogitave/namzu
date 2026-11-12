@@ -87,7 +87,8 @@ export function trustGrantLines(
 		!grants ||
 		(grants.allowRules.length === 0 &&
 			grants.directories.length === 0 &&
-			grants.toolServers.length === 0)
+			grants.toolServers.length === 0 &&
+			grants.hooks.length === 0)
 	)
 		return []
 	const room = trustPathWidth(columns)
@@ -123,6 +124,18 @@ export function trustGrantLines(
 		}
 		const more = grants.toolServers.length - MAX_SHOWN_GRANT_RULES
 		if (more > 0) lines.push(`  and ${more} more, which stay waiting for your approval`)
+	}
+	if (grants.hooks.length > 0) {
+		lines.push(
+			`This folder's files run ${countOf(grants.hooks.length, 'hook', 'hooks')} at set moments, without asking:`,
+		)
+		for (const hook of grants.hooks.slice(0, MAX_SHOWN_GRANT_RULES)) {
+			lines.push(
+				...wrapHard(`${hook.event}: ${hook.runs}`, Math.max(1, room - 2)).map((l) => `  ${l}`),
+			)
+		}
+		const more = grants.hooks.length - MAX_SHOWN_GRANT_RULES
+		if (more > 0) lines.push(`  and ${more} more`)
 	}
 	lines.push(...wrapBalancedText(GRANTS_NOTICE, room))
 	return lines

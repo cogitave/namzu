@@ -752,6 +752,16 @@ describe('web', () => {
 	})
 })
 
+/** The entries as written: what the loader adds (`source`, the file each came from) is left off. */
+function stripSource(hooks: ReturnType<typeof loadConfig>['hooks']) {
+	return Object.fromEntries(
+		Object.entries(hooks ?? {}).map(([event, entries]) => [
+			event,
+			(entries ?? []).map(({ source: _source, ...entry }) => entry),
+		]),
+	)
+}
+
 describe('hooks', () => {
 	it('reads events, matchers and deadlines, and refuses what it does not know', () => {
 		const home = mkdtempSync(join(tmpdir(), 'namzu-hooks-'))
@@ -760,7 +770,7 @@ describe('hooks', () => {
 			join(home, '.namzu', 'config.yaml'),
 			'hooks:\n  pre_tool_use:\n    - matcher: bash\n      command: ./check.sh\n      timeoutMs: 500\n  turn_end:\n    - command: notify-send done\n',
 		)
-		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).hooks).toEqual({
+		expect(stripSource(loadConfig({ home, cwd: tmpdir(), env: {} }).hooks)).toEqual({
 			pre_tool_use: [{ matcher: 'bash', command: './check.sh', timeoutMs: 500 }],
 			turn_end: [{ command: 'notify-send done' }],
 		})
@@ -805,7 +815,7 @@ describe('hooks', () => {
 				'',
 			].join('\n'),
 		)
-		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).hooks).toEqual({
+		expect(stripSource(loadConfig({ home, cwd: tmpdir(), env: {} }).hooks)).toEqual({
 			post_tool_use_failure: [{ command: './why.sh' }],
 			permission_request: [{ matcher: '^(bash|write)$', command: './decide.sh' }],
 			notification: [{ matcher: 'approval_required', command: 'notify-send waiting' }],
@@ -856,7 +866,7 @@ describe('hooks', () => {
 				'',
 			].join('\n'),
 		)
-		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).hooks).toEqual({
+		expect(stripSource(loadConfig({ home, cwd: tmpdir(), env: {} }).hooks)).toEqual({
 			pre_tool_use: [
 				{ command: './guard', args: ['--strict', 'a b'], onFailure: 'block' },
 				{

@@ -431,7 +431,12 @@ describe('every broken archive is refused by both readers, whoever built the byt
 			}
 		}
 		expect(failures).toEqual([])
-	})
+		// Over a hundred cases, each built twice and read twice, each read
+		// unpacking into a folder of its own on disk: about a second on a quiet
+		// machine and past the five-second default on a runner that is running
+		// the other packages' suites beside this one. Nothing here waits on a
+		// clock; the room is for real gzip and filesystem work.
+	}, 30_000)
 })
 
 describe('every broken signed pair is refused by both verifiers', () => {

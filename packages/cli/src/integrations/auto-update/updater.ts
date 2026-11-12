@@ -14,6 +14,7 @@ import {
 	type ApplyDeps,
 	type FailureStatus,
 	type Release,
+	activeRoot,
 	applyUpdate,
 	describeFailure,
 	manualUpdateCommand,
@@ -83,6 +84,11 @@ export type UpdaterEvent =
 			readonly blocked?: true
 	  }
 	/**
+	 * A newer version may be installed here, and will be when no Namzu process runs from this
+	 * install any more (this one included): the running process is never changed under.
+	 */
+	| { readonly type: 'pending'; readonly to: string }
+	/**
 	 * A version that already failed on this install. Namzu stays on the current
 	 * version and offers nothing for it; said once, until a newer one is published.
 	 */
@@ -102,6 +108,13 @@ export interface UpdaterDeps {
 	readonly fetchRelease: (channel: 'latest' | 'stable') => Promise<Release>
 	readonly applyDeps: Omit<ApplyDeps, 'install' | 'home' | 'currentVersion' | 'platform'>
 	readonly onEvent: (event: UpdaterEvent) => void
+	/**
+	 * `defer`: the loop only says an install is due (a `pending` event and `onPending`); something else
+	 * installs it once nothing runs from the install. `now`: the loop installs (what the process that
+	 * waits for that moment does). Default `now`.
+	 */
+	readonly applyMode?: 'now' | 'defer'
+	readonly onPending?: (version: string) => void
 	readonly now?: () => number
 	/** Milliseconds this process has been running. */
 	readonly uptimeMs?: () => number
@@ -162,6 +175,22 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 		deps.onEvent({ type: 'failed', latest, current: deps.currentVersion, code })
 	}
 
+	/** True (after announcing it) when the folder on disk already holds a newer version than this process runs. */
+	function noticeInstalledElsewhere(): boolean {
+		const { install } = deps
+		if (install.kind !== 'npm-global' && install.kind !== 'pnpm-global') return false
+		let onDisk: string
+		try {
+			onDisk = deps.applyDeps.installedVersion(activeRoot(install))
+			if (compareVersions(onDisk, deps.currentVersion) <= 0) return false
+		} catch {
+			return false
+		}
+		installedThisSession = true
+		deps.onEvent({ type: 'installed', from: deps.currentVersion, to: onDisk })
+		return true
+	}
+
 	async function learnRelease(): Promise<{ release: Release; fresh: boolean } | null> {
 		const channel = deps.policy.channel
 		const recorded = readCheck(deps.home)
@@ -197,6 +226,8 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 		if (!policy.check || silentKind(install.kind)) return
 		running = true
 		try {
+			// Someone else (the person, another window's updater) put a newer version on disk: say so once.
+			if (noticeInstalledElsewhere()) return
 			const learned = await learnRelease()
 			if (!learned || stopped) return
 			const { release } = learned
@@ -233,6 +264,15 @@ export function createUpdater(deps: UpdaterDeps): Updater {
 				return
 			}
 
+			if (deps.applyMode === 'defer') {
+				// Replacing the folder now would take files away from this very process.
+				if (announced !== release.version) {
+					announced = release.version
+					deps.onEvent({ type: 'pending', to: release.version })
+				}
+				deps.onPending?.(release.version)
+				return
+			}
 			deps.onEvent({ type: 'installing', to: release.version })
 			const result = await applyUpdate(
 				{

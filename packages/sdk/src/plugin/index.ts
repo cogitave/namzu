@@ -8,6 +8,14 @@ export {
 export { definePlugin } from './define.js'
 export type { DefinedPlugin, DefinePluginOptions } from './define.js'
 export type { PluginDiscoveryOptions, PluginEnablementCapabilities } from './loader.js'
+export {
+	boundHookContext,
+	boundHookReplacement,
+	frameOperatorHookContext,
+	MAX_HOOK_CONTEXT_CHARS,
+	MAX_HOOK_REPLACEMENT_CHARS,
+	sessionStartHookContext,
+} from './hook-context.js'
 export { PluginLifecycleManager } from './lifecycle.js'
 export { PluginResolver } from './resolver.js'
 export {
@@ -32,6 +40,7 @@ export type {
 	ShellHookOnFailure,
 	ShellHookInput,
 	ShellHookOptions,
+	ShellHookPathFilter,
 	ShellHookOutcome,
 	ShellHooksConfig,
 } from './shell-hook.js'

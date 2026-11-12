@@ -431,6 +431,19 @@ export class PluginLifecycleManager {
 		this.hookHandlers.set(hook.event, handlers)
 	}
 
+	/**
+	 * Every hook attached right now, by the plugin id it was registered under
+	 * and its event, in the order answers are read. For a host that shows the
+	 * operator what is attached; it carries no handler.
+	 */
+	listHooks(): readonly { readonly pluginId: PluginId; readonly event: PluginHookEvent }[] {
+		const out: { pluginId: PluginId; event: PluginHookEvent }[] = []
+		for (const [event, handlers] of this.hookHandlers) {
+			for (const handler of handlers) out.push({ pluginId: handler.pluginId, event })
+		}
+		return out
+	}
+
 	on(listener: PluginEventListener): void {
 		this.listeners.push(listener)
 	}

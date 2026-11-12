@@ -49,6 +49,7 @@ import {
 import { registerCommandOrLazy } from './commands/registry.js'
 import type { CommandContext } from './commands/types.js'
 import type { ConfigDebugSnapshot } from './config/debug.js'
+import { hookSwitch } from './config/hook-layers.js'
 import type { loadConfigWithProvenance } from './config/load.js'
 import { positiveTokenCount, readModelLaunchEnvironment } from './config/model-environment.js'
 import type { NamzuCliConfig } from './config/schema.js'
@@ -911,6 +912,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.web ? { web: resolvedCtx.config.web } : {}),
 					...(resolvedCtx.config.smallModel ? { smallModel: resolvedCtx.config.smallModel } : {}),
 					...(resolvedCtx.config.hooks ? { hooks: resolvedCtx.config.hooks } : {}),
+					...(hookSwitch(resolvedCtx.config)
+						? { hooksSwitch: hookSwitch(resolvedCtx.config) }
+						: {}),
 					...(resolvedCtx.config.statusLine ? { statusLine: resolvedCtx.config.statusLine } : {}),
 					...(resolvedCtx.config.compaction ? { compaction: resolvedCtx.config.compaction } : {}),
 					...(resolvedCtx.config.memory ? { memory: resolvedCtx.config.memory } : {}),

@@ -109,6 +109,8 @@ import {
 	type PerCallReviewConfig,
 	type PluginLifecycleManager,
 	type PluginNotificationInfo,
+	type PluginSessionEndReason,
+	type PluginSessionSource,
 	type PrepareStep,
 	type PrepareStepChain,
 	type ProjectId,
@@ -188,6 +190,7 @@ import {
 	describeToolCatalogTokens,
 	ensureProject,
 	filtered,
+	frameOperatorHookContext,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
@@ -206,6 +209,7 @@ import {
 	resolveContextWindow,
 	resumeSession,
 	seedObservationLedger,
+	sessionStartHookContext,
 	stripModelWindowSuffix,
 	toPlatformError,
 	toolset,
@@ -1577,6 +1581,8 @@ export interface AgentSession {
 	readonly stopJob?: (id: string) => Promise<BackgroundJob>
 	/** The shell hooks this session runs, by event; what `/hooks` lists. */
 	readonly hooks?: HooksConfig
+	/** The JavaScript hooks plugins registered now (plugin name, event); what `/hooks` lists beside `hooks`. */
+	readonly pluginHooks?: () => readonly { readonly plugin: string; readonly event: string }[]
 	/** Files as they were before each turn's writes; what `/restore` uses. */
 	readonly checkpoints?: FileCheckpointStore
 	/**
@@ -1933,8 +1939,19 @@ export interface AgentSession {
 	 * owns one of its tools is a use-after-close race. Idempotent, waits for the
 	 * operations it cancelled, and safe to call on a session that connected
 	 * nothing. Calls made after close refuse before provider work starts.
+	 *
+	 * `reason` is what `session_end` hooks are told: `exit` when the host is
+	 * finishing with the session (the default), `replaced` when it builds
+	 * another in its place. The first call's reason is the one used.
 	 */
-	close(): Promise<void>
+	close(reason?: PluginSessionEndReason): Promise<void>
+	/**
+	 * The longest `close` may spend in `session_end` hooks, in milliseconds
+	 * (zero when none will run). A host that bounds how long it waits for `close`
+	 * adds this to its bound, or it leaves before a hook's own deadline can end
+	 * the hook's process.
+	 */
+	readonly sessionEndBudgetMs?: number
 }
 
 export interface AgentSessionContext {
@@ -5127,13 +5144,25 @@ export async function createAgentSession(
 	// The latest system prompt a turn assembled, kept for `/context`.
 	let lastSystemPromptText: string | undefined
 	let sessionStarted = false
-	const announceSessionStart = async (): Promise<void> => {
+	/**
+	 * What the `session_start` hooks said for the model. Set once, by the hooks'
+	 * first answer, and never changed afterwards, so the text is the same on
+	 * every turn and the provider's prompt cache keeps working. It is read into
+	 * each turn's request and never written into the conversation, so a
+	 * resumed conversation gets it from the hooks run again and not twice.
+	 */
+	let sessionHookContext: string | undefined
+	const announceSessionStart = async (source: PluginSessionSource): Promise<void> => {
 		if (!sessionPlugins || sessionStarted) return
 		sessionStarted = true
-		await sessionPlugins.manager.executeHooks('session_start', {
+		const results = await sessionPlugins.manager.executeHooks('session_start', {
 			sessionId: scope.sessionId,
+			source,
 		})
+		sessionHookContext = sessionStartHookContext(results)
 	}
+	let sessionEndReason: PluginSessionEndReason = 'exit'
+	let sessionClosing = false
 	if (pluginRuntime) {
 		cliLogger().info('discovery complete', {
 			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
@@ -5205,6 +5234,7 @@ export async function createAgentSession(
 				? sessionPlugins.manager
 						.executeHooks('session_end', {
 							sessionId: scope.sessionId,
+							endReason: sessionEndReason,
 						})
 						.catch(() => [])
 						.then(() => sessionPlugins.close())
@@ -6041,6 +6071,7 @@ export async function createAgentSession(
 				}
 			: {}),
 		...(options.hooks ? { hooks: options.hooks } : {}),
+		...(pluginRuntime ? { pluginHooks: () => pluginRuntime?.pluginHooks() ?? [] } : {}),
 		checkpoints,
 		markFilesChanged: async (changed) => {
 			const seeded = fileObservations.get(scope.sessionId)
@@ -6442,7 +6473,14 @@ export async function createAgentSession(
 			removeAll: (items) => deleteMemories(memoryStore, items),
 		},
 		webSearchSummary: webSearchLabel(options.web, nativeSearchAvailable),
-		close: () => operations.close(),
+		sessionEndBudgetMs: sessionPlugins?.sessionEndBudgetMs ?? 0,
+		close: (reason) => {
+			if (!sessionClosing) {
+				sessionClosing = true
+				if (reason !== undefined) sessionEndReason = reason
+			}
+			return operations.close()
+		},
 		errorHint: null,
 		errorKind: null,
 		// Reads the same object the handler mutates, at call time.
@@ -6757,7 +6795,21 @@ export async function createAgentSession(
 							),
 						)
 						lastSystemPromptText = systemPrompt
-						await announceSessionStart()
+						// A conversation that already had turns starts again under a new
+						// session (a resume, a continue); one with none is a fresh start.
+						await announceSessionStart(
+							messages.filter((message) => message.role === 'user').length > 1
+								? 'resume'
+								: 'startup',
+						)
+						if (sessionHookContext !== undefined) {
+							const hookContext = frameOperatorHookContext([sessionHookContext])
+							promptContributions.register({
+								id: 'namzu.hooks.session-start',
+								placement: 'context',
+								render: () => hookContext,
+							})
+						}
 						checkpoints.beginTurn(lastPromptText(messages), turnId, {
 							promptOrdinal: Math.max(0, messages.filter((m) => m.role === 'user').length - 1),
 						})

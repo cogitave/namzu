@@ -503,3 +503,92 @@ describe('repairing with installing switched off', () => {
 		expect(readLastResult(home, scope())).toBeUndefined()
 	})
 })
+
+describe('an update is never installed under the process that asks for it', () => {
+	it('in the deferred mode says an install is due and installs nothing, however often it looks', async () => {
+		const pending: string[] = []
+		const h = harness({ applyMode: 'defer', onPending: (v) => pending.push(v) })
+		await h.updater.runCycle()
+		await h.updater.runCycle()
+		expect(h.installs).toHaveLength(0)
+		expect(h.progress.some((e) => e.type === 'installing')).toBe(false)
+		expect(h.events).toEqual([{ type: 'pending', to: '2.0.0' }])
+		// The hand-over is asked for each look (cheap and idempotent), the footer line once.
+		expect(pending).toEqual(['2.0.0', '2.0.0'])
+		// The package folder is exactly as it was.
+		expect(readInstalledVersion(root)).toBe('1.0.0')
+	})
+
+	it('does not defer what it would not install anyway: a blocked folder, installing switched off', async () => {
+		const off = harness({ applyMode: 'defer', policy: policy({ install: false }) })
+		await off.updater.runCycle()
+		expect(off.events.map((e) => e.type)).toEqual(['available'])
+		const blocked = harness({
+			applyMode: 'defer',
+			install: { ...install(), writable: false },
+		})
+		await blocked.updater.runCycle()
+		expect(blocked.events.map((e) => e.type)).toEqual(['available'])
+	})
+
+	it('still installs in the default mode, which is what the process that waits for its turn runs', async () => {
+		const h = harness()
+		await h.updater.runCycle()
+		expect(h.installs).toHaveLength(1)
+		expect(await h.outcome).toEqual({ type: 'installed', from: '1.0.0', to: '2.0.0' })
+	})
+
+	it('does not touch the folder when another process started running from it (idle, no install)', async () => {
+		const h = harness({ applyDeps: { ...harness().deps.applyDeps, mayProceed: () => false } })
+		await h.updater.runCycle()
+		expect(h.installs).toHaveLength(0)
+		expect(h.progress.map((e) => e.type)).toContain('idle')
+		expect(readInstalledVersion(root)).toBe('1.0.0')
+	})
+
+	it('stops short again after the kept copy when a process started while it was made', async () => {
+		let asked = 0
+		const base = harness().deps.applyDeps
+		const h = harness({
+			applyDeps: {
+				...base,
+				// Free at the first look, taken at the second (after the copy).
+				mayProceed: () => ++asked < 2,
+			},
+		})
+		await h.updater.runCycle()
+		expect(asked).toBe(2)
+		expect(h.installs).toHaveLength(0)
+		expect(readInstalledVersion(root)).toBe('1.0.0')
+	})
+})
+
+describe('a newer version that somebody else installed', () => {
+	it('says so once, from the folder on disk, without asking the registry', async () => {
+		writePackage('1.1.0')
+		const h = harness({ applyMode: 'defer' })
+		await h.updater.runCycle()
+		await h.updater.runCycle()
+		expect(h.events).toEqual([{ type: 'installed', from: '1.0.0', to: '1.1.0' }])
+		expect(h.fetchRelease).not.toHaveBeenCalled()
+		expect(updaterEventAmbient(h.events[0] as Exclude<UpdaterEvent, { type: 'idle' }>).text).toBe(
+			'✓ Updated to 1.1.0 · restart to use it',
+		)
+	})
+
+	it('says nothing when the folder still holds the running version', async () => {
+		const h = harness({ applyMode: 'defer' })
+		await h.updater.runCycle()
+		expect(h.events.map((e) => e.type)).toEqual(['pending'])
+	})
+})
+
+describe('the footer line for a due update', () => {
+	it('is quiet and says when it happens', () => {
+		expect(updaterEventAmbient({ type: 'pending', to: '2.0.0' })).toEqual({
+			text: 'Update 2.0.0 ready · installs when Namzu closes',
+			tone: 'dim',
+			strong: '2.0.0',
+		})
+	})
+})

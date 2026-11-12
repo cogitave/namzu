@@ -1,3 +1,7 @@
+import {
+	installWasReplaced,
+	replacedInstallLine,
+} from '../integrations/auto-update/replaced-install.js'
 import { homePath } from './person-terms.js'
 import { debugRequested } from './plain-interruption.js'
 
@@ -26,6 +30,8 @@ export function explainFailure(
 	couldNot: string,
 	debug: boolean = debugRequested(),
 ): string {
+	// A file of this install that a newer version removed: the one line, not a "missing file".
+	if (installWasReplaced({ error: err })) return replacedInstallLine()
 	const code = codeOf(err)
 	const name = err instanceof Error ? err.name : ''
 	let cause: string | undefined

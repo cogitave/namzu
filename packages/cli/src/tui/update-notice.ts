@@ -31,6 +31,13 @@ export function updaterEventAmbient(event: Exclude<UpdaterEvent, { type: 'idle' 
 	if (event.type === 'installing') {
 		return { text: `Updating to ${event.to}…`, tone: 'dim', strong: event.to }
 	}
+	if (event.type === 'pending') {
+		return {
+			text: `Update ${event.to} ready · installs when Namzu closes`,
+			tone: 'dim',
+			strong: event.to,
+		}
+	}
 	if (event.type === 'installed') {
 		return { text: `✓ Updated to ${event.to} · restart to use it`, tone: 'ok', strong: event.to }
 	}
