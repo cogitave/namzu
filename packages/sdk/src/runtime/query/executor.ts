@@ -599,6 +599,14 @@ export interface ToolCallOutcome {
 	inputFailure?: CompletedToolRecord['inputFailure']
 	/** A pre-tool hook deliberately skipped execution; its receipt is not an output candidate. */
 	skipped?: true
+	/**
+	 * The call never ran: the person declined it, a rule refused it, its input
+	 * was refused before it started, or the turn ended first. The outcome record
+	 * does not count it as a call that may have changed files.
+	 */
+	notRun?: true
+	/** The call only started work that goes on after it returned; see `ToolResult.launched`. */
+	launched?: true
 	/** Opt-in execution evidence, never provider content or accepted output. */
 	structuredResultJson?: string
 	/** The tool asked for a person; see `ToolResult.handoff`. */
@@ -3104,6 +3112,7 @@ export class ToolExecutor {
 			...(result.handoff !== undefined && !this.config.abortSignal.aborted
 				? { handoff: result.handoff }
 				: {}),
+			...(result.launched === true && !effectiveIsError ? { launched: true as const } : {}),
 			...(revealedTools !== undefined ? { revealedTools } : {}),
 			...(result.facts !== undefined && !postOverride ? { facts: result.facts } : {}),
 		}
@@ -3659,7 +3668,7 @@ export class ToolExecutor {
 			isError: true,
 		})
 
-		return { toolCallId: toolCall.id, toolName, output, isError: true }
+		return { toolCallId: toolCall.id, toolName, output, isError: true, notRun: true }
 	}
 
 	/**
@@ -3710,6 +3719,7 @@ export class ToolExecutor {
 		const reason = abortReasonText(this.config.abortSignal.reason)
 		return this.recordSyntheticHookOutcome(toolCallId, toolName, input, {
 			kind: 'error',
+			notRun: true,
 			output: `Tool "${toolName}" was not started because the turn was cancelled${reason ? `: ${reason}` : '.'}`,
 		})
 	}
@@ -3723,6 +3733,7 @@ export class ToolExecutor {
 			output: string
 			inputFailure?: ToolCallOutcome['inputFailure']
 			skipped?: true
+			notRun?: true
 			facts?: ToolFacts
 		},
 	): Promise<ToolCallOutcome> {
@@ -3767,12 +3778,14 @@ export class ToolExecutor {
 			...(outcome.facts ? { facts: outcome.facts } : {}),
 			...(outcome.inputFailure ? { inputFailure: outcome.inputFailure } : {}),
 			...(outcome.skipped ? { skipped: true as const } : {}),
+			...(outcome.notRun ? { notRun: true as const } : {}),
 		}
 	}
 
 	private recordSyntheticPreparation(call: Extract<PreparedDirectCall, { kind: 'synthetic' }>) {
 		return this.recordSyntheticHookOutcome(call.toolCall.id, call.toolName, call.input, {
 			kind: call.isError ? 'error' : 'skip',
+			...(call.isError ? { notRun: true as const } : {}),
 			output: call.message,
 			...(call.facts ? { facts: call.facts } : {}),
 			...(call.inputFailure ? { inputFailure: call.inputFailure } : {}),

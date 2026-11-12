@@ -791,6 +791,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 						plan_task_id: resolvedPlanTaskId,
 						background: true,
 					},
+					launched: true,
 				}
 			}
 

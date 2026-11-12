@@ -1010,6 +1010,13 @@ export interface ToolResult {
 	 */
 	handoff?: ToolHandoff
 	/**
+	 * This call only started work that goes on after it returned (a sub-agent
+	 * launched in the background, or one whose wait was released): the call itself
+	 * changed nothing. The turn's outcome record does not count it as a call that
+	 * may have changed files; what the started work does is its own record.
+	 */
+	launched?: true
+	/**
 	 * What this call did, as typed fields for the PERSON's view: the exit code
 	 * and the two streams of a command, the path and size of a read, whether a
 	 * write created the file. `output` stays the model's text and is not
