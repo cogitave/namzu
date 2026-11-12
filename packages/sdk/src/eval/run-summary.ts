@@ -2,11 +2,14 @@ import { UNKNOWN } from './disclosure.js'
 import type { RunMode } from './disclosure.js'
 import {
 	type RunStats,
+	clarifyDeclared,
 	describeIntervals,
 	describeSplits,
 	groupRuns,
 	statsOver,
 } from './report-stats.js'
+import type { SettingsSnapshot } from './settings.js'
+import type { SplitFilter } from './split.js'
 import type { ExperimentReport } from './types.js'
 
 /** What produced a whole run, across every suite in it. */
@@ -23,6 +26,10 @@ export interface RunDisclosure {
 	readonly runs: number
 	/** `mixed` when suites that used a model differ in kind; a suite with no model at all does not count. */
 	readonly mode: RunMode | 'mixed'
+	/** The settings the run was given. Absent from a run written before reports named them. */
+	readonly settings?: SettingsSnapshot
+	/** Which tasks ran. Absent from a run written before there were splits. */
+	readonly split?: SplitFilter
 }
 
 /** The numbers for every case of every suite taken together. */
@@ -40,6 +47,8 @@ export function summarizeRun(
 		commit: string
 		generatedAt: string
 		sdkVersion: string
+		settings?: SettingsSnapshot
+		split?: SplitFilter
 	},
 ): RunSummary {
 	// A case is named by its suite and its id: two suites may reuse a name.
@@ -74,6 +83,8 @@ export function summarizeRun(
 			cases: stats.cases,
 			runs: stats.runs,
 			mode,
+			...(context.settings ? { settings: context.settings } : {}),
+			...(context.split ? { split: context.split } : {}),
 		},
 	}
 }
@@ -96,7 +107,14 @@ export function formatRunSummary(summary: RunSummary): string {
 			`  reliability across repeats: ${r.passedEveryRepeat} of ${r.cases} cases passed in every one of ${d.repeats} repeats${r.fraction === null ? '' : ` (${(r.fraction * 100).toFixed(1)}%)`}`,
 		)
 	}
-	for (const line of describeSplits(summary.splits)) lines.push(`  ${line}`)
+	for (const line of describeSplits(summary.splits)) {
+		if (d.split === 'held-out' && line.startsWith('no held-out cases')) continue
+		lines.push(`  ${d.split ? clarifyDeclared(line) : line}`)
+	}
+	if (d.settings) {
+		lines.push(`  settings: "${d.settings.name}", sha256 ${d.settings.digest.slice(0, 12)}`)
+	}
+	if (d.split) lines.push(`  split: ${d.split}`)
 	lines.push(
 		`  produced by: namzu eval ${d.harnessVersion}, sdk ${d.sdkVersion}, commit ${d.commit}, ${d.generatedAt}, ${d.mode}`,
 	)

@@ -1,5 +1,21 @@
 # @namzu/cli
 
+## 51.2.0
+
+### Minor Changes
+
+- 335c305: When telemetry export is on, spans now carry the OpenTelemetry GenAI convention names (version 1.41.1) beside the existing ones. To leave them off, for a backend that bills by attribute, set `NAMZU_TELEMETRY_GENAI=0` (or `false`, `no`, `off`) with the export. Nothing existing is renamed or removed.
+- b79f7ae: `namzu acp` now says its own version in the `initialize` answer (`kernel.commandLine`), and `namzu acp --desktop` also says `kernel.desktopContract`, a new exported integer constant (`DESKTOP_CONTRACT`, starting at 1) that is meant for an installed Namzu Desktop to compare before it would run a newer command line it fetched itself. This release only states the number; the fetching and the check are not part of it. Existing readers ignore the new field. A copy of the command line that the desktop app keeps in its own data folder (`<app data>/kernel/versions/<version>`) is now recognised by its location as the app's own and is never updated by the terminal's background updater, whether or not it runs under the app's program. A test records everything the desktop app relies on in `packages/cli/desktop-contract/inventory.json` and fails when a method, notification, flag or mirrored shape it names disappears or changes.
+- 6988750: New command `namzu plugin validate [path] [--json]` checks a plugin folder (the current one by default) and every part it carries: the manifest, skills, tool and hook modules, MCP server entries, command files and agent files. It prints each problem with the file, the line when it can be known, what is wrong and what the loader would do about it, as an error (the loader refuses the plugin or skips the part) or a warning (it loads but is probably not what you meant: an ignored misspelt key, a very long skill description, a reference outside the folder, a hook event that does not exist). It runs nothing from the plugin and reads only inside the folder. Exit status: 0 no problems, 10 warnings only, 1 errors, 66 folder unreadable, 64 usage. `--json` prints one report (`version: 1`) and nothing else on standard output. Nothing changes for a plugin that already loads; a script that wants to gate on it should treat 10 as "loads, check it". When a plugin is refused at startup, or a plugin's command folder, agent file or whole plugin is skipped, the message now ends with a line naming this command, and so does the reason shown for a plugin command that cannot be used. The "could not read the folder" sentence goes to standard error.
+- 14f09af: New: `namzu cost [--days <n>] [--json]` and `/cost days [n]` in the terminal show what your conversations cost over the last `n` local days (30 by default), by day, model, project and kind of work (your replies, sub-agents, compaction, other internal calls), with cache reads and writes apart from fresh input. It reads the session logs you already have; nothing new is recorded and nothing leaves the machine. Money is an estimate from list prices, and a model with no known price shows its tokens and "price not known" with the total marked partial, never a zero. `--json` prints a documented shape (`schemaVersion` 1). To make it fast the command keeps a small summary, `spend-ledger.json`, in the Namzu home beside the session index; it is safe to delete and is rebuilt from the logs. Plain `/cost` and `/cost details` are unchanged. Nothing to do on upgrade.
+
+### Patch Changes
+
+- Updated dependencies [335c305]
+- Updated dependencies [b79f7ae]
+- Updated dependencies [6988750]
+  - @namzu/sdk@62.14.0
+
 ## 51.1.0
 
 ### Minor Changes

@@ -10,6 +10,8 @@ import {
 } from './bootstrap.js'
 import { UNKNOWN } from './disclosure.js'
 import { type CaseRuns, duplicateRun, groupRuns, passedEveryRun, tallyOf } from './report-stats.js'
+import { type SettingDifference, diffSettings } from './settings.js'
+import { SPLIT_FILTERS, type SplitFilter } from './split.js'
 import type { CaseResult } from './types.js'
 
 /**
@@ -31,6 +33,41 @@ export interface LoadedSuite {
 	readonly repeats: number
 	/** Whatever the file said about how the suite ran; absent in an older file. */
 	readonly facts: Readonly<Record<string, unknown>> | undefined
+	/** The settings snapshot the suite ran under; absent in a report written before there were any. */
+	readonly settings: LoadedSettings | undefined
+	/** Which split the suite ran; absent in a report written before there were any. */
+	readonly split: SplitFilter | undefined
+}
+
+export interface LoadedSettings {
+	readonly name: string
+	readonly digest: string
+	readonly values: Readonly<Record<string, unknown>>
+	/** False when the suite never asked for the settings. Absent is read as unknown. */
+	readonly read: boolean | undefined
+	/** Paths the suite asked for, `*` for the whole object; undefined when the report does not say. */
+	readonly readKeys: readonly string[] | undefined
+}
+
+function loadSettings(value: unknown): LoadedSettings | undefined {
+	if (!isRecord(value)) return undefined
+	if (typeof value.name !== 'string' || typeof value.digest !== 'string') return undefined
+	return {
+		name: value.name,
+		digest: value.digest,
+		values: isRecord(value.values) ? value.values : {},
+		read: typeof value.read === 'boolean' ? value.read : undefined,
+		readKeys: Array.isArray(value.readKeys)
+			? value.readKeys.filter((k): k is string => typeof k === 'string')
+			: undefined,
+	}
+}
+
+function loadSplit(value: unknown): SplitFilter | undefined {
+	if (!isRecord(value)) return undefined
+	return SPLIT_FILTERS.includes(value.requested as SplitFilter)
+		? (value.requested as SplitFilter)
+		: undefined
 }
 
 export interface LoadedReportFile {
@@ -81,6 +118,8 @@ export function loadEvalReportFile(json: unknown, label: string): LoadedReportFi
 			cases: groupRuns(runs),
 			repeats: typeof report.repeats === 'number' ? report.repeats : 1,
 			facts: isRecord(report.disclosure) ? report.disclosure : undefined,
+			settings: loadSettings(report.settings),
+			split: loadSplit(report.taskSplit),
 		})
 	}
 	return { label, suites }
@@ -277,9 +316,52 @@ export interface EvalComparison {
 		readonly sentence: string
 		/** Why, in plain words. */
 		readonly detail: string
+		/**
+		 * Why no winner is named although the numbers might say one. Empty when
+		 * the comparison is on the held-out split, between different settings, over
+		 * the same tasks: the one case in which it speaks.
+		 */
+		readonly withheld: readonly WithheldReason[]
 	}
 	readonly disclosure: DisclosureComparison
+	/** The settings each report ran under, and what differs between the two. */
+	readonly settings: SettingsComparison
+	/** The split each report ran. Null when a report does not say (an older one). */
+	readonly split: { readonly a: SideSplit; readonly b: SideSplit }
 }
+
+/** `mixed` when the suites of one report ran different splits. */
+export type SideSplit = SplitFilter | 'mixed' | null
+
+export interface SnapshotRef {
+	readonly name: string
+	readonly digest: string
+}
+
+export interface SettingsComparison {
+	/** Null when the report has no snapshot (it was written before reports carried one). */
+	readonly a: SnapshotRef | null
+	readonly b: SnapshotRef | null
+	/** Null when either side has no snapshot. */
+	readonly identical: boolean | null
+	/** Key by key; empty when the snapshots are identical or either is missing. */
+	readonly differences: readonly SettingDifference[]
+	/** Suites that ran under settings but never read them, so the settings cannot have moved them. */
+	readonly notRead: { readonly a: readonly string[]; readonly b: readonly string[] }
+	/** Settings that differ between the two snapshots and that no shared suite on either side read. */
+	readonly unreadKeys: readonly string[]
+	/** Whether at least one differing setting was read by a shared suite. Null when there is no difference to read. */
+	readonly anyDifferenceRead: boolean | null
+}
+
+/** Why a comparison does not name a winner, besides the numbers not supporting one. */
+export type WithheldReason =
+	| 'tune-split'
+	| 'identical-settings'
+	| 'no-snapshot'
+	| 'tasks-differ'
+	| 'not-held-out'
+	| 'settings-not-read'
 
 function sorted(refs: CaseRef[]): CaseRef[] {
 	return refs.sort((x, y) =>
@@ -358,7 +440,13 @@ export function compareEvalReports(
 		pValue: exactSignTestP(onlyBPasses, onlyAPasses),
 		test: 'exact two-sided sign test on the cases that flipped',
 	}
-	const verdict = decide(difference.mean, pairs.length, flips)
+	const settings = compareSettings(a, b, sharedSuiteIds(a, b))
+	const split = { a: splitOf(a), b: splitOf(b) }
+	const withheld = withheldReasons(settings, split, onlyInA.length + onlyInB.length)
+	const verdict =
+		withheld.length > 0
+			? withhold(withheld, settings, onlyInA.length, onlyInB.length, difference.mean, pairs.length)
+			: { ...decide(difference.mean, pairs.length, flips), withheld: [] as WithheldReason[] }
 	const sharedSuites = a.suites.map((s) => s.id).filter((id) => b.suites.some((s) => s.id === id))
 
 	return {
@@ -375,6 +463,130 @@ export function compareEvalReports(
 		flips,
 		verdict,
 		disclosure: compareDisclosure(a, b, sharedSuites),
+		settings,
+		split,
+	}
+}
+
+function sharedSuiteIds(a: LoadedReportFile, b: LoadedReportFile): string[] {
+	return a.suites.map((s) => s.id).filter((id) => b.suites.some((s) => s.id === id))
+}
+
+function snapshotOf(file: LoadedReportFile): LoadedSettings | undefined {
+	return file.suites.find((s) => s.settings !== undefined)?.settings
+}
+
+function splitOf(file: LoadedReportFile): SideSplit {
+	const requested = new Set(file.suites.map((s) => s.split))
+	if (requested.size === 0 || requested.has(undefined)) return null
+	return requested.size === 1 ? ([...requested][0] as SplitFilter) : 'mixed'
+}
+
+function compareSettings(
+	a: LoadedReportFile,
+	b: LoadedReportFile,
+	shared: readonly string[],
+): SettingsComparison {
+	const left = snapshotOf(a)
+	const right = snapshotOf(b)
+	const ref = (x: LoadedSettings | undefined): SnapshotRef | null =>
+		x === undefined ? null : { name: x.name, digest: x.digest }
+	const ignored = (file: LoadedReportFile) =>
+		file.suites
+			.filter(
+				(s) =>
+					shared.includes(s.id) &&
+					s.settings?.read === false &&
+					Object.keys(s.settings.values).length > 0,
+			)
+			.map((s) => s.id)
+	const identical = left && right ? left.digest === right.digest : null
+	const differences = left && right && !identical ? diffSettings(left.values, right.values) : []
+	const readers = [a, b].flatMap((file) =>
+		file.suites.filter((s) => shared.includes(s.id) && s.settings !== undefined),
+	)
+	const wasRead = (key: string): boolean =>
+		readers.some((s) => {
+			const st = s.settings as LoadedSettings
+			if (st.read === false) return false
+			// A report that does not say which keys it read is taken to have read all.
+			if (st.readKeys === undefined) return true
+			return st.readKeys.some(
+				(k) => k === '*' || k === key || key.startsWith(`${k}.`) || k.startsWith(`${key}.`),
+			)
+		})
+	const unreadKeys = differences.map((d) => d.key).filter((k) => !wasRead(k))
+	return {
+		a: ref(left),
+		b: ref(right),
+		identical,
+		differences,
+		notRead: { a: ignored(a), b: ignored(b) },
+		unreadKeys,
+		anyDifferenceRead: differences.length === 0 ? null : unreadKeys.length < differences.length,
+	}
+}
+
+function withheldReasons(
+	settings: SettingsComparison,
+	split: { a: SideSplit; b: SideSplit },
+	taskMismatches: number,
+): WithheldReason[] {
+	const out: WithheldReason[] = []
+	if (settings.a === null || settings.b === null) out.push('no-snapshot')
+	if (taskMismatches > 0) out.push('tasks-differ')
+	// The most informative reason first: identical settings say the whole
+	// difference is noise, whatever split they ran on.
+	if (settings.identical === true) out.push('identical-settings')
+	// Settings no shared suite read cannot have moved a number: whatever the
+	// difference between the runs, it is not the settings.
+	if (settings.identical === false && settings.anyDifferenceRead === false) {
+		out.push('settings-not-read')
+	}
+	const tune = split.a === 'tune' || split.b === 'tune'
+	if (tune) out.push('tune-split')
+	else if (
+		settings.a !== null &&
+		settings.b !== null &&
+		(split.a !== 'held-out' || split.b !== 'held-out')
+	) {
+		out.push('not-held-out')
+	}
+	return out
+}
+
+function short(digest: string): string {
+	return digest.slice(0, 12)
+}
+
+function withhold(
+	reasons: readonly WithheldReason[],
+	settings: SettingsComparison,
+	onlyA: number,
+	onlyB: number,
+	mean: Interval,
+	paired: number,
+): EvalComparison['verdict'] {
+	const text: Record<WithheldReason, string> = {
+		'tune-split':
+			'these are the tasks the settings were chosen on; run the held-out split to judge',
+		'identical-settings': `the two reports ran under identical settings (${settings.a?.name ?? 'unnamed'}, ${short(settings.a?.digest ?? '')}), so any difference between them is run-to-run noise`,
+		'no-snapshot':
+			'a report has no settings snapshot (it was written before reports named their settings), so what the two runs changed is not known',
+		'tasks-differ': `the two reports ran different tasks (${onlyA} only in A, ${onlyB} only in B), so their numbers are not about the same tasks`,
+		'settings-not-read':
+			'no suite the two reports share read any of the settings that differ between them, so the settings cannot have changed these numbers',
+		'not-held-out':
+			'a report ran on all tasks or a mix of splits, which include the tasks the settings were chosen on; run the held-out split to judge',
+	}
+	const numbers = mean.computed
+		? `the paired difference in mean score over ${paired} paired cases is ${signed(mean.estimate)}, 95% interval [${mean.low.toFixed(3)}, ${mean.high.toFixed(3)}]`
+		: `no interval: ${mean.reason}`
+	return {
+		claim: 'none',
+		sentence: `no winner is named: ${text[reasons[0] as WithheldReason]}`,
+		detail: `${[...reasons.slice(1).map((r) => text[r]), numbers].join('; ')}.`,
+		withheld: reasons,
 	}
 }
 
@@ -386,7 +598,11 @@ function atPrintedPrecision(value: number): number {
 	return Math.round(value * 1000) / 1000 || 0
 }
 
-function decide(mean: Interval, paired: number, flips: Flips): EvalComparison['verdict'] {
+function decide(
+	mean: Interval,
+	paired: number,
+	flips: Flips,
+): Omit<EvalComparison['verdict'], 'withheld'> {
 	const none = 'no difference can be claimed at this size'
 	if (!mean.computed) {
 		return { claim: 'none', sentence: none, detail: `no interval: ${mean.reason}.` }
@@ -453,6 +669,33 @@ export function formatEvalComparison(c: EvalComparison): string {
 		`  (${c.verdict.detail})`,
 		'',
 	]
+	const ref = (x: SnapshotRef | null) =>
+		x === null ? 'none recorded' : `"${x.name}" (sha256 ${short(x.digest)})`
+	lines.push(
+		`Settings: A ${ref(c.settings.a)}, B ${ref(c.settings.b)}. Split: A ${c.split.a ?? 'not recorded'}, B ${c.split.b ?? 'not recorded'}.`,
+	)
+	if (c.settings.identical === true) {
+		lines.push('The two runs ran under identical settings.')
+	} else if (c.settings.differences.length > 0) {
+		lines.push('What differs in the settings:')
+		const show = (v: unknown, has: boolean) => (has ? JSON.stringify(v) : 'not stated')
+		for (const x of c.settings.differences) {
+			lines.push(`  ${x.key}: A ${show(x.a, 'a' in x)}, B ${show(x.b, 'b' in x)}`)
+		}
+	}
+	for (const side of ['a', 'b'] as const) {
+		if (c.settings.notRead[side].length > 0) {
+			lines.push(
+				`Suites that ran under settings but did not read them (${side.toUpperCase()}): ${c.settings.notRead[side].join(', ')}`,
+			)
+		}
+	}
+	if (c.settings.unreadKeys.length > 0) {
+		lines.push(
+			`Settings that differ and that no shared suite read: ${c.settings.unreadKeys.join(', ')}`,
+		)
+	}
+	lines.push('')
 	const d = c.disclosure
 	if (d.differences.length === 0) {
 		lines.push('What the two reports say about how they were produced: no stated difference.')
