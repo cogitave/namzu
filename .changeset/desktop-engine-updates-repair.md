@@ -1,0 +1,5 @@
+---
+"@namzu/desktop": patch
+---
+
+Repairs to the engine delivery before any build carries a signing key (so nothing changes for a person yet). With a key, an engine the app fetched would have failed its own check against the real command line (the check now makes the home folder the command line requires); the first start of a fetched engine in a run hashes every file and refuses an extra one; a lost or edited state file no longer lets an older signed answer or a lower floor back in; a failed start goes on to the previous engine and then to the engine inside the installer in the same project open; a running check no longer undoes **Use this app's own engine** or the switch being turned off, and quitting stops it and writes its log; a file another program holds for a moment no longer gives an engine up for good; redirects are checked before they are requested; the command line row in Settings > Updates names the engine that runs now and says it keeps itself up to date; **Use this app's own engine** is shown only while a fetched engine runs or would run.

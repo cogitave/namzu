@@ -72,7 +72,9 @@ function rowView(item: EngineUpdateItem): EngineRowView {
 			versions: item.installed,
 			status: 'A newer one exists',
 			tone: 'attention',
-			note: `Bundled with this app: ${item.installed}. The newest known is ${item.newerThanBundled}. It arrives with an update of this app.`,
+			note: item.selfUpdates
+				? `Running ${item.installed}. The newest known is ${item.newerThanBundled}. It arrives by itself, or with an update of this app.`
+				: `Bundled with this app: ${item.installed}. The newest known is ${item.newerThanBundled}. It arrives with an update of this app.`,
 			busy: false,
 		}
 	const versions =

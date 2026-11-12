@@ -1,6 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
+import type { EngineDeliveryView } from '../shared/engine-delivery-protocol.js'
 import type { KernelNewer } from '../shared/engine-update-protocol.js'
 import type { LocalListeningState } from '../shared/local-listening-protocol.js'
 import type { LocalSpeechState } from '../shared/local-speech-protocol.js'
@@ -11,13 +12,14 @@ import {
 	SETTINGS_SECTIONS,
 	type SettingsSection,
 } from '../shared/settings-protocol.js'
-import { SETTINGS_SECTION_TITLES } from './settings-model.js'
+import { SETTINGS_SECTION_TITLES, aboutDetailsText } from './settings-model.js'
 import {
 	SettingsPage,
 	type SettingsPageProps,
 	SettingsSidebar,
 	TerminalSettings,
 } from './settings-page.js'
+import { EngineDeliveryContext } from './use-engine-delivery.js'
 import { EngineUpdatesContext } from './use-engine-updates.js'
 import type { LocalListeningControls } from './use-local-listening.js'
 import type { LocalSpeechControls } from './use-local-speech.js'
@@ -102,6 +104,7 @@ function page(
 	section: SettingsSection,
 	over: Partial<SettingsPageProps> = {},
 	kernel?: KernelNewer,
+	delivery?: EngineDeliveryView,
 ) {
 	const element = createElement(SettingsPage, {
 		section,
@@ -134,22 +137,29 @@ function page(
 		now: 1_000 + 5 * 60_000,
 		...over,
 	})
-	return renderToStaticMarkup(
-		kernel
-			? createElement(
-					EngineUpdatesContext.Provider,
-					{
-						value: {
-							state: { items: [], checking: false, kernel },
-							check: () => {},
-							update: async () => ({ ok: false as const, reason: '' }),
-							openUpdates: () => {},
-							registerOpenUpdates: () => () => {},
-						},
+	const withKernel = kernel
+		? createElement(
+				EngineUpdatesContext.Provider,
+				{
+					value: {
+						state: { items: [], checking: false, kernel },
+						check: () => {},
+						update: async () => ({ ok: false as const, reason: '' }),
+						openUpdates: () => {},
+						registerOpenUpdates: () => () => {},
 					},
-					element,
+				},
+				element,
+			)
+		: element
+	return renderToStaticMarkup(
+		delivery
+			? createElement(
+					EngineDeliveryContext.Provider,
+					{ value: { view: delivery, chooseOwn: async () => {} } },
+					withKernel,
 				)
-			: element,
+			: withKernel,
 	)
 }
 
@@ -438,5 +448,142 @@ describe('settings words and paths', () => {
 		const markup = page('about')
 		expect(markup).toContain('Namzu engine')
 		expect(markup).not.toContain('SDK')
+	})
+})
+
+describe('the engine the app keeps current', () => {
+	const view = (over: Partial<EngineDeliveryView> = {}): EngineDeliveryView => ({
+		available: true,
+		enabled: true,
+		runs: { source: 'bundled', commandLine: '25.3.0', engine: '25.2.1' },
+		bundled: { commandLine: '25.3.0', engine: '25.2.1' },
+		status: { kind: 'current', checkedAt: 1_000 },
+		canUseOwn: false,
+		...over,
+	})
+	// A day in 2026, so a date in November has no year beside it.
+	const NOW = Date.UTC(2026, 10, 12, 12)
+	const fetched = view({
+		runs: {
+			source: 'managed',
+			commandLine: '26.0.0',
+			engine: '25.9.0',
+			since: Date.UTC(2026, 10, 12, 8),
+		},
+		canUseOwn: true,
+	})
+
+	it('changes nothing on either screen where this build has no signing key', () => {
+		// No controls reach the page: the markup is what it was before engines could be fetched.
+		for (const section of ['updates', 'about'] as const) {
+			const plain = page(section)
+			expect(plain).not.toContain('Keep the engine up to date')
+			expect(plain).not.toContain('Updated by itself')
+			expect(plain).not.toContain('Use this app’s own engine')
+			expect(plain).not.toContain('developer override')
+		}
+		expect(page('about')).toContain(
+			'<dt>Namzu command line (bundled with this app)</dt><dd>25.3.0</dd>',
+		)
+	})
+
+	it('Updates has the engine row, the switch and nothing to press when this app’s own engine runs', () => {
+		const markup = page('updates', { now: 1_000 + 5 * 60_000 }, undefined, view())
+		expect(markup).toContain('Namzu engine')
+		expect(markup).toContain('Running 25.3.0. This app’s own engine.')
+		expect(markup).toContain('The engine is up to date. Last checked: 5 minutes ago.')
+		expect(markup).toContain('Keep the engine up to date')
+		expect(markup).toContain('aria-label="Keep the engine up to date"')
+		expect(markup).not.toContain('Use this app’s own engine')
+	})
+
+	it('Updates draws every state of the row', () => {
+		const say = (status: EngineDeliveryView['status'], over: Partial<EngineDeliveryView> = {}) =>
+			page('updates', {}, undefined, view({ status, ...over }))
+		expect(say({ kind: 'ready', version: '26.0.0' }, { canUseOwn: true })).toContain(
+			'A newer engine (26.0.0) is ready. It takes effect the next time a project opens.',
+		)
+		expect(
+			say({ kind: 'went-back', version: '26.0.0', problem: 'did-not-start', to: '25.3.0' }),
+		).toContain('Could not use engine 26.0.0 (it did not start) and went back to 25.3.0.')
+		expect(say({ kind: 'needs-newer-app' })).toContain(
+			'A newer engine is out, but it needs a newer version of this app.',
+		)
+		expect(say({ kind: 'cannot-check', since: Date.UTC(2026, 10, 3) })).toContain(
+			'Could not check for a newer engine since',
+		)
+		expect(say({ kind: 'off' }, { enabled: false })).toContain(
+			'Off. This app runs the engine it was installed with.',
+		)
+		expect(
+			say({ kind: 'override' }, { runs: { source: 'override', commandLine: '99.0.0' } }),
+		).toContain('A developer override is in use, so the engine is not updated.')
+		expect(say({ kind: 'unknown' })).toContain('Not checked yet.')
+		expect(say({ kind: 'checking' })).toContain('Checking for a newer engine…')
+	})
+
+	it('shows the switch off when the setting is off, and offers the way back when a fetched engine exists', () => {
+		const off = page(
+			'updates',
+			{
+				now: NOW,
+				settings: {
+					settings: { ...DEFAULT_DESKTOP_SETTINGS, keepEngineUpToDate: false },
+					error: '',
+					change: async () => {},
+					confirmation: undefined,
+					confirm: async () => {},
+					dismiss: () => {},
+				},
+			},
+			undefined,
+			fetched,
+		)
+		expect(off).toMatch(/aria-label="Keep the engine up to date"[^>]*/)
+		expect(off).not.toMatch(/aria-label="Keep the engine up to date"[^>]*aria-checked="true"/)
+		expect(off).toContain('Use this app’s own engine')
+		expect(off).toMatch(/Running 26\.0\.0\. Updated by itself on (12 Nov|Nov 12)\./u)
+	})
+
+	it('Updates draws nothing from the feed except version numbers and fixed words', () => {
+		const markup = page(
+			'updates',
+			{},
+			undefined,
+			view({ status: { kind: 'ready', version: '<script>alert(1)</script>' } }),
+		)
+		expect(markup).not.toContain('<script>alert')
+	})
+
+	it('About says which engine runs and where it came from', () => {
+		const own = page('about', {}, undefined, view())
+		expect(own).toContain('<dt>Namzu command line (bundled with this app)</dt><dd>25.3.0</dd>')
+		expect(own).toContain('This app’s own engine.')
+		const managed = page('about', { now: NOW }, undefined, fetched)
+		expect(managed).toContain('<dt>Namzu command line</dt><dd>26.0.0</dd>')
+		expect(managed).toContain('<dt>Namzu engine</dt><dd>25.9.0</dd>')
+		expect(managed).toMatch(/Updated by itself on (12 Nov|Nov 12)\./u)
+		// The bundled version is shown as the fallback.
+		expect(managed).toContain('<dt>Namzu command line (bundled with this app)</dt><dd>25.3.0</dd>')
+		expect(managed).toContain('Used if the newer engine cannot start.')
+		const override = page(
+			'about',
+			{},
+			undefined,
+			view({ runs: { source: 'override', commandLine: '99.0.0', engine: '98.0.0' } }),
+		)
+		expect(override).toContain('Developer override.')
+		expect(override).toContain('<dt>Namzu command line</dt><dd>99.0.0</dd>')
+	})
+
+	it('Copy details is a button that carries the same facts', () => {
+		const text = aboutDetailsText(info, {}, { view: fetched, now: NOW, locale: 'en-GB' })
+		expect(text).toContain('Namzu command line 26.0.0')
+		expect(text).toContain('Namzu engine 25.9.0')
+		expect(text).toContain('Engine source: Updated by itself on 12 Nov.')
+		expect(text).toContain('this app’s own, used if the newer one cannot start) 25.3.0')
+		expect(text).not.toMatch(/kernel|managed|manifest|bundle\b/iu)
+		// Where no engine is fetched, the text is what it was.
+		expect(aboutDetailsText(info, {})).not.toContain('Engine source')
 	})
 })

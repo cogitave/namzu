@@ -15,6 +15,7 @@ import type { UpdateInfo, UpdateState } from '../shared/update-protocol.js'
 import { configSearchEntries } from './config-settings-model.js'
 import { ConfigSettingsGroup } from './config-settings-section.js'
 import { copyPlainText } from './copy-button.js'
+import { engineSourceText, engineStatusText, plainVersion } from './engine-delivery-model.js'
 import { EngineUpdateRows, type EngineUpdateTarget } from './engine-updates-section.js'
 import {
 	DownloadIcon,
@@ -53,6 +54,7 @@ import type { Appearance } from './sidebar.js'
 import { Button } from './ui/button.js'
 import { type ConfigSettingsControls, useConfigSettings } from './use-config-settings.js'
 import type { DesktopSettingsControls } from './use-desktop-settings.js'
+import { useEngineDelivery } from './use-engine-delivery.js'
 import { useEngineUpdates } from './use-engine-updates.js'
 import type { LocalListeningControls } from './use-local-listening.js'
 import type { LocalSpeechControls } from './use-local-speech.js'
@@ -718,6 +720,7 @@ function UpdatesSection({ update, settings, now, engineTarget, hasAppUpdater }: 
 				</div>
 			</div>
 			<EngineUpdateRows target={engineTarget} />
+			<EngineDeliveryRows settings={settings} now={now} />
 			{hasAppUpdater && (
 				<Row
 					id="auto-download"
@@ -732,6 +735,67 @@ function UpdatesSection({ update, settings, now, engineTarget, hasAppUpdater }: 
 					/>
 				</Row>
 			)}
+		</>
+	)
+}
+
+/**
+ * The engine the app keeps current by itself: what the check found, the setting that turns it off
+ * and the way back to this app's own engine. Draws nothing in a build that has no signing key.
+ */
+function EngineDeliveryRows({ settings, now }: { settings: DesktopSettingsControls; now: number }) {
+	const delivery = useEngineDelivery()
+	const [chose, setChose] = useState(false)
+	const [failed, setFailed] = useState(false)
+	if (!delivery) return null
+	const { view } = delivery
+	const status = engineStatusText(view.status, (at) => lastCheckedText(at, now), now)
+	const enabled = settings.settings?.keepEngineUpToDate ?? true
+	return (
+		<>
+			<Row
+				id="engine-delivery"
+				label="Namzu engine"
+				description={`${
+					view.runs.commandLine ? `Running ${plainVersion(view.runs.commandLine)}. ` : ''
+				}${engineSourceText(view.runs, now)}`}
+			>
+				{view.canUseOwn && !chose && (
+					<Button
+						size="sm"
+						variant="outline"
+						onClick={() => {
+							setFailed(false)
+							delivery.chooseOwn().then(
+								() => setChose(true),
+								() => setFailed(true),
+							)
+						}}
+					>
+						Use this app’s own engine
+					</Button>
+				)}
+			</Row>
+			<div className="settings-update-status" aria-live="polite">
+				<p>{chose ? 'Done. The next project you open starts this app’s own engine.' : status}</p>
+				{failed && (
+					<p role="alert" className="settings-error">
+						Could not change that. Try again.
+					</p>
+				)}
+			</div>
+			<Row
+				id="keep-engine"
+				label="Keep the engine up to date"
+				description="Namzu fetches a newer engine in the background and starts it the next time a project opens. Off, only the engine this app was installed with runs."
+			>
+				<Switch
+					label="Keep the engine up to date"
+					checked={enabled}
+					disabled={!settings.settings}
+					onChange={(value) => void settings.change({ keepEngineUpToDate: value })}
+				/>
+			</Row>
 		</>
 	)
 }
@@ -800,9 +864,11 @@ function CopyDetails({ text }: { text: string }) {
 	)
 }
 
-function AboutSection({ info, infoError, onOpenFolder }: SettingsPageProps) {
+function AboutSection({ info, infoError, onOpenFolder, now }: SettingsPageProps) {
 	// What the registry knows to be newer than what is bundled: live, since a check may finish after About opens.
 	const newer = useEngineUpdates()?.state.kernel ?? {}
+	// Which engine runs and where it came from; absent in a build that cannot fetch engines.
+	const delivery = useEngineDelivery()?.view
 	if (!info)
 		return infoError ? (
 			<p role="alert" className="settings-error">
@@ -811,6 +877,11 @@ function AboutSection({ info, infoError, onOpenFolder }: SettingsPageProps) {
 		) : (
 			<p className="settings-empty">Loading…</p>
 		)
+	const fetched = delivery?.runs.source === 'managed' ? delivery.runs : undefined
+	// Where the app can fetch engines it reads what runs from the engine delivery, not from the installer.
+	const cliShown = delivery ? (delivery.runs.commandLine ?? info.cliVersion) : info.cliVersion
+	const engineShown = delivery ? (delivery.runs.engine ?? info.sdkVersion) : info.sdkVersion
+	const clock = now
 	return (
 		<>
 			<div id="setting-about" className="settings-row" data-stacked>
@@ -820,10 +891,21 @@ function AboutSection({ info, infoError, onOpenFolder }: SettingsPageProps) {
 						<dd>{info.version}</dd>
 					</div>
 					<div>
-						<dt>Namzu command line (bundled with this app)</dt>
-						<dd>{info.cliVersion ?? 'Not found'}</dd>
+						<dt>
+							{delivery && delivery.runs.source !== 'bundled'
+								? 'Namzu command line'
+								: 'Namzu command line (bundled with this app)'}
+						</dt>
+						<dd>{cliShown ?? 'Not found'}</dd>
 						{newer.cli && <dd className="settings-fact-note">{newerKernelText(newer.cli)}</dd>}
 					</div>
+					{fetched && delivery && (
+						<div>
+							<dt>Namzu command line (bundled with this app)</dt>
+							<dd>{delivery.bundled.commandLine ?? 'Not found'}</dd>
+							<dd className="settings-fact-note">Used if the newer engine cannot start.</dd>
+						</div>
+					)}
 					{info.installedCliVersion && (
 						<div>
 							<dt>Namzu command line (installed separately)</dt>
@@ -832,9 +914,12 @@ function AboutSection({ info, infoError, onOpenFolder }: SettingsPageProps) {
 					)}
 					<div>
 						<dt>Namzu engine</dt>
-						<dd>{info.sdkVersion ?? 'Not found'}</dd>
+						<dd>{engineShown ?? 'Not found'}</dd>
 						{newer.engine && (
 							<dd className="settings-fact-note">{newerKernelText(newer.engine)}</dd>
+						)}
+						{delivery && (
+							<dd className="settings-fact-note">{engineSourceText(delivery.runs, clock)}</dd>
 						)}
 					</div>
 					<div>
@@ -843,7 +928,13 @@ function AboutSection({ info, infoError, onOpenFolder }: SettingsPageProps) {
 					</div>
 				</dl>
 				<div className="settings-actions">
-					<CopyDetails text={aboutDetailsText(info, newer)} />
+					<CopyDetails
+						text={aboutDetailsText(
+							info,
+							newer,
+							delivery ? { view: delivery, now: clock } : undefined,
+						)}
+					/>
 				</div>
 			</div>
 			<div id="setting-folders" className="settings-folders">

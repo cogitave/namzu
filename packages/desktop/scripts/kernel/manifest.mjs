@@ -13,11 +13,18 @@ const fail = (message) => {
 	throw new ManifestError(message)
 }
 
-export const VERSION = /^\d+\.\d+\.\d+$/
+export const VERSION = /^(?:0|[1-9]\d{0,8})\.(?:0|[1-9]\d{0,8})\.(?:0|[1-9]\d{0,8})$/
 const TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/
 const HEX = (n) => new RegExp(`^[0-9a-f]{${n}}$`)
 const TARGET = /^(win32|darwin|linux)-(x64|arm64|ia32)$/
 export const DEFAULT_LIFETIME_DAYS = 14
+// The caps the app's reader holds a manifest to; the publisher refuses to write what the app would refuse.
+export const MAX_MANIFEST_BYTES = 1024 * 1024
+export const MAX_BUNDLE_BYTES = 2 * 1024 ** 3
+export const MAX_UNPACKED_BYTES = 8 * 1024 ** 3
+export const MAX_FILE_COUNT = 200_000
+export const MAX_WITHDRAWN = 1000
+const MAX_SMALL_NUMBER = 1_000_000
 
 export function compareVersions(a, b) {
 	const x = a.split('.').map(Number)
@@ -33,8 +40,9 @@ const exactKeys = (value, keys, where) => {
 	if (got !== [...keys].sort().join())
 		fail(`${where} has the fields ${got}; expected ${[...keys].sort().join()}.`)
 }
-const count = (value, where) => {
-	if (!Number.isSafeInteger(value) || value < 0) fail(`${where} must be a whole number.`)
+const count = (value, where, min = 0, max = Number.MAX_SAFE_INTEGER) => {
+	if (!Number.isSafeInteger(value) || value < min || value > max)
+		fail(`${where} must be a whole number from ${min} to ${max}.`)
 }
 
 export const parseTime = (text, where) => {
@@ -45,6 +53,7 @@ export const parseTime = (text, where) => {
 
 /** Strict parse of the manifest bytes: unknown or missing fields are refused. Returns the value. */
 export function parseManifest(bytes) {
+	if (bytes.length > MAX_MANIFEST_BYTES) fail('The manifest is too large.')
 	let m
 	try {
 		m = JSON.parse(Buffer.from(bytes).toString('utf8'))
@@ -74,6 +83,8 @@ export function parseManifest(bytes) {
 	const expires = parseTime(m.expiresAt, 'expiresAt')
 	if (expires <= issued) fail('The manifest expires before it is issued.')
 	if (!VERSION.test(m.minimumKernel ?? '')) fail('minimumKernel must look like 1.2.3.')
+	if (Array.isArray(m.withdrawn) && m.withdrawn.length > MAX_WITHDRAWN)
+		fail('withdrawn is not a short list.')
 	if (!Array.isArray(m.withdrawn) || m.withdrawn.some((v) => !VERSION.test(v ?? '')))
 		fail('withdrawn must be a list of versions like 1.2.3.')
 	if (new Set(m.withdrawn).size !== m.withdrawn.length) fail('withdrawn lists a version twice.')
@@ -85,8 +96,12 @@ export function parseManifest(bytes) {
 	if (!VERSION.test(m.kernel.commandLine ?? '')) fail('kernel.commandLine must look like 1.2.3.')
 	if (!VERSION.test(m.kernel.engine ?? '')) fail('kernel.engine must look like 1.2.3.')
 	for (const key of ['desktopContract', 'dataEpoch'])
-		if (!Number.isSafeInteger(m.kernel[key]) || m.kernel[key] < 1)
-			fail(`kernel.${key} must be a whole number of 1 or more.`)
+		if (
+			!Number.isSafeInteger(m.kernel[key]) ||
+			m.kernel[key] < 1 ||
+			m.kernel[key] > MAX_SMALL_NUMBER
+		)
+			fail(`kernel.${key} must be a whole number from 1 to ${MAX_SMALL_NUMBER}.`)
 	if (!isObject(m.kernel.bundles) || Object.keys(m.kernel.bundles).length === 0)
 		fail('The manifest has no bundles.')
 	for (const [target, bundle] of Object.entries(m.kernel.bundles)) {
@@ -98,13 +113,13 @@ export function parseManifest(bytes) {
 		)
 		if (
 			typeof bundle.file !== 'string' ||
-			!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(bundle.file) ||
+			!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(bundle.file) ||
 			bundle.file.includes('..')
 		)
 			fail(`The bundle ${target} names a file that is not a bare file name.`)
-		for (const key of ['size', 'fileCount', 'unpackedSize'])
-			count(bundle[key], `The bundle ${target} ${key}`)
-		if (bundle.size < 1) fail(`The bundle ${target} has no size.`)
+		count(bundle.size, `The bundle ${target} size`, 1, MAX_BUNDLE_BYTES)
+		count(bundle.fileCount, `The bundle ${target} fileCount`, 1, MAX_FILE_COUNT)
+		count(bundle.unpackedSize, `The bundle ${target} unpackedSize`, 0, MAX_UNPACKED_BYTES)
 		for (const key of ['sha512', 'filesSha512'])
 			if (typeof bundle[key] !== 'string' || !HEX(128).test(bundle[key]))
 				fail(`The bundle ${target} ${key} must be 128 hex digits.`)

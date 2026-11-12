@@ -13,6 +13,11 @@ export interface DesktopSettings {
 	retrustOnConfigChange: boolean
 	/** Download an update as soon as it is found; when off, only the badge offers a download. */
 	autoDownloadUpdates: boolean
+	/**
+	 * Keep the engine the app runs current by itself, in the background. When off, nothing is
+	 * asked of the network for it and the app runs the engine it was installed with.
+	 */
+	keepEngineUpToDate: boolean
 	/** The shell a plain terminal tab opens. Elsewhere than Windows only `auto` applies. */
 	terminalShell: ShellChoice
 	/** Bring terminal tabs back after a restart, as ended terminals showing their last screen. */
@@ -48,6 +53,7 @@ export const DEFAULT_DESKTOP_SETTINGS: Readonly<DesktopSettings> = {
 	startup: 'continue',
 	retrustOnConfigChange: true,
 	autoDownloadUpdates: true,
+	keepEngineUpToDate: true,
 	terminalShell: 'auto',
 	restoreTerminals: true,
 	voiceInputAccepted: false,

@@ -6,7 +6,7 @@ import {
 	parseManifest,
 	reissueManifest,
 } from '../kernel/manifest.mjs'
-import { decide, pruneList } from '../kernel/release-plan.mjs'
+import { archiveUploadAction, decide, pruneList } from '../kernel/release-plan.mjs'
 
 const hex = (c, n) => c.repeat(n)
 const entry = (target, over = {}) => ({
@@ -359,4 +359,104 @@ test('prune: keeps the two newest versions and the one being published, removes 
 		'namzu-kernel-51.2.0-win32-x64.tar.gz',
 	])
 	assert.deepEqual(pruneList(['kernel-latest.json'], '1.0.0'), [])
+})
+
+test('upload-plan: an archive no published manifest names is replaced; one a manifest names is never', () => {
+	const published = first()
+	const named = published.kernel.bundles['win32-x64'].file
+	assert.equal(named, 'namzu-kernel-51.3.0-win32-x64.tar.gz')
+	const other = 'namzu-kernel-51.4.0-win32-x64.tar.gz'
+	const assets = ['kernel-latest.json', 'kernel-latest.json.sig', named, other]
+
+	// Not on the release yet.
+	assert.equal(
+		archiveUploadAction({
+			name: 'namzu-kernel-51.5.0-win32-x64.tar.gz',
+			assets,
+			manifests: [published],
+		}).action,
+		'upload',
+	)
+	// On the release and named by the published manifest: refused, with what to do.
+	const refused = archiveUploadAction({ name: named, assets, manifests: [published] })
+	assert.equal(refused.action, 'refuse')
+	assert.match(refused.reason, /bump the version/)
+	// On the release, named by nothing published: the leftover of an upload cut before the signed pair.
+	const replaced = archiveUploadAction({ name: other, assets, manifests: [published] })
+	assert.equal(replaced.action, 'replace')
+	assert.match(replaced.reason, /no published manifest names it/)
+	// With no published manifest at all (a first release cut after the archive), the leftover is replaced too.
+	assert.equal(archiveUploadAction({ name: other, assets, manifests: [] }).action, 'replace')
+	assert.equal(archiveUploadAction({ name: other, assets }).action, 'replace')
+	// Any manifest of the list counts, and a bundle of another platform counts.
+	const two = assembleManifest({
+		entries: [entry('win32-x64'), entry('linux-x64')],
+		issuedAt: T0,
+		floor: '51.1.0',
+	})
+	assert.equal(
+		archiveUploadAction({
+			name: 'namzu-kernel-51.3.0-linux-x64.tar.gz',
+			assets: ['namzu-kernel-51.3.0-linux-x64.tar.gz'],
+			manifests: [published, two],
+		}).action,
+		'refuse',
+	)
+	// A name that is not an archive is never uploaded.
+	assert.equal(archiveUploadAction({ name: '../x.tar.gz', assets, manifests: [] }).action, 'refuse')
+	// Running it twice gives the same answer.
+	assert.deepEqual(
+		archiveUploadAction({ name: other, assets, manifests: [published] }),
+		archiveUploadAction({ name: other, assets, manifests: [published] }),
+	)
+})
+
+test('upload-plan: the command prints the action and the reason, and refuses a manifest it cannot read', async () => {
+	const { execFileSync, spawnSync } = await import('node:child_process')
+	const { mkdtempSync, writeFileSync } = await import('node:fs')
+	const { tmpdir } = await import('node:os')
+	const { join } = await import('node:path')
+	const dir = mkdtempSync(join(tmpdir(), 'namzu-plan-'))
+	const published = first()
+	writeFileSync(join(dir, 'kernel-latest.json'), manifestBytes(published))
+	const named = published.kernel.bundles['win32-x64'].file
+	writeFileSync(
+		join(dir, 'assets.json'),
+		JSON.stringify([named, 'namzu-kernel-51.4.0-win32-x64.tar.gz']),
+	)
+	const script = new URL('../kernel/release-plan.mjs', import.meta.url).pathname
+	const run = (name) =>
+		execFileSync(
+			process.execPath,
+			[
+				script,
+				'upload-plan',
+				'--name',
+				name,
+				'--assets',
+				join(dir, 'assets.json'),
+				'--manifest',
+				join(dir, 'kernel-latest.json'),
+			],
+			{ encoding: 'utf8' },
+		)
+	assert.match(run('namzu-kernel-51.4.0-win32-x64.tar.gz'), /^action=replace\nreason=/)
+	assert.match(run('namzu-kernel-51.9.0-win32-x64.tar.gz'), /^action=upload\n/)
+	assert.match(run(named), /^action=refuse\n/)
+	writeFileSync(join(dir, 'bad.json'), '{}')
+	const bad = spawnSync(
+		process.execPath,
+		[
+			script,
+			'upload-plan',
+			'--name',
+			named,
+			'--assets',
+			join(dir, 'assets.json'),
+			'--manifest',
+			join(dir, 'bad.json'),
+		],
+		{ encoding: 'utf8' },
+	)
+	assert.notEqual(bad.status, 0)
 })

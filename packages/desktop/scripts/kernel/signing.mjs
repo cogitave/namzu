@@ -22,7 +22,8 @@ export class SigningError extends Error {
 	}
 }
 
-const KEY_ID = /^[A-Za-z0-9._-]{1,64}$/
+// The same rule as the app's reader: a key id is a short plain name.
+const KEY_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/
 
 /** The raw 32 bytes of an Ed25519 public key, as base64: the form the app compiles in. */
 export function rawPublicKey(publicKeyObject) {
@@ -109,7 +110,9 @@ export function readKeyList(file = DEFAULT_KEYS_FILE) {
 /** The signature file (3.5) for exact manifest bytes. Returns its bytes. */
 export function signManifest(manifestBytes, privateKey, keyId) {
 	if (!KEY_ID.test(keyId ?? ''))
-		throw new SigningError('The key id must be 1 to 64 letters, digits, ".", "_" or "-".')
+		throw new SigningError(
+			'The key id must be 1 to 32 letters, digits, ".", "_" or "-", starting with a letter or digit.',
+		)
 	const signature = sign(null, manifestBytes, privateKey).toString('base64')
 	return Buffer.from(`${JSON.stringify({ schema: 1, keyId, algorithm: 'ed25519', signature })}\n`)
 }
@@ -145,6 +148,11 @@ export function verifySignature(manifestBytes, signatureBytes, keys) {
 		throw new SigningError(
 			'The signature file does not have the shape { schema: 1, keyId, algorithm: "ed25519", signature }.',
 		)
+	// Compact JSON, the fields in the order of the text and one newline: one reading only (7.6).
+	if (signatureBytes.toString('utf8') !== `${JSON.stringify(value)}\n`)
+		throw new SigningError(
+			'The signature file is not in the exact form of the text (compact JSON, fields in order, one newline).',
+		)
 	const entry = keys.find((candidate) => candidate.id === value.keyId)
 	if (!entry)
 		throw new SigningError(
@@ -163,7 +171,9 @@ export function verifySignature(manifestBytes, signatureBytes, keys) {
 /** A new key pair: `{ privatePem, entry: { id, publicKey } }`. */
 export function makeKeyPair(id) {
 	if (!KEY_ID.test(id))
-		throw new SigningError('The key id must be 1 to 64 letters, digits, ".", "_" or "-".')
+		throw new SigningError(
+			'The key id must be 1 to 32 letters, digits, ".", "_" or "-", starting with a letter or digit.',
+		)
 	const { publicKey, privateKey } = generateKeyPairSync('ed25519')
 	return {
 		privatePem: privateKey.export({ format: 'pem', type: 'pkcs8' }),

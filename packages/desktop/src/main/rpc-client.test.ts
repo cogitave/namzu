@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type DesktopDiagnosticSink, DesktopDiagnostics, observeDesktopIpc } from './diagnostics.js'
 import { ExpectedRuntimeCloseError } from './expected-close.js'
+import type { HostLauncher, SpawnSpec } from './host-launcher.js'
 import { RuntimeClient } from './rpc-client.js'
 vi.mock('node:child_process', async (importOriginal) => {
 	const original = await importOriginal<typeof import('node:child_process')>()
@@ -404,5 +405,112 @@ describe('what the host is told about the app', () => {
 		expect(client).not.toMatch(/version:\s*['"`]\d+\.\d+\.\d+/u)
 		const main = readFileSync(new URL('./index.ts', import.meta.url), 'utf8')
 		expect(main).toContain('clientVersion: app.getVersion()')
+	})
+})
+
+describe('starting through a launcher that chooses the engine', () => {
+	/** A launcher that tries the first specification, and the second once if the first fails. */
+	function launching(specs: SpawnSpec[]) {
+		const record = { attempts: [] as boolean[], faults: [] as boolean[], exits: [] as boolean[] }
+		const launcher: HostLauncher = {
+			async start(attempt, isFault) {
+				for (let index = 0; ; index++) {
+					const retryable = index === 0 && specs.length > 1
+					record.attempts.push(retryable)
+					try {
+						await attempt(specs[index] as SpawnSpec, { retryable })
+						break
+					} catch (error) {
+						const fault = isFault(error)
+						record.faults.push(fault)
+						if (!fault || index + 1 >= specs.length) throw error
+					}
+				}
+				return { exited: (unexpected) => record.exits.push(unexpected) }
+			},
+		}
+		return { launcher, record }
+	}
+	const good: SpawnSpec = { program: process.execPath, args: [fixture], env: process.env }
+	const incompatible: SpawnSpec = {
+		program: process.execPath,
+		args: [fixture],
+		env: { ...process.env, FIXTURE_INCOMPATIBLE: '1' },
+	}
+	const missing: SpawnSpec = { program: 'namzu-no-such-program', args: [] }
+	function launched(specs: SpawnSpec[], cwd = process.cwd()) {
+		const { launcher, record } = launching(specs)
+		const runtime = new RuntimeClient(cwd, { program: 'unused', args: [], launcher })
+		clients.push(runtime)
+		const closed: Error[] = []
+		runtime.on('closed', (error: Error) => closed.push(error))
+		return { runtime, record, closed }
+	}
+
+	it('starts on the specification the launcher gives, not on the command’s own', async () => {
+		const { runtime, record, closed } = launched([good])
+		await runtime.start()
+		expect(await runtime.request('test/echo')).toBe('Türkçe 🧪')
+		expect(record.attempts).toEqual([false])
+		expect(closed).toEqual([])
+	})
+
+	it('tries once more when a fetched engine lacks a required method, and nobody hears of the first failure', async () => {
+		const { runtime, record, closed } = launched([incompatible, good])
+		await runtime.start()
+		expect(record.attempts).toEqual([true, false])
+		expect(record.faults).toEqual([true])
+		// The failed attempt's connection closing is held back: the start ended well.
+		expect(closed).toEqual([])
+		expect(await runtime.request('test/echo')).toBe('Türkçe 🧪')
+	})
+
+	it('tries once more when the program cannot be started at all', async () => {
+		const { runtime, record, closed } = launched([missing, good])
+		await runtime.start()
+		expect(record.attempts).toEqual([true, false])
+		expect(closed).toEqual([])
+		expect(await runtime.request('test/echo')).toBe('Türkçe 🧪')
+	})
+
+	it('ignores everything a discarded attempt’s process still does', async () => {
+		const { runtime, record } = launched([incompatible, good])
+		await runtime.start()
+		await runtime.close()
+		// Only the live host's end is reported, and it was asked for.
+		expect(record.exits).toEqual([false])
+	})
+
+	it('says so once, as it always did, when the last attempt fails too', async () => {
+		const { runtime, closed } = launched([incompatible, incompatible])
+		await expect(runtime.start()).rejects.toThrow('Update Namzu')
+		expect(closed).toHaveLength(1)
+	})
+
+	it('says so once when a start with nothing to go back to fails', async () => {
+		const { runtime, closed, record } = launched([incompatible])
+		await expect(runtime.start()).rejects.toThrow('Update Namzu')
+		expect(record.attempts).toEqual([false])
+		expect(closed).toHaveLength(1)
+	})
+
+	it('does not call it the engine’s fault when the project folder is gone', async () => {
+		const gone = join(tmpdir(), 'namzu-no-such-project-folder')
+		const { runtime, record, closed } = launched([good, good], gone)
+		await expect(runtime.start()).rejects.toThrow()
+		expect(record.faults).toEqual([false])
+		expect(record.attempts).toEqual([true])
+		expect(closed).toHaveLength(1)
+	})
+
+	it('reports a host that ends by itself as unexpected, and one the app closed as expected', async () => {
+		const own = launched([good])
+		await own.runtime.start()
+		await expect(own.runtime.request('test/exit')).rejects.toThrow('connection closed')
+		await vi.waitFor(() => expect(own.record.exits).toEqual([true]))
+		const asked = launched([good])
+		await asked.runtime.start()
+		await asked.runtime.close()
+		expect(asked.record.exits).toEqual([false])
 	})
 })

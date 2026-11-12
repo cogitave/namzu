@@ -10,6 +10,9 @@ export interface ComputerCliCommand {
 	env: NodeJS.ProcessEnv
 }
 
+/** The command to run now, and how to give back what it holds when the process is over. */
+export type ComputerCliLease = ComputerCliCommand & { release?: () => void }
+
 type Spawn = (program: string, args: string[], options: SpawnOptions) => ChildProcess
 
 /**
@@ -17,9 +20,22 @@ type Spawn = (program: string, args: string[], options: SpawnOptions) => ChildPr
  * a conversation. Output that is not a JSON line is dropped; the child's error text is never read.
  */
 export function createComputerCli(
-	command: ComputerCliCommand,
+	command: ComputerCliCommand | (() => Promise<ComputerCliLease>),
 	spawnProcess: Spawn = spawn,
 ): ComputerCli {
+	if (typeof command === 'function') {
+		const lease = command
+		return {
+			run: async (args, onLine, options) => {
+				const held = await lease()
+				try {
+					return await createComputerCli(held, spawnProcess).run(args, onLine, options)
+				} finally {
+					held.release?.()
+				}
+			},
+		}
+	}
 	return {
 		run: (args, onLine, options) =>
 			new Promise((resolve, reject) => {

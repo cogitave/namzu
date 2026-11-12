@@ -22,6 +22,7 @@ it('starts on the documented defaults without writing anything', () => {
 		startup: 'continue',
 		retrustOnConfigChange: true,
 		autoDownloadUpdates: true,
+		keepEngineUpToDate: true,
 		terminalShell: 'auto',
 		restoreTerminals: true,
 		voiceInputAccepted: false,
@@ -47,6 +48,7 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		startup: 'home',
 		retrustOnConfigChange: true,
 		autoDownloadUpdates: false,
+		keepEngineUpToDate: true,
 		terminalShell: 'auto',
 		restoreTerminals: true,
 		voiceInputAccepted: false,
@@ -64,6 +66,7 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 		startup: 'home',
 		retrustOnConfigChange: true,
 		autoDownloadUpdates: false,
+		keepEngineUpToDate: true,
 		terminalShell: 'auto',
 		restoreTerminals: true,
 		voiceInputAccepted: false,
@@ -78,6 +81,7 @@ it('validates a change, saves it atomically, and survives a restart', () => {
 	expect(new DesktopSettingsStore({ file }).get()).toMatchObject({
 		startup: 'home',
 		autoDownloadUpdates: false,
+		keepEngineUpToDate: true,
 	})
 })
 
