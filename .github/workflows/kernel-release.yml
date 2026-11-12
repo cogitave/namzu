@@ -118,13 +118,23 @@ jobs:
             gh release download "$FEED_TAG" --pattern kernel-latest.json --dir prev
           fi
 
+      # Right after the package publish the registry can still answer "not found" for a short while, so a run
+      # started by that publish asks a few times. The weekly run catches up anyway; this saves the wait.
       - name: Is that version on the registry
         id: registry
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          EVENT: ${{ github.event_name }}
         run: |
-          found="$(npm view "@namzu/cli@$VERSION" version 2>/dev/null || true)"
-          if [ "$found" = "$VERSION" ]; then echo "on=true" >> "$GITHUB_OUTPUT"; else echo "on=false" >> "$GITHUB_OUTPUT"; fi
+          tries=1
+          if [ "$EVENT" = workflow_run ]; then tries=6; fi
+          on=false
+          for attempt in $(seq 1 "$tries"); do
+            found="$(npm view "@namzu/cli@$VERSION" version 2>/dev/null || true)"
+            if [ "$found" = "$VERSION" ]; then on=true; break; fi
+            if [ "$attempt" -lt "$tries" ]; then sleep 30; fi
+          done
+          echo "on=$on" >> "$GITHUB_OUTPUT"
 
       - name: Decide
         id: decide
@@ -207,7 +217,11 @@ jobs:
       && (needs.plan.outputs.mode == 'reissue' || (needs.plan.outputs.mode == 'build' && needs.build.result == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # The protected environment holds the signing key; its reviewers and branch rule are the second lock.
+    # The environment holds the signing key as an ENVIRONMENT secret (never a repository secret) and its
+    # deployment branch rule allows only main. The `ref == main` conditions in this file are not a boundary:
+    # a branch can change its own copy of the workflow, so only the environment's rule and its own secret
+    # keep the key from such a branch. Do not add required reviewers: the weekly run is unattended and an
+    # unapproved week would let the 14-day manifest expire (docs/cli/desktop-engine-bundles.md).
     environment: kernel-release
     permissions:
       contents: write
@@ -235,17 +249,41 @@ jobs:
           name: kernel-archive
           path: incoming
 
+      # The signed pair is replaced by two uploads, which cannot be one step: a run that dies between them leaves
+      # a new manifest beside the old signature. Clients refuse that pair and keep the engine they have. So that
+      # it does not block every later run, the pair that verified is copied to kernel-previous.json (and .sig)
+      # before it is replaced, and a later run whose current pair does not verify starts from that copy.
       - name: The previous manifest, checked against the key list
         run: |
-          mkdir -p prev out
+          mkdir -p prev out backup
           names="$(gh release view "$FEED_TAG" --json assets --jq '.assets[].name' 2>/dev/null || true)"
-          if grep -Fxq kernel-latest.json <<<"$names" && grep -Fxq kernel-latest.json.sig <<<"$names"; then
-            gh release download "$FEED_TAG" --pattern kernel-latest.json --pattern kernel-latest.json.sig --dir prev
-            # An expired previous manifest is fine to renew; one that does not verify is not.
-            node "$KERNEL_SCRIPTS/verify.mjs" --manifest prev/kernel-latest.json --sig prev/kernel-latest.json.sig --keys "$KEYS_FILE" --allow-expired
+          has() { grep -Fxq "$1" <<<"$names"; }
+          check() { node "$KERNEL_SCRIPTS/verify.mjs" --manifest "$1.json" --sig "$1.json.sig" --keys "$KEYS_FILE" --allow-expired; }
+          current=false
+          if has kernel-latest.json || has kernel-latest.json.sig; then
+            # An expired previous manifest is fine to renew; one that is missing its signature or does not verify is not.
+            if has kernel-latest.json && has kernel-latest.json.sig \
+               && gh release download "$FEED_TAG" --pattern kernel-latest.json --pattern kernel-latest.json.sig --dir prev \
+               && check prev/kernel-latest; then
+              current=true
+            elif has kernel-previous.json && has kernel-previous.json.sig; then
+              echo "::warning title=Kernel release::The current manifest pair does not verify (an interrupted upload?). Starting from the saved previous pair."
+              rm -rf prev && mkdir prev
+              gh release download "$FEED_TAG" --pattern kernel-previous.json --pattern kernel-previous.json.sig --dir prev
+              check prev/kernel-previous
+              mv prev/kernel-previous.json prev/kernel-latest.json
+              mv prev/kernel-previous.json.sig prev/kernel-latest.json.sig
+            else
+              echo "The current manifest pair is incomplete or does not verify, and there is no saved previous pair." >&2
+              exit 1
+            fi
           elif [ "$MODE" = reissue ]; then
             echo "There is no current manifest to re-issue." >&2
             exit 1
+          fi
+          if [ "$current" = true ]; then
+            cp prev/kernel-latest.json backup/kernel-previous.json
+            cp prev/kernel-latest.json.sig backup/kernel-previous.json.sig
           fi
 
       # Nothing the build job wrote beside the archive is trusted: the entry is rebuilt from the archive.
@@ -300,9 +338,14 @@ jobs:
           fi
           gh release upload "$FEED_TAG" "incoming/$name"
 
-      # The signed pair goes last, so the feed never names an archive that is not there yet.
+      # The signed pair goes last, so the feed never names an archive that is not there yet. The pair that
+      # verified at the start of this run is saved first (see "The previous manifest" above).
       - name: Upload the signed manifest
-        run: gh release upload "$FEED_TAG" --clobber out/kernel-latest.json out/kernel-latest.json.sig
+        run: |
+          if [ -f backup/kernel-previous.json ]; then
+            gh release upload "$FEED_TAG" --clobber backup/kernel-previous.json backup/kernel-previous.json.sig
+          fi
+          gh release upload "$FEED_TAG" --clobber out/kernel-latest.json out/kernel-latest.json.sig
 
       # Keep the newest archive and the one before it; remove older ones so the release does not grow.
       - name: Remove archives older than the previous one

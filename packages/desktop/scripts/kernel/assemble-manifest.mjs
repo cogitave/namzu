@@ -28,11 +28,21 @@ async function main(args) {
 		unwithdraw: 'list',
 	})
 	if (!flags.out || (!flags.bundle && !flags.reissue) || (flags.bundle && flags.reissue))
-		throw new Error('Usage: assemble-manifest.mjs --out <file> (--bundle <entry.json>... [--previous <manifest>] | --reissue <manifest>) [options]')
+		throw new Error(
+			'Usage: assemble-manifest.mjs --out <file> (--bundle <entry.json>... [--previous <manifest>] | --reissue <manifest>) [options]',
+		)
 	const issuedAt = flags['issued-at'] ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
-	const lifetimeDays = flags['lifetime-days'] === undefined ? undefined : Number(flags['lifetime-days'])
-	if (lifetimeDays !== undefined && !(lifetimeDays > 0)) throw new Error('--lifetime-days must be a number above 0.')
-	const common = { issuedAt, lifetimeDays, floor: flags.floor, withdraw: flags.withdraw, unwithdraw: flags.unwithdraw }
+	const lifetimeDays =
+		flags['lifetime-days'] === undefined ? undefined : Number(flags['lifetime-days'])
+	if (lifetimeDays !== undefined && !(lifetimeDays > 0))
+		throw new Error('--lifetime-days must be a number above 0.')
+	const common = {
+		issuedAt,
+		lifetimeDays,
+		floor: flags.floor,
+		withdraw: flags.withdraw,
+		unwithdraw: flags.unwithdraw,
+	}
 	const readManifest = (path) => parseManifest(readFileSync(path))
 	const manifest = flags.reissue
 		? reissueManifest({ previous: readManifest(flags.reissue), ...common })
@@ -43,7 +53,9 @@ async function main(args) {
 				...common,
 			})
 	writeFileSync(flags.out, manifestBytes(manifest))
-	console.log(`Manifest ${flags.out}: channel ${manifest.channel}, sequence ${manifest.sequence}, kernel ${manifest.kernel.commandLine}, floor ${manifest.minimumKernel}, withdrawn [${manifest.withdrawn.join(', ')}], expires ${manifest.expiresAt}`)
+	console.log(
+		`Manifest ${flags.out}: channel ${manifest.channel}, sequence ${manifest.sequence}, kernel ${manifest.kernel.commandLine}, floor ${manifest.minimumKernel}, withdrawn [${manifest.withdrawn.join(', ')}], expires ${manifest.expiresAt}`,
+	)
 }
 
 if (isMain(import.meta.url)) await runMain(main)

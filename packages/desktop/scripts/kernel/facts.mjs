@@ -27,19 +27,33 @@ export function assembleKernelFacts({ packageVersion, versionOutput, kernel, tar
 	if (!VERSION.test(packageVersion ?? ''))
 		problems.push(`package.json carries the version "${packageVersion}", which is not x.y.z`)
 	if (versionOutput.trim() !== packageVersion)
-		problems.push(`\`--version\` printed "${versionOutput.trim()}" but package.json says ${packageVersion}`)
+		problems.push(
+			`\`--version\` printed "${versionOutput.trim()}" but package.json says ${packageVersion}`,
+		)
 	if (!kernel || typeof kernel !== 'object')
-		problems.push('the answer to `initialize` has no `kernel` object (this command line does not state its facts)')
+		problems.push(
+			'the answer to `initialize` has no `kernel` object (this command line does not state its facts)',
+		)
 	else {
 		if (kernel.commandLine !== packageVersion)
-			problems.push(`initialize says the command line is ${JSON.stringify(kernel.commandLine)}, not ${packageVersion}`)
-		if (!VERSION.test(kernel.engine ?? '')) problems.push(`initialize states the engine ${JSON.stringify(kernel.engine)}, not x.y.z`)
-		if (!isCount(kernel.dataEpoch)) problems.push(`initialize states the data epoch ${JSON.stringify(kernel.dataEpoch)}, not a whole number of 1 or more`)
+			problems.push(
+				`initialize says the command line is ${JSON.stringify(kernel.commandLine)}, not ${packageVersion}`,
+			)
+		if (!VERSION.test(kernel.engine ?? ''))
+			problems.push(`initialize states the engine ${JSON.stringify(kernel.engine)}, not x.y.z`)
+		if (!isCount(kernel.dataEpoch))
+			problems.push(
+				`initialize states the data epoch ${JSON.stringify(kernel.dataEpoch)}, not a whole number of 1 or more`,
+			)
 		if (!isCount(kernel.desktopContract))
-			problems.push(`initialize states the desktop contract ${JSON.stringify(kernel.desktopContract)}, not a whole number of 1 or more (was it started with acp --desktop?)`)
+			problems.push(
+				`initialize states the desktop contract ${JSON.stringify(kernel.desktopContract)}, not a whole number of 1 or more (was it started with acp --desktop?)`,
+			)
 	}
 	if (problems.length > 0)
-		throw new KernelFactsError(`The staged kernel does not state its facts: ${problems.join('; ')}.`)
+		throw new KernelFactsError(
+			`The staged kernel does not state its facts: ${problems.join('; ')}.`,
+		)
 	return {
 		schema: 1,
 		commandLine: kernel.commandLine,

@@ -74,10 +74,17 @@ gzip over a tar stream, written so that the same folder gives the same bytes:
 The reader refuses the **whole** archive on: any other entry type; a pax key other than `path`; an absolute
 path, a drive letter, a backslash, a `:`, an empty or `.` or `..` segment, a Windows device name (`CON`,
 `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`, with or without an extension), a segment ending in a dot or a space;
-two names equal after lower-casing; a file `files.json` does not list, or a listed file that is missing; a
+two names equal after case folding; a file `files.json` does not list, or a listed file that is missing; a
 size or sha256 that differs; more files or more unpacked bytes than the manifest states; bytes after the end
-blocks. Two more things the publisher's reader refuses, beyond the text: a name prefix in a header, and a
-`files.json` that is not serialised exactly as above.
+blocks. Beyond the text, the publisher's reader also refuses: a name prefix in a header; a `files.json` that
+is not serialised exactly as above; entries in an order other than the order of `files.json`; a pax header
+that carries `path` twice; and the Windows device names the text does not list (`CONIN$`, `CONOUT$`, `CLOCK$`,
+the superscript forms `COM¹`, `LPT²` and so on, and a name such as `con .txt`).
+
+"Case folding" is Unicode composition (NFC), then upper case, then lower case. That joins the pairs that
+lower-casing alone misses: the two Greek sigma forms, `ß` and `SS`, the Kelvin sign and `K`, and `é` written
+as one character or as `e` plus an accent. A reader on another platform must fold at least this much, or two
+files that are different in the archive can be one file on a case-insensitive disk.
 
 Counting: `fileCount` and `unpackedSize` count the kernel's own files, the ones `files.json` lists
 (`kernel.json` among them); `files.json` itself is not counted. The reader refuses an archive with more.
@@ -139,7 +146,7 @@ the repository.
 | `release-local.mjs --out <dir> [--target t]... [--keys file] [--previous file] [--floor v] ...` | The whole release into a folder, without publishing: stage, pack, manifest, sign when a key is in the environment, verify. |
 | `release-plan.mjs decide ...` / `prune ...` | The decisions of the workflow (what a run does; which archives to remove), as code that is tested. |
 
-**Manifest rules** (`assemble-manifest.mjs`): a sequence lower than the previous manifest's is refused (the
+**Manifest rules** (`assemble-manifest.mjs`): a sequence lower than or equal to the previous manifest's is refused (the
 sequence is the issue time in seconds, so pass a later `--issued-at`); a kernel older than the previous
 manifest's is refused, and the same version is a re-issue, not a new manifest; the floor is never lowered and
 may not be above the kernel offered (with no `--floor` the previous floor is kept; a first manifest uses the
@@ -148,7 +155,8 @@ kernel being offered may not be on it. A re-issue keeps the kernel and bundles a
 change the withdrawn list by the same rules.
 
 **Verify** checks, in order: the key list is not empty; the signature file's shape; the key id is in the list;
-the signature matches the exact manifest bytes; the manifest parses strictly; it has not expired (unless
+the signature matches the exact manifest bytes; the manifest parses strictly and is in the exact form of the
+text (so a repeated key or a different layout cannot be read two ways); it has not expired (unless
 `--allow-expired`) and is not issued in the future; and, with `--archive`, the archive's size and sha512 match the
 bundle, the reader accepts it within the manifest's limits, and its `files.json` hash, file count, unpacked size
 and `kernel.json` agree with the manifest. The reader (`archive-reader.mjs`) shares no code with the writer
@@ -169,10 +177,20 @@ and from nowhere else: never a file, never an argument. It is not written, not p
 message; a test runs every command with a known key in the environment, on success and on failure, and searches
 all output and every file written for it.
 
-Determinism has one condition. `pnpm deploy` leaves `node_modules/.modules.yaml`, which records the absolute
-path of the folder it staged into, so two stagings into different folders differ in that one file (and so in
-the archive). Packing the **same staged folder** twice gives the same bytes; so does the same gzip build (the
-compressed bytes depend on the zlib that node carries).
+Determinism. Packing the **same staged folder** twice gives the same bytes (the compressed bytes depend on the
+zlib that node carries, so the publisher fixes node 24). Staging the same commit twice gives the same folder
+except for one thing the staging does not control. The kernel staging removes `node_modules/.modules.yaml`
+(pnpm writes the absolute staging path and a time into it; nothing reads it at run time; only the kernel staging
+drops it, the installer's folder keeps it). `THIRD-PARTY-LICENSES.txt` is the remaining difference: it names the
+version of each package whose code was compiled into the bundle, as `pnpm deploy` resolved it at that moment,
+and two stagings of one commit were seen to name `slice-ansi` 9.0.1 in one and 10.0.1 in the other (the lock
+file says 9.0.0). The files of the packages that are kept were identical in both. So the archive is a record
+of what was staged, not a promise that staging again gives the same bytes; the manifest's hashes are those of
+the archive that was uploaded.
+
+The release key is never given to staging. `pnpm deploy` runs third-party install code and the staged program
+is started to check it; both get an environment without `NAMZU_KERNEL_SIGNING_KEY`, so even a local
+`release-local.mjs` run with the key set only shows it to the signing step.
 
 ## The public key list
 
@@ -207,9 +225,34 @@ list it also ends quietly. Three jobs:
 
 No value from the triggering run or from an input is interpolated into a shell line; each goes through `env`.
 
-Setting it up, once, by the owner: create the environment `kernel-release` (with required reviewers and a
-branch rule for `main`), make a key (above) into the secret `NAMZU_KERNEL_SIGNING_KEY` of that environment,
-paste the public entry into `kernel-keys.json`, and merge. Until then the workflow ends quietly.
+Setting it up, once, by the owner:
+
+1. Create the environment `kernel-release` with a **deployment branch rule that allows only `main`**.
+2. Make a key (above) into the secret `NAMZU_KERNEL_SIGNING_KEY` of **that environment**, never a repository
+   secret. The `github.ref == main` conditions in the workflow file are not a boundary: a branch can edit its
+   own copy of the file and start it by hand. Only the environment's branch rule and the fact that the secret
+   exists nowhere else keep the key from such a branch.
+3. Do **not** add required reviewers to the environment unless someone approves every Monday. A scheduled run
+   waits for an approval it never gets, and an unapproved fortnight lets the 14-day manifest expire, which is
+   exactly what the schedule exists to prevent. The protection that matters here is that `main` needs a review
+   before any code, including this workflow and the scripts it runs, can change.
+4. Paste the public entry into `kernel-keys.json` and merge. Until then the workflow ends quietly.
+
+**A run right after the package publish** asks the registry up to six times, thirty seconds apart, whether the
+new command line version is there yet. If it still is not, the run ends quietly and the Monday run builds it;
+publish by hand (`workflow_dispatch`) to avoid the wait.
+
+### When an upload was cut in half
+
+The signed pair is two uploads, so a run that dies between them leaves a new manifest beside the old signature
+(or none). Apps refuse that pair and keep the engine they have; nothing breaks for people. So that it does not
+stop every later run, `publish` saves the pair that verified at the start of a run as `kernel-previous.json`
+and `kernel-previous.json.sig` on the same release, before replacing it. A later run whose current pair is
+incomplete or does not verify says so in a warning and starts from the saved pair; if there is no saved pair it
+stops with a plain message. A manifest that is present with no `.sig` counts as a pair that does not verify.
+When it starts from the saved pair, the archive of a version that was already uploaded by the cut run is still
+on the release and the same version cannot be built again (a version is never replaced): bump the command line
+version, or re-issue the saved manifest and let the next version go out normally.
 
 ### Checks this workflow is not part of
 

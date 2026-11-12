@@ -1,3 +1,4 @@
+import { once } from 'node:events'
 // Unpack an archive into a new folder with the reader's rules (for inspection and the integration
 // check; the app has its own extraction). The folder is removed again if the archive is refused.
 //
@@ -5,7 +6,6 @@
 //
 // With --manifest the archive's limits (file count, unpacked size) come from the bundle it names.
 import { createWriteStream, mkdirSync, readFileSync, rmSync } from 'node:fs'
-import { once } from 'node:events'
 import { basename, dirname, join, resolve } from 'node:path'
 import { readArchive } from './archive-reader.mjs'
 import { isMain, parseFlags, runMain } from './cli.mjs'
@@ -42,11 +42,14 @@ export async function unpackArchive({ archive, out, limits }) {
 
 async function main(args) {
 	const { flags, positional } = parseFlags(args, { manifest: 'string' })
-	if (positional.length !== 2) throw new Error('Usage: unpack.mjs <archive.tar.gz> <out-dir> [--manifest <file>]')
+	if (positional.length !== 2)
+		throw new Error('Usage: unpack.mjs <archive.tar.gz> <out-dir> [--manifest <file>]')
 	let limits
 	if (flags.manifest) {
 		const manifest = parseManifest(readFileSync(flags.manifest))
-		const bundle = Object.values(manifest.kernel.bundles).find((b) => b.file === basename(positional[0]))
+		const bundle = Object.values(manifest.kernel.bundles).find(
+			(b) => b.file === basename(positional[0]),
+		)
 		if (!bundle) throw new Error(`The manifest has no bundle named ${basename(positional[0])}.`)
 		limits = { fileCount: bundle.fileCount, unpackedSize: bundle.unpackedSize }
 	}

@@ -8,7 +8,12 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const SIGNING_KEY_ENV = 'NAMZU_KERNEL_SIGNING_KEY'
-export const DEFAULT_KEYS_FILE = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'kernel-keys.json')
+export const DEFAULT_KEYS_FILE = join(
+	dirname(fileURLToPath(import.meta.url)),
+	'..',
+	'..',
+	'kernel-keys.json',
+)
 
 export class SigningError extends Error {
 	constructor(message) {
@@ -29,7 +34,11 @@ export function publicKeyFromRaw(base64) {
 	const raw = Buffer.from(base64, 'base64')
 	if (raw.length !== 32 || raw.toString('base64') !== base64)
 		throw new SigningError('A public key must be the base64 of exactly 32 bytes.')
-	return createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), raw]), format: 'der', type: 'spki' })
+	return createPublicKey({
+		key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), raw]),
+		format: 'der',
+		type: 'spki',
+	})
 }
 
 /**
@@ -49,9 +58,12 @@ export function privateKeyFromText(text) {
 				: createPrivateKey({ key: decoded, format: 'der', type: 'pkcs8' })
 		}
 	} catch {
-		throw new SigningError(`${SIGNING_KEY_ENV} is not a PKCS#8 private key (PEM, or base64 of the PEM).`)
+		throw new SigningError(
+			`${SIGNING_KEY_ENV} is not a PKCS#8 private key (PEM, or base64 of the PEM).`,
+		)
 	}
-	if (key.asymmetricKeyType !== 'ed25519') throw new SigningError(`${SIGNING_KEY_ENV} is not an Ed25519 key.`)
+	if (key.asymmetricKeyType !== 'ed25519')
+		throw new SigningError(`${SIGNING_KEY_ENV} is not an Ed25519 key.`)
 	return key
 }
 
@@ -66,7 +78,8 @@ export function parseKeyList(text, where = 'the key list') {
 	} catch {
 		throw new SigningError(`${where} is not valid JSON.`)
 	}
-	if (!Array.isArray(value)) throw new SigningError(`${where} must be a JSON array of { "id", "publicKey" }.`)
+	if (!Array.isArray(value))
+		throw new SigningError(`${where} must be a JSON array of { "id", "publicKey" }.`)
 	const ids = new Set()
 	return value.map((entry) => {
 		if (
@@ -95,7 +108,8 @@ export function readKeyList(file = DEFAULT_KEYS_FILE) {
 
 /** The signature file (3.5) for exact manifest bytes. Returns its bytes. */
 export function signManifest(manifestBytes, privateKey, keyId) {
-	if (!KEY_ID.test(keyId ?? '')) throw new SigningError('The key id must be 1 to 64 letters, digits, ".", "_" or "-".')
+	if (!KEY_ID.test(keyId ?? ''))
+		throw new SigningError('The key id must be 1 to 64 letters, digits, ".", "_" or "-".')
 	const signature = sign(null, manifestBytes, privateKey).toString('base64')
 	return Buffer.from(`${JSON.stringify({ schema: 1, keyId, algorithm: 'ed25519', signature })}\n`)
 }
@@ -111,7 +125,8 @@ export function keyIdFor(privateKey, keys) {
  * SigningError that says which check failed. An empty list always fails.
  */
 export function verifySignature(manifestBytes, signatureBytes, keys) {
-	if (keys.length === 0) throw new SigningError('The public key list is empty, so nothing can be verified.')
+	if (keys.length === 0)
+		throw new SigningError('The public key list is empty, so nothing can be verified.')
 	let value
 	try {
 		value = JSON.parse(signatureBytes.toString('utf8'))
@@ -127,20 +142,28 @@ export function verifySignature(manifestBytes, signatureBytes, keys) {
 		typeof value.keyId !== 'string' ||
 		typeof value.signature !== 'string'
 	)
-		throw new SigningError('The signature file does not have the shape { schema: 1, keyId, algorithm: "ed25519", signature }.')
+		throw new SigningError(
+			'The signature file does not have the shape { schema: 1, keyId, algorithm: "ed25519", signature }.',
+		)
 	const entry = keys.find((candidate) => candidate.id === value.keyId)
-	if (!entry) throw new SigningError(`The signature names the key "${value.keyId}", which is not in the public key list.`)
+	if (!entry)
+		throw new SigningError(
+			`The signature names the key "${value.keyId}", which is not in the public key list.`,
+		)
 	const signature = Buffer.from(value.signature, 'base64')
 	if (signature.length !== 64 || signature.toString('base64') !== value.signature)
 		throw new SigningError('The signature is not the base64 of 64 bytes.')
 	if (!verify(null, manifestBytes, entry.key, signature))
-		throw new SigningError(`The signature does not match these manifest bytes under the key "${value.keyId}".`)
+		throw new SigningError(
+			`The signature does not match these manifest bytes under the key "${value.keyId}".`,
+		)
 	return { keyId: value.keyId }
 }
 
 /** A new key pair: `{ privatePem, entry: { id, publicKey } }`. */
 export function makeKeyPair(id) {
-	if (!KEY_ID.test(id)) throw new SigningError('The key id must be 1 to 64 letters, digits, ".", "_" or "-".')
+	if (!KEY_ID.test(id))
+		throw new SigningError('The key id must be 1 to 64 letters, digits, ".", "_" or "-".')
 	const { publicKey, privateKey } = generateKeyPairSync('ed25519')
 	return {
 		privatePem: privateKey.export({ format: 'pem', type: 'pkcs8' }),

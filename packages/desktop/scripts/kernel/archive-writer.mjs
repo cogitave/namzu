@@ -6,8 +6,8 @@
 import { createHash } from 'node:crypto'
 import { createReadStream, createWriteStream, lstatSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { pipeline } from 'node:stream/promises'
 import { Readable, Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { createGzip, constants as zlibConstants } from 'node:zlib'
 
 const BLOCK = 512
@@ -24,7 +24,10 @@ export function listRegularFiles(root) {
 			const stat = lstatSync(path)
 			if (stat.isDirectory()) visit(path, relative)
 			else if (stat.isFile()) found.push(relative)
-			else throw new Error(`${relative} is not a regular file or a folder (a link or device cannot go in an archive).`)
+			else
+				throw new Error(
+					`${relative} is not a regular file or a folder (a link or device cannot go in an archive).`,
+				)
 		}
 	}
 	visit(root, '')
@@ -45,12 +48,18 @@ function hashFile(path) {
 export async function buildFilesList(root) {
 	const paths = listRegularFiles(root)
 	if (paths.includes('files.json'))
-		throw new Error('The kernel folder already has a files.json; it is written by the pack step, not staged.')
+		throw new Error(
+			'The kernel folder already has a files.json; it is written by the pack step, not staged.',
+		)
 	// Code unit order: the default string comparison, not a locale one.
 	paths.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 	const files = []
 	for (const path of paths)
-		files.push({ path, size: lstatSync(join(root, path)).size, sha256: await hashFile(join(root, path)) })
+		files.push({
+			path,
+			size: lstatSync(join(root, path)).size,
+			sha256: await hashFile(join(root, path)),
+		})
 	return { schema: 1, files }
 }
 
@@ -87,7 +96,8 @@ function paxRecord(path) {
 	const body = ` path=${path}\n`
 	let length = Buffer.byteLength(body)
 	// The length counts its own digits.
-	while (Buffer.byteLength(`${length}${body}`) !== length) length = Buffer.byteLength(`${length}${body}`)
+	while (Buffer.byteLength(`${length}${body}`) !== length)
+		length = Buffer.byteLength(`${length}${body}`)
 	return encode(`${length}${body}`)
 }
 
@@ -96,7 +106,10 @@ function paxRecord(path) {
  * `x` entry in front of the file's own header.
  */
 export async function* tarChunks(root, list) {
-	const entries = [{ path: 'files.json', size: filesJsonBytes(list).length, bytes: filesJsonBytes(list) }, ...list.files]
+	const entries = [
+		{ path: 'files.json', size: filesJsonBytes(list).length, bytes: filesJsonBytes(list) },
+		...list.files,
+	]
 	for (const entry of entries) {
 		if (Buffer.byteLength(entry.path) > 100) {
 			const record = paxRecord(entry.path)
@@ -112,7 +125,8 @@ export async function* tarChunks(root, list) {
 				seen += chunk.length
 				yield chunk
 			}
-			if (seen !== entry.size) throw new Error(`${entry.path} changed size while it was being packed.`)
+			if (seen !== entry.size)
+				throw new Error(`${entry.path} changed size while it was being packed.`)
 		}
 		yield padding(entry.size)
 	}
@@ -156,7 +170,12 @@ export async function writeArchive({ root, archivePath, filesJsonPath }) {
 	})
 	await pipeline(
 		Readable.from(tarChunks(root, list)),
-		createGzip({ level: 9, memLevel: 8, windowBits: 15, strategy: zlibConstants.Z_DEFAULT_STRATEGY }),
+		createGzip({
+			level: 9,
+			memLevel: 8,
+			windowBits: 15,
+			strategy: zlibConstants.Z_DEFAULT_STRATEGY,
+		}),
 		pinGzipHeader(),
 		tap,
 		createWriteStream(archivePath),

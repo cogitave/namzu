@@ -17,7 +17,16 @@ const refuse = (message) => {
 	throw new ArchiveRefusal(message)
 }
 
-const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i
+// The text lists CON, PRN, AUX, NUL, COM1-9 and LPT1-9; the reader also refuses the names Windows
+// reserves beyond that list: CONIN$, CONOUT$, CLOCK$ and the superscript digits of COM and LPT.
+const RESERVED = /^(con|prn|aux|nul|conin\$|conout\$|clock\$|(com|lpt)[1-9\u00b9\u00b2\u00b3])$/i
+
+/**
+ * Two names are the same file on a case-insensitive disk when they match after this fold: Unicode
+ * composition, then upper case and back to lower, which joins the pairs lower-casing alone misses
+ * (final and medial sigma, sharp s and SS).
+ */
+const fold = (name) => name.normalize('NFC').toUpperCase().toLowerCase()
 const HEX = (length) => new RegExp(`^[0-9a-f]{${length}}$`)
 
 /**
@@ -35,7 +44,8 @@ export function refusalForName(name) {
 		if (segment === '') return 'an empty segment'
 		if (segment === '.' || segment === '..') return `the segment "${segment}"`
 		if (/[. ]$/.test(segment)) return `the segment "${segment}", which ends in a dot or a space`
-		if (RESERVED.test(segment.split('.')[0])) return `the segment "${segment}", a reserved device name on Windows`
+		if (RESERVED.test(segment.split('.')[0].replace(/ +$/, '')))
+			return `the segment "${segment}", a reserved device name on Windows`
 	}
 	return undefined
 }
@@ -76,7 +86,8 @@ function parseOctal(field, what) {
 
 function checksumOk(block) {
 	let sum = 0
-	for (let index = 0; index < 512; index += 1) sum += index >= 148 && index < 156 ? 0x20 : block[index]
+	for (let index = 0; index < 512; index += 1)
+		sum += index >= 148 && index < 156 ? 0x20 : block[index]
 	return sum === parseOctal(block.subarray(148, 156), 'checksum')
 }
 
@@ -93,7 +104,9 @@ function paxPath(data) {
 		const text = record.subarray(0, -1).toString('utf8')
 		const equals = text.indexOf('=')
 		const key = text.slice(0, equals)
-		if (equals < 0 || key !== 'path') return refuse(`The archive has a pax key "${key}"; only "path" is allowed.`)
+		if (equals < 0 || key !== 'path')
+			return refuse(`The archive has a pax key "${key}"; only "path" is allowed.`)
+		if (path !== undefined) return refuse('The archive has a pax header with the key "path" twice.')
 		path = text.slice(equals + 1)
 		at += length
 	}
@@ -109,7 +122,12 @@ function parseFilesJson(bytes) {
 		return refuse('files.json is not valid JSON.')
 	}
 	const isObject = (x) => x !== null && typeof x === 'object' && !Array.isArray(x)
-	if (!isObject(value) || Object.keys(value).join() !== 'schema,files' || value.schema !== 1 || !Array.isArray(value.files))
+	if (
+		!isObject(value) ||
+		Object.keys(value).join() !== 'schema,files' ||
+		value.schema !== 1 ||
+		!Array.isArray(value.files)
+	)
 		return refuse('files.json does not have the shape { "schema": 1, "files": [...] }.')
 	let previous
 	const seen = new Set()
@@ -119,11 +137,17 @@ function parseFilesJson(bytes) {
 		const reason = refusalForName(file.path)
 		if (reason) return refuse(`files.json lists "${file.path}": ${reason}.`)
 		if (file.path === 'files.json') return refuse('files.json lists itself.')
-		if (!Number.isSafeInteger(file.size) || file.size < 0) return refuse(`files.json gives "${file.path}" a bad size.`)
-		if (typeof file.sha256 !== 'string' || !HEX(64).test(file.sha256)) return refuse(`files.json gives "${file.path}" a bad sha256.`)
-		if (previous !== undefined && !(previous < file.path)) return refuse('files.json is not sorted by code unit order, or lists a path twice.')
-		const folded = file.path.toLowerCase()
-		if (seen.has(folded)) return refuse(`files.json lists two names that are equal in lower case ("${file.path}").`)
+		if (!Number.isSafeInteger(file.size) || file.size < 0)
+			return refuse(`files.json gives "${file.path}" a bad size.`)
+		if (typeof file.sha256 !== 'string' || !HEX(64).test(file.sha256))
+			return refuse(`files.json gives "${file.path}" a bad sha256.`)
+		if (previous !== undefined && !(previous < file.path))
+			return refuse('files.json is not sorted by code unit order, or lists a path twice.')
+		const folded = fold(file.path)
+		if (seen.has(folded))
+			return refuse(
+				`files.json lists two names that are equal after case folding ("${file.path}").`,
+			)
 		seen.add(folded)
 		previous = file.path
 	}
@@ -172,14 +196,17 @@ async function readEntries(bytes, limits, sink) {
 		if (block.length < 512) return refuse('The archive ends in the middle of a header (truncated).')
 		if (block.every((byte) => byte === 0)) {
 			const second = await bytes.take(512)
-			if (second.length < 512 || !second.every((byte) => byte === 0)) return refuse('The archive does not end with two zero blocks.')
+			if (second.length < 512 || !second.every((byte) => byte === 0))
+				return refuse('The archive does not end with two zero blocks.')
 			if (await bytes.hasMore()) return refuse('The archive has bytes after its end blocks.')
 			break
 		}
 		if (!checksumOk(block)) return refuse('The archive has a header whose checksum is wrong.')
-		if (block.subarray(257, 263).toString('latin1') !== 'ustar\0') return refuse('The archive has a header that is not ustar.')
+		if (block.subarray(257, 263).toString('latin1') !== 'ustar\0')
+			return refuse('The archive has a header that is not ustar.')
 		const type = String.fromCharCode(block[156])
-		if (type !== '0' && type !== 'x') return refuse(`The archive has an entry of type "${type}"; only regular files are allowed.`)
+		if (type !== '0' && type !== 'x')
+			return refuse(`The archive has an entry of type "${type}"; only regular files are allowed.`)
 		if (block[345] !== 0) return refuse('The archive has an entry with a name prefix.')
 		const size = parseOctal(block.subarray(124, 136), 'size')
 		const nameEnd = block.indexOf(0, 0)
@@ -200,30 +227,48 @@ async function readEntries(bytes, limits, sink) {
 		nextPath = undefined
 		const reason = refusalForName(entryPath)
 		if (reason) return refuse(`The archive has an entry named "${entryPath}": ${reason}.`)
-		const lower = entryPath.toLowerCase()
-		if (folded.has(lower)) return refuse(`The archive has two names that are equal in lower case ("${entryPath}").`)
+		const lower = fold(entryPath)
+		if (folded.has(lower))
+			return refuse(`The archive has two names that are equal after case folding ("${entryPath}").`)
 		folded.add(lower)
 
 		if (firstEntry) {
 			firstEntry = false
-			if (entryPath !== 'files.json') return refuse('The first entry of the archive is not files.json.')
+			if (entryPath !== 'files.json')
+				return refuse('The first entry of the archive is not files.json.')
 			if (size > 64 * 1024 * 1024) return refuse('files.json is too large.')
 			filesJson = await bytes.take(size)
 			if (filesJson.length < size) return refuse('The archive is truncated inside files.json.')
 			await bytes.take(padding)
 			list = parseFilesJson(filesJson)
 			listed = new Map(list.files.map((file) => [file.path, file]))
-			if (limits && list.files.length > limits.fileCount) return refuse(`files.json lists ${list.files.length} files; the manifest allows ${limits.fileCount}.`)
+			if (limits && list.files.length > limits.fileCount)
+				return refuse(
+					`files.json lists ${list.files.length} files; the manifest allows ${limits.fileCount}.`,
+				)
 			continue
 		}
 
 		const expected = listed.get(entryPath)
-		if (!expected) return refuse(`The archive has the file "${entryPath}", which files.json does not list.`)
-		if (size !== expected.size) return refuse(`"${entryPath}" is ${size} bytes in the archive and ${expected.size} in files.json.`)
+		if (!expected)
+			return refuse(`The archive has the file "${entryPath}", which files.json does not list.`)
+		// The entries follow files.json in its order; the one that is next in the list is the only one allowed.
+		if (list.files[count].path !== entryPath)
+			return refuse(
+				`The archive has "${entryPath}" where files.json has "${list.files[count].path}": the entries are not in the order of files.json.`,
+			)
+		if (size !== expected.size)
+			return refuse(
+				`"${entryPath}" is ${size} bytes in the archive and ${expected.size} in files.json.`,
+			)
 		count += 1
 		total += size
-		if (limits && count > limits.fileCount) return refuse(`The archive has more than the ${limits.fileCount} files the manifest states.`)
-		if (limits && total > limits.unpackedSize) return refuse(`The archive unpacks to more than the ${limits.unpackedSize} bytes the manifest states.`)
+		if (limits && count > limits.fileCount)
+			return refuse(`The archive has more than the ${limits.fileCount} files the manifest states.`)
+		if (limits && total > limits.unpackedSize)
+			return refuse(
+				`The archive unpacks to more than the ${limits.unpackedSize} bytes the manifest states.`,
+			)
 		const hash = createHash('sha256')
 		await sink?.begin(entryPath)
 		let remaining = size
@@ -236,13 +281,16 @@ async function readEntries(bytes, limits, sink) {
 		}
 		await sink?.end(entryPath)
 		const digest = hash.digest('hex')
-		if (digest !== expected.sha256) return refuse(`"${entryPath}" does not match its sha256 in files.json.`)
+		if (digest !== expected.sha256)
+			return refuse(`"${entryPath}" does not match its sha256 in files.json.`)
 		await bytes.take(padding)
 		read.set(entryPath, { size, sha256: digest })
 	}
 
 	if (!list) return refuse('The archive has no files.json.')
 	if (nextPath !== undefined) return refuse('The archive ends after a pax header with no file.')
-	for (const file of list.files) if (!read.has(file.path)) return refuse(`files.json lists "${file.path}" and the archive does not have it.`)
+	for (const file of list.files)
+		if (!read.has(file.path))
+			return refuse(`files.json lists "${file.path}" and the archive does not have it.`)
 	return { filesJson, list, files: read }
 }

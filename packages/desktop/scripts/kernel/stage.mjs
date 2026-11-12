@@ -22,6 +22,10 @@ export async function stageKernel({ out, target, log = console.log }) {
 	rmSync(out, { recursive: true, force: true })
 	mkdirSync(out, { recursive: true })
 	const staged = await stageCliFolder({ repoRoot, cli: out, target, log })
+	// pnpm records the absolute path of the folder it staged into, and the time, in this file. Nothing
+	// reads it at run time, and it would make two stagings of one commit differ. Only the kernel
+	// staging drops it; the installer's folder is left as it was.
+	rmSync(join(out, 'node_modules', '.modules.yaml'), { force: true })
 	const facts = await readKernelFacts({ cliDir: out, target })
 	writeFileSync(join(out, 'kernel.json'), kernelJsonText(facts))
 	log(`kernel.json: ${JSON.stringify(facts)}`)
@@ -30,8 +34,12 @@ export async function stageKernel({ out, target, log = console.log }) {
 
 async function main(args) {
 	const { flags, positional } = parseFlags(args, { target: 'string' })
-	if (positional.length !== 1) throw new Error('Usage: stage.mjs <out-dir> [--target <platform>-<arch>]')
-	await stageKernel({ out: resolve(positional[0]), target: parseTarget(flags.target ?? 'win32-x64') })
+	if (positional.length !== 1)
+		throw new Error('Usage: stage.mjs <out-dir> [--target <platform>-<arch>]')
+	await stageKernel({
+		out: resolve(positional[0]),
+		target: parseTarget(flags.target ?? 'win32-x64'),
+	})
 }
 
 if (isMain(import.meta.url)) await runMain(main)

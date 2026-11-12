@@ -137,6 +137,8 @@ export function checkKeptPackageImports(cliDir) {
 export function childEnv(home) {
 	const env = { ...process.env, HOME: home, USERPROFILE: home, NAMZU_HOME: join(home, 'namzu'), CI: 'true' }
 	for (const key of Object.keys(env)) if (key === 'NODE_PATH' || key.startsWith('WSL')) delete env[key]
+	// The staged program under test never needs the release signing key, so it never gets it.
+	delete env.NAMZU_KERNEL_SIGNING_KEY
 	return env
 }
 

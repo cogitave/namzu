@@ -15,13 +15,19 @@ async function main(args) {
 	const { flags } = parseFlags(args, { id: 'string', private: 'boolean', 'allow-tty': 'boolean' })
 	const { privatePem, entry } = makeKeyPair(flags.id ?? 'k1')
 	if (!flags.private) {
-		process.stderr.write('Only the public entry is shown; this private key is discarded. Use --private to keep one.\n')
+		process.stderr.write(
+			'Only the public entry is shown; this private key is discarded. Use --private to keep one.\n',
+		)
 		console.log(JSON.stringify(entry))
 		return
 	}
 	if (process.stdout.isTTY && !flags['allow-tty'])
-		throw new Error('Standard output is a terminal; pipe it into a secret store instead (or pass --allow-tty to print the key here).')
-	process.stderr.write(`Public entry for packages/desktop/kernel-keys.json: ${JSON.stringify(entry)}\n`)
+		throw new Error(
+			'Standard output is a terminal; pipe it into a secret store instead (or pass --allow-tty to print the key here).',
+		)
+	process.stderr.write(
+		`Public entry for packages/desktop/kernel-keys.json: ${JSON.stringify(entry)}\n`,
+	)
 	process.stdout.write(privatePem)
 }
 

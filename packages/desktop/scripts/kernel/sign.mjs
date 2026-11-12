@@ -8,21 +8,50 @@
 // overrides it. Writes <manifest>.sig by default.
 import { readFileSync, writeFileSync } from 'node:fs'
 import { isMain, parseFlags, runMain } from './cli.mjs'
-import { DEFAULT_KEYS_FILE, SIGNING_KEY_ENV, SigningError, keyIdFor, privateKeyFromEnv, readKeyList, signManifest } from './signing.mjs'
+import {
+	DEFAULT_KEYS_FILE,
+	SIGNING_KEY_ENV,
+	SigningError,
+	keyIdFor,
+	privateKeyFromEnv,
+	readKeyList,
+	signManifest,
+} from './signing.mjs'
 
 /** Sign `manifestPath`; returns `{ out, keyId }`. */
-export function signFile({ manifestPath, out = `${manifestPath}.sig`, keysPath = DEFAULT_KEYS_FILE, keyId, env = process.env }) {
+export function signFile({
+	manifestPath,
+	out = `${manifestPath}.sig`,
+	keysPath = DEFAULT_KEYS_FILE,
+	keyId,
+	env = process.env,
+}) {
 	const privateKey = privateKeyFromEnv(env)
 	const id = keyId ?? keyIdFor(privateKey, readKeyList(keysPath))
-	if (!id) throw new SigningError(`The key in ${SIGNING_KEY_ENV} is not in the public key list ${keysPath}; add its public key there, or name an id with --key-id.`)
+	if (!id)
+		throw new SigningError(
+			`The key in ${SIGNING_KEY_ENV} is not in the public key list ${keysPath}; add its public key there, or name an id with --key-id.`,
+		)
 	writeFileSync(out, signManifest(readFileSync(manifestPath), privateKey, id))
 	return { out, keyId: id }
 }
 
 async function main(args) {
-	const { flags, positional } = parseFlags(args, { out: 'string', keys: 'string', 'key-id': 'string' })
-	if (positional.length !== 1) throw new Error('Usage: sign.mjs <manifest.json> [--out <file>] [--keys <file>] [--key-id <id>]')
-	const { out, keyId } = signFile({ manifestPath: positional[0], out: flags.out, keysPath: flags.keys, keyId: flags['key-id'] })
+	const { flags, positional } = parseFlags(args, {
+		out: 'string',
+		keys: 'string',
+		'key-id': 'string',
+	})
+	if (positional.length !== 1)
+		throw new Error(
+			'Usage: sign.mjs <manifest.json> [--out <file>] [--keys <file>] [--key-id <id>]',
+		)
+	const { out, keyId } = signFile({
+		manifestPath: positional[0],
+		out: flags.out,
+		keysPath: flags.keys,
+		keyId: flags['key-id'],
+	})
 	console.log(`Signed ${positional[0]} with the key "${keyId}": ${out}`)
 }
 

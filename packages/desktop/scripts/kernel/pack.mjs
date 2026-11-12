@@ -25,22 +25,40 @@ export async function packKernel({ kernelDir, outDir }) {
 	mkdirSync(outDir, { recursive: true })
 	const archive = join(outDir, bundleFileName(facts.commandLine, target))
 	const started = process.hrtime.bigint()
-	const written = await writeArchive({ root: kernelDir, archivePath: archive, filesJsonPath: join(outDir, 'files.json') })
+	const written = await writeArchive({
+		root: kernelDir,
+		archivePath: archive,
+		filesJsonPath: join(outDir, 'files.json'),
+	})
 	const packMs = Number(process.hrtime.bigint() - started) / 1e6
 	// The reader's view of the archive is the one that counts.
-	const described = await describeArchive(archive, { limits: { fileCount: written.bundle.fileCount, unpackedSize: written.bundle.unpackedSize } })
+	const described = await describeArchive(archive, {
+		limits: { fileCount: written.bundle.fileCount, unpackedSize: written.bundle.unpackedSize },
+	})
 	for (const [key, value] of Object.entries(written.bundle))
-		if (described.bundle[key] !== value) throw new Error(`The reader and the writer disagree about ${key} (${described.bundle[key]} and ${value}).`)
-	if (described.target !== target) throw new Error('kernel.json in the archive names another target.')
-	const entry = { target, kernel: described.kernel, bundle: { file: bundleFileName(facts.commandLine, target), ...described.bundle } }
+		if (described.bundle[key] !== value)
+			throw new Error(
+				`The reader and the writer disagree about ${key} (${described.bundle[key]} and ${value}).`,
+			)
+	if (described.target !== target)
+		throw new Error('kernel.json in the archive names another target.')
+	const entry = {
+		target,
+		kernel: described.kernel,
+		bundle: { file: bundleFileName(facts.commandLine, target), ...described.bundle },
+	}
 	writeFileSync(`${archive}.bundle.json`, `${JSON.stringify(entry, null, 2)}\n`)
 	return { archive, entry, timings: { packMs } }
 }
 
 async function main(args) {
 	const { flags, positional } = parseFlags(args, { out: 'string' })
-	if (positional.length !== 1 || !flags.out) throw new Error('Usage: pack.mjs <kernel-dir> --out <dir>')
-	const { archive, entry, timings } = await packKernel({ kernelDir: resolve(positional[0]), outDir: resolve(flags.out) })
+	if (positional.length !== 1 || !flags.out)
+		throw new Error('Usage: pack.mjs <kernel-dir> --out <dir>')
+	const { archive, entry, timings } = await packKernel({
+		kernelDir: resolve(positional[0]),
+		outDir: resolve(flags.out),
+	})
 	process.stderr.write(`Packed ${archive} in ${timings.packMs.toFixed(0)} ms\n`)
 	console.log(JSON.stringify(entry, null, 2))
 }

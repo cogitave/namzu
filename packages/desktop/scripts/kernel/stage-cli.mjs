@@ -8,6 +8,17 @@ import { join } from 'node:path'
 import { STAGED_CLI_FILES, checkStagedCli } from '../check-staged-cli.mjs'
 import { leanCli, loadExternals, measure } from '../lean-cli.mjs'
 
+/**
+ * A copy of an environment without the release signing key. Staging runs `pnpm deploy` (third-party
+ * install code) and starts the staged program; neither is given the key, even when the person running
+ * the whole local release has it set for the signing step.
+ */
+export function withoutSigningKey(env) {
+	const copy = { ...env }
+	delete copy.NAMZU_KERNEL_SIGNING_KEY
+	return copy
+}
+
 function prune(directory, remove) {
 	for (const entry of readdirSync(directory, { withFileTypes: true })) {
 		const path = join(directory, entry.name)
@@ -59,7 +70,12 @@ export async function stageCliFolder({
 	cli,
 	target,
 	log = console.log,
-	run = (program, args, options) => execFileSync(program, args, { stdio: 'inherit', ...options }),
+	run = (program, args, options) =>
+		execFileSync(program, args, {
+			stdio: 'inherit',
+			env: withoutSigningKey(process.env),
+			...options,
+		}),
 }) {
 	// Deployed for the target, not for this machine: without --os, --cpu and --libc pnpm fetches the
 	// optional packages of the staging machine (Linux on a runner), and a Windows installer would
@@ -100,7 +116,9 @@ export async function stageCliFolder({
 		target.platform === 'win32' &&
 		!existsSync(join(cli, `node_modules/node-pty/prebuilds/${name}/pty.node`))
 	)
-		throw new Error(`The staged CLI runtime has no node-pty ${name} binary; terminals would not work.`)
+		throw new Error(
+			`The staged CLI runtime has no node-pty ${name} binary; terminals would not work.`,
+		)
 	// The staged CLI must work from its own files: version, the Desktop's first call, every import.
 	const { failures, report } = await checkStagedCli({
 		cliDir: cli,

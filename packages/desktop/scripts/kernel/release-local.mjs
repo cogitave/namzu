@@ -11,12 +11,12 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { parseTarget } from '../lean-cli.mjs'
-import { targetName } from './stage-cli.mjs'
 import { isMain, parseFlags, runMain } from './cli.mjs'
 import { assembleManifest, manifestBytes, parseManifest } from './manifest.mjs'
 import { packKernel } from './pack.mjs'
 import { signFile } from './sign.mjs'
 import { DEFAULT_KEYS_FILE, SIGNING_KEY_ENV } from './signing.mjs'
+import { targetName } from './stage-cli.mjs'
 import { stageKernel } from './stage.mjs'
 import { verifyRelease } from './verify.mjs'
 
@@ -27,7 +27,21 @@ async function timed(label, fn, log) {
 	return value
 }
 
-export async function releaseLocal({ out, targets, keysPath = DEFAULT_KEYS_FILE, previousPath, floor, withdraw, unwithdraw, issuedAt, lifetimeDays, keyId, keepStage = false, env = process.env, log = console.log }) {
+export async function releaseLocal({
+	out,
+	targets,
+	keysPath = DEFAULT_KEYS_FILE,
+	previousPath,
+	floor,
+	withdraw,
+	unwithdraw,
+	issuedAt,
+	lifetimeDays,
+	keyId,
+	keepStage = false,
+	env = process.env,
+	log = console.log,
+}) {
 	const root = resolve(out)
 	const release = join(root, 'release')
 	rmSync(release, { recursive: true, force: true })
@@ -37,8 +51,14 @@ export async function releaseLocal({ out, targets, keysPath = DEFAULT_KEYS_FILE,
 		const name = targetName(target)
 		const stage = join(root, 'stage', name)
 		await timed(`stage ${name}`, () => stageKernel({ out: stage, target, log }), log)
-		const packed = await timed(`pack ${name}`, () => packKernel({ kernelDir: stage, outDir: join(root, 'pack', name) }), log)
-		log(`  ${packed.entry.bundle.file}: ${packed.entry.bundle.size} bytes, ${packed.entry.bundle.fileCount} files, ${packed.entry.bundle.unpackedSize} bytes unpacked`)
+		const packed = await timed(
+			`pack ${name}`,
+			() => packKernel({ kernelDir: stage, outDir: join(root, 'pack', name) }),
+			log,
+		)
+		log(
+			`  ${packed.entry.bundle.file}: ${packed.entry.bundle.size} bytes, ${packed.entry.bundle.fileCount} files, ${packed.entry.bundle.unpackedSize} bytes unpacked`,
+		)
 		renameSync(packed.archive, join(release, packed.entry.bundle.file))
 		entries.push({ ...packed.entry, archive: join(release, packed.entry.bundle.file) })
 		if (!keepStage) rmSync(stage, { recursive: true, force: true })
@@ -54,15 +74,24 @@ export async function releaseLocal({ out, targets, keysPath = DEFAULT_KEYS_FILE,
 	})
 	const manifestPath = join(release, `kernel-${manifest.channel}.json`)
 	writeFileSync(manifestPath, manifestBytes(manifest))
-	log(`manifest: sequence ${manifest.sequence}, kernel ${manifest.kernel.commandLine}, floor ${manifest.minimumKernel}, expires ${manifest.expiresAt}`)
+	log(
+		`manifest: sequence ${manifest.sequence}, kernel ${manifest.kernel.commandLine}, floor ${manifest.minimumKernel}, expires ${manifest.expiresAt}`,
+	)
 	if (!env[SIGNING_KEY_ENV]) {
-		log(`no signature: ${SIGNING_KEY_ENV} is not set, so the manifest is unsigned and nothing was verified against a key.`)
+		log(
+			`no signature: ${SIGNING_KEY_ENV} is not set, so the manifest is unsigned and nothing was verified against a key.`,
+		)
 		return { release, manifestPath, signed: false }
 	}
 	const { out: signaturePath, keyId: usedKey } = signFile({ manifestPath, keysPath, keyId, env })
 	log(`signed with the key "${usedKey}"`)
 	for (const entry of entries) {
-		const checked = await verifyRelease({ manifestPath, signaturePath, keysPath, archivePath: entry.archive })
+		const checked = await verifyRelease({
+			manifestPath,
+			signaturePath,
+			keysPath,
+			archivePath: entry.archive,
+		})
 		for (const line of checked) log(`  ok ${line}`)
 	}
 	return { release, manifestPath, signaturePath, signed: true }
@@ -82,7 +111,10 @@ async function main(args) {
 		'key-id': 'string',
 		'keep-stage': 'boolean',
 	})
-	if (!flags.out) throw new Error('Usage: release-local.mjs --out <dir> [--target <platform>-<arch> ...] [options]; see the header of this file.')
+	if (!flags.out)
+		throw new Error(
+			'Usage: release-local.mjs --out <dir> [--target <platform>-<arch> ...] [options]; see the header of this file.',
+		)
 	await releaseLocal({
 		out: flags.out,
 		targets: (flags.target ?? ['win32-x64']).map(parseTarget),

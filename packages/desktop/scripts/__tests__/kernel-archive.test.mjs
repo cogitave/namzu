@@ -6,7 +6,18 @@ import { test } from 'node:test'
 import { gzipSync } from 'node:zlib'
 import { ArchiveRefusal, readArchive, refusalForName } from '../kernel/archive-reader.mjs'
 import { buildFilesList, filesJsonBytes, writeArchive } from '../kernel/archive-writer.mjs'
-import { END, archive, goodParts, listBytes, paxEntry, sha256, smallKernelFiles, tarEntry, tempDir, writeTree } from './kernel-helpers.mjs'
+import {
+	END,
+	archive,
+	goodParts,
+	listBytes,
+	paxEntry,
+	sha256,
+	smallKernelFiles,
+	tarEntry,
+	tempDir,
+	writeTree,
+} from './kernel-helpers.mjs'
 
 async function pack(files) {
 	const root = tempDir('kernel-src')
@@ -24,10 +35,14 @@ test('the writer and the independent reader agree on a real small folder', async
 		limits: { fileCount: packed.bundle.fileCount, unpackedSize: packed.bundle.unpackedSize },
 	})
 	assert.equal(read.list.files.length, Object.keys(files).length)
-	for (const [path, data] of Object.entries(files)) assert.equal(read.files.get(path).sha256, sha256(data), path)
+	for (const [path, data] of Object.entries(files))
+		assert.equal(read.files.get(path).sha256, sha256(data), path)
 	assert.deepEqual(read.filesJson, readFileSync(join(packed.out, 'files.json')))
 	assert.equal(packed.bundle.fileCount, Object.keys(files).length)
-	assert.equal(packed.bundle.unpackedSize, Object.values(files).reduce((n, d) => n + Buffer.byteLength(d), 0))
+	assert.equal(
+		packed.bundle.unpackedSize,
+		Object.values(files).reduce((n, d) => n + Buffer.byteLength(d), 0),
+	)
 	// A long name went through a pax header, and a stock tar reads the result.
 	const names = execFileSync('tar', ['-tzf', packed.archivePath]).toString().split('\n')
 	assert.equal(names[0], 'files.json')
@@ -39,7 +54,10 @@ test('files.json follows the text: sorted by code unit, compact JSON, one newlin
 	const text = readFileSync(join(packed.out, 'files.json'), 'utf8')
 	assert.ok(text.endsWith('}\n') && !text.endsWith('\n\n'))
 	assert.equal(text, `${JSON.stringify(JSON.parse(text))}\n`)
-	assert.deepEqual(JSON.parse(text).files.map((f) => f.path), ['B.txt', 'a.txt', 'a/z.txt', 'b.txt'])
+	assert.deepEqual(
+		JSON.parse(text).files.map((f) => f.path),
+		['B.txt', 'a.txt', 'a/z.txt', 'b.txt'],
+	)
 	assert.equal(text.includes('"files.json"'), false)
 })
 
@@ -102,7 +120,9 @@ async function refused(parts, pattern, options = {}) {
 test('the good archive built by the test builder is read (so the refusals below mean something)', async () => {
 	const dir = tempDir('kernel-good')
 	writeFileSync(join(dir, 'good.tar.gz'), archive(goodParts(FILES)))
-	const read = await readArchive(join(dir, 'good.tar.gz'), { limits: { fileCount: 2, unpackedSize: 10 } })
+	const read = await readArchive(join(dir, 'good.tar.gz'), {
+		limits: { fileCount: 2, unpackedSize: 10 },
+	})
 	assert.equal(read.files.size, 2)
 })
 
@@ -131,7 +151,14 @@ test('refused: a pax key other than path', async () => {
 
 test('refused: a pax header beside a path (any extra key)', async () => {
 	const parts = goodParts(FILES)
-	parts.splice(2, 0, paxEntry([['path', 'a.txt'], ['uid', '5']]))
+	parts.splice(
+		2,
+		0,
+		paxEntry([
+			['path', 'a.txt'],
+			['uid', '5'],
+		]),
+	)
 	await refused(parts, /pax key "uid"/)
 })
 
@@ -155,6 +182,12 @@ const BAD_NAMES = [
 	['dir./file', 'a segment ending in a dot'],
 	['trailing-space /file', 'a segment ending in a space'],
 	['file.', 'a name ending in a dot'],
+	['con .txt', 'a device name followed by a space before the extension'],
+	['CONIN$', 'a console input device name'],
+	['conout$.log', 'a console output device name with an extension'],
+	['CLOCK$', 'a clock device name'],
+	['COM\u00b9', 'a superscript device name'],
+	['dir/LPT\u00b2.txt', 'a superscript printer name in a folder'],
 ]
 for (const [name, label] of BAD_NAMES) {
 	test(`refused name (${label}): ${JSON.stringify(name)}`, async () => {
@@ -168,7 +201,15 @@ for (const [name, label] of BAD_NAMES) {
 		const bad = [
 			tarEntry({
 				name: 'files.json',
-				data: Buffer.from(`${JSON.stringify({ schema: 1, files: [{ path: name, size: 2, sha256: sha256('ok') }, { path: 'ok.txt', size: 2, sha256: sha256('ok') }].sort((x, y) => (x.path < y.path ? -1 : 1)) })}\n`),
+				data: Buffer.from(
+					`${JSON.stringify({
+						schema: 1,
+						files: [
+							{ path: name, size: 2, sha256: sha256('ok') },
+							{ path: 'ok.txt', size: 2, sha256: sha256('ok') },
+						].sort((x, y) => (x.path < y.path ? -1 : 1)),
+					})}\n`,
+				),
 			}),
 			tarEntry({ name: 'ok.txt', data: files['ok.txt'] }),
 			END,
@@ -178,7 +219,18 @@ for (const [name, label] of BAD_NAMES) {
 }
 
 test('names the reader accepts', () => {
-	for (const name of ['a', 'dir/file.js', '.hidden', 'a/.b', 'node_modules/@scope/pkg/x.node', 'console.js', 'aux-file', 'comm1', 'a b/c']) assert.equal(refusalForName(name), undefined, name)
+	for (const name of [
+		'a',
+		'dir/file.js',
+		'.hidden',
+		'a/.b',
+		'node_modules/@scope/pkg/x.node',
+		'console.js',
+		'aux-file',
+		'comm1',
+		'a b/c',
+	])
+		assert.equal(refusalForName(name), undefined, name)
 })
 
 test('refused: a name given in a pax header is checked like any other', async () => {
@@ -189,10 +241,10 @@ test('refused: a name given in a pax header is checked like any other', async ()
 
 test('refused: two names equal after case folding (in the stream and in files.json)', async () => {
 	const files = { 'File.txt': 'one', 'file.txt': 'two' }
-	await refused(goodParts(files), /equal in lower case/)
+	await refused(goodParts(files), /equal after case folding/)
 	const parts = goodParts({ 'File.txt': 'one' })
 	parts.splice(2, 0, tarEntry({ name: 'FILE.TXT', data: 'one' }))
-	await refused(parts, /equal in lower case/)
+	await refused(parts, /equal after case folding/)
 })
 
 test('refused: a file the list does not name', async () => {
@@ -220,16 +272,26 @@ test('refused: a sha256 that differs from files.json', async () => {
 })
 
 test('refused: more files than the manifest states', async () => {
-	await refused(goodParts(FILES), /allows 1/, { read: { limits: { fileCount: 1, unpackedSize: 1000 } } })
+	await refused(goodParts(FILES), /allows 1/, {
+		read: { limits: { fileCount: 1, unpackedSize: 1000 } },
+	})
 })
 
 test('refused: more unpacked bytes than the manifest states', async () => {
-	await refused(goodParts(FILES), /more than the 9 bytes/, { read: { limits: { fileCount: 2, unpackedSize: 9 } } })
+	await refused(goodParts(FILES), /more than the 9 bytes/, {
+		read: { limits: { fileCount: 2, unpackedSize: 9 } },
+	})
 })
 
 test('refused: bytes after the end blocks', async () => {
-	await refused([...goodParts(FILES), Buffer.from('trailing')], /bytes after its end blocks|two zero blocks/)
-	await refused([...goodParts(FILES), tarEntry({ name: 'late.txt', data: 'x' })], /bytes after its end blocks/)
+	await refused(
+		[...goodParts(FILES), Buffer.from('trailing')],
+		/bytes after its end blocks|two zero blocks/,
+	)
+	await refused(
+		[...goodParts(FILES), tarEntry({ name: 'late.txt', data: 'x' })],
+		/bytes after its end blocks/,
+	)
 })
 
 test('refused: fewer than two end blocks', async () => {
@@ -240,7 +302,9 @@ test('refused: fewer than two end blocks', async () => {
 
 test('refused: truncated (gzip cut, and tar cut inside a file)', async () => {
 	const whole = archive(goodParts(FILES))
-	await refused([], /gzip over tar|truncated|zero blocks/, { raw: whole.subarray(0, whole.length - 30) })
+	await refused([], /gzip over tar|truncated|zero blocks/, {
+		raw: whole.subarray(0, whole.length - 30),
+	})
 	const tar = Buffer.concat(goodParts(FILES))
 	await refused([], /truncated/, { raw: gzipSync(tar.subarray(0, 512 + 512 + 512 + 100)) })
 })
@@ -250,25 +314,56 @@ test('refused: files.json is not first, missing, or not in the exact serialisati
 	await refused([parts[1], parts[0], parts[2], END], /not files\.json/)
 	await refused([parts[1], END], /not files\.json/)
 	const pretty = Buffer.from(JSON.stringify(JSON.parse(listBytes(FILES).toString()), null, 2))
-	await refused([tarEntry({ name: 'files.json', data: pretty }), parts[1], parts[2], END], /serialised/)
+	await refused(
+		[tarEntry({ name: 'files.json', data: pretty }), parts[1], parts[2], END],
+		/serialised/,
+	)
 	await refused([tarEntry({ name: 'files.json', data: Buffer.from('{}\n') }), END], /shape/)
 })
 
 test('refused: files.json unsorted, listing itself, or with a bad hash', async () => {
 	const a = { path: 'a.txt', size: 5, sha256: sha256('alpha') }
 	const b = { path: 'b/c.txt', size: 5, sha256: sha256('gamma') }
-	const listOf = (files) => tarEntry({ name: 'files.json', data: Buffer.from(`${JSON.stringify({ schema: 1, files })}\n`) })
+	const listOf = (files) =>
+		tarEntry({ name: 'files.json', data: Buffer.from(`${JSON.stringify({ schema: 1, files })}\n`) })
 	await refused([listOf([b, a]), END], /not sorted/)
-	await refused([listOf([{ path: 'files.json', size: 1, sha256: sha256('x') }]), END], /lists itself/)
+	await refused(
+		[listOf([{ path: 'files.json', size: 1, sha256: sha256('x') }]), END],
+		/lists itself/,
+	)
 	await refused([listOf([{ ...a, sha256: 'xyz' }]), END], /bad sha256/)
 	await refused([listOf([{ ...a, size: -1 }]), END], /bad size/)
 })
 
 test('refused: a bad checksum, a header that is not ustar, a name prefix, and bytes that are not gzip', async () => {
 	const parts = goodParts(FILES)
-	await refused([tarEntry({ name: 'files.json', data: listBytes(FILES), badSum: true }), parts[1], parts[2], END], /checksum/)
-	await refused([tarEntry({ name: 'files.json', data: listBytes(FILES), magic: 'GNUtar' }), parts[1], parts[2], END], /not ustar/)
-	await refused([tarEntry({ name: 'files.json', data: listBytes(FILES), prefix: 'x' }), parts[1], parts[2], END], /prefix/)
+	await refused(
+		[
+			tarEntry({ name: 'files.json', data: listBytes(FILES), badSum: true }),
+			parts[1],
+			parts[2],
+			END,
+		],
+		/checksum/,
+	)
+	await refused(
+		[
+			tarEntry({ name: 'files.json', data: listBytes(FILES), magic: 'GNUtar' }),
+			parts[1],
+			parts[2],
+			END,
+		],
+		/not ustar/,
+	)
+	await refused(
+		[
+			tarEntry({ name: 'files.json', data: listBytes(FILES), prefix: 'x' }),
+			parts[1],
+			parts[2],
+			END,
+		],
+		/prefix/,
+	)
 	await refused([], /gzip over tar/, { raw: Buffer.from('this is not an archive at all') })
 })
 
@@ -278,10 +373,52 @@ test('a refusal never leaves the file open or half-written state behind (unpack 
 	const parts = goodParts(FILES)
 	parts[1] = tarEntry({ name: 'a.txt', data: 'ALPHA' })
 	writeFileSync(join(dir, 'bad.tar.gz'), archive(parts))
-	await assert.rejects(unpackArchive({ archive: join(dir, 'bad.tar.gz'), out: join(dir, 'x') }), ArchiveRefusal)
+	await assert.rejects(
+		unpackArchive({ archive: join(dir, 'bad.tar.gz'), out: join(dir, 'x') }),
+		ArchiveRefusal,
+	)
 	assert.equal((await import('node:fs')).existsSync(join(dir, 'x')), false)
 })
 
 test('filesJsonBytes is JSON.stringify plus one newline', () => {
 	assert.equal(filesJsonBytes({ schema: 1, files: [] }).toString(), '{"schema":1,"files":[]}\n')
+})
+
+test('refused: twins that only a full case fold finds (sigma forms, sharp s) and composed or decomposed forms', async () => {
+	for (const [a, b] of [
+		['dist/\u03c3.js', 'dist/\u03c2.js'],
+		['dist/stra\u00dfe.js', 'dist/STRASSE.js'],
+		['dist/\u00e9.js', 'dist/e\u0301.js'],
+		['dist/k.js', 'dist/\u212a.js'],
+	]) {
+		await refused(goodParts({ [a]: 'one', [b]: 'two' }), /equal after case folding/)
+		const parts = goodParts({ [a]: 'one' })
+		parts.splice(2, 0, tarEntry({ name: b, data: 'one' }))
+		await refused(parts, /equal after case folding/)
+	}
+})
+
+test('refused: entries that are not in the order of files.json', async () => {
+	const files = { 'a.txt': 'a', 'b.txt': 'b', 'c.txt': 'c' }
+	const parts = goodParts(files)
+	// list, a, b, c, END -> list, b, a, c, END
+	;[parts[1], parts[2]] = [parts[2], parts[1]]
+	await refused(parts, /not in the order of files\.json/)
+	const reversed = goodParts(files)
+	reversed.splice(1, 3, reversed[3], reversed[2], reversed[1])
+	await refused(reversed, /not in the order of files\.json/)
+})
+
+test('refused: a pax header that carries path twice', async () => {
+	const parts = goodParts(FILES)
+	parts.splice(
+		2,
+		0,
+		paxEntry([
+			['path', 'first.txt'],
+			['path', 'second.txt'],
+		]),
+		tarEntry({ name: 'short', data: 'x' }),
+	)
+	await refused(parts, /"path" twice/)
 })

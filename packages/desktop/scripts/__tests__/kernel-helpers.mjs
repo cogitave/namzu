@@ -20,7 +20,15 @@ export function writeTree(root, files) {
 const octal = (value, width) => `${value.toString(8).padStart(width - 1, '0')}\0`
 
 /** One tar entry. `type`, `size`, `prefix`, `badSum` and `magic` can be bent on purpose. */
-export function tarEntry({ name, data = Buffer.alloc(0), type = '0', size, prefix, badSum = false, magic = 'ustar\0' }) {
+export function tarEntry({
+	name,
+	data = Buffer.alloc(0),
+	type = '0',
+	size,
+	prefix,
+	badSum = false,
+	magic = 'ustar\0',
+}) {
 	const body = Buffer.from(data)
 	const block = Buffer.alloc(512)
 	block.write(name, 0, 'utf8')
@@ -45,7 +53,8 @@ export function paxEntry(records) {
 		.map(([key, value]) => {
 			const rest = ` ${key}=${value}\n`
 			let length = Buffer.byteLength(rest)
-			while (Buffer.byteLength(`${length}${rest}`) !== length) length = Buffer.byteLength(`${length}${rest}`)
+			while (Buffer.byteLength(`${length}${rest}`) !== length)
+				length = Buffer.byteLength(`${length}${rest}`)
 			return `${length}${rest}`
 		})
 		.join('')
@@ -89,7 +98,8 @@ export function smallKernelFiles(extra = {}) {
 		'dist/bin.js': 'console.log("hi")\n',
 		'dist/empty.txt': '',
 		'node_modules/pkg/index.js': 'module.exports = 1\n',
-		[`node_modules/${'deep-'.repeat(25)}package/a-file-with-a-long-name-to-need-a-pax-header.js`]: '// long\n',
+		[`node_modules/${'deep-'.repeat(25)}package/a-file-with-a-long-name-to-need-a-pax-header.js`]:
+			'// long\n',
 		'skills/ünïcode.md': '# unicode name\n',
 		...extra,
 	}

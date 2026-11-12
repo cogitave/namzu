@@ -33,9 +33,19 @@ function parseKernelJson(bytes) {
 		throw new ArchiveRefusal('kernel.json is not valid JSON.')
 	}
 	const keys = 'schema,commandLine,engine,desktopContract,dataEpoch,platform,arch'
-	if (value === null || typeof value !== 'object' || Object.keys(value).sort().join() !== keys.split(',').sort().join() || value.schema !== 1)
+	if (
+		value === null ||
+		typeof value !== 'object' ||
+		Object.keys(value).sort().join() !== keys.split(',').sort().join() ||
+		value.schema !== 1
+	)
 		throw new ArchiveRefusal(`kernel.json does not have the fields ${keys}.`)
-	if (!VERSION.test(value.commandLine) || !VERSION.test(value.engine) || !Number.isSafeInteger(value.desktopContract) || !Number.isSafeInteger(value.dataEpoch))
+	if (
+		!VERSION.test(value.commandLine) ||
+		!VERSION.test(value.engine) ||
+		!Number.isSafeInteger(value.desktopContract) ||
+		!Number.isSafeInteger(value.dataEpoch)
+	)
 		throw new ArchiveRefusal('kernel.json has a bad version or number.')
 	return value
 }
@@ -86,16 +96,27 @@ export async function describeArchive(archivePath, { limits } = {}) {
  * Verify. Throws SigningError, ManifestError or ArchiveRefusal (all with plain messages) on the first
  * failed check; returns the list of what was checked. `now` is a time in ms (injected by tests).
  */
-export async function verifyRelease({ manifestPath, signaturePath, keysPath = DEFAULT_KEYS_FILE, archivePath, now = Date.now(), allowExpired = false }) {
+export async function verifyRelease({
+	manifestPath,
+	signaturePath,
+	keysPath = DEFAULT_KEYS_FILE,
+	archivePath,
+	now = Date.now(),
+	allowExpired = false,
+}) {
 	const checked = []
 	const keys = readKeyList(keysPath)
 	const bytes = readFileSync(manifestPath)
 	const { keyId } = verifySignature(bytes, readFileSync(signaturePath), keys)
 	checked.push(`signature: valid under the key "${keyId}" (${keys.length} listed)`)
 	const manifest = parseManifest(bytes)
-	checked.push(`manifest: channel ${manifest.channel}, sequence ${manifest.sequence}, kernel ${manifest.kernel.commandLine} (engine ${manifest.kernel.engine}), floor ${manifest.minimumKernel}, ${manifest.withdrawn.length} withdrawn`)
-	if (!allowExpired && parseTime(manifest.expiresAt, 'expiresAt') < now) throw new ManifestError(`The manifest expired at ${manifest.expiresAt}.`)
-	if (parseTime(manifest.issuedAt, 'issuedAt') > now + 24 * 3600 * 1000) throw new ManifestError(`The manifest is issued in the future (${manifest.issuedAt}).`)
+	checked.push(
+		`manifest: channel ${manifest.channel}, sequence ${manifest.sequence}, kernel ${manifest.kernel.commandLine} (engine ${manifest.kernel.engine}), floor ${manifest.minimumKernel}, ${manifest.withdrawn.length} withdrawn`,
+	)
+	if (!allowExpired && parseTime(manifest.expiresAt, 'expiresAt') < now)
+		throw new ManifestError(`The manifest expired at ${manifest.expiresAt}.`)
+	if (parseTime(manifest.issuedAt, 'issuedAt') > now + 24 * 3600 * 1000)
+		throw new ManifestError(`The manifest is issued in the future (${manifest.issuedAt}).`)
 	checked.push(`times: issued ${manifest.issuedAt}, expires ${manifest.expiresAt}`)
 	if (archivePath) {
 		const name = basename(archivePath)
@@ -103,25 +124,43 @@ export async function verifyRelease({ manifestPath, signaturePath, keysPath = DE
 		if (!found) throw new ManifestError(`The manifest has no bundle named ${name}.`)
 		const [target, bundle] = found
 		const size = statSync(archivePath).size
-		if (size !== bundle.size) throw new ArchiveRefusal(`${name} is ${size} bytes; the manifest says ${bundle.size}.`)
-		if ((await sha512File(archivePath)) !== bundle.sha512) throw new ArchiveRefusal(`${name} does not match the sha512 in the manifest.`)
-		const described = await describeArchive(archivePath, { limits: { fileCount: bundle.fileCount, unpackedSize: bundle.unpackedSize } })
+		if (size !== bundle.size)
+			throw new ArchiveRefusal(`${name} is ${size} bytes; the manifest says ${bundle.size}.`)
+		if ((await sha512File(archivePath)) !== bundle.sha512)
+			throw new ArchiveRefusal(`${name} does not match the sha512 in the manifest.`)
+		const described = await describeArchive(archivePath, {
+			limits: { fileCount: bundle.fileCount, unpackedSize: bundle.unpackedSize },
+		})
 		const same = (label, a, b) => {
-			if (a !== b) throw new ArchiveRefusal(`The archive says ${label} ${a}; the manifest says ${b}.`)
+			if (a !== b)
+				throw new ArchiveRefusal(`The archive says ${label} ${a}; the manifest says ${b}.`)
 		}
 		same('files.json sha512', described.bundle.filesSha512, bundle.filesSha512)
 		same('file count', described.bundle.fileCount, bundle.fileCount)
 		same('unpacked size', described.bundle.unpackedSize, bundle.unpackedSize)
 		same('target', described.target, target)
-		for (const key of ['commandLine', 'engine', 'desktopContract', 'dataEpoch']) same(`kernel.json ${key}`, described.kernel[key], manifest.kernel[key])
-		checked.push(`archive ${name}: ${size} bytes, sha512 matches, ${bundle.fileCount} files, ${bundle.unpackedSize} bytes unpacked, files.json and kernel.json agree with the manifest`)
+		for (const key of ['commandLine', 'engine', 'desktopContract', 'dataEpoch'])
+			same(`kernel.json ${key}`, described.kernel[key], manifest.kernel[key])
+		checked.push(
+			`archive ${name}: ${size} bytes, sha512 matches, ${bundle.fileCount} files, ${bundle.unpackedSize} bytes unpacked, files.json and kernel.json agree with the manifest`,
+		)
 	}
 	return checked
 }
 
 async function main(args) {
-	const { flags } = parseFlags(args, { manifest: 'string', sig: 'string', keys: 'string', archive: 'string', now: 'string', 'allow-expired': 'boolean' })
-	if (!flags.manifest || !flags.sig) throw new Error('Usage: verify.mjs --manifest <file> --sig <file> [--keys <file>] [--archive <file.tar.gz>] [--now <time>] [--allow-expired]')
+	const { flags } = parseFlags(args, {
+		manifest: 'string',
+		sig: 'string',
+		keys: 'string',
+		archive: 'string',
+		now: 'string',
+		'allow-expired': 'boolean',
+	})
+	if (!flags.manifest || !flags.sig)
+		throw new Error(
+			'Usage: verify.mjs --manifest <file> --sig <file> [--keys <file>] [--archive <file.tar.gz>] [--now <time>] [--allow-expired]',
+		)
 	const now = flags.now ? Date.parse(flags.now) : Date.now()
 	if (Number.isNaN(now)) throw new Error('--now must be a time like 2026-11-12T10:00:00Z.')
 	const checked = await verifyRelease({
