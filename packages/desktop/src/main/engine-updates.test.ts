@@ -441,6 +441,7 @@ describe('checking for newer versions', () => {
 				'codex-cli': { version: '0.162.0', checkedAt: now - HOUR },
 				'claude-code': { version: '2.1.295', checkedAt: now - HOUR },
 				'namzu-cli': { version: '36.0.0', checkedAt: now - HOUR },
+				'namzu-engine': { version: '63.0.0', checkedAt: now - HOUR },
 			},
 			announced: {},
 		}
@@ -454,7 +455,8 @@ describe('checking for newer versions', () => {
 		// The interval always asks.
 		fake.clock.every?.()
 		await settle()
-		expect(fake.fetches).toHaveLength(3)
+		// The three programs and the engine the bundled command line carries.
+		expect(fake.fetches).toHaveLength(4)
 		expect(checkIntervalMs).toBe(4 * HOUR)
 	})
 
@@ -472,7 +474,7 @@ describe('checking for newer versions', () => {
 		fake.updates.start()
 		fake.clock.first?.()
 		await settle()
-		expect(fake.fetches).toHaveLength(3)
+		expect(fake.fetches).toHaveLength(4)
 		expect(item(fake, 'codex-cli').latest).toBe('0.162.0')
 	})
 
@@ -493,7 +495,7 @@ describe('checking for newer versions', () => {
 		expect(fake.states[0]?.checking).toBe(true)
 		await first
 		expect(fake.states.at(-1)?.checking).toBe(false)
-		expect(fake.fetches).toHaveLength(3)
+		expect(fake.fetches).toHaveLength(4)
 	})
 })
 
@@ -738,5 +740,116 @@ describe('after the terminal ends', () => {
 		fake.versions.set(CODEX.path, '0.162.0')
 		await fake.updates.check()
 		expect(item(fake, 'codex-cli').status).toBe('current')
+	})
+})
+
+describe('a newer kernel than the one bundled with the app', () => {
+	const bundled = { bundledVersion: () => '49.1.1', bundledEngineVersion: () => '62.6.1' }
+	const registry = (cli?: string, engine?: string): Fake['registry'] =>
+		new Map([
+			['@namzu/cli', cli],
+			['@namzu/sdk', engine],
+		])
+
+	it.each([
+		['newer', '51.0.1', '62.12.0', { cli: '51.0.1', engine: '62.12.0' }],
+		['the same', '49.1.1', '62.6.1', {}],
+		['older than the bundled one', '48.0.0', '62.0.0', {}],
+		['only the command line newer', '49.2.0', '62.6.1', { cli: '49.2.0' }],
+		['only the engine newer', '49.1.1', '62.7.0', { engine: '62.7.0' }],
+	])('says what is newer when the registry holds %s', async (_name, cli, engine, expected) => {
+		const fake = setup(bundled)
+		fake.registry = registry(cli, engine)
+		await fake.updates.check()
+		expect(fake.updates.state().kernel).toEqual(expected)
+		expect(item(fake, 'namzu-cli').newerThanBundled).toBe(
+			'cli' in expected ? expected.cli : undefined,
+		)
+	})
+
+	it('asks the registry for the engine with the same call it uses for the programs', async () => {
+		const fake = setup(bundled)
+		fake.registry = registry('51.0.1', '62.12.0')
+		await fake.updates.check()
+		expect(fake.fetches.sort()).toEqual([
+			'@anthropic-ai/claude-code',
+			'@namzu/cli',
+			'@namzu/sdk',
+			'@openai/codex',
+		])
+	})
+
+	it('keeps the bundled row current for the badge, the toast and the update command', async () => {
+		const fake = setup(bundled)
+		fake.registry = registry('51.0.1', '62.12.0')
+		await fake.updates.check()
+		expect(item(fake, 'namzu-cli')).toMatchObject({
+			status: 'current',
+			runnable: false,
+			newerThanBundled: '51.0.1',
+		})
+		expect(item(fake, 'namzu-cli').command).toBeUndefined()
+		expect(fake.updates.claimAnnouncements()).toEqual([])
+		expect(await fake.updates.update('namzu-cli', { groupId: 'g' })).toMatchObject({ ok: false })
+		expect(fake.opened).toEqual([])
+	})
+
+	it('says nothing while no check has succeeded', async () => {
+		const fake = setup(bundled)
+		fake.registry = registry(undefined, undefined)
+		await fake.updates.check()
+		expect(fake.updates.state().kernel).toEqual({})
+		expect(item(fake, 'namzu-cli').newerThanBundled).toBeUndefined()
+	})
+
+	it('says nothing when the registry cannot be reached', async () => {
+		const fake = setup({
+			...bundled,
+			latest: async () => {
+				throw new Error('offline')
+			},
+		})
+		await fake.updates.check()
+		expect(fake.updates.state().kernel).toEqual({})
+	})
+
+	it('keeps the last answer through a failed check, and drops it after a week', async () => {
+		const fake = setup(bundled)
+		fake.registry = registry('51.0.1', '62.12.0')
+		await fake.updates.check()
+		fake.registry = registry(undefined, undefined)
+		fake.clock.now += HOUR
+		await fake.updates.check()
+		expect(fake.updates.state().kernel).toEqual({ cli: '51.0.1', engine: '62.12.0' })
+		fake.clock.now += 8 * 24 * HOUR
+		expect(fake.updates.state().kernel).toEqual({})
+	})
+
+	it('says nothing where updates are switched off', async () => {
+		const fake = setup({ ...bundled, appCanUpdate: () => false })
+		fake.registry = registry('51.0.1', '62.12.0')
+		await fake.updates.check()
+		expect(fake.updates.state().kernel).toEqual({})
+		expect(item(fake, 'namzu-cli').newerThanBundled).toBeUndefined()
+	})
+
+	it('says nothing about a bundled version it cannot read', async () => {
+		const fake = setup({ bundledVersion: () => undefined, bundledEngineVersion: () => 'unknown' })
+		fake.registry = registry('51.0.1', '62.12.0')
+		await fake.updates.check()
+		expect(fake.updates.state().kernel).toEqual({})
+	})
+
+	it('a first launch with a cache that lacks the engine still asks the registry', async () => {
+		const stale = emptyCache()
+		stale.latest['namzu-cli'] = { version: '51.0.1', checkedAt: 1_000_000_000 }
+		stale.latest['codex-cli'] = { version: '0.162.0', checkedAt: 1_000_000_000 }
+		stale.latest['claude-code'] = { version: '2.1.295', checkedAt: 1_000_000_000 }
+		const fake = setup(bundled, stale)
+		fake.updates.start()
+		await settle()
+		fake.clock.first?.()
+		await settle()
+		expect(fake.fetches).toContain('@namzu/sdk')
 	})
 })

@@ -95,6 +95,11 @@ export interface RestoredTrail {
 	readonly turnOfMessage: ReadonlyMap<string, string>
 	/** The stored memories a recall put into each turn, in the order recalled. */
 	readonly recalled?: ReadonlyMap<string, readonly UsedMemory[]>
+	/**
+	 * The turn a live process is still running. A call of that turn that has no
+	 * result yet is in flight, not interrupted: it is drawn as one pending row.
+	 */
+	readonly liveTurnId?: string
 }
 
 const NO_TRAIL: RestoredTrail = {
@@ -137,7 +142,10 @@ function usedMemoriesOf(raw: readonly unknown[]): readonly UsedMemory[] {
 }
 
 /** Index the journal's records for the tool calls, turns and messages a saved conversation shows. */
-export function trailFromRecords(records: readonly SessionRecord[] | undefined): RestoredTrail {
+export function trailFromRecords(
+	records: readonly SessionRecord[] | undefined,
+	options?: { readonly liveTurnId?: string },
+): RestoredTrail {
 	if (!records || records.length === 0) return NO_TRAIL
 	const calls = new Map<string, CallTrail>()
 	const turns = new Map<string, TurnTrail>()
@@ -230,7 +238,13 @@ export function trailFromRecords(records: readonly SessionRecord[] | undefined):
 		const index = agents?.indexOf(false) ?? -1
 		if (agents && index >= 0) agents[index] = true
 	}
-	return { calls, turns, turnOfMessage, recalled }
+	return {
+		calls,
+		turns,
+		turnOfMessage,
+		recalled,
+		...(options?.liveTurnId !== undefined ? { liveTurnId: options.liveTurnId } : {}),
+	}
 }
 
 function parseInput(call: ToolCall): unknown {
@@ -376,6 +390,10 @@ export function restoredToolRows(
 	const interrupted = saved?.end === undefined && (!message || text.startsWith(INTERRUPTED_RESULT))
 	const start = startOf(started)
 	if (interrupted) {
+		// A call of the turn a live process is still running has not failed: it has not settled.
+		if (turnId !== undefined && trail.liveTurnId === turnId) {
+			return [{ role: 'tool', content: start.label, glyph: '○', pending: true }]
+		}
 		// A call the journal shows never started ran nothing: say that rather than "Interrupted".
 		const journaled = turnId !== undefined && trail.turns.get(turnId)?.journaled === true
 		return saved?.start === undefined && (saved?.asked === true || journaled)

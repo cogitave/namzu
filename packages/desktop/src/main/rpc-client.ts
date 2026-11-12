@@ -31,6 +31,8 @@ export interface RuntimeCommand {
 	program: string
 	args: string[]
 	env?: NodeJS.ProcessEnv
+	/** The app's own version, told to the host at initialize. Read from the app, never written here. */
+	clientVersion?: string
 }
 export class RuntimeClient extends EventEmitter {
 	private readonly connection = randomUUID()
@@ -229,7 +231,10 @@ export class RuntimeClient extends EventEmitter {
 			{
 				protocolVersion: 1,
 				capabilities: ['permission', 'namzu/tasks'],
-				clientInfo: { name: 'namzu-desktop', version: '0.1.0' },
+				clientInfo: {
+					name: 'namzu-desktop',
+					...(this.command.clientVersion ? { version: this.command.clientVersion } : {}),
+				},
 			},
 			30_000,
 		)) as AcpInitializeResult

@@ -1,6 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
+import type { KernelNewer } from '../shared/engine-update-protocol.js'
 import type { LocalListeningState } from '../shared/local-listening-protocol.js'
 import type { LocalSpeechState } from '../shared/local-speech-protocol.js'
 import type { ProjectView } from '../shared/protocol.js'
@@ -17,6 +18,7 @@ import {
 	SettingsSidebar,
 	TerminalSettings,
 } from './settings-page.js'
+import { EngineUpdatesContext } from './use-engine-updates.js'
 import type { LocalListeningControls } from './use-local-listening.js'
 import type { LocalSpeechControls } from './use-local-speech.js'
 
@@ -96,39 +98,58 @@ const isChecked = (markup: string, value: string) =>
 		(tag) => tag.includes(`value="${value}"`) && tag.includes('checked=""'),
 	)
 
-function page(section: SettingsSection, over: Partial<SettingsPageProps> = {}) {
+function page(
+	section: SettingsSection,
+	over: Partial<SettingsPageProps> = {},
+	kernel?: KernelNewer,
+) {
+	const element = createElement(SettingsPage, {
+		section,
+		onSection: () => {},
+		settings: {
+			settings: { ...DEFAULT_DESKTOP_SETTINGS },
+			error: '',
+			change: async () => {},
+			confirmation: undefined,
+			confirm: async () => {},
+			dismiss: () => {},
+		},
+		appearance: 'dark',
+		onAppearanceChange: () => {},
+		projects: [
+			project({}),
+			project({ id: 'p2', name: 'Docs', path: '/work/docs', trusted: false }),
+		],
+		onRemoveProject: () => {},
+		update: {
+			state: { status: 'idle' },
+			info: { currentVersion: '0.1.0', lastCheckedAt: 1_000 },
+			onOpen: () => {},
+			onCheck: () => {},
+		},
+		speech: speech(),
+		listening: listeningControls(),
+		info,
+		onOpenFolder: () => {},
+		now: 1_000 + 5 * 60_000,
+		...over,
+	})
 	return renderToStaticMarkup(
-		createElement(SettingsPage, {
-			section,
-			onSection: () => {},
-			settings: {
-				settings: { ...DEFAULT_DESKTOP_SETTINGS },
-				error: '',
-				change: async () => {},
-				confirmation: undefined,
-				confirm: async () => {},
-				dismiss: () => {},
-			},
-			appearance: 'dark',
-			onAppearanceChange: () => {},
-			projects: [
-				project({}),
-				project({ id: 'p2', name: 'Docs', path: '/work/docs', trusted: false }),
-			],
-			onRemoveProject: () => {},
-			update: {
-				state: { status: 'idle' },
-				info: { currentVersion: '0.1.0', lastCheckedAt: 1_000 },
-				onOpen: () => {},
-				onCheck: () => {},
-			},
-			speech: speech(),
-			listening: listeningControls(),
-			info,
-			onOpenFolder: () => {},
-			now: 1_000 + 5 * 60_000,
-			...over,
-		}),
+		kernel
+			? createElement(
+					EngineUpdatesContext.Provider,
+					{
+						value: {
+							state: { items: [], checking: false, kernel },
+							check: () => {},
+							update: async () => ({ ok: false as const, reason: '' }),
+							openUpdates: () => {},
+							registerOpenUpdates: () => () => {},
+						},
+					},
+					element,
+				)
+			: element,
 	)
 }
 
@@ -391,6 +412,26 @@ describe('settings words and paths', () => {
 		expect(markup).toContain('title="C:/Users/me/AppData/Roaming/Namzu"')
 		expect(markup).toContain('Copy path')
 		expect(markup).toContain('Safe to delete')
+	})
+
+	describe('About, when the registry knows a newer kernel than the one bundled', () => {
+		it('is quiet without a kernel fact', () => {
+			expect(page('about')).not.toContain('A newer one exists')
+		})
+		it('says it once under each version', () => {
+			const markup = page('about', {}, { cli: '51.0.1', engine: '62.12.0' })
+			expect(markup).toContain(
+				'<dd>25.3.0</dd><dd class="settings-fact-note">A newer one exists (51.0.1). It arrives with an update of this app.</dd>',
+			)
+			expect(markup).toContain(
+				'<dd>25.2.1</dd><dd class="settings-fact-note">A newer one exists (62.12.0). It arrives with an update of this app.</dd>',
+			)
+		})
+		it('says it only where there is one', () => {
+			const markup = page('about', {}, { engine: '62.12.0' })
+			expect(markup.match(/A newer one exists/g)).toHaveLength(1)
+			expect(markup).not.toContain('(51.0.1)')
+		})
 	})
 
 	it('names the engine without developer words in About', () => {

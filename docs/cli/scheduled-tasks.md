@@ -1062,6 +1062,10 @@ is unaffected and stays raw.
 config turns them off. Where they appear: see
 [The scheduler service](scheduler-service.md#notifications).
 
+## Watching a run
+
+A run is an ordinary session titled `Scheduled: <job> · <time>`, so a run in progress can be followed from another terminal with `namzu watch`, read-only; see [Watching a session from another terminal](watching-a-session.md). It is offered in the list of running sessions while the run's turn is in flight, and a finished run can be named by its session id.
+
 ## Everything else
 
 ```sh
