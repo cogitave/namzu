@@ -54,6 +54,19 @@ export type { EvalRunOptions } from './run-options.js'
 export { formatRunSummary, summarizeRun } from './run-summary.js'
 export type { RunDisclosure, RunSummary } from './run-summary.js'
 export type { RepeatReliability, SplitSummary } from './report-stats.js'
+export { compareEvalReports, formatEvalComparison, loadEvalReportFile } from './compare.js'
+export type {
+	CaseRef,
+	DisclosureComparison,
+	DisclosureDifference,
+	DisclosureDimension,
+	DisclosureUnknown,
+	EvalComparison,
+	Flips,
+	LoadedReportFile,
+	LoadedSuite,
+	SideNumbers,
+} from './compare.js'
 export { describeUncertainty, uncertaintyOf } from './uncertainty.js'
 export type { ScoreUncertainty } from './uncertainty.js'
 export type {

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -139,5 +139,60 @@ describe('namzu eval statistics', () => {
 		const { code, errors } = await run(['--seed', '-1'])
 		expect(code).toBe(EVAL_EXIT.usage)
 		expect(errors[0]).toContain('--seed takes a whole number')
+	})
+
+	describe('compare', () => {
+		const writeRun = async (name: string, failing: string[]) => {
+			// One directory per run: a module is imported once per path.
+			const sub = join(dir, `${name}-suites`)
+			await mkdir(sub)
+			await writeFile(join(sub, 'suite.eval.js'), suiteThatRuns(failing), 'utf-8')
+			const out = join(dir, name)
+			await run(['--dir', sub, '--out', out])
+			return out
+		}
+
+		const compare = async (args: string[]) => {
+			const made = makeCtx()
+			const code = await evalCommand.handler({ ctx: made.ctx, rawArgs: ['compare', ...args] })
+			return { code, ...made }
+		}
+
+		it('prints a comparison of two written reports, and never names a winner on one flip', async () => {
+			const a = await writeRun('a.json', ['c'])
+			const b = await writeRun('b.json', [])
+			const { code, printed } = await compare([a, b])
+			expect(code).toBe(EVAL_EXIT.ok)
+			const text = (printed[0] as { text: string }).text
+			expect(text).toContain('6 paired')
+			expect(text).toContain('Flips: 1 case passed on B and not on A')
+			expect(text).toContain('no difference can be claimed at this size.')
+			expect(text).toContain('no stated difference')
+		})
+
+		it('prints the same facts as JSON with --json', async () => {
+			const a = await writeRun('a.json', ['c'])
+			const b = await writeRun('b.json', [])
+			const { code, printed } = await compare([a, b, '--json', '--seed', '5'])
+			expect(code).toBe(EVAL_EXIT.ok)
+			const output = printed[0] as string
+			const parsed = JSON.parse(output) as Record<string, any>
+			expect(parsed.seed).toBe(5)
+			expect(parsed.paired).toBe(6)
+			expect(parsed.verdict.claim).toBe('none')
+			expect(parsed.flips.onlyBPasses).toBe(1)
+		})
+
+		it('is a usage error for a file that is missing or is not a report', async () => {
+			const a = await writeRun('a.json', [])
+			const bad = join(dir, 'bad.json')
+			await writeFile(bad, '{"nope": 1}', 'utf-8')
+			const missing = await compare([a, join(dir, 'missing.json')])
+			expect(missing.code).toBe(EVAL_EXIT.usage)
+			expect(missing.errors[0]).toContain('Cannot read')
+			const notReport = await compare([a, bad])
+			expect(notReport.code).toBe(EVAL_EXIT.usage)
+			expect(notReport.errors[0]).toContain('is not an eval report')
+		})
 	})
 })

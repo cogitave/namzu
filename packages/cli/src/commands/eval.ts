@@ -25,8 +25,11 @@ import { Command, CommanderError } from 'commander'
 import type { ExperimentReport } from '@namzu/sdk'
 import {
 	DEFAULT_EVAL_SEED,
+	compareEvalReports,
+	formatEvalComparison,
 	formatReport,
 	formatRunSummary,
+	loadEvalReportFile,
 	summarizeRun,
 	withEvalRunOptions,
 } from '@namzu/sdk'
@@ -390,6 +393,12 @@ export const evalCommand: CommandDef = {
 				'--seed <n>',
 				`Seed for the 95% intervals, an integer from 0 to 4294967295 (default ${DEFAULT_EVAL_SEED})`,
 			)
+			.addHelpText(
+				'after',
+				'\nTo compare two reports written with --out: namzu eval compare <a.json> <b.json> [--json] [--seed <n>]',
+			)
+
+		if (rawArgs[0] === 'compare') return runCompare(ctx, rawArgs.slice(1))
 
 		try {
 			program.parse(rawArgs, { from: 'user' })
@@ -422,4 +431,71 @@ export const evalCommand: CommandDef = {
 			...(seed !== undefined ? { seed } : {}),
 		})
 	},
+}
+
+async function readReportFile(path: string) {
+	const full = isAbsolute(path) ? path : resolve(process.cwd(), path)
+	let text: string
+	try {
+		text = await readFile(full, 'utf-8')
+	} catch (err) {
+		throw new Error(`Cannot read ${path}: ${err instanceof Error ? err.message : String(err)}`)
+	}
+	let json: unknown
+	try {
+		json = JSON.parse(text)
+	} catch {
+		throw new Error(`${path} is not JSON.`)
+	}
+	return loadEvalReportFile(json, path)
+}
+
+/**
+ * `namzu eval compare <a.json> <b.json>`: two reports written by `--out`,
+ * paired by suite and case id. Exits 0 whatever the answer is; the exit code
+ * of a comparison does not say who won, and a script reads `--json`.
+ */
+async function runCompare(ctx: CommandContext, args: readonly string[]): Promise<number> {
+	const program = new Command('eval compare')
+		.exitOverride()
+		.description('Compare two eval reports, paired by suite and case id')
+		.argument('<a>', 'Report written by --out: the baseline')
+		.argument('<b>', 'Report written by --out: the run being judged against it')
+		.option('--json', 'Print the comparison as JSON')
+		.option('--seed <n>', `Seed for the paired bootstrap (default ${DEFAULT_EVAL_SEED})`)
+	try {
+		program.parse([...args], { from: 'user' })
+	} catch (err) {
+		if (err instanceof CommanderError) {
+			return err.code === 'commander.helpDisplayed' ? EVAL_EXIT.ok : EVAL_EXIT.usage
+		}
+		throw err
+	}
+	const opts = program.opts<{ json?: boolean; seed?: string }>()
+	const [aPath, bPath] = program.args as [string, string]
+	const seed = opts.seed === undefined ? undefined : wholeNumber(opts.seed)
+	if (opts.seed !== undefined && (seed === undefined || seed > 4294967295)) {
+		ctx.formatter.error({ message: '--seed takes a whole number from 0 to 4294967295.' })
+		return EVAL_EXIT.usage
+	}
+	try {
+		const comparison = compareEvalReports(
+			await readReportFile(aPath),
+			await readReportFile(bPath),
+			seed === undefined ? {} : { seed },
+		)
+		if (opts.json) {
+			// The text formatter prints a string as it is; the structured
+			// formatters take the object and encode it themselves.
+			ctx.formatter.print(
+				ctx.formatter.name === 'text' ? JSON.stringify(comparison, null, 2) : comparison,
+			)
+		} else {
+			ctx.formatter.print({ comparison, text: formatEvalComparison(comparison) })
+		}
+		return EVAL_EXIT.ok
+	} catch (err) {
+		ctx.formatter.error({ message: err instanceof Error ? err.message : String(err) })
+		return EVAL_EXIT.usage
+	}
 }
