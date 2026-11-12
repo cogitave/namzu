@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
 	GENAI_NON_CONVENTION_NAMES,
 	GENAI_SEMCONV_ATTRIBUTES,
@@ -482,5 +484,25 @@ describe('the table', () => {
 		]
 		expect([...GENAI_SEMCONV_ATTRIBUTES].sort()).toEqual([...registry141].sort())
 		expect([...GENAI_NON_CONVENTION_NAMES]).toEqual(['gen_ai.system'])
+	})
+})
+
+describe('the docs state what the spans cannot promise', () => {
+	const doc = readFileSync(
+		fileURLToPath(new URL('../../../../docs/sdk/telemetry-genai.md', import.meta.url)),
+		'utf8',
+	)
+
+	it('says the turn span input total can leave out cached tokens', () => {
+		expect(doc).toMatch(/can leave cached tokens out/)
+	})
+
+	it('says a paused turn carries no error.type', () => {
+		expect(doc).toMatch(/pauses after a failed model call[^|]*does not carry it/)
+	})
+
+	it('says gen_ai.system is deprecated in the pinned registry and kept on purpose', () => {
+		expect(doc).toMatch(/in the 1\.41\.1 registry but deprecated/)
+		expect(doc).not.toMatch(/It is not in 1\.41\.1/)
 	})
 })

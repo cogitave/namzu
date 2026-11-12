@@ -72,8 +72,8 @@ added attributes is the number a backend that bills by attribute will see.
 | | `gen_ai.agent.name`, `gen_ai.agent.id` | string | the agent's name and id | Conditionally required | existing |
 | | `gen_ai.conversation.id` | string | the session id | Conditionally required | existing |
 | | `gen_ai.request.model` | string | the turn's model | Conditionally required | existing |
-| | `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` | int | the turn's running totals | Recommended | existing |
-| | `error.type` | string | on a failed turn: as for the model call | Conditionally required | added |
+| | `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` | int | the turn's running totals of the kernel's own count. The convention says input tokens should include cached ones; this total can leave cached tokens out, so on a turn with cache reads it can be lower than the sum of its model-call spans. Read cached and total input from the model-call spans, which follow the convention. The turn span carries no cache attributes for this reason. The values predate this change and are not altered | Recommended | existing |
+| | `error.type` | string | on a failed turn: as for the model call. A turn that pauses after a failed model call (status `paused`, span status OK, resumable) does not carry it; the failed model-call span does | Conditionally required | added |
 
 A sub-agent is the same turn span for the child session, parented to the
 span that started it and carrying `namzu.session.parent_id`. It gets the same
@@ -108,8 +108,9 @@ The iteration span carries none.
   `CLIENT` for a model call. Changing it would change service maps for existing
   users, so it is kept.
 - **`gen_ai.system`.** Written by the kernel before this change, with the
-  kernel's provider id. It is not in 1.41.1 (`gen_ai.provider.name` replaced it).
-  It stays and is not removed.
+  kernel's provider id. It is in the 1.41.1 registry but deprecated, replaced
+  by `gen_ai.provider.name`. The kernel still emits it, deliberately, because
+  existing users rely on it; it is not removed.
 - **Not emitted because the record cannot fill them truthfully:**
   `server.address` and `server.port` (the driver does not report the endpoint
   to the span), `gen_ai.request.top_p`, `top_k`, `seed`, `stop_sequences` and

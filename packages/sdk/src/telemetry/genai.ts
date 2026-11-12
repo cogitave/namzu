@@ -72,7 +72,8 @@ export const GENAI_SEMCONV_ATTRIBUTES: readonly string[] = [
 
 /**
  * `gen_ai.*` names the kernel writes that are NOT in the pinned convention.
- * `gen_ai.system` is what the convention's `gen_ai.provider.name` replaced;
+ * `gen_ai.system` is still in the 1.41.1 registry but deprecated, replaced by
+ * `gen_ai.provider.name`; the kernel emits it deliberately and
  * it stays because it is existing output that nothing may remove.
  */
 export const GENAI_NON_CONVENTION_NAMES: readonly string[] = [GENAI.SYSTEM]
