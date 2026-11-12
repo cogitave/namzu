@@ -45,3 +45,16 @@ const toolsets = manager.toolsets
 for (const contribution of manager.promptContributions) promptContributions.register(contribution)
 await manager.disable(installed.id)
 ```
+
+## Checking plugin files on text
+
+A host that wants to check a plugin without loading it calls the loader's own rules on text it has read. Nothing here reads a file, imports a module or starts a server.
+
+| Export | What it does | Throws |
+|---|---|---|
+| `parsePluginManifestText(text)` | The parse and schema steps of `loadPluginManifest`: the text must be a JSON object that fits `PluginManifestSchema`. Returns the manifest. | A `SyntaxError` for text that is not JSON; a `ZodError` (with `issues`) for a manifest that does not fit. |
+| `assertEnableable(manifest, { skillsSupported })` | The check `loadPluginManifest` makes after parsing: `platforms`, `engines.namzu`, and the parts this host cannot carry (`connectors`, `personas`, skills when `skillsSupported` is false). | An `Error` whose message says what is missing. |
+| `parseSkillMarkdown(text, folder)` | What `loadSkill` applies to a `SKILL.md`: frontmatter, name rules, `invocation`. Returns `{ metadata, body }`. | An `Error` naming the problem. |
+| `AGENT_FILE_KEYS` | The frontmatter keys an agent file reads; any other is ignored. | |
+
+`loadPluginManifest` and `loadSkill` call these functions, so a host that calls them gets the answer the loader would give. `namzu plugin validate` ([the command](../cli/plugin-validate.md)) is such a host.

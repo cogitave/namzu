@@ -29,6 +29,11 @@ const CONSTANTS: Record<string, { version: number; onDisk: boolean }> = {
 	'computer/run.ts#COMPUTER_JSON_VERSION': { version: 1, onDisk: false },
 	'integrations/harness/model-cache.ts#VERSION': { version: 1, onDisk: true },
 	'integrations/mcp/project-approval.ts#FILE_VERSION': { version: 1, onDisk: true },
+	// The `--json` report of `namzu plugin validate`: printed, never stored.
+	'integrations/plugins/validate.ts#PLUGIN_VALIDATION_REPORT_VERSION': {
+		version: 1,
+		onDisk: false,
+	},
 	'integrations/providers/credential-store.ts#CREDENTIALS_FILE_VERSION': {
 		version: 1,
 		onDisk: true,
