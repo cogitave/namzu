@@ -21,7 +21,7 @@ export interface RunDisclosure {
 	readonly suites: number
 	readonly cases: number
 	readonly runs: number
-	/** `mixed` when some suites are scripted and others are not. */
+	/** `mixed` when suites that used a model differ in kind; a suite with no model at all does not count. */
 	readonly mode: RunMode | 'mixed'
 }
 
@@ -48,9 +48,18 @@ export function summarizeRun(
 	)
 	const { caseSummaries: _perCase, reliability, ...stats } = statsOver(cases, context.seed)
 	const repeats = Math.max(1, ...entries.map((e) => e.report.repeats ?? 1))
-	const modes = new Set(entries.map((e) => e.report.disclosure?.mode ?? UNKNOWN))
+	// A suite that used no model at all says nothing about whether a model
+	// ran, so it does not make a run "mixed" with the suites that did.
+	const all = entries.map((e) => e.report.disclosure?.mode ?? UNKNOWN)
+	const modes = new Set(all.filter((m) => m !== 'no-model'))
 	const mode: RunMode | 'mixed' =
-		modes.size === 0 ? UNKNOWN : modes.size === 1 ? ([...modes][0] as RunMode) : 'mixed'
+		modes.size === 0
+			? all.length === 0
+				? UNKNOWN
+				: 'no-model'
+			: modes.size === 1
+				? ([...modes][0] as RunMode)
+				: 'mixed'
 	return {
 		...stats,
 		...(repeats > 1 ? { reliability } : {}),

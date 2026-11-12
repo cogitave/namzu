@@ -1401,6 +1401,7 @@ export { anyOf, hasToolCall, stepCountIs } from './types/session/step.js'
 export {
 	BOOTSTRAP_RESAMPLES,
 	DEFAULT_EVAL_SEED,
+	EvalUsageError,
 	MIN_CASES_FOR_INTERVAL,
 	bootstrapCases,
 	bootstrapPairedDifference,
@@ -1408,6 +1409,7 @@ export {
 	exactSignTestP,
 	formatEvalComparison,
 	formatRunSummary,
+	isEvalUsageError,
 	loadEvalReportFile,
 	summarizeRun,
 	withEvalRunOptions,

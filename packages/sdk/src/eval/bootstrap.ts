@@ -84,13 +84,27 @@ export interface DifferenceIntervals {
 }
 
 /**
+ * A bad `--repeat` or `--seed`. A RangeError, so existing handlers still see
+ * one, and marked with a code so a CLI can tell it from a RangeError a suite's
+ * own code threw (and from one thrown by another copy of this class).
+ */
+export class EvalUsageError extends RangeError {
+	readonly code = 'EVAL_USAGE'
+}
+
+/** True for an {@link EvalUsageError}, even one built by another copy of the SDK. */
+export function isEvalUsageError(err: unknown): err is EvalUsageError {
+	return err instanceof RangeError && (err as { code?: unknown }).code === 'EVAL_USAGE'
+}
+
+/**
  * Validate a seed: an integer that fits in 32 bits, unsigned.
- * Thrown as a RangeError so a CLI can turn it into a usage error.
+ * Thrown as an EvalUsageError so a CLI can turn it into a usage error.
  */
 export function validateSeed(value: number | undefined): number {
 	if (value === undefined) return DEFAULT_EVAL_SEED
 	if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) {
-		throw new RangeError(
+		throw new EvalUsageError(
 			`seed must be an integer from 0 to 4294967295, or omitted; received ${String(value)}`,
 		)
 	}

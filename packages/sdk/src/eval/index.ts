@@ -26,12 +26,14 @@ export {
 export {
 	BOOTSTRAP_RESAMPLES,
 	DEFAULT_EVAL_SEED,
+	EvalUsageError,
 	INTERVAL_LEVEL,
 	MIN_CASES_FOR_INTERVAL,
 	bootstrapCases,
 	bootstrapPairedDifference,
 	createSeededRandom,
 	exactSignTestP,
+	isEvalUsageError,
 } from './bootstrap.js'
 export type {
 	BootstrapMethod,

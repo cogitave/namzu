@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { formatReport, runExperiment } from '../experiment.js'
 import { withEvalRunOptions } from '../run-options.js'
+import { summarizeRun } from '../run-summary.js'
 import { customScorer } from '../scorers.js'
 import type { EvalCase, EvalTurn } from '../types.js'
 
@@ -240,5 +241,45 @@ describe('disclosure', () => {
 			commit: 'abc123',
 			suiteVersion: '2.0.0',
 		})
+	})
+})
+
+describe('case names', () => {
+	it('a suite that names two cases alike is refused, because their numbers would merge', async () => {
+		await expect(
+			runExperiment({
+				name: 'dup',
+				cases: [
+					{ name: 'a', input: null },
+					{ name: 'a', input: null },
+				],
+				scorers: [passes],
+				run: scripted({ a: ['pass'] }),
+			}),
+		).rejects.toThrow(/"a".*more than once/)
+	})
+})
+
+describe('the whole-run mode', () => {
+	const entry = (suite: string, mode: 'scripted' | 'no-model' | 'real-model') =>
+		({ suite, report: { name: suite, cases: [], disclosure: { mode } } }) as never
+	const context = {
+		seed: 1,
+		harnessVersion: 'h',
+		sdkVersion: 's',
+		commit: 'c',
+		generatedAt: 'now',
+	}
+
+	it('does not call scripted plus no-model mixed: no real model ran', () => {
+		const summary = summarizeRun([entry('a', 'scripted'), entry('b', 'no-model')], context)
+		expect(summary.disclosure.mode).toBe('scripted')
+	})
+
+	it('says no-model when none used a model, and mixed when models differ in kind', () => {
+		expect(summarizeRun([entry('a', 'no-model')], context).disclosure.mode).toBe('no-model')
+		expect(
+			summarizeRun([entry('a', 'scripted'), entry('b', 'real-model')], context).disclosure.mode,
+		).toBe('mixed')
 	})
 })

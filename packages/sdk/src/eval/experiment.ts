@@ -1,6 +1,13 @@
-import { validateSeed } from './bootstrap.js'
+import { EvalUsageError, validateSeed } from './bootstrap.js'
 import { type SuiteFacts, buildDisclosure, describeDisclosure } from './disclosure.js'
-import { describeIntervals, describeSplits, groupRuns, statsOver } from './report-stats.js'
+import {
+	describeIntervals,
+	describeSplits,
+	duplicateMessage,
+	duplicateName,
+	groupRuns,
+	statsOver,
+} from './report-stats.js'
 import { currentEvalRunOptions } from './run-options.js'
 import type {
 	CaseResult,
@@ -96,6 +103,8 @@ export async function runExperiment<TInput>(
 	const repeats = validateRepeats(options.repeats ?? config.repeats)
 	const seed = validateSeed(options.seed ?? config.seed)
 	for (const evalCase of config.cases) validateSplit(evalCase)
+	const alike = duplicateName(config.cases.map((c) => c.name))
+	if (alike !== undefined) throw new Error(duplicateMessage(config.name, alike))
 
 	// Case-major, so a case's repeats sit together in the report.
 	const total = config.cases.length * repeats
@@ -160,7 +169,7 @@ export async function runExperiment<TInput>(
 function validateRepeats(value: number | undefined): number {
 	if (value === undefined) return 1
 	if (!Number.isInteger(value) || value < 1 || value > MAX_REPEATS) {
-		throw new RangeError(
+		throw new EvalUsageError(
 			`repeats must be an integer from 1 to ${MAX_REPEATS}, or omitted; received ${String(value)}`,
 		)
 	}

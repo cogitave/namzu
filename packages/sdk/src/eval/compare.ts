@@ -9,7 +9,7 @@ import {
 	validateSeed,
 } from './bootstrap.js'
 import { UNKNOWN } from './disclosure.js'
-import { type CaseRuns, groupRuns, passedEveryRun, tallyOf } from './report-stats.js'
+import { type CaseRuns, duplicateRun, groupRuns, passedEveryRun, tallyOf } from './report-stats.js'
 import type { CaseResult } from './types.js'
 
 /**
@@ -63,12 +63,18 @@ export function loadEvalReportFile(json: unknown, label: string): LoadedReportFi
 		}
 		const runs: CaseResult[] = []
 		for (const [caseIndex, run] of report.cases.entries()) {
-			if (!isRecord(run) || typeof run.case !== 'string' || typeof run.mean !== 'number') {
+			if (!isRecord(run) || typeof run.case !== 'string' || !Number.isFinite(run.mean)) {
 				throw new Error(
-					`${label}: suite "${entry.suite}", case ${caseIndex} needs a name in "case" and a number in "mean".`,
+					`${label}: suite "${entry.suite}", case ${caseIndex} needs a name in "case" and a finite number in "mean".`,
 				)
 			}
 			runs.push(run as unknown as CaseResult)
+		}
+		const twice = duplicateRun(runs)
+		if (twice !== undefined) {
+			throw new Error(
+				`${label}: suite "${entry.suite}" has the case "${twice}" more than once, so its runs cannot be told from one case's repeats. A case is named by its id; the report needs each case once per repeat.`,
+			)
 		}
 		suites.push({
 			id: entry.suite,
@@ -344,7 +350,15 @@ export function compareEvalReports(
 	}
 
 	const difference = bootstrapPairedDifference(pairs, seed)
-	const verdict = decide(difference.mean, pairs.length)
+	const flips: Flips = {
+		onlyBPasses,
+		onlyAPasses,
+		bothPass,
+		bothFail,
+		pValue: exactSignTestP(onlyBPasses, onlyAPasses),
+		test: 'exact two-sided sign test on the cases that flipped',
+	}
+	const verdict = decide(difference.mean, pairs.length, flips)
 	const sharedSuites = a.suites.map((s) => s.id).filter((id) => b.suites.some((s) => s.id === id))
 
 	return {
@@ -358,38 +372,52 @@ export function compareEvalReports(
 		sideA: numbers(aSide),
 		sideB: numbers(bSide),
 		difference,
-		flips: {
-			onlyBPasses,
-			onlyAPasses,
-			bothPass,
-			bothFail,
-			pValue: exactSignTestP(onlyBPasses, onlyAPasses),
-			test: 'exact two-sided sign test on the cases that flipped',
-		},
+		flips,
 		verdict,
 		disclosure: compareDisclosure(a, b, sharedSuites),
 	}
 }
 
-function decide(mean: Interval, paired: number): EvalComparison['verdict'] {
+/** The sign test must be at least this convincing before the sentence names a winner. */
+const CLAIM_P = 0.05
+
+/** Bounds are judged at the precision they are printed at. */
+function atPrintedPrecision(value: number): number {
+	return Math.round(value * 1000) / 1000 || 0
+}
+
+function decide(mean: Interval, paired: number, flips: Flips): EvalComparison['verdict'] {
 	const none = 'no difference can be claimed at this size'
 	if (!mean.computed) {
 		return { claim: 'none', sentence: none, detail: `no interval: ${mean.reason}.` }
 	}
 	const range = `[${mean.low.toFixed(3)}, ${mean.high.toFixed(3)}]`
-	if (mean.low > 0 || mean.high < 0) {
-		const better = mean.low > 0
-		const size = Math.abs(mean.estimate).toFixed(3)
+	// A bound is zero when it prints as zero: sums that differ by rounding only
+	// (the same scores added in another order) must not read as a difference.
+	const low = atPrintedPrecision(mean.low)
+	const high = atPrintedPrecision(mean.high)
+	const excludesZero = (low > 0 || high < 0) && atPrintedPrecision(mean.estimate) !== 0
+	if (!excludesZero) {
 		return {
-			claim: better ? 'better' : 'worse',
-			sentence: `B is ${better ? 'better' : 'worse'} than A by ${size} in mean score, 95% interval ${range}`,
-			detail: `the interval over ${paired} paired cases excludes zero.`,
+			claim: 'none',
+			sentence: none,
+			detail: `the 95% interval ${range} for the difference in mean score over ${paired} paired cases includes zero.`,
 		}
 	}
+	const flipped = flips.onlyAPasses + flips.onlyBPasses
+	if (flipped > 0 && flips.pValue >= CLAIM_P) {
+		return {
+			claim: 'none',
+			sentence: none,
+			detail: `the 95% interval ${range} over ${paired} paired cases excludes zero, but the exact test on the ${flipped} case${flipped === 1 ? '' : 's'} that flipped gives p = ${flips.pValue.toFixed(4)}, not below ${CLAIM_P}; two checks that disagree are not a finding.`,
+		}
+	}
+	const better = low > 0
+	const size = Math.abs(mean.estimate).toFixed(3)
 	return {
-		claim: 'none',
-		sentence: none,
-		detail: `the 95% interval ${range} for the difference in mean score over ${paired} paired cases includes zero.`,
+		claim: better ? 'better' : 'worse',
+		sentence: `B is ${better ? 'better' : 'worse'} than A by ${size} in mean score, 95% interval ${range}`,
+		detail: `the interval over ${paired} paired cases excludes zero${flipped > 0 ? ` and the exact test on the flips agrees (p = ${flips.pValue.toFixed(4)})` : ''}.`,
 	}
 }
 

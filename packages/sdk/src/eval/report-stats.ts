@@ -72,6 +72,36 @@ export function groupRuns(
 	return [...groups].map(([key, g]) => ({ key, ...g }))
 }
 
+/** The first name that appears more than once, or undefined. */
+export function duplicateName(names: readonly string[]): string | undefined {
+	const seen = new Set<string>()
+	for (const name of names) {
+		if (seen.has(name)) return name
+		seen.add(name)
+	}
+	return undefined
+}
+
+export function duplicateMessage(suite: string, name: string): string {
+	return `suite "${suite}" has the case "${name}" more than once; a case is named by its id, and two cases sharing one would be merged into one in every count and interval. Give each case its own name.`
+}
+
+/**
+ * The first case in a list of runs that appears twice for the same repeat: a
+ * second run of a case is a repeat only when it says it is a later one.
+ */
+export function duplicateRun(
+	runs: readonly Pick<CaseResult, 'case' | 'repeat'>[],
+): string | undefined {
+	const seen = new Set<string>()
+	for (const run of runs) {
+		const key = `${run.case}\u0000${run.repeat ?? 1}`
+		if (seen.has(key)) return run.case
+		seen.add(key)
+	}
+	return undefined
+}
+
 /** Status of a run, tolerating a report old enough to carry only `passed`. */
 export function statusOf(run: Pick<CaseResult, 'status' | 'passed'>): CaseResult['status'] {
 	if (run.status === 'passed' || run.status === 'failed' || run.status === 'inconclusive') {

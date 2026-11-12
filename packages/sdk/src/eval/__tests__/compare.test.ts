@@ -323,6 +323,81 @@ describe('loading a report file', () => {
 				{ suites: [{ suite: 's', report: { cases: [{ case: 'a' }] } }] },
 				'x.json',
 			),
-		).toThrow('needs a name in "case" and a number in "mean"')
+		).toThrow('needs a name in "case" and a finite number in "mean"')
+	})
+})
+
+describe('a claim needs more than a bootstrap bound just off zero', () => {
+	const scored = (name: string, mean: number, repeat: number) => ({
+		...run(name, 'passed', repeat),
+		mean,
+	})
+
+	it('names no winner for the same scores in a different order, whatever the float sums do', () => {
+		const mk = (order: number[]) =>
+			suite(
+				's',
+				ids.flatMap((n) => order.map((m, i) => scored(n, m, i + 1))),
+				{ repeats: 3 },
+			)
+		const c = compareEvalReports(file('a', mk([0.1, 0.2, 0.3])), file('b', mk([0.3, 0.2, 0.1])))
+		expect(c.verdict.claim).toBe('none')
+		expect(c.verdict.sentence).toBe('no difference can be claimed at this size')
+	})
+
+	it('names no winner whose size would print as 0.000', () => {
+		const mk = (delta: number) =>
+			suite(
+				's',
+				ids.map((n) => ({ ...run(n, 'passed'), mean: 0.5 + delta })),
+			)
+		const c = compareEvalReports(file('a', mk(0)), file('b', mk(0.0001)))
+		expect(c.verdict.claim).toBe('none')
+	})
+
+	it('names no winner when the sign test on the flips disagrees: 5 flips one way and none the other', () => {
+		const many = (b: Status) =>
+			suite(
+				's',
+				Array.from({ length: 30 }, (_, i) => run(`c${i}`, i < 5 ? b : P)),
+			)
+		const c = compareEvalReports(file('a', many(F)), file('b', many(P)))
+		expect(c.flips).toMatchObject({ onlyBPasses: 5, onlyAPasses: 0 })
+		expect(c.flips.pValue).toBeCloseTo(0.0625, 12)
+		expect(c.difference.mean.computed && c.difference.mean.low > 0).toBe(true)
+		expect(c.verdict.claim).toBe('none')
+		expect(c.verdict.detail).toContain('0.0625')
+	})
+
+	it('names no winner for 5 pairs that all flipped', () => {
+		const five = (s: Status) =>
+			suite(
+				's',
+				ids.slice(0, 5).map((n) => run(n, s)),
+			)
+		const c = compareEvalReports(file('a', five(P)), file('b', five(F)))
+		expect(c.flips.pValue).toBeCloseTo(0.0625, 12)
+		expect(c.verdict.claim).toBe('none')
+	})
+})
+
+describe('duplicate case ids', () => {
+	it('are refused when a report is loaded, naming the suite and the case', () => {
+		const dup = suite('s', [run('a', 'passed'), run('a', 'failed'), run('b', 'passed')])
+		expect(() => file('x', dup)).toThrow(/suite "s".*"a".*more than once/)
+	})
+
+	it('are fine as repeats of one case when each run says which repeat it is', () => {
+		const ok = suite('s', [run('a', 'passed', 1), run('a', 'failed', 2)], { repeats: 2 })
+		expect(file('x', ok).suites[0]?.cases).toHaveLength(1)
+	})
+})
+
+describe('a mean that is not a finite number', () => {
+	it('is refused when a report is loaded (a file reading 1e999 parses to Infinity)', () => {
+		const bad = {
+			suites: [{ suite: 's', report: { cases: [{ case: 'a', mean: Number.POSITIVE_INFINITY }] } }],
+		}
+		expect(() => loadEvalReportFile(bad, 'x')).toThrow(/finite/)
 	})
 })
