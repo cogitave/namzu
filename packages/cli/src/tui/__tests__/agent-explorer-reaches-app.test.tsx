@@ -1665,6 +1665,10 @@ describe('the agents cockpit', () => {
 			agent({
 				viewId: 'narrow-worker',
 				description: 'A deliberately long delegated task description',
+				// A fixed, long elapsed time (`20000d 1h 30m`), not a start at the epoch: the row's
+				// layout follows the clock's width, and a clock counted from the epoch changes width
+				// with the time of day (`1h 5m` is a cell shorter than `1h 30m`).
+				startedAt: Date.now() - (20_000 * 86_400_000 + 3_600_000 + 30 * 60_000),
 				workflow: 'A deliberately long workflow title that must not wrap',
 				latestActivity: 'Answering · a deliberately long public preview that must not wrap',
 			}),
@@ -1676,8 +1680,7 @@ describe('the agents cockpit', () => {
 		expect(frame).toContain('Type a message')
 		expect(frame).toContain('model')
 		// A labelled agent is only inside its workflow: one workflow row, no main.
-		// The fixture's start time is the epoch, so the clock is long and the row drops its bar
-		// to keep eight cells of the name.
+		// The clock is long, so the row drops its bar to keep eight cells of the name.
 		expect(frame).toContain('◯ A deliber')
 		expect(frame).not.toContain('main')
 		expect(frame).not.toContain('public preview')
