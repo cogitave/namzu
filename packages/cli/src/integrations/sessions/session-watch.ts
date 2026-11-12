@@ -40,9 +40,11 @@ import {
 	type SessionRecord,
 	type TenantId,
 	asSessionId,
+	currentPlace,
 	foldSessionMessages,
 	isEntityId,
 	isLeaseLive,
+	parseTurnHolder,
 	readSessionLease,
 } from '@namzu/sdk'
 import { terminalDisplayText } from '../../tui/terminal-display.js'
@@ -151,9 +153,16 @@ export function askingOf(request: HITLDecisionRequest): string {
 	}
 }
 
+/**
+ * The process id a lease's holder names, when it is a process id of this place. A holder
+ * written in another place (another machine, or another process-id namespace that shares the
+ * folder), or before holders said where they ran, proves nothing here: the lease's own time
+ * decides for it.
+ */
 function holderPidOf(lease: SessionLease | null): number | undefined {
-	const match = /^namzu(?:-cli)?:(\d+):/.exec(lease?.holder ?? '')
-	return match ? Number(match[1]) : undefined
+	const parsed = parseTurnHolder(lease?.holder ?? '')
+	if (!parsed || parsed.place === undefined || parsed.place !== currentPlace()) return undefined
+	return parsed.pid
 }
 
 /** Follows one session's log. One instance per watcher; it never writes. */

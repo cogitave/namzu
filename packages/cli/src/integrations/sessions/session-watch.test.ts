@@ -19,6 +19,7 @@ import {
 	generateSessionId,
 	generateTenantId,
 	generateTurnId,
+	turnHolder,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -345,13 +346,38 @@ describe('SessionFollower', () => {
 		expect(all).toContain('Listed 1 directory')
 	})
 
+	it('does not judge a holder from another place by its process id', async () => {
+		const h = await fixture()
+		const s = await running(h)
+		const dir = h.paths.sessionDir({ sessionId: s.id })
+		for (const name of readdirSync(dir).filter((n) => /^lease.*\.json$/.test(n))) {
+			const file = join(dir, name)
+			writeFileSync(
+				file,
+				readFileSync(file, 'utf8').replaceAll(
+					'fixture',
+					turnHolder('fixture', { pid: 4242, place: 'aaaaaaaaaaaa' }),
+				),
+			)
+		}
+		// The process id is not one of this place, so "no such process" here proves nothing:
+		// the lease is still live and the turn reads as running.
+		const follower = new SessionFollower({ target: s.target, isProcessAlive: () => false })
+		const seen = await follower.poll()
+		expect(seen.status.state).toBe('running')
+		expect(seen.status.holderPid).toBeUndefined()
+	})
+
 	it('says a turn is interrupted as soon as the holder process is gone, before its lease lapses', async () => {
 		const h = await fixture()
 		const s = await running(h)
 		const dir = h.paths.sessionDir({ sessionId: s.id })
 		for (const name of readdirSync(dir).filter((n) => /^lease.*\.json$/.test(n))) {
 			const file = join(dir, name)
-			writeFileSync(file, readFileSync(file, 'utf8').replaceAll('fixture', 'namzu:4242:fixture'))
+			writeFileSync(
+				file,
+				readFileSync(file, 'utf8').replaceAll('fixture', turnHolder('fixture', { pid: 4242 })),
+			)
 		}
 		let alive = true
 		const follower = new SessionFollower({ target: s.target, isProcessAlive: () => alive })

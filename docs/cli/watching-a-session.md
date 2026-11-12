@@ -92,8 +92,11 @@ its writer's lease is still live. A process killed outright holds its lease unti
 (see [Session storage](session-storage.md)), which is minutes. The watcher reads only
 sessions of this machine, so it also asks whether the process the lease names still exists
 (a signal-zero probe, which sends nothing) and reads a session whose holder is gone as
-`interrupted` at once. A pid that another process has since taken reads as alive until the
-lease lapses.
+`interrupted` at once. It asks only for a holder that says it ran in this place (the mark at
+the end of the holder's name, see [Session log](../sdk/session-log.md)): a holder written on
+another machine or in another process-id namespace that shares the folder, or by a version
+that did not write the mark, is judged by its lease alone. A pid that another process has
+since taken reads as alive until the lease lapses.
 
 A tool call that has started and not yet reported a result is in flight, not interrupted:
 it is held back, with the rows after it, until it settles, and the session reads `running`.
