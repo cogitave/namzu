@@ -167,6 +167,11 @@ function plain(text: string): string {
 		text
 			// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this removes
 			.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+			// the invisible format and bidirectional controls could reorder a line
+			.replace(
+				/[\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/g,
+				'',
+			)
 			.replace(/\s+/g, ' ')
 			.trim()
 	)

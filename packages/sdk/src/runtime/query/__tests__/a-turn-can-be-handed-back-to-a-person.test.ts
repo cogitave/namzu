@@ -126,4 +126,25 @@ describe('handing a task back to a person', () => {
 		expect(turn.handedBack).toBeUndefined()
 		expect(provider.requests).toHaveLength(2)
 	})
+
+	it('runs the sibling calls when the hand-back call itself is invalid', async () => {
+		const { params, provider, writes } = build(true, {
+			turns: [
+				{
+					toolCalls: [
+						{ id: 'c1', name: HAND_BACK_TOOL_NAME, args: { kind: 'missing' } },
+						{ id: 'c2', name: 'write_note', args: {} },
+					],
+				},
+				{ text: 'fine, I will finish it' },
+			],
+		})
+		const turn = await drainQuery(params, () => {})
+		expect(writes).toHaveBeenCalledTimes(1)
+		expect(provider.requests).toHaveLength(2)
+		expect(turn.handedBack).toBeUndefined()
+		expect(
+			turn.messages.some((m) => m.role === 'tool' && String(m.content).includes('the turn ends')),
+		).toBe(false)
+	})
 })

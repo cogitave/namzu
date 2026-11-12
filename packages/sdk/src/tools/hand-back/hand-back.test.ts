@@ -21,6 +21,18 @@ const input = {
 	needed: 'say which number is right',
 }
 
+describe('parseHandBack text', () => {
+	it('strips escape sequences and bidirectional controls from the model text', () => {
+		const out = parseHandBack({
+			...input,
+			blocker: 'a\u001b[31mred\u202e b\u200bc',
+		})
+		expect(out?.blocker).toBe('a[31mred bc')
+		const reason = handBackReason(out as NonNullable<typeof out>)
+		for (const bad of ['\u001b', '\u202e', '\u200b']) expect(reason.includes(bad)).toBe(false)
+	})
+})
+
 describe('parseHandBack', () => {
 	it('reads an object or its JSON text', () => {
 		expect(parseHandBack(input)).toEqual(input)

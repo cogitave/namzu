@@ -3,6 +3,7 @@ import type { AuthorizationGate } from '../../../../authorization/index.js'
 import {
 	HAND_BACK_SIBLING_REFUSAL,
 	HAND_BACK_TOOL_NAME,
+	parseHandBack,
 } from '../../../../tools/hand-back/index.js'
 import { isTrustedReadOnly } from '../../../../tools/trusted-read-only.js'
 import type { ToolSourceRef } from '../../../../toolsets/types.js'
@@ -268,7 +269,10 @@ export async function* runToolReview(
 		// call is the step, every other call in it is refused.
 		let denials = given
 		if (ctx.turnConfig?.handBack === true) {
-			const handBack = toolCallSummaries.find((summary) => summary.name === HAND_BACK_TOOL_NAME)
+			const handBack = toolCallSummaries.find(
+				(summary) =>
+					summary.name === HAND_BACK_TOOL_NAME && parseHandBack(summary.input) !== undefined,
+			)
 			if (handBack) {
 				let siblings: Map<string, string> | undefined
 				for (const summary of toolCallSummaries) {

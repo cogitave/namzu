@@ -68,6 +68,7 @@ const handBack = (kind, id = "h") => ({
 });
 const edit = (id = "e") => ({ id, name: "edit", args: { path: "a.ts" } });
 const shell = { toolCalls: [{ id: "b", name: "bash", args: { command: "pnpm test" } }] };
+const failingShell = { toolCalls: [{ id: "f", name: "bash", args: { command: "pnpm test --failing" } }] };
 const say = (text) => ({ text });
 
 /** An `edit` that changes the workspace, counted, and a `bash` that passes. */
@@ -100,11 +101,14 @@ function workTools(counter) {
 			readOnly: false,
 			destructive: false,
 			concurrencySafe: false,
-			execute: async (input) => ({
-				success: true,
-				output: "ok",
-				facts: { kind: "command", command: input.command, exitCode: 0 },
-			}),
+			execute: async (input) => {
+				const failing = input.command.includes("--failing");
+				return {
+					success: !failing,
+					output: failing ? "1 failed" : "ok",
+					facts: { kind: "command", command: input.command, exitCode: failing ? 1 : 0 },
+				};
+			},
 		}),
 	];
 }
@@ -245,6 +249,11 @@ export default async function handBackSuite() {
 				name: "changes a file and then hands back: the record keeps its verdict beside it",
 				input: { handBack: true, script: [{ toolCalls: [edit()] }, { toolCalls: [handBack("missing")] }, say("Done.")] },
 				expected: { kind: "missing", verdict: "unchecked", steps: 2, edits: 1, closing: MISSING, offered: true, guided: true, goalEnding: "none" },
+			},
+			{
+				name: "a failing check and then a hand-back: the verdict stays failing, the hand-back sits beside it",
+				input: { handBack: true, script: [{ toolCalls: [edit()] }, failingShell, { toolCalls: [handBack("conflict")] }, say("Done.")] },
+				expected: { kind: "conflict", verdict: "failing", steps: 3, edits: 1, closing: CONFLICT, offered: true, guided: true, goalEnding: "none" },
 			},
 			{
 				name: "a goal round handed back ends as not confirmed and blocked",

@@ -1,7 +1,7 @@
 import type { TurnOutcome } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
-import { claimMismatchLine, goalEndingLine, outcomeLine } from './outcome-line.js'
+import { claimMismatchLine, goalEndingLine, handedBackLines, outcomeLine } from './outcome-line.js'
 
 function outcome(over: Partial<TurnOutcome> = {}): TurnOutcome {
 	return {
@@ -210,5 +210,15 @@ describe('goalEndingLine', () => {
 				refusals: 3,
 			}),
 		).not.toContain('\u001b')
+	})
+
+	it('drops bidirectional and zero-width characters from the model text', () => {
+		const line = handedBackLines({
+			kind: 'conflict',
+			blocker: 'a\u202eb\u200bc',
+			tried: 'x',
+			needed: 'y',
+		})
+		expect((line?.model ?? []).join('')).not.toMatch(/[\u202e\u200b]/)
 	})
 })

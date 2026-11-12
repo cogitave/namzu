@@ -73,6 +73,8 @@ One paragraph, in one place (`HAND_BACK_GUIDANCE`), added to the static part of 
 - Command line: `namzu exec --hand-back` (also `exec --json`).
 - Programmatic: `TurnConfig.handBack: true`. Off or absent: the tool is not registered and the paragraph is not added.
 
+The setting reaches the terminal UI, `exec`, `exec --json` and scheduled runs. Background drains, Pal and learning sessions and the Desktop host do not pass it yet, so a model in those never sees the tool; the Desktop feed ignores the `done` key it adds.
+
 It is a setting rather than a default because it changes what the model is told and which tools it has.
 
 ## Before it could be the default

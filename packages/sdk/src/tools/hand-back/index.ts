@@ -37,14 +37,39 @@ export const HandBackInputSchema = z.object({
 	needed: text.describe('What a person has to decide or provide.'),
 })
 
+/** Control, invisible-format and bidirectional code points: none of them is text a person reads. */
+const UNSHOWN: readonly (readonly [number, number])[] = [
+	[0x0000, 0x001f],
+	[0x007f, 0x009f],
+	[0x00ad, 0x00ad],
+	[0x061c, 0x061c],
+	[0x180e, 0x180e],
+	[0x200b, 0x200f],
+	[0x2028, 0x202e],
+	[0x2060, 0x206f],
+	[0xfeff, 0xfeff],
+	[0xfff9, 0xfffb],
+]
+
+/** Whitespace-like controls become a space; every other unshown code point is dropped. */
+const cleaned = (value: string): string => {
+	let out = ''
+	for (const ch of value) {
+		const code = ch.codePointAt(0) ?? 0
+		if (code === 0x09 || code === 0x0a || code === 0x0d) out += ' '
+		else if (!UNSHOWN.some(([lo, hi]) => code >= lo && code <= hi)) out += ch
+	}
+	return out
+}
+
 const clip = (value: string): string => {
-	const flat = value.replace(/\s+/g, ' ').trim()
+	const flat = cleaned(value).replace(/\s+/g, ' ').trim()
 	return flat.length > HAND_BACK_MAX_CHARS ? `${flat.slice(0, HAND_BACK_MAX_CHARS - 1)}…` : flat
 }
 
 /**
  * The hand-back a tool call's input holds, or `undefined` when it is not one.
- * Never throws; text is whitespace-folded and clipped.
+ * Never throws; text is stripped of control and bidirectional characters, whitespace-folded and clipped.
  */
 export function parseHandBack(input: unknown): HandBack | undefined {
 	let value = input
