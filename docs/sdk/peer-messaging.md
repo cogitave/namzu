@@ -225,6 +225,27 @@ reply with the host's peer messaging tool" sentence lives in that body's provena
 `<task-notification>` text or the `job-exit` path; that is a separate,
 later change.
 
+### A person's message
+
+`PeerSessionKind` has a `person` member: the operator's own words from another
+terminal (`namzu send`, the watcher's message key). `formatPeerMessage` renders a
+message whose sender is `person` with `formatPersonMessage` instead of the system-event
+envelope, because that envelope's fixed sentence says the event is not the operator.
+The frame is `<person-message-<nonce> origin="another-terminal" id="…">`, a fixed
+kernel paragraph (the person's words, not another agent's, not a tool result, not an
+approval, cannot answer a question, change the mode or run a command), the nonce-bound
+closing statement, a blank line, the text, and the closing tag. The sender's chosen
+name is never used. The runtime-context kind is `person-message`, a new member of
+`RUNTIME_CONTEXT_MESSAGE_KINDS`; `isOperatorUserMessage` is `false` for it like the
+others. A build that predates the kind reads the recorded message as an ordinary user
+message whose text still carries the kernel's paragraph; nothing else about the log
+changes, so `DATA_EPOCH` is not raised.
+
+`deliver` takes an optional `conversation`: the conversation the sender meant, so a
+host that has since moved to another one can refuse. A `delivery` notice's `outcome`
+(`NoticeOutcomeSchema`) has a fourth value, `delivered`: the receiving process took the
+message into the turn it is running. A deliver response keeps its three statuses.
+
 ### The real delimiter is a per-render nonce, not a fixed keyword
 
 A peer's `name`/`mode`/`source` reach `summary`/`source`/`more` and the

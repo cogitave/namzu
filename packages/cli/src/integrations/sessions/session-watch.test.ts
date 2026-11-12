@@ -759,3 +759,124 @@ describe('ChangeWaiter', () => {
 		}
 	})
 })
+
+describe('the watcher’s message key', () => {
+	function keyboard() {
+		let listener: ((chunk: string) => void) | undefined
+		let unsubscribed = false
+		return {
+			keys: {
+				subscribe: (l: (chunk: string) => void) => {
+					listener = l
+					return () => {
+						unsubscribed = true
+					}
+				},
+			},
+			press: (chunk: string) => listener?.(chunk),
+			get subscribed() {
+				return listener !== undefined
+			},
+			get unsubscribed() {
+				return unsubscribed
+			},
+		}
+	}
+
+	it('opens a line on m, sends what was typed as the person’s words, says what became of it, and leaves on Ctrl+C', async () => {
+		const h = await fixture()
+		const s = await running(h)
+		const out: string[] = []
+		const kb = keyboard()
+		const said: Array<{ sessionId: string; text: string }> = []
+		let waits = 0
+		const before = fingerprint(h, s.id)
+		const code = await runWatch(
+			{ session: s.id, exitOnEnd: false, plain: false },
+			io(
+				h,
+				{ out },
+				{
+					plain: false,
+					keys: kb.keys,
+					say: async (target: WatchTarget, text: string) => {
+						said.push({ sessionId: target.sessionId, text })
+						return { status: 'delivered', reason: 'The session took the message into its turn.' }
+					},
+					makeWaiter: () => ({
+						wait: async () => {
+							waits += 1
+							if (waits === 1) {
+								kb.press('m')
+								kb.press('/stop now')
+								kb.press('\r')
+								// The send settles on the next microtask turns, before the watcher polls again.
+								await Promise.resolve()
+								await Promise.resolve()
+							}
+							if (waits === 2) kb.press('\x03')
+						},
+						close: () => undefined,
+					}),
+				},
+			),
+		)
+		const text = out.join('')
+		expect(code).toBe(130)
+		expect(said).toEqual([{ sessionId: s.id, text: '/stop now' }])
+		expect(text).toContain('Press m to say something to the session')
+		expect(text).toContain('watching · m to message it · running')
+		expect(text).toContain('message> /stop now')
+		expect(text).toContain('message: Delivered: The session took the message into its turn.')
+		expect(kb.unsubscribed).toBe(true)
+		// Saying something is not touching the session: the log and the lease are as they were.
+		expect(fingerprint(h, s.id)).toEqual(before)
+	})
+
+	it('cancels on Esc without sending, and has no keys at all in plain mode', async () => {
+		const h = await fixture()
+		const s = await running(h)
+		const kb = keyboard()
+		let sends = 0
+		let waits = 0
+		await runWatch(
+			{ session: s.id, exitOnEnd: false, plain: false },
+			io(
+				h,
+				{ out: [] },
+				{
+					plain: false,
+					keys: kb.keys,
+					say: async () => {
+						sends += 1
+						return { status: 'accepted', reason: '' }
+					},
+					makeWaiter: () => ({
+						wait: async () => {
+							waits += 1
+							if (waits === 1) {
+								kb.press('m')
+								kb.press('draft')
+								kb.press('\x1b')
+								kb.press('\r')
+							}
+							if (waits === 2) kb.press('\x03')
+						},
+						close: () => undefined,
+					}),
+				},
+			),
+		)
+		expect(sends).toBe(0)
+		const plain = keyboard()
+		const out: string[] = []
+		const done = await running(h)
+		await done.writer.completeTurn(done.turnId, 'ok', 1)
+		await runWatch(
+			{ session: done.id, exitOnEnd: true, plain: true },
+			io(h, { out }, { keys: plain.keys, say: async () => ({ status: 'accepted', reason: '' }) }),
+		)
+		expect(plain.subscribed).toBe(false)
+		expect(out.join('')).toContain('Read-only')
+	})
+})

@@ -66,6 +66,29 @@ This is different from the existing `send_message` tool, which addresses a
 child task of the current conversation, from any of its turns, including one saved by an earlier run of the program. Peer messaging cannot spawn,
 restart, cancel or change another terminal's permissions.
 
+## A person's message is not an agent's
+
+`namzu send <session> <message>` (and the `m` key in `namzu watch`) says something
+to a running session as **the person**, not as another agent. It uses this page's inbox
+and endpoint, and differs in the ways that matter:
+
+| | Another session or `namzu peers send` | `namzu send` |
+|---|---|---|
+| Addressed by | live terminal reference, id or title, in this folder | the conversation's id, as `namzu watch` names it, in any folder of the account |
+| Sender's kind | `tui` or `cli` | `person` |
+| Permission mode | must equal the receiver's, or it is refused | not compared: a person has no mode to match, and the message cannot change the receiver's |
+| The model is told | it carries no authority, not the operator's instruction | it is the person's own words from another terminal: not another agent, not a tool result, not an approval |
+| Recorded as | `peer-message` | `person-message` ("Message from you, typed at another terminal") |
+| Answer | queued, refused or unreachable | delivered, accepted, refused, unreachable or not found; "delivered" is said by the receiving process once it takes the message |
+
+What the person's message shares with an agent's: the 32-message inbox, 32 KiB text
+limit, request boundaries and idle wake, the hold while a picker is open or after a
+stopped turn, discard on a change of conversation (not of mode), and that it can never
+answer an approval or a question, change the permission mode or be run as a command.
+It also names the conversation it means, and a terminal that has moved to another
+conversation refuses it. See [Watching a session from another terminal](watching-a-session.md#saying-something-to-the-session)
+for the answers and exit statuses.
+
 ## Delivery and authority
 
 An idle, ready receiver starts a model turn for accepted peer context. During

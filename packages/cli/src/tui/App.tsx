@@ -10760,7 +10760,10 @@ function AppBody({
 							maxGoalRounds: goalRound.maxGoalRounds,
 						}
 					: prompt.kind === 'peer'
-						? { type: 'runtime-context', kind: 'peer-message' }
+						? {
+								type: 'runtime-context',
+								kind: prompt.mail.from.kind === 'person' ? 'person-message' : 'peer-message',
+							}
 						: prompt.kind === 'notice'
 							? { type: 'runtime-context', kind: noticeKind }
 							: undefined,
@@ -15348,13 +15351,15 @@ function AppBody({
 			},
 			report: (text) => pushMessage('system', text),
 			name: () => conversationNamesRef.current.named ?? conversationNamesRef.current.generated,
+			// The conversation is the address a person's message names (`namzu send`), so every terminal
+			// says which one it is on, once it has one.
+			conversation: () =>
+				conversationMaterializedRef.current ? scopeRef.current?.sessionId : undefined,
 			...(workspaceHostSlot ? { hostSlot: workspaceHostSlot } : {}),
 			// Only a session inside a workspaces host writes the new record fields, so a plain
 			// session stays readable by builds that predate them.
 			...(workspaceHostSlot
 				? {
-						conversation: () =>
-							conversationMaterializedRef.current ? scopeRef.current?.sessionId : undefined,
 						account: () => hostFacts().account,
 						limited: () => hostFacts().limited,
 						limitedUntil: () => hostFacts().limitedUntil,

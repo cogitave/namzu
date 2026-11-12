@@ -19,6 +19,8 @@ export function runtimeContextLabel(kind: RuntimeContextMessageKind): string {
 			return 'Wrapped up at a limit'
 		case 'peer-message':
 			return 'Message from another Namzu window'
+		case 'person-message':
+			return 'Message from you, typed at another terminal'
 		case 'host-observation':
 			return 'Pal activity'
 		case 'channel-message':
