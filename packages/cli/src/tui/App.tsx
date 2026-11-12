@@ -852,6 +852,12 @@ export interface AppProps {
 	 */
 	readonly repaint?: { current: (() => void) | null }
 	/**
+	 * True when the default screen's writer (`paint/live-paint.ts`) is on the terminal: a resize
+	 * redraws only the live region at the new width, and the rows already printed stay as the
+	 * terminal reflowed them, so the transcript is not cleared and printed again.
+	 */
+	readonly paintsLiveRegion?: boolean
+	/**
 	 * Present when the screen is drawn fullscreen: on the alternate screen, with
 	 * the conversation scrolled by the app itself (see `fullscreen/`) instead of
 	 * handed to the terminal's scrollback. The launcher owns the terminal modes
@@ -1619,6 +1625,7 @@ function AppBody({
 	externalEditor = defaultExternalEditor,
 	terminationExit,
 	repaint,
+	paintsLiveRegion = false,
 	fullscreen,
 	onOpenWorkspaces,
 	onConfirmExit,
@@ -3636,12 +3643,17 @@ function AppBody({
 		if (wasOpen !== open) resetTranscript({ preserveTranscriptScreen: true })
 	}, [scrollOpen, transcriptScreen, resetTranscript])
 
+	// With the default screen's own writer on the terminal a resize needs no rebuild: it erases
+	// and redraws the live region at the new width, and printed rows stay as the terminal
+	// reflowed them. Without it (fullscreen, a test renderer) the rebuild below is what keeps
+	// the screen right.
 	const previousTerminalRef = useRef(terminal)
 	useEffect(() => {
 		const previous = previousTerminalRef.current
 		previousTerminalRef.current = terminal
 		if (
 			externalEditorRequestRef.current === null &&
+			!(paintsLiveRegion && !fullscreenOn) &&
 			(terminal.columns !== previous.columns ||
 				terminal.rows < previous.rows ||
 				((scrollOpen || transcriptScreen) && terminal.rows !== previous.rows))
@@ -3656,7 +3668,7 @@ function AppBody({
 			// frames remain incremental.
 			resetTranscript({ preserveTranscriptScreen: true })
 		}
-	}, [terminal, resetTranscript, scrollOpen, transcriptScreen])
+	}, [terminal, resetTranscript, scrollOpen, transcriptScreen, paintsLiveRegion, fullscreenOn])
 
 	const requestExternalEditor = useCallback(
 		(seed: string, pressed?: string): Promise<string> => {
