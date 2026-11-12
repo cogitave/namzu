@@ -19,8 +19,26 @@ function suite(id: string, runs: ReturnType<typeof run>[], extra: Record<string,
 	return { suite: id, report: { name: id, cases: runs, ...extra } }
 }
 
+/**
+ * A report as the CLI writes it now: judged on the held-out split, under
+ * settings that carry the file's label, so two labels are two snapshots. The
+ * tests of the old comparison numbers use it; the tests of what a comparison
+ * refuses to say write their own.
+ */
 const file = (label: string, ...suites: ReturnType<typeof suite>[]) =>
-	loadEvalReportFile({ suites }, label)
+	loadEvalReportFile(
+		{
+			suites: suites.map((s) => ({
+				...s,
+				report: {
+					...s.report,
+					settings: { name: label, digest: `digest-of-${label}`, values: { label }, read: true },
+					taskSplit: { requested: 'held-out', tasks: [] },
+				},
+			})),
+		},
+		label,
+	)
 
 const ids = ['a', 'b', 'c', 'd', 'e', 'f']
 /** `statuses` in the order of `ids`. */

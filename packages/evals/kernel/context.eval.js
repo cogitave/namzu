@@ -32,6 +32,7 @@ import {
 	runExperiment,
 	slugForCwd,
 } from "@namzu/sdk";
+import * as sdk from "@namzu/sdk";
 import { z } from "zod";
 
 /** Long enough that a 2k window is comfortably exceeded. */
@@ -107,8 +108,10 @@ async function runCase(input) {
 				model: "mock-model",
 				timeoutMs: 30_000,
 				tokenBudget: 1_000_000,
-				maxIterations: 6,
-				maxResponseTokens: 256,
+				// The two limits a settings file may set (`namzu eval --settings`).
+				// An older kernel has no `evalSetting`, and the defaults stand.
+				maxIterations: sdk.evalSetting?.("limits.maxIterations") ?? 6,
+				maxResponseTokens: sdk.evalSetting?.("limits.maxResponseTokens") ?? 256,
 			},
 			agentId: "agent_ctx",
 			agentName: "Context Agent",

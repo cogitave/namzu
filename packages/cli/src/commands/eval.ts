@@ -22,20 +22,23 @@ import { promisify } from 'node:util'
 
 import { Command, CommanderError } from 'commander'
 
-import type { ExperimentReport } from '@namzu/sdk'
+import type { ExperimentReport, SettingsSnapshot, SplitFilter } from '@namzu/sdk'
 import {
 	DEFAULT_EVAL_SEED,
 	compareEvalReports,
+	defaultSettingsSnapshot,
 	formatEvalComparison,
 	formatReport,
 	formatRunSummary,
 	isEvalUsageError,
 	loadEvalReportFile,
 	summarizeRun,
+	validateSplitFilter,
 	withEvalRunOptions,
 } from '@namzu/sdk'
 
 import { CLI_VERSION } from '../version.js'
+import { EvalSettingsError, readEvalSettings } from './eval-settings.js'
 import type { CommandContext, CommandDef } from './types.js'
 
 const run = promisify(execFile)
@@ -190,6 +193,9 @@ interface EvalOptions {
 	readonly timeoutMs?: number
 	readonly repeat?: number
 	readonly seed?: number
+	readonly settings?: string
+	readonly settingsName?: string
+	readonly split?: string
 }
 
 /** A whole number written in digits and nothing else, or undefined. */
@@ -249,6 +255,27 @@ function sharedSeed(reports: ReadonlyArray<{ report: ExperimentReport }>): numbe
 }
 
 async function runEval(ctx: CommandContext, options: EvalOptions): Promise<number> {
+	// What the run is given: the settings in the file, or none. The person's own
+	// config files are not read, so a report does not depend on whose machine
+	// made it.
+	let settings: SettingsSnapshot
+	let split: SplitFilter
+	try {
+		split = validateSplitFilter(options.split)
+		settings =
+			options.settings === undefined
+				? defaultSettingsSnapshot()
+				: await readEvalSettings(options.settings, options.settingsName, (line) =>
+						ctx.formatter.info(line),
+					)
+	} catch (err) {
+		if (err instanceof EvalSettingsError || isEvalUsageError(err)) {
+			ctx.formatter.error({ message: err.message })
+			return EVAL_EXIT.usage
+		}
+		throw err
+	}
+
 	const root = isAbsolute(options.dir) ? options.dir : resolve(process.cwd(), options.dir)
 
 	let suites: DiscoveredSuite[]
@@ -268,6 +295,7 @@ async function runEval(ctx: CommandContext, options: EvalOptions): Promise<numbe
 
 	const reports: Array<{ suite: string; report: ExperimentReport }> = []
 	let skipped = 0
+	let emptied = 0
 	const commit = await commitOf(root)
 
 	for (const suite of suites) {
@@ -288,7 +316,11 @@ async function runEval(ctx: CommandContext, options: EvalOptions): Promise<numbe
 		// reaches it through a scope rather than an argument: a suite written
 		// before `--repeat` existed repeats like any other.
 		const suiteVersion = await suiteVersionOf(suite.file)
+		const settingsUse = { read: false }
 		const scope = {
+			settings,
+			settingsUse,
+			split,
 			...(options.repeat !== undefined ? { repeats: options.repeat } : {}),
 			...(options.seed !== undefined ? { seed: options.seed } : {}),
 			harnessVersion: CLI_VERSION,
@@ -331,6 +363,18 @@ async function runEval(ctx: CommandContext, options: EvalOptions): Promise<numbe
 			return EVAL_EXIT.inconclusive
 		}
 
+		// A suite with no task in the split has nothing to say. It is named, not
+		// dropped quietly: a split that left a suite out looks like a smaller run.
+		if (report.cases.length === 0 && split !== 'all') {
+			ctx.formatter.info(`Suite ${suite.id} has no task in the ${split} split; it did not run.`)
+			emptied++
+			continue
+		}
+		if (options.settings !== undefined && !settingsUse.read) {
+			ctx.formatter.info(
+				`Suite ${suite.id} does not read the settings, so they cannot have changed its result.`,
+			)
+		}
 		reports.push({ suite: suite.id, report })
 		ctx.formatter.print({ suite: suite.id, report, text: formatReport(report) })
 	}
@@ -340,6 +384,10 @@ async function runEval(ctx: CommandContext, options: EvalOptions): Promise<numbe
 	// for a CI gate to fail open.
 	if (skipped > 0) {
 		ctx.formatter.info(`${skipped} suite(s) skipped by --tag ${options.tag}`)
+	}
+	if (reports.length === 0 && emptied > 0) {
+		ctx.formatter.error({ message: `No task falls in the ${split} split of the suites that ran.` })
+		return EVAL_EXIT.usage
 	}
 	if (reports.length === 0) {
 		ctx.formatter.error({ message: `No suite matched --tag ${options.tag}.` })
@@ -353,6 +401,8 @@ async function runEval(ctx: CommandContext, options: EvalOptions): Promise<numbe
 			reports.find((r) => r.report.disclosure)?.report.disclosure?.sdkVersion ?? 'unknown',
 		commit: commit ?? 'unknown',
 		generatedAt: new Date().toISOString(),
+		settings,
+		split,
 	})
 	ctx.formatter.print({ run: summary, text: formatRunSummary(summary) })
 
@@ -409,6 +459,18 @@ export const evalCommand: CommandDef = {
 			.option(
 				'--seed <n>',
 				`Seed for the 95% intervals, an integer from 0 to 4294967295 (default ${DEFAULT_EVAL_SEED})`,
+			)
+			.option(
+				'--settings <file>',
+				'Run the suites under the settings in this JSON or YAML file (the shape of the config file, limited to what an eval may vary)',
+			)
+			.option(
+				'--settings-name <name>',
+				'Name the settings snapshot (default: the settings file name; "default" when there is no file)',
+			)
+			.option(
+				'--split <split>',
+				'Run one split of the tasks: tune, held-out or all (default all). Choose settings on tune, judge them on held-out',
 			)
 			.addHelpText(
 				'after',

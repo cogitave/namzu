@@ -1,4 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import type { SettingsSnapshot } from './settings.js'
+import type { SplitFilter } from './split.js'
 
 /**
  * Settings an operator gives a whole eval run, handed to every
@@ -24,6 +26,16 @@ export interface EvalRunOptions {
 	readonly commit?: string
 	/** Version of the suite being run, when known. */
 	readonly suiteVersion?: string
+	/**
+	 * The settings the run was given. Written into every report. A suite shapes
+	 * itself by them through {@link currentEvalSettings}; one that does not is
+	 * reported as not having read them.
+	 */
+	readonly settings?: SettingsSnapshot
+	/** Which tasks run. Absent means all of them. */
+	readonly split?: SplitFilter
+	/** Set by {@link currentEvalSettings} when a suite asks for the settings. Owned by the runner. */
+	readonly settingsUse?: { read: boolean }
 }
 
 const STORE_KEY = Symbol.for('namzu.eval.runOptions')
@@ -46,4 +58,25 @@ export function withEvalRunOptions<T>(options: EvalRunOptions, work: () => T): T
 /** The options in force here, or an empty set outside any scope. */
 export function currentEvalRunOptions(): EvalRunOptions {
 	return store().getStore() ?? {}
+}
+
+/**
+ * The values of the settings the run was given, or an empty object when it was
+ * given none. Asking marks the suite as one that read them, which its report
+ * says: a setting nobody reads cannot have changed what a suite measured.
+ */
+export function currentEvalSettings(): Readonly<Record<string, unknown>> {
+	const options = currentEvalRunOptions()
+	if (options.settingsUse) options.settingsUse.read = true
+	return options.settings?.values ?? {}
+}
+
+/** One setting by its dotted path, for example `limits.maxIterations`; undefined when not stated. */
+export function evalSetting(path: string): unknown {
+	let at: unknown = currentEvalSettings()
+	for (const part of path.split('.')) {
+		if (typeof at !== 'object' || at === null || Array.isArray(at)) return undefined
+		at = (at as Record<string, unknown>)[part]
+	}
+	return at
 }

@@ -3,6 +3,8 @@ import type { StepResult } from '../types/session/step.js'
 import type { CaseIntervals } from './bootstrap.js'
 import type { ReportDisclosure } from './disclosure.js'
 import type { RepeatReliability, SplitSummary } from './report-stats.js'
+import type { ReportSettings } from './settings.js'
+import type { ReportTaskSplit } from './split.js'
 import type { ScoreUncertainty } from './uncertainty.js'
 
 /**
@@ -239,6 +241,16 @@ export interface ExperimentReport {
 	splits?: Partial<Record<EvalSplit | 'unassigned', SplitSummary>>
 	/** What produced this report. */
 	disclosure?: ReportDisclosure
+	/**
+	 * The settings snapshot the suite ran under: name, digest, values, and
+	 * whether the suite read them. Absent from a report that predates it.
+	 */
+	settings?: ReportSettings
+	/**
+	 * Which split of the tasks ran, how each task was assigned, and the ids that
+	 * ran. Absent from a report that predates it.
+	 */
+	taskSplit?: ReportTaskSplit
 }
 
 /** How the repeats of one case went. */
