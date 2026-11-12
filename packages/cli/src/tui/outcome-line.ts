@@ -111,8 +111,9 @@ export function outcomeNotice(
  * The line under the outcome line when the answer said a check passed and the
  * turn's record says otherwise, in the kernel's words: `The answer says the
  * tests pass. The record: pnpm test failed.` Nothing when there is no
- * mismatch. Shown for the turn it belongs to and not repeated; the mismatch is
- * not kept in the session log, so a restored conversation does not draw it.
+ * mismatch. Shown for the turn it belongs to and not repeated. The mismatch is
+ * not kept in the session log; a restored conversation recomputes it from the
+ * saved answer and outcome record, which gives the same line.
  *
  * The record's command came from the model, so the line is made printable the
  * way a command in the outcome line is.

@@ -320,6 +320,94 @@ const rows: readonly {
 		expect: null,
 	},
 	{ name: 'empty', answer: '', record: failing, expect: null },
+	// A hedge or negation after the claim, and words that negate it before.
+	{
+		name: 'apparently after',
+		answer: 'The tests pass, apparently.',
+		record: failing,
+		expect: null,
+	},
+	{
+		name: 'nothing indicates',
+		answer: 'Nothing indicates that the tests pass.',
+		record: failing,
+		expect: null,
+	},
+	{ name: 'zero tests pass', answer: 'Zero tests pass.', record: failing, expect: null },
+	{
+		name: 'passing is the goal',
+		answer: 'Tests passing is the goal.',
+		record: failing,
+		expect: null,
+	},
+	{
+		name: 'only, five words after',
+		answer: 'The assertion: expect(tests).toPass; the tests pass on the happy path only.',
+		record: failing,
+		expect: null,
+	},
+	{
+		name: 'type checker as a subject with an object',
+		answer: 'The type checker passes the argument through to the callee.',
+		record: unchecked,
+		expect: null,
+	},
+	{
+		name: 'tsc with an object',
+		answer: 'tsc passes the flags to the compiler.',
+		record: unchecked,
+		expect: null,
+	},
+	{
+		name: 'foreign negation after an English claim',
+		answer: 'Testler gecti, all tests pass degil.',
+		record: failing,
+		expect: null,
+	},
+
+	// Plain claims that were missed at first.
+	{
+		name: 'pronoun after a run',
+		answer: 'I ran the tests and they all pass.',
+		record: failing,
+		expect: 'tests',
+	},
+	{ name: 'all green', answer: 'All green.', record: unchecked, expect: 'checks' },
+	{ name: 'whole suite', answer: 'The whole suite passes.', record: failing, expect: 'tests' },
+	{ name: 'CI checks', answer: 'The CI checks pass.', record: failing, expect: 'checks' },
+	{
+		name: 'tsc with no errors',
+		answer: 'tsc passes with no errors.',
+		record: unchecked,
+		expect: 'typecheck',
+	},
+	{ name: 'it compiles', answer: 'It compiles.', record: unchecked, expect: 'build' },
+	{
+		name: 'tests are not failing',
+		answer: 'The tests are not failing.',
+		record: failing,
+		expect: 'tests',
+	},
+	{
+		name: 'no tests are failing',
+		answer: 'No tests are failing.',
+		record: failing,
+		expect: 'tests',
+	},
+	{ name: 'tests do not fail', answer: 'The tests do not fail.', record: failing, expect: 'tests' },
+	{ name: 'bold label', answer: '**Tests:** passing', record: failing, expect: 'tests' },
+	{
+		name: 'failure in the first half of a semicolon',
+		answer: 'The tests that were failing now pass; the build succeeds.',
+		record: failing,
+		expect: 'build',
+	},
+	{
+		name: 'a failure after a semicolon does not cancel an earlier claim',
+		answer: 'The tests pass; one lint warning remains.',
+		record: failing,
+		expect: 'tests',
+	},
 ]
 
 describe('comparing an answer with the turn record', () => {
@@ -349,6 +437,38 @@ describe('comparing an answer with the turn record', () => {
 	it('quotes the clause it found the claim in, clipped', () => {
 		const found = compareAnswerToOutcome(`${'word '.repeat(80)}tests pass`, failing)
 		expect(found?.quote.length).toBeLessThanOrEqual(160)
+	})
+
+	it('reports a chained command that failed for either half it names', () => {
+		const chained = record('failing', [check('pnpm lint && pnpm test', 'failed')])
+		expect(compareAnswerToOutcome('The tests pass.', chained)?.claim).toBe('tests')
+		expect(compareAnswerToOutcome('Lint is clean.', chained)?.claim).toBe('lint')
+		const lintOnly = record('failing', [check('pnpm lint', 'failed')])
+		expect(compareAnswerToOutcome('The tests pass.', lintOnly)).toBeUndefined()
+	})
+
+	it('never throws on a record or an answer that does not have the expected shape', () => {
+		const bad = [
+			{ verdict: 'failing' },
+			{ verdict: 'failing', checks: null },
+			{ verdict: 'failing', checks: [{ result: 'failed', command: 42 }] },
+			{ verdict: 'failing', checks: [null] },
+		] as unknown as TurnOutcome[]
+		for (const outcome of bad) {
+			expect(() => compareAnswerToOutcome('All tests pass.', outcome)).not.toThrow()
+		}
+		expect(() => compareAnswerToOutcome(42 as unknown as string, failing)).not.toThrow()
+		expect(compareAnswerToOutcome(42 as unknown as string, failing)).toBeUndefined()
+		expect(compareAnswerToOutcome({} as unknown as string, failing)).toBeUndefined()
+	})
+
+	it('quotes the clause without control characters', () => {
+		const found = compareAnswerToOutcome('\u001b[32mAll tests pass\u001b[0m.', failing)
+		expect(
+			[...(found?.quote ?? '')].every(
+				(ch) => ch.charCodeAt(0) > 0x9f || (ch.charCodeAt(0) > 0x1f && ch.charCodeAt(0) < 0x7f),
+			),
+		).toBe(true)
 	})
 
 	it('reads no answer and no record as silence', () => {

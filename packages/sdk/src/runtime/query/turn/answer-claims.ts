@@ -67,14 +67,41 @@ export const ANSWER_CLAIM_PATTERNS: readonly ClaimPattern[] = [
 	{
 		kind: 'tests',
 		said: 'the test suite passes',
-		re: new RegExp(`\\b(?:test\\s+suite|the\\s+suite|test\\s+run)\\b${FILLER}\\s+${PASSED}`, 'i'),
-		why: 'The suite as a whole is the same claim as "the tests pass". A bare "suite" is not enough: it also names a benchmark suite or a suite of rooms.',
+		re: new RegExp(
+			`\\b(?:test\\s+suite|the\\s+suite|(?:whole|full|entire)\\s+(?:test\\s+)?suite|test\\s+run)\\b${FILLER}\\s+${PASSED}`,
+			'i',
+		),
+		why: 'The suite as a whole is the same claim as "the tests pass", also as "the whole suite". A bare "suite" is not enough: it also names a benchmark suite or a suite of rooms.',
 	},
 	{
 		kind: 'tests',
 		said: 'no test failures',
 		re: /\b(?:no|zero|0)\s+(?:test\s+failures|failing\s+tests|failed\s+tests|test\s+errors)\b/i,
 		why: 'The same claim said by counting failures. It is matched whole, so the word "no" in it is not read as a negation.',
+	},
+	{
+		kind: 'tests',
+		said: 'no test failures',
+		re: /\b(?:no\s+tests?\s+(?:are\s+|is\s+)?(?:fail(?:s|ing|ed)?)|tests?\s+(?:are\s+not|aren['\u2019]t|do\s+not|don['\u2019]t|did\s+not|didn['\u2019]t)\s+(?:fail|failing))\b/i,
+		why: 'The same claim said as a negated failure: "no tests are failing", "the tests do not fail". The pattern holds its own negation, and the failure word in it is not read as a failure.',
+	},
+	{
+		kind: 'tests',
+		said: 'the tests pass',
+		re: /\b(?:ran|run|running)\s+(?:(?:all\s+)?(?:of\s+)?(?:the|my|our)\s+)?(?:\w+\s+){0,2}(?:tests|test\s+suite|suite)\s+and\s+(?:they|it)\s+(?:all\s+)?(?:pass(?:es|ed)?|are\s+(?:green|passing))\b/i,
+		why: 'The pronoun form, the commonest plain phrasing: "I ran the tests and they all pass". The run and its result are in one clause, and a negation between them ("they did not pass") breaks the match.',
+	},
+	{
+		kind: 'checks',
+		said: 'the checks pass',
+		re: /^\W*(?:it['\u2019]?s\s+|it\s+is\s+|everything\s+is\s+)?all\s+green\b/i,
+		why: 'The shortest summary: "All green." Anchored to the start of the sentence, so "not all green" never matches.',
+	},
+	{
+		kind: 'build',
+		said: 'the build succeeds',
+		re: /\b(?:it|everything)\s+compiles\b/i,
+		why: 'A bare "it compiles". The pronoun or "everything" is required: "the compiles list" and similar nouns are not claims.',
 	},
 	{
 		kind: 'build',
@@ -110,10 +137,10 @@ export const ANSWER_CLAIM_PATTERNS: readonly ClaimPattern[] = [
 		kind: 'typecheck',
 		said: 'type checking passes',
 		re: new RegExp(
-			`\\b(?:type[\\s-]?check(?:ing|s|er)?|typecheck|tsc)\\b${FILLER}\\s+(?:is\\s+|are\\s+)?(?:clean|pass(?:es|ed|ing)?|green|succeed(?:s|ed)?|ok)\\b`,
+			`\\b(?:type[\\s-]?check(?:ing|s)?|typecheck|tsc)\\b${FILLER}\\s+(?:is\\s+|are\\s+)?(?:clean|pass(?:es|ed|ing)?|green|succeed(?:s|ed)?|ok)\\b`,
 			'i',
 		),
-		why: 'Type checking, the one-word spelling and the compiler named for it, as the subject.',
+		why: 'Type checking, the one-word spelling and the compiler named for it, as the subject. "Type checker" is left out: "the type checker passes the argument on" names what a checker does, not a result.',
 	},
 	{
 		kind: 'typecheck',
@@ -125,40 +152,40 @@ export const ANSWER_CLAIM_PATTERNS: readonly ClaimPattern[] = [
 		kind: 'checks',
 		said: 'the checks pass',
 		re: new RegExp(
-			`\\b(?:all\\s+(?:of\\s+)?(?:the\\s+)?checks|everything)\\b${FILLER}\\s+${PASSED}`,
+			`\\b(?:all\\s+(?:of\\s+)?(?:the\\s+)?checks|the\\s+(?:ci\\s+)?checks|ci\\s+checks|everything)\\b${FILLER}\\s+${PASSED}`,
 			'i',
 		),
-		why: 'The catch-all a summary reaches for: "all checks pass", "everything is green".',
+		why: 'The catch-all a summary reaches for: "all checks pass", "the CI checks pass", "everything is green".',
 	},
 	{
 		kind: 'tests',
 		said: 'the tests pass',
-		re: /^\W*(?:\*\*)?(?:tests?|test\s+suite)(?:\*\*)?\s*[:\-\u2013]\s*(?:all\s+)?(?:\d+\s+)?(?:pass(?:es|ed|ing)?|green|success(?:ful)?|ok|\u2705|\u2714)/i,
+		re: /^\W*(?:\*\*)?(?:tests?|test\s+suite)(?:\*\*)?\s*[:\-\u2013]\s*(?:\*\*)?\s*(?:all\s+)?(?:\d+\s+)?(?:pass(?:es|ed|ing)?|green|success(?:ful)?|ok|\u2705|\u2714)/i,
 		why: 'The label form of a summary list: "Tests: passing". Anchored to the start of the line, where a label stands.',
 	},
 	{
 		kind: 'build',
 		said: 'the build succeeds',
-		re: /^\W*(?:\*\*)?build(?:\*\*)?\s*[:\-–]\s*(?:pass(?:es|ed|ing)?|green|success(?:ful)?|ok|clean|✅|✔)/i,
+		re: /^\W*(?:\*\*)?build(?:\*\*)?\s*[:\-–]\s*(?:\*\*)?\s*(?:pass(?:es|ed|ing)?|green|success(?:ful)?|ok|clean|✅|✔)/i,
 		why: 'The label form: "Build: success".',
 	},
 	{
 		kind: 'lint',
 		said: 'lint is clean',
-		re: /^\W*(?:\*\*)?lint(?:ing)?(?:\*\*)?\s*[:\-–]\s*(?:pass(?:es|ed|ing)?|green|success(?:ful)?|ok|clean|✅|✔)/i,
+		re: /^\W*(?:\*\*)?lint(?:ing)?(?:\*\*)?\s*[:\-–]\s*(?:\*\*)?\s*(?:pass(?:es|ed|ing)?|green|success(?:ful)?|ok|clean|✅|✔)/i,
 		why: 'The label form: "Lint: clean".',
 	},
 	{
 		kind: 'typecheck',
 		said: 'type checking passes',
-		re: /^\W*(?:\*\*)?(?:type[\s-]?check(?:ing)?|typecheck)(?:\*\*)?\s*[:\-–]\s*(?:pass(?:es|ed|ing)?|green|success(?:ful)?|ok|clean|✅|✔)/i,
+		re: /^\W*(?:\*\*)?(?:type[\s-]?check(?:ing)?|typecheck)(?:\*\*)?\s*[:\-–]\s*(?:\*\*)?\s*(?:pass(?:es|ed|ing)?|green|success(?:ful)?|ok|clean|✅|✔)/i,
 		why: 'The label form: "Typecheck: passing".',
 	},
 ]
 
 /** Words that turn the claim around. Looked for in the few words before it. */
 const NEGATION =
-	/\b(?:not|no|never|none|neither|nor|cannot|unable|without|barely|hardly|n't|isn|aren|doesn|don|didn|wasn|weren|won|couldn|can't|won't)\b|n['’]t\b/i
+	/\b(?:not|no|never|none|nothing|nobody|zero|scarcely|neither|nor|cannot|unable|without|barely|hardly|n't|isn|aren|doesn|don|didn|wasn|weren|won|couldn|can't|won't)\b|n['’]t\b/i
 
 /** Words that make it a wish, a plan, a condition, a request or a guess. Looked for in the few words before it. */
 const HEDGE =
@@ -172,13 +199,25 @@ const REPORTING =
 const EARLIER =
 	/\b(?:before|earlier|previously|prior|originally|beforehand|initially|yesterday|formerly|used\s+to|at\s+first|last\s+time|last\s+week|until\s+now|in\s+the\s+past|back\s+then|had\s+been)\b/i
 
-/** Words that make the claim partial. Looked for in the few words after it. */
+/**
+ * Words that make the claim partial, a guess or someone else's. Looked for in
+ * the few words after it. The last few are the plain negation of other languages
+ * ("değil", "nicht", "pas") for a clause that holds an English claim.
+ */
 const QUALIFIER =
-	/\b(?:except|besides|apart|aside|other\s+than|but\s+for|barring|mostly|partly|partially|mainly|almost|nearly|only|if|unless|provided|once|when|until|assuming|so\s+far\s+as|aside\s+from|on\s+ci|in\s+theory)\b/i
+	/\b(?:except|besides|apart|aside|other\s+than|but\s+for|barring|mostly|partly|partially|mainly|almost|nearly|only|if|unless|provided|once|when|until|assuming|so\s+far\s+as|aside\s+from|on\s+ci|in\s+theory|apparently|supposedly|allegedly|presumably|seemingly|reportedly|hopefully|probably|maybe|perhaps|goal|aim|target|de[g\u011f]il|nicht|nein|pas)\b/i
 
 /** A failure named anywhere else in the sentence: the sentence is reporting one, not claiming a pass. */
 const FAILURE =
 	/\b(?:fail|fails|failed|failing|failure|failures|error|errors|broken|breaks|red|regress(?:ed|es|ion)?)\b/i
+
+/**
+ * A word anywhere in the sentence that makes every claim in it a guess, or a
+ * claim in another language's negation. It sits at sentence level because a
+ * comma often separates it from the claim: "The tests pass, apparently."
+ */
+const SENTENCE_HEDGE =
+	/\b(?:apparently|supposedly|allegedly|presumably|seemingly|reportedly|hopefully|probably|maybe|perhaps|de[g\u011f]il|nicht|nein)\b/i
 
 /** Words a sentence may start with that make everything after it conditional. */
 const CONDITIONAL_START =
@@ -186,7 +225,14 @@ const CONDITIONAL_START =
 
 /** How many words before and after a claim are read for what cancels it. */
 const WORDS_BEFORE = 6
-const WORDS_AFTER = 4
+const WORDS_AFTER = 6
+
+/** What a verb that takes an object starts with: "the type checker passes the argument on" is not a result. */
+const OBJECT_AFTER =
+	/^\W*(?:the|a|an|its|their|his|her|them|it|this|that|these|those|each|every|any|some|through|along)\b/i
+
+/** A claim worded as a subject ("tests passing is the goal"): the verb is a gerund that a copula follows. */
+const COPULA_AFTER = /^\W*(?:is|are|was|were|means|requires|needs)\b/i
 
 /** What is left of an answer once the places a claim does not count are taken out. */
 function readableText(answer: string): string {
@@ -208,15 +254,18 @@ function readableText(answer: string): string {
 /** Sentences, and within one the clauses a claim and its hedge do not cross. */
 function clausesOf(text: string): { sentenceEndsWithQuestion: boolean; clauses: string[] }[] {
 	const out: { sentenceEndsWithQuestion: boolean; clauses: string[] }[] = []
-	for (const raw of text.split(/(?<=[.!?])\s+|\n+/)) {
+	// A semicolon ends a statement, so a failure named in one half does not cancel a claim in the other.
+	for (const raw of text.split(/(?<=[.!?])\s+|\n+|;\s*/)) {
 		const sentence = raw.trim()
 		if (sentence === '') continue
-		if (CONDITIONAL_START.test(sentence)) continue
+		if (CONDITIONAL_START.test(sentence) || SENTENCE_HEDGE.test(sentence)) continue
 		// What the claim patterns themselves match ("no test failures") is not a failure.
 		let rest = sentence
 		for (const pattern of ANSWER_CLAIM_PATTERNS) {
 			rest = rest.replace(new RegExp(pattern.re.source, 'gi'), ' ')
 		}
+		// "no errors", "without failures": a count of none is not a failure.
+		rest = rest.replace(/\b(?:no|zero|0|without)\s+(?:\w+\s+)?(?:errors?|failures?)\b/gi, ' ')
 		if (FAILURE.test(rest)) continue
 		out.push({
 			sentenceEndsWithQuestion: /\?\W*$/.test(sentence),
@@ -245,7 +294,10 @@ function claimIn(clause: string): ClaimPattern | undefined {
 		if (!found) continue
 		const before = wordsBefore(clause, found.index)
 		if (NEGATION.test(before) || HEDGE.test(before)) continue
-		if (QUALIFIER.test(wordsAfter(clause, found.index + found[0].length))) continue
+		const after = wordsAfter(clause, found.index + found[0].length)
+		if (QUALIFIER.test(after)) continue
+		if (/\bpass(?:es)?$/i.test(found[0]) && OBJECT_AFTER.test(after)) continue
+		if (/\bpassing$/i.test(found[0]) && COPULA_AFTER.test(after)) continue
 		if (/\d+\s+of\s+\d+/.test(clause)) continue
 		return pattern
 	}
@@ -269,8 +321,9 @@ function sameKind(a: AnswerClaimKind, b: AnswerClaimKind): boolean {
 	return (a === 'build' && b === 'typecheck') || (a === 'typecheck' && b === 'build')
 }
 
-function kindOfCommand(command: string): AnswerClaimKind | undefined {
-	return COMMAND_KINDS.find((k) => k.re.test(command))?.kind
+/** Every kind a command line is: a chained `pnpm lint && pnpm test` is both. */
+function kindsOfCommand(command: string): AnswerClaimKind[] {
+	return COMMAND_KINDS.filter((k) => k.re.test(command)).map((k) => k.kind)
 }
 
 /** The failed check the claim is about, or `undefined` when every failed check is plainly another kind. */
@@ -278,14 +331,16 @@ function failedCheckFor(
 	record: TurnOutcome,
 	claim: AnswerClaimKind,
 ): { command?: string } | undefined {
-	const failed = record.checks.filter((c) => c.result === 'failed')
+	const checks = Array.isArray(record.checks) ? record.checks : []
+	const failed = checks.filter((c) => c?.result === 'failed')
 	if (failed.length === 0) return {}
 	const related = failed.filter((c) => {
-		const kind = kindOfCommand(c.command)
-		return claim === 'checks' || kind === undefined || sameKind(kind, claim)
+		const kinds = kindsOfCommand(typeof c.command === 'string' ? c.command : '')
+		return claim === 'checks' || kinds.length === 0 || kinds.some((kind) => sameKind(kind, claim))
 	})
 	if (related.length === 0) return undefined
-	return related.length === 1 ? { command: related[0]?.command } : {}
+	const only = related.length === 1 ? related[0]?.command : undefined
+	return typeof only === 'string' ? { command: only } : {}
 }
 
 /**
@@ -301,7 +356,20 @@ export function compareAnswerToOutcome(
 	answer: string | undefined | null,
 	outcome: TurnOutcome | undefined,
 ): AnswerClaimMismatch | undefined {
-	if (!answer || !outcome) return undefined
+	// A notice is never worth failing a turn for: input that does not have the
+	// expected shape (a hook-supplied record) is read as "nothing to say".
+	try {
+		return compare(answer, outcome)
+	} catch {
+		return undefined
+	}
+}
+
+function compare(
+	answer: string | undefined | null,
+	outcome: TurnOutcome | undefined,
+): AnswerClaimMismatch | undefined {
+	if (typeof answer !== 'string' || answer === '' || !outcome) return undefined
 	const verdict = outcome.verdict
 	if (verdict !== 'failing' && verdict !== 'unchecked' && verdict !== 'inconclusive') {
 		return undefined
@@ -327,7 +395,8 @@ export function compareAnswerToOutcome(
 				record = 'unreadable'
 				recordSays = 'files changed and no check gave a result that could be read'
 			}
-			const folded = clause.replace(/\s+/g, ' ').trim()
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this removes
+			const folded = clause.replace(/[\u0000-\u001f\u007f-\u009f\s]+/g, ' ').trim()
 			const quote =
 				folded.length <= ANSWER_CLAIM_MAX_QUOTE_CHARS
 					? folded
