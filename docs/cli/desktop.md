@@ -2362,8 +2362,8 @@ They are release v1.9.2 of the type project's own files, unmodified. `theme.css`
 (measured: the faces are ready 10 to 30 ms after the window's first text is laid out) rather than drawn in
 the platform's face and then changed. A `<link rel="preload">` was tried and dropped: on `file:` addresses
 the browser does not match it to the font request, warns and fetches twice. `index.html` instead holds
-three hidden letters, one in each face, which start the three files loading while the bundle is still being
-read, so the italic and the mono are ready before the first italic word or code block. The content security policy
+four hidden letters, one in each face (upright, italic, mono and display), which start the four files loading while the bundle is still being
+read, so the italic, the mono and the display face are ready before the first italic word, code block or project name. The content security policy
 needed no change: `default-src 'self'` covers files of the app's own folder. Weights 400, 500 and 600 are
 exact on every platform because the files are variable. Mono italic is not shipped: italic code
 (rare in a reply) is the upright mono slanted by the engine, which reads acceptably as a light slant.

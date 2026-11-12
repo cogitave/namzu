@@ -13,6 +13,12 @@
    the display size. A name the face cannot draw whole keeps the interface face (data-face="interface"). */
 [data-composer-heading] .home-heading-name[data-face="display"] {
 	font-family: var(--font-display);
+}
+/* The pixel letters are drawn untracked. With "Your device's" the name is in the platform sans and
+   keeps the heading's own tracking, like the sentence beside it. */
+:root:not([data-interface-font="system"])
+	[data-composer-heading]
+	.home-heading-name[data-face="display"] {
 	letter-spacing: 0;
 }
 

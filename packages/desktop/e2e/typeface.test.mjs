@@ -385,6 +385,11 @@ flow("the home heading draws the project's name in the display face, and the set
 	await expect(w.page.locator(NAME)).toBeVisible({ timeout: T });
 	const system = await headingLayout(w);
 	assert.doesNotMatch(system.family, /Geist/);
+	const tracking = await w.page.evaluate(
+		(sel) => [document.querySelector(sel), document.querySelector("[data-composer-heading]")].map((el) => getComputedStyle(el).letterSpacing),
+		NAME,
+	);
+	assert.equal(tracking[0], tracking[1], "with the device's font the name keeps the heading's tracking");
 	const usedSystem = await usedFonts(w, NAME);
 	for (const font of usedSystem) {
 		assert.equal(font.custom, false, "no shipped file draws the name");
