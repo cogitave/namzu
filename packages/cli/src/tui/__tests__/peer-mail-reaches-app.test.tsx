@@ -200,7 +200,7 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
-function enqueuePeer(text: string) {
+function enqueuePeer(text: string, kind: 'tui' | 'person' = 'tui') {
 	if (!peerOptions) throw new Error('peer host was not opened')
 	peerInbox.push({
 		id: generateSessionId(),
@@ -211,7 +211,7 @@ function enqueuePeer(text: string) {
 			name: 'Other terminal',
 			address: 'uds:/fixture',
 			mode: 'default',
-			kind: 'tui',
+			kind,
 		},
 		text,
 	})
@@ -316,3 +316,29 @@ it.each([
 		}
 	},
 )
+
+it('wakes an idle App for a person’s message from another terminal and records it as the person’s, with its line in the transcript', async () => {
+	successfulTurn = true
+	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 120, rows: 40 })
+	try {
+		await peerOpened.promise
+		await screen.waitForRender()
+		enqueuePeer('stop after this step', 'person')
+		await turnStarted.promise
+		expect(sent).toHaveLength(1)
+		expect(sent[0]?.at(-1)).toMatchObject({
+			source: { type: 'runtime-context', kind: 'person-message' },
+		})
+		expect(String(sent[0]?.at(-1)?.content)).toContain(
+			'arrived from another terminal of this account',
+		)
+		releaseFirstTurn()
+		await turnFinished.promise
+		await screen.waitForRender()
+		expect(screen.scrollback().join('\n')).toContain(
+			'Message from another terminal of this account: stop after this step',
+		)
+	} finally {
+		await screen.unmount()
+	}
+})

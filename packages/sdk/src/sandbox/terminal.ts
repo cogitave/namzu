@@ -26,6 +26,8 @@
  * make teardown await every process it owns before using this primitive.
  */
 
+import { withSessionChildMarker } from '../process/session-child.js'
+
 export interface TerminalSize {
 	readonly cols: number
 	readonly rows: number
@@ -172,7 +174,7 @@ export function openTerminalWith(
 		cols: options.size.cols,
 		rows: options.size.rows,
 		cwd: options.cwd ?? defaults.cwd,
-		...(options.env ? { env: { ...options.env } } : {}),
+		env: withSessionChildMarker({ ...(options.env ?? process.env) }) as Record<string, string>,
 	})
 
 	const dataSub = child.onData((chunk) => {

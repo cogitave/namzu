@@ -54,7 +54,7 @@ An exit that arrives while no model turn is open appears in the transcript and i
 
 # Watching the session itself
 
-The jobs above belong to a session that runs in one terminal. To look at that session from a second terminal, while a turn runs or after it ended, use `namzu watch`: it follows the session's log read-only and never sends or answers anything. See [Watching a session from another terminal](watching-a-session.md). A job's own output is not in the log; it is read with the `job` tool or `/tasks` in the terminal that owns the session.
+The jobs above belong to a session that runs in one terminal. To look at that session from a second terminal, while a turn runs or after it ended, use `namzu watch`: it follows the session's log and never answers an approval or a question; the one thing it can do besides is say something to the session as yourself (`namzu send`, or `m` in the watcher), which only a terminal that reads messages takes. See [Watching a session from another terminal](watching-a-session.md). A job's own output is not in the log; it is read with the `job` tool or `/tasks` in the terminal that owns the session.
 
 # Waiting for one
 

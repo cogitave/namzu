@@ -737,6 +737,7 @@ export type {
 	DeliverRequest,
 	DeliverResponse,
 	DeliverStatus,
+	NoticeOutcome,
 	NoticeRequest,
 	NoticeResponse,
 	PeerFrom,

@@ -10,6 +10,32 @@ function fakeSpawn() {
 	return vi.fn(() => ({}) as never)
 }
 
+describe('spawnHostShell, for a command a session runs', () => {
+	it.each([
+		['bash on Linux', BASH, 'linux'],
+		['cmd on Windows', CMD, 'win32'],
+	] as const)(
+		'marks the environment, whatever the caller handed it (%s)',
+		(_name, shell, platform) => {
+			const spawnImpl = fakeSpawn()
+			spawnHostShell('echo hi', {
+				cwd: '/work',
+				env: { A: '1', NAMZU_STARTED_BY_SESSION: '0', ComSpec: 'C:\\Windows\\System32\\cmd.exe' },
+				shell,
+				platform,
+				spawnImpl: spawnImpl as never,
+			})
+			const [, , options] = spawnImpl.mock.calls[0] as unknown as [
+				string,
+				string[],
+				{ env: Record<string, string> },
+			]
+			expect(options.env.NAMZU_STARTED_BY_SESSION).toBe('1')
+			expect(options.env.A).toBe('1')
+		},
+	)
+})
+
 describe('spawnHostShell', () => {
 	it('runs the line through cmd on Windows, hidden and not detached, with the command in the environment', () => {
 		const spawnImpl = fakeSpawn()
@@ -36,6 +62,7 @@ describe('spawnHostShell', () => {
 				env: {
 					A: '1',
 					ComSpec: 'C:\\Windows\\System32\\cmd.exe',
+					NAMZU_STARTED_BY_SESSION: '1',
 					NAMZU_HOST_COMSPEC: 'C:\\Windows\\System32\\cmd.exe',
 					NAMZU_HOST_COMMAND: 'echo hi > bg-demo.txt',
 				},
@@ -92,7 +119,11 @@ describe('spawnHostShell', () => {
 		// Tagged on Linux, so a kill can find what left the process group.
 		expect(spawnImpl).toHaveBeenCalledWith('/usr/bin/bash', ['-c', 'ls'], {
 			cwd: '/w',
-			env: { KEEP: '1', NAMZU_SHELL_TAG: expect.stringMatching(/^[0-9a-f-]{36}$/) },
+			env: {
+				KEEP: '1',
+				NAMZU_STARTED_BY_SESSION: '1',
+				NAMZU_SHELL_TAG: expect.stringMatching(/^[0-9a-f-]{36}$/),
+			},
 			detached: true,
 			windowsHide: true,
 		})
@@ -109,7 +140,7 @@ describe('spawnHostShell', () => {
 		})
 		expect(spawnImpl).toHaveBeenCalledWith('/usr/bin/bash', ['-c', 'ls'], {
 			cwd: '/w',
-			env: { KEEP: '1' },
+			env: { KEEP: '1', NAMZU_STARTED_BY_SESSION: '1' },
 			detached: true,
 			windowsHide: true,
 		})

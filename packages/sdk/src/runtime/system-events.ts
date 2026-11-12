@@ -54,13 +54,14 @@ const SYSTEM_EVENT_STATUSES_LIST = [
 	'refused',
 	'idle',
 	'exited',
+	'delivered',
 ] as const
 
 /**
  * The closed set of outcomes this envelope may report.
  *
  * Not every status applies to every kind: `completed`/`failed`/`cancelled`/
- * `killed`/`interim` describe an `agent` or `job`; `queued`/`held`/`refused`
+ * `killed`/`interim` describe an `agent` or `job`; `queued`/`held`/`refused`/`delivered`
  * describe a peer message or its delivery notice; `idle`/`exited` describe a
  * peer's status notice. `formatSystemEvent` does not cross-check kind against
  * status — the caller owns that pairing — because the two closed sets belong

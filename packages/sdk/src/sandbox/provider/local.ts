@@ -27,6 +27,7 @@ import {
 // registry needs the same one, and a near-copy would reproduce in the copy
 // every bug the original's comment was written to record.
 import { killTree } from '../../process/kill-tree.js'
+import { SESSION_CHILD_ENV } from '../../process/session-child.js'
 import { resolveWithinAny, resolveWithinAnyReal } from '../../tools/paths.js'
 import type { SandboxId } from '../../types/ids/index.js'
 import type {
@@ -52,6 +53,7 @@ import {
 	WINDOWS_CORE_ENV_KEYS,
 	applyEnvironmentOverrides,
 	pickEnvironmentEntries,
+	setEnvironmentEntry,
 } from '../../utils/process-environment.js'
 import { createTempDir, resolveTempBase } from '../../utils/temp.js'
 import { walkFilesLocally } from '../file-walk.js'
@@ -586,7 +588,7 @@ function buildSeatbeltArgs(
 // Environment building
 // ---------------------------------------------------------------------------
 
-function buildSafeEnv(
+export function buildSafeEnv(
 	configEnv?: Record<string, string>,
 	optsEnv?: Record<string, string>,
 ): Record<string, string> {
@@ -598,6 +600,8 @@ function buildSafeEnv(
 
 	applyEnvironmentOverrides(env, configEnv)
 	applyEnvironmentOverrides(env, optsEnv)
+	// Last: a command in a sandbox is still a command a session started.
+	setEnvironmentEntry(env, SESSION_CHILD_ENV, '1')
 
 	return env
 }

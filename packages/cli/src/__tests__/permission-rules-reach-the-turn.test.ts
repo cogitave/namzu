@@ -120,8 +120,13 @@ describe('a permissions rule written in a config file', () => {
 
 		expect(queryCalls.length, 'the turn must have reached query()').toBe(1)
 		const gate = queryCalls[0]?.authorizationGate as { rules?: unknown[] } | undefined
-		// The operator's rule first; behind it the session's own remembered-allows rule.
+		// The send floor before everything (a session's agent may not run `namzu send`, whatever a rule says),
+		// then the operator's rule, behind it the session's own remembered-allows rule.
 		expect(gate?.rules).toEqual([
+			expect.objectContaining({
+				type: 'predicate',
+				description: expect.stringContaining('namzu send'),
+			}),
 			{ type: 'deny_by_name', toolNames: ['bash'] },
 			expect.objectContaining({ type: 'predicate' }),
 			// Last of the rules: search runs unasked unless a rule above says otherwise.
@@ -155,8 +160,13 @@ describe('a permissions rule written in a config file', () => {
 		}
 
 		const gate = queryCalls[0]?.authorizationGate as { rules?: unknown[] } | undefined
-		// The operator's rule first; behind it the session's own remembered-allows rule.
+		// The send floor before everything (a session's agent may not run `namzu send`, whatever a rule says),
+		// then the operator's rule, behind it the session's own remembered-allows rule.
 		expect(gate?.rules).toEqual([
+			expect.objectContaining({
+				type: 'predicate',
+				description: expect.stringContaining('namzu send'),
+			}),
 			{ type: 'deny_by_name', toolNames: ['bash'] },
 			expect.objectContaining({ type: 'predicate' }),
 			// Last of the rules: search runs unasked unless a rule above says otherwise.

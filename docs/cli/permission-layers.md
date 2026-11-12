@@ -133,6 +133,22 @@ An answer never covers a call that is asked every time: a sandbox escape, a path
 
 `ls`, `cat`, `git status`, `git diff` and the other commands on the read-only list run without a prompt in `prompt` and `accept-edits`, and in `plan`. The list, the conditions and what is not ported are in [The bash tool](../sdk/bash-tool.md#read-only-lines). The path floor still applies: a read-only command that reads outside the working directory and added directories is asked about.
 
+## A command line that sends as the person
+
+One refusal is built in and cannot be turned off, loosened or overridden: a command line a model starts may not run `namzu send`. `namzu send` puts words in front of another session's model as the person's, so a session's agent (or a sub-agent, or a poisoned tool result steering one) must not be able to run it. The rule is a deny-only predicate placed first in every session's gate (`packages/cli/src/permissions/send-floor.ts`, wired in `cliGate`), so it holds in every permission mode, `bypass` and `auto` included, and a deny from any layer wins, so no allow rule, remembered answer or hook reopens it. The call does not run; the model is told, in plain words, that a message to another session must come from a person at their own terminal and that rewording will not help.
+
+It reads the line with the SDK's shell reader ([How command lines are read](../sdk/command-lines.md)) in both dialects, so these all refuse, and the same words are refused when the line is a `sh -c` or `bash -c` payload, a `$(…)` body, a subshell or a background command:
+
+- `namzu send …`, a path to it, `namzu.cmd`, and quoted or escaped spellings of the subcommand (`namzu 'se'nd`, `namzu $'\x73end'`);
+- the CLI's entry script through a runtime: `node packages/cli/dist/bin.js send …` (`bin`, `bin.js`, `bin.mjs`, `bin.cjs`), and the package by name: `npx @namzu/cli@latest send …`, `pnpm dlx @namzu/cli send …`;
+- behind a wrapper: `env`, `env -i`, `setsid` and `setsid -f`, `nohup`, `timeout`, `nice`, `sudo`, `xargs`, `find -exec`, `command`; the whole command is scanned, not only its head;
+- a program name that expands (`$(command -v namzu) send …`, `$A $B …`) followed by a literal `send` or by another expanding word, and a subcommand that expands (`namzu $SUB …`);
+- a line the reader cannot account for (an opaque construct, `eval`, a shell reading a script or standard input, an interpreter given the text, `xargs`) whose text holds the CLI and then `send`.
+
+It does not refuse `namzu peers send` (the agent-to-agent channel, which says what it is on the receiving side), other `namzu` subcommands, or a command that only prints or searches for the words (`echo`, `printf`, `grep`, `rg`, `cat`, `git`, `ls` …).
+
+**What the reader cannot see through**, said exactly: a script or program whose contents the line only runs (`sh ./run.sh` when the file says `namzu send`); a name assembled from pieces that never stand together in the line (`eval "n=nam; ${n}zu se''nd"`); a copy or a link of the CLI under another name (`ln -s "$(command -v namzu)" ./x && ./x send …`); text a program builds and runs by itself; and any tool whose argument is not a command line (the rule reads the command argument of tools that declare one). The kernel's other two layers cover those: the environment marker `NAMZU_STARTED_BY_SESSION` that `namzu send` refuses on, and process ancestry. What is left after all three is written on [Watching a session](watching-a-session.md#not-from-a-tool-or-an-agent).
+
 ## Upgrading
 
 If a repository file loosened the sandbox (`enabled: false`, `allowUnattendedEscape: true`), that no longer applies: put the setting in your own config file or the managed file.

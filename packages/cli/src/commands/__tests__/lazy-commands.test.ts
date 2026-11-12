@@ -145,6 +145,7 @@ describe('the command manifest', () => {
 				'plugin',
 				'providers-json',
 				'schedule',
+				'send',
 				'serve',
 				'skills',
 				'skills-json',

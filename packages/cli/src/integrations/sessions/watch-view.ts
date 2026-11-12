@@ -23,6 +23,9 @@ import type { SessionFollower, WatchSnapshot, WatchState, WatchStatus } from './
 /** Said once at the start, because it is the thing a watcher cannot do. */
 export const WATCH_READ_ONLY_NOTE =
 	'Read-only: this view never sends a message, approves or answers anything.'
+/** What the header says instead when the watcher has its one key: it still reads only, and says what the key does. */
+export const WATCH_SAY_NOTE =
+	'This view never approves or answers anything and never writes the session. Press m to say something to the session as yourself; it cannot approve anything.'
 export const WATCH_SETTLED_NOTE =
 	'Steps appear here as they settle; text a step is still writing appears when that step ends.'
 
@@ -85,13 +88,16 @@ function isOpenRow(row: TranscriptMessage): boolean {
 /** The status as one line. */
 export function statusLine(
 	status: WatchStatus,
-	options: { readonly ended: 'stay' | 'exit' },
+	options: { readonly ended: 'stay' | 'exit'; readonly canSay?: boolean },
 ): string {
 	const tail =
 		status.state === 'finished' && options.ended === 'stay'
 			? ' Still watching; a new turn will appear here. Ctrl+C leaves.'
 			: ''
-	return `watching · read-only · ${status.state} · ${terminalDisplayText(status.sentence)}${tail}`
+	// A watcher that can send says so in place of "read-only": it still never writes the log or answers
+	// an approval, but it is no longer silent.
+	const mode = options.canSay ? 'm to message it' : 'read-only'
+	return `watching · ${mode} · ${status.state} · ${terminalDisplayText(status.sentence)}${tail}`
 }
 
 export interface PrinterOptions {
@@ -100,6 +106,8 @@ export interface PrinterOptions {
 	readonly plain: boolean
 	readonly columns: number
 	readonly ended: 'stay' | 'exit'
+	/** The one-line input is available (a terminal, not plain mode). */
+	readonly canSay?: boolean
 }
 
 /** Writes new rows once and keeps the status current. */
@@ -110,6 +118,8 @@ export class WatchPrinter {
 	#lastSentence: string | undefined
 	#statusShown = false
 	#statusText = ''
+	#prompt: string | undefined
+	#fitted = ''
 
 	constructor(options: PrinterOptions) {
 		this.#o = options
@@ -147,20 +157,55 @@ export class WatchPrinter {
 				this.#o.write(`[watch] ${status.state}: ${terminalDisplayText(status.sentence)}\n`)
 			}
 		} else {
-			const line = statusLine(status, { ended: this.#o.ended })
+			const line = statusLine(status, {
+				ended: this.#o.ended,
+				...(this.#o.canSay ? { canSay: true } : {}),
+			})
 			const room = Math.max(10, this.#o.columns - 1)
 			const fitted = line.length > room ? `${line.slice(0, room - 1)}…` : line
+			this.#fitted = fitted
+			// While the person is typing the bottom line is theirs; rows still scroll above it.
+			const bottom = this.#prompt !== undefined ? this.#promptLine() : fitted
 			// A quiet poll that changed nothing leaves the screen alone.
-			if (out.length > 0 || !this.#statusShown || fitted !== this.#statusText) {
+			if (out.length > 0 || !this.#statusShown || bottom !== this.#statusText) {
 				this.#clearStatus()
 				if (out.length > 0) this.#o.write(`${out.join('\n')}\n`)
-				this.#o.write(fitted)
+				this.#o.write(bottom)
 				this.#statusShown = true
-				this.#statusText = fitted
+				this.#statusText = bottom
 			}
 		}
 		this.#lastState = status.state
 		this.#lastSentence = status.sentence
+	}
+
+	/** Show the line being typed in place of the status line; `undefined` brings the status back. */
+	prompt(text: string | undefined): void {
+		if (this.#o.plain) return
+		this.#prompt = text
+		this.#clearStatus()
+		const bottom = text !== undefined ? this.#promptLine() : this.#fitted
+		this.#o.write(bottom)
+		this.#statusShown = bottom.length > 0
+		this.#statusText = bottom
+	}
+
+	/** One finished line of scrollback that is the watcher's own, such as what became of a message. */
+	note(line: string): void {
+		this.#clearStatus()
+		this.#o.write(`${this.#o.plain ? '[watch] ' : '── '}${terminalDisplayText(line)}\n`)
+		const bottom = this.#prompt !== undefined ? this.#promptLine() : this.#fitted
+		this.#o.write(bottom)
+		this.#statusShown = bottom.length > 0
+		this.#statusText = bottom
+	}
+
+	#promptLine(): string {
+		const label = 'message> '
+		const room = Math.max(4, this.#o.columns - label.length - 2)
+		const typed = terminalDisplayText(this.#prompt ?? '')
+		const shown = typed.length > room ? `…${typed.slice(typed.length - room + 1)}` : typed
+		return `${label}${shown}`
 	}
 
 	/** Leave the terminal with the status line finished, not half-erased. */

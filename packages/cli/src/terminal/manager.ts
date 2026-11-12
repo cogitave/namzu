@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { realpathSync, statSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
+import { SESSION_CHILD_ENV } from '@namzu/sdk'
 import {
 	type CreateRequest,
 	TERMINAL_LIMITS,
@@ -185,7 +186,12 @@ export class TerminalManager {
 				// Windows ends the console session's own list, which needs no marker: its programs see no new variable.
 				env: buildPtyEnv(
 					this.env,
-					this.platform === 'win32' ? request.env : { ...request.env, [TERMINAL_MARKER]: id },
+					{
+						...request.env,
+						// A program a session's terminal runs was started by that session: `namzu send` refuses.
+						[SESSION_CHILD_ENV]: '1',
+						...(this.platform === 'win32' ? {} : { [TERMINAL_MARKER]: id }),
+					},
 					this.platform,
 				),
 			})

@@ -2,10 +2,13 @@ import { createHash, randomBytes } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { basename } from 'node:path'
 import {
+	type DeliverResponse,
 	MAX_PEER_MESSAGE_TEXT_BYTES,
 	MAX_PEER_REQUEST_BYTES,
+	type NoticeRequest,
 	PEER_PROTOCOL_VERSION,
 	PeerClient,
+	type PeerClientResult,
 	type PeerRecord,
 	createPeerEndpoint,
 	derivePeerRef,
@@ -128,6 +131,83 @@ export async function sendToTerminal(
 			ref: peer.ref,
 		}
 
+	const sent = await deliverAsEphemeralSender({
+		home: options.home,
+		cwd,
+		version: options.version,
+		runtime,
+		peer,
+		message,
+		kind: 'cli',
+		name: 'command line',
+		mode: options.mode,
+		...(options.exitOnSignal ? { exitOnSignal: options.exitOnSignal } : {}),
+	})
+	if (sent.kind === 'too-large')
+		return refused('Message is too large once encoded. Nothing was sent.', { ref: peer.ref })
+	const { id, result } = sent
+	if (result.kind !== 'responded')
+		return {
+			status: 'unreachable',
+			reason: 'No receipt arrived; acceptance is unknown. Do not automatically retry.',
+			ref: peer.ref,
+			id,
+		}
+	const status = result.status === 'queued' ? 'queued' : 'refused'
+	return {
+		status,
+		reason:
+			result.reason ??
+			(status === 'queued' ? 'Accepted in the live inbox.' : 'The terminal refused the message.'),
+		ref: peer.ref,
+		sessionId: peer.sessionId,
+		id,
+	}
+}
+
+export interface EphemeralSend<T = undefined> {
+	readonly home: string
+	readonly cwd: string
+	readonly version: string
+	readonly runtime: ReturnType<typeof resolvePeerRuntime>
+	readonly peer: PeerRecord
+	readonly message: string
+	/** `cli` for `namzu peers send`, `person` for the operator's own words from another terminal. */
+	readonly kind: 'cli' | 'person'
+	readonly name: string
+	readonly mode: string
+	/** The conversation the sender means; the receiver refuses if it is on another by now. */
+	readonly conversation?: string
+	/** What to do after cleanup when a signal ends the send; by default the signal is re-raised. */
+	readonly exitOnSignal?: (signal: NodeJS.Signals) => void
+	/**
+	 * Called with each notice the receiver sends back about this message, while the sender's endpoint
+	 * is still up. Registering it also records the delivery as outstanding, which the endpoint needs
+	 * before it believes a delivery notice about the peer.
+	 */
+	readonly onNotice?: (notice: NoticeRequest) => void
+	/** Runs after the receipt, still inside the sender's lifetime (the endpoint and record exist). */
+	readonly after?: (sent: { readonly id: string }) => Promise<T>
+}
+
+export type EphemeralOutcome<T> =
+	| { readonly kind: 'too-large' }
+	| {
+			readonly kind: 'sent'
+			readonly id: string
+			readonly result: PeerClientResult<DeliverResponse>
+			readonly after: T | undefined
+	  }
+
+/**
+ * One deliver from a short-lived sender that owns a record and an endpoint for exactly as long as the
+ * call: the receiver pings that endpoint to verify the record before it accepts, so it stays up for the
+ * whole request (and for `after`), and the record and socket are removed on the way out, signals included.
+ */
+export async function deliverAsEphemeralSender<T = undefined>(
+	options: EphemeralSend<T>,
+): Promise<EphemeralOutcome<T>> {
+	const { runtime, peer, message } = options
 	const sessionId = generateSessionId()
 	const ref = derivePeerRef(sessionId)
 	const id = generateSessionId()
@@ -140,8 +220,8 @@ export async function sendToTerminal(
 			: udsPeerAddress(runtime.path, sessionId)
 	const token = randomBytes(32).toString('hex')
 	const uid = process.getuid?.()
-	const name = 'command line'
-	const from = { sessionId, ref, name, address, mode: options.mode, kind: 'cli' as const }
+	const name = options.name
+	const from = { sessionId, ref, name, address, mode: options.mode, kind: options.kind }
 	// The whole request line is capped, and quotes and control characters grow when
 	// escaped, so a message that fits as text can still not fit as a request.
 	const line = JSON.stringify({
@@ -151,12 +231,10 @@ export async function sendToTerminal(
 		id,
 		from,
 		text: message,
+		...(options.conversation ? { conversation: options.conversation } : {}),
 	})
-	if (Buffer.byteLength(line, 'utf8') + 1 > MAX_PEER_REQUEST_BYTES)
-		return refused('Message is too large once encoded. Nothing was sent.', { ref: peer.ref })
+	if (Buffer.byteLength(line, 'utf8') + 1 > MAX_PEER_REQUEST_BYTES) return { kind: 'too-large' }
 
-	// The receiver pings this endpoint to verify the record before it accepts, so it
-	// stays up for the whole request and is removed after.
 	const endpoint = await createPeerEndpoint({
 		address,
 		token,
@@ -168,7 +246,7 @@ export async function sendToTerminal(
 			status: 'refused',
 			reason: 'A command-line sender takes no messages.',
 		}),
-		onNotice: () => {},
+		onNotice: (notice) => options.onNotice?.(notice),
 	})
 	const removeRecord = () => {
 		try {
@@ -202,9 +280,9 @@ export async function sendToTerminal(
 			ref,
 			pid: process.pid,
 			startedAt: Date.now(),
-			kind: 'cli',
-			title: name || basename(cwd),
-			cwd,
+			kind: options.kind,
+			title: name || basename(options.cwd),
+			cwd: options.cwd,
 			permissionMode: options.mode,
 			state: 'busy',
 			acceptsMessages: false,
@@ -213,24 +291,18 @@ export async function sendToTerminal(
 			protocol: PEER_PROTOCOL_VERSION,
 			cliVersion: options.version,
 		})
-		const result = await new PeerClient().deliver(peer, { id, from, text: message })
-		if (result.kind !== 'responded')
-			return {
-				status: 'unreachable',
-				reason: 'No receipt arrived; acceptance is unknown. Do not automatically retry.',
-				ref: peer.ref,
-				id,
-			}
-		const status = result.status === 'queued' ? 'queued' : 'refused'
-		return {
-			status,
-			reason:
-				result.reason ??
-				(status === 'queued' ? 'Accepted in the live inbox.' : 'The terminal refused the message.'),
-			ref: peer.ref,
-			sessionId: peer.sessionId,
+		if (options.onNotice) endpoint.registerOutstandingDelivery(peer.sessionId)
+		const result = await new PeerClient().deliver(peer, {
 			id,
-		}
+			from,
+			text: message,
+			...(options.conversation ? { conversation: options.conversation } : {}),
+		})
+		const after =
+			options.after && result.kind === 'responded' && result.status === 'queued'
+				? await options.after({ id })
+				: undefined
+		return { kind: 'sent', id, result, after }
 	} finally {
 		detach()
 		await endpoint.close().catch(() => {})

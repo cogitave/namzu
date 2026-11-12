@@ -365,6 +365,7 @@ export const RUNTIME_CONTEXT_MESSAGE_KINDS = [
 	'limit-finalization',
 	'peer-message',
 	'peer-notice',
+	'person-message',
 	'progress-nudge',
 	'reminder',
 	'repeat-call',

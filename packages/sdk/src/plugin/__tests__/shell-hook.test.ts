@@ -69,6 +69,21 @@ describe('runShellHook', () => {
 		expect(outcome.stdout).toContain('env=pre_tool_use/edit/src/a.ts')
 	})
 
+	it.each([
+		['a command line', { command: 'printf "%s" "$NAMZU_STARTED_BY_SESSION"' }],
+		[
+			'the exec form',
+			{
+				command: process.execPath,
+				args: ['-e', 'process.stdout.write(process.env.NAMZU_STARTED_BY_SESSION ?? "")'],
+			},
+		],
+	])('says in the environment that a session started it (%s)', async (_name, entry) => {
+		const outcome = await runShellHook(entry, { ...base, event: 'turn_start' })
+		expect(outcome.exitCode).toBe(0)
+		expect(outcome.stdout).toBe('1')
+	})
+
 	it('gives a turn hook the session and the turn, on stdin and in the environment', async () => {
 		const outcome = await runShellHook(
 			{ command: 'cat; printf " env=%s/%s" "$NAMZU_SESSION_ID" "$NAMZU_TURN_ID"' },

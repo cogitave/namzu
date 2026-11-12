@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn } from 'node:child_process'
+import { SESSION_CHILD_ENV } from '../../process/session-child.js'
 import type {
 	MCPJsonRpcMessage,
 	MCPStdioTransportConfig,
@@ -86,6 +87,8 @@ export function buildChildEnv(
 		if (found) setEnvironmentEntry(env, found[0], found[1])
 	}
 	applyEnvironmentOverrides(env, config.env)
+	// Last, so a configured value cannot take it back: a tool server is started by the session.
+	setEnvironmentEntry(env, SESSION_CHILD_ENV, '1')
 	return env
 }
 

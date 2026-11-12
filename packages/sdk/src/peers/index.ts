@@ -46,6 +46,7 @@ export {
 	MAX_PEER_CONNECTIONS,
 	MAX_PEER_MESSAGE_TEXT_BYTES,
 	MAX_PEER_REQUEST_BYTES,
+	NoticeOutcomeSchema,
 	NoticeRequestSchema,
 	NoticeResponseSchema,
 	PEER_PROTOCOL_VERSION,
@@ -65,6 +66,7 @@ export type {
 	DeliverRequest,
 	DeliverResponse,
 	DeliverStatus,
+	NoticeOutcome,
 	NoticeRequest,
 	NoticeResponse,
 	PeerFrom,
@@ -92,5 +94,5 @@ export type { CreatePeerEndpointOptions, PeerEndpoint } from './endpoint.js'
 export { PeerClient, PeerClientError, pingPeer } from './client.js'
 export type { PeerClientOptions, PeerClientResult } from './client.js'
 
-export { formatPeerMessage, formatPeerNotice } from './envelope.js'
+export { formatPeerMessage, formatPeerNotice, formatPersonMessage } from './envelope.js'
 export type { PeerMessageEnvelopeInput } from './envelope.js'
