@@ -246,3 +246,40 @@ describe('PeerRequestSchema (the closed op set)', () => {
 		expect(PeerRequestSchema.safeParse({}).success).toBe(false)
 	})
 })
+
+describe('the person sender and the delivered notice', () => {
+	it('accepts the person kind, a conversation on deliver and the delivered outcome', () => {
+		const from = {
+			sessionId: 's',
+			ref: 'abcdef',
+			name: 'x',
+			address: 'uds:/a',
+			mode: 'm',
+			kind: 'person',
+		}
+		expect(
+			DeliverRequestSchema.safeParse({
+				protocol: PEER_PROTOCOL_VERSION,
+				op: 'deliver',
+				token: 't',
+				id: 'i',
+				from,
+				text: 'hi',
+				conversation: 'c-1',
+			}).success,
+		).toBe(true)
+		expect(
+			NoticeRequestSchema.safeParse({
+				protocol: PEER_PROTOCOL_VERSION,
+				op: 'notice',
+				token: 't',
+				from: { ...from, kind: 'tui' },
+				kind: 'delivery',
+				about: { sessionId: 's', name: 'x', ref: 'abcdef' },
+				outcome: 'delivered',
+			}).success,
+		).toBe(true)
+		// A deliver response still has only its three statuses.
+		expect(DeliverResponseSchema.safeParse({ status: 'delivered' }).success).toBe(false)
+	})
+})

@@ -73,6 +73,15 @@ export const watchCommand = lazyCommand(
 	async () => (await import('./watch.js')).watchCommand,
 )
 
+export const sendCommand = lazyCommand(
+	{
+		name: 'send',
+		description: 'Say something to a running session from another terminal',
+		passThrough: true,
+	},
+	async () => (await import('./send.js')).sendCommand,
+)
+
 export const doctorCommand = lazyCommand(
 	{
 		name: 'doctor',

@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process'
 import { join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
+import { withSessionChildMarker } from '@namzu/sdk'
 
 export interface NativeHarnessCommand {
 	readonly executable: string
@@ -36,7 +37,7 @@ export function startHarnessProcess(
 	options.signal?.throwIfAborted()
 	const child = spawn(command.executable, [...command.args], {
 		cwd: options.cwd,
-		env: command.env ?? process.env,
+		env: withSessionChildMarker(command.env ?? process.env),
 		shell: false,
 		detached: process.platform !== 'win32',
 		windowsHide: true,

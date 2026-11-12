@@ -39,7 +39,16 @@ export const MAX_PEER_CONNECTIONS = 16
 // 'resident' is no longer announced; it stays so an older peer's record still parses.
 // 'cli' is a one-shot command-line sender (`namzu peers send`): it listens only long enough to be
 // verified, never accepts messages, and is not a terminal.
-export const PeerSessionKindSchema = z.enum(['tui', 'exec', 'resident', 'scheduled', 'cli'])
+// 'person' is `namzu send` or the watcher's message key: the operator's own words from another terminal. It
+// listens only long enough to be verified, never accepts messages, and is not a terminal either.
+export const PeerSessionKindSchema = z.enum([
+	'tui',
+	'exec',
+	'resident',
+	'scheduled',
+	'cli',
+	'person',
+])
 export type PeerSessionKind = z.infer<typeof PeerSessionKindSchema>
 
 export const PeerSessionStateSchema = z.enum(['busy', 'idle', 'awaiting-permission'])
@@ -102,6 +111,11 @@ export const DeliverRequestSchema = z
 			`must be at most ${MAX_PEER_MESSAGE_TEXT_BYTES} UTF-8 bytes`,
 		),
 		inReplyTo: z.string().min(1).optional(),
+		/**
+		 * The conversation the sender meant. A terminal that is on another conversation by the time
+		 * this arrives refuses instead of taking the text into the wrong one.
+		 */
+		conversation: z.string().min(1).optional(),
 		subscribeIdle: z.boolean().optional(),
 	})
 	.strict()
@@ -109,6 +123,14 @@ export type DeliverRequest = z.infer<typeof DeliverRequestSchema>
 
 export const DeliverStatusSchema = z.enum(['queued', 'held', 'refused'])
 export type DeliverStatus = z.infer<typeof DeliverStatusSchema>
+
+/**
+ * What a `delivery` notice reports. The three the receiver answers a deliver with, and `delivered`:
+ * the receiving process took the message into the turn it is running, to be recorded and sent with
+ * the model's next request. `queued` is only an acceptance; `delivered` is the later fact.
+ */
+export const NoticeOutcomeSchema = z.enum(['queued', 'held', 'refused', 'delivered'])
+export type NoticeOutcome = z.infer<typeof NoticeOutcomeSchema>
 
 export const DeliverResponseSchema = z
 	.object({
@@ -165,7 +187,7 @@ export const NoticeRequestSchema = z
 		kind: z.enum(['idle', 'exited', 'delivery']),
 		about: PeerNoticeAboutSchema,
 		/** Only meaningful, and only ever set, when `kind === 'delivery'`. */
-		outcome: DeliverStatusSchema.optional(),
+		outcome: NoticeOutcomeSchema.optional(),
 		detail: z.string().optional(),
 	})
 	.strict()

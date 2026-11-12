@@ -178,8 +178,9 @@ describe('answering a parked scheduled turn', () => {
 		}
 		const call = resumeCalls[0] as Call
 		expect(call.pendingDecision).toBeUndefined()
-		// The session rules, then the one rule that consults the session's remembered allows.
-		expect(call.authorizationGate.rules.slice(0, sessionRules.length)).toEqual(sessionRules)
+		// The send floor first, then the session rules, then the one rule that consults the session's remembered allows.
+		expect(call.authorizationGate.rules[0]).toMatchObject({ type: 'predicate' })
+		expect(call.authorizationGate.rules.slice(1, 1 + sessionRules.length)).toEqual(sessionRules)
 		expect(call.authorizationGate.rules.at(-2)).toMatchObject({ type: 'predicate' })
 		// Last of all, search keeps running unasked; a page fetch is not covered.
 		expect(call.authorizationGate.rules.at(-1)).toEqual({
@@ -219,6 +220,10 @@ describe('answering a parked scheduled turn', () => {
 		const call = resumeCalls[0] as Call
 		expect(call.pendingDecision).toEqual({ action: 'approve_tools' })
 		expect(call.authorizationGate.rules).toEqual([
+			expect.objectContaining({
+				type: 'predicate',
+				description: expect.stringContaining('namzu send'),
+			}),
 			...jobRules,
 			{ type: 'allow_by_name', toolNames: ['web_search'] },
 		])

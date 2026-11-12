@@ -82,6 +82,8 @@ describe('creating', () => {
 		// The variable that makes this host run as a plain interpreter stays out of a shell.
 		expect(spawned[0]?.options.env.ELECTRON_RUN_AS_NODE).toBeUndefined()
 		expect(spawned[0]?.options.env.HOME).toBe('/home/x')
+		// A program in a terminal a session opened was started by that session: `namzu send` refuses it.
+		expect(spawned[0]?.options.env.NAMZU_STARTED_BY_SESSION).toBe('1')
 		expect(info).toMatchObject({
 			title: 'Build',
 			status: 'running',
@@ -99,6 +101,8 @@ describe('creating', () => {
 		expect(env?.HOME).toBeUndefined()
 		expect(env?.ELECTRON_RUN_AS_NODE).toBe('1')
 		expect(env?.X).toBe('y')
+		await manager.create(request({ env: { NAMZU_STARTED_BY_SESSION: null } }))
+		expect(spawned[1]?.options.env.NAMZU_STARTED_BY_SESSION).toBe('1')
 	})
 
 	it('uses the shell when no program is named', async () => {

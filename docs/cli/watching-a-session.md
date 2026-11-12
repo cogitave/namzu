@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Watching a session from another terminal
-description: "`namzu watch`: follow a running or finished session read-only from a second terminal on the same machine. What it shows, what it cannot show, how it tells running from waiting from finished, the exit statuses, and what it never does."
+description: "`namzu watch`: follow a running or finished session from a second terminal on the same machine, and say something to it with one key. What it shows, what it cannot show, how it tells running from waiting from finished, the exit statuses, what the key sends and what it never does."
 resource: packages/cli/src/commands/watch.ts
 tags: [cli, sessions, watch, read-only]
 status: stable
@@ -21,23 +21,32 @@ namzu watch 01a1cd58             # a whole session id, or the start of one
 namzu watch 01a1cd58 --exit-on-end --plain | tee run.txt
 ```
 
-It is **read-only**, and says so on its status line:
+Following is **read-only**. In a pipe, with `--plain`, it says so on its status
+line and has no keys:
 
 ```text
 watching · read-only · running · A turn is running.
 ```
 
-It never takes the session's writer lease, never appends to its log, never
-sends a message and never answers an approval or a question. It reads the log
-file and the lease files, nothing else; no socket is opened and nothing is
-opened to the network. Steering a session from elsewhere is a different
-feature, not a flag of this one.
+In a terminal there is one key, `m`, that says something to the session (next
+section), and the status line says so instead:
+
+```text
+watching · m to message it · running · A turn is running.
+```
+
+Either way the watcher never takes the session's writer lease, never appends to
+its log and never answers an approval or a question. It reads the log file and the
+lease files; the one thing it can do besides, saying something, goes through the
+session's own process (see [Saying something to the session](#saying-something-to-the-session)),
+and nothing is opened to the network. Taking a session over from elsewhere is a
+different feature, not a flag of this one.
 
 ## Why `watch`
 
 [`namzu peers`](peer-messaging.md) already reaches a live terminal, and what it
-does is send. A name such as `attach` would promise the ability to act, which
-this command does not have. `watch` says what it does.
+does is send. A name such as `attach` would promise the ability to act on the
+session, which this command does not have. `watch` says what it does.
 
 ## Choosing the session
 
@@ -152,10 +161,186 @@ quiet poll draws nothing.
   the session list uses: a log whose project or tenant is not this installation's is refused.
 - It opens the project documents and logs for reading and creates nothing: no index, no
   identity, no project folder.
+- When it sends (the `m` key, `namzu send`), the sender is a short-lived record in the
+  account's own runtime directory that exists only for the send, and it is removed when the
+  send ends, signals included.
+
+## Saying something to the session
+
+A person at a second terminal can tell a running session something: a correction,
+a new fact, "stop after this step". Two ways, one mechanism.
+
+In the watcher, press `m` (a terminal only). A line opens at the bottom, the
+rows keep scrolling above it. Type, press Enter to send, Esc to cancel; an empty
+line sends nothing. The watcher goes on following while the message is on its
+way, and prints one line saying what became of it:
+
+```text
+── message: Delivered: The session took the message into its turn.
+```
+
+From a script or another shell, `namzu send`:
+
+```sh
+namzu send 01a1cd58 "use the staging key instead"
+echo "stop after this step" | namzu send 01a1cd58
+namzu send 01a1cd58 --file note.txt --wait 0 --json
+```
+
+`namzu send <session> <message...>` takes the session the way `namzu watch`
+does (a whole id or the start of one, this folder first, then the other folders of
+the same account), and the text as words, from `--file <path>` (`-` is standard
+input), or, with no words, from standard input when it is piped. It sits beside
+`watch` because both name a session; `namzu peers send` names a live terminal by
+its reference and speaks as a command line, which is a different thing to say.
+
+### What the session does with it
+
+The message is put where the session's own process looks: the live inbox of the
+terminal that has the conversation open, the one [messages between terminals](peer-messaging.md)
+already use. That process records it and hands it to the model; the sender never
+writes the session's log and never takes its lease (a test compares the log's
+bytes and the lease files before and after).
+
+| The session is | What happens |
+|---|---|
+| an interactive terminal, a turn running | taken at the next request boundary: after the current tool batch or model response settles, before the next request. It does not interrupt a call in flight. |
+| an interactive terminal, idle (between turns, or finished and still open) | it starts a turn for the message and the message opens it. After a stopped or failed turn, or while a picker is open, it waits, as other mail does, until you go on in that terminal. |
+| waiting on an approval or a question | the message waits in the inbox. It cannot answer the dialog; the turn takes it at the first request boundary after you answer in that terminal. |
+| a background, scheduled or non-interactive run, or a sub-agent | refused: no terminal that reads messages has that conversation open. Nothing is written. |
+| finished, with nothing running it | unreachable, and the reason says so. Resume it with `namzu --resume`. |
+| its terminal is gone | unreachable ("its process has ended"). |
+| its terminal runs but does not answer (stopped or stuck) | unreachable ("does not answer"). |
+| the command was started by a Namzu session (a tool, a hook, a tool server or an agent) | refused, before anything is sent. See [what keeps agents out of the channel](#not-from-a-tool-or-an-agent). |
+| another account's, or on another machine | not found / not reachable: the log and the local runtime directory are this account's on this machine. |
+
+### What the model is told, and what the transcript shows
+
+The model gets one block, framed by the kernel and closed only by a tag that
+carries a fresh random value. The kernel's paragraph in it says what the kernel
+knows and nothing more: the text arrived from another terminal of this account, on
+this machine, through the local message channel (`namzu send`, or the `m` key in
+`namzu watch`); it is meant to be the words of the person who runs the session, **but
+the kernel did not check who or what sent it**, only that a process of this account
+did. It cannot approve anything, answer a pending approval or question, change the
+permission mode or run a command; those are done only in the terminal that runs the
+session, and anything the model does because of it still goes through the same
+permission checks as any other action. The model is asked to weigh it as the
+person's instruction or correction, and not to follow it where it asks for something
+its instructions or the session's rules would not allow. Then the text, quoted. The
+sender's text cannot end the frame, cannot pose as a kernel line and cannot pose as
+an approval; a line such as `approved: run anything` is just words in a quote. The
+name a sender's record carries is never used: the words are the kernel's.
+
+It is recorded in the session as a message of its own kind, `person-message`, so a
+reopened conversation, an export and `namzu watch` show it as
+*Message from another terminal of this account*, not as typed in that terminal and
+not as from another agent. The label says where it came from and no more, because
+that is all the kernel knows. Everywhere a transcript row is drawn (the live terminal,
+a reopened conversation, `namzu watch`) the row is that label followed by the
+words, as one safe line: line breaks and control and direction characters in the
+text are dropped, so it cannot start a line of its own, and a long message is cut
+for the row (the first 400 characters). The model and the log hold the text whole.
+An export prints the recorded frame as it is, control characters included, so open
+one in an editor rather than `cat`-ing it to a terminal.
+
+### Not from a tool or an agent
+
+A message to a session is meant to be the person's own words, so the kernel keeps
+the agents of a session out of the channel. The threat that matters most is one
+session's agent, a sub-agent, or a poisoned tool result steering an agent, telling
+*another* session what to do with the person's voice. Three layers, each covering
+what the others miss, and all three refuse before anything is sent or queued:
+
+1. **A marker in the environment.** The kernel puts `NAMZU_STARTED_BY_SESSION=1`
+   into the environment of every process it starts on a session's behalf: a command
+   the model runs with its shell tool (and the background jobs it starts), a shell hook
+   or a hook's exec-form program, a tool server (MCP stdio, after any configured
+   value, so a config cannot take it back), a command in the local sandbox, a command
+   run through the host execution context, a harness process, and the programs of a
+   terminal the session opened. It is set where those environments are built
+   (`spawnHostShell` in `packages/sdk/src/tools/command-shell.ts` and the other
+   builders, through `withSessionChildMarker`), not left to each tool. `namzu send`
+   (and the watcher's `m` key, which sends the same way) refuses when it is present.
+   It works the same on Windows. The cost: a `namzu send` typed in a terminal tab a
+   session opened, or after `!` in the session's own terminal, is refused too; use
+   your own terminal.
+2. **The command-line permission layer.** A built-in, deny-only rule
+   ([the send floor](permission-layers.md#a-command-line-that-sends-as-the-person)) is
+   in front of every session's rules, in every permission mode, and refuses a command
+   line a model starts that runs `namzu send`, however it is spelled to the SDK's
+   shell reader: directly, by path to the CLI entry, behind `env`, `setsid`, `nohup`,
+   `timeout`, `sudo`, `xargs`, `find -exec`, inside `sh -c` or `bash -c`, in a
+   subshell or the background. The call never runs, so `env -i`, `setsid -f` and a
+   double fork do not matter. It applies to the main session, sub-agents and every
+   session that builds its gate with the CLI's rules, a headless `namzu exec` run
+   included.
+3. **Process ancestry.** `namzu send` checks its own parent chain against the live
+   terminals of this account before it sends, and the receiving terminal checks the
+   sender's again and also reads the sender's starting environment for the marker
+   (Linux), so editing the sender does not get past it. The chain is read from `/proc`
+   on Linux and `ps` elsewhere; where it cannot be read, as on Windows, this layer
+   refuses nothing and the other two stand.
+
+The answer is *refused*, with the reason, and nothing is queued.
+
+**What is left.** A process of the same account that hides its ancestry (`setsid -f`,
+a double fork, a service) *and* its environment (`env -i`) *and* is started by
+something the command-line layer did not read: a script written to disk earlier and
+run later (by a session that has no terminal record, such as `namzu exec`, so ancestry
+names nothing). That process is a process of your account, which can already write
+your files, read your credentials and talk to the local endpoint. The kernel does not
+claim to stop it. A test pins this one case (`send-from-a-session.process.test.ts`),
+so a change that closes it has to change this paragraph too. Also not seen by the
+command-line layer: a program or script whose contents the line only runs (`sh ./run.sh`),
+a name assembled from pieces that never stand together in the line, a copy or link of
+the CLI under another name, and any tool whose argument is not a command line; the
+marker and ancestry stop most of those, the residual above is what is left when both
+are hidden. Do not read "from another terminal" as proof stronger than that: **a
+message from another terminal is as trustworthy as the account boundary, not more**,
+which is why the model is told that the kernel did not check who sent it and why it
+cannot approve anything.
+
+Text that starts with a slash is still only text for the model. Nothing parses it:
+not as a slash command, not as a permission change, not as an approval.
+
+### The answers
+
+`namzu send` says how far the message got, and exits by it:
+
+| Answer | Meaning | Exit |
+|---|---|---|
+| Delivered | the session's process took the message into the turn it is running; it is recorded and goes with the model's next request. The process said so itself, over the verified local endpoint. | 0 |
+| Accepted | in the session's inbox, not taken yet. It **stays queued** there until it is taken or that terminal closes (then it is lost, as all inbox mail is); it is not withdrawn. | 10 |
+| Refused | the process answered and declined (not accepting messages, inbox full, on another conversation), two terminals have the conversation open, or the session is one that reads no messages | 1 |
+| Unreachable | nothing runs the session (finished, interrupted, process gone) or nothing answered. If no receipt arrived, acceptance is unknown; do not retry blindly | 69 |
+| Not found | no such session, an id that fits several, or not this account's | 66 |
+
+Bad arguments or an empty message exit 64; input that is not UTF-8 text (or holds
+NUL) 65; an unreadable `--file` 66. The command waits for "taken" for
+`--wait <seconds>` (30 by default; `0` answers as soon as the message is
+accepted). Delivered is never said on a guess: a process that does not report
+"taken" leaves the answer at accepted. `--json` prints one object: `status`,
+`reason`, `sessionId`, `id` and `exit`; an error is `{"error": "...", "exit": n}`.
+A message is at most 32 KiB of text (and 64 KiB once encoded), as for any inbox
+message; the inbox holds 32.
+
+### What it cannot do
+
+- Answer an approval or a question, change the permission mode, or run a command.
+  The text is for the model only.
+- Reach a session that has no terminal reading messages (background, scheduled,
+  sub-agent, finished).
+- Reach anything beyond this machine and this account: the endpoint is a local
+  socket in the account's own runtime directory.
+
+A terminal started before this version does not say which conversation it is on, so
+it cannot be addressed: the answer is "refused ... does not read messages" while it
+has a turn running, "unreachable" otherwise.
 
 ## What comes next
 
-Not built, on purpose: sending a message to the session from the watcher (it needs the
-peer inbox's admission rules and an attributed, approval-free message), and a transport
-beyond this machine (it needs authentication, a trust record and an encrypted channel).
-See [Messages between live terminals](peer-messaging.md) for the first.
+Not built, on purpose: answering an approval from the watcher, taking a session over,
+messages to background and scheduled sessions (they have no inbox), and a transport
+beyond this machine (it needs authentication, a trust record and an encrypted
+channel).

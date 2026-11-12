@@ -33,6 +33,7 @@ describe('formatSystemEvent', () => {
 			'refused',
 			'idle',
 			'exited',
+			'delivered',
 		])
 	})
 

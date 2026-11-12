@@ -242,7 +242,11 @@ describe('the spawn', () => {
 		expect(spawnImpl).toHaveBeenCalledWith(PF_BASH, ['-c', 'ls'], {
 			cwd: 'C:\\work',
 			// The tag is how a kill finds what the command forked.
-			env: { GIT_EDITOR: 'true', NAMZU_SHELL_TAG: expect.stringMatching(/^[0-9a-f-]{36}$/) },
+			env: {
+				GIT_EDITOR: 'true',
+				NAMZU_STARTED_BY_SESSION: '1',
+				NAMZU_SHELL_TAG: expect.stringMatching(/^[0-9a-f-]{36}$/),
+			},
 			detached: false,
 			windowsHide: true,
 			stdio: ['ignore', 'pipe', 'pipe'],

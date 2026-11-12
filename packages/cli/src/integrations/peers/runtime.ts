@@ -30,6 +30,7 @@ import {
 } from '@namzu/sdk'
 import { sanitizeLine } from '../notifications/desktop/sanitize.js'
 import { restrictToOwner } from '../providers/credential-store.js'
+import { processStartedBySession, runsUnderAny } from './process-ancestry.js'
 
 const INBOX_CAPACITY = 32
 const DEDUP_CAPACITY = 256
@@ -42,14 +43,31 @@ export interface PeerMail {
 }
 
 export function peerMailMessage(mail: PeerMail): Message {
-	return createRuntimeContextMessage(formatPeerMessage(mail), 'peer-message')
+	return createRuntimeContextMessage(
+		formatPeerMessage(mail),
+		mail.from.kind === 'person' ? 'person-message' : 'peer-message',
+	)
 }
 
+/** The longest a person's message is drawn on its one transcript line; the model and the log hold all of it. */
+const PERSON_LABEL_MAX = 400
+
+/**
+ * The transcript line for mail. The words are the kernel's; the sender's text is data after them: for the
+ * person's message it is made one safe line (no line break to start a line of its own, no control or
+ * direction character), so it cannot pose as a kernel line.
+ */
 export function peerMailLabel(mail: PeerMail): string {
+	if (mail.from.kind === 'person')
+		return `Message from another terminal of this account: ${sanitizeLine(mail.text, PERSON_LABEL_MAX)}`
 	return `Message from ${mail.from.name}: ${mail.text}`
 }
 
 export interface LivePeersOptions {
+	/** The parent of a process, for telling a person's terminal from a tool; tests supply their own. */
+	readonly parentPid?: (pid: number) => number | undefined
+	/** Whether a process started with the session marker in its environment; tests supply their own. */
+	readonly startedBySession?: (pid: number) => boolean
 	readonly home: string
 	readonly cwd: string
 	readonly version: string
@@ -194,7 +212,7 @@ export async function openLivePeers(options: LivePeersOptions) {
 			if (mail.owner !== owner) {
 				pending.splice(index, 1)
 				dropped++
-			} else if (mail.from.mode !== mode) {
+			} else if (mail.from.kind !== 'person' && mail.from.mode !== mode) {
 				// Admission is not a grant to run this context under a later mode.
 				// Recheck at peek AND consumption: a scheduled idle wake can outlive
 				// a mode change. Discard rather than inventing approval or replay.
@@ -223,12 +241,42 @@ export async function openLivePeers(options: LivePeersOptions) {
 		)
 		// A command-line sender (`namzu peers send`) is a verified record like a terminal's, but
 		// listed apart: its mail says so, and it never takes mail.
-		if (!sender || sender.cwd !== cwd || (sender.kind !== 'tui' && sender.kind !== 'cli'))
+		const person = sender?.kind === 'person'
+		// The person's own message names the conversation it meant, so it is checked by what it
+		// is addressed to, not by the folder: a terminal in another folder can be the right one.
+		if (
+			!sender ||
+			(sender.kind !== 'tui' && sender.kind !== 'cli' && !person) ||
+			(!person && sender.cwd !== cwd)
+		)
 			return {
 				status: 'refused',
 				reason: 'Only live terminals in the same project may send here.',
 			}
-		if (request.from.mode !== options.mode())
+		if (person) {
+			// A person's message comes from outside every Namzu session. A command a model ran through its
+			// shell descends from the terminal that runs it, so it is not the person, whatever it claims.
+			const sessions = new Set<number>([process.pid])
+			for (const peer of readPeerRecords(runtime.sessionsDir))
+				if (peer.kind === 'tui') sessions.add(peer.pid)
+			if (
+				runsUnderAny(sender.pid, sessions, options.parentPid) ||
+				(options.startedBySession ?? processStartedBySession)(sender.pid)
+			)
+				return {
+					status: 'refused',
+					reason:
+						'This was sent from inside a Namzu session, by a tool or an agent, not by a person at another terminal.',
+				}
+			if (!request.conversation || request.conversation !== options.conversation?.())
+				return {
+					status: 'refused',
+					reason: 'This terminal is not on that conversation now.',
+				}
+		}
+		// The person has no permission mode to match; an agent's mail must match, so a terminal in a
+		// stricter mode is not argued out of it by a sender in a looser one.
+		if (!person && request.from.mode !== options.mode())
 			return {
 				status: 'refused',
 				reason: 'The terminals have different permission modes.',
@@ -279,6 +327,33 @@ export async function openLivePeers(options: LivePeersOptions) {
 	} catch (error) {
 		await endpoint.close()
 		throw error
+	}
+	/**
+	 * A person's message is told it was taken: this process has it out of the inbox and into the turn it is
+	 * running, to be recorded and sent with the next request. Said once, to the sender's own endpoint, which
+	 * verifies this record before it believes it. A sender that has gone away simply hears nothing; the
+	 * message is taken all the same.
+	 */
+	const tellTaken = (taken: readonly PeerMail[]) => {
+		const people = taken.filter((mail) => mail.from.kind === 'person')
+		if (people.length === 0) return
+		publish()
+		const current = from()
+		for (const mail of people) {
+			const target = readPeerRecords(runtime.sessionsDir).find(
+				(peer) => peer.sessionId === mail.from.sessionId && peer.kind === 'person',
+			)
+			if (!target) continue
+			void client
+				.notice(target, {
+					from: current,
+					kind: 'delivery',
+					about: { sessionId, name: current.name, ref },
+					outcome: 'delivered',
+					detail: mail.id,
+				})
+				.catch(() => {})
+		}
 	}
 	const list = async () => {
 		// A failed ping is an unavailable observation, not permission to delete
@@ -391,12 +466,16 @@ export async function openLivePeers(options: LivePeersOptions) {
 			discardStale()
 			if (closed || !enabled || owner !== options.owner()) return undefined
 			const index = pending.findIndex((mail) => mail.id === id && mail.owner === owner)
-			return index < 0 ? undefined : pending.splice(index, 1)[0]
+			const taken = index < 0 ? undefined : pending.splice(index, 1)[0]
+			if (taken) tellTaken([taken])
+			return taken
 		},
 		take(owner: number, limit = INBOX_CAPACITY): PeerMail[] {
 			discardStale()
 			if (closed || !enabled || owner !== options.owner()) return []
-			return pending.splice(0, limit)
+			const taken = pending.splice(0, limit)
+			tellTaken(taken)
+			return taken
 		},
 		close(): Promise<void> {
 			if (closing) return closing

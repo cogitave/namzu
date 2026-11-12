@@ -56,6 +56,7 @@ import { constants, accessSync, existsSync } from 'node:fs'
 import { delimiter, isAbsolute, join, win32 } from 'node:path'
 
 import { MSYS_TAG_VARIABLE, registerMsysShell, registerProcessTag } from '../process/kill-tree.js'
+import { withSessionChildMarker } from '../process/session-child.js'
 import type { ShellDialect } from '../types/tool/index.js'
 
 /** The shell a host-side command runs in. */
@@ -460,8 +461,13 @@ export function spawnHostShell(
 	const windowsBash = shell.windows === true && shell.path !== undefined
 	const tag =
 		windowsBash || (shell.windows !== true && platform === 'linux') ? randomUUID() : undefined
+	// Every command the kernel runs on a session's behalf says so in its environment, and a program
+	// that must not be run by a model (`namzu send`) reads it. See `process/session-child.ts`.
+	const marked = withSessionChildMarker(spawned.env, platform)
 	const resolved =
-		tag === undefined ? spawned : { ...spawned, env: { ...spawned.env, [MSYS_TAG_VARIABLE]: tag } }
+		tag === undefined
+			? { ...spawned, env: marked }
+			: { ...spawned, env: { ...marked, [MSYS_TAG_VARIABLE]: tag } }
 	const common: SpawnOptions = {
 		cwd: options.cwd,
 		env: resolved.env,

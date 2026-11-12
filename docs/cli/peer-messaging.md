@@ -66,6 +66,36 @@ This is different from the existing `send_message` tool, which addresses a
 child task of the current conversation, from any of its turns, including one saved by an earlier run of the program. Peer messaging cannot spawn,
 restart, cancel or change another terminal's permissions.
 
+## A person's message is not an agent's
+
+`namzu send <session> <message>` (and the `m` key in `namzu watch`) says something
+to a running session as **the person**, not as another agent. It uses this page's inbox
+and endpoint, and differs in the ways that matter:
+
+| | Another session or `namzu peers send` | `namzu send` |
+|---|---|---|
+| Addressed by | live terminal reference, id or title, in this folder | the conversation's id, as `namzu watch` names it, in any folder of the account |
+| Sender's kind | `tui` or `cli` | `person` |
+| Permission mode | must equal the receiver's, or it is refused | not compared: a person has no mode to match, and the message cannot change the receiver's |
+| The model is told | it carries no authority, not the operator's instruction | the text arrived from another terminal of this account and is meant to be the person's words, but the kernel did not check who sent it; it cannot approve anything, change a mode or run a command, and what the model does because of it passes the same permission checks |
+| Recorded as | `peer-message` | `person-message` ("Message from another terminal of this account") |
+| Sent from inside a session | allowed: that is what an agent is | refused: a person's message is not from a tool or agent. Three layers: a marker (`NAMZU_STARTED_BY_SESSION`) in the environment of everything a session starts, a built-in refusal of the command line in every permission mode, and process ancestry checked on both ends; [what is left](watching-a-session.md#not-from-a-tool-or-an-agent) |
+| Answer | queued, refused or unreachable | delivered, accepted, refused, unreachable or not found; "delivered" is said by the receiving process once it takes the message |
+
+What the person's message shares with an agent's: the 32-message inbox, 32 KiB text
+limit, request boundaries and idle wake, the hold while a picker is open or after a
+stopped turn, discard on a change of conversation (not of mode), and that it can never
+answer an approval or a question, change the permission mode or be run as a command.
+It also names the conversation it means, and a terminal that has moved to another
+conversation refuses it. See [Watching a session from another terminal](watching-a-session.md#saying-something-to-the-session)
+for the answers and exit statuses.
+
+A message from another terminal is as trustworthy as the account boundary, not more:
+any process of your account can speak on the local endpoint, which is also why it is
+only ever text for the model, never an approval. What the kernel does to keep a
+session's agents out of this channel, and the one case it does not stop, is on
+[Watching a session](watching-a-session.md#not-from-a-tool-or-an-agent).
+
 ## Delivery and authority
 
 An idle, ready receiver starts a model turn for accepted peer context. During

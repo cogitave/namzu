@@ -27,6 +27,15 @@ describe('LocalExecutionContext.executeCommand', () => {
 		removeTempDir(dir)
 	})
 
+	it('says in the environment of what it runs that a session started it', async () => {
+		const ctx = new LocalExecutionContext({ id: 'test', cwd: dir })
+		const result = await ctx.executeCommand(process.execPath, [
+			'-e',
+			'process.stdout.write(process.env.NAMZU_STARTED_BY_SESSION ?? "")',
+		])
+		expect(result.stdout).toBe('1')
+	})
+
 	it('does not let a shell-metacharacter arg run a second command by default', async () => {
 		const ctx = new LocalExecutionContext({ id: 'test', cwd: dir })
 		await ctx.initialize()

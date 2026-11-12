@@ -8,7 +8,7 @@ tags: [cli, agents, concurrency]
 
 # Delegated work
 
-A second terminal can follow the parent session, and with it the rows its delegated work draws, with `namzu watch` (read-only; see [Watching a session from another terminal](watching-a-session.md)).
+A second terminal can follow the parent session, and with it the rows its delegated work draws, with `namzu watch` (it follows and never answers an approval; see [Watching a session from another terminal](watching-a-session.md)).
 
 The CLI builds its delegated turns with its own `NamzuCliAgent` in
 `packages/cli/src/integrations/subagents/`. It uses the SDK's `QueryAgent`

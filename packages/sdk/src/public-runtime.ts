@@ -1945,6 +1945,7 @@ export {
 	MAX_PEER_CONNECTIONS,
 	MAX_PEER_MESSAGE_TEXT_BYTES,
 	MAX_PEER_REQUEST_BYTES,
+	NoticeOutcomeSchema,
 	NoticeRequestSchema,
 	NoticeResponseSchema,
 	OUTSTANDING_EXPIRY_MS,
@@ -1972,6 +1973,7 @@ export {
 	createPeerEndpoint,
 	derivePeerRef,
 	formatPeerMessage,
+	formatPersonMessage,
 	formatPeerNotice,
 	hardenPeerRuntimeDir,
 	isPeerRecordLive,
@@ -1987,6 +1989,11 @@ export {
 	udsPeerAddress,
 	writePeerRecord,
 } from './peers/index.js'
+export {
+	SESSION_CHILD_ENV,
+	startedBySession,
+	withSessionChildMarker,
+} from './process/session-child.js'
 export {
 	ACCOUNTS_FILE_NAME,
 	ACCOUNTS_FILE_VERSION,

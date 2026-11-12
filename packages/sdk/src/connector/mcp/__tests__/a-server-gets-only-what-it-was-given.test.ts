@@ -33,6 +33,18 @@ function parentEnv(): NodeJS.ProcessEnv {
 }
 
 describe('the environment a stdio server is handed', () => {
+	it('says a session started it, and a configured value cannot take that back', () => {
+		expect(buildChildEnv({}, parentEnv()).NAMZU_STARTED_BY_SESSION).toBe('1')
+		expect(
+			buildChildEnv({ env: { NAMZU_STARTED_BY_SESSION: '0' } }, parentEnv())
+				.NAMZU_STARTED_BY_SESSION,
+		).toBe('1')
+		expect(
+			buildChildEnv({ inheritEnv: ['NAMZU_STARTED_BY_SESSION'] }, { NAMZU_STARTED_BY_SESSION: '' })
+				.NAMZU_STARTED_BY_SESSION,
+		).toBe('1')
+	})
+
 	it('carries the plumbing a process needs to run at all', () => {
 		const env = buildChildEnv({}, parentEnv())
 

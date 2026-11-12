@@ -16,9 +16,12 @@
  */
 
 import type { AuthorizationGateConfig, AuthorizationRule } from '@namzu/sdk'
+import { sendFloorRule } from './send-floor.js'
 
 /** Tools that reach another host, which the read-only allowance must not approve. */
 export const NETWORK_CATEGORY = 'network'
+
+const SEND_FLOOR = sendFloorRule()
 
 const SEARCH_ALLOWANCE: AuthorizationRule = { type: 'allow_by_name', toolNames: ['web_search'] }
 
@@ -36,6 +39,8 @@ export function cliGate(rules: readonly AuthorizationRule[] | undefined): Author
 		allowReadOnlyExcludeCategories: [NETWORK_CATEGORY],
 		denyDangerousPatterns: true,
 		logDecisions: false,
-		rules: [...(rules ?? []), SEARCH_ALLOWANCE],
+		// First, and deny-only: a command line a session runs may not run `namzu send`, in every permission
+		// mode and whatever a rule says. See `send-floor.ts`.
+		rules: [SEND_FLOOR, ...(rules ?? []), SEARCH_ALLOWANCE],
 	}
 }

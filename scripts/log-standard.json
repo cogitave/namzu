@@ -132,6 +132,18 @@
 			"reason": "the one JSON value `namzu peers list --json` and `namzu peers send --json` print for a script to parse: the result, or `{error, exit}` on failure; stderr carries NDJSON log records, so no log line lands on this channel."
 		},
 		{
+			"file": "packages/cli/src/commands/send.ts",
+			"symbol": "process.stdout.write",
+			"count": 3,
+			"reason": "the one answer `namzu send` prints (a sentence, or with --json one object `{status, reason, ...}` or `{error, exit}`) for a person or a script to read; it is the command's output, not a log, and stderr carries the log records."
+		},
+		{
+			"file": "packages/cli/src/commands/send.ts",
+			"symbol": "process.stderr.write",
+			"count": 1,
+			"reason": "the usage and input errors `namzu send` prints when it cannot start (bad arguments, unreadable input); user-facing text for a person at a terminal, not a log record."
+		},
+		{
 			"file": "packages/cli/src/commands/watch.ts",
 			"symbol": "process.stdout.write",
 			"count": 1,
