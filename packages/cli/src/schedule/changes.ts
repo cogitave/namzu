@@ -42,6 +42,13 @@ export function confirmationView(job: ScheduleJob, policy: CompiledJobPolicy, no
 					...job.script.body.split('\n').map((line) => `Script  ${line}`),
 				]
 			: []),
+		...(job.gate
+			? [
+					`Gate shell  ${job.gate.shell}`,
+					`Gate time   ${job.gate.timeoutMs} ms`,
+					...job.gate.command.split('\n').map((line) => `Gate  ${line}`),
+				]
+			: []),
 		...job.prompt.split('\n').map((line) => `Prompt  ${line}`),
 	]
 }

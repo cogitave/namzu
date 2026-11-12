@@ -27,6 +27,12 @@
  * all. This subset has no such construct, and nothing here should acquire one
  * without revisiting the cache.
  *
+ * A heading is `#` to `######` on its own line. A line of dashes under a
+ * paragraph (`Title` over `---`) is NOT an underlined heading: it is a
+ * paragraph followed by a rule. Reading it as a heading would turn the
+ * paragraph into a heading when its third dash arrived, on a reply that is
+ * still streaming; a rule never changes what the line above it was.
+ *
  * There is one classifier, {@link classify}. The scanner uses it to find
  * boundaries and {@link parseBlock} uses it to dispatch, so "what is this
  * line" is decided in a single place rather than once per half.
@@ -50,6 +56,8 @@ export type MdBlock =
 			readonly marker: string
 			readonly text: string
 	  }
+	| { readonly type: 'quote'; readonly blocks: readonly MdBlock[] }
+	| { readonly type: 'rule' }
 	| { readonly type: 'code'; readonly lang?: string; readonly lines: readonly string[] }
 	| {
 			readonly type: 'table'
@@ -67,7 +75,14 @@ export type TableAlign = 'left' | 'center' | 'right'
 const FENCE = /^```(\w*)\s*$/
 const HEADING = /^(#{1,6})\s+(.+?)\s*#*$/
 const BULLET = /^(\s*)([-*+]|\d+[.)])\s+(.+)$/
-const BLOCKQUOTE = /^\s{0,3}>/
+const BLOCKQUOTE = /^\s*>/
+/** What a quote line carries before its text: the `>` and the one space after it. */
+const QUOTE_MARK = /^\s*>[ \t]?/
+/**
+ * A rule: three or more of one of `-`, `*`, `_`, with spaces allowed between
+ * and nothing else on the line. `--` is text; `- - -` is a rule, not a list.
+ */
+const RULE = /^\s*(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/
 const TABLE_ROW = /^\s*\|.*\|\s*$/
 const TABLE_SEP = /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/
 
@@ -124,13 +139,18 @@ function continuesTable(line: string): boolean {
  * it is load-bearing: a `| … |` line is a table only when a separator follows,
  * and falls through to a paragraph otherwise.
  */
-type BlockKind = 'code' | 'table' | 'heading' | 'bullet' | 'blank' | 'text'
+type BlockKind = 'code' | 'table' | 'heading' | 'rule' | 'quote' | 'bullet' | 'blank' | 'text'
 
-function classify(line: string, next: string | undefined): BlockKind {
+function classify(line: string, next: string | undefined, terminated: boolean): BlockKind {
 	if (FENCE.test(line)) return 'code'
 	// Table: a `| … |` header row immediately followed by a `|---|` separator.
 	if (TABLE_ROW.test(line) && next !== undefined && TABLE_SEP.test(next)) return 'table'
 	if (HEADING.test(line)) return 'heading'
+	// Before a list item: `- - -` and `* * *` are rules, and would otherwise be items.
+	// A rule counts once its line has ended: `***` at the end of what has arrived
+	// may be the start of `***bold***`, and drawing it as a rule would flip it back.
+	if (terminated && RULE.test(line)) return 'rule'
+	if (BLOCKQUOTE.test(line)) return 'quote'
 	if (BULLET.test(line)) return 'bullet'
 	if (line.trim().length === 0) return 'blank'
 	return 'text'
@@ -150,7 +170,7 @@ export function scanBlocks(src: string): string[] {
 	let i = 0
 	while (i < lines.length) {
 		const line = lines[i] ?? ''
-		switch (classify(line, lines[i + 1])) {
+		switch (classify(line, lines[i + 1], i < lines.length - 1)) {
 			case 'blank':
 				i++
 				break
@@ -172,6 +192,23 @@ export function scanBlocks(src: string): string[] {
 				i = end
 				break
 			}
+			case 'quote': {
+				// Every following line that carries a `>` is the same quote. A line
+				// without one ends it: there is no lazy continuation to guess at while
+				// a reply is still arriving.
+				let end = i
+				while (end < lines.length && BLOCKQUOTE.test(lines[end] ?? '')) end++
+				segments.push(lines.slice(i, end).join('\n'))
+				i = end
+				break
+			}
+			case 'rule':
+				// The trailing newline in the segment is what tells parseBlock the
+				// line was ended, so a rule and the same characters still arriving
+				// are different segments.
+				segments.push(`${line}\n`)
+				i++
+				break
 			case 'heading':
 			case 'bullet':
 				segments.push(line)
@@ -180,7 +217,11 @@ export function scanBlocks(src: string): string[] {
 			default: {
 				// A paragraph is every following line that begins nothing else.
 				let end = i
-				while (end < lines.length && classify(lines[end] ?? '', lines[end + 1]) === 'text') end++
+				while (
+					end < lines.length &&
+					classify(lines[end] ?? '', lines[end + 1], end < lines.length - 1) === 'text'
+				)
+					end++
 				segments.push(lines.slice(i, end).join('\n'))
 				i = end
 				break
@@ -194,7 +235,7 @@ export function scanBlocks(src: string): string[] {
 export function parseBlock(raw: string): MdBlock {
 	const lines = raw.split('\n')
 	const first = lines[0] ?? ''
-	switch (classify(first, lines[1])) {
+	switch (classify(first, lines[1], lines.length > 1)) {
 		case 'code': {
 			const lang = FENCE.exec(first)?.[1]
 			// The closing fence is part of the segment when the block is closed and
@@ -221,6 +262,16 @@ export function parseBlock(raw: string): MdBlock {
 			const heading = HEADING.exec(first)
 			return { type: 'heading', level: heading?.[1]?.length ?? 1, text: heading?.[2] ?? '' }
 		}
+		case 'rule':
+			return { type: 'rule' }
+		case 'quote':
+			// One level of `>` comes off every line and what is left is markdown of
+			// its own: paragraphs, lists, another quote. Still a function of the
+			// segment alone.
+			return {
+				type: 'quote',
+				blocks: parseMarkdown(lines.map((l) => l.replace(QUOTE_MARK, '')).join('\n')),
+			}
 		case 'bullet': {
 			const bullet = BULLET.exec(first)
 			const rawMarker = bullet?.[2] ?? '-'

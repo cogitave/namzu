@@ -3,7 +3,8 @@
 	align-items: center;
 	gap: 8px;
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	animation: project-connecting-in 160ms ease both;
 }
 .project-connecting-note:empty {

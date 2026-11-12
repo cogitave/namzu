@@ -65,6 +65,22 @@ export type ConfirmationSurface = 'cli-tty' | 'tui' | 'tool-confirmed' | 'cli-no
 /** What a run does. Absent (a `v:1` file): `'agent'`. */
 export type ScheduleRunKind = 'agent' | 'script' | 'script+agent'
 
+/**
+ * Why a gate skipped a run: it printed nothing, exited non-zero, ran out of
+ * time, could not start, or was ended abnormally (printed past the output
+ * limit, or killed by a signal). Only `start` counts toward the notice.
+ */
+export type GateSkipKind = 'silent' | 'exit' | 'timeout' | 'start' | 'abnormal'
+
+/** The gate of an `agent` job: see {@link ScheduleJob.gate}. */
+export interface ScheduleJobGate {
+	/** The command text, verbatim. */
+	readonly command: string
+	readonly shell: 'bash' | 'sh'
+	/** How long it may run before the run is skipped. */
+	readonly timeoutMs: number
+}
+
 export interface ScheduleJob {
 	readonly v: 1 | 2 | 3
 	readonly kind: 'schedule-job'
@@ -97,6 +113,13 @@ export interface ScheduleJob {
 		/** Cap on the gate's `context` string, cut with an explicit marker. */
 		readonly maxContextChars: number
 	}
+	/**
+	 * Agent jobs only: one shell command the operator wrote, run before every
+	 * scheduled run. The model is called only when it exits 0 and prints
+	 * something; otherwise the run is `skipped`. Bound by the confirmation
+	 * digest like the script of a `script` job.
+	 */
+	readonly gate?: ScheduleJobGate
 	/** Pure scripts only. Absent keeps the existing project-folder behavior. */
 	readonly workspace?: 'none'
 	/** Optional delivery back to the conversation that created the job. */
@@ -165,17 +188,25 @@ export type ScheduleRunStatus =
 	 * agent phase would have succeeded.
 	 */
 	| 'check-failed'
+	/**
+	 * An `agent` job's gate said not to run: it printed nothing, exited
+	 * non-zero, ran out of time or could not start. No model was called. Not a
+	 * failure of the job.
+	 */
+	| 'skipped'
 
 /** v3 marks new ownership and report fields; ordinary old jobs stay v1/v2. */
 export function jobFormatVersion(job: {
 	readonly runKind?: ScheduleRunKind
 	readonly script?: { readonly report?: 'json-v1' }
 	readonly workspace?: 'none'
+	readonly gate?: ScheduleJob['gate']
 	readonly delivery?: ScheduleJob['delivery']
 	readonly deliveryWaiverRunIds?: readonly string[]
 }): 1 | 2 | 3 {
 	if (
 		job.script?.report === 'json-v1' ||
+		job.gate ||
 		job.workspace ||
 		job.delivery ||
 		job.deliveryWaiverRunIds?.length
@@ -194,7 +225,11 @@ export function runResultVersion(fields: {
 	readonly scriptReport?: unknown
 	readonly scriptStateRevision?: unknown
 }): 1 | 2 | 3 {
-	if (fields.scriptReport !== undefined || fields.scriptStateRevision !== undefined)
+	if (
+		fields.scriptReport !== undefined ||
+		fields.scriptStateRevision !== undefined ||
+		fields.status === 'skipped'
+	)
 		return SCHEDULE_FORMAT_VERSION
 	return fields.status === 'check-failed' ||
 		fields.gateResult !== undefined ||
@@ -273,11 +308,17 @@ export interface ScheduleJobState {
 		readonly refusedCalls?: number
 		/** How many of its calls failed, when any did. */
 		readonly failedCalls?: number
+		/** For a `skipped` run: why, in plain words. */
+		readonly reason?: string
 	}
 	readonly counters: {
 		readonly runs: number
 		readonly failures: number
 		readonly failureStreak: number
+		/** Runs a gate skipped. Absent before the first one. */
+		readonly skips?: number
+		/** Runs in a row whose gate could not start; any other outcome clears it. */
+		readonly gateStartFailures?: number
 	}
 	readonly quotaHoldUntil?: string
 	/** The last failure signature notified, so the same failure is told once. */
@@ -320,6 +361,8 @@ export type ScheduleHistoryRecord =
 				readonly wake: boolean
 				readonly contextChars: number
 			}
+			/** `status: 'skipped'` only: which way the job's gate said not to run. */
+			readonly skipKind?: GateSkipKind
 			/** `runKind: 'script'` or `'script+agent'` only: the script's captured output, capped. */
 			readonly scriptOutput?: {
 				readonly stdout: string
@@ -406,6 +449,8 @@ export interface ScheduleRunResult {
 		readonly wake: boolean
 		readonly contextChars: number
 	}
+	/** `status: 'skipped'` only: which way the job's gate said not to run. */
+	readonly skipKind?: GateSkipKind
 	/** `runKind: 'script'` or `'script+agent'` only: the script's captured output, capped. */
 	readonly scriptOutput?: { readonly stdout: string; readonly stderr: string }
 	/** Opt-in pure script report parsed from stdout. */

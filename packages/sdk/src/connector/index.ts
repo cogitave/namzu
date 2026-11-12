@@ -55,6 +55,7 @@ export {
 	defaultMcpEraCache,
 	diffTools,
 	encodeMcpHeaderValue,
+	MCP_TASKS_EXTENSION,
 	hasDrift,
 	HttpSseTransport,
 	isHeaderMismatchError,

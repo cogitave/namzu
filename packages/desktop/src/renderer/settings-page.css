@@ -23,16 +23,16 @@
 }
 .settings-page-header h1 {
 	margin: 0;
-	font-size: 24px;
-	font-weight: 600;
-	line-height: 32px;
+	font-size: var(--text-title);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-title);
 	letter-spacing: -0.02em;
 }
 .settings-page-header p {
 	margin: 6px 0 0;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .settings-page-search {
 	display: flex;
@@ -67,7 +67,7 @@
 	background: transparent;
 	color: var(--foreground);
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-small);
 	outline: none;
 }
 .settings-page-search input::placeholder {
@@ -78,28 +78,28 @@
 }
 .settings-section-title {
 	margin: 0 0 8px;
-	font-size: 16px;
-	font-weight: 600;
-	line-height: 24px;
+	font-size: var(--text-reading);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-reading);
 }
 .settings-subtitle {
 	margin: 20px 0 4px;
-	font-size: 13px;
-	font-weight: 600;
-	line-height: 20px;
+	font-size: var(--text-small);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-small);
 }
 .settings-help,
 .settings-empty {
 	margin: 0 0 12px;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .settings-error {
 	margin: 0 0 16px;
 	color: var(--error, var(--destructive-foreground));
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	overflow-wrap: anywhere;
 }
 .settings-row {
@@ -121,15 +121,15 @@
 }
 .settings-row-copy h3 {
 	margin: 0;
-	font-size: 13px;
-	font-weight: 500;
-	line-height: 20px;
+	font-size: var(--text-small);
+	font-weight: var(--weight-control);
+	line-height: var(--leading-small);
 }
 .settings-row-copy p {
 	margin: 2px 0 0;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .settings-row-control {
 	flex: none;
@@ -137,7 +137,8 @@
 	align-items: center;
 }
 .settings-value {
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	font-variant-numeric: tabular-nums;
 	color: var(--foreground);
 }
@@ -220,14 +221,14 @@
 }
 .settings-choice-label {
 	display: block;
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .settings-choice-hint {
 	display: block;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .settings-choice-tile {
 	align-items: center;
@@ -270,25 +271,25 @@
 	min-width: 0;
 }
 .settings-project-name {
-	font-size: 13px;
-	line-height: 20px;
-	font-weight: 500;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-control);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 .settings-project-path {
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 .settings-folder-note {
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .settings-folder-note[data-safe="false"] {
 	color: var(--foreground);
@@ -299,8 +300,8 @@
 	border-radius: var(--radius-pill);
 	background: color-mix(in srgb, var(--foreground) 7%, transparent);
 	color: var(--muted-foreground);
-	font-size: 11px;
-	line-height: 16px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	white-space: nowrap;
 }
 .settings-badge[data-tone="good"] {
@@ -311,8 +312,8 @@
 }
 .settings-update-status p {
 	margin: 0 0 10px;
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .settings-actions {
 	display: flex;
@@ -328,13 +329,13 @@
 }
 .settings-facts dt {
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .settings-facts dd {
 	margin: 0;
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	font-variant-numeric: tabular-nums;
 }
 .settings-speech {
@@ -378,20 +379,20 @@
 	box-shadow: var(--focus-ring-inset);
 }
 .settings-result-label {
-	font-size: 13px;
-	line-height: 20px;
-	font-weight: 500;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-control);
 }
 .settings-result-section {
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 20px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .settings-result-description {
 	grid-column: 1 / -1;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 /* The left column: one button per section, the current one marked. */
 .settings-sidebar-navigation {
@@ -411,8 +412,8 @@
 	border-radius: var(--radius-control);
 	background: transparent;
 	color: var(--foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	text-align: start;
 	cursor: pointer;
 	transition: background-color 150ms var(--motion-ease);
@@ -491,7 +492,7 @@
 	background: var(--background);
 	color: var(--foreground);
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-small);
 }
 input.settings-config-input[type="number"] {
 	width: 140px;
@@ -503,8 +504,8 @@ input.settings-config-input[type="number"] {
 .settings-config-area {
 	width: 100%;
 	font-family: var(--font-mono, ui-monospace, monospace);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	resize: vertical;
 }
 .settings-config-json {
@@ -523,7 +524,8 @@ input.settings-config-input[type="number"] {
 }
 .settings-config-unit {
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .settings-config-error {
 	margin: 0;
@@ -532,8 +534,8 @@ input.settings-config-input[type="number"] {
 .settings-note {
 	margin: 0;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .mcp-waiting {
 	display: flex;
@@ -547,8 +549,8 @@ input.settings-config-input[type="number"] {
 }
 .mcp-waiting p {
 	margin: 0;
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .mcp-server-list {
 	display: flex;
@@ -575,15 +577,15 @@ input.settings-config-input[type="number"] {
 	gap: 2px;
 }
 .mcp-server-name {
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	overflow-wrap: anywhere;
 }
 .mcp-server-where,
 .mcp-server-reason {
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	overflow-wrap: anywhere;
 }
 .mcp-server-reason {

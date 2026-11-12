@@ -31,6 +31,7 @@ import {
 	describeChanges,
 } from '../changes.js'
 import { isPrivacyProtectedFolder } from '../folder.js'
+import { gateRefusal } from '../gate.js'
 import type { SchedulePaths } from '../paths.js'
 import {
 	type PermissionInput,
@@ -93,6 +94,11 @@ export const ADD_FLAGS = [
 	'shell',
 	'script-timeout',
 	'script-report',
+	'gate',
+	'gate-file',
+	'gate-shell',
+	'gate-timeout',
+	'no-gate!',
 	'delivery',
 ] as const
 
@@ -111,6 +117,71 @@ function scriptBodyOf(args: ParsedArgs): string | undefined {
 	}
 	if (file !== undefined) return readFileSync(resolve(file), 'utf8')
 	return inline
+}
+
+/** `--gate`/`--gate-file`, mutually exclusive, mirroring `--script`/`--script-file`. */
+function gateCommandOf(args: ParsedArgs): string | undefined {
+	const inline = flag(args, 'gate')
+	const file = flag(args, 'gate-file')
+	if (inline !== undefined && file !== undefined) {
+		throw new JobRequestError('pass --gate or --gate-file, not both')
+	}
+	if (file !== undefined) return readFileSync(resolve(file), 'utf8')
+	return inline
+}
+
+/**
+ * The gate an agent job carries: `--gate <command>` (or `--gate-file`), its
+ * `--gate-shell bash|sh` (default sh) and `--gate-timeout`, over the gate an
+ * edited job already has. `--no-gate` drops it. `undefined`: no gate.
+ */
+function gateInput(
+	args: ParsedArgs,
+	runKind: ScheduleRunKind,
+	base?: ScheduleJob,
+): JobRequest['gate'] | undefined {
+	const given = ['gate', 'gate-file', 'gate-shell', 'gate-timeout'].filter((name) =>
+		has(args, name),
+	)
+	if (has(args, 'no-gate')) {
+		if (given.length > 0)
+			throw new JobRequestError('--no-gate cannot be combined with --gate flags')
+		return undefined
+	}
+	if (runKind !== 'agent') {
+		if (given.length > 0) {
+			throw new JobRequestError(
+				'a gate only applies to an agent job; a script+agent job already has its wake-gate script (--script)',
+			)
+		}
+		if (base?.gate) {
+			throw new JobRequestError(
+				'this job has a gate, which only an agent job can carry; pass --no-gate',
+			)
+		}
+		return undefined
+	}
+	const shellFlag = flag(args, 'gate-shell')
+	if (shellFlag !== undefined && shellFlag !== 'bash' && shellFlag !== 'sh') {
+		throw new JobRequestError('--gate-shell is bash or sh')
+	}
+	const command =
+		has(args, 'gate') || has(args, 'gate-file') ? gateCommandOf(args) : base?.gate?.command
+	if (command === undefined) {
+		if (given.length > 0) {
+			throw new JobRequestError(
+				'--gate-shell and --gate-timeout need a gate: pass --gate <command>',
+			)
+		}
+		return undefined
+	}
+	const timeoutMs = parseMs('--gate-timeout', flag(args, 'gate-timeout')) ?? base?.gate?.timeoutMs
+	const shell = shellFlag ?? base?.gate?.shell
+	return {
+		command,
+		...(shell ? { shell } : {}),
+		...(timeoutMs !== undefined ? { timeoutMs } : {}),
+	}
 }
 
 /**
@@ -422,9 +493,11 @@ function requestFrom(
 			'a pure script job cannot use a browser grant; remove --browser flags or the browser field in --permissions',
 		)
 	}
+	const gate = gateInput(args, runKind, base)
 	return {
 		name,
 		prompt,
+		...(gate ? { gate } : {}),
 		...(runKind !== 'agent'
 			? {
 					runKind,
@@ -540,6 +613,9 @@ async function confirmOnTerminal(
 			)
 		}
 	}
+	// The same fail-closed check for an agent job's gate command.
+	const gateProblem = gateRefusal(job, layers, paths.home)
+	if (gateProblem) throw new JobRequestError(gateProblem)
 	const now = new Date()
 	ctx.formatter.info(visibleScheduleMessage(previewLines(job, policy, now).join('\n')))
 	const indented = (text: string) =>

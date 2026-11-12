@@ -30,8 +30,8 @@
 	min-height: 32px;
 	padding: 5px 7px;
 	border-radius: var(--radius-chip);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	cursor: default;
 	user-select: none;
 	outline: none;
@@ -61,7 +61,7 @@
 	margin-inline-start: 16px;
 	color: var(--muted-foreground);
 	font: inherit;
-	font-size: 12px;
+	font-size: var(--text-caption);
 	letter-spacing: 0.01em;
 }
 .conversation-actions-chevron {

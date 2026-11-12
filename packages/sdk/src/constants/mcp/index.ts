@@ -177,8 +177,13 @@ export const MCP_PARAM_HEADER_PREFIX = 'Mcp-Param-'
  * WHICH tool is being called without reading the body is the whole point of
  * mirroring it into a header.
  */
-export const MCP_NAME_HEADER_METHODS: Readonly<Record<string, 'name' | 'uri'>> = {
+export const MCP_NAME_HEADER_METHODS: Readonly<Record<string, 'name' | 'uri' | 'taskId'>> = {
 	'tools/call': 'name',
 	'prompts/get': 'name',
 	'resources/read': 'uri',
+	// The tasks extension: an intermediary routes a task's requests to the
+	// instance that holds it, by this header.
+	'tasks/get': 'taskId',
+	'tasks/update': 'taskId',
+	'tasks/cancel': 'taskId',
 }

@@ -135,7 +135,7 @@ export const DIFF_VIEW_UNSAFE_CSS = `${DIFF_SURFACE_THEME_UNSAFE_CSS}
   border-bottom-color: transparent !important;
   align-items: center !important;
   font-family: var(--font-sans) !important;
-  font-size: 12px !important;
+  font-size: var(--text-caption) !important;
   line-height: 1 !important;
   min-height: 32px !important;
   padding-block: 6px !important;
@@ -168,7 +168,7 @@ export const DIFF_VIEW_UNSAFE_CSS = `${DIFF_SURFACE_THEME_UNSAFE_CSS}
   background-color: transparent !important;
   color: color-mix(in srgb, var(--code-foreground) 52%, var(--code-background)) !important;
   font-family: var(--font-sans) !important;
-  font-size: 11px !important;
+  font-size: var(--text-caption) !important;
   text-decoration: none !important;
 }
 
@@ -267,7 +267,7 @@ export const DIFF_VIEW_UNSAFE_CSS = `${DIFF_SURFACE_THEME_UNSAFE_CSS}
 [data-diffs-header] [data-additions-count],
 [data-diffs-header] [data-deletions-count] {
   font-family: var(--font-mono) !important;
-  font-size: 11px !important;
+  font-size: var(--text-caption) !important;
   font-variant-numeric: tabular-nums;
   line-height: 1 !important;
 }

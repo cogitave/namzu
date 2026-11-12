@@ -64,7 +64,7 @@
 	background: transparent;
 	color: var(--muted-foreground);
 	font: inherit;
-	font-size: 12px;
+	font-size: var(--text-caption);
 	font-variant-numeric: tabular-nums;
 	white-space: nowrap;
 	cursor: default;

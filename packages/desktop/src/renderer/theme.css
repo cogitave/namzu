@@ -1,9 +1,25 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 @theme inline {
-	--text-ui-base: 14px;
-	--text-ui-caption: 13px;
-	--text-ui-sm: 12px;
+	/* Tailwind's size and weight utilities land on the type scale defined in :root below. */
+	--text-xs: var(--text-caption);
+	--text-xs--line-height: var(--leading-caption);
+	--text-sm: var(--text-small);
+	--text-sm--line-height: var(--leading-small);
+	--text-base: var(--text-interface);
+	--text-base--line-height: var(--leading-interface);
+	--text-lg: var(--text-heading);
+	--text-lg--line-height: var(--leading-heading);
+	--text-xl: var(--text-title);
+	--text-xl--line-height: var(--leading-title);
+	--text-2xl: var(--text-display);
+	--text-2xl--line-height: var(--leading-display);
+	--text-3xl: var(--text-display);
+	--text-3xl--line-height: var(--leading-display);
+	--font-weight-normal: var(--weight-text);
+	--font-weight-medium: var(--weight-control);
+	--font-weight-semibold: var(--weight-strong);
+	--font-weight-bold: var(--weight-strong);
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
 	--color-card: var(--card);
@@ -77,8 +93,28 @@
 	--sidebar-control-gap: 0.5rem;
 	--sidebar-row-content-inset: 0.625rem;
 	--chat-max-width: 48rem;
-	--font-size-prompt: 14px;
+	/* The type scale: seven sizes with their line-heights on a 2 px grid, and three weights. Nothing
+	   in the renderer is bolder than --weight-strong. */
+	--text-caption: 12px;
+	--leading-caption: 16px;
+	--text-small: 13px;
+	--leading-small: 18px;
+	--text-interface: 14px;
+	--leading-interface: 20px;
+	--text-reading: 15px;
+	--leading-reading: 22px;
+	--text-heading: 17px;
+	--leading-heading: 24px;
+	--text-title: 20px;
+	--leading-title: 28px;
+	--text-display: 28px;
+	--leading-display: 36px;
+	--weight-text: 400;
+	--weight-control: 500;
+	--weight-strong: 600;
+	/* Code: blocks and diffs. --diffs-font-size follows --font-size-code. */
 	--font-size-code: 13px;
+	--leading-code: 20px;
 	--diffs-font-size: var(--font-size-code);
 	--workspace-topbar-height: 52px;
 	--workspace-gutter: 0.75rem;
@@ -108,6 +144,7 @@
 	--motion-duration: 220ms;
 	--motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
 	/* Shape: semantic radii. */
+	--radius-code: 4px;
 	--radius-chip: 6px;
 	--radius-card: 12px;
 	--radius-panel: 16px;
