@@ -184,3 +184,99 @@ describe('type scale', () => {
 		}
 	})
 })
+
+// The display face (Geist Pixel, shape Square) is a voice for a few large words: the project's name in
+// the home heading. It is never used for a sentence, for text a person or a model wrote, or small. The
+// token and the face are named in a stylesheet only where this list allows, and a rule that uses them
+// may set no size below the title size.
+const DISPLAY_USE = /--font-display|Geist Pixel/
+const DISPLAY_ALLOW: { file: string; selector: RegExp; reason: string }[] = [
+	{
+		file: 'theme.css',
+		selector: /^:root$|^:root\[data-interface-font="system"\]$|^@font-face$/,
+		reason: 'The token, its device fallback and the face are defined once, in theme.css.',
+	},
+	{
+		file: 'composer.css',
+		selector: /^\[data-composer-heading\] \.home-heading-name\[data-face="display"\]$/,
+		reason: 'The project name inside the home heading, drawn only when the face covers all of it.',
+	},
+]
+const TEXT_OF_PEOPLE_AND_MODELS =
+	/chat-markdown|markdown|message|transcript|prose|textarea|input|prompt|reply|user-|assistant|tool-|code|terminal|diff/i
+const TITLE_PX = 20
+const px = (value: string) => {
+	if (value === 'var(--text-title)') return 20
+	if (value === 'var(--text-display)') return 28
+	const m = /^(\d+(?:\.\d+)?)px$/.exec(value)
+	return m ? Number(m[1]) : undefined
+}
+
+describe('the display face', () => {
+	const uses = all.filter((d) => DISPLAY_USE.test(d.prop) || DISPLAY_USE.test(d.value))
+
+	it('finds the places it checks', () => {
+		expect(uses.length).toBeGreaterThan(3)
+		expect(uses.some((d) => d.file === 'composer.css')).toBe(true)
+	})
+
+	it('is named only in the allow-list of places', () => {
+		const bad = uses
+			.filter((d) => !allowed(d, DISPLAY_ALLOW))
+			.map((d) => `${d.file}: ${d.selector} { ${d.prop}: ${d.value} }`)
+		expect(bad).toEqual([])
+	})
+
+	it('is never named in a component, which would style it with no size to check', () => {
+		const bad: string[] = []
+		for (const file of files(dir, /\.tsx?$/)) {
+			if (file.endsWith('display-face-coverage.ts')) continue
+			const text = readFileSync(file, 'utf8')
+			if (DISPLAY_USE.test(text)) bad.push(file.slice(dir.length))
+		}
+		expect(bad).toEqual([])
+	})
+
+	it('is never on a rule that styles text a person or a model wrote', () => {
+		const bad = uses
+			.filter((d) => d.file !== 'theme.css')
+			.filter((d) => TEXT_OF_PEOPLE_AND_MODELS.test(d.selector))
+			.map((d) => `${d.file}: ${d.selector}`)
+		expect(bad).toEqual([])
+	})
+
+	it('is never drawn below the title size', () => {
+		// A rule that names the face may set a size, and then it is the title size or larger.
+		const selectors = new Set(
+			uses.filter((d) => d.file !== 'theme.css').map((d) => `${d.file} ${d.selector}`),
+		)
+		const small = all
+			.filter((d) => d.prop === 'font-size' && selectors.has(`${d.file} ${d.selector}`))
+			.filter((d) => (px(d.value) ?? 0) < TITLE_PX)
+			.map((d) => `${d.file}: ${d.selector} { font-size: ${d.value} }`)
+		expect(small).toEqual([])
+		// Where it names no size, it inherits the heading's, which is the display size.
+		const heading = readFileSync(join(dir, 'composer.tsx'), 'utf8')
+		const classes = /data-composer-heading\s+className="([^"]+)"/.exec(heading)?.[1] ?? ''
+		expect(classes).toMatch(/\btext-2xl\b/)
+		expect(classes).toMatch(/\bsm:text-3xl\b/)
+		expect(classes).not.toMatch(/\btext-(xs|sm|base|lg|xl)\b/)
+	})
+
+	it('falls back to the interface face, and to the device font with the setting', () => {
+		const theme = new Map(
+			all
+				.filter((d) => d.file === 'theme.css' && d.selector === ':root')
+				.map((d) => [d.prop, d.value]),
+		)
+		expect(theme.get('--font-display-app')).toBe('"Geist Pixel", var(--font-sans-app)')
+		expect(theme.get('--font-display')).toBe('var(--font-display-app)')
+		const system = all.find(
+			(d) =>
+				d.file === 'theme.css' &&
+				d.selector === ':root[data-interface-font="system"]' &&
+				d.prop === '--font-display',
+		)
+		expect(system?.value).toBe('var(--font-sans-system)')
+	})
+})

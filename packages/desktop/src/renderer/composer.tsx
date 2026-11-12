@@ -46,6 +46,7 @@ import { ComposerSurface } from './composer-surface.js'
 import { ComposerTray, type ComposerTrayActions } from './composer-tray.js'
 import { automaticChoiceNote } from './first-open-note.js'
 import { type EngineSurfaceControl, engineLabel } from './harness-picker.js'
+import { HomeHeadingName } from './home-heading-name.js'
 import {
 	ArrowUpIcon,
 	FileDiffIcon,
@@ -148,6 +149,7 @@ export function Composer({
 	onOpenProject,
 	onCreateProject,
 	emptyHeading = DEFAULT_HOME_HEADING,
+	emptyHeadingParts,
 	empty,
 	permissions,
 	palNames,
@@ -248,6 +250,8 @@ export function Composer({
 	onCreateProject?: () => void
 	/** The line above an empty conversation. */
 	emptyHeading?: string
+	/** The heading in parts, when it names a project: the name is drawn in the display face. */
+	emptyHeadingParts?: { before: string; name: string; after: string }
 	empty: boolean
 	permissions: PermissionView[]
 	/** Pal names by ID, for an approval that names a Pal only by ID. */
@@ -517,7 +521,15 @@ export function Composer({
 								data-composer-heading
 								className="text-center text-2xl font-normal tracking-tight text-foreground sm:text-3xl"
 							>
-								{emptyHeading}
+								{emptyHeadingParts ? (
+									<>
+										{emptyHeadingParts.before}
+										<HomeHeadingName name={emptyHeadingParts.name} />
+										{emptyHeadingParts.after}
+									</>
+								) : (
+									emptyHeading
+								)}
 							</h1>
 						</div>
 					)}
