@@ -1,5 +1,24 @@
 # @namzu/cli
 
+## 51.3.0
+
+### Minor Changes
+
+- 67dd0d0: `namzu eval` can run suites under a settings file and on one split of the tasks, and says which it did. `--settings <file>` (JSON or YAML in the shape of the config file, limited to `compaction`, `goal`, `handBack`, `limits`, `memory`, `model`, `refusalFallback`, `routing`, `smallModel` and `workflow`) names the settings in every report as a snapshot called after the file, or `--settings-name`; any other key, and any value that is or names a credential, is refused with exit 3 and nothing is written. `--split tune|held-out|all` runs one split (default `all`, as before); judge settings you chose on `tune` with `held-out`.
+
+  `namzu eval compare` now prints each side's snapshot and split and what differs between the snapshots, and names no winner when either report ran on the tune split or on all tasks, has no snapshot (reports written before this version), ran identical settings, or ran different tasks. A script or a CI step that reads a winner from a comparison of two existing reports gets `no winner is named` instead; its numbers are still printed and `--json` carries the reasons in `verdict.withheld`. Reports written by this version gain fields only; every number is unchanged.
+
+  `namzu eval --settings-name` without `--settings` is now a usage error instead of being ignored.
+
+- b9618bd: You can now say something to a running session from another terminal: `namzu send <session> "<text>"` (or pipe the text in, or `--file`), and in `namzu watch` press `m`, type a line and press Enter. The session's own terminal takes it at its next request boundary (or starts a turn for it when idle) and the model is told the text arrived from another terminal of your account and is meant to be yours, that the kernel did not check who sent it, and that it is not an approval. It cannot answer an approval or a question, change the permission mode or run a command, and text starting with a slash is just text. The command says what happened and exits by it: delivered 0, accepted but not taken yet 10 (it stays queued in that terminal), refused 1, unreachable 69 (finished or gone), not found 66. Only a terminal of your account on this machine that has the conversation open reads messages; background and scheduled sessions do not. Nothing changes for existing commands, except that `namzu watch` in a terminal now shows "m to message it" where it showed "read-only" (a pipe or `--plain` is unchanged), and every terminal now records which conversation it has open in its live-session file. A session's agents are kept out of this channel by three layers: every process a session starts (a command the model runs, a hook, a tool server, a sandboxed command, a terminal the session opened) now carries `NAMZU_STARTED_BY_SESSION=1` in its environment and `namzu send` refuses when it sees it; a built-in rule in every session's permission gate, in every mode, refuses a model-started command line that runs `namzu send` however it is wrapped (`env`, `setsid`, `nohup`, `sh -c`, by path to the CLI entry); and the sender and the receiving terminal check process ancestry. What is left is a process of your account that hides both its ancestry and its environment and is started by a script the command-line layer never read; a message from another terminal is as trustworthy as the account boundary, not more. If you ran `namzu send` from a tool, a hook or a session's terminal tab, run it from your own terminal. The transcript labels the message "Message from another terminal of this account", and the person's words are shown in a reopened conversation and in `namzu watch`, not only the label.
+
+### Patch Changes
+
+- Updated dependencies [67dd0d0]
+- Updated dependencies [67dd0d0]
+- Updated dependencies [b9618bd]
+  - @namzu/sdk@62.15.0
+
 ## 51.2.0
 
 ### Minor Changes

@@ -1,5 +1,0 @@
----
-"@namzu/desktop": minor
----
-
-Namzu Desktop can keep the engine it runs current by itself, in the background, once a build carries a signing key. This build carries none, so nothing changes for a person yet: the app makes no request and Settings and About read as they did. With a key, a signed description of the newest engine is read 30 seconds after launch and every four hours, the archive is checked (signature, hashes, file list, a run of the unpacked engine in a clean environment) before it is kept, and the new engine starts the next time a project opens; two versions are kept, the engine inside the installer is the fallback, and a fetched engine that does not start is given up and the open is tried once more on the next one. Settings gains **Keep the engine up to date** (on by default; off means no request) and, under Updates, a row that says what runs, where it came from and how the last check ended, with **Use this app's own engine**. About names the engine that runs and where it came from.
