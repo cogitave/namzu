@@ -172,19 +172,29 @@ function overLine(line: string, columns: number): string {
  * is on screen at every step.
  */
 function paintWhole(
-	up: number,
+	upRows: number,
 	statics: string,
 	rows: readonly string[],
 	columns: number,
 	screenRows: number,
 	oneRowEach: boolean,
+	scrolled: ((all: readonly string[]) => number) | null = null,
 ): string {
-	const all: string[] = []
+	let up = upRows
+	let all: string[] = []
 	if (statics !== '') {
 		for (const line of lines(statics.endsWith('\n') ? statics : `${statics}\n`))
 			all.push(line.replace(/\r$/, ''))
 	}
 	all.push(...rows)
+	if (scrolled !== null) {
+		// The old region's top rows are in scrollback already: start under them, from the top of the screen.
+		const skip = scrolled(all)
+		if (skip > 0) {
+			all = all.slice(skip)
+			up = Math.max(0, Math.min(up, screenRows - 1))
+		}
+	}
 	const write = (from: number, to: number): string => {
 		let data = ''
 		for (let i = from; i < to; i++) data += overLine(all[i] as string, columns)
@@ -215,6 +225,53 @@ function paintWhole(
 export function startOnFreshLine(columns: number): string {
 	const width = Math.max(1, columns)
 	return `${ESC}[7m%${ESC}[27m${' '.repeat(width - 1)}\r${ESC}[K`
+}
+
+/** A row's text without its colour sequences and link marks. */
+const plainText = (row: string): string =>
+	row.replace(
+		new RegExp(`${ESC}\\[[0-9;?]*[A-Za-z]|${ESC}\\][^\\u0007${ESC}]*(?:\\u0007|${ESC}\\\\)`, 'g'),
+		'',
+	)
+
+/**
+ * The text of the first `rows` terminal rows `lines` take at `columns`, or null when that count
+ * would end inside a line (or the lines are too few).
+ */
+function textOfFirstRows(lines: readonly string[], rows: number, columns: number): string[] | null {
+	const width = Math.max(1, columns)
+	const taken: string[] = []
+	let used = 0
+	for (const line of lines) {
+		if (used === rows) return taken
+		used += Math.max(1, Math.ceil(rowWidth(line) / width))
+		if (used > rows) return null
+		taken.push(plainText(line))
+	}
+	return used === rows ? taken : null
+}
+
+/**
+ * How many lines at the start of `all` are already in the terminal's scrollback. A terminal that
+ * is made shorter than the region it holds pushes the region's top rows into scrollback before
+ * they can be erased; when the lines about to be written start with exactly those rows (the rows
+ * of the old region, then the ones printed since), writing them again would print them twice.
+ * Zero when the terminal did not do that or the lines are not those rows.
+ */
+export function linesAlreadyScrolled(
+	shown: readonly string[],
+	all: readonly string[],
+	regionRows: number,
+	screenRows: number,
+	columns: number,
+): number {
+	if (screenRows <= 0) return 0
+	const gone = regionRows - (screenRows - 1)
+	if (gone <= 0) return 0
+	const old = textOfFirstRows(shown, gone, columns)
+	const next = textOfFirstRows(all, gone, columns)
+	if (old === null || next === null || old.join('\n') !== next.join('\n')) return 0
+	return next.length
 }
 
 /** How many rows `rows` take on a terminal `columns` wide that has reflowed them. */
@@ -248,6 +305,8 @@ export function createLivePaint(
 	let resizing = false
 	let reflow: { rows: number } | null = null
 	let fresh = false
+	/** Ink cleared the terminal and wrote everything again: the next frame's erase count says how tall its last frame was. */
+	let adopt = false
 	let disposed = false
 	/** How much text Ink has printed above the region, so a clear-and-print-all frame can be cut back to its frame. */
 	let printed = { length: 0, tail: '' }
@@ -274,9 +333,22 @@ export function createLivePaint(
 		let data: string
 		if (reflow !== null || fresh || statics !== '') {
 			const up = reflow !== null ? reflow.rows : fresh ? 0 : shown.length
+			const columns = target.columns ?? 80
+			const oldRows = shown
+			const regionRows = up
 			data =
 				(fresh ? '\r\n' : '') +
-				paintWhole(up, statics, rows, target.columns ?? 80, target.rows ?? 0, reflow === null)
+				paintWhole(
+					up,
+					statics,
+					rows,
+					columns,
+					target.rows ?? 0,
+					reflow === null,
+					reflow !== null
+						? (all) => linesAlreadyScrolled(oldRows, all, regionRows, target.rows ?? 0, columns)
+						: null,
+				)
 		} else data = paintChange(shown, rows)
 		reflow = null
 		fresh = false
@@ -319,6 +391,16 @@ export function createLivePaint(
 			verbatim(parts)
 			return
 		}
+		if (adopt) {
+			// What Ink wrote last (a clear and a reprint, passed through whole) ended with its frame on screen. The erase
+			// it now asks for is that frame's height: the region is that many rows, drawn again under one paint.
+			adopt = false
+			const first = parts.find((part) => part !== '')
+			if (first !== undefined && ERASE_PREFIX.test(first)) {
+				const rows = (first.match(new RegExp(`${ESC}\\[2K`, 'g')) ?? []).length - 1
+				if (rows > 0) reflow = { rows }
+			}
+		}
 		const texts: string[] = []
 		for (const part of parts) {
 			if (part === '') continue
@@ -333,6 +415,15 @@ export function createLivePaint(
 			}
 			const text = part.replace(ERASE_PREFIX, '')
 			if (text !== '') texts.push(text)
+		}
+		// A clear that comes as a write of its own, then the whole conversation and the frame in the next: the
+		// conversation was replaced (a compaction, a resumed or cleared one). It is passed through as Ink wrote it.
+		if (texts.length > 1 && texts.slice(0, -1).some((text) => text.startsWith(CLEAR_TERMINAL))) {
+			verbatim(parts)
+			printed = { length: 0, tail: '' }
+			adopt = true
+			reflow = null
+			return
 		}
 		let frame = texts.pop()
 		if (frame === undefined) return

@@ -10,6 +10,7 @@ import {
 	RESIZE_HOLD_MS,
 	RESIZE_SETTLE_MS,
 	createLivePaint,
+	linesAlreadyScrolled,
 	reflowedRows,
 	startOnFreshLine,
 } from './live-paint.js'
@@ -431,6 +432,46 @@ describe('a resize', () => {
 		paint.dispose()
 	})
 
+	it('a region taller than the new height leaves its top rows in scrollback, and they are not printed again', async () => {
+		const { tty, clock, paint, out } = rig(40, 12)
+		for (let i = 1; i <= 30; i++) tty.write(`history ${i}\r\n`)
+		const tail = (from: number, to: number) =>
+			Array.from({ length: to - from + 1 }, (_, i) => `  tail row ${from + i}`)
+		// A reply being written: eleven rows of its unfinished part, then the activity row.
+		inkFrame(out, `${[...tail(1, 11), 'working'].join('\n')}\n`, 0)
+		out.on('resize', () => {
+			// The renderer, told of the new size, prints the part of the tail that has since finished once
+			// (the rows the old region held at its top) and draws what is left.
+			inkFrame(out, `${[...tail(5, 14), 'working'].join('\n')}\n`, 12, `${tail(1, 4).join('\n')}\n`)
+		})
+		clock.advance(FRAME_MS)
+		// Eight rows now: the terminal pushed the top five rows of the region into scrollback.
+		tty.resize(40, 8)
+		clock.advance(RESIZE_SETTLE_MS + RESIZE_HOLD_MS)
+		const screen = await tty.screen()
+		const rows = screen.filter((row) => row.startsWith('  tail row'))
+		expect(rows).toEqual(tail(1, 14))
+		expect(screen.at(-1)).toBe('working')
+		expect(screen.slice(0, 30)).toEqual(Array.from({ length: 30 }, (_, i) => `history ${i + 1}`))
+		paint.dispose()
+	})
+
+	it('only rows that are exactly what is about to be written count as already in scrollback', () => {
+		const old = ['a', 'b', 'c', 'd', 'e', 'f']
+		// Eight rows: the six rows of the region and one for the cursor fit, nothing was pushed up.
+		expect(linesAlreadyScrolled(old, ['a', 'b', 'c', 'd', 'e', 'f'], 6, 8, 20)).toBe(0)
+		// Four rows: three of the six were pushed up; the new lines start with them.
+		expect(linesAlreadyScrolled(old, ['a', 'b', 'c', 'x', 'y'], 6, 4, 20)).toBe(3)
+		// The new lines start with something else: nothing is skipped, whatever the terminal did.
+		expect(linesAlreadyScrolled(old, ['p', 'b', 'c', 'x'], 6, 4, 20)).toBe(0)
+		// The count would end inside a line that wraps: nothing is skipped.
+		expect(linesAlreadyScrolled(['a'.repeat(30), 'b'], ['a'.repeat(30), 'b'], 3, 3, 20)).toBe(0)
+		// Colour sequences are not text.
+		expect(
+			linesAlreadyScrolled([`${ESC}[32ma${ESC}[39m`, 'b', 'c'], ['a', 'b', 'c'], 3, 2, 20),
+		).toBe(2)
+	})
+
 	it('a frame waiting its turn is not painted while the size is still moving', async () => {
 		const { tty, clock, out } = rig(40, 12)
 		inkFrame(out, 'one\n', 0)
@@ -495,6 +536,31 @@ describe('a frame Ink would clear the terminal for', () => {
 		expect(sent).not.toContain(`${ESC}[2J`)
 		expect(sent).not.toContain(`${ESC}[3J`)
 		expect(await tty.screen()).toEqual(['row 1', 'row 2', 'live a', 'live b', 'live c'])
+	})
+})
+
+describe('Ink clears the terminal and writes the conversation again', () => {
+	// A compaction replaces the rows already printed: Ink erases its frame, clears the terminal in one write
+	// and writes everything (the rows, then the frame) in the next.
+	function reprint(out: NodeJS.WriteStream, previousRows: number, text: string): void {
+		out.write(BSU)
+		out.write(erase(previousRows))
+		out.write(`${ESC}[2J${ESC}[3J${ESC}[H`)
+		out.write(text)
+		out.write(ESU)
+	}
+
+	it('shows the new conversation and the frame, and the frame that follows replaces the one Ink drew', async () => {
+		const { tty, clock, out } = rig(40, 12)
+		inkFrame(out, 'live one\nlive two\n', 0, '')
+		clock.advance(FRAME_MS)
+		reprint(out, 3, 'summary row\r\nanswer row\r\nlive a\r\nlive b\r\n')
+		clock.advance(FRAME_MS)
+		expect(await tty.screen()).toEqual(['summary row', 'answer row', 'live a', 'live b'])
+		// Ink's next frame erases the two rows its last one had (and the line under them).
+		inkFrame(out, 'live a\nlive c\n', 3)
+		clock.advance(FRAME_MS * 2)
+		expect(await tty.screen()).toEqual(['summary row', 'answer row', 'live a', 'live c'])
 	})
 })
 
