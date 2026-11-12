@@ -11,6 +11,8 @@ import {
 	type EngineUpdateResult,
 	type EngineUpdateStatus,
 	type EngineUpdatesState,
+	KERNEL_ENGINE_PACKAGE,
+	type KernelNewer,
 	REGISTRY_STALE_MS,
 	compareVersions,
 } from '../shared/engine-update-protocol.js'
@@ -149,9 +151,19 @@ export function updateLaunch(input: {
 
 /* ------------------------------------------------------------------ the cache on disk */
 
+/** What the registry is asked about: the three programs, and the engine the bundled command line carries. */
+export type CheckedId = EngineUpdateId | 'namzu-engine'
+
+export const CHECKED_IDS: readonly CheckedId[] = [...ENGINE_UPDATE_IDS, 'namzu-engine']
+
+const CHECKED_PACKAGES: Record<CheckedId, string> = {
+	...ENGINE_UPDATE_PACKAGES,
+	'namzu-engine': KERNEL_ENGINE_PACKAGE,
+}
+
 export interface EngineUpdateCache {
 	/** The registry's latest per program and when it said so. */
-	latest: Partial<Record<EngineUpdateId, { version: string; checkedAt: number }>>
+	latest: Partial<Record<CheckedId, { version: string; checkedAt: number }>>
 	/** The version the person was last told about, so one version is announced once. */
 	announced: Partial<Record<EngineUpdateId, string>>
 }
@@ -202,6 +214,13 @@ export interface EngineUpdatesDeps {
 	latest(pkg: string): Promise<string | undefined>
 	/** The bundled command line's version, when the app carries one. */
 	bundledVersion(): string | undefined
+	/** The engine the bundled command line carries, when it can be read. */
+	bundledEngineVersion?(): string | undefined
+	/**
+	 * This copy of the app can update itself. A newer kernel is said to arrive with an app update
+	 * only then; where updates are off, nothing is said.
+	 */
+	appCanUpdate?(): boolean
 	commandPrompt?: string
 	/** The registry the checks use; an npm update installs from the same one. */
 	registry?: string
@@ -289,7 +308,7 @@ export class EngineUpdates {
 	/** The first check after launch asks the registry only when the cache is older than a check interval. */
 	private async scheduled(): Promise<void> {
 		const now = this.deps.clock.now()
-		const fresh = ENGINE_UPDATE_IDS.every((id) => {
+		const fresh = CHECKED_IDS.every((id) => {
 			const entry = this.cache.latest[id]
 			return entry !== undefined && now - entry.checkedAt < checkIntervalMs
 		})
@@ -304,6 +323,7 @@ export class EngineUpdates {
 	state(): EngineUpdatesState {
 		return {
 			items: ENGINE_UPDATE_IDS.map((id) => this.item(id)),
+			kernel: this.kernelNewer(),
 			checking: this.checking,
 			...(this.checkedAt === undefined ? {} : { checkedAt: this.checkedAt }),
 		}
@@ -327,9 +347,9 @@ export class EngineUpdates {
 			const now = this.deps.clock.now()
 			let reached = false
 			await Promise.all(
-				ENGINE_UPDATE_IDS.map(async (id) => {
+				CHECKED_IDS.map(async (id) => {
 					try {
-						const version = await this.deps.latest(ENGINE_UPDATE_PACKAGES[id])
+						const version = await this.deps.latest(CHECKED_PACKAGES[id])
 						if (!version) return
 						reached = true
 						this.cache.latest[id] = { version, checkedAt: now }
@@ -398,11 +418,24 @@ export class EngineUpdates {
 		})
 	}
 
-	private latestFor(id: EngineUpdateId): { version: string; checkedAt: number } | undefined {
+	private latestFor(id: CheckedId): { version: string; checkedAt: number } | undefined {
 		const entry = this.cache.latest[id]
 		if (!entry) return undefined
 		// A week-old answer is not shown as news.
 		return this.deps.clock.now() - entry.checkedAt > REGISTRY_STALE_MS ? undefined : entry
+	}
+
+	/** The registry's newest, only when it is newer than the bundled one, the answer is fresh and the app can update itself. */
+	private newerThan(id: CheckedId, bundled: string | undefined): string | undefined {
+		if (!bundled || this.deps.appCanUpdate?.() === false) return undefined
+		const latest = this.latestFor(id)
+		return latest && compareVersions(bundled, latest.version) < 0 ? latest.version : undefined
+	}
+
+	private kernelNewer(): KernelNewer {
+		const cli = this.newerThan('namzu-cli', this.deps.bundledVersion())
+		const engine = this.newerThan('namzu-engine', this.deps.bundledEngineVersion?.())
+		return { ...(cli ? { cli } : {}), ...(engine ? { engine } : {}) }
 	}
 
 	private item(id: EngineUpdateId, ignoreFailure = false): EngineUpdateItem {
@@ -412,6 +445,7 @@ export class EngineUpdates {
 		const failure = this.failures.get(id)
 		const { method } = inspection
 		const command = updateCommandText(id, method)
+		const newer = inspection.bundled ? this.newerThan(id, inspection.installed) : undefined
 		const runnable =
 			method === 'npm-global'
 				? this.deps.find('npm') !== undefined &&
@@ -443,6 +477,7 @@ export class EngineUpdates {
 			...(inspection.missing ? { missing: true } : {}),
 			...(inspection.path ? { path: inspection.path } : {}),
 			...(inspection.bundled ? { bundled: true } : {}),
+			...(inspection.bundled && newer ? { newerThanBundled: newer } : {}),
 			...(inspection.missing || inspection.bundled ? {} : { command }),
 			runnable,
 			...(inspection.missing ? {} : { note: METHOD_NOTES[method] }),

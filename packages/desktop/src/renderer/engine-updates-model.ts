@@ -63,6 +63,18 @@ function rowView(item: EngineUpdateItem): EngineRowView {
 			note: 'Namzu does not install it for you. Run one of these in a terminal, then choose Check again to look for the program on this computer.',
 			busy: false,
 		}
+	// The command line that comes with the app is behind the registry: the row says so and says how
+	// the newer one arrives. It offers nothing to press and names nothing to run: a number the
+	// registry returned is never a reason to install anything.
+	if (item.bundled && item.installed && item.newerThanBundled)
+		return {
+			title,
+			versions: item.installed,
+			status: 'A newer one exists',
+			tone: 'attention',
+			note: `Bundled with this app: ${item.installed}. The newest known is ${item.newerThanBundled}. It arrives with an update of this app.`,
+			busy: false,
+		}
 	const versions =
 		item.installed && item.latest && item.status === 'available'
 			? `${item.installed} → ${item.latest}`

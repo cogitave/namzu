@@ -1,5 +1,6 @@
 import { Activity, Bot, KeyRound, SquareTerminal, Volume2, Wrench } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
+import { newerKernelText } from '../shared/engine-update-protocol.js'
 import type { ProjectView } from '../shared/protocol.js'
 import { FINISHED_NOTICE_AFTER_SECONDS } from '../shared/settings-protocol.js'
 import {
@@ -800,6 +801,8 @@ function CopyDetails({ text }: { text: string }) {
 }
 
 function AboutSection({ info, infoError, onOpenFolder }: SettingsPageProps) {
+	// What the registry knows to be newer than what is bundled: live, since a check may finish after About opens.
+	const newer = useEngineUpdates()?.state.kernel ?? {}
 	if (!info)
 		return infoError ? (
 			<p role="alert" className="settings-error">
@@ -819,6 +822,7 @@ function AboutSection({ info, infoError, onOpenFolder }: SettingsPageProps) {
 					<div>
 						<dt>Namzu command line (bundled with this app)</dt>
 						<dd>{info.cliVersion ?? 'Not found'}</dd>
+						{newer.cli && <dd className="settings-fact-note">{newerKernelText(newer.cli)}</dd>}
 					</div>
 					{info.installedCliVersion && (
 						<div>
@@ -829,6 +833,9 @@ function AboutSection({ info, infoError, onOpenFolder }: SettingsPageProps) {
 					<div>
 						<dt>Namzu engine</dt>
 						<dd>{info.sdkVersion ?? 'Not found'}</dd>
+						{newer.engine && (
+							<dd className="settings-fact-note">{newerKernelText(newer.engine)}</dd>
+						)}
 					</div>
 					<div>
 						<dt>System</dt>
@@ -836,7 +843,7 @@ function AboutSection({ info, infoError, onOpenFolder }: SettingsPageProps) {
 					</div>
 				</dl>
 				<div className="settings-actions">
-					<CopyDetails text={aboutDetailsText(info)} />
+					<CopyDetails text={aboutDetailsText(info, newer)} />
 				</div>
 			</div>
 			<div id="setting-folders" className="settings-folders">

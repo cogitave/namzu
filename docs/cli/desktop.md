@@ -402,6 +402,11 @@ may shorten the delay, through `NAMZU_E2E_PAL_COMPUTER_IDLE_MS`; `NAMZU_E2E_PAL_
 such a run stand in for Windows with a scripted CLI (`e2e/computer-stand-in.mjs`,
 `e2e/ux-pal-computer-setup.test.mjs`).
 
+The host is told which app it serves. At `initialize` the app sends `clientInfo: { name: 'namzu-desktop', version }`
+where `version` is the app's own, read with `app.getVersion()` when the app starts; it was once a fixed `0.1.0`.
+A test fails if a version literal returns to the client. The host does not compare it with anything: whether a
+feature is on still comes only from the methods the host lists.
+
 ### Updates to the programs Namzu works with
 
 Namzu Desktop updates through the state machine above. Codex CLI, the second external engine
@@ -414,7 +419,8 @@ watch. It never installs by itself.
 PowerShell; an npm `.cmd` shim goes through Command Prompt on one fixed line, because Node will not
 start it otherwise; 8 seconds, hidden window) and asks the registry for the package's `latest`
 (`GET https://registry.npmjs.org/<package>/latest`, only the `version` field, only a plain
-`x.y.z`, never an alpha): `@openai/codex`, `@anthropic-ai/claude-code`, `@namzu/cli`. The first
+`x.y.z`, never an alpha): `@openai/codex`, `@anthropic-ai/claude-code`, `@namzu/cli`, and `@namzu/sdk`, the engine
+the bundled command line carries (asked the same way, kept in the same cache, and shown only in About; it has no row). The first
 check is 30 seconds after launch, then every four hours, and a check that finds the cache
 (`engine-updates.json` in the profile folder, `checkedAt` per program) newer than four hours skips
 the network at launch. Offline, a timeout or an answer that is not a version is quiet: the last answer
@@ -430,7 +436,7 @@ shortens the first delay; the end-to-end flows use both with a stand-in registry
 | `npm-global` | under `%APPDATA%\npm`, the npm prefix's `bin`, a `node_modules/@openai/codex` (and the other two packages) after following links, or a Windows `.cmd` shim that names the package it starts (so a custom prefix is read too) | `npm install -g <package>@latest`, with `npm.cmd` on Windows, never `npm.ps1` |
 | `native` | `claude-code` in `~/.local/bin` | `claude update` |
 | `standalone` | Codex under `~/.codex/packages` | `codex update` |
-| `bundled` | the app's own command line, when no `namzu` is on `PATH` | none: it updates with the app |
+| `bundled` | the app's own command line, when no `namzu` is on `PATH` | none: it updates with the app (a newer one in the registry is said in the row and in About, see below) |
 | `unknown` | anything else (Homebrew, winget, scoop, a download) | none: the command is shown with **Copy** |
 
 **The update.** A click (never anything else) is refused while that program has a reply running,
@@ -952,7 +958,12 @@ What it holds, and where each value lives (one source of truth per value):
   *Programs Namzu works with* (Codex CLI, `claude-code`, the Namzu command line; see
   [Updates to the programs Namzu works with](#updates-to-the-programs-namzu-works-with); the
   command line that comes with the app is one row saying it updates with the app, and a copy
-  installed on its own is labelled "(installed separately)" with its own version). A program that is
+  installed on its own is labelled "(installed separately)" with its own version; when the registry holds
+  a newer command line than the bundled one, the bundled row reads "A newer one exists" instead of "Up to date",
+  with "Bundled with this app: 49.1.1. The newest known is 51.0.1. It arrives with an update of this app."
+  It has no button and names no command: a number the registry returned is never a reason to install
+  a package, so the newer one reaches a person only inside a new installer; the rail badge, the toast and
+  **Update** do not count it). A program that is
   installed but reported, when Namzu last started it, that no account is signed in shows "Signed out —
   sign in to *name* in a terminal" with **Open terminal** (the window remembers the engine's own
   "needs an account" error until the same engine connects without it; Namzu never runs an engine's
@@ -967,7 +978,11 @@ What it holds, and where each value lives (one source of truth per value):
   versions (read from the `package.json` files beside the bundled runtime; unreadable ones read "Not
   found"), plus "Namzu command line (installed separately)" when a copy is on the computer's PATH
   (`installedCliVersion` of `desktopInfo()`), the system in words ("Windows (64-bit Intel or AMD)"),
-  **Copy details** (versions only, never a path) and the data folders with **Open** and **Copy path** (home as `~`, a long middle cut, the whole path on hover), each saying what
+  and, under the command line or the engine when the registry has a newer one than the bundled one, a
+  second quiet line: "A newer one exists (51.0.1). It arrives with an update of this app." It is said
+  only after a check that succeeded within a week, only where the app can update itself (a copy with no
+  update feed, "This copy can't update itself", says nothing), and never when the bundled one is the
+  newest or newer. It follows the check live, so it appears while About is open. **Copy details** (versions only, never a path; the same newer-version facts) and the data folders with **Open** and **Copy path** (home as `~`, a long middle cut, the whole path on hover), each saying what
   deleting it does (logs and the downloaded voice are safe to delete; the Namzu home folder holds
   conversations, Pals and projects; the app data holds settings, tabs and drafts); raw paths appear
   only there. A folder is opened by kind (`app`, `namzu`,

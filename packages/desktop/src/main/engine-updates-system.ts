@@ -11,12 +11,8 @@ import {
 	writeFileSync,
 } from 'node:fs'
 import { dirname } from 'node:path'
-import {
-	type EngineUpdateId,
-	parseVersion,
-	versionFromOutput,
-} from '../shared/engine-update-protocol.js'
-import { type EngineUpdateCache, emptyCache } from './engine-updates.js'
+import { parseVersion, versionFromOutput } from '../shared/engine-update-protocol.js'
+import { CHECKED_IDS, type EngineUpdateCache, emptyCache } from './engine-updates.js'
 
 const VERSION_TIMEOUT_MS = 8_000
 const REGISTRY_TIMEOUT_MS = 5_000
@@ -169,7 +165,7 @@ export function engineUpdateCacheFile(file: string, onError?: (error: unknown) =
 				const value = parsed as { version?: unknown; latest?: unknown; announced?: unknown }
 				if (value.version !== 1) return emptyCache()
 				const cache = emptyCache()
-				const ids: EngineUpdateId[] = ['codex-cli', 'claude-code', 'namzu-cli']
+				const ids = CHECKED_IDS
 				const latest = (value.latest ?? {}) as Record<string, unknown>
 				const announced = (value.announced ?? {}) as Record<string, unknown>
 				for (const id of ids) {
@@ -183,7 +179,8 @@ export function engineUpdateCacheFile(file: string, onError?: (error: unknown) =
 					)
 						cache.latest[id] = { version: entry.version, checkedAt: entry.checkedAt }
 					const seen = announced[id]
-					if (typeof seen === 'string' && parseVersion(seen)) cache.announced[id] = seen
+					if (id !== 'namzu-engine' && typeof seen === 'string' && parseVersion(seen))
+						cache.announced[id] = seen
 				}
 				return cache
 			} catch {
