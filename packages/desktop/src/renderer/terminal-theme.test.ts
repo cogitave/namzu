@@ -37,6 +37,7 @@ describe('terminalTheme', () => {
 		expect(terminalTheme(() => '', true).background).toBe('#09090b')
 		expect(terminalFontFamily(() => '')).toContain('monospace')
 		expect(terminalFontFamily(() => 'Fira Code, monospace')).toBe('Fira Code, monospace')
+		expect(terminalFontFamily(() => '')).toMatch(/^"Geist Mono", /)
 	})
 })
 
@@ -68,5 +69,16 @@ describe('terminalTheme legibility', () => {
 		const dark = terminalTheme((name) => tokens2[name] ?? '', true)
 		expect(contrast(dark.black as string, '#181818')).toBeGreaterThan(2.5)
 		expect(contrast(dark.brightBlack as string, '#181818')).toBeGreaterThan(4.5)
+	})
+
+	it('reads the terminal’s own token first, so the interface font setting does not move it', () => {
+		const own: Record<string, string> = {
+			'--font-terminal': '"Geist Mono", monospace',
+			'--font-mono': 'Menlo, monospace',
+		}
+		expect(terminalFontFamily((name) => own[name] ?? '')).toBe('"Geist Mono", monospace')
+		expect(terminalFontFamily((name) => (name === '--font-mono' ? 'Menlo, monospace' : ''))).toBe(
+			'Menlo, monospace',
+		)
 	})
 })

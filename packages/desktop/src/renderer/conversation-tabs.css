@@ -30,8 +30,8 @@
 	padding-inline: 6px;
 }
 .conversation-tab-hidden-count {
-	font-size: 11px;
-	font-weight: 600;
+	font-size: var(--text-caption);
+	font-weight: var(--weight-strong);
 	line-height: 1;
 	font-variant-numeric: tabular-nums;
 	color: var(--muted-foreground);
@@ -126,8 +126,8 @@
 	align-items: center;
 	gap: 2px;
 	flex: none;
-	font-size: 10px;
-	font-weight: 700;
+	font-size: var(--text-caption);
+	font-weight: var(--weight-strong);
 	line-height: 1;
 	color: var(--sidebar-muted-foreground);
 }

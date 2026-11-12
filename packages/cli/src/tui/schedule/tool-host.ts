@@ -50,6 +50,7 @@ import {
 	permissionsChanged,
 } from '../../schedule/changes.js'
 import { callsCount } from '../../schedule/fire/calls.js'
+import { gateRefusal } from '../../schedule/gate.js'
 import { schedulePaths } from '../../schedule/paths.js'
 import {
 	type CompiledJobPolicy,
@@ -186,6 +187,12 @@ function confirmationBody(
 						: 'Runs exactly as shown; code passed to another interpreter is not parsed by the shell checker, and the permission set governs the agent phase',
 				]
 			: []
+	const gateSection = p.gate
+		? [
+				`Gate (set by the operator, run before every run, exactly as it will run, ${p.gate.shell}, up to ${p.gate.timeoutMs / 1000} s; the model is called only if it exits 0 and prints something)`,
+				...p.gate.command.split('\n').map((l) => `  │ ${l}`),
+			]
+		: []
 	const promptSection = p.prompt.trim()
 		? [
 				p.runKind === 'script+agent'
@@ -202,6 +209,7 @@ function confirmationBody(
 			.map((w) => `Warning     ${w}`),
 		...findings.map((f) => `Warning     ${f}`),
 		...scriptSection,
+		...gateSection,
 		...promptSection,
 	]
 }
@@ -326,6 +334,10 @@ export function updateRequest(
 		...(runKind ? { runKind } : {}),
 		...(script ? { script } : {}),
 		...(runKind === 'script+agent' && current.wakeGate ? { wakeGate: current.wakeGate } : {}),
+		// The tool never sets or changes a gate; the job's own is carried
+		// through unchanged, so an update that touches nothing else keeps it
+		// (and `buildJob` refuses a kind change that would strand it).
+		...(current.gate ? { gate: current.gate } : {}),
 		permissions,
 		budget: { ...current.budget, ...(changes.budget ?? {}) },
 		...(runKind === 'script'
@@ -446,6 +458,12 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 				)
 			}
 		}
+		// An existing gate (only a person can set one) is read again here, so a
+		// change the model proposes to its job never confirms a gate the floor
+		// or a `deny` rule now refuses.
+		const gateProblem = gateRefusal(job, layers, ui.home())
+		if (gateProblem)
+			throw new Error(`${gateProblem.charAt(0).toUpperCase()}${gateProblem.slice(1)}`)
 		const roots = [ui.cwd(), ...ui.extraRoots()]
 		const outside =
 			job.workspace !== 'none' && !roots.some((root) => within(root, job.folder.canonical))
@@ -453,7 +471,8 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 		const hasScriptPhase = job.runKind === 'script' || job.runKind === 'script+agent'
 		const networkCapable =
 			policy.network ||
-			(job.permissions.execution === 'host' && (hasScriptPhase || allowsCommands(job.permissions)))
+			(job.permissions.execution === 'host' &&
+				(hasScriptPhase || job.gate !== undefined || allowsCommands(job.permissions)))
 		const warnings = [
 			...(outside
 				? ['The folder is outside this conversation’s working directory and added directories.']
@@ -475,6 +494,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			prompt: job.prompt,
 			...(job.runKind && job.runKind !== 'agent' ? { runKind: job.runKind } : {}),
 			...(job.script ? { script: job.script } : {}),
+			...(job.gate ? { gate: job.gate } : {}),
 			schedule: describeSchedule(job.schedule, {
 				tz: job.schedule.kind === 'cron' ? job.schedule.tz : hostTimeZone(),
 			}),

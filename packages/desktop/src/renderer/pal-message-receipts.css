@@ -16,6 +16,6 @@
 	border-radius: var(--radius-card);
 	background: var(--surface);
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }

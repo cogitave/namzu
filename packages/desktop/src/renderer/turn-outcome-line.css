@@ -23,8 +23,8 @@
 	align-items: baseline;
 	gap: 8px;
 	margin: 4px 4px 12px;
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }
 .turn-outcome-line > .turn-outcome-mark {
@@ -42,7 +42,8 @@
 	align-items: baseline;
 	gap: 4px 12px;
 	margin-left: 8px;
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .activity-flag {
 	display: inline-flex;
@@ -61,7 +62,7 @@
 /* Why a refused action did not run, under its row. */
 .tool-reason {
 	margin: 0 0 4px var(--tool-indent, 20px);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }

@@ -9,6 +9,7 @@ import { readPermissionLayers } from '../../config/load.js'
 import { EXIT_OK, EXIT_USAGE } from '../../exit-codes.js'
 import { sanitizeLine } from '../../integrations/notifications/desktop/sanitize.js'
 import { callsCount, callsLine } from '../fire/calls.js'
+import { gateLines } from '../gate.js'
 import { compileJobPolicy } from '../policy.js'
 import { parkedRunWords, resumeCommand } from '../resume-command.js'
 import { foldHistory, readHistory } from '../store/history.js'
@@ -50,6 +51,8 @@ export interface JobListing {
 	readonly workspace?: 'none'
 	/** Absent: `'agent'`, unchanged from before this field existed. */
 	readonly kind?: 'script' | 'script+agent'
+	/** True when an agent job carries a gate. */
+	readonly gated?: true
 	readonly nextFireAt?: string
 	readonly lastRun?: ScheduleJobState['lastRun']
 	readonly activeRun?: {
@@ -73,6 +76,7 @@ export function listing(job: ScheduleJob, state: ScheduleJobState): JobListing {
 			? { workspace: 'none' as const }
 			: { folder: job.folder.canonical }),
 		...(job.runKind && job.runKind !== 'agent' ? { kind: job.runKind } : {}),
+		...(job.gate ? { gated: true as const } : {}),
 		...(nextFireOf(job, state) ? { nextFireAt: nextFireOf(job, state) } : {}),
 		...(state.lastRun ? { lastRun: state.lastRun } : {}),
 		...(state.activeRun
@@ -140,7 +144,14 @@ export async function listCommand(ctx: CommandContext, argv: readonly string[]):
 		// `script` costs no tokens at all — worth marking, since it is the
 		// reason to pick it over an agent job that would otherwise wake for a
 		// fixed, deterministic check every run.
-		const kind = r.kind === 'script' ? '  [script, 0 tokens]' : r.kind ? `  [${r.kind}]` : ''
+		const kind =
+			r.kind === 'script'
+				? '  [script, 0 tokens]'
+				: r.kind
+					? `  [${r.kind}]`
+					: r.gated
+						? '  [gate]'
+						: ''
 		return [
 			`${r.name}  [${r.state}]  ${r.schedule}${tzWarning}${kind}`,
 			`  ${[active, next, last].filter(Boolean).join(' · ')}`,
@@ -267,6 +278,16 @@ export async function showCommand(ctx: CommandContext, argv: readonly string[]):
 						? [
 								job.runKind === 'script' ? 'Script' : 'Wake-gate script',
 								...job.script.body.split('\n').map((l) => `  ${l}`),
+							]
+						: []),
+					...(job.gate
+						? [
+								...gateLines(job.gate),
+								...(state.counters.skips
+									? [
+											`Skipped     ${state.counters.skips} run${state.counters.skips === 1 ? '' : 's'} so far; the gate said not to run${state.counters.gateStartFailures ? `, and it could not start the last ${state.counters.gateStartFailures} in a row` : ''}`,
+										]
+									: []),
 							]
 						: []),
 					...(job.prompt.trim() ? ['Prompt', ...job.prompt.split('\n').map((l) => `  ${l}`)] : []),

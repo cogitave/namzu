@@ -45,8 +45,8 @@ function TooltipPopup({
 							: 'border bg-popover not-dark:bg-clip-padding shadow-md/5',
 						// One wrap width for prose; code dumps get more room and break anywhere.
 						variant === 'code'
-							? 'max-w-120 wrap-anywhere text-left font-mono text-[11px] leading-relaxed'
-							: 'max-w-80 wrap-anywhere whitespace-normal leading-snug',
+							? 'max-w-120 wrap-anywhere text-left font-mono text-xs'
+							: 'max-w-80 wrap-anywhere whitespace-normal',
 						className,
 					)}
 					data-slot="tooltip-popup"

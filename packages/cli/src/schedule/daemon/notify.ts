@@ -24,6 +24,8 @@ export type NoticeKind =
 	| 'auto-paused'
 	/** `runKind: 'script'`/`'script+agent'`: the script (or wake-gate) itself malfunctioned. */
 	| 'check-failed'
+	/** An `agent` job's gate could not start several runs in a row. */
+	| 'gate-cannot-start'
 
 function clock(at: Date): string {
 	return new Intl.DateTimeFormat('en-GB', {
@@ -113,6 +115,11 @@ export function noticeText(
 				reason.length <= room ? safeReason : `${reason.slice(0, Math.max(room - 1, 0)).join('')}…`
 			return { title, body: fit(`${head}${said}`, `check failed at ${when}`) }
 		}
+		case 'gate-cannot-start':
+			return {
+				title,
+				body: `its gate could not start ${extra.failures ?? 'several'} runs in a row; namzu schedule show ${job.name} says why`,
+			}
 		case 'timed-out':
 			return { title, body: `stopped at its time limit at ${when}` }
 		case 'interrupted':

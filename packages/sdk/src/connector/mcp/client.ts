@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 
+import { getTraceContextHeaders } from '../../telemetry/runtime-accessors.js'
 import type {
+	MCPClientCapabilities,
 	MCPClientConfig,
 	MCPClientState,
 	MCPConnectionStatus,
@@ -58,6 +60,13 @@ import {
 import { HttpSseTransport } from './http-sse.js'
 import { StdioTransport } from './stdio.js'
 import { MCPSubscriptionResponseError, StreamableHttpTransport } from './streamable-http.js'
+import {
+	type MCPTaskState,
+	MCP_TASKS_EXTENSION,
+	decodeTaskState,
+	isCreateTaskResult,
+	taskPollDelayMs,
+} from './tasks.js'
 import { type McpParamHeaderBinding, validateMcpHeaderAnnotations } from './x-mcp-header.js'
 
 import {
@@ -83,6 +92,10 @@ const MAX_LIST_PAGES = 100
 const CANCEL_NOTIFICATION_TIMEOUT_MS = 1_000
 const MAX_PROGRESS_MESSAGE_BYTES = 512
 const ANSI_CSI_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g')
+/** A bound on remembered pages and reads; the oldest goes first. */
+const MAX_CACHE_ENTRIES = 256
+/** The longest a result is kept whatever `ttlMs` says: the hint is the server's, but a server with no change notifications must not pin an entry for the life of the connection. */
+const MAX_CACHE_TTL_MS = 60 * 60 * 1_000
 const SUBSCRIPTION_ID_META_KEY = 'io.modelcontextprotocol/subscriptionId'
 const SUBSCRIPTION_RETRY_MAX_MS = 30_000
 /** Auth may refresh; timeouts, conflicts and rate limits can clear without reconnecting. */
@@ -92,6 +105,35 @@ type ListChangeFilter = {
 	toolsListChanged?: true
 	promptsListChanged?: true
 	resourcesListChanged?: true
+	/** The resources whose `notifications/resources/updated` this stream asks for. */
+	resourceSubscriptions?: string[]
+}
+
+/** The three boolean kinds, which are the ones a list-changed notification maps to. */
+type ListChangeKind = 'toolsListChanged' | 'promptsListChanged' | 'resourcesListChanged'
+
+interface CachedResult {
+	readonly value: unknown
+	readonly expiresAt: number
+	/** Who the result was fetched for; a `private` result is served only to the same one. */
+	readonly scope: 'public' | { readonly authorization: string }
+}
+
+/** Methods whose results carry `ttlMs` and `cacheScope`. */
+const CACHEABLE_METHODS = new Set([
+	'tools/list',
+	'prompts/list',
+	'resources/list',
+	'resources/templates/list',
+	'resources/read',
+])
+
+/** The cached methods a change notification makes stale. */
+const INVALIDATED_BY: Readonly<Record<string, readonly string[]>> = {
+	'notifications/tools/list_changed': ['tools/list'],
+	'notifications/prompts/list_changed': ['prompts/list'],
+	'notifications/resources/list_changed': ['resources/list', 'resources/templates/list'],
+	'notifications/resources/updated': ['resources/read'],
 }
 
 interface ModernSubscription {
@@ -108,8 +150,14 @@ const SUBSCRIPTION_NOTIFICATIONS = {
 	'notifications/resources/list_changed': 'resourcesListChanged',
 } as const
 
-function subscriptionFilter(capabilities: MCPServerCapabilities | undefined): ListChangeFilter {
+function subscriptionFilter(
+	capabilities: MCPServerCapabilities | undefined,
+	resources: ReadonlySet<string> = new Set(),
+): ListChangeFilter {
 	return {
+		...(capabilities?.resources?.subscribe === true && resources.size > 0
+			? { resourceSubscriptions: [...resources] }
+			: {}),
 		...(capabilities?.tools?.listChanged === true ? { toolsListChanged: true as const } : {}),
 		...(capabilities?.prompts?.listChanged === true ? { promptsListChanged: true as const } : {}),
 		...(capabilities?.resources?.listChanged === true
@@ -126,7 +174,21 @@ function acknowledgedFilter(
 	const record = value as Record<string, unknown>
 	const acknowledged: ListChangeFilter = {}
 	for (const [key, entry] of Object.entries(record)) {
-		if (!Object.hasOwn(requested, key) || (entry !== true && entry !== false)) return undefined
+		if (!Object.hasOwn(requested, key)) return undefined
+		if (key === 'resourceSubscriptions') {
+			// The honored subset of the URIs asked for; anything else is a
+			// server claiming a subscription nobody opened.
+			const asked = requested.resourceSubscriptions ?? []
+			if (
+				!Array.isArray(entry) ||
+				entry.some((uri) => typeof uri !== 'string' || !asked.includes(uri))
+			) {
+				return undefined
+			}
+			acknowledged.resourceSubscriptions = [...(entry as string[])]
+			continue
+		}
+		if (entry !== true && entry !== false) return undefined
 		if (entry === true) (acknowledged as Record<string, true>)[key] = true
 	}
 	return acknowledged
@@ -155,6 +217,28 @@ function isPermanentSubscriptionFailure(error: unknown, requestId: number): bool
 		error.status < 500 &&
 		!RETRYABLE_SUBSCRIPTION_CLIENT_STATUSES.has(error.status)
 	)
+}
+
+/**
+ * Tools in a fixed order, by name (code points, not locale), a tie keeping
+ * the order the server sent.
+ *
+ * The tool list is part of the prompt a model is given, and a provider's
+ * prompt cache only holds while the prompt is byte for byte the same. The
+ * 2026-07-28 revision asks servers to list tools deterministically for that
+ * reason (a SHOULD); an older server, or one that lists from a hash map, can
+ * answer in a different order each time. Sorting here makes the order a
+ * property of this client, whatever the server did.
+ */
+function sortedByName(tools: MCPToolDefinition[]): MCPToolDefinition[] {
+	return tools
+		.map((tool, index) => ({ tool, index }))
+		.sort((a, b) => {
+			const x = typeof a.tool?.name === 'string' ? a.tool.name : ''
+			const y = typeof b.tool?.name === 'string' ? b.tool.name : ''
+			return x < y ? -1 : x > y ? 1 : a.index - b.index
+		})
+		.map(({ tool }) => tool)
 }
 
 const NAMZU_CLIENT_INFO = { name: 'namzu-sdk', version: VERSION }
@@ -253,6 +337,16 @@ export class MCPClient {
 	private modernSubscription?: ModernSubscription
 	private subscriptionRestartTimer?: ReturnType<typeof setTimeout>
 	private subscriptionFailures = 0
+	/** Pending coalesced reopen of the listen stream after the resource set changed. */
+	private subscriptionFilterTimer?: ReturnType<typeof setTimeout>
+	/** Task waits in progress, so a disconnect can end them. */
+	private taskWaits = new Set<AbortController>()
+	/** Bumped when a notification or reconnection makes cached results stale; a fetch that started earlier is not stored. */
+	private cacheEpoch = 0
+	/** Results the server said may be reused, by method and parameters. See {@link cachedRequest}. */
+	private resultCache = new Map<string, CachedResult>()
+	/** Resources the host asked to hear about, kept across reconnections. */
+	private subscribedResources = new Set<string>()
 	/** Best-effort protocol cancellations still belong to this connection generation. */
 	private cancellationControllers = new Set<AbortController>()
 	/** Elicitations waiting on the person, by the server's request id. */
@@ -339,6 +433,7 @@ export class MCPClient {
 		}
 
 		this.stopModernSubscription(false)
+		this.clearResultCache()
 		this.status = 'connecting'
 		// Tool schemas belong to a listing, and a listing belongs to a
 		// connection. Carrying bindings across a reconnect would mirror the
@@ -472,6 +567,7 @@ export class MCPClient {
 		this.serverInstructions = result.instructions
 
 		await this.notify('notifications/initialized', {})
+		await this.resubscribeLegacyResources()
 
 		return result
 	}
@@ -689,7 +785,7 @@ export class MCPClient {
 		if (this.status !== 'connected' || this.era?.kind !== 'modern' || this.modernSubscription) {
 			return
 		}
-		const requested = subscriptionFilter(this.serverCapabilities)
+		const requested = subscriptionFilter(this.serverCapabilities, this.subscribedResources)
 		if (Object.keys(requested).length === 0) return
 		const id = this.nextRequestId++
 		const controller = new AbortController()
@@ -698,7 +794,7 @@ export class MCPClient {
 			method: 'subscriptions/listen',
 			params: { notifications: requested },
 			clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
-			capabilities: this.config.capabilities ?? {},
+			capabilities: this.clientCapabilities(),
 		})
 		const subscription: ModernSubscription = {
 			id,
@@ -813,6 +909,8 @@ export class MCPClient {
 	}
 
 	private stopModernSubscription(cancelPeer: boolean): void {
+		if (this.subscriptionFilterTimer) clearTimeout(this.subscriptionFilterTimer)
+		this.subscriptionFilterTimer = undefined
 		if (this.subscriptionRestartTimer) clearTimeout(this.subscriptionRestartTimer)
 		this.subscriptionRestartTimer = undefined
 		const subscription = this.modernSubscription
@@ -828,8 +926,10 @@ export class MCPClient {
 
 	async disconnect(): Promise<void> {
 		const reason = new Error('MCPClient disconnecting')
+		this.clearResultCache()
 		this.stopModernSubscription(true)
 		this.abortCancellations(reason)
+		for (const wait of [...this.taskWaits]) wait.abort(reason)
 		const alreadyDisconnected = this.status === 'disconnected'
 
 		this.rejectAllPending('MCPClient disconnecting')
@@ -888,7 +988,9 @@ export class MCPClient {
 	async listTools(options?: MCPRequestOptions): Promise<MCPToolDefinition[]> {
 		this.requireConnected()
 		const listed = await this.listAllPages<MCPToolDefinition>('tools/list', 'tools', options)
-		return this.admitToolHeaderAnnotations(listed)
+		const admitted = this.admitToolHeaderAnnotations(listed)
+		// Only a 2026-07-28 connection is sorted: an older server's callers keep the order it sent.
+		return this.era?.kind === 'modern' ? sortedByName(admitted) : admitted
 	}
 
 	/**
@@ -917,6 +1019,7 @@ export class MCPClient {
 				'namzu.connector.server': this.config.serverName,
 				'namzu.mcp.tool': name,
 			})
+			this.clearResultCache('tools/list')
 			await this.listTools(options)
 			return (await this.callToolDecoded(name, args ?? {}, options)) as MCPToolResult
 		}
@@ -1002,6 +1105,7 @@ export class MCPClient {
 			{ name, arguments: args },
 			options,
 		)
+		if (this.declaresTasks() && isCreateTaskResult(raw)) return await this.awaitTask(raw, options)
 		const decoded = decodeResult(raw)
 		if (decoded.kind === 'complete') return decoded.result
 
@@ -1016,6 +1120,9 @@ export class MCPClient {
 				{ name, arguments: args, requestState: decoded.requestState },
 				options,
 			)
+			if (this.declaresTasks() && isCreateTaskResult(retryRaw)) {
+				return await this.awaitTask(retryRaw, options)
+			}
 			const retried = decodeResult(retryRaw)
 			if (retried.kind === 'complete') return retried.result
 			this.log.warn('MCP tool call required input again after the one automatic retry', {
@@ -1033,6 +1140,202 @@ export class MCPClient {
 		throw new MCPInputRequiredError(decoded.inputRequests ?? [])
 	}
 
+	/**
+	 * The capabilities a modern request declares: the host's own, plus the
+	 * tasks extension when this client will handle a task.
+	 */
+	private clientCapabilities(): MCPClientCapabilities {
+		const base = this.config.capabilities ?? {}
+		if (!this.declaresTasks()) return base
+		return { ...base, extensions: { ...base.extensions, [MCP_TASKS_EXTENSION]: {} } }
+	}
+
+	/**
+	 * Does this connection take part in the tasks extension?
+	 *
+	 * Only on a 2026-07-28 connection whose server advertised the extension in
+	 * `server/discover`, and only unless the host turned it off. A server must
+	 * never return a task to a client that did not declare it, so declaring is
+	 * also what makes a task arrive.
+	 */
+	private declaresTasks(): boolean {
+		return (
+			this.config.tasks !== false &&
+			this.era?.kind === 'modern' &&
+			this.serverCapabilities?.extensions?.[MCP_TASKS_EXTENSION] !== undefined
+		)
+	}
+
+	/**
+	 * Wait for a task the server made out of a `tools/call`, and return what
+	 * the call would have returned.
+	 *
+	 * Polls `tasks/get` at the interval the server last suggested (bounded to
+	 * 100 ms to 30 s). The wait keeps the deadline rules of a blocking call: a
+	 * call that gave no `onProgress` is bounded by the request timeout in all;
+	 * one that did, on a client built with `resetTimeoutOnProgress`, has that
+	 * timeout renewed by every change of the task's status or message, up to the
+	 * total cap. A change is also reported to `onProgress`, as a progress
+	 * notification would be: a count that rises by one per change, with the
+	 * task's `statusMessage` as the message.
+	 *
+	 * When the caller's signal fires or a deadline passes, the task is cancelled
+	 * with `tasks/cancel` (never `notifications/cancelled`, which the extension
+	 * forbids for tasks) before the call rejects. A task that asks for input
+	 * is cancelled too: this client has no one to ask on a modern connection,
+	 * and the call ends with the same typed error as any other unmet request.
+	 */
+	private async awaitTask(raw: unknown, options?: MCPRequestOptions): Promise<unknown> {
+		const created = decodeTaskState(raw)
+		if (!created) {
+			throw new Error(
+				`MCP server "${this.config.serverName}" answered with a task that has no usable taskId or status`,
+			)
+		}
+		const taskId = created.taskId
+		const wait = new AbortController()
+		this.taskWaits.add(wait)
+		const extendable = this.resetTimeoutOnProgress && options?.onProgress !== undefined
+		const started = Date.now()
+		const totalDeadline = started + (extendable ? this.maxTotalTimeoutMs : this.requestTimeoutMs)
+		let lastChange = started
+		let reports = 0
+		let seen: string | undefined
+		let state: MCPTaskState = created
+		const pollOptions: MCPRequestOptions = {
+			...(options?.signal ? { signal: options.signal } : {}),
+			...(options?.headers ? { headers: options.headers } : {}),
+			...(options?.bearerToken !== undefined ? { bearerToken: options.bearerToken } : {}),
+		}
+		const note = (): void => {
+			const fingerprint = `${state.status}\u0000${state.statusMessage ?? ''}\u0000${state.lastUpdatedAt ?? ''}`
+			if (fingerprint === seen) return
+			seen = fingerprint
+			lastChange = Date.now()
+			const message = progressMessage(state.statusMessage)
+			options?.onProgress?.({ progress: ++reports, ...(message ? { message } : {}) })
+		}
+		try {
+			for (;;) {
+				note()
+				switch (state.status) {
+					case 'completed': {
+						if (state.result === undefined) {
+							throw new Error(
+								`MCP task "${taskId}" on "${this.config.serverName}" completed without a result`,
+							)
+						}
+						const decoded = decodeResult(state.result)
+						if (decoded.kind !== 'complete') {
+							throw new MCPInputRequiredError(decoded.inputRequests ?? [])
+						}
+						return decoded.result
+					}
+					case 'failed': {
+						const message =
+							typeof state.error?.message === 'string' ? state.error.message : 'MCP task failed'
+						const code = state.error?.code
+						if (typeof code !== 'number' || !Number.isInteger(code)) {
+							// No usable code: say what the server said, not that its reply was malformed.
+							throw new Error(
+								`MCP task "${taskId}" on "${this.config.serverName}" failed: ${message}`,
+							)
+						}
+						throw protocolErrorFromReply({
+							code,
+							message,
+							...(state.error?.data !== undefined ? { data: state.error.data } : {}),
+						})
+					}
+					case 'cancelled':
+						throw new Error(
+							`MCP task "${taskId}" on "${this.config.serverName}" was cancelled by the server`,
+						)
+					case 'input_required':
+						this.log.warn('MCP task requires input this client cannot supply', {
+							'namzu.connector.server': this.config.serverName,
+						})
+						this.cancelTask(taskId, pollOptions)
+						throw new MCPInputRequiredError(state.inputRequests ?? [])
+					default:
+						break
+				}
+				const now = Date.now()
+				const idleDeadline = extendable ? lastChange + this.requestTimeoutMs : totalDeadline
+				const deadline = Math.min(totalDeadline, idleDeadline)
+				if (now >= deadline) {
+					const error = new Error(
+						`MCP task "${taskId}" on "${this.config.serverName}" timed out after ${now - started}ms`,
+					)
+					error.name = 'TimeoutError'
+					this.log.warn('MCP task timed out', {
+						'namzu.connector.server': this.config.serverName,
+						'namzu.connector.timeout_ms': now - started,
+					})
+					throw error
+				}
+				await this.pause(
+					Math.min(taskPollDelayMs(state.pollIntervalMs), deadline - now),
+					options?.signal ? AbortSignal.any([options.signal, wait.signal]) : wait.signal,
+				)
+				const polled = decodeTaskState(await this.request('tasks/get', { taskId }, pollOptions))
+				if (!polled || polled.taskId !== taskId) {
+					throw new Error(
+						`MCP server "${this.config.serverName}" answered tasks/get with something that is not task "${taskId}"`,
+					)
+				}
+				state = polled
+			}
+		} catch (err) {
+			// A wait that ended because this side stopped (the caller's signal or a
+			// deadline) leaves the work running on the server unless told. A server's
+			// own answer (failed, unknown task) has nothing left to cancel.
+			const stoppedHere =
+				options?.signal?.aborted === true || (err instanceof Error && err.name === 'TimeoutError')
+			if (stoppedHere) this.cancelTask(taskId, pollOptions)
+			throw err
+		} finally {
+			this.taskWaits.delete(wait)
+		}
+	}
+
+	/** Sleep, ending early with the signal's reason if it fires. */
+	private pause(ms: number, signal: AbortSignal): Promise<void> {
+		return new Promise<void>((resolve, reject) => {
+			if (signal.aborted) {
+				reject(signal.reason)
+				return
+			}
+			const onAbort = (): void => {
+				clearTimeout(timer)
+				reject(signal.reason)
+			}
+			const timer = setTimeout(() => {
+				signal.removeEventListener('abort', onAbort)
+				resolve()
+			}, ms)
+			signal.addEventListener('abort', onAbort, { once: true })
+		})
+	}
+
+	/** `tasks/cancel`, best effort and never awaited: the caller is already leaving. */
+	private cancelTask(taskId: string, authority: MCPRequestOptions): void {
+		if (!this.isConnected()) return
+		const { signal: _callerSignal, ...rest } = authority
+		void this.request(
+			'tasks/cancel',
+			{ taskId },
+			{
+				...rest,
+				signal: AbortSignal.timeout(CANCEL_NOTIFICATION_TIMEOUT_MS),
+			},
+		).catch((err: unknown) => {
+			this.log.debug('MCP task cancellation was not acknowledged', {
+				'exception.message': toErrorMessage(err),
+			})
+		})
+	}
+
 	async listResources(options?: MCPRequestOptions): Promise<MCPResource[]> {
 		this.requireConnected()
 		return await this.listAllPages('resources/list', 'resources', options)
@@ -1040,7 +1343,7 @@ export class MCPClient {
 
 	async readResource(uri: string, options?: MCPRequestOptions): Promise<MCPContentBlock[]> {
 		this.requireConnected()
-		const result = (await this.requestWithSessionRecovery('resources/read', { uri }, options)) as {
+		const result = (await this.cachedRequest('resources/read', { uri }, options)) as {
 			contents: MCPContentBlock[]
 		}
 		return result.contents
@@ -1093,9 +1396,188 @@ export class MCPClient {
 		}
 	}
 
+	/**
+	 * Ask the server to tell this client when one resource changes.
+	 *
+	 * The update arrives through {@link onNotification} as
+	 * `notifications/resources/updated` with the resource's `uri`; it says the
+	 * resource changed, not what it now holds, so a host reads it again.
+	 *
+	 * On a 2026-07-28 connection the URI joins the filter of the one
+	 * `subscriptions/listen` stream, which is reopened with the new filter. On
+	 * an older connection it is `resources/subscribe`, sent again after a
+	 * reconnection because those servers keep the subscription in the session.
+	 * Resolves `false` and sends nothing when the server does not advertise
+	 * `resources.subscribe`.
+	 */
+	async subscribeResource(uri: string, options?: MCPRequestOptions): Promise<boolean> {
+		this.requireConnected()
+		if (this.serverCapabilities?.resources?.subscribe !== true) return false
+		if (this.era?.kind === 'legacy') {
+			await this.requestWithSessionRecovery('resources/subscribe', { uri }, options)
+			this.subscribedResources.add(uri)
+			return true
+		}
+		if (!this.subscribedResources.has(uri)) {
+			this.subscribedResources.add(uri)
+			this.reopenModernSubscription()
+		}
+		return true
+	}
+
+	/** Stop hearing about one resource. The mirror of {@link subscribeResource}. */
+	async unsubscribeResource(uri: string, options?: MCPRequestOptions): Promise<void> {
+		this.requireConnected()
+		if (!this.subscribedResources.delete(uri)) return
+		if (this.era?.kind === 'legacy') {
+			await this.requestWithSessionRecovery('resources/unsubscribe', { uri }, options)
+			return
+		}
+		this.reopenModernSubscription()
+	}
+
+	/** The filter changed: close the stream and open one that asks for the new set. */
+	private reopenModernSubscription(): void {
+		if (this.subscriptionFilterTimer) return
+		if (!this.modernSubscription) {
+			// Nothing open to disturb: open now.
+			if (this.subscriptionRestartTimer) clearTimeout(this.subscriptionRestartTimer)
+			this.subscriptionRestartTimer = undefined
+			this.startModernSubscription()
+			return
+		}
+		// Coalesced: a host that subscribes and unsubscribes in a burst reopens the
+		// stream once, and not at all when the set ends where it began, so there
+		// is no gap in which a change can be missed.
+		this.subscriptionFilterTimer = setTimeout(() => {
+			this.subscriptionFilterTimer = undefined
+			if (this.status !== 'connected' || this.era?.kind !== 'modern') return
+			const wanted = subscriptionFilter(this.serverCapabilities, this.subscribedResources)
+			const current = this.modernSubscription
+			if (current && JSON.stringify(current.requested) === JSON.stringify(wanted)) return
+			if (this.subscriptionRestartTimer) clearTimeout(this.subscriptionRestartTimer)
+			this.subscriptionRestartTimer = undefined
+			if (current) this.finishModernSubscription(current, 'filter changed', true, false)
+			this.startModernSubscription()
+		}, 0)
+		this.subscriptionFilterTimer.unref?.()
+	}
+
+	/** A new legacy session holds no subscriptions; ask again for the ones the host wanted. */
+	private async resubscribeLegacyResources(): Promise<void> {
+		if (this.serverCapabilities?.resources?.subscribe !== true) return
+		for (const uri of this.subscribedResources) {
+			try {
+				await this.request('resources/subscribe', { uri })
+			} catch (err) {
+				this.log.warn('MCP resource subscription was not restored after reconnecting', {
+					'namzu.connector.server': this.config.serverName,
+					'exception.message': toErrorMessage(err),
+				})
+			}
+		}
+	}
+
 	async listResourceTemplates(options?: MCPRequestOptions): Promise<MCPResourceTemplate[]> {
 		this.requireConnected()
 		return await this.listAllPages('resources/templates/list', 'resourceTemplates', options)
+	}
+
+	/**
+	 * `request()`, answered from memory when the server said it may be.
+	 *
+	 * A 2026-07-28 server puts `ttlMs` (milliseconds the result may be reused)
+	 * and `cacheScope` on what `tools/list`, `prompts/list`, `resources/list`,
+	 * `resources/templates/list` and `resources/read` return. Before this the
+	 * client ignored both and asked on every call. Now a result is kept for
+	 * exactly `ttlMs` after it arrived and asked for again after that, never
+	 * longer. Nothing is kept when `ttlMs` is absent, zero or negative (the
+	 * spec reads all three as "stale now"), when the result is not
+	 * `resultType: "complete"`, or on a connection that is not 2026-07-28 —
+	 * an older server sends no hints, so its lists are fetched every time, as
+	 * they always were.
+	 *
+	 * The key is the method plus its parameters, so each page of a list
+	 * (its cursor) and each resource (its uri) is its own entry. A change
+	 * notification drops what it makes stale at once, and a `private` result
+	 * is served only to a call with the same `Authorization` as the one that
+	 * fetched it; a result with no `cacheScope` is treated as `private`.
+	 */
+	private async cachedRequest(
+		method: string,
+		params: Record<string, unknown>,
+		options?: MCPRequestOptions,
+	): Promise<unknown> {
+		if (this.era?.kind !== 'modern' || !CACHEABLE_METHODS.has(method)) {
+			return await this.requestWithSessionRecovery(method, params, options)
+		}
+		const key = `${method}\u0000${JSON.stringify(params)}`
+		const authorization = this.authorizationOf(options)
+		const hit = this.resultCache.get(key)
+		if (hit) {
+			const sameAudience = hit.scope === 'public' || hit.scope.authorization === authorization
+			if (sameAudience && Date.now() < hit.expiresAt) return structuredClone(hit.value)
+			this.resultCache.delete(key)
+		}
+		const epoch = this.cacheEpoch
+		const result = await this.requestWithSessionRecovery(method, params, options)
+		const record = result as Record<string, unknown> | null
+		const ttlMs = record?.ttlMs
+		if (
+			typeof ttlMs === 'number' &&
+			Number.isFinite(ttlMs) &&
+			ttlMs > 0 &&
+			epoch === this.cacheEpoch &&
+			(record?.resultType === undefined || record.resultType === 'complete')
+		) {
+			if (this.resultCache.size >= MAX_CACHE_ENTRIES) {
+				const oldest = this.resultCache.keys().next().value
+				if (oldest !== undefined) this.resultCache.delete(oldest)
+			}
+			this.resultCache.set(key, {
+				// A copy, so a caller who edits what it was given does not edit what is kept.
+				value: structuredClone(result),
+				expiresAt: Date.now() + Math.min(ttlMs, MAX_CACHE_TTL_MS),
+				scope: record?.cacheScope === 'public' ? 'public' : { authorization },
+			})
+		}
+		return result
+	}
+
+	/** The credential a call carries, for telling one caller's private results from another's. */
+	private authorizationOf(options: MCPRequestOptions | undefined): string {
+		if (options?.bearerToken !== undefined) return `Bearer ${options.bearerToken}`
+		const headers = options?.headers ?? {}
+		for (const [name, value] of Object.entries(headers)) {
+			if (name.toLowerCase() === 'authorization') return value
+		}
+		return ''
+	}
+
+	/** Forget what a notification says is out of date. */
+	private invalidateCacheFor(notification: string, params?: Record<string, unknown>): void {
+		const methods = INVALIDATED_BY[notification]
+		if (!methods) return
+		this.cacheEpoch++
+		const uri = notification === 'notifications/resources/updated' ? params?.uri : undefined
+		for (const key of [...this.resultCache.keys()]) {
+			const method = key.slice(0, key.indexOf('\u0000'))
+			if (!methods.includes(method)) continue
+			if (typeof uri === 'string' && !key.endsWith(`\u0000${JSON.stringify({ uri })}`)) continue
+			this.resultCache.delete(key)
+		}
+	}
+
+	/** Forget every cached method, for a connection that may be a different server instance. */
+	private clearResultCache(method?: string): void {
+		this.cacheEpoch++
+		if (method === undefined) {
+			this.resultCache.clear()
+			return
+		}
+		for (const key of [...this.resultCache.keys()]) {
+			if (key.startsWith(`${method}\u0000`)) this.resultCache.delete(key)
+		}
 	}
 
 	/**
@@ -1124,7 +1606,7 @@ export class MCPClient {
 		let cursor: string | undefined
 
 		for (let page = 1; ; page++) {
-			const result = (await this.requestWithSessionRecovery(
+			const result = (await this.cachedRequest(
 				method,
 				cursor === undefined ? {} : { cursor },
 				options,
@@ -1247,14 +1729,20 @@ export class MCPClient {
 		const progressToken = method === 'tools/call' && options?.onProgress ? randomUUID() : undefined
 		// Only a call that can receive progress can have its deadline extended.
 		const extendable = this.resetTimeoutOnProgress && progressToken !== undefined
+		// The 2026-07-28 convention for carrying a trace across a request: the
+		// W3C keys in `_meta`. Only on that revision, and only when a span is
+		// active; an older server is sent exactly what it always was.
+		const trace = this.era?.kind === 'modern' ? getTraceContextHeaders() : {}
+		const hasTrace = trace.traceparent !== undefined
 		const requestParams =
-			progressToken === undefined
+			progressToken === undefined && !hasTrace
 				? params
 				: {
 						...params,
 						_meta: {
+							...trace,
 							...(params._meta as Record<string, unknown> | undefined),
-							progressToken,
+							...(progressToken === undefined ? {} : { progressToken }),
 						},
 					}
 		const envelope = buildEnvelope({
@@ -1262,7 +1750,7 @@ export class MCPClient {
 			method,
 			params: requestParams,
 			clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
-			capabilities: this.config.capabilities ?? {},
+			capabilities: this.clientCapabilities(),
 			...this.paramHeaderBindings(method, params),
 		})
 		const message: MCPJsonRpcMessage = {
@@ -1525,7 +2013,7 @@ export class MCPClient {
 			method: 'notifications/cancelled',
 			params: { requestId: id, reason },
 			clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
-			capabilities: this.config.capabilities ?? {},
+			capabilities: this.clientCapabilities(),
 		})
 		const controller = new AbortController()
 		this.cancellationControllers.add(controller)
@@ -1596,7 +2084,7 @@ export class MCPClient {
 			method,
 			params,
 			clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
-			capabilities: this.config.capabilities ?? {},
+			capabilities: this.clientCapabilities(),
 		})
 		const message: MCPJsonRpcMessage = {
 			jsonrpc: '2.0',
@@ -1631,6 +2119,7 @@ export class MCPClient {
 		}
 
 		if (message.method && message.id === undefined) {
+			this.invalidateCacheFor(message.method, message.params)
 			for (const handler of this.notificationHandlers) {
 				handler(message.method, message.params)
 			}
@@ -1650,6 +2139,15 @@ export class MCPClient {
 			this.era?.kind === 'legacy'
 		) {
 			void this.answerElicitation(message.id, message.params)
+			return
+		}
+		// `ping` is part of every revision before 2026-07-28 and must be answered
+		// with an empty result; a server that gets an error back may decide the
+		// connection is dead. The newest revision removed it.
+		if (message.method === 'ping' && message.id !== undefined && this.era?.kind === 'legacy') {
+			void this.transport.send({ jsonrpc: '2.0', id: message.id, result: {} }).catch((err) => {
+				this.log.debug('Failed to send ping reply', { 'exception.message': toErrorMessage(err) })
+			})
 			return
 		}
 		if (message.method && message.id !== undefined) {
@@ -1792,7 +2290,7 @@ export class MCPClient {
 		const method = message.method
 		if (!method) return false
 		const isAck = method === 'notifications/subscriptions/acknowledged'
-		const kind = Object.hasOwn(SUBSCRIPTION_NOTIFICATIONS, method)
+		const kind: ListChangeKind | undefined = Object.hasOwn(SUBSCRIPTION_NOTIFICATIONS, method)
 			? SUBSCRIPTION_NOTIFICATIONS[method as keyof typeof SUBSCRIPTION_NOTIFICATIONS]
 			: undefined
 		const isSubscribedEvent =
@@ -1822,6 +2320,10 @@ export class MCPClient {
 			}
 			subscription.acknowledged = acknowledged
 			clearTimeout(subscription.ackTimer)
+			// A change may have landed before the stream went live.
+			for (const [notification, acknowledgedKind] of Object.entries(SUBSCRIPTION_NOTIFICATIONS)) {
+				if (acknowledged[acknowledgedKind]) this.invalidateCacheFor(notification)
+			}
 			for (const handler of [...this.notificationHandlers]) {
 				this.reconcileSubscription(subscription, handler)
 			}
@@ -1835,6 +2337,17 @@ export class MCPClient {
 			)
 			return true
 		}
+		if (method === 'notifications/resources/updated') {
+			const uri = message.params?.uri
+			if (
+				typeof uri === 'string' &&
+				subscription.acknowledged.resourceSubscriptions?.includes(uri) === true
+			) {
+				this.invalidateCacheFor(method, message.params)
+				for (const handler of [...this.notificationHandlers]) handler(method, message.params)
+				return true
+			}
+		}
 		if (!kind || subscription.acknowledged[kind] !== true) {
 			this.log.warn('Ignoring unrequested MCP subscription notification', {
 				'namzu.connector.server': this.config.serverName,
@@ -1842,6 +2355,7 @@ export class MCPClient {
 			})
 			return true
 		}
+		this.invalidateCacheFor(method, message.params)
 		for (const handler of [...this.notificationHandlers]) handler(method, message.params)
 		return true
 	}
@@ -1853,7 +2367,10 @@ export class MCPClient {
 	): void {
 		if (this.modernSubscription !== subscription) return
 		for (const [method, kind] of Object.entries(SUBSCRIPTION_NOTIFICATIONS)) {
-			if (subscription.acknowledged?.[kind as keyof ListChangeFilter]) handler(method)
+			if (subscription.acknowledged?.[kind]) {
+				this.invalidateCacheFor(method)
+				handler(method)
+			}
 		}
 	}
 

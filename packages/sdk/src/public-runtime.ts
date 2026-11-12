@@ -910,6 +910,7 @@ export {
 	isRecognizedModernError,
 	isResourceNotFoundError,
 	isUnsupportedProtocolVersionError,
+	MCP_TASKS_EXTENSION,
 	LocalExecutionContext,
 	mcpEraCacheKey,
 	MCPHttpStatusError,

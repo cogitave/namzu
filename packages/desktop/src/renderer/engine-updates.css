@@ -26,24 +26,25 @@
 }
 .engine-update-heading h4 {
 	margin: 0;
-	font-size: 13px;
-	font-weight: 500;
-	line-height: 20px;
+	font-size: var(--text-small);
+	font-weight: var(--weight-control);
+	line-height: var(--leading-small);
 }
 .engine-update-versions {
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	font-variant-numeric: tabular-nums;
 	color: var(--muted-foreground);
 }
 .engine-update-copy p {
 	margin: 2px 0 0;
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	overflow-wrap: anywhere;
 }
 .engine-update-status[data-tone="attention"] {
 	color: var(--foreground);
-	font-weight: 500;
+	font-weight: var(--weight-control);
 }
 .engine-update-status[data-tone="error"],
 .engine-update-refusal {
@@ -58,7 +59,8 @@
 	padding: 1px 4px;
 	border-radius: var(--radius-chip);
 	background: color-mix(in srgb, var(--foreground) 7%, transparent);
-	font-size: 11px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .engine-update-control {
 	flex: none;

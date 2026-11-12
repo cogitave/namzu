@@ -11,6 +11,7 @@ import type {
 	TerminalAttachView,
 	TerminalEvent,
 } from '../shared/terminal-view.js'
+import { OpenGate } from './open-gate.js'
 import { plainErrorText } from './plain-error.js'
 import { applySnapshot } from './terminal-attach.js'
 import { TerminalFeed } from './terminal-feed.js'
@@ -53,6 +54,11 @@ export interface TerminalSessionOptions {
 	fontFamily: string
 	fontSize: number
 	mac: boolean
+	/**
+	 * Settles when the terminal's font face is ready. The emulator measures a character cell when it
+	 * opens and keeps that size, so it opens after this; absent, it opens at once.
+	 */
+	fontReady?: Promise<unknown>
 	/** Ctrl/Cmd+F inside the terminal. */
 	onFind: () => void
 }
@@ -75,6 +81,8 @@ export class TerminalSession {
 	private readonly listeners = new Set<() => void>()
 	private readonly stop: () => void
 	private opened = false
+	private readonly openGate: OpenGate
+	private latestHost: HTMLElement | undefined
 	private disposed = false
 	private writes: Promise<void> = Promise.resolve()
 	private sentSize = ''
@@ -93,6 +101,7 @@ export class TerminalSession {
 		readonly tabId: string,
 		private readonly options: TerminalSessionOptions,
 	) {
+		this.openGate = new OpenGate(options.fontReady)
 		this.term = new Terminal({
 			allowProposedApi: true,
 			cursorBlink: true,
@@ -156,6 +165,14 @@ export class TerminalSession {
 	/** Show the terminal inside `host`. The emulator is made once and moved between hosts. */
 	mount(host: HTMLElement): void {
 		if (this.disposed) return
+		this.latestHost = host
+		// The first mount waits for the font face; a later one, or one after it, runs at once.
+		this.openGate.run(() => {
+			if (!this.disposed && this.latestHost) this.mountNow(this.latestHost)
+		})
+	}
+
+	private mountNow(host: HTMLElement): void {
 		if (!this.opened) {
 			this.opened = true
 			this.term.open(host)

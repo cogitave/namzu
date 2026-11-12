@@ -15,8 +15,8 @@
 	width: 12px;
 	height: 12px;
 	flex: none;
-	font-size: 12px;
-	font-weight: 700;
+	font-size: var(--text-caption);
+	font-weight: var(--weight-strong);
 	line-height: 1;
 	color: var(--sidebar-muted-foreground);
 }
@@ -184,5 +184,5 @@
 	background: var(--primary);
 }
 .sidebar-thread-item[data-status="unread"] .conversation-row-title {
-	font-weight: 600;
+	font-weight: var(--weight-strong);
 }
