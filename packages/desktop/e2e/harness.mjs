@@ -101,6 +101,7 @@ export async function createWorld(opts = {}) {
 		noKey: opts.noKey === true,
 		electronArgs: opts.electronArgs,
 		tabs: opts.tabs,
+		noCli: opts.noCli === true,
 	};
 	await opts.seed?.(world);
 	return world;
@@ -135,6 +136,9 @@ export async function launch(world) {
 				}
 			: {}),
 	});
+	// A flow about the engine the app fetches runs the app with no developer override, so the engine
+	// it chooses is the one it was given and not the checkout's own.
+	if (world.noCli) delete env.NAMZU_DESKTOP_CLI;
 	// A first-timer has no provider: nothing in the environment names a key.
 	if (!world.noKey) env.OPENAI_API_KEY = "e2e-not-a-secret";
 	// Under WSL the CLI also reads the sign-ins of the paired Windows account. The owner's must

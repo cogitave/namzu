@@ -407,6 +407,15 @@ where `version` is the app's own, read with `app.getVersion()` when the app star
 A test fails if a version literal returns to the client. The host does not compare it with anything: whether a
 feature is on still comes only from the methods the host lists.
 
+### The engine the app runs
+
+The engine inside the installer is not the only one the app can run: in a build that carries a signing key the
+app fetches a newer one by itself, checks it, and starts it the next time a project opens, with the one
+inside the installer as the fallback. What it checks, where the files are, the setting **Keep the engine up
+to date** and what a managed computer may block are on [Desktop engine updates](desktop-engine-updates.md).
+A build with no signing key (the repository has none) does none of it, and Settings and About read as they
+always did.
+
 ### Updates to the programs Namzu works with
 
 Namzu Desktop updates through the state machine above. Codex CLI, the second external engine
@@ -970,7 +979,10 @@ What it holds, and where each value lives (one source of truth per value):
   login command to find out, because an unknown command could start a chat and spend tokens). A
   check that could not finish names its cause: one note above the list, "Namzu can't reach the update server. Check your internet connection, then choose Check for updates.", with each installed program reading "Could not check", or
   "*name* didn't answer when asked for its version". And
-  *Download updates automatically* (default on; not drawn where the app cannot update itself).
+  *Download updates automatically* (default on; not drawn where the app cannot update itself). Where
+  the build carries a signing key, the row **Namzu engine** (what runs and where it came from, one
+  sentence about the check, **Use this app's own engine**) and the switch *Keep the engine up to date*
+  (default on; off means no request) follow, see [Desktop engine updates](desktop-engine-updates.md).
 - **Speech** — its subtitle says what the voice does, so the section itself says only the language
   ("Available in Turkish for now.") and the size before the download; after it the voice status,
   Preview, Remove and the existing options (see [Local Turkish speech](#local-turkish-speech)).
@@ -982,7 +994,10 @@ What it holds, and where each value lives (one source of truth per value):
   second quiet line: "A newer one exists (51.0.1). It arrives with an update of this app." It is said
   only after a check that succeeded within a week, only where the app can update itself (a copy with no
   update feed, "This copy can't update itself", says nothing), and never when the bundled one is the
-  newest or newer. It follows the check live, so it appears while About is open. **Copy details** (versions only, never a path; the same newer-version facts) and the data folders with **Open** and **Copy path** (home as `~`, a long middle cut, the whole path on hover), each saying what
+  newest or newer. It follows the check live, so it appears while About is open. Where the build can
+  fetch engines, the command line and engine shown are the ones that run, one quiet line under them
+  says where they came from ("This app's own engine.", "Updated by itself on 12 Nov." or "Developer
+  override."), and when a fetched engine runs the bundled version is shown as the fallback. **Copy details** (versions only, never a path; the same newer-version facts) and the data folders with **Open** and **Copy path** (home as `~`, a long middle cut, the whole path on hover), each saying what
   deleting it does (logs and the downloaded voice are safe to delete; the Namzu home folder holds
   conversations, Pals and projects; the app data holds settings, tabs and drafts); raw paths appear
   only there. A folder is opened by kind (`app`, `namzu`,

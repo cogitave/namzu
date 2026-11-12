@@ -634,6 +634,43 @@ describe('createComputerCli', () => {
 		}
 	})
 
+	it('takes the command from a lease at every run and gives it back once the process is over', async () => {
+		const { child, spawnProcess } = fakeSpawn()
+		const release = vi.fn()
+		const lease = vi.fn(async () => ({
+			program: 'electron',
+			prefix: ['/data/kernel/versions/52.0.0/dist/bin.js'],
+			env: { A: '1' },
+			release,
+		}))
+		const cli = createComputerCli(lease, spawnProcess as never)
+		const done = cli.run(['computer', 'status', '--json'], () => {})
+		await new Promise((resolve) => setImmediate(resolve))
+		expect(spawnProcess).toHaveBeenCalledWith(
+			'electron',
+			['/data/kernel/versions/52.0.0/dist/bin.js', 'computer', 'status', '--json'],
+			expect.objectContaining({ env: { A: '1' } }),
+		)
+		expect(release).not.toHaveBeenCalled()
+		child.emit('close', 0)
+		expect(await done).toEqual({ exitCode: 0 })
+		expect(release).toHaveBeenCalledTimes(1)
+		expect(lease).toHaveBeenCalledTimes(1)
+	})
+
+	it('gives a lease back when the process cannot start', async () => {
+		const { child, spawnProcess } = fakeSpawn()
+		const release = vi.fn()
+		const done = createComputerCli(
+			async () => ({ program: 'x', prefix: [], env: {}, release }),
+			spawnProcess as never,
+		).run([], () => {})
+		await new Promise((resolve) => setImmediate(resolve))
+		child.emit('error', new Error('ENOENT'))
+		await expect(done).rejects.toThrow('ENOENT')
+		expect(release).toHaveBeenCalledTimes(1)
+	})
+
 	it('rejects when the process cannot start', async () => {
 		const { child, spawnProcess } = fakeSpawn()
 		const done = createComputerCli(

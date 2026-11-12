@@ -163,6 +163,8 @@ const OPERATIONS = new Set([
 	'installUpdate',
 	'cancelUpdateInstall',
 	'reportUiBusy',
+	'engineDelivery',
+	'useOwnEngine',
 	'engineUpdates',
 	'checkEngineUpdates',
 	'updateEngine',

@@ -11,6 +11,7 @@ import { terminalApi, terminalSessions } from './terminal-registry.js'
 import { useTerminalTabs } from './terminal-store.js'
 import { UpdateDialog } from './update-dialog.js'
 import { type UpdateDialogAction, updateDialogModel } from './update-model.js'
+import { EngineDeliveryContext, useEngineDeliveryController } from './use-engine-delivery.js'
 import { EngineUpdatesContext, useEngineUpdatesController } from './use-engine-updates.js'
 import { useUpdateBusyReporter, useUpdateState } from './use-update.js'
 import { type WorkspaceTabDrag, workspaceSplitRoom } from './workspace-canvas-geometry.js'
@@ -74,6 +75,7 @@ export function WorkspaceHost() {
 	}, [])
 	const updateState = useUpdateState(api)
 	const engineUpdates = useEngineUpdatesController(api, report)
+	const engineDelivery = useEngineDeliveryController(api)
 	const [updateOpen, setUpdateOpen] = useState(false)
 	const updateDialogShown = updateOpen || updateState.status === 'installing'
 	useEffect(() => {
@@ -537,6 +539,8 @@ export function WorkspaceHost() {
 		</div>
 	)
 	return (
-		<EngineUpdatesContext.Provider value={engineUpdates}>{content}</EngineUpdatesContext.Provider>
+		<EngineDeliveryContext.Provider value={engineDelivery}>
+			<EngineUpdatesContext.Provider value={engineUpdates}>{content}</EngineUpdatesContext.Provider>
+		</EngineDeliveryContext.Provider>
 	)
 }

@@ -13,6 +13,7 @@ import type {
 	ConfigSettingResult,
 	ConfigSettingsView,
 } from './config-settings-protocol.js'
+import type { EngineDeliveryView } from './engine-delivery-protocol.js'
 import type {
 	EngineUpdateAnnouncement,
 	EngineUpdateNotice,
@@ -1138,6 +1139,11 @@ export interface DesktopApi {
 	cancelUpdateInstall?(): Promise<void>
 	reportUiBusy?(busy: UpdateUiBusy): Promise<void>
 	onUpdateState?(listener: (state: UpdateState) => void): () => void
+	/** The engine the app runs and keeps current: what runs, where it came from, how the check stands. */
+	engineDelivery?(): Promise<EngineDeliveryView>
+	/** "Use this app's own engine": the next project open starts the engine inside the installer. */
+	useOwnEngine?(): Promise<EngineDeliveryView>
+	onEngineDelivery?(listener: (view: EngineDeliveryView) => void): () => void
 	/** The two external engines and a standalone Namzu CLI: versions and the update action. */
 	engineUpdates?(): Promise<EngineUpdatesState>
 	checkEngineUpdates?(): Promise<void>

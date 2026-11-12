@@ -193,6 +193,24 @@ export class KernelManager {
 	}
 
 	/**
+	 * A process that is not a host (a terminal tab, a short command) runs from `resolved`: the
+	 * folder is kept until the returned function is called. Not counted as a start.
+	 */
+	hold(resolved: ResolvedKernel): () => void {
+		const { version } = resolved
+		if (resolved.source !== 'managed' || !version) return () => undefined
+		this.live.set(version, (this.live.get(version) ?? 0) + 1)
+		let released = false
+		return () => {
+			if (released) return
+			released = true
+			const count = (this.live.get(version) ?? 1) - 1
+			if (count <= 0) this.live.delete(version)
+			else this.live.set(version, count)
+		}
+	}
+
+	/**
 	 * A host ended. `unexpected` is true only when the app did not ask for it (a close the person
 	 * made, or the app shutting down, is not a failure of the engine). Returns true when this
 	 * exit made the engine be given up.

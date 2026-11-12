@@ -429,6 +429,29 @@ describe('deleting', () => {
 		expect(await exists(join(h.kernelRoot, 'versions', '51.3.0.manifest.json'))).toBe(false)
 	})
 
+	it('never removes the folder a tab or a short command runs from, and does not count it as a start', async () => {
+		const h = await harness()
+		const feed = makeFeed()
+		const first = await activate(h, feed, '51.3.0', 1)
+		const release = h.manager.hold(first)
+		expect(h.store.snapshot().starts).toEqual({})
+		await activate(h, feed, '51.4.0', 2)
+		await activate(h, feed, '51.5.0', 3)
+		expect(await exists(join(h.kernelRoot, 'versions', '51.3.0'))).toBe(true)
+		release()
+		release()
+		expect(h.manager.inUse().size).toBe(0)
+		await h.manager.cleanup()
+		expect(await exists(join(h.kernelRoot, 'versions', '51.3.0'))).toBe(false)
+	})
+
+	it('holds nothing for the bundled engine', async () => {
+		const h = await harness()
+		const release = h.manager.hold(await h.manager.resolve())
+		expect(h.manager.inUse().size).toBe(0)
+		release()
+	})
+
 	it('leaves a delete that fails for the next start and does not stop the others', async () => {
 		const h = await harness()
 		const feed = makeFeed()

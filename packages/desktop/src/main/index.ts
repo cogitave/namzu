@@ -20,6 +20,7 @@ import {
 	session,
 	shell,
 } from 'electron'
+import { UNAVAILABLE_ENGINE_VIEW } from '../shared/engine-delivery-protocol.js'
 import { readEngineUpdateRequest } from '../shared/engine-update-protocol.js'
 import type {
 	PalPermissionChange,
@@ -66,6 +67,7 @@ import {
 } from './damaged-files.js'
 import { DesktopSettingsStore } from './desktop-settings.js'
 import { DesktopDiagnostics, observeDesktopIpc, observeRendererConsole } from './diagnostics.js'
+import { createEngineDelivery, webFetch } from './engine-delivery.js'
 import {
 	engineUpdateCacheFile,
 	realPathOf,
@@ -412,8 +414,50 @@ const hostCommand = cliEntry
 				args: ['/d', '/s', '/c', 'namzu acp --desktop'],
 			}
 		: { program: 'namzu', args: ['acp', '--desktop'] }
+const kernelFirstCheck = Number(process.env.NAMZU_KERNEL_FIRST_CHECK_MS)
+/**
+ * Keeps the engine the app runs current and chooses it at every start. Undefined when this build has
+ * no signing key (the repository has none): then the app asks nothing and behaves as it always did.
+ */
+const engineDelivery = createEngineDelivery({
+	isPackaged: app.isPackaged,
+	resourcesPath: process.resourcesPath,
+	userData: app.getPath('userData'),
+	env: process.env,
+	platform: process.platform,
+	arch: process.arch,
+	execPath: process.execPath,
+	clientVersion: app.getVersion(),
+	// The platform adds the language of the app to a request; the feed is told none.
+	fetch: webFetch((url, init) =>
+		net.fetch(url, { ...init, headers: { ...init.headers, 'Accept-Language': '*' } }),
+	),
+	clock: {
+		now: () => Date.now(),
+		after: (ms, run) => {
+			const timer = setTimeout(run, ms)
+			timer.unref()
+			return () => clearTimeout(timer)
+		},
+		every: (ms, run) => {
+			const timer = setInterval(run, ms)
+			timer.unref()
+			return () => clearInterval(timer)
+		},
+	},
+	enabled: () => settingsStore.get().keepEngineUpToDate,
+	nodeFlags: () => desktopRuntimeNodeFlags(),
+	publish: (view) => sendToWindow(undefined, 'namzu:engine-delivery', view),
+	...(Number.isFinite(kernelFirstCheck) && kernelFirstCheck >= 0 && kernelFirstCheck <= 30_000
+		? { firstCheckDelayMs: kernelFirstCheck }
+		: {}),
+})
 // The host is told which app it serves; the number is the app's own, read at run time.
-const command: RuntimeCommand = { ...hostCommand, clientVersion: app.getVersion() }
+const command: RuntimeCommand = {
+	...hostCommand,
+	clientVersion: app.getVersion(),
+	...(engineDelivery ? { launcher: engineDelivery.launcher() } : {}),
+}
 const palComputerSettings = palComputerSetupSettings(
 	process.platform,
 	process.env,
@@ -421,19 +465,29 @@ const palComputerSettings = palComputerSetupSettings(
 )
 // The same CLI as the runtime, as its own short process: `computer status | setup | stop-idle`.
 const computerCli = createComputerCli(
-	cliEntry
-		? {
-				program: process.execPath,
-				prefix: desktopCliPrefix(cliEntry),
-				env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-			}
-		: process.platform === 'win32'
-			? {
-					program: process.env.ComSpec ?? 'cmd.exe',
-					prefix: ['/d', '/s', '/c', 'namzu'],
-					env: process.env,
+	engineDelivery
+		? async () => {
+				const lease = await engineDelivery.lease()
+				return {
+					program: process.execPath,
+					prefix: desktopCliPrefix(lease.entry),
+					env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+					release: lease.release,
 				}
-			: { program: 'namzu', prefix: [], env: process.env },
+			}
+		: cliEntry
+			? {
+					program: process.execPath,
+					prefix: desktopCliPrefix(cliEntry),
+					env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+				}
+			: process.platform === 'win32'
+				? {
+						program: process.env.ComSpec ?? 'cmd.exe',
+						prefix: ['/d', '/s', '/c', 'namzu'],
+						env: process.env,
+					}
+				: { program: 'namzu', prefix: [], env: process.env },
 )
 const palComputerConsent = new ConsentStore(
 	join(app.getPath('userData'), 'pal-computer-setup.json'),
@@ -670,6 +724,8 @@ const settingsStore = new DesktopSettingsStore({
 		}
 		if (settings.restoreTerminals !== previous.restoreTerminals) terminals.settingsChanged()
 		if (settings.autoDownloadUpdates !== previous.autoDownloadUpdates) updates.autoDownloadChanged()
+		if (settings.keepEngineUpToDate !== previous.keepEngineUpToDate)
+			engineDelivery?.settingChanged()
 		if (settings.retrustOnConfigChange && !previous.retrustOnConfigChange)
 			void operator
 				.rebaselineTrusted()
@@ -739,12 +795,18 @@ const terminals = new TerminalHub({
 	createClient: (connection) => new TerminalHostClient(connection),
 	settings: () => settingsStore.get(),
 	shellEnvironment: () => shellEnvironment(),
-	engineHost: () =>
-		engineHost({
-			execPath: process.execPath,
-			...(cliEntry ? { cliEntry } : {}),
-			nodeArgs: desktopRuntimeNodeFlags(),
-		}),
+	engineHost: async (engine) => {
+		// A tab that runs Namzu's own command line runs the engine chosen now, and holds its folder.
+		const lease = engine === 'namzu' && engineDelivery ? await engineDelivery.lease() : undefined
+		return {
+			...engineHost({
+				execPath: process.execPath,
+				...((lease?.entry ?? cliEntry) ? { cliEntry: lease?.entry ?? cliEntry } : {}),
+				nodeArgs: desktopRuntimeNodeFlags(),
+			}),
+			...(lease ? { release: lease.release } : {}),
+		}
+	},
 	publish: (tabs) =>
 		windows.fanout({ kind: 'terminals', terminals: tabs }, (error) =>
 			diagnostics.record('renderer_failed', { error }),
@@ -1119,6 +1181,11 @@ function register(): void {
 	handle('installUpdate', () => updates.install())
 	handle('cancelUpdateInstall', () => updates.cancel())
 	handleWindow('reportUiBusy', ({ id }, busy: unknown) => updates.report(id, busy))
+	handle('engineDelivery', () => engineDelivery?.view() ?? UNAVAILABLE_ENGINE_VIEW)
+	handle('useOwnEngine', async () => {
+		await engineDelivery?.useOwnEngine()
+		return engineDelivery?.view() ?? UNAVAILABLE_ENGINE_VIEW
+	})
 	handle('engineUpdates', () => engineUpdates.state())
 	handle('checkEngineUpdates', () => engineUpdates.check())
 	handle('claimEngineUpdateAnnouncements', () => engineUpdates.claimAnnouncements())
@@ -1960,8 +2027,10 @@ const engineUpdates = new EngineUpdates({
 		base: registryBase(process.env, { packaged: app.isPackaged }),
 		fetch: (url, init) => net.fetch(url, init),
 	}),
-	bundledVersion: () => readRuntimeVersions(cliEntry).cliVersion,
-	bundledEngineVersion: () => readRuntimeVersions(cliEntry).sdkVersion,
+	bundledVersion: () =>
+		engineDelivery?.running().commandLine ?? readRuntimeVersions(cliEntry).cliVersion,
+	bundledEngineVersion: () =>
+		engineDelivery?.running().engine ?? readRuntimeVersions(cliEntry).sdkVersion,
 	appCanUpdate: () => appCanUpdate,
 	...(process.platform === 'win32' ? { commandPrompt: process.env.ComSpec ?? 'cmd.exe' } : {}),
 	cache: engineUpdateCacheFile(join(app.getPath('userData'), 'engine-updates.json'), (error) =>
@@ -2235,6 +2304,7 @@ void app
 		palComputerIdle.start()
 		updates.start()
 		engineUpdates.start()
+		engineDelivery?.start()
 		const layoutTabs = (): string[] =>
 			workspace
 				.snapshot()
