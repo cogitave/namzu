@@ -22,7 +22,10 @@
  * `permission_mode`. The Namzu names stay, so no existing script changes.
  * The same facts go out as
  * same facts as `NAMZU_HOOK_EVENT`, `NAMZU_SESSION_ID`, `NAMZU_TURN_ID`,
- * `NAMZU_TOOL_NAME` and, when the input names a file, `NAMZU_TOOL_PATH`.
+ * `NAMZU_TOOL_NAME` and, when the input names a file, `NAMZU_TOOL_PATH`;
+ * `NAMZU_PROJECT_DIR` is the folder the session was started for.
+ * `session_start` also sends `source` (`startup` or `resume`) and `session_end`
+ * `reason` (`exit` or `replaced`).
  *
  * `session_start` and `session_end` run outside any turn, so they carry no
  * `turn_id` on stdin and no `NAMZU_TURN_ID` in the environment — not even
@@ -32,8 +35,8 @@
  * Its answer is the exit code and, on exit `0`, an optional JSON object on
  * stdout. The exit codes:
  *
- * - `0` — carry on. On `user_prompt_submit`, plain (non-JSON) stdout becomes
- *   context for the model.
+ * - `0` — carry on. On `user_prompt_submit`, `subagent_start` and
+ *   `session_start`, plain (non-JSON) stdout becomes context for the model.
  * - `2` — **block**, read per event: before a tool (`pre_tool_use`) the call is
  *   skipped and the model is told why, with the hook's stderr as the reason;
  *   on `user_prompt_submit` the turn ends; on `turn_end` and `subagent_stop`
@@ -68,7 +71,9 @@
  *   `permissionDecisionReason`, `updatedInput` and `additionalContext` for
  *   `pre_tool_use`; `additionalContext` for `user_prompt_submit`,
  *   `post_tool_use`, `post_tool_use_failure`, `turn_end`, `subagent_stop`,
- *   `session_start`, `notification`; and for `permission_request` a `decision`
+ *   `session_start` (context for the whole session), `notification`;
+ *   `updatedToolOutput` for `post_tool_use` (the text the model reads instead
+ *   of the tool's result); and for `permission_request` a `decision`
  *   `{ behavior: "allow" }` or `{ behavior: "deny", message, interrupt }`.
  *
  * ## What a hook may decide, and what it may not
@@ -123,6 +128,7 @@ import { RENAMED_PLUGIN_HOOK_EVENTS } from '../types/plugin/index.js'
 import { asPluginId } from '../utils/id.js'
 import { NOOP_LOGGER } from '../utils/log/create-logger.js'
 import type { Logger } from '../utils/logger.js'
+import { boundHookReplacement } from './hook-context.js'
 import type { PluginLifecycleManager } from './lifecycle.js'
 import { postHookJson } from './shell-hook-http.js'
 
@@ -206,6 +212,12 @@ interface ShellHookEntryBase {
 	 * Not read on a `prompt` hook or an `async` command.
 	 */
 	readonly onFailure?: ShellHookOnFailure
+	/**
+	 * Where the entry was declared, as a label a host shows (a file's path).
+	 * It has no effect on how the hook runs, and two entries that differ only
+	 * here are the same entry.
+	 */
+	readonly source?: string
 }
 
 /** One shell command at one event. */
@@ -311,6 +323,7 @@ export function shellHookIfMatches(
 	filter: string | undefined,
 	toolName: string | undefined,
 	toolInput: unknown,
+	pathFilter?: ShellHookPathFilter,
 ): boolean {
 	if (filter === undefined || filter.trim() === '') return true
 	if (toolName === undefined) return true
@@ -318,10 +331,17 @@ export function shellHookIfMatches(
 	if (!shape) return true
 	const written = (shape[1] ?? '').toLowerCase()
 	const tool = SKILL_TOOL_NAME_ALIASES[written] ?? written
-	if (tool !== toolName.toLowerCase()) return false
 	const specifier = shape[2]?.trim()
-	if (specifier === undefined || specifier === '' || specifier.replaceAll('*', '') === '')
-		return true
+	const hasPattern =
+		specifier !== undefined && specifier !== '' && specifier.replaceAll('*', '') !== ''
+	// A path pattern is the permission rules' own: the host that has them says
+	// whether this call's path is named. It decides for the tools it knows.
+	if (hasPattern && pathFilter !== undefined) {
+		const answer = pathFilter(tool, specifier, toolName, toolInput)
+		if (answer !== undefined) return answer
+	}
+	if (tool !== toolName.toLowerCase()) return false
+	if (!hasPattern) return true
 	if (tool !== 'bash') return true
 	const line =
 		toolInput !== null && typeof toolInput === 'object'
@@ -345,6 +365,20 @@ export function shellHookIfMatches(
 	}
 }
 
+/**
+ * A host's reading of a path pattern in a hook's `if`: whether the call's path
+ * is named by `pattern` the way the host's permission rules read it. `tool` is
+ * the filter's tool (`edit`, `read`), `callTool` the tool being called.
+ * `undefined` means the host does not read this tool's paths, and the
+ * filter is then read as it is for any other tool.
+ */
+export type ShellHookPathFilter = (
+	tool: string,
+	pattern: string,
+	callTool: string,
+	toolInput: unknown,
+) => boolean | undefined
+
 /** What one hook run came back with, before it is mapped to a verdict. */
 export interface ShellHookOutcome {
 	readonly exitCode: number | null
@@ -362,6 +396,12 @@ export interface ShellHookInput {
 	readonly sessionId: string
 	/** The turn the hook fired in. Absent on `session_start` and `session_end`. */
 	readonly turnId?: string
+	/** Why the session started, on `session_start`. Sent as `source`. */
+	readonly sessionSource?: string
+	/** Why the session closed, on `session_end`. Sent as `reason`. */
+	readonly endReason?: string
+	/** The folder the session was started for. Sent as `NAMZU_PROJECT_DIR`; absent, `cwd`. */
+	readonly projectDir?: string
 	/** The delegating session, on `subagent_start` and `subagent_stop`. */
 	readonly parentSessionId?: string
 	/** The parent turn whose tool call spawned the child, on `subagent_start` and `subagent_stop`. */
@@ -403,6 +443,7 @@ export function shellHookPayload(input: ShellHookInput): string {
 		...(input.transcriptPath !== undefined ? { transcript_path: input.transcriptPath } : {}),
 		...(input.permissionMode !== undefined ? { permission_mode: input.permissionMode } : {}),
 		...(input.turnId !== undefined ? { turn_id: input.turnId } : {}),
+		...(input.sessionSource !== undefined ? { source: input.sessionSource } : {}),
 		...(input.parentSessionId !== undefined ? { parent_session_id: input.parentSessionId } : {}),
 		...(input.parentTurnId !== undefined ? { parent_turn_id: input.parentTurnId } : {}),
 		...(input.agentType !== undefined
@@ -429,7 +470,11 @@ export function shellHookPayload(input: ShellHookInput): string {
 					})),
 				}
 			: {}),
-		...(input.reason !== undefined ? { reason: input.reason } : {}),
+		...(input.reason !== undefined
+			? { reason: input.reason }
+			: input.endReason !== undefined
+				? { reason: input.endReason }
+				: {}),
 		...(input.event === 'turn_failure' && input.error !== undefined ? { error: input.error } : {}),
 		...(input.notification !== undefined
 			? {
@@ -463,6 +508,7 @@ export function runShellHook(
 				...inherited,
 				NAMZU_HOOK_EVENT: input.event,
 				NAMZU_SESSION_ID: input.sessionId,
+				NAMZU_PROJECT_DIR: input.projectDir ?? input.cwd,
 				...(input.turnId !== undefined ? { NAMZU_TURN_ID: input.turnId } : {}),
 				...(input.toolName !== undefined ? { NAMZU_TOOL_NAME: input.toolName } : {}),
 				...(toolPath !== undefined ? { NAMZU_TOOL_PATH: toolPath } : {}),
@@ -610,6 +656,8 @@ interface ShellHookReading {
 	context?: string
 	halt?: { reason: string }
 	notice?: string
+	/** Text that replaces a tool's result, on `post_tool_use`. */
+	replacement?: string
 	/** The hook asked for its stdout to stay out of the debug log. */
 	suppressOutput?: boolean
 	/** Why the JSON was set aside, when it was. */
@@ -728,6 +776,12 @@ function readShellHookJson(event: ShellHookEvent, stdout: string): ShellHookRead
 			reading.updatedInput = specific.updatedInput
 		}
 	}
+	if (event === 'post_tool_use' && specific.updatedToolOutput !== undefined) {
+		if (typeof specific.updatedToolOutput !== 'string') {
+			return { invalid: 'hookSpecificOutput: `updatedToolOutput` must be a string' }
+		}
+		reading.replacement = boundHookReplacement(specific.updatedToolOutput)
+	}
 	if (event === 'permission_request') {
 		const decision = specific.decision
 		if (!isRecord(decision)) {
@@ -827,7 +881,10 @@ export function shellHookVerdict(
 		// On the prompt event, what the hook printed is context for the
 		// model — the branch, the time, a ticket. Everywhere else stdout is
 		// the operator's to read and the model's business not at all.
-		if ((event === 'user_prompt_submit' || event === 'subagent_start') && text.length > 0)
+		if (
+			(event === 'user_prompt_submit' || event === 'subagent_start' || event === 'session_start') &&
+			text.length > 0
+		)
 			return { action: 'annotate', text }
 		return { action: 'continue' }
 	}
@@ -885,11 +942,34 @@ export function shellHookVerdict(
 			const context = [reading.block, reading.context].filter(Boolean).join('\n')
 			return context.length > 0 ? { action: 'annotate', text: context } : { action: 'continue' }
 		}
+		case 'session_start': {
+			// Nothing here can be refused. What the hook said for the model becomes
+			// the session's context; a stop request and a warning still count.
+			return reading.context !== undefined
+				? { action: 'annotate', text: reading.context }
+				: {
+						action: 'continue',
+						...(reading.halt ? { halt: reading.halt } : {}),
+						...(reading.notice ? { notice: reading.notice } : {}),
+					}
+		}
 		case 'post_tool_use':
 		case 'post_tool_use_failure': {
 			// The call has run, so a "block" cannot undo it: its reason is what the
 			// model is told about the result.
 			const context = [reading.block, reading.context].filter(Boolean).join('\n')
+			// A replacement is the hook's text in place of the tool's: the record
+			// says so beside it (the kernel adds the mark).
+			if (reading.replacement !== undefined) {
+				return {
+					action: 'replace',
+					output: reading.replacement,
+					disclose: true,
+					...(context.length > 0 ? { context } : {}),
+					...(reading.halt ? { halt: reading.halt } : {}),
+					...(reading.notice ? { notice: reading.notice } : {}),
+				}
+			}
 			return {
 				action: 'continue',
 				...(context.length > 0 ? { context } : {}),
@@ -986,6 +1066,13 @@ export interface ShellHookOptions {
 	readonly transcriptPath?: (sessionId: string) => string | undefined
 	/** The permission mode in force now, sent as `permission_mode`. Called at each run. */
 	readonly permissionMode?: () => string | undefined
+	/**
+	 * The folder the session was started for, sent to every command as
+	 * `NAMZU_PROJECT_DIR`. Absent, `cwd`.
+	 */
+	readonly projectDir?: string
+	/** How a path pattern in an entry's `if` is read. Absent, such a filter runs the hook. */
+	readonly pathFilter?: ShellHookPathFilter
 }
 
 /** The deadline for `prompt` hooks when they name none. */
@@ -1107,9 +1194,13 @@ export function createShellHook(
 					? context.notification?.type
 					: event === 'subagent_start' || event === 'subagent_stop'
 						? context.agentType
-						: context.toolName
+						: event === 'session_start'
+							? context.source
+							: event === 'session_end'
+								? context.endReason
+								: context.toolName
 			if (!shellHookMatches(entry.matcher, subject)) return { action: 'continue' }
-			if (!shellHookIfMatches(entry.if, context.toolName, context.toolInput)) {
+			if (!shellHookIfMatches(entry.if, context.toolName, context.toolInput, options.pathFilter)) {
 				return { action: 'continue' }
 			}
 			if (entry.once === true) spent = true
@@ -1118,7 +1209,10 @@ export function createShellHook(
 			const hookInput: ShellHookInput = {
 				event,
 				cwd: options.cwd,
+				...(options.projectDir !== undefined ? { projectDir: options.projectDir } : {}),
 				sessionId: String(context.sessionId),
+				...(context.source !== undefined ? { sessionSource: context.source } : {}),
+				...(context.endReason !== undefined ? { endReason: context.endReason } : {}),
 				...(context.turnId !== undefined ? { turnId: String(context.turnId) } : {}),
 				...(context.parentSessionId !== undefined
 					? { parentSessionId: String(context.parentSessionId) }

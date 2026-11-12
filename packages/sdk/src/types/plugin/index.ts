@@ -96,7 +96,13 @@ export type PluginHookEvent =
 	 * to what the model is told (`annotate`).
 	 */
 	| 'user_prompt_submit'
-	/** A host's session opened or closed. Carries `sessionId` and no `turnId`: these hooks run outside any turn. */
+	/**
+	 * A host's session opened or closed. Carries `sessionId` and no `turnId`:
+	 * these hooks run outside any turn. `session_start` carries `source`;
+	 * `session_end` carries `endReason`. A `session_start` hook may answer with
+	 * `context` (on `continue`) or `annotate`: text the model reads, from the
+	 * first turn of the session on.
+	 */
 	| 'session_start'
 	| 'session_end'
 	/** A compaction pass is about to run / has run. Carries `compaction`. */
@@ -110,11 +116,6 @@ export type PluginHookEvent =
 	| 'subagent_start'
 	/** A child session's turn ended. Fired after its own `turn_end`; carries `parentSessionId`, `parentTurnId` and `agentType`. */
 	| 'subagent_stop'
-	/**
-	 * A child session's turn is starting. Fired right after its own
-	 * `turn_start`; carries `parentSessionId` and `parentTurnId`. Observational.
-	 */
-	| 'subagent_start'
 	| 'turn_start'
 	| 'turn_end'
 	/**
@@ -273,6 +274,21 @@ export interface PluginNotificationInfo {
 	readonly message: string
 }
 
+/**
+ * Why a session started, on `session_start`: `startup` for a conversation
+ * with no earlier turn, `resume` for one that already had turns (a resumed
+ * conversation, a `--continue`, or a session rebuilt under a running one).
+ */
+export type PluginSessionSource = 'startup' | 'resume'
+
+/**
+ * Why a session closed, on `session_end`: `exit` when the host is finishing
+ * with it (the process ends, the person quits), `replaced` when the host
+ * builds another session in its place (a model or account switch, another
+ * conversation opened).
+ */
+export type PluginSessionEndReason = 'exit' | 'replaced'
+
 export interface PluginHookContext {
 	/** The turn the hook fired in. Absent on `session_start` and `session_end`. */
 	readonly turnId?: TurnId
@@ -286,6 +302,10 @@ export interface PluginHookContext {
 	readonly parentTurnId?: TurnId
 	/** The name of the agent the child runs, on `subagent_start` and `subagent_stop`. */
 	readonly agentType?: string
+	/** Why the session started, on `session_start`. */
+	readonly source?: PluginSessionSource
+	/** Why the session closed, on `session_end`. */
+	readonly endReason?: PluginSessionEndReason
 	/** The operator's prompt, on `user_prompt_submit`. */
 	readonly prompt?: string
 	/** The pass, on `pre_compact` and `post_compact`. */
@@ -437,7 +457,18 @@ export type PluginHookResult =
 	 * hook redacting a secret that also appears in an image must — this variant
 	 * cannot inspect what it is preserving.
 	 */
-	| { action: 'replace'; output: string; content?: ToolResultContent }
+	| ({
+			action: 'replace'
+			output: string
+			content?: ToolResultContent
+			/**
+			 * Say, beside the result the model and the record carry, that a hook
+			 * replaced it, so rewritten text is not passed off as the tool's own
+			 * words. Off by default: a plugin that redacts quietly keeps doing so.
+			 * A shell hook's replacement always sets it.
+			 */
+			disclose?: boolean
+	  } & PluginHookNotes)
 
 export function assertPluginHookResult(result: PluginHookResult): asserts result {
 	const action = result.action
@@ -472,15 +503,16 @@ export type PluginHookResultFor<E extends PluginHookEvent> = E extends 'user_pro
 						? Extract<PluginHookResult, { action: 'continue' | 'skip' }>
 						: E extends 'turn_end' | 'subagent_stop' | 'pre_compact'
 							? Extract<PluginHookResult, { action: 'continue' | 'skip' | 'error' }>
-							: E extends
-										| 'turn_interrupt'
-										| 'session_start'
-										| 'session_end'
-										| 'notification'
-										| 'turn_failure'
-										| 'permission_denied'
-								? Extract<PluginHookResult, { action: 'continue' }>
-								: Extract<PluginHookResult, { action: 'continue' | 'error' }>
+							: E extends 'session_start'
+								? Extract<PluginHookResult, { action: 'continue' | 'annotate' }>
+								: E extends
+											| 'turn_interrupt'
+											| 'session_end'
+											| 'notification'
+											| 'turn_failure'
+											| 'permission_denied'
+									? Extract<PluginHookResult, { action: 'continue' }>
+									: Extract<PluginHookResult, { action: 'continue' | 'error' }>
 
 /** The event and its handler verdict stay correlated, including in hook arrays. */
 export type PluginHookDefinition<E extends PluginHookEvent = PluginHookEvent> =

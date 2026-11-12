@@ -564,7 +564,13 @@ interface PostToolOverride {
 	readonly output: string
 	readonly isError: boolean
 	readonly content?: ToolResultContent
+	/** A hook replaced a result that stood; the record says so beside it. */
+	readonly replacedByHook?: true
 }
+
+/** What the record and the model are told beside a result a hook replaced. */
+export const HOOK_REPLACED_RESULT_NOTE =
+	"A hook replaced this tool result: the text above is the hook's, not the tool's own output."
 
 /** What `pre_tool_use` hooks said about a call beyond running it or not. */
 export interface PreToolHookNotes {
@@ -2944,9 +2950,12 @@ export class ToolExecutor {
 		// receipt and the host's alike, framed as a hook's words. Added after
 		// the output budget so a bounded result is never trimmed to make room
 		// for it; the note has its own bound (`hookNote`).
-		const hookTexts = [preparedHookContext, post.context].filter(
-			(text): text is string => text !== undefined && text.length > 0,
-		)
+		// The mark comes first so the bound on hook text never cuts it off.
+		const hookTexts = [
+			postOverride?.replacedByHook === true ? HOOK_REPLACED_RESULT_NOTE : undefined,
+			preparedHookContext,
+			post.context,
+		].filter((text): text is string => text !== undefined && text.length > 0)
 		if (hookTexts.length > 0) {
 			const note = hookNote(hookTexts)
 			output = `${output}\n\n${note}`
@@ -3562,8 +3571,11 @@ export class ToolExecutor {
 					override = {
 						output: result.output,
 						isError: false,
+						...(result.disclose === true ? { replacedByHook: true as const } : {}),
 						...(result.content !== undefined ? { content: result.content } : {}),
 					}
+					if (result.context) contexts.push(result.context)
+					if (result.halt) this.requestHalt(result.halt.reason)
 					continue
 				// `retry` was a declared variant with no implementation: every
 				// site that consumed it threw. Here it finally means something

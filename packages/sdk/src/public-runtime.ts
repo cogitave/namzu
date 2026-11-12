@@ -697,9 +697,15 @@ export {
 
 export {
 	attachShellHooks,
+	boundHookContext,
+	boundHookReplacement,
 	createShellHook,
 	DEFAULT_SHELL_HOOK_TIMEOUT_MS,
 	definePlugin,
+	frameOperatorHookContext,
+	MAX_HOOK_CONTEXT_CHARS,
+	MAX_HOOK_REPLACEMENT_CHARS,
+	sessionStartHookContext,
 	discoverAllPluginDirs,
 	discoverPlugins,
 	assertEnableable,

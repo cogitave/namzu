@@ -18,6 +18,7 @@ import { restoreWorkingState, snapshotWorkingState } from '../../compaction/wire
 import { type CompactionConfig, CompactionConfigSchema } from '../../config/runtime.js'
 import { childSessionLog } from '../../manager/agent/child-session.js'
 import { type TurnRecorder, recordedTurnStart } from '../../manager/session/turn-recorder.js'
+import { frameOperatorHookContext } from '../../plugin/hook-context.js'
 import { PromptContributionRegistry } from '../../prompt/contributions.js'
 import { resolveProviderCapabilities } from '../../provider/capabilities.js'
 import type { ProviderChainMember } from '../../provider/fallback.js'
@@ -2199,8 +2200,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 						promptContributions.replace({
 							id: 'hooks:subagent_start',
 							placement: 'context',
-							render: () =>
-								`Context from the operator's hooks:\n\n${startAnnotations.join('\n\n')}`,
+							render: () => frameOperatorHookContext(startAnnotations),
 						})
 					}
 					yield* eventTranslator.drainPending()
@@ -2226,7 +2226,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 						promptContributions.replace({
 							id: 'hooks:user_prompt_submit',
 							placement: 'context',
-							render: () => `Context from the operator's hooks:\n\n${annotations.join('\n\n')}`,
+							render: () => frameOperatorHookContext(annotations),
 						})
 					}
 					yield* eventTranslator.drainPending()
