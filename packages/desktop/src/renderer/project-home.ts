@@ -8,8 +8,19 @@ export const DEFAULT_HOME_HEADING = 'What would you like to work on?'
 export function projectHomeHeading(
 	project: Pick<ProjectView, 'name' | 'palId' | 'isChat'> | undefined,
 ): string {
-	if (!project || project.palId !== undefined || project.isChat) return DEFAULT_HOME_HEADING
-	return `What should we work on in ${project.name}?`
+	const parts = projectHomeHeadingParts(project)
+	return parts ? `${parts.before}${parts.name}${parts.after}` : DEFAULT_HOME_HEADING
+}
+
+/**
+ * The same heading in three parts, so the project's name can be drawn in the display face and the
+ * rest of the sentence stays in the interface face. `undefined` where the heading names no project.
+ */
+export function projectHomeHeadingParts(
+	project: Pick<ProjectView, 'name' | 'palId' | 'isChat'> | undefined,
+): { before: string; name: string; after: string } | undefined {
+	if (!project || project.palId !== undefined || project.isChat) return undefined
+	return { before: 'What should we work on in ', name: project.name, after: '?' }
 }
 
 /** The three ideas under an empty conversation: a project has files to explore, an empty folder and a plain chat do not. */

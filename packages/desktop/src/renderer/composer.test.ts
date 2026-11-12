@@ -134,6 +134,19 @@ it('docks the slim Pal composer with one authored textarea and preserves the sta
 	)
 })
 
+it('draws a covered project name in the display face and any other whole name in the interface face', () => {
+	const parts = (name: string) => ({ before: 'What should we work on in ', name, after: '?' })
+	const covered = render({ empty: true, emptyHeadingParts: parts('harbor-api') })
+	expect(covered).toContain(
+		'What should we work on in <span class="home-heading-name" data-face="display">harbor-api</span>?',
+	)
+	const uncovered = render({ empty: true, emptyHeadingParts: parts('harbor-проект') })
+	expect(uncovered).toContain(
+		'<span class="home-heading-name" data-face="interface">harbor-проект</span>',
+	)
+	expect(uncovered).not.toContain('data-face="display"')
+})
+
 it('keeps the Pal Plus menu and actual model available while computer execution is offline', () => {
 	const html = render({ variant: 'pal', modelSelectionReady: true })
 	expect(button(html, 'Attachments and message settings')).not.toMatch(/\bdisabled=/)

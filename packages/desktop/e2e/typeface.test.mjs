@@ -2,10 +2,14 @@
 // under the unchanged content security policy, a reply paragraph, a code block and a sidebar row are
 // drawn in them (the DevTools protocol says which font was really used for a node), the settings
 // "Interface font" switches to the platform's fonts without a restart, ligatures stay off and the
-// figures the app marks as tabular have equal widths.
+// figures the app marks as tabular have equal widths. The display face (pixel letters, for the project's
+// name in the home heading) is loaded, used there and nowhere else, off with the setting, and a name it
+// cannot draw whole stays in the interface face.
 // Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test e2e/typeface.test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { renameSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { createWorld, dispose, expect, launch, openProject, send } from "./harness.mjs";
 
 const T = 60000;
@@ -96,6 +100,7 @@ flow(
 			"Geist italic 100 900 loaded",
 			"Geist normal 100 900 loaded",
 			"Geist Mono normal 100 900 loaded",
+			"Geist Pixel normal 400 loaded",
 		].sort());
 		const policy = await w.page.evaluate(
 			() => document.querySelector('meta[http-equiv="Content-Security-Policy"]').content,
@@ -295,4 +300,124 @@ flow("a terminal opens in the shipped mono, and the interface font setting leave
 	await expect(w.page.locator("html")).toHaveAttribute("data-interface-font", "system");
 	const during = await w.page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--font-terminal").trim());
 	assert.match(during, /^"Geist Mono"/);
+});
+
+/** A world whose project folder has this name, so the home heading names it. */
+const named = (name) => ({
+	tabs: "hidden",
+	seed: (world) => {
+		const to = join(dirname(world.project), name);
+		renameSync(world.project, to);
+		world.project = to;
+	},
+});
+
+const NAME = ".composer-wrap [data-composer-heading] .home-heading-name";
+
+async function headingLayout(w) {
+	return w.page.evaluate(() => {
+		const heading = document.querySelector("[data-composer-heading]");
+		const name = heading.querySelector(".home-heading-name");
+		const marker = (host) => {
+			const probe = document.createElement("span");
+			probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
+			host.insertBefore(probe, host.firstChild);
+			const bottom = probe.getBoundingClientRect().bottom;
+			probe.remove();
+			return bottom;
+		};
+		return {
+			face: name.dataset.face,
+			family: getComputedStyle(name).fontFamily,
+			outside: getComputedStyle(heading).fontFamily,
+			height: heading.getBoundingClientRect().height,
+			baselineSentence: marker(heading),
+			baselineName: marker(name),
+			text: heading.textContent,
+		};
+	});
+}
+
+flow("the home heading draws the project's name in the display face, and the setting turns it off", named("harbor-api"), async (w) => {
+	await openProject(w);
+	await expect(w.page.locator(NAME)).toBeVisible({ timeout: T });
+	await w.page.evaluate(() => document.fonts.ready);
+	const layout = await headingLayout(w);
+	assert.equal(layout.text, "What should we work on in harbor-api?");
+	assert.equal(layout.face, "display");
+	assert.match(layout.family, /^"Geist Pixel", Geist/);
+
+	// Really used: the name is drawn from the shipped pixel file, and the rest of the sentence is not.
+	const used = await usedFonts(w, NAME);
+	assert.deepEqual(used, [{ family: "Geist Pixel Square", custom: true }]);
+	assert.match(layout.outside, /^Geist,/, "the sentence around the name is set in Geist");
+
+	// One baseline and one line: the two faces share the line without a jump in height. The heading's
+	// box is the same whether the name is in the pixel face or in the interface face.
+	assert.equal(layout.baselineName, layout.baselineSentence, "the name sits on the sentence's baseline");
+	const heights = await w.page.evaluate(() => {
+		const heading = document.querySelector("[data-composer-heading]");
+		const name = heading.querySelector(".home-heading-name");
+		const display = heading.getBoundingClientRect().height;
+		name.dataset.face = "interface";
+		const plain = heading.getBoundingClientRect().height;
+		name.dataset.face = "display";
+		return { display, plain };
+	});
+	assert.equal(heights.display, heights.plain, "the heading's height does not change with the face");
+
+	// The pixel face is nowhere else: no other element on the page reports it as used.
+	const elsewhere = await w.page.evaluate(() =>
+		[...document.querySelectorAll("body *")]
+			.filter((el) => !el.closest(".home-heading-name") && !el.closest("[aria-hidden='true']"))
+			.filter((el) => getComputedStyle(el).fontFamily.includes("Geist Pixel"))
+			.map((el) => el.tagName + "." + el.className),
+	);
+	assert.deepEqual(elsewhere, [], "no other text is set in the display face");
+
+	// "Your device's": the token resolves to the interface font of the device, no pixel letters.
+	await openAppearance(w);
+	await w.page.getByRole("group", { name: "Interface font" }).getByRole("radio", { name: /Your device’s/ }).check();
+	await expect(w.page.locator("html")).toHaveAttribute("data-interface-font", "system");
+	const token = await w.page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--font-display").trim());
+	assert.doesNotMatch(token, /Geist/);
+	await w.page.getByRole("button", { name: "Home", exact: true }).click();
+	await expect(w.page.locator(NAME)).toBeVisible({ timeout: T });
+	const system = await headingLayout(w);
+	assert.doesNotMatch(system.family, /Geist/);
+	const tracking = await w.page.evaluate(
+		(sel) => [document.querySelector(sel), document.querySelector("[data-composer-heading]")].map((el) => getComputedStyle(el).letterSpacing),
+		NAME,
+	);
+	assert.equal(tracking[0], tracking[1], "with the device's font the name keeps the heading's tracking");
+	const usedSystem = await usedFonts(w, NAME);
+	for (const font of usedSystem) {
+		assert.equal(font.custom, false, "no shipped file draws the name");
+		assert.doesNotMatch(font.family, /Geist/);
+	}
+});
+
+flow("a name the display face cannot draw whole stays in the interface face", named("harbor-проект"), async (w) => {
+	await openProject(w);
+	await expect(w.page.locator(NAME)).toBeVisible({ timeout: T });
+	await w.page.evaluate(() => document.fonts.ready);
+	const layout = await headingLayout(w);
+	assert.equal(layout.text, "What should we work on in harbor-проект?");
+	assert.equal(layout.face, "interface");
+	assert.doesNotMatch(layout.family, /Pixel/);
+	// The whole name, the Latin letters of it too, is in the interface face: no mix inside one name.
+	const used = await usedFonts(w, NAME);
+	assert.ok(used.length > 0);
+	for (const font of used) assert.equal(font.family, "Geist", "every letter of the name is Geist");
+	assert.equal(layout.baselineName, layout.baselineSentence);
+});
+
+flow("a Turkish project name is drawn whole in the display face", named("çağrı-işleme"), async (w) => {
+	await openProject(w);
+	await expect(w.page.locator(NAME)).toBeVisible({ timeout: T });
+	await w.page.evaluate(() => document.fonts.ready);
+	const layout = await headingLayout(w);
+	assert.equal(layout.face, "display");
+	const used = await usedFonts(w, NAME);
+	assert.deepEqual(used, [{ family: "Geist Pixel Square", custom: true }], "one face draws every letter, dotless i included");
 });
