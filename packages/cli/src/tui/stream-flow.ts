@@ -468,6 +468,26 @@ export function tailView(tail: string, state: TailState): string {
 	return ranges[ranges.length - 2]?.kind === 'rule' ? `${before}\n` : before
 }
 
+/**
+ * A reply cut off in a table: its last row, if it was still being written, is taken back, so it is not drawn
+ * as a row of empty cells. Text that ends a table with a whole row, or anything that is not a table, is kept.
+ */
+export function withoutHalfTableRow(content: string): string {
+	const at = content.lastIndexOf('\n')
+	if (at < 0) return content
+	const row = content.slice(at + 1).trim()
+	if (!row.startsWith('|')) return content
+	const lines = content.split('\n')
+	let first = lines.length - 1
+	while (first > 0 && /^\s*\|/u.test(lines[first - 1] ?? '')) first--
+	// A table has a header, a separator and then rows; a lone pipe line is prose.
+	if (lines.length - 1 - first < 2) return content
+	const cells = (text: string) => text.replace(/^\||\|$/gu, '').split(/(?<!\\)\|/u).length
+	const complete =
+		row.endsWith('|') && !row.endsWith('\\|') && cells(row) >= cells(lines[first] ?? '')
+	return complete ? content : content.slice(0, at)
+}
+
 /** The pieces a message is drawn from: printed chunks, then the live tail. */
 export interface ReplyPiece {
 	readonly text: string

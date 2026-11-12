@@ -790,6 +790,7 @@ import {
 	flowRows,
 	paceDecision,
 	voidReply,
+	withoutHalfTableRow,
 } from './stream-flow.js'
 import { scriptText, terminalDisplayText } from './terminal-display.js'
 import { terminalFocus, useTerminalFocused } from './terminal-focus.js'
@@ -5923,7 +5924,9 @@ function AppBody({
 	const finalizeMessage = useCallback((id: string, finalContent?: string) => {
 		setMessages((prev) =>
 			prev.map((m) =>
-				m.id === id ? { ...m, content: finalContent ?? m.content, pending: false } : m,
+				m.id === id
+					? { ...m, content: finalContent ?? withoutHalfTableRow(m.content), pending: false }
+					: m,
 			),
 		)
 	}, [])

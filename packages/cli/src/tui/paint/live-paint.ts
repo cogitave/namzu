@@ -419,7 +419,16 @@ export function createLivePaint(
 		// A clear that comes as a write of its own, then the whole conversation and the frame in the next: the
 		// conversation was replaced (a compaction, a resumed or cleared one). It is passed through as Ink wrote it.
 		if (texts.length > 1 && texts.slice(0, -1).some((text) => text.startsWith(CLEAR_TERMINAL))) {
-			verbatim(parts)
+			// The scrollback is the person's, from before this program started as much as from after: the screen's
+			// rows are pushed into it, and only the screen is cleared (never the scrollback).
+			const push = '\n'.repeat(Math.max(0, target.rows ?? 0))
+			verbatim(
+				parts.map((part) =>
+					part.startsWith(CLEAR_TERMINAL)
+						? `${push}${ESC}[2J${ESC}[H${part.slice(CLEAR_TERMINAL.length)}`
+						: part,
+				),
+			)
 			printed = { length: 0, tail: '' }
 			adopt = true
 			reflow = null

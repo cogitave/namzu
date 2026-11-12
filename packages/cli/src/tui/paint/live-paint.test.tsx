@@ -539,6 +539,26 @@ describe('a frame Ink would clear the terminal for', () => {
 	})
 })
 
+describe('a conversation replaced under the painter', () => {
+	it('keeps everything that was in the scrollback and on the screen before it', async () => {
+		const { tty, clock, out } = rig(40, 6)
+		const history = Array.from({ length: 20 }, (_, i) => `history ${i}\r\n`).join('')
+		tty.write(history)
+		inkFrame(out, 'live one\nlive two\n', 0, '')
+		clock.advance(FRAME_MS)
+		out.write(BSU)
+		out.write(erase(3))
+		out.write(`${ESC}[2J${ESC}[3J${ESC}[H`)
+		out.write('summary row\r\nlive a\r\n')
+		out.write(ESU)
+		clock.advance(FRAME_MS)
+		expect(tty.sent).not.toContain(`${ESC}[3J`)
+		const rows = await tty.screen()
+		for (let i = 0; i < 20; i++) expect(rows).toContain(`history ${i}`)
+		expect(rows.slice(-2)).toEqual(['summary row', 'live a'])
+	})
+})
+
 describe('Ink clears the terminal and writes the conversation again', () => {
 	// A compaction replaces the rows already printed: Ink erases its frame, clears the terminal in one write
 	// and writes everything (the rows, then the frame) in the next.
@@ -556,11 +576,22 @@ describe('Ink clears the terminal and writes the conversation again', () => {
 		clock.advance(FRAME_MS)
 		reprint(out, 3, 'summary row\r\nanswer row\r\nlive a\r\nlive b\r\n')
 		clock.advance(FRAME_MS)
-		expect(await tty.screen()).toEqual(['summary row', 'answer row', 'live a', 'live b'])
+		// The screen's own rows (here empty) are pushed into the scrollback, not cleared away.
+		expect((await tty.screen()).filter((row) => row !== '')).toEqual([
+			'summary row',
+			'answer row',
+			'live a',
+			'live b',
+		])
 		// Ink's next frame erases the two rows its last one had (and the line under them).
 		inkFrame(out, 'live a\nlive c\n', 3)
 		clock.advance(FRAME_MS * 2)
-		expect(await tty.screen()).toEqual(['summary row', 'answer row', 'live a', 'live c'])
+		expect((await tty.screen()).filter((row) => row !== '')).toEqual([
+			'summary row',
+			'answer row',
+			'live a',
+			'live c',
+		])
 	})
 })
 

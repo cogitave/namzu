@@ -28,6 +28,7 @@ import {
 	tailStateOf,
 	tailView,
 	voidReply,
+	withoutHalfTableRow,
 } from './stream-flow.js'
 import type { PrintedChunk, TranscriptMessage } from './types.js'
 
@@ -413,5 +414,19 @@ describe('the window a reply reckons with', () => {
 			return most
 		}
 		expect(tallest(flowRows(24, 8))).toBeLessThan(tallest(flowRows(24, 0)))
+	})
+})
+
+describe('a reply cut off in a table', () => {
+	const table = '| id | name |\n| --- | --- |\n| 1 | one |'
+	it('takes back a row that was still being written', () => {
+		expect(withoutHalfTableRow(`${table}\n| 2 | tw`)).toBe(table)
+		expect(withoutHalfTableRow(`${table}\n| 2 |`)).toBe(table)
+	})
+	it('keeps a whole last row, a finished table and text that is not a table', () => {
+		expect(withoutHalfTableRow(table)).toBe(table)
+		expect(withoutHalfTableRow(`${table}\n`)).toBe(`${table}\n`)
+		expect(withoutHalfTableRow('text\n| not | a table')).toBe('text\n| not | a table')
+		expect(withoutHalfTableRow('plain words')).toBe('plain words')
 	})
 })

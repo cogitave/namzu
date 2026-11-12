@@ -959,6 +959,16 @@ left out because the messages do not keep them. A delegation that succeeded
 leaves no tool row, as live: the agent rows own it; a failed launch keeps its
 row.
 
+A reopened conversation is not identical to the screen it was saved from in two
+places: the plan checklist (the live screen prints it once, after the reply and
+the changed-files row, and then `Worked for`) is not in the saved record and is
+left out, so `Worked for` follows the changed-files row; and a two-row `Resumed:`
+notice is added. Everything else, a 500-line code reply included, is row for row
+the same.
+
+A reply cut off in the middle of a table keeps the rows that were whole: the
+row still being written is taken back, never drawn as a row of empty cells.
+
 ### Scrolling back through the conversation
 
 The conversation stays in the terminal's own scrollback, and the terminal keeps
@@ -1492,13 +1502,15 @@ writer of Namzu's own (`packages/cli/src/tui/paint/`) that sits between the rend
 - **A conversation replaced in place is passed through, then drawn under.** A compaction, like `/resume` and `/clear`,
   has the renderer clear the terminal and write the conversation again. That block is written as it came, the height
   of the frame it ends with is taken from the next frame's erase, and painting by what changed goes on from there.
-  (Before this, a compaction under the writer left the screen empty.)
+  (Before this, a compaction under the writer left the screen empty.) The clear that block asks for is changed on
+  the way: the rows on the screen are pushed up into the scrollback first and only the screen is cleared, so the
+  scrollback (what was there before the launch, and what was printed since) is never erased by a compaction.
 - **Leaving gives the terminal back.** The last frame is painted, the cursor is shown and left at the start of a
   line under the last frame, also after a signal (Ctrl+C twice, `SIGTERM`, `SIGHUP`) and when the process ends
   without unmounting (an uncaught error). A process continued after a stop draws a fresh frame on a new line
   below whatever the shell printed; the earlier frame stays where it was above the shell's lines, so the last
-  rows of the live region can appear twice in the scrollback (erasing it would erase the shell's lines). `/clear`
-  still clears the scrollback, as it asks to.
+  rows of the live region can appear twice in the scrollback (erasing it would erase the shell's lines). `/clear`,
+  `/new`, `/resume` and a compaction clear the screen only; the old rows move up into the scrollback.
 
 `NAMZU_LEGACY_PAINT=1` hands the writing back to the renderer, which erases and writes the whole live region on
 every frame and clears the terminal on a resize as before. It is a way back for a terminal the writer does not
