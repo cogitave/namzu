@@ -465,6 +465,7 @@ export async function execJson(
 		...(Object.keys({ ...ctx.config.limits, ...limitsFromFlags }).length > 0
 			? { limits: { ...ctx.config.limits, ...limitsFromFlags } }
 			: {}),
+		...(flags.handBack || ctx.config.handBack?.enabled === true ? { handBack: true } : {}),
 		...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
 		...(ctx.config.decision ? { decision: ctx.config.decision } : {}),
 		...(ctx.config.model === 'auto' && ctx.config.routing ? { routing: ctx.config.routing } : {}),

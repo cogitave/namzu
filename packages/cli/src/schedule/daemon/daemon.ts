@@ -1135,7 +1135,8 @@ export class ScheduleDaemon {
 			status === 'timed-out' ||
 			status === 'interrupted' ||
 			status === 'approval-expired' ||
-			status === 'check-failed'
+			status === 'check-failed' ||
+			status === 'needs-a-person'
 		// A gate that said not to run is neither a failure nor a success: the
 		// streak is left as it was, and only a gate that cannot start is counted.
 		const skipped = status === 'skipped'
@@ -1245,7 +1246,9 @@ export class ScheduleDaemon {
 								? 'interrupted'
 								: status === 'check-failed'
 									? 'check-failed'
-									: 'failed'
+									: status === 'needs-a-person'
+										? 'needs-a-person'
+										: 'failed'
 				incident = { signature, at }
 			}
 		}
@@ -1291,7 +1294,9 @@ export class ScheduleDaemon {
 					at: new Date(now),
 					...(summary ? { summary } : {}),
 					...(result.refusedCalls ? { refused: result.refusedCalls } : {}),
-					...(tell === 'check-failed' && result.reason ? { reason: result.reason } : {}),
+					...((tell === 'check-failed' || tell === 'needs-a-person') && result.reason
+						? { reason: result.reason }
+						: {}),
 					...(tell === 'gate-cannot-start' ? { failures: gateStartFailures } : {}),
 					...(tell === 'awaiting-approval' && next.activeRun?.sessionId
 						? { resumeCommand: resumeCommand(job, next.activeRun.sessionId) }
@@ -1578,6 +1583,7 @@ export function appendRunRecord(
 		...(result.warnings ? { warnings: result.warnings } : {}),
 		...(result.refusedCalls ? { refusedCalls: result.refusedCalls } : {}),
 		...(result.failedCalls ? { failedCalls: result.failedCalls } : {}),
+		...(result.handedBack ? { handedBack: result.handedBack } : {}),
 		...(result.gateResult ? { gateResult: result.gateResult } : {}),
 		...(result.skipKind ? { skipKind: result.skipKind } : {}),
 		...(result.scriptOutput ? { scriptOutput: result.scriptOutput } : {}),

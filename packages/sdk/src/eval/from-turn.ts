@@ -27,6 +27,7 @@ export function evalTurnFromTurn(turn: Turn, opts: { durationMs?: number } = {})
 		...(turn.lastError ? { error: turn.lastError } : {}),
 		...(turn.outcome ? { outcome: turn.outcome } : {}),
 		...(claimMismatch ? { claimMismatch } : {}),
+		...(turn.handedBack ? { handedBack: turn.handedBack } : {}),
 	}
 }
 

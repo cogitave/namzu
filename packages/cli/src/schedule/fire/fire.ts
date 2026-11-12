@@ -26,9 +26,11 @@
 import { hostname } from 'node:os'
 import {
 	type CommandShell,
+	type HandBack,
 	TurnCancelled,
 	asSessionId,
 	describeSchedule,
+	handBackReason,
 	hostTimeZone,
 	installedCommandShellForDialect,
 	releaseHeldSessionLeases,
@@ -599,6 +601,9 @@ export async function runFire(
 		...(config.smallModel ? { smallModel: config.smallModel } : {}),
 		...(config.compaction ? { compaction: config.compaction } : {}),
 		...(config.memory ? { memory: config.memory } : {}),
+		// An unattended run has nobody to ask: with the setting on, the model can hand
+		// the task back and the run is recorded as needing a person.
+		...(config.handBack?.enabled === true ? { handBack: true } : {}),
 		sandbox:
 			job.permissions.execution === 'sandbox'
 				? { ...(config.sandbox ?? {}), enabled: true }
@@ -673,6 +678,7 @@ export async function runFire(
 	let paused: Extract<AgentEvent, { kind: 'paused' }> | null = null
 	let failed: string | null = null
 	let stopReason: string | undefined
+	let handedBack: HandBack | undefined
 	const consume = async (stream: AsyncIterable<AgentEvent>): Promise<void> => {
 		paused = null
 		failed = null
@@ -696,6 +702,7 @@ export async function runFire(
 				case 'done':
 					if (event.text !== undefined) text = event.text
 					stopReason = event.stopReason
+					if (event.handedBack) handedBack = event.handedBack
 					if (event.turnId) turnId = event.turnId
 					break
 				case 'tool-start':
@@ -804,6 +811,23 @@ export async function runFire(
 	if (stopReason && stopReason !== 'end_turn') {
 		return finish('failed', 1, {
 			reason: `the turn did not finish normally: ${stopReason}`,
+			...(summary ? { summary } : {}),
+			...withUsage,
+		})
+	}
+	if (handedBack) {
+		// The model said it cannot do this as specified. That is the run's result,
+		// recorded as needing a person and surfaced as a failure is.
+		// The model's words are made printable before they are stored.
+		const said = {
+			kind: handedBack.kind,
+			blocker: sanitizeLine(handedBack.blocker, 800),
+			tried: sanitizeLine(handedBack.tried, 800),
+			needed: sanitizeLine(handedBack.needed, 800),
+		}
+		return finish('needs-a-person', 1, {
+			reason: sanitizeLine(handBackReason(said), 400),
+			handedBack: said,
 			...(summary ? { summary } : {}),
 			...withUsage,
 		})

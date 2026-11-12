@@ -1,8 +1,10 @@
 import type { SessionGoalStore } from '../../store/goal/index.js'
 import { StaleGoalError } from '../../store/goal/index.js'
 import type { GoalConfirmedBy, GoalRoundAuthority, SessionGoal } from '../../types/goal/index.js'
+import type { HandBack } from '../../types/session/hand-back.js'
 import type { TurnOutcome } from '../../types/session/outcome.js'
 import { showCommand } from '../coordinator/outcome-record.js'
+import { handBackKindSentence, handBackReason } from '../hand-back/index.js'
 
 /**
  * Ending a goal by the record of the work.
@@ -182,10 +184,21 @@ export interface GoalEndingReport {
 	readonly sentence: string
 	/** How many times the record sent this goal back before it ended. */
 	readonly refusals: number
+	/**
+	 * Set when the goal ended because the model handed the task back to a person
+	 * (`hand_back_task`). The ending is `not-confirmed` and `sentence` is the
+	 * kernel's sentence for the kind; the model's own words are in the hand-back.
+	 */
+	readonly handedBack?: HandBack
 }
 
 /** The closing line of a goal: which of the three endings it was and, always, what the record held. */
-export function describeGoalEnding(report: Pick<GoalEndingReport, 'ending' | 'sentence'>): string {
+export function describeGoalEnding(
+	report: Pick<GoalEndingReport, 'ending' | 'sentence' | 'handedBack'>,
+): string {
+	if (report.handedBack) {
+		return `Goal not confirmed: the model handed the task back to a person (${report.sentence}).`
+	}
 	switch (report.ending) {
 		case 'confirmed':
 			return `Goal confirmed by the record: ${report.sentence}.`
@@ -254,6 +267,39 @@ export class GoalConfirmation {
 		const ending = this.endings.get(turnId)
 		this.endings.delete(turnId)
 		return ending
+	}
+
+	/**
+	 * The model handed this round's task back to a person: the goal, when this
+	 * turn is a round of an active one, ends as not confirmed and is left blocked
+	 * with the reason, whatever it was confirmed by. Nothing for any other turn.
+	 */
+	async handBack(turnId: string, handBack: HandBack): Promise<GoalEndingReport | undefined> {
+		const authority = this.options.resolveAuthority(turnId)
+		if (!authority) return undefined
+		const goal = await this.options.store.getGoal(authority.sessionId, authority.tenantId)
+		if (!goal || goal.id !== authority.id || goal.phase !== 'active') return undefined
+		const ref = { id: authority.id, revision: authority.revision }
+		try {
+			await this.options.store.blockGoal(authority.sessionId, authority.tenantId, ref, {
+				code: 'handed-back-to-a-person',
+				message: handBackReason(handBack),
+			})
+		} catch (error) {
+			if (error instanceof StaleGoalError) return undefined
+			throw error
+		}
+		const report: GoalEndingReport = {
+			goalId: goal.id,
+			ending: 'not-confirmed',
+			sentence: handBackKindSentence(handBack.kind),
+			refusals: this.refusalsFor(goal.id),
+			handedBack: handBack,
+		}
+		this.claims.delete(goal.id)
+		this.refusals.delete(goal.id)
+		this.changed.delete(goal.id)
+		return report
 	}
 
 	/** Drop a report that was never answered for, when its round ends without the turn finishing an answer. */

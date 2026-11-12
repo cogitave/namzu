@@ -194,6 +194,14 @@ export type ScheduleRunStatus =
 	 * failure of the job.
 	 */
 	| 'skipped'
+	/**
+	 * `runKind: 'agent'` or `'script+agent'`, with `handBack.enabled` on: the model
+	 * could not do the task as specified and handed it back to a person
+	 * (`handedBack` says why). Surfaced as a failing run is: it counts toward the
+	 * failure streak, is told once per cause and can pause the job, because a
+	 * task that was handed back will be handed back again until a person decides.
+	 */
+	| 'needs-a-person'
 
 /** v3 marks new ownership and report fields; ordinary old jobs stay v1/v2. */
 export function jobFormatVersion(job: {
@@ -232,6 +240,7 @@ export function runResultVersion(fields: {
 	)
 		return SCHEDULE_FORMAT_VERSION
 	return fields.status === 'check-failed' ||
+		fields.status === 'needs-a-person' ||
 		fields.gateResult !== undefined ||
 		fields.scriptOutput !== undefined
 		? SCHEDULE_FORMAT_VERSION_SCRIPT
@@ -356,6 +365,8 @@ export type ScheduleHistoryRecord =
 			readonly warnings?: readonly string[]
 			readonly refusedCalls?: ScheduleCallTally
 			readonly failedCalls?: ScheduleCallTally
+			/** `needs-a-person` only: what the model said when it handed the task back. */
+			readonly handedBack?: NonNullable<ScheduleRunResult['handedBack']>
 			/** `runKind: 'script+agent'` only: what its wake-gate decided. */
 			readonly gateResult?: {
 				readonly wake: boolean
@@ -444,6 +455,17 @@ export interface ScheduleRunResult {
 	readonly refusedCalls?: ScheduleCallTally
 	/** Calls that ran and returned an error. */
 	readonly failedCalls?: ScheduleCallTally
+	/**
+	 * Set on `needs-a-person`: what the model said when it handed the task back
+	 * (`kind`, what blocks it, what it tried, what a person has to decide or
+	 * provide). The text is the model's, clipped, and is shown as the model's.
+	 */
+	readonly handedBack?: {
+		readonly kind: 'conflict' | 'missing' | 'decision'
+		readonly blocker: string
+		readonly tried: string
+		readonly needed: string
+	}
 	/** `runKind: 'script+agent'` only: what its wake-gate decided. */
 	readonly gateResult?: {
 		readonly wake: boolean

@@ -14,6 +14,7 @@ import type {
 	ComposerTriggersConfig,
 	DecisionConfig,
 	GoalCliConfig,
+	HandBackCliConfig,
 	HooksConfig,
 	MemoryCliConfig,
 	NamzuCliConfig,
@@ -243,6 +244,8 @@ export interface TuiContext {
 	readonly workflow?: WorkflowCliConfig
 	/** See `NamzuCliConfig.goal`. */
 	readonly goal?: GoalCliConfig
+	/** See `NamzuCliConfig.handBack`. */
+	readonly handBack?: HandBackCliConfig
 	/** See `NamzuCliConfig.decision`. */
 	readonly decision?: DecisionConfig
 	/**

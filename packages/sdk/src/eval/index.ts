@@ -16,6 +16,7 @@ export { judgeScorer } from './judge.js'
 export type { JudgeScorerConfig } from './judge.js'
 export {
 	claimMismatchScorer,
+	handedBackScorer,
 	completionScorer,
 	containsScorer,
 	customScorer,

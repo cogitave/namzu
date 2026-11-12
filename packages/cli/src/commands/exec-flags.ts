@@ -95,6 +95,8 @@ export interface ExecFlags {
 	 * `--resume` is worked on as a copy, so the original is never written to.
 	 */
 	noSessionPersistence: boolean
+	/** `--hand-back`: offer the model the way to hand a task back to a person. */
+	handBack: boolean
 	skills: string[]
 	/** `--max-iterations <n>`: main-loop iterations; 0 is unlimited. */
 	maxIterations: number | null
@@ -188,6 +190,7 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 		resume: null,
 		forkSession: false,
 		noSessionPersistence: false,
+		handBack: false,
 		skills: [],
 		maxIterations: null,
 		tokenBudget: null,
@@ -364,6 +367,10 @@ export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
 		}
 		if (a === '--fork-session') {
 			out.forkSession = true
+			continue
+		}
+		if (a === '--hand-back') {
+			out.handBack = true
 			continue
 		}
 		if (a === '--no-session-persistence') {

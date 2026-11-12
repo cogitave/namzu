@@ -1,5 +1,10 @@
 import { allowRuleScope } from '../../../../authorization/gate.js'
 import type { AuthorizationGate } from '../../../../authorization/index.js'
+import {
+	HAND_BACK_SIBLING_REFUSAL,
+	HAND_BACK_TOOL_NAME,
+	parseHandBack,
+} from '../../../../tools/hand-back/index.js'
 import { isTrustedReadOnly } from '../../../../tools/trusted-read-only.js'
 import type { ToolSourceRef } from '../../../../toolsets/types.js'
 import type {
@@ -259,7 +264,25 @@ export async function* runToolReview(
 	 * with the tracker's refusal instead of being run — the one denial the
 	 * tracker makes, on top of whatever the caller already denied.
 	 */
-	const withRepeatRefusals = (denials?: ToolCallDenials): ToolCallDenials | undefined => {
+	const withRepeatRefusals = (given?: ToolCallDenials): ToolCallDenials | undefined => {
+		// A step that hands the task back runs nothing else: the first hand-back
+		// call is the step, every other call in it is refused.
+		let denials = given
+		if (ctx.turnConfig?.handBack === true) {
+			const handBack = toolCallSummaries.find(
+				(summary) =>
+					summary.name === HAND_BACK_TOOL_NAME && parseHandBack(summary.input) !== undefined,
+			)
+			if (handBack) {
+				let siblings: Map<string, string> | undefined
+				for (const summary of toolCallSummaries) {
+					if (summary.id === handBack.id || given?.has(summary.id)) continue
+					siblings ??= new Map(given ?? [])
+					siblings.set(summary.id, HAND_BACK_SIBLING_REFUSAL)
+				}
+				denials = siblings ?? given
+			}
+		}
 		const tracker = ctx.repeatCalls
 		if (!tracker) return denials
 		let merged: Map<string, string> | undefined

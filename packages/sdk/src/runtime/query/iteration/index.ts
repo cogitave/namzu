@@ -30,6 +30,7 @@ import {
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { STRUCTURED_OUTPUT_TOOL_NAME } from '../../../tools/builtins/structuredOutput.js'
 import { SESSION_GOAL_TOOL_NAMES } from '../../../tools/goal/index.js'
+import { HAND_BACK_TOOL_NAME, parseHandBack } from '../../../tools/hand-back/index.js'
 import type { ToolManager } from '../../../toolsets/manager.js'
 import { RECALLED_MEMORY_ENTRY_KEY, recalledMemoryIds } from '../../../turn/memory-recall.js'
 import { type CostInfo, type TokenUsage, promptSizeOf } from '../../../types/common/index.js'
@@ -49,6 +50,7 @@ import {
 import { classifyProviderError, readOutputOverflow } from '../../../types/provider/errors.js'
 import type { ChatCompletionResponse, ReasoningEffort } from '../../../types/provider/index.js'
 import type { AnswerReview, AnswerReviewContext } from '../../../types/session/answer-review.js'
+import type { HandBack } from '../../../types/session/hand-back.js'
 import type {
 	RecalledMemory,
 	SessionEvent,
@@ -2087,6 +2089,28 @@ export class IterationOrchestrator {
 					if (reviewOutcome.decision === 'stop') {
 						return
 					}
+
+					// The model handed the task back to a person. Nothing else ran in
+					// this step (its sibling calls were refused), and no further model
+					// call is made: the turn ends here, as a turn that ended on its own.
+					const handedBack = this.takeHandBack(reviewOutcome.results, response)
+					if (handedBack !== undefined) {
+						this.ctx.log.info('The model handed the task back — ending turn', {
+							[NAMZU.TURN_ID]: recorder.turnId,
+							[NAMZU.ITERATION]: iterationNum,
+							'namzu.hand_back.kind': handedBack.kind,
+						})
+						recorder.setHandedBack(handedBack)
+						recorder.setStopReason('end_turn')
+						await this.ctx.emitEvent({
+							type: 'iteration_completed',
+							turnId: recorder.turnId,
+							iteration: iterationNum,
+							hasToolCalls: true,
+						})
+						yield* this.ctx.drainPending()
+						break
+					}
 					const needsCorrection = await this.recordToolStructuredFailure(
 						reviewOutcome.results,
 						iterationNum,
@@ -3515,6 +3539,23 @@ export class IterationOrchestrator {
 			})
 			return undefined
 		}
+	}
+
+	/**
+	 * The hand-back this step made, when the setting is on and `hand_back_task`
+	 * succeeded; the first one when the model made several (the rest were refused).
+	 */
+	private takeHandBack(
+		results: readonly ToolCallOutcome[],
+		response: ChatCompletionResponse,
+	): HandBack | undefined {
+		if (this.ctx.turnConfig.handBack !== true) return undefined
+		const hit = results.find(
+			(r) => r.toolName === HAND_BACK_TOOL_NAME && r.isError !== true && r.skipped !== true,
+		)
+		if (!hit) return undefined
+		const call = (response.message.toolCalls ?? []).find((c) => c.id === hit.toolCallId)
+		return call ? parseHandBack(call.function.arguments) : undefined
 	}
 
 	/** The outcome record as the turn leaves it; `undefined` when none was kept. */

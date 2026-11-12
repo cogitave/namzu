@@ -724,6 +724,7 @@ import {
 	type OutcomeTelling,
 	claimMismatchLine,
 	goalEndingLine,
+	handedBackLines,
 	outcomeNotice,
 } from './outcome-line.js'
 import { highestAttachmentNumber } from './paste-chips.js'
@@ -6251,6 +6252,7 @@ function AppBody({
 										conversationSessions: sessionsRef.current,
 									}
 								: {}),
+							...(activeCtx.handBack?.enabled === true ? { handBack: true } : {}),
 							...(activeCtx.mcpServers ? { mcpServers: activeCtx.mcpServers } : {}),
 							// The composer is ready at once; each server's tools join as it connects.
 							toolServers: 'background',
@@ -10401,6 +10403,13 @@ function AppBody({
 					// disagrees. Shown only; the model is not told and nothing blocks.
 					const claimLine = claimMismatchLine(event.claimMismatch)
 					if (claimLine) pushSystem('notice', claimLine)
+					// The model handed the task back to a person: the kernel says so and why,
+					// then the model's own sentences, labelled as the model's.
+					const handed = handedBackLines(event.handedBack)
+					if (handed) {
+						pushSystem('warning', handed.line)
+						for (const line of handed.model) pushSystem('notice', line)
+					}
 					// A goal confirmed by the record says which of the three ways it ended.
 					const goalLine = goalEndingLine(event.goalEnding)
 					if (goalLine)

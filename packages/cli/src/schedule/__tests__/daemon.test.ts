@@ -264,6 +264,29 @@ describe('failures', () => {
 		expect(bodies.some((b) => /paused after 5 failed runs/.test(b))).toBe(true)
 	})
 
+	it('surfaces a run that needs a person as a failure is: told once, counted, and the job paused', async () => {
+		outcome = () => ({
+			status: 'needs-a-person',
+			reason:
+				'The model handed the task back to a person: a decision is needed that belongs to a person.',
+			exitCode: 1,
+		})
+		const job = confirmedJob(sb, { when: 'every 1m' }, new Date(clock))
+		const d = daemon()
+		await d.claimOwnership()
+		for (let i = 0; i < 7; i++) {
+			clock += 60_000
+			await d.tick()
+			await settle(d)
+		}
+		const runs = foldHistory(readHistory(sb.paths, job.id)).filter((r) => r.kind === 'run')
+		expect(runs).toHaveLength(5)
+		expect(runs.every((r) => r.kind === 'run' && r.status === 'needs-a-person')).toBe(true)
+		expect(readJob(sb.paths, job.id)?.pausedBy).toBe('auto-failure-streak')
+		const bodies = notices.map((n) => n.body)
+		expect(bodies.filter((b) => b.startsWith('needs a person'))).toHaveLength(1)
+	})
+
 	it('holds the job while the provider asked to be left alone', async () => {
 		outcome = () => ({
 			status: 'failed',

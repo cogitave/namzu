@@ -90,6 +90,7 @@ import type {
 	DecisionPointMode,
 	DecisionPointsConfig,
 	GoalCliConfig,
+	HandBackCliConfig,
 	OtlpExportConfig,
 	PluginConfig,
 	ProfileConfig,
@@ -1655,6 +1656,16 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		return v as GoalCliConfig
 	},
+	handBack: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		for (const key of Object.keys(v)) {
+			if (key !== 'enabled')
+				return invalidConfigValue(context, [key], 'is not a handBack setting (enabled)')
+			if (typeof (v as Record<string, unknown>)[key] !== 'boolean')
+				return invalidConfigValue(context, [key], 'must be true or false')
+		}
+		return v as HandBackCliConfig
+	},
 	workflow: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const caps = { maxConcurrency: 16, maxAgents: 1000 } as const
@@ -2346,6 +2357,8 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	workflow: undefined,
 	// How a goal ends is a decision in the file, not a shell's.
 	goal: undefined,
+	// Whether the model may hand a task back is a decision in the file, not a shell's.
+	handBack: undefined,
 	// Outbound reach is opted into in the file, never from the environment.
 	web: undefined,
 	// A browser signed in to the operator's sites, and which of them it may
