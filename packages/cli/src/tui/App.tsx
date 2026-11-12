@@ -7618,6 +7618,40 @@ function AppBody({
 		[openResumePicker],
 	)
 
+	const spendRunningRef = useRef(false)
+	/** `/cost days [n]`: spend across conversations, read from the session logs. */
+	const showSpendInSession = useCallback(
+		async (days: number) => {
+			if (spendRunningRef.current) {
+				pushMessage('system', 'The spend view is already being read.')
+				return
+			}
+			spendRunningRef.current = true
+			const progressId = pushMessage('system', 'Reading spend…')
+			try {
+				const [{ buildCostReport }, { renderSpend }, { systemClock }, { resolveNamzuHome }] =
+					await Promise.all([
+						import('../commands/cost.js'),
+						import('../integrations/spend/render.js'),
+						import('../integrations/spend/day.js'),
+						import('../integrations/state/home.js'),
+					])
+				const report = await buildCostReport(days, {
+					home: resolveNamzuHome(),
+					clock: systemClock(),
+				})
+				setMessages((rows) => rows.filter((row) => row.id !== progressId))
+				pushMessage('system', renderSpend(report))
+			} catch (err) {
+				setMessages((rows) => rows.filter((row) => row.id !== progressId))
+				pushSystem('error', explainFailure(err, 'Could not read the spend.'))
+			} finally {
+				spendRunningRef.current = false
+			}
+		},
+		[pushMessage, pushSystem],
+	)
+
 	/** `/doctor`: run the health checks once and show the result in plain words. */
 	const doctorRunningRef = useRef(false)
 	const runDoctorInSession = useCallback(async () => {
@@ -13013,6 +13047,10 @@ function AppBody({
 					}
 					case 'doctor': {
 						void runDoctorInSession()
+						return
+					}
+					case 'spend': {
+						void showSpendInSession(slash.days)
 						return
 					}
 					case 'tasks': {

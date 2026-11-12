@@ -19,6 +19,7 @@ import {
 	archiveCommand,
 	browserCommand,
 	computerCommand,
+	costCommand,
 	createLazyPalCommand,
 	createLazyWorktreeCommand,
 	doctorCommand,
@@ -582,6 +583,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		palCommand,
 		computerCommand,
 		archiveCommand,
+		costCommand,
 		peersCommand,
 		watchCommand,
 		doctorCommand,
@@ -614,7 +616,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					: def === stateCommand ||
 							def === worktreeCommand ||
 							def === mcpCommand ||
-							def === archiveCommand
+							def === archiveCommand ||
+							def === costCommand
 						? getRecoveryContext
 						: def === palCommand ||
 								def === computerCommand ||
