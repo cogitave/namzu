@@ -469,10 +469,12 @@ export function tailView(tail: string, state: TailState): string {
 }
 
 /**
- * A reply cut off in a table: its last row, if it was still being written, is taken back, so it is not drawn
- * as a row of empty cells. Text that ends a table with a whole row, or anything that is not a table, is kept.
+ * A reply cut off in a table. Its last row, if it was still being written, is not a row: drawn as one
+ * its missing cells would read as empty data. The table ends at its last whole row, and what was written
+ * of the unfinished one stays under it as a line of plain text (it is what the model wrote, and it is in
+ * the record). A whole last row, a finished table and anything that is not a table are kept as they are.
  */
-export function withoutHalfTableRow(content: string): string {
+export function endTableAtWholeRow(content: string): string {
 	const at = content.lastIndexOf('\n')
 	if (at < 0) return content
 	const row = content.slice(at + 1).trim()
@@ -485,7 +487,8 @@ export function withoutHalfTableRow(content: string): string {
 	const cells = (text: string) => text.replace(/^\||\|$/gu, '').split(/(?<!\\)\|/u).length
 	const complete =
 		row.endsWith('|') && !row.endsWith('\\|') && cells(row) >= cells(lines[first] ?? '')
-	return complete ? content : content.slice(0, at)
+	// The cut-off text sits in a paragraph of its own (a lone pipe line is prose, never a table).
+	return complete ? content : `${content.slice(0, at)}\n\n${row}`
 }
 
 /** The pieces a message is drawn from: printed chunks, then the live tail. */

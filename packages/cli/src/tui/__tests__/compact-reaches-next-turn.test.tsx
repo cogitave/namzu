@@ -14,7 +14,7 @@
 
 import { type Message, type TurnId, createSystemMessage } from '@namzu/sdk'
 import { render } from 'ink-testing-library'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
 import { genericPresenter } from '../__fixtures__/generic-presenter.js'
@@ -575,4 +575,65 @@ it('holds a compaction typed mid-reply until the reply has ended', async () => {
 	expect(compactCalls, 'the running conversation was summarized from an incomplete snapshot').toBe(
 		0,
 	)
+})
+
+describe('what a command that replaces the conversation does to the terminal', () => {
+	const ESC = '\u001b'
+	const count = (haystack: string[], needle: string) =>
+		haystack.filter((row) => row.includes(needle)).length
+	const before = Array.from({ length: 60 }, (_, i) => `earlier line ${i + 1}`)
+	const mountPainted = async () => {
+		const screen = await renderToScreen(<App ctx={ctx} paintsLiveRegion />, {
+			cols: 120,
+			rows: 40,
+			paint: true,
+			before,
+		})
+		mountedScreens.push(screen)
+		await waitForScreen(screen, () => fullScreen(screen).includes('a-model'))
+		return screen
+	}
+	/** The lines printed before launch: all there, once each, in order. */
+	const expectEarlierLinesIntact = (screen: Screen) => {
+		const rows = screen.scrollback().filter((row) => row.startsWith('earlier line '))
+		expect(rows).toEqual(before)
+	}
+
+	it('/compact keeps every printed row once, erases nothing, and says the rows above are summarized', async () => {
+		const screen = await mountPainted()
+		await submitToScreen(screen, 'question one')
+		await waitForScreen(screen, () => fullScreen(screen).includes('answer-1'))
+		await submitToScreen(screen, 'question two')
+		await waitForScreen(screen, () => fullScreen(screen).includes('answer-2'))
+
+		await submitToScreen(screen, '/compact')
+		await waitForScreen(screen, () => fullScreen(screen).includes('Compacted · 1 message'))
+
+		const bytes = screen.writes().join('')
+		expect(bytes).not.toContain(`${ESC}[3J`)
+		expect(bytes).not.toContain(`${ESC}[2J`)
+		expectEarlierLinesIntact(screen)
+		const rows = screen.scrollback()
+		for (const printed of ['question one', 'answer-1', 'question two', 'answer-2', '› /compact']) {
+			expect(count(rows, printed), `${printed} printed once`).toBe(1)
+		}
+		expect(count(rows, 'The messages above are summarized for the model')).toBe(1)
+		// The row comes after the rows it speaks of.
+		expect(rows.findIndex((row) => row.includes('answer-2'))).toBeLessThan(
+			rows.findIndex((row) => row.includes('Compacted · 1 message')),
+		)
+	})
+
+	it('/clear clears the screen but never the terminal scrollback', async () => {
+		const screen = await mountPainted()
+		await submitToScreen(screen, 'question one')
+		await waitForScreen(screen, () => fullScreen(screen).includes('answer-1'))
+
+		await submitToScreen(screen, '/clear')
+		await waitForScreen(screen, () => fullScreen(screen).includes('Started a fresh conversation'))
+
+		expect(screen.writes().join('')).not.toContain(`${ESC}[3J`)
+		expectEarlierLinesIntact(screen)
+		expect(visibleScreen(screen)).not.toContain('question one')
+	})
 })

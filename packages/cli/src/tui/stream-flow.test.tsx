@@ -20,6 +20,7 @@ import {
 	type FlowContext,
 	PACE_MS,
 	appendReply,
+	endTableAtWholeRow,
 	flowRows,
 	freezeMore,
 	paceDecision,
@@ -28,7 +29,6 @@ import {
 	tailStateOf,
 	tailView,
 	voidReply,
-	withoutHalfTableRow,
 } from './stream-flow.js'
 import type { PrintedChunk, TranscriptMessage } from './types.js'
 
@@ -419,14 +419,22 @@ describe('the window a reply reckons with', () => {
 
 describe('a reply cut off in a table', () => {
 	const table = '| id | name |\n| --- | --- |\n| 1 | one |'
-	it('takes back a row that was still being written', () => {
-		expect(withoutHalfTableRow(`${table}\n| 2 | tw`)).toBe(table)
-		expect(withoutHalfTableRow(`${table}\n| 2 |`)).toBe(table)
+	it('ends the table at its last whole row and keeps the unfinished row as plain text under it', () => {
+		expect(endTableAtWholeRow(`${table}\n| 2 | tw`)).toBe(`${table}\n\n| 2 | tw`)
+		expect(endTableAtWholeRow(`${table}\n| 2 |`)).toBe(`${table}\n\n| 2 |`)
+	})
+	it('draws the unfinished row as text, never as a row of empty cells', () => {
+		const cut = endTableAtWholeRow(`${table}\n| 2 | tw`)
+		const shown = whole(cut)
+		expect(shown.some((row) => row.trim() === '| 2 | tw')).toBe(true)
+		// The table keeps its header and the one whole row; the cut-off text is outside its border.
+		expect(shown.filter((row) => row.includes('│')).length).toBe(2)
+		expect(shown.filter((row) => row.includes('2')).every((row) => !row.includes('│'))).toBe(true)
 	})
 	it('keeps a whole last row, a finished table and text that is not a table', () => {
-		expect(withoutHalfTableRow(table)).toBe(table)
-		expect(withoutHalfTableRow(`${table}\n`)).toBe(`${table}\n`)
-		expect(withoutHalfTableRow('text\n| not | a table')).toBe('text\n| not | a table')
-		expect(withoutHalfTableRow('plain words')).toBe('plain words')
+		expect(endTableAtWholeRow(table)).toBe(table)
+		expect(endTableAtWholeRow(`${table}\n`)).toBe(`${table}\n`)
+		expect(endTableAtWholeRow('text\n| not | a table')).toBe('text\n| not | a table')
+		expect(endTableAtWholeRow('plain words')).toBe('plain words')
 	})
 })

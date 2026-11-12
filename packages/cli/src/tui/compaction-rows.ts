@@ -57,6 +57,9 @@ export function compactResultLine(input: {
 	return parts.join(' · ')
 }
 
+/** Said on the row of a compaction that leaves the earlier rows on screen. */
+export const COMPACT_ABOVE_TEXT = 'The messages above are summarized for the model'
+
 /** What `/compact` says when there is nothing worth summarising. */
 export const NOTHING_TO_COMPACT_TEXT =
 	'Nothing to compact yet. The conversation is still short enough.'

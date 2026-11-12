@@ -475,6 +475,7 @@ import { keepRecentRows } from './compact-transcript.js'
 import {
 	COMPACTED_HINT,
 	COMPACTING_LABEL,
+	COMPACT_ABOVE_TEXT,
 	COMPACT_NOT_SAVED_TEXT,
 	COMPACT_RESULT_HINT,
 	NOTHING_TO_COMPACT_TEXT,
@@ -787,10 +788,10 @@ import {
 	DROPPED_REPLY_NOTICE,
 	type FlowContext,
 	appendReply,
+	endTableAtWholeRow,
 	flowRows,
 	paceDecision,
 	voidReply,
-	withoutHalfTableRow,
 } from './stream-flow.js'
 import { scriptText, terminalDisplayText } from './terminal-display.js'
 import { terminalFocus, useTerminalFocused } from './terminal-focus.js'
@@ -5877,13 +5878,11 @@ function AppBody({
 
 	// What the reply being written needs to know of the screen: how wide its text
 	// is, how tall the window, and whether finished parts are printed as it goes.
+	// The context is worked out in render (below, once the live furniture is known) and handed to this
+	// ref when the render is committed, before any reply event can read it.
 	const flowRef = useRef<FlowContext | undefined>(undefined)
-	flowRef.current = {
-		freeze: !fullscreenOn && !rawOutput && stdout.isTTY === true && terminal.rows !== undefined,
-		width: Math.max(10, terminal.columns - 4),
-		rows: terminal.rows,
-		hyperlinks,
-	}
+	const flowFreeze =
+		!fullscreenOn && !rawOutput && stdout.isTTY === true && terminal.rows !== undefined
 	const appendToMessage = useCallback((id: string, delta: string) => {
 		const flow = flowRef.current
 		setMessages((prev) => {
@@ -5921,11 +5920,18 @@ function AppBody({
 		[appendToMessage, pushMessage],
 	)
 
+	/** The running reply was cut off by the person (Esc, Ctrl+C): what it had written is not a finished text. */
+	const replyCutOffRef = useRef(false)
 	const finalizeMessage = useCallback((id: string, finalContent?: string) => {
+		const cutOff = replyCutOffRef.current
 		setMessages((prev) =>
 			prev.map((m) =>
 				m.id === id
-					? { ...m, content: finalContent ?? withoutHalfTableRow(m.content), pending: false }
+					? {
+							...m,
+							content: finalContent ?? (cutOff ? endTableAtWholeRow(m.content) : m.content),
+							pending: false,
+						}
 					: m,
 			),
 		)
@@ -7157,11 +7163,22 @@ function AppBody({
 	const toolFurniture = compactWork && fullToolFurniture > 0 ? 2 : fullToolFurniture
 	// The reply being written keeps its unfinished part short enough that it, the plan under the
 	// working line, the running calls and a queued message still fit the window.
-	if (flowRef.current)
+	const flowContext: FlowContext = {
+		freeze: flowFreeze,
+		width: Math.max(10, terminal.columns - 4),
+		rows: flowRows(terminal.rows, taskFurniture + toolFurniture + pendingInputFurniture),
+		hyperlinks,
+	}
+	const flowWidth = flowContext.width
+	const flowHeight = flowContext.rows
+	useLayoutEffect(() => {
 		flowRef.current = {
-			...flowRef.current,
-			rows: flowRows(terminal.rows, taskFurniture + toolFurniture + pendingInputFurniture),
+			freeze: flowFreeze,
+			width: flowWidth,
+			rows: flowHeight,
+			hyperlinks,
 		}
+	}, [flowFreeze, flowWidth, flowHeight, hyperlinks])
 	// How much of the transcript is still redrawable. The rest belongs to native
 	// terminal scrollback; the live tail stays deliberately small so an activity
 	// tick never repaints the whole conversation.
@@ -7198,7 +7215,7 @@ function AppBody({
 		messages,
 		window.settled,
 		settledRef.current,
-		flowRef.current?.freeze === true,
+		flowContext.freeze,
 	)
 	if (
 		agentSurface === null &&
@@ -7393,6 +7410,7 @@ function AppBody({
 			setHandoffPark(null)
 			const ac = new AbortController()
 			abortRef.current = ac
+			replyCutOffRef.current = false
 			setState('thinking')
 			thinkingForNextRowRef.current = ''
 			const st: StreamState = {
@@ -7894,6 +7912,7 @@ function AppBody({
 				}
 				return cancelledSwitch
 			}
+			replyCutOffRef.current = true
 			ac.abort(new TurnCancelled('user'))
 			// Esc with a pending steer means "let this instruction interrupt the
 			// answer". The kernel has not drained these inputs yet, so reclaim them
@@ -10949,6 +10968,7 @@ function AppBody({
 				}
 			}
 			abortRef.current = ac
+			replyCutOffRef.current = false
 			refusalEndedTurnRef.current = false
 			activeTurnTokenRef.current = turnToken
 			// Where this turn will be saved, and which transcript its rows belong
@@ -14312,13 +14332,23 @@ function AppBody({
 									tokensBefore: estimateHistoryTokens(historyBefore),
 									tokensAfter: estimateHistoryTokens(result.messages),
 								})
-								resetTranscript()
+								// The default screen keeps every row already printed (they are the record
+								// of what was said, and the terminal's scrollback is the person's): the row
+								// below says they are summarised for the model, and the conversation goes on
+								// under it. Fullscreen owns its screen and redraws the trimmed list.
+								if (fullscreenOn) resetTranscript()
 								setMessages((prev) => {
-									const kept = keepRecentRows(prev, keptTurns)
+									const kept = fullscreenOn ? keepRecentRows(prev, keptTurns) : prev
 									const summaryRow: TranscriptMessage = {
 										id: `compact-${Date.now()}`,
 										role: 'system',
-										content: durable ? resultLine : `${resultLine}. ${COMPACT_NOT_SAVED_TEXT}`,
+										content: [
+											resultLine,
+											fullscreenOn ? '' : COMPACT_ABOVE_TEXT,
+											durable ? '' : COMPACT_NOT_SAVED_TEXT,
+										]
+											.filter(Boolean)
+											.join('. '),
 										glyph: CLOSING_GLYPH,
 										glyphColor: tokenColor('text.muted'),
 										meta: COMPACT_RESULT_HINT,
@@ -14670,6 +14700,7 @@ function AppBody({
 			removeStoredCredential,
 			replaceQueued,
 			resetTranscript,
+			fullscreenOn,
 			runConversationExport,
 			session,
 			selectModelIntent,
@@ -14846,8 +14877,11 @@ function AppBody({
 				const keptTurns = result.messages.filter(
 					(m) => m.role === 'user' || m.role === 'assistant',
 				).length
-				resetTranscript()
-				setMessages((prev) => keepRecentRows(prev, keptTurns))
+				// Default screen: the printed rows stay (see `/compact`); fullscreen redraws the trimmed list.
+				if (fullscreenOn) {
+					resetTranscript()
+					setMessages((prev) => keepRecentRows(prev, keptTurns))
+				}
 				pushSystem('notice', IDLE_COMPACTION_NOTICE)
 				setCompactionTally((tally) => ({
 					...tally,

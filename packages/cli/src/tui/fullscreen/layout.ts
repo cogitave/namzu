@@ -103,12 +103,7 @@ function hangsResult(message: TranscriptMessage): boolean {
  * cells, and the mark stands one column further in than that, so it is part of
  * the first row (in its own colour) and the rows after it hang under the words.
  */
-function hungRows(
-	rows: readonly FsRow[],
-	body: number,
-	mark: string,
-	markColor: string,
-): readonly FsRow[] {
+function hungRows(rows: readonly FsRow[], body: number, markColor: string): readonly FsRow[] {
 	return rows.map((row, i) => {
 		if (i >= body) return row
 		const prefix = i === 0 ? `⎿${' '.repeat(RESULT_HANG - 1)}` : ' '.repeat(RESULT_HANG)
@@ -152,9 +147,7 @@ function clickableRows(
 		plain.rows.slice(0, body).map((r) => r.text),
 	)
 	const own = plain.rows.map((row, i) => plainRow(row, i < body ? (joins[i] ?? null) : null))
-	const laid = hangsResult(message)
-		? hungRows(own, body, '⎿', plain.rows[0]?.glyphColor ?? '')
-		: own
+	const laid = hangsResult(message) ? hungRows(own, body, plain.rows[0]?.glyphColor ?? '') : own
 	return {
 		gap: plain.gap ? plainRow(plain.gap) : null,
 		rows: laid.map((own, i) => {
@@ -216,7 +209,7 @@ export function fullscreenMessageRows(
 	const own = plain.rows.map((row, i) => plainRow(row, i < body ? (joins[i] ?? null) : null))
 	return {
 		gap,
-		rows: hung ? hungRows(own, body, '⎿', first?.glyphColor ?? '') : own,
+		rows: hung ? hungRows(own, body, first?.glyphColor ?? '') : own,
 	}
 }
 

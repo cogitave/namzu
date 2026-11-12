@@ -62,7 +62,7 @@ export function createBlockCache(): BlockCache {
 	const blocks = new Map<string, MdBlock>()
 	return {
 		parse(src: string, startsAs?: 'text'): MdBlock[] {
-			const segments = scanBlocks(src)
+			const segments = scanBlocks(src, startsAs)
 			const settled = segments.length - 2
 			return segments.map((segment, i) => {
 				// The tail is where the text is still being written, so it is parsed
