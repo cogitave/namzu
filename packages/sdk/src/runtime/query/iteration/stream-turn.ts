@@ -16,6 +16,12 @@ import {
 } from '../../../provider/tool-call-framing.js'
 import { GENAI, NAMZU, chatSpanName, parentContext } from '../../../telemetry/attributes.js'
 import {
+	chatStartAttributes,
+	chatUsageAttributes,
+	errorTypeAttributes,
+	genAiErrorType,
+} from '../../../telemetry/genai.js'
+import {
 	recordModelDuration,
 	recordTimeToFirstToken,
 	recordTokenUsage,
@@ -200,6 +206,7 @@ async function settleCancelledTurn(args: {
 			[GENAI.USAGE_OUTPUT_TOKENS]: args.usage.completionTokens,
 			[NAMZU.CACHE_READ_TOKENS]: args.usage.cachedTokens ?? 0,
 			[NAMZU.CACHE_WRITE_TOKENS]: args.usage.cacheWriteTokens ?? 0,
+			...chatUsageAttributes(args.usage),
 		})
 		args.span.setStatus({ code: SpanStatusCode.OK })
 		args.span.end()
@@ -277,6 +284,7 @@ export async function* streamProviderTurn(
 			? { [GENAI.REQUEST_TEMPERATURE]: params.temperature }
 			: {}),
 		...(params.maxTokens !== undefined ? { [GENAI.REQUEST_MAX_TOKENS]: params.maxTokens } : {}),
+		...chatStartAttributes(provider.id),
 	})
 
 	const messageId = announceAs ?? generateMessageId()
@@ -1053,6 +1061,7 @@ export async function* streamProviderTurn(
 	yield* drainPending()
 
 	if (streamError && !recoveredToolInputFromStreamError) {
+		chatSpan.setAttributes(errorTypeAttributes(genAiErrorType(streamCause)))
 		chatSpan.setStatus({ code: SpanStatusCode.ERROR, message: streamError })
 		chatSpan.end()
 
@@ -1132,6 +1141,7 @@ export async function* streamProviderTurn(
 		[GENAI.USAGE_OUTPUT_TOKENS]: usage.completionTokens,
 		[NAMZU.CACHE_READ_TOKENS]: usage.cachedTokens ?? 0,
 		[NAMZU.CACHE_WRITE_TOKENS]: usage.cacheWriteTokens ?? 0,
+		...chatUsageAttributes(usage),
 	})
 	chatSpan.setStatus({ code: SpanStatusCode.OK })
 	chatSpan.end()

@@ -36,6 +36,7 @@ import {
 	parentContext,
 	serializeSpan,
 } from '../../telemetry/attributes.js'
+import { agentRunAttributes } from '../../telemetry/genai.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
 import { buildAdvisoryTools } from '../../tools/advisory/index.js'
 import { SearchToolsTool } from '../../tools/builtins/search-tools.js'
@@ -2128,6 +2129,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				[GENAI.AGENT_ID]: params.agentId,
 				[GENAI.REQUEST_MODEL]: turnConfig.model,
 				[GENAI.SYSTEM]: params.provider.id,
+				...agentRunAttributes(params.provider.id),
 			})
 
 			let sandbox: Sandbox | undefined

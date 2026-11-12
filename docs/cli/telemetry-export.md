@@ -12,7 +12,7 @@ status: stable
 The kernel records a span for each turn, model call and tool call, and
 metrics for tokens, cost and duration. By default nothing leaves the machine.
 Turn the export on and the CLI sends them to an OpenTelemetry collector over
-OTLP/HTTP with JSON encoding. Spans carry timings, counts and names, plus the conversation id and the
+OTLP/HTTP with JSON encoding. Spans carry timings, counts and names (including the [OpenTelemetry GenAI convention names](../sdk/telemetry-genai.md), pinned to version 1.41.1), plus the conversation id and the
 error text of a failed tool call. That text can contain a command line, a file
 path or a fragment of output. No prompt or reply is attached.
 
@@ -46,6 +46,7 @@ and `/v1/metrics` to the address; per-signal addresses are not read.
 | `NAMZU_ENABLE_TELEMETRY` | `1`, `true`, `yes` or `on` turns the export on. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector address. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | `name=value` pairs separated by commas, values percent-decoded. |
+| `NAMZU_TELEMETRY_GENAI` | `0`, `false`, `no` or `off` leaves the OpenTelemetry GenAI convention names off the spans (they are added by default, beside the kernel's own). See [span attributes](../sdk/telemetry-genai.md). |
 | `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER` | Each independently selects `otlp` (default), `console` (terminal) or `none` (disabled). Disabling traces does not disable metrics, and vice versa; `console` for one signal does not redirect the other. Both `none` skips loading exporters entirely. |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/json` (default). `grpc` and `http/protobuf` are not shipped; an active OTLP signal requesting either is reported as unsupported rather than silently using another transport. |
 | `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`, `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL` | Per-signal protocol overrides the general protocol. Ignored when that signal is `none` or `console`. |

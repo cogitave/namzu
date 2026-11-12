@@ -9,9 +9,19 @@
 // discarded — standard OTEL library behavior.
 
 import { type SpanContext, type Tracer, context, trace } from '@opentelemetry/api'
+import { GENAI_SEMCONV_SCHEMA_URL, genAiConventionsEnabled } from './genai.js'
 
+/**
+ * The kernel's tracer. While the GenAI convention names are on, its
+ * instrumentation scope carries the schema URL of the pinned convention
+ * version, which is how the convention says a producer states the version.
+ */
 export function getTracer(): Tracer {
-	return trace.getTracer('namzu')
+	return genAiConventionsEnabled()
+		? trace
+				.getTracerProvider()
+				.getTracer('namzu', undefined, { schemaUrl: GENAI_SEMCONV_SCHEMA_URL })
+		: trace.getTracer('namzu')
 }
 
 /**

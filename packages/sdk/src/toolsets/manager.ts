@@ -6,6 +6,13 @@ import { assertToolName, describeWithOutput, toolDiscoveryHint } from '../regist
 import { renderToolSchema, toolWireSchema } from '../registry/tool/schema.js'
 import { ToolResultHalted, screenToolResult } from '../registry/tool/screen.js'
 import { GENAI, NAMZU, toolSpanName } from '../telemetry/attributes.js'
+import {
+	ERROR_TYPE_OTHER,
+	PERMISSION_DENIED,
+	errorTypeAttributes,
+	genAiErrorType,
+	toolCallAttributes,
+} from '../telemetry/genai.js'
 import { recordToolCall } from '../telemetry/metrics.js'
 import { getTracer } from '../telemetry/runtime-accessors.js'
 import { failureFactsFromError } from '../tools/failure-facts.js'
@@ -804,6 +811,8 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 					[GENAI.TOOL_TYPE]: 'function',
 					...(context.toolUseId !== undefined ? { [GENAI.TOOL_CALL_ID]: context.toolUseId } : {}),
 					...toolSpanIdentity(context),
+					...toolCallAttributes(),
+					...errorTypeAttributes(genAiErrorType(err)),
 					[NAMZU.TOOL_SUCCESS]: false,
 					[NAMZU.TOOL_ERROR]: toErrorMessage(err),
 				})
@@ -841,6 +850,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 					[GENAI.TOOL_TYPE]: 'function',
 					...(context.toolUseId !== undefined ? { [GENAI.TOOL_CALL_ID]: context.toolUseId } : {}),
 					...toolSpanIdentity(context),
+					...toolCallAttributes(),
 				})
 
 				// The permitted `this.getAvailability` substitution: derived,
@@ -852,6 +862,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 					span.setAttributes({
 						[NAMZU.TOOL_SUCCESS]: false,
 						[NAMZU.TOOL_ERROR]: msg,
+						...errorTypeAttributes(ERROR_TYPE_OTHER),
 					})
 					span.setStatus({ code: SpanStatusCode.ERROR, message: msg })
 					return {
@@ -871,6 +882,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 					span.setAttributes({
 						[NAMZU.TOOL_SUCCESS]: false,
 						[NAMZU.TOOL_ERROR]: msg,
+						...errorTypeAttributes(PERMISSION_DENIED),
 					})
 					span.setStatus({ code: SpanStatusCode.ERROR, message: msg })
 					return {
@@ -889,6 +901,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 						span.setAttributes({
 							[NAMZU.TOOL_SUCCESS]: false,
 							[NAMZU.TOOL_ERROR]: msg,
+							...errorTypeAttributes(PERMISSION_DENIED),
 						})
 						span.setStatus({ code: SpanStatusCode.ERROR, message: msg })
 						return {
@@ -932,6 +945,13 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 					)
 					if (!result.success && result.error) {
 						span.setAttribute(NAMZU.TOOL_ERROR, result.error)
+						span.setAttributes(
+							errorTypeAttributes(
+								'permissionDenied' in result && result.permissionDenied
+									? PERMISSION_DENIED
+									: ERROR_TYPE_OTHER,
+							),
+						)
 						span.setStatus({
 							code: SpanStatusCode.ERROR,
 							message: result.error,
@@ -946,6 +966,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 						span.setAttributes({
 							[NAMZU.TOOL_SUCCESS]: false,
 							[NAMZU.TOOL_ERROR]: err.message,
+							...errorTypeAttributes(genAiErrorType(err)),
 						})
 						span.setStatus({
 							code: SpanStatusCode.ERROR,
@@ -962,6 +983,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 					span.setAttributes({
 						[NAMZU.TOOL_SUCCESS]: false,
 						[NAMZU.TOOL_ERROR]: errorMessage,
+						...errorTypeAttributes(genAiErrorType(err)),
 					})
 					span.setStatus({
 						code: SpanStatusCode.ERROR,

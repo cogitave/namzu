@@ -1487,6 +1487,17 @@ export {
 } from './telemetry/metrics.js'
 export type { TokenUsageSample } from './telemetry/metrics.js'
 
+// The GenAI convention names on spans: the pinned version, the switch, the
+// list a test holds emitted names against. See docs/sdk/telemetry-genai.md.
+export {
+	GENAI_NON_CONVENTION_NAMES,
+	GENAI_SEMCONV_ATTRIBUTES,
+	GENAI_SEMCONV_SCHEMA_URL,
+	GENAI_SEMCONV_VERSION,
+	genAiConventionsEnabled,
+	setGenAiConventions,
+} from './telemetry/genai.js'
+
 // ─── guardrails ──────────────────────────────────────────────────────────
 
 export {
