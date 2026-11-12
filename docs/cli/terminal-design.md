@@ -1375,14 +1375,60 @@ keeps the selected agent and the input draft, while model/path text yields to
 the keys needed to leave a prompt. The palette targets dark backgrounds; the
 application does not paint a full-screen background or depend on color alone.
 
-When the terminal contracts, native reflow can push old live rows into
-scrollback before the renderer can erase them. When it expands, completed rows
-already printed into scrollback keep their old line breaks. Namzu clears and
-reconstructs its normal-buffer transcript on either width change, preserving
-conversation messages, the draft and the selected agent. This costs one history
-replay per width change; ordinary streaming and animation frames remain
-incremental. A height reduction also rebuilds the transcript. An open retained
-detailed transcript stays open through a resize.
+### How the default screen is painted
+
+The default screen prints each finished row once into the terminal's scrollback and keeps a small live region
+at the bottom. Fullscreen has its own renderer and is not described here. The live region is written by a
+writer of Namzu's own (`packages/cli/src/tui/paint/`) that sits between the renderer and the terminal:
+
+- **Only what changed is written.** A frame is compared with what is on screen row by row, and inside a changed
+  row cell by cell, so a label whose colour moves one letter along costs a cursor move and that letter. A frame
+  equal to the one on screen writes nothing, not even the synchronized-output marks. Rows that finish and go to
+  scrollback are printed above the region and the region is drawn once under them. The marks that let a terminal
+  show a frame whole (`?2026`) are kept, and the screen is right on a terminal that ignores them.
+- **At most twelve paints a second.** The first change after a quiet moment is painted at once; changes that
+  follow within 83 ms are folded into the next paint, so a flood of shell output or reasoning text is one paint
+  per interval, the last state is never dropped, and rows meant for scrollback are kept in order. The clock on
+  the working line still moves every second.
+- **Starting never erases what was there.** The terminal UI begins on the line the shell left the cursor on.
+  What was on screen and everything in the scrollback stay, and the banner is drawn under them. (Before, launch
+  cleared the screen and the scrollback.) A conversation reopened with `/resume`, `/clear` and a theme change
+  still clear the screen and print the conversation again, because the person asked for a new screen.
+- **A resize never touches scrollback.** Rows already printed stay as the terminal reflowed them and are not
+  printed again. The terminal UI waits until the size has stopped changing (150 ms without a new event, so a drag
+  is one redraw), tells the renderer once, waits 100 ms for the frame at the new width, erases only the live
+  region (as many rows as the terminal made of it at the new width) and draws one frame. No frame is drawn at the
+  old width. A region taller than the terminal's new height can leave its top rows in scrollback; the terminal
+  pushed them there before Namzu could erase them.
+- **Leaving gives the terminal back.** The last frame is painted, the cursor is shown and left at the start of a
+  line under the last frame, also after a signal (Ctrl+C twice, `SIGTERM`, `SIGHUP`) and when the process ends
+  without unmounting (an uncaught error). A process continued after a stop draws a fresh frame on a new line
+  below whatever the shell printed.
+
+`NAMZU_LEGACY_PAINT=1` hands the writing back to the renderer, which erases and writes the whole live region on
+every frame and clears the terminal on a resize as before. It is a way back for a terminal the writer does not
+suit, not a setting to keep.
+
+Measured with a pseudo-terminal, colour on, a scripted model on loopback, ten seconds from the start of each
+moment (four for the shell command, eight for thinking); "erase" counts the sequences that erase a row or the
+region (`ESC[2K`, `ESC[J`); there is no full clear of the screen or scrollback in any of them, before or after:
+
+| Moment | Size | Before: bytes, paints/s, erases | After: bytes, paints/s, erases |
+|---|---|---|---|
+| A streaming reply | 120x40 | 244 KB, 15, 3387 | 18 KB, 11.7, 1 |
+| A streaming reply | 80x24 | 192 KB, 15, 2911 | 18 KB, 11.7, 0 |
+| The model thinking | 120x40 | 218 KB, 31, 2509 | 16 KB, 12, 0 |
+| The model thinking | 80x24 | 176 KB, 31, 2469 | 12 KB, 12, 0 |
+| A shell command flooding output | 120x40 | 284 KB, 57, 3712 | 10 KB, 12, 0 |
+| A shell command flooding output | 80x24 | 259 KB, 57, 3743 | 10 KB, 12, 0 |
+| A silent wait (the label's animation only) | 120x40 | 60 KB, 8.5, 762 | 5 KB, 8.5, 0 |
+| A silent wait (the label's animation only) | 80x24 | 50 KB, 8.5, 762 | 6 KB, 8.9, 0 |
+| Idle | both | 0 | 0 |
+
+A silent wait still paints about eight times a second because the label's colour moves every 120 ms, but each paint is
+a few dozen bytes (median 33). A resize from 120x40 to 80x24 mid-reply wrote 65 KB with one clear of screen and
+scrollback and 973 erased rows before, and 6 KB with no clear and one erase after; a burst of three more resizes
+gave two clears (85 KB) before and one erase (6 KB) after.
 
 On Windows, a program run as the desktop's embedded interpreter on a pseudo-console
 is not seen to receive Node's console-layout notification, the only thing that makes
