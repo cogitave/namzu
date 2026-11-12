@@ -6,7 +6,8 @@
  * that cannot be read or is not an object grants nothing here, and the real
  * load reports it once the folder is trusted. Only what the person needs to
  * weigh the choice is returned: the allow rules, the extra directories and
- * the names of the tool servers the shared file declares.
+ * the names of the tool servers the shared file declares and the hooks the
+ * two files declare.
  */
 
 import { readFileSync } from 'node:fs'
@@ -29,6 +30,17 @@ export interface ToolServerGrant {
 	readonly fingerprint: string
 }
 
+/** One hook the folder's files declare, as the trust screen shows it. */
+export interface HookGrant {
+	/** The event it runs at, as written. */
+	readonly event: string
+	/** What it runs or reaches: the command (and arguments), `POST <address>`, or the start of its prompt. */
+	readonly runs: string
+}
+
+/** The longest text one shown hook carries. */
+const MAX_HOOK_RUNS_CHARS = 200
+
 export interface FolderGrants {
 	/** Allow rules in the order written, `tool` or `tool(pattern)`, each once. */
 	readonly allowRules: readonly string[]
@@ -36,6 +48,8 @@ export interface FolderGrants {
 	readonly directories: readonly string[]
 	/** Tool servers the folder's shared file declares; approving the folder approves these. */
 	readonly toolServers: readonly ToolServerGrant[]
+	/** Hooks the folder's own files declare, in file order; they run on events once the folder is trusted. */
+	readonly hooks: readonly HookGrant[]
 }
 
 /** The address without credentials or a query, which can carry a token. */
@@ -62,6 +76,38 @@ function describeRuns(entry: unknown): string {
 	return 'unknown'
 }
 
+/** The hooks a config object declares, each as what it would run; unreadable shapes are skipped. */
+function describeHooks(config: Record<string, unknown>): HookGrant[] {
+	const hooks = config.hooks
+	if (hooks === null || typeof hooks !== 'object' || Array.isArray(hooks)) return []
+	const out: HookGrant[] = []
+	for (const [event, entries] of Object.entries(hooks)) {
+		if (!Array.isArray(entries)) continue
+		for (const entry of entries) {
+			if (entry === null || typeof entry !== 'object') continue
+			const spec = entry as Record<string, unknown>
+			let runs: string | undefined
+			if (spec.type === 'http') {
+				if (typeof spec.url === 'string') runs = `POST ${plainAddress(spec.url)}`
+			} else if (spec.type === 'prompt') {
+				if (typeof spec.prompt === 'string') runs = `asks the model: ${spec.prompt}`
+			} else if (typeof spec.command === 'string') {
+				const args = Array.isArray(spec.args)
+					? spec.args.filter((arg): arg is string => typeof arg === 'string')
+					: []
+				runs = [spec.command, ...args].join(' ')
+			}
+			if (runs === undefined) continue
+			const flat = runs.replace(/\s+/g, ' ').trim()
+			out.push({
+				event,
+				runs: flat.length > MAX_HOOK_RUNS_CHARS ? `${flat.slice(0, MAX_HOOK_RUNS_CHARS)}…` : flat,
+			})
+		}
+	}
+	return out
+}
+
 function readObject(path: string): Record<string, unknown> | undefined {
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
@@ -77,9 +123,11 @@ function readObject(path: string): Record<string, unknown> | undefined {
 export function readFolderGrants(cwd: string): FolderGrants {
 	const allowRules: string[] = []
 	const directories: string[] = []
+	const hooks: HookGrant[] = []
 	for (const file of FILES) {
 		const config = readObject(resolve(cwd, file))
 		if (!config) continue
+		hooks.push(...describeHooks(config))
 		const permissions = config.permissions
 		if (permissions !== null && typeof permissions === 'object' && !Array.isArray(permissions)) {
 			for (const [tool, value] of Object.entries(permissions)) {
@@ -115,5 +163,6 @@ export function readFolderGrants(cwd: string): FolderGrants {
 		allowRules: [...new Set(allowRules)],
 		directories: [...new Set(directories)],
 		toolServers,
+		hooks,
 	}
 }

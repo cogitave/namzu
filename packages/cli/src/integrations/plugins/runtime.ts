@@ -1,6 +1,7 @@
 import {
 	PluginLifecycleManager,
 	PluginRegistry,
+	SHELL_HOOKS_PLUGIN_ID,
 	type ShellHookOptions,
 	SkillRegistry,
 	attachShellHooks,
@@ -11,13 +12,56 @@ import type { HooksConfig, PluginConfig, PluginScope } from '../../config/schema
 import { cliLogger } from '../../logging.js'
 import { resolveNamzuHome } from '../state/home.js'
 import { listMarkdownNames, resolvePluginFileDirs } from './files.js'
+import { createHookPathFilter } from './hook-path-filter.js'
 import { PluginSettingsStore } from './settings.js'
+
+/**
+ * How long a `session_end` hook may run when its entry sets no `timeoutMs`.
+ * Closing a session waits for these hooks, so one that hangs would hold
+ * `/exit` and the end of `namzu exec` for the ordinary ten minutes.
+ */
+export const SESSION_END_HOOK_TIMEOUT_MS = 5_000
+
+/** The most a hook entry may run: the SDK's own cap on any hook deadline. */
+const MAX_HOOK_TIMEOUT_MS = 10 * 60_000
+
+/**
+ * The longest a session close can spend in `session_end` hooks: the largest
+ * deadline among the entries that are waited for (an `async` one is not), five
+ * seconds for an entry that names none. Zero when there are none. A host that
+ * stops waiting for the close must wait at least this long beyond its own
+ * allowance for the rest of the close, or it leaves before the hook's deadline
+ * can end the hook's process.
+ */
+export function sessionEndHookBudgetMs(hooks: HooksConfig | undefined): number {
+	let longest = 0
+	for (const entry of hooks?.session_end ?? []) {
+		if ('async' in entry && entry.async === true) continue
+		const own = entry.timeoutMs ?? SESSION_END_HOOK_TIMEOUT_MS
+		longest = Math.max(longest, Math.min(MAX_HOOK_TIMEOUT_MS, Math.max(1, own)))
+	}
+	return longest
+}
+
+/** The one plain line that says a hook was ended at its deadline. */
+export function hookTimeoutLine(info: {
+	readonly event: string
+	readonly hook: string
+	readonly timeoutMs: number
+}): string {
+	const seconds = info.timeoutMs / 1000
+	return `The ${info.event} hook \`${info.hook}\` did not finish within ${seconds} second${seconds === 1 ? '' : 's'} and was ended.`
+}
 
 export interface CliPluginRuntime {
 	readonly manager: PluginLifecycleManager
 	readonly skills: SkillRegistry
 	readonly pluginCount: number
+	/** How long closing the session may spend in `session_end` hooks; see {@link sessionEndHookBudgetMs}. */
+	readonly sessionEndBudgetMs: number
 	list(): readonly CliPluginInfo[]
+	/** The JavaScript hooks plugins registered right now: the plugin's name and the event. */
+	pluginHooks(): readonly { readonly plugin: string; readonly event: string }[]
 	setEnabled(name: string, enabled: boolean): Promise<void>
 	rememberState(name: string): Promise<void>
 	close(): Promise<void>
@@ -91,7 +135,22 @@ export async function createCliPluginRuntime(
 		log,
 		...(config?.hookTimeoutMs !== undefined ? { hookTimeoutMs: config.hookTimeoutMs } : {}),
 	})
-	if (hooks && hookCount > 0) attachShellHooks(manager, hooks, { cwd, log, ...hookHost })
+	if (hooks && hookCount > 0) {
+		attachShellHooks(manager, hooks, {
+			cwd,
+			// The folder the session was started for, for a hook script to find its own files.
+			projectDir: cwd,
+			pathFilter: createHookPathFilter(cwd),
+			log,
+			defaultTimeoutMs: { session_end: SESSION_END_HOOK_TIMEOUT_MS },
+			// Only the close of a session says so out loud: it is the one place
+			// a person is left waiting with nothing on screen to explain it.
+			onTimeout: (info) => {
+				if (info.event === 'session_end') process.stderr.write(`${hookTimeoutLine(info)}\n`)
+			},
+			...hookHost,
+		})
+	}
 	const allowedScopes = config?.allowedScopes ?? (['project', 'user'] as const)
 	const discovered = pluginsEnabled
 		? await discoverAllPluginDirs(cwd, {
@@ -154,6 +213,15 @@ export async function createCliPluginRuntime(
 		manager,
 		skills,
 		pluginCount: installed.length,
+		sessionEndBudgetMs: sessionEndHookBudgetMs(hooks),
+		pluginHooks: () =>
+			manager
+				.listHooks()
+				.filter((hook) => hook.pluginId !== SHELL_HOOKS_PLUGIN_ID)
+				.map((hook) => ({
+					plugin: plugins.get(hook.pluginId)?.manifest.name ?? String(hook.pluginId),
+					event: hook.event,
+				})),
 		list: () =>
 			plugins
 				.getAll()

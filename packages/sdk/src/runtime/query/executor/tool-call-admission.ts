@@ -1,4 +1,5 @@
 import { GENAI, NAMZU } from '../../../constants/telemetry/index.js'
+import { boundHookContext } from '../../../plugin/hook-context.js'
 import { callableToolNames, formatToolNames } from '../../../registry/tool/callable.js'
 import { renderToolSchema } from '../../../registry/tool/schema.js'
 import type { ToolCall, ToolInputError } from '../../../types/message/index.js'
@@ -433,11 +434,8 @@ function interpretPreToolResults(
  */
 export function hookNote(texts: readonly string[]): string {
 	const joined = texts.join('\n')
-	return `[Hook note]\n${joined.length > MAX_HOOK_NOTE_CHARS ? `${joined.slice(0, MAX_HOOK_NOTE_CHARS)}\n[truncated]` : joined}`
+	return `[Hook note]\n${boundHookContext(joined)}`
 }
-
-/** A hook's text is one more thing for the model to read; it gets a bound. */
-const MAX_HOOK_NOTE_CHARS = 8_000
 
 /**
  * Turn the call the model issued into a name and a parsed input, giving

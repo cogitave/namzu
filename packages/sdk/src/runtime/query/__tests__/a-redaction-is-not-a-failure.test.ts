@@ -214,3 +214,34 @@ describe('the failure channel still reports failures', () => {
 		expect(outcome.output).toBe(REDACTED)
 	})
 })
+
+describe('a replacement that asks to be disclosed', () => {
+	it('says beside the result that a hook replaced it, and still is not an error', async () => {
+		const outcome = await runWith(toolsThatReturn({ success: true, output: SECRET }), [
+			{ action: 'replace', output: REDACTED, disclose: true },
+		])
+
+		expect(outcome.isError).toBeFalsy()
+		expect(outcome.output.startsWith(REDACTED)).toBe(true)
+		expect(outcome.output).toContain('[Hook note]')
+		expect(outcome.output).toContain('A hook replaced this tool result')
+		expect(outcome.output).not.toContain(SECRET)
+	})
+
+	it('keeps the hook context and the mark together', async () => {
+		const outcome = await runWith(toolsThatReturn({ success: true, output: SECRET }), [
+			{ action: 'replace', output: REDACTED, disclose: true, context: 'one secret removed' },
+		])
+
+		expect(outcome.output).toContain('A hook replaced this tool result')
+		expect(outcome.output).toContain('one secret removed')
+	})
+
+	it('leaves a quiet replacement as it was', async () => {
+		const outcome = await runWith(toolsThatReturn({ success: true, output: SECRET }), [
+			{ action: 'replace', output: REDACTED },
+		])
+
+		expect(outcome.output).toBe(REDACTED)
+	})
+})

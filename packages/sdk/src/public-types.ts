@@ -244,6 +244,7 @@ export type {
 	ShellHookOnFailure,
 	ShellHookInput,
 	ShellHookOptions,
+	ShellHookPathFilter,
 	ShellHookOutcome,
 	ShellHooksConfig,
 } from './plugin/shell-hook.js'

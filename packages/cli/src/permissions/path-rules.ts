@@ -51,6 +51,11 @@ export function isPathRuleTool(tool: string): boolean {
 	return Object.hasOwn(PATH_RULE_TOOLS, tool)
 }
 
+/** The tools a path rule written under `tool` covers (`edit` covers `edit` and `write`). */
+export function pathRuleTools(tool: string): readonly string[] {
+	return PATH_RULE_TOOLS[tool] ?? []
+}
+
 const PATH_ARGUMENT = 'path'
 const WINDOWS = process.platform === 'win32'
 

@@ -3409,7 +3409,14 @@ function AppBody({
 		const closing = Promise.all([session?.close(), peersRef.current?.close()])
 		const bounded = Promise.race([
 			closing,
-			new Promise<void>((resolve) => setTimeout(resolve, SESSION_CLOSE_ON_EXIT_MS).unref?.()),
+			new Promise<void>((resolve) =>
+				// The bound is for a hung server; a `session_end` hook has its own
+				// deadline, which starts after the rest of the close, so it is added.
+				setTimeout(
+					resolve,
+					SESSION_CLOSE_ON_EXIT_MS + (session?.sessionEndBudgetMs ?? 0),
+				).unref?.(),
+			),
 		])
 		void bounded
 			.catch(() => undefined)
@@ -6352,7 +6359,7 @@ function AppBody({
 			// without this the first one's tool-server child processes stay alive
 			// for the rest of the TUI's life.
 			const previousInstructionFiles = previousSessionRef.current?.instructionFiles
-			void previousSessionRef.current?.close()
+			void previousSessionRef.current?.close('replaced')
 			previousSessionRef.current = s
 			setSession(s)
 			// Fast mode follows the model: a launch `--fast` is applied once the
@@ -7198,6 +7205,10 @@ function AppBody({
 		cwd: ctx.cwd,
 		jobs: () => session?.jobs?.() ?? [],
 		hooks: () => session?.hooks,
+		hooksView: () => ({
+			...(session?.pluginHooks ? { pluginHooks: session.pluginHooks() } : {}),
+			...(initialCtx.hooksSwitch ? { switch: initialCtx.hooksSwitch } : {}),
+		}),
 		directories: () => session?.directories?.list() ?? [],
 		recentDenials: () => session?.autoMode?.recentBlocks?.() ?? [],
 		...(session?.reloadPermissionRules
@@ -8095,7 +8106,7 @@ function AppBody({
 				setPhase('probing')
 				palRouteSessionRef.current = null
 				try {
-					await session?.close()
+					await session?.close('replaced')
 					if (!savedPrefsRef.current) throw new Error('Select a model for this Pal conversation.')
 					await hydrateSession(savedPrefsRef.current, detected)
 				} catch (error) {
@@ -8286,7 +8297,7 @@ function AppBody({
 						setPhase('probing')
 						palRouteSessionRef.current = null
 						try {
-							await session?.close()
+							await session?.close('replaced')
 							if (!savedPrefsRef.current)
 								throw new Error('Select a model for this Pal conversation.')
 							await hydrateSession(savedPrefsRef.current, detected)

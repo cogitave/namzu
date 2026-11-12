@@ -826,6 +826,14 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Commands that run on events such as before a tool runs. Edit them in the config file.',
 		fileOnly,
 	),
+	d(
+		'disableHooks',
+		'tools',
+		'Turn off hooks',
+		'Do not run hooks from your config, project and local files. Hooks from an organisation-managed file and the JavaScript hooks of plugins still run.',
+		on,
+		{ defaultText: 'off', keywords: ['hooks'] },
+	),
 	d('plugins.enabled', 'tools', 'Plugins', 'Allow plugins to run code.', on, {
 		defaultText: 'off',
 		confirm: 'Plugins run code on this computer.',
@@ -1013,6 +1021,11 @@ export const SETTING_EXCLUSIONS: readonly SettingExclusion[] = [
 	{
 		key: 'permissionLayers',
 		reason: 'Worked out by the loader from the permission rules; it is not a setting.',
+	},
+	{
+		key: 'hooksManagedOnly',
+		reason:
+			'Only the organisation-managed file can set it, and Desktop writes the user file, so a control here would do nothing.',
 	},
 	{
 		key: 'permissionSettings',
