@@ -228,7 +228,7 @@ the command and commit both.
   manifest lives 14 days).
 
 It builds only when the command line version at the commit is **newer** than the one in the current manifest
-**and** is on the npm registry; otherwise the run ends quietly with a notice that says why. With an empty key
+**and** was really published (its release tag is on `main`, or the npm registry has it; see below); otherwise the run ends quietly with a notice that says why. With an empty key
 list it also ends quietly. Three jobs:
 
 - `plan` (read-only token, no secret) decides: build, re-issue, or nothing.
@@ -260,9 +260,28 @@ Setting it up, once, by the owner:
    before any code, including this workflow and the scripts it runs, can change.
 4. Paste the public entry into `kernel-keys.json` and merge. Until then the workflow ends quietly.
 
-**A run right after the package publish** asks the registry up to six times, thirty seconds apart, whether the
-new command line version is there yet. If it still is not, the run ends quietly and the Monday run builds it;
-publish by hand (`workflow_dispatch`) to avoid the wait.
+**A run right after the package publish** needs proof that the new command line version was really
+published, and either of two is enough:
+
+- **The release tag.** The publish step of `release.yml` creates and pushes the git tag `@namzu/cli@<version>`
+  only after the publish succeeded, so it is there at once. The plan job reads the tag (an exact name; another
+  version's tag, or a longer version that starts the same, does not count) and accepts it only when its commit
+  is main itself or one of main's ancestors. A tag made by hand on a side branch, or on a commit that never
+  reached main, is not proof. It protects against a version that was bumped on main but never published (no
+  tag exists), and against a publish that failed part-way (the tag is pushed only after success).
+- **The registry.** The npm registry answering for that version. It can lag a good publish by many minutes
+  (measured up to about thirteen), so it cannot be the only proof. When no tag proves it, the run the package
+  publish started asks once a minute for up to 25 minutes and says nothing while it waits; any other start asks
+  once. When the tag is there, the registry is asked once, without waiting, and its answer only adds to the
+  notice.
+
+When neither proof is there, the run ends quietly with `not on the registry yet and has no release tag on
+main`, and the Monday run tries again. The build job installs from the workspace at that commit, never from the
+registry, so it does not wait for the registry to answer. Nothing else about the plan changed: the version must
+still be newer than the current manifest, and an empty key list still ends the run. The decision is in
+`release-plan.mjs` (`decide`, `tagCommit`, `waitForRegistry`) and is tested with an injected clock; the
+workflow only gathers facts and passes them through environment variables. It can also be started by hand
+(`workflow_dispatch`).
 
 ### When an upload was cut in half
 
@@ -286,7 +305,7 @@ validated-tree record waits for, because it runs after a release, not before a m
 the scripts' own tests (`packages/desktop/scripts/__tests__/kernel-*.test.mjs`) run in the ordinary
 `pnpm -r test` of every pull request, and `publish` re-verifies everything it signs. What no check here covers:
 the workflow file itself is not linted or run before it first runs for real, and the build job's output is not
-proven to be what the registry package contains (the plan job checks that the version exists on the registry,
+proven to be what the registry package contains (the plan job checks that the version was published, by its tag or the registry,
 not that the staged files are byte for byte the published package). The signature says that the publish job
 signed what the build job made at a commit on `main`; it does not say the build was clean.
 

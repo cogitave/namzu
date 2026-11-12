@@ -10,8 +10,9 @@
 #   - weekly (schedule), to re-issue the current manifest so it never expires while nothing changed.
 #
 # It builds only when the command line version at the commit is NEWER than the one in the current manifest
-# AND is on the npm registry; otherwise the plan job ends the run quietly. With no public key listed in
-# packages/desktop/kernel-keys.json there is nothing to sign for, and it also ends quietly.
+# AND was really published (its release tag is on main, or the npm registry has it); otherwise the plan
+# job ends the run quietly. With no public key listed in packages/desktop/kernel-keys.json there is nothing
+# to sign for, and it also ends quietly.
 #
 # Jobs:
 #   plan     (read-only token, no secret)  decides what this run does
@@ -74,7 +75,7 @@ jobs:
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository)
       || (github.event_name != 'workflow_run' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 35 # the registry wait can take 25
     outputs:
       mode: ${{ steps.decide.outputs.mode }}
       version: ${{ steps.version.outputs.version }}
@@ -118,23 +119,41 @@ jobs:
             gh release download "$FEED_TAG" --pattern kernel-latest.json --dir prev
           fi
 
-      # Right after the package publish the registry can still answer "not found" for a short while, so a run
-      # started by that publish asks a few times. The weekly run catches up anyway; this saves the wait.
+      # Two proofs that this version was really published; either one is enough.
+      #  1. The git tag `@namzu/cli@<version>`: the publish step of release.yml creates and pushes it only
+      #     after the publish succeeded, so it is there at once. It counts only when it points at a commit
+      #     that is on main (a tag made by hand elsewhere does not). The name is matched exactly in
+      #     release-plan.mjs (tag-commit).
+      #  2. The npm registry answering for that version. It can lag the publish by many minutes, so the run
+      #     the package publish started waits up to 25 minutes, quietly; every other start asks once.
+      # The build installs from the workspace at the commit, never from the registry, so it does not need
+      # the registry to answer.
+      - name: Is that version tagged on main
+        id: tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          published=false
+          sha="$(git ls-remote --tags origin "refs/tags/@namzu/cli@$VERSION" "refs/tags/@namzu/cli@$VERSION^{}" | node "$KERNEL_SCRIPTS/release-plan.mjs" tag-commit --version "$VERSION")"
+          case "$sha" in *[!0-9a-f]*) echo "unexpected tag commit" >&2; exit 1 ;; esac
+          if [ -n "$sha" ]; then
+            # "behind" or "identical": the tagged commit is main itself or one of its ancestors.
+            relation="$(gh api "repos/$GH_REPO/compare/main...$sha" --jq .status 2>/dev/null || true)"
+            case "$relation" in identical | behind) published=true ;; esac
+          fi
+          echo "published=$published" >> "$GITHUB_OUTPUT"
+
       - name: Is that version on the registry
         id: registry
         env:
           VERSION: ${{ steps.version.outputs.version }}
           EVENT: ${{ github.event_name }}
+          TAGGED: ${{ steps.tag.outputs.published }}
         run: |
-          tries=1
-          if [ "$EVENT" = workflow_run ]; then tries=6; fi
-          on=false
-          for attempt in $(seq 1 "$tries"); do
-            found="$(npm view "@namzu/cli@$VERSION" version 2>/dev/null || true)"
-            if [ "$found" = "$VERSION" ]; then on=true; break; fi
-            if [ "$attempt" -lt "$tries" ]; then sleep 30; fi
-          done
-          echo "on=$on" >> "$GITHUB_OUTPUT"
+          # With the tag already proving it, one quiet question is enough: no wait.
+          event="$EVENT"
+          if [ "$TAGGED" = true ]; then event=tagged; fi
+          node "$KERNEL_SCRIPTS/release-plan.mjs" registry-wait --version "$VERSION" --event "$event" >> "$GITHUB_OUTPUT"
 
       - name: Decide
         id: decide
@@ -142,11 +161,12 @@ jobs:
           EVENT: ${{ github.event_name }}
           VERSION: ${{ steps.version.outputs.version }}
           ON_REGISTRY: ${{ steps.registry.outputs.on }}
+          TAG_PUBLISHED: ${{ steps.tag.outputs.published }}
           FLOOR: ${{ inputs.floor }}
           WITHDRAW: ${{ inputs.withdraw }}
           UNWITHDRAW: ${{ inputs.unwithdraw }}
         run: |
-          args=(decide --event "$EVENT" --local-version "$VERSION" --on-registry "$ON_REGISTRY" --keys "$KEYS_FILE")
+          args=(decide --event "$EVENT" --local-version "$VERSION" --on-registry "$ON_REGISTRY" --tag-published "$TAG_PUBLISHED" --keys "$KEYS_FILE")
           if [ -f prev/kernel-latest.json ]; then args+=(--previous prev/kernel-latest.json); fi
           if [ -n "$FLOOR" ]; then args+=(--floor "$FLOOR"); fi
           if [ -n "$WITHDRAW" ]; then args+=(--withdraw "$WITHDRAW"); fi

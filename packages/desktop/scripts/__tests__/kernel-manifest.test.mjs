@@ -6,7 +6,13 @@ import {
 	parseManifest,
 	reissueManifest,
 } from '../kernel/manifest.mjs'
-import { archiveUploadAction, decide, pruneList } from '../kernel/release-plan.mjs'
+import {
+	archiveUploadAction,
+	decide,
+	pruneList,
+	tagCommit,
+	waitForRegistry,
+} from '../kernel/release-plan.mjs'
 
 const hex = (c, n) => c.repeat(n)
 const entry = (target, over = {}) => ({
@@ -313,6 +319,93 @@ test('decide: builds only when newer than the manifest AND on the registry; quie
 	assert.equal(decide({ ...base, keyCount: 0 }).mode, 'none')
 	assert.match(decide({ ...base, keyCount: 0 }).reason, /no public key/)
 	assert.equal(decide({ ...base, localVersion: 'x' }).mode, 'none')
+})
+
+test('decide: either proof of publication is enough; neither ends quietly', () => {
+	const base = {
+		event: 'workflow_run',
+		localVersion: '51.4.0',
+		onRegistry: false,
+		tagPublished: false,
+		keyCount: 1,
+		previous: first(),
+	}
+	const tagOnly = decide({ ...base, tagPublished: true })
+	assert.equal(tagOnly.mode, 'build')
+	assert.match(tagOnly.reason, /release tag on main/)
+	const registryOnly = decide({ ...base, onRegistry: true })
+	assert.equal(registryOnly.mode, 'build')
+	assert.match(registryOnly.reason, /is on the registry/)
+	assert.equal(decide({ ...base, onRegistry: true, tagPublished: true }).mode, 'build')
+	const neither = decide(base)
+	assert.equal(neither.mode, 'none')
+	assert.match(neither.reason, /not on the registry yet and has no release tag on main/)
+	// A proof does not weaken the other checks.
+	assert.equal(decide({ ...base, tagPublished: true, keyCount: 0 }).mode, 'none')
+	assert.equal(decide({ ...base, tagPublished: true, localVersion: '51.3.0' }).mode, 'none')
+	assert.equal(decide({ ...base, tagPublished: true, localVersion: 'x' }).mode, 'none')
+})
+
+test('tagCommit: only the exact tag of this version counts', () => {
+	const a = 'a'.repeat(40)
+	const b = 'b'.repeat(40)
+	const c = 'c'.repeat(40)
+	assert.equal(tagCommit(`${a}\trefs/tags/@namzu/cli@51.4.0\n`, '51.4.0'), a)
+	// another version, a longer version, another package, a branch of that name
+	const others = [
+		`${a}\trefs/tags/@namzu/cli@51.3.0`,
+		`${a}\trefs/tags/@namzu/cli@51.4.01`,
+		`${a}\trefs/tags/@namzu/cli@51.4.0-rc.1`,
+		`${a}\trefs/tags/@namzu/sdk@51.4.0`,
+		`${a}\trefs/heads/@namzu/cli@51.4.0`,
+		'',
+	].join('\n')
+	assert.equal(tagCommit(others, '51.4.0'), '')
+	// an annotated tag lists the commit it wraps after the tag object
+	assert.equal(
+		tagCommit(
+			`${b}\trefs/tags/@namzu/cli@51.4.0\n${c}\trefs/tags/@namzu/cli@51.4.0^{}\n`,
+			'51.4.0',
+		),
+		c,
+	)
+	assert.equal(tagCommit('not a line\nzzz refs/tags/@namzu/cli@51.4.0', '51.4.0'), '')
+})
+
+test('waitForRegistry: the long wait runs on an injected clock, never real time', async () => {
+	let clock = 0
+	let asked = 0
+	const sleeps = []
+	const run = (answerAt, totalMs) => {
+		clock = 0
+		asked = 0
+		sleeps.length = 0
+		return waitForRegistry({
+			ask: async () => {
+				asked += 1
+				return clock >= answerAt
+			},
+			sleep: async (ms) => {
+				sleeps.push(ms)
+				clock += ms
+			},
+			now: () => clock,
+			totalMs,
+			intervalMs: 60_000,
+		})
+	}
+	// answers after the old three-minute budget, inside the new one
+	assert.equal(await run(13 * 60_000, 25 * 60_000), true)
+	assert.equal(asked, 14)
+	assert.ok(sleeps.every((ms) => ms === 60_000))
+	// never answers: gives up once the budget is spent, and does not sleep past it
+	assert.equal(await run(Number.POSITIVE_INFINITY, 25 * 60_000), false)
+	assert.equal(asked, 26)
+	assert.equal(clock, 25 * 60_000)
+	// no budget: one question, no sleep
+	assert.equal(await run(Number.POSITIVE_INFINITY, 0), false)
+	assert.equal(asked, 1)
+	assert.deepEqual(sleeps, [])
 })
 
 test('decide: the weekly run and a manual run renew the current manifest when there is nothing to build', () => {

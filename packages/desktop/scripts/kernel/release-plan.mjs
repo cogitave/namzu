@@ -1,15 +1,21 @@
 // The decisions of .github/workflows/kernel-release.yml that are logic, kept here so they are tested:
 // what a run should do, and which archives of the rolling release to remove.
 //
-//   node scripts/kernel/release-plan.mjs decide --event <name> --local-version <x.y.z> --on-registry <true|false>
+//   node scripts/kernel/release-plan.mjs decide --event <name> --local-version <x.y.z> --on-registry <true|false> [--tag-published <true|false>]
 //        --keys <kernel-keys.json> [--previous <kernel-latest.json>] [--floor <v>] [--withdraw <v>] [--unwithdraw <v>]
 //     prints  mode=<build|reissue|none>  and  reason=<words>  (lines for $GITHUB_OUTPUT)
+//   node scripts/kernel/release-plan.mjs tag-commit --version <x.y.z> < git-ls-remote-output
+//     prints the commit the tag @namzu/cli@<x.y.z> points at (nothing when there is no such tag)
+//   node scripts/kernel/release-plan.mjs registry-wait --version <x.y.z> --event <name>
+//     prints  on=<true|false>  after asking the npm registry (a long, quiet wait only for workflow_run)
 //   node scripts/kernel/release-plan.mjs prune --keep <v> < asset-names.json
 //     prints the archive names to remove, one per line (all but the two newest versions, and never <v>)
 //   node scripts/kernel/release-plan.mjs upload-plan --name <archive> --assets <asset-names.json> [--manifest <kernel-latest.json> ...]
 //     prints  action=<upload|replace|refuse>  and  reason=<words>  for the archive about to be uploaded;
 //     each --manifest is a signed manifest that VERIFIED (the feed's current one), never a half-uploaded one
+import { execFile } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { promisify } from 'node:util'
 import { isMain, parseFlags, runMain } from './cli.mjs'
 import { VERSION, compareVersions, parseManifest } from './manifest.mjs'
 import { parseKeyList } from './signing.mjs'
@@ -19,7 +25,15 @@ import { parseKeyList } from './signing.mjs'
  * the registry. `reissue`: renew the current manifest (the weekly schedule, or by hand, with any new floor or
  * withdrawn list). `none`: end quietly. With no public key listed nothing can be published, so it is `none`.
  */
-export function decide({ event, localVersion, onRegistry, keyCount, previous, hasChange = false }) {
+export function decide({
+	event,
+	localVersion,
+	onRegistry,
+	tagPublished = false,
+	keyCount,
+	previous,
+	hasChange = false,
+}) {
 	if (keyCount === 0)
 		return {
 			mode: 'none',
@@ -28,11 +42,18 @@ export function decide({ event, localVersion, onRegistry, keyCount, previous, ha
 	if (!VERSION.test(localVersion))
 		return { mode: 'none', reason: 'the command line version is not x.y.z' }
 	const newer = !previous || compareVersions(localVersion, previous.kernel.commandLine) > 0
-	if (newer && onRegistry)
+	if (newer && (onRegistry || tagPublished)) {
+		const proof =
+			onRegistry && tagPublished
+				? 'is on the registry and carries its release tag on main'
+				: onRegistry
+					? 'is on the registry'
+					: 'carries its release tag on main (the registry may not answer yet)'
 		return {
 			mode: 'build',
-			reason: `command line ${localVersion} is newer than ${previous ? previous.kernel.commandLine : 'nothing published'} and is on the registry`,
+			reason: `command line ${localVersion} is newer than ${previous ? previous.kernel.commandLine : 'nothing published'} and ${proof}`,
 		}
+	}
 	if (previous && (event === 'schedule' || event === 'workflow_dispatch'))
 		return {
 			mode: 'reissue',
@@ -44,12 +65,54 @@ export function decide({ event, localVersion, onRegistry, keyCount, previous, ha
 						: 'manual renewal of the current manifest',
 		}
 	if (newer)
-		return { mode: 'none', reason: `command line ${localVersion} is not on the registry yet` }
+		return {
+			mode: 'none',
+			reason: `command line ${localVersion} is not on the registry yet and has no release tag on main`,
+		}
 	return {
 		mode: 'none',
 		reason: `command line ${localVersion} is not newer than the published ${previous.kernel.commandLine}`,
 	}
 }
+
+const TAG_PREFIX = 'refs/tags/@namzu/cli@'
+
+/**
+ * The commit that the release tag `@namzu/cli@<version>` points at, read from `git ls-remote --tags` output
+ * (lines of `<sha> <ref>`; an annotated tag also lists `<ref>^{}` with the commit it wraps, which wins).
+ * The name must match exactly: a tag for another version, or a longer version that starts with this one,
+ * never counts. Returns '' when there is no such tag.
+ */
+export function tagCommit(lsRemote, version) {
+	const want = `${TAG_PREFIX}${version}`
+	let found = ''
+	for (const line of lsRemote.split('\n')) {
+		const [sha, ref, ...extra] = line.trim().split(/\s+/)
+		if (extra.length || !/^[0-9a-f]{40,64}$/.test(sha ?? '')) continue
+		if (ref === `${want}^{}`) return sha
+		if (ref === want) found = sha
+	}
+	return found
+}
+
+/**
+ * Ask whether the registry has the version, again and again until it does or `totalMs` has passed on the
+ * clock. `ask` answers true or false; `sleep` and `now` are injected, so a test never waits. Nothing is
+ * printed per attempt.
+ */
+export async function waitForRegistry({ ask, sleep, now, totalMs, intervalMs }) {
+	const deadline = now() + totalMs
+	for (;;) {
+		if (await ask()) return true
+		if (now() + intervalMs > deadline) return false
+		await sleep(intervalMs)
+	}
+}
+
+// Measured lag between a good publish and the registry answering is up to about 13 minutes; 25 covers it.
+const REGISTRY_WAIT_MS = 25 * 60_000
+const REGISTRY_INTERVAL_MS = 60_000
+const exec = promisify(execFile)
 
 const ARCHIVE = /^namzu-kernel-(\d+\.\d+\.\d+)-[a-z0-9]+-[a-z0-9]+\.tar\.gz$/
 
@@ -95,6 +158,36 @@ export function archiveUploadAction({ name, assets, manifests = [] }) {
 
 async function main(args) {
 	const [command, ...rest] = args
+	if (command === 'tag-commit') {
+		const { flags } = parseFlags(rest, { version: 'string' })
+		if (!VERSION.test(flags.version ?? ''))
+			throw new Error('--version must be a version like 1.2.3.')
+		console.log(tagCommit(readFileSync(0, 'utf8'), flags.version))
+		return
+	}
+	if (command === 'registry-wait') {
+		const { flags } = parseFlags(rest, { version: 'string', event: 'string' })
+		if (!VERSION.test(flags.version ?? ''))
+			throw new Error('--version must be a version like 1.2.3.')
+		const ask = async () => {
+			try {
+				const { stdout } = await exec('npm', ['view', `@namzu/cli@${flags.version}`, 'version'])
+				return stdout.trim() === flags.version
+			} catch {
+				return false
+			}
+		}
+		// Only the run the package publish started waits long; every other start asks once.
+		const on = await waitForRegistry({
+			ask,
+			sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+			now: Date.now,
+			totalMs: flags.event === 'workflow_run' ? REGISTRY_WAIT_MS : 0,
+			intervalMs: REGISTRY_INTERVAL_MS,
+		})
+		console.log(`on=${on}`)
+		return
+	}
 	if (command === 'prune') {
 		const { flags } = parseFlags(rest, { keep: 'string' })
 		if (!VERSION.test(flags.keep ?? '')) throw new Error('--keep must be a version like 1.2.3.')
@@ -119,11 +212,13 @@ async function main(args) {
 		console.log(`reason=${result.reason}`)
 		return
 	}
-	if (command !== 'decide') throw new Error('Usage: release-plan.mjs decide|prune|upload-plan ...')
+	if (command !== 'decide')
+		throw new Error('Usage: release-plan.mjs decide|tag-commit|registry-wait|prune|upload-plan ...')
 	const { flags } = parseFlags(rest, {
 		event: 'string',
 		'local-version': 'string',
 		'on-registry': 'string',
+		'tag-published': 'string',
 		keys: 'string',
 		previous: 'string',
 		floor: 'string',
@@ -139,6 +234,7 @@ async function main(args) {
 		event: flags.event,
 		localVersion: flags['local-version'],
 		onRegistry: flags['on-registry'] === 'true',
+		tagPublished: flags['tag-published'] === 'true',
 		keyCount: parseKeyList(readFileSync(flags.keys, 'utf8'), flags.keys).length,
 		previous: flags.previous ? parseManifest(readFileSync(flags.previous)) : undefined,
 		hasChange: Boolean(flags.floor || flags.withdraw || flags.unwithdraw),
