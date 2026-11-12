@@ -2,10 +2,10 @@
 import { type ChildProcessWithoutNullStreams, execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import type { AcpInitializeResult } from '@namzu/sdk'
-import { TERMINAL_METHODS } from '../shared/terminal-protocol.js'
 import {
 	type DesktopDiagnosticContext,
 	type DesktopDiagnosticEvent,
@@ -13,26 +13,22 @@ import {
 	desktopStderrDetails,
 } from './diagnostics.js'
 import { ExpectedRuntimeCloseError } from './expected-close.js'
-import { PAL_COMMUNICATION_METHODS } from './pal-communication.js'
+import { OPTIONAL_EXTENSION_GROUPS, type OptionalExtensionGroup } from './extension-groups.js'
+import type { HostLauncher, HostRun } from './host-launcher.js'
+import { REQUIRED_EXTENSIONS, desktopInitializeParams } from './required-extensions.js'
 
 const MAX_FRAME = 8 * 1024 * 1024
-const REQUIRED_EXTENSIONS = [
-	'namzu/project/status',
-	'namzu/project/trust',
-	'namzu/conversations/list',
-	'namzu/conversations/history',
-	'namzu/providers/status',
-	'namzu/providers/select',
-	'namzu/jobs/list',
-	'namzu/jobs/read',
-	'namzu/jobs/stop',
-]
 export interface RuntimeCommand {
 	program: string
 	args: string[]
 	env?: NodeJS.ProcessEnv
 	/** The app's own version, told to the host at initialize. Read from the app, never written here. */
 	clientVersion?: string
+	/**
+	 * Chooses the engine at every start. When present, `program`, `args` and `env` above are only
+	 * the defaults the launcher's spawn specification is laid over.
+	 */
+	launcher?: HostLauncher
 }
 export class RuntimeClient extends EventEmitter {
 	private readonly connection = randomUUID()
@@ -196,11 +192,80 @@ export class RuntimeClient extends EventEmitter {
 				...desktopStderrDetails(line),
 			})
 	}
+	/** True while a start on a fetched engine may be answered by another try: failures are held back. */
+	private quiet = false
+	private suppressed?: Error
+	/** Which spawned process the handlers still speak for; a discarded attempt's are ignored. */
+	private generation = 0
+	private run?: HostRun
+	/** Set once, when the live process ends, even if that is before the launcher handed over `run`. */
+	private exitReport?: { unexpected: boolean }
+
 	async start(): Promise<void> {
 		if (this.child || this.closed) throw new Error('This connection cannot be started twice.')
-		const child = spawn(this.command.program, this.command.args, {
+		const launcher = this.command.launcher
+		if (!launcher) return this.startOn(this.command)
+		try {
+			const run = await launcher.start(
+				async (spec, info) => {
+					await this.discardAttempt()
+					this.quiet = info.retryable
+					await this.startOn({ ...this.command, ...spec })
+					this.quiet = false
+				},
+				// A folder that has gone, or a close the app asked for, is not the engine's fault.
+				(error) => !(error instanceof ExpectedRuntimeCloseError) && existsSync(this.cwd),
+			)
+			this.run = run
+			// A host that ended while the launcher was still recording its start is reported now.
+			if (this.exitReport) run.exited(this.exitReport.unexpected)
+		} catch (error) {
+			this.quiet = false
+			const held = this.suppressed
+			this.suppressed = undefined
+			if (held) this.emit('closed', held)
+			throw error
+		}
+	}
+
+	/** The live process ended: the launcher is told once, and whether the app asked for it. */
+	private reportExit(): void {
+		if (this.exitReport) return
+		this.exitReport = { unexpected: !this.expectedClose }
+		this.run?.exited(this.exitReport.unexpected)
+	}
+
+	/** Ends a failed attempt's process and forgets its state, so the connection can start afresh. */
+	private async discardAttempt(): Promise<void> {
+		const child = this.child
+		if (!child) return
+		this.generation++
+		for (const entry of this.pending.values()) clearTimeout(entry.timer)
+		this.pending.clear()
+		this.child = undefined
+		this.closed = false
+		this.expectedClose = false
+		this.processClosed = false
+		this.shutdown = undefined
+		this.partial = []
+		this.partialLength = 0
+		this.stderrBuffer = ''
+		this.diagnostic = ''
+		this.suppressed = undefined
+		this.exitReport = undefined
+		try {
+			child.stdin.end()
+			child.kill()
+		} catch {
+			// already gone
+		}
+	}
+
+	private async startOn(command: RuntimeCommand): Promise<void> {
+		const generation = ++this.generation
+		const child = spawn(command.program, command.args, {
 			cwd: this.cwd,
-			env: this.command.env ?? process.env,
+			env: command.env ?? process.env,
 			stdio: 'pipe',
 			shell: false,
 			windowsHide: true,
@@ -208,9 +273,13 @@ export class RuntimeClient extends EventEmitter {
 		this.child = child
 		this.report('cli_started')
 		const decoder = new StringDecoder('utf8')
-		child.stdout.on('data', (chunk: Buffer) => this.consume(decoder.write(chunk)))
+		child.stdout.on('data', (chunk: Buffer) => {
+			if (generation === this.generation) this.consume(decoder.write(chunk))
+		})
 		const stderrDecoder = new StringDecoder('utf8')
-		child.stderr.on('data', (chunk: Buffer) => this.consumeStderr(stderrDecoder.write(chunk)))
+		child.stderr.on('data', (chunk: Buffer) => {
+			if (generation === this.generation) this.consumeStderr(stderrDecoder.write(chunk))
+		})
 		let stderrEnded = false
 		const finishStderr = () => {
 			if (stderrEnded) return
@@ -219,92 +288,47 @@ export class RuntimeClient extends EventEmitter {
 			this.flushStderr()
 		}
 		child.stderr.once('end', finishStderr)
-		child.on('error', (error) => this.fail(error))
+		child.on('error', (error) => {
+			if (generation !== this.generation) return
+			this.fail(error)
+			this.reportExit()
+		})
 		child.on('close', (exitCode) => {
+			if (generation !== this.generation) return
 			finishStderr()
 			this.processClosed = true
 			this.report('cli_closed', { exitCode })
 			this.fail(new Error('The Namzu connection closed.'))
+			this.reportExit()
 		})
 		const result = (await this.request(
 			'initialize',
-			{
-				protocolVersion: 1,
-				capabilities: ['permission', 'namzu/tasks'],
-				clientInfo: {
-					name: 'namzu-desktop',
-					...(this.command.clientVersion ? { version: this.command.clientVersion } : {}),
-				},
-			},
+			desktopInitializeParams(command.clientVersion),
 			30_000,
 		)) as AcpInitializeResult
 		this.promptAttachments = result.promptAttachments === true
 		this.promptOptions = result.promptOptions === true
-		this.tasks = result.extensions?.includes('namzu/tasks/list') === true
-		this.palCommunication = PAL_COMMUNICATION_METHODS.every((method) =>
-			result.extensions?.includes(method),
-		)
-		this.conversationActions = [
-			'namzu/conversations/rename',
-			'namzu/conversations/fork',
-			'namzu/conversations/markdown',
-		].every((method) => result.extensions?.includes(method))
-		this.archivedConversations = [
-			'namzu/conversations/archived',
-			'namzu/conversations/unarchive',
-		].every((method) => result.extensions?.includes(method))
-		this.terminals = Object.values(TERMINAL_METHODS).every((method) =>
-			result.extensions?.includes(method),
-		)
-		this.providerSetup = [
-			'namzu/providers/connections',
-			'namzu/providers/save_key',
-			'namzu/providers/remove_key',
-			'namzu/providers/test',
-			'namzu/providers/refresh',
-		].every((method) => result.extensions?.includes(method))
-		this.projectGit = result.extensions?.includes('namzu/project/git') === true
-		this.projectPr = result.extensions?.includes('namzu/project/pr') === true
-		this.mcpServers = ['namzu/mcp/servers', 'namzu/mcp/approve'].every((method) =>
-			result.extensions?.includes(method),
-		)
-		this.conversationSearch = result.extensions?.includes('namzu/conversations/search') === true
-		this.projectUntrust = result.extensions?.includes('namzu/project/untrust') === true
-		this.projectChanges = ['namzu/project/changes', 'namzu/project/diff'].every((method) =>
-			result.extensions?.includes(method),
-		)
-		this.turnRetry = ['namzu/sessions/retry-status', 'namzu/sessions/retry'].every((method) =>
-			result.extensions?.includes(method),
-		)
-		this.abandonPaused = result.extensions?.includes('namzu/sessions/abandon-paused') === true
-		this.turnUndo = [
-			'namzu/turns/undo-status',
-			'namzu/turns/undo-preview',
-			'namzu/turns/undo',
-		].every((method) => result.extensions?.includes(method))
-		this.liveInput = ['namzu/conversations/input/status', 'namzu/conversations/input'].every(
-			(method) => result.extensions?.includes(method),
-		)
-		this.pals = [
-			'namzu/pals/list',
-			'namzu/pals/get',
-			'namzu/pals/create',
-			'namzu/pals/update',
-			'namzu/pals/conversations/list',
-			'namzu/pals/conversations/claim',
-			'namzu/pals/computer/status',
-			'namzu/pals/computer/start',
-			'namzu/pals/computer/stop',
-			'namzu/pals/computer/screen',
-		].every((method) => result.extensions?.includes(method))
-		this.palInboxStart = ['namzu/pals/inbox/status', 'namzu/pals/inbox/start'].every((method) =>
-			result.extensions?.includes(method),
-		)
-		this.palComputerControl = [
-			'namzu/pals/computer/take_over',
-			'namzu/pals/computer/return_control',
-			'namzu/pals/computer/input',
-		].every((method) => result.extensions?.includes(method))
+		const offers = (group: OptionalExtensionGroup): boolean =>
+			OPTIONAL_EXTENSION_GROUPS[group].every((method) => result.extensions?.includes(method))
+		this.tasks = offers('tasks')
+		this.palCommunication = offers('palCommunication')
+		this.conversationActions = offers('conversationActions')
+		this.archivedConversations = offers('archivedConversations')
+		this.terminals = offers('terminals')
+		this.providerSetup = offers('providerSetup')
+		this.projectGit = offers('projectGit')
+		this.projectPr = offers('projectPr')
+		this.mcpServers = offers('mcpServers')
+		this.conversationSearch = offers('conversationSearch')
+		this.projectUntrust = offers('projectUntrust')
+		this.projectChanges = offers('projectChanges')
+		this.turnRetry = offers('turnRetry')
+		this.abandonPaused = offers('abandonPaused')
+		this.turnUndo = offers('turnUndo')
+		this.liveInput = offers('liveInput')
+		this.pals = offers('pals')
+		this.palInboxStart = offers('palInboxStart')
+		this.palComputerControl = offers('palComputerControl')
 		if (
 			result.agentInfo?.name !== 'namzu' ||
 			!REQUIRED_EXTENSIONS.every((method) => result.extensions?.includes(method))
@@ -461,7 +485,9 @@ export class RuntimeClient extends EventEmitter {
 		this.pending.clear()
 		if (!this.closed) {
 			this.closed = true
-			this.emit('closed', error)
+			// While a start may still be retried on another engine, nobody hears of the failure yet.
+			if (this.quiet) this.suppressed = error
+			else this.emit('closed', error)
 		}
 	}
 	close(): Promise<void> {

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { EngineDeliveryView } from './shared/engine-delivery-protocol.js'
 import type { EngineUpdateNotice, EngineUpdatesState } from './shared/engine-update-protocol.js'
 import type { LocalListeningEvent } from './shared/local-listening-protocol.js'
 import type { LocalSpeechEvent } from './shared/local-speech-protocol.js'
@@ -225,6 +226,13 @@ const api: DesktopApi = {
 		const handler = (_event: unknown, data: TerminalEvent) => listener(data)
 		ipcRenderer.on('namzu:terminal-event', handler)
 		return () => ipcRenderer.removeListener('namzu:terminal-event', handler)
+	},
+	engineDelivery: () => invoke('engineDelivery'),
+	useOwnEngine: () => invoke('useOwnEngine'),
+	onEngineDelivery: (listener) => {
+		const handler = (_event: unknown, view: EngineDeliveryView) => listener(view)
+		ipcRenderer.on('namzu:engine-delivery', handler)
+		return () => ipcRenderer.removeListener('namzu:engine-delivery', handler)
 	},
 	engineUpdates: () => invoke('engineUpdates'),
 	checkEngineUpdates: () => invoke('checkEngineUpdates'),

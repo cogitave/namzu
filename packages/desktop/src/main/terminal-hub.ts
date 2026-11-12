@@ -93,7 +93,13 @@ export interface TerminalHubOptions {
 	createClient(connection: HubConnection): HostTerminals
 	settings(): Pick<DesktopSettings, 'terminalShell' | 'restoreTerminals'>
 	shellEnvironment(): ShellEnvironment
-	engineHost(): EngineHost
+	/**
+	 * How to start an engine's own command line. `release` is called once the tab's program is over
+	 * (or never started), so a fetched Namzu engine's folder is kept while a tab runs from it.
+	 */
+	engineHost(
+		engine: TerminalEngine,
+	): (EngineHost & { release?: () => void }) | Promise<EngineHost & { release?: () => void }>
 	/** The tab list changed. */
 	publish(tabs: TerminalTabView[]): void
 	/** Output or an end for the window that has this terminal open. */
@@ -134,6 +140,8 @@ interface Entry {
 	viewers: Map<string, string>
 	/** Set for a command terminal whose owner wants to be told how it ended. */
 	watched?: { tail: string }
+	/** Gives back the engine folder this tab's program runs from; called once. */
+	release?: () => void
 }
 
 /** How much of a watched terminal's output is kept for its owner. */
@@ -249,33 +257,47 @@ export class TerminalHub {
 			throw new Error('This project runs a Namzu runtime that has no terminals. Update Namzu.')
 		let launch: TerminalLaunch
 		let omitted: string[] = []
+		let release: (() => void) | undefined
 		if (request.kind === 'engine') {
-			const built = buildEngineLaunch(
-				{
-					engine: request.engine,
-					provider: request.provider,
-					model: request.model,
-					effort: request.effort,
-					permissionMode: request.permissionMode,
-					prompt: request.prompt,
-				},
-				this.options.engineHost(),
-				project,
-			)
-			launch = built
-			omitted = built.omitted
+			const host = await this.options.engineHost(request.engine)
+			release = host.release
+			try {
+				const built = buildEngineLaunch(
+					{
+						engine: request.engine,
+						provider: request.provider,
+						model: request.model,
+						effort: request.effort,
+						permissionMode: request.permissionMode,
+						prompt: request.prompt,
+					},
+					host,
+					project,
+				)
+				launch = built
+				omitted = built.omitted
+			} catch (error) {
+				release?.()
+				throw error
+			}
 		} else
 			launch = resolveShell(this.options.settings().terminalShell, this.options.shellEnvironment())
-		return this.spawn({
-			project,
-			connection,
-			kind: request.kind,
-			...(request.kind === 'engine' ? { engine: request.engine } : {}),
-			launch,
-			omitted,
-			cols,
-			rows,
-		})
+		try {
+			return await this.spawn({
+				project,
+				connection,
+				kind: request.kind,
+				...(request.kind === 'engine' ? { engine: request.engine } : {}),
+				launch,
+				omitted,
+				cols,
+				rows,
+				...(release ? { release } : {}),
+			})
+		} catch (error) {
+			release?.()
+			throw error
+		}
 	}
 
 	/**
@@ -313,6 +335,7 @@ export class TerminalHub {
 		cols: number
 		rows: number
 		watched?: boolean
+		release?: () => void
 	}): Promise<TerminalOpenResult> {
 		const { project, connection, launch, omitted, cols, rows } = input
 		const title = uniqueTabTitle(
@@ -354,6 +377,7 @@ export class TerminalHub {
 			screen: '',
 			viewers: new Map(),
 			...(input.watched ? { watched: { tail: '' } } : {}),
+			...(input.release ? { release: input.release } : {}),
 		}
 		try {
 			// Every output and the exit are seen from here on, whether or not a window is looking.
@@ -495,6 +519,7 @@ export class TerminalHub {
 		this.entries.delete(tabId)
 		if (entry.hostId) this.byHost.delete(entry.hostId)
 		entry.viewers.clear()
+		this.releaseEntry(entry)
 		if (entry.view.status === 'running') this.ended(entry, undefined, true)
 		try {
 			if (entry.client && entry.hostId) await entry.client.close(entry.hostId)
@@ -573,10 +598,21 @@ export class TerminalHub {
 	private noteExit(entry: Entry, exitCode: number | undefined): void {
 		if (entry.view.status === 'exited') return
 		entry.view.status = 'exited'
+		this.releaseEntry(entry)
 		if (exitCode !== undefined) entry.view.exitCode = exitCode
 		if (entry.view.kind === 'engine') entry.view.activity = 'exited'
 		this.afterChange()
 		this.ended(entry, exitCode)
+	}
+
+	private releaseEntry(entry: Entry): void {
+		const release = entry.release
+		entry.release = undefined
+		try {
+			release?.()
+		} catch (error) {
+			this.options.onError?.(error, 'terminal.release')
+		}
 	}
 
 	/** Tells the owner of a command terminal how it ended, once. */
@@ -614,6 +650,7 @@ export class TerminalHub {
 			if (entry.hostId) this.byHost.delete(entry.hostId)
 			if (entry.view.status === 'running') {
 				entry.view.status = 'exited'
+				this.releaseEntry(entry)
 				if (entry.view.kind === 'engine') entry.view.activity = 'exited'
 				this.send(entry, { kind: 'exit', tabId: entry.view.id })
 				this.ended(entry, undefined)

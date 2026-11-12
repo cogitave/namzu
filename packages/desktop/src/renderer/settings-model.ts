@@ -1,3 +1,4 @@
+import type { EngineDeliveryView } from '../shared/engine-delivery-protocol.js'
 import type { KernelNewer } from '../shared/engine-update-protocol.js'
 import type { ProjectView } from '../shared/protocol.js'
 import { FINISHED_NOTICE_AFTER_SECONDS } from '../shared/settings-protocol.js'
@@ -7,6 +8,7 @@ import {
 	isSettingsSection,
 } from '../shared/settings-protocol.js'
 import type { UpdateState } from '../shared/update-protocol.js'
+import { engineDetailsLines } from './engine-delivery-model.js'
 import { foldSearchText } from './text-fold.js'
 
 export const SETTINGS_SECTION_TITLES: Record<SettingsSection, string> = {
@@ -360,20 +362,29 @@ export function aboutDetailsText(
 		platform: string
 	},
 	newer: KernelNewer = {},
+	engine?: { view: EngineDeliveryView; now: number; locale?: string },
 ): string {
+	// Only when this build can fetch engines does the text say which one runs; otherwise it is the
+	// bundled one, as it has always been.
+	const fetched = engine?.view.available === true ? engine.view : undefined
+	const running = fetched?.runs
+	const own = !running || running.source === 'bundled'
 	return [
 		`Namzu Desktop ${info.version}`,
-		`Namzu command line (bundled with this app) ${info.cliVersion ?? 'not found'}`,
+		own
+			? `Namzu command line (bundled with this app) ${running?.commandLine ?? info.cliVersion ?? 'not found'}`
+			: `Namzu command line ${running.commandLine ?? 'not found'}`,
 		...(newer.cli
 			? [`A newer command line exists (${newer.cli}); it arrives with an update of this app`]
 			: []),
 		...(info.installedCliVersion
 			? [`Namzu command line (installed separately) ${info.installedCliVersion}`]
 			: []),
-		`Namzu engine ${info.sdkVersion ?? 'not found'}`,
+		`Namzu engine ${(running ? (running.engine ?? info.sdkVersion) : info.sdkVersion) ?? 'not found'}`,
 		...(newer.engine
 			? [`A newer engine exists (${newer.engine}); it arrives with an update of this app`]
 			: []),
+		...(engine && fetched ? engineDetailsLines(fetched, engine.now, engine.locale) : []),
 		platformText(info.platform),
 	].join('\n')
 }

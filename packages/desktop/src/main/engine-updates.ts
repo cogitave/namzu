@@ -101,6 +101,9 @@ const METHOD_NOTES: Record<EngineInstallMethod, string> = {
 		'Namzu can’t tell how this was installed, so it won’t run the update. Run this in a terminal:',
 }
 
+const SELF_UPDATING_NOTE =
+	'Comes with Namzu Desktop and keeps itself up to date in the background. A copy you install yourself is listed here instead.'
+
 /** Characters Command Prompt reads as syntax inside a `/c` line. */
 const CMD_SYNTAX = /[&|<>^%"!`\r\n\0]/u
 
@@ -216,6 +219,8 @@ export interface EngineUpdatesDeps {
 	bundledVersion(): string | undefined
 	/** The engine the bundled command line carries, when it can be read. */
 	bundledEngineVersion?(): string | undefined
+	/** The app keeps its engine current by itself (a signing key is built in and the setting is on). */
+	engineUpdatesItself?(): boolean
 	/**
 	 * This copy of the app can update itself. A newer kernel is said to arrive with an app update
 	 * only then; where updates are off, nothing is said.
@@ -445,7 +450,13 @@ export class EngineUpdates {
 		const failure = this.failures.get(id)
 		const { method } = inspection
 		const command = updateCommandText(id, method)
-		const newer = inspection.bundled ? this.newerThan(id, inspection.installed) : undefined
+		// The bundled row names the engine that runs now: a fetched one replaces the installer's copy.
+		const installed =
+			inspection.bundled && id === 'namzu-cli'
+				? (this.deps.bundledVersion() ?? inspection.installed)
+				: inspection.installed
+		const selfUpdates = Boolean(inspection.bundled && this.deps.engineUpdatesItself?.())
+		const newer = inspection.bundled ? this.newerThan(id, installed) : undefined
 		const runnable =
 			method === 'npm-global'
 				? this.deps.find('npm') !== undefined &&
@@ -470,7 +481,7 @@ export class EngineUpdates {
 			id,
 			name: ENGINE_UPDATE_NAMES[id],
 			package: ENGINE_UPDATE_PACKAGES[id],
-			...(inspection.installed ? { installed: inspection.installed } : {}),
+			...(installed ? { installed } : {}),
 			...(latest ? { latest: latest.version, checkedAt: latest.checkedAt } : {}),
 			method,
 			status,
@@ -480,7 +491,10 @@ export class EngineUpdates {
 			...(inspection.bundled && newer ? { newerThanBundled: newer } : {}),
 			...(inspection.missing || inspection.bundled ? {} : { command }),
 			runnable,
-			...(inspection.missing ? {} : { note: METHOD_NOTES[method] }),
+			...(inspection.missing
+				? {}
+				: { note: selfUpdates ? SELF_UPDATING_NOTE : METHOD_NOTES[method] }),
+			...(selfUpdates ? { selfUpdates: true } : {}),
 			...(failure && !operation ? { error: failure } : {}),
 			...(operation ? { tabId: operation.tabId } : {}),
 			...(this.justUpdated.has(id) && status === 'current' ? { updated: true } : {}),
@@ -489,6 +503,11 @@ export class EngineUpdates {
 
 	private publish(): void {
 		this.deps.broadcast(this.state())
+	}
+
+	/** What runs changed (a fetched engine started): the rows are told again. */
+	refresh(): void {
+		this.publish()
 	}
 
 	/** Versions the person has not been told about yet. Each is returned once, here, whichever window asks first. */

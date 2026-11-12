@@ -19,13 +19,14 @@ export function writeTree(root, files) {
 
 const octal = (value, width) => `${value.toString(8).padStart(width - 1, '0')}\0`
 
-/** One tar entry. `type`, `size`, `prefix`, `badSum` and `magic` can be bent on purpose. */
+/** One tar entry. `type`, `size`, `prefix`, `linkname`, `badSum` and `magic` can be bent on purpose. */
 export function tarEntry({
 	name,
 	data = Buffer.alloc(0),
 	type = '0',
 	size,
 	prefix,
+	linkname,
 	badSum = false,
 	magic = 'ustar\0',
 }) {
@@ -39,6 +40,7 @@ export function tarEntry({
 	block.write(octal(0, 12), 136, 'latin1')
 	block.fill(0x20, 148, 156)
 	block.write(type, 156, 'latin1')
+	if (linkname) block.write(linkname, 157, 'utf8')
 	block.write(magic, 257, 'latin1')
 	block.write('00', 263, 'latin1')
 	if (prefix) block.write(prefix, 345, 'latin1')

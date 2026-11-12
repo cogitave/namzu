@@ -19,6 +19,8 @@ const refuse = (message) => {
 
 // The text lists CON, PRN, AUX, NUL, COM1-9 and LPT1-9; the reader also refuses the names Windows
 // reserves beyond that list: CONIN$, CONOUT$, CLOCK$ and the superscript digits of COM and LPT.
+const MAX_PATH_BYTES = 1024
+const MAX_SEGMENT_BYTES = 255
 const RESERVED = /^(con|prn|aux|nul|conin\$|conout\$|clock\$|(com|lpt)[1-9\u00b9\u00b2\u00b3])$/i
 
 /**
@@ -39,9 +41,13 @@ export function refusalForName(name) {
 	if (name.startsWith('/')) return 'an absolute path'
 	if (name.includes('\\')) return 'a backslash'
 	if (name.includes(':')) return 'a ":" (a drive letter or a stream name)'
-	for (const char of name) if (char.charCodeAt(0) < 0x20) return 'a control character'
+	for (const char of name)
+		if (char.charCodeAt(0) < 0x20 || char.charCodeAt(0) === 0x7f) return 'a control character'
+	if (Buffer.byteLength(name) > MAX_PATH_BYTES) return 'a name that is too long'
 	for (const segment of name.split('/')) {
 		if (segment === '') return 'an empty segment'
+		if (Buffer.byteLength(segment) > MAX_SEGMENT_BYTES) return 'a segment that is too long'
+		if (/[<>|?*"]/.test(segment)) return 'a character a Windows file name cannot hold'
 		if (segment === '.' || segment === '..') return `the segment "${segment}"`
 		if (/[. ]$/.test(segment)) return `the segment "${segment}", which ends in a dot or a space`
 		if (RESERVED.test(segment.split('.')[0].replace(/ +$/, '')))
@@ -79,8 +85,12 @@ class Bytes {
 }
 
 function parseOctal(field, what) {
-	const text = field.toString('latin1').replace(/\0.*$/s, '').trim()
-	if (!/^[0-7]+$/.test(text)) return refuse(`The archive has a header with a bad ${what} field.`)
+	const text = field
+		.toString('latin1')
+		.replace(/^ +/, '')
+		.replace(/[\0 ]+$/, '')
+	if (!/^[0-7]{1,11}$/.test(text))
+		return refuse(`The archive has a header with a bad ${what} field.`)
 	return Number.parseInt(text, 8)
 }
 
@@ -96,8 +106,9 @@ function paxPath(data) {
 	let at = 0
 	while (at < data.length) {
 		const space = data.indexOf(0x20, at)
-		const length = Number.parseInt(data.subarray(at, space).toString('latin1'), 10)
-		if (space < 0 || !Number.isSafeInteger(length) || length < 1 || at + length > data.length)
+		const lengthText = space < 0 ? '' : data.subarray(at, space).toString('latin1')
+		const length = /^[1-9]\d{0,5}$/.test(lengthText) ? Number(lengthText) : 0
+		if (length < 1 || at + length > data.length)
 			return refuse('The archive has a malformed pax record.')
 		const record = data.subarray(space + 1, at + length)
 		if (record[record.length - 1] !== 0x0a) return refuse('The archive has a malformed pax record.')
@@ -144,12 +155,21 @@ function parseFilesJson(bytes) {
 		if (previous !== undefined && !(previous < file.path))
 			return refuse('files.json is not sorted by code unit order, or lists a path twice.')
 		const folded = fold(file.path)
-		if (seen.has(folded))
+		if (folded === fold('files.json') || seen.has(folded))
 			return refuse(
 				`files.json lists two names that are equal after case folding ("${file.path}").`,
 			)
 		seen.add(folded)
 		previous = file.path
+	}
+	// A name may not be a file and a folder at once ("a" and "a/b").
+	for (const name of seen) {
+		const parts = name.split('/')
+		for (let end = 1; end < parts.length; end += 1)
+			if (seen.has(parts.slice(0, end).join('/')))
+				return refuse(
+					`files.json lists a name that is a file and a folder (${parts.slice(0, end).join('/')}).`,
+				)
 	}
 	if (`${JSON.stringify(value)}\n` !== bytes.toString('utf8'))
 		return refuse('files.json is not serialised as JSON.stringify(value) and one newline.')
@@ -207,7 +227,10 @@ async function readEntries(bytes, limits, sink) {
 		const type = String.fromCharCode(block[156])
 		if (type !== '0' && type !== 'x')
 			return refuse(`The archive has an entry of type "${type}"; only regular files are allowed.`)
-		if (block[345] !== 0) return refuse('The archive has an entry with a name prefix.')
+		if (!block.subarray(345, 500).every((byte) => byte === 0))
+			return refuse('The archive has an entry with a name prefix.')
+		if (!block.subarray(157, 257).every((byte) => byte === 0))
+			return refuse('The archive has an entry that names a link target.')
 		const size = parseOctal(block.subarray(124, 136), 'size')
 		const nameEnd = block.indexOf(0, 0)
 		const name = block.subarray(0, nameEnd < 0 || nameEnd > 100 ? 100 : nameEnd).toString('utf8')
@@ -215,7 +238,7 @@ async function readEntries(bytes, limits, sink) {
 
 		if (type === 'x') {
 			if (nextPath !== undefined) return refuse('The archive has two pax headers in a row.')
-			if (size > 65536) return refuse('The archive has an oversized pax header.')
+			if (size > 8192) return refuse('The archive has an oversized pax header.')
 			const data = await bytes.take(size)
 			if (data.length < size) return refuse('The archive is truncated inside a pax header.')
 			await bytes.take(padding)

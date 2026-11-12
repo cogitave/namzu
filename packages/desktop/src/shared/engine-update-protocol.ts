@@ -54,6 +54,8 @@ export interface EngineUpdateItem {
 	 * nothing here installs it.
 	 */
 	newerThanBundled?: string
+	/** Only on the bundled command line: the app keeps its engine current by itself. */
+	selfUpdates?: boolean
 }
 
 /** The kernel the app carries is newer in the registry: said by version, never acted on. */

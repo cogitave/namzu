@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { writeArchive } from '../kernel/archive-writer.mjs'
-import { assembleManifest, manifestBytes } from '../kernel/manifest.mjs'
+import { assembleManifest, manifestBytes, parseManifest } from '../kernel/manifest.mjs'
 import { packKernel } from '../kernel/pack.mjs'
 import {
 	SigningError,
@@ -18,6 +18,7 @@ import {
 	verifySignature,
 } from '../kernel/signing.mjs'
 import { describeArchive, verifyRelease } from '../kernel/verify.mjs'
+import { goodManifest, makePairKey, pairCases, publicOnly, signedPair } from './kernel-cases.mjs'
 import { smallKernelFiles, tempDir, writeTree } from './kernel-helpers.mjs'
 
 const scripts = join(fileURLToPath(new URL('../kernel/', import.meta.url)))
@@ -450,4 +451,20 @@ test('the writer is not involved in a refusal: describeArchive of a pack made by
 	const described = await describeArchive(join(out, 'namzu-kernel-1.2.3-win32-x64.tar.gz'))
 	assert.equal(described.target, 'win32-x64')
 	assert.equal(described.kernel.engine, '4.5.6')
+})
+
+test('every broken signed pair of the shared list (also run against the app) is refused, and the good one is not', () => {
+	const key = makePairKey('k1')
+	const other = makePairKey('k1')
+	const good = signedPair(goodManifest(), key)
+	const keys = parseKeyList(JSON.stringify([publicOnly(key)]))
+	const check = (candidate) => {
+		verifySignature(candidate.manifest, candidate.signature, keys)
+		parseManifest(candidate.manifest)
+	}
+	check(good)
+	const cases = pairCases()
+	assert.ok(cases.length > 40)
+	for (const testCase of cases)
+		assert.throws(() => check(testCase.make({ key, other, good })), undefined, testCase.label)
 })

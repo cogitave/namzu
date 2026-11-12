@@ -372,6 +372,23 @@ describe('checking for newer versions', () => {
 		expect(item(fake, 'namzu-cli').note).toMatch(/updates with the app/)
 	})
 
+	it('names the engine that runs now on the bundled row, and says it keeps itself current', async () => {
+		let running = '35.0.0'
+		const fake = setup({ bundledVersion: () => running, engineUpdatesItself: () => true })
+		await fake.updates.check()
+		expect(item(fake, 'namzu-cli')).toMatchObject({ installed: '35.0.0', selfUpdates: true })
+		expect(item(fake, 'namzu-cli').note).toMatch(/keeps itself up to date/)
+		expect(item(fake, 'namzu-cli').note).not.toMatch(/updates with the app/)
+		// A fetched engine starts: the row names it without a new inspection, and refresh() draws it.
+		running = '36.0.0'
+		const before = fake.states.length
+		fake.updates.refresh()
+		expect(fake.states.length).toBe(before + 1)
+		expect(fake.states.at(-1)?.items.find((entry) => entry.id === 'namzu-cli')?.installed).toBe(
+			'36.0.0',
+		)
+	})
+
 	it('reads a standalone Namzu command line against the registry', async () => {
 		const fake = setup({
 			find: (name) =>

@@ -270,6 +270,63 @@ describe('opening a terminal', () => {
 		expect(missing.hub.list()).toEqual([])
 	})
 
+	describe('the engine a tab runs from', () => {
+		const namzu: TerminalOpenRequest = { ...engine, engine: 'namzu' }
+		function held() {
+			const record = { asked: [] as string[], released: 0 }
+			const engineHost: TerminalHubOptions['engineHost'] = async (name) => {
+				record.asked.push(name)
+				return {
+					platform: 'linux',
+					execPath: '/opt/namzu',
+					cliEntry: '/data/kernel/versions/52.0.0/dist/bin.js',
+					nodeArgs: [],
+					resolve: () => undefined,
+					release: () => {
+						record.released++
+					},
+				}
+			}
+			return { record, engineHost }
+		}
+
+		it('runs the engine it was given, and gives the folder back once when the program ends', async () => {
+			const { record, engineHost } = held()
+			const t = setup({ engineHost })
+			await t.hub.open(namzu)
+			expect(record.asked).toEqual(['namzu'])
+			expect(t.client.created[0]?.args).toContain('/data/kernel/versions/52.0.0/dist/bin.js')
+			expect(record.released).toBe(0)
+			t.client.emit('exit', { terminalId: HOST_A, exitCode: 0 })
+			t.client.emit('exit', { terminalId: HOST_A, exitCode: 0 })
+			expect(record.released).toBe(1)
+		})
+
+		it('gives the folder back when the tab is closed while the program runs', async () => {
+			const { record, engineHost } = held()
+			const t = setup({ engineHost })
+			const { terminal } = await t.hub.open(namzu)
+			await t.hub.close(terminal.id)
+			expect(record.released).toBe(1)
+		})
+
+		it('gives the folder back when the host goes away', async () => {
+			const { record, engineHost } = held()
+			const t = setup({ engineHost })
+			await t.hub.open(namzu)
+			t.connection.emit('closed')
+			expect(record.released).toBe(1)
+		})
+
+		it('gives the folder back when the tab cannot be started', async () => {
+			const { record, engineHost } = held()
+			const t = setup({ engineHost })
+			t.client.available = false
+			await expect(t.hub.open(namzu)).rejects.toThrow()
+			expect(record.released).toBe(1)
+		})
+	})
+
 	it('closes the host terminal when the hub cannot watch it', async () => {
 		const t = setup()
 		t.client.attach = async () => {
