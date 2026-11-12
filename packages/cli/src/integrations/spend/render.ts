@@ -21,6 +21,20 @@ function dollars(value: number): string {
 	return value < 0.01 && value > 0 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`
 }
 
+/**
+ * A conversation as a person can tell it apart: its folder's name and the END of its id.
+ * The start of an id is its creation time, the same for conversations made in the same
+ * minute; the end is the part that differs. The whole id is in the JSON.
+ */
+function conversationLabel(
+	report: SpendReport,
+	conversation: SpendReport['topConversations'][number],
+) {
+	const project = report.projects.find((row) => row.slug === conversation.slug)
+	const folder = (project?.path ?? conversation.slug).split(/[\\/]/).filter(Boolean).at(-1)
+	return `${folder ?? conversation.slug} ${conversation.id.slice(-8)}`
+}
+
 /** Unknown prices stay unknown: never a zero, and a floor when part is known. */
 export function costCell(totals: SpendTotals, local = false): string {
 	if (totals.unpricedTokens > 0) {
@@ -110,7 +124,7 @@ export function renderSpend(report: SpendReport): string {
 			...table(
 				'Largest conversations',
 				report.topConversations.map((conversation) => ({
-					label: `${conversation.id.slice(0, 8)}${conversation.subagent === null ? '' : ' (sub-agent)'}`,
+					label: `${conversationLabel(report, conversation)}${conversation.subagent === null ? '' : ' (sub-agent)'}`,
 					cells: cells(conversation),
 				})),
 			),

@@ -18,6 +18,16 @@
  * is what the per-conversation total is, so a total made from rows and a
  * total made from turns cannot disagree.
  *
+ * A turn's running figure may start from zero or from what the conversation
+ * had already settled: a turn that continues a stored conversation, or a fork,
+ * restores the earlier usage first, so its figures hold it. The record does not
+ * say which, so it is read from the figures: a turn whose first figure is at
+ * least the previous settled one in every token count started from it, and
+ * only what it adds is the turn's own spend. Without this the earlier turns
+ * would be counted again. (A separate turn whose first figure alone is at
+ * least the whole previous turn would be read as continued, and the previous
+ * turn's size would be missing from the total.)
+ *
  * Kinds of work are read from the record, not guessed. A difference that ends
  * at a compaction pass's snapshot (`contextMeasuredBy: 'estimate'`) is
  * compaction. A difference that ends at a model reply is a reply, and holds
@@ -42,7 +52,7 @@ export interface ModelKey {
 }
 
 /** Cumulative figures of one turn, as the record holds them. */
-interface Cumulative {
+export interface Cumulative {
 	prompt: number
 	completion: number
 	total: number
@@ -52,7 +62,7 @@ interface Cumulative {
 	unpriced: number
 }
 
-const ZERO: Cumulative = {
+export const ZERO: Cumulative = {
 	prompt: 0,
 	completion: 0,
 	total: 0,
@@ -115,6 +125,8 @@ export interface SessionFacts {
 	parentKind?: string
 	cwd?: string
 	engineId?: string
+	/** The conversation this one was forked from, and the turn it was forked at. */
+	forkedFrom?: { sessionId: string; turnId: string }
 }
 
 /** What folding a stretch of one log produced. */
@@ -126,6 +138,16 @@ export interface FoldResult {
 	/** Where the next stretch starts: the open turn's first line, or the end of the last complete line. */
 	readonly from: number
 	readonly facts: SessionFacts
+	/**
+	 * The cumulative figure the last settled turn ended at (the one before it
+	 * when nothing settled), which the next stretch starts from.
+	 */
+	readonly settledCumulative: Cumulative
+}
+
+/** Where a stretch starts: what the conversation had already settled to that point. */
+export interface FoldStart {
+	readonly settled?: Cumulative
 }
 
 const INTERESTING =
@@ -134,7 +156,7 @@ const INTERESTING =
 const num = (value: unknown): number =>
 	typeof value === 'number' && Number.isFinite(value) ? value : 0
 
-function cumulativeOf(usage: unknown, cost: unknown): Cumulative {
+export function cumulativeOf(usage: unknown, cost: unknown): Cumulative {
 	const u = (usage ?? {}) as Record<string, unknown>
 	const c = (cost ?? {}) as Record<string, unknown>
 	return {
@@ -224,7 +246,9 @@ export class RowSink {
 interface OpenTurn {
 	readonly startOffset: number
 	readonly deltas: Delta[]
+	/** What the figures are measured from; decided by the turn's first figure. */
 	previous: Cumulative
+	decided: boolean
 	model: string
 	provider: string | null | undefined
 	earlyProvider: string | undefined
@@ -239,24 +263,78 @@ function parseTs(value: unknown): number | undefined {
 }
 
 /**
- * Fold the complete lines of `chunk`, which starts at byte `baseOffset` of the
- * log and at a turn boundary (the start of the file, or where a previous fold
- * said to resume). A trailing line without its newline is a write in progress
- * and is left for the next fold.
+ * True when every token count of `now` is at least that of `base`: the turn
+ * started from it. A model call adds tokens, so a first figure that equals the
+ * base is a separate turn of the same size, unless the turn made no call and
+ * only its settlement is known (`mayEqual`).
  */
-export function foldLogChunk(chunk: Buffer, baseOffset: number, models: ModelTable): FoldResult {
-	const settledSink = new RowSink(models)
-	const facts: SessionFacts = {}
-	let turn: OpenTurn | undefined
-	let consumed = 0
-	let position = 0
+function startedFrom(now: Cumulative, base: Cumulative, mayEqual: boolean): boolean {
+	return (
+		base.total > 0 &&
+		(mayEqual ? now.total >= base.total : now.total > base.total) &&
+		now.prompt >= base.prompt &&
+		now.completion >= base.completion &&
+		now.total >= base.total &&
+		now.cacheRead >= base.cacheRead &&
+		now.cacheWrite >= base.cacheWrite
+	)
+}
 
-	const settle = (settlement: Record<string, unknown> | undefined, ts: number): void => {
-		if (turn === undefined) return
-		const current = turn
-		turn = undefined
+/**
+ * Folds a log fed to it in pieces, so a log of any size is read in bounded
+ * memory. It starts at a turn boundary (the start of the file, or where a
+ * previous fold said to resume). A trailing line without its newline is a
+ * write in progress and is left for the next fold.
+ */
+export class LogFolder {
+	readonly #settledSink: RowSink
+	readonly #openSink: RowSink
+	readonly #facts: SessionFacts = {}
+	#turn: OpenTurn | undefined
+	/** What the conversation had settled before the open turn, or before this stretch. */
+	#settled: Cumulative
+	/** Bytes of a line that has not ended yet, and where it starts. */
+	#tail: Buffer = Buffer.alloc(0)
+	#tailOffset: number
+
+	constructor(
+		private readonly models: ModelTable,
+		baseOffset: number,
+		start: FoldStart = {},
+	) {
+		this.#settledSink = new RowSink(models)
+		this.#openSink = new RowSink(models)
+		this.#settled = start.settled ?? ZERO
+		this.#tailOffset = baseOffset
+	}
+
+	feed(chunk: Buffer): void {
+		const buffer = this.#tail.length === 0 ? chunk : Buffer.concat([this.#tail, chunk])
+		let position = 0
+		while (position < buffer.length) {
+			const newline = buffer.indexOf(10, position)
+			if (newline === -1) break
+			this.#line(buffer.toString('utf8', position, newline), this.#tailOffset + position)
+			position = newline + 1
+		}
+		this.#tail = Buffer.from(buffer.subarray(position))
+		this.#tailOffset += position
+	}
+
+	#decide(turn: OpenTurn, first: Cumulative, mayEqual = false): void {
+		if (turn.decided) return
+		turn.decided = true
+		if (startedFrom(first, this.#settled, mayEqual)) turn.previous = this.#settled
+	}
+
+	#settle(settlement: Record<string, unknown> | undefined, ts: number): void {
+		const current = this.#turn
+		if (current === undefined) return
+		this.#turn = undefined
+		let end: Cumulative | undefined
 		if (settlement !== undefined) {
-			const end = cumulativeOf(settlement.usage, settlement.cost)
+			end = cumulativeOf(settlement.usage, settlement.cost)
+			this.#decide(current, end, current.deltas.length === 0)
 			const tail = minus(end, current.previous)
 			if (!isZero(tail)) {
 				current.deltas.push({
@@ -271,38 +349,43 @@ export function foldLogChunk(chunk: Buffer, baseOffset: number, models: ModelTab
 				})
 			}
 		}
+		// A turn that recorded nothing leaves the figure the next turn may start from alone.
+		const last = end ?? this.#lastFigure
+		if (last !== undefined && last.total > 0) this.#settled = last
 		const served =
 			typeof settlement?.servingProvider === 'string' ? settlement.servingProvider : undefined
 		for (const delta of current.deltas) {
 			const provider = delta.provider ?? (current.fellBack ? current.earlyProvider : served) ?? null
-			settledSink.add(delta, provider)
+			this.#settledSink.add(delta, provider)
 		}
 	}
 
-	while (position < chunk.length) {
-		const newline = chunk.indexOf(10, position)
-		if (newline === -1) break
-		const lineStart = position
-		const line = chunk.toString('utf8', position, newline)
-		position = newline + 1
-		consumed = position
-		if (!INTERESTING.test(line)) continue
+	/** The latest running figure of the open turn. */
+	#lastFigure: Cumulative | undefined
+
+	#line(line: string, lineStart: number): void {
+		if (!INTERESTING.test(line)) return
 		let record: Record<string, unknown>
 		try {
 			record = JSON.parse(line) as Record<string, unknown>
 		} catch {
-			continue
+			return
 		}
 		const ts = parseTs(record.ts)
 		switch (record.type) {
 			case 'session_started': {
 				const parent = record.parent as { kind?: unknown } | undefined
-				if (parent !== undefined && typeof parent.kind === 'string') facts.parentKind = parent.kind
-				else if (parent !== undefined) facts.parentKind = 'agent_spawn'
-				if (typeof record.cwd === 'string') facts.cwd = record.cwd
+				if (parent !== undefined && typeof parent.kind === 'string')
+					this.#facts.parentKind = parent.kind
+				else if (parent !== undefined) this.#facts.parentKind = 'agent_spawn'
+				if (typeof record.cwd === 'string') this.#facts.cwd = record.cwd
 				const harness = record.harness as { engineId?: unknown } | undefined
 				if (harness !== undefined && typeof harness.engineId === 'string') {
-					facts.engineId = harness.engineId
+					this.#facts.engineId = harness.engineId
+				}
+				const fork = record.forkedFrom as { sessionId?: unknown; turnId?: unknown } | undefined
+				if (typeof fork?.sessionId === 'string' && typeof fork.turnId === 'string') {
+					this.#facts.forkedFrom = { sessionId: fork.sessionId, turnId: fork.turnId }
 				}
 				break
 			}
@@ -310,10 +393,12 @@ export function foldLogChunk(chunk: Buffer, baseOffset: number, models: ModelTab
 				// An earlier turn that never settled (a log that was cut) is dropped as
 				// open: it has no terminal record to say more.
 				const config = record.config as { model?: unknown } | undefined
-				turn = {
-					startOffset: baseOffset + lineStart,
+				this.#lastFigure = undefined
+				this.#turn = {
+					startOffset: lineStart,
 					deltas: [],
 					previous: ZERO,
+					decided: false,
 					model: typeof config?.model === 'string' ? config.model : 'unknown',
 					provider: undefined,
 					earlyProvider: undefined,
@@ -323,10 +408,12 @@ export function foldLogChunk(chunk: Buffer, baseOffset: number, models: ModelTab
 				break
 			}
 			case 'request_envelope': {
-				if (turn !== undefined && typeof record.model === 'string') turn.model = record.model
+				if (this.#turn !== undefined && typeof record.model === 'string')
+					this.#turn.model = record.model
 				break
 			}
 			case 'provider_fallback': {
+				const turn = this.#turn
 				if (turn === undefined) break
 				if (!turn.fellBack) {
 					turn.fellBack = true
@@ -338,10 +425,13 @@ export function foldLogChunk(chunk: Buffer, baseOffset: number, models: ModelTab
 				break
 			}
 			case 'token_usage_updated': {
+				const turn = this.#turn
 				if (turn === undefined || ts === undefined) break
 				const now = cumulativeOf(record.usage, record.cost)
+				this.#decide(turn, now)
 				const step = minus(now, turn.previous)
 				turn.previous = now
+				this.#lastFigure = now
 				turn.lastTs = ts
 				if (isZero(step)) break
 				turn.deltas.push({
@@ -356,28 +446,49 @@ export function foldLogChunk(chunk: Buffer, baseOffset: number, models: ModelTab
 			case 'turn_completed':
 			case 'turn_failed': {
 				const settlement = record.settlement as Record<string, unknown> | undefined
-				settle(settlement, ts ?? turn?.lastTs ?? 0)
+				this.#settle(settlement, ts ?? this.#turn?.lastTs ?? 0)
 				break
 			}
 		}
 	}
 
-	const openSink = new RowSink(models)
-	let from = baseOffset + consumed
-	if (turn !== undefined) {
-		from = turn.startOffset
-		const served = turn.fellBack ? turn.earlyProvider : undefined
-		for (const delta of turn.deltas) openSink.add(delta, delta.provider ?? served ?? null)
+	finish(): FoldResult {
+		let from = this.#tailOffset
+		const turn = this.#turn
+		if (turn !== undefined) {
+			from = turn.startOffset
+			const served = turn.fellBack ? turn.earlyProvider : undefined
+			for (const delta of turn.deltas) this.#openSink.add(delta, delta.provider ?? served ?? null)
+		}
+		return {
+			settled: this.#settledSink.rows(),
+			open: this.#openSink.rows(),
+			from,
+			facts: this.#facts,
+			settledCumulative: this.#settled,
+		}
 	}
-	return { settled: settledSink.rows(), open: openSink.rows(), from, facts }
+}
+
+/** Fold the complete lines of one in-memory stretch. See {@link LogFolder}. */
+export function foldLogChunk(
+	chunk: Buffer,
+	baseOffset: number,
+	models: ModelTable,
+	start?: FoldStart,
+): FoldResult {
+	const folder = new LogFolder(models, baseOffset, start)
+	folder.feed(chunk)
+	return folder.finish()
 }
 
 /** A whole log, in memory. For tests and the per-conversation total. */
 export function foldWholeLog(
 	log: Buffer | string,
 	models: ModelTable = new ModelTable(),
+	start?: FoldStart,
 ): FoldResult & { readonly rows: SpendRow[] } {
 	const buffer = typeof log === 'string' ? Buffer.from(log, 'utf8') : log
-	const result = foldLogChunk(buffer, 0, models)
+	const result = foldLogChunk(buffer, 0, models, start)
 	return { ...result, rows: [...result.settled, ...result.open] }
 }

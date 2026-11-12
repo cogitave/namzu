@@ -1498,7 +1498,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		name: 'cost',
 		immediate: true,
 		help: { usage: ['/cost [details]', '/cost days [n]'] },
-		description: 'Show usage and cost for the latest reply or by day.',
+		description: 'Show usage and cost for the current or latest reply.',
 		action: (ctx, args) => {
 			if (args[0]?.toLowerCase() === 'days') {
 				const days = parseSpendDays(args.slice(1))
@@ -2029,7 +2029,7 @@ export function renderBackgroundTasks(jobs: ReturnType<SlashContext['jobs']>): s
 	].join('\n')
 }
 
-/** Reports validate their subcommand instead of silently ignoring mistyped arguments. */
+/** The days of `/cost days [n]`, or `undefined` when the argument is not a whole number in range. */
 function parseSpendDays(args: readonly string[]): number | undefined {
 	if (args.length === 0) return DEFAULT_SPEND_DAYS
 	const value = args[0] as string
@@ -2037,6 +2037,7 @@ function parseSpendDays(args: readonly string[]): number | undefined {
 	return Number(value) <= MAX_SPEND_DAYS ? Number(value) : undefined
 }
 
+/** Reports validate their subcommand instead of silently ignoring mistyped arguments. */
 function reportCommand(
 	name: string,
 	args: readonly string[],

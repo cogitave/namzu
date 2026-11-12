@@ -15,7 +15,13 @@ import { buildCostReport, parseCostArgs } from '../../commands/cost.js'
 import { type FixtureSession, sessionLogText, writeSession } from './__fixtures__/logs.js'
 import { type SpendClock, createDayKeyer, shiftDay, slotOf } from './day.js'
 import { ModelTable, foldWholeLog } from './fold.js'
-import { SPEND_LEDGER_FILE, SPEND_LEDGER_VERSION, discoverLogs, refreshLedger } from './ledger.js'
+import {
+	READ_CHUNK_BYTES,
+	SPEND_LEDGER_FILE,
+	SPEND_LEDGER_VERSION,
+	discoverLogs,
+	refreshLedger,
+} from './ledger.js'
 import { renderSpend } from './render.js'
 import { buildSpendReport, conversationTotals } from './report.js'
 
@@ -837,5 +843,291 @@ describe('namzu cost arguments', () => {
 		expect(parseCostArgs(['--days', '9999'])).toBeUndefined()
 		expect(parseCostArgs(['--days', 'x'])).toBeUndefined()
 		expect(parseCostArgs(['--wat'])).toBeUndefined()
+	})
+})
+
+const opus = (
+	at: string,
+	extra: Partial<FixtureSession['turns'][number]> & Pick<FixtureSession['turns'][number], 'calls'>,
+) => ({
+	startAt: at,
+	model: 'claude-opus-5-5',
+	servingProvider: 'anthropic',
+	...extra,
+})
+
+describe('a conversation continued in a later process', () => {
+	// Continuing a stored conversation restores its earlier usage, so each later
+	// turn's running figures already hold the turns before it.
+	const session = (): FixtureSession => ({
+		carry: true,
+		turns: [
+			opus('2026-11-09T23:50:00.000Z', {
+				calls: [
+					{
+						at: '2026-11-09T23:55:00.000Z',
+						prompt: 1000,
+						completion: 200,
+						cacheWrite: 5000,
+						costUsd: 0.5,
+					},
+				],
+				endAt: '2026-11-09T23:56:00.000Z',
+			}),
+			opus('2026-11-11T08:00:00.000Z', {
+				model: 'claude-sonnet-5-5',
+				calls: [
+					{
+						at: '2026-11-11T08:01:00.000Z',
+						prompt: 300,
+						completion: 150,
+						cacheRead: 5000,
+						costUsd: 0.1,
+					},
+				],
+				endAt: '2026-11-11T08:02:00.000Z',
+			}),
+			opus('2026-11-12T08:00:00.000Z', {
+				calls: [{ at: '2026-11-12T08:01:00.000Z', prompt: 50, completion: 10, costUsd: 0.05 }],
+				endAt: '2026-11-12T08:02:00.000Z',
+			}),
+		],
+	})
+
+	it('counts each turn once: the total is the last figure the conversation shows, and each day holds what ran on it', async () => {
+		writeSession(home, session())
+		const { ledger } = await refreshLedger({ home })
+		const report = buildSpendReport({
+			ledger,
+			clock: clockAt('2026-11-12T12:00:00.000Z'),
+			days: WIDE,
+		})
+		// what the conversation shows: the last settlement, read from the log itself
+		const lines = readFileSync(
+			[...ledger.sessions.keys()].map((k) => join(home, k))[0] as string,
+			'utf8',
+		)
+			.trim()
+			.split('\n')
+		const last = JSON.parse(
+			lines.filter((l) => l.includes('"type":"turn_completed"')).at(-1) as string,
+		) as {
+			settlement: {
+				usage: { totalTokens: number; cacheWriteTokens: number }
+				cost: { totalCost: number }
+			}
+		}
+		const shown = conversationTotals([...ledger.sessions.values()][0] as never)
+		expect(shown.tokens).toBe(last.settlement.usage.totalTokens)
+		expect(report.totals.tokens).toBe(last.settlement.usage.totalTokens)
+		expect(report.totals.estimatedCostUsd).toBeCloseTo(last.settlement.cost.totalCost, 9)
+		expect(report.totals.cacheWriteTokens).toBe(5000)
+		const day = (date: string) => report.days.find((d) => d.date === date)
+		expect(day('2026-11-09')?.tokens).toBe(1000 + 200 + 5000)
+		expect(day('2026-11-09')?.cacheWriteTokens).toBe(5000)
+		expect(day('2026-11-11')?.tokens).toBe(300 + 150 + 5000)
+		expect(day('2026-11-11')?.cacheWriteTokens).toBe(0)
+		expect(day('2026-11-12')?.tokens).toBe(60)
+		expect(day('2026-11-12')?.estimatedCostUsd).toBeCloseTo(0.05, 9)
+	})
+
+	it('counts a continued turn that spent nothing as nothing, and a separate smaller turn in full', async () => {
+		writeSession(home, {
+			carry: true,
+			turns: [
+				opus('2026-11-10T08:00:00.000Z', {
+					calls: [{ at: '2026-11-10T08:01:00.000Z', prompt: 100, completion: 10, costUsd: 1 }],
+					endAt: '2026-11-10T08:02:00.000Z',
+				}),
+				// continued, failed before any call: the settlement is the carried figure
+				opus('2026-11-10T09:00:00.000Z', {
+					calls: [],
+					endAt: '2026-11-10T09:01:00.000Z',
+					end: 'failed',
+				}),
+				opus('2026-11-10T10:00:00.000Z', {
+					calls: [{ at: '2026-11-10T10:01:00.000Z', prompt: 20, completion: 2, costUsd: 0.5 }],
+					endAt: '2026-11-10T10:02:00.000Z',
+				}),
+			],
+		})
+		const { ledger } = await refreshLedger({ home })
+		const totals = conversationTotals([...ledger.sessions.values()][0] as never)
+		expect(totals.tokens).toBe(110 + 22)
+		expect(totals.estimatedCostUsd).toBeCloseTo(1.5, 9)
+	})
+
+	it("does not count a fork twice: only what ran after the fork is the fork's own", async () => {
+		const parent = writeSession(home, {
+			id: '00000000-0000-4000-8000-000000000001',
+			turns: [
+				opus('2026-11-10T08:00:00.000Z', {
+					turnId: 'parent-turn',
+					calls: [{ at: '2026-11-10T08:01:00.000Z', prompt: 1000, completion: 200, costUsd: 1 }],
+					endAt: '2026-11-10T08:02:00.000Z',
+				}),
+			],
+		})
+		writeSession(home, {
+			id: '00000000-0000-4000-8000-000000000002',
+			forkedFrom: {
+				sessionId: parent.id,
+				turnId: 'parent-turn',
+				base: { prompt: 1000, completion: 200, costUsd: 1 },
+			},
+			turns: [
+				opus('2026-11-11T08:00:00.000Z', {
+					calls: [{ at: '2026-11-11T08:01:00.000Z', prompt: 40, completion: 10, costUsd: 0.25 }],
+					endAt: '2026-11-11T08:02:00.000Z',
+				}),
+			],
+		})
+		const small = await refreshLedger({ home, readOnly: true, chunkBytes: 64 })
+		const whole = await refreshLedger({ home, readOnly: true })
+		for (const { ledger } of [small, whole]) {
+			const report = buildSpendReport({
+				ledger,
+				clock: clockAt('2026-11-12T00:00:00.000Z'),
+				days: WIDE,
+			})
+			expect(report.totals.tokens).toBe(1200 + 50)
+			expect(report.totals.estimatedCostUsd).toBeCloseTo(1.25, 9)
+		}
+	})
+})
+
+describe('reading logs in bounded pieces', () => {
+	it('gives the same ledger whatever the piece size, across lines, turns and a turn still open', async () => {
+		writeReconciliationSet()
+		writeSession(home, {
+			carry: true,
+			turns: [
+				opus('2026-11-10T08:00:00.000Z', {
+					calls: [{ at: '2026-11-10T08:01:00.000Z', prompt: 100, completion: 10, costUsd: 1 }],
+					endAt: '2026-11-10T08:02:00.000Z',
+				}),
+				opus('2026-11-10T09:00:00.000Z', {
+					calls: [{ at: '2026-11-10T09:01:00.000Z', prompt: 30, completion: 3, costUsd: 0.5 }],
+				}),
+			],
+		})
+		// Model numbers follow the order logs were met in; the models themselves must agree.
+		const named = (l: Awaited<ReturnType<typeof refreshLedger>>['ledger']) =>
+			[...l.sessions.entries()]
+				.sort(([a], [b]) => (a < b ? -1 : 1))
+				.map(([key, session]) => [
+					key,
+					{
+						...session,
+						rows: session.rows.map((r: readonly number[]) => [
+							...r.slice(0, 2),
+							JSON.stringify(l.models.list[r[2]]),
+							...r.slice(3),
+						]),
+						open: session.open.map((r: readonly number[]) => [
+							...r.slice(0, 2),
+							JSON.stringify(l.models.list[r[2]]),
+							...r.slice(3),
+						]),
+					},
+				])
+		const reference = await refreshLedger({ home, readOnly: true })
+		for (const chunkBytes of [1, 7, 333, 4096]) {
+			const piece = await refreshLedger({ home, readOnly: true, chunkBytes })
+			expect(named(piece.ledger)).toEqual(named(reference.ledger))
+			expect(piece.stats.bytesRead).toBe(reference.stats.bytesRead)
+		}
+	})
+
+	it('reads a log larger than one piece to the same total as folding it whole', async () => {
+		const turns = Array.from({ length: 700 }, (_, i) =>
+			opus(`2026-11-10T08:00:${String(i % 60).padStart(2, '0')}.000Z`, {
+				calls: [{ at: '2026-11-10T08:30:00.000Z', prompt: 10 + i, completion: 1, costUsd: 0.001 }],
+				endAt: '2026-11-10T08:31:00.000Z',
+			}),
+		)
+		const { path } = writeSession(home, { turns })
+		expect(statSync(path).size).toBeGreaterThan(READ_CHUNK_BYTES)
+		const { ledger, stats } = await refreshLedger({ home, readOnly: true })
+		expect(stats.bytesRead).toBe(statSync(path).size)
+		const whole = foldWholeLog(readFileSync(path))
+		const sum = (rows: readonly (readonly number[])[], i: number) =>
+			rows.reduce((s, r) => s + (r[i] as number), 0)
+		const session = [...ledger.sessions.values()][0] as {
+			rows: readonly (readonly number[])[]
+			open: readonly (readonly number[])[]
+		}
+		expect(sum([...session.rows, ...session.open], 3)).toBe(sum(whole.rows as never, 3))
+	})
+})
+
+describe('a ledger file of the right version and the wrong shape', () => {
+	it('is rebuilt like any other unusable file and the report is the same', async () => {
+		writeReconciliationSet()
+		const before = buildSpendReport({
+			ledger: (await refreshLedger({ home })).ledger,
+			clock: clockAt('2026-11-12T00:00:00.000Z'),
+			days: WIDE,
+		})
+		const file = join(home, SPEND_LEDGER_FILE)
+		const stamped = JSON.parse(readFileSync(file, 'utf8')) as {
+			sessions: Record<string, { rows: unknown }>
+		}
+		const first = Object.keys(stamped.sessions)[0] as string
+		;(stamped.sessions[first] as { rows: unknown }).rows = 'not rows'
+		writeFileSync(file, JSON.stringify(stamped))
+		const healed = await refreshLedger({ home })
+		expect(healed.stats.rebuilt).toBe(true)
+		expect(
+			buildSpendReport({
+				ledger: healed.ledger,
+				clock: clockAt('2026-11-12T00:00:00.000Z'),
+				days: WIDE,
+			}),
+		).toEqual(before)
+		// and the file on disk is sound again
+		expect((await refreshLedger({ home })).stats.rebuilt).toBe(false)
+	})
+})
+
+describe('what a person reads', () => {
+	it('tells conversations made in the same minute apart', async () => {
+		for (const id of [
+			'01a1cecb-22ca-7053-b069-cd0f98e7e4d6',
+			'01a1cecb-2bff-77dc-9305-b76897ee55e2',
+		]) {
+			writeSession(home, {
+				id,
+				cwd: '/work/api',
+				turns: [
+					opus('2026-11-10T08:00:00.000Z', {
+						calls: [{ at: '2026-11-10T08:01:00.000Z', prompt: 10, completion: 1, costUsd: 1 }],
+						endAt: '2026-11-10T08:02:00.000Z',
+					}),
+				],
+			})
+		}
+		const { ledger } = await refreshLedger({ home })
+		const text = renderSpend(
+			buildSpendReport({ ledger, clock: clockAt('2026-11-12T00:00:00.000Z'), days: 7 }),
+		)
+		expect(text).toContain('7e4d6')
+		expect(text).toContain('ee55e2')
+		expect(text).not.toMatch(/^01a1cecb\b/m)
+	})
+
+	it('says when spend sits on days after today, instead of leaving it unexplained', async () => {
+		writeSession(home, {
+			turns: [
+				opus('2026-11-13T08:00:00.000Z', {
+					calls: [{ at: '2026-11-13T08:01:00.000Z', prompt: 10, completion: 1, costUsd: 1 }],
+					endAt: '2026-11-13T08:02:00.000Z',
+				}),
+			],
+		})
+		const { ledger } = await refreshLedger({ home })
+		const report = buildSpendReport({ ledger, clock: clockAt('2026-11-12T00:00:00.000Z'), days: 7 })
+		expect(report.totals.tokens).toBe(11)
+		expect(report.notes.some((n) => n.includes('after today'))).toBe(true)
 	})
 })

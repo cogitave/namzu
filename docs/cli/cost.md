@@ -28,7 +28,7 @@ session logs. Nothing is collected for it and nothing leaves the machine.
 | Model | Spend on each model, with the route the record names beside it. |
 | Project | Spend in each folder's conversations. |
 | Kind of work | Your replies, sub-agents, compaction, other internal calls. |
-| Largest conversations | The ten conversations that cost most in the window. |
+| Largest conversations | The ten conversations that cost most in the window, each named by its folder and the last eight characters of its id (the start of an id is its creation time, the same for conversations made in the same minute). The JSON carries the whole id. |
 
 Every row carries the same columns: tokens, fresh input, cache reads, cache
 writes, output and the estimated cost. Cache reads and writes are shown apart
@@ -84,6 +84,21 @@ reads. The view separates fresh input using the route's rate card, and where no
 card names the route and something was read from the cache it cannot, so that
 input is shown with a star as "includes input the record does not separate from
 cache reads" (`unsplitInputTokens` in JSON).
+
+### Continued and forked conversations
+
+A turn that continues a stored conversation (`--continue`, `/resume`) restores
+the usage the conversation had, and so does a fork, so the running figures of
+such a turn already hold the turns before it. The record does not mark this, so
+it is read from the figures: a turn whose first figure is at least what the
+conversation had settled in every token count started from it, and only the
+difference is that turn's own spend. For a fork the starting point is what the
+parent settled at the turn it was forked from. This keeps the view equal to the
+last figure the conversation shows, and puts spend on the day it ran. A
+separate turn whose first call alone is as large as everything before it would
+be read as continued; that needs a call as big as a whole earlier turn, and the
+earlier size is then missing from the total. A fork whose parent log is gone
+counts its figures in full.
 
 ## Reconciliation
 
@@ -153,14 +168,19 @@ turns folded into, the byte offset the next read resumes from, and the size and
 modification time the log had. A report lists the logs, checks each one's size
 and time, and reads only what a changed log appended since its offset (an open
 turn is read again from its start; a log that got shorter is read from the
-beginning). The file is written only when something changed, through a
-temporary file and a rename.
+beginning). A log is read in pieces of 1 MiB and folded as it streams, so the
+memory the report needs does not grow with the largest log. The file is written
+only when something changed, through a temporary file and a rename. It also
+keeps what each conversation had settled, which the next turn is measured from.
 
-The file is derived and safe to delete. A missing, unreadable or other-version
-file is rebuilt from the logs, which stay the source of truth, and an older
+The file is derived and safe to delete. A missing, unreadable, other-version or
+malformed file is rebuilt from the logs, which stay the source of truth, and an older
 command line ignores it. Its stamp is `SPEND_LEDGER_VERSION`
 ([kernel facts](../sdk/kernel-facts.md)). It holds slots of 15 minutes of UTC
 time, not days, so changing the zone never needs a rebuild.
+
+A log timestamped after today by this machine's clock is counted, and a note
+says so; the window's `to` stays today.
 
 Measured on fixture logs (about 13 KB each, three turns of four calls), on the
 development machine: 1,000 conversations take 195 ms to read for the first time

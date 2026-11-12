@@ -193,6 +193,7 @@ export function buildSpendReport(query: SpendQuery): SpendReport {
 	const unpricedModelIds = new Set<number>()
 	let engineConversations = 0
 	let unsplit = 0
+	let ahead = 0
 
 	for (const [key, session] of ledger.sessions) {
 		const mine = emptyTotals()
@@ -201,6 +202,7 @@ export function buildSpendReport(query: SpendQuery): SpendReport {
 			const day = keyer(row[0] * SLOT_MS)
 			if (day < from) continue
 			touched = true
+			if (day > today) ahead += row[3]
 			addRow(total, row)
 			addRow(mine, row)
 			let dayEntry = byDay.get(day)
@@ -271,6 +273,11 @@ export function buildSpendReport(query: SpendQuery): SpendReport {
 	if (unsplit > 0) {
 		notes.push(
 			`${unsplit.toLocaleString('en-US')} input tokens ran on a route whose rate card is not in the catalogue, so the record cannot say how many of them were read from the cache. They are listed as unsplit input.`,
+		)
+	}
+	if (ahead > 0) {
+		notes.push(
+			`${ahead.toLocaleString('en-US')} tokens are recorded on days after today by this machine's clock (a log written ahead of it). They are included.`,
 		)
 	}
 	if (engineConversations > 0) {

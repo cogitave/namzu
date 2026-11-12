@@ -18,11 +18,20 @@
 import { randomUUID } from 'node:crypto'
 import { open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { StringDecoder } from 'node:string_decoder'
 
-import { type ModelKey, ModelTable, type SpendRow, foldLogChunk } from './fold.js'
+import {
+	type Cumulative,
+	LogFolder,
+	type ModelKey,
+	ModelTable,
+	type SpendRow,
+	ZERO,
+	cumulativeOf,
+} from './fold.js'
 
 /** Raise when the file's shape changes; an older or newer file is then rebuilt, never migrated. */
-export const SPEND_LEDGER_VERSION = 1
+export const SPEND_LEDGER_VERSION = 2
 
 export const SPEND_LEDGER_FILE = 'spend-ledger.json'
 
@@ -40,6 +49,12 @@ export interface LedgerSession {
 	parentKind?: string
 	/** Set for a log run by an outside engine. */
 	engineId?: string
+	/**
+	 * What the conversation had settled at `from`, as seven counts (prompt,
+	 * completion, total, cache read, cache write, cost, unpriced). The next turn
+	 * may start from it. Absent when nothing had settled.
+	 */
+	cum?: number[]
 	/** Rows of turns that settled. */
 	rows: SpendRow[]
 	/** Rows of a turn still open, recomputed on each read. */
@@ -147,11 +162,48 @@ async function loadLedger(home: string): Promise<Ledger | undefined> {
 	) {
 		return undefined
 	}
+	const sessions = new Map<string, LedgerSession>()
+	for (const [key, entry] of Object.entries(parsed.sessions)) {
+		if (!isLedgerSession(entry)) return undefined
+		sessions.set(key, entry)
+	}
+	if (
+		!parsed.models.every(
+			(m) => m !== null && typeof m === 'object' && typeof (m as ModelKey).model === 'string',
+		)
+	) {
+		return undefined
+	}
 	return {
 		models: new ModelTable(parsed.models),
 		projects: new Map(Object.entries(parsed.projects ?? {})),
-		sessions: new Map(Object.entries(parsed.sessions)),
+		sessions,
 	}
+}
+
+const isRow = (row: unknown): boolean =>
+	Array.isArray(row) &&
+	row.length === 11 &&
+	row.every((n) => typeof n === 'number' && Number.isFinite(n))
+
+/** A session entry of the shape this version writes. Anything else makes the file unusable, so it is rebuilt. */
+function isLedgerSession(entry: unknown): entry is LedgerSession {
+	if (entry === null || typeof entry !== 'object') return false
+	const e = entry as Record<string, unknown>
+	return (
+		typeof e.slug === 'string' &&
+		typeof e.size === 'number' &&
+		typeof e.mtimeMs === 'number' &&
+		typeof e.from === 'number' &&
+		Array.isArray(e.rows) &&
+		e.rows.every(isRow) &&
+		Array.isArray(e.open) &&
+		e.open.every(isRow) &&
+		(e.cum === undefined ||
+			(Array.isArray(e.cum) &&
+				e.cum.length === 7 &&
+				e.cum.every((n) => typeof n === 'number' && Number.isFinite(n))))
+	)
 }
 
 async function saveLedger(home: string, ledger: Ledger): Promise<void> {
@@ -172,27 +224,96 @@ async function saveLedger(home: string, ledger: Ledger): Promise<void> {
 	}
 }
 
-async function readRange(path: string, from: number, to: number): Promise<Buffer> {
+/** Bytes read at a time. A log is folded as it streams, so memory does not grow with the log. */
+export const READ_CHUNK_BYTES = 1024 * 1024
+
+/** Stream `[from, to)` of a log through a folder, one chunk at a time. Returns the bytes read. */
+async function streamRange(
+	path: string,
+	from: number,
+	to: number,
+	folder: LogFolder,
+	chunkBytes: number,
+) {
 	const handle = await open(path, 'r')
 	try {
-		const length = Math.max(0, to - from)
-		const buffer = Buffer.allocUnsafe(length)
-		let filled = 0
-		while (filled < length) {
-			const { bytesRead } = await handle.read(buffer, filled, length - filled, from + filled)
+		const buffer = Buffer.allocUnsafe(Math.min(chunkBytes, Math.max(0, to - from)))
+		let position = from
+		while (position < to) {
+			const { bytesRead } = await handle.read(
+				buffer,
+				0,
+				Math.min(buffer.length, to - position),
+				position,
+			)
 			if (bytesRead === 0) break
-			filled += bytesRead
+			folder.feed(buffer.subarray(0, bytesRead))
+			position += bytesRead
 		}
-		return buffer.subarray(0, filled)
+		return position - from
 	} finally {
 		await handle.close()
 	}
 }
 
+/** What a settled turn of a log ended at: the figure a fork of it starts from. */
+async function settlementAt(path: string, turnId: string): Promise<Cumulative | undefined> {
+	const needle = `"turnId":"${turnId}"`
+	let found: Cumulative | undefined
+	const handle = await open(path, 'r')
+	try {
+		const buffer = Buffer.allocUnsafe(READ_CHUNK_BYTES)
+		let position = 0
+		let tail = ''
+		const decoder = new StringDecoder('utf8')
+		for (;;) {
+			const { bytesRead } = await handle.read(buffer, 0, buffer.length, position)
+			if (bytesRead === 0) break
+			position += bytesRead
+			const lines = (tail + decoder.write(buffer.subarray(0, bytesRead))).split('\n')
+			tail = lines.pop() ?? ''
+			for (const line of lines) {
+				if (!line.includes(needle) || !/"type":"turn_(?:completed|failed)"/.test(line)) continue
+				try {
+					const record = JSON.parse(line) as { settlement?: { usage?: unknown; cost?: unknown } }
+					if (record.settlement !== undefined) {
+						found = cumulativeOf(record.settlement.usage, record.settlement.cost)
+					}
+				} catch {
+					// A damaged line says nothing.
+				}
+			}
+		}
+	} finally {
+		await handle.close()
+	}
+	return found
+}
+
+const toCumulative = (cum: readonly number[] | undefined): Cumulative =>
+	cum === undefined
+		? ZERO
+		: {
+				prompt: cum[0] as number,
+				completion: cum[1] as number,
+				total: cum[2] as number,
+				cacheRead: cum[3] as number,
+				cacheWrite: cum[4] as number,
+				cost: cum[5] as number,
+				unpriced: cum[6] as number,
+			}
+
+const fromCumulative = (c: Cumulative): number[] | undefined =>
+	c.total > 0
+		? [c.prompt, c.completion, c.total, c.cacheRead, c.cacheWrite, c.cost, c.unpriced]
+		: undefined
+
 export interface RefreshOptions {
 	readonly home: string
 	/** Read logs and compute, but never write the ledger file. */
 	readonly readOnly?: boolean
+	/** Bytes read at a time; tests make it small to cross line and turn boundaries. */
+	readonly chunkBytes?: number
 }
 
 /** Bring the ledger up to date with the logs and return it. */
@@ -200,6 +321,7 @@ export async function refreshLedger(
 	options: RefreshOptions,
 ): Promise<{ ledger: Ledger; stats: RefreshStats }> {
 	const home = options.home
+	const chunkBytes = Math.max(1, options.chunkBytes ?? READ_CHUNK_BYTES)
 	const loaded = await loadLedger(home)
 	const ledger: Ledger = loaded ?? {
 		models: new ModelTable(),
@@ -234,20 +356,42 @@ export async function refreshLedger(
 		if (entry === undefined || info.size < entry.size) {
 			entry = { slug, size: 0, mtimeMs: 0, from: 0, rows: [], open: [] }
 		}
-		let chunk: Buffer
+		let result: ReturnType<LogFolder['finish']>
+		let size = 0
 		try {
-			chunk = await readRange(path, entry.from, info.size)
+			const start = { settled: toCumulative(entry.cum) }
+			let folder = new LogFolder(ledger.models, entry.from, start)
+			size = await streamRange(path, entry.from, info.size, folder, chunkBytes)
+			result = folder.finish()
+			const fork = result.facts.forkedFrom
+			if (entry.from === 0 && fork !== undefined) {
+				// A fork's first turn starts from what its parent had settled at the fork.
+				const parentKey =
+					logs.find((k) => k === `projects/${slug}/${fork.sessionId}.jsonl`) ??
+					logs.find((k) => k.endsWith(`/${fork.sessionId}.jsonl`))
+				const base =
+					parentKey === undefined
+						? undefined
+						: await settlementAt(join(home, parentKey), fork.turnId)
+				if (base !== undefined) {
+					folder = new LogFolder(ledger.models, 0, { settled: base })
+					size = await streamRange(path, 0, info.size, folder, chunkBytes)
+					result = folder.finish()
+				}
+			}
 		} catch {
 			return
 		}
-		const result = foldLogChunk(chunk, entry.from, ledger.models)
 		read += 1
-		bytesRead += chunk.length
+		bytesRead += size
 		const next: LedgerSession = {
 			slug,
 			size: info.size,
 			mtimeMs: info.mtimeMs,
 			from: result.from,
+			...(fromCumulative(result.settledCumulative) !== undefined
+				? { cum: fromCumulative(result.settledCumulative) as number[] }
+				: {}),
 			rows: result.settled.length > 0 ? [...entry.rows, ...result.settled] : entry.rows,
 			open: result.open,
 			...((result.facts.parentKind ?? entry.parentKind) !== undefined

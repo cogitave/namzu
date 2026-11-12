@@ -7618,8 +7618,6 @@ function AppBody({
 		[openResumePicker],
 	)
 
-	/** `/doctor`: run the health checks once and show the result in plain words. */
-	const doctorRunningRef = useRef(false)
 	const spendRunningRef = useRef(false)
 	/** `/cost days [n]`: spend across conversations, read from the session logs. */
 	const showSpendInSession = useCallback(
@@ -7654,6 +7652,8 @@ function AppBody({
 		[pushMessage, pushSystem],
 	)
 
+	/** `/doctor`: run the health checks once and show the result in plain words. */
+	const doctorRunningRef = useRef(false)
 	const runDoctorInSession = useCallback(async () => {
 		if (doctorRunningRef.current) {
 			pushMessage('system', 'The health check is already running.')
