@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -139,6 +140,45 @@ describe('namzu eval statistics', () => {
 		const { code, errors } = await run(['--seed', '-1'])
 		expect(code).toBe(EVAL_EXIT.usage)
 		expect(errors[0]).toContain('--seed takes a whole number')
+	})
+
+	it('does not call a RangeError thrown by a suite itself a usage error', async () => {
+		await writeFile(
+			join(dir, 'a.eval.js'),
+			'export default function () { throw new RangeError("Invalid array length") }',
+			'utf-8',
+		)
+		await expect(run([])).rejects.toThrow('Invalid array length')
+	})
+
+	it('records the seed a suite set itself when --seed is not given', async () => {
+		await writeFile(
+			join(dir, 'a.eval.js'),
+			suiteThatRuns().replace("name: 'scripted',", "name: 'scripted', seed: 42,"),
+			'utf-8',
+		)
+		const out = join(dir, 'out.json')
+		await run(['--out', out])
+		expect((await written(out)).run.disclosure.seed).toBe(42)
+	})
+
+	it('marks the commit when tracked files have changed since it', async () => {
+		const git = (...args: string[]) =>
+			execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...args], {
+				cwd: dir,
+				stdio: 'ignore',
+			})
+		git('init', '-q')
+		await writeFile(join(dir, 'a.eval.js'), suiteThatRuns(), 'utf-8')
+		git('add', 'a.eval.js')
+		git('commit', '-q', '-m', 'suite')
+		const clean = join(dir, 'clean.json')
+		await run(['--out', clean])
+		expect((await written(clean)).run.disclosure.commit).toMatch(/^[0-9a-f]{7,64}$/)
+		await writeFile(join(dir, 'a.eval.js'), `${suiteThatRuns()}\n// edited\n`, 'utf-8')
+		const dirty = join(dir, 'dirty.json')
+		await run(['--out', dirty])
+		expect((await written(dirty)).run.disclosure.commit).toMatch(/-dirty$/)
 	})
 
 	describe('compare', () => {

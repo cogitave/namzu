@@ -29,6 +29,7 @@ import {
 	formatEvalComparison,
 	formatReport,
 	formatRunSummary,
+	isEvalUsageError,
 	loadEvalReportFile,
 	summarizeRun,
 	withEvalRunOptions,
@@ -227,10 +228,24 @@ async function commitOf(root: string): Promise<string | undefined> {
 	try {
 		const { stdout } = await run('git', ['rev-parse', 'HEAD'], { cwd: root, timeout: 5_000 })
 		const commit = stdout.trim()
-		return /^[0-9a-f]{7,64}$/.test(commit) ? commit : undefined
+		if (!/^[0-9a-f]{7,64}$/.test(commit)) return undefined
+		// A report must not name a commit that did not produce it: with
+		// tracked files changed, the suites that ran are not that commit's.
+		const changed = await run('git', ['status', '--porcelain', '--untracked-files=no'], {
+			cwd: root,
+			timeout: 5_000,
+		})
+		return changed.stdout.trim().length > 0 ? `${commit}-dirty` : commit
 	} catch {
 		return undefined
 	}
+}
+
+/** The seed every suite used, when they all used the same one (a suite may set its own). */
+function sharedSeed(reports: ReadonlyArray<{ report: ExperimentReport }>): number | undefined {
+	const seeds = new Set(reports.map((r) => r.report.seed))
+	const [only] = [...seeds]
+	return seeds.size === 1 && typeof only === 'number' ? only : undefined
 }
 
 async function runEval(ctx: CommandContext, options: EvalOptions): Promise<number> {
@@ -289,8 +304,10 @@ async function runEval(ctx: CommandContext, options: EvalOptions): Promise<numbe
 				options.timeoutMs ?? DEFAULT_SUITE_TIMEOUT_MS,
 			)
 		} catch (err) {
-			// A bad `--repeat` or seed reaches here from inside the suite.
-			if (err instanceof RangeError) {
+			// A bad `--repeat` or seed reaches here from inside the suite. Only
+			// those are usage errors: a RangeError the suite's own code threw is
+			// a crash like any other.
+			if (isEvalUsageError(err)) {
 				ctx.formatter.error({ message: err.message })
 				return EVAL_EXIT.usage
 			}
@@ -330,7 +347,7 @@ async function runEval(ctx: CommandContext, options: EvalOptions): Promise<numbe
 	}
 
 	const summary = summarizeRun(reports, {
-		seed: options.seed ?? DEFAULT_EVAL_SEED,
+		seed: options.seed ?? sharedSeed(reports) ?? DEFAULT_EVAL_SEED,
 		harnessVersion: CLI_VERSION,
 		sdkVersion:
 			reports.find((r) => r.report.disclosure)?.report.disclosure?.sdkVersion ?? 'unknown',
