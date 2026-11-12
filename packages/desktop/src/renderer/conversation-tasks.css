@@ -7,8 +7,9 @@
 }
 .conversation-tasks h3 {
 	margin: 0 0 6px;
-	font-size: 14px;
-	font-weight: 500;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+	font-weight: var(--weight-control);
 }
 .conversation-tasks ul {
 	list-style: none;
@@ -18,7 +19,8 @@
 .conversation-tasks li {
 	padding: 10px 0;
 	border-bottom: 1px solid var(--border);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	overflow-wrap: anywhere;
 }
 .conversation-tasks li > div {

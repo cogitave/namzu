@@ -60,6 +60,7 @@ import {
 	folderReadable,
 	plannedScratchFolder,
 } from '../folder.js'
+import { type GateRunner, gateContextText, gateEnvironment, gateRefusal, runGate } from '../gate.js'
 import type { SchedulePaths } from '../paths.js'
 import { compileJobPolicy, compileScriptCheckPolicy, withheldTools } from '../policy.js'
 import { verifyScheduledScript } from '../script-check.js'
@@ -68,6 +69,7 @@ import { computeProjectDigest, projectDigestChanges } from '../store/digest.js'
 import { confirmationHolds, readJob } from '../store/jobs.js'
 import { readScriptState } from '../store/script-state.js'
 import {
+	type GateSkipKind,
 	type ScheduleJob,
 	type ScheduleRunResult,
 	type ScheduleRunStatus,
@@ -194,6 +196,8 @@ export interface FireDependencies {
 	readonly keepLogging?: boolean
 	/** Test seam: whether the job's browser can run (see `browser-preflight.ts`). */
 	readonly browserPreflight?: typeof browserPreflight
+	/** Test seam: how a job's gate command is run (a fake gives no real process). */
+	readonly gateRunner?: GateRunner
 }
 
 /**
@@ -427,6 +431,38 @@ export async function runFire(
 		)
 	}
 	if (!model) return blocked('an agent job has no model; edit the job and confirm it again')
+
+	// ── an agent job's gate: a command the operator wrote decides whether the
+	// model is called at all. Skipped is not failed: no model call, no failure
+	// streak, no failure notice; only a gate that cannot start is counted. ──
+	let gateOutput: string | undefined
+	if (job.gate) {
+		const gate = job.gate
+		if (runKind !== 'agent') return blocked('a gate only applies to an agent job')
+		if (job.permissions.execution !== 'host') {
+			return blocked(
+				'a gate needs execution on the host; edit the job and confirm it again, or remove the gate',
+			)
+		}
+		const skip = (kind: GateSkipKind, reason: string): number =>
+			finish('skipped', 0, { reason, skipKind: kind })
+		if (process.platform === 'win32') {
+			return skip('start', 'the gate could not start: gates are not supported on native Windows')
+		}
+		const refusal = gateRefusal(job, layers, paths.home)
+		if (refusal) return skip('start', `the gate could not start: ${refusal}`)
+		const outcome = await runGate(gate, {
+			cwd: folder.canonical,
+			env: gateEnvironment(deps.env ?? process.env, paths.home),
+			...(deps.gateRunner ? { runner: deps.gateRunner } : {}),
+		})
+		if (!outcome.run) return skip(outcome.kind, outcome.reason)
+		// A warning only, as for a wake-gate's context: runtime output is not
+		// something anyone confirmed in advance.
+		const findings = scanSchedulePrompt(outcome.output)
+		if (findings.length > 0) warnings.push(...findings.map((f) => `gate output: ${f}`))
+		gateOutput = gateContextText(revealHiddenCharacters(outcome.output))
+	}
 
 	// ── script+agent's wake-gate: a cheap script decides whether the
 	// (expensive) agent phase is worth running at all ─────────────────────
@@ -692,6 +728,7 @@ export async function runFire(
 					now: now(),
 					tz: job.schedule.kind === 'cron' ? job.schedule.tz : hostTimeZone(),
 					...(wakeGateContext !== undefined ? { wakeGateContext } : {}),
+					...(gateOutput !== undefined ? { gateOutput } : {}),
 				}),
 				...(model.effort ? { effort: model.effort as never } : {}),
 				// The user's `hypermode` key reaches a scheduled run: a run that

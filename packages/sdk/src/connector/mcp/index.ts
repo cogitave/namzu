@@ -34,6 +34,7 @@ export type {
 } from './era.js'
 export { buildEnvelope, decodeResult, encodeMcpHeaderValue } from './envelope.js'
 export type { McpEnvelope, McpEnvelopeInput, MCPDecodedResult } from './envelope.js'
+export { MCP_TASKS_EXTENSION } from './tasks.js'
 
 // The repo's first refusal path: a tool definition namzu declines to expose.
 // Exported so a host can ask the same question of a schema it holds — and

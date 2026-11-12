@@ -1,3 +1,14 @@
+import { EvalUsageError, validateSeed } from './bootstrap.js'
+import { type SuiteFacts, buildDisclosure, describeDisclosure } from './disclosure.js'
+import {
+	describeIntervals,
+	describeSplits,
+	duplicateMessage,
+	duplicateName,
+	groupRuns,
+	statsOver,
+} from './report-stats.js'
+import { currentEvalRunOptions } from './run-options.js'
 import type {
 	CaseResult,
 	CaseStatus,
@@ -9,6 +20,8 @@ import type {
 } from './types.js'
 import type { ScoreUncertainty } from './uncertainty.js'
 import { describeUncertainty, uncertaintyOf } from './uncertainty.js'
+
+const MAX_REPEATS = 100
 
 const MAX_CASE_TIMEOUT_MS = 2_147_483_647
 
@@ -42,7 +55,29 @@ export interface ExperimentConfig<TInput = unknown> {
 	passThreshold?: number
 	/** Cases to run at once. Default 1 — deterministic ordering by default. */
 	concurrency?: number
+	/** Called once per run of a case; with repeats, once per repeat. */
 	onCaseFinish?: (result: CaseResult) => void
+	/**
+	 * Times every case runs, from 1 to 100. Default 1.
+	 *
+	 * One run of a case says little about a model that does not answer the
+	 * same way twice. The report keeps every run and says per case how many
+	 * passed, and per suite how many cases passed every time. An
+	 * `EvalRunOptions` scope opened by `namzu eval --repeat` wins over this.
+	 */
+	repeats?: number
+	/**
+	 * Seed for the bootstrap intervals, an integer from 0 to 4294967295.
+	 * Default 1, so the same cases give the same interval on every machine.
+	 * Written into the report.
+	 */
+	seed?: number
+	/**
+	 * What the suite knows about how it runs: scripted or a real model, which
+	 * provider and model fill each role, routing, reasoning effort. Whatever is
+	 * left out is written `unknown` in the report, never guessed.
+	 */
+	disclosure?: SuiteFacts
 }
 
 /**
@@ -64,29 +99,44 @@ export async function runExperiment<TInput>(
 	const threshold = config.passThreshold ?? 1
 	const concurrency = Math.max(1, config.concurrency ?? 1)
 	const timeoutMs = validateCaseTimeoutMs(config.timeoutMs)
+	const options = currentEvalRunOptions()
+	const repeats = validateRepeats(options.repeats ?? config.repeats)
+	const seed = validateSeed(options.seed ?? config.seed)
+	for (const evalCase of config.cases) validateSplit(evalCase)
+	const alike = duplicateName(config.cases.map((c) => c.name))
+	if (alike !== undefined) throw new Error(duplicateMessage(config.name, alike))
 
-	const results: CaseResult[] = new Array(config.cases.length)
+	// Case-major, so a case's repeats sit together in the report.
+	const total = config.cases.length * repeats
+	const results: CaseResult[] = new Array(total)
 	let cursor = 0
 
 	const worker = async (): Promise<void> => {
 		for (;;) {
 			const index = cursor++
-			const evalCase = config.cases[index]
-			if (!evalCase) return
+			if (index >= total) return
+			const evalCase = config.cases[Math.floor(index / repeats)] as EvalCase<TInput>
 
 			const result = await evaluateCase(config, evalCase, threshold, timeoutMs)
+			result.repeat = (index % repeats) + 1
+			if (evalCase.split) result.split = evalCase.split
 			results[index] = result
 			config.onCaseFinish?.(result)
 		}
 	}
 
-	await Promise.all(Array.from({ length: Math.min(concurrency, config.cases.length) }, worker))
+	await Promise.all(Array.from({ length: Math.min(concurrency, total) }, worker))
 
 	const settled = results.filter(Boolean)
 	// An inconclusive case has no mean to contribute; averaging its zero in
 	// would report a suite-wide regression caused by the harness.
 	const scored = settled.filter((r) => r.status !== 'inconclusive')
 	const mean = scored.length === 0 ? 0 : scored.reduce((sum, r) => sum + r.mean, 0) / scored.length
+
+	const stats = statsOver(groupRuns(settled), seed)
+	// One number per CASE, so a case's repeats are not counted as independent
+	// evidence about the suite.
+	const caseMeans = stats.caseSummaries.flatMap((c) => (c.mean === null ? [] : [c.mean]))
 
 	return {
 		name: config.name,
@@ -95,12 +145,43 @@ export async function runExperiment<TInput>(
 		// Over the same cases the mean is over. Computing spread across a
 		// different denominator than the average it qualifies would produce
 		// an interval that does not belong to the number beside it.
-		uncertainty: uncertaintyOf(scored.map((r) => r.mean)),
+		uncertainty: uncertaintyOf(caseMeans),
 		passed: settled.filter((r) => r.status === 'passed').length,
 		failed: settled.filter((r) => r.status === 'failed').length,
 		inconclusive: settled.filter((r) => r.status === 'inconclusive').length,
 		byScorer: meanByScorer(settled),
 		durationMs: Date.now() - startedAt,
+		repeats,
+		seed,
+		...(stats.passRate === null ? {} : { passRate: stats.passRate }),
+		intervals: stats.intervals,
+		...(repeats > 1 ? { caseSummaries: stats.caseSummaries, reliability: stats.reliability } : {}),
+		splits: stats.splits,
+		disclosure: buildDisclosure(
+			config.disclosure,
+			{ cases: config.cases.length, repeats, seed },
+			options,
+			new Date().toISOString(),
+		),
+	}
+}
+
+function validateRepeats(value: number | undefined): number {
+	if (value === undefined) return 1
+	if (!Number.isInteger(value) || value < 1 || value > MAX_REPEATS) {
+		throw new EvalUsageError(
+			`repeats must be an integer from 1 to ${MAX_REPEATS}, or omitted; received ${String(value)}`,
+		)
+	}
+	return value
+}
+
+function validateSplit(evalCase: EvalCase<unknown>): void {
+	const split = evalCase.split as unknown
+	if (split !== undefined && split !== 'development' && split !== 'held-out') {
+		throw new RangeError(
+			`case "${evalCase.name}" declares split ${JSON.stringify(split)}; a split is "development" or "held-out", or left out`,
+		)
 	}
 }
 
@@ -351,17 +432,46 @@ function derivedUncertainty(report: ExperimentReport): ScoreUncertainty {
 }
 
 export function formatReport(report: ExperimentReport): string {
+	const repeats = report.repeats ?? 1
+	const caseCount = repeats > 1 ? report.cases.length / repeats : report.cases.length
 	const lines: string[] = [
-		`${report.name}: ${report.passed}/${report.cases.length} passed (mean ${report.mean.toFixed(2)}) in ${report.durationMs}ms`,
-		// On its own line and always printed, including when the interval is
-		// undefined. A mean printed alone is the thing that has been
-		// over-read: two experiments three points apart look like a difference, and
-		// at the n a hand-built suite has they are usually the same experiment
-		// twice. Computing the interval and not showing it would leave the
-		// reader exactly where they started.
-		`  ${describeUncertainty(report.mean, report.uncertainty ?? derivedUncertainty(report))}`,
-		'',
+		repeats > 1
+			? `${report.name}: ${report.passed}/${report.cases.length} runs passed (${caseCount} cases x ${repeats} repeats, mean ${report.mean.toFixed(2)}) in ${report.durationMs}ms`
+			: `${report.name}: ${report.passed}/${report.cases.length} passed (mean ${report.mean.toFixed(2)}) in ${report.durationMs}ms`,
 	]
+	if (report.intervals) {
+		// The interval sits next to the number it belongs to. A mean printed
+		// alone is the thing that has been over-read: two experiments three
+		// points apart look like a difference, and at the n a hand-built
+		// suite has they are usually the same experiment twice.
+		for (const line of describeIntervals({
+			mean: report.cases.some((c) => c.status !== 'inconclusive') ? report.mean : null,
+			passRate: report.passRate ?? null,
+			intervals: report.intervals,
+		})) {
+			lines.push(`  ${line}`)
+		}
+	} else {
+		// A report from before bootstrap intervals, or one built by hand: the
+		// older interval, still never omitted.
+		lines.push(
+			`  ${describeUncertainty(report.mean, report.uncertainty ?? derivedUncertainty(report))}`,
+		)
+	}
+	if (report.reliability && repeats > 1) {
+		const r = report.reliability
+		lines.push(
+			`  reliability across repeats: ${r.passedEveryRepeat} of ${r.cases} cases passed in every one of ${repeats} repeats${r.fraction === null ? '' : ` (${(r.fraction * 100).toFixed(1)}%)`}`,
+		)
+		for (const c of report.caseSummaries ?? []) {
+			if (!c.passedEveryRepeat) lines.push(`    ${c.case}: ${c.passed} of ${c.repeats} passed`)
+		}
+	}
+	if (report.splits) {
+		for (const line of describeSplits(report.splits)) lines.push(`  ${line}`)
+	}
+	if (report.disclosure) lines.push(`  ${describeDisclosure(report.disclosure)}`)
+	lines.push('')
 
 	// Surfaced above the failures, because an inconclusive case means the
 	// harness is broken and every number below it is measured over less
@@ -381,7 +491,9 @@ export function formatReport(report: ExperimentReport): string {
 	if (failures.length > 0) {
 		lines.push('', 'Failures:')
 		for (const failure of failures) {
-			lines.push(`  ✗ ${failure.case} (${failure.mean.toFixed(2)})`)
+			lines.push(
+				`  ✗ ${failure.case}${repeats > 1 && failure.repeat ? ` [repeat ${failure.repeat} of ${repeats}]` : ''} (${failure.mean.toFixed(2)})`,
+			)
 			if (failure.failedGates && failure.failedGates.length > 0) {
 				// First line under the case, because it says WHY this failed.
 				// A mean of 0.75 next to four scores leaves the reader

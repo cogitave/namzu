@@ -386,7 +386,7 @@ export const MarkdownBody = memo(function MarkdownBody({
 	return (
 		<div
 			className={cn(
-				'message-text chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground [overflow-wrap:anywhere] [word-break:break-word]',
+				'message-text chat-markdown w-full min-w-0 type-reading text-foreground [overflow-wrap:anywhere] [word-break:break-word]',
 				document && 'document-markdown',
 			)}
 		>
@@ -423,7 +423,7 @@ export function MessageContent({
 			{markdown && text !== undefined ? (
 				<MarkdownContent text={text} settled={settled} />
 			) : text !== undefined ? (
-				<div className="message-text whitespace-pre-wrap text-sm leading-relaxed [overflow-wrap:anywhere]">
+				<div className="message-text whitespace-pre-wrap type-reading [overflow-wrap:anywhere]">
 					{text}
 				</div>
 			) : (

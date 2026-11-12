@@ -188,6 +188,13 @@ export const SETTINGS_ENTRIES: readonly SettingsEntry[] = [
 		keywords: ['dark', 'light', 'system', 'color', 'colour', 'mode'],
 	},
 	{
+		id: 'interface-font',
+		section: 'appearance',
+		label: 'Interface font',
+		description: 'Namzu’s own typeface or the one your device uses, for text and code.',
+		keywords: ['font', 'typeface', 'type', 'geist', 'system', 'text', 'mono', 'code'],
+	},
+	{
 		id: 'conversation-tabs',
 		section: 'appearance',
 		label: 'Show conversation tabs',

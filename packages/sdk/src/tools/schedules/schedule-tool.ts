@@ -65,6 +65,12 @@ const inputSchema = z.object({
 		.describe(
 			'create: required when kind is script or script+agent. For script+agent this is the wake-gate: its stdout must be exactly one JSON line, {"wake": boolean, "context": string}.',
 		),
+	gate: z
+		.unknown()
+		.optional()
+		.describe(
+			'Never set this. A gate is a command that runs unattended before every run, so only the operator can set or change one (namzu schedule add/edit --gate, or the job file). Giving it refuses the call. A job that already has a gate keeps it when you update the job.',
+		),
 	prompt: z
 		.string()
 		.min(1)
@@ -176,6 +182,9 @@ const inputSchema = z.object({
 })
 
 type Input = z.infer<typeof inputSchema>
+
+const GATE_REFUSAL =
+	'This tool cannot set or change a gate. A gate is a command that runs unattended before every run of the job, so it must come from the person: they set it with `namzu schedule add --gate` or `namzu schedule edit --gate`, or in the job’s file. Leave gate out; a job that already has one keeps it when you update the job.'
 
 function refuse(error: string): ToolResult {
 	return { success: false, output: '', error }
@@ -297,6 +306,7 @@ async function create(
 	input: Input,
 	signal: AbortSignal | undefined,
 ): Promise<ToolResult> {
+	if (input.gate !== undefined) return refuse(GATE_REFUSAL)
 	const runKind = input.kind ?? 'agent'
 	const required: string[] = (['name', 'when', 'permissions'] as const).filter(
 		(k) => input[k] === undefined,
@@ -427,6 +437,7 @@ async function update(
 			'This host cannot change a scheduled job. Ask the operator to change it themselves; do not delete and create it again, which loses its history.',
 		)
 	}
+	if (input.gate !== undefined) return refuse(GATE_REFUSAL)
 	if (!input.job) return refuse("update needs job (the job's name) and the fields to change.")
 	if (input.name !== undefined) {
 		return refuse(
@@ -491,6 +502,13 @@ async function update(
 	const effectiveKind = input.kind ?? proposal.preview.runKind ?? 'agent'
 	if (
 		(effectiveKind === 'script' || effectiveKind === 'script+agent') &&
+		proposal.preview.execution === 'host' &&
+		(proposal.preview.networkGrantAccess ?? proposal.preview.networkAccess)
+	) {
+		return refuse(NETWORK_WITH_HOST_SHELL)
+	}
+	if (
+		proposal.preview.gate !== undefined &&
 		proposal.preview.execution === 'host' &&
 		(proposal.preview.networkGrantAccess ?? proposal.preview.networkAccess)
 	) {
@@ -587,7 +605,7 @@ export function buildScheduleTools(host: ScheduleToolHost): ToolDefinition[] {
 		defineTool({
 			name: SCHEDULE_TOOL_NAME,
 			description:
-				'Manage durable jobs that run later, including while Namzu is closed when its scheduler is installed. For repetition in this open conversation while the TUI is open, use session_loop (/loop); a loop is not a background service. Use schedule only when the user asks for durable scheduled work. create, update, resume and delete ask the operator; pause does not. A job needs name, when and explicit permissions. agent and script+agent need prompt; script and script+agent need script. For a pure script, use permissions {rules:{},unmatched:\'deny\'} without a preset unless you intend deny rules: read-only denies bash and blocks every script. A pure script has no prompt, model, agent budget, browser grant or run session; set script.timeoutMs to limit it. A pure script may opt into script.report:\'json-v1\': one JSON stdout line says quiet or changed with a summary and optional scheduler-owned nextState. For a project-free pure script set workspace:\'none\' and omit folder; its private scheduler workspace is not a sandbox, and its shell still has host authority. For project work, use the actual existing project folder; home, root and NAMZU_HOME are invalid. Do not create a visible folder merely to satisfy validation. The requesting conversation can receive important results separately from the run workspace. To change a job, update it with job and only the fields that change; do not delete and recreate it. Leave tz, execution, budget and headed unset unless requested: defaults are the operator\'s. Scheduled runs cannot ask questions. Example, a weekday-morning agent job: {"action":"create","name":"daily-report","kind":"agent","when":"0 9 * * 1-5","prompt":"Summarise yesterday\'s changes","permissions":{"preset":"read-only","unmatched":"deny"}}.',
+				'Manage durable jobs that run later, including while Namzu is closed when its scheduler is installed. For repetition in this open conversation while the TUI is open, use session_loop (/loop); a loop is not a background service. Use schedule only when the user asks for durable scheduled work. create, update, resume and delete ask the operator; pause does not. A job needs name, when and explicit permissions. agent and script+agent need prompt; script and script+agent need script. For a pure script, use permissions {rules:{},unmatched:\'deny\'} without a preset unless you intend deny rules: read-only denies bash and blocks every script. A pure script has no prompt, model, agent budget, browser grant or run session; set script.timeoutMs to limit it. A pure script may opt into script.report:\'json-v1\': one JSON stdout line says quiet or changed with a summary and optional scheduler-owned nextState. For a project-free pure script set workspace:\'none\' and omit folder; its private scheduler workspace is not a sandbox, and its shell still has host authority. For project work, use the actual existing project folder; home, root and NAMZU_HOME are invalid. Do not create a visible folder merely to satisfy validation. The requesting conversation can receive important results separately from the run workspace. To change a job, update it with job and only the fields that change; do not delete and recreate it. A gate (a command the operator runs before every run to decide whether to wake the model) is the operator\'s alone: this tool cannot set or change one, and a job that has one keeps it. Leave tz, execution, budget and headed unset unless requested: defaults are the operator\'s. Scheduled runs cannot ask questions. Example, a weekday-morning agent job: {"action":"create","name":"daily-report","kind":"agent","when":"0 9 * * 1-5","prompt":"Summarise yesterday\'s changes","permissions":{"preset":"read-only","unmatched":"deny"}}.',
 			inputSchema,
 			category: 'custom',
 			permissions: [],

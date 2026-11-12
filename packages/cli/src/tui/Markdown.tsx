@@ -12,7 +12,11 @@
  *  - code blocks: code-colored lines and nothing beside them (no syntax
  *    highlighter dependency), so a selection copies the code and only the code.
  *  - inline code: a single code color, no background, so it stays legible.
- *  - headings: bold; H1/H2 take the accent color for hierarchy.
+ *  - headings: bold, told apart by level with attributes every terminal has:
+ *    1 underlined accent, 2 accent, 3 body colour, 4-6 muted.
+ *  - quotes: a border-colour bar (one cell and one space) on every row, text in
+ *    the body colour, italic; a quote may hold any block, another quote too.
+ *  - rules: a line of `─` in the border colour, up to 40 cells wide.
  *  - bullets: a fixed-width marker gutter so wrapped lines hang-indent.
  */
 
@@ -20,6 +24,7 @@ import { Box, Text } from 'ink'
 import { Fragment, createContext, memo, useContext, useRef } from 'react'
 
 import { type BlockCache, createBlockCache } from './markdown-block-cache.js'
+import { QUOTE_BAR_WIDTH, headingStyle, ruleWidth } from './markdown-structure.js'
 import { type TableSource, type TableSpan, layoutTable } from './markdown-table.js'
 import {
 	type DisplayLine,
@@ -75,6 +80,23 @@ export function Markdown({ text, color = theme.text.primary, hyperlinks = false 
 	cache.current ??= createBlockCache()
 	const blocks = cache.current.parse(terminalDisplayText(text))
 	const width = useContentWidth()
+	return <BlockList blocks={blocks} color={color} hyperlinks={hyperlinks} width={width} />
+}
+
+/** Blocks one under another with the blank row between them; a quote holds one of these. */
+function BlockList({
+	blocks,
+	color,
+	hyperlinks,
+	width,
+	italic = false,
+}: {
+	readonly blocks: readonly MdBlock[]
+	readonly color: string
+	readonly hyperlinks: boolean
+	readonly width: number
+	readonly italic?: boolean
+}) {
 	return (
 		<Box flexDirection="column">
 			{blocks.map((block, i) => (
@@ -86,6 +108,7 @@ export function Markdown({ text, color = theme.text.primary, hyperlinks = false 
 					color={color}
 					hyperlinks={hyperlinks}
 					width={width}
+					italic={italic}
 				/>
 			))}
 		</Box>
@@ -107,6 +130,7 @@ const BlockView = memo(function BlockView({
 	color,
 	hyperlinks,
 	width,
+	italic,
 }: {
 	readonly block: MdBlock
 	readonly prev: MdBlock | undefined
@@ -114,6 +138,8 @@ const BlockView = memo(function BlockView({
 	readonly hyperlinks: boolean
 	/** Cells this block has; a resize re-renders every block at the new width. */
 	readonly width: number
+	/** Drawn in italics, as the text of a quote is. */
+	readonly italic: boolean
 }) {
 	// A memoised block would otherwise keep the colours it was drawn with.
 	useThemeEpoch()
@@ -121,17 +147,60 @@ const BlockView = memo(function BlockView({
 	// and consecutive list items stay tight (no gap between bullets).
 	const gap = !prev || (block.type === 'bullet' && prev.type === 'bullet') ? 0 : 1
 	switch (block.type) {
-		case 'heading':
+		case 'heading': {
+			const style = headingStyle(block.level)
+			// The spans are drawn in the heading's own colour: a span names its
+			// colour, and one that named the body colour would hide the level.
+			const headingColor =
+				style.color === 'accent'
+					? theme.accent.user
+					: style.color === 'muted'
+						? theme.text.muted
+						: color
 			return (
 				<Box marginTop={gap}>
-					<Text bold color={block.level <= 2 ? theme.accent.user : color}>
+					<Text bold underline={style.underline} italic={italic} color={headingColor}>
 						<WrappedInline
 							source={block.text}
 							width={width}
-							color={color}
+							color={headingColor}
 							hyperlinks={hyperlinks}
 						/>
 					</Text>
+				</Box>
+			)
+		}
+		case 'rule':
+			return (
+				<Box marginTop={gap}>
+					<Text color={theme.border.default}>{'─'.repeat(ruleWidth(width))}</Text>
+				</Box>
+			)
+		case 'quote':
+			// A bar down the left edge, one space, then the quote's own blocks at the
+			// width that is left. Ink's left border is the bar, and it is as tall as
+			// the quote, so every row carries it, wrapped rows included.
+			return (
+				<Box
+					marginTop={gap}
+					borderStyle="single"
+					borderColor={theme.border.default}
+					borderTop={false}
+					borderBottom={false}
+					borderRight={false}
+					paddingLeft={QUOTE_BAR_WIDTH - 1}
+				>
+					{block.blocks.length > 0 ? (
+						<BlockList
+							blocks={block.blocks}
+							color={color}
+							hyperlinks={hyperlinks}
+							width={width - QUOTE_BAR_WIDTH}
+							italic
+						/>
+					) : (
+						<Text> </Text>
+					)}
 				</Box>
 			)
 		case 'bullet': {
@@ -142,7 +211,7 @@ const BlockView = memo(function BlockView({
 						<Text color={theme.text.muted}>{marker} </Text>
 					</Box>
 					<Box flexGrow={1}>
-						<Text color={color} wrap="wrap">
+						<Text color={color} italic={italic} wrap="wrap">
 							<WrappedInline
 								source={block.text}
 								width={width - marker.length - 1}
@@ -179,7 +248,7 @@ const BlockView = memo(function BlockView({
 		default:
 			return (
 				<Box marginTop={gap}>
-					<Text color={color} wrap="wrap">
+					<Text color={color} italic={italic} wrap="wrap">
 						<WrappedInline
 							source={block.text}
 							width={width}

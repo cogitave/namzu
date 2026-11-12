@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { fitTitle } from './fit-title.js'
+import { subscribeInterfaceFont } from './interface-font.js'
 
 /** Width of a text in the font an element uses; undefined where nothing can measure (a test DOM). */
 function measurer(element: HTMLElement): ((text: string) => number) | undefined {
@@ -41,10 +42,22 @@ export function FittedTitle({
 			setText(measure && room > 0 ? fitTitle(candidates, room, measure) : fallback)
 		}
 		place()
-		if (typeof ResizeObserver === 'undefined') return
-		const observer = new ResizeObserver(place)
-		observer.observe(element)
-		return () => observer.disconnect()
+		// The first measure may have used the stand-in face. The layout above started loading whatever
+		// face this element uses, so measure again when the document has none still loading, and
+		// when the interface font changes.
+		const fonts = typeof document === 'undefined' ? undefined : document.fonts
+		let live = true
+		void fonts?.ready.then(() => live && place())
+		fonts?.addEventListener?.('loadingdone', place)
+		const unsubscribe = subscribeInterfaceFont(place)
+		const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(place)
+		observer?.observe(element)
+		return () => {
+			live = false
+			unsubscribe()
+			fonts?.removeEventListener?.('loadingdone', place)
+			observer?.disconnect()
+		}
 	}, [key, fallback])
 	return (
 		<span

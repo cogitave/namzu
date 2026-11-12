@@ -22,16 +22,16 @@
 }
 .plugins-page-header h1 {
 	margin: 0;
-	font-size: 24px;
-	font-weight: 600;
-	line-height: 32px;
+	font-size: var(--text-title);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-title);
 	letter-spacing: -0.02em;
 }
 .plugins-page-header p {
 	margin: 6px 0 0;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .plugins-page-header-actions {
 	display: flex;
@@ -73,7 +73,7 @@
 	background: transparent;
 	color: var(--foreground);
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-small);
 	outline: none;
 }
 .plugins-page-search input::placeholder {
@@ -84,7 +84,8 @@
 }
 .plugins-page-count {
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	white-space: nowrap;
 }
 .plugins-page-tabs {
@@ -98,9 +99,9 @@
 	border-radius: var(--radius-pill);
 	background: transparent;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	font-weight: 600;
-	line-height: 20px;
+	font-size: var(--text-small);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-small);
 	cursor: pointer;
 	transition: background-color 150ms var(--motion-ease), color 150ms var(--motion-ease);
 }
@@ -124,8 +125,8 @@
 	gap: 10px;
 	margin: 0 0 20px;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .plugins-page-notice p {
 	margin: 0;
@@ -140,8 +141,8 @@ output.plugins-page-notice {
 }
 .plugins-page-error {
 	color: var(--error);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	overflow-wrap: anywhere;
 }
 .plugins-page-section-heading {
@@ -153,9 +154,9 @@ output.plugins-page-notice {
 }
 .plugins-page-section-heading h2 {
 	margin: 0;
-	font-size: 15px;
-	font-weight: 600;
-	line-height: 22px;
+	font-size: var(--text-reading);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-reading);
 }
 .plugins-page-grid {
 	display: grid;
@@ -229,9 +230,9 @@ output.plugins-page-notice {
 .plugins-page-row-title {
 	min-width: 0;
 	margin: 0;
-	font-size: 14px;
-	line-height: 20px;
-	font-weight: 600;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
+	font-weight: var(--weight-strong);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -242,8 +243,8 @@ output.plugins-page-notice {
 	-webkit-line-clamp: 2;
 	margin: 0;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	overflow-wrap: anywhere;
 	overflow: hidden;
 }
@@ -272,16 +273,16 @@ output.plugins-page-notice {
 }
 .plugins-page-empty h2 {
 	margin: 0;
-	font-size: 16px;
-	line-height: 24px;
-	font-weight: 500;
+	font-size: var(--text-reading);
+	line-height: var(--leading-reading);
+	font-weight: var(--weight-control);
 }
 .plugins-page-empty p {
 	max-width: 360px;
 	margin: 0;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .plugins-sidebar-content {
 	display: flex;
@@ -297,9 +298,9 @@ output.plugins-page-notice {
 	justify-content: space-between;
 	min-height: 44px;
 	padding: 0 12px;
-	font-size: 18px;
-	font-weight: 600;
-	line-height: 26px;
+	font-size: var(--text-heading);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-heading);
 }
 .plugins-sidebar-navigation {
 	padding: 4px 8px;
@@ -315,8 +316,8 @@ output.plugins-page-notice {
 	border: 0;
 	background: var(--sidebar-row-active);
 	color: var(--foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	text-decoration: none;
 	text-align: start;
 	cursor: pointer;
@@ -339,20 +340,21 @@ output.plugins-page-notice {
 	align-items: center;
 	justify-content: space-between;
 	margin: 0 0 12px;
-	font-size: 12px;
-	line-height: 18px;
-	font-weight: 500;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-control);
 	color: var(--muted-foreground);
 }
 .plugins-sidebar-installed h2 span {
-	font-size: 11px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	font-variant-numeric: tabular-nums;
 }
 .plugins-sidebar-context {
 	margin: 0 0 12px;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	overflow-wrap: anywhere;
 }
 .plugins-sidebar-installed ul {
@@ -367,8 +369,8 @@ output.plugins-page-notice {
 	display: flex;
 	align-items: center;
 	gap: 10px;
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	width: 100%;
 	min-width: 0;
 	padding: 4px;
@@ -405,8 +407,8 @@ output.plugins-page-notice {
 .plugins-sidebar-empty {
 	margin: 0 0 12px;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 20px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 @keyframes plugins-arrive {
 	from {
