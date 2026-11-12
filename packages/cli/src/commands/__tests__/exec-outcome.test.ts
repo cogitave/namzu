@@ -16,6 +16,14 @@ const record = {
 	checks: [],
 }
 
+const mismatch = {
+	claim: 'tests',
+	said: 'the tests pass',
+	quote: 'All tests pass',
+	record: 'unchecked',
+	recordSays: 'files changed and no check ran',
+}
+
 let turns: object[][] = []
 const sessionStub = fakeAgentSession({
 	send: () =>
@@ -82,6 +90,31 @@ describe('exec --output-format json', () => {
 			text: 'fixed',
 			outcome: record,
 		})
+	})
+
+	it('carries a claim the record contradicts, beside the outcome', async () => {
+		turns = [
+			[
+				{
+					kind: 'done',
+					text: 'All tests pass.',
+					stopReason: 'end_turn',
+					outcome: record,
+					claimMismatch: mismatch,
+				},
+			],
+		]
+		expect(await resultOf(['--output-format', 'json', 'fix it'])).toMatchObject({
+			outcome: record,
+			claimMismatch: mismatch,
+		})
+	})
+
+	it('has no claimMismatch key when the answer contradicts nothing', async () => {
+		turns = [[{ kind: 'done', text: 'fixed', stopReason: 'end_turn', outcome: record }]]
+		expect(await resultOf(['--output-format', 'json', 'fix it'])).not.toHaveProperty(
+			'claimMismatch',
+		)
 	})
 
 	it('has none when the turn kept none', async () => {

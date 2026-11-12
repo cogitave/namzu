@@ -74,6 +74,35 @@ export interface TurnOutcome {
 	readonly checksTotal?: number
 }
 
+/** What a plain claim in an answer was about. */
+export type AnswerClaimKind = 'tests' | 'build' | 'lint' | 'typecheck' | 'checks'
+
+/** What the turn's record held that the claim did not match. */
+export type AnswerClaimRecord =
+	/** A check's latest run failed. */
+	| 'check-failed'
+	/** Files changed and no check ran. */
+	| 'unchecked'
+	/** Files changed and no check established a pass, or its result could not be read. */
+	| 'unreadable'
+
+/**
+ * An answer said a check passed and the same turn's record says otherwise.
+ *
+ * Recorded, not acted on: the model is not told and nothing blocks. See
+ * `compareAnswerToOutcome`.
+ */
+export interface AnswerClaimMismatch {
+	readonly claim: AnswerClaimKind
+	/** The claim in the kernel's words, for example `the tests pass`. */
+	readonly said: string
+	/** The clause of the answer it was found in, whitespace folded and clipped. */
+	readonly quote: string
+	readonly record: AnswerClaimRecord
+	/** What the record holds, in the kernel's words, for example `pnpm test failed`. */
+	readonly recordSays: string
+}
+
 /** Host hooks for the turn's outcome record. */
 export interface TurnOutcomeConfig {
 	/**

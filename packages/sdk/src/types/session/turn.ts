@@ -11,7 +11,7 @@ import type {
 import type { Message } from '../message/index.js'
 import type { ProviderErrorInfo } from '../provider/index.js'
 import type { TurnConfig } from './config.js'
-import type { TurnOutcome } from './outcome.js'
+import type { AnswerClaimMismatch, TurnOutcome } from './outcome.js'
 import type { StepResult } from './step.js'
 import type { StopReason } from './stop-reason.js'
 
@@ -166,6 +166,13 @@ export interface LiveTurnSettlement extends TurnSettlement {
 	 * did not keep the record.
 	 */
 	readonly outcome?: TurnOutcome
+	/**
+	 * A plain claim in the answer that this turn's outcome record contradicts.
+	 * Shadow only: the model is not told and nothing blocks. In memory only,
+	 * like {@link LiveTurnSettlement.outcome}; the session log does not keep it.
+	 * Absent when the answer made no such claim, which is the usual case.
+	 */
+	readonly claimMismatch?: AnswerClaimMismatch
 }
 
 /** Metadata of one turn: who ran it, with what, and where it sits in the session tree. */

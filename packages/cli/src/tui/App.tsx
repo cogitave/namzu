@@ -722,6 +722,7 @@ import {
 	type CannotTellReason,
 	NOTHING_TOLD,
 	type OutcomeTelling,
+	claimMismatchLine,
 	outcomeNotice,
 } from './outcome-line.js'
 import { highestAttachmentNumber } from './paste-chips.js'
@@ -10392,6 +10393,10 @@ function AppBody({
 					)
 					outcomeToldRef.current.telling = said.telling
 					if (said.line) pushSystem('notice', said.line)
+					// Under it, once, when the answer said a check passed and the record
+					// disagrees. Shown only; the model is not told and nothing blocks.
+					const claimLine = claimMismatchLine(event.claimMismatch)
+					if (claimLine) pushSystem('notice', claimLine)
 					if (st.startedAt !== undefined) {
 						const since = st.startedAt
 						const delegated = subagentsRef.current.filter(

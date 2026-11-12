@@ -252,6 +252,52 @@ describe('the outcome in the session log', () => {
 	})
 })
 
+function settledClaim(events: readonly SessionEvent[]) {
+	const done = events.find((e) => e.type === 'turn_completed')
+	return done?.type === 'turn_completed' ? done.settlement?.claimMismatch : undefined
+}
+
+describe('an answer that claims a pass the record does not hold', () => {
+	it('is named on the live end event, and the turn goes on as before', async () => {
+		const { turn, events } = await run(
+			[edit(), shell('pnpm test', { exit: 1 }), { text: 'All tests pass.' }],
+			tools(),
+		)
+		expect(turn.result).toBe('All tests pass.')
+		expect(settledClaim(events)).toMatchObject({
+			claim: 'tests',
+			record: 'check-failed',
+			recordSays: 'pnpm test failed',
+		})
+	})
+
+	it('is named for changes that nothing checked', async () => {
+		const { events } = await run([edit(), { text: 'The build succeeds.' }], tools())
+		expect(settledClaim(events)).toMatchObject({ claim: 'build', record: 'unchecked' })
+	})
+
+	it('is not named when the check passed', async () => {
+		const { events } = await run([edit(), shell('pnpm test'), { text: 'All tests pass.' }], tools())
+		expect(settledClaim(events)).toBeUndefined()
+	})
+
+	it('is not named when nothing changed', async () => {
+		const { events } = await run(
+			[{ toolCalls: [{ name: 'read', args: { path: 'a.ts' } }] }, { text: 'All tests pass.' }],
+			tools(),
+		)
+		expect(settledClaim(events)).toBeUndefined()
+	})
+
+	it('is not written to the session log', async () => {
+		const sessionLog = new InMemorySessionLog({ sessionId: generateSessionId() })
+		await run([edit(), { text: 'All tests pass.' }], tools(), undefined, sessionLog)
+		for await (const { record } of sessionLog.read()) {
+			expect(JSON.stringify(record)).not.toContain('claimMismatch')
+		}
+	})
+})
+
 describe('a turn that changed nothing', () => {
 	it('is unchanged, with no check asked of the detector', async () => {
 		const { state, outcome } = fakeWorkspace()

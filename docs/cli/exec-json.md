@@ -90,7 +90,7 @@ NDJSON, so stdout stays a clean protocol stream.
 | `notice` | Something the host should show but that is not a failure: a config notice, an MCP policy refusal or discovery change (including a changed definition held at its earlier version), or a turn that ran but could not be saved. MCP refusals are reported before the turn; changes discovered during it are reported before `done`. |
 | `paused` | The turn parked with a checkpoint (a provider wait or a decision): `turnId`, `checkpointId`, `reason`, and any retry guidance. |
 | `error` | A failure, in band. A refusal to start a turn in a busy session has `code: "turn_in_progress"` and names the active turn. An invocation stopped by SIGTERM, SIGHUP or SIGINT writes one with `code: "terminated"` just before its last `done` (see below). |
-| `done` | Always last. `text` is the settled answer — use it, not the concatenated deltas. Carries `sessionId`, `turnId` and `stopReason`, and `outcome` when the turn kept a [record of what it changed and what checked it](../sdk/turn-outcome.md). |
+| `done` | Always last. `text` is the settled answer — use it, not the concatenated deltas. Carries `sessionId`, `turnId` and `stopReason`, and `outcome` when the turn kept a [record of what it changed and what checked it](../sdk/turn-outcome.md), and `claimMismatch` when the answer says a check passed and that record says otherwise ([the answer against the record](../sdk/turn-outcome.md#the-answer-against-the-record)): `claim`, `said`, `quote`, `record` and `recordSays`. It is absent in every other case, and shadow only. |
 
 ## History: `--session`
 

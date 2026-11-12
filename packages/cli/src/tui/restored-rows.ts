@@ -7,7 +7,7 @@ import type {
 	ToolPresenter,
 	TurnOutcome,
 } from '@namzu/sdk'
-import { parseTurnOutcome } from '@namzu/sdk'
+import { compareAnswerToOutcome, parseTurnOutcome } from '@namzu/sdk'
 
 import {
 	DEFAULT_AGENT_WORKFLOW,
@@ -32,6 +32,7 @@ import {
 	type CannotTellReason,
 	NOTHING_TOLD,
 	type OutcomeTelling,
+	claimMismatchLine,
 	outcomeNotice,
 } from './outcome-line.js'
 import { systemRowStyle } from './system-rows.js'
@@ -458,20 +459,42 @@ export function createRestoredTurnWriter(
 	const shownMemories = new Set<string>()
 	const atTurn = (turnId: string): number => trail.turns.get(turnId)?.startedAt ?? Date.now()
 	let telling: OutcomeTelling = options.telling ?? NOTHING_TOLD
+	// The final answer of each turn: the assistant text after its last tool result.
+	const answers = new Map<string, string>()
+	let chain: { turnId: string; text: string } | undefined
+	const noteAnswer = (message: Message, turnId: string | undefined): void => {
+		if (message.role !== 'assistant' || !turnId) {
+			chain = undefined
+			return
+		}
+		const text = typeof message.content === 'string' ? message.content : ''
+		chain =
+			chain && chain.turnId === turnId ? { turnId, text: chain.text + text } : { turnId, text }
+		answers.set(turnId, chain.text)
+	}
 	// The line under a finished turn, with the same once-only rule as live.
-	const outcomeRow = (turn: TurnTrail): TranscriptMessage | undefined => {
-		if (turn.completed !== true) return undefined
+	const outcomeRows = (turnId: string, turn: TurnTrail): TranscriptMessage[] => {
+		if (turn.completed !== true) return []
 		const said = outcomeNotice(turn.outcome, telling, options.cannotTellReason)
 		telling = said.telling
-		if (!said.line) return undefined
 		const style = systemRowStyle('notice')
-		return {
+		const notice = (content: string): TranscriptMessage => ({
 			id: nextId(),
 			role: 'system',
-			content: said.line,
+			content,
 			glyph: style.glyph,
 			glyphColor: style.color,
-		}
+		})
+		const rows: TranscriptMessage[] = []
+		if (said.line) rows.push(notice(said.line))
+		// The same comparison as live, from the answer and the record the log
+		// holds: it is pure, so a reopened conversation draws the same line.
+		const answer = answers.get(turnId)
+		const claim = claimMismatchLine(
+			answer !== undefined ? compareAnswerToOutcome(answer, turn.outcome) : undefined,
+		)
+		if (claim) rows.push(notice(claim))
+		return rows
 	}
 	const closing = (turnId: string | undefined): readonly TranscriptMessage[] => {
 		if (!turnId) return []
@@ -480,8 +503,7 @@ export function createRestoredTurnWriter(
 		const rows: TranscriptMessage[] = []
 		if (turn.stopReason === 'cancelled' && turn.cancelCause === 'user') {
 			rows.push({ id: nextId(), role: 'system', content: 'Interrupted.' })
-			const said = outcomeRow(turn)
-			if (said) rows.push(said)
+			rows.push(...outcomeRows(turnId, turn))
 			return rows
 		}
 		const notice = describeTurnStop(
@@ -489,8 +511,7 @@ export function createRestoredTurnWriter(
 			turn.budget as never,
 		)
 		if (notice) rows.push({ id: nextId(), role: 'system', content: notice, glyph: '■' })
-		const said = outcomeRow(turn)
-		if (said) rows.push(said)
+		rows.push(...outcomeRows(turnId, turn))
 		const completed = turn.stopReason === undefined || turn.stopReason === 'end_turn'
 		if (turn.startedAt !== undefined && turn.endedAt !== undefined) {
 			const stand = turn.agents.map(
@@ -554,6 +575,7 @@ export function createRestoredTurnWriter(
 		},
 		enter(message) {
 			const turnId = message.id ? trail.turnOfMessage.get(message.id) : undefined
+			noteAnswer(message, turnId)
 			if (!turnId || turnId === current) return []
 			const before = closing(current)
 			current = turnId
