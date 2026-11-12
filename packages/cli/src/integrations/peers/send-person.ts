@@ -1,5 +1,10 @@
 import { realpathSync } from 'node:fs'
-import { MAX_PEER_MESSAGE_TEXT_BYTES, isPeerRecordLive, readPeerRecords } from '@namzu/sdk'
+import {
+	MAX_PEER_MESSAGE_TEXT_BYTES,
+	isPeerRecordLive,
+	readPeerRecords,
+	removePeerRecord,
+} from '@namzu/sdk'
 import type { PeerRecord, TenantId } from '@namzu/sdk'
 import {
 	SessionFollower,
@@ -9,6 +14,7 @@ import {
 	type WatchStatus,
 	findSession,
 } from '../sessions/session-watch.js'
+import { runsUnderAny } from './process-ancestry.js'
 import { resolvePeerRuntime } from './runtime.js'
 import { deliverAsEphemeralSender } from './send-once.js'
 
@@ -59,6 +65,8 @@ export interface SessionSendOptions {
 	readonly window?: Promise<void>
 	readonly now?: () => number
 	readonly isProcessAlive?: (pid: number) => boolean
+	/** The parent of a process, to tell a person's terminal from a tool a session started. */
+	readonly parentPid?: (pid: number) => number | undefined
 	readonly exitOnSignal?: (signal: NodeJS.Signals) => void
 }
 
@@ -68,12 +76,29 @@ const receipt = (
 	extra: Partial<SessionSendReceipt> = {},
 ): SessionSendReceipt => ({ status, reason, ...extra })
 
+function defaultAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0)
+		return true
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === 'EPERM'
+	}
+}
+
 /** Why no live terminal answers for a session, from what its log and lease say. */
-function whyNobody(status: WatchStatus, gone: boolean): SessionSendReceipt {
-	if (gone)
+function whyNobody(
+	status: WatchStatus,
+	silent: 'gone' | 'not-answering' | undefined,
+): SessionSendReceipt {
+	if (silent === 'gone')
 		return receipt(
 			'unreachable',
-			'The terminal that had this conversation open no longer answers; its process is gone. Nothing was sent.',
+			'The terminal that had this conversation open is gone: its process has ended. Nothing was sent.',
+		)
+	if (silent === 'not-answering')
+		return receipt(
+			'unreachable',
+			'The terminal that has this conversation open is running but does not answer (it may be stopped or stuck). Nothing was sent.',
 		)
 	switch (status.state) {
 		case 'running':
@@ -134,9 +159,44 @@ export async function sendToSession(options: SessionSendOptions): Promise<Sessio
 	const records = readPeerRecords(runtime.sessionsDir).filter(
 		(peer) => peer.kind === 'tui' && peer.conversationId === sessionId,
 	)
+	// The sender's own leftovers (a killed `namzu send` cannot clean up after itself) go first.
+	const alive = options.isProcessAlive ?? defaultAlive
+	for (const stale of readPeerRecords(runtime.sessionsDir))
+		if (stale.kind === 'person' && !alive(stale.pid)) {
+			try {
+				removePeerRecord(runtime.sessionsDir, stale.sessionId, process.getuid?.())
+			} catch {
+				// Another process may have removed it already.
+			}
+		}
 	const live: PeerRecord[] = []
 	for (const peer of records) if (await isPeerRecordLive(peer)) live.push(peer)
-	if (live.length === 0) return { ...whyNobody(status, records.length > 0), sessionId }
+	if (live.length === 0)
+		return {
+			...whyNobody(
+				status,
+				records.length === 0
+					? undefined
+					: records.some((peer) => alive(peer.pid))
+						? 'not-answering'
+						: 'gone',
+			),
+			sessionId,
+		}
+	// A person's message comes from outside every Namzu session. A command a model ran through its shell
+	// descends from the terminal that runs it: say so here, before anything is sent. The receiving
+	// terminal checks the same, so this is not the only guard.
+	const sessionPids = new Set<number>(
+		readPeerRecords(runtime.sessionsDir)
+			.filter((peer) => peer.kind === 'tui')
+			.map((peer) => peer.pid),
+	)
+	if (runsUnderAny(process.pid, sessionPids, options.parentPid))
+		return receipt(
+			'refused',
+			'This command is running inside a Namzu session, as a tool or an agent. A message to a session is from a person at another terminal; run it from your own terminal. Nothing was sent.',
+			{ sessionId },
+		)
 	if (live.length > 1)
 		return receipt(
 			'refused',

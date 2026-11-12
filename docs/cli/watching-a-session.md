@@ -209,7 +209,9 @@ bytes and the lease files before and after).
 | waiting on an approval or a question | the message waits in the inbox. It cannot answer the dialog; the turn takes it at the first request boundary after you answer in that terminal. |
 | a background, scheduled or non-interactive run, or a sub-agent | refused: no terminal that reads messages has that conversation open. Nothing is written. |
 | finished, with nothing running it | unreachable, and the reason says so. Resume it with `namzu --resume`. |
-| its terminal is gone | unreachable ("its process is gone"). |
+| its terminal is gone | unreachable ("its process has ended"). |
+| its terminal runs but does not answer (stopped or stuck) | unreachable ("does not answer"). |
+| the command runs inside a Namzu session (a tool or an agent) | refused. |
 | another account's, or on another machine | not found / not reachable: the log and the local runtime directory are this account's on this machine. |
 
 ### What the model is told, and what the transcript shows
@@ -226,9 +228,28 @@ The name a sender's record carries is never used: the words are the kernel's.
 It is recorded in the session as a message of its own kind, `person-message`, so a
 reopened conversation, an export and `namzu watch` show it as
 *Message from you, typed at another terminal* and not as typed in that terminal and
-not as from another agent. In the live terminal the transcript line is one safe
-line: line breaks and control and direction characters in the text are dropped, so
-it cannot start a line of its own. The model and the log hold the text whole.
+not as from another agent. Everywhere a transcript row is drawn (the live terminal,
+a reopened conversation, `namzu watch`) the row is that label followed by the
+words, as one safe line: line breaks and control and direction characters in the
+text are dropped, so it cannot start a line of its own, and a long message is cut
+for the row (the first 400 characters). The model and the log hold the text whole.
+An export prints the recorded frame as it is, control characters included, so open
+one in an editor rather than `cat`-ing it to a terminal.
+
+### Not from a tool or an agent
+
+A message to a session is the person's own words, so it is refused when it comes
+from inside a Namzu session. A command a model ran through its shell is a
+descendant of the terminal that runs the session: `namzu send` checks its own
+ancestry before it sends, and the receiving terminal checks the sender's again,
+so editing the sender does not get past it. The answer is *refused*, with the
+reason, and nothing is queued. The limit of this: the check follows the process
+tree of the machine (Linux and macOS; where the tree cannot be read, as on
+Windows, it cannot refuse). A command that deliberately detaches from the tree
+(a double fork, a service) or runs under a background or scheduled session, which
+has no terminal record, is not recognised; it acts with the same authority as any
+other process of your account, which can already write to your files. Do not read
+"from another terminal" as proof stronger than that.
 
 Text that starts with a slash is still only text for the model. Nothing parses it:
 not as a slash command, not as a permission change, not as an approval.

@@ -79,7 +79,7 @@ import {
 	resolveTrustedProjectContext,
 } from '../config/trusted-project-context.js'
 import { visibleProjectInstructionPath } from '../context/project-path.js'
-import { isModelOnlyContext, runtimeContextLabel } from '../context/runtime-message.js'
+import { isModelOnlyContext, runtimeContextRowLabel } from '../context/runtime-message.js'
 import { claimPalConversation, listPalConversations } from '../pals/conversations.js'
 import type { Pal } from '../pals/store.js'
 import {
@@ -1477,7 +1477,7 @@ export function projectConversation(
 					{
 						id: nextId(),
 						role: 'system',
-						content: runtimeContextLabel(message.source.kind),
+						content: runtimeContextRowLabel(message),
 						glyph: SYSTEM_ROW_GLYPH,
 						glyphColor: systemRowStyle('notice').color,
 						detail: [message.content],

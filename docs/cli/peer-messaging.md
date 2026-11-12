@@ -79,6 +79,7 @@ and endpoint, and differs in the ways that matter:
 | Permission mode | must equal the receiver's, or it is refused | not compared: a person has no mode to match, and the message cannot change the receiver's |
 | The model is told | it carries no authority, not the operator's instruction | it is the person's own words from another terminal: not another agent, not a tool result, not an approval |
 | Recorded as | `peer-message` | `person-message` ("Message from you, typed at another terminal") |
+| Sent from inside a session | allowed: that is what an agent is | refused: a person's message is not from a tool or agent (checked by the process tree on both ends; [the limit](watching-a-session.md#not-from-a-tool-or-an-agent)) |
 | Answer | queued, refused or unreachable | delivered, accepted, refused, unreachable or not found; "delivered" is said by the receiving process once it takes the message |
 
 What the person's message shares with an agent's: the 32-message inbox, 32 KiB text

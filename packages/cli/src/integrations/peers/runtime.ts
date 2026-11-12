@@ -30,6 +30,7 @@ import {
 } from '@namzu/sdk'
 import { sanitizeLine } from '../notifications/desktop/sanitize.js'
 import { restrictToOwner } from '../providers/credential-store.js'
+import { runsUnderAny } from './process-ancestry.js'
 
 const INBOX_CAPACITY = 32
 const DEDUP_CAPACITY = 256
@@ -63,6 +64,8 @@ export function peerMailLabel(mail: PeerMail): string {
 }
 
 export interface LivePeersOptions {
+	/** The parent of a process, for telling a person's terminal from a tool; tests supply their own. */
+	readonly parentPid?: (pid: number) => number | undefined
 	readonly home: string
 	readonly cwd: string
 	readonly version: string
@@ -249,6 +252,17 @@ export async function openLivePeers(options: LivePeersOptions) {
 				reason: 'Only live terminals in the same project may send here.',
 			}
 		if (person) {
+			// A person's message comes from outside every Namzu session. A command a model ran through its
+			// shell descends from the terminal that runs it, so it is not the person, whatever it claims.
+			const sessions = new Set<number>([process.pid])
+			for (const peer of readPeerRecords(runtime.sessionsDir))
+				if (peer.kind === 'tui') sessions.add(peer.pid)
+			if (runsUnderAny(sender.pid, sessions, options.parentPid))
+				return {
+					status: 'refused',
+					reason:
+						'This was sent from inside a Namzu session, by a tool or an agent, not by a person at another terminal.',
+				}
 			if (!request.conversation || request.conversation !== options.conversation?.())
 				return {
 					status: 'refused',
