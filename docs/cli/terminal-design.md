@@ -969,9 +969,9 @@ three places. The plan checklist block (`Tasks · 2/3 done`) is not shown again:
 the live screen prints it once, when the turn ends, but the saved record does not
 hold it. The closing rows can sit in a different order: live, the checklist and
 then `Worked for` come after the changed-files row; reopened, there is no
-checklist and `Worked for` follows the changed-files row directly. And a
-two-row `Resumed:` notice is added at the end. Everything else, a 500-line code
-reply included, is row for row the same.
+checklist and `Worked for` follows the changed-files row directly. And one
+`Resumed:` row, with a blank row after it, is added at the end. Everything else,
+a 500-line code reply included, is row for row the same.
 
 The plan checklist is printed once, when the turn ends, after the reply and the
 changed-files row: it is not in event order. While the turn runs the plan lives
