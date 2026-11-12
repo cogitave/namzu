@@ -11,7 +11,8 @@
 	margin: 0 0 16px -4px;
 	padding-inline: 8px 4px;
 	color: var(--foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	--changes-added: #15803d;
 	--changes-removed: var(--error-foreground);
 	--turn-result-fill: color-mix(in srgb, var(--foreground) 6%, transparent);
@@ -85,7 +86,7 @@ button.turn-result-main:focus-visible,
 }
 .turn-result-lead {
 	flex: none;
-	font-weight: 600;
+	font-weight: var(--weight-strong);
 	white-space: nowrap;
 }
 .turn-result-size {
@@ -98,7 +99,8 @@ button.turn-result-main:focus-visible,
 .turn-result-counts {
 	display: inline-flex;
 	gap: 6px;
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	font-variant-numeric: tabular-nums;
 }
 .turn-result-added {
@@ -110,7 +112,8 @@ button.turn-result-main:focus-visible,
 .turn-result-cut {
 	flex: none;
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	white-space: nowrap;
 }
 .turn-result-check {
@@ -118,7 +121,8 @@ button.turn-result-main:focus-visible,
 	min-width: 0;
 	overflow: hidden;
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
@@ -127,12 +131,13 @@ button.turn-result-main:focus-visible,
 }
 .turn-result-check[data-tone="error"] {
 	color: var(--error-foreground);
-	font-weight: 600;
+	font-weight: var(--weight-strong);
 }
 .turn-result-undo {
 	flex: none;
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	white-space: nowrap;
 }
 .turn-result-chevron {

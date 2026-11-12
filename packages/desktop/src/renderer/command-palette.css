@@ -33,8 +33,8 @@
 	color: var(--foreground);
 	box-shadow: var(--shadow-dialog);
 	font-family: var(--font-sans);
-	font-size: 13px;
-	line-height: 1.45;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	outline: none;
 	opacity: 1;
 	transform: translateY(0) scale(1);
@@ -93,8 +93,9 @@
 .command-palette-group-label {
 	padding: 5px 8px 3px;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	font-weight: 400;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-text);
 }
 .command-palette-item {
 	display: flex;
@@ -152,8 +153,8 @@
 .command-palette-excerpt {
 	overflow: hidden;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 17px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
@@ -180,8 +181,8 @@
 	color: var(--muted-foreground);
 	font: inherit;
 	font-variant-ligatures: none;
-	font-size: 11px;
-	line-height: 17px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .command-palette-empty {
 	flex: 1;
@@ -206,7 +207,8 @@
 	min-height: 32px;
 	padding: 6px 12px 10px;
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .command-palette-status button {
 	flex: none;

@@ -94,9 +94,7 @@ export function LinkPreviewCard({
 				className={`${phase === 'loading' ? 'min-h-[7.25rem] ' : 'link-preview-fade '}flex flex-col gap-1.5 p-3`}
 			>
 				<SiteRow icon={ready?.icon} siteName={details?.siteName} url={url} />
-				<span className="line-clamp-2 font-medium text-sm leading-snug">
-					{titleOf(url, text, details)}
-				</span>
+				<span className="line-clamp-2 font-medium text-sm">{titleOf(url, text, details)}</span>
 				{phase === 'loading' && (
 					<span aria-hidden="true" className="flex flex-col gap-1.5 pt-0.5">
 						<span className="block h-2.5 w-full animate-pulse rounded bg-foreground/8 motion-reduce:animate-none" />
@@ -104,9 +102,7 @@ export function LinkPreviewCard({
 					</span>
 				)}
 				{details?.description && (
-					<span className="line-clamp-3 text-muted-foreground text-xs leading-relaxed">
-						{details.description}
-					</span>
+					<span className="line-clamp-3 text-muted-foreground text-xs">{details.description}</span>
 				)}
 				<span className="mt-auto truncate text-muted-foreground/80 text-xs">{address}</span>
 			</span>

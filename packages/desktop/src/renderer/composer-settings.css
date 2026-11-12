@@ -13,9 +13,9 @@
 .composer-permission-title {
 	padding: 6px 10px 6px;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	font-weight: 500;
-	line-height: 17px;
+	font-size: var(--text-caption);
+	font-weight: var(--weight-control);
+	line-height: var(--leading-caption);
 }
 .composer-permission-option {
 	display: flex;
@@ -55,15 +55,15 @@
 	min-width: 0;
 }
 .composer-permission-label {
-	font-size: 13px;
-	font-weight: 500;
-	line-height: 18px;
+	font-size: var(--text-small);
+	font-weight: var(--weight-control);
+	line-height: var(--leading-small);
 }
 .composer-permission-description {
 	color: var(--muted-foreground);
-	font-size: 12px;
-	font-weight: 400;
-	line-height: 17px;
+	font-size: var(--text-caption);
+	font-weight: var(--weight-text);
+	line-height: var(--leading-caption);
 	white-space: normal;
 	overflow-wrap: anywhere;
 }

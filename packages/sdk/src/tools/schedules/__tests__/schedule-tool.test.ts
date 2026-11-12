@@ -79,6 +79,47 @@ const createInput = {
 	permissions: { preset: 'read-only', unmatched: 'deny' },
 }
 
+describe('schedule tool: gates', () => {
+	it('refuses a gate on create, saying only the person can set one, and asks no one', async () => {
+		const { host } = fakeHost('create')
+		const result = await tool(host).execute(
+			{ ...createInput, gate: { command: 'ls inbox' } },
+			context,
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/cannot set or change a gate/)
+		expect(result.error).toMatch(/namzu schedule add --gate/)
+		expect(host.preview).not.toHaveBeenCalled()
+		expect(host.confirm).not.toHaveBeenCalled()
+		expect(host.create).not.toHaveBeenCalled()
+	})
+
+	it('refuses a gate on update before the host is asked anything', async () => {
+		const previewUpdate = vi.fn(async () => {
+			throw new Error('must not be reached')
+		})
+		const { host } = fakeHost('create', {
+			previewUpdate,
+			confirmUpdate: vi.fn(async () => true),
+			update: vi.fn(async () => ({ name: 'nightly' })),
+		})
+		const result = await tool(host).execute(
+			{ action: 'update', job: 'nightly', gate: 'echo changed' },
+			context,
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/cannot set or change a gate/)
+		expect(previewUpdate).not.toHaveBeenCalled()
+		expect(host.update).not.toHaveBeenCalled()
+	})
+
+	it('accepts the field in the schema so the call reaches its explicit refusal', () => {
+		const t = tool(fakeHost('create').host)
+		const parsed = t.inputSchema.safeParse({ ...createInput, gate: { command: 'x' } })
+		expect(parsed.success).toBe(true)
+	})
+})
+
 describe('schedule tool', () => {
 	it('refuses create without permissions, naming the field', async () => {
 		const { host } = fakeHost('create')

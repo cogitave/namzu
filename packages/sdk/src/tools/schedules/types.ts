@@ -125,6 +125,16 @@ export interface ScheduleJobPreview {
 		readonly timeoutMs: number
 		readonly report?: 'json-v1'
 	}
+	/**
+	 * Present when the job has a gate: the exact command the operator wrote,
+	 * run before every run, which decides whether the model is called. Shown so
+	 * a change to the job is confirmed knowing it. The tool never sets one.
+	 */
+	readonly gate?: {
+		readonly command: string
+		readonly shell: 'bash' | 'sh'
+		readonly timeoutMs: number
+	}
 	/** The schedule in words, with its zone. */
 	readonly schedule: string
 	/** Whether a completed run sends a Namzu desktop notice; absent for older hosts. */

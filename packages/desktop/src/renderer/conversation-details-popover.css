@@ -53,9 +53,9 @@
 	min-width: 0;
 	overflow: hidden;
 	margin: 0;
-	font-size: 13px;
+	font-size: var(--text-small);
 	line-height: 24px;
-	font-weight: 500;
+	font-weight: var(--weight-control);
 	color: var(--foreground);
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -63,8 +63,8 @@
 .conversation-details-status {
 	display: block;
 	padding: 0 8px;
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }
 .conversation-details-status:empty {
@@ -81,8 +81,8 @@
 	border-radius: var(--radius-control);
 	background: transparent;
 	color: var(--foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	text-align: left;
 	cursor: pointer;
 	transition: background-color 150ms var(--motion-ease);
@@ -121,12 +121,14 @@
 	white-space: nowrap;
 }
 .conversation-details-subject {
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }
 .conversation-details-value {
 	flex: none;
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }
 .conversation-details-value[data-attention] {
@@ -136,7 +138,8 @@
 	display: flex;
 	flex: none;
 	gap: 8px;
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	font-variant-numeric: tabular-nums;
 }
 .conversation-details-added {
@@ -158,9 +161,9 @@
 }
 .conversation-details-sources-heading h3 {
 	margin: 0;
-	font-size: 12px;
+	font-size: var(--text-caption);
 	line-height: 24px;
-	font-weight: 500;
+	font-weight: var(--weight-control);
 	color: var(--muted-foreground);
 }
 .conversation-details-sources ul {
@@ -174,7 +177,8 @@
 	gap: 8px;
 	min-height: 28px;
 	padding: 3px 8px;
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .conversation-details-sources li > svg {
 	width: 14px;
@@ -191,7 +195,8 @@
 .conversation-details-empty {
 	margin: 2px 0 0;
 	padding: 3px 8px;
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }
 .conversation-details-more {
@@ -200,7 +205,8 @@
 	border: 0;
 	border-radius: var(--radius-chip);
 	background: transparent;
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 	cursor: pointer;
 }

@@ -29,6 +29,7 @@ import {
 import { changesBlock, changesSinceConfirmed } from '../../schedule/changes.js'
 import { callEndpoint, readEndpoint } from '../../schedule/daemon/endpoint.js'
 import { callsCount } from '../../schedule/fire/calls.js'
+import { gateLines, gateRefusal } from '../../schedule/gate.js'
 import { schedulePaths } from '../../schedule/paths.js'
 import {
 	allowsCommands,
@@ -130,7 +131,9 @@ export async function listScheduleJobs(ctx: ScheduleCommandContext): Promise<str
 				? '  [script, 0 tokens]'
 				: job.runKind === 'script+agent'
 					? '  [script+agent]'
-					: ''
+					: job.gate
+						? '  [gate]'
+						: ''
 		lines.push(
 			`${job.name}  [${job.state}]${kind}${mark}\n    ${describeSchedule(job.schedule, { tz })} · next ${when(nextFireOf(job, state), tz)}${state.lastRun ? ` · last ${state.lastRun.status}${callsCount(state.lastRun) ? ` (${callsCount(state.lastRun)})` : ''} ${when(state.lastRun.endedAt, tz)}` : ''}\n    ${job.workspace === 'none' ? 'Private scheduler workspace (no project)' : job.folder.canonical}`,
 		)
@@ -212,6 +215,11 @@ async function confirmInTui(
 			return 'cancel'
 		}
 	}
+	const gateProblem = gateRefusal(job, layers, paths.home)
+	if (gateProblem) {
+		say(`${gateProblem.charAt(0).toUpperCase()}${gateProblem.slice(1)}`)
+		return 'cancel'
+	}
 	const scriptSection =
 		runKind !== 'agent' && job.script
 			? [
@@ -231,6 +239,7 @@ async function confirmInTui(
 			...previewLines(job, policy, now),
 			...changesBlock(changesSinceConfirmed(readHistory(paths, job.id))),
 			...scriptSection,
+			...(job.gate ? gateLines(job.gate) : []),
 			...(runKind === 'script'
 				? []
 				: [
@@ -263,6 +272,7 @@ async function confirmInTui(
 			prompt: job.prompt,
 			...(hasScript ? { runKind } : {}),
 			...(job.script ? { script: job.script } : {}),
+			...(job.gate ? { gate: job.gate } : {}),
 			schedule: describeSchedule(job.schedule, { tz }),
 			nextFireTimes: upcomingFireTimes(job.schedule, now, 3).map((fire) => fire.toISOString()),
 			rules: policy.lines,

@@ -5,8 +5,8 @@
 	flex-direction: column;
 	gap: 8px;
 	padding: 12px 14px;
-	font-size: 13px;
-	line-height: 1.35;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	pointer-events: none;
 }
 .thread-hover-card-head {
@@ -17,7 +17,7 @@
 .thread-hover-card-engine {
 	min-width: 0;
 	flex: 1;
-	font-weight: 600;
+	font-weight: var(--weight-strong);
 }
 .thread-hover-card-preview {
 	display: -webkit-box;
@@ -37,7 +37,8 @@
 .thread-hover-card-age {
 	flex: none;
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	font-variant-numeric: tabular-nums;
 }
 .thread-hover-card-row {
@@ -63,7 +64,8 @@
 	align-items: center;
 	gap: 4px;
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .thread-hover-card-environment .thread-hover-card-icon {
 	margin-top: 0;

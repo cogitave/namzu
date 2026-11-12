@@ -18,8 +18,8 @@
 	align-items: center;
 	gap: 8px;
 	min-width: 0;
-	font-size: 13px;
-	line-height: 22px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	color: var(--foreground);
 }
 .plan-steps li[data-status="completed"] {
@@ -78,7 +78,7 @@
 	background: none;
 	color: var(--muted-foreground);
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-small);
 	cursor: pointer;
 }
 .plan-more:hover,
