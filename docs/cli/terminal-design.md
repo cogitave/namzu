@@ -237,6 +237,11 @@ for screen readers, and when colour is refused (`NO_COLOR`, `FORCE_COLOR=0`,
 `TERM=dumb`); the label remains readable without colour. A frame too narrow for the
 complete mode name omits the label rather than clipping it.
 
+`NO_COLOR` (set and not empty) with no `FORCE_COLOR` of your own is turned into `FORCE_COLOR=0` before the
+renderer's colour library loads, so the whole terminal UI draws without colour; before this only the
+background tint of your message honoured it (`packages/cli/src/no-color-env.ts`). A `FORCE_COLOR` you set
+yourself stays as you set it.
+
 ### Esc
 
 Esc means one thing at a time, and the thing is chosen by what the screen is doing:
@@ -959,15 +964,24 @@ left out because the messages do not keep them. A delegation that succeeded
 leaves no tool row, as live: the agent rows own it; a failed launch keeps its
 row.
 
-A reopened conversation is not identical to the screen it was saved from in two
-places: the plan checklist (the live screen prints it once, after the reply and
-the changed-files row, and then `Worked for`) is not in the saved record and is
-left out, so `Worked for` follows the changed-files row; and a two-row `Resumed:`
-notice is added. Everything else, a 500-line code reply included, is row for row
-the same.
+A reopened conversation is not identical to the screen it was saved from, in
+three places. The plan checklist block (`Tasks · 2/3 done`) is not shown again:
+the live screen prints it once, when the turn ends, but the saved record does not
+hold it. The closing rows can sit in a different order: live, the checklist and
+then `Worked for` come after the changed-files row; reopened, there is no
+checklist and `Worked for` follows the changed-files row directly. And a
+two-row `Resumed:` notice is added at the end. Everything else, a 500-line code
+reply included, is row for row the same.
 
-A reply cut off in the middle of a table keeps the rows that were whole: the
-row still being written is taken back, never drawn as a row of empty cells.
+The plan checklist is printed once, when the turn ends, after the reply and the
+changed-files row: it is not in event order. While the turn runs the plan lives
+in the working region and is redrawn in place; the transcript gets no block for
+each change.
+
+A reply cut off in the middle of a table ends the table at its last whole row.
+What was written of the row still being written stays under the table as one
+line of plain text (it is what the model wrote, and it is in the record); it is
+never drawn as a row of empty cells.
 
 ### Scrolling back through the conversation
 
@@ -1359,7 +1373,7 @@ The terminal app speaks in the person's terms. `--json`, `namzu exec`, scheduled
 - **The detailed transcript (`ctrl+o`) and the workflow detail replace the composer's mode footer** rather than drawing under it, so no stale footer row sits above them; both carry their own key line.
 - **One gutter for every tool result.** A shell body, a one-line result and a web result all hang from the same `  ⎿  ` (two columns of indent, the glyph, two spaces), and a wrapped result lines up under its own text.
 - **The stop-all chord's confirm is footer feedback, not a transcript row.** `Press ctrl+x ctrl+k again to stop background agents` (3 s) and `No background agents running` (2 s) replace the footer's hint and then disappear; only the stop itself leaves `● All background agents stopped`, and that is the only row it leaves: the stopped agents write no row of their own and the waiting line ends without a closing line. An agent stopped with Esc, Ctrl+C or the chord reads `was stopped by user` everywhere; one the conversation's own agent stopped reads `by Namzu`.
-- **`/compact` leaves its echo and result where it ran**: the turns that stay, then `› /compact`, then `✻ Compacted (ctrl+o to see full summary)`. `/context` leaves the `freeing about N tokens` clause out when the reclaimed size is unknown. Every resume path writes the `Resumed:` row with the same dot.
+- **`/compact` leaves its echo and result where it ran**: on the default screen every row already printed stays above, then `› /compact`, then `✻ Compacted · N messages summarized. The messages above are summarized for the model (ctrl+o to see full summary)`, and the conversation goes on under it; nothing is erased and no row is printed twice. (Fullscreen redraws its own screen and keeps only the turns that stay.) `/context` leaves the `freeing about N tokens` clause out when the reclaimed size is unknown. Every resume path writes the `Resumed:` row with the same dot.
 - **A launch receipt is written before the reply that follows the launch**, even when the reply arrives inside the receipt's 250 ms settle window.
 - **`/workflows` and every choice list use a rounded frame**; below 70 columns a description wraps under its label (two lines at most) and a `·`-separated row drops whole trailing parts rather than cutting a number. The permission box labels its toggle `d view input`.
 - **The model picker says the same thing at every width**: "Applies to this conversation and future launches." and the `(namzu default)` mark are cut by the row on a narrow terminal, never reworded.
@@ -1485,32 +1499,39 @@ writer of Namzu's own (`packages/cli/src/tui/paint/`) that sits between the rend
   0.13 s at the median and 0.2 s at the 90th percentile, and the last words of a reply are on screen within 0.1 s
   of arriving. The clock on
   the working line still moves every second.
-- **Starting never erases what was there.** The terminal UI begins at the start of a line under what was on
+- **Nothing the terminal already holds is erased.** The terminal UI begins at the start of a line under what was on
   screen (if a program left the cursor in the middle of a line, a reversed `%` ends that line, as shells do).
   What was on screen and everything in the scrollback stay, and the banner is drawn under them. (Before, launch
-  cleared the screen and the scrollback.) A conversation reopened with `/resume`, `/clear` and a theme change
-  still clear the screen and print the conversation again, because the person asked for a new screen.
+  cleared the screen and the scrollback.) The same rule holds for the rest of the session: text printed before
+  launch and the conversation rows already printed are never erased and never printed a second time, by a resize,
+  a compaction or a clear. `/compact` (and the idle compaction) prints one row under what is there and goes on.
+  `/clear`, `/new`, `/resume` and a theme change ask for a new screen: the visible screen is cleared, but the rows
+  on it first move up into the scrollback, and the "erase saved lines" sequence is never written. The one
+  exception is the rows still in the live region at that moment (the last few of the conversation, not yet
+  printed): they were never in the scrollback, so a clear takes them with the screen. Rewinding to summarize part
+  of the conversation rewrites rows that were printed, so it prints the conversation again under the old rows.
+  Fullscreen owns its alternate screen and is not covered by this rule.
 - **A resize never touches scrollback.** Rows already printed stay as the terminal reflowed them and are not
   printed again. The terminal UI waits until the size has stopped changing (150 ms without a new event, so a drag
   is one redraw), tells the renderer once, waits 100 ms for the frame at the new width, erases only the live
   region (as many rows as the terminal made of it at the new width) and draws one frame. No frame is drawn at the
-  old width. Printed rows keep the line breaks the terminal gave them, so after a narrowing a long printed row
-  can look wrapped mid-word; it is the terminal's reflow, and widening again does not undo it. A region taller than the terminal's new height (a long reply being written, with its plan under it, in a window that
+  old width. Printed rows keep the line breaks the terminal gave them: after a narrowing resize, rows already printed are
+  wrapped by the terminal and can break in the middle of a word (every row is still there, once, in order); it
+  is the price of never rewriting the scrollback, and widening again does not undo it. A region taller than the terminal's new height (a long reply being written, with its plan under it, in a window that
   became shorter) has its top rows pushed into scrollback by the terminal before Namzu could erase them; those rows
   stay where they are, and when they are exactly the rows about to be written again (the part of the reply that was
   live, and the rows printed from it since) they are not written a second time.
-- **A conversation replaced in place is passed through, then drawn under.** A compaction, like `/resume` and `/clear`,
-  has the renderer clear the terminal and write the conversation again. That block is written as it came, the height
-  of the frame it ends with is taken from the next frame's erase, and painting by what changed goes on from there.
-  (Before this, a compaction under the writer left the screen empty.) The clear that block asks for is changed on
-  the way: the rows on the screen are pushed up into the scrollback first and only the screen is cleared, so the
-  scrollback (what was there before the launch, and what was printed since) is never erased by a compaction.
+- **A conversation replaced in place is passed through, then drawn under.** `/resume`, `/clear` and `/new` have
+  the renderer clear the terminal and write the conversation again. That block is written as it came, except that
+  the rows on the screen are pushed up into the scrollback first and only the screen is cleared (the sequence that
+  erases the scrollback is never written); the height of the frame it ends with is taken from the next frame's
+  erase, and painting by what changed goes on from there. (Before this, such a block left the screen empty.) A
+  compaction is not one of these on the default screen: it keeps the rows and adds one.
 - **Leaving gives the terminal back.** The last frame is painted, the cursor is shown and left at the start of a
   line under the last frame, also after a signal (Ctrl+C twice, `SIGTERM`, `SIGHUP`) and when the process ends
   without unmounting (an uncaught error). A process continued after a stop draws a fresh frame on a new line
   below whatever the shell printed; the earlier frame stays where it was above the shell's lines, so the last
-  rows of the live region can appear twice in the scrollback (erasing it would erase the shell's lines). `/clear`,
-  `/new`, `/resume` and a compaction clear the screen only; the old rows move up into the scrollback.
+  rows of the live region can appear twice in the scrollback (erasing it would erase the shell's lines).
 
 `NAMZU_LEGACY_PAINT=1` hands the writing back to the renderer, which erases and writes the whole live region on
 every frame and clears the terminal on a resize as before. It is a way back for a terminal the writer does not
