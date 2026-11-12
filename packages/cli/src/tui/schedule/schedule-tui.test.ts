@@ -1329,6 +1329,79 @@ describe('the schedule tool’s host', () => {
 		expect(jobs.find((j) => j.name === 'elsewhere')?.prompt).toBeUndefined()
 	})
 
+	// A gate is a command that runs unattended before every run, so only the
+	// person sets one. The tool refuses to, says so, and keeps the one a job has.
+	describe('a gate', () => {
+		const GATE = 'find inbox -type f -mmin -10'
+
+		it('cannot be set by the tool on create: refused with the reason, nothing shown or stored', async () => {
+			const { tool, said } = host('create')
+			const result = await tool.execute({ ...input, gate: { command: GATE } }, {} as never)
+			expect(result.success).toBe(false)
+			expect(result.error).toMatch(/cannot set or change a gate/)
+			expect(result.error).toMatch(/namzu schedule add --gate/)
+			expect(said).toEqual([])
+			expect(listJobs(sb.paths).jobs).toHaveLength(0)
+		})
+
+		it('cannot be set or changed by the tool on update: refused, the job unchanged', async () => {
+			const job = confirmedJob(sb, {
+				name: 'queue',
+				gate: { command: GATE },
+				permissions: { rules: {}, unmatched: 'deny' },
+			})
+			const { tool, said } = host('save')
+			const result = await tool.execute(
+				{ action: 'update', job: 'queue', gate: { command: 'echo changed' } },
+				{} as never,
+			)
+			expect(result.success).toBe(false)
+			expect(result.error).toMatch(/cannot set or change a gate/)
+			expect(said).toEqual([])
+			expect(readJob(sb.paths, job.id)).toEqual(job)
+		})
+
+		it('is kept as the person wrote it when the tool updates something else, and shown on the screen', async () => {
+			const job = confirmedJob(sb, {
+				name: 'queue',
+				gate: { command: GATE, timeoutMs: 20_000 },
+				permissions: { rules: {}, unmatched: 'deny' },
+			})
+			const { tool, said } = host('save')
+			const result = await tool.execute(
+				{ action: 'update', job: 'queue', when: 'every 7m' },
+				{} as never,
+			)
+			expect(result.success).toBe(true)
+			const stored = readJob(sb.paths, job.id)
+			expect(stored?.gate).toEqual({ command: GATE, shell: 'sh', timeoutMs: 20_000 })
+			expect(stored && confirmationHolds(stored)).toBe(true)
+			expect(said.at(-2)).toContain('Gate (set by the operator')
+			expect(said.at(-2)).toContain(`│ ${GATE}`)
+		})
+
+		it('is not carried to a script kind: the tool cannot strand it there', async () => {
+			confirmedJob(sb, {
+				name: 'queue',
+				gate: { command: GATE },
+				permissions: { rules: {}, unmatched: 'deny' },
+			})
+			const { tool } = host('save')
+			const result = await tool.execute(
+				{
+					action: 'update',
+					job: 'queue',
+					kind: 'script',
+					script: { body: 'echo hi', shell: 'bash' },
+					permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+				},
+				{} as never,
+			)
+			expect(result.success).toBe(false)
+			expect(result.error).toMatch(/only applies to an agent job/)
+		})
+	})
+
 	describe('a model-proposed script/script+agent job', () => {
 		const scriptInput = {
 			action: 'create',

@@ -124,7 +124,11 @@ export function callsLine(result: CallTallies): string {
 export function callsCount(last: {
 	readonly refusedCalls?: number
 	readonly failedCalls?: number
+	readonly status?: string
+	readonly reason?: string
 }): string {
+	// A skipped run made no calls; what a person wants beside it is why.
+	if (last.status === 'skipped') return last.reason ?? ''
 	const refused = last.refusedCalls ?? 0
 	const failed = last.failedCalls ?? 0
 	const calls = (n: number) => `${n} call${n === 1 ? '' : 's'}`

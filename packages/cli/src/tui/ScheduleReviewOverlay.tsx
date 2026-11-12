@@ -97,6 +97,11 @@ export function scheduleReviewSummary(request: ScheduleReviewRequest): readonly 
 		...(preview.script?.report === 'json-v1'
 			? ['Script report  JSON v1: quiet/changed; optional scheduler state.']
 			: []),
+		...(preview.gate
+			? [
+					'Gate    A command runs before every run on your computer as you; the model is called only when it exits 0 and prints something. Read it below.',
+				]
+			: []),
 		...(preview.networkAccess ? ['Network  This run can reach the network.'] : []),
 		...(preview.notifyOnFinish === false
 			? ['Notices  Generic success notices off; failures still notify.']
@@ -158,6 +163,7 @@ function compactSummary(request: ScheduleReviewRequest): readonly string[] {
 				]
 			: [`When ${preview.schedule}`]),
 		...(script ? ['Shell checks only; interpreter code needs review'] : []),
+		...(preview.gate ? ['Gate command runs first on your computer; read it below'] : []),
 		...(preview.script?.report === 'json-v1' ? ['JSON v1 report · quiet/changed'] : []),
 		`${preview.networkAccess ? 'Network access · ' : ''}${warningCount} warning${warningCount === 1 ? '' : 's'} · read details`,
 	]
