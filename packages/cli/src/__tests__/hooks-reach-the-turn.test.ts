@@ -9,13 +9,13 @@
  * received the same question the executor would.
  */
 
-import { mkdirSync, mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 
-import type { Message, PluginLifecycleManager } from '@namzu/sdk'
+import type { Message, PluginLifecycleManager, PromptContributionRegistry } from '@namzu/sdk'
 
 import type { HooksConfig } from '../config/schema.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
@@ -108,5 +108,66 @@ describe('hooks from the config', () => {
 
 	it('give the turn no manager at all when none are configured and plugins are off', async () => {
 		expect(await managerFor(undefined)).toBeUndefined()
+	})
+})
+
+describe('what a session_start hook says for the model', () => {
+	function sessionContext(turn: number): string | undefined {
+		const registry = queryCalls[turn]?.promptContributions as PromptContributionRegistry | undefined
+		return registry
+			?.list()
+			.find((contribution) => contribution.id === 'namzu.hooks.session-start')
+			?.render({})
+			?.toString()
+	}
+
+	async function sendTwice(first: Message[], second: Message[]) {
+		const log = join(root, 'starts.log')
+		const { createAgentSession } = await import('../tui/agent.js')
+		const session = await createAgentSession(prefs, detectedAnthropic(), {
+			cwd: root,
+			hooks: {
+				session_start: [
+					{
+						// Prints text for the model and records what the hook was told.
+						command: `cat >> ${JSON.stringify(log)}; echo >> ${JSON.stringify(log)}; echo "Deploys are frozen."`,
+					},
+				],
+			},
+		})
+		for (const messages of [first, second]) {
+			for await (const _ of session.send(messages)) {
+				// drain
+			}
+		}
+		const told = readFileSync(log, 'utf8')
+			.split('\n')
+			.filter((line) => line.trim() !== '')
+			.map((line) => JSON.parse(line) as { source?: string; event: string })
+		return told
+	}
+
+	const user = (text: string): Message => ({ role: 'user', content: text, timestamp: 0 })
+
+	it('reaches every turn as the operator’s hook speaking, from one run of the hook', async () => {
+		const told = await sendTwice([user('one')], [user('one'), user('two')])
+		expect(told).toHaveLength(1)
+		expect(told[0]?.event).toBe('session_start')
+		const expected = "Context from the operator's hooks:\n\nDeploys are frozen."
+		expect(sessionContext(0)).toBe(expected)
+		expect(sessionContext(1)).toBe(expected)
+	})
+
+	it('tells the hook the conversation is new', async () => {
+		const told = await sendTwice([user('one')], [user('one'), user('two')])
+		expect(told[0]?.source).toBe('startup')
+	})
+
+	it('tells the hook the conversation is a resumed one when it already has turns', async () => {
+		const told = await sendTwice(
+			[user('earlier'), { role: 'assistant', content: 'ok', timestamp: 0 }, user('now')],
+			[user('now')],
+		)
+		expect(told[0]?.source).toBe('resume')
 	})
 })

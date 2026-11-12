@@ -605,6 +605,20 @@ export interface NamzuCliConfig {
 	 */
 	readonly hooks?: HooksConfig
 	/**
+	 * `true` turns off every hook that comes from the user file, the project
+	 * file and the project's local file (profiles in them included). Hooks from
+	 * the organisation-managed file keep running, and so do the JavaScript
+	 * hooks of plugins, which have their own switch (`plugins.enabled`). Once
+	 * any layer or `NAMZU_DISABLE_HOOKS=1` says `true`, no later layer undoes it.
+	 */
+	readonly disableHooks?: boolean
+	/**
+	 * `true`, in the organisation-managed file only, attaches only the hooks
+	 * that file declares: entries from the user, project and local files are not
+	 * attached. Any other file that sets it is ignored, with a note at launch.
+	 */
+	readonly hooksManagedOnly?: boolean
+	/**
 	 * Directories besides the working directory the file tools may reach,
 	 * relative to the project or absolute. Bound read-write into the sandbox.
 	 * `--add-dir` and `/add-dir` add to this list for one launch or session.

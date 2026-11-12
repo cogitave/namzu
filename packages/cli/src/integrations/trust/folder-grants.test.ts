@@ -38,6 +38,7 @@ describe('what a folder pre-approves', () => {
 			allowRules: ['read', 'bash(git status *)', 'web_fetch'],
 			directories: ['../shared', '/data'],
 			toolServers: [],
+			hooks: [],
 		})
 	})
 
@@ -46,16 +47,19 @@ describe('what a folder pre-approves', () => {
 			allowRules: [],
 			directories: [],
 			toolServers: [],
+			hooks: [],
 		})
 		expect(readFolderGrants(folder({ 'namzu.config.json': '{ nope' }))).toEqual({
 			allowRules: [],
 			directories: [],
 			toolServers: [],
+			hooks: [],
 		})
 		expect(readFolderGrants(folder({ 'namzu.config.json': '[1]' }))).toEqual({
 			allowRules: [],
 			directories: [],
 			toolServers: [],
+			hooks: [],
 		})
 	})
 
@@ -97,5 +101,43 @@ describe('what a folder pre-approves', () => {
 
 	it('keeps the cap the trust screen shows', () => {
 		expect(MAX_SHOWN_GRANT_RULES).toBe(8)
+	})
+
+	it('lists the hooks the folder’s files declare, with what each would run', () => {
+		const root = folder({
+			'namzu.config.json': JSON.stringify({
+				hooks: {
+					pre_tool_use: [
+						{ command: 'node', args: ['guard.mjs', '--strict'], matcher: 'bash' },
+						{ command: './lint.sh' },
+					],
+					turn_end: [
+						{ type: 'http', url: 'https://user:pw@hooks.example/notify?token=abc' },
+						{ type: 'prompt', prompt: 'Is the work done?' },
+					],
+				},
+			}),
+			'namzu.config.local.json': JSON.stringify({
+				hooks: { session_start: [{ command: 'echo hi' }] },
+			}),
+		})
+		expect(readFolderGrants(root).hooks).toEqual([
+			{ event: 'pre_tool_use', runs: 'node guard.mjs --strict' },
+			{ event: 'pre_tool_use', runs: './lint.sh' },
+			{ event: 'turn_end', runs: 'POST https://hooks.example/notify' },
+			{ event: 'turn_end', runs: 'asks the model: Is the work done?' },
+			{ event: 'session_start', runs: 'echo hi' },
+		])
+	})
+
+	it('bounds a very long hook command', () => {
+		const root = folder({
+			'namzu.config.json': JSON.stringify({
+				hooks: { turn_end: [{ command: `echo ${'x'.repeat(500)}` }] },
+			}),
+		})
+		const [hook] = readFolderGrants(root).hooks
+		expect(hook?.runs.length).toBeLessThanOrEqual(201)
+		expect(hook?.runs.endsWith('…')).toBe(true)
 	})
 })

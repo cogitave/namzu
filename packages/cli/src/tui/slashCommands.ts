@@ -59,6 +59,7 @@ import {
 } from '@namzu/sdk'
 
 import { type ConfigDebugSnapshot, renderConfigDebug } from '../config/debug.js'
+import type { HooksSwitch } from '../config/hook-layers.js'
 import type { HooksConfig } from '../config/schema.js'
 import type { SandboxSummary } from '../context/sandbox.js'
 import { PERMISSION_MODE_NAMES } from '../permissions/mode-names.js'
@@ -333,6 +334,8 @@ export interface SlashContext {
 	readonly compaction: CompactionSummary | null
 	/** The shell hooks this session runs, by event; absent when the session has none. */
 	readonly hooks?: () => HooksConfig | undefined
+	/** What `/hooks` shows beside `hooks`: plugin hooks and a switch that left hooks out. */
+	readonly hooksView?: () => HooksView
 	/** Directories besides the working directory the file tools may reach, absolute. */
 	readonly directories?: () => readonly string[]
 	/** Calls the auto mode refused in this session, newest first. */
@@ -1565,11 +1568,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'hooks',
 		immediate: true,
-		description: 'List the shell hooks this conversation runs, by event.',
+		description: 'List every hook this conversation runs, by event, with the file it came from.',
 		action: (ctx) => ({
 			kind: 'message',
 			role: 'system',
-			content: renderHooks(ctx.hooks?.()),
+			content: renderHooks(ctx.hooks?.(), ctx.hooksView?.()),
 		}),
 	},
 	{
@@ -1979,12 +1982,36 @@ function hypermodeAction(args: readonly string[], via?: 'orchestrate'): SlashAct
 	}
 }
 
-export function renderHooks(hooks: HooksConfig | undefined): string {
+/** What `/hooks` shows beside the config's shell hooks. */
+export interface HooksView {
+	/** The JavaScript hooks plugins registered: the plugin's name and the event. */
+	readonly pluginHooks?: readonly { readonly plugin: string; readonly event: string }[]
+	/** A switch that left hooks out of the list. */
+	readonly switch?: HooksSwitch
+}
+
+/** The one line `/hooks` and `namzu doctor` give when a switch is limiting hooks. */
+export function hooksSwitchLine(state: HooksSwitch): string {
+	return state === 'managed-only'
+		? 'Only the organisation-managed file’s hooks are attached (hooksManagedOnly): hooks from your own and the project’s files are not.'
+		: 'Hooks from your config, the project and its local file are turned off (disableHooks or NAMZU_DISABLE_HOOKS); the managed file’s hooks and plugin hooks still run.'
+}
+
+/**
+ * Every hook this conversation attaches, by event, in the order answers are
+ * read, each with the file it came from, then the hooks plugins registered.
+ */
+export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}): string {
 	const events = Object.entries(hooks ?? {}).filter(([, entries]) => (entries?.length ?? 0) > 0)
-	if (events.length === 0) {
-		return 'No hooks. Add a `hooks` key to namzu.config.json or ~/.namzu/config.yaml: event → list of hooks: a command, an http address or a prompt, each with matcher, timeoutMs, if, once, statusMessage and onFailure if you want them.'
-	}
+	const pluginHooks = view.pluginHooks ?? []
 	const lines: string[] = []
+	if (view.switch) lines.push(hooksSwitchLine(view.switch))
+	if (events.length === 0 && pluginHooks.length === 0) {
+		lines.push(
+			'No hooks. Add a `hooks` key to namzu.config.json or ~/.namzu/config.yaml: event → list of hooks: a command, an http address or a prompt, each with matcher, timeoutMs, if, once, statusMessage and onFailure if you want them.',
+		)
+		return lines.join('\n')
+	}
 	for (const [event, entries] of events) {
 		lines.push(`${event}`)
 		for (const entry of entries ?? []) {
@@ -2001,8 +2028,13 @@ export function renderHooks(hooks: HooksConfig | undefined): string {
 						: entry.command
 			const background = entry.type === undefined && entry.async ? ' · in background' : ''
 			const failure = entry.onFailure === 'block' ? ' · blocks when it fails' : ''
-			lines.push(`  ${what}${when}${filter}${once}${deadline}${background}${failure}`)
+			const from = entry.source ? ` · from ${entry.source}` : ''
+			lines.push(`  ${what}${when}${filter}${once}${deadline}${background}${failure}${from}`)
 		}
+	}
+	if (pluginHooks.length > 0) {
+		lines.push('plugin hooks (JavaScript, set by the plugin)')
+		for (const hook of pluginHooks) lines.push(`  ${hook.event} · plugin ${hook.plugin}`)
 	}
 	return lines.join('\n')
 }

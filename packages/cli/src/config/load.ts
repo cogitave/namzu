@@ -73,6 +73,7 @@ import {
 	mergeComposerTriggers,
 } from './composer-triggers.js'
 import { configMetadataLiteral } from './debug.js'
+import { type HookLayer, assembleHooks } from './hook-layers.js'
 import {
 	MAX_LEARNING_TOKENS,
 	MIN_LEARNING_TOKENS,
@@ -363,7 +364,7 @@ function resolveConfigWithProvenance(
 		new Set([projectPath, localPath]),
 	)
 
-	const merged = mergeConfigs(
+	const layers: readonly ConfigLayer[] = [
 		constantLayer(DEFAULT_CONFIG, { kind: 'default' }),
 		constantLayer(userCfg, { kind: 'user-file', path: userPath }),
 		...(sharedServers && projectCfg.mcpServers === undefined
@@ -399,7 +400,8 @@ function resolveConfigWithProvenance(
 		// Last, so it beats the project file and the environment both. That
 		// ordering is the whole of what a managed layer is.
 		constantLayer(managedCfg, { kind: 'managed', path: managedPath }),
-	)
+	]
+	const merged = withAssembledHooks(mergeConfigs(...layers), layers, managedCfg, managedPath)
 	assertAutoModelHasDefault(merged.config, merged.provenance)
 	return merged
 }
@@ -901,6 +903,14 @@ const CONFIG_READERS: ConfigReaders = {
 		return invalidConfigValue(context, [], 'must be a boolean')
 	},
 	hypermode: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be a boolean')
+	},
+	disableHooks: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be a boolean')
+	},
+	hooksManagedOnly: (v, context) => {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
 	},
@@ -2370,6 +2380,11 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// A hook runs a command with the operator's authority; the file is the only
 	// place one may be declared.
 	hooks: undefined,
+	// Turning hooks off loosens nothing, so one launch may do it from the
+	// environment (a CI job, a test harness, a person debugging a hook).
+	disableHooks: 'NAMZU_DISABLE_HOOKS',
+	// Only the organisation-managed file may say it; the environment cannot.
+	hooksManagedOnly: undefined,
 	additionalDirectories: undefined,
 	// Absent here for the reason `additionalDirectories` is: the environment
 	// carries scalars, and a screen is a list of names whose meaning belongs
@@ -2514,6 +2529,22 @@ function readEnv(env: NodeJS.ProcessEnv): {
 		}
 	}
 
+	const disableHooksVar = ENV_VARIABLE_NAMES.disableHooks
+	if (disableHooksVar) {
+		const disabled = env[disableHooksVar]
+		if (disabled !== undefined) {
+			if (disabled !== '1' && disabled !== 'true' && disabled !== '0' && disabled !== 'false') {
+				throw new ConfigValueError(
+					{ kind: 'environment', variable: disableHooksVar },
+					'disableHooks',
+					'must be one of "1", "true", "0", or "false"',
+				)
+			}
+			config.disableHooks = disabled === '1' || disabled === 'true'
+			variables.disableHooks = disableHooksVar
+		}
+	}
+
 	const refreshVar = ENV_VARIABLE_NAMES.modelCatalogueRefresh
 	if (refreshVar) {
 		const refresh = env[refreshVar]
@@ -2648,6 +2679,48 @@ function describeSource(source: ConfigSource): string {
 	return 'path' in source ? shortHomePath(source.path) : source.kind
 }
 
+/**
+ * The `hooks` key of the merged config, rebuilt from every layer instead of
+ * taken whole from the last layer that had one. See `assembleHooks`.
+ */
+function withAssembledHooks(
+	merged: { config: NamzuCliConfig; provenance: ConfigProvenance },
+	layers: readonly ConfigLayer[],
+	managedCfg: MutableConfig,
+	managedPath: string,
+): { config: NamzuCliConfig; provenance: ConfigProvenance } {
+	const hookLayers: HookLayer[] = []
+	let lastSource: ConfigSource | undefined
+	for (const layer of layers) {
+		if (layer.config.hooks === undefined) continue
+		const source = layer.sourceFor('hooks')
+		lastSource = source
+		const path = 'path' in source ? source.path : undefined
+		hookLayers.push({
+			label:
+				path === undefined
+					? source.kind
+					: source.kind === 'profile'
+						? `${shortHomePath(path)} (profile ${source.name})`
+						: shortHomePath(path),
+			managed: source.kind === 'managed' || (path !== undefined && path === managedPath),
+			hooks: layer.config.hooks,
+		})
+	}
+	const assembled = assembleHooks(hookLayers, {
+		disableHooks: merged.config.disableHooks === true,
+		managedOnly: managedCfg.hooksManagedOnly === true,
+	})
+	const { hooks: _replaced, ...rest } = merged.config
+	return {
+		config: assembled.hooks !== undefined ? { ...rest, hooks: assembled.hooks } : rest,
+		provenance:
+			assembled.hooks !== undefined && lastSource !== undefined
+				? { ...merged.provenance, hooks: lastSource }
+				: merged.provenance,
+	}
+}
+
 function constantLayer(config: MutableConfig, source: ConfigSource): ConfigLayer {
 	return { config, sourceFor: () => source }
 }
@@ -2676,6 +2749,19 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 			if (layer.sourceFor(key).kind === 'env' && (key === 'limits' || key === 'compaction')) {
 				;(out as Record<string, unknown>)[key] = { ...out[key], ...layer.config[key] }
 				provenance[key] = layer.sourceFor(key)
+				continue
+			}
+			if (key === 'hooksManagedOnly') {
+				// Only the managed file may narrow hooks to its own.
+				if (layer.sourceFor(key).kind !== 'managed') {
+					configWarnings.add(
+						`hooksManagedOnly in ${describeSource(layer.sourceFor(key))} is ignored: only the organisation-managed file can set it.`,
+					)
+					continue
+				}
+			}
+			if (key === 'disableHooks' && out.disableHooks === true) {
+				// Once on, no later layer turns it off.
 				continue
 			}
 			if (key === 'permissions' && layer.config.permissions) {

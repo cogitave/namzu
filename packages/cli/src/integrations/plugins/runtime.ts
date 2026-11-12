@@ -1,6 +1,7 @@
 import {
 	PluginLifecycleManager,
 	PluginRegistry,
+	SHELL_HOOKS_PLUGIN_ID,
 	type ShellHookOptions,
 	SkillRegistry,
 	attachShellHooks,
@@ -11,6 +12,7 @@ import type { HooksConfig, PluginConfig, PluginScope } from '../../config/schema
 import { cliLogger } from '../../logging.js'
 import { resolveNamzuHome } from '../state/home.js'
 import { listMarkdownNames, resolvePluginFileDirs } from './files.js'
+import { createHookPathFilter } from './hook-path-filter.js'
 import { PluginSettingsStore } from './settings.js'
 
 export interface CliPluginRuntime {
@@ -18,6 +20,8 @@ export interface CliPluginRuntime {
 	readonly skills: SkillRegistry
 	readonly pluginCount: number
 	list(): readonly CliPluginInfo[]
+	/** The JavaScript hooks plugins registered right now: the plugin's name and the event. */
+	pluginHooks(): readonly { readonly plugin: string; readonly event: string }[]
 	setEnabled(name: string, enabled: boolean): Promise<void>
 	rememberState(name: string): Promise<void>
 	close(): Promise<void>
@@ -91,7 +95,16 @@ export async function createCliPluginRuntime(
 		log,
 		...(config?.hookTimeoutMs !== undefined ? { hookTimeoutMs: config.hookTimeoutMs } : {}),
 	})
-	if (hooks && hookCount > 0) attachShellHooks(manager, hooks, { cwd, log, ...hookHost })
+	if (hooks && hookCount > 0) {
+		attachShellHooks(manager, hooks, {
+			cwd,
+			// The folder the session was started for, for a hook script to find its own files.
+			projectDir: cwd,
+			pathFilter: createHookPathFilter(cwd),
+			log,
+			...hookHost,
+		})
+	}
 	const allowedScopes = config?.allowedScopes ?? (['project', 'user'] as const)
 	const discovered = pluginsEnabled
 		? await discoverAllPluginDirs(cwd, {
@@ -154,6 +167,14 @@ export async function createCliPluginRuntime(
 		manager,
 		skills,
 		pluginCount: installed.length,
+		pluginHooks: () =>
+			manager
+				.listHooks()
+				.filter((hook) => hook.pluginId !== SHELL_HOOKS_PLUGIN_ID)
+				.map((hook) => ({
+					plugin: plugins.get(hook.pluginId)?.manifest.name ?? String(hook.pluginId),
+					event: hook.event,
+				})),
 		list: () =>
 			plugins
 				.getAll()
