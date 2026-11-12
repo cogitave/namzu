@@ -103,3 +103,12 @@ describe('the engine update log', () => {
 		await expect(log.flush()).resolves.toBeUndefined()
 	})
 })
+
+describe('scrubbing', () => {
+	it('takes a Windows path with spaces out whole', () => {
+		expect(scrub('host failed (cannot open D:\\Work Projects\\x\\a.txt)')).toBe(
+			'host failed (cannot open <path>)',
+		)
+		expect(scrub('open C:/Users/Some One/AppData/x')).toBe('open <path>')
+	})
+})

@@ -28,7 +28,7 @@ async function read(stream: AsyncIterable<Uint8Array> | null): Promise<string> {
 }
 
 describe('the feed fetch', () => {
-	it('sends exactly the headers it is given, follows redirects, and reports the final address', async () => {
+	it('sends exactly the headers it is given, no cookies, and reports the final address', async () => {
 		const calls: Parameters<FetchLike>[] = []
 		const t = timers()
 		const fetch: FetchLike = async (...args) => {
@@ -41,11 +41,59 @@ describe('the feed fetch', () => {
 		})
 		expect(calls[0]?.[0]).toBe('https://feed.test/a')
 		expect(calls[0]?.[1].headers).toEqual({ 'User-Agent': 'namzu-desktop' })
-		expect(calls[0]?.[1].redirect).toBe('follow')
-		expect(response).toMatchObject({ status: 200, url: 'https://feed.test/final' })
+		expect(calls[0]?.[1].redirect).toBe('manual')
+		expect(calls[0]?.[1].credentials).toBe('omit')
+		expect(response).toMatchObject({ status: 200, url: 'https://feed.test/a' })
 		expect(await read(response.body)).toBe('abc')
 		// Nothing is left armed once the body has been read.
 		expect(t.count()).toBe(0)
+	})
+
+	it('follows a redirect one hop at a time and reports where it ended', async () => {
+		const asked: string[] = []
+		const fetch: FetchLike = async (url) => {
+			asked.push(url)
+			return url.endsWith('/a')
+				? { status: 302, location: '/b', body: null }
+				: { status: 200, body: body('done') }
+		}
+		const feed = createFeedFetch({ fetch, after: timers().after })
+		const response = await feed('https://feed.test/a', { headers: {} })
+		expect(asked).toEqual(['https://feed.test/a', 'https://feed.test/b'])
+		expect(response.url).toBe('https://feed.test/b')
+		expect(await read(response.body)).toBe('done')
+	})
+
+	it('never sends a request to a redirect target that is not allowed', async () => {
+		for (const location of [
+			'http://evil.example/x',
+			'file:///etc/passwd',
+			'https://user:secret@feed.test/x',
+		]) {
+			const asked: string[] = []
+			const fetch: FetchLike = async (url) => {
+				asked.push(url)
+				return { status: 301, location, body: null }
+			}
+			const feed = createFeedFetch({ fetch, after: timers().after })
+			await expect(feed('https://feed.test/a', { headers: {} })).rejects.toThrow(/not allowed/u)
+			expect(asked).toEqual(['https://feed.test/a'])
+		}
+	})
+
+	it('stops after too many redirects and refuses one that names no address', async () => {
+		const loop: FetchLike = async () => ({ status: 302, location: '/again', body: null })
+		await expect(
+			createFeedFetch({ fetch: loop, after: timers().after })('https://feed.test/a', {
+				headers: {},
+			}),
+		).rejects.toThrow(/Too many redirects/u)
+		const bare: FetchLike = async () => ({ status: 302, body: null })
+		await expect(
+			createFeedFetch({ fetch: bare, after: timers().after })('https://feed.test/a', {
+				headers: {},
+			}),
+		).rejects.toThrow(/named no address/u)
 	})
 
 	it('cuts off a transfer that goes quiet', async () => {

@@ -94,21 +94,25 @@ describe('the engine status', () => {
 		expect(problemOf('the person chose this app’s own engine')).toBeUndefined()
 	})
 
-	it('offers the way back to this app’s own engine only when a fetched one exists', () => {
+	it('offers the way back to this app’s own engine only when a fetched one runs or would run', () => {
 		expect(buildEngineView(base).canUseOwn).toBe(false)
 		expect(
 			buildEngineView(
 				withState((s) => {
-					s.previous = '52.0.0'
+					s.current = '52.0.0'
 				}),
 			).canUseOwn,
 		).toBe(true)
+		expect(
+			buildEngineView({ ...base, running: { source: 'managed', commandLine: '52.0.0' } }).canUseOwn,
+		).toBe(true)
+		// A waiting engine alone: the app's own engine runs, so there is nothing to go back from.
 		expect(
 			buildEngineView(
 				withState((s) => {
 					s.pending = '52.0.0'
 				}),
 			).canUseOwn,
-		).toBe(true)
+		).toBe(false)
 	})
 })

@@ -68,6 +68,7 @@ import {
 import { DesktopSettingsStore } from './desktop-settings.js'
 import { DesktopDiagnostics, observeDesktopIpc, observeRendererConsole } from './diagnostics.js'
 import { createEngineDelivery, webFetch } from './engine-delivery.js'
+import { type NetLike, netCall } from './engine-net.js'
 import {
 	engineUpdateCacheFile,
 	realPathOf,
@@ -429,9 +430,7 @@ const engineDelivery = createEngineDelivery({
 	execPath: process.execPath,
 	clientVersion: app.getVersion(),
 	// The platform adds the language of the app to a request; the feed is told none.
-	fetch: webFetch((url, init) =>
-		net.fetch(url, { ...init, headers: { ...init.headers, 'Accept-Language': '*' } }),
-	),
+	fetch: webFetch(netCall(net as unknown as NetLike, { 'Accept-Language': '*' })),
 	clock: {
 		now: () => Date.now(),
 		after: (ms, run) => {
@@ -447,8 +446,15 @@ const engineDelivery = createEngineDelivery({
 	},
 	enabled: () => settingsStore.get().keepEngineUpToDate,
 	nodeFlags: () => desktopRuntimeNodeFlags(),
-	publish: (view) => sendToWindow(undefined, 'namzu:engine-delivery', view),
-	...(Number.isFinite(kernelFirstCheck) && kernelFirstCheck >= 0 && kernelFirstCheck <= 30_000
+	publish: (view) => {
+		sendToWindow(undefined, 'namzu:engine-delivery', view)
+		// The command line row names what runs, so it is drawn again when that changes.
+		engineUpdates.refresh()
+	},
+	...(!app.isPackaged &&
+	Number.isFinite(kernelFirstCheck) &&
+	kernelFirstCheck >= 0 &&
+	kernelFirstCheck <= 30_000
 		? { firstCheckDelayMs: kernelFirstCheck }
 		: {}),
 })
@@ -2031,6 +2037,7 @@ const engineUpdates = new EngineUpdates({
 		engineDelivery?.running().commandLine ?? readRuntimeVersions(cliEntry).cliVersion,
 	bundledEngineVersion: () =>
 		engineDelivery?.running().engine ?? readRuntimeVersions(cliEntry).sdkVersion,
+	engineUpdatesItself: () => engineDelivery?.active ?? false,
 	appCanUpdate: () => appCanUpdate,
 	...(process.platform === 'win32' ? { commandPrompt: process.env.ComSpec ?? 'cmd.exe' } : {}),
 	cache: engineUpdateCacheFile(join(app.getPath('userData'), 'engine-updates.json'), (error) =>
@@ -2117,11 +2124,21 @@ function shutdown(): Promise<void> {
 	if (shutdownRun) return shutdownRun
 	quitting = true
 	sidebarSnapshot.flush()
+	// A check that runs is stopped and the engine log reaches its file; a stuck one is not waited for.
+	const engineStop = engineDelivery
+		? Promise.race([
+				engineDelivery.stopAndFlush(),
+				new Promise<void>((resolve) => setTimeout(resolve, 3000).unref()),
+			]).catch(() => undefined)
+		: Promise.resolve()
 	// The terminals' last screens are read from their hosts, so they go before the hosts do.
 	shutdownRun = runShutdown({
 		stopListening: () => voiceInput.stopAll('quit'),
 		shutdownTerminals: () => terminals.shutdown(),
-		closeRuntimes: () => operator.close(),
+		closeRuntimes: async () => {
+			await operator.close()
+			await engineStop
+		},
 		disposeSpeech: () => localSpeech.dispose(),
 		disposeListening: () => localListening.dispose(),
 		stopComputer: () => palComputerIdle.stopForQuit(),

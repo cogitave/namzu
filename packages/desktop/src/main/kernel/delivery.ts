@@ -55,6 +55,9 @@ export interface DeliveryDeps {
 export class EngineDelivery {
 	private started?: { entry: string; run: EngineRun }
 	private checking = false
+	/** Stops the check that runs now, when the setting is turned off or the app quits. */
+	private abort: AbortController | undefined
+	private inflight: Promise<CheckResult> | undefined
 	private cancel: (() => void)[] = []
 	private readonly flight: () => Promise<CheckResult>
 	private versions = new Map<string, EngineVersions>()
@@ -73,6 +76,11 @@ export class EngineDelivery {
 		return this.deps.ready
 	}
 
+	/** The feature may act: a key is built in and the setting is on. */
+	get active(): boolean {
+		return this.manager.active
+	}
+
 	private get manager(): KernelManager {
 		return this.deps.manager
 	}
@@ -87,14 +95,36 @@ export class EngineDelivery {
 		)
 	}
 
+	/** Stops the schedule and any check that runs. The log is flushed with `flushLog`. */
 	stop(): void {
 		for (const cancel of this.cancel) cancel()
 		this.cancel = []
+		this.abort?.abort()
 	}
 
 	/** One check at a time; a call while one runs gets that one's answer. */
 	check(): Promise<CheckResult> {
-		return this.flight()
+		const run = this.flight()
+		this.inflight = run
+		void run.then(
+			() => this.clearInflight(run),
+			() => this.clearInflight(run),
+		)
+		return run
+	}
+
+	private clearInflight(run: Promise<CheckResult>): void {
+		if (this.inflight === run) this.inflight = undefined
+	}
+
+	/**
+	 * For quitting: stops the schedule and the check that runs, waits for that check to end
+	 * (it ends at its next step once stopped) and for the log to reach the file.
+	 */
+	async stopAndFlush(): Promise<void> {
+		this.stop()
+		await this.inflight?.catch(() => undefined)
+		await this.flushLog().catch(() => undefined)
 	}
 
 	private async runOnce(): Promise<CheckResult> {
@@ -104,8 +134,11 @@ export class EngineDelivery {
 			this.checking = true
 			this.publish()
 		}
+		const controller = new AbortController()
+		this.abort = controller
 		try {
 			return await runCheck({
+				signal: controller.signal,
 				manager: this.manager,
 				feedBase: this.deps.feedBase,
 				channel: this.deps.channel,
@@ -114,6 +147,7 @@ export class EngineDelivery {
 				selfCheck: this.deps.selfCheck,
 			})
 		} finally {
+			if (this.abort === controller) this.abort = undefined
 			this.checking = false
 			this.publish()
 		}
@@ -121,6 +155,8 @@ export class EngineDelivery {
 
 	/** The setting changed: draw it, and look for an engine soon when it was turned on. */
 	settingChanged(): void {
+		// Turned off: a check that runs now must not go on to download, unpack or make anything pending.
+		if (!this.manager.options.enabled()) this.abort?.abort()
 		this.publish()
 		if (this.manager.active)
 			this.deps.clock.after(0, () => void this.check().catch(() => undefined))
@@ -206,13 +242,11 @@ export class EngineDelivery {
 		return {
 			start: async (attempt, isFault) => {
 				await this.deps.ready
-				let calls = 0
-				const { kernel, retried } = await startWithFallback(
+				const { kernel, retried, release } = await startWithFallback(
 					this.manager,
 					async (resolved) => {
-						calls++
 						await attempt(this.deps.spec(resolved.entry), {
-							retryable: resolved.source === 'managed' && calls === 1,
+							retryable: resolved.source === 'managed',
 						})
 					},
 					{ isKernelFault: isFault },
@@ -222,7 +256,12 @@ export class EngineDelivery {
 						version: kernel.wentBack?.[0]?.version,
 						reason: kernel.wentBack?.[0]?.reason,
 					})
-				const token = await this.manager.hostStarted(kernel)
+				let token: Awaited<ReturnType<KernelManager['hostStarted']>>
+				try {
+					token = await this.manager.hostStarted(kernel)
+				} finally {
+					release()
+				}
 				this.started = { entry: kernel.entry, run: this.runOf(kernel) }
 				this.publish()
 				const run: HostRun = {
@@ -247,8 +286,8 @@ export class EngineDelivery {
 	 */
 	async lease(): Promise<{ entry: string; release: () => void }> {
 		await this.deps.ready
-		const kernel = await this.manager.resolve()
-		const release = this.manager.hold(kernel)
+		const kernel = await this.manager.resolve({ hold: true })
+		const release = kernel.release ?? (() => undefined)
 		return {
 			entry: kernel.entry,
 			release: () => {

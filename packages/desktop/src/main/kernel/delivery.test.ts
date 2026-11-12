@@ -181,6 +181,79 @@ describe('when the app checks', () => {
 		expect(feed.requests).toHaveLength(2)
 	})
 
+	it('turning the setting off stops a check that runs, so nothing becomes pending', async () => {
+		const h = await harness()
+		const feed = makeFeed()
+		release(h, feed, '52.0.0')
+		let inSelfCheck: () => void = () => undefined
+		const reached = new Promise<void>((resolve) => {
+			inSelfCheck = resolve
+		})
+		let go: () => void = () => undefined
+		const gate = new Promise<void>((resolve) => {
+			go = resolve
+		})
+		const signals: (AbortSignal | undefined)[] = []
+		const d = delivery(h, feed, {
+			fetch: (url, init) => {
+				signals.push(init.signal)
+				return feed.fetch(url, init)
+			},
+			selfCheck: async () => {
+				inSelfCheck()
+				await gate
+				return undefined
+			},
+		})
+		const running = d.engine.check()
+		await reached
+		expect(signals.every((signal) => signal && !signal.aborted)).toBe(true)
+		h.flags.enabled = false
+		d.engine.settingChanged()
+		expect(signals.length).toBeGreaterThan(0)
+		expect(signals.every((signal) => signal?.aborted)).toBe(true)
+		go()
+		expect(await running).toMatchObject({ kind: 'failed', stage: 'install' })
+		expect(h.store.snapshot().pending).toBeUndefined()
+		expect(d.engine.view().status).toEqual({ kind: 'off' })
+	})
+
+	it('stopping for a quit stops the check, waits for it and has the log written', async () => {
+		const h = await harness()
+		const feed = makeFeed()
+		release(h, feed, '52.0.0')
+		let go: () => void = () => undefined
+		const gate = new Promise<void>((resolve) => {
+			go = resolve
+		})
+		let reached: () => void = () => undefined
+		const inSelfCheck = new Promise<void>((resolve) => {
+			reached = resolve
+		})
+		const order: string[] = []
+		const d = delivery(h, feed, {
+			selfCheck: async () => {
+				reached()
+				await gate
+				return undefined
+			},
+			flushLog: async () => {
+				order.push('flushed')
+			},
+		})
+		const running = d.engine.check().then((result) => {
+			order.push('check ended')
+			return result
+		})
+		await inSelfCheck
+		const stopping = d.engine.stopAndFlush()
+		go()
+		await stopping
+		expect(order).toEqual(['check ended', 'flushed'])
+		expect(await running).toMatchObject({ kind: 'failed' })
+		expect(h.store.snapshot().pending).toBeUndefined()
+	})
+
 	it('starts its timers once however often it is started', async () => {
 		const h = await harness()
 		const d = delivery(h, makeFeed())
@@ -249,7 +322,7 @@ describe('what the screen is told', () => {
 		release(h, feed, '52.0.0', { issuedAt: '2026-11-12T11:00:00Z' })
 		await d.engine.check()
 		expect(d.engine.view().status).toEqual({ kind: 'ready', version: '52.0.0' })
-		expect(d.engine.view().canUseOwn).toBe(true)
+		expect(d.engine.view().canUseOwn).toBe(false)
 		// Ready is not running: the engine in use does not change until a host starts.
 		expect(d.engine.view().runs.source).toBe('bundled')
 	})

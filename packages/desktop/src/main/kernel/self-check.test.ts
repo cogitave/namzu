@@ -1,8 +1,10 @@
 import { EventEmitter } from 'node:events'
+import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { PassThrough } from 'node:stream'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { REQUIRED_EXTENSIONS } from '../required-extensions.js'
 import { expectedOf } from './kernel-test-support.js'
@@ -10,6 +12,7 @@ import {
 	type CheckedChild,
 	type SpawnChild,
 	cleanEnvironment,
+	createProbe,
 	createSelfCheck,
 } from './self-check.js'
 
@@ -283,4 +286,64 @@ it('leaves no temporary home behind after a real run', async () => {
 	await realCheck()({ folder: '', entry, expected })
 	const after = (await readdir(tmpdir())).filter((name) => name.startsWith('namzu-engine-check-'))
 	expect(after.sort()).toEqual(before.sort())
+})
+
+describe('the temporary home of the self-check', () => {
+	it('holds the folder NAMZU_HOME names, because the command line refuses to start without it', async () => {
+		const seen: { home: string; present: boolean; cwdPresent: boolean }[] = []
+		const spawn: SpawnChild = (_program, args, options) => {
+			const home = options.env.NAMZU_HOME ?? ''
+			seen.push({ home, present: existsSync(home), cwdPresent: existsSync(options.cwd) })
+			const stdout = new PassThrough()
+			const child = Object.assign(new EventEmitter(), {
+				stdout,
+				stderr: new PassThrough(),
+				stdin: new PassThrough(),
+				kill: () => undefined,
+			}) as unknown as CheckedChild
+			setImmediate(() => {
+				if (args.includes('--version')) {
+					stdout.write('52.0.0\n')
+					child.on('close', () => undefined)
+					;(child as unknown as EventEmitter).emit('close', 0)
+				} else stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, result: INIT_OK })}\n`)
+			})
+			return child
+		}
+		const check = createSelfCheck({
+			program: 'node',
+			env: {},
+			requiredExtensions: REQUIRED_EXTENSIONS,
+			after: () => () => undefined,
+			spawn,
+		})
+		expect(await check({ folder: '', entry: '/x/bin.js', expected })).toBeUndefined()
+		expect(seen).toHaveLength(2)
+		for (const entry of seen) expect(entry).toMatchObject({ present: true, cwdPresent: true })
+		// And it is gone afterwards.
+		expect(existsSync(seen[0]?.home ?? '')).toBe(false)
+	})
+})
+
+const realCli = join(dirname(fileURLToPath(import.meta.url)), '../../../../cli/dist/bin.js')
+
+describe('the self-check against the real command line', () => {
+	// The command line of this repository, built by `pnpm -r build`: the stub engines above never
+	// read NAMZU_HOME, so only this one notices a home the check forgot to make.
+	it.skipIf(!existsSync(realCli))(
+		'starts, prints a version and answers initialize in the temporary home',
+		async () => {
+			const probe = createProbe({
+				program: process.execPath,
+				env: { PATH: process.env.PATH },
+				requiredExtensions: REQUIRED_EXTENSIONS,
+				after: manualTimers().after,
+				stepTimeoutMs: 60_000,
+			})
+			const seen = await probe(realCli)
+			expect(seen).toMatchObject({ ok: true })
+			if (seen.ok) expect(seen.versionOutput.trim()).toMatch(/^\d+\.\d+\.\d+/u)
+		},
+		60_000,
+	)
 })

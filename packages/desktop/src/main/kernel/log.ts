@@ -31,7 +31,7 @@ export function scrub(text: string, hide: readonly string[] = []): string {
 		out = out.replace(new RegExp(folder.replace(ESCAPE, '\\$&'), 'gi'), '<folder>')
 	}
 	out = out
-		.replace(/[A-Za-z]:[\\/][^\s'"`)\]]*/g, '<path>')
+		.replace(/[A-Za-z]:[\\/][^'"`)\]\r\n]*/g, '<path>')
 		.replace(/(^|[\s(=:'"`])\/(?:[^\s/'"`)\]]+\/)+[^\s/'"`)\]]*/g, '$1<path>')
 		.replace(/\\\\[^\s'"`)\]]+/g, '<path>')
 	let clean = ''

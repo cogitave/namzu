@@ -167,15 +167,24 @@ export function createEngineDelivery(options: EngineDeliveryOptions): EngineDeli
 export function webFetch(
 	call: (
 		url: string,
-		init: { headers: Record<string, string>; redirect: 'follow'; signal: AbortSignal },
+		init: {
+			headers: Record<string, string>
+			redirect: 'manual'
+			credentials: 'omit'
+			signal: AbortSignal
+		},
 	) => Promise<Response>,
 ): FetchLike {
 	return async (url, init) => {
 		const response = await call(url, init)
-		const stream = response.body
+		// A redirect has no body worth reading; releasing it frees the connection.
+		if (response.status >= 300 && response.status < 400)
+			await response.body?.cancel().catch(() => undefined)
+		const stream = response.status >= 300 && response.status < 400 ? null : response.body
 		return {
 			status: response.status,
 			...(response.url ? { url: response.url } : {}),
+			location: response.headers.get('location'),
 			body: stream
 				? (async function* () {
 						const reader = stream.getReader()

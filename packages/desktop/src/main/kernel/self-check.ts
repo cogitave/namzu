@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { CheckDeps } from './check.js'
+import { type CheckDeps, SELF_CHECK_TIMEOUT_TEXT } from './check.js'
 import { checkHostAnswer } from './facts.js'
 import { messageOf } from './store.js'
 
@@ -118,7 +118,7 @@ function runStep<T>(
 		let stderr = ''
 		let child: CheckedChild
 		const cancel = deps.after(deps.stepTimeoutMs ?? DEFAULT_STEP_MS, () =>
-			settle({ ok: false, problem: `${label} did not answer in time` }),
+			settle({ ok: false, problem: `${label} ${SELF_CHECK_TIMEOUT_TEXT}` }),
 		)
 		function settle(outcome: Outcome<T>): void {
 			if (settled) return
@@ -176,6 +176,8 @@ export function createProbe(deps: SelfCheckDeps): (entry: string) => Promise<Pro
 			const home = await mkdtemp(join(tmpdir(), 'namzu-engine-check-'))
 			await mkdir(join(home, 'project'), { recursive: true })
 			await mkdir(join(home, 'tmp'), { recursive: true })
+			// The command line refuses to start when NAMZU_HOME names a folder that is not there.
+			await mkdir(join(home, 'namzu'), { recursive: true })
 			return home
 		})
 	const removeHome = deps.removeHome ?? ((path) => rm(path, { recursive: true, force: true }))

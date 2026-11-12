@@ -35,12 +35,12 @@ only an app that is not packaged accepts.
   sentence about the check (up to date and when it last succeeded; a newer engine is ready; could not
   use engine X and went back to the one in use; a newer engine needs a newer version of this app;
   could not check since a date; off; a developer override is in use), the button **Use this app's
-  own engine** (shown only when a fetched engine exists), and the switch **Keep the engine up to
+  own engine** (shown only while a fetched engine runs or would run at the next project open), and the switch **Keep the engine up to
   date**, next to *Download updates automatically*.
 - **Off** (the switch): no check, no download, and the engine the app was installed with is the only
   one that runs. The setting is `keepEngineUpToDate` in the app's `desktop-settings.json`, on by default.
 - **About** names the command line and engine that run. Under them one quiet line says where they
-  came from: "This app's own engine.", "Updated by itself on 12 Nov." or "Developer override." When a
+  came from: "This app's own engine.", "Updated by itself on 12 Nov." (the order of day and month follows the person's language) or "Developer override." When a
   fetched engine runs, the engine inside the installer is shown as the fallback. **Copy details**
   carries the same facts. Dates are written in the person's own language.
 - Text from the feed is never drawn: the screens show version numbers (checked as versions and cut
@@ -78,24 +78,34 @@ and a chain of hashes: signed description, archive, file list, files.
    the description's.
 8. Only then it is kept as `pending`. Any failure cleans `tmp/` and leaves the engine in use alone.
 
-At every start of a host the engine in use is checked again, quickly: the stored signed pair still
-verifies, `files.json` matches, the entry file, `package.json`, `kernel.json` and every `.node` file
-match their hashes, and it is still newer than the installer's, not given up, in contract and in
-epoch. An engine that fails is given up for good.
+At every start of a host the engine in use is checked again: the stored signed pair still
+verifies, `files.json` matches, and it is still newer than the installer's, not given up, in
+contract and in epoch. The first start of a version in a run of the app hashes every listed file
+and refuses a file the list does not name; later starts hash the entry file, `package.json`,
+`kernel.json` and every `.node` file. The floor and the withdrawn list are read from the stored
+signed pair as well as from `state.json`, and the highest sequence and issue time in the stored
+pairs count as seen, so deleting or editing `state.json` does not let an older signed answer back
+in. An engine that fails a check is given up for good. A read that fails for a moment (a file held
+by another program) is tried once more and, when it still fails, only that start goes on without
+the engine; it is not given up.
 
 ## Going back
 
 - A fetched engine that fails to start, to answer `initialize`, or lacks a required method is marked
-  bad, the choice is made again, and the start is tried once more, at most once per project open. The
-  app ends with a working host whenever the engine inside the installer works. A project folder that
+  bad, the choice is made again, and the start goes on to the engine before it and then to the
+  engine inside the installer, in the same project open. The app ends with a working host whenever
+  the engine inside the installer works, and the folders of the engines given up are removed at once. A project folder that
   is gone is not the engine's fault and marks nothing.
 - A host on a fetched engine that ends by itself within 10 seconds of starting is counted; two of
   those within an engine's first three starts give it up.
 - **Use this app's own engine** gives up every fetched engine; it takes effect at the next project
-  open, and a newer engine can still arrive later.
+  open, and a newer engine can still arrive later. A check that is running when it is pressed does
+  not make its engine pending afterwards.
+- Turning **Keep the engine up to date** off stops a running check, and nothing it fetched becomes
+  pending. Quitting the app stops the check too and writes the log before the app exits.
 - Two versions are kept (the one in use and the one before, with a pending one waiting). A
   terminal tab or a short command (`computer status`) also runs on the engine chosen at that moment,
-  and the folder is not removed while it runs. A delete that the system refuses is retried at the
+  and the folder is not removed while it runs, nor while a host is still starting from it. A delete that the system refuses is retried at the
   next start.
 
 ## Where the files are
@@ -113,7 +123,8 @@ epoch. An engine that fails is given up for good.
 authority: a folder it does not name is leftover and is removed (never one a live host runs from). A
 missing or unreadable state file means nothing is fetched and the installer's engine runs. The log
 has the time, an event and a few plain facts (versions, a result, a reason); folders, the home
-folder and anything about the person are replaced before a line is written, and a failed write is
+folder, any absolute path (a Windows path is taken out whole, spaces included) and anything about the
+person are replaced before a line is written, and a failed write is
 dropped.
 
 ## What is and is not protected
@@ -126,7 +137,9 @@ dropped.
   weakest link: the installer is not signed.
 - **The request** carries only the fixed `User-Agent: namzu-desktop` and the headers the platform's
   network stack always adds (the language is sent as `*`); no identifier, no version of the app, no
-  path. A redirect to an address that is not https (or loopback http) is refused.
+  path. Redirects are followed one hop at a time and each address is checked before it is
+  requested: an address that is not https (or loopback http), or that carries a user name, is never
+  sent a request. No cookies are sent.
 
 ## Where the feed is
 

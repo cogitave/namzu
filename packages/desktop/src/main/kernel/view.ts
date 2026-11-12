@@ -76,6 +76,7 @@ export function buildEngineView(input: ViewInput): EngineDeliveryView {
 		runs: input.running,
 		bundled: input.bundled,
 		status: engineStatus(input),
-		canUseOwn: Boolean(state.current || state.previous || state.pending),
+		// Offered only while a fetched engine runs or is the one the next start would use.
+		canUseOwn: input.running.source === 'managed' || Boolean(state.current),
 	}
 }

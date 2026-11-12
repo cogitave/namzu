@@ -6,7 +6,8 @@
 //   - after the check, Settings > Updates says a newer engine is ready (and About still names the engine
 //     that runs, because a running host is never swapped);
 //   - a feed signed with another key changes nothing and says nothing alarming;
-//   - with the setting off the feed is asked nothing, and turning it on asks.
+//   - with the setting off the feed is asked nothing, and turning it on asks;
+//   - a feed that redirects every request is followed one hop at a time, with no cookie sent.
 // Pictures go to ENGINE_SHOTS when it is set.
 // Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test e2e/ux-engine-delivery.test.mjs
 import assert from "node:assert/strict";
@@ -122,7 +123,10 @@ async function startFeed(served) {
 	const state = { served, requests: [] };
 	const server = createServer(async (req, res) => {
 		const name = decodeURIComponent((req.url ?? "").split("/").pop() ?? "");
-		state.requests.push({ name, headers: req.headers });
+		state.requests.push({ name, headers: req.headers, url: req.url });
+		// A feed behind a redirect (a release host sends downloads to another address).
+		if (state.redirect && !(req.url ?? "").startsWith("/moved/"))
+			return void res.writeHead(302, { location: `/moved${req.url}`, "set-cookie": "seen=1" }).end();
 		await state.gate?.();
 		const data = state.served.get(name);
 		if (!data) return void res.writeHead(404).end();
@@ -294,5 +298,26 @@ test("with the setting off nothing is asked, and turning it on asks", { timeout:
 	} finally {
 		await feed.close();
 		await dispose(world, { failed });
+	}
+});
+
+test("a feed that redirects its answers is followed and ends ready, without a cookie", { timeout: 240000 }, async () => {
+	const feed = await startFeed(new Map());
+	feed.redirect = true;
+	const world = await engineWorld(feed);
+	feed.served = release(world.key);
+	holdUntilFirstHost(feed, world);
+	let failed = true;
+	try {
+		await launch(world);
+		await openSettings(world, "Updates");
+		const page = world.page.locator("#settings-content");
+		await expect(page.getByText("A newer engine (52.0.0) is ready.")).toBeVisible({ timeout: T });
+		assert.ok(feed.requests.some((request) => request.url?.startsWith("/moved/")));
+		for (const request of feed.requests) assert.equal(request.headers.cookie, undefined);
+		failed = false;
+	} finally {
+		await dispose(world, { failed });
+		await feed.close();
 	}
 });

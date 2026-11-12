@@ -1,11 +1,18 @@
 import { join } from 'node:path'
 import { type BundledFacts, FactsError, parseKernelFacts } from './facts.js'
-import { FilesListError, parseFilesList, sha512Hex, verifyQuickFiles } from './files-list.js'
+import {
+	FilesListError,
+	parseFilesList,
+	sha512Hex,
+	verifyFolderFully,
+	verifyQuickFiles,
+} from './files-list.js'
 import type { KernelPublicKey } from './keys.js'
+import { scrub } from './log.js'
 import { ManifestError, bundleKey, verifyManifest } from './manifest.js'
 import { type KernelState, pairPaths, versionFolder } from './state.js'
 import { type KernelStore, markBadIn, messageOf } from './store.js'
-import { compareKernelVersions } from './version.js'
+import { compareKernelVersions, isKernelVersion } from './version.js'
 
 /**
  * Choosing the engine for a host (section 5.3) and going back (section 5.4).
@@ -29,6 +36,8 @@ export interface ResolvedKernel {
 	updatedAt?: number
 	/** Managed versions that were tried in this call and given up, newest first. */
 	wentBack?: { version: string; reason: string }[]
+	/** Present when the call asked to hold the folder: call it when the host no longer needs it. */
+	release?: () => void
 }
 
 export interface ManagerOptions {
@@ -50,10 +59,34 @@ export const EARLY_EXIT_MS = 10_000
 const EARLY_EXIT_STARTS = 3
 const EARLY_EXITS_TO_GIVE_UP = 2
 
-export type QuickVerdict = { ok: true; engine: string } | { ok: false; reason: string }
+/**
+ * `transient` marks a failure to read (a file another program holds for a moment) rather than a
+ * verdict on the engine: it is never a reason to give an engine up for good.
+ */
+export type QuickVerdict =
+	| { ok: true; engine: string }
+	| { ok: false; reason: string; transient?: true }
+
+/** Error codes of a read that may work a moment later. */
+const TRANSIENT_CODES = new Set(['EBUSY', 'EPERM', 'EACCES', 'EMFILE', 'ENFILE', 'EAGAIN', 'EIO'])
+
+function isTransient(error: unknown): boolean {
+	const code = (error as { code?: unknown } | null)?.code
+	return typeof code === 'string' && TRANSIENT_CODES.has(code)
+}
+
+/** What the signed pairs kept on disk teach, whatever the state file says. */
+export interface StoredTrust {
+	sequence: number
+	issuedAt: number
+	minimumKernel?: string
+}
 
 export class KernelManager {
 	private readonly live = new Map<string, number>()
+	/** Versions whose whole folder was hashed in this run; later starts hash only the entry files. */
+	private readonly fullyChecked = new Set<string>()
+	private ownChoices = 0
 
 	constructor(readonly options: ManagerOptions) {}
 
@@ -71,12 +104,67 @@ export class KernelManager {
 		return this.options.keys.length > 0 && this.options.enabled()
 	}
 
+	/** How many times the person has chosen this app's own engine in this run. */
+	get ownEngineChoices(): number {
+		return this.ownChoices
+	}
+
+	/**
+	 * The highest sequence, issue time and floor among the signed pairs on disk. The state file
+	 * is writable by whoever can write the folder; a pair that still verifies is not, so what it
+	 * says is never forgotten when the state file is lost or edited.
+	 */
+	async storedTrust(): Promise<StoredTrust> {
+		const { store } = this.options
+		const trust: StoredTrust = { sequence: 0, issuedAt: 0 }
+		let names: string[]
+		try {
+			names = await store.fs.readdir(store.paths.versions)
+		} catch {
+			return trust
+		}
+		for (const name of names) {
+			if (!name.endsWith('.manifest.json')) continue
+			const version = name.slice(0, -'.manifest.json'.length)
+			if (!isKernelVersion(version)) continue
+			try {
+				const pair = pairPaths(store.paths, version)
+				const { manifest } = verifyManifest(
+					await store.fs.readFile(pair.manifest),
+					await store.fs.readFile(pair.signature),
+					this.options.keys,
+				)
+				trust.sequence = Math.max(trust.sequence, manifest.sequence)
+				trust.issuedAt = Math.max(trust.issuedAt, manifest.issuedAt)
+				if (
+					trust.minimumKernel === undefined ||
+					compareKernelVersions(manifest.minimumKernel, trust.minimumKernel) > 0
+				)
+					trust.minimumKernel = manifest.minimumKernel
+			} catch {
+				// a pair that cannot be read or does not verify teaches nothing
+			}
+		}
+		return trust
+	}
+
 	async quickCheck(version: string, bundled: BundledFacts): Promise<QuickVerdict> {
 		const { store } = this.options
 		const state = store.snapshot()
-		const no = (reason: string): QuickVerdict => ({ ok: false, reason })
+		const no = (reason: string, transient?: true): QuickVerdict => ({
+			ok: false,
+			reason,
+			...(transient ? { transient } : {}),
+		})
 		if (state.bad[version]) return no(`already given up (${state.bad[version]?.reason})`)
-		if (state.minimumKernel && compareKernelVersions(version, state.minimumKernel) < 0)
+		const stored = await this.storedTrust()
+		const floor =
+			state.minimumKernel && stored.minimumKernel
+				? compareKernelVersions(state.minimumKernel, stored.minimumKernel) >= 0
+					? state.minimumKernel
+					: stored.minimumKernel
+				: (state.minimumKernel ?? stored.minimumKernel)
+		if (floor && compareKernelVersions(version, floor) < 0)
 			return no('below the lowest allowed version')
 		if (compareKernelVersions(version, bundled.commandLine) <= 0)
 			return no('not newer than the bundled engine')
@@ -87,6 +175,7 @@ export class KernelManager {
 			const { manifest } = verifyManifest(manifestBytes, signatureBytes, this.options.keys)
 			if (manifest.kernel.commandLine !== version)
 				return no('the stored manifest is for another version')
+			if (manifest.withdrawn.includes(version)) return no('withdrawn')
 			const bundle = manifest.kernel.bundles[bundleKey(this.options.platform, this.options.arch)]
 			if (!bundle) return no('the stored manifest has no copy for this computer')
 			const [low, high] = this.options.contractRange
@@ -97,7 +186,12 @@ export class KernelManager {
 			const filesBytes = await store.fs.readFile(join(folder, 'files.json'))
 			if (sha512Hex(filesBytes) !== bundle.filesSha512) return no('files.json changed')
 			const list = parseFilesList(filesBytes)
-			const problem = await verifyQuickFiles(store.fs, folder, list)
+			// The first start of a version in a run hashes every file and refuses an unlisted one;
+			// later starts hash only the files that decide what runs.
+			const checked = this.fullyChecked.has(version)
+			const problem = checked
+				? await verifyQuickFiles(store.fs, folder, list)
+				: await verifyFolderFully(store.fs, folder, list)
 			if (problem) return no(problem)
 			const facts = parseKernelFacts(await store.fs.readFile(join(folder, 'kernel.json')))
 			if (facts.platform !== this.options.platform || facts.arch !== this.options.arch)
@@ -109,6 +203,7 @@ export class KernelManager {
 				facts.desktopContract !== manifest.kernel.desktopContract
 			)
 				return no('kernel.json differs from the manifest')
+			this.fullyChecked.add(version)
 			return { ok: true, engine: manifest.kernel.engine }
 		} catch (error) {
 			if (
@@ -117,12 +212,21 @@ export class KernelManager {
 				error instanceof FactsError
 			)
 				return no(error.message)
-			return no(`unreadable (${messageOf(error)})`)
+			// Only the error code: the message carries paths of the person's computer.
+			const code = (error as { code?: unknown } | null)?.code
+			return no(
+				`unreadable (${typeof code === 'string' ? code : 'error'})`,
+				isTransient(error) ? true : undefined,
+			)
 		}
 	}
 
-	/** The engine a host starts from now. Promotes a pending engine; gives up bad ones. */
-	async resolve(): Promise<ResolvedKernel> {
+	/**
+	 * The engine a host starts from now. Promotes a pending engine; gives up bad ones. With
+	 * `hold`, the folder of a managed engine is kept from this moment (before any clean-up) until
+	 * `release` is called, so a host that is still starting never loses it.
+	 */
+	async resolve(options: { hold?: boolean } = {}): Promise<ResolvedKernel> {
 		const override = this.options.override()
 		if (override) return { entry: override, source: 'override' }
 		const bundled: ResolvedKernel = { entry: this.options.bundledEntry, source: 'bundled' }
@@ -144,26 +248,37 @@ export class KernelManager {
 			changed = true
 		}
 		const wentBack: { version: string; reason: string }[] = []
+		const tried = new Set<string>()
 		for (;;) {
-			const { current } = store.snapshot()
-			if (!current) break
-			const verdict = await this.quickCheck(current, facts)
+			const state = store.snapshot()
+			const candidate = [state.current, state.previous].find((v) => v && !tried.has(v))
+			if (!candidate) break
+			tried.add(candidate)
+			let verdict = await this.quickCheck(candidate, facts)
+			// A read that failed for a moment is tried once more before anything is concluded.
+			if (!verdict.ok && verdict.transient) verdict = await this.quickCheck(candidate, facts)
 			if (verdict.ok) {
-				if (changed || wentBack.length > 0) await this.cleanup()
-				return {
-					entry: join(versionFolder(store.paths, current), 'dist', 'bin.js'),
+				const updatedAt = candidate === state.current ? state.updatedAt : state.previousUpdatedAt
+				const resolved: ResolvedKernel = {
+					entry: join(versionFolder(store.paths, candidate), 'dist', 'bin.js'),
 					source: 'managed',
-					version: current,
+					version: candidate,
 					engine: verdict.engine,
-					...(store.snapshot().updatedAt !== undefined
-						? { updatedAt: store.snapshot().updatedAt }
-						: {}),
+					...(updatedAt !== undefined ? { updatedAt } : {}),
 					...(wentBack.length > 0 ? { wentBack } : {}),
 				}
+				if (options.hold) resolved.release = this.hold(resolved)
+				if (changed || wentBack.length > 0) await this.cleanup()
+				return resolved
 			}
-			wentBack.push({ version: current, reason: verdict.reason })
+			wentBack.push({ version: candidate, reason: verdict.reason })
 			changed = true
-			await store.markBad(current, verdict.reason)
+			// A failure to read is not a verdict: the engine stays, and this start goes on without it.
+			if (verdict.transient) store.log('quick-check-unreadable', { version: candidate })
+			else {
+				this.fullyChecked.delete(candidate)
+				await store.markBad(candidate, verdict.reason)
+			}
 		}
 		if (changed) await this.cleanup()
 		return { ...bundled, ...(wentBack.length > 0 ? { wentBack } : {}) }
@@ -249,6 +364,7 @@ export class KernelManager {
 	 * bundled one. A newer engine than these can still arrive later.
 	 */
 	async useOwnEngine(): Promise<void> {
+		this.ownChoices++
 		const at = this.options.store.now()
 		this.options.store.log('own-engine-chosen')
 		await this.options.store.update((state: KernelState) => {
@@ -267,30 +383,42 @@ export interface HostToken {
 }
 
 /**
- * Starts a host with one automatic retry. `attempt` spawns the host and throws when it fails to
- * spawn, to answer `initialize`, or lacks a required method. A failure on a managed engine
- * marks it bad and starts once more on whatever resolves next; a failure on the bundled engine,
- * or on the retry, is the caller's. `isKernelFault` lets the caller say that a failure was not
- * the engine's (a project folder that is gone) and so must not mark anything.
+ * Starts a host, going back when a fetched engine does not work. `attempt` spawns the host and
+ * throws when it fails to spawn, to answer `initialize`, or lacks a required method. A failure
+ * on a managed engine marks it bad and starts again on whatever resolves next (the one before,
+ * then the bundled engine, which always ends the chain); a failure on the bundled engine is the
+ * caller's. `isKernelFault` lets the caller say that a failure was not the engine's (a project
+ * folder that is gone) and so must not mark anything.
+ *
+ * The engine of each try is held from the moment it is chosen. On success the hold is handed to
+ * the caller as `release`, to be called once the host is registered with `hostStarted`.
  */
 export async function startWithFallback<T>(
 	manager: KernelManager,
 	attempt: (kernel: ResolvedKernel) => Promise<T>,
 	options: { isKernelFault?: (error: unknown) => boolean } = {},
-): Promise<{ value: T; kernel: ResolvedKernel; retried: boolean }> {
-	const first = await manager.resolve()
-	try {
-		return { value: await attempt(first), kernel: first, retried: false }
-	} catch (error) {
-		if (first.source !== 'managed' || !first.version) throw error
-		if (options.isKernelFault && !options.isKernelFault(error)) throw error
-		const reason = `host failed (${messageOf(error).slice(0, 120)})`
-		await manager.markBad(first.version, reason)
-		const second = await manager.resolve()
-		const kernel: ResolvedKernel = {
-			...second,
-			wentBack: [{ version: first.version, reason }, ...(second.wentBack ?? [])],
+): Promise<{ value: T; kernel: ResolvedKernel; retried: boolean; release: () => void }> {
+	const wentBack: { version: string; reason: string }[] = []
+	let kernel = await manager.resolve({ hold: true })
+	for (;;) {
+		try {
+			const value = await attempt(kernel)
+			const gone = [...wentBack, ...(kernel.wentBack ?? [])]
+			return {
+				value,
+				kernel: { ...kernel, ...(gone.length > 0 ? { wentBack: gone } : {}) },
+				retried: wentBack.length > 0,
+				release: kernel.release ?? (() => undefined),
+			}
+		} catch (error) {
+			kernel.release?.()
+			if (kernel.source !== 'managed' || !kernel.version) throw error
+			if (options.isKernelFault && !options.isKernelFault(error)) throw error
+			const reason = `host failed (${scrub(messageOf(error)).slice(0, 120)})`
+			wentBack.unshift({ version: kernel.version, reason })
+			await manager.markBad(kernel.version, reason)
+			await manager.cleanup().catch(() => undefined)
+			kernel = await manager.resolve({ hold: true })
 		}
-		return { value: await attempt(second), kernel, retried: true }
 	}
 }

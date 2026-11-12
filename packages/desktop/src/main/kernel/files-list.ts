@@ -30,7 +30,8 @@ export class FilesListError extends Error {
 	}
 }
 
-const RESERVED_DEVICE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/iu
+const RESERVED_DEVICE =
+	/^(?:con|prn|aux|nul|com[1-9\u00b9\u00b2\u00b3]|lpt[1-9\u00b9\u00b2\u00b3]|conin\$|conout\$|clock\$)$/iu
 
 /** Why a name is not allowed in a kernel folder, or undefined when it is. */
 export function refuseName(name: string): string | undefined {
@@ -49,7 +50,9 @@ export function refuseName(name: string): string | undefined {
 		if (segment === '.' || segment === '..') return 'a . or .. segment in a name'
 		if (Buffer.byteLength(segment, 'utf8') > MAX_SEGMENT_BYTES) return 'a segment that is too long'
 		if (/[. ]$/u.test(segment)) return 'a segment that ends with a dot or a space'
-		const stem = segment.split('.')[0] ?? ''
+		// A device name is reserved with an extension and with spaces before it ("con .txt").
+		const stem = (segment.split('.')[0] ?? '').replace(/ +$/u, '')
+		if (/[<>|?*"]/u.test(segment)) return 'a character a Windows file name cannot hold'
 		if (RESERVED_DEVICE.test(stem)) return 'a reserved device name'
 	}
 	return undefined
@@ -57,12 +60,13 @@ export function refuseName(name: string): string | undefined {
 
 /** The key two names share when a case-insensitive disk would put them in one place. */
 export function foldName(name: string): string {
-	return name.normalize('NFC').toLowerCase()
+	return name.normalize('NFC').toUpperCase().toLowerCase()
 }
 
 /** Refuses names that collide once case is folded, or where a file is also a folder. */
 export function findCollision(names: readonly string[]): string | undefined {
-	const files = new Set<string>()
+	// files.json sits at the root of the folder, so a name that folds to it would be the same file.
+	const files = new Set<string>([foldName(FILES_LIST_NAME)])
 	const folders = new Set<string>()
 	for (const name of names) {
 		const key = foldName(name)

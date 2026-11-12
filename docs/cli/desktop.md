@@ -445,7 +445,7 @@ shortens the first delay; the end-to-end flows use both with a stand-in registry
 | `npm-global` | under `%APPDATA%\npm`, the npm prefix's `bin`, a `node_modules/@openai/codex` (and the other two packages) after following links, or a Windows `.cmd` shim that names the package it starts (so a custom prefix is read too) | `npm install -g <package>@latest`, with `npm.cmd` on Windows, never `npm.ps1` |
 | `native` | `claude-code` in `~/.local/bin` | `claude update` |
 | `standalone` | Codex under `~/.codex/packages` | `codex update` |
-| `bundled` | the app's own command line, when no `namzu` is on `PATH` | none: it updates with the app (a newer one in the registry is said in the row and in About, see below) |
+| `bundled` | the app's own command line, when no `namzu` is on `PATH` | none: it updates with the app, or by itself where the build carries a signing key ([engine updates](desktop-engine-updates.md)); then the row names the engine that runs now and says it keeps itself up to date (a newer one in the registry is said in the row and in About, see below) |
 | `unknown` | anything else (Homebrew, winget, scoop, a download) | none: the command is shown with **Copy** |
 
 **The update.** A click (never anything else) is refused while that program has a reply running,
@@ -970,6 +970,7 @@ What it holds, and where each value lives (one source of truth per value):
   installed on its own is labelled "(installed separately)" with its own version; when the registry holds
   a newer command line than the bundled one, the bundled row reads "A newer one exists" instead of "Up to date",
   with "Bundled with this app: 49.1.1. The newest known is 51.0.1. It arrives with an update of this app."
+  (where the app keeps its engine current by itself the row reads "Running 49.1.1. The newest known is 51.0.1. It arrives by itself, or with an update of this app.")
   It has no button and names no command: a number the registry returned is never a reason to install
   a package, so the newer one reaches a person only inside a new installer; the rail badge, the toast and
   **Update** do not count it). A program that is

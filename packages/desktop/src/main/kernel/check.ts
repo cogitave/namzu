@@ -4,6 +4,7 @@ import { ArchiveError, extractArchive } from './archive.js'
 import { type ExpectedKernel, FactsError, parseKernelFacts } from './facts.js'
 import { verifyFolderFully } from './files-list.js'
 import { isAllowedFeedUrl } from './keys.js'
+import { scrub } from './log.js'
 import type { KernelManager } from './manager.js'
 import {
 	type BundleEntry,
@@ -78,11 +79,15 @@ export interface CheckDeps {
 
 const USER_AGENT = 'namzu-desktop'
 
+/** What the self-check says when the engine did not answer in time; not a verdict on the engine. */
+export const SELF_CHECK_TIMEOUT_TEXT = 'did not answer in time'
+
 class Stop extends Error {
 	constructor(
 		readonly stage: FailureStage,
 		message: string,
-		readonly markBad = false,
+		/** true: given up with the stop's text; 'own': given up as the person's choice. */
+		readonly markBad: boolean | 'own' = false,
 	) {
 		super(message)
 	}
@@ -185,7 +190,7 @@ export async function runCheck(deps: CheckDeps): Promise<CheckResult> {
 			state.lastCheck = {
 				at: deps.now(),
 				kind: result.kind,
-				...(result.kind === 'failed' ? { problem: result.message } : {}),
+				...(result.kind === 'failed' ? { problem: scrub(result.message) } : {}),
 			}
 		})
 		.catch(() => undefined)
@@ -203,6 +208,7 @@ async function attempt(deps: CheckDeps): Promise<CheckResult> {
 	const { store, options } = manager
 	const bundled = await options.bundledFacts()
 	if (!bundled) return { kind: 'skipped', reason: 'unavailable' }
+	const ownChoices = manager.ownEngineChoices
 	try {
 		await emptyTmp(deps)
 	} catch (error) {
@@ -235,7 +241,10 @@ async function attempt(deps: CheckDeps): Promise<CheckResult> {
 	}
 	if (manifest.channel !== deps.channel)
 		throw new Stop('channel', 'The answer is for another channel.')
+	const stored = await manager.storedTrust()
 	const before = store.snapshot()
+	before.lastSequence = Math.max(before.lastSequence, stored.sequence)
+	before.highestIssuedAt = Math.max(before.highestIssuedAt, stored.issuedAt)
 	if (manifest.sequence < before.lastSequence)
 		throw new Stop('replay', 'The answer is older than one already seen.')
 
@@ -249,6 +258,8 @@ async function attempt(deps: CheckDeps): Promise<CheckResult> {
 		state.lastSequence = Math.max(state.lastSequence, manifest.sequence)
 		state.highestIssuedAt = Math.max(state.highestIssuedAt, manifest.issuedAt)
 		state.minimumKernel = newest(state.minimumKernel, manifest.minimumKernel)
+		if (stored.minimumKernel)
+			state.minimumKernel = newest(state.minimumKernel, stored.minimumKernel)
 		if (fresh) state.lastFreshCheckAt = now
 		for (const version of manifest.withdrawn)
 			if (!state.bad[version]) markBadIn(state, version, 'withdrawn', now)
@@ -280,7 +291,7 @@ async function attempt(deps: CheckDeps): Promise<CheckResult> {
 	}
 
 	// 7 to 9. fetch, unpack, check, make pending
-	await install(deps, manifest, bundle, version, { manifestBytes, signatureBytes })
+	await install(deps, manifest, bundle, version, { manifestBytes, signatureBytes }, ownChoices)
 	return { kind: 'ready', version, engine: manifest.kernel.engine }
 }
 
@@ -290,11 +301,13 @@ async function install(
 	bundle: BundleEntry,
 	version: string,
 	pair: { manifestBytes: Buffer; signatureBytes: Buffer },
+	ownChoices: number,
 ): Promise<void> {
 	const { store, options } = deps.manager
 	const { fs, paths } = store
-	const archive = join(paths.tmp, bundle.file)
-	const unpacked = join(paths.tmp, version)
+	// Fixed names: a file name from the signed description never names a path here.
+	const archive = join(paths.tmp, 'download.tar.gz')
+	const unpacked = join(paths.tmp, 'unpacked')
 	const expected: ExpectedKernel = {
 		commandLine: manifest.kernel.commandLine,
 		engine: manifest.kernel.engine,
@@ -367,13 +380,25 @@ async function install(
 			selfProblem = messageOf(error)
 		}
 		if (selfProblem)
-			throw new Stop('self-check', `The engine failed its own check (${selfProblem}).`, true)
+			throw new Stop(
+				'self-check',
+				`The engine failed its own check (${selfProblem}).`,
+				// A check that ran out of time says nothing against the engine; a later check tries again.
+				!selfProblem.includes(SELF_CHECK_TIMEOUT_TEXT),
+			)
+		// The person may have chosen the app's own engine, or turned the setting off, while this ran.
+		if (deps.manager.ownEngineChoices !== ownChoices)
+			throw new Stop('install', 'The person chose this app’s own engine meanwhile.', 'own')
+		if (deps.signal?.aborted || !deps.manager.active)
+			throw new Stop('install', 'The check was stopped before the engine was made ready.')
 		const saved = await store.update((state: KernelState) => {
 			state.pending = version
 		})
 		if (!saved) throw new Stop('install', 'Could not record the new engine.')
 	} catch (error) {
-		if (error instanceof Stop && error.markBad) await store.markBad(version, error.message)
+		if (error instanceof Stop && error.markBad === 'own')
+			await store.markBad(version, 'the person chose this app’s own engine')
+		else if (error instanceof Stop && error.markBad) await store.markBad(version, error.message)
 		if (moved) await store.removeVersion(version).catch(() => undefined)
 		throw error
 	} finally {

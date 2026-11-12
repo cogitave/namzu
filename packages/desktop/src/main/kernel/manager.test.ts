@@ -290,7 +290,7 @@ describe('going back at a spawn', () => {
 		expect(h.store.snapshot().bad['51.4.0']?.reason).toMatch(/lacks namzu\/tasks/u)
 	})
 
-	it('retries at most once', async () => {
+	it('goes back at most through the previous engine to the bundled one, which ends the chain', async () => {
 		const h = await harness()
 		const feed = makeFeed()
 		await activate(h, feed, '51.3.0', 1)
@@ -302,8 +302,8 @@ describe('going back at a spawn', () => {
 				throw new Error('nope')
 			}),
 		).rejects.toThrow('nope')
-		expect(tried).toEqual(['51.4.0', '51.3.0'])
-		expect(h.store.snapshot().bad['51.3.0']).toBeUndefined()
+		expect(tried).toEqual(['51.4.0', '51.3.0', 'bundled'])
+		expect(h.store.snapshot().bad['51.3.0']).toBeDefined()
 	})
 
 	it('does not retry or mark anything when the bundled engine fails', async () => {

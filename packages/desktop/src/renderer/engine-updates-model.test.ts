@@ -152,6 +152,22 @@ describe('a row of Settings ▸ Updates', () => {
 			versions: '',
 		})
 	})
+	it('says a newer command line arrives by itself when the app keeps its engine current', () => {
+		expect(
+			engineRowView({
+				...namzu,
+				installed: '35.0.0',
+				newerThanBundled: '36.0.0',
+				selfUpdates: true,
+			}),
+		).toMatchObject({
+			note: 'Running 35.0.0. The newest known is 36.0.0. It arrives by itself, or with an update of this app.',
+		})
+		expect(engineRowView({ ...namzu, newerThanBundled: '36.0.0' }).note).toMatch(
+			/arrives with an update of this app/,
+		)
+	})
+
 	it('explains the bundled command line instead of offering an update', () => {
 		expect(engineRowView(namzu)).toMatchObject({
 			status: 'Up to date',

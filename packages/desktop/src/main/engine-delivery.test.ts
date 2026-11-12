@@ -240,12 +240,26 @@ describe('the platform fetch adapter', () => {
 		const adapted = webFetch(async () => new Response('hello', { status: 200 }))
 		const response = await adapted('https://feed.test/a', {
 			headers: {},
-			redirect: 'follow',
+			redirect: 'manual',
+			credentials: 'omit',
 			signal: new AbortController().signal,
 		})
 		let text = ''
 		for await (const chunk of response.body ?? []) text += new TextDecoder().decode(chunk)
 		expect(response.status).toBe(200)
 		expect(text).toBe('hello')
+	})
+
+	it('releases the body of a redirect and hands its address on', async () => {
+		const adapted = webFetch(
+			async () => new Response('moved', { status: 302, headers: { location: '/b' } }),
+		)
+		const response = await adapted('https://feed.test/a', {
+			headers: {},
+			redirect: 'manual',
+			credentials: 'omit',
+			signal: new AbortController().signal,
+		})
+		expect(response).toMatchObject({ status: 302, location: '/b', body: null })
 	})
 })

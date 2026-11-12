@@ -492,7 +492,10 @@ describe('the download', () => {
 		feed.serve.set('kernel-latest.json', () => ({
 			body: chunks(Buffer.alloc(2 * 1024 * 1024, 32)),
 		}))
-		failed(await runCheck(deps(h, feed)), 'fetch')
+		const result = await runCheck(deps(h, feed))
+		failed(result, 'fetch')
+		// It is the size cap that stopped it, not the missing signature that comes after.
+		expect(result).toMatchObject({ message: expect.stringMatching(/larger than allowed/u) })
 	})
 
 	it('reports a network failure as a failed check and leaves state alone', async () => {
