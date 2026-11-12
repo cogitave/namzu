@@ -3,6 +3,13 @@ import type { GoalId, SessionId, TenantId } from '../ids/index.js'
 /** Durable lifecycle of one same-session completion goal. */
 export type GoalPhase = 'active' | 'paused' | 'blocked' | 'complete'
 
+/**
+ * Who says a goal is done. `model`: the model's own report ends the goal, as it
+ * always has. `record`: the kernel reads the record of the work done for the
+ * goal first, and the goal ends only as that record allows.
+ */
+export type GoalConfirmedBy = 'model' | 'record'
+
 /** Machine-routable and human-readable reason that a goal stopped. */
 export interface GoalBlockReason {
 	/** Stable lower-kebab-case policy code. */
@@ -33,6 +40,12 @@ export interface SessionGoal extends GoalRef {
 	readonly maxGoalRounds: number
 	/** Durable admissions, not a claim that the provider began or completed. */
 	readonly roundsAdmitted: number
+	/**
+	 * What this goal was created to be confirmed by. Absent means the host's own
+	 * setting decides, which is the case for every goal created before this
+	 * field existed.
+	 */
+	readonly confirmedBy?: GoalConfirmedBy
 	/** Present exactly while {@link phase} is `blocked`. */
 	readonly blockedReason?: GoalBlockReason
 	readonly createdAt: number

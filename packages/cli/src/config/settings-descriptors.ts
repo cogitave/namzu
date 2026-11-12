@@ -479,6 +479,14 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		{ defaultText: 'medium' },
 	),
 	d(
+		'goal.confirmedBy',
+		'agent',
+		'What ends a goal',
+		'model: the model saying it is done ends a goal. record: Namzu reads the record of the work first, and a goal ends as confirmed, stated and not checked, or not confirmed.',
+		pick('model', 'record'),
+		{ defaultText: 'model (intended to become record in a later major release)' },
+	),
+	d(
 		'toolResultScreens',
 		'agent',
 		'Screens on tool results',

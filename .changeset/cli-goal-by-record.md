@@ -1,0 +1,5 @@
+---
+"@namzu/cli": minor
+---
+
+A goal can now end by the record of the work. Set `goal.confirmedBy: record` in your config, or `/goal set --confirmed-by record <objective>` for one goal, and when the model reports a goal complete Namzu reads the kernel's record of the turn first: the goal ends as confirmed by the record (a check passed and nothing changed after it), as stated and not checked (the record cannot confirm or contradict it), or as not confirmed (the goal is blocked and `/goal status` shows the record's sentence). A failing check, files changed after the last pass, or files changed with no check send the model back with one plain note, up to 3 times per goal; the existing limits still win. The closing line says which ending it was. `namzu exec --output-format json` and the `done` line of `exec --json` gain an optional `goalEnding` key, absent unless a goal ended in the command. Nothing changes unless you opt in: the default stays the model's report, and is intended to become `record` in a later major release, at which point `goal.confirmedBy: model` keeps today's behaviour.

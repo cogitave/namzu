@@ -13,6 +13,7 @@ import type {
 	CompactionCliConfig,
 	ComposerTriggersConfig,
 	DecisionConfig,
+	GoalCliConfig,
 	HooksConfig,
 	MemoryCliConfig,
 	NamzuCliConfig,
@@ -240,6 +241,8 @@ export interface TuiContext {
 	readonly limits?: TurnLimitsConfig
 	/** See `NamzuCliConfig.workflow`. */
 	readonly workflow?: WorkflowCliConfig
+	/** See `NamzuCliConfig.goal`. */
+	readonly goal?: GoalCliConfig
 	/** See `NamzuCliConfig.decision`. */
 	readonly decision?: DecisionConfig
 	/**

@@ -539,6 +539,18 @@ export class OutcomeLedger {
 		return this.compute(null)
 	}
 
+	/**
+	 * The record as it stands now, with the workspace asked once, and without
+	 * settling: the turn may go on and `finish` still answers once at the end.
+	 * Used by a host that wants the whole record before it lets a turn end. A
+	 * record that is not whole is `undefined`, as in `finish`.
+	 */
+	async preview(): Promise<TurnOutcome | undefined> {
+		if (this.unrecorded) return undefined
+		if (this.settled !== undefined) return this.settled
+		return this.compute(this.started ? await this.detect() : null)
+	}
+
 	private compute(endFingerprint: string | null): TurnOutcome {
 		const workspace = this.started && this.startFingerprint !== null && endFingerprint !== null
 		const moved = workspace && this.startFingerprint !== endFingerprint
