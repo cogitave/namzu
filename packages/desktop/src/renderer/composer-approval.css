@@ -15,8 +15,8 @@
 	border: 1px solid var(--border);
 	border-radius: var(--radius-card);
 	background: var(--card);
-	font-size: 12px;
-	line-height: 1.4;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .approval-head {
 	display: flex;
@@ -38,9 +38,9 @@
 	margin: 0;
 	overflow: hidden;
 	color: var(--foreground);
-	font-size: 14px;
-	font-weight: 600;
-	line-height: 24px;
+	font-size: var(--text-interface);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-interface);
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
@@ -51,9 +51,9 @@
 	border-radius: var(--radius-chip);
 	background: color-mix(in srgb, var(--foreground) 8%, transparent);
 	font-family: var(--font-mono);
-	font-size: 12px;
-	font-weight: 600;
-	line-height: 16px;
+	font-size: var(--text-caption);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-caption);
 }
 
 .approval-counts {
@@ -61,7 +61,8 @@
 	flex: none;
 	gap: 6px;
 	font-family: var(--font-mono);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	font-variant-numeric: tabular-nums;
 }
 .approval-counts .changes-added {
@@ -115,7 +116,7 @@
 }
 .approval-detail-title {
 	margin: 0 0 2px;
-	font-weight: 600;
+	font-weight: var(--weight-strong);
 	color: var(--foreground);
 }
 .approval-details pre {
@@ -145,7 +146,8 @@
 	margin: 0;
 	overflow: hidden;
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
@@ -236,7 +238,7 @@
 	border-color: transparent;
 	background: var(--message-action);
 	color: var(--message-action-foreground);
-	font-weight: 600;
+	font-weight: var(--weight-strong);
 }
 .approval-button[data-tone="accept"]:hover:not(:disabled) {
 	background: var(--message-action-hover);
@@ -244,7 +246,8 @@
 
 .approval-cut-note {
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 
 /* A fact the request carries about what saying yes would do, straight after the question. */
@@ -254,8 +257,8 @@
 	gap: 6px;
 	margin: 0;
 	color: var(--warning-foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .approval-flag svg {
 	flex: none;
@@ -275,12 +278,13 @@
 	background: var(--code-background);
 	color: var(--code-foreground);
 	font-family: var(--font-mono);
-	font-size: 12px;
-	line-height: 20px;
+	font-size: var(--font-size-code);
+	line-height: var(--leading-code);
 }
 .approval-box[data-prose] {
 	font-family: inherit;
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .approval-box-more {
 	position: absolute;
@@ -323,7 +327,8 @@
 
 .approval-menu .approval-menu-check {
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .approval-preview,
 .approval-full {
@@ -411,7 +416,9 @@
 	border-top: 1px solid var(--border);
 	background: transparent;
 	color: var(--foreground);
-	font: 12px / 24px var(--font-sans, inherit);
+	font-family: var(--font-sans, inherit);
+	font-size: var(--text-caption);
+	line-height: 24px;
 	text-align: right;
 	text-decoration: underline;
 	text-decoration-color: var(--muted-foreground);

@@ -16,13 +16,13 @@
 		140ms var(--motion-ease), scale 140ms var(--motion-ease);
 }
 .composer-control[data-composer-control-size="sm"] {
-	font-size: var(--text-ui-caption, 13px);
-	font-weight: 400;
-	line-height: 18px;
+	font-size: var(--text-small);
+	font-weight: var(--weight-text);
+	line-height: var(--leading-small);
 }
 .composer-control[data-composer-control-size="xs"] {
-	font-size: var(--text-ui-sm, 12px);
-	line-height: 16px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .composer-control:is(:hover, [data-highlighted]) {
 	background: color-mix(in srgb, var(--foreground) 8%, transparent);
@@ -141,8 +141,8 @@
 	height: 28px;
 	padding-inline: 5px;
 	border-radius: var(--radius-pill);
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	color: var(--muted-foreground);
 }
 .composer-row .composer-project-control:is(:hover, :focus-visible, [aria-expanded="true"]) {
@@ -208,14 +208,16 @@
 }
 .composer-row .composer-footer-chip {
 	height: 28px;
-	font-size: var(--text-ui-caption, 13px);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .composer-row .composer-permission-control {
 	min-width: 0;
 	gap: 5px;
 	padding-inline: 8px;
-	font-size: var(--text-ui-caption, 13px);
-	font-weight: 400;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-text);
 	color: var(--muted-foreground);
 }
 .composer-row .composer-permission-control[data-composer-permission="auto"] {
@@ -237,7 +239,8 @@
 	max-width: 100%;
 	gap: 5px;
 	padding-inline: 8px;
-	font-size: var(--text-ui-caption, 13px);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	color: var(--muted-foreground);
 }
 .composer-row .model-picker-trigger-model {
@@ -280,7 +283,8 @@
 	flex: none;
 }
 .composer-row .context-readout {
-	font-size: var(--text-ui-caption, 13px);
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
 	.normal-composer-shell [data-slot="composer-host"] {
@@ -305,7 +309,6 @@
 	max-height: min(144px, 24vh);
 	margin: 0;
 	padding: 6px 0;
-	line-height: 20px;
 }
 .pal-composer-shell [data-chat-composer-footer] {
 	padding: 0;
@@ -342,9 +345,9 @@
 .pal-composer-tool-section h2 {
 	margin: 0 0 6px;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
-	font-weight: 400;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-text);
 }
 
 .composer-project-popup {
@@ -376,8 +379,8 @@
 	width: 100%;
 	padding: 0 8px 2px;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .composer-project-computer-row {
 	clear: both;
@@ -386,7 +389,8 @@
 	gap: 8px;
 	min-height: 32px;
 	padding: 0 8px;
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .composer-project-computer-row > svg:first-child {
 	flex: none;
@@ -433,8 +437,8 @@
 }
 .composer-project-search input {
 	padding: 0;
-	font-size: var(--text-ui-caption, 13px);
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .composer-project-search:focus-within {
 	color: var(--foreground);
@@ -451,9 +455,9 @@
 	border-radius: var(--control-radius);
 	background: transparent;
 	color: var(--foreground);
-	font-size: var(--text-ui-caption, 13px);
-	font-weight: 400;
-	line-height: 20px;
+	font-size: var(--text-small);
+	font-weight: var(--weight-text);
+	line-height: var(--leading-small);
 	text-align: left;
 	cursor: pointer;
 	transition: background-color 140ms var(--motion-ease), color 140ms var(--motion-ease);
@@ -495,8 +499,8 @@
 	white-space: nowrap;
 }
 .composer-project-name small {
-	font-size: 11px;
-	line-height: 16px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }
 .composer-project-selection,
@@ -511,8 +515,8 @@
 	margin: 0;
 	padding: 12px 8px;
 	color: var(--muted-foreground);
-	font-size: var(--text-ui-caption, 13px);
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .composer-project-actions {
 	display: grid;
@@ -528,9 +532,9 @@
 	min-height: 32px;
 	gap: 8px;
 	padding-inline: 8px;
-	font-size: var(--text-ui-caption, 13px);
-	font-weight: 400;
-	line-height: 20px;
+	font-size: var(--text-small);
+	font-weight: var(--weight-text);
+	line-height: var(--leading-small);
 	transition: background-color 140ms var(--motion-ease), color 140ms var(--motion-ease);
 }
 .composer-project-actions button:hover {
@@ -575,28 +579,29 @@
 }
 .provider-empty h2 {
 	margin: 0;
-	font-size: 14px;
-	font-weight: 600;
-	line-height: 20px;
+	font-size: var(--text-interface);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-interface);
 }
 .provider-empty p {
 	margin: 0;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 
 .provider-auto-note {
 	margin: 8px 0 0;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	text-align: center;
 }
 
 /* Quiet footer indicators beside the mode: how many shells run, and the branch's pull request. */
 .composer-footer-chip {
-	font-size: var(--text-ui-sm, 12px);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	font-variant-numeric: tabular-nums;
 }
 .composer-pr[data-review="approved"] {
@@ -655,9 +660,9 @@
 .normal-composer-shell .composer-waiting .composer-input textarea {
 	min-height: 24px;
 	margin: 0;
-	padding: 0;
-	font-size: 13px;
-	line-height: 24px;
+	padding: 3px 0;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .normal-composer-shell .composer-waiting [data-chat-composer-body]:has(.composer-input) {
 	position: relative;

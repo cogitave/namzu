@@ -416,6 +416,12 @@ export interface MCPClientCapabilities {
 	 * only. The client sets it, a caller passing it by hand gets no handler.
 	 */
 	elicitation?: Record<string, never>
+	/**
+	 * Extensions beyond the core protocol, by identifier (2026-07-28). The
+	 * client adds `io.modelcontextprotocol/tasks` itself when the server
+	 * advertises it and {@link MCPClientConfig.tasks} is not `false`.
+	 */
+	extensions?: Record<string, Record<string, unknown>>
 	experimental?: Record<string, unknown>
 }
 
@@ -424,6 +430,8 @@ export interface MCPServerCapabilities {
 	resources?: { subscribe?: boolean; listChanged?: boolean }
 	prompts?: { listChanged?: boolean }
 	logging?: Record<string, never>
+	/** Extensions the server offers, by identifier (2026-07-28 `server/discover`). */
+	extensions?: Record<string, Record<string, unknown>>
 	experimental?: Record<string, unknown>
 }
 
@@ -500,6 +508,16 @@ export interface MCPClientConfig {
 	transportFactory?: () => MCPTransport
 	capabilities?: MCPClientCapabilities
 	clientInfo?: { name: string; version: string }
+	/**
+	 * Take part in the tasks extension (2026-07-28). Default `true`.
+	 *
+	 * When the server advertises `io.modelcontextprotocol/tasks`, the client
+	 * declares it on each request, and a `tools/call` the server turns into a
+	 * task is waited on until it ends: `callTool()` resolves with the task's
+	 * result exactly as if the server had answered at once. `false` declares
+	 * nothing, so a server never returns a task to this client.
+	 */
+	tasks?: boolean
 	/**
 	 * Answer a server's `elicitation/create` (form mode) by asking the person.
 	 *

@@ -1,6 +1,6 @@
 .model-picker-trigger {
 	border-radius: var(--radius-pill);
-	font-weight: 400;
+	font-weight: var(--weight-text);
 }
 .model-picker-trigger-model {
 	min-width: 0;
@@ -70,8 +70,8 @@
 .model-picker-settings-notice {
 	margin: 4px 0;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	overflow-wrap: anywhere;
 }
 .model-provider-single {
@@ -96,8 +96,9 @@
 	flex: none;
 	width: 18px;
 	height: 18px;
-	font-size: 13px;
-	font-weight: 600;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-strong);
 }
 .model-provider-mark svg {
 	width: 100%;
@@ -171,8 +172,9 @@
 	flex: none;
 	width: 18px;
 	height: 18px;
-	font-size: 13px;
-	font-weight: 600;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-strong);
 }
 .model-provider-mark svg {
 	width: 100%;
@@ -205,14 +207,14 @@
 	padding: 0 4px;
 	gap: 2px 8px;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .model-picker-title {
 	margin: 0;
-	font-size: 12px;
-	font-weight: 400;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	font-weight: var(--weight-text);
+	line-height: var(--leading-caption);
 	color: var(--muted-foreground);
 }
 .model-picker-back {
@@ -225,8 +227,8 @@
 	border-radius: var(--radius-chip);
 	background: transparent;
 	color: var(--foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	cursor: pointer;
 	transition: background-color var(--dur-quick) var(--ease-out);
 }
@@ -255,9 +257,10 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-weight: 500;
+	font-weight: var(--weight-control);
 	color: var(--foreground);
-	font-size: 11px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 /* The title gives way before anything else: it is cut with an ellipsis, never drawn under a control. */
 .model-picker-heading-copy .model-picker-title {
@@ -295,7 +298,8 @@
 	height: 28px;
 }
 .model-search input {
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	padding: 0;
 }
 .model-picker-list {
@@ -323,22 +327,22 @@
 	margin: 0;
 	padding: 6px 8px 2px;
 	color: var(--muted-foreground);
-	font-size: 11px;
-	line-height: 16px;
-	font-weight: 500;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-control);
 }
 .model-picker-group-title {
 	margin: 0;
 	padding: 6px 8px 2px;
 	color: var(--muted-foreground);
-	font-size: 11px;
-	line-height: 16px;
-	font-weight: 500;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-control);
 }
 /* Under a provider legend (search) the group heading steps in, so the two read as levels. */
 .model-picker-section-title ~ .model-picker-group-title {
 	padding-left: 16px;
-	font-weight: 400;
+	font-weight: var(--weight-text);
 }
 .model-picker-row {
 	display: flex;
@@ -353,8 +357,8 @@
 	color: inherit;
 	text-align: left;
 	cursor: pointer;
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	transition: background-color var(--dur-quick) var(--ease-out);
 }
 .model-picker-row:hover {
@@ -378,8 +382,8 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-size: 12px;
-	line-height: 16px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	/* A touch toward the text colour so it stays 4.5:1 on a checked or hovered row, in both themes. */
 	color: color-mix(in srgb, var(--muted-foreground) 82%, var(--foreground));
 }
@@ -409,8 +413,8 @@
 	gap: 6px;
 	margin: 8px;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	overflow-wrap: anywhere;
 }
 .model-picker-feedback {
@@ -426,8 +430,8 @@
 	align-items: flex-start;
 	justify-content: space-between;
 	margin: 4px 0;
-	font-size: 11px;
-	line-height: 16px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .model-picker-feedback .model-picker-status > span,
 .model-picker-feedback .model-picker-notice > span {
@@ -440,8 +444,8 @@
 .model-picker-shared-note {
 	margin: 4px 0;
 	color: var(--muted-foreground);
-	font-size: 11px;
-	line-height: 16px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -449,8 +453,8 @@
 .model-picker-quiet {
 	margin: 4px 0;
 	color: var(--muted-foreground);
-	font-size: 11px;
-	line-height: 16px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .model-picker-status[role="alert"] {
 	color: var(--destructive);
@@ -500,8 +504,8 @@
 	border-radius: var(--radius-pill);
 	background: color-mix(in srgb, var(--foreground) 8%, transparent);
 	color: var(--muted-foreground);
-	font-size: 11px;
-	line-height: 16px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .model-picker-chip {
 	flex: none;
@@ -509,8 +513,8 @@
 	border-radius: var(--radius-pill);
 	border: 1px solid var(--border);
 	color: var(--muted-foreground);
-	font-size: 11px;
-	line-height: 14px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .model-picker-fold {
 	display: flex;
@@ -524,8 +528,8 @@
 	border-radius: var(--radius-control);
 	background: transparent;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	text-align: left;
 	cursor: pointer;
 	transition: background-color var(--dur-quick) var(--ease-out);
@@ -558,8 +562,8 @@
 	border-radius: var(--radius-pill);
 	border: 1px solid var(--border);
 	color: var(--muted-foreground);
-	font-size: 11px;
-	line-height: 14px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .model-picker-fold {
 	display: flex;
@@ -573,8 +577,8 @@
 	border-radius: var(--radius-control);
 	background: transparent;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	text-align: left;
 	cursor: pointer;
 	transition: background-color var(--dur-quick) var(--ease-out);
@@ -634,14 +638,15 @@
 	border-radius: var(--radius-control);
 	background: transparent;
 	color: var(--foreground);
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	text-align: left;
 	cursor: pointer;
 	transition: background-color var(--dur-quick) var(--ease-out);
 }
 .model-picker-more small {
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	color: color-mix(in srgb, var(--muted-foreground) 82%, var(--foreground));
 }
 .model-picker-more svg {
@@ -676,9 +681,9 @@
 .model-more-heading {
 	margin: 0;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	font-weight: 400;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	font-weight: var(--weight-text);
+	line-height: var(--leading-caption);
 }
 .model-more-heading {
 	padding: 8px 8px 0;

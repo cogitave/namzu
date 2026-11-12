@@ -24,7 +24,7 @@
 	width: auto;
 }
 .message-actions-text {
-	font-weight: 400;
+	font-weight: var(--weight-text);
 	line-height: 1;
 }
 .message-actions-time {

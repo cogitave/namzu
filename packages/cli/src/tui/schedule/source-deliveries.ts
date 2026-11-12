@@ -61,6 +61,8 @@ const DELIVERY_OUTCOME: Readonly<Record<SourceDelivery['status'], EndOutcome>> =
 	'approval-expired': 'stopped',
 	interrupted: 'stopped',
 	cancelled: 'stopped',
+	// Never delivered (a skipped run has nothing to say); listed for the type.
+	skipped: 'stopped',
 }
 
 /** How a scheduled run ended, as the words that follow its name. */
@@ -74,6 +76,7 @@ const RUN_ENDINGS: Readonly<Record<SourceDelivery['status'], string>> = {
 	'blocked-config': 'could not start because its settings need attention',
 	cancelled: `was ${END_WORDS.stopped}`,
 	'check-failed': 'failed its check',
+	skipped: 'was skipped by its gate',
 }
 
 /** How loudly a delivered run is drawn: a clean finish is quiet, a failure is red, the rest is yellow. */

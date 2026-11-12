@@ -1,4 +1,5 @@
 import type { DesktopApi } from '../shared/protocol.js'
+import { monoFaceReady } from './font-faces.js'
 import { TerminalSession, type TerminalSessionApi, TerminalSessions } from './terminal-session.js'
 import { terminalFontFamily, terminalTheme } from './terminal-theme.js'
 
@@ -55,6 +56,7 @@ export function terminalSessions(api: TerminalSessionApi): TerminalSessions {
 			theme: terminalTheme(read, isDark()),
 			fontFamily: terminalFontFamily(read),
 			fontSize: FONT_SIZE,
+			fontReady: monoFaceReady(),
 			mac: isMac(),
 			onFind: () => findOpener?.(tabId),
 		})

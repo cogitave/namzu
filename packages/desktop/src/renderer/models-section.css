@@ -28,16 +28,16 @@
 }
 .models-row-name {
 	margin: 0;
-	font-size: 14px;
-	font-weight: 600;
-	line-height: 20px;
+	font-size: var(--text-interface);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-interface);
 }
 .models-row-status,
 .models-row-help {
 	margin: 2px 0 0;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	overflow-wrap: anywhere;
 }
 .models-row-status[data-state="connected"] {
@@ -49,8 +49,8 @@
 .models-key-hint {
 	margin: 0;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .models-row-actions {
 	display: flex;
@@ -63,8 +63,9 @@
 	gap: 6px;
 }
 .models-key-label {
-	font-size: 13px;
-	font-weight: 500;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
+	font-weight: var(--weight-control);
 }
 .models-key-controls {
 	display: flex;
@@ -81,7 +82,7 @@
 	background: var(--background);
 	color: var(--foreground);
 	font: inherit;
-	font-size: 13px;
+	font-size: var(--text-small);
 }
 .models-key-input:focus-visible {
 	outline: 2px solid transparent;
@@ -94,15 +95,15 @@
 .models-key-problem {
 	margin: 0;
 	color: var(--error, var(--destructive-foreground));
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .models-row-result {
 	display: block;
 	min-height: 0;
 	color: var(--muted-foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .models-row-result:empty {
 	display: none;

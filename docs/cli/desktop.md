@@ -832,7 +832,7 @@ A project leaves Namzu through [Removing a project](#removing-a-project).
 If a saved project's folder no longer exists at launch (moved, renamed, deleted or on a drive
 that is not mounted), the project stays in the sidebar instead of vanishing: it shows its name,
 "Folder not found", **Locate folder** and **Remove**; the row shares the other rows' grid and
-12.5 px type, with the warning and the buttons under the name. Main keeps it as a `missing`
+13 px type (the small size of [the type scale](#the-type-scale)), with the warning and the buttons under the name. Main keeps it as a `missing`
 project (no connection, listed in `projects.json` so it survives the next launch). **Locate folder** opens the
 folder picker, and the folder it finds takes over the project's id, so its saved conversations
 come along; the new folder goes through the normal pick checks and asks for trust like any other.
@@ -882,7 +882,7 @@ The logic is pure (`SystemNotices` takes an injected notifier, clock, timer and 
 
 ## The top of a conversation window
 
-A conversation window spends 40 px on one bar, where it spent 52 px on a strip of tabs. The bar holds the conversation's title (14 px, bold, cut with an ellipsis when it does not fit), the project's name (13 px, muted), then on the right its buttons (how full the conversation is lives in the row under the composer, not here). The sidebar is the one list of conversations; a title is shown once. The operating system's menu row (File, Edit, View, Window) is unchanged and sits above the bar.
+A conversation window spends 40 px on one bar, where it spent 52 px on a strip of tabs. The bar holds the conversation's title (14 px, strong, cut with an ellipsis when it does not fit), the project's name (13 px, muted), then on the right its buttons (how full the conversation is lives in the row under the composer, not here). The sidebar is the one list of conversations; a title is shown once. The operating system's menu row (File, Edit, View, Window) is unchanged and sits above the bar.
 
 **The read-out** is not in the bar: it sits at the right end of the row under the composer box (see the composer section below), from the same figures (`contextRingModel`, so the two cannot disagree) and with the same rule for when it shows: nothing is drawn until the engine has reported both a context size and a window.
 
@@ -936,8 +936,10 @@ What it holds, and where each value lives (one source of truth per value):
 - **Projects** — every project (name, path shortened with `~` and the whole path on hover, trusted state) with **Remove…**; a project whose folder is gone reads "Folder not found" and also offers **Locate folder**, and *Ask again when a
   project's automatic settings change* (default on). See
   [Trust again when automatic settings change](#trust-again-when-automatic-settings-change).
-- **Appearance** — the theme (light, dark, system). It stays in the renderer's own storage
-  (`namzu.appearance`) because only the renderer paints it; it moved out of the profile menu.
+- **Appearance** — the theme (light, dark, system) and the interface font (Namzu's own, the default,
+  or your device's; see [Typefaces](#typefaces)). Both stay in the renderer's own storage
+  (`namzu.appearance`, `namzu.interface-font`) because only the renderer paints them; the theme moved
+  out of the profile menu.
 - Every section opens with the same header, a title and one subtitle line, so the search box and
   the content start at the same height on every page (search results get the subtitle "Matches from
   every section.").
@@ -1888,7 +1890,7 @@ does not yet run an autonomous background loop, Pal Team or external channel ada
 ## Appearance and message display
 
 The app opens in its dark appearance. **Settings ▸ Appearance** offers light,
-system and dark; the local choice survives window reload. The
+system and dark, and the interface font; the local choices survive window reload. The
 two-row wordmark and phosphor-green accents match the operator CLI. Menu,
 panel and message transitions respect the system reduced-motion preference.
 In the project and engine pickers the arrow keys only move the highlight; Enter,
@@ -2091,7 +2093,7 @@ what the side in force means ("Desktop: you chat with this engine in this window
 opens this engine in a terminal tab."). The provider column's icons carry their name as a tooltip
 and as their accessible name.
 
-The model list is compact: 30px rows, 11px group headings, and a height of at most 60% of the window, scrolling inside. Its heading carries the engine chip and, on a long list, a search button (or the `/` key); there is no refresh button, no Retry button and no "Use a model ID" row. Opening the list re-reads a catalogue that failed or has gone stale (older than two minutes) once in the background, showing the last good list meanwhile; if that read fails the list shows one muted line, "Couldn’t load the model list. It will try again next time you open this." The list ends with the models; it has no "Current model" section for a model outside the visible list. The provider column marks the provider in use with a small dot, whichever provider's tab is open. GPT names written "GPT-5.6-Sol" by an API provider's catalogue read "GPT-5.6 Sol"; ids are unchanged. A Zen list shows its free models under a "Free" heading and the models with a stated non-zero price under an "API key" heading (a model with no published price follows under "Other models"); each catalogue row carries an optional `group: 'free' | 'key'`, set for Zen only and stored with the row in `model-lists.json` (an older stored row without it still reads). The headings use the 11px group-heading style, are not rows (arrow keys skip them), are read out as part of each row's name, and appear only when the list holds both groups: a list with only free models shows none, and one with only key models keeps the per-row "(API key)" note. Search keeps a heading only while a row under it still matches.
+The model list is compact: 30px rows, 12px group headings, and a height of at most 60% of the window, scrolling inside. Its heading carries the engine chip and, on a long list, a search button (or the `/` key); there is no refresh button, no Retry button and no "Use a model ID" row. Opening the list re-reads a catalogue that failed or has gone stale (older than two minutes) once in the background, showing the last good list meanwhile; if that read fails the list shows one muted line, "Couldn’t load the model list. It will try again next time you open this." The list ends with the models; it has no "Current model" section for a model outside the visible list. The provider column marks the provider in use with a small dot, whichever provider's tab is open. GPT names written "GPT-5.6-Sol" by an API provider's catalogue read "GPT-5.6 Sol"; ids are unchanged. A Zen list shows its free models under a "Free" heading and the models with a stated non-zero price under an "API key" heading (a model with no published price follows under "Other models"); each catalogue row carries an optional `group: 'free' | 'key'`, set for Zen only and stored with the row in `model-lists.json` (an older stored row without it still reads). The headings use the 12px group-heading style, are not rows (arrow keys skip them), are read out as part of each row's name, and appear only when the list holds both groups: a list with only free models shows none, and one with only key models keeps the per-row "(API key)" note. Search keeps a heading only while a row under it still matches.
 
 Starting an engine is cheap to the person and cheap to the machine. Choosing Codex or the second external engine in the engine view never waits for the engine to answer: the host starts reading its models in the background and the choice is acknowledged at once. While an engine process is actually being waited for (a build never read before, so no stored list can be shown) the model trigger reads **Starting Codex…** (or the second engine's name in the same form), with the seconds waited (`Starting Codex… 3s`) once it takes a second, instead of a blank or the previous model; it is announced as "Model, Starting Codex". A stored list shows at once and is revalidated in the background, so nothing is shown while it is. Behind that the CLI host spawns the engine's executable once per use: the Codex app-server that listed the models stays running (closed after two idle minutes, and when the connection closes) and the conversation's first message takes it over, so opening the picker, choosing the engine and sending a message start one process, not two or three. A model list read less than ten minutes ago is served from memory; an older one, or one read in the previous run, is read again in the background, and the last good list of each installed build is kept in `engine-models.json` in the CLI home so a later launch names the default model without waiting. A model the person chose that an older list lacks is looked for once more in a list read now before it is refused.
 
@@ -2271,10 +2273,10 @@ Wide tables scroll within a focusable message region, including keyboard
 horizontal scrolling, instead of being clipped by the transcript's outer frame.
 Messages and tool rows retain their admitted event order. Repeated provider call
 IDs in later turns have separate receipts; progress updates do not move a row.
-Interface and composer text use the platform sans stack; code uses the platform
-monospace stack. The interface root is 16px, conversation/composer text is 14px
-and fenced code/diff text is 13px. The application uses the platform's font face,
-so the same stack can resolve to different faces on different operating systems.
+Interface and composer text use Geist and code uses Geist Mono, both shipped with the
+app (see [Typefaces](#typefaces)). The interface root is 16px (the base the rem lengths count from),
+reply, message and composer text is 15px and fenced code/diff text is 13px (see
+[the type scale](#the-type-scale)).
 The project and conversation breadcrumb uses 14px medium labels with native
 text-box trimming where supported; narrow windows retain the conversation title.
 Completed file actions expose their bounded before/after previews in Changes.
@@ -2296,6 +2298,87 @@ details control remains mounted during the transition. Closing the panel or
 pressing Escape returns focus to the Conversation details button; automatic
 navigation does not move focus back to an old panel. Reduced motion disables
 these transitions. The composer and navigation remain inside the available width.
+
+## The type scale
+
+Every size, weight and line-height the renderer draws is one of the tokens in
+`renderer/theme.css`: seven sizes, each with its line-height on a 2 px grid, and three weights. Nothing
+is heavier than the strong weight (600), so bold in a reply is no heavier than the reply's own headings.
+`renderer/type-scale.test.ts` reads every stylesheet and component and fails on a font size that is
+neither a token nor a value of the scale, on a weight above 600, and on a size inside the `font`
+shorthand. The pixel wordmark's sizes and the 16 px root (the rem base) are the only listed exceptions.
+The font stacks are not part of the scale; they are described under [Typefaces](#typefaces).
+
+| Token | Size / line | Where it is used |
+| --- | --- | --- |
+| `--text-caption` | 12 / 16 | tooltips, times, counts, badges, the sidebar's group headings (control weight), the counts on the result line |
+| `--text-small` | 13 / 18 | quiet rows (the fold line, the result line, the row under the message box, the waiting bar), sidebar rows, buttons, menus and popups |
+| `--text-interface` | 14 / 20 | the top bar's title (strong), a reply's table (header row in the control weight), tool rows |
+| `--text-reading` | 15 / 22 | a reply's paragraphs and lists, the person's message, the text in the message box, a reply's `h3` and below |
+| `--text-heading` | 17 / 24 | a reply's `h2` |
+| `--text-title` | 20 / 28 | a reply's `h1` |
+| `--text-display` | 28 / 36 | the home heading (text weight) |
+| `--font-size-code` | 13 / 20 (`--leading-code`) | code blocks, tool output and diffs; `--diffs-font-size` follows it |
+
+Weights: `--weight-text` 400, `--weight-control` 500, `--weight-strong` 600. Tailwind's `text-xs`,
+`text-sm`, `text-base`, `text-lg`, `text-xl`, `text-2xl` and `text-3xl` and its weight utilities are
+mapped onto these tokens in `theme.css`, so a component class and a stylesheet rule agree. Blocks in a
+reply are 0.75em apart. Inline code is 0.9em of its sentence with line-height 1, padding 1 px 4 px and
+4 px corners (`--radius-code`). Times, durations, the added and removed counts, percentages and the
+cost beside the context percentage use tabular numbers so they keep their width as they change, and so
+does every cell of a reply's table. Geist draws its figures proportional by default and has a
+tabular set, so the places listed here really do draw every digit at one width.
+
+## Typefaces
+
+The app draws with its own typefaces, so every platform shows the same letters at the same weights.
+Three variable files ship in `packages/desktop/public/fonts/` (built to `dist/renderer/fonts/`, inside
+the application's own files):
+
+| File | Face | Used for |
+| --- | --- | --- |
+| `Geist-wght.woff2` | Geist, upright, weight 100 to 900 | text of the interface and of replies |
+| `Geist-Italic-wght.woff2` | Geist italic, weight 100 to 900 | emphasis in replies |
+| `GeistMono-wght.woff2` | Geist Mono, weight 100 to 900 | code, tool output, diffs and the terminal |
+
+They are release v1.9.2 of the type project's own files, unmodified. `theme.css` loads them with
+`@font-face` and `font-display: block`, so text is held back for the few milliseconds a local file takes
+(measured: the faces are ready 10 to 30 ms after the window's first text is laid out) rather than drawn in
+the platform's face and then changed. A `<link rel="preload">` was tried and dropped: on `file:` addresses
+the browser does not match it to the font request, warns and fetches twice. `index.html` instead holds
+three hidden letters, one in each face, which start the three files loading while the bundle is still being
+read, so the italic and the mono are ready before the first italic word or code block. The content security policy
+needed no change: `default-src 'self'` covers files of the app's own folder. Weights 400, 500 and 600 are
+exact on every platform because the files are variable. Mono italic is not shipped: italic code
+(rare in a reply) is the upright mono slanted by the engine, which reads acceptably as a light slant.
+Code ligatures stay off: Geist Mono keeps them in a stylistic set that is off unless asked for, and
+nothing in the renderer asks.
+
+The stacks are tokens in `theme.css`. `--font-sans-app` is `"Geist"` followed by `--font-sans-system`
+(`-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`), and `--font-mono-app` is
+`"Geist Mono"` followed by `--font-mono-system` (`ui-monospace, "SF Mono", SFMono-Regular, Menlo,
+Consolas, "Liberation Mono", monospace`). `--font-sans` and `--font-mono` point at the first two, so a
+machine where a file cannot load falls back to its own fonts.
+
+**Settings > Appearance > Interface font** chooses *Namzu's own* (the default) or *Your device's*. With
+the device's, the root carries `data-interface-font="system"`, `--font-sans` and `--font-mono` point at
+the platform stacks alone, and the shipped files are not used for text or code. It applies at once in
+every window with no restart. It is kept in the renderer's own storage (`namzu.interface-font`) and
+`public/theme-boot.js` sets the attribute before the first paint, like the theme. The terminal reads
+its own token, `--font-terminal` (the shipped mono), so this setting leaves the terminal as it is.
+
+Text that is measured once waits for the faces. A terminal opens its emulator after the mono face is
+ready (the emulator measures a character cell when it opens and keeps that size), and the tab and
+sidebar title fitter measures again when the document's fonts finish loading and when the interface font
+changes. `renderer/typeface.test.ts` checks the `@font-face` rules, the stacks and the licence files;
+`renderer/terminal-font-wait.test.ts` checks the terminal waits; `e2e/typeface.test.mjs` asks the real
+app which font was used for a reply paragraph, a code block and a sidebar row, and that the setting
+changes it.
+
+Licence: Geist and Geist Mono are under the SIL Open Font License 1.1 (Copyright 2026 The Geist Project
+Authors). The copyright notice and the licence text travel with the files in `fonts/OFL.txt`, in
+`licenses/fonts-geist-OFL.txt` (copied to `dist/licenses/` by `scripts/retain-notices.mjs`) and in item 15
+of `THIRD-PARTY-NOTICES.txt`.
 
 ## Conversation panes and windows
 

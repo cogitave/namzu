@@ -69,8 +69,8 @@ export function stableStringify(value: unknown): string {
  * workspace or source-conversation delivery binding. This digest is a tripwire:
  * a later change to any bound field needs re-confirmation.
  *
- * The script group is added only for a non-agent `runKind`; workspace and
- * delivery are added only when present. An ordinary legacy agent job's digest
+ * The script group is added only for a non-agent `runKind`; workspace, gate
+ * and delivery are added only when present. An ordinary legacy agent job's digest
  * stays byte-for-byte what it was, so upgrading namzu never holds an already-confirmed
  * `v:1` job that this design never touched.
  */
@@ -84,6 +84,7 @@ export function jobSecurityDigest(job: ScheduleJob): string {
 			stableStringify({
 				prompt: job.prompt,
 				...(job.workspace !== undefined ? { workspace: job.workspace } : {}),
+				...(job.gate !== undefined ? { gate: job.gate } : {}),
 				...(job.delivery !== undefined ? { delivery: job.delivery } : {}),
 				...(job.deliveryWaiverRunIds?.length
 					? { deliveryWaiverRunIds: job.deliveryWaiverRunIds }

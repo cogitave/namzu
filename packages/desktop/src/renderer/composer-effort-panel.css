@@ -23,9 +23,9 @@
 }
 .composer-effort-value {
 	color: var(--foreground);
-	font-size: 13px;
-	font-weight: 600;
-	line-height: 18px;
+	font-size: var(--text-small);
+	font-weight: var(--weight-strong);
+	line-height: var(--leading-small);
 }
 .composer-effort-model {
 	display: inline-flex;
@@ -39,8 +39,8 @@
 	border-radius: var(--radius-chip);
 	background: color-mix(in srgb, var(--foreground) 4%, transparent);
 	color: var(--foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	cursor: pointer;
 	transition: background-color 150ms var(--motion-ease), color 150ms var(--motion-ease);
 }
@@ -168,8 +168,8 @@
 	height: 16px;
 	margin-inline: 13px;
 	color: var(--muted-foreground);
-	font-size: 11px;
-	line-height: 16px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 /* Each name sits under its stop; the two ends are pulled in so they never leave the panel. */
 .composer-effort-scale-name {
@@ -186,13 +186,13 @@
 }
 .composer-effort-scale-name[data-current] {
 	color: var(--foreground);
-	font-weight: 600;
+	font-weight: var(--weight-strong);
 }
 .composer-effort-hint {
 	margin: 0;
 	color: var(--muted-foreground);
-	font-size: 11px;
-	line-height: 16px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .composer-effort-status {
 	display: flex;
@@ -201,7 +201,8 @@
 	gap: 6px;
 	min-height: 44px;
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .composer-effort-spinner {
 	width: 14px;
@@ -249,14 +250,16 @@
 }
 .composer-effort-heading {
 	color: var(--foreground);
-	font-size: 13px;
-	line-height: 18px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .composer-effort-panel[data-variant="inline"] .composer-effort-value {
 	color: var(--muted-foreground);
-	font-size: 12px;
-	font-weight: 400;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-text);
 }
 .composer-effort-panel[data-variant="inline"] .composer-effort-scale {
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }

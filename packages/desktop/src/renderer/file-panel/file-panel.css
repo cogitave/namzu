@@ -97,7 +97,8 @@
 	border: 1px solid transparent;
 	border-radius: var(--radius-control);
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .panel-tab:hover {
 	background: var(--accent);
@@ -136,9 +137,9 @@
 	border-radius: var(--radius-control);
 	background: var(--secondary);
 	color: var(--secondary-foreground, var(--foreground));
-	font-size: 10px;
+	font-size: var(--text-caption);
 	font-variant-numeric: tabular-nums;
-	line-height: 16px;
+	line-height: var(--leading-caption);
 	text-align: center;
 }
 .panel-tab-badge[data-attention] {
@@ -219,7 +220,8 @@
 	gap: 12px;
 	padding: 24px;
 	color: var(--muted-foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .panel-empty-actions {
 	display: flex;
@@ -247,7 +249,8 @@
 }
 .file-toolbar-hint {
 	color: var(--muted-foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .file-toolbar-actions {
 	display: flex;
@@ -264,7 +267,8 @@
 	padding: 0 6px;
 	border-radius: var(--radius-pill);
 	background: var(--secondary);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	overflow: hidden;
 }
 .file-crumb-item {
@@ -310,7 +314,7 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-weight: 600;
+	font-weight: var(--weight-strong);
 }
 .file-source-toggle[aria-pressed="true"] {
 	background: var(--accent);
@@ -350,7 +354,8 @@
 	gap: 10px;
 	padding: 40px 24px;
 	color: var(--muted-foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	text-align: center;
 }
 .file-view-note p {
@@ -380,14 +385,15 @@
 	border-radius: var(--radius-control);
 	background: var(--secondary);
 	font-family: var(--font-mono);
-	font-size: 12px;
-	line-height: 1.5;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 .file-metadata h3 {
 	margin: 0 0 8px;
 	font-family: var(--font-sans);
-	font-size: 12px;
-	font-weight: 600;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-strong);
 }
 .file-metadata dl {
 	display: grid;
@@ -420,8 +426,8 @@
 	white-space: pre-wrap;
 }
 .document-markdown {
-	font-size: 14px;
-	line-height: 1.65;
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 }
 .document-markdown h1,
 .document-markdown h2,
@@ -433,7 +439,8 @@
 	margin-top: 0.4em;
 }
 .document-markdown table {
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .document-image {
 	display: block;
@@ -537,7 +544,8 @@
 	outline: 0;
 	background: transparent;
 	color: var(--foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 }
 .file-tree-host {
 	display: flex;
@@ -575,7 +583,8 @@
 	padding: 0 8px;
 	border-radius: var(--radius-control);
 	color: var(--foreground);
-	font-size: 13px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	text-align: left;
 	cursor: pointer;
 }
@@ -612,8 +621,9 @@
 	flex: none;
 	width: 20px;
 	color: var(--muted-foreground);
-	font-size: 10px;
-	font-weight: 700;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-weight: var(--weight-strong);
 	letter-spacing: -0.02em;
 }
 .file-tree-name {
@@ -625,7 +635,7 @@
 .file-tree-name mark {
 	background: transparent;
 	color: var(--primary);
-	font-weight: 700;
+	font-weight: var(--weight-strong);
 }
 .file-tree-dir {
 	flex: 1;
@@ -634,7 +644,8 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	color: var(--muted-foreground);
-	font-size: 11px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	direction: rtl;
 	text-align: left;
 }
@@ -643,7 +654,8 @@
 	margin: 0;
 	padding: 8px;
 	color: var(--muted-foreground);
-	font-size: 12px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 }
 
 /* A reply's file link */

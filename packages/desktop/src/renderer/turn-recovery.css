@@ -8,15 +8,15 @@
 .turn-recovery-text {
 	margin: 0;
 	color: var(--foreground);
-	font-size: 13px;
-	line-height: 20px;
+	font-size: var(--text-small);
+	line-height: var(--leading-small);
 	overflow-wrap: anywhere;
 }
 .turn-recovery-details-text {
 	align-self: stretch;
 	color: var(--muted-foreground);
-	font-size: 12px;
-	line-height: 18px;
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
 	user-select: text;
 }
 .turn-recovery-details-text p {

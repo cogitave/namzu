@@ -13,6 +13,7 @@ import { Box, Text, renderToString } from 'ink'
 import { createElement } from 'react'
 import stringWidth from 'string-width'
 
+import { QUOTE_BAR, QUOTE_BAR_WIDTH, headingStyle, ruleWidth } from '../markdown-structure.js'
 import { layoutTable } from '../markdown-table.js'
 import type { TableSpan } from '../markdown-table.js'
 import { type DisplaySpan, inlineDisplaySpans, wrapSpans } from '../markdown-wrap.js'
@@ -94,17 +95,47 @@ function codeLine(line: string, width: number): string[] {
 	return drawn.split('\n')
 }
 
-function blockRows(block: MdBlock, width: number, color: string): MarkdownRow[] {
+function blockRows(block: MdBlock, width: number, color: string, italic: boolean): MarkdownRow[] {
+	// The text of a quote is italic: the outer `<Text italic>` of the normal
+	// transcript reaches every span of a paragraph, a bullet and a heading.
+	const prose = (s: StyledSpan): StyledSpan => (italic ? { ...s, italic: true } : s)
 	switch (block.type) {
 		case 'heading': {
-			// The heading's own colour is overridden by every span in it; what shows is bold.
-			const { lines, joins } = wrappedRows(block.text, width, color, (s) => ({ ...s, bold: true }))
+			// As `Markdown.tsx`: bold on every span, underlined for level 1, and the
+			// spans take the level's colour.
+			const style = headingStyle(block.level)
+			const headingColor =
+				style.color === 'accent'
+					? theme.accent.user
+					: style.color === 'muted'
+						? theme.text.muted
+						: color
+			const { lines, joins } = wrappedRows(block.text, width, headingColor, (s) =>
+				prose({ ...s, bold: true, ...(style.underline ? { underline: true } : {}) }),
+			)
 			return lines.map((line, i) => row(line, joins[i] ?? null))
+		}
+		case 'rule':
+			return [row([{ text: '─'.repeat(ruleWidth(width)), color: theme.border.default }])]
+		case 'quote': {
+			const inner =
+				block.blocks.length > 0
+					? blocksRows(block.blocks, width - QUOTE_BAR_WIDTH, color, true)
+					: [row([])]
+			// The bar and its space go before every row, so a wrapped row carries it too.
+			// A copy that joins a wrapped row to the one above starts after them.
+			return inner.map((r) =>
+				row(
+					[{ text: QUOTE_BAR, color: theme.border.default }, { text: ' ' }, ...r.spans],
+					r.joins,
+					r.lead + QUOTE_BAR_WIDTH,
+				),
+			)
 		}
 		case 'bullet': {
 			const marker = block.ordered ? `${block.marker}.` : block.marker
 			const lead = marker.length + 1
-			const { lines, joins } = wrappedRows(block.text, width - lead, color, (s) => s)
+			const { lines, joins } = wrappedRows(block.text, width - lead, color, prose)
 			return lines.map((line, i) =>
 				row(
 					[
@@ -132,10 +163,27 @@ function blockRows(block: MdBlock, width: number, color: string): MarkdownRow[] 
 				)
 			})
 		default: {
-			const { lines, joins } = wrappedRows(block.text, width, color, (s) => s)
+			const { lines, joins } = wrappedRows(block.text, width, color, prose)
 			return lines.map((line, i) => row(line, joins[i] ?? null))
 		}
 	}
+}
+
+/** Blocks as rows, one blank row between them, none before the first, bullets tight. */
+function blocksRows(
+	blocks: readonly MdBlock[],
+	width: number,
+	color: string,
+	italic: boolean,
+): MarkdownRow[] {
+	const rows: MarkdownRow[] = []
+	blocks.forEach((block, i) => {
+		const prev = blocks[i - 1]
+		const gap = !prev || (block.type === 'bullet' && prev.type === 'bullet') ? 0 : 1
+		if (gap) rows.push(row([]))
+		rows.push(...blockRows(block, width, color, italic))
+	})
+	return rows
 }
 
 /**
@@ -143,14 +191,5 @@ function blockRows(block: MdBlock, width: number, color: string): MarkdownRow[] 
  * Nothing is drawn beside the rows: a gutter is the caller's.
  */
 export function markdownRows(text: string, width: number, color: string): MarkdownRow[] {
-	const blocks = parseMarkdown(terminalDisplayText(text))
-	const rows: MarkdownRow[] = []
-	blocks.forEach((block, i) => {
-		const prev = blocks[i - 1]
-		// One blank row between blocks, none before the first, and bullets stay tight.
-		const gap = !prev || (block.type === 'bullet' && prev.type === 'bullet') ? 0 : 1
-		if (gap) rows.push(row([]))
-		rows.push(...blockRows(block, width, color))
-	})
-	return rows
+	return blocksRows(parseMarkdown(terminalDisplayText(text)), width, color, false)
 }
