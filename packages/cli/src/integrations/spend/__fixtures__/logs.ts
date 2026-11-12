@@ -52,28 +52,12 @@ export interface FixtureSession {
 	readonly rootId?: string
 	readonly engineId?: string
 	readonly cwd?: string
-	/**
-	 * A turn that continues a stored conversation restores the earlier usage, so
-	 * its running figures start from what the turns before it settled. The
-	 * kernel does this on `--continue`; without it every turn starts from zero.
-	 */
-	readonly carry?: boolean
-	/** A fork: its first turn starts from what the parent settled at this turn. */
+	/** A fork: the conversation and turn it was forked from. Its own turns still start from zero. */
 	readonly forkedFrom?: {
 		readonly sessionId: string
 		readonly turnId: string
-		readonly base: FixtureBase
 	}
 	readonly turns: readonly FixtureTurn[]
-}
-
-/** What a fork starts from: the parent's settled figures. */
-export interface FixtureBase {
-	readonly prompt: number
-	readonly completion: number
-	readonly cacheRead?: number
-	readonly cacheWrite?: number
-	readonly costUsd: number
 }
 
 interface Cum {
@@ -159,29 +143,16 @@ export function sessionLogText(session: FixtureSession): { id: string; text: str
 			: {}),
 	})
 	const carried = new Map<string, Cum>()
-	let running: Cum | undefined = session.forkedFrom
-		? {
-				prompt: session.forkedFrom.base.prompt,
-				completion: session.forkedFrom.base.completion,
-				cacheRead: session.forkedFrom.base.cacheRead ?? 0,
-				cacheWrite: session.forkedFrom.base.cacheWrite ?? 0,
-				cost: session.forkedFrom.base.costUsd,
-				unpriced: 0,
-			}
-		: undefined
 	for (const [index, turn] of session.turns.entries()) {
 		const turnId = turn.turnId ?? `turn-${index}`
-		const cum: Cum = carried.get(turnId) ??
-			((session.carry || session.forkedFrom) && running !== undefined
-				? { ...running }
-				: undefined) ?? {
-				prompt: 0,
-				completion: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				cost: 0,
-				unpriced: 0,
-			}
+		const cum: Cum = carried.get(turnId) ?? {
+			prompt: 0,
+			completion: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			cost: 0,
+			unpriced: 0,
+		}
 		if (!turn.turnId || !carried.has(turnId)) {
 			push(turn.startAt, {
 				type: 'turn_started',
@@ -264,7 +235,6 @@ export function sessionLogText(session: FixtureSession): { id: string; text: str
 			)
 			carried.delete(turnId)
 			cum.cost = end.cost
-			running = { ...end }
 		}
 	}
 	return { id, text: `${lines.join('\n')}\n` }

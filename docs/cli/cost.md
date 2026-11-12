@@ -87,18 +87,16 @@ cache reads" (`unsplitInputTokens` in JSON).
 
 ### Continued and forked conversations
 
-A turn that continues a stored conversation (`--continue`, `/resume`) restores
-the usage the conversation had, and so does a fork, so the running figures of
-such a turn already hold the turns before it. The record does not mark this, so
-it is read from the figures: a turn whose first figure is at least what the
-conversation had settled in every token count started from it, and only the
-difference is that turn's own spend. For a fork the starting point is what the
-parent settled at the turn it was forked from. This keeps the view equal to the
-last figure the conversation shows, and puts spend on the day it ran. A
-separate turn whose first call alone is as large as everything before it would
-be read as continued; that needs a call as big as a whole earlier turn, and the
-earlier size is then missing from the total. A fork whose parent log is gone
-counts its figures in full.
+A turn's running figure starts from zero, whichever turn it is. The second turn
+in the same process, the first turn after a conversation was continued in
+another process (`--continue`, `/resume`, `session/load`) and the first turn of
+a fork each open their own recorder, so their figures hold that turn's calls and
+nothing from the turns before it. Only a turn resumed after a pause restores
+figures (`turn_resuming`, the same turn id and no new `turn_started`), and those
+are the paused turn's own earlier figures. The view therefore measures every
+turn from zero and never compares a turn with an earlier one: the total of a
+conversation is the sum of what its turns settled, whatever their sizes and in
+whatever order, and a turn that uses more than all before it is counted in full.
 
 ## Reconciliation
 
@@ -170,8 +168,7 @@ and time, and reads only what a changed log appended since its offset (an open
 turn is read again from its start; a log that got shorter is read from the
 beginning). A log is read in pieces of 1 MiB and folded as it streams, so the
 memory the report needs does not grow with the largest log. The file is written
-only when something changed, through a temporary file and a rename. It also
-keeps what each conversation had settled, which the next turn is measured from.
+only when something changed, through a temporary file and a rename.
 
 The file is derived and safe to delete. A missing, unreadable, other-version or
 malformed file is rebuilt from the logs, which stay the source of truth, and an older

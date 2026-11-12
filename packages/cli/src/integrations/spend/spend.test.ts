@@ -856,11 +856,11 @@ const opus = (
 	...extra,
 })
 
-describe('a conversation continued in a later process', () => {
-	// Continuing a stored conversation restores its earlier usage, so each later
-	// turn's running figures already hold the turns before it.
+describe('turns of one conversation, whatever their size next to each other', () => {
+	// Every turn's running figures start from zero: the second turn in a process, the first turn
+	// after the conversation was continued in another process and the first turn of a fork all
+	// open their own recorder. The conversation's spend is the sum of what its turns settled.
 	const session = (): FixtureSession => ({
-		carry: true,
 		turns: [
 			opus('2026-11-09T23:50:00.000Z', {
 				calls: [
@@ -874,27 +874,35 @@ describe('a conversation continued in a later process', () => {
 				],
 				endAt: '2026-11-09T23:56:00.000Z',
 			}),
+			// larger than the whole turn before it in every count
 			opus('2026-11-11T08:00:00.000Z', {
 				model: 'claude-sonnet-5-5',
 				calls: [
 					{
 						at: '2026-11-11T08:01:00.000Z',
-						prompt: 300,
-						completion: 150,
+						prompt: 3000,
+						completion: 500,
 						cacheRead: 5000,
+						cacheWrite: 6000,
 						costUsd: 0.1,
 					},
 				],
 				endAt: '2026-11-11T08:02:00.000Z',
 			}),
+			// smaller than the turn before it
 			opus('2026-11-12T08:00:00.000Z', {
 				calls: [{ at: '2026-11-12T08:01:00.000Z', prompt: 50, completion: 10, costUsd: 0.05 }],
 				endAt: '2026-11-12T08:02:00.000Z',
 			}),
+			// larger again than the turn before it
+			opus('2026-11-12T09:00:00.000Z', {
+				calls: [{ at: '2026-11-12T09:01:00.000Z', prompt: 60, completion: 20, costUsd: 0.06 }],
+				endAt: '2026-11-12T09:02:00.000Z',
+			}),
 		],
 	})
 
-	it('counts each turn once: the total is the last figure the conversation shows, and each day holds what ran on it', async () => {
+	it('counts each turn in full: the total is the sum of the settlements and each day holds what ran on it', async () => {
 		writeSession(home, session())
 		const { ledger } = await refreshLedger({ home })
 		const report = buildSpendReport({
@@ -902,44 +910,43 @@ describe('a conversation continued in a later process', () => {
 			clock: clockAt('2026-11-12T12:00:00.000Z'),
 			days: WIDE,
 		})
-		// what the conversation shows: the last settlement, read from the log itself
 		const lines = readFileSync(
 			[...ledger.sessions.keys()].map((k) => join(home, k))[0] as string,
 			'utf8',
 		)
 			.trim()
 			.split('\n')
-		const last = JSON.parse(
-			lines.filter((l) => l.includes('"type":"turn_completed"')).at(-1) as string,
-		) as {
-			settlement: {
-				usage: { totalTokens: number; cacheWriteTokens: number }
-				cost: { totalCost: number }
-			}
-		}
+		const settled = lines
+			.filter((l) => l.includes('"type":"turn_completed"'))
+			.map(
+				(l) =>
+					(
+						JSON.parse(l) as {
+							settlement: { usage: { totalTokens: number }; cost: { totalCost: number } }
+						}
+					).settlement,
+			)
+		const sumTokens = settled.reduce((n, x) => n + x.usage.totalTokens, 0)
+		const sumCost = settled.reduce((n, x) => n + x.cost.totalCost, 0)
 		const shown = conversationTotals([...ledger.sessions.values()][0] as never)
-		expect(shown.tokens).toBe(last.settlement.usage.totalTokens)
-		expect(report.totals.tokens).toBe(last.settlement.usage.totalTokens)
-		expect(report.totals.estimatedCostUsd).toBeCloseTo(last.settlement.cost.totalCost, 9)
-		expect(report.totals.cacheWriteTokens).toBe(5000)
+		expect(shown.tokens).toBe(sumTokens)
+		expect(report.totals.tokens).toBe(sumTokens)
+		expect(report.totals.estimatedCostUsd).toBeCloseTo(sumCost, 9)
+		expect(report.totals.tokens).toBe(6200 + 14500 + 60 + 80)
 		const day = (date: string) => report.days.find((d) => d.date === date)
 		expect(day('2026-11-09')?.tokens).toBe(1000 + 200 + 5000)
-		expect(day('2026-11-09')?.cacheWriteTokens).toBe(5000)
-		expect(day('2026-11-11')?.tokens).toBe(300 + 150 + 5000)
-		expect(day('2026-11-11')?.cacheWriteTokens).toBe(0)
-		expect(day('2026-11-12')?.tokens).toBe(60)
-		expect(day('2026-11-12')?.estimatedCostUsd).toBeCloseTo(0.05, 9)
+		expect(day('2026-11-11')?.tokens).toBe(3000 + 500 + 5000 + 6000)
+		expect(day('2026-11-12')?.tokens).toBe(60 + 80)
+		expect(day('2026-11-12')?.estimatedCostUsd).toBeCloseTo(0.11, 9)
 	})
 
-	it('counts a continued turn that spent nothing as nothing, and a separate smaller turn in full', async () => {
+	it('counts a failed turn that spent nothing as nothing', async () => {
 		writeSession(home, {
-			carry: true,
 			turns: [
 				opus('2026-11-10T08:00:00.000Z', {
 					calls: [{ at: '2026-11-10T08:01:00.000Z', prompt: 100, completion: 10, costUsd: 1 }],
 					endAt: '2026-11-10T08:02:00.000Z',
 				}),
-				// continued, failed before any call: the settlement is the carried figure
 				opus('2026-11-10T09:00:00.000Z', {
 					calls: [],
 					endAt: '2026-11-10T09:01:00.000Z',
@@ -957,7 +964,7 @@ describe('a conversation continued in a later process', () => {
 		expect(totals.estimatedCostUsd).toBeCloseTo(1.5, 9)
 	})
 
-	it("does not count a fork twice: only what ran after the fork is the fork's own", async () => {
+	it("counts a fork's own turns in full and its parent's once", async () => {
 		const parent = writeSession(home, {
 			id: '00000000-0000-4000-8000-000000000001',
 			turns: [
@@ -970,14 +977,10 @@ describe('a conversation continued in a later process', () => {
 		})
 		writeSession(home, {
 			id: '00000000-0000-4000-8000-000000000002',
-			forkedFrom: {
-				sessionId: parent.id,
-				turnId: 'parent-turn',
-				base: { prompt: 1000, completion: 200, costUsd: 1 },
-			},
+			forkedFrom: { sessionId: parent.id, turnId: 'parent-turn' },
 			turns: [
 				opus('2026-11-11T08:00:00.000Z', {
-					calls: [{ at: '2026-11-11T08:01:00.000Z', prompt: 40, completion: 10, costUsd: 0.25 }],
+					calls: [{ at: '2026-11-11T08:01:00.000Z', prompt: 4000, completion: 10, costUsd: 0.25 }],
 					endAt: '2026-11-11T08:02:00.000Z',
 				}),
 			],
@@ -990,7 +993,7 @@ describe('a conversation continued in a later process', () => {
 				clock: clockAt('2026-11-12T00:00:00.000Z'),
 				days: WIDE,
 			})
-			expect(report.totals.tokens).toBe(1200 + 50)
+			expect(report.totals.tokens).toBe(1200 + 4010)
 			expect(report.totals.estimatedCostUsd).toBeCloseTo(1.25, 9)
 		}
 	})
@@ -1000,7 +1003,6 @@ describe('reading logs in bounded pieces', () => {
 	it('gives the same ledger whatever the piece size, across lines, turns and a turn still open', async () => {
 		writeReconciliationSet()
 		writeSession(home, {
-			carry: true,
 			turns: [
 				opus('2026-11-10T08:00:00.000Z', {
 					calls: [{ at: '2026-11-10T08:01:00.000Z', prompt: 100, completion: 10, costUsd: 1 }],

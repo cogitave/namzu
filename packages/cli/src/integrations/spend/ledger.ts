@@ -18,20 +18,11 @@
 import { randomUUID } from 'node:crypto'
 import { open, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { StringDecoder } from 'node:string_decoder'
 
-import {
-	type Cumulative,
-	LogFolder,
-	type ModelKey,
-	ModelTable,
-	type SpendRow,
-	ZERO,
-	cumulativeOf,
-} from './fold.js'
+import { LogFolder, type ModelKey, ModelTable, type SpendRow } from './fold.js'
 
 /** Raise when the file's shape changes; an older or newer file is then rebuilt, never migrated. */
-export const SPEND_LEDGER_VERSION = 2
+export const SPEND_LEDGER_VERSION = 3
 
 export const SPEND_LEDGER_FILE = 'spend-ledger.json'
 
@@ -49,12 +40,6 @@ export interface LedgerSession {
 	parentKind?: string
 	/** Set for a log run by an outside engine. */
 	engineId?: string
-	/**
-	 * What the conversation had settled at `from`, as seven counts (prompt,
-	 * completion, total, cache read, cache write, cost, unpriced). The next turn
-	 * may start from it. Absent when nothing had settled.
-	 */
-	cum?: number[]
 	/** Rows of turns that settled. */
 	rows: SpendRow[]
 	/** Rows of a turn still open, recomputed on each read. */
@@ -198,11 +183,7 @@ function isLedgerSession(entry: unknown): entry is LedgerSession {
 		Array.isArray(e.rows) &&
 		e.rows.every(isRow) &&
 		Array.isArray(e.open) &&
-		e.open.every(isRow) &&
-		(e.cum === undefined ||
-			(Array.isArray(e.cum) &&
-				e.cum.length === 7 &&
-				e.cum.every((n) => typeof n === 'number' && Number.isFinite(n))))
+		e.open.every(isRow)
 	)
 }
 
@@ -256,58 +237,6 @@ async function streamRange(
 	}
 }
 
-/** What a settled turn of a log ended at: the figure a fork of it starts from. */
-async function settlementAt(path: string, turnId: string): Promise<Cumulative | undefined> {
-	const needle = `"turnId":"${turnId}"`
-	let found: Cumulative | undefined
-	const handle = await open(path, 'r')
-	try {
-		const buffer = Buffer.allocUnsafe(READ_CHUNK_BYTES)
-		let position = 0
-		let tail = ''
-		const decoder = new StringDecoder('utf8')
-		for (;;) {
-			const { bytesRead } = await handle.read(buffer, 0, buffer.length, position)
-			if (bytesRead === 0) break
-			position += bytesRead
-			const lines = (tail + decoder.write(buffer.subarray(0, bytesRead))).split('\n')
-			tail = lines.pop() ?? ''
-			for (const line of lines) {
-				if (!line.includes(needle) || !/"type":"turn_(?:completed|failed)"/.test(line)) continue
-				try {
-					const record = JSON.parse(line) as { settlement?: { usage?: unknown; cost?: unknown } }
-					if (record.settlement !== undefined) {
-						found = cumulativeOf(record.settlement.usage, record.settlement.cost)
-					}
-				} catch {
-					// A damaged line says nothing.
-				}
-			}
-		}
-	} finally {
-		await handle.close()
-	}
-	return found
-}
-
-const toCumulative = (cum: readonly number[] | undefined): Cumulative =>
-	cum === undefined
-		? ZERO
-		: {
-				prompt: cum[0] as number,
-				completion: cum[1] as number,
-				total: cum[2] as number,
-				cacheRead: cum[3] as number,
-				cacheWrite: cum[4] as number,
-				cost: cum[5] as number,
-				unpriced: cum[6] as number,
-			}
-
-const fromCumulative = (c: Cumulative): number[] | undefined =>
-	c.total > 0
-		? [c.prompt, c.completion, c.total, c.cacheRead, c.cacheWrite, c.cost, c.unpriced]
-		: undefined
-
 export interface RefreshOptions {
 	readonly home: string
 	/** Read logs and compute, but never write the ledger file. */
@@ -359,26 +288,9 @@ export async function refreshLedger(
 		let result: ReturnType<LogFolder['finish']>
 		let size = 0
 		try {
-			const start = { settled: toCumulative(entry.cum) }
-			let folder = new LogFolder(ledger.models, entry.from, start)
+			const folder = new LogFolder(ledger.models, entry.from)
 			size = await streamRange(path, entry.from, info.size, folder, chunkBytes)
 			result = folder.finish()
-			const fork = result.facts.forkedFrom
-			if (entry.from === 0 && fork !== undefined) {
-				// A fork's first turn starts from what its parent had settled at the fork.
-				const parentKey =
-					logs.find((k) => k === `projects/${slug}/${fork.sessionId}.jsonl`) ??
-					logs.find((k) => k.endsWith(`/${fork.sessionId}.jsonl`))
-				const base =
-					parentKey === undefined
-						? undefined
-						: await settlementAt(join(home, parentKey), fork.turnId)
-				if (base !== undefined) {
-					folder = new LogFolder(ledger.models, 0, { settled: base })
-					size = await streamRange(path, 0, info.size, folder, chunkBytes)
-					result = folder.finish()
-				}
-			}
 		} catch {
 			return
 		}
@@ -389,9 +301,6 @@ export async function refreshLedger(
 			size: info.size,
 			mtimeMs: info.mtimeMs,
 			from: result.from,
-			...(fromCumulative(result.settledCumulative) !== undefined
-				? { cum: fromCumulative(result.settledCumulative) as number[] }
-				: {}),
 			rows: result.settled.length > 0 ? [...entry.rows, ...result.settled] : entry.rows,
 			open: result.open,
 			...((result.facts.parentKind ?? entry.parentKind) !== undefined
