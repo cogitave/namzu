@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { SESSION_END_HOOK_TIMEOUT_MS, createCliPluginRuntime, hookTimeoutLine } from './runtime.js'
+import {
+	SESSION_END_HOOK_TIMEOUT_MS,
+	createCliPluginRuntime,
+	hookTimeoutLine,
+	sessionEndHookBudgetMs,
+} from './runtime.js'
 
 const discovery = vi.hoisted(() => ({
 	options: undefined as unknown,
@@ -94,5 +99,42 @@ describe('the session_end deadline', () => {
 		expect(await close({ timeoutMs: 20000 }, 20000)).toEqual([
 			'The session_end hook `sleep 60` did not finish within 20 seconds and was ended.\n',
 		])
+	})
+})
+
+describe('the session_end budget a host waits for', () => {
+	it('is zero with no session_end hook', () => {
+		expect(sessionEndHookBudgetMs(undefined)).toBe(0)
+		expect(sessionEndHookBudgetMs({ turn_end: [{ command: 'true' }] })).toBe(0)
+	})
+
+	it('is five seconds for an entry that names no timeoutMs', () => {
+		expect(sessionEndHookBudgetMs({ session_end: [{ command: 'true' }] })).toBe(5000)
+	})
+
+	it('is the largest entry, capped at ten minutes, and skips an async one', () => {
+		expect(
+			sessionEndHookBudgetMs({
+				session_end: [
+					{ command: 'a', timeoutMs: 20000 },
+					{ command: 'b' },
+					{ command: 'c', timeoutMs: 9_000_000 },
+					{ command: 'd', timeoutMs: 40000, async: true },
+				],
+			}),
+		).toBe(600000)
+		expect(
+			sessionEndHookBudgetMs({
+				session_end: [{ command: 'd', timeoutMs: 40000, async: true }, { command: 'a' }],
+			}),
+		).toBe(5000)
+	})
+
+	it('is on the runtime a session closes through', async () => {
+		const runtime = await createCliPluginRuntime(undefined, process.cwd(), {
+			session_end: [{ command: 'true', timeoutMs: 20000 }],
+		})
+		expect(runtime?.sessionEndBudgetMs).toBe(20000)
+		await runtime?.close()
 	})
 })

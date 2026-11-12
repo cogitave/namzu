@@ -3409,7 +3409,14 @@ function AppBody({
 		const closing = Promise.all([session?.close(), peersRef.current?.close()])
 		const bounded = Promise.race([
 			closing,
-			new Promise<void>((resolve) => setTimeout(resolve, SESSION_CLOSE_ON_EXIT_MS).unref?.()),
+			new Promise<void>((resolve) =>
+				// The bound is for a hung server; a `session_end` hook has its own
+				// deadline, which starts after the rest of the close, so it is added.
+				setTimeout(
+					resolve,
+					SESSION_CLOSE_ON_EXIT_MS + (session?.sessionEndBudgetMs ?? 0),
+				).unref?.(),
+			),
 		])
 		void bounded
 			.catch(() => undefined)

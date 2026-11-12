@@ -2254,6 +2254,50 @@ describe('Ctrl+C from a ready conversation', () => {
 		}
 	})
 
+	describe('while the session close is held by a session_end hook', () => {
+		// The close never settles here, as it does while a hook runs to its
+		// deadline. The program leaves when the bound runs out, and the bound is
+		// the host's five seconds plus what the hooks may spend.
+		async function exitWith(budgetMs: number | undefined, advanceMs: number): Promise<void> {
+			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], shouldAdvanceTime: true })
+			createSession = async () => ({
+				...sessionFixture(
+					'held-session',
+					vi.fn(() => new Promise<void>(() => {})),
+				),
+				...(budgetMs !== undefined ? { sessionEndBudgetMs: budgetMs } : {}),
+			})
+			const harness = render(<App ctx={ctx} />)
+			mounted.push(harness)
+			await frameShows(harness.lastFrame, 'Type a message')
+			await tick(80)
+			harness.stdin.write('\x03')
+			await frameShows(harness.lastFrame, 'Press Ctrl-C again to exit')
+			harness.stdin.write('\x03')
+			await vi.advanceTimersByTimeAsync(advanceMs)
+		}
+
+		it('leaves after five seconds when no hook runs', async () => {
+			try {
+				await exitWith(undefined, 5_100)
+				await vi.waitFor(() => expect(exited).toBe(true))
+			} finally {
+				vi.useRealTimers()
+			}
+		})
+
+		it('keeps waiting for the hook budget before it leaves', async () => {
+			try {
+				await exitWith(20_000, 5_100)
+				expect(exited, 'the program left at five seconds, before the hook deadline').toBe(false)
+				await vi.advanceTimersByTimeAsync(20_000)
+				await vi.waitFor(() => expect(exited).toBe(true))
+			} finally {
+				vi.useRealTimers()
+			}
+		})
+	})
+
 	it('hands the durable conversation id to the shell summary before exiting', async () => {
 		const summaries: TuiExitSummary[] = []
 		const harness = render(<App ctx={ctx} onExitSummary={(summary) => summaries.push(summary)} />)

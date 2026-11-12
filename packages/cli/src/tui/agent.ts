@@ -1940,6 +1940,13 @@ export interface AgentSession {
 	 * another in its place. The first call's reason is the one used.
 	 */
 	close(reason?: PluginSessionEndReason): Promise<void>
+	/**
+	 * The longest `close` may spend in `session_end` hooks, in milliseconds
+	 * (zero when none will run). A host that bounds how long it waits for `close`
+	 * adds this to its bound, or it leaves before a hook's own deadline can end
+	 * the hook's process.
+	 */
+	readonly sessionEndBudgetMs?: number
 }
 
 export interface AgentSessionContext {
@@ -6461,6 +6468,7 @@ export async function createAgentSession(
 			removeAll: (items) => deleteMemories(memoryStore, items),
 		},
 		webSearchSummary: webSearchLabel(options.web, nativeSearchAvailable),
+		sessionEndBudgetMs: sessionPlugins?.sessionEndBudgetMs ?? 0,
 		close: (reason) => {
 			if (!sessionClosing) {
 				sessionClosing = true

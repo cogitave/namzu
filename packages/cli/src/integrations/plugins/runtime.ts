@@ -22,6 +22,27 @@ import { PluginSettingsStore } from './settings.js'
  */
 export const SESSION_END_HOOK_TIMEOUT_MS = 5_000
 
+/** The most a hook entry may run: the SDK's own cap on any hook deadline. */
+const MAX_HOOK_TIMEOUT_MS = 10 * 60_000
+
+/**
+ * The longest a session close can spend in `session_end` hooks: the largest
+ * deadline among the entries that are waited for (an `async` one is not), five
+ * seconds for an entry that names none. Zero when there are none. A host that
+ * stops waiting for the close must wait at least this long beyond its own
+ * allowance for the rest of the close, or it leaves before the hook's deadline
+ * can end the hook's process.
+ */
+export function sessionEndHookBudgetMs(hooks: HooksConfig | undefined): number {
+	let longest = 0
+	for (const entry of hooks?.session_end ?? []) {
+		if ('async' in entry && entry.async === true) continue
+		const own = entry.timeoutMs ?? SESSION_END_HOOK_TIMEOUT_MS
+		longest = Math.max(longest, Math.min(MAX_HOOK_TIMEOUT_MS, Math.max(1, own)))
+	}
+	return longest
+}
+
 /** The one plain line that says a hook was ended at its deadline. */
 export function hookTimeoutLine(info: {
 	readonly event: string
@@ -36,6 +57,8 @@ export interface CliPluginRuntime {
 	readonly manager: PluginLifecycleManager
 	readonly skills: SkillRegistry
 	readonly pluginCount: number
+	/** How long closing the session may spend in `session_end` hooks; see {@link sessionEndHookBudgetMs}. */
+	readonly sessionEndBudgetMs: number
 	list(): readonly CliPluginInfo[]
 	/** The JavaScript hooks plugins registered right now: the plugin's name and the event. */
 	pluginHooks(): readonly { readonly plugin: string; readonly event: string }[]
@@ -190,6 +213,7 @@ export async function createCliPluginRuntime(
 		manager,
 		skills,
 		pluginCount: installed.length,
+		sessionEndBudgetMs: sessionEndHookBudgetMs(hooks),
 		pluginHooks: () =>
 			manager
 				.listHooks()
