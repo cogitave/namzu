@@ -3,7 +3,9 @@ import {
 	mkdirSync,
 	readFileSync,
 	readdirSync,
+	rmSync,
 	statSync,
+	symlinkSync,
 	truncateSync,
 	writeFileSync,
 } from 'node:fs'
@@ -31,6 +33,7 @@ import {
 import {
 	SessionFollower,
 	SessionNotFoundError,
+	SessionUnreadableError,
 	type WatchTarget,
 	findSession,
 	listRunningSessions,
@@ -267,6 +270,143 @@ describe('SessionFollower', () => {
 		expect(again.reset).toBe(true)
 		expect(again.records.length).toBe(4)
 		expect(texts(rowsOf(again, '/work/replay'))).toEqual(['Check the release', 'First.'])
+	})
+
+	it('shows a call that has not settled as running, and never as interrupted or as a rewrite', async () => {
+		const h = await fixture()
+		const s = await running(h, 'List the files')
+		const callId = 'call_1'
+		await s.writer.append({
+			type: 'message',
+			turnId: s.turnId,
+			messageId: generateMessageId(),
+			role: 'assistant',
+			content: {
+				role: 'assistant',
+				content: 'Looking.',
+				toolCalls: [
+					{
+						id: callId,
+						type: 'function',
+						function: { name: 'bash', arguments: '{"command":"ls"}' },
+					},
+				],
+			},
+		} as SessionRecordDraft)
+		await s.writer.append({
+			type: 'tool_executing',
+			turnId: s.turnId,
+			iteration: 1,
+			toolUseId: callId,
+			toolName: 'bash',
+			input: { command: 'ls' },
+			isDestructive: false,
+		} as unknown as SessionRecordDraft)
+		const out: string[] = []
+		const printer = new WatchPrinter({
+			write: (t) => out.push(t),
+			plain: true,
+			columns: 80,
+			ended: 'stay',
+		})
+		const follower = new SessionFollower({ target: s.target })
+		const open = await follower.poll()
+		expect(open.status.state).toBe('running')
+		expect(open.liveTurnId).toBe(s.turnId)
+		printer.update(open, rowsOf(open, '/work/replay'))
+		const during = out.join('')
+		expect(during).not.toContain('Interrupted')
+		expect(during).toContain('Looking.')
+
+		await s.writer.append({
+			type: 'tool_completed',
+			turnId: s.turnId,
+			iteration: 1,
+			toolUseId: callId,
+			toolName: 'bash',
+			isError: false,
+			result: 'a.txt',
+		} as unknown as SessionRecordDraft)
+		await s.writer.append({
+			type: 'message',
+			turnId: s.turnId,
+			messageId: generateMessageId(),
+			role: 'tool',
+			content: { role: 'tool', content: 'a.txt', toolCallId: callId },
+		} as SessionRecordDraft)
+		const settled = await follower.poll()
+		printer.update(settled, rowsOf(settled, '/work/replay'))
+		await s.writer.completeTurn(s.turnId, 'done', 2)
+		const ended = await follower.poll()
+		printer.update(ended, rowsOf(ended, '/work/replay'))
+		const all = out.join('')
+		expect(all).not.toContain('rewrote its history')
+		expect(all).not.toContain('Interrupted')
+		expect(all).toContain('Listed 1 directory')
+	})
+
+	it('says a turn is interrupted as soon as the holder process is gone, before its lease lapses', async () => {
+		const h = await fixture()
+		const s = await running(h)
+		const dir = h.paths.sessionDir({ sessionId: s.id })
+		for (const name of readdirSync(dir).filter((n) => /^lease.*\.json$/.test(n))) {
+			const file = join(dir, name)
+			writeFileSync(file, readFileSync(file, 'utf8').replaceAll('fixture', 'namzu:4242:fixture'))
+		}
+		let alive = true
+		const follower = new SessionFollower({ target: s.target, isProcessAlive: () => alive })
+		const seen = await follower.poll()
+		expect(seen.status.state).toBe('running')
+		expect(seen.status.holderPid).toBe(4242)
+		alive = false
+		const gone = await follower.poll()
+		expect(gone.status.state).toBe('interrupted')
+		expect(gone.liveTurnId).toBeUndefined()
+		const listed = await listRunningSessions({
+			root: h.home,
+			tenantId,
+			currentSlug: SLUG,
+			isProcessAlive: () => false,
+		})
+		expect(listed).toEqual([])
+	})
+
+	it('refuses a log whose first record cannot be verified, and a log that is a link', async () => {
+		const h = await fixture()
+		const s = await running(h)
+		const file = h.paths.sessionLog({ sessionId: s.id })
+		const text = readFileSync(file, 'utf8')
+		writeFileSync(file, text.replace('session_started', 'session_startxx'))
+		await expect(new SessionFollower({ target: s.target }).poll()).rejects.toBeInstanceOf(
+			SessionUnreadableError,
+		)
+		const sink = { out: [] as string[], err: [] as string[] }
+		const code = await runWatch({ session: s.id, exitOnEnd: true, plain: true }, io(h, sink))
+		expect(code).toBe(66)
+		expect(sink.out.join('')).toBe('')
+
+		const linked = await running(h)
+		const real = h.paths.sessionLog({ sessionId: linked.id })
+		const elsewhere = join(h.root, 'elsewhere.jsonl')
+		writeFileSync(elsewhere, readFileSync(real))
+		rmSync(real)
+		symlinkSync(elsewhere, real)
+		await expect(new SessionFollower({ target: linked.target }).poll()).rejects.toBeInstanceOf(
+			SessionUnreadableError,
+		)
+	})
+
+	it('does not announce a session of another installation', async () => {
+		const h = await fixture()
+		const s = await running(h)
+		const sink = { out: [] as string[], err: [] as string[] }
+		const code = await runWatch(
+			{ session: s.id, exitOnEnd: true, plain: true },
+			io(h, sink, { tenantId: generateTenantId() }),
+		)
+		expect(code).toBe(66)
+		expect(sink.out.join('')).toBe('')
+		expect(sink.err.join('')).toContain('does not belong')
 	})
 
 	it('refuses a session of another installation', async () => {

@@ -30,7 +30,9 @@ export const WATCH_SETTLED_NOTE =
 export function rowsOf(snapshot: WatchSnapshot, cwd: string): readonly TranscriptMessage[] {
 	let n = 0
 	return projectConversation(snapshot.messages, () => `watch-${n++}`, [], {
-		trail: trailFromRecords(snapshot.records),
+		trail: trailFromRecords(snapshot.records, {
+			...(snapshot.liveTurnId !== undefined ? { liveTurnId: snapshot.liveTurnId } : {}),
+		}),
 		cwd,
 	})
 }
@@ -57,10 +59,17 @@ export function transcriptLines(
 	rows: readonly TranscriptMessage[],
 	options: { readonly holdOpenTail: boolean },
 ): string[] {
+	// A call still in flight is held back with everything after it, so a later
+	// call that settled first does not print ahead of it and reorder the rows.
+	const inFlight = options.holdOpenTail ? rows.findIndex((row) => row.pending === true) : -1
+	const settled = inFlight >= 0 ? rows.slice(0, inFlight) : rows
 	const shown =
-		options.holdOpenTail && rows.length > 0 && isOpenRow(rows[rows.length - 1] as TranscriptMessage)
+		inFlight < 0 &&
+		options.holdOpenTail &&
+		rows.length > 0 &&
+		isOpenRow(rows[rows.length - 1] as TranscriptMessage)
 			? rows.slice(0, -1)
-			: rows
+			: settled
 	const lines: string[] = []
 	shown.forEach((row, index) => {
 		if (index > 0 && row.glyph !== '⎿') lines.push('')

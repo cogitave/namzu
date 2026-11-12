@@ -25,7 +25,7 @@
  * has answered.
  */
 
-import { readFile, readdir, stat } from 'node:fs/promises'
+import { lstat, readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
 	DiskSessionLog,
@@ -86,12 +86,19 @@ export interface WatchSnapshot {
 	readonly changed: boolean
 	/** The log was read again from its start: what was shown before may no longer stand. */
 	readonly reset: boolean
+	/** The turn a live process is running now, when the session is running or waiting. */
+	readonly liveTurnId?: string
 	/** The chain broke at this seq; what precedes it is shown. */
 	readonly brokenAt?: number
 }
 
 export class SessionNotFoundError extends Error {
 	override readonly name = 'SessionNotFoundError'
+}
+
+/** The log is there but nothing in it can be verified, so nothing of it is shown. */
+export class SessionUnreadableError extends Error {
+	override readonly name = 'SessionUnreadableError'
 }
 
 export class SessionNotOwnedError extends Error {
@@ -102,6 +109,18 @@ interface FollowerOptions {
 	readonly target: WatchTarget
 	/** Clock, for tests. */
 	readonly now?: () => number
+	/** Whether a process of this machine is alive, for tests. */
+	readonly isProcessAlive?: (pid: number) => boolean
+}
+
+/** Whether a process of this machine is alive. A process we may not signal is alive. */
+export function processIsAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0)
+		return true
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === 'EPERM'
+	}
 }
 
 const ASK_PHRASES: Readonly<Record<string, string>> = {
@@ -141,6 +160,7 @@ function holderPidOf(lease: SessionLease | null): number | undefined {
 export class SessionFollower {
 	readonly #target: WatchTarget
 	readonly #now: () => number
+	readonly #alive: (pid: number) => boolean
 	readonly #log: DiskSessionLog
 	readonly #file: string
 	readonly #sessionDir: string
@@ -155,10 +175,12 @@ export class SessionFollower {
 	#lastEnd: { outcome: WatchOutcome } | undefined
 	#started = false
 	#brokenAt: number | undefined
+	#unverified = false
 
 	constructor(options: FollowerOptions) {
 		this.#target = options.target
 		this.#now = options.now ?? Date.now
+		this.#alive = options.isProcessAlive ?? processIsAlive
 		this.#log = DiskSessionLog.at(options.target.paths, { sessionId: options.target.sessionId })
 		this.#file = options.target.paths.sessionLog({ sessionId: options.target.sessionId })
 		this.#sessionDir = options.target.paths.sessionDir({ sessionId: options.target.sessionId })
@@ -168,6 +190,11 @@ export class SessionFollower {
 	async poll(): Promise<WatchSnapshot> {
 		let info: { size: number; identity: string }
 		try {
+			if ((await lstat(this.#file)).isSymbolicLink()) {
+				throw new SessionUnreadableError(
+					`The log of session ${this.#target.sessionId} is a link, and links are not followed, so it is not shown.`,
+				)
+			}
 			const s = await stat(this.#file)
 			info = { size: s.size, identity: `${s.dev}:${s.ino}` }
 		} catch (error) {
@@ -198,15 +225,25 @@ export class SessionFollower {
 			changed = changed || this.#records.length !== before
 			if (this.#records.length !== before || reset) await this.#refold()
 		}
+		if (this.#records.length === 0 && info.size > 0 && this.#unverified) {
+			throw new SessionUnreadableError(
+				`The log of session ${this.#target.sessionId} cannot be verified from its first record, so nothing of it is shown.`,
+			)
+		}
 		this.#size = info.size
 		this.#identity = info.identity
 		const status = await this.#status()
+		const liveTurn =
+			status.state === 'running' || status.state === 'waiting'
+				? this.#fold.facts(this.#target.sessionId)?.activeTurn?.turnId
+				: undefined
 		return {
 			status,
 			messages: this.#messages,
 			records: this.#records,
 			changed,
 			reset,
+			...(liveTurn !== undefined ? { liveTurnId: liveTurn } : {}),
 			...(this.#brokenAt !== undefined ? { brokenAt: this.#brokenAt } : {}),
 		}
 	}
@@ -220,6 +257,7 @@ export class SessionFollower {
 		this.#lastEnd = undefined
 		this.#started = false
 		this.#brokenAt = undefined
+		this.#unverified = false
 	}
 
 	async #readMore(): Promise<{ ok: boolean }> {
@@ -234,6 +272,7 @@ export class SessionFollower {
 				const summary = step.value
 				if (!summary.intact && count === 0 && this.#pointer !== undefined) return { ok: false }
 				this.#brokenAt = summary.intact ? undefined : summary.break?.seq
+				this.#unverified = !summary.intact
 				return { ok: true }
 			}
 			count += 1
@@ -306,8 +345,11 @@ export class SessionFollower {
 
 	async #status(): Promise<WatchStatus> {
 		const lease = await readSessionLease(this.#sessionDir).catch(() => null)
-		const live = isLeaseLive(lease, this.#now())
 		const holderPid = holderPidOf(lease)
+		// The lease runs for minutes after a killed host; on this machine the
+		// holder's pid says sooner whether anybody is still there.
+		const live =
+			isLeaseLive(lease, this.#now()) && (holderPid === undefined || this.#alive(holderPid))
 		const pid = holderPid !== undefined ? { holderPid } : {}
 		const facts = this.#fold.facts(this.#target.sessionId)
 		const active = facts?.activeTurn
@@ -490,7 +532,10 @@ export interface RunningSession {
  * lease and is not listed; it is still addressable by id.
  */
 export async function listRunningSessions(
-	options: FindOptions & { readonly now?: () => number },
+	options: FindOptions & {
+		readonly now?: () => number
+		readonly isProcessAlive?: (pid: number) => boolean
+	},
 ): Promise<RunningSession[]> {
 	const now = (options.now ?? Date.now)()
 	const out: RunningSession[] = []
@@ -500,6 +545,8 @@ export async function listRunningSessions(
 				() => null,
 			)
 			if (!isLeaseLive(lease, now)) continue
+			const holder = holderPidOf(lease)
+			if (holder !== undefined && !(options.isProcessAlive ?? processIsAlive)(holder)) continue
 			try {
 				const fold = new ConversationFactsFold()
 				const records: SessionRecord[] = []

@@ -9,6 +9,7 @@ import {
 	SessionFollower,
 	SessionNotFoundError,
 	SessionNotOwnedError,
+	SessionUnreadableError,
 	type WatchStatus,
 	type WatchTarget,
 	findSession,
@@ -105,6 +106,8 @@ export interface WatchIO {
 		readonly close: () => void
 	}
 	readonly now?: () => number
+	/** Whether a process of this machine is alive; for tests. */
+	readonly isProcessAlive?: (pid: number) => boolean
 }
 
 export function exitCodeOf(status: WatchStatus): number {
@@ -134,7 +137,11 @@ async function pick(args: WatchArgs, io: WatchIO): Promise<WatchTarget | number>
 			throw error
 		}
 	}
-	const running = await listRunningSessions({ ...base, ...(io.now ? { now: io.now } : {}) })
+	const running = await listRunningSessions({
+		...base,
+		...(io.now ? { now: io.now } : {}),
+		...(io.isProcessAlive ? { isProcessAlive: io.isProcessAlive } : {}),
+	})
 	if (running.length === 0) {
 		io.writeError(
 			'No session has a turn running now. Give a session id to watch one that is finished or between turns.\n',
@@ -160,6 +167,7 @@ export async function runWatch(args: WatchArgs, io: WatchIO): Promise<number> {
 	const follower = new SessionFollower({
 		target,
 		...(io.now ? { now: io.now } : {}),
+		...(io.isProcessAlive ? { isProcessAlive: io.isProcessAlive } : {}),
 	})
 	const printer = new WatchPrinter({
 		write: io.write,
@@ -167,11 +175,13 @@ export async function runWatch(args: WatchArgs, io: WatchIO): Promise<number> {
 		columns: io.columns,
 		ended: args.exitOnEnd ? 'exit' : 'stay',
 	})
-	printer.header(
-		`session ${target.sessionId} in ${target.folder}. ${WATCH_READ_ONLY_NOTE} ${WATCH_SETTLED_NOTE}`,
-	)
 	const waiter = io.makeWaiter(target)
 	try {
+		// Read once before announcing anything: a session that is refused or cannot be read is not announced.
+		await follower.poll()
+		printer.header(
+			`session ${target.sessionId} in ${target.folder}. ${WATCH_READ_ONLY_NOTE} ${WATCH_SETTLED_NOTE}`,
+		)
 		const end = await follow({
 			follower,
 			printer,
@@ -188,7 +198,11 @@ export async function runWatch(args: WatchArgs, io: WatchIO): Promise<number> {
 		return exitCodeOf(end.status)
 	} catch (error) {
 		printer.close()
-		if (error instanceof SessionNotFoundError || error instanceof SessionNotOwnedError) {
+		if (
+			error instanceof SessionNotFoundError ||
+			error instanceof SessionNotOwnedError ||
+			error instanceof SessionUnreadableError
+		) {
 			io.writeError(`${error.message}\n`)
 			return EXIT_NOINPUT
 		}

@@ -56,6 +56,7 @@ export type ToolRow = Pick<TranscriptMessage, 'role' | 'content'> &
 			| 'shell'
 			| 'diff'
 			| 'group'
+			| 'pending'
 		>
 	>
 

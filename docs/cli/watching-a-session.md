@@ -81,15 +81,27 @@ cannot move the cursor or recolour the watcher's screen.
 
 | State | Means | From |
 |---|---|---|
-| `running` | a turn is in flight and its writer's lease is live | the open turn in the log, the lease |
+| `running` | a turn is in flight and its writer is alive: the lease is live and the process it names still exists | the open turn in the log, the lease, the holder's pid |
 | `waiting` | the turn waits for a person, or is parked | an unanswered `decision_requested`, a `turn_paused` |
 | `finished` | the last turn settled (the sentence says how: finished, failed, stopped by the person, or stopped early) | `turn_completed`, `turn_failed` |
-| `interrupted` | the turn never ended and nothing holds the session any more | an open turn whose lease lapsed |
+| `interrupted` | the turn never ended and nothing holds the session any more | an open turn whose lease lapsed or whose holder process is gone |
 | `idle` | no turn has run yet | |
 
 These are the facts the session list uses: the turn the log leaves open, and whether
 its writer's lease is still live. A process killed outright holds its lease until it lapses
-(see [Session storage](session-storage.md)), so such a session reads `running` until then.
+(see [Session storage](session-storage.md)), which is minutes. The watcher reads only
+sessions of this machine, so it also asks whether the process the lease names still exists
+(a signal-zero probe, which sends nothing) and reads a session whose holder is gone as
+`interrupted` at once. A pid that another process has since taken reads as alive until the
+lease lapses.
+
+A tool call that has started and not yet reported a result is in flight, not interrupted:
+it is held back, with the rows after it, until it settles, and the session reads `running`.
+
+A log whose first record cannot be verified (changed in place, or reached through a
+link, which is not followed) is refused with exit 66 and nothing of it is shown, rather
+than shown as an idle session. A session is announced only once it has been read and
+found to be this account's.
 
 When the session waits for an approval or a question, the status line says what it is
 waiting for in the kernel's words (the question's own text, or "approve the call to
