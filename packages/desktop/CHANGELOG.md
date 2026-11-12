@@ -1,5 +1,12 @@
 # @namzu/desktop
 
+## 0.7.0
+
+### Minor Changes
+
+- b084077: The home screen's heading now draws the project's name in a pixel typeface (Geist Pixel, shape Square), a little lighter and squarer than the rest of the sentence, which stays in Geist. A project folder can be named with any characters: the name is drawn in pixel letters only when the face has every character of it (Latin letters, Turkish letters such as ç ğ ı İ ş ö ü, digits and common punctuation); a name with a Cyrillic, CJK or emoji character, or any other character the face lacks, stays whole in Geist, never a mix inside one name. The heading keeps its height and its baseline. Settings, Appearance, Interface font set to "Your device's" turns the pixel letters off with the other shipped faces, at once, with no restart. Nothing else is drawn in the pixel face, and no setting moved. Geist Pixel is under the SIL Open Font License; its copyright notice is in the app's third-party notices.
+- 5c9760b: Publisher side of the engine that Namzu Desktop will keep current by itself (nothing in the installed app changes yet). The installer's command line folder gains a `kernel.json` at its root (command line and engine versions, `desktopContract`, `dataEpoch`, platform and arch, written from what the staged command line answers); every other file in it is byte for byte as before, and the installer staging and the new kernel staging now run one shared function. New plain `.mjs` commands under `packages/desktop/scripts/kernel/` stage, pack (a deterministic `.tar.gz` plus `files.json`), assemble a manifest, sign it with Ed25519 (the key only from `NAMZU_KERNEL_SIGNING_KEY`), verify it with an independent reader, make a key pair, and run the whole release locally. `packages/desktop/kernel-keys.json` is the public key list, empty until a real key exists. `.github/workflows/kernel-release.yml` publishes to the rolling release `kernel-latest`: it builds only when the command line is newer than the current manifest and on the registry, signs in the `kernel-release` environment, and re-issues the manifest weekly. See `docs/cli/desktop-engine-bundles.md`.
+
 ## 0.6.0
 
 ### Minor Changes
