@@ -312,7 +312,7 @@ export function chunksText(printed: readonly PrintedChunk[]): string {
 	return text
 }
 
-const MARKER_LINE = /^\s*(?:[-*_+=]+|\d+[.)]?|#{1,6})\s*$/u
+const MARKER_LINE = /^\s*(?:[-*_+=](?:\s*[-*_+=])*|\d+[.)]?|#{1,6})\s*$/u
 const HOLD_LIMIT = 300
 
 /** Whole words only: the word still arriving waits for its space. */
@@ -366,19 +366,24 @@ function holdSegment(
 		case 'bullet': {
 			const m = LINE_SHAPES.bullet.exec(seg)
 			if (!m) return ''
-			const text = holdProse(m[3] ?? '', ended)
+			// Text that is itself only a marker may still turn the line into a rule.
+			const kept = holdProse(m[3] ?? '', ended)
+			const text = !ended && MARKER_LINE.test(kept) ? '' : kept
 			return text.length > 0 ? seg.slice(0, seg.length - (m[3] ?? '').length) + text : ''
 		}
 		case 'quote': {
 			const lines = seg.split('\n')
 			const lastLine = lines[lines.length - 1] ?? ''
 			const mark = LINE_SHAPES.quoteMark.exec(lastLine)?.[0] ?? ''
-			const content = holdProse(lastLine.slice(mark.length), ended)
+			const kept = holdProse(lastLine.slice(mark.length), ended)
+			// A marker with no text after the quote mark may still become a rule or a list item.
+			const content = !ended && MARKER_LINE.test(kept) ? '' : kept
 			lines[lines.length - 1] = `${mark}${content}`
 			return lines.join('\n')
 		}
 		case 'rule':
-			return seg
+			// The reader sees a rule only when its line has ended, so the newline goes with it.
+			return ended ? `${seg}\n` : seg
 		default: {
 			const lines = seg.split('\n')
 			const total = lines.length
@@ -448,9 +453,10 @@ export function tailView(tail: string, state: TailState): string {
 	if (!last) return ''
 	const hasAfter = tail.slice(last.end + 1).length > 0
 	const body = holdSegment(tail, last, hasAfter, state, ranges.length === 1)
-	return body === ''
-		? tail.slice(0, last.start).replace(/\s+$/u, '')
-		: tail.slice(0, last.start) + body
+	if (body !== '') return tail.slice(0, last.start) + body
+	const before = tail.slice(0, last.start).replace(/\s+$/u, '')
+	// A rule before the part that is held keeps the line end that makes it a rule.
+	return ranges[ranges.length - 2]?.kind === 'rule' ? `${before}\n` : before
 }
 
 /** The pieces a message is drawn from: printed chunks, then the live tail. */
@@ -497,4 +503,23 @@ export function tailPiece(message: TranscriptMessage): ReplyPiece | undefined {
 		lead: state.lead,
 		first: printed.length === 0 || !coherent,
 	}
+}
+
+/** Said under a reply whose printed parts could not be taken back. */
+export const DROPPED_REPLY_NOTICE = 'The reply above was dropped; the answer starts again below.'
+
+/**
+ * A reply whose request started over. One that has printed nothing is removed.
+ * Parts already printed are in the scrollback and cannot be taken back: the
+ * reply stays as written, ends where it was, and a notice says it was dropped,
+ * so the screen does not read as the same answer twice.
+ */
+export function voidReply(
+	messages: readonly TranscriptMessage[],
+	abandoned: string,
+	note: () => TranscriptMessage,
+): TranscriptMessage[] {
+	return messages.flatMap((m) =>
+		m.id !== abandoned ? [m] : m.printed?.length ? [{ ...m, pending: false }, note()] : [],
+	)
 }

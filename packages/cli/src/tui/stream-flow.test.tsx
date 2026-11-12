@@ -26,6 +26,7 @@ import {
 	tailPiece,
 	tailStateOf,
 	tailView,
+	voidReply,
 } from './stream-flow.js'
 import type { PrintedChunk, TranscriptMessage } from './types.js'
 
@@ -115,6 +116,12 @@ const CORPUS: Record<string, string> = {
 	emphasis:
 		'This is **bold text** and *italic text* and `inline code` and [a link](https://example.com/x) and __under__ end.',
 	literalStar: 'We compute 2 * 3 = 6 and write snake_case names, then 4 * 5 = 20 here.',
+	setext: 'Setext candidate\n---\n\nNext.',
+	dashesAfterText: 'Dashes after text\n----------\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nNext.',
+	starRuleFence: 'Before.\n\n***\n\n```ts\ncode\n```\n\nAfter.',
+	starRule: 'Before.\n\n***\n\nAfter.',
+	ruleSpaced: 'Before.\n\n- - -\n\nAfter.',
+	quoteList: '> - a\n> - b\n\nAfter.',
 	dashesAtEnd: 'Some text\n---',
 	dashesAfterBlank: 'Some text\n\n---',
 	markerAtEnd: 'Intro\n\n-',
@@ -173,6 +180,15 @@ function run(reply: string, layoutChanges = false): void {
 		// is known only once its widest row has arrived: it is the one construct
 		// whose look can change as it grows.
 		if (!layoutChanges) expect(shown, `words at ${p}`).toEqual(fullWords.slice(0, shown.length))
+		// No row of the tail is a bare marker or the raw text of a rule: a rule is
+		// drawn as a rule or not at all, never as dashes that are replaced.
+		// (At the very end the turn is over and the text is drawn as it is.)
+		for (const row of p < reply.length
+			? markdownRows(visible, WIDTH, 'x').map((r) => r.text)
+			: []) {
+			expect(row, `bare marker at ${p}`).not.toMatch(/^\s*(?:[-*•>]\s*)+$/u)
+			expect(row, `raw rule at ${p}`).not.toMatch(/(?:^|\s)(?:-{3,}|\*{3,})$/u)
+		}
 	}
 	// Finished: the parts and the rest are the whole reply.
 	const done = message(reply, { printed })
@@ -259,6 +275,66 @@ describe('a reply drawn as it is written', () => {
 		expect(v('# Head')).toBe('')
 		expect(v('# Head line')).toBe('# Head')
 		expect(v('first line\n')).toBe('first line')
+	})
+})
+
+describe('a rule and its look-alikes in the tail', () => {
+	const v = (s: string) => tailView(s, { join: 'block', lead: null })
+	const shown = (s: string) => markdownRows(v(s), 40, 'x').map((r) => r.text)
+
+	it('a rule under text, or after a blank line, is drawn as a rule once its line has ended', () => {
+		for (const reply of [
+			'Setext candidate\n---\n',
+			'a\n\n***\n',
+			'Dashes after text\n----------\n',
+		]) {
+			const rows = shown(reply)
+			expect(rows.join('\n'), reply).not.toMatch(/-{3}|\*{3}/u)
+			expect(rows, reply).toEqual(markdownRows(reply, 40, 'x').map((r) => r.text))
+		}
+	})
+
+	it('a rule stays a rule while the block after it is still held', () => {
+		for (const reply of [
+			'Dashes after text\n----------\n\n| Name | Kind |',
+			'Dashes after text\n----------\n\n- ',
+			'a\n\n***\n\n```',
+		]) {
+			const rows = shown(reply).join('\n')
+			expect(rows, reply).not.toMatch(/-{3}|\*{3}/u)
+			expect(rows, reply).toContain('─')
+		}
+	})
+
+	it('holds a spaced rule and a marker inside a quote until they are decided', () => {
+		expect(v('Before.\n\n- -')).toBe('Before.')
+		expect(v('Before.\n\n- - ')).toBe('Before.')
+		expect(v('> -')).toBe('> ')
+		expect(v('> > -')).toBe('> >')
+		expect(v('> - a')).toBe('> ') // the word still arriving waits, and a marker alone is held
+		expect(v('> - a b')).toBe('> - a')
+	})
+})
+
+describe('a reply whose request starts over', () => {
+	const note = (): TranscriptMessage => ({ id: 'n', role: 'system', content: 'dropped' })
+	it('is removed when nothing of it was printed', () => {
+		const a = message('words', { id: 'a', pending: true })
+		const b = message('other', { id: 'b' })
+		expect(voidReply([b, a], 'a', note)).toEqual([b])
+	})
+	it('stays, finished, with a notice under it when parts were printed', () => {
+		const chunk: PrintedChunk = {
+			text: 'First.\n\n',
+			join: 'block',
+			last: 'paragraph',
+			open: 'none',
+		}
+		const a = message('First.\n\nhalf', { id: 'a', pending: true, printed: [chunk] })
+		const out = voidReply([a], 'a', note)
+		expect(out.map((m) => m.id)).toEqual(['a', 'n'])
+		expect(out[0]?.pending).toBe(false)
+		expect(out[0]?.content).toBe('First.\n\nhalf')
 	})
 })
 

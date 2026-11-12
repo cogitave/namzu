@@ -781,7 +781,13 @@ import {
 } from './slashCommands.js'
 import { StatusLineRows } from './status-line/StatusLineRows.js'
 import { useStatusLine } from './status-line/useStatusLine.js'
-import { type FlowContext, appendReply, paceDecision } from './stream-flow.js'
+import {
+	DROPPED_REPLY_NOTICE,
+	type FlowContext,
+	appendReply,
+	paceDecision,
+	voidReply,
+} from './stream-flow.js'
 import { scriptText, terminalDisplayText } from './terminal-display.js'
 import { terminalFocus, useTerminalFocused } from './terminal-focus.js'
 import { terminalSupportsHyperlinks } from './terminal-hyperlinks.js'
@@ -9768,9 +9774,13 @@ function AppBody({
 				// it was written and the new attempt follows it.
 				if (abandoned)
 					setMessages((prev) =>
-						prev.flatMap((m) =>
-							m.id !== abandoned ? [m] : m.printed?.length ? [{ ...m, pending: false }] : [],
-						),
+						voidReply(prev, abandoned, () => ({
+							id: nextId(),
+							role: 'system',
+							content: DROPPED_REPLY_NOTICE,
+							glyph: systemRowStyle('notice').glyph,
+							glyphColor: systemRowStyle('notice').color,
+						})),
 					)
 			}
 			if (event.kind === 'provider-fallback' && event.restart) voidStreamedReply()
@@ -9802,10 +9812,6 @@ function AppBody({
 			})
 			if (event.kind === 'tool-start' && event.toolName === SKILL_TOOL_NAME) {
 				conversationLearning().skillUsed = true
-			}
-			const ensureAssistant = () => {
-				if (!st.assistantId) st.assistantId = pushMessage('assistant', '', true)
-				return st.assistantId
 			}
 			const closeAssistant = () => {
 				// Before finalising, never after: the tail of a reply is almost

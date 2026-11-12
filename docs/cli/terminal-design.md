@@ -792,7 +792,11 @@ printed once the live part would pass ten rows at a short window (up to fourteen
 a tall one), and the live part keeps its last three. A table, a long list item and a quote are not cut, so
 one taller than the window is still clipped at its top until it is complete. A
 reply that a retry voids after parts of it were printed stays above the new
-attempt, since printed rows cannot be taken back, and rows printed before a
+attempt, since printed rows cannot be taken back, with one row under it that
+says "The reply above was dropped; the answer starts again below." (a reply
+with nothing printed is taken back as before, and the saved conversation holds
+only the answer that finished). A rule under text (`---`, `***`, `- - -`) and a
+list marker inside a quote wait until they are decided, in both screens. Rows printed before a
 resize keep the width they had. The fullscreen view draws the same tail and
 prints nothing, since it redraws freely.
 
