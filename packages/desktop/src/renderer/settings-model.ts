@@ -1,3 +1,4 @@
+import type { KernelNewer } from '../shared/engine-update-protocol.js'
 import type { ProjectView } from '../shared/protocol.js'
 import { FINISHED_NOTICE_AFTER_SECONDS } from '../shared/settings-protocol.js'
 import {
@@ -350,20 +351,29 @@ export function platformText(platform: string): string {
 }
 
 /** The facts a person pastes into a support request: versions only, never a path or a name. */
-export function aboutDetailsText(info: {
-	version: string
-	cliVersion?: string
-	installedCliVersion?: string
-	sdkVersion?: string
-	platform: string
-}): string {
+export function aboutDetailsText(
+	info: {
+		version: string
+		cliVersion?: string
+		installedCliVersion?: string
+		sdkVersion?: string
+		platform: string
+	},
+	newer: KernelNewer = {},
+): string {
 	return [
 		`Namzu Desktop ${info.version}`,
 		`Namzu command line (bundled with this app) ${info.cliVersion ?? 'not found'}`,
+		...(newer.cli
+			? [`A newer command line exists (${newer.cli}); it arrives with an update of this app`]
+			: []),
 		...(info.installedCliVersion
 			? [`Namzu command line (installed separately) ${info.installedCliVersion}`]
 			: []),
 		`Namzu engine ${info.sdkVersion ?? 'not found'}`,
+		...(newer.engine
+			? [`A newer engine exists (${newer.engine}); it arrives with an update of this app`]
+			: []),
 		platformText(info.platform),
 	].join('\n')
 }

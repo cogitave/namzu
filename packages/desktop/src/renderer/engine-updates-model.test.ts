@@ -160,6 +160,45 @@ describe('a row of Settings ▸ Updates', () => {
 	})
 })
 
+describe('the bundled command line when the registry knows a newer one', () => {
+	const behind = { ...namzu, installed: '49.1.1', latest: '51.0.1', newerThanBundled: '51.0.1' }
+	it('names the bundled version, the newest known and how it arrives, not "Up to date"', () => {
+		const view = engineRowView(behind)
+		expect(view).toMatchObject({ versions: '49.1.1', status: 'A newer one exists', busy: false })
+		expect(view.note).toBe(
+			'Bundled with this app: 49.1.1. The newest known is 51.0.1. It arrives with an update of this app.',
+		)
+	})
+	it('offers no button and names no command to run', () => {
+		const view = engineRowView(behind)
+		expect(view.action).toBeUndefined()
+		expect(view.command).toBeUndefined()
+		expect(JSON.stringify(view)).not.toMatch(/npm|install|Update\b/u)
+	})
+	it('is not an update to announce, badge or count', () => {
+		expect(availableEngineUpdates(state(behind))).toEqual([])
+		expect(engineBadge(state(behind))).toEqual({ visible: false })
+		expect(engineUpdateNote(state(behind), 'namzu-cli')).toBeUndefined()
+	})
+	it('leaves the bundled row as it was when nothing newer is known', () => {
+		expect(engineRowView({ ...namzu, installed: '49.1.1', latest: '49.1.1' })).toMatchObject({
+			status: 'Up to date',
+		})
+	})
+	it('renders in the list with no button', () => {
+		const markup = renderToStaticMarkup(
+			provided(
+				controls(state(behind)),
+				createElement(EngineUpdateRows, { target: { groupId: 'g1' } }),
+			),
+		)
+		expect(markup).toContain('A newer one exists')
+		expect(markup).toContain('The newest known is 51.0.1')
+		expect(markup).not.toContain('aria-label="Update Namzu command line"')
+		expect(markup).not.toContain('<code>')
+	})
+})
+
 describe('what is behind', () => {
 	it('still counts a program whose update failed while it is behind', () => {
 		const failed = { ...codex, status: 'failed' as const }

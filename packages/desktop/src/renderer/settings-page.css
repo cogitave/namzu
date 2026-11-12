@@ -338,6 +338,13 @@
 	line-height: var(--leading-small);
 	font-variant-numeric: tabular-nums;
 }
+.settings-facts dd.settings-fact-note {
+	margin-top: 2px;
+	color: var(--muted-foreground);
+	font-size: var(--text-caption);
+	line-height: var(--leading-caption);
+	font-variant-numeric: normal;
+}
 .settings-speech {
 	border-top: 1px solid var(--border);
 }

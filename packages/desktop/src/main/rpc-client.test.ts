@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type DesktopDiagnosticSink, DesktopDiagnostics, observeDesktopIpc } from './diagnostics.js'
 import { ExpectedRuntimeCloseError } from './expected-close.js'
 import { RuntimeClient } from './rpc-client.js'
@@ -367,4 +367,42 @@ it('offers host terminals only when the host answers every terminal method', asy
 	const withTerminals = client({ ...process.env, FIXTURE_TERMINALS: '1' })
 	await withTerminals.start()
 	expect(withTerminals.supportsTerminals()).toBe(true)
+})
+
+describe('what the host is told about the app', () => {
+	async function initializeParams(clientVersion?: string) {
+		const root = mkdtempSync(join(tmpdir(), 'namzu-client-version-'))
+		diagnosticRoots.push(root)
+		const log = join(root, 'requests.ndjson')
+		const runtime = new RuntimeClient(process.cwd(), {
+			program: process.execPath,
+			args: [fixture],
+			env: { ...process.env, FIXTURE_REQUEST_LOG: log },
+			...(clientVersion ? { clientVersion } : {}),
+		})
+		clients.push(runtime)
+		await runtime.start()
+		const lines = readFileSync(log, 'utf8').trim().split('\n')
+		return lines.map((line) => JSON.parse(line)).find(({ method }) => method === 'initialize')
+			?.params
+	}
+
+	it("sends the app's own version as the client version", async () => {
+		expect(await initializeParams('7.8.9')).toMatchObject({
+			clientInfo: { name: 'namzu-desktop', version: '7.8.9' },
+		})
+	})
+
+	it('sends no version rather than an invented one when the app gave none', async () => {
+		const params = await initializeParams()
+		expect(params.clientInfo).toEqual({ name: 'namzu-desktop' })
+	})
+
+	it('has no version literal in the client, and the host command takes the version from the app', () => {
+		const client = readFileSync(new URL('./rpc-client.ts', import.meta.url), 'utf8')
+		expect(client).not.toMatch(/clientInfo:\s*\{[^}]*version:\s*['"`]/u)
+		expect(client).not.toMatch(/version:\s*['"`]\d+\.\d+\.\d+/u)
+		const main = readFileSync(new URL('./index.ts', import.meta.url), 'utf8')
+		expect(main).toContain('clientVersion: app.getVersion()')
+	})
 })

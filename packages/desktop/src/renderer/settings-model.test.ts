@@ -90,6 +90,29 @@ describe('about', () => {
 	})
 })
 
+describe('the details a person copies', () => {
+	it('carry the same newer-kernel facts as About, and no more', () => {
+		const info = {
+			version: '0.5.0',
+			cliVersion: '49.1.1',
+			sdkVersion: '62.6.1',
+			platform: 'linux x64',
+		}
+		expect(aboutDetailsText(info, { cli: '51.0.1', engine: '62.12.0' })).toBe(
+			[
+				'Namzu Desktop 0.5.0',
+				'Namzu command line (bundled with this app) 49.1.1',
+				'A newer command line exists (51.0.1); it arrives with an update of this app',
+				'Namzu engine 62.6.1',
+				'A newer engine exists (62.12.0); it arrives with an update of this app',
+				'Linux (64-bit Intel or AMD)',
+			].join('\n'),
+		)
+		expect(aboutDetailsText(info, {})).toBe(aboutDetailsText(info))
+		expect(aboutDetailsText(info)).not.toContain('newer')
+	})
+})
+
 describe('updates', () => {
 	it('words the last check from an injected clock', () => {
 		const now = 10_000_000

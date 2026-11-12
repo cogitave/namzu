@@ -111,6 +111,7 @@ import { ProjectNameStore } from './project-names.js'
 import { recoveryCardPage, recoveryCardUrl } from './recovery-card.js'
 import { selectRendererPage } from './renderer-page.js'
 import { restoreProjects } from './restore-projects.js'
+import type { RuntimeCommand } from './rpc-client.js'
 import { RunningReplyGuard } from './running-reply-guard.js'
 import {
 	desktopCliPrefix,
@@ -399,7 +400,7 @@ app.on('second-instance', (_event, argv) => {
 const cliEntry =
 	process.env.NAMZU_DESKTOP_CLI ??
 	bundledCliEntry({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath })
-const command = cliEntry
+const hostCommand = cliEntry
 	? {
 			program: process.execPath,
 			args: desktopRuntimeNodeArgs(cliEntry),
@@ -411,6 +412,8 @@ const command = cliEntry
 				args: ['/d', '/s', '/c', 'namzu acp --desktop'],
 			}
 		: { program: 'namzu', args: ['acp', '--desktop'] }
+// The host is told which app it serves; the number is the app's own, read at run time.
+const command: RuntimeCommand = { ...hostCommand, clientVersion: app.getVersion() }
 const palComputerSettings = palComputerSetupSettings(
 	process.platform,
 	process.env,
@@ -1874,13 +1877,15 @@ function bakedUpdateConfig(): string | undefined {
 		return undefined
 	}
 }
+const appCanUpdate =
+	updateFeed !== undefined || (app.isPackaged && bakedFeedDeclared(bakedUpdateConfig()))
 const updates = new UpdateController({
 	// Required lazily: a development install carries no updater package, and only an enabled updater needs it.
 	updater: () =>
 		(createRequire(import.meta.url)('electron-updater') as { autoUpdater: AutoUpdaterLike })
 			.autoUpdater,
 	// Nothing is checked unless a feed was named (environment) or the build itself declares one.
-	enabled: updateFeed !== undefined || (app.isPackaged && bakedFeedDeclared(bakedUpdateConfig())),
+	enabled: appCanUpdate,
 	feed: updateFeed,
 	autoDownload: () => settingsStore.get().autoDownloadUpdates,
 	currentVersion: app.getVersion(),
@@ -1956,6 +1961,8 @@ const engineUpdates = new EngineUpdates({
 		fetch: (url, init) => net.fetch(url, init),
 	}),
 	bundledVersion: () => readRuntimeVersions(cliEntry).cliVersion,
+	bundledEngineVersion: () => readRuntimeVersions(cliEntry).sdkVersion,
+	appCanUpdate: () => appCanUpdate,
 	...(process.platform === 'win32' ? { commandPrompt: process.env.ComSpec ?? 'cmd.exe' } : {}),
 	cache: engineUpdateCacheFile(join(app.getPath('userData'), 'engine-updates.json'), (error) =>
 		diagnostics.record('ipc_failed', { operation: 'engineUpdates', error }),

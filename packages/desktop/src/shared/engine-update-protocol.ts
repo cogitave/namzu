@@ -48,6 +48,20 @@ export interface EngineUpdateItem {
 	bundled?: boolean
 	/** Updated since this app started: open conversations keep the old version until they restart. */
 	updated?: boolean
+	/**
+	 * Only on the bundled command line: the registry's newest version when it is newer than the
+	 * bundled one and this copy of the app can update itself. It arrives with an update of the app;
+	 * nothing here installs it.
+	 */
+	newerThanBundled?: string
+}
+
+/** The kernel the app carries is newer in the registry: said by version, never acted on. */
+export interface KernelNewer {
+	/** The newest known command line, when newer than the bundled one. */
+	cli?: string
+	/** The newest known engine, when newer than the bundled one. */
+	engine?: string
 }
 
 export interface EngineUpdatesState {
@@ -56,6 +70,8 @@ export interface EngineUpdatesState {
 	checking: boolean
 	/** When the last check finished (any item), for "Last checked". */
 	checkedAt?: number
+	/** What the registry knows to be newer than the command line and engine bundled with the app. */
+	kernel?: KernelNewer
 }
 
 /** What a window sends to start an update. The command comes from main, never from the window. */
@@ -118,6 +134,14 @@ export function compareVersions(a: string, b: string): number {
 	if (left[4] === undefined) return 1
 	if (right[4] === undefined) return -1
 	return left[4] < right[4] ? -1 : 1
+}
+
+/** The engine the bundled command line carries: asked of the registry like the programs, but it has no row. */
+export const KERNEL_ENGINE_PACKAGE = '@namzu/sdk'
+
+/** The words under a version that has a newer one in the registry. */
+export function newerKernelText(version: string): string {
+	return `A newer one exists (${version}). It arrives with an update of this app.`
 }
 
 export const ENGINE_UPDATE_NAMES: Record<EngineUpdateId, string> = {
