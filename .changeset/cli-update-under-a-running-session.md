@@ -1,0 +1,5 @@
+---
+"@namzu/cli": patch
+---
+
+Closing Namzu after an update no longer ends in a stack trace. The background update used to replace the installed files while a window was open, so the next file that window loaded (closing it was the first) was gone: you saw `ERR_MODULE_NOT_FOUND` and exit code 1 right after the line telling you how to resume. Now a window never installs a version over itself: the footer says `Update X ready · installs when Namzu closes`, and a background process installs it once no Namzu window from that install is open, with the same checks and roll back as before. A window left open when you upgrade by hand or with another tool says one plain line when it needs a file that is gone (your conversation is saved; start Namzu again), `namzu upgrade` tells you when other windows are still open, and a window that finds a newer version already installed says so. The update now lands when the last window closes, not ten seconds after you start. Nothing to change on your side. A window with updates switched off writes nothing into the install, and a closed terminal window still starts the waiting install.

@@ -79,6 +79,30 @@ describe('npm global installation ownership', () => {
 	})
 })
 
+describe('namzu upgrade with other windows open', () => {
+	it('says how many windows still run the old version, and to reopen them', async () => {
+		const one = harness({ windowsOpen: () => 1 })
+		expect(await one.invoke()).toBe(0)
+		expect(one.printed).toEqual([
+			expect.objectContaining({
+				updated: true,
+				text: expect.stringContaining('still open in another window; close and reopen it'),
+			}),
+		])
+		const two = harness({ windowsOpen: () => 2 })
+		await two.invoke()
+		expect(two.printed).toEqual([
+			expect.objectContaining({ text: expect.stringContaining('still open in 2 other windows') }),
+		])
+	})
+
+	it('says nothing about windows when none is open', async () => {
+		const h = harness({ windowsOpen: () => 0 })
+		await h.invoke()
+		expect(JSON.stringify(h.printed)).not.toContain('still open')
+	})
+})
+
 describe('namzu upgrade', () => {
 	it('checks without spawning and names the command that can apply the update', async () => {
 		const h = harness()

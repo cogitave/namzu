@@ -3,15 +3,12 @@
  * the registry and the real installers.
  */
 
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-
 import type { UpdatesConfig } from '../../config/schema.js'
 import { removeOwnPowerShellShim, runNpmUpgrade } from '../npm-global.js'
-import { resolveNamzuHome } from '../state/home.js'
 import { fetchNamzuRelease } from '../updates.js'
 import { type InstallerRequest, PUBLIC_REGISTRY } from './apply.js'
-import { type InstallKind, classifyInstall, realRoot } from './install-kind.js'
+import { currentInstall } from './current-install.js'
+import { noteUpdatePending } from './deferred-apply.js'
 import { readInstalledVersion } from './installed-version.js'
 import { type UpdatePolicy, resolveUpdatePolicy } from './policy.js'
 import { type Updater, type UpdaterEvent, createUpdater } from './updater.js'
@@ -23,27 +20,7 @@ export interface StartAutoUpdateOptions {
 	readonly env?: NodeJS.ProcessEnv
 }
 
-const PACKAGE_ROOT = realRoot(resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..'))
-
-/** Where this copy lives and which Namzu home its update files are in; null without a home. */
-export function currentInstall(
-	env: NodeJS.ProcessEnv = process.env,
-): { readonly install: InstallKind; readonly home: string } | null {
-	let home: string
-	try {
-		home = resolveNamzuHome({ env })
-	} catch {
-		return null
-	}
-	const install = classifyInstall({
-		packageRoot: PACKAGE_ROOT,
-		platform: process.platform,
-		namzuHome: home,
-		env,
-		isElectron: process.versions.electron !== undefined,
-	})
-	return { install, home }
-}
+export { currentInstall }
 
 /** Start the loop; returns its stop function. The terminal UI is the one caller. */
 export function startAutoUpdate(options: StartAutoUpdateOptions): {
@@ -80,6 +57,10 @@ export function startAutoUpdate(options: StartAutoUpdateOptions): {
 			removePowerShellShim: removeOwnPowerShellShim,
 		},
 		onEvent: options.onEvent,
+		// This process runs from the folder an install replaces: it never installs, the process that
+		// outlives it does once nothing runs from the install (`apply-at-exit.ts`).
+		applyMode: 'defer',
+		onPending: () => noteUpdatePending(policy.channel),
 	})
 	updater.start()
 	return { stop: () => updater.stop(), policy }

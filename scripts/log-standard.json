@@ -86,8 +86,8 @@
 		{
 			"file": "packages/cli/src/bin-main.ts",
 			"symbol": "process.stderr.write",
-			"count": 1,
-			"reason": "the process entrypoint's fatal-error handler, reached when runCli's own promise rejects — before any Logger exists to write through."
+			"count": 2,
+			"reason": "the process entrypoint's fatal-error handler, reached when runCli's own promise rejects — before any Logger exists to write through; and the one plain line printed when giving session leases back fails because the install was replaced while the process ran, on the way out where no Logger is left."
 		},
 		{
 			"file": "packages/cli/src/cli.ts",

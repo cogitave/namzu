@@ -32,6 +32,9 @@ import { constants } from 'node:os'
 
 import { releaseHeldSessionLeases } from '@namzu/sdk'
 
+import type { UpdatesConfig } from './config/schema.js'
+import { launchPendingApply } from './integrations/auto-update/deferred-apply.js'
+
 import {
 	TERMINATION_SIGNALS,
 	type TerminationSignal,
@@ -68,6 +71,10 @@ export interface TerminationProcess {
 
 export interface HandleTerminationOptions {
 	readonly process?: TerminationProcess
+	/** The `updates` setting, so a process with updates switched off writes no update files. */
+	readonly updates?: UpdatesConfig
+	/** Test hook: starts the deferred installer when an update is due. */
+	readonly launchPendingUpdate?: () => unknown
 	readonly leaseReleaseMs?: number
 	readonly cleanupMs?: number
 	/** Test hook: called instead of the re-raise at the end. */
@@ -99,7 +106,14 @@ export function signalExitCode(signal: TerminationSignal): number {
 export function handleTerminationSignals(
 	options: HandleTerminationOptions = {},
 ): TerminationHandling {
-	markSessionLeaseUse()
+	markSessionLeaseUse(() => releaseHeldSessionLeases())
+	// Say which install this process runs from, so an update waits for it (`running.ts`).
+	let unregister: (() => void) | undefined
+	void import('./integrations/auto-update/running.js')
+		.then((running) => {
+			unregister = running.registerRunningSession(process.env, options.updates)
+		})
+		.catch(() => undefined)
 	const proc: TerminationProcess = options.process ?? (process as unknown as TerminationProcess)
 	const cleanups: Array<(signal: TerminationSignal) => Promise<void> | void> = []
 	let disposed = false
@@ -110,6 +124,13 @@ export function handleTerminationSignals(
 
 	const finish = (signal: TerminationSignal): void => {
 		detach()
+		// Ending by a signal never emits `exit`: do here what the exit hooks would have done.
+		try {
+			unregister?.()
+			;(options.launchPendingUpdate ?? launchPendingApply)()
+		} catch {
+			// The signal still ends the process.
+		}
 		if (options.onFinished) {
 			options.onFinished(signal)
 			return

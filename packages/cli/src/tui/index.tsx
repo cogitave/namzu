@@ -84,7 +84,7 @@ export async function launchTui(
 	// (`termination.ts`): the turn's lease is released first, so the next
 	// process can /resume or /abandon at once, then the App leaves as `/exit`
 	// does, which is what hands the terminal back.
-	const termination = handleTerminationSignals()
+	const termination = handleTerminationSignals(ctx.updates ? { updates: ctx.updates } : {})
 	// Under Electron-as-Node on a Windows pseudo-console `process.stdin` is not the console;
 	// the console's own input device is (see `console-input.ts`). Elsewhere this is undefined.
 	const consoleInput = openConsoleInput()
