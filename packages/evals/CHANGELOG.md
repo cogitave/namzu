@@ -1,5 +1,17 @@
 # @namzu/evals
 
+## 1.1.0
+
+### Minor Changes
+
+- 7793f27: New suite `kernel/goal-by-record`: four scripted goals (reported met after a failing check then fixed, after editing past a passing check, with no check available, and a check that never passes) each run under the present behaviour and with the goal confirmed by the record, scoring the kernel's record, how the goal ended and how many model calls it took. It needs a kernel that exports `GoalConfirmation`; nothing in existing suites changes.
+- 8e8bc4d: New suite `kernel/hand-back`: seven scripted cases of a model that may hand a task back (at once with further calls scripted after it, after changing a file, in a goal round, in a step with other calls) and of one that does not (doing the task, setting off, a call to the absent tool), scoring whether the turn was handed back and as which kind, the outcome record's verdict, model calls, edits that actually ran, the kernel's closing sentence, whether the tool and guidance were offered, and how a goal round ended. It needs a kernel that exports `HAND_BACK_TOOL_NAME` and `handedBackScorer`; nothing in existing suites changes.
+
+### Patch Changes
+
+- a89772d: `@namzu/evals` gains the `kernel/answer-claims` suite: eight scripted cases that pin what the kernel records when an answer says a check passed (after a failing check, after changes nobody checked, after a check whose result was hidden) and that the comparison stays silent after a passing check, after no change, on a negation and on an honest account. It needs an `@namzu/sdk` that has `outcomeScorer` and `claimMismatchScorer`; against an older SDK the suite fails to load. Nothing to change on your side.
+- 29de8d5: Every suite now states in its report that it is scripted (or uses no model), so a comparison can say what produced a score; this needs no change on your side and an older `@namzu/sdk` ignores it. `kernel/context` copies its starting messages for each run: before, running the same case twice in one process (`namzu eval --repeat`) handed the second run the ids the first had minted, and the case failed.
+
 ## 1.0.3
 
 ### Patch Changes
