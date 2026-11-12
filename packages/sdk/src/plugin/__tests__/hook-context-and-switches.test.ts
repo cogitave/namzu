@@ -221,6 +221,20 @@ describe('a shell hook replaces a tool result', () => {
 		}
 	})
 
+	it('reads an answer of 64 KiB at most: a larger one is set aside and the original result stands', async () => {
+		const answering = (chars: number) =>
+			runShellHook(
+				{
+					command: `printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":"'; head -c ${chars} /dev/zero | tr '\\0' y; printf '"}}'`,
+				},
+				{ event: 'post_tool_use', sessionId: SESSION, cwd: process.cwd() },
+			)
+		const within = shellHookVerdict('post_tool_use', entry, await answering(33_000))
+		expect(within.action).toBe('replace')
+		const over = shellHookVerdict('post_tool_use', entry, await answering(100_000))
+		expect(over.action).not.toBe('replace')
+	})
+
 	it('sets aside an answer whose replacement is not text', () => {
 		expect(shellHookVerdict('post_tool_use', entry, reply({ updatedToolOutput: 5 }))).toEqual({
 			action: 'continue',
