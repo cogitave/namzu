@@ -864,15 +864,16 @@ model.
 
 A skipped run is recorded with its reason in plain words, in `schedule list`
 (`last skipped (the gate printed nothing) 10:10`), `show`, `history`, `/schedule`
-and `run-now`, as status `skipped` (and `skipKind`: `silent`, `exit`, `timeout`
-or `start`, in `--json`):
+and `run-now`, as status `skipped` (and `skipKind`: `silent`, `exit`, `timeout`,
+`start` or `abnormal`, in `--json`):
 
 | Reason | When |
 |---|---|
 | `the gate printed nothing` | It exited 0 and printed only whitespace |
 | `the gate exited with 3` | It exited with any non-zero code, whatever it printed |
 | `the gate ran out of time (30 s)` | It was still running at the time limit |
-| `the gate could not start` | The shell is gone, the process could not be started, or the command is no longer allowed (the reason says which) |
+| `the gate printed too much and was ended (more than 10 MB)` / `the gate was ended by SIGKILL` | It printed past the output limit, or something killed it. Skipped, but not counted as a failure to start |
+| `the gate could not start` | The shell is gone, the gate in the job file is damaged (empty, a timeout above the 5 minute bound), the process could not be started, or the command is no longer allowed (the reason says which) |
 
 A skipped run is not a failure. It leaves the failure streak as it was,
 does not count toward `--pause-after-failures`, sends no failure notice, and

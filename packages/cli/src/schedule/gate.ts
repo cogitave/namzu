@@ -76,6 +76,20 @@ export function gateContextText(output: string): string {
 	return `The gate command printed:\n${output}`
 }
 
+/** What is wrong with a gate's shape, in words, or undefined. A job file is data anyone may edit. */
+export function gateShapeProblem(gate: unknown): string | undefined {
+	const g = gate as Partial<ScheduleJobGate> | null
+	if (typeof g !== 'object' || g === null) return 'the gate is not an object'
+	if (typeof g.command !== 'string' || g.command.trim() === '') {
+		return 'the gate command is missing or empty'
+	}
+	if (g.shell !== 'bash' && g.shell !== 'sh') return 'the gate shell must be bash or sh'
+	if (typeof g.timeoutMs !== 'number' || !validGateTimeout(g.timeoutMs)) {
+		return `the gate timeout must be a whole number of milliseconds above zero and at most ${MAX_GATE_TIMEOUT_MS / 1000} s`
+	}
+	return undefined
+}
+
 /** Whether a timeout is one a job may carry. */
 export function validGateTimeout(ms: number): boolean {
 	return Number.isSafeInteger(ms) && ms > 0 && ms <= MAX_GATE_TIMEOUT_MS
@@ -94,6 +108,8 @@ export async function runGate(
 		readonly runner?: GateRunner
 	},
 ): Promise<GateOutcome> {
+	const shape = gateShapeProblem(gate)
+	if (shape) return { run: false, kind: 'start', reason: `the gate could not start: ${shape}` }
 	const result = await (options.runner ?? runScript)(gate.command, gate.shell, {
 		cwd: options.cwd,
 		env: options.env,
@@ -121,6 +137,16 @@ export async function runGate(
 			reason: `the gate ran out of time (${seconds(gate.timeoutMs)})`,
 		}
 	}
+	if (result.outputOverflow) {
+		return {
+			run: false,
+			kind: 'abnormal',
+			reason: 'the gate printed too much and was ended (more than 10 MB)',
+		}
+	}
+	if (result.signal) {
+		return { run: false, kind: 'abnormal', reason: `the gate was ended by ${result.signal}` }
+	}
 	if (result.exitCode === null) {
 		return { run: false, kind: 'start', reason: 'the gate could not start' }
 	}
@@ -136,13 +162,10 @@ export async function runGate(
 		return { run: false, kind: 'silent', reason: 'the gate printed nothing' }
 	}
 	const cut = result.stdout.length > GATE_OUTPUT_MAX_CHARS
-	return {
-		run: true,
-		cut,
-		output: cut
-			? `${result.stdout.slice(0, GATE_OUTPUT_MAX_CHARS)}${gateCutMarker()}`
-			: result.stdout,
-	}
+	let kept = cut ? result.stdout.slice(0, GATE_OUTPUT_MAX_CHARS) : result.stdout
+	// Never end on half of a surrogate pair.
+	if (cut && /[\uD800-\uDBFF]$/.test(kept)) kept = kept.slice(0, -1)
+	return { run: true, cut, output: cut ? `${kept}${gateCutMarker()}` : kept }
 }
 
 /**
@@ -157,6 +180,8 @@ export function gateRefusal(
 ): string | undefined {
 	const gate = job.gate
 	if (!gate) return undefined
+	const shape = gateShapeProblem(gate)
+	if (shape) return `the gate was refused: ${shape}`
 	const shell = installedCommandShellForDialect(gate.shell)
 	if (!shell) return scriptShellUnavailableReason(gate.shell)
 	const policy = compileScriptCheckPolicy(job.permissions, {
@@ -170,6 +195,11 @@ export function gateRefusal(
 
 /** `Gate` lines for a preview or `show`: the exact command, and how it decides. */
 export function gateLines(gate: ScheduleJobGate): string[] {
+	if (gateShapeProblem(gate)) {
+		return [
+			'Gate        malformed in the job file; it will not run until it is fixed and confirmed again',
+		]
+	}
 	return [
 		`Gate        runs first (${gate.shell}, up to ${seconds(gate.timeoutMs)}); the model is called only if it exits 0 and prints something`,
 		...gate.command.split('\n').map((line) => `  │ ${line}`),

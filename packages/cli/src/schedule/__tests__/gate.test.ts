@@ -17,6 +17,8 @@ import {
 	GATE_OUTPUT_MAX_CHARS,
 	MAX_GATE_TIMEOUT_MS,
 	gateEnvironment,
+	gateLines,
+	gateRefusal,
 	runGate,
 } from '../gate.js'
 import { appendHistory } from '../store/history.js'
@@ -365,5 +367,88 @@ describe('the environment and the output limit', () => {
 		const cut = await run(GATE_OUTPUT_MAX_CHARS + 1)
 		expect(cut).toMatchObject({ run: true, cut: true })
 		expect(cut.run && cut.output).toContain('...(cut:')
+	})
+})
+
+describe('a gate that was damaged in the job file, or ended abnormally', () => {
+	const ok = { command: 'x', shell: 'sh' as const, timeoutMs: 1000 }
+	const never = async () => {
+		throw new Error('the runner must not be reached')
+	}
+	it.each([
+		['a huge timeout', { ...ok, timeoutMs: 1e12 }],
+		['a negative timeout', { ...ok, timeoutMs: -5 }],
+		['a missing timeout', { ...ok, timeoutMs: undefined }],
+		['a text timeout', { ...ok, timeoutMs: 'x' }],
+		['a command that is not text', { ...ok, command: 42 }],
+		['an unknown shell', { ...ok, shell: 'zsh' }],
+	])('does not run a gate with %s, and says so as a start failure', async (_n, bad) => {
+		const out = await runGate(bad as never, { cwd: sb.project, env: {}, runner: never as never })
+		expect(out).toMatchObject({ run: false, kind: 'start' })
+		expect(out.run === false && out.reason).toContain('the gate could not start')
+		expect(
+			gateRefusal(
+				{
+					gate: bad as never,
+					permissions: {} as never,
+					folder: { path: sb.project, canonical: sb.project },
+				},
+				[],
+				sb.home,
+			),
+		).toContain('the gate was refused')
+		expect(() => gateLines(bad as never)).not.toThrow()
+	})
+
+	it('reports output past the limit as its own reason, not as a start failure', async () => {
+		const out = await runGate(ok, {
+			cwd: sb.project,
+			env: {},
+			runner: async () => ({
+				stdout: 'a',
+				stderr: '',
+				exitCode: null,
+				timedOut: false,
+				outputOverflow: true,
+			}),
+		})
+		expect(out).toMatchObject({ run: false, kind: 'abnormal' })
+		expect(out.run === false && out.reason).toBe(
+			'the gate printed too much and was ended (more than 10 MB)',
+		)
+	})
+
+	it('reports a signal as its own reason, not as a start failure', async () => {
+		const out = await runGate(ok, {
+			cwd: sb.project,
+			env: {},
+			runner: async () => ({
+				stdout: 'hi',
+				stderr: '',
+				exitCode: null,
+				timedOut: false,
+				signal: 'SIGKILL',
+			}),
+		})
+		expect(out).toMatchObject({
+			run: false,
+			kind: 'abnormal',
+			reason: 'the gate was ended by SIGKILL',
+		})
+	})
+
+	it('does not cut a surrogate pair in half', async () => {
+		const out = await runGate(ok, {
+			cwd: sb.project,
+			env: {},
+			runner: async () => ({
+				stdout: `${'a'.repeat(GATE_OUTPUT_MAX_CHARS - 1)}\u{1F600}more`,
+				stderr: '',
+				exitCode: 0,
+				timedOut: false,
+			}),
+		})
+		expect(out.run && out.output.startsWith('a'.repeat(GATE_OUTPUT_MAX_CHARS - 1))).toBe(true)
+		expect(out.run && /[\uD800-\uDBFF]/.test(out.output.replace(/\u{1F600}/gu, ''))).toBe(false)
 	})
 })

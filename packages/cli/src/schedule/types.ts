@@ -65,8 +65,12 @@ export type ConfirmationSurface = 'cli-tty' | 'tui' | 'tool-confirmed' | 'cli-no
 /** What a run does. Absent (a `v:1` file): `'agent'`. */
 export type ScheduleRunKind = 'agent' | 'script' | 'script+agent'
 
-/** Why a gate skipped a run: it printed nothing, exited non-zero, ran out of time, or could not start. */
-export type GateSkipKind = 'silent' | 'exit' | 'timeout' | 'start'
+/**
+ * Why a gate skipped a run: it printed nothing, exited non-zero, ran out of
+ * time, could not start, or was ended abnormally (printed past the output
+ * limit, or killed by a signal). Only `start` counts toward the notice.
+ */
+export type GateSkipKind = 'silent' | 'exit' | 'timeout' | 'start' | 'abnormal'
 
 /** The gate of an `agent` job: see {@link ScheduleJob.gate}. */
 export interface ScheduleJobGate {

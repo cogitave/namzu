@@ -67,6 +67,7 @@ import { computeProjectDigest, projectDigestChanges } from '../store/digest.js'
 import { confirmationHolds, readJob } from '../store/jobs.js'
 import { readScriptState } from '../store/script-state.js'
 import {
+	type GateSkipKind,
 	type ScheduleJob,
 	type ScheduleRunResult,
 	type ScheduleRunStatus,
@@ -441,7 +442,7 @@ export async function runFire(
 				'a gate needs execution on the host; edit the job and confirm it again, or remove the gate',
 			)
 		}
-		const skip = (kind: 'silent' | 'exit' | 'timeout' | 'start', reason: string): number =>
+		const skip = (kind: GateSkipKind, reason: string): number =>
 			finish('skipped', 0, { reason, skipKind: kind })
 		if (process.platform === 'win32') {
 			return skip('start', 'the gate could not start: gates are not supported on native Windows')

@@ -248,6 +248,21 @@ describe('a real shell gate is honoured', () => {
 		expect(JSON.stringify(JSON.parse(requestBodies[0] as string))).toContain('two new files')
 	})
 
+	it('a gate killed by a signal is skipped as ended, not as unable to start', async () => {
+		const { result } = await fire(gated('kill -9 $$'))
+		expect(result?.status).toBe('skipped')
+		expect(result?.skipKind).toBe('abnormal')
+		expect(result?.reason).toBe('the gate was ended by SIGKILL')
+		expect(calls).toBe(0)
+	})
+
+	it('a gate that prints past 10 MB is skipped as ended, not as unable to start', async () => {
+		const { result } = await fire(gated('head -c 12000000 /dev/zero | tr "\\0" a'))
+		expect(result?.skipKind).toBe('abnormal')
+		expect(result?.reason).toBe('the gate printed too much and was ended (more than 10 MB)')
+		expect(calls).toBe(0)
+	})
+
 	it('false skips the run with its exit code', async () => {
 		const job = gated('false')
 		const { result } = await fire(job)
