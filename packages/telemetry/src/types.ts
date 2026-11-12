@@ -28,6 +28,14 @@ export interface TelemetryConfig {
 	 * tracing SDK on a consumer that already has one.
 	 */
 	spanProcessors?: readonly SpanProcessorLike[]
+	/**
+	 * Whether the kernel's spans also carry the OpenTelemetry GenAI semantic
+	 * convention names (and the pinned version's schema URL on the
+	 * instrumentation scope). Default `true`: the names are added beside the
+	 * kernel's own, which stay. Set `false` for a backend that bills by
+	 * attribute. See `docs/sdk/telemetry-genai.md`.
+	 */
+	genAiAttributes?: boolean
 }
 
 /** The processor contract, read structurally to avoid a version pin. */

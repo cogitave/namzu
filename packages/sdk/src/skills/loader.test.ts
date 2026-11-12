@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { discoverSkills, loadSkill } from './loader.js'
+import { discoverSkills, loadSkill, parseSkillMarkdown } from './loader.js'
 
 async function writeSkill(parent: string, name: string, content: string): Promise<string> {
 	const dir = join(parent, name)
@@ -85,5 +85,25 @@ describe('Agent Skills loader', () => {
 		)
 
 		expect(await discoverSkills(root)).toEqual([a, b])
+	})
+})
+
+describe('parseSkillMarkdown', () => {
+	const text = '---\nname: reconcile\ndescription: Match the ledger.\n---\nCompare each line.\n'
+
+	it('returns the metadata and body of a skill without touching a file', () => {
+		const parsed = parseSkillMarkdown(text, '/anywhere/reconcile')
+		expect(parsed.metadata).toEqual({ name: 'reconcile', description: 'Match the ledger.' })
+		expect(parsed.body).toBe('Compare each line.')
+	})
+
+	it('refuses what loadSkill refuses, with the same reason', async () => {
+		const bad = text.replace('name: reconcile', 'name: other')
+		expect(() => parseSkillMarkdown(bad, '/anywhere/reconcile')).toThrow(
+			/must match directory name "reconcile"/,
+		)
+		const root = await mkdtemp(join(tmpdir(), 'namzu-skills-'))
+		const dir = await writeSkill(root, 'reconcile', bad)
+		await expect(loadSkill(dir)).rejects.toThrow(/must match directory name "reconcile"/)
 	})
 })

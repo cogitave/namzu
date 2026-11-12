@@ -34,6 +34,7 @@ import {
 	logoutCommand,
 	mcpCommand,
 	peersCommand,
+	pluginCommand,
 	providersJSONCommand,
 	scheduleCommand,
 	serveCommand,
@@ -595,6 +596,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		drainCommand,
 		evalCommand,
 		historyCommand,
+		pluginCommand,
 		skillsCommand,
 		skillsJSONCommand,
 		workspacesCommand,
@@ -623,6 +625,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 								def === execCommand ||
 								def === drainCommand ||
 								def === skillsCommand ||
+								def === pluginCommand ||
 								def === upgradeCommand ||
 								def === scheduleCommand ||
 								def === browserCommand ||

@@ -516,6 +516,7 @@ export {
 export {
 	discoverSkills,
 	loadSkill,
+	parseSkillMarkdown,
 	resolveSkillChain,
 	SKILL_FRONTMATTER_KEYS,
 	SKILL_FRONTMATTER_TOLERATED_KEYS,
@@ -576,6 +577,7 @@ export {
 	EXPLORE_AGENT_DESCRIPTION,
 	EXPLORE_AGENT_ID,
 	EXPLORE_AGENT_PROMPT,
+	AGENT_FILE_KEYS,
 	MAX_AGENT_FILE_CHARS,
 	PLAN_AGENT_DESCRIPTION,
 	PLAN_AGENT_ID,
@@ -700,7 +702,9 @@ export {
 	definePlugin,
 	discoverAllPluginDirs,
 	discoverPlugins,
+	assertEnableable,
 	loadPluginManifest,
+	parsePluginManifestText,
 	MAX_SHELL_HOOK_TIMEOUT_MS,
 	PluginLifecycleManager,
 	PluginResolver,
@@ -1482,6 +1486,17 @@ export {
 	resetRuntimeMetrics,
 } from './telemetry/metrics.js'
 export type { TokenUsageSample } from './telemetry/metrics.js'
+
+// The GenAI convention names on spans: the pinned version, the switch, the
+// list a test holds emitted names against. See docs/sdk/telemetry-genai.md.
+export {
+	GENAI_NON_CONVENTION_NAMES,
+	GENAI_SEMCONV_ATTRIBUTES,
+	GENAI_SEMCONV_SCHEMA_URL,
+	GENAI_SEMCONV_VERSION,
+	genAiConventionsEnabled,
+	setGenAiConventions,
+} from './telemetry/genai.js'
 
 // ─── guardrails ──────────────────────────────────────────────────────────
 
