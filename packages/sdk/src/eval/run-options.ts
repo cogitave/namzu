@@ -35,7 +35,16 @@ export interface EvalRunOptions {
 	/** Which tasks run. Absent means all of them. */
 	readonly split?: SplitFilter
 	/** Set by {@link currentEvalSettings} when a suite asks for the settings. Owned by the runner. */
-	readonly settingsUse?: { read: boolean }
+	readonly settingsUse?: { read: boolean; keys?: Set<string> }
+}
+
+/** Stands in the list of read keys for a suite that asked for the whole settings object. */
+export const READ_ALL = '*'
+
+function markRead(use: { read: boolean; keys?: Set<string> }, key: string): void {
+	const keys = use.keys ?? new Set<string>()
+	keys.add(key)
+	use.keys = keys
 }
 
 const STORE_KEY = Symbol.for('namzu.eval.runOptions')
@@ -67,13 +76,22 @@ export function currentEvalRunOptions(): EvalRunOptions {
  */
 export function currentEvalSettings(): Readonly<Record<string, unknown>> {
 	const options = currentEvalRunOptions()
-	if (options.settingsUse) options.settingsUse.read = true
+	if (options.settingsUse) {
+		options.settingsUse.read = true
+		// The whole object was asked for: every key counts as read.
+		markRead(options.settingsUse, READ_ALL)
+	}
 	return options.settings?.values ?? {}
 }
 
 /** One setting by its dotted path, for example `limits.maxIterations`; undefined when not stated. */
 export function evalSetting(path: string): unknown {
-	let at: unknown = currentEvalSettings()
+	const options = currentEvalRunOptions()
+	let at: unknown = options.settings?.values ?? {}
+	if (options.settingsUse) {
+		options.settingsUse.read = true
+		markRead(options.settingsUse, path)
+	}
 	for (const part of path.split('.')) {
 		if (typeof at !== 'object' || at === null || Array.isArray(at)) return undefined
 		at = (at as Record<string, unknown>)[part]

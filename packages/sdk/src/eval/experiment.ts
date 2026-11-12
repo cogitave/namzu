@@ -1,6 +1,7 @@
 import { EvalUsageError, validateSeed } from './bootstrap.js'
 import { type SuiteFacts, buildDisclosure, describeDisclosure } from './disclosure.js'
 import {
+	clarifyDeclared,
 	describeIntervals,
 	describeSplits,
 	duplicateMessage,
@@ -195,6 +196,7 @@ export async function runExperiment<TInput>(
 		settings: {
 			...(options.settings ?? defaultSettingsSnapshot()),
 			read: options.settingsUse?.read ?? false,
+			readKeys: [...(options.settingsUse?.keys ?? [])].sort(),
 		},
 		taskSplit,
 	}
@@ -507,7 +509,7 @@ export function formatReport(report: ExperimentReport): string {
 			// declared as developed against would contradict the run's own header.
 			if (report.taskSplit?.requested === 'held-out' && line.startsWith('no held-out cases'))
 				continue
-			lines.push(`  ${line}`)
+			lines.push(`  ${report.taskSplit ? clarifyDeclared(line) : line}`)
 		}
 	}
 	if (report.disclosure) lines.push(`  ${describeDisclosure(report.disclosure)}`)

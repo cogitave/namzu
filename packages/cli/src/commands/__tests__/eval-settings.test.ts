@@ -212,6 +212,9 @@ describe('namzu eval settings and splits', () => {
 			)
 			const odd = await settingsFile('has space.json', {})
 			expect((await run(['--settings', odd])).errors[0]).toContain('--settings-name')
+			const alone = await run(['--settings-name', 'x'])
+			expect(alone.code).toBe(EVAL_EXIT.usage)
+			expect(alone.errors[0]).toContain('--settings')
 		})
 	})
 

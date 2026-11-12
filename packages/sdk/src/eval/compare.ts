@@ -45,6 +45,8 @@ export interface LoadedSettings {
 	readonly values: Readonly<Record<string, unknown>>
 	/** False when the suite never asked for the settings. Absent is read as unknown. */
 	readonly read: boolean | undefined
+	/** Paths the suite asked for, `*` for the whole object; undefined when the report does not say. */
+	readonly readKeys: readonly string[] | undefined
 }
 
 function loadSettings(value: unknown): LoadedSettings | undefined {
@@ -55,6 +57,9 @@ function loadSettings(value: unknown): LoadedSettings | undefined {
 		digest: value.digest,
 		values: isRecord(value.values) ? value.values : {},
 		read: typeof value.read === 'boolean' ? value.read : undefined,
+		readKeys: Array.isArray(value.readKeys)
+			? value.readKeys.filter((k): k is string => typeof k === 'string')
+			: undefined,
 	}
 }
 
@@ -343,6 +348,10 @@ export interface SettingsComparison {
 	readonly differences: readonly SettingDifference[]
 	/** Suites that ran under settings but never read them, so the settings cannot have moved them. */
 	readonly notRead: { readonly a: readonly string[]; readonly b: readonly string[] }
+	/** Settings that differ between the two snapshots and that no shared suite on either side read. */
+	readonly unreadKeys: readonly string[]
+	/** Whether at least one differing setting was read by a shared suite. Null when there is no difference to read. */
+	readonly anyDifferenceRead: boolean | null
 }
 
 /** Why a comparison does not name a winner, besides the numbers not supporting one. */
@@ -352,6 +361,7 @@ export type WithheldReason =
 	| 'no-snapshot'
 	| 'tasks-differ'
 	| 'not-held-out'
+	| 'settings-not-read'
 
 function sorted(refs: CaseRef[]): CaseRef[] {
 	return refs.sort((x, y) =>
@@ -491,12 +501,29 @@ function compareSettings(
 			)
 			.map((s) => s.id)
 	const identical = left && right ? left.digest === right.digest : null
+	const differences = left && right && !identical ? diffSettings(left.values, right.values) : []
+	const readers = [a, b].flatMap((file) =>
+		file.suites.filter((s) => shared.includes(s.id) && s.settings !== undefined),
+	)
+	const wasRead = (key: string): boolean =>
+		readers.some((s) => {
+			const st = s.settings as LoadedSettings
+			if (st.read === false) return false
+			// A report that does not say which keys it read is taken to have read all.
+			if (st.readKeys === undefined) return true
+			return st.readKeys.some(
+				(k) => k === '*' || k === key || key.startsWith(`${k}.`) || k.startsWith(`${key}.`),
+			)
+		})
+	const unreadKeys = differences.map((d) => d.key).filter((k) => !wasRead(k))
 	return {
 		a: ref(left),
 		b: ref(right),
 		identical,
-		differences: left && right && !identical ? diffSettings(left.values, right.values) : [],
+		differences,
 		notRead: { a: ignored(a), b: ignored(b) },
+		unreadKeys,
+		anyDifferenceRead: differences.length === 0 ? null : unreadKeys.length < differences.length,
 	}
 }
 
@@ -511,6 +538,11 @@ function withheldReasons(
 	// The most informative reason first: identical settings say the whole
 	// difference is noise, whatever split they ran on.
 	if (settings.identical === true) out.push('identical-settings')
+	// Settings no shared suite read cannot have moved a number: whatever the
+	// difference between the runs, it is not the settings.
+	if (settings.identical === false && settings.anyDifferenceRead === false) {
+		out.push('settings-not-read')
+	}
 	const tune = split.a === 'tune' || split.b === 'tune'
 	if (tune) out.push('tune-split')
 	else if (
@@ -542,6 +574,8 @@ function withhold(
 		'no-snapshot':
 			'a report has no settings snapshot (it was written before reports named their settings), so what the two runs changed is not known',
 		'tasks-differ': `the two reports ran different tasks (${onlyA} only in A, ${onlyB} only in B), so their numbers are not about the same tasks`,
+		'settings-not-read':
+			'no suite the two reports share read any of the settings that differ between them, so the settings cannot have changed these numbers',
 		'not-held-out':
 			'a report ran on all tasks or a mix of splits, which include the tasks the settings were chosen on; run the held-out split to judge',
 	}
@@ -655,6 +689,11 @@ export function formatEvalComparison(c: EvalComparison): string {
 				`Suites that ran under settings but did not read them (${side.toUpperCase()}): ${c.settings.notRead[side].join(', ')}`,
 			)
 		}
+	}
+	if (c.settings.unreadKeys.length > 0) {
+		lines.push(
+			`Settings that differ and that no shared suite read: ${c.settings.unreadKeys.join(', ')}`,
+		)
 	}
 	lines.push('')
 	const d = c.disclosure

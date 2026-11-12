@@ -38,6 +38,11 @@ export interface ReportSettings extends SettingsSnapshot {
 	 * says nothing about its numbers.
 	 */
 	readonly read: boolean
+	/**
+	 * The dotted paths the suite asked for, or `*` when it asked for the whole
+	 * object. Absent from a report that predates it, which is read as every key.
+	 */
+	readonly readKeys?: readonly string[]
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -87,6 +92,8 @@ const SECRET_KEY =
 
 /** Shapes of the keys and tokens providers hand out. */
 const SECRET_VALUE = [
+	// A password written into a URL: scheme://user:password@host
+	/[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/\s:@]+:[^/\s@]+@/,
 	/\bsk-[A-Za-z0-9_-]{16,}/,
 	/\b(?:ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{20,}/,
 	/\bxox[abprs]-[A-Za-z0-9-]{10,}/,

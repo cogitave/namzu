@@ -262,6 +262,11 @@ async function runEval(ctx: CommandContext, options: EvalOptions): Promise<numbe
 	let split: SplitFilter
 	try {
 		split = validateSplitFilter(options.split)
+		if (options.settingsName !== undefined && options.settings === undefined) {
+			throw new EvalSettingsError(
+				'--settings-name names the snapshot of a settings file; give the file with --settings.',
+			)
+		}
 		settings =
 			options.settings === undefined
 				? defaultSettingsSnapshot()

@@ -2,6 +2,7 @@ import { UNKNOWN } from './disclosure.js'
 import type { RunMode } from './disclosure.js'
 import {
 	type RunStats,
+	clarifyDeclared,
 	describeIntervals,
 	describeSplits,
 	groupRuns,
@@ -108,7 +109,7 @@ export function formatRunSummary(summary: RunSummary): string {
 	}
 	for (const line of describeSplits(summary.splits)) {
 		if (d.split === 'held-out' && line.startsWith('no held-out cases')) continue
-		lines.push(`  ${line}`)
+		lines.push(`  ${d.split ? clarifyDeclared(line) : line}`)
 	}
 	if (d.settings) {
 		lines.push(`  settings: "${d.settings.name}", sha256 ${d.settings.digest.slice(0, 12)}`)

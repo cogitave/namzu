@@ -255,3 +255,14 @@ export function describeSplits(splits: RunStats['splits']): string[] {
 	}
 	return lines
 }
+
+/**
+ * The line about cases a suite declared as held-out is the suite's own
+ * statement. Beside the run's `split:` line it reads as a contradiction, since
+ * the hashed split puts some of the same tasks in held-out; say which is which.
+ */
+export function clarifyDeclared(line: string): string {
+	return line.startsWith('no held-out cases')
+		? `${line} (declared by the suite; the split above is the hashed one)`
+		: line
+}

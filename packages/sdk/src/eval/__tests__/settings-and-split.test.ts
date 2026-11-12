@@ -192,6 +192,7 @@ describe('a settings snapshot', () => {
 			{ smallModel: key },
 			{ x: [`Bearer ${'a'.repeat(30)}`] },
 			{ x: 'ghp_abcdefghijklmnopqrstuvwxyz0123456789' },
+			{ smallModel: 'https://user:hunter2pass@host/model' },
 		]) {
 			expect(() => buildSettingsSnapshot('s', values)).toThrow(/credential/)
 		}
@@ -303,6 +304,7 @@ describe('a comparison of two settings', () => {
 				digest: string
 				values: Record<string, unknown>
 				read?: boolean
+				readKeys?: string[]
 			} | null
 			names?: string[]
 		} = {},
@@ -440,6 +442,76 @@ describe('a comparison of two settings', () => {
 		)
 		expect(none.settings.notRead.a).toEqual([])
 		expect(formatEvalComparison(c)).toContain('did not read them (A): s')
+	})
+
+	it('names no winner when no shared suite read a setting that differs', () => {
+		const side = (label: string, pass: boolean, readKeys: string[]) =>
+			report(label, pass, {
+				settings: {
+					name: label,
+					digest: label.padEnd(64, '0'),
+					values: {
+						limits: { maxIterations: label === 'a' ? 4 : 6 },
+						compaction: { strategy: label },
+					},
+					read: true,
+					readKeys,
+				},
+			})
+		// Both read only the compaction key: the limits key differs but was not read,
+		// and the compaction key was, so the comparison may speak.
+		const partly = compareEvalReports(
+			side('a', false, ['compaction.strategy']),
+			side('b', true, ['compaction.strategy']),
+		)
+		expect(partly.settings.unreadKeys).toEqual(['limits.maxIterations'])
+		expect(partly.verdict.withheld).toEqual([])
+		// Neither read a key that differs: the numbers cannot be about the settings.
+		const none = compareEvalReports(
+			side('a', false, ['memory.mode']),
+			side('b', true, ['memory.mode']),
+		)
+		expect(none.settings.anyDifferenceRead).toBe(false)
+		expect(none.verdict.claim).toBe('none')
+		expect(none.verdict.withheld).toEqual(['settings-not-read'])
+		expect(none.verdict.sentence).toContain('no winner is named')
+		// A suite that asked for the whole object read every key.
+		const all = compareEvalReports(side('a', false, ['*']), side('b', true, ['*']))
+		expect(all.verdict.withheld).toEqual([])
+		// A suite that never asked read none.
+		const never = compareEvalReports(
+			report('a', false, {
+				settings: { name: 'a', digest: 'a'.repeat(64), values: { x: 1 }, read: false },
+			}),
+			report('b', true, {
+				settings: { name: 'b', digest: 'b'.repeat(64), values: { x: 2 }, read: false },
+			}),
+		)
+		expect(never.verdict.withheld).toEqual(['settings-not-read'])
+	})
+
+	it('records which keys a suite asked for', async () => {
+		const settings = buildSettingsSnapshot('quick', {
+			limits: { maxIterations: 3 },
+			memory: { x: 1 },
+		})
+		const one = (read: () => void) =>
+			withEvalRunOptions({ settings, settingsUse: { read: false } }, () =>
+				runExperiment({
+					name: 'suite/x',
+					cases: [{ name: 'one', input: null }],
+					scorers: [ok],
+					run: async () => {
+						read()
+						return turn
+					},
+				}),
+			)
+		expect((await one(() => evalSetting('limits.maxIterations'))).settings?.readKeys).toEqual([
+			'limits.maxIterations',
+		])
+		expect((await one(() => currentEvalSettings())).settings?.readKeys).toEqual(['*'])
+		expect((await one(() => undefined)).settings?.readKeys).toEqual([])
 	})
 
 	it('still loads a report from before settings and splits', () => {
