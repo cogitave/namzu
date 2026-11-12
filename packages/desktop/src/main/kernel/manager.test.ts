@@ -413,6 +413,17 @@ describe('use this app’s own engine', () => {
 	})
 })
 
+describe('the first reason for giving a version up stays', () => {
+	it('is not replaced by a later symptom of the same give-up', async () => {
+		const h = await harness()
+		const feed = makeFeed()
+		await activate(h, feed, '51.3.0', 1)
+		expect(await h.manager.markBad('51.3.0', 'withdrawn')).toBe(true)
+		await h.manager.markBad('51.3.0', 'dist/chunks/chunk-1.js vanished')
+		expect(h.store.snapshot().bad['51.3.0']?.reason).toBe('withdrawn')
+	})
+})
+
 describe('deleting', () => {
 	it('never removes the folder a live host was started from', async () => {
 		const h = await harness()

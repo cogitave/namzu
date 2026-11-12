@@ -209,7 +209,10 @@ export function versionOfEntry(name: string): string | undefined {
 }
 
 export function markBadIn(state: KernelState, version: string, reason: string, at: number): void {
-	state.bad[version] = { reason: reason.slice(0, 300), at }
+	// The first reason stays. A version given up as withdrawn can still be under a check on another
+	// path while its folder is cleaned up; that check then sees "vanished", which is a symptom, not the
+	// cause, and would turn a quiet withdrawal into a "could not use" line on screen.
+	if (!state.bad[version]) state.bad[version] = { reason: reason.slice(0, 300), at }
 	if (state.pending === version) state.pending = undefined
 	if (state.previous === version) {
 		state.previous = undefined

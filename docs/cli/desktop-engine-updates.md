@@ -219,8 +219,42 @@ interface the connection to a host sees.
   name in the app's source, the notifications it consumes, the flags it passes, the files it reads and the
   environment it hands over. Something the app starts relying on that the inventory lacks fails there.
 
-## Not yet tested
+## Tested on real engines
 
-The end-to-end run uses a small stand-in engine that passes the self-check; it never opens a project
-on it. A run on a real staged engine (the publisher's real archive and signed pair, a project opened
-on it, going back from a real failure) is a later integration change.
+`packages/desktop/e2e/ux-engine-real.test.mjs` runs the whole flow in the real Electron app with real
+engines and the scripted model, nothing in the engine stubbed. It stages the command line of this checkout
+with the publisher's own `stageKernel` (the engine inside the "installer", named by
+`NAMZU_KERNEL_TEST_BUNDLED_DIR`), makes newer engines from it by raising the version where the command line
+reads it and asking the staged program again for `kernel.json`, then packs, describes, assembles and signs
+them with a throwaway key through the publisher's functions and serves them from a loopback feed. It
+covers: the first check ending in "a newer engine is ready" with three requests carrying one fixed header;
+a project opened afterwards, a terminal tab and a short command on the new engine, while a host already
+running stays on the old one; a restart on the new engine with two requests and no download; an engine
+that passes the self-check but cannot serve a project (the app goes back in the same open, once, and never
+tries it again); **Use this app's own engine**; the setting off (no request); an engine with another data
+epoch (nothing installed, "needs a newer version of this app"); a description that withdraws the engine in
+use; a changed byte, a deleted signed pair and an older signed pair after the install; the app killed in
+the middle of the download and of the unpacking; and no signing key (no request, no engine folder, and the
+Updates and About screens byte for byte equal to the build before this feature, in both themes).
+
+It is slow: staging and packing take about 90 seconds before the first test, and each test is a real app
+start with real engines of 95 MB (3 to 65 seconds each; the whole file took 224 seconds cold). `NAMZU_E2E_REAL_ENGINE_DIR=<dir>` keeps the staged engines and the feed
+in `<dir>` for the next run; `ENGINE_REAL_SHOTS=<dir>` writes pictures, dark and light.
+
+What a real run found:
+
+- The first reason for giving a version up stays. A withdrawn engine that was being checked in full by a
+  start while the check removed its folder was marked bad a second time with the symptom ("a file
+  vanished"), which replaced "withdrawn" and would have shown a quiet withdrawal as "could not use".
+- A host on an engine that starts well outside a project (the host for conversations with no project) can
+  start on an engine that is given up a moment later for what it cannot do in a project. It keeps running
+  (a host is never swapped) and so keeps the folder; the folder is removed at the next start of the app.
+- Only the files that decide what runs (`dist/bin.js`, `package.json`, `kernel.json`, native files) are
+  hashed at every start; a changed byte in any other file is caught by the full check that the first
+  start of a version in a run makes, not later in the same run.
+- On the Windows file system under WSL, run with the built JavaScript and Linux node, the whole flow works
+  (check, install over a leftover folder of the same version, self-check, promotion, **Use this app's own
+  engine** and clean-up on the next start, with a file of the engine open at the time). The file system
+  there is case-insensitive and lets a folder with an open file be deleted, as Windows' own node does; a
+  rename onto an existing folder fails in Windows' node even when it is empty (`EPERM`), which is why the
+  store removes an unreferenced folder of the same version first.

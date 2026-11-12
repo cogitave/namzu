@@ -51,6 +51,14 @@ It was run in WSL under Xvfb, not on the Windows side.
 
 Not run by CI yet: it needs a built workspace and a display.
 
+## Engine delivery on real engines
+
+`ux-engine-real.test.mjs` stages real engines with the publisher's functions, signs them with a throwaway key and
+serves them from loopback; the app fetches, verifies, installs and runs projects on them. It is the slow file (about
+four minutes cold). `NAMZU_E2E_REAL_ENGINE_DIR=<dir>` keeps the staged engines between runs, `ENGINE_REAL_SHOTS=<dir>`
+writes pictures. `ux-engine-delivery.test.mjs` is the quick one with a stand-in engine. See
+`docs/cli/desktop-engine-updates.md`.
+
 ## Terminal tabs
 
 `terminals.test.mjs` covers terminal tabs on Linux (plain shell, size, tab switch, whole-tree kill on close, the
