@@ -78,6 +78,13 @@ export function createKernelLog(options: KernelLogOptions): FlushableLog {
 		size += line.length
 	}
 	const log: KernelLog = (event, detail) => {
+		try {
+			writeLine(event, detail)
+		} catch {
+			// a line that cannot be made is dropped; the log never changes what the app does
+		}
+	}
+	const writeLine = (event: string, detail?: Record<string, unknown>): void => {
 		const entry: Record<string, unknown> = { at: new Date(options.now()).toISOString(), event }
 		for (const [key, value] of Object.entries(detail ?? {})) {
 			const clean = plain(value, hide)

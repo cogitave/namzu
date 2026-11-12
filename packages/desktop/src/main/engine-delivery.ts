@@ -76,6 +76,16 @@ export async function askBundledEngine(
 }
 
 export function createEngineDelivery(options: EngineDeliveryOptions): EngineDelivery | undefined {
+	try {
+		return buildEngineDelivery(options)
+	} catch {
+		// Setting the feature up must never keep the app from starting: without it the app runs as it
+		// did before engines could be fetched.
+		return undefined
+	}
+}
+
+function buildEngineDelivery(options: EngineDeliveryOptions): EngineDelivery | undefined {
 	const keys = trustedKeys({
 		isPackaged: options.isPackaged,
 		env: options.env,

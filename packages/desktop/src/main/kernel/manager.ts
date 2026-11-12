@@ -149,6 +149,20 @@ export class KernelManager {
 	}
 
 	async quickCheck(version: string, bundled: BundledFacts): Promise<QuickVerdict> {
+		try {
+			return await this.quickCheckUnguarded(version, bundled)
+		} catch (error) {
+			// Whatever went wrong while looking is not a verdict on the engine, and not a failed start.
+			const code = (error as { code?: unknown } | null)?.code
+			return {
+				ok: false,
+				reason: `unreadable (${typeof code === 'string' ? code : 'error'})`,
+				...(isTransient(error) ? { transient: true as const } : {}),
+			}
+		}
+	}
+
+	private async quickCheckUnguarded(version: string, bundled: BundledFacts): Promise<QuickVerdict> {
 		const { store } = this.options
 		const state = store.snapshot()
 		const no = (reason: string, transient?: true): QuickVerdict => ({
@@ -227,10 +241,24 @@ export class KernelManager {
 	 * `release` is called, so a host that is still starting never loses it.
 	 */
 	async resolve(options: { hold?: boolean } = {}): Promise<ResolvedKernel> {
-		const override = this.options.override()
-		if (override) return { entry: override, source: 'override' }
 		const bundled: ResolvedKernel = { entry: this.options.bundledEntry, source: 'bundled' }
-		if (!this.active) return bundled
+		try {
+			const override = this.options.override()
+			if (override) return { entry: override, source: 'override' }
+			if (!this.active) return bundled
+			return await this.resolveManaged(bundled, options)
+		} catch (error) {
+			// Never a failed start: any error while choosing (a file system error of any code, a state of
+			// any shape, an exception in a check) ends in the engine inside the installer and one line.
+			this.options.store.log('resolve-failed', { message: scrub(messageOf(error)) })
+			return bundled
+		}
+	}
+
+	private async resolveManaged(
+		bundled: ResolvedKernel,
+		options: { hold?: boolean },
+	): Promise<ResolvedKernel> {
 		const facts = await this.options.bundledFacts()
 		if (!facts) return bundled
 		const { store } = this.options
@@ -286,7 +314,12 @@ export class KernelManager {
 
 	/** Removes what no slot names; never a folder a live host runs from. */
 	async cleanup(): Promise<string[]> {
-		return this.options.store.cleanup(this.inUse())
+		try {
+			return await this.options.store.cleanup(this.inUse())
+		} catch (error) {
+			this.options.store.log('cleanup-failed', { message: scrub(messageOf(error)) })
+			return []
+		}
 	}
 
 	/**
@@ -300,10 +333,15 @@ export class KernelManager {
 		const { version } = resolved
 		this.live.set(version, (this.live.get(version) ?? 0) + 1)
 		let startIndex = 0
-		await this.options.store.update((state) => {
-			startIndex = (state.starts[version] ?? 0) + 1
-			state.starts[version] = startIndex
-		})
+		try {
+			await this.options.store.update((state) => {
+				startIndex = (state.starts[version] ?? 0) + 1
+				state.starts[version] = startIndex
+			})
+		} catch (error) {
+			// The host is up; a count that could not be kept must not undo that.
+			this.options.store.log('start-count-failed', { message: scrub(messageOf(error)) })
+		}
 		return { version, startedAt, startIndex, ended: false }
 	}
 
@@ -344,19 +382,29 @@ export class KernelManager {
 			token.startIndex <= EARLY_EXIT_STARTS
 		if (!early) return false
 		let giveUp = false
-		await this.options.store.update((state) => {
-			const next = (state.earlyExits[version] ?? 0) + 1
-			state.earlyExits[version] = next
-			giveUp = next >= EARLY_EXITS_TO_GIVE_UP
-		})
-		if (!giveUp) return false
-		await this.options.store.markBad(version, 'it ended early twice')
-		return true
+		try {
+			await this.options.store.update((state) => {
+				const next = (state.earlyExits[version] ?? 0) + 1
+				state.earlyExits[version] = next
+				giveUp = next >= EARLY_EXITS_TO_GIVE_UP
+			})
+			if (!giveUp) return false
+			await this.options.store.markBad(version, 'it ended early twice')
+			return true
+		} catch (error) {
+			this.options.store.log('exit-count-failed', { message: scrub(messageOf(error)) })
+			return false
+		}
 	}
 
 	/** Marks a managed version bad (it failed to start, to answer, or lacks a required method). */
-	markBad(version: string, reason: string): Promise<boolean> {
-		return this.options.store.markBad(version, reason)
+	async markBad(version: string, reason: string): Promise<boolean> {
+		try {
+			return await this.options.store.markBad(version, reason)
+		} catch (error) {
+			this.options.store.log('mark-bad-failed', { message: scrub(messageOf(error)) })
+			return false
+		}
 	}
 
 	/**

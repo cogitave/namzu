@@ -285,7 +285,9 @@ export class EngineDelivery {
 	 * Call `release` when it ends; until then the engine's folder is not removed.
 	 */
 	async lease(): Promise<{ entry: string; release: () => void }> {
-		await this.deps.ready
+		// A tab or a short command never fails to start because of the engine folder: whatever goes
+		// wrong while choosing ends in the engine inside the installer.
+		await this.deps.ready.catch(() => undefined)
 		const kernel = await this.manager.resolve({ hold: true })
 		const release = kernel.release ?? (() => undefined)
 		return {

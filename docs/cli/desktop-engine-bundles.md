@@ -76,10 +76,15 @@ path, a drive letter, a backslash, a `:`, an empty or `.` or `..` segment, a Win
 `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`, with or without an extension), a segment ending in a dot or a space;
 two names equal after case folding; a file `files.json` does not list, or a listed file that is missing; a
 size or sha256 that differs; more files or more unpacked bytes than the manifest states; bytes after the end
-blocks. Beyond the text, the publisher's reader also refuses: a name prefix in a header; a `files.json` that
-is not serialised exactly as above; entries in an order other than the order of `files.json`; a pax header
-that carries `path` twice; and the Windows device names the text does not list (`CONIN$`, `CONOUT$`, `CLOCK$`,
-the superscript forms `COM¹`, `LPT²` and so on, and a name such as `con .txt`).
+blocks. Beyond the text, both readers (the publisher's and the app's, which share one list of broken cases in
+`scripts/__tests__/kernel-cases.mjs`) also refuse: a header that is not `ustar`, that has a name prefix or names a
+link target; octal fields that are not plain octal; a `files.json` that is not serialised exactly as above, whose
+fields are not in the order of the text or that holds a repeated key; entries in an order other than the order of
+`files.json`; a pax header that carries `path` twice or is larger than 8192 bytes; control characters (below
+space and DEL) in a name; the characters `< > | ? * "`, which Windows cannot hold; a name over 1024 bytes or a
+segment over 255; a name that is a file and a folder (`a` and `a/b`); a name equal after case folding to
+`files.json`; and the Windows device names the text does not list (`CONIN$`, `CONOUT$`, `CLOCK$`, the
+superscript forms `COM¹`, `LPT²` and so on, and a name such as `con .txt`).
 
 "Case folding" is Unicode composition (NFC), then upper case, then lower case. That joins the pairs that
 lower-casing alone misses: the two Greek sigma forms, `ß` and `SS`, the Kelvin sign and `K`, and `é` written
@@ -118,12 +123,19 @@ order:
 
 `sequence` is the issue time in seconds and never goes down. `file` is a bare name fetched from the same
 folder. `withdrawn` lists command line versions the app must no longer use; `minimumKernel` is the floor: no
-fetched kernel below it may run. Unknown fields, at any level, are refused.
+fetched kernel below it may run. Unknown fields, at any level, are refused. Both readers also refuse: a
+version that is not plain `x.y.z` (no prerelease, no build part, no leading zero, at most nine digits a part);
+a sequence below 1; a withdrawn version listed twice; a floor above the kernel offered; a bundle name that is
+not `win32`, `darwin` or `linux` with `x64`, `arm64` or `ia32`; a bundle `file` over 128 characters; a bundle
+larger than 2 GiB, more than 8 GiB unpacked or more than 200000 files; a `fileCount` of 0; a `desktopContract`
+or `dataEpoch` above 1000000; a manifest over 1 MiB; and, as the next section says, anything but the exact bytes.
 
 ### The signature
 
 `kernel-latest.json.sig`: `{"schema":1,"keyId":"k1","algorithm":"ed25519","signature":"<base64>"}`. It is
-Ed25519 over the exact bytes of the manifest file. The app keeps both files byte for byte.
+Ed25519 over the exact bytes of the manifest file. The app keeps both files byte for byte. The file is compact
+JSON with its keys in this order and one newline; a reader refuses any other layout, and a key id is 1 to 32
+letters, digits, `.`, `_` or `-`, starting with a letter or digit.
 
 ## The commands
 
@@ -144,7 +156,8 @@ the repository.
 | `key.mjs [--id k1] [--private]` | Makes a key pair. |
 | `unpack.mjs <archive> <out-dir> [--manifest file]` | Unpacks with the reader's rules (for inspection; the folder is removed if the archive is refused). |
 | `release-local.mjs --out <dir> [--target t]... [--keys file] [--previous file] [--floor v] ...` | The whole release into a folder, without publishing: stage, pack, manifest, sign when a key is in the environment, verify. |
-| `release-plan.mjs decide ...` / `prune ...` | The decisions of the workflow (what a run does; which archives to remove), as code that is tested. |
+| `release-plan.mjs decide ...` / `prune ...` / `upload-plan ...` | The decisions of the workflow (what a run does; which archives to remove; whether the archive about to be uploaded is new, replaces a leftover or is refused), as code that is tested. |
+| `write-keys.mjs [--check]` | Writes the app's compiled key list from `kernel-keys.json`, or checks it is current. |
 
 **Manifest rules** (`assemble-manifest.mjs`): a sequence lower than or equal to the previous manifest's is refused (the
 sequence is the issue time in seconds, so pass a later `--issued-at`); a kernel older than the previous
@@ -196,7 +209,10 @@ is started to check it; both get an environment without `NAMZU_KERNEL_SIGNING_KE
 
 `packages/desktop/kernel-keys.json` is a JSON array of `{ "id": "k1", "publicKey": "<base64 of the 32 raw bytes>" }`.
 It is **empty** until the real key exists. The publisher scripts read it, and the app is built from the same
-file (`KERNEL_PUBLIC_KEYS`); an app built with an empty list never asks for an engine.
+file: `node scripts/kernel/write-keys.mjs` (run first by `pnpm build`) writes `src/main/kernel/keys-compiled.ts`
+from it, `KERNEL_PUBLIC_KEYS` reads that, and a unit test fails when the two differ. An app built with an empty
+list never asks for an engine; a packaged app takes no key from the environment. After editing the file, run
+the command and commit both.
 
 ## The release workflow
 
@@ -220,8 +236,10 @@ list it also ends quietly. Three jobs:
   the bundle entry from the archive itself, assembles the manifest from the previous one (after verifying the
   previous one against the key list), signs, verifies the result against the key list in the repository (an
   empty list, or a signature no listed key makes, stops it), then uploads the archive first and the signed pair
-  last, and removes archives older than the previous one. A version that is already on the release is never
-  replaced; bump instead.
+  last, and removes archives older than the previous one. An archive that a published manifest names is never
+  replaced (bump the version instead); one that none names, which is what an upload cut after the archive and
+  before the signed pair leaves, is replaced. That decision is `release-plan.mjs upload-plan`, tested code
+  that is given the manifest that verified at the start of the run, not shell.
 
 No value from the triggering run or from an input is interpolated into a shell line; each goes through `env`.
 
@@ -251,8 +269,9 @@ and `kernel-previous.json.sig` on the same release, before replacing it. A later
 incomplete or does not verify says so in a warning and starts from the saved pair; if there is no saved pair it
 stops with a plain message. A manifest that is present with no `.sig` counts as a pair that does not verify.
 When it starts from the saved pair, the archive of a version that was already uploaded by the cut run is still
-on the release and the same version cannot be built again (a version is never replaced): bump the command line
-version, or re-issue the saved manifest and let the next version go out normally.
+on the release. If no verified manifest names it, the next run replaces it and the version can still be
+published; if the manifest it starts from does name it, it is not replaced: bump the command line version, or
+re-issue the saved manifest and let the next version go out normally.
 
 ### Checks this workflow is not part of
 

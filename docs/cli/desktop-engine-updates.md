@@ -20,8 +20,11 @@ runs, starts it the next time a project opens, keeps two versions, and falls bac
 inside the installer, which always works.
 
 **A build with no signing key does none of this.** The list of compiled public keys
-(`KERNEL_PUBLIC_KEYS` in `src/main/kernel/keys.ts`) is empty in the repository until the real key
-exists. With an empty list the app makes no request, creates no folder, and Settings and About read
+(`KERNEL_PUBLIC_KEYS` in `src/main/kernel/keys.ts`) is generated from
+`packages/desktop/kernel-keys.json` (`node scripts/kernel/write-keys.mjs`, which `pnpm build` runs first and
+which writes `src/main/kernel/keys-compiled.ts`), the one file the publisher's verify step and the release
+workflow read too; a unit test fails when the two can differ. The list is empty in the repository until the
+real key exists. With an empty list the app makes no request, creates no folder, and Settings and About read
 exactly as they did before. Tests and the end-to-end run name a test key in the environment, which
 only an app that is not packaged accepts.
 
@@ -54,7 +57,11 @@ and a chain of hashes: signed description, archive, file list, files.
 
 1. **The signature.** `kernel-latest.json` is verified with Ed25519 over the exact bytes served, with
    a key picked by id from the compiled list, before a single field is read. A field the reader does
-   not know is refused.
+   not know is refused, and so is a manifest that is not in the exact bytes the publisher writes
+   (two-space JSON, fields in the order of the text, bundle names sorted, one newline, no repeated key),
+   a signature file that is not compact JSON with its fields in order and one newline, a version that is
+   not plain `x.y.z`, a sequence below 1, a repeated withdrawn version, a floor above the engine
+   offered and a bundle name other than `win32`, `darwin` or `linux` with `x64`, `arm64` or `ia32`.
 2. **The channel, the order and the age.** The channel must be the one asked for; the sequence never
    goes down; a description past its expiry (judged against the highest issue time ever seen, not
    the clock alone) installs nothing.
@@ -64,11 +71,18 @@ and a chain of hashes: signed description, archive, file list, files.
    A newer engine that fails the last two is reported as "needs a newer version of this app".
 4. **The download** has the exact size as its cap, and its sha512 is computed on the way in.
 5. **The archive** is read by a reader written for the narrow format the publisher writes. It refuses
-   links and every entry that is not a plain file, a pax key but `path`, absolute paths, drive letters,
-   backslashes, colons, empty or dot segments, reserved Windows device names, names that end in a dot
-   or a space, names equal after case folding, a file the list does not name, a listed file that is
-   missing, a wrong size or hash, more files or bytes than the description states, and bytes after
-   the end. It writes only inside its own folder and creates every file new.
+   links and every entry that is not a plain file, a pax key but `path` or `path` twice, absolute
+   paths, drive letters, backslashes, colons, empty or dot segments, control characters, characters
+   Windows cannot hold in a name (`< > | ? * "`), names over 1024 bytes or a segment over 255, reserved
+   Windows device names (the text's list, `CONIN$`, `CONOUT$`, `CLOCK$`, the superscript digits of
+   `COM` and `LPT`, and a device name followed by spaces), names that end in a dot or a space, names
+   equal after case folding (NFC, upper case, lower case), a name that is a file and a folder, a
+   header that is not `ustar`, that has a name prefix or names a link target, a `files.json` that is
+   not `JSON.stringify(value)` and one newline, entries in any other order than the order of
+   `files.json`, a file the list does not name, a listed file that is missing, a wrong size or hash,
+   more files or bytes than the description states, and bytes after the end. `fileCount` and
+   `unpackedSize` count the entries of `files.json` (`kernel.json` included, `files.json` not). It
+   writes only inside its own folder and creates every file new.
 6. **`kernel.json`** inside the archive must say what the description says.
 7. **A self-check.** The unpacked engine is run once as the app's own program in node mode, in a
    clean environment (a short list of names; none of the person's variables or keys), with a
@@ -88,6 +102,19 @@ pairs count as seen, so deleting or editing `state.json` does not let an older s
 in. An engine that fails a check is given up for good. A read that fails for a moment (a file held
 by another program) is tried once more and, when it still fails, only that start goes on without
 the engine; it is not given up.
+
+## Never a failed start
+
+A start of a host, a terminal tab or a short command never fails because of the engine folder. Choosing
+the engine (`KernelManager.resolve`) is wrapped as a whole: a file operation that fails with any code
+(`EPERM`, `EBUSY`, `EACCES`, `ENOENT`, `EIO`, `ENOSPC` and the rest), a `state.json` of any shape (a
+folder, binary, `null`, a list, the wrong types, a huge string), a folder that is gone, a check that
+throws, an odd setting or odd facts for the engine inside the installer, all end in the engine inside the
+installer and one line in the log (`resolve-failed`, with no path in it). Counting a start or an exit,
+giving a version up, cleaning up, and writing a log line each swallow their own failures and say so in
+the log; setting the feature up at launch (`createEngineDelivery`) returns nothing, so the app runs as it
+did before engines could be fetched, when it throws. `never-throws.test.ts` makes every file operation of a
+start fail with each of the six codes in turn, with a healthy engine and with a damaged one.
 
 ## Going back
 
@@ -164,12 +191,33 @@ off, or asking the administrator to allow the app data folder, stops the repeate
 
 `src/main/kernel/` has no Electron in it; every outside effect is passed in. `version.ts` (SemVer
 precedence), `keys.ts`, `manifest.ts` (signature and strict parse), `files-list.ts`, `archive.ts`,
-`facts.ts` (`kernel.json` and the `kernel` object of the `initialize` answer, written locally
-because the SDK type may not carry it), `fs.ts`, `state.ts`, `store.ts`, `manager.ts` (choosing and
+`facts.ts` (`kernel.json` and the `kernel` object of the `initialize` answer, typed with the SDK's own
+`AcpKernelFacts`), `fs.ts`, `state.ts`, `store.ts`, `manager.ts` (choosing and
 going back), `check.ts`, `self-check.ts`, `feed-fetch.ts`, `log.ts`, `view.ts` (what the screen is
 told) and `delivery.ts` (the schedule and the launcher a connection to a host starts through).
 `src/main/engine-delivery.ts` assembles them for the app; `src/main/host-launcher.ts` is the narrow
 interface the connection to a host sees.
+
+## How the three sides are held together
+
+- **One reader rule set.** The publisher's reader (`scripts/kernel/archive-reader.mjs`,
+  `manifest.mjs`, `signing.mjs`) and the app's (`archive.ts`, `files-list.ts`, `manifest.ts`) refuse
+  the same things. The deliberately broken archives and signed pairs are data in
+  `scripts/__tests__/kernel-cases.mjs`; the publisher's tests and `src/main/kernel/cross-format.test.ts`
+  both run every one, with each builder (the publisher's test builder and the app's) and each reader.
+  The same file also checks that what the publisher writes (`writeArchive`, `describeArchive`,
+  `assembleManifest`, `signManifest`) is read, installed and quick-checked by the app, and that the app's
+  test helper gives the same bytes as the publisher's writer for one folder.
+- **A real command line.** `real-kernel.test.ts` lays out `resources/cli` as the installer does
+  (`dist/`, `package.json`, `kernel.json`), writes `kernel.json` with the publisher's staging function from
+  what the built command line (`packages/cli/dist/bin.js`) answers, and checks the app reads it, and that
+  asking the bundled engine once (the fallback for an older installer) gives the same facts.
+- **The contract inventory.** `desktop-contract.test.ts` holds the app to
+  `packages/cli/desktop-contract/inventory.json`, the file the engine's own guard reads: what the app
+  announces in `initialize`, the answer fields it reads, the required and optional methods
+  (`extension-groups.ts` is the one list of optional groups, read by the connection), every `namzu/...`
+  name in the app's source, the notifications it consumes, the flags it passes, the files it reads and the
+  environment it hands over. Something the app starts relying on that the inventory lacks fails there.
 
 ## Not yet tested
 

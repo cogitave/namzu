@@ -327,16 +327,27 @@ jobs:
             --title "Namzu engine" \
             --notes "Update feed read by the installed Namzu Desktop app: the newest engine archive and the one before it, and the signed description of the newest. Do not edit or delete this release by hand."
 
-      # A version is never replaced: bytes under a name people may already have downloaded stay as they were.
+      # An archive a published manifest names is never replaced: bytes under a name people may already have
+      # downloaded stay as they were. One that no published manifest names (an upload cut after the archive and
+      # before the signed pair leaves exactly that) is replaced, or that version could never be published. The
+      # decision is code with tests (release-plan.mjs upload-plan), not shell: the manifest it is given is the
+      # pair that verified at the start of this run.
       - name: Upload the archive first (build only)
         if: env.MODE == 'build'
         run: |
           name="namzu-kernel-$VERSION-win32-x64.tar.gz"
-          if gh release view "$FEED_TAG" --json assets --jq '.assets[].name' | grep -Fxq "$name"; then
-            echo "$name is already on $FEED_TAG; bump the version instead." >&2
-            exit 1
-          fi
-          gh release upload "$FEED_TAG" "incoming/$name"
+          gh release view "$FEED_TAG" --json assets --jq '[.assets[].name]' > assets.json
+          args=(upload-plan --name "$name" --assets assets.json)
+          if [ -f prev/kernel-latest.json ]; then args+=(--manifest prev/kernel-latest.json); fi
+          node "$KERNEL_SCRIPTS/release-plan.mjs" "${args[@]}" | tee upload-plan.txt
+          action="$(sed -n 's/^action=//p' upload-plan.txt)"
+          reason="$(sed -n 's/^reason=//p' upload-plan.txt)"
+          echo "::notice title=Kernel release::$action: $reason"
+          case "$action" in
+            upload) gh release upload "$FEED_TAG" "incoming/$name" ;;
+            replace) gh release upload "$FEED_TAG" --clobber "incoming/$name" ;;
+            *) echo "$reason" >&2; exit 1 ;;
+          esac
 
       # The signed pair goes last, so the feed never names an archive that is not there yet. The pair that
       # verified at the start of this run is saved first (see "The previous manifest" above).

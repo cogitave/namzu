@@ -6,6 +6,9 @@
 //     prints  mode=<build|reissue|none>  and  reason=<words>  (lines for $GITHUB_OUTPUT)
 //   node scripts/kernel/release-plan.mjs prune --keep <v> < asset-names.json
 //     prints the archive names to remove, one per line (all but the two newest versions, and never <v>)
+//   node scripts/kernel/release-plan.mjs upload-plan --name <archive> --assets <asset-names.json> [--manifest <kernel-latest.json> ...]
+//     prints  action=<upload|replace|refuse>  and  reason=<words>  for the archive about to be uploaded;
+//     each --manifest is a signed manifest that VERIFIED (the feed's current one), never a half-uploaded one
 import { readFileSync } from 'node:fs'
 import { isMain, parseFlags, runMain } from './cli.mjs'
 import { VERSION, compareVersions, parseManifest } from './manifest.mjs'
@@ -62,6 +65,34 @@ export function pruneList(names, keep) {
 	})
 }
 
+/**
+ * What to do with the archive about to be uploaded, given the names already on the rolling release and the
+ * manifests that are published (verified: they name what clients may be fetching).
+ *  - not on the release: `upload`.
+ *  - on the release and a published manifest names it: `refuse`. Bytes under a name people may have
+ *    downloaded stay as they were; bump the version instead.
+ *  - on the release and no published manifest names it: `replace`. Nobody was ever pointed at it: it is what
+ *    an upload cut between the archive and the signed pair leaves behind, and refusing it would make that
+ *    version impossible to publish for good.
+ */
+export function archiveUploadAction({ name, assets, manifests = [] }) {
+	if (!ARCHIVE.test(name)) return { action: 'refuse', reason: `${name} is not an archive name` }
+	if (!assets.includes(name))
+		return { action: 'upload', reason: `${name} is not on the release yet` }
+	const named = manifests.some((manifest) =>
+		Object.values(manifest.kernel.bundles).some((bundle) => bundle.file === name),
+	)
+	if (named)
+		return {
+			action: 'refuse',
+			reason: `${name} is already on the release and a published manifest names it; bump the version instead`,
+		}
+	return {
+		action: 'replace',
+		reason: `${name} is on the release but no published manifest names it (an earlier upload was cut before the signed pair), so it is replaced`,
+	}
+}
+
 async function main(args) {
 	const [command, ...rest] = args
 	if (command === 'prune') {
@@ -73,7 +104,22 @@ async function main(args) {
 		for (const name of pruneList(names, flags.keep)) console.log(name)
 		return
 	}
-	if (command !== 'decide') throw new Error('Usage: release-plan.mjs decide|prune ...')
+	if (command === 'upload-plan') {
+		const { flags } = parseFlags(rest, { name: 'string', assets: 'string', manifest: 'list' })
+		if (!flags.name || !flags.assets)
+			throw new Error(
+				'Usage: release-plan.mjs upload-plan --name <archive> --assets <file> [--manifest <file> ...]',
+			)
+		const assets = JSON.parse(readFileSync(flags.assets, 'utf8'))
+		if (!Array.isArray(assets) || assets.some((name) => typeof name !== 'string'))
+			throw new Error('--assets must be a JSON array of asset names.')
+		const manifests = (flags.manifest ?? []).map((file) => parseManifest(readFileSync(file)))
+		const result = archiveUploadAction({ name: flags.name, assets, manifests })
+		console.log(`action=${result.action}`)
+		console.log(`reason=${result.reason}`)
+		return
+	}
+	if (command !== 'decide') throw new Error('Usage: release-plan.mjs decide|prune|upload-plan ...')
 	const { flags } = parseFlags(rest, {
 		event: 'string',
 		'local-version': 'string',

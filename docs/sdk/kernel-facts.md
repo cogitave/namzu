@@ -203,8 +203,10 @@ read).
 
 ### The inventory
 
-One data file holds it: **`packages/cli/desktop-contract/inventory.json`**. A Desktop test can read it from the
-repository. It records, as read from `packages/desktop/src`:
+One data file holds it: **`packages/cli/desktop-contract/inventory.json`**. The Desktop app's own
+`packages/desktop/src/main/desktop-contract.test.ts` reads it too and fails when the app's lists (what it announces, the
+fields it reads, the required and optional methods, the notifications, the flags) and this file disagree, so something
+the app starts relying on is recorded for the guard below. It records, as read from `packages/desktop/src`:
 
 - the `initialize` request the application sends and the fields it reads from the answer (`initialize`);
 - the core ACP methods it uses (`coreMethods`);
