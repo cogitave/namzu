@@ -69,6 +69,7 @@ The operator application.
 * [Tool servers](mcp-servers.md) - The mcpServers config key: a server by command or by URL, the environment its child gets, how long each has to connect, and what happens when one does not.
 * [Exit codes of namzu exec](exec-exit-codes.md) - What $? says after namzu exec, including 75 for a turn the provider paused with a checkpoint kept or a session whose turn is still active, and what a wrapper should do with each code.
 * [namzu exec --json](exec-json.md) - The headless one-shot as a stream for host UIs: NDJSON events, the session and turn ids they carry, --session history and exit codes.
+* [Spend by day and model](cost.md) - What conversations on this machine cost by local day, model, project and kind of work, from the session logs: /cost days, namzu cost and its JSON shape, how unknown prices are shown, and the rebuildable summary it reads through.
 * [namzu drain](drain.md) - One bounded pass that continues parked turns another process left behind, through the session index and each session's lease.
 * [Session task context](task-context.md) - Bounded reminders of a session's open tasks and those closed in the current turn, scope and research boundaries.
 * [Google accounts and model access](google.md) - Existing Gemini CLI Google sign-in, explicit API-key routing and read-only credential refresh.

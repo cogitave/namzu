@@ -46,6 +46,15 @@ export const archiveCommand = lazyCommand(
 	async () => (await import('./archive.js')).archiveCommand,
 )
 
+export const costCommand = lazyCommand(
+	{
+		name: 'cost',
+		description: 'Show spend across conversations by day and model, from the session logs',
+		passThrough: true,
+	},
+	async () => (await import('./cost.js')).costCommand,
+)
+
 export const peersCommand = lazyCommand(
 	{
 		name: 'peers',

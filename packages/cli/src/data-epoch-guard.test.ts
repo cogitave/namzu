@@ -34,6 +34,11 @@ const CONSTANTS: Record<string, { version: number; onDisk: boolean }> = {
 		onDisk: true,
 	},
 	'integrations/providers/preferences.ts#PREFERENCES_FILE_VERSION': { version: 3, onDisk: true },
+	// <home>/spend-ledger.json: a rebuildable summary of the session logs. An older command line
+	// ignores the file; a newer or older version of it is rebuilt from the logs, never migrated.
+	'integrations/spend/ledger.ts#SPEND_LEDGER_VERSION': { version: 1, onDisk: true },
+	// `namzu cost --json`: printed for scripts, never written to disk.
+	'integrations/spend/report.ts#SPEND_REPORT_SCHEMA_VERSION': { version: 1, onDisk: false },
 	'integrations/trust/store.ts#TRUST_FILE_VERSION': { version: 1, onDisk: true },
 	'memory/usage.ts#VERSION': { version: 1, onDisk: true },
 	'permissions/consent.ts#VERSION': { version: 1, onDisk: true },
