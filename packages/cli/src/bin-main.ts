@@ -4,15 +4,32 @@
 
 import { runCli } from './cli.js'
 import { EXIT_INTERNAL_ERROR, EXIT_UNAVAILABLE } from './exit-codes.js'
+import { APPLY_AT_EXIT_FLAG } from './integrations/auto-update/deferred-apply.js'
+import {
+	installWasReplaced,
+	replacedInstallLine,
+} from './integrations/auto-update/replaced-install.js'
 import { resumeInvocation } from './resume-invocation.js'
-import { sessionLeasesMayBeHeld, terminationInProgress } from './termination-state.js'
+import {
+	heldLeaseRelease,
+	sessionLeasesMayBeHeld,
+	terminationInProgress,
+} from './termination-state.js'
 
 /** Give the conversation back even when bounded TUI cleanup left a query unwinding. */
 async function exitProcess(code: number): Promise<void> {
 	if (terminationInProgress() !== null) return
 	if (sessionLeasesMayBeHeld()) {
-		const { releaseHeldSessionLeases } = await import('@namzu/sdk')
-		await releaseHeldSessionLeases()
+		try {
+			// The function the command started with: nothing is read from disk on the way out, so a
+			// newer version installed over this one meanwhile cannot take it away.
+			const release = heldLeaseRelease() ?? (await import('@namzu/sdk')).releaseHeldSessionLeases
+			await release()
+		} catch (err) {
+			// The conversation is closed by its own code before this point; this is only the safety net.
+			// Leaving must still work, and say why only when the install was replaced.
+			if (installWasReplaced({ error: err })) process.stderr.write(`${replacedInstallLine()}\n`)
+		}
 	}
 	// A signal may have arrived during the release; its handler owns that exit.
 	if (terminationInProgress() !== null) return
@@ -47,6 +64,16 @@ export function main(entrypoint: string): Promise<void> {
 				() => process.exit(1),
 			)
 	}
+	// A session that ended with an update due starts this detached; it loads everything it needs
+	// before it replaces the folder it runs from.
+	if (process.argv[2] === APPLY_AT_EXIT_FLAG) {
+		return import('./integrations/auto-update/apply-at-exit.js')
+			.then((apply) => apply.runApplyAtExit())
+			.then(
+				() => process.exit(0),
+				() => process.exit(1),
+			)
+	}
 	return runCli({
 		argv: process.argv,
 		resumeCommand: resumeInvocation(entrypoint),
@@ -59,25 +86,39 @@ export function main(entrypoint: string): Promise<void> {
 		},
 		async (err) => {
 			if (terminationInProgress() !== null) return
-			// A full disk that stopped a folder from being created is a sentence, not a crash.
-			const plain = await plainFailure(err)
-			// Loaded here and not at the top: the report resolves the Namzu home
-			// through the SDK, which `--version` has no other reason to compile.
 			let report: string
-			try {
-				if (plain !== undefined) {
-					report = `${plain}\n`
-				} else {
-					const { reportCrash } = await import('./crash-report.js')
-					report = reportCrash(err)
+			let code = EXIT_INTERNAL_ERROR
+			if (installWasReplaced({ error: err })) {
+				// A newer version installed over this one while it ran is a sentence, not a crash.
+				report = `${replacedInstallLine()}\n`
+				code = EXIT_UNAVAILABLE
+			} else {
+				// A full disk that stopped a folder from being created is a sentence, not a crash.
+				const plain = await plainFailure(err)
+				if (plain !== undefined) code = EXIT_UNAVAILABLE
+				// Loaded here and not at the top: the report resolves the Namzu home
+				// through the SDK, which `--version` has no other reason to compile.
+				try {
+					if (plain !== undefined) {
+						report = `${plain}\n`
+					} else {
+						const { reportCrash } = await import('./crash-report.js')
+						report = reportCrash(err)
+					}
+				} catch (reportFailure) {
+					// The runtime that would write the report is what failed to load.
+					if (installWasReplaced({ error: reportFailure })) {
+						report = `${replacedInstallLine()}\n`
+						code = EXIT_UNAVAILABLE
+					} else {
+						const why =
+							reportFailure instanceof Error ? reportFailure.message : String(reportFailure)
+						report = `Namzu stopped because of an unexpected problem, and could not save details: ${why}\n`
+					}
 				}
-			} catch (reportFailure) {
-				// The runtime that would write the report is what failed to load.
-				const why = reportFailure instanceof Error ? reportFailure.message : String(reportFailure)
-				report = `Namzu stopped because of an unexpected problem, and could not save details: ${why}\n`
 			}
 			process.stderr.write(report)
-			await exitProcess(plain !== undefined ? EXIT_UNAVAILABLE : EXIT_INTERNAL_ERROR)
+			await exitProcess(code)
 		},
 	)
 }

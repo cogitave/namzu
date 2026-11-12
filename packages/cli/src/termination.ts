@@ -99,7 +99,11 @@ export function signalExitCode(signal: TerminationSignal): number {
 export function handleTerminationSignals(
 	options: HandleTerminationOptions = {},
 ): TerminationHandling {
-	markSessionLeaseUse()
+	markSessionLeaseUse(() => releaseHeldSessionLeases())
+	// Say which install this process runs from, so an update waits for it (`running.ts`).
+	void import('./integrations/auto-update/running.js')
+		.then((running) => running.registerRunningSession())
+		.catch(() => undefined)
 	const proc: TerminationProcess = options.process ?? (process as unknown as TerminationProcess)
 	const cleanups: Array<(signal: TerminationSignal) => Promise<void> | void> = []
 	let disposed = false

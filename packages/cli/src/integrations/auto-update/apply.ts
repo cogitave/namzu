@@ -16,13 +16,13 @@ import { isAbsolute, join, relative, resolve } from 'node:path'
 import { compareVersions } from '../updates.js'
 import { DownloadError, downloadVerifiedTarball } from './download.js'
 import type { InstallKind } from './install-kind.js'
+import { scopeOf, sharedStateHome } from './shared-state.js'
 import { START_CHECK_FLAG } from './start-check.js'
 import {
 	LOCK_STALE_MS,
 	type UpdateLock,
 	acquireUpdateLock,
 	clearInProgress,
-	installScope,
 	previousDir,
 	processIsRunning,
 	pruneOlderPrevious,
@@ -40,24 +40,7 @@ export function activeRoot(
 		: install.root
 }
 
-/** The key an install's lock, marker and kept copies are filed under: its prefix, or pnpm's global folder. */
-export function scopeOf(
-	install: Extract<InstallKind, { kind: 'npm-global' | 'pnpm-global' }>,
-	platform: NodeJS.Platform = process.platform,
-): string {
-	return installScope(install.kind === 'pnpm-global' ? install.globalDir : install.prefix, platform)
-}
-
-/**
- * Where the lock and the in-progress marker of an install live: inside the install
- * itself, which must be writable for an update to run at all. Every process that can
- * write the install, whatever its Namzu home or user, sees the same files.
- */
-export function sharedStateHome(
-	install: Extract<InstallKind, { kind: 'npm-global' | 'pnpm-global' }>,
-): string {
-	return join(install.kind === 'pnpm-global' ? install.globalDir : install.prefix, '.namzu-update')
-}
+export { scopeOf, sharedStateHome } from './shared-state.js'
 
 export const PUBLIC_REGISTRY = 'https://registry.npmjs.org'
 
@@ -130,6 +113,12 @@ export interface ApplyDeps {
 	 * Left out, it is downloaded from the registry the release came from.
 	 */
 	readonly fetchTarball?: (release: Release, file: string) => Promise<void>
+	/**
+	 * Asked just before the package folder is touched, and again once the kept copy is made
+	 * (which takes a while): false when another Namzu process now runs from this install, in
+	 * which case nothing is changed and the result is `locked`.
+	 */
+	readonly mayProceed?: () => boolean
 }
 
 export interface Release {
@@ -537,6 +526,7 @@ async function installFromTarball(
 	let backup: string | undefined
 	const pid = deps.pid ?? process.pid
 	const at = (deps.now ?? Date.now)()
+	if (deps.mayProceed && !deps.mayProceed()) return { status: 'locked' }
 	try {
 		writeInProgress(shared, { pid, to: release.version, from: onDisk, at }, scope)
 		if (install.kind === 'npm-global') {
@@ -546,6 +536,11 @@ async function installFromTarball(
 	} catch {
 		clearInProgress(shared, scope)
 		return fail('backup_failed', true)
+	}
+	// The copy takes seconds; a window that started meanwhile has loaded files from this folder.
+	if (deps.mayProceed && !deps.mayProceed()) {
+		clearInProgress(shared, scope)
+		return { status: 'locked' }
 	}
 
 	const restore = async (): Promise<boolean> => {

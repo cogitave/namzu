@@ -12,10 +12,21 @@ export type TerminationSignal = (typeof TERMINATION_SIGNALS)[number]
 
 let terminating: TerminationSignal | null = null
 let sessionLeaseUse = false
+let releaseLeases: (() => Promise<unknown>) | undefined
 
-/** A turn-capable command has loaded the kernel; the binary must release its leases before exit. */
-export function markSessionLeaseUse(): void {
+/**
+ * A turn-capable command has loaded the kernel; the binary must release its leases before exit.
+ * `release` is the kernel's own function, kept so the way out never has to load anything from
+ * disk: an install replaced while the process runs would have removed the file it names.
+ */
+export function markSessionLeaseUse(release?: () => Promise<unknown>): void {
 	sessionLeaseUse = true
+	if (release) releaseLeases = release
+}
+
+/** The kernel's lease release as it was when the command started, or undefined. */
+export function heldLeaseRelease(): (() => Promise<unknown>) | undefined {
+	return releaseLeases
 }
 
 /** Keep utility-only exits from importing the kernel just to release an empty registry. */

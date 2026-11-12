@@ -11,16 +11,65 @@ generated: { by: process:agent, at: 2026-10-27T00:00:00Z }
 # Updates
 
 The terminal looks for a newer Namzu while it is open and, where Namzu may,
-installs it in the background. While it installs, the right end of the footer
-says `Updating to 41.3.0…` in the quiet tone, and once an update is installed it
-says so with a green check:
+installs it for you. It never replaces the files a window is running from: when a
+newer version may be installed, the right end of the footer says so quietly, and the
+install happens when the last Namzu window from that install has closed:
+
+```text
+Update 41.3.0 ready · installs when Namzu closes
+```
+
+The running conversation is never restarted or interrupted; the next `namzu` you
+start after that is the new version. If someone else (you in another terminal, a
+package manager) puts a newer version on the disk while a window is open, that
+window says so with a green check and what to do:
 
 ```text
 ✓ Updated to 41.3.0 · restart to use it
 ```
 
-The running conversation is never restarted or interrupted; the next `namzu` you
-start is the new version.
+## What happens to a window that is already open
+
+Namzu is split into many small files, and a window loads some of them only when it
+first needs them. Replacing the installed copy while a window runs would take those
+files away, and the window would fail the next time it needed one (opening a rarely
+used screen, or closing, which used to end in a stack trace and exit code 1 after the
+line telling you how to resume). So:
+
+- **Namzu's own update waits.** A window never installs a version over itself. When it
+  finds one, it asks for the install to happen after it ends, whichever way it ends
+  (closing it, `/exit`, the terminal window going away). A small background process
+  (`namzu --apply-at-exit`, it prints nothing) then waits until no Namzu process runs
+  from that install any more, so a second window that is still open is never replaced
+  under, and installs with the checks described below. Each process that runs a turn
+  (the terminal, `namzu exec`, the scheduler's runs) leaves one small file under
+  `updates/running/` in the install's `.namzu-update` folder while it runs; a file whose
+  process is gone is ignored. Short commands (`--version`, `doctor`, `upgrade`) and `namzu acp` leave
+  none. The background process gives up after six hours and leaves the update for the
+  next window to close. The cost: the update lands when you stop, not ten seconds after
+  you start.
+- **An install by someone else can still remove files** from a window that is open
+  (`npm install --global` in another terminal, `namzu upgrade`, a package manager).
+  `namzu upgrade` says when other windows are open from the install it just replaced.
+  A window that needs a file that is gone says one plain line, never a stack trace:
+  `Namzu 41.3.0 was installed while this window was open, so part of Namzu 41.2.0 is no
+  longer on disk and this could not be done. Your conversation is saved; start Namzu
+  again to continue it.` It says that only when the version on disk really differs from
+  the one running and the missing file is Namzu's own. Closing such a window works: the
+  way out loads nothing from disk. The conversation is written as it goes, so nothing is
+  lost, and `namzu resume` continues it with the new version.
+- **The Desktop app's engines** live in one folder per version and are never replaced in
+  place, so a running engine keeps all its files; the copy inside the installer moves
+  only with the app.
+
+For each kind of install:
+
+| Install | A window that is open when a newer version arrives |
+|---|---|
+| `npm install --global`, and the installer's `~/.namzu` folder, updated by Namzu | Keeps working: the install waits for the last window. |
+| `pnpm add --global`, updated by Namzu | The same. |
+| Any of the above, upgraded by you or another tool meanwhile | May lack files it has not loaded yet; says the plain line above and is saved. |
+| A source checkout, `npx`, the Desktop app's copy | Never replaced by Namzu. |
 
 ## When it looks
 
@@ -40,8 +89,8 @@ a package manager and never replaces a copy it does not own.
 
 | Install | What happens |
 |---|---|
-| `npm install --global` (including the installer's own `~/.namzu` folder) | Installed in the background when Namzu may write to the folder; otherwise the footer shows the exact command to run (`sudo npm install --global --prefix … @namzu/cli@X`). |
-| `pnpm add --global` | Installed in the background when its global folder is writable (macOS, Linux, WSL); otherwise the footer shows `pnpm add --global @namzu/cli@X`. |
+| `npm install --global` (including the installer's own `~/.namzu` folder) | Installed after the last window from that install closes, when Namzu may write to the folder; otherwise the footer shows the exact command to run (`sudo npm install --global --prefix … @namzu/cli@X`). |
+| `pnpm add --global` | Installed the same way when its global folder is writable (macOS, Linux, WSL); otherwise the footer shows `pnpm add --global @namzu/cli@X`. |
 | A source checkout, `npx` / `pnpm dlx`, the copy inside the Desktop app | Never touched and never announced. The Desktop app updates its own copy. |
 | Any other layout | The footer says a newer version exists and to reinstall; nothing is changed. |
 
@@ -154,7 +203,9 @@ inside `…/pnpm/global/<n>/.pnpm`, the store under `…/pnpm/global/<n>/node_mo
 (older pnpm) and the link `…/pnpm/global/<n>/node_modules/@namzu/cli`.
 
 A window that was already open keeps running the code it started with. Restart it
-to use the new version.
+to use the new version. The record of the last automatic attempt (`last-result-<install>.json`,
+`namzu upgrade --check`, `namzu doctor`) is written by the background process that did the
+install, so it is there for the next window to read.
 
 ## Settings
 
@@ -188,8 +239,11 @@ does not recognise instead of guessing.
 
 ## Known limits
 
-- Replacing the package while a window is open can break something that window
-  loads later; restart the window after an update.
+- Namzu's own update never replaces a window's files, but an install made by you or
+  another tool can: that window says one plain line when it needs a file that is gone
+  (see above) and is restarted to continue. The update installed after the last window
+  closes is later than one installed at once; a window left open for days postpones it
+  (the update is installed at the end of the next window that closes alone).
 - A Windows copy that is running can be locked by the system. The update then
   fails quietly, keeps the old version and is tried again after six hours.
 - Homebrew, winget, scoop and distro packages do not exist for Namzu today.

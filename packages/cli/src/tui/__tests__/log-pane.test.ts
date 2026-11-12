@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import * as replacedInstall from '../../integrations/auto-update/replaced-install.js'
 import { cliLogger } from '../../logging.js'
 import { installTuiLogSink } from '../log-pane.js'
 
@@ -104,5 +105,19 @@ describe('installTuiLogSink', () => {
 			if (previous === undefined) delete process.env.NAMZU_LOG_LEVEL
 			else process.env.NAMZU_LOG_LEVEL = previous
 		}
+	})
+})
+
+describe('a fatal error caused by an install replaced under the window', () => {
+	it('prints the one plain line and ends, with no crash report and no stack', () => {
+		const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
+		vi.spyOn(replacedInstall, 'installWasReplaced').mockReturnValue(true)
+		vi.spyOn(replacedInstall, 'replacedInstallLine').mockReturnValue('One plain line.')
+		const logs = installTuiLogSink({ level: 'debug', format: 'json' })
+		process.emit('unhandledRejection', new Error('Cannot find module'), Promise.resolve())
+		expect(stderr).toBe('One plain line.\n')
+		expect(exit).toHaveBeenCalledWith(69)
+		logs.close()
+		vi.restoreAllMocks()
 	})
 })

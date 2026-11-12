@@ -33,7 +33,11 @@ import { jsonLinesSink, prettySink } from '@namzu/sdk'
 import type { LogRecord, LogSink } from '@namzu/sdk'
 
 import { reportCrash } from '../crash-report.js'
-import { EXIT_INTERNAL_ERROR } from '../exit-codes.js'
+import { EXIT_INTERNAL_ERROR, EXIT_UNAVAILABLE } from '../exit-codes.js'
+import {
+	installWasReplaced,
+	replacedInstallLine,
+} from '../integrations/auto-update/replaced-install.js'
 import { contextLogging, installCliLogging } from '../logging.js'
 import type { ResolvedLogging } from '../logging.js'
 
@@ -138,8 +142,12 @@ export function installTuiLogSink(logging?: ResolvedLogging): TuiLogSinkLifecycl
 		// The buffered diagnostics and the stack go to a log file; the screen gets
 		// one plain line, and the full text only under NAMZU_DEBUG=1 or --debug.
 		const diagnostics = collectDiagnostics()
-		process.stderr.write(reportCrash(err, { extra: diagnostics }))
-		process.exit(EXIT_INTERNAL_ERROR)
+		// A newer version installed over this one while it ran is a sentence, not a crash.
+		const replaced = installWasReplaced({ error: err })
+		process.stderr.write(
+			replaced ? `${replacedInstallLine()}\n` : reportCrash(err, { extra: diagnostics }),
+		)
+		process.exit(replaced ? EXIT_UNAVAILABLE : EXIT_INTERNAL_ERROR)
 	}
 	process.once('uncaughtException', onFatal)
 	process.once('unhandledRejection', onFatal)

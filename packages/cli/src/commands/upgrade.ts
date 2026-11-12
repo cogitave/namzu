@@ -19,9 +19,11 @@ import {
 	smokeTestInstalled,
 	tarballPath,
 } from '../integrations/auto-update/apply.js'
+import { currentInstall } from '../integrations/auto-update/current-install.js'
 import { DownloadError } from '../integrations/auto-update/download.js'
 import { pnpmGlobalDirFor } from '../integrations/auto-update/install-kind.js'
 import { resolveUpdatePolicy } from '../integrations/auto-update/policy.js'
+import { otherRunning } from '../integrations/auto-update/running.js'
 import {
 	acquireUpdateLock,
 	clearInProgress,
@@ -72,6 +74,11 @@ export interface UpgradeCommandDeps {
 	 * restart on the new code. Best effort; the scheduler also notices by itself.
 	 */
 	readonly afterUpgrade?: () => Promise<void>
+	/**
+	 * How many other Namzu windows run from the installation that was just replaced. They keep the
+	 * old code in memory and can fail to load more of it, so the person is told.
+	 */
+	readonly windowsOpen?: () => number
 	/**
 	 * After a verified update on Windows: remove the `namzu.ps1` shim npm wrote
 	 * into the global prefix. Defaults to {@link removeOwnPowerShellShim}.
@@ -134,6 +141,13 @@ const productionDeps: UpgradeCommandDeps = {
 	runNpm: runNpmUpgrade,
 	installedVersion: readInstalledVersion,
 	safety: { home: safeHome(), smokeTest: smokeTestInstalled },
+	windowsOpen: () => {
+		const found = currentInstall()
+		if (!found) return 0
+		const { install } = found
+		if (install.kind !== 'npm-global' && install.kind !== 'pnpm-global') return 0
+		return otherRunning(install, { except: process.pid }).length
+	},
 	afterUpgrade: async () => {
 		const [{ callEndpoint, readEndpoint }, { schedulePaths }, { resolveNamzuHome }] =
 			await Promise.all([
@@ -493,6 +507,7 @@ async function installVerified({
 
 		progress?.stop(true)
 		if (marking) clearInProgress(shared, scope)
+		const open = deps.windowsOpen?.() ?? 0
 		if (deps.safety) pruneOlderPrevious(shared, 2, scopeFor(deps.platform, prefix, pnpmDir))
 		ctx.formatter.print({
 			previous: deps.currentVersion,
@@ -501,6 +516,10 @@ async function installVerified({
 			text: `Updated Namzu ${deps.currentVersion} → ${installed}.${
 				leftFileEntry
 					? ' pnpm still lists Namzu as a local file; run `pnpm add --global @namzu/cli` once to switch it to the registry.'
+					: ''
+			}${
+				open > 0
+					? ` Namzu is still open in ${open === 1 ? 'another window' : `${open} other windows`}; close and reopen ${open === 1 ? 'it' : 'them'} to use the new version.`
 					: ''
 			}`,
 		})
