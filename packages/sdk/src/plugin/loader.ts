@@ -97,10 +97,24 @@ export async function loadPluginManifest(
 		throw new Error(`Plugin manifest must be a regular file, not a symlink: ${manifestPath}`)
 	}
 	const raw = await readFile(manifestPath, 'utf-8')
-	const parsed: unknown = JSON.parse(raw)
-	const manifest = PluginManifestSchema.parse(parsed)
+	const manifest = parsePluginManifestText(raw)
 	assertEnableable(manifest, capabilities)
 	return manifest
+}
+
+/**
+ * A manifest's text to a validated manifest, or a thrown reason: a
+ * `SyntaxError` for text that is not JSON, a zod error (with its `issues`)
+ * for JSON that is not a manifest.
+ *
+ * The first two of the loader's three steps on the manifest text (parse,
+ * schema; {@link assertEnableable} is the third). `loadPluginManifest` calls
+ * it, and so does a host that checks a manifest without loading the plugin,
+ * so the rules live once.
+ */
+export function parsePluginManifestText(raw: string): PluginManifest {
+	const parsed: unknown = JSON.parse(raw)
+	return PluginManifestSchema.parse(parsed)
 }
 
 async function discoverScopedPlugins(

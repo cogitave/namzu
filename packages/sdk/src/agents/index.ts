@@ -21,6 +21,7 @@ export {
 export type { AgentIdentity, RunAgentOptions, RunAgentResult } from './runAgent.js'
 export {
 	DEFAULT_RESERVED_AGENT_NAMES,
+	AGENT_FILE_KEYS,
 	MAX_AGENT_FILE_CHARS,
 	discoverAgentDefinitions,
 	parseAgentFile,
