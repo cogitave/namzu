@@ -24,17 +24,24 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }))
 const here = dirname(fileURLToPath(import.meta.url))
 const cliRoot = join(here, '..', '..')
 
+// The installer says how it ended by renaming a finished file into place, so the
+// test that waits for that file to exist can never read it between its creation
+// and its content.
 const INSTALLER = `
-import { existsSync, writeFileSync, writeSync } from 'node:fs'
+import { existsSync, renameSync, writeFileSync, writeSync } from 'node:fs'
 const [go, done] = process.argv.slice(2)
 const wait = () => (existsSync(go) ? finish() : setTimeout(wait, 10))
+const say = (text) => {
+	writeFileSync(done + '.part', text)
+	renameSync(done + '.part', done)
+}
 function finish() {
 	try {
 		writeSync(1, 'installing\\n')
 		writeSync(2, 'EACCES: permission denied\\n')
-		writeFileSync(done, 'survived')
+		say('survived')
 	} catch (error) {
-		writeFileSync(done, 'died ' + error.code)
+		say('died ' + error.code)
 	}
 }
 wait()
