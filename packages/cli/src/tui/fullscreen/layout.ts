@@ -181,11 +181,17 @@ export function fullscreenMessageRows(
 	}
 	const hung = hangsResult(message)
 	const fit = hung ? Math.max(4, width - RESULT_HANG) : width
-	const plain = messageScrollRows(message, hasPrev, fit)
+	const markdown = rendersMarkdown(message)
+	// A reply's own rows come from its Markdown. The plain rows are only asked for
+	// the glyph, the gap and what stands after the text, none of which depends on
+	// the text, so a one-letter stand-in is wrapped instead of the whole reply:
+	// wrapping every character of a long reply at each piece that streams in was
+	// what kept the window from answering keys.
+	const plain = messageScrollRows(markdown ? { ...message, content: 'x' } : message, hasPrev, fit)
 	const gap = plain.gap ? plainRow(plain.gap) : null
 	const first = plain.rows[0]
-	const body = wrapChoiceText(scrollBodyText(message), fit).length
-	if (rendersMarkdown(message) && first) {
+	const body = markdown ? 1 : wrapChoiceText(scrollBodyText(message), fit).length
+	if (markdown && first) {
 		// A reply still being written is drawn as far as it is decided: the fullscreen
 		// view redraws freely, so it only needs the tail rules, not the printing.
 		const shown = message.pending
