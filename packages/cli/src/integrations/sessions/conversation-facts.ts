@@ -32,6 +32,8 @@ export interface SkillHooksFact {
 	readonly grantsWithheld: boolean
 	/** The `skill` call that loaded it, when the record names one. */
 	readonly toolCallId?: string
+	/** Every `skill` call that loaded it, oldest first (a skill used twice has two). */
+	readonly toolCallIds?: readonly string[]
 }
 
 /** What the log says about one conversation, and typed queries over the few records callers search for. */
@@ -146,16 +148,20 @@ export class ConversationFactsFold {
 			case 'account_bound':
 				this.#accounts.set(record.provider, record.accountId)
 				break
-			case 'skill_hooks_attached':
+			case 'skill_hooks_attached': {
 				// Latest use of a skill wins, and goes last.
+				const earlier = this.#skillHooks.get(record.skill)?.toolCallIds ?? []
+				const ids = record.toolCallId !== undefined ? [...earlier, record.toolCallId] : earlier
 				this.#skillHooks.delete(record.skill)
 				this.#skillHooks.set(record.skill, {
 					skill: record.skill,
 					directory: record.directory,
 					grantsWithheld: record.grantsWithheld,
 					...(record.toolCallId !== undefined ? { toolCallId: record.toolCallId } : {}),
+					...(ids.length > 0 ? { toolCallIds: ids } : {}),
 				})
 				break
+			}
 		}
 	}
 

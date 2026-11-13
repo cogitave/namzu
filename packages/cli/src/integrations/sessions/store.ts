@@ -1462,12 +1462,21 @@ export function skillHooksCarriedBy(
 	if (copiedMessages.length === sourceMessages.length) return [...facts]
 	const inSource = toolCallIdsOf(sourceMessages)
 	const inCopy = toolCallIdsOf(copiedMessages)
-	return facts.filter(
-		(fact) =>
-			fact.toolCallId === undefined ||
-			inCopy.has(fact.toolCallId) ||
-			!inSource.has(fact.toolCallId),
-	)
+	const carried: SkillHooksFact[] = []
+	for (const fact of facts) {
+		const uses = fact.toolCallIds ?? (fact.toolCallId !== undefined ? [fact.toolCallId] : [])
+		if (uses.length === 0) {
+			carried.push(fact)
+			continue
+		}
+		// Every use is judged on its own: a skill used again after the cut still
+		// has its earlier use inside the copy.
+		const kept = uses.filter((id) => inCopy.has(id) || !inSource.has(id))
+		const latest = kept[kept.length - 1]
+		if (latest === undefined) continue
+		carried.push({ ...fact, toolCallId: latest, toolCallIds: kept })
+	}
+	return carried
 }
 
 /** Write the skill-hooks records a copy carries into its own log, so it attaches them when it is continued. */
@@ -1483,14 +1492,16 @@ async function carrySkillHooks(
 	await appendOutsideTurn(
 		targetStore,
 		targetId,
-		carried.map((fact) => ({
-			type: 'skill_hooks_attached' as const,
-			ignorable: true as const,
-			skill: fact.skill,
-			directory: fact.directory,
-			grantsWithheld: fact.grantsWithheld,
-			...(fact.toolCallId !== undefined ? { toolCallId: fact.toolCallId } : {}),
-		})),
+		carried.flatMap((fact) =>
+			(fact.toolCallIds ?? [undefined]).map((toolCallId) => ({
+				type: 'skill_hooks_attached' as const,
+				ignorable: true as const,
+				skill: fact.skill,
+				directory: fact.directory,
+				grantsWithheld: fact.grantsWithheld,
+				...(toolCallId !== undefined ? { toolCallId } : {}),
+			})),
+		),
 		'carry skill hooks into a copy',
 	)
 }

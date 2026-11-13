@@ -83,8 +83,20 @@ describe('the skills a conversation attached hooks for', () => {
 		for (const mode of ['strict', 'tolerant'] as const) {
 			const facts = await readConversationFacts(s, id, mode)
 			expect(facts?.skillHooks).toEqual([
-				{ skill: 'alpha', directory: '/skills/alpha', grantsWithheld: false, toolCallId: 'call_a' },
-				{ skill: 'beta', directory: '/skills/beta', grantsWithheld: true, toolCallId: 'call_b' },
+				{
+					skill: 'alpha',
+					directory: '/skills/alpha',
+					grantsWithheld: false,
+					toolCallId: 'call_a',
+					toolCallIds: ['call_a'],
+				},
+				{
+					skill: 'beta',
+					directory: '/skills/beta',
+					grantsWithheld: true,
+					toolCallId: 'call_b',
+					toolCallIds: ['call_b'],
+				},
 			])
 		}
 	})
@@ -125,6 +137,23 @@ describe('the skills a conversation attached hooks for', () => {
 		expect(facts?.skillHooks.map((fact) => fact.skill)).toEqual(['alpha'])
 	})
 
+	it('go with a branch cut before a later use of a skill it used earlier', async () => {
+		const { s, id } = await twoSkillConversation()
+		await recordTurn(
+			s,
+			id,
+			[user('third'), assistant('', 'call_c'), result('call_c'), assistant('ok')],
+			{ records: [kept('alpha', 'call_c')] },
+		)
+		const history = await loadConversation(s, id)
+		const secondPrompt = history.filter((message) => message.role === 'user')[1] as Message
+		const branch = await forkConversationBeforeUser(s, id, 1, secondPrompt as never)
+		const facts = await readConversationFacts(s, branch.id, 'strict')
+		expect(facts?.skillHooks.map((fact) => fact.skill)).toEqual(['alpha'])
+		// A branch of that branch, cut again, still places it by its first use.
+		expect(facts?.skillHooks[0]?.toolCallIds).toEqual(['call_a'])
+	})
+
 	it('go with a branch before the first prompt for none', async () => {
 		const { s, id } = await twoSkillConversation()
 		const history = await loadConversation(s, id)
@@ -152,6 +181,26 @@ describe('which skills a copy carries', () => {
 			copy,
 		)
 		expect(kept.map((entry) => entry.skill)).toEqual(['no-id', 'compacted'])
+	})
+
+	it('keeps a skill used again after the cut, by its earlier use', () => {
+		const source = [
+			user('q1'),
+			assistant('', 'call_a'),
+			result('call_a'),
+			user('q2'),
+			assistant('', 'call_b'),
+			result('call_b'),
+		]
+		const copy = source.slice(0, 3)
+		const kept = skillHooksCarriedBy(
+			[{ ...fact('twice', 'call_b'), toolCallIds: ['call_a', 'call_b'] }, fact('once', 'call_b')],
+			source,
+			copy,
+		)
+		expect(kept.map((entry) => [entry.skill, entry.toolCallIds ?? []])).toEqual([
+			['twice', ['call_a']],
+		])
 	})
 
 	it('keeps all of them when the whole conversation is copied', () => {
