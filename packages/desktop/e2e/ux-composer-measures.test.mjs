@@ -106,7 +106,7 @@ test("the box is one row of 44 with 12 corners; send appears with text; the home
 		// The heading and the starters are one block, centred in the free area above the dock, 16 apart.
 		assert.ok(home.heading, "the heading is drawn");
 		assert.ok(home.startersVisible, "the starters are drawn");
-		assert.equal(home.starters.y - home.heading.bottom, 16, "the starters are 16 under the heading");
+		assert.equal(home.starters.y - home.heading.bottom, 24, "the starters are 24 under the heading");
 		const blockTop = home.heading.y;
 		const blockBottom = home.starters.bottom;
 		const free = { top: home.lane.y, bottom: home.dock.y };
@@ -129,15 +129,24 @@ test("the box is one row of 44 with 12 corners; send appears with text; the home
 		await input.fill("");
 		await expect(w.page.getByRole("button", { name: "Send message" })).toHaveCount(0, { timeout: T });
 
-		// A line that wraps sends the controls to a second row under the text.
+		// Each line of text adds one line (22): two lines make a box 66 high, three 88; the plus and the send
+		// control stay on the last line, at the bottom corners, and the box grows upward.
 		await input.fill("a line\nand another");
-		await expect.poll(() => w.page.locator('[data-chat-composer-main-surface]').getAttribute("data-expanded")).toBe("true");
-		const wrapped = await w.page.evaluate(MEASURE);
-		assert.ok(wrapped.plus.y >= wrapped.text.bottom, "the plus is under the text");
-		assert.ok(wrapped.sends[0].y >= wrapped.text.bottom, "so is the send control");
-		assert.equal(wrapped.box.bottom, home.box.bottom, "the box grows upward: its bottom stays");
+		await expect.poll(() => w.page.evaluate(() => document.querySelector('[data-slot="composer-host"]').getBoundingClientRect().height), { timeout: T }).toBe(66);
+		await input.fill("one\ntwo\nthree");
+		await expect.poll(() => w.page.evaluate(() => document.querySelector('[data-slot="composer-host"]').getBoundingClientRect().height), { timeout: T }).toBe(88);
+		await settled(w);
+		const three = await w.page.evaluate(MEASURE);
+		assert.equal(three.box.h, 44 + 2 * 22, "three lines make an 88 box");
+		assert.equal(three.box.bottom, home.box.bottom, "the box grows upward: its bottom stays");
+		assert.equal(three.box.bottom - three.plus.bottom, 8, "the plus is pinned 8 above the box's bottom");
+		assert.equal(three.plus.x - three.box.x, 8, "and 8 in from its left edge");
+		assert.equal(three.box.bottom - three.sends[0].bottom, 8, "the send control is pinned 8 above the bottom");
+		assert.equal(three.box.right - three.sends[0].right, 8, "and 8 in from the right edge");
+		assert.ok(three.text.x >= three.plus.right && three.text.right <= three.sends[0].x, "the text runs between the plus and the slot");
+		assert.equal(three.text.h, 3 * 22 + 6, "the text is three lines with 3 of air above and below");
 		await input.fill("");
-		await expect.poll(() => w.page.locator('[data-chat-composer-main-surface]').getAttribute("data-expanded")).toBe("false");
+		await expect.poll(() => w.page.evaluate(() => document.querySelector('[data-slot="composer-host"]').getBoundingClientRect().height), { timeout: T }).toBe(44);
 
 		// The first message does not move the box by a pixel.
 		await input.fill("hello there");
@@ -183,7 +192,7 @@ test("a short window gives up the starters, then the heading steps down; the col
 		// A short pane (the window cannot be shorter than 460, a stacked pane can): the lane is made
 		// that high. The block never overlaps the dock; the starters go first, then the heading steps down.
 		await size(w, 1280, 820);
-		for (const lane of [300, 260, 160, 140]) {
+		for (const lane of [340, 300, 260, 160, 140]) {
 			await w.page.evaluate((h) => {
 				const el = document.querySelector(".conversation-lane");
 				el.style.flex = "none";
@@ -195,7 +204,7 @@ test("a short window gives up the starters, then the heading steps down; the col
 			const bottom = m.startersVisible ? m.starters.bottom : m.heading ? m.heading.bottom : m.home.y;
 			assert.ok(bottom <= m.dock.y, `${tag}: nothing of the block reaches the dock`);
 			if (m.heading) assert.ok(m.heading.y >= m.home.y, `${tag}: the heading is whole inside the free area`);
-			assert.equal(m.startersVisible, m.home.h >= 180, `${tag}: the starters go first`);
+			assert.equal(m.startersVisible, m.home.h >= 236, `${tag}: the starters go first`);
 			if (m.heading) assert.equal(m.heading.font, m.home.h >= 68 ? "28px" : "20px", `${tag}: the heading steps down`);
 			assert.equal(m.heading !== null, m.home.h >= 60, `${tag}: the heading is dropped only with no room`);
 			assert.equal(m.box.h, 44, `${tag}: the box is still 44`);

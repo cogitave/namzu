@@ -451,15 +451,16 @@ pre {
 .conversations button:focus-visible .conversation-age {
 	opacity: 1;
 }
-/* The three starters: a centred group, one quiet 32px row each, 16px under the heading. A click fills the
-   box and never sends it. */
+/* The three starters: a centred group of 320 by 40 rows, 12 apart, 24 under the heading. Each has a hairline
+   edge, no fill at rest and a faint one under the pointer, its icon 12 in and its label 8 after the icon. A
+   click fills the box and never sends it. */
 .starter-actions {
 	display: flex;
 	flex-direction: column;
-	align-items: flex-start;
-	width: fit-content;
-	max-width: 100%;
-	margin: 16px auto 0;
+	align-items: center;
+	gap: var(--start-gap);
+	width: 100%;
+	margin: var(--start-heading-gap) auto 0;
 	pointer-events: auto;
 }
 .starter-actions[data-quiet] {
@@ -468,27 +469,35 @@ pre {
 .starter-actions button {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	width: fit-content;
+	gap: var(--start-icon-gap);
+	width: var(--start-width);
 	max-width: 100%;
-	height: 32px;
-	padding: 0 8px;
-	border-radius: var(--radius-control);
-	color: var(--muted-foreground);
-	font-size: var(--text-small);
-	line-height: var(--leading-small);
+	height: var(--start-height);
+	padding: 0 12px 0 var(--start-icon-start);
+	border: 1px solid var(--start-edge);
+	border-radius: var(--start-radius);
+	background: transparent;
+	color: var(--foreground);
+	font-size: var(--text-interface);
+	line-height: var(--leading-interface);
 	text-align: left;
 	cursor: pointer;
+	transition: background-color 120ms var(--motion-ease);
+}
+.starter-actions button > span {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 .starter-actions button:hover {
-	color: var(--foreground);
-	background: var(--accent);
+	background: var(--box-hover);
 }
 .starter-actions svg {
-	width: 14px;
-	height: 14px;
+	width: var(--start-icon);
+	height: var(--start-icon);
 	flex: none;
-	opacity: 0.6;
+	color: var(--muted-foreground);
 }
 .sidebar-stage-backdrop {
 	mask-image: linear-gradient(to bottom, black 0%, black 55%, transparent 92%);
@@ -1030,12 +1039,6 @@ pre {
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
 	max-height: 240px;
-}
-.approval-actions {
-	display: flex;
-	justify-content: flex-end;
-	gap: 8px;
-	margin-top: 12px;
 }
 .inline-error,
 .jobs-error {
