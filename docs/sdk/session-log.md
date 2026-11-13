@@ -341,7 +341,7 @@ moves the fold, which only `message`, `message_replaced`, `message_edited` and
 `compaction` records do. The flag excuses nothing else: a known type is validated by its own
 schema whatever the flag says, an unknown type without the flag is refused so a
 record that does move the fold fails loudly, and a flagged record cannot be the
-first of a log. This release writes four: the three [turn outcome](turn-outcome.md) records above and `message_edited`; every other record it writes is one older readers know. An older release skips `message_edited` and so folds the message with the text it was first recorded with (see [a compaction edit](#a-compaction-edit)).
+first of a log. This release writes five: the three [turn outcome](turn-outcome.md) records above, `message_edited` and `skill_hooks_attached` (a skill's hooks were attached to the conversation; see [After a resume](hooks.md#after-a-resume)); every other record it writes is one older readers know. An older release skips `message_edited` and so folds the message with the text it was first recorded with (see [a compaction edit](#a-compaction-edit)).
 
 ### Children that outlive their turn
 

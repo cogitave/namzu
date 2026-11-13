@@ -660,6 +660,31 @@ export const OutcomeProgressWrittenRecordSchema = inTurn('outcome_progress_writt
 	progress: outcomeBody,
 })
 
+/**
+ * A skill's hooks were attached to the conversation (or refused) when the model
+ * loaded it. Written by the `skill` tool's host in the turn that loaded it,
+ * flagged `ignorable`: a release that does not know the type skips it, keeps it
+ * in the hash chain and folds the conversation as before, and a host that does
+ * know it attaches the skill's hooks again when the conversation is continued
+ * (`docs/sdk/hooks.md`, "Hooks in a skill"). Never a field of a record that
+ * existed before it, for the reason the outcome records give above.
+ *
+ * Carries the turn's id when the skill was loaded in a turn, and none when a
+ * copy of a conversation (a fork) carries the record over.
+ *
+ * `directory` is the skill's own folder, `grantsWithheld` whether its
+ * `allowed-tools` were left unapproved, and `toolCallId` the `skill` call that
+ * loaded it, so a copy of a conversation that stops before that call can leave
+ * the record behind.
+ */
+export const SkillHooksAttachedRecordSchema = recordSchema('skill_hooks_attached', {
+	ignorable: z.literal(true),
+	skill: text.min(1),
+	directory: text.min(1),
+	grantsWithheld: z.boolean(),
+	toolCallId: text.min(1).optional(),
+})
+
 export const LogRepairedRecordSchema = recordSchema('log_repaired', {
 	truncatedBytes: positive,
 	lastGoodSeq: positive,
@@ -702,6 +727,7 @@ const RECORD_ONLY_SCHEMAS = {
 	turn_outcome_recorded: TurnOutcomeRecordedRecordSchema,
 	child_outcome_recorded: ChildOutcomeRecordedRecordSchema,
 	outcome_progress_written: OutcomeProgressWrittenRecordSchema,
+	skill_hooks_attached: SkillHooksAttachedRecordSchema,
 } as const
 
 export type SessionRecordOnlyType = keyof typeof RECORD_ONLY_SCHEMAS
@@ -1124,6 +1150,7 @@ export type LogRepairedRecord = z.infer<typeof LogRepairedRecordSchema>
 export type TurnOutcomeRecordedRecord = z.infer<typeof TurnOutcomeRecordedRecordSchema>
 export type ChildOutcomeRecordedRecord = z.infer<typeof ChildOutcomeRecordedRecordSchema>
 export type OutcomeProgressWrittenRecord = z.infer<typeof OutcomeProgressWrittenRecordSchema>
+export type SkillHooksAttachedRecord = z.infer<typeof SkillHooksAttachedRecordSchema>
 
 export type SessionRecordOnly =
 	| SessionStartedRecord
@@ -1145,6 +1172,7 @@ export type SessionRecordOnly =
 	| TurnOutcomeRecordedRecord
 	| ChildOutcomeRecordedRecord
 	| OutcomeProgressWrittenRecord
+	| SkillHooksAttachedRecord
 
 /** One line of a session log. */
 export type SessionRecord = SessionEventRecord | SessionRecordOnly

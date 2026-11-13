@@ -81,6 +81,8 @@ export interface SkillHooksHostOptions {
 	readonly projectTrusted: () => boolean
 	/** Whether a skill, by the name the registry gives it, is one the folder carries. */
 	readonly isProjectSkill: (name: string) => boolean
+	/** Whether a skill's own folder lies inside the project folder: how a skill used before is judged when it comes back. */
+	readonly isInProject?: (directory: string) => boolean
 }
 
 export interface SkillHooksHost {
@@ -98,6 +100,21 @@ export interface SkillHooksHost {
 		readonly dirPath: string
 		readonly hooksSource: string
 	}): void
+	/**
+	 * A conversation that used this skill is continued: attach its hooks again,
+	 * through the path a first use takes (the same reading, the same guard rule,
+	 * the same switches and the same trust), from the skill file as it is now.
+	 * Returns one sentence when they are not (all) attached and why, for the
+	 * model; the person is told through `subscribe`, once.
+	 */
+	restore(skill: {
+		readonly name: string
+		readonly dirPath: string
+		/** The skill file as it reads now; a string is the problem that kept it from being read. */
+		readonly now: { readonly hooksSource: string | undefined } | { readonly problem: string }
+	}): string | undefined
+	/** Tell the person one line (once) and return it cut to size, for the model. */
+	say(line: string): string
 	/** Every hook a skill has attached and not lost. */
 	attached(): readonly AttachedSkillHook[]
 	/** The conversation ended or was replaced: every skill's hooks come off. */
@@ -150,7 +167,11 @@ export function createSkillHooksHost(options: SkillHooksHostOptions): SkillHooks
 	}
 	const inert: SkillHooksHandle = { remove: () => undefined }
 
-	const prepareHooks: SkillHooksHost['prepareHooks'] = (skill, how) => {
+	const prepare = (
+		skill: { readonly name: string; readonly dirPath?: string; readonly hooksSource: string },
+		how: SkillHooksOptions,
+		resumed = false,
+	): SkillHooksPlan => {
 		const name = skill.name
 		// Switched off: the skill loads as if it had no `hooks` key. No skills place
 		// is managed, so no skill's hooks are an exception to either switch.
@@ -160,9 +181,20 @@ export function createSkillHooksHost(options: SkillHooksHostOptions): SkillHooks
 		const refuse = (why: string): SkillHooksPlan => {
 			const line = `Skill ${name}: ${why} None of its hooks are attached and its allowed-tools are not pre-approved.`
 			tell(cut(line))
-			return { notice: cut(line), withholdGrants: true, attach: () => inert }
+			return {
+				notice: cut(line),
+				withholdGrants: true,
+				...(how.forked ? {} : { resumable: true }),
+				attach: () => inert,
+			}
 		}
-		if (options.isProjectSkill(name) && !options.projectTrusted()) {
+		// A skill used before the conversation was continued is judged by where
+		// its folder is as well as by what the roster says now: a file that moved
+		// or was shadowed does not leave the project's trust.
+		const inProject =
+			options.isProjectSkill(name) ||
+			(resumed && skill.dirPath !== undefined && options.isInProject?.(skill.dirPath) === true)
+		if (inProject && !options.projectTrusted()) {
 			return refuse('it is in a folder that is not trusted.')
 		}
 		const readAll = withoutSessionStart(readSkillHooks(skill.hooksSource, `skill ${name}`))
@@ -206,11 +238,12 @@ export function createSkillHooksHost(options: SkillHooksHostOptions): SkillHooks
 					? `Skill ${name}: no hook of its could be loaded. ${setAside}`
 					: how.forked
 						? `Skill ${name}: its hooks (${events.join(', ')}) apply to the delegated agent's run only.${setAside ? ` Set aside: ${setAside}` : ''}${partial}`
-						: `Skill ${name}: its hooks (${events.join(', ')}) are attached for the rest of this conversation, until it is cleared or resumed.${setAside ? ` Set aside: ${setAside}` : ''}${partial}`,
+						: `Skill ${name}: its hooks (${events.join(', ')}) were attached to this conversation when it was loaded. They stay until the conversation is cleared, and are attached again if it is continued later while this skill's file still loads and its folder is trusted; a note tells you when they are not.${setAside ? ` Set aside: ${setAside}` : ''}${partial}`,
 			) + (read.count === 0 ? '' : sameMessage)
 		return {
 			notice,
 			withholdGrants: read.guardLost,
+			...(how.forked || read.count === 0 ? {} : { resumable: true }),
 			attach: () => {
 				if (read.count === 0) return inert
 				if (!how.forked) {
@@ -304,10 +337,47 @@ export function createSkillHooksHost(options: SkillHooksHostOptions): SkillHooks
 		}
 	}
 
+	const prepareHooks: SkillHooksHost['prepareHooks'] = (skill, how) => prepare(skill, how)
+
 	return {
 		prepareHooks,
 		use: (skill) => {
 			prepareHooks(skill, { forked: false }).attach()
+		},
+		say: (line) => {
+			const cutLine = cut(line)
+			tell(cutLine)
+			return cutLine
+		},
+		restore: (skill) => {
+			const name = skill.name
+			// Switched off by the person: as for a first use, nothing is said.
+			if (options.hooksSwitch() !== undefined) return undefined
+			const unattached = (why: string): string => {
+				const line = cut(
+					`Skill ${name}: its hooks are not attached after this conversation was continued, because ${why} Its allowed-tools are not pre-approved.`,
+				)
+				tell(line)
+				return line
+			}
+			if ('problem' in skill.now) return unattached(`${skill.now.problem}.`)
+			const source = skill.now.hooksSource
+			if (source === undefined) {
+				return unattached('its file no longer carries hooks.')
+			}
+			const plan = prepare(
+				{ name, dirPath: skill.dirPath, hooksSource: source },
+				{ forked: false },
+				true,
+			)
+			plan.attach()
+			// A refusal or a partly loaded block has told the person already (and
+			// says what was not loaded); the model gets the same sentence.
+			if (plan.withholdGrants) return plan.notice
+			const hasRows = [...live].some((found) => found.skill === name)
+			return hasRows
+				? undefined
+				: unattached('its file no longer carries a hook that can be loaded.')
 		},
 		attached: () =>
 			[...live].flatMap((found) =>

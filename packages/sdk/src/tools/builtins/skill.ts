@@ -613,10 +613,28 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 			grant?.commit()
 			// Live only now that the instructions were delivered, like the grant.
 			hooksPlan?.attach()
+			// Kept with the conversation, so a host that continues it later can
+			// attach the same hooks again. Once, on the first page of a load.
+			let output = page.output
+			if (hooksPlan?.resumable === true && start === 0 && skill.dirPath !== undefined) {
+				const kept = context.recordSkillHooks
+					? await context
+							.recordSkillHooks({
+								skill: skill.metadata.name,
+								directory: skill.dirPath,
+								grantsWithheld: hooksPlan.withholdGrants,
+								...(context.toolUseId !== undefined ? { toolCallId: context.toolUseId } : {}),
+							})
+							.catch(() => false)
+					: false
+				if (!kept) {
+					output += `\n\n[${SKILL_HOOKS_NOT_KEPT}]`
+				}
+			}
 
 			return {
 				success: true,
-				output: page.output,
+				output,
 				data: {
 					skill: skill.metadata.name,
 					...(modelDirectory === undefined ? {} : { directory: modelDirectory }),
@@ -628,6 +646,10 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 		},
 	})
 }
+
+/** Said to the model when a skill's hooks could not be written into the conversation's record. */
+const SKILL_HOOKS_NOT_KEPT =
+	"This conversation could not keep a record of this skill's hooks, so if it is continued later they will not be attached again: load the skill again then."
 
 /**
  * What the host says of the hooks a skill carries, or `undefined` for a skill
