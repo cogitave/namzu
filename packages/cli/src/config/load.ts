@@ -2892,6 +2892,8 @@ export interface DeclaredHookLayer extends HookLayer {
 export interface DeclaredHooks {
 	readonly layers: readonly DeclaredHookLayer[]
 	readonly switches: { readonly disableHooks: boolean; readonly managedOnly: boolean }
+	/** Project or local files that set `disableHooks: true`, which is ignored there. Present only when there are some. */
+	readonly ignoredDisableHooks?: readonly ConfigSource[]
 }
 
 let hookLayerSink: ((declared: DeclaredHooks) => void) | undefined
@@ -2940,7 +2942,17 @@ function withAssembledHooks(
 		disableHooks: merged.config.disableHooks === true,
 		managedOnly: managedCfg.hooksManagedOnly === true,
 	}
-	hookLayerSink?.({ layers: hookLayers, switches })
+	const ignoredDisableHooks = layers
+		.filter(
+			(layer) =>
+				layer.config.disableHooks === true && isProjectSource(layer.sourceFor('disableHooks')),
+		)
+		.map((layer) => layer.sourceFor('disableHooks'))
+	hookLayerSink?.({
+		layers: hookLayers,
+		switches,
+		...(ignoredDisableHooks.length > 0 ? { ignoredDisableHooks } : {}),
+	})
 	const assembled = assembleHooks(hookLayers, switches)
 	const { hooks: _replaced, ...rest } = merged.config
 	return {

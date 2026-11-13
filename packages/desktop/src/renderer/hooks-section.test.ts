@@ -443,3 +443,18 @@ it('says once, for the list, what a switch is holding back instead of repeating 
 	expect(html.split(why.text).length - 1).toBe(1)
 	expect(html.match(/>Off</g)?.length).toBe(2)
 })
+
+it('says, right after hooks are switched off, that an open project keeps running them', () => {
+	const off = renderToStaticMarkup(
+		createElement(HooksRows, {
+			hooks: controls(answer()),
+			config: config(),
+			projectName: 'shop',
+			justSaved: false,
+		}),
+	)
+	expect(off).toContain('data-pending-reconnect')
+	expect(off).toContain('keeps running its hooks until Namzu connects to it again')
+	// Nothing is claimed before a change was saved.
+	expect(markup(controls(answer()))).not.toContain('data-pending-reconnect')
+})

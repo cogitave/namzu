@@ -178,6 +178,27 @@ describe('what would start by itself in a folder, from the engine’s answer', (
 		expect(found[0]?.lines).toEqual(['skill careful: The skill loads without its hooks.'])
 	})
 
+	it('still warns when the folder\u2019s configuration cannot be read at all', () => {
+		const unreadable = {
+			...report(
+				[],
+				[
+					{
+						severity: 'problem',
+						origin: { kind: 'config', label: 'configuration' },
+						message: 'The configuration could not be read: hooks.turn_end must be an array',
+					},
+				],
+			),
+			error: 'hooks.turn_end must be an array',
+		}
+		const found = findingsFromReport(unreadable, '/work/app')
+		expect(found).toHaveLength(1)
+		expect(found[0]?.lines[0]).toContain('The configuration could not be read')
+		// A problem of that name with no error in the answer is not taken for it.
+		expect(findingsFromReport({ ...unreadable, error: undefined }, '/work/app')).toEqual([])
+	})
+
 	it('never puts a header or an env value into the dialog', () => {
 		const found = findingsFromReport(
 			report([

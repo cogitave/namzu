@@ -271,6 +271,8 @@ interface Resolved {
 	layers: readonly DeclaredHookLayer[]
 	switches: DeclaredHooks['switches']
 	problems: { event: string; severity: 'problem' | 'note'; message: string; file: string }[]
+	/** Project or local files that set `disableHooks`, which a repository's file cannot do. */
+	ignoredDisableHooks: readonly ConfigSource[]
 	error?: string
 }
 
@@ -293,6 +295,7 @@ function resolveConfig(
 			layers: declared?.layers ?? [],
 			switches: declared?.switches ?? { disableHooks: false, managedOnly: false },
 			problems,
+			ignoredDisableHooks: declared?.ignoredDisableHooks ?? [],
 		}
 	} catch (error) {
 		return {
@@ -301,6 +304,7 @@ function resolveConfig(
 			layers: declared?.layers ?? [],
 			switches: declared?.switches ?? { disableHooks: false, managedOnly: false },
 			problems,
+			ignoredDisableHooks: declared?.ignoredDisableHooks ?? [],
 			error: error instanceof Error ? error.message.split('\n')[0]?.slice(0, 300) : 'unreadable',
 		}
 	}
@@ -494,6 +498,21 @@ export async function describeFolderHooks(
 			...(inFolder && !trusted ? { inactive: 'folder-not-trusted' as const } : {}),
 		})
 	}
+	for (const source of full.ignoredDisableHooks) {
+		problems.push({
+			severity: 'note',
+			origin: {
+				kind: 'config',
+				label: 'path' in source ? shortHomePath(source.path) : source.kind,
+				...('path' in source ? { path: shortHomePath(source.path) } : {}),
+				scope: configScope(source),
+			},
+			event: 'disableHooks',
+			message:
+				'disableHooks is ignored here: only your own config file, the environment or the managed file can turn hooks off, so a repository cannot switch off the hooks you set up.',
+			...(!trusted ? { inactive: 'folder-not-trusted' as const } : {}),
+		})
+	}
 	if (full.error !== undefined) {
 		problems.push({
 			severity: 'problem',
@@ -599,7 +618,10 @@ export async function describeFolderHooks(
 				scope: skill.source,
 			}
 			const untrusted = skill.source === 'project' && !trusted
-			if (skill.problem !== undefined) {
+			const onlyDisabled =
+				skill.disabled === true &&
+				(skill.problem === undefined || skill.problem.startsWith('disabled by skills.disabled'))
+			if (skill.problem !== undefined && !onlyDisabled) {
 				problems.push({
 					severity: 'note',
 					origin,

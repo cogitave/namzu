@@ -8,6 +8,7 @@ import {
 	hooksListView,
 	hooksNote,
 	runHooksState,
+	savedHooksNote,
 	untrustedLine,
 } from './hooks-view-model.js'
 import { plainErrorText } from './plain-error.js'
@@ -40,13 +41,17 @@ export function HooksRows({
 	hooks,
 	config,
 	projectName,
+	justSaved,
 }: {
 	hooks: HooksControls
 	config: ConfigSettingsControls
 	projectName?: string
+	/** Starts as if the switch was just saved to this value (the view's own state sets it afterwards). */
+	justSaved?: boolean
 }) {
 	const [saving, setSaving] = useState(false)
 	const [failure, setFailure] = useState<string>()
+	const [saved, setSaved] = useState<boolean | undefined>(justSaved)
 	const view = hooks.read?.view
 	const report: HooksReport | undefined = view?.report
 	const descriptor = config.view?.descriptors.find((item) => item.path === 'disableHooks')
@@ -61,7 +66,10 @@ export function HooksRows({
 		setFailure(undefined)
 		try {
 			const done = await config.change('disableHooks', disableHooksValue(on))
-			if (done) hooks.reload()
+			if (done) {
+				setSaved(on)
+				hooks.reload()
+			}
 		} catch (error) {
 			setFailure(plainErrorText(error, 'save the setting'))
 		} finally {
@@ -88,6 +96,11 @@ export function HooksRows({
 						{state.locked && (
 							<p className="settings-note hooks-locked" data-locked>
 								{state.locked}
+							</p>
+						)}
+						{saved !== undefined && !failure && (
+							<p className="settings-note hooks-saved" data-pending-reconnect>
+								{savedHooksNote(saved)}
 							</p>
 						)}
 						{(failure ?? config.errors.disableHooks) && (

@@ -1374,7 +1374,8 @@ is saved and applied on the next start. Screenshots are in
 Trusting a folder in Desktop records a fingerprint of what the folder can run on its own:
 the same nine sections of `namzu.config.json` the CLI's project digest covers (a test compares
 the two lists), plus a hash of every entry in `.namzu/commands`, `.namzu/plugins`,
-`.namzu/skills` and `.namzu/agents`. A file is hashed by its whole content, streamed (not by size
+`.namzu/skills` and `.namzu/agents`, and of `.agents/skills` and `skills` in the folder itself (the other
+places a project's skills load from). A file is hashed by its whole content, streamed (not by size
 and time), a link records where it points and then what is behind it, and a config of any size is
 read. Key order and unrelated keys do not count. A part too large to read (past 64 MiB a file,
 256 MiB a tree, or 20,000 entries) is reported changed every time rather than trusted unseen.
@@ -4443,7 +4444,7 @@ Namzu to see what runs by itself here." and nothing else; the switch still works
   twice or found twice by search; turning it on puts the default back, which removes the key). Where `disableHooks` was set
   by the environment (`NAMZU_DISABLE_HOOKS`), the managed file or a profile, or `hooksManagedOnly` is on, the switch is
   disabled and one line says which and where; the line reads the answer's `switches`, so it names a variable or a file
-  and never invents one. Until the answer is in, the switch is left alone. The engine reads the setting when a project connects, so a project that is already open keeps what it started with and the change reaches it when Namzu next connects to it (the row says so); `e2e/ux-hooks-view.test.mjs` shows a hook that leaves a mark stop leaving one after the switch is turned off and the app connects again.
+  and never invents one. Until the answer is in, the switch is left alone. The engine reads the setting when a project connects, so a project that is already open keeps what it started with and the change reaches it when Namzu next connects to it (the row says so, and so does a line that appears under the switch as soon as it is saved); `e2e/ux-hooks-view.test.mjs` shows a hook that leaves a mark stop leaving one after the switch is turned off and the app connects again.
 - **Hooks** lists every hook grouped by when it runs (for example "Before a tool runs", with the event name beside it),
   each as what it starts, its matcher, `if`, `once`, background and deadline options, where it comes from ("This
   folder's settings", "Your own settings", "Plugin review-bot", "Skill careful", "Agent file runner"), where to change it

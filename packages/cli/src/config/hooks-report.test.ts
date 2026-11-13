@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -293,6 +293,58 @@ describe('the switches', () => {
 				join(home, '.namzu', 'config.yaml'),
 				'plugins:\n  enabled: true\nhooks:\n  PreToolUse:\n    - matcher: Bash\n      hooks:\n        - type: command\n          command: user-guard.sh\n',
 			)
+		}
+	})
+})
+
+describe('a skill that is switched off, and a switch a repository cannot set', () => {
+	it('lists a skill named in skills.disabled as off, with the reason the docs name', async () => {
+		const userFile = join(home, '.namzu', 'config.yaml')
+		const original = readFileSync(userFile, 'utf8')
+		put(userFile, `${original}skills:\n  disabled:\n    - careful\n`)
+		try {
+			const report = await describeFolderHooks({ ...base(), trusted: true })
+			expect(find(report, (row) => row.runs === 'skill-guard.sh')).toMatchObject({
+				state: 'off',
+				why: { code: 'skill-disabled' },
+			})
+		} finally {
+			put(userFile, original)
+		}
+	})
+
+	it('says a project file\u2019s disableHooks is ignored, and that it switches nothing off', async () => {
+		const folder = mkdtempSync(join(tmpdir(), 'namzu-hooks-report-ignored-'))
+		try {
+			put(
+				join(folder, 'namzu.config.json'),
+				JSON.stringify({ disableHooks: true, hooks: { turn_end: [{ command: 'tail.sh' }] } }),
+			)
+			const report = await describeFolderHooks({
+				cwd: folder,
+				home: join(folder, 'home'),
+				env: {},
+				managedPath: join(folder, 'none.json'),
+				trusted: true,
+			})
+			expect(report.switches.disableHooks.on).toBe(false)
+			expect(find(report, (row) => row.runs === 'tail.sh').state).toBe('runs')
+			const note = report.problems.find((problem) => problem.event === 'disableHooks')
+			expect(note).toMatchObject({ severity: 'note', origin: { scope: 'project' } })
+			expect(note?.message).toContain('ignored')
+			// A folder nobody trusted reports it as not yet applied.
+			const untrusted = await describeFolderHooks({
+				cwd: folder,
+				home: join(folder, 'home'),
+				env: {},
+				managedPath: join(folder, 'none.json'),
+				trusted: false,
+			})
+			expect(untrusted.problems.find((problem) => problem.event === 'disableHooks')?.inactive).toBe(
+				'folder-not-trusted',
+			)
+		} finally {
+			removeTempDir(folder)
 		}
 	})
 })

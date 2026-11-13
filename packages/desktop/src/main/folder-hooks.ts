@@ -177,7 +177,12 @@ export function findingsFromReport(report: HooksReport, folder: string): AutoRun
 			problem.severity === 'problem' &&
 			(problem.inactive === 'folder-not-trusted' ||
 				problem.origin.scope === 'project' ||
-				problem.origin.scope === 'local'),
+				problem.origin.scope === 'local' ||
+				// A configuration the engine cannot read at all has no scope, and the dialog's old parser
+				// is dropped once the engine answers: say it here, as the hooks it hides were once listed.
+				(report.error !== undefined &&
+					problem.origin.kind === 'config' &&
+					problem.origin.label === 'configuration')),
 	)
 	if (lost.length > 0)
 		found.push({

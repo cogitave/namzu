@@ -126,6 +126,16 @@ describe('folderFingerprint', () => {
 		await writeFile(join(path, '.namzu', 'skills', 's', 'SKILL.md'), 'two')
 		expect(fingerprintChanges(before, await folderFingerprint(path))).toEqual(['skill s changed'])
 	})
+	it('covers the shared and the older skills folders, whose hooks start when a skill is used', async () => {
+		const path = await folder()
+		for (const where of [['.agents', 'skills'], ['skills']]) {
+			await mkdir(join(path, ...where, 's'), { recursive: true })
+			await writeFile(join(path, ...where, 's', 'SKILL.md'), 'one')
+			const before = await folderFingerprint(path)
+			await writeFile(join(path, ...where, 's', 'SKILL.md'), 'two')
+			expect(fingerprintChanges(before, await folderFingerprint(path))).toEqual(['skill s changed'])
+		}
+	})
 	it('reports an unreadable config rather than treating it as unchanged', async () => {
 		const path = await folder()
 		const before = await folderFingerprint(path)

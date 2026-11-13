@@ -378,3 +378,14 @@ export function runHooksState(
 export function disableHooksValue(runHooks: boolean): true | undefined {
 	return runHooks ? undefined : true
 }
+
+/**
+ * What to say right after the switch was saved. A connected project keeps the settings it started
+ * with, so the list below reads "Off" while that project's hooks still fire; a person who switched
+ * hooks off must not be left to think they stopped.
+ */
+export function savedHooksNote(runHooks: boolean): string {
+	return runHooks
+		? 'Saved. A project that is already open keeps running without hooks until Namzu connects to it again.'
+		: 'Saved, but a project that is already open keeps running its hooks until Namzu connects to it again. Close and reopen the project to stop them now.'
+}
