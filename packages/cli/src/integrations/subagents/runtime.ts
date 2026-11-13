@@ -1605,7 +1605,8 @@ export async function createSubagentRuntime(
 							}),
 			}),
 			...(selection ? { model: selection.model, effort: selection.effort } : {}),
-			...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
+			// The same object, not a copy: a variable a hook sets later reaches a child that is still working.
+			...(context.env !== undefined ? { env: context.env } : {}),
 			// The parent turn's tool-result screens, so a sub-agent judges a
 			// connected answer the way the turn that asked for the work
 			// does. Without it the child's executor installs the shipped
@@ -2548,7 +2549,8 @@ export async function createSubagentRuntime(
 								...(kept.profile.effort ? { effort: kept.profile.effort as ReasoningEffort } : {}),
 							}
 						: {}),
-					...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
+					// The same object, not a copy: a variable a hook sets later reaches a child that is still working.
+					...(context.env !== undefined ? { env: context.env } : {}),
 					...(context.toolResultGuardrails
 						? { toolResultGuardrails: context.toolResultGuardrails }
 						: {}),

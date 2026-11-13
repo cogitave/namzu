@@ -32,6 +32,8 @@ A hook is a function an extension registers on the plugin lifecycle manager, or 
 | `pre_llm_call`, `post_llm_call` | around each model call | `request`, `response` | `error` |
 | `iteration_start`, `iteration_end` | around each iteration | `iteration` | `error` |
 | `pre_compact`, `post_compact` | around every compaction pass once the check decided to run one: the kernel's own (threshold, provider overflow), an idle pass, and one a person asked for (`/compact`, summarising a span); see [Compaction hooks](#compaction-hooks) | `compaction`: `reason` (`threshold`, `overflow`, or `manual` for a pass a host asked for outside a turn), `trigger` (`manual` or `auto`), `tokensBefore`, `tokensAfter` after, `contextWindowTokens`; `instructions` on `pre_compact` (what the person typed, or `null`); `summary` on `post_compact` | `error` fails the turn; on `pre_compact`, `skip` cancels a pass the threshold asked for and refuses one a person asked for (a pass the provider forced, `overflow`, runs regardless); on `pre_compact`, `annotate` (or `continue` with `context`) tells the summariser what to keep |
+| `file_changed` | by the host, once a watched file has been still for about half a second (see [Files and folders](#files-and-folders-and-variables-for-later-commands)) | `filePath`, `change` (`change`, `add` or `unlink`) | nothing is refused and nothing reaches the model; a hook may hand back `watchPaths` and a `systemMessage` |
+| `cwd_changed` | by the host, when the folder the session's shell commands start in is a different folder from before | `oldCwd`, `newCwd` | the same as `file_changed` |
 | `subagent_start` | once at the start of each child turn, before the child's `user_prompt_submit` | `parentSessionId`, `parentTurnId` (the parent turn whose tool call spawned it), `agentType` (the child's agent name: `reviewer` for an agent file called `reviewer`; a host that runs agents through `QueryAgent` names them with `QueryAgentConfig.agentType`, and without it `agentType` is the agent class's `type`) | `error` fails the child turn; `annotate` adds text to the child's context for its turn, as on `user_prompt_submit`; a root session never fires it |
 | `subagent_stop` | after a child session's own `turn_end` | `parentSessionId`, `parentTurnId` (the parent turn whose tool call spawned it), `agentType`, `stopHookActive`, `lastAssistantMessage` | `error` fails the child turn's finalization; `skip` keeps the child working, as on `turn_end` |
 
@@ -350,6 +352,36 @@ Within one file the entries keep the order the file gives them.
 ### `/hooks`
 
 `/hooks` lists every hook attached, by event, each with the file it came from and its matcher, `if`, `once`, deadline, background and `onFailure` options, and on a tool event which tool names it receives (`Namzu's own (bash)` or `as written (Bash)`) (and, under a hook whose `matcher` is not a regular expression that compiles or whose `if` is not `Tool(pattern)`, a line saying it cannot be read and what that means); then what the files declared that could not be loaded or was not acted on (`Not loaded:` for a hook that would have guarded something, `Note:` otherwise), then the hooks plugins registered, as the event and the plugin's name (`pre_tool_use · plugin review-bot`). A plugin that is disabled registers none.
+
+## Files and folders, and variables for later commands
+
+Both events are fired by the host. The command line fires them; an embedder fires them through `FileChangeHooks` and `QueryParams.onWorkingDirectoryChange`.
+
+### `file_changed`
+
+A shell hook receives `file_path` (absolute) and `change`: `add` (the file did not exist and does now), `unlink` (it did and does not) or `change`. The common-shape name is `FileChanged`.
+
+- **What is watched.** The paths named in the matchers of the hooks on this event (a list separated by `|` or `,`; a relative path is under the working folder; a part with a `*` names no file), plus the paths a hook hands back with `hookSpecificOutput.watchPaths`. A new list replaces the list hooks handed back before and the matcher paths stay; an empty list clears it. A `session_start` or `cwd_changed` hook may hand one back too. Nothing is watched, and no watcher exists, when no hook names a path.
+- **The matcher** is tested against the file's base name, read as every matcher is (a list, a glob, a pattern; one that cannot be read fires). A part written as a path stands for its base name: `config/app.json` is `app.json`. To react to a handed-back path, make the matcher match its name (or use `*`).
+- **Settling.** Every write only restarts a half-second timer, so a burst of writes is one event; a file written by the session's own tools fires like any other change.
+- **How.** The platform's own `fs.watch` on the folder that holds each file (so a save by rename is seen), with this page's settling on top; no dependency. Watches never keep the process alive.
+- **Limits.** At most 64 files are watched; a longer list is cut to its first 64 and the cut is reported once. A watch that cannot start, or breaks, is reported once for its folder and the session goes on. The watch is not retried until a new list is set.
+- **Answers.** `systemMessage` is shown to the person (in the terminal's transcript, or on stderr for `namzu exec`). `watchPaths` is read as above; it must be a list of strings under `hookSpecificOutput`, and anywhere else the answer is reported as unreadable. These hooks cannot refuse anything (exit `2` and `decision: "block"` are ignored) and add no context to the model.
+
+### `cwd_changed`
+
+The one live change of the working folder is the shell tool's: the folder a command ends in is where the next one starts, and the event fires once per real change (after a `cd`, or when the shell was put back at the working directory for leaving the allowed folders), never when the old and the new folder are the same (a link to the same folder is not a change). The hook runs in the new folder, `cwd` and `new_cwd` are the new one, and it is awaited before the command's result is returned, so what it sets is there for the next command. `/worktree` only prints a command, and adding a directory does not change the working folder, so neither fires it. A sub-agent's own shell folder does not fire it. The common-shape name is `CwdChanged`.
+
+### Variables for later commands
+
+A command hook on `session_start`, `cwd_changed` and `file_changed` is started with `NAMZU_ENV_FILE`, the path of a file kept for the session outside the project (in Namzu's private scratch folder, removed when the session closes). It appends lines of the form `export NAME=value`; the commands the shell tool runs afterwards start with those variables, and so do sub-agents' commands. The hook's own environment does not change, and what it appended counts even if it then failed. No other event gets the variable.
+
+- **Which lines are read.** `export NAME=value` and `NAME=value`, read as data and never run. A value is a bare word, `'single quoted'` (literal) or `"double quoted"` (`\"`, `\\`, `\$` and `\``), joined together; `$NAME` and `${NAME}` are replaced by the value in the session's starting environment or set earlier, or by nothing. A line with `$(...)`, a backquote, `$((...))`, any other `${...}` form, shell punctuation outside quotes or a second word is not read, and is reported once.
+- **Which line wins.** A later line for a name replaces an earlier one. There is no unset: set it empty. `session_start` is outranked by `cwd_changed`, which is outranked by `file_changed`.
+- **A change of folder** clears what `cwd_changed` and `file_changed` hooks set (they described the folder left) and keeps what `session_start` hooks set; then the `cwd_changed` hooks run.
+- **Bounds.** The first 64 KiB of a file is read; a value over 8 KiB, a name over 128 characters and a variable past the 128th are left out and reported.
+- **Refused names**, reported once and never set: `NAMZU_*` (the kernel's own settings, including `NAMZU_HOME`); the dynamic loader's `LD_*`, `DYLD_*` and `GCONV_PATH`; the shell's start-up and prompt hooks (`BASH_ENV`, `ENV`, `SHELLOPTS`, `BASHOPTS`, `PROMPT_COMMAND`, `PS4`, `IFS`, `CDPATH`, `BASH_FUNC_*`); the interpreters' injection variables (`NODE_OPTIONS`, `PYTHONSTARTUP`, `PERL5OPT`, `PERL5LIB`, `RUBYOPT`, `JAVA_TOOL_OPTIONS`, `LOCPATH`, `NLSPATH`, `HOSTALIASES`); and where the account and Namzu keep state (`HOME`, `USERPROFILE`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`). They would change what runs without being a program a command names, or where state lives. `PATH` is allowed: it is the point.
+- **Seeing it.** `/hooks` lists the names set (never the values) with the kind of hook that set each, and the files watched.
 
 ## Request context inventory
 

@@ -353,6 +353,7 @@ import {
 	CHECK_HINT as PLUGIN_CHECK_HINT,
 	readPluginFileSources,
 } from '../integrations/plugins/files.js'
+import type { HookActivity, SessionHookActivity } from '../integrations/plugins/hook-activity.js'
 import { hookSessionMode } from '../integrations/plugins/hook-host.js'
 import { type CliPluginRuntime, createCliPluginRuntime } from '../integrations/plugins/runtime.js'
 import { hasApiCredential, requiresCredentialForModel } from '../integrations/providers/access.js'
@@ -1583,6 +1584,15 @@ export interface AgentSession {
 	readonly hooks?: HooksConfig
 	/** The JavaScript hooks plugins registered now (plugin name, event); what `/hooks` lists beside `hooks`. */
 	readonly pluginHooks?: () => readonly { readonly plugin: string; readonly event: string }[]
+	/** The variables hooks set for this session's commands (names only), and the files they watch; what `/hooks` lists beside `hooks`. */
+	readonly hookActivity?: () => HookActivity
+	/**
+	 * Lines hooks gave for the person outside a turn: a `systemMessage` from a
+	 * `file_changed`, `cwd_changed` or `session_start` hook, a watch that failed,
+	 * a variable that was not set. Lines given before anyone listened are
+	 * delivered to the first listener.
+	 */
+	readonly hookNotices?: { readonly subscribe: (listener: (line: string) => void) => () => void }
 	/** Files as they were before each turn's writes; what `/restore` uses. */
 	readonly checkpoints?: FileCheckpointStore
 	/**
@@ -4978,6 +4988,8 @@ export async function createAgentSession(
 	let pluginRuntime: Awaited<ReturnType<typeof createCliPluginRuntime>>
 	try {
 		pluginRuntime = await createCliPluginRuntime(options.plugins, cwd, options.hooks, {
+			// Read at each event: a conversation cleared in place changes the id.
+			sessionId: () => String(scope.sessionId),
 			permissionMode: () => hookSessionMode(readHookMode?.(), options.permissionMode),
 			transcriptPath: (sessionId) =>
 				options.ephemeral ? undefined : paths.sessionLog({ sessionId: sessionId as SessionId }),
@@ -5189,6 +5201,8 @@ export async function createAgentSession(
 		})
 		if (generation !== conversationGeneration) return
 		sessionHookContext = sessionStartHookContext(results)
+		// Files a `session_start` hook asked to watch, and a line it gave for the person.
+		sessionPlugins.hookActivity.absorbSessionStart(results)
 	}
 	const changeConversation: NonNullable<AgentSession['changeConversation']> = (change) => {
 		if (!sessionPlugins) return Promise.resolve()
@@ -6136,6 +6150,15 @@ export async function createAgentSession(
 			: {}),
 		...(options.hooks ? { hooks: options.hooks } : {}),
 		...(pluginRuntime ? { pluginHooks: () => pluginRuntime?.pluginHooks() ?? [] } : {}),
+		...(pluginRuntime
+			? {
+					hookActivity: () => pluginRuntime.hookActivity.describe(),
+					hookNotices: {
+						subscribe: (listener: (line: string) => void) =>
+							pluginRuntime.hookActivity.onNotice(listener),
+					},
+				}
+			: {}),
 		checkpoints,
 		markFilesChanged: async (changed) => {
 			const seeded = fileObservations.get(scope.sessionId)
@@ -7107,6 +7130,7 @@ export async function createAgentSession(
 								toolsets: runToolsets,
 								...(screensConfig !== undefined ? { toolResultGuardrails: screensConfig } : {}),
 								pluginManager: pluginRuntime?.manager,
+								hookActivity: pluginRuntime?.hookActivity,
 								skillRegistry: turnSkills.registry,
 								// The skill list is announced through the reminders, so a skill added
 								// mid-session leaves the cached prefix alone.
@@ -8153,6 +8177,8 @@ interface TurnParams {
 	/** See `ToolManagerConfig.resultGuardrails`; baked into a `ToolRegistry`'s constructor before toolsets existed. */
 	readonly toolResultGuardrails?: readonly ToolResultGuardrailSpec[]
 	readonly pluginManager: PluginLifecycleManager | undefined
+	/** What hooks set for this session's shell commands, and who hears of a change of folder. */
+	readonly hookActivity?: SessionHookActivity
 	readonly skillRegistry: SkillRegistryRef | undefined
 	readonly skills: Skill[] | undefined
 	readonly scope: SessionScope
@@ -8259,6 +8285,7 @@ async function* runTurn({
 	toolsets,
 	toolResultGuardrails,
 	pluginManager,
+	hookActivity,
 	skillRegistry,
 	skills,
 	scope,
@@ -8348,6 +8375,13 @@ async function* runTurn({
 			toolsets,
 			...(toolResultGuardrails !== undefined ? { toolResultGuardrails } : {}),
 			...(pluginManager ? { pluginManager } : {}),
+			...(hookActivity
+				? {
+						// Told once per real change of the shell's folder, before the next command.
+						onWorkingDirectoryChange: (change: { readonly from: string; readonly to: string }) =>
+							hookActivity.changeDirectory(change),
+					}
+				: {}),
 			...(skillRegistry ? { skillRegistry } : {}),
 			...(skills ? { skills } : {}),
 			// Withheld at both provider and executor boundaries on every ordinary
@@ -8384,6 +8418,9 @@ async function* runTurn({
 				...(opts?.effort !== undefined ? { effort: opts.effort } : {}),
 				...(opts?.speed === 'fast' ? { speed: opts.speed } : {}),
 				...(webSearch ? { webSearch } : {}),
+				// The variables hooks set for this session's commands: one live object,
+				// read at each command, so a hook that sets one mid-session is heard.
+				...(hookActivity ? { env: hookActivity.variables } : {}),
 				...turnConfigFields(resolveTurnGuards(limits), {
 					completionAudit: true,
 					detectChanges: changeDetectorFor(workingDirectory, {

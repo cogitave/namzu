@@ -509,6 +509,10 @@ async function execPrint(
 		})
 		return 1
 	}
+	// A line a hook gave for the person (a `file_changed` or `cwd_changed` hook's
+	// `systemMessage`, a watch that failed, a variable not set): nobody is
+	// looking at a transcript here, so it goes to stderr.
+	session.hookNotices?.subscribe((line) => ctx.formatter.info(line))
 	if (modeResult.mode === 'classify' && session.autoMode?.available === false) {
 		await session.close()
 		await release()

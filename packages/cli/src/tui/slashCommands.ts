@@ -54,6 +54,7 @@ import {
 	RegistryCollisionError,
 	type SerializableHostCommand,
 	type SessionTokenBudgetSummary,
+	fileChangedMatcherNote,
 	isMemoryType,
 	kernelHostCommands,
 	shellHookIfProblem,
@@ -64,6 +65,7 @@ import { type ConfigDebugSnapshot, renderConfigDebug } from '../config/debug.js'
 import type { HooksSwitch } from '../config/hook-layers.js'
 import type { HooksConfig } from '../config/schema.js'
 import type { SandboxSummary } from '../context/sandbox.js'
+import type { HookActivity } from '../integrations/plugins/hook-activity.js'
 import { PERMISSION_MODE_NAMES } from '../permissions/mode-names.js'
 import {
 	type PermissionMode,
@@ -1992,6 +1994,23 @@ export interface HooksView {
 	readonly switch?: HooksSwitch
 	/** Hooks the files declared that could not be loaded, and settings not acted on; absent, what the config reader recorded. */
 	readonly problems?: readonly HookConfigProblem[]
+	/** What hooks set for this conversation's commands (names only) and the files they watch. */
+	readonly activity?: HookActivity
+}
+
+/** The lines `/hooks` gives for the variables hooks have set and the files they watch. */
+export function hookActivityLines(activity: HookActivity | undefined): string[] {
+	if (activity === undefined) return []
+	const lines: string[] = []
+	if (activity.variables.length > 0) {
+		lines.push('variables set by hooks for shell commands (names only)')
+		for (const { name, event } of activity.variables) lines.push(`  ${name} · set by ${event}`)
+	}
+	if (activity.watching.length > 0) {
+		lines.push('files watched for file_changed')
+		for (const path of activity.watching) lines.push(`  ${path}`)
+	}
+	return lines
 }
 
 /** The events whose hooks are sent a tool's name. */
@@ -2080,9 +2099,12 @@ export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}
 				`  ${what}${when}${filter}${once}${deadline}${background}${failure}${names}${from}`,
 			)
 			for (const problem of hookReadingProblems(entry)) lines.push(`    cannot be read: ${problem}`)
+			const watches = event === 'file_changed' ? fileChangedMatcherNote(entry.matcher) : undefined
+			if (watches !== undefined) lines.push(`    note: ${watches}`)
 		}
 	}
 	lines.push(...hookConfigProblemLines(problems))
+	lines.push(...hookActivityLines(view.activity))
 	if (pluginHooks.length > 0) {
 		lines.push('plugin hooks (JavaScript, set by the plugin)')
 		for (const hook of pluginHooks) lines.push(`  ${hook.event} · plugin ${hook.plugin}`)

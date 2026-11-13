@@ -7359,6 +7359,7 @@ function AppBody({
 		hooks: () => session?.hooks,
 		hooksView: () => ({
 			...(session?.pluginHooks ? { pluginHooks: session.pluginHooks() } : {}),
+			...(session?.hookActivity ? { activity: session.hookActivity() } : {}),
 			...(initialCtx.hooksSwitch ? { switch: initialCtx.hooksSwitch } : {}),
 		}),
 		directories: () => session?.directories?.list() ?? [],
@@ -15036,6 +15037,11 @@ function AppBody({
 		},
 	})
 	idleCompactionRef.current = idleCompaction
+	// A line a hook gave for the person outside a turn (a `file_changed` or
+	// `cwd_changed` hook's `systemMessage`, a watch that failed, a variable not set).
+	useEffect(() => {
+		return session?.hookNotices?.subscribe((line) => pushSystem('notice', line))
+	}, [session, pushSystem])
 	// What the small model curated from a turn's learning, once the turn is over.
 	useEffect(() => {
 		return session?.memoryCuration?.subscribe((lines) => {
