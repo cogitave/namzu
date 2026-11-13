@@ -80,6 +80,7 @@ import {
 	looksLikeWrittenEvent,
 	readHookGroup,
 	unknownEventMessage,
+	unreadableElement,
 } from './hook-common-shape.js'
 import { type HookLayer, assembleHooks } from './hook-layers.js'
 import {
@@ -1387,6 +1388,13 @@ const CONFIG_READERS: ConfigReaders = {
 					continue
 				}
 				if (!isConfigMapping(entry)) {
+					// Under a PascalCase event (the common shape) one element that is not a
+					// mapping is said out loud and the rest of the file loads.
+					if (writtenKey) {
+						const lost = unreadableElement(target, index)
+						recordHookProblem(file, event, lost.severity, lost.message)
+						continue
+					}
 					return invalidConfigValue(context, [event, index], 'must be a mapping with a `command`')
 				}
 				const raw = entry as Record<string, unknown>

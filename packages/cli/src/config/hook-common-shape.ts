@@ -68,6 +68,24 @@ export function isHookGroup(element: unknown): element is Record<string, unknown
 	return isMapping(element) && Array.isArray(element.hooks)
 }
 
+/**
+ * What to say of a list element under a PascalCase event that is not a mapping at
+ * all (a bare string, a number): it cannot be a hook, so it is set aside and
+ * the others load. A problem where the event can guard something.
+ */
+export function unreadableElement(
+	event: ShellHookEvent,
+	index: number,
+): { severity: 'problem' | 'note'; message: string } {
+	const guard = GUARD_EVENTS.has(event)
+	return {
+		severity: guard ? 'problem' : 'note',
+		message: `entry ${index + 1} is not a mapping, so it will not run${
+			guard ? ' and what it was meant to guard is not checked' : ''
+		}.`,
+	}
+}
+
 /** The hooks inside a group, or the element itself when it is a flat entry; for readers that only list. */
 export function hooksOfElement(element: unknown): unknown[] {
 	return isHookGroup(element) ? (element.hooks as unknown[]) : [element]

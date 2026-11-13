@@ -62,7 +62,7 @@ describe('/hooks', () => {
 			[
 				'pre_tool_use',
 				'  POST https://hooks.example.test/x · blocks when it fails · tool names Namzu’s own (bash)',
-				'  ask: Is this safe? · tool names Namzu’s own (bash)',
+				'  ask: Is this safe?',
 				'  log.sh · in background · tool names Namzu’s own (bash)',
 			].join('\n'),
 		)

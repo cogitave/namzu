@@ -2068,11 +2068,14 @@ export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}
 			const background = entry.type === undefined && entry.async ? ' · in background' : ''
 			const failure = entry.onFailure === 'block' ? ' · blocks when it fails' : ''
 			const from = entry.source ? ` · from ${entry.source}` : ''
-			const names = TOOL_NAME_EVENTS.has(event)
-				? entry.toolNames === 'written'
-					? ' · tool names as written (Bash)'
-					: ' · tool names Namzu’s own (bash)'
-				: ''
+			// A prompt hook is sent no payload, so it receives no tool name; a tool
+			// server's tools keep their own names in either spelling.
+			const names =
+				TOOL_NAME_EVENTS.has(event) && entry.type !== 'prompt'
+					? entry.toolNames === 'written'
+						? ' · tool names as written (Bash), tool-server tools keep their own'
+						: ' · tool names Namzu’s own (bash)'
+					: ''
 			lines.push(
 				`  ${what}${when}${filter}${once}${deadline}${background}${failure}${names}${from}`,
 			)

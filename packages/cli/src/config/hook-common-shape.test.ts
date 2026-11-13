@@ -222,6 +222,28 @@ describe('nothing is dropped in silence', () => {
 	})
 })
 
+describe('an element that is not a mapping under a PascalCase event', () => {
+	it('is said out loud and the rest of the file loads', () => {
+		const config = load({
+			PreToolUse: [{ matcher: 'Bash', hooks: [{ command: 'a.sh' }] }, 'garbage', 7],
+			Stop: [null, { hooks: [{ command: 'stop.sh' }] }],
+			SessionStart: ['x'],
+		})
+		expect(config.hooks.pre_tool_use).toEqual([
+			{ command: 'a.sh', matcher: 'Bash', toolNames: 'written' },
+		])
+		expect(config.hooks.turn_end).toHaveLength(1)
+		const problems = hookConfigProblems()
+		expect(problems.filter((p) => p.severity === 'problem')).toHaveLength(3)
+		expect(problems.filter((p) => p.severity === 'note')).toHaveLength(1)
+		expect(problems.every((p) => /is not a mapping/.test(p.message))).toBe(true)
+	})
+
+	it('a list under our own spelling still refuses one', () => {
+		expect(() => load({ pre_tool_use: ['garbage'] })).toThrow(/must be a mapping/)
+	})
+})
+
 describe('toolNames on an entry of our own shape', () => {
 	it('is read, and absent means our names', () => {
 		const hooks = load({

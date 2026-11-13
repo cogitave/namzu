@@ -406,8 +406,9 @@ const MATCHER_LIST_PART = /^[A-Za-z0-9_.:*-]+$/
  * Empty or `*` matches everything. A list of names separated by `|` or `,`
  * matches exactly, each part optionally ending in `*` as a prefix (the
  * spelling this adapter has always taken). Anything else is a regular
- * expression, tested unanchored against the name. A matcher on an event that
- * has no name (`turn_start`) matches nothing unless it is `*`.
+ * expression, tested unanchored against the name. This function called with no
+ * name matches only `*`; a hook on an event that has no name (`turn_end`)
+ * ignores its matcher and fires (see `createShellHook`).
  *
  * A text that reads both ways (it is a list, and it holds a `.*`
  * that a regular expression reads differently:  `Bash.*`,
@@ -464,6 +465,12 @@ export function shellHookMatcherProblem(matcher: string | undefined): string | u
 	if (matcher === undefined || matcher.trim() === '' || matcher.trim() === '*') return undefined
 	const parts = matcher.split(/[|,]/).map((part) => part.trim())
 	if (parts.every((part) => MATCHER_LIST_PART.test(part))) return undefined
+	// `Bash(git push *)` is a tool and a pattern, which is what an `if` reads. As a
+	// matcher it is a regular expression that no tool name satisfies, so the hook
+	// would never fire; say so, and name the `if`.
+	if (/^[A-Za-z0-9_.:*-]+\([\s\S]*\)$/.test(matcher.trim())) {
+		return `the matcher "${matcher}" is written as Tool(pattern), which is an if, not a matcher: as a matcher it matches no tool name and the hook never fires; put the tool in matcher and the pattern in if`
+	}
 	try {
 		new RegExp(matcher)
 		return undefined
@@ -937,6 +944,9 @@ interface ShellHookReading {
 	invalid?: string
 }
 
+/** The keys that carry a replacement for a tool's result. */
+const REPLACEMENT_KEYS = ['updatedToolOutput', 'updatedMCPToolOutput'] as const
+
 /** The tool tied to an answer: what a rewrite or a replacement is read against. */
 export interface ShellHookCall {
 	readonly toolName?: string
@@ -1025,6 +1035,24 @@ function readShellHookJson(
 		parsed.decision !== 'block'
 	) {
 		return { invalid: '`decision` must be "approve" or "block"' }
+	}
+
+	// A replacement written where it is not read (at the top level of the answer
+	// instead of under `hookSpecificOutput`) is a hook that clearly tried to say
+	// something we cannot read: set the answer aside as unreadable, so
+	// `onFailure: block` withholds the result rather than showing the original.
+	if (event === 'post_tool_use' || event === 'post_tool_use_failure') {
+		const misplaced = REPLACEMENT_KEYS.find((key) => parsed[key] !== undefined)
+		const inSpecific =
+			isRecord(parsed.hookSpecificOutput) &&
+			REPLACEMENT_KEYS.some(
+				(key) => (parsed.hookSpecificOutput as Record<string, unknown>)[key] !== undefined,
+			)
+		if (misplaced !== undefined && !inSpecific) {
+			return {
+				invalid: `\`${misplaced}\` is read under \`hookSpecificOutput\`, not at the top level of the answer`,
+			}
+		}
 	}
 
 	const reading: ShellHookReading = {}
@@ -1221,6 +1249,21 @@ export function shellHookVerdict(
 				}
 			: readShellHookJson(event, outcome.stdout, call)
 	if (reading === undefined) {
+		// A post-tool hook whose plain output (or whose stderr) names a replacement
+		// key tried to replace the result and put the answer where it is not read
+		// (a log line before the JSON, the JSON on stderr). That is an answer that
+		// does not read, so it follows `onFailure` like one.
+		if (
+			(event === 'post_tool_use' || event === 'post_tool_use_failure') &&
+			REPLACEMENT_KEYS.some((key) => outcome.stdout.includes(key) || outcome.stderr.includes(key))
+		) {
+			log.warn('hook output ignored', {
+				...attrs,
+				'namzu.hook.problem':
+					'a replacement is named but the answer is not a JSON object on stdout',
+			})
+			return failed('its answer names a replacement but is not a JSON object that starts stdout')
+		}
 		// On the prompt event, what the hook printed is context for the
 		// model — the branch, the time, a ticket. Everywhere else stdout is
 		// the operator's to read and the model's business not at all.
@@ -1575,7 +1618,11 @@ export function createShellHook(
 							: event === 'session_end'
 								? context.endReason
 								: context.toolName
-			if (!shellHookMatches(entry.matcher, subject, { tool: namesATool }))
+			// An event that has no name to match (`turn_end`, `user_prompt_submit`,
+			// `turn_start`, the compaction events, `post_tool_batch`) ignores the
+			// matcher and the hook fires: a matcher cannot be read against a name
+			// that is not there, and a guard that never fires is the failure to avoid.
+			if (subject !== undefined && !shellHookMatches(entry.matcher, subject, { tool: namesATool }))
 				return { action: 'continue' }
 			if (!shellHookIfMatches(entry.if, context.toolName, context.toolInput, options.pathFilter)) {
 				return { action: 'continue' }

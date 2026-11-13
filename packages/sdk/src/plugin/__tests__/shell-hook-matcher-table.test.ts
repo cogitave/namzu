@@ -100,6 +100,13 @@ describe('a matcher that cannot be read', () => {
 		}
 	})
 
+	it('a matcher written as Tool(pattern) is reported: it is an if and fires for no tool', () => {
+		for (const bad of ['Bash(git push *)', 'Read(./.env)', 'Bash(npm run *)']) {
+			expect(shellHookMatcherProblem(bad)).toContain('is an if')
+			expect(shellHookMatches(bad, 'bash', { tool: true })).toBe(false)
+		}
+	})
+
 	it('reports nothing for a matcher that reads', () => {
 		for (const good of ['', '*', 'Bash', 'Edit|Write', '^(Edit|Write)$', 'mcp__.*', 'mcp__*__x']) {
 			expect(shellHookMatcherProblem(good)).toBeUndefined()

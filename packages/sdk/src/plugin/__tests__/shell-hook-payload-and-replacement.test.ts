@@ -244,3 +244,41 @@ describe('a hook that asked for a replacement and the original is shown', () => 
 		})
 	})
 })
+
+describe('a replacement put where it is not read follows onFailure', () => {
+	const misplaced: [string, ShellHookOutcome][] = [
+		['at the top level', answer({ updatedToolOutput: 'REDACTED' })],
+		['the tool-server field at the top level', answer({ updatedMCPToolOutput: 'REDACTED' })],
+		['after a log line', answer('building...\n{"hookSpecificOutput":{"updatedToolOutput":"R"}}')],
+		[
+			'on stderr',
+			{
+				exitCode: 0,
+				timedOut: false,
+				stdout: '',
+				stderr: '{"hookSpecificOutput":{"updatedToolOutput":"R"}}',
+			},
+		],
+	]
+	for (const event of ['post_tool_use', 'post_tool_use_failure'] as const) {
+		it.each(misplaced)(`withholds the original on ${event} with block, %s`, (_name, outcome) => {
+			const verdict = shellHookVerdict(event, blocking, outcome)
+			expect(verdict).toMatchObject({ action: 'replace', disclose: true })
+		})
+		it.each(misplaced)(`shows the original on ${event} with continue, %s`, (_name, outcome) => {
+			expect(shellHookVerdict(event, entry, outcome)).toEqual({ action: 'continue' })
+		})
+	}
+
+	it('a replacement under hookSpecificOutput is still read, and plain text with no key is still plain', () => {
+		expect(
+			shellHookVerdict('post_tool_use', blocking, post({ updatedToolOutput: 'R' })),
+		).toMatchObject({
+			action: 'replace',
+			output: 'R',
+		})
+		expect(shellHookVerdict('post_tool_use', blocking, answer('all good'))).toEqual({
+			action: 'continue',
+		})
+	})
+})

@@ -36,4 +36,10 @@ describe('the tool names on the hooks page', () => {
 	it('name each tool once', () => {
 		expect(new Set(listed).size).toBe(listed.length)
 	})
+
+	it('has json examples that parse, so a pasted example is not broken', () => {
+		const fences = [...page.matchAll(/```json\n([\s\S]*?)\n```/g)].map((m) => m[1] as string)
+		expect(fences.length).toBeGreaterThan(0)
+		for (const fence of fences) expect(() => JSON.parse(fence), fence.slice(0, 60)).not.toThrow()
+	})
 })

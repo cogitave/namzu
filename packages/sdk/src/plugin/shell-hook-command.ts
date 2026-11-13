@@ -76,6 +76,9 @@ const WRAPPER_VALUE_OPTIONS: Readonly<Record<string, ReadonlySet<string>>> = {
 	time: new Set(['-f', '--format', '-o', '--output']),
 	setsid: new Set(),
 	chroot: new Set(),
+	busybox: new Set(),
+	watch: new Set(['-n', '--interval']),
+	flock: new Set(['-w', '--timeout', '-E', '--conflict-exit-code']),
 }
 
 /** Global options of git that stand between `git` and its subcommand. */
@@ -117,6 +120,8 @@ function peelWrapper(words: readonly string[]): readonly string[] | undefined {
 		}
 		break
 	}
+	// `flock <lockfile> cmd`: the first word after the options is the lock, not the command.
+	if (head === 'flock') index += 1
 	const rest = words.slice(index)
 	return rest.length > 0 ? rest : undefined
 }
