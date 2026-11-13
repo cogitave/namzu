@@ -621,8 +621,14 @@ live state belongs to the rail.
   nothing in the batch is running. An agent that failed or was stopped is never in
   the block or its count: it keeps its own row in its own colour, and the receipt
   (`4 agents: 3 finished, 1 failed` over the names) stays above the block of the others. One
-  finished agent alone keeps its `Done` row. A reopened conversation and
-  `namzu watch` build the same rows with the same code as the live run.
+  finished agent alone keeps its `Done` row. A reopened conversation builds the same rows with the same
+  code as the live run, and reads as it did live: each agent under the short name it was launched with
+  (`general-purpose (Check a)`, kept in the agent's own meta file beside its log) and the closing line with the
+  total the agents spent (`Worked for 3s · done 3:45 PM · 3 agents · 1.6k tokens`, summed from the
+  conversation's own `child_session_ended` records). An agent saved before the short name was kept, or whose meta
+  file cannot be read, is named by the start of its prompt, as before, and a turn none of whose agents recorded an
+  end carries no total; nothing is made up. `namzu watch` builds the rows of the conversation's own log only
+  (see [Watching a session](watching-a-session.md#what-it-shows)): it draws no agent rows.
 - **A waited-on agent writes the tool's own result instead.** An agent the
   parent waited on hands its result back inline, so there is no notification:
   the row is `● <type> (<description>)` over
@@ -967,7 +973,13 @@ them. This keeps final diagnostics visible without joining nonadjacent lines
 silently. Each visible line is shortened to 240 characters (never through an emoji), and Ctrl+O is
 advertised whenever text is hidden, in one wording everywhere (tool output, the shell cell, an agent's
 answer): `… +N lines (ctrl+o to expand)`, with `(~N KB)` after it once at least 1,000 characters are
-hidden, and `line` for exactly one. In the [fullscreen view](#opening-a-row-with-a-click) with the pointer at `full` the same hint reads `(click to expand)`. Ctrl+O opens the detailed transcript, which shows the retained body whole; `/raw` also
+hidden, and `line` for exactly one. A hint is never cut across two rows. Where it does not fit after the text on the
+row's last line, it moves whole to a row of its own, in the column the text continues in, and the separator before
+it (`·`) is left off; where it does not fit even there (a window under about 20 columns) its short form stands in
+(`(ctrl+o)`, `(click)`), and where not even that fits it is left off (the row still opens). A row where the hint
+fits is drawn as it always was. This holds for every row that carries one (the settled group line, a finished
+agent's row and the block above, the memory row, a folded result, the shell cell's `… +N lines`, a clipped line's
+`… line shortened`), in both screens, and in `namzu watch` on a terminal. In the [fullscreen view](#opening-a-row-with-a-click) with the pointer at `full` the same hint reads `(click to expand)`. Ctrl+O opens the detailed transcript, which shows the retained body whole; `/raw` also
 includes it. Runtime output limits still apply: a retained artifact path
 identifies output beyond those limits. Neither action re-executes the tool.
 
@@ -1706,10 +1718,12 @@ writer of Namzu's own (`packages/cli/src/tui/paint/`) that sits between the rend
   `/clear`, `/new`, `/resume` and a theme change ask for a new screen: the visible screen is cleared, but the rows
   on it first move up into the scrollback, and the "erase saved lines" sequence is never written. The rows
   still in the live region at that moment (the last few finished rows of the conversation, not yet printed) are
-  kept by `/clear` and Ctrl+L: they are printed first, through the path every other row takes, the terminal is
+  kept by `/clear`, `/clear-screen`, Ctrl+L, `/resume` and the two rewind choices that replace the conversation
+  in place (restore, summarize): they are printed first, through the path every other row takes, the terminal is
   given them, and only then is the screen cleared, so everything that was on the screen is in the scrollback
-  afterwards, once and in order, and the input box and what hangs on it are not copied. `/resume` and a theme
-  change still clear without that step, so the rows in the live region at that moment go with the screen. The
+  afterwards, once and in order, and the input box and what hangs on it are not copied. A theme change needs no
+  such step: the conversation stays and is printed again in the new colours, so no row is lost; the screen it
+  replaces is in the scrollback too, in the old colours, because a printed row cannot be recoloured. The
   old painting (`NAMZU_LEGACY_PAINT=1`), the zoomed workspaces screen and the fullscreen view are as before. Rewinding to summarize part
   of the conversation rewrites rows that were printed, so it prints the conversation again under the old rows.
   Fullscreen owns its alternate screen and is not covered by this rule.

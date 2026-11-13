@@ -10,6 +10,7 @@ import { Box, Static, Text, useWindowSize } from 'ink'
 import type { ReactNode } from 'react'
 import { memo, useRef, useSyncExternalStore } from 'react'
 import { type DiffInfo, diffViewBody, viewRowText } from './diff-view.js'
+import { fitHintPlain, hintSuffix } from './hint-fit.js'
 import { EXPAND_HINT, clipText, hiddenLinesHint } from './truncation.js'
 import { cutUserText, hiddenTextNote, hiddenTextRule } from './user-text-view.js'
 
@@ -485,6 +486,7 @@ export function MessageRow({
 	const web = message.activity === 'web'
 	const continuesWeb = web && prev?.activity === 'web'
 	const gap = !prev || message.glyph === '⎿' || continuesWeb ? 0 : 1
+	const rowWidth = glyph === '⎿' ? width - RESULT_GUTTER_INDENT - (RESULT_GUTTER_WIDTH - 2) : width
 	// A group of one command is that command's row, drawn below like any other.
 	if (message.group && message.shell === undefined) {
 		return (
@@ -546,15 +548,20 @@ export function MessageRow({
 									...(message.meta
 										? [
 												{
-													text: `${metaSeparator(message.meta)}${terminalDisplayText(message.meta)}`,
+													// A hint that would be cut across two rows moves whole.
+													text: hintSuffix(
+														(message.diff?.summary ?? [{ text: content }])
+															.map((span) => span.text)
+															.join(''),
+														`${metaSeparator(message.meta)}${terminalDisplayText(message.meta)}`,
+														rowWidth,
+													),
 													muted: true,
 												},
 											]
 										: []),
 								]}
-								width={
-									glyph === '⎿' ? width - RESULT_GUTTER_INDENT - (RESULT_GUTTER_WIDTH - 2) : width
-								}
+								width={rowWidth}
 								color={textColor}
 							/>
 						</Text>
@@ -715,7 +722,12 @@ export function ShellBlock({
 					</Box>
 					<Box flexGrow={1}>
 						<Text color={shellToneColor(row.tone)} wrap="wrap">
-							{row.text.length > 0 ? terminalDisplayText(row.text) : ' '}
+							{row.text.length > 0
+								? fitHintPlain(
+										terminalDisplayText(row.text),
+										Math.max(10, width - SHELL_RESULT_INDENT),
+									)
+								: ' '}
 						</Text>
 					</Box>
 				</Box>
@@ -750,8 +762,12 @@ function DetailBlock({
 	/** Stable reference that lets App offer expansion for this body. */
 	readonly detailRef: number | undefined
 }) {
+	const width = useContentWidth()
 	if (diff) return <DiffBlock info={diff} expanded={expanded} canExpand={detailRef !== undefined} />
-	const shown = splitDetail(lines.map(terminalDisplayText), expanded, detailRef)
+	// A hint at the end of a line that would be cut across two rows moves whole.
+	const shown = splitDetail(lines.map(terminalDisplayText), expanded, detailRef).map((line) =>
+		fitHintPlain(line, Math.max(10, width - SHELL_RESULT_INDENT)),
+	)
 	// Hung in the column the result's own words start in, like a shell body.
 	return (
 		<Box flexDirection="column" paddingLeft={SHELL_RESULT_INDENT}>

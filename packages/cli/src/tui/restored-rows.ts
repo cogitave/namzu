@@ -83,6 +83,12 @@ interface TurnTrail {
 	budget?: unknown
 	/** Launches of the `Agent` tool in this turn, and whether each failed. */
 	agents: boolean[]
+	/**
+	 * What the agents this turn launched spent, from the `child_session_ended`
+	 * records the conversation's own log holds. Absent when none of them
+	 * recorded an end, so the closing line names no total it cannot know.
+	 */
+	agentTokens?: number
 	/** The turn ended with `turn_completed`; a failed turn draws no outcome line, as live. */
 	completed?: true
 	/** The kernel's outcome record for the turn, when the log holds one that reads. */
@@ -155,6 +161,7 @@ export function trailFromRecords(
 	const turns = new Map<string, TurnTrail>()
 	const turnOfMessage = new Map<string, string>()
 	const recalled = new Map<string, readonly UsedMemory[]>()
+	const spawnedIn = new Map<string, string>()
 	const turn = (id: string): TurnTrail => {
 		let found = turns.get(id)
 		if (!found) {
@@ -204,6 +211,23 @@ export function trailFromRecords(
 					}
 				}
 				break
+			case 'child_session_spawned':
+				if (turnId && typeof record.childSessionId === 'string')
+					spawnedIn.set(record.childSessionId, turnId)
+				break
+			case 'child_session_ended': {
+				// The record leaves the turn out once the turn has closed: the spawn names it.
+				const owner =
+					typeof record.childSessionId === 'string'
+						? spawnedIn.get(record.childSessionId)
+						: undefined
+				const spent = (record.usage as { totalTokens?: unknown } | undefined)?.totalTokens
+				if (owner && typeof spent === 'number' && Number.isFinite(spent)) {
+					const t = turn(owner)
+					t.agentTokens = (t.agentTokens ?? 0) + spent
+				}
+				break
+			}
 			case 'tool_executing': {
 				if (typeof record.toolUseId !== 'string' || record.via) break
 				const key = callKey(turnId, record.toolUseId)
@@ -567,7 +591,12 @@ export function createRestoredTurnWriter(
 			)
 			const line =
 				stand.length > 0 || completed
-					? settleLine(Math.max(0, turn.endedAt - turn.startedAt), stand, new Date(turn.endedAt))
+					? settleLine(
+							Math.max(0, turn.endedAt - turn.startedAt),
+							stand,
+							new Date(turn.endedAt),
+							turn.agentTokens,
+						)
 					: undefined
 			if (line)
 				rows.push({

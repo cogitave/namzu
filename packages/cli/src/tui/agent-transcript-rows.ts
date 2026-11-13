@@ -414,14 +414,18 @@ export function settleLine(
 	elapsedMs: number,
 	agents: readonly SubagentActivity[],
 	doneAt?: Date,
+	/** What the agents spent in all, when the caller knows it and the agents do not carry it. */
+	spentInAll?: number,
 ): string | undefined {
 	const worked = (ms: number): string =>
 		`Worked for ${formatElapsed(Math.max(0, ms))}${doneAt ? ` · done ${doneClock(doneAt)}` : ''}`
 	if (agents.length <= 0) return elapsedMs >= SETTLE_LINE_MIN_MS ? worked(elapsedMs) : undefined
-	const spent = agents.reduce<number | undefined>(
-		(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
-		undefined,
-	)
+	const spent =
+		spentInAll ??
+		agents.reduce<number | undefined>(
+			(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
+			undefined,
+		)
 	const failed = agents.filter((agent) => agent.status === 'failed').length
 	return [
 		worked(elapsedMs),

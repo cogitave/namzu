@@ -143,7 +143,7 @@ function clickableRows(
 	const shown = open ? openedMessage(message) : message
 	const hint = open ? undefined : CLICK_EXPAND_HINT
 	const plain = open ? messageScrollRows(shown, hasPrev, fit) : closed
-	const text = scrollBodyText(shown, hint)
+	const text = scrollBodyText(shown, hint, fit)
 	const body = wrapChoiceText(text, fit).length
 	const joins = wrapJoiners(
 		text,
@@ -190,7 +190,7 @@ export function fullscreenMessageRows(
 	const plain = messageScrollRows(markdown ? { ...message, content: 'x' } : message, hasPrev, fit)
 	const gap = plain.gap ? plainRow(plain.gap) : null
 	const first = plain.rows[0]
-	const body = markdown ? 1 : wrapChoiceText(scrollBodyText(message), fit).length
+	const body = markdown ? 1 : wrapChoiceText(scrollBodyText(message, undefined, fit), fit).length
 	if (markdown && first) {
 		// A reply still being written is drawn as far as it is decided: the fullscreen
 		// view redraws freely, so it only needs the tail rules, not the printing.
@@ -212,7 +212,7 @@ export function fullscreenMessageRows(
 		return { gap, rows }
 	}
 	const joins = wrapJoiners(
-		scrollBodyText(message),
+		scrollBodyText(message, undefined, fit),
 		plain.rows.slice(0, body).map((r) => r.text),
 	)
 	const own = plain.rows.map((row, i) => plainRow(row, i < body ? (joins[i] ?? null) : null))
