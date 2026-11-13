@@ -256,7 +256,7 @@ test("the home heading does not move when the box grows", { timeout: 280000 }, a
 
 		// In a short window the box would touch the block: then the starters go first and the heading steps down.
 		await size(w, 1280, 460);
-		await expect.poll(() => w.page.evaluate(() => document.querySelector(".workspace").getBoundingClientRect().height), { timeout: T }).toBeLessThan(440);
+		await expect.poll(() => w.page.evaluate(() => document.querySelector(".workspace").getBoundingClientRect().height), { timeout: T }).toBeLessThanOrEqual(460); // the main area fills the window from its top
 		await settled(w);
 		const short = await w.page.evaluate(MEASURE);
 		assert.ok(short.heading, "the heading is still drawn");

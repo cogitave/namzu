@@ -908,7 +908,7 @@ The logic is pure (`SystemNotices` takes an injected notifier, clock, timer and 
 
 ## The top of a conversation window
 
-A conversation window spends 36 px on one bar (the same height as the strip of tabs, so showing or hiding the strip moves nothing). The bar holds the conversation's title (14 px, strong, cut with an ellipsis when it does not fit), the project's name (13 px, muted), then on the right its buttons (how full the conversation is lives in the row under the composer, not here). The sidebar is the one list of conversations; a title is shown once. The operating system's menu row (File, Edit, View, Window) is unchanged and sits above the bar.
+A conversation window spends 36 px on one bar (the same height as the strip of tabs, so showing or hiding the strip moves nothing). The bar holds the conversation's title (14 px, strong, cut with an ellipsis when it does not fit), the project's name (13 px, muted), then on the right its buttons (how full the conversation is lives in the row under the composer, not here). The sidebar is the one list of conversations; a title is shown once. Nothing sits above the bar: the window starts with it (see [One band at the top](#one-band-at-the-top)).
 
 **The read-out** is not in the bar: it sits at the right end of the row under the composer box (see the composer section below), from the same figures (`contextRingModel`, so the two cannot disagree) and with the same rule for when it shows: nothing is drawn until the engine has reported both a context size and a window.
 
@@ -1974,12 +1974,11 @@ and then fades in over 150 ms (`--placeholder-fade`), so a load that finishes fi
 With reduced motion the wait stays and the fade becomes a single step. In the design preview,
 `/preview?slow=<ms>` holds the first project read so the placeholders can be looked at (under 500 ms
 none shows).
-The 32px integrated title bar keeps the operating system’s caption controls and
-resize frame. Back and Forward revisit the window’s admitted project and
-conversation views, with no prompt replay; the adjacent panel control toggles
-the sidebar. File provides project and conversation actions; Edit and Window open native
-menus. View offers zoom and full screen only: Namzu is an app, not a browser, so
-it carries no Reload, Force Reload or developer-tools item (the tools return in a
+The window keeps the operating system’s caption controls and resize frame; they are drawn at the
+right end of the header band (see [One band at the top](#one-band-at-the-top)). Back and Forward
+revisit the window’s admitted project and conversation views, with no prompt replay; the adjacent
+panel control toggles the sidebar. The View menu offers zoom and full screen only: Namzu is an app,
+not a browser, so it carries no Reload, Force Reload or developer-tools item (the tools return in a
 development build). Native caption colours follow the chosen appearance.
 The window is two flat regions divided by one 1px line: the sidebar and the conversation. Neither has a
 rounded corner or a shadow, and the frame uses at most two fills (the sidebar side, which includes the
@@ -1989,7 +1988,7 @@ Settings (same name, same tooltip with its shortcut) and, when there is somethin
 button with its badge and its announcement. Home is not repeated there, because it leads to the same
 screen as the New conversation row; on the Settings and Plugins pages, whose own sidebars have no such
 row, the foot also carries Home, so the way back is never lost. While the sidebar is collapsed
-(by the title bar's panel control, Ctrl/Cmd+B, a narrow window, or the Changes pane at 1280 px and
+(by the header's panel control, Ctrl/Cmd+B, a narrow window, or the Changes pane at 1280 px and
 below) the 48 px rail is drawn with Home in its header band (36 px) at the top and Settings in its foot (45 px, with the same line above it as the sidebar's foot) at the bottom; a control that had the
 focus when the rail and the foot swap keeps it. Opening or closing the sidebar moves the conversation by
 exactly the width that changes (288 px open, 48 px collapsed). In a window of 767 px or less the sidebar is an
@@ -2024,8 +2023,8 @@ current conversation only when that plugin is actually enabled there, preserving
 the draft and sending no prompt. Uninstall remains disabled with an explanation
 until a desktop uninstall API exists. The page shares its mutation and ownership guards with
 the composer menu, including the restrictions on live changes. The rail has no
-overflow menu: **Add new project** lives in the sidebar and the title bar, and the
-sidebar toggles from the title bar's panel control or Ctrl/Cmd+B. The rail has no
+overflow menu: **Add new project** lives in the sidebar and the header's menu, and the
+sidebar toggles from the header's panel control or Ctrl/Cmd+B. The rail has no
 profile control and claims no signed-in account. Settings is the last item; the update icon sits beside it (above it in the rail) and appears
 only while there is something to install: an installable update, an offered one when
 automatic download is off, or a program that is behind. The manual **Check for updates** is
@@ -3475,6 +3474,38 @@ The same visibility rules apply to listing, searching, reading and linking. `.gi
 
 The project index is a bounded walk (50,000 paths, depth 24, a 3 s budget checked inside each folder too) cached for 30 s, and it reports `truncated` when a cap was hit. "Open in" finds VS Code and Cursor in the per-user install folder, under Program Files and on `PATH`, and starts the first one found with separate arguments and no shell.
 
+## One band at the top
+
+The window starts with the 36 px header band, on every platform: no strip sits above it. The sidebar's
+header (the wordmark on its dither band) is at the top left and the main header beside it, both from y 0
+to y 36. The numbers are `--frame-cluster-*` tokens in `theme.css`; `e2e/ux-one-band.test.mjs` measures
+them in the running app at 1280 by 820.
+
+- **The left cluster** is at the main header's left, 12 px in from the sidebar's edge (from the rail's edge
+  when the sidebar is collapsed): a **Menu** button, the sidebar toggle, **Back** and **Forward**, each
+  28 by 28, 4 apart and centred in the band. Back and Forward are at half strength while there is nowhere
+  to go. The title, or the strip of tabs, starts 12 px after the cluster.
+- **The Menu button** opens one menu with **File**, **Edit**, **View** and **Window** as rows with a chevron;
+  a row opens its commands to the side, its top on the row's top and 4 px from the menu. File holds
+  New conversation, Start from scratch and Use an existing folder. Edit, View and Window are the items of
+  the application menu in the main process, read when the menu opens (`windowMenuModel`) and run by id
+  (`runWindowMenuItem`), so a row and its accelerator run the same command and the View checkbox shows
+  the state Settings keeps; the shortcut is shown at the right of each. Alt on its own opens the menu;
+  the arrows move, Right opens a submenu, Enter runs, Escape closes the submenu and then the menu, and
+  focus returns to the button (to the field that had it before, when a command ran, so Copy and Paste
+  reach it). The accelerators work with the menu closed. The native menu bar stays hidden.
+- **macOS** keeps the system menu bar as the menu, so the cluster has no Menu button (three controls). The
+  traffic lights keep an 80 px inset at the sidebar header's left; with the sidebar collapsed the cluster
+  starts after them and Home sits in the first row under the band the lights cover.
+- **A side panel** starts at the band's bottom edge and ends at the window's right edge, so the band runs
+  the whole width of the main area over it and nothing of the panel sits under the window's own buttons.
+  The same holds where the panel covers the whole pane (a narrow window).
+- **The window's own buttons** (Windows and Linux) end the band: the caption overlay is 36 px high
+  (`WINDOW_CHROME_HEIGHT`, which a test keeps equal to `--frame-header-height`), and the page reads its
+  width from `env(titlebar-area-width)` into `--frame-controls-inset`, so no header control sits under
+  it. The band is the window's drag region except over its controls. The window's title is no longer
+  drawn as text; the operating system still has it.
+
 ## The frame's numbers
 
 The header, the sidebar's rows and its foot sit on one rhythm, so edges that should meet do, and no
@@ -3493,8 +3524,9 @@ by 820. The sidebar is 288 px wide including its 1 px edge line; x positions bel
   it, where there is nothing to separate); Settings, Plugins and Pals, which have no top bar of their own,
   get the same line across the pane at the same y. It is an inset shadow inside the band, so it never
   changes the 36.
-- **The main header's title** starts 24 px from the main area's left edge; its controls end 8 px from the
-  right edge and are 4 apart.
+- **The main header's title** starts 12 px after the left cluster (so 148 px from the main area's left edge
+  with the menu button, 116 on macOS); its controls end 8 px from the right edge and are 4 apart (on
+  Windows and Linux, 8 px before the window's own buttons).
 - **Rows are 32 px high** with 2 px between neighbouring rows (tops 34 apart) and corners of 10 px. The first
   row starts 8 px under the header band. A row's box runs from x 8 to x 277: 8 from the sidebar's left
   edge and 10 from its right edge line. Inside it: 10 px of padding, a 16 px icon slot (x 18 to 34), a gap

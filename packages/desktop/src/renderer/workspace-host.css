@@ -3,7 +3,7 @@
 }
 .workspace-stage {
 	grid-column: 3;
-	grid-row: 2;
+	grid-row: 1;
 	position: relative;
 	/* The window's notice is a row of its own above the panes, never an overlay on a tab strip. */
 	display: flex;

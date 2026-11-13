@@ -163,9 +163,11 @@ for (const tabs of ["shown", "hidden"]) {
 			}
 			assert.equal(m.dither.h, 36, `${tag}: the dither band is the band's height`);
 			assert.equal(m.ditherViewBox.split(" ")[3], "36", `${tag}: its squares are drawn at the band's height, so they stay square`);
-			// C. The title starts 24 from the main area's left edge (the bar's own title; the strip has its tabs).
-			if (tabs === "hidden") assert.equal(m.titleX - m.workspace.x, 24, `${tag}: the title starts 24 from the main area's edge`);
-			else assert.equal(m.tab.x - m.workspace.x, 24, `${tag}: the first tab starts 24 from the main area's edge`);
+			// C. The title (the bar's own; the strip has its tabs) starts after the left cluster: 12 in, four
+			// 28 controls 4 apart, 12 after.
+			const afterCluster = 12 + 4 * 28 + 3 * 4 + 12;
+			if (tabs === "hidden") assert.equal(m.titleX - m.workspace.x, afterCluster, `${tag}: the title starts 12 after the left cluster`);
+			else assert.equal(m.tab.x - m.workspace.x, afterCluster, `${tag}: the first tab starts 12 after the left cluster`);
 
 			// D. Rows: 32 high, 2 apart, the box from x 8 to x 277, every label at x 44, the slot at x 18.
 			const rowRight = m.sidebar.right - 1 - 10;
