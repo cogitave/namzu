@@ -21,6 +21,18 @@ describe('/hooks', () => {
 		)
 	})
 
+	it('says under a hook that its matcher or if cannot be read, and what that means', () => {
+		const text = renderHooks({
+			pre_tool_use: [{ command: 'guard.sh', matcher: '(unclosed', if: '^Edit$' }],
+		})
+		expect(text).toContain('cannot be read: the matcher "(unclosed"')
+		expect(text).toContain('fires for every call')
+		expect(text).toContain('cannot be read: the if "^Edit$"')
+		expect(renderHooks({ pre_tool_use: [{ command: 'a', matcher: 'Edit|Write' }] })).not.toContain(
+			'cannot be read',
+		)
+	})
+
 	it('shows a hook’s filter and that it runs once', () => {
 		expect(
 			renderHooks({

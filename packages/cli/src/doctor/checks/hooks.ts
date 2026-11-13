@@ -6,14 +6,14 @@ import { hookSwitch, hooksBySource } from '../../config/hook-layers.js'
 import { LOCAL_CONFIG_FILE, shortHomePath } from '../../config/load.js'
 import type { NamzuCliConfig } from '../../config/schema.js'
 import { isTrusted } from '../../integrations/trust/store.js'
-import { hooksSwitchLine } from '../../tui/slashCommands.js'
+import { hookReadingProblems, hooksSwitchLine } from '../../tui/slashCommands.js'
 
 /**
  * How many hooks are attached, from which file, and whether a switch is
  * limiting them.
  *
- * A `pass` in every case: a switch is something a person chose, and no hooks
- * is a healthy state. The row exists so that "which of my hooks are running,
+ * A `pass` unless a matcher or `if` cannot be read (then a `warn` names it): a
+ * switch is something a person chose, and no hooks is a healthy state. The row exists so that "which of my hooks are running,
  * and from where" has an answer that does not need a conversation.
  */
 export function describeHooksStatus(
@@ -47,9 +47,17 @@ export function describeHooksStatus(
 			`${untrusted} more ${untrusted === 1 ? 'is' : 'are'} declared in this folder's files and not attached, because the folder is not trusted.`,
 		)
 	}
+	const unreadable: string[] = []
+	for (const [event, entries] of Object.entries(config.hooks ?? {})) {
+		for (const entry of entries ?? []) {
+			if (entry.source !== undefined && !bySource.has(entry.source)) continue
+			for (const problem of hookReadingProblems(entry)) unreadable.push(`${event}: ${problem}`)
+		}
+	}
+	for (const each of unreadable) lines.push(`Cannot be read: ${each}.`)
 	lines.push(state === undefined ? 'No hook switch is on.' : `Switch on: ${hooksSwitchLine(state)}`)
 	lines.push('Plugin hooks are not counted here; plugins have their own switch (plugins.enabled).')
-	return { status: 'pass', message: lines.join(' ') }
+	return { status: unreadable.length > 0 ? 'warn' : 'pass', message: lines.join(' ') }
 }
 
 export function hooksCheck(config: NamzuCliConfig): DoctorCheck {

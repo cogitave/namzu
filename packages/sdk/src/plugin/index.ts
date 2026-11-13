@@ -27,6 +27,8 @@ export {
 	SHELL_HOOK_EVENTS,
 	SHELL_HOOKS_PLUGIN_ID,
 	shellHookIfMatches,
+	shellHookIfProblem,
+	shellHookMatcherProblem,
 	shellHookMatches,
 	shellHookVerdict,
 } from './shell-hook.js'
@@ -38,6 +40,7 @@ export type {
 	ShellHookHandler,
 	ShellHookJudge,
 	ShellHookOnFailure,
+	ShellHookCall,
 	ShellHookInput,
 	ShellHookOptions,
 	ShellHookPathFilter,

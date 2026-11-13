@@ -102,6 +102,7 @@ export async function* finalizeTurn(
 					turnId: ctx.turnId,
 					parentSessionId: params.parentSessionId,
 					...(params.parentTurnId !== undefined ? { parentTurnId: params.parentTurnId } : {}),
+					agentType: params.agentType ?? params.agentName,
 					signal: ctx.abortController.signal,
 				},
 				eventTranslator.emitEvent,

@@ -242,6 +242,7 @@ export type {
 	ShellHookHandler,
 	ShellHookJudge,
 	ShellHookOnFailure,
+	ShellHookCall,
 	ShellHookInput,
 	ShellHookOptions,
 	ShellHookPathFilter,

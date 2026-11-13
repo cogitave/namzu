@@ -59,7 +59,7 @@ it('runs the configured start hook once through the real CLI child with its own 
 			hook_event_name: 'SubagentStart',
 			parent_session_id: parent.scope.sessionId,
 			parent_turn_id: parent.scope.turnId,
-			agent_type: 'namzu-cli',
+			agent_type: 'general-purpose',
 			session_id: started?.sessionId,
 			turn_id: started?.turnId,
 		})

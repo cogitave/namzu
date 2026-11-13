@@ -61,7 +61,7 @@ describe('shellHookMatches on a tool event', () => {
 		// Still not a match.
 		expect(shellHookMatches('^(Edit|Write)$', 'read', tool)).toBe(false)
 		expect(shellHookMatches('^Bash$', 'bash_job', tool)).toBe(false)
-		expect(shellHookMatches('(', 'bash', tool)).toBe(false)
+		expect(shellHookMatches('(', 'bash', tool)).toBe(true)
 	})
 
 	it('a name that is not the tool does not match', () => {

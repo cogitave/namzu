@@ -718,6 +718,8 @@ export {
 	SHELL_HOOK_EVENTS,
 	SHELL_HOOKS_PLUGIN_ID,
 	shellHookIfMatches,
+	shellHookIfProblem,
+	shellHookMatcherProblem,
 	shellHookMatches,
 	shellHookVerdict,
 } from './plugin/index.js'

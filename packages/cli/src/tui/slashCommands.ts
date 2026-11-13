@@ -56,6 +56,8 @@ import {
 	type SessionTokenBudgetSummary,
 	isMemoryType,
 	kernelHostCommands,
+	shellHookIfProblem,
+	shellHookMatcherProblem,
 } from '@namzu/sdk'
 
 import { type ConfigDebugSnapshot, renderConfigDebug } from '../config/debug.js'
@@ -1998,6 +2000,21 @@ export function hooksSwitchLine(state: HooksSwitch): string {
 }
 
 /**
+ * What in an entry's `matcher` or `if` cannot be read. A matcher that is not a
+ * regular expression fires for every call, and an `if` that is not
+ * `Tool(pattern)` runs the hook every time: both are said out loud, never left
+ * to look like a filter that works.
+ */
+export function hookReadingProblems(entry: {
+	readonly matcher?: string
+	readonly if?: string
+}): string[] {
+	return [shellHookMatcherProblem(entry.matcher), shellHookIfProblem(entry.if)].filter(
+		(problem): problem is string => problem !== undefined,
+	)
+}
+
+/**
  * Every hook this conversation attaches, by event, in the order answers are
  * read, each with the file it came from, then the hooks plugins registered.
  */
@@ -2030,6 +2047,7 @@ export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}
 			const failure = entry.onFailure === 'block' ? ' · blocks when it fails' : ''
 			const from = entry.source ? ` · from ${entry.source}` : ''
 			lines.push(`  ${what}${when}${filter}${once}${deadline}${background}${failure}${from}`)
+			for (const problem of hookReadingProblems(entry)) lines.push(`    cannot be read: ${problem}`)
 		}
 	}
 	if (pluginHooks.length > 0) {
