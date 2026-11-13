@@ -52,6 +52,9 @@ const same = (a: string): string =>
 		.map((line) => line.replace(TRAILING_BLANKS, '$1'))
 		.join('\n')
 
+const SEPARATOR = String.fromCharCode(1)
+const TRAILING_BLANK = new RegExp(`${SEPARATOR}?\\|? +$`, 'u')
+
 /**
  * What a terminal shows of a drawn text: each row as runs of (colour, characters), with the
  * colour of a blank left out and no run that holds no character. Two drawings that show the
@@ -75,12 +78,12 @@ function shown(drawn: string): string {
 					if (piece === '') continue
 					const colour = /^ +$/u.test(piece) ? '' : fg
 					const last = runs[runs.length - 1]
-					if (last !== undefined && last.startsWith(`${colour}|`))
-						runs[runs.length - 1] = last + piece
+					if (last?.startsWith(`${colour}|`)) runs[runs.length - 1] = last + piece
 					else runs.push(`${colour}|${piece}`)
 				}
 			}
-			return runs.join('\u0001').replace(/\u0001?\|? +$/u, '')
+			const joined = runs.join(SEPARATOR)
+			return joined.replace(TRAILING_BLANK, '')
 		})
 		.join('\n')
 }
@@ -195,9 +198,9 @@ describe('the characters of a coloured block', () => {
 			expect(plainText(on)).toBe(plainText(normal(text, 40)))
 			expect(onRows.map((r) => r.text)).toEqual(rowsOf(text, 40).map((r) => r.text))
 			setSyntaxHighlight(true)
-			expect(colours(on).length).toBeGreaterThan(
-				colours((setSyntaxHighlight(false), normal(text, 40))).length,
-			)
+			setSyntaxHighlight(false)
+			const off = normal(text, 40)
+			expect(colours(on).length).toBeGreaterThan(colours(off).length)
 		}
 	})
 })
@@ -278,7 +281,8 @@ describe('the colours of a coloured block', () => {
 			applyPalette(name)
 			const drawn = normal(fence('ts', CORPUS.ts as string), 80)
 			// 256-colour and truecolor sequences are `38;5;n` and `38;2;r;g;b`.
-			expect(drawn, name).not.toMatch(/\u001b\[38;[25];/u)
+			expect(drawn.includes(`${String.fromCharCode(27)}[38;5;`), name).toBe(false)
+			expect(drawn.includes(`${String.fromCharCode(27)}[38;2;`), name).toBe(false)
 			expect(colours(drawn).length, name).toBeGreaterThan(2)
 		}
 	})

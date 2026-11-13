@@ -324,7 +324,10 @@ describe('the runs of a block', () => {
 					flow = flowAfter(word, flow, part)
 				}
 				if (READS_AHEAD.has(name) && step < input.length) {
-					expect(parts.map((line) => (line ? text(line) : '')), `${name} by ${step}`).toEqual(input)
+					expect(
+						parts.map((line) => (line ? text(line) : '')),
+						`${name} by ${step}`,
+					).toEqual(input)
 				} else expect(parts, `${name} by ${step}`).toEqual(whole)
 			}
 		}

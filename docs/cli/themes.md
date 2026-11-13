@@ -52,12 +52,12 @@ Both keys are read from your own files (user config, a profile you select, the m
 
 ## Code colours
 
-A fenced code block that names a language we know is drawn in syntax colour (see [Terminal design](terminal-design.md#syntax-colour)). Each theme carries nine colours for it, in the `code` group of `theme-palettes.ts`: `keyword`, `string`, `number`, `comment`, `name` (a function, a method, an attribute), `type`, `literal`, `added` and `removed` (the whole line of a diff block). Every other character of such a block is `text.primary`.
+A fenced code block that names a language we know is drawn in syntax colour (see [Terminal design](terminal-design.md#syntax-colour)). Each theme carries nine colours for it, in the `code` group of `theme-palettes.ts`: `keyword`, `string`, `number`, `comment`, `name` (a function, a method, an attribute), `type`, `literal`, `added` and `removed` (the whole line of a diff block). Every other character of such a block is drawn in the block's own text colour (the one code colour on the screen of the terminal UI; the terminal's own default colour in `namzu watch`, which never reads the theme setting).
 
 | Theme | Where its code colours sit |
 |---|---|
 | `dark`, `light` | 256-colour indexes chosen to read on a near-black and on a white background (every colour is at least 4.5:1 on dark and, in `light`, at least 3.9:1 on white; a comment is quieter) and to stay off the green of the accent |
-| `dark-daltonized`, `light-daltonized` | the same hues moved off green/red pairs: an added line is blue, a removed one orange, never red against green alone |
+| `dark-daltonized`, `light-daltonized` | the same hues moved off green/red pairs: an added line is blue, a removed one orange, never red against green alone; the six syntax kinds (`keyword`, `string`, `number`, `name`, `type`, `literal`) are chosen to stay at least 15 apart (CIE76 distance) under simulated protanopia and deuteranopia, which a test checks |
 | `dark-ansi`, `light-ansi` | only the terminal's own sixteen named colours; no 256-colour or truecolor sequence is written |
 
 Colour is never the only sign: a diff line begins with `+` or `-`, and the text is the same with the colour off. `tui.syntaxHighlight: false` switches syntax colour off; the block is then drawn in the accent colour, as before:

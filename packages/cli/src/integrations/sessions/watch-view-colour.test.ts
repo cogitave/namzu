@@ -73,6 +73,14 @@ describe('namzu watch draws a code block in syntax colour', () => {
 		expect(line?.replace(ANSI, '')).toBe('  const a = "x" // note')
 	})
 
+	it('leaves ordinary code text in the terminal default colour, as watch did before', async () => {
+		const text = await watched(SOURCE, false)
+		const line = text.split('\n').find((l) => l.includes('const')) as string
+		// `a`, `=` and the spaces are not tokens: no foreground escape wraps them.
+		expect(line).toContain('\u001b[39m a = ')
+		expect(line).not.toContain('38;5;252m')
+	})
+
 	it('never changes the characters, and leaves the fences and the other blocks alone', async () => {
 		const text = await watched(SOURCE, false)
 		const without = text.replace(ANSI, '')

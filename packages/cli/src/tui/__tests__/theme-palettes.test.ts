@@ -251,6 +251,62 @@ describe('the colours of code', () => {
 		}
 	})
 
+	it('keeps the kinds of syntax apart under red-green colour blindness in the colour-blind themes', () => {
+		// Machado et al. matrices on linear RGB, then CIE76 distance between every pair of kinds.
+		const matrices = {
+			protanopia: [
+				[0.152286, 1.052583, -0.204868],
+				[0.114503, 0.786281, 0.099216],
+				[-0.003882, -0.048116, 1.051998],
+			],
+			deuteranopia: [
+				[0.367322, 0.860646, -0.227968],
+				[0.280085, 0.672501, 0.047413],
+				[-0.01182, 0.04294, 0.968881],
+			],
+		}
+		const lin = (c: number) => {
+			const s = c / 255
+			return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+		}
+		const lab = (color: string, m: number[][]): number[] => {
+			const rgb = ansi256Rgb(Number(/\((\d+)\)/.exec(color)?.[1])).map(lin) as [
+				number,
+				number,
+				number,
+			]
+			const [r, g, b] = m.map((row) =>
+				Math.min(
+					1,
+					Math.max(0, (row[0] ?? 0) * rgb[0] + (row[1] ?? 0) * rgb[1] + (row[2] ?? 0) * rgb[2]),
+				),
+			) as [number, number, number]
+			const f = (t: number) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116)
+			const x = f((0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.9505)
+			const y = f(0.2126 * r + 0.7152 * g + 0.0722 * b)
+			const z = f((0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.089)
+			return [116 * y - 16, 500 * (x - y), 200 * (y - z)]
+		}
+		for (const name of ['dark-daltonized', 'light-daltonized'] as const) {
+			const { keyword, string, number, name: fn, type, literal } = PALETTES[name].code
+			const kinds = { keyword, string, number, name: fn, type, literal }
+			for (const [sim, m] of Object.entries(matrices)) {
+				const entries = Object.entries(kinds)
+				for (let i = 0; i < entries.length; i++) {
+					for (let j = i + 1; j < entries.length; j++) {
+						const a = lab((entries[i] as [string, string])[1], m)
+						const b = lab((entries[j] as [string, string])[1], m)
+						const distance = Math.hypot(...a.map((v, n) => v - (b[n] as number)))
+						expect(
+							distance,
+							`${name} under ${sim}: ${(entries[i] as [string, string])[0]} / ${(entries[j] as [string, string])[0]}`,
+						).toBeGreaterThanOrEqual(15)
+					}
+				}
+			}
+		}
+	})
+
 	it('uses only named colours in the 16-colour themes', () => {
 		for (const name of ['dark-ansi', 'light-ansi'] as const) {
 			for (const [kind, color] of Object.entries(PALETTES[name].code)) {

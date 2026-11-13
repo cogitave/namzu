@@ -64,7 +64,8 @@ export function colourFencedLines(lines: readonly string[]): string[] {
 				indent +
 				runs
 					.map((run) => {
-						const on = foregroundEscape(run.kind ? theme.code[run.kind] : theme.text.primary)
+						// Ordinary text keeps the terminal's own colour: watch never reads the theme setting.
+						const on = run.kind ? foregroundEscape(theme.code[run.kind]) : ''
 						return on === '' ? run.text : `${on}${run.text}\x1b[39m`
 					})
 					.join('')
