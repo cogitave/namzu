@@ -207,6 +207,8 @@ export async function launchTui(
 						}
 					: {}),
 				...(ctx.tui?.copyOnSelect !== undefined ? { copyOnSelect: ctx.tui.copyOnSelect } : {}),
+				...(ctx.tui?.wheelRows !== undefined ? { wheelRows: ctx.tui.wheelRows } : {}),
+				...(ctx.tui?.wheelAccel !== undefined ? { wheelAccel: ctx.tui.wheelAccel } : {}),
 				subscribeWheel: (listener: (direction: WheelDirection) => void) => {
 					wheelListeners.add(listener)
 					return () => {

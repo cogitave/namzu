@@ -30,6 +30,7 @@ import {
 } from '../integrations/subagents/activity.js'
 import { type RailWorkflow, formatCompactCount } from './AgentExplorer.js'
 import { formatElapsed } from './LiveActivity.js'
+import { callDetailLines } from './agent-calls.js'
 import { scriptText, terminalDisplayText } from './terminal-display.js'
 import { formatTook } from './units.js'
 
@@ -97,9 +98,28 @@ export function launchReceipt(unordered: readonly SubagentActivity[]): LaunchRec
 	const headline = members.every((agent) => agent.background === true)
 		? `${members.length} background agents launched${where} (${AGENT_MANAGE_HINT})`
 		: allEnded
-			? `${members.length} agents finished${where}`
+			? `${endedWords(members)}${where}`
 			: `Launched ${members.length} agents${where}`
 	return { content: [headline, ...tree].join('\n') }
+}
+
+/**
+ * How a batch that has ended reads: `3 agents finished` when every member did, else how each way
+ * of ending was counted (`3 agents: 2 finished, 1 failed`), so the line never says
+ * `finished` over a member that failed or was stopped.
+ */
+function endedWords(members: readonly SubagentActivity[]): string {
+	const count = (status: SubagentActivity['status']): number =>
+		members.filter((agent) => agent.status === status).length
+	if (count('completed') === members.length) return `${members.length} agents finished`
+	const parts = [
+		[count('completed'), 'finished'],
+		[count('failed'), 'failed'],
+		[count('cancelled'), 'stopped'],
+	]
+		.filter(([n]) => (n as number) > 0)
+		.map(([n, word]) => `${n} ${word}`)
+	return `${members.length} agents: ${parts.join(', ')}`
 }
 
 export interface AgentMessageRow {
@@ -209,6 +229,69 @@ export function agentDoneRows(
 			took,
 		].join(' · ')})`,
 	}
+}
+
+/**
+ * What Ctrl+O opens under a finished agent's row: the calls it made, one line
+ * each with its outcome mark (and how many are not retained), then its answer.
+ */
+export function agentDetailLines(agent: SubagentActivity): readonly string[] {
+	const calls = callDetailLines(agent)
+	const answer = finalAnswer(agent)
+	return [
+		...(calls.length > 0 ? ['Calls', ...calls] : []),
+		...(calls.length > 0 && answer.length > 0 ? ['', 'Answer'] : []),
+		...answer,
+	]
+}
+
+export interface WaitedOnBlock {
+	/** `3 agents finished · 12 tool uses · 30.1k tokens · 8s` over a `├`/`└` line per agent. */
+	readonly content: string
+	/** Each agent's calls and answer, behind Ctrl+O. */
+	readonly detail: readonly string[]
+}
+
+/**
+ * One block for a batch of waited-on agents that all finished: how many, with
+ * the totals, then a line per agent (its name, what it was asked, its counts).
+ * An agent that failed or was stopped is not in it; it keeps its own row.
+ */
+export function waitedOnBlock(agents: readonly SubagentActivity[]): WaitedOnBlock {
+	const ordered = [...agents].sort((left, right) => left.startedAt - right.startedAt)
+	const uses = (agent: SubagentActivity): string =>
+		`${agent.toolCalls ?? 0} tool ${(agent.toolCalls ?? 0) === 1 ? 'use' : 'uses'}`
+	const took = (agent: SubagentActivity): string =>
+		formatTook(Math.max(0, (agent.completedAt ?? agent.startedAt) - agent.startedAt))
+	const calls = ordered.reduce((sum, agent) => sum + (agent.toolCalls ?? 0), 0)
+	const spent = ordered.reduce<number | undefined>(
+		(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
+		undefined,
+	)
+	const first = Math.min(...ordered.map((agent) => agent.startedAt))
+	const last = Math.max(...ordered.map((agent) => agent.completedAt ?? agent.startedAt))
+	const header = [
+		`${ordered.length} agents finished`,
+		`${calls} tool ${calls === 1 ? 'use' : 'uses'}`,
+		...(spent !== undefined ? [`${formatCompactCount(spent)} tokens`] : []),
+		formatTook(Math.max(0, last - first)),
+	].join(' · ')
+	const lines = ordered.map((agent, index) => {
+		const name = `${oneLine(agent.agentId)} (${oneLine(agent.description || agent.agentId)})`
+		const parts = [
+			name,
+			uses(agent),
+			...(agent.tokens !== undefined ? [`${formatCompactCount(agent.tokens)} tokens`] : []),
+			took(agent),
+		]
+		return `${index === ordered.length - 1 ? '└' : '├'} ${parts.join(' · ')}`
+	})
+	const detail = ordered.flatMap((agent) => [
+		`${oneLine(agent.agentId)} (${oneLine(agent.description || agent.agentId)})`,
+		...agentDetailLines(agent),
+		'',
+	])
+	return { content: [header, ...lines].join('\n'), detail: detail.slice(0, -1) }
 }
 
 /** Why an agent failed, from the row the monitor wrote for it. */

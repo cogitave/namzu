@@ -2263,9 +2263,13 @@ const CONFIG_READERS: ConfigReaders = {
 			theme?: unknown
 			reducedMotion?: unknown
 			showExpandedTodos?: unknown
+			agentCalls?: unknown
 			fullscreen?: unknown
+			wheelRows?: unknown
+			wheelAccel?: unknown
 			recap?: unknown
 			spinnerTips?: unknown
+			syntaxHighlight?: unknown
 			workspacesPrefix?: unknown
 			spacesPrefix?: unknown
 			mouse?: unknown
@@ -2276,6 +2280,8 @@ const CONFIG_READERS: ConfigReaders = {
 			return invalidConfigValue(context, ['sound'], 'must be true or false')
 		if (raw.spinnerTips !== undefined && typeof raw.spinnerTips !== 'boolean')
 			return invalidConfigValue(context, ['spinnerTips'], 'must be a boolean')
+		if (raw.syntaxHighlight !== undefined && typeof raw.syntaxHighlight !== 'boolean')
+			return invalidConfigValue(context, ['syntaxHighlight'], 'must be true or false')
 
 		let notifications: boolean | readonly TerminalNotificationEvent[] | undefined
 		if (typeof raw.notifications === 'boolean') notifications = raw.notifications
@@ -2325,8 +2331,23 @@ const CONFIG_READERS: ConfigReaders = {
 		if (raw.showExpandedTodos !== undefined && typeof raw.showExpandedTodos !== 'boolean') {
 			return invalidConfigValue(context, ['showExpandedTodos'], 'must be true or false')
 		}
+		if (raw.agentCalls !== undefined && typeof raw.agentCalls !== 'boolean') {
+			return invalidConfigValue(context, ['agentCalls'], 'must be true or false')
+		}
 		if (raw.fullscreen !== undefined && typeof raw.fullscreen !== 'boolean') {
 			return invalidConfigValue(context, ['fullscreen'], 'must be true or false')
+		}
+		if (raw.wheelAccel !== undefined && typeof raw.wheelAccel !== 'boolean') {
+			return invalidConfigValue(context, ['wheelAccel'], 'must be true or false')
+		}
+		if (
+			raw.wheelRows !== undefined &&
+			(typeof raw.wheelRows !== 'number' ||
+				!Number.isInteger(raw.wheelRows) ||
+				raw.wheelRows < 1 ||
+				raw.wheelRows > 20)
+		) {
+			return invalidConfigValue(context, ['wheelRows'], 'must be a whole number from 1 to 20')
 		}
 		if (raw.recap !== undefined && typeof raw.recap !== 'boolean') {
 			return invalidConfigValue(context, ['recap'], 'must be true or false')
@@ -2363,9 +2384,13 @@ const CONFIG_READERS: ConfigReaders = {
 			...(themeSetting !== undefined ? { theme: themeSetting } : {}),
 			...(raw.reducedMotion !== undefined ? { reducedMotion: raw.reducedMotion } : {}),
 			...(raw.showExpandedTodos !== undefined ? { showExpandedTodos: raw.showExpandedTodos } : {}),
+			...(raw.agentCalls !== undefined ? { agentCalls: raw.agentCalls } : {}),
 			...(raw.fullscreen !== undefined ? { fullscreen: raw.fullscreen } : {}),
+			...(raw.wheelRows !== undefined ? { wheelRows: raw.wheelRows as number } : {}),
+			...(raw.wheelAccel !== undefined ? { wheelAccel: raw.wheelAccel } : {}),
 			...(raw.recap !== undefined ? { recap: raw.recap } : {}),
 			...(raw.spinnerTips !== undefined ? { spinnerTips: raw.spinnerTips } : {}),
+			...(raw.syntaxHighlight !== undefined ? { syntaxHighlight: raw.syntaxHighlight } : {}),
 			...(raw.sound !== undefined ? { sound: raw.sound } : {}),
 		}
 	},
@@ -3183,7 +3208,7 @@ export function mergeCodeAnalysisConfig(
 }
 
 /**
- * `tui` from one more layer: later keys win. `theme`, `reducedMotion`, `showExpandedTodos` and `fullscreen` are the
+ * `tui` from one more layer: later keys win. `theme`, `reducedMotion`, `showExpandedTodos`, `agentCalls`, `fullscreen`, `syntaxHighlight`, `wheelRows` and `wheelAccel` are the
  * operator's own taste, so a project layer's values for them are dropped.
  */
 export function mergeTuiConfig(
@@ -3195,7 +3220,11 @@ export function mergeTuiConfig(
 		theme: _theme,
 		reducedMotion: _motion,
 		showExpandedTodos: _todos,
+		agentCalls: _agentCalls,
 		fullscreen: _fullscreen,
+		syntaxHighlight: _syntax,
+		wheelRows: _wheelRows,
+		wheelAccel: _wheelAccel,
 		...rest
 	} = layer
 	return { ...below, ...(fromProject ? rest : layer) }

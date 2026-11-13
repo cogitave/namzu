@@ -1408,6 +1408,21 @@ describe('theme and motion config', () => {
 		})
 	})
 
+	it('reads agentCalls from the user file and ignores it in a project file', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		writeFileSync(join(home, 'config.yaml'), 'tui:\n  agentCalls: false\n')
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		expect(loadConfig({ cwd, env: { NAMZU_HOME: home } }).tui).toEqual({ agentCalls: false })
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({ tui: { agentCalls: true, notifications: true } }),
+		)
+		expect(loadConfig({ cwd, env: { NAMZU_HOME: home } }).tui).toEqual({
+			agentCalls: false,
+			notifications: true,
+		})
+	})
+
 	it('reads fullscreen from the user file and ignores it in a project file', () => {
 		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
 		writeFileSync(join(home, 'config.yaml'), 'tui:\n  fullscreen: true\n')

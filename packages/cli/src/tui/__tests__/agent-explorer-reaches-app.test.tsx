@@ -907,12 +907,8 @@ describe('the agents cockpit', () => {
 				result: { status: 'completed', result: 'first done' },
 			} as unknown as TaskHandle)
 
-			await waitUntil(
-				screen,
-				() => /general-purpose \(Runtime child 1\)\n\s*⎿ +Done \(/u.test(painted(screen)),
-				'first completion missing',
-			)
-			// The finished sibling stays on the rail beside the three still running.
+			// A waited-on agent that finishes first in a batch still running writes nothing yet: the
+			// batch ends as one block. It stays on the rail beside the three still running.
 			expect(railRows(screen)).toHaveLength(4)
 			const liveFrame = screen.viewport().join('\n')
 			expect(liveFrame).not.toContain('private reasoning must stay hidden')
@@ -933,9 +929,13 @@ describe('the agents cockpit', () => {
 				() => painted(screen).includes('general-purpose (Runtime child 4)'),
 				'runtime completion missing',
 			)
+			// All four ended: one block says so, with a line for the first to finish as for the rest.
+			expect(painted(screen)).toContain('4 agents finished')
+			expect(painted(screen)).toContain('general-purpose (Runtime child 1)')
 			// An agent the parent waited on hands its result back inline: no notification.
 			expect(painted(screen)).not.toContain('Message from @')
-			expect(painted(screen)).not.toContain('finished ·')
+			// The block's own header is the one `finished ·` line; no member sends a notice of its own.
+			expect(painted(screen).match(/finished ·/gu)).toHaveLength(1)
 			expect(screen.viewport().join('\n')).toContain('Type a message')
 		} finally {
 			await runtime.close()

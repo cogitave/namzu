@@ -166,7 +166,7 @@ it('opens on Page Up, hints the way back, and End returns to the composer', asyn
 	await waitUntil(screen, () => shown(screen).includes('hello'))
 })
 
-it('says New activity when a reply streams on while the view is scrolled up', async () => {
+it('says the reply grew when it streamed on while the view was scrolled up', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 80, rows: 30, scrollback: 400 })
 	mounted = screen
 	await waitUntil(screen, () => screen.scrollback().join('\n').includes('a-model'))
@@ -180,7 +180,10 @@ it('says New activity when a reply streams on while the view is scrolled up', as
 	expect(shown(screen)).not.toContain('New activity')
 
 	release?.()
-	await waitUntil(screen, () => shown(screen).includes('New activity · ↓ Back to bottom · esc'))
+	// The reply that was being written has grown and ended: that is not a new reply, and it is
+	// not still being written either.
+	await waitUntil(screen, () => shown(screen).includes('Reply grew · ↓ Back to bottom · esc'))
+	expect(shown(screen)).not.toContain('still growing')
 	expect(screen.bufferType()).toBe('normal')
 })
 

@@ -415,9 +415,15 @@ transcript, `● 2 background agents launched (↓ to manage)` with each agent's
 description beneath it, always below the text of the response that launched
 them. A batch that includes an agent the turn waits on is a live group while it
 runs, `Running 3 agents…` with one block per agent (`description · 4 tool uses ·
-12.1k tokens` over `⎿ <last tool>`, or `Initializing…`), and writes its receipt,
-`3 agents finished`, when the last member ends; the manage hint is only for an
-all-background batch. Each observed agent completion adds **one** row, whether or
+12.1k tokens` over `⎿ <last tool>`, or `Initializing…`; one agent alone, in a
+window with room, shows its last three calls instead), and when the last member
+ends writes its receipt, `3 agents finished` (`3 agents: 2 finished, 1 failed` when some did not finish), or, when two or more waited-on
+agents completed, one block with the totals and a line per agent in its place
+(a failed or stopped agent keeps its own row; `tui.agentCalls: false` restores
+the old rows); the manage hint is only for an all-background batch. The calls
+behind a finished waited-on agent's row come from the live monitor's transcript
+(at most 120 rows per agent) or, after a restart, from the child's saved log; see
+[the terminal design](terminal-design.md#delegated-work-in-the-conversation). Each observed agent completion adds **one** row, whether or
 not the model calls `wait_for_task`: `● Agent "<description>" finished · 1m 4s
 (ctrl+o to expand)` with the agent's answer behind Ctrl+O (the detailed transcript), or
 `failed: <reason>` (no duration), `was stopped by user · 1s`, `was stopped by Namzu · 1s`

@@ -544,7 +544,7 @@ live state belongs to the rail.
 - **A launch receipt** per batch: the agents one model response launched
   together, each by its description under one line (`N background agents
   launched` when they all run in the background, `Launched N agents` while a
-  batch the turn waits on runs, `N agents finished` once it has ended). A
+  batch the turn waits on runs, `N agents finished` once it has ended, and `N agents: 2 finished, 1 failed` when some of them failed or were stopped, so the line never says `finished` over one that did not). A
   single agent is named inline. Agents the
   model gave a `workflow` label are one workflow and get one `● Workflow <name>`
   line instead (see the rail section), once per workflow. The receipt waits until
@@ -573,11 +573,70 @@ live state belongs to the rail.
   `Initializing…`, `Done`), above the composer. The batch's receipt, `3 agents
   finished`, is written when the last member ends. An all-background batch has no
   live group: its receipt is written at launch and the rail shows the agents.
+- **One agent waited on shows its last three calls.** When the group holds exactly
+  one agent (across all batches), the `⎿ <last tool>` row gives way to its last
+  three calls, one dim row each, newest at the bottom: the tool in plain words and
+  what it acts on (`Read src/a.ts`, `Run npm test`, `Search parse`), with a mark,
+  `◌` for the call that is running, `✓` for one that ended and `✗` for one that
+  failed. When there were more, one dim line above them says how many earlier
+  calls are not shown and how to open them (`… 5 earlier calls not shown (↓ to
+  manage)`). Before its first call the line stays `Initializing…`. The rows change
+  only when a call starts or ends; nothing cycles and no timer runs.
+
+  ```text
+  Running 1 agent…
+    └ Audit the project · 5 tool uses · 525 tokens
+        … 2 earlier calls not shown (↓ to manage)
+        ✓ Run sleep 2; ls
+        ✓ Read b.txt
+        ◌ Run sleep 2; exit 3
+  ```
+
+  **When it does not apply.** Several agents waiting together (in one batch or in
+  two) keep one line each with the latest activity, as above: three calls per
+  agent would make the group taller than the live region can spare. The block is
+  also left out when the window is short: it is drawn only when the terminal has at
+  least 11 rows beyond the live furniture (the 10 fixed rows, the plan, the
+  running calls and a queued message); 11 is the window's six safety rows, the
+  three rows the block adds and two rows of conversation. At 120x40 that is nearly
+  always. At 80x24 a waited-on agent already puts the running `Agent` call and the
+  agent rail in the furniture, so the group keeps its one-line form there. The
+  block's extra rows are counted in the live window, so it never pushes the message
+  box around. It holds in both screens (the default screen's live region, and
+  fullscreen's redrawn view). `tui.agentCalls: false` in your own config turns it,
+  the finished block below and the calls in the detail off.
+- **A batch of waited-on agents that all finished ends as one block**, in place of
+  the receipt and two rows per agent: how many finished with the totals, then one
+  line per agent (its name, what it was asked, its counts), the detail behind
+  Ctrl+O (a click in fullscreen):
+
+  ```text
+  ● 3 agents finished · 12 tool uses · 1.6k tokens · 2s
+    ├ general-purpose (Check a) · 4 tool uses · 525 tokens · 2s
+    ├ general-purpose (Check b) · 4 tool uses · 525 tokens · 2s
+    └ general-purpose (Check c) · 4 tool uses · 525 tokens · 2s (ctrl+o to expand)
+  ```
+
+  Members that finish early wait for the rest, so the block is written once, when
+  nothing in the batch is running. An agent that failed or was stopped is never in
+  the block or its count: it keeps its own row in its own colour, and the receipt
+  (`4 agents: 3 finished, 1 failed` over the names) stays above the block of the others. One
+  finished agent alone keeps its `Done` row. A reopened conversation and
+  `namzu watch` build the same rows with the same code as the live run.
 - **A waited-on agent writes the tool's own result instead.** An agent the
   parent waited on hands its result back inline, so there is no notification:
   the row is `● <type> (<description>)` over
   `⎿ Done (3 tool uses · 12.1k tokens · 8s)`. A failed or stopped one keeps the
-  closing line above.
+  closing line above. Ctrl+O opens the row (a click in fullscreen): `Calls`, one
+  line per call with its outcome mark (`✓`, `✗`; `◌` for one still running when the
+  agent was stopped), `N earlier calls are not retained.` when the agent made more
+  than its transcript keeps (120 rows), then `Answer` and the agent's answer. The
+  calls come from the agent's retained transcript, which a reopened conversation
+  rebuilds from the child's saved log, so they are there after a restart as long as
+  that log is; when it is not, the row says `This agent made N calls; the list is
+  not available any more.` instead of an empty list. A background agent's finished
+  row and the notices for agents that finish later are unchanged: their detail is
+  the answer.
 - **A message a running agent sent.** An agent can say something to the
   conversation while it works, with its own `send_message` tool (`to: "main"`);
   it is drawn as the same collapsed `› Message from @<type> (ctrl+o to expand)`
@@ -617,7 +676,7 @@ used.
 
 ## Compact tool activity
 
-Consecutive calls that only look fold into one counted line instead of a row each: built-in file reads, searches and file discovery, directory listings, shell commands whose every piece is a known search, read or list command (`rg`, `grep`, `find`, `cat`, `head`, `ls` and the like, with no redirect other than `2>&1` or to `/dev/null`, no substitution and no background `&`), and every call to a connector (MCP) server. The line counts what happened, `Searched for 2 patterns, read 3 files, listed 1 directory`, dim, with the numbers bold and `(ctrl+o to expand)` after it; connector calls read `Called docs, slack 4 times` (the server names, once each, and the number of calls when more than one). A file read twice counts once; a glob counts as a search. While the run is open the line is in the present tense with a blinking dot and a closing ellipsis and the same `(ctrl+o to expand)` after it, `Reading 1 file…`, and a dim `⎿` row under it names the latest target (a path from the working folder, `"pattern"` for a search, `$ command` for a shell look, `"query"` for a connector); that target is the newest call the line has started: it shows as that call starts, stays until another one starts, and nothing about time changes it; the counts only go up (a call to a tool that does not exist, which never ran, is the one thing taken back out). In the [fullscreen view](#fullscreen-mode) an open line carries the same `(ctrl+o to expand)` (`(click to expand)` where the pointer is reported) and the same target row. Text from the model (empty text does not end it), any other call (an edit, a write, a command that does something), a notice, the person's message or the end of the turn settles the line into the past tense, and the next look starts a new one. The [detailed transcript](#the-detailed-transcript-ctrlo) (`Ctrl+O`) shows each call of the line, open or settled, as its headline and retained output in order, and a resumed conversation folds its saved calls the same way. A shell command that is not look-only joins the line when it ends well, as `ran 3 commands` (`running 3 commands` while the line is open, after the listings and before the connectors), and the commands are listed under the line, oldest first, one per row as `$ command` (its first line, `…` when more follows), each cut to the width with `…` so it is one row, the last five of them, with a dim `2 earlier commands not listed` above when there are more; a live look's latest target comes after them. The rows are at most six however many commands ran, and the live window counts them (`live-window.ts`). A command that did not end well never folds, and the line before it settles first so the order on screen is the order of events: one that exited non-zero (an exit that is the command's own answer, such as `grep` finding nothing, is a success), timed out or was stopped by a signal (all three read as failed), one that came back as an error (blocked, refused, an unusable input), one the person declined or declined on the tool's own screen, and one that moved to a background job (`facts.background`, which the shell cell carries as `background`; it has not finished). Only the `bash` tool folds. A tool-result screen that refuses a result makes the call an error, so it keeps its own row; a screen that rewrites a result leaves nothing for the row to tell apart, so that call folds. A group that would hold exactly one command and nothing else is that command's own row, `● Bash(...)` with its output under it, not a counted line; once a second call joins, the first command's output is no longer shown in the line (it stays in Ctrl+O), which keeps the height of the open line the same however the run goes. While a command runs it is in the live area as before and the open line stays open; the line is drawn the same live, resumed from the log and in the tests (`group-rows.ts`). A call to a tool that does not exist is not counted: it is its own row, `The model asked for a tool that does not exist (ls). It will try another way.`, with the kernel's own text behind Ctrl+O. A call that fails is counted like the others and stays in the line, which shows no error text; the detailed transcript shows that call with its error, in the error colour. A call the person refused keeps its own row, which ends the line. A hint that is longer than 300 characters is cut with `…`, and it wraps under the line instead of being cut at the terminal width. The CLI `tool-end` event includes optional `output` containing retained tool text before preview formatting; the built-in event adapter supplies it, and the `tool-start` event carries an optional `fold` describing what a call is to the line. Background job reads and stops identify the action and job instead of displaying JSON arguments. Reading job output is not an interactive terminal wait or a write to stdin; those operations are not provided by the current job tool.
+Consecutive calls that only look fold into one counted line instead of a row each: built-in file reads, searches and file discovery, directory listings, shell commands whose every piece is a known search, read or list command (`rg`, `grep`, `find`, `cat`, `head`, `ls` and the like, with no redirect other than `2>&1` or to `/dev/null`, no substitution and no background `&`), and every call to a connector (MCP) server. The line counts what happened, `Searched for 2 patterns, read 3 files, listed 1 directory`, dim, with the numbers bold and `(ctrl+o to expand)` after it; connector calls read `Called docs, slack 4 times` (the server names, once each, and the number of calls when more than one). A file read twice counts once; a glob counts as a search. While the run is open the line is in the present tense with a blinking dot and a closing ellipsis and the same `(ctrl+o to expand)` after it, `Reading 1 file…`, and a dim `⎿` row under it names the latest target (a path from the working folder, `"pattern"` for a search, `$ command` for a shell look, `"query"` for a connector); that target is the newest call the line has started: it shows as that call starts, stays until another one starts, and nothing about time changes it; the counts only go up (a call to a tool that does not exist, which never ran, is the one thing taken back out). In the [fullscreen view](#fullscreen-mode) an open line carries the same `(ctrl+o to expand)` (`(click to expand)` where the pointer is reported) and the same target row. Text from the model (empty text does not end it), any other call (an edit, a write, a command that does something), a notice, the person's message or the end of the turn settles the line into the past tense, and the next look starts a new one. The [detailed transcript](#the-detailed-transcript-ctrlo) (`Ctrl+O`) shows each call of the line, open or settled, as its headline and retained output in order, and a resumed conversation folds its saved calls the same way. A shell command that is not look-only joins the line when it ends well, as `ran 3 commands` (`running 3 commands` while the line is open, after the listings and before the connectors); a command that is a version-control action is counted by what it did instead, in a fixed order before `ran`: `made 2 commits`, `amended 1 commit`, `ran 1 push`, `created 1 branch`, `switched branches 2 times`, `ran 1 merge`, `ran 1 rebase`, `opened 1 pull request`, `merged 1 pull request` (`making`, `amending`, `pushing`, `creating`, `switching`, `merging`, `rebasing`, `opening` while the line is open; once over, a push, a merge and a rebase say what was run and not what changed, because the line cannot see a result and a push or a merge that found nothing to do ends well too), so a commit, a push and an opened pull request read `Made 1 commit, ran 1 push, opened 1 pull request` and not `ran 3 commands`. Only a command whose word is `git` or `gh` counts, read from the unquoted text after environment assignments and global options (`-C <dir>`, `-c <key=value>`, `--no-pager`); text inside quotes never counts (a commit message that says "push" is a commit, an `echo` of a git command is nothing), and a command line joined with `;`, `||`, a pipe or a line break is not read at all, because a successful end does not say every piece succeeded (`&&` chains are). A name that is not known (an alias such as `git ci`, `sudo git push`, `git checkout main`, which may be a branch or a file, `--abort`, `gh pr create --web`, `gh pr merge --auto`) stays a plain command: when in doubt the line counts less. Reads such as `status`, `log`, `diff` and `show` are never actions. One command line that holds several actions counts each once (`git add -A && git commit -m x && git push` is one commit and one push), and it leaves the `ran` count only when everything in it was an action or a step that only reads or stages (`git add`, `git fetch`, `git status`, `git branch -a`, a dry run, `cd`, `echo`); a step the line cannot name (`git stash`, `git tag`, `git pull`, `git reset`, `git branch -D`, `gh pr close`) keeps the whole command in the `ran` count as well, so `git stash && git switch main` reads `switched branches 1 time, ran 1 command`; a line that also ran something else (`pnpm test && git commit`) is counted in both. The commands listed under the line and the detail behind Ctrl+O are unchanged. The wording is worked out from the stored command lines each time, so the live line, a resumed conversation and a watched one read the same. The commands are listed under the line, oldest first, one per row as `$ command` (its first line, `…` when more follows), each cut to the width with `…` so it is one row, the last five of them, with a dim `2 earlier commands not listed` above when there are more; a live look's latest target comes after them. The rows are at most six however many commands ran, and the live window counts them (`live-window.ts`). A command that did not end well never folds, and the line before it settles first so the order on screen is the order of events: one that exited non-zero (an exit that is the command's own answer, such as `grep` finding nothing, is a success), timed out or was stopped by a signal (all three read as failed), one that came back as an error (blocked, refused, an unusable input), one the person declined or declined on the tool's own screen, and one that moved to a background job (`facts.background`, which the shell cell carries as `background`; it has not finished). Only the `bash` tool folds. A tool-result screen that refuses a result makes the call an error, so it keeps its own row; a screen that rewrites a result leaves nothing for the row to tell apart, so that call folds. A group that would hold exactly one command and nothing else is that command's own row, `● Bash(...)` with its output under it, not a counted line; once a second call joins, the first command's output is no longer shown in the line (it stays in Ctrl+O), which keeps the height of the open line the same however the run goes. While a command runs it is in the live area as before and the open line stays open; the line is drawn the same live, resumed from the log and in the tests (`group-rows.ts`). A call to a tool that does not exist is not counted: it is its own row, `The model asked for a tool that does not exist (ls). It will try another way.`, with the kernel's own text behind Ctrl+O. A call that fails is counted like the others and stays in the line, which shows no error text; the detailed transcript shows that call with its error, in the error colour. A call the person refused keeps its own row, which ends the line. A hint that is longer than 300 characters is cut with `…`, and it wraps under the line instead of being cut at the terminal width. The CLI `tool-end` event includes optional `output` containing retained tool text before preview formatting; the built-in event adapter supplies it, and the `tool-start` event carries an optional `fold` describing what a call is to the line. Background job reads and stops identify the action and job instead of displaying JSON arguments. Reading job output is not an interactive terminal wait or a write to stdin; those operations are not provided by the current job tool.
 
 A read, search or file listing that the kernel described in fields (`ToolResult.facts`) is headlined from them, as the Desktop does: `Read a.ts`, `Searched for x · 2 matches in 2 files` (a file is named by its own name, never its full path).
 
@@ -675,7 +734,37 @@ is drawn like any failed call (below).
 
 ## Code blocks
 
-A fenced block in a reply is drawn as its lines in the accent colour with a blank line above, and nothing beside them: no rule at the start of a line and no language word above the first. What the screen shows is what a mouse selection takes, so a command selected and pasted into a terminal is the command alone. `/copy` still offers each block exactly as it was written.
+A fenced block in a reply is drawn as its lines with a blank line above, and nothing beside them: no rule at the start of a line and no language word above the first. A block with no language, with a language we do not know or with a plain-text one (`text`, `txt`, `plain`) is drawn in the accent colour; one with a language we know is drawn in syntax colour (below). What the screen shows is what a mouse selection takes, so a command selected and pasted into a terminal is the command alone. `/copy` still offers each block exactly as it was written.
+
+A fence is read the way people and models write it, by one grammar that the parser, the live reply, the fullscreen window and `/copy` all share (`markdown-fence.ts`):
+
+- It opens at three or more backticks or three or more tildes, indented, followed by an optional info string. The language is the first word of the info string (`c++`, `objective-c`, `shell-session` and `f#` are languages); a title, a file name or attributes after it are not read. A backtick fence whose info string holds a backtick is inline code, not a fence.
+- It closes at a line of the same character, at least as long as the opener, with nothing after it, or at the end of the text. A block opened with four backticks therefore holds a three-backtick fence as its content, and a closing fence longer than the opener still closes. A closing fence may be indented up to three columns more than the opener.
+- The code loses the opener's indentation and nothing else.
+- Inside a quote the fence is read after the `>` is taken off, so `>   ```sh` is a block indented two columns inside the quote.
+
+A block written inside a list item (its fence indented under the item) is drawn at the indentation of its fence, so it stays under its item, with no blank row between the item's line and the block (a blank row follows the block, before the next item, as after any block). A list is flat on this screen, so the block is a block of its own at that indent, not a part of the item, and a block under a nested item is drawn at its own written indent. The block model reads any indentation as the container's: a fence indented four columns or more with no list above it is a fence here, where a strict reading would call it an indented code block. A long code line wraps in the width that is left after the indent, in both screens. In the fullscreen window the indent is part of the row but a copy that joins wrapped lines starts after it; on the default screen a mouse selection takes the indent as spaces, the same as the gutter.
+
+A reply that is still being written never shows a fence as text that is replaced: one or two backticks or tildes at the start of a line wait for a third, an opener line waits for its end, and a line inside an open fence waits for its end because it may be the closing fence. A long block cut into printed parts keeps its opener line (character, length, indent) so the rest of it is read as the block it was, and the colour state described under syntax colour.
+
+### Syntax colour
+
+A block whose language word names a grammar we have is drawn with keywords, strings, numbers, comments, the names of functions and types, literals (`true`, `null`) and, in a `diff` block, the added and the removed lines each in a colour of the theme. Every other character is in the normal text colour. The characters of every row, the wraps and the widths are exactly those of the same block drawn without colour, at every width, on both screens; nothing is added beside, above or below the block, and what a mouse selection or `/copy` takes is the code. Inline code is not coloured.
+
+The highlighter is the open-source library highlight.js (pinned to 11.11.1). It is read in pieces, one file per language behind its own dynamic `import()`, so nothing of it is loaded before a reply holds a block in a language, and the first frame, the module count at start and `--version` are as they were. The languages are the library's own common set (bash, c, c++, c#, css, diff, go, graphql, ini, java, javascript, json, kotlin, less, lua, makefile, markdown, objective-c, perl, php, python and its console, r, ruby, rust, scss, shell sessions, sql, swift, typescript, vb.net, wasm, xml, yaml) plus `dockerfile` and `powershell`, under the names people write after a fence: `js`, `jsx`, `ts`, `tsx`, `py`, `rb`, `rs`, `sh`, `zsh`, `yml`, `toml`, `html`, `md`, `c++`, `c#`, `golang`, `jsonc`, `patch` and the rest of each grammar's own aliases (the list is `NAMES` in `code-highlight.ts`). The rule for the set: a grammar is shipped only after the stress inputs of `code-highlight-stress.test.ts` (long runs of one character, of quotes, of backslashes, of opening brackets, unterminated strings and comments, nested templates) have been run against it. A grammar a grammar embeds is loaded with it (`xml` for `markdown`, `bash` for a shell session); the CSS, GraphQL and HTML a JavaScript template literal may embed are not loaded, and stay in the normal colour.
+
+**Loading is not a race anyone can see.** A printed row cannot be drawn again, so a block is never printed plain because its grammar arrived a moment late. The grammar starts to load when the fence line has ended (the language is known), and the printing of the block's rows is held until it has arrived or has failed, for at most 1.5 seconds; after that the language is plain for the rest of the session and a block that waited is printed as it always was. A reply that has already ended waits the same way before it moves into the scrollback (it is drawn in the live region meanwhile, and takes its colours there). A reopened conversation does the same on its first paint, and `namzu watch` reads the grammars of the rows it is about to print before it prints them. A grammar that cannot be read (the install was replaced under a running session) or that throws is plain for the session: no crash, no line on the screen.
+
+**Colours come from the theme.** Every theme has a `code` group of nine colours (`keyword`, `string`, `number`, `comment`, `name`, `type`, `literal`, `added`, `removed`; see [themes](themes.md#code-colours)). The colour-blind themes tell an added line from a removed one by blue against orange, never red against green alone; the 16-colour themes use only the terminal's named colours; colour is never the only sign of anything (an added line begins with `+`). A change of theme recolours what can still be redrawn (the fullscreen window and the live region). Under `NO_COLOR`, `FORCE_COLOR=0`, a dumb terminal, a CI run that did not force colour, or output that is not a terminal, no colour is written for code and no highlighting is done; a block is the accent-coloured block it was.
+
+**A line gets the colours the finished block gives it.** A block that is printed in parts while it is written is coloured part by part from what is above it: each printed part carries the open lines above it (a block comment, a template literal, a docstring that is not closed yet) and the characters of code the reply has spent, so a line is coloured as the whole block would colour it. Two limits are stated, because they are the library's: a token that it decides by reading several lines ahead (a Rust raw string, a Ruby heredoc, a YAML block scalar) is coloured from what is above it when the part is printed, so a cut that falls inside such a token can colour its first lines as code, where the finished block colours them as the token; and an unclosed construct longer than 8,000 characters is not followed (the rest of its block is drawn in the accent colour). The unfinished part of a reply is coloured from the same context on every paint, so what is redrawn is what will be printed.
+
+**The cost is bounded.** A block is read in windows (up to 32 lines or 4,000 characters, closed where the library is between tokens and the lines above do not change when the next eight are read with them), and a block that is being written is read again only from its last closed window, so the work of a paint follows the lines that arrived, not the length of the block. A finished block is remembered by its language and text (about half a million characters in all, oldest first; the colours are the block's kinds, which carry no theme, so a theme change cannot show stale colours). Three rules end the colouring at a line, each a rule about what is above the line, so a block drawn whole and in parts agree: a line longer than 400 characters (100 for `ini`/`toml`), or with an unbroken run of more than 100 letters and digits (a blob, not code); a block past 80,000 characters; a reply past 250,000 characters of fenced code. From that line the block is drawn in the accent colour, silently. The worst inputs for each grammar at these sizes were measured with the longest single call of the library at about 20 ms on the machine this was developed on, and the cost of an adversarial 80,000-character block at about half a second in all; the test asserts the decisions (what is handed to the library, and in what size), not the times.
+
+In the fullscreen window a wrapped coloured line still copies as one source line, and a search match is drawn on top of the syntax colour (inverse, the colours under it kept). The two screens draw the same colours for the same block, and a reopened conversation the same as the live one.
+
+`tui.syntaxHighlight: false` in your own config files (or the **Code colour** row of `/config`) draws every block as it was drawn before there was syntax colour. Default on; only an explicit `false` turns it off. A project file's value is ignored.
+
 
 ## Headings, quotes and rules
 
@@ -1012,9 +1101,13 @@ While the box is open one quiet row above the composer says how to get back,
 centered, in the longest form that fits the width: `↓ Back to bottom · esc`,
 then `↓ Bottom · esc`, `↓ Bottom`, `↓`. If the reply grows or something new
 arrives while the window is scrolled up, the window does not move, and the row
-starts with `New activity · ` (`New activity · ↓ Back to bottom · esc`, then
-`New activity · ↓ Bottom · esc`, `New · ↓ Bottom`, `↓ Bottom`, `↓`). It is a
-flag, not a count, and it clears when the view closes. Rows come from
+says what is new, with the same counter and wording as the fullscreen hint
+([below](#what-the-hint-says)): `2 new replies · ↓ Back to bottom · esc`, then
+`2 new replies · ↓ Bottom · esc`, `2 new · ↓ Bottom`, `2 new ↓`, `2`. Only
+replies of the model with text count, not tool calls; a reply that was being
+written and has grown is `Reply still growing · …`; anything else below is
+`New activity · …`. The count starts when the box opens and goes when it closes.
+Rows come from
 `transcript-scroll.ts`; `TranscriptScrollView.tsx` draws them; `Composer.tsx`
 opens it. Covered by `the-transcript-scrolls-back-and-returns.test.tsx` and
 `the-transcript-scrolls-from-the-composer.test.tsx`.
@@ -1051,7 +1144,7 @@ incremental repainting, so only changed lines are written.
 
 | Input | Does |
 | --- | --- |
-| Mouse wheel | three rows up or down |
+| Mouse wheel | three rows up or down for a slow notch; a fast run speeds up and the view glides ([below](#the-wheel)) |
 | PgUp / PgDn | a page, one row less than the window |
 | Home / End | the first row, and back to the latest, while the composer is empty |
 | Typing or Enter | back to the latest |
@@ -1062,15 +1155,91 @@ incremental repainting, so only changed lines are written.
 | Alt+S | search the conversation |
 
 Reaching the end resumes following. Scrolled up, the view holds still while
-output arrives, and one row above the composer says so: `↓ Jump to latest ·
-PgDn`, shortened to `↓ Latest` and `↓` as the width falls, with `New activity
-· ` in front once something arrived below. The reader's place is a message and
+output arrives, and one row above the composer says so and counts what came
+([below](#what-the-hint-says)). Clicking that row jumps to the newest row and
+follows again. The reader's place is a message and
 a row inside it, not a row number, so a resize that re-wraps everything keeps
 them on the same text; if a compaction replaced that message the view returns
 to the latest. After a resize the screen is erased by the renderer that drew it
 and drawn whole once the size has settled, so no old frame is left under the
 new one. The terminal is asked for button reports (wheel, presses and drags);
 they are taken off the input before the composer sees them.
+
+#### The wheel
+
+A notch is not a jump. Every notch adds rows to a distance still to travel,
+also when several arrive in one chunk of input, and the view spends that
+distance over the next frames: each frame covers half of what is left, all of
+it when two rows or fewer are left, and never more than one window less a row.
+A move is a glide of a few frames that lands exactly. The first frame is at
+once (scrolling up stops following at the first notch, before the glide ends),
+and while a distance remains a frame is painted every 44 ms, on its own timer,
+so a glide does not wait on unrelated renders; each frame writes only the rows
+that changed. The period is longer than the renderer's own 34 ms limit on
+purpose: at 34 ms a frame can land inside the limit and wait for the next, so
+two frames are painted as one 68 ms jump. Keys are immediate: PgUp, PgDn, Home and End end a glide where it
+stands and move at once, opening search ends it where it stands (closing
+search returns to that place), and so does a press of the mouse (a click on a folded
+row opens the row under the pointer, not one a frame ahead of it). Output that
+arrives during a glide does not move what is on screen.
+
+| Case | What the view does |
+| --- | --- |
+| One slow notch | 3 rows (`tui.wheelRows`), two frames |
+| Several reports in one write (a terminal that sends 2 or 3 per notch) | each is a plain step (`tui.wheelRows` each) and they do not count as a faster run; set `wheelRows` to 1 to move 3 rows a notch |
+| Notches less than 120 ms apart | a run: notch number n of the run moves `rows + (window - 1 - rows) * (n / 9)^2` rows, so 3, 3, 4, 6, 9, 12, 16, 21, 26, 32 in a 33-row window, which is what a 40-row terminal shows (a window less a row from the tenth notch on) |
+| A gap of 120 to 500 ms | the run is halved |
+| A pause of 500 ms or more | back to the plain step; what is still to travel is finished |
+| A change of direction | what is left to travel the old way is dropped and the notch is a plain step the other way |
+| One notch the other way inside a run of 3 or more | held back: it moves nothing and the run goes on (some wheels bounce); a second one is a change of direction |
+| A very fast run | the distance never runs more than four windows ahead of the view, so the view stops soon after the hand does |
+
+The numbers are in one place, `WHEEL_FEEL` in `fullscreen/glide.ts`; the
+arithmetic is pure (`notch` and `frame`) and is tested with a table.
+
+Two settings, in your own config files only (a project file's are ignored):
+
+```yaml
+tui:
+  wheelAccel: true   # false: every notch is the plain step, however fast
+  wheelRows: 3       # rows per notch, 1 to 20; lower it where a terminal sends several reports per notch
+```
+
+Both are rows in `/config` (**Wheel speed-up**, **Rows per wheel notch**). With
+reduced motion (`tui.reducedMotion`, `NO_COLOR`, `FORCE_COLOR=0`, a dumb
+terminal) there is no glide: a notch moves the view in one frame, and the
+speed-up still applies unless `wheelAccel` is off. The default screen does not
+read the wheel, so none of this holds there.
+
+#### What the hint says
+
+Scrolled up, the one row above the composer counts the replies that arrived
+since you scrolled away. A reply is a message of the model with text to read:
+tool calls, status rows and empty replies are not counted, and a reply that was
+being written when you left and has since grown is not new. Centered, in the
+longest form that fits, never cut inside a word:
+
+| News | Wording, longest to shortest |
+| --- | --- |
+| none | `↓ Jump to latest · End`, `↓ Latest · End`, `↓ Latest`, `↓` |
+| 1 or more replies | `2 new replies · ↓ Jump to latest · End` (`1 new reply`), `2 new replies · ↓ Latest · End`, `2 new · ↓ Latest`, `2 new ↓`, `2` |
+| the reply only grew | `Reply still growing · ↓ Jump to latest · End` while it is being written, then the same ladder with `Growing`; once it has finished, `Reply grew · ↓ Jump to latest · End`, then with `Grew` |
+| something else below | `New activity · ↓ Jump to latest · End`, then the same ladder with `New` |
+
+The key named is End, which jumps down while the composer is empty; with a draft
+in it End moves the cursor, and the click still works. With the pointer at
+`full`, a click on the hint row jumps to the newest row and follows again; with
+the mouse at `scroll` or `off` nothing is clickable and nothing changes.
+
+While replies are unseen, one quiet rule row stands just above the first of
+them and says the count (`──── 2 new replies ────`; on a narrow row `2 new`, then `2`), so after jumping down you
+can scroll up to where you left off. It stays when you jump down, and goes when
+you send your next message (or when a compaction removes the message it stands
+above). A later time you scroll away and replies arrive puts a new rule in its
+place. The rule is a row of the transcript with no text: a search does not find
+it, a copy skips it, a click on it does nothing, and the reader's place (a
+message and a row inside it) does not move when it appears or goes. The counter
+is `new-output.ts`, shared with the default screen's scroll-back view.
 
 #### Selecting and copying
 
@@ -1171,13 +1340,14 @@ agent views draw in the live area as before. It is not the default. Code:
 `packages/cli/src/tui/fullscreen/` (`viewport.ts` the scroll arithmetic,
 `layout.ts` the rows, `markdown-rows.ts` the Markdown, `selection.ts` and
 `cells.ts` the selection, `search.ts` the search, `paint.ts` the highlights,
-`mouse-wheel.ts` the pointer, `mode.ts` the switch, `FullscreenTranscript.tsx`
-the window); the launcher wires it in `index.tsx`. Covered by `viewport.test.ts`,
+`mouse-wheel.ts` the pointer, `glide.ts` the wheel's arithmetic, `mode.ts` the switch, `FullscreenTranscript.tsx`
+the window; `new-output.ts` beside it counts what is new); the launcher wires it in `index.tsx`. Covered by `viewport.test.ts`,
 `mode.test.ts`, `mouse-wheel.test.ts`, `layout.test.ts`, `click-rows.test.ts`, `markdown-rows.test.tsx`,
 `selection.test.ts`, `search.test.ts`,
 `a-fullscreen-view-draws-only-its-window.test.tsx`,
 `a-click-opens-a-folded-row-in-place-in-the-fullscreen-view.test.tsx`,
-`a-fullscreen-window-selects-copies-and-searches.test.tsx` and
+`a-fullscreen-window-selects-copies-and-searches.test.tsx`,
+`a-fullscreen-wheel-glides-counts-and-marks.test.tsx`, `glide.test.ts`, `new-output.test.ts` and
 `a-fullscreen-app-draws-a-window-and-follows.test.tsx`.
 
 ## Commands and settings
@@ -1506,9 +1676,13 @@ writer of Namzu's own (`packages/cli/src/tui/paint/`) that sits between the rend
   launch and the conversation rows already printed are never erased and never printed a second time, by a resize,
   a compaction or a clear. `/compact` (and the idle compaction) prints one row under what is there and goes on.
   `/clear`, `/new`, `/resume` and a theme change ask for a new screen: the visible screen is cleared, but the rows
-  on it first move up into the scrollback, and the "erase saved lines" sequence is never written. The one
-  exception is the rows still in the live region at that moment (the last few of the conversation, not yet
-  printed): they were never in the scrollback, so a clear takes them with the screen. Rewinding to summarize part
+  on it first move up into the scrollback, and the "erase saved lines" sequence is never written. The rows
+  still in the live region at that moment (the last few finished rows of the conversation, not yet printed) are
+  kept by `/clear` and Ctrl+L: they are printed first, through the path every other row takes, the terminal is
+  given them, and only then is the screen cleared, so everything that was on the screen is in the scrollback
+  afterwards, once and in order, and the input box and what hangs on it are not copied. `/resume` and a theme
+  change still clear without that step, so the rows in the live region at that moment go with the screen. The
+  old painting (`NAMZU_LEGACY_PAINT=1`), the zoomed workspaces screen and the fullscreen view are as before. Rewinding to summarize part
   of the conversation rewrites rows that were printed, so it prints the conversation again under the old rows.
   Fullscreen owns its alternate screen and is not covered by this rule.
 - **A resize never touches scrollback.** Rows already printed stay as the terminal reflowed them and are not
@@ -1527,6 +1701,24 @@ writer of Namzu's own (`packages/cli/src/tui/paint/`) that sits between the rend
   erases the scrollback is never written); the height of the frame it ends with is taken from the next frame's
   erase, and painting by what changed goes on from there. (Before this, such a block left the screen empty.) A
   compaction is not one of these on the default screen: it keeps the rows and adds one.
+- **Where the input box rests when a turn ends.** The working line, the plan, the calls and the live end of the
+  reply leave the region when a turn ends, so it is shorter. By default the box rests where the shorter region
+  ends: right under the last reply, with the rows the working area had left empty under the status line until
+  the next turn starts (3 rows after a short reply at 80x24). `NAMZU_BOX_AT_BOTTOM=1` in the environment keeps
+  the box on its row instead. With it the renderer is told the turn has ended (before the
+  frame that drops those rows is drawn) and for that one shrink, when the rows that went were above the box (the
+  rows left are the old frame's last rows, the status line aside), the region keeps its height: the freed rows
+  become blank rows just above the box and the box and the status line stay on the rows they had while the turn ran.
+  So a reply that ends with the screen full leaves the box on the last rows, 120x40 and 80x24, for a short reply, a
+  folded group, an interrupted turn, a plan and a long reply alike. Frames of the same height change their rows in
+  place; the next turn's working line and calls fill the blank rows first, so nothing scrolls for them and no blank
+  row reaches the scrollback; rows printed meanwhile go above the region. A frame that is taller than the kept
+  height, a different shape (a menu opening or closing under the box), a resize, a clear or a screen that is not the
+  default one lets the height go. While a reply streams, its live rows leaving the region as they are printed
+  never pin it (no turn has ended). The cost is the blank rows themselves: between the last row of a short reply
+  and the box there are as many blank rows as the working area had (3 after a short reply at 80x24, up to 5
+  after a plan), until the next turn starts, which is why it is not the default. `NAMZU_LEGACY_PAINT=1`, which
+  hands the writing back to Ink, never keeps the height.
 - **Leaving gives the terminal back.** The last frame is painted, the cursor is shown and left at the start of a
   line under the last frame, also after a signal (Ctrl+C twice, `SIGTERM`, `SIGHUP`) and when the process ends
   without unmounting (an uncaught error). A process continued after a stop draws a fresh frame on a new line

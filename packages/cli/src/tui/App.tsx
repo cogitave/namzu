@@ -55,7 +55,15 @@ import {
 	wakeBudgetFromEnv,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from 'react'
 import {
 	type LivePeers,
 	buildPeerTools,
@@ -454,7 +462,9 @@ import {
 	probeAgentSession,
 } from './agent.js'
 import {
+	CALL_BLOCK_EXTRA_ROWS,
 	backgroundWaitLine,
+	callBlockExtraRows,
 	isRunning,
 	liveGroups,
 	pendingBackgroundAgents,
@@ -529,7 +539,12 @@ import {
 import { jobExitRow, monitorEndRow } from './job-exit-row.js'
 import { isAction, isChordAction, isChordLead } from './keymap.js'
 import { choosesModel, launchPreferences } from './launch-settings.js'
-import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
+import {
+	LIVE_WINDOW_SAFETY_ROWS,
+	checklistInView,
+	liveWindow,
+	settledBeforeStreaming,
+} from './live-window.js'
 import {
 	describeAllCredentialsLogout,
 	describeApiKeyLogout,
@@ -708,6 +723,7 @@ import { agentViewCommandClass } from './agent-view-commands.js'
 import { type AttachmentRow, attachmentDirOf, attachmentRows } from './attachment-rows.js'
 import { AwayRecap } from './away-recap.js'
 import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
+import { codeFlowHooks, grammarVersion, subscribeGrammars } from './code-highlight.js'
 import type { QueuedHintCount } from './composer-hints.js'
 import type { ProposedChange } from './diff-rows.js'
 import { EXIT_HINT_MS } from './exit-hint.js'
@@ -730,6 +746,7 @@ import {
 	handedBackLines,
 	outcomeNotice,
 } from './outcome-line.js'
+import { noteTurnEnded, noteTurnStarted } from './paint/live-paint.js'
 import { highestAttachmentNumber } from './paste-chips.js'
 import { PauseClock } from './pause-clock.js'
 import {
@@ -753,9 +770,11 @@ import { recapRows, recapTurns } from './recap-turns.js'
 import {
 	type RestoreOptions,
 	agentCompletionRows,
-	agentLaunchRow,
+	blockedAgents,
 	createRestoredTurnWriter,
+	holdsForBatch,
 	numberDetailRows,
+	settledBatchRows,
 	trailFromRecords,
 	withSavedAgentRows,
 	workflowClosingRow,
@@ -874,6 +893,10 @@ export interface AppProps {
 		readonly subscribePointer?: (listener: (report: PointerReport) => void) => () => void
 		/** Whether a selection is copied the moment the button is released; true when absent. */
 		readonly copyOnSelect?: boolean
+		/** Rows a slow wheel notch scrolls (`tui.wheelRows`); 3 when absent. */
+		readonly wheelRows?: number
+		/** Whether a fast run of notches speeds up (`tui.wheelAccel`); on when absent. */
+		readonly wheelAccel?: boolean
 	}
 	/**
 	 * Opens the workspaces screen: `←` on an empty composer. Absent where there is
@@ -1595,6 +1618,16 @@ const FULLSCREEN_RESIZE_SETTLE_MS = 60
  */
 const LIVE_FURNITURE_ROWS = 10
 
+/**
+ * Free rows the terminal must have, beyond the live furniture, before a
+ * waited-on agent's last calls are drawn under it: the window's safety rows,
+ * the calls' own extra rows and two rows of conversation. Below it the group
+ * keeps its one-line form, so the block never pushes the composer around.
+ * A 24-row terminal with nothing else live has three rows to spare; a plan of
+ * four rows or a running call on top of that does not.
+ */
+const CALL_BLOCK_MIN_FREE_ROWS = LIVE_WINDOW_SAFETY_ROWS + CALL_BLOCK_EXTRA_ROWS + 2
+
 type JobSurface = {
 	readonly ownerSession: AgentSession
 	/** A row key from `backgroundRows`: `job:<id>` or `agent:<viewId>`. */
@@ -1662,7 +1695,7 @@ function AppBody({
 		setCtx(resolved)
 		return resolved
 	}, [initialCtx])
-	const { exit } = useApp()
+	const { exit, waitUntilRenderFlush } = useApp()
 	const { stdout, write: writeStdout } = useStdout()
 	const clipboard = useMemo(
 		() =>
@@ -1749,6 +1782,17 @@ function AppBody({
 	const palDefaultPreferencesRef = useRef<Preferences | null>(null)
 	const [history, setHistory] = useState<readonly string[]>([])
 	const [state, setState] = useState<'idle' | 'thinking' | 'tool' | 'awaiting-permission'>('idle')
+	// The painter is told when a turn ends, before the frame that drops the working line is drawn.
+	const workedRef = useRef(false)
+	if (paintsLiveRegion) {
+		if (state !== 'idle') {
+			workedRef.current = true
+			noteTurnStarted()
+		} else if (workedRef.current) {
+			workedRef.current = false
+			noteTurnEnded()
+		}
+	}
 	/** For the scheduler integration's loop timer, which reads it outside render. */
 	const stateRef = useRef(state)
 	stateRef.current = state
@@ -2258,6 +2302,8 @@ function AppBody({
 	 * out of view, so one list is never drawn twice at once; `checklistPinned` is
 	 * the operator's own "open", which is drawn at once.
 	 */
+	/** `tui.agentCalls`: a waiting agent's last calls, one block for a finished batch, the calls behind a finished row. */
+	const agentCallsOn = ctx.tui?.agentCalls !== false
 	const [checklistExpanded, setChecklistExpanded] = useState(ctx.tui?.showExpandedTodos === true)
 	const [checklistPinned, setChecklistPinned] = useState(ctx.tui?.showExpandedTodos === true)
 	const checklistOpenRef = useRef(false)
@@ -2272,6 +2318,12 @@ function AppBody({
 	 * hold the window shut for the length of the next conversation.
 	 */
 	const settledRef = useRef<number>(0)
+	/**
+	 * Set while a clear is about to run: every finished row is printed first, so the rows that were
+	 * still in the live region are in the scrollback before the screen is cleared, not erased with it.
+	 */
+	const settleAllRef = useRef(false)
+	const [, setSettleTick] = useState(0)
 	// Complete prompts waiting for the one queue pump that may start a turn. The
 	// queue is synchronous, so a turn's `finally` can decide whether it is truly
 	// the last turn; React state captured when the turn started would still say
@@ -2728,9 +2780,9 @@ function AppBody({
 		if (token !== savedSubagentsTokenRef.current) return
 		savedSubagentsRef.current = saved
 		// The rows of the agents a resumed conversation launched, where it launched them.
-		setMessages((rows) => withSavedAgentRows(rows, saved, nextId))
+		setMessages((rows) => withSavedAgentRows(rows, saved, nextId, agentCallsOn))
 		replaceSubagents(session?.subagents?.getSnapshot() ?? [])
-	}, [nextId, replaceSubagents, session])
+	}, [agentCallsOn, nextId, replaceSubagents, session])
 	/** Opens the cockpit on the rows already on screen; false when there are none. */
 	const openCockpitFromCurrentRows = useCallback((): boolean => {
 		const agents = subagentsRef.current
@@ -3630,6 +3682,17 @@ function AppBody({
 		},
 		[stdout.isTTY, writeStdout, fullscreenOn],
 	)
+	// A clear keeps every row: the finished rows the live region still holds are printed into the
+	// scrollback (through the same <Static> every other row goes through) and flushed to the
+	// terminal before the screen is cleared. Default screen only; the fullscreen view repaints itself
+	// and has no scrollback.
+	const printLiveRowsBeforeClear = useCallback(async (): Promise<void> => {
+		if (!stdout.isTTY || fullscreenOn || !paintsLiveRegion) return
+		settleAllRef.current = true
+		setSettleTick((tick) => tick + 1)
+		await waitUntilRenderFlush()
+		await waitUntilRenderFlush()
+	}, [stdout.isTTY, fullscreenOn, paintsLiveRegion, waitUntilRenderFlush])
 	// The workspaces screen switches the terminal between a mirror and the real screen; whichever
 	// way, the screen is rebuilt from the messages, whether or not the width changed.
 	useEffect(() => {
@@ -4437,11 +4500,11 @@ function AppBody({
 				}
 				reportedBatchesRef.current.add(key)
 				if (!claimReceipt(members)) continue
-				pushRow(agentLaunchRow(members))
+				for (const row of settledBatchRows(members, agentCallsOn)) pushRow(row)
 			}
 			return retryIn
 		},
-		[claimReceipt, pushRow, session],
+		[agentCallsOn, claimReceipt, pushRow, session],
 	)
 	flushLaunchReceiptsRef.current = () => {
 		writeLaunchReceipts(subagentsRef.current, activeToolsRef.current, true)
@@ -4483,6 +4546,9 @@ function AppBody({
 			// ended (the receipt loop above); each member still says how it ended now.
 			const batchStillLive =
 				batchMembers.some((member) => member.background !== true) && batchMembers.some(isRunning)
+			// A waited-on agent that finished early in a batch still running waits for
+			// the rest: the batch ends as one block, or each keeps its Done row.
+			if (holdsForBatch(agent, batchMembers, batchStillLive, agentCallsOn)) continue
 			if (
 				!agent.replayed &&
 				!agent.resumed &&
@@ -4491,19 +4557,35 @@ function AppBody({
 			) {
 				reportedBatchesRef.current.add(key)
 				if (claimReceipt(batches.get(key) ?? [agent])) {
-					pushRow(agentLaunchRow(batches.get(key) ?? [agent]))
+					for (const row of settledBatchRows(batches.get(key) ?? [agent], agentCallsOn))
+						pushRow(row)
 				}
+			}
+			// A block of waited-on agents is written once, with the batch's receipt;
+			// its members write nothing of their own.
+			if (blockedAgents(batchMembers, agentCallsOn).includes(agent)) {
+				reportedAgentsRef.current.add(agent.viewId)
+				continue
 			}
 			reportedAgentsRef.current.add(agent.viewId)
 			const previousFailure = reportedFailuresRef.current.get(agent.viewId)
 			if (agent.status === 'failed')
 				reportedFailuresRef.current.set(agent.viewId, failureReason(agent))
-			for (const done of agentCompletionRows(agent, previousFailure)) pushRow(done)
+			for (const done of agentCompletionRows(agent, previousFailure, agentCallsOn)) pushRow(done)
 		}
 		if (retryIn === undefined) return
 		const timer = setTimeout(() => setReceiptTick((tick) => tick + 1), retryIn)
 		return () => clearTimeout(timer)
-	}, [subagents, activeTools, pushRow, session, receiptTick, writeLaunchReceipts, claimReceipt])
+	}, [
+		subagents,
+		activeTools,
+		pushRow,
+		session,
+		receiptTick,
+		writeLaunchReceipts,
+		claimReceipt,
+		agentCallsOn,
+	])
 
 	/**
 	 * A workflow leaves one closing line in the conversation, written once, when
@@ -7168,13 +7250,26 @@ function AppBody({
 	const workingStepLabel = planInRegion ? undefined : workingLabel(tasks, terminal.columns ?? 80)
 	const taskFurniture = fullTaskFurniture
 	const toolFurniture = compactWork && fullToolFurniture > 0 ? 2 : fullToolFurniture
+	// A waited-on agent's last calls are drawn under it only where the live region
+	// has the rows: the block is taller than its one-line form, so it needs the
+	// calls' rows on top of the furniture and the window's safety rows.
+	const callsRoom =
+		(terminal.rows ?? 0) -
+			(LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + pendingInputFurniture) >=
+		CALL_BLOCK_MIN_FREE_ROWS
+	const backgroundGroups = liveGroups(subagents, isWorkflowRunAgent, callsRoom && agentCallsOn)
+	const callBlockFurniture = callBlockExtraRows(backgroundGroups)
 	// The reply being written keeps its unfinished part short enough that it, the plan under the
 	// working line, the running calls and a queued message still fit the window.
 	const flowContext: FlowContext = {
 		freeze: flowFreeze,
 		width: Math.max(10, terminal.columns - 4),
-		rows: flowRows(terminal.rows, taskFurniture + toolFurniture + pendingInputFurniture),
+		rows: flowRows(
+			terminal.rows,
+			taskFurniture + toolFurniture + pendingInputFurniture + callBlockFurniture,
+		),
 		hyperlinks,
+		code: codeFlowHooks,
 	}
 	const flowWidth = flowContext.width
 	const flowHeight = flowContext.rows
@@ -7184,8 +7279,12 @@ function AppBody({
 			width: flowWidth,
 			rows: flowHeight,
 			hyperlinks,
+			code: codeFlowHooks,
 		}
 	}, [flowFreeze, flowWidth, flowHeight, hyperlinks])
+	// The full-screen window bakes colours into its rows: lay them out again when a code
+	// grammar has been read (the normal screen's rows subscribe for themselves).
+	useSyncExternalStore(subscribeGrammars, grammarVersion)
 	// How much of the transcript is still redrawable. The rest belongs to native
 	// terminal scrollback; the live tail stays deliberately small so an activity
 	// tick never repaints the whole conversation.
@@ -7210,7 +7309,12 @@ function AppBody({
 		messages: finalized,
 		rows: terminal.rows,
 		columns: terminal.columns,
-		furnitureRows: LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture + pendingInputFurniture,
+		furnitureRows:
+			LIVE_FURNITURE_ROWS +
+			taskFurniture +
+			toolFurniture +
+			pendingInputFurniture +
+			callBlockFurniture,
 		settled: settledRef.current,
 		raw: rawOutput,
 	})
@@ -7220,7 +7324,7 @@ function AppBody({
 	// advances the floor once and emits those finalized rows exactly once.
 	const nextSettled = settledBeforeStreaming(
 		messages,
-		window.settled,
+		settleAllRef.current ? finalized.length : window.settled,
 		settledRef.current,
 		flowContext.freeze,
 	)
@@ -8367,6 +8471,8 @@ function AppBody({
 				}
 
 				if (clearScreen) {
+					await printLiveRowsBeforeClear()
+					settleAllRef.current = false
 					setMessages([])
 					resetTranscript()
 				}
@@ -8423,6 +8529,7 @@ function AppBody({
 			resetSubagentActivity,
 			session,
 			resetTranscript,
+			printLiveRowsBeforeClear,
 			wakeGoalDriver,
 			pushSystem,
 		],
@@ -16817,8 +16924,11 @@ function AppBody({
 					pushMessage('system', 'Ctrl+L is unavailable while a reply is in progress.')
 					return
 				}
-				setMessages([])
-				resetTranscript()
+				void printLiveRowsBeforeClear().then(() => {
+					settleAllRef.current = false
+					setMessages([])
+					resetTranscript()
+				})
 				return
 			}
 			// Fullscreen: Esc closes the search or lets go of a selection before it is
@@ -16935,7 +17045,6 @@ function AppBody({
 			pushSystem('notice', largeRunNotice(flow.name, flow.largeWhy))
 		}
 	}, [largeRunKey, pushSystem])
-	const backgroundGroups = liveGroups(subagents, isWorkflowRunAgent)
 	const closingWait = closingWaitRef.current
 	const backgroundWaitText =
 		closingWait !== null && state === 'idle'
@@ -17223,6 +17332,8 @@ function AppBody({
 							? { subscribePointer: fullscreen.subscribePointer, copy: copyFullscreenSelection }
 							: {})}
 						copyOnSelect={fullscreen.copyOnSelect !== false}
+						{...(fullscreen.wheelRows !== undefined ? { wheelRows: fullscreen.wheelRows } : {})}
+						{...(fullscreen.wheelAccel !== undefined ? { wheelAccel: fullscreen.wheelAccel } : {})}
 						onSearchChange={setFullscreenSearching}
 						control={fullscreenControl}
 						header={

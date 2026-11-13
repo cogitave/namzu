@@ -937,7 +937,31 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		'Show every task, not a summary.',
 		on,
 	),
+	d(
+		'tui.agentCalls',
+		'terminal',
+		'Agent calls',
+		"Show a waiting agent's last calls and one block for agents that finished.",
+		on,
+		{ defaultText: 'on' },
+	),
 	d('tui.fullscreen', 'terminal', 'Full screen', 'Use the whole terminal window.', on),
+	d(
+		'tui.wheelAccel',
+		'terminal',
+		'Wheel speed-up',
+		'A fast run of wheel notches scrolls faster in full screen.',
+		on,
+		{ defaultText: 'on' },
+	),
+	d(
+		'tui.wheelRows',
+		'terminal',
+		'Rows per wheel notch',
+		'How far one wheel notch scrolls in full screen.',
+		num(1, 20, 'rows'),
+		{ defaultText: '3' },
+	),
 	d('tui.mouse', 'terminal', 'Mouse', 'full, scroll only, or off.', pick('full', 'scroll', 'off'), {
 		defaultText: 'full',
 	}),
@@ -952,6 +976,9 @@ export const SETTING_DESCRIPTORS: readonly SettingDescriptor[] = [
 		on,
 		{ defaultText: 'on' },
 	),
+	d('tui.syntaxHighlight', 'terminal', 'Code colour', 'Colour the syntax of code blocks.', on, {
+		defaultText: 'on',
+	}),
 	d('tui.spinnerTips', 'terminal', 'Tips while working', 'Show a tip next to the spinner.', on, {
 		defaultText: 'on',
 	}),

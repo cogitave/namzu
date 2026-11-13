@@ -101,12 +101,31 @@ export interface TuiConfig {
 	 */
 	readonly showExpandedTodos?: boolean
 	/**
+	 * Show a waited-on agent's last calls under it while it runs, one block for a
+	 * batch that finished, and the calls behind a finished agent's row. Off keeps
+	 * the one-line group and the two rows per agent. Default on. Your own config
+	 * files only.
+	 */
+	readonly agentCalls?: boolean
+	/**
 	 * Draw the terminal UI on the alternate screen with its own scrolling (mouse
 	 * wheel, PgUp and PgDn, Home and End) instead of the terminal's scrollback.
 	 * Absent or `false` means the scrollback. `NAMZU_FULLSCREEN=1` or `=0` in the
 	 * environment overrides it. Your own config files only.
 	 */
 	readonly fullscreen?: boolean
+	/**
+	 * Rows one mouse-wheel notch scrolls the fullscreen view, from 1 to 20. Absent
+	 * means 3. For terminals that send several wheel reports per physical notch.
+	 * Your own config files only.
+	 */
+	readonly wheelRows?: number
+	/**
+	 * Whether a fast run of wheel notches speeds up in the fullscreen view. Absent
+	 * or `true` means it does; `false` makes every notch the plain step. Your own
+	 * config files only.
+	 */
+	readonly wheelAccel?: boolean
 	/**
 	 * The one-line recap shown when a person returns to the terminal after a few
 	 * minutes away. Absent or `true` means on; only `false` turns it off. The
@@ -119,6 +138,14 @@ export interface TuiConfig {
 	 * plan's next task) is not a tip and shows either way.
 	 */
 	readonly spinnerTips?: boolean
+	/**
+	 * Colour the syntax of a fenced code block that names a language it knows
+	 * (keywords, strings, numbers, comments, names, and the added and removed
+	 * lines of a diff). Default `true`; only an explicit `false` draws every
+	 * code block in the one code colour. The text is the same either way. Your
+	 * own config files only.
+	 */
+	readonly syntaxHighlight?: boolean
 }
 
 /** Release channel the background updater follows. */
