@@ -287,7 +287,9 @@ describe('the skill hooks record on a log read by an older release', () => {
 		expect(older.records.map((r) => r.type).filter((type) => !type.startsWith('future_'))).toEqual(
 			plain.records.map((r) => r.type),
 		)
-		expect(await foldSessionMessages(older.records)).toEqual(await foldSessionMessages(plain.records))
+		expect(await foldSessionMessages(older.records)).toEqual(
+			await foldSessionMessages(plain.records),
+		)
 	})
 
 	it('is refused when it is not flagged ignorable, so an older release would refuse it', async () => {
