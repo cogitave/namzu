@@ -11,10 +11,12 @@
 
 import { contentColorForRole, screenMessage } from '../Transcript.js'
 import { grammarVersion } from '../code-highlight.js'
+import { newRepliesRule } from '../new-output.js'
 import { tailView } from '../stream-flow.js'
 import { RESULT_GUTTER_INDENT, RESULT_GUTTER_WIDTH } from '../system-rows.js'
 import { wrapChoiceText } from '../terminal-choice-text.js'
 import { shownTheme } from '../theme-store.js'
+import { theme as palette } from '../theme.js'
 import {
 	messageScrollRows,
 	scrollBodyText,
@@ -231,6 +233,17 @@ export interface ClickView {
 	readonly open: ReadonlySet<string>
 }
 
+/** The rule drawn above the first reply the reader has not seen. */
+export interface UnseenMark {
+	/** Id of the message the rule stands above. */
+	readonly before: string
+	/** How many replies are new, for the rule's words. */
+	readonly count: number
+}
+
+/** The id the rule's own entry in the row index carries; no message has it. */
+export const MARK_ID = '\u0000new-replies'
+
 /**
  * Lay the conversation out at `columns`. The streaming reply stands at
  * `pendingAt`, as in the live transcript, so no row moves when it finishes.
@@ -242,6 +255,7 @@ export function layoutTranscript(
 	columns: number,
 	cache: LayoutCache,
 	view: ClickView = { click: false, open: new Set() },
+	unseen: UnseenMark | null = null,
 ): FullscreenLayout {
 	const at = Math.min(Math.max(pendingAt ?? messages.length, 0), messages.length)
 	const ordered = pending ? [...messages.slice(0, at), pending, ...messages.slice(at)] : messages
@@ -252,6 +266,20 @@ export function layoutTranscript(
 	const blocks: { id: string; rows: number; tail: string }[] = []
 	ordered.forEach((message, i) => {
 		const hasPrev = i > 0
+		if (unseen && message.id === unseen.before && hasPrev) {
+			// One quiet row above the message's own gap. It is an entry of its own in
+			// the index, so no message's anchor or rows move because of it.
+			rows.push({
+				glyph: ' ',
+				glyphColor: palette.text.muted,
+				text: '',
+				color: palette.text.muted,
+				joins: null,
+				lead: 0,
+				mark: newRepliesRule(unseen.count, width),
+			})
+			blocks.push({ id: MARK_ID, rows: 1, tail: '' })
+		}
 		const mode: RowMode = { click: view.click, open: view.click && view.open.has(message.id) }
 		let hit = cache.kept.get(message)
 		if (

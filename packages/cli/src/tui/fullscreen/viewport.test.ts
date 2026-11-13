@@ -168,11 +168,11 @@ describe('resizing', () => {
 
 describe('the jump hint', () => {
 	it('shortens before it wraps and drops to the arrow', () => {
-		expect(jumpHint(80, false)).toBe('↓ Jump to latest · PgDn')
-		expect(jumpHint(12, false)).toBe('↓ Latest')
-		expect(jumpHint(1, false)).toBe('↓')
-		expect(jumpHint(0, false)).toBeNull()
-		expect(jumpHint(80, true)).toMatch(/^New activity/)
+		expect(jumpHint(80)).toBe('↓ Jump to latest · End')
+		expect(jumpHint(12)).toBe('↓ Latest')
+		expect(jumpHint(1)).toBe('↓')
+		expect(jumpHint(0)).toBeNull()
+		expect(jumpHint(80, { count: 0, grown: false, activity: true })).toMatch(/^New activity/)
 	})
 })
 

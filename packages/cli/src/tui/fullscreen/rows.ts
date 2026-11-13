@@ -37,6 +37,12 @@ export interface FsRow extends ScrollRow {
 	readonly lead: number
 	/** A click on this row opens its message in place, or folds it when it is open. */
 	readonly opens?: true
+	/**
+	 * A quiet rule drawn across the row, which is no text: `text` is empty, so a
+	 * search does not find it and a copy does not take it. It marks where the
+	 * replies the reader has not seen begin.
+	 */
+	readonly mark?: string
 }
 
 export function plainRow(row: ScrollRow, joins: Joiner | null = null): FsRow {

@@ -15,8 +15,9 @@
 import { renderedDetailLines } from './Transcript.js'
 import { contentColorForRole, glyphColorForRole, glyphForRole } from './Transcript.js'
 import { attachmentLine } from './attachment-rows.js'
+import { type HintWords, NO_NEWS, type News, newOutputHint } from './new-output.js'
 import { commandRows, hintRows } from './read-search-group.js'
-import { choiceDisplayWidth, truncateChoiceText, wrapChoiceText } from './terminal-choice-text.js'
+import { truncateChoiceText, wrapChoiceText } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { paint, rowTints, theme } from './theme.js'
 import { EXPAND_HINT } from './truncation.js'
@@ -307,20 +308,17 @@ export function syncScroll(
 	}
 }
 
-const HINT_IDLE = ['↓ Back to bottom · esc', '↓ Bottom · esc', '↓ Bottom', '↓'] as const
-const HINT_UNSEEN = [
-	'New activity · ↓ Back to bottom · esc',
-	'New activity · ↓ Bottom · esc',
-	'New · ↓ Bottom',
-	'↓ Bottom',
-	'↓',
-] as const
+/** What the scroll-back box calls the move and the key that makes it. */
+export const FOLLOW_WORDS: HintWords = { long: 'Back to bottom', short: 'Bottom', key: 'esc' }
 
 /**
  * The single hint row above the composer: the first label that fits, so it
- * shortens before it ever wraps. Null only when not even the arrow fits.
+ * shortens before it ever wraps. Null only when not even the arrow fits. With a
+ * flag for `news` it says only that there is new activity; with the count it
+ * says how many replies (see `new-output.ts`, which the fullscreen hint shares).
  */
-export function followHint(columns: number, unseen: boolean): string | null {
-	const ladder = unseen ? HINT_UNSEEN : HINT_IDLE
-	return ladder.find((label) => choiceDisplayWidth(label) <= columns) ?? null
+export function followHint(columns: number, news: boolean | News): string | null {
+	const told: News =
+		typeof news === 'boolean' ? (news ? { count: 0, grown: false, activity: true } : NO_NEWS) : news
+	return newOutputHint(columns, told, FOLLOW_WORDS)
 }

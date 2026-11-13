@@ -115,6 +115,18 @@ export interface TuiConfig {
 	 */
 	readonly fullscreen?: boolean
 	/**
+	 * Rows one mouse-wheel notch scrolls the fullscreen view, from 1 to 20. Absent
+	 * means 3. For terminals that send several wheel reports per physical notch.
+	 * Your own config files only.
+	 */
+	readonly wheelRows?: number
+	/**
+	 * Whether a fast run of wheel notches speeds up in the fullscreen view. Absent
+	 * or `true` means it does; `false` makes every notch the plain step. Your own
+	 * config files only.
+	 */
+	readonly wheelAccel?: boolean
+	/**
 	 * The one-line recap shown when a person returns to the terminal after a few
 	 * minutes away. Absent or `true` means on; only `false` turns it off. The
 	 * `NAMZU_RECAP` variable overrides this either way.
