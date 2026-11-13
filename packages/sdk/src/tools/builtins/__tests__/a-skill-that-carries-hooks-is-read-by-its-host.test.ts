@@ -211,6 +211,23 @@ describe('a forked skill that carries hooks', () => {
 		expect(seen.committed).toEqual([])
 	})
 
+	it('tells the host the prompt the delegated agent is given, to tell it from other agents', async () => {
+		const seen = fresh()
+		let delegated = ''
+		await SkillTool.execute(
+			{ name: 'guarded' },
+			{
+				...forkContext(seen, { success: true }),
+				dispatchTool: async (_tool, input) => {
+					delegated = String((input as { prompt?: unknown }).prompt)
+					return { success: true, output: 'the report' }
+				},
+			},
+		)
+		expect(delegated).toContain('Run commands.')
+		expect(seen.asked[0]?.options.prompt).toBe(delegated)
+	})
+
 	it('takes them off when the delegation throws', async () => {
 		const seen = fresh()
 		const result = await SkillTool.execute(
@@ -232,5 +249,11 @@ describe('a forked skill that carries hooks', () => {
 		const seen = fresh()
 		await SkillTool.execute({ name: 'guarded' }, forkContext(seen, { success: false }, true))
 		expect(seen.removed).toBe(1)
+	})
+})
+
+describe('the skill tool in a batch', () => {
+	it('is an ordering boundary: calls written after it in one message wait for it, so its later events cover them', () => {
+		expect(SkillTool.executionBarrier).toBe(true)
 	})
 })

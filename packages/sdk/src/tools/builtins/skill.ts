@@ -337,6 +337,11 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 		readOnly: true,
 		destructive: false,
 		concurrencySafe: true,
+		// A skill that carries hooks attaches them when it is used. A call the
+		// model wrote after it in the same message must run under them, so the
+		// calls before settle first and the calls after wait: message order is
+		// the order they run in.
+		executionBarrier: true,
 
 		// The body is instructions for the model, often a hundred lines; the
 		// person needs the row that says which skill was read, not the text.
@@ -496,23 +501,27 @@ export function createSkillTool(options: SkillToolOptions = {}) {
 			let forkUnavailable = ''
 			if (skill.metadata.context === 'fork' && input.cursor === undefined) {
 				if (context.dispatchTool && context.toolRegistry?.has(DELEGATION_TOOL_NAME)) {
-					const forkHooks = hooksPlanFor(skill, context, true)
+					const forkHeader = resolveModelDirectory
+						? directoryHeader(
+								nonEmpty(
+									await resolveModelDirectory(
+										{ name: input.name, directory: skill.dirPath },
+										directoryContextOf(context.sandbox),
+									),
+								),
+							)
+						: ''
+					// The delegated prompt is known before the agent starts: the host
+					// recognises the agent that receives it, among any others that
+					// start at the same time, and binds the skill's hooks to that one.
+					const forkPrompt = forkedPrompt(forkHeader, argsLine, skill.body)
+					const forkHooks = hooksPlanFor(skill, context, true, forkPrompt)
 					const forkResult = await runForkedSkill({
 						name: input.name,
 						skill,
-						argsLine,
+						prompt: forkPrompt,
 						dispatch: context.dispatchTool,
 						hooks: forkHooks,
-						header: resolveModelDirectory
-							? directoryHeader(
-									nonEmpty(
-										await resolveModelDirectory(
-											{ name: input.name, directory: skill.dirPath },
-											directoryContextOf(context.sandbox),
-										),
-									),
-								)
-							: '',
 					})
 					return forkHooks?.notice
 						? { ...forkResult, output: `[${forkHooks.notice}]\n\n${forkResult.output}` }
@@ -634,6 +643,8 @@ function hooksPlanFor(
 	},
 	context: ToolContext,
 	forked: boolean,
+	/** For a forked skill: the prompt the delegated agent is given. */
+	prompt?: string,
 ): SkillHooksPlan | undefined {
 	const hooksSource = skill.metadata.hooksSource
 	if (hooksSource === undefined) return undefined
@@ -654,6 +665,7 @@ function hooksPlanFor(
 		},
 		{
 			forked,
+			...(forked && prompt !== undefined ? { prompt } : {}),
 			...(context.sessionId !== undefined ? { sessionId: String(context.sessionId) } : {}),
 		},
 	)
@@ -721,6 +733,11 @@ function grantNotice(
 	return `\n\n[${lines.join(' ')}]`
 }
 
+/** The prompt a forked skill's delegated agent is given. */
+function forkedPrompt(header: string, argsLine: string, body: string | undefined): string {
+	return `${header}${argsLine}${body ?? '(this skill has no body)'}`
+}
+
 /**
  * Run a `context: fork` skill through the turn's delegation tool.
  *
@@ -741,13 +758,13 @@ async function runForkedSkill(input: {
 		}
 		readonly body?: string
 	}
-	readonly argsLine: string
-	readonly header: string
+	/** The prompt the delegated agent is given; see {@link forkedPrompt}. */
+	readonly prompt: string
 	readonly dispatch: NonNullable<ToolContext['dispatchTool']>
 	/** The skill's hooks, made live for the delegated agent's run only. */
 	readonly hooks?: SkillHooksPlan
 }) {
-	const { metadata, body } = input.skill
+	const { metadata } = input.skill
 	const attached = input.hooks?.attach()
 	let ended = false
 	const end = (): void => {
@@ -759,7 +776,7 @@ async function runForkedSkill(input: {
 	try {
 		result = await input.dispatch(DELEGATION_TOOL_NAME, {
 			description: `Skill ${input.name}`,
-			prompt: `${input.header}${input.argsLine}${body ?? '(this skill has no body)'}`,
+			prompt: input.prompt,
 			...(metadata.agent === undefined ? {} : { subagent_type: metadata.agent }),
 			...(metadata.model === undefined ? {} : { model: metadata.model }),
 			...(metadata.effort === undefined ? {} : { effort: metadata.effort }),

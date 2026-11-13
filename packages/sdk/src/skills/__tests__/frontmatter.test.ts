@@ -283,6 +283,65 @@ describe('the hooks key', () => {
 	})
 })
 
+describe('hook events written at the top level of a skill', () => {
+	const TOP = [
+		'PreToolUse:',
+		'  - matcher: Bash',
+		'    hooks:',
+		'      - type: command',
+		'        command: ./guard.sh',
+	].join('\n')
+
+	it('are read as if they had been written under hooks', async () => {
+		const path = skill(
+			['---', 'name: a-skill', 'description: d', 'allowed-tools: Bash', TOP, '---', 'Body.'].join(
+				'\n',
+			),
+		)
+		const { skill: loaded } = await loadSkill(path, 'full')
+		expect(loaded.metadata.allowedTools).toBe('Bash')
+		expect(loaded.metadata.hooksSource).toBe(
+			[
+				'hooks:',
+				'  PreToolUse:',
+				'    - matcher: Bash',
+				'      hooks:',
+				'        - type: command',
+				'          command: ./guard.sh',
+			].join('\n'),
+		)
+	})
+
+	it('join the entries of a hooks key beside them', async () => {
+		const path = skill(
+			[
+				'---',
+				'name: a-skill',
+				'description: d',
+				'hooks:',
+				'  PostToolUse:',
+				'    - hooks:',
+				'        - command: ./log.sh',
+				TOP,
+				'---',
+				'Body.',
+			].join('\n'),
+		)
+		const { skill: loaded } = await loadSkill(path, 'full')
+		expect(loaded.metadata.hooksSource).toContain('  PostToolUse:')
+		expect(loaded.metadata.hooksSource).toContain('  PreToolUse:')
+		expect(loaded.metadata.hooksSource?.startsWith('hooks:\n')).toBe(true)
+	})
+
+	it('leave a skill with no event key at the top level as it was', async () => {
+		const path = skill(
+			['---', 'name: a-skill', 'description: d', 'owner: me', '---', 'B'].join('\n'),
+		)
+		const { skill: loaded } = await loadSkill(path, 'full')
+		expect(loaded.metadata.hooksSource).toBeUndefined()
+	})
+})
+
 describe('parseFrontmatter without readsKey', () => {
 	it('still refuses unsupported YAML in any key', () => {
 		expect(() => parseFrontmatter('---\nfoo: [a]\n---\n', 'x')).toThrow(/flow sequence/)

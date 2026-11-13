@@ -140,6 +140,11 @@ export interface SkillRegistryRef {
 export interface SkillHooksOptions {
 	/** The skill runs in a delegated agent: its hooks belong to that agent's run only. */
 	readonly forked: boolean
+	/**
+	 * For a forked skill: the prompt the delegated agent is given, so the host
+	 * can tell that agent from any other that starts at the same time.
+	 */
+	readonly prompt?: string
 	/** The session the `skill` tool was called in. */
 	readonly sessionId?: string
 }

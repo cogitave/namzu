@@ -1,5 +1,6 @@
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import { SHELL_HOOK_EVENTS, SHELL_HOOK_PASCAL_EVENT_NAMES } from '../plugin/shell-hook.js'
 import type { ReasoningEffort } from '../types/provider/chat.js'
 import type {
 	Skill,
@@ -55,8 +56,41 @@ export const SKILL_FRONTMATTER_TOLERATED_KEYS: readonly string[] = [
 	'background',
 ]
 
+/**
+ * A hook event named at the top level of the front matter (`PreToolUse:` with
+ * its list, written beside `name:` instead of under `hooks:`) is read as if it
+ * had been written under `hooks:`. A guard its author wrote in the wrong place
+ * is attached, not skipped as an unknown key and left to run unguarded.
+ */
+export const SKILL_FRONTMATTER_HOOK_EVENT_KEYS: readonly string[] = [
+	...new Set([
+		...(Object.values(SHELL_HOOK_PASCAL_EVENT_NAMES) as string[]),
+		...SHELL_HOOK_EVENTS.filter((event) => event.includes('_')),
+	]),
+]
+
 /** Keys handed back as the text the file wrote, for the host to read. */
 export const SKILL_FRONTMATTER_RAW_KEYS: readonly string[] = ['hooks']
+
+/**
+ * The hooks text of a skill: the `hooks` key's block, with every hook event
+ * written at the top level of the front matter moved under it. Absent when the
+ * file carries none. `rawBlocks` is {@link ParsedFrontmatter.rawBlocks} read
+ * with {@link SKILL_FRONTMATTER_RAW_KEYS} and {@link SKILL_FRONTMATTER_HOOK_EVENT_KEYS}.
+ */
+export function skillHooksSource(rawBlocks: Readonly<Record<string, string>>): string | undefined {
+	const own = Object.hasOwn(rawBlocks, 'hooks') ? (rawBlocks.hooks ?? '') : ''
+	const moved = SKILL_FRONTMATTER_HOOK_EVENT_KEYS.filter(
+		(key) => Object.hasOwn(rawBlocks, key) && (rawBlocks[key] ?? '').trim() !== '',
+	).map((key) =>
+		(rawBlocks[key] ?? '')
+			.split('\n')
+			.map((line) => (line.trim() === '' ? line : `  ${line}`))
+			.join('\n'),
+	)
+	if (moved.length === 0) return own.trim() === '' ? undefined : own
+	return `${own.trim() === '' ? 'hooks:' : own}\n${moved.join('\n')}`
+}
 
 const READS_SKILL_KEY = (key: string): boolean => SKILL_FRONTMATTER_KEYS.includes(key)
 
@@ -75,7 +109,7 @@ export const SKILL_FRONTMATTER_OPTIONS = {
 	 * hold: the host reads its text with a YAML reader (see
 	 * `SkillMetadata.hooksSource`).
 	 */
-	raw: SKILL_FRONTMATTER_RAW_KEYS,
+	raw: [...SKILL_FRONTMATTER_RAW_KEYS, ...SKILL_FRONTMATTER_HOOK_EVENT_KEYS],
 } as const
 
 /**
@@ -214,9 +248,8 @@ function toSkillMetadata(parsed: ParsedFrontmatter, dirPath: string): SkillMetad
 		skillMetadata.background = background === 'true'
 	}
 
-	const hooksSource = Object.hasOwn(parsed.rawBlocks, 'hooks') ? parsed.rawBlocks.hooks : undefined
-	if (hooksSource !== undefined && hooksSource.trim() !== '')
-		skillMetadata.hooksSource = hooksSource
+	const hooksSource = skillHooksSource(parsed.rawBlocks)
+	if (hooksSource !== undefined) skillMetadata.hooksSource = hooksSource
 
 	const extra = mappingAt(values, 'metadata')
 	if (extra && Object.keys(extra).length > 0) {
