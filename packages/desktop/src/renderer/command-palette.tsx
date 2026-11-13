@@ -3,6 +3,7 @@ import { Autocomplete } from '@base-ui/react/autocomplete'
 import { Dialog } from '@base-ui/react/dialog'
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
 import { matchesCommandOrText, matchesCommandShortcut } from './command-palette-filter.js'
+import { XIcon } from './icons.js'
 import { foldedIncludes } from './text-fold.js'
 import type { ConversationTextMatches } from './use-conversation-search.js'
 import './command-palette.css'
@@ -85,9 +86,6 @@ export function CommandPalette({
 						<Dialog.Title className="command-palette-accessible">
 							Search conversations and actions
 						</Dialog.Title>
-						<Dialog.Close className="command-palette-accessible" tabIndex={-1}>
-							Close search
-						</Dialog.Close>
 						<CommandResults
 							items={items}
 							inputRef={input}
@@ -175,6 +173,9 @@ function CommandResults({
 						}
 					}}
 				/>
+				<Dialog.Close className="command-palette-close" aria-label="Close search">
+					<XIcon aria-hidden="true" />
+				</Dialog.Close>
 			</div>
 			<Autocomplete.List className="command-palette-list" aria-label="Conversations and actions">
 				{(group: { label: string; items: readonly CommandPaletteItem[] }) => (
@@ -234,6 +235,21 @@ function CommandResults({
 					) : null}
 				</div>
 			) : null}
+			<footer className="command-palette-footer" aria-hidden="true">
+				<span>
+					<kbd>↑</kbd>
+					<kbd>↓</kbd>
+					Move
+				</span>
+				<span>
+					<kbd>↵</kbd>
+					Open
+				</span>
+				<span>
+					<kbd>Esc</kbd>
+					Close
+				</span>
+			</footer>
 		</Autocomplete.Root>
 	)
 }

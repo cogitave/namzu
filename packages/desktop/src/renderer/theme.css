@@ -223,6 +223,51 @@
 	--dialog-button-height: 28px;
 	--dialog-button-radius: 8px;
 	--dialog-scrim: color-mix(in srgb, black 40%, transparent);
+	/* Settings: a column no wider than the input box's, headings that open a group, rows of one height,
+	   and a switch that reads in the text colour. A row is 12 above and below its content: a label and a
+	   28 px control make 52, a label over one line of description makes 68 (the copy block carries 1 px
+	   above and below its two lines, the one pixel that brings 42 to 44). */
+	--settings-column-width: var(--frame-column-width);
+	--settings-search-height: 28px;
+	--settings-search-radius: 8px;
+	--settings-group-before: 40px;
+	--settings-group-after: 16px;
+	--settings-title-after: 16px;
+	--settings-row-padding: 12px;
+	--settings-row-copy-pad: 1px;
+	--settings-copy-gap: 4px;
+	--settings-control-height: 28px;
+	--settings-control-radius: 8px;
+	--settings-switch-width: 36px;
+	--settings-switch-height: 20px;
+	--settings-switch-knob: 16px;
+	--settings-switch-inset: 2px;
+	--settings-switch-travel: calc(
+		var(--settings-switch-width) -
+		var(--settings-switch-knob) -
+		2 *
+		var(--settings-switch-inset)
+	);
+	--settings-choice-size: 16px;
+	--settings-off-edge: color-mix(in srgb, var(--foreground) 55%, transparent);
+	/* The search overlay: its size, how far below the window's centre it sits, the input row and the list. */
+	--palette-width: 672px;
+	--palette-height: 584px;
+	--palette-drop: 18px;
+	--palette-radius: 16px;
+	--palette-input-top: 18px;
+	--palette-input-height: 33px;
+	--palette-side: 24px;
+	--palette-list-inset: 10px;
+	--palette-row-height: 36px;
+	--palette-row-radius: 8px;
+	--palette-row-inset: 12px;
+	--palette-icon-size: 16px;
+	--palette-icon-gap: 12px;
+	--palette-caption-gap: 8px;
+	--palette-footer-height: 42px;
+	--palette-key-height: 18px;
+	--palette-key-radius: 4px;
 	--workspace-topbar-height: var(--frame-header-height);
 	--workspace-gutter: var(--frame-title-inset);
 	--workspace-gutter-start: var(--workspace-gutter);

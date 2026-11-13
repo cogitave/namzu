@@ -3561,6 +3561,38 @@ the dark theme and 40 in the light one (`--dialog-scrim`). The dialogs that are 
 the folder's access, undo, the update dialog, a Pal's settings and customize, an attachment preview) keep
 their own widths and take the same padding, corners, scrim and button height.
 
+## Settings and the search overlay
+
+Settings and the search overlay read their numbers from tokens in `theme.css` (`--settings-*`,
+`--palette-*`); `e2e/ux-settings-measures.test.mjs` measures both in the running app (Settings at 1280 by 820,
+the overlay at 1280 by 820, 900 by 820 and 700 by 1000, both themes). Every vertical position there is
+measured against the element it sits next to, never as a window position.
+
+- **The column.** A Settings section is one column no wider than 768 (`--settings-column-width`, the input
+  box's column), centred in the main area with at least 32 px on each side (16 in a pane under 640). The title
+  block stays under the 36 px header band. The search field is 28 high with corners of 8.
+- **Group headings** (**Namzu settings**, **Your projects**, **Data folders**, the search results' count) are
+  15/22 at weight 600 with 40 above and 16 under. The first heading, or the first row when a section has no
+  heading, sits 16 under the title block.
+- **A row** has 12 above and below its content. A row with only a label and a control is 52 high (the
+  control is 28); one with a single line of description is 68: the label is 14/20, then 4, then the description
+  13/18 in the muted colour, and the copy block carries 1 px above and below its two lines
+  (`--settings-row-copy-pad`). A 1 px hairline is drawn between rows, inside the row's top edge, so it takes
+  no height and the first row of a group has none. Every control ends on the column's right edge and is
+  centred on its row. Buttons, selects and text fields in a row are 28 high with corners of 8.
+- **The switch** is 36 by 20 with a 16 px knob 2 from its edge. On, it takes the text colour (a light track
+  with a dark knob in the dark theme, the reverse in the light one); off, it is an outline with a muted knob on
+  the left. A chosen radio (a dot) and a checked box (a tick) take the text colour as well. Lime is kept for the
+  one primary action on a screen and for state marks. The on switch and the off outline stand at least 3 to 1
+  against the page in both themes, and on and off differ by the knob's side, 16 px apart, not by colour alone.
+- **The search overlay** (Ctrl+K) is `min(672px, 100vw - 32px)` wide and `min(584px, 70dvh)` high, centred
+  across the window with its centre 18 below the window's centre, corners of 16. The input row is 33 high,
+  18 under the top edge and 24 from each side, with no icon and no field chrome and a bare close glyph at the
+  right. The list is inset 10; a row is 36 high with corners of 8, a 16 px icon 12 in and the title 40 in;
+  only the highlighted row shows its right-hand hints (the project or a chord). A group's caption is 12/16
+  and stands 8 above its first row. A footer 42 high under a full-width hairline lists the keys (move, open,
+  close) in boxes 18 high with a 1 px edge, corners of 4 and 12 px text. Behind it is the dialog's scrim.
+
 ## The input box and the home screen
 
 The input box, the row under it and the home screen sit on the same rhythm as the frame, so the box is where a person's hand expects it before and after the first message. `e2e/ux-composer-measures.test.mjs` measures all of it in the running app.
