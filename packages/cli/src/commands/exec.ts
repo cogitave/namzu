@@ -22,6 +22,7 @@
  */
 
 import { relative, resolve } from 'node:path'
+import { hookSwitch } from '../config/hook-layers.js'
 import { withModelLaunchEnvironment } from '../config/model-environment.js'
 
 import {
@@ -485,6 +486,7 @@ async function execPrint(
 		...(ctx.config.web ? { web: ctx.config.web } : {}),
 		...(ctx.config.smallModel ? { smallModel: ctx.config.smallModel } : {}),
 		...(ctx.config.hooks ? { hooks: ctx.config.hooks } : {}),
+		...(hookSwitch(ctx.config) ? { hooksSwitch: hookSwitch(ctx.config) } : {}),
 		...(ctx.config.compaction ? { compaction: ctx.config.compaction } : {}),
 		...(ctx.config.memory ? { memory: ctx.config.memory } : {}),
 		...(Object.keys({ ...ctx.config.limits, ...limitsFromFlags }).length > 0

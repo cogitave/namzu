@@ -243,6 +243,7 @@ import {
 	withCheckpoints,
 	withShellNote,
 } from '../checkpoints/wrap.js'
+import type { HooksSwitch } from '../config/hook-layers.js'
 import { takeConfigWarnings } from '../config/load.js'
 import { readModelLaunchEnvironment } from '../config/model-environment.js'
 import type {
@@ -353,8 +354,13 @@ import {
 	CHECK_HINT as PLUGIN_CHECK_HINT,
 	readPluginFileSources,
 } from '../integrations/plugins/files.js'
+import type { PluginHookProblem } from '../integrations/plugins/hook-entries.js'
 import { hookSessionMode } from '../integrations/plugins/hook-host.js'
-import { type CliPluginRuntime, createCliPluginRuntime } from '../integrations/plugins/runtime.js'
+import {
+	type CliPluginRuntime,
+	type PluginHookEntryView,
+	createCliPluginRuntime,
+} from '../integrations/plugins/runtime.js'
 import { hasApiCredential, requiresCredentialForModel } from '../integrations/providers/access.js'
 import { canSelectModel } from '../integrations/providers/access.js'
 import {
@@ -1583,6 +1589,9 @@ export interface AgentSession {
 	readonly hooks?: HooksConfig
 	/** The JavaScript hooks plugins registered now (plugin name, event); what `/hooks` lists beside `hooks`. */
 	readonly pluginHooks?: () => readonly { readonly plugin: string; readonly event: string }[]
+	/** The hook entries (commands, addresses, prompts) enabled plugins ship, and what could not be loaded from them. */
+	readonly pluginHookEntries?: () => readonly PluginHookEntryView[]
+	readonly pluginHookProblems?: () => readonly (PluginHookProblem & { readonly plugin: string })[]
 	/** Files as they were before each turn's writes; what `/restore` uses. */
 	readonly checkpoints?: FileCheckpointStore
 	/**
@@ -2682,6 +2691,8 @@ export interface AgentSessionOptions {
 	readonly allowModelSwitch?: boolean
 	/** See `NamzuCliConfig.hooks`. Attached to the plugin lifecycle manager. */
 	readonly hooks?: HooksConfig
+	/** The switch limiting hooks (`disableHooks`, `hooksManagedOnly`); hook entries plugins ship obey it too. */
+	readonly hooksSwitch?: HooksSwitch
 	/** See `NamzuCliConfig.additionalDirectories`, absolute. `/add-dir` extends it for the session. */
 	readonly additionalDirectories?: readonly string[]
 	/**
@@ -4977,25 +4988,31 @@ export async function createAgentSession(
 	let readHookMode: (() => PermissionMode) | undefined
 	let pluginRuntime: Awaited<ReturnType<typeof createCliPluginRuntime>>
 	try {
-		pluginRuntime = await createCliPluginRuntime(options.plugins, cwd, options.hooks, {
-			permissionMode: () => hookSessionMode(readHookMode?.(), options.permissionMode),
-			transcriptPath: (sessionId) =>
-				options.ephemeral ? undefined : paths.sessionLog({ sessionId: sessionId as SessionId }),
-			// A `prompt` hook asks the small model, and its tokens count against the
-			// turn it fired in. Outside a turn there is no ledger, so it is not asked.
-			judge: async (request) =>
-				sideModel === undefined || request.turnId === undefined
-					? undefined
-					: sideModel.ask({
-							sessionId: request.sessionId as SessionId,
-							turnId: request.turnId as TurnId,
-							instruction: request.instruction,
-							body: request.body,
-							maxTokens: 300,
-							signal: request.signal,
-							timing: 'beside-turn',
-						}),
-		})
+		pluginRuntime = await createCliPluginRuntime(
+			options.plugins,
+			cwd,
+			options.hooks,
+			{
+				permissionMode: () => hookSessionMode(readHookMode?.(), options.permissionMode),
+				transcriptPath: (sessionId) =>
+					options.ephemeral ? undefined : paths.sessionLog({ sessionId: sessionId as SessionId }),
+				// A `prompt` hook asks the small model, and its tokens count against the
+				// turn it fired in. Outside a turn there is no ledger, so it is not asked.
+				judge: async (request) =>
+					sideModel === undefined || request.turnId === undefined
+						? undefined
+						: sideModel.ask({
+								sessionId: request.sessionId as SessionId,
+								turnId: request.turnId as TurnId,
+								instruction: request.instruction,
+								body: request.body,
+								maxTokens: 300,
+								signal: request.signal,
+								timing: 'beside-turn',
+							}),
+			},
+			{ ...(options.hooksSwitch ? { hooksSwitch: options.hooksSwitch } : {}) },
+		)
 	} catch (error) {
 		await Promise.allSettled([mcp.close(), computerUseHost?.dispose(), browserControl?.dispose()])
 		return emptySession(
@@ -6136,6 +6153,12 @@ export async function createAgentSession(
 			: {}),
 		...(options.hooks ? { hooks: options.hooks } : {}),
 		...(pluginRuntime ? { pluginHooks: () => pluginRuntime?.pluginHooks() ?? [] } : {}),
+		...(pluginRuntime
+			? {
+					pluginHookEntries: () => pluginRuntime?.pluginHookEntries() ?? [],
+					pluginHookProblems: () => pluginRuntime?.pluginHookProblems() ?? [],
+				}
+			: {}),
 		checkpoints,
 		markFilesChanged: async (changed) => {
 			const seeded = fileObservations.get(scope.sessionId)
@@ -6495,6 +6518,7 @@ export async function createAgentSession(
 			),
 			...fallbackPlan.notices,
 			...takeConfigWarnings(),
+			...(pluginRuntime?.takePluginHookWarnings() ?? []),
 			...compatibleEndpointNotices(),
 			...memoryMigrationNotices,
 			...computerUseNotices,

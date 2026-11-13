@@ -29,6 +29,8 @@ import { join, resolve } from 'node:path'
 import {
 	RENAMED_PLUGIN_HOOK_EVENTS,
 	SHELL_HOOK_EVENTS,
+	isPluginFolderVariable,
+	referencedVariables,
 	resolveAutoCompactWindowSetting,
 	shellHookEnvProblems,
 } from '@namzu/sdk'
@@ -900,6 +902,30 @@ const HOOK_KIND_KEYS = {
 
 const HOOK_ENTRY_KEYS: readonly string[] = [...HOOK_COMMON_KEYS, ...HOOK_KIND_KEYS.command]
 
+/** How a caller other than a config file reads a `hooks` value with the same reader. */
+interface ReadHooksOptions {
+	/** The file the value is said to come from. */
+	readonly file: string
+	/** Where a problem goes; absent, the problems the config reader records. */
+	readonly record: (
+		file: string,
+		event: string,
+		severity: 'problem' | 'note',
+		message: string,
+	) => void
+	/** The entries are shipped by a plugin, which gives them its folders. */
+	readonly plugin?: boolean
+}
+
+/** The plugin folder variables a command entry refers to and does not set itself. */
+function pluginVariablesOf(entry: HookEntry): string[] {
+	if (entry.type !== undefined) return []
+	const env = entry.env ?? {}
+	return referencedVariables([entry.command, ...(entry.args ?? [])]).filter(
+		(name) => isPluginFolderVariable(name) && env[name] === undefined,
+	)
+}
+
 const CONFIG_READERS: ConfigReaders = {
 	format: (v, context) => {
 		if (typeof v === 'string' && isFormatName(v)) return v
@@ -1347,11 +1373,12 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		return v as readonly ToolResultScreenConfig[]
 	},
-	hooks: (v, context) => {
+	hooks: (v, context, hookOptions?: ReadHooksOptions) => {
 		if (!isConfigMapping(v))
 			return invalidConfigValue(context, [], 'must be a mapping of event → list')
 		const out: Record<string, HookEntry[]> = {}
-		const file = hookSourceLabel(context.source)
+		const file = hookOptions?.file ?? hookSourceLabel(context.source)
+		const record = hookOptions?.record ?? recordHookProblem
 		for (const [event, entries] of Object.entries(v)) {
 			const renamed = Object.hasOwn(RENAMED_PLUGIN_HOOK_EVENTS, event)
 				? RENAMED_PLUGIN_HOOK_EVENTS[event]
@@ -1366,7 +1393,7 @@ const CONFIG_READERS: ConfigReaders = {
 				// A name written the way the common contract writes events, for an
 				// event this kernel does not have: said out loud, the other hooks load.
 				if (looksLikeWrittenEvent(event) && Array.isArray(entries)) {
-					recordHookProblem(file, event, 'problem', `${unknownEventMessage()}.`)
+					record(file, event, 'problem', `${unknownEventMessage()}.`)
 					continue
 				}
 				return invalidConfigValue(
@@ -1383,7 +1410,7 @@ const CONFIG_READERS: ConfigReaders = {
 				if (isHookGroup(entry) || (writtenKey && isMeantAsGroup(entry))) {
 					parsed.push(
 						...readHookGroup(target, entry as Record<string, unknown>, index, (severity, message) =>
-							recordHookProblem(file, event, severity, message),
+							record(file, event, severity, message),
 						),
 					)
 					continue
@@ -1393,7 +1420,7 @@ const CONFIG_READERS: ConfigReaders = {
 					// mapping is said out loud and the rest of the file loads.
 					if (writtenKey) {
 						const lost = unreadableElement(target, index)
-						recordHookProblem(file, event, lost.severity, lost.message)
+						record(file, event, lost.severity, lost.message)
 						continue
 					}
 					return invalidConfigValue(context, [event, index], 'must be a mapping with a `command`')
@@ -1576,6 +1603,19 @@ const CONFIG_READERS: ConfigReaders = {
 						...(raw.env !== undefined ? { env: raw.env as Record<string, string> } : {}),
 						...shared,
 					})
+				}
+			}
+			if (hookOptions?.plugin !== true) {
+				// A config file's entry has no plugin to give it a folder: it is said, not run with an empty path.
+				for (const entry of parsed) {
+					const named = pluginVariablesOf(entry)
+					if (named.length === 0) continue
+					record(
+						file,
+						event,
+						'problem',
+						`the command \`${(entry as { command: string }).command.slice(0, 60)}\` refers to ${named.map((name) => `$${name}`).join(', ')}, which only a hook entry a plugin ships is given: it cannot find its folder and will not run, unless the entry's "env" or your environment sets ${named.length === 1 ? 'it' : 'each'}.`,
+					)
 				}
 			}
 			out[target] = [...(out[target] ?? []), ...parsed]
@@ -3370,4 +3410,31 @@ export function mergeBrowserConfig(
 		...(enabled !== undefined ? { enabled } : {}),
 		...(sites !== undefined ? { sites } : {}),
 	}
+}
+
+/** A problem found while reading hook entries a plugin ships. */
+export type PluginHookProblemRecorder = ReadHooksOptions['record']
+
+/**
+ * Read the hook entries a plugin ships (the events object of its hooks file or
+ * its inline `hookEntries`) through the reader config files use, so a problem
+ * is said the same way. `file` names where the value was read from; each
+ * problem goes to `record`. Throws `ConfigValueError` for a value the reader
+ * refuses whole (a misspelt event of our own shape, an entry with a bad value).
+ */
+export function readPluginHookEntries(
+	value: unknown,
+	where: { readonly file: string; readonly path: string },
+	record: PluginHookProblemRecorder,
+): HooksConfig {
+	const read = CONFIG_READERS.hooks as (
+		v: unknown,
+		context: ConfigReaderContext,
+		options: ReadHooksOptions,
+	) => HooksConfig
+	return read(
+		value,
+		{ source: { kind: 'file', path: where.path }, path: ['hooks'] },
+		{ file: where.file, record, plugin: true },
+	)
 }

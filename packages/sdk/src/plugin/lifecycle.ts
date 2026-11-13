@@ -31,6 +31,7 @@ import type {
 	PluginHookResult,
 	PluginLifecycleEvent,
 	PluginMCPServerConfig,
+	PluginManifest,
 	PluginScope,
 } from '../types/plugin/index.js'
 import { assertPluginHookEvent } from '../types/plugin/index.js'
@@ -156,6 +157,11 @@ function assertPluginTool(
 	}
 }
 
+/** A manifest `hooks` path that names a file of hook entries (not a module). */
+export function isHookEntriesPath(path: string): boolean {
+	return path.toLowerCase().endsWith('.json')
+}
+
 function immutableManifest(manifest: PluginDefinition['manifest']): PluginDefinition['manifest'] {
 	const mcpServers = manifest.mcpServers?.map((server) =>
 		Object.freeze({
@@ -177,6 +183,9 @@ function immutableManifest(manifest: PluginDefinition['manifest']): PluginDefini
 		...(manifest.tools ? { tools: Object.freeze([...manifest.tools]) } : {}),
 		...(manifest.skills ? { skills: Object.freeze([...manifest.skills]) } : {}),
 		...(manifest.hooks ? { hooks: Object.freeze([...manifest.hooks]) } : {}),
+		...(manifest.hookEntries
+			? { hookEntries: Object.freeze(structuredClone(manifest.hookEntries)) }
+			: {}),
 		...(mcpServers ? { mcpServers: Object.freeze(mcpServers) } : {}),
 		...(manifest.connectors ? { connectors: Object.freeze([...manifest.connectors]) } : {}),
 		...(manifest.personas ? { personas: Object.freeze([...manifest.personas]) } : {}),
@@ -209,6 +218,20 @@ export interface PluginLifecycleManagerConfig {
 	skillRegistry?: SkillRegistry
 	log: Logger
 	hookTimeoutMs?: number
+	/**
+	 * Hooks a host reads for a plugin when it is enabled, beyond the JavaScript
+	 * modules its manifest lists (shell, http and prompt entries a plugin ships,
+	 * for one). They are attached under the plugin's id the moment it is
+	 * enabled and removed with its other hooks when it is disabled, uninstalled
+	 * or its enable is rolled back, so they live exactly as long as the plugin
+	 * is on. Not called for a plugin defined in code. A throw fails the enable.
+	 */
+	hooksFor?: (plugin: {
+		readonly id: PluginId
+		readonly manifest: PluginManifest
+		readonly rootDir: string
+		readonly scope: PluginScope
+	}) => readonly PluginHookDefinition[] | Promise<readonly PluginHookDefinition[]>
 	/**
 	 * Where each MCP server's reconnect policy is registered, so an operator
 	 * can retune it while a turn is live.
@@ -265,6 +288,8 @@ export class PluginLifecycleManager {
 			priority: number
 			seq: number
 			statusMessage?: string
+			/** Read by the host from entries the plugin ships, not a module the plugin runs. */
+			shell?: true
 		}>
 	> = new Map()
 	private pluginContributions: Map<PluginId, PluginContributionRecord> = new Map()
@@ -273,6 +298,7 @@ export class PluginLifecycleManager {
 	/** Immutable executable admissions owned by this manager, never by the mutable registry. */
 	private pluginAdmissions: Map<PluginId, PluginAdmission> = new Map()
 	private hookTimeoutMs: number
+	private readonly hooksFor: PluginLifecycleManagerConfig['hooksFor']
 	private readonly configRegistry: ConfigRegistry | undefined
 	private readonly scopeRoots: Readonly<Record<PluginScope, string>>
 	private log: Logger
@@ -299,6 +325,7 @@ export class PluginLifecycleManager {
 		this.skillRegistry = config.skillRegistry
 		this.scopeRoots = Object.freeze({ ...config.scopeRoots })
 		this.hookTimeoutMs = config.hookTimeoutMs ?? HOOK_TIMEOUT_MS
+		this.hooksFor = config.hooksFor
 		this.configRegistry = config.configRegistry
 		this.mcpToolPolicies = config.mcpToolPolicies
 		this.onMCPToolDrift = config.onMCPToolDrift
@@ -411,6 +438,10 @@ export class PluginLifecycleManager {
 	 * registration order.
 	 */
 	registerHook(pluginId: PluginId, hook: PluginHookDefinition): void {
+		this.addHook(pluginId, hook, false)
+	}
+
+	private addHook(pluginId: PluginId, hook: PluginHookDefinition, shell: boolean): void {
 		// Refused here rather than left to never fire: a hook module still
 		// naming `run_start` would otherwise attach to an event nothing emits,
 		// and the operator would learn of the rename only by its silence.
@@ -421,6 +452,7 @@ export class PluginLifecycleManager {
 			handler: hook.handler,
 			priority: hook.priority ?? DEFAULT_HOOK_PRIORITY,
 			...(hook.statusMessage !== undefined ? { statusMessage: hook.statusMessage } : {}),
+			...(shell ? { shell: true as const } : {}),
 			// Registration index, so the sort has something stable to fall
 			// back on when priorities are equal.
 			seq: handlers.length,
@@ -436,10 +468,21 @@ export class PluginLifecycleManager {
 	 * and its event, in the order answers are read. For a host that shows the
 	 * operator what is attached; it carries no handler.
 	 */
-	listHooks(): readonly { readonly pluginId: PluginId; readonly event: PluginHookEvent }[] {
-		const out: { pluginId: PluginId; event: PluginHookEvent }[] = []
+	listHooks(): readonly {
+		readonly pluginId: PluginId
+		readonly event: PluginHookEvent
+		/** Set when the hook was read from entries the plugin ships and not from a module it runs. */
+		readonly shell?: true
+	}[] {
+		const out: { pluginId: PluginId; event: PluginHookEvent; shell?: true }[] = []
 		for (const [event, handlers] of this.hookHandlers) {
-			for (const handler of handlers) out.push({ pluginId: handler.pluginId, event })
+			for (const handler of handlers) {
+				out.push({
+					pluginId: handler.pluginId,
+					event,
+					...(handler.shell === true ? { shell: true as const } : {}),
+				})
+			}
 		}
 		return out
 	}
@@ -739,6 +782,9 @@ export class PluginLifecycleManager {
 				for (const hook of admission.inCode.hooks) this.registerHook(pluginId, hook)
 			} else if (manifest.hooks && manifest.hooks.length > 0) {
 				for (const hookPath of manifest.hooks) {
+					// A `.json` path is a file of hook entries, read by the host through
+					// `hooksFor`; it is not a module.
+					if (isHookEntriesPath(hookPath)) continue
 					const absolutePath = await resolveWithinReal(admission.rootDir, hookPath)
 					const fileUrl = pathToFileURL(absolutePath).href
 					const mod = (await import(fileUrl)) as {
@@ -755,6 +801,18 @@ export class PluginLifecycleManager {
 						this.registerHook(pluginId, hook)
 					}
 				}
+			}
+
+			// Entries the host reads from the plugin folder: attached now, removed
+			// with the rest of this plugin's hooks.
+			if (!admission.inCode && this.hooksFor) {
+				const shipped = await this.hooksFor({
+					id: pluginId,
+					manifest,
+					rootDir: admission.rootDir,
+					scope: admission.scope,
+				})
+				for (const hook of shipped) this.addHook(pluginId, hook, true)
 			}
 
 			// Start MCP servers and adapt their tools

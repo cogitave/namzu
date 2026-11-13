@@ -106,6 +106,7 @@
  */
 
 import { spawn } from 'node:child_process'
+import { mkdirSync } from 'node:fs'
 
 import { decodedCommands, decomposeCommandLine } from '../authorization/command-line.js'
 import {
@@ -132,7 +133,13 @@ import type { Logger } from '../utils/logger.js'
 import { boundHookReplacement } from './hook-context.js'
 import type { PluginLifecycleManager } from './lifecycle.js'
 import { readHookCommand } from './shell-hook-command.js'
-import { hookUnsetVariableHint, movedEnvironment } from './shell-hook-env.js'
+import {
+	type PluginFolders,
+	hookUnsetVariableHint,
+	isPluginFolderVariable,
+	movedEnvironment,
+	substitutePluginFolders,
+} from './shell-hook-env.js'
 import { postHookJson } from './shell-hook-http.js'
 import { type ShellHookToolNames, shellHookToolName } from './shell-hook-tool-names.js'
 
@@ -620,6 +627,12 @@ export interface ShellHookInput {
 	readonly endReason?: string
 	/** The folder the session was started for. Sent as `NAMZU_PROJECT_DIR`; absent, `cwd`. */
 	readonly projectDir?: string
+	/**
+	 * Set for a hook entry a plugin ships: the plugin's own folder and the folder
+	 * kept for its data. Sent as `NAMZU_PLUGIN_ROOT` and `NAMZU_PLUGIN_DATA`, and
+	 * put in the command and arguments where they name them.
+	 */
+	readonly plugin?: PluginFolders
 	/** The delegating session, on `subagent_start` and `subagent_stop`. */
 	readonly parentSessionId?: string
 	/** The parent turn whose tool call spawned the child, on `subagent_start` and `subagent_stop`. */
@@ -757,6 +770,9 @@ export function runShellHook(
 		NAMZU_HOOK_EVENT: input.event,
 		NAMZU_SESSION_ID: input.sessionId,
 		NAMZU_PROJECT_DIR: projectDir,
+		...(input.plugin !== undefined
+			? { NAMZU_PLUGIN_ROOT: input.plugin.root, NAMZU_PLUGIN_DATA: input.plugin.dataDir }
+			: {}),
 		...(input.turnId !== undefined ? { NAMZU_TURN_ID: input.turnId } : {}),
 		...(input.toolName !== undefined
 			? { NAMZU_TOOL_NAME: shellHookToolName(input.toolName, input.toolNames) }
@@ -765,10 +781,54 @@ export function runShellHook(
 	}
 	// The entry's `env`, and any `..._PROJECT_DIR` its command refers to without
 	// it being set, over the inherited environment; the kernel's own names last.
-	const { env, unset } = movedEnvironment(entry, { ...inherited, ...kernel }, kernel, {
+	// A plugin's own folder is put in the command and its arguments, so the exec
+	// form (no shell) finds it too.
+	const pluginFolders = input.plugin
+	const placed: ShellHookEntry =
+		pluginFolders === undefined
+			? entry
+			: {
+					...entry,
+					command: substitutePluginFolders(entry.command, pluginFolders),
+					...(entry.args !== undefined
+						? { args: entry.args.map((arg) => substitutePluginFolders(arg, pluginFolders)) }
+						: {}),
+				}
+	const { env, unset } = movedEnvironment(placed, { ...inherited, ...kernel }, kernel, {
 		project: projectDir,
+		...(pluginFolders !== undefined
+			? { plugin: pluginFolders.root, pluginData: pluginFolders.dataDir }
+			: {}),
 	})
 	const unsetVariables = unset.length > 0 ? { unsetVariables: unset } : {}
+	// A command that names a plugin's folder with no plugin to give it one is not
+	// run: it would start with an empty path (`/guard.sh`) and look like a hook
+	// that ran. The failure follows the entry's `onFailure`, as any other.
+	const noPlugin = unset.filter(isPluginFolderVariable)
+	if (noPlugin.length > 0) {
+		return Promise.resolve({
+			exitCode: null,
+			timedOut: false,
+			stdout: '',
+			stderr: '',
+			spawnError: `its command refers to ${noPlugin.map((name) => `$${name}`).join(', ')}, which only a hook entry a plugin ships is given; it was not run`,
+			...unsetVariables,
+		})
+	}
+	if (pluginFolders !== undefined) {
+		try {
+			// Created when first needed; never inside the plugin's own folder.
+			mkdirSync(pluginFolders.dataDir, { recursive: true, mode: 0o700 })
+		} catch (error) {
+			return Promise.resolve({
+				exitCode: null,
+				timedOut: false,
+				stdout: '',
+				stderr: '',
+				spawnError: `the plugin's data folder could not be created (${error instanceof Error ? error.message : String(error)})`,
+			})
+		}
+	}
 	return new Promise((resolve) => {
 		let child: ReturnType<typeof spawn>
 		try {
@@ -780,15 +840,15 @@ export function runShellHook(
 			// its own — the hook's deadline becomes the grandchild's.
 			const detached = process.platform !== 'win32'
 			child =
-				entry.args !== undefined
+				placed.args !== undefined
 					? // The exec form: no shell reads `command` or any argument.
-						spawn(entry.command, [...entry.args], {
+						spawn(placed.command, [...placed.args], {
 							cwd: input.cwd,
 							env: withSessionChildMarker(env),
 							stdio: ['pipe', 'pipe', 'pipe'],
 							detached,
 						})
-					: spawnHostShell(entry.command, {
+					: spawnHostShell(placed.command, {
 							cwd: input.cwd,
 							env,
 							stdio: ['pipe', 'pipe', 'pipe'],
@@ -1519,6 +1579,13 @@ export interface ShellHookOptions {
 	 * `NAMZU_PROJECT_DIR`. Absent, `cwd`.
 	 */
 	readonly projectDir?: string
+	/**
+	 * Set when the entries belong to a plugin: its own folder and the folder kept
+	 * for its data, given to every command as `NAMZU_PLUGIN_ROOT` and
+	 * `NAMZU_PLUGIN_DATA` and put in the command and arguments where they name
+	 * them. The data folder is created when a command first runs.
+	 */
+	readonly plugin?: PluginFolders
 	/** How a path pattern in an entry's `if` is read. Absent, such a filter runs the hook. */
 	readonly pathFilter?: ShellHookPathFilter
 	/**
@@ -1699,6 +1766,7 @@ export function createShellHook(
 				event,
 				cwd: options.cwd,
 				...(options.projectDir !== undefined ? { projectDir: options.projectDir } : {}),
+				...(options.plugin !== undefined ? { plugin: options.plugin } : {}),
 				sessionId: String(context.sessionId),
 				...(context.source !== undefined ? { sessionSource: context.source } : {}),
 				...(context.endReason !== undefined ? { endReason: context.endReason } : {}),

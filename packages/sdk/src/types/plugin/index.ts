@@ -609,7 +609,18 @@ export interface PluginManifest {
 	readonly instructions?: string
 	readonly tools?: readonly string[]
 	readonly skills?: readonly string[]
+	/**
+	 * Paths inside the plugin folder. A path that ends in `.json` names a file of
+	 * shell, http or prompt hook entries (read by the host, see `hookEntries`);
+	 * any other path is a JavaScript module exporting a `hooks` array.
+	 */
 	readonly hooks?: readonly string[]
+	/**
+	 * Shell, http or prompt hook entries written inline: the same events object a
+	 * hooks file holds (event name to a list of entries or groups). The runtime
+	 * keeps it as written; the host that owns shell hooks reads it.
+	 */
+	readonly hookEntries?: Readonly<Record<string, unknown>>
 	readonly mcpServers?: readonly PluginMCPServerConfig[]
 	readonly connectors?: readonly string[]
 	readonly personas?: readonly string[]
@@ -664,6 +675,7 @@ export const PluginManifestSchema = z.object({
 	tools: z.array(z.string()).max(MAX_TOOLS_PER_PLUGIN).optional(),
 	skills: z.array(z.string()).max(MAX_SKILLS_PER_PLUGIN).optional(),
 	hooks: z.array(z.string()).max(MAX_HOOKS_PER_PLUGIN).optional(),
+	hookEntries: z.record(z.string(), z.unknown()).optional(),
 	mcpServers: z.array(PluginMCPServerConfigSchema).max(MAX_MCP_SERVERS_PER_PLUGIN).optional(),
 	connectors: z.array(z.string()).max(MAX_CONNECTORS_PER_PLUGIN).optional(),
 	personas: z.array(z.string()).max(MAX_PERSONAS_PER_PLUGIN).optional(),

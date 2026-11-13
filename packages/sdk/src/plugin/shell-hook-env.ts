@@ -23,13 +23,57 @@ export const SHELL_HOOK_RESERVED_ENV: readonly string[] = [
 ]
 
 /** The folders a name's ending can stand for. */
-export type MovedFolder = 'project'
+export type MovedFolder = 'project' | 'plugin' | 'pluginData'
 
 /** Endings read by shape; the name looked for is the whole variable name. */
 export const MOVED_FOLDER_ENDINGS: readonly {
 	readonly ending: string
 	readonly folder: MovedFolder
-}[] = [{ ending: '_PROJECT_DIR', folder: 'project' }]
+}[] = [
+	{ ending: '_PROJECT_DIR', folder: 'project' },
+	// A plugin's own folder and the folder kept for its data. These are set only
+	// for a hook entry a plugin ships; a name like this in a config file's entry
+	// has no folder to stand for and is left unset (and reported).
+	{ ending: '_PLUGIN_ROOT', folder: 'plugin' },
+	{ ending: '_PLUGIN_DATA', folder: 'pluginData' },
+]
+
+/** The folders a plugin-shipped entry is given. */
+export interface PluginFolders {
+	/** The plugin's own folder. */
+	readonly root: string
+	/** The folder kept for the plugin's data, under the Namzu home and never inside `root`. */
+	readonly dataDir: string
+}
+
+/** Whether a variable name stands for a plugin folder by its ending. */
+export function isPluginFolderVariable(name: string): boolean {
+	return MOVED_FOLDER_ENDINGS.some(
+		(each) =>
+			(each.folder === 'plugin' || each.folder === 'pluginData') && name.endsWith(each.ending),
+	)
+}
+
+/**
+ * `${NAME}` and `$NAME` in a command or argument, for a name that ends in
+ * `_PLUGIN_ROOT` or `_PLUGIN_DATA`, become the folder's path, so an entry in
+ * the exec form (which no shell reads) finds its own folder too. A reference
+ * with a modifier (`${NAME:-x}`) is left to the shell, which has the variable.
+ */
+export function substitutePluginFolders(text: string, folders: PluginFolders | undefined): string {
+	if (folders === undefined) return text
+	return text.replace(
+		/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g,
+		(whole: string, braced: string | undefined, bare: string | undefined) => {
+			const name = (braced ?? bare) as string
+			const moved = MOVED_FOLDER_ENDINGS.find((each) => name.endsWith(each.ending))
+			if (moved === undefined) return whole
+			if (moved.folder === 'plugin') return folders.root
+			if (moved.folder === 'pluginData') return folders.dataDir
+			return whole
+		},
+	)
+}
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 
@@ -122,7 +166,7 @@ export function movedEnvironment(
 	entry: { readonly command: string; readonly args?: readonly string[]; readonly env?: unknown },
 	base: Readonly<Record<string, string | undefined>>,
 	kernel: Readonly<Record<string, string | undefined>>,
-	folders: Readonly<Record<MovedFolder, string>>,
+	folders: Readonly<Partial<Record<MovedFolder, string>>>,
 ): MovedEnvironment {
 	const env: Record<string, string | undefined> = { ...base }
 	if (entry.env !== null && typeof entry.env === 'object' && !Array.isArray(entry.env)) {
@@ -137,7 +181,8 @@ export function movedEnvironment(
 	for (const name of referencedVariables(texts)) {
 		if (env[name] !== undefined) continue
 		const moved = MOVED_FOLDER_ENDINGS.find((each) => name.endsWith(each.ending))
-		if (moved !== undefined) env[name] = folders[moved.folder]
+		const folder = moved === undefined ? undefined : folders[moved.folder]
+		if (folder !== undefined) env[name] = folder
 		else if (!assignedWithin(texts, name)) unset.push(name)
 	}
 	return { env, unset }
