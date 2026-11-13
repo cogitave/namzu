@@ -1,6 +1,8 @@
 ---
-'@namzu/sdk': minor
+'@namzu/sdk': major
 ---
+
+Breaking default: what an attached shell hook prints to stdout on `pre_compact` (exit 0, not JSON) used to be ignored and is now given to the summariser. To keep the old behaviour, print it to stderr.
 
 Hooks now see every compaction and the model's last message, and a `pre_compact` hook can say what the summary keeps.
 
