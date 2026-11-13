@@ -5,15 +5,11 @@
  * does not draw anything the normal transcript does not. Every choice is the
  * one `Markdown.tsx` makes, from the same parser, the same wrapper and the same
  * table layout: what each block looks like, the blank row between blocks, how a
- * bullet hangs, and how a code line too long for a row is cut. The tests draw
+ * bullet hangs, and how a code line too long for a row is cut (`code-wrap.ts`). The tests draw
  * both and compare the screens, so the two cannot drift apart unseen.
  */
 
-import { Box, Text, renderToString } from 'ink'
-import { createElement } from 'react'
-import stringWidth from 'string-width'
-
-import { colourLines, grammarState, runsForPieces } from '../code-highlight.js'
+import { colourLines, grammarState, grammarVersion, runsForPieces } from '../code-highlight.js'
 import {
 	QUOTE_BAR,
 	QUOTE_BAR_WIDTH,
@@ -28,7 +24,9 @@ import type { TableSpan } from '../markdown-table.js'
 import { type DisplaySpan, inlineDisplaySpans, wrapSpans } from '../markdown-wrap.js'
 import { type MdBlock, parseMarkdown } from '../markdownParser.js'
 import { terminalDisplayText } from '../terminal-display.js'
+import { shownTheme } from '../theme-store.js'
 import { theme } from '../theme.js'
+import { wrapCodeLine } from './code-wrap.js'
 import { wrapJoiners } from './joiners.js'
 import { type Joiner, type StyledSpan, spansText } from './rows.js'
 
@@ -88,20 +86,6 @@ function wrappedRows(
 		lines.map((line) => spansText(line)),
 	)
 	return { lines, joins }
-}
-
-/**
- * A code line cut to rows of `width` cells by the same wrapper the normal
- * transcript's `<Text wrap="wrap">` uses, which is Ink's: asked of Ink itself
- * so that where it cuts is never a second opinion.
- */
-function codeLine(line: string, width: number): string[] {
-	if (stringWidth(line) <= width) return [line]
-	const drawn = renderToString(
-		createElement(Box, { width }, createElement(Text, { wrap: 'wrap' }, line)),
-		{ columns: width },
-	)
-	return drawn.split('\n')
 }
 
 function blockRows(
@@ -177,7 +161,7 @@ function blockRows(
 			grammarState(block.lang)
 			const coloured = colourLines(block.lang, lines, { above: '', block: 0, spent })
 			return lines.flatMap((line, n) => {
-				const pieces = codeLine(line, width - indent)
+				const pieces = wrapCodeLine(line, width - indent)
 				const joins = wrapJoiners(line, pieces)
 				const runs = coloured?.lines[n]
 				const cut = runs ? runsForPieces(line, runs, pieces) : undefined
@@ -202,6 +186,42 @@ function blockRows(
 	}
 }
 
+/**
+ * The rows of blocks already laid out. A reply that streams is laid out again
+ * at every piece, but only its last block has changed: the ones before it are
+ * the same text at the same width and colour, so their rows are kept instead of
+ * being wrapped and coloured again. Without this a long code block earlier in
+ * a reply was cut and coloured at every piece that came after it, and the
+ * window stopped answering keys while it streamed.
+ *
+ * Bounded by count, oldest out. The key holds everything the rows depend on:
+ * the block, the width, the colour, the code above it (a grammar carries over
+ * from block to block), the theme and the grammars loaded.
+ */
+const KEPT_BLOCKS = 48
+const keptBlocks = new Map<string, MarkdownRow[]>()
+
+function keptBlockRows(
+	block: MdBlock,
+	width: number,
+	color: string,
+	italic: boolean,
+	spent: number,
+): MarkdownRow[] {
+	const key = `${shownTheme()}:${grammarVersion()}|${width}|${color}|${italic}|${spent}|${JSON.stringify(block)}`
+	const hit = keptBlocks.get(key)
+	if (hit) {
+		// Most recently used goes last.
+		keptBlocks.delete(key)
+		keptBlocks.set(key, hit)
+		return hit
+	}
+	const made = blockRows(block, width, color, italic, spent)
+	keptBlocks.set(key, made)
+	if (keptBlocks.size > KEPT_BLOCKS) keptBlocks.delete(keptBlocks.keys().next().value as string)
+	return made
+}
+
 /** Blocks as rows, one blank row between them, none before the first, bullets tight. */
 function blocksRows(
 	blocks: readonly MdBlock[],
@@ -215,7 +235,7 @@ function blocksRows(
 	blocks.forEach((block, i) => {
 		const prev = blocks[i - 1]
 		if (blockGap(block, prev?.type)) rows.push(row([]))
-		rows.push(...blockRows(block, width, color, italic, above))
+		for (const made of keptBlockRows(block, width, color, italic, above)) rows.push(made)
 		above += codeChars(block)
 	})
 	return rows

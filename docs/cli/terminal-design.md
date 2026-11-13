@@ -1133,8 +1133,19 @@ The conversation is a window onto rows like the scroll box above draws: a glyph
 gutter, wrapped text, a blank row between entries. A reply is drawn as
 Markdown, the way the normal transcript draws it (headings, lists, code blocks
 with nothing beside them, tables, inline styling), from the same parser,
-wrapper and table layout; a code line too long for the row is cut by the same
-wrapper the normal transcript uses. Other messages are plain wrapped text. A `⎿` result line (an interruption, a declined call, a tool's result) hangs in the same columns as in the normal transcript: the mark in the third cell and its words from the sixth, with a wrapped line under the words; the mark is part of the row text, so a copy of such a row includes it. Only the rows that fit are built into elements, so the
+wrapper and table layout; a code line too long for the row is cut as the normal
+transcript cuts it (`fullscreen/code-wrap.ts` holds the same rules as Ink's
+`<Text wrap="wrap">`, and a test draws many lines both ways and requires the same
+rows). The rows are made while the window renders, so nothing here may start a
+second render: Ink's `renderToString` called from there left the layout engine
+holding an update for a freed node and stopped the program with `table index is
+out of bounds` in any window narrower than a code line (every code block at 80
+columns). A streamed reply is laid out again at each piece, so the rows of the
+blocks that did not change are kept (48 blocks, oldest out) and the plain
+wrap of a reply's whole text is not made at all; a line of 50,000 characters
+costs the window the same as a short one, the text stays complete for copy and
+search, and a key is echoed in under 100 ms while such a reply streams. Other
+messages are plain wrapped text. A `⎿` result line (an interruption, a declined call, a tool's result) hangs in the same columns as in the normal transcript: the mark in the third cell and its words from the sixth, with a wrapped line under the words; the mark is part of the row text, so a copy of such a row includes it. Only the rows that fit are built into elements, so the
 cost of a frame follows the terminal's height, not the conversation's.
 Messages are laid out once per width and kept. The spinner, composer and
 footer are pinned under it and the window takes the rest of the height; the
