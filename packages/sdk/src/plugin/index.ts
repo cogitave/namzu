@@ -80,3 +80,8 @@ export type {
 } from './file-change-watch.js'
 export { FileChangeHooks } from './file-change-hooks.js'
 export type { FileChangeHooksOptions } from './file-change-hooks.js'
+export {
+	WORKTREE_HOOK_SHOWN_CHARS,
+	worktreeHookPrinted,
+	worktreeHookVerdict,
+} from './worktree-hook-answer.js'

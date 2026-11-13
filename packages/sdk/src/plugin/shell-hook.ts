@@ -137,6 +137,7 @@ import type { SessionHookEnv } from './session-hook-env.js'
 import { readHookCommand } from './shell-hook-command.js'
 import { postHookJson } from './shell-hook-http.js'
 import { type ShellHookToolNames, shellHookToolName } from './shell-hook-tool-names.js'
+import { worktreeHookVerdict } from './worktree-hook-answer.js'
 
 /**
  * The events a shell hook may attach to: the ones an operator can act on
@@ -164,6 +165,8 @@ export type ShellHookEvent = Extract<
 	| 'turn_end'
 	| 'file_changed'
 	| 'cwd_changed'
+	| 'worktree_create'
+	| 'worktree_remove'
 >
 
 export const SHELL_HOOK_EVENTS: readonly ShellHookEvent[] = [
@@ -186,6 +189,8 @@ export const SHELL_HOOK_EVENTS: readonly ShellHookEvent[] = [
 	'turn_end',
 	'file_changed',
 	'cwd_changed',
+	'worktree_create',
+	'worktree_remove',
 ]
 
 /** What a failed hook does to the action it guards. */
@@ -679,6 +684,14 @@ export interface ShellHookInput {
 	/** On `cwd_changed`: the folder left and the folder entered. Sent as `old_cwd` and `new_cwd`. */
 	readonly oldCwd?: string
 	readonly newCwd?: string
+	/** On `worktree_create`: the suggested name. Sent as `name`. */
+	readonly worktreeName?: string
+	/** On `worktree_create`: where a relative path is placed. Sent as `worktree_root`. */
+	readonly worktreeRoot?: string
+	/** On `worktree_create`: the commit or branch asked for, when one was. Sent as `base_ref`. */
+	readonly worktreeBaseRef?: string
+	/** On `worktree_remove`: the worktree. Sent as `worktree_path`. */
+	readonly worktreePath?: string
 	/**
 	 * The file this hook may append `export NAME=value` lines to. Sent as
 	 * `NAMZU_ENV_FILE`; on every other event the variable is not set at all.
@@ -735,6 +748,10 @@ export function shellHookPayload(input: ShellHookInput): string {
 		...(input.change !== undefined ? { change: input.change } : {}),
 		...(input.oldCwd !== undefined ? { old_cwd: input.oldCwd } : {}),
 		...(input.newCwd !== undefined ? { new_cwd: input.newCwd } : {}),
+		...(input.worktreeName !== undefined ? { name: input.worktreeName } : {}),
+		...(input.worktreeRoot !== undefined ? { worktree_root: input.worktreeRoot } : {}),
+		...(input.worktreeBaseRef !== undefined ? { base_ref: input.worktreeBaseRef } : {}),
+		...(input.worktreePath !== undefined ? { worktree_path: input.worktreePath } : {}),
 		...(input.compaction !== undefined ? compactionFields(input.event, input.compaction) : {}),
 		...(input.toolName !== undefined
 			? { tool_name: shellHookToolName(input.toolName, input.toolNames) }
@@ -1031,6 +1048,8 @@ export const SHELL_HOOK_PASCAL_EVENT_NAMES: Readonly<Partial<Record<ShellHookEve
 	turn_end: 'Stop',
 	file_changed: 'FileChanged',
 	cwd_changed: 'CwdChanged',
+	worktree_create: 'WorktreeCreate',
+	worktree_remove: 'WorktreeRemove',
 }
 
 /** What a hook's stdout JSON said, before it is mapped to a verdict for an event. */
@@ -1480,6 +1499,11 @@ export function shellHookVerdict(
 						...(reading.watchPaths !== undefined ? { watchPaths: reading.watchPaths } : {}),
 					}
 		}
+		case 'worktree_create':
+		case 'worktree_remove':
+			// Read by `worktreeHookVerdict`, which the handler calls for these two
+			// events; a caller that gets here has no run to read.
+			return { action: 'continue' }
 		case 'file_changed':
 		case 'cwd_changed':
 			// Nothing here can be refused and nothing reaches the model: what the hook
@@ -1731,6 +1755,50 @@ function readJudgement(reply: string): { ok: boolean; reason: string } | undefin
 	}
 }
 
+/**
+ * One run of a `worktree_create` or `worktree_remove` hook, to its answer. It
+ * is always awaited (an `async` flag cannot make a hook that does the work run
+ * out of sight), and a `prompt` hook cannot do it at all, which is said as a
+ * failure rather than skipped.
+ */
+async function runWorktreeHook(
+	event: 'worktree_create' | 'worktree_remove',
+	entry: ShellHookHandler,
+	input: ShellHookInput,
+	signal: AbortSignal | undefined,
+	reportTimeout: (timedOut: boolean) => void,
+): Promise<PluginHookResult> {
+	const label = describeShellHook(entry)
+	if (entry.type === 'prompt') {
+		return {
+			action: 'error',
+			message: `The ${event} hook \`${label}\` is a prompt, and a prompt cannot make or remove a worktree. Use a command or an http hook.`,
+		}
+	}
+	if (entry.type === 'http') {
+		const response = await postHookJson({
+			url: entry.url,
+			body: shellHookPayload(input),
+			...(entry.headers !== undefined ? { headers: entry.headers } : {}),
+			...(entry.allowedEnvVars !== undefined ? { allowedEnvVars: entry.allowedEnvVars } : {}),
+			timeoutMs: hookTimeout(entry),
+			...(signal !== undefined ? { signal } : {}),
+		})
+		reportTimeout(response.timedOut)
+		const ok = response.status !== null && response.status >= 200 && response.status < 300
+		return worktreeHookVerdict(event, label, {
+			exitCode: ok ? 0 : (response.status ?? null),
+			timedOut: response.timedOut,
+			stdout: ok ? response.body : '',
+			stderr: ok ? '' : response.body.slice(0, 500),
+			...(response.error !== undefined ? { spawnError: response.error } : {}),
+		})
+	}
+	const outcome = await runShellHook(entry, input, signal)
+	reportTimeout(outcome.timedOut)
+	return worktreeHookVerdict(event, label, outcome)
+}
+
 /** One entry as a hook definition the lifecycle manager accepts. */
 export function createShellHook(
 	event: ShellHookEvent,
@@ -1756,7 +1824,9 @@ export function createShellHook(
 		event,
 		...(entry.statusMessage !== undefined ? { statusMessage: entry.statusMessage } : {}),
 		handler: async (context: PluginHookContext) => {
-			if (spent) return { action: 'continue' }
+			if (spent && event !== 'worktree_create' && event !== 'worktree_remove') {
+				return { action: 'continue' }
+			}
 			// A notification is matched on its type; every other event on the tool.
 			const namesATool = !(
 				event === 'pre_compact' ||
@@ -1791,10 +1861,17 @@ export function createShellHook(
 			if (event === 'file_changed' && !fileChangedMatches(entry.matcher, context.filePath)) {
 				return { action: 'continue' }
 			}
-			if (!shellHookIfMatches(entry.if, context.toolName, context.toolInput, options.pathFilter)) {
+			// A worktree hook does the work itself, so a filter or a one-shot flag on
+			// it could only make the kernel act where the person wanted the hook to:
+			// both are ignored there, and the hook always runs.
+			const doesTheWork = event === 'worktree_create' || event === 'worktree_remove'
+			if (
+				!doesTheWork &&
+				!shellHookIfMatches(entry.if, context.toolName, context.toolInput, options.pathFilter)
+			) {
 				return { action: 'continue' }
 			}
-			if (entry.once === true) spent = true
+			if (entry.once === true && !doesTheWork) spent = true
 			const transcriptPath = options.transcriptPath?.(String(context.sessionId))
 			const permissionMode = options.permissionMode?.()
 			const envEvent =
@@ -1813,6 +1890,12 @@ export function createShellHook(
 				...(context.change !== undefined ? { change: context.change } : {}),
 				...(context.oldCwd !== undefined ? { oldCwd: context.oldCwd } : {}),
 				...(context.newCwd !== undefined ? { newCwd: context.newCwd } : {}),
+				...(context.worktreeName !== undefined ? { worktreeName: context.worktreeName } : {}),
+				...(context.worktreeRoot !== undefined ? { worktreeRoot: context.worktreeRoot } : {}),
+				...(context.worktreeBaseRef !== undefined
+					? { worktreeBaseRef: context.worktreeBaseRef }
+					: {}),
+				...(context.worktreePath !== undefined ? { worktreePath: context.worktreePath } : {}),
 				...(options.projectDir !== undefined ? { projectDir: options.projectDir } : {}),
 				sessionId: String(context.sessionId),
 				...(context.source !== undefined ? { sessionSource: context.source } : {}),
@@ -1856,6 +1939,9 @@ export function createShellHook(
 			const verdictCall: ShellHookCall = {
 				...(context.toolName !== undefined ? { toolName: context.toolName } : {}),
 				...(context.toolInput !== undefined ? { toolInput: context.toolInput } : {}),
+			}
+			if (event === 'worktree_create' || event === 'worktree_remove') {
+				return runWorktreeHook(event, entry, hookInput, context.signal, reportTimeout)
 			}
 			if (entry.type === 'http') {
 				const response = await postHookJson({

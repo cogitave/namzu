@@ -743,6 +743,9 @@ export {
 	FileChangeWatcher,
 	MAX_WATCHED_PATHS,
 	FileChangeHooks,
+	worktreeHookVerdict,
+	worktreeHookPrinted,
+	WORKTREE_HOOK_SHOWN_CHARS,
 } from './plugin/index.js'
 export type { DefinedPlugin, DefinePluginOptions } from './plugin/define.js'
 
@@ -1203,6 +1206,9 @@ export type { VaultInstrumentationOptions } from './vault/instrumentation.js'
 
 export {
 	GitWorktreeDriver,
+	HookedWorkspaceDriver,
+	WorktreeHookError,
+	worktreeHookHost,
 	parseWorktreeList,
 	SharedSessionWorkspace,
 	WorkspaceBackendRegistry,

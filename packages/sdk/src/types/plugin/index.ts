@@ -170,6 +170,18 @@ export type PluginHookEvent =
 	 * and `newCwd`. Fired by the host, never when the two are the same folder.
 	 */
 	| 'cwd_changed'
+	/**
+	 * A worktree is about to be created. Carries `worktreeName` (the suggested
+	 * name) and `worktreeRoot` (where a relative answer is placed). A hook that
+	 * answers with a path (`worktreePath`) makes the worktree itself; the host
+	 * then creates none.
+	 */
+	| 'worktree_create'
+	/**
+	 * A worktree is about to be removed. Carries `worktreePath`. A hook on it
+	 * does the removing; the host then removes nothing.
+	 */
+	| 'worktree_remove'
 	| 'pre_llm_call'
 	| 'post_llm_call'
 	| 'iteration_start'
@@ -211,6 +223,8 @@ export function assertPluginHookEvent(event: PluginHookEvent): void {
 		case 'notification':
 		case 'file_changed':
 		case 'cwd_changed':
+		case 'worktree_create':
+		case 'worktree_remove':
 		case 'pre_llm_call':
 		case 'post_llm_call':
 		case 'iteration_start':
@@ -360,6 +374,14 @@ export interface PluginHookContext {
 	readonly oldCwd?: string
 	/** The folder commands run in now, on `cwd_changed`. */
 	readonly newCwd?: string
+	/** The suggested name of the worktree, on `worktree_create`. */
+	readonly worktreeName?: string
+	/** The folder a relative worktree path is placed under, on `worktree_create`. */
+	readonly worktreeRoot?: string
+	/** The commit or branch the worktree should start from, on `worktree_create`, when one was asked for. */
+	readonly worktreeBaseRef?: string
+	/** The worktree to remove, on `worktree_remove`. */
+	readonly worktreePath?: string
 	/** The pass, on `pre_compact` and `post_compact`. */
 	readonly compaction?: PluginCompactionInfo
 	readonly toolName?: string
@@ -482,6 +504,11 @@ export interface PluginHookNotes {
 	 * events ignore it.
 	 */
 	readonly watchPaths?: readonly string[]
+	/**
+	 * On `worktree_create`: the folder the hook made. The host uses it as the
+	 * worktree and creates none. Other events ignore it.
+	 */
+	readonly worktreePath?: string
 }
 
 export type PluginHookResult =
