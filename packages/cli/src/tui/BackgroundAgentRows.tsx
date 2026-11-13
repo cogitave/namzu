@@ -33,9 +33,27 @@ export function BackgroundAgentRows(props: {
 									{last ? '└ ' : '├ '}
 									{terminalDisplayText(agent.line)}
 								</Text>
-								<Text color={theme.text.muted} wrap="truncate-end">
-									{last ? '  ' : '│ '}⎿ {terminalDisplayText(agent.status)}
-								</Text>
+								{agent.calls ? (
+									<>
+										{agent.calls.earlier ? (
+											<Text color={theme.text.muted} wrap="truncate-end">
+												{last ? '    ' : '│   '}
+												{agent.calls.earlier}
+											</Text>
+										) : null}
+										{agent.calls.rows.map((call, index) => (
+											// biome-ignore lint/suspicious/noArrayIndexKey: at most three rows, replaced whole.
+											<Text key={index} color={theme.text.muted} wrap="truncate-end">
+												{last ? '    ' : '│   '}
+												{terminalDisplayText(call)}
+											</Text>
+										))}
+									</>
+								) : (
+									<Text color={theme.text.muted} wrap="truncate-end">
+										{last ? '  ' : '│ '}⎿ {terminalDisplayText(agent.status)}
+									</Text>
+								)}
 							</Box>
 						)
 					})}

@@ -101,6 +101,13 @@ export interface TuiConfig {
 	 */
 	readonly showExpandedTodos?: boolean
 	/**
+	 * Show a waited-on agent's last calls under it while it runs, one block for a
+	 * batch that finished, and the calls behind a finished agent's row. Off keeps
+	 * the one-line group and the two rows per agent. Default on. Your own config
+	 * files only.
+	 */
+	readonly agentCalls?: boolean
+	/**
 	 * Draw the terminal UI on the alternate screen with its own scrolling (mouse
 	 * wheel, PgUp and PgDn, Home and End) instead of the terminal's scrollback.
 	 * Absent or `false` means the scrollback. `NAMZU_FULLSCREEN=1` or `=0` in the

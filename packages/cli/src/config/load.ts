@@ -2214,6 +2214,7 @@ const CONFIG_READERS: ConfigReaders = {
 			theme?: unknown
 			reducedMotion?: unknown
 			showExpandedTodos?: unknown
+			agentCalls?: unknown
 			fullscreen?: unknown
 			wheelRows?: unknown
 			wheelAccel?: unknown
@@ -2281,6 +2282,9 @@ const CONFIG_READERS: ConfigReaders = {
 		if (raw.showExpandedTodos !== undefined && typeof raw.showExpandedTodos !== 'boolean') {
 			return invalidConfigValue(context, ['showExpandedTodos'], 'must be true or false')
 		}
+		if (raw.agentCalls !== undefined && typeof raw.agentCalls !== 'boolean') {
+			return invalidConfigValue(context, ['agentCalls'], 'must be true or false')
+		}
 		if (raw.fullscreen !== undefined && typeof raw.fullscreen !== 'boolean') {
 			return invalidConfigValue(context, ['fullscreen'], 'must be true or false')
 		}
@@ -2331,6 +2335,7 @@ const CONFIG_READERS: ConfigReaders = {
 			...(themeSetting !== undefined ? { theme: themeSetting } : {}),
 			...(raw.reducedMotion !== undefined ? { reducedMotion: raw.reducedMotion } : {}),
 			...(raw.showExpandedTodos !== undefined ? { showExpandedTodos: raw.showExpandedTodos } : {}),
+			...(raw.agentCalls !== undefined ? { agentCalls: raw.agentCalls } : {}),
 			...(raw.fullscreen !== undefined ? { fullscreen: raw.fullscreen } : {}),
 			...(raw.wheelRows !== undefined ? { wheelRows: raw.wheelRows as number } : {}),
 			...(raw.wheelAccel !== undefined ? { wheelAccel: raw.wheelAccel } : {}),
@@ -3106,7 +3111,7 @@ export function mergeCodeAnalysisConfig(
 }
 
 /**
- * `tui` from one more layer: later keys win. `theme`, `reducedMotion`, `showExpandedTodos`, `fullscreen`, `syntaxHighlight`, `wheelRows` and `wheelAccel` are the
+ * `tui` from one more layer: later keys win. `theme`, `reducedMotion`, `showExpandedTodos`, `agentCalls`, `fullscreen`, `syntaxHighlight`, `wheelRows` and `wheelAccel` are the
  * operator's own taste, so a project layer's values for them are dropped.
  */
 export function mergeTuiConfig(
@@ -3118,6 +3123,7 @@ export function mergeTuiConfig(
 		theme: _theme,
 		reducedMotion: _motion,
 		showExpandedTodos: _todos,
+		agentCalls: _agentCalls,
 		fullscreen: _fullscreen,
 		syntaxHighlight: _syntax,
 		wheelRows: _wheelRows,
