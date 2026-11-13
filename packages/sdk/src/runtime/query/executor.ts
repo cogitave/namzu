@@ -56,6 +56,7 @@ import type {
 	PreparedToolExecution,
 	RequestToolPause,
 	ShellDialect,
+	SkillHooksRecordFact,
 	SkillRegistryRef,
 	ToolCallView,
 	ToolContext,
@@ -556,6 +557,8 @@ export interface ToolExecutorConfig {
 	authorizationGate?: AuthorizationGate
 	/** Durable refusal sink paired with {@link authorizationGate}. */
 	recordAudit?: (input: AuditEventInput) => Promise<unknown>
+	/** Where a skill's hooks are kept in the conversation's record; see `ToolContext.recordSkillHooks`. */
+	recordSkillHooks?: (fact: SkillHooksRecordFact) => Promise<boolean>
 	/**
 	 * Where the `skill` tool's `allowed-tools` pre-approvals are recorded for
 	 * this turn. The review phase reads the same set. Absent: a loaded skill
@@ -2572,6 +2575,7 @@ export class ToolExecutor {
 			...(this.config.skillGrants
 				? { grantSkillTools: (grant) => this.grantSkillTools(grant) }
 				: {}),
+			...(this.config.recordSkillHooks ? { recordSkillHooks: this.config.recordSkillHooks } : {}),
 			maxToolOutputChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
 			// The turn's screens, defaulted HERE rather than on the registry: a
 			// host builds the registry and hands it over, so a registry-side

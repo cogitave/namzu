@@ -136,6 +136,18 @@ export interface SkillRegistryRef {
 	): SkillHooksPlan
 }
 
+/** What a conversation keeps of a skill whose hooks were attached to it; see {@link ToolContext.recordSkillHooks}. */
+export interface SkillHooksRecordFact {
+	/** The skill's name. */
+	readonly skill: string
+	/** The skill's own folder. */
+	readonly directory: string
+	/** The skill's `allowed-tools` were left unapproved (a hook that guards its work could not be loaded). */
+	readonly grantsWithheld: boolean
+	/** The `skill` call that loaded it. */
+	readonly toolCallId?: string
+}
+
 /** What the `skill` tool tells a host's hook reader about the use it is making of a skill. */
 export interface SkillHooksOptions {
 	/** The skill runs in a delegated agent: its hooks belong to that agent's run only. */
@@ -158,6 +170,14 @@ export interface SkillHooksPlan {
 	 * guards its work could not be loaded, or hooks cannot be attached here.
 	 */
 	readonly withholdGrants: boolean
+	/**
+	 * The hooks (or the refusal) belong to the conversation and should come
+	 * back when it is continued: the `skill` tool keeps a record of the use
+	 * ({@link ToolContext.recordSkillHooks}) once the instructions were
+	 * delivered. Absent or false: nothing is kept (a forked skill, whose hooks
+	 * belong to one run; a skill whose hooks are switched off).
+	 */
+	readonly resumable?: boolean
 	/** Make the hooks live. Idempotent for a skill already attached to the conversation. */
 	attach(): SkillHooksHandle
 }
@@ -864,6 +884,17 @@ export interface ToolContext {
 		/** Record the grant in the turn. Idempotent. */
 		readonly commit: () => void
 	}
+
+	/**
+	 * Keep, in the conversation's own record, that a skill's hooks were attached
+	 * (or refused) for it, so a host that continues the conversation later can
+	 * attach them again. Called by the `skill` tool once the instructions were
+	 * delivered, only for a skill the host's {@link SkillHooksPlan.resumable}
+	 * names. Resolves `true` when the record was written; `false` (it does not
+	 * throw) when it could not be, and the tool then says so in its result.
+	 * Absent outside a turn that has a session log.
+	 */
+	recordSkillHooks?: (fact: SkillHooksRecordFact) => Promise<boolean>
 
 	/**
 	 * Effective model-visible character cap for this tool result.

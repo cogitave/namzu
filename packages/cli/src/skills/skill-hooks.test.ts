@@ -87,7 +87,7 @@ describe('an inline skill’s hooks', () => {
 		const [answer] = await preTool(mgr)
 		expect(answer).toMatchObject({ action: 'skip' })
 		expect(plan.withholdGrants).toBe(false)
-		expect(plan.notice).toContain('attached for the rest of this conversation')
+		expect(plan.notice).toContain('were attached to this conversation when it was loaded')
 		expect(plan.notice).toContain('same message')
 	})
 

@@ -1923,6 +1923,7 @@ export {
 	SessionLeaseDocumentSchema,
 	SessionRecordSchema,
 	SessionStartedRecordSchema,
+	SkillHooksAttachedRecordSchema,
 	TurnCompletedRecordSchema,
 	TurnFailedRecordSchema,
 	TurnOutcomeRecordedRecordSchema,

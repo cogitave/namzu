@@ -72,6 +72,7 @@ import { cliProjectRoot } from '../state/project.js'
 import {
 	type ConversationFacts,
 	type ConversationRecords,
+	type SkillHooksFact,
 	conversationFactsOf,
 	foldConversationFacts,
 } from './conversation-facts.js'
@@ -1418,6 +1419,13 @@ async function writeFork(
 			: conversationTitle(sourceFacts ? recordedMessages(sourceFacts.records) : sourceMessages)
 	const id = await startConversation(targetStore)
 	await seedConversationHistory(targetStore, id, copiedMessages)
+	await carrySkillHooks(
+		targetStore,
+		id,
+		sourceFacts?.skillHooks ?? [],
+		sourceMessages,
+		copiedMessages,
+	)
 	const copiedBack = await loadConversation(targetStore, id)
 	if (!sameMessageSequence(copiedBack, copiedMessages)) {
 		throw new Error(`The forked conversation did not preserve its exact copied history (${id}).`)
@@ -1425,6 +1433,77 @@ async function writeFork(
 	const title = nextForkName(await takenTitles(targetStore), source)
 	await setTitle(targetStore, id, title)
 	return { id, title, messages: copiedBack }
+}
+
+/** The ids of the tool calls a history holds, asked or answered. */
+function toolCallIdsOf(messages: readonly Message[]): Set<string> {
+	const ids = new Set<string>()
+	for (const message of messages) {
+		if (message.role === 'tool') ids.add(message.toolCallId)
+		if (message.role === 'assistant') for (const call of message.toolCalls ?? []) ids.add(call.id)
+	}
+	return ids
+}
+
+/**
+ * Which of a conversation's skill-hooks facts a copy of it carries.
+ *
+ * A copy of the whole conversation carries all of them. A copy that stops
+ * before a prompt (a branch) leaves behind the skills whose `skill` call is in
+ * the part it does not copy, and keeps the ones it cannot place: a fact with no
+ * call id, or whose call is in no message the source still folds (it was
+ * compacted away, which only ever happens before the messages that remain).
+ */
+export function skillHooksCarriedBy(
+	facts: readonly SkillHooksFact[],
+	sourceMessages: readonly Message[],
+	copiedMessages: readonly Message[],
+): SkillHooksFact[] {
+	if (copiedMessages.length === sourceMessages.length) return [...facts]
+	const inSource = toolCallIdsOf(sourceMessages)
+	const inCopy = toolCallIdsOf(copiedMessages)
+	const carried: SkillHooksFact[] = []
+	for (const fact of facts) {
+		const uses = fact.toolCallIds ?? (fact.toolCallId !== undefined ? [fact.toolCallId] : [])
+		if (uses.length === 0) {
+			carried.push(fact)
+			continue
+		}
+		// Every use is judged on its own: a skill used again after the cut still
+		// has its earlier use inside the copy.
+		const kept = uses.filter((id) => inCopy.has(id) || !inSource.has(id))
+		const latest = kept[kept.length - 1]
+		if (latest === undefined) continue
+		carried.push({ ...fact, toolCallId: latest, toolCallIds: kept })
+	}
+	return carried
+}
+
+/** Write the skill-hooks records a copy carries into its own log, so it attaches them when it is continued. */
+async function carrySkillHooks(
+	targetStore: Pick<CliSessions, 'paths' | 'slug' | 'index'>,
+	targetId: SessionId,
+	facts: readonly SkillHooksFact[],
+	sourceMessages: readonly Message[],
+	copiedMessages: readonly Message[],
+): Promise<void> {
+	const carried = skillHooksCarriedBy(facts, sourceMessages, copiedMessages)
+	if (carried.length === 0) return
+	await appendOutsideTurn(
+		targetStore,
+		targetId,
+		carried.flatMap((fact) =>
+			(fact.toolCallIds ?? [undefined]).map((toolCallId) => ({
+				type: 'skill_hooks_attached' as const,
+				ignorable: true as const,
+				skill: fact.skill,
+				directory: fact.directory,
+				grantsWithheld: fact.grantsWithheld,
+				...(toolCallId !== undefined ? { toolCallId } : {}),
+			})),
+		),
+		'carry skill hooks into a copy',
+	)
 }
 
 /** Every title in use among this project's conversations, keyed by session id. */

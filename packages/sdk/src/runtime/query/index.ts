@@ -1691,6 +1691,22 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				...(params.repairToolCall ? { repairToolCall: params.repairToolCall } : {}),
 				...(verificationGate ? { authorizationGate: verificationGate } : {}),
 				recordAudit: (input) => ctx.recorder.recordAudit(input),
+				recordSkillHooks: async (fact) => {
+					try {
+						await ctx.recorder.appendRecord({
+							type: 'skill_hooks_attached',
+							turnId: ctx.turnId,
+							ignorable: true,
+							skill: fact.skill,
+							directory: fact.directory,
+							grantsWithheld: fact.grantsWithheld,
+							...(fact.toolCallId !== undefined ? { toolCallId: fact.toolCallId } : {}),
+						})
+						return true
+					} catch {
+						return false
+					}
+				},
 				// The durable pause, reachable from any tool rather than from the
 				// four kernel-owned points that used to own it. Built here from
 				// the machinery the turn already holds; the recorder binds a few
