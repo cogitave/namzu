@@ -1,5 +1,12 @@
 # @namzu/cli
 
+## 53.0.1
+
+### Patch Changes
+
+- db981d1: The fullscreen view (`tui.fullscreen`) no longer stops with "Namzu stopped because of an unexpected problem" in a window like 80x24 after a reply that holds a code block with a line wider than the window; the same turns at 120x40 had not stopped, because no line was wider than the window. A reply that holds one line of tens of thousands of characters no longer makes the window ignore keys while it streams: a key is echoed in well under a tenth of a second, and the text stays whole for copy and search. Nothing to switch off and no setting changed.
+- db981d1: A very long reply no longer ends the program. A reply of about 130 KB (a code block of 2,000 lines) on the default screen made the process grow to several gigabytes and stop with "JavaScript heap out of memory"; the cause was that the screen was drawn with React's development build, which keeps a copy of the props of everything it draws (a reply's text among them) for ever, so memory and work grew with the square of the reply. The program now runs the production build. A reply of 1 MB, of code or of prose, finishes on the default screen and in the fullscreen view (`tui.fullscreen`); in the fullscreen view a long reply of many paragraphs was also laid out again block by block at every piece and no longer is. What is drawn is unchanged, with syntax colour on or off. Nothing to switch off, no setting added and no limit introduced.
+
 ## 53.0.0
 
 ### Major Changes
