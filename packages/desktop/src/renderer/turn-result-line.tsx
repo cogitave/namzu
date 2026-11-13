@@ -8,6 +8,7 @@ import { MENU_FILES, type ResultLineModel, menuFiles } from './turn-result-model
 import { type UndoCardView, partialLabel } from './undo-model.js'
 import './conversation-actions-menu.css'
 import './turn-result-line.css'
+import { MENU_OFFSET } from './menu-metrics.js'
 
 function UndoItem({ view, onUndo }: { view: UndoCardView; onUndo: () => void }) {
 	if (view.kind === 'undone') return null
@@ -135,7 +136,11 @@ export function TurnResultLine({
 					<MoreHorizontalIcon aria-hidden="true" />
 				</Menu.Trigger>
 				<Menu.Portal>
-					<Menu.Positioner className="conversation-actions-positioner" align="end" sideOffset={6}>
+					<Menu.Positioner
+						className="conversation-actions-positioner"
+						align="end"
+						sideOffset={MENU_OFFSET}
+					>
 						<Menu.Popup className="conversation-actions-popup" aria-label="This reply">
 							{undo && onUndo && <UndoItem view={undo} onUndo={onUndo} />}
 							{onOpenFile &&

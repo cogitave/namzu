@@ -20,6 +20,7 @@ import {
 import { Button } from './ui/button.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import './conversation-details-popover.css'
+import { MENU_OFFSET } from './menu-metrics.js'
 
 export type DetailsWork =
 	| { state: 'checking' }
@@ -151,7 +152,7 @@ export function ConversationDetailsPopover({
 									<Menu.Positioner
 										className="conversation-actions-positioner"
 										align="end"
-										sideOffset={4}
+										sideOffset={MENU_OFFSET}
 									>
 										<Menu.Popup className="conversation-actions-popup" aria-label="Project actions">
 											<Menu.Item

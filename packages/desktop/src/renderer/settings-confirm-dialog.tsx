@@ -61,24 +61,23 @@ export function SettingsConfirmDialog({
 			}}
 		>
 			<Dialog.Portal>
-				<Dialog.Backdrop className="fixed inset-0 z-(--z-scrim) bg-black/50" />
-				<Dialog.Viewport className="fixed inset-0 z-(--z-dialog) grid place-items-center overflow-y-auto p-4">
+				<Dialog.Backdrop className="dialog-scrim" />
+				<Dialog.Viewport className="dialog-viewport">
 					<Dialog.Popup
 						data-settings-confirm-dialog={copy === RETRUST_OFF_COPY ? 'retrust-off' : 'setting'}
 						initialFocus={cancel}
 						finalFocus={returnFocus}
-						className="w-full max-w-md rounded-2xl border border-border bg-background p-5 text-foreground shadow-[var(--shadow-dialog)] outline-none"
+						className="dialog-popup"
+						data-dialog-size="confirm"
 					>
-						<Dialog.Title className="text-lg font-semibold">{copy.title}</Dialog.Title>
-						<Dialog.Description className="mt-3 text-sm text-muted-foreground">
-							{copy.description}
-						</Dialog.Description>
+						<Dialog.Title className="dialog-title">{copy.title}</Dialog.Title>
+						<Dialog.Description className="dialog-body">{copy.description}</Dialog.Description>
 						{error && (
 							<p role="alert" className="mt-3 text-sm text-destructive-foreground">
 								{error}
 							</p>
 						)}
-						<div className="mt-5 flex justify-end gap-2">
+						<div className="dialog-actions">
 							<Button
 								ref={cancel}
 								className="focus-visible:[box-shadow:var(--focus-ring)]!"

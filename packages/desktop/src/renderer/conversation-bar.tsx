@@ -4,6 +4,7 @@ import { formatLineCount } from './changes-totals.js'
 import { CheckIcon, FileDiffIcon, FileTextIcon, PencilIcon, TerminalIcon } from './icons.js'
 import { Button } from './ui/button.js'
 import './conversation-bar.css'
+import { MENU_OFFSET } from './menu-metrics.js'
 
 /** One open terminal the bar's terminal button can bring forward. */
 export interface ConversationBarTerminalEntry {
@@ -94,7 +95,11 @@ function DraftsControl({
 				</span>
 			</Menu.Trigger>
 			<Menu.Portal>
-				<Menu.Positioner className="conversation-actions-positioner" align="end" sideOffset={6}>
+				<Menu.Positioner
+					className="conversation-actions-positioner"
+					align="end"
+					sideOffset={MENU_OFFSET}
+				>
 					<Menu.Popup className="conversation-actions-popup" aria-label="Unsent drafts">
 						{drafts.map((draft) => (
 							<Menu.Item
@@ -156,7 +161,11 @@ function TerminalControl({
 				</span>
 			</Menu.Trigger>
 			<Menu.Portal>
-				<Menu.Positioner className="conversation-actions-positioner" align="end" sideOffset={6}>
+				<Menu.Positioner
+					className="conversation-actions-positioner"
+					align="end"
+					sideOffset={MENU_OFFSET}
+				>
 					<Menu.Popup className="conversation-actions-popup" aria-label="Terminals">
 						{conversation && (
 							<Fragment>

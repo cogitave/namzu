@@ -3587,6 +3587,87 @@ by 820. The sidebar is 288 px wide including its 1 px edge line; x positions bel
 Spacings in the sidebar are 2, 4, 6, 8, 12, 16, 20, 24 or 32 px, except the frame values above
 (10 and 22), which exist only as tokens.
 
+## Menus and dialogs
+
+Every menu, list popover and select looks and measures the same, so a person never has to relearn a row.
+Each number is a token in `theme.css` (`--menu-*`, `--dialog-*`) and every rule reads the token;
+`src/renderer/menu-tokens.test.ts` pins the tokens and the rules that read them, and
+`e2e/ux-menu-measures.test.mjs` measures the permission menu, the model picker, the plus menu, a project
+row's menu, a conversation row's menu and a confirm dialog in the running app at 1280 by 820 and 900 by
+820 in both themes. The menu rules live in `menu.css`, the dialog rules in `dialog.css`; a menu family that
+once had its own look (the conversation actions, the plugin actions, the computer workspace menu, the project
+and workspace menus, selects, the composer's popovers) reads them.
+
+- **The surface** has corners of 12 and 5 px of padding inside its 1 px edge, so a row starts 6 px in from the
+  menu's edge. It is as wide as its content, at least 128 and at most 320. The model picker keeps its own
+  width (340 px, 390 measured across its edge when it offers an engine choice) because it holds a search, provider tabs and the facts
+  of a model, and the plugins popover keeps 384 because it holds switches and prose.
+- **A row** is 28 high with one line (14/20) and 46 with a description under its title (title 14/20,
+  description 13/18 muted). A description keeps its full wording and wraps
+  inside the menu's width (at most 320, and never wider than the window less 16): a permission row
+  is 46 high when its description fits one line and gains 18 for each further line. The project
+  chooser's three actions (Start from scratch, Use an existing folder, Don't work in a project) are rows of
+  28 with nothing between them, under a separator. A row has corners of 8, and its text starts 10 in; with a 16 px icon the label starts 38 in (10, the
+  icon, 12). A group's caption is 12/16 at weight 500 in a 25 px block, muted. A separator is 1 px with 4
+  above and 4 below, inset 10.
+- **The highlight** (the pointer over a row, the keyboard's highlight, a row whose submenu is open) is 8
+  percent of the text colour, `--menu-highlight`. The chosen row carries a 16 px check, 9 from the row's right
+  edge and on the title's line, and the title keeps clear of it; there is no second fill on the chosen row.
+- **The distance from the control** is 6 for every menu (`MENU_OFFSET` in `menu-metrics.ts`, read by every
+  positioner), and while the menu is open the control that opened it carries the same 8 percent fill. A menu
+  opened from the row under the input box still opens upward and stays inside the window; the first item is
+  highlighted when the menu opens from the keyboard, and the keys and type-ahead are as they were. A
+  context menu opens at the pointer, which is not a control, so it has no distance.
+- **Not yet on these numbers:** the strip's own File, Edit, View and Window menus and the menu in the
+  approval card keep their earlier sizes until the work that owns them lands.
+
+A **dialog** has 16 px of padding and corners of 12. A confirm dialog is 400 wide: a title (15/22, weight
+600), 8 below it the body (14/20, muted), 16 above the buttons, which are 28 high with corners of 8, 8 apart
+and at the right. Behind it the window is covered, sidebar and header included, by black at 50 percent in
+the dark theme and 40 in the light one (`--dialog-scrim`). The dialogs that are not confirmations (rename,
+the folder's access, undo, the update dialog, a Pal's settings and customize, an attachment preview) keep
+their own widths and take the same padding, corners, scrim and button height.
+
+## Settings and the search overlay
+
+Settings and the search overlay read their numbers from tokens in `theme.css` (`--settings-*`,
+`--palette-*`); `e2e/ux-settings-measures.test.mjs` measures both in the running app (Settings at 1280 by 820,
+the overlay at 1280 by 820, 900 by 820 and 700 by 1000, both themes). Every vertical position there is
+measured against the element it sits next to, never as a window position.
+
+- **The column.** A Settings section is one column no wider than 768 (`--settings-column-width`, the input
+  box's column), centred in the main area with at least 32 px on each side (16 in a pane under 640). The title
+  block stays under the 36 px header band. The search field is 28 high with corners of 8.
+- **Group headings** (**Namzu settings**, **Your projects**, **Data folders**, the search results' count) are
+  15/22 at weight 600 with 40 above and 16 under. The first heading, or the first row when a section has no
+  heading, sits 16 under the title block.
+- **A row** has 12 above and below its content. A row with only a label and a control is 52 high (the
+  control is 28); one with a single line of description is 68: the label is 14/20, then 4, then the description
+  13/18 in the muted colour, and the copy block carries 1 px above and below its two lines
+  (`--settings-row-copy-pad`). A 1 px hairline is drawn between rows, inside the row's top edge, so it takes
+  no height and the first row of a group has none. Every control ends on the column's right edge and is
+  centred on its row. Buttons, selects and text fields in a row are 28 high with corners of 8.
+- **Every section follows those rules**, including the ones that bring their own markup. **Models** rows
+  (a provider's name 14/20, 4 under it its status, 13/18 muted) are padded 12 with a hairline between them,
+  and their buttons are 28 high, centred on the row and all drawn the same way: no provider row is lime, since
+  a screen has one primary action at most. **Speech** shows its two cards (Voice and Voice input) as group
+  headings (15/22, 40 apart) over rows: a download row is 68 high with its copy at the left and its 28 px
+  button at the right edge, on the row's centre. **Updates** lists the programs Namzu works with as rows with
+  their button centred, and the commands to copy stand 8 under the sentence that introduces them.
+  `e2e/ux-settings-measures.test.mjs` measures all three.
+- **The switch** is 36 by 20 with a 16 px knob 2 from its edge. On, it takes the text colour (a light track
+  with a dark knob in the dark theme, the reverse in the light one); off, it is an outline with a muted knob on
+  the left. A chosen radio (a dot) and a checked box (a tick) take the text colour as well. Lime is kept for the
+  one primary action on a screen and for state marks. The on switch and the off outline stand at least 3 to 1
+  against the page in both themes, and on and off differ by the knob's side, 16 px apart, not by colour alone.
+- **The search overlay** (Ctrl+K) is `min(672px, 100vw - 32px)` wide and `min(584px, 70dvh)` high, centred
+  across the window with its centre 18 below the window's centre, corners of 16. The input row is 33 high,
+  18 under the top edge and 24 from each side, with no icon and no field chrome and a bare close glyph at the
+  right. The list is inset 10; a row is 36 high with corners of 8, a 16 px icon 12 in and the title 40 in;
+  only the highlighted row shows its right-hand hints (the project or a chord). A group's caption is 12/16
+  and stands 8 above its first row. A footer 42 high under a full-width hairline lists the keys (move, open,
+  close) in boxes 18 high with a 1 px edge, corners of 4 and 12 px text. Behind it is the dialog's scrim.
+
 ## The input box and the home screen
 
 The input box, the row under it and the home screen sit on the same rhythm as the frame, so the box is where a person's hand expects it before and after the first message. `e2e/ux-composer-measures.test.mjs` measures all of it in the running app.

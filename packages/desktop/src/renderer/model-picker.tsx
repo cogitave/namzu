@@ -61,6 +61,7 @@ import { Button } from './ui/button.js'
 import { Input } from './ui/input.js'
 import { Popover, PopoverPopup, PopoverTrigger } from './ui/popover.js'
 import './model-picker.css'
+import { MENU_OFFSET } from './menu-metrics.js'
 
 export type { ModelChoice }
 type Provider = ProviderView['available'][number]
@@ -396,7 +397,7 @@ export function ModelPicker({
 			<PopoverPopup
 				side="top"
 				align="end"
-				sideOffset={8}
+				sideOffset={MENU_OFFSET}
 				padding="none"
 				aria-label={
 					view === 'more' ? 'More model options' : view === 'engine' ? 'Engine' : 'Model picker'

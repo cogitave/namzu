@@ -1,4 +1,6 @@
 @import "./theme.css";
+@import "./menu.css";
+@import "./dialog.css";
 
 html,
 body,
@@ -203,10 +205,6 @@ pre {
 	font-weight: var(--weight-strong);
 	line-height: var(--leading-caption);
 	letter-spacing: 0.02em;
-}
-.workspace-menu-popup .window-titlebar-item {
-	justify-content: flex-start;
-	gap: 10px;
 }
 :root[data-chrome-platform="darwin"] .sidebar-chrome {
 	padding-inline-start: var(--frame-lights-inset);
