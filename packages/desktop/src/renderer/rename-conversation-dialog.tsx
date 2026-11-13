@@ -62,12 +62,12 @@ export function RenameConversationDialog({
 			}}
 		>
 			<Dialog.Portal>
-				<Dialog.Backdrop className="fixed inset-0 z-(--z-scrim) bg-black/50" />
-				<Dialog.Viewport className="fixed inset-0 z-(--z-dialog) grid place-items-center overflow-y-auto p-4">
+				<Dialog.Backdrop className="dialog-scrim" />
+				<Dialog.Viewport className="dialog-viewport">
 					<Dialog.Popup
 						initialFocus={field}
 						finalFocus={returnFocus}
-						className="w-full max-w-md rounded-2xl border border-border bg-background p-5 text-foreground shadow-[var(--shadow-dialog)] outline-none"
+						className="dialog-popup max-w-md"
 					>
 						<form
 							onSubmit={(event) => {
@@ -75,10 +75,8 @@ export function RenameConversationDialog({
 								void save()
 							}}
 						>
-							<Dialog.Title className="text-lg font-semibold">{heading}</Dialog.Title>
-							<Dialog.Description className="mt-2 text-sm text-muted-foreground">
-								{description}
-							</Dialog.Description>
+							<Dialog.Title className="dialog-title">{heading}</Dialog.Title>
+							<Dialog.Description className="dialog-body">{description}</Dialog.Description>
 							<input
 								ref={field}
 								type="text"
@@ -97,7 +95,7 @@ export function RenameConversationDialog({
 									{error}
 								</p>
 							)}
-							<div className="mt-5 flex justify-end gap-2">
+							<div className="dialog-actions">
 								<Button type="button" variant="outline" disabled={pending} onClick={onClose}>
 									Cancel
 								</Button>

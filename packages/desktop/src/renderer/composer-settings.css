@@ -1,30 +1,33 @@
 .composer-permission-menu {
-	width: min(300px, var(--available-width));
+	width: min(var(--menu-max-width), var(--available-width));
 	max-width: calc(100vw - 16px);
 }
 .composer-permission-panel {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
 	width: 100%;
-	padding: 6px;
+	padding: var(--menu-padding);
 	overscroll-behavior: contain;
 }
 .composer-permission-title {
-	padding: 6px 10px 6px;
+	display: flex;
+	align-items: center;
+	height: var(--menu-caption-block);
+	padding: 0 var(--menu-text-inset);
 	color: var(--muted-foreground);
 	font-size: var(--text-caption);
 	font-weight: var(--weight-control);
 	line-height: var(--leading-caption);
 }
 .composer-permission-option {
+	position: relative;
 	display: flex;
 	align-items: flex-start;
-	gap: 10px;
+	gap: var(--menu-icon-gap);
 	width: 100%;
-	min-height: 48px;
-	padding: 7px 10px;
-	border-radius: var(--radius-control);
+	min-height: var(--menu-row-height-described);
+	padding: var(--menu-row-padding-block) var(--menu-text-inset);
+	border-radius: var(--menu-row-radius);
 	color: var(--popover-foreground);
 	text-align: start;
 	outline: none;
@@ -34,7 +37,7 @@
 /* Focus is the highlight: arrow keys move it without committing. */
 .composer-permission-option:hover,
 .composer-permission-option:focus-visible {
-	background: color-mix(in srgb, var(--foreground) 9%, var(--popover));
+	background: var(--menu-highlight);
 }
 .composer-permission-option:disabled {
 	opacity: 0.5;
@@ -42,28 +45,27 @@
 }
 .composer-permission-icon {
 	flex: none;
-	width: 16px;
-	height: 16px;
-	margin-top: 1px;
+	width: var(--menu-icon-size);
+	height: var(--leading-interface);
 	color: var(--muted-foreground);
 }
 .composer-permission-copy {
 	display: flex;
 	flex: 1;
 	flex-direction: column;
-	gap: 2px;
 	min-width: 0;
 }
 .composer-permission-label {
-	font-size: var(--text-small);
+	padding-inline-end: var(--menu-check-reserve);
+	font-size: var(--text-interface);
 	font-weight: var(--weight-control);
-	line-height: var(--leading-small);
+	line-height: var(--leading-interface);
 }
 .composer-permission-description {
 	color: var(--muted-foreground);
-	font-size: var(--text-caption);
+	font-size: var(--text-small);
 	font-weight: var(--weight-text);
-	line-height: var(--leading-caption);
+	line-height: var(--leading-small);
 	white-space: normal;
 	overflow-wrap: anywhere;
 }
@@ -73,16 +75,18 @@
 	color: var(--warning-foreground);
 }
 .composer-permission-check {
+	position: absolute;
+	inset-block-start: var(--menu-row-padding-block);
+	inset-inline-end: var(--menu-check-inset);
 	display: grid;
 	place-items: center;
-	flex: none;
-	width: 16px;
-	height: 18px;
+	width: var(--menu-check-size);
+	height: var(--leading-interface);
 	color: var(--foreground);
 }
 .composer-permission-check > svg {
-	width: 14px;
-	height: 14px;
+	width: var(--menu-icon-size);
+	height: var(--menu-icon-size);
 }
 .composer-permission-control[data-composer-permission],
 .normal-composer-shell .composer-permission-control[data-composer-permission] {

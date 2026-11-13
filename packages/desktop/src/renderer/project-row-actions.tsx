@@ -4,6 +4,7 @@ import { type ReactElement, type ReactNode, useRef } from 'react'
 import { ArchiveIcon, FolderOpenIcon, MoreHorizontalIcon, PencilIcon, XIcon } from './icons.js'
 import { Button } from './ui/button.js'
 import './conversation-actions-menu.css'
+import { MENU_OFFSET } from './menu-metrics.js'
 
 /** What a project row can do. Removal is last, and only here: never a one-click button on the row. */
 export interface ProjectRowActions {
@@ -135,7 +136,11 @@ export function ProjectMoreMenu({
 				<MoreHorizontalIcon aria-hidden="true" />
 			</Menu.Trigger>
 			<Menu.Portal>
-				<Menu.Positioner className="conversation-actions-positioner" align="end" sideOffset={4}>
+				<Menu.Positioner
+					className="conversation-actions-positioner"
+					align="end"
+					sideOffset={MENU_OFFSET}
+				>
 					<Menu.Popup
 						className="conversation-actions-popup"
 						aria-label={label}

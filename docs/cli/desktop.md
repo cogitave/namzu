@@ -3522,6 +3522,45 @@ by 820. The sidebar is 288 px wide including its 1 px edge line; x positions bel
 Spacings in the sidebar are 2, 4, 6, 8, 12, 16, 20, 24 or 32 px, except the frame values above
 (10 and 22), which exist only as tokens.
 
+## Menus and dialogs
+
+Every menu, list popover and select looks and measures the same, so a person never has to relearn a row.
+Each number is a token in `theme.css` (`--menu-*`, `--dialog-*`) and every rule reads the token;
+`src/renderer/menu-tokens.test.ts` pins the tokens and the rules that read them, and
+`e2e/ux-menu-measures.test.mjs` measures the permission menu, the model picker, the plus menu, a project
+row's menu, a conversation row's menu and a confirm dialog in the running app at 1280 by 820 and 900 by
+820 in both themes. The menu rules live in `menu.css`, the dialog rules in `dialog.css`; a menu family that
+once had its own look (the conversation actions, the plugin actions, the computer workspace menu, the project
+and workspace menus, selects, the composer's popovers) reads them.
+
+- **The surface** has corners of 12 and 5 px of padding inside its 1 px edge, so a row starts 6 px in from the
+  menu's edge. It is as wide as its content, at least 128 and at most 320. The model picker keeps its own
+  width (340 px, 388 when it offers an engine choice) because it holds a search, provider tabs and the facts
+  of a model, and the plugins popover keeps 384 because it holds switches and prose.
+- **A row** is 28 high with one line (14/20) and 46 with a description under its title (title 14/20,
+  description 13/18 muted); a description that wraps grows the row by 18 for each extra line, so the
+  permission menu's Full access row, whose description is the warning, is taller than 46 rather than
+  cut. A row has corners of 8, and its text starts 10 in; with a 16 px icon the label starts 38 in (10, the
+  icon, 12). A group's caption is 12/16 at weight 500 in a 25 px block, muted. A separator is 1 px with 4
+  above and 4 below, inset 10.
+- **The highlight** (the pointer over a row, the keyboard's highlight, a row whose submenu is open) is 8
+  percent of the text colour, `--menu-highlight`. The chosen row carries a 16 px check, 9 from the row's right
+  edge and on the title's line, and the title keeps clear of it; there is no second fill on the chosen row.
+- **The distance from the control** is 6 for every menu (`MENU_OFFSET` in `menu-metrics.ts`, read by every
+  positioner), and while the menu is open the control that opened it carries the same 8 percent fill. A menu
+  opened from the row under the input box still opens upward and stays inside the window; the first item is
+  highlighted when the menu opens from the keyboard, and the keys and type-ahead are as they were. A
+  context menu opens at the pointer, which is not a control, so it has no distance.
+- **Not yet on these numbers:** the strip's own File, Edit, View and Window menus and the menu in the
+  approval card keep their earlier sizes until the work that owns them lands.
+
+A **dialog** has 16 px of padding and corners of 12. A confirm dialog is 400 wide: a title (15/22, weight
+600), 8 below it the body (14/20, muted), 16 above the buttons, which are 28 high with corners of 8, 8 apart
+and at the right. Behind it the window is covered, sidebar and header included, by black at 50 percent in
+the dark theme and 40 in the light one (`--dialog-scrim`). The dialogs that are not confirmations (rename,
+the folder's access, undo, the update dialog, a Pal's settings and customize, an attachment preview) keep
+their own widths and take the same padding, corners, scrim and button height.
+
 ## The input box and the home screen
 
 The input box, the row under it and the home screen sit on the same rhythm as the frame, so the box is where a person's hand expects it before and after the first message. `e2e/ux-composer-measures.test.mjs` measures all of it in the running app.

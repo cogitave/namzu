@@ -42,6 +42,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from './ui/tooltip.js'
 import { useLocalDay } from './use-local-day.js'
 import { Wordmark } from './wordmark.js'
 import './sidebar-navigation.css'
+import { MENU_OFFSET } from './menu-metrics.js'
 
 export type Appearance = 'system' | 'light' | 'dark'
 export type ConversationCollection = 'projects' | 'recents'
@@ -299,16 +300,16 @@ export function Sidebar({
 							<Menu.Positioner
 								className="z-(--z-popover) outline-none"
 								align="start"
-								sideOffset={4}
+								sideOffset={MENU_OFFSET}
 							>
-								<Menu.Popup className="workspace-menu-popup window-titlebar-popup dropdown-glass min-w-52 rounded-lg p-1 text-sm text-popover-foreground shadow-[var(--shadow-popover)] outline-none">
+								<Menu.Popup className="workspace-menu-popup menu-popup">
 									<Menu.Item
-										className="window-titlebar-item"
+										className="menu-item"
 										onClick={onNewConversation}
 										disabled={newConversationDisabled}
 									>
-										<SquarePenIcon className="size-4" aria-hidden="true" />
-										<span>New conversation</span>
+										<SquarePenIcon aria-hidden="true" />
+										<span className="menu-label">New conversation</span>
 									</Menu.Item>
 								</Menu.Popup>
 							</Menu.Positioner>

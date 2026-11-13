@@ -3,7 +3,16 @@
 	--effort-fill: color-mix(in srgb, var(--foreground) 55%, var(--popover));
 	display: grid;
 	gap: 8px;
-	padding: 12px;
+	padding: var(--menu-padding);
+}
+.composer-effort-panel > * {
+	margin-inline: var(--menu-text-inset);
+}
+.composer-effort-panel > :first-child {
+	margin-block-start: var(--menu-row-padding-block);
+}
+.composer-effort-panel > :last-child {
+	margin-block-end: var(--menu-row-padding-block);
 }
 /* The engine and its surface switch wrap under the title when the popup is narrow. */
 .composer-effort-header {

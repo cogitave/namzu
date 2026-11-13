@@ -161,17 +161,17 @@ export function FolderAccessDialog({
 			}}
 		>
 			<Dialog.Portal>
-				<Dialog.Backdrop className="fixed inset-0 z-(--z-scrim) bg-black/75 backdrop-blur-sm" />
-				<Dialog.Viewport className="fixed inset-0 z-(--z-dialog) grid place-items-center overflow-y-auto p-4">
+				<Dialog.Backdrop className="dialog-scrim" />
+				<Dialog.Viewport className="dialog-viewport">
 					<Dialog.Popup
 						data-folder-access-dialog={
 							broad ?? (changed?.length ? 'changed' : risky?.length ? 'risky' : 'review')
 						}
 						initialFocus={cancel}
 						finalFocus={returnFocus}
-						className="w-full max-w-md rounded-2xl border border-border bg-background p-5 text-foreground shadow-[var(--shadow-dialog)] outline-none"
+						className="dialog-popup max-w-md"
 					>
-						<Dialog.Title className="text-lg font-semibold">{copy.title}</Dialog.Title>
+						<Dialog.Title className="dialog-title">{copy.title}</Dialog.Title>
 						<p
 							className="mt-2 rounded-md bg-muted px-2 py-1 font-mono text-xs text-muted-foreground"
 							title={path}
@@ -179,9 +179,7 @@ export function FolderAccessDialog({
 						>
 							{middleEllipsis(tildePath(path), 56)}
 						</p>
-						<Dialog.Description className="mt-3 text-sm text-muted-foreground">
-							{copy.description}
-						</Dialog.Description>
+						<Dialog.Description className="dialog-body">{copy.description}</Dialog.Description>
 						{copy.items && (
 							<ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-foreground">
 								{copy.items.map((item) => (
@@ -222,7 +220,7 @@ export function FolderAccessDialog({
 								{error}
 							</p>
 						)}
-						<div className="mt-5 flex justify-end gap-2">
+						<div className="dialog-actions">
 							<Button
 								ref={cancel}
 								className="focus-visible:[box-shadow:var(--focus-ring)]!"

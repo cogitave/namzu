@@ -107,7 +107,7 @@
 	position: fixed;
 	inset: 0;
 	z-index: var(--z-overlay-scrim);
-	background: rgb(0 0 0 / 65%);
+	background: var(--dialog-scrim);
 	transition: opacity 160ms ease;
 }
 .attachment-preview {
@@ -119,8 +119,8 @@
 	max-height: 90vh;
 	transform: translate(-50%, -50%);
 	border: 1px solid var(--border);
-	border-radius: var(--radius-panel);
-	padding: 12px;
+	border-radius: var(--dialog-radius);
+	padding: var(--dialog-padding);
 	background: var(--popover);
 	color: var(--foreground);
 	outline: none;

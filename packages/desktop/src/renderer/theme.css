@@ -191,6 +191,38 @@
 	--frame-column-width: 768px;
 	--frame-column-side: 32px;
 	--frame-column-side-narrow: 16px;
+	/* One set of rules for every menu, list popover and select: the surface, the rows, the caption,
+	   the separator and where the menu sits from the control that opened it. A row is one line (28) or a
+	   title over a description (46); the text starts 10 in, or 38 in after a 16 px icon; a chosen row
+	   carries a check 9 from its right edge on the title's line. */
+	--menu-radius: 12px;
+	--menu-padding: 5px;
+	--menu-row-height: 28px;
+	--menu-row-height-described: 46px;
+	--menu-row-radius: 8px;
+	--menu-row-padding-block: 4px;
+	--menu-text-inset: 10px;
+	--menu-icon-size: 16px;
+	--menu-icon-gap: 12px;
+	--menu-label-start: calc(var(--menu-text-inset) + var(--menu-icon-size) + var(--menu-icon-gap));
+	--menu-check-size: 16px;
+	--menu-check-inset: 9px;
+	--menu-check-reserve: calc(var(--menu-check-inset) + var(--menu-check-size) + 8px);
+	--menu-caption-block: 25px;
+	--menu-separator-space: 4px;
+	--menu-separator-inset: 10px;
+	--menu-min-width: 128px;
+	--menu-max-width: 320px;
+	--menu-highlight: color-mix(in srgb, var(--foreground) 8%, transparent);
+	/* A dialog: one padding, one corner, one confirm width and one button height. */
+	--dialog-padding: 16px;
+	--dialog-radius: 12px;
+	--dialog-confirm-width: 400px;
+	--dialog-gap: 8px;
+	--dialog-actions-gap: 16px;
+	--dialog-button-height: 28px;
+	--dialog-button-radius: 8px;
+	--dialog-scrim: color-mix(in srgb, black 40%, transparent);
 	--workspace-topbar-height: var(--frame-header-height);
 	--workspace-gutter: var(--frame-title-inset);
 	--workspace-gutter-start: var(--workspace-gutter);
@@ -409,6 +441,7 @@
 }
 
 .dark {
+	--dialog-scrim: color-mix(in srgb, black 50%, transparent);
 	--glass-blur: 16px;
 	--glass-saturation: 1.08;
 }

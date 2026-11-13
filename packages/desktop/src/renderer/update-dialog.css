@@ -2,7 +2,7 @@
 	position: fixed;
 	inset: 0;
 	z-index: var(--z-scrim);
-	background: rgb(0 0 0 / 40%);
+	background: var(--dialog-scrim);
 }
 .update-dialog-viewport {
 	position: fixed;
@@ -10,14 +10,14 @@
 	z-index: var(--z-dialog);
 	display: grid;
 	place-items: center;
-	padding: 16px;
+	padding: var(--dialog-padding);
 }
 .update-dialog {
 	box-sizing: border-box;
 	width: min(420px, 100%);
-	padding: 20px 22px 22px;
+	padding: var(--dialog-padding);
 	border: 1px solid var(--border);
-	border-radius: var(--radius-panel);
+	border-radius: var(--dialog-radius);
 	background: var(--popover);
 	color: var(--popover-foreground);
 	box-shadow: var(--shadow-dialog);
@@ -88,12 +88,6 @@
 	line-height: var(--leading-small);
 	font-weight: var(--weight-strong);
 	text-align: right;
-}
-.update-dialog-actions {
-	display: flex;
-	justify-content: flex-end;
-	gap: 8px;
-	margin-top: 20px;
 }
 @keyframes update-dialog-slide {
 	from {

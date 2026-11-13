@@ -366,17 +366,17 @@ export function UndoDialog({
 			}}
 		>
 			<Dialog.Portal>
-				<Dialog.Backdrop className="fixed inset-0 z-(--z-scrim) bg-black/50" />
-				<Dialog.Viewport className="fixed inset-0 z-(--z-dialog) grid place-items-center overflow-y-auto p-4">
+				<Dialog.Backdrop className="dialog-scrim" />
+				<Dialog.Viewport className="dialog-viewport">
 					<Dialog.Popup
 						initialFocus={cancel}
 						finalFocus={returnFocus}
-						className="undo-dialog w-full max-w-xl rounded-2xl border border-border bg-background p-5 text-foreground shadow-[var(--shadow-dialog)] outline-none"
+						className="undo-dialog dialog-popup max-w-xl"
 					>
-						<Dialog.Title className="text-lg font-semibold">
+						<Dialog.Title className="dialog-title">
 							{phase.kind === 'done' ? 'Undo finished' : 'Undo this reply’s file changes?'}
 						</Dialog.Title>
-						<Dialog.Description className="mt-1 text-sm text-muted-foreground">
+						<Dialog.Description className="dialog-body">
 							{phase.kind === 'done'
 								? 'Here is what happened to each file.'
 								: 'Files go back to how they were before this reply edited them. Nothing changes until you confirm.'}
@@ -409,7 +409,7 @@ export function UndoDialog({
 						{phase.kind === 'done' && (
 							<UndoResultBody result={phase.result} names={names.current} />
 						)}
-						<div className="mt-5 flex justify-end gap-2">
+						<div className="dialog-actions">
 							<Button
 								ref={cancel}
 								type="button"
