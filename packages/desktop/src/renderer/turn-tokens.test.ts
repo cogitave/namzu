@@ -207,7 +207,7 @@ const READS: [string, string, string, string][] = [
 	],
 	[
 		'transcript-rhythm.css',
-		'.normal-transcript .chat-markdown :is(p, ul, ol, blockquote, pre, .table-scroll)',
+		'.normal-transcript .chat-markdown :where(p, ul, ol, blockquote, pre, .table-scroll)',
 		'margin-block',
 		'--turn-paragraph-gap',
 	],
@@ -240,6 +240,18 @@ const READS: [string, string, string, string][] = [
 		'.normal-transcript .chat-markdown ul > li:not(.task-list-item)::before',
 		'top',
 		'--turn-list-marker-top',
+	],
+	[
+		'transcript-rhythm.css',
+		'.normal-transcript .chat-markdown ol > li::before',
+		'left',
+		'--turn-list-marker-inset',
+	],
+	[
+		'transcript-rhythm.css',
+		'.normal-transcript .chat-markdown li > :is(ul, ol)',
+		'margin-block',
+		'--turn-list-gap',
 	],
 	[
 		'transcript-rhythm.css',

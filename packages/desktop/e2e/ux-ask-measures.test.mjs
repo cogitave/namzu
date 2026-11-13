@@ -13,8 +13,10 @@ import { test } from "node:test";
 import { createWorld, dispose, expect, launch, openProject, send } from "./harness.mjs";
 
 const T = 90000;
+const LONG = "pnpm test --silent && pnpm build --filter @namzu/desktop -- --flag=value-end";
 const RULES = [
 	{ match: /edit the limit/i, steps: [{ tool: "edit", args: { path: "src/limits.ts", old_string: "const b = 2", new_string: "const b = 20" } }, { text: "Edited." }] },
+	{ match: /run the long one/i, steps: [{ tool: "bash", args: { command: LONG } }, { text: "Ran." }] },
 	{ match: /run the check/i, steps: [{ tool: "bash", args: { command: "pnpm test --silent" } }, { text: "Ran." }] },
 ];
 const FILES = { "src/limits.ts": "const a = 1\nconst b = 2\nconst c = 3\n" };
@@ -242,6 +244,36 @@ test("a long path is cut in the middle so both ends stay, and its whole text is 
 		await expect(card.locator(".approval-path-text .sr-only")).toHaveText(deep);
 		const fits = await card.locator(".approval-path-text").evaluate((el) => el.scrollWidth <= el.clientWidth);
 		assert.equal(fits, true, "the cut text fits its row");
+		await card.getByRole("button", { name: "Reject", exact: true }).click();
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});
+
+test("a command too long for its row is on the card once, whole, and the row comes back when the card is wide enough", { timeout: 280000 }, async () => {
+	const w = await createWorld({ tabs: "hidden", rules: RULES, files: FILES, models: ["gpt-e2e-1"] });
+	let failed = true;
+	try {
+		await launch(w);
+		await openProject(w);
+		const win = (width) => w.app.evaluate(({ BrowserWindow }, x) => { for (const b of BrowserWindow.getAllWindows()) b.setSize(x, 820); }, width);
+		await win(900);
+		await send(w, "Please run the long one");
+		const card = w.page.getByRole("region", { name: "Tool approval" });
+		await expect(card).toBeVisible({ timeout: T });
+		await settled(w);
+		const seen = () =>
+			w.page.evaluate((cmd) => {
+				const shown = (el) => el.getBoundingClientRect().height > 0 && getComputedStyle(el).visibility !== "hidden";
+				const rows = [...document.querySelectorAll(".approval-card .approval-path, .approval-card .approval-box")].filter(shown);
+				return rows.filter((el) => (el.textContent ?? "").replace(/\s+/g, " ").includes(cmd.slice(0, 30))).map((el) => el.className.split(" ")[0]);
+			}, LONG);
+		assert.deepEqual(await seen(), ["approval-box"], "the narrow card shows the command once, in the block");
+		await expect(card.locator(".approval-box")).toContainText("--flag=value-end");
+		await win(1280);
+		await settled(w);
+		await expect.poll(seen, { timeout: T }).toEqual(["approval-path"]);
 		await card.getByRole("button", { name: "Reject", exact: true }).click();
 		failed = false;
 	} finally {

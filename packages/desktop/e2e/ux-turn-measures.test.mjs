@@ -145,7 +145,9 @@ function flow(name, options, body, timeout = 300000) {
 	});
 }
 
+const NESTED = "Lists of two kinds.\n\n- one\n- two with a second line that is long enough to wrap onto another line in a pane of this width, and then a bit more words to be sure of it\n  - nested a\n  - nested b\n\n1. first\n2. second\n\n- last bullet";
 const RULES = [
+	{ match: /nested lists/, steps: [{ text: NESTED }] },
 	{ match: /hello/, steps: [{ text: REPLY }] },
 	{ match: /do the work/, steps: [{ tool: "read", args: { path: "notes.txt" } }, { tool: "read", args: { path: "src/a.ts" } }, { text: REPLY }] },
 ];
@@ -469,5 +471,63 @@ flow(
 		assert.equal(m.latestStyle.radius, "999px", "a circle");
 		near(m.latest.x + m.latest.w / 2, m.column.x + m.column.w / 2, "centred on the column");
 		near(m.dock.y - m.latest.bottom, 20, "20 above the top of the dock");
+	},
+);
+
+flow(
+	"lists share one marker axis, and a nested list is one item gap under its parent's text",
+	{ tabs: "hidden", rules: RULES },
+	async (w) => {
+		await openProject(w);
+		await size(w, 1280, 820);
+		await send(w, "nested lists please");
+		await expect(w.page.getByText("last bullet")).toBeVisible({ timeout: T });
+		await settled(w);
+		const m = await w.page.evaluate(() => {
+			const reply = document.querySelector(".message.assistant:not(.commentary) .chat-markdown");
+			const column = document.querySelector(".transcript .conversation-body").getBoundingClientRect();
+			const top = [...reply.querySelectorAll(":scope > ul, :scope > ol")];
+			const [bullets, numbers, last] = top;
+			const markerX = (li, ordered) => {
+				const cs = getComputedStyle(li, "::before");
+				return li.getBoundingClientRect().left + Number.parseFloat(cs.left) - column.left;
+			};
+			const lineBottom = (li) => {
+				const r = document.createRange();
+				const own = [...li.childNodes].filter((n) => (n.nodeType === 3 && n.textContent.trim() !== "") || (n.nodeType === 1 && !/^(UL|OL)$/.test(n.tagName)));
+				r.setStartBefore(own[0]);
+				r.setEndAfter(own.at(-1));
+				const last = [...r.getClientRects()].at(-1);
+				// The text's own box is shorter than its 22 px line: the line ends half the difference lower.
+				return last.bottom + (22 - last.height) / 2;
+			};
+			const parent = bullets.children[1];
+			const nested = parent.querySelector(":scope > ul");
+			const nestedItems = [...nested.children];
+			return {
+				bulletX: markerX(bullets.children[0]),
+				numberX: markerX(numbers.children[0]),
+				numberText: numbers.children[0].getBoundingClientRect().left - column.left,
+				numberContent: getComputedStyle(numbers.children[0], "::before").content,
+				numberColor: getComputedStyle(numbers.children[0], "::before").color,
+				muted: getComputedStyle(bullets.children[0], "::before").backgroundColor,
+				secondNumber: getComputedStyle(numbers.children[1], "::before").content,
+				nestedGap: nestedItems[0].getBoundingClientRect().top - lineBottom(parent),
+				nestedPitch: nestedItems[1].getBoundingClientRect().top - nestedItems[0].getBoundingClientRect().bottom,
+				nestedMarker: nestedItems[0].getBoundingClientRect().left + Number.parseFloat(getComputedStyle(nestedItems[0], "::before").left) - parent.getBoundingClientRect().left,
+				afterNested: numbers.getBoundingClientRect().top - bullets.getBoundingClientRect().bottom,
+				lastGap: last.getBoundingClientRect().top - numbers.getBoundingClientRect().bottom,
+			};
+		});
+		near(m.bulletX, 13, "a bullet sits 13 in");
+		near(m.numberX, 13, "a number starts on the same x as a bullet");
+		near(m.numberText, 37, "the numbered text starts 37 in, as the bullets' does");
+		assert.equal(m.numberContent, 'counter(list-item) "."', "the number is the list's own counter");
+		assert.equal(m.secondNumber, m.numberContent);
+		near(m.nestedGap, 4, "a nested list is one item gap under its parent's last line");
+		near(m.nestedPitch, 4, "its items are 4 apart");
+		near(m.nestedMarker, 0, "its markers start where the parent's text starts (the parent's text is 0 right of its own box)");
+		near(m.afterNested, 12, "the next list is 12 under the nested one");
+		near(m.lastGap, 12, "lists are 12 apart");
 	},
 );

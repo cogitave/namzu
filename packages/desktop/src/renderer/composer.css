@@ -288,11 +288,13 @@
 	min-height: calc(var(--frame-input-height) - 16px);
 	padding: 0;
 }
-/* One line is 22 high with 3 above and below, so the row is 28 like the controls beside it. */
+/* One line is 22 high with the rest of the 28 split above and below, so the row is as high as the controls
+   beside it. */
 .normal-composer-shell .composer-input textarea {
-	min-height: calc(var(--box-line) + 6px);
+	--box-text-inset: calc((var(--box-send) - var(--box-line)) / 2);
+	min-height: var(--box-send);
 	margin: 0;
-	padding: 3px 0;
+	padding: var(--box-text-inset) 0;
 }
 .normal-composer-shell [data-chat-composer-footer] {
 	display: contents;
@@ -740,8 +742,9 @@
 }
 .normal-composer-shell .composer-waiting .composer-input textarea {
 	min-height: var(--box-send);
+	--box-text-inset: calc((var(--box-send) - var(--leading-small)) / 2);
 	margin: 0;
-	padding: 5px 0;
+	padding: var(--box-text-inset) 0;
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
 }

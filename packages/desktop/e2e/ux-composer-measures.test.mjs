@@ -12,7 +12,10 @@ import { test } from "node:test";
 import { createWorld, dispose, expect, launch, openProject } from "./harness.mjs";
 
 const T = 60000;
-const RULES = [{ match: /hello/, steps: [{ text: "Hello there." }] }];
+const RULES = [
+	{ match: /hello/, steps: [{ text: "Hello there." }] },
+	{ match: /slow/, steps: [{ hold: "slow", text: "Slow reply done." }] },
+];
 
 async function size(w, width, height) {
 	await w.app.evaluate(
@@ -103,6 +106,50 @@ test("the box is one row of 44 with 12 corners; send appears with text; the home
 		assert.equal(Math.round(home.box.x - home.lane.x), Math.round(home.lane.right - home.box.right), "the column is centred");
 		assert.equal(home.stack.w, 768, "the box, its row and what is docked with them share the column");
 
+		// The three starters: 320 by 40, 12 apart, 12 corners, a 1px edge at 8 percent of the text colour, no fill
+		// at rest, a 16 icon 12 inside the edge and the label 8 after it in 14/20.
+		const rows = await w.page.evaluate(() =>
+			[...document.querySelectorAll(".starter-actions button")].map((b) => {
+				const r = b.getBoundingClientRect();
+				const cs = getComputedStyle(b);
+				const icon = b.querySelector("svg").getBoundingClientRect();
+				const label = b.querySelector("span");
+				const range = document.createRange();
+				range.selectNodeContents(label);
+				const text = range.getBoundingClientRect();
+				const probe = document.createElement("i");
+				probe.style.color = "color-mix(in srgb, var(--foreground) 8%, transparent)";
+				document.body.append(probe);
+				const edge = getComputedStyle(probe).color;
+				probe.remove();
+				return {
+					x: r.left, y: r.top, w: r.width, h: r.height, bottom: r.bottom,
+					radius: cs.borderTopLeftRadius, border: cs.borderTopWidth, edge: cs.borderTopColor, wantEdge: edge,
+					fill: cs.backgroundColor, iconX: icon.left - r.left - 1, iconW: icon.width, iconH: icon.height,
+					labelX: text.left - icon.right, font: cs.fontSize, lh: cs.lineHeight,
+				};
+			}),
+		);
+		assert.equal(rows.length, 3);
+		rows.forEach((r, i) => {
+			assert.equal(r.w, 320, `starter ${i} is 320 wide`);
+			assert.equal(r.h, 40, `starter ${i} is 40 high`);
+			assert.equal(r.radius, "12px", `starter ${i} has 12 corners`);
+			assert.equal(r.border, "1px", `starter ${i} has a 1px edge`);
+			assert.equal(r.edge, r.wantEdge, `starter ${i}'s edge is 8 percent of the text colour`);
+			assert.equal(r.fill, "rgba(0, 0, 0, 0)", `starter ${i} has no fill at rest`);
+			assert.equal(r.iconX, 12, `starter ${i}'s icon is 12 inside the edge`);
+			assert.equal([r.iconW, r.iconH].join("x"), "16x16");
+			assert.equal(r.labelX, 8, `starter ${i}'s label is 8 after the icon`);
+			assert.equal(`${r.font}/${r.lh}`, "14px/20px");
+			assert.equal(r.x, rows[0].x, "the three are on one left edge");
+			if (i > 0) assert.equal(r.y - rows[i - 1].bottom, 12, "12 apart");
+		});
+		await w.page.locator(".starter-actions button").first().hover();
+		const hovered = await w.page.evaluate(() => getComputedStyle(document.querySelector(".starter-actions button")).backgroundColor);
+		assert.notEqual(hovered, "rgba(0, 0, 0, 0)", "a starter has a faint fill under the pointer");
+		await w.page.mouse.move(0, 0);
+
 		// The heading and the starters are one block, centred in the free area above the dock, 16 apart.
 		assert.ok(home.heading, "the heading is drawn");
 		assert.ok(home.startersVisible, "the starters are drawn");
@@ -123,6 +170,13 @@ test("the box is one row of 44 with 12 corners; send appears with text; the home
 		assert.equal(typed.sends.length, 1, "one send control is in the box");
 		assert.equal(typed.sends[0].w, 28);
 		assert.equal(typed.sends[0].h, 28);
+		const sendLook = await w.page.evaluate(() => {
+			const b = document.querySelector('[data-chat-composer-main-surface] button[aria-label="Send message"]');
+			const cs = getComputedStyle(b);
+			return { radius: cs.borderTopLeftRadius, fill: cs.backgroundColor };
+		});
+		assert.equal(sendLook.radius, "8px", "Send has 8 corners, it is not round");
+		assert.notEqual(sendLook.fill, "rgba(0, 0, 0, 0)", "Send is filled");
 		assert.equal(typed.box.right - typed.sends[0].right, 8, "it sits 8 inside the right edge");
 		assert.deepEqual(typed.box, home.box, "typing a letter does not move the box");
 		assert.deepEqual(typed.heading, home.heading, "nor the heading");
@@ -271,6 +325,51 @@ test("the home heading does not move when the box grows", { timeout: 280000 }, a
 		assert.ok(short.heading, "the heading is still drawn");
 		assert.ok(short.heading.bottom <= short.dock.y, "the heading never reaches the dock");
 		assert.equal(short.startersVisible, false, "the starters went first");
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});
+
+test("Stop is 28 by 28 with no fill and a 12 square of 2 corners in the text colour, 8 inside the box's corner", { timeout: 280000 }, async () => {
+	const w = await createWorld({ tabs: "hidden", rules: RULES });
+	let failed = true;
+	try {
+		await launch(w);
+		await openProject(w);
+		await size(w, 1280, 820);
+		const input = w.page.getByRole("textbox", { name: "Message Namzu" });
+		await input.fill("slow request");
+		await input.press("Enter");
+		const stop = w.page.getByRole("button", { name: "Stop reply" });
+		await expect(stop).toBeVisible({ timeout: T });
+		await settled(w);
+		const m = await w.page.evaluate(() => {
+			const b = document.querySelector(".composer-stop");
+			const sq = b.querySelector(".composer-stop-square");
+			const host = document.querySelector('[data-slot="composer-host"]').getBoundingClientRect();
+			const r = b.getBoundingClientRect();
+			const s = sq.getBoundingClientRect();
+			const cs = getComputedStyle(b);
+			const sc = getComputedStyle(sq);
+			return {
+				w: r.width, h: r.height, right: host.right - r.right, bottom: host.bottom - r.bottom, fill: cs.backgroundColor,
+				sw: s.width, sh: s.height, radius: sc.borderTopLeftRadius, sqFill: sc.backgroundColor, text: getComputedStyle(document.body).color,
+				cx: s.left + s.width / 2 - (r.left + r.width / 2), cy: s.top + s.height / 2 - (r.top + r.height / 2),
+			};
+		});
+		assert.equal(`${m.w}x${m.h}`, "28x28", "Stop is 28 by 28");
+		assert.equal(m.fill, "rgba(0, 0, 0, 0)", "Stop has no fill at rest");
+		assert.equal(`${m.sw}x${m.sh}`, "12x12", "its mark is a 12 square");
+		assert.equal(m.radius, "2px", "with 2 corners");
+		assert.notEqual(m.sqFill, "rgba(0, 0, 0, 0)", "filled in the text colour");
+		assert.equal(`${m.cx},${m.cy}`, "0,0", "centred in the button");
+		assert.equal(m.right, 8, "8 inside the box's right edge");
+		await stop.hover();
+		const hover = await w.page.evaluate(() => getComputedStyle(document.querySelector(".composer-stop")).backgroundColor);
+		assert.notEqual(hover, "rgba(0, 0, 0, 0)", "an 8 percent fill under the pointer");
+		await stop.click();
+		w.model.release("slow");
 		failed = false;
 	} finally {
 		await dispose(w, { failed });

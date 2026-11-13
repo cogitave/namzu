@@ -442,7 +442,8 @@ export function ComposerApproval({
 	}
 	const hasBox = preview !== undefined
 	// The path of a file, or a command of one line, has a row of its own under the band. A command that
-	// does not fit the row keeps its framed block too, so the whole of it is still on the card.
+	// does not fit the row is shown whole in its framed block instead, so it is on the card once: the row
+	// stays mounted, unseen, to learn when the card is wide enough for it again.
 	const [rowCut, setRowCut] = useState(false)
 	const commandRow = model.command !== undefined && !/\r?\n/.test(model.command.trim())
 	const pathText = commandRow
@@ -565,7 +566,11 @@ export function ComposerApproval({
 					<span className="approval-head-more">{moreMenu}</span>
 				</header>
 				{pathText !== undefined && (
-					<div className="approval-path" data-kind={commandRow ? 'command' : 'file'}>
+					<div
+						className="approval-path"
+						data-kind={commandRow ? 'command' : 'file'}
+						data-hidden={(commandRow && rowCut) || undefined}
+					>
 						<CutRow
 							text={pathText}
 							title={commandRow ? model.command : model.path}

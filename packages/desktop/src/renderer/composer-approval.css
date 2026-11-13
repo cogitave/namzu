@@ -8,6 +8,7 @@
 	margin: 0 0 8px;
 }
 .approval-card {
+	position: relative;
 	display: flex;
 	flex-direction: column;
 	min-width: 0;
@@ -66,6 +67,15 @@
 	font-family: var(--font-mono);
 	font-size: var(--font-size-code);
 	line-height: var(--leading-code);
+}
+/* A command too long for the row: the framed block shows all of it, so this row only keeps measuring. */
+.approval-card > .approval-path[data-hidden] {
+	position: absolute;
+	left: var(--ask-pad);
+	right: var(--ask-pad);
+	margin: 0;
+	visibility: hidden;
+	pointer-events: none;
 }
 .approval-path-text {
 	position: relative;

@@ -28,7 +28,7 @@
 }
 
 /* A reply: paragraphs, lists and blocks are 12 apart. */
-.normal-transcript .chat-markdown :is(p, ul, ol, blockquote, pre, .table-scroll) {
+.normal-transcript .chat-markdown :where(p, ul, ol, blockquote, pre, .table-scroll) {
 	margin-block: var(--turn-paragraph-gap);
 }
 .normal-transcript .chat-markdown > :first-child {
@@ -37,16 +37,15 @@
 .normal-transcript .chat-markdown > :last-child {
 	margin-bottom: 0;
 }
-/* A list: a small muted square stands for each bullet, the text starts at the same x on every item, and items
-   are 4 apart. A numbered list keeps its numbers, in the muted colour, with its text at the same x. */
+/* A list: the marker of every item starts --turn-list-marker-inset in, the text at the same x on every item, and
+   items are 4 apart. A bullet is a small muted square; a numbered list draws its number (the list's own counter,
+   so a list that starts at another number keeps it) in the muted colour on the same x. */
 .normal-transcript .chat-markdown :is(ul, ol) {
 	--list-gutter: var(--turn-list-text-inset);
 	padding-left: var(--turn-list-text-inset);
-}
-.normal-transcript .chat-markdown ul {
 	list-style: none;
 }
-.normal-transcript .chat-markdown ul > li {
+.normal-transcript .chat-markdown :is(ul, ol) > li {
 	position: relative;
 }
 .normal-transcript .chat-markdown ul > li:not(.task-list-item)::before {
@@ -58,13 +57,17 @@
 	height: var(--turn-list-marker);
 	background: var(--muted-foreground);
 }
-.normal-transcript .chat-markdown ol > li::marker {
+.normal-transcript .chat-markdown ol > li::before {
+	content: counter(list-item) ".";
+	position: absolute;
+	left: calc(var(--turn-list-marker-inset) - var(--turn-list-text-inset));
 	color: var(--muted-foreground);
 }
 .normal-transcript .chat-markdown li + li {
 	margin-top: var(--turn-list-gap);
 }
-/* A list inside an item starts where that item's text starts: its own marker is that far left of its text. */
+/* A list inside an item is one item gap under that item's text and starts where that item's text starts: its own
+   marker is that far left of its text. */
 .normal-transcript .chat-markdown li > :is(ul, ol) {
 	margin-block: var(--turn-list-gap) 0;
 	padding-left: calc(var(--turn-list-text-inset) - var(--turn-list-marker-inset));
