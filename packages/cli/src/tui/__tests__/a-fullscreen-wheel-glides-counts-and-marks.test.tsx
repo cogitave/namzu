@@ -302,6 +302,37 @@ it('says the reply is growing when the one that was being written got longer', a
 	expect(hintRow(h.screen)).not.toContain('new repl')
 })
 
+it('says the reply grew, not that it is still growing, once it has finished', async () => {
+	const h = await mount(lines(59), {})
+	const writing = { ...reply(59, 'one'), pending: true }
+	await h.rerender(lines(59), writing)
+	h.notch('up')
+	await h.screen.waitForRender()
+	await h.settle()
+	await h.rerender([...lines(59), reply(59, 'one two three four')], null)
+	expect(hintRow(h.screen)).toContain('Reply grew')
+	expect(hintRow(h.screen)).not.toContain('still growing')
+})
+
+it('ends a glide where it stands when the search opens, and closing the search comes back to that place', async () => {
+	const h = await mount(lines(300))
+	for (let i = 0; i < 7; i++) {
+		h.notch('up')
+		h.time.wait(50)
+	}
+	await h.screen.waitForRender()
+	h.time.frame()
+	await h.screen.waitForRender()
+	const standing = shown(h.screen)
+	h.screen.press('\x1bs')
+	await h.screen.waitForRender()
+	// No frame is waiting: the glide ended with the search.
+	expect(h.time.frame()).toBe(false)
+	h.screen.press('\x1b')
+	await h.screen.waitForRender()
+	expect(shown(h.screen)).toEqual(standing)
+})
+
 it('puts one quiet rule above the first unseen reply, which stays after the jump down', async () => {
 	const h = await mount(lines(60))
 	h.notch('up')

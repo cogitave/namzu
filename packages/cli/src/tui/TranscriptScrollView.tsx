@@ -82,7 +82,12 @@ export function TranscriptScrollView({
 
 	if (view === 'latest') return null
 	const shown = rows.slice(view.top, view.top + height)
-	const news = newsSince(baseline, replyList(messages, pending, pendingAt), view.unseen)
+	const news = newsSince(
+		baseline,
+		replyList(messages, pending, pendingAt),
+		view.unseen,
+		pending !== null,
+	)
 	const hint = followHint(columns, news)
 	return (
 		<Box flexDirection="column">

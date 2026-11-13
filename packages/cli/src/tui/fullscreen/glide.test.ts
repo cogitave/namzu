@@ -60,6 +60,25 @@ describe('a notch adds to a distance', () => {
 		const state = feed([100, 100])
 		expect(state.pending).toBeGreaterThanOrEqual(2 * WHEEL_FEEL.rows)
 	})
+
+	it('takes several reports of one turn of the wheel as the plain step each, not a fast run', () => {
+		const three = feed([100, 100, 100])
+		expect(three.pending).toBe(3 * WHEEL_FEEL.rows)
+		expect(three.run).toBe(0)
+		// A terminal that sends three reports per notch is set to one row a report.
+		const one = feed([100, 100, 100], 'down', { rows: 1, accel: true })
+		expect(one.pending).toBe(3)
+		// The next turn of the wheel, a little later, is a fast run as before.
+		expect(feed([100, 100, 100, 150]).run).toBe(1)
+	})
+})
+
+describe('the frame period', () => {
+	it('is clear of the renderer throttle, so each frame is painted on its own', () => {
+		// The renderer paints at most 30 times a second (34 ms) through two throttles
+		// in a row; a period at or near that merges two frames into one 68 ms paint.
+		expect(WHEEL_FEEL.frameMs).toBeGreaterThanOrEqual(Math.ceil(1000 / 30) + 8)
+	})
 })
 
 describe('a fast run speeds up', () => {

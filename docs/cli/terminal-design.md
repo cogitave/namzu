@@ -1084,17 +1084,21 @@ distance over the next frames: each frame covers half of what is left, all of
 it when two rows or fewer are left, and never more than one window less a row.
 A move is a glide of a few frames that lands exactly. The first frame is at
 once (scrolling up stops following at the first notch, before the glide ends),
-and while a distance remains a frame is painted every 34 ms, on its own timer,
+and while a distance remains a frame is painted every 44 ms, on its own timer,
 so a glide does not wait on unrelated renders; each frame writes only the rows
-that changed. Keys are immediate: PgUp, PgDn, Home and End end a glide where it
-stands and move at once, and so does a press of the mouse (a click on a folded
+that changed. The period is longer than the renderer's own 34 ms limit on
+purpose: at 34 ms a frame can land inside the limit and wait for the next, so
+two frames are painted as one 68 ms jump. Keys are immediate: PgUp, PgDn, Home and End end a glide where it
+stands and move at once, opening search ends it where it stands (closing
+search returns to that place), and so does a press of the mouse (a click on a folded
 row opens the row under the pointer, not one a frame ahead of it). Output that
 arrives during a glide does not move what is on screen.
 
 | Case | What the view does |
 | --- | --- |
 | One slow notch | 3 rows (`tui.wheelRows`), two frames |
-| Notches less than 120 ms apart | a run: notch number n of the run moves `rows + (window - 1 - rows) * (n / 9)^2` rows, so 3, 3, 5, 7, 10, 14, 19, 25, 31, 39 in a 40-row window (a window less a row from the tenth notch on) |
+| Several reports in one write (a terminal that sends 2 or 3 per notch) | each is a plain step (`tui.wheelRows` each) and they do not count as a faster run; set `wheelRows` to 1 to move 3 rows a notch |
+| Notches less than 120 ms apart | a run: notch number n of the run moves `rows + (window - 1 - rows) * (n / 9)^2` rows, so 3, 3, 4, 6, 9, 12, 16, 21, 26, 32 in a 33-row window, which is what a 40-row terminal shows (a window less a row from the tenth notch on) |
 | A gap of 120 to 500 ms | the run is halved |
 | A pause of 500 ms or more | back to the plain step; what is still to travel is finished |
 | A change of direction | what is left to travel the old way is dropped and the notch is a plain step the other way |
@@ -1130,7 +1134,7 @@ longest form that fits, never cut inside a word:
 | --- | --- |
 | none | `↓ Jump to latest · End`, `↓ Latest · End`, `↓ Latest`, `↓` |
 | 1 or more replies | `2 new replies · ↓ Jump to latest · End` (`1 new reply`), `2 new replies · ↓ Latest · End`, `2 new · ↓ Latest`, `2 new ↓`, `2` |
-| the reply only grew | `Reply still growing · ↓ Jump to latest · End`, then the same ladder with `Growing` |
+| the reply only grew | `Reply still growing · ↓ Jump to latest · End` while it is being written, then the same ladder with `Growing`; once it has finished, `Reply grew · ↓ Jump to latest · End`, then with `Grew` |
 | something else below | `New activity · ↓ Jump to latest · End`, then the same ladder with `New` |
 
 The key named is End, which jumps down while the composer is empty; with a draft
@@ -1139,7 +1143,7 @@ in it End moves the cursor, and the click still works. With the pointer at
 the mouse at `scroll` or `off` nothing is clickable and nothing changes.
 
 While replies are unseen, one quiet rule row stands just above the first of
-them and says the count (`──── 2 new replies ────`), so after jumping down you
+them and says the count (`──── 2 new replies ────`; on a narrow row `2 new`, then `2`), so after jumping down you
 can scroll up to where you left off. It stays when you jump down, and goes when
 you send your next message (or when a compaction removes the message it stands
 above). A later time you scroll away and replies arrive puts a new rule in its

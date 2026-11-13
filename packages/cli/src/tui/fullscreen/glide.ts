@@ -19,6 +19,12 @@ export const WHEEL_FEEL = {
 	maxRows: 20,
 	/** Notches closer together than this belong to one fast run. */
 	runGapMs: 120,
+	/**
+	 * Reports this close together are one turn of the wheel: a terminal that sends
+	 * several reports per notch sends them in one write. They add the plain step
+	 * each and do not count as a faster run.
+	 */
+	burstMs: 2,
 	/** A gap this long or longer ends the run: the next notch is a plain step. */
 	pauseMs: 500,
 	/** Notches in a run at which a notch has reached its ceiling of one window less a row. */
@@ -31,8 +37,14 @@ export const WHEEL_FEEL = {
 	share: 0.5,
 	/** At or under this many rows left, one frame covers all of it and lands exactly. */
 	landRows: 2,
-	/** Milliseconds between frames while a distance remains: one frame of the renderer's 30 a second. */
-	frameMs: 34,
+	/**
+	 * Milliseconds between frames while a distance remains. The renderer paints at
+	 * most 30 times a second through two throttles in a row, so a frame at its own
+	 * rate can land inside the window and wait for the next: 68 ms painted, two
+	 * frames in one paint. A frame period this much longer than 34 ms paints each
+	 * frame on its own.
+	 */
+	frameMs: 44,
 } as const
 
 export interface WheelSettings {
@@ -106,7 +118,12 @@ export function notch(
 		stray = null
 	} else {
 		stray = null
-		run = gap <= WHEEL_FEEL.runGapMs ? state.run + 1 : Math.floor(state.run / 2)
+		run =
+			gap <= WHEEL_FEEL.burstMs
+				? state.run
+				: gap <= WHEEL_FEEL.runGapMs
+					? state.run + 1
+					: Math.floor(state.run / 2)
 	}
 	const rows = notchRows(run, settings, window)
 	const ahead = Math.max(rows, WHEEL_FEEL.maxAheadWindows * pageRows(window))

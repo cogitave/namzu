@@ -55,6 +55,8 @@ export interface News {
 	readonly count: number
 	/** No new reply, but the one that was newest has grown. */
 	readonly grown: boolean
+	/** The reply that grew is still being written. */
+	readonly writing?: boolean
 	/** Something below changed that is not a reply (a tool call, a status row). */
 	readonly activity: boolean
 }
@@ -63,6 +65,7 @@ export function newsSince(
 	baseline: ReplyBaseline,
 	replies: readonly TranscriptMessage[],
 	activity: boolean,
+	writing = false,
 ): News {
 	const count = Math.max(0, replies.length - baseline.replies)
 	const last = baseline.last
@@ -70,7 +73,7 @@ export function newsSince(
 		count === 0 &&
 		last !== null &&
 		replies.some((reply) => reply.id === last.id && reply.content.length > last.length)
-	return { count, grown, activity }
+	return { count, grown, activity, ...(grown && writing ? { writing: true } : {}) }
 }
 
 export const NO_NEWS: News = { count: 0, grown: false, activity: false }
@@ -94,7 +97,11 @@ function head(news: News): { readonly full: string; readonly short: string } | n
 			short: `${news.count} new`,
 		}
 	}
-	if (news.grown) return { full: 'Reply still growing', short: 'Growing' }
+	if (news.grown) {
+		return news.writing
+			? { full: 'Reply still growing', short: 'Growing' }
+			: { full: 'Reply grew', short: 'Grew' }
+	}
 	if (news.activity) return { full: 'New activity', short: 'New' }
 	return null
 }
@@ -120,9 +127,15 @@ export function newOutputHint(columns: number, news: News, words: HintWords): st
 
 /** The wording of the rule drawn in the transcript where the new part begins. */
 export function newRepliesRule(count: number, width: number): string {
-	const label = ` ${count} new ${count === 1 ? 'reply' : 'replies'} `
+	const word = count === 1 ? 'reply' : 'replies'
+	// Shorter wordings for a narrow row; the last is cut to the width, never past it.
+	const fits = [`${count} new ${word}`, `${count} new`, `${count}`].find(
+		(text) => choiceDisplayWidth(text) <= width,
+	)
+	if (fits === undefined) return `${count}`.slice(0, Math.max(0, width))
+	const label = ` ${fits} `
 	const room = Math.max(0, width - choiceDisplayWidth(label))
-	if (room < 4) return label.trim()
+	if (room < 4) return fits
 	const left = Math.floor(room / 2)
 	return `${'─'.repeat(left)}${label}${'─'.repeat(room - left)}`
 }

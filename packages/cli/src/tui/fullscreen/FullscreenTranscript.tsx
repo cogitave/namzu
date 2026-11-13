@@ -579,9 +579,11 @@ export function FullscreenTranscript({
 		[room, place],
 	)
 	const openSearch = useCallback(() => {
+		// A glide ends where it stands: the view saved is the one the reader sees.
+		stopGlide()
 		savedView.current = viewNow.current
 		updateSearch({ query: '', cursor: null })
-	}, [updateSearch])
+	}, [updateSearch, stopGlide])
 	const closeSearch = useCallback(() => {
 		// Back to where the reader was; a reader who was following is following.
 		place(savedView.current.follow ? FOLLOWING : savedView.current)
@@ -679,7 +681,9 @@ export function FullscreenTranscript({
 	const { from, to } = visibleRange(synced, index, maxRows)
 	const unseen = hasUnseen(synced, index)
 	const news =
-		!synced.follow && away.current && replies ? newsSince(away.current, replies, unseen) : undefined
+		!synced.follow && away.current && replies
+			? newsSince(away.current, replies, unseen, pending !== null)
+			: undefined
 	const hint = synced.follow ? null : jumpHint(columns, news)
 	// The footer row is the search line, or the jump hint, or the note of a copy
 	// in the hint's place. While following there is no footer, and a note must

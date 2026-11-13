@@ -3,6 +3,7 @@
 ## 2026-11-13
 
 - **Update** [Terminal design](cli/terminal-design.md#the-wheel): in fullscreen mode every wheel notch adds to a distance the view glides over in a few frames (two notches in one chunk of input both count; they used to count once), a fast run of notches speeds up to about a window a notch and a pause, a change of direction or a bounce is handled, and `tui.wheelAccel` and `tui.wheelRows` switch the speed-up off and set the rows per notch. The hint for new output now counts replies (`2 new replies · ↓ Jump to latest · End`), says when the reply only grew, can be clicked, and a quiet rule in the transcript marks where the new part begins; the default screen's scroll-back view uses the same counter. Keys and mouse presses are immediate. `.changeset/cli-fullscreen-wheel-glide-and-count.md`.
+- **Update** [Terminal design](cli/terminal-design.md#the-wheel): after review, wheel frames are painted every 44 ms so each is its own paint (at 34 ms two merged into a 68 ms jump), several reports in one write are plain steps each and not a faster run, the speed-up table is for the 33-row window a 40-row terminal shows, the hint says `Reply grew` once a reply has finished, the rule's wording shortens on a narrow row, and opening search ends a glide where it stands.
 
 ## 2026-11-12
 

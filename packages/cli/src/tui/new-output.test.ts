@@ -84,7 +84,7 @@ describe('counting replies', () => {
 describe('the hint', () => {
 	const two: News = { count: 2, grown: false, activity: true }
 	const one: News = { count: 1, grown: false, activity: true }
-	const grown: News = { count: 0, grown: true, activity: true }
+	const grown: News = { count: 0, grown: true, writing: true, activity: true }
 	const other: News = { count: 0, grown: false, activity: true }
 
 	it('names the count, singular and plural, and the key', () => {
@@ -120,10 +120,20 @@ describe('the hint', () => {
 			'growing',
 			'Reply',
 			'Growing',
+			'grew',
+			'Grew',
 			'New',
 			'activity',
 		])
-		for (const news of [NO_NEWS, one, two, grown, other, { ...two, count: 12 }]) {
+		for (const news of [
+			NO_NEWS,
+			one,
+			two,
+			grown,
+			{ ...grown, writing: false },
+			other,
+			{ ...two, count: 12 },
+		]) {
 			for (let columns = 1; columns <= 120; columns++) {
 				const hint = newOutputHint(columns, news, WORDS)
 				if (hint === null) continue
@@ -151,6 +161,27 @@ describe('the rule', () => {
 	})
 
 	it('drops the dashes when there is no room for them', () => {
-		expect(newRepliesRule(2, 10)).toBe('2 new replies')
+		expect(newRepliesRule(2, 13)).toBe('2 new replies')
+	})
+
+	it('shortens its words on a narrow row and never passes the width', () => {
+		for (const count of [1, 2, 12, 120]) {
+			for (let width = 0; width <= 30; width++) {
+				expect(choiceDisplayWidth(newRepliesRule(count, width))).toBeLessThanOrEqual(width)
+			}
+		}
+		expect(newRepliesRule(2, 10)).toBe('2 new')
+		expect(newRepliesRule(2, 1)).toBe('2')
+		expect(newRepliesRule(12, 1)).toBe('1')
+	})
+
+	it('says a reply that has finished grew, and one still being written is still growing', () => {
+		const base = baselineOf(replyList([reply('a', 'one')], null))
+		const longer = replyList([reply('a', 'one two')], null)
+		const writing = newsSince(base, longer, false, true)
+		const done = newsSince(base, longer, false, false)
+		expect(newOutputHint(80, writing, WORDS)).toContain('Reply still growing')
+		expect(newOutputHint(80, done, WORDS)).toContain('Reply grew')
+		expect(newOutputHint(80, done, WORDS)).not.toContain('still growing')
 	})
 })
