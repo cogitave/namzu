@@ -1681,7 +1681,7 @@ function AppBody({
 		setCtx(resolved)
 		return resolved
 	}, [initialCtx])
-	const { exit } = useApp()
+	const { exit, waitUntilRenderFlush } = useApp()
 	const { stdout, write: writeStdout } = useStdout()
 	const clipboard = useMemo(
 		() =>
@@ -2293,6 +2293,12 @@ function AppBody({
 	 * hold the window shut for the length of the next conversation.
 	 */
 	const settledRef = useRef<number>(0)
+	/**
+	 * Set while a clear is about to run: every finished row is printed first, so the rows that were
+	 * still in the live region are in the scrollback before the screen is cleared, not erased with it.
+	 */
+	const settleAllRef = useRef(false)
+	const [, setSettleTick] = useState(0)
 	// Complete prompts waiting for the one queue pump that may start a turn. The
 	// queue is synchronous, so a turn's `finally` can decide whether it is truly
 	// the last turn; React state captured when the turn started would still say
@@ -3651,6 +3657,17 @@ function AppBody({
 		},
 		[stdout.isTTY, writeStdout, fullscreenOn],
 	)
+	// A clear keeps every row: the finished rows the live region still holds are printed into the
+	// scrollback (through the same <Static> every other row goes through) and flushed to the
+	// terminal before the screen is cleared. Default screen only; the fullscreen view repaints itself
+	// and has no scrollback.
+	const printLiveRowsBeforeClear = useCallback(async (): Promise<void> => {
+		if (!stdout.isTTY || fullscreenOn || !paintsLiveRegion) return
+		settleAllRef.current = true
+		setSettleTick((tick) => tick + 1)
+		await waitUntilRenderFlush()
+		await waitUntilRenderFlush()
+	}, [stdout.isTTY, fullscreenOn, paintsLiveRegion, waitUntilRenderFlush])
 	// The workspaces screen switches the terminal between a mirror and the real screen; whichever
 	// way, the screen is rebuilt from the messages, whether or not the width changed.
 	useEffect(() => {
@@ -7283,7 +7300,7 @@ function AppBody({
 	// advances the floor once and emits those finalized rows exactly once.
 	const nextSettled = settledBeforeStreaming(
 		messages,
-		window.settled,
+		settleAllRef.current ? finalized.length : window.settled,
 		settledRef.current,
 		flowContext.freeze,
 	)
@@ -8430,6 +8447,8 @@ function AppBody({
 				}
 
 				if (clearScreen) {
+					await printLiveRowsBeforeClear()
+					settleAllRef.current = false
 					setMessages([])
 					resetTranscript()
 				}
@@ -8486,6 +8505,7 @@ function AppBody({
 			resetSubagentActivity,
 			session,
 			resetTranscript,
+			printLiveRowsBeforeClear,
 			wakeGoalDriver,
 			pushSystem,
 		],
@@ -16880,8 +16900,11 @@ function AppBody({
 					pushMessage('system', 'Ctrl+L is unavailable while a reply is in progress.')
 					return
 				}
-				setMessages([])
-				resetTranscript()
+				void printLiveRowsBeforeClear().then(() => {
+					settleAllRef.current = false
+					setMessages([])
+					resetTranscript()
+				})
 				return
 			}
 			// Fullscreen: Esc closes the search or lets go of a selection before it is
