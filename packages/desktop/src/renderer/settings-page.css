@@ -405,8 +405,8 @@
 .settings-sidebar-navigation {
 	display: flex;
 	flex-direction: column;
-	gap: 0;
-	padding: 8px var(--frame-row-inset);
+	gap: var(--frame-row-space);
+	padding: var(--frame-row-first) var(--frame-row-inset-end) 0 var(--frame-row-inset);
 }
 .settings-sidebar-navigation button {
 	display: flex;
@@ -416,7 +416,7 @@
 	width: 100%;
 	padding: 0 var(--frame-row-padding);
 	border: 0;
-	border-radius: var(--radius-control);
+	border-radius: var(--frame-row-radius);
 	background: transparent;
 	color: var(--foreground);
 	font-size: var(--text-small);

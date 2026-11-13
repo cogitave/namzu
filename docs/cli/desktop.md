@@ -908,13 +908,13 @@ The logic is pure (`SystemNotices` takes an injected notifier, clock, timer and 
 
 ## The top of a conversation window
 
-A conversation window spends 44 px on one bar (the same height as the strip of tabs, so showing or hiding the strip moves nothing). The bar holds the conversation's title (14 px, strong, cut with an ellipsis when it does not fit), the project's name (13 px, muted), then on the right its buttons (how full the conversation is lives in the row under the composer, not here). The sidebar is the one list of conversations; a title is shown once. The operating system's menu row (File, Edit, View, Window) is unchanged and sits above the bar.
+A conversation window spends 36 px on one bar (the same height as the strip of tabs, so showing or hiding the strip moves nothing). The bar holds the conversation's title (14 px, strong, cut with an ellipsis when it does not fit), the project's name (13 px, muted), then on the right its buttons (how full the conversation is lives in the row under the composer, not here). The sidebar is the one list of conversations; a title is shown once. The operating system's menu row (File, Edit, View, Window) is unchanged and sits above the bar.
 
 **The read-out** is not in the bar: it sits at the right end of the row under the composer box (see the composer section below), from the same figures (`contextRingModel`, so the two cannot disagree) and with the same rule for when it shows: nothing is drawn until the engine has reported both a context size and a window.
 
 **The buttons** are 28 px, each with a tooltip and an accessible name: **Changes** (opens the Changes panel; with changes it widens to show the lines added and removed, "+35 −3", read from the same `changeTotals` as the result line and the pane, and its accessible name says the file count too, "Changes, 4 changed files, 35 added, 3 removed"), **New terminal** (a menu of the open terminals, the conversation and **New terminal** once one is open), **Project files**, **Conversation details** and **Conversation actions**. Changes and Project files open the panels the details popover and the panel's own tab strip already open; they are a shorter way there, not new panels. At 960 px the title gives way first, the project's name shrinks next and goes only below 300 px of bar; the buttons stay.
 
-**Conversation tabs** are hidden by default. **View > Show conversation tabs** (a checkbox), **Settings > Appearance > Show conversation tabs** and the command palette's **Show conversation tabs** / **Hide conversation tabs** switch them; the choice is `showConversationTabs` in `desktop-settings.json`, shared by the windows and by the menu's checkbox, and the window remembers the last answer for the first paint. With the switch on, the top of the window is as it was: the strip, in the same 44 px. The context read-out stays in the composer's row either way. A Pal's conversation always keeps the strip, because the Pal's computer is a tab in it.
+**Conversation tabs** are hidden by default. **View > Show conversation tabs** (a checkbox), **Settings > Appearance > Show conversation tabs** and the command palette's **Show conversation tabs** / **Hide conversation tabs** switch them; the choice is `showConversationTabs` in `desktop-settings.json`, shared by the windows and by the menu's checkbox, and the window remembers the last answer for the first paint. With the switch on, the top of the window is as it was: the strip, in the same 36 px. The context read-out stays in the composer's row either way. A Pal's conversation always keeps the strip, because the Pal's computer is a tab in it.
 
 With the strip hidden, every way of moving still works:
 
@@ -1720,9 +1720,9 @@ running. Existing images need an explicit rebuild and computer restart for these
 Guest browser and file tools do not fall back to the operator's device.
 
 The owning pane places ordinary conversations, Pal chat and the Pal's computer
-in one tab row. All use equal 220px by 32px frames inside the shared outer header.
+in one tab row. All use equal 220px by 28px frames inside the shared outer header, each 4px from the header's top.
 That header stays in place when switching between ordinary chat, Pal chat and
-computer content. Its height follows the canonical workspace-header token (44px since 2026-11-13; 52px in the receipts below),
+computer content. Its height follows the canonical workspace-header token (36px since 2026-11-13; 52px in the receipts below),
 with common gutters, so changing the selected view does not move the tab row.
 New conversation follows the scrollable tab list. Computer and layout controls
 form a separate group aligned to the header's right gutter, including split and
@@ -1990,12 +1990,12 @@ button with its badge and its announcement. Home is not repeated there, because 
 screen as the New conversation row; on the Settings and Plugins pages, whose own sidebars have no such
 row, the foot also carries Home, so the way back is never lost. While the sidebar is collapsed
 (by the title bar's panel control, Ctrl/Cmd+B, a narrow window, or the Changes pane at 1280 px and
-below) the 48 px rail is drawn with Home at the top and Settings at the bottom; a control that had the
+below) the 48 px rail is drawn with Home in its header band (36 px) at the top and Settings in its foot (45 px, with the same line above it as the sidebar's foot) at the bottom; a control that had the
 focus when the rail and the foot swap keeps it. Opening or closing the sidebar moves the conversation by
 exactly the width that changes (288 px open, 48 px collapsed). In a window of 767 px or less the sidebar is an
 overlay beside the rail, and the foot is not drawn. The sidebar's header and the top bar's hairline end on
-one line: both are 44 px, with the strip of tabs and without it, and in Settings (see
-[The frame's numbers](#the-frames-numbers)). The wordmark keeps its size, and the menu button around it is 4 px shorter. Home
+one line: both are 36 px, with the strip of tabs and without it, and in Settings (see
+[The frame's numbers](#the-frames-numbers)). The wordmark keeps its size (two rows, 22 px high, inside the 36 with 7 above and below), and the menu button around it is 28 px high. Home
 owns the chat and blank composer. Spaces, Scheduled and Plugins are not on the rail:
 a destination that cannot open is not drawn (no disabled button, no "coming soon"), and
 each returns when it exists. Plugins is still reached from the composer's + menu. When
@@ -3481,42 +3481,59 @@ The header, the sidebar's rows and its foot sit on one rhythm, so edges that sho
 screen moves the line another screen drew. Each number is a token in `theme.css` (`--frame-*`) and every
 rule that places a frame part reads the token; `src/renderer/frame-tokens.test.ts` pins the tokens and
 the rules that read them, and `e2e/ux-frame-measures.test.mjs` measures them in the running app at 1280
-by 820.
+by 820. The sidebar is 288 px wide including its 1 px edge line; x positions below are from its left edge.
 
-- **One header height, 44 px**, on the sidebar side and on the main side, with the strip of tabs or the
-  conversation bar, and in Settings and Plugins. The hairline under a header is an inset shadow inside the
-  44, so it never changes the height; the line under the wordmark and the line under the tabs are at the
-  same y. Tabs stay 32 high, 6 from the top and the bottom; header controls stay 28 high with 8 above and
-  below, 4 apart and 8 from the right edge.
-- **Rows are 32 px high**, inset 8 from both edges of the sidebar, with 8 px of side padding, a 16 px icon
-  slot and a gap of 8. Every label therefore starts at x 40: the New conversation row, a Pal's row, a project
-  row, a conversation row (in a project, in Recents and in the archive), a terminal row and a Settings or
-  Plugins section. Rows touch; there is no gap between them. A conversation is no longer indented under its
-  project: its icon slot is what keeps its label in line with the project's name.
+- **One header band, 36 px**, on the sidebar side and on the main side, with the strip of tabs or the
+  conversation bar, in Settings and on every other page, and above the collapsed rail. Controls in the band
+  are 28 high, 4 from its top and bottom; a tab is 28 high, 4 from the top. The wordmark (22 px high), the
+  Beta chip and the dither band fit inside the 36 uncut; the dither squares are drawn at the band's own
+  height so they stay square.
+- **The line under the header** is the main header's only: the sidebar's header draws none. The main
+  header draws its 1 px line on every screen except the home screen (a new conversation with nothing in
+  it, where there is nothing to separate); Settings, Plugins and Pals, which have no top bar of their own,
+  get the same line across the pane at the same y. It is an inset shadow inside the band, so it never
+  changes the 36.
+- **The main header's title** starts 24 px from the main area's left edge; its controls end 8 px from the
+  right edge and are 4 apart.
+- **Rows are 32 px high** with 2 px between neighbouring rows (tops 34 apart) and corners of 10 px. The first
+  row starts 8 px under the header band. A row's box runs from x 8 to x 277: 8 from the sidebar's left
+  edge and 10 from its right edge line. Inside it: 10 px of padding, a 16 px icon slot (x 18 to 34), a gap
+  of 10. Every label therefore starts at x 44: the New conversation row, a Pal's row, a project row, a
+  conversation row (in a project, in Recents and in the archive), a terminal row and a Settings or Plugins
+  section. A conversation is not indented under its project: its icon slot is what keeps its label in line
+  with the project's name.
 - **A conversation row's state mark** (running, unread, error, approval or question) sits centred in the
-  icon slot at the row's left, at x 16 to 32. An idle row leaves the slot empty. What stays on the right is
-  the age (shown on hover) and a terminal's badge; the hover buttons still take the right edge.
-- **Section titles** ("Projects", "Recents", the day headings) are 12/16 at text weight (400) and start at
-  x 16, with 16 above and 4 below.
-- **The foot is 48 px high** with a 1 px hairline above it (inside the 48) and 32 px buttons; the collapsed
-  rail's buttons are 32 as well, with 16 px icons.
-- **The selected row** is filled with 14 percent of the text colour (hover stays 8 percent in the dark
-  theme). In the light theme the selected fill is the same 14 percent of the text colour.
+  icon slot at the row's left. An idle, read row leaves the slot empty. What stays on the right is the age
+  (shown on hover) and a terminal's badge.
+- **The control at a row's end** (a conversation's buttons, a project's dots button) is 24 by 24 and sits
+  4 px from the end of the row's box.
+- **Section titles** ("Projects", "Recents", the day headings, the Installed list in Customize) are a band
+  28 px high; the text is 12/16 at the control weight (500) and starts at x 18, on the left edge of the icon
+  slot; the band has 22 px between it and the row above and 4 px between it and the first row under it. A
+  title's own button (the plus beside Projects, the archive button beside Recents) is 24 by 24, centred in
+  the band, 4 px from the end of the row box.
+- **The foot is 45 px high**: a 1 px line, 8, a 28 px button, 8. The first button is placed so that its icon's
+  centre is on the icons' column (x 26). The collapsed rail keeps its 48 px width; its header band is 36
+  and its foot 45 with the same line, so the lines meet across the window, and a button in a band is 28.
+  The rail's own 32 px button is the update button, which sits between the bands.
+- **The selected row** is filled with 16 percent of the text colour in both themes (hover stays 8 percent in
+  the dark theme). In the light theme 16 matches the dark theme's step: 12 read a shade too faint beside it.
 
-Spacings in the sidebar are 2, 4, 6, 8, 12, 16, 20, 24 or 32 px; a value of 14 stays only as a corner radius.
+Spacings in the sidebar are 2, 4, 6, 8, 12, 16, 20, 24 or 32 px, except the frame values above
+(10 and 22), which exist only as tokens.
 
 ## The input box and the home screen
 
 The input box, the row under it and the home screen sit on the same rhythm as the frame, so the box is where a person's hand expects it before and after the first message. `e2e/ux-composer-measures.test.mjs` measures all of it in the running app.
 
-- **The empty box is one row, 44 px high**, with corners of 14 px (`--radius-composer`): padding 8 and a gap of 8 around the plus button (28), the text and the controls at the right (28). When the text wraps past one line, contains a line break, or something sits above it (an attachment, a notice, the history counter), the text takes the full width and the controls drop to a second row under it, as before. Once the box has two rows it keeps them until it is empty again, so the controls never jump back and forth while someone types. The box grows with the text up to its present maximum. While a question waits for the person the box stays one row.
-- **Send appears only when there is something to send** (text or an attachment); an empty box shows nothing at the right except the microphone where voice input is set up. While a reply runs the control is Stop, as before, and Send joins it once there is text to queue. Send stays the one lime control on the screen and, like Stop, is 28 px. When the Desktop opens a terminal for another engine instead of sending, its button stays where it was.
-- **The row under the box** starts 8 below it. Its controls and menus are unchanged.
-- **The dock** is the box, its row and anything above them (a notice, the approval card, a voice line). It rests at the bottom of the conversation pane: 8 between a notice or the approval card and the box, 8 between the box and the row, 16 under the row. The home screen uses exactly the same place, so sending the first message does not move the box by a pixel (its rectangle is compared before and after in the test). The transcript and the toasts read the dock's real height (`--composer-height`), so a toast sits above the box on the home screen too.
-- **The home screen** puts the heading (the display size, the project's name in the display face) and, 16 under it, the starters as one block, centred both ways in the free area above the dock. The home without a project (heading, two muted lines and the lime Add new project button) is centred in the main area the same way. Starters still fill the box and send nothing; once something is typed they step out of sight but keep their room, so the heading does not move. In a short pane (stacked panes, or a short window) the starters go first, then the heading steps down from 28 to 20, then it is dropped; nothing is ever drawn over the dock. The thresholds are container queries on the free area (`composer-home`, `composer.css`).
-- **The gutter** beside the reading column is 20 px, and 16 px in a pane narrower than 560 px (a container query on the conversation pane, `style.css`). The column stays 768 px and centred in the pane, with or without the strip of tabs (it was 720 px with the conversation bar).
+- **The empty box is one row, 44 px high** (`--frame-input-height`, read by every rule that sizes the box), with corners of 12 px (`--frame-input-radius`, through `--radius-composer`): padding 8 and a gap of 8 around the plus button (28), the text (which starts 44 from the box's left edge) and a 28 px slot 8 from the right edge. When the text wraps past one line, contains a line break, or something sits above it (an attachment, a notice, the history counter), the text takes the full width and the controls drop to a second row under it, as before. Once the box has two rows it keeps them until it is empty again, so the controls never jump back and forth while someone types. The box grows with the text up to its present maximum. While a question waits for the person the box stays one row.
+- **The slot at the right holds one thing**: the voice control when the box is empty and voice input is set up, Send when there is something to send (text or an attachment), Stop while a reply runs (Send joins it once there is text to queue), and nothing otherwise. Send stays the one lime control on the screen and, like Stop, is 28 px. When the Desktop opens a terminal for another engine instead of sending, its button stays where it was.
+- **The row under the box** is 24 high and starts 8 below the box; its bottom is 8 above the bottom edge of the window. At rest the first control's content starts 10 inside the column's left edge and the last control's content ends 10 inside its right edge; its controls and menus are otherwise unchanged. No chevron is drawn in the row.
+- **The column** (`--frame-column-width` 768 px) is as wide as `min(768px, 100% - 64px)` and centred in the main area, so the box keeps at least 32 px on each side; in a pane narrower than 560 px the side space is 16 (a container query on the conversation pane, `style.css`). The input box, its row and anything docked above the box (a notice, the approval card, a voice line) share it, and so does the transcript.
+- **The dock** is the box, its row and anything above them. It rests at the bottom of the conversation pane: 8 between a notice or the approval card and the box, 8 between the box and the row, 8 under the row. The home screen uses exactly the same place, so sending the first message does not move the box by a pixel (its rectangle is compared before and after in the test). The transcript and the toasts read the dock's real height (`--composer-height`), so a toast sits above the box on the home screen too.
+- **The home screen** puts the heading (the display size, the project's name in the display face) and, 16 under it, the starters as one block, centred both ways in the free area above the box *as it is while the box is one line*. When the box grows (an attachment, a wrapped or longer draft) the block stays where it is, in every painted frame, until the box would touch it; then the starters go first, then the heading steps down from 28 to 20, then it is dropped; nothing is ever drawn over the dock. The free area gives up exactly the dock's growth at its bottom and the block is moved down by it (`--composer-dock`, written in the dock's own resize delivery; `composer.css`), and the thresholds are container queries on what is left. The home without a project (heading, two muted lines and the lime Add new project button) is centred in the main area the same way. Starters still fill the box and send nothing; once something is typed they step out of sight but keep their room.
 
-Spacings here are 2, 4, 6, 8, 12, 16, 20, 24 or 32 px.
+Spacings here are 2, 4, 6, 8, 12, 16, 20, 24 or 32 px, except the frame value 10.
 
 ## Sidebar, tabs and the command palette
 
@@ -3831,7 +3848,7 @@ When the row is too narrow, the percentage text goes first (below 520 px of row)
 ellipsis, then the row wraps to two lines (below 360 px); a long project name is cut with an ellipsis while the computer
 stays readable. The permission mode is never hidden or cut. Popups open upward from their button and stay inside the window.
 Nothing is hidden until hover: every control of the row is drawn at rest, so a keyboard user reaches them in order (the mode,
-the model, the read-out, each with a focus ring) and a touch user sees them all. The context ring is gone from the top bar;
+the model, the read-out, each with a focus ring) and a touch user sees them all. No chevron is drawn in the row, so nothing that only appears under the pointer keeps room at rest. The context ring is gone from the top bar;
 the Pal composer keeps its own ring beside Send. The three starters are quiet 32 px rows; a click puts the idea in the box and
 focuses it, and never sends.
 

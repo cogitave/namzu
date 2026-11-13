@@ -252,15 +252,15 @@ function checkNoOverlap(label, m) {
 			assert.ok(apart, `${label}: the ${name} shares pixels with ${action.label}`);
 		}
 	}
-	// The buttons sit side by side at one even pitch, and the last ends on the row's edge.
+	// The buttons sit side by side at one even pitch, and the last ends 4 inside the row's end.
 	for (let i = 2; i < m.actions.length; i++) {
 		const gap = m.actions[i].left - m.actions[i - 1].right;
 		const gap0 = m.actions[1].left - m.actions[0].right;
 		assert.ok(Math.abs(gap - gap0) <= 0.5, `${label}: uneven gap ${gap} vs ${gap0}`);
 	}
 	assert.ok(
-		Math.abs(m.actions.at(-1).right - m.rowRight) <= 0.5,
-		`${label}: the last action ends ${(m.rowRight - m.actions.at(-1).right).toFixed(1)}px from the row's edge`,
+		Math.abs(m.rowRight - m.actions.at(-1).right - 4) <= 0.5,
+		`${label}: the last action ends ${(m.rowRight - m.actions.at(-1).right).toFixed(1)}px from the row's end, not 4`,
 	);
 	// The fade ends before the first button, but not far before it.
 	assert.ok(

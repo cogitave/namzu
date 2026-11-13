@@ -1,19 +1,37 @@
+/* The column: the box, its row and anything docked above the box share it. It is as wide as the frame's
+   column and keeps at least the frame's side space on each side of the pane. */
+.composer-column {
+	width: min(var(--frame-column-width), 100% - 2 * var(--frame-column-side));
+	margin-inline: auto;
+}
+/* The space under the row, so its bottom is the frame's distance above the window's bottom edge. */
+.composer-dock-foot {
+	height: var(--frame-below-bottom);
+}
 /*
  * The home screen. The overlay covers the conversation lane; the dock (the box, its row and anything
  * above them) sits at its bottom edge, exactly where an open conversation has it. The free area above
- * the dock holds one block, centred both ways: the heading and, 16px under it, the starters. A short
- * pane gives up the starters first, then the heading steps down from the display size to the title
- * size, and only a pane with no room for either drops the heading. Nothing is ever drawn over the dock.
+ * the dock holds one block, centred both ways: the heading and, 16px under it, the starters. The block
+ * is centred in the area as it is while the box is one line: when the dock grows (an attachment, a
+ * wrapped or longer draft) the area gives up exactly that growth at its bottom and the block is moved
+ * down by it, so the heading stays where it is until the box would touch the block. Then the starters
+ * go first, and the heading steps down from the display size to the title size; only a pane with no
+ * room for either drops the heading. Nothing is ever drawn over the dock.
  */
 .composer-home {
+	--home-growth: max(
+		0px,
+		calc(var(--composer-dock, var(--frame-dock-rest)) - var(--frame-dock-rest))
+	);
 	container: composer-home / size;
 	flex: 1 1 0;
 	min-height: 0;
+	margin-bottom: var(--home-growth);
 	display: flex;
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	padding-inline: var(--workspace-gutter-start) var(--workspace-gutter-end);
+	padding-inline: var(--frame-column-side);
 }
 .composer-home-block {
 	display: flex;
@@ -21,6 +39,8 @@
 	align-items: center;
 	width: 100%;
 	max-width: var(--chat-max-width);
+	position: relative;
+	top: var(--home-growth);
 	pointer-events: auto;
 }
 .composer-home .provider-auto-note {
@@ -94,7 +114,7 @@
 	transform: rotate(180deg);
 }
 
-/* The box is one quiet field: 14px corners, its own fill and ring. */
+/* The box is one quiet field: 12px corners (the frame's input radius), its own fill and ring. */
 .normal-composer-shell::before,
 .normal-composer-shell [data-slot="composer-host"],
 .normal-composer-shell [data-slot="composer-host"]::after,
@@ -111,11 +131,14 @@
 	backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
 }
 
-/* The row under the box: the settings of the conversation, as wide as the box. Nothing is drawn
-   behind it; its buttons have no fill and no border until the pointer or the keyboard is on them. */
+/* The row under the box: the settings of the conversation, as wide as the box, 24 high and 8 under it.
+   Nothing is drawn behind it; its buttons have no fill and no border until the pointer or the keyboard
+   is on them. At rest the first control's content starts, and the last one's ends, the frame's inset
+   inside the column's edge: the row's own padding is that inset less the controls' padding. */
 .composer-row {
+	--row-control-padding: 8px;
 	container: composer-row / inline-size;
-	margin-top: 8px;
+	margin-top: var(--frame-below-gap);
 }
 .composer-row-inner {
 	display: flex;
@@ -124,7 +147,20 @@
 	justify-content: space-between;
 	gap: 0 8px;
 	min-width: 0;
+	min-height: var(--frame-below-height);
+	padding-inline: calc(var(--frame-below-inset) - var(--row-control-padding));
 }
+/* Every control of the row is as high as the row and has no border to push its content in. */
+.composer-row :is(.composer-control, .context-readout, .context-ring) {
+	height: var(--frame-below-height);
+	min-height: 0;
+	border-width: 0;
+}
+/* An icon in a row control sits at the control's padding, not 2px outside it. */
+.composer-row .composer-control > svg {
+	margin-inline: 0;
+}
+
 .composer-row-start,
 .composer-row-end {
 	display: flex;
@@ -186,8 +222,7 @@
 	max-width: 100%;
 	justify-content: flex-start;
 	gap: 6px;
-	height: 28px;
-	padding-inline: 5px;
+	padding-inline: var(--row-control-padding);
 	border-radius: var(--radius-pill);
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
@@ -232,7 +267,7 @@
    between them. When the text wraps, or something sits above it (attachments, a notice), the text takes
    the full width and the controls drop to a second row under it. */
 .normal-composer-shell [data-slot="composer-host"] {
-	min-height: 44px;
+	min-height: var(--frame-input-height);
 }
 .normal-composer-shell [data-chat-composer-main-surface] {
 	display: grid;
@@ -240,7 +275,7 @@
 	grid-template-areas: "plus body actions";
 	align-items: center;
 	gap: 8px;
-	min-height: 44px;
+	min-height: var(--frame-input-height);
 	padding: 8px;
 }
 .normal-composer-shell [data-chat-composer-main-surface][data-expanded="true"] {
@@ -289,14 +324,13 @@
 	height: 18px;
 }
 .composer-row .composer-footer-chip {
-	height: 28px;
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
 }
 .composer-row .composer-permission-control {
 	min-width: 0;
 	gap: 5px;
-	padding-inline: 8px;
+	padding-inline: var(--row-control-padding);
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
 	font-weight: var(--weight-text);
@@ -315,13 +349,14 @@
 	gap: 8px;
 }
 .composer-selected-model {
+	display: flex;
 	min-width: 0;
 	max-width: min(300px, 100%);
 }
 .composer-row .model-picker-trigger {
 	max-width: 100%;
 	gap: 5px;
-	padding-inline: 8px;
+	padding-inline: var(--row-control-padding);
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
 	color: var(--muted-foreground);
@@ -329,31 +364,13 @@
 .composer-row .model-picker-trigger-model {
 	color: inherit;
 }
-/* The row is quiet: the project, the permission mode and the model are plain muted words, and the chevron fades
-   in on hover or focus. Its room is always reserved, so no word in the row moves when the pointer arrives. */
+/* The row is quiet: the project, the permission mode and the model are plain muted words. A control
+   shows that it is one with its fill and colour when the pointer or the keyboard is on it; no chevron
+   is drawn, so nothing that only shows on hover keeps room at rest and no word moves when the pointer arrives. */
 .composer-row .composer-permission-control [data-composer-control-chevron],
 .composer-row .model-picker-trigger [data-composer-control-chevron],
 .composer-row .composer-project-control [data-composer-control-chevron] {
-	width: 12px;
-	margin-inline: 0;
-	opacity: 0;
-	transition: opacity 140ms var(--motion-ease);
-}
-.composer-row
-	:is(.composer-permission-control, .model-picker-trigger, .composer-project-control):is(
-		:hover,
-		:focus-visible,
-		[aria-expanded="true"]
-	)
-	[data-composer-control-chevron] {
-	opacity: 0.7;
-}
-@media (prefers-reduced-motion: reduce) {
-	.composer-row .composer-permission-control [data-composer-control-chevron],
-	.composer-row .model-picker-trigger [data-composer-control-chevron],
-	.composer-row .composer-project-control [data-composer-control-chevron] {
-		transition: none;
-	}
+	display: none;
 }
 /* Narrow: the context percentage goes first, then the model's name is cut (its own ellipsis), and
    only then does the row wrap to two lines. The permission mode is never hidden or cut. */
@@ -380,7 +397,7 @@
 	grid-template-columns: 32px minmax(0, 1fr) auto;
 	align-items: end;
 	gap: 6px;
-	min-height: 44px;
+	min-height: var(--frame-input-height);
 	padding: 6px 8px;
 }
 .pal-composer-shell [data-chat-composer-body] {

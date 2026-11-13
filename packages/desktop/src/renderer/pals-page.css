@@ -411,12 +411,15 @@
 .pal-loading {
 	animation: pals-spin 900ms linear infinite, var(--placeholder-reveal);
 }
-.sidebar-pals {
-	padding: 0 var(--sidebar-scroll-end) 12px var(--sidebar-content-inset);
+.sidebar-pals:not([data-sidebar-section]) {
+	/* Ungrouped, the rows sit one row space under "New conversation". */
+	padding-top: var(--frame-row-space);
 }
-/* The group heading only exists past three Pals; it keeps the look of the original trigger. */
+.sidebar-pals .sidebar-pal-row + .sidebar-pal-row {
+	margin-top: var(--frame-row-space);
+}
+/* The group heading only exists past three Pals: a section title with its chevron always shown. */
 .sidebar-pals .sidebar-pals-heading {
-	margin: 0 0 4px;
 	color: var(--muted-foreground);
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
@@ -424,8 +427,6 @@
 }
 .sidebar-pals .sidebar-section-toggle {
 	width: 100%;
-	height: var(--frame-row-height);
-	padding: 0 var(--frame-row-padding);
 	justify-content: space-between;
 }
 .sidebar-pals .sidebar-section-chevron {
@@ -441,7 +442,8 @@
 	height: var(--frame-row-height);
 	min-height: var(--frame-row-height);
 	padding: 0 var(--frame-row-padding);
-	border-radius: var(--radius-control);
+	border: 0;
+	border-radius: var(--frame-row-radius);
 	color: var(--sidebar-foreground);
 	font-size: var(--text-small);
 	line-height: var(--leading-small);

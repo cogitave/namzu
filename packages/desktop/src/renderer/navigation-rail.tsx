@@ -27,9 +27,11 @@ export function NavigationRail({
 	const engines = useEngineUpdates()
 	return (
 		<nav className="navigation-rail" aria-label="Main navigation">
-			<RailButton control="home" label="Home" active={section === 'home'} onClick={onHome}>
-				{section === 'home' ? <HomeFilledIcon /> : <HomeIcon />}
-			</RailButton>
+			<div className="rail-band">
+				<RailButton control="home" label="Home" active={section === 'home'} onClick={onHome}>
+					{section === 'home' ? <HomeFilledIcon /> : <HomeIcon />}
+				</RailButton>
+			</div>
 			<div className="rail-spacer" />
 			{(update || (engines && onOpenUpdates)) && (
 				<UpdateRailButton
@@ -39,15 +41,17 @@ export function NavigationRail({
 					onOpenEngines={onOpenUpdates}
 				/>
 			)}
-			<RailButton
-				control="settings"
-				label="Settings"
-				tooltip={settingsTooltip()}
-				active={section === 'settings'}
-				onClick={onSettings}
-			>
-				<SettingsIcon />
-			</RailButton>
+			<div className="rail-foot">
+				<RailButton
+					control="settings"
+					label="Settings"
+					tooltip={settingsTooltip()}
+					active={section === 'settings'}
+					onClick={onSettings}
+				>
+					<SettingsIcon />
+				</RailButton>
+			</div>
 		</nav>
 	)
 }

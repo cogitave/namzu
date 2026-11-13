@@ -69,7 +69,7 @@ pre {
 	transition: grid-template-columns var(--dur-base) var(--ease-out);
 }
 .app[data-sidebar-collapsed="true"] {
-	grid-template-columns: 48px 0 minmax(0, 1fr);
+	grid-template-columns: var(--frame-rail-width) 0 minmax(0, 1fr);
 }
 .sidebar {
 	grid-column: 2;
@@ -152,7 +152,9 @@ pre {
 	min-width: 0;
 	align-items: center;
 	gap: 12px;
-	padding: 4px 12px;
+	/* The wordmark (two rows, 21 high) and the Beta chip sit in the 36px band with the frame's control height. */
+	height: var(--frame-control-size);
+	padding: 0 12px;
 	border-radius: var(--radius-control);
 	cursor: pointer;
 }
@@ -240,8 +242,8 @@ pre {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 8px;
-	padding: 6px var(--frame-row-inset) var(--frame-row-inset);
+	gap: 0;
+	padding: 0;
 	background: var(--sidebar);
 	/* The collapsed sidebar: the same one line divides it from the conversation. */
 	border-right: 1px solid var(--sidebar-border);
@@ -249,14 +251,38 @@ pre {
 	overflow: hidden;
 	z-index: var(--z-rail);
 }
+/* The rail has the sidebar's two bands: the header band above and the foot under a line. A button
+   that sits in a band is the frame's 28px control; the update button between them keeps the rail's own 32px. */
+.rail-band,
+.rail-foot {
+	display: flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	width: 100%;
+	/* The rail's own line takes 1px of its width: the buttons are centred on the rest. */
+	padding-inline-start: 1px;
+}
+.rail-band {
+	height: var(--frame-header-height);
+}
+.rail-foot {
+	height: var(--frame-foot-height);
+	border-top: 1px solid var(--sidebar-border);
+}
 .rail-button {
 	position: relative;
-	width: var(--frame-foot-button);
-	height: var(--frame-foot-button);
-	border-radius: var(--radius-control);
+	width: var(--frame-rail-button);
+	height: var(--frame-rail-button);
+	border-radius: var(--frame-row-radius);
 	color: var(--muted-foreground);
 	transition: background-color var(--dur-quick) var(--ease-out), color var(--dur-quick)
 		var(--ease-out), transform var(--dur-quick) var(--ease-out);
+}
+:is(.rail-band, .rail-foot, .sidebar-foot) > .rail-button {
+	width: var(--frame-foot-button);
+	height: var(--frame-foot-button);
 }
 .rail-button:active {
 	transform: scale(0.94);
@@ -280,8 +306,8 @@ pre {
 	gap: 4px;
 	box-sizing: border-box;
 	height: var(--frame-foot-height);
-	/* The bottom pixel balances the hairline, so the buttons sit 8 from the line and 8 from the edge. */
-	padding: 0 var(--frame-row-inset) 1px;
+	/* The line, 8, the button, 8: the first button's icon is centred on the column the rows' icons are on. */
+	padding: 0 var(--frame-row-inset) 0 var(--frame-foot-start);
 	/* A hairline above the foot; border-box keeps it inside the foot's height. */
 	border-top: 1px solid var(--sidebar-border);
 }
@@ -291,9 +317,8 @@ pre {
 .sidebar-chrome {
 	position: relative;
 	isolation: isolate;
+	/* The sidebar's header draws no line under it: the rows start 8 below the band. */
 	background: var(--sidebar);
-	/* The same hairline as under the top bar, inside the same height, so the two share one y. */
-	box-shadow: inset 0 -1px 0 var(--sidebar-border);
 }
 .brand-dither {
 	position: absolute;
@@ -320,13 +345,14 @@ pre {
 	}
 }
 .sidebar-section-title {
-	/* Starts at x 16: the row inset plus the row padding. 16 above, 4 below. */
-	margin: 16px calc(var(--frame-row-inset) + var(--frame-row-padding)) 4px;
+	/* The band, its room above and below and the text's start are the frame's: the text starts on the
+	   left edge of the rows' icon slot. */
+	margin: 0;
 	color: var(--muted-foreground);
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
 	letter-spacing: 0.01em;
-	font-weight: var(--weight-text);
+	font-weight: var(--weight-control);
 }
 .sidebar-projects {
 	padding-bottom: 8px;
@@ -337,11 +363,11 @@ pre {
 	align-items: center;
 	gap: var(--frame-row-gap);
 	box-sizing: border-box;
-	width: calc(100% - 2 * var(--frame-row-inset));
+	width: calc(100% - var(--frame-row-inset) - var(--frame-row-inset-end));
 	height: var(--frame-row-height);
-	margin: 0 var(--frame-row-inset);
+	margin: 0 var(--frame-row-inset-end) 0 var(--frame-row-inset);
 	padding: 0 var(--frame-row-padding);
-	border-radius: var(--radius-chip);
+	border-radius: var(--frame-row-radius);
 	text-align: left;
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
@@ -349,8 +375,8 @@ pre {
 	cursor: pointer;
 }
 .sidebar-new-conversation {
-	/* The first row clears the header by one inset; rows below it touch. */
-	margin-top: var(--frame-row-inset);
+	/* The first row clears the header band by the frame's first-row offset. */
+	margin-top: var(--frame-row-first);
 }
 .project-row > svg,
 .sidebar-new-conversation > svg {
@@ -501,7 +527,7 @@ pre {
 	 * so the list looks the same whether or not it overflows.
 	 */
 	scrollbar-gutter: stable;
-	--sidebar-scroll-end: max(0px, calc(var(--sidebar-content-inset) - var(--app-scrollbar-width)));
+	--sidebar-scroll-end: max(0px, calc(var(--frame-row-inset-end) - var(--app-scrollbar-width)));
 }
 .sidebar-close {
 	display: none;
@@ -568,6 +594,21 @@ pre {
 	/* The hairline is drawn inside the header's height, so it never changes it. */
 	box-shadow: inset 0 -1px 0 var(--border);
 }
+/* The home screen (a new conversation with nothing in it) has nothing to separate: no line. */
+.workspace:has([data-composer-home]) > .topbar {
+	box-shadow: none;
+}
+/* Settings, Plugins and the Pals page have no top bar of their own; the same line is drawn across the
+   pane at the same y, inside the band, over the page. */
+.workspace:is([data-page="settings"], [data-page="plugins"], [data-page="pals"])::before {
+	content: "";
+	position: absolute;
+	inset: 0 0 auto;
+	z-index: var(--z-local);
+	height: var(--frame-header-height);
+	box-shadow: inset 0 -1px 0 var(--border);
+	pointer-events: none;
+}
 .breadcrumb {
 	overflow: clip;
 	overflow-clip-margin: 2px;
@@ -592,12 +633,12 @@ pre {
 	min-width: 0;
 	min-height: 0;
 }
-/* The gutter beside the reading column is 20px; a pane narrower than 560px closes it to 16px. */
+/* The reading column (the transcript, the box and what is docked with it) is as wide as 48rem and keeps
+   at least 32px on each side; a pane narrower than 560px closes that to 16px. */
 @container conversation-lane (max-width: 559.98px) {
 	.transcript,
 	.composer-wrap {
-		--workspace-gutter-start: 16px;
-		--workspace-gutter-end: 16px;
+		--frame-column-side: var(--frame-column-side-narrow);
 	}
 }
 .chat-stage[data-pal-context="true"] {
@@ -619,8 +660,11 @@ pre {
 	overflow-y: auto;
 	overscroll-behavior-y: contain;
 	scrollbar-gutter: stable both-edges;
-	padding: 20px var(--workspace-gutter-end) calc(var(--composer-height, 200px) + 16px)
-		var(--workspace-gutter-start);
+	/* The scrollbar's lane is on both edges, so the text column is that much nearer the pane's edge and its
+	   edges are the box's. */
+	padding: 20px calc(var(--frame-column-side) - var(--app-scrollbar-width))
+		calc(var(--composer-height, 200px) + 16px)
+		calc(var(--frame-column-side) - var(--app-scrollbar-width));
 	transition: padding-right var(--dur-base) var(--ease-out);
 }
 .composer-wrap > div {
@@ -1262,7 +1306,7 @@ pre {
 @media (max-width: 767px) {
 	.app,
 	.app[data-sidebar-collapsed="true"] {
-		grid-template-columns: 48px 0 minmax(0, 1fr);
+		grid-template-columns: var(--frame-rail-width) 0 minmax(0, 1fr);
 	}
 	.sidebar {
 		position: absolute;

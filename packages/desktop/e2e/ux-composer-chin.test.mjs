@@ -42,17 +42,16 @@ test("the composer chin is quiet, one line holds project and computer, starters 
 		await page.keyboard.press("Escape");
 		await expect(runsOn).toHaveCount(0);
 
-		// The row: permission and model are quiet words; the chevron is drawn on hover.
+		// The row: permission and model are quiet words. No chevron is drawn, at rest or under the pointer, so
+		// nothing that only shows on hover keeps room and nothing moves when the pointer arrives.
 		const permission = page.getByRole("button", { name: /^Permissions:/ });
 		const chevron = permission.locator("[data-composer-control-chevron]");
-		const chevronOpacity = () => chevron.evaluate((el) => Number(getComputedStyle(el).opacity));
-		// The chevron's room is reserved, so the word does not move when it appears.
+		await expect(chevron).toBeHidden();
 		const wordLeft = () => permission.locator("span").first().evaluate((el) => el.getBoundingClientRect().left);
-		const rest = { left: await wordLeft(), width: (await permission.boundingBox()).width, chevron: await chevronOpacity() };
-		assert.ok(rest.chevron < 0.05, "the chevron is not drawn at rest");
-		assert.ok((await chevron.boundingBox()).width >= 11, "the chevron's room is kept at rest");
+		const rest = { left: await wordLeft(), width: (await permission.boundingBox()).width };
 		await permission.hover();
-		await expect.poll(chevronOpacity, { timeout: T }).toBeGreaterThan(0.5);
+		await expect.poll(() => permission.evaluate((el) => getComputedStyle(el).backgroundColor), { timeout: T }).not.toBe("rgba(0, 0, 0, 0)");
+		await expect(chevron).toBeHidden();
 		assert.equal(await wordLeft(), rest.left, "the word does not move under the pointer");
 		assert.equal((await permission.boundingBox()).width, rest.width, "the control does not grow on hover");
 		await page.mouse.move(5, 5);

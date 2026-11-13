@@ -474,6 +474,15 @@ export function Composer({
 			if (stage.style.getPropertyValue('--composer-height') !== height)
 				stage.style.setProperty('--composer-height', height)
 		}
+		// The home screen's block keeps its place while the dock grows, so it reads the height in the
+		// frame the dock changes in: written in the observer's own delivery, before the next paint, it
+		// never shows the block moved for a frame. It changes only the size of a sibling the observer
+		// does not watch, so it cannot feed back into it.
+		const syncDock = () => {
+			const height = `${bottom.getBoundingClientRect().height}px`
+			if (stage.style.getPropertyValue('--composer-dock') !== height)
+				stage.style.setProperty('--composer-dock', height)
+		}
 		let resizeFrame: number | undefined
 		const scheduleResize = () => {
 			if (resizeFrame !== undefined) return
@@ -484,9 +493,13 @@ export function Composer({
 				update()
 			})
 		}
-		const observer = new ResizeObserver(scheduleResize)
+		const observer = new ResizeObserver(() => {
+			syncDock()
+			scheduleResize()
+		})
 		observer.observe(bottom)
 		update()
+		syncDock()
 		return () => {
 			observer.disconnect()
 			if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame)
@@ -561,14 +574,10 @@ export function Composer({
 					</div>
 				</div>
 			)}
-			<div
-				ref={dock}
-				data-composer-dock
-				className="w-full shrink-0 ps-(--workspace-gutter-start) pe-(--workspace-gutter-end)"
-			>
+			<div ref={dock} data-composer-dock className="w-full shrink-0">
 				<div
 					data-chat-composer-stack
-					className="group/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-(--chat-max-width)"
+					className="composer-column group/composer-stack pointer-events-auto relative z-10"
 				>
 					{speechStatus}
 					{permissions[0] && (
@@ -1027,7 +1036,7 @@ export function Composer({
 							)}
 						</section>
 					)}
-					<div aria-hidden className="h-4" />
+					<div aria-hidden className="composer-dock-foot" />
 				</div>
 			</div>
 		</div>

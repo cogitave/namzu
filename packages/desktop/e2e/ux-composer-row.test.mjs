@@ -63,8 +63,8 @@ test("the box holds the text, the plus, and Send once there is something to send
 		const row = page.locator("[data-composer-row]");
 		await expect(row).toBeVisible({ timeout: T });
 
-		// The box: corners of 14px, and only the text and the plus inside it: Send comes with something to send.
-		assert.equal(await page.locator('[data-slot="composer-host"]').evaluate((el) => getComputedStyle(el).borderTopLeftRadius), "14px");
+		// The box: corners of 12px, and only the text and the plus inside it: Send comes with something to send.
+		assert.equal(await page.locator('[data-slot="composer-host"]').evaluate((el) => getComputedStyle(el).borderTopLeftRadius), "12px");
 		await expect(box.getByRole("textbox", { name: "Message Namzu" })).toBeVisible();
 		const inside = await box.getByRole("button").evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")));
 		assert.deepEqual(inside, ["Attachments and message settings"]);
@@ -87,21 +87,22 @@ test("the box holds the text, the plus, and Send once there is something to send
 		assert.ok(p.right <= m.left + 1 && m.right <= d.left + 1, "project, then mode, then model, left to right");
 		assert.ok(d.right <= r.right + 0.5 && r.right - d.right < 24, "the model is at the right end of the row");
 
-		// Quiet: 13px words, 28px tall, no fill and no border at rest; the soft fill comes with the pointer.
+		// Quiet: 13px words, 24px tall (the row's height), no fill and no border at rest; the soft fill comes with the pointer.
 		for (const button of [project, permission, model]) {
 			const look = await button.evaluate((el) => {
 				const css = getComputedStyle(el);
 				return { size: css.fontSize, height: el.getBoundingClientRect().height, fill: css.backgroundColor, ring: css.borderTopColor };
 			});
 			assert.equal(look.size, "13px");
-			assert.equal(look.height, 28);
+			assert.equal(look.height, 24);
 			assert.equal(look.fill, "rgba(0, 0, 0, 0)", "no fill at rest");
 			assert.equal(look.ring, "rgba(0, 0, 0, 0)", "no border at rest");
 		}
 		// The project shares the row with the mode: the mode does not move when the pointer reaches the project.
 		const modeLeft = (await rect(permission)).left;
 		await project.hover();
-		await expect.poll(() => project.locator("[data-composer-control-chevron]").evaluate((el) => Number(getComputedStyle(el).opacity)), { timeout: T }).toBeGreaterThan(0.5);
+		// No chevron is drawn in the row, at rest or under the pointer, so nothing that only shows on hover keeps room.
+		await expect(project.locator("[data-composer-control-chevron]")).toBeHidden();
 		assert.equal((await rect(permission)).left, modeLeft, "the mode does not shift when the project is hovered");
 		await permission.hover();
 		await expect.poll(() => permission.evaluate((el) => getComputedStyle(el).backgroundColor), { timeout: T }).not.toBe("rgba(0, 0, 0, 0)");
@@ -163,7 +164,7 @@ test("after the first message the project line is gone from the row, the context
 		const [m, c, r] = [await rect(model), await rect(context), await rect(row)];
 		assert.ok(m.right <= c.left + 1 && r.right - c.right < 16, "the context is the last thing in the row, after the model");
 		assert.equal(await context.evaluate((el) => getComputedStyle(el).fontSize), "13px");
-		assert.equal((await rect(context)).height, 28);
+		assert.equal((await rect(context)).height, 24);
 		// The keyboard: mode, then model, then context, each with a focus ring.
 		await permission.focus();
 		await page.keyboard.press("Tab");

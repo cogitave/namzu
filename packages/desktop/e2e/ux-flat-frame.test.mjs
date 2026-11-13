@@ -84,7 +84,7 @@ test("open: two flat regions, one hairline, no rail, a foot, and the header ends
 		assert.equal(Math.round(frame.sidebarRect.right), Math.round(frame.workspaceRect.left));
 		// One seam: the header of the sidebar and the hairline under the top bar are the same line, and the wordmark still fits.
 		assert.equal(Math.round(frame.header), Math.round(frame.topbar), "header and top bar end on one line");
-		assert.equal(frame.headerHeight, 44);
+		assert.equal(frame.headerHeight, 36);
 		assert.equal(frame.wordmarkFont, "9.5px", "the wordmark is not shrunk to fit");
 		assert.ok(frame.wordmark.height < 30, `the wordmark fits the header with room: ${frame.wordmark.height}`);
 

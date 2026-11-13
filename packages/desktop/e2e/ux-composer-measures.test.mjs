@@ -1,10 +1,13 @@
 // The input box and the home screen obey the layout numbers, measured in the real app: the empty box is
-// one row 44 high with 14 corners, the send control exists only when there is something to send, the row
-// sits 8 under the box and 16 above the window's edge, the box does not move by a pixel when the first
-// message is sent, the heading and the starters are one block centred above the dock, and the gutter is
-// 20 (16 in a pane narrower than 560). Scripted model, no paid call, no owner data.
+// one row 44 high with 12 corners, the send control exists only when there is something to send, the row
+// is 24 high, sits 8 under the box and ends 8 above the window's edge with its first and last content 10
+// inside the column's edges and no chevron drawn, the box does not move by a pixel when the first message
+// is sent, the heading and the starters are one block centred above the dock and the heading does not move
+// when the box grows, and the column keeps 32 on each side of the pane (16 in a pane narrower than 560).
+// Scripted model, no paid call, no owner data.
 // Run: pnpm --filter @namzu/desktop build && xvfb-run -a node --test --test-concurrency=1 e2e/ux-composer-measures.test.mjs
 import assert from "node:assert/strict";
+import { join } from "node:path";
 import { test } from "node:test";
 import { createWorld, dispose, expect, launch, openProject } from "./harness.mjs";
 
@@ -52,11 +55,19 @@ const MEASURE = () => {
 		text: rect(q(".composer-input textarea")),
 		stack: rect(q("[data-chat-composer-stack]")),
 		lane: rect(q(".conversation-lane")),
+		main: rect(q(".workspace")),
+		rowControls: [...document.querySelectorAll("[data-composer-row] button")]
+			.filter((b) => b.getBoundingClientRect().width > 0)
+			.map((b) => {
+				const kids = [...b.children].filter((c) => c.getBoundingClientRect().width > 0).map((c) => c.getBoundingClientRect());
+				return { box: rect(b), left: Math.min(...kids.map((k) => k.left)), right: Math.max(...kids.map((k) => k.right)) };
+			}),
+		chevrons: [...document.querySelectorAll("[data-composer-row] [data-composer-control-chevron]")].filter((c) => c.getBoundingClientRect().width > 0).length,
 		window: { w: window.innerWidth, h: window.innerHeight },
 	};
 };
 
-test("the box is one row of 44 with 14 corners; send appears with text; the home keeps the box where a conversation has it", { timeout: 280000 }, async () => {
+test("the box is one row of 44 with 12 corners; send appears with text; the home keeps the box where a conversation has it", { timeout: 280000 }, async () => {
 	const w = await createWorld({ tabs: "hidden", rules: RULES });
 	let failed = true;
 	try {
@@ -70,18 +81,27 @@ test("the box is one row of 44 with 14 corners; send appears with text; the home
 
 		const home = await w.page.evaluate(MEASURE);
 		assert.equal(home.box.h, 44, "the empty box is 44 high");
-		assert.equal(home.radius, "14px", "its corners are 14");
+		assert.equal(home.radius, "12px", "its corners are 12");
 		assert.equal(home.sends.length, 0, "an empty box has no send control");
 		assert.equal(home.plus.w, 28, "the plus is 28 wide");
 		assert.equal(home.plus.h, 28, "the plus is 28 high");
 		assert.equal(home.plus.x - home.box.x, 8, "the plus sits 8 inside the box");
 		assert.equal(home.plus.y - home.box.y, 8, "and 8 below its top");
 		assert.equal(home.row.y - home.box.bottom, 8, "the row's top is 8 under the box");
-		assert.equal(home.window.h - home.row.bottom, 16, "the row ends 16 above the window's edge");
+		assert.equal(home.row.h, 24, "the row is 24 high");
+		assert.equal(home.window.h - home.row.bottom, 8, "the row ends 8 above the window's edge");
+		assert.equal(home.chevrons, 0, "no chevron is drawn in the row, so none keeps room at rest");
+		assert.ok(home.rowControls.length >= 2, "the row has its controls");
+		const first = home.rowControls[0];
+		const last = home.rowControls[home.rowControls.length - 1];
+		assert.equal(first.left - home.box.x, 10, "the first control's content starts 10 inside the column's left edge");
+		assert.equal(home.box.right - last.right, 10, "the last control's content ends 10 inside the column's right edge");
+		for (const c of home.rowControls) assert.equal(c.box.h, 24, "a control of the row is 24 high");
 		assert.equal(home.box.y, home.dock.y, "the box is the top of the dock");
 		assert.equal(home.dock.bottom, home.window.h, "the dock rests on the bottom of the window");
 		assert.equal(home.box.w, 768, "the column is 768");
 		assert.equal(Math.round(home.box.x - home.lane.x), Math.round(home.lane.right - home.box.right), "the column is centred");
+		assert.equal(home.stack.w, 768, "the box, its row and what is docked with them share the column");
 
 		// The heading and the starters are one block, centred in the free area above the dock, 16 apart.
 		assert.ok(home.heading, "the heading is drawn");
@@ -134,7 +154,7 @@ test("the box is one row of 44 with 14 corners; send appears with text; the home
 	}
 });
 
-test("a short window gives up the starters, then the heading steps down; the gutter closes under a 560 pane", { timeout: 280000 }, async () => {
+test("a short window gives up the starters, then the heading steps down; the column keeps 32 on each side and closes to 16 under a 560 pane", { timeout: 280000 }, async () => {
 	const w = await createWorld({ tabs: "hidden", rules: RULES });
 	let failed = true;
 	try {
@@ -143,18 +163,21 @@ test("a short window gives up the starters, then the heading steps down; the gut
 		await expect(w.page.getByRole("textbox", { name: "Message Namzu" })).toBeVisible({ timeout: T });
 		await expect(w.page.locator(".starter-actions button")).toHaveCount(3, { timeout: T });
 
-		// Pane 612 wide: the gutter is 20. Pane 512 wide: 16.
+		// Pane 612 wide: the box is 32 from each side of the main area. Pane 512 wide: 16.
 		await size(w, 900, 820);
 		await settled(w);
 		let m = await w.page.evaluate(MEASURE);
 		assert.ok(m.lane.w >= 560, `the pane is ${m.lane.w} wide`);
-		assert.equal(m.stack.x - m.lane.x, 20, "the gutter is 20");
+		assert.equal(m.box.x - m.main.x, 32, "the box is 32 from the main area's left edge");
+		assert.equal(m.main.right - m.box.right, 32, "and 32 from its right edge");
+		assert.equal(m.box.w, m.main.w - 64, "the column is the pane less 64");
 		await size(w, 800, 820);
 		await expect.poll(() => w.page.evaluate(() => document.querySelector(".conversation-lane").getBoundingClientRect().width), { timeout: T }).toBeLessThan(560);
 		await settled(w);
 		m = await w.page.evaluate(MEASURE);
 		assert.ok(m.lane.w < 560, `the pane is ${m.lane.w} wide`);
-		assert.equal(m.stack.x - m.lane.x, 16, "under 560 the gutter is 16");
+		assert.equal(m.box.x - m.lane.x, 16, "under 560 the side space is 16");
+		assert.equal(m.lane.right - m.box.right, 16, "on both sides");
 		assert.ok(m.box.bottom <= m.window.h, "the box is inside the window");
 
 		// A short pane (the window cannot be shorter than 460, a stacked pane can): the lane is made
@@ -177,6 +200,68 @@ test("a short window gives up the starters, then the heading steps down; the gut
 			assert.equal(m.heading !== null, m.home.h >= 60, `${tag}: the heading is dropped only with no room`);
 			assert.equal(m.box.h, 44, `${tag}: the box is still 44`);
 		}
+		failed = false;
+	} finally {
+		await dispose(w, { failed });
+	}
+});
+
+test("the home heading does not move when the box grows", { timeout: 280000 }, async () => {
+	const w = await createWorld({ tabs: "hidden", rules: RULES, files: { "notes.txt": "some notes\n" } });
+	let failed = true;
+	try {
+		await launch(w);
+		await openProject(w);
+		await size(w, 1280, 820);
+		const input = w.page.getByRole("textbox", { name: "Message Namzu" });
+		await expect(input).toBeVisible({ timeout: T });
+		await expect(w.page.locator(".starter-actions button")).toHaveCount(3, { timeout: T });
+		await settled(w);
+		const rest = await w.page.evaluate(MEASURE);
+		assert.ok(rest.heading, "the heading is drawn");
+
+		// A wrapped, multi-line draft grows the box upward; the heading stays where it was, in every painted
+		// frame: the browser reports a layout shift of the heading if any frame drew it elsewhere.
+		await w.page.evaluate(() => {
+			window.__headingShifts = 0;
+			new PerformanceObserver((list) => {
+				const heading = document.querySelector("[data-composer-heading]");
+				for (const entry of list.getEntries()) {
+					if (entry.sources?.some((source) => source.node && heading?.contains(source.node))) window.__headingShifts += 1;
+				}
+			}).observe({ type: "layout-shift", buffered: false });
+		});
+		await input.fill("one\ntwo\nthree\nfour");
+		await expect.poll(() => w.page.evaluate(() => document.querySelector('[data-slot="composer-host"]').getBoundingClientRect().height), { timeout: T }).toBeGreaterThan(100);
+		await settled(w);
+		const lines = await w.page.evaluate(MEASURE);
+		assert.ok(lines.box.h > rest.box.h, "the box grew");
+		assert.equal(lines.heading.y, rest.heading.y, "the heading did not move with a longer draft");
+		await w.page.waitForTimeout(100); // the browser reports a shift a little after the frame that drew it
+		assert.equal(await w.page.evaluate(() => window.__headingShifts), 0, "and no painted frame drew it anywhere else while the box grew");
+		await input.fill("");
+		await expect.poll(() => w.page.evaluate(() => document.querySelector('[data-slot="composer-host"]').getBoundingClientRect().height), { timeout: T }).toBe(44);
+
+		// An attachment grows it too.
+		await w.app.evaluate((_electron, path) => {
+			globalThis.__e2eDialog.open = [path];
+		}, join(w.project, "notes.txt"));
+		await w.page.getByRole("button", { name: /Attachments and message settings/ }).click();
+		await w.page.getByRole("button", { name: "Attach files" }).click();
+		await expect(w.page.getByText("notes.txt")).toBeVisible({ timeout: T });
+		await settled(w);
+		const attached = await w.page.evaluate(MEASURE);
+		assert.ok(attached.box.h > rest.box.h, "the box grew with the attachment");
+		assert.equal(attached.heading.y, rest.heading.y, "the heading did not move when an attachment was added");
+
+		// In a short window the box would touch the block: then the starters go first and the heading steps down.
+		await size(w, 1280, 460);
+		await expect.poll(() => w.page.evaluate(() => document.querySelector(".workspace").getBoundingClientRect().height), { timeout: T }).toBeLessThan(440);
+		await settled(w);
+		const short = await w.page.evaluate(MEASURE);
+		assert.ok(short.heading, "the heading is still drawn");
+		assert.ok(short.heading.bottom <= short.dock.y, "the heading never reaches the dock");
+		assert.equal(short.startersVisible, false, "the starters went first");
 		failed = false;
 	} finally {
 		await dispose(w, { failed });

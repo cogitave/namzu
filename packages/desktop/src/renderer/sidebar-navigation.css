@@ -8,19 +8,24 @@
 .sidebar-project-navigation {
 	display: flex;
 	flex-direction: column;
-	gap: 0;
-	padding: 0 var(--sidebar-scroll-end) 12px var(--sidebar-content-inset);
+	gap: var(--frame-row-space);
+	padding: 0;
 }
 
 .sidebar-project-group {
 	min-width: 0;
+}
+/* The three sections of the scrolling list share the rows' inset on the left and the row end's on the
+   right, so a heading and the rows under it start and end on the same lines. */
+.sidebar-scroll > section {
+	padding-inline: var(--sidebar-content-inset) var(--sidebar-scroll-end);
 }
 
 .sidebar-project-heading {
 	display: flex;
 	align-items: center;
 	height: var(--frame-row-height);
-	border-radius: var(--radius-control);
+	border-radius: var(--frame-row-radius);
 	transition: background-color var(--dur-quick) var(--ease-out);
 }
 
@@ -37,7 +42,7 @@
 }
 .sidebar-project-heading .sidebar-project-more {
 	flex: none;
-	margin-right: 4px;
+	margin-right: var(--frame-row-action-inset);
 	visibility: hidden;
 	transition: none;
 }
@@ -56,7 +61,7 @@
 	width: calc(var(--frame-row-padding) + var(--frame-icon-slot) + var(--frame-row-gap));
 	height: var(--frame-row-height);
 	padding-inline: var(--frame-row-padding) var(--frame-row-gap);
-	border-radius: var(--radius-chip);
+	border-radius: var(--frame-row-radius);
 	background: transparent;
 	color: var(--sidebar-muted-foreground);
 }
@@ -73,13 +78,15 @@
 	background: transparent;
 	color: var(--sidebar-foreground);
 }
-/* Pointer targets stay 28px even though the row itself is tighter. */
+/* The control at a row's end is 24 by 24, 4 from the end of the row's box. */
 .sidebar-project-heading .sidebar-project-more,
-.sidebar-thread-item .sidebar-thread-action {
-	width: 28px;
-	height: 28px;
-	min-width: 28px;
-	min-height: 28px;
+.sidebar-thread-item .sidebar-thread-action,
+.sidebar-section-head .sidebar-add-project,
+.sidebar-recents-head .sidebar-archive-toggle {
+	width: var(--frame-row-action);
+	height: var(--frame-row-action);
+	min-width: var(--frame-row-action);
+	min-height: var(--frame-row-action);
 }
 .sidebar-project-heading .project-row:hover,
 .sidebar-project-heading .project-row[aria-current] {
@@ -158,15 +165,23 @@
 	opacity: 0;
 }
 
-.sidebar-project-list {
+.sidebar-project-list,
+.sidebar-recent-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--frame-row-space);
 	margin: 0;
 	padding: 0;
 	list-style: none;
 }
+/* The first conversation of a project sits one row space under the project's row. */
+.sidebar-project-list {
+	padding-top: var(--frame-row-space);
+}
 
 .sidebar-project-list .sidebar-conversation-button,
 .sidebar-recent-list .sidebar-conversation-button {
-	border-radius: var(--radius-control);
+	border-radius: var(--frame-row-radius);
 	transition: background-color var(--dur-quick) var(--ease-out), color var(--dur-quick)
 		var(--ease-out);
 }
@@ -225,16 +240,10 @@
 	opacity: 1;
 }
 .sidebar-recents {
-	padding: 0 var(--sidebar-scroll-end) 16px var(--sidebar-content-inset);
-}
-.sidebar-recents .sidebar-section-title {
-	/* The list's own inset already puts the title at x 16. */
-	margin: 16px var(--frame-row-padding) 4px;
+	padding-bottom: 16px;
 }
 /* The archive button closes the Recents heading on the right, in the Projects "+" button's place. */
 .sidebar-recents-head {
-	display: flex;
-	align-items: center;
 	justify-content: space-between;
 }
 .sidebar-recents-head .sidebar-section-title {
@@ -313,18 +322,12 @@
 .sidebar-archive-failure .sidebar-empty-note {
 	padding: 4px 8px;
 }
-.sidebar-recent-list {
-	margin: 0;
-	padding: 0;
-	list-style: none;
-}
-
 .sidebar-list-disclosure > button {
 	width: 100%;
 	height: var(--frame-row-height);
 	padding: 0 var(--frame-row-padding) 0
 		calc(var(--frame-row-padding) + var(--frame-icon-slot) + var(--frame-row-gap));
-	border-radius: var(--radius-chip);
+	border-radius: var(--frame-row-radius);
 	color: var(--sidebar-muted-foreground);
 	font-size: var(--text-caption);
 	line-height: var(--leading-caption);
@@ -389,13 +392,13 @@
 	align-items: center;
 	gap: 0 8px;
 	padding: 0 var(--frame-row-padding) 4px 0;
-	border-radius: var(--radius-control);
+	border-radius: var(--frame-row-radius);
 }
 .sidebar-project-missing-name {
 	display: flex;
 	flex: 1 1 100%;
 	align-items: center;
-	gap: 8px;
+	gap: var(--frame-row-gap);
 	min-width: 0;
 	height: var(--frame-row-height);
 	/* The glyph sits in the same 16px slot as an ordinary row's, so the name starts where theirs does. */
@@ -406,8 +409,8 @@
 }
 .sidebar-project-missing-name svg {
 	flex: none;
-	width: 16px;
-	height: 16px;
+	width: var(--frame-icon-slot);
+	height: var(--frame-icon-slot);
 }
 .sidebar-project-missing-note {
 	flex: 1 1 100%;
@@ -425,17 +428,10 @@
 }
 /* One entry point for adding a project, on the Projects heading. */
 .sidebar-section-heading {
-	display: flex;
-	align-items: center;
 	justify-content: space-between;
-	padding-right: var(--sidebar-scroll-end);
-}
-.sidebar-section-heading .sidebar-section-title {
-	margin-bottom: 4px;
 }
 .sidebar-section-heading .sidebar-add-project {
 	flex: none;
-	margin-top: 8px;
 	color: var(--sidebar-muted-foreground);
 }
 .sidebar-empty-note {
@@ -471,6 +467,7 @@
 	width: 100%;
 	height: var(--frame-row-height);
 	padding: 0 var(--frame-row-padding);
+	border-radius: var(--frame-row-radius);
 	color: var(--sidebar-muted-foreground);
 	font-size: var(--text-small);
 	line-height: var(--leading-small);
@@ -481,21 +478,34 @@
 }
 
 /*
- * Day headings inside the Recents list. They are rows of the same list (so the list's motion
- * treats them like any row) but quiet: small, muted, no hover. The first one sits right under the
- * section title, so it takes no extra space above.
+ * Section titles: the Projects heading, the Recents heading and the day headings inside the Recents
+ * list are one band, 28 high, the text on the left edge of the rows' icon slot, 22 under the row above
+ * and 4 above the first row under it. The list is a column with a row space between its items, so the
+ * list's own space is taken off the band's margins. A day heading is a row of the Recents list (the
+ * list's motion treats it like any row) but quiet: small, muted, no hover. The first one sits right
+ * under the section title, so it takes no extra space above.
  */
+.sidebar-section-head,
+.sidebar-recents-head,
 .sidebar-day-heading {
-	/* Starts at x 16 like a section title: 16 above, 4 below. */
-	padding: 16px var(--frame-row-padding) 4px;
+	display: flex;
+	align-items: center;
+	box-sizing: border-box;
+	height: var(--frame-title-band);
+	margin: var(--frame-title-before) 0 var(--frame-title-after);
+	padding: 0 var(--frame-row-action-inset) 0 var(--frame-row-padding);
+}
+.sidebar-day-heading {
+	margin-block: calc(var(--frame-title-before) - var(--frame-row-space))
+		calc(var(--frame-title-after) - var(--frame-row-space));
 }
 .sidebar-day-heading:first-child {
-	padding-top: 0;
+	margin-top: 0;
 }
 .sidebar-day-heading > h3 {
 	margin: 0;
 	font-size: var(--text-caption);
-	font-weight: var(--weight-text);
+	font-weight: var(--weight-control);
 	line-height: var(--leading-caption);
 	color: var(--sidebar-muted-foreground);
 }
