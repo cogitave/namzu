@@ -25,6 +25,7 @@ export {
 	MAX_SHELL_HOOK_TIMEOUT_MS,
 	runShellHook,
 	SHELL_HOOK_EVENTS,
+	SHELL_HOOK_PASCAL_EVENT_NAMES,
 	SHELL_HOOKS_PLUGIN_ID,
 	shellHookIfMatches,
 	shellHookIfProblem,
@@ -32,6 +33,11 @@ export {
 	shellHookMatches,
 	shellHookVerdict,
 } from './shell-hook.js'
+export {
+	SHELL_HOOK_WRITTEN_TOOL_NAMES,
+	type ShellHookToolNames,
+	shellHookToolName,
+} from './shell-hook-tool-names.js'
 export type {
 	HttpHookEntry,
 	PromptHookEntry,

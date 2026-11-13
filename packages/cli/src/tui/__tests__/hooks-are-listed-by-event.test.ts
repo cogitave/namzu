@@ -15,9 +15,12 @@ describe('/hooks', () => {
 				session_start: [{ command: 'echo hi' }],
 			}),
 		).toBe(
-			['pre_tool_use', '  lint.sh · matches write|edit · 5s', 'session_start', '  echo hi'].join(
-				'\n',
-			),
+			[
+				'pre_tool_use',
+				'  lint.sh · matches write|edit · 5s · tool names Namzu’s own (bash)',
+				'session_start',
+				'  echo hi',
+			].join('\n'),
 		)
 	})
 
@@ -38,7 +41,12 @@ describe('/hooks', () => {
 			renderHooks({
 				pre_tool_use: [{ command: 'guard.sh', if: 'Bash(git push *)', once: true }],
 			}),
-		).toBe(['pre_tool_use', '  guard.sh · if Bash(git push *) · once'].join('\n'))
+		).toBe(
+			[
+				'pre_tool_use',
+				'  guard.sh · if Bash(git push *) · once · tool names Namzu’s own (bash)',
+			].join('\n'),
+		)
 	})
 
 	it('names an http hook by its address, a prompt hook by its question, and what each does on failure', () => {
@@ -53,9 +61,9 @@ describe('/hooks', () => {
 		).toBe(
 			[
 				'pre_tool_use',
-				'  POST https://hooks.example.test/x · blocks when it fails',
-				'  ask: Is this safe?',
-				'  log.sh · in background',
+				'  POST https://hooks.example.test/x · blocks when it fails · tool names Namzu’s own (bash)',
+				'  ask: Is this safe? · tool names Namzu’s own (bash)',
+				'  log.sh · in background · tool names Namzu’s own (bash)',
 			].join('\n'),
 		)
 	})

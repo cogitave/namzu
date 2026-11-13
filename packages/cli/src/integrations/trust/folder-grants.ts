@@ -13,6 +13,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+import { hooksOfElement } from '../../config/hook-common-shape.js'
 import { fingerprintMcpServer } from '../mcp/project-approval.js'
 import { PROJECT_MCP_FILE, parseMcpServerFile } from '../mcp/shared-file.js'
 
@@ -83,7 +84,8 @@ function describeHooks(config: Record<string, unknown>): HookGrant[] {
 	const out: HookGrant[] = []
 	for (const [event, entries] of Object.entries(hooks)) {
 		if (!Array.isArray(entries)) continue
-		for (const entry of entries) {
+		// A list of groups (the common shape) is read through to the hooks inside.
+		for (const entry of entries.flatMap(hooksOfElement)) {
 			if (entry === null || typeof entry !== 'object') continue
 			const spec = entry as Record<string, unknown>
 			let runs: string | undefined

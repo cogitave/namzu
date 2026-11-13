@@ -3,16 +3,20 @@ import type { DoctorCheck, DoctorCheckResult } from '@namzu/sdk'
 import { resolve } from 'node:path'
 
 import { hookSwitch, hooksBySource } from '../../config/hook-layers.js'
-import { LOCAL_CONFIG_FILE, shortHomePath } from '../../config/load.js'
+import { LOCAL_CONFIG_FILE, hookConfigProblems, shortHomePath } from '../../config/load.js'
 import type { NamzuCliConfig } from '../../config/schema.js'
 import { isTrusted } from '../../integrations/trust/store.js'
-import { hookReadingProblems, hooksSwitchLine } from '../../tui/slashCommands.js'
+import {
+	hookConfigProblemLines,
+	hookReadingProblems,
+	hooksSwitchLine,
+} from '../../tui/slashCommands.js'
 
 /**
  * How many hooks are attached, from which file, and whether a switch is
  * limiting them.
  *
- * A `pass` unless a matcher or `if` cannot be read (then a `warn` names it): a
+ * A `pass` unless a matcher or `if` cannot be read, or a hook a file declared could not be loaded (then a `warn` names it): a
  * switch is something a person chose, and no hooks is a healthy state. The row exists so that "which of my hooks are running,
  * and from where" has an answer that does not need a conversation.
  */
@@ -55,9 +59,21 @@ export function describeHooksStatus(
 		}
 	}
 	for (const each of unreadable) lines.push(`Cannot be read: ${each}.`)
+	// What a file declared and this kernel could not load, or read but does not act on.
+	const untrustedLabels =
+		folder && !folder.trusted
+			? new Set(
+					['namzu.config.json', LOCAL_CONFIG_FILE].map((file) =>
+						shortHomePath(resolve(folder.cwd, file)),
+					),
+				)
+			: new Set<string>()
+	const declared = hookConfigProblems().filter((problem) => !untrustedLabels.has(problem.file))
+	for (const line of hookConfigProblemLines(declared)) lines.push(line)
+	const notLoaded = declared.some((problem) => problem.severity === 'problem')
 	lines.push(state === undefined ? 'No hook switch is on.' : `Switch on: ${hooksSwitchLine(state)}`)
 	lines.push('Plugin hooks are not counted here; plugins have their own switch (plugins.enabled).')
-	return { status: unreadable.length > 0 ? 'warn' : 'pass', message: lines.join(' ') }
+	return { status: unreadable.length > 0 || notLoaded ? 'warn' : 'pass', message: lines.join(' ') }
 }
 
 export function hooksCheck(config: NamzuCliConfig): DoctorCheck {

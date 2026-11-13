@@ -191,6 +191,7 @@ On exit `0`, stdout that starts with `{` is the hook's JSON answer. Output that 
 - `once: true` runs the hook one time per session.
 - `statusMessage` is shown on the terminal's status line while the hook runs.
 - `onFailure` is `continue` (the default) or `block`. A hook fails when it could not start, timed out, exited with a code other than `0` or `2`, or printed JSON that does not read. `continue` logs it and lets the action go ahead; `block` counts the failure as exit `2`, so the action the event guards is refused with the failure as the reason; on `post_tool_use` and `post_tool_use_failure`, where the call has already run, it withholds the result instead (see `updatedToolOutput` above). It is not read on a `prompt` hook or an `async` command.
+- `toolNames` is `namzu` (the default) or `written`, and says which spelling of a tool's name the hook is sent as `tool_name` and `NAMZU_TOOL_NAME`, and inside `tool_calls` on `post_tool_batch`: Namzu's own (`bash`) or the name a person writes in a matcher (`Bash`). See [Tool names](#tool-names). Nothing else in what the hook receives depends on it, and `matcher` and `if` read either spelling whatever it says. An entry read from the common shape (see [A hooks block in the common shape](#a-hooks-block-in-the-common-shape)) is `written`; an entry of ours with no `toolNames` keeps receiving ours, and `/hooks` shows which each entry gets. It is `ShellHookEntryBase.toolNames` in the SDK.
 - `timeoutMs` is the deadline (ten minutes by default and at most; before `@namzu/sdk` 52 the default was 30 s, so set `timeoutMs: 30000` to keep it). The lifecycle manager's own per-hook limit (`hookTimeoutMs`) defaults to the same ten minutes. A host that embeds the kernel can give an event a shorter default for entries that set no `timeoutMs`, with `defaultTimeoutMs` (an object keyed by event) in the options of `attachShellHooks`, and be told of a hook that ran out its deadline with `onTimeout`; an entry's own `timeoutMs` is honoured as written, and without the options nothing changes. The command line sets five seconds for `session_end` this way.
 
 Entries of one event run in parallel; see above for how their answers combine.
@@ -217,7 +218,7 @@ The JSON answer, the exit codes and the options above follow the JSON hook contr
 - **`post_tool_use_failure` is in addition to `post_tool_use`,** which keeps firing for a failed call as it always did; a failed call fires both events.
 - **Not delivered:** a `pre_compact` hook's stdout as custom compaction instructions, `updatedInput` from a `permission_request` allow, `permissionDecision: "defer"` (it decides nothing), `updatedToolOutput` on any event but `post_tool_use` and `post_tool_use_failure`, `sessionTitle` and the other fields that have no counterpart here. `updatedMCPToolOutput` is read for tool-server tools only, and `updatedToolOutput` wins when both are set (see `updatedToolOutput` above). `agent` and `mcp_tool` hook types do not exist here, and a command's `asyncRewake` (waking the model when a background hook exits `2`) is not offered.
 - **The values a moved script must expect.** The field names above are the common ones; these values are Namzu's:
-  - **Tool names** (`tool_name`, `NAMZU_TOOL_NAME`, `matcher`) are Namzu's own, in lower case, with one exception: the command line's sub-agent tool is named `Agent`. A script that tests `tool_name == "Bash"` never matches: test `bash`. The SDK defines these tools (the list is checked against the source by `shell-hook-docs-tool-names.test.ts`, so it cannot drift); a tool server's tools are `mcp__<server>__<tool>`:
+  - **Tool names** (`tool_name`, `NAMZU_TOOL_NAME`, `matcher`) are Namzu's own, in lower case, with one exception: the command line's sub-agent tool is named `Agent`. A script that tests `tool_name == "Bash"` never matches an entry of ours: test `bash`, or give the entry `toolNames: written` (see [Tool names](#tool-names)); an entry read from the common shape already receives `Bash`. The SDK defines these tools (the list is checked against the source by `shell-hook-docs-tool-names.test.ts`, so it cannot drift); a tool server's tools are `mcp__<server>__<tool>`:
 
     <!-- tool-names:start -->
     - Files and shell: `bash`, `edit`, `glob`, `grep`, `job`, `ls`, `read`, `verify_outputs`, `view_image`, `wait_for_job`, `write`
@@ -237,11 +238,70 @@ The JSON answer, the exit codes and the options above follow the JSON hook contr
   - **`agent_type`** on `subagent_start` and `subagent_stop` is the agent's name (`reviewer`, `explore`, `general-purpose`), on both events and on every way a child's turn ends; `agent_id` is the child's session id.
 - **`matcher` keeps its glob.** A name ending in `*` is a prefix, as it has been; a regular expression would read the same text differently.
 
+### Tool names
+
+A hook is sent the name a tool is registered under (`bash`, `web_fetch`), or, when its entry says `toolNames: written`, the capitalised name a person writes in a matcher for that tool (`Bash`, `WebFetch`). There is one table, in `packages/sdk/src/plugin/shell-hook-tool-names.ts` (`SHELL_HOOK_WRITTEN_TOOL_NAMES`, with `shellHookToolName` beside it), and this page lists exactly its rows; `shell-hook-written-tool-names.test.ts` fails when the two differ.
+
+<!-- written-tool-names:start -->
+| Our tool name | Written name |
+| --- | --- |
+| `Agent` | `Agent` |
+| `ask_user_question` | `AskUserQuestion` |
+| `bash` | `Bash` |
+| `edit` | `Edit` |
+| `glob` | `Glob` |
+| `grep` | `Grep` |
+| `ls` | `LS` |
+| `lsp` | `LSP` |
+| `monitor` | `Monitor` |
+| `read` | `Read` |
+| `search_tools` | `ToolSearch` |
+| `skill` | `Skill` |
+| `task_create` | `TaskCreate` |
+| `task_list` | `TaskList` |
+| `task_update` | `TaskUpdate` |
+| `web_fetch` | `WebFetch` |
+| `web_search` | `WebSearch` |
+| `write` | `Write` |
+<!-- written-tool-names:end -->
+
+- **A tool with no common name keeps ours**: `job`, `view_image`, `create_task`, `read_memory`, `schedule` and the rest of the list above. `create_task` is not `Task`: the sub-agent tool is `Agent`, and `matcher: "Task"` still fires for both.
+- **A tool-server tool is never changed**: `mcp__<server>__<tool>`.
+- **Only the name changes.** The call id (`tool_use_id`), `tool_input` with its `file_path`, `tool_response` and every other field are the same for both spellings.
+- `matcher` and `if` do not depend on it: `Bash`, `bash` and `^Bash$` fire for the same calls whichever spelling the hook is sent.
+
 ## In the CLI
 
-The `hooks` key of a config file is event → list of hooks: `{ command, args?, async?, matcher?, timeoutMs?, if?, once?, statusMessage?, onFailure? }`, `{ type: http, url, headers?, allowedEnvVars?, … }` or `{ type: prompt, prompt, … }`. In the terminal a `prompt` hook uses the small model and its tokens count against the turn it fired in; it is not asked outside a turn (`session_start`, `session_end`). The session fires `session_start` before its first turn — once the conversation has its durable session id, which every later turn's hooks carry as `session_id`, so a hook can match them — and `session_end` when it closes, including on `/exit`, which now closes the session before the process leaves.
+The `hooks` key of a config file is event → list of hooks: `{ command, args?, async?, matcher?, timeoutMs?, if?, once?, statusMessage?, onFailure?, toolNames? }`, `{ type: http, url, headers?, allowedEnvVars?, … }` or `{ type: prompt, prompt, … }`. In the terminal a `prompt` hook uses the small model and its tokens count against the turn it fired in; it is not asked outside a turn (`session_start`, `session_end`). The session fires `session_start` before its first turn — once the conversation has its durable session id, which every later turn's hooks carry as `session_id`, so a hook can match them — and `session_end` when it closes, including on `/exit`, which now closes the session before the process leaves.
 
 **`session_end` hooks have five seconds.** Closing a session waits for its `session_end` hooks, so a hook that hangs would hold `/exit` (or the end of `namzu exec`) for the ordinary ten minutes. An entry with no `timeoutMs` is given five seconds in the terminal application, `namzu exec` (with and without `--json`) and every other host of the command line, since all of them close a session in one place; an entry's own `timeoutMs` is honoured as written (up to the ten-minute cap). The terminal waits for the close up to five seconds for everything else it closes plus the longest `session_end` deadline among the entries it will wait for, so a hook that is given 20 seconds is given 20 seconds there too and `/exit` leaves only after the hook has finished or been ended. An `async` entry is not waited for and has no part in that time. When the deadline is hit the session still closes, the hook's process is ended the way any timed-out hook is, and one line on standard error says which hook did not finish (`The session_end hook \`<command>\` did not finish within 5 seconds and was ended.`). The line goes to standard error, so `namzu exec --json` keeps its standard output as events only. Other events keep the ten-minute default. A hook's `statusMessage` shows on the status line while it runs, in the terminal application only: `namzu exec`, the ACP host and a scheduled run draw no status line, so the text appears nowhere there. A hook that stops the turn or warns the operator leaves a line in the transcript, and `notification` hooks hear about every review that waits and every turn that settles, whether or not a terminal notification is configured.
+
+### A hooks block in the common shape
+
+The `hooks` key reads the shape other hook files are written in, beside ours, in the same key: an event in its PascalCase spelling (`PreToolUse`, `PostToolUse`, `Stop`, `SessionStart`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, `PermissionRequest`, `PermissionDenied`, `Notification`, `PreCompact`, `PostCompact`, `PostToolBatch`, `PostToolUseFailure`, `StopFailure`, `SessionEnd`; the same words `hook_event_name` sends) holding a list of groups, a group having an optional `matcher` and a list `hooks`, each hook having a `type`:
+
+```json
+{{
+  "hooks": {{
+    "PreToolUse": [
+      {{ "matcher": "Bash", "hooks": [{{ "type": "command", "command": "./guard.sh", "timeout": 5 }}] }}
+    ],
+    "Stop": [{{ "hooks": [{{ "type": "command", "command": "./done.sh" }}] }}]
+  }}
+}}
+```
+
+- **How a hook is read.** Each inner hook becomes one entry of ours for that event. The group's `matcher` goes on each of its hooks; `type` is `command` (the default), `http` or `prompt`; `command`, `args`, `async`, `if`, `once`, `statusMessage` and `onFailure` carry over; `timeout` is in seconds and becomes `timeoutMs` (`2.5` is 2 500); `http` takes `url`, `headers` and `allowedEnvVars`, and `prompt` takes `prompt`. The entry is `toolNames: written`: a script that tests `tool_name == "Bash"` and reads `tool_input.command` or `tool_input.file_path` works as it is.
+- **Both shapes in one file.** Our events (`pre_tool_use`) hold flat entries and the PascalCase ones hold groups; either spelling may hold either, and the same event may be written both ways in one file: the entries join, in the order they are written. An entry of ours under `PreToolUse` and a group under `pre_tool_use` are read too. Two entries that read the same (the same event, and every option the same, `toolNames` included) run once, as they do across files, whichever shape they were written in.
+- **The answer needs no switch.** An answer is read the same whichever shape the entry was written in; `hookSpecificOutput.hookEventName` takes either spelling of the event.
+- **Nothing is dropped in silence.** What cannot be loaded or acted on is said in plain words, naming the file, the event and what will not happen, three ways: once at launch (a warning), under `/hooks`, and in the `runtime.hooks` row of `namzu doctor`.
+  - An event name with no counterpart here (`TeammateIdle`, `ConfigChange`, any other PascalCase name that is not in the list above): none of its hooks will run. It is a **problem**: the row warns.
+  - A hook kind we do not have (`agent`, `mcp_tool`, anything but `command`, `http` and `prompt`), a hook with no `command`, `url` or `prompt` it needs, an `http` `url` that is not an `http` or `https` address, `args` that are not a list of text, an entry that is not a mapping: that hook will not run. It is a **problem** when its event can guard something (`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `UserPromptSubmit`, `PreCompact`, `Stop`, `SubagentStart`, `SubagentStop`), and the line says what it was meant to guard is not checked; elsewhere it is a **note**.
+  - A key this kernel does not act on (a group's other keys, `shell`, `asyncRewake`, `model` and so on) is a **note**; the hook still loads and runs without it.
+  - **An unreadable setting never switches a hook off.** A `timeout`, `if`, `once`, `statusMessage`, `onFailure`, `headers`, `allowedEnvVars`, `async` or group `matcher` of the wrong type is left off, with a note, and the hook runs, for more calls and with the default deadline, never fewer.
+- **One unreadable entry does not stop the others.** The rest of its group, its event and its file load. (A file that holds a misspelt event of our own shape, such as `on_save`, a renamed event, or an entry of ours with a bad value is still refused whole with the message it always gave: that is a mistake in a shape we define, not a hook we cannot read.)
+- **Before a folder is trusted** the terminal's trust prompt and the Desktop app's trust dialog read the common shape too, so a hook written in it (the command, the address or the question inside a group) is named before it can run. A project file's hooks in either shape obey the same switches (`disableHooks`, `hooksManagedOnly`, `NAMZU_DISABLE_HOOKS`) and the same trust.
+- **In the SDK.** `attachShellHooks` takes entries of our shape only; reading the common shape belongs to where a host reads its config. The CLI's reader is its own; a host that embeds the kernel can use `SHELL_HOOK_PASCAL_EVENT_NAMES` (the table of PascalCase event names), `SHELL_HOOK_WRITTEN_TOOL_NAMES` and `toolNames` on its entries.
 
 ### Hooks from several files combine
 
@@ -255,20 +315,20 @@ For each event the entries of every file are attached. The order is fixed, and i
 
 Within one file the entries keep the order the file gives them.
 
-- **An entry that is identical in two files runs once.** Two entries are identical when they are for the same event and every option reads the same (`command`, `args`, `type`, `matcher`, `timeoutMs`, `if`, `once`, `statusMessage`, `onFailure`, `async`, `url`, `headers`, `allowedEnvVars`, `prompt`); where they were declared does not count, and `type: command` is the same as no `type`. The copy in the earliest file is the one attached and the one `/hooks` names. Entries that differ in any option are different entries and both run.
+- **An entry that is identical in two files runs once.** Two entries are identical when they are for the same event and every option reads the same (`command`, `args`, `type`, `matcher`, `timeoutMs`, `if`, `once`, `statusMessage`, `onFailure`, `toolNames`, `async`, `url`, `headers`, `allowedEnvVars`, `prompt`); where they were declared does not count, and `type: command` is the same as no `type`. The copy in the earliest file is the one attached and the one `/hooks` names. Entries that differ in any option are different entries and both run.
 - **Every attached entry remembers its file** (`source`), shown by `/hooks` and counted per file by `namzu doctor`.
-- **Trust does not change.** Entries from the project's files attach only after the folder is trusted: the terminal asks, `namzu exec` refuses with exit 77 unless the folder is trusted or `--trust` is given. Before that only the user and managed files are read. The terminal's trust prompt lists the hooks the folder's two files declare (their event and what they would run: at most eight, the rest counted, each bounded) before the choice.
+- **Trust does not change.** Entries from the project's files attach only after the folder is trusted: the terminal asks, `namzu exec` refuses with exit 77 unless the folder is trusted or `--trust` is given. Before that only the user and managed files are read. The terminal's trust prompt lists the hooks the folder's two files declare, in either shape (their event and what they would run: at most eight, the rest counted, each bounded) before the choice.
 - **What this changed.** Before `@namzu/cli` 52 the highest file that had a `hooks` key replaced the whole key: a project file with one hook switched off every hook in the person's own file, so a cloned repository's hooks, once trusted, silently displaced the person's guard hooks, and a managed file with a `hooks` key discarded the rest. Now all of them run. To keep the old result, remove the hooks that should not run from the file they are in, or turn them off for one run with `NAMZU_DISABLE_HOOKS=1`.
 
 ### Switches
 
 - `disableHooks: true` (in the user file, or in the managed file) or `NAMZU_DISABLE_HOOKS=1` (for one run; `0` and `false` leave it as the files say) turns off every hook that comes from the user, project and local files, profiles in them included. Hooks of the organisation-managed file keep running. A `disableHooks` in a project or local file (or a profile declared there) is ignored, with a note at launch: a repository cannot switch off the hooks you set up. Once the user file, the environment or the managed file says `true`, no later file turns it back off. **The JavaScript hooks of plugins are not touched**: plugins have their own on and off (`plugins.enabled`, `/plugins`).
 - `hooksManagedOnly: true`, in the organisation-managed file only, attaches only that file's hooks: entries from the user, project and local files are not attached. A user, project or local file that sets it is ignored, and the launch says so once.
-- While either is in force, `/hooks` says so in its first line, and `namzu doctor` has a `runtime.hooks` row that counts the shell hooks attached per file, says whether a switch is on, and warns, naming each, about a `matcher` or `if` that cannot be read. A project's hooks that are declared but not attached because the folder is not trusted are reported there as not attached.
+- While either is in force, `/hooks` says so in its first line, and `namzu doctor` has a `runtime.hooks` row that counts the shell hooks attached per file, says whether a switch is on, and warns, naming each, about a `matcher` or `if` that cannot be read and about a hook a file declared that could not be loaded (see [A hooks block in the common shape](#a-hooks-block-in-the-common-shape)). A project's hooks that are declared but not attached because the folder is not trusted are reported there as not attached.
 
 ### `/hooks`
 
-`/hooks` lists every hook attached, by event, each with the file it came from and its matcher, `if`, `once`, deadline, background and `onFailure` options (and, under a hook whose `matcher` is not a regular expression that compiles or whose `if` is not `Tool(pattern)`, a line saying it cannot be read and what that means); then the hooks plugins registered, as the event and the plugin's name (`pre_tool_use · plugin review-bot`). A plugin that is disabled registers none.
+`/hooks` lists every hook attached, by event, each with the file it came from and its matcher, `if`, `once`, deadline, background and `onFailure` options, and on a tool event which tool names it receives (`Namzu's own (bash)` or `as written (Bash)`) (and, under a hook whose `matcher` is not a regular expression that compiles or whose `if` is not `Tool(pattern)`, a line saying it cannot be read and what that means); then what the files declared that could not be loaded or was not acted on (`Not loaded:` for a hook that would have guarded something, `Note:` otherwise), then the hooks plugins registered, as the event and the plugin's name (`pre_tool_use · plugin review-bot`). A plugin that is disabled registers none.
 
 ## Request context inventory
 

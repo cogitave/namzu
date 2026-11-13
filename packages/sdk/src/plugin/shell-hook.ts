@@ -132,6 +132,7 @@ import { boundHookReplacement } from './hook-context.js'
 import type { PluginLifecycleManager } from './lifecycle.js'
 import { readHookCommand } from './shell-hook-command.js'
 import { postHookJson } from './shell-hook-http.js'
+import { type ShellHookToolNames, shellHookToolName } from './shell-hook-tool-names.js'
 
 /**
  * The events a shell hook may attach to: the ones an operator can act on
@@ -224,6 +225,15 @@ interface ShellHookEntryBase {
 	 * here are the same entry.
 	 */
 	readonly source?: string
+	/**
+	 * Which spelling of a tool's name the hook is sent as `tool_name` (and
+	 * `NAMZU_TOOL_NAME`): `namzu`, the name the tool is registered under
+	 * (`bash`; the default), or `written`, the capitalised name a person writes
+	 * in a matcher (`Bash`). A tool with no written name, and every tool-server
+	 * tool, keeps its own. `matcher` and `if` read either spelling whatever this
+	 * says. An entry read from the common hook contract is `written`.
+	 */
+	readonly toolNames?: ShellHookToolNames
 }
 
 /** One shell command at one event. */
@@ -599,6 +609,8 @@ export interface ShellHookInput {
 	readonly prompt?: string
 	readonly compaction?: PluginCompactionInfo
 	readonly toolName?: string
+	/** The spelling `toolName` (and each `toolCalls` name) is sent in; absent is `namzu`. */
+	readonly toolNames?: ShellHookToolNames
 	/** The call's id, on the single-call tool events. Sent as `tool_use_id`. */
 	readonly toolCallId?: string
 	readonly toolInput?: unknown
@@ -627,7 +639,7 @@ export interface ShellHookInput {
 export function shellHookPayload(input: ShellHookInput): string {
 	return JSON.stringify({
 		event: input.event,
-		hook_event_name: PASCAL_EVENT_NAMES[input.event] ?? input.event,
+		hook_event_name: SHELL_HOOK_PASCAL_EVENT_NAMES[input.event] ?? input.event,
 		cwd: input.cwd,
 		session_id: input.sessionId,
 		...(input.transcriptPath !== undefined ? { transcript_path: input.transcriptPath } : {}),
@@ -641,7 +653,9 @@ export function shellHookPayload(input: ShellHookInput): string {
 			: {}),
 		...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
 		...(input.compaction !== undefined ? { compaction: input.compaction } : {}),
-		...(input.toolName !== undefined ? { tool_name: input.toolName } : {}),
+		...(input.toolName !== undefined
+			? { tool_name: shellHookToolName(input.toolName, input.toolNames) }
+			: {}),
 		...(input.toolCallId !== undefined ? { tool_use_id: input.toolCallId } : {}),
 		...(input.toolInput !== undefined
 			? { tool_input: withFilePathKey(input.toolName, input.toolInput) }
@@ -655,7 +669,7 @@ export function shellHookPayload(input: ShellHookInput): string {
 		...(input.toolCalls !== undefined
 			? {
 					tool_calls: input.toolCalls.map((call) => ({
-						tool_name: call.toolName,
+						tool_name: shellHookToolName(call.toolName, input.toolNames),
 						tool_input: withFilePathKey(call.toolName, call.toolInput),
 						tool_use_id: call.toolCallId,
 						tool_response: call.output,
@@ -703,7 +717,9 @@ export function runShellHook(
 				NAMZU_SESSION_ID: input.sessionId,
 				NAMZU_PROJECT_DIR: input.projectDir ?? input.cwd,
 				...(input.turnId !== undefined ? { NAMZU_TURN_ID: input.turnId } : {}),
-				...(input.toolName !== undefined ? { NAMZU_TOOL_NAME: input.toolName } : {}),
+				...(input.toolName !== undefined
+					? { NAMZU_TOOL_NAME: shellHookToolName(input.toolName, input.toolNames) }
+					: {}),
 				...(toolPath !== undefined ? { NAMZU_TOOL_PATH: toolPath } : {}),
 			}
 			// Its own process group, so the deadline can kill everything the
@@ -885,7 +901,7 @@ function pathOf(toolInput: unknown): string | undefined {
 }
 
 /** The PascalCase spelling of each event name, which a hook's JSON may use. */
-const PASCAL_EVENT_NAMES: Readonly<Partial<Record<ShellHookEvent, string>>> = {
+export const SHELL_HOOK_PASCAL_EVENT_NAMES: Readonly<Partial<Record<ShellHookEvent, string>>> = {
 	user_prompt_submit: 'UserPromptSubmit',
 	session_start: 'SessionStart',
 	session_end: 'SessionEnd',
@@ -1032,7 +1048,7 @@ function readShellHookJson(
 	if (typeof named !== 'string') {
 		return { invalid: '`hookSpecificOutput` is missing its `hookEventName`' }
 	}
-	if (named !== event && named !== PASCAL_EVENT_NAMES[event]) {
+	if (named !== event && named !== SHELL_HOOK_PASCAL_EVENT_NAMES[event]) {
 		return {
 			invalid: `\`hookSpecificOutput.hookEventName\` is "${named}" but this hook ran for ${event}`,
 		}
@@ -1585,6 +1601,7 @@ export function createShellHook(
 				...(context.prompt !== undefined ? { prompt: context.prompt } : {}),
 				...(context.compaction !== undefined ? { compaction: context.compaction } : {}),
 				...(context.toolName !== undefined ? { toolName: context.toolName } : {}),
+				...(entry.toolNames !== undefined ? { toolNames: entry.toolNames } : {}),
 				...(context.toolCallId !== undefined ? { toolCallId: context.toolCallId } : {}),
 				...(context.toolInput !== undefined ? { toolInput: context.toolInput } : {}),
 				...(context.toolResult !== undefined

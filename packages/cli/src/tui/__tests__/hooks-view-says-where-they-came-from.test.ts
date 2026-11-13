@@ -14,8 +14,8 @@ describe('/hooks beside the config hooks', () => {
 		).toBe(
 			[
 				'pre_tool_use',
-				'  guard.sh · from ~/.namzu/config.yaml',
-				'  lint.sh · from /srv/app/namzu.config.json',
+				'  guard.sh · tool names Namzu’s own (bash) · from ~/.namzu/config.yaml',
+				'  lint.sh · tool names Namzu’s own (bash) · from /srv/app/namzu.config.json',
 			].join('\n'),
 		)
 	})
