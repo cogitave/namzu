@@ -1,4 +1,4 @@
-import { readPermissionLayers } from '../config/load.js'
+import { type HookConfigProblem, hookConfigProblems, readPermissionLayers } from '../config/load.js'
 import { installationRows } from '../installation.js'
 import {
 	type ApiKeyLogoutTarget,
@@ -56,6 +56,8 @@ import {
 	type SessionTokenBudgetSummary,
 	isMemoryType,
 	kernelHostCommands,
+	shellHookIfProblem,
+	shellHookMatcherProblem,
 } from '@namzu/sdk'
 
 import { type ConfigDebugSnapshot, renderConfigDebug } from '../config/debug.js'
@@ -1988,6 +1990,26 @@ export interface HooksView {
 	readonly pluginHooks?: readonly { readonly plugin: string; readonly event: string }[]
 	/** A switch that left hooks out of the list. */
 	readonly switch?: HooksSwitch
+	/** Hooks the files declared that could not be loaded, and settings not acted on; absent, what the config reader recorded. */
+	readonly problems?: readonly HookConfigProblem[]
+}
+
+/** The events whose hooks are sent a tool's name. */
+const TOOL_NAME_EVENTS: ReadonlySet<string> = new Set([
+	'pre_tool_use',
+	'post_tool_use',
+	'post_tool_use_failure',
+	'post_tool_batch',
+	'permission_request',
+	'permission_denied',
+])
+
+/** The lines `/hooks` and `namzu doctor` give for hooks that could not be loaded or read in full. */
+export function hookConfigProblemLines(problems: readonly HookConfigProblem[]): string[] {
+	return problems.map(
+		(problem) =>
+			`${problem.severity === 'problem' ? 'Not loaded' : 'Note'}: ${problem.file}, ${problem.event}: ${problem.message}`,
+	)
 }
 
 /** The one line `/hooks` and `namzu doctor` give when a switch is limiting hooks. */
@@ -1998,15 +2020,32 @@ export function hooksSwitchLine(state: HooksSwitch): string {
 }
 
 /**
+ * What in an entry's `matcher` or `if` cannot be read. A matcher that is not a
+ * regular expression fires for every call, and an `if` that is not
+ * `Tool(pattern)` runs the hook every time: both are said out loud, never left
+ * to look like a filter that works.
+ */
+export function hookReadingProblems(entry: {
+	readonly matcher?: string
+	readonly if?: string
+}): string[] {
+	return [shellHookMatcherProblem(entry.matcher), shellHookIfProblem(entry.if)].filter(
+		(problem): problem is string => problem !== undefined,
+	)
+}
+
+/**
  * Every hook this conversation attaches, by event, in the order answers are
  * read, each with the file it came from, then the hooks plugins registered.
  */
 export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}): string {
 	const events = Object.entries(hooks ?? {}).filter(([, entries]) => (entries?.length ?? 0) > 0)
 	const pluginHooks = view.pluginHooks ?? []
+	const problems = view.problems ?? hookConfigProblems()
 	const lines: string[] = []
 	if (view.switch) lines.push(hooksSwitchLine(view.switch))
 	if (events.length === 0 && pluginHooks.length === 0) {
+		lines.push(...hookConfigProblemLines(problems))
 		lines.push(
 			'No hooks. Add a `hooks` key to namzu.config.json or ~/.namzu/config.yaml: event → list of hooks: a command, an http address or a prompt, each with matcher, timeoutMs, if, once, statusMessage and onFailure if you want them.',
 		)
@@ -2029,9 +2068,21 @@ export function renderHooks(hooks: HooksConfig | undefined, view: HooksView = {}
 			const background = entry.type === undefined && entry.async ? ' · in background' : ''
 			const failure = entry.onFailure === 'block' ? ' · blocks when it fails' : ''
 			const from = entry.source ? ` · from ${entry.source}` : ''
-			lines.push(`  ${what}${when}${filter}${once}${deadline}${background}${failure}${from}`)
+			// A prompt hook is sent no payload, so it receives no tool name; a tool
+			// server's tools keep their own names in either spelling.
+			const names =
+				TOOL_NAME_EVENTS.has(event) && entry.type !== 'prompt'
+					? entry.toolNames === 'written'
+						? ' · tool names as written (Bash), tool-server tools keep their own'
+						: ' · tool names Namzu’s own (bash)'
+					: ''
+			lines.push(
+				`  ${what}${when}${filter}${once}${deadline}${background}${failure}${names}${from}`,
+			)
+			for (const problem of hookReadingProblems(entry)) lines.push(`    cannot be read: ${problem}`)
 		}
 	}
+	lines.push(...hookConfigProblemLines(problems))
 	if (pluginHooks.length > 0) {
 		lines.push('plugin hooks (JavaScript, set by the plugin)')
 		for (const hook of pluginHooks) lines.push(`  ${hook.event} · plugin ${hook.plugin}`)

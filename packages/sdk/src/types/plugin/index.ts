@@ -311,6 +311,14 @@ export interface PluginHookContext {
 	/** The pass, on `pre_compact` and `post_compact`. */
 	readonly compaction?: PluginCompactionInfo
 	readonly toolName?: string
+	/**
+	 * The id of the call, on `pre_tool_use`, `post_tool_use`,
+	 * `post_tool_use_failure`, `permission_request` and `permission_denied`: the
+	 * same id `post_tool_batch` carries as `toolCallId`, so a hook can pair a
+	 * before with an after. Absent on a call a tool makes through
+	 * `dispatchTool` (it has no model-issued id).
+	 */
+	readonly toolCallId?: string
 	readonly toolInput?: unknown
 	readonly toolResult?: ToolResult
 	/** The calls of one model step with their outcomes, on `post_tool_batch`. */

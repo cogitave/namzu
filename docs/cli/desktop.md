@@ -804,7 +804,7 @@ the canonical path and the window, valid for five minutes. The dialog "Trust
 this folder?" quotes the folder's name, says what was found in plain words ("a
 Namzu settings file that can start programs", "2 tools it can start (MCP
 servers)", "commands that run by themselves at set moments (hooks)") and has a
-**Details** disclosure that shows the real hook command and each server's
+**Details** disclosure that shows the real hook command (read through a group of the [common hook shape](../sdk/hooks.md#a-hooks-block-in-the-common-shape) to the hooks inside it; an `http` hook as `POST <address>`, a `prompt` hook as its question) and each server's
 command or address. Details never carry environment values; a URL loses its
 query and credentials, anything that looks like a token or password is shown as
 `…`, and a list stops at eight lines (`safeLine` in `src/main/folder-settings.ts`).

@@ -716,8 +716,13 @@ export {
 	PluginResolver,
 	runShellHook,
 	SHELL_HOOK_EVENTS,
+	SHELL_HOOK_PASCAL_EVENT_NAMES,
+	SHELL_HOOK_WRITTEN_TOOL_NAMES,
 	SHELL_HOOKS_PLUGIN_ID,
+	shellHookToolName,
 	shellHookIfMatches,
+	shellHookIfProblem,
+	shellHookMatcherProblem,
 	shellHookMatches,
 	shellHookVerdict,
 } from './plugin/index.js'

@@ -2790,7 +2790,7 @@ export class ToolExecutor {
 		// block had it discarded here — before the wire mapper that was
 		// built to carry it ever saw it.
 		let result: ToolResult = await this.runOnce(toolName, input, toolContext, prepared)
-		let post = await this.runPostToolHook(toolName, input, result)
+		let post = await this.runPostToolHook(toolName, input, result, toolCall.id)
 
 		// In-loop retry. A transient failure used to cost a full model round
 		// trip: the error went back as a `tool_result`, the model read it and
@@ -2873,7 +2873,7 @@ export class ToolExecutor {
 				break
 			}
 			result = await this.runOnce(toolName, input, toolContext, prepared)
-			post = await this.runPostToolHook(toolName, input, result)
+			post = await this.runPostToolHook(toolName, input, result, toolCall.id)
 		}
 		const durationMs = Date.now() - startMs
 
@@ -3515,6 +3515,7 @@ export class ToolExecutor {
 		toolName: string,
 		input: unknown,
 		toolResult: ToolResult,
+		toolCallId?: string,
 	): Promise<{
 		override: PostToolOverride | null
 		retry: boolean
@@ -3529,6 +3530,7 @@ export class ToolExecutor {
 					sessionId: this.config.sessionId,
 					turnId: this.config.turnId,
 					toolName,
+					...(toolCallId !== undefined ? { toolCallId } : {}),
 					toolInput: input,
 					toolResult,
 					signal: this.config.abortSignal,
@@ -3547,6 +3549,7 @@ export class ToolExecutor {
 							sessionId: this.config.sessionId,
 							turnId: this.config.turnId,
 							toolName,
+							...(toolCallId !== undefined ? { toolCallId } : {}),
 							toolInput: input,
 							toolResult,
 							signal: this.config.abortSignal,

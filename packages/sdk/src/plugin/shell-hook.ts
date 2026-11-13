@@ -130,7 +130,9 @@ import { NOOP_LOGGER } from '../utils/log/create-logger.js'
 import type { Logger } from '../utils/logger.js'
 import { boundHookReplacement } from './hook-context.js'
 import type { PluginLifecycleManager } from './lifecycle.js'
+import { readHookCommand } from './shell-hook-command.js'
 import { postHookJson } from './shell-hook-http.js'
+import { type ShellHookToolNames, shellHookToolName } from './shell-hook-tool-names.js'
 
 /**
  * The events a shell hook may attach to: the ones an operator can act on
@@ -223,6 +225,15 @@ interface ShellHookEntryBase {
 	 * here are the same entry.
 	 */
 	readonly source?: string
+	/**
+	 * Which spelling of a tool's name the hook is sent as `tool_name` (and
+	 * `NAMZU_TOOL_NAME`): `namzu`, the name the tool is registered under
+	 * (`bash`; the default), or `written`, the capitalised name a person writes
+	 * in a matcher (`Bash`). A tool with no written name, and every tool-server
+	 * tool, keeps its own. `matcher` and `if` read either spelling whatever this
+	 * says. An entry read from the common hook contract is `written`.
+	 */
+	readonly toolNames?: ShellHookToolNames
 }
 
 /** One shell command at one event. */
@@ -318,12 +329,29 @@ const WRITTEN_TOOL_NAMES: Readonly<Record<string, string>> = Object.freeze({
 	tasklist: 'TaskList',
 })
 
+/**
+ * The tools a written name stands for. The skill alias table sends `Task` and
+ * `Agent` to `create_task`, but the command line's sub-agent tool is named
+ * `Agent`, and a hook written for either spelling means it: both name it.
+ */
+function toolsNamedBy(written: string): string[] {
+	const alias = SKILL_TOOL_NAME_ALIASES[written]
+	const names = alias !== undefined ? [alias] : []
+	if (written === 'task' || written === 'agent') names.push('agent')
+	return names
+}
+
+/** A name with the separators dropped: `ViewImage` and `view_image` are one tool. */
+function squashed(name: string): string {
+	return name.toLowerCase().replace(/[_-]/g, '')
+}
+
 /** The names a skill writes for the tool called `toolName` here. */
 function writtenNamesFor(toolName: string): string[] {
 	const lower = toolName.toLowerCase()
 	const names: string[] = []
-	for (const [written, tool] of Object.entries(SKILL_TOOL_NAME_ALIASES)) {
-		if (tool !== lower) continue
+	for (const written of new Set([...Object.keys(SKILL_TOOL_NAME_ALIASES), 'agent', 'task'])) {
+		if (!toolsNamedBy(written).includes(lower)) continue
 		names.push(written)
 		const spelled = WRITTEN_TOOL_NAMES[written]
 		if (spelled !== undefined) names.push(spelled)
@@ -331,27 +359,73 @@ function writtenNamesFor(toolName: string): string[] {
 	return names
 }
 
+/** A glob over names: `*` matches any run of characters, the rest is literal. */
+function globMatches(pattern: string, subject: string): boolean {
+	const source = pattern
+		.split('*')
+		.map((piece) => piece.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+		.join('.*')
+	return new RegExp(`^${source}$`, 'i').test(subject)
+}
+
+/**
+ * Whether a list part (`Edit`, `Web*`, `mcp__*__search`) names `subject`, as a
+ * tool name or not. A `*` at the end is a prefix; a `*` anywhere else is a
+ * glob. For a tool, a bare tool-server name (`mcp__github`) names every tool
+ * of that server.
+ */
+function listPartNames(part: string, subject: string, tool: boolean): boolean {
+	const prefix = part.endsWith('*')
+	const core = prefix ? part.slice(0, -1) : part
+	const written = core.toLowerCase()
+	const lower = subject.toLowerCase()
+	if (core.includes('*')) {
+		if (globMatches(part, subject)) return true
+		return tool && writtenNamesFor(subject).some((name) => globMatches(part, name))
+	}
+	const spellings = [written]
+	if (tool) spellings.push(...toolsNamedBy(written))
+	return spellings.some((name) => {
+		if (prefix ? lower.startsWith(name) : lower === name) return true
+		if (!tool) return false
+		// A tool's name also compares without its `_` and `-`.
+		if (prefix ? squashed(lower).startsWith(squashed(name)) : squashed(lower) === squashed(name)) {
+			return true
+		}
+		return !prefix && name.startsWith('mcp__') && !name.slice(5).includes('__')
+			? lower.startsWith(`${name}__`)
+			: false
+	})
+}
+
+const MATCHER_LIST_PART = /^[A-Za-z0-9_.:*-]+$/
+
 /**
  * `matcher` against a name (a tool's, or a notification's type).
  *
  * Empty or `*` matches everything. A list of names separated by `|` or `,`
  * matches exactly, each part optionally ending in `*` as a prefix (the
  * spelling this adapter has always taken). Anything else is a regular
- * expression, tested unanchored against the name; one that does not compile
- * matches nothing. A matcher on an event that has no name (`turn_start`)
- * matches nothing unless it is `*`.
+ * expression, tested unanchored against the name. This function called with no
+ * name matches only `*`; a hook on an event that has no name (`turn_end`)
+ * ignores its matcher and fires (see `createShellHook`).
+ *
+ * A text that reads both ways (it is a list, and it holds a `.*`
+ * that a regular expression reads differently:  `Bash.*`,
+ * `mcp__.*__search`) fires when either reading matches. A pattern that does
+ * not compile cannot be read, and a guard that silently matches nothing is
+ * the failure to avoid, so it matches every name; `/hooks` and
+ * `namzu doctor` say that it cannot be read (`shellHookMatcherProblem`).
  *
  * Names in a list compare without regard to case. With `tool: true` (the
  * event's name is a tool: the tool events and `permission_request`) they also
- * take the names skills write, the way an entry's `if` does: `Bash` matches
- * the tool `bash`, `MultiEdit` matches `edit`, and a prefix such as `Web*`
- * matches `web_fetch` by its written name too. Where the name is not a tool
- * (a notification's type, an agent's name, a session's `source` or `reason`)
- * no tool alias applies, since those words are not tool names; case is still
- * ignored there, because a guard that silently never runs over a capital
- * letter is worse than one that also runs for a name differing only in case.
- *
- * A list part ending in `.*` is also tried as a regular expression.
+ * take the names skills write, the way an entry's `if` does, and a tool name
+ * compares without its `_` and `-`: `Bash` matches the tool `bash`,
+ * `MultiEdit` matches `edit`, `ViewImage` matches `view_image`, `Task` and
+ * `Agent` match the sub-agent tool `Agent`, and a prefix such as `Web*`
+ * matches `web_fetch`. Where the name is not a tool (a notification's type,
+ * an agent's name, a session's `source` or `reason`) no tool alias applies,
+ * since those words are not tool names; case is still ignored there.
  *
  * A regular expression is tested, case-sensitively as written, against the
  * real name and, with `tool: true`, against each name skills write for that
@@ -367,37 +441,65 @@ export function shellHookMatches(
 	if (toolName === undefined) return false
 	const tool = options.tool === true
 	const parts = matcher.split(/[|,]/).map((part) => part.trim())
-	if (parts.every((part) => /^[A-Za-z0-9_.:-]+\*?$/.test(part))) {
-		const subject = toolName.toLowerCase()
-		const listed = parts.some((candidate) => {
-			const prefix = candidate.endsWith('*')
-			const written = (prefix ? candidate.slice(0, -1) : candidate).toLowerCase()
-			const spellings = [written]
-			if (tool) {
-				const alias = SKILL_TOOL_NAME_ALIASES[written]
-				if (alias !== undefined) spellings.push(alias)
-			}
-			return spellings.some((name) => (prefix ? subject.startsWith(name) : subject === name))
-		})
-		// `Bash.*` reads as the prefix `bash.` above, which no tool has. A part
-		// ending in `.*` is also a regular expression, so it is tried as one.
-		if (listed || !matcher.includes('.*')) return listed
+	if (parts.every((part) => MATCHER_LIST_PART.test(part))) {
+		if (parts.some((part) => listPartNames(part, toolName, tool))) return true
+		// A list of names is exact (a `*` in it is a prefix or a glob). Only `.*` reads differently
+		// as a regular expression, so only then is the second reading tried.
+		if (!matcher.includes('.*')) return false
 	}
 	try {
 		const expression = new RegExp(matcher)
 		if (expression.test(toolName)) return true
 		return tool && writtenNamesFor(toolName).some((name) => expression.test(name))
 	} catch {
-		return false
+		return true
 	}
 }
 
 /**
+ * Why a `matcher` cannot be read, or `undefined` when it can. A matcher that
+ * is not a list of names and does not compile as a regular expression fires
+ * for every name (see {@link shellHookMatches}).
+ */
+export function shellHookMatcherProblem(matcher: string | undefined): string | undefined {
+	if (matcher === undefined || matcher.trim() === '' || matcher.trim() === '*') return undefined
+	const parts = matcher.split(/[|,]/).map((part) => part.trim())
+	if (parts.every((part) => MATCHER_LIST_PART.test(part))) return undefined
+	// `Bash(git push *)` is a tool and a pattern, which is what an `if` reads. As a
+	// matcher it is a regular expression that no tool name satisfies, so the hook
+	// would never fire; say so, and name the `if`.
+	if (/^[A-Za-z0-9_.:*-]+\([\s\S]*\)$/.test(matcher.trim())) {
+		return `the matcher "${matcher}" is written as Tool(pattern), which is an if, not a matcher: as a matcher it matches no tool name and the hook never fires; put the tool in matcher and the pattern in if`
+	}
+	try {
+		new RegExp(matcher)
+		return undefined
+	} catch (error) {
+		return `the matcher "${matcher}" is not a list of names and is not a regular expression (${(error as Error).message}), so it cannot be read and the hook fires for every call`
+	}
+}
+
+const IF_SHAPE = /^([A-Za-z0-9_.:*|, -]+)(?:\(([\s\S]*)\))?$/
+
+/**
+ * Why an `if` cannot be read, or `undefined` when it can. A filter that
+ * cannot be read runs the hook.
+ */
+export function shellHookIfProblem(filter: string | undefined): string | undefined {
+	if (filter === undefined || filter.trim() === '') return undefined
+	return IF_SHAPE.test(filter.trim())
+		? undefined
+		: `the if "${filter}" is not Tool or Tool(pattern), so it cannot be read and the hook runs for every call`
+}
+
+/**
  * A hook's `if` against one tool call: `Tool` or `Tool(pattern)`. The tool
- * part is case-insensitive and takes the names skills write (`Bash`,
- * `Read`). A pattern is matched against a shell tool's command line and only
- * there; for a tool with no command line the filter cannot be read, which
- * runs the hook.
+ * part takes every spelling a `matcher` takes as a list: names skills write
+ * (`Bash`, `Read`, `Agent`), separated by `|` or `,`, a prefix ending in `*`,
+ * case ignored; a regular expression is not read here (use `matcher`). A
+ * pattern is matched against a shell tool's command line (one command at a
+ * time) or, for a file tool, a path the host reads; for a tool with neither
+ * the filter cannot be read, which runs the hook.
  */
 export function shellHookIfMatches(
 	filter: string | undefined,
@@ -407,22 +509,36 @@ export function shellHookIfMatches(
 ): boolean {
 	if (filter === undefined || filter.trim() === '') return true
 	if (toolName === undefined) return true
-	const shape = /^([A-Za-z0-9_.-]+)(?:\(([\s\S]*)\))?$/.exec(filter.trim())
+	const shape = IF_SHAPE.exec(filter.trim())
 	if (!shape) return true
-	const written = (shape[1] ?? '').toLowerCase()
-	const tool = SKILL_TOOL_NAME_ALIASES[written] ?? written
 	const specifier = shape[2]?.trim()
 	const hasPattern =
 		specifier !== undefined && specifier !== '' && specifier.replaceAll('*', '') !== ''
-	// A path pattern is the permission rules' own: the host that has them says
-	// whether this call's path is named. It decides for the tools it knows.
-	if (hasPattern && pathFilter !== undefined) {
-		const answer = pathFilter(tool, specifier, toolName, toolInput)
-		if (answer !== undefined) return answer
-	}
-	if (tool !== toolName.toLowerCase()) return false
-	if (!hasPattern) return true
-	if (tool !== 'bash') return true
+	const parts = (shape[1] ?? '')
+		.split(/[|,]/)
+		.map((part) => part.trim())
+		.filter((part) => part !== '')
+	if (parts.length === 0) return true
+	if (parts.some((part) => part === '*')) return true
+	const callTool = toolName.toLowerCase()
+	return parts.some((part) => {
+		const written = part.replace(/\*$/, '').toLowerCase()
+		const tool = SKILL_TOOL_NAME_ALIASES[written] ?? written
+		// A path pattern is the permission rules' own: the host that has them says
+		// whether this call's path is named. It decides for the tools it knows.
+		if (hasPattern && pathFilter !== undefined && !part.endsWith('*')) {
+			const answer = pathFilter(tool, specifier, toolName, toolInput)
+			if (answer !== undefined) return answer
+		}
+		if (!listPartNames(part, toolName, true)) return false
+		if (!hasPattern) return true
+		if (callTool !== 'bash') return true
+		return commandMatches(specifier, toolInput)
+	})
+}
+
+/** A shell tool's command line against a permission-rule pattern, per command. */
+function commandMatches(specifier: string, toolInput: unknown): boolean {
 	const line =
 		toolInput !== null && typeof toolInput === 'object'
 			? (toolInput as Record<string, unknown>).command
@@ -436,9 +552,16 @@ export function shellHookIfMatches(
 		// filter names, so the hook runs. A filter only ever narrows when the
 		// whole line is visible and none of its commands matches.
 		if (decomposed.opaque) return true
-		const candidates = [...decomposed.segments, ...decodedCommands(line, 'sh')].map((each) =>
-			each.trim(),
-		)
+		// Wrappers, a program's full path and git's global options do not change
+		// which command runs; a command whose name is only known at run time
+		// cannot be compared, so the hook runs.
+		const reading = readHookCommand(line)
+		if (reading.unknowable) return true
+		const candidates = [
+			...decomposed.segments,
+			...decodedCommands(line, 'sh'),
+			...reading.candidates,
+		].map((each) => each.trim())
 		return candidates.some((each) => matcher.test(each))
 	} catch {
 		return true
@@ -493,6 +616,10 @@ export interface ShellHookInput {
 	readonly prompt?: string
 	readonly compaction?: PluginCompactionInfo
 	readonly toolName?: string
+	/** The spelling `toolName` (and each `toolCalls` name) is sent in; absent is `namzu`. */
+	readonly toolNames?: ShellHookToolNames
+	/** The call's id, on the single-call tool events. Sent as `tool_use_id`. */
+	readonly toolCallId?: string
 	readonly toolInput?: unknown
 	readonly toolResult?: {
 		readonly success: boolean
@@ -519,7 +646,7 @@ export interface ShellHookInput {
 export function shellHookPayload(input: ShellHookInput): string {
 	return JSON.stringify({
 		event: input.event,
-		hook_event_name: PASCAL_EVENT_NAMES[input.event] ?? input.event,
+		hook_event_name: SHELL_HOOK_PASCAL_EVENT_NAMES[input.event] ?? input.event,
 		cwd: input.cwd,
 		session_id: input.sessionId,
 		...(input.transcriptPath !== undefined ? { transcript_path: input.transcriptPath } : {}),
@@ -533,8 +660,13 @@ export function shellHookPayload(input: ShellHookInput): string {
 			: {}),
 		...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
 		...(input.compaction !== undefined ? { compaction: input.compaction } : {}),
-		...(input.toolName !== undefined ? { tool_name: input.toolName } : {}),
-		...(input.toolInput !== undefined ? { tool_input: input.toolInput } : {}),
+		...(input.toolName !== undefined
+			? { tool_name: shellHookToolName(input.toolName, input.toolNames) }
+			: {}),
+		...(input.toolCallId !== undefined ? { tool_use_id: input.toolCallId } : {}),
+		...(input.toolInput !== undefined
+			? { tool_input: withFilePathKey(input.toolName, input.toolInput) }
+			: {}),
 		...(input.toolResult !== undefined
 			? { tool_result: input.toolResult, tool_response: input.toolResult }
 			: {}),
@@ -544,8 +676,8 @@ export function shellHookPayload(input: ShellHookInput): string {
 		...(input.toolCalls !== undefined
 			? {
 					tool_calls: input.toolCalls.map((call) => ({
-						tool_name: call.toolName,
-						tool_input: call.toolInput,
+						tool_name: shellHookToolName(call.toolName, input.toolNames),
+						tool_input: withFilePathKey(call.toolName, call.toolInput),
 						tool_use_id: call.toolCallId,
 						tool_response: call.output,
 						is_error: call.isError,
@@ -592,7 +724,9 @@ export function runShellHook(
 				NAMZU_SESSION_ID: input.sessionId,
 				NAMZU_PROJECT_DIR: input.projectDir ?? input.cwd,
 				...(input.turnId !== undefined ? { NAMZU_TURN_ID: input.turnId } : {}),
-				...(input.toolName !== undefined ? { NAMZU_TOOL_NAME: input.toolName } : {}),
+				...(input.toolName !== undefined
+					? { NAMZU_TOOL_NAME: shellHookToolName(input.toolName, input.toolNames) }
+					: {}),
 				...(toolPath !== undefined ? { NAMZU_TOOL_PATH: toolPath } : {}),
 			}
 			// Its own process group, so the deadline can kill everything the
@@ -713,6 +847,56 @@ export function runShellHook(
 	})
 }
 
+/**
+ * The tools whose input names a file or folder `path`. A moved script reads
+ * that file under the key `file_path`, so the input a hook receives carries
+ * both, with the same value.
+ */
+const FILE_PATH_TOOLS: ReadonlySet<string> = new Set([
+	'read',
+	'write',
+	'edit',
+	'grep',
+	'glob',
+	'ls',
+	'view_image',
+	'lsp',
+])
+
+/** `toolInput` as a hook receives it: a file tool's `path` is also `file_path`. */
+function withFilePathKey(toolName: string | undefined, toolInput: unknown): unknown {
+	if (toolName === undefined || !FILE_PATH_TOOLS.has(toolName.toLowerCase())) return toolInput
+	if (!isRecord(toolInput)) return toolInput
+	const path = toolInput.path
+	if (typeof path !== 'string' || 'file_path' in toolInput) return toolInput
+	return { ...toolInput, file_path: path }
+}
+
+/**
+ * A rewritten input read back. An echoed `file_path` is never a reason to
+ * refuse the rewrite: when only one of the two keys was changed that change is
+ * the new path; when both were changed to different values the answer cannot be
+ * read (`undefined`). The tool never sees `file_path`.
+ */
+function readRewrittenInput(
+	toolName: string | undefined,
+	original: unknown,
+	rewritten: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+	if (toolName === undefined || !FILE_PATH_TOOLS.has(toolName.toLowerCase())) return rewritten
+	if (!('file_path' in rewritten)) return rewritten
+	const { file_path: echoed, ...rest } = rewritten
+	const before = isRecord(original) ? original.path : undefined
+	const pathChanged = 'path' in rest && rest.path !== before
+	const echoChanged = echoed !== before
+	if (pathChanged && echoChanged && echoed !== rest.path) return undefined
+	if (!pathChanged && echoChanged) {
+		if (typeof echoed !== 'string') return undefined
+		return { ...rest, path: echoed }
+	}
+	return rest
+}
+
 function pathOf(toolInput: unknown): string | undefined {
 	if (toolInput === null || typeof toolInput !== 'object') return undefined
 	const record = toolInput as Record<string, unknown>
@@ -724,7 +908,7 @@ function pathOf(toolInput: unknown): string | undefined {
 }
 
 /** The PascalCase spelling of each event name, which a hook's JSON may use. */
-const PASCAL_EVENT_NAMES: Readonly<Partial<Record<ShellHookEvent, string>>> = {
+export const SHELL_HOOK_PASCAL_EVENT_NAMES: Readonly<Partial<Record<ShellHookEvent, string>>> = {
 	user_prompt_submit: 'UserPromptSubmit',
 	session_start: 'SessionStart',
 	session_end: 'SessionEnd',
@@ -760,6 +944,40 @@ interface ShellHookReading {
 	invalid?: string
 }
 
+/** The keys that carry a replacement for a tool's result. */
+const REPLACEMENT_KEYS = ['updatedToolOutput', 'updatedMCPToolOutput'] as const
+
+/** The tool tied to an answer: what a rewrite or a replacement is read against. */
+export interface ShellHookCall {
+	readonly toolName?: string
+	readonly toolInput?: unknown
+}
+
+/**
+ * A replacement for a tool's result, whatever its JSON type. A string is the
+ * text; an object that has the shape of the result object a hook is sent
+ * (`output` a string, `success` a boolean and `error` a string when present)
+ * is read as that; anything else (another object, an array, a number, a
+ * boolean) is shown as its JSON text. The call's own success is not changed.
+ */
+function replacementText(value: unknown): string {
+	if (typeof value === 'string') return value
+	if (
+		isRecord(value) &&
+		typeof value.output === 'string' &&
+		(value.success === undefined || typeof value.success === 'boolean') &&
+		(value.error === undefined || typeof value.error === 'string')
+	) {
+		if (value.success === false && typeof value.error === 'string' && value.error !== '') {
+			return value.output === ''
+				? `Error: ${value.error}`
+				: `${value.output}\n\nError: ${value.error}`
+		}
+		return value.output
+	}
+	return JSON.stringify(value)
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
@@ -770,7 +988,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * sets the whole object aside rather than half-obeying it, so a typo in a
  * guard's `decision` is reported instead of silently becoming "continue".
  */
-function readShellHookJson(event: ShellHookEvent, stdout: string): ShellHookReading | undefined {
+function readShellHookJson(
+	event: ShellHookEvent,
+	stdout: string,
+	call: ShellHookCall = {},
+): ShellHookReading | undefined {
 	const text = stdout.trim()
 	if (!text.startsWith('{')) return undefined
 	let parsed: unknown
@@ -815,6 +1037,24 @@ function readShellHookJson(event: ShellHookEvent, stdout: string): ShellHookRead
 		return { invalid: '`decision` must be "approve" or "block"' }
 	}
 
+	// A replacement written where it is not read (at the top level of the answer
+	// instead of under `hookSpecificOutput`) is a hook that clearly tried to say
+	// something we cannot read: set the answer aside as unreadable, so
+	// `onFailure: block` withholds the result rather than showing the original.
+	if (event === 'post_tool_use' || event === 'post_tool_use_failure') {
+		const misplaced = REPLACEMENT_KEYS.find((key) => parsed[key] !== undefined)
+		const inSpecific =
+			isRecord(parsed.hookSpecificOutput) &&
+			REPLACEMENT_KEYS.some(
+				(key) => (parsed.hookSpecificOutput as Record<string, unknown>)[key] !== undefined,
+			)
+		if (misplaced !== undefined && !inSpecific) {
+			return {
+				invalid: `\`${misplaced}\` is read under \`hookSpecificOutput\`, not at the top level of the answer`,
+			}
+		}
+	}
+
 	const reading: ShellHookReading = {}
 	if (parsed.suppressOutput === true) reading.suppressOutput = true
 	const systemMessage = optionalString('systemMessage')
@@ -836,7 +1076,7 @@ function readShellHookJson(event: ShellHookEvent, stdout: string): ShellHookRead
 	if (typeof named !== 'string') {
 		return { invalid: '`hookSpecificOutput` is missing its `hookEventName`' }
 	}
-	if (named !== event && named !== PASCAL_EVENT_NAMES[event]) {
+	if (named !== event && named !== SHELL_HOOK_PASCAL_EVENT_NAMES[event]) {
 		return {
 			invalid: `\`hookSpecificOutput.hookEventName\` is "${named}" but this hook ran for ${event}`,
 		}
@@ -869,14 +1109,27 @@ function readShellHookJson(event: ShellHookEvent, stdout: string): ShellHookRead
 		}
 		if (specific.updatedInput !== undefined) {
 			if (!isRecord(specific.updatedInput)) return { invalid: '`updatedInput` must be an object' }
-			reading.updatedInput = specific.updatedInput
+			const rewritten = readRewrittenInput(call.toolName, call.toolInput, specific.updatedInput)
+			if (rewritten === undefined) {
+				return {
+					invalid:
+						'`updatedInput` changes both `path` and `file_path`, to different values: say which file is meant',
+				}
+			}
+			reading.updatedInput = rewritten
 		}
 	}
-	if (event === 'post_tool_use' && specific.updatedToolOutput !== undefined) {
-		if (typeof specific.updatedToolOutput !== 'string') {
-			return { invalid: 'hookSpecificOutput: `updatedToolOutput` must be a string' }
+	if (event === 'post_tool_use' || event === 'post_tool_use_failure') {
+		// For a tool-server tool the common contract has a second field, read
+		// when `updatedToolOutput` is absent or null. `updatedToolOutput` wins when
+		// both carry a value: it is the field for every tool, so a script that
+		// sets both has said the general thing last.
+		const toolServer = call.toolName?.startsWith('mcp__') === true
+		const chosen =
+			specific.updatedToolOutput ?? (toolServer ? specific.updatedMCPToolOutput : undefined)
+		if (chosen !== undefined && chosen !== null) {
+			reading.replacement = boundHookReplacement(replacementText(chosen))
 		}
-		reading.replacement = boundHookReplacement(specific.updatedToolOutput)
 	}
 	if (event === 'permission_request') {
 		const decision = specific.decision
@@ -907,6 +1160,7 @@ export function shellHookVerdict(
 	entry: ShellHookHandler,
 	outcome: ShellHookOutcome,
 	log: Logger = NOOP_LOGGER,
+	call: ShellHookCall = {},
 ): PluginHookResult {
 	const label = describeShellHook(entry)
 	const attrs = {
@@ -937,6 +1191,7 @@ export function shellHookVerdict(
 			{ ...entry, onFailure: 'continue' },
 			{ exitCode: 2, timedOut: false, stdout: '', stderr: `hook failed: ${reason}` },
 			log,
+			call,
 		)
 	}
 	if (outcome.spawnError !== undefined) {
@@ -992,8 +1247,23 @@ export function shellHookVerdict(
 			? {
 					invalid: `answer is too large: the hook printed more than the ${MAX_CAPTURE_BYTES} characters of stdout that are read`,
 				}
-			: readShellHookJson(event, outcome.stdout)
+			: readShellHookJson(event, outcome.stdout, call)
 	if (reading === undefined) {
+		// A post-tool hook whose plain output (or whose stderr) names a replacement
+		// key tried to replace the result and put the answer where it is not read
+		// (a log line before the JSON, the JSON on stderr). That is an answer that
+		// does not read, so it follows `onFailure` like one.
+		if (
+			(event === 'post_tool_use' || event === 'post_tool_use_failure') &&
+			REPLACEMENT_KEYS.some((key) => outcome.stdout.includes(key) || outcome.stderr.includes(key))
+		) {
+			log.warn('hook output ignored', {
+				...attrs,
+				'namzu.hook.problem':
+					'a replacement is named but the answer is not a JSON object on stdout',
+			})
+			return failed('its answer names a replacement but is not a JSON object that starts stdout')
+		}
 		// On the prompt event, what the hook printed is context for the
 		// model — the branch, the time, a ticket. Everywhere else stdout is
 		// the operator's to read and the model's business not at all.
@@ -1348,7 +1618,11 @@ export function createShellHook(
 							: event === 'session_end'
 								? context.endReason
 								: context.toolName
-			if (!shellHookMatches(entry.matcher, subject, { tool: namesATool }))
+			// An event that has no name to match (`turn_end`, `user_prompt_submit`,
+			// `turn_start`, the compaction events, `post_tool_batch`) ignores the
+			// matcher and the hook fires: a matcher cannot be read against a name
+			// that is not there, and a guard that never fires is the failure to avoid.
+			if (subject !== undefined && !shellHookMatches(entry.matcher, subject, { tool: namesATool }))
 				return { action: 'continue' }
 			if (!shellHookIfMatches(entry.if, context.toolName, context.toolInput, options.pathFilter)) {
 				return { action: 'continue' }
@@ -1374,6 +1648,8 @@ export function createShellHook(
 				...(context.prompt !== undefined ? { prompt: context.prompt } : {}),
 				...(context.compaction !== undefined ? { compaction: context.compaction } : {}),
 				...(context.toolName !== undefined ? { toolName: context.toolName } : {}),
+				...(entry.toolNames !== undefined ? { toolNames: entry.toolNames } : {}),
+				...(context.toolCallId !== undefined ? { toolCallId: context.toolCallId } : {}),
 				...(context.toolInput !== undefined ? { toolInput: context.toolInput } : {}),
 				...(context.toolResult !== undefined
 					? {
@@ -1393,6 +1669,10 @@ export function createShellHook(
 				...(context.stopHookActive === true ? { stopHookActive: true } : {}),
 				...(transcriptPath !== undefined ? { transcriptPath } : {}),
 				...(permissionMode !== undefined ? { permissionMode } : {}),
+			}
+			const verdictCall: ShellHookCall = {
+				...(context.toolName !== undefined ? { toolName: context.toolName } : {}),
+				...(context.toolInput !== undefined ? { toolInput: context.toolInput } : {}),
 			}
 			if (entry.type === 'http') {
 				const response = await postHookJson({
@@ -1416,6 +1696,7 @@ export function createShellHook(
 						...(response.error !== undefined ? { spawnError: response.error } : {}),
 					},
 					log,
+					verdictCall,
 				)
 			}
 			if (entry.type === 'prompt') {
@@ -1426,14 +1707,21 @@ export function createShellHook(
 				// for it and its own failure is only written down.
 				void runShellHook(entry, hookInput)
 					.then((outcome) => {
-						shellHookVerdict(event, entry, outcome, log)
+						const verdict = shellHookVerdict(event, entry, outcome, log, verdictCall)
+						if (verdict.action !== 'continue') {
+							log.warn('an async hook answered, and its answer is not applied', {
+								'namzu.hook.event': event,
+								'namzu.hook.command': describeShellHook(entry),
+								'namzu.hook.action': verdict.action,
+							})
+						}
 					})
 					.catch(() => undefined)
 				return { action: 'continue' }
 			}
 			const outcome = await runShellHook(entry, hookInput, context.signal)
 			reportTimeout(outcome.timedOut)
-			return shellHookVerdict(event, entry, outcome, log)
+			return shellHookVerdict(event, entry, outcome, log, verdictCall)
 		},
 	} as PluginHookDefinition
 }

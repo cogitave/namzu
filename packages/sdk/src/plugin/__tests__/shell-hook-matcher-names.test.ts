@@ -61,7 +61,7 @@ describe('shellHookMatches on a tool event', () => {
 		// Still not a match.
 		expect(shellHookMatches('^(Edit|Write)$', 'read', tool)).toBe(false)
 		expect(shellHookMatches('^Bash$', 'bash_job', tool)).toBe(false)
-		expect(shellHookMatches('(', 'bash', tool)).toBe(false)
+		expect(shellHookMatches('(', 'bash', tool)).toBe(true)
 	})
 
 	it('a name that is not the tool does not match', () => {
@@ -241,5 +241,34 @@ describe('the session_end default deadline', () => {
 		expect(onTimeout).toHaveBeenCalledWith(
 			expect.objectContaining({ timeoutMs: MAX_SHELL_HOOK_TIMEOUT_MS }),
 		)
+	})
+})
+
+describe('a matcher on an event that has no name', () => {
+	it.each([
+		'turn_end',
+		'user_prompt_submit',
+		'turn_start',
+		'pre_compact',
+		'post_tool_batch',
+	] as const)('is ignored on %s and the hook fires', async (event) => {
+		const dir = mkdtempSync(join(tmpdir(), 'matcher-noname-'))
+		try {
+			for (const matcher of ['.*', 'Bash', 'nothing-like-this']) {
+				const marker = join(dir, `${event}-${matcher.replace(/\W/g, '_')}`)
+				const hook = createShellHook(
+					event,
+					{ command: `touch '${marker}'`, matcher },
+					{ cwd: process.cwd() },
+				) as PluginHookDefinition & { handler: (c: PluginHookContext) => Promise<unknown> }
+				await hook.handler({
+					event,
+					sessionId: asSessionId('0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b'),
+				} as PluginHookContext)
+				expect(existsSync(marker), `${event} with matcher ${matcher}`).toBe(true)
+			}
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
+		}
 	})
 })

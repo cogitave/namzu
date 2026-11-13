@@ -3516,6 +3516,9 @@ function buildDefinition(
 				? toolsets.map((ts) => filtered(ts, (tool) => tool.name !== 'web_search'))
 				: toolsets
 			return {
+				// Lifecycle hooks name this agent by what it is called, not by the
+				// host class that runs it.
+				agentType: id,
 				model: options.model ?? model,
 				tokenBudget: options.tokenBudget ?? opts.tokenBudget ?? 0,
 				timeoutMs: options.timeoutMs ?? opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS,
