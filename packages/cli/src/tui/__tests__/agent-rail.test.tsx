@@ -243,7 +243,9 @@ describe('rail rows', () => {
 				viewId: 'a',
 				agentId: 'general-purpose',
 				description: 'Mine the UI reference',
-				tokens: 3_210,
+				// 1.4M sent in all; the row shows only the 3.2k the agent wrote.
+				tokens: 1_400_000,
+				outputTokens: 3_210,
 				toolCalls: 2,
 			}),
 			agent({
@@ -370,7 +372,7 @@ describe('rail rows', () => {
 		expect(painted).toContain('❯')
 	})
 
-	it('shows no spend before the agent has reported usage, and the total once it finished', () => {
+	it('shows no number before the agent has reported usage, and what it wrote once it has', () => {
 		expect(railStatusText(agent({ viewId: 'a' }), NOW)).toBe('12s')
 		expect(
 			railStatusText(
@@ -378,21 +380,24 @@ describe('rail rows', () => {
 					viewId: 'a',
 					status: 'completed',
 					completedAt: NOW - 2_000,
-					tokens: 950,
+					tokens: 950_000,
+					outputTokens: 950,
 				}),
 				NOW,
 			),
-		).toBe('10s · ↑ 950 tokens')
+		).toBe('10s · ↓ 950 tokens')
 	})
 
-	// The arrow is up until the agent has done its first
-	// thing, down after; no figure at all for zero.
-	it('points the token arrow up until the first tool call and down after it', () => {
-		const spent = { viewId: 'a', tokens: 1_200 }
-		expect(railStatusText(agent({ ...spent }), NOW)).toBe('12s · ↑ 1.2k tokens')
-		expect(railStatusText(agent({ ...spent, toolCalls: 0 }), NOW)).toBe('12s · ↑ 1.2k tokens')
-		expect(railStatusText(agent({ ...spent, toolCalls: 1 }), NOW)).toBe('12s · ↓ 1.2k tokens')
-		expect(railStatusText(agent({ viewId: 'a', tokens: 0, toolCalls: 3 }), NOW)).toBe('12s')
+	// The number is what the agent wrote, whatever it was sent: the cumulative
+	// figure (every prompt again on each request) never reaches the row, and
+	// the arrow does not depend on whether the agent has called a tool.
+	it("shows what the agent wrote under the main row's arrow, never the cumulative spend", () => {
+		const spent = { viewId: 'a', tokens: 1_170_000, outputTokens: 1_200 }
+		expect(railStatusText(agent({ ...spent }), NOW)).toBe('12s · ↓ 1.2k tokens')
+		expect(railStatusText(agent({ ...spent, toolCalls: 0 }), NOW)).toBe('12s · ↓ 1.2k tokens')
+		expect(railStatusText(agent({ ...spent, toolCalls: 40 }), NOW)).toBe('12s · ↓ 1.2k tokens')
+		expect(railStatusText(agent({ viewId: 'a', tokens: 1_170_000, toolCalls: 3 }), NOW)).toBe('12s')
+		expect(railStatusText(agent({ viewId: 'a', tokens: 5, outputTokens: 0 }), NOW)).toBe('12s')
 	})
 
 	it('points at the selected row and moves the open circle to the agent being viewed', async () => {

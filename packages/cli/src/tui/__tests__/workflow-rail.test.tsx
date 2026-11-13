@@ -76,7 +76,9 @@ function sevenAgents(): SubagentActivity[] {
 		agent({
 			viewId: `w${i}`,
 			...(i < 3 ? { status: 'completed' as const, completedAt: NOW - 20_000 } : {}),
-			...(i === 0 ? { tokens: 48_200 } : {}),
+			// What the agent wrote is the number shown; what it was sent again on
+			// every request (the cumulative figure) is far larger and never is.
+			...(i === 0 ? { tokens: 900_000, outputTokens: 48_200 } : {}),
 		}),
 	)
 }
@@ -145,7 +147,8 @@ describe('which workflows the rail lists', () => {
 			name: 'Release audit',
 			done: 3,
 			total: 7,
-			tokens: 48_200,
+			tokens: 900_000,
+			outputTokens: 48_200,
 			status: 'running',
 		})
 		expect(row.endedAt).toBeUndefined()
@@ -220,6 +223,13 @@ describe('narrowing a row', () => {
 	const row = workflowOf(sevenAgents())
 
 	const full = '3/7 · 2m 14s · ↓ 48.2k tokens'
+
+	it('never puts the cumulative figure in the row, only what the agents wrote', () => {
+		for (const variant of workflowRowVariants(row, NOW)) expect(variant.text).not.toContain('900')
+		const silent = workflowOf(sevenAgents().map(({ outputTokens: _, ...rest }) => rest))
+		for (const variant of workflowRowVariants(silent, NOW))
+			expect(variant.text).not.toContain('tokens')
+	})
 
 	it('lists the variants from the full block to the short bar with the counter and the clock', () => {
 		expect(workflowRowVariants(row, NOW)).toEqual([
@@ -376,19 +386,19 @@ describe('the closing line', () => {
 					viewId: `n${i}`,
 					status,
 					completedAt: NOW - 1_000,
-					...(i === 0 ? { tokens: 112_000 } : {}),
+					...(i === 0 ? { tokens: 3_000_000, outputTokens: 112_000 } : {}),
 				}),
 			),
 		)
 
 	it('is quiet for a completed workflow, red for a failed one, yellow for a stopped one', () => {
 		expect(workflowNotice(finished('completed', 'completed'))).toEqual({
-			content: 'Workflow Release audit finished · 2m 13s · 2 agents · 112.0k tokens',
+			content: 'Workflow Release audit finished · 2m 13s · 2 agents · 112.0k tokens written',
 			tone: 'ok',
 			glyph: '●',
 		})
 		expect(workflowNotice(finished('completed', 'failed'))).toMatchObject({
-			content: 'Workflow Release audit failed · 2m 13s · 2 agents · 112.0k tokens',
+			content: 'Workflow Release audit failed · 2m 13s · 2 agents · 112.0k tokens written',
 			tone: 'error',
 			glyph: '●',
 		})
@@ -407,7 +417,7 @@ describe('the closing line', () => {
 			failed: 1,
 		}
 		expect(workflowNotice(run).content).toBe(
-			'Workflow Release audit failed · 2m 13s · 3 agents · 112.0k tokens',
+			'Workflow Release audit failed · 2m 13s · 3 agents · 112.0k tokens written',
 		)
 	})
 

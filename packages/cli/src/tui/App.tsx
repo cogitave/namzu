@@ -2161,7 +2161,7 @@ function AppBody({
 		return source.onEnd(({ view }) => {
 			if (previousSessionRef.current !== session) return
 			// One line in the conversation, written when the run ends, not when a turn does.
-			const notice = workflowNotice(runRailWorkflow(view, []))
+			const notice = workflowNotice(runRailWorkflow(view, subagentsRef.current))
 			pushMessage(
 				'tool',
 				notice.content,
@@ -18281,7 +18281,9 @@ export function workflowRunOption(run: WorkflowRunView): ChoicePickerOption {
 		...(run.pass !== undefined && run.pass > 1
 			? [`pass ${run.pass}, ${run.agents.filter((agent) => agent.cached).length} saved`]
 			: []),
-		...(tokens > 0 ? [`${formatCompactCount(tokens)} tokens`] : []),
+		// The journal keeps each agent's cumulative usage (prompts sent again
+		// on every request included), so the list says what the number is.
+		...(tokens > 0 ? [`${formatCompactCount(tokens)} tokens in all`] : []),
 		relativeStart(run.startedAt),
 	]
 	return { label: scriptText(run.name, { maxCells: 48 }), description: columns.join(' · ') }

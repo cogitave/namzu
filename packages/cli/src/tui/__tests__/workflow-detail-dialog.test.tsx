@@ -41,6 +41,9 @@ function member(
 		startedAt: 1_000,
 		completedAt: 24_000,
 		tokens: 35_600,
+		outputTokens: 4_200,
+		sentTokens: 31_400,
+		cachedTokens: 28_000,
 		model: 'gpt-x',
 		transcript: [],
 		...extra,
@@ -88,7 +91,7 @@ describe('at 140 columns', () => {
 		expect(screen[header + 1]).toMatch(/2\/3 agents · \d+(?:[dhm] \d+)*[dhms]?\s*$/u)
 		expect(text).toMatch(/╭ Phases ─+┬ Read · 2 agents · 2 done ─+╮/u)
 		expect(text).toMatch(
-			/│ ❯ ✔ Read\s+2\/2 │ {2}✔ label a1\s+general-purpose · gpt-x · 35\.6k tok\s+23s │/u,
+			/│ ❯ ✔ Read\s+2\/2 │ {2}✔ label a1\s+general-purpose · gpt-x · wrote 4\.2k · sent 31\.4k \(28\.0k cached\)\s+23s │/u,
 		)
 		expect(text).toMatch(/│\s+2 Summarize\s+0\/1 │/u)
 		expect(text).toMatch(/╰─+┴─+╯/u)
@@ -104,6 +107,16 @@ describe('at 140 columns', () => {
 		expect(text).toContain('↑↓ select · enter view · esc back')
 		const running = (await open('agents', 140, 45, 'a3')).join('\n')
 		expect(running).toContain('↑↓ select · enter view · x stop · esc back')
+	})
+
+	it('spells out what was sent and cached only where there is room', async () => {
+		const wide = (await open('agents', 140, 45)).join('\n')
+		expect(wide).toContain('wrote 4.2k · sent 31.4k (28.0k cached)')
+		await mounted?.unmount()
+		const narrow = (await open('agents', 100, 45)).join('\n')
+		expect(narrow).toContain('wrote 4.2k')
+		expect(narrow).not.toContain('sent')
+		expect(narrow).not.toContain('35.6k')
 	})
 
 	it('keeps its height whatever the lists hold', async () => {

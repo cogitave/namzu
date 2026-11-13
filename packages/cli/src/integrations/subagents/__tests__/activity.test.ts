@@ -754,6 +754,40 @@ describe('the CLI sub-agent activity monitor', () => {
 		expect(monitor.getSnapshot()[0]?.tokens).toBe(1_234)
 	})
 
+	it('keeps what the child wrote apart from the prompts it was sent again on every request', () => {
+		const monitor = new SubagentActivityMonitor()
+		const tracker = monitor.begin({ agentId: 'worker', description: 'work', prompt: 'do it' })
+		tracker.onEvent({
+			type: 'token_usage_updated',
+			sessionId,
+			turnId,
+			usage: {
+				...usage(1_170_000),
+				promptTokens: 1_163_800,
+				completionTokens: 6_200,
+				cachedTokens: 980_000,
+			},
+			cost,
+		} as SessionEvent)
+		const [row] = monitor.getSnapshot()
+		expect(row).toMatchObject({
+			tokens: 1_170_000,
+			outputTokens: 6_200,
+			sentTokens: 1_163_800,
+			cachedTokens: 980_000,
+		})
+		expect(monitor.progressOf(row?.viewId ?? '')).toMatchObject({
+			tokens: 1_170_000,
+			outputTokens: 6_200,
+		})
+	})
+
+	it('has no written figure before the first usage arrives', () => {
+		const monitor = new SubagentActivityMonitor()
+		monitor.begin({ agentId: 'worker', description: 'work', prompt: 'do it' })
+		expect(monitor.getSnapshot()[0]).not.toHaveProperty('outputTokens')
+	})
+
 	it('context size is not mistaken for spend', () => {
 		const monitor = new SubagentActivityMonitor()
 		const tracker = monitor.begin({ agentId: 'worker', description: 'work', prompt: 'do it' })

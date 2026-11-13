@@ -2312,6 +2312,7 @@ export async function createSubagentRuntime(
 							}
 						: {}),
 					...(progress?.tokens !== undefined ? { tokens: progress.tokens } : {}),
+					...(progress?.outputTokens !== undefined ? { outputTokens: progress.outputTokens } : {}),
 					...(progress?.toolCalls !== undefined ? { toolCalls: progress.toolCalls } : {}),
 					...(lastTool && /^[a-zA-Z][\w.-]{0,63}$/.test(lastTool) ? { lastTool } : {}),
 					...(observed

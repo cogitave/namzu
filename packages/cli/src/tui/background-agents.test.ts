@@ -81,7 +81,8 @@ describe('the live group', () => {
 				viewId: 'a',
 				description: 'Read a',
 				toolCalls: 4,
-				tokens: 12_100,
+				tokens: 400_000,
+				outputTokens: 12_100,
 				latestActivity: 'Read(a.ts)',
 			}),
 			agent({ viewId: 'b', description: 'Read b' }),
@@ -89,7 +90,7 @@ describe('the live group', () => {
 		expect(group).toEqual({
 			header: 'Running 2 agents…',
 			agents: [
-				{ line: 'Read a · 4 tool uses · 12.1k tokens', status: 'Read(a.ts)' },
+				{ line: 'Read a · 4 tool uses · 12.1k tokens written', status: 'Read(a.ts)' },
 				{ line: 'Read b · 0 tool uses', status: 'Initializing…' },
 			],
 		})

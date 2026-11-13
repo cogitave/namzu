@@ -103,6 +103,21 @@ export interface SubagentActivity {
 	 * yet, which is a distinct fact from having spent zero.
 	 */
 	readonly tokens?: number
+	/**
+	 * What the child itself WROTE, from the same event: the cumulative
+	 * `completionTokens` (reasoning included, it is a subset of them). This is
+	 * the number a row shows beside an agent, the same quantity the main turn's
+	 * row shows. Unlike `tokens` it does not grow with the square of the steps.
+	 */
+	readonly outputTokens?: number
+	/**
+	 * The prompts the child's requests carried, added up, as the driver
+	 * reported them (`promptTokens`). Every request sends the whole
+	 * conversation again, so this is large by construction.
+	 */
+	readonly sentTokens?: number
+	/** How much of {@link sentTokens} the provider answered from its cache, when it said (`cachedTokens`). */
+	readonly cachedTokens?: number
 	/** Tool executions started so far, counted once per execution. */
 	readonly toolCalls?: number
 	readonly description: string
@@ -318,6 +333,8 @@ export interface ReplaySubagentInput {
 /** What {@link SubagentActivityMonitor.progressOf} reports about one child. */
 export interface SubagentProgress {
 	readonly tokens?: number
+	/** What the child wrote; see {@link SubagentActivity.outputTokens}. */
+	readonly outputTokens?: number
 	readonly toolCalls?: number
 	/** The label of the last tool row, e.g. `Read(file.ts)`. */
 	readonly lastTool?: string
@@ -339,6 +356,9 @@ interface MutableActivity {
 	agentId: string
 	model?: string
 	tokens?: number
+	outputTokens?: number
+	sentTokens?: number
+	cachedTokens?: number
 	toolCalls?: number
 	description: string
 	summary?: string
@@ -431,6 +451,9 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		// had already spent, instead of starting again from nothing.
 		opened.record.startedAt = prior.startedAt
 		if (prior.tokens !== undefined) opened.record.tokens = prior.tokens
+		if (prior.outputTokens !== undefined) opened.record.outputTokens = prior.outputTokens
+		if (prior.sentTokens !== undefined) opened.record.sentTokens = prior.sentTokens
+		if (prior.cachedTokens !== undefined) opened.record.cachedTokens = prior.cachedTokens
 		if (prior.toolCalls !== undefined) opened.record.toolCalls = prior.toolCalls
 		opened.record.rows = [...prior.rows]
 		opened.record.sessionId = prior.sessionId
@@ -729,6 +752,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		}
 		return {
 			...(record.tokens !== undefined ? { tokens: record.tokens } : {}),
+			...(record.outputTokens !== undefined ? { outputTokens: record.outputTokens } : {}),
 			...(record.toolCalls !== undefined ? { toolCalls: record.toolCalls } : {}),
 			...(lastTool !== undefined ? { lastTool } : {}),
 		}
@@ -752,6 +776,9 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			agentId: record.agentId,
 			...(record.model ? { model: record.model } : {}),
 			...(record.tokens !== undefined ? { tokens: record.tokens } : {}),
+			...(record.outputTokens !== undefined ? { outputTokens: record.outputTokens } : {}),
+			...(record.sentTokens !== undefined ? { sentTokens: record.sentTokens } : {}),
+			...(record.cachedTokens !== undefined ? { cachedTokens: record.cachedTokens } : {}),
 			...(record.toolCalls !== undefined ? { toolCalls: record.toolCalls } : {}),
 			description: record.description,
 			...(record.summary && !isTerminal(record.status) ? { summary: record.summary } : {}),
@@ -1025,6 +1052,12 @@ function projectEvent(record: MutableActivity, event: SessionEvent): void {
 			// a different question this row never asks. See the event's own
 			// doc comment for why conflating the two was a shipped defect.
 			record.tokens = event.usage.totalTokens
+			// The split of that same cumulative figure. `completionTokens` is
+			// what the child wrote; the prompt side is every request's whole
+			// conversation added up. Only fields the event carries are copied.
+			record.outputTokens = event.usage.completionTokens
+			record.sentTokens = event.usage.promptTokens
+			record.cachedTokens = event.usage.cachedTokens
 			return
 		case 'reasoning_started':
 		case 'reasoning_delta':

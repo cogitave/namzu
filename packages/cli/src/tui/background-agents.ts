@@ -14,8 +14,8 @@ import {
 	type SubagentActivity,
 } from '../integrations/subagents/activity.js'
 import { type LiveCalls, liveCalls } from './agent-calls.js'
+import { wroteLineParts, wroteOf } from './agent-tokens.js'
 import { AGENT_MANAGE_HINT, launchLabel } from './agent-transcript-rows.js'
-import { formatCompactCount } from './units.js'
 
 /** Whether an agent has not ended. */
 export function isRunning(agent: SubagentActivity): boolean {
@@ -109,7 +109,7 @@ export function runningGroup(
 			const parts = [
 				launchLabel(agent),
 				`${uses} tool ${uses === 1 ? 'use' : 'uses'}`,
-				...(agent.tokens !== undefined ? [`${formatCompactCount(agent.tokens)} tokens`] : []),
+				...wroteLineParts(wroteOf(agent)),
 			]
 			const last = agent.latestActivity?.replace(/\s+/gu, ' ').trim()
 			const calls = withCalls && isRunning(agent) ? liveCalls(agent, AGENT_MANAGE_HINT) : undefined

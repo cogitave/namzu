@@ -253,7 +253,7 @@ token count, then `Large workflow`, then the name, which is cut with `…`. The
 `done/total` count and the elapsed time stay for as long as any of the bar does.
 The bar's width at a given terminal width depends on the length of the name,
 because the name keeps its cells first. For a workflow named `Release audit`
-(13 cells), with 3 of 7 agents done, 2m 14s in and 48.2k tokens, the row is
+(13 cells), with 3 of 7 agents done, 2m 14s in and 48.2k tokens written by its agents together, the row is
 whole at 100 columns, with a 20-cell bar:
 
 ```text
@@ -288,7 +288,7 @@ the detail, a frameless dialog (side by side from 64 columns, one list at a time
    (three lines from 30 terminal rows, one from 24, none below 24); the rail
    row never shows them.
 2. **`<phase> · N agents · D done`**: each agent as `✔` done, `✘` failed or skipped, `●`
-   running or `◌` queued, with its label, type, model, tokens and time. A phase
+   running or `◌` queued, with its label, type, model, what it wrote (and, from 110 columns, what it was sent and had cached) and time. A phase
    nothing has started in says `Not started yet`. `x` skips the selected agent:
    a queued one never starts, a running one is cancelled, and its `agent()`
    gives the script `null`.
@@ -319,7 +319,7 @@ The conversation gets one line when the **run** ends, whatever the model is
 doing, not when a turn ends:
 
 ```text
-● Workflow denetim finished · 13s · 6 agents · 75 tokens
+● Workflow denetim finished · 13s · 6 agents · 75 tokens written
 ● Workflow denetim failed · 4s · 3 agents
 ● Workflow denetim stopped · 8s · 5 agents
 ```
@@ -357,7 +357,7 @@ review the script, so a headless run may start a workflow only in `bypass` mode
 ## `/workflows`
 
 `/workflows` lists this conversation's runs, newest first, with status, agents
-settled over asked, tokens, how long ago it began and how long it took. Enter
+settled over asked, tokens (`N tokens in all`: the journal keeps each agent's cumulative usage, prompts sent again included), how long ago it began and how long it took. Enter
 opens the same detail; the footer reads `enter to view · x to stop · esc to
 close` (`x` only on a run that is still going, and it stops that run; `r` on a run that is not going asks the model to resume it, see [Resuming a run](#resuming-a-run)), under a
 subtitle such as `1 running, 2 finished`, in a rounded frame; each row reads the transcript's words (`finished`, `failed`, `stopped`) and puts the duration right after, so a narrow screen drops the tail and never half a number. Runs started in this process come from the live registry;

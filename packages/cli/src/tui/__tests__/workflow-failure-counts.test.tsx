@@ -128,7 +128,8 @@ describe('the rail and the closing line of a run with a failed agent', () => {
 		const [row] = railWorkflows([], NOW, new Set(), [failedRun()])
 		expect(row).toMatchObject({ done: 2, total: 3, failed: 1 })
 		const notice = workflowNotice(runRailWorkflow(failedRun(), []), NOW)
-		expect(notice.content).toMatch(/^Workflow audit failed · .* · 3 agents · 30 tokens$/u)
+		// No child reported what it wrote, so no token figure is claimed.
+		expect(notice.content).toMatch(/^Workflow audit failed · .* · 3 agents$/u)
 	})
 })
 

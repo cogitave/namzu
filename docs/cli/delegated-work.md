@@ -362,7 +362,7 @@ correction sent`, with the message text beneath it, so the operator can see
 what was said without opening the child's screen. Each side shows the message
 exactly once, however many times the surface re-renders. While the child has
 not taken a message in, its rail row says `N queued` after the clock and the
-spend (`↓ 42.1k tokens`).
+number (`↓ 42.1k tokens`, what the agent has written, see [the token numbers](#the-token-numbers)).
 These rows record acceptance; they do not acknowledge that the child model
 read the message or completed the requested change.
 
@@ -416,7 +416,7 @@ transcript, `● 2 background agents launched (↓ to manage)` with each agent's
 description beneath it, always below the text of the response that launched
 them. A batch that includes an agent the turn waits on is a live group while it
 runs, `Running 3 agents…` with one block per agent (`description · 4 tool uses ·
-12.1k tokens` over `⎿ <last tool>`, or `Initializing…`; one agent alone, in a
+12.1k tokens written` over `⎿ <last tool>`, or `Initializing…`; one agent alone, in a
 window with room, shows its last three calls instead), and when the last member
 ends writes its receipt, `3 agents finished` (`3 agents: 2 finished, 1 failed` when some did not finish), or, when two or more waited-on
 agents completed, one block with the totals and a line per agent in its place
@@ -434,14 +434,14 @@ now belongs only to a running agent's own `send_message`. Only an agent that run
 (a background launch, one whose wait was released, one a later message resumed)
 reports this way; an agent the parent waited on hands its result back inline
 and leaves the tool's own result instead, `● <type> (<description>)` over
-`⎿ Done (3 tool uses · 12.1k tokens · 8s)`. Agents the model
+`⎿ Done (3 tool uses · 12.1k tokens written · 8s)`. Agents the model
 gave a `workflow` label are the exception: they are one workflow, not agents.
 Their launch writes a single `● Workflow <name>` line with
 `⎿ Running in background · ↓ to manage` beneath it, they leave no per-agent
 receipt or completion row, and the workflow closes with one line
-(`✓ Workflow <name> completed · 4m02s · 7 agents · 112.0k tokens`). A turn that
+(`✓ Workflow <name> completed · 4m02s · 7 agents · 112.0k tokens written`). A turn that
 launched agents ends with `✻ Worked for <time> · done <clock> · <N> agents`, adding the tokens
-the agents spent when any reported them and `<N> failed` when one failed; it
+the agents wrote when any reported them and `<N> failed` when one failed; it
 never counts phases, which appear only in a workflow's detail view. See
 [Terminal design](terminal-design.md#delegated-work-in-the-conversation) for
 the layout. When every running call is a correlated wait, the rows fold into
@@ -503,7 +503,7 @@ composer stays live and talks to it) and `x` stops it. Workflows and subagents a
 subagent is an agent the model started without a `workflow` label: it has an
 agent row. A workflow is the set of agents started with the same `workflow`
 label: it has no agent rows at all, only one row after the agent rows (`◯ name
-▰▱ bar  3/7 · 2m14s · ↓ 48.2k tokens`, no phase text). Enter on that row opens
+▰▱ bar  3/7 · 2m14s · ↓ 48.2k tokens`, no phase text; the number is what the workflow's agents wrote together). Enter on that row opens
 the workflow's detail view: its phases first (`phase`, `phase_order` and
 `phase_detail` are display labels, the title is the model's `phase` verbatim and
 agents with the same title are one phase), then the agents of the phase you
@@ -591,7 +591,13 @@ empty checklist says nothing about running agents. `wait_for_task` retrieves
 results by task ID. A budget or other non-normal stop is `incomplete`, even
 when the scheduler lifecycle is `completed`; it is not a successful review.
 
-The listing includes reported cumulative `tokens`, `toolCalls` and the last
+### The token numbers
+
+One word, one meaning. The number beside an agent (and the sum beside a workflow) is what the agent **wrote**: its output tokens, reasoning included, shown as `↓ 6.2k tokens` with the same arrow and meaning as the main row's. It appears when the agent has reported its first usage and not before. It is not the cumulative spend: every request an agent makes sends the whole conversation again (system prompt, tools, every earlier step), cached or not, so that figure grows with the square of the steps (a 26k-token prompt and 40 quick steps is over a million) and says little about what the agent did. The record keeps that cumulative figure as `tokens`; it feeds the large-run check and the `agent_task_list` output, and no row shows it.
+
+The agent's detail screen and its line in a workflow's agent list give the full picture in words where there is room (terminals of 110 columns and wider): `wrote 6.2k · sent 1.17M (980.0k cached)`. `sent` is the prompts of all the agent's requests added up as the driver reported them; the cached part appears only when the driver reported some and it fits inside what was sent. Narrower terminals show `wrote 6.2k`. Transcript lines say `6.2k tokens written`, and the `/workflows` list, which reads the journal that keeps only the cumulative figure, says `N tokens in all`. A workflow's row, closing line and the turn's closing line add up only the agents that reported; none reported, no number.
+
+The listing includes reported cumulative `tokens` (every request's whole prompt again, plus what the agent wrote; kept as it was), `outputTokens` (what the agent wrote: the number the rail shows, new, absent until the agent has reported usage), `toolCalls` and the last
 tool's identifier (`lastTool`), together with workflow/phase identity when
 available. These are observed activity, not evidence that work has completed.
 An operating-system process list cannot establish completion: child agents can
@@ -820,7 +826,7 @@ the transcript. They never appear in the automatic panel above the composer,
 which answers what is running now.
 
 A replayed row is built by the same projection a live row is, so the two render
-identically: status, elapsed time, model, cumulative tokens, tool-call count and
+identically: status, elapsed time, model, token counts (what it wrote, sent and had cached), tool-call count and
 the transcript rows. Streaming deltas are not persisted, by design, but every
 complete message is, so a replayed transcript carries the child's messages, its
 tool calls, their results, any failure text and its final answer — only the

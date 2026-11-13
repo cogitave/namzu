@@ -84,7 +84,8 @@ interface TurnTrail {
 	/** Launches of the `Agent` tool in this turn, and whether each failed. */
 	agents: boolean[]
 	/**
-	 * What the agents this turn launched spent, from the `child_session_ended`
+	 * What the agents this turn launched WROTE (their `completionTokens`, the
+	 * number their rows show), from the `child_session_ended`
 	 * records the conversation's own log holds. Absent when none of them
 	 * recorded an end, so the closing line names no total it cannot know.
 	 */
@@ -221,7 +222,7 @@ export function trailFromRecords(
 					typeof record.childSessionId === 'string'
 						? spawnedIn.get(record.childSessionId)
 						: undefined
-				const spent = (record.usage as { totalTokens?: unknown } | undefined)?.totalTokens
+				const spent = (record.usage as { completionTokens?: unknown } | undefined)?.completionTokens
 				if (owner && typeof spent === 'number' && Number.isFinite(spent)) {
 					const t = turn(owner)
 					t.agentTokens = (t.agentTokens ?? 0) + spent
